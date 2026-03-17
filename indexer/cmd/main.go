@@ -187,6 +187,14 @@ func createDiscovery(ctx context.Context, lggr logger.Logger, cfg *config.Config
 		}
 	}
 
+	// For multi-source setups, share a single PrimaryWriteNotifier across all instances so
+	// that the primary (priority 0) can signal secondary sources when its write attempt
+	// finishes, allowing them to skip the remainder of their delay.
+	var writeNotifier *discovery.PrimaryWriteNotifier
+	if len(configs) > 1 {
+		writeNotifier = discovery.NewPrimaryWriteNotifier()
+	}
+
 	for i, discCfg := range configs {
 		persistedSinceValue, err := storage.GetDiscoverySequenceNumber(ctx, discCfg.Address)
 		if err != nil {
@@ -222,6 +230,7 @@ func createDiscovery(ctx context.Context, lggr logger.Logger, cfg *config.Config
 			discovery.WithLogger(lggr),
 			discovery.WithConfig(discCfg),
 			discovery.WithDiscoveryPriority(i),
+			discovery.WithPrimaryWriteNotifier(writeNotifier), // nil for single-source; no-op
 		)
 		if err != nil {
 			cleanupOnError()

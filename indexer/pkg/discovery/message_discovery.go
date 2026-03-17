@@ -20,6 +20,39 @@ import (
 
 var _ common.MessageDiscovery = (*AggregatorMessageDiscovery)(nil)
 
+// PrimaryWriteNotifier allows the primary (priority-0) AggregatorMessageDiscovery to broadcast
+// to all waiting secondary sources that its current write attempt has completed — whether it
+// succeeded or failed.  Secondary sources select on WaitCh() alongside their own maximum-delay
+// timer, so they proceed as soon as the primary finishes rather than burning the full delay when
+// the primary fails early.
+type PrimaryWriteNotifier struct {
+	mu sync.Mutex
+	ch chan struct{}
+}
+
+// NewPrimaryWriteNotifier creates a PrimaryWriteNotifier ready for use.
+func NewPrimaryWriteNotifier() *PrimaryWriteNotifier {
+	return &PrimaryWriteNotifier{ch: make(chan struct{})}
+}
+
+// Notify broadcasts that the primary has completed its write attempt.
+// All goroutines currently waiting on WaitCh() are unblocked immediately.
+func (n *PrimaryWriteNotifier) Notify() {
+	n.mu.Lock()
+	old := n.ch
+	n.ch = make(chan struct{})
+	n.mu.Unlock()
+	close(old)
+}
+
+// WaitCh returns the channel to include in a select statement.
+// The returned channel is closed (and therefore immediately selectable) when Notify is called next.
+func (n *PrimaryWriteNotifier) WaitCh() <-chan struct{} {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return n.ch
+}
+
 type AggregatorMessageDiscovery struct {
 	logger            logger.Logger
 	config            config.DiscoveryConfig
@@ -33,6 +66,11 @@ type AggregatorMessageDiscovery struct {
 	wg                sync.WaitGroup
 	cancelFunc        context.CancelFunc
 	discoveryPriority int
+	// primaryWriteNotifier is shared across all AggregatorMessageDiscovery instances in a
+	// multi-source setup.  The primary (priority 0) calls Notify() after each write attempt;
+	// secondary sources call WaitCh() in their delay select so they unblock as soon as the
+	// primary is done rather than sleeping the full delay when the primary fails.
+	primaryWriteNotifier *PrimaryWriteNotifier
 }
 
 type Option func(*AggregatorMessageDiscovery)
@@ -82,6 +120,20 @@ func WithTimeProvider(timeProvider ccvcommon.TimeProvider) Option {
 func WithDiscoveryPriority(discoveryPriority int) Option {
 	return func(a *AggregatorMessageDiscovery) {
 		a.discoveryPriority = discoveryPriority
+	}
+}
+
+// WithPrimaryWriteNotifier wires the shared PrimaryWriteNotifier into a discovery instance.
+// Pass the same notifier to all sources in a multi-source setup:
+//   - the primary (priority 0) will call Notify() after each write attempt via defer
+//   - secondary sources (priority > 0) will call WaitCh() so their delay select can
+//     short-circuit as soon as the primary finishes, avoiding redundant waits when the
+//     primary aggregator is down.
+//
+// Passing nil is safe and disables the coordination (single-source or opt-out).
+func WithPrimaryWriteNotifier(notifier *PrimaryWriteNotifier) Option {
+	return func(a *AggregatorMessageDiscovery) {
+		a.primaryWriteNotifier = notifier
 	}
 }
 
@@ -230,6 +282,14 @@ func (a *AggregatorMessageDiscovery) callReader(ctx context.Context) (bool, erro
 		return false, ctx.Err()
 	}
 
+	// When this is the primary source (priority 0) and a notifier is configured,
+	// always signal completion on return — whether the write succeeded, failed, or we
+	// returned early due to an error.  This unblocks any secondary sources that are waiting
+	// in their delay select, preventing redundant full-delay waits when the primary is down.
+	if a.discoveryPriority == 0 && a.primaryWriteNotifier != nil {
+		defer a.primaryWriteNotifier.Notify()
+	}
+
 	startingSequence, ableToSetSinceValue := a.aggregatorReader.GetSinceValue()
 	var queryResponse []protocol.QueryResponse
 	discoveryStartTime := time.Now()
@@ -281,18 +341,32 @@ func (a *AggregatorMessageDiscovery) callReader(ctx context.Context) (bool, erro
 		allVerifications = append(allVerifications, verifierResultWithMetadata)
 	}
 
-	// We use a discovery priority for the multi-source scenario where we want to ensure data consistency.
-	// The delay is applied after reading so the aggregator is queried immediately, but persisting
-	// and channel emission are deferred, giving higher-priority sources time to persist first.
-	// Uses a context-aware sleep instead of time.Sleep so we don't block past the timeout.
+	// We use a discovery priority for the multi-source scenario where we want to ensure data
+	// consistency.  The delay is applied after reading so the aggregator is queried immediately,
+	// but persisting and channel emission are deferred, giving higher-priority sources time to
+	// persist first.
+	//
+	// Secondary sources (priority > 0) select on the primary's WaitCh() alongside the
+	// timer.  If the primary finishes its write attempt (success or failure) before the timer
+	// fires, the secondary unblocks immediately instead of waiting the full delay.  This avoids
+	// the redundant delay that occurs when the primary aggregator is unresponsive.
 	delay := time.Duration(a.discoveryPriority) * 5 * time.Second
 	if delay > 0 {
 		timer := time.NewTimer(delay)
 		defer timer.Stop()
+
+		// primaryWrittenCh is nil when no notifier is configured; a nil channel in a select
+		// case is never ready, so the behavior gracefully degrades to timer-only.
+		var primaryWrittenCh <-chan struct{}
+		if a.primaryWriteNotifier != nil {
+			primaryWrittenCh = a.primaryWriteNotifier.WaitCh()
+		}
+
 		select {
 		case <-ctx.Done():
 			return false, ctx.Err()
-		case <-timer.C:
+		case <-primaryWrittenCh: // primary finished its write attempt (success or failure)
+		case <-timer.C: // maximum wait elapsed; proceed regardless
 		}
 	}
 
@@ -307,10 +381,15 @@ func (a *AggregatorMessageDiscovery) callReader(ctx context.Context) (bool, erro
 	}
 
 	for _, verifierResultWithMetadata := range allVerifications {
-		// Emit the Message into the message channel for downstream components to consume
-		a.messageCh <- verifierResultWithMetadata
+		// Use a context-aware send so that if the context is canceled while
+		// enqueueMessages has already exited (leaving messageCh with no reader), we return
+		// cleanly instead of blocking forever and preventing wg.Done() from being called.
+		select {
+		case <-ctx.Done():
+			return false, ctx.Err()
+		case a.messageCh <- verifierResultWithMetadata:
+		}
 		// Record the channel size after send so the metric reflects the current backlog.
-		// Use the same context used for the call so the metric respects cancellation.
 		a.monitoring.Metrics().RecordVerificationRecordChannelSizeGauge(ctx, int64(len(a.messageCh)))
 		a.monitoring.Metrics().RecordTimeToIndex(ctx, time.Since(verifierResultWithMetadata.Metadata.AttestationTimestamp), "aggregator")
 	}
