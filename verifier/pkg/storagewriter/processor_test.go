@@ -1,4 +1,4 @@
-package verifier
+package storagewriter
 
 import (
 	"context"
@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/jobqueue"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/testutil"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -32,7 +33,7 @@ func TestStorageWriterProcessorDB_ProcessBatchesSuccessfully(t *testing.T) {
 		resultQueue, err := jobqueue.NewPostgresJobQueue[protocol.VerifierNodeResult](
 			db,
 			jobqueue.QueueConfig{
-				Name:          StorageWriterJobsTableName,
+				Name:          verifier.StorageWriterJobsTableName,
 				OwnerID:       "test-" + t.Name(),
 				RetryDuration: time.Hour,
 				LockDuration:  time.Minute,
@@ -44,10 +45,10 @@ func TestStorageWriterProcessorDB_ProcessBatchesSuccessfully(t *testing.T) {
 		processor, err := NewStorageWriterProcessor(
 			lggr,
 			"test-"+t.Name(),
-			NoopLatencyTracker{},
+			testutil.NoopLatencyTracker{},
 			fakeStorage,
 			resultQueue,
-			CoordinatorConfig{
+			verifier.CoordinatorConfig{
 				StorageBatchSize:  10,
 				StorageRetryDelay: 100 * time.Millisecond,
 			},
@@ -98,7 +99,7 @@ func TestStorageWriterProcessorDB_ProcessBatchesSuccessfully(t *testing.T) {
 		resultQueue, err := jobqueue.NewPostgresJobQueue[protocol.VerifierNodeResult](
 			db,
 			jobqueue.QueueConfig{
-				Name:          StorageWriterJobsTableName,
+				Name:          verifier.StorageWriterJobsTableName,
 				OwnerID:       "test-" + t.Name(),
 				RetryDuration: time.Hour,
 				LockDuration:  time.Minute,
@@ -110,10 +111,10 @@ func TestStorageWriterProcessorDB_ProcessBatchesSuccessfully(t *testing.T) {
 		processor, err := NewStorageWriterProcessor(
 			lggr,
 			"test-"+t.Name(),
-			NoopLatencyTracker{},
+			testutil.NoopLatencyTracker{},
 			fakeStorage,
 			resultQueue,
-			CoordinatorConfig{
+			verifier.CoordinatorConfig{
 				StorageBatchSize:  5,
 				StorageRetryDelay: 100 * time.Millisecond,
 			},
@@ -157,7 +158,7 @@ func TestStorageWriterProcessorDB_RetryFailedBatches(t *testing.T) {
 		resultQueue, err := jobqueue.NewPostgresJobQueue[protocol.VerifierNodeResult](
 			db,
 			jobqueue.QueueConfig{
-				Name:          StorageWriterJobsTableName,
+				Name:          verifier.StorageWriterJobsTableName,
 				OwnerID:       "test-" + t.Name(),
 				RetryDuration: time.Hour,
 				LockDuration:  time.Minute,
@@ -169,10 +170,10 @@ func TestStorageWriterProcessorDB_RetryFailedBatches(t *testing.T) {
 		processor, err := NewStorageWriterProcessor(
 			lggr,
 			"test-"+t.Name(),
-			NoopLatencyTracker{},
+			testutil.NoopLatencyTracker{},
 			fakeStorage,
 			resultQueue,
-			CoordinatorConfig{
+			verifier.CoordinatorConfig{
 				StorageBatchSize:  10,
 				StorageRetryDelay: 50 * time.Millisecond,
 			},
@@ -221,7 +222,7 @@ func TestStorageWriterProcessorDB_RetryFailedBatches(t *testing.T) {
 		resultQueue, err := jobqueue.NewPostgresJobQueue[protocol.VerifierNodeResult](
 			db,
 			jobqueue.QueueConfig{
-				Name:          StorageWriterJobsTableName,
+				Name:          verifier.StorageWriterJobsTableName,
 				OwnerID:       "test-" + t.Name(),
 				RetryDuration: time.Hour,
 				LockDuration:  time.Minute,
@@ -233,10 +234,10 @@ func TestStorageWriterProcessorDB_RetryFailedBatches(t *testing.T) {
 		processor, err := NewStorageWriterProcessor(
 			lggr,
 			"test-"+t.Name(),
-			NoopLatencyTracker{},
+			testutil.NoopLatencyTracker{},
 			fakeStorage,
 			resultQueue,
-			CoordinatorConfig{
+			verifier.CoordinatorConfig{
 				StorageBatchSize:  10,
 				StorageRetryDelay: 50 * time.Millisecond,
 			},
@@ -289,7 +290,7 @@ func TestStorageWriterProcessorDB_RetryFailedBatches(t *testing.T) {
 		resultQueue, err := jobqueue.NewPostgresJobQueue[protocol.VerifierNodeResult](
 			db,
 			jobqueue.QueueConfig{
-				Name:          StorageWriterJobsTableName,
+				Name:          verifier.StorageWriterJobsTableName,
 				OwnerID:       "test-" + t.Name(),
 				RetryDuration: shortRetryDeadline,
 				LockDuration:  time.Minute,
@@ -304,10 +305,10 @@ func TestStorageWriterProcessorDB_RetryFailedBatches(t *testing.T) {
 		processor, err := NewStorageWriterProcessor(
 			lggr,
 			"test-"+t.Name(),
-			NoopLatencyTracker{},
+			testutil.NoopLatencyTracker{},
 			fakeStorage,
 			resultQueue,
-			CoordinatorConfig{
+			verifier.CoordinatorConfig{
 				StorageBatchSize:  10,
 				StorageRetryDelay: 10 * time.Millisecond, // Fast retry to exceed deadline quickly
 			},
@@ -349,7 +350,7 @@ func TestStorageWriterProcessorDB_Cleanup(t *testing.T) {
 		resultQueue, err := jobqueue.NewPostgresJobQueue[protocol.VerifierNodeResult](
 			db,
 			jobqueue.QueueConfig{
-				Name:          StorageWriterJobsTableName,
+				Name:          verifier.StorageWriterJobsTableName,
 				OwnerID:       "test-" + t.Name(),
 				RetryDuration: time.Hour,
 				LockDuration:  time.Minute,
@@ -361,10 +362,10 @@ func TestStorageWriterProcessorDB_Cleanup(t *testing.T) {
 		processor, err := NewStorageWriterProcessor(
 			lggr,
 			"test-"+t.Name(),
-			NoopLatencyTracker{},
+			testutil.NoopLatencyTracker{},
 			fakeStorage,
 			resultQueue,
-			CoordinatorConfig{
+			verifier.CoordinatorConfig{
 				StorageBatchSize:  10,
 				StorageRetryDelay: 100 * time.Millisecond,
 			},
@@ -436,7 +437,7 @@ func TestStorageWriterProcessorDB_StaleJobRecovery(t *testing.T) {
 		resultQueue, err := jobqueue.NewPostgresJobQueue[protocol.VerifierNodeResult](
 			db,
 			jobqueue.QueueConfig{
-				Name:          StorageWriterJobsTableName,
+				Name:          verifier.StorageWriterJobsTableName,
 				OwnerID:       "test-" + t.Name(),
 				RetryDuration: time.Hour,
 				LockDuration:  shortLockDuration,
@@ -472,10 +473,10 @@ func TestStorageWriterProcessorDB_StaleJobRecovery(t *testing.T) {
 		processor, err := NewStorageWriterProcessor(
 			lggr,
 			"test-"+t.Name(),
-			NoopLatencyTracker{},
+			testutil.NoopLatencyTracker{},
 			fakeStorage,
 			resultQueue,
-			CoordinatorConfig{
+			verifier.CoordinatorConfig{
 				StorageBatchSize:  10,
 				StorageRetryDelay: 100 * time.Millisecond,
 			},
@@ -508,7 +509,7 @@ func TestStorageWriterProcessorDB_ContextCancellation(t *testing.T) {
 		resultQueue, err := jobqueue.NewPostgresJobQueue[protocol.VerifierNodeResult](
 			testutil.NewTestDB(t),
 			jobqueue.QueueConfig{
-				Name:          StorageWriterJobsTableName,
+				Name:          verifier.StorageWriterJobsTableName,
 				OwnerID:       "test-" + t.Name(),
 				RetryDuration: time.Hour,
 				LockDuration:  time.Minute,
@@ -520,10 +521,10 @@ func TestStorageWriterProcessorDB_ContextCancellation(t *testing.T) {
 		processor, err := NewStorageWriterProcessor(
 			lggr,
 			"test-"+t.Name(),
-			NoopLatencyTracker{},
+			testutil.NoopLatencyTracker{},
 			fakeStorage,
 			resultQueue,
-			CoordinatorConfig{
+			verifier.CoordinatorConfig{
 				StorageBatchSize:  10,
 				StorageRetryDelay: 100 * time.Millisecond,
 			},
@@ -540,14 +541,14 @@ func TestStorageWriterProcessorDB_ContextCancellation(t *testing.T) {
 func TestConfigWithDefaults(t *testing.T) {
 	tests := []struct {
 		name               string
-		config             CoordinatorConfig
+		config             verifier.CoordinatorConfig
 		expectedBatchSize  int
 		expectedBatchTime  time.Duration
 		expectedRetryDelay time.Duration
 	}{
 		{
 			name: "uses provided config values when valid",
-			config: CoordinatorConfig{
+			config: verifier.CoordinatorConfig{
 				StorageBatchSize:    100,
 				StorageBatchTimeout: 5 * time.Second,
 				StorageRetryDelay:   3 * time.Second,
@@ -558,7 +559,7 @@ func TestConfigWithDefaults(t *testing.T) {
 		},
 		{
 			name: "applies defaults for invalid values",
-			config: CoordinatorConfig{
+			config: verifier.CoordinatorConfig{
 				StorageBatchSize:    0,
 				StorageBatchTimeout: 0,
 				StorageRetryDelay:   0,
@@ -569,7 +570,7 @@ func TestConfigWithDefaults(t *testing.T) {
 		},
 		{
 			name: "applies defaults for negative values",
-			config: CoordinatorConfig{
+			config: verifier.CoordinatorConfig{
 				StorageBatchSize:    -10,
 				StorageBatchTimeout: -5 * time.Second,
 				StorageRetryDelay:   -3 * time.Second,

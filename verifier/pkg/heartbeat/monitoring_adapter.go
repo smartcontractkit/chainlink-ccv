@@ -1,21 +1,22 @@
-package verifier
+package heartbeat
 
 import (
 	"context"
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/heartbeatclient"
+	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg"
 )
 
 // heartbeatMonitoringAdapter adapts verifier.Monitoring to heartbeatclient.Monitoring.
 // This allows the reusable heartbeat client to work with verifier-specific monitoring.
 type heartbeatMonitoringAdapter struct {
-	monitoring Monitoring
+	monitoring verifier.Monitoring
 }
 
 // NewHeartbeatMonitoringAdapter creates an adapter that allows verifier.Monitoring
 // to be used with the heartbeat client's observability layer.
-func NewHeartbeatMonitoringAdapter(monitoring Monitoring) heartbeatclient.Monitoring {
+func NewHeartbeatMonitoringAdapter(monitoring verifier.Monitoring) heartbeatclient.Monitoring {
 	return &heartbeatMonitoringAdapter{monitoring: monitoring}
 }
 
@@ -25,7 +26,7 @@ func (a *heartbeatMonitoringAdapter) Metrics() heartbeatclient.MetricLabeler {
 
 // heartbeatMetricLabelerAdapter adapts verifier.MetricLabeler to heartbeatclient.MetricLabeler.
 type heartbeatMetricLabelerAdapter struct {
-	labeler MetricLabeler
+	labeler verifier.MetricLabeler
 }
 
 func (a *heartbeatMetricLabelerAdapter) With(keyValues ...string) heartbeatclient.MetricLabeler {

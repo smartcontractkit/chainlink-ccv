@@ -1,4 +1,4 @@
-package verifier
+package taskverifier
 
 import (
 	"context"
@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/jobqueue"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
@@ -22,12 +23,12 @@ const (
 )
 
 // TaskVerifierProcessor is responsible for processing read messages from SourceReaderServices,
-// verifying them using the provided Verifier, and sending the results to StorageWriterProcessor via the result queue.
+// verifying them using the provided verifier.Verifier, and sending the results to StorageWriterProcessor via the result queue.
 // It's the second stage in the verifier processing pipeline.
 // It spawns a goroutine per source chain to handle verification concurrently and independently.
 // Retries are handled for individual messages based on the verification result. General idea is very similar to
-// StorageWriterProcessor, but here Verifier decides whether the error is retryable or not and what delay should be set.
-// That way we give Verifier who is aware of the business logic more control over retry behavior.
+// StorageWriterProcessor, but here verifier.Verifier decides whether the error is retryable or not and what delay should be set.
+// That way we give verifier.Verifier who is aware of the business logic more control over retry behavior.
 type TaskVerifierProcessor struct {
 	services.StateMachine
 	stopCh services.StopChan
@@ -35,12 +36,12 @@ type TaskVerifierProcessor struct {
 
 	lggr           logger.Logger
 	verifierID     string
-	monitoring     Monitoring
-	verifier       Verifier
-	messageTracker MessageLatencyTracker
+	monitoring     verifier.Monitoring
+	verifier       verifier.Verifier
+	messageTracker verifier.MessageLatencyTracker
 
 	// Consumes from ccv_task_verifier_jobs queue
-	taskQueue jobqueue.JobQueue[VerificationTask]
+	taskQueue jobqueue.JobQueue[verifier.VerificationTask]
 	// Produces to ccv_storage_writer_jobs queue
 	resultQueue jobqueue.JobQueue[protocol.VerifierNodeResult]
 
@@ -54,10 +55,10 @@ type TaskVerifierProcessor struct {
 func NewTaskVerifierProcessorDB(
 	lggr logger.Logger,
 	verifierID string,
-	verifier Verifier,
-	monitoring Monitoring,
-	messageTracker MessageLatencyTracker,
-	taskQueue jobqueue.JobQueue[VerificationTask],
+	verifier verifier.Verifier,
+	monitoring verifier.Monitoring,
+	messageTracker verifier.MessageLatencyTracker,
+	taskQueue jobqueue.JobQueue[verifier.VerificationTask],
 	resultQueue jobqueue.JobQueue[protocol.VerifierNodeResult],
 	batchSize int,
 ) (*TaskVerifierProcessor, error) {
@@ -69,10 +70,10 @@ func NewTaskVerifierProcessorDB(
 func NewTaskVerifierProcessorDBWithPollInterval(
 	lggr logger.Logger,
 	verifierID string,
-	verifier Verifier,
-	monitoring Monitoring,
-	messageTracker MessageLatencyTracker,
-	taskQueue jobqueue.JobQueue[VerificationTask],
+	verifier verifier.Verifier,
+	monitoring verifier.Monitoring,
+	messageTracker verifier.MessageLatencyTracker,
+	taskQueue jobqueue.JobQueue[verifier.VerificationTask],
 	resultQueue jobqueue.JobQueue[protocol.VerifierNodeResult],
 	batchSize int,
 	pollInterval time.Duration,
@@ -142,7 +143,7 @@ func (p *TaskVerifierProcessor) run() {
 
 func (p *TaskVerifierProcessor) processBatch(ctx context.Context) error {
 	// Consume batch of tasks from queue
-	consumeCtx, cancel := context.WithTimeout(ctx, DefaultJobQueueOperationTimeout)
+	consumeCtx, cancel := context.WithTimeout(ctx, verifier.DefaultJobQueueOperationTimeout)
 	defer cancel()
 
 	jobs, err := p.taskQueue.Consume(consumeCtx, p.batchSize)
@@ -159,9 +160,9 @@ func (p *TaskVerifierProcessor) processBatch(ctx context.Context) error {
 	)
 
 	// Extract tasks and build job ID map and task map for metrics
-	tasks := make([]VerificationTask, len(jobs))
-	jobIDMap := make(map[string]string)          // messageID -> jobID
-	taskMap := make(map[string]VerificationTask) // messageID -> task (for accessing timestamps)
+	tasks := make([]verifier.VerificationTask, len(jobs))
+	jobIDMap := make(map[string]string)                   // messageID -> jobID
+	taskMap := make(map[string]verifier.VerificationTask) // messageID -> task (for accessing timestamps)
 	for i, job := range jobs {
 		tasks[i] = job.Payload
 		jobIDMap[job.Payload.MessageID] = job.ID
@@ -186,9 +187,9 @@ func (p *TaskVerifierProcessor) processBatch(ctx context.Context) error {
 // handleVerificationResults processes verification results, updating job statuses and publishing successful results.
 func (p *TaskVerifierProcessor) handleVerificationResults(
 	ctx context.Context,
-	results []VerificationResult,
+	results []verifier.VerificationResult,
 	jobIDMap map[string]string,
-	taskMap map[string]VerificationTask,
+	taskMap map[string]verifier.VerificationTask,
 	verificationStartTime time.Time,
 ) error {
 	if len(results) == 0 {
@@ -257,7 +258,7 @@ func (p *TaskVerifierProcessor) handleVerificationResults(
 
 	// Publish successful results to ccv_storage_writer_jobs queue
 	if len(successfulResults) > 0 {
-		publishCtx, cancel := context.WithTimeout(ctx, DefaultJobQueueOperationTimeout)
+		publishCtx, cancel := context.WithTimeout(ctx, verifier.DefaultJobQueueOperationTimeout)
 		defer cancel()
 
 		if err := p.resultQueue.Publish(publishCtx, successfulResults...); err != nil {
@@ -274,7 +275,7 @@ func (p *TaskVerifierProcessor) handleVerificationResults(
 
 	// Complete successfully processed jobs
 	if len(completedJobIDs) > 0 {
-		completeCtx, cancel := context.WithTimeout(ctx, DefaultJobQueueOperationTimeout)
+		completeCtx, cancel := context.WithTimeout(ctx, verifier.DefaultJobQueueOperationTimeout)
 		defer cancel()
 
 		if err := p.taskQueue.Complete(completeCtx, completedJobIDs...); err != nil {
@@ -304,7 +305,7 @@ func (p *TaskVerifierProcessor) handleVerificationResults(
 
 		// Retry jobs grouped by delay
 		for delay, jobIDs := range jobsByDelay {
-			retryCtx, cancel := context.WithTimeout(ctx, DefaultJobQueueOperationTimeout)
+			retryCtx, cancel := context.WithTimeout(ctx, verifier.DefaultJobQueueOperationTimeout)
 
 			if err := p.taskQueue.Retry(retryCtx, delay, errorsByDelay[delay], jobIDs...); err != nil {
 				p.lggr.Errorw("Failed to retry jobs - they will remain in processing state and be reclaimed as stale locks",
@@ -320,7 +321,7 @@ func (p *TaskVerifierProcessor) handleVerificationResults(
 
 	// Fail jobs with permanent errors
 	if len(failedJobIDs) > 0 {
-		failCtx, cancel := context.WithTimeout(ctx, DefaultJobQueueOperationTimeout)
+		failCtx, cancel := context.WithTimeout(ctx, verifier.DefaultJobQueueOperationTimeout)
 		defer cancel()
 
 		if err := p.taskQueue.Fail(failCtx, failedErrors, failedJobIDs...); err != nil {
@@ -345,7 +346,7 @@ func (p *TaskVerifierProcessor) handleVerificationResults(
 // handleVerificationError processes a single verification error, either scheduling retry or marking as permanent failure.
 func (p *TaskVerifierProcessor) handleVerificationError(
 	ctx context.Context,
-	verificationError VerificationError,
+	verificationError verifier.VerificationError,
 	jobID string,
 	retryJobIDs *[]string,
 	retryErrors map[string]error,
@@ -392,7 +393,7 @@ func (p *TaskVerifierProcessor) handleVerificationError(
 }
 
 func (p *TaskVerifierProcessor) cleanup(ctx context.Context) error {
-	cleanupCtx, cancel := context.WithTimeout(ctx, DefaultJobQueueOperationTimeout)
+	cleanupCtx, cancel := context.WithTimeout(ctx, verifier.DefaultJobQueueOperationTimeout)
 	defer cancel()
 
 	// Cleanup archived jobs older than retention period

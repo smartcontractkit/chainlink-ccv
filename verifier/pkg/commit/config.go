@@ -3,7 +3,7 @@ package commit
 import (
 	"fmt"
 
-	"github.com/smartcontractkit/chainlink-ccv/verifier"
+	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg"
 )
 
 type ConfigWithBlockchainInfos struct {

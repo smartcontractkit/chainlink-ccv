@@ -1,4 +1,4 @@
-package verifier
+package coordinator
 
 import (
 	"context"
@@ -12,17 +12,18 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/heartbeatclient"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	verpkg "github.com/smartcontractkit/chainlink-ccv/verifier/pkg"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/heartbeat"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/jobqueue"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/sourcereader"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/storagewriter"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/taskverifier"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 )
 
 const (
-	// TaskVerifierJobsTableName is the name of the table storing verification tasks.
-	TaskVerifierJobsTableName = "ccv_task_verifier_jobs"
-	// StorageWriterJobsTableName is the name of the table storing verification results for storage writing.
-	StorageWriterJobsTableName = "ccv_storage_writer_jobs"
 
 	// taskQueueRetryDuration is how long verification tasks are retried before giving up.
 	taskQueueRetryDuration = 7 * 24 * time.Hour // 7 days
@@ -48,7 +49,7 @@ type Coordinator struct {
 	sourceReaderServices   map[protocol.ChainSelector]services.Service
 	taskVerifierProcessor  services.Service
 	storageWriterProcessor services.Service
-	heartbeatReporter      *HeartbeatReporter
+	heartbeatReporter      *heartbeat.Reporter
 
 	// Observability wrappers for queues
 	taskQueueObserver   services.Service
@@ -57,12 +58,12 @@ type Coordinator struct {
 
 func NewCoordinator(
 	lggr logger.Logger,
-	verifier Verifier,
+	verifier verpkg.Verifier,
 	sourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
 	storage protocol.CCVNodeDataWriter,
-	config CoordinatorConfig,
-	messageTracker MessageLatencyTracker,
-	monitoring Monitoring,
+	config verpkg.CoordinatorConfig,
+	messageTracker verpkg.MessageLatencyTracker,
+	monitoring verpkg.Monitoring,
 	chainStatusManager protocol.ChainStatusManager,
 	heartbeatClient heartbeatclient.HeartbeatSender,
 	ds sqlutil.DataSource,
@@ -78,12 +79,12 @@ func NewCoordinator(
 
 func NewCoordinatorWithDetector(
 	lggr logger.Logger,
-	verifier Verifier,
+	verifier verpkg.Verifier,
 	sourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
 	storage protocol.CCVNodeDataWriter,
-	config CoordinatorConfig,
-	messageTracker MessageLatencyTracker,
-	monitoring Monitoring,
+	config verpkg.CoordinatorConfig,
+	messageTracker verpkg.MessageLatencyTracker,
+	monitoring verpkg.Monitoring,
 	chainStatusManager protocol.ChainStatusManager,
 	detector common.CurseCheckerService,
 	heartbeatClient heartbeatclient.HeartbeatSender,
@@ -129,7 +130,7 @@ func NewCoordinatorWithDetector(
 			for selector := range sourceReaders {
 				allSelectors = append(allSelectors, selector)
 			}
-			heartbeatReporter, err := NewHeartbeatReporter(
+			heartbeatReporter, err := heartbeat.NewReporter(
 				logger.With(lggr, "component", "HeartbeatReporter"),
 				chainStatusManager, heartbeatClient, allSelectors, config.VerifierID, config.HeartbeatInterval,
 			)
@@ -148,19 +149,19 @@ func NewCoordinatorWithDetector(
 func createDurableProcessors(
 	lggr logger.Logger,
 	ds sqlutil.DataSource,
-	config CoordinatorConfig,
-	verifier Verifier,
-	monitoring Monitoring,
+	config verpkg.CoordinatorConfig,
+	verifier verpkg.Verifier,
+	monitoring verpkg.Monitoring,
 	enabledSourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
 	chainStatusManager protocol.ChainStatusManager,
 	curseDetector common.CurseCheckerService,
-	messageTracker MessageLatencyTracker,
+	messageTracker verpkg.MessageLatencyTracker,
 	storage protocol.CCVNodeDataWriter,
-) (map[protocol.ChainSelector]*SourceReaderService, services.Service, services.Service, services.Service, services.Service, error) {
-	taskQueue, err := jobqueue.NewPostgresJobQueue[VerificationTask](
+) (map[protocol.ChainSelector]*sourcereader.SourceReaderService, services.Service, services.Service, services.Service, services.Service, error) {
+	taskQueue, err := jobqueue.NewPostgresJobQueue[verpkg.VerificationTask](
 		ds,
 		jobqueue.QueueConfig{
-			Name:          TaskVerifierJobsTableName,
+			Name:          verpkg.TaskVerifierJobsTableName,
 			OwnerID:       config.VerifierID,
 			RetryDuration: taskQueueRetryDuration,
 			LockDuration:  taskQueueLockDuration,
@@ -185,7 +186,7 @@ func createDurableProcessors(
 	resultQueue, err := jobqueue.NewPostgresJobQueue[protocol.VerifierNodeResult](
 		ds,
 		jobqueue.QueueConfig{
-			Name:          StorageWriterJobsTableName,
+			Name:          verpkg.StorageWriterJobsTableName,
 			OwnerID:       config.VerifierID,
 			RetryDuration: resultQueueRetryDuration,
 			LockDuration:  resultQueueLockDuration,
@@ -214,14 +215,14 @@ func createDurableProcessors(
 		return nil, nil, nil, nil, nil, fmt.Errorf("failed to create DB source reader services: %w", err)
 	}
 
-	taskVerifierProcessor, err := NewTaskVerifierProcessorDB(
+	taskVerifierProcessor, err := taskverifier.NewTaskVerifierProcessorDB(
 		lggr, config.VerifierID, verifier, monitoring, messageTracker, taskQueueObserver, resultQueueObserver, config.StorageBatchSize,
 	)
 	if err != nil {
 		return nil, nil, nil, nil, nil, fmt.Errorf("failed to create task verifier processor DB: %w", err)
 	}
 
-	storageWriterProcessor, err := NewStorageWriterProcessor(
+	storageWriterProcessor, err := storagewriter.NewStorageWriterProcessor(
 		lggr, config.VerifierID, messageTracker, storage, resultQueueObserver, config,
 	)
 	if err != nil {
@@ -292,19 +293,19 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 
 func createSourceReadersDB(
 	lggr logger.Logger,
-	config CoordinatorConfig,
+	config verpkg.CoordinatorConfig,
 	chainStatusManager protocol.ChainStatusManager,
 	curseDetector common.CurseCheckerService,
-	monitoring Monitoring,
+	monitoring verpkg.Monitoring,
 	enabledSourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
-	taskQueue jobqueue.JobQueue[VerificationTask],
-) (map[protocol.ChainSelector]*SourceReaderService, error) {
-	sourceReaderServices := make(map[protocol.ChainSelector]*SourceReaderService)
+	taskQueue jobqueue.JobQueue[verpkg.VerificationTask],
+) (map[protocol.ChainSelector]*sourcereader.SourceReaderService, error) {
+	sourceReaderServices := make(map[protocol.ChainSelector]*sourcereader.SourceReaderService)
 	for chainSelector, sourceReader := range enabledSourceReaders {
 		sourceCfg := config.SourceConfigs[chainSelector]
 		filter := chainaccess.NewReceiptIssuerFilter(sourceCfg.VerifierAddress, sourceCfg.DefaultExecutorAddress)
 		lggr.Infow("PollInterval: ", "chainSelector", chainSelector, "interval", sourceCfg.PollInterval)
-		srs, err := NewSourceReaderServiceDB(
+		srs, err := sourcereader.NewSourceReaderServiceDB(
 			sourceReader, chainSelector, chainStatusManager,
 			logger.With(lggr, "component", "SourceReaderDB", "chainID", chainSelector),
 			sourceCfg, curseDetector, filter, monitoring.Metrics(), taskQueue,
@@ -320,7 +321,7 @@ func createSourceReadersDB(
 func filterOnlyEnabledSourceReaders(
 	ctx context.Context,
 	lggr logger.Logger,
-	config CoordinatorConfig,
+	config verpkg.CoordinatorConfig,
 	sourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
 	chainStatusManager protocol.ChainStatusManager,
 ) (map[protocol.ChainSelector]chainaccess.SourceReader, error) {
@@ -402,17 +403,17 @@ func (vc *Coordinator) Close() error {
 			}
 		}
 
-		vc.lggr.Infow("Verifier coordinator stopped")
+		vc.lggr.Infow("verpkg.Verifier coordinator stopped")
 		return errors.Join(errs...)
 	})
 }
 
 func createCurseDetector(
 	lggr logger.Logger,
-	config CoordinatorConfig,
+	config verpkg.CoordinatorConfig,
 	curseDetector common.CurseCheckerService,
 	sourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
-	metrics MetricLabeler,
+	metrics verpkg.MetricLabeler,
 ) (common.CurseCheckerService, error) {
 	if len(sourceReaders) == 0 {
 		lggr.Infow("No RMN readers provided; curse detector will not be started")

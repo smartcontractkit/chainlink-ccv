@@ -1,4 +1,4 @@
-package verifier_test
+package coordinator_test
 
 import (
 	"net/http"
@@ -13,10 +13,12 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-ccv/verifier"
+	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/coordinator"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/storage"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/lombard"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/testutil"
 	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
 )
 
@@ -87,7 +89,7 @@ func Test_LombardMessages_Success(t *testing.T) {
 			chain1337: testCCVAddr,
 		})
 
-	mockSetup := verifier.SetupMockSourceReader(t)
+	mockSetup := coordinator.SetupMockSourceReader(t)
 	mockSetup.ExpectFetchMessageSentEvent(false)
 	sourceReaders := map[protocol.ChainSelector]chainaccess.SourceReader{
 		chain1337: mockSetup.Reader,
@@ -188,7 +190,7 @@ func Test_LombardMessages_RetryingAttestation(t *testing.T) {
 			chain1337: testCCVAddr,
 		})
 
-	mockSetup := verifier.SetupMockSourceReader(t)
+	mockSetup := coordinator.SetupMockSourceReader(t)
 	mockSetup.ExpectFetchMessageSentEvent(false)
 	sourceReaders := map[protocol.ChainSelector]chainaccess.SourceReader{
 		chain1337: mockSetup.Reader,
@@ -259,7 +261,7 @@ func createLombardCoordinator(
 	config verifier.CoordinatorConfig,
 	sourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
 	inMemStorage *storage.InMemoryCCVStorage,
-) (*verifier.Coordinator, error) {
+) (*coordinator.Coordinator, error) {
 	return createLombardCoordinatorWithRetryConfig(
 		ts,
 		lombardConfig,
@@ -279,9 +281,9 @@ func createLombardCoordinatorWithRetryConfig(
 	inMemStorage *storage.InMemoryCCVStorage,
 	attestationNotReadyRetry time.Duration,
 	anyErrorRetry time.Duration,
-) (*verifier.Coordinator, error) {
+) (*coordinator.Coordinator, error) {
 	noopMonitoring := monitoring.NewFakeVerifierMonitoring()
-	noopLatencyTracker := verifier.NoopLatencyTracker{}
+	noopLatencyTracker := testutil.NoopLatencyTracker{}
 
 	attestationService, err := lombard.NewAttestationService(ts.logger, *lombardConfig)
 	require.NoError(ts.t, err)
@@ -309,7 +311,7 @@ func createLombardCoordinatorWithRetryConfig(
 		inMemStorage,
 	)
 
-	return verifier.NewCoordinator(
+	return coordinator.NewCoordinator(
 		ts.logger,
 		lombardVerifier,
 		sourceReaders,
@@ -345,7 +347,7 @@ func createLombardTestMessage(
 	messageHash protocol.ByteSlice,
 ) protocol.MessageSentEvent {
 	t.Helper()
-	message := verifier.CreateTestMessage(t, sequenceNumber, sourceChainSelector, destChainSelector, 0, 300_000)
+	message := testutil.CreateTestMessage(t, sequenceNumber, sourceChainSelector, destChainSelector, 0, 300_000)
 	messageID, _ := message.MessageID()
 
 	executorAddr := make([]byte, 20)

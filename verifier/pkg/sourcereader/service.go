@@ -1,4 +1,4 @@
-package verifier
+package sourcereader
 
 import (
 	"context"
@@ -12,6 +12,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/jobqueue"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
@@ -45,16 +46,16 @@ type SourceReaderService struct {
 	pollInterval    time.Duration
 	pollTimeout     time.Duration
 	maxBlockRange   uint64
-	sourceCfg       SourceConfig
+	sourceCfg       verifier.SourceConfig
 
 	// DB-backed task queue
-	taskQueue jobqueue.JobQueue[VerificationTask]
+	taskQueue jobqueue.JobQueue[verifier.VerificationTask]
 
 	// mutable per-chain state
 	mu                          sync.RWMutex
 	lastProcessedFinalizedBlock atomic.Pointer[big.Int]
-	pendingTasks                map[string]VerificationTask
-	sentTasks                   map[string]VerificationTask
+	pendingTasks                map[string]verifier.VerificationTask
+	sentTasks                   map[string]verifier.VerificationTask
 	reorgTracker                *ReorgTracker
 	disabled                    atomic.Bool
 
@@ -71,11 +72,11 @@ func NewSourceReaderServiceDB(
 	chainSelector protocol.ChainSelector,
 	chainStatusManager protocol.ChainStatusManager,
 	lggr logger.Logger,
-	sourceCfg SourceConfig,
+	sourceCfg verifier.SourceConfig,
 	curseDetector common.CurseCheckerService,
 	filter chainaccess.MessageFilter,
-	metrics MetricLabeler,
-	taskQueue jobqueue.JobQueue[VerificationTask],
+	metrics verifier.MetricLabeler,
+	taskQueue jobqueue.JobQueue[verifier.VerificationTask],
 ) (*SourceReaderService, error) {
 	if sourceReader == nil {
 		return nil, fmt.Errorf("sourceReader cannot be nil")
@@ -141,7 +142,7 @@ func NewSourceReaderServiceDB(
 		sourceCfg:          sourceCfg,
 		maxBlockRange:      maxBlockRange,
 		taskQueue:          taskQueue,
-		pendingTasks:       make(map[string]VerificationTask), sentTasks: make(map[string]VerificationTask),
+		pendingTasks:       make(map[string]verifier.VerificationTask), sentTasks: make(map[string]verifier.VerificationTask),
 		reorgTracker: NewReorgTracker(logger.With(lggr, "component", "ReorgTracker"), metrics),
 		stopCh:       make(chan struct{}),
 		filter:       filter,
@@ -304,7 +305,7 @@ func (r *SourceReaderService) processEventCycle(ctx context.Context, latest, fin
 			"toBlock", "latest")
 	}
 
-	tasks := make([]VerificationTask, 0, len(events))
+	tasks := make([]verifier.VerificationTask, 0, len(events))
 	for _, event := range events {
 		if r.filter != nil && !r.filter.Filter(event) {
 			r.logger.Infow("Message filtered out by filter",
@@ -323,7 +324,7 @@ func (r *SourceReaderService) processEventCycle(ctx context.Context, latest, fin
 			r.logger.Errorw("Message ID mismatch", "computed", computedMessageID.String(), "onchain", onchainMessageID)
 			continue
 		}
-		task := VerificationTask{
+		task := verifier.VerificationTask{
 			Message:              event.Message,
 			ReceiptBlobs:         event.Receipts,
 			BlockNumber:          event.BlockNumber,
@@ -401,8 +402,8 @@ func (r *SourceReaderService) fallbackBlockEstimate(currentBlock uint64, lookbac
 	return fallBackBlock
 }
 
-func (r *SourceReaderService) addToPendingQueueHandleReorg(tasks []VerificationTask, fromBlock, toBlock *big.Int) {
-	tasksMap := make(map[string]VerificationTask)
+func (r *SourceReaderService) addToPendingQueueHandleReorg(tasks []verifier.VerificationTask, fromBlock, toBlock *big.Int) {
+	tasksMap := make(map[string]verifier.VerificationTask)
 	for _, task := range tasks {
 		tasksMap[task.MessageID] = task
 	}
@@ -509,7 +510,7 @@ func (r *SourceReaderService) sendReadyMessages(ctx context.Context, latest, fin
 			}
 		}
 
-		ready := make([]VerificationTask, 0, len(r.pendingTasks))
+		ready := make([]verifier.VerificationTask, 0, len(r.pendingTasks))
 		toBeDeleted := make([]string, 0)
 
 		for msgID, task := range r.pendingTasks {
@@ -626,7 +627,7 @@ func (r *SourceReaderService) writeCheckpoint(ctx context.Context, finalizedBloc
 }
 
 func (r *SourceReaderService) isMessageReadyForVerification(
-	task VerificationTask,
+	task verifier.VerificationTask,
 	latestBlock *big.Int,
 	latestFinalizedBlock *big.Int,
 ) bool {
@@ -688,8 +689,8 @@ func (r *SourceReaderService) handleFinalityViolation(ctx context.Context) {
 	}
 	flushed := len(r.pendingTasks)
 	sentFlushed := len(r.sentTasks)
-	r.pendingTasks = make(map[string]VerificationTask)
-	r.sentTasks = make(map[string]VerificationTask)
+	r.pendingTasks = make(map[string]verifier.VerificationTask)
+	r.sentTasks = make(map[string]verifier.VerificationTask)
 	r.disabled.Store(true)
 
 	r.logger.Errorw("Flushed all tasks due to finality violation",

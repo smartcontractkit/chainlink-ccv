@@ -1,4 +1,4 @@
-package verifier
+package sourcereader
 
 import (
 	"context"
@@ -14,30 +14,32 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/jobqueue"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/testutil"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
 )
 
-// fakeTaskQueue is an in-memory implementation of jobqueue.JobQueue[VerificationTask]
+// fakeTaskQueue is an in-memory implementation of jobqueue.JobQueue[verifier.VerificationTask]
 // used to capture tasks published by SourceReaderService without needing a real DB.
 type fakeTaskQueue struct {
 	mu        sync.Mutex
-	published []VerificationTask
+	published []verifier.VerificationTask
 }
 
-func (q *fakeTaskQueue) Publish(_ context.Context, tasks ...VerificationTask) error {
+func (q *fakeTaskQueue) Publish(_ context.Context, tasks ...verifier.VerificationTask) error {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	q.published = append(q.published, tasks...)
 	return nil
 }
 
-func (q *fakeTaskQueue) PublishWithDelay(_ context.Context, _ time.Duration, tasks ...VerificationTask) error {
+func (q *fakeTaskQueue) PublishWithDelay(_ context.Context, _ time.Duration, tasks ...verifier.VerificationTask) error {
 	return q.Publish(context.Background(), tasks...)
 }
 
-func (q *fakeTaskQueue) Consume(_ context.Context, _ int) ([]jobqueue.Job[VerificationTask], error) {
+func (q *fakeTaskQueue) Consume(_ context.Context, _ int) ([]jobqueue.Job[verifier.VerificationTask], error) {
 	return nil, nil
 }
 
@@ -50,10 +52,10 @@ func (q *fakeTaskQueue) Cleanup(_ context.Context, _ time.Duration) (int, error)
 func (q *fakeTaskQueue) Name() string                                                  { return "fake-task-queue" }
 func (q *fakeTaskQueue) Size(_ context.Context) (int, error)                           { return 0, nil }
 
-func (q *fakeTaskQueue) Published() []VerificationTask {
+func (q *fakeTaskQueue) Published() []verifier.VerificationTask {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	out := make([]VerificationTask, len(q.published))
+	out := make([]verifier.VerificationTask, len(q.published))
 	copy(out, q.published)
 	return out
 }
@@ -77,10 +79,10 @@ func newTestSRS(
 		chainSelector,
 		chainStatusMgr,
 		lggr,
-		SourceConfig{PollInterval: pollInterval, MaxBlockRange: maxBlockRange},
+		verifier.SourceConfig{PollInterval: pollInterval, MaxBlockRange: maxBlockRange},
 		curseDetector,
 		&noopFilter{},
-		&noopMetricLabeler{},
+		&testutil.NoopMetricLabeler{},
 		queue,
 	)
 	require.NoError(t, err)
@@ -195,20 +197,20 @@ func TestSRS_Reorg_DropsMissingPendingAndSent(t *testing.T) {
 	srs, _, _ := newTestSRS(t, chain, reader, chainStatusMgr, curseDetector, 10*time.Millisecond, 5000)
 
 	msgs := createTestMessageSentEvents(t, 1, chain, defaultDestChain, []uint64{100, 101, 102})
-	taskA := VerificationTask{Message: msgs[0].Message, BlockNumber: msgs[0].BlockNumber, MessageID: msgs[0].MessageID.String()}
-	taskB := VerificationTask{Message: msgs[1].Message, BlockNumber: msgs[1].BlockNumber, MessageID: msgs[1].MessageID.String()}
-	taskC := VerificationTask{Message: msgs[2].Message, BlockNumber: msgs[2].BlockNumber, MessageID: msgs[2].MessageID.String()}
+	taskA := verifier.VerificationTask{Message: msgs[0].Message, BlockNumber: msgs[0].BlockNumber, MessageID: msgs[0].MessageID.String()}
+	taskB := verifier.VerificationTask{Message: msgs[1].Message, BlockNumber: msgs[1].BlockNumber, MessageID: msgs[1].MessageID.String()}
+	taskC := verifier.VerificationTask{Message: msgs[2].Message, BlockNumber: msgs[2].BlockNumber, MessageID: msgs[2].MessageID.String()}
 
 	srs.mu.Lock()
-	srs.pendingTasks = map[string]VerificationTask{taskA.MessageID: taskA, taskB.MessageID: taskB}
-	srs.sentTasks = map[string]VerificationTask{taskC.MessageID: taskC}
+	srs.pendingTasks = map[string]verifier.VerificationTask{taskA.MessageID: taskA, taskB.MessageID: taskB}
+	srs.sentTasks = map[string]verifier.VerificationTask{taskC.MessageID: taskC}
 	srs.mu.Unlock()
 
 	// New canonical events keep A, add D; B and C are gone
 	msgsD := createTestMessageSentEvents(t, 10, chain, defaultDestChain, []uint64{103})
-	taskD := VerificationTask{Message: msgsD[0].Message, BlockNumber: msgsD[0].BlockNumber, MessageID: msgsD[0].MessageID.String()}
+	taskD := verifier.VerificationTask{Message: msgsD[0].Message, BlockNumber: msgsD[0].BlockNumber, MessageID: msgsD[0].MessageID.String()}
 
-	srs.addToPendingQueueHandleReorg([]VerificationTask{taskA, taskD}, big.NewInt(100), big.NewInt(103))
+	srs.addToPendingQueueHandleReorg([]verifier.VerificationTask{taskA, taskD}, big.NewInt(100), big.NewInt(103))
 
 	srs.mu.RLock()
 	defer srs.mu.RUnlock()
@@ -242,9 +244,9 @@ func TestSRS_CurseStateUnknown_RetainsTaskAndBlocksCheckpointUntilResolved(t *te
 	mockFC.EXPECT().UpdateFinalized(mock.Anything, mock.Anything).Return(nil).Maybe()
 	mockFC.EXPECT().IsFinalityViolated().Return(false).Maybe()
 
-	msg := CreateTestMessage(t, 1, chain, defaultDestChain, 0, 300_000)
+	msg := testutil.CreateTestMessage(t, 1, chain, defaultDestChain, 0, 300_000)
 	msgID, _ := msg.MessageID()
-	task := VerificationTask{Message: msg, BlockNumber: 940, MessageID: msgID.String()}
+	task := verifier.VerificationTask{Message: msg, BlockNumber: 940, MessageID: msgID.String()}
 
 	srs.mu.Lock()
 	srs.pendingTasks[msgID.String()] = task
@@ -297,7 +299,7 @@ func TestSRS_Curse_DropsAtSendTime(t *testing.T) {
 	mockFC.EXPECT().IsFinalityViolated().Return(false).Maybe()
 
 	events := createTestMessageSentEvents(t, 1, chain, defaultDestChain, []uint64{100, 101})
-	tasks := []VerificationTask{
+	tasks := []verifier.VerificationTask{
 		{Message: events[0].Message, BlockNumber: events[0].BlockNumber, MessageID: events[0].MessageID.String()},
 		{Message: events[1].Message, BlockNumber: events[1].BlockNumber, MessageID: events[1].MessageID.String()},
 	}
@@ -336,9 +338,9 @@ func TestSRS_Readiness_DefaultFinality_PublishesToQueue(t *testing.T) {
 	mockFC.EXPECT().IsFinalityViolated().Return(false).Maybe()
 
 	// Task with Finality=0 at block <= finalized — should be ready immediately.
-	msg := CreateTestMessage(t, 1, chain, defaultDestChain, 0, 300_000)
+	msg := testutil.CreateTestMessage(t, 1, chain, defaultDestChain, 0, 300_000)
 	msgID, _ := msg.MessageID()
-	task := VerificationTask{Message: msg, BlockNumber: 940, MessageID: msgID.String()}
+	task := verifier.VerificationTask{Message: msg, BlockNumber: 940, MessageID: msgID.String()}
 
 	srs.mu.Lock()
 	srs.pendingTasks[msgID.String()] = task
@@ -379,10 +381,10 @@ func TestSRS_Readiness_CustomFinality_PublishesToQueue(t *testing.T) {
 	srs, _, queue := newTestSRS(t, chain, reader, chainStatusMgr, curseDetector, 10*time.Millisecond, 5000)
 
 	const f uint16 = 10
-	msg := CreateTestMessage(t, 1, chain, defaultDestChain, f, 300_000)
+	msg := testutil.CreateTestMessage(t, 1, chain, defaultDestChain, f, 300_000)
 	msgID, _ := msg.MessageID()
 	// block = latest - f  => custom finality met
-	task := VerificationTask{Message: msg, BlockNumber: latest.Number - uint64(f), MessageID: msgID.String()}
+	task := verifier.VerificationTask{Message: msg, BlockNumber: latest.Number - uint64(f), MessageID: msgID.String()}
 
 	srs.mu.Lock()
 	srs.pendingTasks[msgID.String()] = task
@@ -414,9 +416,9 @@ func TestSRS_Readiness_NotReadyTask_NotPublished(t *testing.T) {
 	srs, _, queue := newTestSRS(t, chain, reader, chainStatusMgr, curseDetector, 10*time.Millisecond, 5000)
 
 	// Block 980 > finalized 950, Finality=0 — not ready yet.
-	msg := CreateTestMessage(t, 1, chain, defaultDestChain, 0, 300_000)
+	msg := testutil.CreateTestMessage(t, 1, chain, defaultDestChain, 0, 300_000)
 	msgID, _ := msg.MessageID()
-	task := VerificationTask{Message: msg, BlockNumber: 980, MessageID: msgID.String()}
+	task := verifier.VerificationTask{Message: msg, BlockNumber: 980, MessageID: msgID.String()}
 
 	srs.mu.Lock()
 	srs.pendingTasks[msgID.String()] = task
@@ -496,9 +498,9 @@ func TestSRS_isMessageReadyForVerification(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			msg := CreateTestMessage(t, 1, chain, defaultDestChain, tc.blockDepth, 300_000)
+			msg := testutil.CreateTestMessage(t, 1, chain, defaultDestChain, tc.blockDepth, 300_000)
 			msgID, _ := msg.MessageID()
-			task := VerificationTask{Message: msg, BlockNumber: tc.msgBlock, MessageID: msgID.String()}
+			task := verifier.VerificationTask{Message: msg, BlockNumber: tc.msgBlock, MessageID: msgID.String()}
 
 			ready := srs.isMessageReadyForVerification(
 				task,
@@ -536,8 +538,8 @@ func TestSRS_FinalityViolation_DisablesChainAndFlushesTasks(t *testing.T) {
 	mockFC.EXPECT().IsFinalityViolated().Return(true).Maybe()
 
 	msgs := createTestMessageSentEvents(t, 1, chain, defaultDestChain, []uint64{940, 960})
-	task1 := VerificationTask{Message: msgs[0].Message, BlockNumber: msgs[0].BlockNumber, MessageID: msgs[0].MessageID.String()}
-	task2 := VerificationTask{Message: msgs[1].Message, BlockNumber: msgs[1].BlockNumber, MessageID: msgs[1].MessageID.String()}
+	task1 := verifier.VerificationTask{Message: msgs[0].Message, BlockNumber: msgs[0].BlockNumber, MessageID: msgs[0].MessageID.String()}
+	task2 := verifier.VerificationTask{Message: msgs[1].Message, BlockNumber: msgs[1].BlockNumber, MessageID: msgs[1].MessageID.String()}
 
 	srs.mu.Lock()
 	srs.pendingTasks[task1.MessageID] = task1
@@ -569,15 +571,15 @@ func TestSRS_Reorg_TracksSequenceNumbers(t *testing.T) {
 	srs, _, _ := newTestSRS(t, chain, reader, chainStatusMgr, curseDetector, 10*time.Millisecond, 5000)
 
 	msgs := createTestMessageSentEvents(t, 1, chain, defaultDestChain, []uint64{100, 101})
-	taskA := VerificationTask{Message: msgs[0].Message, BlockNumber: msgs[0].BlockNumber, MessageID: msgs[0].MessageID.String()}
-	taskB := VerificationTask{Message: msgs[1].Message, BlockNumber: msgs[1].BlockNumber, MessageID: msgs[1].MessageID.String()}
+	taskA := verifier.VerificationTask{Message: msgs[0].Message, BlockNumber: msgs[0].BlockNumber, MessageID: msgs[0].MessageID.String()}
+	taskB := verifier.VerificationTask{Message: msgs[1].Message, BlockNumber: msgs[1].BlockNumber, MessageID: msgs[1].MessageID.String()}
 
 	srs.mu.Lock()
-	srs.pendingTasks = map[string]VerificationTask{taskA.MessageID: taskA, taskB.MessageID: taskB}
+	srs.pendingTasks = map[string]verifier.VerificationTask{taskA.MessageID: taskA, taskB.MessageID: taskB}
 	srs.mu.Unlock()
 
 	// Reorg: only A survives; B is dropped
-	srs.addToPendingQueueHandleReorg([]VerificationTask{taskA}, big.NewInt(100), big.NewInt(101))
+	srs.addToPendingQueueHandleReorg([]verifier.VerificationTask{taskA}, big.NewInt(100), big.NewInt(101))
 
 	require.True(t, srs.reorgTracker.RequiresFinalization(defaultDestChain, taskB.Message.SequenceNumber),
 		"reorged message B should require finalization")
@@ -597,14 +599,14 @@ func TestSRS_DisableFinalityChecker(t *testing.T) {
 		chain,
 		chainStatusMgr,
 		lggr,
-		SourceConfig{
+		verifier.SourceConfig{
 			PollInterval:           10 * time.Millisecond,
 			MaxBlockRange:          5000,
 			DisableFinalityChecker: true,
 		},
 		curseDetector,
 		&noopFilter{},
-		&noopMetricLabeler{},
+		&testutil.NoopMetricLabeler{},
 		&fakeTaskQueue{},
 	)
 	require.NoError(t, err)
@@ -631,14 +633,14 @@ func TestSRS_Reorg_TracksSentTasksSequenceNumbers(t *testing.T) {
 
 	// Task A was already sent (in sentTasks)
 	msgs := createTestMessageSentEvents(t, 1, chain, defaultDestChain, []uint64{100})
-	taskA := VerificationTask{Message: msgs[0].Message, BlockNumber: msgs[0].BlockNumber, MessageID: msgs[0].MessageID.String()}
+	taskA := verifier.VerificationTask{Message: msgs[0].Message, BlockNumber: msgs[0].BlockNumber, MessageID: msgs[0].MessageID.String()}
 
 	srs.mu.Lock()
-	srs.sentTasks = map[string]VerificationTask{taskA.MessageID: taskA}
+	srs.sentTasks = map[string]verifier.VerificationTask{taskA.MessageID: taskA}
 	srs.mu.Unlock()
 
 	// New query results: A is gone (reorged after being sent)
-	newTasks := []VerificationTask{}
+	newTasks := []verifier.VerificationTask{}
 
 	srs.addToPendingQueueHandleReorg(newTasks, big.NewInt(100), big.NewInt(100))
 
@@ -664,9 +666,9 @@ func TestSRS_ReorgedMessage_CustomFinality_WaitsForFinalization(t *testing.T) {
 
 	// Create message with custom finality of 5 blocks
 	const customFinality uint16 = 5
-	msg := CreateTestMessage(t, 10, chain, defaultDestChain, customFinality, 300_000)
+	msg := testutil.CreateTestMessage(t, 10, chain, defaultDestChain, customFinality, 300_000)
 	msgID, _ := msg.MessageID()
-	task := VerificationTask{
+	task := verifier.VerificationTask{
 		Message:     msg,
 		BlockNumber: 190,
 		MessageID:   msgID.String(),
@@ -704,9 +706,9 @@ func TestSRS_NonReorgedMessage_UsesCustomFinality(t *testing.T) {
 
 	// Create message with custom finality of 5 blocks
 	const customFinality uint16 = 5
-	msg := CreateTestMessage(t, 10, chain, defaultDestChain, customFinality, 300_000)
+	msg := testutil.CreateTestMessage(t, 10, chain, defaultDestChain, customFinality, 300_000)
 	msgID, _ := msg.MessageID()
-	task := VerificationTask{
+	task := verifier.VerificationTask{
 		Message:     msg,
 		BlockNumber: 190,
 		MessageID:   msgID.String(),
@@ -742,9 +744,9 @@ func TestSRS_ReorgedMessage_DifferentDest_UsesCustomFinality(t *testing.T) {
 
 	// Create message with same seqNum 10 but for dest2 (different lane)
 	const customFinality uint16 = 5
-	msg := CreateTestMessage(t, 10, chain, dest2, customFinality, 300_000)
+	msg := testutil.CreateTestMessage(t, 10, chain, dest2, customFinality, 300_000)
 	msgID, _ := msg.MessageID()
-	task := VerificationTask{
+	task := verifier.VerificationTask{
 		Message:     msg,
 		BlockNumber: 190,
 		MessageID:   msgID.String(),
@@ -775,9 +777,9 @@ func TestSRS_ReorgTracker_RemovedAfterFinalization(t *testing.T) {
 	mockFC.EXPECT().IsFinalityViolated().Return(false).Maybe()
 
 	// Create a message and mark its seqNum as reorged
-	msg := CreateTestMessage(t, 10, chain, defaultDestChain, 0, 300_000)
+	msg := testutil.CreateTestMessage(t, 10, chain, defaultDestChain, 0, 300_000)
 	msgID, _ := msg.MessageID()
-	task := VerificationTask{
+	task := verifier.VerificationTask{
 		Message:     msg,
 		BlockNumber: 100,
 		MessageID:   msgID.String(),
@@ -1223,7 +1225,7 @@ func TestSRS_FailureDoesNotDeleteExistingTasks(t *testing.T) {
 
 	// Pre-seed a pending task
 	existingEvent := createTestMessageSentEvents(t, 1, chain, defaultDestChain, []uint64{100})
-	existingTask := VerificationTask{
+	existingTask := verifier.VerificationTask{
 		Message:     existingEvent[0].Message,
 		BlockNumber: existingEvent[0].BlockNumber,
 		MessageID:   existingEvent[0].MessageID.String(),
@@ -1865,18 +1867,18 @@ func TestSRS_Reorg_TasksBeyondToBlockNotDropped(t *testing.T) {
 
 	// Task at block 200 sits beyond the queried range [100, 150].
 	msgs := createTestMessageSentEvents(t, 1, chain, defaultDestChain, []uint64{200})
-	taskFuture := VerificationTask{
+	taskFuture := verifier.VerificationTask{
 		Message:     msgs[0].Message,
 		BlockNumber: msgs[0].BlockNumber,
 		MessageID:   msgs[0].MessageID.String(),
 	}
 
 	srs.mu.Lock()
-	srs.pendingTasks = map[string]VerificationTask{taskFuture.MessageID: taskFuture}
+	srs.pendingTasks = map[string]verifier.VerificationTask{taskFuture.MessageID: taskFuture}
 	srs.mu.Unlock()
 
 	// New query over [100, 150] returns nothing — taskFuture was NOT in this range.
-	srs.addToPendingQueueHandleReorg([]VerificationTask{}, big.NewInt(100), big.NewInt(150))
+	srs.addToPendingQueueHandleReorg([]verifier.VerificationTask{}, big.NewInt(100), big.NewInt(150))
 
 	srs.mu.RLock()
 	defer srs.mu.RUnlock()
@@ -1903,18 +1905,18 @@ func TestSRS_Reorg_NilToBlock_UnboundedWindow(t *testing.T) {
 
 	// Task at block 200 — far above fromBlock (100), but toBlock is nil (unbounded).
 	msgs := createTestMessageSentEvents(t, 1, chain, defaultDestChain, []uint64{200})
-	taskFuture := VerificationTask{
+	taskFuture := verifier.VerificationTask{
 		Message:     msgs[0].Message,
 		BlockNumber: msgs[0].BlockNumber,
 		MessageID:   msgs[0].MessageID.String(),
 	}
 
 	srs.mu.Lock()
-	srs.pendingTasks = map[string]VerificationTask{taskFuture.MessageID: taskFuture}
+	srs.pendingTasks = map[string]verifier.VerificationTask{taskFuture.MessageID: taskFuture}
 	srs.mu.Unlock()
 
 	// nil toBlock → window is [100, ∞) → taskFuture (200) is inside → should be dropped.
-	srs.addToPendingQueueHandleReorg([]VerificationTask{}, big.NewInt(100), nil)
+	srs.addToPendingQueueHandleReorg([]verifier.VerificationTask{}, big.NewInt(100), nil)
 
 	srs.mu.RLock()
 	defer srs.mu.RUnlock()

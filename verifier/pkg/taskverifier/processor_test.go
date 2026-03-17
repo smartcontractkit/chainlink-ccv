@@ -1,4 +1,4 @@
-package verifier_test
+package taskverifier_test
 
 import (
 	"context"
@@ -11,9 +11,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-ccv/verifier"
+	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/jobqueue"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/taskverifier"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/testutil"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
@@ -54,12 +55,12 @@ func TestTaskVerifierProcessorDB_ProcessTasksSuccessfully(t *testing.T) {
 		require.NoError(t, err)
 
 		mockVerifier := &fakeVerifierDB{}
-		processor, err := verifier.NewTaskVerifierProcessorDBWithPollInterval(
+		processor, err := taskverifier.NewTaskVerifierProcessorDBWithPollInterval(
 			lggr,
 			ownerID,
 			mockVerifier,
 			monitoring.NewFakeVerifierMonitoring(),
-			verifier.NoopLatencyTracker{},
+			testutil.NoopLatencyTracker{},
 			taskQueue,
 			resultQueue,
 			10,
@@ -133,12 +134,12 @@ func TestTaskVerifierProcessorDB_ProcessTasksSuccessfully(t *testing.T) {
 		require.NoError(t, err)
 
 		mockVerifier := &fakeVerifierDB{}
-		processor, err := verifier.NewTaskVerifierProcessorDBWithPollInterval(
+		processor, err := taskverifier.NewTaskVerifierProcessorDBWithPollInterval(
 			lggr,
 			ownerID,
 			mockVerifier,
 			monitoring.NewFakeVerifierMonitoring(),
-			verifier.NoopLatencyTracker{},
+			testutil.NoopLatencyTracker{},
 			taskQueue,
 			resultQueue,
 			5,
@@ -230,12 +231,12 @@ func TestTaskVerifierProcessorDB_RetryFailedTasks(t *testing.T) {
 			messageID.String(): {Task: task, Retryable: true, Delay: &fastRetry},
 		})
 
-		processor, err := verifier.NewTaskVerifierProcessorDBWithPollInterval(
+		processor, err := taskverifier.NewTaskVerifierProcessorDBWithPollInterval(
 			lggr,
 			ownerID,
 			mockVerifier,
 			monitoring.NewFakeVerifierMonitoring(),
-			verifier.NoopLatencyTracker{},
+			testutil.NoopLatencyTracker{},
 			taskQueue,
 			resultQueue,
 			10,
@@ -312,12 +313,12 @@ func TestTaskVerifierProcessorDB_RetryFailedTasks(t *testing.T) {
 			},
 		})
 
-		processor, err := verifier.NewTaskVerifierProcessorDBWithPollInterval(
+		processor, err := taskverifier.NewTaskVerifierProcessorDBWithPollInterval(
 			lggr,
 			ownerID,
 			mockVerifier,
 			monitoring.NewFakeVerifierMonitoring(),
-			verifier.NoopLatencyTracker{},
+			testutil.NoopLatencyTracker{},
 			taskQueue,
 			resultQueue,
 			10,
@@ -395,12 +396,12 @@ func TestTaskVerifierProcessorDB_RetryFailedTasks(t *testing.T) {
 			messageID.String(): {Task: task, Retryable: true, Delay: &fastRetry, Error: errors.New("transient error")},
 		})
 
-		processor, err := verifier.NewTaskVerifierProcessorDBWithPollInterval(
+		processor, err := taskverifier.NewTaskVerifierProcessorDBWithPollInterval(
 			lggr,
 			ownerID,
 			mockVerifier,
 			monitoring.NewFakeVerifierMonitoring(),
-			verifier.NoopLatencyTracker{},
+			testutil.NoopLatencyTracker{},
 			taskQueue,
 			resultQueue,
 			10,
@@ -463,12 +464,12 @@ func TestTaskVerifierProcessorDB_Cleanup(t *testing.T) {
 		require.NoError(t, err)
 
 		mockVerifier := &fakeVerifierDB{}
-		processor, err := verifier.NewTaskVerifierProcessorDBWithPollInterval(
+		processor, err := taskverifier.NewTaskVerifierProcessorDBWithPollInterval(
 			lggr,
 			ownerID,
 			mockVerifier,
 			monitoring.NewFakeVerifierMonitoring(),
-			verifier.NoopLatencyTracker{},
+			testutil.NoopLatencyTracker{},
 			taskQueue,
 			resultQueue,
 			10,
@@ -586,12 +587,12 @@ func TestTaskVerifierProcessorDB_StaleJobRecovery(t *testing.T) {
 
 		// Now start processor - it should reclaim the stale job
 		mockVerifier := &fakeVerifierDB{}
-		processor, err := verifier.NewTaskVerifierProcessorDBWithPollInterval(
+		processor, err := taskverifier.NewTaskVerifierProcessorDBWithPollInterval(
 			lggr,
 			ownerID,
 			mockVerifier,
 			monitoring.NewFakeVerifierMonitoring(),
-			verifier.NoopLatencyTracker{},
+			testutil.NoopLatencyTracker{},
 			taskQueue,
 			resultQueue,
 			10,
@@ -650,12 +651,12 @@ func TestTaskVerifierProcessorDB_Shutdown(t *testing.T) {
 		require.NoError(t, err)
 
 		mockVerifier := &fakeVerifierDB{}
-		processor, err := verifier.NewTaskVerifierProcessorDBWithPollInterval(
+		processor, err := taskverifier.NewTaskVerifierProcessorDBWithPollInterval(
 			lggr,
 			ownerID,
 			mockVerifier,
 			monitoring.NewFakeVerifierMonitoring(),
-			verifier.NoopLatencyTracker{},
+			testutil.NoopLatencyTracker{},
 			taskQueue,
 			resultQueue,
 			10,
@@ -838,12 +839,12 @@ func TestTaskVerifierProcessorDB_CustomRetryDelays(t *testing.T) {
 			},
 		})
 
-		processor, err := verifier.NewTaskVerifierProcessorDBWithPollInterval(
+		processor, err := taskverifier.NewTaskVerifierProcessorDBWithPollInterval(
 			lggr,
 			ownerID,
 			mockVerifier,
 			monitoring.NewFakeVerifierMonitoring(),
-			verifier.NoopLatencyTracker{},
+			testutil.NoopLatencyTracker{},
 			taskQueue,
 			resultQueue,
 			10,
@@ -938,12 +939,12 @@ func TestTaskVerifierProcessorDB_CustomRetryDelays(t *testing.T) {
 			"msg3": {Retryable: true, Delay: &longDelay, Error: errors.New("error3")},  // Different delay
 		})
 
-		processor, err := verifier.NewTaskVerifierProcessorDBWithPollInterval(
+		processor, err := taskverifier.NewTaskVerifierProcessorDBWithPollInterval(
 			lggr,
 			ownerID,
 			mockVerifier,
 			monitoring.NewFakeVerifierMonitoring(),
-			verifier.NoopLatencyTracker{},
+			testutil.NoopLatencyTracker{},
 			taskQueue,
 			resultQueue,
 			10,
@@ -1032,12 +1033,12 @@ func TestTaskVerifierProcessorDB_PublishFailureHandling(t *testing.T) {
 		// Use a verifier that succeeds (normal case)
 		mockVerifier := &fakeVerifierDB{}
 
-		processor, err := verifier.NewTaskVerifierProcessorDBWithPollInterval(
+		processor, err := taskverifier.NewTaskVerifierProcessorDBWithPollInterval(
 			lggr,
 			ownerID,
 			mockVerifier,
 			monitoring.NewFakeVerifierMonitoring(),
-			verifier.NoopLatencyTracker{},
+			testutil.NoopLatencyTracker{},
 			taskQueue,
 			resultQueue,
 			10,

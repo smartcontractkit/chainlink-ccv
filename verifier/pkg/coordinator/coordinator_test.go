@@ -1,4 +1,4 @@
-package verifier_test
+package coordinator_test
 
 import (
 	"context"
@@ -20,9 +20,10 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-ccv/verifier"
+	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/commit"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/common"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/coordinator"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/testutil"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -146,13 +147,13 @@ func createVerificationCoordinator(
 	ts *testSetup,
 	config verifier.CoordinatorConfig,
 	sourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
-) (*verifier.Coordinator, error) {
+) (*coordinator.Coordinator, error) {
 	noopMonitoring := monitoring.NewFakeVerifierMonitoring()
-	noopLatencyTracker := verifier.NoopLatencyTracker{}
+	noopLatencyTracker := testutil.NoopLatencyTracker{}
 	commitVerifier, err := commit.NewCommitVerifier(config, ts.signerAddr, ts.signer, ts.logger, noopMonitoring)
 	require.NoError(ts.t, err)
 
-	return verifier.NewCoordinator(
+	return coordinator.NewCoordinator(
 		ts.logger,
 		commitVerifier,
 		sourceReaders,
@@ -213,7 +214,7 @@ func TestVerifier(t *testing.T) {
 	})
 
 	// Set up mock source readerService
-	mockSetup := verifier.SetupMockSourceReader(t)
+	mockSetup := coordinator.SetupMockSourceReader(t)
 	mockSetup.ExpectFetchMessageSentEvent(false)
 	sourceReaders := map[protocol.ChainSelector]chainaccess.SourceReader{
 		sourceChain1: mockSetup.Reader,
@@ -239,7 +240,7 @@ func TestVerifier(t *testing.T) {
 	sendEventsAsync(testEvents, mockSetup.Channel, &messagesSent, 10*time.Millisecond)
 
 	// Wait for processing and verify results
-	verifier.WaitForMessagesInStorage(ts.t, ts.storage, len(testEvents))
+	coordinator.WaitForMessagesInStorage(ts.t, ts.storage, len(testEvents))
 
 	err = v.Close()
 	require.NoError(t, err)
@@ -270,9 +271,9 @@ func TestMultiSourceVerifier_TwoSources(t *testing.T) {
 	})
 
 	// Set up mock source readers
-	mockSetup1 := verifier.SetupMockSourceReader(t)
+	mockSetup1 := coordinator.SetupMockSourceReader(t)
 	mockSetup1.ExpectFetchMessageSentEvent(false)
-	mockSetup2 := verifier.SetupMockSourceReader(t)
+	mockSetup2 := coordinator.SetupMockSourceReader(t)
 	mockSetup2.ExpectFetchMessageSentEvent(false)
 	sourceReaders := map[protocol.ChainSelector]chainaccess.SourceReader{
 		sourceChain1: mockSetup1.Reader,
@@ -306,7 +307,7 @@ func TestMultiSourceVerifier_TwoSources(t *testing.T) {
 
 	// Wait for all messages to be processed
 	totalMessages := len(eventsSource1) + len(eventsSource2)
-	verifier.WaitForMessagesInStorage(ts.t, ts.storage, totalMessages)
+	coordinator.WaitForMessagesInStorage(ts.t, ts.storage, totalMessages)
 
 	err = v.Close()
 	require.NoError(t, err)
@@ -339,11 +340,11 @@ func TestMultiSourceVerifier_SingleSourceFailure(t *testing.T) {
 	})
 
 	// Set up mock source readers.
-	mockSetup1 := verifier.SetupMockSourceReader(t)
+	mockSetup1 := coordinator.SetupMockSourceReader(t)
 	mockSetup1.ExpectFetchMessageSentEvent(false)
 
 	// Generate an error on source 2.
-	mockSetup2 := verifier.SetupMockSourceReader(t)
+	mockSetup2 := coordinator.SetupMockSourceReader(t)
 	sentinelError := errors.New("The Terminator")
 	mockSetup2.Reader.EXPECT().FetchMessageSentEvents(mock.Anything, mock.Anything, mock.Anything).Return(nil, sentinelError)
 
@@ -369,7 +370,7 @@ func TestMultiSourceVerifier_SingleSourceFailure(t *testing.T) {
 	}
 
 	sendEventsAsync(eventsSource1, mockSetup1.Channel, nil, 5*time.Millisecond)
-	verifier.WaitForMessagesInStorage(ts.t, ts.storage, len(eventsSource1))
+	coordinator.WaitForMessagesInStorage(ts.t, ts.storage, len(eventsSource1))
 
 	err = v.Close()
 	require.NoError(t, err)
@@ -396,9 +397,9 @@ func TestMultiSourceVerifier_HealthReporter(t *testing.T) {
 	})
 
 	// Create mock source readers
-	mockSetup1 := verifier.SetupMockSourceReader(t)
+	mockSetup1 := coordinator.SetupMockSourceReader(t)
 	mockSetup1.ExpectFetchMessageSentEvent(true)
-	mockSetup2 := verifier.SetupMockSourceReader(t)
+	mockSetup2 := coordinator.SetupMockSourceReader(t)
 	mockSetup2.ExpectFetchMessageSentEvent(true)
 
 	sourceReaders := map[protocol.ChainSelector]chainaccess.SourceReader{
@@ -447,9 +448,9 @@ func TestVerificationErrorHandling(t *testing.T) {
 	})
 
 	// Set up mock source readers for both chains.
-	mockSetup1 := verifier.SetupMockSourceReader(t)
+	mockSetup1 := coordinator.SetupMockSourceReader(t)
 	mockSetup1.ExpectFetchMessageSentEvent(false)
-	mockSetup2 := verifier.SetupMockSourceReader(t)
+	mockSetup2 := coordinator.SetupMockSourceReader(t)
 	mockSetup2.ExpectFetchMessageSentEvent(true)
 
 	// Create source readers map that includes the unconfigured chain
@@ -478,7 +479,7 @@ func TestVerificationErrorHandling(t *testing.T) {
 	sendEventsAsync([]protocol.MessageSentEvent{invalidEvent}, mockSetup2.Channel, nil, 10*time.Millisecond)
 
 	// Wait for valid event to be processed
-	verifier.WaitForMessagesInStorage(ts.t, ts.storage, 1)
+	coordinator.WaitForMessagesInStorage(ts.t, ts.storage, 1)
 
 	// Give some time for error processing
 	time.Sleep(200 * time.Millisecond)
@@ -513,7 +514,7 @@ func createTestMessageSentEventWithToken(
 	tokenTransfer *protocol.TokenTransfer,
 ) protocol.MessageSentEvent {
 	t.Helper()
-	message := verifier.CreateTestMessage(t, sequenceNumber, sourceChainSelector, destChainSelector, finality, gasLimit)
+	message := testutil.CreateTestMessage(t, sequenceNumber, sourceChainSelector, destChainSelector, finality, gasLimit)
 	message.TokenTransfer = tokenTransfer
 	messageID, _ := message.MessageID()
 

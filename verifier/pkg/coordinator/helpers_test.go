@@ -1,4 +1,4 @@
-package verifier
+package coordinator
 
 import (
 	"context"
@@ -22,8 +22,14 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	verpkg "github.com/smartcontractkit/chainlink-ccv/verifier/pkg"
 	vcommon "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/common"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/heartbeat"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/jobqueue"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/sourcereader"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/storagewriter"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/taskverifier"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/testutil"
 )
 
 // WaitForMessagesInStorage waits for the specified number of messages to be processed.
@@ -44,46 +50,6 @@ func WaitForMessagesInStorage(t *testing.T, storage *vcommon.InMemoryOffchainSto
 			}
 		}
 	}
-}
-
-func CreateTestMessage(t *testing.T, sequenceNumber protocol.SequenceNumber, sourceChainSelector, destChainSelector protocol.ChainSelector, finality uint16, gasLimit uint32) protocol.Message {
-	sender := protocol.UnknownAddress([]byte("sender_address"))
-	receiver := protocol.UnknownAddress([]byte("receiver_address"))
-	onRampAddr := protocol.UnknownAddress([]byte("onramp_address"))
-	offRampAddr := protocol.UnknownAddress([]byte("offramp_address"))
-
-	// Create test CCV and executor addresses for computing the hash
-	ccvAddr := make([]byte, 20)
-	ccvAddr[0] = 0x11 // Use a simple test pattern
-
-	executorAddr := make([]byte, 20)
-	executorAddr[0] = 0x22 // Use a simple test pattern
-
-	// Compute the ccvAndExecutorHash from the test addresses
-	ccvAndExecutorHash, err := protocol.ComputeCCVAndExecutorHash(
-		[]protocol.UnknownAddress{protocol.UnknownAddress(ccvAddr)},
-		protocol.UnknownAddress(executorAddr),
-	)
-	require.NoError(t, err)
-
-	message, err := protocol.NewMessage(
-		sourceChainSelector,
-		destChainSelector,
-		sequenceNumber,
-		onRampAddr,
-		offRampAddr,
-		finality,
-		gasLimit,
-		gasLimit,           // ccipReceiveGasLimit (same as executionGasLimit for tests)
-		ccvAndExecutorHash, // ccvAndExecutorHash
-		sender,
-		receiver,
-		[]byte("test data"), // dest blob
-		[]byte("test data"), // data
-		nil,                 // nil token transfer = 0 length
-	)
-	require.NoError(t, err)
-	return *message
 }
 
 // MockSourceReaderSetup contains a mock source Reader and its Channel.
@@ -139,19 +105,14 @@ func (msrs *MockSourceReaderSetup) ExpectFetchMessageSentEvent(maybeVerification
 	}
 }
 
-// Test constants.
-const (
-	defaultDestChain = protocol.ChainSelector(100)
-)
-
 // noopMonitoring is a simple noop monitoring implementation for tests.
 type noopMonitoring struct{}
 
-func (m *noopMonitoring) Metrics() MetricLabeler { return &noopMetricLabeler{} }
+func (m *noopMonitoring) Metrics() verpkg.MetricLabeler { return &noopMetricLabeler{} }
 
 type noopMetricLabeler struct{}
 
-func (m *noopMetricLabeler) With(keyValues ...string) MetricLabeler                              { return m }
+func (m *noopMetricLabeler) With(keyValues ...string) verpkg.MetricLabeler                       { return m }
 func (m *noopMetricLabeler) RecordMessageE2ELatency(ctx context.Context, duration time.Duration) {}
 func (m *noopMetricLabeler) IncrementMessagesProcessed(ctx context.Context)                      {}
 func (m *noopMetricLabeler) IncrementMessagesVerificationFailed(ctx context.Context)             {}
@@ -192,32 +153,27 @@ func (m *noopMetricLabeler) RecordHTTPRequestDuration(ctx context.Context, durat
 func (m *noopMetricLabeler) RecordStorageQueryDuration(ctx context.Context, method string, duration time.Duration) {
 }
 
-type NoopLatencyTracker struct{}
-
-func (n NoopLatencyTracker) MarkMessageAsSeen(*VerificationTask)                                  {}
-func (n NoopLatencyTracker) TrackMessageLatencies(context.Context, []protocol.VerifierNodeResult) {}
-
 // TestVerifier keeps track of all processed messages for testing.
 type TestVerifier struct {
-	processedTasks []VerificationTask
+	processedTasks []verpkg.VerificationTask
 	mu             sync.RWMutex
 }
 
 func NewTestVerifier() *TestVerifier {
 	return &TestVerifier{
-		processedTasks: make([]VerificationTask, 0),
+		processedTasks: make([]verpkg.VerificationTask, 0),
 	}
 }
 
 func (t *TestVerifier) VerifyMessages(
 	_ context.Context,
-	tasks []VerificationTask,
-) []VerificationResult {
+	tasks []verpkg.VerificationTask,
+) []verpkg.VerificationResult {
 	t.mu.Lock()
 	t.processedTasks = append(t.processedTasks, tasks...)
 	t.mu.Unlock()
 
-	results := make([]VerificationResult, 0, len(tasks))
+	results := make([]verpkg.VerificationResult, 0, len(tasks))
 
 	// Create mock CCV node data for each task
 	for _, verificationTask := range tasks {
@@ -254,7 +210,7 @@ func (t *TestVerifier) VerifyMessages(
 			Signature:       []byte("mock-signature"),
 		}
 
-		results = append(results, VerificationResult{
+		results = append(results, verpkg.VerificationResult{
 			Result: &ccvNodeData,
 		})
 	}
@@ -271,13 +227,13 @@ func (t *TestVerifier) GetProcessedTaskCount() int {
 func (t *TestVerifier) Reset() {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	t.processedTasks = make([]VerificationTask, 0)
+	t.processedTasks = make([]verpkg.VerificationTask, 0)
 }
 
-func (t *TestVerifier) GetProcessedTasks() []VerificationTask {
+func (t *TestVerifier) GetProcessedTasks() []verpkg.VerificationTask {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
-	return append([]VerificationTask(nil), t.processedTasks...)
+	return append([]verpkg.VerificationTask(nil), t.processedTasks...)
 }
 
 // NoopStorage for testing.
@@ -324,7 +280,7 @@ func createTestMessageSentEvents(
 	events := make([]protocol.MessageSentEvent, len(blockNumbers))
 	for i, blockNum := range blockNumbers {
 		sequenceNumber := startNonce + uint64(i)
-		message := CreateTestMessage(t, protocol.SequenceNumber(sequenceNumber), chainSelector, destChain, 0, 300_000)
+		message := testutil.CreateTestMessage(t, protocol.SequenceNumber(sequenceNumber), chainSelector, destChain, 0, 300_000)
 		messageID, _ := message.MessageID()
 
 		events[i] = protocol.MessageSentEvent{
@@ -350,12 +306,6 @@ func createTestMessageSentEvents(
 	return events
 }
 
-type noopFilter struct{}
-
-func (n *noopFilter) Filter(msg protocol.MessageSentEvent) bool {
-	return true
-}
-
 // NewCoordinatorWithFastPolling creates a coordinator with services pre-initialized and fast polling intervals for testing.
 // Unlike NewCoordinator/NewCoordinatorWithDetector, it does not set initFn: all services (curse detector, source readers,
 // task verifier, storage writer, optional heartbeat) are built in the constructor. Start(ctx) therefore skips init
@@ -363,12 +313,12 @@ func (n *noopFilter) Filter(msg protocol.MessageSentEvent) bool {
 // without running deferred init (e.g. filterOnlyEnabledSourceReaders) at Start time.
 func NewCoordinatorWithFastPolling(
 	lggr logger.Logger,
-	verifier Verifier,
+	verifier verpkg.Verifier,
 	sourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
 	storage protocol.CCVNodeDataWriter,
-	config CoordinatorConfig,
-	messageTracker MessageLatencyTracker,
-	monitoring Monitoring,
+	config verpkg.CoordinatorConfig,
+	messageTracker verpkg.MessageLatencyTracker,
+	monitoring verpkg.Monitoring,
 	chainStatusManager protocol.ChainStatusManager,
 	heartbeatClient heartbeatclient.HeartbeatSender,
 	ds sqlutil.DataSource,
@@ -408,14 +358,14 @@ func NewCoordinatorWithFastPolling(
 		sourceReaderServices[chainSelector] = srs
 	}
 
-	var heartbeatReporter *HeartbeatReporter
+	var heartbeatReporter *heartbeat.Reporter
 	if heartbeatClient != nil && config.HeartbeatInterval > 0 {
 		allSelectors := make([]protocol.ChainSelector, 0, len(sourceReaders))
 		for selector := range sourceReaders {
 			allSelectors = append(allSelectors, selector)
 		}
 
-		heartbeatReporter, err = NewHeartbeatReporter(
+		heartbeatReporter, err = heartbeat.NewReporter(
 			logger.With(lggr, "component", "HeartbeatReporter"),
 			chainStatusManager,
 			heartbeatClient,
@@ -443,20 +393,20 @@ func NewCoordinatorWithFastPolling(
 func createDurableProcessorsWithPollInterval(
 	lggr logger.Logger,
 	ds sqlutil.DataSource,
-	config CoordinatorConfig,
-	verifier Verifier,
-	monitoring Monitoring,
+	config verpkg.CoordinatorConfig,
+	verifier verpkg.Verifier,
+	monitoring verpkg.Monitoring,
 	enabledSourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
 	chainStatusManager protocol.ChainStatusManager,
 	curseDetector common.CurseCheckerService,
-	messageTracker MessageLatencyTracker,
+	messageTracker verpkg.MessageLatencyTracker,
 	storage protocol.CCVNodeDataWriter,
 	pollInterval time.Duration,
-) (map[protocol.ChainSelector]*SourceReaderService, services.Service, services.Service, error) {
-	taskQueue, err := jobqueue.NewPostgresJobQueue[VerificationTask](
+) (map[protocol.ChainSelector]*sourcereader.SourceReaderService, services.Service, services.Service, error) {
+	taskQueue, err := jobqueue.NewPostgresJobQueue[verpkg.VerificationTask](
 		ds,
 		jobqueue.QueueConfig{
-			Name:          TaskVerifierJobsTableName,
+			Name:          verpkg.TaskVerifierJobsTableName,
 			OwnerID:       config.VerifierID,
 			RetryDuration: taskQueueRetryDuration,
 			LockDuration:  taskQueueLockDuration,
@@ -470,7 +420,7 @@ func createDurableProcessorsWithPollInterval(
 	resultQueue, err := jobqueue.NewPostgresJobQueue[protocol.VerifierNodeResult](
 		ds,
 		jobqueue.QueueConfig{
-			Name:          StorageWriterJobsTableName,
+			Name:          verpkg.StorageWriterJobsTableName,
 			OwnerID:       config.VerifierID,
 			RetryDuration: resultQueueRetryDuration,
 			LockDuration:  resultQueueLockDuration,
@@ -488,7 +438,7 @@ func createDurableProcessorsWithPollInterval(
 		return nil, nil, nil, fmt.Errorf("failed to create DB source reader services: %w", err)
 	}
 
-	taskVerifierProcessor, err := NewTaskVerifierProcessorDBWithPollInterval(
+	taskVerifierProcessor, err := taskverifier.NewTaskVerifierProcessorDBWithPollInterval(
 		lggr,
 		config.VerifierID,
 		verifier,
@@ -503,7 +453,7 @@ func createDurableProcessorsWithPollInterval(
 		return nil, nil, nil, fmt.Errorf("failed to create task verifier processor DB: %w", err)
 	}
 
-	storageWriterProcessor, err := NewStorageWriterProcessorWithPollInterval(
+	storageWriterProcessor, err := storagewriter.NewStorageWriterProcessorWithPollInterval(
 		lggr,
 		config.VerifierID,
 		messageTracker,

@@ -1,10 +1,11 @@
-package verifier
+package sourcereader
 
 import (
 	"context"
 	"strconv"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -16,10 +17,10 @@ import (
 type ReorgTracker struct {
 	reorgedSeqNums map[protocol.ChainSelector]map[protocol.SequenceNumber]struct{}
 	logger         logger.Logger
-	metrics        MetricLabeler
+	metrics        verifier.MetricLabeler
 }
 
-func NewReorgTracker(lggr logger.Logger, metrics MetricLabeler) *ReorgTracker {
+func NewReorgTracker(lggr logger.Logger, metrics verifier.MetricLabeler) *ReorgTracker {
 	return &ReorgTracker{
 		reorgedSeqNums: make(map[protocol.ChainSelector]map[protocol.SequenceNumber]struct{}),
 		logger:         lggr,

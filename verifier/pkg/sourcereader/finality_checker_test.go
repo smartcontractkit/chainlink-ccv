@@ -1,4 +1,4 @@
-package verifier
+package sourcereader
 
 import (
 	"context"
@@ -11,13 +11,17 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/testutil"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
+
+type MockSourceReaderSetup struct {
+	Reader *mocks.MockSourceReader
+}
 
 // setupMockSourceReaderForFinality creates a mock source Reader with configurable block headers.
 func setupMockSourceReaderForFinality(t *testing.T, blocks map[uint64]protocol.BlockHeader) *MockSourceReaderSetup {
 	mockReader := mocks.NewMockSourceReader(t)
-	channel := make(chan protocol.MessageSentEvent, 10)
 
 	// now := time.Now().Unix()
 
@@ -42,8 +46,7 @@ func setupMockSourceReaderForFinality(t *testing.T, blocks map[uint64]protocol.B
 	).Maybe()
 
 	return &MockSourceReaderSetup{
-		Reader:  mockReader,
-		Channel: channel,
+		Reader: mockReader,
 	}
 }
 
@@ -63,7 +66,7 @@ func TestFinalityViolationChecker_NormalOperation(t *testing.T) {
 		103: {Number: 103, Hash: makeBytes32("hash103"), ParentHash: makeBytes32("hash102")},
 	}
 	mockSetup := setupMockSourceReaderForFinality(t, blocks)
-	metrics := &noopMetricLabeler{}
+	metrics := &testutil.NoopMetricLabeler{}
 
 	checker, err := NewFinalityViolationCheckerService(mockSetup.Reader, protocol.ChainSelector(1), lggr, metrics)
 	require.NoError(t, err)
@@ -99,7 +102,7 @@ func TestFinalityViolationChecker_DetectsViolation(t *testing.T) {
 		103: {Number: 103, Hash: makeBytes32("hash103"), ParentHash: makeBytes32("hash102")},
 	}
 	mockSetup := setupMockSourceReaderForFinality(t, blocks)
-	metrics := &noopMetricLabeler{}
+	metrics := &testutil.NoopMetricLabeler{}
 
 	checker, err := NewFinalityViolationCheckerService(mockSetup.Reader, protocol.ChainSelector(1), lggr, metrics)
 	require.NoError(t, err)
@@ -154,7 +157,7 @@ func TestFinalityViolationChecker_Reset(t *testing.T) {
 		101: {Number: 101, Hash: makeBytes32("hash101"), ParentHash: makeBytes32("hash100")},
 	}
 	mockSetup := setupMockSourceReaderForFinality(t, blocks)
-	metrics := &noopMetricLabeler{}
+	metrics := &testutil.NoopMetricLabeler{}
 
 	checker, err := NewFinalityViolationCheckerService(mockSetup.Reader, protocol.ChainSelector(1), lggr, metrics)
 	require.NoError(t, err)
@@ -181,7 +184,7 @@ func TestFinalityViolationChecker_NoAdvancement(t *testing.T) {
 		100: {Number: 100, Hash: makeBytes32("hash100"), ParentHash: makeBytes32("hash99")},
 	}
 	mockSetup := setupMockSourceReaderForFinality(t, blocks)
-	metrics := &noopMetricLabeler{}
+	metrics := &testutil.NoopMetricLabeler{}
 
 	checker, err := NewFinalityViolationCheckerService(mockSetup.Reader, protocol.ChainSelector(1), lggr, metrics)
 	require.NoError(t, err)
@@ -206,7 +209,7 @@ func TestFinalityViolationChecker_BackwardMovementConsistentHashes_NoViolation(t
 		100: {Number: 100, Hash: makeBytes32("hash100"), ParentHash: makeBytes32("hash99")},
 	}
 	mockSetup := setupMockSourceReaderForFinality(t, blocks)
-	metrics := &noopMetricLabeler{}
+	metrics := &testutil.NoopMetricLabeler{}
 
 	checker, err := NewFinalityViolationCheckerService(mockSetup.Reader, protocol.ChainSelector(1), lggr, metrics)
 	require.NoError(t, err)
@@ -232,7 +235,7 @@ func TestFinalityViolationChecker_BackwardMovementHashChanged_Violation(t *testi
 		100: {Number: 100, Hash: makeBytes32("hash100"), ParentHash: makeBytes32("hash99")},
 	}
 	mockSetup := setupMockSourceReaderForFinality(t, blocks)
-	metrics := &noopMetricLabeler{}
+	metrics := &testutil.NoopMetricLabeler{}
 
 	checker, err := NewFinalityViolationCheckerService(mockSetup.Reader, protocol.ChainSelector(1), lggr, metrics)
 	require.NoError(t, err)
@@ -261,7 +264,7 @@ func TestFinalityViolationChecker_SameHeightHashChange(t *testing.T) {
 		100: {Number: 100, Hash: makeBytes32("hash100"), ParentHash: makeBytes32("hash99")},
 	}
 	mockSetup := setupMockSourceReaderForFinality(t, blocks)
-	metrics := &noopMetricLabeler{}
+	metrics := &testutil.NoopMetricLabeler{}
 
 	checker, err := NewFinalityViolationCheckerService(mockSetup.Reader, protocol.ChainSelector(1), lggr, metrics)
 	require.NoError(t, err)
@@ -305,7 +308,7 @@ func TestFinalityViolationChecker_ParentHashMismatch(t *testing.T) {
 		101: {Number: 101, Hash: makeBytes32("hash101"), ParentHash: makeBytes32("WRONG_PARENT")}, // Wrong parent!
 	}
 	mockSetup := setupMockSourceReaderForFinality(t, blocks)
-	metrics := &noopMetricLabeler{}
+	metrics := &testutil.NoopMetricLabeler{}
 
 	checker, err := NewFinalityViolationCheckerService(mockSetup.Reader, protocol.ChainSelector(1), lggr, metrics)
 	require.NoError(t, err)

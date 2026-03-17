@@ -1,4 +1,4 @@
-package verifier
+package storagewriter
 
 import (
 	"context"
@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/jobqueue"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
@@ -33,7 +34,7 @@ type StorageWriterProcessor struct {
 
 	lggr           logger.Logger
 	verifierID     string
-	messageTracker MessageLatencyTracker
+	messageTracker verifier.MessageLatencyTracker
 
 	storage     protocol.CCVNodeDataWriter
 	resultQueue jobqueue.JobQueue[protocol.VerifierNodeResult]
@@ -49,10 +50,10 @@ type StorageWriterProcessor struct {
 func NewStorageWriterProcessor(
 	lggr logger.Logger,
 	verifierID string,
-	messageTracker MessageLatencyTracker,
+	messageTracker verifier.MessageLatencyTracker,
 	storage protocol.CCVNodeDataWriter,
 	resultQueue jobqueue.JobQueue[protocol.VerifierNodeResult],
-	config CoordinatorConfig,
+	config verifier.CoordinatorConfig,
 ) (*StorageWriterProcessor, error) {
 	return NewStorageWriterProcessorWithPollInterval(
 		lggr, verifierID, messageTracker, storage, resultQueue, config, defaultPollInterval,
@@ -62,10 +63,10 @@ func NewStorageWriterProcessor(
 func NewStorageWriterProcessorWithPollInterval(
 	lggr logger.Logger,
 	verifierID string,
-	messageTracker MessageLatencyTracker,
+	messageTracker verifier.MessageLatencyTracker,
 	storage protocol.CCVNodeDataWriter,
 	resultQueue jobqueue.JobQueue[protocol.VerifierNodeResult],
-	config CoordinatorConfig,
+	config verifier.CoordinatorConfig,
 	pollInterval time.Duration,
 ) (*StorageWriterProcessor, error) {
 	storageBatchSize, _, retryDelay := configWithDefaults(lggr, config)
@@ -134,7 +135,7 @@ func (s *StorageWriterProcessor) run() {
 
 func (s *StorageWriterProcessor) processBatch(ctx context.Context) error {
 	// Consume batch of results from queue
-	consumeCtx, cancel := context.WithTimeout(ctx, DefaultJobQueueOperationTimeout)
+	consumeCtx, cancel := context.WithTimeout(ctx, verifier.DefaultJobQueueOperationTimeout)
 	defer cancel()
 
 	jobs, err := s.resultQueue.Consume(consumeCtx, s.batchSize)
@@ -174,7 +175,7 @@ func (s *StorageWriterProcessor) processBatch(ctx context.Context) error {
 			errorMap[job.ID] = err
 		}
 
-		retryCtx, cancel := context.WithTimeout(ctx, DefaultJobQueueOperationTimeout)
+		retryCtx, cancel := context.WithTimeout(ctx, verifier.DefaultJobQueueOperationTimeout)
 		defer cancel()
 
 		if retryErr := s.resultQueue.Retry(retryCtx, s.retryDelay, errorMap, jobIDs...); retryErr != nil {
@@ -246,7 +247,7 @@ func (s *StorageWriterProcessor) processBatch(ctx context.Context) error {
 			"retryDelay", s.retryDelay,
 		)
 
-		retryCtx, cancel := context.WithTimeout(ctx, DefaultJobQueueOperationTimeout)
+		retryCtx, cancel := context.WithTimeout(ctx, verifier.DefaultJobQueueOperationTimeout)
 		defer cancel()
 
 		if retryErr := s.resultQueue.Retry(retryCtx, s.retryDelay, failedErrorMap, retriableFailedJobs...); retryErr != nil {
@@ -263,7 +264,7 @@ func (s *StorageWriterProcessor) processBatch(ctx context.Context) error {
 			"nonRetriableFailedCount", len(nonRetriableFailedJobs),
 		)
 
-		failCtx, cancel := context.WithTimeout(ctx, DefaultJobQueueOperationTimeout)
+		failCtx, cancel := context.WithTimeout(ctx, verifier.DefaultJobQueueOperationTimeout)
 		defer cancel()
 
 		if failErr := s.resultQueue.Fail(failCtx, failedErrorMap, nonRetriableFailedJobs...); failErr != nil {
@@ -281,7 +282,7 @@ func (s *StorageWriterProcessor) processBatch(ctx context.Context) error {
 	}
 
 	// Mark successful jobs as completed in queue
-	completeCtx, cancel := context.WithTimeout(ctx, DefaultJobQueueOperationTimeout)
+	completeCtx, cancel := context.WithTimeout(ctx, verifier.DefaultJobQueueOperationTimeout)
 	defer cancel()
 
 	if err := s.resultQueue.Complete(completeCtx, successfulJobs...); err != nil {
@@ -299,7 +300,7 @@ func (s *StorageWriterProcessor) processBatch(ctx context.Context) error {
 }
 
 func (s *StorageWriterProcessor) cleanup(ctx context.Context) error {
-	cleanupCtx, cancel := context.WithTimeout(ctx, DefaultJobQueueOperationTimeout)
+	cleanupCtx, cancel := context.WithTimeout(ctx, verifier.DefaultJobQueueOperationTimeout)
 	defer cancel()
 
 	// Cleanup archived jobs older than retention period
@@ -328,7 +329,7 @@ func (s *StorageWriterProcessor) HealthReport() map[string]error {
 	return report
 }
 
-func configWithDefaults(lggr logger.Logger, config CoordinatorConfig) (int, time.Duration, time.Duration) {
+func configWithDefaults(lggr logger.Logger, config verifier.CoordinatorConfig) (int, time.Duration, time.Duration) {
 	storageBatchSize := config.StorageBatchSize
 	if config.StorageBatchSize <= 0 {
 		storageBatchSize = 50
