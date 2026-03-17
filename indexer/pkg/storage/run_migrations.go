@@ -1,4 +1,4 @@
-package db
+package storage
 
 import (
 	"fmt"
@@ -7,13 +7,13 @@ import (
 	"github.com/jmoiron/sqlx"
 	"github.com/pressly/goose/v3"
 
-	"github.com/smartcontractkit/chainlink-ccv/verifier/migrations"
+	"github.com/smartcontractkit/chainlink-ccv/indexer/migrations"
 )
 
 var migrationMutex = sync.Mutex{}
 
-// RunPostgresMigrations applies PostgreSQL database migrations.
-func RunPostgresMigrations(db *sqlx.DB) error {
+// RunMigrations applies PostgreSQL database migrations.
+func RunMigrations(db *sqlx.DB) error {
 	migrationMutex.Lock()
 	defer migrationMutex.Unlock()
 

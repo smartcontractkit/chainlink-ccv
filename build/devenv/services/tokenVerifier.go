@@ -155,7 +155,7 @@ func NewTokenVerifier(in *TokenVerifierInput, blockchainOutputs []*blockchain.Ou
 	}
 
 	req.Mounts = testcontainers.Mounts()
-	req.Mounts = append(req.Mounts, testcontainers.BindMount( //nolint:staticcheck // we're still using it...
+	req.Mounts = append(req.Mounts, testcontainers.BindMount(
 		configFilePath,
 		aggregator.DefaultConfigFile, // TODO: switch to token verifier path, not aggregator path.
 	))
