@@ -20,12 +20,12 @@ import (
 const cmdNameList = "list"
 
 type fakeStore struct {
-	rows    []chainstatus.ChainStatusRow
+	rows    []chainstatus.Row
 	listErr error
 	setErr  error
 }
 
-func (f *fakeStore) List(ctx context.Context) ([]chainstatus.ChainStatusRow, error) {
+func (f *fakeStore) List(ctx context.Context) ([]chainstatus.Row, error) {
 	if f.listErr != nil {
 		return nil, f.listErr
 	}
@@ -73,7 +73,7 @@ func TestListAction_with_rows_prints_tsv(t *testing.T) {
 	deps := Deps{
 		Logger: logger.Test(t),
 		Store: &fakeStore{
-			rows: []chainstatus.ChainStatusRow{
+			rows: []chainstatus.Row{
 				{
 					ChainSelector:        1,
 					VerifierID:           "v1",

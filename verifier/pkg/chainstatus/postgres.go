@@ -13,8 +13,8 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 )
 
-// ChainStatusRow represents a row from ccv_chain_statuses for CLI list output.
-type ChainStatusRow struct {
+// Row represents a row from ccv_chain_statuses for CLI list output.
+type Row struct {
 	ChainSelector        protocol.ChainSelector
 	VerifierID           string
 	FinalizedBlockHeight *big.Int
@@ -111,16 +111,16 @@ func (s *PostgresChainStatusStore) ReadChainStatuses(ctx context.Context, verifi
 }
 
 // List returns all chain status rows.
-func (s *PostgresChainStatusStore) List(ctx context.Context) ([]ChainStatusRow, error) {
+func (s *PostgresChainStatusStore) List(ctx context.Context) ([]Row, error) {
 	var rows []chainStatusListRow
 	err := s.ds.SelectContext(ctx, &rows, `SELECT chain_selector, verifier_id, finalized_block_height, disabled, updated_at
 		FROM ccv_chain_statuses ORDER BY chain_selector, verifier_id`)
 	if err != nil {
 		return nil, fmt.Errorf("failed to list chain statuses: %w", err)
 	}
-	result := make([]ChainStatusRow, 0, len(rows))
+	result := make([]Row, 0, len(rows))
 	for _, r := range rows {
-		row, err := r.toChainStatusRow()
+		row, err := r.toRow()
 		if err != nil {
 			return nil, err
 		}
@@ -137,16 +137,16 @@ type chainStatusListRow struct {
 	UpdatedAt            time.Time `db:"updated_at"`
 }
 
-func (r chainStatusListRow) toChainStatusRow() (ChainStatusRow, error) {
+func (r chainStatusListRow) toRow() (Row, error) {
 	sel, err := strconv.ParseUint(r.ChainSelector, 10, 64)
 	if err != nil {
-		return ChainStatusRow{}, fmt.Errorf("failed to parse chain_selector %s: %w", r.ChainSelector, err)
+		return Row{}, fmt.Errorf("failed to parse chain_selector %s: %w", r.ChainSelector, err)
 	}
 	height, ok := new(big.Int).SetString(r.FinalizedBlockHeight, 10)
 	if !ok {
-		return ChainStatusRow{}, fmt.Errorf("failed to parse finalized_block_height %s", r.FinalizedBlockHeight)
+		return Row{}, fmt.Errorf("failed to parse finalized_block_height %s", r.FinalizedBlockHeight)
 	}
-	return ChainStatusRow{
+	return Row{
 		ChainSelector:        protocol.ChainSelector(sel),
 		VerifierID:           r.VerifierID,
 		FinalizedBlockHeight: height,

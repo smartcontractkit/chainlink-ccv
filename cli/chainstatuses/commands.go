@@ -20,7 +20,7 @@ import (
 // ChainStatusStore is the minimal store interface required by the CLI.
 type ChainStatusStore interface {
 	// List returns all chain status rows.
-	List(ctx context.Context) ([]chainstatus.ChainStatusRow, error)
+	List(ctx context.Context) ([]chainstatus.Row, error)
 	// SetDisabled sets the disabled flag for the given chain and verifier.
 	SetDisabled(ctx context.Context, chainSelector protocol.ChainSelector, verifierID string, disabled bool) error
 	// SetFinalizedBlockHeight sets the finalized block height for the given chain and verifier.
@@ -182,7 +182,7 @@ func setFinalizedHeightActionWithFactory(getDeps func() Deps) func(c *cli.Contex
 	}
 }
 
-func renderList(rows []chainstatus.ChainStatusRow) error {
+func renderList(rows []chainstatus.Row) error {
 	if len(rows) == 0 {
 		fmt.Println("No chain status rows found.") //nolint:forbidigo // CLI user output
 		return nil
