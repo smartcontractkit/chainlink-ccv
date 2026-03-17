@@ -124,9 +124,10 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, appConfig token.Conf
 	monitoredStorage := ccvstorage.NewMonitoredStorage(postgresStorage, verifierMonitoring.Metrics())
 
 	// save the coordinators so that they can be shutdown later on.
+	chainStatusStore := chainstatus.NewPostgresChainStatusStore(db, tvf.lggr)
 	tvf.coordinators = make([]*verifier.Coordinator, 0, len(config.TokenVerifiers))
 	for _, verifierConfig := range config.TokenVerifiers {
-		chainStatusManager := chainstatus.NewPostgresChainStatusManager(db, tvf.lggr, verifierConfig.VerifierID)
+		chainStatusManager := chainstatus.NewPostgresChainStatusManager(chainStatusStore, verifierConfig.VerifierID)
 		// Wrap chain status manager with monitoring decorator to track query durations
 		monitoredChainStatusManager := chainstatus.NewMonitoredChainStatusManager(chainStatusManager, verifierMonitoring.Metrics())
 

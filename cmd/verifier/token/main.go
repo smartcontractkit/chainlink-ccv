@@ -5,10 +5,15 @@ import (
 	"os"
 
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
+	cmd "github.com/smartcontractkit/chainlink-ccv/cmd/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/token"
 )
 
 func main() {
+	if len(os.Args) >= 2 && os.Args[1] == "ccv" {
+		cmd.RunCCVCLI(os.Args[1:])
+		return
+	}
 	err := bootstrap.Run(
 		"TokenVerifier",
 		&tokenVerifierFactory{},

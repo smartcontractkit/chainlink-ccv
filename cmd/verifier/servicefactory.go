@@ -441,7 +441,8 @@ func createChainStatusManager(lggr logger.Logger, verifierID string, monitoring 
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to connect to Postgres DB: %w", err)
 	}
-	chainStatusManager := chainstatus.NewPostgresChainStatusManager(sqlDB, lggr, verifierID)
+	chainStatusStore := chainstatus.NewPostgresChainStatusStore(sqlDB, lggr)
+	chainStatusManager := chainstatus.NewPostgresChainStatusManager(chainStatusStore, verifierID)
 	// Wrap with monitoring decorator to track query durations
 	monitoredManager := chainstatus.NewMonitoredChainStatusManager(chainStatusManager, monitoring.Metrics())
 	return monitoredManager, sqlDB, nil

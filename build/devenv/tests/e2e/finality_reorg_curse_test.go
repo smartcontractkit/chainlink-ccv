@@ -69,7 +69,8 @@ func TestE2EReorg(t *testing.T) {
 	chainStatusDB, err := sqlx.Connect("postgres", verifierDBConnectionString)
 	require.NoError(t, err, "should be able to connect to verifier's postgres database")
 
-	chainStatusManager := chainstatus.NewPostgresChainStatusManager(chainStatusDB, chainStatusLggr, in.Verifier[0].Out.VerifierID)
+	chainStatusStore := chainstatus.NewPostgresChainStatusStore(chainStatusDB, chainStatusLggr)
+	chainStatusManager := chainstatus.NewPostgresChainStatusManager(chainStatusStore, in.Verifier[0].Out.VerifierID)
 	t.Cleanup(func() {
 		_ = chainStatusDB.Close()
 	})
