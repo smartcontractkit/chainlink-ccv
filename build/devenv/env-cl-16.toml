@@ -92,15 +92,15 @@ address = "default-aggregator:50051"
 insecure_connection = true
 
 [environment_topology.nop_topology.committees.default.chain_configs.3379446385462418246]
-nop_aliases = ["node-0", "node-1", "node-2", "node-3", "node-4", "node-5", "node-6", "node-7", "node-8", "node-9", "node-10", "node-11", "node-12", "node-13", "node-14", "node-15"]
+nop_aliases = ["node-1", "node-3", "node-5", "node-7", "node-9", "node-11", "node-13"]
 threshold = 16
 
 [environment_topology.nop_topology.committees.default.chain_configs.12922642891491394802]
-nop_aliases = ["node-0", "node-1", "node-2", "node-3", "node-4", "node-5", "node-6", "node-7", "node-8", "node-9", "node-10", "node-11", "node-12", "node-13", "node-14", "node-15"]
+nop_aliases = ["node-0", "node-2", "node-4", "node-6", "node-8", "node-10", "node-12", "node-14"]
 threshold = 16
 
 [environment_topology.nop_topology.committees.default.chain_configs.4793464827907405086]
-nop_aliases = ["node-0", "node-1", "node-2", "node-3", "node-4", "node-5", "node-6", "node-7", "node-8", "node-9", "node-10", "node-11", "node-12", "node-13", "node-14", "node-15"]
+nop_aliases = ["node-15"]
 threshold = 16
 
 [environment_topology.nop_topology.committees.secondary]
