@@ -346,7 +346,7 @@ func newTestSRSWithFailableQueue(
 	curseDetector *mocks.MockCurseCheckerService,
 	pollInterval time.Duration,
 	maxBlockRange uint64,
-) (*SourceReaderService, *mocks.MockFinalityViolationChecker, *failableTaskQueue) {
+) (*Service, *mocks.MockFinalityViolationChecker, *failableTaskQueue) {
 	t.Helper()
 
 	queue := newFailableTaskQueue()

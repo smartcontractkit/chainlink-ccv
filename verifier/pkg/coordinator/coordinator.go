@@ -157,7 +157,7 @@ func createDurableProcessors(
 	curseDetector common.CurseCheckerService,
 	messageTracker verpkg.MessageLatencyTracker,
 	storage protocol.CCVNodeDataWriter,
-) (map[protocol.ChainSelector]*sourcereader.SourceReaderService, services.Service, services.Service, services.Service, services.Service, error) {
+) (map[protocol.ChainSelector]*sourcereader.Service, services.Service, services.Service, services.Service, services.Service, error) {
 	taskQueue, err := jobqueue.NewPostgresJobQueue[verpkg.VerificationTask](
 		ds,
 		jobqueue.QueueConfig{
@@ -215,14 +215,14 @@ func createDurableProcessors(
 		return nil, nil, nil, nil, nil, fmt.Errorf("failed to create DB source reader services: %w", err)
 	}
 
-	taskVerifierProcessor, err := taskverifier.NewTaskVerifierProcessorDB(
+	taskVerifierProcessor, err := taskverifier.NewProcessor(
 		lggr, config.VerifierID, verifier, monitoring, messageTracker, taskQueueObserver, resultQueueObserver, config.StorageBatchSize,
 	)
 	if err != nil {
 		return nil, nil, nil, nil, nil, fmt.Errorf("failed to create task verifier processor DB: %w", err)
 	}
 
-	storageWriterProcessor, err := storagewriter.NewStorageWriterProcessor(
+	storageWriterProcessor, err := storagewriter.NewProcessor(
 		lggr, config.VerifierID, messageTracker, storage, resultQueueObserver, config,
 	)
 	if err != nil {
@@ -299,19 +299,19 @@ func createSourceReadersDB(
 	monitoring verpkg.Monitoring,
 	enabledSourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
 	taskQueue jobqueue.JobQueue[verpkg.VerificationTask],
-) (map[protocol.ChainSelector]*sourcereader.SourceReaderService, error) {
-	sourceReaderServices := make(map[protocol.ChainSelector]*sourcereader.SourceReaderService)
+) (map[protocol.ChainSelector]*sourcereader.Service, error) {
+	sourceReaderServices := make(map[protocol.ChainSelector]*sourcereader.Service)
 	for chainSelector, sourceReader := range enabledSourceReaders {
 		sourceCfg := config.SourceConfigs[chainSelector]
 		filter := chainaccess.NewReceiptIssuerFilter(sourceCfg.VerifierAddress, sourceCfg.DefaultExecutorAddress)
 		lggr.Infow("PollInterval: ", "chainSelector", chainSelector, "interval", sourceCfg.PollInterval)
-		srs, err := sourcereader.NewSourceReaderServiceDB(
+		srs, err := sourcereader.NewService(
 			sourceReader, chainSelector, chainStatusManager,
 			logger.With(lggr, "component", "SourceReaderDB", "chainID", chainSelector),
 			sourceCfg, curseDetector, filter, monitoring.Metrics(), taskQueue,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("failed to create SourceReaderService for chain %s: %w", chainSelector, err)
+			return nil, fmt.Errorf("failed to create Service for chain %s: %w", chainSelector, err)
 		}
 		sourceReaderServices[chainSelector] = srs
 	}

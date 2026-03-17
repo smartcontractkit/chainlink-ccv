@@ -29,10 +29,10 @@ type blockRange struct {
 	toBlock   *big.Int
 }
 
-// SourceReaderService reads events from chain pushes ready tasks
+// Service reads events from chain pushes ready tasks
 // directly to the ccv_task_verifier_jobs job queue so that
-// TaskVerifierProcessor can pick them up durably.
-type SourceReaderService struct {
+// Processor can pick them up durably.
+type Service struct {
 	services.StateMachine
 	stopCh services.StopChan
 	wg     sync.WaitGroup
@@ -65,9 +65,9 @@ type SourceReaderService struct {
 	filter chainaccess.MessageFilter
 }
 
-// NewSourceReaderServiceDB creates a DB-backed SourceReaderService that publishes
+// NewService creates a DB-backed Service that publishes
 // ready tasks directly to the ccv_task_verifier_jobs job queue.
-func NewSourceReaderServiceDB(
+func NewService(
 	sourceReader chainaccess.SourceReader,
 	chainSelector protocol.ChainSelector,
 	chainStatusManager protocol.ChainStatusManager,
@@ -77,7 +77,7 @@ func NewSourceReaderServiceDB(
 	filter chainaccess.MessageFilter,
 	metrics verifier.MetricLabeler,
 	taskQueue jobqueue.JobQueue[verifier.VerificationTask],
-) (*SourceReaderService, error) {
+) (*Service, error) {
 	if sourceReader == nil {
 		return nil, fmt.Errorf("sourceReader cannot be nil")
 	}
@@ -130,8 +130,8 @@ func NewSourceReaderServiceDB(
 		pollTimeout = DefaultPollTimeout
 	}
 
-	return &SourceReaderService{
-		logger:             logger.With(lggr, "component", "SourceReaderService", "chain", chainSelector),
+	return &Service{
+		logger:             logger.With(lggr, "component", "Service", "chain", chainSelector),
 		sourceReader:       sourceReader,
 		chainSelector:      chainSelector,
 		chainStatusManager: chainStatusManager,
@@ -149,9 +149,9 @@ func NewSourceReaderServiceDB(
 	}, nil
 }
 
-func (r *SourceReaderService) Start(ctx context.Context) error {
+func (r *Service) Start(ctx context.Context) error {
 	return r.StartOnce(r.Name(), func() error {
-		r.logger.Infow("Starting SourceReaderService")
+		r.logger.Infow("Starting Service")
 
 		startBlock, err := r.initializeStartBlock(ctx)
 		if err != nil {
@@ -165,32 +165,32 @@ func (r *SourceReaderService) Start(ctx context.Context) error {
 			r.eventMonitoringLoop()
 		})
 
-		r.logger.Infow("SourceReaderService started")
+		r.logger.Infow("Service started")
 		return nil
 	})
 }
 
-func (r *SourceReaderService) Close() error {
+func (r *Service) Close() error {
 	return r.StopOnce(r.Name(), func() error {
-		r.logger.Infow("Stopping SourceReaderService")
+		r.logger.Infow("Stopping Service")
 		close(r.stopCh)
 		r.wg.Wait()
-		r.logger.Infow("SourceReaderService stopped")
+		r.logger.Infow("Service stopped")
 		return nil
 	})
 }
 
-func (r *SourceReaderService) Name() string {
-	return fmt.Sprintf("verifier.SourceReaderService[%s]", r.chainSelector)
+func (r *Service) Name() string {
+	return fmt.Sprintf("verifier.Service[%s]", r.chainSelector)
 }
 
-func (r *SourceReaderService) HealthReport() map[string]error {
+func (r *Service) HealthReport() map[string]error {
 	report := make(map[string]error)
 	report[r.Name()] = r.Ready()
 	return report
 }
 
-func (r *SourceReaderService) eventMonitoringLoop() {
+func (r *Service) eventMonitoringLoop() {
 	ctx, cancel := r.stopCh.NewCtx()
 	defer cancel()
 
@@ -228,7 +228,7 @@ func (r *SourceReaderService) eventMonitoringLoop() {
 	}
 }
 
-func (r *SourceReaderService) readyToQuery(ctx context.Context) (bool, *protocol.BlockHeader, *protocol.BlockHeader) {
+func (r *Service) readyToQuery(ctx context.Context) (bool, *protocol.BlockHeader, *protocol.BlockHeader) {
 	blockCtx, cancel := context.WithTimeout(ctx, r.pollInterval)
 	defer cancel()
 	latest, finalized, err := r.sourceReader.LatestAndFinalizedBlock(blockCtx)
@@ -245,7 +245,7 @@ func (r *SourceReaderService) readyToQuery(ctx context.Context) (bool, *protocol
 	return true, latest, finalized
 }
 
-func (r *SourceReaderService) getBlockRanges(fromBlock, latest uint64) []blockRange {
+func (r *Service) getBlockRanges(fromBlock, latest uint64) []blockRange {
 	if fromBlock >= latest {
 		return []blockRange{{fromBlock: new(big.Int).SetUint64(fromBlock), toBlock: nil}}
 	}
@@ -270,7 +270,7 @@ func (r *SourceReaderService) getBlockRanges(fromBlock, latest uint64) []blockRa
 	return blockRanges
 }
 
-func (r *SourceReaderService) loadEvents(ctx context.Context, fromBlock *big.Int, latest *protocol.BlockHeader) ([]protocol.MessageSentEvent, *big.Int, error) {
+func (r *Service) loadEvents(ctx context.Context, fromBlock *big.Int, latest *protocol.BlockHeader) ([]protocol.MessageSentEvent, *big.Int, error) {
 	blockRanges := r.getBlockRanges(fromBlock.Uint64(), latest.Number)
 
 	allEvents := make([]protocol.MessageSentEvent, 0)
@@ -287,7 +287,7 @@ func (r *SourceReaderService) loadEvents(ctx context.Context, fromBlock *big.Int
 	return allEvents, finalQueriedBlock, nil
 }
 
-func (r *SourceReaderService) processEventCycle(ctx context.Context, latest, finalized *protocol.BlockHeader) {
+func (r *Service) processEventCycle(ctx context.Context, latest, finalized *protocol.BlockHeader) {
 	r.logger.Infow("processEventCycle starting",
 		"latestBlock", latest.Number,
 		"finalizedBlock", finalized.Number)
@@ -359,7 +359,7 @@ func (r *SourceReaderService) processEventCycle(ctx context.Context, latest, fin
 		"eventsFound", len(events))
 }
 
-func (r *SourceReaderService) initializeStartBlock(ctx context.Context) (*big.Int, error) {
+func (r *Service) initializeStartBlock(ctx context.Context) (*big.Int, error) {
 	r.logger.Infow("Initializing start block for event monitoring")
 
 	chainStatuses, err := r.chainStatusManager.ReadChainStatuses(ctx, []protocol.ChainSelector{r.chainSelector})
@@ -390,7 +390,7 @@ func (r *SourceReaderService) initializeStartBlock(ctx context.Context) (*big.In
 	return startBlock, nil
 }
 
-func (r *SourceReaderService) fallbackBlockEstimate(currentBlock uint64, lookbackBlocks int64) *big.Int {
+func (r *Service) fallbackBlockEstimate(currentBlock uint64, lookbackBlocks int64) *big.Int {
 	currentBlockBig := new(big.Int).SetUint64(currentBlock)
 	fallBackBlock := new(big.Int).Sub(currentBlockBig, big.NewInt(lookbackBlocks))
 	if fallBackBlock.Sign() < 0 {
@@ -402,7 +402,7 @@ func (r *SourceReaderService) fallbackBlockEstimate(currentBlock uint64, lookbac
 	return fallBackBlock
 }
 
-func (r *SourceReaderService) addToPendingQueueHandleReorg(tasks []verifier.VerificationTask, fromBlock, toBlock *big.Int) {
+func (r *Service) addToPendingQueueHandleReorg(tasks []verifier.VerificationTask, fromBlock, toBlock *big.Int) {
 	tasksMap := make(map[string]verifier.VerificationTask)
 	for _, task := range tasks {
 		tasksMap[task.MessageID] = task
@@ -467,7 +467,7 @@ func (r *SourceReaderService) addToPendingQueueHandleReorg(tasks []verifier.Veri
 }
 
 // sendReadyMessages checks for finalized messages and publishes them directly to the task queue.
-func (r *SourceReaderService) sendReadyMessages(ctx context.Context, latest, finalized *protocol.BlockHeader) {
+func (r *Service) sendReadyMessages(ctx context.Context, latest, finalized *protocol.BlockHeader) {
 	r.logger.Infow("Checking for ready messages to send",
 		"latestBlock", latest.Number,
 		"finalizedBlock", finalized.Number)
@@ -614,7 +614,7 @@ func (r *SourceReaderService) sendReadyMessages(ctx context.Context, latest, fin
 
 // writeCheckpoint persists the finalized block checkpoint for this chain.
 // It is called outside any mutex so the DB write does not block in-memory state operations.
-func (r *SourceReaderService) writeCheckpoint(ctx context.Context, finalizedBlock uint64) {
+func (r *Service) writeCheckpoint(ctx context.Context, finalizedBlock uint64) {
 	checkpoint := new(big.Int).SetUint64(finalizedBlock)
 	if err := r.chainStatusManager.WriteChainStatuses(ctx, []protocol.ChainStatusInfo{{
 		ChainSelector:        r.chainSelector,
@@ -626,7 +626,7 @@ func (r *SourceReaderService) writeCheckpoint(ctx context.Context, finalizedBloc
 	}
 }
 
-func (r *SourceReaderService) isMessageReadyForVerification(
+func (r *Service) isMessageReadyForVerification(
 	task verifier.VerificationTask,
 	latestBlock *big.Int,
 	latestFinalizedBlock *big.Int,
@@ -679,7 +679,7 @@ func (r *SourceReaderService) isMessageReadyForVerification(
 	return ready
 }
 
-func (r *SourceReaderService) handleFinalityViolation(ctx context.Context) {
+func (r *Service) handleFinalityViolation(ctx context.Context) {
 	r.logger.Errorw("FINALITY VIOLATION - disabling chain")
 
 	r.mu.Lock()
@@ -710,6 +710,6 @@ func (r *SourceReaderService) handleFinalityViolation(ctx context.Context) {
 }
 
 var (
-	_ services.Service        = (*SourceReaderService)(nil)
-	_ protocol.HealthReporter = (*SourceReaderService)(nil)
+	_ services.Service        = (*Service)(nil)
+	_ protocol.HealthReporter = (*Service)(nil)
 )

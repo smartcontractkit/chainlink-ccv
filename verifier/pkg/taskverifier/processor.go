@@ -22,14 +22,14 @@ const (
 	defaultTaskRetentionPeriod = 30 * 24 * time.Hour // 30 days
 )
 
-// TaskVerifierProcessor is responsible for processing read messages from SourceReaderServices,
-// verifying them using the provided verifier.Verifier, and sending the results to StorageWriterProcessor via the result queue.
+// Processor is responsible for processing read messages from Services,
+// verifying them using the provided verifier.Verifier, and sending the results to Processor via the result queue.
 // It's the second stage in the verifier processing pipeline.
 // It spawns a goroutine per source chain to handle verification concurrently and independently.
 // Retries are handled for individual messages based on the verification result. General idea is very similar to
-// StorageWriterProcessor, but here verifier.Verifier decides whether the error is retryable or not and what delay should be set.
+// Processor, but here verifier.Verifier decides whether the error is retryable or not and what delay should be set.
 // That way we give verifier.Verifier who is aware of the business logic more control over retry behavior.
-type TaskVerifierProcessor struct {
+type Processor struct {
 	services.StateMachine
 	stopCh services.StopChan
 	wg     sync.WaitGroup
@@ -52,7 +52,7 @@ type TaskVerifierProcessor struct {
 	batchSize       int
 }
 
-func NewTaskVerifierProcessorDB(
+func NewProcessor(
 	lggr logger.Logger,
 	verifierID string,
 	verifier verifier.Verifier,
@@ -61,13 +61,13 @@ func NewTaskVerifierProcessorDB(
 	taskQueue jobqueue.JobQueue[verifier.VerificationTask],
 	resultQueue jobqueue.JobQueue[protocol.VerifierNodeResult],
 	batchSize int,
-) (*TaskVerifierProcessor, error) {
-	return NewTaskVerifierProcessorDBWithPollInterval(
+) (*Processor, error) {
+	return NewProcessorWithPollInterval(
 		lggr, verifierID, verifier, monitoring, messageTracker, taskQueue, resultQueue, batchSize, defaultTaskPollInterval,
 	)
 }
 
-func NewTaskVerifierProcessorDBWithPollInterval(
+func NewProcessorWithPollInterval(
 	lggr logger.Logger,
 	verifierID string,
 	verifier verifier.Verifier,
@@ -77,8 +77,8 @@ func NewTaskVerifierProcessorDBWithPollInterval(
 	resultQueue jobqueue.JobQueue[protocol.VerifierNodeResult],
 	batchSize int,
 	pollInterval time.Duration,
-) (*TaskVerifierProcessor, error) {
-	p := &TaskVerifierProcessor{
+) (*Processor, error) {
+	p := &Processor{
 		lggr:            lggr,
 		verifierID:      verifierID,
 		monitoring:      monitoring,
@@ -95,7 +95,7 @@ func NewTaskVerifierProcessorDBWithPollInterval(
 	return p, nil
 }
 
-func (p *TaskVerifierProcessor) Start(context.Context) error {
+func (p *Processor) Start(context.Context) error {
 	return p.StartOnce(p.Name(), func() error {
 		p.wg.Go(func() {
 			p.run()
@@ -104,7 +104,7 @@ func (p *TaskVerifierProcessor) Start(context.Context) error {
 	})
 }
 
-func (p *TaskVerifierProcessor) Close() error {
+func (p *Processor) Close() error {
 	return p.StopOnce(p.Name(), func() error {
 		close(p.stopCh)
 		p.wg.Wait()
@@ -112,7 +112,7 @@ func (p *TaskVerifierProcessor) Close() error {
 	})
 }
 
-func (p *TaskVerifierProcessor) run() {
+func (p *Processor) run() {
 	ctx, cancel := p.stopCh.NewCtx()
 	defer cancel()
 
@@ -125,7 +125,7 @@ func (p *TaskVerifierProcessor) run() {
 	for {
 		select {
 		case <-ctx.Done():
-			p.lggr.Infow("TaskVerifierProcessor close signal received, shutting down")
+			p.lggr.Infow("Processor close signal received, shutting down")
 			return
 
 		case <-ticker.C:
@@ -141,7 +141,7 @@ func (p *TaskVerifierProcessor) run() {
 	}
 }
 
-func (p *TaskVerifierProcessor) processBatch(ctx context.Context) error {
+func (p *Processor) processBatch(ctx context.Context) error {
 	// Consume batch of tasks from queue
 	consumeCtx, cancel := context.WithTimeout(ctx, verifier.DefaultJobQueueOperationTimeout)
 	defer cancel()
@@ -185,7 +185,7 @@ func (p *TaskVerifierProcessor) processBatch(ctx context.Context) error {
 }
 
 // handleVerificationResults processes verification results, updating job statuses and publishing successful results.
-func (p *TaskVerifierProcessor) handleVerificationResults(
+func (p *Processor) handleVerificationResults(
 	ctx context.Context,
 	results []verifier.VerificationResult,
 	jobIDMap map[string]string,
@@ -344,7 +344,7 @@ func (p *TaskVerifierProcessor) handleVerificationResults(
 }
 
 // handleVerificationError processes a single verification error, either scheduling retry or marking as permanent failure.
-func (p *TaskVerifierProcessor) handleVerificationError(
+func (p *Processor) handleVerificationError(
 	ctx context.Context,
 	verificationError verifier.VerificationError,
 	jobID string,
@@ -392,7 +392,7 @@ func (p *TaskVerifierProcessor) handleVerificationError(
 	}
 }
 
-func (p *TaskVerifierProcessor) cleanup(ctx context.Context) error {
+func (p *Processor) cleanup(ctx context.Context) error {
 	cleanupCtx, cancel := context.WithTimeout(ctx, verifier.DefaultJobQueueOperationTimeout)
 	defer cancel()
 
@@ -412,17 +412,17 @@ func (p *TaskVerifierProcessor) cleanup(ctx context.Context) error {
 	return nil
 }
 
-func (p *TaskVerifierProcessor) Name() string {
-	return fmt.Sprintf("verifier.TaskVerifierProcessor[%s]", p.verifierID)
+func (p *Processor) Name() string {
+	return fmt.Sprintf("verifier.Processor[%s]", p.verifierID)
 }
 
-func (p *TaskVerifierProcessor) HealthReport() map[string]error {
+func (p *Processor) HealthReport() map[string]error {
 	report := make(map[string]error)
 	report[p.Name()] = p.Ready()
 	return report
 }
 
 var (
-	_ services.Service        = (*TaskVerifierProcessor)(nil)
-	_ protocol.HealthReporter = (*TaskVerifierProcessor)(nil)
+	_ services.Service        = (*Processor)(nil)
+	_ protocol.HealthReporter = (*Processor)(nil)
 )

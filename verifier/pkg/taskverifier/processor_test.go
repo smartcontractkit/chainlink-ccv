@@ -20,8 +20,8 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
 )
 
-// TestTaskVerifierProcessorDB_ProcessTasksSuccessfully tests successful task processing.
-func TestTaskVerifierProcessorDB_ProcessTasksSuccessfully(t *testing.T) {
+// TestProcessorDB_ProcessTasksSuccessfully tests successful task processing.
+func TestProcessorDB_ProcessTasksSuccessfully(t *testing.T) {
 	db := testutil.NewTestDB(t)
 
 	t.Run("processes tasks from queue and publishes results", func(t *testing.T) {
@@ -55,7 +55,7 @@ func TestTaskVerifierProcessorDB_ProcessTasksSuccessfully(t *testing.T) {
 		require.NoError(t, err)
 
 		mockVerifier := &fakeVerifierDB{}
-		processor, err := taskverifier.NewTaskVerifierProcessorDBWithPollInterval(
+		processor, err := taskverifier.NewProcessorWithPollInterval(
 			lggr,
 			ownerID,
 			mockVerifier,
@@ -134,7 +134,7 @@ func TestTaskVerifierProcessorDB_ProcessTasksSuccessfully(t *testing.T) {
 		require.NoError(t, err)
 
 		mockVerifier := &fakeVerifierDB{}
-		processor, err := taskverifier.NewTaskVerifierProcessorDBWithPollInterval(
+		processor, err := taskverifier.NewProcessorWithPollInterval(
 			lggr,
 			ownerID,
 			mockVerifier,
@@ -183,8 +183,8 @@ func TestTaskVerifierProcessorDB_ProcessTasksSuccessfully(t *testing.T) {
 	})
 }
 
-// TestTaskVerifierProcessorDB_RetryFailedTasks tests retry logic.
-func TestTaskVerifierProcessorDB_RetryFailedTasks(t *testing.T) {
+// TestProcessorDB_RetryFailedTasks tests retry logic.
+func TestProcessorDB_RetryFailedTasks(t *testing.T) {
 	db := testutil.NewTestDB(t)
 
 	t.Run("retries failed tasks after delay", func(t *testing.T) {
@@ -231,7 +231,7 @@ func TestTaskVerifierProcessorDB_RetryFailedTasks(t *testing.T) {
 			messageID.String(): {Task: task, Retryable: true, Delay: &fastRetry},
 		})
 
-		processor, err := taskverifier.NewTaskVerifierProcessorDBWithPollInterval(
+		processor, err := taskverifier.NewProcessorWithPollInterval(
 			lggr,
 			ownerID,
 			mockVerifier,
@@ -313,7 +313,7 @@ func TestTaskVerifierProcessorDB_RetryFailedTasks(t *testing.T) {
 			},
 		})
 
-		processor, err := taskverifier.NewTaskVerifierProcessorDBWithPollInterval(
+		processor, err := taskverifier.NewProcessorWithPollInterval(
 			lggr,
 			ownerID,
 			mockVerifier,
@@ -396,7 +396,7 @@ func TestTaskVerifierProcessorDB_RetryFailedTasks(t *testing.T) {
 			messageID.String(): {Task: task, Retryable: true, Delay: &fastRetry, Error: errors.New("transient error")},
 		})
 
-		processor, err := taskverifier.NewTaskVerifierProcessorDBWithPollInterval(
+		processor, err := taskverifier.NewProcessorWithPollInterval(
 			lggr,
 			ownerID,
 			mockVerifier,
@@ -429,8 +429,8 @@ func TestTaskVerifierProcessorDB_RetryFailedTasks(t *testing.T) {
 	})
 }
 
-// TestTaskVerifierProcessorDB_Cleanup tests cleanup of archived jobs.
-func TestTaskVerifierProcessorDB_Cleanup(t *testing.T) {
+// TestProcessorDB_Cleanup tests cleanup of archived jobs.
+func TestProcessorDB_Cleanup(t *testing.T) {
 	db := testutil.NewTestDB(t)
 
 	t.Run("cleans up archived jobs older than retention period", func(t *testing.T) {
@@ -464,7 +464,7 @@ func TestTaskVerifierProcessorDB_Cleanup(t *testing.T) {
 		require.NoError(t, err)
 
 		mockVerifier := &fakeVerifierDB{}
-		processor, err := taskverifier.NewTaskVerifierProcessorDBWithPollInterval(
+		processor, err := taskverifier.NewProcessorWithPollInterval(
 			lggr,
 			ownerID,
 			mockVerifier,
@@ -520,8 +520,8 @@ func TestTaskVerifierProcessorDB_Cleanup(t *testing.T) {
 	})
 }
 
-// TestTaskVerifierProcessorDB_StaleJobRecovery tests recovery of jobs stuck in processing state.
-func TestTaskVerifierProcessorDB_StaleJobRecovery(t *testing.T) {
+// TestProcessorDB_StaleJobRecovery tests recovery of jobs stuck in processing state.
+func TestProcessorDB_StaleJobRecovery(t *testing.T) {
 	db := testutil.NewTestDB(t)
 
 	t.Run("reclaims jobs stuck in processing state beyond lock duration", func(t *testing.T) {
@@ -587,7 +587,7 @@ func TestTaskVerifierProcessorDB_StaleJobRecovery(t *testing.T) {
 
 		// Now start processor - it should reclaim the stale job
 		mockVerifier := &fakeVerifierDB{}
-		processor, err := taskverifier.NewTaskVerifierProcessorDBWithPollInterval(
+		processor, err := taskverifier.NewProcessorWithPollInterval(
 			lggr,
 			ownerID,
 			mockVerifier,
@@ -616,8 +616,8 @@ func TestTaskVerifierProcessorDB_StaleJobRecovery(t *testing.T) {
 	})
 }
 
-// TestTaskVerifierProcessorDB_Shutdown tests graceful shutdown.
-func TestTaskVerifierProcessorDB_Shutdown(t *testing.T) {
+// TestProcessorDB_Shutdown tests graceful shutdown.
+func TestProcessorDB_Shutdown(t *testing.T) {
 	db := testutil.NewTestDB(t)
 
 	t.Run("stops processing after close", func(t *testing.T) {
@@ -651,7 +651,7 @@ func TestTaskVerifierProcessorDB_Shutdown(t *testing.T) {
 		require.NoError(t, err)
 
 		mockVerifier := &fakeVerifierDB{}
-		processor, err := taskverifier.NewTaskVerifierProcessorDBWithPollInterval(
+		processor, err := taskverifier.NewProcessorWithPollInterval(
 			lggr,
 			ownerID,
 			mockVerifier,
@@ -786,8 +786,8 @@ func (f *fakeVerifierDB) VerifyMessages(_ context.Context, tasks []verifier.Veri
 	return results
 }
 
-// TestTaskVerifierProcessorDB_CustomRetryDelays tests that custom retry delays from VerificationError are respected.
-func TestTaskVerifierProcessorDB_CustomRetryDelays(t *testing.T) {
+// TestProcessorDB_CustomRetryDelays tests that custom retry delays from VerificationError are respected.
+func TestProcessorDB_CustomRetryDelays(t *testing.T) {
 	db := testutil.NewTestDB(t)
 
 	t.Run("uses custom delay from VerificationError", func(t *testing.T) {
@@ -839,7 +839,7 @@ func TestTaskVerifierProcessorDB_CustomRetryDelays(t *testing.T) {
 			},
 		})
 
-		processor, err := taskverifier.NewTaskVerifierProcessorDBWithPollInterval(
+		processor, err := taskverifier.NewProcessorWithPollInterval(
 			lggr,
 			ownerID,
 			mockVerifier,
@@ -939,7 +939,7 @@ func TestTaskVerifierProcessorDB_CustomRetryDelays(t *testing.T) {
 			"msg3": {Retryable: true, Delay: &longDelay, Error: errors.New("error3")},  // Different delay
 		})
 
-		processor, err := taskverifier.NewTaskVerifierProcessorDBWithPollInterval(
+		processor, err := taskverifier.NewProcessorWithPollInterval(
 			lggr,
 			ownerID,
 			mockVerifier,
@@ -987,8 +987,8 @@ func TestTaskVerifierProcessorDB_CustomRetryDelays(t *testing.T) {
 	})
 }
 
-// TestTaskVerifierProcessorDB_PublishFailureHandling tests stale lock reclaim mechanism.
-func TestTaskVerifierProcessorDB_PublishFailureHandling(t *testing.T) {
+// TestProcessorDB_PublishFailureHandling tests stale lock reclaim mechanism.
+func TestProcessorDB_PublishFailureHandling(t *testing.T) {
 	db := testutil.NewTestDB(t)
 
 	t.Run("verifies stale lock reclaim mechanism is configured", func(t *testing.T) {
@@ -1033,7 +1033,7 @@ func TestTaskVerifierProcessorDB_PublishFailureHandling(t *testing.T) {
 		// Use a verifier that succeeds (normal case)
 		mockVerifier := &fakeVerifierDB{}
 
-		processor, err := taskverifier.NewTaskVerifierProcessorDBWithPollInterval(
+		processor, err := taskverifier.NewProcessorWithPollInterval(
 			lggr,
 			ownerID,
 			mockVerifier,
@@ -1070,7 +1070,7 @@ func TestTaskVerifierProcessorDB_PublishFailureHandling(t *testing.T) {
 
 		// This test primarily verifies that the stale lock mechanism is configured
 		// and the normal flow works. The actual stale lock reclaim is tested in
-		// TestTaskVerifierProcessorDB_StaleJobRecovery which has a dedicated test for it.
+		// TestProcessorDB_StaleJobRecovery which has a dedicated test for it.
 	})
 }
 

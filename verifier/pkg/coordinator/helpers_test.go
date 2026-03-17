@@ -402,7 +402,7 @@ func createDurableProcessorsWithPollInterval(
 	messageTracker verpkg.MessageLatencyTracker,
 	storage protocol.CCVNodeDataWriter,
 	pollInterval time.Duration,
-) (map[protocol.ChainSelector]*sourcereader.SourceReaderService, services.Service, services.Service, error) {
+) (map[protocol.ChainSelector]*sourcereader.Service, services.Service, services.Service, error) {
 	taskQueue, err := jobqueue.NewPostgresJobQueue[verpkg.VerificationTask](
 		ds,
 		jobqueue.QueueConfig{
@@ -438,7 +438,7 @@ func createDurableProcessorsWithPollInterval(
 		return nil, nil, nil, fmt.Errorf("failed to create DB source reader services: %w", err)
 	}
 
-	taskVerifierProcessor, err := taskverifier.NewTaskVerifierProcessorDBWithPollInterval(
+	taskVerifierProcessor, err := taskverifier.NewProcessorWithPollInterval(
 		lggr,
 		config.VerifierID,
 		verifier,
@@ -453,7 +453,7 @@ func createDurableProcessorsWithPollInterval(
 		return nil, nil, nil, fmt.Errorf("failed to create task verifier processor DB: %w", err)
 	}
 
-	storageWriterProcessor, err := storagewriter.NewStorageWriterProcessorWithPollInterval(
+	storageWriterProcessor, err := storagewriter.NewProcessorWithPollInterval(
 		lggr,
 		config.VerifierID,
 		messageTracker,

@@ -22,12 +22,12 @@ const (
 	defaultRetentionPeriod = 30 * 24 * time.Hour // 30 days
 )
 
-// StorageWriterProcessor handles batching and writing CCVNodeData to the offchain storage.
+// Processor handles batching and writing CCVNodeData to the offchain storage.
 // It represents the final stage (3rd step) in the verifier processing pipeline.
 //
 // We assume here that all failures are transient and can be retried. (e.g. network issues).
 // Therefore, on failure, we schedule a retry after a configured retryDelay.
-type StorageWriterProcessor struct {
+type Processor struct {
 	services.StateMachine
 	stopCh services.StopChan
 	wg     sync.WaitGroup
@@ -47,20 +47,20 @@ type StorageWriterProcessor struct {
 	retryDelay      time.Duration
 }
 
-func NewStorageWriterProcessor(
+func NewProcessor(
 	lggr logger.Logger,
 	verifierID string,
 	messageTracker verifier.MessageLatencyTracker,
 	storage protocol.CCVNodeDataWriter,
 	resultQueue jobqueue.JobQueue[protocol.VerifierNodeResult],
 	config verifier.CoordinatorConfig,
-) (*StorageWriterProcessor, error) {
-	return NewStorageWriterProcessorWithPollInterval(
+) (*Processor, error) {
+	return NewProcessorWithPollInterval(
 		lggr, verifierID, messageTracker, storage, resultQueue, config, defaultPollInterval,
 	)
 }
 
-func NewStorageWriterProcessorWithPollInterval(
+func NewProcessorWithPollInterval(
 	lggr logger.Logger,
 	verifierID string,
 	messageTracker verifier.MessageLatencyTracker,
@@ -68,10 +68,10 @@ func NewStorageWriterProcessorWithPollInterval(
 	resultQueue jobqueue.JobQueue[protocol.VerifierNodeResult],
 	config verifier.CoordinatorConfig,
 	pollInterval time.Duration,
-) (*StorageWriterProcessor, error) {
+) (*Processor, error) {
 	storageBatchSize, _, retryDelay := configWithDefaults(lggr, config)
 
-	processor := &StorageWriterProcessor{
+	processor := &Processor{
 		lggr:            lggr,
 		verifierID:      verifierID,
 		messageTracker:  messageTracker,
@@ -87,7 +87,7 @@ func NewStorageWriterProcessorWithPollInterval(
 	return processor, nil
 }
 
-func (s *StorageWriterProcessor) Start(context.Context) error {
+func (s *Processor) Start(context.Context) error {
 	return s.StartOnce(s.Name(), func() error {
 		s.wg.Go(func() {
 			s.run()
@@ -96,7 +96,7 @@ func (s *StorageWriterProcessor) Start(context.Context) error {
 	})
 }
 
-func (s *StorageWriterProcessor) Close() error {
+func (s *Processor) Close() error {
 	return s.StopOnce(s.Name(), func() error {
 		close(s.stopCh)
 		s.wg.Wait()
@@ -104,7 +104,7 @@ func (s *StorageWriterProcessor) Close() error {
 	})
 }
 
-func (s *StorageWriterProcessor) run() {
+func (s *Processor) run() {
 	ctx, cancel := s.stopCh.NewCtx()
 	defer cancel()
 
@@ -117,7 +117,7 @@ func (s *StorageWriterProcessor) run() {
 	for {
 		select {
 		case <-ctx.Done():
-			s.lggr.Infow("StorageWriterProcessor close signal received, shutting down")
+			s.lggr.Infow("Processor close signal received, shutting down")
 			return
 
 		case <-ticker.C:
@@ -133,7 +133,7 @@ func (s *StorageWriterProcessor) run() {
 	}
 }
 
-func (s *StorageWriterProcessor) processBatch(ctx context.Context) error {
+func (s *Processor) processBatch(ctx context.Context) error {
 	// Consume batch of results from queue
 	consumeCtx, cancel := context.WithTimeout(ctx, verifier.DefaultJobQueueOperationTimeout)
 	defer cancel()
@@ -299,7 +299,7 @@ func (s *StorageWriterProcessor) processBatch(ctx context.Context) error {
 	return nil
 }
 
-func (s *StorageWriterProcessor) cleanup(ctx context.Context) error {
+func (s *Processor) cleanup(ctx context.Context) error {
 	cleanupCtx, cancel := context.WithTimeout(ctx, verifier.DefaultJobQueueOperationTimeout)
 	defer cancel()
 
@@ -319,11 +319,11 @@ func (s *StorageWriterProcessor) cleanup(ctx context.Context) error {
 	return nil
 }
 
-func (s *StorageWriterProcessor) Name() string {
-	return fmt.Sprintf("verifier.StorageWriterProcessor[%s]", s.verifierID)
+func (s *Processor) Name() string {
+	return fmt.Sprintf("verifier.Processor[%s]", s.verifierID)
 }
 
-func (s *StorageWriterProcessor) HealthReport() map[string]error {
+func (s *Processor) HealthReport() map[string]error {
 	report := make(map[string]error)
 	report[s.Name()] = s.Ready()
 	return report
@@ -352,6 +352,6 @@ func configWithDefaults(lggr logger.Logger, config verifier.CoordinatorConfig) (
 }
 
 var (
-	_ services.Service        = (*StorageWriterProcessor)(nil)
-	_ protocol.HealthReporter = (*StorageWriterProcessor)(nil)
+	_ services.Service        = (*Processor)(nil)
+	_ protocol.HealthReporter = (*Processor)(nil)
 )

@@ -22,7 +22,7 @@ import (
 )
 
 // fakeTaskQueue is an in-memory implementation of jobqueue.JobQueue[verifier.VerificationTask]
-// used to capture tasks published by SourceReaderService without needing a real DB.
+// used to capture tasks published by Service without needing a real DB.
 type fakeTaskQueue struct {
 	mu        sync.Mutex
 	published []verifier.VerificationTask
@@ -68,13 +68,13 @@ func newTestSRS(
 	curseDetector *mocks.MockCurseCheckerService,
 	pollInterval time.Duration,
 	maxBlockRange uint64,
-) (*SourceReaderService, *mocks.MockFinalityViolationChecker, *fakeTaskQueue) {
+) (*Service, *mocks.MockFinalityViolationChecker, *fakeTaskQueue) {
 	t.Helper()
 
 	lggr := logger.Test(t)
 	queue := &fakeTaskQueue{}
 
-	srs, err := NewSourceReaderServiceDB(
+	srs, err := NewService(
 		reader,
 		chainSelector,
 		chainStatusMgr,
@@ -594,7 +594,7 @@ func TestSRS_DisableFinalityChecker(t *testing.T) {
 	curseDetector := mocks.NewMockCurseCheckerService(t)
 	lggr := logger.Test(t)
 
-	srs, err := NewSourceReaderServiceDB(
+	srs, err := NewService(
 		reader,
 		chain,
 		chainStatusMgr,

@@ -18,8 +18,8 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
 )
 
-// TestStorageWriterProcessorDB_ProcessBatchesSuccessfully tests successful batch processing.
-func TestStorageWriterProcessorDB_ProcessBatchesSuccessfully(t *testing.T) {
+// TestProcessorDB_ProcessBatchesSuccessfully tests successful batch processing.
+func TestProcessorDB_ProcessBatchesSuccessfully(t *testing.T) {
 	// Shared DB instance for all subtests - unique OwnerIDs prevent collisions
 	db := testutil.NewTestDB(t)
 
@@ -42,7 +42,7 @@ func TestStorageWriterProcessorDB_ProcessBatchesSuccessfully(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		processor, err := NewStorageWriterProcessor(
+		processor, err := NewProcessor(
 			lggr,
 			"test-"+t.Name(),
 			testutil.NoopLatencyTracker{},
@@ -108,7 +108,7 @@ func TestStorageWriterProcessorDB_ProcessBatchesSuccessfully(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		processor, err := NewStorageWriterProcessor(
+		processor, err := NewProcessor(
 			lggr,
 			"test-"+t.Name(),
 			testutil.NoopLatencyTracker{},
@@ -146,8 +146,8 @@ func TestStorageWriterProcessorDB_ProcessBatchesSuccessfully(t *testing.T) {
 	})
 }
 
-// TestStorageWriterProcessorDB_RetryFailedBatches tests retry logic.
-func TestStorageWriterProcessorDB_RetryFailedBatches(t *testing.T) {
+// TestProcessorDB_RetryFailedBatches tests retry logic.
+func TestProcessorDB_RetryFailedBatches(t *testing.T) {
 	// Shared DB instance for all subtests
 	db := testutil.NewTestDB(t)
 
@@ -167,7 +167,7 @@ func TestStorageWriterProcessorDB_RetryFailedBatches(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		processor, err := NewStorageWriterProcessor(
+		processor, err := NewProcessor(
 			lggr,
 			"test-"+t.Name(),
 			testutil.NoopLatencyTracker{},
@@ -231,7 +231,7 @@ func TestStorageWriterProcessorDB_RetryFailedBatches(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		processor, err := NewStorageWriterProcessor(
+		processor, err := NewProcessor(
 			lggr,
 			"test-"+t.Name(),
 			testutil.NoopLatencyTracker{},
@@ -302,7 +302,7 @@ func TestStorageWriterProcessorDB_RetryFailedBatches(t *testing.T) {
 		// Configure storage to always fail
 		fakeStorage.SetError(errors.New("persistent storage error"))
 
-		processor, err := NewStorageWriterProcessor(
+		processor, err := NewProcessor(
 			lggr,
 			"test-"+t.Name(),
 			testutil.NoopLatencyTracker{},
@@ -339,8 +339,8 @@ func TestStorageWriterProcessorDB_RetryFailedBatches(t *testing.T) {
 	})
 }
 
-// TestStorageWriterProcessorDB_Cleanup tests cleanup of archived results.
-func TestStorageWriterProcessorDB_Cleanup(t *testing.T) {
+// TestProcessorDB_Cleanup tests cleanup of archived results.
+func TestProcessorDB_Cleanup(t *testing.T) {
 	db := testutil.NewTestDB(t)
 
 	t.Run("cleans up archived results older than retention period", func(t *testing.T) {
@@ -359,7 +359,7 @@ func TestStorageWriterProcessorDB_Cleanup(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		processor, err := NewStorageWriterProcessor(
+		processor, err := NewProcessor(
 			lggr,
 			"test-"+t.Name(),
 			testutil.NoopLatencyTracker{},
@@ -424,8 +424,8 @@ func TestStorageWriterProcessorDB_Cleanup(t *testing.T) {
 	})
 }
 
-// TestStorageWriterProcessorDB_StaleJobRecovery tests recovery of jobs stuck in processing state.
-func TestStorageWriterProcessorDB_StaleJobRecovery(t *testing.T) {
+// TestProcessorDB_StaleJobRecovery tests recovery of jobs stuck in processing state.
+func TestProcessorDB_StaleJobRecovery(t *testing.T) {
 	db := testutil.NewTestDB(t)
 
 	t.Run("reclaims jobs stuck in processing state beyond lock duration", func(t *testing.T) {
@@ -470,7 +470,7 @@ func TestStorageWriterProcessorDB_StaleJobRecovery(t *testing.T) {
 		require.Equal(t, "processing", status)
 
 		// Now start processor - it should reclaim the stale job
-		processor, err := NewStorageWriterProcessor(
+		processor, err := NewProcessor(
 			lggr,
 			"test-"+t.Name(),
 			testutil.NoopLatencyTracker{},
@@ -500,8 +500,8 @@ func TestStorageWriterProcessorDB_StaleJobRecovery(t *testing.T) {
 	})
 }
 
-// TestStorageWriterProcessorDB_ContextCancellation tests graceful shutdown.
-func TestStorageWriterProcessorDB_ContextCancellation(t *testing.T) {
+// TestProcessorDB_ContextCancellation tests graceful shutdown.
+func TestProcessorDB_ContextCancellation(t *testing.T) {
 	t.Run("stops processing when context is cancelled", func(t *testing.T) {
 		lggr := logger.Test(t)
 		fakeStorage := NewFakeCCVNodeDataWriter()
@@ -518,7 +518,7 @@ func TestStorageWriterProcessorDB_ContextCancellation(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		processor, err := NewStorageWriterProcessor(
+		processor, err := NewProcessor(
 			lggr,
 			"test-"+t.Name(),
 			testutil.NoopLatencyTracker{},

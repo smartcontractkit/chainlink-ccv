@@ -18,7 +18,7 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
 )
 
-func TestStorageWriterProcessorDB_PartialBatchFailures(t *testing.T) {
+func TestProcessorDB_PartialBatchFailures(t *testing.T) {
 	db := testutil.NewTestDB(t)
 
 	t.Run("retries only failed requests in a partially failed batch", func(t *testing.T) {
@@ -37,7 +37,7 @@ func TestStorageWriterProcessorDB_PartialBatchFailures(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		processor, err := NewStorageWriterProcessor(
+		processor, err := NewProcessor(
 			lggr,
 			"test-"+t.Name(),
 			testutil.NoopLatencyTracker{},
@@ -117,7 +117,7 @@ func TestStorageWriterProcessorDB_PartialBatchFailures(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		processor, err := NewStorageWriterProcessor(
+		processor, err := NewProcessor(
 			lggr,
 			"test-"+t.Name(),
 			testutil.NoopLatencyTracker{},
@@ -195,7 +195,7 @@ func TestStorageWriterProcessorDB_PartialBatchFailures(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		processor, err := NewStorageWriterProcessor(
+		processor, err := NewProcessor(
 			lggr,
 			"test-"+t.Name(),
 			testutil.NoopLatencyTracker{},
