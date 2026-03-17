@@ -1,4 +1,4 @@
-package ccvstorage
+package storage
 
 import (
 	"context"

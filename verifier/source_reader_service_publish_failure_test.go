@@ -13,7 +13,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/jobqueue"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/jobqueue"
 )
 
 // failableTaskQueue extends fakeTaskQueue with configurable failure mode for testing.
