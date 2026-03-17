@@ -2,6 +2,7 @@ package executor
 
 import (
 	"fmt"
+	"net/url"
 	"slices"
 	"time"
 
@@ -88,8 +89,19 @@ func (c *Configuration) Validate() error {
 	if len(c.IndexerAddress) < 1 {
 		return fmt.Errorf("at least one indexer address must be configured")
 	}
-	if slices.Contains(c.IndexerAddress, "") {
-		return fmt.Errorf("indexer address must not be empty")
+	seen := make(map[string]struct{}, len(c.IndexerAddress))
+	for _, addr := range c.IndexerAddress {
+		u, err := url.Parse(addr)
+		if err != nil {
+			return fmt.Errorf("invalid indexer URL %q: %w", addr, err)
+		}
+		if u.Scheme == "" || u.Host == "" {
+			return fmt.Errorf("indexer URL %q must have a scheme and host", addr)
+		}
+		if _, ok := seen[addr]; ok {
+			return fmt.Errorf("duplicate indexer address: %q", addr)
+		}
+		seen[addr] = struct{}{}
 	}
 
 	if c.WorkerCount < 0 {
