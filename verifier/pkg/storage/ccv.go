@@ -5,36 +5,34 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/ccvstorage"
-
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
 var (
-	_ protocol.CCVNodeDataWriter  = &AttestationCCVWriter{}
-	_ protocol.VerifierResultsAPI = &AttestationCCVReader{}
+	_ protocol.CCVNodeDataWriter  = &CCVWriter{}
+	_ protocol.VerifierResultsAPI = &CCVReader{}
 )
 
-type AttestationCCVWriter struct {
+type CCVWriter struct {
 	lggr                      logger.Logger
 	verifierResolverAddresses map[protocol.ChainSelector]protocol.UnknownAddress
-	storage                   ccvstorage.CCVStorage
+	storage                   CCVStorage
 }
 
-func NewAttestationCCVWriter(
+func NewCCVWriter(
 	lggr logger.Logger,
 	verifierResolverAddresses map[protocol.ChainSelector]protocol.UnknownAddress,
-	storage ccvstorage.CCVStorage,
-) *AttestationCCVWriter {
-	return &AttestationCCVWriter{
+	storage CCVStorage,
+) *CCVWriter {
+	return &CCVWriter{
 		lggr:                      lggr,
 		verifierResolverAddresses: verifierResolverAddresses,
 		storage:                   storage,
 	}
 }
 
-func (a *AttestationCCVWriter) WriteCCVNodeData(
+func (a *CCVWriter) WriteCCVNodeData(
 	ctx context.Context,
 	ccvDataList []protocol.VerifierNodeResult,
 ) ([]protocol.WriteResult, error) {
@@ -50,10 +48,10 @@ func (a *AttestationCCVWriter) WriteCCVNodeData(
 		}
 	}
 
-	entries := make([]ccvstorage.Entry, len(ccvDataList))
+	entries := make([]Entry, len(ccvDataList))
 	for i, ccvData := range ccvDataList {
 		source, dest := a.addresses(ccvData.Message)
-		entries[i] = ccvstorage.Entry{
+		entries[i] = Entry{
 			Value:                 ccvData,
 			VerifierSourceAddress: source,
 			VerifierDestAddress:   dest,
@@ -75,7 +73,7 @@ func (a *AttestationCCVWriter) WriteCCVNodeData(
 	return results, nil
 }
 
-func (a *AttestationCCVWriter) addresses(message protocol.Message) (protocol.UnknownAddress, protocol.UnknownAddress) {
+func (a *CCVWriter) addresses(message protocol.Message) (protocol.UnknownAddress, protocol.UnknownAddress) {
 	var ok bool
 	var source, dest protocol.UnknownAddress
 	source, ok = a.verifierResolverAddresses[message.SourceChainSelector]
@@ -91,19 +89,19 @@ func (a *AttestationCCVWriter) addresses(message protocol.Message) (protocol.Unk
 	return source, dest
 }
 
-type AttestationCCVReader struct {
-	storage ccvstorage.CCVStorage
+type CCVReader struct {
+	storage CCVStorage
 }
 
-func NewAttestationCCVReader(
-	storage ccvstorage.CCVStorage,
-) *AttestationCCVReader {
-	return &AttestationCCVReader{
+func NewCCVReader(
+	storage CCVStorage,
+) *CCVReader {
+	return &CCVReader{
 		storage: storage,
 	}
 }
 
-func (a *AttestationCCVReader) GetVerifications(
+func (a *CCVReader) GetVerifications(
 	ctx context.Context,
 	messageIDs []protocol.Bytes32,
 ) (map[protocol.Bytes32]protocol.VerifierResult, error) {

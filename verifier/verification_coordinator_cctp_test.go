@@ -18,10 +18,9 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/ccvstorage"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/storage"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/token/cctp"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/token/storage"
 	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
 )
 
@@ -207,7 +206,7 @@ func Test_CCTPMessages_SingleSource(t *testing.T) {
 	// Set up mock head tracker
 	mockLatestBlocks(mockSetup.Reader)
 
-	inMem := ccvstorage.NewInMemory()
+	inMem := storage.NewInMemory()
 	v, err := createCCTPCoordinator(
 		ts,
 		&cctpConfig,
@@ -235,7 +234,7 @@ func Test_CCTPMessages_SingleSource(t *testing.T) {
 
 	var results map[protocol.Bytes32]protocol.VerifierResult
 	require.Eventually(t, func() bool {
-		reader := storage.NewAttestationCCVReader(inMem)
+		reader := storage.NewCCVReader(inMem)
 		results, err = reader.GetVerifications(
 			t.Context(),
 			[]protocol.Bytes32{msg1.MessageID, msg2.MessageID},
@@ -309,7 +308,7 @@ func Test_CCTPMessages_MultipleSources(t *testing.T) {
 	mockLatestBlocks(reader1337.Reader)
 	mockLatestBlocks(reader2337.Reader)
 
-	inMem := ccvstorage.NewInMemory()
+	inMem := storage.NewInMemory()
 	v, err := createCCTPCoordinator(
 		ts,
 		&cctpConfig,
@@ -340,7 +339,7 @@ func Test_CCTPMessages_MultipleSources(t *testing.T) {
 
 	var results map[protocol.Bytes32]protocol.VerifierResult
 	require.Eventually(t, func() bool {
-		reader := storage.NewAttestationCCVReader(inMem)
+		reader := storage.NewCCVReader(inMem)
 		results, err = reader.GetVerifications(
 			t.Context(),
 			[]protocol.Bytes32{msg1337.MessageID, msg2337.MessageID},
@@ -412,7 +411,7 @@ func Test_CCTPMessages_RetryingAttestation(t *testing.T) {
 	// Set up mock head tracker
 	mockLatestBlocks(mockSetup.Reader)
 
-	inMem := ccvstorage.NewInMemory()
+	inMem := storage.NewInMemory()
 	v, err := createCCTPCoordinator(
 		ts,
 		&cctpConfig,
@@ -435,7 +434,7 @@ func Test_CCTPMessages_RetryingAttestation(t *testing.T) {
 
 	var results map[protocol.Bytes32]protocol.VerifierResult
 	require.Eventually(t, func() bool {
-		reader := storage.NewAttestationCCVReader(inMem)
+		reader := storage.NewCCVReader(inMem)
 		results, err = reader.GetVerifications(
 			t.Context(),
 			[]protocol.Bytes32{msg.MessageID},
@@ -471,7 +470,7 @@ func createCCTPCoordinator(
 	cctpConfig *cctp.CCTPConfig,
 	config verifier.CoordinatorConfig,
 	sourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
-	inMemStorage ccvstorage.CCVStorage,
+	inMemStorage storage.CCVStorage,
 ) (*verifier.Coordinator, error) {
 	noopMonitoring := monitoring.NewFakeVerifierMonitoring()
 	noopLatencyTracker := verifier.NoopLatencyTracker{}
@@ -479,7 +478,7 @@ func createCCTPCoordinator(
 	attestationService, err := cctp.NewAttestationService(ts.logger, *cctpConfig)
 	require.NoError(ts.t, err)
 
-	ccvWriter := storage.NewAttestationCCVWriter(
+	ccvWriter := storage.NewCCVWriter(
 		ts.logger,
 		cctpConfig.ParsedVerifierResolvers,
 		inMemStorage,

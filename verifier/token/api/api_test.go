@@ -8,9 +8,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/ccvstorage"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/token/storage"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/storage"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -18,8 +17,8 @@ func TestRateLimitingAppliedToVerificationsEndpoint(t *testing.T) {
 	lggr := logger.Test(t)
 
 	// Set up in-memory storage
-	inmemoryStorage := ccvstorage.NewInMemory()
-	ccvReader := storage.NewAttestationCCVReader(inmemoryStorage)
+	inmemoryStorage := storage.NewInMemory()
+	ccvReader := storage.NewCCVReader(inmemoryStorage)
 
 	// Set up fake monitoring
 	mon := monitoring.NewFakeVerifierMonitoring()
@@ -51,8 +50,8 @@ func TestHealthEndpointsNotRateLimited(t *testing.T) {
 	lggr := logger.Test(t)
 
 	// Set up in-memory storage
-	inmemoryStorage := ccvstorage.NewInMemory()
-	ccvReader := storage.NewAttestationCCVReader(inmemoryStorage)
+	inmemoryStorage := storage.NewInMemory()
+	ccvReader := storage.NewCCVReader(inmemoryStorage)
 
 	// Set up fake monitoring
 	mon := monitoring.NewFakeVerifierMonitoring()

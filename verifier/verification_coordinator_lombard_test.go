@@ -14,10 +14,9 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/ccvstorage"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/storage"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/token/lombard"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/token/storage"
 	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
 )
 
@@ -109,7 +108,7 @@ func Test_LombardMessages_Success(t *testing.T) {
 	// Set up mock head tracker
 	mockLatestBlocks(mockSetup.Reader)
 
-	inMem := ccvstorage.NewInMemory()
+	inMem := storage.NewInMemory()
 	v, err := createLombardCoordinator(
 		ts,
 		&lombardConfig,
@@ -133,7 +132,7 @@ func Test_LombardMessages_Success(t *testing.T) {
 
 	var results map[protocol.Bytes32]protocol.VerifierResult
 	require.Eventually(t, func() bool {
-		reader := storage.NewAttestationCCVReader(inMem)
+		reader := storage.NewCCVReader(inMem)
 		results, err = reader.GetVerifications(
 			t.Context(),
 			[]protocol.Bytes32{msg1.MessageID, msg2.MessageID},
@@ -210,7 +209,7 @@ func Test_LombardMessages_RetryingAttestation(t *testing.T) {
 	// Set up mock head tracker
 	mockLatestBlocks(mockSetup.Reader)
 
-	inMem := ccvstorage.NewInMemory()
+	inMem := storage.NewInMemory()
 	// Use shorter retry intervals for the test to avoid timeouts
 	// The test server returns pending attestations twice, then completed ones
 	// With 100ms retry delay, this should complete in ~300ms instead of 60+ seconds
@@ -239,7 +238,7 @@ func Test_LombardMessages_RetryingAttestation(t *testing.T) {
 
 	var results map[protocol.Bytes32]protocol.VerifierResult
 	require.Eventually(t, func() bool {
-		reader := storage.NewAttestationCCVReader(inMem)
+		reader := storage.NewCCVReader(inMem)
 		results, err = reader.GetVerifications(
 			t.Context(),
 			[]protocol.Bytes32{msg1.MessageID, msg2.MessageID},
@@ -259,7 +258,7 @@ func createLombardCoordinator(
 	lombardConfig *lombard.LombardConfig,
 	config verifier.CoordinatorConfig,
 	sourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
-	inMemStorage *ccvstorage.InMemoryCCVStorage,
+	inMemStorage *storage.InMemoryCCVStorage,
 ) (*verifier.Coordinator, error) {
 	return createLombardCoordinatorWithRetryConfig(
 		ts,
@@ -277,7 +276,7 @@ func createLombardCoordinatorWithRetryConfig(
 	lombardConfig *lombard.LombardConfig,
 	config verifier.CoordinatorConfig,
 	sourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
-	inMemStorage *ccvstorage.InMemoryCCVStorage,
+	inMemStorage *storage.InMemoryCCVStorage,
 	attestationNotReadyRetry time.Duration,
 	anyErrorRetry time.Duration,
 ) (*verifier.Coordinator, error) {
@@ -304,7 +303,7 @@ func createLombardCoordinatorWithRetryConfig(
 		require.NoError(ts.t, err)
 	}
 
-	ccvWriter := storage.NewAttestationCCVWriter(
+	ccvWriter := storage.NewCCVWriter(
 		ts.logger,
 		lombardConfig.ParsedVerifierResolvers,
 		inMemStorage,

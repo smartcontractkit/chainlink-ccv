@@ -8,16 +8,15 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/ccvstorage"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/testutil"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-func TestAttestationCCVWriterAndReader_Postgres(t *testing.T) {
+func TestCCVWriterAndReader_Postgres(t *testing.T) {
 	db := testutil.NewTestDB(t)
 	lggr := logger.Test(t)
 
-	storage := ccvstorage.NewPostgres(db, lggr)
+	storage := NewPostgres(db, lggr)
 
 	// Setup verifier addresses for test chains
 	verifierAddresses := map[protocol.ChainSelector]protocol.UnknownAddress{
@@ -25,8 +24,8 @@ func TestAttestationCCVWriterAndReader_Postgres(t *testing.T) {
 		2: {0xb1, 0xb2, 0xb3},
 	}
 
-	writer := NewAttestationCCVWriter(lggr, verifierAddresses, storage)
-	reader := NewAttestationCCVReader(storage)
+	writer := NewCCVWriter(lggr, verifierAddresses, storage)
+	reader := NewCCVReader(storage)
 
 	ctx := t.Context()
 

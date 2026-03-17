@@ -21,14 +21,13 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/ccvstorage"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/chainstatus"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/storage"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/token"
 	tokenapi "github.com/smartcontractkit/chainlink-ccv/verifier/token/api"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/token/cctp"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/token/lombard"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/token/storage"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -119,9 +118,9 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, appConfig token.Conf
 		os.Exit(1)
 	}
 
-	postgresStorage := ccvstorage.NewPostgres(db, tvf.lggr)
+	postgresStorage := storage.NewPostgres(db, tvf.lggr)
 	// Wrap storage with monitoring decorator to track query durations
-	monitoredStorage := ccvstorage.NewMonitoredStorage(postgresStorage, verifierMonitoring.Metrics())
+	monitoredStorage := storage.NewMonitoredStorage(postgresStorage, verifierMonitoring.Metrics())
 
 	// save the coordinators so that they can be shutdown later on.
 	tvf.coordinators = make([]*verifier.Coordinator, 0, len(config.TokenVerifiers))
@@ -145,7 +144,7 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, appConfig token.Conf
 				tvf.lggr,
 				sourceReaders,
 				rmnRemoteAddresses,
-				storage.NewAttestationCCVWriter(
+				storage.NewCCVWriter(
 					tvf.lggr,
 					verifierConfig.LombardConfig.ParsedVerifierResolvers,
 					monitoredStorage,
@@ -163,7 +162,7 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, appConfig token.Conf
 				tvf.lggr,
 				sourceReaders,
 				rmnRemoteAddresses,
-				storage.NewAttestationCCVWriter(
+				storage.NewCCVWriter(
 					tvf.lggr,
 					verifierConfig.CCTPConfig.ParsedVerifierResolvers,
 					monitoredStorage,
@@ -190,7 +189,7 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, appConfig token.Conf
 	for i, coordinator := range tvf.coordinators {
 		healthReporters[i] = coordinator
 	}
-	ginRouter := tokenapi.NewHTTPAPI(tvf.lggr, storage.NewAttestationCCVReader(postgresStorage), healthReporters, verifierMonitoring)
+	ginRouter := tokenapi.NewHTTPAPI(tvf.lggr, storage.NewCCVReader(postgresStorage), healthReporters, verifierMonitoring)
 
 	// Start HTTP server with Gin router
 	tvf.httpServer = &http.Server{

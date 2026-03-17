@@ -16,15 +16,14 @@ import (
 
 	v1 "github.com/smartcontractkit/chainlink-ccv/integration/pkg/api/v1"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/ccvstorage"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/token/storage"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/storage"
 )
 
 func Test_VerifierResultsHandler(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
-	inmemoryStorage := ccvstorage.NewInMemory()
-	ccvWriter := storage.NewAttestationCCVWriter(
+	inmemoryStorage := storage.NewInMemory()
+	ccvWriter := storage.NewCCVWriter(
 		logger.Test(t),
 		map[protocol.ChainSelector]protocol.UnknownAddress{
 			1:  {0x01, 0x02, 0x03},
@@ -34,7 +33,7 @@ func Test_VerifierResultsHandler(t *testing.T) {
 		},
 		inmemoryStorage,
 	)
-	ccvReader := storage.NewAttestationCCVReader(
+	ccvReader := storage.NewCCVReader(
 		inmemoryStorage,
 	)
 
