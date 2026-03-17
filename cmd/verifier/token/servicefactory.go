@@ -101,7 +101,7 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, appConfig token.Conf
 
 	sourceReaders := cmd.LoadBlockchainReadersForToken(ctx, tvf.lggr, registry, blockchainHelper, config)
 
-	verifierMonitoring := cmd.SetupMonitoring(tvf.lggr, config.Monitoring)
+	verifierMonitoring := cmd.SetupMonitoring(tvf.lggr, config.Monitoring, "token")
 
 	rmnRemoteAddresses := make(map[string]protocol.UnknownAddress)
 	for selector, address := range config.RMNRemoteAddresses {

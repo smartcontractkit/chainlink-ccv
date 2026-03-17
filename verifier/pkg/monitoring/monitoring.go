@@ -20,7 +20,8 @@ type VerifierBeholderMonitoring struct {
 }
 
 // InitMonitoring initializes the beholder monitoring system for the verifier.
-func InitMonitoring() (verifier.Monitoring, error) {
+// verifierType should be "committee" or "token".
+func InitMonitoring(verifierType string) (verifier.Monitoring, error) {
 	// Initialize the verifier metrics
 	verifierMetrics, err := InitMetrics()
 	if err != nil {
@@ -28,7 +29,7 @@ func InitMonitoring() (verifier.Monitoring, error) {
 	}
 
 	// Record that the service has started immediately.
-	verifierMetrics.RecordServiceStarted(context.Background())
+	verifierMetrics.RecordServiceStarted(context.Background(), verifierType)
 
 	return &VerifierBeholderMonitoring{
 		metrics: NewVerifierMetricLabeler(metrics.NewLabeler(), verifierMetrics),

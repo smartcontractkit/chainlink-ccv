@@ -48,7 +48,7 @@ const (
 	defaultConnMaxIdleTime = 60  // seconds
 )
 
-func SetupMonitoring(lggr logger.Logger, config verifier.MonitoringConfig) verifier.Monitoring {
+func SetupMonitoring(lggr logger.Logger, config verifier.MonitoringConfig, verifierType string) verifier.Monitoring {
 	// If monitoring is not enabled, return a fake monitoring implementation that does nothing.
 	if !config.Enabled {
 		verifierMonitoring := monitoring.NewFakeVerifierMonitoring()
@@ -77,7 +77,7 @@ func SetupMonitoring(lggr logger.Logger, config verifier.MonitoringConfig) verif
 	// Set the beholder client and global otel providers
 	beholder.SetClient(beholderClient)
 	beholder.SetGlobalOtelProviders()
-	verifierMonitoring, err := monitoring.InitMonitoring()
+	verifierMonitoring, err := monitoring.InitMonitoring(verifierType)
 	if err != nil {
 		lggr.Fatalf("Failed to initialize verifier monitoring: %w", err)
 	}

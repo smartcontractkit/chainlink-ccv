@@ -320,9 +320,13 @@ func InitMetrics() (*VerifierMetrics, error) {
 }
 
 // RecordServiceStarted records that the verifier service has started (value = 1).
+// verifierType should be "committee" or "token".
 // The metric is absent when the service is not running.
-func (vm *VerifierMetrics) RecordServiceStarted(ctx context.Context) {
-	vm.serviceStarted.Record(ctx, 1, metric.WithAttributes(attribute.String("service", "verifier")))
+func (vm *VerifierMetrics) RecordServiceStarted(ctx context.Context, verifierType string) {
+	vm.serviceStarted.Record(ctx, 1, metric.WithAttributes(
+		attribute.String("service", "verifier"),
+		attribute.String("type", verifierType),
+	))
 }
 
 // MetricViews defines histogram bucket boundaries for verifier metrics.
