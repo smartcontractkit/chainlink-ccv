@@ -117,7 +117,7 @@ func LoadOutput[T any](outputPath string) (*T, error) {
 		}
 		for _, addr := range addrs {
 			if err := ds.Addresses().Add(addr); err != nil {
-				return nil, fmt.Errorf("failed to set address in datastore: %w", err)
+
 			}
 		}
 	}
