@@ -20,4 +20,3 @@ CREATE INDEX IF NOT EXISTS idx_verifier_node_results_timestamp ON verifier_node_
 DROP INDEX IF EXISTS idx_verifier_node_results_timestamp;
 DROP TABLE IF EXISTS verifier_node_results;
 
-

@@ -12,13 +12,11 @@ ALTER TABLE ccv_storage_writer_jobs_archive DROP COLUMN IF EXISTS task_job_id;
 
 DROP INDEX IF EXISTS idx_ccv_task_verifier_jobs_consume;
 CREATE INDEX idx_ccv_task_verifier_jobs_consume
-    ON ccv_task_verifier_jobs (owner_id, available_at ASC, id ASC)
-    WHERE status = 'pending';
+    ON ccv_task_verifier_jobs (owner_id, available_at ASC, id ASC) WHERE status = 'pending';
 
 DROP INDEX IF EXISTS idx_ccv_storage_writer_jobs_consume;
 CREATE INDEX idx_ccv_storage_writer_jobs_consume
-    ON ccv_storage_writer_jobs (owner_id, available_at ASC, id ASC)
-    WHERE status = 'pending';
+    ON ccv_storage_writer_jobs (owner_id, available_at ASC, id ASC) WHERE status = 'pending';
 
 
 -- Add UNIQUE constraint to prevent duplicate jobs.
@@ -27,11 +25,11 @@ CREATE INDEX idx_ccv_storage_writer_jobs_consume
 
 ALTER TABLE ccv_task_verifier_jobs
     ADD CONSTRAINT ccv_task_verifier_jobs_unique_job
-    UNIQUE (owner_id, chain_selector, message_id);
+        UNIQUE (owner_id, chain_selector, message_id);
 
 ALTER TABLE ccv_storage_writer_jobs
     ADD CONSTRAINT ccv_storage_writer_jobs_unique_job
-    UNIQUE (owner_id, chain_selector, message_id);
+        UNIQUE (owner_id, chain_selector, message_id);
 
 
 -- Drop indexes that are not used by any query in postgres_queue.go.
@@ -83,26 +81,28 @@ CREATE INDEX idx_ccv_storage_writer_jobs_archive_completed
 -- +goose Down
 
 -- Restore task_job_id column
-ALTER TABLE ccv_storage_writer_jobs ADD COLUMN IF NOT EXISTS task_job_id UUID;
-ALTER TABLE ccv_storage_writer_jobs_archive ADD COLUMN IF NOT EXISTS task_job_id UUID;
+ALTER TABLE ccv_storage_writer_jobs
+    ADD COLUMN IF NOT EXISTS task_job_id UUID;
+ALTER TABLE ccv_storage_writer_jobs_archive
+    ADD COLUMN IF NOT EXISTS task_job_id UUID;
 
 -- Remove unique constraints
 ALTER TABLE ccv_task_verifier_jobs
-    DROP CONSTRAINT IF EXISTS ccv_task_verifier_jobs_unique_job;
+DROP
+CONSTRAINT IF EXISTS ccv_task_verifier_jobs_unique_job;
 
 ALTER TABLE ccv_storage_writer_jobs
-    DROP CONSTRAINT IF EXISTS ccv_storage_writer_jobs_unique_job;
+DROP
+CONSTRAINT IF EXISTS ccv_storage_writer_jobs_unique_job;
 
 -- Restore consume indexes with 'failed' status included
 DROP INDEX IF EXISTS idx_ccv_task_verifier_jobs_consume;
 CREATE INDEX idx_ccv_task_verifier_jobs_consume
-    ON ccv_task_verifier_jobs (owner_id, available_at ASC, id ASC)
-    WHERE status IN ('pending', 'failed');
+    ON ccv_task_verifier_jobs (owner_id, available_at ASC, id ASC) WHERE status IN ('pending', 'failed');
 
 DROP INDEX IF EXISTS idx_ccv_storage_writer_jobs_consume;
 CREATE INDEX idx_ccv_storage_writer_jobs_consume
-    ON ccv_storage_writer_jobs (owner_id, available_at ASC, id ASC)
-    WHERE status IN ('pending', 'failed');
+    ON ccv_storage_writer_jobs (owner_id, available_at ASC, id ASC) WHERE status IN ('pending', 'failed');
 
 -- Drop message_id indexes
 DROP INDEX IF EXISTS idx_ccv_task_verifier_jobs_message_id;

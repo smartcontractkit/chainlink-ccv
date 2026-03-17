@@ -11,4 +11,3 @@ CREATE INDEX IF NOT EXISTS idx_ccv_chain_statuses_updated_at ON ccv_chain_status
 -- +goose Down
 DROP INDEX IF EXISTS idx_ccv_chain_statuses_updated_at;
 DROP TABLE IF EXISTS ccv_chain_statuses;
-
