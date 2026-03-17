@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/heartbeatclient"
-	"github.com/smartcontractkit/chainlink-ccv/verifier"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/heartbeat"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
@@ -22,7 +22,7 @@ func TestObservedHeartbeatClient_Close(t *testing.T) {
 		delegateClient,
 		"test-verifier",
 		lggr,
-		verifier.NewHeartbeatMonitoringAdapter(fakeMonitoring),
+		heartbeat.NewHeartbeatMonitoringAdapter(fakeMonitoring),
 	)
 
 	// Close should not error
@@ -40,7 +40,7 @@ func TestObservedHeartbeatClient_WithChainSelector(t *testing.T) {
 		delegateClient,
 		"test-verifier",
 		lggr,
-		verifier.NewHeartbeatMonitoringAdapter(fakeMonitoring),
+		heartbeat.NewHeartbeatMonitoringAdapter(fakeMonitoring),
 	)
 	require.NotNil(t, observedClient)
 

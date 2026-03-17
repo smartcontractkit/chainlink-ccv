@@ -20,22 +20,22 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
-	"github.com/smartcontractkit/chainlink-ccv/verifier"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/ccvstorage"
+	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/chainstatus"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/coordinator"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/token"
-	tokenapi "github.com/smartcontractkit/chainlink-ccv/verifier/token/api"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/token/cctp"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/token/lombard"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/token/storage"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/storage"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token"
+	tokenapi "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/api"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/cctp"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/lombard"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
 type tokenVerifierFactory struct {
 	bootstrap.ServiceFactory[token.Config]
 
-	coordinators []*verifier.Coordinator
+	coordinators []*coordinator.Coordinator
 	httpServer   *http.Server
 	lggr         logger.Logger
 }
@@ -119,13 +119,13 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, appConfig token.Conf
 		os.Exit(1)
 	}
 
-	postgresStorage := ccvstorage.NewPostgres(db, tvf.lggr)
+	postgresStorage := storage.NewPostgres(db, tvf.lggr)
 	// Wrap storage with monitoring decorator to track query durations
-	monitoredStorage := ccvstorage.NewMonitoredStorage(postgresStorage, verifierMonitoring.Metrics())
+	monitoredStorage := storage.NewMonitoredStorage(postgresStorage, verifierMonitoring.Metrics())
 
 	// save the coordinators so that they can be shutdown later on.
 	chainStatusStore := chainstatus.NewPostgresChainStatusStore(db, tvf.lggr)
-	tvf.coordinators = make([]*verifier.Coordinator, 0, len(config.TokenVerifiers))
+	tvf.coordinators = make([]*coordinator.Coordinator, 0, len(config.TokenVerifiers))
 	for _, verifierConfig := range config.TokenVerifiers {
 		chainStatusManager := chainstatus.NewPostgresChainStatusManager(chainStatusStore, verifierConfig.VerifierID)
 		// Wrap chain status manager with monitoring decorator to track query durations
@@ -137,7 +137,7 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, appConfig token.Conf
 			verifierMonitoring,
 		)
 
-		var coordinator *verifier.Coordinator
+		var coordinator *coordinator.Coordinator
 		if verifierConfig.IsLombard() {
 			coordinator = createLombardCoordinator(
 				ctx,
@@ -146,7 +146,7 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, appConfig token.Conf
 				tvf.lggr,
 				sourceReaders,
 				rmnRemoteAddresses,
-				storage.NewAttestationCCVWriter(
+				storage.NewCCVWriter(
 					tvf.lggr,
 					verifierConfig.LombardConfig.ParsedVerifierResolvers,
 					monitoredStorage,
@@ -164,7 +164,7 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, appConfig token.Conf
 				tvf.lggr,
 				sourceReaders,
 				rmnRemoteAddresses,
-				storage.NewAttestationCCVWriter(
+				storage.NewCCVWriter(
 					tvf.lggr,
 					verifierConfig.CCTPConfig.ParsedVerifierResolvers,
 					monitoredStorage,
@@ -191,7 +191,7 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, appConfig token.Conf
 	for i, coordinator := range tvf.coordinators {
 		healthReporters[i] = coordinator
 	}
-	ginRouter := tokenapi.NewHTTPAPI(tvf.lggr, storage.NewAttestationCCVReader(postgresStorage), healthReporters, verifierMonitoring)
+	ginRouter := tokenapi.NewHTTPAPI(tvf.lggr, storage.NewCCVReader(postgresStorage), healthReporters, verifierMonitoring)
 
 	// Start HTTP server with Gin router
 	tvf.httpServer = &http.Server{
@@ -225,7 +225,7 @@ func createCCTPCoordinator(
 	verifierMonitoring verifier.Monitoring,
 	chainStatusManager protocol.ChainStatusManager,
 	db sqlutil.DataSource,
-) *verifier.Coordinator {
+) *coordinator.Coordinator {
 	cctpSourceConfigs := createSourceConfigs(cctpConfig.ParsedVerifierResolvers, rmnRemoteAddresses)
 
 	attestationService, err := cctp.NewAttestationService(lggr, *cctpConfig)
@@ -234,7 +234,7 @@ func createCCTPCoordinator(
 		os.Exit(1)
 	}
 
-	coordinator, err := verifier.NewCoordinator(
+	coordinator, err := coordinator.NewCoordinator(
 		lggr,
 		cctp.NewVerifier(lggr, attestationService),
 		sourceReaders,
@@ -273,7 +273,7 @@ func createLombardCoordinator(
 	verifierMonitoring verifier.Monitoring,
 	chainStatusManager protocol.ChainStatusManager,
 	db sqlutil.DataSource,
-) *verifier.Coordinator {
+) *coordinator.Coordinator {
 	sourceConfigs := createSourceConfigs(lombardConfig.ParsedVerifierResolvers, rmnRemoteAddresses)
 
 	attestationService, err := lombard.NewAttestationService(lggr, *lombardConfig)
@@ -288,7 +288,7 @@ func createLombardCoordinator(
 		os.Exit(1)
 	}
 
-	coordinator, err := verifier.NewCoordinator(
+	coordinator, err := coordinator.NewCoordinator(
 		lggr,
 		lombardVerifier,
 		sourceReaders,

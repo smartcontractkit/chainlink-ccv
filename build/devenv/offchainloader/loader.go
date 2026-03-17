@@ -5,10 +5,10 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-ccv/verifier"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/token"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/token/cctp"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/token/lombard"
+	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/cctp"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/lombard"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 )
 

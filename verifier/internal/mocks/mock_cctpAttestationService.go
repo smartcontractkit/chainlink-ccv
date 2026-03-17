@@ -5,7 +5,7 @@ package mocks
 import (
 	context "context"
 
-	cctp "github.com/smartcontractkit/chainlink-ccv/verifier/token/cctp"
+	cctp "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/cctp"
 
 	mock "github.com/stretchr/testify/mock"
 

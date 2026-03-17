@@ -20,7 +20,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/util"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/commit"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
@@ -406,7 +406,7 @@ func baseImageRequest(in *Input, envVars map[string]string, bootstrapConfigFileP
 	}
 
 	req.Mounts = testcontainers.Mounts()
-	req.Mounts = append(req.Mounts, testcontainers.BindMount( //nolint:staticcheck // we're still using it...
+	req.Mounts = append(req.Mounts, testcontainers.BindMount(
 		bootstrapConfigFilePath,
 		bootstrap.DefaultConfigPath,
 	))

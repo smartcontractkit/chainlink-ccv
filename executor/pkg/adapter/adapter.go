@@ -19,6 +19,7 @@ import (
 // It uses the active client first. If the active client returns a non-success status (anything other than 200 or 404),
 // it concurrently checks the active client's health and queries alternate clients, falling over to the first healthy alternate.
 // Once failed over, it persists on that client.
+// Status-code semantics (e.g. whether 404 is an error) are handled by each caller, not by the failover layer.
 type IndexerReaderAdapter struct {
 	clients         []client.IndexerClientInterface
 	monitoring      executor.Monitoring
@@ -78,16 +79,18 @@ func (ira *IndexerReaderAdapter) setActiveClientIdx(idx int) {
 }
 
 func isSuccessStatus(status int) bool {
-	return status == 200 || status == 404
+	return status == http.StatusOK || status == http.StatusNotFound
 }
 
 // queryWithFailover implements the common failover logic for all query methods.
+// Returns (selectedClientIdx, httpStatus, response, error). The caller is responsible
+// for interpreting status-code semantics (e.g. whether 404 is an error).
 func queryWithFailover[TInput, TResponse any](
 	ctx context.Context,
 	ira *IndexerReaderAdapter,
 	input TInput,
 	callFn func(client.IndexerClientInterface, context.Context, TInput) (int, TResponse, error),
-) (int, TResponse, error) {
+) (int, int, TResponse, error) {
 	activeIdx := ira.getActiveClientIdx()
 
 	// Call active client
@@ -96,9 +99,8 @@ func queryWithFailover[TInput, TResponse any](
 	if isSuccessStatus(status) {
 		ira.lggr.Debugw("Active indexer returned result",
 			"activeIdx", activeIdx,
-			"status", status,
-			"hasError", err != nil)
-		return activeIdx, resp, err
+			"status", status)
+		return activeIdx, status, resp, err
 	}
 
 	ira.lggr.Warnw("Active indexer returned non-success status, checking health and querying alternates",
@@ -133,15 +135,19 @@ func queryWithFailover[TInput, TResponse any](
 	}
 	wg.Wait()
 
+	// Health check passed — the initial failure was transient, retry the query
 	if healthErr == nil {
-		ira.lggr.Infow("Active indexer health check passed, using active result",
-			"activeIdx", activeIdx,
-			"status", status)
-		return activeIdx, resp, err
+		ira.lggr.Infow("Active indexer health check passed, retrying query", "activeIdx", activeIdx)
+		retryStatus, retryResp, retryErr := callFn(ira.clients[activeIdx], ctx, input)
+		if isSuccessStatus(retryStatus) {
+			return activeIdx, retryStatus, retryResp, retryErr
+		}
+		ira.lggr.Warnw("Retry on active indexer also failed after health check passed",
+			"activeIdx", activeIdx, "retryStatus", retryStatus, "retryError", retryErr)
 	}
 
-	// Active client unhealthy - select first healthy alternate
-	ira.lggr.Warnw("Active indexer unhealthy, selecting alternate",
+	// Active client failed - select first healthy alternate
+	ira.lggr.Warnw("Active indexer unavailable, selecting alternate",
 		"activeIdx", activeIdx,
 		"healthError", healthErr)
 
@@ -154,24 +160,19 @@ func queryWithFailover[TInput, TResponse any](
 				"clientIdx", i,
 				"status", result.status)
 			ira.setActiveClientIdx(i)
-			return i, result.response, result.err
+			return i, result.status, result.response, result.err
 		}
 	}
 	// No healthy alternates found, return active client result
 	ira.lggr.Errorw("No healthy alternates found, returning active client result",
 		"activeIdx", activeIdx)
-	return activeIdx, resp, err
+	return activeIdx, status, resp, err
 }
 
-// handleQueryResult records metrics and ensures the active client index is
-// consistent with the most recent successful query. queryWithFailover already
-// updates the index on failover; this serves as a defensive reconciliation.
-func (ira *IndexerReaderAdapter) handleQueryResult(ctx context.Context, selectedIdx int, err error) error {
-	if err != nil {
-		ira.monitoring.Metrics().IncrementHeartbeatFailure(ctx)
-		return err
-	}
-
+// recordHeartbeatSuccess records a successful heartbeat and reconciles the
+// active client index. queryWithFailover already updates the index on failover;
+// this serves as a defensive reconciliation.
+func (ira *IndexerReaderAdapter) recordHeartbeatSuccess(ctx context.Context, selectedIdx int) {
 	if currentActive := ira.getActiveClientIdx(); selectedIdx != currentActive {
 		ira.lggr.Infow("Switching active indexer",
 			"from", currentActive,
@@ -181,13 +182,22 @@ func (ira *IndexerReaderAdapter) handleQueryResult(ctx context.Context, selected
 
 	ira.monitoring.Metrics().IncrementHeartbeatSuccess(ctx)
 	ira.monitoring.Metrics().SetLastHeartbeatTimestamp(ctx, time.Now().Unix())
+}
+
+func (ira *IndexerReaderAdapter) handleQueryResult(ctx context.Context, selectedIdx int, err error) error {
+	if err != nil {
+		ira.monitoring.Metrics().IncrementHeartbeatFailure(ctx)
+		return err
+	}
+
+	ira.recordHeartbeatSuccess(ctx, selectedIdx)
 	return nil
 }
 
 func (ira *IndexerReaderAdapter) GetVerifierResults(ctx context.Context, messageID protocol.Bytes32) ([]protocol.VerifierResult, error) {
 	input := v1.VerifierResultsByMessageIDInput{MessageID: messageID.String()}
 
-	selectedIdx, resp, err := queryWithFailover(
+	selectedIdx, status, resp, err := queryWithFailover(
 		ctx,
 		ira,
 		input,
@@ -196,11 +206,16 @@ func (ira *IndexerReaderAdapter) GetVerifierResults(ctx context.Context, message
 		},
 	)
 
+	// 404 means the indexer is healthy but hasn't seen this message yet
+	if status == http.StatusNotFound {
+		ira.recordHeartbeatSuccess(ctx, selectedIdx)
+		return nil, nil
+	}
+
 	if err := ira.handleQueryResult(ctx, selectedIdx, err); err != nil {
 		return nil, err
 	}
 
-	// Convert response to protocol format
 	verifierResults := make([]protocol.VerifierResult, 0, len(resp.Results))
 	for _, result := range resp.Results {
 		verifierResults = append(verifierResults, result.VerifierResult)
@@ -210,7 +225,7 @@ func (ira *IndexerReaderAdapter) GetVerifierResults(ctx context.Context, message
 }
 
 func (ira *IndexerReaderAdapter) ReadMessages(ctx context.Context, queryData v1.MessagesInput) (map[string]common.MessageWithMetadata, error) {
-	selectedIdx, resp, err := queryWithFailover(
+	selectedIdx, _, resp, err := queryWithFailover(
 		ctx,
 		ira,
 		queryData,

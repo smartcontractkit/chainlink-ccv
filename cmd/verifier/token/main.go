@@ -6,7 +6,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
 	cmd "github.com/smartcontractkit/chainlink-ccv/cmd/verifier"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/token"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token"
 )
 
 func main() {

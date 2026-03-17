@@ -6,7 +6,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-ccv/verifier"
+	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg"
 )
 
 var _ chainaccess.SourceReader = (*observedSourceReader)(nil)

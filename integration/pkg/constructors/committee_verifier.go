@@ -14,9 +14,11 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
-	"github.com/smartcontractkit/chainlink-ccv/verifier"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
+	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/chainstatus"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/commit"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/coordinator"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/heartbeat"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
@@ -34,7 +36,7 @@ func NewVerificationCoordinator(
 	signer verifier.MessageSigner,
 	relayers map[protocol.ChainSelector]legacyevm.Chain,
 	ds sqlutil.DataSource,
-) (*verifier.Coordinator, error) {
+) (*coordinator.Coordinator, error) {
 	if err := cfg.Validate(); err != nil {
 		lggr.Errorw("Invalid CCV verifier configuration.", "error", err)
 		return nil, fmt.Errorf("invalid ccv verifier configuration: %w", err)
@@ -185,7 +187,7 @@ func NewVerificationCoordinator(
 		heartbeatClient,
 		cfg.VerifierID,
 		lggr,
-		verifier.NewHeartbeatMonitoringAdapter(verifierMonitoring),
+		heartbeat.NewHeartbeatMonitoringAdapter(verifierMonitoring),
 	)
 
 	messageTracker := monitoring.NewMessageLatencyTracker(
@@ -194,7 +196,7 @@ func NewVerificationCoordinator(
 		verifierMonitoring,
 	)
 
-	verifierCoordinator, err := verifier.NewCoordinator(
+	verifierCoordinator, err := coordinator.NewCoordinator(
 		lggr,
 		commitVerifier,
 		sourceReaders,

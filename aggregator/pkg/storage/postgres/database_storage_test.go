@@ -5,8 +5,6 @@ import (
 	"context"
 	"crypto/ecdsa"
 	"fmt"
-	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -17,6 +15,7 @@ import (
 	"github.com/pressly/goose/v3"
 	"github.com/stretchr/testify/require"
 
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/migrations"
 	pkgcommon "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/testutil"
@@ -1668,10 +1667,10 @@ func TestMigrationDataConsistency_OldSchemaDataSurvivesMigration(t *testing.T) {
 	defer cleanup()
 
 	ctx := context.Background()
-	migrationsPath := findMigrationsPath(t)
 
+	goose.SetBaseFS(migrations.PostgresMigrations)
 	require.NoError(t, goose.SetDialect("postgres"))
-	require.NoError(t, goose.UpTo(ds.DB, migrationsPath, migrationVersionBeforeJunctionTable))
+	require.NoError(t, goose.UpTo(ds.DB, "postgres", migrationVersionBeforeJunctionTable))
 
 	signer1 := newTestSigner(t)
 	signer2 := newTestSigner(t)
@@ -1714,7 +1713,7 @@ func TestMigrationDataConsistency_OldSchemaDataSurvivesMigration(t *testing.T) {
 	_, err = ds.ExecContext(ctx, insertOldReport, messageIDHex, pq.Array([]int64{id1, id2}))
 	require.NoError(t, err)
 
-	require.NoError(t, goose.Up(ds.DB, migrationsPath))
+	require.NoError(t, goose.Up(ds.DB, "postgres"))
 
 	storage := NewDatabaseStorage(ds, 10, 10*time.Second, logger.TestSugared(t))
 
@@ -1813,25 +1812,6 @@ func TestQueryAggregatedReports_ExcludesReportWithCorruptedVerification(t *testi
 	healthyBatchReport, ok := batchResult[healthyMessageIDHex]
 	require.True(t, ok, "healthy report should still appear in batch result")
 	require.Len(t, healthyBatchReport.Verifications, 1)
-}
-
-func findMigrationsPath(t *testing.T) string {
-	t.Helper()
-	candidates := []string{
-		"../../../migrations/postgres",
-		"../../../../aggregator/migrations/postgres",
-	}
-	for _, candidate := range candidates {
-		absPath, err := filepath.Abs(candidate)
-		if err != nil {
-			continue
-		}
-		if info, err := os.Stat(absPath); err == nil && info.IsDir() {
-			return absPath
-		}
-	}
-	t.Fatal("could not find migrations directory")
-	panic("unreachable")
 }
 
 func collectOrphanedKeys(t *testing.T, ch <-chan model.OrphanedKey, errCh <-chan error) []model.OrphanedKey {

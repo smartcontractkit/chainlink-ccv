@@ -2,14 +2,13 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"os/signal"
 	"syscall"
 	"time"
 
-	"github.com/pressly/goose/v3"
+	"github.com/jmoiron/sqlx"
 	"go.uber.org/zap/zapcore"
 
 	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
@@ -187,6 +186,14 @@ func createDiscovery(ctx context.Context, lggr logger.Logger, cfg *config.Config
 		}
 	}
 
+	// For multi-source setups, share a single PrimaryWriteNotifier across all instances so
+	// that the primary (priority 0) can signal secondary sources when its write attempt
+	// finishes, allowing them to skip the remainder of their delay.
+	var writeNotifier *discovery.PrimaryWriteNotifier
+	if len(configs) > 1 {
+		writeNotifier = discovery.NewPrimaryWriteNotifier()
+	}
+
 	for i, discCfg := range configs {
 		persistedSinceValue, err := storage.GetDiscoverySequenceNumber(ctx, discCfg.Address)
 		if err != nil {
@@ -222,6 +229,7 @@ func createDiscovery(ctx context.Context, lggr logger.Logger, cfg *config.Config
 			discovery.WithLogger(lggr),
 			discovery.WithConfig(discCfg),
 			discovery.WithDiscoveryPriority(i),
+			discovery.WithPrimaryWriteNotifier(writeNotifier), // nil for single-source; no-op
 		)
 		if err != nil {
 			cleanupOnError()
@@ -253,9 +261,18 @@ func createStorage(ctx context.Context, lggr logger.Logger, cfg *config.Config, 
 // createPostgresStorage creates a PostgreSQL storage backend.
 func createPostgresStorage(ctx context.Context, lggr logger.Logger, cfg *config.PostgresConfig, indexerMonitoring common.IndexerMonitoring) common.IndexerStorage {
 	// Run migrations first
-	migrationsDir := "./migrations"
-	if err := runMigrations(lggr, cfg.URI, migrationsDir); err != nil {
+	migrationsDB, err := sqlx.Open("postgres", cfg.URI)
+	if err != nil {
+		lggr.Fatalf("Failed to open database for migrations: %v", err)
+	}
+	if err := ccvcommon.EnsureDBConnection(lggr, migrationsDB.DB); err != nil {
+		lggr.Fatalf("Could not connect to database: %v", err)
+	}
+	if err := storage.RunMigrations(migrationsDB); err != nil {
 		lggr.Fatalf("Failed to run database migrations: %v", err)
+	}
+	if err := migrationsDB.Close(); err != nil {
+		lggr.Warnf("Error closing migration database connection: %v", err)
 	}
 
 	// Create postgres database configuration
@@ -273,37 +290,4 @@ func createPostgresStorage(ctx context.Context, lggr logger.Logger, cfg *config.
 	}
 
 	return dbStore
-}
-
-// runMigrations runs all pending database migrations using goose.
-func runMigrations(lggr logger.Logger, dbURI, migrationsDir string) error {
-	// Open a connection to the database for migrations
-	db, err := sql.Open("postgres", dbURI)
-	if err != nil {
-		return err
-	}
-
-	err = ccvcommon.EnsureDBConnection(lggr, db)
-	if err != nil {
-		return fmt.Errorf("could not connect to database: %w", err)
-	}
-
-	defer func() {
-		if cerr := db.Close(); cerr != nil {
-			lggr.Warnf("Error closing database: %v", cerr)
-		}
-	}()
-
-	// Set goose dialect
-	if err := goose.SetDialect("postgres"); err != nil {
-		return err
-	}
-
-	// Run migrations
-	if err := goose.Up(db, migrationsDir); err != nil {
-		return err
-	}
-
-	lggr.Info("Database migrations completed successfully")
-	return nil
 }

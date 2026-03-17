@@ -15,7 +15,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/token/lombard"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/lombard"
 )
 
 // Lombard Attestation Flow:
