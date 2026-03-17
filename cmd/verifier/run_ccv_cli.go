@@ -3,6 +3,7 @@ package verifier
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"sync"
 
 	"github.com/urfave/cli"
@@ -46,7 +47,7 @@ func RunCCVCLI(args []string) {
 	}
 
 	app := cli.NewApp()
-	app.Name = "verifier"
+	app.Name = filepath.Base(os.Args[0])
 	app.Usage = "CCV verifier service and CLI"
 	app.Commands = []cli.Command{
 		{
