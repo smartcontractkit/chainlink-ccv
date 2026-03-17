@@ -1,4 +1,4 @@
-package verifier_test
+package heartbeat_test
 
 import (
 	"context"
@@ -14,7 +14,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/heartbeatclient"
 	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-ccv/verifier"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/heartbeat"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -40,7 +40,7 @@ func TestNewHeartbeatReporter_Success(t *testing.T) {
 
 	selectors := []protocol.ChainSelector{1, 10, 100}
 
-	reporter, err := verifier.NewHeartbeatReporter(
+	reporter, err := heartbeat.NewReporter(
 		lggr,
 		mockStatusMgr,
 		mockClient,
@@ -57,7 +57,7 @@ func TestNewHeartbeatReporter_NilLogger(t *testing.T) {
 	mockStatusMgr := mocks.NewMockChainStatusManager(t)
 	selectors := []protocol.ChainSelector{1}
 
-	_, err := verifier.NewHeartbeatReporter(
+	_, err := heartbeat.NewReporter(
 		nil,
 		mockStatusMgr,
 		mockClient,
@@ -74,7 +74,7 @@ func TestNewHeartbeatReporter_NilChainStatusManager(t *testing.T) {
 	mockClient := new(mockHeartbeatClient)
 	selectors := []protocol.ChainSelector{1}
 
-	_, err := verifier.NewHeartbeatReporter(
+	_, err := heartbeat.NewReporter(
 		lggr,
 		nil,
 		mockClient,
@@ -91,7 +91,7 @@ func TestNewHeartbeatReporter_NilHeartbeatClient(t *testing.T) {
 	mockStatusMgr := mocks.NewMockChainStatusManager(t)
 	selectors := []protocol.ChainSelector{1}
 
-	_, err := verifier.NewHeartbeatReporter(
+	_, err := heartbeat.NewReporter(
 		lggr,
 		mockStatusMgr,
 		nil,
@@ -108,7 +108,7 @@ func TestNewHeartbeatReporter_EmptySelectors(t *testing.T) {
 	mockClient := new(mockHeartbeatClient)
 	mockStatusMgr := mocks.NewMockChainStatusManager(t)
 
-	_, err := verifier.NewHeartbeatReporter(
+	_, err := heartbeat.NewReporter(
 		lggr,
 		mockStatusMgr,
 		mockClient,
@@ -126,7 +126,7 @@ func TestNewHeartbeatReporter_EmptyVerifierID(t *testing.T) {
 	mockStatusMgr := mocks.NewMockChainStatusManager(t)
 	selectors := []protocol.ChainSelector{1}
 
-	_, err := verifier.NewHeartbeatReporter(
+	_, err := heartbeat.NewReporter(
 		lggr,
 		mockStatusMgr,
 		mockClient,
@@ -145,7 +145,7 @@ func TestNewHeartbeatReporter_DefaultInterval(t *testing.T) {
 	selectors := []protocol.ChainSelector{1}
 
 	// Create with 0 interval - should use default
-	reporter, err := verifier.NewHeartbeatReporter(
+	reporter, err := heartbeat.NewReporter(
 		lggr,
 		mockStatusMgr,
 		mockClient,
@@ -190,7 +190,7 @@ func TestHeartbeatReporter_StartAndStop(t *testing.T) {
 		ChainBenchmarks: map[uint64]heartbeatclient.ChainBenchmark{},
 	}, nil)
 
-	reporter, err := verifier.NewHeartbeatReporter(
+	reporter, err := heartbeat.NewReporter(
 		lggr,
 		mockStatusMgr,
 		mockClient,
@@ -239,7 +239,7 @@ func TestHeartbeatReporter_SendHeartbeatFailure(t *testing.T) {
 		return true
 	})).Return(heartbeatclient.HeartbeatResponse{}, errors.New("connection refused"))
 
-	reporter, err := verifier.NewHeartbeatReporter(
+	reporter, err := heartbeat.NewReporter(
 		lggr,
 		mockStatusMgr,
 		mockClient,
@@ -272,7 +272,7 @@ func TestHeartbeatReporter_ChainStatusReadError(t *testing.T) {
 		return c != nil
 	}), selectors).Return(nil, errors.New("database error"))
 
-	reporter, err := verifier.NewHeartbeatReporter(
+	reporter, err := heartbeat.NewReporter(
 		lggr,
 		mockStatusMgr,
 		mockClient,
@@ -330,7 +330,7 @@ func TestHeartbeatReporter_MultipleChains(t *testing.T) {
 		ChainBenchmarks: map[uint64]heartbeatclient.ChainBenchmark{},
 	}, nil)
 
-	reporter, err := verifier.NewHeartbeatReporter(
+	reporter, err := heartbeat.NewReporter(
 		lggr,
 		mockStatusMgr,
 		mockClient,
@@ -362,7 +362,7 @@ func TestHeartbeatReporter_Name(t *testing.T) {
 	mockStatusMgr := mocks.NewMockChainStatusManager(t)
 	selectors := []protocol.ChainSelector{1}
 
-	reporter, err := verifier.NewHeartbeatReporter(
+	reporter, err := heartbeat.NewReporter(
 		lggr,
 		mockStatusMgr,
 		mockClient,
@@ -383,7 +383,7 @@ func TestHeartbeatReporter_HealthReport(t *testing.T) {
 	mockStatusMgr := mocks.NewMockChainStatusManager(t)
 	selectors := []protocol.ChainSelector{1}
 
-	reporter, err := verifier.NewHeartbeatReporter(
+	reporter, err := heartbeat.NewReporter(
 		lggr,
 		mockStatusMgr,
 		mockClient,
@@ -428,7 +428,7 @@ func TestHeartbeatReporter_ContextCancellation(t *testing.T) {
 		ChainBenchmarks: map[uint64]heartbeatclient.ChainBenchmark{},
 	}, nil)
 
-	reporter, err := verifier.NewHeartbeatReporter(
+	reporter, err := heartbeat.NewReporter(
 		lggr,
 		mockStatusMgr,
 		mockClient,
@@ -486,7 +486,7 @@ func TestHeartbeatReporter_MissingChainStatus(t *testing.T) {
 		ChainBenchmarks: map[uint64]heartbeatclient.ChainBenchmark{},
 	}, nil)
 
-	reporter, err := verifier.NewHeartbeatReporter(
+	reporter, err := heartbeat.NewReporter(
 		lggr,
 		mockStatusMgr,
 		mockClient,

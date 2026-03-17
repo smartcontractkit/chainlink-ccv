@@ -1,4 +1,4 @@
-package verifier
+package sourcereader
 
 import (
 	"context"
@@ -13,13 +13,15 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/jobqueue"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/testutil"
 )
 
 // failableTaskQueue extends fakeTaskQueue with configurable failure mode for testing.
 type failableTaskQueue struct {
 	mu             sync.Mutex
-	published      []VerificationTask
+	published      []verifier.VerificationTask
 	failOnPublish  bool
 	publishCount   int
 	failureMessage string
@@ -27,12 +29,12 @@ type failableTaskQueue struct {
 
 func newFailableTaskQueue() *failableTaskQueue {
 	return &failableTaskQueue{
-		published:      make([]VerificationTask, 0),
+		published:      make([]verifier.VerificationTask, 0),
 		failureMessage: "simulated DB connection error",
 	}
 }
 
-func (f *failableTaskQueue) Publish(_ context.Context, tasks ...VerificationTask) error {
+func (f *failableTaskQueue) Publish(_ context.Context, tasks ...verifier.VerificationTask) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.publishCount++
@@ -49,10 +51,10 @@ func (f *failableTaskQueue) SetFailOnPublish(fail bool) {
 	f.failOnPublish = fail
 }
 
-func (f *failableTaskQueue) Published() []VerificationTask {
+func (f *failableTaskQueue) Published() []verifier.VerificationTask {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	out := make([]VerificationTask, len(f.published))
+	out := make([]verifier.VerificationTask, len(f.published))
 	copy(out, f.published)
 	return out
 }
@@ -63,11 +65,11 @@ func (f *failableTaskQueue) PublishCount() int {
 	return f.publishCount
 }
 
-func (f *failableTaskQueue) PublishWithDelay(_ context.Context, _ time.Duration, tasks ...VerificationTask) error {
+func (f *failableTaskQueue) PublishWithDelay(_ context.Context, _ time.Duration, tasks ...verifier.VerificationTask) error {
 	return f.Publish(context.Background(), tasks...)
 }
 
-func (f *failableTaskQueue) Consume(_ context.Context, _ int) ([]jobqueue.Job[VerificationTask], error) {
+func (f *failableTaskQueue) Consume(_ context.Context, _ int) ([]jobqueue.Job[verifier.VerificationTask], error) {
 	return nil, nil
 }
 
@@ -119,9 +121,9 @@ func TestSRS_PublishFailure_TasksRemainInPendingQueue(t *testing.T) {
 		Return(false, nil).Maybe()
 
 	// Task with Finality=0 at block <= finalized — should be ready immediately
-	msg := CreateTestMessage(t, 1, chain, defaultDestChain, 0, 300_000)
+	msg := testutil.CreateTestMessage(t, 1, chain, defaultDestChain, 0, 300_000)
 	msgID, _ := msg.MessageID()
-	task := VerificationTask{Message: msg, BlockNumber: 940, MessageID: msgID.String()}
+	task := verifier.VerificationTask{Message: msg, BlockNumber: 940, MessageID: msgID.String()}
 
 	// Add task to pending queue
 	srs.mu.Lock()
@@ -186,9 +188,9 @@ func TestSRS_PublishFailure_CursedTasksDroppedImmediately(t *testing.T) {
 	mockFC.EXPECT().IsFinalityViolated().Return(false).Maybe()
 
 	// Create a ready task
-	msg := CreateTestMessage(t, 1, chain, defaultDestChain, 0, 300_000)
+	msg := testutil.CreateTestMessage(t, 1, chain, defaultDestChain, 0, 300_000)
 	msgID, _ := msg.MessageID()
-	task := VerificationTask{Message: msg, BlockNumber: 940, MessageID: msgID.String()}
+	task := verifier.VerificationTask{Message: msg, BlockNumber: 940, MessageID: msgID.String()}
 
 	srs.mu.Lock()
 	srs.pendingTasks[msgID.String()] = task
@@ -232,17 +234,17 @@ func TestSRS_PublishFailure_PartialBatch(t *testing.T) {
 		Return(false, nil).Maybe()
 
 	// Create multiple ready tasks
-	msg1 := CreateTestMessage(t, 1, chain, defaultDestChain, 0, 300_000)
+	msg1 := testutil.CreateTestMessage(t, 1, chain, defaultDestChain, 0, 300_000)
 	msgID1, _ := msg1.MessageID()
-	task1 := VerificationTask{Message: msg1, BlockNumber: 940, MessageID: msgID1.String()}
+	task1 := verifier.VerificationTask{Message: msg1, BlockNumber: 940, MessageID: msgID1.String()}
 
-	msg2 := CreateTestMessage(t, 2, chain, defaultDestChain, 0, 300_000)
+	msg2 := testutil.CreateTestMessage(t, 2, chain, defaultDestChain, 0, 300_000)
 	msgID2, _ := msg2.MessageID()
-	task2 := VerificationTask{Message: msg2, BlockNumber: 945, MessageID: msgID2.String()}
+	task2 := verifier.VerificationTask{Message: msg2, BlockNumber: 945, MessageID: msgID2.String()}
 
-	msg3 := CreateTestMessage(t, 3, chain, defaultDestChain, 0, 300_000)
+	msg3 := testutil.CreateTestMessage(t, 3, chain, defaultDestChain, 0, 300_000)
 	msgID3, _ := msg3.MessageID()
-	task3 := VerificationTask{Message: msg3, BlockNumber: 930, MessageID: msgID3.String()}
+	task3 := verifier.VerificationTask{Message: msg3, BlockNumber: 930, MessageID: msgID3.String()}
 
 	srs.mu.Lock()
 	srs.pendingTasks[msgID1.String()] = task1
@@ -302,9 +304,9 @@ func TestSRS_PublishFailure_ReorgTrackerNotAffected(t *testing.T) {
 		Return(false, nil).Maybe()
 
 	// Create a task that was previously affected by reorg
-	msg := CreateTestMessage(t, 1, chain, defaultDestChain, 0, 300_000)
+	msg := testutil.CreateTestMessage(t, 1, chain, defaultDestChain, 0, 300_000)
 	msgID, _ := msg.MessageID()
-	task := VerificationTask{Message: msg, BlockNumber: 940, MessageID: msgID.String()}
+	task := verifier.VerificationTask{Message: msg, BlockNumber: 940, MessageID: msgID.String()}
 
 	// Track it as reorged
 	srs.reorgTracker.Track(task.Message.DestChainSelector, task.Message.SequenceNumber)
@@ -344,7 +346,7 @@ func newTestSRSWithFailableQueue(
 	curseDetector *mocks.MockCurseCheckerService,
 	pollInterval time.Duration,
 	maxBlockRange uint64,
-) (*SourceReaderService, *mocks.MockFinalityViolationChecker, *failableTaskQueue) {
+) (*Service, *mocks.MockFinalityViolationChecker, *failableTaskQueue) {
 	t.Helper()
 
 	queue := newFailableTaskQueue()

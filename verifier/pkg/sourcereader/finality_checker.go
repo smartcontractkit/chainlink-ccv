@@ -1,4 +1,4 @@
-package verifier
+package sourcereader
 
 import (
 	"context"
@@ -8,6 +8,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -41,7 +42,7 @@ type FinalityViolationCheckerService struct {
 	sourceReader  chainaccess.SourceReader
 	chainSelector protocol.ChainSelector
 	lggr          logger.Logger
-	metrics       MetricLabeler
+	metrics       verifier.MetricLabeler
 
 	// Stored finalized blocks (keyed by block number)
 	finalizedBlocks map[uint64]protocol.BlockHeader
@@ -58,7 +59,7 @@ func NewFinalityViolationCheckerService(
 	sourceReader chainaccess.SourceReader,
 	chainSelector protocol.ChainSelector,
 	lggr logger.Logger,
-	metrics MetricLabeler,
+	metrics verifier.MetricLabeler,
 ) (*FinalityViolationCheckerService, error) {
 	if sourceReader == nil {
 		return nil, fmt.Errorf("sourceReader cannot be nil")

@@ -16,7 +16,7 @@ packages:
         config:
           filename: "mock_lombardAttestationService.go"
           mockname: "LombardAttestationService"
-  github.com/smartcontractkit/chainlink-ccv/verifier:
+  github.com/smartcontractkit/chainlink-ccv/verifier/pkg:
     interfaces:
       MetricLabeler:
         config:

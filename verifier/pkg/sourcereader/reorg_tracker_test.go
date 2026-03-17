@@ -1,4 +1,4 @@
-package verifier
+package sourcereader
 
 import (
 	"testing"
@@ -6,13 +6,14 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/testutil"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
 func newTestReorgTracker(t *testing.T) *ReorgTracker {
 	lggr, err := logger.New()
 	require.NoError(t, err)
-	return NewReorgTracker(lggr, &noopMetricLabeler{})
+	return NewReorgTracker(lggr, &testutil.NoopMetricLabeler{})
 }
 
 func TestReorgTracker_Track_AddsToSet(t *testing.T) {

@@ -1,4 +1,4 @@
-package verifier
+package heartbeat
 
 import (
 	"context"
@@ -17,8 +17,8 @@ const (
 	DefaultHeartbeatInterval = 10 * time.Second
 )
 
-// HeartbeatReporter periodically reads chain statuses and sends them to the aggregator via heartbeat.
-type HeartbeatReporter struct {
+// Reporter periodically reads chain statuses and sends them to the aggregator via heartbeat.
+type Reporter struct {
 	services.StateMachine
 	stopCh services.StopChan
 	wg     sync.WaitGroup
@@ -31,15 +31,15 @@ type HeartbeatReporter struct {
 	interval           time.Duration
 }
 
-// NewHeartbeatReporter creates a new heartbeat reporter service.
-func NewHeartbeatReporter(
+// NewReporter creates a new heartbeat reporter service.
+func NewReporter(
 	lggr logger.Logger,
 	chainStatusManager protocol.ChainStatusManager,
 	heartbeatClient heartbeatclient.HeartbeatSender,
 	allSelectors []protocol.ChainSelector,
 	verifierID string,
 	interval time.Duration,
-) (*HeartbeatReporter, error) {
+) (*Reporter, error) {
 	if lggr == nil {
 		return nil, fmt.Errorf("logger cannot be nil")
 	}
@@ -60,7 +60,7 @@ func NewHeartbeatReporter(
 		interval = DefaultHeartbeatInterval
 	}
 
-	return &HeartbeatReporter{
+	return &Reporter{
 		stopCh:             make(chan struct{}),
 		logger:             lggr,
 		chainStatusManager: chainStatusManager,
@@ -72,7 +72,7 @@ func NewHeartbeatReporter(
 }
 
 // Start begins the heartbeat reporter service.
-func (hr *HeartbeatReporter) Start(ctx context.Context) error {
+func (hr *Reporter) Start(ctx context.Context) error {
 	return hr.StartOnce(hr.Name(), func() error {
 		hr.logger.Infow("Starting heartbeat reporter", "interval", hr.interval)
 		hr.wg.Add(1)
@@ -82,7 +82,7 @@ func (hr *HeartbeatReporter) Start(ctx context.Context) error {
 }
 
 // Close stops the heartbeat reporter service.
-func (hr *HeartbeatReporter) Close() error {
+func (hr *Reporter) Close() error {
 	return hr.StopOnce(hr.Name(), func() error {
 		hr.logger.Infow("Stopping heartbeat reporter")
 		close(hr.stopCh)
@@ -93,19 +93,19 @@ func (hr *HeartbeatReporter) Close() error {
 }
 
 // Name returns the name of the service.
-func (hr *HeartbeatReporter) Name() string {
+func (hr *Reporter) Name() string {
 	return fmt.Sprintf("verifier.HeartbeatReporter[%s]", hr.verifierID)
 }
 
 // HealthReport returns a health report for the heartbeat reporter.
-func (hr *HeartbeatReporter) HealthReport() map[string]error {
+func (hr *Reporter) HealthReport() map[string]error {
 	report := make(map[string]error)
 	report[hr.Name()] = hr.Ready()
 	return report
 }
 
 // reportLoop is the main loop that periodically sends heartbeats with chain statuses.
-func (hr *HeartbeatReporter) reportLoop() {
+func (hr *Reporter) reportLoop() {
 	defer hr.wg.Done()
 
 	ctx, cancel := hr.stopCh.NewCtx()
@@ -129,7 +129,7 @@ func (hr *HeartbeatReporter) reportLoop() {
 }
 
 // sendHeartbeat reads chain statuses and sends them to the aggregator.
-func (hr *HeartbeatReporter) sendHeartbeat(ctx context.Context) {
+func (hr *Reporter) sendHeartbeat(ctx context.Context) {
 	// Read chain statuses for all selectors.
 	statusMap, err := hr.chainStatusManager.ReadChainStatuses(ctx, hr.allSelectors)
 	if err != nil {
@@ -174,4 +174,4 @@ func (hr *HeartbeatReporter) sendHeartbeat(ctx context.Context) {
 	)
 }
 
-var _ services.Service = (*HeartbeatReporter)(nil)
+var _ services.Service = (*Reporter)(nil)

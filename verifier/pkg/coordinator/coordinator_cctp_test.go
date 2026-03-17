@@ -1,4 +1,4 @@
-package verifier_test
+package coordinator_test
 
 import (
 	"bytes"
@@ -17,10 +17,12 @@ import (
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-ccv/verifier"
+	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/coordinator"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/storage"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/cctp"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/testutil"
 	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
 )
 
@@ -181,7 +183,7 @@ func Test_CCTPMessages_SingleSource(t *testing.T) {
 			chain1337: testCCVAddr,
 		})
 
-	mockSetup := verifier.SetupMockSourceReader(t)
+	mockSetup := coordinator.SetupMockSourceReader(t)
 	mockSetup.ExpectFetchMessageSentEvent(false)
 	sourceReaders := map[protocol.ChainSelector]chainaccess.SourceReader{
 		chain1337: mockSetup.Reader,
@@ -279,9 +281,9 @@ func Test_CCTPMessages_MultipleSources(t *testing.T) {
 			chain2337: destVerifier,
 		})
 
-	reader1337 := verifier.SetupMockSourceReader(t)
+	reader1337 := coordinator.SetupMockSourceReader(t)
 	reader1337.ExpectFetchMessageSentEvent(false)
-	reader2337 := verifier.SetupMockSourceReader(t)
+	reader2337 := coordinator.SetupMockSourceReader(t)
 	reader2337.ExpectFetchMessageSentEvent(false)
 	sourceReaders := map[protocol.ChainSelector]chainaccess.SourceReader{
 		chain1337: reader1337.Reader,
@@ -386,7 +388,7 @@ func Test_CCTPMessages_RetryingAttestation(t *testing.T) {
 			chain1337: testCCVAddr,
 		})
 
-	mockSetup := verifier.SetupMockSourceReader(t)
+	mockSetup := coordinator.SetupMockSourceReader(t)
 	mockSetup.ExpectFetchMessageSentEvent(false)
 	sourceReaders := map[protocol.ChainSelector]chainaccess.SourceReader{
 		chain1337: mockSetup.Reader,
@@ -471,9 +473,9 @@ func createCCTPCoordinator(
 	config verifier.CoordinatorConfig,
 	sourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
 	inMemStorage storage.CCVStorage,
-) (*verifier.Coordinator, error) {
+) (*coordinator.Coordinator, error) {
 	noopMonitoring := monitoring.NewFakeVerifierMonitoring()
-	noopLatencyTracker := verifier.NoopLatencyTracker{}
+	noopLatencyTracker := testutil.NoopLatencyTracker{}
 
 	attestationService, err := cctp.NewAttestationService(ts.logger, *cctpConfig)
 	require.NoError(ts.t, err)
@@ -484,7 +486,7 @@ func createCCTPCoordinator(
 		inMemStorage,
 	)
 
-	return verifier.NewCoordinator(
+	return coordinator.NewCoordinator(
 		ts.logger,
 		cctp.NewVerifierWithConfig(ts.logger, attestationService, 100*time.Millisecond, 100*time.Millisecond),
 		sourceReaders,

@@ -1,4 +1,4 @@
-package verifier
+package storagewriter
 
 import (
 	"context"
@@ -11,13 +11,14 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/jobqueue"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/testutil"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
 )
 
-func TestStorageWriterProcessorDB_PartialBatchFailures(t *testing.T) {
+func TestProcessorDB_PartialBatchFailures(t *testing.T) {
 	db := testutil.NewTestDB(t)
 
 	t.Run("retries only failed requests in a partially failed batch", func(t *testing.T) {
@@ -27,7 +28,7 @@ func TestStorageWriterProcessorDB_PartialBatchFailures(t *testing.T) {
 		resultQueue, err := jobqueue.NewPostgresJobQueue[protocol.VerifierNodeResult](
 			db,
 			jobqueue.QueueConfig{
-				Name:          StorageWriterJobsTableName,
+				Name:          verifier.StorageWriterJobsTableName,
 				OwnerID:       "test-" + t.Name(),
 				RetryDuration: time.Hour,
 				LockDuration:  time.Minute,
@@ -36,13 +37,13 @@ func TestStorageWriterProcessorDB_PartialBatchFailures(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		processor, err := NewStorageWriterProcessor(
+		processor, err := NewProcessor(
 			lggr,
 			"test-"+t.Name(),
-			NoopLatencyTracker{},
+			testutil.NoopLatencyTracker{},
 			selectiveStorage,
 			resultQueue,
-			CoordinatorConfig{
+			verifier.CoordinatorConfig{
 				StorageBatchSize:  10,
 				StorageRetryDelay: 50 * time.Millisecond,
 			},
@@ -107,7 +108,7 @@ func TestStorageWriterProcessorDB_PartialBatchFailures(t *testing.T) {
 		resultQueue, err := jobqueue.NewPostgresJobQueue[protocol.VerifierNodeResult](
 			db,
 			jobqueue.QueueConfig{
-				Name:          StorageWriterJobsTableName,
+				Name:          verifier.StorageWriterJobsTableName,
 				OwnerID:       "test-" + t.Name(),
 				RetryDuration: 200 * time.Millisecond, // Short deadline
 				LockDuration:  time.Minute,
@@ -116,13 +117,13 @@ func TestStorageWriterProcessorDB_PartialBatchFailures(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		processor, err := NewStorageWriterProcessor(
+		processor, err := NewProcessor(
 			lggr,
 			"test-"+t.Name(),
-			NoopLatencyTracker{},
+			testutil.NoopLatencyTracker{},
 			nonRetryableStorage,
 			resultQueue,
-			CoordinatorConfig{
+			verifier.CoordinatorConfig{
 				StorageBatchSize:  10,
 				StorageRetryDelay: 50 * time.Millisecond,
 			},
@@ -185,7 +186,7 @@ func TestStorageWriterProcessorDB_PartialBatchFailures(t *testing.T) {
 		resultQueue, err := jobqueue.NewPostgresJobQueue[protocol.VerifierNodeResult](
 			db,
 			jobqueue.QueueConfig{
-				Name:          StorageWriterJobsTableName,
+				Name:          verifier.StorageWriterJobsTableName,
 				OwnerID:       "test-" + t.Name(),
 				RetryDuration: time.Hour,
 				LockDuration:  time.Minute,
@@ -194,13 +195,13 @@ func TestStorageWriterProcessorDB_PartialBatchFailures(t *testing.T) {
 		)
 		require.NoError(t, err)
 
-		processor, err := NewStorageWriterProcessor(
+		processor, err := NewProcessor(
 			lggr,
 			"test-"+t.Name(),
-			NoopLatencyTracker{},
+			testutil.NoopLatencyTracker{},
 			mixedStorage,
 			resultQueue,
-			CoordinatorConfig{
+			verifier.CoordinatorConfig{
 				StorageBatchSize:  10,
 				StorageRetryDelay: 50 * time.Millisecond,
 			},

@@ -1,4 +1,4 @@
-package verifier
+package coordinator
 
 import (
 	"context"
@@ -15,6 +15,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	verpkg "github.com/smartcontractkit/chainlink-ccv/verifier/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/testutil"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
@@ -40,7 +41,7 @@ func TestFinality_FinalizedMessage(t *testing.T) {
 	}()
 
 	// Message at block 940 (< finalized 950) should be processed immediately
-	finalizedMessage := CreateTestMessage(t, 1, 1337, 2337, 0, 300_000)
+	finalizedMessage := testutil.CreateTestMessage(t, 1, 1337, 2337, 0, 300_000)
 	messageID, _ := finalizedMessage.MessageID()
 
 	// Create test CCV and executor addresses matching those in CreateTestMessage
@@ -113,7 +114,7 @@ func TestFinality_CustomFinality(t *testing.T) {
 	customFinality := uint16(15)
 	customGasLimit := uint32(300_000)
 
-	readyMessage := CreateTestMessage(t, 1, 1337, 2337, customFinality, customGasLimit)
+	readyMessage := testutil.CreateTestMessage(t, 1, 1337, 2337, customFinality, customGasLimit)
 	messageID, _ := readyMessage.MessageID()
 
 	// Create test CCV and executor addresses matching those in CreateTestMessage
@@ -179,7 +180,7 @@ func TestFinality_WaitingForFinality(t *testing.T) {
 		}
 	}()
 
-	nonFinalizedMessage := CreateTestMessage(t, 1, 1337, 2337, 0, 300_000)
+	nonFinalizedMessage := testutil.CreateTestMessage(t, 1, 1337, 2337, 0, 300_000)
 	nonFinalizedBlock := InitialFinalizedBlock + 10
 	messageID, _ := nonFinalizedMessage.MessageID()
 
@@ -311,8 +312,8 @@ func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetu
 	verifierAddr := make([]byte, 20)
 	verifierAddr[0] = 0x11
 
-	config := CoordinatorConfig{
-		SourceConfigs: map[protocol.ChainSelector]SourceConfig{
+	config := verpkg.CoordinatorConfig{
+		SourceConfigs: map[protocol.ChainSelector]verpkg.SourceConfig{
 			1337: {
 				VerifierAddress: protocol.UnknownAddress(verifierAddr),
 				PollInterval:    50 * time.Millisecond, // Fast polling for tests
@@ -334,7 +335,7 @@ func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetu
 		map[protocol.ChainSelector]chainaccess.SourceReader{1337: mockSourceReader},
 		mockStorage,
 		config,
-		&NoopLatencyTracker{},
+		&testutil.NoopLatencyTracker{},
 		&noopMonitoring{},
 		mockChainStatusManager,
 		heartbeatclient.NewNoopHeartbeatClient(),

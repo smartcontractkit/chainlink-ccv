@@ -1,4 +1,4 @@
-package verifier
+package coordinator
 
 import (
 	"context"
@@ -14,6 +14,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	verpkg "github.com/smartcontractkit/chainlink-ccv/verifier/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/testutil"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -108,9 +109,9 @@ func setupCurseTest(t *testing.T, sourceChain, destChain protocol.ChainSelector,
 	verifierAddr := make([]byte, 20)
 	verifierAddr[0] = 0x11
 	// Create coordinator configuration
-	coordinatorConfig := CoordinatorConfig{
+	coordinatorConfig := verpkg.CoordinatorConfig{
 		VerifierID: "curse-test-coordinator",
-		SourceConfigs: map[protocol.ChainSelector]SourceConfig{
+		SourceConfigs: map[protocol.ChainSelector]verpkg.SourceConfig{
 			sourceChain: {
 				VerifierAddress: verifierAddr,
 				PollInterval:    10 * time.Millisecond,
@@ -129,7 +130,7 @@ func setupCurseTest(t *testing.T, sourceChain, destChain protocol.ChainSelector,
 		map[protocol.ChainSelector]chainaccess.SourceReader{sourceChain: setup.mockSourceReader},
 		setup.storage,
 		coordinatorConfig,
-		&NoopLatencyTracker{},
+		&testutil.NoopLatencyTracker{},
 		&noopMonitoring{},
 		setup.chainStatusManager,
 		setup.mockCurseChecker,

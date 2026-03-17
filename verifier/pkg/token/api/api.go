@@ -5,7 +5,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/api/middleware"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-ccv/verifier"
+	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/api/health"
 	apimiddleware "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/api/middleware"
 	v1 "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/api/v1"
