@@ -5,7 +5,7 @@ package mocks
 import (
 	context "context"
 
-	lombard "github.com/smartcontractkit/chainlink-ccv/verifier/token/lombard"
+	lombard "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/lombard"
 	mock "github.com/stretchr/testify/mock"
 
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier"

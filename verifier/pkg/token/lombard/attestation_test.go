@@ -13,7 +13,7 @@ import (
 	sel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/token/internal"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/internal"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 

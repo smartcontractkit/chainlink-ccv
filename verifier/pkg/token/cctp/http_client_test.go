@@ -13,8 +13,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	httputil "github.com/smartcontractkit/chainlink-ccv/verifier/token/http"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/token/internal"
+	httputil "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/http"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/internal"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
