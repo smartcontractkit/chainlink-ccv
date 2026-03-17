@@ -39,6 +39,9 @@ type ExecutorMetrics struct {
 	// Chain curse metric
 	remoteChainCursed      metric.Int64Gauge
 	localChainGlobalCursed metric.Int64Gauge
+
+	// Service Lifecycle
+	serviceStarted metric.Int64Gauge
 }
 
 // InitMetrics initializes all verifier metrics.
@@ -162,7 +165,22 @@ func InitMetrics() (*ExecutorMetrics, error) {
 		return nil, fmt.Errorf("failed to register remote chain cursed gauge: %w", err)
 	}
 
+	// Service Lifecycle
+	vm.serviceStarted, err = beholder.GetMeter().Int64Gauge(
+		"ccip_service_started",
+		metric.WithDescription("Set to 1 immediately when the service starts; absent when not running"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register service started gauge: %w", err)
+	}
+
 	return vm, nil
+}
+
+// RecordServiceStarted records that the executor service has started (value = 1).
+// The metric is absent when the service is not running.
+func (vm *ExecutorMetrics) RecordServiceStarted(ctx context.Context) {
+	vm.serviceStarted.Record(ctx, 1, metric.WithAttributes(attribute.String("service", "executor")))
 }
 
 // MetricViews defines histogram bucket boundaries for verifier metrics.

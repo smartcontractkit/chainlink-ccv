@@ -34,6 +34,9 @@ type IndexerMetrics struct {
 	discoveryLatencySeconds            metric.Float64Histogram
 	timeToIndexSeconds                 metric.Float64Histogram
 	circuitBreakerStatus               metric.Int64Gauge
+
+	// Service Lifecycle
+	serviceStarted metric.Int64Gauge
 }
 
 func InitMetrics() (im *IndexerMetrics, err error) {
@@ -128,7 +131,23 @@ func InitMetrics() (im *IndexerMetrics, err error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to register circuit breaker status gauge: %w", err)
 	}
+
+	// Service Lifecycle
+	im.serviceStarted, err = beholder.GetMeter().Int64Gauge(
+		"ccip_service_started",
+		metric.WithDescription("Set to 1 immediately when the service starts; absent when not running"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register service started gauge: %w", err)
+	}
+
 	return im, nil
+}
+
+// RecordServiceStarted records that the indexer service has started (value = 1).
+// The metric is absent when the service is not running.
+func (im *IndexerMetrics) RecordServiceStarted(ctx context.Context) {
+	im.serviceStarted.Record(ctx, 1, metric.WithAttributes(attribute.String("service", "indexer")))
 }
 
 // Note: due to the OTEL specification, all histogram buckets. Must be defined when the beholder client is created.

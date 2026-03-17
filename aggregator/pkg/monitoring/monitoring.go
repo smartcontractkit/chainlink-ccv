@@ -1,6 +1,7 @@
 package monitoring
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/grafana/pyroscope-go"
@@ -32,6 +33,9 @@ func InitMonitoring(config beholder.Config) (common.AggregatorMonitoring, error)
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize aggregator metrics: %w", err)
 	}
+
+	// Record that the service has started immediately.
+	aggregatorMetrics.RecordServiceStarted(context.Background())
 
 	if _, err := pyroscope.Start(pyroscope.Config{
 		ApplicationName: "aggregator",

@@ -64,6 +64,9 @@ type VerifierMetrics struct {
 
 	// Storage Query Metrics
 	storageQueryDurationSeconds metric.Float64Histogram
+
+	// Service Lifecycle
+	serviceStarted metric.Int64Gauge
 }
 
 // InitMetrics initializes all verifier metrics.
@@ -304,7 +307,22 @@ func InitMetrics() (*VerifierMetrics, error) {
 		return nil, fmt.Errorf("failed to register storage query duration histogram: %w", err)
 	}
 
+	// Service Lifecycle
+	vm.serviceStarted, err = beholder.GetMeter().Int64Gauge(
+		"ccip_service_started",
+		metric.WithDescription("Set to 1 immediately when the service starts; absent when not running"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register service started gauge: %w", err)
+	}
+
 	return vm, nil
+}
+
+// RecordServiceStarted records that the verifier service has started (value = 1).
+// The metric is absent when the service is not running.
+func (vm *VerifierMetrics) RecordServiceStarted(ctx context.Context) {
+	vm.serviceStarted.Record(ctx, 1, metric.WithAttributes(attribute.String("service", "verifier")))
 }
 
 // MetricViews defines histogram bucket boundaries for verifier metrics.

@@ -27,6 +27,9 @@ func InitMonitoring() (verifier.Monitoring, error) {
 		return nil, fmt.Errorf("failed to initialize verifier metrics: %w", err)
 	}
 
+	// Record that the service has started immediately.
+	verifierMetrics.RecordServiceStarted(context.Background())
+
 	return &VerifierBeholderMonitoring{
 		metrics: NewVerifierMetricLabeler(metrics.NewLabeler(), verifierMetrics),
 	}, nil

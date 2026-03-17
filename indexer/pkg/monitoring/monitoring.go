@@ -1,6 +1,7 @@
 package monitoring
 
 import (
+	"context"
 	"fmt"
 
 	"github.com/grafana/pyroscope-go"
@@ -35,6 +36,9 @@ func InitMonitoring(config beholder.Config) (common.IndexerMonitoring, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize indexer metrics: %w", err)
 	}
+
+	// Record that the service has started immediately.
+	indexerMetrics.RecordServiceStarted(context.Background())
 
 	if _, err := pyroscope.Start(pyroscope.Config{
 		ApplicationName: "indexer",

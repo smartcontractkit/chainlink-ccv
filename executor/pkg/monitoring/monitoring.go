@@ -18,6 +18,9 @@ func InitMonitoring() (executor.Monitoring, error) {
 		return nil, fmt.Errorf("failed to initialize executor metrics: %w", err)
 	}
 
+	// Record that the service has started immediately.
+	executorMetrics.RecordServiceStarted(context.Background())
+
 	return &ExecutorBeholderMonitoring{
 		metrics: NewExecutorMetricLabeler(metrics.NewLabeler(), executorMetrics),
 	}, nil

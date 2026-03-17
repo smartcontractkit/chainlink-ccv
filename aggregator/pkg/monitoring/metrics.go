@@ -49,6 +49,9 @@ type AggregatorMetrics struct {
 
 	// Participation metrics
 	verificationsTotal metric.Int64Counter
+
+	// Service Lifecycle
+	serviceStarted metric.Int64Gauge
 }
 
 func MetricViews() []sdkmetric.View {
@@ -249,7 +252,22 @@ func InitMetrics() (am *AggregatorMetrics, err error) {
 		return nil, fmt.Errorf("failed to register verifications total counter: %w", err)
 	}
 
+	// Service Lifecycle
+	am.serviceStarted, err = beholder.GetMeter().Int64Gauge(
+		"ccip_service_started",
+		metric.WithDescription("Set to 1 immediately when the service starts; absent when not running"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register service started gauge: %w", err)
+	}
+
 	return am, nil
+}
+
+// RecordServiceStarted records that the aggregator service has started (value = 1).
+// The metric is absent when the service is not running.
+func (am *AggregatorMetrics) RecordServiceStarted(ctx context.Context) {
+	am.serviceStarted.Record(ctx, 1, metric.WithAttributes(attribute.String("service", "aggregator")))
 }
 
 type AggregatorMetricLabeler struct {
