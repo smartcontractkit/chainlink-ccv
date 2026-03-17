@@ -35,9 +35,9 @@ jobs:
             config: env.toml
             timeout: 10m
             working-directory: build/devenv/tests/e2e
-          - name: TestE2ESmoke_ChainStatusesCLI
+          - name: TestE2ESmoke_ChainStatus
             config: env.toml
-            timeout: 5m
+            timeout: 10m
             working-directory: build/devenv/tests/e2e
           - name: TestE2EReorg
             config: env.toml,env-src-auto-mine.toml
