@@ -17,6 +17,8 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
+const cmdNameList = "list"
+
 type fakeStore struct {
 	rows    []chainstatus.ChainStatusRow
 	listErr error
@@ -54,7 +56,7 @@ func TestListAction_empty_store_prints_no_rows_message(t *testing.T) {
 	cmds := InitCCVChainStatusesCommands(deps)
 	var listCmd *cli.Command
 	for i := range cmds {
-		if cmds[i].Name == "list" {
+		if cmds[i].Name == cmdNameList {
 			listCmd = &cmds[i]
 			break
 		}
@@ -62,7 +64,7 @@ func TestListAction_empty_store_prints_no_rows_message(t *testing.T) {
 	require.NotNil(t, listCmd)
 	app := cli.NewApp()
 	app.Commands = []cli.Command{*listCmd}
-	err := app.Run([]string{"chainlink", "list"})
+	err := app.Run([]string{"chainlink", cmdNameList})
 	require.NoError(t, err)
 }
 
@@ -85,7 +87,7 @@ func TestListAction_with_rows_prints_tsv(t *testing.T) {
 	cmds := InitCCVChainStatusesCommands(deps)
 	var listCmd *cli.Command
 	for i := range cmds {
-		if cmds[i].Name == "list" {
+		if cmds[i].Name == cmdNameList {
 			listCmd = &cmds[i]
 			break
 		}
@@ -99,7 +101,7 @@ func TestListAction_with_rows_prints_tsv(t *testing.T) {
 	app := cli.NewApp()
 	app.Commands = []cli.Command{*listCmd}
 	go func() {
-		_ = app.Run([]string{"chainlink", "list"})
+		_ = app.Run([]string{"chainlink", cmdNameList})
 		_ = w.Close()
 	}()
 	outBytes, err := io.ReadAll(r)
@@ -121,7 +123,7 @@ func TestListAction_store_error_returns_error(t *testing.T) {
 	cmds := InitCCVChainStatusesCommands(deps)
 	var listCmd *cli.Command
 	for i := range cmds {
-		if cmds[i].Name == "list" {
+		if cmds[i].Name == cmdNameList {
 			listCmd = &cmds[i]
 			break
 		}
@@ -129,7 +131,7 @@ func TestListAction_store_error_returns_error(t *testing.T) {
 	require.NotNil(t, listCmd)
 	app := cli.NewApp()
 	app.Commands = []cli.Command{*listCmd}
-	err := app.Run([]string{"chainlink", "list"})
+	err := app.Run([]string{"chainlink", cmdNameList})
 	require.Error(t, err)
 }
 

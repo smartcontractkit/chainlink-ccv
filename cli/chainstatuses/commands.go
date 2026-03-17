@@ -3,6 +3,7 @@ package chainstatuses
 import (
 	"context"
 	"fmt"
+	"math"
 	"math/big"
 	"os"
 	"strconv"
@@ -10,7 +11,7 @@ import (
 	"github.com/olekukonko/tablewriter"
 	"github.com/urfave/cli"
 
-	chain_selectors "github.com/smartcontractkit/chain-selectors"
+	chainselectors "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/chainstatus"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -18,8 +19,11 @@ import (
 
 // ChainStatusStore is the minimal store interface required by the CLI.
 type ChainStatusStore interface {
+	// List returns all chain status rows.
 	List(ctx context.Context) ([]chainstatus.ChainStatusRow, error)
+	// SetDisabled sets the disabled flag for the given chain and verifier.
 	SetDisabled(ctx context.Context, chainSelector protocol.ChainSelector, verifierID string, disabled bool) error
+	// SetFinalizedBlockHeight sets the finalized block height for the given chain and verifier.
 	SetFinalizedBlockHeight(ctx context.Context, chainSelector protocol.ChainSelector, verifierID string, height *big.Int) error
 }
 
@@ -124,13 +128,13 @@ func enableActionWithFactory(getDeps func() Deps) func(c *cli.Context) error {
 			deps.Logger.Errorw("enable chain status failed", "chain_selector", chainSelector, "verifier_id", verifierID, "error", err)
 			return err
 		}
-		fmt.Printf("Chain %s (Chain Selector %d) (verifier %s) enabled.\n", chainNameFromSelector(chainSelector), chainSelector, verifierID)
+		fmt.Printf("Chain %s (Chain Selector %d) (verifier %s) enabled.\n", chainNameFromSelector(chainSelector), chainSelector, verifierID) //nolint:forbidigo // CLI user output
 		return nil
 	}
 }
 
 func chainNameFromSelector(chainSelector protocol.ChainSelector) string {
-	name, err := chain_selectors.GetChainNameFromSelector(uint64(chainSelector))
+	name, err := chainselectors.GetChainNameFromSelector(uint64(chainSelector))
 	if err != nil {
 		return "unknown"
 	}
@@ -150,7 +154,7 @@ func disableActionWithFactory(getDeps func() Deps) func(c *cli.Context) error {
 			deps.Logger.Errorw("disable chain status failed", "chain_selector", chainSelector, "verifier_id", verifierID, "error", err)
 			return err
 		}
-		fmt.Printf("Chain %s (Chain Selector %d) (verifier %s) disabled.\n", chainNameFromSelector(chainSelector), chainSelector, verifierID)
+		fmt.Printf("Chain %s (Chain Selector %d) (verifier %s) disabled.\n", chainNameFromSelector(chainSelector), chainSelector, verifierID) //nolint:forbidigo // CLI user output
 		return nil
 	}
 }
@@ -163,20 +167,24 @@ func setFinalizedHeightActionWithFactory(getDeps func() Deps) func(c *cli.Contex
 			return err
 		}
 		verifierID := c.String("verifier-id")
-		height := big.NewInt(int64(c.Uint64("block-height")))
+		blockHeightU64 := c.Uint64("block-height")
+		if blockHeightU64 > math.MaxInt64 {
+			return fmt.Errorf("block-height %d exceeds maximum %d", blockHeightU64, math.MaxInt64)
+		}
+		height := big.NewInt(int64(blockHeightU64))
 		ctx := context.Background()
 		if err := deps.Store.SetFinalizedBlockHeight(ctx, chainSelector, verifierID, height); err != nil {
 			deps.Logger.Errorw("set finalized block height failed", "chain_selector", chainSelector, "verifier_id", verifierID, "error", err)
 			return err
 		}
-		fmt.Printf("Chain %s (Chain Selector %d) (verifier %s) finalized_block_height set to %s.\n", chainNameFromSelector(chainSelector), chainSelector, verifierID, height.String())
+		fmt.Printf("Chain %s (Chain Selector %d) (verifier %s) finalized_block_height set to %s.\n", chainNameFromSelector(chainSelector), chainSelector, verifierID, height.String()) //nolint:forbidigo // CLI user output
 		return nil
 	}
 }
 
 func renderList(rows []chainstatus.ChainStatusRow) error {
 	if len(rows) == 0 {
-		fmt.Println("No chain status rows found.")
+		fmt.Println("No chain status rows found.") //nolint:forbidigo // CLI user output
 		return nil
 	}
 	table := tablewriter.NewWriter(os.Stdout)
