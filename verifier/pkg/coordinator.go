@@ -1,4 +1,4 @@
-package coordinator
+package verifier
 
 import (
 	"context"
@@ -12,7 +12,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/heartbeatclient"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	verpkg "github.com/smartcontractkit/chainlink-ccv/verifier/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/heartbeat"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/jobqueue"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/sourcereader"
@@ -58,12 +57,12 @@ type Coordinator struct {
 
 func NewCoordinator(
 	lggr logger.Logger,
-	verifier verpkg.Verifier,
+	verifier Verifier,
 	sourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
 	storage protocol.CCVNodeDataWriter,
-	config verpkg.CoordinatorConfig,
-	messageTracker verpkg.MessageLatencyTracker,
-	monitoring verpkg.Monitoring,
+	config CoordinatorConfig,
+	messageTracker MessageLatencyTracker,
+	monitoring Monitoring,
 	chainStatusManager protocol.ChainStatusManager,
 	heartbeatClient heartbeatclient.HeartbeatSender,
 	ds sqlutil.DataSource,
@@ -79,12 +78,12 @@ func NewCoordinator(
 
 func NewCoordinatorWithDetector(
 	lggr logger.Logger,
-	verifier verpkg.Verifier,
+	verifier Verifier,
 	sourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
 	storage protocol.CCVNodeDataWriter,
-	config verpkg.CoordinatorConfig,
-	messageTracker verpkg.MessageLatencyTracker,
-	monitoring verpkg.Monitoring,
+	config CoordinatorConfig,
+	messageTracker MessageLatencyTracker,
+	monitoring Monitoring,
 	chainStatusManager protocol.ChainStatusManager,
 	detector common.CurseCheckerService,
 	heartbeatClient heartbeatclient.HeartbeatSender,
@@ -149,19 +148,19 @@ func NewCoordinatorWithDetector(
 func createDurableProcessors(
 	lggr logger.Logger,
 	ds sqlutil.DataSource,
-	config verpkg.CoordinatorConfig,
-	verifier verpkg.Verifier,
-	monitoring verpkg.Monitoring,
+	config CoordinatorConfig,
+	verifier Verifier,
+	monitoring Monitoring,
 	enabledSourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
 	chainStatusManager protocol.ChainStatusManager,
 	curseDetector common.CurseCheckerService,
-	messageTracker verpkg.MessageLatencyTracker,
+	messageTracker MessageLatencyTracker,
 	storage protocol.CCVNodeDataWriter,
 ) (map[protocol.ChainSelector]*sourcereader.Service, services.Service, services.Service, services.Service, services.Service, error) {
-	taskQueue, err := jobqueue.NewPostgresJobQueue[verpkg.VerificationTask](
+	taskQueue, err := jobqueue.NewPostgresJobQueue[VerificationTask](
 		ds,
 		jobqueue.QueueConfig{
-			Name:          verpkg.TaskVerifierJobsTableName,
+			Name:          TaskVerifierJobsTableName,
 			OwnerID:       config.VerifierID,
 			RetryDuration: taskQueueRetryDuration,
 			LockDuration:  taskQueueLockDuration,
@@ -186,7 +185,7 @@ func createDurableProcessors(
 	resultQueue, err := jobqueue.NewPostgresJobQueue[protocol.VerifierNodeResult](
 		ds,
 		jobqueue.QueueConfig{
-			Name:          verpkg.StorageWriterJobsTableName,
+			Name:          StorageWriterJobsTableName,
 			OwnerID:       config.VerifierID,
 			RetryDuration: resultQueueRetryDuration,
 			LockDuration:  resultQueueLockDuration,
@@ -293,12 +292,12 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 
 func createSourceReadersDB(
 	lggr logger.Logger,
-	config verpkg.CoordinatorConfig,
+	config CoordinatorConfig,
 	chainStatusManager protocol.ChainStatusManager,
 	curseDetector common.CurseCheckerService,
-	monitoring verpkg.Monitoring,
+	monitoring Monitoring,
 	enabledSourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
-	taskQueue jobqueue.JobQueue[verpkg.VerificationTask],
+	taskQueue jobqueue.JobQueue[VerificationTask],
 ) (map[protocol.ChainSelector]*sourcereader.Service, error) {
 	sourceReaderServices := make(map[protocol.ChainSelector]*sourcereader.Service)
 	for chainSelector, sourceReader := range enabledSourceReaders {
@@ -321,7 +320,7 @@ func createSourceReadersDB(
 func filterOnlyEnabledSourceReaders(
 	ctx context.Context,
 	lggr logger.Logger,
-	config verpkg.CoordinatorConfig,
+	config CoordinatorConfig,
 	sourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
 	chainStatusManager protocol.ChainStatusManager,
 ) (map[protocol.ChainSelector]chainaccess.SourceReader, error) {
@@ -403,17 +402,17 @@ func (vc *Coordinator) Close() error {
 			}
 		}
 
-		vc.lggr.Infow("verpkg.Verifier coordinator stopped")
+		vc.lggr.Infow("Verifier coordinator stopped")
 		return errors.Join(errs...)
 	})
 }
 
 func createCurseDetector(
 	lggr logger.Logger,
-	config verpkg.CoordinatorConfig,
+	config CoordinatorConfig,
 	curseDetector common.CurseCheckerService,
 	sourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
-	metrics verpkg.MetricLabeler,
+	metrics MetricLabeler,
 ) (common.CurseCheckerService, error) {
 	if len(sourceReaders) == 0 {
 		lggr.Infow("No RMN readers provided; curse detector will not be started")

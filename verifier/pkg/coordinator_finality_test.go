@@ -1,4 +1,4 @@
-package coordinator
+package verifier
 
 import (
 	"context"
@@ -15,7 +15,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	verpkg "github.com/smartcontractkit/chainlink-ccv/verifier/pkg"
+
 	"github.com/smartcontractkit/chainlink-ccv/verifier/testutil"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
@@ -312,8 +312,8 @@ func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetu
 	verifierAddr := make([]byte, 20)
 	verifierAddr[0] = 0x11
 
-	config := verpkg.CoordinatorConfig{
-		SourceConfigs: map[protocol.ChainSelector]verpkg.SourceConfig{
+	config := CoordinatorConfig{
+		SourceConfigs: map[protocol.ChainSelector]SourceConfig{
 			1337: {
 				VerifierAddress: protocol.UnknownAddress(verifierAddr),
 				PollInterval:    50 * time.Millisecond, // Fast polling for tests
