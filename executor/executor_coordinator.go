@@ -177,6 +177,12 @@ func (ec *Coordinator) runStorageStream(ctx context.Context) {
 				continue
 			}
 
+			if !ec.leaderElector.IsExecutorForChain(msg.DestChainSelector) {
+				ec.lggr.Infow("skipping message, executor not in pool for destination chain",
+					"messageID", id, "chainSel", msg.DestChainSelector)
+				continue
+			}
+
 			readyTimestamp, err := ec.leaderElector.GetReadyTimestamp(
 				id,
 				msg.DestChainSelector,
