@@ -27,7 +27,7 @@ jobs:
             config: env.toml
             timeout: 15m
             working-directory: build/devenv/tests/e2e
-          - name: TestE2ESmome_Basic
+          - name: TestE2ESmoke_Basic
             config: env.toml,env-one-exec-per-chain.toml
             timeout: 15m
             working-directory: build/devenv/tests/e2e
