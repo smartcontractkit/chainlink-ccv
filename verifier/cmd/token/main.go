@@ -14,12 +14,12 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 
-	cmd "github.com/smartcontractkit/chainlink-ccv/cmd/verifier"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/heartbeatclient"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
+	cmd "github.com/smartcontractkit/chainlink-ccv/verifier/cmd"
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/chainstatus"
 
