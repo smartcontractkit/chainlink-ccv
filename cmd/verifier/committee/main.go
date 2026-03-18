@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"os"
 
 	_ "github.com/lib/pq"
 	"go.uber.org/zap/zapcore"
@@ -23,6 +24,10 @@ import (
 )
 
 func main() {
+	if len(os.Args) >= 2 && os.Args[1] == "ccv" {
+		cmd.RunCCVCLI(os.Args[1:])
+		return
+	}
 	if err := bootstrap.Run(
 		"EVMCommitteeVerifier",
 		cmd.NewCommitteeVerifierServiceFactory(

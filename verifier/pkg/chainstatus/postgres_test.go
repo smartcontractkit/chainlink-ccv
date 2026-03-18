@@ -13,13 +13,13 @@ import (
 )
 
 func TestPostgresChainStatusManager(t *testing.T) {
-	// Single shared database for all test cases
 	db := testutil.NewTestDB(t)
 	lggr := logger.Test(t)
+	store := NewPostgresChainStatusStore(db, lggr)
 	ctx := t.Context()
 
 	t.Run("write and read single chain status", func(t *testing.T) {
-		manager := NewPostgresChainStatusManager(db, lggr, "test-single-chain")
+		manager := NewPostgresChainStatusManager(store, "test-single-chain")
 		_, _ = db.Exec("DELETE FROM ccv_chain_statuses WHERE verifier_id = 'test-single-chain'")
 
 		statuses := []protocol.ChainStatusInfo{
@@ -42,7 +42,7 @@ func TestPostgresChainStatusManager(t *testing.T) {
 	})
 
 	t.Run("write and read multiple chain statuses", func(t *testing.T) {
-		manager := NewPostgresChainStatusManager(db, lggr, "test-multiple-chains")
+		manager := NewPostgresChainStatusManager(store, "test-multiple-chains")
 		_, _ = db.Exec("DELETE FROM ccv_chain_statuses WHERE verifier_id = 'test-multiple-chains'")
 
 		statuses := []protocol.ChainStatusInfo{
@@ -74,7 +74,7 @@ func TestPostgresChainStatusManager(t *testing.T) {
 	})
 
 	t.Run("read only requested chain selectors", func(t *testing.T) {
-		manager := NewPostgresChainStatusManager(db, lggr, "test-selective-read")
+		manager := NewPostgresChainStatusManager(store, "test-selective-read")
 		_, _ = db.Exec("DELETE FROM ccv_chain_statuses WHERE verifier_id = 'test-selective-read'")
 
 		statuses := []protocol.ChainStatusInfo{
@@ -103,7 +103,7 @@ func TestPostgresChainStatusManager(t *testing.T) {
 	})
 
 	t.Run("upsert updates existing chain status", func(t *testing.T) {
-		manager := NewPostgresChainStatusManager(db, lggr, "test-upsert")
+		manager := NewPostgresChainStatusManager(store, "test-upsert")
 		_, _ = db.Exec("DELETE FROM ccv_chain_statuses WHERE verifier_id = 'test-upsert'")
 
 		// Initial write
@@ -138,7 +138,7 @@ func TestPostgresChainStatusManager(t *testing.T) {
 	})
 
 	t.Run("read non-existent chain selectors returns empty map", func(t *testing.T) {
-		manager := NewPostgresChainStatusManager(db, lggr, "test-nonexistent")
+		manager := NewPostgresChainStatusManager(store, "test-nonexistent")
 		_, _ = db.Exec("DELETE FROM ccv_chain_statuses WHERE verifier_id = 'test-nonexistent'")
 
 		result, err := manager.ReadChainStatuses(ctx, []protocol.ChainSelector{999})
@@ -147,7 +147,7 @@ func TestPostgresChainStatusManager(t *testing.T) {
 	})
 
 	t.Run("read with empty selectors returns empty map", func(t *testing.T) {
-		manager := NewPostgresChainStatusManager(db, lggr, "test-empty-selectors")
+		manager := NewPostgresChainStatusManager(store, "test-empty-selectors")
 
 		result, err := manager.ReadChainStatuses(ctx, []protocol.ChainSelector{})
 		require.NoError(t, err)
@@ -155,7 +155,7 @@ func TestPostgresChainStatusManager(t *testing.T) {
 	})
 
 	t.Run("write empty statuses does not error", func(t *testing.T) {
-		manager := NewPostgresChainStatusManager(db, lggr, "test-empty-write")
+		manager := NewPostgresChainStatusManager(store, "test-empty-write")
 
 		err := manager.WriteChainStatuses(ctx, []protocol.ChainStatusInfo{})
 		require.NoError(t, err)
@@ -166,7 +166,7 @@ func TestPostgresChainStatusManager(t *testing.T) {
 	})
 
 	t.Run("nil block height returns error", func(t *testing.T) {
-		manager := NewPostgresChainStatusManager(db, lggr, "test-nil-block")
+		manager := NewPostgresChainStatusManager(store, "test-nil-block")
 		_, _ = db.Exec("DELETE FROM ccv_chain_statuses WHERE verifier_id = 'test-nil-block'")
 
 		statuses := []protocol.ChainStatusInfo{
@@ -185,8 +185,8 @@ func TestPostgresChainStatusManager(t *testing.T) {
 		verifierID1 := "verifier-1"
 		verifierID2 := "verifier-2"
 
-		manager1 := NewPostgresChainStatusManager(db, lggr, verifierID1)
-		manager2 := NewPostgresChainStatusManager(db, lggr, verifierID2)
+		manager1 := NewPostgresChainStatusManager(store, verifierID1)
+		manager2 := NewPostgresChainStatusManager(store, verifierID2)
 
 		_, _ = db.Exec("DELETE FROM ccv_chain_statuses WHERE verifier_id IN ($1, $2)", verifierID1, verifierID2)
 
@@ -230,4 +230,123 @@ func TestPostgresChainStatusManager(t *testing.T) {
 		assert.NotEqual(t, result1[chainSelector].FinalizedBlockHeight, result2[chainSelector].FinalizedBlockHeight)
 		assert.NotEqual(t, result1[chainSelector].Disabled, result2[chainSelector].Disabled)
 	})
+}
+
+func TestPostgresChainStatusStore_List(t *testing.T) {
+	db := testutil.NewTestDB(t)
+	lggr := logger.Test(t)
+	ctx := t.Context()
+	store := NewPostgresChainStatusStore(db, lggr)
+	manager := NewPostgresChainStatusManager(store, "store-list-verifier")
+	_, _ = db.Exec("DELETE FROM ccv_chain_statuses WHERE verifier_id = 'store-list-verifier'")
+
+	err := manager.WriteChainStatuses(ctx, []protocol.ChainStatusInfo{
+		{ChainSelector: 1, FinalizedBlockHeight: big.NewInt(100), Disabled: false},
+		{ChainSelector: 2, FinalizedBlockHeight: big.NewInt(200), Disabled: true},
+	})
+	require.NoError(t, err)
+
+	t.Run("list returns all rows including for verifier", func(t *testing.T) {
+		rows, err := store.List(ctx)
+		require.NoError(t, err)
+		require.GreaterOrEqual(t, len(rows), 2)
+		var found int
+		for _, r := range rows {
+			if r.VerifierID == "store-list-verifier" && (r.ChainSelector == 1 || r.ChainSelector == 2) {
+				found++
+				if r.ChainSelector == 1 {
+					require.Equal(t, big.NewInt(100), r.FinalizedBlockHeight)
+					require.False(t, r.Disabled)
+				}
+				if r.ChainSelector == 2 {
+					require.Equal(t, big.NewInt(200), r.FinalizedBlockHeight)
+					require.True(t, r.Disabled)
+				}
+			}
+		}
+		require.Equal(t, 2, found)
+	})
+}
+
+func TestPostgresChainStatusStore_SetDisabled(t *testing.T) {
+	db := testutil.NewTestDB(t)
+	lggr := logger.Test(t)
+	ctx := t.Context()
+	store := NewPostgresChainStatusStore(db, lggr)
+	manager := NewPostgresChainStatusManager(store, "store-set-disabled")
+	_, _ = db.Exec("DELETE FROM ccv_chain_statuses WHERE verifier_id = 'store-set-disabled'")
+
+	err := manager.WriteChainStatuses(ctx, []protocol.ChainStatusInfo{
+		{ChainSelector: 1, FinalizedBlockHeight: big.NewInt(100), Disabled: false},
+	})
+	require.NoError(t, err)
+
+	err = store.SetDisabled(ctx, 1, "store-set-disabled", true)
+	require.NoError(t, err)
+
+	result, err := manager.ReadChainStatuses(ctx, []protocol.ChainSelector{1})
+	require.NoError(t, err)
+	require.Len(t, result, 1)
+	require.True(t, result[1].Disabled)
+
+	err = store.SetDisabled(ctx, 1, "store-set-disabled", false)
+	require.NoError(t, err)
+	result, err = manager.ReadChainStatuses(ctx, []protocol.ChainSelector{1})
+	require.NoError(t, err)
+	require.False(t, result[1].Disabled)
+}
+
+func TestPostgresChainStatusStore_SetDisabled_nonexistent_returns_error(t *testing.T) {
+	db := testutil.NewTestDB(t)
+	lggr := logger.Test(t)
+	ctx := t.Context()
+	store := NewPostgresChainStatusStore(db, lggr)
+
+	err := store.SetDisabled(ctx, 99999, "no-such-verifier", true)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "no row found")
+}
+
+func TestPostgresChainStatusStore_SetFinalizedBlockHeight(t *testing.T) {
+	db := testutil.NewTestDB(t)
+	lggr := logger.Test(t)
+	ctx := t.Context()
+	store := NewPostgresChainStatusStore(db, lggr)
+	manager := NewPostgresChainStatusManager(store, "store-set-height")
+	_, _ = db.Exec("DELETE FROM ccv_chain_statuses WHERE verifier_id = 'store-set-height'")
+
+	err := manager.WriteChainStatuses(ctx, []protocol.ChainStatusInfo{
+		{ChainSelector: 1, FinalizedBlockHeight: big.NewInt(100), Disabled: false},
+	})
+	require.NoError(t, err)
+
+	err = store.SetFinalizedBlockHeight(ctx, 1, "store-set-height", big.NewInt(300))
+	require.NoError(t, err)
+
+	result, err := manager.ReadChainStatuses(ctx, []protocol.ChainSelector{1})
+	require.NoError(t, err)
+	require.Len(t, result, 1)
+	require.Equal(t, 0, big.NewInt(300).Cmp(result[1].FinalizedBlockHeight))
+}
+
+func TestPostgresChainStatusStore_SetFinalizedBlockHeight_nonexistent_returns_error(t *testing.T) {
+	db := testutil.NewTestDB(t)
+	lggr := logger.Test(t)
+	ctx := t.Context()
+	store := NewPostgresChainStatusStore(db, lggr)
+
+	err := store.SetFinalizedBlockHeight(ctx, 99999, "no-such-verifier", big.NewInt(1))
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "no row found")
+}
+
+func TestPostgresChainStatusStore_SetFinalizedBlockHeight_nil_height_returns_error(t *testing.T) {
+	db := testutil.NewTestDB(t)
+	lggr := logger.Test(t)
+	ctx := t.Context()
+	store := NewPostgresChainStatusStore(db, lggr)
+
+	err := store.SetFinalizedBlockHeight(ctx, 1, "v", nil)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "cannot be nil")
 }
