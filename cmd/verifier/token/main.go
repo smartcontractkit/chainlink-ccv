@@ -12,6 +12,7 @@ import (
 	"go.uber.org/zap/zapcore"
 
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm"
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 
 	cmd "github.com/smartcontractkit/chainlink-ccv/cmd/verifier"
@@ -35,7 +36,9 @@ import (
 func main() {
 	err := bootstrap.Run(
 		"TokenVerifier",
-		&tokenVerifierFactory{},
+		&tokenVerifierFactory{
+			createAccessorFactoryFunc: evm.CreateAccessorFactory,
+		},
 		// TODO: remove the AppConfig generic type to streamline this API, update factory to accept config as a string.
 		bootstrap.WithTOMLAppConfig[token.ConfigWithBlockchainInfos]("/etc/config.toml"),
 	)
@@ -47,6 +50,9 @@ func main() {
 
 type tokenVerifierFactory struct {
 	bootstrap.ServiceFactory[token.Config]
+
+	// TODO: rather than creating the factory in the bootstrap layer, can we pass in a registry?
+	createAccessorFactoryFunc accessors.CreateAccessorFactory
 
 	coordinators []*coordinator.Coordinator
 	httpServer   *http.Server
@@ -79,21 +85,24 @@ func (tvf *tokenVerifierFactory) Stop(ctx context.Context) error {
 
 // Start starts the service with the parsed config received from the bootstrapper.
 func (tvf *tokenVerifierFactory) Start(ctx context.Context, appConfig token.ConfigWithBlockchainInfos, deps bootstrap.ServiceDeps) error {
-	logLevelStr := os.Getenv("LOG_LEVEL")
-	if logLevelStr == "" {
-		logLevelStr = "info"
+	// TODO: Add "WithLogLevelFromEnv" option and use deps.lggr.
+	{
+		logLevelStr := os.Getenv("LOG_LEVEL")
+		if logLevelStr == "" {
+			logLevelStr = "info"
+		}
+		var zapLevel zapcore.Level
+		if err := zapLevel.UnmarshalText([]byte(logLevelStr)); err != nil {
+			_, _ = fmt.Fprintf(os.Stderr, "Invalid LOG_LEVEL '%s', defaulting to 'info'\n", logLevelStr)
+			zapLevel = zapcore.InfoLevel
+		}
+		var err error
+		tvf.lggr, err = logger.NewWith(logging.DevelopmentConfig(zapLevel))
+		if err != nil {
+			return fmt.Errorf("failed to create logger: %v", err)
+		}
+		tvf.lggr = logger.Named(tvf.lggr, "verifier")
 	}
-	var zapLevel zapcore.Level
-	if err := zapLevel.UnmarshalText([]byte(logLevelStr)); err != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "Invalid LOG_LEVEL '%s', defaulting to 'info'\n", logLevelStr)
-		zapLevel = zapcore.InfoLevel
-	}
-	var err error
-	tvf.lggr, err = logger.NewWith(logging.DevelopmentConfig(zapLevel))
-	if err != nil {
-		return fmt.Errorf("failed to create logger: %v", err)
-	}
-	tvf.lggr = logger.Named(tvf.lggr, "verifier")
 
 	// Use SugaredLogger for better API
 	tvf.lggr = logger.Sugared(tvf.lggr)
@@ -102,17 +111,33 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, appConfig token.Conf
 	config := appConfig.Config
 	blockchainInfos := appConfig.BlockchainInfos
 
-	_, err = cmd.StartPyroscope(tvf.lggr, config.PyroscopeURL, "tokenVerifier")
+	_, err := cmd.StartPyroscope(tvf.lggr, config.PyroscopeURL, "tokenVerifier")
 	if err != nil {
 		tvf.lggr.Errorw("Failed to start pyroscope", "error", err)
 		os.Exit(1)
 	}
+
+	factory, err := tvf.createAccessorFactoryFunc(ctx, tvf.lggr, blockchainInfos, config.OnRampAddresses, config.RMNRemoteAddresses)
+	if err != nil {
+		tvf.lggr.Errorw("Failed to create accessor factory", "error", err)
+		return fmt.Errorf("failed to create accessor factory: %w", err)
+	}
+
+	// Initialize source readers from factory.
 	blockchainHelper := cmd.LoadBlockchainInfo(ctx, tvf.lggr, blockchainInfos)
-
-	registry := accessors.NewRegistry(blockchainHelper)
-	cmd.RegisterEVM(ctx, registry, tvf.lggr, blockchainHelper, config.OnRampAddresses, config.RMNRemoteAddresses)
-
-	sourceReaders := cmd.LoadBlockchainReadersForToken(ctx, tvf.lggr, registry, blockchainHelper, config)
+	sourceReaders := make(map[protocol.ChainSelector]chainaccess.SourceReader)
+	for _, selector := range blockchainHelper.GetAllChainSelectors() {
+		accessor, err := factory.GetAccessor(ctx, selector)
+		if err != nil {
+			tvf.lggr.Errorw("Failed to get accessor for chain selector", "error", err, "chainSelector", selector)
+			return fmt.Errorf("failed to get accessor for chain selector %d: %w", selector, err)
+		}
+		if accessor.SourceReader() == nil {
+			tvf.lggr.Errorw("Failed to get source reader for chain selector", "error", err, "chainSelector", selector)
+			return fmt.Errorf("failed to get source reader for chain selector %d", selector)
+		}
+		sourceReaders[selector] = accessor.SourceReader()
+	}
 
 	verifierMonitoring := cmd.SetupMonitoring(tvf.lggr, config.Monitoring)
 
