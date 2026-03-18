@@ -23,8 +23,8 @@ var _ common.IndexerStorage = (*PostgresStorage)(nil)
 const (
 	opGetCCVData            = "GetCCVData"
 	opQueryCCVData          = "QueryCCVData"
-	opBatchInsertCCVData  = "BatchInsertCCVData"
-	opQueryMessages      = "QueryMessages"
+	opBatchInsertCCVData    = "BatchInsertCCVData"
+	opQueryMessages         = "QueryMessages"
 	opUpdateMessageStatus   = "UpdateMessageStatus"
 	opCreateDiscoveryState  = "CreateDiscoveryState"
 	opPersistDiscoveryBatch = "PersistDiscoveryBatch"

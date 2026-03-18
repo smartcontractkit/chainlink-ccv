@@ -90,7 +90,7 @@ func (r *restReader) GetVerifications(ctx context.Context, messageIDs []protocol
 
 	if response.StatusCode == http.StatusNotFound {
 		r.lggr.Debugw("REST reader 404 (no results), returning empty map", "url", url)
-		return map[protocol.Bytes32]protocol.VerifierResult{}, nil
+		return make(map[protocol.Bytes32]protocol.VerifierResult), nil
 	}
 
 	if response.StatusCode != http.StatusOK {

@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/failsafe-go/failsafe-go/circuitbreaker"
+
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
@@ -168,7 +169,7 @@ func TestRestReader_GetVerifications_404_DoesNotOpenCircuitBreaker(t *testing.T)
 
 	ctx := context.Background()
 	ids := []protocol.Bytes32{messageID}
-	for i := 0; i < 6; i++ {
+	for i := range 6 {
 		// We don't care about the result we expect the circuit breaker to remain closed at the end of the test
 		rr.GetVerifications(ctx, ids)
 		if i < 5 {
