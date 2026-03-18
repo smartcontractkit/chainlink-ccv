@@ -12,7 +12,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/quorum"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/storage/postgres"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/testutil"
-	committee "github.com/smartcontractkit/chainlink-ccv/committee/common"
+	"github.com/smartcontractkit/chainlink-ccv/common/committee"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )

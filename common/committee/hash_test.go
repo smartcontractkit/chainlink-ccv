@@ -1,11 +1,11 @@
-package common_test
+package committee_test
 
 import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
 
-	committee "github.com/smartcontractkit/chainlink-ccv/committee/common"
+	"github.com/smartcontractkit/chainlink-ccv/common/committee"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
