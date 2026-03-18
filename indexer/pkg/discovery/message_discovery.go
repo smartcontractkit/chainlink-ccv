@@ -23,8 +23,8 @@ var _ common.MessageDiscovery = (*AggregatorMessageDiscovery)(nil)
 // PrimaryWriteNotifier allows the primary (priority-0) AggregatorMessageDiscovery to broadcast
 // to all waiting secondary sources that its current write attempt has completed — whether it
 // succeeded or failed.  Secondary sources select on WaitCh() alongside their own maximum-delay
-// timer, so they proceed as soon as the primary finishes rather than burning the full delay when
-// the primary fails early.
+// timer, so they proceed in priority order as soon as the primary finishes rather than burning
+// the full delay when the primary fails early.
 type PrimaryWriteNotifier struct {
 	mu sync.Mutex
 	ch chan struct{}
@@ -37,12 +37,15 @@ func NewPrimaryWriteNotifier() *PrimaryWriteNotifier {
 
 // Notify broadcasts that the primary has completed its write attempt.
 // All goroutines currently waiting on WaitCh() are unblocked immediately.
+// The old channel is closed while the mutex is held so that there is no window
+// in which a concurrent WaitCh() call can obtain the new open channel and miss
+// the signal for the current tick.
 func (n *PrimaryWriteNotifier) Notify() {
 	n.mu.Lock()
 	old := n.ch
 	n.ch = make(chan struct{})
+	close(old) // close before Unlock so no caller can observe the new channel without the close having happened
 	n.mu.Unlock()
-	close(old)
 }
 
 // WaitCh returns the channel to include in a select statement.
@@ -68,9 +71,14 @@ type AggregatorMessageDiscovery struct {
 	discoveryPriority int
 	// primaryWriteNotifier is shared across all AggregatorMessageDiscovery instances in a
 	// multi-source setup.  The primary (priority 0) calls Notify() after each write attempt;
-	// secondary sources call WaitCh() in their delay select so they unblock as soon as the
-	// primary is done rather than sleeping the full delay when the primary fails.
+	// secondary sources use WaitCh() so they can unblock early and still proceed in priority
+	// order — each secondary waits (priority-1)*priorityStagger after the primary finishes,
+	// capped so the total delay never exceeds priority*priorityStagger from the tick start.
 	primaryWriteNotifier *PrimaryWriteNotifier
+	// priorityStagger is the delay increment per priority level used both as the total
+	// per-level cap and as the relative stagger between consecutive secondary sources.
+	// Defaults to 5 seconds; override in tests via the unexported field directly.
+	priorityStagger time.Duration
 }
 
 type Option func(*AggregatorMessageDiscovery)
@@ -126,9 +134,10 @@ func WithDiscoveryPriority(discoveryPriority int) Option {
 // WithPrimaryWriteNotifier wires the shared PrimaryWriteNotifier into a discovery instance.
 // Pass the same notifier to all sources in a multi-source setup:
 //   - the primary (priority 0) will call Notify() after each write attempt via defer
-//   - secondary sources (priority > 0) will call WaitCh() so their delay select can
-//     short-circuit as soon as the primary finishes, avoiding redundant waits when the
-//     primary aggregator is down.
+//   - secondary sources (priority > 0) will call WaitCh() so they unblock as soon as
+//     the primary finishes; each secondary then waits an additional (priority-1)*stagger
+//     interval so higher-priority secondaries still proceed in order even when the primary
+//     finishes early.
 //
 // Passing nil is safe and disables the coordination (single-source or opt-out).
 func WithPrimaryWriteNotifier(notifier *PrimaryWriteNotifier) Option {
@@ -146,6 +155,11 @@ func NewAggregatorMessageDiscovery(opts ...Option) (common.MessageDiscovery, err
 	// Apply all options
 	for _, opt := range opts {
 		opt(a)
+	}
+
+	// Apply defaults for fields that were not set by options.
+	if a.priorityStagger == 0 {
+		a.priorityStagger = 5 * time.Second
 	}
 
 	// Validate the configuration
@@ -239,7 +253,7 @@ func (a *AggregatorMessageDiscovery) run(ctx context.Context) {
 		case <-ticker.C:
 			// Stagger timeouts across discovery instances so they don't all time out
 			// simultaneously when the aggregator is under pressure.
-			readCtx, cancel := context.WithTimeout(ctx, time.Duration(a.config.Timeout)*time.Millisecond+(time.Duration(a.discoveryPriority)*5*time.Second))
+			readCtx, cancel := context.WithTimeout(ctx, time.Duration(a.config.Timeout)*time.Millisecond+(time.Duration(a.discoveryPriority)*a.priorityStagger))
 
 			// Consume the reader until there is no more data present from the aggregator
 			// Aim is to allow for quick backfilling of data if needed.
@@ -345,29 +359,9 @@ func (a *AggregatorMessageDiscovery) callReader(ctx context.Context) (bool, erro
 	// consistency.  The delay is applied after reading so the aggregator is queried immediately,
 	// but persisting and channel emission are deferred, giving higher-priority sources time to
 	// persist first.
-	//
-	// Secondary sources (priority > 0) select on the primary's WaitCh() alongside the
-	// timer.  If the primary finishes its write attempt (success or failure) before the timer
-	// fires, the secondary unblocks immediately instead of waiting the full delay.  This avoids
-	// the redundant delay that occurs when the primary aggregator is unresponsive.
-	delay := time.Duration(a.discoveryPriority) * 5 * time.Second
-	if delay > 0 {
-		timer := time.NewTimer(delay)
-		defer timer.Stop()
-
-		// primaryWrittenCh is nil when no notifier is configured; a nil channel in a select
-		// case is never ready, so the behavior gracefully degrades to timer-only.
-		var primaryWrittenCh <-chan struct{}
-		if a.primaryWriteNotifier != nil {
-			primaryWrittenCh = a.primaryWriteNotifier.WaitCh()
-		}
-
-		select {
-		case <-ctx.Done():
-			return false, ctx.Err()
-		case <-primaryWrittenCh: // primary finished its write attempt (success or failure)
-		case <-timer.C: // maximum wait elapsed; proceed regardless
-		}
+	delay := time.Duration(a.discoveryPriority) * a.priorityStagger
+	if err := a.waitForPrioritySlot(ctx, delay); err != nil {
+		return false, err
 	}
 
 	if len(messages) > 0 || len(persistedVerifications) > 0 {
@@ -396,6 +390,67 @@ func (a *AggregatorMessageDiscovery) callReader(ctx context.Context) (bool, erro
 
 	// Return true if we processed any data, false if the slice was empty
 	return len(queryResponse) > 0, nil
+}
+
+// waitForPrioritySlot suspends the caller for the amount of time dictated by the
+// source's discovery priority. For the primary (priority 0) the delay is zero and
+// the function returns immediately.
+//
+// For secondary sources the function blocks until the earlier of:
+//   - the overall cap (priority × priorityStagger), or
+//   - the primary signaling completion, after which an additional
+//     (priority-1)×priorityStagger stagger is applied so consecutive secondary
+//     sources still proceed in priority order.
+//
+// The stagger after the primary signal is capped so the total elapsed time never
+// exceeds the overall cap.
+func (a *AggregatorMessageDiscovery) waitForPrioritySlot(ctx context.Context, delay time.Duration) error {
+	if delay <= 0 {
+		return nil
+	}
+
+	startTime := time.Now()
+	overallTimer := time.NewTimer(delay)
+	defer overallTimer.Stop()
+
+	// primaryWrittenCh is nil when no notifier is configured; a nil channel in a select
+	// case is never ready, so the behavior gracefully degrades to timer-only.
+	var primaryWrittenCh <-chan struct{}
+	if a.primaryWriteNotifier != nil {
+		primaryWrittenCh = a.primaryWriteNotifier.WaitCh()
+	}
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-overallTimer.C: // maximum wait elapsed; proceed regardless
+		return nil
+	case <-primaryWrittenCh: // primary finished its write attempt (success or failure)
+	}
+
+	// Primary finished before the overall timer. Apply a relative stagger so that
+	// secondary sources still proceed in priority order rather than all unblocking
+	// at the same instant. Priority k waits (k-1)*priorityStagger after the primary
+	// signals, but no longer than the time remaining before the overall cap expires.
+	stagger := time.Duration(a.discoveryPriority-1) * a.priorityStagger
+	if stagger <= 0 {
+		return nil
+	}
+
+	extraWait := min(stagger, delay-time.Since(startTime))
+	if extraWait <= 0 {
+		return nil
+	}
+
+	staggerTimer := time.NewTimer(extraWait)
+	defer staggerTimer.Stop()
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-staggerTimer.C:
+		return nil
+	}
 }
 
 func (a *AggregatorMessageDiscovery) persistBatch(
