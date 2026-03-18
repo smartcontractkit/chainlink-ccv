@@ -56,7 +56,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/token/lombard"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/lombard"
 	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
@@ -1328,7 +1328,7 @@ func (m *CCIP17EVMConfig) ConnectContractsWithSelectors(ctx context.Context, e *
 		switch family {
 		case chainsel.FamilyEVM:
 			addressBytesLength = 20
-		case chainsel.FamilyCanton:
+		case chainsel.FamilyCanton, chainsel.FamilySolana:
 			addressBytesLength = 32
 		default:
 			return fmt.Errorf("unsupported family %s for chain %d", family, rs)

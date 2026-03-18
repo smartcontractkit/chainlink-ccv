@@ -22,9 +22,10 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
-	"github.com/smartcontractkit/chainlink-ccv/verifier"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
+	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/chainstatus"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/commit"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/heartbeat"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
@@ -300,7 +301,7 @@ func (f *factory[T]) Start(ctx context.Context, spec commit.JobSpec, deps bootst
 		heartbeatClient,
 		config.VerifierID,
 		lggr,
-		verifier.NewHeartbeatMonitoringAdapter(verifierMonitoring),
+		heartbeat.NewHeartbeatMonitoringAdapter(verifierMonitoring),
 	)
 
 	messageTracker := monitoring.NewMessageLatencyTracker(

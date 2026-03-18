@@ -12,7 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/token/cctp"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/cctp"
 )
 
 // registerCCTPAttestation registers a CCTP attestation response with the fake service.

@@ -4,19 +4,19 @@ dir: ./internal/mocks
 outpkg: mocks
 
 packages:
-  github.com/smartcontractkit/chainlink-ccv/verifier/token/cctp:
+  github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/cctp:
     interfaces:
       AttestationService:
         config:
           filename: "mock_cctpAttestationService.go"
           mockname: "CCTPAttestationService"
-  github.com/smartcontractkit/chainlink-ccv/verifier/token/lombard:
+  github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/lombard:
     interfaces:
       AttestationService:
         config:
           filename: "mock_lombardAttestationService.go"
           mockname: "LombardAttestationService"
-  github.com/smartcontractkit/chainlink-ccv/verifier:
+  github.com/smartcontractkit/chainlink-ccv/verifier/pkg:
     interfaces:
       MetricLabeler:
         config:

@@ -113,6 +113,7 @@ func TestDiscoveryConfigValidate_MaxResponseBytes(t *testing.T) {
 				},
 				PollInterval:     1,
 				Timeout:          5,
+				NtpServer:        "time.google.com",
 				MaxResponseBytes: tt.maxResponseBytes,
 			}
 			err := cfg.Validate(0)
@@ -125,6 +126,110 @@ func TestDiscoveryConfigValidate_MaxResponseBytes(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestDiscoveryConfigValidate_Timeout(t *testing.T) {
+	tests := []struct {
+		name         string
+		pollInterval int
+		timeout      int
+		wantErr      bool
+		errSub       string
+	}{
+		{"timeout zero returns error with greater than 0 message", 1, 0, true, "timeout must be greater than 0"},
+		{"timeout negative returns error with greater than 0 message", 1, -1, true, "timeout must be greater than 0"},
+		{"timeout equals poll interval returns error with greater than poll interval message", 100, 100, true, "timeout must be greater than poll interval"},
+		{"timeout greater than poll interval passes", 100, 101, false, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := DiscoveryConfig{
+				AggregatorReaderConfig: AggregatorReaderConfig{Address: "localhost:50051"},
+				PollInterval:           tt.pollInterval,
+				Timeout:                tt.timeout,
+				NtpServer:              "time.google.com",
+			}
+			err := cfg.Validate(0)
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errSub)
+				assert.Contains(t, err.Error(), "discovery[0]")
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestDiscoveryConfigValidate_NtpServer(t *testing.T) {
+	tests := []struct {
+		name      string
+		ntpServer string
+		wantErr   bool
+		errSub    string
+	}{
+		{"empty NtpServer returns error", "", true, "NTP server address is required"},
+		{"non-empty NtpServer passes", "time.google.com", false, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := DiscoveryConfig{
+				AggregatorReaderConfig: AggregatorReaderConfig{Address: "localhost:50051"},
+				PollInterval:           1,
+				Timeout:                5,
+				NtpServer:              tt.ntpServer,
+			}
+			err := cfg.Validate(0)
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errSub)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestConfig_Validate_MergeBufferSize(t *testing.T) {
+	validDiscovery := DiscoveryConfig{
+		AggregatorReaderConfig: AggregatorReaderConfig{Address: "http://agg1", Since: 0},
+		PollInterval:           100,
+		Timeout:                200,
+		NtpServer:              "time.google.com",
+	}
+	minimalValidConfig := func(mergeBufferSize int) *Config {
+		return &Config{
+			Scheduler: SchedulerConfig{
+				TickerInterval:               100,
+				VerificationVisibilityWindow: 120,
+				BaseDelay:                    1000,
+				MaxDelay:                     5000,
+			},
+			Discoveries:     []DiscoveryConfig{validDiscovery},
+			MergeBufferSize: mergeBufferSize,
+			Storage: StorageConfig{
+				Strategy: StorageStrategySingle,
+				Single: &SingleStorageConfig{
+					Type:     StorageBackendTypePostgres,
+					Postgres: validPostgresConfig(),
+				},
+			},
+		}
+	}
+	t.Run("negative MergeBufferSize returns error", func(t *testing.T) {
+		cfg := minimalValidConfig(-1)
+		err := cfg.Validate()
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "merge buffer size must be non-negative")
+	})
+	t.Run("zero MergeBufferSize passes", func(t *testing.T) {
+		cfg := minimalValidConfig(0)
+		require.NoError(t, cfg.Validate())
+	})
+	t.Run("positive MergeBufferSize passes", func(t *testing.T) {
+		cfg := minimalValidConfig(1024)
+		require.NoError(t, cfg.Validate())
+	})
 }
 
 func validPostgresConfig() *PostgresConfig {
