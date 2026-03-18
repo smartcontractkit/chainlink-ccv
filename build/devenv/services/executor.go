@@ -179,7 +179,7 @@ func NewExecutor(in *ExecutorInput, blockchainOutputs []*ctfblockchain.Output) (
 		},
 	}
 
-	req.Mounts = append(req.Mounts, testcontainers.BindMount(
+	req.Mounts = append(req.Mounts, testcontainers.BindMount( //nolint:staticcheck // we're still using it...
 		configFilePath,
 		executor.DefaultConfigFile,
 	))

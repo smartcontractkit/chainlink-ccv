@@ -406,7 +406,7 @@ func baseImageRequest(in *Input, envVars map[string]string, bootstrapConfigFileP
 	}
 
 	req.Mounts = testcontainers.Mounts()
-	req.Mounts = append(req.Mounts, testcontainers.BindMount(
+	req.Mounts = append(req.Mounts, testcontainers.BindMount( //nolint:staticcheck // we're still using it...
 		bootstrapConfigFilePath,
 		bootstrap.DefaultConfigPath,
 	))
