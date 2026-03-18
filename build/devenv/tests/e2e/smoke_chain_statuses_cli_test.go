@@ -24,7 +24,7 @@ import (
 )
 
 const (
-	verifierBinary        = "/app/cmd/verifier/committee/tmp/committee"
+	verifierBinary        = "/app/verifier/cmd/committee/tmp/committee"
 	committeeProcessMatch = "tmp/committee"
 )
 
