@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg"
+	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
 )
 
 // validMessageID returns a valid 32-byte message ID hex string.

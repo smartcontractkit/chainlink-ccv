@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg"
+	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
 )
 
 // ValidateMessage validates a verification task message using the new format.

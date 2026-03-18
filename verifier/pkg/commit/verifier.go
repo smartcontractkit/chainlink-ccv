@@ -12,7 +12,7 @@ import (
 
 	committee "github.com/smartcontractkit/chainlink-ccv/committee/common"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg"
+	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
