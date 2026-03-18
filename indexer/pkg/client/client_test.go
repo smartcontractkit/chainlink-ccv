@@ -119,6 +119,17 @@ func (f *failingReader) Read([]byte) (int, error) {
 	return 0, errors.New("simulated read failure")
 }
 
+type failingCloser struct {
+	io.Reader
+	closeErr error
+	closed   bool
+}
+
+func (f *failingCloser) Close() error {
+	f.closed = true
+	return f.closeErr
+}
+
 func TestMaybeGetBody(t *testing.T) {
 	cases := []struct {
 		name       string
@@ -181,6 +192,17 @@ func TestMaybeGetBody(t *testing.T) {
 	t.Run("nil_reader_returns_error", func(t *testing.T) {
 		_, err := maybeGetBody(nil, 10)
 		require.ErrorContains(t, err, "nil reader detected")
+	})
+
+	t.Run("success_read_but_close_fails_returns_error_and_no_bytes", func(t *testing.T) {
+		closeErr := errors.New("close failed")
+		body := &failingCloser{Reader: bytes.NewReader([]byte("ok")), closeErr: closeErr}
+		b, err := maybeGetBody(body, 10)
+		require.True(t, body.closed, "body.Close() should be called")
+		require.Error(t, err)
+		require.ErrorContains(t, err, "close failed")
+		require.ErrorContains(t, err, "failed to close body")
+		require.Nil(t, b)
 	})
 }
 

@@ -49,10 +49,8 @@ type MessageStorageReader interface {
 	QueryMessages(ctx context.Context, start, end int64, sourceChainSelectors, destChainSelectors []protocol.ChainSelector, limit, offset uint64) ([]MessageWithMetadata, error)
 }
 
-// MessageStorageWriter provides the interface to insert messages to storage.
+// MessageStorageWriter provides the interface to update message state in storage.
 type MessageStorageWriter interface {
-	// InsertMessages appends a list of messages into storage.
-	InsertMessages(ctx context.Context, messages []MessageWithMetadata) error
 	// UpdateMessageStatus updates the status of indexing to storage.
 	UpdateMessageStatus(ctx context.Context, messageID protocol.Bytes32, status MessageStatus, lastErr string) error
 }
