@@ -4,7 +4,7 @@ import (
 	"fmt"
 )
 
-// MonitoringConfig provides monitoring configuration for executor.
+// MonitoringConfig provides monitoring configuration for verifier.
 type MonitoringConfig struct {
 	// Enabled enables the monitoring system.
 	Enabled bool `toml:"Enabled"`
