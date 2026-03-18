@@ -63,7 +63,7 @@ jobs:
             config: "env.toml,env-cl.toml,env-cl-ci.toml"
             timeout: 15m
           - name: TestE2ESmoke_Basic
-            config: "env.toml,env-cl.toml,env-cl-ci.toml,env-one-exec-per-chain.toml"
+            config: "env.toml,env-cl.toml,env-cl-ci.toml,env-one-exec-per-chain-cl.toml"
             timeout: 15m
           - name: TestE2ESmoke_TokenVerification
             config: "env.toml,env-cl.toml,env-cl-ci.toml"
