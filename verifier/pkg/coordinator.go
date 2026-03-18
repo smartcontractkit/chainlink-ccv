@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/common"
+	commonmetrics "github.com/smartcontractkit/chainlink-ccv/common/metrics"
 	cursecheckerimpl "github.com/smartcontractkit/chainlink-ccv/integration/pkg/cursechecker"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/heartbeatclient"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
@@ -53,6 +54,8 @@ type Coordinator struct {
 	// Observability wrappers for queues
 	taskQueueObserver   services.Service
 	resultQueueObserver services.Service
+
+	monitoring commonmetrics.ServiceMetrics
 }
 
 func NewCoordinator(
@@ -96,7 +99,7 @@ func NewCoordinatorWithDetector(
 		return nil, errors.New("verifier is required")
 	}
 	lggr = logger.With(lggr, "verifierID", config.VerifierID)
-	vc := &Coordinator{lggr: lggr, verifierID: config.VerifierID}
+	vc := &Coordinator{lggr: lggr, verifierID: config.VerifierID, monitoring: monitoring}
 	vc.initFn = func(ctx context.Context) error {
 		enabledSourceReaders, err := filterOnlyEnabledSourceReaders(ctx, lggr, config, sourceReaders, chainStatusManager)
 		if err != nil {
@@ -286,6 +289,8 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 		}
 
 		vc.lggr.Infow("Coordinator started successfully")
+		vc.monitoring.RecordServiceStarted(ctx)
+
 		return nil
 	})
 }

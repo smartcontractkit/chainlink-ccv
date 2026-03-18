@@ -5,12 +5,22 @@ import (
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
+	commonmetrics "github.com/smartcontractkit/chainlink-ccv/common/metrics"
 )
 
-type NoopAggregatorMonitoring struct{}
+// noopServiceMetrics implements commonmetrics.ServiceMetrics with no-op behavior for noop monitoring.
+type noopServiceMetrics struct{}
+
+func (noopServiceMetrics) RecordServiceStarted(context.Context) {}
+
+type NoopAggregatorMonitoring struct {
+	commonmetrics.ServiceMetrics
+}
 
 func NewNoopAggregatorMonitoring() *NoopAggregatorMonitoring {
-	return &NoopAggregatorMonitoring{}
+	return &NoopAggregatorMonitoring{
+		ServiceMetrics: noopServiceMetrics{},
+	}
 }
 
 func (m *NoopAggregatorMonitoring) Metrics() common.AggregatorMetricLabeler {

@@ -111,6 +111,9 @@ func main() {
 	if listenPort == 0 {
 		listenPort = 8100
 	}
+
+	indexerMonitoring.RecordServiceStarted(ctx)
+
 	api.Serve(v1, listenPort)
 }
 

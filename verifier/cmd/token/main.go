@@ -118,7 +118,7 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, appConfig token.Conf
 
 	sourceReaders := cmd.LoadBlockchainReadersForToken(ctx, tvf.lggr, registry, blockchainHelper, config)
 
-	verifierMonitoring := cmd.SetupMonitoring(tvf.lggr, config.Monitoring)
+	verifierMonitoring := cmd.SetupMonitoring(tvf.lggr, config.Monitoring, "token_verifier")
 
 	rmnRemoteAddresses := make(map[string]protocol.UnknownAddress)
 	for selector, address := range config.RMNRemoteAddresses {
@@ -209,6 +209,7 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, appConfig token.Conf
 		healthReporters[i] = coordinator
 	}
 	ginRouter := tokenapi.NewHTTPAPI(tvf.lggr, storage.NewCCVReader(postgresStorage), healthReporters, verifierMonitoring)
+	verifierMonitoring.RecordServiceStarted(ctx)
 
 	// Start HTTP server with Gin router
 	tvf.httpServer = &http.Server{

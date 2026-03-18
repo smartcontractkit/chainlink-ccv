@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	commonmetrics "github.com/smartcontractkit/chainlink-ccv/common/metrics"
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/metrics"
@@ -18,8 +19,14 @@ func InitMonitoring() (executor.Monitoring, error) {
 		return nil, fmt.Errorf("failed to initialize executor metrics: %w", err)
 	}
 
+	serviceMetrics, err := commonmetrics.NewServiceMetrics(metrics.NewLabeler(), "executor")
+	if err != nil {
+		return nil, fmt.Errorf("failed to create service metrics: %w", err)
+	}
+
 	return &ExecutorBeholderMonitoring{
-		metrics: NewExecutorMetricLabeler(metrics.NewLabeler(), executorMetrics),
+		metrics:        NewExecutorMetricLabeler(metrics.NewLabeler(), executorMetrics),
+		ServiceMetrics: serviceMetrics,
 	}, nil
 }
 
@@ -31,21 +38,29 @@ var (
 // ExecutorBeholderMonitoring provides beholder-based monitoring for the executor.
 type ExecutorBeholderMonitoring struct {
 	metrics executor.MetricLabeler
+	commonmetrics.ServiceMetrics
 }
 
 func (v *ExecutorBeholderMonitoring) Metrics() executor.MetricLabeler {
 	return v.metrics
 }
 
+// noopServiceMetrics implements commonmetrics.ServiceMetrics with no-op behavior for noop monitoring.
+type noopServiceMetrics struct{}
+
+func (noopServiceMetrics) RecordServiceStarted(context.Context) {}
+
 // NoopExecutorMonitoring provides a no-op implementation of ExecutorMonitoring.
 type NoopExecutorMonitoring struct {
 	noop executor.MetricLabeler
+	commonmetrics.ServiceMetrics
 }
 
 // NewNoopExecutorMonitoring creates a new noop monitoring instance.
 func NewNoopExecutorMonitoring() executor.Monitoring {
 	return &NoopExecutorMonitoring{
-		noop: NewNoopExecutorMetricLabeler(),
+		noop:           NewNoopExecutorMetricLabeler(),
+		ServiceMetrics: noopServiceMetrics{},
 	}
 }
 
