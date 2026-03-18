@@ -291,6 +291,13 @@ func (a *AggregatorMessageDiscovery) callReader(ctx context.Context) (bool, erro
 	}
 
 	startingSequence, ableToSetSinceValue := a.aggregatorReader.GetSinceValue()
+	// We reset the since value when after reading the data from aggregator but we fail to persist the data.
+	// TODO: If we ever support discovery where we can't set the since value, we will need to review what it means for this particular source to not reset the since value.
+	resetSinceValue := func() {
+		if ableToSetSinceValue {
+			a.aggregatorReader.SetSinceValue(startingSequence)
+		}
+	}
 	var queryResponse []protocol.QueryResponse
 	discoveryStartTime := time.Now()
 	queryResponse, err := a.aggregatorReader.ReadCCVData(ctx)
@@ -364,6 +371,7 @@ func (a *AggregatorMessageDiscovery) callReader(ctx context.Context) (bool, erro
 
 		select {
 		case <-ctx.Done():
+			resetSinceValue()
 			return false, ctx.Err()
 		case <-primaryWrittenCh: // primary finished its write attempt (success or failure)
 		case <-timer.C: // maximum wait elapsed; proceed regardless
@@ -373,9 +381,7 @@ func (a *AggregatorMessageDiscovery) callReader(ctx context.Context) (bool, erro
 	if len(messages) > 0 || len(persistedVerifications) > 0 {
 		if err := a.persistBatch(ctx, messages, persistedVerifications, ableToSetSinceValue); err != nil {
 			a.logger.Warnw("Unable to persist discovery batch, will retry", "error", err)
-			if ableToSetSinceValue {
-				a.aggregatorReader.SetSinceValue(startingSequence)
-			}
+			resetSinceValue()
 			return false, err
 		}
 	}
@@ -404,6 +410,11 @@ func (a *AggregatorMessageDiscovery) persistBatch(
 	verifications []common.VerifierResultWithMetadata,
 	ableToSetSinceValue bool,
 ) error {
+	encodable, skipped := common.FilterEncodableMessages(messages)
+	for _, s := range skipped {
+		a.logger.Warnw("Skipping message, cannot encode for insert", "index", s.Index, "reason", s.Reason)
+	}
+
 	sequenceNumber := common.SequenceNumberNotSupported
 	if ableToSetSinceValue {
 		if currentSequence, supports := a.aggregatorReader.GetSinceValue(); supports {
@@ -412,7 +423,7 @@ func (a *AggregatorMessageDiscovery) persistBatch(
 	}
 
 	return a.storageSink.PersistDiscoveryBatch(ctx, common.DiscoveryBatch{
-		Messages:          messages,
+		Messages:          encodable,
 		Verifications:     verifications,
 		DiscoveryLocation: a.config.Address,
 		SequenceNumber:    sequenceNumber,
