@@ -291,7 +291,8 @@ func TestPostgresChainStatusStore_SetDisabled(t *testing.T) {
 
 	err = store.SetDisabled(ctx, 1, "store-set-disabled", false)
 	require.NoError(t, err)
-	result, _ = manager.ReadChainStatuses(ctx, []protocol.ChainSelector{1})
+	result, err = manager.ReadChainStatuses(ctx, []protocol.ChainSelector{1})
+	require.NoError(t, err)
 	require.False(t, result[1].Disabled)
 }
 

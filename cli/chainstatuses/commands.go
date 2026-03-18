@@ -3,7 +3,6 @@ package chainstatuses
 import (
 	"context"
 	"fmt"
-	"math"
 	"math/big"
 	"os"
 	"strconv"
@@ -168,10 +167,7 @@ func setFinalizedHeightActionWithFactory(getDeps func() Deps) func(c *cli.Contex
 		}
 		verifierID := c.String("verifier-id")
 		blockHeightU64 := c.Uint64("block-height")
-		if blockHeightU64 > math.MaxInt64 {
-			return fmt.Errorf("block-height %d exceeds maximum %d", blockHeightU64, math.MaxInt64)
-		}
-		height := big.NewInt(int64(blockHeightU64))
+		height := new(big.Int).SetUint64(blockHeightU64)
 		ctx := context.Background()
 		if err := deps.Store.SetFinalizedBlockHeight(ctx, chainSelector, verifierID, height); err != nil {
 			deps.Logger.Errorw("set finalized block height failed", "chain_selector", chainSelector, "verifier_id", verifierID, "error", err)

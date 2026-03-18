@@ -163,7 +163,10 @@ func (s *PostgresChainStatusStore) SetDisabled(ctx context.Context, chainSelecto
 	if err != nil {
 		return fmt.Errorf("failed to set disabled for chain %s verifier %s: %w", chainSelectorStr, verifierID, err)
 	}
-	affected, _ := res.RowsAffected()
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get affected rows for chain %s verifier %s: %w", chainSelectorStr, verifierID, err)
+	}
 	if affected == 0 {
 		return fmt.Errorf("no row found for chain_selector=%s verifier_id=%s", chainSelectorStr, verifierID)
 	}
@@ -182,7 +185,10 @@ func (s *PostgresChainStatusStore) SetFinalizedBlockHeight(ctx context.Context, 
 	if err != nil {
 		return fmt.Errorf("failed to set finalized block height for chain %s verifier %s: %w", chainSelectorStr, verifierID, err)
 	}
-	affected, _ := res.RowsAffected()
+	affected, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("failed to get affected rows for chain %s verifier %s: %w", chainSelectorStr, verifierID, err)
+	}
 	if affected == 0 {
 		return fmt.Errorf("no row found for chain_selector=%s verifier_id=%s", chainSelectorStr, verifierID)
 	}
