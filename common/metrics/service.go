@@ -31,7 +31,10 @@ type serviceMetrics struct {
 // NewServiceMetrics creates shared service-level metrics. serviceName is emitted as the
 // "service_name" label so all services use the same gauge (e.g. ccip_service_started) with
 // different label values (indexer, aggregator, verifier, executor).
-func NewServiceMetrics(labeler metrics.Labeler, serviceName string) (ServiceMetrics, error) {
+func NewServiceMetrics(
+	labeler metrics.Labeler,
+	serviceName string,
+) (ServiceMetrics, error) {
 	serviceStartedGauge, err := beholder.GetMeter().Int64Gauge(
 		ServiceStartedGaugeName,
 		metric.WithDescription("Indicates when the service is started (1 = started)"),
@@ -40,13 +43,20 @@ func NewServiceMetrics(labeler metrics.Labeler, serviceName string) (ServiceMetr
 		return nil, err
 	}
 	labeler = labeler.With(ServiceNameLabel, serviceName)
-	return &serviceMetrics{
+	s := &serviceMetrics{
 		Labeler:             labeler,
 		serviceStartedGauge: serviceStartedGauge,
-	}, nil
+	}
+	// Set the metrics to 0 right after the init to trigger visible switch between 0 and 1
+	s.recordServiceMetric(context.Background(), 0)
+	return s, nil
 }
 
 func (s *serviceMetrics) RecordServiceStarted(ctx context.Context) {
+	s.recordServiceMetric(ctx, 1)
+}
+
+func (s *serviceMetrics) recordServiceMetric(ctx context.Context, value int64) {
 	otelLabels := beholder.OtelAttributes(s.Labels).AsStringAttributes()
-	s.serviceStartedGauge.Record(ctx, 1, metric.WithAttributes(otelLabels...))
+	s.serviceStartedGauge.Record(ctx, value, metric.WithAttributes(otelLabels...))
 }

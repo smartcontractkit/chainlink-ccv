@@ -204,6 +204,7 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, appConfig token.Conf
 		healthReporters[i] = coordinator
 	}
 	ginRouter := tokenapi.NewHTTPAPI(tvf.lggr, storage.NewCCVReader(postgresStorage), healthReporters, verifierMonitoring)
+	verifierMonitoring.RecordServiceStarted(ctx)
 
 	// Start HTTP server with Gin router
 	tvf.httpServer = &http.Server{
