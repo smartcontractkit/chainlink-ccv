@@ -11,9 +11,9 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/internal/mocks"
-	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/cctp"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/internal"
+	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 

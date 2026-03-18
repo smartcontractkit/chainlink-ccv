@@ -1,4 +1,4 @@
-package coordinator_test
+package verifier_test
 
 import (
 	"bytes"
@@ -18,7 +18,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/coordinator"
+
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/storage"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/cctp"
@@ -183,7 +183,7 @@ func Test_CCTPMessages_SingleSource(t *testing.T) {
 			chain1337: testCCVAddr,
 		})
 
-	mockSetup := coordinator.SetupMockSourceReader(t)
+	mockSetup := verifier.SetupMockSourceReader(t)
 	mockSetup.ExpectFetchMessageSentEvent(false)
 	sourceReaders := map[protocol.ChainSelector]chainaccess.SourceReader{
 		chain1337: mockSetup.Reader,
@@ -281,9 +281,9 @@ func Test_CCTPMessages_MultipleSources(t *testing.T) {
 			chain2337: destVerifier,
 		})
 
-	reader1337 := coordinator.SetupMockSourceReader(t)
+	reader1337 := verifier.SetupMockSourceReader(t)
 	reader1337.ExpectFetchMessageSentEvent(false)
-	reader2337 := coordinator.SetupMockSourceReader(t)
+	reader2337 := verifier.SetupMockSourceReader(t)
 	reader2337.ExpectFetchMessageSentEvent(false)
 	sourceReaders := map[protocol.ChainSelector]chainaccess.SourceReader{
 		chain1337: reader1337.Reader,
@@ -388,7 +388,7 @@ func Test_CCTPMessages_RetryingAttestation(t *testing.T) {
 			chain1337: testCCVAddr,
 		})
 
-	mockSetup := coordinator.SetupMockSourceReader(t)
+	mockSetup := verifier.SetupMockSourceReader(t)
 	mockSetup.ExpectFetchMessageSentEvent(false)
 	sourceReaders := map[protocol.ChainSelector]chainaccess.SourceReader{
 		chain1337: mockSetup.Reader,
@@ -473,7 +473,7 @@ func createCCTPCoordinator(
 	config verifier.CoordinatorConfig,
 	sourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
 	inMemStorage storage.CCVStorage,
-) (*coordinator.Coordinator, error) {
+) (*verifier.Coordinator, error) {
 	noopMonitoring := monitoring.NewFakeVerifierMonitoring()
 	noopLatencyTracker := testutil.NoopLatencyTracker{}
 
@@ -486,7 +486,7 @@ func createCCTPCoordinator(
 		inMemStorage,
 	)
 
-	return coordinator.NewCoordinator(
+	return verifier.NewCoordinator(
 		ts.logger,
 		cctp.NewVerifierWithConfig(ts.logger, attestationService, 100*time.Millisecond, 100*time.Millisecond),
 		sourceReaders,

@@ -17,7 +17,6 @@ import (
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/chainstatus"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/commit"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/coordinator"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/heartbeat"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -36,7 +35,7 @@ func NewVerificationCoordinator(
 	signer verifier.MessageSigner,
 	relayers map[protocol.ChainSelector]legacyevm.Chain,
 	ds sqlutil.DataSource,
-) (*coordinator.Coordinator, error) {
+) (*verifier.Coordinator, error) {
 	if err := cfg.Validate(); err != nil {
 		lggr.Errorw("Invalid CCV verifier configuration.", "error", err)
 		return nil, fmt.Errorf("invalid ccv verifier configuration: %w", err)
@@ -196,7 +195,7 @@ func NewVerificationCoordinator(
 		verifierMonitoring,
 	)
 
-	verifierCoordinator, err := coordinator.NewCoordinator(
+	verifierCoordinator, err := verifier.NewCoordinator(
 		lggr,
 		commitVerifier,
 		sourceReaders,

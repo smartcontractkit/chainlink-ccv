@@ -1,4 +1,4 @@
-package coordinator_test
+package verifier_test
 
 import (
 	"net/http"
@@ -14,7 +14,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/coordinator"
+
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/storage"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/lombard"
@@ -89,7 +89,7 @@ func Test_LombardMessages_Success(t *testing.T) {
 			chain1337: testCCVAddr,
 		})
 
-	mockSetup := coordinator.SetupMockSourceReader(t)
+	mockSetup := verifier.SetupMockSourceReader(t)
 	mockSetup.ExpectFetchMessageSentEvent(false)
 	sourceReaders := map[protocol.ChainSelector]chainaccess.SourceReader{
 		chain1337: mockSetup.Reader,
@@ -190,7 +190,7 @@ func Test_LombardMessages_RetryingAttestation(t *testing.T) {
 			chain1337: testCCVAddr,
 		})
 
-	mockSetup := coordinator.SetupMockSourceReader(t)
+	mockSetup := verifier.SetupMockSourceReader(t)
 	mockSetup.ExpectFetchMessageSentEvent(false)
 	sourceReaders := map[protocol.ChainSelector]chainaccess.SourceReader{
 		chain1337: mockSetup.Reader,
@@ -261,7 +261,7 @@ func createLombardCoordinator(
 	config verifier.CoordinatorConfig,
 	sourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
 	inMemStorage *storage.InMemoryCCVStorage,
-) (*coordinator.Coordinator, error) {
+) (*verifier.Coordinator, error) {
 	return createLombardCoordinatorWithRetryConfig(
 		ts,
 		lombardConfig,
@@ -281,7 +281,7 @@ func createLombardCoordinatorWithRetryConfig(
 	inMemStorage *storage.InMemoryCCVStorage,
 	attestationNotReadyRetry time.Duration,
 	anyErrorRetry time.Duration,
-) (*coordinator.Coordinator, error) {
+) (*verifier.Coordinator, error) {
 	noopMonitoring := monitoring.NewFakeVerifierMonitoring()
 	noopLatencyTracker := testutil.NoopLatencyTracker{}
 
@@ -311,7 +311,7 @@ func createLombardCoordinatorWithRetryConfig(
 		inMemStorage,
 	)
 
-	return coordinator.NewCoordinator(
+	return verifier.NewCoordinator(
 		ts.logger,
 		lombardVerifier,
 		sourceReaders,

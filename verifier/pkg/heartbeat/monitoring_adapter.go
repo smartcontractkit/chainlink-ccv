@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/heartbeatclient"
-	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg"
+	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
 )
 
 // heartbeatMonitoringAdapter adapts verifier.Monitoring to heartbeatclient.Monitoring.

@@ -7,7 +7,7 @@ import (
 	"github.com/patrickmn/go-cache"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg"
+	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
 
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )

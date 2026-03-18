@@ -22,7 +22,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/chainstatus"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/coordinator"
+
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/storage"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token"
@@ -52,7 +52,7 @@ func main() {
 type tokenVerifierFactory struct {
 	bootstrap.ServiceFactory[token.Config]
 
-	coordinators []*coordinator.Coordinator
+	coordinators []*verifier.Coordinator
 	httpServer   *http.Server
 	lggr         logger.Logger
 }
@@ -142,7 +142,7 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, appConfig token.Conf
 
 	// save the coordinators so that they can be shutdown later on.
 	chainStatusStore := chainstatus.NewPostgresChainStatusStore(db, tvf.lggr)
-	tvf.coordinators = make([]*coordinator.Coordinator, 0, len(config.TokenVerifiers))
+	tvf.coordinators = make([]*verifier.Coordinator, 0, len(config.TokenVerifiers))
 	for _, verifierConfig := range config.TokenVerifiers {
 		chainStatusManager := chainstatus.NewPostgresChainStatusManager(chainStatusStore, verifierConfig.VerifierID)
 		// Wrap chain status manager with monitoring decorator to track query durations
@@ -154,7 +154,7 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, appConfig token.Conf
 			verifierMonitoring,
 		)
 
-		var coordinator *coordinator.Coordinator
+		var coordinator *verifier.Coordinator
 		if verifierConfig.IsLombard() {
 			coordinator = createLombardCoordinator(
 				ctx,
@@ -242,7 +242,7 @@ func createCCTPCoordinator(
 	verifierMonitoring verifier.Monitoring,
 	chainStatusManager protocol.ChainStatusManager,
 	db sqlutil.DataSource,
-) *coordinator.Coordinator {
+) *verifier.Coordinator {
 	cctpSourceConfigs := createSourceConfigs(cctpConfig.ParsedVerifierResolvers, rmnRemoteAddresses)
 
 	attestationService, err := cctp.NewAttestationService(lggr, *cctpConfig)
@@ -251,7 +251,7 @@ func createCCTPCoordinator(
 		os.Exit(1)
 	}
 
-	coordinator, err := coordinator.NewCoordinator(
+	coordinator, err := verifier.NewCoordinator(
 		lggr,
 		cctp.NewVerifier(lggr, attestationService),
 		sourceReaders,
@@ -290,7 +290,7 @@ func createLombardCoordinator(
 	verifierMonitoring verifier.Monitoring,
 	chainStatusManager protocol.ChainStatusManager,
 	db sqlutil.DataSource,
-) *coordinator.Coordinator {
+) *verifier.Coordinator {
 	sourceConfigs := createSourceConfigs(lombardConfig.ParsedVerifierResolvers, rmnRemoteAddresses)
 
 	attestationService, err := lombard.NewAttestationService(lggr, *lombardConfig)
@@ -305,7 +305,7 @@ func createLombardCoordinator(
 		os.Exit(1)
 	}
 
-	coordinator, err := coordinator.NewCoordinator(
+	coordinator, err := verifier.NewCoordinator(
 		lggr,
 		lombardVerifier,
 		sourceReaders,
