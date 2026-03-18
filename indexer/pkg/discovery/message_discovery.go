@@ -410,6 +410,11 @@ func (a *AggregatorMessageDiscovery) persistBatch(
 	verifications []common.VerifierResultWithMetadata,
 	ableToSetSinceValue bool,
 ) error {
+	encodable, skipped := common.FilterEncodableMessages(messages)
+	for _, s := range skipped {
+		a.logger.Warnw("Skipping message, cannot encode for insert", "index", s.Index, "reason", s.Reason)
+	}
+
 	sequenceNumber := common.SequenceNumberNotSupported
 	if ableToSetSinceValue {
 		if currentSequence, supports := a.aggregatorReader.GetSinceValue(); supports {
@@ -418,7 +423,7 @@ func (a *AggregatorMessageDiscovery) persistBatch(
 	}
 
 	return a.storageSink.PersistDiscoveryBatch(ctx, common.DiscoveryBatch{
-		Messages:          messages,
+		Messages:          encodable,
 		Verifications:     verifications,
 		DiscoveryLocation: a.config.Address,
 		SequenceNumber:    sequenceNumber,
