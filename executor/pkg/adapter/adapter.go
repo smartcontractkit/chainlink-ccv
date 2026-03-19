@@ -227,6 +227,7 @@ func (ira *IndexerReaderAdapter) GetVerifierResults(ctx context.Context, message
 }
 
 func (ira *IndexerReaderAdapter) ReadMessages(ctx context.Context, queryData v1.MessagesInput) (map[string]common.MessageWithMetadata, error) {
+	// We don't expect the Indexer to return a 404 for this route.
 	selectedIdx, _, resp, err := queryWithFailover(
 		ctx,
 		ira,
