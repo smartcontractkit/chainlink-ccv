@@ -287,7 +287,7 @@ func (m *CCIP17EVMConfig) deployLombardMockReceiver(
 ) error {
 	lombardVerifier, err := ds.Addresses().Get(datastore.NewAddressRefKey(
 		selector,
-		datastore.ContractType(versioned_verifier_resolver.CCTPVerifierResolverType),
+		datastore.ContractType(versioned_verifier_resolver.LombardVerifierResolverType),
 		semver.MustParse(lombard_verifier.Deploy.Version()),
 		devenvcommon.LombardContractsQualifier,
 	))
