@@ -48,7 +48,7 @@ func NewFactory(
 }
 
 func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainSelector) (chainaccess.Accessor, error) {
-	if f.onRampAddresses == nil || f.rmnRemoteAddresses == nil || f.chainClients == nil || f.headTrackers == nil {
+	if f == nil || f.onRampAddresses == nil || f.rmnRemoteAddresses == nil || f.chainClients == nil || f.headTrackers == nil {
 		return nil, fmt.Errorf("evm accessor factory is not fully initialized - can't get accessor for chain %d", chainSelector)
 	}
 
@@ -106,5 +106,8 @@ func newAccessor(sourceReader chainaccess.SourceReader) chainaccess.Accessor {
 }
 
 func (a *accessor) SourceReader() chainaccess.SourceReader {
+	if a == nil {
+		return nil
+	}
 	return a.sourceReader
 }

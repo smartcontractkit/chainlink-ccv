@@ -37,7 +37,11 @@ func CreateAccessorFactory(
 			// Skip non-EVM chains in EVM registration.
 			continue
 		}
-		chainClient := pkg.CreateHealthyMultiNodeClient(ctx, helper, lggr, selector)
+		chainClient, err := pkg.CreateHealthyMultiNodeClient(ctx, helper, lggr, selector)
+		if err != nil {
+			lggr.Errorw("❌ Failed to create multi-node EVM client - bad RPC?", "chainSelector", selector, "error", err)
+			continue
+		}
 		chainClients[selector] = chainClient
 
 		headTracker := sourcereader.NewSimpleHeadTrackerWrapper(chainClient, lggr)
