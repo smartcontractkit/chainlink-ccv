@@ -104,7 +104,7 @@ func (m *CCIP17EVMConfig) deployLombardContracts(
 	err = ds.Addresses().Add(datastore.AddressRef{
 		ChainSelector: selector,
 		Type:          "MockLombardBridge",
-		Version:       semver.MustParse("1.7.0"),
+		Version:       semver.MustParse("2.0.0"),
 		Address:       lombardBridgeAddr.Hex(),
 		Qualifier:     LombardContractsQualifier,
 	})
@@ -217,7 +217,7 @@ func (m *CCIP17EVMConfig) configureLombardForTransfer(
 	bridge, err := e.DataStore.Addresses().Get(datastore.NewAddressRefKey(
 		selector,
 		datastore.ContractType("MockLombardBridge"),
-		semver.MustParse("1.7.0"),
+		semver.MustParse("2.0.0"),
 		LombardContractsQualifier,
 	))
 	if err != nil {

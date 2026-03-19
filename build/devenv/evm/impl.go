@@ -2006,7 +2006,7 @@ func (m *CCIP17EVM) SetLombardMailboxBridgedMessage(ctx context.Context, message
 	bridgeRef, err := m.ds.Addresses().Get(datastore.NewAddressRefKey(
 		m.chainDetails.ChainSelector,
 		datastore.ContractType("MockLombardBridge"),
-		semver.MustParse("1.7.0"),
+		semver.MustParse("2.0.0"),
 		devenvcommon.LombardContractsQualifier,
 	))
 	if err != nil {
