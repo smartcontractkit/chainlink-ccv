@@ -33,11 +33,13 @@ import (
 	rmn_remote_binding "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/v1_6_0/rmn_remote"
 
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/create2_factory"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/sequences"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/versioned_verifier_resolver"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v2_0_0/operations/erc20_lock_box"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v2_0_0/operations/executor"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v2_0_0/operations/lock_release_token_pool"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v2_0_0/operations/mock_receiver_v2"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v2_0_0/operations/proxy"
 
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v2_0_0/operations/fee_quoter"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/mock_lombard_bridge"
@@ -69,8 +71,8 @@ import (
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 
+	evmadapters "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/adapters"
 	evmchangesets "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/changesets"
-	evmadapters "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v2_0_0/adapters"
 	offrampoperations "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v2_0_0/operations/offramp"
 	onrampoperations "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v2_0_0/operations/onramp"
 	feequoterwrapper "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/fee_quoter"
@@ -1026,38 +1028,38 @@ func buildMockReceivers(topology *ccipOffchain.EnvironmentTopology, selector uin
 
 	if has(devenvcommon.DefaultCommitteeVerifierQualifier) {
 		receivers = append(receivers, adapters.MockReceiverDeployParams{
-			Version:           receiverVersion,
-			MinimumBlockDepth: 1,
-			RequiredVerifiers: []datastore.AddressRef{verifierRef(devenvcommon.DefaultCommitteeVerifierQualifier)},
-			Qualifier:         devenvcommon.DefaultReceiverQualifier,
+			Version:                   receiverVersion,
+			MinimumBlockConfirmations: 1,
+			RequiredVerifiers:         []datastore.AddressRef{verifierRef(devenvcommon.DefaultCommitteeVerifierQualifier)},
+			Qualifier:                 devenvcommon.DefaultReceiverQualifier,
 		})
 	}
 	if has(devenvcommon.SecondaryCommitteeVerifierQualifier) {
 		receivers = append(receivers, adapters.MockReceiverDeployParams{
-			Version:           receiverVersion,
-			MinimumBlockDepth: 1,
-			RequiredVerifiers: []datastore.AddressRef{verifierRef(devenvcommon.SecondaryCommitteeVerifierQualifier)},
-			Qualifier:         devenvcommon.SecondaryReceiverQualifier,
+			Version:                   receiverVersion,
+			MinimumBlockConfirmations: 1,
+			RequiredVerifiers:         []datastore.AddressRef{verifierRef(devenvcommon.SecondaryCommitteeVerifierQualifier)},
+			Qualifier:                 devenvcommon.SecondaryReceiverQualifier,
 		})
 	}
 
 	if has(devenvcommon.SecondaryCommitteeVerifierQualifier) && has(devenvcommon.TertiaryCommitteeVerifierQualifier) {
 		receivers = append(receivers, adapters.MockReceiverDeployParams{
-			Version:           receiverVersion,
-			MinimumBlockDepth: 1,
-			RequiredVerifiers: []datastore.AddressRef{verifierRef(devenvcommon.SecondaryCommitteeVerifierQualifier)},
-			OptionalVerifiers: []datastore.AddressRef{verifierRef(devenvcommon.TertiaryCommitteeVerifierQualifier)},
-			OptionalThreshold: 1,
-			Qualifier:         devenvcommon.TertiaryReceiverQualifier,
+			Version:                   receiverVersion,
+			MinimumBlockConfirmations: 1,
+			RequiredVerifiers:         []datastore.AddressRef{verifierRef(devenvcommon.SecondaryCommitteeVerifierQualifier)},
+			OptionalVerifiers:         []datastore.AddressRef{verifierRef(devenvcommon.TertiaryCommitteeVerifierQualifier)},
+			OptionalThreshold:         1,
+			Qualifier:                 devenvcommon.TertiaryReceiverQualifier,
 		})
 	}
 	if has(devenvcommon.DefaultCommitteeVerifierQualifier) &&
 		has(devenvcommon.SecondaryCommitteeVerifierQualifier) &&
 		has(devenvcommon.TertiaryCommitteeVerifierQualifier) {
 		receivers = append(receivers, adapters.MockReceiverDeployParams{
-			Version:           receiverVersion,
-			MinimumBlockDepth: 1,
-			RequiredVerifiers: []datastore.AddressRef{verifierRef(devenvcommon.DefaultCommitteeVerifierQualifier)},
+			Version:                   receiverVersion,
+			MinimumBlockConfirmations: 1,
+			RequiredVerifiers:         []datastore.AddressRef{verifierRef(devenvcommon.DefaultCommitteeVerifierQualifier)},
 			OptionalVerifiers: []datastore.AddressRef{
 				verifierRef(devenvcommon.SecondaryCommitteeVerifierQualifier),
 				verifierRef(devenvcommon.TertiaryCommitteeVerifierQualifier),
@@ -1134,7 +1136,7 @@ func (m *CCIP17EVMConfig) DeployContractsForSelector(ctx context.Context, env *d
 				},
 				Executors: []adapters.ExecutorDeployParams{
 					{
-						Version:       semver.MustParse(executor.DeployProxy.Version()),
+						Version:       semver.MustParse(proxy.Deploy.Version()),
 						MaxCCVsPerMsg: 10,
 						DynamicConfig: adapters.ExecutorDynamicDeployConfig{
 							FeeAggregator:         "0x0000000000000000000000000000000000000001",
@@ -1144,7 +1146,7 @@ func (m *CCIP17EVMConfig) DeployContractsForSelector(ctx context.Context, env *d
 						Qualifier: devenvcommon.DefaultExecutorQualifier,
 					},
 					{
-						Version:       semver.MustParse(executor.DeployProxy.Version()),
+						Version:       semver.MustParse(proxy.Deploy.Version()),
 						MaxCCVsPerMsg: 10,
 						DynamicConfig: adapters.ExecutorDynamicDeployConfig{
 							FeeAggregator:         "0x0000000000000000000000000000000000000001",
@@ -1334,6 +1336,7 @@ func (m *CCIP17EVMConfig) ConnectContractsWithSelectors(ctx context.Context, e *
 			return fmt.Errorf("unsupported family %s for chain %d", family, rs)
 		}
 
+		selectorBytes := changesetsutils.GetSelectorHex(rs)
 		remoteChains[rs] = lanes.ChainDefinition{
 			Selector: rs,
 			FeeQuoterDestChainConfig: lanes.FeeQuoterDestChainConfig{
@@ -1346,7 +1349,7 @@ func (m *CCIP17EVMConfig) ConnectContractsWithSelectors(ctx context.Context, e *
 				DefaultTokenDestGasOverhead: 90_000,
 				DefaultTxGasLimit:           200_000,
 				NetworkFeeUSDCents:          10,
-				ChainFamilySelector:         binary.BigEndian.Uint32(changesetsutils.GetSelectorHex(rs)[:]),
+				ChainFamilySelector:         binary.BigEndian.Uint32(selectorBytes[:4]),
 				V2Params: &lanes.FeeQuoterV2Params{
 					LinkFeeMultiplierPercent: 90,
 					USDPerUnitGas:            big.NewInt(1e6),
@@ -1359,8 +1362,8 @@ func (m *CCIP17EVMConfig) ConnectContractsWithSelectors(ctx context.Context, e *
 			AddressBytesLength:   addressBytesLength,
 			BaseExecutionGasCost: 150_000, // TODO: set proper base execution gas cost
 			DefaultExecutor: datastore.AddressRef{
-				Type:          datastore.ContractType(executor.ProxyType),
-				Version:       semver.MustParse(executor.DeployProxy.Version()),
+				Type:          datastore.ContractType(sequences.ExecutorProxyType),
+				Version:       semver.MustParse(proxy.Deploy.Version()),
 				Qualifier:     devenvcommon.DefaultExecutorQualifier,
 				ChainSelector: rs,
 			},
@@ -1404,6 +1407,7 @@ func (m *CCIP17EVMConfig) ConnectContractsWithSelectors(ctx context.Context, e *
 	mcmsReaderRegistry := changesetscore.GetRegistry()
 	laneAdapterRegistry := lanes.GetLaneAdapterRegistry()
 
+	selectorBytes := changesetsutils.GetSelectorHex(selector)
 	_, err := ccipChangesets.ConfigureChainsForLanesFromTopology(adapters.GetCommitteeVerifierContractRegistry(), laneAdapterRegistry, mcmsReaderRegistry).Apply(*e, ccipChangesets.ConfigureChainsForLanesFromTopologyConfig{
 		Topology: topology,
 		Chains: []ccipChangesets.PartialChainConfig{
@@ -1428,8 +1432,8 @@ func (m *CCIP17EVMConfig) ConnectContractsWithSelectors(ctx context.Context, e *
 					},
 				},
 				DefaultExecutor: datastore.AddressRef{
-					Type:          datastore.ContractType(executor.ProxyType),
-					Version:       semver.MustParse(executor.DeployProxy.Version()),
+					Type:          datastore.ContractType(sequences.ExecutorProxyType),
+					Version:       semver.MustParse(proxy.Deploy.Version()),
 					Qualifier:     devenvcommon.DefaultExecutorQualifier,
 					ChainSelector: selector,
 				},
@@ -1443,7 +1447,7 @@ func (m *CCIP17EVMConfig) ConnectContractsWithSelectors(ctx context.Context, e *
 					DefaultTokenDestGasOverhead: 90_000,
 					DefaultTxGasLimit:           200_000,
 					NetworkFeeUSDCents:          10,
-					ChainFamilySelector:         binary.BigEndian.Uint32(changesetsutils.GetSelectorHex(selector)[:]),
+					ChainFamilySelector:         binary.BigEndian.Uint32(selectorBytes[:4]),
 					V2Params: &lanes.FeeQuoterV2Params{
 						LinkFeeMultiplierPercent: 90,
 						USDPerUnitGas:            big.NewInt(1e6),
@@ -1478,9 +1482,9 @@ func (m *CCIP17EVMConfig) ConnectContractsWithSelectors(ctx context.Context, e *
 	if err != nil {
 		return fmt.Errorf("failed to get custom executor address: %w", err)
 	}
-	destChainSelectorsToAdd := make([]executor.RemoteChainConfigArgs, 0, len(remoteSelectors))
+	destChainSelectorsToAdd := make([]sequences.ExecutorRemoteChainConfigArgs, 0, len(remoteSelectors))
 	for _, rs := range remoteSelectors {
-		destChainSelectorsToAdd = append(destChainSelectorsToAdd, executor.RemoteChainConfigArgs{
+		destChainSelectorsToAdd = append(destChainSelectorsToAdd, sequences.ExecutorRemoteChainConfigArgs{
 			DestChainSelector: rs,
 			Config: lanes.ExecutorDestChainConfig{
 				Enabled:     true,
@@ -1488,14 +1492,15 @@ func (m *CCIP17EVMConfig) ConnectContractsWithSelectors(ctx context.Context, e *
 			},
 		})
 	}
+
 	_, err = operations.ExecuteOperation(
 		e.OperationsBundle,
-		executor.ApplyDestChainUpdates,
+		sequences.ExecutorApplyDestChainUpdates,
 		e.BlockChains.EVMChains()[selector],
-		contract.FunctionInput[executor.ApplyDestChainUpdatesArgs]{
+		contract.FunctionInput[sequences.ExecutorApplyDestChainUpdatesArgs]{
 			Address:       common.HexToAddress(customExecutor.Address),
 			ChainSelector: selector,
-			Args: executor.ApplyDestChainUpdatesArgs{
+			Args: sequences.ExecutorApplyDestChainUpdatesArgs{
 				DestChainSelectorsToAdd: destChainSelectorsToAdd,
 			},
 		},

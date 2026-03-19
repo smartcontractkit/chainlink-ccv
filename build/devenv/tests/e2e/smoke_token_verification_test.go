@@ -12,10 +12,12 @@ import (
 	"github.com/stretchr/testify/require"
 
 	chain_selectors "github.com/smartcontractkit/chain-selectors"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/sequences"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/versioned_verifier_resolver"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v2_0_0/operations/cctp_verifier"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v2_0_0/operations/executor"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v2_0_0/operations/lombard_verifier"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v2_0_0/operations/mock_receiver_v2"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v2_0_0/operations/proxy"
 	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
@@ -222,7 +224,7 @@ func runUSDCTestCase(
 		Version:           3,
 		FinalityConfig:    tc.finalityConfig,
 		ExecutionGasLimit: tc.executionGasLimit,
-		Executor:          getContractAddress(t, in, sourceSelector, datastore.ContractType(executor.ProxyType), executor.DeployProxy.Version(), common.DefaultExecutorQualifier, "executor"),
+		Executor:          getContractAddress(t, in, sourceSelector, datastore.ContractType(sequences.ExecutorProxyType), proxy.Deploy.Version(), common.DefaultExecutorQualifier, "executor"),
 	}
 
 	// If SendMessage fails with "custom error 0xa9902c7e: ...<chain selector hex>", the token pool
@@ -331,7 +333,7 @@ func runLombardTestCase(
 		Version:           3,
 		FinalityConfig:    tc.finalityConfig,
 		ExecutionGasLimit: tc.executionGasLimit,
-		Executor:          getContractAddress(t, in, sourceSelector, datastore.ContractType(executor.ProxyType), executor.DeployProxy.Version(), common.DefaultExecutorQualifier, "executor"),
+		Executor:          getContractAddress(t, in, sourceSelector, datastore.ContractType(sequences.ExecutorProxyType), proxy.Deploy.Version(), common.DefaultExecutorQualifier, "executor"),
 	}
 
 	sendRes, err := sourceChain.SendMessage(
@@ -364,7 +366,7 @@ func runLombardTestCase(
 		t,
 		in,
 		sourceSelector,
-		datastore.ContractType(lombard_verifier.ResolverType),
+		datastore.ContractType(versioned_verifier_resolver.LombardVerifierResolverType),
 		lombard_verifier.Deploy.Version(),
 		common.LombardContractsQualifier,
 		"",
