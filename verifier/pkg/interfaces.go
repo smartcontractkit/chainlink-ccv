@@ -1,134 +1,14 @@
 package verifier
 
-import (
-	"context"
-	"time"
+import vtypes "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
 
-	"github.com/smartcontractkit/chainlink-ccv/protocol"
+// Type aliases - the actual definitions live in verifier/pkg/vtypes.
+// These aliases preserve backward compatibility for all existing consumers of verifier/pkg.
+type (
+	MessageSigner         = vtypes.MessageSigner
+	VerificationResult    = vtypes.VerificationResult
+	Verifier              = vtypes.Verifier
+	MessageLatencyTracker = vtypes.MessageLatencyTracker
+	Monitoring            = vtypes.Monitoring
+	MetricLabeler         = vtypes.MetricLabeler
 )
-
-// MessageSigner defines the interface for signing data.
-// TODO: revisit this, shouldn't be ECDSA specific?
-type MessageSigner interface {
-	// Sign returns an ECDSA signature that is 65 bytes long (R + S + V).
-	Sign(data []byte) (signed []byte, err error)
-}
-
-// VerificationResult contains the result of verifying a single message.
-type VerificationResult struct {
-	Result *protocol.VerifierNodeResult
-	Error  *VerificationError
-}
-
-// Verifier defines the interface for message verification logic.
-type Verifier interface {
-	// VerifyMessages performs verification of a batch of messages.
-	// Returns a slice of VerificationResult containing both successful results and errors.
-	// The caller is responsible for handling successful results (e.g., adding them to a batcher)
-	// and handling errors (e.g., retrying or logging).
-	VerifyMessages(ctx context.Context, tasks []VerificationTask) []VerificationResult
-}
-
-// MessageLatencyTracker defines the interface for tracking message latencies from with the verifier.
-type MessageLatencyTracker interface {
-	// MarkMessageAsSeen records the time a message was first seen for latency tracking.
-	MarkMessageAsSeen(task *VerificationTask)
-	// TrackMessageLatencies computes and records latencies for a batch of messages that have been processed.
-	// Message has to be marked as seen before calling this method. Otherwise, latency won't be recorded.
-	TrackMessageLatencies(ctx context.Context, messages []protocol.VerifierNodeResult)
-}
-
-// Monitoring provides all core monitoring functionality for the verifier.
-type Monitoring interface {
-	// Metrics returns the metrics labeler for the verifier.
-	Metrics() MetricLabeler
-}
-
-// MetricLabeler provides all metric recording functionality for the verifier.
-type MetricLabeler interface {
-	// With returns a new metrics labeler with the given key-value pairs.
-	With(keyValues ...string) MetricLabeler
-
-	// E2E - North Star Metric
-
-	// RecordMessageE2ELatency records the full message lifecycle latency from source read to storage write.
-	RecordMessageE2ELatency(ctx context.Context, duration time.Duration)
-
-	// Message processing counters
-
-	// IncrementMessagesProcessed increments the counter for successfully processed messages.
-	IncrementMessagesProcessed(ctx context.Context)
-	// IncrementMessagesVerificationFailed increments the counter for failed message verifications.
-	IncrementMessagesVerificationFailed(ctx context.Context)
-
-	// Fine-grained latency breakdown for debugging
-
-	// RecordMessageVerificationDuration records the duration of the full VerifyMessage operation.
-	RecordMessageVerificationDuration(ctx context.Context, duration time.Duration)
-	// RecordStorageWriteDuration records the duration of writing to offchain storage.
-	RecordStorageWriteDuration(ctx context.Context, duration time.Duration)
-	// RecordVerificationQueueLatency records the time a message spent in the verification queue (push to poll).
-	RecordVerificationQueueLatency(ctx context.Context, duration time.Duration)
-
-	// Queue health metrics
-
-	// RecordTaskVerificationQueueSize records the current size of the task verification queue.
-	RecordTaskVerificationQueueSize(ctx context.Context, size int64)
-	// RecordStorageWriteQueueSize records the current size of the storage write queue.
-	RecordStorageWriteQueueSize(ctx context.Context, size int64)
-
-	// Error tracking
-
-	// IncrementStorageWriteErrors increments the counter for storage write errors.
-	IncrementStorageWriteErrors(ctx context.Context)
-	// IncrementTaskVerificationPermanentErrors increments the counter for non-retryable verification errors.
-	IncrementTaskVerificationPermanentErrors(ctx context.Context)
-
-	// Heartbeat tracking
-
-	// IncrementHeartbeatsSent increments the counter for successfully sent heartbeats.
-	IncrementHeartbeatsSent(ctx context.Context)
-	// IncrementHeartbeatsFailed increments the counter for failed heartbeat attempts.
-	IncrementHeartbeatsFailed(ctx context.Context)
-	// RecordHeartbeatDuration records the duration of a heartbeat request.
-	RecordHeartbeatDuration(ctx context.Context, duration time.Duration)
-	// SetVerifierHeartbeatTimestamp sets the timestamp from the heartbeat response.
-	SetVerifierHeartbeatTimestamp(ctx context.Context, timestamp int64)
-	// SetVerifierHeartbeatSentChainHeads sets the block height sent in the heartbeat request for a chain.
-	SetVerifierHeartbeatSentChainHeads(ctx context.Context, blockHeight uint64)
-	// SetVerifierHeartbeatChainHeads sets the block height for a chain from the heartbeat response.
-	SetVerifierHeartbeatChainHeads(ctx context.Context, blockHeight uint64)
-	// SetVerifierHeartbeatScore sets the score for a chain from the heartbeat response.
-	SetVerifierHeartbeatScore(ctx context.Context, score float64)
-
-	// Chain state tracking (for multi-chain monitoring)
-
-	// RecordSourceChainLatestBlock records the latest block number for a source chain.
-	RecordSourceChainLatestBlock(ctx context.Context, blockNum int64)
-	// RecordSourceChainFinalizedBlock records the latest finalized block number for a source chain.
-	RecordSourceChainFinalizedBlock(ctx context.Context, blockNum int64)
-	// RecordReorgTrackedSeqNums records the number of sequence numbers being tracked due to reorg.
-	RecordReorgTrackedSeqNums(ctx context.Context, count int64)
-	// SetVerifierFinalityViolated sets value 1 if finality violated
-	SetVerifierFinalityViolated(ctx context.Context, selector protocol.ChainSelector, violated bool)
-	// SetRemoteChainCursed sets value 1 if source chain is cursed
-	SetRemoteChainCursed(ctx context.Context, localSelector, remoteSelector protocol.ChainSelector, cursed bool)
-	// SetLocalChainGlobalCursed sets value 1 if source chain is cursed
-	SetLocalChainGlobalCursed(ctx context.Context, localSelector protocol.ChainSelector, globalCurse bool)
-
-	// HTTP API metrics
-
-	// IncrementActiveRequestsCounter increments the active requests counter.
-	IncrementActiveRequestsCounter(ctx context.Context)
-	// IncrementHTTPRequestCounter increments the HTTP request counter.
-	IncrementHTTPRequestCounter(ctx context.Context)
-	// DecrementActiveRequestsCounter decrements the active requests counter.
-	DecrementActiveRequestsCounter(ctx context.Context)
-	// RecordHTTPRequestDuration records the HTTP request duration.
-	RecordHTTPRequestDuration(ctx context.Context, duration time.Duration, path, method string, status int)
-
-	// Storage query metrics
-
-	// RecordStorageQueryDuration records the duration of a storage query operation.
-	RecordStorageQueryDuration(ctx context.Context, method string, duration time.Duration)
-}

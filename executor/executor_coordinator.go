@@ -70,7 +70,7 @@ func NewCoordinator(
 }
 
 // Start starts the executor coordinator. Context is required to be passed in to satisfy the ServiceCtx interface.
-func (ec *Coordinator) Start(_ context.Context) error {
+func (ec *Coordinator) Start(ctx context.Context) error {
 	return ec.StartOnce("executor.Coordinator", func() error {
 		c, cancel := context.WithCancel(context.Background())
 		ec.cancel = cancel
@@ -101,6 +101,8 @@ func (ec *Coordinator) Start(_ context.Context) error {
 		}
 
 		ec.lggr.Infow("Coordinator started")
+		ec.monitoring.RecordServiceStarted(ctx)
+
 		return nil
 	})
 }

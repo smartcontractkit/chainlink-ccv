@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	commonmetrics "github.com/smartcontractkit/chainlink-ccv/common/metrics"
 	v1 "github.com/smartcontractkit/chainlink-ccv/indexer/pkg/api/handlers/v1"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -59,9 +60,12 @@ type LeaderElector interface {
 }
 
 // Monitoring provides all core monitoring functionality for the executor. Also can be implemented as a no-op.
+// ServiceMetrics is embedded so that common service-level metrics (e.g. ccip_service_started)
+// and any future ones are part of this interface without changing it.
 type Monitoring interface {
 	// Metrics returns the metrics labeler for the executor.
 	Metrics() MetricLabeler
+	commonmetrics.ServiceMetrics
 }
 
 // MetricLabeler provides all metric recording functionality for the indexer.

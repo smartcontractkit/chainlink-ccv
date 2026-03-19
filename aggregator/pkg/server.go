@@ -30,10 +30,8 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/heartbeat"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/middlewares"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
-	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/quorum"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/storage"
-	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
 	committeepb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/committee-verifier/v1"
@@ -282,8 +280,9 @@ type SignatureAndQuorumValidator interface {
 	handlers.SignatureValidator
 }
 
-// NewServer creates a new aggregator server with the specified logger and configuration.
-func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
+// NewServer creates a new aggregator server with the specified logger, configuration, and monitoring.
+// aggMonitoring must not be nil; use monitoring.NoopAggregatorMonitoring when monitoring is disabled.
+func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig, aggMonitoring common.AggregatorMonitoring) *Server {
 	if err := config.Validate(); err != nil {
 		l.Fatalf("Failed to validate server configuration: %v", err)
 	}
@@ -297,28 +296,6 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 		"aggregation_buffer_size", config.Aggregation.ChannelBufferSize,
 		"aggregation_workers", config.Aggregation.BackgroundWorkerCount,
 	)
-
-	var aggMonitoring common.AggregatorMonitoring = &monitoring.NoopAggregatorMonitoring{}
-
-	if config.Monitoring.Enabled && config.Monitoring.Type == "beholder" {
-		// Setup OTEL Monitoring (via beholder)
-		m, err := monitoring.InitMonitoring(beholder.Config{
-			InsecureConnection:       config.Monitoring.Beholder.InsecureConnection,
-			CACertFile:               config.Monitoring.Beholder.CACertFile,
-			OtelExporterGRPCEndpoint: config.Monitoring.Beholder.OtelExporterGRPCEndpoint,
-			OtelExporterHTTPEndpoint: config.Monitoring.Beholder.OtelExporterHTTPEndpoint,
-			LogStreamingEnabled:      config.Monitoring.Beholder.LogStreamingEnabled,
-			MetricReaderInterval:     time.Duration(config.Monitoring.Beholder.MetricReaderInterval) * time.Second,
-			TraceSampleRatio:         config.Monitoring.Beholder.TraceSampleRatio,
-			TraceBatchTimeout:        time.Duration(config.Monitoring.Beholder.TraceBatchTimeout) * time.Second,
-		})
-		if err != nil {
-			l.Fatalf("Failed to initialize aggregatorMonitoring monitoring: %v", err)
-		}
-
-		aggMonitoring = m
-		l.Info("Monitoring enabled")
-	}
 
 	factory := storage.NewStorageFactory(l)
 	store, err := factory.CreateStorage(config.Storage, aggMonitoring)
