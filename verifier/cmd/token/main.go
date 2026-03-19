@@ -6,11 +6,13 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"slices"
 	"strconv"
 	"time"
 
 	"go.uber.org/zap/zapcore"
 
+	chain_selectors "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
@@ -40,6 +42,7 @@ func main() {
 	err := bootstrap.Run(
 		"TokenVerifier",
 		&tokenVerifierFactory{
+			supportedChainFamily:      []string{chain_selectors.FamilyEVM},
 			createAccessorFactoryFunc: evm.CreateAccessorFactory,
 		},
 		// TODO: remove the AppConfig generic type to streamline this API, update factory to accept config as a string.
@@ -56,6 +59,7 @@ type tokenVerifierFactory struct {
 
 	// TODO: rather than creating the factory in the bootstrap layer, can we pass in a registry?
 	createAccessorFactoryFunc accessors.CreateAccessorFactory
+	supportedChainFamily      []string
 
 	coordinators []*verifier.Coordinator
 	httpServer   *http.Server
@@ -88,6 +92,17 @@ func (tvf *tokenVerifierFactory) Stop(ctx context.Context) error {
 
 // Start starts the service with the parsed config received from the bootstrapper.
 func (tvf *tokenVerifierFactory) Start(ctx context.Context, appConfig token.ConfigWithBlockchainInfos, deps bootstrap.ServiceDeps) error {
+	var errs []error
+	if tvf.createAccessorFactoryFunc == nil {
+		errs = append(errs, fmt.Errorf("createAccessorFactoryFunc is required but was nil"))
+	}
+	if len(tvf.supportedChainFamily) == 0 {
+		errs = append(errs, fmt.Errorf("at least one supportedChainFamily is required but was empty"))
+	}
+	if len(errs) > 0 {
+		return errors.Join(errs...)
+	}
+
 	// TODO: Add "WithLogLevelFromEnv" option and use deps.lggr.
 	{
 		logLevelStr := os.Getenv("LOG_LEVEL")
@@ -130,16 +145,26 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, appConfig token.Conf
 	blockchainHelper := cmd.LoadBlockchainInfo(ctx, tvf.lggr, blockchainInfos)
 	sourceReaders := make(map[protocol.ChainSelector]chainaccess.SourceReader)
 	for _, selector := range blockchainHelper.GetAllChainSelectors() {
+		fam, err := chain_selectors.GetSelectorFamily(uint64(selector))
+		if err != nil {
+			tvf.lggr.Errorw("Skipping chain, failed to get blockchain family for chain selector", "error", err, "chainSelector", selector)
+			continue
+		}
+		if !slices.Contains(tvf.supportedChainFamily, fam) {
+			tvf.lggr.Infow("Skipping chain, unsupported blockchain family", "chainSelector", selector, "family", fam)
+			continue
+		}
 		accessor, err := factory.GetAccessor(ctx, selector)
 		if err != nil {
-			tvf.lggr.Errorw("Failed to get accessor for chain selector", "error", err, "chainSelector", selector)
-			return fmt.Errorf("failed to get accessor for chain selector %d: %w", selector, err)
+			tvf.lggr.Errorw("Skipping chain, failed to get accessor for chain selector", "error", err, "chainSelector", selector)
+			continue
 		}
 		if accessor.SourceReader() == nil {
-			tvf.lggr.Errorw("Failed to get source reader for chain selector", "error", err, "chainSelector", selector)
-			return fmt.Errorf("failed to get source reader for chain selector %d", selector)
+			tvf.lggr.Errorw("Skipping chain, failed to get source reader for chain selector", "chainSelector", selector)
+			continue
 		}
 		sourceReaders[selector] = accessor.SourceReader()
+		tvf.lggr.Infow("Created source reader for chain", "chainSelector", selector)
 	}
 
 	verifierMonitoring := cmd.SetupMonitoring(tvf.lggr, config.Monitoring, "token_verifier")

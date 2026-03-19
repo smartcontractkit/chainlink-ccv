@@ -13,6 +13,6 @@ type CreateAccessorFactory func(
 	lggr logger.Logger,
 	// TODO: blockchain.Info needs to be more family agnostic.
 	blockchainInfos map[string]*blockchain.Info,
-	OnRampAddresses map[string]string,
-	RMNRemoteAddresses map[string]string,
+	onRampAddresses map[string]string,
+	rmnRemoteAddresses map[string]string,
 ) (chainaccess.AccessorFactory, error)
