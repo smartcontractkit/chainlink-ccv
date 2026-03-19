@@ -196,6 +196,7 @@ func (cle *ChainlinkExecutor) HandleMessage(ctx context.Context, message protoco
 	// we've validated that VerifierResults are consistent in their ccv address fields, so we only need to check the first result for this check.
 	if len(verifierQuorum.RequiredCCVs)+int(verifierQuorum.OptionalThreshold) > len(verifierResults[0].MessageCCVAddresses) {
 		cle.lggr.Infow("skipping execution and not retrying due to impossible receiver verifier quorum", "messageID", messageID)
+		cle.monitoring.Metrics().IncrementUnrecoverableMessageFailure(ctx)
 		return false, nil
 	}
 
@@ -235,6 +236,7 @@ func (cle *ChainlinkExecutor) HandleMessage(ctx context.Context, message protoco
 	err = cle.contractTransmitters[destinationChain].ConvertAndWriteMessageToChain(ctx, aggregatedReport)
 	if err != nil {
 		if errors.Is(err, executor.ErrMessageEncoding) {
+			cle.monitoring.Metrics().IncrementUnrecoverableMessageFailure(ctx)
 			cle.lggr.Warnw("skipping retry due to message encoding error", "messageID", messageID, "error", err)
 			return false, err
 		}

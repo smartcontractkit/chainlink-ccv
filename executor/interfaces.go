@@ -98,6 +98,8 @@ type MetricLabeler interface {
 	IncrementAllIndexersFailed(ctx context.Context)
 	// SetLastHeartbeatTimestamp sets the timestamp of the last successful heartbeat.
 	SetLastHeartbeatTimestamp(ctx context.Context, timestamp int64)
+	// IncrementUnrecoverableMessageFailure fires when we were unable to execute a message due to an unrecoverable error.
+	IncrementUnrecoverableMessageFailure(ctx context.Context)
 	// SetRemoteChainCursed sets value 1 if source chain is cursed
 	SetRemoteChainCursed(ctx context.Context, localSelector, remoteSelector protocol.ChainSelector, cursed bool)
 	// SetLocalChainGlobalCursed sets value 1 if source chain is cursed
