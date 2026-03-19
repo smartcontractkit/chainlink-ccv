@@ -12,7 +12,7 @@ COPY . .
 WORKDIR /cmd/executor
 RUN --mount=type=cache,target=/root/.cache/go-build,id=ccv-go-build \
     --mount=type=cache,target=/go/pkg/mod,id=ccv-go-mod \
-    CGO_ENABLED=0 go build -ldflags='-s -w' -o /bin/executor main.go
+    CGO_ENABLED=0 go build -ldflags='-s -w' -o /bin/executor .
 
 FROM alpine:latest
 RUN apk --no-cache add ca-certificates
