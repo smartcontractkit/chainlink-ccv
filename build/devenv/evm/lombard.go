@@ -9,10 +9,10 @@ import (
 	"github.com/Masterminds/semver/v3"
 	"github.com/ethereum/go-ethereum/common"
 
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/latest/operations/mock_receiver_v2"
 	evmadapters "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/adapters"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/lombard_verifier"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/versioned_verifier_resolver"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/versioned_verifier_resolver"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v2_0_0/operations/lombard_verifier"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v2_0_0/operations/mock_receiver_v2"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/mock_lombard_bridge"
 	evm_contract "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/utils/operations/contract"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_5_0/operations/burn_mint_erc20_with_drip"
@@ -287,7 +287,7 @@ func (m *CCIP17EVMConfig) deployLombardMockReceiver(
 ) error {
 	lombardVerifier, err := ds.Addresses().Get(datastore.NewAddressRefKey(
 		selector,
-		datastore.ContractType(lombard_verifier.ResolverType),
+		datastore.ContractType(versioned_verifier_resolver.LombardVerifierResolverType),
 		semver.MustParse(lombard_verifier.Deploy.Version()),
 		devenvcommon.LombardContractsQualifier,
 	))
@@ -328,7 +328,7 @@ func (m *CCIP17EVMConfig) deployLombardMockReceiver(
 	// Set minimum block depth to 1
 	_, err1 = cldf_ops.ExecuteOperation(
 		env.OperationsBundle,
-		mock_receiver_v2.SetMinBlockDepth,
+		mock_receiver_v2.SetMinBlockConfirmations,
 		env.BlockChains.EVMChains()[selector],
 		evm_contract.FunctionInput[uint16]{
 			Address:       common.HexToAddress(deployReceiverReport.Output.Address),

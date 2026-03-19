@@ -13,8 +13,10 @@ import (
 	"github.com/stretchr/testify/require"
 
 	chain_selectors "github.com/smartcontractkit/chain-selectors"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/executor"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/versioned_verifier_resolver"
+
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/sequences"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/versioned_verifier_resolver"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v2_0_0/operations/executor"
 	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
@@ -158,8 +160,8 @@ func TestE2ESmoke_ChainStatusDisableEnable(t *testing.T) {
 	destSelector := destImpl.Details.ChainSelector
 
 	executorAddr := getContractAddress(t, in, srcSelector,
-		datastore.ContractType(executor.ProxyType),
-		executor.DeployProxy.Version(),
+		datastore.ContractType(sequences.ExecutorProxyType),
+		executor.Version.String(),
 		devenvcommon.DefaultExecutorQualifier,
 		"executor")
 	ccvAddr := getContractAddress(t, in, srcSelector,
@@ -258,8 +260,8 @@ func TestE2ESmoke_ChainStatusFinalizedHeight(t *testing.T) {
 	destSelector := destImpl.Details.ChainSelector
 
 	executorAddr := getContractAddress(t, in, srcSelector,
-		datastore.ContractType(executor.ProxyType),
-		executor.DeployProxy.Version(),
+		datastore.ContractType(sequences.ExecutorProxyType),
+		executor.Version.String(),
 		devenvcommon.DefaultExecutorQualifier,
 		"executor")
 	ccvAddr := getContractAddress(t, in, srcSelector,
