@@ -12,7 +12,7 @@ import (
 
 	"go.uber.org/zap/zapcore"
 
-	chain_selectors "github.com/smartcontractkit/chain-selectors"
+	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
@@ -42,7 +42,7 @@ func main() {
 	err := bootstrap.Run(
 		"TokenVerifier",
 		&tokenVerifierFactory{
-			supportedChainFamily:      []string{chain_selectors.FamilyEVM},
+			supportedChainFamily:      []string{chainsel.FamilyEVM},
 			createAccessorFactoryFunc: evm.CreateAccessorFactory,
 		},
 		// TODO: remove the AppConfig generic type to streamline this API, update factory to accept config as a string.
@@ -145,7 +145,7 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, appConfig token.Conf
 	blockchainHelper := cmd.LoadBlockchainInfo(ctx, tvf.lggr, blockchainInfos)
 	sourceReaders := make(map[protocol.ChainSelector]chainaccess.SourceReader)
 	for _, selector := range blockchainHelper.GetAllChainSelectors() {
-		fam, err := chain_selectors.GetSelectorFamily(uint64(selector))
+		fam, err := chainsel.GetSelectorFamily(uint64(selector))
 		if err != nil {
 			tvf.lggr.Errorw("Skipping chain, failed to get blockchain family for chain selector", "error", err, "chainSelector", selector)
 			continue
