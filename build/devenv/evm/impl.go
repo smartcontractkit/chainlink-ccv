@@ -1336,25 +1336,9 @@ func (m *CCIP17EVMConfig) ConnectContractsWithSelectors(ctx context.Context, e *
 			return fmt.Errorf("unsupported family %s for chain %d", family, rs)
 		}
 
-		selectorBytes := changesetsutils.GetSelectorHex(rs)
 		remoteChains[rs] = lanes.ChainDefinition{
 			Selector: rs,
-			FeeQuoterDestChainConfig: lanes.FeeQuoterDestChainConfig{
-				IsEnabled:                   true,
-				MaxDataBytes:                30_000,
-				MaxPerMsgGasLimit:           3_000_000,
-				DestGasOverhead:             300_000,
-				DefaultTokenFeeUSDCents:     25,
-				DestGasPerPayloadByteBase:   16,
-				DefaultTokenDestGasOverhead: 90_000,
-				DefaultTxGasLimit:           200_000,
-				NetworkFeeUSDCents:          10,
-				ChainFamilySelector:         binary.BigEndian.Uint32(selectorBytes[:4]),
-				V2Params: &lanes.FeeQuoterV2Params{
-					LinkFeeMultiplierPercent: 90,
-					USDPerUnitGas:            big.NewInt(1e6),
-				},
-			},
+			FeeQuoterDestChainConfigOverrides: feeQuoterDestChainConfigOverride(rs),
 			ExecutorDestChainConfig: lanes.ExecutorDestChainConfig{
 				Enabled:     true,
 				USDCentsFee: 0, // TODO: set proper fee
@@ -1510,6 +1494,27 @@ func (m *CCIP17EVMConfig) ConnectContractsWithSelectors(ctx context.Context, e *
 	}
 
 	return nil
+}
+
+func feeQuoterDestChainConfigOverride(selector uint64) *lanes.FeeQuoterDestChainConfigOverride {
+	override := lanes.FeeQuoterDestChainConfigOverride(func(cfg *lanes.FeeQuoterDestChainConfig) {
+		selectorBytes := changesetsutils.GetSelectorHex(selector)
+		cfg.IsEnabled = true
+		cfg.MaxDataBytes = 30_000
+		cfg.MaxPerMsgGasLimit = 3_000_000
+		cfg.DestGasOverhead = 300_000
+		cfg.DefaultTokenFeeUSDCents = 25
+		cfg.DestGasPerPayloadByteBase = 16
+		cfg.DefaultTokenDestGasOverhead = 90_000
+		cfg.DefaultTxGasLimit = 200_000
+		cfg.NetworkFeeUSDCents = 10
+		cfg.ChainFamilySelector = binary.BigEndian.Uint32(selectorBytes[:4])
+		cfg.V2Params = &lanes.FeeQuoterV2Params{
+			LinkFeeMultiplierPercent: 90,
+			USDPerUnitGas:            big.NewInt(1e6),
+		}
+	})
+	return &override
 }
 
 // ConfigureUSDCAndLombardForTransfer configures CCTP/USDC and Lombard lanes. Called from ConnectContractsWithSelectors;
