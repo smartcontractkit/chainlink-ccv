@@ -92,6 +92,10 @@ type MetricLabeler interface {
 	IncrementHeartbeatSuccess(ctx context.Context)
 	// IncrementHeartbeatFailure increments the counter for failed heartbeats to indexer.
 	IncrementHeartbeatFailure(ctx context.Context)
+	// IncrementIndexerSwitch increment the counter for number of times we switch between indexers.
+	IncrementIndexerSwitch(ctx context.Context)
+	// IncrementAllIndexersFailed fires when we were unable to access any healthy indexers.
+	IncrementAllIndexersFailed(ctx context.Context)
 	// SetLastHeartbeatTimestamp sets the timestamp of the last successful heartbeat.
 	SetLastHeartbeatTimestamp(ctx context.Context, timestamp int64)
 	// SetRemoteChainCursed sets value 1 if source chain is cursed

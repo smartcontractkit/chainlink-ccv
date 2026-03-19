@@ -160,12 +160,14 @@ func queryWithFailover[TInput, TResponse any](
 				"clientIdx", i,
 				"status", result.status)
 			ira.setActiveClientIdx(i)
+			ira.monitoring.Metrics().IncrementIndexerSwitch(ctx)
 			return i, result.status, result.response, result.err
 		}
 	}
 	// No healthy alternates found, return active client result
 	ira.lggr.Errorw("No healthy alternates found, returning active client result",
 		"activeIdx", activeIdx)
+	ira.monitoring.Metrics().IncrementAllIndexersFailed(ctx)
 	return activeIdx, status, resp, err
 }
 
@@ -225,6 +227,7 @@ func (ira *IndexerReaderAdapter) GetVerifierResults(ctx context.Context, message
 }
 
 func (ira *IndexerReaderAdapter) ReadMessages(ctx context.Context, queryData v1.MessagesInput) (map[string]common.MessageWithMetadata, error) {
+	// We don't expect the Indexer to return a 404 for this route.
 	selectedIdx, _, resp, err := queryWithFailover(
 		ctx,
 		ira,
