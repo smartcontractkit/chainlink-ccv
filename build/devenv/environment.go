@@ -601,9 +601,13 @@ func generateExecutorJobSpecs(
 	}
 	Plog.Info().Any("Addresses", addresses).Int("ImplsLen", len(impls)).Msg("Funding executors")
 	for i, impl := range impls {
-		// Executor doesn't support non-EVM chains yet.
-		nonSupportedChains := []string{blockchain.TypeCanton, blockchain.TypeStellar}
-		if slices.Contains(nonSupportedChains, in.Blockchains[i].Type) {
+		// // Executor doesn't support non-EVM chains yet.
+		// nonSupportedChains := []string{blockchain.TypeCanton, blockchain.TypeStellar}
+		// if slices.Contains(nonSupportedChains, in.Blockchains[i].Type) {
+		// 	continue
+		// }
+		if in.Blockchains[i].Type == blockchain.TypeCanton {
+			// Executor doesn't support Canton.
 			continue
 		}
 
@@ -954,7 +958,6 @@ func NewEnvironment() (in *Cfg, err error) {
 		if err := jobs.ConnectNodesToJD(ctx, jdInfra, clientLookup, chainIDs); err != nil {
 			return nil, fmt.Errorf("failed to connect nodes to JD: %w", err)
 		}
-		fmt.Printf("Connected %v chains with JD\n", chainIDs)
 	}
 	timeTrack.Record("[infra] started JD infrastructure")
 
@@ -980,7 +983,6 @@ func NewEnvironment() (in *Cfg, err error) {
 		if err := registerStandaloneVerifiersWithJD(ctx, in.Verifier, jdInfra.OffchainClient); err != nil {
 			return nil, err
 		}
-		fmt.Printf("Registered %d standalone verifiers with JD\n", len(in.Verifier))
 	}
 
 	/////////////////////////////////////////////
@@ -1181,8 +1183,6 @@ func NewEnvironment() (in *Cfg, err error) {
 		}
 		e.DataStore = output.DataStore.Seal()
 	}
-
-	fmt.Printf("aggregator endpoints: %v\n", in.AggregatorEndpoints)
 
 	///////////////////////////////
 	// START: Launch aggregators //
@@ -1730,13 +1730,10 @@ func launchStandaloneVerifiers(in *Cfg, blockchainOutputs []*blockchain.Output, 
 		}
 	}
 
-	fmt.Printf("Applying defaults to %d verifiers\n", len(in.Verifier))
 	// Apply defaults to verifiers so that we can use them in the standalone mode.
 	for i := range in.Verifier {
 		ver := committeeverifier.ApplyDefaults(*in.Verifier[i])
-		fmt.Printf("Applying defaults to verifier with chain family %s and committee name %s\n", ver.ChainFamily, ver.CommitteeName)
 		in.Verifier[i] = &ver
-		fmt.Printf("Verifier container name: %s, image: %s, mode: %s, port: %d, env: %v\n", ver.ContainerName, ver.Image, ver.Mode, ver.Port, ver.Env)
 	}
 
 	outs := make([]*committeeverifier.Output, 0, len(in.Verifier))

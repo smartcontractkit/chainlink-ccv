@@ -589,7 +589,6 @@ func NewAggregator(in *AggregatorInput) (*AggregatorOutput, error) {
 		ClientCredentials:  clientCredentials,
 		GeneratedCommittee: in.GeneratedCommittee,
 	}
-
 	return in.Out, nil
 }
 
