@@ -49,6 +49,17 @@ type AggregatorMetrics struct {
 
 	// Participation metrics
 	verificationsTotal metric.Int64Counter
+
+	// gRPC transport metrics
+	grpcPayloadSizeBytes metric.Int64Histogram
+	grpcErrorsTotal      metric.Int64Counter
+}
+
+// grpcPayloadSizeBuckets defines histogram buckets for gRPC payload sizes in bytes.
+// Starts at 512B for small messages, steps through common sizes up to 16MB.
+// Payloads above 16MB are captured in the implicit +Inf bucket.
+var grpcPayloadSizeBuckets = []float64{
+	512, 1024, 4096, 16384, 65536, 262144, 1048576, 4194304, 16777216,
 }
 
 func MetricViews() []sdkmetric.View {
@@ -81,6 +92,12 @@ func MetricViews() []sdkmetric.View {
 			sdkmetric.Instrument{Name: "aggregator_orphan_recovery_duration_seconds"},
 			sdkmetric.Stream{Aggregation: sdkmetric.AggregationExplicitBucketHistogram{
 				Boundaries: []float64{0.1, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 300},
+			}},
+		),
+		sdkmetric.NewView(
+			sdkmetric.Instrument{Name: "aggregator_grpc_payload_size_bytes"},
+			sdkmetric.Stream{Aggregation: sdkmetric.AggregationExplicitBucketHistogram{
+				Boundaries: grpcPayloadSizeBuckets,
 			}},
 		),
 	}
@@ -249,6 +266,23 @@ func InitMetrics() (am *AggregatorMetrics, err error) {
 		return nil, fmt.Errorf("failed to register verifications total counter: %w", err)
 	}
 
+	am.grpcPayloadSizeBytes, err = beholder.GetMeter().Int64Histogram(
+		"aggregator_grpc_payload_size_bytes",
+		metric.WithDescription("Wire-level gRPC payload size in bytes"),
+		metric.WithUnit("bytes"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register grpc payload size histogram: %w", err)
+	}
+
+	am.grpcErrorsTotal, err = beholder.GetMeter().Int64Counter(
+		"aggregator_grpc_errors_total",
+		metric.WithDescription("Total number of gRPC errors by status code"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register grpc errors total counter: %w", err)
+	}
+
 	return am, nil
 }
 
@@ -378,4 +412,20 @@ func (c *AggregatorMetricLabeler) SetVerifierHeartbeatCurrentMaxChainHead(ctx co
 func (c *AggregatorMetricLabeler) IncrementVerificationsTotal(ctx context.Context) {
 	otelLabels := beholder.OtelAttributes(c.Labels).AsStringAttributes()
 	c.am.verificationsTotal.Add(ctx, 1, metric.WithAttributes(otelLabels...))
+}
+
+func (c *AggregatorMetricLabeler) RecordGRPCPayloadSize(ctx context.Context, method, direction string, sizeBytes int) {
+	otelLabels := beholder.OtelAttributes(c.Labels).AsStringAttributes()
+	c.am.grpcPayloadSizeBytes.Record(ctx, int64(sizeBytes), metric.WithAttributes([]attribute.KeyValue{
+		attribute.String("method", method),
+		attribute.String("direction", direction),
+	}...), metric.WithAttributes(otelLabels...))
+}
+
+func (c *AggregatorMetricLabeler) IncrementGRPCErrors(ctx context.Context, code, method string) {
+	otelLabels := beholder.OtelAttributes(c.Labels).AsStringAttributes()
+	c.am.grpcErrorsTotal.Add(ctx, 1, metric.WithAttributes([]attribute.KeyValue{
+		attribute.String("code", code),
+		attribute.String("method", method),
+	}...), metric.WithAttributes(otelLabels...))
 }
