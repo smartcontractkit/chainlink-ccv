@@ -601,11 +601,6 @@ func generateExecutorJobSpecs(
 	}
 	Plog.Info().Any("Addresses", addresses).Int("ImplsLen", len(impls)).Msg("Funding executors")
 	for i, impl := range impls {
-		// // Executor doesn't support non-EVM chains yet.
-		// nonSupportedChains := []string{blockchain.TypeCanton, blockchain.TypeStellar}
-		// if slices.Contains(nonSupportedChains, in.Blockchains[i].Type) {
-		// 	continue
-		// }
 		if in.Blockchains[i].Type == blockchain.TypeCanton {
 			// Executor doesn't support Canton.
 			continue
