@@ -65,4 +65,10 @@ type AggregatorMetricLabeler interface {
 	SetVerifierHeartbeatCurrentMaxChainHead(ctx context.Context, blockHeight int64)
 	// IncrementVerificationsTotal increments the total number of commit verifications received.
 	IncrementVerificationsTotal(ctx context.Context)
+	// RecordGRPCPayloadSize records the gRPC wire-level payload size in bytes.
+	// direction is "recv" for received payloads, "send" for sent payloads.
+	RecordGRPCPayloadSize(ctx context.Context, method, direction string, sizeBytes int)
+	// IncrementGRPCErrors increments the counter for gRPC errors by status code.
+	// code should be the gRPC status code string (e.g. "ResourceExhausted", "Internal").
+	IncrementGRPCErrors(ctx context.Context, code, method string)
 }

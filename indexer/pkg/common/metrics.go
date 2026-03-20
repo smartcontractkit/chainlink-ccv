@@ -46,4 +46,10 @@ type IndexerMetricLabeler interface {
 	RecordTimeToIndex(ctx context.Context, latency time.Duration, discoveryType string)
 	// RecordCircuitBreakerStatus records the status of the circuit breaker.
 	RecordCircuitBreakerStatus(ctx context.Context, status bool)
+	// RecordGRPCPayloadSize records the gRPC wire-level payload size in bytes.
+	// direction is "recv" for received payloads, "send" for sent payloads.
+	RecordGRPCPayloadSize(ctx context.Context, method, direction string, sizeBytes int)
+	// IncrementGRPCErrors increments the counter for gRPC errors by status code.
+	// code should be the gRPC status code string (e.g. "ResourceExhausted", "Internal").
+	IncrementGRPCErrors(ctx context.Context, code, method string)
 }
