@@ -433,17 +433,16 @@ func checkKeys(in *Cfg) error {
 	return nil
 }
 
-// NewProductConfigurationFromNetwork creates a new product configuration from a network family and chain ID.
-func NewProductConfigurationFromNetwork(family, chainID string) (cciptestinterfaces.CCIP17Configuration, error) {
+func NewProductConfigurationFromNetwork(typ string) (cciptestinterfaces.CCIP17Configuration, error) {
 	// TODO: remove the defaults (evm and canton) later
-	switch family {
+	switch typ {
 	case "anvil":
 		// TODO: move evm to the impl factory registry.
 		return evm.NewEmptyCCIP17EVM(), nil
 	default:
-		fac, err := GetImplFactory(family)
+		fac, err := GetImplFactory(typ)
 		if err != nil {
-			return nil, fmt.Errorf("could not find impl factory for chain family %s: %w", family, err)
+			return nil, fmt.Errorf("could not find impl factory for chain family %s: %w", typ, err)
 		}
 		return fac.NewEmpty(), nil
 	}
@@ -808,7 +807,7 @@ func NewEnvironment() (in *Cfg, err error) {
 	impls := make([]cciptestinterfaces.CCIP17Configuration, 0)
 	for _, bc := range in.Blockchains {
 		var impl cciptestinterfaces.CCIP17Configuration
-		impl, err = NewProductConfigurationFromNetwork(bc.Type, bc.ChainID)
+		impl, err = NewProductConfigurationFromNetwork(bc.Type)
 		if err != nil {
 			return nil, err
 		}
@@ -977,12 +976,10 @@ func NewEnvironment() (in *Cfg, err error) {
 	// even though aggregator containers haven't started yet.
 	/////////////////////////////////////////////
 
-	verifierOuts, err := launchStandaloneVerifiers(in, blockchainOutputs, jdInfra)
+	_, err = launchStandaloneVerifiers(in, blockchainOutputs, jdInfra)
 	if err != nil {
 		return nil, fmt.Errorf("failed to launch standalone verifiers: %w", err)
 	}
-
-	fmt.Printf("Launched %d standalone verifiers\n", len(verifierOuts))
 
 	// Register standalone verifiers with JD so they can receive job proposals.
 	if jdInfra != nil && jdInfra.OffchainClient != nil {
@@ -1188,8 +1185,6 @@ func NewEnvironment() (in *Cfg, err error) {
 		if out.TLSCACertFile != "" {
 			in.AggregatorCACertFiles[aggregatorInput.CommitteeName] = out.TLSCACertFile
 		}
-		fmt.Printf("Created aggregator service for committee %s with endpoint %s and CA cert file %s and container name %s and host port %d and address %s\n", aggregatorInput.CommitteeName, out.ExternalHTTPSUrl, out.TLSCACertFile, out.ContainerName, aggregatorInput.HostPort, out.Address)
-		// out.GeneratedCommittee.DestinationVerifiers
 		e.DataStore = output.DataStore.Seal()
 	}
 
