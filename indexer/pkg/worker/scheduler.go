@@ -20,6 +20,8 @@ type Scheduler struct {
 	delayHeap *DelayHeap
 	ready     chan *Task
 	dlq       chan *Task
+	wg        sync.WaitGroup
+	once      sync.Once
 }
 
 func NewScheduler(lggr logger.Logger, config config.SchedulerConfig) (*Scheduler, error) {
@@ -44,11 +46,16 @@ func NewScheduler(lggr logger.Logger, config config.SchedulerConfig) (*Scheduler
 }
 
 func (s *Scheduler) Start(ctx context.Context) {
-	go s.run(ctx)
+	go s.once.Do(func() {
+		s.wg.Add(1)
+		defer s.wg.Done()
+		s.run(ctx)
+	})
 }
 
 func (s *Scheduler) Stop() {
 	s.stopCh <- struct{}{}
+	s.wg.Wait()
 }
 
 func (s *Scheduler) run(ctx context.Context) {

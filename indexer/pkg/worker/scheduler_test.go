@@ -174,6 +174,7 @@ func TestScheduler_RunMovesDelayedToReady(t *testing.T) {
 
 	// start scheduler run loop to process delayed heap
 	s.Start(ctx)
+	defer s.Stop()
 
 	select {
 	case got := <-s.Ready():
@@ -208,6 +209,7 @@ func TestScheduler_RunDoesNotLeakGoroutinesUnderBurst(t *testing.T) {
 	defer cancel()
 
 	s.Start(ctx)
+	defer s.Stop()
 
 	// Do NOT consume from Ready — simulate backpressure from a saturated worker pool.
 	time.Sleep(100 * time.Millisecond)
