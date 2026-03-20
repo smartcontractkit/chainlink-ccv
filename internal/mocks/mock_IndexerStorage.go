@@ -244,53 +244,6 @@ func (_c *MockIndexerStorage_GetMessage_Call) RunAndReturn(run func(context.Cont
 	return _c
 }
 
-// InsertMessages provides a mock function with given fields: ctx, messages
-func (_m *MockIndexerStorage) InsertMessages(ctx context.Context, messages []common.MessageWithMetadata) error {
-	ret := _m.Called(ctx, messages)
-
-	if len(ret) == 0 {
-		panic("no return value specified for InsertMessages")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, []common.MessageWithMetadata) error); ok {
-		r0 = rf(ctx, messages)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// MockIndexerStorage_InsertMessages_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'InsertMessages'
-type MockIndexerStorage_InsertMessages_Call struct {
-	*mock.Call
-}
-
-// InsertMessages is a helper method to define mock.On call
-//   - ctx context.Context
-//   - messages []common.MessageWithMetadata
-func (_e *MockIndexerStorage_Expecter) InsertMessages(ctx interface{}, messages interface{}) *MockIndexerStorage_InsertMessages_Call {
-	return &MockIndexerStorage_InsertMessages_Call{Call: _e.mock.On("InsertMessages", ctx, messages)}
-}
-
-func (_c *MockIndexerStorage_InsertMessages_Call) Run(run func(ctx context.Context, messages []common.MessageWithMetadata)) *MockIndexerStorage_InsertMessages_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].([]common.MessageWithMetadata))
-	})
-	return _c
-}
-
-func (_c *MockIndexerStorage_InsertMessages_Call) Return(_a0 error) *MockIndexerStorage_InsertMessages_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockIndexerStorage_InsertMessages_Call) RunAndReturn(run func(context.Context, []common.MessageWithMetadata) error) *MockIndexerStorage_InsertMessages_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // InsertVerifierResults provides a mock function with given fields: ctx, verifierResults
 func (_m *MockIndexerStorage) InsertVerifierResults(ctx context.Context, verifierResults []common.VerifierResultWithMetadata) error {
 	ret := _m.Called(ctx, verifierResults)

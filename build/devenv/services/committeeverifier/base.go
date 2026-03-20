@@ -15,11 +15,12 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
-	bootstrap "github.com/smartcontractkit/chainlink-ccv/bootstrap"
+
+	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/util"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/commit"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
@@ -72,12 +73,9 @@ type Input struct {
 	// Defaults to just {"evm": {}} if not specified.
 	Bootstrap *services.BootstrapInput `toml:"bootstrap"`
 
-	// CantonConfigs is the map of chain selectors to canton configurations to pass onto the verifier,
-	// only used in standalone mode and if Canton is enabled.
-	// Note that the full party ID (name + hex) is not expected in the TOML config,
-	// just the expected party name.
-	// The full party ID is hydrated from the blockchain output after the Canton participant is available.
-	CantonConfigs util.OpaqueConfig `toml:"canton_configs"`
+	// OpaqueConfigs is a map of chain family name to opaque configuration to pass onto the verifier,
+	// only used in standalone mode.
+	OpaqueConfigs map[string]util.OpaqueConfig `toml:"opaque_configs"`
 
 	// DisableFinalityCheckers is a list of chain selectors for which the finality violation checker should be disabled.
 	// The chain selectors are formatted as strings of the chain selector.

@@ -61,7 +61,7 @@ type Service interface {
 }
 
 // FinalityViolationChecker validates that finalized blocks never change their hash.
-// This is a synchronous, pull-based interface driven by the caller (typically SourceReaderService).
+// This is a synchronous, pull-based interface driven by the caller (typically Service).
 // The caller updates the checker with new finalized blocks and checks for violations before processing.
 type FinalityViolationChecker interface {
 	// UpdateFinalized tells the checker about a new finalized block.

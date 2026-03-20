@@ -12,9 +12,12 @@ import (
 	"github.com/stretchr/testify/require"
 
 	chain_selectors "github.com/smartcontractkit/chain-selectors"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/cctp_verifier"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/executor"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/mock_receiver"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/sequences"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/versioned_verifier_resolver"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v2_0_0/operations/cctp_verifier"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v2_0_0/operations/lombard_verifier"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v2_0_0/operations/mock_receiver_v2"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v2_0_0/operations/proxy"
 	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
@@ -72,8 +75,8 @@ func TestE2ESmoke_TokenVerification(t *testing.T) {
 				t,
 				in,
 				destSelector,
-				datastore.ContractType(mock_receiver.ContractType),
-				mock_receiver.Deploy.Version(),
+				datastore.ContractType(mock_receiver_v2.ContractType),
+				mock_receiver_v2.Deploy.Version(),
 				common.CCTPPrimaryReceiverQualifier,
 				"",
 			)
@@ -81,8 +84,8 @@ func TestE2ESmoke_TokenVerification(t *testing.T) {
 				t,
 				in,
 				destSelector,
-				datastore.ContractType(mock_receiver.ContractType),
-				mock_receiver.Deploy.Version(),
+				datastore.ContractType(mock_receiver_v2.ContractType),
+				mock_receiver_v2.Deploy.Version(),
 				common.CCTPSecondaryReceiverQualifier,
 				"",
 			)
@@ -147,8 +150,8 @@ func TestE2ESmoke_TokenVerification(t *testing.T) {
 				t,
 				in,
 				destSelector,
-				datastore.ContractType(mock_receiver.ContractType),
-				mock_receiver.Deploy.Version(),
+				datastore.ContractType(mock_receiver_v2.ContractType),
+				mock_receiver_v2.Deploy.Version(),
 				common.LombardPrimaryReceiverQualifier,
 				"",
 			)
@@ -202,28 +205,32 @@ func runUSDCTestCase(
 ) {
 	sender := mustGetSenderAddress(t, sourceChain)
 
-	srcToken := getTokenAddress(t, in, sourceSelector, common.CCTPContractsQualifier)
-	destToken := getTokenAddress(t, in, destSelector, common.CCTPContractsQualifier)
+	srcToken := getTokenAddress(t, in, sourceSelector, "")
+	destToken := getTokenAddress(t, in, destSelector, "")
 
 	startBal, err := destChain.GetTokenBalance(ctx, tc.receiver, destToken)
 	require.NoError(t, err)
-	l.Info().Str("Receiver", tc.receiver.String()).Uint64("StartBalance", startBal.Uint64()).Str("Token", common.CCTPContractsQualifier).Msg("receiver start balance")
+	l.Info().Str("Receiver", tc.receiver.String()).Uint64("StartBalance", startBal.Uint64()).Str("Token", "").Msg("receiver start balance")
 
 	srcStartBal, err := sourceChain.GetTokenBalance(ctx, sender, srcToken)
 	require.NoError(t, err)
-	l.Info().Str("Sender", sender.String()).Uint64("SrcStartBalance", srcStartBal.Uint64()).Str("Token", common.CCTPContractsQualifier).Msg("sender start balance")
+	l.Info().Str("Sender", sender.String()).Uint64("SrcStartBalance", srcStartBal.Uint64()).Str("Token", "").Msg("sender start balance")
 
 	seqNo, err := sourceChain.GetExpectedNextSequenceNumber(ctx, destSelector)
 	require.NoError(t, err)
-	l.Info().Uint64("SeqNo", seqNo).Str("Token", common.CCTPContractsQualifier).Msg("expecting sequence number")
+	l.Info().Uint64("SeqNo", seqNo).Str("Token", "").Msg("expecting sequence number")
 
 	messageOptions := cciptestinterfaces.MessageOptions{
 		Version:           3,
 		FinalityConfig:    tc.finalityConfig,
 		ExecutionGasLimit: tc.executionGasLimit,
-		Executor:          getContractAddress(t, in, sourceSelector, datastore.ContractType(executor.ProxyType), executor.DeployProxy.Version(), common.DefaultExecutorQualifier, "executor"),
+		Executor:          getContractAddress(t, in, sourceSelector, datastore.ContractType(sequences.ExecutorProxyType), proxy.Deploy.Version(), common.DefaultExecutorQualifier, "executor"),
 	}
 
+	// If SendMessage fails with "custom error 0xa9902c7e: ...<chain selector hex>", the token pool
+	// (or router) is reverting with "destination chain not allowed": the destination chain selector
+	// is not in the pool's allowlist. Ensure ConfigureTokensForTransfers runs before ConnectContractsWithSelectors
+	// and that the CCTP/USDC pool gets its remote chains configured (e.g. via configureUSDCForTransfer).
 	sendRes, err := sourceChain.SendMessage(
 		ctx, destSelector,
 		cciptestinterfaces.MessageFields{
@@ -237,7 +244,7 @@ func runUSDCTestCase(
 	)
 	require.NoError(t, err)
 	require.NotNil(t, sendRes)
-	require.Len(t, sendRes.ReceiptIssuers, tc.expectedReceiptIssuers, "expected %d receipt issuers for %s token", tc.expectedReceiptIssuers, common.CCTPContractsQualifier)
+	require.Len(t, sendRes.ReceiptIssuers, tc.expectedReceiptIssuers, "expected %d receipt issuers for %s token", tc.expectedReceiptIssuers, "")
 
 	sentEvt, err := sourceChain.WaitOneSentEventBySeqNo(ctx, destSelector, seqNo, defaultSentTimeout)
 	require.NoError(t, err)
@@ -250,10 +257,10 @@ func runUSDCTestCase(
 		sourceSelector,
 		datastore.ContractType(cctp_verifier.ContractType),
 		cctp_verifier.Deploy.Version(),
-		common.CCTPContractsQualifier,
+		"",
 		"",
 	)
-	registerCCTPAttestation(t, in.Fake.Out.ExternalHTTPURL, msgID, cctpMessageSender, tc.receiver, "complete")
+	registerCCTPAttestation(t, in.Fake.Out.ExternalHTTPURL, msgID, cctpMessageSender, tc.receiver, "complete", sourceSelector, destSelector)
 	l.Info().Str("MessageID", hex.EncodeToString(msgID[:])).Msg("Registered CCTP attestation")
 
 	var aggregatorClient *ccv.AggregatorClient
@@ -285,12 +292,12 @@ func runUSDCTestCase(
 
 	// We always mint 1 tiny coin on a dest from CCTPTokenMessenger
 	require.Equal(t, new(big.Int).Add(new(big.Int).Set(startBal), big.NewInt(1)), endBal)
-	l.Info().Uint64("EndBalance", endBal.Uint64()).Str("Token", common.CCTPContractsQualifier).Msg("receiver end balance")
+	l.Info().Uint64("EndBalance", endBal.Uint64()).Str("Token", "").Msg("receiver end balance")
 
 	srcEndBal, err := sourceChain.GetTokenBalance(ctx, sender, srcToken)
 	require.NoError(t, err)
 	require.Equal(t, new(big.Int).Sub(new(big.Int).Set(srcStartBal), tc.transferAmount), srcEndBal)
-	l.Info().Uint64("SrcEndBalance", srcEndBal.Uint64()).Str("Token", common.CCTPContractsQualifier).Msg("sender end balance")
+	l.Info().Uint64("SrcEndBalance", srcEndBal.Uint64()).Str("Token", "").Msg("sender end balance")
 }
 
 func runLombardTestCase(
@@ -326,7 +333,7 @@ func runLombardTestCase(
 		Version:           3,
 		FinalityConfig:    tc.finalityConfig,
 		ExecutionGasLimit: tc.executionGasLimit,
-		Executor:          getContractAddress(t, in, sourceSelector, datastore.ContractType(executor.ProxyType), executor.DeployProxy.Version(), common.DefaultExecutorQualifier, "executor"),
+		Executor:          getContractAddress(t, in, sourceSelector, datastore.ContractType(sequences.ExecutorProxyType), proxy.Deploy.Version(), common.DefaultExecutorQualifier, "executor"),
 	}
 
 	sendRes, err := sourceChain.SendMessage(
@@ -347,15 +354,47 @@ func runLombardTestCase(
 
 	require.NoError(t, err)
 	require.NotNil(t, sendRes)
-	require.Len(t, sendRes.ReceiptIssuers, tc.expectedReceiptIssuers, "expected %d receipt issuers for %s token", tc.expectedReceiptIssuers, common.CCTPContractsQualifier)
+	require.Len(t, sendRes.ReceiptIssuers, tc.expectedReceiptIssuers, "expected %d receipt issuers for %s token", tc.expectedReceiptIssuers, "")
 
 	sentEvt, err := sourceChain.WaitOneSentEventBySeqNo(ctx, destSelector, seqNo, defaultSentTimeout)
 	require.NoError(t, err)
 
 	msgID := sentEvt.MessageID
 
-	messageHash := sentEvt.Message.TokenTransfer.ExtraData
-	attestation := buildLombardAttestation(msgID)
+	// Get the Lombard verifier resolver address to find the matching blob
+	lombardVerifierResolver := getContractAddress(
+		t,
+		in,
+		sourceSelector,
+		datastore.ContractType(versioned_verifier_resolver.LombardVerifierResolverType),
+		lombard_verifier.Deploy.Version(),
+		common.LombardContractsQualifier,
+		"",
+	)
+
+	// Find the blob corresponding to the Lombard verifier resolver by matching issuers
+	var messageHash protocol.ByteSlice
+	for i, issuer := range sentEvt.ReceiptIssuers {
+		if issuer.Equal(lombardVerifierResolver) {
+			if i < len(sentEvt.VerifierBlobs) {
+				messageHash = sentEvt.VerifierBlobs[i]
+				break
+			}
+		}
+	}
+	require.NotEmpty(t, messageHash, "Lombard verifier blob not found in VerifierBlobs")
+
+	// Set the destination chain's Lombard mock mailbox to return verifier version + messageID (36 bytes)
+	// so LombardVerifier.verifyMessage's deliverAndHandle check passes.
+	SetLombardMailboxBridgedMessageIfSupported(ctx, t, destChain, msgID)
+
+	attestation := buildLombardAttestation(LombardAttestationArgs{
+		Sender:    sender.Bytes(),
+		DestToken: destToken.Bytes(),
+		Receiver:  tc.receiver.Bytes(),
+		Amount:    tc.transferAmount,
+		MessageID: msgID,
+	})
 	registerLombardAttestation(t, in.Fake.Out.ExternalHTTPURL, messageHash, attestation, "NOTARIZATION_STATUS_SESSION_APPROVED")
 	l.Info().Str("MessageHash", messageHash.String()).Str("MessageID", hex.EncodeToString(msgID[:])).Msg("Registered Lombard attestation")
 

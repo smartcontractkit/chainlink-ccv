@@ -52,6 +52,6 @@ func SourceReaderStopped() LogStage {
 	return LogStage{
 		Name:       "SourceReaderStopped",
 		Service:    "verifier",
-		LogPattern: "Stopping SourceReaderService",
+		LogPattern: "Stopping Service",
 	}
 }

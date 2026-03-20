@@ -32,13 +32,20 @@ func GetAggregatedReportID(messageID MessageID) string {
 }
 
 func (c *CommitAggregatedReport) CalculateTimeToAggregation(aggregationTime time.Time) time.Duration {
+	if len(c.Verifications) == 0 {
+		return time.Duration(0)
+	}
 	var minTime time.Time
 	for v := range c.Verifications {
 		if c.Verifications[v].GetTimestamp().Before(minTime) || minTime.IsZero() {
 			minTime = c.Verifications[v].GetTimestamp()
 		}
 	}
-	return aggregationTime.Sub(minTime)
+	timeToAggregation := aggregationTime.Sub(minTime)
+	if timeToAggregation < 0 {
+		return time.Duration(0)
+	}
+	return timeToAggregation
 }
 
 func (c *CommitAggregatedReport) GetID() string {

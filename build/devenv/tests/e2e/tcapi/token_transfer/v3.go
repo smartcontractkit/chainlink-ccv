@@ -8,8 +8,9 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/executor"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/mock_receiver"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/sequences"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v2_0_0/operations/mock_receiver_v2"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v2_0_0/operations/proxy"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_5_0/operations/burn_mint_erc20_with_drip"
 	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
@@ -191,7 +192,7 @@ func tokenTransferCase(src, dest cciptestinterfaces.CCIP17, combo common.TokenCo
 			if tc.useEOAReceiver {
 				tc.receiver, err = tc.dst.GetEOAReceiverAddress()
 			} else {
-				tc.receiver, err = tcapi.GetContractAddress(cfg, tc.dst.ChainSelector(), datastore.ContractType(mock_receiver.ContractType), mock_receiver.Deploy.Version(), common.DefaultReceiverQualifier, "default mock receiver")
+				tc.receiver, err = tcapi.GetContractAddress(cfg, tc.dst.ChainSelector(), datastore.ContractType(mock_receiver_v2.ContractType), mock_receiver_v2.Deploy.Version(), common.DefaultReceiverQualifier, "default mock receiver")
 			}
 			if err != nil {
 				return false
@@ -208,7 +209,7 @@ func tokenTransferCase(src, dest cciptestinterfaces.CCIP17, combo common.TokenCo
 				return false
 			}
 
-			tc.executor, err = tcapi.GetContractAddress(cfg, tc.src.ChainSelector(), datastore.ContractType(executor.ProxyType), executor.DeployProxy.Version(), common.DefaultExecutorQualifier, "executor")
+			tc.executor, err = tcapi.GetContractAddress(cfg, tc.src.ChainSelector(), datastore.ContractType(sequences.ExecutorProxyType), proxy.Deploy.Version(), common.DefaultExecutorQualifier, "executor")
 			return err == nil
 		},
 	}

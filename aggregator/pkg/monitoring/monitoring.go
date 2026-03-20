@@ -6,12 +6,14 @@ import (
 	"github.com/grafana/pyroscope-go"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
+	commonmetrics "github.com/smartcontractkit/chainlink-ccv/common/metrics"
 	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"github.com/smartcontractkit/chainlink-common/pkg/metrics"
 )
 
 type AggregatorBeholderMonitoring struct {
 	metrics common.AggregatorMetricLabeler
+	commonmetrics.ServiceMetrics
 }
 
 func InitMonitoring(config beholder.Config) (common.AggregatorMonitoring, error) {
@@ -33,6 +35,11 @@ func InitMonitoring(config beholder.Config) (common.AggregatorMonitoring, error)
 		return nil, fmt.Errorf("failed to initialize aggregator metrics: %w", err)
 	}
 
+	serviceMetrics, err := commonmetrics.NewServiceMetrics(metrics.NewLabeler(), "aggregator")
+	if err != nil {
+		return nil, fmt.Errorf("failed to create service metrics: %w", err)
+	}
+
 	if _, err := pyroscope.Start(pyroscope.Config{
 		ApplicationName: "aggregator",
 		ServerAddress:   "http://pyroscope:4040",
@@ -50,7 +57,8 @@ func InitMonitoring(config beholder.Config) (common.AggregatorMonitoring, error)
 	}
 
 	return &AggregatorBeholderMonitoring{
-		metrics: NewAggregatorMetricLabeler(metrics.NewLabeler(), aggregatorMetrics),
+		metrics:        NewAggregatorMetricLabeler(metrics.NewLabeler(), aggregatorMetrics),
+		ServiceMetrics: serviceMetrics,
 	}, nil
 }
 

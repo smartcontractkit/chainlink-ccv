@@ -183,7 +183,7 @@ func TestMessageHeap_InternalHeapIntegration(t *testing.T) {
 	t1 := time.Unix(100, 0)
 	t2 := time.Unix(200, 0)
 	t3 := time.Unix(300, 0)
-	mh := &ReadyTimestampHeap{}
+	mh := &readyTimestampHeap{}
 	heap.Init(mh)
 
 	// Test that heap is initially empty

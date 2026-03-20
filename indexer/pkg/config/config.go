@@ -32,6 +32,9 @@ type Config struct {
 	Monitoring MonitoringConfig `toml:"Monitoring"`
 	// Discoveries is the list of discovery configs (aggregators) for message discovery.
 	Discoveries []DiscoveryConfig `toml:"Discoveries"`
+	// MergeBufferSize is the capacity of the channel that merges messages from multiple discovery sources.
+	// Only used when len(Discoveries) > 1. If 0, defaults to len(Discoveries)*2.
+	MergeBufferSize int `toml:"MergeBufferSize"`
 	// Scheduler is the configuration for the scheduling component inside the indexer.
 	Scheduler SchedulerConfig `toml:"Scheduler"`
 	// Pool is the configuration for the worker pool within the indexer.
@@ -176,7 +179,7 @@ type AggregatorReaderConfig struct {
 
 // RestReaderConfig allows you to change the rest reader used by the indexer.
 type RestReaderConfig struct {
-	// BaseURL is the base URL for the rest reader.
+	// BaseURL is the base URL for the rest reader including the API version.
 	BaseURL string `toml:"BaseURL"`
 	// RequestTimeout is the timeout in seconds for the rest reader.
 	RequestTimeout int64 `toml:"RequestTimeout"`
@@ -254,10 +257,19 @@ func (c *Config) Validate() error {
 	if len(c.Discoveries) < 1 {
 		return fmt.Errorf("at least one discovery config is required")
 	}
+	seenAddresses := make(map[string]struct{}, len(c.Discoveries))
 	for i, d := range c.Discoveries {
+		if _, exists := seenAddresses[d.Address]; exists {
+			return fmt.Errorf("discovery config[%d]: duplicate aggregator address %q", i, d.Address)
+		}
+		seenAddresses[d.Address] = struct{}{}
 		if err := d.Validate(i); err != nil {
 			return fmt.Errorf("discovery config[%d] validation failed: %w", i, err)
 		}
+	}
+
+	if c.MergeBufferSize < 0 {
+		return fmt.Errorf("merge buffer size must be non-negative, got %d", c.MergeBufferSize)
 	}
 
 	for i, v := range c.Verifiers {
@@ -387,8 +399,14 @@ func (d *DiscoveryConfig) Validate(index int) error {
 	if d.PollInterval <= 0 {
 		return fmt.Errorf("discovery[%d]: poll interval must be greater than 0", index)
 	}
-	if d.Timeout <= 0 || d.Timeout <= d.PollInterval {
+	if d.Timeout <= 0 {
+		return fmt.Errorf("discovery[%d]: timeout must be greater than 0", index)
+	}
+	if d.Timeout <= d.PollInterval {
 		return fmt.Errorf("discovery[%d]: timeout must be greater than poll interval", index)
+	}
+	if d.NtpServer == "" {
+		return fmt.Errorf("discovery[%d]: NTP server address is required", index)
 	}
 	return validateMaxResponseBytes(d.MaxResponseBytes, fmt.Sprintf("discovery[%d]", index))
 }

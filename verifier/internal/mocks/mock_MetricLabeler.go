@@ -7,7 +7,7 @@ import (
 	time "time"
 
 	protocol "github.com/smartcontractkit/chainlink-ccv/protocol"
-	verifier "github.com/smartcontractkit/chainlink-ccv/verifier"
+	vtypes "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
 	mock "github.com/stretchr/testify/mock"
 )
 
@@ -288,36 +288,35 @@ func (_c *MockMetricLabeler_IncrementStorageWriteErrors_Call) RunAndReturn(run f
 	return _c
 }
 
-// RecordFinalityWaitDuration provides a mock function with given fields: ctx, duration
-func (_m *MockMetricLabeler) RecordFinalityWaitDuration(ctx context.Context, duration time.Duration) {
-	_m.Called(ctx, duration)
+// IncrementTaskVerificationPermanentErrors provides a mock function with given fields: ctx
+func (_m *MockMetricLabeler) IncrementTaskVerificationPermanentErrors(ctx context.Context) {
+	_m.Called(ctx)
 }
 
-// MockMetricLabeler_RecordFinalityWaitDuration_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RecordFinalityWaitDuration'
-type MockMetricLabeler_RecordFinalityWaitDuration_Call struct {
+// MockMetricLabeler_IncrementTaskVerificationPermanentErrors_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'IncrementTaskVerificationPermanentErrors'
+type MockMetricLabeler_IncrementTaskVerificationPermanentErrors_Call struct {
 	*mock.Call
 }
 
-// RecordFinalityWaitDuration is a helper method to define mock.On call
+// IncrementTaskVerificationPermanentErrors is a helper method to define mock.On call
 //   - ctx context.Context
-//   - duration time.Duration
-func (_e *MockMetricLabeler_Expecter) RecordFinalityWaitDuration(ctx interface{}, duration interface{}) *MockMetricLabeler_RecordFinalityWaitDuration_Call {
-	return &MockMetricLabeler_RecordFinalityWaitDuration_Call{Call: _e.mock.On("RecordFinalityWaitDuration", ctx, duration)}
+func (_e *MockMetricLabeler_Expecter) IncrementTaskVerificationPermanentErrors(ctx interface{}) *MockMetricLabeler_IncrementTaskVerificationPermanentErrors_Call {
+	return &MockMetricLabeler_IncrementTaskVerificationPermanentErrors_Call{Call: _e.mock.On("IncrementTaskVerificationPermanentErrors", ctx)}
 }
 
-func (_c *MockMetricLabeler_RecordFinalityWaitDuration_Call) Run(run func(ctx context.Context, duration time.Duration)) *MockMetricLabeler_RecordFinalityWaitDuration_Call {
+func (_c *MockMetricLabeler_IncrementTaskVerificationPermanentErrors_Call) Run(run func(ctx context.Context)) *MockMetricLabeler_IncrementTaskVerificationPermanentErrors_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(time.Duration))
+		run(args[0].(context.Context))
 	})
 	return _c
 }
 
-func (_c *MockMetricLabeler_RecordFinalityWaitDuration_Call) Return() *MockMetricLabeler_RecordFinalityWaitDuration_Call {
+func (_c *MockMetricLabeler_IncrementTaskVerificationPermanentErrors_Call) Return() *MockMetricLabeler_IncrementTaskVerificationPermanentErrors_Call {
 	_c.Call.Return()
 	return _c
 }
 
-func (_c *MockMetricLabeler_RecordFinalityWaitDuration_Call) RunAndReturn(run func(context.Context, time.Duration)) *MockMetricLabeler_RecordFinalityWaitDuration_Call {
+func (_c *MockMetricLabeler_IncrementTaskVerificationPermanentErrors_Call) RunAndReturn(run func(context.Context)) *MockMetricLabeler_IncrementTaskVerificationPermanentErrors_Call {
 	_c.Run(run)
 	return _c
 }
@@ -700,6 +699,40 @@ func (_c *MockMetricLabeler_RecordTaskVerificationQueueSize_Call) RunAndReturn(r
 	return _c
 }
 
+// RecordVerificationQueueLatency provides a mock function with given fields: ctx, duration
+func (_m *MockMetricLabeler) RecordVerificationQueueLatency(ctx context.Context, duration time.Duration) {
+	_m.Called(ctx, duration)
+}
+
+// MockMetricLabeler_RecordVerificationQueueLatency_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RecordVerificationQueueLatency'
+type MockMetricLabeler_RecordVerificationQueueLatency_Call struct {
+	*mock.Call
+}
+
+// RecordVerificationQueueLatency is a helper method to define mock.On call
+//   - ctx context.Context
+//   - duration time.Duration
+func (_e *MockMetricLabeler_Expecter) RecordVerificationQueueLatency(ctx interface{}, duration interface{}) *MockMetricLabeler_RecordVerificationQueueLatency_Call {
+	return &MockMetricLabeler_RecordVerificationQueueLatency_Call{Call: _e.mock.On("RecordVerificationQueueLatency", ctx, duration)}
+}
+
+func (_c *MockMetricLabeler_RecordVerificationQueueLatency_Call) Run(run func(ctx context.Context, duration time.Duration)) *MockMetricLabeler_RecordVerificationQueueLatency_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(time.Duration))
+	})
+	return _c
+}
+
+func (_c *MockMetricLabeler_RecordVerificationQueueLatency_Call) Return() *MockMetricLabeler_RecordVerificationQueueLatency_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockMetricLabeler_RecordVerificationQueueLatency_Call) RunAndReturn(run func(context.Context, time.Duration)) *MockMetricLabeler_RecordVerificationQueueLatency_Call {
+	_c.Run(run)
+	return _c
+}
+
 // SetLocalChainGlobalCursed provides a mock function with given fields: ctx, localSelector, globalCurse
 func (_m *MockMetricLabeler) SetLocalChainGlobalCursed(ctx context.Context, localSelector protocol.ChainSelector, globalCurse bool) {
 	_m.Called(ctx, localSelector, globalCurse)
@@ -943,7 +976,7 @@ func (_c *MockMetricLabeler_SetVerifierHeartbeatTimestamp_Call) RunAndReturn(run
 }
 
 // With provides a mock function with given fields: keyValues
-func (_m *MockMetricLabeler) With(keyValues ...string) verifier.MetricLabeler {
+func (_m *MockMetricLabeler) With(keyValues ...string) vtypes.MetricLabeler {
 	_va := make([]interface{}, len(keyValues))
 	for _i := range keyValues {
 		_va[_i] = keyValues[_i]
@@ -956,12 +989,12 @@ func (_m *MockMetricLabeler) With(keyValues ...string) verifier.MetricLabeler {
 		panic("no return value specified for With")
 	}
 
-	var r0 verifier.MetricLabeler
-	if rf, ok := ret.Get(0).(func(...string) verifier.MetricLabeler); ok {
+	var r0 vtypes.MetricLabeler
+	if rf, ok := ret.Get(0).(func(...string) vtypes.MetricLabeler); ok {
 		r0 = rf(keyValues...)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(verifier.MetricLabeler)
+			r0 = ret.Get(0).(vtypes.MetricLabeler)
 		}
 	}
 
@@ -993,12 +1026,12 @@ func (_c *MockMetricLabeler_With_Call) Run(run func(keyValues ...string)) *MockM
 	return _c
 }
 
-func (_c *MockMetricLabeler_With_Call) Return(_a0 verifier.MetricLabeler) *MockMetricLabeler_With_Call {
+func (_c *MockMetricLabeler_With_Call) Return(_a0 vtypes.MetricLabeler) *MockMetricLabeler_With_Call {
 	_c.Call.Return(_a0)
 	return _c
 }
 
-func (_c *MockMetricLabeler_With_Call) RunAndReturn(run func(...string) verifier.MetricLabeler) *MockMetricLabeler_With_Call {
+func (_c *MockMetricLabeler_With_Call) RunAndReturn(run func(...string) vtypes.MetricLabeler) *MockMetricLabeler_With_Call {
 	_c.Call.Return(run)
 	return _c
 }

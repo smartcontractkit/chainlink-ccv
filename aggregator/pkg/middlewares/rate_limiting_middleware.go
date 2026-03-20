@@ -8,7 +8,6 @@ import (
 	"github.com/ulule/limiter/v3"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/auth"
@@ -72,7 +71,7 @@ func (m *RateLimitingMiddleware) handleGlobalLimitAnonymous(ctx context.Context,
 			Period: time.Second,
 			Limit:  int64(limitConfig.LimitPerSecond),
 		}
-		limiterCtx, err := limiter.New(m.store, rate).Get(ctx, globalKey)
+		limiterCtx, err := m.store.Get(ctx, globalKey, rate)
 		if err != nil {
 			m.lggr.Errorw("Rate limiter store error - allowing request (fail-open). Health check will fail.",
 				"error", err,
@@ -126,15 +125,6 @@ func (m *RateLimitingMiddleware) Intercept(ctx context.Context, req any, info *g
 			"callerID", identity.CallerID,
 			"method", info.FullMethod)
 		return handler(ctx, req)
-	}
-
-	header := metadata.Pairs(
-		"X-RateLimit-Limit", fmt.Sprintf("%d", limiterCtx.Limit),
-		"X-RateLimit-Remaining", fmt.Sprintf("%d", limiterCtx.Remaining),
-		"X-RateLimit-Reset", fmt.Sprintf("%d", limiterCtx.Reset),
-	)
-	if err := grpc.SendHeader(ctx, header); err != nil {
-		m.lggr.Errorf("Failed to send rate limit headers: %v", err)
 	}
 
 	if limiterCtx.Reached {

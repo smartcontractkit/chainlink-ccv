@@ -91,3 +91,16 @@ packages:
       ClientInterface:
         configs:
           - dir: ./indexer/pkg/client/internal/mocks
+
+  github.com/smartcontractkit/chainlink-ccv/cli/chainstatuses:
+    interfaces:
+      ChainStatusStore:
+        configs:
+          - dir: ./cli/chainstatuses/mocks
+
+  github.com/smartcontractkit/chainlink-protos/chainlink-ccv/message-discovery/v1:
+    interfaces:
+      MessageDiscoveryClient:
+  github.com/smartcontractkit/chainlink-protos/chainlink-ccv/verifier/v1:
+    interfaces:
+      VerifierClient:

@@ -34,7 +34,12 @@ type ExecutorMetrics struct {
 	// Heartbeat Metrics
 	heartbeatSuccessCounter     metric.Int64Counter
 	heartbeatFailureCounter     metric.Int64Counter
+	allIndexersFailedCounter    metric.Int64Counter
+	indexerSwitchCounter        metric.Int64Counter
 	lastHeartbeatTimestampGauge metric.Int64Gauge
+
+	// unrecoverable message failure
+	unrecoverableMessageFailureCounter metric.Int64Counter
 
 	// Chain curse metric
 	remoteChainCursed      metric.Int64Gauge
@@ -162,6 +167,30 @@ func InitMetrics() (*ExecutorMetrics, error) {
 		return nil, fmt.Errorf("failed to register remote chain cursed gauge: %w", err)
 	}
 
+	vm.indexerSwitchCounter, err = beholder.GetMeter().Int64Counter(
+		"executor_indexer_switch_total",
+		metric.WithDescription("Total number of times we switch between indexers"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register indexer switch counter: %w", err)
+	}
+
+	vm.allIndexersFailedCounter, err = beholder.GetMeter().Int64Counter(
+		"executor_all_indexers_failed_total",
+		metric.WithDescription("Total number of times all indexers failed"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register all indexers failed counter: %w", err)
+	}
+
+	vm.unrecoverableMessageFailureCounter, err = beholder.GetMeter().Int64Counter(
+		"executor_unrecoverable_message_failure_total",
+		metric.WithDescription("Total number of unrecoverable message failures"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register unrecoverable message failure counter: %w", err)
+	}
+
 	return vm, nil
 }
 
@@ -258,6 +287,21 @@ func (v *ExecutorMetricLabeler) IncrementHeartbeatFailure(ctx context.Context) {
 func (v *ExecutorMetricLabeler) SetLastHeartbeatTimestamp(ctx context.Context, timestamp int64) {
 	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
 	v.vm.lastHeartbeatTimestampGauge.Record(ctx, timestamp, metric.WithAttributes(otelLabels...))
+}
+
+func (v *ExecutorMetricLabeler) IncrementIndexerSwitch(ctx context.Context) {
+	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
+	v.vm.indexerSwitchCounter.Add(ctx, 1, metric.WithAttributes(otelLabels...))
+}
+
+func (v *ExecutorMetricLabeler) IncrementAllIndexersFailed(ctx context.Context) {
+	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
+	v.vm.allIndexersFailedCounter.Add(ctx, 1, metric.WithAttributes(otelLabels...))
+}
+
+func (v *ExecutorMetricLabeler) IncrementUnrecoverableMessageFailure(ctx context.Context) {
+	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
+	v.vm.unrecoverableMessageFailureCounter.Add(ctx, 1, metric.WithAttributes(otelLabels...))
 }
 
 func (v *ExecutorMetricLabeler) SetRemoteChainCursed(ctx context.Context, localSelector, remoteSelector protocol.ChainSelector, cursed bool) {

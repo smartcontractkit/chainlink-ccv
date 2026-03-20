@@ -5,9 +5,11 @@ import (
 
 	"github.com/Masterminds/semver/v3"
 
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/burn_mint_token_pool"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/lock_release_token_pool"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v2_0_0/operations/burn_mint_token_pool"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v2_0_0/operations/lock_release_token_pool"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
+
+	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/offchain"
 )
 
 const (
@@ -28,7 +30,6 @@ const (
 
 	CustomExecutorQualifier = "custom"
 
-	CCTPContractsQualifier         = "CCTP"
 	CCTPPrimaryReceiverQualifier   = "cctp-primary"
 	CCTPSecondaryReceiverQualifier = "cctp-secondary"
 
@@ -97,8 +98,8 @@ func (s TokenCombination) ExpectedVerifierResults() int {
 }
 
 func (s TokenCombination) FinalityConfig() uint16 {
-	if semver.MustParse(s.sourcePoolVersion).GreaterThanEqual(semver.MustParse("1.7.0")) {
-		return 1 // We can use fast-finality if source pool is 1.7.0 or higher
+	if semver.MustParse(s.sourcePoolVersion).GreaterThanEqual(semver.MustParse("2.0.0")) {
+		return 1 // We can use fast-finality if source pool is 2.0.0 or higher
 	}
 	return 0 // Otherwise use default finality
 }
@@ -107,87 +108,87 @@ func (s TokenCombination) FinalityConfig() uint16 {
 func AllTokenCombinations() []TokenCombination {
 	return []TokenCombination{
 		{ // 1.6.1 burn -> 1.6.1 mint
-			sourcePoolType:          string(burn_mint_token_pool.BurnMintContractType),
+			sourcePoolType:          string(burn_mint_token_pool.ContractType),
 			sourcePoolVersion:       "1.6.1",
-			destPoolType:            string(burn_mint_token_pool.BurnMintContractType),
+			destPoolType:            string(burn_mint_token_pool.ContractType),
 			destPoolVersion:         "1.6.1",
 			expectedReceiptIssuers:  4, // default CCV, token pool, executor, network fee
 			expectedVerifierResults: 1, // default CCV
 		},
-		{ // 1.6.1 burn -> 1.7.0 mint
-			sourcePoolType:          string(burn_mint_token_pool.BurnMintContractType),
+		{ // 1.6.1 burn -> 2.0.0 mint
+			sourcePoolType:          string(burn_mint_token_pool.ContractType),
 			sourcePoolVersion:       "1.6.1",
-			destPoolType:            string(burn_mint_token_pool.BurnMintContractType),
-			destPoolVersion:         "1.7.0",
+			destPoolType:            string(burn_mint_token_pool.ContractType),
+			destPoolVersion:         "2.0.0",
 			destPoolCCVQualifiers:   []string{DefaultCommitteeVerifierQualifier},
 			expectedReceiptIssuers:  4, // default CCV, token pool, executor, network fee
 			expectedVerifierResults: 1, // default CCV
 		},
-		{ // 1.7.0 burn -> 1.6.1 mint
-			sourcePoolType:          string(burn_mint_token_pool.BurnMintContractType),
-			sourcePoolVersion:       "1.7.0",
+		{ // 2.0.0 burn -> 1.6.1 mint
+			sourcePoolType:          string(burn_mint_token_pool.ContractType),
+			sourcePoolVersion:       "2.0.0",
 			sourcePoolCCVQualifiers: []string{DefaultCommitteeVerifierQualifier},
-			destPoolType:            string(burn_mint_token_pool.BurnMintContractType),
+			destPoolType:            string(burn_mint_token_pool.ContractType),
 			destPoolVersion:         "1.6.1",
 			expectedReceiptIssuers:  4, // default CCV, token pool, executor, network fee
 			expectedVerifierResults: 1, // default CCV
 		},
-		{ // 1.7.0 lock -> 1.7.0 burn
+		{ // 2.0.0 lock -> 2.0.0 burn
 			sourcePoolType:          string(lock_release_token_pool.ContractType),
-			sourcePoolVersion:       "1.7.0",
+			sourcePoolVersion:       "2.0.0",
 			sourcePoolCCVQualifiers: []string{DefaultCommitteeVerifierQualifier},
-			destPoolType:            string(burn_mint_token_pool.BurnMintContractType),
-			destPoolVersion:         "1.7.0",
+			destPoolType:            string(burn_mint_token_pool.ContractType),
+			destPoolVersion:         "2.0.0",
 			destPoolCCVQualifiers:   []string{DefaultCommitteeVerifierQualifier},
 			expectedReceiptIssuers:  4, // default CCV, token pool, executor, network fee
 			expectedVerifierResults: 1, // default CCV
 		},
-		{ // 1.7.0 burn -> 1.7.0 release
-			sourcePoolType:          string(burn_mint_token_pool.BurnMintContractType),
-			sourcePoolVersion:       "1.7.0",
+		{ // 2.0.0 burn -> 2.0.0 release
+			sourcePoolType:          string(burn_mint_token_pool.ContractType),
+			sourcePoolVersion:       "2.0.0",
 			sourcePoolCCVQualifiers: []string{DefaultCommitteeVerifierQualifier},
 			destPoolType:            string(lock_release_token_pool.ContractType),
-			destPoolVersion:         "1.7.0",
+			destPoolVersion:         "2.0.0",
 			destPoolCCVQualifiers:   []string{DefaultCommitteeVerifierQualifier},
 			expectedReceiptIssuers:  4, // default CCV, token pool, executor, network fee
 			expectedVerifierResults: 1, // default CCV
 		},
-		{ // 1.7.0 burn -> 1.7.0 mint
-			sourcePoolType:          string(burn_mint_token_pool.BurnMintContractType),
-			sourcePoolVersion:       "1.7.0",
+		{ // 2.0.0 burn -> 2.0.0 mint
+			sourcePoolType:          string(burn_mint_token_pool.ContractType),
+			sourcePoolVersion:       "2.0.0",
 			sourcePoolCCVQualifiers: []string{DefaultCommitteeVerifierQualifier},
-			destPoolType:            string(burn_mint_token_pool.BurnMintContractType),
-			destPoolVersion:         "1.7.0",
+			destPoolType:            string(burn_mint_token_pool.ContractType),
+			destPoolVersion:         "2.0.0",
 			destPoolCCVQualifiers:   []string{DefaultCommitteeVerifierQualifier},
 			expectedReceiptIssuers:  4, // default CCV, token pool, executor, network fee
 			expectedVerifierResults: 1, // default CCV
 		},
-		{ // 1.7.0 burn -> 1.7.0 mint (Default and Secondary CCV)
-			sourcePoolType:          string(burn_mint_token_pool.BurnMintContractType),
-			sourcePoolVersion:       "1.7.0",
+		{ // 2.0.0 burn -> 2.0.0 mint (Default and Secondary CCV)
+			sourcePoolType:          string(burn_mint_token_pool.ContractType),
+			sourcePoolVersion:       "2.0.0",
 			sourcePoolCCVQualifiers: []string{DefaultCommitteeVerifierQualifier, SecondaryCommitteeVerifierQualifier},
-			destPoolType:            string(burn_mint_token_pool.BurnMintContractType),
-			destPoolVersion:         "1.7.0",
+			destPoolType:            string(burn_mint_token_pool.ContractType),
+			destPoolVersion:         "2.0.0",
 			destPoolCCVQualifiers:   []string{DefaultCommitteeVerifierQualifier, SecondaryCommitteeVerifierQualifier},
 			expectedReceiptIssuers:  5, // default CCV, secondary CCV, token pool, executor, network fee
 			expectedVerifierResults: 2, // default CCV, secondary CCV
 		},
-		{ // 1.7.0 burn -> 1.7.0 mint (No CCV)
-			sourcePoolType:          string(burn_mint_token_pool.BurnMintContractType),
-			sourcePoolVersion:       "1.7.0",
+		{ // 2.0.0 burn -> 2.0.0 mint (No CCV)
+			sourcePoolType:          string(burn_mint_token_pool.ContractType),
+			sourcePoolVersion:       "2.0.0",
 			sourcePoolCCVQualifiers: []string{},
-			destPoolType:            string(burn_mint_token_pool.BurnMintContractType),
-			destPoolVersion:         "1.7.0",
+			destPoolType:            string(burn_mint_token_pool.ContractType),
+			destPoolVersion:         "2.0.0",
 			destPoolCCVQualifiers:   []string{},
 			expectedReceiptIssuers:  4, // default CCV, token pool, executor, network fee
 			expectedVerifierResults: 1, // default CCV
 		},
-		{ // 1.7.0 burn -> 1.7.0 mint (Secondary CCV)
-			sourcePoolType:          string(burn_mint_token_pool.BurnMintContractType),
-			sourcePoolVersion:       "1.7.0",
+		{ // 2.0.0 burn -> 2.0.0 mint (Secondary CCV)
+			sourcePoolType:          string(burn_mint_token_pool.ContractType),
+			sourcePoolVersion:       "2.0.0",
 			sourcePoolCCVQualifiers: []string{SecondaryCommitteeVerifierQualifier},
-			destPoolType:            string(burn_mint_token_pool.BurnMintContractType),
-			destPoolVersion:         "1.7.0",
+			destPoolType:            string(burn_mint_token_pool.ContractType),
+			destPoolVersion:         "2.0.0",
 			destPoolCCVQualifiers:   []string{SecondaryCommitteeVerifierQualifier},
 			expectedReceiptIssuers:  5, // secondary CCV, default CCV, token pool, executor, network fee
 			expectedVerifierResults: 2, // secondary CCV, default CCV (defaultCCV included because ccipReceiveGasLimit > 0)
@@ -198,9 +199,37 @@ func AllTokenCombinations() []TokenCombination {
 func All17TokenCombinations() []TokenCombination {
 	combinations := []TokenCombination{}
 	for _, tc := range AllTokenCombinations() {
-		if semver.MustParse(tc.sourcePoolVersion).Equal(semver.MustParse("1.7.0")) && semver.MustParse(tc.destPoolVersion).Equal(semver.MustParse("1.7.0")) {
+		if semver.MustParse(tc.sourcePoolVersion).Equal(semver.MustParse("2.0.0")) && semver.MustParse(tc.destPoolVersion).Equal(semver.MustParse("2.0.0")) {
 			combinations = append(combinations, tc)
 		}
 	}
 	return combinations
+}
+
+// qualifiersAvailable returns true if all qualifiers exist as committees in the topology.
+func qualifiersAvailable(qualifiers []string, topology *offchain.EnvironmentTopology) bool {
+	if topology == nil || topology.NOPTopology == nil {
+		return len(qualifiers) == 0
+	}
+	for _, q := range qualifiers {
+		if _, ok := topology.NOPTopology.Committees[q]; !ok {
+			return false
+		}
+	}
+	return true
+}
+
+// FilterTokenCombinations returns only the token combinations whose CCV qualifiers
+// all exist as committees in the topology. This ensures that environments with fewer
+// committees (e.g. HA topology with only "default") don't attempt to deploy or
+// configure token pools referencing non-existent committee verifiers.
+func FilterTokenCombinations(combos []TokenCombination, topology *offchain.EnvironmentTopology) []TokenCombination {
+	filtered := make([]TokenCombination, 0, len(combos))
+	for _, combo := range combos {
+		if qualifiersAvailable(combo.SourcePoolCCVQualifiers(), topology) &&
+			qualifiersAvailable(combo.DestPoolCCVQualifiers(), topology) {
+			filtered = append(filtered, combo)
+		}
+	}
+	return filtered
 }

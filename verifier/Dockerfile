@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.7
-FROM golang:1.25.5-alpine AS builder
+FROM golang:1.25.6-alpine AS builder
 WORKDIR /
 
 # Copy module files first to maximize cache reuse across apps
@@ -11,7 +11,7 @@ RUN --mount=type=cache,target=/go/pkg/mod,id=ccv-go-mod \
 COPY . .
 
 ARG VERIFIER_TYPE=committee
-WORKDIR /cmd/verifier/${VERIFIER_TYPE}
+WORKDIR /verifier/cmd/${VERIFIER_TYPE}
 
 RUN --mount=type=cache,target=/root/.cache/go-build,id=ccv-go-build \
     --mount=type=cache,target=/go/pkg/mod,id=ccv-go-mod \

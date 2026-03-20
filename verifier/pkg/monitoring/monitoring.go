@@ -7,8 +7,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	commonmetrics "github.com/smartcontractkit/chainlink-ccv/common/metrics"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-ccv/verifier"
+	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
 	"github.com/smartcontractkit/chainlink-common/pkg/metrics"
 )
 
@@ -17,18 +18,25 @@ var _ verifier.Monitoring = (*VerifierBeholderMonitoring)(nil)
 // VerifierBeholderMonitoring provides beholder-based monitoring for the verifier.
 type VerifierBeholderMonitoring struct {
 	metrics verifier.MetricLabeler
+	commonmetrics.ServiceMetrics
 }
 
 // InitMonitoring initializes the beholder monitoring system for the verifier.
-func InitMonitoring() (verifier.Monitoring, error) {
+func InitMonitoring(verifierServiceName string) (verifier.Monitoring, error) {
 	// Initialize the verifier metrics
 	verifierMetrics, err := InitMetrics()
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize verifier metrics: %w", err)
 	}
 
+	serviceMetrics, err := commonmetrics.NewServiceMetrics(metrics.NewLabeler(), verifierServiceName)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create service metrics: %w", err)
+	}
+
 	return &VerifierBeholderMonitoring{
-		metrics: NewVerifierMetricLabeler(metrics.NewLabeler(), verifierMetrics),
+		metrics:        NewVerifierMetricLabeler(metrics.NewLabeler(), verifierMetrics),
+		ServiceMetrics: serviceMetrics,
 	}, nil
 }
 
@@ -41,8 +49,14 @@ var (
 	_ verifier.MetricLabeler = (*FakeVerifierMetricLabeler)(nil)
 )
 
+// noopServiceMetrics implements commonmetrics.ServiceMetrics with no-op behavior for tests/fakes.
+type noopServiceMetrics struct{}
+
+func (noopServiceMetrics) RecordServiceStarted(context.Context) {}
+
 type FakeVerifierMonitoring struct {
 	Fake *FakeVerifierMetricLabeler
+	commonmetrics.ServiceMetrics
 }
 
 func (f FakeVerifierMonitoring) Metrics() verifier.MetricLabeler {
@@ -51,7 +65,8 @@ func (f FakeVerifierMonitoring) Metrics() verifier.MetricLabeler {
 
 func NewFakeVerifierMonitoring() *FakeVerifierMonitoring {
 	return &FakeVerifierMonitoring{
-		Fake: &FakeVerifierMetricLabeler{},
+		Fake:           &FakeVerifierMetricLabeler{},
+		ServiceMetrics: noopServiceMetrics{},
 	}
 }
 
@@ -113,18 +128,20 @@ func (f *FakeVerifierMetricLabeler) SetVerifierHeartbeatChainHeads(context.Conte
 
 func (f *FakeVerifierMetricLabeler) SetVerifierHeartbeatScore(context.Context, float64) {}
 
-func (f *FakeVerifierMetricLabeler) RecordFinalityWaitDuration(context.Context, time.Duration) {}
-
 func (f *FakeVerifierMetricLabeler) RecordMessageVerificationDuration(context.Context, time.Duration) {
 }
 
 func (f *FakeVerifierMetricLabeler) RecordStorageWriteDuration(context.Context, time.Duration) {}
+
+func (f *FakeVerifierMetricLabeler) RecordVerificationQueueLatency(context.Context, time.Duration) {}
 
 func (f *FakeVerifierMetricLabeler) RecordTaskVerificationQueueSize(context.Context, int64) {}
 
 func (f *FakeVerifierMetricLabeler) RecordStorageWriteQueueSize(context.Context, int64) {}
 
 func (f *FakeVerifierMetricLabeler) IncrementStorageWriteErrors(context.Context) {}
+
+func (f *FakeVerifierMetricLabeler) IncrementTaskVerificationPermanentErrors(context.Context) {}
 
 func (f *FakeVerifierMetricLabeler) RecordSourceChainLatestBlock(_ context.Context, blockNum int64) {
 	f.SourceChainLatestBLock.Store(blockNum)
@@ -134,7 +151,7 @@ func (f *FakeVerifierMetricLabeler) RecordSourceChainFinalizedBlock(_ context.Co
 	f.SourceChainFinalizedBlock.Store(blockNum)
 }
 
-func (f *FakeVerifierMetricLabeler) RecordReorgTrackedSeqNums(context.Context, int64) {}
+func (f *FakeVerifierMetricLabeler) RecordReorgTrackedSeqNums(ctx context.Context, count int64) {}
 
 func (f *FakeVerifierMetricLabeler) SetVerifierFinalityViolated(ctx context.Context, selector protocol.ChainSelector, violated bool) {
 }

@@ -3,6 +3,8 @@
 package mocks
 
 import (
+	context "context"
+
 	common "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	mock "github.com/stretchr/testify/mock"
 )
@@ -64,6 +66,39 @@ func (_c *MockAggregatorMonitoring_Metrics_Call) Return(_a0 common.AggregatorMet
 
 func (_c *MockAggregatorMonitoring_Metrics_Call) RunAndReturn(run func() common.AggregatorMetricLabeler) *MockAggregatorMonitoring_Metrics_Call {
 	_c.Call.Return(run)
+	return _c
+}
+
+// RecordServiceStarted provides a mock function with given fields: ctx
+func (_m *MockAggregatorMonitoring) RecordServiceStarted(ctx context.Context) {
+	_m.Called(ctx)
+}
+
+// MockAggregatorMonitoring_RecordServiceStarted_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RecordServiceStarted'
+type MockAggregatorMonitoring_RecordServiceStarted_Call struct {
+	*mock.Call
+}
+
+// RecordServiceStarted is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *MockAggregatorMonitoring_Expecter) RecordServiceStarted(ctx interface{}) *MockAggregatorMonitoring_RecordServiceStarted_Call {
+	return &MockAggregatorMonitoring_RecordServiceStarted_Call{Call: _e.mock.On("RecordServiceStarted", ctx)}
+}
+
+func (_c *MockAggregatorMonitoring_RecordServiceStarted_Call) Run(run func(ctx context.Context)) *MockAggregatorMonitoring_RecordServiceStarted_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context))
+	})
+	return _c
+}
+
+func (_c *MockAggregatorMonitoring_RecordServiceStarted_Call) Return() *MockAggregatorMonitoring_RecordServiceStarted_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockAggregatorMonitoring_RecordServiceStarted_Call) RunAndReturn(run func(context.Context)) *MockAggregatorMonitoring_RecordServiceStarted_Call {
+	_c.Run(run)
 	return _c
 }
 

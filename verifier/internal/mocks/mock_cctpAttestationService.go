@@ -6,7 +6,7 @@ import (
 	context "context"
 
 	protocol "github.com/smartcontractkit/chainlink-ccv/protocol"
-	cctp "github.com/smartcontractkit/chainlink-ccv/verifier/token/cctp"
+	cctp "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/cctp"
 	mock "github.com/stretchr/testify/mock"
 )
 

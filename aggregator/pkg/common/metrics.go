@@ -3,12 +3,17 @@ package common
 import (
 	"context"
 	"time"
+
+	commonmetrics "github.com/smartcontractkit/chainlink-ccv/common/metrics"
 )
 
 // AggregatorMonitoring provides access to aggregator monitoring capabilities.
+// ServiceMetrics is embedded so that common service-level metrics (e.g. ccip_service_started)
+// and any future ones are part of this interface without changing it.
 type AggregatorMonitoring interface {
 	// Metrics returns an AggregatorMetricLabeler for recording metrics.
 	Metrics() AggregatorMetricLabeler
+	commonmetrics.ServiceMetrics
 }
 
 // AggregatorMetricLabeler provides methods for recording various aggregator metrics.
