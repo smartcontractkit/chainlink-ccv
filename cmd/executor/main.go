@@ -345,7 +345,7 @@ func main() {
 		lggr.Errorw("Execution coordinator shutdown timed out")
 	}
 
-	lggr.Infow("Execution service stopped gracefully")
+	lggr.Infow("✅ Execution service stopped gracefully")
 }
 
 func loadConfiguration(filepath string) (*executor.Configuration, map[string]*blockchain.Info, error) {

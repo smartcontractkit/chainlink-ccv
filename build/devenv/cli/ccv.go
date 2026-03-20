@@ -556,7 +556,12 @@ var fundAddressesCmd = &cobra.Command{
 			return fmt.Errorf("failed to create product configuration: %w", err)
 		}
 
-		return impl.FundAddresses(cmd.Context(), input, unknownAddresses, amountBig)
+		err = impl.FundAddresses(cmd.Context(), input, unknownAddresses, amountBig)
+		if err != nil {
+			return fmt.Errorf("failed to fund addresses: %w", err)
+		}
+
+		return nil
 	},
 }
 

@@ -434,7 +434,6 @@ func checkKeys(in *Cfg) error {
 }
 
 func NewProductConfigurationFromNetwork(typ string) (cciptestinterfaces.CCIP17Configuration, error) {
-	// TODO: remove the defaults (evm and canton) later
 	switch typ {
 	case "anvil":
 		// TODO: move evm to the impl factory registry.
@@ -867,10 +866,6 @@ func NewEnvironment() (in *Cfg, err error) {
 
 	if in.Pricer != nil {
 		for i, impl := range impls {
-			// // Skip non-EVM chains for pricer funding (pricer uses EVM addresses)
-			// if in.Blockchains[i].Type == blockchain.TypeCanton || in.Blockchains[i].Type == blockchain.TypeStellar {
-			// 	continue
-			// }
 			Plog.Info().Int("ImplIndex", i).Msg("Funding pricer key")
 			err = impl.FundAddresses(
 				ctx,
@@ -1744,37 +1739,6 @@ func launchStandaloneExecutors(in []*services.ExecutorInput, blockchainOutputs [
 	}
 	return outs, nil
 }
-
-// func launchStandaloneExecutors(in []*services.ExecutorInput, blockchainOutputs []*blockchain.Output) ([]*services.ExecutorOutput, error) {
-// 	var outs []*services.ExecutorOutput
-// 	for _, exec := range in {
-// 		if exec != nil && exec.Mode == services.Standalone && !isBootstrappedExecutor(exec) {
-// 			out, err := services.NewStandalone(exec, blockchainOutputs)
-// 			if err != nil {
-// 				return nil, fmt.Errorf("failed to create executor service: %w", err)
-// 			}
-// 			outs = append(outs, out)
-// 		}
-// 	}
-// 	return outs, nil
-// }
-
-// // launchBootstrappedExecutors launches executor containers that use bootstrap.Run
-// // (non-EVM families). These require a DB, bootstrap config, and JD integration.
-// func launchBootstrappedExecutors(in []*executorsvc.Input, blockchainOutputs []*blockchain.Output, jdInfra *jobs.JDInfrastructure) ([]*executorsvc.Output, error) {
-// 	var outs []*executorsvc.Output
-// 	for _, exec := range in {
-// 		if exec != nil && exec.Mode == services.Standalone && isBootstrappedExecutor(exec) {
-// 			out, err := executorsvc.New(exec, blockchainOutputs, jdInfra)
-// 			if err != nil {
-// 				return nil, fmt.Errorf("failed to create bootstrapped executor %s: %w", exec.ContainerName, err)
-// 			}
-// 			exec.Out = out
-// 			outs = append(outs, out)
-// 		}
-// 	}
-// 	return outs, nil
-// }
 
 // // registerExecutorsWithJD registers bootstrapped executors with the Job Distributor
 // // and waits for them to establish their WSRPC connections.

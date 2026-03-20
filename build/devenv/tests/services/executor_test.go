@@ -6,7 +6,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
-	executorsvc "github.com/smartcontractkit/chainlink-ccv/build/devenv/services/executor"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
 
@@ -39,7 +38,7 @@ executor_pool = ["executor-test"]
 			},
 		},
 	}
-	out, err := executorsvc.NewStandalone(&executorsvc.Input{
+	out, err := services.NewExecutor(&services.ExecutorInput{
 		SourceCodePath:  "../../../executor",
 		RootPath:        "../../../../",
 		ContainerName:   "executor-test",
