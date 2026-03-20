@@ -222,7 +222,6 @@ func TestScheduler_RunDoesNotLeakGoroutinesUnderBurst(t *testing.T) {
 		peakGoroutines-baselineGoroutines, baselineGoroutines, peakGoroutines)
 }
 
-// TestScheduler_DoubleStop
 func TestScheduler_DoubleStop(t *testing.T) {
 	lggr := logger.Test(t)
 	scfg := config.SchedulerConfig{TickerInterval: 10, BaseDelay: 10, MaxDelay: 1000, VerificationVisibilityWindow: 60}
