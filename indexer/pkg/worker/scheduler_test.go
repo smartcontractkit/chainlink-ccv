@@ -228,7 +228,6 @@ func TestScheduler_DoubleStop(t *testing.T) {
 	s, err := NewScheduler(lggr, scfg)
 	require.NoError(t, err)
 
-	// start scheduler run loop to process delayed heap
 	s.Start(t.Context())
 	s.Stop()
 	s.Stop()
