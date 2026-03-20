@@ -83,6 +83,8 @@ func NewExecutorCoordinator(
 		}
 	}
 
+	protocol.InitChainSelectorCache()
+
 	executorMonitoring, err := monitoring.InitMonitoring()
 	if err != nil {
 		lggr.Errorw("Failed to initialize executor monitoring", "error", err)
