@@ -405,7 +405,6 @@ func (c *Cfg) NewAggregatorClientForCommittee(logger zerolog.Logger, committeeNa
 	}
 
 	caCertFile := c.AggregatorCACertFiles[committeeName]
-	fmt.Printf("Creating aggregator client for committee %s with endpoint %s and CA cert file %s\n", committeeName, endpoint, caCertFile)
 	return NewAggregatorClient(logger, endpoint, caCertFile)
 }
 
@@ -1347,20 +1346,6 @@ func NewEnvironment() (in *Cfg, err error) {
 		return nil, fmt.Errorf("failed to create standalone executor: %w", err)
 	}
 
-	// _, err = launchBootstrappedExecutors(in.Executor, blockchainOutputs, jdInfra)
-	// if err != nil {
-	// 	return nil, fmt.Errorf("failed to create bootstrapped executors: %w", err)
-	// }
-
-	// if jdInfra != nil && jdInfra.OffchainClient != nil {
-	// 	if err := registerExecutorsWithJD(ctx, in.Executor, jdInfra.OffchainClient); err != nil {
-	// 		return nil, err
-	// 	}
-	// 	if err := proposeJobsToExecutors(ctx, in.Executor, executorJobSpecs, blockchainOutputs, jdInfra.OffchainClient); err != nil {
-	// 		return nil, err
-	// 	}
-	// }
-
 	///////////////////////////
 	// END: Launch executors //
 	///////////////////////////
@@ -1719,12 +1704,6 @@ func launchCLNodes(
 	return onchainPublicKeys, nil
 }
 
-// // isBootstrappedExecutor returns true for executors whose binary uses bootstrap.Run
-// // (currently all non-EVM families such as Stellar).
-// func isBootstrappedExecutor(exec *executorsvc.Input) bool {
-// 	return exec.ChainFamily != "" && exec.ChainFamily != chainsel.FamilyEVM
-// }
-
 func launchStandaloneExecutors(in []*services.ExecutorInput, blockchainOutputs []*blockchain.Output) ([]*services.ExecutorOutput, error) {
 	var outs []*services.ExecutorOutput
 	// Start standalone executors if they are in standalone mode.
@@ -1739,123 +1718,6 @@ func launchStandaloneExecutors(in []*services.ExecutorInput, blockchainOutputs [
 	}
 	return outs, nil
 }
-
-// // registerExecutorsWithJD registers bootstrapped executors with the Job Distributor
-// // and waits for them to establish their WSRPC connections.
-// func registerExecutorsWithJD(ctx context.Context, executors []*executorsvc.Input, jdClient offchain.Client) error {
-// 	var bootstrapped []*executorsvc.Input
-// 	for _, exec := range executors {
-// 		if exec.Mode == services.Standalone && isBootstrappedExecutor(exec) {
-// 			bootstrapped = append(bootstrapped, exec)
-// 		}
-// 	}
-
-// 	if len(bootstrapped) == 0 {
-// 		return nil
-// 	}
-
-// 	g, gCtx := errgroup.WithContext(ctx)
-// 	var mu sync.Mutex
-
-// 	for _, exec := range bootstrapped {
-// 		g.Go(func() error {
-// 			if exec.Out == nil || exec.Out.BootstrapKeys.CSAPublicKey == "" {
-// 				return fmt.Errorf("bootstrapped executor %s started but CSAPublicKey not available", exec.ContainerName)
-// 			}
-
-// 			reg := &jobs.BootstrapJDRegistration{
-// 				Name:         exec.ContainerName,
-// 				CSAPublicKey: exec.Out.BootstrapKeys.CSAPublicKey,
-// 			}
-// 			if err := jobs.RegisterBootstrapWithJD(gCtx, jdClient, reg); err != nil {
-// 				return fmt.Errorf("failed to register executor %s with JD: %w", exec.ContainerName, err)
-// 			}
-
-// 			mu.Lock()
-// 			exec.Out.JDNodeID = reg.NodeID
-// 			mu.Unlock()
-
-// 			if err := jobs.WaitForBootstrapConnection(gCtx, jdClient, reg.NodeID, 60*time.Second); err != nil {
-// 				return fmt.Errorf("executor %s failed to connect to JD: %w", exec.ContainerName, err)
-// 			}
-
-// 			return nil
-// 		})
-// 	}
-
-// 	return g.Wait()
-// }
-
-// // proposeJobsToExecutors proposes executor job specs to bootstrapped executors via JD.
-// // Each executor receives its job spec with blockchain infos injected for its chain family.
-// func proposeJobsToExecutors(
-// 	ctx context.Context,
-// 	executors []*executorsvc.Input,
-// 	executorJobSpecs map[string]string,
-// 	blockchainOutputs []*blockchain.Output,
-// 	jdClient offchain.Client,
-// ) error {
-// 	var bootstrapped []*executorsvc.Input
-// 	for _, exec := range executors {
-// 		if exec.Mode == services.Standalone && isBootstrappedExecutor(exec) {
-// 			bootstrapped = append(bootstrapped, exec)
-// 		}
-// 	}
-
-// 	if len(bootstrapped) == 0 {
-// 		return nil
-// 	}
-
-// 	g, gCtx := errgroup.WithContext(ctx)
-
-// 	for _, exec := range bootstrapped {
-// 		g.Go(func() error {
-// 			if exec.Out == nil || exec.Out.JDNodeID == "" {
-// 				return fmt.Errorf("executor %s not registered with JD (missing JDNodeID)", exec.ContainerName)
-// 			}
-// 			nodeID := exec.Out.JDNodeID
-
-// 			loader, err := chainconfig.GetChainConfigLoader(exec.ChainFamily)
-// 			if err != nil {
-// 				return fmt.Errorf("failed to get chain config loader for family %s: %w", exec.ChainFamily, err)
-// 			}
-
-// 			blockchainInfos, err := loader(blockchainOutputs)
-// 			if err != nil {
-// 				return fmt.Errorf("failed to load chain config for family %s: %w", exec.ChainFamily, err)
-// 			}
-
-// 			baseJobSpec, ok := executorJobSpecs[exec.ContainerName]
-// 			if !ok {
-// 				return fmt.Errorf("no job spec found for executor %s", exec.ContainerName)
-// 			}
-
-// 			jobSpec, err := exec.RebuildExecutorJobSpecWithBlockchainInfos(baseJobSpec, blockchainInfos)
-// 			if err != nil {
-// 				return fmt.Errorf("failed to add blockchain infos to job spec for %s: %w", exec.ContainerName, err)
-// 			}
-
-// 			L.Info().Msgf("Proposing job to executor %s (node %s)", exec.ContainerName, nodeID)
-
-// 			resp, err := jdClient.ProposeJob(gCtx, &jobv1.ProposeJobRequest{
-// 				NodeId: nodeID,
-// 				Spec:   jobSpec,
-// 			})
-// 			if err != nil {
-// 				return fmt.Errorf("failed to propose job to executor %s: %w", exec.ContainerName, err)
-// 			}
-// 			L.Info().
-// 				Str("executor", exec.ContainerName).
-// 				Str("nodeID", nodeID).
-// 				Str("proposalID", resp.Proposal.Id).
-// 				Msg("Proposed job to executor via JD")
-
-// 			return nil
-// 		})
-// 	}
-
-// 	return g.Wait()
-// }
 
 func launchStandaloneVerifiers(in *Cfg, blockchainOutputs []*blockchain.Output, jdInfra *jobs.JDInfrastructure) ([]*committeeverifier.Output, error) {
 	// Collect aggregator outputs per committee in insertion order so that NodeIndex maps

@@ -590,10 +590,6 @@ func NewAggregator(in *AggregatorInput) (*AggregatorOutput, error) {
 		GeneratedCommittee: in.GeneratedCommittee,
 	}
 
-	fmt.Printf("Aggregator committee: %+v\n", in.GeneratedCommittee)
-	fmt.Printf("Aggregator committee destination verifiers: %v\n", in.Out.GeneratedCommittee.DestinationVerifiers)
-	fmt.Printf("Aggregator committee quorum configs: %v\n", in.Out.GeneratedCommittee.QuorumConfigs)
-	fmt.Printf("Aggregator image: %v\n", in.Image)
 	return in.Out, nil
 }
 
