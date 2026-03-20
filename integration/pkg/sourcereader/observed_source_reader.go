@@ -20,6 +20,7 @@ type observedSourceReader struct {
 
 	verifierID    string
 	chainSelector string
+	chainName     string
 	monitoring    verifier.Monitoring
 }
 
@@ -39,6 +40,7 @@ func NewObservedSourceReader(
 		SourceReader:  delegate,
 		verifierID:    verifierID,
 		chainSelector: chainSelector.String(),
+		chainName:     chainSelector.ChainName(),
 		monitoring:    monitoring,
 	}, nil
 }
@@ -51,14 +53,14 @@ func (o observedSourceReader) LatestAndFinalizedBlock(ctx context.Context) (late
 
 	if latest != nil {
 		o.monitoring.Metrics().
-			With("source_chain", o.chainSelector, "verifier_id", o.verifierID).
+			With("source_chain", o.chainSelector, "source_chain_name", o.chainName, "verifier_id", o.verifierID).
 			//nolint:gosec // disable G115
 			RecordSourceChainLatestBlock(ctx, int64(latest.Number))
 	}
 
 	if finalized != nil {
 		o.monitoring.Metrics().
-			With("source_chain", o.chainSelector, "verifier_id", o.verifierID).
+			With("source_chain", o.chainSelector, "source_chain_name", o.chainName, "verifier_id", o.verifierID).
 			//nolint:gosec // disable G115
 			RecordSourceChainFinalizedBlock(ctx, int64(finalized.Number))
 	}

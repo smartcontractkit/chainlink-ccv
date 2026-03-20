@@ -125,6 +125,8 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, appConfig token.Conf
 	// Use SugaredLogger for better API
 	tvf.lggr = logger.Sugared(tvf.lggr)
 
+	protocol.InitChainSelectorCache()
+
 	// TODO: validate config?
 	config := appConfig.Config
 	blockchainInfos := appConfig.BlockchainInfos
