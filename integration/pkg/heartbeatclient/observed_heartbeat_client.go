@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	heartbeatpb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/heartbeat/v1"
 )
@@ -109,7 +110,8 @@ func (o *ObservedHeartbeatClient) SendHeartbeat(ctx context.Context, blockHeight
 
 	// Record what we're sending in the request. It will be used for monitoring of the lag.
 	for chainSelector, blockHeight := range blockHeightsByChain {
-		chainMetrics := metrics.With("chain_selector", fmt.Sprintf("%d", chainSelector))
+		sel := protocol.ChainSelector(chainSelector)
+		chainMetrics := metrics.With("chain_selector", fmt.Sprintf("%d", chainSelector), "chain_name", sel.Name())
 		chainMetrics.SetVerifierHeartbeatSentChainHeads(ctx, blockHeight)
 	}
 
@@ -135,7 +137,7 @@ func (o *ObservedHeartbeatClient) SendHeartbeat(ctx context.Context, blockHeight
 		}
 
 		// Record metrics
-		chainMetrics := metrics.With("chain_selector", fmt.Sprintf("%d", chainSelector))
+		chainMetrics := metrics.With("chain_selector", fmt.Sprintf("%d", chainSelector), "chain_name", protocol.ChainSelector(chainSelector).Name())
 		chainMetrics.SetVerifierHeartbeatChainHeads(ctx, benchmark.BlockHeight)
 		chainMetrics.SetVerifierHeartbeatScore(ctx, float64(benchmark.Score))
 	}

@@ -46,11 +46,11 @@ func Test_MessageLatency(t *testing.T) {
 			},
 			expectedLatencies: []E2ELatencyCall{
 				{
-					Labels:  []string{"source_chain", message1.SourceChainSelector.String(), "verifier_id", "verifier-1"},
+					Labels:  []string{"source_chain", message1.SourceChainSelector.String(), "source_chain_name", message1.SourceChainSelector.Name(), "verifier_id", "verifier-1"},
 					Latency: time.Since(twoSecondsAgo),
 				},
 				{
-					Labels:  []string{"source_chain", message2.SourceChainSelector.String(), "verifier_id", "verifier-1"},
+					Labels:  []string{"source_chain", message2.SourceChainSelector.String(), "source_chain_name", message2.SourceChainSelector.Name(), "verifier_id", "verifier-1"},
 					Latency: time.Since(tenMinutesAgo),
 				},
 			},
@@ -65,7 +65,7 @@ func Test_MessageLatency(t *testing.T) {
 			},
 			expectedLatencies: []E2ELatencyCall{
 				{
-					Labels:  []string{"source_chain", message1.SourceChainSelector.String(), "verifier_id", "verifier-1"},
+					Labels:  []string{"source_chain", message1.SourceChainSelector.String(), "source_chain_name", message1.SourceChainSelector.Name(), "verifier_id", "verifier-1"},
 					Latency: time.Since(time.Now()),
 				},
 			},
@@ -92,7 +92,7 @@ func Test_MessageLatency(t *testing.T) {
 			},
 			expectedLatencies: []E2ELatencyCall{
 				{
-					Labels:  []string{"source_chain", message1.SourceChainSelector.String(), "verifier_id", "verifier-1"},
+					Labels:  []string{"source_chain", message1.SourceChainSelector.String(), "source_chain_name", message1.SourceChainSelector.Name(), "verifier_id", "verifier-1"},
 					Latency: time.Since(twoSecondsAgo),
 				},
 			},

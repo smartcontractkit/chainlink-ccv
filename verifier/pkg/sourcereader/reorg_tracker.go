@@ -49,7 +49,7 @@ func (t *ReorgTracker) Track(destChain protocol.ChainSelector, seqNum protocol.S
 		"trackedCount", count,
 	)
 
-	t.metrics.With("destChain", strconv.FormatUint(uint64(destChain), 10)).
+	t.metrics.With("destChain", strconv.FormatUint(uint64(destChain), 10), "destChainName", destChain.Name()).
 		RecordReorgTrackedSeqNums(context.Background(), int64(count))
 }
 
@@ -89,6 +89,6 @@ func (t *ReorgTracker) Remove(destChain protocol.ChainSelector, seqNum protocol.
 		"trackedCount", newCount,
 	)
 
-	t.metrics.With("destChain", strconv.FormatUint(uint64(destChain), 10)).
+	t.metrics.With("destChain", strconv.FormatUint(uint64(destChain), 10), "destChainName", destChain.Name()).
 		RecordReorgTrackedSeqNums(context.Background(), int64(newCount))
 }

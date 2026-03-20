@@ -13,6 +13,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/heartbeat"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/scope"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	heartbeatpb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/heartbeat/v1"
 )
@@ -68,7 +69,7 @@ func (h *HeartbeatHandler) Handle(ctx context.Context, req *heartbeatpb.Heartbea
 			h.logger(ctx).Warnf("Failed to store block height for chain %d: %v", chainSelector, err)
 		}
 		// Publish metric per caller per chain for received block height
-		h.m.Metrics().With("caller_id", callerID, "chain_selector", fmt.Sprintf("%d", chainSelector)).
+		h.m.Metrics().With("caller_id", callerID, "chain_selector", fmt.Sprintf("%d", chainSelector), "chain_name", protocol.ChainSelector(chainSelector).Name()).
 			SetVerifierHeartbeatReportedChainHeads(ctx, blockHeight)
 	}
 
@@ -110,7 +111,7 @@ func (h *HeartbeatHandler) Handle(ctx context.Context, req *heartbeatpb.Heartbea
 		}
 
 		// publish per-chain current max head metric
-		h.m.Metrics().With("chain_selector", fmt.Sprintf("%d", chainSelector)).
+		h.m.Metrics().With("chain_selector", fmt.Sprintf("%d", chainSelector), "chain_name", protocol.ChainSelector(chainSelector).Name()).
 			SetVerifierHeartbeatCurrentMaxChainHead(ctx, int64(maxBlockHeight)) // #nosec G115 -- block heights are within int64 range
 	}
 
@@ -120,7 +121,7 @@ func (h *HeartbeatHandler) Handle(ctx context.Context, req *heartbeatpb.Heartbea
 
 	// Record per-chain metrics
 	for chainSelector, benchmark := range chainBenchmarks {
-		chainMetrics := metrics.With("chain_selector", fmt.Sprintf("%d", chainSelector))
+		chainMetrics := metrics.With("chain_selector", fmt.Sprintf("%d", chainSelector), "chain_name", protocol.ChainSelector(chainSelector).Name())
 		chainMetrics.SetVerifierHeartbeatScore(ctx, float64(benchmark.Score))
 	}
 

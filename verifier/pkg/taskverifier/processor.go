@@ -237,20 +237,22 @@ func (p *Processor) handleVerificationResults(
 			p.monitoring.Metrics().
 				With(
 					"source_chain", message.SourceChainSelector.String(),
+					"source_chain_name", message.SourceChainSelector.Name(),
 					"dest_chain", message.DestChainSelector.String(),
+					"dest_chain_name", message.DestChainSelector.Name(),
 					"verifier_id", p.verifierID,
 				).
 				IncrementMessagesProcessed(ctx)
 
 			p.monitoring.Metrics().
-				With("source_chain", message.SourceChainSelector.String(), "verifier_id", p.verifierID).
+				With("source_chain", message.SourceChainSelector.String(), "source_chain_name", message.SourceChainSelector.Name(), "verifier_id", p.verifierID).
 				RecordMessageVerificationDuration(ctx, verificationDuration)
 
 			// Track verification queue latency (time from push to successful verification, including retries)
 			if task, taskExists := taskMap[messageID]; taskExists && !task.PushedToVerificationQueueAt.IsZero() {
 				queueLatency := processedAt.Sub(task.PushedToVerificationQueueAt)
 				p.monitoring.Metrics().
-					With("source_chain", message.SourceChainSelector.String(), "verifier_id", p.verifierID).
+					With("source_chain", message.SourceChainSelector.String(), "source_chain_name", message.SourceChainSelector.Name(), "verifier_id", p.verifierID).
 					RecordVerificationQueueLatency(ctx, queueLatency)
 			}
 		}
@@ -359,7 +361,9 @@ func (p *Processor) handleVerificationError(
 	p.monitoring.Metrics().
 		With(
 			"source_chain", message.SourceChainSelector.String(),
+			"source_chain_name", message.SourceChainSelector.Name(),
 			"dest_chain", message.DestChainSelector.String(),
+			"dest_chain_name", message.DestChainSelector.Name(),
 			"verifier_id", p.verifierID,
 		).
 		IncrementMessagesVerificationFailed(ctx)
@@ -382,7 +386,9 @@ func (p *Processor) handleVerificationError(
 		p.monitoring.Metrics().
 			With(
 				"source_chain", message.SourceChainSelector.String(),
+				"source_chain_name", message.SourceChainSelector.Name(),
 				"dest_chain", message.DestChainSelector.String(),
+				"dest_chain_name", message.DestChainSelector.Name(),
 				"verifier_id", p.verifierID,
 			).
 			IncrementTaskVerificationPermanentErrors(ctx)

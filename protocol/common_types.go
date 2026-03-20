@@ -8,6 +8,8 @@ import (
 	"math/big"
 	"strconv"
 	"strings"
+
+	chainselectors "github.com/smartcontractkit/chain-selectors"
 )
 
 // ChainSelector represents chainlink-specific chain id.
@@ -15,6 +17,16 @@ type ChainSelector uint64
 
 func (c ChainSelector) String() string {
 	return strconv.FormatUint(uint64(c), 10)
+}
+
+// Name returns the human-readable network name for this chain selector.
+// If the selector is not found in the chain-selectors registry,
+// it falls back to "unknown:<selector>" so metrics remain queryable.
+func (c ChainSelector) Name() string {
+	if chain, ok := chainselectors.ChainBySelector(uint64(c)); ok {
+		return chain.Name
+	}
+	return "unknown:" + c.String()
 }
 
 // Nonce represents a monotonic counter used for adding entropy and uniqueness to a CCIP message.

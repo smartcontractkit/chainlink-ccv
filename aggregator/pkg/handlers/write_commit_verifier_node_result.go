@@ -105,6 +105,7 @@ func (h *WriteCommitVerifierNodeResultHandler) Handle(ctx context.Context, req *
 	metrics := h.m.Metrics().With(
 		"caller_id", identity.CallerID,
 		"chainselector", strconv.FormatUint(uint64(record.Message.SourceChainSelector), 10),
+		"source_chain_name", record.Message.SourceChainSelector.Name(),
 	)
 	metrics.IncrementVerificationsTotal(ctx)
 
