@@ -4,9 +4,11 @@ package mocks
 
 import (
 	context "context"
-	http "net/http"
 
 	client "github.com/smartcontractkit/chainlink-ccv/indexer/pkg/client/internal"
+
+	http "net/http"
+
 	mock "github.com/stretchr/testify/mock"
 )
 
