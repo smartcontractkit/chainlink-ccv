@@ -46,10 +46,10 @@ func NewScheduler(lggr logger.Logger, config config.SchedulerConfig) (*Scheduler
 }
 
 func (s *Scheduler) Start(ctx context.Context) {
-	go s.once.Do(func() {
-		s.wg.Add(1)
-		defer s.wg.Done()
-		s.run(ctx)
+	s.once.Do(func() {
+		s.wg.Go(func() {
+			s.run(ctx)
+		})
 	})
 }
 
