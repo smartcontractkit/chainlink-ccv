@@ -1337,7 +1337,7 @@ func (m *CCIP17EVMConfig) ConnectContractsWithSelectors(ctx context.Context, e *
 		}
 
 		remoteChains[rs] = lanes.ChainDefinition{
-			Selector: rs,
+			Selector:                          rs,
 			FeeQuoterDestChainConfigOverrides: feeQuoterDestChainConfigOverride(rs),
 			ExecutorDestChainConfig: lanes.ExecutorDestChainConfig{
 				Enabled:     true,
