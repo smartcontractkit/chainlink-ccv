@@ -13,9 +13,10 @@ import (
 	"github.com/spf13/cobra"
 
 	chain_selectors "github.com/smartcontractkit/chain-selectors"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/latest/operations/mock_receiver_v2"
-	executor_operations "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/executor"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/versioned_verifier_resolver"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/sequences"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/versioned_verifier_resolver"
+	executor_operations "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v2_0_0/operations/executor"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v2_0_0/operations/mock_receiver_v2"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 
@@ -153,7 +154,7 @@ func getMessageOptions(args sendArgs, addrs datastore.AddressRefStore) (cciptest
 	executorRef, err := addrs.Get(
 		datastore.NewAddressRefKey(
 			args.srcSel,
-			datastore.ContractType(executor_operations.ProxyType),
+			datastore.ContractType(sequences.ExecutorProxyType),
 			semver.MustParse(executor_operations.Deploy.Version()),
 			devenvcommon.DefaultExecutorQualifier))
 	if err != nil {

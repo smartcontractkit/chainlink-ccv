@@ -8,12 +8,11 @@ import (
 	gethcommon "github.com/ethereum/go-ethereum/common"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/latest/operations/mock_receiver_v2"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/latest/operations/usdc_token_pool_proxy"
 	evmadapters "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/adapters"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/cctp_verifier"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/create2_factory"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/versioned_verifier_resolver"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/create2_factory"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/versioned_verifier_resolver"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v2_0_0/operations/mock_receiver_v2"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v2_0_0/operations/usdc_token_pool_proxy"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/mock_usdc_token_messenger"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/mock_usdc_token_transmitter"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/utils/operations/contract"
@@ -247,8 +246,8 @@ func (m *CCIP17EVMConfig) deployCCTPMockReceivers(
 ) error {
 	cctpVerifier, err := ds.Addresses().Get(datastore.NewAddressRefKey(
 		selector,
-		datastore.ContractType(cctp_verifier.ResolverType),
-		semver.MustParse(cctp_verifier.Deploy.Version()),
+		datastore.ContractType(versioned_verifier_resolver.CCTPVerifierResolverType),
+		versioned_verifier_resolver.Version,
 		"",
 	))
 	if err != nil {
@@ -309,7 +308,7 @@ func (m *CCIP17EVMConfig) deployCCTPMockReceivers(
 		// Set minimum block depth to 1
 		_, err1 = operations.ExecuteOperation(
 			env.OperationsBundle,
-			mock_receiver_v2.SetMinBlockDepth,
+			mock_receiver_v2.SetMinBlockConfirmations,
 			env.BlockChains.EVMChains()[selector],
 			contract.FunctionInput[uint16]{
 				Address:       gethcommon.HexToAddress(deployReceiverReport.Output.Address),
