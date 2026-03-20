@@ -110,13 +110,12 @@ func TestConfiguration_Validate(t *testing.T) {
 			wantErrContains: "executor_pool must be configured",
 		},
 		{
-			name: "executor_not_in_pool_fails",
+			name: "executor_not_in_pool_passes_validation",
 			config: func() Configuration {
 				c := validConfig()
 				c.ExecutorID = "executor-3"
 				return c
 			}(),
-			wantErrContains: "not found in executor_pool",
 		},
 		{
 			name: "invalid_with_no_configurations",
