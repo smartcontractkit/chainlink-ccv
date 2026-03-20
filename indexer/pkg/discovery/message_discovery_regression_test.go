@@ -445,8 +445,95 @@ func TestCallReader_SecondaryUnblocksEarlyWhenPrimarySignals(t *testing.T) {
 	elapsed := time.Since(start)
 
 	require.NoError(t, err)
+	// Priority-1 stagger is (1-1)*stagger = 0, so it proceeds immediately after the
+	// primary signals. Elapsed should be roughly the 30 ms head-start, not 5 s.
 	assert.Less(t, elapsed, 1*time.Second,
-		"secondary source should proceed as soon as primary signals, not wait the full 5s delay")
+		"priority-1 source should proceed as soon as primary signals, not wait the full 5s delay")
+}
+
+// TestCallReader_HigherPrioritySourceStaggersAfterPrimarySignals verifies that a
+// priority-2 source does NOT unblock immediately when the primary signals — it must
+// wait an additional (priority-1)*stagger interval so that secondary sources still
+// proceed in priority order even when the primary finishes early.
+func TestCallReader_HigherPrioritySourceStaggersAfterPrimarySignals(t *testing.T) {
+	notifier := NewPrimaryWriteNotifier()
+
+	aggDisc := buildIsolatedDiscovery(t, 2 /* priority */, notifier, 1 /* numMessages */)
+	aggDisc.messageCh = make(chan common.VerifierResultWithMetadata, 10)
+
+	// Use a short stagger so the test completes quickly without sacrificing correctness.
+	const stagger = 100 * time.Millisecond
+	aggDisc.priorityStagger = stagger
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Primary signals quickly, well before the priority-2 overall cap (2*stagger = 200 ms).
+	go func() {
+		time.Sleep(20 * time.Millisecond)
+		notifier.Notify()
+	}()
+
+	start := time.Now()
+	_, err := aggDisc.callReader(ctx)
+	elapsed := time.Since(start)
+
+	require.NoError(t, err)
+	// Priority-2 stagger after primary: (2-1)*stagger = 100 ms.
+	// Total elapsed should be roughly 20 ms (primary signal) + 100 ms (stagger) = ~120 ms.
+	// It must be at least stagger (100 ms) and less than the full overall cap (200 ms).
+	assert.GreaterOrEqual(t, elapsed, stagger,
+		"priority-2 source must wait the stagger interval after primary signals, not unblock immediately")
+	assert.Less(t, elapsed, 2*stagger,
+		"priority-2 source must not wait the full overall cap when primary signals early")
+}
+
+// TestPrimaryWriteNotifier_WaitChNeverMissesSignal verifies that there is no window
+// between a WaitCh() call and the corresponding Notify() in which a waiter can
+// receive a fresh, un-closed channel and miss the signal for the current tick.
+// This exercises the fix that closes the old channel while still holding the mutex.
+func TestPrimaryWriteNotifier_WaitChNeverMissesSignal(t *testing.T) {
+	notifier := NewPrimaryWriteNotifier()
+
+	const rounds = 200
+	for i := range rounds {
+		ch := notifier.WaitCh()
+		notifier.Notify()
+		select {
+		case <-ch:
+			// Expected: channel closed by Notify.
+		case <-time.After(100 * time.Millisecond):
+			t.Fatalf("round %d: channel was not closed after Notify(); signal was missed", i)
+		}
+	}
+}
+
+// TestPrimaryWriteNotifier_ConcurrentWaitChAndNotify stress-tests the notifier under
+// concurrent WaitCh and Notify calls. The race detector will surface any data race.
+func TestPrimaryWriteNotifier_ConcurrentWaitChAndNotify(t *testing.T) {
+	notifier := NewPrimaryWriteNotifier()
+
+	const notifyRounds = 50
+	done := make(chan struct{})
+
+	// Continuously call Notify in the background.
+	go func() {
+		defer close(done)
+		for range notifyRounds {
+			notifier.Notify()
+			time.Sleep(time.Millisecond)
+		}
+	}()
+
+	// Concurrently call WaitCh and drain the resulting channels until the notifier stops.
+	for {
+		ch := notifier.WaitCh()
+		select {
+		case <-ch:
+		case <-done:
+			return
+		}
+	}
 }
 
 // TestCallReader_SecondaryExitsViaContextWithoutNotifier verifies backward

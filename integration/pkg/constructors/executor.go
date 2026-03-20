@@ -106,6 +106,7 @@ func NewExecutorCoordinator(
 			common.HexToAddress(offRampAddresses[sel].String()),
 			keys[sel],
 			fromAddresses[sel],
+			executorMonitoring,
 		)
 
 		evmDestReader, err := destinationreader.NewEvmDestinationReader(

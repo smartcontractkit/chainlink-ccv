@@ -6,23 +6,25 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"slices"
 	"strconv"
 	"time"
 
 	"go.uber.org/zap/zapcore"
 
-	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
+	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 
-	cmd "github.com/smartcontractkit/chainlink-ccv/cmd/verifier"
+	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/heartbeatclient"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
+	cmd "github.com/smartcontractkit/chainlink-ccv/verifier/cmd"
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/chainstatus"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/coordinator"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/storage"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token"
@@ -33,9 +35,16 @@ import (
 )
 
 func main() {
+	if len(os.Args) >= 2 && os.Args[1] == "ccv" {
+		cmd.RunCCVCLI(os.Args[1:])
+		return
+	}
 	err := bootstrap.Run(
 		"TokenVerifier",
-		&tokenVerifierFactory{},
+		&tokenVerifierFactory{
+			supportedChainFamily:      []string{chainsel.FamilyEVM},
+			createAccessorFactoryFunc: evm.CreateAccessorFactory,
+		},
 		// TODO: remove the AppConfig generic type to streamline this API, update factory to accept config as a string.
 		bootstrap.WithTOMLAppConfig[token.ConfigWithBlockchainInfos]("/etc/config.toml"),
 	)
@@ -48,7 +57,11 @@ func main() {
 type tokenVerifierFactory struct {
 	bootstrap.ServiceFactory[token.Config]
 
-	coordinators []*coordinator.Coordinator
+	// TODO: rather than creating the factory in the bootstrap layer, can we pass in a registry?
+	createAccessorFactoryFunc accessors.CreateAccessorFactory
+	supportedChainFamily      []string
+
+	coordinators []*verifier.Coordinator
 	httpServer   *http.Server
 	lggr         logger.Logger
 }
@@ -79,21 +92,35 @@ func (tvf *tokenVerifierFactory) Stop(ctx context.Context) error {
 
 // Start starts the service with the parsed config received from the bootstrapper.
 func (tvf *tokenVerifierFactory) Start(ctx context.Context, appConfig token.ConfigWithBlockchainInfos, deps bootstrap.ServiceDeps) error {
-	logLevelStr := os.Getenv("LOG_LEVEL")
-	if logLevelStr == "" {
-		logLevelStr = "info"
+	var errs []error
+	if tvf.createAccessorFactoryFunc == nil {
+		errs = append(errs, fmt.Errorf("createAccessorFactoryFunc is required but was nil"))
 	}
-	var zapLevel zapcore.Level
-	if err := zapLevel.UnmarshalText([]byte(logLevelStr)); err != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "Invalid LOG_LEVEL '%s', defaulting to 'info'\n", logLevelStr)
-		zapLevel = zapcore.InfoLevel
+	if len(tvf.supportedChainFamily) == 0 {
+		errs = append(errs, fmt.Errorf("at least one supportedChainFamily is required but was empty"))
 	}
-	var err error
-	tvf.lggr, err = logger.NewWith(logging.DevelopmentConfig(zapLevel))
-	if err != nil {
-		return fmt.Errorf("failed to create logger: %v", err)
+	if len(errs) > 0 {
+		return errors.Join(errs...)
 	}
-	tvf.lggr = logger.Named(tvf.lggr, "verifier")
+
+	// TODO: Add "WithLogLevelFromEnv" option and use deps.lggr.
+	{
+		logLevelStr := os.Getenv("LOG_LEVEL")
+		if logLevelStr == "" {
+			logLevelStr = "info"
+		}
+		var zapLevel zapcore.Level
+		if err := zapLevel.UnmarshalText([]byte(logLevelStr)); err != nil {
+			_, _ = fmt.Fprintf(os.Stderr, "Invalid LOG_LEVEL '%s', defaulting to 'info'\n", logLevelStr)
+			zapLevel = zapcore.InfoLevel
+		}
+		var err error
+		tvf.lggr, err = logger.NewWith(logging.DevelopmentConfig(zapLevel))
+		if err != nil {
+			return fmt.Errorf("failed to create logger: %v", err)
+		}
+		tvf.lggr = logger.Named(tvf.lggr, "verifier")
+	}
 
 	// Use SugaredLogger for better API
 	tvf.lggr = logger.Sugared(tvf.lggr)
@@ -102,19 +129,45 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, appConfig token.Conf
 	config := appConfig.Config
 	blockchainInfos := appConfig.BlockchainInfos
 
-	_, err = cmd.StartPyroscope(tvf.lggr, config.PyroscopeURL, "tokenVerifier")
+	_, err := cmd.StartPyroscope(tvf.lggr, config.PyroscopeURL, "tokenVerifier")
 	if err != nil {
 		tvf.lggr.Errorw("Failed to start pyroscope", "error", err)
 		os.Exit(1)
 	}
+
+	factory, err := tvf.createAccessorFactoryFunc(ctx, tvf.lggr, blockchainInfos, config.OnRampAddresses, config.RMNRemoteAddresses)
+	if err != nil {
+		tvf.lggr.Errorw("Failed to create accessor factory", "error", err)
+		return fmt.Errorf("failed to create accessor factory: %w", err)
+	}
+
+	// Initialize source readers from factory.
 	blockchainHelper := cmd.LoadBlockchainInfo(ctx, tvf.lggr, blockchainInfos)
+	sourceReaders := make(map[protocol.ChainSelector]chainaccess.SourceReader)
+	for _, selector := range blockchainHelper.GetAllChainSelectors() {
+		fam, err := chainsel.GetSelectorFamily(uint64(selector))
+		if err != nil {
+			tvf.lggr.Errorw("Skipping chain, failed to get blockchain family for chain selector", "error", err, "chainSelector", selector)
+			continue
+		}
+		if !slices.Contains(tvf.supportedChainFamily, fam) {
+			tvf.lggr.Infow("Skipping chain, unsupported blockchain family", "chainSelector", selector, "family", fam)
+			continue
+		}
+		accessor, err := factory.GetAccessor(ctx, selector)
+		if err != nil {
+			tvf.lggr.Errorw("Skipping chain, failed to get accessor for chain selector", "error", err, "chainSelector", selector)
+			continue
+		}
+		if accessor.SourceReader() == nil {
+			tvf.lggr.Errorw("Skipping chain, failed to get source reader for chain selector", "chainSelector", selector)
+			continue
+		}
+		sourceReaders[selector] = accessor.SourceReader()
+		tvf.lggr.Infow("Created source reader for chain", "chainSelector", selector)
+	}
 
-	registry := accessors.NewRegistry(blockchainHelper)
-	cmd.RegisterEVM(ctx, registry, tvf.lggr, blockchainHelper, config.OnRampAddresses, config.RMNRemoteAddresses)
-
-	sourceReaders := cmd.LoadBlockchainReadersForToken(ctx, tvf.lggr, registry, blockchainHelper, config)
-
-	verifierMonitoring := cmd.SetupMonitoring(tvf.lggr, config.Monitoring)
+	verifierMonitoring := cmd.SetupMonitoring(tvf.lggr, config.Monitoring, "token_verifier")
 
 	rmnRemoteAddresses := make(map[string]protocol.UnknownAddress)
 	for selector, address := range config.RMNRemoteAddresses {
@@ -137,9 +190,10 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, appConfig token.Conf
 	monitoredStorage := storage.NewMonitoredStorage(postgresStorage, verifierMonitoring.Metrics())
 
 	// save the coordinators so that they can be shutdown later on.
-	tvf.coordinators = make([]*coordinator.Coordinator, 0, len(config.TokenVerifiers))
+	chainStatusStore := chainstatus.NewPostgresChainStatusStore(db, tvf.lggr)
+	tvf.coordinators = make([]*verifier.Coordinator, 0, len(config.TokenVerifiers))
 	for _, verifierConfig := range config.TokenVerifiers {
-		chainStatusManager := chainstatus.NewPostgresChainStatusManager(db, tvf.lggr, verifierConfig.VerifierID)
+		chainStatusManager := chainstatus.NewPostgresChainStatusManager(chainStatusStore, verifierConfig.VerifierID)
 		// Wrap chain status manager with monitoring decorator to track query durations
 		monitoredChainStatusManager := chainstatus.NewMonitoredChainStatusManager(chainStatusManager, verifierMonitoring.Metrics())
 
@@ -149,7 +203,7 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, appConfig token.Conf
 			verifierMonitoring,
 		)
 
-		var coordinator *coordinator.Coordinator
+		var coordinator *verifier.Coordinator
 		if verifierConfig.IsLombard() {
 			coordinator = createLombardCoordinator(
 				ctx,
@@ -204,6 +258,7 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, appConfig token.Conf
 		healthReporters[i] = coordinator
 	}
 	ginRouter := tokenapi.NewHTTPAPI(tvf.lggr, storage.NewCCVReader(postgresStorage), healthReporters, verifierMonitoring)
+	verifierMonitoring.RecordServiceStarted(ctx)
 
 	// Start HTTP server with Gin router
 	tvf.httpServer = &http.Server{
@@ -237,7 +292,7 @@ func createCCTPCoordinator(
 	verifierMonitoring verifier.Monitoring,
 	chainStatusManager protocol.ChainStatusManager,
 	db sqlutil.DataSource,
-) *coordinator.Coordinator {
+) *verifier.Coordinator {
 	cctpSourceConfigs := createSourceConfigs(cctpConfig.ParsedVerifierResolvers, rmnRemoteAddresses)
 
 	attestationService, err := cctp.NewAttestationService(lggr, *cctpConfig)
@@ -246,7 +301,7 @@ func createCCTPCoordinator(
 		os.Exit(1)
 	}
 
-	coordinator, err := coordinator.NewCoordinator(
+	coordinator, err := verifier.NewCoordinator(
 		lggr,
 		cctp.NewVerifier(lggr, attestationService),
 		sourceReaders,
@@ -285,7 +340,7 @@ func createLombardCoordinator(
 	verifierMonitoring verifier.Monitoring,
 	chainStatusManager protocol.ChainStatusManager,
 	db sqlutil.DataSource,
-) *coordinator.Coordinator {
+) *verifier.Coordinator {
 	sourceConfigs := createSourceConfigs(lombardConfig.ParsedVerifierResolvers, rmnRemoteAddresses)
 
 	attestationService, err := lombard.NewAttestationService(lggr, *lombardConfig)
@@ -300,7 +355,7 @@ func createLombardCoordinator(
 		os.Exit(1)
 	}
 
-	coordinator, err := coordinator.NewCoordinator(
+	coordinator, err := verifier.NewCoordinator(
 		lggr,
 		lombardVerifier,
 		sourceReaders,

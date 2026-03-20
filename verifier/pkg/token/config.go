@@ -4,9 +4,9 @@ import (
 	"fmt"
 
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
-	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/cctp"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/lombard"
+	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
 )
 
 type ConfigWithBlockchainInfos struct {

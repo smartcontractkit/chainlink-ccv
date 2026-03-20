@@ -13,24 +13,14 @@ import (
 
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 
-	chainsel "github.com/smartcontractkit/chain-selectors"
 	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
-	"github.com/smartcontractkit/chainlink-ccv/integration/pkg"
-	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors"
-	evmaccessor "github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
-	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/sourcereader"
-	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/commit"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/db"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token"
 	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
-	"github.com/smartcontractkit/chainlink-evm/pkg/client"
-	"github.com/smartcontractkit/chainlink-evm/pkg/heads"
 )
 
 const (
@@ -48,7 +38,7 @@ const (
 	defaultConnMaxIdleTime = 60  // seconds
 )
 
-func SetupMonitoring(lggr logger.Logger, config verifier.MonitoringConfig) verifier.Monitoring {
+func SetupMonitoring(lggr logger.Logger, config verifier.MonitoringConfig, verifierServiceName string) verifier.Monitoring {
 	// If monitoring is not enabled, return a fake monitoring implementation that does nothing.
 	if !config.Enabled {
 		verifierMonitoring := monitoring.NewFakeVerifierMonitoring()
@@ -77,114 +67,11 @@ func SetupMonitoring(lggr logger.Logger, config verifier.MonitoringConfig) verif
 	// Set the beholder client and global otel providers
 	beholder.SetClient(beholderClient)
 	beholder.SetGlobalOtelProviders()
-	verifierMonitoring, err := monitoring.InitMonitoring()
+	verifierMonitoring, err := monitoring.InitMonitoring(verifierServiceName)
 	if err != nil {
 		lggr.Fatalf("Failed to initialize verifier monitoring: %w", err)
 	}
 	return verifierMonitoring
-}
-
-func LoadBlockchainReadersForToken(
-	ctx context.Context,
-	lggr logger.Logger,
-	registry *accessors.Registry,
-	blockchainHelper *blockchain.Helper,
-	config token.Config,
-) map[protocol.ChainSelector]chainaccess.SourceReader {
-	sourceReaders := make(map[protocol.ChainSelector]chainaccess.SourceReader)
-
-	for _, selector := range blockchainHelper.GetAllChainSelectors() {
-		info, err := blockchainHelper.GetBlockchainByChainSelector(selector)
-		if err != nil {
-			lggr.Errorw("Failed to get blockchain info", "chainSelector", selector, "error", err)
-			continue
-		}
-		if info.Family != chainsel.FamilyEVM {
-			lggr.Errorw("Skipping chain, only EVM is supported", "chainSelector", selector, "family", info.Family)
-			continue
-		}
-
-		lggr.Infow("⏳ Creating source reader for chain", "chainSelector", selector, "strSelector", uint64(selector))
-
-		accessor, err := registry.GetAccessor(ctx, selector)
-		if err != nil {
-			lggr.Errorw("❌ Failed to create source reader for chain", "chainSelector", selector, "error", err)
-			continue
-		}
-
-		reader := accessor.SourceReader()
-		if reader == nil {
-			lggr.Errorw("❌ Failed to get source reader for chain", "chainSelector", selector)
-			continue
-		}
-
-		sourceReaders[selector] = reader
-		lggr.Infow("🚀 Created source reader for chain", "chainSelector", selector)
-	}
-
-	return sourceReaders
-}
-
-func RegisterEVM(ctx context.Context, registry *accessors.Registry, lggr logger.Logger, helper *blockchain.Helper, onRampAddresses, rmnRemoteAddresses map[string]string) {
-	// Create the chain clients then the head trackers
-	chainClients := make(map[protocol.ChainSelector]client.Client)
-	for _, selector := range helper.GetAllChainSelectors() {
-		family, err := chainsel.GetSelectorFamily(uint64(selector))
-		if err != nil {
-			lggr.Errorw("❌ Failed to get selector family - update chain-selectors library?", "chainSelector", selector, "error", err)
-			continue
-		}
-		if family != chainsel.FamilyEVM {
-			// Skip non-EVM chains in EVM registration.
-			continue
-		}
-		chainClient := pkg.CreateHealthyMultiNodeClient(ctx, helper, lggr, selector)
-		chainClients[selector] = chainClient
-	}
-
-	headTrackers := make(map[protocol.ChainSelector]heads.Tracker)
-	for _, selector := range helper.GetAllChainSelectors() {
-		family, err := chainsel.GetSelectorFamily(uint64(selector))
-		if err != nil {
-			lggr.Errorw("❌ Failed to get selector family - update chain-selectors library?", "chainSelector", selector, "error", err)
-			continue
-		}
-		if family != chainsel.FamilyEVM {
-			// Skip non-EVM chains in EVM registration.
-			continue
-		}
-		headTracker := sourcereader.NewSimpleHeadTrackerWrapper(chainClients[selector], lggr)
-		headTrackers[selector] = headTracker
-	}
-
-	registry.Register(chainsel.FamilyEVM, evmaccessor.NewFactory(lggr, helper, onRampAddresses, rmnRemoteAddresses, headTrackers, chainClients))
-}
-
-func CreateSourceReaders(
-	ctx context.Context,
-	lggr logger.Logger,
-	registry *accessors.Registry,
-	helper *blockchain.Helper,
-	config commit.Config,
-) (map[protocol.ChainSelector]chainaccess.SourceReader, error) {
-	readers := make(map[protocol.ChainSelector]chainaccess.SourceReader)
-	for _, selector := range helper.GetAllChainSelectors() {
-		accessor, err := registry.GetAccessor(ctx, selector)
-		if err != nil {
-			lggr.Errorw("❌ Failed to create source reader", "chainSelector", selector, "error", err)
-			continue
-		}
-
-		reader := accessor.SourceReader()
-		if reader == nil {
-			lggr.Errorw("❌ Failed to get source reader for chain", "chainSelector", selector)
-			continue
-		}
-
-		readers[selector] = reader
-		lggr.Infow("🚀 Created source reader for chain", "chainSelector", selector)
-	}
-	return readers, nil
 }
 
 func ConnectToPostgresDB(lggr logger.Logger) (sqlutil.DataSource, error) {

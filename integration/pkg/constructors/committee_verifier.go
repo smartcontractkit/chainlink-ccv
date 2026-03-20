@@ -17,7 +17,6 @@ import (
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/chainstatus"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/commit"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/coordinator"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/heartbeat"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -36,7 +35,7 @@ func NewVerificationCoordinator(
 	signer verifier.MessageSigner,
 	relayers map[protocol.ChainSelector]legacyevm.Chain,
 	ds sqlutil.DataSource,
-) (*coordinator.Coordinator, error) {
+) (*verifier.Coordinator, error) {
 	if err := cfg.Validate(); err != nil {
 		lggr.Errorw("Invalid CCV verifier configuration.", "error", err)
 		return nil, fmt.Errorf("invalid ccv verifier configuration: %w", err)
@@ -70,7 +69,7 @@ func NewVerificationCoordinator(
 	}
 
 	// TODO: monitoring config home
-	verifierMonitoring, err := monitoring.InitMonitoring()
+	verifierMonitoring, err := monitoring.InitMonitoring("committee_verifier")
 	if err != nil {
 		lggr.Errorw("Failed to initialize verifier monitoring", "error", err)
 		return nil, fmt.Errorf("failed to initialize verifier monitoring: %w", err)
@@ -152,8 +151,8 @@ func NewVerificationCoordinator(
 		verifierMonitoring,
 	)
 
-	// Create chain status manager using postgres
-	chainStatusManager := chainstatus.NewPostgresChainStatusManager(ds, lggr, cfg.VerifierID)
+	chainStatusStore := chainstatus.NewPostgresChainStatusStore(ds, lggr)
+	chainStatusManager := chainstatus.NewPostgresChainStatusManager(chainStatusStore, cfg.VerifierID)
 
 	coordinatorConfig := verifier.CoordinatorConfig{
 		VerifierID:          cfg.VerifierID,
@@ -196,7 +195,7 @@ func NewVerificationCoordinator(
 		verifierMonitoring,
 	)
 
-	verifierCoordinator, err := coordinator.NewCoordinator(
+	verifierCoordinator, err := verifier.NewCoordinator(
 		lggr,
 		commitVerifier,
 		sourceReaders,

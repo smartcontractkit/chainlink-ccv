@@ -2,6 +2,7 @@ package pkg
 
 import (
 	"context"
+	"fmt"
 	"math/big"
 	"time"
 
@@ -14,7 +15,7 @@ import (
 
 func ptr[T any](t T) *T { return &t }
 
-func CreateHealthyMultiNodeClient(ctx context.Context, blockchainHelper *blockchain.Helper, lggr logger.Logger, chainSelector protocol.ChainSelector) client.Client {
+func CreateHealthyMultiNodeClient(ctx context.Context, blockchainHelper *blockchain.Helper, lggr logger.Logger, chainSelector protocol.ChainSelector) (client.Client, error) {
 	blockchainInfo, err := blockchainHelper.GetBlockchainByChainSelector(chainSelector)
 	if err != nil {
 		lggr.Errorw("Failed to get blockchain info", "error", err, "chainSelector", chainSelector)
@@ -23,8 +24,8 @@ func CreateHealthyMultiNodeClient(ctx context.Context, blockchainHelper *blockch
 	return CreateMultiNodeClientFromInfo(ctx, blockchainInfo, lggr)
 }
 
-// CreateMultiNodeClientFromInfo tests the multinode chain client connection and returns the client if it's healthy.
-func CreateMultiNodeClientFromInfo(ctx context.Context, blockchainInfo *blockchain.Info, lggr logger.Logger) client.Client {
+// CreateMultiNodeClientFromInfo creates EVM client and tests the connection.
+func CreateMultiNodeClientFromInfo(ctx context.Context, blockchainInfo *blockchain.Info, lggr logger.Logger) (client.Client, error) {
 	noNewHeadsThreshold := 3 * time.Minute
 	selectionMode := ptr("HighestHead")
 	leaseDuration := 0 * time.Second
@@ -41,7 +42,11 @@ func CreateMultiNodeClientFromInfo(ctx context.Context, blockchainInfo *blockcha
 	newHeadsPollInterval := time.Second * 1
 	confirmationTimeout := time.Second * 60
 	// TODO: there could be multiple nodes configured, why aren't we registering all of them?
-	n, _ := blockchainInfo.GetFirstNode()
+	n, err := blockchainInfo.GetFirstNode()
+	if err != nil {
+		lggr.Errorw("Failed to get first node", "error", err, "chainID", blockchainInfo.ChainID)
+		return nil, fmt.Errorf("failed to get first node: %w", err)
+	}
 	wsURL := n.InternalWSUrl
 	httpURL := n.InternalHTTPUrl
 	nodeConfigs := []client.NodeConfig{
@@ -56,19 +61,26 @@ func CreateMultiNodeClientFromInfo(ctx context.Context, blockchainInfo *blockcha
 	finalityTagEnabled := ptr(true)
 	safeTagSupported := ptr(true)
 	lggr.Infow("Testing multinode chain client", "chainSelector", blockchainInfo.ChainID, "wsURL", wsURL, "httpURL", httpURL)
-	chainCfg, nodePool, nodes, _ := client.NewClientConfigs(selectionMode, leaseDuration, chainTypeStr, nodeConfigs,
+	chainCfg, nodePool, nodes, err := client.NewClientConfigs(selectionMode, leaseDuration, chainTypeStr, nodeConfigs,
 		pollFailureThreshold, pollInterval, syncThreshold, nodeIsSyncingEnabled, noNewHeadsThreshold, finalityDepth,
 		finalityTagEnabled, safeTagSupported, finalizedBlockOffset, enforceRepeatableRead, deathDeclarationDelay, noNewFinalizedBlocksThreshold,
 		finalizedBlockPollInterval, newHeadsPollInterval, confirmationTimeout, safeDepth)
+	if err != nil {
+		lggr.Errorw("Failed to create client configs", "error", err)
+		return nil, fmt.Errorf("failed to create client configs: %w", err)
+	}
 
-	idBigInt, _ := new(big.Int).SetString(blockchainInfo.ChainID, 10)
+	idBigInt, success := new(big.Int).SetString(blockchainInfo.ChainID, 10)
+	if !success {
+		lggr.Errorw("Failed to parse chain ID to big.Int", "chainID", blockchainInfo.ChainID)
+		return nil, fmt.Errorf("failed to parse chain ID to big.Int for chainID (%s)", blockchainInfo.ChainID)
+	}
 
 	chainClient, err := client.NewEvmClient(nodePool, chainCfg, nil, lggr, idBigInt, nodes, chaintype.ChainType(chainTypeStr))
 	if err != nil {
-		lggr.Errorw("Failed to create multinode chain client", "error", err)
-		return nil
+		lggr.Errorw("Failed to create EVM client", "error", err)
+		return nil, fmt.Errorf("failed to create evm client: %w", err)
 	}
-	// defer chainClient.Close()
 
 	lggr.Infow("Multinode chain client created successfully",
 		"chainID", blockchainInfo.ChainID,
@@ -77,14 +89,14 @@ func CreateMultiNodeClientFromInfo(ctx context.Context, blockchainInfo *blockcha
 	err = chainClient.Dial(ctx)
 	if err != nil {
 		lggr.Errorw("Failed to dial multinode chain client", "error", err)
-		return nil
+		return nil, fmt.Errorf("failed to dial evm client: %w", err)
 	}
 
 	// Test 1: Get latest block using multinode's SelectRPC
 	latestBlock, err := chainClient.LatestBlockHeight(ctx)
 	if err != nil {
-		lggr.Errorw("Failed to get latest block", "error", err)
-		return nil
+		lggr.Errorw("Failed to get block height", "error", err)
+		return nil, fmt.Errorf("failed to get block height: %w", err)
 	}
 	lggr.Infow("Latest block (via multinode)", "blockNumber", latestBlock)
 
@@ -95,8 +107,8 @@ func CreateMultiNodeClientFromInfo(ctx context.Context, blockchainInfo *blockcha
 	// Test 3: Get a specific block header
 	header, err := chainClient.HeadByNumber(ctx, latestBlock)
 	if err != nil {
-		lggr.Errorw("Failed to get block header", "error", err)
-		return nil
+		lggr.Errorw("Failed to get block head", "error", err)
+		return nil, fmt.Errorf("failed to get block head: %w", err)
 	}
 	lggr.Infow("Block header",
 		"number", header.Number,
@@ -104,5 +116,5 @@ func CreateMultiNodeClientFromInfo(ctx context.Context, blockchainInfo *blockcha
 		"timestamp", header.Timestamp)
 
 	lggr.Infow("Multinode chain client tests completed successfully!", "chainID", blockchainInfo.ChainID)
-	return chainClient
+	return chainClient, nil
 }

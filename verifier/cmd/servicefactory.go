@@ -25,7 +25,6 @@ import (
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/chainstatus"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/commit"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/coordinator"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/heartbeat"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -34,6 +33,7 @@ import (
 // CreateAccessorFactoryFunc is a function that creates an accessor factory for a given chain family.
 // The blockchain infos map is keyed by chain selector (as string); the callback may build a
 // family-specific helper from it (e.g. blockchain.NewHelper for EVM).
+// Deprecated: use accessors.CreateAccessorFactory instead.
 type CreateAccessorFactoryFunc[T any] func(
 	ctx context.Context,
 	lggr logger.Logger,
@@ -62,7 +62,7 @@ func chainSelectorsFromMap[T any](m map[string]*T) []protocol.ChainSelector {
 type factory[T any] struct {
 	lggr             logger.Logger
 	server           *http.Server
-	coordinator      *coordinator.Coordinator
+	coordinator      *verifier.Coordinator
 	profiler         *pyroscope.Profiler
 	aggregatorWriter *storageaccess.AggregatorWriter
 	heartbeatClient  *heartbeatclient.HeartbeatClient
@@ -258,7 +258,7 @@ func (f *factory[T]) Start(ctx context.Context, spec commit.JobSpec, deps bootst
 	}
 	lggr.Infow("Using signer address", "address", signerAddress)
 
-	verifierMonitoring := SetupMonitoring(lggr, config.Monitoring)
+	verifierMonitoring := SetupMonitoring(lggr, config.Monitoring, "committee_verifier")
 
 	// Create chain status manager (PostgreSQL storage) with monitoring decorator
 	chainStatusManager, chainStatusDB, err := createChainStatusManager(lggr, config.VerifierID, verifierMonitoring)
@@ -311,7 +311,7 @@ func (f *factory[T]) Start(ctx context.Context, spec commit.JobSpec, deps bootst
 		verifierMonitoring,
 	)
 
-	coordinator, err := coordinator.NewCoordinator(
+	coordinator, err := verifier.NewCoordinator(
 		lggr,
 		commitVerifier,
 		sourceReaders,
@@ -338,6 +338,8 @@ func (f *factory[T]) Start(ctx context.Context, spec commit.JobSpec, deps bootst
 		lggr.Errorw("Failed to start verification coordinator", "error", err)
 		return fmt.Errorf("failed to start verification coordinator: %w", err)
 	}
+
+	verifierMonitoring.RecordServiceStarted(ctx)
 
 	// Setup HTTP server for health checks and status
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -443,7 +445,8 @@ func createChainStatusManager(lggr logger.Logger, verifierID string, monitoring 
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to connect to Postgres DB: %w", err)
 	}
-	chainStatusManager := chainstatus.NewPostgresChainStatusManager(sqlDB, lggr, verifierID)
+	chainStatusStore := chainstatus.NewPostgresChainStatusStore(sqlDB, lggr)
+	chainStatusManager := chainstatus.NewPostgresChainStatusManager(chainStatusStore, verifierID)
 	// Wrap with monitoring decorator to track query durations
 	monitoredManager := chainstatus.NewMonitoredChainStatusManager(chainStatusManager, monitoring.Metrics())
 	return monitoredManager, sqlDB, nil

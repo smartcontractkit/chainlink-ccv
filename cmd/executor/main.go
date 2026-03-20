@@ -166,7 +166,11 @@ func main() {
 			continue
 		}
 
-		chainClient := pkg.CreateMultiNodeClientFromInfo(ctx, chain, lggr)
+		chainClient, err := pkg.CreateMultiNodeClientFromInfo(ctx, chain, lggr)
+		if err != nil {
+			lggr.Errorw("Failed to create chain client", "error", err, "chainSelector", strSel)
+			continue
+		}
 		dr, err := destinationreader.NewEvmDestinationReader(
 			destinationreader.Params{
 				Lggr:                      lggr,
@@ -179,6 +183,7 @@ func main() {
 			})
 		if err != nil {
 			lggr.Errorw("Failed to create destination reader", "error", err, "chainSelector", strSel)
+			continue
 		}
 
 		pk := os.Getenv(privateKeyEnvVar)

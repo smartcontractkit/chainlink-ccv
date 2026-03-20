@@ -24,7 +24,6 @@ const (
 	opGetCCVData            = "GetCCVData"
 	opQueryCCVData          = "QueryCCVData"
 	opBatchInsertCCVData    = "BatchInsertCCVData"
-	opBatchInsertMessages   = "BatchInsertMessages"
 	opQueryMessages         = "QueryMessages"
 	opUpdateMessageStatus   = "UpdateMessageStatus"
 	opCreateDiscoveryState  = "CreateDiscoveryState"
@@ -359,39 +358,6 @@ func buildBatchInsertMessagesQuery(messages []common.MessageWithMetadata) (strin
 	query.WriteString(" ON CONFLICT (message_id) DO NOTHING")
 
 	return query.String(), args, nil
-}
-
-// InsertMessages implements common.IndexerStorage.
-func (d *PostgresStorage) InsertMessages(ctx context.Context, messages []common.MessageWithMetadata) error {
-	if len(messages) == 0 {
-		return nil
-	}
-
-	startInsertMetric := time.Now()
-
-	query, args, err := buildBatchInsertMessagesQuery(messages)
-	if err != nil {
-		d.monitoring.Metrics().RecordStorageInsertErrorsCounter(ctx, opBatchInsertMessages)
-		return err
-	}
-
-	result, err := d.execContext(ctx, query, args...)
-	if err != nil {
-		d.lggr.Errorw("Failed to batch insert messages", "error", err, "count", len(messages))
-		d.monitoring.Metrics().RecordStorageInsertErrorsCounter(ctx, opBatchInsertMessages)
-		d.monitoring.Metrics().RecordStorageWriteDuration(ctx, time.Since(startInsertMetric))
-		return fmt.Errorf("failed to batch insert messages: %w", err)
-	}
-
-	rowsAffected, err := result.RowsAffected()
-	if err != nil {
-		d.lggr.Warnw("Failed to get rows affected", "error", err)
-	} else {
-		d.lggr.Debugw("Batch insert messages completed", "requested", len(messages), "inserted", rowsAffected)
-	}
-
-	d.monitoring.Metrics().RecordStorageWriteDuration(ctx, time.Since(startInsertMetric))
-	return nil
 }
 
 // GetMessage performs a lookup by messageID in the database.
