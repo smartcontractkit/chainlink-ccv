@@ -9,8 +9,8 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/latest/operations/committee_verifier"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/latest/operations/mock_receiver_v2"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v2_0_0/operations/committee_verifier"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v2_0_0/operations/mock_receiver_v2"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/utils/operations/contract"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_2_0/operations/router"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -84,7 +84,7 @@ func DeployReceiverForSelector(e *deployment.Environment, selector uint64, args 
 		return datastore.AddressRef{}, fmt.Errorf("failed to deploy MockReceiver: %w", err)
 	}
 	// Set minimum block depth to 1
-	_, err = operations.ExecuteOperation(e.OperationsBundle, mock_receiver_v2.SetMinBlockDepth, chain, contract.FunctionInput[uint16]{
+	_, err = operations.ExecuteOperation(e.OperationsBundle, mock_receiver_v2.SetMinBlockConfirmations, chain, contract.FunctionInput[uint16]{
 		Address:       common.HexToAddress(report.Output.Address),
 		ChainSelector: selector,
 		Args:          1,
