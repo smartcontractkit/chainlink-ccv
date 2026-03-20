@@ -29,6 +29,7 @@ type chainNameEntry struct {
 var (
 	chainNameCache   = make(map[uint64]chainNameEntry)
 	chainNameCacheMu sync.RWMutex
+	initCacheOnce    sync.Once
 )
 
 // InitChainSelectorCache warms up the remote chain-selectors cache by
@@ -37,7 +38,9 @@ var (
 // populating the shared cache is what matters.
 // Call this once during service boot.
 func InitChainSelectorCache() {
-	_, _ = remote.GetChainDetailsBySelector(context.Background(), 0, chainSelectorOpts...)
+	initCacheOnce.Do(func() {
+		_, _ = remote.GetChainDetailsBySelector(context.Background(), 0, chainSelectorOpts...)
+	})
 }
 
 // GetChainName resolves a human-readable chain name for the given selector.
