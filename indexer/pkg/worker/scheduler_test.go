@@ -221,3 +221,16 @@ func TestScheduler_RunDoesNotLeakGoroutinesUnderBurst(t *testing.T) {
 		"goroutine count grew by %d (from %d to %d); expected bounded growth under backpressure",
 		peakGoroutines-baselineGoroutines, baselineGoroutines, peakGoroutines)
 }
+
+// TestScheduler_DoubleStop
+func TestScheduler_DoubleStop(t *testing.T) {
+	lggr := logger.Test(t)
+	scfg := config.SchedulerConfig{TickerInterval: 10, BaseDelay: 10, MaxDelay: 1000, VerificationVisibilityWindow: 60}
+	s, err := NewScheduler(lggr, scfg)
+	require.NoError(t, err)
+
+	// start scheduler run loop to process delayed heap
+	s.Start(t.Context())
+	s.Stop()
+	s.Stop()
+}
