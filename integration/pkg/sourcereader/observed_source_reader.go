@@ -40,7 +40,7 @@ func NewObservedSourceReader(
 		SourceReader:  delegate,
 		verifierID:    verifierID,
 		chainSelector: chainSelector.String(),
-		chainName:     chainSelector.Name(),
+		chainName:     chainSelector.ChainName(),
 		monitoring:    monitoring,
 	}, nil
 }

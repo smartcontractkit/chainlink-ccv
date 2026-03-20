@@ -84,7 +84,7 @@ func (m *inmemoryMessageLatencyTracker) TrackMessageLatencies(ctx context.Contex
 			}
 
 			m.monitoring.Metrics().
-				With("source_chain", ccvNodeData.Message.SourceChainSelector.String(), "source_chain_name", ccvNodeData.Message.SourceChainSelector.Name(), "verifier_id", m.verifierID).
+				With("source_chain", ccvNodeData.Message.SourceChainSelector.String(), "source_chain_name", ccvNodeData.Message.SourceChainSelector.ChainName(), "verifier_id", m.verifierID).
 				RecordMessageE2ELatency(ctx, latency)
 			m.messageTimestamps.Delete(messageID)
 		}

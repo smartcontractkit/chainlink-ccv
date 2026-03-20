@@ -111,7 +111,7 @@ func (o *ObservedHeartbeatClient) SendHeartbeat(ctx context.Context, blockHeight
 	// Record what we're sending in the request. It will be used for monitoring of the lag.
 	for chainSelector, blockHeight := range blockHeightsByChain {
 		sel := protocol.ChainSelector(chainSelector)
-		chainMetrics := metrics.With("chain_selector", fmt.Sprintf("%d", chainSelector), "chain_name", sel.Name())
+		chainMetrics := metrics.With("chain_selector", fmt.Sprintf("%d", chainSelector), "chain_name", sel.ChainName())
 		chainMetrics.SetVerifierHeartbeatSentChainHeads(ctx, blockHeight)
 	}
 
@@ -137,7 +137,7 @@ func (o *ObservedHeartbeatClient) SendHeartbeat(ctx context.Context, blockHeight
 		}
 
 		// Record metrics
-		chainMetrics := metrics.With("chain_selector", fmt.Sprintf("%d", chainSelector), "chain_name", protocol.ChainSelector(chainSelector).Name())
+		chainMetrics := metrics.With("chain_selector", fmt.Sprintf("%d", chainSelector), "chain_name", protocol.ChainSelector(chainSelector).ChainName())
 		chainMetrics.SetVerifierHeartbeatChainHeads(ctx, benchmark.BlockHeight)
 		chainMetrics.SetVerifierHeartbeatScore(ctx, float64(benchmark.Score))
 	}

@@ -478,7 +478,7 @@ func (v *VerifierMetricLabeler) SetVerifierFinalityViolated(ctx context.Context,
 	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
 	otelLabels = append(otelLabels,
 		attribute.String("sourceChainSelector", selector.String()),
-		attribute.String("sourceChainName", selector.Name()),
+		attribute.String("sourceChainName", selector.ChainName()),
 	)
 	var violatedInt int64
 	if violated {
@@ -491,9 +491,9 @@ func (v *VerifierMetricLabeler) SetRemoteChainCursed(ctx context.Context, localS
 	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
 	otelLabels = append(otelLabels,
 		attribute.String("localSelector", localSelector.String()),
-		attribute.String("localChainName", localSelector.Name()),
+		attribute.String("localChainName", localSelector.ChainName()),
 		attribute.String("remoteSelector", remoteSelector.String()),
-		attribute.String("remoteChainName", remoteSelector.Name()),
+		attribute.String("remoteChainName", remoteSelector.ChainName()),
 	)
 	var cursedInt int64
 	if cursed {
@@ -506,7 +506,7 @@ func (v *VerifierMetricLabeler) SetLocalChainGlobalCursed(ctx context.Context, l
 	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
 	otelLabels = append(otelLabels,
 		attribute.String("localSelector", localSelector.String()),
-		attribute.String("localChainName", localSelector.Name()),
+		attribute.String("localChainName", localSelector.ChainName()),
 	)
 	var cursedInt int64
 	if globalCurse {

@@ -19,10 +19,10 @@ func (c ChainSelector) String() string {
 	return strconv.FormatUint(uint64(c), 10)
 }
 
-// Name returns the human-readable network name for this chain selector.
+// ChainName returns the human-readable network name for this chain selector.
 // If the selector is not found in the chain-selectors registry,
 // it falls back to "unknown:<selector>" so metrics remain queryable.
-func (c ChainSelector) Name() string {
+func (c ChainSelector) ChainName() string {
 	if chain, ok := chainselectors.ChainBySelector(uint64(c)); ok {
 		return chain.Name
 	}

@@ -231,7 +231,7 @@ func (v *ExecutorMetricLabeler) RecordMessageExecutionLatency(ctx context.Contex
 	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
 	v.vm.messageExecutionLatency.Record(ctx, duration.Seconds(), metric.WithAttributes([]attribute.KeyValue{
 		attribute.String("destChainSelector", destChainSelector.String()),
-		attribute.String("destChainName", destChainSelector.Name()),
+		attribute.String("destChainName", destChainSelector.ChainName()),
 	}...), metric.WithAttributes(otelLabels...))
 }
 
@@ -250,7 +250,7 @@ func (v *ExecutorMetricLabeler) RecordOfframpGetCCVsForMessageLatency(ctx contex
 	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
 	v.vm.messageGetCCVInfoLatency.Record(ctx, duration.Seconds(), metric.WithAttributes([]attribute.KeyValue{
 		attribute.String("destChainSelector", destChainSelector.String()),
-		attribute.String("destChainName", destChainSelector.Name()),
+		attribute.String("destChainName", destChainSelector.ChainName()),
 	}...), metric.WithAttributes(otelLabels...))
 }
 
@@ -258,7 +258,7 @@ func (v *ExecutorMetricLabeler) IncrementOfframpGetCCVsForMessageFailure(ctx con
 	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
 	v.vm.messageGetCCVInfoErrors.Add(ctx, 1, metric.WithAttributes([]attribute.KeyValue{
 		attribute.String("destChainSelector", destChainSelector.String()),
-		attribute.String("destChainName", destChainSelector.Name()),
+		attribute.String("destChainName", destChainSelector.ChainName()),
 	}...), metric.WithAttributes(otelLabels...))
 }
 
@@ -311,9 +311,9 @@ func (v *ExecutorMetricLabeler) SetRemoteChainCursed(ctx context.Context, localS
 	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
 	otelLabels = append(otelLabels,
 		attribute.String("localSelector", localSelector.String()),
-		attribute.String("localChainName", localSelector.Name()),
+		attribute.String("localChainName", localSelector.ChainName()),
 		attribute.String("remoteSelector", remoteSelector.String()),
-		attribute.String("remoteChainName", remoteSelector.Name()),
+		attribute.String("remoteChainName", remoteSelector.ChainName()),
 	)
 	var cursedInt int64
 	if cursed {
@@ -326,7 +326,7 @@ func (v *ExecutorMetricLabeler) SetLocalChainGlobalCursed(ctx context.Context, l
 	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
 	otelLabels = append(otelLabels,
 		attribute.String("localSelector", localSelector.String()),
-		attribute.String("localChainName", localSelector.Name()),
+		attribute.String("localChainName", localSelector.ChainName()),
 	)
 	var cursedInt int64
 	if globalCurse {
