@@ -220,5 +220,4 @@ func TestBatchWriteCommitCCVNodeDataHandler_CancelledContextReturnsImmediately(t
 	require.Equal(t, codes.Canceled, status.Code(err))
 	require.Nil(t, resp)
 	require.Less(t, elapsed, blockDuration, "handler should return promptly on context cancellation, not block for maxBlockTime")
-
 }
