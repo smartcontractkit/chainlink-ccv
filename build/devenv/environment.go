@@ -1153,9 +1153,9 @@ func NewEnvironment() (in *Cfg, err error) {
 		instanceName := aggregatorInput.InstanceName()
 		cs := ccipChangesets.GenerateAggregatorConfig(ccipAdapters.GetAggregatorConfigRegistry())
 		output, err := cs.Apply(*e, ccipChangesets.GenerateAggregatorConfigInput{
+			Topology:           topology,
 			ServiceIdentifier:  instanceName + "-aggregator",
 			CommitteeQualifier: aggregatorInput.CommitteeName,
-			ChainSelectors:     selectors,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate aggregator config for %s (committee %s): %w", instanceName, aggregatorInput.CommitteeName, err)
@@ -1198,7 +1198,6 @@ func NewEnvironment() (in *Cfg, err error) {
 			CommitteeVerifierNameToQualifier: firstIdx.CommitteeVerifierNameToQualifier,
 			CCTPVerifierNameToQualifier:      firstIdx.CCTPVerifierNameToQualifier,
 			LombardVerifierNameToQualifier:   firstIdx.LombardVerifierNameToQualifier,
-			ChainSelectors:                   selectors,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate indexer config: %w", err)
