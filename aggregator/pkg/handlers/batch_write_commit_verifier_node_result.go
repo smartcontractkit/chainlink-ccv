@@ -18,6 +18,11 @@ import (
 type BatchWriteCommitVerifierNodeResultHandler struct {
 	handler                                     *WriteCommitVerifierNodeResultHandler
 	maxCommitVerifierNodeResultRequestsPerBatch int
+	wg                                          sync.WaitGroup
+}
+
+func (h *BatchWriteCommitVerifierNodeResultHandler) Wait() {
+	h.wg.Wait()
 }
 
 func (h *BatchWriteCommitVerifierNodeResultHandler) logger(ctx context.Context) logger.SugaredLogger {
@@ -40,12 +45,12 @@ func (h *BatchWriteCommitVerifierNodeResultHandler) Handle(ctx context.Context, 
 	responses := make([]*committeepb.WriteCommitteeVerifierNodeResultResponse, len(requests))
 	errors := NewBatchErrorArray(len(requests))
 
-	wg := sync.WaitGroup{}
+	h.wg = sync.WaitGroup{}
 
 	for i, r := range requests {
-		wg.Add(1)
+		h.wg.Add(1)
 		go func(i int, r *committeepb.WriteCommitteeVerifierNodeResultRequest) {
-			defer wg.Done()
+			defer h.wg.Done()
 			resp, err := h.handler.Handle(ctx, r)
 			if err != nil {
 				statusErr, ok := grpcstatus.FromError(err)
@@ -65,7 +70,7 @@ func (h *BatchWriteCommitVerifierNodeResultHandler) Handle(ctx context.Context, 
 
 	done := make(chan struct{})
 	go func() {
-		wg.Wait()
+		h.wg.Wait()
 		close(done)
 	}()
 
