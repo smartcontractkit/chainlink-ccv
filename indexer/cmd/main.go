@@ -83,7 +83,7 @@ func main() {
 	// Initialize the indexer storage
 	indexerStorage := createStorage(ctx, lggr, config, indexerMonitoring)
 	verifierRegistry := createRegistry()
-	err = createAllVerifierReaders(ctx, lggr, verifierRegistry, config)
+	err = createAllVerifierReaders(ctx, lggr, verifierRegistry, config, indexerMonitoring)
 	if err != nil {
 		lggr.Fatalf("Failed to initalize verifier readers: %v", err)
 	}
@@ -121,9 +121,9 @@ func createRegistry() *registry.VerifierRegistry {
 	return registry.NewVerifierRegistry()
 }
 
-func createAllVerifierReaders(ctx context.Context, lggr logger.Logger, verifierRegistry *registry.VerifierRegistry, config *config.Config) error {
+func createAllVerifierReaders(ctx context.Context, lggr logger.Logger, verifierRegistry *registry.VerifierRegistry, config *config.Config, indexerMonitoring common.IndexerMonitoring) error {
 	for _, verifierConfig := range config.Verifiers {
-		err := createReadersForVerifier(ctx, lggr, verifierRegistry, &verifierConfig)
+		err := createReadersForVerifier(ctx, lggr, verifierRegistry, &verifierConfig, indexerMonitoring)
 		if err != nil {
 			return err
 		}
@@ -132,8 +132,8 @@ func createAllVerifierReaders(ctx context.Context, lggr logger.Logger, verifierR
 	return nil
 }
 
-func createReadersForVerifier(ctx context.Context, lggr logger.Logger, verifierRegistry *registry.VerifierRegistry, verifierConfig *config.VerifierConfig) error {
-	reader, err := createReader(lggr, verifierConfig)
+func createReadersForVerifier(ctx context.Context, lggr logger.Logger, verifierRegistry *registry.VerifierRegistry, verifierConfig *config.VerifierConfig, indexerMonitoring common.IndexerMonitoring) error {
+	reader, err := createReader(lggr, verifierConfig, indexerMonitoring)
 	if err != nil {
 		return err
 	}
@@ -159,13 +159,13 @@ func createReadersForVerifier(ctx context.Context, lggr logger.Logger, verifierR
 	return nil
 }
 
-func createReader(lggr logger.Logger, cfg *config.VerifierConfig) (*readers.ResilientReader, error) {
+func createReader(lggr logger.Logger, cfg *config.VerifierConfig, indexerMonitoring common.IndexerMonitoring) (*readers.ResilientReader, error) {
 	switch cfg.Type {
 	case config.ReaderTypeAggregator:
 		return readers.NewAggregatorReader(cfg.Address, lggr, cfg.Since, hmac.ClientConfig{
 			APIKey: cfg.APIKey,
 			Secret: cfg.Secret,
-		}, cfg.InsecureConnection, config.EffectiveMaxResponseBytes(cfg.MaxResponseBytes))
+		}, cfg.InsecureConnection, config.EffectiveMaxResponseBytes(cfg.MaxResponseBytes), indexerMonitoring)
 	case config.ReaderTypeRest:
 		return readers.NewRestReader(readers.RestReaderConfig{
 			BaseURL:          cfg.BaseURL,
@@ -210,7 +210,7 @@ func createDiscovery(ctx context.Context, lggr logger.Logger, cfg *config.Config
 		aggregator, err := readers.NewAggregatorReader(discCfg.Address, lggr, int64(persistedSinceValue), hmac.ClientConfig{
 			APIKey: discCfg.APIKey,
 			Secret: discCfg.Secret,
-		}, discCfg.InsecureConnection, config.EffectiveMaxResponseBytes(discCfg.MaxResponseBytes))
+		}, discCfg.InsecureConnection, config.EffectiveMaxResponseBytes(discCfg.MaxResponseBytes), monitoring)
 		if err != nil {
 			cleanupOnError()
 			return nil, err

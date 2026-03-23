@@ -52,3 +52,9 @@ func (n *NoopIndexerMetricLabeler) RecordTimeToIndex(ctx context.Context, latenc
 
 func (n *NoopIndexerMetricLabeler) RecordCircuitBreakerStatus(ctx context.Context, status bool) {
 }
+
+func (n *NoopIndexerMetricLabeler) RecordGRPCPayloadSize(_ context.Context, _, _ string, _ int) {
+}
+
+func (n *NoopIndexerMetricLabeler) IncrementGRPCErrors(_ context.Context, _, _ string) {
+}
