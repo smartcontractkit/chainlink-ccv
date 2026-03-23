@@ -195,6 +195,9 @@ func (s *PostgresStore) RescheduleByMessageID(
 // restoreFromArchive is the shared CTE that deletes a row from the archive and inserts it into
 // the active table with a fresh status, attempt count, and retry deadline.
 // idColumn is either "job_id" or "message_id"; idValue is the corresponding filter value.
+// A unique-constraint violation on the active table is intentionally surfaced as an error so the
+// caller is aware that the job already exists there; silently discarding the INSERT would delete
+// the archive record with no backup.
 func (s *PostgresStore) restoreFromArchive(
 	ctx context.Context,
 	activeTable, archiveTable string,
@@ -220,7 +223,6 @@ func (s *PostgresStore) restoreFromArchive(
 		SELECT id, job_id, owner_id, chain_selector, message_id, task_data,
 		       'pending', created_at, NOW(), 0, $3
 		FROM archived
-		ON CONFLICT (owner_id, chain_selector, message_id) DO NOTHING
 	`, archiveTable, idColumn, activeTable)
 
 	result, err := s.ds.ExecContext(ctx, query, idValue, ownerID, newRetryDeadline)
