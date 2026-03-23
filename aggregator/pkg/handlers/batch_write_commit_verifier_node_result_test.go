@@ -200,6 +200,7 @@ func TestBatchWriteCommitCCVNodeDataHandler_CancelledContextReturnsImmediately(t
 
 	writeHandler := NewWriteCommitCCVNodeDataHandler(store, agg, mon, lggr, sig, blockDuration)
 	batchHandler := NewBatchWriteCommitVerifierNodeResultHandler(writeHandler, 10)
+	defer batchHandler.Wait() // ensure all goroutines finish before the test exits
 
 	ctx, cancel := context.WithCancel(auth.ToContext(context.Background(), auth.CreateCallerIdentity(testCallerID, false)))
 	defer cancel()
@@ -219,4 +220,5 @@ func TestBatchWriteCommitCCVNodeDataHandler_CancelledContextReturnsImmediately(t
 	require.Equal(t, codes.Canceled, status.Code(err))
 	require.Nil(t, resp)
 	require.Less(t, elapsed, blockDuration, "handler should return promptly on context cancellation, not block for maxBlockTime")
+
 }
