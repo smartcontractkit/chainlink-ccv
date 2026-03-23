@@ -94,6 +94,12 @@ packages:
         configs:
           - dir: ./cli/chainstatuses/mocks
 
+  github.com/smartcontractkit/chainlink-ccv/cli/jobqueue:
+    interfaces:
+      Store:
+        configs:
+          - dir: ./cli/jobqueue/mocks
+
   github.com/smartcontractkit/chainlink-protos/chainlink-ccv/message-discovery/v1:
     interfaces:
       MessageDiscoveryClient:
