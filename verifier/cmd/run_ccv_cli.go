@@ -10,6 +10,7 @@ import (
 	"go.uber.org/zap/zapcore"
 
 	"github.com/smartcontractkit/chainlink-ccv/cli/chainstatuses"
+	"github.com/smartcontractkit/chainlink-ccv/cli/jobqueue"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/chainstatus"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -27,10 +28,10 @@ func RunCCVCLI(args []string) {
 	}
 	lggr = logger.Sugared(logger.Named(lggr, "ccv-cli"))
 
-	var once sync.Once
-	var deps chainstatuses.Deps
-	getDeps := func() chainstatuses.Deps {
-		once.Do(func() {
+	var chainStatusOnce sync.Once
+	var chainStatusDeps chainstatuses.Deps
+	getChainStatusDeps := func() chainstatuses.Deps {
+		chainStatusOnce.Do(func() {
 			ds, connErr := ConnectToPostgresDB(lggr)
 			if connErr != nil {
 				_, _ = fmt.Fprintf(os.Stderr, "failed to connect to database: %v\n", connErr)
@@ -41,9 +42,28 @@ func RunCCVCLI(args []string) {
 				os.Exit(1)
 			}
 			store := chainstatus.NewPostgresChainStatusStore(ds, lggr)
-			deps = chainstatuses.Deps{Logger: lggr, Store: store}
+			chainStatusDeps = chainstatuses.Deps{Logger: lggr, Store: store}
 		})
-		return deps
+		return chainStatusDeps
+	}
+
+	var jobQueueOnce sync.Once
+	var jobQueueDeps jobqueue.Deps
+	getJobQueueDeps := func() jobqueue.Deps {
+		jobQueueOnce.Do(func() {
+			ds, connErr := ConnectToPostgresDB(lggr)
+			if connErr != nil {
+				_, _ = fmt.Fprintf(os.Stderr, "failed to connect to database: %v\n", connErr)
+				os.Exit(1)
+			}
+			if ds == nil {
+				_, _ = fmt.Fprintln(os.Stderr, "CL_DATABASE_URL must be set for ccv job-queue commands")
+				os.Exit(1)
+			}
+			store := jobqueue.NewPostgresStore(ds)
+			jobQueueDeps = jobqueue.Deps{Logger: lggr, Store: store}
+		})
+		return jobQueueDeps
 	}
 
 	app := cli.NewApp()
@@ -57,7 +77,12 @@ func RunCCVCLI(args []string) {
 				{
 					Name:        "chain-statuses",
 					Usage:       "List, enable, disable, or set finalized block height for chain statuses",
-					Subcommands: chainstatuses.InitCCVChainStatusesCommandsWithFactory(getDeps),
+					Subcommands: chainstatuses.InitCCVChainStatusesCommandsWithFactory(getChainStatusDeps),
+				},
+				{
+					Name:        "job-queue",
+					Usage:       "List and reschedule failed jobs in the archive tables",
+					Subcommands: jobqueue.InitJobQueueCommandsWithFactory(getJobQueueDeps),
 				},
 			},
 		},
