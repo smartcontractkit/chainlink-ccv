@@ -476,7 +476,10 @@ func (v *VerifierMetricLabeler) RecordReorgTrackedSeqNums(ctx context.Context, c
 
 func (v *VerifierMetricLabeler) SetVerifierFinalityViolated(ctx context.Context, selector protocol.ChainSelector, violated bool) {
 	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
-	otelLabels = append(otelLabels, attribute.String("sourceChainSelector", selector.String()))
+	otelLabels = append(otelLabels,
+		attribute.String("sourceChainSelector", selector.String()),
+		attribute.String("sourceChainName", selector.ChainName()),
+	)
 	var violatedInt int64
 	if violated {
 		violatedInt = 1
@@ -486,8 +489,12 @@ func (v *VerifierMetricLabeler) SetVerifierFinalityViolated(ctx context.Context,
 
 func (v *VerifierMetricLabeler) SetRemoteChainCursed(ctx context.Context, localSelector, remoteSelector protocol.ChainSelector, cursed bool) {
 	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
-	otelLabels = append(otelLabels, attribute.String("localSelector", localSelector.String()))
-	otelLabels = append(otelLabels, attribute.String("remoteSelector", remoteSelector.String()))
+	otelLabels = append(otelLabels,
+		attribute.String("localSelector", localSelector.String()),
+		attribute.String("localChainName", localSelector.ChainName()),
+		attribute.String("remoteSelector", remoteSelector.String()),
+		attribute.String("remoteChainName", remoteSelector.ChainName()),
+	)
 	var cursedInt int64
 	if cursed {
 		cursedInt = 1
@@ -497,7 +504,10 @@ func (v *VerifierMetricLabeler) SetRemoteChainCursed(ctx context.Context, localS
 
 func (v *VerifierMetricLabeler) SetLocalChainGlobalCursed(ctx context.Context, localSelector protocol.ChainSelector, globalCurse bool) {
 	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
-	otelLabels = append(otelLabels, attribute.String("localSelector", localSelector.String()))
+	otelLabels = append(otelLabels,
+		attribute.String("localSelector", localSelector.String()),
+		attribute.String("localChainName", localSelector.ChainName()),
+	)
 	var cursedInt int64
 	if globalCurse {
 		cursedInt = 1

@@ -99,6 +99,8 @@ func (f *factory[T]) Start(ctx context.Context, spec commit.JobSpec, deps bootst
 
 	lggr.Infow("Starting committee verifier service", "spec", spec)
 
+	protocol.InitChainSelectorCache()
+
 	config, blockchainInfos, err := commit.LoadConfigWithBlockchainInfos[T](spec)
 	if err != nil {
 		lggr.Errorw("Failed to load configuration", "error", err)

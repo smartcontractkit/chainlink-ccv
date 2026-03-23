@@ -17,6 +17,13 @@ func (c ChainSelector) String() string {
 	return strconv.FormatUint(uint64(c), 10)
 }
 
+// ChainName returns the human-readable network name for this chain selector.
+// If the selector is not found in the chain-selectors registry,
+// it falls back to "unknown:<selector>" so metrics remain queryable.
+func (c ChainSelector) ChainName() string {
+	return GetChainName(c)
+}
+
 // Nonce represents a monotonic counter used for adding entropy and uniqueness to a CCIP message.
 type Nonce uint64
 

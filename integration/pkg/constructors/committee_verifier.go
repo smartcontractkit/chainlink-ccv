@@ -68,6 +68,8 @@ func NewVerificationCoordinator(
 		return nil, fmt.Errorf("invalid ccv configuration: failed to map default executor addresses: %w", err)
 	}
 
+	protocol.InitChainSelectorCache()
+
 	// TODO: monitoring config home
 	verifierMonitoring, err := monitoring.InitMonitoring("committee_verifier")
 	if err != nil {

@@ -141,9 +141,9 @@ func TestObservedSourceReader_Labels(t *testing.T) {
 
 	_, _, err = rd1.LatestAndFinalizedBlock(t.Context())
 	require.NoError(t, err)
-	require.Equal(t, []string{"source_chain", "1", "verifier_id", "verifier1"}, monitor.Fake.Labels())
+	require.Equal(t, []string{"source_chain", "1", "source_chain_name", "unknown:1", "verifier_id", "verifier1"}, monitor.Fake.Labels())
 
 	_, _, err = rd2.LatestAndFinalizedBlock(t.Context())
 	require.NoError(t, err)
-	require.Equal(t, []string{"source_chain", "2", "verifier_id", "verifier2"}, monitor.Fake.Labels())
+	require.Equal(t, []string{"source_chain", "2", "source_chain_name", "unknown:2", "verifier_id", "verifier2"}, monitor.Fake.Labels())
 }

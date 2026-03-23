@@ -124,3 +124,11 @@ func (c *NoopAggregatorMetricLabeler) SetVerifierHeartbeatCurrentMaxChainHead(ct
 func (c *NoopAggregatorMetricLabeler) IncrementVerificationsTotal(ctx context.Context) {
 	// No-op
 }
+
+func (c *NoopAggregatorMetricLabeler) RecordGRPCPayloadSize(_ context.Context, _, _ string, _ int) {
+	// No-op
+}
+
+func (c *NoopAggregatorMetricLabeler) IncrementGRPCErrors(_ context.Context, _, _ string) {
+	// No-op
+}

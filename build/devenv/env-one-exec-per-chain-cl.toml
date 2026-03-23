@@ -1,0 +1,11 @@
+[environment_topology.executor_pools.default.chain_configs."3379446385462418246"]
+nop_aliases = ["node-1"]
+execution_interval = 15_000_000_000
+
+[environment_topology.executor_pools.default.chain_configs."12922642891491394802"]
+nop_aliases = ["node-0"]
+execution_interval = 15_000_000_000
+
+[environment_topology.executor_pools.default.chain_configs."4793464827907405086"]
+nop_aliases = ["node-1"]
+execution_interval = 15_000_000_000

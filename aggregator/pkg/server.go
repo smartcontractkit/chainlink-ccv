@@ -236,7 +236,7 @@ func createAggregator(storage common.CommitVerificationStore, aggregatedStore co
 	return aggregation.NewCommitReportAggregator(storage, aggregatedStore, sink, validator, config, lggr, monitoring, aggregation.NewChannelManagerFromConfig(config))
 }
 
-func buildGRPCServerOptions(serverConfig model.ServerConfig) []grpc.ServerOption {
+func buildGRPCServerOptions(serverConfig model.ServerConfig, m common.AggregatorMetricLabeler) []grpc.ServerOption {
 	var opts []grpc.ServerOption
 
 	if serverConfig.ConnectionTimeout > 0 {
@@ -271,6 +271,8 @@ func buildGRPCServerOptions(serverConfig model.ServerConfig) []grpc.ServerOption
 	if serverConfig.MaxSendMsgSizeBytes > 0 {
 		opts = append(opts, grpc.MaxSendMsgSize(serverConfig.MaxSendMsgSizeBytes))
 	}
+
+	opts = append(opts, grpc.StatsHandler(middlewares.NewGRPCStatsHandler(m)))
 
 	return opts
 }
@@ -351,7 +353,7 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig, aggMonito
 		return status.Error(codes.Internal, "internal server error")
 	}
 
-	grpcOpts := buildGRPCServerOptions(config.Server)
+	grpcOpts := buildGRPCServerOptions(config.Server, aggMonitoring.Metrics())
 
 	// Build interceptor chain
 	interceptorChain := []grpc.UnaryServerInterceptor{
