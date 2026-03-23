@@ -136,6 +136,52 @@ func (_c *MockLeaderElector_GetRetryDelay_Call) RunAndReturn(run func(protocol.C
 	return _c
 }
 
+// IsExecutorForChain provides a mock function with given fields: chainSel
+func (_m *MockLeaderElector) IsExecutorForChain(chainSel protocol.ChainSelector) bool {
+	ret := _m.Called(chainSel)
+
+	if len(ret) == 0 {
+		panic("no return value specified for IsExecutorForChain")
+	}
+
+	var r0 bool
+	if rf, ok := ret.Get(0).(func(protocol.ChainSelector) bool); ok {
+		r0 = rf(chainSel)
+	} else {
+		r0 = ret.Get(0).(bool)
+	}
+
+	return r0
+}
+
+// MockLeaderElector_IsExecutorForChain_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'IsExecutorForChain'
+type MockLeaderElector_IsExecutorForChain_Call struct {
+	*mock.Call
+}
+
+// IsExecutorForChain is a helper method to define mock.On call
+//   - chainSel protocol.ChainSelector
+func (_e *MockLeaderElector_Expecter) IsExecutorForChain(chainSel interface{}) *MockLeaderElector_IsExecutorForChain_Call {
+	return &MockLeaderElector_IsExecutorForChain_Call{Call: _e.mock.On("IsExecutorForChain", chainSel)}
+}
+
+func (_c *MockLeaderElector_IsExecutorForChain_Call) Run(run func(chainSel protocol.ChainSelector)) *MockLeaderElector_IsExecutorForChain_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(protocol.ChainSelector))
+	})
+	return _c
+}
+
+func (_c *MockLeaderElector_IsExecutorForChain_Call) Return(_a0 bool) *MockLeaderElector_IsExecutorForChain_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockLeaderElector_IsExecutorForChain_Call) RunAndReturn(run func(protocol.ChainSelector) bool) *MockLeaderElector_IsExecutorForChain_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // NewMockLeaderElector creates a new instance of MockLeaderElector. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewMockLeaderElector(t interface {
