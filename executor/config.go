@@ -3,7 +3,6 @@ package executor
 import (
 	"fmt"
 	"net/url"
-	"slices"
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
@@ -142,9 +141,6 @@ func (c *Configuration) Validate() error {
 		}
 		if len(chainConfig.ExecutorPool) == 0 {
 			return fmt.Errorf("executor_pool must be configured for chain %s", chainSel)
-		}
-		if !slices.Contains(chainConfig.ExecutorPool, c.ExecutorID) {
-			return fmt.Errorf("this_executor_id '%s' not found in executor_pool for chain %s", c.ExecutorID, chainSel)
 		}
 	}
 

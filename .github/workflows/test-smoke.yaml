@@ -24,30 +24,42 @@ jobs:
       matrix:
         test:
           - name: TestE2ESmoke_Basic
+            run_cmd: TestE2ESmoke_Basic
             config: env.toml
             timeout: 15m
             working-directory: build/devenv/tests/e2e
+          - name: TestE2ESmoke_Basic_OneExecPerChain
+            run_cmd: TestE2ESmoke_Basic
+            config: env.toml,env-one-exec-per-chain-standalone.toml
+            timeout: 15m
+            working-directory: build/devenv/tests/e2e
           - name: TestE2ESmoke_TokenVerification
+            run_cmd: TestE2ESmoke_TokenVerification
             config: env.toml
             timeout: 15m
             working-directory: build/devenv/tests/e2e
           - name: TestE2ESmoke_ExtraArgsV2
+            run_cmd: TestE2ESmoke_ExtraArgsV2
             config: env.toml
             timeout: 10m
             working-directory: build/devenv/tests/e2e
           - name: TestE2ESmoke_ChainStatus
+            run_cmd: TestE2ESmoke_ChainStatus
             config: env.toml
             timeout: 10m
             working-directory: build/devenv/tests/e2e
           - name: TestE2EReorg
+            run_cmd: TestE2EReorg
             config: env.toml,env-src-auto-mine.toml
             timeout: 5m
             working-directory: build/devenv/tests/e2e
           - name: TestChaos_AggregatorOutageRecovery
+            run_cmd: TestChaos_AggregatorOutageRecovery
             config: env.toml
             timeout: 5m
             working-directory: build/devenv/tests/e2e
           - name: (TestChaos_VerifierFaultToleranceThresholdViolated|TestChaos_AllExecutorsDown|TestChaos_IndexerDown)
+            run_cmd: (TestChaos_VerifierFaultToleranceThresholdViolated|TestChaos_AllExecutorsDown|TestChaos_IndexerDown)
             config: env.toml
             timeout: 5m
             working-directory: build/devenv/tests/e2e
@@ -120,7 +132,7 @@ jobs:
         working-directory: ${{ matrix.test.working-directory }}
         run: |
           set -o pipefail
-          go test -v -timeout ${{ matrix.test.timeout }} -count=1 -run '${{ matrix.test.name }}'
+          go test -v -timeout ${{ matrix.test.timeout }} -count=1 -run '${{ matrix.test.run_cmd }}'
         continue-on-error: true
 
       - name: Dump logs if they're not already dumped

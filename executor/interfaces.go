@@ -52,6 +52,8 @@ type Executor interface {
 }
 
 type LeaderElector interface {
+	// IsExecutorForChain reports whether this executor participates in the executor pool for the destination chain.
+	IsExecutorForChain(chainSel protocol.ChainSelector) bool
 	// GetReadyTimestamp to determine when a message is ready to be executed by this executor
 	// We need chain selector as well as messageID because messageID is hashed and we cannot use it to get message information.
 	GetReadyTimestamp(messageID protocol.Bytes32, chainSel protocol.ChainSelector, baseTime time.Time) (time.Time, error)
