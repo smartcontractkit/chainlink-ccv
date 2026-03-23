@@ -64,11 +64,11 @@ build-docker-dev-ci:
 # Build all the services for production
 build-docker-rc:
     @just fakes/build
-    @just ../../services/pricer/build-rc
-    @just ../../services/verifier/build-rc
-    @just ../../services/executor/build-rc
-    @just ../../services/indexer/build-rc
-    @just ../../services/aggregator/build-rc
+    @just ../../pricer/build-rc
+    @just ../../verifier/build-rc
+    @just ../../executor/build-rc
+    @just ../../indexer/build-rc
+    @just ../../aggregator/build-rc
 
 # Rebuild CLI
 cli:
