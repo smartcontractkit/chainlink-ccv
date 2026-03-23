@@ -42,8 +42,6 @@ type ArchivedJob struct {
 }
 
 // Store is the minimal database interface required by the jobqueue CLI commands.
-//
-//go:generate mockery --name=Store --output=./mocks --outpkg=mocks --filename=mock_Store.go
 type Store interface {
 	// ListFailed returns failed jobs from the archive table(s).
 	// Pass an empty queues slice to list from both queues.
