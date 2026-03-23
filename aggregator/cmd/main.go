@@ -16,6 +16,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/configuration"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/monitoring"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
 	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -80,6 +81,8 @@ func main() {
 		aggMonitoring = m
 		lggr.Info("Monitoring enabled")
 	}
+
+	protocol.InitChainSelectorCache()
 
 	server := aggregator.NewServer(sugaredLggr, config, aggMonitoring)
 	ctx := context.Background()

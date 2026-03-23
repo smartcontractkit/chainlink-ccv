@@ -80,6 +80,8 @@ func main() {
 		indexerMonitoring = monitoring.NewNoopIndexerMonitoring()
 	}
 
+	protocol.InitChainSelectorCache()
+
 	// Initialize the indexer storage
 	indexerStorage := createStorage(ctx, lggr, config, indexerMonitoring)
 	verifierRegistry := createRegistry()

@@ -97,6 +97,8 @@ func main() {
 	// Use SugaredLogger for better API
 	lggr = logger.Sugared(lggr)
 
+	protocol.InitChainSelectorCache()
+
 	lggr.Infow("Executor configuration", "config", executorConfig)
 	lggr.Infow("Blockchain information", "blockchainInfo", blockchainInfo)
 

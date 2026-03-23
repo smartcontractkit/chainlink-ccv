@@ -540,3 +540,43 @@ func TestNewBytes32FromString_ErrorTruncation(t *testing.T) {
 		t.Fatalf("expected length %s in error message, got: %s", expectedLen, msg)
 	}
 }
+
+func TestChainSelector_ChainName(t *testing.T) {
+	tests := []struct {
+		name     string
+		selector ChainSelector
+		expected string
+	}{
+		{
+			name:     "ethereum mainnet returns human-readable name",
+			selector: ChainSelector(5009297550715157269),
+			expected: "ethereum-mainnet",
+		},
+		{
+			name:     "avalanche mainnet returns human-readable name",
+			selector: ChainSelector(6433500567565415381),
+			expected: "avalanche-mainnet",
+		},
+		{
+			name:     "polygon mainnet returns human-readable name",
+			selector: ChainSelector(4051577828743386545),
+			expected: "polygon-mainnet",
+		},
+		{
+			name:     "unknown selector returns fallback with selector value",
+			selector: ChainSelector(1),
+			expected: "unknown:1",
+		},
+		{
+			name:     "zero selector returns fallback",
+			selector: ChainSelector(0),
+			expected: "unknown:0",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.expected, tt.selector.ChainName())
+		})
+	}
+}
