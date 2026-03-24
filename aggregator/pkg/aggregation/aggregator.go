@@ -35,6 +35,7 @@ type CommitReportAggregator struct {
 	backgroundWorkerCount int
 	operationTimeout      time.Duration
 	quorum                QuorumValidator
+	committee             *model.Committee
 	l                     logger.SugaredLogger
 	monitoring            common.AggregatorMonitoring
 
@@ -155,6 +156,16 @@ func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(ctx context.C
 	}
 
 	if quorumMet {
+		if c.committee == nil {
+			lggr.Errorw("Cannot map aggregated report for export: committee configuration is missing")
+			c.metrics(ctx).IncrementAggregationsBlockedUnexportable(ctx)
+			return nil
+		}
+		if _, err := model.MapAggregatedReportToVerifierResultProto(aggregatedReport, c.committee); err != nil {
+			lggr.Errorw("Aggregated report is not exportable", "error", err)
+			c.metrics(ctx).IncrementAggregationsBlockedUnexportable(ctx)
+			return nil
+		}
 		if err := c.sink.SubmitAggregatedReport(ctx, aggregatedReport); err != nil {
 			lggr.Errorw("Failed to submit report", "error", err)
 			return err
@@ -325,6 +336,7 @@ func NewCommitReportAggregator(storage common.CommitVerificationStore, aggregate
 		drainTimeout:          config.Aggregation.DrainTimeout,
 		maxConsecutiveErrors:  config.Aggregation.MaxConsecutiveErrors,
 		quorum:                quorum,
+		committee:             config.Committee,
 		monitoring:            monitoring,
 		l:                     logger,
 	}

@@ -26,6 +26,8 @@ type AggregatorMetricLabeler interface {
 	DecrementActiveRequestsCounter(ctx context.Context)
 	// IncrementCompletedAggregations increments the completed aggregations counter.
 	IncrementCompletedAggregations(ctx context.Context)
+	// IncrementAggregationsBlockedUnexportable increments when quorum is met but the report cannot be mapped for export.
+	IncrementAggregationsBlockedUnexportable(ctx context.Context)
 	// RecordAPIRequestDuration records the duration of an API request in milliseconds.
 	RecordAPIRequestDuration(ctx context.Context, duration time.Duration)
 	// IncrementAPIRequestErrors increments the API request errors counter.

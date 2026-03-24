@@ -19,6 +19,7 @@ import (
 type AggregatorMetrics struct {
 	activeRequestsUpDownCounter            metric.Int64UpDownCounter
 	completedAggregations                  metric.Int64Counter
+	aggregationsBlockedUnexportable        metric.Int64Counter
 	apiRequestDuration                     metric.Float64Histogram
 	apiRequestError                        metric.Int64Counter
 	getMessageSinceNumberOfRecordsReturned metric.Int64Histogram
@@ -120,6 +121,14 @@ func InitMetrics() (am *AggregatorMetrics, err error) {
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to register completed aggregations counter: %w", err)
+	}
+
+	am.aggregationsBlockedUnexportable, err = beholder.GetMeter().Int64Counter(
+		"aggregator_aggregations_blocked_unexportable",
+		metric.WithDescription("Aggregations that met quorum but could not be mapped for export"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register aggregations blocked unexportable counter: %w", err)
 	}
 
 	am.apiRequestDuration, err = beholder.GetMeter().Float64Histogram(
@@ -315,6 +324,11 @@ func (c *AggregatorMetricLabeler) DecrementActiveRequestsCounter(ctx context.Con
 func (c *AggregatorMetricLabeler) IncrementCompletedAggregations(ctx context.Context) {
 	otelLabels := beholder.OtelAttributes(c.Labels).AsStringAttributes()
 	c.am.completedAggregations.Add(ctx, 1, metric.WithAttributes(otelLabels...))
+}
+
+func (c *AggregatorMetricLabeler) IncrementAggregationsBlockedUnexportable(ctx context.Context) {
+	otelLabels := beholder.OtelAttributes(c.Labels).AsStringAttributes()
+	c.am.aggregationsBlockedUnexportable.Add(ctx, 1, metric.WithAttributes(otelLabels...))
 }
 
 func (c *AggregatorMetricLabeler) RecordAPIRequestDuration(ctx context.Context, duration time.Duration) {
