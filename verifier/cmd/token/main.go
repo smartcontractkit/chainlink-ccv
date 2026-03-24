@@ -39,6 +39,11 @@ func main() {
 		cmd.RunCCVCLI(os.Args[1:])
 		return
 	}
+	configPath := os.Getenv("TOKEN_VERIFIER_CONFIG_PATH")
+	if configPath == "" {
+		configPath = "/etc/config.toml"
+	}
+
 	err := bootstrap.Run(
 		"TokenVerifier",
 		&tokenVerifierFactory{
@@ -46,7 +51,7 @@ func main() {
 			createAccessorFactoryFunc: evm.CreateAccessorFactory,
 		},
 		// TODO: remove the AppConfig generic type to streamline this API, update factory to accept config as a string.
-		bootstrap.WithTOMLAppConfig[token.ConfigWithBlockchainInfos]("/etc/config.toml"),
+		bootstrap.WithTOMLAppConfig[token.ConfigWithBlockchainInfos](configPath),
 	)
 	if err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "Failed to run token verifier: %v\n", err)
