@@ -1321,7 +1321,7 @@ func (m *CCIP17EVMConfig) ConnectContractsWithSelectors(ctx context.Context, e *
 	)
 	e.OperationsBundle = bundle
 
-	remoteChains := make(map[uint64]lanes.ChainDefinition)
+	remoteChains := make(map[uint64]ccipChangesets.RemoteLaneConfig)
 	for _, rs := range remoteSelectors {
 		// TODO: should be moved to the ChainFamily interface.
 		var addressBytesLength uint8
@@ -1338,7 +1338,7 @@ func (m *CCIP17EVMConfig) ConnectContractsWithSelectors(ctx context.Context, e *
 			return fmt.Errorf("unsupported family %s for chain %d", family, rs)
 		}
 
-		remoteChains[rs] = lanes.ChainDefinition{
+		remoteChains[rs] = ccipChangesets.RemoteLaneConfig{Chain: lanes.ChainDefinition{
 			Selector:                          rs,
 			FeeQuoterDestChainConfigOverrides: feeQuoterDestChainConfigOverride(rs),
 			ExecutorDestChainConfig: lanes.ExecutorDestChainConfig{
@@ -1369,7 +1369,7 @@ func (m *CCIP17EVMConfig) ConnectContractsWithSelectors(ctx context.Context, e *
 					Qualifier:     devenvcommon.DefaultCommitteeVerifierQualifier,
 				},
 			},
-		}
+		}}
 	}
 
 	committeeVerifierRemoteChainConfigs := make(map[uint64]ccipChangesets.CommitteeVerifierRemoteChainConfig)
@@ -1393,7 +1393,6 @@ func (m *CCIP17EVMConfig) ConnectContractsWithSelectors(ctx context.Context, e *
 	mcmsReaderRegistry := changesetscore.GetRegistry()
 	laneAdapterRegistry := lanes.GetLaneAdapterRegistry()
 
-	selectorBytes := changesetsutils.GetSelectorHex(selector)
 	_, err := ccipChangesets.ConfigureChainsForLanesFromTopology(adapters.GetCommitteeVerifierContractRegistry(), laneAdapterRegistry, mcmsReaderRegistry).Apply(*e, ccipChangesets.ConfigureChainsForLanesFromTopologyConfig{
 		Topology: topology,
 		Chains: []ccipChangesets.PartialChainConfig{
@@ -1423,22 +1422,7 @@ func (m *CCIP17EVMConfig) ConnectContractsWithSelectors(ctx context.Context, e *
 					Qualifier:     devenvcommon.DefaultExecutorQualifier,
 					ChainSelector: selector,
 				},
-				FeeQuoterDestChainConfig: lanes.FeeQuoterDestChainConfig{
-					IsEnabled:                   true,
-					MaxDataBytes:                30_000,
-					MaxPerMsgGasLimit:           3_000_000,
-					DestGasOverhead:             300_000,
-					DefaultTokenFeeUSDCents:     25,
-					DestGasPerPayloadByteBase:   16,
-					DefaultTokenDestGasOverhead: 90_000,
-					DefaultTxGasLimit:           200_000,
-					NetworkFeeUSDCents:          10,
-					ChainFamilySelector:         binary.BigEndian.Uint32(selectorBytes[:4]),
-					V2Params: &lanes.FeeQuoterV2Params{
-						LinkFeeMultiplierPercent: 90,
-						USDPerUnitGas:            big.NewInt(1e6),
-					},
-				},
+				FeeQuoterDestChainConfigOverrides: feeQuoterDestChainConfigOverride(selector),
 				ExecutorDestChainConfig: lanes.ExecutorDestChainConfig{
 					Enabled:     true,
 					USDCentsFee: 0,
