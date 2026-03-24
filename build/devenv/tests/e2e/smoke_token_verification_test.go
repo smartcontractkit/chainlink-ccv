@@ -229,7 +229,7 @@ func runUSDCTestCase(
 
 	// If SendMessage fails with "custom error 0xa9902c7e: ...<chain selector hex>", the token pool
 	// (or router) is reverting with "destination chain not allowed": the destination chain selector
-	// is not in the pool's allowlist. Ensure ConfigureTokensForTransfers runs before ConnectContractsWithSelectors
+	// is not in the pool's allowlist. Ensure ConfigureTokensForTransfers runs before chain connection
 	// and that the CCTP/USDC pool gets its remote chains configured (e.g. via configureUSDCForTransfer).
 	sendRes, err := sourceChain.SendMessage(
 		ctx, destSelector,
