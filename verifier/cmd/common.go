@@ -120,18 +120,18 @@ func ConnectToPostgresDB(lggr logger.Logger) (sqlutil.DataSource, error) {
 func LoadBlockchainInfo(
 	ctx context.Context,
 	lggr logger.Logger,
-	config map[string]*blockchain.Info,
-) *blockchain.Helper {
+	config map[string]blockchain.Info,
+) blockchain.Infos {
 	// Use actual blockchain information from configuration
 	if len(config) == 0 {
 		lggr.Warnw("No blockchain information in config")
 		return nil
 	}
-	blockchainHelper := blockchain.NewHelper(config)
+	infos := blockchain.Infos(config)
 	lggr.Infow("Using real blockchain information from environment",
 		"chainCount", len(config))
-	logBlockchainInfo(blockchainHelper, lggr)
-	return blockchainHelper
+	logBlockchainInfo(infos, lggr)
+	return infos
 }
 
 func StartPyroscope(lggr logger.Logger, pyroscopeAddress, serviceName string) (*pyroscope.Profiler, error) {
@@ -155,26 +155,18 @@ func StartPyroscope(lggr logger.Logger, pyroscopeAddress, serviceName string) (*
 	return profiler, nil
 }
 
-func logBlockchainInfo(blockchainHelper *blockchain.Helper, lggr logger.Logger) {
-	for _, chainID := range blockchainHelper.GetAllChainSelectors() {
-		logChainInfo(blockchainHelper, chainID, lggr)
+func logBlockchainInfo(infos blockchain.Infos, lggr logger.Logger) {
+	for _, chainID := range infos.GetAllChainSelectors() {
+		logChainInfo(infos, chainID, lggr)
 	}
 }
 
-func logChainInfo(blockchainHelper *blockchain.Helper, chainSelector protocol.ChainSelector, lggr logger.Logger) {
-	info, err := blockchainHelper.GetBlockchainByChainSelector(chainSelector)
+func logChainInfo(infos blockchain.Infos, chainSelector protocol.ChainSelector, lggr logger.Logger) {
+	info, err := infos.GetBlockchainByChainSelector(chainSelector)
 	if err == nil {
-		lggr.Infow("🔗 Blockchain available", "chainSelector", chainSelector, "info", info, "nodeCount", len(info.Nodes))
-	}
-
-	n, err := info.GetFirstNode()
-	if err != nil {
-		lggr.Infow("Node Info", "chainSelector", chainSelector,
-			"ExternalWSURL", n.ExternalWSUrl,
-			"InternalWSURL", n.InternalWSUrl,
-			"ExternalHTTPURL", n.ExternalHTTPUrl,
-			"InternalHTTPURL", n.InternalHTTPUrl,
-		)
+		lggr.Infow("🔗 Blockchain available",
+			"chainSelector", chainSelector,
+			"info", info)
 	}
 }
 

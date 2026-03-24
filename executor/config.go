@@ -22,7 +22,7 @@ const (
 
 type ConfigWithBlockchainInfo struct {
 	Configuration
-	BlockchainInfos map[string]*blockchain.Info `toml:"blockchain_infos"`
+	blockchain.Infos `toml:"blockchain_infos"`
 }
 
 // Configuration is the complete set of information an executor needs to operate normally.

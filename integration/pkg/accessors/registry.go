@@ -11,15 +11,15 @@ import (
 
 // Registry holds AccessorFactories for different chain families.
 type Registry struct {
-	factories        map[string]chainaccess.AccessorFactory
-	blockchainHelper *blockchain.Helper
+	factories map[string]chainaccess.AccessorFactory
+	infos     blockchain.Infos
 }
 
 // NewRegistry creates a new Registry.
-func NewRegistry(blockchainHelper *blockchain.Helper) *Registry {
+func NewRegistry(infos blockchain.Infos) *Registry {
 	return &Registry{
-		factories:        make(map[string]chainaccess.AccessorFactory),
-		blockchainHelper: blockchainHelper,
+		factories: make(map[string]chainaccess.AccessorFactory),
+		infos:     infos,
 	}
 }
 
@@ -34,7 +34,7 @@ func (r *Registry) Register(family string, factory chainaccess.AccessorFactory) 
 // It returns an error if no factory is registered for the chain family.
 // Not concurrent safe.
 func (r *Registry) GetAccessor(ctx context.Context, chainSelector protocol.ChainSelector) (chainaccess.Accessor, error) {
-	info, err := r.blockchainHelper.GetBlockchainByChainSelector(chainSelector)
+	info, err := r.infos.GetBlockchainByChainSelector(chainSelector)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get blockchain info for chain %d: %w", chainSelector, err)
 	}

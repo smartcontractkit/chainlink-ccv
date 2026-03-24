@@ -37,7 +37,7 @@ import (
 type CreateAccessorFactoryFunc[T any] func(
 	ctx context.Context,
 	lggr logger.Logger,
-	blockchainInfos map[string]*T,
+	infos map[string]T,
 	cfg commit.Config,
 ) (chainaccess.AccessorFactory, error)
 
@@ -106,7 +106,7 @@ func (f *factory[T]) Start(ctx context.Context, spec commit.JobSpec, deps bootst
 		lggr.Errorw("Failed to load configuration", "error", err)
 		return fmt.Errorf("failed to load configuration: %w", err)
 	}
-	lggr.Infow("Using blockchain information from config", "chainCount", len(blockchainInfos))
+	lggr.Infow("Using blockchain information from config", "info", *blockchainInfos)
 
 	// TODO: this should be passed in via the config maybe?
 	apiKey := os.Getenv("VERIFIER_AGGREGATOR_API_KEY")

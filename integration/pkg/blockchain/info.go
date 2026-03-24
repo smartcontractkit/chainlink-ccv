@@ -8,6 +8,7 @@ import (
 )
 
 // Node represents a blockchain node with connection information.
+// TODO: make this chain family agnostic.
 type Node struct {
 	ExternalHTTPUrl string `json:"external_http_url"`
 	InternalHTTPUrl string `json:"internal_http_url"`
@@ -15,40 +16,43 @@ type Node struct {
 	InternalWSUrl   string `json:"internal_ws_url"`
 }
 
+func (n Node) String() string {
+	return fmt.Sprintf("ExternalHTTP: %s, InternalHTTP: %s, ExternalWS: %s, InternalWS: %s",
+		n.ExternalHTTPUrl, n.InternalHTTPUrl, n.ExternalWSUrl, n.InternalWSUrl)
+}
+
+func (n Node) Empty() bool {
+	return n.ExternalHTTPUrl == "" && n.InternalHTTPUrl == "" && n.ExternalWSUrl == "" && n.InternalWSUrl == ""
+}
+
 // Info represents blockchain connection information.
 type Info struct {
-	ChainID         string  `json:"chain_id"`
-	Type            string  `json:"type"`
-	Family          string  `json:"family"`
-	UniqueChainName string  `json:"unique_chain_name"`
-	Nodes           []*Node `json:"nodes"`
+	ChainID         string `json:"chain_id"`
+	Type            string `json:"type"`
+	Family          string `json:"family"`
+	UniqueChainName string `json:"unique_chain_name"`
+	Nodes           []Node `json:"nodes"`
 }
 
-// Helper provides utilities for working with blockchain information.
-type Helper struct {
-	infos map[string]*Info
+func (bi Info) Empty() bool {
+	return bi.ChainID == "" && bi.Type == "" && bi.Family == "" && bi.UniqueChainName == "" && len(bi.Nodes) == 0
 }
 
-// NewHelper creates a new blockchain helper with the provided blockchain information.
-func NewHelper(infos map[string]*Info) *Helper {
-	return &Helper{
-		infos: infos,
-	}
-}
+type Infos map[string]Info
 
 // GetBlockchainByChainSelector returns the blockchain info for a given chain selector.
-func (bh *Helper) GetBlockchainByChainSelector(chainSelector protocol.ChainSelector) (*Info, error) {
+func (bh Infos) GetBlockchainByChainSelector(chainSelector protocol.ChainSelector) (Info, error) {
 	selector := fmt.Sprintf("%d", uint64(chainSelector))
-	if info, exists := bh.infos[selector]; exists && info != nil {
+	if info, exists := bh[selector]; exists && !info.Empty() {
 		return info, nil
 	}
-	return nil, fmt.Errorf("selector %d not found", uint64(chainSelector))
+	return Info{}, fmt.Errorf("selector %d not found", uint64(chainSelector))
 }
 
 // GetAllChainSelectors returns all available chain selectors.
-func (bh *Helper) GetAllChainSelectors() []protocol.ChainSelector {
+func (bh Infos) GetAllChainSelectors() []protocol.ChainSelector {
 	selectors := make([]protocol.ChainSelector, 0)
-	for sel := range bh.infos {
+	for sel := range bh {
 		selector, err := strconv.ParseUint(sel, 10, 64)
 		if err != nil {
 			continue
@@ -58,25 +62,20 @@ func (bh *Helper) GetAllChainSelectors() []protocol.ChainSelector {
 	return selectors
 }
 
-func (bi *Info) String() string {
+func (bi Info) String() string {
 	nodeCount := len(bi.Nodes)
-	var rpcURL string
-	if nodeCount > 0 && bi.Nodes[0] != nil && bi.Nodes[0].ExternalHTTPUrl != "" {
-		rpcURL = bi.Nodes[0].ExternalHTTPUrl
-	} else {
-		rpcURL = "N/A"
+	firstNode := "N/A"
+	if n, err := bi.GetFirstNode(); err == nil {
+		firstNode = n.String()
 	}
-	return fmt.Sprintf("Chain ID: %s, Type: %s, Family: %s, ChainName: %s, Nodes: %d, RPC: %s",
-		bi.ChainID, bi.Type, bi.Family, bi.UniqueChainName, nodeCount, rpcURL)
+	return fmt.Sprintf("Chain ID: %s, Type: %s, Family: %s, ChainName: %s, Nodes: %d, First Node: [%s]",
+		bi.ChainID, bi.Type, bi.Family, bi.UniqueChainName, nodeCount, firstNode)
 }
 
-func (bi *Info) GetFirstNode() (Node, error) {
-	if bi == nil {
-		return Node{}, fmt.Errorf("blockchain info is nil")
-	}
+func (bi Info) GetFirstNode() (Node, error) {
 	for _, node := range bi.Nodes {
-		if node != nil && (*node != Node{}) {
-			return *node, nil
+		if !node.Empty() {
+			return node, nil
 		}
 	}
 

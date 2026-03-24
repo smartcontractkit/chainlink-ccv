@@ -18,7 +18,7 @@ import (
 
 type EVMFactory struct {
 	lggr               logger.Logger
-	helper             *blockchain.Helper
+	helper             blockchain.Infos
 	onRampAddresses    map[string]string
 	rmnRemoteAddresses map[string]string
 	headTrackers       map[protocol.ChainSelector]heads.Tracker
@@ -27,7 +27,7 @@ type EVMFactory struct {
 
 func NewEVMFactory(
 	lggr logger.Logger,
-	helper *blockchain.Helper,
+	helper blockchain.Infos,
 	onRampAddresses,
 	rmnRemoteAddresses map[string]string,
 	headTrackers map[protocol.ChainSelector]heads.Tracker,

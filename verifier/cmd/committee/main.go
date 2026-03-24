@@ -20,8 +20,8 @@ import (
 
 // deprecatedCreateAccessorFactory is a wrapper around the shared EVM constructor to avoid changing the verifier
 // function signature in a breaking way.
-func deprecatedCreateAccessorFactory(ctx context.Context, lggr logger.Logger, blockchainInfos map[string]*blockchain.Info, cfg commit.Config) (chainaccess.AccessorFactory, error) {
-	return evm.CreateAccessorFactory(ctx, lggr, blockchainInfos, cfg.OnRampAddresses, cfg.RMNRemoteAddresses)
+func deprecatedCreateAccessorFactory(ctx context.Context, lggr logger.Logger, infos blockchain.Infos, cfg commit.Config) (chainaccess.AccessorFactory, error) {
+	return evm.CreateAccessorFactory(ctx, lggr, infos, cfg.OnRampAddresses, cfg.RMNRemoteAddresses)
 }
 
 func main() {
