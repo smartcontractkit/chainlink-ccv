@@ -106,3 +106,9 @@ packages:
   github.com/smartcontractkit/chainlink-protos/chainlink-ccv/verifier/v1:
     interfaces:
       VerifierClient:
+
+  github.com/smartcontractkit/chainlink-ccv/integration/storageaccess:
+    interfaces:
+      CommitteeBatchWriter:
+        configs:
+          - dir: ./integration/storageaccess/mocks

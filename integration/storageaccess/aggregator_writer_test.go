@@ -2,13 +2,20 @@ package storageaccess
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"google.golang.org/genproto/googleapis/rpc/status"
+	"google.golang.org/grpc/codes"
+	grpcstatus "google.golang.org/grpc/status"
 	"google.golang.org/protobuf/proto"
 
+	"github.com/smartcontractkit/chainlink-ccv/integration/storageaccess/mocks"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	committeepb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/committee-verifier/v1"
@@ -46,7 +53,7 @@ func TestAggregatorWriter_MessageSizeChecking(t *testing.T) {
 		}
 
 		// Verify all requests are included
-		var allIndices []int
+		allIndices := make([]int, 0, len(requests))
 		for _, batch := range batches {
 			for _, req := range batch {
 				allIndices = append(allIndices, req.origIdx)
@@ -285,6 +292,164 @@ func TestBatchOverheadEstimate(t *testing.T) {
 		assert.Less(t, overhead, ProtoBatchOverhead,
 			"actual overhead (%d) should be less than our safety margin (%d)", overhead, ProtoBatchOverhead)
 	})
+}
+
+func TestAggregatorWriter_sendBatch_preservesFinalizedNonRetryableFailure(t *testing.T) {
+	ctx := context.Background()
+	lggr := logger.Test(t)
+
+	msg := createTestMessage(50)
+	protoReq, err := mapCCVDataToCCVNodeDataProto(msg)
+	require.NoError(t, err)
+
+	origCause := errors.New("original mapping error")
+	results := []protocol.WriteResult{
+		{
+			Input:     msg,
+			Status:    protocol.WriteFailure,
+			Error:     fmt.Errorf("failed to create proto request: %w", origCause),
+			Retryable: false,
+		},
+	}
+	wantErr := results[0].Error
+
+	batch := []requestWithSize{
+		{
+			req:     protoReq,
+			size:    proto.Size(protoReq),
+			origIdx: 0,
+			ccvData: msg,
+		},
+	}
+
+	batchClient := mocks.NewMockCommitteeBatchWriter(t)
+	batchClient.EXPECT().BatchWriteCommitteeVerifierNodeResult(mock.Anything, mock.MatchedBy(func(in *committeepb.BatchWriteCommitteeVerifierNodeResultRequest) bool {
+		return in != nil && len(in.Requests) == 1 && proto.Equal(in.Requests[0], protoReq)
+	})).Return(&committeepb.BatchWriteCommitteeVerifierNodeResultResponse{
+		Responses: []*committeepb.WriteCommitteeVerifierNodeResultResponse{
+			{Status: committeepb.WriteStatus_FAILED},
+		},
+		Errors: []*status.Status{
+			grpcstatus.New(codes.InvalidArgument, "validation failed: invalid request format").Proto(),
+		},
+	}, nil).Once()
+
+	w := &AggregatorWriter{
+		client:             batchClient,
+		lggr:               lggr,
+		maxSendMessageSize: DefaultMaxMessageSize,
+		maxRecvMessageSize: DefaultMaxMessageSize,
+	}
+
+	require.NoError(t, w.sendBatch(ctx, batch, results))
+	assert.Equal(t, wantErr, results[0].Error)
+	assert.False(t, results[0].Retryable)
+	assert.Equal(t, protocol.WriteFailure, results[0].Status)
+}
+
+func TestAggregatorWriter_sendBatch_mixedFinalizedNonRetryableAndSuccess(t *testing.T) {
+	ctx := context.Background()
+	lggr := logger.Test(t)
+
+	msg0 := createTestMessage(10)
+	msg1 := createTestMessage(20)
+	proto0, err := mapCCVDataToCCVNodeDataProto(msg0)
+	require.NoError(t, err)
+	proto1, err := mapCCVDataToCCVNodeDataProto(msg1)
+	require.NoError(t, err)
+
+	origErr := fmt.Errorf("failed to create proto request: %w", errors.New("bad map"))
+	results := []protocol.WriteResult{
+		{
+			Input:     msg0,
+			Status:    protocol.WriteFailure,
+			Error:     origErr,
+			Retryable: false,
+		},
+		{
+			Input:     msg1,
+			Status:    protocol.WriteFailure,
+			Error:     nil,
+			Retryable: true,
+		},
+	}
+
+	batch := []requestWithSize{
+		{req: proto0, size: proto.Size(proto0), origIdx: 0, ccvData: msg0},
+		{req: proto1, size: proto.Size(proto1), origIdx: 1, ccvData: msg1},
+	}
+
+	batchClient := mocks.NewMockCommitteeBatchWriter(t)
+	batchClient.EXPECT().BatchWriteCommitteeVerifierNodeResult(mock.Anything, mock.MatchedBy(func(in *committeepb.BatchWriteCommitteeVerifierNodeResultRequest) bool {
+		return in != nil && len(in.Requests) == 2 &&
+			proto.Equal(in.Requests[0], proto0) && proto.Equal(in.Requests[1], proto1)
+	})).Return(&committeepb.BatchWriteCommitteeVerifierNodeResultResponse{
+		Responses: []*committeepb.WriteCommitteeVerifierNodeResultResponse{
+			{Status: committeepb.WriteStatus_FAILED},
+			{Status: committeepb.WriteStatus_SUCCESS},
+		},
+		Errors: []*status.Status{
+			grpcstatus.New(codes.InvalidArgument, "would overwrite if applied").Proto(),
+			nil,
+		},
+	}, nil).Once()
+
+	w := &AggregatorWriter{
+		client:             batchClient,
+		lggr:               lggr,
+		maxSendMessageSize: DefaultMaxMessageSize,
+		maxRecvMessageSize: DefaultMaxMessageSize,
+	}
+
+	require.NoError(t, w.sendBatch(ctx, batch, results))
+	assert.Equal(t, origErr, results[0].Error)
+	assert.False(t, results[0].Retryable)
+
+	assert.Equal(t, protocol.WriteSuccess, results[1].Status)
+	assert.Nil(t, results[1].Error)
+	assert.False(t, results[1].Retryable)
+}
+
+func TestAggregatorWriter_sendBatch_setsErrorWhenResponseSliceTooShort(t *testing.T) {
+	ctx := context.Background()
+	lggr := logger.Test(t)
+
+	msg := createTestMessage(30)
+	protoReq, err := mapCCVDataToCCVNodeDataProto(msg)
+	require.NoError(t, err)
+
+	results := []protocol.WriteResult{
+		{
+			Input:     msg,
+			Status:    protocol.WriteFailure,
+			Error:     nil,
+			Retryable: true,
+		},
+	}
+	batch := []requestWithSize{
+		{req: protoReq, size: proto.Size(protoReq), origIdx: 0, ccvData: msg},
+	}
+
+	batchClient := mocks.NewMockCommitteeBatchWriter(t)
+	batchClient.EXPECT().BatchWriteCommitteeVerifierNodeResult(mock.Anything, mock.MatchedBy(func(in *committeepb.BatchWriteCommitteeVerifierNodeResultRequest) bool {
+		return in != nil && len(in.Requests) == 1 && proto.Equal(in.Requests[0], protoReq)
+	})).Return(&committeepb.BatchWriteCommitteeVerifierNodeResultResponse{
+		Responses: nil,
+		Errors:    nil,
+	}, nil).Once()
+
+	w := &AggregatorWriter{
+		client:             batchClient,
+		lggr:               lggr,
+		maxSendMessageSize: DefaultMaxMessageSize,
+		maxRecvMessageSize: DefaultMaxMessageSize,
+	}
+
+	require.NoError(t, w.sendBatch(ctx, batch, results))
+	require.Error(t, results[0].Error)
+	assert.Contains(t, results[0].Error.Error(), "missing batch response")
+	assert.Equal(t, protocol.WriteFailure, results[0].Status)
+	assert.True(t, results[0].Retryable)
 }
 
 // Helper function to create test messages with specific data sizes.
