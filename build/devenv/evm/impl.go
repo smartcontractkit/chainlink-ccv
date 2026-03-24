@@ -1310,23 +1310,7 @@ func (m *CCIP17EVM) GetMaxDataBytes(ctx context.Context, remoteChainSelector uin
 	return destChainConfig.MaxDataBytes, nil
 }
 
-func (m *CCIP17EVMConfig) GetConnectionProfile(selector uint64, remoteSelectors []uint64, topology *ccipOffchain.EnvironmentTopology) (lanes.ChainDefinition, []ccipChangesets.CommitteeVerifierInputConfig, error) {
-	committeeVerifierRemoteChainConfigs := make(map[uint64]ccipChangesets.CommitteeVerifierRemoteChainConfig)
-	for _, otherSel := range remoteSelectors {
-		committeeVerifierRemoteChainConfigs[otherSel] = ccipChangesets.CommitteeVerifierRemoteChainConfig{
-			AllowlistEnabled:   false,
-			GasForVerification: CommitteeVerifierGasForVerification,
-		}
-	}
-
-	committeeVerifiers := make([]ccipChangesets.CommitteeVerifierInputConfig, 0, len(topology.NOPTopology.Committees))
-	for qualifier := range topology.NOPTopology.Committees {
-		committeeVerifiers = append(committeeVerifiers, ccipChangesets.CommitteeVerifierInputConfig{
-			CommitteeQualifier: qualifier,
-			RemoteChains:       committeeVerifierRemoteChainConfigs,
-		})
-	}
-
+func (m *CCIP17EVMConfig) GetConnectionProfile(selector uint64) (lanes.ChainDefinition, ccipChangesets.CommitteeVerifierRemoteChainConfig, error) {
 	chainDef := lanes.ChainDefinition{
 		Selector:                          selector,
 		AddressBytesLength:                20,
@@ -1359,7 +1343,11 @@ func (m *CCIP17EVMConfig) GetConnectionProfile(selector uint64, remoteSelectors 
 		},
 	}
 
-	return chainDef, committeeVerifiers, nil
+	cvConfig := ccipChangesets.CommitteeVerifierRemoteChainConfig{
+		GasForVerification: CommitteeVerifierGasForVerification,
+	}
+
+	return chainDef, cvConfig, nil
 }
 
 func (m *CCIP17EVMConfig) PostConnect(e *deployment.Environment, selector uint64, remoteSelectors []uint64) error {

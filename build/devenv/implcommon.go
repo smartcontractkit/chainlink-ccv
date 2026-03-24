@@ -28,11 +28,11 @@ func connectAllChains(
 	topology *ccipOffchain.EnvironmentTopology,
 ) error {
 	type chainEntry struct {
-		selector           uint64
-		remoteSelectors    []uint64
-		impl               cciptestinterfaces.CCIP17Configuration
-		chainDef           lanes.ChainDefinition
-		committeeVerifiers []ccipChangesets.CommitteeVerifierInputConfig
+		selector        uint64
+		remoteSelectors []uint64
+		impl            cciptestinterfaces.CCIP17Configuration
+		chainDef        lanes.ChainDefinition
+		cvConfig        ccipChangesets.CommitteeVerifierRemoteChainConfig
 	}
 
 	entries := make([]chainEntry, 0, len(impls))
@@ -47,22 +47,24 @@ func connectAllChains(
 				remotes = append(remotes, sel)
 			}
 		}
-		chainDef, committeeVerifiers, err := impl.GetConnectionProfile(networkInfo.ChainSelector, remotes, topology)
+		chainDef, cvConfig, err := impl.GetConnectionProfile(networkInfo.ChainSelector)
 		if err != nil {
 			return fmt.Errorf("get connection profile for chain %d: %w", networkInfo.ChainSelector, err)
 		}
 		entries = append(entries, chainEntry{
-			selector:           networkInfo.ChainSelector,
-			remoteSelectors:    remotes,
-			impl:               impl,
-			chainDef:           chainDef,
-			committeeVerifiers: committeeVerifiers,
+			selector:        networkInfo.ChainSelector,
+			remoteSelectors: remotes,
+			impl:            impl,
+			chainDef:        chainDef,
+			cvConfig:        cvConfig,
 		})
 	}
 
 	chainDefBySelector := make(map[uint64]lanes.ChainDefinition, len(entries))
+	cvConfigBySelector := make(map[uint64]ccipChangesets.CommitteeVerifierRemoteChainConfig, len(entries))
 	for _, entry := range entries {
 		chainDefBySelector[entry.selector] = entry.chainDef
+		cvConfigBySelector[entry.selector] = entry.cvConfig
 	}
 
 	partialChains := make([]ccipChangesets.PartialChainConfig, 0, len(entries))
@@ -72,10 +74,12 @@ func connectAllChains(
 			remoteChains[rs] = ccipChangesets.RemoteLaneConfig{Chain: chainDefBySelector[rs]}
 		}
 
+		committeeVerifiers := buildCommitteeVerifiers(topology, entry.remoteSelectors, cvConfigBySelector)
+
 		cd := entry.chainDef
 		partialChains = append(partialChains, ccipChangesets.PartialChainConfig{
 			ChainSelector:                     entry.selector,
-			CommitteeVerifiers:                entry.committeeVerifiers,
+			CommitteeVerifiers:                committeeVerifiers,
 			DefaultInboundCCVs:                cd.DefaultInboundCCVs,
 			DefaultOutboundCCVs:               cd.DefaultOutboundCCVs,
 			DefaultExecutor:                   cd.DefaultExecutor,
@@ -115,4 +119,28 @@ func connectAllChains(
 	}
 
 	return nil
+}
+
+// buildCommitteeVerifiers assembles CommitteeVerifierInputConfig entries from
+// topology committee qualifiers + per-remote-chain configs looked up from each
+// chain's reported CommitteeVerifierRemoteChainConfig.
+func buildCommitteeVerifiers(
+	topology *ccipOffchain.EnvironmentTopology,
+	remoteSelectors []uint64,
+	cvConfigBySelector map[uint64]ccipChangesets.CommitteeVerifierRemoteChainConfig,
+) []ccipChangesets.CommitteeVerifierInputConfig {
+	remoteChainConfigs := make(map[uint64]ccipChangesets.CommitteeVerifierRemoteChainConfig, len(remoteSelectors))
+	for _, rs := range remoteSelectors {
+		remoteChainConfigs[rs] = cvConfigBySelector[rs]
+	}
+
+	verifiers := make([]ccipChangesets.CommitteeVerifierInputConfig, 0, len(topology.NOPTopology.Committees))
+	for qualifier := range topology.NOPTopology.Committees {
+		verifiers = append(verifiers, ccipChangesets.CommitteeVerifierInputConfig{
+			CommitteeQualifier: qualifier,
+			RemoteChains:       remoteChainConfigs,
+		})
+	}
+
+	return verifiers
 }
