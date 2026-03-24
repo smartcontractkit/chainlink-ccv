@@ -15,7 +15,7 @@ import (
 
 func ptr[T any](t T) *T { return &t }
 
-func CreateHealthyMultiNodeClient(ctx context.Context, infos blockchain.Infos, lggr logger.Logger, chainSelector protocol.ChainSelector) (client.Client, error) {
+func CreateHealthyMultiNodeClient(ctx context.Context, infos blockchain.Infos[blockchain.Info], lggr logger.Logger, chainSelector protocol.ChainSelector) (client.Client, error) {
 	info, err := infos.GetBlockchainByChainSelector(chainSelector)
 	if err != nil {
 		lggr.Errorw("Failed to get blockchain info", "error", err, "chainSelector", chainSelector)

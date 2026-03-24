@@ -19,7 +19,7 @@ import (
 func CreateAccessorFactory(
 	ctx context.Context,
 	lggr logger.Logger,
-	infos blockchain.Infos,
+	infos blockchain.Infos[blockchain.Info],
 	onRampAddresses map[string]string,
 	rmnRemoteAddresses map[string]string,
 ) (chainaccess.AccessorFactory, error) {

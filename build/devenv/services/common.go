@@ -91,7 +91,7 @@ func GoCacheMounts() testcontainers.ContainerMounts {
 }
 
 // ConvertBlockchainOutputsToInfo converts blockchain.Output to a map of chain selector to BlockchainInfo.
-func ConvertBlockchainOutputsToInfo(outputs []*ctfblockchain.Output) (ccvblockchain.Infos, error) {
+func ConvertBlockchainOutputsToInfo(outputs []*ctfblockchain.Output) (ccvblockchain.Infos[ccvblockchain.Info], error) {
 	infos := make(map[string]ccvblockchain.Info)
 	for _, output := range outputs {
 		info := ccvblockchain.Info{

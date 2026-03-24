@@ -61,7 +61,7 @@ type ExecutorOutput struct {
 
 // GenerateConfigWithBlockchainInfos combines the pre-generated config with blockchain infos
 // for standalone mode deployment.
-func (v *ExecutorInput) GenerateConfigWithBlockchainInfos(blockchainInfos map[string]*blockchain.Info) ([]byte, error) {
+func (v *ExecutorInput) GenerateConfigWithBlockchainInfos(blockchainInfos blockchain.Infos[blockchain.Info]) ([]byte, error) {
 	if v.GeneratedConfig == "" {
 		return nil, fmt.Errorf("GeneratedConfig is empty - must be set from changeset output")
 	}
@@ -73,7 +73,7 @@ func (v *ExecutorInput) GenerateConfigWithBlockchainInfos(blockchainInfos map[st
 	}
 
 	// Wrap with blockchain infos for standalone mode
-	config := executor.ConfigWithBlockchainInfo{
+	config := executor.ConfigWithBlockchainInfo[blockchain.Info]{
 		Configuration:   baseConfig,
 		BlockchainInfos: blockchainInfos,
 	}
@@ -112,8 +112,8 @@ func ApplyExecutorDefaults(in *ExecutorInput) {
 
 // filterOutUnsupportedChains filters out chains that are not supported by the executor.
 // As of writing, only EVM is supported by the executor.
-func filterOutUnsupportedChains(blockchainInfos map[string]*blockchain.Info) map[string]*blockchain.Info {
-	filtered := make(map[string]*blockchain.Info)
+func filterOutUnsupportedChains(blockchainInfos blockchain.Infos[blockchain.Info]) blockchain.Infos[blockchain.Info] {
+	filtered := make(blockchain.Infos[blockchain.Info])
 	for chainSelector, info := range blockchainInfos {
 		if info.Family == chainsel.FamilyEVM {
 			filtered[chainSelector] = info

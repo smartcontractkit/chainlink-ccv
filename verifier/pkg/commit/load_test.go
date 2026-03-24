@@ -16,8 +16,6 @@ type testChainInfo struct {
 	UniqueChainName string
 }
 
-type testChainInfoMap map[string]testChainInfo
-
 func TestLoadConfigWithBlockchainInfos_Success(t *testing.T) {
 	// Minimal valid config TOML with one entry in blockchain_infos
 	tomlConfig := `
@@ -38,7 +36,7 @@ UniqueChainName = "chain-1"
 `
 	spec := JobSpec{CommitteeVerifierConfig: tomlConfig}
 
-	cfg, infos, err := LoadConfigWithBlockchainInfos[testChainInfoMap](spec)
+	cfg, infos, err := LoadConfigWithBlockchainInfos[testChainInfo](spec)
 	require.NoError(t, err)
 	require.NotNil(t, cfg)
 	require.NotNil(t, infos)

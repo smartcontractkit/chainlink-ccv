@@ -20,9 +20,9 @@ const (
 	IndexerQueryLimitMax     = 10000
 )
 
-type ConfigWithBlockchainInfo struct {
+type ConfigWithBlockchainInfo[T any] struct {
 	Configuration
-	blockchain.Infos `toml:"blockchain_infos"`
+	BlockchainInfos blockchain.Infos[T] `toml:"blockchain_infos"`
 }
 
 // Configuration is the complete set of information an executor needs to operate normally.

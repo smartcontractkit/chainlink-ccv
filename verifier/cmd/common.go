@@ -117,17 +117,17 @@ func ConnectToPostgresDB(lggr logger.Logger) (sqlutil.DataSource, error) {
 	return sqlxDB, nil
 }
 
-func LoadBlockchainInfo(
+func LoadBlockchainInfo[T any](
 	ctx context.Context,
 	lggr logger.Logger,
-	config map[string]blockchain.Info,
-) blockchain.Infos {
+	config map[string]T,
+) blockchain.Infos[T] {
 	// Use actual blockchain information from configuration
 	if len(config) == 0 {
 		lggr.Warnw("No blockchain information in config")
 		return nil
 	}
-	infos := blockchain.Infos(config)
+	infos := blockchain.Infos[T](config)
 	lggr.Infow("Using real blockchain information from environment",
 		"chainCount", len(config))
 	logBlockchainInfo(infos, lggr)
@@ -155,13 +155,13 @@ func StartPyroscope(lggr logger.Logger, pyroscopeAddress, serviceName string) (*
 	return profiler, nil
 }
 
-func logBlockchainInfo(infos blockchain.Infos, lggr logger.Logger) {
+func logBlockchainInfo[T any](infos blockchain.Infos[T], lggr logger.Logger) {
 	for _, chainID := range infos.GetAllChainSelectors() {
 		logChainInfo(infos, chainID, lggr)
 	}
 }
 
-func logChainInfo(infos blockchain.Infos, chainSelector protocol.ChainSelector, lggr logger.Logger) {
+func logChainInfo[T any](infos blockchain.Infos[T], chainSelector protocol.ChainSelector, lggr logger.Logger) {
 	info, err := infos.GetBlockchainByChainSelector(chainSelector)
 	if err == nil {
 		lggr.Infow("🔗 Blockchain available",

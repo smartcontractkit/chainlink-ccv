@@ -13,6 +13,7 @@ import (
 	"go.uber.org/zap/zapcore"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
@@ -46,12 +47,12 @@ func main() {
 
 	err := bootstrap.Run(
 		"TokenVerifier",
-		&tokenVerifierFactory{
+		&tokenVerifierFactory[blockchain.Info]{
 			supportedChainFamily:      []string{chainsel.FamilyEVM},
 			createAccessorFactoryFunc: evm.CreateAccessorFactory,
 		},
 		// TODO: remove the AppConfig generic type to streamline this API, update factory to accept config as a string.
-		bootstrap.WithTOMLAppConfig[token.ConfigWithBlockchainInfos](configPath),
+		bootstrap.WithTOMLAppConfig[token.ConfigWithBlockchainInfos[blockchain.Info]](configPath),
 	)
 	if err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "Failed to run token verifier: %v\n", err)
@@ -59,12 +60,13 @@ func main() {
 	}
 }
 
-type tokenVerifierFactory struct {
+type tokenVerifierFactory[T any] struct {
 	bootstrap.ServiceFactory[token.Config]
 
 	// TODO: rather than creating the factory in the bootstrap layer, can we pass in a registry?
-	createAccessorFactoryFunc accessors.CreateAccessorFactory
-	supportedChainFamily      []string
+	createAccessorFactoryFunc accessors.CreateAccessorFactory[T]
+	// TODO: This no longer makes sense because 'CreateAccessorFactory' only supports one family.
+	supportedChainFamily []string
 
 	coordinators []*verifier.Coordinator
 	httpServer   *http.Server
@@ -72,7 +74,7 @@ type tokenVerifierFactory struct {
 }
 
 // Stop tries to stop all services gracefully.
-func (tvf *tokenVerifierFactory) Stop(ctx context.Context) error {
+func (tvf *tokenVerifierFactory[T]) Stop(ctx context.Context) error {
 	// Graceful shutdown
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer shutdownCancel()
@@ -96,7 +98,7 @@ func (tvf *tokenVerifierFactory) Stop(ctx context.Context) error {
 }
 
 // Start starts the service with the parsed config received from the bootstrapper.
-func (tvf *tokenVerifierFactory) Start(ctx context.Context, appConfig token.ConfigWithBlockchainInfos, deps bootstrap.ServiceDeps) error {
+func (tvf *tokenVerifierFactory[T]) Start(ctx context.Context, appConfig token.ConfigWithBlockchainInfos[T], deps bootstrap.ServiceDeps) error {
 	var errs []error
 	if tvf.createAccessorFactoryFunc == nil {
 		errs = append(errs, fmt.Errorf("createAccessorFactoryFunc is required but was nil"))

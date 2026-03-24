@@ -18,9 +18,9 @@ import (
 	"github.com/smartcontractkit/chainlink-evm/pkg/heads"
 )
 
-type factory struct {
+type factory[T any] struct {
 	lggr               logger.Logger
-	helper             blockchain.Infos
+	infos              blockchain.Infos[T]
 	onRampAddresses    map[string]string
 	rmnRemoteAddresses map[string]string
 	headTrackers       map[protocol.ChainSelector]heads.Tracker
@@ -30,16 +30,16 @@ type factory struct {
 // NewFactory creates a new EVM AccessorFactory.
 // Head trackers and chain clients are injectable because different execution contexts may use different
 // constructions / implementations of these objects.
-func NewFactory(
+func NewFactory[T any](
 	lggr logger.Logger,
-	infos blockchain.Infos,
+	infos blockchain.Infos[T],
 	onRampAddresses, rmnRemoteAddresses map[string]string,
 	headTrackers map[protocol.ChainSelector]heads.Tracker,
 	chainClients map[protocol.ChainSelector]client.Client,
 ) chainaccess.AccessorFactory {
-	return &factory{
+	return &factory[T]{
 		lggr:               lggr,
-		helper:             infos,
+		infos:              infos,
 		onRampAddresses:    onRampAddresses,
 		rmnRemoteAddresses: rmnRemoteAddresses,
 		headTrackers:       headTrackers,
@@ -47,7 +47,7 @@ func NewFactory(
 	}
 }
 
-func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainSelector) (chainaccess.Accessor, error) {
+func (f *factory[T]) GetAccessor(ctx context.Context, chainSelector protocol.ChainSelector) (chainaccess.Accessor, error) {
 	if f == nil || f.onRampAddresses == nil || f.rmnRemoteAddresses == nil || f.chainClients == nil || f.headTrackers == nil {
 		return nil, fmt.Errorf("evm accessor factory is not fully initialized - can't get accessor for chain %d", chainSelector)
 	}
