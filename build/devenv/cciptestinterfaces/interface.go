@@ -11,8 +11,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/smartcontractkit/chainlink-ccip/deployment/lanes"
-	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/offchain"
 	v1_7_0 "github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/changesets"
+	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/offchain"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
@@ -200,20 +200,6 @@ type OnChainCommittees struct {
 	Threshold          uint8
 }
 
-// ChainConnectionProfile describes a chain's properties for lane connection.
-// Each chain impl provides this about itself; the environment uses it to build
-// cross-chain configs without any impl needing knowledge of other chain families.
-type ChainConnectionProfile struct {
-	AddressBytesLength                uint8
-	BaseExecutionGasCost              uint32
-	FeeQuoterDestChainConfigOverrides *lanes.FeeQuoterDestChainConfigOverride
-	ExecutorDestChainConfig           lanes.ExecutorDestChainConfig
-	DefaultExecutor                   datastore.AddressRef
-	DefaultInboundCCVs                []datastore.AddressRef
-	DefaultOutboundCCVs               []datastore.AddressRef
-	CommitteeVerifiers                []v1_7_0.CommitteeVerifierInputConfig
-}
-
 // OnChainConfigurable defines methods that allows devenv to
 // deploy, configure Chainlink product and connect on-chain part with other chains.
 type OnChainConfigurable interface {
@@ -222,12 +208,14 @@ type OnChainConfigurable interface {
 	// DeployContractsForSelector deploys contracts for chain X using topology for CommitteeVerifier configuration.
 	// Returns all the contract addresses and metadata as datastore.DataStore.
 	DeployContractsForSelector(ctx context.Context, env *deployment.Environment, selector uint64, topology *offchain.EnvironmentTopology) (datastore.DataStore, error)
-	// GetConnectionProfile returns chain-specific config for this chain.
-	// The environment uses profiles from all chains to build the full connection config.
-	GetConnectionProfile(ctx context.Context, env *deployment.Environment, selector uint64, remoteSelectors []uint64, topology *offchain.EnvironmentTopology) (ChainConnectionProfile, error)
+	// GetConnectionProfile returns a ChainDefinition describing this chain's
+	// properties as a lane destination, plus committee verifier configs built
+	// from topology. The environment uses profiles from all chains to assemble
+	// the full cross-chain connection config.
+	GetConnectionProfile(selector uint64, remoteSelectors []uint64, topology *offchain.EnvironmentTopology) (lanes.ChainDefinition, []v1_7_0.CommitteeVerifierInputConfig, error)
 	// PostConnect runs chain-specific setup after all chains have been connected
 	// (e.g. USDC/Lombard token config, custom executor wiring).
-	PostConnect(ctx context.Context, env *deployment.Environment, selector uint64, remoteSelectors []uint64) error
+	PostConnect(env *deployment.Environment, selector uint64, remoteSelectors []uint64) error
 }
 
 // DeployerNonceBumper is an optional interface. When implemented, devenv calls it before

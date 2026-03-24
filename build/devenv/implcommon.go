@@ -17,11 +17,10 @@ import (
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
 
-// connectAllChains collects a ChainConnectionProfile from each impl, assembles a
+// connectAllChains collects a ChainDefinition from each impl, assembles a
 // single ConfigureChainsForLanesFromTopologyConfig, applies it once, then runs
 // each impl's PostConnect for chain-specific follow-up (e.g. USDC, custom executor).
 func connectAllChains(
-	ctx context.Context,
 	impls []cciptestinterfaces.CCIP17Configuration,
 	blockchains []*blockchain.Input,
 	selectors []uint64,
@@ -29,10 +28,11 @@ func connectAllChains(
 	topology *ccipOffchain.EnvironmentTopology,
 ) error {
 	type chainEntry struct {
-		selector        uint64
-		remoteSelectors []uint64
-		impl            cciptestinterfaces.CCIP17Configuration
-		profile         cciptestinterfaces.ChainConnectionProfile
+		selector           uint64
+		remoteSelectors    []uint64
+		impl               cciptestinterfaces.CCIP17Configuration
+		chainDef           lanes.ChainDefinition
+		committeeVerifiers []ccipChangesets.CommitteeVerifierInputConfig
 	}
 
 	entries := make([]chainEntry, 0, len(impls))
@@ -47,50 +47,42 @@ func connectAllChains(
 				remotes = append(remotes, sel)
 			}
 		}
-		profile, err := impl.GetConnectionProfile(ctx, e, networkInfo.ChainSelector, remotes, topology)
+		chainDef, committeeVerifiers, err := impl.GetConnectionProfile(networkInfo.ChainSelector, remotes, topology)
 		if err != nil {
 			return fmt.Errorf("get connection profile for chain %d: %w", networkInfo.ChainSelector, err)
 		}
 		entries = append(entries, chainEntry{
-			selector:        networkInfo.ChainSelector,
-			remoteSelectors: remotes,
-			impl:            impl,
-			profile:         profile,
+			selector:           networkInfo.ChainSelector,
+			remoteSelectors:    remotes,
+			impl:               impl,
+			chainDef:           chainDef,
+			committeeVerifiers: committeeVerifiers,
 		})
 	}
 
-	profileBySelector := make(map[uint64]cciptestinterfaces.ChainConnectionProfile, len(entries))
+	chainDefBySelector := make(map[uint64]lanes.ChainDefinition, len(entries))
 	for _, entry := range entries {
-		profileBySelector[entry.selector] = entry.profile
+		chainDefBySelector[entry.selector] = entry.chainDef
 	}
 
 	partialChains := make([]ccipChangesets.PartialChainConfig, 0, len(entries))
 	for _, entry := range entries {
 		remoteChains := make(map[uint64]ccipChangesets.RemoteLaneConfig, len(entry.remoteSelectors))
 		for _, rs := range entry.remoteSelectors {
-			rp := profileBySelector[rs]
-			remoteChains[rs] = ccipChangesets.RemoteLaneConfig{Chain: lanes.ChainDefinition{
-				Selector:                          rs,
-				FeeQuoterDestChainConfigOverrides: rp.FeeQuoterDestChainConfigOverrides,
-				ExecutorDestChainConfig:           rp.ExecutorDestChainConfig,
-				AddressBytesLength:                rp.AddressBytesLength,
-				BaseExecutionGasCost:              rp.BaseExecutionGasCost,
-				DefaultExecutor:                   rp.DefaultExecutor,
-				DefaultInboundCCVs:                rp.DefaultInboundCCVs,
-				DefaultOutboundCCVs:               rp.DefaultOutboundCCVs,
-			}}
+			remoteChains[rs] = ccipChangesets.RemoteLaneConfig{Chain: chainDefBySelector[rs]}
 		}
 
+		cd := entry.chainDef
 		partialChains = append(partialChains, ccipChangesets.PartialChainConfig{
 			ChainSelector:                     entry.selector,
-			CommitteeVerifiers:                entry.profile.CommitteeVerifiers,
-			DefaultInboundCCVs:                entry.profile.DefaultInboundCCVs,
-			DefaultOutboundCCVs:               entry.profile.DefaultOutboundCCVs,
-			DefaultExecutor:                   entry.profile.DefaultExecutor,
-			FeeQuoterDestChainConfigOverrides: entry.profile.FeeQuoterDestChainConfigOverrides,
-			ExecutorDestChainConfig:           entry.profile.ExecutorDestChainConfig,
-			AddressBytesLength:                entry.profile.AddressBytesLength,
-			BaseExecutionGasCost:              entry.profile.BaseExecutionGasCost,
+			CommitteeVerifiers:                entry.committeeVerifiers,
+			DefaultInboundCCVs:                cd.DefaultInboundCCVs,
+			DefaultOutboundCCVs:               cd.DefaultOutboundCCVs,
+			DefaultExecutor:                   cd.DefaultExecutor,
+			FeeQuoterDestChainConfigOverrides: cd.FeeQuoterDestChainConfigOverrides,
+			ExecutorDestChainConfig:           cd.ExecutorDestChainConfig,
+			AddressBytesLength:                cd.AddressBytesLength,
+			BaseExecutionGasCost:              cd.BaseExecutionGasCost,
 			RemoteChains:                      remoteChains,
 		})
 	}
@@ -117,7 +109,7 @@ func connectAllChains(
 	}
 
 	for _, entry := range entries {
-		if err := entry.impl.PostConnect(ctx, e, entry.selector, entry.remoteSelectors); err != nil {
+		if err := entry.impl.PostConnect(e, entry.selector, entry.remoteSelectors); err != nil {
 			return fmt.Errorf("post-connect for chain %d: %w", entry.selector, err)
 		}
 	}

@@ -1310,7 +1310,7 @@ func (m *CCIP17EVM) GetMaxDataBytes(ctx context.Context, remoteChainSelector uin
 	return destChainConfig.MaxDataBytes, nil
 }
 
-func (m *CCIP17EVMConfig) GetConnectionProfile(_ context.Context, _ *deployment.Environment, selector uint64, remoteSelectors []uint64, topology *ccipOffchain.EnvironmentTopology) (cciptestinterfaces.ChainConnectionProfile, error) {
+func (m *CCIP17EVMConfig) GetConnectionProfile(selector uint64, remoteSelectors []uint64, topology *ccipOffchain.EnvironmentTopology) (lanes.ChainDefinition, []ccipChangesets.CommitteeVerifierInputConfig, error) {
 	committeeVerifierRemoteChainConfigs := make(map[uint64]ccipChangesets.CommitteeVerifierRemoteChainConfig)
 	for _, otherSel := range remoteSelectors {
 		committeeVerifierRemoteChainConfigs[otherSel] = ccipChangesets.CommitteeVerifierRemoteChainConfig{
@@ -1327,9 +1327,10 @@ func (m *CCIP17EVMConfig) GetConnectionProfile(_ context.Context, _ *deployment.
 		})
 	}
 
-	return cciptestinterfaces.ChainConnectionProfile{
-		AddressBytesLength:   20,
-		BaseExecutionGasCost: 150_000,
+	chainDef := lanes.ChainDefinition{
+		Selector:                          selector,
+		AddressBytesLength:                20,
+		BaseExecutionGasCost:              150_000,
 		FeeQuoterDestChainConfigOverrides: evmFeeQuoterDestChainConfigOverride(selector),
 		ExecutorDestChainConfig: lanes.ExecutorDestChainConfig{
 			Enabled: true,
@@ -1356,11 +1357,12 @@ func (m *CCIP17EVMConfig) GetConnectionProfile(_ context.Context, _ *deployment.
 				Qualifier:     devenvcommon.DefaultCommitteeVerifierQualifier,
 			},
 		},
-		CommitteeVerifiers: committeeVerifiers,
-	}, nil
+	}
+
+	return chainDef, committeeVerifiers, nil
 }
 
-func (m *CCIP17EVMConfig) PostConnect(_ context.Context, e *deployment.Environment, selector uint64, remoteSelectors []uint64) error {
+func (m *CCIP17EVMConfig) PostConnect(e *deployment.Environment, selector uint64, remoteSelectors []uint64) error {
 	if err := m.ConfigureUSDCAndLombardForTransfer(e, selector, remoteSelectors); err != nil {
 		return fmt.Errorf("configure USDC/Lombard for transfer: %w", err)
 	}

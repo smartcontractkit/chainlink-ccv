@@ -1085,7 +1085,7 @@ func NewEnvironment() (in *Cfg, err error) {
 		}
 	}
 
-	if err := connectAllChains(ctx, impls, in.Blockchains, selectors, e, topology); err != nil {
+	if err := connectAllChains(impls, in.Blockchains, selectors, e, topology); err != nil {
 		return nil, err
 	}
 
