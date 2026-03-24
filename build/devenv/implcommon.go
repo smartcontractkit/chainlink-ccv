@@ -27,6 +27,13 @@ func connectAllChains(
 	e *deployment.Environment,
 	topology *ccipOffchain.EnvironmentTopology,
 ) error {
+	if len(blockchains) != len(impls) {
+		return fmt.Errorf("connectAllChains: mismatched lengths: %d impls and %d blockchains", len(impls), len(blockchains))
+	}
+	if len(selectors) == 0 {
+		return fmt.Errorf("connectAllChains: selectors must be non-empty")
+	}
+
 	type chainEntry struct {
 		selector        uint64
 		remoteSelectors []uint64
@@ -41,7 +48,7 @@ func connectAllChains(
 		if err != nil {
 			return fmt.Errorf("chain %d: %w", i, err)
 		}
-		remotes := make([]uint64, 0, len(selectors)-1)
+		remotes := make([]uint64, 0, len(selectors))
 		for _, sel := range selectors {
 			if sel != networkInfo.ChainSelector {
 				remotes = append(remotes, sel)
@@ -71,10 +78,17 @@ func connectAllChains(
 	for _, entry := range entries {
 		remoteChains := make(map[uint64]ccipChangesets.RemoteLaneConfig, len(entry.remoteSelectors))
 		for _, rs := range entry.remoteSelectors {
-			remoteChains[rs] = ccipChangesets.RemoteLaneConfig{Chain: chainDefBySelector[rs]}
+			remoteDef, ok := chainDefBySelector[rs]
+			if !ok {
+				return fmt.Errorf("missing chain definition for remote selector %d (referenced from chain %d)", rs, entry.selector)
+			}
+			remoteChains[rs] = ccipChangesets.RemoteLaneConfig{Chain: remoteDef}
 		}
 
-		committeeVerifiers := buildCommitteeVerifiers(topology, entry.remoteSelectors, cvConfigBySelector)
+		committeeVerifiers, err := buildCommitteeVerifiers(topology, entry.remoteSelectors, cvConfigBySelector)
+		if err != nil {
+			return fmt.Errorf("build committee verifiers for chain %d: %w", entry.selector, err)
+		}
 
 		cd := entry.chainDef
 		partialChains = append(partialChains, ccipChangesets.PartialChainConfig{
@@ -128,10 +142,14 @@ func buildCommitteeVerifiers(
 	topology *ccipOffchain.EnvironmentTopology,
 	remoteSelectors []uint64,
 	cvConfigBySelector map[uint64]ccipChangesets.CommitteeVerifierRemoteChainConfig,
-) []ccipChangesets.CommitteeVerifierInputConfig {
+) ([]ccipChangesets.CommitteeVerifierInputConfig, error) {
 	remoteChainConfigs := make(map[uint64]ccipChangesets.CommitteeVerifierRemoteChainConfig, len(remoteSelectors))
 	for _, rs := range remoteSelectors {
-		remoteChainConfigs[rs] = cvConfigBySelector[rs]
+		cfg, ok := cvConfigBySelector[rs]
+		if !ok {
+			return nil, fmt.Errorf("missing committee verifier config for remote selector %d", rs)
+		}
+		remoteChainConfigs[rs] = cfg
 	}
 
 	verifiers := make([]ccipChangesets.CommitteeVerifierInputConfig, 0, len(topology.NOPTopology.Committees))
@@ -142,5 +160,5 @@ func buildCommitteeVerifiers(
 		})
 	}
 
-	return verifiers
+	return verifiers, nil
 }
