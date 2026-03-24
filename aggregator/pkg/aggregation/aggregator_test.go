@@ -7,16 +7,56 @@ import (
 	"testing"
 	"time"
 
+	ethcommon "github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/quorum"
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/testutil"
 	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
 )
+
+func exportableAggregationFixture(t *testing.T, ctx context.Context) (
+	exportConfig *model.AggregatorConfig,
+	blockedConfig *model.AggregatorConfig,
+	records []*model.CommitVerificationRecord,
+	msgID model.MessageID,
+	aggKey model.AggregationKey,
+) {
+	t.Helper()
+	sourceVerifierAddress, destVerifierAddress := testutil.GenerateVerifierAddresses(t)
+	signer := testutil.NewSignerFixture(t, "n1")
+	exportCommittee := testutil.NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress, signer.Signer)
+	testutil.UpdateCommitteeQuorumWithThreshold(exportCommittee, sourceVerifierAddress, 1, signer.Signer)
+
+	blockedCommittee := &model.Committee{}
+	testutil.UpdateCommitteeQuorumWithThreshold(blockedCommittee, sourceVerifierAddress, 1, signer.Signer)
+	blockedCommittee.DestinationVerifiers = map[string]string{
+		"999": ethcommon.BytesToAddress(destVerifierAddress).Hex(),
+	}
+	require.NoError(t, (&model.AggregatorConfig{Committee: blockedCommittee}).ValidateCommitteeConfig())
+
+	agg := model.AggregationConfig{ChannelBufferSize: 1, BackgroundWorkerCount: 1}
+	exportConfig = &model.AggregatorConfig{Committee: exportCommittee, Aggregation: agg}
+	blockedConfig = &model.AggregatorConfig{Committee: blockedCommittee, Aggregation: agg}
+
+	validator := quorum.NewQuorumValidator(exportConfig, logger.Sugared(logger.Test(t)))
+	message := testutil.NewProtocolMessage(t)
+	protoMsg, msgFull := testutil.NewMessageWithCCVNodeData(t, message, sourceVerifierAddress, testutil.WithSignatureFrom(t, signer))
+	record, err := model.CommitVerificationRecordFromProto(protoMsg)
+	require.NoError(t, err)
+	sigResult, err := validator.ValidateSignature(ctx, record)
+	require.NoError(t, err)
+	record.SignerIdentifier = sigResult.Signer
+	aggKey, err = validator.DeriveAggregationKey(ctx, record)
+	require.NoError(t, err)
+	return exportConfig, blockedConfig, []*model.CommitVerificationRecord{record}, msgFull[:], aggKey
+}
 
 func TestShouldSkipAggregationDueToExistingQuorum(t *testing.T) {
 	messageID := model.MessageID{1, 2, 3}
@@ -333,6 +373,12 @@ func TestCheckAggregationAndSubmitComplete(t *testing.T) {
 		AggregationKey: aggregationKey,
 	}
 
+	exportConfig, blockedConfig, exportRecords, exportMsgID, exportAggKey := exportableAggregationFixture(t, ctx)
+	exportRequest := aggregationRequest{
+		MessageID:      exportMsgID,
+		AggregationKey: exportAggKey,
+	}
+
 	t.Run("list error", func(t *testing.T) {
 		storage := mocks.NewMockCommitVerificationStore(t)
 		storage.EXPECT().ListCommitVerificationByAggregationKey(ctx, msgID, aggregationKey).Return(nil, errors.New("boom"))
@@ -367,7 +413,7 @@ func TestCheckAggregationAndSubmitComplete(t *testing.T) {
 
 	t.Run("quorum met submits and records metrics", func(t *testing.T) {
 		storage := mocks.NewMockCommitVerificationStore(t)
-		storage.EXPECT().ListCommitVerificationByAggregationKey(ctx, msgID, aggregationKey).Return([]*model.CommitVerificationRecord{}, nil)
+		storage.EXPECT().ListCommitVerificationByAggregationKey(ctx, exportMsgID, exportAggKey).Return(exportRecords, nil)
 		quorum := mocks.NewMockQuorumValidator(t)
 		quorum.EXPECT().CheckQuorum(ctx, mock.Anything).Return(true, nil).Maybe()
 		sink := mocks.NewMockSink(t)
@@ -380,16 +426,15 @@ func TestCheckAggregationAndSubmitComplete(t *testing.T) {
 		metric.EXPECT().IncrementCompletedAggregations(ctx)
 		metric.EXPECT().RecordTimeToAggregation(ctx, mock.Anything)
 
-		config := &model.AggregatorConfig{Aggregation: model.AggregationConfig{ChannelBufferSize: 1, BackgroundWorkerCount: 1}}
-		channelManager := NewChannelManager([]model.ChannelKey{}, config.Aggregation.ChannelBufferSize)
-		a := NewCommitReportAggregator(storage, nil, sink, quorum, config, logger.Sugared(logger.Test(t)), monitoring, channelManager)
-		err := a.checkAggregationAndSubmitComplete(ctx, request)
+		channelManager := NewChannelManager([]model.ChannelKey{}, exportConfig.Aggregation.ChannelBufferSize)
+		a := NewCommitReportAggregator(storage, nil, sink, quorum, exportConfig, logger.Sugared(logger.Test(t)), monitoring, channelManager)
+		err := a.checkAggregationAndSubmitComplete(ctx, exportRequest)
 		require.NoError(t, err)
 	})
 
 	t.Run("quorum met submit error", func(t *testing.T) {
 		storage := mocks.NewMockCommitVerificationStore(t)
-		storage.EXPECT().ListCommitVerificationByAggregationKey(ctx, msgID, aggregationKey).Return([]*model.CommitVerificationRecord{}, nil)
+		storage.EXPECT().ListCommitVerificationByAggregationKey(ctx, exportMsgID, exportAggKey).Return(exportRecords, nil)
 		quorum := mocks.NewMockQuorumValidator(t)
 		quorum.EXPECT().CheckQuorum(ctx, mock.Anything).Return(true, nil).Maybe()
 		sink := mocks.NewMockSink(t)
@@ -398,12 +443,51 @@ func TestCheckAggregationAndSubmitComplete(t *testing.T) {
 		monitoring := mocks.NewMockAggregatorMonitoring(t)
 		metric := mocks.NewMockAggregatorMetricLabeler(t)
 		monitoring.EXPECT().Metrics().Return(metric).Maybe()
+		metric.EXPECT().With("component", "aggregator_worker").Return(metric).Maybe()
 
-		config := &model.AggregatorConfig{Aggregation: model.AggregationConfig{ChannelBufferSize: 1, BackgroundWorkerCount: 1}}
+		channelManager := NewChannelManager([]model.ChannelKey{}, exportConfig.Aggregation.ChannelBufferSize)
+		a := NewCommitReportAggregator(storage, nil, sink, quorum, exportConfig, logger.Sugared(logger.Test(t)), monitoring, channelManager)
+		err := a.checkAggregationAndSubmitComplete(ctx, exportRequest)
+		require.Error(t, err)
+	})
+
+	t.Run("quorum met_missing_destination_increments_blocked_unexportable_and_does_not_submit", func(t *testing.T) {
+		storage := mocks.NewMockCommitVerificationStore(t)
+		storage.EXPECT().ListCommitVerificationByAggregationKey(ctx, exportMsgID, exportAggKey).Return(exportRecords, nil)
+		quorum := mocks.NewMockQuorumValidator(t)
+		quorum.EXPECT().CheckQuorum(ctx, mock.Anything).Return(true, nil).Maybe()
+		sink := mocks.NewMockSink(t)
+
+		monitoring := mocks.NewMockAggregatorMonitoring(t)
+		metric := mocks.NewMockAggregatorMetricLabeler(t)
+		monitoring.EXPECT().Metrics().Return(metric).Maybe()
+		metric.EXPECT().With("component", "aggregator_worker").Return(metric).Maybe()
+		metric.EXPECT().IncrementAggregationsBlockedUnexportable(ctx)
+
+		channelManager := NewChannelManager([]model.ChannelKey{}, blockedConfig.Aggregation.ChannelBufferSize)
+		a := NewCommitReportAggregator(storage, nil, sink, quorum, blockedConfig, logger.Sugared(logger.Test(t)), monitoring, channelManager)
+		err := a.checkAggregationAndSubmitComplete(ctx, exportRequest)
+		require.NoError(t, err)
+	})
+
+	t.Run("quorum met_nil_committee_increments_blocked_unexportable_and_does_not_submit", func(t *testing.T) {
+		storage := mocks.NewMockCommitVerificationStore(t)
+		storage.EXPECT().ListCommitVerificationByAggregationKey(ctx, exportMsgID, exportAggKey).Return(exportRecords, nil)
+		quorum := mocks.NewMockQuorumValidator(t)
+		quorum.EXPECT().CheckQuorum(ctx, mock.Anything).Return(true, nil).Maybe()
+		sink := mocks.NewMockSink(t)
+
+		monitoring := mocks.NewMockAggregatorMonitoring(t)
+		metric := mocks.NewMockAggregatorMetricLabeler(t)
+		monitoring.EXPECT().Metrics().Return(metric).Maybe()
+		metric.EXPECT().With("component", "aggregator_worker").Return(metric).Maybe()
+		metric.EXPECT().IncrementAggregationsBlockedUnexportable(ctx)
+
+		config := &model.AggregatorConfig{Aggregation: exportConfig.Aggregation}
 		channelManager := NewChannelManager([]model.ChannelKey{}, config.Aggregation.ChannelBufferSize)
 		a := NewCommitReportAggregator(storage, nil, sink, quorum, config, logger.Sugared(logger.Test(t)), monitoring, channelManager)
-		err := a.checkAggregationAndSubmitComplete(ctx, request)
-		require.Error(t, err)
+		err := a.checkAggregationAndSubmitComplete(ctx, exportRequest)
+		require.NoError(t, err)
 	})
 
 	t.Run("quorum not met", func(t *testing.T) {
