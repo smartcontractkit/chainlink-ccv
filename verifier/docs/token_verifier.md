@@ -154,8 +154,8 @@ The full domain table is defined in `verifier/pkg/token/cctp/consts.go`.
 Unlike Lombard, CCTP fetches attestations per message (not batched):
 
 ```
-GET <attestation_api>/<sourceDomain>/<txHash>
-# e.g. https://iris-api-sandbox.circle.com/v2/messages/1/0xabc123...
+GET <attestation_api>/<sourceDomain>?transactionHash=<txHash>
+# e.g. https://iris-api-sandbox.circle.com/v2/messages/1?transactionHash=0xabc123...
 ```
 
 The response contains potentially multiple CCTP messages from the same transaction. The verifier iterates through them and applies matching criteria to find the correct one.
