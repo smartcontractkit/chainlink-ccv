@@ -212,7 +212,7 @@ type OnChainConfigurable interface {
 	// lane destination, plus the default committee verifier config to apply for
 	// each remote chain. The environment uses profiles from all chains to
 	// assemble the full cross-chain connection config.
-	GetConnectionProfile(selector uint64) (lanes.ChainDefinition, v1_7_0.CommitteeVerifierRemoteChainConfig, error)
+	GetConnectionProfile(env *deployment.Environment, selector uint64) (lanes.ChainDefinition, v1_7_0.CommitteeVerifierRemoteChainConfig, error)
 	// PostConnect runs chain-specific setup after all chains have been connected
 	// (e.g. USDC/Lombard token config, custom executor wiring).
 	PostConnect(env *deployment.Environment, selector uint64, remoteSelectors []uint64) error

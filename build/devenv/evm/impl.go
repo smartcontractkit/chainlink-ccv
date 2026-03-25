@@ -1310,7 +1310,7 @@ func (m *CCIP17EVM) GetMaxDataBytes(ctx context.Context, remoteChainSelector uin
 	return destChainConfig.MaxDataBytes, nil
 }
 
-func (m *CCIP17EVMConfig) GetConnectionProfile(selector uint64) (lanes.ChainDefinition, ccipChangesets.CommitteeVerifierRemoteChainConfig, error) {
+func (m *CCIP17EVMConfig) GetConnectionProfile(_ *deployment.Environment, selector uint64) (lanes.ChainDefinition, ccipChangesets.CommitteeVerifierRemoteChainConfig, error) {
 	chainDef := lanes.ChainDefinition{
 		Selector:                          selector,
 		AddressBytesLength:                20,
