@@ -4,17 +4,18 @@ This document describes the Verifier component in CCIP 2.0. The Verifier is resp
 
 # Overview
 
-The Verifier architecture separates **orchestration** from **verification logic**:
+The Verifier is built around a **Coordinator** that owns a three-stage durable processing pipeline:
 
-* **Coordinator**: Chain-agnostic orchestration layer that manages a three-stage durable processing pipeline across multiple source chains
-* **SourceReaderService**: Per-chain component that handles event discovery, reorg detection, finality checking, curse filtering, and message readiness
-* **Verifier Interface**: Pluggable verification logic that implements verifier-specific validation and signing
+* **SourceReaderService**: Per-chain component that handles event discovery, reorg detection, finality checking, and curse filtering. One instance per source chain.
+* **TaskVerifier Processor**: Consumes ready tasks from the queue and calls a pluggable **`Verifier`** implementation. The `Verifier` contains the business logic specific to the verification type — committee signing, Lombard attestation, CCTP attestation, or any custom strategy.
+* **StorageWriter Processor**: Writes verified results to a pluggable **storage backend** (`protocol.CCVNodeDataWriter`). The storage can be the Aggregator (for committee verifiers), a local database (for token verifiers), or any other implementation.
 
-This separation enables:
+This design enables:
 
-* **Chain Independence**: Each source chain has its own isolated `SourceReaderService` instance that encapsulates all chain-specific logic
-* **Verification Flexibility**: Different verification strategies (committee-based, attestation-based, etc.) can plug into the same coordinator
-* **Durability**: All pipeline stages communicate via PostgreSQL-backed job queues, so in-flight work survives process restarts
+* **Chain Independence**: Each source chain has its own isolated `SourceReaderService` instance; chains do not interfere with each other
+* **Pluggable Verification**: Any verification strategy can be used by implementing the `Verifier` interface and passing it to the Coordinator
+* **Pluggable Storage**: Any storage backend can be used by implementing `protocol.CCVNodeDataWriter` and passing it to the Coordinator
+* **Durability**: All three stages communicate via PostgreSQL-backed job queues, so in-flight work survives process restarts
 
 Each verifier is a security-critical component in the CCIP system. Multiple independent verifiers can operate on the same messages.
 
