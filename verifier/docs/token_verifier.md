@@ -342,8 +342,8 @@ Each `[[token_verifiers]]` block requires `type`, `version`, and `verifier_id`. 
 verifier_id = "cctp-mainnet"
 type        = "cctp"
 version     = "2.0"
-# Full API call: GET <attestation_api>/<sourceDomain>/<txHash>
-attestation_api         = "https://iris-api-sandbox.circle.com/v2/messages/"
+# Full API call: GET <attestation_api>/v2/messages/<sourceDomain>/<txHash>
+attestation_api         = "https://iris-api-sandbox.circle.com"
 attestation_api_timeout = "2s"
 verifier_version        = "0x35a25838"
 
