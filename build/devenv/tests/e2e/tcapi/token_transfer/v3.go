@@ -15,6 +15,7 @@ import (
 	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/evm/tokenconfig"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/tcapi"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
@@ -29,7 +30,7 @@ type tokenTransferV3TestCaseBase struct {
 	name            string
 	src             cciptestinterfaces.CCIP17
 	dst             cciptestinterfaces.CCIP17
-	combo           common.TokenCombination
+	combo           tokenconfig.TokenCombination
 	finalityConfig  uint16
 	useEOAReceiver  bool
 	numExpectedRecv int
@@ -166,11 +167,11 @@ func getTokenAddress(cfg *ccv.Cfg, chainSelector uint64, qualifier string) (prot
 }
 
 // TokenTransfer returns a single token transfer test case for the given combo, finality, receiver type, and name.
-func TokenTransfer(src, dest cciptestinterfaces.CCIP17, combo common.TokenCombination, finalityConfig uint16, useEOAReceiver bool, name string) tcapi.TestCase {
+func TokenTransfer(src, dest cciptestinterfaces.CCIP17, combo tokenconfig.TokenCombination, finalityConfig uint16, useEOAReceiver bool, name string) tcapi.TestCase {
 	return tokenTransferCase(src, dest, combo, finalityConfig, useEOAReceiver, name)
 }
 
-func tokenTransferCase(src, dest cciptestinterfaces.CCIP17, combo common.TokenCombination, finalityConfig uint16, useEOAReceiver bool, name string) *tokenTransferV3TestCase {
+func tokenTransferCase(src, dest cciptestinterfaces.CCIP17, combo tokenconfig.TokenCombination, finalityConfig uint16, useEOAReceiver bool, name string) *tokenTransferV3TestCase {
 	return &tokenTransferV3TestCase{
 		tokenTransferV3TestCaseBase: tokenTransferV3TestCaseBase{
 			name:            name,
@@ -217,8 +218,8 @@ func tokenTransferCase(src, dest cciptestinterfaces.CCIP17, combo common.TokenCo
 
 // All returns test cases for all token combinations with EOA receiver and combo finality.
 func All(src, dest cciptestinterfaces.CCIP17) []tcapi.TestCase {
-	out := make([]tcapi.TestCase, 0, len(common.AllTokenCombinations()))
-	for _, combo := range common.AllTokenCombinations() {
+	out := make([]tcapi.TestCase, 0, len(tokenconfig.AllTokenCombinations()))
+	for _, combo := range tokenconfig.AllTokenCombinations() {
 		name := fmt.Sprintf("token transfer EOA (%s)", combo.SourcePoolAddressRef().Qualifier)
 		out = append(out, tokenTransferCase(src, dest, combo, combo.FinalityConfig(), true, name))
 	}
@@ -227,7 +228,7 @@ func All(src, dest cciptestinterfaces.CCIP17) []tcapi.TestCase {
 
 // All17 returns test cases for 1.7.0 token combinations: EOA and mock receiver with default finality (0).
 func All17(src, dest cciptestinterfaces.CCIP17) []tcapi.TestCase {
-	combos := common.All17TokenCombinations()
+	combos := tokenconfig.All17TokenCombinations()
 	out := make([]tcapi.TestCase, 0, len(combos)*2)
 	for _, combo := range combos {
 		qual := combo.SourcePoolAddressRef().Qualifier

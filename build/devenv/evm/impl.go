@@ -57,6 +57,7 @@ import (
 	ccipOffchain "github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/offchain"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/evm/tokenconfig"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/lombard"
 	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm"
@@ -913,6 +914,10 @@ func (m *CCIP17EVMConfig) ChainFamily() string {
 	return chainsel.FamilyEVM
 }
 
+func (m *CCIP17EVMConfig) GetTokenPoolOfferings(selector uint64, topology *ccipOffchain.EnvironmentTopology) []cciptestinterfaces.TokenPoolOffering {
+	return tokenconfig.GetTokenPoolOfferings(selector, topology)
+}
+
 // BumpDeployerNonce sends count zero-value self-transfers from the deployer so that subsequent
 // contract deployments get different addresses than on chains with a lower index. Implements
 // cciptestinterfaces.DeployerNonceBumper.
@@ -1179,7 +1184,7 @@ func (m *CCIP17EVMConfig) DeployContractsForSelector(ctx context.Context, env *d
 	}
 	env.DataStore = runningDS.Seal()
 
-	applicableCombos := devenvcommon.FilterTokenCombinations(devenvcommon.AllTokenCombinations(), topology)
+	applicableCombos := tokenconfig.FilterTokenCombinations(tokenconfig.AllTokenCombinations(), topology)
 	for _, combo := range applicableCombos {
 		// For any given token combination, every chain needs to support the source and destination pools.
 		if err := m.deployTokenAndPool(env, mcmsReaderRegistry, runningDS, selector, combo.SourcePoolAddressRef()); err != nil {

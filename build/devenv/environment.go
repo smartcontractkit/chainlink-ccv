@@ -23,8 +23,6 @@ import (
 	chainsel "github.com/smartcontractkit/chain-selectors"
 
 	_ "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v2_0_0/adapters"
-	tokenscore "github.com/smartcontractkit/chainlink-ccip/deployment/tokens"
-	changesetscore "github.com/smartcontractkit/chainlink-ccip/deployment/utils/changesets"
 	ccipAdapters "github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/adapters"
 	ccipChangesets "github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/changesets"
 	ccipOffchain "github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/offchain"
@@ -37,7 +35,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/chainconfig"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/committeeverifier"
-	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tokenconfig"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/util"
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
@@ -1059,30 +1056,8 @@ func NewEnvironment() (in *Cfg, err error) {
 	// START: Connect chains to each other //
 	/////////////////////////////////////////
 
-	// ConfigureTokensForTransfers must run first so token pools (including those used by CCTP/Lombard)
-	// have remote chain allowlists set. Otherwise sends can revert with custom error 0xa9902c7e (chain
-	// not allowed), where the error argument is the destination chain selector.
-	// Call it once per pool-identity group (e.g. all chains' configs for "BurnMintTokenPool 2.0.0 default"):
-	// an internal mapping is keyed such that the last config in the list gets the index for a given chain
-	// selector, so we invoke once per setup with all counterpart configs (same pool type on every chain)
-	// so remote tokens and mapping slots are correct.
-	allTokenConfigs := tokenconfig.BuildTokenTransferConfigs(topology, selectors)
-	if len(allTokenConfigs) > 0 {
-		byPoolIdentity := make(map[string][]tokenscore.TokenTransferConfig)
-		for i := range allTokenConfigs {
-			key := tokenconfig.PoolIdentityKey(&allTokenConfigs[i])
-			byPoolIdentity[key] = append(byPoolIdentity[key], allTokenConfigs[i])
-		}
-		tokenAdapterRegistry := tokenscore.GetTokenAdapterRegistry()
-		mcmsReaderRegistry := changesetscore.GetRegistry()
-		for _, group := range byPoolIdentity {
-			_, err = tokenscore.ConfigureTokensForTransfers(tokenAdapterRegistry, mcmsReaderRegistry).Apply(*e, tokenscore.ConfigureTokensForTransfersConfig{
-				Tokens: group,
-			})
-			if err != nil {
-				return nil, fmt.Errorf("configure tokens for transfers: %w", err)
-			}
-		}
+	if err := configureTokenTransfers(impls, in.Blockchains, selectors, e, topology); err != nil {
+		return nil, err
 	}
 
 	if err := connectAllChains(impls, in.Blockchains, selectors, e, topology); err != nil {

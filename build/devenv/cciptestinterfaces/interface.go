@@ -218,6 +218,26 @@ type OnChainConfigurable interface {
 	PostConnect(env *deployment.Environment, selector uint64, remoteSelectors []uint64) error
 }
 
+// TokenPoolOffering describes a single token pool that a chain makes available
+// for cross-chain transfers. Each chain impl returns its own offerings using
+// chain-specific contract types; the orchestrator matches compatible pools
+// across families without any chain-specific knowledge.
+type TokenPoolOffering struct {
+	PoolRef               datastore.AddressRef
+	RegistryRef           datastore.AddressRef
+	CCVRefs               []datastore.AddressRef
+	Role                  string // e.g. "burn-mint", "lock-release"
+	CompatibleRemoteRoles []string
+	MinFinalityValue      uint16
+}
+
+// TokenTransferConfigProvider is an optional interface. When implemented, devenv
+// collects token pool offerings and builds cross-chain transfer configs.
+// Chain families that don't have token pools ready yet simply omit this.
+type TokenTransferConfigProvider interface {
+	GetTokenPoolOfferings(selector uint64, topology *offchain.EnvironmentTopology) []TokenPoolOffering
+}
+
 // DeployerNonceBumper is an optional interface. When implemented, devenv calls it before
 // DeployContractsForSelector so that contract addresses differ across chains (e.g. by sending
 // dummy self-transfers to bump the deployer nonce). This helps smoke tests catch bugs where

@@ -3,15 +3,19 @@ package ccv
 import (
 	"context"
 	"fmt"
+	"maps"
+	"slices"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 
 	"github.com/smartcontractkit/chainlink-ccip/deployment/lanes"
+	tokenscore "github.com/smartcontractkit/chainlink-ccip/deployment/tokens"
 	changesetscore "github.com/smartcontractkit/chainlink-ccip/deployment/utils/changesets"
 	ccipAdapters "github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/adapters"
 	ccipChangesets "github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/changesets"
 	ccipOffchain "github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/offchain"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
+	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
@@ -161,4 +165,133 @@ func buildCommitteeVerifiers(
 	}
 
 	return verifiers, nil
+}
+
+// configureTokenTransfers collects token pool offerings from every impl that
+// implements TokenTransferConfigProvider, matches compatible offerings across
+// chain pairs, and applies the resulting configs. Impls that don't support
+// tokens (e.g. Canton) are silently skipped.
+func configureTokenTransfers(
+	impls []cciptestinterfaces.CCIP17Configuration,
+	blockchains []*blockchain.Input,
+	selectors []uint64,
+	e *deployment.Environment,
+	topology *ccipOffchain.EnvironmentTopology,
+) error {
+	type chainOfferings struct {
+		selector  uint64
+		offerings []cciptestinterfaces.TokenPoolOffering
+	}
+
+	var all []chainOfferings
+	for i, impl := range impls {
+		provider, ok := impl.(cciptestinterfaces.TokenTransferConfigProvider)
+		if !ok {
+			continue
+		}
+		networkInfo, err := chainsel.GetChainDetailsByChainIDAndFamily(blockchains[i].ChainID, impl.ChainFamily())
+		if err != nil {
+			return fmt.Errorf("chain %d: %w", i, err)
+		}
+		offs := provider.GetTokenPoolOfferings(networkInfo.ChainSelector, topology)
+		if len(offs) > 0 {
+			all = append(all, chainOfferings{selector: networkInfo.ChainSelector, offerings: offs})
+		}
+	}
+
+	if len(all) == 0 {
+		return nil
+	}
+
+	// Match compatible offerings across every chain pair and build symmetric
+	// TokenTransferConfig entries.
+	var allTokenConfigs []tokenscore.TokenTransferConfig
+	for i, a := range all {
+		for j, b := range all {
+			if i == j {
+				continue
+			}
+			for _, oa := range a.offerings {
+				for _, ob := range b.offerings {
+					if !rolesCompatible(oa, ob) {
+						continue
+					}
+					allTokenConfigs = append(allTokenConfigs, buildTokenTransferConfigFromOfferings(a.selector, b.selector, oa, ob))
+				}
+			}
+		}
+	}
+
+	if len(allTokenConfigs) == 0 {
+		return nil
+	}
+
+	byPoolIdentity := make(map[string][]tokenscore.TokenTransferConfig)
+	for i := range allTokenConfigs {
+		key := poolIdentityKey(&allTokenConfigs[i])
+		byPoolIdentity[key] = append(byPoolIdentity[key], allTokenConfigs[i])
+	}
+
+	// Merge configs for the same pool (different remotes) into a single entry.
+	merged := make(map[string]tokenscore.TokenTransferConfig, len(byPoolIdentity))
+	for key, group := range byPoolIdentity {
+		m := group[0]
+		for _, g := range group[1:] {
+			maps.Copy(m.RemoteChains, g.RemoteChains)
+		}
+		merged[key] = m
+	}
+
+	tokenAdapterRegistry := tokenscore.GetTokenAdapterRegistry()
+	mcmsReaderRegistry := changesetscore.GetRegistry()
+	for _, cfg := range merged {
+		_, err := tokenscore.ConfigureTokensForTransfers(tokenAdapterRegistry, mcmsReaderRegistry).Apply(*e, tokenscore.ConfigureTokensForTransfersConfig{
+			Tokens: []tokenscore.TokenTransferConfig{cfg},
+		})
+		if err != nil {
+			return fmt.Errorf("configure tokens for transfers: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// rolesCompatible checks mutual role compatibility between two offerings.
+func rolesCompatible(a, b cciptestinterfaces.TokenPoolOffering) bool {
+	return slices.Contains(b.CompatibleRemoteRoles, a.Role) && slices.Contains(a.CompatibleRemoteRoles, b.Role)
+}
+
+// buildTokenTransferConfigFromOfferings builds a TokenTransferConfig for the
+// local chain using the local offering's pool/registry/CCVs and the remote
+// offering's pool ref.
+func buildTokenTransferConfigFromOfferings(
+	localSelector, remoteSelector uint64,
+	local, remote cciptestinterfaces.TokenPoolOffering,
+) tokenscore.TokenTransferConfig {
+	remotePool := remote.PoolRef
+	return tokenscore.TokenTransferConfig{
+		ChainSelector: localSelector,
+		TokenPoolRef:  local.PoolRef,
+		RegistryRef:   local.RegistryRef,
+		RemoteChains: map[uint64]tokenscore.RemoteChainConfig[*datastore.AddressRef, datastore.AddressRef]{
+			remoteSelector: {
+				RemotePool:                               &remotePool,
+				DefaultFinalityInboundRateLimiterConfig:  tokenscore.RateLimiterConfigFloatInput{IsEnabled: false},
+				DefaultFinalityOutboundRateLimiterConfig: tokenscore.RateLimiterConfigFloatInput{IsEnabled: false},
+				CustomFinalityInboundRateLimiterConfig:   tokenscore.RateLimiterConfigFloatInput{IsEnabled: false},
+				CustomFinalityOutboundRateLimiterConfig:  tokenscore.RateLimiterConfigFloatInput{IsEnabled: false},
+				OutboundCCVs:                             local.CCVRefs,
+				InboundCCVs:                              local.CCVRefs,
+			},
+		},
+		MinFinalityValue: local.MinFinalityValue,
+	}
+}
+
+func poolIdentityKey(cfg *tokenscore.TokenTransferConfig) string {
+	v := ""
+	if cfg.TokenPoolRef.Version != nil {
+		v = cfg.TokenPoolRef.Version.String()
+	}
+	return fmt.Sprintf("%d\x00%s\x00%s\x00%s", cfg.ChainSelector, string(cfg.TokenPoolRef.Type), v, cfg.TokenPoolRef.Qualifier)
 }
