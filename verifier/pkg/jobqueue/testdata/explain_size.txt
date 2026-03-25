@@ -1,0 +1,13 @@
+=== EXPLAIN ANALYZE: size ===
+Aggregate  (cost=1273.32..1273.33 rows=1 width=8) (actual time=4.399..4.400 rows=1 loops=1)
+  Output: count(*)
+  Buffers: shared hit=53
+  ->  Index Only Scan using idx_ccv_task_verifier_jobs_status on public.ccv_task_verifier_jobs  (cost=0.29..1146.38 rows=50775 width=0) (actual time=0.025..2.405 rows=50700 loops=1)
+        Output: owner_id, status
+        Index Cond: ((ccv_task_verifier_jobs.owner_id = 'explain-owner'::text) AND (ccv_task_verifier_jobs.status = ANY ('{pending,processing}'::text[])))
+        Heap Fetches: 223
+        Buffers: shared hit=53
+Planning:
+  Buffers: shared hit=8 read=1
+Planning Time: 0.094 ms
+Execution Time: 4.421 ms

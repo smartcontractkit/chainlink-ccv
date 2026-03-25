@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"math/big"
 	"time"
 
@@ -130,54 +131,125 @@ func (q *PostgresJobQueue[T]) PublishWithDelay(ctx context.Context, delay time.D
 
 // Consume retrieves and locks jobs for processing.
 // Jobs stuck in 'processing' longer than the configured LockDuration are automatically reclaimed.
+//
+// Two separate queries replace the former single OR query. Combining both predicates
+// (pending + stale-processing) in one OR forced a full Seq Scan + external-merge disk sort
+// on every poll because the planner could not use either partial index. Each query below
+// targets its own dedicated partial index and allows Postgres to stream rows in index order
+// with FOR UPDATE SKIP LOCKED — O(batchSize) instead of O(table size).
 func (q *PostgresJobQueue[T]) Consume(ctx context.Context, batchSize int) ([]Job[T], error) {
 	now := time.Now()
 	staleBefore := now.Add(-q.config.LockDuration)
 
-	// Select jobs that are:
-	// 1. pending and past their available_at, OR
-	// 2. processing but started_at is older than lockDuration (stale lock from crashed worker)
-	// Note: Failed jobs are NOT consumed - they remain in the table until archived or cleaned up.
-	query := fmt.Sprintf(`
-		UPDATE %s
+	// Phase 1: pending jobs — uses idx_consume (owner_id, available_at, id) WHERE status='pending'
+	pendingQuery := fmt.Sprintf(`
+		UPDATE %[1]s
 		SET status = $1,
-			started_at = $2,
-			attempt_count = attempt_count + 1
+		    started_at = $2,
+		    attempt_count = attempt_count + 1
 		WHERE id IN (
-			SELECT id FROM %s
-			WHERE owner_id = $3
-			  AND (
-			    (status = $4 AND available_at <= $5)
-			    OR
-			    (status = $6 AND started_at IS NOT NULL AND started_at <= $7)
-			  )
-			ORDER BY available_at ASC, id ASC
-			LIMIT $8
-			FOR UPDATE SKIP LOCKED
+		    SELECT id FROM %[1]s
+		    WHERE owner_id = $3
+		      AND status = $4
+		      AND available_at <= $5
+		    ORDER BY available_at ASC, id ASC
+		    LIMIT $6
+		    FOR UPDATE SKIP LOCKED
 		)
 		RETURNING id, job_id, task_data, attempt_count, retry_deadline, created_at, started_at, chain_selector, message_id
-	`, q.tableName, q.tableName)
+	`, q.tableName)
 
-	rows, err := q.ds.QueryContext(ctx, query,
+	jobs, failedToDeserialize, err := q.runConsumeQuery(ctx, pendingQuery,
 		JobStatusProcessing, // $1
 		now,                 // $2 started_at
 		q.ownerID,           // $3
 		JobStatusPending,    // $4
 		now,                 // $5 available_at <=
-		JobStatusProcessing, // $6 stale processing
-		staleBefore,         // $7 started_at <=
-		batchSize,           // $8
+		batchSize,           // $6
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to consume jobs: %w", err)
+		return nil, fmt.Errorf("failed to consume pending jobs: %w", err)
 	}
-	defer func() {
-		_ = rows.Close()
-	}()
+
+	// Phase 2: reclaim stale processing jobs (crashed-worker recovery).
+	// Only runs when the pending batch is not full — the common case since stale jobs
+	// only appear after worker crashes. Uses idx_stale (owner_id, started_at, id)
+	// WHERE status='processing' AND started_at IS NOT NULL.
+	if remaining := batchSize - len(jobs); remaining > 0 {
+		staleQuery := fmt.Sprintf(`
+			UPDATE %[1]s
+			SET status = $1,
+			    started_at = $2,
+			    attempt_count = attempt_count + 1
+			WHERE id IN (
+			    SELECT id FROM %[1]s
+			    WHERE owner_id = $3
+			      AND status = $4
+			      AND started_at IS NOT NULL
+			      AND started_at <= $5
+			    ORDER BY started_at ASC, id ASC
+			    LIMIT $6
+			    FOR UPDATE SKIP LOCKED
+			)
+			RETURNING id, job_id, task_data, attempt_count, retry_deadline, created_at, started_at, chain_selector, message_id
+		`, q.tableName)
+
+		staleJobs, staleFailures, err := q.runConsumeQuery(ctx, staleQuery,
+			JobStatusProcessing, // $1
+			now,                 // $2 started_at
+			q.ownerID,           // $3
+			JobStatusProcessing, // $4
+			staleBefore,         // $5 started_at <=
+			remaining,           // $6
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to reclaim stale jobs: %w", err)
+		}
+		jobs = append(jobs, staleJobs...)
+		maps.Copy(failedToDeserialize, staleFailures)
+	}
+
+	// Mark jobs that failed to deserialize as permanently failed
+	// to prevent them from being stuck in 'processing' state forever.
+	if len(failedToDeserialize) > 0 {
+		failedJobIDs := make([]string, 0, len(failedToDeserialize))
+		for jobID := range failedToDeserialize {
+			failedJobIDs = append(failedJobIDs, jobID)
+		}
+
+		q.logger.Errorw("Jobs failed to deserialize, marking as failed",
+			"count", len(failedJobIDs),
+			"queue", q.config.Name,
+		)
+
+		if err := q.Fail(ctx, failedToDeserialize, failedJobIDs...); err != nil {
+			q.logger.Errorw("Failed to mark deserialization-failed jobs as failed",
+				"error", err,
+				"count", len(failedJobIDs),
+			)
+		}
+	}
+
+	q.logger.Debugw("Consumed jobs from queue",
+		"queue", q.config.Name,
+		"count", len(jobs),
+		"requested", batchSize,
+	)
+
+	return jobs, nil
+}
+
+// runConsumeQuery executes a consume UPDATE query and scans the RETURNING rows into
+// Job[T] values. Jobs that fail to deserialize are returned in a separate map so the
+// caller can immediately archive them as permanently failed.
+func (q *PostgresJobQueue[T]) runConsumeQuery(ctx context.Context, query string, args ...any) ([]Job[T], map[string]error, error) {
+	rows, err := q.ds.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to execute consume query: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
 
 	var jobs []Job[T]
-	// Track jobs that fail to deserialize - they need to be marked as failed
-	// to prevent them from being stuck in 'processing' state forever
 	failedToDeserialize := make(map[string]error)
 
 	for rows.Next() {
@@ -196,12 +268,11 @@ func (q *PostgresJobQueue[T]) Consume(ctx context.Context, batchSize int) ([]Job
 		err := rows.Scan(&id, &jobID, &dataJSON, &attemptCount, &retryDeadline, &createdAt, &startedAt, &chainSelectorStr, &messageID)
 		if err != nil {
 			q.logger.Errorw("Failed to scan job row", "error", err)
-			// We can't get jobID if scan failed, so we can't mark it as failed
-			// This should be extremely rare (database corruption)
+			// We can't get jobID if scan failed, so we can't mark it as failed.
+			// This should be extremely rare (database corruption).
 			continue
 		}
 
-		// Convert chain selector string to uint64
 		chainSelectorBig := new(big.Int)
 		if _, ok := chainSelectorBig.SetString(chainSelectorStr, 10); !ok {
 			scanErr := fmt.Errorf("failed to parse chain selector: %s", chainSelectorStr)
@@ -233,47 +304,17 @@ func (q *PostgresJobQueue[T]) Consume(ctx context.Context, batchSize int) ([]Job
 			ChainSelector: chainSelector,
 			MessageID:     messageID,
 		}
-
 		if startedAt.Valid {
 			job.StartedAt = &startedAt.Time
 		}
-
 		jobs = append(jobs, job)
 	}
 
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("error iterating job rows: %w", err)
+		return nil, nil, fmt.Errorf("error iterating job rows: %w", err)
 	}
 
-	// Mark jobs that failed to deserialize as permanently failed
-	// This prevents them from being stuck in 'processing' state forever
-	if len(failedToDeserialize) > 0 {
-		failedJobIDs := make([]string, 0, len(failedToDeserialize))
-		for jobID := range failedToDeserialize {
-			failedJobIDs = append(failedJobIDs, jobID)
-		}
-
-		q.logger.Errorw("Jobs failed to deserialize, marking as failed",
-			"count", len(failedJobIDs),
-			"queue", q.config.Name,
-		)
-
-		// Mark them as failed immediately (don't wait for caller)
-		if err := q.Fail(ctx, failedToDeserialize, failedJobIDs...); err != nil {
-			q.logger.Errorw("Failed to mark deserialization-failed jobs as failed",
-				"error", err,
-				"count", len(failedJobIDs),
-			)
-		}
-	}
-
-	q.logger.Debugw("Consumed jobs from queue",
-		"queue", q.config.Name,
-		"count", len(jobs),
-		"requested", batchSize,
-	)
-
-	return jobs, nil
+	return jobs, failedToDeserialize, nil
 }
 
 // Complete marks jobs as successfully processed and moves them to the archive.
@@ -327,64 +368,65 @@ func (q *PostgresJobQueue[T]) Retry(ctx context.Context, delay time.Duration, er
 
 	availableAt := time.Now().Add(delay)
 
+	// Build parallel arrays for the UNNEST bulk update.
+	// All jobs share the same availableAt; only the error message differs per job.
+	errMsgsArr := make([]string, len(jobIDs))
+	for i, id := range jobIDs {
+		if e, ok := errors[id]; ok && e != nil {
+			errMsgsArr[i] = e.Error()
+		}
+	}
+
 	var failed []string
 	var retried []string
 
 	err := sqlutil.TransactDataSource(ctx, q.ds, nil, func(tx sqlutil.DataSource) error {
-		// Check if retry deadline has passed
+		// Single bulk UPDATE replaces the former N-round-trip per-job loop.
+		// UNNEST produces one row per job with its error message; the CASE expression
+		// lets the database authoritatively decide whether the retry deadline has been exceeded.
 		query := fmt.Sprintf(`
-			UPDATE %s
+			UPDATE %s AS t
 			SET status = CASE
-					WHEN NOW() >= retry_deadline THEN $1
-					ELSE $2
-				END,
-				available_at = $3,
-				last_error = $4
-			WHERE job_id = $5
-			  AND owner_id = $6
-			RETURNING job_id, status
+			        WHEN NOW() >= t.retry_deadline THEN $1
+			        ELSE $2
+			    END,
+			    available_at = $3,
+			    last_error = v.error_msg
+			FROM UNNEST($4::text[], $5::text[]) AS v(job_id, error_msg)
+			WHERE t.job_id = v.job_id::uuid
+			  AND t.owner_id = $6
+			RETURNING t.job_id, t.status
 		`, q.tableName)
 
-		stmt, err := tx.PrepareContext(ctx, query)
+		rows, err := tx.QueryContext(ctx, query,
+			JobStatusFailed,      // $1
+			JobStatusPending,     // $2
+			availableAt,          // $3
+			pq.Array(jobIDs),     // $4
+			pq.Array(errMsgsArr), // $5
+			q.ownerID,            // $6
+		)
 		if err != nil {
-			return fmt.Errorf("failed to prepare retry statement: %w", err)
+			return fmt.Errorf("failed to bulk-update jobs for retry: %w", err)
 		}
-		defer func() {
-			_ = stmt.Close()
-		}()
+		defer func() { _ = rows.Close() }()
 
-		for _, jobID := range jobIDs {
-			errMsg := ""
-			if err, ok := errors[jobID]; ok && err != nil {
-				errMsg = err.Error()
-			}
-
-			var resultJobID string
-			var resultStatus string
-
-			err := stmt.QueryRowContext(ctx,
-				JobStatusFailed,
-				JobStatusPending,
-				availableAt,
-				errMsg,
-				jobID,
-				q.ownerID,
-			).Scan(&resultJobID, &resultStatus)
-			if err != nil {
-				q.logger.Errorw("Failed to retry job",
-					"jobID", jobID,
-					"error", err,
-				)
+		for rows.Next() {
+			var resultJobID, resultStatus string
+			if err := rows.Scan(&resultJobID, &resultStatus); err != nil {
+				q.logger.Errorw("Failed to scan retry result row", "error", err)
 				continue
 			}
-
-			// Use the status decided by the database to avoid race condition
-			// between SQL NOW() and Go time.Now()
+			// Use the status decided by the database to avoid a race condition
+			// between SQL NOW() and Go time.Now().
 			if resultStatus == string(JobStatusFailed) {
 				failed = append(failed, resultJobID)
 			} else {
 				retried = append(retried, resultJobID)
 			}
+		}
+		if err := rows.Err(); err != nil {
+			return fmt.Errorf("error iterating retry result rows: %w", err)
 		}
 
 		// Archive jobs that exceeded the retry deadline within the same transaction.
@@ -441,70 +483,63 @@ func (q *PostgresJobQueue[T]) Retry(ctx context.Context, delay time.Duration, er
 // Fail marks jobs as permanently failed and moves them to the archive.
 // This ensures failed jobs don't remain in the active queue indefinitely.
 //
-// Each job is archived in a single atomic CTE (DELETE→INSERT), mirroring the Complete() approach.
+// A single bulk CTE replaces the former N-round-trip per-job loop. UNNEST supplies
+// per-job error messages and the DELETE+INSERT within the CTE is inherently atomic,
+// mirroring how Complete() handles bulk archival.
 func (q *PostgresJobQueue[T]) Fail(ctx context.Context, errors map[string]error, jobIDs ...string) error {
 	if len(jobIDs) == 0 {
 		return nil
 	}
 
-	// Single atomic operation per job: delete from the active table and insert into
-	// the archive with status='failed' and the caller-supplied error message.
-	// Using explicit column names (not SELECT *) so the query stays correct if
-	// columns are ever added to the active table.
-	query := fmt.Sprintf(`
-		WITH to_fail AS (
-			DELETE FROM %s
-			WHERE job_id = $1
-			  AND owner_id = $2
-			RETURNING id, job_id, owner_id, chain_selector, message_id, task_data,
-			          created_at, available_at, started_at, attempt_count, retry_deadline
-		)
-		INSERT INTO %s (
-			id, job_id, owner_id, chain_selector, message_id, task_data,
-			status, created_at, available_at, started_at, attempt_count, retry_deadline,
-			last_error, completed_at
-		)
-		SELECT id, job_id, owner_id, chain_selector, message_id, task_data,
-		       $3, created_at, available_at, started_at, attempt_count, retry_deadline,
-		       $4, NOW()
-		FROM to_fail
-	`, q.tableName, q.archiveName)
-
-	var totalAffected int64
-
-	err := sqlutil.TransactDataSource(ctx, q.ds, nil, func(tx sqlutil.DataSource) error {
-		stmt, err := tx.PrepareContext(ctx, query)
-		if err != nil {
-			return fmt.Errorf("failed to prepare fail statement: %w", err)
+	// Build parallel arrays for the UNNEST input so each job carries its own error message.
+	errMsgsArr := make([]string, len(jobIDs))
+	for i, id := range jobIDs {
+		if e, ok := errors[id]; ok && e != nil {
+			errMsgsArr[i] = e.Error()
 		}
-		defer func() {
-			_ = stmt.Close()
-		}()
-
-		for _, jobID := range jobIDs {
-			errMsg := ""
-			if e, ok := errors[jobID]; ok && e != nil {
-				errMsg = e.Error()
-			}
-
-			result, err := stmt.ExecContext(ctx, jobID, q.ownerID, JobStatusFailed, errMsg)
-			if err != nil {
-				return fmt.Errorf("failed to fail and archive job %s: %w", jobID, err)
-			}
-
-			n, _ := result.RowsAffected()
-			totalAffected += n
-		}
-
-		return nil
-	})
-	if err != nil {
-		return err
 	}
 
+	// Single bulk CTE: UNNEST the job IDs and error messages, delete from the active
+	// table, then join back to attach per-job error messages on insert into the archive.
+	// Explicit column names (not SELECT *) keep the query correct if columns are added.
+	query := fmt.Sprintf(`
+		WITH jobs_input AS (
+		    SELECT v.job_id::uuid AS job_id, v.error_msg
+		    FROM UNNEST($1::text[], $2::text[]) AS v(job_id, error_msg)
+		),
+		to_fail AS (
+		    DELETE FROM %s t
+		    WHERE t.job_id IN (SELECT job_id FROM jobs_input)
+		      AND t.owner_id = $3
+		    RETURNING t.id, t.job_id, t.owner_id, t.chain_selector, t.message_id, t.task_data,
+		              t.created_at, t.available_at, t.started_at, t.attempt_count, t.retry_deadline
+		)
+		INSERT INTO %s (
+		    id, job_id, owner_id, chain_selector, message_id, task_data,
+		    status, created_at, available_at, started_at, attempt_count, retry_deadline,
+		    last_error, completed_at
+		)
+		SELECT f.id, f.job_id, f.owner_id, f.chain_selector, f.message_id, f.task_data,
+		       $4, f.created_at, f.available_at, f.started_at, f.attempt_count, f.retry_deadline,
+		       i.error_msg, NOW()
+		FROM to_fail f
+		JOIN jobs_input i ON f.job_id = i.job_id
+	`, q.tableName, q.archiveName)
+
+	result, err := q.ds.ExecContext(ctx, query,
+		pq.Array(jobIDs),     // $1
+		pq.Array(errMsgsArr), // $2
+		q.ownerID,            // $3
+		JobStatusFailed,      // $4
+	)
+	if err != nil {
+		return fmt.Errorf("failed to fail and archive jobs: %w", err)
+	}
+
+	affected, _ := result.RowsAffected()
 	q.logger.Infow("Failed and archived jobs",
 		"queue", q.config.Name,
-		"count", totalAffected,
+		"count", affected,
 	)
 
 	return nil

@@ -1,0 +1,35 @@
+=== EXPLAIN ANALYZE: consume_pending ===
+Update on public.ccv_task_verifier_jobs  (cost=8.17..399.89 rows=50 width=82) (actual time=0.370..1.339 rows=50 loops=1)
+  Output: ccv_task_verifier_jobs.id, ccv_task_verifier_jobs.job_id, ccv_task_verifier_jobs.task_data, ccv_task_verifier_jobs.attempt_count, ccv_task_verifier_jobs.retry_deadline, ccv_task_verifier_jobs.created_at, ccv_task_verifier_jobs.started_at, ccv_task_verifier_jobs.chain_selector, ccv_task_verifier_jobs.message_id
+  Buffers: shared hit=1281 dirtied=2 written=2
+  ->  Nested Loop  (cost=8.17..399.89 rows=50 width=82) (actual time=0.238..0.288 rows=50 loops=1)
+        Output: 'processing'::text, '2026-03-25 13:42:42.906332+00'::timestamp with time zone, (ccv_task_verifier_jobs.attempt_count + 1), ccv_task_verifier_jobs.ctid, "ANY_subquery".*
+        Inner Unique: true
+        Buffers: shared hit=255
+        ->  HashAggregate  (cost=7.88..8.38 rows=50 width=40) (actual time=0.216..0.221 rows=50 loops=1)
+              Output: "ANY_subquery".*, "ANY_subquery".id
+              Group Key: "ANY_subquery".id
+              Batches: 1  Memory Usage: 24kB
+              Buffers: shared hit=105
+              ->  Subquery Scan on "ANY_subquery"  (cost=0.41..7.75 rows=50 width=40) (actual time=0.175..0.206 rows=50 loops=1)
+                    Output: "ANY_subquery".*, "ANY_subquery".id
+                    Buffers: shared hit=105
+                    ->  Limit  (cost=0.41..7.25 rows=50 width=22) (actual time=0.033..0.059 rows=50 loops=1)
+                          Output: ccv_task_verifier_jobs_1.id, ccv_task_verifier_jobs_1.available_at, ccv_task_verifier_jobs_1.ctid
+                          Buffers: shared hit=105
+                          ->  LockRows  (cost=0.41..6849.79 rows=50073 width=22) (actual time=0.033..0.056 rows=50 loops=1)
+                                Output: ccv_task_verifier_jobs_1.id, ccv_task_verifier_jobs_1.available_at, ccv_task_verifier_jobs_1.ctid
+                                Buffers: shared hit=105
+                                ->  Index Scan using idx_ccv_task_verifier_jobs_consume on public.ccv_task_verifier_jobs ccv_task_verifier_jobs_1  (cost=0.41..6349.06 rows=50073 width=22) (actual time=0.018..0.027 rows=50 loops=1)
+                                      Output: ccv_task_verifier_jobs_1.id, ccv_task_verifier_jobs_1.available_at, ccv_task_verifier_jobs_1.ctid
+                                      Index Cond: ((ccv_task_verifier_jobs_1.owner_id = 'explain-owner'::text) AND (ccv_task_verifier_jobs_1.available_at <= '2026-03-25 13:42:42.906332+00'::timestamp with time zone))
+                                      Filter: (ccv_task_verifier_jobs_1.status = 'pending'::text)
+                                      Buffers: shared hit=5
+        ->  Index Scan using ccv_task_verifier_jobs_pkey on public.ccv_task_verifier_jobs  (cost=0.29..7.83 rows=1 width=18) (actual time=0.001..0.001 rows=1 loops=50)
+              Output: ccv_task_verifier_jobs.attempt_count, ccv_task_verifier_jobs.ctid, ccv_task_verifier_jobs.id
+              Index Cond: (ccv_task_verifier_jobs.id = "ANY_subquery".id)
+              Buffers: shared hit=150
+Planning:
+  Buffers: shared hit=58
+Planning Time: 0.325 ms
+Execution Time: 1.470 ms

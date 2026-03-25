@@ -1,0 +1,40 @@
+=== EXPLAIN ANALYZE: fail ===
+Insert on public.ccv_task_verifier_jobs_archive  (cost=41.96..42.14 rows=0 width=0) (actual time=0.195..0.197 rows=0 loops=1)
+  Buffers: shared hit=80
+  CTE jobs_input
+    ->  Function Scan on v  (cost=0.01..0.08 rows=5 width=48) (actual time=0.028..0.030 rows=5 loops=1)
+          Output: (v.job_id)::uuid, v.error_msg
+          Function Call: unnest('{6a20f6cb-baee-4b6d-8575-bb21bff05586,f075871b-413c-4a97-acd1-d1b230c79741,591def99-318c-4343-8939-908a4c864061,7928c2d0-b41b-461a-a003-b4d0547cd9dc,eb0c162a-0514-45d7-a0a8-3d034f49cba1}'::text[]), unnest('{"permanent error","permanent error","permanent error","permanent error","permanent error"}'::text[])
+  CTE to_fail
+    ->  Delete on public.ccv_task_verifier_jobs t  (cost=0.40..41.71 rows=5 width=46) (actual time=0.074..0.086 rows=5 loops=1)
+          Output: t.id, t.job_id, t.owner_id, t.chain_selector, t.message_id, t.task_data, t.created_at, t.available_at, t.started_at, t.attempt_count, t.retry_deadline
+          Buffers: shared hit=25
+          ->  Nested Loop  (cost=0.40..41.71 rows=5 width=46) (actual time=0.062..0.071 rows=5 loops=1)
+                Output: t.ctid, jobs_input.*
+                Inner Unique: true
+                Buffers: shared hit=15
+                ->  HashAggregate  (cost=0.11..0.16 rows=5 width=56) (actual time=0.039..0.040 rows=5 loops=1)
+                      Output: jobs_input.*, jobs_input.job_id
+                      Group Key: jobs_input.job_id
+                      Batches: 1  Memory Usage: 24kB
+                      ->  CTE Scan on jobs_input  (cost=0.00..0.10 rows=5 width=56) (actual time=0.032..0.035 rows=5 loops=1)
+                            Output: jobs_input.*, jobs_input.job_id
+                ->  Index Scan using ccv_task_verifier_jobs_job_id_key on public.ccv_task_verifier_jobs t  (cost=0.29..8.31 rows=1 width=22) (actual time=0.006..0.006 rows=1 loops=5)
+                      Output: t.ctid, t.job_id
+                      Index Cond: (t.job_id = jobs_input.job_id)
+                      Filter: (t.owner_id = 'explain-owner'::text)
+                      Buffers: shared hit=15
+  ->  Hash Join  (cost=0.16..0.34 rows=5 width=248) (actual time=0.116..0.145 rows=5 loops=1)
+        Output: f.id, f.job_id, f.owner_id, f.chain_selector, f.message_id, f.task_data, 'failed'::text, f.created_at, f.available_at, f.started_at, f.attempt_count, f.retry_deadline, i.error_msg, now()
+        Hash Cond: (f.job_id = i.job_id)
+        Buffers: shared hit=25
+        ->  CTE Scan on to_fail f  (cost=0.00..0.10 rows=5 width=176) (actual time=0.075..0.101 rows=5 loops=1)
+              Output: f.id, f.job_id, f.owner_id, f.chain_selector, f.message_id, f.task_data, f.created_at, f.available_at, f.started_at, f.attempt_count, f.retry_deadline
+              Buffers: shared hit=25
+        ->  Hash  (cost=0.10..0.10 rows=5 width=48) (actual time=0.011..0.012 rows=5 loops=1)
+              Output: i.error_msg, i.job_id
+              Buckets: 1024  Batches: 1  Memory Usage: 9kB
+              ->  CTE Scan on jobs_input i  (cost=0.00..0.10 rows=5 width=48) (actual time=0.000..0.001 rows=5 loops=1)
+                    Output: i.error_msg, i.job_id
+Planning Time: 0.095 ms
+Execution Time: 0.689 ms
