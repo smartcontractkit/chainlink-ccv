@@ -1066,7 +1066,9 @@ func NewEnvironment() (in *Cfg, err error) {
 	// an internal mapping is keyed such that the last config in the list gets the index for a given chain
 	// selector, so we invoke once per setup with all counterpart configs (same pool type on every chain)
 	// so remote tokens and mapping slots are correct.
-	allTokenConfigs := tokenconfig.BuildTokenTransferConfigs(topology, selectors)
+	// TODO: this code contains EVM specific logic and should be moved to EVM's impl.go, environment should
+	// fetch the token configs from impls and just run the changeset.
+	allTokenConfigs := tokenconfig.BuildTokenTransferConfigs(topology, selectors, e.DataStore)
 	if len(allTokenConfigs) > 0 {
 		byPoolIdentity := make(map[string][]tokenscore.TokenTransferConfig)
 		for i := range allTokenConfigs {

@@ -1179,7 +1179,7 @@ func (m *CCIP17EVMConfig) DeployContractsForSelector(ctx context.Context, env *d
 	}
 	env.DataStore = runningDS.Seal()
 
-	applicableCombos := devenvcommon.FilterTokenCombinations(devenvcommon.AllTokenCombinations(), topology)
+	applicableCombos := devenvcommon.FilterTokenCombinations(devenvcommon.AllTokenCombinations(), topology, nil, nil)
 	for _, combo := range applicableCombos {
 		// For any given token combination, every chain needs to support the source and destination pools.
 		if err := m.deployTokenAndPool(env, mcmsReaderRegistry, runningDS, selector, combo.SourcePoolAddressRef()); err != nil {
