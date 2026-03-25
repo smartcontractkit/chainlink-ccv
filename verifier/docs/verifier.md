@@ -1,99 +1,83 @@
 # Verifier Design
 
-This document describes the Verifier component in CCIP 1.7. The Verifier is responsible for reading cross-chain messages from source blockchains, performing verification logic, and publishing verification results to offchain storage for downstream consumption by executors.
+This document describes the Verifier component in CCIP 2.0. The Verifier is responsible for reading cross-chain messages from source blockchains, performing verification logic, and publishing verification results to offchain storage for downstream consumption.
 
 # Overview
 
 The Verifier architecture separates **orchestration** from **verification logic**:
 
-* **VerificationCoordinator**: Chain-agnostic orchestration layer that coordinates verification and storage writes across multiple source chains
+* **Coordinator**: Chain-agnostic orchestration layer that manages a three-stage durable processing pipeline across multiple source chains
 * **SourceReaderService**: Per-chain component that handles event discovery, reorg detection, finality checking, curse filtering, and message readiness
 * **Verifier Interface**: Pluggable verification logic that implements verifier-specific validation and signing
 
 This separation enables:
 
 * **Chain Independence**: Each source chain has its own isolated `SourceReaderService` instance that encapsulates all chain-specific logic
-* **Verification Flexibility**: Different verification strategies (committee-based, attestations,...etc) can plug into the same coordinator
-* **Resource Sharing**: Multiple source chains share the same coordinator instance with isolated per-chain state (**note**: future design allows multiple verifiers to share one coordinator, but current implementation is one coordinator per verifier)
+* **Verification Flexibility**: Different verification strategies (committee-based, attestation-based, etc.) can plug into the same coordinator
+* **Durability**: All pipeline stages communicate via PostgreSQL-backed job queues, so in-flight work survives process restarts
 
 Each verifier is a security-critical component in the CCIP system. Multiple independent verifiers can operate on the same messages.
 
 # Architecture
 
-The Verifier consists of the following components:
+The Verifier consists of a three-stage pipeline connected by two PostgreSQL job queues:
 
 ```mermaid
 flowchart TB
- subgraph subGraph0["Chain A"]
-        SC_A["Source Chain A<br>Blockchain"]
-        RMN_A["RMN Remote A"]
+ subgraph Sources["Source Chains"]
+        SC_A["Source Chain A"]
+        SC_B["Source Chain B"]
   end
- subgraph subGraph1["Chain B"]
-        SC_B["Source Chain B<br>Blockchain"]
-        RMN_B["RMN Remote B"]
+ subgraph SRS_Group["SourceReaderServices (one per chain)"]
+        SRS_A["SourceReaderService A\nEvent Discovery · Reorg Detection\nFinality Checking · Curse Filtering"]
+        SRS_B["SourceReaderService B\nEvent Discovery · Reorg Detection\nFinality Checking · Curse Filtering"]
   end
- subgraph subGraph2["SourceReaderService Chain A"]
-        SRS_A["Event Discovery<br>Reorg Detection<br>Pending Queue<br>Message Filtering"]
-        FVC_A["FinalityViolationChecker"]
-        CC_A["CurseChecker"]
-        SRS_A -.-> FVC_A
-        SRS_A -.-> CC_A
+ subgraph Pipeline["Durable Processing Pipeline"]
+        TQ["ccv_task_verifier_jobs\n(PostgreSQL queue)"]
+        TVP["TaskVerifier Processor\nCalls Verifier.VerifyMessages()"]
+        RQ["ccv_storage_writer_jobs\n(PostgreSQL queue)"]
+        SWP["StorageWriter Processor\nWrites VerifierNodeResults"]
   end
- subgraph subGraph3["SourceReaderService Chain B"]
-        SRS_B["Event Discovery<br>Reorg Detection<br>Pending Queue<br>Message Filtering"]
-        FVC_B["FinalityViolationChecker"]
-        CC_B["CurseChecker"]
-        SRS_B -.-> FVC_B
-        SRS_B -.-> CC_B
+ subgraph Storage["Verifier Results API"]
+        OS["OffchainStorage\n(Aggregator · Local DB · etc.)"]
   end
- subgraph subGraph4["Shared Components"]
-        VC["VerificationCoordinator<br>Orchestration Layer"]
-        VI["Verifier Interface<br>Pluggable Logic"]
-        SB["Offchain Storage Adapter"]
-  end
- subgraph subGraph5["Verifier Coordinator"]
-        CSM["ChainStatusManager<br>(Checkpoint Persistence)"]
-        subGraph2
-        subGraph3
-        subGraph4
-  end
- subgraph Aggregator["Aggregator"]
-        OS["Offchain Storage"]
+ subgraph Support["Support Components"]
+        CSM["ChainStatusManager\n(Checkpoint Persistence)"]
+        CD["CurseDetector\n(RMN Remote polling)"]
+        HR["HeartbeatReporter"]
   end
     SC_A -- Events & Blocks --> SRS_A
     SC_B -- Events & Blocks --> SRS_B
-    RMN_A -- Curse Status --> CC_A
-    RMN_B -- Curse Status --> CC_B
-    SRS_A -- Ready Tasks --> VC
-    SRS_B -- Ready Tasks --> VC
-    VC -- Batch Verification --> VI
-    VI -- Batch CCVData --> SB
-    SB -- Aggregated Results --> OS
-    SRS_A -- Chain Status Updates --> CSM
-    SRS_B -- Chain Status Updates --> CSM
-    CSM -- Initial Checkpoint --> SRS_A
-    CSM -- Initial Checkpoint --> SRS_B
-    style SRS_A fill:#FFA500,stroke:#CC8400,stroke-width:3px,color:#FFFFFF
-    style FVC_A fill:#9370DB,stroke:#7256B8,stroke-width:2px,color:#FFFFFF
-    style CC_A fill:#E94B3C,stroke:#B8392E,stroke-width:2px,color:#FFFFFF
-    style SRS_B fill:#FFA500,stroke:#CC8400,stroke-width:3px,color:#FFFFFF
-    style FVC_B fill:#9370DB,stroke:#7256B8,stroke-width:2px,color:#FFFFFF
-    style CC_B fill:#E94B3C,stroke:#B8392E,stroke-width:2px,color:#FFFFFF
-    style VC fill:#4A90E2,stroke:#2E5C8A,stroke-width:3px,color:#FFFFFF
-    style VI fill:#7B68EE,stroke:#5A4DB8,stroke-width:2px,color:#FFFFFF
-    style SB fill:#50C878,stroke:#3D9A5F,stroke-width:2px,color:#FFFFFF
-    style CSM fill:#20B2AA,stroke:#178B85,stroke-width:2px,color:#FFFFFF
+    SRS_A -- Publish VerificationTask --> TQ
+    SRS_B -- Publish VerificationTask --> TQ
+    TQ -- Consume batch --> TVP
+    TVP -- Publish VerifierNodeResult --> RQ
+    RQ -- Consume batch --> SWP
+    SWP -- Write --> OS
+    SRS_A & SRS_B <--> CSM
+    CD -- Curse status --> SRS_A & SRS_B
+    SWP -.-> HR
+    style SRS_A fill:#FFA500,stroke:#CC8400,stroke-width:2px,color:#FFFFFF
+    style SRS_B fill:#FFA500,stroke:#CC8400,stroke-width:2px,color:#FFFFFF
+    style TQ fill:#20B2AA,stroke:#178B85,stroke-width:2px,color:#FFFFFF
+    style TVP fill:#4A90E2,stroke:#2E5C8A,stroke-width:2px,color:#FFFFFF
+    style RQ fill:#20B2AA,stroke:#178B85,stroke-width:2px,color:#FFFFFF
+    style SWP fill:#50C878,stroke:#3D9A5F,stroke-width:2px,color:#FFFFFF
+    style OS fill:#7B68EE,stroke:#5A4DB8,stroke-width:2px,color:#FFFFFF
+    style CSM fill:#E94B3C,stroke:#B8392E,stroke-width:2px,color:#FFFFFF
+    style CD fill:#E94B3C,stroke:#B8392E,stroke-width:2px,color:#FFFFFF
 ```
-
 
 ## Component Responsibilities
 
-* **VerificationCoordinator**: Orchestrates verification across all source chains, coordinates storage writes, manages verifier instances
-* **SourceReaderService**: Per-chain service that handles event discovery, reorg detection, finality checking, pending queue management, curse filtering, and emits ready-to-verify messages
+* **Coordinator**: Creates and manages all pipeline components; initialises per-chain source readers and the two durable queues; requires a PostgreSQL data source
+* **SourceReaderService**: Per-chain service that discovers events, tracks finality, detects reorgs and curses, and publishes ready `VerificationTask` items to `ccv_task_verifier_jobs`
+* **TaskVerifier Processor**: Polls `ccv_task_verifier_jobs`, calls `Verifier.VerifyMessages()` in batches, and publishes successful `VerifierNodeResult` items to `ccv_storage_writer_jobs`; handles per-message retries and permanent failures
+* **StorageWriter Processor**: Polls `ccv_storage_writer_jobs` and writes batches of `VerifierNodeResult` to the configured offchain storage implementation; retries transient write failures
 * **FinalityViolationChecker**: Per-chain component that validates finalized block headers never change, detecting violations of blockchain finality guarantees
-* **CurseChecker**: Per-chain component that polls RMN Remote contract for curse status
-* **Verifier Interface**: Implements verification logic (validation, signing, CCV data creation) \- pluggable
-* **ChainStatusManager**: Persists chain state (enabled/disabled, lastProcessedFinalizedBlock) for checkpoint recovery locally on each verifier node.
+* **CurseDetector**: Polls RMN Remote contracts for all configured chains and maintains in-memory curse state; shared across all `SourceReaderService` instances
+* **ChainStatusManager**: Persists chain state (enabled/disabled, `lastProcessedFinalizedBlock`) to PostgreSQL for checkpoint recovery
+* **HeartbeatReporter**: Periodically sends heartbeats to the downstream storage endpoint, reporting node liveliness and per-chain block heights
 
 # Data Flow
 
@@ -104,392 +88,159 @@ sequenceDiagram
     autonumber
     participant SC as Source Chain
     participant SRS as SourceReaderService
-    participant FVC as FinalityViolationChecker
-    participant CC as CurseChecker
-    participant VC as VerificationCoordinator
+    participant TQ as ccv_task_verifier_jobs
+    participant TVP as TaskVerifier Processor
     participant V as Verifier
-    participant SB as Storage Batcher
-    participant OS as Offchain Storage
+    participant RQ as ccv_storage_writer_jobs
+    participant SWP as StorageWriter Processor
+    participant OS as OffchainStorage
+
     rect rgb(40, 60, 80)
     Note over SC,SRS: Event Discovery & Pending Queue
     SC->>SRS: Poll: FetchMessageSentEvents(fromBlock, toBlock)
-    SRS->>SRS: Convert events to VerificationTask<br/>Add to pending queue<br/>Handle reorgs (remove invalid tasks)
+    SRS->>SRS: Convert events to VerificationTask\nHandle reorgs · Check finality · Check curse
+    SRS->>TQ: Publish(VerificationTask)
     end
-    rect rgb(60, 40, 80)
-    Note over SRS,CC: Message Readiness Checking
-    loop Every pollInterval
-        SRS->>SC: LatestAndFinalizedBlock()
-        SC-->>SRS: (latest, finalized) BlockHeader
-        SRS->>FVC: UpdateFinalized(finalized)
-        alt Finality Violation Detected
-            FVC-->>SRS: Error (hash mismatch)
-            SRS->>SRS: Disable chain<br/>Flush all tasks
-        end
-        loop Each pending task
-            SRS->>SRS: Check finality criteria<br/>(capped at finalization)
-            SRS->>CC: IsRemoteChainCursed(destChain)?
-            alt Ready and not cursed
-                CC-->>SRS: false
-                SRS->>VC: Emit ready task via readyTasksCh
-            end
-        end
-    end
-    end
+
     rect rgb(40, 80, 60)
-    Note over VC,V: Verification
-    VC->>V: VerifyMessages(readyTasks, ccvDataBatcher)
-    loop Each task (concurrent)
-        V->>V: ValidateMessage + Sign
-        V->>SB: Add CCVData to batcher
+    Note over TQ,V: Verification
+    TVP->>TQ: Consume(batchSize) every 500ms
+    TQ-->>TVP: []Job[VerificationTask]
+    TVP->>V: VerifyMessages(tasks)
+    V-->>TVP: []VerificationResult
+    alt Success
+        TVP->>RQ: Publish(VerifierNodeResult)
+        TVP->>TQ: Complete(jobIDs)
+    else Retryable error
+        TVP->>TQ: Retry(jobID, delay)
+    else Permanent error
+        TVP->>TQ: Fail(jobID)
     end
-    V-->>VC: BatchResult[VerificationError]
     end
+
     rect rgb(80, 60, 40)
-    Note over SB,OS: Storage Write
-    SB->>SB: Batch accumulates<br/>(max 50 items or 100ms timeout)
-    SB->>OS: Write batch to aggregator
-    OS-->>SB: Success
+    Note over RQ,OS: Storage Write
+    SWP->>RQ: Consume(batchSize) every 500ms
+    RQ-->>SWP: []Job[VerifierNodeResult]
+    SWP->>OS: WriteCCVNodeData(results)
+    alt Success
+        SWP->>RQ: Complete(jobIDs)
+    else Retryable failure
+        SWP->>RQ: Retry(jobID, retryDelay)
+    else Permanent failure
+        SWP->>RQ: Fail(jobID)
+    end
     end
 ```
-
 
 ## Lifecycle Stages
 
 * **Event Discovery & Pending Queue Management**
-    * SourceReaderService polls the source chain at configured intervals
-    * Fetches CCIPMessageSent events from lastProcessedFinalizedBlock to latest
-    * Converts each event to a VerificationTask
-    * **Inline reorg detection**: Compares new events against pending queue, removes tasks that were reorged out
-    * Adds new tasks to per-chain pending queue
-    * Updates lastProcessedFinalizedBlock checkpoint to finalized.Number
-* **Message Readiness Checking**
-    * SourceReaderService runs a continuous loop checking pending tasks
-    * Queries current blockchain head state via LatestAndFinalizedBlock()
-    * **Finality validation**: Updates FinalityViolationChecker with latest finalized block
-        * If finalized block hash changes: Disables chain, flushes all tasks
-    * For each pending task, applies readiness criteria:
-        * **Default finality**: task.block \<= finalized
-        * **Custom finality (FTF)**: task.block \+ finality \<= latest OR task.block \<= finalized (capped to prevent DoS)
-        * **Curse check**: Queries CurseChecker.IsRemoteChainCursed(destChain)
-    * Only ready tasks (passed finality \+ curse checks) are emitted via readyTasksCh
+    * `SourceReaderService` polls the source chain at configured intervals
+    * Fetches `CCIPMessageSent` events from `lastProcessedFinalizedBlock` to latest
+    * Converts each event to a `VerificationTask`
+    * **Inline reorg detection**: Compares new events against the in-memory pending set; removes tasks that no longer appear in the canonical chain
+    * Applies finality criteria and curse checks; only ready tasks are published to `ccv_task_verifier_jobs`
+    * Updates `lastProcessedFinalizedBlock` checkpoint via `ChainStatusManager`
 * **Verification**
-    * Coordinator receives ready tasks from SourceReaderService.readyTasksCh
-    * Passes ready batch to Verifier.VerifyMessages()
-    * Verifier processes tasks concurrently:
-        * Validates message format and receipts
-        * Signs message
-        * Creates CCVData structure with signature and metadata
-    * Adds successful CCVData to storage batcher
-    * Returns errors for failed verifications
+    * `TaskVerifier Processor` polls `ccv_task_verifier_jobs` every 500 ms
+    * Calls `Verifier.VerifyMessages(ctx, tasks)` with a batch of up to `StorageBatchSize` tasks
+    * Each `VerificationResult` carries either a `*protocol.VerifierNodeResult` (success) or a `*VerificationError`
+    * Successful results are published to `ccv_storage_writer_jobs`; jobs are then marked `Complete`
+    * Retryable errors schedule the job for retry after `VerificationError.Delay`; jobs that exceed their 7-day retry deadline are archived as `failed`
+    * Permanent (non-retryable) errors archive the job immediately as `failed`
 * **Storage Write**
-    * Storage batcher accumulates CCVData items
-    * Flushes when batch reaches size limit (default: 50\) or timeout (default: 100ms)
-    * Writes batch to offchain storage (Aggregator) via gRPC
-*
+    * `StorageWriter Processor` polls `ccv_storage_writer_jobs` every 500 ms
+    * Calls `storage.WriteCCVNodeData(results)` with a batch of `VerifierNodeResult` items
+    * Per-item `WriteResult` carries a `Retryable` flag; retriable failures are retried after `StorageRetryDelay` (default 2 s); non-retryable failures are archived as `failed`
+    * Successful writes complete the job and record E2E latency via `MessageLatencyTracker`
 
 # Core Components
 
-## VerificationCoordinator
+## Coordinator
 
-The coordinator is the orchestration layer that coordinates verification and storage writes across multiple source chains.
-
-### **Responsibilities**
-
-* Manages per-chain sourceState instances (each containing a SourceReaderService)
-* Receives ready-to-verify tasks from each SourceReaderService
-* Coordinates verification batching via Verifier interface
-* Manages storage writes via batching
-* Handles verification errors
-* Tracks E2E latency and queue health metrics
-
-### Error Handling
-
-TODO
-
-## SourceReaderService
-
-The source reader service is a **self-contained per-chain component** that handles all chain-specific logic for message discovery, validation, and readiness checking.
+The coordinator is the orchestration layer that owns the entire pipeline. It is the entry point for callers building a verifier service.
 
 ### Responsibilities
 
-* **Event Discovery**: Poll source chain for CCIPMessageSent events at configured intervals
-* **Event Conversion**: Convert events to VerificationTask structures with computed MessageID validation
-* **Message Filtering**: Apply ReceiptIssuerFilter to include only messages with receipts from configured issuers
-* **Pending Queue Management**: Maintain per-chain queue of unverified tasks
-* **Inline Reorg Detection**: Detect reorgs by comparing new events against pending queue, removing invalidated tasks
-* **Finality Validation**: Integrate with FinalityViolationChecker to ensure finalized blocks never change
-* **Curse Filtering**: Check curse status via per-chain CurseChecker before emitting tasks
-* **Message Readiness**: Apply finality criteria and emit only ready tasks
-* **Checkpoint Persistence**: Maintain lastProcessedFinalizedBlock and persist chain status via ChainStatusManager
+* Reads chain statuses from `ChainStatusManager` on startup; skips chains marked `disabled`
+* Creates the two PostgreSQL job queues and their observability decorators
+* Instantiates one `SourceReaderService` per enabled chain
+* Instantiates `TaskVerifier Processor` and `StorageWriter Processor`
+* Starts/stops all components in the correct order
+* Exposes a `HealthReport()` aggregating health from all sub-components
 
-### Core Loops
+### Construction
 
-* **Event Monitoring Loop**
-    * Polls source chain at pollInterval
-    * Fetches CCIPMessageSent events from lastProcessedFinalizedBlock to latest
-    * Validates MessageID computation
-    * Applies message filter
-    * Adds tasks to pending queue with inline reorg handling
-    * Updates lastProcessedFinalizedBlock checkpoint
-* **Message Readiness Loop**
-    * Updates FinalityViolationChecker with latest finalized block
-    * Checks for finality violations
-    * For each pending task:
-        * Applies finality criteria (with DoS protection cap)
-        * Checks curse status via CurseChecker
-        * Emits ready tasks via readyTasksCh
+```go
+coordinator, err := verifier.NewCoordinator(
+    lggr,
+    myVerifier,         // implements Verifier interface
+    sourceReaders,      // map[ChainSelector]chainaccess.SourceReader
+    storage,            // protocol.CCVNodeDataWriter
+    coordinatorConfig,
+    messageTracker,
+    monitoring,
+    chainStatusManager,
+    heartbeatClient,
+    db,                 // sqlutil.DataSource — required; no in-memory fallback
+)
+```
+
+## SourceReaderService
+
+A **self-contained per-chain component** that handles all chain-specific logic for message discovery, validation, and readiness checking.
+
+### Responsibilities
+
+* **Event Discovery**: Poll source chain for `CCIPMessageSent` events at configured intervals
+* **Event Conversion**: Convert events to `VerificationTask` structures with computed `MessageID` validation
+* **Message Filtering**: Apply `ReceiptIssuerFilter` to include only messages with receipts from configured issuers
+* **Pending Queue Management**: Maintain an in-memory set of unverified tasks between polling cycles
+* **Inline Reorg Detection**: Detect reorgs by comparing new events against the pending set, removing invalidated tasks
+* **Finality Validation**: Feed `FinalityViolationChecker` with each new finalized block header
+* **Curse Filtering**: Query `CurseDetector` before emitting tasks; cursed lanes are dropped
+* **Checkpoint Persistence**: Persist `lastProcessedFinalizedBlock` via `ChainStatusManager` after each cycle
 
 ### Message Readiness Logic
 
 Messages become ready based on their finality setting:
 
-* **Default Finality (finality \= 0\)**
-    * Ready when: messageBlock \<= finalizedBlock
+* **Default Finality (finality = 0)**
+    * Ready when: `messageBlock <= finalizedBlock`
 * **Custom Finality (Faster-than-Finality)**
-    * Ready when: (messageBlock \+ finality \<= latestBlock) OR (messageBlock \<= finalizedBlock)
-    * The OR condition **caps custom finality at finalization** \- this prevents DoS attacks where malicious actors set unreasonably high finality values. Even if someone sets finality to 10,000 blocks, the message becomes ready once it reaches normal finalization.
+    * Ready when: `(messageBlock + finality <= latestBlock)` OR `(messageBlock <= finalizedBlock)`
+    * The OR condition **caps custom finality at finalization** — this prevents DoS attacks where unreasonably high finality values are set. Even with `finality = 10,000`, the message becomes ready once it reaches normal finalization.
 
 ### Initialization
 
-On startup, SourceReaderService:
+On startup, `SourceReaderService`:
 
-1. Reads chain status from ChainStatusManager to get lastProcessedFinalizedBlock
-2. If no checkpoint exists: Uses fallbackBlockEstimate (finalized \- 500 blocks lookback)
+1. Reads chain status from `ChainStatusManager` to get `lastProcessedFinalizedBlock`
+2. If no checkpoint exists: uses `fallbackBlockEstimate` (finalized − 500 blocks lookback)
 3. Starts event monitoring and readiness loops
 
 ## FinalityViolationChecker
 
-The finality violation checker is a per-chain safety component that validates finalized blocks never change.Responsibilities
-
-* Store finalized block headers with their hashes
-* Detect hash mismatches at same block height (finality violation)
-* Detect backward movement of finalized block number (finality rewind)
-* Return errors when violations are detected
-* Limit stored blocks to prevent unbounded memory growth
-
-### Violation Conditions
-
-A finality violation is detected when:
-
-1. Hash mismatch at same height: A previously seen finalized block now has a different hash
-
-When violations occur:
-
-* `SourceReaderService` disables the chain
-* All pending and sent tasks are flushed
-* Chain is marked as disabled in ChainStatusManager
-* Critical alert is logged for manual intervention
-
-## CurseChecker
-
-The curse checker is a per-chain component that monitors the RMN Remote contract for curse status.Responsibilities
-
-* Poll RMN Remote contract at configured intervals
-* Maintain in-memory curse state
-
-### Curse Types
-
-* Lane-Specific Curse: Only affects source→dest pair (e.g., Chain A→B blocked, A→C allowed)
-* Global Curse: Affects all lanes involving the chain (constant: 0x0100000000000000000000000000000001)
-
-### Curse Behavior
-
-When a lane is cursed:
-
-* Tasks are dropped during readiness checking
-
-### Recovery
-
-1. Shutdown verifier
-2. Reset checkpoint on aggregator on that chain to before curse period
-3. Start verifier
-
-* When the verifier starts, it will start reading from the reset checkpoint and reprocess messages that were dropped.
-* Even without resetting, once curse is lifted, any new messages will be processed with no issues.
-
-## ChainStatusManager
-
-The chain status manager handles persistent state for source chains.Responsibilities
-
-* Read chain status (enabled/disabled, lastProcessedFinalizedBlock) on startup
-* Persist chain status updates
-* Track enabled/disabled state per chain
-* Track lastProcessedFinalizedBlock checkpoint per chain
-
-Used by
-
-* **SourceReaderService**: Reads initial checkpoint on startup, persists updates after each event processing cycle, marks chain as disabled on finality violation
-* **Coordinator**: Reads status for all chains on startup, skips disabled chains when initializing source readers
-*
-
-## Verifier Interface
-
-The `Verifier` interface provides pluggable verification logic that is independent of the coordinator's orchestration.
-
-```go
-type Verifier interface {
-    // VerifyMessages performs verification of a batch of messages, adding successful results to the batcher.
-    // Returns a BatchResult containing any verification errors that occurred.
-    VerifyMessages(
-        ctx context.Context,
-        tasks []VerificationTask,
-        ccvDataBatcher *batcher.Batcher[CCVDataWithIdempotencyKey],
-    ) batcher.BatchResult[VerificationError]
-}
-
-```
+A per-chain safety component that validates finalized blocks never change.
 
 ### Responsibilities
 
-* Business logic specific to verification type (committee signatures, attestation, etc.)
-* Verifier picks up messages when receipts have either the commit verifier address or the default executor address
-* Signs messageID and version as part of verification process
-* VerifierNodeResult structure creation
-* Direct batcher integration for successful verifications
+* Store finalized block headers (block number → hash) in a rolling in-memory window (max 1 000 blocks)
+* Detect hash mismatches at the same block height (finality violation)
+* Detect backward movement of finalized block number (finality rewind)
+* Return errors when violations are detected
 
-The verifier operates independently of blockchain concerns (finality, reorgs, curses) \- the coordinator handles those.
+### Violation Conditions
 
-### Committee Verifier Implementation:
+A finality violation is detected when a previously seen finalized block now has a different hash.
 
-The committee verifier is a concrete implementation of the \`Verifier\` interface that performs committee-based verification. It validates messages, signs them with a committee member's key, and creates VerifierNodeResult for offchain storage.
+When a violation occurs:
 
-#### Struct Definition
-
-```go
-// chainlink-ccv/verifier/commit/verifier.go
-type Verifier struct {
-	signerAddress protocol.UnknownAddress
-	signer        verifier.MessageSigner
-	lggr          logger.Logger
-	monitoring    verifier.Monitoring
-	config        verifier.CoordinatorConfig
-}
-
-```
-
-#### Verification Logic
-
-The core logic resides in the \`verifyMessage\` function, which executes the following steps for each message:
-
-1. **Configuration Check**: Ensures the message's source chain is configured in the verifier.
-2. **Message Validation**: Performs basic format validation on the message. It also validates the message against the configured verifier and default executor addresses from the source chain config.
-3. **Receipt Extraction**: Finds the verifier-specific receipt blob from the `VerificationTask`'s `ReceiptBlobs`. This blob is issued by the onchain verifier contract.
-4. **Hash and Sign**: Creates a signable hash from the `messageID` and the extracted `verifierBlob`, then signs it using the configured signer.
-5. **VerifierNodeResult Creation**: Constructs the `VerifierNodeResult` payload, including the message, signature, and other metadata.
-6. **Batching**: Adds the created `VerifierNodeResult` to the `ccvDataBatcher` for it to be written to the aggregator.
-
-The following code is for **illustration purposes**. It’s trimmed from logs, error checking and some non core parts as well as embedding implementations directly for some functions.
-
-```go
-func (cv *Verifier) verifyMessage(ctx context.Context, verificationTask verifier.VerificationTask, ccvDataBatcher *batcher.Batcher[protocol.CCVData]) error {
-	messageID := verificationTask.Message.MessageID()
-	
-	// Validate that the message comes from a configured source chain
-	// ommitted
-	// Validate message format and check verifier receipts
-	// ommitted
-	
-	// Pikcing up the verifierBlob for that verifier by cross checking the config verifier address against all the blobs
-	var verifierBlob []byte
-	for _, receipt := range verificationTask.ReceiptBlobs {
-		if bytes.Equal(receipt.Issuer.Bytes(), sourceConfig.VerifierAddress.Bytes()) {
-			verifierBlob = receipt.Blob
-			break
-		}
-	}
-
-	// hash, _ := committee.NewSignableHash(messageID, verifierBlob)
-       // Implementing simply inline here 
-	var preImage []byte
-	preImage = append(preImage, verifierBlob[:VerifierVersionLength]...)
-	preImage = append(preImage, messageID[:]...)
-	hash = protocol.Keccak256(preImage)
-
-	encodedSignature, _ := cv.signer.Sign(hash[:])
-	
-	// Create CCV data with all required fields
-	ccvData = protocol.CCVData{
-			MessageID:     messageID,
-			CCVData:  encodedSignature, // Attestation from batch response
-			// ... other fields
-		}
-
-	ccvDataBatcher.Add(*ccvData);
-
-	return nil
-}
-```
-
-# Safety Components
-
-## Reorg Handling
-
-Reorgs are handled **inline within** SourceReaderService during event processing.
-
-### Inline Reorg Detection
-
-When new events are fetched, the service compares them against existing pending tasks:
-
-```mermaid
-flowchart LR
-    subgraph Before["Pending Queue (Before)"]
-        M1A["msg1<br/>block 101"]
-        M2["msg2<br/>block 102"]
-    end
-    
-    subgraph NewTasks["New Events Fetched"]
-        M1B["msg1<br/>block 101"]
-        M3["msg3<br/>block 103"]
-    end
-    
-    subgraph After["Pending Queue (After)"]
-        M1C["msg1<br/>block 101"]
-        M3B["msg3<br/>block 103"]
-    end
-    
-    Before --> |"Compare"| NewTasks
-    NewTasks --> |"msg2 not in new events<br/>= reorged out"| After
-    
-    style M2 fill:#E94B3C,stroke:#B8392E,stroke-width:2px,color:#FFFFFF
-    style M1A fill:#4A90E2,stroke:#2E5C8A,stroke-width:2px,color:#FFFFFF
-    style M1B fill:#4A90E2,stroke:#2E5C8A,stroke-width:2px,color:#FFFFFF
-    style M1C fill:#4A90E2,stroke:#2E5C8A,stroke-width:2px,color:#FFFFFF
-    style M3 fill:#50C878,stroke:#3D9A5F,stroke-width:2px,color:#FFFFFF
-    style M3B fill:#50C878,stroke:#3D9A5F,stroke-width:2px,color:#FFFFFF
-```
-
-**How it works:**
-1. Build set of message IDs from newly fetched events
-2. For each task in pending queue at or after fromBlock
-    * If not in new events → remove (reorged out)
-    * Add new tasks (deduplication handled by map key)
-
-**Why this works**
-
-* lastProcessedFinalizedBlock is set to finalized.Number, ensuring we re-query blocks that could have been reorged (whether added or removed)
-* If a task exists in the pending queue but is NOT in the new event batch, it was reorged out
-* Next polling cycle fetches the canonical chain's events
-
-## Finality Violation Handling
-
-FinalityViolationChecker is a synchronous, pull-based service that validates finalized blocks never change. It is called by SourceReaderService on each readiness loop iteration.
-
-
-**Storage**: In memory rolling window of finalized block headers (max 1000 blocks), keyed by block number.
-
-**Algorithm**
-
-**On each** UpdateFinalized(newFinalizedBlock) **call:**
-
-1. **Forward progress** (newFinalizedBlock \>= lastFinalized):
-    * Fetch headers from lastFinalized to newFinalizedBlock
-    * For each block: if already stored, verify hash matches; otherwise store it
-    * Hash mismatch → **violation**
-2. **Backward movement** (newFinalizedBlock \< lastFinalized):
-    * Fetch header for newFinalizedBlock
-    * Check if stored hash matches
-    * Hash mismatch → **violation** (actual finality rewind)
-    * Hash matches → RPC lagging, ignore
+* `SourceReaderService` disables the chain
+* All pending tasks are flushed
+* Chain is marked `disabled` in `ChainStatusManager`
+* A critical alert is logged for manual intervention
 
 ```mermaid
 sequenceDiagram
@@ -508,7 +259,7 @@ sequenceDiagram
     rect rgb(80, 40, 40)
         Note over SRS,FVC: Violation Detected
         SRS->>FVC: UpdateFinalized(block 105, hash=0xdef)
-        FVC->>FVC: Hash mismatch!<br/>stored=0xabc, new=0xdef
+        FVC->>FVC: Hash mismatch!\nstored=0xabc, new=0xdef
         FVC-->>SRS: Error: finality violation
     end
 
@@ -516,7 +267,6 @@ sequenceDiagram
         Note over SRS,CSM: Chain Shutdown
         SRS->>SRS: disabled = true
         SRS->>SRS: Flush pendingTasks
-        SRS->>SRS: Flush sentTasks
         SRS->>CSM: WriteChainStatus(disabled=true)
         SRS->>SRS: Log CRITICAL alert
     end
@@ -525,172 +275,303 @@ sequenceDiagram
 #### Manual Recovery Steps
 
 1. Investigate root cause of finality violation
-2. Determine safe restart block
-3. Reset checkpoint in persistent storage (verifier admin)
-4. Enable chain in the persistent storage
+2. Determine a safe restart block
+3. Set checkpoint via the `chain-statuses` CLI: `set-finalized-height --block-height <N>`
+4. Re-enable the chain: `chain-statuses enable --chain-selector <S> --verifier-id <ID>`
 5. Restart verifier service
 
-# Configuration
+## CurseDetector
 
-The verifier uses TOML configuration with per-chain source configs and global coordinator settings.
+A shared component (one per `Coordinator`) that polls RMN Remote contracts for all configured chains and exposes curse state to every `SourceReaderService`.
 
-## Verifier TOML
+### Curse Types
 
-The [toml](https://github.com/smartcontractkit/chainlink-ccv/blob/54ec0ad0fdbca1ee07c7df42c71012e6317c2e89/cmd/verifier/testconfig/default/verifier-1.toml) file is an example for the verifier configuration. This feeds into the Verfier [Config](https://github.com/smartcontractkit/chainlink-ccv/blob/54ec0ad0fdbca1ee07c7df42c71012e6317c2e89/verifier/config.go#L9-L30) from which we extract the data and create different configs per chain as shown below.
+* **Lane-Specific Curse**: Only affects a specific source→dest pair (e.g. Chain A→B blocked, A→C allowed)
+* **Global Curse**: Affects all lanes involving the chain (constant: `0x0100000000000000000000000000000001`)
 
-## SourceConfig
+### Curse Behavior
+
+When a lane is cursed, tasks for that lane are dropped during readiness checking in `SourceReaderService`. They are not published to the task queue.
+
+### Recovery
+
+1. Shut down the verifier
+2. Reset the checkpoint for the affected chain to a block before the curse period using `chain-statuses set-finalized-height`
+3. Start the verifier — it will reprocess messages that were dropped during the curse window
+
+Even without resetting the checkpoint, once the curse is lifted any new messages will be processed normally.
+
+## ChainStatusManager
+
+Handles persistent chain state stored in the `ccv_chain_statuses` PostgreSQL table.
+
+### Responsibilities
+
+* Read chain status (`enabled/disabled`, `lastProcessedFinalizedBlock`) on startup
+* Persist updates after each event processing cycle
+* Track enabled/disabled state per chain selector + verifier ID pair
+
+### Used by
+
+* **SourceReaderService**: Reads initial checkpoint on startup; persists updates after each cycle; marks chain as disabled on finality violation
+* **Coordinator**: Reads status for all chains on startup; skips disabled chains when creating source readers
+* **HeartbeatReporter**: Reads per-chain block heights to include in heartbeat payloads
+
+## Verifier Interface
+
+The `Verifier` interface provides pluggable verification logic that is independent of the coordinator's orchestration.
 
 ```go
-type SourceConfig struct {
-    VerifierAddress        protocol.UnknownAddress // Onchain verifier contract address
-    DefaultExecutorAddress protocol.UnknownAddress // Onchain default executor contract
-    ChainSelector          protocol.ChainSelector  // Numeric chain identifier
-    PollInterval           time.Duration           // How often to poll for events
-    RMNRemoteAddress       protocol.UnknownAddress // RMN Remote contract for curse detection
+type Verifier interface {
+    // VerifyMessages performs verification of a batch of messages.
+    // Returns a slice of VerificationResult containing both successful results and errors.
+    // The caller is responsible for routing successful results and handling errors.
+    VerifyMessages(ctx context.Context, tasks []VerificationTask) []VerificationResult
 }
 ```
 
-**Field Descriptions**:
-
-* `VerifierAddress`: The onchain verifier contract that issues receipts for this verifier \- In our case we’re using a **proxy** in front of a [VersionedVerifierResolver](https://github.com/smartcontractkit/chainlink-ccip/blob/00e44d9be8bbab51b45468ce2dda037c27483334/chains/evm/contracts/ccvs/VersionedVerifierResolver.sol#L14-L14). That allows us to have a static address allowing us for upgradability without address changes.
-* `DefaultExecutorAddress`: CLL Executor contract address
-
-## CoordinatorConfig
+`VerificationResult` carries either a success or an error:
 
 ```go
-type CoordinatorConfig struct {
-    SourceConfigs       map[protocol.ChainSelector]SourceConfig
-    VerifierID          string        // Unique identifier for this verifier instance
-    StorageBatchSize    int           // Max CCVData items per storage write (default: 50)
-    StorageBatchTimeout time.Duration // Max wait before flushing batch (default: 100ms)
-    CursePollInterval   time.Duration // RMN Remote polling frequency
+type VerificationResult struct {
+    Result *protocol.VerifierNodeResult
+    Error  *VerificationError
+}
+
+type VerificationError struct {
+    Timestamp time.Time
+    Error     error
+    Task      VerificationTask
+    Retryable bool          // if true, TaskVerifier Processor will schedule a retry
+    Delay     time.Duration // how long to wait before retrying
 }
 ```
 
-# Integration Guide
+### Responsibilities
 
-## Adding a New Chain Family
+* Business logic specific to the verification type (committee signatures, external attestations, etc.)
+* Decides per-message whether an error is retryable and what the retry delay should be
+* Returns one `VerificationResult` per input task (length must match)
 
-Adding a new source chain to the verifier requires implementing the `SourceReader` interface and configuring the verifier.
+The verifier operates independently of blockchain concerns (finality, reorgs, curses) — the coordinator handles those.
 
-### SourceReader Interface
-
-The `SourceReader` interface abstracts blockchain-specific details and provides chain-agnostic access to blockchain data. For a concrete example, check [`EVMSourceReader`](https://github.com/smartcontractkit/chainlink-ccv/blob/54ec0ad0fdbca1ee07c7df42c71012e6317c2e89/integration/pkg/sourcereader/evm_source_reader.go#L28-L28) implementation.
+### Implementing a Custom Verifier
 
 ```go
-type SourceReader interface {
-    // FetchMessageSentEvents returns MessageSentEvents in the given block range.
-    FetchMessageSentEvents(ctx context.Context, fromBlock, toBlock *big.Int) ([]protocol.MessageSentEvent, error)
-      
-      
-    // GetBlocksHeaders returns the full block headers for a batch of block numbers.
-    GetBlocksHeaders(ctx context.Context, blockNumber []*big.Int) (map[*big.Int]protocol.BlockHeader, error)
-      
-      
-    // HeadTracker: Embed HeadTracker for blockchain head tracking functionality.
-    HeadTracker
-      
-    // RMNCurseReader: Embed RMNCurseReader for curse detection functionality.
-    RMNCurseReader
+type MyVerifier struct {
+    client MyAttestationClient
+    config CoordinatorConfig
+}
+
+func (v *MyVerifier) VerifyMessages(
+    ctx context.Context,
+    tasks []verifier.VerificationTask,
+) []verifier.VerificationResult {
+    results := make([]verifier.VerificationResult, 0, len(tasks))
+    for _, task := range tasks {
+        attestation, err := v.client.Fetch(ctx, task.TxHash)
+        if err != nil {
+            // Mark as retryable — TaskVerifier Processor will reschedule after Delay
+            results = append(results, verifier.VerificationResult{
+                Error: &verifier.VerificationError{
+                    Error:     err,
+                    Task:      task,
+                    Retryable: true,
+                    Delay:     5 * time.Second,
+                },
+            })
+            continue
+        }
+
+        result, err := buildVerifierNodeResult(task, attestation)
+        if err != nil {
+            results = append(results, verifier.VerificationResult{
+                Error: &verifier.VerificationError{Error: err, Task: task, Retryable: false},
+            })
+            continue
+        }
+        results = append(results, verifier.VerificationResult{Result: result})
+    }
+    return results
 }
 ```
 
-### HeadTracker: The Finality Abstraction
-
-**Critical**: The `HeadTracker` interface abstracts different blockchain finality models, enabling the coordinator to work with any chain without understanding chain-specific finality mechanisms.
+Then inject the verifier into the coordinator:
 
 ```go
-type HeadTracker interface {
-    // LatestAndFinalizedBlock returns the latest and finalized block headers in a single call.
-    // This is more efficient than separate RPC calls and provides complete block information
-    // including hashes, parent hashes, and timestamps needed for reorg detection.
-    LatestAndFinalizedBlock(ctx context.Context) (latest, finalized *protocol.BlockHeader, err error)
-}
+coordinator, err := verifier.NewCoordinator(lggr, &MyVerifier{...}, sourceReaders, storage, ...)
 ```
 
-**Why HeadTracker Matters**:
+# PostgreSQL Job Queue
 
-Different blockchains expose finality differently:
+Both pipeline queues use the same generic `PostgresJobQueue[T]` implementation described in detail in [`pkg/jobqueue/README.md`](../pkg/jobqueue/README.md). Key properties:
 
-* **Tag-based finality**
-* **Depth-based finality**
-* **Instant finality**
+| Property | `ccv_task_verifier_jobs` | `ccv_storage_writer_jobs` |
+|---|---|---|
+| Payload type | `VerificationTask` | `protocol.VerifierNodeResult` |
+| Retry deadline | 7 days | 7 days |
+| Lock duration | 2 minutes | 1 minute |
+| Poll interval | 500 ms | 500 ms |
+| Archive retention | 30 days | 30 days |
 
-The `HeadTracker` implementation **hides these differences** from the coordinator:
+**Job states**: `pending` → `processing` → `completed` (archived) or `failed` (archived). Only `pending` and `processing` jobs live in the active table; completed and failed jobs are immediately moved to the archive table.
 
-The coordinator doesn't need to know about tags, confirmations, or consensus mechanisms, it just calls `LatestAndFinalizedBlock()` and gets consistent results.
+**Stale lock recovery**: If a processor crashes while a job is in `processing`, any subsequent `Consume` call after `LockDuration` has elapsed will reclaim the job and increment its attempt counter.
 
-### RMNCurseReader
+**Observability**: Both queues are wrapped with an `ObservabilityDecorator` that periodically records queue size metrics.
 
-```go
-// RMNCurseReader provides read-only access to RMN Remote curse state.
-// Both SourceReader and DestinationReader implement this interface.
-type RMNCurseReader interface {
-	// GetRMNCursedSubjects queries the configured RMN Remote contract.
-	// Returns cursed subjects as bytes16, which can be:
-	// * Global curse constant (0x0100000000000000000000000000000001)
-	// * Chain selectors as bytes16s
-	GetRMNCursedSubjects(ctx context.Context) ([]protocol.Bytes16, error)
-}
+# Safety Components
+
+## Reorg Handling
+
+Reorgs are handled **inline within** `SourceReaderService` during event processing.
+
+### Inline Reorg Detection
+
+When new events are fetched, the service compares them against the existing in-memory pending set:
+
+```mermaid
+flowchart LR
+    subgraph Before["Pending Set (Before)"]
+        M1A["msg1\nblock 101"]
+        M2["msg2\nblock 102"]
+    end
+
+    subgraph NewTasks["New Events Fetched"]
+        M1B["msg1\nblock 101"]
+        M3["msg3\nblock 103"]
+    end
+
+    subgraph After["Pending Set (After)"]
+        M1C["msg1\nblock 101"]
+        M3B["msg3\nblock 103"]
+    end
+
+    Before --> |"Compare"| NewTasks
+    NewTasks --> |"msg2 not in new events\n= reorged out"| After
+
+    style M2 fill:#E94B3C,stroke:#B8392E,stroke-width:2px,color:#FFFFFF
+    style M1A fill:#4A90E2,stroke:#2E5C8A,stroke-width:2px,color:#FFFFFF
+    style M1B fill:#4A90E2,stroke:#2E5C8A,stroke-width:2px,color:#FFFFFF
+    style M1C fill:#4A90E2,stroke:#2E5C8A,stroke-width:2px,color:#FFFFFF
+    style M3 fill:#50C878,stroke:#3D9A5F,stroke-width:2px,color:#FFFFFF
+    style M3B fill:#50C878,stroke:#3D9A5F,stroke-width:2px,color:#FFFFFF
 ```
 
-## Custom Verifier Examples
+**How it works:**
+1. Build a set of message IDs from newly fetched events
+2. For each task in the pending set at or after `fromBlock`:
+    * If not present in the new event set → remove (reorged out)
+    * Add new tasks (deduplication handled by message ID key)
 
-**USDC Verifier** (attestation-based):
+**Why this works**: `lastProcessedFinalizedBlock` is set to `finalized.Number`, ensuring we re-query blocks that could have been reorged. If a task exists in the pending set but not in the new batch, it was reorged out.
 
-Note: This code is for illustration purposes only
+## Finality Violation Handling
 
-```go
-type USDCVerifier struct {
-	usdcEndpoint string
-	config       CoordinatorConfig
-}
+`FinalityViolationChecker` is a synchronous, pull-based service called by `SourceReaderService` on each readiness loop iteration.
 
-func (uv *USDCVerifier) VerifyMessages(
-	ctx context.Context,
-	tasks []VerificationTask,
-	ccvDataBatcher *batcher.Batcher[CCVDataWithIdempotencyKey],
-) batcher.BatchResult[VerificationError] {
-	// Batch fetch attestations for all messages at once
-	attestations, err := uv.fetchUSDCAttestations(ctx, tasks)
-	if err != nil {
-		return batcher.BatchResult[VerificationError]{Items: []VerificationError{{Error: err}}}
-	}
+**Storage**: In-memory rolling window of finalized block headers (max 1 000 blocks), keyed by block number.
 
-	// Create CCVData for each task with its attestation
-	for i, task := range tasks {
-		ccvData := protocol.CCVData{
-			MessageID:     task.Message.MessageID(),
-			CCVData:  attestations[i], // Attestation from batch response
-			// ... other fields
-		}
+**Algorithm on each `UpdateFinalized(newFinalizedBlock)` call:**
 
-		ccvDataBatcher.Add(CCVDataWithIdempotencyKey{
-			CCVData:        ccvData,
-			IdempotencyKey: task.IdempotencyKey,
-		})
-	}
+1. **Forward progress** (`newFinalizedBlock >= lastFinalized`):
+    * Fetch headers from `lastFinalized` to `newFinalizedBlock`
+    * For each block: if already stored, verify hash matches; otherwise store it
+    * Hash mismatch → **violation**
+2. **Backward movement** (`newFinalizedBlock < lastFinalized`):
+    * Fetch header for `newFinalizedBlock`
+    * Check if stored hash matches
+    * Hash mismatch → **violation** (actual finality rewind)
+    * Hash matches → RPC lagging, ignore
 
-	return batcher.BatchResult[VerificationError]{Items: nil}
-}
+# Operational CLI
+
+## Job Queue: Inspecting and Rescheduling Failed Messages
+
+The `cli/jobqueue` package provides CLI commands to inspect failed jobs and reschedule them. These commands are exposed in deployed binaries under `ccv job-queue`.
+
+### List failed jobs
+
+```bash
+# List all failed jobs across both queues
+node ccv job-queue list
+
+# Filter by queue
+node ccv job-queue list --queue task-verifier
+node ccv job-queue list --queue storage-writer
+
+# Filter by verifier ID
+node ccv job-queue list --verifier-id my-verifier-1 --limit 100
 ```
 
-Then you inject that verifier into the coordinator.
+Output columns: Queue, Job ID, Message ID, Owner ID, Chain Selector, Attempts, Last Error, Created At, Archived At.
 
-# Failure handling
+### Reschedule a failed job
 
-Note: This is not implemented yet. It’s part of M3
+Failed jobs that have exceeded their 7-day retry deadline are archived and will not be retried automatically. They can be manually rescheduled:
 
-## circuit breaking
+```bash
+# Reschedule by job UUID, giving it a fresh 1h retry window
+node ccv job-queue reschedule \
+  --queue task-verifier \
+  --verifier-id my-verifier-1 \
+  --job-id <uuid> \
+  --retry-duration 1h
 
-We need to stop once we detect that the aggregator is down. This can be a gradual stop where we continue processing and keeping in memory for some time before deciding to stop completely.
+# Reschedule by message ID
+node ccv job-queue reschedule \
+  --queue storage-writer \
+  --verifier-id my-verifier-1 \
+  --message-id 0xabc123... \
+  --retry-duration 30m
+```
 
-## Retries
+`--job-id` and `--message-id` are mutually exclusive. Rescheduling moves the job from the archive back to the active table with a fresh `retry_deadline`.
 
-# Availability
+## Chain Statuses: Managing Chain State
 
-[https://docs.google.com/document/d/1FEjgmP3blQmWu1S2zl\_frEF5KDzsu7-bfNYKcmizNJc/edit?disco=AAABtcDi-04](https://docs.google.com/document/d/1FEjgmP3blQmWu1S2zl_frEF5KDzsu7-bfNYKcmizNJc/edit?disco=AAABtcDi-04)
+The `cli/chainstatuses` package provides CLI commands to inspect and mutate the `ccv_chain_statuses` table. These are exposed under `ccv chain-statuses`.
+
+**Important**: Shut down the verifier before running `enable`, `disable`, or `set-finalized-height`. Changes take effect on the next start.
+
+### List all chain statuses
+
+```bash
+node ccv chain-statuses list
+# or, for standalone verifier binary:
+verifier ccv chain-statuses list
+```
+
+Output columns: Chain, Chain Selector, verifier_id, finalized_block_height, disabled, updated_at.
+
+### Enable / disable a chain
+
+```bash
+# Disable (e.g. after a finality violation, before investigation)
+node ccv chain-statuses disable \
+  --chain-selector <selector> \
+  --verifier-id <id>
+
+# Re-enable after resolving the issue
+node ccv chain-statuses enable \
+  --chain-selector <selector> \
+  --verifier-id <id>
+```
+
+### Set the processing checkpoint
+
+Use `set-finalized-height` to roll back or advance the block height from which the verifier will start reading events on next startup. This is required after:
+
+* Recovering from a finality violation (roll back to before the violation)
+* Recovering from a curse period (roll back to before messages were dropped)
+
+```bash
+node ccv chain-statuses set-finalized-height \
+  --chain-selector <selector> \
+  --verifier-id <id> \
+  --block-height <N>
+```
 
 # Risks
 
-* Using multiNode clients for getting logs instead of log\_poller. They’re not as battle tested. (It is very easy though to create a ChainAccessLayer implementation using log\_poller)
+* Using multiNode clients for getting logs instead of `log_poller`. They are not as battle-tested. (It is easy to create a `ChainAccessLayer` implementation using `log_poller` if needed.)
