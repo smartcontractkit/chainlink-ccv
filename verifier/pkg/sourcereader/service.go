@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math/big"
 	"runtime/debug"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -474,14 +475,14 @@ func (r *Service) addToPendingQueueHandleReorg(tasks []verifier.VerificationTask
 
 // sendReadyMessages checks for finalized messages and publishes them directly to the task queue.
 func (r *Service) sendReadyMessages(ctx context.Context, latest, safe, finalized *protocol.BlockHeader) {
+	stringSafeBlock := "unavailable"
+	if safe != nil {
+		stringSafeBlock = strconv.FormatUint(safe.Number, 10)
+	}
+
 	r.logger.Infow("Checking for ready messages to send",
 		"latestBlock", latest.Number,
-		"safeBlock", func() any {
-			if safe != nil {
-				return safe.Number
-			}
-			return "unavailable"
-		}(),
+		"safeBlock", stringSafeBlock,
 		"finalizedBlock", finalized.Number)
 
 	if err := r.finalityChecker.UpdateFinalized(ctx, finalized.Number); err != nil {
