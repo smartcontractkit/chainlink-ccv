@@ -17,6 +17,13 @@ import (
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
 
+type chainEntry struct {
+	remoteSelectors []uint64
+	impl            cciptestinterfaces.CCIP17Configuration
+	chainDef        lanes.ChainDefinition
+	cvConfig        ccipChangesets.CommitteeVerifierRemoteChainConfig
+}
+
 // connectAllChains collects a ChainDefinition from each impl, assembles a
 // single ConfigureChainsForLanesFromTopologyConfig, applies it once, then runs
 // each impl's PostConnect for chain-specific follow-up (e.g. USDC, custom executor).
@@ -34,65 +41,54 @@ func connectAllChains(
 		return fmt.Errorf("connectAllChains: selectors must be non-empty")
 	}
 
-	type chainEntry struct {
-		selector        uint64
-		remoteSelectors []uint64
-		impl            cciptestinterfaces.CCIP17Configuration
-		chainDef        lanes.ChainDefinition
-		cvConfig        ccipChangesets.CommitteeVerifierRemoteChainConfig
-	}
-
-	entries := make([]chainEntry, 0, len(impls))
+	entries := make(map[uint64]chainEntry, len(impls))
+	// Preserve input ordering for deterministic PostConnect calls.
+	orderedSelectors := make([]uint64, 0, len(impls))
 	for i, impl := range impls {
 		networkInfo, err := chainsel.GetChainDetailsByChainIDAndFamily(blockchains[i].ChainID, impl.ChainFamily())
 		if err != nil {
 			return fmt.Errorf("chain %d: %w", i, err)
 		}
+		sel := networkInfo.ChainSelector
 		remotes := make([]uint64, 0, len(selectors))
-		for _, sel := range selectors {
-			if sel != networkInfo.ChainSelector {
-				remotes = append(remotes, sel)
+		for _, s := range selectors {
+			if s != sel {
+				remotes = append(remotes, s)
 			}
 		}
-		chainDef, cvConfig, err := impl.GetConnectionProfile(networkInfo.ChainSelector)
+		chainDef, cvConfig, err := impl.GetConnectionProfile(sel)
 		if err != nil {
-			return fmt.Errorf("get connection profile for chain %d: %w", networkInfo.ChainSelector, err)
+			return fmt.Errorf("get connection profile for chain %d: %w", sel, err)
 		}
-		entries = append(entries, chainEntry{
-			selector:        networkInfo.ChainSelector,
+		entries[sel] = chainEntry{
 			remoteSelectors: remotes,
 			impl:            impl,
 			chainDef:        chainDef,
 			cvConfig:        cvConfig,
-		})
-	}
-
-	chainDefBySelector := make(map[uint64]lanes.ChainDefinition, len(entries))
-	cvConfigBySelector := make(map[uint64]ccipChangesets.CommitteeVerifierRemoteChainConfig, len(entries))
-	for _, entry := range entries {
-		chainDefBySelector[entry.selector] = entry.chainDef
-		cvConfigBySelector[entry.selector] = entry.cvConfig
+		}
+		orderedSelectors = append(orderedSelectors, sel)
 	}
 
 	partialChains := make([]ccipChangesets.PartialChainConfig, 0, len(entries))
-	for _, entry := range entries {
+	for _, sel := range orderedSelectors {
+		entry := entries[sel]
 		remoteChains := make(map[uint64]ccipChangesets.RemoteLaneConfig, len(entry.remoteSelectors))
 		for _, rs := range entry.remoteSelectors {
-			remoteDef, ok := chainDefBySelector[rs]
+			remote, ok := entries[rs]
 			if !ok {
-				return fmt.Errorf("missing chain definition for remote selector %d (referenced from chain %d)", rs, entry.selector)
+				return fmt.Errorf("missing chain definition for remote selector %d (referenced from chain %d)", rs, sel)
 			}
-			remoteChains[rs] = ccipChangesets.RemoteLaneConfig{Chain: remoteDef}
+			remoteChains[rs] = ccipChangesets.RemoteLaneConfig{Chain: remote.chainDef}
 		}
 
-		committeeVerifiers, err := buildCommitteeVerifiers(topology, entry.remoteSelectors, cvConfigBySelector)
+		committeeVerifiers, err := buildCommitteeVerifiers(topology, entry.remoteSelectors, entries)
 		if err != nil {
-			return fmt.Errorf("build committee verifiers for chain %d: %w", entry.selector, err)
+			return fmt.Errorf("build committee verifiers for chain %d: %w", sel, err)
 		}
 
 		cd := entry.chainDef
 		partialChains = append(partialChains, ccipChangesets.PartialChainConfig{
-			ChainSelector:                     entry.selector,
+			ChainSelector:                     sel,
 			CommitteeVerifiers:                committeeVerifiers,
 			DefaultInboundCCVs:                cd.DefaultInboundCCVs,
 			DefaultOutboundCCVs:               cd.DefaultOutboundCCVs,
@@ -126,9 +122,10 @@ func connectAllChains(
 		return fmt.Errorf("configure chains for lanes: %w", err)
 	}
 
-	for _, entry := range entries {
-		if err := entry.impl.PostConnect(e, entry.selector, entry.remoteSelectors); err != nil {
-			return fmt.Errorf("post-connect for chain %d: %w", entry.selector, err)
+	for _, sel := range orderedSelectors {
+		entry := entries[sel]
+		if err := entry.impl.PostConnect(e, sel, entry.remoteSelectors); err != nil {
+			return fmt.Errorf("post-connect for chain %d: %w", sel, err)
 		}
 	}
 
@@ -141,15 +138,15 @@ func connectAllChains(
 func buildCommitteeVerifiers(
 	topology *ccipOffchain.EnvironmentTopology,
 	remoteSelectors []uint64,
-	cvConfigBySelector map[uint64]ccipChangesets.CommitteeVerifierRemoteChainConfig,
+	entries map[uint64]chainEntry,
 ) ([]ccipChangesets.CommitteeVerifierInputConfig, error) {
 	remoteChainConfigs := make(map[uint64]ccipChangesets.CommitteeVerifierRemoteChainConfig, len(remoteSelectors))
 	for _, rs := range remoteSelectors {
-		cfg, ok := cvConfigBySelector[rs]
+		entry, ok := entries[rs]
 		if !ok {
 			return nil, fmt.Errorf("missing committee verifier config for remote selector %d", rs)
 		}
-		remoteChainConfigs[rs] = cfg
+		remoteChainConfigs[rs] = entry.cvConfig
 	}
 
 	verifiers := make([]ccipChangesets.CommitteeVerifierInputConfig, 0, len(topology.NOPTopology.Committees))
