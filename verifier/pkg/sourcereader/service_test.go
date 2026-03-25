@@ -380,7 +380,7 @@ func TestSRS_Readiness_CustomFinality_PublishesToQueue(t *testing.T) {
 
 	srs, _, queue := newTestSRS(t, chain, reader, chainStatusMgr, curseDetector, 10*time.Millisecond, 5000)
 
-	const f uint16 = 10
+	const f protocol.Finality = 10
 	msg := testutil.CreateTestMessage(t, 1, chain, defaultDestChain, f, 300_000)
 	msgID, _ := msg.MessageID()
 	// block = latest - f  => custom finality met
@@ -442,7 +442,7 @@ func TestSRS_isMessageReadyForVerification(t *testing.T) {
 
 	testCases := []struct {
 		name           string
-		blockDepth     uint16
+		blockDepth     protocol.Finality
 		msgBlock       uint64
 		latestBlock    uint64
 		finalizedBlock uint64
@@ -844,7 +844,7 @@ func TestSRS_ReorgedMessage_CustomFinality_WaitsForFinalization(t *testing.T) {
 	srs, _, _ := newTestSRS(t, chain, reader, chainStatusMgr, curseDetector, 10*time.Millisecond, 5000)
 
 	// Create message with custom finality of 5 blocks
-	const customFinality uint16 = 5
+	const customFinality protocol.Finality = 5
 	msg := testutil.CreateTestMessage(t, 10, chain, defaultDestChain, customFinality, 300_000)
 	msgID, _ := msg.MessageID()
 	task := verifier.VerificationTask{
@@ -884,7 +884,7 @@ func TestSRS_NonReorgedMessage_UsesCustomFinality(t *testing.T) {
 	srs, _, _ := newTestSRS(t, chain, reader, chainStatusMgr, curseDetector, 10*time.Millisecond, 5000)
 
 	// Create message with custom finality of 5 blocks
-	const customFinality uint16 = 5
+	const customFinality protocol.Finality = 5
 	msg := testutil.CreateTestMessage(t, 10, chain, defaultDestChain, customFinality, 300_000)
 	msgID, _ := msg.MessageID()
 	task := verifier.VerificationTask{
@@ -922,7 +922,7 @@ func TestSRS_ReorgedMessage_DifferentDest_UsesCustomFinality(t *testing.T) {
 	srs.reorgTracker.Track(dest1, 10)
 
 	// Create message with same seqNum 10 but for dest2 (different lane)
-	const customFinality uint16 = 5
+	const customFinality protocol.Finality = 5
 	msg := testutil.CreateTestMessage(t, 10, chain, dest2, customFinality, 300_000)
 	msgID, _ := msg.MessageID()
 	task := verifier.VerificationTask{

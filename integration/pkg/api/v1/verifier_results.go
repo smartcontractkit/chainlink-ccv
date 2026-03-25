@@ -451,7 +451,7 @@ func (r *VerifierResultMessage) ToMessage() (protocol.Message, error) {
 		//nolint:gosec // data length verified at this stage
 		OffRampAddressLength: uint8(r.OffRampAddressLength),
 		//nolint:gosec // data length verified at this stage
-		Finality: uint16(r.Finality),
+		Finality: protocol.Finality(r.Finality),
 		//nolint:gosec // data length verified at this stage
 		SenderLength: uint8(r.SenderLength),
 		//nolint:gosec // data length verified at this stage

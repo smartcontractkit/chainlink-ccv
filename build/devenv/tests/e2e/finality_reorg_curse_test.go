@@ -402,7 +402,7 @@ func TestE2EReorg(t *testing.T) {
 		// 7. Verify message IS verified after finalization
 
 		// Custom finality: 5 blocks (much faster than ConfirmationDepth)
-		const customFinality uint16 = 5
+		const customFinality protocol.Finality = 5
 		customFinalityMessageOptions := cciptestinterfaces.MessageOptions{
 			Version:        3,
 			FinalityConfig: customFinality,
@@ -496,7 +496,7 @@ func TestE2EReorg(t *testing.T) {
 		// 6. Verify NEW message waits for full finalization (reorg tracking from sentTasks)
 
 		// Custom finality: 5 blocks (much faster than ConfirmationDepth)
-		const customFinality uint16 = 5
+		const customFinality protocol.Finality = 5
 		customFinalityMessageOptions := cciptestinterfaces.MessageOptions{
 			Version:        3,
 			FinalityConfig: customFinality,

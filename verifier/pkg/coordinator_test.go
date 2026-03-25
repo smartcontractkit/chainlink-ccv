@@ -500,7 +500,7 @@ func TestVerificationErrorHandling(t *testing.T) {
 }
 
 // createTestMessageSentEvent creates a single MessageSentEvent for testing.
-func createTestMessageSentEvent(t *testing.T, sequenceNumber protocol.SequenceNumber, sourceChainSelector, destChainSelector protocol.ChainSelector, finality uint16, gasLimit uint32, blockNumber uint64) protocol.MessageSentEvent {
+func createTestMessageSentEvent(t *testing.T, sequenceNumber protocol.SequenceNumber, sourceChainSelector, destChainSelector protocol.ChainSelector, finality protocol.Finality, gasLimit uint32, blockNumber uint64) protocol.MessageSentEvent {
 	return createTestMessageSentEventWithToken(t, sequenceNumber, sourceChainSelector, destChainSelector, finality, gasLimit, blockNumber, nil)
 }
 
@@ -509,7 +509,7 @@ func createTestMessageSentEventWithToken(
 	t *testing.T,
 	sequenceNumber protocol.SequenceNumber,
 	sourceChainSelector, destChainSelector protocol.ChainSelector,
-	finality uint16,
+	finality protocol.Finality,
 	gasLimit uint32,
 	blockNumber uint64,
 	tokenTransfer *protocol.TokenTransfer,

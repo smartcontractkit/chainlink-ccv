@@ -27,7 +27,7 @@ type v3TestCaseBase struct {
 	src                      cciptestinterfaces.CCIP17
 	dst                      cciptestinterfaces.CCIP17
 	msgData                  []byte
-	finality                 uint16
+	finality                 protocol.Finality
 	expectFail               bool
 	numExpectedReceipts      int
 	numExpectedVerifications int

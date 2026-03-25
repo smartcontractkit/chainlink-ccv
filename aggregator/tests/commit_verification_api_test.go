@@ -649,7 +649,7 @@ func runPaginationTest(t *testing.T, numMessages, pageSize, expectedPages int) {
 				OffRampAddressLength: uint8(report.VerifierResult.Message.OffRampAddressLength),
 				OffRampAddress:       report.VerifierResult.Message.OffRampAddress,
 				CcvAndExecutorHash:   ccvAndExecutorHash,
-				Finality:             uint16(report.VerifierResult.Message.Finality),
+				Finality:             protocol.Finality(report.VerifierResult.Message.Finality),
 				SenderLength:         uint8(report.VerifierResult.Message.SenderLength),
 				Sender:               report.VerifierResult.Message.Sender,
 				ReceiverLength:       uint8(report.VerifierResult.Message.ReceiverLength),

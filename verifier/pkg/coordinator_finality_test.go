@@ -111,7 +111,7 @@ func TestFinality_CustomFinality(t *testing.T) {
 		}
 	}()
 
-	customFinality := uint16(15)
+	customFinality := protocol.Finality(15)
 	customGasLimit := uint32(300_000)
 
 	readyMessage := testutil.CreateTestMessage(t, 1, 1337, 2337, customFinality, customGasLimit)

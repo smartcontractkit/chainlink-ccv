@@ -35,11 +35,11 @@ func TestFinalityConstants_BitLayout(t *testing.T) {
 
 	t.Run("block depth and safe flag are mutually exclusive encodings", func(t *testing.T) {
 		// A pure block-depth value (1..1023) must not trigger the safe flag.
-		for _, depth := range []uint16{1, 100, 512, 1023} {
-			assert.Equal(t, uint16(0), depth&FinalityFlagMask,
+		for _, depth := range []Finality{1, 100, 512, 1023} {
+			assert.Equal(t, Finality(0), depth&FinalityFlagMask,
 				"block depth %d must not set any flag bits", depth)
 		}
 		// The safe flag must not look like a block depth.
-		assert.Equal(t, uint16(0), FinalityWaitForSafe&FinalityBlockDepthMask)
+		assert.Equal(t, Finality(0), FinalityWaitForSafe&FinalityBlockDepthMask)
 	})
 }

@@ -88,7 +88,7 @@ type MessageOptions struct {
 	// CCVs are the CCVs for the message
 	CCVs []protocol.CCV
 	// FinalityConfig is the finality config for the message
-	FinalityConfig uint16
+	FinalityConfig protocol.Finality
 	// Executor is the executor address
 	Executor protocol.UnknownAddress
 	// ExecutorArgs are the executor arguments for the message
