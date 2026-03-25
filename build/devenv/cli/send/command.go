@@ -162,7 +162,7 @@ func getMessageOptions(args sendArgs, addrs datastore.AddressRefStore) (cciptest
 	}
 	opts := cciptestinterfaces.MessageOptions{
 		Version:        3,
-		FinalityConfig: uint16(args.finalitySel),
+		FinalityConfig: protocol.Finality(args.finalitySel),
 		Executor:       common.HexToAddress(executorRef.Address).Bytes(),
 		ExecutorArgs:   nil,
 		TokenArgs:      nil,

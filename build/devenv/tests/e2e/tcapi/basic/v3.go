@@ -27,7 +27,7 @@ type v3TestCaseBase struct {
 	src                      cciptestinterfaces.CCIP17
 	dst                      cciptestinterfaces.CCIP17
 	msgData                  []byte
-	finality                 uint16
+	finality                 protocol.Finality
 	expectFail               bool
 	numExpectedReceipts      int
 	numExpectedVerifications int
@@ -495,11 +495,51 @@ func maxDataSize(src, dest cciptestinterfaces.CCIP17) *v3TestCase {
 	}
 }
 
+// EOAReceiverDefaultVerifier_SafeTag returns a test case identical to EOAReceiverDefaultVerifier
+// but with the finality field set to FinalityWaitForSafe (0x0400), exercising the Ethereum
+// `safe` head fast-confirmation path end-to-end.
+func EOAReceiverDefaultVerifier_SafeTag(src, dest cciptestinterfaces.CCIP17) tcapi.TestCase {
+	return eoaReceiverDefaultVerifierSafeTag(src, dest)
+}
+
+func eoaReceiverDefaultVerifierSafeTag(src, dest cciptestinterfaces.CCIP17) *v3TestCase {
+	return &v3TestCase{
+		v3TestCaseBase: v3TestCaseBase{
+			name:                     "EOA receiver, default committee verifier, safe-tag finality",
+			src:                      src,
+			dst:                      dest,
+			finality:                 protocol.FinalityWaitForSafe,
+			msgData:                  []byte("safe-tag finality test"),
+			numExpectedReceipts:      3,
+			numExpectedVerifications: 1,
+		},
+		hydrate: func(ctx context.Context, tc *v3TestCase, cfg *ccv.Cfg) bool {
+			receiver, err := tc.dst.GetEOAReceiverAddress()
+			if err != nil {
+				return false
+			}
+			tc.receiver = receiver
+			ccv, err := getCommitteeCCV(cfg, tc.src.ChainSelector(), common.DefaultCommitteeVerifierQualifier, "committee verifier proxy")
+			if err != nil {
+				return false
+			}
+			tc.ccvs = []protocol.CCV{ccv}
+			executorAddr, err := tcapi.GetContractAddress(cfg, tc.src.ChainSelector(), datastore.ContractType(sequences.ExecutorProxyType), proxy.Deploy.Version(), common.DefaultExecutorQualifier, "executor")
+			if err != nil {
+				return false
+			}
+			tc.executor = executorAddr
+			return true
+		},
+	}
+}
+
 // All returns all basic v3 messaging test cases (custom executor, multi-verifier, max data size).
 func All(src, dest cciptestinterfaces.CCIP17) []tcapi.TestCase {
 	return []tcapi.TestCase{
 		customExecutor(src, dest),
 		eoaReceiverDefaultVerifier(src, dest),
+		eoaReceiverDefaultVerifierSafeTag(src, dest),
 		eoaReceiverSecondaryVerifier(src, dest),
 		receiverSecondaryVerifierRequired(src, dest),
 		receiverSecondaryRequiredTertiaryOptionalThreshold1(src, dest),

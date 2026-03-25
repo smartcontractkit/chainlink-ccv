@@ -28,7 +28,7 @@ import (
 
 type tokenVerifierTestCase struct {
 	name                    string
-	finalityConfig          uint16
+	finalityConfig          protocol.Finality
 	executionGasLimit       uint32
 	transferAmount          *big.Int
 	receiver                protocol.UnknownAddress

@@ -66,3 +66,7 @@ func (o observedSourceReader) LatestAndFinalizedBlock(ctx context.Context) (late
 	}
 	return latest, finalized, err
 }
+
+func (o observedSourceReader) LatestSafeBlock(ctx context.Context) (*protocol.BlockHeader, error) {
+	return o.SourceReader.LatestSafeBlock(ctx)
+}

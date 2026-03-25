@@ -14,7 +14,7 @@ const DefaultDestChain = protocol.ChainSelector(100)
 // CreateTestMessage creates a test protocol.Message with deterministic addresses.
 // The CCV address has first byte 0x11 and executor address has first byte 0x22,
 // so callers that need to match those addresses should use the same pattern.
-func CreateTestMessage(t *testing.T, sequenceNumber protocol.SequenceNumber, sourceChainSelector, destChainSelector protocol.ChainSelector, finality uint16, gasLimit uint32) protocol.Message {
+func CreateTestMessage(t *testing.T, sequenceNumber protocol.SequenceNumber, sourceChainSelector, destChainSelector protocol.ChainSelector, finality protocol.Finality, gasLimit uint32) protocol.Message {
 	t.Helper()
 
 	sender := protocol.UnknownAddress([]byte("sender_address"))
