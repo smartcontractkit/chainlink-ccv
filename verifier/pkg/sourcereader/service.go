@@ -678,17 +678,16 @@ func (r *Service) isMessageReadyForVerification(
 		)
 		return false
 	}
+	safeBlockString := "unavailable"
+	if latestSafeBlock != nil {
+		safeBlockString = latestSafeBlock.String()
+	}
 	r.logger.Infow("Finality check",
 		"messageID", task.MessageID,
 		"finality", task.Message.Finality,
 		"messageBlock", task.BlockNumber,
 		"latestBlock", latestBlock.String(),
-		"safeBlock", func() any {
-			if latestSafeBlock != nil {
-				return latestSafeBlock.String()
-			}
-			return "unavailable"
-		}(),
+		"safeBlock", safeBlockString,
 		"finalizedBlock", latestFinalizedBlock.String(),
 		"meetsRequirement", ready,
 	)
