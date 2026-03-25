@@ -513,6 +513,184 @@ func TestSRS_isMessageReadyForVerification(t *testing.T) {
 	}
 }
 
+func TestSRS_isMessageReadyForVerification_SafeTag(t *testing.T) {
+	chain := protocol.ChainSelector(1337)
+	reader := mocks.NewMockSourceReader(t)
+	chainStatusMgr := mocks.NewMockChainStatusManager(t)
+	curseDetector := mocks.NewMockCurseCheckerService(t)
+
+	srs, _, _ := newTestSRS(t, chain, reader, chainStatusMgr, curseDetector, 10*time.Millisecond, 5000)
+
+	testCases := []struct {
+		name           string
+		msgBlock       uint64
+		safeBlock      *big.Int // nil means safe head unavailable
+		finalizedBlock uint64
+		expectedReady  bool
+	}{
+		{
+			name:           "Ready_BelowSafeBlock",
+			msgBlock:       900,
+			safeBlock:      big.NewInt(950),
+			finalizedBlock: 800,
+			expectedReady:  true,
+		},
+		{
+			name:           "Ready_ExactlyAtSafeBlock",
+			msgBlock:       950,
+			safeBlock:      big.NewInt(950),
+			finalizedBlock: 800,
+			expectedReady:  true,
+		},
+		{
+			name:           "NotReady_AboveSafeBlock",
+			msgBlock:       960,
+			safeBlock:      big.NewInt(950),
+			finalizedBlock: 800,
+			expectedReady:  false,
+		},
+		{
+			name:           "FallbackToFinality_Ready_WhenSafeUnavailable",
+			msgBlock:       790,
+			safeBlock:      nil,
+			finalizedBlock: 800,
+			expectedReady:  true,
+		},
+		{
+			name:           "FallbackToFinality_NotReady_WhenSafeUnavailable",
+			msgBlock:       850,
+			safeBlock:      nil,
+			finalizedBlock: 800,
+			expectedReady:  false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			msg := testutil.CreateTestMessage(t, 1, chain, defaultDestChain, protocol.FinalityWaitForSafe, 300_000)
+			msgID, _ := msg.MessageID()
+			task := verifier.VerificationTask{Message: msg, BlockNumber: tc.msgBlock, MessageID: msgID.String()}
+
+			ready := srs.isMessageReadyForVerification(
+				task,
+				big.NewInt(int64(tc.msgBlock+1000)), // latestBlock well ahead — irrelevant for safe-tag mode
+				tc.safeBlock,
+				big.NewInt(int64(tc.finalizedBlock)),
+			)
+			require.Equal(t, tc.expectedReady, ready)
+		})
+	}
+}
+
+func TestSRS_Readiness_SafeTag_PublishesToQueue(t *testing.T) {
+	ctx := context.Background()
+	chain := protocol.ChainSelector(1337)
+	reader := mocks.NewMockSourceReader(t)
+
+	latest := &protocol.BlockHeader{Number: 1000}
+	safe := &protocol.BlockHeader{Number: 970}
+	finalized := &protocol.BlockHeader{Number: 950}
+
+	chainStatusMgr := mocks.NewMockChainStatusManager(t)
+	chainStatusMgr.EXPECT().ReadChainStatuses(mock.Anything, mock.Anything).
+		Return(map[protocol.ChainSelector]*protocol.ChainStatusInfo{}, nil).Maybe()
+
+	curseDetector := mocks.NewMockCurseCheckerService(t)
+	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false, nil).Maybe()
+	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
+	curseDetector.EXPECT().Close().Return(nil).Maybe()
+
+	srs, _, queue := newTestSRS(t, chain, reader, chainStatusMgr, curseDetector, 10*time.Millisecond, 5000)
+
+	// Message at block 960 ≤ safe(970) — should be published.
+	msg := testutil.CreateTestMessage(t, 1, chain, defaultDestChain, protocol.FinalityWaitForSafe, 300_000)
+	msgID, _ := msg.MessageID()
+	task := verifier.VerificationTask{Message: msg, BlockNumber: 960, MessageID: msgID.String()}
+
+	srs.mu.Lock()
+	srs.pendingTasks[msgID.String()] = task
+	srs.mu.Unlock()
+
+	srs.sendReadyMessages(ctx, latest, safe, finalized)
+
+	require.Eventually(t, func() bool {
+		return len(queue.Published()) == 1
+	}, tests.WaitTimeout(t), 10*time.Millisecond)
+
+	require.Equal(t, task.MessageID, queue.Published()[0].MessageID)
+}
+
+func TestSRS_Readiness_SafeTag_NotReady_AboveSafeBlock(t *testing.T) {
+	ctx := context.Background()
+	chain := protocol.ChainSelector(1337)
+	reader := mocks.NewMockSourceReader(t)
+
+	latest := &protocol.BlockHeader{Number: 1000}
+	safe := &protocol.BlockHeader{Number: 970}
+	finalized := &protocol.BlockHeader{Number: 950}
+
+	chainStatusMgr := mocks.NewMockChainStatusManager(t)
+	curseDetector := mocks.NewMockCurseCheckerService(t)
+	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false, nil).Maybe()
+	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
+	curseDetector.EXPECT().Close().Return(nil).Maybe()
+
+	srs, _, queue := newTestSRS(t, chain, reader, chainStatusMgr, curseDetector, 10*time.Millisecond, 5000)
+
+	// Message at block 980 > safe(970), also > finalized(950) — must not be published yet.
+	msg := testutil.CreateTestMessage(t, 1, chain, defaultDestChain, protocol.FinalityWaitForSafe, 300_000)
+	msgID, _ := msg.MessageID()
+	task := verifier.VerificationTask{Message: msg, BlockNumber: 980, MessageID: msgID.String()}
+
+	srs.mu.Lock()
+	srs.pendingTasks[msgID.String()] = task
+	srs.mu.Unlock()
+
+	srs.sendReadyMessages(ctx, latest, safe, finalized)
+
+	srs.mu.RLock()
+	defer srs.mu.RUnlock()
+	require.Len(t, srs.pendingTasks, 1, "not-ready safe-tag task should remain pending")
+	require.Len(t, queue.Published(), 0)
+}
+
+func TestSRS_Readiness_SafeTag_FallsBackToFinality_WhenSafeUnavailable(t *testing.T) {
+	ctx := context.Background()
+	chain := protocol.ChainSelector(1337)
+	reader := mocks.NewMockSourceReader(t)
+
+	latest := &protocol.BlockHeader{Number: 1000}
+	finalized := &protocol.BlockHeader{Number: 950}
+
+	chainStatusMgr := mocks.NewMockChainStatusManager(t)
+	chainStatusMgr.EXPECT().ReadChainStatuses(mock.Anything, mock.Anything).
+		Return(map[protocol.ChainSelector]*protocol.ChainStatusInfo{}, nil).Maybe()
+
+	curseDetector := mocks.NewMockCurseCheckerService(t)
+	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false, nil).Maybe()
+	curseDetector.EXPECT().Start(mock.Anything).Return(nil).Maybe()
+	curseDetector.EXPECT().Close().Return(nil).Maybe()
+
+	srs, _, queue := newTestSRS(t, chain, reader, chainStatusMgr, curseDetector, 10*time.Millisecond, 5000)
+
+	// Message at block 940 ≤ finalized(950) — safe is nil, fallback must publish it.
+	msg := testutil.CreateTestMessage(t, 1, chain, defaultDestChain, protocol.FinalityWaitForSafe, 300_000)
+	msgID, _ := msg.MessageID()
+	task := verifier.VerificationTask{Message: msg, BlockNumber: 940, MessageID: msgID.String()}
+
+	srs.mu.Lock()
+	srs.pendingTasks[msgID.String()] = task
+	srs.mu.Unlock()
+
+	srs.sendReadyMessages(ctx, latest, nil /* safe unavailable */, finalized)
+
+	require.Eventually(t, func() bool {
+		return len(queue.Published()) == 1
+	}, tests.WaitTimeout(t), 10*time.Millisecond)
+
+	require.Equal(t, task.MessageID, queue.Published()[0].MessageID)
+}
+
 func TestSRS_FinalityViolation_DisablesChainAndFlushesTasks(t *testing.T) {
 	ctx := context.Background()
 	chain := protocol.ChainSelector(1337)
