@@ -259,7 +259,7 @@ func TestSRS_CurseStateUnknown_RetainsTaskAndBlocksCheckpointUntilResolved(t *te
 	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, chain, defaultDestChain).
 		Return(true, common.ErrCurseStateUnknown).Once()
 
-	srs.sendReadyMessages(ctx, latest, finalized)
+	srs.sendReadyMessages(ctx, latest, nil, finalized)
 
 	srs.mu.RLock()
 	assert.Len(t, srs.pendingTasks, 1, "task must remain in pendingTasks when curse state is unknown")
@@ -272,7 +272,7 @@ func TestSRS_CurseStateUnknown_RetainsTaskAndBlocksCheckpointUntilResolved(t *te
 	curseDetector.EXPECT().IsRemoteChainCursed(mock.Anything, chain, defaultDestChain).
 		Return(false, nil).Once()
 
-	srs.sendReadyMessages(ctx, latest, finalized)
+	srs.sendReadyMessages(ctx, latest, nil, finalized)
 
 	srs.mu.RLock()
 	assert.Len(t, srs.pendingTasks, 0, "task should be removed from pendingTasks after curse resolves")
@@ -307,7 +307,7 @@ func TestSRS_Curse_DropsAtSendTime(t *testing.T) {
 
 	latest := &protocol.BlockHeader{Number: 150}
 	finalized := &protocol.BlockHeader{Number: 120}
-	srs.sendReadyMessages(ctx, latest, finalized)
+	srs.sendReadyMessages(ctx, latest, nil, finalized)
 
 	srs.mu.RLock()
 	defer srs.mu.RUnlock()
@@ -346,7 +346,7 @@ func TestSRS_Readiness_DefaultFinality_PublishesToQueue(t *testing.T) {
 	srs.pendingTasks[msgID.String()] = task
 	srs.mu.Unlock()
 
-	srs.sendReadyMessages(ctx, latest, finalized)
+	srs.sendReadyMessages(ctx, latest, nil, finalized)
 
 	require.Eventually(t, func() bool {
 		return len(queue.Published()) == 1
@@ -390,7 +390,7 @@ func TestSRS_Readiness_CustomFinality_PublishesToQueue(t *testing.T) {
 	srs.pendingTasks[msgID.String()] = task
 	srs.mu.Unlock()
 
-	srs.sendReadyMessages(ctx, latest, finalized)
+	srs.sendReadyMessages(ctx, latest, nil, finalized)
 
 	require.Eventually(t, func() bool {
 		return len(queue.Published()) == 1
@@ -424,7 +424,7 @@ func TestSRS_Readiness_NotReadyTask_NotPublished(t *testing.T) {
 	srs.pendingTasks[msgID.String()] = task
 	srs.mu.Unlock()
 
-	srs.sendReadyMessages(ctx, latest, finalized)
+	srs.sendReadyMessages(ctx, latest, nil, finalized)
 
 	srs.mu.RLock()
 	defer srs.mu.RUnlock()
@@ -505,6 +505,7 @@ func TestSRS_isMessageReadyForVerification(t *testing.T) {
 			ready := srs.isMessageReadyForVerification(
 				task,
 				big.NewInt(int64(tc.latestBlock)),
+				nil,
 				big.NewInt(int64(tc.finalizedBlock)),
 			)
 			require.Equal(t, tc.expectedReady, ready)
@@ -548,7 +549,7 @@ func TestSRS_FinalityViolation_DisablesChainAndFlushesTasks(t *testing.T) {
 
 	latest := &protocol.BlockHeader{Number: 1000}
 	finalized := &protocol.BlockHeader{Number: 950}
-	srs.sendReadyMessages(ctx, latest, finalized)
+	srs.sendReadyMessages(ctx, latest, nil, finalized)
 
 	require.True(t, srs.disabled.Load(), "chain should be disabled after finality violation")
 
@@ -681,13 +682,13 @@ func TestSRS_ReorgedMessage_CustomFinality_WaitsForFinalization(t *testing.T) {
 	finalizedBlock := big.NewInt(180) // msgBlock(190) > finalized(180)
 
 	// Even though custom finality (195 <= 200) would be met, reorg tracking should require finalization
-	ready := srs.isMessageReadyForVerification(task, latestBlock, finalizedBlock)
+	ready := srs.isMessageReadyForVerification(task, latestBlock, nil, finalizedBlock)
 
 	require.False(t, ready, "reorged message should wait for finalization even if custom finality is met")
 
 	// Now set finalized block past message block
 	finalizedBlock = big.NewInt(195)
-	ready = srs.isMessageReadyForVerification(task, latestBlock, finalizedBlock)
+	ready = srs.isMessageReadyForVerification(task, latestBlock, nil, finalizedBlock)
 
 	require.True(t, ready, "reorged message should be ready once finalized")
 }
@@ -720,7 +721,7 @@ func TestSRS_NonReorgedMessage_UsesCustomFinality(t *testing.T) {
 	finalizedBlock := big.NewInt(180) // msgBlock(190) > finalized(180)
 
 	// Custom finality should be used (no reorg tracking)
-	ready := srs.isMessageReadyForVerification(task, latestBlock, finalizedBlock)
+	ready := srs.isMessageReadyForVerification(task, latestBlock, nil, finalizedBlock)
 
 	require.True(t, ready, "non-reorged message should use custom finality")
 }
@@ -756,7 +757,7 @@ func TestSRS_ReorgedMessage_DifferentDest_UsesCustomFinality(t *testing.T) {
 	finalizedBlock := big.NewInt(180)
 
 	// Message to dest2 should use custom finality (dest1's reorg doesn't affect it)
-	ready := srs.isMessageReadyForVerification(task, latestBlock, finalizedBlock)
+	ready := srs.isMessageReadyForVerification(task, latestBlock, nil, finalizedBlock)
 
 	require.True(t, ready, "message to different dest should not be affected by other dest's reorg tracking")
 }
@@ -797,7 +798,7 @@ func TestSRS_ReorgTracker_RemovedAfterFinalization(t *testing.T) {
 	latest := &protocol.BlockHeader{Number: 200}
 	finalized := &protocol.BlockHeader{Number: 150}
 
-	srs.sendReadyMessages(ctx, latest, finalized)
+	srs.sendReadyMessages(ctx, latest, nil, finalized)
 
 	// Wait for task to be published
 	require.Eventually(t, func() bool {
@@ -1399,6 +1400,7 @@ func TestSRS_EventMonitoringLoop_ContinuesAfterPanic(t *testing.T) {
 		}).
 		Return(latest, finalized, nil).
 		Maybe()
+	reader.EXPECT().LatestSafeBlock(mock.Anything).Return(nil, nil).Maybe()
 
 	reader.EXPECT().
 		FetchMessageSentEvents(mock.Anything, mock.Anything, mock.Anything).
@@ -1469,6 +1471,7 @@ func TestSRS_EventMonitoringLoop_PanicInProcessEventCycle(t *testing.T) {
 		LatestAndFinalizedBlock(mock.Anything).
 		Return(latest, finalized, nil).
 		Maybe()
+	reader.EXPECT().LatestSafeBlock(mock.Anything).Return(nil, nil).Maybe()
 
 	// Track how many times FetchMessageSentEvents is called
 	fetchCallCount := 0

@@ -216,33 +216,39 @@ func (r *Service) eventMonitoringLoop() {
 						}
 					}()
 
-					ready, latest, finalized := r.readyToQuery(ctx)
+					ready, latest, safe, finalized := r.readyToQuery(ctx)
 					if !ready {
 						return
 					}
 					r.processEventCycle(ctx, latest, finalized)
-					r.sendReadyMessages(ctx, latest, finalized)
+					r.sendReadyMessages(ctx, latest, safe, finalized)
 				}()
 			}
 		}
 	}
 }
 
-func (r *Service) readyToQuery(ctx context.Context) (bool, *protocol.BlockHeader, *protocol.BlockHeader) {
+func (r *Service) readyToQuery(ctx context.Context) (bool, *protocol.BlockHeader, *protocol.BlockHeader, *protocol.BlockHeader) {
 	blockCtx, cancel := context.WithTimeout(ctx, r.pollInterval)
 	defer cancel()
 	latest, finalized, err := r.sourceReader.LatestAndFinalizedBlock(blockCtx)
 	if err != nil {
 		r.logger.Errorw("Failed to get latest block", "error", err)
-		return false, nil, nil
+		return false, nil, nil, nil
 	}
 	if finalized == nil || latest == nil {
 		r.logger.Errorw("nil block found during latest/finalized retrieval",
 			"finalized=Nil", finalized == nil, "latest=Nil", latest == nil)
-		return false, nil, nil
+		return false, nil, nil, nil
 	}
 
-	return true, latest, finalized
+	safe, err := r.sourceReader.LatestSafeBlock(blockCtx)
+	if err != nil {
+		r.logger.Warnw("Failed to get safe block, safe-tag finality will fall back to full finality", "error", err)
+		// non-fatal: safe may not be supported on all chains
+	}
+
+	return true, latest, safe, finalized
 }
 
 func (r *Service) getBlockRanges(fromBlock, latest uint64) []blockRange {
@@ -467,9 +473,15 @@ func (r *Service) addToPendingQueueHandleReorg(tasks []verifier.VerificationTask
 }
 
 // sendReadyMessages checks for finalized messages and publishes them directly to the task queue.
-func (r *Service) sendReadyMessages(ctx context.Context, latest, finalized *protocol.BlockHeader) {
+func (r *Service) sendReadyMessages(ctx context.Context, latest, safe, finalized *protocol.BlockHeader) {
 	r.logger.Infow("Checking for ready messages to send",
 		"latestBlock", latest.Number,
+		"safeBlock", func() any {
+			if safe != nil {
+				return safe.Number
+			}
+			return "unavailable"
+		}(),
 		"finalizedBlock", finalized.Number)
 
 	if err := r.finalityChecker.UpdateFinalized(ctx, finalized.Number); err != nil {
@@ -491,6 +503,11 @@ func (r *Service) sendReadyMessages(ctx context.Context, latest, finalized *prot
 
 	latestBlock := new(big.Int).SetUint64(latest.Number)
 	latestFinalizedBlock := new(big.Int).SetUint64(finalized.Number)
+
+	var latestSafeBlock *big.Int
+	if safe != nil {
+		latestSafeBlock = new(big.Int).SetUint64(safe.Number)
+	}
 
 	// advanceCheckpointTo captures the block value that should be checkpointed after releasing
 	// the mutex. Zero means no checkpoint should be written this cycle.
@@ -535,7 +552,7 @@ func (r *Service) sendReadyMessages(ctx context.Context, latest, finalized *prot
 				continue
 			}
 
-			if r.isMessageReadyForVerification(task, latestBlock, latestFinalizedBlock) {
+			if r.isMessageReadyForVerification(task, latestBlock, latestSafeBlock, latestFinalizedBlock) {
 				// Set the timestamp when message became ready for verification
 				// This is the finalized block timestamp which represents when the message met finality criteria
 				task.ReadyForVerificationAt = latest.Timestamp
@@ -626,9 +643,21 @@ func (r *Service) writeCheckpoint(ctx context.Context, finalizedBlock uint64) {
 	}
 }
 
+// isMessageReadyForVerification decides whether a message has met its requested finality.
+//
+// Finality encoding (mirrors FinalityCodec.sol):
+//   - 0x0000 — full finality: message block must be ≤ latest finalized block.
+//   - 0x0400 — safe tag: message block must be ≤ latest safe block.
+//     Falls back to full finality when the safe block is unavailable (non-EVM chains or
+//     chains that do not expose a safe head).
+//   - 0x0001-0x03FF — N-block depth: message block + N ≤ latest block,
+//     OR capped: message block ≤ finalized block.
+//
+// Reorg-tracked messages always require full finality regardless of the requested mode.
 func (r *Service) isMessageReadyForVerification(
 	task verifier.VerificationTask,
 	latestBlock *big.Int,
+	latestSafeBlock *big.Int,
 	latestFinalizedBlock *big.Int,
 ) bool {
 	f := task.Message.Finality
@@ -649,34 +678,58 @@ func (r *Service) isMessageReadyForVerification(
 		return ready
 	}
 
-	if f == 0 {
+	switch f {
+	case protocol.FinalityWaitForFinality:
 		ok := msgBlock.Cmp(latestFinalizedBlock) <= 0
-		r.logger.Infow("Default finality check",
+		r.logger.Infow("Full-finality check",
 			"messageID", task.MessageID,
 			"messageBlock", task.BlockNumber,
 			"finalizedBlock", latestFinalizedBlock.String(),
 			"meetsRequirement", ok,
 		)
 		return ok
+
+	case protocol.FinalityWaitForSafe:
+		if latestSafeBlock == nil {
+			// Safe head unavailable on this chain — fall back to full finality.
+			ok := msgBlock.Cmp(latestFinalizedBlock) <= 0
+			r.logger.Warnw("Safe-tag finality requested but safe block unavailable, falling back to full finality",
+				"messageID", task.MessageID,
+				"messageBlock", task.BlockNumber,
+				"finalizedBlock", latestFinalizedBlock.String(),
+				"meetsRequirement", ok,
+			)
+			return ok
+		}
+		ok := msgBlock.Cmp(latestSafeBlock) <= 0
+		r.logger.Infow("Safe-tag finality check",
+			"messageID", task.MessageID,
+			"messageBlock", task.BlockNumber,
+			"safeBlock", latestSafeBlock.String(),
+			"meetsRequirement", ok,
+		)
+		return ok
+
+	default:
+		// Block-depth mode: use only the lower 10 bits as the confirmation count.
+		depth := f & protocol.FinalityBlockDepthMask
+		required := new(big.Int).Add(msgBlock, new(big.Int).SetUint64(uint64(depth)))
+		customFinalityMet := required.Cmp(latestBlock) <= 0
+		cappedAtFinality := msgBlock.Cmp(latestFinalizedBlock) <= 0
+		ready := customFinalityMet || cappedAtFinality
+
+		r.logger.Infow("Block-depth finality check",
+			"messageID", task.MessageID,
+			"msgBlock", msgBlock.String(),
+			"depth", depth,
+			"requiredBlock", required.String(),
+			"latestBlock", latestBlock.String(),
+			"customFinalityMet", customFinalityMet,
+			"cappedAtFinality", cappedAtFinality,
+			"ready", ready,
+		)
+		return ready
 	}
-
-	required := new(big.Int).Add(msgBlock, new(big.Int).SetUint64(uint64(f)))
-	customFinalityMet := required.Cmp(latestBlock) <= 0
-	cappedAtFinality := msgBlock.Cmp(latestFinalizedBlock) <= 0
-	ready := customFinalityMet || cappedAtFinality
-
-	r.logger.Infow("Custom finality check",
-		"messageID", task.MessageID,
-		"msgBlock", msgBlock.String(),
-		"finality", f,
-		"requiredBlock", required.String(),
-		"latestBlock", latestBlock.String(),
-		"customFinalityMet", customFinalityMet,
-		"cappedAtFinality", cappedAtFinality,
-		"ready", ready,
-	)
-
-	return ready
 }
 
 func (r *Service) handleFinalityViolation(ctx context.Context) {

@@ -23,6 +23,11 @@ type HeadTracker interface {
 	// This is more efficient than separate RPC calls and provides complete block information
 	// including hashes, parent hashes, and timestamps needed for reorg detection.
 	LatestAndFinalizedBlock(ctx context.Context) (latest, finalized *protocol.BlockHeader, err error)
+	// LatestSafeBlock returns the latest block that is considered safe. On Ethereum this is the
+	// `safe` head — a checkpoint that is more recent than `finalized` but less final than
+	// `finalized`. Returns nil without an error when the chain does not support the safe tag.
+	// Mirrors the upstream chainlink-framework chains/heads.Tracker interface.
+	LatestSafeBlock(ctx context.Context) (safe *protocol.BlockHeader, err error)
 }
 
 // SourceReader defines the interface for reading CCIP message events from source chains.

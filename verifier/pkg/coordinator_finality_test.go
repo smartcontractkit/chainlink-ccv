@@ -308,6 +308,7 @@ func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetu
 		}
 		return latest, finalized, nil
 	}).Maybe()
+	mockSetup.Reader.EXPECT().LatestSafeBlock(mock.Anything).Return(nil, nil).Maybe()
 
 	verifierAddr := make([]byte, 20)
 	verifierAddr[0] = 0x11

@@ -79,6 +79,7 @@ func mockLatestBlocks(reader *mocks.MockSourceReader) *mocks.MockSourceReader {
 		Timestamp:  time.Now(),
 	}
 	reader.EXPECT().LatestAndFinalizedBlock(mock.Anything).Return(latestHeader, finalizedHeader, nil).Maybe()
+	reader.EXPECT().LatestSafeBlock(mock.Anything).Return(nil, nil).Maybe()
 	return reader
 }
 
