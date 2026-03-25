@@ -10,6 +10,8 @@ import (
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/offchain"
+
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
 const (
@@ -97,7 +99,7 @@ func (s TokenCombination) ExpectedVerifierResults() int {
 	return s.expectedVerifierResults
 }
 
-func (s TokenCombination) FinalityConfig() uint16 {
+func (s TokenCombination) FinalityConfig() protocol.Finality {
 	if semver.MustParse(s.sourcePoolVersion).GreaterThanEqual(semver.MustParse("2.0.0")) {
 		return 1 // We can use fast-finality if source pool is 2.0.0 or higher
 	}

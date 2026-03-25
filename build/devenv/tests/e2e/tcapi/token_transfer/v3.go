@@ -30,7 +30,7 @@ type tokenTransferV3TestCaseBase struct {
 	src             cciptestinterfaces.CCIP17
 	dst             cciptestinterfaces.CCIP17
 	combo           common.TokenCombination
-	finalityConfig  uint16
+	finalityConfig  protocol.Finality
 	useEOAReceiver  bool
 	numExpectedRecv int
 	numExpectedVer  int
@@ -166,11 +166,11 @@ func getTokenAddress(cfg *ccv.Cfg, chainSelector uint64, qualifier string) (prot
 }
 
 // TokenTransfer returns a single token transfer test case for the given combo, finality, receiver type, and name.
-func TokenTransfer(src, dest cciptestinterfaces.CCIP17, combo common.TokenCombination, finalityConfig uint16, useEOAReceiver bool, name string) tcapi.TestCase {
+func TokenTransfer(src, dest cciptestinterfaces.CCIP17, combo common.TokenCombination, finalityConfig protocol.Finality, useEOAReceiver bool, name string) tcapi.TestCase {
 	return tokenTransferCase(src, dest, combo, finalityConfig, useEOAReceiver, name)
 }
 
-func tokenTransferCase(src, dest cciptestinterfaces.CCIP17, combo common.TokenCombination, finalityConfig uint16, useEOAReceiver bool, name string) *tokenTransferV3TestCase {
+func tokenTransferCase(src, dest cciptestinterfaces.CCIP17, combo common.TokenCombination, finalityConfig protocol.Finality, useEOAReceiver bool, name string) *tokenTransferV3TestCase {
 	return &tokenTransferV3TestCase{
 		tokenTransferV3TestCaseBase: tokenTransferV3TestCaseBase{
 			name:            name,

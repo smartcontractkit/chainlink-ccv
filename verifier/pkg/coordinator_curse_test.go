@@ -105,6 +105,7 @@ func setupCurseTest(t *testing.T, sourceChain, destChain protocol.ChainSelector,
 			return setup.currentLatest, setup.currentFinalized, nil
 		},
 	).Maybe()
+	mockSetup.Reader.EXPECT().LatestSafeBlock(mock.Anything).Return(nil, nil).Maybe()
 
 	verifierAddr := make([]byte, 20)
 	verifierAddr[0] = 0x11

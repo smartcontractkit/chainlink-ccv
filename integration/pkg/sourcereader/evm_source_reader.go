@@ -312,6 +312,28 @@ func (r *EVMSourceReader) LatestAndFinalizedBlock(ctx context.Context) (latest, 
 	return latest, finalized, nil
 }
 
+// LatestSafeBlock returns the latest safe block header.
+// Returns nil without an error when the underlying chain does not support the safe tag.
+// Implements chainaccess.HeadTracker interface.
+func (r *EVMSourceReader) LatestSafeBlock(ctx context.Context) (*protocol.BlockHeader, error) {
+	safeHead, err := r.headTracker.LatestSafeBlock(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get safe block: %w", err)
+	}
+	if safeHead == nil {
+		return nil, nil
+	}
+	if safeHead.Number < 0 {
+		return nil, fmt.Errorf("safe block number cannot be negative: %d", safeHead.Number)
+	}
+	return &protocol.BlockHeader{
+		Number:     uint64(safeHead.Number),
+		Hash:       protocol.Bytes32(safeHead.Hash),
+		ParentHash: protocol.Bytes32(safeHead.ParentHash),
+		Timestamp:  safeHead.Timestamp,
+	}, nil
+}
+
 // GetRMNCursedSubjects queries this source chain's RMN Remote contract.
 // Implements SourceReader and chainaccess.RMNCurseReader interfaces.
 func (r *EVMSourceReader) GetRMNCursedSubjects(ctx context.Context) ([]protocol.Bytes16, error) {

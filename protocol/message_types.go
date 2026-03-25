@@ -236,7 +236,7 @@ type Message struct {
 	SequenceNumber       SequenceNumber `json:"sequence_number"`
 	ExecutionGasLimit    uint32         `json:"execution_gas_limit"`
 	CcipReceiveGasLimit  uint32         `json:"ccip_receive_gas_limit"`
-	Finality             uint16         `json:"finality"`
+	Finality             Finality       `json:"finality"`
 	CcvAndExecutorHash   Bytes32        `json:"ccv_and_executor_hash"`
 	DestBlobLength       uint16         `json:"dest_blob_length"`
 	TokenTransferLength  uint16         `json:"token_transfer_length"`
@@ -696,7 +696,7 @@ func NewMessage(
 	sourceChain, destChain ChainSelector,
 	sequenceNumber SequenceNumber,
 	onRampAddress, offRampAddress UnknownAddress,
-	finality uint16,
+	finality Finality,
 	executionGasLimit, ccipReceiveGasLimit uint32,
 	ccvAndExecutorHash Bytes32,
 	sender, receiver UnknownAddress,
