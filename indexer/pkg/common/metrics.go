@@ -3,12 +3,17 @@ package common
 import (
 	"context"
 	"time"
+
+	commonmetrics "github.com/smartcontractkit/chainlink-ccv/common/metrics"
 )
 
 // IndexerMonitoring provides all core monitoring functionality for the indexer. Also can be implemented as a no-op.
+// ServiceMetrics is embedded so that common service-level metrics (e.g. ccip_service_started)
+// and any future ones are part of this interface without changing it.
 type IndexerMonitoring interface {
 	// Metrics returns the metrics labeler for the indexer.
 	Metrics() IndexerMetricLabeler
+	commonmetrics.ServiceMetrics
 }
 
 // IndexerMetricLabeler provides all metric recording functionality for the indexer.
@@ -21,8 +26,6 @@ type IndexerMetricLabeler interface {
 	DecrementActiveRequestsCounter(ctx context.Context)
 	// RecordHTTPRequestDuration records the HTTP request duration.
 	RecordHTTPRequestDuration(ctx context.Context, duration time.Duration, path, method string, status int)
-	// IncrementUniqueMessagesCounter increments the unique messages counter.
-	IncrementUniqueMessagesCounter(ctx context.Context)
 	// IncrementVerificationRecordsCounter increments the verification records counter.
 	IncrementVerificationRecordsCounter(ctx context.Context)
 	// RecordStorageQueryDuration records the storage query duration.
@@ -43,4 +46,10 @@ type IndexerMetricLabeler interface {
 	RecordTimeToIndex(ctx context.Context, latency time.Duration, discoveryType string)
 	// RecordCircuitBreakerStatus records the status of the circuit breaker.
 	RecordCircuitBreakerStatus(ctx context.Context, status bool)
+	// RecordGRPCPayloadSize records the gRPC wire-level payload size in bytes.
+	// direction is "recv" for received payloads, "send" for sent payloads.
+	RecordGRPCPayloadSize(ctx context.Context, method, direction string, sizeBytes int)
+	// IncrementGRPCErrors increments the counter for gRPC errors by status code.
+	// code should be the gRPC status code string (e.g. "ResourceExhausted", "Internal").
+	IncrementGRPCErrors(ctx context.Context, code, method string)
 }

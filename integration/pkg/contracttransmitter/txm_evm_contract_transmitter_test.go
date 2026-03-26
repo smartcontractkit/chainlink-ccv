@@ -10,6 +10,8 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"github.com/smartcontractkit/chainlink-ccv/executor"
+	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	txmgr "github.com/smartcontractkit/chainlink-evm/pkg/txmgr"
@@ -44,11 +46,12 @@ func (m *mockRoundRobin) GetNextAddress(ctx context.Context, addresses ...common
 func TestTXMEVMContractTransmitter_ConvertAndWriteMessageToChain(t *testing.T) {
 	testKey := "test-key"
 	testCases := []struct {
-		name              string
-		report            protocol.AbstractAggregatedReport
-		setupMocks        func(*mockTxManager, *mockRoundRobin)
-		expectedError     string
-		expectedLogFields map[string]any
+		name                     string
+		report                   protocol.AbstractAggregatedReport
+		setupMocks               func(*mockTxManager, *mockRoundRobin)
+		expectedError            string
+		expectedLogFields        map[string]any
+		expectErrMessageEncoding bool
 	}{
 		{
 			name: "successful transmission",
@@ -87,8 +90,9 @@ func TestTXMEVMContractTransmitter_ConvertAndWriteMessageToChain(t *testing.T) {
 					Sender:       []byte{0x01},
 				},
 			},
-			setupMocks:    func(txm *mockTxManager, rr *mockRoundRobin) {},
-			expectedError: "unable to submit txn: invalid message encoding",
+			setupMocks:               func(txm *mockTxManager, rr *mockRoundRobin) {},
+			expectedError:            "unable to submit txn: invalid message encoding",
+			expectErrMessageEncoding: true,
 		},
 		{
 			name: "error getting round-robin address",
@@ -183,7 +187,6 @@ func TestTXMEVMContractTransmitter_ConvertAndWriteMessageToChain(t *testing.T) {
 			expectedError: "",
 		},
 	}
-
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.Background()
@@ -209,6 +212,7 @@ func TestTXMEVMContractTransmitter_ConvertAndWriteMessageToChain(t *testing.T) {
 				offRampAddr,
 				mockRR,
 				fromAddresses,
+				monitoring.NewNoopExecutorMonitoring(),
 			)
 
 			// Execute
@@ -218,6 +222,9 @@ func TestTXMEVMContractTransmitter_ConvertAndWriteMessageToChain(t *testing.T) {
 			if tc.expectedError != "" {
 				require.Error(t, err)
 				assert.Contains(t, err.Error(), tc.expectedError)
+				if tc.expectErrMessageEncoding {
+					assert.True(t, errors.Is(err, executor.ErrMessageEncoding))
+				}
 			} else {
 				require.NoError(t, err)
 			}
@@ -281,6 +288,7 @@ func TestNewEVMContractTransmitterFromTxm(t *testing.T) {
 				tc.offRampAddress,
 				mockRR,
 				tc.fromAddresses,
+				monitoring.NewNoopExecutorMonitoring(),
 			)
 
 			require.NotNil(t, transmitter)
@@ -341,6 +349,7 @@ func TestTXMEVMContractTransmitter_ABIEncoding(t *testing.T) {
 				common.HexToAddress("0x9999999999999999999999999999999999999999"),
 				mockRR,
 				[]common.Address{fromAddr},
+				monitoring.NewNoopExecutorMonitoring(),
 			)
 
 			err := transmitter.ConvertAndWriteMessageToChain(ctx, tc.report)

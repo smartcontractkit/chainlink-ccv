@@ -68,14 +68,22 @@ func NewChainlinkExecutor(
 func (cle *ChainlinkExecutor) Start(ctx context.Context) error {
 	return cle.StartOnce(chainlinkExecutorServiceName, func() error {
 		cle.lggr.Info("Starting Chainlink Executor")
-		var errs []error
+		var startedReaders []chainaccess.DestinationReader
+		var startErrs []error
 		for chainSelector, reader := range cle.destinationReaders {
 			if err := reader.Start(ctx); err != nil {
-				errs = append(errs, fmt.Errorf("failed to start destination reader for chain %d: %w", chainSelector, err))
+				startErrs = append(startErrs, fmt.Errorf("failed to start destination reader for chain %d: %w", chainSelector, err))
+			} else {
+				startedReaders = append(startedReaders, reader)
 			}
 		}
-		if len(errs) > 0 {
-			return errors.Join(errs...)
+		if len(startErrs) > 0 {
+			for _, reader := range startedReaders {
+				if closeErr := reader.Close(); closeErr != nil {
+					startErrs = append(startErrs, closeErr)
+				}
+			}
+			return errors.Join(startErrs...)
 		}
 		return nil
 	})
@@ -142,16 +150,20 @@ func (cle *ChainlinkExecutor) HandleMessage(ctx context.Context, message protoco
 	destinationChain := message.DestChainSelector
 	messageID := message.MustMessageID()
 
-	cursed := cle.curseChecker.IsRemoteChainCursed(ctx, message.DestChainSelector, message.SourceChainSelector)
+	cursed, curseErr := cle.curseChecker.IsRemoteChainCursed(ctx, message.DestChainSelector, message.SourceChainSelector)
 	if cursed {
-		cle.lggr.Infow("delaying execution due to curse", "messageID", messageID, "cursed", cursed)
+		if curseErr != nil {
+			cle.lggr.Warnw("delaying execution - curse state unknown", "messageID", messageID, "error", curseErr)
+		} else {
+			cle.lggr.Infow("delaying execution due to curse", "messageID", messageID)
+		}
 		return true, nil
 	}
 
 	executionSuccess, err := cle.destinationReaders[destinationChain].GetMessageSuccess(ctx, message)
 	if err != nil {
 		// If we can't get execution state, don't execute, but put back in heap to retry later.
-		// this usually only happens due to rpc issues, other nodes will try and this node will expec to see status SUCCESS later.
+		// this usually only happens due to rpc issues, other nodes will try and this node will expect to see status SUCCESS later.
 		cle.lggr.Warnw("delaying execution due to failed check GetMessageExecutionState", "messageID", messageID)
 		return true, err
 	}
@@ -184,6 +196,7 @@ func (cle *ChainlinkExecutor) HandleMessage(ctx context.Context, message protoco
 	// we've validated that VerifierResults are consistent in their ccv address fields, so we only need to check the first result for this check.
 	if len(verifierQuorum.RequiredCCVs)+int(verifierQuorum.OptionalThreshold) > len(verifierResults[0].MessageCCVAddresses) {
 		cle.lggr.Infow("skipping execution and not retrying due to impossible receiver verifier quorum", "messageID", messageID)
+		cle.monitoring.Metrics().IncrementUnrecoverableMessageFailure(ctx)
 		return false, nil
 	}
 
@@ -222,6 +235,11 @@ func (cle *ChainlinkExecutor) HandleMessage(ctx context.Context, message protoco
 	)
 	err = cle.contractTransmitters[destinationChain].ConvertAndWriteMessageToChain(ctx, aggregatedReport)
 	if err != nil {
+		if errors.Is(err, executor.ErrMessageEncoding) {
+			cle.monitoring.Metrics().IncrementUnrecoverableMessageFailure(ctx)
+			cle.lggr.Warnw("skipping retry due to message encoding error", "messageID", messageID, "error", err)
+			return false, err
+		}
 		cle.lggr.Warnw("will retry execution due to failed ConvertAndWriteMessageToChain", "messageID", messageID)
 		return true, err
 	}
@@ -233,7 +251,7 @@ func (cle *ChainlinkExecutor) HandleMessage(ctx context.Context, message protoco
 }
 
 func (cle *ChainlinkExecutor) getVerifierResultsAndQuorum(ctx context.Context, message protocol.Message, messageID protocol.Bytes32) ([]protocol.VerifierResult, protocol.CCVAddressInfo, error) {
-	destinationChain := message.DestChainSelector
+	destinationChain, sourceSelector := message.DestChainSelector, message.SourceChainSelector
 
 	// Fetch CCV data from the indexer and CCV info from the destination reader concurrently.
 	g, errGroupCtx := errgroup.WithContext(ctx)
@@ -244,17 +262,13 @@ func (cle *ChainlinkExecutor) getVerifierResultsAndQuorum(ctx context.Context, m
 			return fmt.Errorf("failed to get Verifier Results for message %s: %w", messageID.String(), err)
 		}
 
-		expectedAddr, ok := cle.defaultExecutorAddress[destinationChain]
-		if !ok {
-			return fmt.Errorf("no default executor address configured for destination chain %d", destinationChain)
-		}
-
 		for _, r := range res {
-			if !r.MessageExecutorAddress.Equal(expectedAddr) {
+			if !r.MessageExecutorAddress.Equal(cle.defaultExecutorAddress[sourceSelector]) {
 				cle.lggr.Warnw("Verifier Result did not specify our executor",
 					"verifierResult", r,
-					"defaultExecutorAddress", expectedAddr.String(),
+					"defaultExecutorAddress", cle.defaultExecutorAddress[sourceSelector].String(),
 				)
+				// continue here because it's possible to still meet verifier quorum with some invalid verifier results.
 				continue
 			}
 			if err := r.ValidateFieldsConsistent(); err != nil {
@@ -276,7 +290,7 @@ func (cle *ChainlinkExecutor) getVerifierResultsAndQuorum(ctx context.Context, m
 			errGroupCtx,
 			message,
 		)
-		if err != nil && len(res.RequiredCCVs) == 0 {
+		if err != nil {
 			return fmt.Errorf("failed to get Verifier Quorum for message %s: %w", messageID.String(), err)
 		}
 		ccvInfo = res
@@ -400,8 +414,8 @@ func orderCCVData(
 	// metrics: determine the latest timestamp of all the CCV datas.
 	if receiverCCVInfo.OptionalThreshold > 0 {
 		slices.Sort(optionalCCVTimestamps)
-		minSignificantOptionalCCVTimestamp := optionalCCVTimestamps[receiverCCVInfo.OptionalThreshold-1]
-		latestCCVTimestamp = max(lastRequiredCCVTimestamp, minSignificantOptionalCCVTimestamp)
+		maxSignificantOptionalCCVTimestamp := optionalCCVTimestamps[receiverCCVInfo.OptionalThreshold-1]
+		latestCCVTimestamp = max(lastRequiredCCVTimestamp, maxSignificantOptionalCCVTimestamp)
 	} else {
 		latestCCVTimestamp = lastRequiredCCVTimestamp
 	}
@@ -420,6 +434,18 @@ func toStrSlice[T fmt.Stringer](slice []T) []string {
 func (cle *ChainlinkExecutor) Validate() error {
 	if cle.lggr == nil {
 		return fmt.Errorf("logger is required")
+	}
+	if cle.curseChecker == nil {
+		return fmt.Errorf("curse checker is required")
+	}
+	if cle.verifierResultsReader == nil {
+		return fmt.Errorf("verifier results reader is required")
+	}
+	if cle.monitoring == nil {
+		return fmt.Errorf("monitoring is required")
+	}
+	if cle.defaultExecutorAddress == nil {
+		return fmt.Errorf("default executor address map is required")
 	}
 	chainSetA := make(map[protocol.ChainSelector]struct{})
 	chainSetB := make(map[protocol.ChainSelector]struct{})
@@ -449,11 +475,6 @@ func (cle *ChainlinkExecutor) Validate() error {
 	for chainID := range chainSetA {
 		if _, ok := chainSetB[chainID]; !ok {
 			return fmt.Errorf("contract transmitters and destination readers must support the same chains")
-		}
-	}
-	for chainSel := range cle.destinationReaders {
-		if _, ok := cle.defaultExecutorAddress[chainSel]; !ok {
-			return fmt.Errorf("default executor address required for destination chain %d", chainSel)
 		}
 	}
 	return nil

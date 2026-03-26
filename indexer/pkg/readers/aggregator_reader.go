@@ -4,14 +4,15 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/integration/storageaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-func NewAggregatorReader(address string, lggr logger.Logger, since int64, hmacConfig hmac.ClientConfig, insecure bool, maxRecvMsgSizeBytes int) (*ResilientReader, error) {
-	reader, err := storageaccess.NewAggregatorReader(address, lggr, since, &hmacConfig, insecure, maxRecvMsgSizeBytes)
+func NewAggregatorReader(address string, lggr logger.Logger, since int64, hmacConfig hmac.ClientConfig, insecure bool, maxRecvMsgSizeBytes int, m common.IndexerMonitoring) (*ResilientReader, error) {
+	reader, err := storageaccess.NewAggregatorReader(address, lggr, since, &hmacConfig, insecure, maxRecvMsgSizeBytes, grpcClientDialOptions(m.Metrics())...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create aggregator reader: %w", err)
 	}

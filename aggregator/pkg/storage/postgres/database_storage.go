@@ -311,12 +311,15 @@ func (d *DatabaseStorage) QueryAggregatedReports(ctx context.Context, sinceSeque
 		return nil, fmt.Errorf("error iterating rows: %w", err)
 	}
 
+	corruptedReports := make(map[string]bool)
 	for reportKey, verRows := range verificationRowsByReport {
 		report := reportsMap[reportKey]
 		for _, verRow := range verRows {
 			verification, err := rowToCommitVerificationRecord(verRow)
 			if err != nil {
-				return nil, fmt.Errorf("failed to convert row to record: %w", err)
+				d.logger(ctx).Errorw("corrupted verification row, excluding entire report", "error", err, "report_key", reportKey, "verification_id", verRow.ID)
+				corruptedReports[reportKey] = true
+				break
 			}
 			report.Verifications = append(report.Verifications, verification)
 		}
@@ -333,6 +336,9 @@ func (d *DatabaseStorage) QueryAggregatedReports(ctx context.Context, sinceSeque
 
 	reports := make([]*model.CommitAggregatedReport, 0, len(reportOrder))
 	for _, key := range reportOrder {
+		if corruptedReports[key] {
+			continue
+		}
 		reports = append(reports, reportsMap[key])
 	}
 
@@ -553,7 +559,9 @@ func (d *DatabaseStorage) GetBatchAggregatedReportByMessageIDs(ctx context.Conte
 		for _, verRow := range verRows {
 			verification, err := rowToCommitVerificationRecord(verRow)
 			if err != nil {
-				return nil, fmt.Errorf("failed to convert row to record: %w", err)
+				d.logger(ctx).Errorw("corrupted verification row in batch report, excluding entire report", "error", err, "message_id", messageID, "verification_id", verRow.ID)
+				delete(reports, messageID)
+				break
 			}
 			report.Verifications = append(report.Verifications, verification)
 		}
@@ -647,6 +655,7 @@ func (d *DatabaseStorage) ListOrphanedKeys(ctx context.Context, newerThan time.T
 		defer close(orphanedKeyCh)
 		defer close(errCh)
 
+		var cursorCreatedAt *time.Time
 		var cursorMessageID, cursorAggregationKey string
 		firstPage := true
 
@@ -658,7 +667,7 @@ func (d *DatabaseStorage) ListOrphanedKeys(ctx context.Context, newerThan time.T
 			default:
 			}
 
-			pageRowsCount, lastMessageID, lastAggregationKey, err := d.fetchOrphanedKeysPage(ctx, newerThan, firstPage, cursorMessageID, cursorAggregationKey, orphanedKeyCh, pageSize)
+			pageRowsCount, lastCreatedAt, lastMessageID, lastAggregationKey, err := d.fetchOrphanedKeysPage(ctx, newerThan, firstPage, cursorCreatedAt, cursorMessageID, cursorAggregationKey, orphanedKeyCh, pageSize)
 			if err != nil {
 				sendErr(err)
 				return
@@ -668,6 +677,7 @@ func (d *DatabaseStorage) ListOrphanedKeys(ctx context.Context, newerThan time.T
 				return
 			}
 
+			cursorCreatedAt = lastCreatedAt
 			cursorMessageID = lastMessageID
 			cursorAggregationKey = lastAggregationKey
 			firstPage = false
@@ -677,35 +687,33 @@ func (d *DatabaseStorage) ListOrphanedKeys(ctx context.Context, newerThan time.T
 	return orphanedKeyCh, errCh
 }
 
-func (d *DatabaseStorage) fetchOrphanedKeysPage(ctx context.Context, newerThan time.Time, firstPage bool, cursorMessageID, cursorAggregationKey string, orphanedKeyCh chan<- model.OrphanedKey, pageSize int) (pageCount int, lastMessageID, lastAggregationKey string, err error) {
+func (d *DatabaseStorage) fetchOrphanedKeysPage(ctx context.Context, newerThan time.Time, firstPage bool, cursorCreatedAt *time.Time, cursorMessageID, cursorAggregationKey string, orphanedKeyCh chan<- model.OrphanedKey, pageSize int) (pageCount int, lastCreatedAt *time.Time, lastMessageID, lastAggregationKey string, err error) {
 	queryCtx, cancel := d.withTimeout(ctx)
 	defer cancel()
 
-	var rows *sql.Rows
-	if firstPage {
-		stmt := `
-		SELECT DISTINCT cvr.message_id, cvr.aggregation_key
+	subquery := `
+		SELECT cvr.message_id, cvr.aggregation_key, MAX(cvr.created_at) AS created_at
 		FROM commit_verification_records cvr
 		LEFT JOIN commit_aggregated_reports car
 			ON car.message_id = cvr.message_id AND car.aggregation_key = cvr.aggregation_key
 		WHERE cvr.created_at >= $1 AND car.message_id IS NULL
-		ORDER BY cvr.message_id, cvr.aggregation_key
+		GROUP BY cvr.message_id, cvr.aggregation_key`
+
+	var rows *sql.Rows
+	if firstPage {
+		stmt := `SELECT sub.message_id, sub.aggregation_key, sub.created_at FROM (` + subquery + `) sub
+		ORDER BY sub.created_at DESC, sub.message_id, sub.aggregation_key
 		LIMIT $2`
 		rows, err = d.ds.QueryContext(queryCtx, stmt, newerThan, pageSize)
 	} else {
-		stmt := `
-		SELECT DISTINCT cvr.message_id, cvr.aggregation_key
-		FROM commit_verification_records cvr
-		LEFT JOIN commit_aggregated_reports car
-			ON car.message_id = cvr.message_id AND car.aggregation_key = cvr.aggregation_key
-		WHERE cvr.created_at >= $1 AND car.message_id IS NULL
-		  AND (cvr.message_id, cvr.aggregation_key) > ($3, $4)
-		ORDER BY cvr.message_id, cvr.aggregation_key
+		stmt := `SELECT sub.message_id, sub.aggregation_key, sub.created_at FROM (` + subquery + `) sub
+		WHERE (sub.created_at, sub.message_id, sub.aggregation_key) < ($3, $4, $5)
+		ORDER BY sub.created_at DESC, sub.message_id, sub.aggregation_key
 		LIMIT $2`
-		rows, err = d.ds.QueryContext(queryCtx, stmt, newerThan, pageSize, cursorMessageID, cursorAggregationKey)
+		rows, err = d.ds.QueryContext(queryCtx, stmt, newerThan, pageSize, cursorCreatedAt, cursorMessageID, cursorAggregationKey)
 	}
 	if err != nil {
-		return 0, "", "", fmt.Errorf("failed to query orphaned message pairs: %w", err)
+		return 0, nil, "", "", fmt.Errorf("failed to query orphaned message pairs: %w", err)
 	}
 	// Uses named return 'err' so rows.Close() failure is propagated when no prior error occurred.
 	defer func() {
@@ -720,21 +728,23 @@ func (d *DatabaseStorage) fetchOrphanedKeysPage(ctx context.Context, newerThan t
 	type dbResult struct {
 		MessageID      string
 		AggregationKey string
+		CreatedAt      time.Time
 	}
 
 	for rows.Next() {
 		select {
 		case <-ctx.Done():
-			return 0, "", "", ctx.Err()
+			return 0, nil, "", "", ctx.Err()
 		default:
 		}
 
 		var result dbResult
-		if err := rows.Scan(&result.MessageID, &result.AggregationKey); err != nil {
-			return 0, "", "", fmt.Errorf("failed to scan orphaned pair: %w", err)
+		if err := rows.Scan(&result.MessageID, &result.AggregationKey, &result.CreatedAt); err != nil {
+			return 0, nil, "", "", fmt.Errorf("failed to scan orphaned pair: %w", err)
 		}
 
 		pageCount++
+		lastCreatedAt = &result.CreatedAt
 		lastMessageID = result.MessageID
 		lastAggregationKey = result.AggregationKey
 
@@ -750,15 +760,15 @@ func (d *DatabaseStorage) fetchOrphanedKeysPage(ctx context.Context, newerThan t
 			AggregationKey: result.AggregationKey,
 		}:
 		case <-ctx.Done():
-			return 0, "", "", ctx.Err()
+			return 0, nil, "", "", ctx.Err()
 		}
 	}
 
 	if err := rows.Err(); err != nil {
-		return 0, "", "", fmt.Errorf("error iterating over orphaned pairs: %w", err)
+		return 0, nil, "", "", fmt.Errorf("error iterating over orphaned pairs: %w", err)
 	}
 
-	return pageCount, lastMessageID, lastAggregationKey, nil
+	return pageCount, lastCreatedAt, lastMessageID, lastAggregationKey, nil
 }
 
 // OrphanedKeyStats returns aggregate counts of orphaned (message_id, aggregation_key) pairs

@@ -14,9 +14,10 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
-	"github.com/smartcontractkit/chainlink-ccv/verifier"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
+	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/chainstatus"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/commit"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/heartbeat"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
@@ -67,8 +68,10 @@ func NewVerificationCoordinator(
 		return nil, fmt.Errorf("invalid ccv configuration: failed to map default executor addresses: %w", err)
 	}
 
+	protocol.InitChainSelectorCache()
+
 	// TODO: monitoring config home
-	verifierMonitoring, err := monitoring.InitMonitoring()
+	verifierMonitoring, err := monitoring.InitMonitoring("committee_verifier")
 	if err != nil {
 		lggr.Errorw("Failed to initialize verifier monitoring", "error", err)
 		return nil, fmt.Errorf("failed to initialize verifier monitoring: %w", err)
@@ -102,9 +105,13 @@ func NewVerificationCoordinator(
 			return nil, fmt.Errorf("failed to create source reader: %w", err)
 		}
 
-		observedSourceReader := sourcereader.NewObservedSourceReader(
+		observedSourceReader, err := sourcereader.NewObservedSourceReader(
 			sourceReader, cfg.VerifierID, sel, verifierMonitoring,
 		)
+		if err != nil {
+			lggr.Errorw("Failed to create observed source reader.", "error", err, "chainID", sel)
+			return nil, fmt.Errorf("failed to create observed source reader: %w", err)
+		}
 
 		sourceReaders[sel] = observedSourceReader
 		sourceConfigs[sel] = verifier.SourceConfig{
@@ -114,6 +121,9 @@ func NewVerificationCoordinator(
 			ChainSelector:          sel,
 			RMNRemoteAddress:       rmnRemoteAddrs[sel],
 		}
+	}
+	if len(sourceReaders) == 0 {
+		return nil, fmt.Errorf("no source readers configured: ensure at least one chain has matching onramp and verifier addresses")
 	}
 
 	// Initialize other required services and configs.
@@ -125,6 +135,7 @@ func NewVerificationCoordinator(
 		lggr,
 		aggregatorSecret,
 		cfg.InsecureAggregatorConnection,
+		cfg.AggregatorMaxSendMsgSizeBytes,
 		cfg.AggregatorMaxRecvMsgSizeBytes,
 	)
 	if err != nil {
@@ -132,8 +143,18 @@ func NewVerificationCoordinator(
 		return nil, fmt.Errorf("failed to create aggregator writer: %w", err)
 	}
 
-	// Create chain status manager using postgres
-	chainStatusManager := chainstatus.NewPostgresChainStatusManager(ds, lggr, cfg.VerifierID)
+	observedStorageWriter := storageaccess.NewObservedStorageWriter(
+		storageaccess.NewDefaultResilientStorageWriter(
+			aggregatorWriter,
+			lggr,
+		),
+		cfg.VerifierID,
+		lggr,
+		verifierMonitoring,
+	)
+
+	chainStatusStore := chainstatus.NewPostgresChainStatusStore(ds, lggr)
+	chainStatusManager := chainstatus.NewPostgresChainStatusManager(chainStatusStore, cfg.VerifierID)
 
 	coordinatorConfig := verifier.CoordinatorConfig{
 		VerifierID:          cfg.VerifierID,
@@ -167,7 +188,7 @@ func NewVerificationCoordinator(
 		heartbeatClient,
 		cfg.VerifierID,
 		lggr,
-		verifier.NewHeartbeatMonitoringAdapter(verifierMonitoring),
+		heartbeat.NewHeartbeatMonitoringAdapter(verifierMonitoring),
 	)
 
 	messageTracker := monitoring.NewMessageLatencyTracker(
@@ -180,7 +201,7 @@ func NewVerificationCoordinator(
 		lggr,
 		commitVerifier,
 		sourceReaders,
-		aggregatorWriter,
+		observedStorageWriter,
 		coordinatorConfig,
 		messageTracker,
 		verifierMonitoring,

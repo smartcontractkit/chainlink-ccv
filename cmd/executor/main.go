@@ -77,10 +77,6 @@ func main() {
 		lggr.Errorw("Failed to load configuration", "path", configPath, "error", err)
 		os.Exit(1)
 	}
-	if err = executorConfig.Validate(); err != nil {
-		lggr.Errorw("Failed to validate configuration", "path", configPath, "error", err)
-		os.Exit(1)
-	}
 
 	if _, err := pyroscope.Start(pyroscope.Config{
 		ApplicationName: "executor",
@@ -100,6 +96,8 @@ func main() {
 
 	// Use SugaredLogger for better API
 	lggr = logger.Sugared(lggr)
+
+	protocol.InitChainSelectorCache()
 
 	lggr.Infow("Executor configuration", "config", executorConfig)
 	lggr.Infow("Blockchain information", "blockchainInfo", blockchainInfo)
@@ -160,6 +158,7 @@ func main() {
 	// ------------------------------------------------------------------------------------------------
 	contractTransmitters := make(map[protocol.ChainSelector]chainaccess.ContractTransmitter)
 	destReaders := make(map[protocol.ChainSelector]chainaccess.DestinationReader)
+	enabledDestChains := make([]protocol.ChainSelector, 0)
 	rmnReaders := make(map[protocol.ChainSelector]chainaccess.RMNCurseReader)
 	for strSel, chain := range blockchainInfo {
 		chainConfig := executorConfig.ChainConfiguration[strSel]
@@ -169,7 +168,11 @@ func main() {
 			continue
 		}
 
-		chainClient := pkg.CreateMultiNodeClientFromInfo(ctx, chain, lggr)
+		chainClient, err := pkg.CreateMultiNodeClientFromInfo(ctx, chain, lggr)
+		if err != nil {
+			lggr.Errorw("Failed to create chain client", "error", err, "chainSelector", strSel)
+			continue
+		}
 		dr, err := destinationreader.NewEvmDestinationReader(
 			destinationreader.Params{
 				Lggr:                      lggr,
@@ -177,12 +180,12 @@ func main() {
 				ChainClient:               chainClient,
 				OfframpAddress:            chainConfig.OffRampAddress,
 				RmnRemoteAddress:          chainConfig.RmnAddress,
-				CacheExpiry:               executorConfig.ReaderCacheExpiry,
 				ExecutionVisabilityWindow: executorConfig.MaxRetryDuration,
 				Monitoring:                executorMonitoring,
 			})
 		if err != nil {
 			lggr.Errorw("Failed to create destination reader", "error", err, "chainSelector", strSel)
+			continue
 		}
 
 		pk := os.Getenv(privateKeyEnvVar)
@@ -208,6 +211,7 @@ func main() {
 			rmnReaders[protocol.ChainSelector(selector)] = dr
 		}
 		contractTransmitters[protocol.ChainSelector(selector)] = ct
+		enabledDestChains = append(enabledDestChains, protocol.ChainSelector(selector))
 	}
 
 	//
@@ -270,25 +274,30 @@ func main() {
 	//
 	// Initialize leader elector
 	// ------------------------------------------------------------------------------------------------
-	le := leaderelector.NewHashBasedLeaderElector(
+	le, err := leaderelector.NewHashBasedLeaderElector(
 		lggr,
 		execPool,
 		executorConfig.ExecutorID,
 		execIntervals,
 	)
+	if err != nil {
+		lggr.Errorw("Failed to create leader elector", "error", err)
+		os.Exit(1)
+	}
 	timeProvider := backofftimeprovider.NewBackoffNTPProvider(lggr, executorConfig.BackoffDuration, executorConfig.NtpServer)
 
 	indexerStream := ccvstreamer.NewIndexerStorageStreamer(
 		lggr,
 		ccvstreamer.IndexerStorageConfig{
-			IndexerClient:    verifierResultReader,
-			InitialQueryTime: time.Now().Add(-1 * executorConfig.LookbackWindow),
-			PollingInterval:  indexerPollingInterval,
-			Backoff:          executorConfig.BackoffDuration,
-			QueryLimit:       executorConfig.IndexerQueryLimit,
-			ExpiryDuration:   messageContextWindow,
-			CleanInterval:    indexerGarbageCollectionInterval,
-			TimeProvider:     timeProvider,
+			IndexerClient:     verifierResultReader,
+			InitialQueryTime:  time.Now().Add(-1 * executorConfig.LookbackWindow),
+			PollingInterval:   indexerPollingInterval,
+			Backoff:           executorConfig.BackoffDuration,
+			QueryLimit:        executorConfig.IndexerQueryLimit,
+			ExpiryDuration:    messageContextWindow,
+			CleanInterval:     indexerGarbageCollectionInterval,
+			TimeProvider:      timeProvider,
+			EnabledDestChains: enabledDestChains,
 		})
 
 	//
@@ -318,7 +327,7 @@ func main() {
 	// Wait for shutdown signal
 	// ------------------------------------------------------------------------------------------------
 	<-sigCh
-	lggr.Infow("🛑 Shutdown signal received, stopping verifier...")
+	lggr.Infow("🛑 Shutdown signal received, stopping executor...")
 
 	// Graceful shutdown
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)

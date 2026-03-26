@@ -2,11 +2,20 @@ package readers
 
 import (
 	"bytes"
+	"context"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/failsafe-go/failsafe-go/circuitbreaker"
+
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
 func TestReadLimitedBody(t *testing.T) {
@@ -83,4 +92,91 @@ type failingReader struct{}
 
 func (f *failingReader) Read(_ []byte) (int, error) {
 	return 0, assert.AnError
+}
+
+func TestRestReader_GetVerifications_404_ReturnsEmptyMapAndNoError(t *testing.T) {
+	messageID := protocol.Bytes32{1, 2, 3}
+	messageIDHex := messageID.String()
+	body := `{"results": [], "errors": ["message not found: ` + messageIDHex + `"]}`
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(body))
+	}))
+	defer server.Close()
+
+	lggr, err := logger.New()
+	require.NoError(t, err)
+
+	rr := NewRestReader(RestReaderConfig{
+		BaseURL:          server.URL,
+		RequestTimeout:   0,
+		MaxResponseBytes: 1024,
+		HTTPClient:       server.Client(),
+		Logger:           lggr,
+	})
+
+	result, err := rr.GetVerifications(context.Background(), []protocol.Bytes32{messageID})
+	require.NoError(t, err)
+	assert.Empty(t, result)
+}
+
+func TestRestReader_GetVerifications_404_MalformedBody_ReturnsEmptyMapAndNoError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte("not valid json"))
+	}))
+	defer server.Close()
+
+	lggr, err := logger.New()
+	require.NoError(t, err)
+
+	rr := NewRestReader(RestReaderConfig{
+		BaseURL:          server.URL,
+		RequestTimeout:   0,
+		MaxResponseBytes: 1024,
+		HTTPClient:       server.Client(),
+		Logger:           lggr,
+	})
+
+	messageID := protocol.Bytes32{1, 2, 3}
+	result, err := rr.GetVerifications(context.Background(), []protocol.Bytes32{messageID})
+	require.NoError(t, err)
+	assert.Empty(t, result)
+}
+
+func TestRestReader_GetVerifications_404_DoesNotOpenCircuitBreaker(t *testing.T) {
+	messageID := protocol.Bytes32{1, 2, 3}
+	messageIDHex := messageID.String()
+	body := `{"results": [], "errors": ["message not found: ` + messageIDHex + `"]}`
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(body))
+	}))
+	defer server.Close()
+
+	lggr, err := logger.New()
+	require.NoError(t, err)
+
+	rr := NewRestReader(RestReaderConfig{
+		BaseURL:          server.URL,
+		RequestTimeout:   0,
+		MaxResponseBytes: 1024,
+		HTTPClient:       server.Client(),
+		Logger:           lggr,
+	})
+
+	ctx := context.Background()
+	ids := []protocol.Bytes32{messageID}
+	for i := range 6 {
+		// We don't care about the result we expect the circuit breaker to remain closed at the end of the test
+		rr.GetVerifications(ctx, ids)
+		if i < 5 {
+			time.Sleep(250 * time.Millisecond)
+		}
+	}
+
+	assert.NotEqual(t, circuitbreaker.OpenState, rr.GetCircuitBreakerState(),
+		"404 responses must not count as failures; circuit breaker should remain closed")
 }

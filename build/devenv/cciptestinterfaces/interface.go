@@ -10,7 +10,9 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/prometheus/client_golang/prometheus"
 
-	"github.com/smartcontractkit/chainlink-ccv/deployments"
+	"github.com/smartcontractkit/chainlink-ccip/deployment/lanes"
+	v1_7_0 "github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/changesets"
+	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/offchain"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
@@ -88,7 +90,7 @@ type MessageOptions struct {
 	// CCVs are the CCVs for the message
 	CCVs []protocol.CCV
 	// FinalityConfig is the finality config for the message
-	FinalityConfig uint16
+	FinalityConfig protocol.Finality
 	// Executor is the executor address
 	Executor protocol.UnknownAddress
 	// ExecutorArgs are the executor arguments for the message
@@ -185,6 +187,13 @@ type Chain interface {
 	TransferNative(ctx context.Context, from, to protocol.UnknownAddress, amount *big.Int) error
 }
 
+// LombardMailboxBridgedMessageSetter is optionally implemented by chain implementations (e.g. EVM)
+// that can set the Lombard mock mailbox's bridged message (verifier version + message ID) on the
+// destination chain so deliverAndHandle returns exactly 36 bytes and LombardVerifier.verifyMessage succeeds.
+type LombardMailboxBridgedMessageSetter interface {
+	SetLombardMailboxBridgedMessage(ctx context.Context, messageID [32]byte) error
+}
+
 type OnChainCommittees struct {
 	CommitteeQualifier string
 	Signers            [][]byte
@@ -198,10 +207,23 @@ type OnChainConfigurable interface {
 	ChainFamily() string
 	// DeployContractsForSelector deploys contracts for chain X using topology for CommitteeVerifier configuration.
 	// Returns all the contract addresses and metadata as datastore.DataStore.
-	DeployContractsForSelector(ctx context.Context, env *deployment.Environment, selector uint64, topology *deployments.EnvironmentTopology) (datastore.DataStore, error)
-	// ConnectContractsWithSelectors connects this chain onRamp to one or multiple offRamps for remote selectors (other chains)
-	// and configures CommitteeVerifiers with signers from topology.
-	ConnectContractsWithSelectors(ctx context.Context, e *deployment.Environment, selector uint64, remoteSelectors []uint64, topology *deployments.EnvironmentTopology) error
+	DeployContractsForSelector(ctx context.Context, env *deployment.Environment, selector uint64, topology *offchain.EnvironmentTopology) (datastore.DataStore, error)
+	// GetConnectionProfile returns a ChainDefinition describing this chain as a
+	// lane destination, plus the default committee verifier config to apply for
+	// each remote chain. The environment uses profiles from all chains to
+	// assemble the full cross-chain connection config.
+	GetConnectionProfile(selector uint64) (lanes.ChainDefinition, v1_7_0.CommitteeVerifierRemoteChainConfig, error)
+	// PostConnect runs chain-specific setup after all chains have been connected
+	// (e.g. USDC/Lombard token config, custom executor wiring).
+	PostConnect(env *deployment.Environment, selector uint64, remoteSelectors []uint64) error
+}
+
+// DeployerNonceBumper is an optional interface. When implemented, devenv calls it before
+// DeployContractsForSelector so that contract addresses differ across chains (e.g. by sending
+// dummy self-transfers to bump the deployer nonce). This helps smoke tests catch bugs where
+// code looks up addresses using the wrong chain selector.
+type DeployerNonceBumper interface {
+	BumpDeployerNonce(ctx context.Context, env *deployment.Environment, selector uint64, count int) error
 }
 
 // OffChainConfigurable defines methods that allows to

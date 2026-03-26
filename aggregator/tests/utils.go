@@ -16,6 +16,7 @@ import (
 	"google.golang.org/grpc/test/bufconn"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
@@ -148,14 +149,14 @@ func CreateServerOnly(t *testing.T, options ...ConfigOption) (*bufconn.Listener,
 				Type: "memory",
 			},
 			DefaultLimits: map[string]model.RateLimitConfig{
-				// Generous defaults for tests - 10000 requests per minute
-				msgdiscoverypb.MessageDiscovery_GetMessagesSince_FullMethodName:                    {LimitPerMinute: 10000},
-				verifierpb.Verifier_GetVerifierResultsForMessage_FullMethodName:                    {LimitPerMinute: 10000},
-				committeepb.CommitteeVerifier_WriteCommitteeVerifierNodeResult_FullMethodName:      {LimitPerMinute: 10000},
-				committeepb.CommitteeVerifier_BatchWriteCommitteeVerifierNodeResult_FullMethodName: {LimitPerMinute: 10000},
-				committeepb.CommitteeVerifier_ReadCommitteeVerifierNodeResult_FullMethodName:       {LimitPerMinute: 10000},
-				committeepb.CommitteeVerifier_WriteChainStatus_FullMethodName:                      {LimitPerMinute: 10000},
-				committeepb.CommitteeVerifier_ReadChainStatus_FullMethodName:                       {LimitPerMinute: 10000},
+				// Generous defaults for tests - 10000 requests per second
+				msgdiscoverypb.MessageDiscovery_GetMessagesSince_FullMethodName:                    {LimitPerSecond: 10000},
+				verifierpb.Verifier_GetVerifierResultsForMessage_FullMethodName:                    {LimitPerSecond: 10000},
+				committeepb.CommitteeVerifier_WriteCommitteeVerifierNodeResult_FullMethodName:      {LimitPerSecond: 10000},
+				committeepb.CommitteeVerifier_BatchWriteCommitteeVerifierNodeResult_FullMethodName: {LimitPerSecond: 10000},
+				committeepb.CommitteeVerifier_ReadCommitteeVerifierNodeResult_FullMethodName:       {LimitPerSecond: 10000},
+				committeepb.CommitteeVerifier_WriteChainStatus_FullMethodName:                      {LimitPerSecond: 10000},
+				committeepb.CommitteeVerifier_ReadChainStatus_FullMethodName:                       {LimitPerSecond: 10000},
 			},
 		},
 	}
@@ -177,7 +178,7 @@ func CreateServerOnly(t *testing.T, options ...ConfigOption) (*bufconn.Listener,
 	}
 	config.Storage = storageConfig
 
-	s := agg.NewServer(sugaredLggr, config)
+	s := agg.NewServer(sugaredLggr, config, &monitoring.NoopAggregatorMonitoring{})
 	err = s.Start(buf)
 	if err != nil {
 		t.Fatalf("failed to start server: %v", err)

@@ -193,13 +193,13 @@ type AnonymousAuthConfig struct {
 
 // RateLimitConfig defines the rate limit for a specific method.
 type RateLimitConfig struct {
-	// LimitPerMinute is the number of requests allowed per minute
-	LimitPerMinute int `toml:"limit_per_minute"`
+	// LimitPerSecond is the number of requests allowed per second (1s window)
+	LimitPerSecond int `toml:"limit_per_second"`
 }
 
 func (c *RateLimitConfig) Validate() error {
-	if c.LimitPerMinute < 0 {
-		return errors.New("limitPerMinute must be greater than or equal to 0")
+	if c.LimitPerSecond < 0 {
+		return errors.New("limitPerSecond must be greater than or equal to 0")
 	}
 	return nil
 }
@@ -352,7 +352,7 @@ func (c *RateLimitingConfig) getMostRestrictiveGroupLimit(client auth.ClientConf
 	for _, group := range client.GetGroups() {
 		if groupLimits, exists := c.GroupLimits[group]; exists {
 			if limit, exists := groupLimits[method]; exists {
-				if mostRestrictive == nil || limit.LimitPerMinute < mostRestrictive.LimitPerMinute {
+				if mostRestrictive == nil || limit.LimitPerSecond < mostRestrictive.LimitPerSecond {
 					mostRestrictive = &limit
 				}
 			}

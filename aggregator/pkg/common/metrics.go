@@ -3,12 +3,17 @@ package common
 import (
 	"context"
 	"time"
+
+	commonmetrics "github.com/smartcontractkit/chainlink-ccv/common/metrics"
 )
 
 // AggregatorMonitoring provides access to aggregator monitoring capabilities.
+// ServiceMetrics is embedded so that common service-level metrics (e.g. ccip_service_started)
+// and any future ones are part of this interface without changing it.
 type AggregatorMonitoring interface {
 	// Metrics returns an AggregatorMetricLabeler for recording metrics.
 	Metrics() AggregatorMetricLabeler
+	commonmetrics.ServiceMetrics
 }
 
 // AggregatorMetricLabeler provides methods for recording various aggregator metrics.
@@ -60,4 +65,10 @@ type AggregatorMetricLabeler interface {
 	SetVerifierHeartbeatCurrentMaxChainHead(ctx context.Context, blockHeight int64)
 	// IncrementVerificationsTotal increments the total number of commit verifications received.
 	IncrementVerificationsTotal(ctx context.Context)
+	// RecordGRPCPayloadSize records the gRPC wire-level payload size in bytes.
+	// direction is "recv" for received payloads, "send" for sent payloads.
+	RecordGRPCPayloadSize(ctx context.Context, method, direction string, sizeBytes int)
+	// IncrementGRPCErrors increments the counter for gRPC errors by status code.
+	// code should be the gRPC status code string (e.g. "ResourceExhausted", "Internal").
+	IncrementGRPCErrors(ctx context.Context, code, method string)
 }

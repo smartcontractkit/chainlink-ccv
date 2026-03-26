@@ -9,7 +9,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 
+	"github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
@@ -106,20 +108,20 @@ func TestCachedCurseChecker_CacheHit(t *testing.T) {
 				CacheExpiry: tt.cacheExpiry,
 			})
 
-			// First call - should hit the reader
-			result1 := checker.IsRemoteChainCursed(ctx, tt.localChain, tt.remoteChain)
+			result1, err := checker.IsRemoteChainCursed(ctx, tt.localChain, tt.remoteChain)
+			require.NoError(t, err)
 			assert.Equal(t, tt.expectedFirstResult, result1)
 
 			if tt.sleepBetweenCalls > 0 {
 				time.Sleep(tt.sleepBetweenCalls)
 			}
 
-			// Second call - should hit the cache, not the reader
-			result2 := checker.IsRemoteChainCursed(ctx, tt.localChain, tt.remoteChain)
+			result2, err := checker.IsRemoteChainCursed(ctx, tt.localChain, tt.remoteChain)
+			require.NoError(t, err)
 			assert.Equal(t, tt.expectedFirstResult, result2)
 
-			// Third call - verify cache is still being used
-			result3 := checker.IsRemoteChainCursed(ctx, tt.localChain, tt.remoteChain)
+			result3, err := checker.IsRemoteChainCursed(ctx, tt.localChain, tt.remoteChain)
+			require.NoError(t, err)
 			assert.Equal(t, tt.expectedFirstResult, result3)
 
 			// Mock assertions will verify GetRMNCursedSubjects was only called once
@@ -243,15 +245,14 @@ func TestCachedCurseChecker_CacheExpiry(t *testing.T) {
 				CacheExpiry: tt.cacheExpiry,
 			})
 
-			// First call - should hit the reader
-			result1 := checker.IsRemoteChainCursed(ctx, tt.localChain, tt.remoteChain)
+			result1, err := checker.IsRemoteChainCursed(ctx, tt.localChain, tt.remoteChain)
+			require.NoError(t, err)
 			assert.Equal(t, tt.expectedFirstResult, result1)
 
-			// Sleep to let cache expire
 			time.Sleep(tt.sleepBetweenCalls)
 
-			// Second call - cache expired, should hit the reader again
-			result2 := checker.IsRemoteChainCursed(ctx, tt.localChain, tt.remoteChain)
+			result2, err := checker.IsRemoteChainCursed(ctx, tt.localChain, tt.remoteChain)
+			require.NoError(t, err)
 			assert.Equal(t, tt.expectedSecondResult, result2)
 
 			// Mock assertions will verify GetRMNCursedSubjects was called twice
@@ -269,10 +270,10 @@ func TestCachedCurseChecker_ErrorHandling(t *testing.T) {
 		secondResult      []protocol.Bytes16
 	}{
 		{
-			name:              "reader error - assumes not cursed and doesn't poison cache",
+			name:              "reader error - fail closed (cursed) and doesn't poison cache",
 			localChain:        1,
 			remoteChain:       2,
-			expectedErrorRes:  false,
+			expectedErrorRes:  true,
 			expectedSecondRes: false,
 			secondResult:      []protocol.Bytes16{},
 		},
@@ -280,7 +281,7 @@ func TestCachedCurseChecker_ErrorHandling(t *testing.T) {
 			name:              "reader error then positive curse, cache doesn't poison, returns actual",
 			localChain:        1,
 			remoteChain:       3,
-			expectedErrorRes:  false,
+			expectedErrorRes:  true,
 			expectedSecondRes: true,
 			secondResult:      []protocol.Bytes16{GlobalCurseSubject},
 		},
@@ -325,14 +326,12 @@ func TestCachedCurseChecker_ErrorHandling(t *testing.T) {
 				CacheExpiry: 1 * time.Second,
 			})
 
-			// First call should assume cursed since the reader errors,
-			// and must not populate the cache, so another underlying call will happen next time.
-			res1 := checker.IsRemoteChainCursed(ctx, tt.localChain, tt.remoteChain)
-			assert.Equal(t, tt.expectedErrorRes, res1, "should return expected result on reader error")
+			res1, err1 := checker.IsRemoteChainCursed(ctx, tt.localChain, tt.remoteChain)
+			assert.Equal(t, tt.expectedErrorRes, res1, "should return expected result on reader error (fail closed)")
+			assert.ErrorIs(t, err1, common.ErrCurseStateUnknown)
 
-			// Now, the next call to IsRemoteChainCursed should trigger a new call to the reader,
-			// since error results were not cached.
-			res2 := checker.IsRemoteChainCursed(ctx, tt.localChain, tt.remoteChain)
+			res2, err2 := checker.IsRemoteChainCursed(ctx, tt.localChain, tt.remoteChain)
+			require.NoError(t, err2)
 			assert.Equal(t, tt.expectedSecondRes, res2, "should return actual result and not cache error")
 		})
 	}
@@ -399,16 +398,16 @@ func TestCachedCurseChecker_MultipleChains(t *testing.T) {
 				CacheExpiry: tt.cacheExpiry,
 			})
 
-			// Perform all checks
 			for _, check := range tt.checks {
-				result := checker.IsRemoteChainCursed(ctx, check.localChain, check.remoteChain)
+				result, err := checker.IsRemoteChainCursed(ctx, check.localChain, check.remoteChain)
+				require.NoError(t, err)
 				assert.Equal(t, check.expectedResult, result,
 					"unexpected result for localChain=%d, remoteChain=%d", check.localChain, check.remoteChain)
 			}
 
-			// Call again to verify cache is being used
 			for _, check := range tt.checks {
-				result := checker.IsRemoteChainCursed(ctx, check.localChain, check.remoteChain)
+				result, err := checker.IsRemoteChainCursed(ctx, check.localChain, check.remoteChain)
+				require.NoError(t, err)
 				assert.Equal(t, check.expectedResult, result,
 					"unexpected cached result for localChain=%d, remoteChain=%d", check.localChain, check.remoteChain)
 			}
@@ -487,9 +486,9 @@ func TestCachedCurseChecker_GlobalCurseDetection(t *testing.T) {
 				CacheExpiry: 1 * time.Second,
 			})
 
-			// Check each chain
 			for i, remoteChain := range tt.checkChains {
-				result := checker.IsRemoteChainCursed(ctx, tt.localChain, remoteChain)
+				result, err := checker.IsRemoteChainCursed(ctx, tt.localChain, remoteChain)
+				require.NoError(t, err)
 				assert.Equal(t, tt.expectedResults[i], result,
 					"unexpected result for remoteChain=%d", remoteChain)
 			}
@@ -538,12 +537,12 @@ func TestCachedCurseChecker_NilCursedSubjects(t *testing.T) {
 				CacheExpiry: 1 * time.Second,
 			})
 
-			// Call should return false (no curses)
-			result := checker.IsRemoteChainCursed(ctx, tt.localChain, tt.remoteChain)
+			result, err := checker.IsRemoteChainCursed(ctx, tt.localChain, tt.remoteChain)
+			require.NoError(t, err)
 			assert.Equal(t, tt.expectedResult, result)
 
-			// Call again to verify cache works with nil results
-			result2 := checker.IsRemoteChainCursed(ctx, tt.localChain, tt.remoteChain)
+			result2, err := checker.IsRemoteChainCursed(ctx, tt.localChain, tt.remoteChain)
+			require.NoError(t, err)
 			assert.Equal(t, tt.expectedResult, result2)
 
 			// Mock assertions will verify GetRMNCursedSubjects was only called once

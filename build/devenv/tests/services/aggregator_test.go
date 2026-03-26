@@ -23,11 +23,11 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
-	committee "github.com/smartcontractkit/chainlink-ccv/committee/common"
 	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
+	"github.com/smartcontractkit/chainlink-ccv/common/committee"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	hmacutil "github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/commit"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/commit"
 )
 
 var testCredentials, _ = hmacutil.GenerateCredentials()
@@ -754,7 +754,7 @@ func TestServiceAggregatorSecurityFeatures(t *testing.T) {
 			successCount := 0
 			var mu sync.Mutex
 
-			// Malicious client uses service-tests group with 50/min limit
+			// Malicious client uses service-tests-2 with 20/s limit
 			numRequests := 100
 			for range numRequests {
 				wg.Go(func() {
@@ -773,7 +773,7 @@ func TestServiceAggregatorSecurityFeatures(t *testing.T) {
 			wg.Wait()
 
 			t.Logf("Rate limiting test: %d/%d requests rate limited, %d succeeded", rateLimitedCount, numRequests, successCount)
-			require.Greater(t, rateLimitedCount, 0, "some requests should be rate limited when exceeding 50/min limit")
+			require.Greater(t, rateLimitedCount, 0, "some requests should be rate limited when exceeding 20/s limit")
 		})
 
 		t.Run("batch endpoint with max size should be handled", func(t *testing.T) {

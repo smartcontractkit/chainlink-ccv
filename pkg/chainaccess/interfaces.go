@@ -23,6 +23,11 @@ type HeadTracker interface {
 	// This is more efficient than separate RPC calls and provides complete block information
 	// including hashes, parent hashes, and timestamps needed for reorg detection.
 	LatestAndFinalizedBlock(ctx context.Context) (latest, finalized *protocol.BlockHeader, err error)
+	// LatestSafeBlock returns the latest block that is considered safe. On Ethereum this is the
+	// `safe` head — a checkpoint that is more recent than `finalized` but less final than
+	// `finalized`. Returns nil without an error when the chain does not support the safe tag.
+	// Mirrors the upstream chainlink-framework chains/heads.Tracker interface.
+	LatestSafeBlock(ctx context.Context) (safe *protocol.BlockHeader, err error)
 }
 
 // SourceReader defines the interface for reading CCIP message events from source chains.
@@ -37,8 +42,10 @@ type SourceReader interface {
 
 	// GetBlocksHeaders returns the full block headers for a batch of block numbers.
 	// This is more efficient than individual calls when building the chain tail.
-	// Returns error if any block doesn't exist or RPC call fails.
-	GetBlocksHeaders(ctx context.Context, blockNumber []*big.Int) (map[*big.Int]protocol.BlockHeader, error)
+	// If a block is not found or RPC call fails for a specific block, it will be omitted from the result.
+	// Callers should check if all requested blocks are present in the returned map.
+	// The returned map keys are block numbers as uint64 for safe lookups (avoiding pointer identity issues).
+	GetBlocksHeaders(ctx context.Context, blockNumber []*big.Int) (map[uint64]protocol.BlockHeader, error)
 
 	// HeadTracker Embed HeadTracker for blockchain head tracking functionality.
 	HeadTracker

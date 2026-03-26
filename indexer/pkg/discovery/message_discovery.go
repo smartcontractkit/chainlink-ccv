@@ -20,6 +20,42 @@ import (
 
 var _ common.MessageDiscovery = (*AggregatorMessageDiscovery)(nil)
 
+// PrimaryWriteNotifier allows the primary (priority-0) AggregatorMessageDiscovery to broadcast
+// to all waiting secondary sources that its current write attempt has completed — whether it
+// succeeded or failed.  Secondary sources select on WaitCh() alongside their own maximum-delay
+// timer, so they proceed in priority order as soon as the primary finishes rather than burning
+// the full delay when the primary fails early.
+type PrimaryWriteNotifier struct {
+	mu sync.Mutex
+	ch chan struct{}
+}
+
+// NewPrimaryWriteNotifier creates a PrimaryWriteNotifier ready for use.
+func NewPrimaryWriteNotifier() *PrimaryWriteNotifier {
+	return &PrimaryWriteNotifier{ch: make(chan struct{})}
+}
+
+// Notify broadcasts that the primary has completed its write attempt.
+// All goroutines currently waiting on WaitCh() are unblocked immediately.
+// The old channel is closed while the mutex is held so that there is no window
+// in which a concurrent WaitCh() call can obtain the new open channel and miss
+// the signal for the current tick.
+func (n *PrimaryWriteNotifier) Notify() {
+	n.mu.Lock()
+	old := n.ch
+	n.ch = make(chan struct{})
+	close(old) // close before Unlock so no caller can observe the new channel without the close having happened
+	n.mu.Unlock()
+}
+
+// WaitCh returns the channel to include in a select statement.
+// The returned channel is closed (and therefore immediately selectable) when Notify is called next.
+func (n *PrimaryWriteNotifier) WaitCh() <-chan struct{} {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return n.ch
+}
+
 type AggregatorMessageDiscovery struct {
 	logger            logger.Logger
 	config            config.DiscoveryConfig
@@ -30,10 +66,19 @@ type AggregatorMessageDiscovery struct {
 	timeProvider      ccvcommon.TimeProvider
 	messageCh         chan common.VerifierResultWithMetadata
 	doneCh            chan struct{}
-	readerLock        *sync.Mutex
 	wg                sync.WaitGroup
 	cancelFunc        context.CancelFunc
 	discoveryPriority int
+	// primaryWriteNotifier is shared across all AggregatorMessageDiscovery instances in a
+	// multi-source setup.  The primary (priority 0) calls Notify() after each write attempt;
+	// secondary sources use WaitCh() so they can unblock early and still proceed in priority
+	// order — each secondary waits (priority-1)*priorityStagger after the primary finishes,
+	// capped so the total delay never exceeds priority*priorityStagger from the tick start.
+	primaryWriteNotifier *PrimaryWriteNotifier
+	// priorityStagger is the delay increment per priority level used both as the total
+	// per-level cap and as the relative stagger between consecutive secondary sources.
+	// Defaults to 5 seconds; override in tests via the unexported field directly.
+	priorityStagger time.Duration
 }
 
 type Option func(*AggregatorMessageDiscovery)
@@ -86,11 +131,25 @@ func WithDiscoveryPriority(discoveryPriority int) Option {
 	}
 }
 
+// WithPrimaryWriteNotifier wires the shared PrimaryWriteNotifier into a discovery instance.
+// Pass the same notifier to all sources in a multi-source setup:
+//   - the primary (priority 0) will call Notify() after each write attempt via defer
+//   - secondary sources (priority > 0) will call WaitCh() so they unblock as soon as
+//     the primary finishes; each secondary then waits an additional (priority-1)*stagger
+//     interval so higher-priority secondaries still proceed in order even when the primary
+//     finishes early.
+//
+// Passing nil is safe and disables the coordination (single-source or opt-out).
+func WithPrimaryWriteNotifier(notifier *PrimaryWriteNotifier) Option {
+	return func(a *AggregatorMessageDiscovery) {
+		a.primaryWriteNotifier = notifier
+	}
+}
+
 func NewAggregatorMessageDiscovery(opts ...Option) (common.MessageDiscovery, error) {
 	a := &AggregatorMessageDiscovery{
-		messageCh:  make(chan common.VerifierResultWithMetadata),
-		doneCh:     make(chan struct{}),
-		readerLock: &sync.Mutex{},
+		messageCh: make(chan common.VerifierResultWithMetadata),
+		doneCh:    make(chan struct{}),
 	}
 
 	// Apply all options
@@ -98,7 +157,12 @@ func NewAggregatorMessageDiscovery(opts ...Option) (common.MessageDiscovery, err
 		opt(a)
 	}
 
-	// Validata the configuration
+	// Apply defaults for fields that were not set by options.
+	if a.priorityStagger == 0 {
+		a.priorityStagger = 5 * time.Second
+	}
+
+	// Validate the configuration
 	if err := a.validate(); err != nil {
 		return nil, err
 	}
@@ -189,7 +253,7 @@ func (a *AggregatorMessageDiscovery) run(ctx context.Context) {
 		case <-ticker.C:
 			// Stagger timeouts across discovery instances so they don't all time out
 			// simultaneously when the aggregator is under pressure.
-			readCtx, cancel := context.WithTimeout(ctx, time.Duration(a.config.Timeout)*time.Millisecond+(time.Duration(a.discoveryPriority)*5*time.Second))
+			readCtx, cancel := context.WithTimeout(ctx, time.Duration(a.config.Timeout)*time.Millisecond+(time.Duration(a.discoveryPriority)*a.priorityStagger))
 
 			// Consume the reader until there is no more data present from the aggregator
 			// Aim is to allow for quick backfilling of data if needed.
@@ -200,38 +264,54 @@ func (a *AggregatorMessageDiscovery) run(ctx context.Context) {
 }
 
 func (a *AggregatorMessageDiscovery) consumeReader(ctx context.Context) {
-	// We can be in a situation where multiple calls to consumeReader are running concurrently due to the ticker.
-	// This might happen during high load, or other situations where the ticker is running faster than the reader.
-	// This lock is used to prevent concurrent access to the reader from the ticker.
-	// If the lock is already held, the ticker channel will be blocked until the lock is released.
-	// Subsequent ticks are then dropped, so there won't be any backpressure on the reader.
-	a.readerLock.Lock()
-	defer a.readerLock.Unlock()
-
-	select {
-	case <-ctx.Done():
-		a.logger.Infof("Aggregator timed out, cancelling consumeReader")
+	if ctx.Err() != nil {
 		return
-	default:
-		for {
-			found, err := a.callReader(ctx)
-			if err != nil {
-				a.logger.Errorw("Error calling Aggregator", "error", err)
-				return
-			}
+	}
 
-			// If data is found, we'll try again after a small delay to prevent
-			// duplicate data when processing faster than 1 second.
-			// If no data is found, return and wait for the next tick.
-			if !found {
+	for {
+		if ctx.Err() != nil {
+			a.logger.Infof("Aggregator timed out, cancelling consumeReader")
+			return
+		}
+		found, err := a.callReader(ctx)
+		if err != nil {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				return
 			}
+			a.logger.Errorw("Error calling Aggregator", "error", err)
+			return
+		}
+
+		// If data is found, we'll try again after a small delay to prevent
+		// duplicate data when processing faster than 1 second.
+		// If no data is found, return and wait for the next tick.
+		if !found {
+			return
 		}
 	}
 }
 
 func (a *AggregatorMessageDiscovery) callReader(ctx context.Context) (bool, error) {
+	if ctx.Err() != nil {
+		return false, ctx.Err()
+	}
+
+	// When this is the primary source (priority 0) and a notifier is configured,
+	// always signal completion on return — whether the write succeeded, failed, or we
+	// returned early due to an error.  This unblocks any secondary sources that are waiting
+	// in their delay select, preventing redundant full-delay waits when the primary is down.
+	if a.discoveryPriority == 0 && a.primaryWriteNotifier != nil {
+		defer a.primaryWriteNotifier.Notify()
+	}
+
 	startingSequence, ableToSetSinceValue := a.aggregatorReader.GetSinceValue()
+	// We reset the since value when after reading the data from aggregator but we fail to persist the data.
+	// TODO: If we ever support discovery where we can't set the since value, we will need to review what it means for this particular source to not reset the since value.
+	resetSinceValue := func() {
+		if ableToSetSinceValue {
+			a.aggregatorReader.SetSinceValue(startingSequence)
+		}
+	}
 	var queryResponse []protocol.QueryResponse
 	discoveryStartTime := time.Now()
 	queryResponse, err := a.aggregatorReader.ReadCCVData(ctx)
@@ -268,6 +348,7 @@ func (a *AggregatorMessageDiscovery) callReader(ctx context.Context) (bool, erro
 		message := common.MessageWithMetadata{
 			Message: response.Data.Message,
 			Metadata: common.MessageMetadata{
+				Status:             common.MessageProcessing,
 				IngestionTimestamp: ingestionTimestamp,
 			},
 		}
@@ -280,27 +361,35 @@ func (a *AggregatorMessageDiscovery) callReader(ctx context.Context) (bool, erro
 		messages = append(messages, message)
 		allVerifications = append(allVerifications, verifierResultWithMetadata)
 	}
-	// use a time.Sleep rather than an async function call so we don't send on a closed channel.
-	// the delay is handled gracefully by consumeReader.
-	// We use a discovery priority for the multi-source scenario where we want to ensure data consistency.
-	//
-	time.Sleep(time.Duration(a.discoveryPriority) * 5 * time.Second)
+
+	// We use a discovery priority for the multi-source scenario where we want to ensure data
+	// consistency.  The delay is applied after reading so the aggregator is queried immediately,
+	// but persisting and channel emission are deferred, giving higher-priority sources time to
+	// persist first.
+	delay := time.Duration(a.discoveryPriority) * a.priorityStagger
+	if err := a.waitForPrioritySlot(ctx, delay); err != nil {
+		resetSinceValue()
+		return false, err
+	}
 
 	if len(messages) > 0 || len(persistedVerifications) > 0 {
 		if err := a.persistBatch(ctx, messages, persistedVerifications, ableToSetSinceValue); err != nil {
 			a.logger.Warnw("Unable to persist discovery batch, will retry", "error", err)
-			if ableToSetSinceValue {
-				a.aggregatorReader.SetSinceValue(startingSequence)
-			}
+			resetSinceValue()
 			return false, err
 		}
 	}
 
 	for _, verifierResultWithMetadata := range allVerifications {
-		// Emit the Message into the message channel for downstream components to consume
-		a.messageCh <- verifierResultWithMetadata
+		// Use a context-aware send so that if the context is canceled while
+		// enqueueMessages has already exited (leaving messageCh with no reader), we return
+		// cleanly instead of blocking forever and preventing wg.Done() from being called.
+		select {
+		case <-ctx.Done():
+			return false, ctx.Err()
+		case a.messageCh <- verifierResultWithMetadata:
+		}
 		// Record the channel size after send so the metric reflects the current backlog.
-		// Use the same context used for the call so the metric respects cancellation.
 		a.monitoring.Metrics().RecordVerificationRecordChannelSizeGauge(ctx, int64(len(a.messageCh)))
 		a.monitoring.Metrics().RecordTimeToIndex(ctx, time.Since(verifierResultWithMetadata.Metadata.AttestationTimestamp), "aggregator")
 	}
@@ -309,12 +398,78 @@ func (a *AggregatorMessageDiscovery) callReader(ctx context.Context) (bool, erro
 	return len(queryResponse) > 0, nil
 }
 
+// waitForPrioritySlot suspends the caller for the amount of time dictated by the
+// source's discovery priority. For the primary (priority 0) the delay is zero and
+// the function returns immediately.
+//
+// For secondary sources the function blocks until the earlier of:
+//   - the overall cap (priority × priorityStagger), or
+//   - the primary signaling completion, after which an additional
+//     (priority-1)×priorityStagger stagger is applied so consecutive secondary
+//     sources still proceed in priority order.
+//
+// The stagger after the primary signal is capped so the total elapsed time never
+// exceeds the overall cap.
+func (a *AggregatorMessageDiscovery) waitForPrioritySlot(ctx context.Context, delay time.Duration) error {
+	if delay <= 0 {
+		return nil
+	}
+
+	startTime := time.Now()
+	overallTimer := time.NewTimer(delay)
+	defer overallTimer.Stop()
+
+	// primaryWrittenCh is nil when no notifier is configured; a nil channel in a select
+	// case is never ready, so the behavior gracefully degrades to timer-only.
+	var primaryWrittenCh <-chan struct{}
+	if a.primaryWriteNotifier != nil {
+		primaryWrittenCh = a.primaryWriteNotifier.WaitCh()
+	}
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-overallTimer.C: // maximum wait elapsed; proceed regardless
+		return nil
+	case <-primaryWrittenCh: // primary finished its write attempt (success or failure)
+	}
+
+	// Primary finished before the overall timer. Apply a relative stagger so that
+	// secondary sources still proceed in priority order rather than all unblocking
+	// at the same instant. Priority k waits (k-1)*priorityStagger after the primary
+	// signals, but no longer than the time remaining before the overall cap expires.
+	stagger := time.Duration(a.discoveryPriority-1) * a.priorityStagger
+	if stagger <= 0 {
+		return nil
+	}
+
+	extraWait := min(stagger, delay-time.Since(startTime))
+	if extraWait <= 0 {
+		return nil
+	}
+
+	staggerTimer := time.NewTimer(extraWait)
+	defer staggerTimer.Stop()
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-staggerTimer.C:
+		return nil
+	}
+}
+
 func (a *AggregatorMessageDiscovery) persistBatch(
 	ctx context.Context,
 	messages []common.MessageWithMetadata,
 	verifications []common.VerifierResultWithMetadata,
 	ableToSetSinceValue bool,
 ) error {
+	encodable, skipped := common.FilterEncodableMessages(messages)
+	for _, s := range skipped {
+		a.logger.Warnw("Skipping message, cannot encode for insert", "index", s.Index, "reason", s.Reason)
+	}
+
 	sequenceNumber := common.SequenceNumberNotSupported
 	if ableToSetSinceValue {
 		if currentSequence, supports := a.aggregatorReader.GetSinceValue(); supports {
@@ -323,7 +478,7 @@ func (a *AggregatorMessageDiscovery) persistBatch(
 	}
 
 	return a.storageSink.PersistDiscoveryBatch(ctx, common.DiscoveryBatch{
-		Messages:          messages,
+		Messages:          encodable,
 		Verifications:     verifications,
 		DiscoveryLocation: a.config.Address,
 		SequenceNumber:    sequenceNumber,

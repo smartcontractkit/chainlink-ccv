@@ -17,8 +17,9 @@ import (
 )
 
 const (
-	userAgent       = "chainlink-ccv-indexer/1.0"
-	jsonContentType = "application/json"
+	userAgent             = "chainlink-ccv-indexer/1.0"
+	jsonContentType       = "application/json"
+	defaultRequestTimeout = 10 * time.Second
 )
 
 var (
@@ -48,7 +49,11 @@ type restReader struct {
 func NewRestReader(config RestReaderConfig) *ResilientReader {
 	httpClient := config.HTTPClient
 	if httpClient == nil {
-		httpClient = &http.Client{Timeout: config.RequestTimeout}
+		effectiveRequestTimeout := config.RequestTimeout
+		if effectiveRequestTimeout == 0 {
+			effectiveRequestTimeout = defaultRequestTimeout
+		}
+		httpClient = &http.Client{Timeout: effectiveRequestTimeout}
 	}
 
 	underlying := &restReader{
@@ -83,7 +88,11 @@ func (r *restReader) GetVerifications(ctx context.Context, messageIDs []protocol
 	}
 	defer closeHTTPResponse(response)
 
-	// Validate status code
+	if response.StatusCode == http.StatusNotFound {
+		r.lggr.Debugw("REST reader 404 (no results), returning empty map", "url", url)
+		return make(map[protocol.Bytes32]protocol.VerifierResult), nil
+	}
+
 	if response.StatusCode != http.StatusOK {
 		r.lggr.Errorw("REST reader unexpected status", "url", url, "status", response.StatusCode)
 		return nil, fmt.Errorf("unexpected status code: %d", response.StatusCode)

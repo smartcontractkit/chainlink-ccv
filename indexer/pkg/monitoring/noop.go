@@ -28,7 +28,6 @@ func (n *NoopIndexerMetricLabeler) IncrementActiveRequestsCounter(ctx context.Co
 func (n *NoopIndexerMetricLabeler) DecrementActiveRequestsCounter(ctx context.Context) {}
 func (n *NoopIndexerMetricLabeler) RecordHTTPRequestDuration(ctx context.Context, duration time.Duration, path, method string, status int) {
 }
-func (n *NoopIndexerMetricLabeler) IncrementUniqueMessagesCounter(ctx context.Context)      {}
 func (n *NoopIndexerMetricLabeler) IncrementVerificationRecordsCounter(ctx context.Context) {}
 func (n *NoopIndexerMetricLabeler) RecordStorageQueryDuration(ctx context.Context, duration time.Duration, queryName string, errored bool) {
 }
@@ -52,4 +51,10 @@ func (n *NoopIndexerMetricLabeler) RecordTimeToIndex(ctx context.Context, latenc
 }
 
 func (n *NoopIndexerMetricLabeler) RecordCircuitBreakerStatus(ctx context.Context, status bool) {
+}
+
+func (n *NoopIndexerMetricLabeler) RecordGRPCPayloadSize(_ context.Context, _, _ string, _ int) {
+}
+
+func (n *NoopIndexerMetricLabeler) IncrementGRPCErrors(_ context.Context, _, _ string) {
 }

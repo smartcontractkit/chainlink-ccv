@@ -1,0 +1,191 @@
+package verifier
+
+import (
+	"context"
+	"database/sql"
+	"fmt"
+	"os"
+	"strconv"
+	"time"
+
+	"github.com/grafana/pyroscope-go"
+	"github.com/jmoiron/sqlx"
+
+	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
+
+	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/db"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
+	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+)
+
+const (
+	// Database environment variables.
+	DatabaseURLEnvVar             = "CL_DATABASE_URL"
+	DatabaseMaxOpenConnsEnvVar    = "CL_DATABASE_MAX_OPEN_CONNS"
+	DatabaseMaxIdleConnsEnvVar    = "CL_DATABASE_MAX_IDLE_CONNS"
+	DatabaseConnMaxLifetimeEnvVar = "CL_DATABASE_CONN_MAX_LIFETIME"
+	DatabaseConnMaxIdleTimeEnvVar = "CL_DATABASE_CONN_MAX_IDLE_TIME"
+
+	// Database defaults.
+	defaultMaxOpenConns    = 20
+	defaultMaxIdleConns    = 10
+	defaultConnMaxLifetime = 300 // seconds
+	defaultConnMaxIdleTime = 60  // seconds
+)
+
+func SetupMonitoring(lggr logger.Logger, config verifier.MonitoringConfig, verifierServiceName string) verifier.Monitoring {
+	// If monitoring is not enabled, return a fake monitoring implementation that does nothing.
+	if !config.Enabled {
+		verifierMonitoring := monitoring.NewFakeVerifierMonitoring()
+		return verifierMonitoring
+	}
+
+	beholderConfig := beholder.Config{
+		InsecureConnection:       config.Beholder.InsecureConnection,
+		CACertFile:               config.Beholder.CACertFile,
+		OtelExporterHTTPEndpoint: config.Beholder.OtelExporterHTTPEndpoint,
+		OtelExporterGRPCEndpoint: config.Beholder.OtelExporterGRPCEndpoint,
+		LogStreamingEnabled:      config.Beholder.LogStreamingEnabled,
+		MetricReaderInterval:     time.Second * time.Duration(config.Beholder.MetricReaderInterval),
+		TraceSampleRatio:         config.Beholder.TraceSampleRatio,
+		TraceBatchTimeout:        time.Second * time.Duration(config.Beholder.TraceBatchTimeout),
+		// Note: due to OTEL spec, all histogram buckets must be defined when the beholder client is created.
+		MetricViews: monitoring.MetricViews(),
+	}
+
+	// Create the beholder client
+	beholderClient, err := beholder.NewClient(beholderConfig)
+	if err != nil {
+		lggr.Fatalf("failed to create beholder client: %w", err)
+	}
+
+	// Set the beholder client and global otel providers
+	beholder.SetClient(beholderClient)
+	beholder.SetGlobalOtelProviders()
+	verifierMonitoring, err := monitoring.InitMonitoring(verifierServiceName)
+	if err != nil {
+		lggr.Fatalf("Failed to initialize verifier monitoring: %w", err)
+	}
+	return verifierMonitoring
+}
+
+func ConnectToPostgresDB(lggr logger.Logger) (sqlutil.DataSource, error) {
+	dbURL := os.Getenv(DatabaseURLEnvVar)
+	if dbURL == "" {
+		return nil, nil
+	}
+
+	maxOpenConns := getEnvInt(DatabaseMaxOpenConnsEnvVar, defaultMaxOpenConns)
+	maxIdleConns := getEnvInt(DatabaseMaxIdleConnsEnvVar, defaultMaxIdleConns)
+	connMaxLifetime := getEnvInt(DatabaseConnMaxLifetimeEnvVar, defaultConnMaxLifetime)
+	connMaxIdleTime := getEnvInt(DatabaseConnMaxIdleTimeEnvVar, defaultConnMaxIdleTime)
+
+	dbx, err := sql.Open("postgres", dbURL)
+	if err != nil {
+		return nil, nil
+	}
+
+	dbx.SetMaxOpenConns(maxOpenConns)
+	dbx.SetMaxIdleConns(maxIdleConns)
+	dbx.SetConnMaxLifetime(time.Duration(connMaxLifetime) * time.Second)
+	dbx.SetConnMaxIdleTime(time.Duration(connMaxIdleTime) * time.Second)
+
+	if err := ccvcommon.EnsureDBConnection(lggr, dbx); err != nil {
+		_ = dbx.Close()
+		return nil, fmt.Errorf("failed to ping postgres database: %w", err)
+	}
+
+	sqlxDB := sqlx.NewDb(dbx, "postgres")
+
+	if err := db.RunPostgresMigrations(sqlxDB); err != nil {
+		_ = dbx.Close()
+		return nil, fmt.Errorf("failed to run postgres migrations: %w", err)
+	}
+
+	lggr.Infow("Using PostgreSQL chain status storage",
+		"maxOpenConns", maxOpenConns,
+		"maxIdleConns", maxIdleConns,
+		"connMaxLifetime", connMaxLifetime,
+		"connMaxIdleTime", connMaxIdleTime,
+	)
+
+	return sqlxDB, nil
+}
+
+func LoadBlockchainInfo(
+	ctx context.Context,
+	lggr logger.Logger,
+	config map[string]*blockchain.Info,
+) *blockchain.Helper {
+	// Use actual blockchain information from configuration
+	if len(config) == 0 {
+		lggr.Warnw("No blockchain information in config")
+		return nil
+	}
+	blockchainHelper := blockchain.NewHelper(config)
+	lggr.Infow("Using real blockchain information from environment",
+		"chainCount", len(config))
+	logBlockchainInfo(blockchainHelper, lggr)
+	return blockchainHelper
+}
+
+func StartPyroscope(lggr logger.Logger, pyroscopeAddress, serviceName string) (*pyroscope.Profiler, error) {
+	profiler, err := pyroscope.Start(pyroscope.Config{
+		ApplicationName: serviceName,
+		ServerAddress:   pyroscopeAddress,
+		Logger:          nil, // Disable pyroscope logging - so noisy
+		ProfileTypes: []pyroscope.ProfileType{
+			pyroscope.ProfileCPU,
+			pyroscope.ProfileAllocObjects,
+			pyroscope.ProfileAllocSpace,
+			pyroscope.ProfileGoroutines,
+			pyroscope.ProfileBlockDuration,
+			pyroscope.ProfileMutexDuration,
+		},
+	})
+	if err != nil {
+		lggr.Errorw("Failed to start pyroscope", "error", err)
+		return nil, fmt.Errorf("failed to start pyroscope: %w", err)
+	}
+	return profiler, nil
+}
+
+func logBlockchainInfo(blockchainHelper *blockchain.Helper, lggr logger.Logger) {
+	for _, chainID := range blockchainHelper.GetAllChainSelectors() {
+		logChainInfo(blockchainHelper, chainID, lggr)
+	}
+}
+
+func logChainInfo(blockchainHelper *blockchain.Helper, chainSelector protocol.ChainSelector, lggr logger.Logger) {
+	info, err := blockchainHelper.GetBlockchainByChainSelector(chainSelector)
+	if err == nil {
+		lggr.Infow("🔗 Blockchain available", "chainSelector", chainSelector, "info", info, "nodeCount", len(info.Nodes))
+	}
+
+	n, err := info.GetFirstNode()
+	if err != nil {
+		lggr.Infow("Node Info", "chainSelector", chainSelector,
+			"ExternalWSURL", n.ExternalWSUrl,
+			"InternalWSURL", n.InternalWSUrl,
+			"ExternalHTTPURL", n.ExternalHTTPUrl,
+			"InternalHTTPURL", n.InternalHTTPUrl,
+		)
+	}
+}
+
+func getEnvInt(key string, defaultValue int) int {
+	val := os.Getenv(key)
+	if val == "" {
+		return defaultValue
+	}
+	intVal, err := strconv.Atoi(val)
+	if err != nil {
+		return defaultValue
+	}
+	return intVal
+}

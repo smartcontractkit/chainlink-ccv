@@ -20,6 +20,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/registry"
 	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/testutil"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -96,6 +97,7 @@ func setupMessageDiscoveryTest(t *testing.T) *testSetup {
 	return setupMessageDiscoveryTestWithConfig(t, config.DiscoveryConfig{
 		PollInterval: 50,
 		Timeout:      500,
+		NtpServer:    "time.google.com",
 	})
 }
 
@@ -238,7 +240,6 @@ func TestNewAggregatorMessageDiscovery(t *testing.T) {
 	assert.Equal(t, resilientReader, aggDiscovery.aggregatorReader)
 	assert.Equal(t, config, aggDiscovery.config)
 	assert.NotNil(t, aggDiscovery.messageCh)
-	assert.NotNil(t, aggDiscovery.readerLock)
 }
 
 // TestStart_ReturnsChannel tests that Start returns a message channel.
@@ -326,6 +327,91 @@ func TestStart_ContextCancellation(t *testing.T) {
 		t.Fatal("messageCh should not be closed")
 	default:
 		// Expected
+	}
+}
+
+// TestConsumeReader_ReturnsImmediatelyWhenContextAlreadyCancelled verifies consumeReader returns without blocking when ctx is already canceled.
+func TestConsumeReader_ReturnsImmediatelyWhenContextAlreadyCancelled(t *testing.T) {
+	ts := setupMessageDiscoveryTest(t)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	done := make(chan struct{})
+	go func() {
+		ts.Discovery.consumeReader(ctx)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("consumeReader should return immediately when context is already cancelled")
+	}
+}
+
+// TestConsumeReader_ExitsWhenContextCancelledDuringLoop verifies consumeReader exits when context is canceled between loop iterations.
+func TestConsumeReader_ExitsWhenContextCancelledDuringLoop(t *testing.T) {
+	ts := setupMessageDiscoveryTestNoTimeout(t, defaultTestConfig())
+
+	ts.MockReader = internal.NewMockReader(internal.MockReaderConfig{
+		EmitEmptyResponses: false,
+		MaxMessages:        10,
+		MessageGenerator: func(messageNumber int) common.VerifierResultWithMetadata {
+			return createTestCCVData(messageNumber, time.Now().UnixMilli(), 1, 2)
+		},
+	})
+	ts.Reader = readers.NewResilientReader(ts.MockReader, ts.Logger, readers.DefaultResilienceConfig())
+	ts.Discovery.aggregatorReader = ts.Reader
+	ts.Discovery.discoveryPriority = 0
+	ts.Discovery.messageCh = make(chan common.VerifierResultWithMetadata, 100)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		ts.Discovery.consumeReader(ctx)
+		close(done)
+	}()
+
+	time.Sleep(30 * time.Millisecond)
+	cancel()
+
+	select {
+	case <-done:
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("consumeReader should exit when context is cancelled during loop")
+	}
+}
+
+// TestConsumeReader_RespectsContextDuringPrioritySleep verifies consumeReader returns when context is canceled during the priority sleep in callReader.
+func TestConsumeReader_RespectsContextDuringPrioritySleep(t *testing.T) {
+	ts := setupMessageDiscoveryTestNoTimeout(t, defaultTestConfig())
+
+	ts.MockReader = internal.NewMockReader(internal.MockReaderConfig{
+		EmitEmptyResponses: false,
+		MaxMessages:        1,
+		MessageGenerator: func(messageNumber int) common.VerifierResultWithMetadata {
+			return createTestCCVData(messageNumber, time.Now().UnixMilli(), 1, 2)
+		},
+	})
+	ts.Reader = readers.NewResilientReader(ts.MockReader, ts.Logger, readers.DefaultResilienceConfig())
+	ts.Discovery.aggregatorReader = ts.Reader
+	ts.Discovery.discoveryPriority = 1
+	ts.Discovery.messageCh = make(chan common.VerifierResultWithMetadata, 10)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel()
+
+	done := make(chan struct{})
+	go func() {
+		ts.Discovery.consumeReader(ctx)
+		close(done)
+	}()
+
+	select {
+	case <-done:
+	case <-time.After(200 * time.Millisecond):
+		t.Fatal("consumeReader should return when context expires during priority sleep, not after full 5s")
 	}
 }
 
@@ -907,4 +993,57 @@ func TestCallReader_PersistDiscoveryBatch(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestPersistBatch_FiltersNonEncodableMessages_OnlyEncodablePassedToStorageSink(t *testing.T) {
+	ctx := context.Background()
+	lggr := logger.Test(t)
+	store := mocks.NewMockIndexerStorage(t)
+
+	var capturedBatch common.DiscoveryBatch
+	store.EXPECT().PersistDiscoveryBatch(mock.Anything, mock.Anything).
+		Run(func(_ context.Context, batch common.DiscoveryBatch) {
+			capturedBatch = batch
+		}).Return(nil).Once()
+
+	mockReader := internal.NewMockReader(internal.MockReaderConfig{EmitEmptyResponses: true})
+	mockReader.SetSinceValue(1)
+	resilientReader := readers.NewResilientReader(mockReader, lggr, readers.DefaultResilienceConfig())
+
+	timeProvider := mocks.NewMockTimeProvider(t)
+	timeProvider.EXPECT().GetTime().Return(time.Now().UTC()).Maybe()
+
+	disc, err := NewAggregatorMessageDiscovery(
+		WithLogger(lggr),
+		WithRegistry(registry.NewVerifierRegistry()),
+		WithTimeProvider(timeProvider),
+		WithMonitoring(monitoring.NewNoopIndexerMonitoring()),
+		WithStorage(store),
+		WithAggregator(resilientReader),
+		WithConfig(config.DiscoveryConfig{
+			AggregatorReaderConfig: config.AggregatorReaderConfig{Address: "test-addr"},
+			PollInterval:           50,
+			Timeout:                500,
+		}),
+	)
+	require.NoError(t, err)
+	aggDisc := disc.(*AggregatorMessageDiscovery)
+
+	validMsg := testutil.CreateTestMessage(t, 1, 1, 100, 10, 200000)
+	invalidMsg := testutil.CreateTestMessage(t, 2, 1, 100, 10, 200000)
+	invalidMsg.SenderLength = 99
+	now := time.Now()
+	messages := []common.MessageWithMetadata{
+		{Message: validMsg, Metadata: common.MessageMetadata{Status: common.MessageProcessing, IngestionTimestamp: now}},
+		{Message: invalidMsg, Metadata: common.MessageMetadata{Status: common.MessageProcessing, IngestionTimestamp: now}},
+		{Message: validMsg, Metadata: common.MessageMetadata{Status: common.MessageProcessing, IngestionTimestamp: now}},
+	}
+
+	err = aggDisc.persistBatch(ctx, messages, nil, false)
+	require.NoError(t, err)
+
+	require.Len(t, capturedBatch.Messages, 2)
+	assert.Equal(t, messages[0], capturedBatch.Messages[0])
+	assert.Equal(t, messages[2], capturedBatch.Messages[1])
+	assert.Empty(t, capturedBatch.Verifications)
 }

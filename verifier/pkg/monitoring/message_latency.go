@@ -7,7 +7,7 @@ import (
 	"github.com/patrickmn/go-cache"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-ccv/verifier"
+	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
 
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
@@ -44,17 +44,20 @@ func NewMessageLatencyTracker(
 func (m *inmemoryMessageLatencyTracker) MarkMessageAsSeen(task *verifier.VerificationTask) {
 	messageID := task.MessageID
 
-	// Track message creation time for E2E latency measurement
-	if task.FirstSeenAt.IsZero() {
-		// If FirstSeenAt was not set by source reader, set it now
-		task.FirstSeenAt = time.Now()
+	// Track message ready time for E2E latency measurement using block timestamp when finalized
+	var trackingTime time.Time
+	if !task.ReadyForVerificationAt.IsZero() {
+		trackingTime = task.ReadyForVerificationAt
+	} else {
+		// If timestamp is not set, use current time as fallback
+		trackingTime = time.Now()
 	}
 
 	// Make it idempotent, don't overwrite existing timestamp if it's already in the cache
 	if _, ok := m.messageTimestamps.Get(messageID); ok {
 		return
 	}
-	m.messageTimestamps.SetDefault(messageID, task.FirstSeenAt)
+	m.messageTimestamps.SetDefault(messageID, trackingTime)
 }
 
 func (m *inmemoryMessageLatencyTracker) TrackMessageLatencies(ctx context.Context, messages []protocol.VerifierNodeResult) {
@@ -67,9 +70,22 @@ func (m *inmemoryMessageLatencyTracker) TrackMessageLatencies(ctx context.Contex
 				m.lggr.Errorw("Invalid timestamp type in cache for message")
 				continue
 			}
+
+			latency := time.Since(seenAt)
+			// Protect against negative latencies due to clock drift between blockchain and node
+			if latency < 0 {
+				m.lggr.Warnw("Negative E2E latency detected due to clock drift - reporting as zero",
+					"messageID", messageID,
+					"blockTimestamp", seenAt,
+					"now", time.Now(),
+					"drift", latency,
+				)
+				latency = 0
+			}
+
 			m.monitoring.Metrics().
-				With("source_chain", ccvNodeData.Message.SourceChainSelector.String(), "verifier_id", m.verifierID).
-				RecordMessageE2ELatency(ctx, time.Since(seenAt))
+				With("source_chain", ccvNodeData.Message.SourceChainSelector.String(), "source_chain_name", ccvNodeData.Message.SourceChainSelector.ChainName(), "verifier_id", m.verifierID).
+				RecordMessageE2ELatency(ctx, latency)
 			m.messageTimestamps.Delete(messageID)
 		}
 	}

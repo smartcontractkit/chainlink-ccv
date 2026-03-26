@@ -2,7 +2,7 @@ package executor
 
 import (
 	"fmt"
-	"slices"
+	"net/url"
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
@@ -46,8 +46,7 @@ type Configuration struct {
 	ExecutorID string `toml:"executor_id"`
 	// Monitoring is the configuration for how Executor emits metrics.
 	Monitoring MonitoringConfig `toml:"Monitoring"`
-	// ReaderCacheExpiry is the duration to cache CCV information for each destination chain.
-	// Cached information includes the Verifier Quorum per receiver address.
+	// ReaderCacheExpiry is the duration for the curse checker cache (RMN cursed state per chain).
 	// Defaults to 5 minutes.
 	ReaderCacheExpiry time.Duration `toml:"reader_cache_expiry"`
 	// MaxRetryDuration is the maximum duration the executor cluster will retry a message before giving up.
@@ -89,8 +88,19 @@ func (c *Configuration) Validate() error {
 	if len(c.IndexerAddress) < 1 {
 		return fmt.Errorf("at least one indexer address must be configured")
 	}
-	if slices.Contains(c.IndexerAddress, "") {
-		return fmt.Errorf("indexer address must not be empty")
+	seen := make(map[string]struct{}, len(c.IndexerAddress))
+	for _, addr := range c.IndexerAddress {
+		u, err := url.Parse(addr)
+		if err != nil {
+			return fmt.Errorf("invalid indexer URL %q: %w", addr, err)
+		}
+		if u.Scheme == "" || u.Host == "" {
+			return fmt.Errorf("indexer URL %q must have a scheme and host", addr)
+		}
+		if _, ok := seen[addr]; ok {
+			return fmt.Errorf("duplicate indexer address: %q", addr)
+		}
+		seen[addr] = struct{}{}
 	}
 
 	if c.WorkerCount < 0 {
@@ -101,6 +111,12 @@ func (c *Configuration) Validate() error {
 	}
 	if c.LookbackWindow < 0 {
 		return fmt.Errorf("startup_lookback_window must not be negative")
+	}
+	if c.ReaderCacheExpiry < 0 {
+		return fmt.Errorf("reader_cache_expiry must not be negative")
+	}
+	if c.MaxRetryDuration < 0 {
+		return fmt.Errorf("max_retry_duration must not be negative")
 	}
 	if c.IndexerQueryLimit > IndexerQueryLimitMax {
 		return fmt.Errorf("indexer_query_limit must not exceed %d, got %d", IndexerQueryLimitMax, c.IndexerQueryLimit)
@@ -117,11 +133,14 @@ func (c *Configuration) Validate() error {
 		if chainConfig.OffRampAddress == "" {
 			return fmt.Errorf("off_ramp_address must be configured for chain %s", chainSel)
 		}
+		if chainConfig.DefaultExecutorAddress == "" {
+			return fmt.Errorf("default_executor_address must be configured for chain %s", chainSel)
+		}
+		if chainConfig.ExecutionInterval < 0 {
+			return fmt.Errorf("execution_interval must not be negative for chain %s", chainSel)
+		}
 		if len(chainConfig.ExecutorPool) == 0 {
 			return fmt.Errorf("executor_pool must be configured for chain %s", chainSel)
-		}
-		if !slices.Contains(chainConfig.ExecutorPool, c.ExecutorID) {
-			return fmt.Errorf("this_executor_id '%s' not found in executor_pool for chain %s", c.ExecutorID, chainSel)
 		}
 	}
 

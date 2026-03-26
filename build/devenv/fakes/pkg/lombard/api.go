@@ -7,7 +7,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	lombardclient "github.com/smartcontractkit/chainlink-ccv/verifier/token/lombard"
+	lombardclient "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/lombard"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/fake"
 )
 

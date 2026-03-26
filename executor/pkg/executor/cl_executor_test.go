@@ -25,6 +25,7 @@ func setupTestExecutor(
 	dr map[protocol.ChainSelector]*mocks.MockDestinationReader,
 	vr *mocks.MockVerifierResultReader,
 	address1, address2 protocol.UnknownAddress,
+	sourceChainSelector protocol.ChainSelector,
 ) *ChainlinkExecutor {
 	allContractTransmitters := make(map[protocol.ChainSelector]chainaccess.ContractTransmitter)
 	for chain, mockCT := range ct {
@@ -47,9 +48,10 @@ func setupTestExecutor(
 	})
 
 	defaultExecutorAddresses := map[protocol.ChainSelector]protocol.UnknownAddress{
-		1: address2, // dest chain 1: executor address matches verifier results
-		2: address1, // source chain 2
+		1: address1,
+		2: address2,
 	}
+	defaultExecutorAddresses[sourceChainSelector] = address2
 
 	return NewChainlinkExecutor(
 		logger.Test(t),
@@ -62,52 +64,111 @@ func setupTestExecutor(
 	)
 }
 
+func Test_ChainlinkExecutor_Start_ClosesStartedReadersOnFailure(t *testing.T) {
+	address1, err := protocol.RandomAddress()
+	assert.NoError(t, err)
+	address2, err := protocol.RandomAddress()
+	assert.NoError(t, err)
+
+	successReader := mocks.NewMockDestinationReader(t)
+	successReader.EXPECT().Start(mock.Anything).Return(nil).Once()
+	successReader.EXPECT().Close().Return(nil).Once()
+
+	failReader := mocks.NewMockDestinationReader(t)
+	failReader.EXPECT().Start(mock.Anything).Return(errors.New("start failed")).Once()
+
+	ct := map[protocol.ChainSelector]*mocks.MockContractTransmitter{
+		1: mocks.NewMockContractTransmitter(t),
+		2: mocks.NewMockContractTransmitter(t),
+	}
+	dr := map[protocol.ChainSelector]*mocks.MockDestinationReader{
+		1: mocks.NewMockDestinationReader(t),
+		2: mocks.NewMockDestinationReader(t),
+	}
+	vr := mocks.NewMockVerifierResultReader(t)
+	executor := setupTestExecutor(t, ct, dr, vr, address1, address2, 2)
+
+	executor.destinationReaders = map[protocol.ChainSelector]chainaccess.DestinationReader{
+		1: successReader,
+		2: failReader,
+	}
+
+	err = executor.Start(context.Background())
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "start failed")
+
+	successReader.AssertExpectations(t)
+	failReader.AssertExpectations(t)
+}
+
 func Test_ChainlinkExecutor_Validate(t *testing.T) {
 	address1, err := protocol.RandomAddress()
 	assert.NoError(t, err)
 	address2, err := protocol.RandomAddress()
 	assert.NoError(t, err)
 
+	validExecutor := func(t *testing.T) *ChainlinkExecutor {
+		ct := map[protocol.ChainSelector]*mocks.MockContractTransmitter{
+			1: mocks.NewMockContractTransmitter(t),
+			2: mocks.NewMockContractTransmitter(t),
+		}
+		dr := map[protocol.ChainSelector]*mocks.MockDestinationReader{
+			1: mocks.NewMockDestinationReader(t),
+			2: mocks.NewMockDestinationReader(t),
+		}
+		vr := mocks.NewMockVerifierResultReader(t)
+		return setupTestExecutor(t, ct, dr, vr, address1, address2, 2)
+	}
+
 	testcases := []struct {
-		name        string
-		ctChains    []protocol.ChainSelector
-		drChains    []protocol.ChainSelector
-		expectError bool
+		name            string
+		modify          func(*ChainlinkExecutor)
+		wantErrContains string
 	}{
 		{
-			name:        "valid case - matching chains",
-			ctChains:    []protocol.ChainSelector{1, 2},
-			drChains:    []protocol.ChainSelector{1, 2},
-			expectError: false,
+			name:   "valid case - matching chains",
+			modify: func(_ *ChainlinkExecutor) {},
 		},
 		{
-			name:        "mismatched supported chains should error",
-			ctChains:    []protocol.ChainSelector{1},
-			drChains:    []protocol.ChainSelector{1, 2},
-			expectError: true,
+			name: "mismatched supported chains should error",
+			modify: func(e *ChainlinkExecutor) {
+				e.contractTransmitters = map[protocol.ChainSelector]chainaccess.ContractTransmitter{
+					1: mocks.NewMockContractTransmitter(t),
+				}
+			},
+			wantErrContains: "must support the same chains",
+		},
+		{
+			name:            "nil curse checker should error",
+			modify:          func(e *ChainlinkExecutor) { e.curseChecker = nil },
+			wantErrContains: "curse checker is required",
+		},
+		{
+			name:            "nil verifier results reader should error",
+			modify:          func(e *ChainlinkExecutor) { e.verifierResultsReader = nil },
+			wantErrContains: "verifier results reader is required",
+		},
+		{
+			name:            "nil monitoring should error",
+			modify:          func(e *ChainlinkExecutor) { e.monitoring = nil },
+			wantErrContains: "monitoring is required",
+		},
+		{
+			name:            "nil default executor address map should error",
+			modify:          func(e *ChainlinkExecutor) { e.defaultExecutorAddress = nil },
+			wantErrContains: "default executor address map is required",
 		},
 	}
 
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
-			ct := make(map[protocol.ChainSelector]*mocks.MockContractTransmitter)
-			for _, chain := range tc.ctChains {
-				mockCT := mocks.NewMockContractTransmitter(t)
-				ct[chain] = mockCT
-			}
+			ex := validExecutor(t)
+			tc.modify(ex)
 
-			dr := make(map[protocol.ChainSelector]*mocks.MockDestinationReader)
-			for _, chain := range tc.drChains {
-				mockDR := mocks.NewMockDestinationReader(t)
-				dr[chain] = mockDR
-			}
-
-			vr := mocks.NewMockVerifierResultReader(t)
-			executor := setupTestExecutor(t, ct, dr, vr, address1, address2)
-
-			err := executor.Validate()
-			if tc.expectError {
+			err := ex.Validate()
+			if tc.wantErrContains != "" {
 				assert.Error(t, err)
+				assert.Contains(t, err.Error(), tc.wantErrContains)
 			} else {
 				assert.NoError(t, err)
 			}
@@ -148,8 +209,8 @@ func Test_ChainlinkExecutor_HandleMessage_CurseCheck(t *testing.T) {
 			msg := generateFakeMessage(1, 2, 1, nil, address2)
 
 			curseChecker := mocks.NewMockCurseChecker(t)
-			curseChecker.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(tc.isCursed).Once()
-			executor := setupTestExecutor(t, ct, dr, vr, address1, address2)
+			curseChecker.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(tc.isCursed, nil).Once()
+			executor := setupTestExecutor(t, ct, dr, vr, address1, address2, 2)
 			executor.curseChecker = curseChecker
 
 			shouldRetry, err := executor.HandleMessage(context.Background(), msg)
@@ -205,7 +266,7 @@ func Test_ChainlinkExecutor_HandleMessage_VerifierResults(t *testing.T) {
 		{
 			name: "verifier results filtered out due to executor address mismatch - should retry with error",
 			verifierResults: []protocol.VerifierResult{
-				{MessageID: protocol.Bytes32{}, Message: generateFakeMessage(1, 2, 1, nil, address1), MessageCCVAddresses: []protocol.UnknownAddress{}, MessageExecutorAddress: address1}, // address1 doesn't match defaultExecutorAddress[destChain=1] = address2
+				{MessageID: protocol.Bytes32{}, Message: generateFakeMessage(1, 2, 1, nil, address1), MessageCCVAddresses: []protocol.UnknownAddress{}, MessageExecutorAddress: address1}, // address1 doesn't match defaultExecutorAddress[2] = address2
 			},
 			ccvInfo:              protocol.CCVAddressInfo{},
 			expectedRetry:        true,
@@ -263,7 +324,7 @@ func Test_ChainlinkExecutor_HandleMessage_VerifierResults(t *testing.T) {
 				ct[1].EXPECT().ConvertAndWriteMessageToChain(mock.Anything, mock.Anything).Return(nil).Maybe()
 			}
 
-			executor := setupTestExecutor(t, ct, dr, vr, address1, address2)
+			executor := setupTestExecutor(t, ct, dr, vr, address1, address2, 2)
 
 			shouldRetry, err := executor.HandleMessage(context.Background(), msg)
 			assert.Equal(t, tc.expectedRetry, shouldRetry)
@@ -352,7 +413,7 @@ func Test_ChainlinkExecutor_HandleMessage_OrderCCVData(t *testing.T) {
 				ct[1].EXPECT().ConvertAndWriteMessageToChain(mock.Anything, mock.Anything).Return(nil).Once()
 			}
 
-			executor := setupTestExecutor(t, ct, dr, vr, address1, address2)
+			executor := setupTestExecutor(t, ct, dr, vr, address1, address2, 2)
 
 			shouldRetry, err := executor.HandleMessage(context.Background(), msg)
 			assert.Equal(t, tc.expectedRetry, shouldRetry)
@@ -388,6 +449,12 @@ func Test_ChainlinkExecutor_HandleMessage_ConvertAndWrite(t *testing.T) {
 			name:               "ConvertAndWriteMessageToChain fails - should retry",
 			convertAndWriteErr: errors.New("convert and write failed"),
 			expectedRetry:      true,
+			expectedError:      true,
+		},
+		{
+			name:               "ConvertAndWriteMessageToChain encoding error - should not retry",
+			convertAndWriteErr: errors.Join(coordinator.ErrMessageEncoding, errors.New("unable to submit txn: invalid message encoding")),
+			expectedRetry:      false,
 			expectedError:      true,
 		},
 		{
@@ -436,7 +503,7 @@ func Test_ChainlinkExecutor_HandleMessage_ConvertAndWrite(t *testing.T) {
 				ct[1].EXPECT().ConvertAndWriteMessageToChain(mock.Anything, mock.Anything).Return(tc.convertAndWriteErr).Once()
 			}
 
-			executor := setupTestExecutor(t, ct, dr, vr, address1, address2)
+			executor := setupTestExecutor(t, ct, dr, vr, address1, address2, 2)
 
 			shouldRetry, err := executor.HandleMessage(context.Background(), msg)
 			assert.Equal(t, tc.expectedRetry, shouldRetry)

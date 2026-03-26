@@ -214,7 +214,7 @@ func (l *Lib) ChainsMap(ctx context.Context) (map[uint64]cciptestinterfaces.CCIP
 	}
 	chainMap := make(map[uint64]cciptestinterfaces.CCIP17)
 	for _, impl := range impls {
-		chainMap[impl.Details.ChainSelector] = impl
+		chainMap[impl.Details.ChainSelector] = impl.CCIP17
 	}
 
 	return chainMap, nil

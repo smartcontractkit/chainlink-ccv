@@ -22,7 +22,6 @@ type IndexerMetrics struct {
 	requestDurationSeconds      metric.Float64Histogram
 
 	// Storage Metrics
-	uniqueMessagesCounter       metric.Int64Counter
 	verificationRecordsCounter  metric.Int64Counter
 	storageQueryDurationSeconds metric.Float64Histogram
 	storageWriteDurationSeconds metric.Float64Histogram
@@ -35,6 +34,10 @@ type IndexerMetrics struct {
 	discoveryLatencySeconds            metric.Float64Histogram
 	timeToIndexSeconds                 metric.Float64Histogram
 	circuitBreakerStatus               metric.Int64Gauge
+
+	// gRPC client transport metrics
+	grpcPayloadSizeBytes metric.Int64Histogram
+	grpcErrorsTotal      metric.Int64Counter
 }
 
 func InitMetrics() (im *IndexerMetrics, err error) {
@@ -54,14 +57,6 @@ func InitMetrics() (im *IndexerMetrics, err error) {
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to register http request duration histogram: %w", err)
-	}
-
-	im.uniqueMessagesCounter, err = beholder.GetMeter().Int64Counter(
-		"indexer_unique_messages_total",
-		metric.WithDescription("Total number of unique messages"),
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to register unique messages counter: %w", err)
 	}
 
 	im.verificationRecordsCounter, err = beholder.GetMeter().Int64Counter(
@@ -137,7 +132,32 @@ func InitMetrics() (im *IndexerMetrics, err error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to register circuit breaker status gauge: %w", err)
 	}
+
+	im.grpcPayloadSizeBytes, err = beholder.GetMeter().Int64Histogram(
+		"indexer_grpc_payload_size_bytes",
+		metric.WithDescription("Wire-level gRPC payload size in bytes for aggregator client calls"),
+		metric.WithUnit("bytes"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register grpc payload size histogram: %w", err)
+	}
+
+	im.grpcErrorsTotal, err = beholder.GetMeter().Int64Counter(
+		"indexer_grpc_errors_total",
+		metric.WithDescription("Total number of gRPC errors by status code for aggregator client calls"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register grpc errors total counter: %w", err)
+	}
+
 	return im, nil
+}
+
+// grpcPayloadSizeBuckets defines histogram buckets for gRPC payload sizes in bytes.
+// Starts at 512B for small messages, steps through common sizes up to 16MB.
+// Payloads above 16MB are captured in the implicit +Inf bucket.
+var grpcPayloadSizeBuckets = []float64{
+	512, 1024, 4096, 16384, 65536, 262144, 1048576, 4194304, 16777216,
 }
 
 // Note: due to the OTEL specification, all histogram buckets. Must be defined when the beholder client is created.
@@ -171,6 +191,12 @@ func MetricViews() []sdkmetric.View {
 			sdkmetric.Instrument{Name: "indexer_time_to_index_seconds"},
 			sdkmetric.Stream{Aggregation: sdkmetric.AggregationExplicitBucketHistogram{
 				Boundaries: []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10},
+			}},
+		),
+		sdkmetric.NewView(
+			sdkmetric.Instrument{Name: "indexer_grpc_payload_size_bytes"},
+			sdkmetric.Stream{Aggregation: sdkmetric.AggregationExplicitBucketHistogram{
+				Boundaries: grpcPayloadSizeBuckets,
 			}},
 		),
 	}
@@ -211,11 +237,6 @@ func (c *IndexerMetricLabeler) RecordHTTPRequestDuration(ctx context.Context, du
 		attribute.String("method", method),
 		attribute.Int("status", status),
 	}...), metric.WithAttributes(otelLabels...))
-}
-
-func (c *IndexerMetricLabeler) IncrementUniqueMessagesCounter(ctx context.Context) {
-	otelLabels := beholder.OtelAttributes(c.Labels).AsStringAttributes()
-	c.im.uniqueMessagesCounter.Add(ctx, 1, metric.WithAttributes(otelLabels...))
 }
 
 func (c *IndexerMetricLabeler) IncrementVerificationRecordsCounter(ctx context.Context) {
@@ -279,4 +300,20 @@ func (c *IndexerMetricLabeler) RecordCircuitBreakerStatus(ctx context.Context, s
 		gaugeValue = 0
 	}
 	c.im.circuitBreakerStatus.Record(ctx, gaugeValue, metric.WithAttributes(otelLabels...))
+}
+
+func (c *IndexerMetricLabeler) RecordGRPCPayloadSize(ctx context.Context, method, direction string, sizeBytes int) {
+	otelLabels := beholder.OtelAttributes(c.Labels).AsStringAttributes()
+	c.im.grpcPayloadSizeBytes.Record(ctx, int64(sizeBytes), metric.WithAttributes([]attribute.KeyValue{
+		attribute.String("method", method),
+		attribute.String("direction", direction),
+	}...), metric.WithAttributes(otelLabels...))
+}
+
+func (c *IndexerMetricLabeler) IncrementGRPCErrors(ctx context.Context, code, method string) {
+	otelLabels := beholder.OtelAttributes(c.Labels).AsStringAttributes()
+	c.im.grpcErrorsTotal.Add(ctx, 1, metric.WithAttributes([]attribute.KeyValue{
+		attribute.String("code", code),
+		attribute.String("method", method),
+	}...), metric.WithAttributes(otelLabels...))
 }

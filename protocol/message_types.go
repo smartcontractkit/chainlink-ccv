@@ -13,14 +13,12 @@ import (
 
 // Constants for CCIP v1.7.
 const (
-	MessageIDSize                 = 32 // Size of a message ID in bytes
-	MaxNumTokens                  = 1
-	MaxDataSize                   = 1024 // 1kb
-	MessageVersion                = 1    // Current message format version
-	MinSizeRequiredMsgFields      = 27   // Minimum size for required fields in Message
-	MinSizeRequiredMsgTokenFields = 34   // Minimum size for required fields in TokenTransfer
-	MaxCCVsPerMessage             = 255  // Maximum number of CCV addresses per message (limited by uint8)
-	MaxUnknownAddressBytes        = 255  // Maximum size of any UnknownAddress in bytes (limited by uint8)
+	MessageIDSize                 = 32  // Size of a message ID in bytes
+	MessageVersion                = 1   // Current message format version
+	MinSizeRequiredMsgFields      = 77  // Minimum size for required fields in Message
+	MinSizeRequiredMsgTokenFields = 39  // Minimum size for required fields in TokenTransfer
+	MaxCCVsPerMessage             = 255 // Maximum number of CCV addresses per message (limited by uint8)
+	MaxUnknownAddressBytes        = 255 // Maximum size of any UnknownAddress in bytes (limited by uint8)
 )
 
 var (
@@ -120,7 +118,7 @@ func (tt *TokenTransfer) validateLengthFields() error {
 
 // DecodeTokenTransfer decodes a TokenTransfer from bytes.
 func DecodeTokenTransfer(data []byte) (*TokenTransfer, error) {
-	if len(data) < MinSizeRequiredMsgTokenFields { // minimum size: version(1) + amount(32) + length(1)
+	if len(data) < MinSizeRequiredMsgTokenFields {
 		return nil, fmt.Errorf("data too short for token transfer")
 	}
 
@@ -238,7 +236,7 @@ type Message struct {
 	SequenceNumber       SequenceNumber `json:"sequence_number"`
 	ExecutionGasLimit    uint32         `json:"execution_gas_limit"`
 	CcipReceiveGasLimit  uint32         `json:"ccip_receive_gas_limit"`
-	Finality             uint16         `json:"finality"`
+	Finality             Finality       `json:"finality"`
 	CcvAndExecutorHash   Bytes32        `json:"ccv_and_executor_hash"`
 	DestBlobLength       uint16         `json:"dest_blob_length"`
 	TokenTransferLength  uint16         `json:"token_transfer_length"`
@@ -698,7 +696,7 @@ func NewMessage(
 	sourceChain, destChain ChainSelector,
 	sequenceNumber SequenceNumber,
 	onRampAddress, offRampAddress UnknownAddress,
-	finality uint16,
+	finality Finality,
 	executionGasLimit, ccipReceiveGasLimit uint32,
 	ccvAndExecutorHash Bytes32,
 	sender, receiver UnknownAddress,
