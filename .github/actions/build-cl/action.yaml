@@ -34,7 +34,20 @@ runs:
       working-directory: ${{ github.workspace }}/chainlink-repo
       shell: bash
       run: |
-        go get github.com/smartcontractkit/chainlink-ccv@${{ github.event.pull_request.head.sha || github.sha }}
+        # Merge queue commits can take a short time to become fetchable via Go module resolution.
+        success=0
+        for i in {1..5}; do
+          if go get github.com/smartcontractkit/chainlink-ccv@${{ github.event.pull_request.head.sha || github.sha }}; then
+            success=1
+            break
+          fi
+          echo "go get failed (attempt $i/5), retrying in 10s..."
+          sleep 10
+        done
+        if [ "$success" -ne 1 ]; then
+          echo "go get failed after 5 attempts"
+          exit 1
+        fi
         make gomodtidy
 
     - name: Set up Docker Buildx
