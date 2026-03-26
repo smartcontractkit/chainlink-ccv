@@ -43,9 +43,9 @@ UniqueChainName = "chain-1"
 
 	assert.Equal(t, "test-verifier", cfg.VerifierID)
 	assert.Equal(t, "aggregator:443", cfg.AggregatorAddress)
-	assert.Len(t, *infos, 1)
+	assert.Len(t, infos, 1)
 
-	info, ok := (*infos)["1"]
+	info, ok := infos["1"]
 	require.True(t, ok, "blockchain_infos should contain key \"1\"")
 	require.NotNil(t, info)
 	assert.Equal(t, "1", info.ChainID)

@@ -107,7 +107,7 @@ func (f *factory[T]) Start(ctx context.Context, spec commit.JobSpec, deps bootst
 		lggr.Errorw("Failed to load configuration", "error", err)
 		return fmt.Errorf("failed to load configuration: %w", err)
 	}
-	lggr.Infow("Using blockchain information from config", "info", *blockchainInfos)
+	lggr.Infow("Using blockchain information from config", "info", blockchainInfos)
 
 	// TODO: this should be passed in via the config maybe?
 	apiKey := os.Getenv("VERIFIER_AGGREGATOR_API_KEY")
@@ -140,7 +140,7 @@ func (f *factory[T]) Start(ctx context.Context, spec commit.JobSpec, deps bootst
 	}
 	f.profiler = profiler
 
-	chainSelectors := chainSelectorsFromMap(*blockchainInfos)
+	chainSelectors := chainSelectorsFromMap(blockchainInfos)
 
 	// Create verifier addresses before source readers setup
 	verifierAddresses := make(map[string]protocol.UnknownAddress)
@@ -182,7 +182,7 @@ func (f *factory[T]) Start(ctx context.Context, spec commit.JobSpec, deps bootst
 
 	f.aggregatorWriter = aggregatorWriter
 
-	accessorFactory, err := f.createAccessorFactoryFunc(ctx, lggr, *blockchainInfos, *config)
+	accessorFactory, err := f.createAccessorFactoryFunc(ctx, lggr, blockchainInfos, *config)
 	if err != nil {
 		lggr.Errorw("Failed to create accessor factory", "error", err)
 		return fmt.Errorf("failed to create accessor factory: %w", err)
