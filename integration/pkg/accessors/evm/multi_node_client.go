@@ -1,4 +1,4 @@
-package pkg
+package evm
 
 import (
 	"context"
@@ -15,7 +15,7 @@ import (
 
 func ptr[T any](t T) *T { return &t }
 
-func CreateHealthyMultiNodeClient(ctx context.Context, infos blockchain.Infos[blockchain.Info], lggr logger.Logger, chainSelector protocol.ChainSelector) (client.Client, error) {
+func CreateHealthyMultiNodeClient(ctx context.Context, infos blockchain.Infos[Info], lggr logger.Logger, chainSelector protocol.ChainSelector) (client.Client, error) {
 	info, err := infos.GetBlockchainByChainSelector(chainSelector)
 	if err != nil {
 		lggr.Errorw("Failed to get blockchain info", "error", err, "chainSelector", chainSelector)
@@ -25,7 +25,7 @@ func CreateHealthyMultiNodeClient(ctx context.Context, infos blockchain.Infos[bl
 }
 
 // CreateMultiNodeClientFromInfo creates EVM client and tests the connection.
-func CreateMultiNodeClientFromInfo(ctx context.Context, blockchainInfo blockchain.Info, lggr logger.Logger) (client.Client, error) {
+func CreateMultiNodeClientFromInfo(ctx context.Context, blockchainInfo Info, lggr logger.Logger) (client.Client, error) {
 	noNewHeadsThreshold := 3 * time.Minute
 	selectionMode := ptr("HighestHead")
 	leaseDuration := 0 * time.Second

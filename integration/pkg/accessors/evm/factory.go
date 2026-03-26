@@ -10,7 +10,6 @@ import (
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/onramp"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
-	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/sourcereader"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -20,7 +19,7 @@ import (
 
 type factory struct {
 	lggr               logger.Logger
-	infos              blockchain.Infos[blockchain.Info]
+	infos              blockchain.Infos[Info]
 	onRampAddresses    map[string]string
 	rmnRemoteAddresses map[string]string
 	headTrackers       map[protocol.ChainSelector]heads.Tracker
@@ -32,7 +31,7 @@ type factory struct {
 // constructions / implementations of these objects.
 func NewFactory(
 	lggr logger.Logger,
-	infos blockchain.Infos[blockchain.Info],
+	infos blockchain.Infos[Info],
 	onRampAddresses, rmnRemoteAddresses map[string]string,
 	headTrackers map[protocol.ChainSelector]heads.Tracker,
 	chainClients map[protocol.ChainSelector]client.Client,
@@ -79,7 +78,7 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 		return nil, fmt.Errorf("head tracker is not set for chain %d", chainSelector)
 	}
 
-	evmSourceReader, err := sourcereader.NewEVMSourceReader(
+	evmSourceReader, err := NewEVMSourceReader(
 		chainClient,
 		headTracker,
 		common.HexToAddress(f.onRampAddresses[strSelector]),

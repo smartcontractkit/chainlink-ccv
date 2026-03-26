@@ -1,4 +1,4 @@
-package sourcereader
+package evm
 
 import (
 	"context"
@@ -18,7 +18,7 @@ import (
 
 type EVMFactory struct {
 	lggr               logger.Logger
-	infos              blockchain.Infos[blockchain.Info]
+	infos              blockchain.Infos[Info]
 	onRampAddresses    map[string]string
 	rmnRemoteAddresses map[string]string
 	headTrackers       map[protocol.ChainSelector]heads.Tracker
@@ -27,7 +27,7 @@ type EVMFactory struct {
 
 func NewEVMFactory(
 	lggr logger.Logger,
-	infos blockchain.Infos[blockchain.Info],
+	infos blockchain.Infos[Info],
 	onRampAddresses,
 	rmnRemoteAddresses map[string]string,
 	headTrackers map[protocol.ChainSelector]heads.Tracker,
