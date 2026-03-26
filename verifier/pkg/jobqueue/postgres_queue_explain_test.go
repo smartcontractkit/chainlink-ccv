@@ -20,6 +20,18 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/verifier/testutil"
 )
 
+// explainEpoch is the fixed reference time used for all seed data and query parameters in
+// EXPLAIN tests. A stable epoch ensures VACUUM ANALYZE always sees identical data, producing
+// consistent histogram bounds and therefore reproducible query plans across runs.
+var explainEpoch = time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC)
+
+// deterministicUUID returns a SHA-1 name-based UUID that is identical for the same (ns, i)
+// pair across runs. This replaces uuid.New() in seed data to keep seeded rows byte-for-byte
+// stable so EXPLAIN plan output can be meaningfully diffed over time.
+func deterministicUUID(ns string, i int) string {
+	return uuid.NewSHA1(uuid.NameSpaceURL, []byte(fmt.Sprintf("%s-%d", ns, i))).String()
+}
+
 const (
 	explainOwner   = "explain-owner"
 	explainTable   = vtypes.TaskVerifierJobsTableName
@@ -73,7 +85,7 @@ func explainChainSelectorStr(n uint64) string {
 func seedExplainData(t *testing.T, db *sqlx.DB) {
 	t.Helper()
 	ctx := context.Background()
-	now := time.Now()
+	now := explainEpoch
 	// Pass as string, not []byte: pq.CopyIn uses the COPY text protocol, so a []byte
 	// value for a JSONB column is encoded as bytea hex (\x7b…7d) which Postgres
 	// cannot parse as JSON. A string is transmitted as-is and parsed correctly.
@@ -103,7 +115,7 @@ func seedExplainData(t *testing.T, db *sqlx.DB) {
 	for i := range 50000 {
 		availableAt := now.Add(-time.Duration(i) * time.Second)
 		_, err = activeStmt.Exec(
-			uuid.New().String(), explainOwner,
+			deterministicUUID("pending", i), explainOwner,
 			explainChainSelectorStr(1),
 			fmt.Appendf(nil, "msg-pending-%d", i),
 			jsonData, "pending",
@@ -119,7 +131,7 @@ func seedExplainData(t *testing.T, db *sqlx.DB) {
 	for i := range 500 {
 		startedAt := now.Add(-2 * time.Hour)
 		_, err = activeStmt.Exec(
-			uuid.New().String(), explainOwner,
+			deterministicUUID("stale", i), explainOwner,
 			explainChainSelectorStr(2),
 			fmt.Appendf(nil, "msg-stale-%d", i),
 			jsonData, "processing",
@@ -133,7 +145,7 @@ func seedExplainData(t *testing.T, db *sqlx.DB) {
 	// 200 fresh processing jobs — started_at = now so the stale path skips them.
 	for i := range 200 {
 		_, err = activeStmt.Exec(
-			uuid.New().String(), explainOwner,
+			deterministicUUID("fresh", i), explainOwner,
 			explainChainSelectorStr(3),
 			fmt.Appendf(nil, "msg-fresh-%d", i),
 			jsonData, "processing",
@@ -151,7 +163,7 @@ func seedExplainData(t *testing.T, db *sqlx.DB) {
 		for i := range 1000 {
 			availableAt := now.Add(-time.Duration(i) * time.Second)
 			_, err = activeStmt.Exec(
-				uuid.New().String(), ownerID,
+				deterministicUUID(fmt.Sprintf("other-%d", ownerIdx), i), ownerID,
 				explainChainSelectorStr(uint64(ownerIdx+10)),
 				fmt.Appendf(nil, "msg-other-%d-%d", ownerIdx, i),
 				jsonData, "pending",
@@ -199,7 +211,7 @@ func seedExplainData(t *testing.T, db *sqlx.DB) {
 		completedAt := now.Add(-time.Duration(i) * time.Minute)
 		_, err = archiveStmt.Exec(
 			int64(1_000_001+i), // explicit PK (archive table has BIGINT, not BIGSERIAL)
-			uuid.New().String(), explainOwner,
+			deterministicUUID("archive", i), explainOwner,
 			explainChainSelectorStr(1),
 			fmt.Appendf(nil, "msg-archive-%d", i),
 			jsonData, "completed",
@@ -303,7 +315,7 @@ func TestExplainQueryPlans(t *testing.T) {
 	)
 	require.GreaterOrEqual(t, len(sampleJobIDs), 2, "need ≥2 pending job_ids from seeded data")
 
-	now := time.Now()
+	now := explainEpoch
 	// staleBefore with a 1-minute LockDuration: the seeded stale jobs (started_at = 2h ago)
 	// satisfy started_at <= staleBefore, so the stale path in Consume returns rows.
 	staleBefore := now.Add(-time.Minute)
@@ -410,7 +422,7 @@ func TestExplainQueryPlans(t *testing.T) {
 			ON CONFLICT (owner_id, chain_selector, message_id) DO NOTHING`,
 			explainTable)
 		out := runExplainAnalyze(t, sdb, "publish_no_conflict", query,
-			uuid.New().String(),
+			deterministicUUID("publish-noconflict", 0),
 			[]byte(`{"chain":99,"data":"new"}`),
 			"pending", now, now,
 			0, now.Add(time.Hour),
@@ -443,7 +455,7 @@ func TestExplainQueryPlans(t *testing.T) {
 			ON CONFLICT (owner_id, chain_selector, message_id) DO NOTHING`,
 			explainTable)
 		out := runExplainAnalyze(t, sdb, "publish_conflict", query,
-			uuid.New().String(),
+			deterministicUUID("publish-conflict", 0),
 			[]byte(`{"chain":1,"data":"dup"}`),
 			"pending", now, now,
 			0, now.Add(time.Hour),

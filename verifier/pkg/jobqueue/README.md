@@ -79,11 +79,11 @@ err := queue.Publish(ctx, job1, job2, job3)
 jobs, err := queue.Consume(ctx, batchSize)
 ```
 
-**Selection Criteria:**
-- Jobs in `pending` state where `available_at <= NOW()`
-- Jobs in `processing` state where `started_at + LockDuration < NOW()` (stale locks)
+**Execution order (two queries, always both run):**
+1. **Stale reclamation** — jobs in `processing` state where `started_at + LockDuration <= NOW()`, up to `batchSize`. Runs unconditionally so crashed-worker jobs are always reclaimed even under persistent pending backlog.
+2. **Pending** — jobs in `pending` state where `available_at <= NOW()`, up to `batchSize - len(staleJobs)`. Fills the remaining capacity computed in memory from the stale result, so a full batch is returned whenever there are no stale jobs.
 
-**Effects:**
+**Effects (both paths):**
 - Updates status to `processing`
 - Sets `started_at` timestamp
 - Increments `attempt_count`
@@ -146,13 +146,15 @@ This design ensures:
 
 ## Stale Lock Recovery
 
-If a worker crashes while processing a job, the job remains in `processing` state. The queue automatically reclaims these "stale" jobs:
+If a worker crashes while processing a job, the job remains in `processing` state. The queue always reclaims these "stale" jobs on the next `Consume` call regardless of how many pending jobs are waiting:
 
 ```
 Worker A: Consume job → started_at = 10:00 AM → [CRASH]
-Worker B: Consume (at 10:15 AM) → detects stale lock (10:15 - 10:00 > LockDuration)
-Worker B: Reclaims job → attempt_count++
+Worker B: Consume (at 10:15 AM) → stale query runs first, detects started_at + LockDuration <= NOW()
+Worker B: Reclaims job → attempt_count++, then fills remaining batch capacity with pending jobs
 ```
+
+The stale query always executes first with the full `batchSize` limit. The pending query then uses the remaining capacity (`batchSize - staleCount`). This ordering guarantees stale jobs are never crowded out by a persistently backlogged pending queue.
 
 **Configuration:**
 - `LockDuration`: How long a job can stay in `processing` before being reclaimed (default: 1 minute)

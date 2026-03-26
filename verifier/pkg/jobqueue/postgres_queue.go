@@ -137,11 +137,53 @@ func (q *PostgresJobQueue[T]) PublishWithDelay(ctx context.Context, delay time.D
 // on every poll because the planner could not use either partial index. Each query below
 // targets its own dedicated partial index and allows Postgres to stream rows in index order
 // with FOR UPDATE SKIP LOCKED — O(batchSize) instead of O(table size).
+//
+// Stale reclamation always runs first with the full batchSize limit. The pending limit is
+// then computed in memory as batchSize - len(staleJobs), so pending always fills a full
+// batch when there are no stale jobs, and stale jobs can never be starved by pending backlog.
 func (q *PostgresJobQueue[T]) Consume(ctx context.Context, batchSize int) ([]Job[T], error) {
 	now := time.Now()
 	staleBefore := now.Add(-q.config.LockDuration)
 
-	// Phase 1: pending jobs — uses idx_consume (owner_id, available_at, id) WHERE status='pending'
+	// Phase 1: reclaim stale processing jobs (crashed-worker recovery) — always runs first.
+	// Running stale before pending lets us compute the exact remaining capacity for pending
+	// in memory, so pending always fills up to batchSize when there are no stale jobs.
+	// Uses idx_stale (owner_id, started_at, id) WHERE status='processing' AND started_at IS NOT NULL.
+	staleQuery := fmt.Sprintf(`
+		UPDATE %[1]s
+		SET status = $1,
+		    started_at = $2,
+		    attempt_count = attempt_count + 1
+		WHERE id IN (
+		    SELECT id FROM %[1]s
+		    WHERE owner_id = $3
+		      AND status = $4
+		      AND started_at IS NOT NULL
+		      AND started_at <= $5
+		    ORDER BY started_at ASC, id ASC
+		    LIMIT $6
+		    FOR UPDATE SKIP LOCKED
+		)
+		RETURNING id, job_id, task_data, attempt_count, retry_deadline, created_at, started_at, chain_selector, message_id
+	`, q.tableName)
+
+	jobs, failedToDeserialize, err := q.runConsumeQuery(ctx, staleQuery,
+		JobStatusProcessing, // $1
+		now,                 // $2 started_at
+		q.ownerID,           // $3
+		JobStatusProcessing, // $4
+		staleBefore,         // $5 started_at <=
+		batchSize,           // $6
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to reclaim stale jobs: %w", err)
+	}
+
+	// Phase 2: pending jobs — always fills remaining capacity up to batchSize.
+	// pendingLimit is computed in memory from the stale result: when stale returns nothing,
+	// pending gets the full batchSize; when stale is at quota, pending gets batchSize - staleQuota.
+	// Uses idx_consume (owner_id, available_at, id) WHERE status='pending'.
+	pendingLimit := batchSize - len(jobs)
 	pendingQuery := fmt.Sprintf(`
 		UPDATE %[1]s
 		SET status = $1,
@@ -159,55 +201,19 @@ func (q *PostgresJobQueue[T]) Consume(ctx context.Context, batchSize int) ([]Job
 		RETURNING id, job_id, task_data, attempt_count, retry_deadline, created_at, started_at, chain_selector, message_id
 	`, q.tableName)
 
-	jobs, failedToDeserialize, err := q.runConsumeQuery(ctx, pendingQuery,
+	pendingJobs, pendingFailures, err := q.runConsumeQuery(ctx, pendingQuery,
 		JobStatusProcessing, // $1
 		now,                 // $2 started_at
 		q.ownerID,           // $3
 		JobStatusPending,    // $4
 		now,                 // $5 available_at <=
-		batchSize,           // $6
+		pendingLimit,        // $6
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to consume pending jobs: %w", err)
 	}
-
-	// Phase 2: reclaim stale processing jobs (crashed-worker recovery).
-	// Only runs when the pending batch is not full — the common case since stale jobs
-	// only appear after worker crashes. Uses idx_stale (owner_id, started_at, id)
-	// WHERE status='processing' AND started_at IS NOT NULL.
-	if remaining := batchSize - len(jobs); remaining > 0 {
-		staleQuery := fmt.Sprintf(`
-			UPDATE %[1]s
-			SET status = $1,
-			    started_at = $2,
-			    attempt_count = attempt_count + 1
-			WHERE id IN (
-			    SELECT id FROM %[1]s
-			    WHERE owner_id = $3
-			      AND status = $4
-			      AND started_at IS NOT NULL
-			      AND started_at <= $5
-			    ORDER BY started_at ASC, id ASC
-			    LIMIT $6
-			    FOR UPDATE SKIP LOCKED
-			)
-			RETURNING id, job_id, task_data, attempt_count, retry_deadline, created_at, started_at, chain_selector, message_id
-		`, q.tableName)
-
-		staleJobs, staleFailures, err := q.runConsumeQuery(ctx, staleQuery,
-			JobStatusProcessing, // $1
-			now,                 // $2 started_at
-			q.ownerID,           // $3
-			JobStatusProcessing, // $4
-			staleBefore,         // $5 started_at <=
-			remaining,           // $6
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to reclaim stale jobs: %w", err)
-		}
-		jobs = append(jobs, staleJobs...)
-		maps.Copy(failedToDeserialize, staleFailures)
-	}
+	jobs = append(jobs, pendingJobs...)
+	maps.Copy(failedToDeserialize, pendingFailures)
 
 	// Mark jobs that failed to deserialize as permanently failed
 	// to prevent them from being stuck in 'processing' state forever.
