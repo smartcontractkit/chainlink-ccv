@@ -50,6 +50,7 @@ type VerifierMetrics struct {
 	// Chain State
 	sourceChainLatestBlockGauge    metric.Int64Gauge
 	sourceChainFinalizedBlockGauge metric.Int64Gauge
+	sourceChainSafeBlockGauge      metric.Int64Gauge
 	finalityViolated               metric.Int64Gauge
 	remoteChainCursed              metric.Int64Gauge
 	localChainGlobalCursed         metric.Int64Gauge
@@ -225,6 +226,14 @@ func InitMetrics() (*VerifierMetrics, error) {
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to register source chain finalized block gauge: %w", err)
+	}
+
+	vm.sourceChainSafeBlockGauge, err = beholder.GetMeter().Int64Gauge(
+		"verifier_source_chain_safe_block",
+		metric.WithDescription("Latest safe block number for a source chain"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register source chain safe block gauge: %w", err)
 	}
 
 	vm.finalityViolated, err = beholder.GetMeter().Int64Gauge(
@@ -467,6 +476,11 @@ func (v *VerifierMetricLabeler) RecordSourceChainLatestBlock(ctx context.Context
 func (v *VerifierMetricLabeler) RecordSourceChainFinalizedBlock(ctx context.Context, blockNum int64) {
 	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
 	v.vm.sourceChainFinalizedBlockGauge.Record(ctx, blockNum, metric.WithAttributes(otelLabels...))
+}
+
+func (v *VerifierMetricLabeler) RecordSourceChainSafeBlock(ctx context.Context, blockNum int64) {
+	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
+	v.vm.sourceChainSafeBlockGauge.Record(ctx, blockNum, metric.WithAttributes(otelLabels...))
 }
 
 func (v *VerifierMetricLabeler) RecordReorgTrackedSeqNums(ctx context.Context, count int64) {

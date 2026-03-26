@@ -112,6 +112,101 @@ func TestObservedSourceReader_Values(t *testing.T) {
 	}
 }
 
+func TestObservedSourceReader_SafeBlockValues(t *testing.T) {
+	verifierID := "verifier1"
+	chainSelector := protocol.ChainSelector(123)
+	safeBlock := &protocol.BlockHeader{Number: 5}
+
+	testCases := []struct {
+		name              string
+		safeBlock         *protocol.BlockHeader
+		returnErr         error
+		expectedSafeBlock int64
+	}{
+		{
+			name:              "nothing is tracked when nil block is returned",
+			safeBlock:         nil,
+			returnErr:         nil,
+			expectedSafeBlock: 0,
+		},
+		{
+			name:              "nothing is tracked when error is returned",
+			safeBlock:         safeBlock,
+			returnErr:         fmt.Errorf("error"),
+			expectedSafeBlock: 0,
+		},
+		{
+			name:              "safe block is tracked when non-nil block is returned",
+			safeBlock:         safeBlock,
+			returnErr:         nil,
+			expectedSafeBlock: 5,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			mockReader := mocks.NewMockSourceReader(t)
+			monitor := monitoring.NewFakeVerifierMonitoring()
+
+			rd, err := NewObservedSourceReader(
+				mockReader,
+				verifierID,
+				chainSelector,
+				monitor,
+			)
+			require.NoError(t, err)
+
+			mockReader.On("LatestSafeBlock", mock.Anything).
+				Return(tc.safeBlock, tc.returnErr).
+				Once()
+
+			_, err = rd.LatestSafeBlock(t.Context())
+			if tc.returnErr != nil {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+
+			require.Equal(t, tc.expectedSafeBlock, monitor.Fake.SourceChainSafeBlock.Load())
+		})
+	}
+}
+
+func TestObservedSourceReader_SafeBlockLabels(t *testing.T) {
+	safeBlock := &protocol.BlockHeader{Number: 5}
+
+	mockReader := mocks.NewMockSourceReader(t)
+	monitor := monitoring.NewFakeVerifierMonitoring()
+
+	rd1, err := NewObservedSourceReader(
+		mockReader,
+		"verifier1",
+		protocol.ChainSelector(1),
+		monitor,
+	)
+	require.NoError(t, err)
+
+	rd2, err := NewObservedSourceReader(
+		mockReader,
+		"verifier2",
+		protocol.ChainSelector(2),
+		monitor,
+	)
+	require.NoError(t, err)
+
+	mockReader.On("LatestSafeBlock", mock.Anything).
+		Return(safeBlock, nil).
+		Twice()
+
+	_, err = rd1.LatestSafeBlock(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, []string{"source_chain", "1", "source_chain_name", "unknown:1", "verifier_id", "verifier1"}, monitor.Fake.Labels())
+
+	_, err = rd2.LatestSafeBlock(t.Context())
+	require.NoError(t, err)
+	require.Equal(t, []string{"source_chain", "2", "source_chain_name", "unknown:2", "verifier_id", "verifier2"}, monitor.Fake.Labels())
+}
+
 func TestObservedSourceReader_Labels(t *testing.T) {
 	block1 := &protocol.BlockHeader{Number: 1}
 	block2 := &protocol.BlockHeader{Number: 2}

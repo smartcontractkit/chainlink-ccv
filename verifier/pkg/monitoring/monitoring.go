@@ -76,6 +76,7 @@ type FakeVerifierMetricLabeler struct {
 
 	SourceChainLatestBLock    atomic.Int64
 	SourceChainFinalizedBlock atomic.Int64
+	SourceChainSafeBlock      atomic.Int64
 
 	E2ELatencyCalls []E2ELatencyCall
 }
@@ -149,6 +150,10 @@ func (f *FakeVerifierMetricLabeler) RecordSourceChainLatestBlock(_ context.Conte
 
 func (f *FakeVerifierMetricLabeler) RecordSourceChainFinalizedBlock(_ context.Context, blockNum int64) {
 	f.SourceChainFinalizedBlock.Store(blockNum)
+}
+
+func (f *FakeVerifierMetricLabeler) RecordSourceChainSafeBlock(_ context.Context, blockNum int64) {
+	f.SourceChainSafeBlock.Store(blockNum)
 }
 
 func (f *FakeVerifierMetricLabeler) RecordReorgTrackedSeqNums(ctx context.Context, count int64) {}
