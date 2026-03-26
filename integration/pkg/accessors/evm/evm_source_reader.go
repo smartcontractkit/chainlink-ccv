@@ -21,12 +21,12 @@ import (
 	"github.com/smartcontractkit/chainlink-evm/pkg/heads"
 )
 
-// Compile-time checks to ensure EVMSourceReader implements the SourceReader interface.
+// Compile-time checks to ensure SourceReader implements the SourceReader interface.
 var (
-	_ chainaccess.SourceReader = (*EVMSourceReader)(nil)
+	_ chainaccess.SourceReader = (*SourceReader)(nil)
 )
 
-type EVMSourceReader struct {
+type SourceReader struct {
 	chainClient          client.Client
 	headTracker          heads.Tracker
 	onRampAddress        common.Address
@@ -88,7 +88,7 @@ func NewEVMSourceReader(
 		return nil, fmt.Errorf("failed to get OnRamp ABI: %w", err)
 	}
 
-	return &EVMSourceReader{
+	return &SourceReader{
 		chainClient:          chainClient,
 		headTracker:          headTracker,
 		onRampAddress:        onRampAddress,
@@ -102,7 +102,7 @@ func NewEVMSourceReader(
 }
 
 // GetBlocksHeaders TODO: Should use batch requests for efficiency ticket: CCIP-7766.
-func (r *EVMSourceReader) GetBlocksHeaders(ctx context.Context, blockNumbers []*big.Int) (map[uint64]protocol.BlockHeader, error) {
+func (r *SourceReader) GetBlocksHeaders(ctx context.Context, blockNumbers []*big.Int) (map[uint64]protocol.BlockHeader, error) {
 	headers := make(map[uint64]protocol.BlockHeader)
 	for _, blockNumber := range blockNumbers {
 		header, err := r.chainClient.HeadByNumber(ctx, blockNumber)
@@ -126,7 +126,7 @@ func (r *EVMSourceReader) GetBlocksHeaders(ctx context.Context, blockNumbers []*
 
 // FetchMessageSentEvents returns MessageSentEvents in the given block range.
 // The toBlock parameter can be nil to query up to the latest block.
-func (r *EVMSourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock, toBlock *big.Int) ([]protocol.MessageSentEvent, error) {
+func (r *SourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock, toBlock *big.Int) ([]protocol.MessageSentEvent, error) {
 	rangeQuery := ethereum.FilterQuery{
 		FromBlock: fromBlock,
 		ToBlock:   toBlock,
@@ -281,7 +281,7 @@ func (r *EVMSourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock,
 
 // LatestAndFinalizedBlock returns the latest and finalized block headers.
 // Implements chainaccess.HeadTracker interface.
-func (r *EVMSourceReader) LatestAndFinalizedBlock(ctx context.Context) (latest, finalized *protocol.BlockHeader, err error) {
+func (r *SourceReader) LatestAndFinalizedBlock(ctx context.Context) (latest, finalized *protocol.BlockHeader, err error) {
 	latestHead, finalizedHead, err := r.headTracker.LatestAndFinalizedBlock(ctx)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get latest and finalized blocks: %w", err)
@@ -315,7 +315,7 @@ func (r *EVMSourceReader) LatestAndFinalizedBlock(ctx context.Context) (latest, 
 // LatestSafeBlock returns the latest safe block header.
 // Returns nil without an error when the underlying chain does not support the safe tag.
 // Implements chainaccess.HeadTracker interface.
-func (r *EVMSourceReader) LatestSafeBlock(ctx context.Context) (*protocol.BlockHeader, error) {
+func (r *SourceReader) LatestSafeBlock(ctx context.Context) (*protocol.BlockHeader, error) {
 	safeHead, err := r.headTracker.LatestSafeBlock(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get safe block: %w", err)
@@ -336,7 +336,7 @@ func (r *EVMSourceReader) LatestSafeBlock(ctx context.Context) (*protocol.BlockH
 
 // GetRMNCursedSubjects queries this source chain's RMN Remote contract.
 // Implements SourceReader and chainaccess.RMNCurseReader interfaces.
-func (r *EVMSourceReader) GetRMNCursedSubjects(ctx context.Context) ([]protocol.Bytes16, error) {
+func (r *SourceReader) GetRMNCursedSubjects(ctx context.Context) ([]protocol.Bytes16, error) {
 	// Use the common helper function from cursechecker package
 	// This avoids code duplication with EVMDestinationReader
 	return rmnremotereader.EVMReadRMNCursedSubjects(ctx, r.rmnRemoteCaller)

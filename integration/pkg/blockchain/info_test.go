@@ -6,34 +6,44 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
+type TestInfo struct {
+	ChainID         string
+	Type            string
+	Family          string
+	UniqueChainName string
+}
+
+func (t TestInfo) Empty() bool {
+	return t.ChainID == "" && t.Type == "" && t.Family == "" && t.UniqueChainName == ""
+}
+
 func TestHelper_GetBlockchainByChainSelector_NilMapEntriesTreatedAsNotFound(t *testing.T) {
-	validInfo := Info{ChainID: "123", Type: "evm", Family: "evm", UniqueChainName: "chain-123"}
+	validInfo := TestInfo{ChainID: "123", Type: "evm", Family: "evm", UniqueChainName: "chain-123"}
 	selector := protocol.ChainSelector(999)
 	tests := []struct {
 		name    string
-		infos   map[string]Info
+		infos   Infos[TestInfo]
 		wantErr bool
 	}{
 		{
 			name:    "returns error when key exists but value is nil",
-			infos:   map[string]Info{"999": {}},
+			infos:   Infos[TestInfo]{"999": {}},
 			wantErr: false, // With generic types, this isn't something we can test for.
 		},
 		{
 			name:    "returns info when key exists and value is non-nil",
-			infos:   map[string]Info{"999": validInfo},
+			infos:   Infos[TestInfo]{"999": validInfo},
 			wantErr: false,
 		},
 		{
 			name:    "returns error when key does not exist",
-			infos:   map[string]Info{},
+			infos:   Infos[TestInfo]{},
 			wantErr: true,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			h := Infos[Info](tt.infos)
-			got, err := h.GetBlockchainByChainSelector(selector)
+			got, err := tt.infos.GetBlockchainByChainSelector(selector)
 			if tt.wantErr {
 				if err == nil {
 					t.Errorf("GetBlockchainByChainSelector() expected error, got nil")

@@ -16,6 +16,8 @@ import (
 	"github.com/smartcontractkit/chainlink-evm/pkg/heads"
 )
 
+// TODO: consolidate or rename multiple factories so that they reflect what they do.
+// nolint:revive this was moved from the registry package, the EVM prefix needs to be fixed.
 type EVMFactory struct {
 	lggr               logger.Logger
 	infos              blockchain.Infos[Info]
