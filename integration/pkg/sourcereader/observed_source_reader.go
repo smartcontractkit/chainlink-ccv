@@ -68,5 +68,16 @@ func (o observedSourceReader) LatestAndFinalizedBlock(ctx context.Context) (late
 }
 
 func (o observedSourceReader) LatestSafeBlock(ctx context.Context) (*protocol.BlockHeader, error) {
-	return o.SourceReader.LatestSafeBlock(ctx)
+	safe, err := o.SourceReader.LatestSafeBlock(ctx)
+	if err != nil {
+		return safe, err
+	}
+
+	if safe != nil {
+		o.monitoring.Metrics().
+			With("source_chain", o.chainSelector, "source_chain_name", o.chainName, "verifier_id", o.verifierID).
+			//nolint:gosec // disable G115
+			RecordSourceChainSafeBlock(ctx, int64(safe.Number))
+	}
+	return safe, err
 }

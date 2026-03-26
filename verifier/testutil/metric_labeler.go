@@ -31,6 +31,7 @@ func (n *NoopMetricLabeler) SetVerifierHeartbeatChainHeads(_ context.Context, _ 
 func (n *NoopMetricLabeler) SetVerifierHeartbeatScore(_ context.Context, _ float64)               {}
 func (n *NoopMetricLabeler) RecordSourceChainLatestBlock(_ context.Context, _ int64)              {}
 func (n *NoopMetricLabeler) RecordSourceChainFinalizedBlock(_ context.Context, _ int64)           {}
+func (n *NoopMetricLabeler) RecordSourceChainSafeBlock(_ context.Context, _ int64)                {}
 func (n *NoopMetricLabeler) RecordReorgTrackedSeqNums(_ context.Context, _ int64)                 {}
 func (n *NoopMetricLabeler) SetVerifierFinalityViolated(_ context.Context, _ protocol.ChainSelector, _ bool) {
 }
