@@ -29,7 +29,7 @@ var explainEpoch = time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC)
 // pair across runs. This replaces uuid.New() in seed data to keep seeded rows byte-for-byte
 // stable so EXPLAIN plan output can be meaningfully diffed over time.
 func deterministicUUID(ns string, i int) string {
-	return uuid.NewSHA1(uuid.NameSpaceURL, []byte(fmt.Sprintf("%s-%d", ns, i))).String()
+	return uuid.NewSHA1(uuid.NameSpaceURL, fmt.Appendf(nil, "%s-%d", ns, i)).String()
 }
 
 const (
