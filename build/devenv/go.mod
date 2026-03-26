@@ -513,3 +513,6 @@ replace github.com/gogo/protobuf => github.com/regen-network/protobuf v1.3.3-alp
 
 // Repeat replaces from chainlink-canton
 replace github.com/digital-asset/dazl-client/v8 => github.com/noders-team/dazl-client/v8 v8.7.1-2
+
+// Pin codec to v1.2.x: chainlink-evm's generated code uses GenVersion/GenHelper removed in v1.3.0
+replace github.com/ugorji/go/codec => github.com/ugorji/go/codec v1.2.12
