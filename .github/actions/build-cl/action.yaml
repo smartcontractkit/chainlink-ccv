@@ -34,10 +34,15 @@ runs:
       working-directory: ${{ github.workspace }}/chainlink-repo
       shell: bash
       run: |
-        # Merge queue commits can take a short time to become fetchable via Go module resolution.
+        # For merge queue runs, prefer the queue ref name over synthetic SHA.
+        # Synthetic SHAs may be checkout-able by Actions but not always resolvable as module versions.
+        TARGET_REF="${{ github.event.pull_request.head.sha || github.ref_name }}"
+        echo "Upgrading github.com/smartcontractkit/chainlink-ccv using ref: ${TARGET_REF}"
+
+        # Bypass module proxy for this lookup to avoid stale/negative cache behavior on ephemeral refs.
         success=0
         for i in {1..5}; do
-          if go get github.com/smartcontractkit/chainlink-ccv@${{ github.event.pull_request.head.sha || github.sha }}; then
+          if GOPROXY=direct GONOSUMDB=github.com/smartcontractkit/chainlink-ccv GONOPROXY=github.com/smartcontractkit/chainlink-ccv go get github.com/smartcontractkit/chainlink-ccv@"${TARGET_REF}"; then
             success=1
             break
           fi
