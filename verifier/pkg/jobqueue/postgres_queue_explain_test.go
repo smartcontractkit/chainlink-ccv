@@ -561,9 +561,9 @@ func TestExplainQueryPlans(t *testing.T) {
 
 	// -----------------------------------------------------------------
 	// 7. Cleanup — DELETE from archive by owner_id + completed_at range.
-	//    Expected: Index Scan on idx_archive_completed (owner_id, completed_at DESC).
-	//    Watch for: "Backward Index Scan" — this confirms the DESC direction is
-	//    suboptimal for a range-DELETE targeting old rows (completed_at < cutoff).
+	//    Expected: Index Scan on idx_archive_completed (owner_id, completed_at ASC).
+	//    Watch for: a forward Index Scan using this index, confirming the ASC
+	//    direction is optimal for a range-DELETE targeting old rows (completed_at < cutoff).
 	// -----------------------------------------------------------------
 	t.Run("Cleanup", func(t *testing.T) {
 		cutoff := now.Add(-7 * 24 * time.Hour) // delete anything older than 7 days
