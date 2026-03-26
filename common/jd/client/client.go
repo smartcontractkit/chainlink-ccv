@@ -87,7 +87,7 @@ func (c *Client) Connect(ctx context.Context) error {
 	conn, err := wsrpc.DialWithContext(ctx, c.jdURL,
 		wsrpc.WithTransportSigner(c.csaSigner, c.jdPublicKey),
 		wsrpc.WithBlock(),
-		wsrpc.WithLogger(wsrpclogger.Nop()),
+		wsrpc.WithLogger(wsrpclogger.DefaultLogger),
 	)
 	if err != nil {
 		return fmt.Errorf("failed to connect to JD: %w", err)
