@@ -222,16 +222,42 @@ func qualifiersAvailable(qualifiers []string, topology *offchain.EnvironmentTopo
 }
 
 // FilterTokenCombinations returns only the token combinations whose CCV qualifiers
-// all exist as committees in the topology. This ensures that environments with fewer
-// committees (e.g. HA topology with only "default") don't attempt to deploy or
-// configure token pools referencing non-existent committee verifiers.
-func FilterTokenCombinations(combos []TokenCombination, topology *offchain.EnvironmentTopology) []TokenCombination {
+// all exist as committees in the topology, and when ds is non-nil, whose source and
+// destination pool address refs exist in ds for every selector (each chain acts as both
+// local pools across bidirectional transfer configs).
+// Pass ds nil to skip the datastore check.
+func FilterTokenCombinations(combos []TokenCombination, topology *offchain.EnvironmentTopology, ds datastore.DataStore, selectors []uint64) []TokenCombination {
 	filtered := make([]TokenCombination, 0, len(combos))
 	for _, combo := range combos {
-		if qualifiersAvailable(combo.SourcePoolCCVQualifiers(), topology) &&
-			qualifiersAvailable(combo.DestPoolCCVQualifiers(), topology) {
-			filtered = append(filtered, combo)
+		if !qualifiersAvailable(combo.SourcePoolCCVQualifiers(), topology) ||
+			!qualifiersAvailable(combo.DestPoolCCVQualifiers(), topology) {
+			continue
 		}
+		if ds != nil && len(selectors) > 0 && !tokenCombinationPoolsExistInDataStore(ds, selectors, combo) {
+			continue
+		}
+		filtered = append(filtered, combo)
 	}
 	return filtered
+}
+
+func tokenCombinationPoolsExistInDataStore(ds datastore.DataStore, selectors []uint64, combo TokenCombination) bool {
+	src := combo.SourcePoolAddressRef()
+	dst := combo.DestPoolAddressRef()
+	for _, sel := range selectors {
+		if !dataStoreHasAddressRef(ds, sel, src) || !dataStoreHasAddressRef(ds, sel, dst) {
+			return false
+		}
+	}
+	return true
+}
+
+func dataStoreHasAddressRef(ds datastore.DataStore, chainSelector uint64, ref datastore.AddressRef) bool {
+	_, err := ds.Addresses().Get(datastore.NewAddressRefKey(
+		chainSelector,
+		ref.Type,
+		ref.Version,
+		ref.Qualifier,
+	))
+	return err == nil
 }

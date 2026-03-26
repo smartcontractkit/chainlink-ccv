@@ -1066,7 +1066,9 @@ func NewEnvironment() (in *Cfg, err error) {
 	// an internal mapping is keyed such that the last config in the list gets the index for a given chain
 	// selector, so we invoke once per setup with all counterpart configs (same pool type on every chain)
 	// so remote tokens and mapping slots are correct.
-	allTokenConfigs := tokenconfig.BuildTokenTransferConfigs(topology, selectors)
+	// TODO: this code contains EVM specific logic and should be moved to EVM's impl.go, environment should
+	// fetch the token configs from impls and just run the changeset.
+	allTokenConfigs := tokenconfig.BuildTokenTransferConfigs(topology, selectors, e.DataStore)
 	if len(allTokenConfigs) > 0 {
 		byPoolIdentity := make(map[string][]tokenscore.TokenTransferConfig)
 		for i := range allTokenConfigs {
@@ -1085,22 +1087,8 @@ func NewEnvironment() (in *Cfg, err error) {
 		}
 	}
 
-	for i, impl := range impls {
-		var networkInfo chainsel.ChainDetails
-		networkInfo, err = chainsel.GetChainDetailsByChainIDAndFamily(in.Blockchains[i].ChainID, impl.ChainFamily())
-		if err != nil {
-			return nil, err
-		}
-		selsToConnect := make([]uint64, 0)
-		for _, sel := range selectors {
-			if sel != networkInfo.ChainSelector {
-				selsToConnect = append(selsToConnect, sel)
-			}
-		}
-		err = impl.ConnectContractsWithSelectors(ctx, e, networkInfo.ChainSelector, selsToConnect, topology)
-		if err != nil {
-			return nil, err
-		}
+	if err := connectAllChains(impls, in.Blockchains, selectors, e, topology); err != nil {
+		return nil, err
 	}
 
 	/////////////////////////////////////////

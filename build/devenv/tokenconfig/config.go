@@ -27,8 +27,10 @@ type poolConfigKey struct {
 // each pool has one config with all remote chains (remote tokens included). Caller should call
 // ConfigureTokensForTransfers once per pool-identity group (all chains' configs for that pool type)
 // so each setup gets its own mapping slot. Chain-agnostic: no EVM or other chain impl is used.
-func BuildTokenTransferConfigs(topology *offchain.EnvironmentTopology, selectors []uint64) []tokenscore.TokenTransferConfig {
-	applicableCombos := common.FilterTokenCombinations(common.AllTokenCombinations(), topology)
+// Combinations are dropped when ds is non-nil if any selector is missing either pool from the
+// pair in the datastore (see common.FilterTokenCombinations).
+func BuildTokenTransferConfigs(topology *offchain.EnvironmentTopology, selectors []uint64, ds datastore.DataStore) []tokenscore.TokenTransferConfig {
+	applicableCombos := common.FilterTokenCombinations(common.AllTokenCombinations(), topology, ds, selectors)
 	merged := make(map[poolConfigKey]tokenscore.TokenTransferConfig)
 	for _, selector := range selectors {
 		remoteSelectors := make([]uint64, 0, len(selectors)-1)
