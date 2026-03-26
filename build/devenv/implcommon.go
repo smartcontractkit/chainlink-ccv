@@ -27,7 +27,7 @@ type chainEntry struct {
 }
 
 // connectAllChains collects a ChainDefinition from each impl, assembles
-// ConnectChainsConfig with a TopologyCommitteeResolver, applies it once,
+// ConnectChainsConfig with a TopologyCommitteePopulator, applies it once,
 // then runs each impl's PostConnect for chain-specific follow-up.
 func connectAllChains(
 	impls []cciptestinterfaces.CCIP17Configuration,
@@ -103,7 +103,7 @@ func connectAllChains(
 		operations.NewMemoryReporter(),
 	)
 
-	resolver := ccipChangesets.NewTopologyCommitteeResolver(
+	populator := ccipChangesets.NewTopologyCommitteePopulator(
 		ccipAdapters.GetCommitteeVerifierContractRegistry(),
 		topology,
 	)
@@ -113,8 +113,8 @@ func connectAllChains(
 
 	connectChainsCS := lanes.ConnectChains(laneAdapterRegistry, mcmsReaderRegistry)
 	cfg := lanes.ConnectChainsConfig{
-		Lanes:             laneConfigs,
-		CommitteeResolver: resolver,
+		Lanes:              laneConfigs,
+		CommitteePopulator: populator,
 	}
 	if err := connectChainsCS.VerifyPreconditions(*e, cfg); err != nil {
 		return fmt.Errorf("connect chains precondition check failed: %w", err)
