@@ -57,7 +57,7 @@ func connectAllChains(
 				remotes = append(remotes, s)
 			}
 		}
-		chainDef, cvConfig, err := impl.GetConnectionProfile(sel)
+		chainDef, cvConfig, err := impl.GetConnectionProfile(e, sel)
 		if err != nil {
 			return fmt.Errorf("get connection profile for chain %d: %w", sel, err)
 		}

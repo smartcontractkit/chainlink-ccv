@@ -213,13 +213,13 @@ func NewTokenVerifier(in *TokenVerifierInput, blockchainOutputs []*blockchain.Ou
 	}, nil
 }
 
-func (v *TokenVerifierInput) GenerateConfigWithBlockchainInfos(blockchainInfos map[string]*ccvblockchain.Info) (verifierTomlConfig []byte, err error) {
+func (v *TokenVerifierInput) GenerateConfigWithBlockchainInfos(blockchainInfos ccvblockchain.Infos[ccvblockchain.Info]) (verifierTomlConfig []byte, err error) {
 	if v.GeneratedConfig == nil {
 		return nil, fmt.Errorf("GeneratedConfig is nil - token verifier config must be generated using changeset before launching")
 	}
 
 	// Use the generated config directly (fake URLs are already injected in environment.go)
-	config := token.ConfigWithBlockchainInfos{
+	config := token.ConfigWithBlockchainInfos[ccvblockchain.Info]{
 		Config:          *v.GeneratedConfig,
 		BlockchainInfos: blockchainInfos,
 	}

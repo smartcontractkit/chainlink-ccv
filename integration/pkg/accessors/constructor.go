@@ -8,11 +8,10 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-type CreateAccessorFactory func(
+type CreateAccessorFactory[T any] func(
 	ctx context.Context,
 	lggr logger.Logger,
-	// TODO: blockchain.Info needs to be more family agnostic.
-	blockchainInfos map[string]*blockchain.Info,
+	infos blockchain.Infos[T],
 	onRampAddresses map[string]string,
 	rmnRemoteAddresses map[string]string,
 ) (chainaccess.AccessorFactory, error)

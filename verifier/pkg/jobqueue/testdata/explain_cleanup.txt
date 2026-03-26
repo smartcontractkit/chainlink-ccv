@@ -1,0 +1,12 @@
+=== EXPLAIN ANALYZE: cleanup ===
+Delete on public.ccv_task_verifier_jobs_archive  (cost=0.00..801.60 rows=0 width=0) (actual time=4.301..4.302 rows=0 loops=1)
+  Buffers: shared hit=10668
+  ->  Seq Scan on public.ccv_task_verifier_jobs_archive  (cost=0.00..801.60 rows=9939 width=6) (actual time=0.914..2.403 rows=9919 loops=1)
+        Output: ctid
+        Filter: ((ccv_task_verifier_jobs_archive.completed_at < '2023-12-25 12:00:00+00'::timestamp with time zone) AND (ccv_task_verifier_jobs_archive.owner_id = 'explain-owner'::text))
+        Rows Removed by Filter: 10081
+        Buffers: shared hit=501
+Planning:
+  Buffers: shared hit=8
+Planning Time: 0.119 ms
+Execution Time: 4.328 ms
