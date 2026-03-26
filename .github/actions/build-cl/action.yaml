@@ -42,7 +42,7 @@ runs:
         # Bypass module proxy for this lookup to avoid stale/negative cache behavior on ephemeral refs.
         success=0
         for i in {1..5}; do
-          if GOPROXY=direct GONOSUMDB=github.com/smartcontractkit/chainlink-ccv GONOPROXY=github.com/smartcontractkit/chainlink-ccv go get github.com/smartcontractkit/chainlink-ccv@"${TARGET_REF}"; then
+          if GOPRIVATE=github.com/smartcontractkit/chainlink-ccv go get github.com/smartcontractkit/chainlink-ccv@"${TARGET_REF}"; then
             success=1
             break
           fi
