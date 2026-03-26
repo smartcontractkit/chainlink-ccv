@@ -19,13 +19,13 @@ func EVMChainConfigLoader(outputs []*ctfblockchain.Output) (map[string]any, erro
 			Type:            output.Type,
 			Family:          output.Family,
 			UniqueChainName: output.ContainerName,
-			Nodes:           make([]*ccvblockchain.Node, 0, len(output.Nodes)),
+			Nodes:           make([]ccvblockchain.Node, 0, len(output.Nodes)),
 		}
 
 		// Convert all nodes
 		for _, node := range output.Nodes {
 			if node != nil {
-				info.Nodes = append(info.Nodes, &ccvblockchain.Node{
+				info.Nodes = append(info.Nodes, ccvblockchain.Node{
 					ExternalHTTPUrl: node.ExternalHTTPUrl,
 					InternalHTTPUrl: node.InternalHTTPUrl,
 					ExternalWSUrl:   node.ExternalWSUrl,

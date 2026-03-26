@@ -4,22 +4,20 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
+	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
 // Registry holds AccessorFactories for different chain families.
 type Registry struct {
-	factories        map[string]chainaccess.AccessorFactory
-	blockchainHelper *blockchain.Helper
+	factories map[string]chainaccess.AccessorFactory
 }
 
 // NewRegistry creates a new Registry.
-func NewRegistry(blockchainHelper *blockchain.Helper) *Registry {
+func NewRegistry() *Registry {
 	return &Registry{
-		factories:        make(map[string]chainaccess.AccessorFactory),
-		blockchainHelper: blockchainHelper,
+		factories: make(map[string]chainaccess.AccessorFactory),
 	}
 }
 
@@ -34,14 +32,14 @@ func (r *Registry) Register(family string, factory chainaccess.AccessorFactory) 
 // It returns an error if no factory is registered for the chain family.
 // Not concurrent safe.
 func (r *Registry) GetAccessor(ctx context.Context, chainSelector protocol.ChainSelector) (chainaccess.Accessor, error) {
-	info, err := r.blockchainHelper.GetBlockchainByChainSelector(chainSelector)
+	family, err := chainsel.GetSelectorFamily(uint64(chainSelector))
 	if err != nil {
-		return nil, fmt.Errorf("failed to get blockchain info for chain %d: %w", chainSelector, err)
+		return nil, fmt.Errorf("failed to get selector family for chain %d - update chain-selectors library?: %w", chainSelector, err)
 	}
 
-	factory, ok := r.factories[info.Family]
+	factory, ok := r.factories[family]
 	if !ok {
-		return nil, fmt.Errorf("no factory registered for chain family %s", info.Family)
+		return nil, fmt.Errorf("no factory registered for chain family %s (%d)", family, chainSelector)
 	}
 
 	return factory.GetAccessor(ctx, chainSelector)

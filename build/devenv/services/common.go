@@ -91,21 +91,21 @@ func GoCacheMounts() testcontainers.ContainerMounts {
 }
 
 // ConvertBlockchainOutputsToInfo converts blockchain.Output to a map of chain selector to BlockchainInfo.
-func ConvertBlockchainOutputsToInfo(outputs []*ctfblockchain.Output) (map[string]*ccvblockchain.Info, error) {
-	infos := make(map[string]*ccvblockchain.Info)
+func ConvertBlockchainOutputsToInfo(outputs []*ctfblockchain.Output) (ccvblockchain.Infos[ccvblockchain.Info], error) {
+	infos := make(map[string]ccvblockchain.Info)
 	for _, output := range outputs {
-		info := &ccvblockchain.Info{
+		info := ccvblockchain.Info{
 			ChainID:         output.ChainID,
 			Type:            output.Type,
 			Family:          output.Family,
 			UniqueChainName: output.ContainerName,
-			Nodes:           make([]*ccvblockchain.Node, 0, len(output.Nodes)),
+			Nodes:           make([]ccvblockchain.Node, 0, len(output.Nodes)),
 		}
 
 		// Convert all nodes
 		for _, node := range output.Nodes {
 			if node != nil {
-				info.Nodes = append(info.Nodes, &ccvblockchain.Node{
+				info.Nodes = append(info.Nodes, ccvblockchain.Node{
 					ExternalHTTPUrl: node.ExternalHTTPUrl,
 					InternalHTTPUrl: node.InternalHTTPUrl,
 					ExternalWSUrl:   node.ExternalWSUrl,

@@ -19,15 +19,14 @@ import (
 func CreateAccessorFactory(
 	ctx context.Context,
 	lggr logger.Logger,
-	blockchainInfos map[string]*blockchain.Info,
+	infos blockchain.Infos[blockchain.Info],
 	onRampAddresses map[string]string,
 	rmnRemoteAddresses map[string]string,
 ) (chainaccess.AccessorFactory, error) {
-	helper := blockchain.NewHelper(blockchainInfos)
 	// Create the chain clients then the head trackers
 	chainClients := make(map[protocol.ChainSelector]client.Client)
 	headTrackers := make(map[protocol.ChainSelector]heads.Tracker)
-	for _, selector := range helper.GetAllChainSelectors() {
+	for _, selector := range infos.GetAllChainSelectors() {
 		family, err := chainsel.GetSelectorFamily(uint64(selector))
 		if err != nil {
 			lggr.Errorw("❌ Failed to get selector family - update chain-selectors library?", "chainSelector", selector, "error", err)
@@ -37,7 +36,7 @@ func CreateAccessorFactory(
 			// Skip non-EVM chains in EVM registration.
 			continue
 		}
-		chainClient, err := pkg.CreateHealthyMultiNodeClient(ctx, helper, lggr, selector)
+		chainClient, err := pkg.CreateHealthyMultiNodeClient(ctx, infos, lggr, selector)
 		if err != nil {
 			lggr.Errorw("❌ Failed to create multi-node EVM client - bad RPC?", "chainSelector", selector, "error", err)
 			continue
@@ -48,5 +47,5 @@ func CreateAccessorFactory(
 		headTrackers[selector] = headTracker
 	}
 
-	return NewFactory(lggr, helper, onRampAddresses, rmnRemoteAddresses, headTrackers, chainClients), nil
+	return NewFactory(lggr, infos, onRampAddresses, rmnRemoteAddresses, headTrackers, chainClients), nil
 }

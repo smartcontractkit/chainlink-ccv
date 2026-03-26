@@ -12,6 +12,7 @@ import (
 
 	"github.com/grafana/pyroscope-go"
 
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
@@ -37,12 +38,12 @@ import (
 type CreateAccessorFactoryFunc[T any] func(
 	ctx context.Context,
 	lggr logger.Logger,
-	blockchainInfos map[string]*T,
+	infos map[string]T,
 	cfg commit.Config,
 ) (chainaccess.AccessorFactory, error)
 
 // chainSelectorsFromMap returns chain selectors parsed from the keys of a map keyed by selector string.
-func chainSelectorsFromMap[T any](m map[string]*T) []protocol.ChainSelector {
+func chainSelectorsFromMap[T any](m blockchain.Infos[T]) []protocol.ChainSelector {
 	out := make([]protocol.ChainSelector, 0, len(m))
 	for sel := range m {
 		u, err := strconv.ParseUint(sel, 10, 64)
@@ -106,7 +107,7 @@ func (f *factory[T]) Start(ctx context.Context, spec commit.JobSpec, deps bootst
 		lggr.Errorw("Failed to load configuration", "error", err)
 		return fmt.Errorf("failed to load configuration: %w", err)
 	}
-	lggr.Infow("Using blockchain information from config", "chainCount", len(blockchainInfos))
+	lggr.Infow("Using blockchain information from config", "info", blockchainInfos)
 
 	// TODO: this should be passed in via the config maybe?
 	apiKey := os.Getenv("VERIFIER_AGGREGATOR_API_KEY")
