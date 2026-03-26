@@ -374,14 +374,10 @@ func (q *PostgresJobQueue[T]) Retry(ctx context.Context, delay time.Duration, er
 
 	availableAt := time.Now().Add(delay)
 
-	// Build parallel arrays for the UNNEST bulk update.
-	// All jobs share the same availableAt; only the error message differs per job.
-	errMsgsArr := make([]string, len(jobIDs))
-	for i, id := range jobIDs {
-		if e, ok := errors[id]; ok && e != nil {
-			errMsgsArr[i] = e.Error()
-		}
-	}
+	// Deduplicate before building UNNEST arrays: duplicate IDs in UPDATE ... FROM UNNEST
+	// cause undefined behavior for which source row's last_error value wins, and would
+	// also emit duplicate RETURNING rows inflating the failed/retried counts.
+	jobIDs, errMsgsArr := uniqueJobIDsWithErrors(jobIDs, errors)
 
 	var failed []string
 	var retried []string
@@ -497,13 +493,10 @@ func (q *PostgresJobQueue[T]) Fail(ctx context.Context, errors map[string]error,
 		return nil
 	}
 
-	// Build parallel arrays for the UNNEST input so each job carries its own error message.
-	errMsgsArr := make([]string, len(jobIDs))
-	for i, id := range jobIDs {
-		if e, ok := errors[id]; ok && e != nil {
-			errMsgsArr[i] = e.Error()
-		}
-	}
+	// Deduplicate before building UNNEST arrays: duplicate IDs in jobs_input cause the
+	// final JOIN back to UNNEST to fan-out a single deleted row into multiple INSERT rows,
+	// producing a primary key violation on the archive table.
+	jobIDs, errMsgsArr := uniqueJobIDsWithErrors(jobIDs, errors)
 
 	// Single bulk CTE: UNNEST the job IDs and error messages, delete from the active
 	// table, then join back to attach per-job error messages on insert into the archive.
@@ -598,4 +591,31 @@ func (q *PostgresJobQueue[T]) Size(ctx context.Context) (int, error) {
 // Name returns the queue name.
 func (q *PostgresJobQueue[T]) Name() string {
 	return q.config.Name
+}
+
+// uniqueJobIDsWithErrors returns deduplicated job IDs (first-seen order) together with their
+// corresponding error message strings built from the errors map.
+//
+// Deduplication is required before passing IDs to UNNEST-based bulk queries:
+//   - In UPDATE ... FROM UNNEST, duplicate source rows matching the same target row cause
+//     undefined behavior for which column value (e.g. last_error) the row ends up with.
+//   - In a CTE that JOINs back to UNNEST input, a single deleted row can fan-out to multiple
+//     INSERT rows when the UNNEST contains duplicates, causing a primary key violation.
+func uniqueJobIDsWithErrors(jobIDs []string, errors map[string]error) ([]string, []string) {
+	seen := make(map[string]struct{}, len(jobIDs))
+	ids := make([]string, 0, len(jobIDs))
+	errMsgs := make([]string, 0, len(jobIDs))
+	for _, id := range jobIDs {
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		msg := ""
+		if e, ok := errors[id]; ok && e != nil {
+			msg = e.Error()
+		}
+		ids = append(ids, id)
+		errMsgs = append(errMsgs, msg)
+	}
+	return ids, errMsgs
 }
