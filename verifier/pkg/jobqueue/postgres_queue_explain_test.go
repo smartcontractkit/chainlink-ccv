@@ -275,9 +275,7 @@ func writeExplainOutput(t *testing.T, name, output string) {
 //   - Cleanup:         Seq Scan is expected at test scale (50% selectivity); the ASC index
 //     direction will be beneficial in production at low selectivity.
 func TestExplainQueryPlans(t *testing.T) {
-	if testing.Short() {
-		t.Skip("skipping explain test in short mode")
-	}
+	t.Skip("skipping explain test - comment to run it - it will overwrite testdata files")
 
 	sdb := getExplainDB(t)
 	ctx := context.Background()
