@@ -170,7 +170,7 @@ func NewTestingContext(ctx context.Context, impl map[uint64]cciptestinterfaces.C
 		AggregatorClient: aggregatorClient,
 		IndexerClient:    indexerClient,
 		LogAsserter:      logAssert,
-		Timeout:          180 * time.Second,
+		Timeout:          DefaultAssertMessageTimeout,
 		logger:           logger,
 	}
 

@@ -79,6 +79,18 @@ jobs:
             run_cmd: TestHA_CrossComponentDown
             config: "env.toml,env-HA.toml,env-cl.toml,env-cl-ci.toml"
             timeout: 10m
+          - name: TestEnvironmentChangeReconcile_CommitteeVerifierAllowlistDecoyExpectErrorThenDeployerHappyPath
+            run_cmd: TestEnvironmentChangeReconcile_CommitteeVerifierAllowlistDecoyExpectErrorThenDeployerHappyPath
+            config: "env.toml,env-cl.toml,env-cl-ci.toml"
+            timeout: 10m
+          - name: TestEnvironmentChangeReconcile_TestRouterLaneThenProductionRouterExpectMessagesSucceedEachStage
+            run_cmd: TestEnvironmentChangeReconcile_TestRouterLaneThenProductionRouterExpectMessagesSucceedEachStage
+            config: "env.toml,env-cl.toml,env-cl-ci.toml"
+            timeout: 10m
+          - name: TestEnvironmentChangeReconcile_RemoveDefaultCommitteeNOPAndLowerThresholdExpectMessageSuccessWithoutRemovedNOPVerification
+            run_cmd: TestEnvironmentChangeReconcile_RemoveDefaultCommitteeNOPAndLowerThresholdExpectMessageSuccessWithoutRemovedNOPVerification
+            config: "env.toml,env-cl.toml,env-cl-ci.toml"
+            timeout: 10m
           # We need to configure HeadTracker for the CL tests to have finality depth. Otherwise, it does instant finality.
           # - name: TestE2EReorg
           #   config: "env.toml,env-src-auto-mine.toml,env-cl.toml,env-cl-ci.toml"
