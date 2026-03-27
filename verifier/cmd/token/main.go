@@ -13,7 +13,6 @@ import (
 	"go.uber.org/zap/zapcore"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
-	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
@@ -47,12 +46,12 @@ func main() {
 
 	err := bootstrap.Run(
 		"TokenVerifier",
-		&tokenVerifierFactory[blockchain.Info]{
+		&tokenVerifierFactory[evm.Info]{
 			supportedChainFamily:      []string{chainsel.FamilyEVM},
 			createAccessorFactoryFunc: evm.CreateAccessorFactory,
 		},
 		// TODO: remove the AppConfig generic type to streamline this API, update factory to accept config as a string.
-		bootstrap.WithTOMLAppConfig[token.ConfigWithBlockchainInfos[blockchain.Info]](configPath),
+		bootstrap.WithTOMLAppConfig[token.ConfigWithBlockchainInfos[evm.Info]](configPath),
 	)
 	if err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "Failed to run token verifier: %v\n", err)

@@ -4,7 +4,6 @@ import (
 	"context"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
-	"github.com/smartcontractkit/chainlink-ccv/integration/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/sourcereader"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
@@ -19,7 +18,7 @@ import (
 func CreateAccessorFactory(
 	ctx context.Context,
 	lggr logger.Logger,
-	infos blockchain.Infos[blockchain.Info],
+	infos blockchain.Infos[Info],
 	onRampAddresses map[string]string,
 	rmnRemoteAddresses map[string]string,
 ) (chainaccess.AccessorFactory, error) {
@@ -36,7 +35,7 @@ func CreateAccessorFactory(
 			// Skip non-EVM chains in EVM registration.
 			continue
 		}
-		chainClient, err := pkg.CreateHealthyMultiNodeClient(ctx, infos, lggr, selector)
+		chainClient, err := CreateHealthyMultiNodeClient(ctx, infos, lggr, selector)
 		if err != nil {
 			lggr.Errorw("❌ Failed to create multi-node EVM client - bad RPC?", "chainSelector", selector, "error", err)
 			continue

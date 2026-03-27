@@ -11,7 +11,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/smartcontractkit/chainlink-ccip/deployment/lanes"
-	v1_7_0 "github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/changesets"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/offchain"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
@@ -209,10 +208,10 @@ type OnChainConfigurable interface {
 	// Returns all the contract addresses and metadata as datastore.DataStore.
 	DeployContractsForSelector(ctx context.Context, env *deployment.Environment, selector uint64, topology *offchain.EnvironmentTopology) (datastore.DataStore, error)
 	// GetConnectionProfile returns a ChainDefinition describing this chain as a
-	// lane destination, plus the default committee verifier config to apply for
-	// each remote chain. The environment uses profiles from all chains to
-	// assemble the full cross-chain connection config.
-	GetConnectionProfile(env *deployment.Environment, selector uint64) (lanes.ChainDefinition, v1_7_0.CommitteeVerifierRemoteChainConfig, error)
+	// lane destination, plus the default committee verifier remote chain input
+	// to apply for each remote chain. The environment uses profiles from all
+	// chains to assemble the full cross-chain connection config.
+	GetConnectionProfile(env *deployment.Environment, selector uint64) (lanes.ChainDefinition, lanes.CommitteeVerifierRemoteChainInput, error)
 	// PostConnect runs chain-specific setup after all chains have been connected
 	// (e.g. USDC/Lombard token config, custom executor wiring).
 	PostConnect(env *deployment.Environment, selector uint64, remoteSelectors []uint64) error

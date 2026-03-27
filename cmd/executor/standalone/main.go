@@ -20,7 +20,7 @@ import (
 	x "github.com/smartcontractkit/chainlink-ccv/executor/pkg/executor"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/leaderelector"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
-	"github.com/smartcontractkit/chainlink-ccv/integration/pkg"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/backofftimeprovider"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/ccvstreamer"
@@ -164,7 +164,7 @@ func main() {
 		strSel := strconv.FormatUint(uint64(selector), 10)
 		chainConfig := executorConfig.ChainConfiguration[strSel]
 
-		chainClient, err := pkg.CreateMultiNodeClientFromInfo(ctx, chain, lggr)
+		chainClient, err := evm.CreateMultiNodeClientFromInfo(ctx, chain, lggr)
 		if err != nil {
 			lggr.Errorw("Failed to create chain client", "error", err, "chainSelector", strSel)
 			continue
@@ -346,8 +346,8 @@ func main() {
 	lggr.Infow("Execution service stopped gracefully")
 }
 
-func loadConfiguration(filepath string) (*executor.Configuration, *blockchain.Infos[blockchain.Info], error) {
-	var config executor.ConfigWithBlockchainInfo[blockchain.Info]
+func loadConfiguration(filepath string) (*executor.Configuration, *blockchain.Infos[evm.Info], error) {
+	var config executor.ConfigWithBlockchainInfo[evm.Info]
 	if _, err := toml.DecodeFile(filepath, &config); err != nil {
 		return nil, nil, err
 	}

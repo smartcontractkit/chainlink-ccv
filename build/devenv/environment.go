@@ -22,7 +22,6 @@ import (
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 
-	_ "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v2_0_0/adapters"
 	tokenscore "github.com/smartcontractkit/chainlink-ccip/deployment/tokens"
 	changesetscore "github.com/smartcontractkit/chainlink-ccip/deployment/utils/changesets"
 	ccipAdapters "github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/adapters"

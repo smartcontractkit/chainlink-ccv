@@ -16,9 +16,9 @@ require (
 	github.com/prometheus/client_golang v1.23.0
 	github.com/rs/zerolog v1.34.0
 	github.com/smartcontractkit/chain-selectors v1.0.97
-	github.com/smartcontractkit/chainlink-ccip v0.1.1-solana.0.20260323224438-d819cb3228e1
-	github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment v0.0.0-20260323224438-d819cb3228e1
-	github.com/smartcontractkit/chainlink-ccip/deployment v0.0.0-20260323224438-d819cb3228e1
+	github.com/smartcontractkit/chainlink-ccip v0.1.1-solana.0.20260326205122-a6b3f014b808
+	github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment v0.0.0-20260326205122-a6b3f014b808
+	github.com/smartcontractkit/chainlink-ccip/deployment v0.0.0-20260326205122-a6b3f014b808
 	github.com/smartcontractkit/chainlink-common v0.10.1-0.20260310151336-c98a9c147ac0
 	github.com/smartcontractkit/chainlink-deployments-framework v0.85.0
 	github.com/smartcontractkit/chainlink-testing-framework/framework v0.15.0
@@ -36,8 +36,8 @@ require (
 	github.com/jmoiron/sqlx v1.4.0
 	github.com/lib/pq v1.10.9
 	github.com/sethvargo/go-retry v0.3.0
-	github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm v0.0.0-20260323224438-d819cb3228e1
-	github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment v0.0.0-20260323224438-d819cb3228e1
+	github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm v0.0.0-20260326205122-a6b3f014b808
+	github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment v0.0.0-20260326205122-a6b3f014b808
 	github.com/smartcontractkit/chainlink-ccv v0.0.0-20260218133052-8e7fe2f457f9
 	github.com/smartcontractkit/chainlink-common/keystore v1.0.0
 	github.com/smartcontractkit/chainlink-evm/gethwrappers v0.0.0-20260119171452-39c98c3b33cd
@@ -79,6 +79,9 @@ require (
 	github.com/sercand/kuberesolver/v6 v6.0.0 // indirect
 	github.com/smartcontractkit/ccip-contract-examples/chains/evm v0.0.0-20250826190403-aed7f5f33cde // indirect
 	github.com/smartcontractkit/chainlink-evm v0.3.4-0.20260126170652-c5f27bb1804e // indirect
+	github.com/smartcontractkit/chainlink-framework/chains v0.0.0-20251210101658-1c5c8e4c4f15 // indirect
+	github.com/smartcontractkit/chainlink-framework/metrics v0.0.0-20251210101658-1c5c8e4c4f15 // indirect
+	github.com/smartcontractkit/chainlink-framework/multinode v0.0.0-20251021173435-e86785845942 // indirect
 	github.com/smartcontractkit/chainlink-protos/chainlink-ccv/heartbeat v0.0.0-20260115142640-f6b99095c12e // indirect
 	github.com/smartcontractkit/chainlink-protos/linking-service/go v0.0.0-20251002192024-d2ad9222409b // indirect
 	github.com/smartcontractkit/chainlink-protos/node-platform v0.0.0-20260205130626-db2a2aab956b // indirect
@@ -510,3 +513,6 @@ replace github.com/gogo/protobuf => github.com/regen-network/protobuf v1.3.3-alp
 
 // Repeat replaces from chainlink-canton
 replace github.com/digital-asset/dazl-client/v8 => github.com/noders-team/dazl-client/v8 v8.7.1-2
+
+// Pin codec to v1.2.x: chainlink-evm's generated code uses GenVersion/GenHelper removed in v1.3.0
+replace github.com/ugorji/go/codec => github.com/ugorji/go/codec v1.2.12
