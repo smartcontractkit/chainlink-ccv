@@ -20,6 +20,9 @@ type Scheduler struct {
 	delayHeap *DelayHeap
 	ready     chan *Task
 	dlq       chan *Task
+	wg        sync.WaitGroup
+	startOnce sync.Once
+	stopOnce  sync.Once
 }
 
 func NewScheduler(lggr logger.Logger, config config.SchedulerConfig) (*Scheduler, error) {
@@ -43,12 +46,21 @@ func NewScheduler(lggr logger.Logger, config config.SchedulerConfig) (*Scheduler
 	}, nil
 }
 
+// Start begins the scheduler's main loop in a separate goroutine. The service may only be started once, subsequent calls to Start will be no-ops.
 func (s *Scheduler) Start(ctx context.Context) {
-	go s.run(ctx)
+	s.startOnce.Do(func() {
+		s.wg.Go(func() {
+			s.run(ctx)
+		})
+	})
 }
 
+// Stop the scheduler's main loop and wait for it to exit. The service may only be stopped once, subsequent calls to Stop will be no-ops.
 func (s *Scheduler) Stop() {
-	s.stopCh <- struct{}{}
+	s.stopOnce.Do(func() {
+		close(s.stopCh)
+	})
+	s.wg.Wait()
 }
 
 func (s *Scheduler) run(ctx context.Context) {
