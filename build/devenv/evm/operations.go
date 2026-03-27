@@ -119,12 +119,12 @@ const (
 )
 
 // NewV3ExtraArgs encodes v3 extra args params.
-func NewV3ExtraArgs(finalityConfig uint16, gasLimit uint32, execAddr string, execArgs, tokenArgs []byte, ccvs []protocol.CCV) ([]byte, error) {
+func NewV3ExtraArgs(finalityConfig, gasLimit uint32, execAddr string, execArgs, tokenArgs []byte, ccvs []protocol.CCV) ([]byte, error) {
 	// Manual encoding to match GenericExtraArgsV3 compact binary format
 	// Format (from ExtraArgsCodec.sol):
-	// - tag (4 bytes): 0x302326cb
+	// - tag (4 bytes): 0xa69dd4aa
 	// - gasLimit (4 bytes): uint32
-	// - blockConfirmations (2 bytes): uint16
+	// - blockConfirmations (4 bytes): uint32
 	// - ccvsLength (1 byte): uint8
 	// For each CCV (repeated ccvsLength times):
 	//   - ccvAddressLength (1 byte): uint8 (0 or 20)
@@ -148,7 +148,7 @@ func NewV3ExtraArgs(finalityConfig uint16, gasLimit uint32, execAddr string, exe
 	// Write gasLimit (uint32, big-endian)
 	binary.Write(buf, binary.BigEndian, gasLimit)
 
-	// Write blockConfirmations (uint16, big-endian)
+	// Write blockConfirmations (uint32, big-endian)
 	binary.Write(buf, binary.BigEndian, finalityConfig)
 
 	// Write ccvsLength (uint8)

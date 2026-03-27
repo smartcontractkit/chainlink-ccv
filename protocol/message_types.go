@@ -15,7 +15,7 @@ import (
 const (
 	MessageIDSize                 = 32  // Size of a message ID in bytes
 	MessageVersion                = 1   // Current message format version
-	MinSizeRequiredMsgFields      = 77  // Minimum size for required fields in Message
+	MinSizeRequiredMsgFields      = 79  // Minimum size for required fields in Message
 	MinSizeRequiredMsgTokenFields = 39  // Minimum size for required fields in TokenTransfer
 	MaxCCVsPerMessage             = 255 // Maximum number of CCV addresses per message (limited by uint8)
 	MaxUnknownAddressBytes        = 255 // Maximum size of any UnknownAddress in bytes (limited by uint8)
@@ -280,7 +280,7 @@ func (m *Message) Encode() ([]byte, error) {
 		return nil, err
 	}
 
-	// Finality (2 bytes, big-endian)
+	// Finality (4 bytes, big-endian)
 	if err := binary.Write(&buf, binary.BigEndian, m.Finality); err != nil {
 		return nil, err
 	}

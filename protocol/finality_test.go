@@ -9,35 +9,35 @@ import (
 )
 
 func TestFinalityConstants_BitLayout(t *testing.T) {
-	t.Run("masks cover all 16 bits without overlap", func(t *testing.T) {
-		assert.Equal(t, Finality(0xFFFF), FinalityBlockDepthMask|FinalityFlagMask,
-			"depth mask and flag mask together must cover all 16 bits")
+	t.Run("masks cover all 32 bits without overlap", func(t *testing.T) {
+		assert.Equal(t, Finality(0xFFFFFFFF), FinalityBlockDepthMask|FinalityFlagMask,
+			"depth mask and flag mask together must cover all 32 bits")
 		assert.Equal(t, Finality(0), FinalityBlockDepthMask&FinalityFlagMask,
 			"depth mask and flag mask must not overlap")
 	})
 
 	t.Run("FinalityWaitForFinality is zero", func(t *testing.T) {
-		assert.Equal(t, Finality(0x0000), FinalityWaitForFinality)
+		assert.Equal(t, Finality(0x00000000), FinalityWaitForFinality)
 	})
 
-	t.Run("FinalityWaitForSafe is exactly bit 10", func(t *testing.T) {
-		assert.Equal(t, Finality(0x0400), FinalityWaitForSafe,
-			"safe flag must live at bit 10")
+	t.Run("FinalityWaitForSafe is exactly bit 16", func(t *testing.T) {
+		assert.Equal(t, Finality(0x00010000), FinalityWaitForSafe,
+			"safe flag must live at bit 16")
 		assert.Equal(t, Finality(0), FinalityWaitForSafe&FinalityBlockDepthMask,
 			"safe flag must carry no block-depth bits")
 		assert.Equal(t, FinalityWaitForSafe, FinalityWaitForSafe&FinalityFlagMask,
 			"safe flag must be fully within the flag region")
 	})
 
-	t.Run("FinalityBlockDepthMask allows max depth 1023", func(t *testing.T) {
-		assert.Equal(t, Finality(0x03FF), FinalityBlockDepthMask)
-		assert.Equal(t, Finality(1023), FinalityBlockDepthMask,
-			"maximum encodable block depth is 1023")
+	t.Run("FinalityBlockDepthMask allows max depth 65535", func(t *testing.T) {
+		assert.Equal(t, Finality(0x0000FFFF), FinalityBlockDepthMask)
+		assert.Equal(t, Finality(65535), FinalityBlockDepthMask,
+			"maximum encodable block depth is 65535")
 	})
 
 	t.Run("block depth and safe flag are mutually exclusive encodings", func(t *testing.T) {
-		// A pure block-depth value (1..1023) must not trigger the safe flag.
-		for _, depth := range []Finality{1, 100, 512, 1023} {
+		// A pure block-depth value (1..65535) must not trigger the safe flag.
+		for _, depth := range []Finality{1, 100, 512, 65535} {
 			assert.Equal(t, Finality(0), depth&FinalityFlagMask,
 				"block depth %d must not set any flag bits", depth)
 		}
@@ -165,14 +165,14 @@ func TestFinality_IsMessageReady(t *testing.T) {
 				depth: 1, msg: 10, latest: 11, finalized: 3, wantReady: true,
 			},
 			{
-				name: "maximum depth of 1023",
-				// msg=1, depth=1023 → required=1024 ≤ latest=1024
-				depth: 1023, msg: 1, latest: 1024, finalized: 0, wantReady: true,
+				name: "maximum depth of 65535",
+				// msg=1, depth=65535 → required=65536 ≤ latest=65536
+				depth: 65535, msg: 1, latest: 65536, finalized: 0, wantReady: true,
 			},
 			{
 				name: "maximum depth not yet reached",
-				// msg=1, depth=1023 → required=1024 > latest=1023
-				depth: 1023, msg: 1, latest: 1023, finalized: 0, wantReady: false,
+				// msg=1, depth=65535 → required=65536 > latest=65535
+				depth: 65535, msg: 1, latest: 65535, finalized: 0, wantReady: false,
 			},
 		}
 		for _, tc := range tests {
