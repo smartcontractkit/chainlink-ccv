@@ -14,6 +14,8 @@ import (
 const (
 	DefaultExecTimeout = 40 * time.Second
 	DefaultSentTimeout = 10 * time.Second
+	// DefaultAssertMessageTimeout bounds aggregator/indexer polling in AssertMessage (off-chain path) for smoke E2E.
+	DefaultAssertMessageTimeout = 180 * time.Second
 )
 
 // GetContractAddress returns the contract address for the given chain and contract reference.

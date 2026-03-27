@@ -155,6 +155,27 @@ type Output struct {
 	JDNodeID string `toml:"jd_node_id"`
 }
 
+func (in *Input) DockerContainerName() string {
+	if in == nil {
+		return ""
+	}
+	if in.Out != nil && in.Out.ContainerName != "" {
+		return services.NormalizeDockerContainerName(in.Out.ContainerName)
+	}
+	if in.ChainFamily == chainsel.FamilyEVM {
+		return fmt.Sprintf("evm-%s", in.ContainerName)
+	}
+	return services.NormalizeDockerContainerName(in.ContainerName)
+}
+
+// Restart restarts the running verifier container.
+func (in *Input) Restart(ctx context.Context) error {
+	if in == nil || in.Mode != services.Standalone {
+		return nil
+	}
+	return services.RestartContainer(ctx, in.DockerContainerName())
+}
+
 func ApplyDefaults(in Input) Input {
 	if in.Image == "" {
 		in.Image = DefaultVerifierImage

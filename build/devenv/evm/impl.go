@@ -289,10 +289,11 @@ func (m *CCIP17EVM) getOrCreateOffRampPoller() (*eventPoller[cciptestinterfaces.
 			event := filter.Event
 			key := eventKey{chainSelector: event.SourceChainSelector, msgNum: event.MessageNumber}
 			events[key] = cciptestinterfaces.ExecutionStateChangedEvent{
-				MessageID:     event.MessageId,
-				MessageNumber: event.MessageNumber,
-				State:         cciptestinterfaces.MessageExecutionState(event.State),
-				ReturnData:    event.ReturnData,
+				SourceChainSelector: protocol.ChainSelector(event.SourceChainSelector),
+				MessageID:           event.MessageId,
+				MessageNumber:       event.MessageNumber,
+				State:               cciptestinterfaces.MessageExecutionState(event.State),
+				ReturnData:          event.ReturnData,
 			}
 		}
 
@@ -1123,6 +1124,7 @@ func (m *CCIP17EVMConfig) DeployContractsForSelector(ctx context.Context, env *d
 			DefaultCfg: ccipChangesets.DeployChainContractsPerChainCfg{
 				DeployerContract: create2FactoryRep.Output.Address,
 				DeployerKeyOwned: true,
+				DeployTestRouter: true,
 				RMNRemote: adapters.RMNRemoteDeployParams{
 					Version: semver.MustParse(rmn_remote.Deploy.Version()),
 				},
@@ -1647,10 +1649,11 @@ func (m *CCIP17EVM) ManuallyExecuteMessage(
 				continue
 			}
 			event = cciptestinterfaces.ExecutionStateChangedEvent{
-				MessageID:     parsedLog.MessageId,
-				MessageNumber: parsedLog.MessageNumber,
-				State:         cciptestinterfaces.MessageExecutionState(parsedLog.State),
-				ReturnData:    parsedLog.ReturnData,
+				SourceChainSelector: protocol.ChainSelector(parsedLog.SourceChainSelector),
+				MessageID:           parsedLog.MessageId,
+				MessageNumber:       parsedLog.MessageNumber,
+				State:               cciptestinterfaces.MessageExecutionState(parsedLog.State),
+				ReturnData:          parsedLog.ReturnData,
 			}
 			break
 		}
