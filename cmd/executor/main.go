@@ -181,6 +181,7 @@ func main() {
 			})
 		if err != nil {
 			lggr.Errorw("Failed to create destination reader", "error", err, "chainSelector", strSel)
+			chainClient.Close()
 			continue
 		}
 
