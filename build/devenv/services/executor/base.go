@@ -137,7 +137,7 @@ func (v *Input) RebuildExecutorJobSpecWithBlockchainInfos(jobSpec string, blockc
 
 // GenerateConfigWithBlockchainInfos combines the pre-generated config with blockchain infos
 // for standalone mode deployment.
-func (v *Input) GenerateConfigWithBlockchainInfos(blockchainInfos map[string]*blockchain.Info) ([]byte, error) {
+func (v *Input) GenerateConfigWithBlockchainInfos(blockchainInfos blockchain.Infos[blockchain.Info]) ([]byte, error) {
 	if v.GeneratedConfig == "" {
 		return nil, fmt.Errorf("GeneratedConfig is empty - must be set from changeset output")
 	}
@@ -147,7 +147,7 @@ func (v *Input) GenerateConfigWithBlockchainInfos(blockchainInfos map[string]*bl
 		return nil, fmt.Errorf("failed to parse generated config: %w", err)
 	}
 
-	config := executorpkg.ConfigWithBlockchainInfo{
+	config := executorpkg.ConfigWithBlockchainInfo[blockchain.Info]{
 		Configuration:   baseConfig,
 		BlockchainInfos: blockchainInfos,
 	}
@@ -203,8 +203,8 @@ func ApplyDefaults(in *Input) {
 
 // filterOutUnsupportedChains filters out chains that are not supported by the executor.
 // As of writing, only EVM is supported by the standalone executor.
-func filterOutUnsupportedChains(blockchainInfos map[string]*blockchain.Info) map[string]*blockchain.Info {
-	filtered := make(map[string]*blockchain.Info)
+func filterOutUnsupportedChains(blockchainInfos blockchain.Infos[blockchain.Info]) blockchain.Infos[blockchain.Info] {
+	filtered := make(blockchain.Infos[blockchain.Info])
 	for chainSelector, info := range blockchainInfos {
 		if info.Family == chainsel.FamilyEVM {
 			filtered[chainSelector] = info
