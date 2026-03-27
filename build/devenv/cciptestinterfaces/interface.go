@@ -11,6 +11,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/smartcontractkit/chainlink-ccip/deployment/lanes"
+	ccipChangesets "github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/changesets"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/offchain"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
@@ -211,7 +212,7 @@ type OnChainConfigurable interface {
 	// lane destination, plus the default committee verifier remote chain input
 	// to apply for each remote chain. The environment uses profiles from all
 	// chains to assemble the full cross-chain connection config.
-	GetConnectionProfile(env *deployment.Environment, selector uint64) (lanes.ChainDefinition, lanes.CommitteeVerifierRemoteChainInput, error)
+	GetConnectionProfile(env *deployment.Environment, selector uint64) (lanes.ChainDefinition, ccipChangesets.CommitteeVerifierRemoteChainConfig, error)
 	// PostConnect runs chain-specific setup after all chains have been connected
 	// (e.g. USDC/Lombard token config, custom executor wiring).
 	PostConnect(env *deployment.Environment, selector uint64, remoteSelectors []uint64) error
