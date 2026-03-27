@@ -225,13 +225,17 @@ func (r *VerifierResult) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("message field is required but was missing")
 	}
 
+	if len(aux.MessageCcvAddresses) > protocol.MaxCCVsPerMessage {
+		return fmt.Errorf("too many CCV addresses: %d (max %d)", len(aux.MessageCcvAddresses), protocol.MaxCCVsPerMessage)
+	}
+
 	messageCcvAddresses := make([][]byte, len(aux.MessageCcvAddresses))
 	for i, addr := range aux.MessageCcvAddresses {
 		messageCcvAddresses[i] = addr.Bytes()
 	}
 
 	var metadata *v1.VerifierResultMetadata
-	if aux.Metadata != nil {
+	if aux.Metadata != nil && aux.Metadata.VerifierResultMetadata != nil {
 		metadata = aux.Metadata.VerifierResultMetadata
 	} else {
 		metadata = &v1.VerifierResultMetadata{}
@@ -447,7 +451,7 @@ func (r *VerifierResultMessage) ToMessage() (protocol.Message, error) {
 		//nolint:gosec // data length verified at this stage
 		OffRampAddressLength: uint8(r.OffRampAddressLength),
 		//nolint:gosec // data length verified at this stage
-		Finality: uint16(r.Finality),
+		Finality: protocol.Finality(r.Finality),
 		//nolint:gosec // data length verified at this stage
 		SenderLength: uint8(r.SenderLength),
 		//nolint:gosec // data length verified at this stage

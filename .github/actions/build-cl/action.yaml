@@ -8,7 +8,7 @@ runs:
       uses: actions/checkout@v5
       with:
         repository: smartcontractkit/chainlink
-        ref: 11d25cd8da2cb2fbeb54615e43c1713401c2bee0
+        ref: f336afde4283599b3a060e4bc38cac6bb6707381
         path: chainlink-repo
 
     - name: Setup path to go.mod
@@ -34,7 +34,25 @@ runs:
       working-directory: ${{ github.workspace }}/chainlink-repo
       shell: bash
       run: |
-        go get github.com/smartcontractkit/chainlink-ccv@${{ github.event.pull_request.head.sha || github.sha }}
+        # For merge queue runs, prefer the queue ref name over synthetic SHA.
+        # Synthetic SHAs may be checkout-able by Actions but not always resolvable as module versions.
+        TARGET_REF="${{ github.event.pull_request.head.sha || github.ref_name }}"
+        echo "Upgrading github.com/smartcontractkit/chainlink-ccv using ref: ${TARGET_REF}"
+
+        # Bypass module proxy for this lookup to avoid stale/negative cache behavior on ephemeral refs.
+        success=0
+        for i in {1..5}; do
+          if GOPROXY=direct GONOSUMDB=github.com/smartcontractkit/chainlink-ccv GONOPROXY=github.com/smartcontractkit/chainlink-ccv go get github.com/smartcontractkit/chainlink-ccv@"${TARGET_REF}"; then
+            success=1
+            break
+          fi
+          echo "go get failed (attempt $i/5), retrying in 10s..."
+          sleep 10
+        done
+        if [ "$success" -ne 1 ]; then
+          echo "go get failed after 5 attempts"
+          exit 1
+        fi
         make gomodtidy
 
     - name: Set up Docker Buildx

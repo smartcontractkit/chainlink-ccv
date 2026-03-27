@@ -21,7 +21,6 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/keepalive"
-	"google.golang.org/grpc/reflection"
 	"google.golang.org/grpc/status"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/aggregation"
@@ -31,10 +30,8 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/heartbeat"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/middlewares"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
-	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/quorum"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/storage"
-	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
 	committeepb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/committee-verifier/v1"
@@ -239,7 +236,7 @@ func createAggregator(storage common.CommitVerificationStore, aggregatedStore co
 	return aggregation.NewCommitReportAggregator(storage, aggregatedStore, sink, validator, config, lggr, monitoring, aggregation.NewChannelManagerFromConfig(config))
 }
 
-func buildGRPCServerOptions(serverConfig model.ServerConfig) []grpc.ServerOption {
+func buildGRPCServerOptions(serverConfig model.ServerConfig, m common.AggregatorMetricLabeler) []grpc.ServerOption {
 	var opts []grpc.ServerOption
 
 	if serverConfig.ConnectionTimeout > 0 {
@@ -275,6 +272,8 @@ func buildGRPCServerOptions(serverConfig model.ServerConfig) []grpc.ServerOption
 		opts = append(opts, grpc.MaxSendMsgSize(serverConfig.MaxSendMsgSizeBytes))
 	}
 
+	opts = append(opts, grpc.StatsHandler(middlewares.NewGRPCStatsHandler(m)))
+
 	return opts
 }
 
@@ -283,8 +282,9 @@ type SignatureAndQuorumValidator interface {
 	handlers.SignatureValidator
 }
 
-// NewServer creates a new aggregator server with the specified logger and configuration.
-func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
+// NewServer creates a new aggregator server with the specified logger, configuration, and monitoring.
+// aggMonitoring must not be nil; use monitoring.NoopAggregatorMonitoring when monitoring is disabled.
+func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig, aggMonitoring common.AggregatorMonitoring) *Server {
 	if err := config.Validate(); err != nil {
 		l.Fatalf("Failed to validate server configuration: %v", err)
 	}
@@ -298,28 +298,6 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 		"aggregation_buffer_size", config.Aggregation.ChannelBufferSize,
 		"aggregation_workers", config.Aggregation.BackgroundWorkerCount,
 	)
-
-	var aggMonitoring common.AggregatorMonitoring = &monitoring.NoopAggregatorMonitoring{}
-
-	if config.Monitoring.Enabled && config.Monitoring.Type == "beholder" {
-		// Setup OTEL Monitoring (via beholder)
-		m, err := monitoring.InitMonitoring(beholder.Config{
-			InsecureConnection:       config.Monitoring.Beholder.InsecureConnection,
-			CACertFile:               config.Monitoring.Beholder.CACertFile,
-			OtelExporterGRPCEndpoint: config.Monitoring.Beholder.OtelExporterGRPCEndpoint,
-			OtelExporterHTTPEndpoint: config.Monitoring.Beholder.OtelExporterHTTPEndpoint,
-			LogStreamingEnabled:      config.Monitoring.Beholder.LogStreamingEnabled,
-			MetricReaderInterval:     time.Duration(config.Monitoring.Beholder.MetricReaderInterval) * time.Second,
-			TraceSampleRatio:         config.Monitoring.Beholder.TraceSampleRatio,
-			TraceBatchTimeout:        time.Duration(config.Monitoring.Beholder.TraceBatchTimeout) * time.Second,
-		})
-		if err != nil {
-			l.Fatalf("Failed to initialize aggregatorMonitoring monitoring: %v", err)
-		}
-
-		aggMonitoring = m
-		l.Info("Monitoring enabled")
-	}
 
 	factory := storage.NewStorageFactory(l)
 	store, err := factory.CreateStorage(config.Storage, aggMonitoring)
@@ -375,7 +353,7 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 		return status.Error(codes.Internal, "internal server error")
 	}
 
-	grpcOpts := buildGRPCServerOptions(config.Server)
+	grpcOpts := buildGRPCServerOptions(config.Server, aggMonitoring.Metrics())
 
 	// Build interceptor chain
 	interceptorChain := []grpc.UnaryServerInterceptor{
@@ -450,11 +428,6 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig) *Server {
 	msgdiscoverypb.RegisterMessageDiscoveryServer(grpcServer, server)
 	committeepb.RegisterCommitteeVerifierServer(grpcServer, server)
 	heartbeatpb.RegisterHeartbeatServiceServer(grpcServer, server)
-
-	if os.Getenv("AGGREGATOR_GRPC_REFLECTION_ENABLED") == "true" {
-		reflection.Register(grpcServer)
-		l.Info("gRPC reflection enabled")
-	}
 
 	return server
 }

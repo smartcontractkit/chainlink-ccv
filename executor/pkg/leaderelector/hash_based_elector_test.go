@@ -208,14 +208,34 @@ func getExecutorOrderFromTimestamps(timestamps map[string]time.Time) []string {
 	return result
 }
 
-func TestHashBasedLeaderElector_ExecutorNotInList_ConstructorReturnsError(t *testing.T) {
+func TestHashBasedLeaderElector_ExecutorNotInPool_ConstructorSucceedsGetReadyTimestampReturnsError(t *testing.T) {
 	sel := protocol.ChainSelector(1)
 	executorIds := map[protocol.ChainSelector][]string{sel: {"executor-a", "executor-b"}}
 	thisExecutorId := "executor-not-in-list"
 	executionInterval := map[protocol.ChainSelector]time.Duration{sel: 30 * time.Second}
 
-	_, err := NewHashBasedLeaderElector(logger.Test(t), executorIds, thisExecutorId, executionInterval)
-	require.ErrorContains(t, err, "this executor ID \"executor-not-in-list\" not found in executor pool for chain 1")
+	elector, err := NewHashBasedLeaderElector(logger.Test(t), executorIds, thisExecutorId, executionInterval)
+	require.NoError(t, err)
+	require.NotNil(t, elector)
+	require.False(t, elector.IsExecutorForChain(sel))
+
+	_, err = elector.GetReadyTimestamp(protocol.Bytes32{}, sel, time.Now())
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "has no index for chain")
+}
+
+func TestHashBasedLeaderElector_IsExecutorForChain_ReturnsTrueOnlyWhenThisExecutorInPool(t *testing.T) {
+	sel1 := protocol.ChainSelector(1)
+	sel2 := protocol.ChainSelector(2)
+	intervals := map[protocol.ChainSelector]time.Duration{sel1: time.Second, sel2: time.Second}
+	ids := map[protocol.ChainSelector][]string{
+		sel1: {"a", "b"},
+		sel2: {"x", "y"},
+	}
+	elector, err := NewHashBasedLeaderElector(logger.Test(t), ids, "b", intervals)
+	require.NoError(t, err)
+	require.True(t, elector.IsExecutorForChain(sel1))
+	require.False(t, elector.IsExecutorForChain(sel2))
 }
 
 func TestHashBasedLeaderElector_ExecutorIndexCalculation_MultiSelector(t *testing.T) {
@@ -246,25 +266,39 @@ func TestHashBasedLeaderElector_ExecutorIndexCalculation_MultiSelector(t *testin
 			},
 		},
 		{
-			name: "multiple selectors, thisExecutorID missing from one chain returns error",
+			name: "multiple selectors, thisExecutorID missing from one chain has index minus one for that chain",
 			cfg: testConfig{
 				executorIds: map[protocol.ChainSelector][]string{
 					1: {"executor-c", "executor-a", "executor-b"},
 					2: {"x", "a", "m", "z"},
 				},
 				thisExecutorId: "executor-b",
-				expectErr:      true,
+				expectedIndices: map[protocol.ChainSelector]int{
+					1: 1,
+					2: -1,
+				},
+				expectedSortedIds: map[protocol.ChainSelector][]string{
+					1: {"executor-a", "executor-b", "executor-c"},
+					2: {"a", "m", "x", "z"},
+				},
 			},
 		},
 		{
-			name: "multi selector, thisExecutorID missing from one chain returns error",
+			name: "multi selector, thisExecutorID missing from one chain has index minus one for that chain",
 			cfg: testConfig{
 				executorIds: map[protocol.ChainSelector][]string{
 					42: {"alpha"},
 					35: {"b", "a", "d", "c"},
 				},
 				thisExecutorId: "a",
-				expectErr:      true,
+				expectedIndices: map[protocol.ChainSelector]int{
+					42: -1,
+					35: 0,
+				},
+				expectedSortedIds: map[protocol.ChainSelector][]string{
+					42: {"alpha"},
+					35: {"a", "b", "c", "d"},
+				},
 			},
 		},
 		{

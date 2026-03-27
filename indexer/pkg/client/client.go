@@ -57,6 +57,7 @@ func (ic *IndexerClient) Health(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("health check request error: %w", err)
 	}
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("health check failed with status %d", resp.StatusCode)
@@ -168,25 +169,28 @@ func processResponse(resp *http.Response, rspObj any) error {
 
 // maybeGetBody reads up to maxBody bytes from the provided io.ReadCloser. If
 // the body is larger than maxBody the function returns ErrResponseTooLarge.
-// The ReadCloser is closed before the function returns. On success the read
-// bytes (up to maxBody) are returned; on error a non-nil error is returned.
-func maybeGetBody(body io.ReadCloser, maxBody int) ([]byte, error) {
+// The ReadCloser is always closed before return. On success the read bytes are
+// returned; if Close() fails after a successful read, that error is returned
+// and no bytes are returned.
+func maybeGetBody(body io.ReadCloser, maxBody int) (b []byte, err error) {
 	if body == nil {
 		return nil, fmt.Errorf("nil reader detected")
 	}
+	defer func() {
+		if cerr := body.Close(); cerr != nil && err == nil {
+			err = fmt.Errorf("failed to close body: %w", cerr)
+			b = nil
+		}
+	}()
 
 	lr := io.LimitReader(body, int64(maxBody+1))
-	b, err := io.ReadAll(lr)
+	b, err = io.ReadAll(lr)
 	if err != nil {
-		return nil, fmt.Errorf("failed to read body: %v", err)
+		return nil, fmt.Errorf("failed to read body: %w", err)
 	}
 
 	if len(b) > maxBody {
 		return nil, ErrResponseTooLarge
-	}
-
-	if err = body.Close(); err != nil {
-		return nil, fmt.Errorf("failed to close body: %v", err)
 	}
 
 	return b, nil

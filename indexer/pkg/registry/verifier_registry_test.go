@@ -29,7 +29,6 @@ func (m *mockVerifierResultsAPI) GetVerifications(ctx context.Context, messageID
 
 // newMockVerifierReader creates a new VerifierReader instance for testing.
 func newMockVerifierReader() *readers.VerifierReader {
-	ctx := context.Background()
 	mockVerifier := &mockVerifierResultsAPI{
 		results: make(map[protocol.Bytes32]protocol.VerifierResult),
 	}
@@ -37,7 +36,7 @@ func newMockVerifierReader() *readers.VerifierReader {
 		BatchSize:        10,
 		MaxBatchWaitTime: 100,
 	}
-	return readers.NewVerifierReader(ctx, mockVerifier, config)
+	return readers.NewVerifierReader(mockVerifier, config)
 }
 
 func TestNewVerifierRegistry(t *testing.T) {
@@ -130,6 +129,52 @@ func TestRemoveVerifier_NonExistent(t *testing.T) {
 	err = reg.RemoveVerifier(addr)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "verifier does not exist")
+}
+
+// TestAddVerifier_DuplicateReader verifies that registering the same VerifierReader
+// pointer twice for the same address is rejected.
+func TestAddVerifier_DuplicateReader(t *testing.T) {
+	reg := NewVerifierRegistry()
+	addr, err := protocol.NewUnknownAddressFromHex("0x1234")
+	require.NoError(t, err)
+
+	reader := newMockVerifierReader()
+	defer reader.Close()
+
+	err = reg.AddVerifier(addr, "Primary", reader)
+	require.NoError(t, err)
+
+	err = reg.AddVerifier(addr, "Primary-dup", reader)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "verifier already registered for this address")
+
+	// Only one entry should be present.
+	all := reg.GetVerifiers(addr)
+	require.Len(t, all, 1)
+}
+
+// TestGetVerifiers_ReturnsCopy verifies that mutating the slice returned by
+// GetVerifiers does not affect the registry's internal state.
+func TestGetVerifiers_ReturnsCopy(t *testing.T) {
+	reg := NewVerifierRegistry()
+	addr, err := protocol.NewUnknownAddressFromHex("0x1234")
+	require.NoError(t, err)
+
+	reader := newMockVerifierReader()
+	defer reader.Close()
+
+	err = reg.AddVerifier(addr, "Primary", reader)
+	require.NoError(t, err)
+
+	// Obtain a copy and overwrite its only element.
+	got := reg.GetVerifiers(addr)
+	require.Len(t, got, 1)
+	got[0] = nil
+
+	// The registry must still hold the original non-nil pointer.
+	internal := reg.GetVerifiers(addr)
+	require.Len(t, internal, 1)
+	assert.NotNil(t, internal[0], "registry internal slice was mutated by caller")
 }
 
 func TestGetVerifier_NonExistent(t *testing.T) {

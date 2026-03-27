@@ -2,14 +2,13 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"os/signal"
 	"syscall"
 	"time"
 
-	"github.com/pressly/goose/v3"
+	"github.com/jmoiron/sqlx"
 	"go.uber.org/zap/zapcore"
 
 	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
@@ -61,24 +60,32 @@ func main() {
 	defer stop()
 
 	// Setup OTEL Monitoring (via beholder)
-	indexerMonitoring, err := monitoring.InitMonitoring(beholder.Config{
-		InsecureConnection:       config.Monitoring.Beholder.InsecureConnection,
-		CACertFile:               config.Monitoring.Beholder.CACertFile,
-		OtelExporterHTTPEndpoint: config.Monitoring.Beholder.OtelExporterHTTPEndpoint,
-		OtelExporterGRPCEndpoint: config.Monitoring.Beholder.OtelExporterGRPCEndpoint,
-		LogStreamingEnabled:      config.Monitoring.Beholder.LogStreamingEnabled,
-		MetricReaderInterval:     time.Second * time.Duration(config.Monitoring.Beholder.MetricReaderInterval),
-		TraceSampleRatio:         config.Monitoring.Beholder.TraceSampleRatio,
-		TraceBatchTimeout:        time.Second * time.Duration(config.Monitoring.Beholder.TraceBatchTimeout),
-	})
-	if err != nil {
-		lggr.Fatalf("Failed to initialize indexer monitoring: %v", err)
+	var indexerMonitoring common.IndexerMonitoring
+	if config.Monitoring.Enabled {
+		indexerMonitoring, err = monitoring.InitMonitoring(beholder.Config{
+			InsecureConnection:       config.Monitoring.Beholder.InsecureConnection,
+			CACertFile:               config.Monitoring.Beholder.CACertFile,
+			OtelExporterHTTPEndpoint: config.Monitoring.Beholder.OtelExporterHTTPEndpoint,
+			OtelExporterGRPCEndpoint: config.Monitoring.Beholder.OtelExporterGRPCEndpoint,
+			LogStreamingEnabled:      config.Monitoring.Beholder.LogStreamingEnabled,
+			MetricReaderInterval:     time.Second * time.Duration(config.Monitoring.Beholder.MetricReaderInterval),
+			TraceSampleRatio:         config.Monitoring.Beholder.TraceSampleRatio,
+			TraceBatchTimeout:        time.Second * time.Duration(config.Monitoring.Beholder.TraceBatchTimeout),
+		})
+		if err != nil {
+			lggr.Fatalf("Failed to initialize indexer monitoring: %v", err)
+		}
+	} else {
+		lggr.Infow("Monitoring disabled, using noop implementation")
+		indexerMonitoring = monitoring.NewNoopIndexerMonitoring()
 	}
+
+	protocol.InitChainSelectorCache()
 
 	// Initialize the indexer storage
 	indexerStorage := createStorage(ctx, lggr, config, indexerMonitoring)
 	verifierRegistry := createRegistry()
-	err = createAllVerifierReaders(ctx, lggr, verifierRegistry, config)
+	err = createAllVerifierReaders(ctx, lggr, verifierRegistry, config, indexerMonitoring)
 	if err != nil {
 		lggr.Fatalf("Failed to initalize verifier readers: %v", err)
 	}
@@ -106,6 +113,9 @@ func main() {
 	if listenPort == 0 {
 		listenPort = 8100
 	}
+
+	indexerMonitoring.RecordServiceStarted(ctx)
+
 	api.Serve(v1, listenPort)
 }
 
@@ -113,9 +123,9 @@ func createRegistry() *registry.VerifierRegistry {
 	return registry.NewVerifierRegistry()
 }
 
-func createAllVerifierReaders(ctx context.Context, lggr logger.Logger, verifierRegistry *registry.VerifierRegistry, config *config.Config) error {
+func createAllVerifierReaders(ctx context.Context, lggr logger.Logger, verifierRegistry *registry.VerifierRegistry, config *config.Config, indexerMonitoring common.IndexerMonitoring) error {
 	for _, verifierConfig := range config.Verifiers {
-		err := createReadersForVerifier(ctx, lggr, verifierRegistry, &verifierConfig)
+		err := createReadersForVerifier(ctx, lggr, verifierRegistry, &verifierConfig, indexerMonitoring)
 		if err != nil {
 			return err
 		}
@@ -124,13 +134,13 @@ func createAllVerifierReaders(ctx context.Context, lggr logger.Logger, verifierR
 	return nil
 }
 
-func createReadersForVerifier(ctx context.Context, lggr logger.Logger, verifierRegistry *registry.VerifierRegistry, verifierConfig *config.VerifierConfig) error {
-	reader, err := createReader(lggr, verifierConfig)
+func createReadersForVerifier(ctx context.Context, lggr logger.Logger, verifierRegistry *registry.VerifierRegistry, verifierConfig *config.VerifierConfig, indexerMonitoring common.IndexerMonitoring) error {
+	reader, err := createReader(lggr, verifierConfig, indexerMonitoring)
 	if err != nil {
 		return err
 	}
 
-	verifierReader := readers.NewVerifierReader(ctx, reader, verifierConfig)
+	verifierReader := readers.NewVerifierReader(reader, verifierConfig)
 
 	if err := verifierReader.Start(ctx); err != nil {
 		return err
@@ -151,13 +161,13 @@ func createReadersForVerifier(ctx context.Context, lggr logger.Logger, verifierR
 	return nil
 }
 
-func createReader(lggr logger.Logger, cfg *config.VerifierConfig) (*readers.ResilientReader, error) {
+func createReader(lggr logger.Logger, cfg *config.VerifierConfig, indexerMonitoring common.IndexerMonitoring) (*readers.ResilientReader, error) {
 	switch cfg.Type {
 	case config.ReaderTypeAggregator:
 		return readers.NewAggregatorReader(cfg.Address, lggr, cfg.Since, hmac.ClientConfig{
 			APIKey: cfg.APIKey,
 			Secret: cfg.Secret,
-		}, cfg.InsecureConnection, config.EffectiveMaxResponseBytes(cfg.MaxResponseBytes))
+		}, cfg.InsecureConnection, config.EffectiveMaxResponseBytes(cfg.MaxResponseBytes), indexerMonitoring)
 	case config.ReaderTypeRest:
 		return readers.NewRestReader(readers.RestReaderConfig{
 			BaseURL:          cfg.BaseURL,
@@ -173,6 +183,21 @@ func createReader(lggr logger.Logger, cfg *config.VerifierConfig) (*readers.Resi
 func createDiscovery(ctx context.Context, lggr logger.Logger, cfg *config.Config, storage common.IndexerStorage, monitoring common.IndexerMonitoring, registry *registry.VerifierRegistry) (common.MessageDiscovery, error) {
 	configs := cfg.DiscoveryConfigs()
 	sources := make([]common.MessageDiscovery, 0, len(configs))
+	ntpProviders := make(map[string]*backofftimeprovider.BackoffNTPProvider)
+
+	cleanupOnError := func() {
+		for _, src := range sources {
+			_ = src.Close()
+		}
+	}
+
+	// For multi-source setups, share a single PrimaryWriteNotifier across all instances so
+	// that the primary (priority 0) can signal secondary sources when its write attempt
+	// finishes, allowing them to skip the remainder of their delay.
+	var writeNotifier *discovery.PrimaryWriteNotifier
+	if len(configs) > 1 {
+		writeNotifier = discovery.NewPrimaryWriteNotifier()
+	}
 
 	for i, discCfg := range configs {
 		persistedSinceValue, err := storage.GetDiscoverySequenceNumber(ctx, discCfg.Address)
@@ -187,12 +212,18 @@ func createDiscovery(ctx context.Context, lggr logger.Logger, cfg *config.Config
 		aggregator, err := readers.NewAggregatorReader(discCfg.Address, lggr, int64(persistedSinceValue), hmac.ClientConfig{
 			APIKey: discCfg.APIKey,
 			Secret: discCfg.Secret,
-		}, discCfg.InsecureConnection, config.EffectiveMaxResponseBytes(discCfg.MaxResponseBytes))
+		}, discCfg.InsecureConnection, config.EffectiveMaxResponseBytes(discCfg.MaxResponseBytes), monitoring)
 		if err != nil {
+			cleanupOnError()
 			return nil, err
 		}
 
-		timeProvider := backofftimeprovider.NewBackoffNTPProvider(lggr, time.Duration(discCfg.Timeout)*time.Second, discCfg.NtpServer)
+		ntpKey := fmt.Sprintf("%s|%d", discCfg.NtpServer, discCfg.Timeout)
+		timeProvider, ok := ntpProviders[ntpKey]
+		if !ok {
+			timeProvider = backofftimeprovider.NewBackoffNTPProvider(lggr, time.Duration(discCfg.Timeout)*time.Second, discCfg.NtpServer)
+			ntpProviders[ntpKey] = timeProvider
+		}
 
 		aggDiscovery, err := discovery.NewAggregatorMessageDiscovery(
 			discovery.WithAggregator(aggregator),
@@ -203,8 +234,10 @@ func createDiscovery(ctx context.Context, lggr logger.Logger, cfg *config.Config
 			discovery.WithLogger(lggr),
 			discovery.WithConfig(discCfg),
 			discovery.WithDiscoveryPriority(i),
+			discovery.WithPrimaryWriteNotifier(writeNotifier), // nil for single-source; no-op
 		)
 		if err != nil {
+			cleanupOnError()
 			return nil, err
 		}
 		sources = append(sources, aggDiscovery)
@@ -213,8 +246,16 @@ func createDiscovery(ctx context.Context, lggr logger.Logger, cfg *config.Config
 	if len(sources) == 1 {
 		return sources[0], nil
 	}
-	return discovery.NewMultiSourceMessageDiscovery(
-		lggr, sources)
+	opts := []discovery.MultiSourceOption{}
+	if cfg.MergeBufferSize > 0 {
+		opts = append(opts, discovery.WithMergeBufferSize(cfg.MergeBufferSize))
+	}
+	multiDiscovery, err := discovery.NewMultiSourceMessageDiscovery(lggr, sources, opts...)
+	if err != nil {
+		cleanupOnError()
+		return nil, err
+	}
+	return multiDiscovery, nil
 }
 
 // createStorage creates the storage backend connection based on the configuration.
@@ -225,9 +266,18 @@ func createStorage(ctx context.Context, lggr logger.Logger, cfg *config.Config, 
 // createPostgresStorage creates a PostgreSQL storage backend.
 func createPostgresStorage(ctx context.Context, lggr logger.Logger, cfg *config.PostgresConfig, indexerMonitoring common.IndexerMonitoring) common.IndexerStorage {
 	// Run migrations first
-	migrationsDir := "./migrations"
-	if err := runMigrations(lggr, cfg.URI, migrationsDir); err != nil {
+	migrationsDB, err := sqlx.Open("postgres", cfg.URI)
+	if err != nil {
+		lggr.Fatalf("Failed to open database for migrations: %v", err)
+	}
+	if err := ccvcommon.EnsureDBConnection(lggr, migrationsDB.DB); err != nil {
+		lggr.Fatalf("Could not connect to database: %v", err)
+	}
+	if err := storage.RunMigrations(migrationsDB); err != nil {
 		lggr.Fatalf("Failed to run database migrations: %v", err)
+	}
+	if err := migrationsDB.Close(); err != nil {
+		lggr.Warnf("Error closing migration database connection: %v", err)
 	}
 
 	// Create postgres database configuration
@@ -245,37 +295,4 @@ func createPostgresStorage(ctx context.Context, lggr logger.Logger, cfg *config.
 	}
 
 	return dbStore
-}
-
-// runMigrations runs all pending database migrations using goose.
-func runMigrations(lggr logger.Logger, dbURI, migrationsDir string) error {
-	// Open a connection to the database for migrations
-	db, err := sql.Open("postgres", dbURI)
-	if err != nil {
-		return err
-	}
-
-	err = ccvcommon.EnsureDBConnection(lggr, db)
-	if err != nil {
-		return fmt.Errorf("could not connect to database: %w", err)
-	}
-
-	defer func() {
-		if cerr := db.Close(); cerr != nil {
-			lggr.Warnf("Error closing database: %v", cerr)
-		}
-	}()
-
-	// Set goose dialect
-	if err := goose.SetDialect("postgres"); err != nil {
-		return err
-	}
-
-	// Run migrations
-	if err := goose.Up(db, migrationsDir); err != nil {
-		return err
-	}
-
-	lggr.Info("Database migrations completed successfully")
-	return nil
 }

@@ -27,7 +27,13 @@ func NewV1API(lggr logger.Logger, cfg *config.Config, storage common.IndexerStor
 		middleware.RemoveMessageIDFromPath,
 		lggr,
 	))
-	router.Use(middleware.RateLimit(lggr, cfg))
+	rateLimitCfg := sharedmiddleware.RateLimitConfig{
+		Enabled: cfg.API.RateLimit.Enabled,
+		// Will use DefaultRateLimit (10 reqs / 1 second)
+		Period: 0,
+		Limit:  0,
+	}
+	router.Use(sharedmiddleware.RateLimit(lggr, rateLimitCfg))
 	router.Use(sharedmiddleware.SecureRecovery(lggr))
 
 	v1Group := router.Group("/v1")

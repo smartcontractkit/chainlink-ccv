@@ -192,6 +192,41 @@ func (_c *MockAggregatorMetricLabeler_IncrementCompletedAggregations_Call) RunAn
 	return _c
 }
 
+// IncrementGRPCErrors provides a mock function with given fields: ctx, code, method
+func (_m *MockAggregatorMetricLabeler) IncrementGRPCErrors(ctx context.Context, code string, method string) {
+	_m.Called(ctx, code, method)
+}
+
+// MockAggregatorMetricLabeler_IncrementGRPCErrors_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'IncrementGRPCErrors'
+type MockAggregatorMetricLabeler_IncrementGRPCErrors_Call struct {
+	*mock.Call
+}
+
+// IncrementGRPCErrors is a helper method to define mock.On call
+//   - ctx context.Context
+//   - code string
+//   - method string
+func (_e *MockAggregatorMetricLabeler_Expecter) IncrementGRPCErrors(ctx interface{}, code interface{}, method interface{}) *MockAggregatorMetricLabeler_IncrementGRPCErrors_Call {
+	return &MockAggregatorMetricLabeler_IncrementGRPCErrors_Call{Call: _e.mock.On("IncrementGRPCErrors", ctx, code, method)}
+}
+
+func (_c *MockAggregatorMetricLabeler_IncrementGRPCErrors_Call) Run(run func(ctx context.Context, code string, method string)) *MockAggregatorMetricLabeler_IncrementGRPCErrors_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string))
+	})
+	return _c
+}
+
+func (_c *MockAggregatorMetricLabeler_IncrementGRPCErrors_Call) Return() *MockAggregatorMetricLabeler_IncrementGRPCErrors_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockAggregatorMetricLabeler_IncrementGRPCErrors_Call) RunAndReturn(run func(context.Context, string, string)) *MockAggregatorMetricLabeler_IncrementGRPCErrors_Call {
+	_c.Run(run)
+	return _c
+}
+
 // IncrementOrphanRecoveryErrors provides a mock function with given fields: ctx
 func (_m *MockAggregatorMetricLabeler) IncrementOrphanRecoveryErrors(ctx context.Context) {
 	_m.Called(ctx)
@@ -421,6 +456,42 @@ func (_c *MockAggregatorMetricLabeler_RecordAPIRequestDuration_Call) Return() *M
 }
 
 func (_c *MockAggregatorMetricLabeler_RecordAPIRequestDuration_Call) RunAndReturn(run func(context.Context, time.Duration)) *MockAggregatorMetricLabeler_RecordAPIRequestDuration_Call {
+	_c.Run(run)
+	return _c
+}
+
+// RecordGRPCPayloadSize provides a mock function with given fields: ctx, method, direction, sizeBytes
+func (_m *MockAggregatorMetricLabeler) RecordGRPCPayloadSize(ctx context.Context, method string, direction string, sizeBytes int) {
+	_m.Called(ctx, method, direction, sizeBytes)
+}
+
+// MockAggregatorMetricLabeler_RecordGRPCPayloadSize_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RecordGRPCPayloadSize'
+type MockAggregatorMetricLabeler_RecordGRPCPayloadSize_Call struct {
+	*mock.Call
+}
+
+// RecordGRPCPayloadSize is a helper method to define mock.On call
+//   - ctx context.Context
+//   - method string
+//   - direction string
+//   - sizeBytes int
+func (_e *MockAggregatorMetricLabeler_Expecter) RecordGRPCPayloadSize(ctx interface{}, method interface{}, direction interface{}, sizeBytes interface{}) *MockAggregatorMetricLabeler_RecordGRPCPayloadSize_Call {
+	return &MockAggregatorMetricLabeler_RecordGRPCPayloadSize_Call{Call: _e.mock.On("RecordGRPCPayloadSize", ctx, method, direction, sizeBytes)}
+}
+
+func (_c *MockAggregatorMetricLabeler_RecordGRPCPayloadSize_Call) Run(run func(ctx context.Context, method string, direction string, sizeBytes int)) *MockAggregatorMetricLabeler_RecordGRPCPayloadSize_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(int))
+	})
+	return _c
+}
+
+func (_c *MockAggregatorMetricLabeler_RecordGRPCPayloadSize_Call) Return() *MockAggregatorMetricLabeler_RecordGRPCPayloadSize_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockAggregatorMetricLabeler_RecordGRPCPayloadSize_Call) RunAndReturn(run func(context.Context, string, string, int)) *MockAggregatorMetricLabeler_RecordGRPCPayloadSize_Call {
 	_c.Run(run)
 	return _c
 }

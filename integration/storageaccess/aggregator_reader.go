@@ -26,8 +26,11 @@ type AggregatorReader struct {
 // NewAggregatorReader creates instance of AggregatorReader that satisfies OffchainStorageReader interface.
 // If insecure is true, TLS verification is disabled (only for testing).
 // maxRecvMsgSizeBytes limits the maximum gRPC response size; 0 uses the gRPC default (4MB).
-func NewAggregatorReader(address string, lggr logger.Logger, since int64, hmacConfig *hmac.ClientConfig, insecure bool, maxRecvMsgSizeBytes int) (*AggregatorReader, error) {
-	conn, err := grpc.NewClient(address, buildDialOptions(hmacConfig, insecure, maxRecvMsgSizeBytes)...)
+// extraOpts allows callers to inject additional gRPC dial options (e.g. stats handlers for metrics).
+func NewAggregatorReader(address string, lggr logger.Logger, since int64, hmacConfig *hmac.ClientConfig, insecure bool, maxRecvMsgSizeBytes int, extraOpts ...grpc.DialOption) (*AggregatorReader, error) {
+	// Reader doesn't send large batches, so use 0 for maxSendMsgSizeBytes (default)
+	dialOpts := append(buildDialOptions(hmacConfig, insecure, 0, maxRecvMsgSizeBytes), extraOpts...)
+	conn, err := grpc.NewClient(address, dialOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -61,31 +64,39 @@ func (a *AggregatorReader) Close() error {
 
 // ReadCCVData returns the next available CCV data entries.
 func (a *AggregatorReader) ReadCCVData(ctx context.Context) ([]protocol.QueryResponse, error) {
+	sinceVal := a.since.Load()
 	resp, err := a.messageDiscoveryClient.GetMessagesSince(ctx, &msgdiscoverypb.GetMessagesSinceRequest{
-		SinceSequence: a.since.Load(),
+		SinceSequence: sinceVal,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("error calling GetMessagesSince: %w", err)
 	}
 
-	a.lggr.Debugw("Got messages since", "count", len(resp.Results), "since", a.since.Load())
+	a.lggr.Debugw("Got messages since", "count", len(resp.Results), "since", sinceVal)
 	// Convert the response to []types.QueryResponse
 	results := make([]protocol.QueryResponse, 0, len(resp.Results))
-	tempSince := a.since.Load()
+	tempSince := sinceVal
 	for i, resultWithSeq := range resp.Results {
+		sequence := resultWithSeq.Sequence
+		if sequence >= tempSince {
+			tempSince = sequence + 1
+		}
+
 		if resultWithSeq.VerifierResult == nil {
-			return nil, fmt.Errorf("nil VerifierResults at index %d", i)
+			a.lggr.Warnw("Dropping invalid verifier result from aggregator response", "index", i, "sequence", sequence, "reason", "nil verifier result")
+			continue
 		}
 
 		result := v1.VerifierResult{VerifierResult: resultWithSeq.VerifierResult}
 		verifierResult, err1 := result.ToVerifierResult()
 		if err1 != nil {
-			return nil, fmt.Errorf("error converting VerifierResults at index %d: %w", i, err1)
+			a.lggr.Warnw("Dropping invalid verifier result from aggregator response", "index", i, "sequence", sequence, "reason", err1)
+			continue
 		}
 
-		sequence := resultWithSeq.Sequence
-		if sequence >= tempSince {
-			tempSince = sequence + 1
+		if sequence < sinceVal {
+			a.lggr.Errorw("Aggregator returned result with sequence less than requested since",
+				"sequence", sequence, "since", sinceVal)
 		}
 
 		results = append(results, protocol.QueryResponse{

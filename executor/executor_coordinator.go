@@ -70,7 +70,7 @@ func NewCoordinator(
 }
 
 // Start starts the executor coordinator. Context is required to be passed in to satisfy the ServiceCtx interface.
-func (ec *Coordinator) Start(_ context.Context) error {
+func (ec *Coordinator) Start(ctx context.Context) error {
 	return ec.StartOnce("executor.Coordinator", func() error {
 		c, cancel := context.WithCancel(context.Background())
 		ec.cancel = cancel
@@ -101,6 +101,8 @@ func (ec *Coordinator) Start(_ context.Context) error {
 		}
 
 		ec.lggr.Infow("Coordinator started")
+		ec.monitoring.RecordServiceStarted(ctx)
+
 		return nil
 	})
 }
@@ -120,11 +122,16 @@ func (ec *Coordinator) Close() error {
 		// It is safe to close the channel once all goroutines have stopped.
 		close(ec.workerPoolTasks)
 
+		executorCloseErr := ec.executor.Close()
+		if executorCloseErr != nil {
+			ec.lggr.Errorw("failed to close executor", "error", executorCloseErr)
+		}
+
 		// Update running state to reflect in healthcheck and readiness
 		ec.running.Store(false)
 
 		ec.lggr.Infow("Coordinator stopped")
-		return nil
+		return executorCloseErr
 	})
 }
 
@@ -169,6 +176,12 @@ func (ec *Coordinator) runStorageStream(ctx context.Context) {
 			}
 			if ec.inFlightHas(id) {
 				ec.lggr.Infow("message already in flight, skipping", "messageID", id)
+				continue
+			}
+
+			if !ec.leaderElector.IsExecutorForChain(msg.DestChainSelector) {
+				ec.lggr.Infow("skipping message, executor not in pool for destination chain",
+					"messageID", id, "chainSel", msg.DestChainSelector)
 				continue
 			}
 
@@ -233,7 +246,7 @@ func (ec *Coordinator) runProcessingLoop(ctx context.Context) {
 					ec.inFlightAdd(payload.MessageID)
 				case <-ctx.Done():
 					ec.lggr.Infow("Processing loop dropping payload to exit")
-					continue
+					return
 				}
 			}
 		case <-reportingTicker.C:

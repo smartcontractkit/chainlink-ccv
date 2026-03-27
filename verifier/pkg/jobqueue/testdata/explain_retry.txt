@@ -1,0 +1,20 @@
+=== EXPLAIN ANALYZE: retry ===
+Update on public.ccv_task_verifier_jobs t  (cost=0.30..41.66 rows=5 width=166) (actual time=0.166..0.255 rows=5 loops=1)
+  Output: t.job_id, t.status
+  Buffers: shared hit=105
+  ->  Nested Loop  (cost=0.30..41.66 rows=5 width=166) (actual time=0.073..0.091 rows=5 loops=1)
+        Output: CASE WHEN (now() >= t.retry_deadline) THEN 'failed'::text ELSE 'pending'::text END, '2024-01-01 12:01:00+00'::timestamp with time zone, v.error_msg, t.ctid, v.*
+        Inner Unique: true
+        Buffers: shared hit=15
+        ->  Function Scan on v  (cost=0.01..0.06 rows=5 width=152) (actual time=0.033..0.035 rows=5 loops=1)
+              Output: v.error_msg, v.*, v.job_id
+              Function Call: unnest('{05157c0e-8af1-57d2-b313-a5b90d9e4917,b53a314e-1dba-5f42-bfe7-3bde0be6ed59,b1676c89-475d-5fe5-8ac2-92d1d6c0458a,a6ed7808-e6ab-5405-85b2-8fddd2ef8648,7e5667e3-7742-5565-9ac2-cef1d83df605}'::text[]), unnest('{"transient error","transient error","transient error","transient error","transient error"}'::text[])
+        ->  Index Scan using ccv_task_verifier_jobs_job_id_key on public.ccv_task_verifier_jobs t  (cost=0.29..8.31 rows=1 width=30) (actual time=0.009..0.009 rows=1 loops=5)
+              Output: t.retry_deadline, t.ctid, t.job_id
+              Index Cond: (t.job_id = (v.job_id)::uuid)
+              Filter: (t.owner_id = 'explain-owner'::text)
+              Buffers: shared hit=15
+Planning:
+  Buffers: shared hit=40
+Planning Time: 0.492 ms
+Execution Time: 0.313 ms

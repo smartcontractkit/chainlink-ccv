@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/executor"
+	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	txmgr "github.com/smartcontractkit/chainlink-evm/pkg/txmgr"
@@ -186,7 +187,6 @@ func TestTXMEVMContractTransmitter_ConvertAndWriteMessageToChain(t *testing.T) {
 			expectedError: "",
 		},
 	}
-
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.Background()
@@ -212,6 +212,7 @@ func TestTXMEVMContractTransmitter_ConvertAndWriteMessageToChain(t *testing.T) {
 				offRampAddr,
 				mockRR,
 				fromAddresses,
+				monitoring.NewNoopExecutorMonitoring(),
 			)
 
 			// Execute
@@ -287,6 +288,7 @@ func TestNewEVMContractTransmitterFromTxm(t *testing.T) {
 				tc.offRampAddress,
 				mockRR,
 				tc.fromAddresses,
+				monitoring.NewNoopExecutorMonitoring(),
 			)
 
 			require.NotNil(t, transmitter)
@@ -347,6 +349,7 @@ func TestTXMEVMContractTransmitter_ABIEncoding(t *testing.T) {
 				common.HexToAddress("0x9999999999999999999999999999999999999999"),
 				mockRR,
 				[]common.Address{fromAddr},
+				monitoring.NewNoopExecutorMonitoring(),
 			)
 
 			err := transmitter.ConvertAndWriteMessageToChain(ctx, tc.report)

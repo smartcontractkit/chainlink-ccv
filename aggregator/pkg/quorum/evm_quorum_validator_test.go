@@ -112,12 +112,13 @@ func (b *TestCaseBuilder) BuildConfig() *model.AggregatorConfig {
 		signers[i] = fixture.Signer
 	}
 
-	return &model.AggregatorConfig{
+	cfg := &model.AggregatorConfig{
 		Committee: &model.Committee{
 			QuorumConfigs: map[string]*model.QuorumConfig{
 				sourceSelector: {
-					Signers:   signers,
-					Threshold: b.threshold,
+					Signers:               signers,
+					Threshold:             b.threshold,
+					SourceVerifierAddress: common.BytesToAddress(b.sourceVerifierAddress).Hex(),
 				},
 			},
 			DestinationVerifiers: map[string]string{
@@ -125,6 +126,8 @@ func (b *TestCaseBuilder) BuildConfig() *model.AggregatorConfig {
 			},
 		},
 	}
+	_ = cfg.ValidateCommitteeConfig()
+	return cfg
 }
 
 // BuildReport creates the CommitAggregatedReport from the builder.
@@ -186,13 +189,13 @@ func TestValidateSignature(t *testing.T) {
 		fixtures.WithSignatureFrom(t, signerFixture))
 
 	t.Run("valid signature", func(t *testing.T) {
-		// Setup validator with test configuration
 		config := &model.AggregatorConfig{
 			Committee: &model.Committee{
 				QuorumConfigs: map[string]*model.QuorumConfig{
 					sourceSelector: {
-						Signers:   []model.Signer{signerFixture.Signer},
-						Threshold: 1,
+						Signers:               []model.Signer{signerFixture.Signer},
+						Threshold:             1,
+						SourceVerifierAddress: common.BytesToAddress(sourceVerifierAddress).Hex(),
 					},
 				},
 				DestinationVerifiers: map[string]string{
@@ -200,6 +203,7 @@ func TestValidateSignature(t *testing.T) {
 				},
 			},
 		}
+		require.NoError(t, config.ValidateCommitteeConfig())
 
 		validator := quorum.NewQuorumValidator(config, logger.TestSugared(t))
 
@@ -219,8 +223,9 @@ func TestValidateSignature(t *testing.T) {
 			Committee: &model.Committee{
 				QuorumConfigs: map[string]*model.QuorumConfig{
 					sourceSelector: {
-						Signers:   []model.Signer{signerFixture.Signer},
-						Threshold: 1,
+						Signers:               []model.Signer{signerFixture.Signer},
+						Threshold:             1,
+						SourceVerifierAddress: common.BytesToAddress(sourceVerifierAddress).Hex(),
 					},
 				},
 				DestinationVerifiers: map[string]string{
@@ -228,6 +233,7 @@ func TestValidateSignature(t *testing.T) {
 				},
 			},
 		}
+		require.NoError(t, config.ValidateCommitteeConfig())
 
 		validator := quorum.NewQuorumValidator(config, logger.TestSugared(t))
 
@@ -249,8 +255,9 @@ func TestValidateSignature(t *testing.T) {
 			Committee: &model.Committee{
 				QuorumConfigs: map[string]*model.QuorumConfig{
 					sourceSelector: {
-						Signers:   []model.Signer{signerFixture.Signer},
-						Threshold: 1,
+						Signers:               []model.Signer{signerFixture.Signer},
+						Threshold:             1,
+						SourceVerifierAddress: common.BytesToAddress(sourceVerifierAddress).Hex(),
 					},
 				},
 				DestinationVerifiers: map[string]string{
@@ -258,6 +265,7 @@ func TestValidateSignature(t *testing.T) {
 				},
 			},
 		}
+		require.NoError(t, config.ValidateCommitteeConfig())
 
 		validator := quorum.NewQuorumValidator(config, logger.TestSugared(t))
 
@@ -360,8 +368,9 @@ func TestCheckQuorum_HashMismatchDetection(t *testing.T) {
 		Committee: &model.Committee{
 			QuorumConfigs: map[string]*model.QuorumConfig{
 				sourceSelector: {
-					Signers:   []model.Signer{signer1.Signer, signer2.Signer},
-					Threshold: 2,
+					Signers:               []model.Signer{signer1.Signer, signer2.Signer},
+					Threshold:             2,
+					SourceVerifierAddress: common.BytesToAddress(sourceVerifierAddress).Hex(),
 				},
 			},
 			DestinationVerifiers: map[string]string{
@@ -369,6 +378,7 @@ func TestCheckQuorum_HashMismatchDetection(t *testing.T) {
 			},
 		},
 	}
+	require.NoError(t, config.ValidateCommitteeConfig())
 
 	validator := quorum.NewQuorumValidator(config, logger.TestSugared(t))
 
@@ -454,8 +464,9 @@ func TestCheckQuorum_SkipsInvalidSignerAndStillMeetsQuorum(t *testing.T) {
 				Committee: &model.Committee{
 					QuorumConfigs: map[string]*model.QuorumConfig{
 						sourceSelector: {
-							Signers:   tt.committeeSigners,
-							Threshold: tt.threshold,
+							Signers:               tt.committeeSigners,
+							Threshold:             tt.threshold,
+							SourceVerifierAddress: common.BytesToAddress(sourceVerifierAddress).Hex(),
 						},
 					},
 					DestinationVerifiers: map[string]string{
@@ -463,6 +474,7 @@ func TestCheckQuorum_SkipsInvalidSignerAndStillMeetsQuorum(t *testing.T) {
 					},
 				},
 			}
+			require.NoError(t, config.ValidateCommitteeConfig())
 			validator := quorum.NewQuorumValidator(config, logger.TestSugared(t))
 
 			verifications := make([]*model.CommitVerificationRecord, len(tt.reportSigners))
@@ -493,8 +505,9 @@ func TestDeriveAggregationKey(t *testing.T) {
 		Committee: &model.Committee{
 			QuorumConfigs: map[string]*model.QuorumConfig{
 				sourceSelector: {
-					Signers:   []model.Signer{signerFixture.Signer},
-					Threshold: 1,
+					Signers:               []model.Signer{signerFixture.Signer},
+					Threshold:             1,
+					SourceVerifierAddress: common.BytesToAddress(sourceVerifierAddress).Hex(),
 				},
 			},
 			DestinationVerifiers: map[string]string{
@@ -502,6 +515,7 @@ func TestDeriveAggregationKey(t *testing.T) {
 			},
 		},
 	}
+	require.NoError(t, config.ValidateCommitteeConfig())
 
 	validator := quorum.NewQuorumValidator(config, logger.TestSugared(t))
 
@@ -559,5 +573,133 @@ func TestDeriveAggregationKey(t *testing.T) {
 		require.NoError(t, err)
 
 		assert.NotEqual(t, key1, key2)
+	})
+}
+
+func TestCheckQuorum_SourceVerifierAddressValidation(t *testing.T) {
+	sourceVerifierA, destVerifierAddress := fixtures.GenerateVerifierAddresses(t)
+	sourceVerifierB, _ := fixtures.GenerateVerifierAddresses(t)
+	signer := fixtures.NewSignerFixture(t, "signer1")
+	protocolMessage := fixtures.NewProtocolMessage(t, func(m *protocol.Message) *protocol.Message {
+		m.DestChainSelector = 1
+		return m
+	})
+
+	t.Run("rejects when source verifier not in message CCV addresses", func(t *testing.T) {
+		config := &model.AggregatorConfig{
+			Committee: &model.Committee{
+				QuorumConfigs: map[string]*model.QuorumConfig{
+					sourceSelector: {
+						Signers:               []model.Signer{signer.Signer},
+						Threshold:             1,
+						SourceVerifierAddress: common.BytesToAddress(sourceVerifierA).Hex(),
+					},
+				},
+				DestinationVerifiers: map[string]string{
+					destSelector: common.Bytes2Hex(destVerifierAddress),
+				},
+			},
+		}
+		require.NoError(t, config.ValidateCommitteeConfig())
+		validator := quorum.NewQuorumValidator(config, logger.TestSugared(t))
+
+		messageData, _ := fixtures.NewMessageWithCCVNodeData(t, protocolMessage, sourceVerifierB,
+			fixtures.WithSignatureFrom(t, signer))
+		record, err := model.CommitVerificationRecordFromProto(messageData)
+		require.NoError(t, err)
+		report := &model.CommitAggregatedReport{Verifications: []*model.CommitVerificationRecord{record}}
+
+		valid, err := validator.CheckQuorum(context.Background(), report)
+		require.NoError(t, err)
+		assert.False(t, valid)
+	})
+
+	t.Run("accepts when source verifier matches message CCV addresses", func(t *testing.T) {
+		config := &model.AggregatorConfig{
+			Committee: &model.Committee{
+				QuorumConfigs: map[string]*model.QuorumConfig{
+					sourceSelector: {
+						Signers:               []model.Signer{signer.Signer},
+						Threshold:             1,
+						SourceVerifierAddress: common.BytesToAddress(sourceVerifierA).Hex(),
+					},
+				},
+				DestinationVerifiers: map[string]string{
+					destSelector: common.Bytes2Hex(destVerifierAddress),
+				},
+			},
+		}
+		require.NoError(t, config.ValidateCommitteeConfig())
+		validator := quorum.NewQuorumValidator(config, logger.TestSugared(t))
+
+		messageData, _ := fixtures.NewMessageWithCCVNodeData(t, protocolMessage, sourceVerifierA,
+			fixtures.WithSignatureFrom(t, signer))
+		record, err := model.CommitVerificationRecordFromProto(messageData)
+		require.NoError(t, err)
+		report := &model.CommitAggregatedReport{Verifications: []*model.CommitVerificationRecord{record}}
+
+		valid, err := validator.CheckQuorum(context.Background(), report)
+		require.NoError(t, err)
+		assert.True(t, valid)
+	})
+
+	t.Run("accepts message discovery version even when source verifier not in CCV addresses", func(t *testing.T) {
+		config := &model.AggregatorConfig{
+			Committee: &model.Committee{
+				QuorumConfigs: map[string]*model.QuorumConfig{
+					sourceSelector: {
+						Signers:               []model.Signer{signer.Signer},
+						Threshold:             1,
+						SourceVerifierAddress: common.BytesToAddress(sourceVerifierA).Hex(),
+					},
+				},
+				DestinationVerifiers: map[string]string{
+					destSelector: common.Bytes2Hex(destVerifierAddress),
+				},
+			},
+		}
+		require.NoError(t, config.ValidateCommitteeConfig())
+		validator := quorum.NewQuorumValidator(config, logger.TestSugared(t))
+
+		messageData, _ := fixtures.NewMessageWithCCVNodeData(t, protocolMessage, sourceVerifierB,
+			fixtures.WithCcvVersion(protocol.MessageDiscoveryVersion),
+			fixtures.WithSignatureFrom(t, signer))
+		record, err := model.CommitVerificationRecordFromProto(messageData)
+		require.NoError(t, err)
+		report := &model.CommitAggregatedReport{Verifications: []*model.CommitVerificationRecord{record}}
+
+		valid, err := validator.CheckQuorum(context.Background(), report)
+		require.NoError(t, err)
+		assert.True(t, valid)
+	})
+
+	t.Run("rejects when message has no CCV addresses", func(t *testing.T) {
+		config := &model.AggregatorConfig{
+			Committee: &model.Committee{
+				QuorumConfigs: map[string]*model.QuorumConfig{
+					sourceSelector: {
+						Signers:               []model.Signer{signer.Signer},
+						Threshold:             1,
+						SourceVerifierAddress: common.BytesToAddress(sourceVerifierA).Hex(),
+					},
+				},
+				DestinationVerifiers: map[string]string{
+					destSelector: common.Bytes2Hex(destVerifierAddress),
+				},
+			},
+		}
+		require.NoError(t, config.ValidateCommitteeConfig())
+		validator := quorum.NewQuorumValidator(config, logger.TestSugared(t))
+
+		messageData, _ := fixtures.NewMessageWithCCVNodeData(t, protocolMessage, sourceVerifierA,
+			fixtures.WithCcvAddresses(t, [][]byte{}),
+			fixtures.WithSignatureFrom(t, signer))
+		record, err := model.CommitVerificationRecordFromProto(messageData)
+		require.NoError(t, err)
+		report := &model.CommitAggregatedReport{Verifications: []*model.CommitVerificationRecord{record}}
+
+		valid, err := validator.CheckQuorum(context.Background(), report)
+		require.NoError(t, err)
+		assert.False(t, valid)
 	})
 }

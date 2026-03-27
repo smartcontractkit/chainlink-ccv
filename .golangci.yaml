@@ -73,6 +73,8 @@ linters:
             - ${config-path}/executor/**/*.go
             - ${config-path}/verifier/*.go
             - ${config-path}/verifier/**/*.go
+            - "!${config-path}/verifier/cmd/*.go"
+            - "!${config-path}/verifier/cmd/**/*.go"
           allow:
             - $gostd
             - github.com/smartcontractkit/chainlink-ccv

@@ -81,9 +81,6 @@ func validateElectorInputs(
 			}
 			seen[id] = struct{}{}
 		}
-		if !slices.Contains(ids, thisExecutorID) {
-			errs = append(errs, fmt.Errorf("this executor ID %q not found in executor pool for chain %d", thisExecutorID, chainSel))
-		}
 		interval, ok := executionIntervals[chainSel]
 		if !ok || interval <= 0 {
 			errs = append(errs, fmt.Errorf("execution interval for chain %d must be positive", chainSel))
@@ -97,6 +94,11 @@ func validateElectorInputs(
 	return errors.Join(errs...)
 }
 
+func (h *HashBasedLeaderElector) IsExecutorForChain(chainSel protocol.ChainSelector) bool {
+	idx, ok := h.executorIndices[chainSel]
+	return ok && idx >= 0
+}
+
 // GetReadyTimestamp implements the LeaderElector interface.
 // It returns: baseTimestamp + (arrayIndex * executionInterval).
 func (h *HashBasedLeaderElector) GetReadyTimestamp(
@@ -104,15 +106,16 @@ func (h *HashBasedLeaderElector) GetReadyTimestamp(
 	chainSel protocol.ChainSelector,
 	baseTime time.Time,
 ) (time.Time, error) {
-	execIndex := h.executorIndices[chainSel]
+	execIndex, ok := h.executorIndices[chainSel]
+	if !ok || execIndex == -1 {
+		// This executor is not in the list, should not happen if config is validated
+		return time.Time{}, fmt.Errorf("executor %q has no index for chain %d", h.thisExecutorID, chainSel)
+	}
 	execPool, hasPool := h.executorIDs[chainSel]
 	if !hasPool || len(execPool) == 0 {
 		return time.Time{}, fmt.Errorf("chain %d not configured in elector", chainSel)
 	}
-	if execIndex == -1 {
-		// This executor is not in the list, should not happen if config is validated
-		return baseTime, nil
-	}
+
 	interval, hasInterval := h.executionIntervals[chainSel]
 	if !hasInterval || interval <= 0 {
 		return time.Time{}, fmt.Errorf("execution interval for chain %d not configured or invalid", chainSel)

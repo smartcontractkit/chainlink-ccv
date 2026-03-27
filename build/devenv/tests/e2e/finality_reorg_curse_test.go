@@ -15,14 +15,15 @@ import (
 	"github.com/stretchr/testify/require"
 
 	chain_selectors "github.com/smartcontractkit/chain-selectors"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/committee_verifier"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/operations/executor"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/sequences"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/versioned_verifier_resolver"
+	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v2_0_0/operations/proxy"
 	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/logasserter"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-ccv/verifier"
+	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/chainstatus"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
@@ -69,7 +70,8 @@ func TestE2EReorg(t *testing.T) {
 	chainStatusDB, err := sqlx.Connect("postgres", verifierDBConnectionString)
 	require.NoError(t, err, "should be able to connect to verifier's postgres database")
 
-	chainStatusManager := chainstatus.NewPostgresChainStatusManager(chainStatusDB, chainStatusLggr, in.Verifier[0].Out.VerifierID)
+	chainStatusStore := chainstatus.NewPostgresChainStatusStore(chainStatusDB, chainStatusLggr)
+	chainStatusManager := chainstatus.NewPostgresChainStatusManager(chainStatusStore, in.Verifier[0].Out.VerifierID)
 	t.Cleanup(func() {
 		_ = chainStatusDB.Close()
 	})
@@ -100,14 +102,14 @@ func TestE2EReorg(t *testing.T) {
 	receiver := mustGetEOAReceiverAddress(t, destImpl)
 
 	executorAddr := getContractAddress(t, in, srcSelector,
-		datastore.ContractType(executor.ProxyType),
-		executor.DeployProxy.Version(),
+		datastore.ContractType(sequences.ExecutorProxyType),
+		proxy.Deploy.Version(),
 		devenvcommon.DefaultExecutorQualifier,
 		"executor")
 
 	ccvAddr := getContractAddress(t, in, srcSelector,
-		datastore.ContractType(committee_verifier.ResolverType),
-		committee_verifier.Deploy.Version(),
+		datastore.ContractType(versioned_verifier_resolver.CommitteeVerifierResolverType),
+		versioned_verifier_resolver.Version.String(),
 		devenvcommon.DefaultCommitteeVerifierQualifier,
 		"committee verifier proxy")
 
@@ -400,7 +402,7 @@ func TestE2EReorg(t *testing.T) {
 		// 7. Verify message IS verified after finalization
 
 		// Custom finality: 5 blocks (much faster than ConfirmationDepth)
-		const customFinality uint16 = 5
+		const customFinality protocol.Finality = 5
 		customFinalityMessageOptions := cciptestinterfaces.MessageOptions{
 			Version:        3,
 			FinalityConfig: customFinality,
@@ -494,7 +496,7 @@ func TestE2EReorg(t *testing.T) {
 		// 6. Verify NEW message waits for full finalization (reorg tracking from sentTasks)
 
 		// Custom finality: 5 blocks (much faster than ConfirmationDepth)
-		const customFinality uint16 = 5
+		const customFinality protocol.Finality = 5
 		customFinalityMessageOptions := cciptestinterfaces.MessageOptions{
 			Version:        3,
 			FinalityConfig: customFinality,

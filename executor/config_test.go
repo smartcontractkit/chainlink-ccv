@@ -9,9 +9,10 @@ import (
 
 func validChainConfig() ChainConfiguration {
 	return ChainConfiguration{
-		RmnAddress:     "0x1234567890abcdef",
-		OffRampAddress: "0xabcdef1234567890",
-		ExecutorPool:   []string{"executor-1", "executor-2"},
+		RmnAddress:             "0x1234567890abcdef",
+		OffRampAddress:         "0xabcdef1234567890",
+		DefaultExecutorAddress: "0xdeadbeef12345678",
+		ExecutorPool:           []string{"executor-1", "executor-2"},
 	}
 }
 
@@ -77,7 +78,25 @@ func TestConfiguration_Validate(t *testing.T) {
 				c.IndexerAddress = []string{"http://indexer1:8100", ""}
 				return c
 			}(),
-			wantErrContains: "indexer address must not be empty",
+			wantErrContains: "must have a scheme and host",
+		},
+		{
+			name: "malformed_indexer_url_missing_scheme_fails",
+			config: func() Configuration {
+				c := validConfig()
+				c.IndexerAddress = []string{"indexer1:8100"}
+				return c
+			}(),
+			wantErrContains: "must have a scheme and host",
+		},
+		{
+			name: "duplicate_indexer_address_fails",
+			config: func() Configuration {
+				c := validConfig()
+				c.IndexerAddress = []string{"http://indexer1:8100", "http://indexer1:8100"}
+				return c
+			}(),
+			wantErrContains: "duplicate indexer address",
 		},
 		{
 			name: "empty_executor_pool_fails",
@@ -91,13 +110,12 @@ func TestConfiguration_Validate(t *testing.T) {
 			wantErrContains: "executor_pool must be configured",
 		},
 		{
-			name: "executor_not_in_pool_fails",
+			name: "executor_not_in_pool_passes_validation",
 			config: func() Configuration {
 				c := validConfig()
 				c.ExecutorID = "executor-3"
 				return c
 			}(),
-			wantErrContains: "not found in executor_pool",
 		},
 		{
 			name: "invalid_with_no_configurations",
@@ -165,6 +183,46 @@ func TestConfiguration_Validate(t *testing.T) {
 				return c
 			}(),
 			wantErrContains: "off_ramp_address must be configured",
+		},
+		{
+			name: "negative_reader_cache_expiry_fails",
+			config: func() Configuration {
+				c := validConfig()
+				c.ReaderCacheExpiry = -1 * time.Second
+				return c
+			}(),
+			wantErrContains: "reader_cache_expiry must not be negative",
+		},
+		{
+			name: "negative_max_retry_duration_fails",
+			config: func() Configuration {
+				c := validConfig()
+				c.MaxRetryDuration = -1 * time.Second
+				return c
+			}(),
+			wantErrContains: "max_retry_duration must not be negative",
+		},
+		{
+			name: "missing_default_executor_address_fails",
+			config: func() Configuration {
+				c := validConfig()
+				cc := validChainConfig()
+				cc.DefaultExecutorAddress = ""
+				c.ChainConfiguration = map[string]ChainConfiguration{"1": cc}
+				return c
+			}(),
+			wantErrContains: "default_executor_address must be configured",
+		},
+		{
+			name: "negative_execution_interval_fails",
+			config: func() Configuration {
+				c := validConfig()
+				cc := validChainConfig()
+				cc.ExecutionInterval = -1 * time.Minute
+				c.ChainConfiguration = map[string]ChainConfiguration{"1": cc}
+				return c
+			}(),
+			wantErrContains: "execution_interval must not be negative",
 		},
 		{
 			name: "monitoring_enabled_without_type_fails",

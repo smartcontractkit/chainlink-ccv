@@ -82,7 +82,7 @@ func TestBatchWriteCommitCCVNodeDataHandler_BatchSizeValidation(t *testing.T) {
 			mon := mocks.NewMockAggregatorMonitoring(t)
 			labeler := mocks.NewMockAggregatorMetricLabeler(t)
 			mon.EXPECT().Metrics().Return(labeler).Maybe()
-			labeler.EXPECT().With(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(labeler).Maybe()
+			labeler.EXPECT().With(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(labeler).Maybe()
 			labeler.EXPECT().IncrementVerificationsTotal(mock.Anything).Maybe()
 
 			writeHandler := NewWriteCommitCCVNodeDataHandler(store, agg, mon, lggr, sig, time.Millisecond)
@@ -138,7 +138,7 @@ func TestBatchWriteCommitCCVNodeDataHandler_MixedSuccessAndInvalidArgument(t *te
 	mon := mocks.NewMockAggregatorMonitoring(t)
 	labeler := mocks.NewMockAggregatorMetricLabeler(t)
 	mon.EXPECT().Metrics().Return(labeler).Maybe()
-	labeler.EXPECT().With(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(labeler).Maybe()
+	labeler.EXPECT().With(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(labeler).Maybe()
 	labeler.EXPECT().IncrementVerificationsTotal(mock.Anything).Maybe()
 
 	writeHandler := NewWriteCommitCCVNodeDataHandler(store, agg, mon, lggr, sig, time.Millisecond)
@@ -165,6 +165,56 @@ func TestBatchWriteCommitCCVNodeDataHandler_MixedSuccessAndInvalidArgument(t *te
 	require.Equal(t, committeepb.WriteStatus_FAILED, resp.Responses[1].Status)
 	require.NotNil(t, resp.Errors[1])
 	require.Equal(t, int32(codes.InvalidArgument), resp.Errors[1].Code)
+}
+
+func TestBatchWriteCommitCCVNodeDataHandler_NilRequestAtIndexReturnsInvalidArgument(t *testing.T) {
+	t.Parallel()
+
+	const testCallerID = "test-caller"
+	const testChannelKey model.ChannelKey = "test-caller"
+
+	lggr := logger.TestSugared(t)
+	store := mocks.NewMockCommitVerificationStore(t)
+	agg := mocks.NewMockAggregationTriggerer(t)
+	sig := mocks.NewMockSignatureValidator(t)
+
+	signer := &model.SignerIdentifier{Identifier: []byte{0xAA}}
+	sig.EXPECT().ValidateSignature(mock.Anything, mock.Anything).Return(&model.SignatureValidationResult{
+		Signer: signer,
+	}, nil)
+	sig.EXPECT().DeriveAggregationKey(mock.Anything, mock.Anything).Return("messageId", nil)
+	agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything, mock.Anything, testChannelKey, time.Millisecond).Return(nil)
+	store.EXPECT().SaveCommitVerification(mock.Anything, mock.Anything, mock.Anything).Return(nil)
+
+	mon := mocks.NewMockAggregatorMonitoring(t)
+	labeler := mocks.NewMockAggregatorMetricLabeler(t)
+	mon.EXPECT().Metrics().Return(labeler).Maybe()
+	labeler.EXPECT().With(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(labeler).Maybe()
+	labeler.EXPECT().IncrementVerificationsTotal(mock.Anything).Maybe()
+
+	writeHandler := NewWriteCommitCCVNodeDataHandler(store, agg, mon, lggr, sig, time.Millisecond)
+	batchHandler := NewBatchWriteCommitVerifierNodeResultHandler(writeHandler, 10)
+
+	validReq := makeValidProtoRequest()
+
+	ctx := auth.ToContext(context.Background(), auth.CreateCallerIdentity(testCallerID, false))
+	resp, err := batchHandler.Handle(ctx, &committeepb.BatchWriteCommitteeVerifierNodeResultRequest{
+		Requests: []*committeepb.WriteCommitteeVerifierNodeResultRequest{validReq, nil},
+	})
+
+	require.NoError(t, err)
+	require.NotNil(t, resp)
+	require.Len(t, resp.Responses, 2)
+	require.Len(t, resp.Errors, 2)
+
+	require.Equal(t, committeepb.WriteStatus_SUCCESS, resp.Responses[0].Status)
+	require.NotNil(t, resp.Errors[0])
+	require.Equal(t, int32(codes.OK), resp.Errors[0].Code)
+
+	require.Equal(t, committeepb.WriteStatus_FAILED, resp.Responses[1].Status)
+	require.NotNil(t, resp.Errors[1])
+	require.Equal(t, int32(codes.InvalidArgument), resp.Errors[1].Code)
+	require.Contains(t, resp.Errors[1].Message, "nil request at index 1")
 }
 
 func TestBatchWriteCommitCCVNodeDataHandler_CancelledContextReturnsImmediately(t *testing.T) {
@@ -195,7 +245,7 @@ func TestBatchWriteCommitCCVNodeDataHandler_CancelledContextReturnsImmediately(t
 	mon := mocks.NewMockAggregatorMonitoring(t)
 	labeler := mocks.NewMockAggregatorMetricLabeler(t)
 	mon.EXPECT().Metrics().Return(labeler).Maybe()
-	labeler.EXPECT().With(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(labeler).Maybe()
+	labeler.EXPECT().With(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(labeler).Maybe()
 	labeler.EXPECT().IncrementVerificationsTotal(mock.Anything).Maybe()
 
 	writeHandler := NewWriteCommitCCVNodeDataHandler(store, agg, mon, lggr, sig, blockDuration)

@@ -1272,8 +1272,52 @@ func TestVerifierResult_NilChecks(t *testing.T) {
 		var result VerifierResult
 		err := json.Unmarshal([]byte(jsonData), &result)
 		require.NoError(t, err)
-		assert.Equal(t, result.Metadata, &v1.VerifierResultMetadata{}, "Metadata should be set to empty struct when omitted")
+		require.NotNil(t, result.Metadata, "Metadata should be set when omitted")
+		assert.Empty(t, result.Metadata.Timestamp, "Metadata should be empty when omitted")
+		assert.Nil(t, result.Metadata.VerifierSourceAddress, "Metadata should be empty when omitted")
+		assert.Nil(t, result.Metadata.VerifierDestAddress, "Metadata should be empty when omitted")
 		assert.NotNil(t, result.Message, "Message should still be populated")
+	})
+
+	t.Run("UnmarshalJSON does not panic when metadata is null", func(t *testing.T) {
+		jsonData := `{
+			"message": {
+				"version": 1,
+				"source_chain_selector": 100,
+				"dest_chain_selector": 200,
+				"sequence_number": 42,
+				"on_ramp_address": "0x010203",
+				"on_ramp_address_length": 3,
+				"off_ramp_address": "0x040506",
+				"off_ramp_address_length": 3,
+				"finality": 10,
+				"execution_gas_limit": 200000,
+				"ccip_receive_gas_limit": 150000,
+				"ccv_and_executor_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+				"sender": "0x070809",
+				"sender_length": 3,
+				"receiver": "0x0a0b0c",
+				"receiver_length": 3,
+				"dest_blob": "0x0d0e",
+				"dest_blob_length": 2,
+				"token_transfer": null,
+				"token_transfer_length": 0,
+				"data": "0x1011",
+				"data_length": 2
+			},
+			"message_ccv_addresses": ["0x131415"],
+			"message_executor_address": "0x161718",
+			"ccv_data": "0x191a1b",
+			"metadata": null
+		}`
+
+		var result VerifierResult
+		err := json.Unmarshal([]byte(jsonData), &result)
+		require.NoError(t, err)
+		require.NotNil(t, result.Metadata, "Metadata should be set when null")
+		assert.Empty(t, result.Metadata.Timestamp, "Metadata should be empty when null")
+		assert.Nil(t, result.Metadata.VerifierSourceAddress, "Metadata should be empty when null")
+		assert.Nil(t, result.Metadata.VerifierDestAddress, "Metadata should be empty when null")
 	})
 
 	t.Run("MarshalJSON handles nil metadata and round-trips correctly", func(t *testing.T) {
@@ -1303,8 +1347,56 @@ func TestVerifierResult_NilChecks(t *testing.T) {
 		var roundTripped VerifierResult
 		err = json.Unmarshal(jsonData, &roundTripped)
 		require.NoError(t, err)
-		assert.Equal(t, roundTripped.Metadata, &v1.VerifierResultMetadata{}, "Metadata should be set to empty struct after round-trip")
+		require.NotNil(t, roundTripped.Metadata, "Metadata should be set after round-trip")
+		assert.Empty(t, roundTripped.Metadata.Timestamp, "Metadata should be empty after round-trip")
+		assert.Nil(t, roundTripped.Metadata.VerifierSourceAddress, "Metadata should be empty after round-trip")
+		assert.Nil(t, roundTripped.Metadata.VerifierDestAddress, "Metadata should be empty after round-trip")
 	})
+}
+
+func TestVerifierResultsResponse_UnmarshalJSON_WithOmittedMetadata_DoesNotPanic(t *testing.T) {
+	jsonData := `{
+		"results": [
+			{
+				"message": {
+					"version": 1,
+					"source_chain_selector": 100,
+					"dest_chain_selector": 200,
+					"sequence_number": 42,
+					"on_ramp_address": "0x010203",
+					"on_ramp_address_length": 3,
+					"off_ramp_address": "0x040506",
+					"off_ramp_address_length": 3,
+					"finality": 10,
+					"execution_gas_limit": 200000,
+					"ccip_receive_gas_limit": 150000,
+					"ccv_and_executor_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+					"sender": "0x070809",
+					"sender_length": 3,
+					"receiver": "0x0a0b0c",
+					"receiver_length": 3,
+					"dest_blob": "0x0d0e",
+					"dest_blob_length": 2,
+					"token_transfer": null,
+					"token_transfer_length": 0,
+					"data": "0x1011",
+					"data_length": 2
+				},
+				"message_ccv_addresses": ["0x131415"],
+				"message_executor_address": "0x161718",
+				"ccv_data": "0x191a1b"
+			}
+		]
+	}`
+
+	var response VerifierResultsResponse
+	err := json.Unmarshal([]byte(jsonData), &response)
+	require.NoError(t, err)
+	require.Len(t, response.Results, 1)
+
+	results, err := response.ToVerifierResults()
+	require.NoError(t, err)
+	require.Len(t, results, 1)
 }
 
 func TestVerifierResultMessage_NilChecks(t *testing.T) {

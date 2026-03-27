@@ -35,6 +35,8 @@ var (
 	// We store messages for messageContextWindow, cleaning up old messages every indexerGarbageCollectionInterval.
 	// These values should be set based on the indexer's message retry duration.
 	messageContextWindow = 24 * time.Hour
+
+	ntpBackoffDuration = 2 * time.Second
 )
 
 // NewExecutorCoordinator initializes the executor coordinator object.
@@ -81,6 +83,8 @@ func NewExecutorCoordinator(
 		}
 	}
 
+	protocol.InitChainSelectorCache()
+
 	executorMonitoring, err := monitoring.InitMonitoring()
 	if err != nil {
 		lggr.Errorw("Failed to initialize executor monitoring", "error", err)
@@ -90,6 +94,7 @@ func NewExecutorCoordinator(
 	transmitters := make(map[protocol.ChainSelector]chainaccess.ContractTransmitter)
 	destReaders := make(map[protocol.ChainSelector]chainaccess.DestinationReader)
 	rmnReaders := make(map[protocol.ChainSelector]chainaccess.RMNCurseReader)
+	enabledDestChains := make([]protocol.ChainSelector, 0)
 	for sel, chain := range relayers {
 		if _, ok := offRampAddresses[sel]; !ok {
 			lggr.Warnw("No offramp configured for chain, skipping.", "chainID", sel)
@@ -103,6 +108,7 @@ func NewExecutorCoordinator(
 			common.HexToAddress(offRampAddresses[sel].String()),
 			keys[sel],
 			fromAddresses[sel],
+			executorMonitoring,
 		)
 
 		evmDestReader, err := destinationreader.NewEvmDestinationReader(
@@ -117,11 +123,13 @@ func NewExecutorCoordinator(
 			})
 		if err != nil {
 			lggr.Errorw("Failed to create destination reader", "error", err, "chainSelector", sel)
+			delete(transmitters, sel)
 			continue
 		}
 
 		destReaders[sel] = evmDestReader
 		rmnReaders[sel] = evmDestReader
+		enabledDestChains = append(enabledDestChains, sel)
 	}
 
 	curseChecker := cursechecker.NewCachedCurseChecker(cursechecker.Params{
@@ -153,6 +161,9 @@ func NewExecutorCoordinator(
 		executorMonitoring,
 		defaultExecutorAddresses,
 	)
+	if err := ex.Validate(); err != nil {
+		return nil, fmt.Errorf("executor validation failed: %w", err)
+	}
 
 	// create hash-based leader elector
 	le, err := leaderelector.NewHashBasedLeaderElector(
@@ -164,19 +175,21 @@ func NewExecutorCoordinator(
 	if err != nil {
 		return nil, fmt.Errorf("leader elector: %w", err)
 	}
-	backoffProvider := timeprovider.NewBackoffNTPProvider(lggr, cfg.BackoffDuration, cfg.NtpServer)
+	// ntp is an external service call with special rate limits, we use a different backoff duration for it.
+	backoffProvider := timeprovider.NewBackoffNTPProvider(lggr, ntpBackoffDuration, cfg.NtpServer)
 
 	indexerStream := ccvstreamer.NewIndexerStorageStreamer(
 		lggr,
 		ccvstreamer.IndexerStorageConfig{
-			IndexerClient:    indexerAdapter,
-			InitialQueryTime: time.Now().Add(-1 * cfg.LookbackWindow),
-			PollingInterval:  indexerPollingInterval,
-			Backoff:          cfg.BackoffDuration,
-			QueryLimit:       cfg.IndexerQueryLimit,
-			ExpiryDuration:   messageContextWindow,
-			CleanInterval:    indexerGarbageCollectionInterval,
-			TimeProvider:     backoffProvider,
+			IndexerClient:     indexerAdapter,
+			InitialQueryTime:  time.Now().Add(-1 * cfg.LookbackWindow),
+			PollingInterval:   indexerPollingInterval,
+			Backoff:           cfg.BackoffDuration,
+			QueryLimit:        cfg.IndexerQueryLimit,
+			ExpiryDuration:    messageContextWindow,
+			CleanInterval:     indexerGarbageCollectionInterval,
+			TimeProvider:      backoffProvider,
+			EnabledDestChains: enabledDestChains,
 		})
 
 	exec, err := executor.NewCoordinator(

@@ -142,6 +142,11 @@ func (dr *EvmDestinationReader) Name() string {
 
 // GetCCVSForMessage implements the DestinationReader interface. It uses the chainlink-evm client to call the get_ccvs function on the receiver contract.
 // The ABI is defined here https://github.com/smartcontractkit/chainlink-ccip/blob/0e7fcfd20ab005d75d0eb863790470f91fa5b8d7/chains/evm/contracts/interfaces/IAny2EVMMessageReceiverV2.sol
+//
+// If the OffRamp reverts with custom error 0x97a63cd9, the revert data is (address, uint256, uint256): typically
+// (receiverOrVerifier, requiredCount, actualCount). It usually means the receiver's CCV requirements could not be
+// resolved (e.g. receiver not set, message token/receiver mismatch, or view reverted). Check that the message's
+// receiver and token transfer match a deployed receiver contract that implements get_ccvs.
 func (dr *EvmDestinationReader) GetCCVSForMessage(ctx context.Context, message protocol.Message) (protocol.CCVAddressInfo, error) {
 	receiverAddress, sourceSelector := message.Receiver, message.SourceChainSelector
 

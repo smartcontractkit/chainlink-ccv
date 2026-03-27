@@ -3,7 +3,10 @@
 package mocks
 
 import (
+	context "context"
+
 	common "github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
+
 	mock "github.com/stretchr/testify/mock"
 )
 
@@ -64,6 +67,39 @@ func (_c *MockIndexerMonitoring_Metrics_Call) Return(_a0 common.IndexerMetricLab
 
 func (_c *MockIndexerMonitoring_Metrics_Call) RunAndReturn(run func() common.IndexerMetricLabeler) *MockIndexerMonitoring_Metrics_Call {
 	_c.Call.Return(run)
+	return _c
+}
+
+// RecordServiceStarted provides a mock function with given fields: ctx
+func (_m *MockIndexerMonitoring) RecordServiceStarted(ctx context.Context) {
+	_m.Called(ctx)
+}
+
+// MockIndexerMonitoring_RecordServiceStarted_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RecordServiceStarted'
+type MockIndexerMonitoring_RecordServiceStarted_Call struct {
+	*mock.Call
+}
+
+// RecordServiceStarted is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *MockIndexerMonitoring_Expecter) RecordServiceStarted(ctx interface{}) *MockIndexerMonitoring_RecordServiceStarted_Call {
+	return &MockIndexerMonitoring_RecordServiceStarted_Call{Call: _e.mock.On("RecordServiceStarted", ctx)}
+}
+
+func (_c *MockIndexerMonitoring_RecordServiceStarted_Call) Run(run func(ctx context.Context)) *MockIndexerMonitoring_RecordServiceStarted_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context))
+	})
+	return _c
+}
+
+func (_c *MockIndexerMonitoring_RecordServiceStarted_Call) Return() *MockIndexerMonitoring_RecordServiceStarted_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockIndexerMonitoring_RecordServiceStarted_Call) RunAndReturn(run func(context.Context)) *MockIndexerMonitoring_RecordServiceStarted_Call {
+	_c.Run(run)
 	return _c
 }
 

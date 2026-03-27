@@ -10,7 +10,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/scope"
-	committee "github.com/smartcontractkit/chainlink-ccv/committee/common"
+	"github.com/smartcontractkit/chainlink-ccv/common/committee"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
@@ -39,6 +39,17 @@ func (q *EVMQuorumValidator) CheckQuorum(ctx context.Context, aggregatedReport *
 	if !exists {
 		q.logger(ctx).Errorf("Failed to get quorum config for source selector: %d", aggregatedReport.GetSourceChainSelector())
 		return false, fmt.Errorf("failed to get quorum config for source selector: %d", aggregatedReport.GetSourceChainSelector())
+	}
+
+	// Reject aggregation when the report is not message-discovery,
+	// and the source verifier is not in the message's CCV addresses (uses first verification; hash check ensures consistency).
+	sourceVerifierAddr := quorumConfig.GetSourceVerifierAddress()
+	if sourceVerifierAddr != nil && !bytes.Equal(aggregatedReport.GetVersion(), protocol.MessageDiscoveryVersion) {
+		messageCCVAddresses := aggregatedReport.GetMessageCCVAddresses()
+		if !model.IsSourceVerifierInCCVAddresses(sourceVerifierAddr, messageCCVAddresses) {
+			q.logger(ctx).Warnw("Source verifier address not in message CCV addresses, skipping aggregation")
+			return false, nil
+		}
 	}
 
 	if len(aggregatedReport.Verifications) < int(quorumConfig.Threshold) {

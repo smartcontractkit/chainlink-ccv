@@ -20,7 +20,7 @@ import (
 
 type factory struct {
 	lggr               logger.Logger
-	helper             *blockchain.Helper
+	infos              blockchain.Infos[blockchain.Info]
 	onRampAddresses    map[string]string
 	rmnRemoteAddresses map[string]string
 	headTrackers       map[protocol.ChainSelector]heads.Tracker
@@ -32,14 +32,14 @@ type factory struct {
 // constructions / implementations of these objects.
 func NewFactory(
 	lggr logger.Logger,
-	helper *blockchain.Helper,
+	infos blockchain.Infos[blockchain.Info],
 	onRampAddresses, rmnRemoteAddresses map[string]string,
 	headTrackers map[protocol.ChainSelector]heads.Tracker,
 	chainClients map[protocol.ChainSelector]client.Client,
 ) chainaccess.AccessorFactory {
 	return &factory{
 		lggr:               lggr,
-		helper:             helper,
+		infos:              infos,
 		onRampAddresses:    onRampAddresses,
 		rmnRemoteAddresses: rmnRemoteAddresses,
 		headTrackers:       headTrackers,
@@ -48,7 +48,7 @@ func NewFactory(
 }
 
 func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainSelector) (chainaccess.Accessor, error) {
-	if f.onRampAddresses == nil || f.rmnRemoteAddresses == nil || f.chainClients == nil || f.headTrackers == nil {
+	if f == nil || f.onRampAddresses == nil || f.rmnRemoteAddresses == nil || f.chainClients == nil || f.headTrackers == nil {
 		return nil, fmt.Errorf("evm accessor factory is not fully initialized - can't get accessor for chain %d", chainSelector)
 	}
 
@@ -106,5 +106,8 @@ func newAccessor(sourceReader chainaccess.SourceReader) chainaccess.Accessor {
 }
 
 func (a *accessor) SourceReader() chainaccess.SourceReader {
+	if a == nil {
+		return nil
+	}
 	return a.sourceReader
 }

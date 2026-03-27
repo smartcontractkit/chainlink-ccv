@@ -31,9 +31,10 @@ type TXMEVMContractTransmitter struct {
 	fromAddresses  []common.Address
 	OffRampAddress common.Address
 	chainSelector  protocol.ChainSelector
+	monitoring     executor.Monitoring
 }
 
-func NewEVMContractTransmitterFromTxm(lggr logger.Logger, chainSelector protocol.ChainSelector, client txmgr.TxManager, offRampAddress common.Address, keys keys.RoundRobin, fromAddresses []common.Address) *TXMEVMContractTransmitter {
+func NewEVMContractTransmitterFromTxm(lggr logger.Logger, chainSelector protocol.ChainSelector, client txmgr.TxManager, offRampAddress common.Address, keys keys.RoundRobin, fromAddresses []common.Address, monitoring executor.Monitoring) *TXMEVMContractTransmitter {
 	return &TXMEVMContractTransmitter{
 		lggr:           lggr,
 		chainSelector:  chainSelector,
@@ -41,6 +42,7 @@ func NewEVMContractTransmitterFromTxm(lggr logger.Logger, chainSelector protocol
 		TxmClient:      client,
 		keys:           keys,
 		fromAddresses:  fromAddresses,
+		monitoring:     monitoring,
 	}
 }
 
@@ -48,6 +50,7 @@ func (ct *TXMEVMContractTransmitter) ConvertAndWriteMessageToChain(ctx context.C
 	encodedMsg, err := report.Message.Encode()
 	if err != nil {
 		ct.lggr.Errorw("unable to submit txn: invalid message encoding", "error", err, "messageID", report.Message.MustMessageID())
+		ct.monitoring.Metrics().IncrementUnrecoverableMessageFailure(ctx)
 		return errors.Join(executor.ErrMessageEncoding, fmt.Errorf("unable to submit txn: invalid message encoding %s", err))
 	}
 
@@ -59,6 +62,7 @@ func (ct *TXMEVMContractTransmitter) ConvertAndWriteMessageToChain(ctx context.C
 	payload, err := offrampABI.Pack("execute", encodedMsg, contractCcvs, report.CCVData, DefaultGasLimitOverride)
 	if err != nil {
 		ct.lggr.Errorw("failed to abi encode execute payload", "error", err)
+		ct.monitoring.Metrics().IncrementUnrecoverableMessageFailure(ctx)
 		return err
 	}
 	roundRobinFromAddress, err := ct.keys.GetNextAddress(ctx, ct.fromAddresses...)
@@ -76,6 +80,7 @@ func (ct *TXMEVMContractTransmitter) ConvertAndWriteMessageToChain(ctx context.C
 		Strategy:       txmgrcommon.NewSendEveryStrategy(),
 	})
 	if err != nil {
+		ct.monitoring.Metrics().IncrementUnrecoverableMessageFailure(ctx)
 		return fmt.Errorf("failed to create txm transaction: %w", err)
 	}
 

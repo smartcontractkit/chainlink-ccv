@@ -171,6 +171,7 @@ func TestLifecycle(t *testing.T) {
 
 	executorMock := mocks.NewMockExecutor(t)
 	executorMock.EXPECT().Start(mock.Anything).Return(nil)
+	executorMock.EXPECT().Close().Return(nil)
 
 	ec, err := executor.NewCoordinator(
 		lggr,
@@ -203,6 +204,7 @@ func TestSubscribeMessagesError(t *testing.T) {
 
 	mockExecutor := mocks.NewMockExecutor(t)
 	mockExecutor.EXPECT().Start(mock.Anything).Return(nil)
+	mockExecutor.EXPECT().Close().Return(nil)
 
 	ec, err := executor.NewCoordinator(
 		lggr,
@@ -373,11 +375,13 @@ func TestMessageExpiration(t *testing.T) {
 			// Set up executor mock
 			mockExecutor := mocks.NewMockExecutor(t)
 			mockExecutor.EXPECT().Start(mock.Anything).Return(nil)
+			mockExecutor.EXPECT().Close().Return(nil)
 			mockExecutor.EXPECT().CheckValidMessage(mock.Anything, mock.Anything).Return(nil).Maybe()
 			mockExecutor.EXPECT().HandleMessage(mock.Anything, mock.Anything).Return(false, nil).Maybe()
 
 			// Set up leader elector mock
 			leaderElector := mocks.NewMockLeaderElector(t)
+			leaderElector.EXPECT().IsExecutorForChain(mock.Anything).Return(true).Maybe()
 			leaderElector.EXPECT().GetReadyTimestamp(mock.Anything, mock.Anything, mock.Anything).Return(currentTime.Add(tc.initialReadyDelay), nil).Maybe()
 			leaderElector.EXPECT().GetRetryDelay(mock.Anything).Return(tc.retryDelay, nil).Maybe()
 
@@ -462,12 +466,14 @@ func TestDuplicateMessageIDFromStreamWhileInFlight_IsSkippedAndHandleMessageCall
 	unblockHandle := make(chan struct{})
 	mockExecutor := mocks.NewMockExecutor(t)
 	mockExecutor.EXPECT().Start(mock.Anything).Return(nil)
+	mockExecutor.EXPECT().Close().Return(nil)
 	mockExecutor.EXPECT().CheckValidMessage(mock.Anything, mock.Anything).Return(nil).Maybe()
 	mockExecutor.EXPECT().HandleMessage(mock.Anything, mock.Anything).Run(func(context.Context, protocol.Message) {
 		<-unblockHandle
 	}).Return(false, nil).Once()
 
 	leaderElector := mocks.NewMockLeaderElector(t)
+	leaderElector.EXPECT().IsExecutorForChain(mock.Anything).Return(true).Maybe()
 	leaderElector.EXPECT().GetReadyTimestamp(mock.Anything, mock.Anything, mock.Anything).Return(currentTime, nil).Maybe()
 	leaderElector.EXPECT().GetRetryDelay(mock.Anything).Return(time.Second, nil).Maybe()
 
@@ -488,7 +494,6 @@ func TestDuplicateMessageIDFromStreamWhileInFlight_IsSkippedAndHandleMessageCall
 	defer cancel()
 
 	require.NoError(t, ec.Start(ctx))
-	defer func() { _ = ec.Close() }()
 
 	results <- testMessage
 	time.Sleep(1500 * time.Millisecond)
@@ -499,6 +504,7 @@ func TestDuplicateMessageIDFromStreamWhileInFlight_IsSkippedAndHandleMessageCall
 	close(unblockHandle)
 	time.Sleep(500 * time.Millisecond)
 
+	require.NoError(t, ec.Close())
 	require.True(t, mock.AssertExpectationsForObjects(t, mockExecutor))
 	found := func(s string) bool {
 		for _, entry := range hook.All() {
@@ -525,6 +531,7 @@ func TestClose_StopsReportingTickerOnContextDone(t *testing.T) {
 
 	mockExecutor := mocks.NewMockExecutor(t)
 	mockExecutor.EXPECT().Start(mock.Anything).Return(nil)
+	mockExecutor.EXPECT().Close().Return(nil)
 
 	ec, err := executor.NewCoordinator(
 		lggr,
@@ -576,10 +583,12 @@ func TestDuplicateMessageIDFromStreamWhenAlreadyInHeap_IsSkippedByHeapAndHandleM
 
 	mockExecutor := mocks.NewMockExecutor(t)
 	mockExecutor.EXPECT().Start(mock.Anything).Return(nil)
+	mockExecutor.EXPECT().Close().Return(nil)
 	mockExecutor.EXPECT().CheckValidMessage(mock.Anything, mock.Anything).Return(nil).Maybe()
 	mockExecutor.EXPECT().HandleMessage(mock.Anything, mock.Anything).Return(false, nil).Once()
 
 	leaderElector := mocks.NewMockLeaderElector(t)
+	leaderElector.EXPECT().IsExecutorForChain(mock.Anything).Return(true).Maybe()
 	leaderElector.EXPECT().GetReadyTimestamp(mock.Anything, mock.Anything, mock.Anything).Return(currentTime, nil).Maybe()
 	leaderElector.EXPECT().GetRetryDelay(mock.Anything).Return(time.Second, nil).Maybe()
 
@@ -600,10 +609,62 @@ func TestDuplicateMessageIDFromStreamWhenAlreadyInHeap_IsSkippedByHeapAndHandleM
 	defer cancel()
 
 	require.NoError(t, ec.Start(ctx))
-	defer func() { _ = ec.Close() }()
 
 	time.Sleep(2 * time.Second)
+	require.NoError(t, ec.Close())
 	require.True(t, mock.AssertExpectationsForObjects(t, mockExecutor))
+}
+
+func TestCoordinator_MessageSkippedWhenNotExecutorForChain_DoesNotCallGetReadyTimestamp(t *testing.T) {
+	lggr := logger.Test(t)
+	currentTime := time.Now().UTC()
+	mockTimeProvider := mocks.NewMockTimeProvider(t)
+	mockTimeProvider.EXPECT().GetTime().Return(currentTime).Maybe()
+
+	testMessage := common.MessageWithMetadata{
+		Message: protocol.Message{
+			DestChainSelector:   1,
+			SourceChainSelector: 2,
+			SequenceNumber:      1,
+		},
+		Metadata: common.MessageMetadata{
+			IngestionTimestamp: currentTime,
+		},
+	}
+
+	results := make(chan common.MessageWithMetadata, 1)
+	results <- testMessage
+	messageSubscriber := mocks.NewMockMessageSubscriber(t)
+	messageSubscriber.EXPECT().Start(mock.Anything).Return(results, nil, nil)
+
+	mockExecutor := mocks.NewMockExecutor(t)
+	mockExecutor.EXPECT().Start(mock.Anything).Return(nil)
+	mockExecutor.EXPECT().Close().Return(nil)
+	mockExecutor.EXPECT().CheckValidMessage(mock.Anything, mock.Anything).Return(nil).Maybe()
+
+	leaderElector := mocks.NewMockLeaderElector(t)
+	leaderElector.EXPECT().IsExecutorForChain(protocol.ChainSelector(1)).Return(false).Once()
+
+	ec, err := executor.NewCoordinator(
+		lggr,
+		mockExecutor,
+		messageSubscriber,
+		leaderElector,
+		monitoring.NewNoopExecutorMonitoring(),
+		8*time.Hour,
+		mockTimeProvider,
+		1,
+	)
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	require.NoError(t, ec.Start(ctx))
+	time.Sleep(200 * time.Millisecond)
+	require.NoError(t, ec.Close())
+
+	leaderElector.AssertNotCalled(t, "GetReadyTimestamp")
+	leaderElector.AssertNotCalled(t, "GetRetryDelay")
 }
 
 // TestGracefulShutdown tests that when Close() is called while a message is being processed, the processing loop will
@@ -641,6 +702,7 @@ func TestGracefulShutdown(t *testing.T) {
 	handlerBlockedHandle := make(chan struct{})
 	mockExecutor := mocks.NewMockExecutor(t)
 	mockExecutor.EXPECT().Start(mock.Anything).Return(nil)
+	mockExecutor.EXPECT().Close().Return(nil)
 	mockExecutor.EXPECT().CheckValidMessage(mock.Anything, mock.Anything).Return(nil).Maybe()
 	mockExecutor.EXPECT().HandleMessage(mock.Anything, mock.Anything).Run(func(ctx context.Context, msg protocol.Message) {
 		close(handlerBlockedHandle)
@@ -648,6 +710,7 @@ func TestGracefulShutdown(t *testing.T) {
 	}).Return(false, context.Canceled)
 
 	leaderElector := mocks.NewMockLeaderElector(t)
+	leaderElector.EXPECT().IsExecutorForChain(mock.Anything).Return(true).Maybe()
 	leaderElector.EXPECT().GetReadyTimestamp(mock.Anything, mock.Anything, mock.Anything).Return(currentTime, nil).Maybe()
 	leaderElector.EXPECT().GetRetryDelay(mock.Anything).Return(time.Second, nil).Maybe()
 

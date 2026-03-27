@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"fmt"
 	"sync"
 
 	"google.golang.org/grpc/codes"
@@ -46,6 +47,13 @@ func (h *BatchWriteCommitVerifierNodeResultHandler) Handle(ctx context.Context, 
 		wg.Add(1)
 		go func(i int, r *committeepb.WriteCommitteeVerifierNodeResultRequest) {
 			defer wg.Done()
+			if r == nil {
+				SetBatchError(errors, i, codes.InvalidArgument, fmt.Sprintf("nil request at index %d", i))
+				responses[i] = &committeepb.WriteCommitteeVerifierNodeResultResponse{
+					Status: committeepb.WriteStatus_FAILED,
+				}
+				return
+			}
 			resp, err := h.handler.Handle(ctx, r)
 			if err != nil {
 				statusErr, ok := grpcstatus.FromError(err)
