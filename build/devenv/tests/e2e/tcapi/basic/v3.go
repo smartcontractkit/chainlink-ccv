@@ -496,7 +496,7 @@ func maxDataSize(src, dest cciptestinterfaces.CCIP17) *v3TestCase {
 }
 
 // EOAReceiverDefaultVerifier_SafeTag returns a test case identical to EOAReceiverDefaultVerifier
-// but with the finality field set to FinalityWaitForSafe (0x0400), exercising the Ethereum
+// but with the finality field set to FinalityWaitForSafe (0x00010000), exercising the Ethereum
 // `safe` head fast-confirmation path end-to-end.
 func EOAReceiverDefaultVerifier_SafeTag(src, dest cciptestinterfaces.CCIP17) tcapi.TestCase {
 	return eoaReceiverDefaultVerifierSafeTag(src, dest)

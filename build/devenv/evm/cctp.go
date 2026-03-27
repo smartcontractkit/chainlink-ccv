@@ -308,12 +308,12 @@ func (m *CCIP17EVMConfig) deployCCTPMockReceivers(
 		// Set minimum block depth to 1
 		_, err1 = operations.ExecuteOperation(
 			env.OperationsBundle,
-			mock_receiver_v2.SetMinBlockConfirmations,
+			mock_receiver_v2.SetAllowedFinalityConfig,
 			env.BlockChains.EVMChains()[selector],
-			contract.FunctionInput[uint16]{
+			contract.FunctionInput[[4]byte]{
 				Address:       gethcommon.HexToAddress(deployReceiverReport.Output.Address),
 				ChainSelector: selector,
-				Args:          1,
+				Args:          [4]byte{0, 0, 0, 1},
 			})
 		if err1 != nil {
 			return fmt.Errorf("failed to set minimum block depth for mock receiver %s on chain %d: %w", r.Qualifier, selector, err1)

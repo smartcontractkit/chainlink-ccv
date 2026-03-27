@@ -328,12 +328,12 @@ func (m *CCIP17EVMConfig) deployLombardMockReceiver(
 	// Set minimum block depth to 1
 	_, err1 = cldf_ops.ExecuteOperation(
 		env.OperationsBundle,
-		mock_receiver_v2.SetMinBlockConfirmations,
+		mock_receiver_v2.SetAllowedFinalityConfig,
 		env.BlockChains.EVMChains()[selector],
-		evm_contract.FunctionInput[uint16]{
+		evm_contract.FunctionInput[[4]byte]{
 			Address:       common.HexToAddress(deployReceiverReport.Output.Address),
 			ChainSelector: selector,
-			Args:          1,
+			Args:          [4]byte{0, 0, 0, 1},
 		})
 	if err1 != nil {
 		return fmt.Errorf("failed to set minimum block depth for mock receiver on chain %d: %w", selector, err1)

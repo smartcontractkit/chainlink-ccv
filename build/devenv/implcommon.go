@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/Masterminds/semver/v3"
-
 	chainsel "github.com/smartcontractkit/chain-selectors"
 
 	"github.com/smartcontractkit/chainlink-ccip/deployment/lanes"
@@ -23,11 +21,11 @@ type chainEntry struct {
 	remoteSelectors []uint64
 	impl            cciptestinterfaces.CCIP17Configuration
 	chainDef        lanes.ChainDefinition
-	cvConfig        lanes.CommitteeVerifierRemoteChainInput
+	cvConfig        ccipChangesets.CommitteeVerifierRemoteChainConfig
 }
 
 // connectAllChains collects a ChainDefinition from each impl, assembles
-// ConnectChainsConfig with a TopologyCommitteePopulator, applies it once,
+// ConfigureChainsForLanesFromTopologyConfig, applies it once,
 // then runs each impl's PostConnect for chain-specific follow-up.
 func connectAllChains(
 	impls []cciptestinterfaces.CCIP17Configuration,
@@ -70,31 +68,37 @@ func connectAllChains(
 		orderedSelectors = append(orderedSelectors, sel)
 	}
 
-	laneConfigs := make([]lanes.LaneConfig, 0)
+	partialChains := make([]ccipChangesets.PartialChainConfig, 0, len(orderedSelectors))
 	for _, sel := range orderedSelectors {
 		entry := entries[sel]
 
-		cvInputs := buildCommitteeVerifierInputs(topology, entry.remoteSelectors, entries)
+		cvInputConfigs := buildCommitteeVerifierInputConfigs(topology, entry.remoteSelectors, entries)
 
+		remoteChainDefs := make(map[uint64]lanes.ChainDefinition, len(entry.remoteSelectors))
 		for _, rs := range entry.remoteSelectors {
 			remote, ok := entries[rs]
 			if !ok {
 				return fmt.Errorf("missing chain definition for remote selector %d (referenced from chain %d)", rs, sel)
 			}
-
-			chainA := entry.chainDef
-			chainA.Selector = sel
-			chainA.CommitteeVerifierInputs = cvInputs
-
-			chainB := remote.chainDef
-			chainB.Selector = rs
-
-			laneConfigs = append(laneConfigs, lanes.LaneConfig{
-				ChainA:  chainA,
-				ChainB:  chainB,
-				Version: semver.MustParse("2.0.0"),
-			})
+			remoteDef := remote.chainDef
+			remoteDef.Selector = rs
+			remoteChainDefs[rs] = remoteDef
 		}
+
+		chainDef := entry.chainDef
+		partialChains = append(partialChains, ccipChangesets.PartialChainConfig{
+			ChainSelector:            sel,
+			CommitteeVerifiers:       cvInputConfigs,
+			DefaultInboundCCVs:       chainDef.DefaultInboundCCVs,
+			LaneMandatedInboundCCVs:  chainDef.LaneMandatedInboundCCVs,
+			DefaultOutboundCCVs:      chainDef.DefaultOutboundCCVs,
+			LaneMandatedOutboundCCVs: chainDef.LaneMandatedOutboundCCVs,
+			DefaultExecutor:          chainDef.DefaultExecutor,
+			ExecutorDestChainConfig:  chainDef.ExecutorDestChainConfig,
+			AddressBytesLength:       chainDef.AddressBytesLength,
+			BaseExecutionGasCost:     chainDef.BaseExecutionGasCost,
+			RemoteChains:             remoteChainDefs,
+		})
 	}
 
 	e.OperationsBundle = operations.NewBundle(
@@ -103,23 +107,20 @@ func connectAllChains(
 		operations.NewMemoryReporter(),
 	)
 
-	populator := ccipChangesets.NewTopologyCommitteePopulator(
+	configureCS := ccipChangesets.ConfigureChainsForLanesFromTopology(
 		ccipAdapters.GetCommitteeVerifierContractRegistry(),
-		topology,
+		lanes.GetLaneAdapterRegistry(),
+		changesetscore.GetRegistry(),
 	)
 
-	laneAdapterRegistry := lanes.GetLaneAdapterRegistry()
-	mcmsReaderRegistry := changesetscore.GetRegistry()
-
-	connectChainsCS := lanes.ConnectChains(laneAdapterRegistry, mcmsReaderRegistry)
-	cfg := lanes.ConnectChainsConfig{
-		Lanes:              laneConfigs,
-		CommitteePopulator: populator,
+	cfg := ccipChangesets.ConfigureChainsForLanesFromTopologyConfig{
+		Topology: topology,
+		Chains:   partialChains,
 	}
-	if err := connectChainsCS.VerifyPreconditions(*e, cfg); err != nil {
+	if err := configureCS.VerifyPreconditions(*e, cfg); err != nil {
 		return fmt.Errorf("connect chains precondition check failed: %w", err)
 	}
-	if _, err := connectChainsCS.Apply(*e, cfg); err != nil {
+	if _, err := configureCS.Apply(*e, cfg); err != nil {
 		return fmt.Errorf("configure chains for lanes: %w", err)
 	}
 
@@ -133,24 +134,24 @@ func connectAllChains(
 	return nil
 }
 
-// buildCommitteeVerifierInputs assembles CommitteeVerifierInput entries from
+// buildCommitteeVerifierInputConfigs assembles CommitteeVerifierInputConfig entries from
 // topology committee qualifiers + per-remote-chain configs looked up from each
-// chain's reported CommitteeVerifierRemoteChainInput.
-func buildCommitteeVerifierInputs(
+// chain's reported CommitteeVerifierRemoteChainConfig.
+func buildCommitteeVerifierInputConfigs(
 	topology *ccipOffchain.EnvironmentTopology,
 	remoteSelectors []uint64,
 	entries map[uint64]chainEntry,
-) []lanes.CommitteeVerifierInput {
-	remoteChainConfigs := make(map[uint64]lanes.CommitteeVerifierRemoteChainInput, len(remoteSelectors))
+) []ccipChangesets.CommitteeVerifierInputConfig {
+	remoteChainConfigs := make(map[uint64]ccipChangesets.CommitteeVerifierRemoteChainConfig, len(remoteSelectors))
 	for _, rs := range remoteSelectors {
 		if entry, ok := entries[rs]; ok {
 			remoteChainConfigs[rs] = entry.cvConfig
 		}
 	}
 
-	verifiers := make([]lanes.CommitteeVerifierInput, 0, len(topology.NOPTopology.Committees))
+	verifiers := make([]ccipChangesets.CommitteeVerifierInputConfig, 0, len(topology.NOPTopology.Committees))
 	for qualifier := range topology.NOPTopology.Committees {
-		verifiers = append(verifiers, lanes.CommitteeVerifierInput{
+		verifiers = append(verifiers, ccipChangesets.CommitteeVerifierInputConfig{
 			CommitteeQualifier: qualifier,
 			RemoteChains:       remoteChainConfigs,
 		})
