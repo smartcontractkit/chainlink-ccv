@@ -1344,7 +1344,8 @@ func (m *CCIP17EVMConfig) GetConnectionProfile(_ *deployment.Environment, select
 	}
 
 	cvConfig := ccipChangesets.CommitteeVerifierRemoteChainConfig{
-		GasForVerification: CommitteeVerifierGasForVerification,
+		GasForVerification:    CommitteeVerifierGasForVerification,
+		AllowedFinalityConfig: [4]byte{0, 1, 0, 1}, // allow block depth >= 1 (fast finality) and safe tag
 	}
 
 	return chainDef, cvConfig, nil
