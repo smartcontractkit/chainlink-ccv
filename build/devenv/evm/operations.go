@@ -286,6 +286,8 @@ func DeployAndConfigureNewCommitCCV(ctx context.Context, e *deployment.Environme
 				Router:              MustGetContractAddressForSelector(addresses, sel, router.ContractType),
 				RemoteChainSelector: remoteSel,
 				GasForVerification:  1, // TODO: set proper gas limit
+				// Enable fast finality (1 block confirmation) and safe tag -  0x00010000 & 0x00000001
+				AllowedFinalityConfig: [4]byte{0, 1, 0, 1},
 				// TODO: Missing fields?
 				// FeeUSDCents        uint16
 				// PayloadSizeBytes   uint32

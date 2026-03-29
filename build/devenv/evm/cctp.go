@@ -201,6 +201,8 @@ func (m *CCIP17EVMConfig) configureUSDCForTransfer(
 			PayloadSizeBytes:    1000,
 			LockOrBurnMechanism: "CCTP_V2_WITH_CCV",
 			DomainIdentifier:    domain,
+			// Enable fast finality (1 block confirmation)
+			AllowedFinalityConfig: [4]byte{0, 0, 0, 1},
 		}
 	}
 
