@@ -326,7 +326,6 @@ func (m *CCIP17EVMConfig) deployLombardMockReceiver(
 		return fmt.Errorf("failed to deploy mock receiver on chain %d: %w", selector, err1)
 	}
 
-	// Set minimum block depth to 1
 	_, err1 = cldf_ops.ExecuteOperation(
 		env.OperationsBundle,
 		mock_receiver_v2.SetAllowedFinalityConfig,

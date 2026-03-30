@@ -846,7 +846,7 @@ func serializeExtraArgsV2(opts cciptestinterfaces.MessageOptions) []byte {
 
 func serializeExtraArgsV3(opts cciptestinterfaces.MessageOptions) []byte {
 	extraArgs, err := NewV3ExtraArgs(
-		uint32(opts.FinalityConfig),
+		opts.FinalityConfig,
 		opts.ExecutionGasLimit,
 		opts.Executor.String(),
 		opts.ExecutorArgs,
