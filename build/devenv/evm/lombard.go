@@ -20,6 +20,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/adapters"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/changesets"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
@@ -333,7 +334,7 @@ func (m *CCIP17EVMConfig) deployLombardMockReceiver(
 		evm_contract.FunctionInput[[4]byte]{
 			Address:       common.HexToAddress(deployReceiverReport.Output.Address),
 			ChainSelector: selector,
-			Args:          [4]byte{0, 0, 0, 1},
+			Args:          protocol.New().WithBlockDepth(1).ToBytes(),
 		})
 	if err1 != nil {
 		return fmt.Errorf("failed to set minimum block depth for mock receiver on chain %d: %w", selector, err1)

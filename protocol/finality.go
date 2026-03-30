@@ -37,6 +37,23 @@ const (
 	FinalityFlagMask Finality = 0xFFFF0000
 )
 
+// New returns the zero Finality value (FinalityWaitForFinality).
+// Use it as the single entry point for all builder chains.
+func New() Finality { return FinalityWaitForFinality }
+
+// WithSafe sets the safe-head flag (bit 16).
+func (f Finality) WithSafe() Finality { return f | FinalityWaitForSafe }
+
+// WithBlockDepth sets the block-confirmation depth (lower 16 bits), clearing any prior depth.
+func (f Finality) WithBlockDepth(n uint16) Finality {
+	return (f &^ FinalityBlockDepthMask) | Finality(n)
+}
+
+// ToBytes returns the wire-format [4]byte representation (big-endian, mirrors bytes4 in Solidity).
+func (f Finality) ToBytes() [4]byte {
+	return [4]byte{byte(f >> 24), byte(f >> 16), byte(f >> 8), byte(f)}
+}
+
 // ErrNilBlock is returned by IsMessageReady when a required block argument is nil.
 var ErrNilBlock = errors.New("block must not be nil")
 

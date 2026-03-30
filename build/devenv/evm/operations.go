@@ -83,11 +83,10 @@ func DeployReceiverForSelector(e *deployment.Environment, selector uint64, args 
 	if err != nil {
 		return datastore.AddressRef{}, fmt.Errorf("failed to deploy MockReceiver: %w", err)
 	}
-	// Set minimum block depth to 1
 	_, err = operations.ExecuteOperation(e.OperationsBundle, mock_receiver_v2.SetAllowedFinalityConfig, chain, contract.FunctionInput[[4]byte]{
 		Address:       common.HexToAddress(report.Output.Address),
 		ChainSelector: selector,
-		Args:          [4]byte{0, 1, 0, 1},
+		Args:          protocol.New().WithSafe().WithBlockDepth(1).ToBytes(),
 	})
 	if err != nil {
 		return datastore.AddressRef{}, fmt.Errorf("failed to set minimum block depth for mock receiver on chain %d: %w", selector, err)
@@ -282,12 +281,11 @@ func DeployAndConfigureNewCommitCCV(ctx context.Context, e *deployment.Environme
 			}
 			signatureConfigArgs.SignatureConfigs = append(signatureConfigArgs.SignatureConfigs, signatureConfig)
 			remoteChainConfigArgs = append(remoteChainConfigArgs, committee_verifier.RemoteChainConfigArgs{
-				AllowlistEnabled:    false,
-				Router:              MustGetContractAddressForSelector(addresses, sel, router.ContractType),
-				RemoteChainSelector: remoteSel,
-				GasForVerification:  1, // TODO: set proper gas limit
-				// Enable fast finality (1 block confirmation) and safe tag -  0x00010000 & 0x00000001
-				AllowedFinalityConfig: [4]byte{0, 1, 0, 1},
+				AllowlistEnabled:      false,
+				Router:                MustGetContractAddressForSelector(addresses, sel, router.ContractType),
+				RemoteChainSelector:   remoteSel,
+				GasForVerification:    1, // TODO: set proper gas limit
+				AllowedFinalityConfig: protocol.New().WithSafe().WithBlockDepth(1).ToBytes(),
 				// TODO: Missing fields?
 				// FeeUSDCents        uint16
 				// PayloadSizeBytes   uint32

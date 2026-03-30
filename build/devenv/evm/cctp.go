@@ -21,6 +21,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/adapters"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/changesets"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/cctp"
 	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
@@ -196,13 +197,12 @@ func (m *CCIP17EVMConfig) configureUSDCForTransfer(
 			return fmt.Errorf("no CCTP domain mapping found for chain selector %d", rs)
 		}
 		remoteChains[rs] = adapters.RemoteCCTPChainConfig{
-			FeeUSDCents:         10,
-			GasForVerification:  100000,
-			PayloadSizeBytes:    1000,
-			LockOrBurnMechanism: "CCTP_V2_WITH_CCV",
-			DomainIdentifier:    domain,
-			// Enable fast finality (1 block confirmation)
-			AllowedFinalityConfig: [4]byte{0, 0, 0, 1},
+			FeeUSDCents:           10,
+			GasForVerification:    100000,
+			PayloadSizeBytes:      1000,
+			LockOrBurnMechanism:   "CCTP_V2_WITH_CCV",
+			DomainIdentifier:      domain,
+			AllowedFinalityConfig: protocol.New().WithBlockDepth(1).ToBytes(),
 		}
 	}
 
@@ -315,7 +315,7 @@ func (m *CCIP17EVMConfig) deployCCTPMockReceivers(
 			contract.FunctionInput[[4]byte]{
 				Address:       gethcommon.HexToAddress(deployReceiverReport.Output.Address),
 				ChainSelector: selector,
-				Args:          [4]byte{0, 0, 0, 1},
+				Args:          protocol.New().WithBlockDepth(1).ToBytes(),
 			})
 		if err1 != nil {
 			return fmt.Errorf("failed to set minimum block depth for mock receiver %s on chain %d: %w", r.Qualifier, selector, err1)
