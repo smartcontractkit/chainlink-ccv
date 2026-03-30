@@ -184,4 +184,49 @@ func TestFinality_IsMessageReady(t *testing.T) {
 			})
 		}
 	})
+
+	t.Run("unknown flag bits fall back to full finality", func(t *testing.T) {
+		tests := []struct {
+			name      string
+			finality  Finality
+			msg, fin  int64
+			wantReady bool
+		}{
+			{
+				name:      "unknown bit 11 set with depth bits — requires finality, not depth",
+				finality:  0x0801, // bit 11 set, depth bits = 1
+				msg:       10,
+				fin:       5,
+				wantReady: false, // msg=10 > finalized=5, despite depth=1 being satisfied
+			},
+			{
+				name:      "unknown bit 11 set — finalized",
+				finality:  0x0801,
+				msg:       4,
+				fin:       5,
+				wantReady: true,
+			},
+			{
+				name:      "all reserved bits set",
+				finality:  0xFFFF,
+				msg:       10,
+				fin:       5,
+				wantReady: false,
+			},
+			{
+				name:      "all reserved bits set — finalized",
+				finality:  0xFFFF,
+				msg:       3,
+				fin:       5,
+				wantReady: true,
+			},
+		}
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				ready, err := tc.finality.IsMessageReady(bi(tc.msg), bi(100), bi(99), bi(tc.fin))
+				require.NoError(t, err)
+				assert.Equal(t, tc.wantReady, ready)
+			})
+		}
+	})
 }
