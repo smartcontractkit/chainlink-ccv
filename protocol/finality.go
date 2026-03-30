@@ -59,21 +59,25 @@ func (f Finality) IsMessageReady(msgBlock, latestBlock, latestSafeBlock, latestF
 		return false, ErrNilBlock
 	}
 
-	switch f {
-	case FinalityWaitForFinality:
+	switch {
+	case f == FinalityWaitForFinality:
 		return msgBlock.Cmp(latestFinalizedBlock) <= 0, nil
 
-	case FinalityWaitForSafe:
+	case f == FinalityWaitForSafe:
 		if latestSafeBlock == nil {
 			// Safe head unavailable on this chain — fall back to full finality.
 			return msgBlock.Cmp(latestFinalizedBlock) <= 0, nil
 		}
 		return msgBlock.Cmp(latestSafeBlock) <= 0, nil
 
-	default:
-		// Block-depth mode: lower 10 bits are the confirmation count.
+	case f&FinalityFlagMask == 0:
+		// Block-depth mode: no flag bits set, lower 10 bits are the confirmation count.
 		depth := uint64(f & FinalityBlockDepthMask)
 		required := new(big.Int).Add(msgBlock, new(big.Int).SetUint64(depth))
 		return required.Cmp(latestBlock) <= 0 || msgBlock.Cmp(latestFinalizedBlock) <= 0, nil
+
+	default:
+		// Unknown flag bits set, require full finality as the safest fallback.
+		return msgBlock.Cmp(latestFinalizedBlock) <= 0, nil
 	}
 }
