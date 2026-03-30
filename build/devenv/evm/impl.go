@@ -1142,7 +1142,7 @@ func (m *CCIP17EVMConfig) DeployContractsForSelector(ctx context.Context, env *d
 						MaxCCVsPerMsg: 10,
 						DynamicConfig: adapters.ExecutorDynamicDeployConfig{
 							FeeAggregator:         "0x0000000000000000000000000000000000000001",
-							AllowedFinalityConfig: protocol.New().WithSafe().WithBlockDepth(1).ToBytes(),
+							AllowedFinalityConfig: protocol.NewFinality().WithSafe().WithBlockDepth(1).ToBytes(),
 							CcvAllowlistEnabled:   false,
 						},
 						Qualifier: devenvcommon.DefaultExecutorQualifier,
@@ -1152,7 +1152,7 @@ func (m *CCIP17EVMConfig) DeployContractsForSelector(ctx context.Context, env *d
 						MaxCCVsPerMsg: 10,
 						DynamicConfig: adapters.ExecutorDynamicDeployConfig{
 							FeeAggregator:         "0x0000000000000000000000000000000000000001",
-							AllowedFinalityConfig: protocol.New().WithSafe().WithBlockDepth(1).ToBytes(),
+							AllowedFinalityConfig: protocol.NewFinality().WithSafe().WithBlockDepth(1).ToBytes(),
 							CcvAllowlistEnabled:   false,
 						},
 						Qualifier: devenvcommon.CustomExecutorQualifier,
@@ -1345,7 +1345,7 @@ func (m *CCIP17EVMConfig) GetConnectionProfile(_ *deployment.Environment, select
 
 	cvConfig := ccipChangesets.CommitteeVerifierRemoteChainConfig{
 		GasForVerification:    CommitteeVerifierGasForVerification,
-		AllowedFinalityConfig: protocol.New().WithSafe().WithBlockDepth(1).ToBytes(),
+		AllowedFinalityConfig: protocol.NewFinality().WithSafe().WithBlockDepth(1).ToBytes(),
 	}
 
 	return chainDef, cvConfig, nil

@@ -202,7 +202,7 @@ func (m *CCIP17EVMConfig) configureUSDCForTransfer(
 			PayloadSizeBytes:      1000,
 			LockOrBurnMechanism:   "CCTP_V2_WITH_CCV",
 			DomainIdentifier:      domain,
-			AllowedFinalityConfig: protocol.New().WithBlockDepth(1).ToBytes(),
+			AllowedFinalityConfig: protocol.NewFinality().WithBlockDepth(1).ToBytes(),
 		}
 	}
 
@@ -315,7 +315,7 @@ func (m *CCIP17EVMConfig) deployCCTPMockReceivers(
 			contract.FunctionInput[[4]byte]{
 				Address:       gethcommon.HexToAddress(deployReceiverReport.Output.Address),
 				ChainSelector: selector,
-				Args:          protocol.New().WithBlockDepth(1).ToBytes(),
+				Args:          protocol.NewFinality().WithBlockDepth(1).ToBytes(),
 			})
 		if err1 != nil {
 			return fmt.Errorf("failed to set minimum block depth for mock receiver %s on chain %d: %w", r.Qualifier, selector, err1)

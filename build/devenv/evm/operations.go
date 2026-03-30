@@ -86,7 +86,7 @@ func DeployReceiverForSelector(e *deployment.Environment, selector uint64, args 
 	_, err = operations.ExecuteOperation(e.OperationsBundle, mock_receiver_v2.SetAllowedFinalityConfig, chain, contract.FunctionInput[[4]byte]{
 		Address:       common.HexToAddress(report.Output.Address),
 		ChainSelector: selector,
-		Args:          protocol.New().WithSafe().WithBlockDepth(1).ToBytes(),
+		Args:          protocol.NewFinality().WithSafe().WithBlockDepth(1).ToBytes(),
 	})
 	if err != nil {
 		return datastore.AddressRef{}, fmt.Errorf("failed to set minimum block depth for mock receiver on chain %d: %w", selector, err)
@@ -285,7 +285,7 @@ func DeployAndConfigureNewCommitCCV(ctx context.Context, e *deployment.Environme
 				Router:                MustGetContractAddressForSelector(addresses, sel, router.ContractType),
 				RemoteChainSelector:   remoteSel,
 				GasForVerification:    1, // TODO: set proper gas limit
-				AllowedFinalityConfig: protocol.New().WithSafe().WithBlockDepth(1).ToBytes(),
+				AllowedFinalityConfig: protocol.NewFinality().WithSafe().WithBlockDepth(1).ToBytes(),
 				// TODO: Missing fields?
 				// FeeUSDCents        uint16
 				// PayloadSizeBytes   uint32

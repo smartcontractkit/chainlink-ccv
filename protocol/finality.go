@@ -37,9 +37,9 @@ const (
 	FinalityFlagMask Finality = 0xFFFF0000
 )
 
-// New returns the zero Finality value (FinalityWaitForFinality).
+// NewFinality returns the zero Finality value (FinalityWaitForFinality).
 // Use it as the single entry point for all builder chains.
-func New() Finality { return FinalityWaitForFinality }
+func NewFinality() Finality { return FinalityWaitForFinality }
 
 // WithSafe sets the safe-head flag (bit 16).
 func (f Finality) WithSafe() Finality { return f | FinalityWaitForSafe }
@@ -72,13 +72,7 @@ var ErrNilBlock = errors.New("block must not be nil")
 //   - Block-depth (0x00000001-0x0000FFFF): ready when msgBlock + depth ≤ latestBlock,
 //     OR capped: msgBlock ≤ latestFinalizedBlock (prevents depth from exceeding finality).
 func (f Finality) IsMessageReady(msgBlock, latestBlock, latestSafeBlock, latestFinalizedBlock *big.Int) (bool, error) {
-	if msgBlock == nil {
-		return false, ErrNilBlock
-	}
-	if latestBlock == nil {
-		return false, ErrNilBlock
-	}
-	if latestFinalizedBlock == nil {
+	if msgBlock == nil || latestBlock == nil || latestFinalizedBlock == nil {
 		return false, ErrNilBlock
 	}
 
