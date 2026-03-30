@@ -87,7 +87,7 @@ func DeployReceiverForSelector(e *deployment.Environment, selector uint64, args 
 	_, err = operations.ExecuteOperation(e.OperationsBundle, mock_receiver_v2.SetAllowedFinalityConfig, chain, contract.FunctionInput[[4]byte]{
 		Address:       common.HexToAddress(report.Output.Address),
 		ChainSelector: selector,
-		Args:          [4]byte{0, 0, 0, 1},
+		Args:          [4]byte{0, 1, 0, 1},
 	})
 	if err != nil {
 		return datastore.AddressRef{}, fmt.Errorf("failed to set minimum block depth for mock receiver on chain %d: %w", selector, err)

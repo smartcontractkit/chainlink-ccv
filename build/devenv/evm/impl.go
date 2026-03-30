@@ -1142,7 +1142,7 @@ func (m *CCIP17EVMConfig) DeployContractsForSelector(ctx context.Context, env *d
 						MaxCCVsPerMsg: 10,
 						DynamicConfig: adapters.ExecutorDynamicDeployConfig{
 							FeeAggregator:         "0x0000000000000000000000000000000000000001",
-							MinBlockConfirmations: 1,
+							AllowedFinalityConfig: [4]byte{0, 1, 0, 1},
 							CcvAllowlistEnabled:   false,
 						},
 						Qualifier: devenvcommon.DefaultExecutorQualifier,
@@ -1152,7 +1152,7 @@ func (m *CCIP17EVMConfig) DeployContractsForSelector(ctx context.Context, env *d
 						MaxCCVsPerMsg: 10,
 						DynamicConfig: adapters.ExecutorDynamicDeployConfig{
 							FeeAggregator:         "0x0000000000000000000000000000000000000001",
-							MinBlockConfirmations: 1,
+							AllowedFinalityConfig: [4]byte{0, 1, 0, 1},
 							CcvAllowlistEnabled:   false,
 						},
 						Qualifier: devenvcommon.CustomExecutorQualifier,

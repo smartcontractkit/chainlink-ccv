@@ -539,8 +539,7 @@ func All(src, dest cciptestinterfaces.CCIP17) []tcapi.TestCase {
 	return []tcapi.TestCase{
 		customExecutor(src, dest),
 		eoaReceiverDefaultVerifier(src, dest),
-		// TODO: Doesnt' pass, probably executor requires extra configuration
-		// eoaReceiverDefaultVerifierSafeTag(src, dest),
+		eoaReceiverDefaultVerifierSafeTag(src, dest),
 		eoaReceiverSecondaryVerifier(src, dest),
 		receiverSecondaryVerifierRequired(src, dest),
 		receiverSecondaryRequiredTertiaryOptionalThreshold1(src, dest),
