@@ -1,4 +1,4 @@
-package sourcereader
+package evm
 
 import (
 	"context"
@@ -16,9 +16,10 @@ import (
 	"github.com/smartcontractkit/chainlink-evm/pkg/heads"
 )
 
-type EVMFactory struct {
+// TODO: consolidate or rename multiple factories so that they reflect what they do.
+type EVMFactory struct { //nolint:revive // this was moved from the registry package, the EVM prefix needs to be fixed.
 	lggr               logger.Logger
-	infos              blockchain.Infos[blockchain.Info]
+	infos              blockchain.Infos[Info]
 	onRampAddresses    map[string]string
 	rmnRemoteAddresses map[string]string
 	headTrackers       map[protocol.ChainSelector]heads.Tracker
@@ -27,7 +28,7 @@ type EVMFactory struct {
 
 func NewEVMFactory(
 	lggr logger.Logger,
-	infos blockchain.Infos[blockchain.Info],
+	infos blockchain.Infos[Info],
 	onRampAddresses,
 	rmnRemoteAddresses map[string]string,
 	headTrackers map[protocol.ChainSelector]heads.Tracker,

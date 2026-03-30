@@ -11,6 +11,7 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm"
 	ccvblockchain "github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
 	ctfblockchain "github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
@@ -91,21 +92,21 @@ func GoCacheMounts() testcontainers.ContainerMounts {
 }
 
 // ConvertBlockchainOutputsToInfo converts blockchain.Output to a map of chain selector to BlockchainInfo.
-func ConvertBlockchainOutputsToInfo(outputs []*ctfblockchain.Output) (ccvblockchain.Infos[ccvblockchain.Info], error) {
-	infos := make(map[string]ccvblockchain.Info)
+func ConvertBlockchainOutputsToInfo(outputs []*ctfblockchain.Output) (ccvblockchain.Infos[evm.Info], error) {
+	infos := make(map[string]evm.Info)
 	for _, output := range outputs {
-		info := ccvblockchain.Info{
+		info := evm.Info{
 			ChainID:         output.ChainID,
 			Type:            output.Type,
 			Family:          output.Family,
 			UniqueChainName: output.ContainerName,
-			Nodes:           make([]ccvblockchain.Node, 0, len(output.Nodes)),
+			Nodes:           make([]evm.Node, 0, len(output.Nodes)),
 		}
 
 		// Convert all nodes
 		for _, node := range output.Nodes {
 			if node != nil {
-				info.Nodes = append(info.Nodes, ccvblockchain.Node{
+				info.Nodes = append(info.Nodes, evm.Node{
 					ExternalHTTPUrl: node.ExternalHTTPUrl,
 					InternalHTTPUrl: node.InternalHTTPUrl,
 					ExternalWSUrl:   node.ExternalWSUrl,
