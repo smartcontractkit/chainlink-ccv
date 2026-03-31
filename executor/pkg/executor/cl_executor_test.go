@@ -203,6 +203,7 @@ func Test_ChainlinkExecutor_HandleMessage_CurseCheck(t *testing.T) {
 			dr := map[protocol.ChainSelector]*mocks.MockDestinationReader{
 				1: mocks.NewMockDestinationReader(t),
 			}
+			dr[1].EXPECT().CheckHealth(mock.Anything).Return(nil).Maybe()
 			vr := mocks.NewMockVerifierResultReader(t)
 			msg := generateFakeMessage(1, 2, 1, nil, address2)
 
@@ -294,6 +295,7 @@ func Test_ChainlinkExecutor_HandleMessage_VerifierResults(t *testing.T) {
 			dr := map[protocol.ChainSelector]*mocks.MockDestinationReader{
 				1: mocks.NewMockDestinationReader(t),
 			}
+			dr[1].EXPECT().CheckHealth(mock.Anything).Return(nil).Maybe()
 			dr[1].EXPECT().GetRMNCursedSubjects(mock.Anything).Return([]protocol.Bytes16{}, nil).Once()
 			dr[1].EXPECT().GetMessageSuccess(mock.Anything, mock.Anything).Return(false, nil).Once()
 			dr[1].EXPECT().IsReady(mock.Anything).Return(true).Maybe()
@@ -387,6 +389,7 @@ func Test_ChainlinkExecutor_HandleMessage_OrderCCVData(t *testing.T) {
 			dr := map[protocol.ChainSelector]*mocks.MockDestinationReader{
 				1: mocks.NewMockDestinationReader(t),
 			}
+			dr[1].EXPECT().CheckHealth(mock.Anything).Return(nil).Maybe()
 			dr[1].EXPECT().GetRMNCursedSubjects(mock.Anything).Return([]protocol.Bytes16{}, nil).Once()
 			dr[1].EXPECT().GetMessageSuccess(mock.Anything, mock.Anything).Return(false, nil).Once()
 			dr[1].EXPECT().IsReady(mock.Anything).Return(true).Maybe()
@@ -475,6 +478,7 @@ func Test_ChainlinkExecutor_HandleMessage_ConvertAndWrite(t *testing.T) {
 			dr := map[protocol.ChainSelector]*mocks.MockDestinationReader{
 				1: mocks.NewMockDestinationReader(t),
 			}
+			dr[1].EXPECT().CheckHealth(mock.Anything).Return(nil).Maybe()
 			dr[1].EXPECT().GetRMNCursedSubjects(mock.Anything).Return([]protocol.Bytes16{}, nil).Once()
 			dr[1].EXPECT().GetMessageSuccess(mock.Anything, mock.Anything).Return(false, nil).Once()
 			dr[1].EXPECT().IsReady(mock.Anything).Return(true).Once()
@@ -669,6 +673,7 @@ func Test_ChainlinkExecutor_HandleMessage_PollerNotReady(t *testing.T) {
 		dr := map[protocol.ChainSelector]*mocks.MockDestinationReader{
 			1: mocks.NewMockDestinationReader(t),
 		}
+		dr[1].EXPECT().CheckHealth(mock.Anything).Return(nil).Maybe()
 		dr[1].EXPECT().GetRMNCursedSubjects(mock.Anything).Return([]protocol.Bytes16{}, nil).Once()
 		dr[1].EXPECT().GetMessageSuccess(mock.Anything, mock.Anything).Return(false, nil).Once()
 		dr[1].EXPECT().GetCCVSForMessage(mock.Anything, mock.Anything).Return(protocol.CCVAddressInfo{}, nil).Maybe()
@@ -695,6 +700,7 @@ func Test_ChainlinkExecutor_HandleMessage_PollerNotReady(t *testing.T) {
 		dr := map[protocol.ChainSelector]*mocks.MockDestinationReader{
 			1: mocks.NewMockDestinationReader(t),
 		}
+		dr[1].EXPECT().CheckHealth(mock.Anything).Return(nil).Maybe()
 		dr[1].EXPECT().GetRMNCursedSubjects(mock.Anything).Return([]protocol.Bytes16{}, nil).Once()
 		dr[1].EXPECT().GetMessageSuccess(mock.Anything, mock.Anything).Return(false, nil).Once()
 		dr[1].EXPECT().GetCCVSForMessage(mock.Anything, mock.Anything).Return(protocol.CCVAddressInfo{}, nil).Maybe()
