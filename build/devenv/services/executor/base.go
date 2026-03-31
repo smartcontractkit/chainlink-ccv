@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/BurntSushi/toml"
@@ -411,10 +412,11 @@ func launchExecutor(ctx context.Context, in *Input, outputs []*ctfblockchain.Out
 		return nil, fmt.Errorf("failed to get database mapped port: %w", err)
 	}
 
+	containerName := strings.TrimPrefix(inspect.Name, "/")
 	out := &Output{
 		ContainerName:   inspect.Name,
 		ExternalHTTPURL: fmt.Sprintf("http://%s:%s", host, executorMapped.Port()),
-		InternalHTTPURL: fmt.Sprintf("http://%s:%d", inspect.Name, DefaultExecutorPort),
+		InternalHTTPURL: fmt.Sprintf("http://%s:%d", containerName, DefaultExecutorPort),
 		BootstrapDBURL:  fmt.Sprintf("http://%s:%s", host, bootstrapMapped.Port()),
 		BootstrapDBConnectionString: fmt.Sprintf("postgresql://%s:%s@localhost:%s/%s?sslmode=disable",
 			in.ContainerName, in.ContainerName, dbMapped.Port(), services.DefaultBootstrapDBName),
