@@ -931,12 +931,12 @@ func TestStart_NonBlocking(t *testing.T) {
 	mockCli := new(mockClient)
 	poller := setupTestPoller(t, mockCli, lookbackWindow)
 
-	// Use a dynamic function that blocks until context is cancelled,
+	// Use a dynamic function that blocks until context is canceled,
 	// simulating a slow RPC call during getStartBlock.
 	blockCh := make(chan struct{})
 	mockCli.dynamicFunc = func(ctx context.Context, number *big.Int) (*types.Header, error) {
 		<-blockCh
-		return nil, errors.New("cancelled")
+		return nil, errors.New("canceled")
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -1003,7 +1003,7 @@ func TestStart_ContextCancelDuringStartup_NotFatal(t *testing.T) {
 	poller := setupTestPoller(t, mockCli, lookbackWindow)
 
 	// Block getStartBlock until the cancel channel fires, then return
-	// a context-cancelled error.
+	// a context-canceled error.
 	startedCh := make(chan struct{})
 	mockCli.dynamicFunc = func(ctx context.Context, number *big.Int) (*types.Header, error) {
 		close(startedCh)

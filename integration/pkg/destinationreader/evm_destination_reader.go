@@ -238,7 +238,8 @@ func (dr *EvmDestinationReader) GetExecutionAttempts(ctx context.Context, messag
 // IsReady reports whether this destination reader has completed its startup
 // (including the execution attempt poller backfill) and is ready to serve data.
 func (dr *EvmDestinationReader) IsReady(_ protocol.ChainSelector) bool {
-	if err := dr.StateMachine.Ready(); err != nil {
+	// Uses the embedded StateMachine Ready() method to check if the poller is ready.
+	if err := dr.Ready(); err != nil {
 		return false
 	}
 	return dr.executionAttemptPoller.Ready() == nil
