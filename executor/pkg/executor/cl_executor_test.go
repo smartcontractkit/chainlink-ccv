@@ -718,7 +718,7 @@ func Test_ChainlinkExecutor_HandleMessage_PollerNotReady(t *testing.T) {
 	})
 }
 
-func Test_ChainlinkExecutor_CheckValidMessage_PollerNotReady(t *testing.T) {
+func Test_ChainlinkExecutor_CheckValidMessage_HealthCheck(t *testing.T) {
 	address1, err := protocol.RandomAddress()
 	assert.NoError(t, err)
 	address2, err := protocol.RandomAddress()
@@ -726,17 +726,17 @@ func Test_ChainlinkExecutor_CheckValidMessage_PollerNotReady(t *testing.T) {
 
 	testcases := []struct {
 		name          string
-		isReady       bool
+		healthErr     error
 		expectedError bool
 	}{
 		{
-			name:          "ready reader - valid message",
-			isReady:       true,
+			name:          "healthy reader - valid message",
+			healthErr:     nil,
 			expectedError: false,
 		},
 		{
-			name:          "not ready reader - invalid message",
-			isReady:       false,
+			name:          "critically failed reader - rejects message",
+			healthErr:     errors.New("failed to get start block: rpc timeout"),
 			expectedError: true,
 		},
 	}
@@ -749,7 +749,7 @@ func Test_ChainlinkExecutor_CheckValidMessage_PollerNotReady(t *testing.T) {
 			dr := map[protocol.ChainSelector]*mocks.MockDestinationReader{
 				1: mocks.NewMockDestinationReader(t),
 			}
-			dr[1].EXPECT().IsReady(protocol.ChainSelector(1)).Return(tc.isReady).Once()
+			dr[1].EXPECT().CheckHealth(protocol.ChainSelector(1)).Return(tc.healthErr).Once()
 
 			vr := mocks.NewMockVerifierResultReader(t)
 			executor := setupTestExecutor(t, ct, dr, vr, address1, address2, 2)
@@ -758,7 +758,7 @@ func Test_ChainlinkExecutor_CheckValidMessage_PollerNotReady(t *testing.T) {
 			err := executor.CheckValidMessage(context.Background(), msg)
 			if tc.expectedError {
 				assert.Error(t, err)
-				assert.Contains(t, err.Error(), "destination reader not ready")
+				assert.Contains(t, err.Error(), "critically failed")
 			} else {
 				assert.NoError(t, err)
 			}

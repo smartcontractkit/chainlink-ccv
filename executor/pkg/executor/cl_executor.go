@@ -141,8 +141,9 @@ func (cle *ChainlinkExecutor) CheckValidMessage(ctx context.Context, message pro
 	if !ok {
 		return fmt.Errorf("no contract transmitter for chain %d", destinationChain)
 	}
-	if !reader.IsReady(destinationChain) {
-		return fmt.Errorf("destination reader not ready for chain %d", destinationChain)
+	if err := reader.CheckHealth(destinationChain); err != nil {
+		cle.monitoring.Metrics().IncrementDestinationReaderCriticalFailure(ctx, destinationChain)
+		return fmt.Errorf("destination reader critically failed for chain %d: %w", destinationChain, err)
 	}
 	return nil
 }
@@ -155,6 +156,10 @@ func (cle *ChainlinkExecutor) CheckValidMessage(ctx context.Context, message pro
 // 5. Order the CCV data to match the order expected by the receiver contract.
 // 6. Create the aggregated report and transmit it to the chain.
 func (cle *ChainlinkExecutor) HandleMessage(ctx context.Context, message protocol.Message) (shouldRetry bool, err error) {
+	// Check prerequisites to avoid toctou issues
+	if cle.CheckValidMessage(ctx, message) != nil {
+		return false, err
+	}
 	start := time.Now()
 	destinationChain := message.DestChainSelector
 	messageID := message.MustMessageID()

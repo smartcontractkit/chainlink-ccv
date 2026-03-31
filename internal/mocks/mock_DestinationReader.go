@@ -22,6 +22,52 @@ func (_m *MockDestinationReader) EXPECT() *MockDestinationReader_Expecter {
 	return &MockDestinationReader_Expecter{mock: &_m.Mock}
 }
 
+// CheckHealth provides a mock function with given fields: chain
+func (_m *MockDestinationReader) CheckHealth(chain protocol.ChainSelector) error {
+	ret := _m.Called(chain)
+
+	if len(ret) == 0 {
+		panic("no return value specified for CheckHealth")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(protocol.ChainSelector) error); ok {
+		r0 = rf(chain)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockDestinationReader_CheckHealth_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CheckHealth'
+type MockDestinationReader_CheckHealth_Call struct {
+	*mock.Call
+}
+
+// CheckHealth is a helper method to define mock.On call
+//   - chain protocol.ChainSelector
+func (_e *MockDestinationReader_Expecter) CheckHealth(chain interface{}) *MockDestinationReader_CheckHealth_Call {
+	return &MockDestinationReader_CheckHealth_Call{Call: _e.mock.On("CheckHealth", chain)}
+}
+
+func (_c *MockDestinationReader_CheckHealth_Call) Run(run func(chain protocol.ChainSelector)) *MockDestinationReader_CheckHealth_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(protocol.ChainSelector))
+	})
+	return _c
+}
+
+func (_c *MockDestinationReader_CheckHealth_Call) Return(_a0 error) *MockDestinationReader_CheckHealth_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockDestinationReader_CheckHealth_Call) RunAndReturn(run func(protocol.ChainSelector) error) *MockDestinationReader_CheckHealth_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetCCVSForMessage provides a mock function with given fields: ctx, message
 func (_m *MockDestinationReader) GetCCVSForMessage(ctx context.Context, message protocol.Message) (protocol.CCVAddressInfo, error) {
 	ret := _m.Called(ctx, message)

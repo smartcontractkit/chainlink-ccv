@@ -245,6 +245,16 @@ func (dr *EvmDestinationReader) IsReady(_ protocol.ChainSelector) bool {
 	return dr.executionAttemptPoller.Ready() == nil
 }
 
+// CheckHealth returns nil when the destination reader and its execution attempt
+// poller are operating normally. A non-nil error indicates an unrecoverable
+// failure such as the poller being unable to determine its start block.
+func (dr *EvmDestinationReader) CheckHealth(_ protocol.ChainSelector) error {
+	if err := dr.Healthy(); err != nil {
+		return err
+	}
+	return dr.executionAttemptPoller.Healthy()
+}
+
 // HasHonestAttempt reports whether an honest execution attempt has been made
 // for the given message by checking existing on-chain attempts against the
 // provided verifier results.
