@@ -10,7 +10,7 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/prometheus/client_golang/prometheus"
 
-	"github.com/smartcontractkit/chainlink-ccip/deployment/lanes"
+	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/adapters"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/offchain"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
@@ -199,6 +199,27 @@ type OnChainCommittees struct {
 	Threshold          uint8
 }
 
+// ChainLaneProfile holds everything an impl needs to provide so that
+// connectAllChains can assemble PartialChainConfig entries for the
+// canonical ConfigureChainsForLanesFromTopology changeset.
+type ChainLaneProfile struct {
+	Router    datastore.AddressRef
+	OnRamp    datastore.AddressRef
+	FeeQuoter datastore.AddressRef
+	OffRamp   datastore.AddressRef
+
+	AddressBytesLength       uint8
+	BaseExecutionGasCost     uint32
+	FeeQuoterDestChainConfig adapters.FeeQuoterDestChainConfig
+
+	ExecutorDestChainConfig adapters.ExecutorDestChainConfig
+	DefaultExecutor         datastore.AddressRef
+	DefaultInboundCCVs      []datastore.AddressRef
+	DefaultOutboundCCVs     []datastore.AddressRef
+
+	GasForVerification uint32
+}
+
 // OnChainConfigurable defines methods that allows devenv to
 // deploy, configure Chainlink product and connect on-chain part with other chains.
 type OnChainConfigurable interface {
@@ -207,11 +228,11 @@ type OnChainConfigurable interface {
 	// DeployContractsForSelector deploys contracts for chain X using topology for CommitteeVerifier configuration.
 	// Returns all the contract addresses and metadata as datastore.DataStore.
 	DeployContractsForSelector(ctx context.Context, env *deployment.Environment, selector uint64, topology *offchain.EnvironmentTopology) (datastore.DataStore, error)
-	// GetConnectionProfile returns a ChainDefinition describing this chain as a
-	// lane destination, plus the default committee verifier remote chain input
-	// to apply for each remote chain. The environment uses profiles from all
-	// chains to assemble the full cross-chain connection config.
-	GetConnectionProfile(env *deployment.Environment, selector uint64) (lanes.ChainDefinition, lanes.CommitteeVerifierRemoteChainInput, error)
+	// GetChainLaneProfile returns the lane profile for this chain, containing
+	// local contract refs, destination characteristics, and default per-remote
+	// settings. The environment uses profiles from all chains to assemble the
+	// full cross-chain connection config.
+	GetChainLaneProfile(env *deployment.Environment, selector uint64) (ChainLaneProfile, error)
 	// PostConnect runs chain-specific setup after all chains have been connected
 	// (e.g. USDC/Lombard token config, custom executor wiring).
 	PostConnect(env *deployment.Environment, selector uint64, remoteSelectors []uint64) error

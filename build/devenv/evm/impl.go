@@ -2,7 +2,6 @@ package evm
 
 import (
 	"context"
-	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -51,7 +50,6 @@ import (
 	burnminterc677ops "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_5_0/operations/burn_mint_erc20_with_drip"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_5_0/operations/token_admin_registry"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_0/operations/rmn_remote"
-	"github.com/smartcontractkit/chainlink-ccip/deployment/lanes"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/adapters"
 	ccipChangesets "github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/changesets"
 	ccipOffchain "github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/offchain"
@@ -1310,13 +1308,49 @@ func (m *CCIP17EVM) GetMaxDataBytes(ctx context.Context, remoteChainSelector uin
 	return destChainConfig.MaxDataBytes, nil
 }
 
-func (m *CCIP17EVMConfig) GetConnectionProfile(_ *deployment.Environment, selector uint64) (lanes.ChainDefinition, lanes.CommitteeVerifierRemoteChainInput, error) {
-	chainDef := lanes.ChainDefinition{
-		Selector:                          selector,
-		AddressBytesLength:                20,
-		BaseExecutionGasCost:              150_000,
-		FeeQuoterDestChainConfigOverrides: evmFeeQuoterDestChainConfigOverride(selector),
-		ExecutorDestChainConfig: lanes.ExecutorDestChainConfig{
+func (m *CCIP17EVMConfig) GetChainLaneProfile(_ *deployment.Environment, selector uint64) (cciptestinterfaces.ChainLaneProfile, error) {
+	selectorBytes := changesetsutils.GetSelectorHex(selector)
+	var chainFamilySelector [4]byte
+	copy(chainFamilySelector[:], selectorBytes[:4])
+
+	return cciptestinterfaces.ChainLaneProfile{
+		Router: datastore.AddressRef{
+			Type:          datastore.ContractType(routeroperations.ContractType),
+			Version:       routeroperations.Version,
+			ChainSelector: selector,
+		},
+		OnRamp: datastore.AddressRef{
+			Type:          datastore.ContractType(onrampoperations.ContractType),
+			Version:       onrampoperations.Version,
+			ChainSelector: selector,
+		},
+		FeeQuoter: datastore.AddressRef{
+			Type:          datastore.ContractType(fee_quoter.ContractType),
+			Version:       fee_quoter.Version,
+			ChainSelector: selector,
+		},
+		OffRamp: datastore.AddressRef{
+			Type:          datastore.ContractType(offrampoperations.ContractType),
+			Version:       offrampoperations.Version,
+			ChainSelector: selector,
+		},
+		AddressBytesLength:   20,
+		BaseExecutionGasCost: 150_000,
+		FeeQuoterDestChainConfig: adapters.FeeQuoterDestChainConfig{
+			IsEnabled:                   true,
+			MaxDataBytes:                30_000,
+			MaxPerMsgGasLimit:           3_000_000,
+			DestGasOverhead:             300_000,
+			DefaultTokenFeeUSDCents:     25,
+			DestGasPerPayloadByteBase:   16,
+			DefaultTokenDestGasOverhead: 90_000,
+			DefaultTxGasLimit:           200_000,
+			NetworkFeeUSDCents:          10,
+			ChainFamilySelector:         chainFamilySelector,
+			LinkFeeMultiplierPercent:    90,
+			USDPerUnitGas:               big.NewInt(1e6),
+		},
+		ExecutorDestChainConfig: adapters.ExecutorDestChainConfig{
 			Enabled: true,
 		},
 		DefaultExecutor: datastore.AddressRef{
@@ -1341,13 +1375,8 @@ func (m *CCIP17EVMConfig) GetConnectionProfile(_ *deployment.Environment, select
 				Qualifier:     devenvcommon.DefaultCommitteeVerifierQualifier,
 			},
 		},
-	}
-
-	cvConfig := lanes.CommitteeVerifierRemoteChainInput{
 		GasForVerification: CommitteeVerifierGasForVerification,
-	}
-
-	return chainDef, cvConfig, nil
+	}, nil
 }
 
 func (m *CCIP17EVMConfig) PostConnect(e *deployment.Environment, selector uint64, remoteSelectors []uint64) error {
@@ -1371,7 +1400,7 @@ func (m *CCIP17EVMConfig) PostConnect(e *deployment.Environment, selector uint64
 	for _, rs := range remoteSelectors {
 		destChainSelectorsToAdd = append(destChainSelectorsToAdd, sequences.ExecutorRemoteChainConfigArgs{
 			DestChainSelector: rs,
-			Config: lanes.ExecutorDestChainConfig{
+			Config: adapters.ExecutorDestChainConfig{
 				Enabled: true,
 			},
 		})
@@ -1394,27 +1423,6 @@ func (m *CCIP17EVMConfig) PostConnect(e *deployment.Environment, selector uint64
 	}
 
 	return nil
-}
-
-func evmFeeQuoterDestChainConfigOverride(selector uint64) *lanes.FeeQuoterDestChainConfigOverride {
-	override := lanes.FeeQuoterDestChainConfigOverride(func(cfg *lanes.FeeQuoterDestChainConfig) {
-		selectorBytes := changesetsutils.GetSelectorHex(selector)
-		cfg.IsEnabled = true
-		cfg.MaxDataBytes = 30_000
-		cfg.MaxPerMsgGasLimit = 3_000_000
-		cfg.DestGasOverhead = 300_000
-		cfg.DefaultTokenFeeUSDCents = 25
-		cfg.DestGasPerPayloadByteBase = 16
-		cfg.DefaultTokenDestGasOverhead = 90_000
-		cfg.DefaultTxGasLimit = 200_000
-		cfg.NetworkFeeUSDCents = 10
-		cfg.ChainFamilySelector = binary.BigEndian.Uint32(selectorBytes[:4])
-		cfg.V2Params = &lanes.FeeQuoterV2Params{
-			LinkFeeMultiplierPercent: 90,
-			USDPerUnitGas:            big.NewInt(1e6),
-		}
-	})
-	return &override
 }
 
 // ConfigureUSDCAndLombardForTransfer configures CCTP/USDC and Lombard lanes. Called from PostConnect;
