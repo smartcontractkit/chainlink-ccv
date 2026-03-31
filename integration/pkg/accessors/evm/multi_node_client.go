@@ -19,8 +19,8 @@ func CreateHealthyMultiNodeClient(ctx context.Context, infos blockchain.Infos[In
 	info, err := infos.GetBlockchainByChainSelector(chainSelector)
 	if err != nil {
 		lggr.Errorw("Failed to get blockchain info", "error", err, "chainSelector", chainSelector)
+		return nil, fmt.Errorf("failed to get blockchain info for chain selector %v: %w", chainSelector, err)
 	}
-
 	return CreateMultiNodeClientFromInfo(ctx, info, lggr)
 }
 
@@ -89,6 +89,7 @@ func CreateMultiNodeClientFromInfo(ctx context.Context, blockchainInfo Info, lgg
 	err = chainClient.Dial(ctx)
 	if err != nil {
 		lggr.Errorw("Failed to dial multinode chain client", "error", err)
+		chainClient.Close()
 		return nil, fmt.Errorf("failed to dial evm client: %w", err)
 	}
 
@@ -96,6 +97,7 @@ func CreateMultiNodeClientFromInfo(ctx context.Context, blockchainInfo Info, lgg
 	latestBlock, err := chainClient.LatestBlockHeight(ctx)
 	if err != nil {
 		lggr.Errorw("Failed to get block height", "error", err)
+		chainClient.Close()
 		return nil, fmt.Errorf("failed to get block height: %w", err)
 	}
 	lggr.Infow("Latest block (via multinode)", "blockNumber", latestBlock)
@@ -108,6 +110,7 @@ func CreateMultiNodeClientFromInfo(ctx context.Context, blockchainInfo Info, lgg
 	header, err := chainClient.HeadByNumber(ctx, latestBlock)
 	if err != nil {
 		lggr.Errorw("Failed to get block head", "error", err)
+		chainClient.Close()
 		return nil, fmt.Errorf("failed to get block head: %w", err)
 	}
 	lggr.Infow("Block header",
