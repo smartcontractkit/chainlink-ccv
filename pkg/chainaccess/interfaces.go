@@ -5,7 +5,6 @@ import (
 	"math/big"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-common/pkg/services"
 )
 
 // HeadTracker provides access to the latest blockchain head information.
@@ -87,7 +86,6 @@ type AccessorFactory interface {
 // It's used to get the list of ccv addresses for each receiver, as well as check if messages have been executed
 // When integrating with non-evms, the implementer only needs to add support for a single chain.
 type DestinationReader interface {
-	services.Service
 	// RMNCurseReader Embed RMNCurseReader for curse detection functionality. This can point to the same implementation as the SourceReader.
 	RMNCurseReader
 	// GetMessageSuccess returns true if message has on-chain success state.
@@ -96,10 +94,23 @@ type DestinationReader interface {
 	GetCCVSForMessage(ctx context.Context, message protocol.Message) (protocol.CCVAddressInfo, error)
 	// GetExecutionAttempts returns the full list of execution attempts for a given message within the executable window.
 	GetExecutionAttempts(ctx context.Context, message protocol.Message) ([]protocol.ExecutionAttempt, error)
+	// AttemptChecker Embed AttemptChecker for execution attempt validation functionality.
+	AttemptChecker
 }
 
 // ContractTransmitter is an interface for transmitting messages to destination chains that should be implemented by chain-specific transmitters.
 type ContractTransmitter interface {
 	// ConvertAndWriteMessageToChain takes an aggregated report and transmits it in the format expected by the destination chain.
 	ConvertAndWriteMessageToChain(ctx context.Context, report protocol.AbstractAggregatedReport) error
+}
+
+// AttemptChecker validates execution attempts and reports readiness for a
+// destination chain's execution attempt poller.
+type AttemptChecker interface {
+	// IsReady reports whether the destination reader for the given chain has
+	// completed its startup and is ready to serve execution attempt data.
+	IsReady(chain protocol.ChainSelector) bool
+	// HasHonestAttempt reports whether an honest execution attempt has been
+	// made for the given message.
+	HasHonestAttempt(ctx context.Context, message protocol.Message, verifierResults []protocol.VerifierResult, ccvAddressInfo protocol.CCVAddressInfo) (bool, error)
 }

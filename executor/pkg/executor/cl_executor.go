@@ -12,7 +12,6 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/executor"
-	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/executionchecker"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -33,7 +32,7 @@ type ChainlinkExecutor struct {
 	lggr                   logger.Logger
 	contractTransmitters   map[protocol.ChainSelector]chainaccess.ContractTransmitter
 	destinationReaders     map[protocol.ChainSelector]chainaccess.DestinationReader
-	executionChecker       *executionchecker.AttemptCheckerService
+	readerServices         []services.Service
 	curseChecker           common.CurseChecker
 	verifierResultsReader  executor.VerifierResultReader
 	monitoring             executor.Monitoring
@@ -53,11 +52,18 @@ func NewChainlinkExecutor(
 		"defaultExecutorAddress", defaultExecutorAddress,
 	)
 
+	var readerServices []services.Service
+	for _, reader := range destinationReaders {
+		if svc, ok := reader.(services.Service); ok {
+			readerServices = append(readerServices, svc)
+		}
+	}
+
 	return &ChainlinkExecutor{
 		lggr:                   lggr,
 		contractTransmitters:   contractTransmitters,
 		destinationReaders:     destinationReaders,
-		executionChecker:       executionchecker.NewAttemptChecker(lggr, destinationReaders),
+		readerServices:         readerServices,
 		curseChecker:           curseChecker,
 		verifierResultsReader:  verifierResultReader,
 		monitoring:             monitoring,
@@ -68,18 +74,18 @@ func NewChainlinkExecutor(
 func (cle *ChainlinkExecutor) Start(ctx context.Context) error {
 	return cle.StartOnce(chainlinkExecutorServiceName, func() error {
 		cle.lggr.Info("Starting Chainlink Executor")
-		var startedReaders []chainaccess.DestinationReader
+		var startedServices []services.Service
 		var startErrs []error
-		for chainSelector, reader := range cle.destinationReaders {
-			if err := reader.Start(ctx); err != nil {
-				startErrs = append(startErrs, fmt.Errorf("failed to start destination reader for chain %d: %w", chainSelector, err))
+		for _, svc := range cle.readerServices {
+			if err := svc.Start(ctx); err != nil {
+				startErrs = append(startErrs, fmt.Errorf("failed to start destination reader service %s: %w", svc.Name(), err))
 			} else {
-				startedReaders = append(startedReaders, reader)
+				startedServices = append(startedServices, svc)
 			}
 		}
 		if len(startErrs) > 0 {
-			for _, reader := range startedReaders {
-				if closeErr := reader.Close(); closeErr != nil {
+			for _, svc := range startedServices {
+				if closeErr := svc.Close(); closeErr != nil {
 					startErrs = append(startErrs, closeErr)
 				}
 			}
@@ -93,9 +99,9 @@ func (cle *ChainlinkExecutor) Close() error {
 	return cle.StopOnce(chainlinkExecutorServiceName, func() error {
 		cle.lggr.Info("Stopping Chainlink Executor")
 		var errs []error
-		for chainSelector, reader := range cle.destinationReaders {
-			if err := reader.Close(); err != nil {
-				errs = append(errs, fmt.Errorf("failed to close destination reader for chain %d: %w", chainSelector, err))
+		for _, svc := range cle.readerServices {
+			if err := svc.Close(); err != nil {
+				errs = append(errs, fmt.Errorf("failed to close destination reader service %s: %w", svc.Name(), err))
 			}
 		}
 		cle.lggr.Info("Stopped Chainlink Executor")
@@ -110,8 +116,8 @@ func (cle *ChainlinkExecutor) HealthReport() map[string]error {
 	report := make(map[string]error)
 	report[cle.Name()] = cle.Ready()
 
-	for _, reader := range cle.destinationReaders {
-		services.CopyHealth(report, reader.HealthReport())
+	for _, svc := range cle.readerServices {
+		services.CopyHealth(report, svc.HealthReport())
 	}
 
 	return report
@@ -127,13 +133,16 @@ func (cle *ChainlinkExecutor) Ready() error {
 
 func (cle *ChainlinkExecutor) CheckValidMessage(ctx context.Context, message protocol.Message) error {
 	destinationChain := message.DestChainSelector
-	_, ok := cle.destinationReaders[destinationChain]
+	reader, ok := cle.destinationReaders[destinationChain]
 	if !ok {
 		return fmt.Errorf("no destination reader for chain %d", destinationChain)
 	}
 	_, ok = cle.contractTransmitters[destinationChain]
 	if !ok {
 		return fmt.Errorf("no contract transmitter for chain %d", destinationChain)
+	}
+	if !reader.IsReady(destinationChain) {
+		return fmt.Errorf("destination reader not ready for chain %d", destinationChain)
 	}
 	return nil
 }
@@ -206,9 +215,15 @@ func (cle *ChainlinkExecutor) HandleMessage(ctx context.Context, message protoco
 		return true, err
 	}
 
+	if !cle.destinationReaders[destinationChain].IsReady(destinationChain) {
+		cle.lggr.Infow("execution attempt poller not ready, will retry",
+			"messageID", messageID)
+		return true, nil
+	}
+
 	// Check if anyone (third-party or other executor) has honestly attempted to execute this message.
 	// If they haven't we can execute it.
-	honestAttempt, err := cle.executionChecker.HasHonestAttempt(ctx, message, verifierResults, verifierQuorum)
+	honestAttempt, err := cle.destinationReaders[destinationChain].HasHonestAttempt(ctx, message, verifierResults, verifierQuorum)
 	if err != nil {
 		cle.lggr.Errorw("unable to call execution checker, will retry message", "error", err, "messageID", messageID)
 		return true, err
