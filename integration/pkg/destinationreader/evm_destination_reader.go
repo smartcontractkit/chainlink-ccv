@@ -13,6 +13,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/offramp"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/rmn_remote"
 	"github.com/smartcontractkit/chainlink-ccv/executor"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/executionchecker"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/rmnremotereader"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -232,4 +233,48 @@ func (dr *EvmDestinationReader) GetRMNCursedSubjects(ctx context.Context) ([]pro
 // GetExecutionAttempts retrieves execution attempts for the given message from the poller cache.
 func (dr *EvmDestinationReader) GetExecutionAttempts(ctx context.Context, message protocol.Message) ([]protocol.ExecutionAttempt, error) {
 	return dr.executionAttemptPoller.GetExecutionAttempts(ctx, message)
+}
+
+// IsReady reports whether this destination reader has completed its startup
+// (including the execution attempt poller backfill) and is ready to serve data.
+func (dr *EvmDestinationReader) IsReady(_ protocol.ChainSelector) bool {
+	// Uses the embedded StateMachine Ready() method to check if the poller is ready.
+	if err := dr.Ready(); err != nil {
+		return false
+	}
+	return dr.executionAttemptPoller.Ready() == nil
+}
+
+// CheckHealth returns nil when the destination reader and its execution attempt
+// poller are operating normally. A non-nil error indicates an unrecoverable
+// failure such as the poller being unable to determine its start block.
+func (dr *EvmDestinationReader) CheckHealth(_ protocol.ChainSelector) error {
+	if err := dr.Healthy(); err != nil {
+		return err
+	}
+	return dr.executionAttemptPoller.Healthy()
+}
+
+// HasHonestAttempt reports whether an honest execution attempt has been made
+// for the given message by checking existing on-chain attempts against the
+// provided verifier results.
+func (dr *EvmDestinationReader) HasHonestAttempt(ctx context.Context, message protocol.Message, verifierResults []protocol.VerifierResult, ccvAddressInfo protocol.CCVAddressInfo) (bool, error) {
+	attempts, err := dr.GetExecutionAttempts(ctx, message)
+	if err != nil {
+		return false, err
+	}
+
+	for _, attempt := range attempts {
+		honestCallData, err := executionchecker.IsHonestCallData(message, attempt, verifierResults, ccvAddressInfo)
+		honestGasLimit := executionchecker.IsHonestGasLimit(message, attempt)
+		if err != nil {
+			continue
+		}
+
+		if honestCallData && honestGasLimit {
+			return true, nil
+		}
+	}
+
+	return false, nil
 }

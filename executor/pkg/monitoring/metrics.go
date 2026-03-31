@@ -41,6 +41,9 @@ type ExecutorMetrics struct {
 	// unrecoverable message failure
 	unrecoverableMessageFailureCounter metric.Int64Counter
 
+	// destination reader critical failure
+	destinationReaderCriticalFailureCounter metric.Int64Counter
+
 	// Chain curse metric
 	remoteChainCursed      metric.Int64Gauge
 	localChainGlobalCursed metric.Int64Gauge
@@ -191,6 +194,14 @@ func InitMetrics() (*ExecutorMetrics, error) {
 		return nil, fmt.Errorf("failed to register unrecoverable message failure counter: %w", err)
 	}
 
+	vm.destinationReaderCriticalFailureCounter, err = beholder.GetMeter().Int64Counter(
+		"executor_destination_reader_critical_failure_total",
+		metric.WithDescription("Total number of messages rejected due to the destination reader being in an unrecoverable failure state"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register destination reader critical failure counter: %w", err)
+	}
+
 	return vm, nil
 }
 
@@ -305,6 +316,15 @@ func (v *ExecutorMetricLabeler) IncrementAllIndexersFailed(ctx context.Context) 
 func (v *ExecutorMetricLabeler) IncrementUnrecoverableMessageFailure(ctx context.Context) {
 	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
 	v.vm.unrecoverableMessageFailureCounter.Add(ctx, 1, metric.WithAttributes(otelLabels...))
+}
+
+func (v *ExecutorMetricLabeler) IncrementDestinationReaderCriticalFailure(ctx context.Context, destChainSelector protocol.ChainSelector) {
+	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
+	otelLabels = append(otelLabels,
+		attribute.String("destChainSelector", destChainSelector.String()),
+		attribute.String("destChainName", destChainSelector.ChainName()),
+	)
+	v.vm.destinationReaderCriticalFailureCounter.Add(ctx, 1, metric.WithAttributes(otelLabels...))
 }
 
 func (v *ExecutorMetricLabeler) SetRemoteChainCursed(ctx context.Context, localSelector, remoteSelector protocol.ChainSelector, cursed bool) {

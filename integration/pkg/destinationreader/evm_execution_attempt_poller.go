@@ -8,6 +8,7 @@ import (
 	"math/big"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
@@ -48,33 +49,47 @@ var (
 	_          = services.Service(&EvmExecutionAttemptPoller{})
 	offrampABI = evmtypes.MustGetABI(offramp.OffRampABI)
 
-	errNilClient = errors.New("client cannot be nil")
-	errNilLogger = errors.New("logger cannot be nil")
+	errNilClient          = errors.New("client cannot be nil")
+	errNilLogger          = errors.New("logger cannot be nil")
+	ErrBackfillInProgress = errors.New("execution attempt poller backfill in progress")
 )
 
 // EvmExecutionAttemptPoller polls for execution state changed events and caches execution attempts.
 type EvmExecutionAttemptPoller struct {
 	services.StateMachine
-	lggr            logger.Logger
-	chainSelector   protocol.ChainSelector
-	client          client.Client
-	offRampAddress  common.Address
-	startBlock      uint64
-	offRampFilterer offramp.OffRampFilterer
-	eventCh         chan *offramp.OffRampExecutionStateChanged
-	subscription    event.Subscription
-	attemptCache    *expirable.LRU[protocol.Bytes32, []protocol.ExecutionAttempt]
-	cancelFunc      context.CancelFunc
-	runWg           sync.WaitGroup
-	pollInterval    time.Duration
-	lastPolledBlock uint64
-	lookbackWindow  time.Duration
+	lggr             logger.Logger
+	chainSelector    protocol.ChainSelector
+	client           client.Client
+	offRampAddress   common.Address
+	startBlock       uint64
+	offRampFilterer  offramp.OffRampFilterer
+	eventCh          chan *offramp.OffRampExecutionStateChanged
+	subscription     event.Subscription
+	attemptCache     *expirable.LRU[protocol.Bytes32, []protocol.ExecutionAttempt]
+	cancelFunc       context.CancelFunc
+	runWg            sync.WaitGroup
+	pollInterval     time.Duration
+	lastPolledBlock  uint64
+	lookbackWindow   time.Duration
+	backfillComplete atomic.Bool
+	fatalErr         atomic.Pointer[error]
 }
 
 func (p *EvmExecutionAttemptPoller) HealthReport() map[string]error {
 	report := make(map[string]error)
 	report[p.Name()] = p.Healthy()
 	return report
+}
+
+// Healthy returns nil when the poller is operating normally. If a permanent
+// failure has been recorded (e.g. getStartBlock failed), the stored fatal
+// error is returned on every call so the failure surfaces persistently in
+// HealthReport.
+func (p *EvmExecutionAttemptPoller) Healthy() error {
+	if errPtr := p.fatalErr.Load(); errPtr != nil {
+		return *errPtr
+	}
+	return p.StateMachine.Healthy()
 }
 
 func (p *EvmExecutionAttemptPoller) Name() string {
@@ -118,29 +133,62 @@ func NewEVMExecutionAttemptPoller(
 }
 
 // Start starts the poller service. It implements the services.Service interface.
-// It performs an initial synchronous HTTP backfill from the lookback window to the latest block,
-// then attempts to switch to WebSocket subscription mode. If WebSocket is unavailable, HTTP
-// polling continues from wherever the backfill left off.
+// The startup sequence (getStartBlock, backfill, WS/HTTP mode) runs in a background
+// goroutine so that Start returns immediately. Use Ready() to check when the backfill
+// is complete and the poller is fully operational.
 func (p *EvmExecutionAttemptPoller) Start(ctx context.Context) error {
 	return p.StartOnce(evmExecutionAttemptPollerServiceName, func() error {
-		if err := p.getStartBlock(ctx, p.lookbackWindow); err != nil {
-			return fmt.Errorf("failed to get start block: %w", err)
-		}
-
 		runCtx, cancel := context.WithCancel(ctx)
 		p.cancelFunc = cancel
 
-		if err := p.runBackfill(runCtx); err != nil {
-			p.lggr.Errorw("Initial HTTP backfill failed, continuing without complete history", "error", err)
-			p.lastPolledBlock = p.startBlock
-		}
-
-		if err := p.startWSMode(runCtx); err != nil {
-			p.startHTTPMode(runCtx)
-		}
+		p.runWg.Go(func() {
+			p.runStartupSequence(runCtx)
+		})
 
 		return nil
 	})
+}
+
+// Ready returns nil when the poller has completed its initial backfill and is
+// fully operational. Returns ErrBackfillInProgress while the backfill is still
+// running, or an errNotStarted error if the service hasn't been started.
+func (p *EvmExecutionAttemptPoller) Ready() error {
+	if err := p.StateMachine.Ready(); err != nil {
+		return err
+	}
+	if !p.backfillComplete.Load() {
+		return ErrBackfillInProgress
+	}
+	return nil
+}
+
+// runStartupSequence performs the full startup: find the start block, backfill
+// historical events, then switch to WS or HTTP polling mode. If getStartBlock
+// fails the error is stored as a fatal error (surfaced via Healthy/HealthReport)
+// and backfillComplete is never set, so Ready() will continue to return an error.
+// Context cancellation (e.g. from Close) is not treated as a fatal error.
+func (p *EvmExecutionAttemptPoller) runStartupSequence(ctx context.Context) {
+	if err := p.getStartBlock(ctx, p.lookbackWindow); err != nil {
+		if ctx.Err() != nil {
+			p.lggr.Infow("Startup sequence cancelled", "error", err)
+			return
+		}
+		fatalErr := fmt.Errorf("failed to get start block: %w", err)
+		p.lggr.Errorw("Failed to get start block, execution attempt poller permanently failed", "error", fatalErr)
+		p.fatalErr.Store(&fatalErr)
+		return
+	}
+
+	if err := p.runBackfill(ctx); err != nil {
+		p.lggr.Errorw("Initial HTTP backfill failed, continuing without complete history", "error", err)
+		p.lastPolledBlock = p.startBlock
+	}
+
+	p.backfillComplete.Store(true)
+
+	if err := p.startWSMode(ctx); err != nil {
+		p.startHTTPMode(ctx)
+	}
 }
 
 // runBackfill performs a one-shot synchronous HTTP poll covering the full lookback window

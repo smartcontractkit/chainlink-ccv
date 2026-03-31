@@ -114,6 +114,9 @@ func (n *NoopExecutorMetricLabeler) SetLastHeartbeatTimestamp(ctx context.Contex
 
 func (n *NoopExecutorMetricLabeler) IncrementUnrecoverableMessageFailure(ctx context.Context) {}
 
+func (n *NoopExecutorMetricLabeler) IncrementDestinationReaderCriticalFailure(ctx context.Context, destChainSelector protocol.ChainSelector) {
+}
+
 func (n *NoopExecutorMetricLabeler) SetRemoteChainCursed(ctx context.Context, localSelector, remoteSelector protocol.ChainSelector, cursed bool) {
 }
 

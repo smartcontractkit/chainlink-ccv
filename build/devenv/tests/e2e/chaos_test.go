@@ -197,7 +197,7 @@ func TestChaos_AllExecutorsDown(t *testing.T) {
 
 	runV2TestCase(t, ctx, l, tc, setup.chainMap, setup.defaultAggregatorClient, setup.indexerMonitor, AssertMessageOptions{
 		TickInterval:            5 * time.Second,
-		Timeout:                 tests.WaitTimeout(t),
+		Timeout:                 5 * time.Minute,
 		ExpectedVerifierResults: tc.numExpectedVerifications,
 		AssertVerifierLogs:      false,
 		AssertExecutorLogs:      false,
