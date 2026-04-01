@@ -159,6 +159,39 @@ func (_c *MockAggregatorMetricLabeler_IncrementActiveRequestsCounter_Call) RunAn
 	return _c
 }
 
+// IncrementAggregationsBlockedUnexportable provides a mock function with given fields: ctx
+func (_m *MockAggregatorMetricLabeler) IncrementAggregationsBlockedUnexportable(ctx context.Context) {
+	_m.Called(ctx)
+}
+
+// MockAggregatorMetricLabeler_IncrementAggregationsBlockedUnexportable_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'IncrementAggregationsBlockedUnexportable'
+type MockAggregatorMetricLabeler_IncrementAggregationsBlockedUnexportable_Call struct {
+	*mock.Call
+}
+
+// IncrementAggregationsBlockedUnexportable is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *MockAggregatorMetricLabeler_Expecter) IncrementAggregationsBlockedUnexportable(ctx interface{}) *MockAggregatorMetricLabeler_IncrementAggregationsBlockedUnexportable_Call {
+	return &MockAggregatorMetricLabeler_IncrementAggregationsBlockedUnexportable_Call{Call: _e.mock.On("IncrementAggregationsBlockedUnexportable", ctx)}
+}
+
+func (_c *MockAggregatorMetricLabeler_IncrementAggregationsBlockedUnexportable_Call) Run(run func(ctx context.Context)) *MockAggregatorMetricLabeler_IncrementAggregationsBlockedUnexportable_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context))
+	})
+	return _c
+}
+
+func (_c *MockAggregatorMetricLabeler_IncrementAggregationsBlockedUnexportable_Call) Return() *MockAggregatorMetricLabeler_IncrementAggregationsBlockedUnexportable_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockAggregatorMetricLabeler_IncrementAggregationsBlockedUnexportable_Call) RunAndReturn(run func(context.Context)) *MockAggregatorMetricLabeler_IncrementAggregationsBlockedUnexportable_Call {
+	_c.Run(run)
+	return _c
+}
+
 // IncrementCompletedAggregations provides a mock function with given fields: ctx
 func (_m *MockAggregatorMetricLabeler) IncrementCompletedAggregations(ctx context.Context) {
 	_m.Called(ctx)
