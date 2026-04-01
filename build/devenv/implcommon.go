@@ -12,7 +12,6 @@ import (
 	ccipChangesets "github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/changesets"
 	ccipOffchain "github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/offchain"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
-	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
@@ -134,7 +133,7 @@ func buildPartialChainConfig(
 	}
 	local := localEntry.profile
 
-	remoteChains := make(map[uint64]ccipAdapters.RemoteChainConfig[datastore.AddressRef, datastore.AddressRef], len(remoteSels))
+	remoteChains := make(map[uint64]ccipChangesets.PartialRemoteChainConfig, len(remoteSels))
 	for _, rs := range remoteSels {
 		remoteEntry, ok := profiles[rs]
 		if !ok {
@@ -142,13 +141,11 @@ func buildPartialChainConfig(
 		}
 		remote := remoteEntry.profile
 		allowTrafficFrom := true
-		remoteChains[rs] = ccipAdapters.RemoteChainConfig[datastore.AddressRef, datastore.AddressRef]{
+		remoteChains[rs] = ccipChangesets.PartialRemoteChainConfig{
 			AllowTrafficFrom:         &allowTrafficFrom,
-			OnRamps:                  []datastore.AddressRef{remote.OnRamp},
-			OffRamp:                  remote.OffRamp,
 			DefaultInboundCCVs:       local.DefaultInboundCCVs,
 			DefaultOutboundCCVs:      local.DefaultOutboundCCVs,
-			DefaultExecutor:          local.DefaultExecutor,
+			DefaultExecutorQualifier: local.DefaultExecutorQualifier,
 			FeeQuoterDestChainConfig: remote.FeeQuoterDestChainConfig,
 			ExecutorDestChainConfig:  local.ExecutorDestChainConfig,
 			AddressBytesLength:       remote.AddressBytesLength,
@@ -178,10 +175,6 @@ func buildPartialChainConfig(
 
 	return ccipChangesets.PartialChainConfig{
 		ChainSelector:      localSel,
-		Router:             local.Router,
-		OnRamp:             local.OnRamp,
-		FeeQuoter:          local.FeeQuoter,
-		OffRamp:            local.OffRamp,
 		CommitteeVerifiers: cvConfigs,
 		RemoteChains:       remoteChains,
 	}, nil

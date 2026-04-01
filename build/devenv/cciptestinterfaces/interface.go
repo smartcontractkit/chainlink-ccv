@@ -202,20 +202,17 @@ type OnChainCommittees struct {
 // ChainLaneProfile holds everything an impl needs to provide so that
 // connectAllChains can assemble PartialChainConfig entries for the
 // canonical ConfigureChainsForLanesFromTopology changeset.
+// Contract addresses (Router, OnRamp, FeeQuoter, OffRamp, Executor) are
+// resolved from the datastore by the changeset itself.
 type ChainLaneProfile struct {
-	Router    datastore.AddressRef
-	OnRamp    datastore.AddressRef
-	FeeQuoter datastore.AddressRef
-	OffRamp   datastore.AddressRef
-
 	AddressBytesLength       uint8
 	BaseExecutionGasCost     uint32
 	FeeQuoterDestChainConfig adapters.FeeQuoterDestChainConfig
 
-	ExecutorDestChainConfig adapters.ExecutorDestChainConfig
-	DefaultExecutor         datastore.AddressRef
-	DefaultInboundCCVs      []datastore.AddressRef
-	DefaultOutboundCCVs     []datastore.AddressRef
+	ExecutorDestChainConfig  adapters.ExecutorDestChainConfig
+	DefaultExecutorQualifier string
+	DefaultInboundCCVs       []datastore.AddressRef
+	DefaultOutboundCCVs      []datastore.AddressRef
 
 	GasForVerification uint32
 }

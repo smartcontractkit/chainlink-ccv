@@ -1314,26 +1314,6 @@ func (m *CCIP17EVMConfig) GetChainLaneProfile(_ *deployment.Environment, selecto
 	copy(chainFamilySelector[:], selectorBytes[:4])
 
 	return cciptestinterfaces.ChainLaneProfile{
-		Router: datastore.AddressRef{
-			Type:          datastore.ContractType(routeroperations.ContractType),
-			Version:       routeroperations.Version,
-			ChainSelector: selector,
-		},
-		OnRamp: datastore.AddressRef{
-			Type:          datastore.ContractType(onrampoperations.ContractType),
-			Version:       onrampoperations.Version,
-			ChainSelector: selector,
-		},
-		FeeQuoter: datastore.AddressRef{
-			Type:          datastore.ContractType(fee_quoter.ContractType),
-			Version:       fee_quoter.Version,
-			ChainSelector: selector,
-		},
-		OffRamp: datastore.AddressRef{
-			Type:          datastore.ContractType(offrampoperations.ContractType),
-			Version:       offrampoperations.Version,
-			ChainSelector: selector,
-		},
 		AddressBytesLength:   20,
 		BaseExecutionGasCost: 150_000,
 		FeeQuoterDestChainConfig: adapters.FeeQuoterDestChainConfig{
@@ -1353,12 +1333,7 @@ func (m *CCIP17EVMConfig) GetChainLaneProfile(_ *deployment.Environment, selecto
 		ExecutorDestChainConfig: adapters.ExecutorDestChainConfig{
 			Enabled: true,
 		},
-		DefaultExecutor: datastore.AddressRef{
-			Type:          datastore.ContractType(sequences.ExecutorProxyType),
-			Version:       semver.MustParse(proxy.Deploy.Version()),
-			Qualifier:     devenvcommon.DefaultExecutorQualifier,
-			ChainSelector: selector,
-		},
+		DefaultExecutorQualifier: devenvcommon.DefaultExecutorQualifier,
 		DefaultInboundCCVs: []datastore.AddressRef{
 			{
 				Type:          datastore.ContractType(versioned_verifier_resolver.CommitteeVerifierResolverType),
