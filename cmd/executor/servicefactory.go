@@ -15,7 +15,6 @@ import (
 	adapter "github.com/smartcontractkit/chainlink-ccv/executor/pkg/adapter"
 	x "github.com/smartcontractkit/chainlink-ccv/executor/pkg/executor"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/leaderelector"
-	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/backofftimeprovider"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/ccvstreamer"
@@ -56,9 +55,8 @@ type factory[T any] struct {
 	profiler    *pyroscope.Profiler
 	server      *http.Server
 
-	createComponentsFunc      CreateExecutorComponentsFunc[T]
-	createAccessorFactoryFunc accessors.CreateAccessorFactory[T]
-	chainFamily               string
+	createComponentsFunc CreateExecutorComponentsFunc[T]
+	chainFamily          string
 }
 
 // NewServiceFactory creates a new ServiceFactory for the executor service.

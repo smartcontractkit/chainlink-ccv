@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"github.com/BurntSushi/toml"
+
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
 )
 
