@@ -1,7 +1,11 @@
 package replay
 
 import (
+	"crypto/sha256"
 	"errors"
+	"fmt"
+	"sort"
+	"strings"
 	"time"
 )
 
@@ -47,6 +51,7 @@ type Job struct {
 	Type           Type   `json:"type"`
 	Status         Status `json:"status"`
 	ForceOverwrite bool   `json:"forceOverwrite"`
+	RequestHash    string `json:"requestHash"`
 
 	// Discovery replay params
 	SinceSequenceNumber *int64 `json:"sinceSequenceNumber,omitempty"`
@@ -74,4 +79,26 @@ type Request struct {
 	Since      int64
 	MessageIDs []string
 	Force      bool
+}
+
+// Hash returns a deterministic SHA-256 hex digest that uniquely identifies the
+// request parameters (type, force flag, and the type-specific fields). Two
+// requests with the same arguments always produce the same hash, which is used
+// by FindResumable to match a crashed job to the incoming retry.
+func (r Request) Hash() string {
+	h := sha256.New()
+	_, _ = fmt.Fprintf(h, "type=%s\n", r.Type)
+	_, _ = fmt.Fprintf(h, "force=%v\n", r.Force)
+
+	switch r.Type {
+	case TypeDiscovery:
+		_, _ = fmt.Fprintf(h, "since=%d\n", r.Since)
+	case TypeMessages:
+		sorted := make([]string, len(r.MessageIDs))
+		copy(sorted, r.MessageIDs)
+		sort.Strings(sorted)
+		_, _ = fmt.Fprintf(h, "ids=%s\n", strings.Join(sorted, ","))
+	}
+
+	return fmt.Sprintf("%x", h.Sum(nil))
 }

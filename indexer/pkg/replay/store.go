@@ -55,9 +55,9 @@ func (s *Store) CreateJob(ctx context.Context, req Request) (*Job, error) {
 	}
 
 	query := `
-		INSERT INTO indexer.replay_jobs (type, status, force_overwrite, since_sequence_number, message_ids, total_items)
-		VALUES ($1, $2, $3, $4, $5, $6)
-		RETURNING id, type, status, force_overwrite, since_sequence_number, message_ids,
+		INSERT INTO indexer.replay_jobs (type, status, force_overwrite, request_hash, since_sequence_number, message_ids, total_items)
+		VALUES ($1, $2, $3, $4, $5, $6, $7)
+		RETURNING id, type, status, force_overwrite, request_hash, since_sequence_number, message_ids,
 		          progress_cursor, total_items, processed_items, last_heartbeat,
 		          error_message, created_at, updated_at, completed_at
 	`
@@ -71,6 +71,7 @@ func (s *Store) CreateJob(ctx context.Context, req Request) (*Job, error) {
 		string(req.Type),
 		string(StatusRunning),
 		req.Force,
+		req.Hash(),
 		sinceSeq,
 		pq.Array(req.MessageIDs),
 		totalItems,
@@ -81,7 +82,7 @@ func (s *Store) CreateJob(ctx context.Context, req Request) (*Job, error) {
 
 func (s *Store) GetJob(ctx context.Context, id string) (*Job, error) {
 	query := `
-		SELECT id, type, status, force_overwrite, since_sequence_number, message_ids,
+		SELECT id, type, status, force_overwrite, request_hash, since_sequence_number, message_ids,
 		       progress_cursor, total_items, processed_items, last_heartbeat,
 		       error_message, created_at, updated_at, completed_at
 		FROM indexer.replay_jobs
@@ -99,46 +100,20 @@ func (s *Store) GetJob(ctx context.Context, id string) (*Job, error) {
 }
 
 // FindResumable looks for a running job whose heartbeat is stale, meaning the
-// previous process crashed. If type/params match, returns it for resumption.
+// previous process crashed. The request_hash ensures that the job's full
+// parameter set (type, force flag, since/message_ids) matches the incoming
+// retry request exactly, preventing resumption of an unrelated stale job.
 func (s *Store) FindResumable(ctx context.Context, req Request) (*Job, error) {
-	var query string
-	var args []any
-
-	switch req.Type {
-	case TypeDiscovery:
-		query = `
-			SELECT id, type, status, force_overwrite, since_sequence_number, message_ids,
-			       progress_cursor, total_items, processed_items, last_heartbeat,
-			       error_message, created_at, updated_at, completed_at
-			FROM indexer.replay_jobs
-			WHERE type = $1 AND status = $2 AND since_sequence_number = $3 AND last_heartbeat < $4
-			ORDER BY created_at DESC
-			LIMIT 1
-		`
-		args = []any{
-			string(TypeDiscovery),
-			string(StatusRunning),
-			req.Since,
-			time.Now().Add(-StaleJobTimeout),
-		}
-	case TypeMessages:
-		query = `
-			SELECT id, type, status, force_overwrite, since_sequence_number, message_ids,
-			       progress_cursor, total_items, processed_items, last_heartbeat,
-			       error_message, created_at, updated_at, completed_at
-			FROM indexer.replay_jobs
-			WHERE type = $1 AND status = $2 AND last_heartbeat < $3
-			ORDER BY created_at DESC
-			LIMIT 1
-		`
-		args = []any{
-			string(TypeMessages),
-			string(StatusRunning),
-			time.Now().Add(-StaleJobTimeout),
-		}
-	}
-
-	row := s.queryRow(ctx, query, args...)
+	query := `
+		SELECT id, type, status, force_overwrite, request_hash, since_sequence_number, message_ids,
+		       progress_cursor, total_items, processed_items, last_heartbeat,
+		       error_message, created_at, updated_at, completed_at
+		FROM indexer.replay_jobs
+		WHERE request_hash = $1 AND status = $2 AND last_heartbeat < $3
+		ORDER BY created_at DESC
+		LIMIT 1
+	`
+	row := s.queryRow(ctx, query, req.Hash(), string(StatusRunning), time.Now().Add(-StaleJobTimeout))
 	job, err := scanJob(row)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -210,7 +185,7 @@ func (s *Store) MarkFailed(ctx context.Context, jobID, errMsg string) error {
 
 func (s *Store) ListJobs(ctx context.Context) ([]Job, error) {
 	query := `
-		SELECT id, type, status, force_overwrite, since_sequence_number, message_ids,
+		SELECT id, type, status, force_overwrite, request_hash, since_sequence_number, message_ids,
 		       progress_cursor, total_items, processed_items, last_heartbeat,
 		       error_message, created_at, updated_at, completed_at
 		FROM indexer.replay_jobs
@@ -240,7 +215,7 @@ func scanJob(row *sql.Row) (*Job, error) {
 	var msgIDs []string
 
 	err := row.Scan(
-		&j.ID, &typeStr, &statusStr, &j.ForceOverwrite,
+		&j.ID, &typeStr, &statusStr, &j.ForceOverwrite, &j.RequestHash,
 		&j.SinceSequenceNumber, pq.Array(&msgIDs),
 		&j.ProgressCursor, &j.TotalItems, &j.ProcessedItems, &j.LastHeartbeat,
 		&j.ErrorMessage, &j.CreatedAt, &j.UpdatedAt, &j.CompletedAt,
@@ -261,7 +236,7 @@ func scanJobFromRows(rows *sql.Rows) (*Job, error) {
 	var msgIDs []string
 
 	err := rows.Scan(
-		&j.ID, &typeStr, &statusStr, &j.ForceOverwrite,
+		&j.ID, &typeStr, &statusStr, &j.ForceOverwrite, &j.RequestHash,
 		&j.SinceSequenceNumber, pq.Array(&msgIDs),
 		&j.ProgressCursor, &j.TotalItems, &j.ProcessedItems, &j.LastHeartbeat,
 		&j.ErrorMessage, &j.CreatedAt, &j.UpdatedAt, &j.CompletedAt,

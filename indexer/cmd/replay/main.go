@@ -230,6 +230,7 @@ func renderJob(j *replay.Job) error {
 		{"Type", string(j.Type)},
 		{"Status", string(j.Status)},
 		{"Force", fmt.Sprintf("%v", j.ForceOverwrite)},
+		{"Request Hash", j.RequestHash[:16]},
 	}
 
 	if j.SinceSequenceNumber != nil {

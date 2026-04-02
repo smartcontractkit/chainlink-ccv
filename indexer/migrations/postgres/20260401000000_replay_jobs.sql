@@ -6,6 +6,10 @@ CREATE TABLE IF NOT EXISTS indexer.replay_jobs (
   status TEXT NOT NULL DEFAULT 'pending',
   force_overwrite BOOLEAN NOT NULL DEFAULT false,
 
+  -- Deterministic hash of the request parameters (type, force, since/message_ids).
+  -- Used by FindResumable to match a crashed job to an identical retry request.
+  request_hash TEXT NOT NULL DEFAULT '',
+
   -- Discovery replay params
   since_sequence_number BIGINT,
 
