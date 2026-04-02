@@ -230,7 +230,7 @@ func renderJob(j *replay.Job) error {
 		{"Type", string(j.Type)},
 		{"Status", string(j.Status)},
 		{"Force", fmt.Sprintf("%v", j.ForceOverwrite)},
-		{"Request Hash", j.RequestHash[:16]},
+		{"Request Hash", truncateHash(j.RequestHash)},
 	}
 
 	if j.SinceSequenceNumber != nil {
@@ -256,6 +256,13 @@ func renderJob(j *replay.Job) error {
 	table.AppendBulk(data)
 	table.Render()
 	return nil
+}
+
+func truncateHash(h string) string {
+	if len(h) > 16 {
+		return h[:16]
+	}
+	return h
 }
 
 // renderJobList prints a table of replay jobs.
