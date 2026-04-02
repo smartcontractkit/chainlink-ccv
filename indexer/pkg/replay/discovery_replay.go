@@ -1,7 +1,6 @@
 package replay
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"strings"
@@ -62,7 +61,7 @@ func (e *Engine) runDiscoveryReplay(ctx context.Context, job *Job) error {
 		}
 		consecutiveEmpty = 0
 
-		messages, verifications := e.processDiscoveryResponses(responses)
+		messages, verifications, _ := common.ConvertDiscoveryResponses(responses, time.Now(), e.registry)
 		e.lggr.Infow("Discovery replay batch",
 			"jobID", job.ID,
 			"responses", len(responses),
@@ -96,37 +95,6 @@ func (e *Engine) runDiscoveryReplay(ctx context.Context, job *Job) error {
 
 		time.Sleep(e.batchThrottleDelay)
 	}
-}
-
-func (e *Engine) processDiscoveryResponses(responses []protocol.QueryResponse) ([]common.MessageWithMetadata, []common.VerifierResultWithMetadata) {
-	now := time.Now()
-	messages := make([]common.MessageWithMetadata, 0, len(responses))
-	verifications := make([]common.VerifierResultWithMetadata, 0, len(responses))
-
-	for _, resp := range responses {
-		msg := common.MessageWithMetadata{
-			Message: resp.Data.Message,
-			Metadata: common.MessageMetadata{
-				Status:             common.MessageProcessing,
-				IngestionTimestamp: now,
-			},
-		}
-		messages = append(messages, msg)
-
-		if !isDiscoveryOnly(resp.Data) {
-			vr := common.VerifierResultWithMetadata{
-				VerifierResult: resp.Data,
-				Metadata: common.VerifierResultMetadata{
-					IngestionTimestamp:   now,
-					AttestationTimestamp: resp.Data.Timestamp,
-					VerifierName:         e.registry.GetVerifierNameFromAddress(resp.Data.VerifierSourceAddress),
-				},
-			}
-			verifications = append(verifications, vr)
-		}
-	}
-
-	return messages, verifications
 }
 
 func (e *Engine) persistDiscoveryBatch(
@@ -200,15 +168,4 @@ func (e *Engine) gatherVerificationsForMessage(ctx context.Context, job *Job, vr
 		}
 	}
 	return nil
-}
-
-// isDiscoveryOnly checks whether the verification data is a discovery-only
-// marker (not valid on-chain). This mirrors the logic in
-// AggregatorMessageDiscovery.isDiscoveryOnly.
-func isDiscoveryOnly(vr protocol.VerifierResult) bool {
-	if len(vr.CCVData) <= protocol.MessageDiscoveryVersionLength {
-		return true
-	}
-	version := vr.CCVData[:protocol.MessageDiscoveryVersionLength]
-	return bytes.Equal(version, protocol.MessageDiscoveryVersion)
 }

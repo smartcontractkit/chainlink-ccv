@@ -123,95 +123,6 @@ func testVerifierResult(messageNumber int) common.VerifierResultWithMetadata {
 	}
 }
 
-func TestIsDiscoveryOnly(t *testing.T) {
-	tests := []struct {
-		name string
-		data []byte
-		want bool
-	}{
-		{
-			name: "empty ccv data",
-			data: []byte{},
-			want: true,
-		},
-		{
-			name: "short ccv data",
-			data: []byte{0x01, 0x02},
-			want: true,
-		},
-		{
-			name: "exactly version length",
-			data: protocol.MessageDiscoveryVersion,
-			want: true,
-		},
-		{
-			name: "discovery version prefix",
-			data: append(protocol.MessageDiscoveryVersion, 0x05, 0x06),
-			want: true,
-		},
-		{
-			name: "non-discovery data",
-			data: []byte{0x00, 0x01, 0x02, 0x03, 0x04},
-			want: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			vr := protocol.VerifierResult{CCVData: tt.data}
-			assert.Equal(t, tt.want, isDiscoveryOnly(vr))
-		})
-	}
-}
-
-func TestProcessDiscoveryResponses(t *testing.T) {
-	lggr := logger.Test(t)
-	reg := registry.NewVerifierRegistry()
-
-	engine := &Engine{
-		registry: reg,
-		lggr:     lggr,
-	}
-
-	vr1 := testVerifierResult(1)
-	vr2 := testVerifierResult(2)
-
-	responses := []protocol.QueryResponse{
-		{Data: vr1.VerifierResult},
-		{Data: vr2.VerifierResult},
-	}
-
-	messages, verifications := engine.processDiscoveryResponses(responses)
-
-	assert.Len(t, messages, 2)
-	assert.Len(t, verifications, 2)
-}
-
-func TestProcessDiscoveryResponses_SkipsDiscoveryOnly(t *testing.T) {
-	lggr := logger.Test(t)
-	reg := registry.NewVerifierRegistry()
-
-	engine := &Engine{
-		registry: reg,
-		lggr:     lggr,
-	}
-
-	discoveryOnlyVR := testVerifierResult(1)
-	discoveryOnlyVR.VerifierResult.CCVData = append(protocol.MessageDiscoveryVersion, 0x05)
-
-	normalVR := testVerifierResult(2)
-
-	responses := []protocol.QueryResponse{
-		{Data: discoveryOnlyVR.VerifierResult},
-		{Data: normalVR.VerifierResult},
-	}
-
-	messages, verifications := engine.processDiscoveryResponses(responses)
-
-	assert.Len(t, messages, 2, "both messages should be discovered")
-	assert.Len(t, verifications, 1, "discovery-only verification should be filtered out")
-}
-
 func TestPersistDiscoveryBatch(t *testing.T) {
 	lggr := logger.Test(t)
 	store := newMockReplayStorage()
@@ -226,7 +137,7 @@ func TestPersistDiscoveryBatch(t *testing.T) {
 	vr := testVerifierResult(1)
 	responses := []protocol.QueryResponse{{Data: vr.VerifierResult}}
 
-	messages, verifications := engine.processDiscoveryResponses(responses)
+	messages, verifications, _ := common.ConvertDiscoveryResponses(responses, time.Now(), reg)
 
 	sinceTS := time.Now().Unix()
 	job := &Job{
@@ -256,7 +167,7 @@ func TestPersistDiscoveryBatch_ForceFlag(t *testing.T) {
 
 	vr := testVerifierResult(1)
 	responses := []protocol.QueryResponse{{Data: vr.VerifierResult}}
-	messages, verifications := engine.processDiscoveryResponses(responses)
+	messages, verifications, _ := common.ConvertDiscoveryResponses(responses, time.Now(), reg)
 
 	sinceTS := time.Now().Unix()
 	job := &Job{
@@ -286,7 +197,7 @@ func TestPersistDiscoveryBatch_NoForceByDefault(t *testing.T) {
 
 	vr := testVerifierResult(1)
 	responses := []protocol.QueryResponse{{Data: vr.VerifierResult}}
-	messages, verifications := engine.processDiscoveryResponses(responses)
+	messages, verifications, _ := common.ConvertDiscoveryResponses(responses, time.Now(), reg)
 
 	sinceTS := time.Now().Unix()
 	job := &Job{
