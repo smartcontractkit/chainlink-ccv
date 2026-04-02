@@ -22,12 +22,14 @@ Both the CLI and an HTTP endpoint share the same replay engine, so switching lat
 
 ### Discovery Replay
 
-Re-discovers messages from the aggregator starting at a given timestamp and gathers their CCV records from all configured verifiers.
+Re-discovers messages from the aggregator starting at a given sequence number and gathers their CCV records from all configured verifiers.
 
 ```
-indexer-replay discovery --since "2026-10-10T00:00:00Z"
-indexer-replay discovery --since "2026-10-10T00:00:00Z" --force
+indexer-replay discovery --since 42
+indexer-replay discovery --since 42 --force
 ```
+
+The `--since` flag takes an aggregator sequence number (unsigned integer). All messages with a sequence number greater than or equal to the given value will be replayed.
 
 Without `--force` the replay backfills only — existing messages and CCV records are left untouched (`ON CONFLICT DO NOTHING`). With `--force`, existing records are overwritten (`ON CONFLICT DO UPDATE`).
 
@@ -78,7 +80,7 @@ spec:
             - /bin/indexer-replay
             - discovery
             - --since
-            - "2026-10-10T00:00:00Z"
+            - "42"
           env:
             - name: INDEXER_CONFIG_PATH
               value: /etc/indexer/config.toml

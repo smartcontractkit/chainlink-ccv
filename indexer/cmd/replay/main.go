@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"os/signal"
 	"strings"
@@ -46,12 +47,12 @@ func replayCommands() []cli.Command {
 	return []cli.Command{
 		{
 			Name:   "discovery",
-			Usage:  "Replay message discovery from a timestamp",
+			Usage:  "Replay message discovery from a sequence number",
 			Action: discoveryAction,
 			Flags: []cli.Flag{
-				cli.StringFlag{
+				cli.Uint64Flag{
 					Name:     "since",
-					Usage:    "Replay discovery since this timestamp (RFC3339, e.g. 2026-10-10T00:00:00Z)",
+					Usage:    "Replay discovery since this aggregator sequence number",
 					Required: true,
 				},
 				cli.BoolFlag{
@@ -109,10 +110,9 @@ func replayCommands() []cli.Command {
 }
 
 func discoveryAction(c *cli.Context) error {
-	sinceStr := c.String("since")
-	since, err := time.Parse(time.RFC3339, sinceStr)
-	if err != nil {
-		return fmt.Errorf("invalid --since format: %w (use RFC3339, e.g. 2026-10-10T00:00:00Z)", err)
+	since := c.Uint64("since")
+	if since > math.MaxInt64 {
+		return fmt.Errorf("--since value %d exceeds maximum sequence number", since)
 	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
@@ -123,7 +123,7 @@ func discoveryAction(c *cli.Context) error {
 
 	req := replay.Request{
 		Type:  replay.TypeDiscovery,
-		Since: since,
+		Since: int64(since),
 		Force: c.Bool("force"),
 	}
 
@@ -232,8 +232,8 @@ func renderJob(j *replay.Job) error {
 		{"Force", fmt.Sprintf("%v", j.ForceOverwrite)},
 	}
 
-	if j.SinceTimestamp != nil {
-		data = append(data, []string{"Since", time.Unix(*j.SinceTimestamp, 0).Format(time.RFC3339)})
+	if j.SinceSequenceNumber != nil {
+		data = append(data, []string{"Since (seq)", fmt.Sprintf("%d", *j.SinceSequenceNumber)})
 	}
 	if len(j.MessageIDs) > 0 {
 		data = append(data, []string{"Message IDs", strings.Join(j.MessageIDs, ", ")})

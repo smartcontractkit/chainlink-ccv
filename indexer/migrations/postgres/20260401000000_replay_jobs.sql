@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS indexer.replay_jobs (
   force_overwrite BOOLEAN NOT NULL DEFAULT false,
 
   -- Discovery replay params
-  since_timestamp BIGINT,
+  since_sequence_number BIGINT,
 
   -- Message replay params
   message_ids TEXT[],

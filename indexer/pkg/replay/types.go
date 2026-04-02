@@ -49,7 +49,7 @@ type Job struct {
 	ForceOverwrite bool   `json:"forceOverwrite"`
 
 	// Discovery replay params
-	SinceTimestamp *int64 `json:"sinceTimestamp,omitempty"`
+	SinceSequenceNumber *int64 `json:"sinceSequenceNumber,omitempty"`
 
 	// Message replay params
 	MessageIDs []string `json:"messageIds,omitempty"`
@@ -71,7 +71,7 @@ type Job struct {
 // Request is the input to start a new replay.
 type Request struct {
 	Type       Type
-	Since      time.Time
+	Since      int64
 	MessageIDs []string
 	Force      bool
 }

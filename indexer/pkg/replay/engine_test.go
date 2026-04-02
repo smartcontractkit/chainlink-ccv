@@ -230,10 +230,10 @@ func TestPersistDiscoveryBatch(t *testing.T) {
 
 	sinceTS := time.Now().Unix()
 	job := &Job{
-		ID:             "test-persist",
-		Type:           TypeDiscovery,
-		Status:         StatusRunning,
-		SinceTimestamp: &sinceTS,
+		ID:                  "test-persist",
+		Type:                TypeDiscovery,
+		Status:              StatusRunning,
+		SinceSequenceNumber: &sinceTS,
 	}
 
 	err := engine.persistDiscoveryBatch(context.Background(), job, messages, verifications)
@@ -260,11 +260,11 @@ func TestPersistDiscoveryBatch_ForceFlag(t *testing.T) {
 
 	sinceTS := time.Now().Unix()
 	job := &Job{
-		ID:             "test-force",
-		Type:           TypeDiscovery,
-		Status:         StatusRunning,
-		ForceOverwrite: true,
-		SinceTimestamp: &sinceTS,
+		ID:                  "test-force",
+		Type:                TypeDiscovery,
+		Status:              StatusRunning,
+		ForceOverwrite:      true,
+		SinceSequenceNumber: &sinceTS,
 	}
 
 	err := engine.persistDiscoveryBatch(context.Background(), job, messages, verifications)
@@ -290,11 +290,11 @@ func TestPersistDiscoveryBatch_NoForceByDefault(t *testing.T) {
 
 	sinceTS := time.Now().Unix()
 	job := &Job{
-		ID:             "test-no-force",
-		Type:           TypeDiscovery,
-		Status:         StatusRunning,
-		ForceOverwrite: false,
-		SinceTimestamp: &sinceTS,
+		ID:                  "test-no-force",
+		Type:                TypeDiscovery,
+		Status:              StatusRunning,
+		ForceOverwrite:      false,
+		SinceSequenceNumber: &sinceTS,
 	}
 
 	err := engine.persistDiscoveryBatch(context.Background(), job, messages, verifications)
@@ -360,7 +360,7 @@ func TestGatherAllVerifications_WithCCVAddressesButNoReaders(t *testing.T) {
 	assert.Len(t, store.capturedVerifications(), 0)
 }
 
-func TestRunDiscoveryReplay_MissingSinceTimestamp(t *testing.T) {
+func TestRunDiscoveryReplay_MissingSinceSequenceNumber(t *testing.T) {
 	lggr := logger.Test(t)
 
 	engine := &Engine{
@@ -375,7 +375,7 @@ func TestRunDiscoveryReplay_MissingSinceTimestamp(t *testing.T) {
 
 	err := engine.runDiscoveryReplay(context.Background(), job)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "since_timestamp")
+	assert.Contains(t, err.Error(), "since_sequence_number")
 }
 
 func TestRunDiscoveryReplay_MissingFactory(t *testing.T) {
@@ -387,10 +387,10 @@ func TestRunDiscoveryReplay_MissingFactory(t *testing.T) {
 
 	sinceTS := time.Now().Unix()
 	job := &Job{
-		ID:             "test-no-factory",
-		Type:           TypeDiscovery,
-		Status:         StatusRunning,
-		SinceTimestamp: &sinceTS,
+		ID:                  "test-no-factory",
+		Type:                TypeDiscovery,
+		Status:              StatusRunning,
+		SinceSequenceNumber: &sinceTS,
 	}
 
 	err := engine.runDiscoveryReplay(context.Background(), job)

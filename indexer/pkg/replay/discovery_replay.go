@@ -12,8 +12,8 @@ import (
 )
 
 func (e *Engine) runDiscoveryReplay(ctx context.Context, job *Job) error {
-	if job.SinceTimestamp == nil {
-		return fmt.Errorf("discovery replay requires since_timestamp")
+	if job.SinceSequenceNumber == nil {
+		return fmt.Errorf("discovery replay requires since_sequence_number")
 	}
 	if e.aggregatorReaderFactory == nil {
 		return fmt.Errorf("aggregator reader factory not configured")
@@ -21,7 +21,7 @@ func (e *Engine) runDiscoveryReplay(ctx context.Context, job *Job) error {
 
 	sinceValue := job.ProgressCursor
 	if sinceValue == 0 {
-		sinceValue = *job.SinceTimestamp
+		sinceValue = *job.SinceSequenceNumber
 	}
 
 	reader, err := e.aggregatorReaderFactory(sinceValue)
@@ -31,7 +31,7 @@ func (e *Engine) runDiscoveryReplay(ctx context.Context, job *Job) error {
 
 	e.lggr.Infow("Discovery replay starting",
 		"jobID", job.ID,
-		"sinceTimestamp", *job.SinceTimestamp,
+		"sinceSequenceNumber", *job.SinceSequenceNumber,
 		"resumeCursor", sinceValue,
 		"force", job.ForceOverwrite,
 	)

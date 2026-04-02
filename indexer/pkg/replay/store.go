@@ -48,16 +48,16 @@ func (s *Store) DataSource() sqlutil.DataSource {
 }
 
 func (s *Store) CreateJob(ctx context.Context, req Request) (*Job, error) {
-	var sinceTS *int64
+	var sinceSeq *int64
 	if req.Type == TypeDiscovery {
-		ts := req.Since.Unix()
-		sinceTS = &ts
+		v := req.Since
+		sinceSeq = &v
 	}
 
 	query := `
-		INSERT INTO indexer.replay_jobs (type, status, force_overwrite, since_timestamp, message_ids, total_items)
+		INSERT INTO indexer.replay_jobs (type, status, force_overwrite, since_sequence_number, message_ids, total_items)
 		VALUES ($1, $2, $3, $4, $5, $6)
-		RETURNING id, type, status, force_overwrite, since_timestamp, message_ids,
+		RETURNING id, type, status, force_overwrite, since_sequence_number, message_ids,
 		          progress_cursor, total_items, processed_items, last_heartbeat,
 		          error_message, created_at, updated_at, completed_at
 	`
@@ -71,7 +71,7 @@ func (s *Store) CreateJob(ctx context.Context, req Request) (*Job, error) {
 		string(req.Type),
 		string(StatusRunning),
 		req.Force,
-		sinceTS,
+		sinceSeq,
 		pq.Array(req.MessageIDs),
 		totalItems,
 	)
@@ -81,7 +81,7 @@ func (s *Store) CreateJob(ctx context.Context, req Request) (*Job, error) {
 
 func (s *Store) GetJob(ctx context.Context, id string) (*Job, error) {
 	query := `
-		SELECT id, type, status, force_overwrite, since_timestamp, message_ids,
+		SELECT id, type, status, force_overwrite, since_sequence_number, message_ids,
 		       progress_cursor, total_items, processed_items, last_heartbeat,
 		       error_message, created_at, updated_at, completed_at
 		FROM indexer.replay_jobs
@@ -107,23 +107,23 @@ func (s *Store) FindResumable(ctx context.Context, req Request) (*Job, error) {
 	switch req.Type {
 	case TypeDiscovery:
 		query = `
-			SELECT id, type, status, force_overwrite, since_timestamp, message_ids,
+			SELECT id, type, status, force_overwrite, since_sequence_number, message_ids,
 			       progress_cursor, total_items, processed_items, last_heartbeat,
 			       error_message, created_at, updated_at, completed_at
 			FROM indexer.replay_jobs
-			WHERE type = $1 AND status = $2 AND since_timestamp = $3 AND last_heartbeat < $4
+			WHERE type = $1 AND status = $2 AND since_sequence_number = $3 AND last_heartbeat < $4
 			ORDER BY created_at DESC
 			LIMIT 1
 		`
 		args = []any{
 			string(TypeDiscovery),
 			string(StatusRunning),
-			req.Since.Unix(),
+			req.Since,
 			time.Now().Add(-StaleJobTimeout),
 		}
 	case TypeMessages:
 		query = `
-			SELECT id, type, status, force_overwrite, since_timestamp, message_ids,
+			SELECT id, type, status, force_overwrite, since_sequence_number, message_ids,
 			       progress_cursor, total_items, processed_items, last_heartbeat,
 			       error_message, created_at, updated_at, completed_at
 			FROM indexer.replay_jobs
@@ -210,7 +210,7 @@ func (s *Store) MarkFailed(ctx context.Context, jobID, errMsg string) error {
 
 func (s *Store) ListJobs(ctx context.Context) ([]Job, error) {
 	query := `
-		SELECT id, type, status, force_overwrite, since_timestamp, message_ids,
+		SELECT id, type, status, force_overwrite, since_sequence_number, message_ids,
 		       progress_cursor, total_items, processed_items, last_heartbeat,
 		       error_message, created_at, updated_at, completed_at
 		FROM indexer.replay_jobs
@@ -241,7 +241,7 @@ func scanJob(row *sql.Row) (*Job, error) {
 
 	err := row.Scan(
 		&j.ID, &typeStr, &statusStr, &j.ForceOverwrite,
-		&j.SinceTimestamp, pq.Array(&msgIDs),
+		&j.SinceSequenceNumber, pq.Array(&msgIDs),
 		&j.ProgressCursor, &j.TotalItems, &j.ProcessedItems, &j.LastHeartbeat,
 		&j.ErrorMessage, &j.CreatedAt, &j.UpdatedAt, &j.CompletedAt,
 	)
@@ -262,7 +262,7 @@ func scanJobFromRows(rows *sql.Rows) (*Job, error) {
 
 	err := rows.Scan(
 		&j.ID, &typeStr, &statusStr, &j.ForceOverwrite,
-		&j.SinceTimestamp, pq.Array(&msgIDs),
+		&j.SinceSequenceNumber, pq.Array(&msgIDs),
 		&j.ProgressCursor, &j.TotalItems, &j.ProcessedItems, &j.LastHeartbeat,
 		&j.ErrorMessage, &j.CreatedAt, &j.UpdatedAt, &j.CompletedAt,
 	)

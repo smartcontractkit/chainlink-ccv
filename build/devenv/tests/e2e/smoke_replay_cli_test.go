@@ -101,9 +101,8 @@ func TestE2ESmoke_ReplayCLI(t *testing.T) {
 	})
 
 	t.Run("discovery", func(t *testing.T) {
-		since := time.Now().Add(-1 * time.Minute).UTC().Format(time.RFC3339)
-		out, err := execInContainer(containerName, replayCLIArgs("discovery", "--since", since)...)
-		require.NoError(t, err, "discovery replay should succeed with recent timestamp; output: %s", out)
+		out, err := execInContainer(containerName, replayCLIArgs("discovery", "--since", "1")...)
+		require.NoError(t, err, "discovery replay should succeed with sequence 1; output: %s", out)
 	})
 }
 
@@ -213,11 +212,9 @@ func TestE2ESmoke_ReplayForceOverwrite(t *testing.T) {
 		_, _ = framework.SaveContainerLogs(fmt.Sprintf("%s-%s", framework.DefaultCTFLogsDir, t.Name()))
 	})
 
-	// The aggregator's GetMessagesSince uses a monotonic sequence number, not a
-	// Unix timestamp. The --since flag converts an RFC3339 timestamp to Unix
-	// seconds which is then used as the sequence cursor. Using epoch+1 (seq 1)
-	// ensures the aggregator returns all messages from the beginning.
-	const discoverySince = "1970-01-01T00:00:01Z"
+	// The aggregator's GetMessagesSince uses a monotonic sequence number.
+	// Using sequence 1 ensures the aggregator returns all messages from the beginning.
+	const discoverySince = "1"
 
 	// ── Step 1: send two messages and wait for indexing ──────────────────────
 	t.Log("Step 1: sending two messages with finality=1...")
