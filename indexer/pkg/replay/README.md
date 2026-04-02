@@ -54,9 +54,9 @@ indexer-replay resume --id <job-uuid>   # resume a failed/interrupted job
 
 Replay jobs are persisted in a `replay_jobs` Postgres table. If the process crashes or the pod restarts mid-replay:
 
-1. **Transactional checkpointing** — the progress cursor is updated alongside the replayed data, so the cursor always reflects committed work.
+1. **At-least-once checkpointing** — the progress cursor is periodically updated after replayed data is written. On a crash, the cursor may lag behind some already-committed rows, causing those rows to be replayed again, but no committed work is lost.
 2. **Advisory locks** — a PostgreSQL session-level advisory lock prevents two processes from running the same job concurrently. The lock is automatically released when the connection drops (crash, pod eviction).
-3. **Automatic resumption** — on restart the engine detects the stale `running` job (via heartbeat timeout), re-acquires the lock, and resumes from the last committed cursor.
+3. **Automatic resumption** — on restart the engine detects the stale `running` job (via heartbeat timeout), re-acquires the lock, and resumes from the last persisted cursor, potentially reprocessing some already-written rows.
 
 ## Running as a Kubernetes Job
 
