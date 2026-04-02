@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/readers"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
@@ -16,6 +17,15 @@ func (e *Engine) runMessageReplay(ctx context.Context, job *Job) error {
 	}
 	if e.registry == nil {
 		return fmt.Errorf("verifier registry not configured")
+	}
+
+	var aggReader *readers.ResilientReader
+	if e.aggregatorReaderFactory != nil {
+		var err error
+		aggReader, err = e.aggregatorReaderFactory(0)
+		if err != nil {
+			e.lggr.Warnw("Could not create aggregator reader for CCV fallback", "error", err)
+		}
 	}
 
 	startIdx := int(job.ProgressCursor)
@@ -40,7 +50,7 @@ func (e *Engine) runMessageReplay(ctx context.Context, job *Job) error {
 
 		e.lggr.Infow("Replaying message", "jobID", job.ID, "messageID", msgIDHex, "index", i, "total", len(job.MessageIDs))
 
-		if err := e.gatherAllVerifications(ctx, job, msgID); err != nil {
+		if err := e.gatherAllVerifications(ctx, job, msgID, aggReader); err != nil {
 			e.lggr.Warnw("Error gathering verifications for message",
 				"jobID", job.ID,
 				"messageID", msgIDHex,
@@ -58,24 +68,27 @@ func (e *Engine) runMessageReplay(ctx context.Context, job *Job) error {
 }
 
 // gatherAllVerifications fetches verifications from all known verifiers for a
-// single message ID. It unions CCV addresses across all existing stored
-// verifications; if none exist, it skips. The user should use discovery
-// replay to re-discover the message first.
-func (e *Engine) gatherAllVerifications(ctx context.Context, job *Job, msgID protocol.Bytes32) error {
-	var ccvAddresses []protocol.UnknownAddress
+// single message ID. It first checks that the message exists in local storage,
+// then tries to obtain CCV addresses from existing verifier_results. When no
+// local CCV data is available, it falls back to the aggregator to re-discover
+// the message's CCV addresses.
+func (e *Engine) gatherAllVerifications(
+	ctx context.Context,
+	job *Job,
+	msgID protocol.Bytes32,
+	aggReader *readers.ResilientReader,
+) error {
+	if _, err := e.storage.GetMessage(ctx, msgID); err != nil {
+		e.lggr.Warnw("Message not found in local storage, skipping verifier gathering",
+			"messageID", msgID,
+		)
+		return nil
+	}
 
-	existing, err := e.storage.GetCCVData(ctx, msgID)
-	if err == nil && len(existing) > 0 {
-		seen := make(map[string]struct{})
-		for _, entry := range existing {
-			for _, addr := range entry.VerifierResult.MessageCCVAddresses {
-				key := addr.String()
-				if _, ok := seen[key]; !ok {
-					seen[key] = struct{}{}
-					ccvAddresses = append(ccvAddresses, addr)
-				}
-			}
-		}
+	ccvAddresses := e.collectLocalCCVAddresses(ctx, msgID)
+
+	if len(ccvAddresses) == 0 {
+		ccvAddresses = e.fallbackAggregatorCCVAddresses(ctx, msgID, aggReader)
 	}
 
 	if len(ccvAddresses) == 0 {
@@ -85,6 +98,69 @@ func (e *Engine) gatherAllVerifications(ctx context.Context, job *Job, msgID pro
 		return nil
 	}
 
+	return e.queryVerifiers(ctx, job, msgID, ccvAddresses)
+}
+
+// collectLocalCCVAddresses unions CCV addresses from existing verifier_results.
+func (e *Engine) collectLocalCCVAddresses(ctx context.Context, msgID protocol.Bytes32) []protocol.UnknownAddress {
+	existing, err := e.storage.GetCCVData(ctx, msgID)
+	if err != nil || len(existing) == 0 {
+		return nil
+	}
+
+	seen := make(map[string]struct{})
+	var addrs []protocol.UnknownAddress
+	for _, entry := range existing {
+		for _, addr := range entry.VerifierResult.MessageCCVAddresses {
+			key := addr.String()
+			if _, ok := seen[key]; !ok {
+				seen[key] = struct{}{}
+				addrs = append(addrs, addr)
+			}
+		}
+	}
+	return addrs
+}
+
+// fallbackAggregatorCCVAddresses queries the aggregator for verifier results
+// to extract CCV addresses when no local data is available.
+func (e *Engine) fallbackAggregatorCCVAddresses(
+	ctx context.Context,
+	msgID protocol.Bytes32,
+	aggReader *readers.ResilientReader,
+) []protocol.UnknownAddress {
+	if aggReader == nil {
+		e.lggr.Warnw("No aggregator reader available for CCV address fallback",
+			"messageID", msgID,
+		)
+		return nil
+	}
+
+	results, err := aggReader.GetVerifications(ctx, []protocol.Bytes32{msgID})
+	if err != nil {
+		e.lggr.Warnw("Aggregator GetVerifications failed for CCV fallback",
+			"messageID", msgID,
+			"error", err,
+		)
+		return nil
+	}
+
+	vr, ok := results[msgID]
+	if !ok {
+		return nil
+	}
+
+	return vr.MessageCCVAddresses
+}
+
+// queryVerifiers fans out to all configured verifier readers for the given
+// CCV addresses and persists the results.
+func (e *Engine) queryVerifiers(
+	ctx context.Context,
+	job *Job,
+	msgID protocol.Bytes32,
+	ccvAddresses []protocol.UnknownAddress,
+) error {
 	for _, addr := range ccvAddresses {
 		verifierReaders := e.registry.GetVerifiers(addr)
 		if len(verifierReaders) == 0 {
@@ -126,7 +202,6 @@ func (e *Engine) gatherAllVerifications(ctx context.Context, job *Job, msgID pro
 			}
 		}
 	}
-
 	return nil
 }
 

@@ -23,6 +23,8 @@ type Storage interface {
 	UpsertMessages(ctx context.Context, messages []common.MessageWithMetadata, force bool) error
 	// GetCCVData retrieves existing CCV data for a message ID.
 	GetCCVData(ctx context.Context, messageID protocol.Bytes32) ([]common.VerifierResultWithMetadata, error)
+	// GetMessage retrieves a message from the messages table by ID.
+	GetMessage(ctx context.Context, messageID protocol.Bytes32) (common.MessageWithMetadata, error)
 }
 
 // AggregatorReaderFactory creates a new aggregator reader for replay.

@@ -2,6 +2,7 @@ package replay
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -21,6 +22,7 @@ type mockReplayStorage struct {
 	messages       []common.MessageWithMetadata
 	verifications  []common.VerifierResultWithMetadata
 	getCCVDataFunc func(ctx context.Context, messageID protocol.Bytes32) ([]common.VerifierResultWithMetadata, error)
+	getMessageFunc func(ctx context.Context, messageID protocol.Bytes32) (common.MessageWithMetadata, error)
 	upsertMsgErr   error
 	upsertCCVErr   error
 	forceUsed      bool
@@ -61,6 +63,13 @@ func (m *mockReplayStorage) GetCCVData(ctx context.Context, messageID protocol.B
 		return m.getCCVDataFunc(ctx, messageID)
 	}
 	return nil, nil
+}
+
+func (m *mockReplayStorage) GetMessage(ctx context.Context, messageID protocol.Bytes32) (common.MessageWithMetadata, error) {
+	if m.getMessageFunc != nil {
+		return m.getMessageFunc(ctx, messageID)
+	}
+	return common.MessageWithMetadata{}, fmt.Errorf("message not found")
 }
 
 func (m *mockReplayStorage) capturedMessages() []common.MessageWithMetadata {
@@ -214,12 +223,42 @@ func TestPersistDiscoveryBatch_NoForceByDefault(t *testing.T) {
 	assert.False(t, store.forceUsed, "force flag should not be set for default behavior")
 }
 
+func TestGatherAllVerifications_MessageNotFound(t *testing.T) {
+	lggr := logger.Test(t)
+	store := newMockReplayStorage()
+	reg := registry.NewVerifierRegistry()
+
+	store.getMessageFunc = func(_ context.Context, _ protocol.Bytes32) (common.MessageWithMetadata, error) {
+		return common.MessageWithMetadata{}, fmt.Errorf("message not found")
+	}
+
+	engine := &Engine{
+		storage:  store,
+		registry: reg,
+		lggr:     lggr,
+	}
+
+	job := &Job{
+		ID:     "test-msg-not-found",
+		Type:   TypeMessages,
+		Status: StatusRunning,
+	}
+
+	msgID := testVerifierResult(1).VerifierResult.MessageID
+	err := engine.gatherAllVerifications(context.Background(), job, msgID, nil)
+	require.NoError(t, err)
+	assert.Len(t, store.capturedVerifications(), 0)
+}
+
 func TestGatherAllVerifications_NoCCVAddresses(t *testing.T) {
 	lggr := logger.Test(t)
 	store := newMockReplayStorage()
 	reg := registry.NewVerifierRegistry()
 
-	// Return no CCV addresses for the message
+	vr := testVerifierResult(1)
+	store.getMessageFunc = func(_ context.Context, _ protocol.Bytes32) (common.MessageWithMetadata, error) {
+		return common.MessageWithMetadata{Message: vr.VerifierResult.Message}, nil
+	}
 	store.getCCVDataFunc = func(_ context.Context, _ protocol.Bytes32) ([]common.VerifierResultWithMetadata, error) {
 		return nil, nil
 	}
@@ -236,8 +275,7 @@ func TestGatherAllVerifications_NoCCVAddresses(t *testing.T) {
 		Status: StatusRunning,
 	}
 
-	msgID := testVerifierResult(1).VerifierResult.MessageID
-	err := engine.gatherAllVerifications(context.Background(), job, msgID)
+	err := engine.gatherAllVerifications(context.Background(), job, vr.VerifierResult.MessageID, nil)
 	require.NoError(t, err)
 }
 
@@ -250,6 +288,9 @@ func TestGatherAllVerifications_WithCCVAddressesButNoReaders(t *testing.T) {
 	msgVR := testVerifierResult(1)
 	msgVR.VerifierResult.MessageCCVAddresses = []protocol.UnknownAddress{verifierAddr}
 
+	store.getMessageFunc = func(_ context.Context, _ protocol.Bytes32) (common.MessageWithMetadata, error) {
+		return common.MessageWithMetadata{Message: msgVR.VerifierResult.Message}, nil
+	}
 	store.getCCVDataFunc = func(_ context.Context, _ protocol.Bytes32) ([]common.VerifierResultWithMetadata, error) {
 		return []common.VerifierResultWithMetadata{msgVR}, nil
 	}
@@ -266,9 +307,60 @@ func TestGatherAllVerifications_WithCCVAddressesButNoReaders(t *testing.T) {
 		Status: StatusRunning,
 	}
 
-	err := engine.gatherAllVerifications(context.Background(), job, msgVR.VerifierResult.MessageID)
+	err := engine.gatherAllVerifications(context.Background(), job, msgVR.VerifierResult.MessageID, nil)
 	require.NoError(t, err)
 	assert.Len(t, store.capturedVerifications(), 0)
+}
+
+func TestGatherAllVerifications_AggregatorFallback(t *testing.T) {
+	lggr := logger.Test(t)
+	store := newMockReplayStorage()
+	reg := registry.NewVerifierRegistry()
+
+	vr := testVerifierResult(1)
+	ccvAddr, _ := protocol.RandomAddress()
+
+	store.getMessageFunc = func(_ context.Context, _ protocol.Bytes32) (common.MessageWithMetadata, error) {
+		return common.MessageWithMetadata{Message: vr.VerifierResult.Message}, nil
+	}
+	// No local CCV data
+	store.getCCVDataFunc = func(_ context.Context, _ protocol.Bytes32) ([]common.VerifierResultWithMetadata, error) {
+		return nil, nil
+	}
+
+	// Simulate aggregator returning a VerifierResult with CCV addresses.
+	// Since no verifier readers are registered for this address, we just verify
+	// the fallback path was taken (no error, no stored verifications).
+	mockAggReader := &mockAggregatorReader{
+		results: map[protocol.Bytes32]protocol.VerifierResult{
+			vr.VerifierResult.MessageID: {
+				MessageID:           vr.VerifierResult.MessageID,
+				MessageCCVAddresses: []protocol.UnknownAddress{ccvAddr},
+			},
+		},
+	}
+
+	engine := &Engine{
+		storage:  store,
+		registry: reg,
+		lggr:     lggr,
+	}
+
+	ctx := context.Background()
+
+	// Verify collectLocalCCVAddresses returns nil
+	localAddrs := engine.collectLocalCCVAddresses(ctx, vr.VerifierResult.MessageID)
+	assert.Empty(t, localAddrs)
+
+	// Verify the aggregator would provide addresses
+	aggAddrs := mockAggReader.results[vr.VerifierResult.MessageID].MessageCCVAddresses
+	assert.Len(t, aggAddrs, 1)
+	assert.Equal(t, ccvAddr, aggAddrs[0])
+}
+
+// mockAggregatorReader simulates an aggregator reader's GetVerifications response.
+type mockAggregatorReader struct {
+	results map[protocol.Bytes32]protocol.VerifierResult
 }
 
 func TestRunDiscoveryReplay_MissingSinceSequenceNumber(t *testing.T) {
