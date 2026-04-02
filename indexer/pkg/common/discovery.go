@@ -59,6 +59,7 @@ func ConvertDiscoveryResponses(
 				Status:             MessageProcessing,
 				IngestionTimestamp: ingestionTimestamp,
 			},
+			MessageCCVAddresses: resp.Data.MessageCCVAddresses,
 		})
 
 		var verifierName string

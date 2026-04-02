@@ -53,7 +53,8 @@ const (
 		message = EXCLUDED.message,
 		ingestion_timestamp = EXCLUDED.ingestion_timestamp,
 		source_chain_selector = EXCLUDED.source_chain_selector,
-		dest_chain_selector = EXCLUDED.dest_chain_selector`
+		dest_chain_selector = EXCLUDED.dest_chain_selector,
+		message_ccv_addresses = EXCLUDED.message_ccv_addresses`
 )
 
 type PostgresStorage struct {
@@ -389,10 +390,12 @@ func buildBatchMessagesQuery(messages []common.MessageWithMetadata, conflictClau
 			lastErr,
 			source_chain_selector,
 			dest_chain_selector,
-			ingestion_timestamp
+			ingestion_timestamp,
+			message_ccv_addresses
 		) VALUES `)
 
-	args := make([]any, 0, len(messages)*7)
+	const colsPerRow = 8
+	args := make([]any, 0, len(messages)*colsPerRow)
 	valueClauses := make([]string, 0, len(messages))
 
 	baseIdx := 0
@@ -406,8 +409,13 @@ func buildBatchMessagesQuery(messages []common.MessageWithMetadata, conflictClau
 			return "", nil, fmt.Errorf("failed to get message ID at index %d: %w", i, err)
 		}
 
-		valueClause := fmt.Sprintf("($%d, $%d, $%d, $%d, $%d, $%d, $%d)",
-			baseIdx+1, baseIdx+2, baseIdx+3, baseIdx+4, baseIdx+5, baseIdx+6, baseIdx+7)
+		ccvAddressesHex := make([]string, len(msg.MessageCCVAddresses))
+		for j, addr := range msg.MessageCCVAddresses {
+			ccvAddressesHex[j] = addr.String()
+		}
+
+		valueClause := fmt.Sprintf("($%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d)",
+			baseIdx+1, baseIdx+2, baseIdx+3, baseIdx+4, baseIdx+5, baseIdx+6, baseIdx+7, baseIdx+8)
 		valueClauses = append(valueClauses, valueClause)
 
 		args = append(args,
@@ -418,9 +426,10 @@ func buildBatchMessagesQuery(messages []common.MessageWithMetadata, conflictClau
 			msg.Message.SourceChainSelector,
 			msg.Message.DestChainSelector,
 			msg.Metadata.IngestionTimestamp,
+			pq.Array(ccvAddressesHex),
 		)
 
-		baseIdx += 7
+		baseIdx += colsPerRow
 	}
 
 	for i, vc := range valueClauses {
@@ -454,7 +463,8 @@ func (d *PostgresStorage) GetMessage(ctx context.Context, messageID protocol.Byt
 			lastErr,
 			source_chain_selector,
 			dest_chain_selector,
-			ingestion_timestamp
+			ingestion_timestamp,
+			message_ccv_addresses
 		FROM indexer.messages
 		WHERE message_id = $1
 	`
@@ -493,7 +503,8 @@ func (d *PostgresStorage) QueryMessages(
 			lastErr,
 			source_chain_selector,
 			dest_chain_selector,
-			ingestion_timestamp
+			ingestion_timestamp,
+			message_ccv_addresses
 		FROM indexer.messages
 		WHERE ingestion_timestamp >= $1 AND ingestion_timestamp <= $2
 	`
@@ -877,6 +888,7 @@ func (d *PostgresStorage) scanMessage(row interface {
 		sourceChainSelector uint64
 		destChainSelector   uint64
 		ingestionTimestamp  time.Time
+		ccvAddressesHex     pq.StringArray
 	)
 
 	err := row.Scan(
@@ -887,6 +899,7 @@ func (d *PostgresStorage) scanMessage(row interface {
 		&sourceChainSelector,
 		&destChainSelector,
 		&ingestionTimestamp,
+		&ccvAddressesHex,
 	)
 	if err != nil {
 		return common.MessageWithMetadata{}, fmt.Errorf("failed to scan row: %w", err)
@@ -902,6 +915,16 @@ func (d *PostgresStorage) scanMessage(row interface {
 		return common.MessageWithMetadata{}, fmt.Errorf("failed to parse status: %w", err)
 	}
 
+	ccvAddresses := make([]protocol.UnknownAddress, 0, len(ccvAddressesHex))
+	for _, hexAddr := range ccvAddressesHex {
+		addr, err := protocol.NewUnknownAddressFromHex(hexAddr)
+		if err != nil {
+			d.lggr.Warnw("Failed to decode CCV address from messages table", "address", hexAddr, "error", err)
+			continue
+		}
+		ccvAddresses = append(ccvAddresses, addr)
+	}
+
 	return common.MessageWithMetadata{
 		Message: message,
 		Metadata: common.MessageMetadata{
@@ -909,5 +932,6 @@ func (d *PostgresStorage) scanMessage(row interface {
 			IngestionTimestamp: ingestionTimestamp,
 			LastErr:            lastErr,
 		},
+		MessageCCVAddresses: ccvAddresses,
 	}, nil
 }

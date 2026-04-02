@@ -21,9 +21,7 @@ type Storage interface {
 	UpsertVerifierResults(ctx context.Context, results []common.VerifierResultWithMetadata, force bool) error
 	// UpsertMessages inserts or overwrites messages based on force flag.
 	UpsertMessages(ctx context.Context, messages []common.MessageWithMetadata, force bool) error
-	// GetCCVData retrieves existing CCV data for a message ID.
-	GetCCVData(ctx context.Context, messageID protocol.Bytes32) ([]common.VerifierResultWithMetadata, error)
-	// GetMessage retrieves a message from the messages table by ID.
+	// GetMessage retrieves a message (including CCV addresses) from the messages table by ID.
 	GetMessage(ctx context.Context, messageID protocol.Bytes32) (common.MessageWithMetadata, error)
 }
 

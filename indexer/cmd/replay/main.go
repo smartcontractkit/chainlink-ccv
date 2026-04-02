@@ -118,7 +118,7 @@ func discoveryAction(c *cli.Context) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	engine, cleanup := mustBuildEngine(ctx)
+	engine, cleanup := mustBuildEngine(ctx, true)
 	defer cleanup()
 
 	req := replay.Request{
@@ -149,7 +149,7 @@ func messagesAction(c *cli.Context) error {
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
-	engine, cleanup := mustBuildEngine(ctx)
+	engine, cleanup := mustBuildEngine(ctx, false)
 	defer cleanup()
 
 	req := replay.Request{
@@ -201,11 +201,12 @@ func resumeAction(c *cli.Context) error {
 	defer stop()
 
 	store := mustBuildStore(ctx)
-	if _, err := store.GetJob(ctx, jobID); err != nil {
+	job, err := store.GetJob(ctx, jobID)
+	if err != nil {
 		return err
 	}
 
-	engine, cleanup := mustBuildEngine(ctx)
+	engine, cleanup := mustBuildEngine(ctx, job.Type == replay.TypeDiscovery)
 	defer cleanup()
 
 	if err := engine.Resume(ctx, jobID); err != nil {
@@ -297,7 +298,7 @@ func renderJobList(jobs []replay.Job) error {
 }
 
 // mustBuildEngine creates the full replay engine with all dependencies.
-func mustBuildEngine(ctx context.Context) (*replay.Engine, func()) {
+func mustBuildEngine(ctx context.Context, needsDiscoveryReader bool) (*replay.Engine, func()) {
 	cfg := mustLoadConfig()
 	lggr := mustCreateLogger(cfg)
 	indexerMonitoring := monitoring.NewNoopIndexerMonitoring()
@@ -357,7 +358,7 @@ func mustBuildEngine(ctx context.Context) (*replay.Engine, func()) {
 	}
 
 	var aggFactory replay.AggregatorReaderFactory
-	if len(cfg.Discoveries) > 0 {
+	if needsDiscoveryReader && len(cfg.Discoveries) > 0 {
 		disc := cfg.Discoveries[0]
 		aggFactory = func(since int64) (*readers.ResilientReader, error) {
 			return readers.NewAggregatorReader(disc.Address, lggr, since, hmac.ClientConfig{
