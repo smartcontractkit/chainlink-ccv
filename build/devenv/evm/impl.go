@@ -29,7 +29,6 @@ import (
 	"github.com/rs/zerolog/log"
 
 	adapters_1_6_1 "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_1/adapters"
-	changesets_1_6_1 "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_1/changesets"
 	rmn_remote_binding "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/v1_6_0/rmn_remote"
 
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/create2_factory"
@@ -48,8 +47,8 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/utils/operations/contract"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_0_0/operations/link"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_0_0/operations/weth"
+	bnm_drip_v1_0 "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_0_0/operations/burn_mint_erc20_with_drip"
 	burnminterc677ops "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_5_0/operations/burn_mint_erc20_with_drip"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_5_0/operations/token_admin_registry"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_0/operations/rmn_remote"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/lanes"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/adapters"
@@ -72,13 +71,13 @@ import (
 	chainsel "github.com/smartcontractkit/chain-selectors"
 
 	evmadapters "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/adapters"
-	evmchangesets "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/changesets"
 	offrampoperations "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v2_0_0/operations/offramp"
 	onrampoperations "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v2_0_0/operations/onramp"
 	feequoterwrapper "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/fee_quoter"
 	routeroperations "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_2_0/operations/router"
 	routerwrapper "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/v1_2_0/router"
 	tokenscore "github.com/smartcontractkit/chainlink-ccip/deployment/tokens"
+	devenvmcms "github.com/smartcontractkit/chainlink-ccip/deployment/utils/mcms"
 	changesetsutils "github.com/smartcontractkit/chainlink-ccip/deployment/utils"
 	changesetscore "github.com/smartcontractkit/chainlink-ccip/deployment/utils/changesets"
 )
@@ -1218,48 +1217,32 @@ func (m *CCIP17EVMConfig) deployTokenAndPool(
 		return errors.New("failed to parse deployer balance")
 	}
 
-	var out deployment.ChangesetOutput
-	var err error
-	if tokenPoolRef.Version.Equal(semver.MustParse("1.6.1")) {
-		out, err = changesets_1_6_1.DeployTokenAndPool(mcmsReaderRegistry).Apply(*env, changesetscore.WithMCMS[changesets_1_6_1.DeployTokenAndPoolCfg]{
-			Cfg: changesets_1_6_1.DeployTokenAndPoolCfg{
-				Accounts: map[common.Address]*big.Int{
-					chain.DeployerKey.From: deployerBalance,
+	divisor := new(big.Int).Exp(big.NewInt(10), big.NewInt(DefaultDecimals), nil)
+	preMintTokens := new(big.Int).Div(deployerBalance, divisor).Uint64()
+
+	out, err := tokenscore.TokenExpansion().Apply(*env, tokenscore.TokenExpansionInput{
+		ChainAdapterVersion: tokenPoolRef.Version,
+		MCMS:                devenvmcms.Input{},
+		TokenExpansionInputPerChain: map[uint64]tokenscore.TokenExpansionInputPerChain{
+			selector: {
+				TokenPoolVersion:      tokenPoolRef.Version,
+				SkipOwnershipTransfer: true,
+				DeployTokenInput: &tokenscore.DeployTokenInput{
+					Symbol:        tokenPoolRef.Qualifier,
+					Name:          tokenPoolRef.Qualifier,
+					Decimals:      DefaultDecimals,
+					Type:          bnm_drip_v1_0.ContractType,
+					ExternalAdmin: chain.DeployerKey.From.Hex(),
+					CCIPAdmin:     chain.DeployerKey.From.Hex(),
+					PreMint:       &preMintTokens,
 				},
-				ChainSel:         selector,
-				TokenPoolType:    tokenPoolRef.Type,
-				TokenPoolVersion: tokenPoolRef.Version,
-				TokenSymbol:      tokenPoolRef.Qualifier,
-				Decimals:         DefaultDecimals,
-				Router: datastore.AddressRef{
-					Type:    datastore.ContractType(routeroperations.ContractType),
-					Version: semver.MustParse(routeroperations.Deploy.Version()),
-				},
-			},
-		})
-	} else {
-		out, err = evmchangesets.DeployTokenAndPool(mcmsReaderRegistry).Apply(*env, changesetscore.WithMCMS[evmchangesets.DeployTokenAndPoolCfg]{
-			Cfg: evmchangesets.DeployTokenAndPoolCfg{
-				Accounts: map[common.Address]*big.Int{
-					chain.DeployerKey.From: deployerBalance,
-				},
-				ChainSel:         selector,
-				TokenPoolType:    tokenPoolRef.Type,
-				TokenPoolVersion: tokenPoolRef.Version,
-				TokenSymbol:      tokenPoolRef.Qualifier,
-				Decimals:         DefaultDecimals,
-				Router: datastore.AddressRef{
-					Type:    datastore.ContractType(routeroperations.ContractType),
-					Version: semver.MustParse(routeroperations.Deploy.Version()),
-				},
-				ThresholdAmountForAdditionalCCVs: big.NewInt(0),
-				TokenAdminRegistryRef: datastore.AddressRef{
-					Type:    datastore.ContractType(token_admin_registry.ContractType),
-					Version: semver.MustParse(token_admin_registry.Deploy.Version()),
+				DeployTokenPoolInput: &tokenscore.DeployTokenPoolInput{
+					PoolType:           string(tokenPoolRef.Type),
+					TokenPoolQualifier: tokenPoolRef.Qualifier,
 				},
 			},
-		})
-	}
+		},
+	})
 	if err != nil {
 		return fmt.Errorf("failed to deploy %s token and pool: %w", tokenPoolRef.Qualifier, err)
 	}
@@ -1371,7 +1354,7 @@ func (m *CCIP17EVMConfig) PostConnect(e *deployment.Environment, selector uint64
 	for _, rs := range remoteSelectors {
 		destChainSelectorsToAdd = append(destChainSelectorsToAdd, sequences.ExecutorRemoteChainConfigArgs{
 			DestChainSelector: rs,
-			Config: lanes.ExecutorDestChainConfig{
+			Config: adapters.ExecutorDestChainConfig{
 				Enabled: true,
 			},
 		})
