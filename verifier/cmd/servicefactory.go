@@ -12,7 +12,6 @@ import (
 
 	"github.com/grafana/pyroscope-go"
 
-	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors"
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
@@ -43,7 +42,7 @@ type CreateAccessorFactoryFunc[T any] func(
 ) (chainaccess.AccessorFactory, error)
 
 // chainSelectorsFromMap returns chain selectors parsed from the keys of a map keyed by selector string.
-func chainSelectorsFromMap[T any](m accessors.Infos[T]) []protocol.ChainSelector {
+func chainSelectorsFromMap[T any](m chainaccess.Infos[T]) []protocol.ChainSelector {
 	out := make([]protocol.ChainSelector, 0, len(m))
 	for sel := range m {
 		u, err := strconv.ParseUint(sel, 10, 64)

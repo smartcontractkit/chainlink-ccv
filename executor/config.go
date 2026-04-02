@@ -5,7 +5,7 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors"
+	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 )
 
 const (
@@ -22,7 +22,7 @@ const (
 
 type ConfigWithBlockchainInfo[T any] struct {
 	Configuration
-	BlockchainInfos accessors.Infos[T] `toml:"blockchain_infos"`
+	BlockchainInfos chainaccess.Infos[T] `toml:"blockchain_infos"`
 }
 
 // Configuration is the complete set of information an executor needs to operate normally.

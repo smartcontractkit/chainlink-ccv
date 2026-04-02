@@ -4,7 +4,6 @@ import (
 	"context"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
-	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/sourcereader"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -18,7 +17,7 @@ import (
 func CreateAccessorFactory(
 	ctx context.Context,
 	lggr logger.Logger,
-	infos accessors.Infos[Info],
+	infos chainaccess.Infos[Info],
 	onRampAddresses map[string]string,
 	rmnRemoteAddresses map[string]string,
 ) (chainaccess.AccessorFactory, error) {

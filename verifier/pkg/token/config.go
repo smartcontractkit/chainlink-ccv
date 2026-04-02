@@ -3,7 +3,7 @@ package token
 import (
 	"fmt"
 
-	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors"
+	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/cctp"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/lombard"
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
@@ -11,7 +11,7 @@ import (
 
 type ConfigWithBlockchainInfos[T any] struct {
 	Config
-	BlockchainInfos accessors.Infos[T] `toml:"blockchain_infos"`
+	BlockchainInfos chainaccess.Infos[T] `toml:"blockchain_infos"`
 }
 
 type Config struct {

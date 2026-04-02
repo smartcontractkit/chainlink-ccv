@@ -6,7 +6,7 @@ import (
 	"math/big"
 	"time"
 
-	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors"
+	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-evm/pkg/client"
@@ -15,7 +15,7 @@ import (
 
 func ptr[T any](t T) *T { return &t }
 
-func CreateHealthyMultiNodeClient(ctx context.Context, infos accessors.Infos[Info], lggr logger.Logger, chainSelector protocol.ChainSelector) (client.Client, error) {
+func CreateHealthyMultiNodeClient(ctx context.Context, infos chainaccess.Infos[Info], lggr logger.Logger, chainSelector protocol.ChainSelector) (client.Client, error) {
 	info, err := infos.GetBlockchainByChainSelector(chainSelector)
 	if err != nil {
 		lggr.Errorw("Failed to get blockchain info", "error", err, "chainSelector", chainSelector)

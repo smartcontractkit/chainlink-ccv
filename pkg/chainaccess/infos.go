@@ -1,4 +1,4 @@
-package accessors
+package chainaccess
 
 import (
 	"fmt"

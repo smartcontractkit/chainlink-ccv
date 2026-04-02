@@ -16,7 +16,6 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
-	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/heartbeatclient"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
@@ -63,7 +62,7 @@ type tokenVerifierFactory[T any] struct {
 	bootstrap.ServiceFactory[token.Config]
 
 	// TODO: rather than creating the factory in the bootstrap layer, can we pass in a registry?
-	createAccessorFactoryFunc accessors.CreateAccessorFactory[T]
+	createAccessorFactoryFunc chainaccess.CreateAccessorFactory[T]
 	// TODO: This no longer makes sense because 'CreateAccessorFactory' only supports one family.
 	supportedChainFamily []string
 
