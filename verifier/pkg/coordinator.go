@@ -113,6 +113,7 @@ func NewCoordinatorWithDetector(
 			return fmt.Errorf("failed to create curse detector: %w", err)
 		}
 		vc.curseDetector = curseDetector
+		// TODO: return a wrapper object instead of separate services.
 		dbSRS, taskVerifierProcessor, storageWriterProcessor, taskQueueObs, resultQueueObs, err := createDurableProcessors(
 			lggr, ds, config, verifier, monitoring, enabledSourceReaders, chainStatusManager, vc.curseDetector, messageTracker, storage,
 		)

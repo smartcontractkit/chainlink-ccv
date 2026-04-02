@@ -1,6 +1,6 @@
 package verifier
 
-import vtypes "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
+import "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
 
 // Constant re-exports - the actual values live in verifier/pkg/vtypes.
 const (
