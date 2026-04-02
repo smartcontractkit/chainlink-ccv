@@ -58,33 +58,35 @@ func (e *Engine) runMessageReplay(ctx context.Context, job *Job) error {
 }
 
 // gatherAllVerifications fetches verifications from all known verifiers for a
-// single message ID. It unions CCV addresses across all existing stored
-// verifications; if none exist, it skips. The user should use discovery
-// replay to re-discover the message first.
+// single message ID. CCV addresses are read from the messages table, which is
+// populated during discovery.
 func (e *Engine) gatherAllVerifications(ctx context.Context, job *Job, msgID protocol.Bytes32) error {
-	var ccvAddresses []protocol.UnknownAddress
-
-	existing, err := e.storage.GetCCVData(ctx, msgID)
-	if err == nil && len(existing) > 0 {
-		seen := make(map[string]struct{})
-		for _, entry := range existing {
-			for _, addr := range entry.VerifierResult.MessageCCVAddresses {
-				key := addr.String()
-				if _, ok := seen[key]; !ok {
-					seen[key] = struct{}{}
-					ccvAddresses = append(ccvAddresses, addr)
-				}
-			}
-		}
-	}
-
-	if len(ccvAddresses) == 0 {
-		e.lggr.Warnw("No CCV addresses found for message, skipping verifier gathering",
+	msg, err := e.storage.GetMessage(ctx, msgID)
+	if err != nil {
+		e.lggr.Warnw("Message not found in local storage, skipping verifier gathering",
 			"messageID", msgID,
 		)
 		return nil
 	}
 
+	if len(msg.MessageCCVAddresses) == 0 {
+		e.lggr.Warnw("No CCV addresses stored for message, skipping verifier gathering",
+			"messageID", msgID,
+		)
+		return nil
+	}
+
+	return e.queryVerifiers(ctx, job, msgID, msg.MessageCCVAddresses)
+}
+
+// queryVerifiers fans out to all configured verifier readers for the given
+// CCV addresses and persists the results.
+func (e *Engine) queryVerifiers(
+	ctx context.Context,
+	job *Job,
+	msgID protocol.Bytes32,
+	ccvAddresses []protocol.UnknownAddress,
+) error {
 	for _, addr := range ccvAddresses {
 		verifierReaders := e.registry.GetVerifiers(addr)
 		if len(verifierReaders) == 0 {
@@ -126,7 +128,6 @@ func (e *Engine) gatherAllVerifications(ctx context.Context, job *Job, msgID pro
 			}
 		}
 	}
-
 	return nil
 }
 

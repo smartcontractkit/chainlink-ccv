@@ -63,8 +63,9 @@ type MessageMetadata struct {
 
 // MessageWithMetadata defines model for MessageWithMetadata.
 type MessageWithMetadata struct {
-	Message  Message         `json:"message"`
-	Metadata MessageMetadata `json:"metadata"`
+	Message             Message         `json:"message"`
+	MessageCCVAddresses *[]string       `json:"messageCCVAddresses"`
+	Metadata            MessageMetadata `json:"metadata"`
 }
 
 // TokenTransfer defines model for TokenTransfer.

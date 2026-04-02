@@ -18,8 +18,9 @@ type VerifierResultMetadata struct {
 }
 
 type MessageWithMetadata struct {
-	Message  protocol.Message `json:"message"`
-	Metadata MessageMetadata  `json:"metadata"`
+	Message             protocol.Message          `json:"message"`
+	Metadata            MessageMetadata           `json:"metadata"`
+	MessageCCVAddresses []protocol.UnknownAddress `json:"messageCCVAddresses,omitempty"`
 }
 
 type MessageMetadata struct {

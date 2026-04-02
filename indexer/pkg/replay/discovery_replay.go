@@ -3,7 +3,6 @@ package replay
 import (
 	"context"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
@@ -124,48 +123,8 @@ func (e *Engine) persistDiscoveryBatch(
 }
 
 // gatherVerificationsForMessage fetches CCV records from all known verifiers
-// for a single message and persists them.
+// for a single message using CCV addresses already present in the discovery
+// response and persists them.
 func (e *Engine) gatherVerificationsForMessage(ctx context.Context, job *Job, vr protocol.VerifierResult) error {
-	for _, addr := range vr.MessageCCVAddresses {
-		verifierReaders := e.registry.GetVerifiers(addr)
-		if len(verifierReaders) == 0 {
-			continue
-		}
-
-		for _, reader := range verifierReaders {
-			resultCh, err := reader.ProcessMessage(vr.MessageID)
-			if err != nil {
-				e.lggr.Warnw("Failed to enqueue message for verifier",
-					"messageID", vr.MessageID,
-					"verifier", strings.ToLower(addr.String()),
-					"error", err,
-				)
-				continue
-			}
-
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			case result, ok := <-resultCh:
-				if !ok || result.Err() != nil {
-					continue
-				}
-				vrm := common.VerifierResultWithMetadata{
-					VerifierResult: result.Value(),
-					Metadata: common.VerifierResultMetadata{
-						AttestationTimestamp: result.Value().Timestamp,
-						IngestionTimestamp:   time.Now(),
-						VerifierName:         e.registry.GetVerifierNameFromAddress(result.Value().VerifierSourceAddress),
-					},
-				}
-				if err := e.storage.UpsertVerifierResults(ctx, []common.VerifierResultWithMetadata{vrm}, job.ForceOverwrite); err != nil {
-					e.lggr.Warnw("Failed to persist verifier result during replay",
-						"messageID", vr.MessageID,
-						"error", err,
-					)
-				}
-			}
-		}
-	}
-	return nil
+	return e.queryVerifiers(ctx, job, vr.MessageID, vr.MessageCCVAddresses)
 }

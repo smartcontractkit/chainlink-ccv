@@ -2,6 +2,7 @@ package replay
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -20,7 +21,7 @@ type mockReplayStorage struct {
 	mu             sync.Mutex
 	messages       []common.MessageWithMetadata
 	verifications  []common.VerifierResultWithMetadata
-	getCCVDataFunc func(ctx context.Context, messageID protocol.Bytes32) ([]common.VerifierResultWithMetadata, error)
+	getMessageFunc func(ctx context.Context, messageID protocol.Bytes32) (common.MessageWithMetadata, error)
 	upsertMsgErr   error
 	upsertCCVErr   error
 	forceUsed      bool
@@ -56,11 +57,11 @@ func (m *mockReplayStorage) UpsertVerifierResults(_ context.Context, results []c
 	return nil
 }
 
-func (m *mockReplayStorage) GetCCVData(ctx context.Context, messageID protocol.Bytes32) ([]common.VerifierResultWithMetadata, error) {
-	if m.getCCVDataFunc != nil {
-		return m.getCCVDataFunc(ctx, messageID)
+func (m *mockReplayStorage) GetMessage(ctx context.Context, messageID protocol.Bytes32) (common.MessageWithMetadata, error) {
+	if m.getMessageFunc != nil {
+		return m.getMessageFunc(ctx, messageID)
 	}
-	return nil, nil
+	return common.MessageWithMetadata{}, fmt.Errorf("message not found")
 }
 
 func (m *mockReplayStorage) capturedMessages() []common.MessageWithMetadata {
@@ -214,14 +215,41 @@ func TestPersistDiscoveryBatch_NoForceByDefault(t *testing.T) {
 	assert.False(t, store.forceUsed, "force flag should not be set for default behavior")
 }
 
+func TestGatherAllVerifications_MessageNotFound(t *testing.T) {
+	lggr := logger.Test(t)
+	store := newMockReplayStorage()
+	reg := registry.NewVerifierRegistry()
+
+	store.getMessageFunc = func(_ context.Context, _ protocol.Bytes32) (common.MessageWithMetadata, error) {
+		return common.MessageWithMetadata{}, fmt.Errorf("message not found")
+	}
+
+	engine := &Engine{
+		storage:  store,
+		registry: reg,
+		lggr:     lggr,
+	}
+
+	job := &Job{
+		ID:     "test-msg-not-found",
+		Type:   TypeMessages,
+		Status: StatusRunning,
+	}
+
+	msgID := testVerifierResult(1).VerifierResult.MessageID
+	err := engine.gatherAllVerifications(context.Background(), job, msgID)
+	require.NoError(t, err)
+	assert.Len(t, store.capturedVerifications(), 0)
+}
+
 func TestGatherAllVerifications_NoCCVAddresses(t *testing.T) {
 	lggr := logger.Test(t)
 	store := newMockReplayStorage()
 	reg := registry.NewVerifierRegistry()
 
-	// Return no CCV addresses for the message
-	store.getCCVDataFunc = func(_ context.Context, _ protocol.Bytes32) ([]common.VerifierResultWithMetadata, error) {
-		return nil, nil
+	vr := testVerifierResult(1)
+	store.getMessageFunc = func(_ context.Context, _ protocol.Bytes32) (common.MessageWithMetadata, error) {
+		return common.MessageWithMetadata{Message: vr.VerifierResult.Message}, nil
 	}
 
 	engine := &Engine{
@@ -236,8 +264,7 @@ func TestGatherAllVerifications_NoCCVAddresses(t *testing.T) {
 		Status: StatusRunning,
 	}
 
-	msgID := testVerifierResult(1).VerifierResult.MessageID
-	err := engine.gatherAllVerifications(context.Background(), job, msgID)
+	err := engine.gatherAllVerifications(context.Background(), job, vr.VerifierResult.MessageID)
 	require.NoError(t, err)
 }
 
@@ -248,10 +275,12 @@ func TestGatherAllVerifications_WithCCVAddressesButNoReaders(t *testing.T) {
 
 	verifierAddr, _ := protocol.RandomAddress()
 	msgVR := testVerifierResult(1)
-	msgVR.VerifierResult.MessageCCVAddresses = []protocol.UnknownAddress{verifierAddr}
 
-	store.getCCVDataFunc = func(_ context.Context, _ protocol.Bytes32) ([]common.VerifierResultWithMetadata, error) {
-		return []common.VerifierResultWithMetadata{msgVR}, nil
+	store.getMessageFunc = func(_ context.Context, _ protocol.Bytes32) (common.MessageWithMetadata, error) {
+		return common.MessageWithMetadata{
+			Message:             msgVR.VerifierResult.Message,
+			MessageCCVAddresses: []protocol.UnknownAddress{verifierAddr},
+		}, nil
 	}
 
 	engine := &Engine{
@@ -267,6 +296,40 @@ func TestGatherAllVerifications_WithCCVAddressesButNoReaders(t *testing.T) {
 	}
 
 	err := engine.gatherAllVerifications(context.Background(), job, msgVR.VerifierResult.MessageID)
+	require.NoError(t, err)
+	assert.Len(t, store.capturedVerifications(), 0)
+}
+
+func TestGatherAllVerifications_CCVAddressesFromMessagesTable(t *testing.T) {
+	lggr := logger.Test(t)
+	store := newMockReplayStorage()
+	reg := registry.NewVerifierRegistry()
+
+	ccvAddr, _ := protocol.RandomAddress()
+	vr := testVerifierResult(1)
+
+	store.getMessageFunc = func(_ context.Context, _ protocol.Bytes32) (common.MessageWithMetadata, error) {
+		return common.MessageWithMetadata{
+			Message:             vr.VerifierResult.Message,
+			MessageCCVAddresses: []protocol.UnknownAddress{ccvAddr},
+		}, nil
+	}
+
+	engine := &Engine{
+		storage:  store,
+		registry: reg,
+		lggr:     lggr,
+	}
+
+	job := &Job{
+		ID:     "test-ccv-from-messages",
+		Type:   TypeMessages,
+		Status: StatusRunning,
+	}
+
+	// CCV addresses are provided via GetMessage but no readers are registered,
+	// so no verifications are stored -- but no error either.
+	err := engine.gatherAllVerifications(context.Background(), job, vr.VerifierResult.MessageID)
 	require.NoError(t, err)
 	assert.Len(t, store.capturedVerifications(), 0)
 }

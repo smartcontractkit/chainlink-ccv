@@ -143,6 +143,12 @@ components:
       properties:
         message:
           $ref: "#/components/schemas/Message"
+        messageCCVAddresses:
+          items:
+            format: base64
+            type: string
+          nullable: true
+          type: array
         metadata:
           $ref: "#/components/schemas/MessageMetadata"
       required:
@@ -373,6 +379,9 @@ paths:
             Message:
               schema:
                 $ref: "#/components/schemas/Message"
+            MessageCCVAddresses:
+              schema:
+                type: string
             Messages:
               schema:
                 additionalProperties:
