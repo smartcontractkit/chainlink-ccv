@@ -48,7 +48,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_0_0/operations/link"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_0_0/operations/weth"
 	bnm_drip_v1_0 "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_0_0/operations/burn_mint_erc20_with_drip"
-	burnminterc677ops "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_5_0/operations/burn_mint_erc20_with_drip"
+
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_0/operations/rmn_remote"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/adapters"
 	ccipChangesets "github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/changesets"
@@ -1553,8 +1553,8 @@ func (m *CCIP17EVMConfig) fundLockReleaseTokenPool(
 ) error {
 	poolType := datastore.ContractType(lock_release_token_pool.ContractType)
 	qualifier := tokenPoolRef.Qualifier
-	// Get token address reference
-	tokenRef, err := env.DataStore.Addresses().Get(datastore.NewAddressRefKey(selector, datastore.ContractType(burnminterc677ops.ContractType), semver.MustParse(burnminterc677ops.Deploy.Version()), qualifier))
+	// Get token address reference (token deployed via TokenExpansion uses v1.0.0 contract type)
+	tokenRef, err := env.DataStore.Addresses().Get(datastore.NewAddressRefKey(selector, datastore.ContractType(bnm_drip_v1_0.ContractType), semver.MustParse(bnm_drip_v1_0.Deploy.Version()), qualifier))
 	if err != nil {
 		return fmt.Errorf("failed to get token address for %s %s pool: %w", qualifier, poolType, err)
 	}
