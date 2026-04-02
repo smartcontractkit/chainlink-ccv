@@ -1,7 +1,6 @@
 package discovery
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"sync"
@@ -330,37 +329,10 @@ func (a *AggregatorMessageDiscovery) callReader(ctx context.Context) (bool, erro
 	a.logger.Debug("Called Aggregator")
 
 	ingestionTimestamp := a.timeProvider.GetTime()
-	messages := []common.MessageWithMetadata{}
-	persistedVerifications := []common.VerifierResultWithMetadata{}
-	allVerifications := []common.VerifierResultWithMetadata{}
 	for _, response := range queryResponse {
 		a.logger.Infow("Found Message", "messageID", response.Data.MessageID, "verifierSourceAddress", response.Data.VerifierSourceAddress)
-
-		verifierResultWithMetadata := common.VerifierResultWithMetadata{
-			VerifierResult: response.Data,
-			Metadata: common.VerifierResultMetadata{
-				IngestionTimestamp:   ingestionTimestamp,
-				AttestationTimestamp: response.Data.Timestamp,
-				VerifierName:         a.registry.GetVerifierNameFromAddress(response.Data.VerifierSourceAddress),
-			},
-		}
-
-		message := common.MessageWithMetadata{
-			Message: response.Data.Message,
-			Metadata: common.MessageMetadata{
-				Status:             common.MessageProcessing,
-				IngestionTimestamp: ingestionTimestamp,
-			},
-		}
-
-		// If the verification is valid on-chain we'll persist it.
-		if !a.isDiscoveryOnly(verifierResultWithMetadata) {
-			persistedVerifications = append(persistedVerifications, verifierResultWithMetadata)
-		}
-
-		messages = append(messages, message)
-		allVerifications = append(allVerifications, verifierResultWithMetadata)
 	}
+	messages, persistedVerifications, allVerifications := common.ConvertDiscoveryResponses(queryResponse, ingestionTimestamp, a.registry)
 
 	// We use a discovery priority for the multi-source scenario where we want to ensure data
 	// consistency.  The delay is applied after reading so the aggregator is queried immediately,
@@ -487,24 +459,4 @@ func (a *AggregatorMessageDiscovery) persistBatch(
 
 func (a *AggregatorMessageDiscovery) isCircuitBreakerOpen() bool {
 	return a.aggregatorReader.GetDiscoveryCircuitBreakerState() == circuitbreaker.OpenState
-}
-
-func (a *AggregatorMessageDiscovery) isDiscoveryOnly(verifierResult common.VerifierResultWithMetadata) bool {
-	// Sanity Check: This should never happen, but in case of a discovery message that is smaller then the version
-	// This can never be valid on-chain and therefore MUST be a discovery only message.
-	if len(verifierResult.VerifierResult.CCVData) <= protocol.MessageDiscoveryVersionLength {
-		a.logger.Infow("Discovery only message, we will not persist the CCVData", "messageID", verifierResult.VerifierResult.MessageID)
-		return true
-	}
-
-	// If the 4-byte version at the start of the data is equal to the message discovery version
-	// This verification is invalid on-chain and we won't persist the verification.
-	version := verifierResult.VerifierResult.CCVData[:protocol.MessageDiscoveryVersionLength]
-	if bytes.Equal(version, protocol.MessageDiscoveryVersion) {
-		a.logger.Infow("Discovery only message, we will not persist the CCVData", "messageID", verifierResult.VerifierResult.MessageID)
-		return true
-	}
-
-	// All other circumstances, it's a valid verification.
-	return false
 }

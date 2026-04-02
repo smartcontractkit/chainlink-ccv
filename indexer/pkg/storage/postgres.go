@@ -36,6 +36,24 @@ const (
 	// maxBatchSizeMessages is the maximum number of message rows that can be inserted in a single query
 	// to avoid Postgres bind parameter overflow (65535 limit). With 7 parameters per row, 5000 rows = 35000 parameters.
 	maxBatchSizeMessages = 5000
+
+	ccvDataConflictInsert = ` ON CONFLICT (message_id, verifier_source_address, verifier_dest_address) DO NOTHING`
+	ccvDataConflictUpsert = ` ON CONFLICT (message_id, verifier_source_address, verifier_dest_address) DO UPDATE SET
+		ccv_data = EXCLUDED.ccv_data,
+		attestation_timestamp = EXCLUDED.attestation_timestamp,
+		ingestion_timestamp = EXCLUDED.ingestion_timestamp,
+		message = EXCLUDED.message,
+		message_ccv_addresses = EXCLUDED.message_ccv_addresses,
+		message_executor_address = EXCLUDED.message_executor_address,
+		source_chain_selector = EXCLUDED.source_chain_selector,
+		dest_chain_selector = EXCLUDED.dest_chain_selector`
+
+	messagesConflictInsert = ` ON CONFLICT (message_id) DO NOTHING`
+	messagesConflictUpsert = ` ON CONFLICT (message_id) DO UPDATE SET
+		message = EXCLUDED.message,
+		ingestion_timestamp = EXCLUDED.ingestion_timestamp,
+		source_chain_selector = EXCLUDED.source_chain_selector,
+		dest_chain_selector = EXCLUDED.dest_chain_selector`
 )
 
 type PostgresStorage struct {
@@ -205,7 +223,7 @@ func (d *PostgresStorage) QueryCCVData(
 	return results, nil
 }
 
-func buildBatchInsertCCVDataQuery(ccvDataList []common.VerifierResultWithMetadata) (string, []any, error) {
+func buildBatchCCVDataQuery(ccvDataList []common.VerifierResultWithMetadata, conflictClause string) (string, []any, error) {
 	var query strings.Builder
 	query.WriteString(`
 		INSERT INTO indexer.verifier_results (
@@ -263,9 +281,19 @@ func buildBatchInsertCCVDataQuery(ccvDataList []common.VerifierResultWithMetadat
 		}
 		query.WriteString(vc)
 	}
-	query.WriteString(" ON CONFLICT (message_id, verifier_source_address, verifier_dest_address) DO NOTHING")
+	query.WriteString(conflictClause)
 
 	return query.String(), args, nil
+}
+
+func buildBatchInsertCCVDataQuery(ccvDataList []common.VerifierResultWithMetadata) (string, []any, error) {
+	return buildBatchCCVDataQuery(ccvDataList, ccvDataConflictInsert)
+}
+
+// buildBatchUpsertCCVDataQuery builds an INSERT ... ON CONFLICT DO UPDATE query
+// for force-mode replay that overwrites existing CCV data.
+func buildBatchUpsertCCVDataQuery(ccvDataList []common.VerifierResultWithMetadata) (string, []any, error) {
+	return buildBatchCCVDataQuery(ccvDataList, ccvDataConflictUpsert)
 }
 
 // InsertVerifierResults inserts one or more verifier result entries into the database.
@@ -305,7 +333,53 @@ func (d *PostgresStorage) InsertVerifierResults(ctx context.Context, verifierRes
 	return nil
 }
 
-func buildBatchInsertMessagesQuery(messages []common.MessageWithMetadata) (string, []any, error) {
+// UpsertVerifierResults inserts or overwrites verifier results depending on force.
+// Used by the replay engine to support both backfill and force-overwrite modes.
+func (d *PostgresStorage) UpsertVerifierResults(ctx context.Context, verifierResults []common.VerifierResultWithMetadata, force bool) error {
+	if len(verifierResults) == 0 {
+		return nil
+	}
+	buildFn := buildBatchInsertCCVDataQuery
+	if force {
+		buildFn = buildBatchUpsertCCVDataQuery
+	}
+	for i := 0; i < len(verifierResults); i += maxBatchSizeCCVData {
+		end := min(i+maxBatchSizeCCVData, len(verifierResults))
+		query, args, err := buildFn(verifierResults[i:end])
+		if err != nil {
+			return err
+		}
+		if _, err := d.execContext(ctx, query, args...); err != nil {
+			return fmt.Errorf("failed to upsert CCV data chunk: %w", err)
+		}
+	}
+	return nil
+}
+
+// UpsertMessages inserts or overwrites messages depending on force.
+// Used by the replay engine to support both backfill and force-overwrite modes.
+func (d *PostgresStorage) UpsertMessages(ctx context.Context, messages []common.MessageWithMetadata, force bool) error {
+	if len(messages) == 0 {
+		return nil
+	}
+	buildFn := buildBatchInsertMessagesQuery
+	if force {
+		buildFn = buildBatchUpsertMessagesQuery
+	}
+	for i := 0; i < len(messages); i += maxBatchSizeMessages {
+		end := min(i+maxBatchSizeMessages, len(messages))
+		query, args, err := buildFn(messages[i:end])
+		if err != nil {
+			return err
+		}
+		if _, err := d.execContext(ctx, query, args...); err != nil {
+			return fmt.Errorf("failed to upsert messages chunk: %w", err)
+		}
+	}
+	return nil
+}
+
+func buildBatchMessagesQuery(messages []common.MessageWithMetadata, conflictClause string) (string, []any, error) {
 	var query strings.Builder
 	query.WriteString(`
 		INSERT INTO indexer.messages (
@@ -355,9 +429,19 @@ func buildBatchInsertMessagesQuery(messages []common.MessageWithMetadata) (strin
 		}
 		query.WriteString(vc)
 	}
-	query.WriteString(" ON CONFLICT (message_id) DO NOTHING")
+	query.WriteString(conflictClause)
 
 	return query.String(), args, nil
+}
+
+func buildBatchInsertMessagesQuery(messages []common.MessageWithMetadata) (string, []any, error) {
+	return buildBatchMessagesQuery(messages, messagesConflictInsert)
+}
+
+// buildBatchUpsertMessagesQuery builds an INSERT ... ON CONFLICT DO UPDATE query
+// for force-mode replay that overwrites existing messages.
+func buildBatchUpsertMessagesQuery(messages []common.MessageWithMetadata) (string, []any, error) {
+	return buildBatchMessagesQuery(messages, messagesConflictUpsert)
 }
 
 // GetMessage performs a lookup by messageID in the database.
