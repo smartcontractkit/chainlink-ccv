@@ -111,6 +111,9 @@ type Cfg struct {
 	// expandForHA() clones AggregatorInput / IndexerInput entries according
 	// to their per-service redundancy counts and updates the topology.
 	HighAvailability bool `toml:"high_availability"`
+	// UseLegacyConfigureLane selects the legacy lanes.ConnectChains path
+	// instead of the canonical ConfigureChainsForLanesFromTopology changeset.
+	UseLegacyConfigureLane bool `toml:"use_legacy_configure_lane"`
 	// AggregatorEndpoints map the verifier qualifier to the aggregator URL for that verifier.
 	AggregatorEndpoints map[string]string `toml:"aggregator_endpoints"`
 	// AggregatorCACertFiles map the verifier qualifier to the CA cert file path for TLS verification.
@@ -1087,8 +1090,14 @@ func NewEnvironment() (in *Cfg, err error) {
 		}
 	}
 
-	if err := connectAllChains(impls, in.Blockchains, selectors, e, topology); err != nil {
-		return nil, err
+	var connectErr error
+	if in.UseLegacyConfigureLane {
+		connectErr = connectAllChainsLegacy(impls, in.Blockchains, selectors, e, topology)
+	} else {
+		connectErr = connectAllChainsCanonical(impls, in.Blockchains, selectors, e, topology)
+	}
+	if connectErr != nil {
+		return nil, connectErr
 	}
 
 	/////////////////////////////////////////
