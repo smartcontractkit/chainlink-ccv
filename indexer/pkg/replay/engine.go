@@ -13,6 +13,8 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
+const cleanupTimeout = 5 * time.Second
+
 // Storage is the subset of storage operations the replay engine needs.
 type Storage interface {
 	// UpsertVerifierResults inserts or overwrites verifier results based on force flag.
@@ -73,29 +75,27 @@ func (e *Engine) Start(ctx context.Context, req Request) (string, error) {
 		return "", fmt.Errorf("failed to prepare replay job: %w", err)
 	}
 
-	acquired, err := e.store.TryAdvisoryLock(ctx, job.ID)
+	lockConn, err := e.store.AcquireAdvisoryLock(ctx, job.ID)
 	if err != nil {
 		return job.ID, fmt.Errorf("failed to acquire advisory lock: %w", err)
 	}
-	if !acquired {
-		return job.ID, ErrJobLocked
-	}
-	defer func() {
-		_ = e.store.ReleaseAdvisoryLock(ctx, job.ID)
-	}()
+	defer func() { _ = lockConn.Close() }()
 
 	e.lggr.Infow("Starting replay", "jobID", job.ID, "type", job.Type, "force", job.ForceOverwrite, "cursor", job.ProgressCursor)
 
 	err = e.runJob(ctx, job)
 	if err != nil {
-		errMsg := err.Error()
-		if markErr := e.store.MarkFailed(ctx, job.ID, errMsg); markErr != nil {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), cleanupTimeout)
+		defer cancel()
+		if markErr := e.store.MarkFailed(cleanupCtx, job.ID, err.Error()); markErr != nil {
 			e.lggr.Errorw("Failed to mark job as failed", "jobID", job.ID, "error", markErr)
 		}
 		return job.ID, fmt.Errorf("replay job %s failed: %w", job.ID, err)
 	}
 
-	if markErr := e.store.MarkCompleted(ctx, job.ID); markErr != nil {
+	cleanupCtx, cancel := context.WithTimeout(context.Background(), cleanupTimeout)
+	defer cancel()
+	if markErr := e.store.MarkCompleted(cleanupCtx, job.ID); markErr != nil {
 		e.lggr.Errorw("Failed to mark job as completed", "jobID", job.ID, "error", markErr)
 		return job.ID, markErr
 	}
@@ -115,29 +115,27 @@ func (e *Engine) Resume(ctx context.Context, jobID string) error {
 		return fmt.Errorf("job %s is in status %s, only running or failed jobs can be resumed", jobID, job.Status)
 	}
 
-	acquired, err := e.store.TryAdvisoryLock(ctx, job.ID)
+	lockConn, err := e.store.AcquireAdvisoryLock(ctx, job.ID)
 	if err != nil {
 		return fmt.Errorf("failed to acquire advisory lock: %w", err)
 	}
-	if !acquired {
-		return ErrJobLocked
-	}
-	defer func() {
-		_ = e.store.ReleaseAdvisoryLock(ctx, job.ID)
-	}()
+	defer func() { _ = lockConn.Close() }()
 
 	e.lggr.Infow("Resuming replay", "jobID", job.ID, "type", job.Type, "cursor", job.ProgressCursor)
 
 	err = e.runJob(ctx, job)
 	if err != nil {
-		errMsg := err.Error()
-		if markErr := e.store.MarkFailed(ctx, job.ID, errMsg); markErr != nil {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), cleanupTimeout)
+		defer cancel()
+		if markErr := e.store.MarkFailed(cleanupCtx, job.ID, err.Error()); markErr != nil {
 			e.lggr.Errorw("Failed to mark job as failed", "jobID", job.ID, "error", markErr)
 		}
 		return fmt.Errorf("replay job %s failed: %w", job.ID, err)
 	}
 
-	if markErr := e.store.MarkCompleted(ctx, job.ID); markErr != nil {
+	cleanupCtx, cancel := context.WithTimeout(context.Background(), cleanupTimeout)
+	defer cancel()
+	if markErr := e.store.MarkCompleted(cleanupCtx, job.ID); markErr != nil {
 		return markErr
 	}
 

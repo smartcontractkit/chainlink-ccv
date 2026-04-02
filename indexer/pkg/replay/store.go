@@ -67,7 +67,7 @@ func (s *Store) CreateJob(ctx context.Context, req Request) (*Job, error) {
 		totalItems = len(req.MessageIDs)
 	}
 
-	row := s.queryRow(ctx, query,
+	row, err := s.queryRow(ctx, query,
 		string(req.Type),
 		string(StatusRunning),
 		req.Force,
@@ -76,6 +76,9 @@ func (s *Store) CreateJob(ctx context.Context, req Request) (*Job, error) {
 		pq.Array(req.MessageIDs),
 		totalItems,
 	)
+	if err != nil {
+		return nil, err
+	}
 
 	return scanJob(row)
 }
@@ -88,7 +91,10 @@ func (s *Store) GetJob(ctx context.Context, id string) (*Job, error) {
 		FROM indexer.replay_jobs
 		WHERE id = $1
 	`
-	row := s.queryRow(ctx, query, id)
+	row, err := s.queryRow(ctx, query, id)
+	if err != nil {
+		return nil, err
+	}
 	job, err := scanJob(row)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -113,7 +119,10 @@ func (s *Store) FindResumable(ctx context.Context, req Request) (*Job, error) {
 		ORDER BY created_at DESC
 		LIMIT 1
 	`
-	row := s.queryRow(ctx, query, req.Hash(), string(StatusRunning), time.Now().Add(-StaleJobTimeout))
+	row, err := s.queryRow(ctx, query, req.Hash(), string(StatusRunning), time.Now().Add(-StaleJobTimeout))
+	if err != nil {
+		return nil, err
+	}
 	job, err := scanJob(row)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -124,22 +133,33 @@ func (s *Store) FindResumable(ctx context.Context, req Request) (*Job, error) {
 	return job, nil
 }
 
-// TryAdvisoryLock attempts to acquire a session-level advisory lock keyed on the
-// job ID. Returns false if the lock is held by another session. The lock is
-// automatically released when the DB connection drops (crash/restart).
-func (s *Store) TryAdvisoryLock(ctx context.Context, jobID string) (bool, error) {
-	var acquired bool
-	row := s.queryRow(ctx, `SELECT pg_try_advisory_lock(hashtext($1))`, "replay:"+jobID)
-	if err := row.Scan(&acquired); err != nil {
-		return false, fmt.Errorf("advisory lock query failed: %w", err)
+// AcquireAdvisoryLock pins a dedicated connection from the pool and acquires a
+// session-level advisory lock on it. The caller MUST close the returned
+// *sql.Conn when done; closing the connection automatically releases the lock.
+// Returns ErrJobLocked if the lock is already held by another session.
+func (s *Store) AcquireAdvisoryLock(ctx context.Context, jobID string) (*sql.Conn, error) {
+	db, ok := s.ds.(interface {
+		Conn(context.Context) (*sql.Conn, error)
+	})
+	if !ok {
+		return nil, fmt.Errorf("DataSource does not support pinned connections for advisory locks")
 	}
-	return acquired, nil
-}
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to acquire connection for advisory lock: %w", err)
+	}
 
-// ReleaseAdvisoryLock releases the session-level advisory lock for the job.
-func (s *Store) ReleaseAdvisoryLock(ctx context.Context, jobID string) error {
-	_, err := s.exec(ctx, `SELECT pg_advisory_unlock(hashtext($1))`, "replay:"+jobID)
-	return err
+	var acquired bool
+	err = conn.QueryRowContext(ctx, `SELECT pg_try_advisory_lock(hashtext($1))`, "replay:"+jobID).Scan(&acquired)
+	if err != nil {
+		_ = conn.Close()
+		return nil, fmt.Errorf("advisory lock query failed: %w", err)
+	}
+	if !acquired {
+		_ = conn.Close()
+		return nil, ErrJobLocked
+	}
+	return conn, nil
 }
 
 // UpdateProgress atomically updates the job's cursor and heartbeat. This should
@@ -251,13 +271,13 @@ func scanJobFromRows(rows *sql.Rows) (*Job, error) {
 	return &j, nil
 }
 
-func (s *Store) queryRow(ctx context.Context, query string, args ...any) *sql.Row {
+func (s *Store) queryRow(ctx context.Context, query string, args ...any) (*sql.Row, error) {
 	if querier, ok := s.ds.(interface {
 		QueryRowContext(context.Context, string, ...any) *sql.Row
 	}); ok {
-		return querier.QueryRowContext(ctx, query, args...)
+		return querier.QueryRowContext(ctx, query, args...), nil
 	}
-	return &sql.Row{}
+	return nil, fmt.Errorf("DataSource does not support QueryRowContext")
 }
 
 func (s *Store) query(ctx context.Context, query string, args ...any) (*sql.Rows, error) {

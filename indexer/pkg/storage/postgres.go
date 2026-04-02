@@ -44,13 +44,16 @@ const (
 		ingestion_timestamp = EXCLUDED.ingestion_timestamp,
 		message = EXCLUDED.message,
 		message_ccv_addresses = EXCLUDED.message_ccv_addresses,
-		message_executor_address = EXCLUDED.message_executor_address`
+		message_executor_address = EXCLUDED.message_executor_address,
+		source_chain_selector = EXCLUDED.source_chain_selector,
+		dest_chain_selector = EXCLUDED.dest_chain_selector`
 
 	messagesConflictInsert = ` ON CONFLICT (message_id) DO NOTHING`
 	messagesConflictUpsert = ` ON CONFLICT (message_id) DO UPDATE SET
 		message = EXCLUDED.message,
-		status = EXCLUDED.status,
-		ingestion_timestamp = EXCLUDED.ingestion_timestamp`
+		ingestion_timestamp = EXCLUDED.ingestion_timestamp,
+		source_chain_selector = EXCLUDED.source_chain_selector,
+		dest_chain_selector = EXCLUDED.dest_chain_selector`
 )
 
 type PostgresStorage struct {
@@ -336,20 +339,19 @@ func (d *PostgresStorage) UpsertVerifierResults(ctx context.Context, verifierRes
 	if len(verifierResults) == 0 {
 		return nil
 	}
-	var query string
-	var args []any
-	var err error
+	buildFn := buildBatchInsertCCVDataQuery
 	if force {
-		query, args, err = buildBatchUpsertCCVDataQuery(verifierResults)
-	} else {
-		query, args, err = buildBatchInsertCCVDataQuery(verifierResults)
+		buildFn = buildBatchUpsertCCVDataQuery
 	}
-	if err != nil {
-		return err
-	}
-	_, err = d.execContext(ctx, query, args...)
-	if err != nil {
-		return fmt.Errorf("failed to upsert CCV data: %w", err)
+	for i := 0; i < len(verifierResults); i += maxBatchSizeCCVData {
+		end := min(i+maxBatchSizeCCVData, len(verifierResults))
+		query, args, err := buildFn(verifierResults[i:end])
+		if err != nil {
+			return err
+		}
+		if _, err := d.execContext(ctx, query, args...); err != nil {
+			return fmt.Errorf("failed to upsert CCV data chunk: %w", err)
+		}
 	}
 	return nil
 }
@@ -360,20 +362,19 @@ func (d *PostgresStorage) UpsertMessages(ctx context.Context, messages []common.
 	if len(messages) == 0 {
 		return nil
 	}
-	var query string
-	var args []any
-	var err error
+	buildFn := buildBatchInsertMessagesQuery
 	if force {
-		query, args, err = buildBatchUpsertMessagesQuery(messages)
-	} else {
-		query, args, err = buildBatchInsertMessagesQuery(messages)
+		buildFn = buildBatchUpsertMessagesQuery
 	}
-	if err != nil {
-		return err
-	}
-	_, err = d.execContext(ctx, query, args...)
-	if err != nil {
-		return fmt.Errorf("failed to upsert messages: %w", err)
+	for i := 0; i < len(messages); i += maxBatchSizeMessages {
+		end := min(i+maxBatchSizeMessages, len(messages))
+		query, args, err := buildFn(messages[i:end])
+		if err != nil {
+			return err
+		}
+		if _, err := d.execContext(ctx, query, args...); err != nil {
+			return fmt.Errorf("failed to upsert messages chunk: %w", err)
+		}
 	}
 	return nil
 }

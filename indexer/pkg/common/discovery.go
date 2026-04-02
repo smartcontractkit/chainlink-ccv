@@ -61,12 +61,17 @@ func ConvertDiscoveryResponses(
 			},
 		})
 
+		var verifierName string
+		if resolver != nil {
+			verifierName = resolver.GetVerifierNameFromAddress(resp.Data.VerifierSourceAddress)
+		}
+
 		vrm := VerifierResultWithMetadata{
 			VerifierResult: resp.Data,
 			Metadata: VerifierResultMetadata{
 				IngestionTimestamp:   ingestionTimestamp,
 				AttestationTimestamp: resp.Data.Timestamp,
-				VerifierName:         resolver.GetVerifierNameFromAddress(resp.Data.VerifierSourceAddress),
+				VerifierName:         verifierName,
 			},
 		}
 		all = append(all, vrm)
