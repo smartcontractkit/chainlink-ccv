@@ -2,6 +2,7 @@ package evm
 
 import (
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -76,6 +77,7 @@ import (
 	feequoterwrapper "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/fee_quoter"
 	routeroperations "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_2_0/operations/router"
 	routerwrapper "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/v1_2_0/router"
+	"github.com/smartcontractkit/chainlink-ccip/deployment/lanes"
 	tokenscore "github.com/smartcontractkit/chainlink-ccip/deployment/tokens"
 	changesetsutils "github.com/smartcontractkit/chainlink-ccip/deployment/utils"
 	changesetscore "github.com/smartcontractkit/chainlink-ccip/deployment/utils/changesets"
@@ -1306,6 +1308,67 @@ func (m *CCIP17EVM) GetMaxDataBytes(ctx context.Context, remoteChainSelector uin
 		return 0, fmt.Errorf("failed to get dest chain config: %w", err)
 	}
 	return destChainConfig.MaxDataBytes, nil
+}
+
+func (m *CCIP17EVMConfig) GetConnectionProfile(_ *deployment.Environment, selector uint64) (lanes.ChainDefinition, lanes.CommitteeVerifierRemoteChainInput, error) {
+	chainDef := lanes.ChainDefinition{
+		Selector:                          selector,
+		AddressBytesLength:                20,
+		BaseExecutionGasCost:              150_000,
+		FeeQuoterDestChainConfigOverrides: evmFeeQuoterDestChainConfigOverride(selector),
+		ExecutorDestChainConfig: lanes.ExecutorDestChainConfig{
+			Enabled: true,
+		},
+		DefaultExecutor: datastore.AddressRef{
+			Type:          datastore.ContractType(sequences.ExecutorProxyType),
+			Version:       semver.MustParse(proxy.Deploy.Version()),
+			Qualifier:     devenvcommon.DefaultExecutorQualifier,
+			ChainSelector: selector,
+		},
+		DefaultInboundCCVs: []datastore.AddressRef{
+			{
+				Type:          datastore.ContractType(versioned_verifier_resolver.CommitteeVerifierResolverType),
+				Version:       versioned_verifier_resolver.Version,
+				ChainSelector: selector,
+				Qualifier:     devenvcommon.DefaultCommitteeVerifierQualifier,
+			},
+		},
+		DefaultOutboundCCVs: []datastore.AddressRef{
+			{
+				Type:          datastore.ContractType(versioned_verifier_resolver.CommitteeVerifierResolverType),
+				Version:       versioned_verifier_resolver.Version,
+				ChainSelector: selector,
+				Qualifier:     devenvcommon.DefaultCommitteeVerifierQualifier,
+			},
+		},
+	}
+
+	cvConfig := lanes.CommitteeVerifierRemoteChainInput{
+		GasForVerification: CommitteeVerifierGasForVerification,
+	}
+
+	return chainDef, cvConfig, nil
+}
+
+func evmFeeQuoterDestChainConfigOverride(selector uint64) *lanes.FeeQuoterDestChainConfigOverride {
+	override := lanes.FeeQuoterDestChainConfigOverride(func(cfg *lanes.FeeQuoterDestChainConfig) {
+		selectorBytes := changesetsutils.GetSelectorHex(selector)
+		cfg.IsEnabled = true
+		cfg.MaxDataBytes = 30_000
+		cfg.MaxPerMsgGasLimit = 3_000_000
+		cfg.DestGasOverhead = 300_000
+		cfg.DefaultTokenFeeUSDCents = 25
+		cfg.DestGasPerPayloadByteBase = 16
+		cfg.DefaultTokenDestGasOverhead = 90_000
+		cfg.DefaultTxGasLimit = 200_000
+		cfg.NetworkFeeUSDCents = 10
+		cfg.ChainFamilySelector = binary.BigEndian.Uint32(selectorBytes[:4])
+		cfg.V2Params = &lanes.FeeQuoterV2Params{
+			LinkFeeMultiplierPercent: 90,
+			USDPerUnitGas:            big.NewInt(1e6),
+		}
+	})
+	return &override
 }
 
 func (m *CCIP17EVMConfig) GetChainLaneProfile(_ *deployment.Environment, selector uint64) (cciptestinterfaces.ChainLaneProfile, error) {
