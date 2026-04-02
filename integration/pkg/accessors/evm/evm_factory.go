@@ -8,7 +8,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/onramp"
-	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -19,7 +19,7 @@ import (
 // TODO: consolidate or rename multiple factories so that they reflect what they do.
 type EVMFactory struct { //nolint:revive // this was moved from the registry package, the EVM prefix needs to be fixed.
 	lggr               logger.Logger
-	infos              blockchain.Infos[Info]
+	infos              accessors.Infos[Info]
 	onRampAddresses    map[string]string
 	rmnRemoteAddresses map[string]string
 	headTrackers       map[protocol.ChainSelector]heads.Tracker
@@ -28,7 +28,7 @@ type EVMFactory struct { //nolint:revive // this was moved from the registry pac
 
 func NewEVMFactory(
 	lggr logger.Logger,
-	infos blockchain.Infos[Info],
+	infos accessors.Infos[Info],
 	onRampAddresses,
 	rmnRemoteAddresses map[string]string,
 	headTrackers map[protocol.ChainSelector]heads.Tracker,
