@@ -71,12 +71,22 @@ func connectAllChains(
 	}
 
 	laneConfigs := make([]lanes.LaneConfig, 0)
+	seen := make(map[[2]uint64]struct{})
 	for _, sel := range orderedSelectors {
 		entry := entries[sel]
 
 		cvInputs := buildCommitteeVerifierInputs(topology, entry.remoteSelectors, entries)
 
 		for _, rs := range entry.remoteSelectors {
+			lo, hi := sel, rs
+			if lo > hi {
+				lo, hi = hi, lo
+			}
+			if _, dup := seen[[2]uint64{lo, hi}]; dup {
+				continue
+			}
+			seen[[2]uint64{lo, hi}] = struct{}{}
+
 			remote, ok := entries[rs]
 			if !ok {
 				return fmt.Errorf("missing chain definition for remote selector %d (referenced from chain %d)", rs, sel)
@@ -88,6 +98,7 @@ func connectAllChains(
 
 			chainB := remote.chainDef
 			chainB.Selector = rs
+			chainB.CommitteeVerifierInputs = buildCommitteeVerifierInputs(topology, remote.remoteSelectors, entries)
 
 			laneConfigs = append(laneConfigs, lanes.LaneConfig{
 				ChainA:  chainA,
