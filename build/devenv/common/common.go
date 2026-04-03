@@ -285,10 +285,9 @@ func ComputeTokenCombinations(
 			if !isCompatible(local.poolType, remote.poolType) {
 				continue
 			}
-			// At least two *distinct* chains must support the required types.
-			localSupported, remoteSupported := false, false
-			distinctChains := make(map[uint64]bool)
-			for sel, caps := range capabilities {
+			// At least two chains must support the required types.
+			localCount, remoteCount := 0, 0
+			for _, caps := range capabilities {
 				hasLocal, hasRemote := false, false
 				for _, c := range caps {
 					if c.PoolType == local.poolType && c.PoolVersion.String() == local.version {
@@ -299,15 +298,13 @@ func ComputeTokenCombinations(
 					}
 				}
 				if hasLocal {
-					localSupported = true
-					distinctChains[sel] = true
+					localCount++
 				}
 				if hasRemote {
-					remoteSupported = true
-					distinctChains[sel] = true
+					remoteCount++
 				}
 			}
-			if !localSupported || !remoteSupported || len(distinctChains) < 2 {
+			if localCount == 0 || remoteCount == 0 || (localCount+remoteCount) < 2 {
 				continue
 			}
 
@@ -403,17 +400,13 @@ func qualifiersAvailable(qualifiers []string, topology *offchain.EnvironmentTopo
 // all exist as committees in the topology, and when ds is non-nil, whose local and
 // remote pool address refs exist in ds for every selector (each chain deploys both
 // pools across bidirectional transfer configs).
-// Pass topology nil to skip the topology/qualifier check (e.g. when combos were
-// already computed with topology taken into account).
 // Pass ds nil to skip the datastore check.
 func FilterTokenCombinations(combos []TokenCombination, topology *offchain.EnvironmentTopology, ds datastore.DataStore, selectors []uint64) []TokenCombination {
 	filtered := make([]TokenCombination, 0, len(combos))
 	for _, combo := range combos {
-		if topology != nil {
-			if !qualifiersAvailable(combo.LocalPoolCCVQualifiers(), topology) ||
-				!qualifiersAvailable(combo.RemotePoolCCVQualifiers(), topology) {
-				continue
-			}
+		if !qualifiersAvailable(combo.LocalPoolCCVQualifiers(), topology) ||
+			!qualifiersAvailable(combo.RemotePoolCCVQualifiers(), topology) {
+			continue
 		}
 		if ds != nil && len(selectors) > 0 && !tokenCombinationPoolsExistInDataStore(ds, selectors, combo) {
 			continue

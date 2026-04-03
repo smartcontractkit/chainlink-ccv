@@ -1095,7 +1095,7 @@ func NewEnvironment() (in *Cfg, err error) {
 
 	// Configure cross-chain token transfers: each chain impl builds its own
 	// TokenTransferConfigs using chain-specific registry and CCV refs.
-	if err = ConfigureAllTokenTransfers(impls, selectors, e, combos); err != nil {
+	if err = ConfigureAllTokenTransfers(impls, selectors, e, topology); err != nil {
 		return nil, fmt.Errorf("configure all token transfers: %w", err)
 	}
 
