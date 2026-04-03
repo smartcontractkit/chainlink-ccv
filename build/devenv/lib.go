@@ -163,11 +163,11 @@ func (l *Lib) Chains(ctx context.Context) ([]ChainImpl, error) {
 		// Create chain implementations via the registered ImplFactory for each family.
 		fac, err := GetImplFactory(bc.Out.Family)
 		if err != nil {
-			return nil, fmt.Errorf("getting implementation factory for family %s: %w", bc.Out.Family, err)
+			return nil, fmt.Errorf("getting implementation factory for chain ID %s selector %d family %s: %w", bc.ChainID, details.ChainSelector, bc.Out.Family, err)
 		}
 		impl, err := fac.New(ctx, l.cfg, *l.l, env, bc)
 		if err != nil {
-			return nil, fmt.Errorf("creating implementation for family %s: %w", bc.Out.Family, err)
+			return nil, fmt.Errorf("creating implementation for chain ID %s selector %d family %s: %w", bc.ChainID, details.ChainSelector, bc.Out.Family, err)
 		}
 
 		if err := chainImplRegistry.Register(bc.ChainID, bc.Out.Family, impl); err != nil {

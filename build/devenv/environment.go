@@ -414,7 +414,11 @@ func checkKeys(in *Cfg) error {
 
 	evmBlockchains := make([]*blockchain.Input, 0)
 	for _, bc := range in.Blockchains {
-		if family, err := blockchain.TypeToFamily(bc.Type); err == nil && string(family) == blockchain.FamilyEVM {
+		family, err := blockchain.TypeToFamily(bc.Type)
+		if err != nil {
+			return fmt.Errorf("failed to resolve blockchain family for type %q: %w", bc.Type, err)
+		}
+		if string(family) == blockchain.FamilyEVM {
 			evmBlockchains = append(evmBlockchains, bc)
 		}
 	}
@@ -431,10 +435,15 @@ func checkKeys(in *Cfg) error {
 }
 
 func NewProductConfigurationFromNetwork(typ string) (cciptestinterfaces.CCIP17Configuration, error) {
-	family := typ
-	if resolved, err := blockchain.TypeToFamily(typ); err == nil {
-		family = string(resolved)
+	resolved, err := blockchain.TypeToFamily(typ)
+	if err != nil {
+		// typ might already be a family name — try the factory directly before giving up.
+		if fac, facErr := GetImplFactory(typ); facErr == nil {
+			return fac.NewEmpty(), nil
+		}
+		return nil, fmt.Errorf("unknown blockchain type %q (not a recognized type or family): %w", typ, err)
 	}
+	family := string(resolved)
 	fac, err := GetImplFactory(family)
 	if err != nil {
 		return nil, fmt.Errorf("could not find impl factory for chain type %s (family %s): %w", typ, family, err)
