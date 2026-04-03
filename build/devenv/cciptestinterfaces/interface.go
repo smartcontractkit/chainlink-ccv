@@ -247,11 +247,13 @@ type TokenConfigProvider interface {
 
 	// GetTokenTransferConfigs builds TokenTransferConfig entries for all pools
 	// deployed on this chain, using chain-specific registry and CCV refs.
+	// combos should be the same set used during deployment so transfer
+	// configuration is derived from the same source of truth.
 	GetTokenTransferConfigs(
 		env *deployment.Environment,
 		selector uint64,
 		remoteSelectors []uint64,
-		topology *offchain.EnvironmentTopology,
+		combos []devenvcommon.TokenCombination,
 	) ([]tokensapi.TokenTransferConfig, error)
 }
 
