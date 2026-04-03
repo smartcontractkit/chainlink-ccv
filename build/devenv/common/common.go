@@ -54,13 +54,13 @@ type PoolCapability struct {
 // on the chain being configured; "remote" is the counterpart on the other chain.
 // Because every chain deploys both pools, a transfer can flow in either direction.
 type TokenCombination struct {
-	localPoolType          string
-	localPoolVersion       string
-	localPoolQualifier     string
-	localPoolCCVQualifiers []string
-	remotePoolType         string
-	remotePoolVersion      string
-	remotePoolQualifier    string
+	localPoolType           string
+	localPoolVersion        string
+	localPoolQualifier      string
+	localPoolCCVQualifiers  []string
+	remotePoolType          string
+	remotePoolVersion       string
+	remotePoolQualifier     string
 	remotePoolCCVQualifiers []string
 	expectedReceiptIssuers  int
 	expectedVerifierResults int
@@ -123,10 +123,10 @@ func (s TokenCombination) FinalityConfig() protocol.Finality {
 func AllTokenCombinations() []TokenCombination {
 	return []TokenCombination{
 		{ // 1.6.1 burn <-> 1.6.1 burn
-			localPoolType:          BurnMintTokenPoolType,
-			localPoolVersion:       "1.6.1",
-			remotePoolType:         BurnMintTokenPoolType,
-			remotePoolVersion:      "1.6.1",
+			localPoolType:           BurnMintTokenPoolType,
+			localPoolVersion:        "1.6.1",
+			remotePoolType:          BurnMintTokenPoolType,
+			remotePoolVersion:       "1.6.1",
 			expectedReceiptIssuers:  4, // default CCV, token pool, executor, network fee
 			expectedVerifierResults: 1, // default CCV
 		},

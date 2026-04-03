@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"math"
 	"math/big"
 	"os"
@@ -1303,9 +1304,7 @@ func (m *CCIP17EVMConfig) GetTokenTransferConfigs(
 			cfg := m.buildEVMTokenTransferConfig(selector, remoteSelectors, pair.local, pair.remote, pair.ccvQuals)
 			key := string(cfg.TokenPoolRef.Type) + "\x00" + cfg.TokenPoolRef.Version.String() + "\x00" + cfg.TokenPoolRef.Qualifier
 			if existing, ok := merged[key]; ok {
-				for k, v := range cfg.RemoteChains {
-					existing.RemoteChains[k] = v
-				}
+				maps.Copy(existing.RemoteChains, cfg.RemoteChains)
 				merged[key] = existing
 			} else {
 				merged[key] = cfg
@@ -1339,13 +1338,13 @@ func (m *CCIP17EVMConfig) buildEVMTokenTransferConfig(
 		}
 
 		remoteChains[rs] = tokenscore.RemoteChainConfig[*datastore.AddressRef, datastore.AddressRef]{
-			RemotePool: &remoteRef,
+			RemotePool:                               &remoteRef,
 			DefaultFinalityInboundRateLimiterConfig:  tokenscore.RateLimiterConfigFloatInput{},
 			DefaultFinalityOutboundRateLimiterConfig: tokenscore.RateLimiterConfigFloatInput{},
 			CustomFinalityInboundRateLimiterConfig:   tokenscore.RateLimiterConfigFloatInput{},
 			CustomFinalityOutboundRateLimiterConfig:  tokenscore.RateLimiterConfigFloatInput{},
-			OutboundCCVs: ccvRefs,
-			InboundCCVs:  ccvRefs,
+			OutboundCCVs:                             ccvRefs,
+			InboundCCVs:                              ccvRefs,
 		}
 	}
 
