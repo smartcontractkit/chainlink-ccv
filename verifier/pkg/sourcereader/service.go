@@ -246,7 +246,7 @@ func (r *Service) readyToQuery(ctx context.Context) (bool, *protocol.BlockHeader
 	safe, err := r.sourceReader.LatestSafeBlock(blockCtx)
 	if err != nil {
 		r.logger.Warnw("Failed to get safe block, safe-tag finality will fall back to full finality", "error", err)
-		// non-fatal: safe may not be supported on all chains
+		safe = nil
 	}
 
 	return true, latest, safe, finalized

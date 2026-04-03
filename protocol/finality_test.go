@@ -193,29 +193,29 @@ func TestFinality_IsMessageReady(t *testing.T) {
 			wantReady bool
 		}{
 			{
-				name:      "unknown bit 11 set with depth bits — requires finality, not depth",
-				finality:  0x0801, // bit 11 set, depth bits = 1
+				name:      "unknown bit 17 set with depth bits — requires finality, not depth",
+				finality:  0x00020001, // bit 17 set, depth bits = 1
 				msg:       10,
 				fin:       5,
 				wantReady: false, // msg=10 > finalized=5, despite depth=1 being satisfied
 			},
 			{
-				name:      "unknown bit 11 set — finalized",
-				finality:  0x0801,
+				name:      "unknown bit 17 set — finalized",
+				finality:  0x00020001,
 				msg:       4,
 				fin:       5,
 				wantReady: true,
 			},
 			{
 				name:      "all reserved bits set",
-				finality:  0xFFFF,
+				finality:  0xFFFFFFFF,
 				msg:       10,
 				fin:       5,
 				wantReady: false,
 			},
 			{
 				name:      "all reserved bits set — finalized",
-				finality:  0xFFFF,
+				finality:  0xFFFFFFFF,
 				msg:       3,
 				fin:       5,
 				wantReady: true,
