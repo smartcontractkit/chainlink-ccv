@@ -113,6 +113,7 @@ func NewCoordinatorWithDetector(
 			return fmt.Errorf("failed to create curse detector: %w", err)
 		}
 		vc.curseDetector = curseDetector
+		// TODO: return a wrapper object instead of separate services.
 		dbSRS, taskVerifierProcessor, storageWriterProcessor, taskQueueObs, resultQueueObs, err := createDurableProcessors(
 			lggr, ds, config, verifier, monitoring, enabledSourceReaders, chainStatusManager, vc.curseDetector, messageTracker, storage,
 		)
@@ -315,7 +316,8 @@ func createSourceReadersDB(
 			sourceCfg, curseDetector, filter, monitoring.Metrics(), taskQueue,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("failed to create Service for chain %s: %w", chainSelector, err)
+			lggr.Errorw("failed to create Service for chain, skipping this chain", "chainSelector", chainSelector, "error", err)
+			continue
 		}
 		sourceReaderServices[chainSelector] = srs
 	}
