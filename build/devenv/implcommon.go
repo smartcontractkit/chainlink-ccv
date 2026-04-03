@@ -423,7 +423,7 @@ func ConfigureAllTokenTransfers(
 	impls []cciptestinterfaces.CCIP17Configuration,
 	selectors []uint64,
 	env *deployment.Environment,
-	combos []devenvcommon.TokenCombination,
+	topology *ccipOffchain.EnvironmentTopology,
 ) error {
 	// poolIdentityKey returns a key that groups configs across chains for the
 	// same pool type+version+qualifier.
@@ -445,7 +445,7 @@ func ConfigureAllTokenTransfers(
 			}
 		}
 
-		cfgs, err := impl.GetTokenTransferConfigs(env, selectors[i], remoteSelectors, combos)
+		cfgs, err := impl.GetTokenTransferConfigs(env, selectors[i], remoteSelectors, topology)
 		if err != nil {
 			return fmt.Errorf("get token transfer configs for selector %d: %w", selectors[i], err)
 		}

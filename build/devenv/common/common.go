@@ -285,24 +285,26 @@ func ComputeTokenCombinations(
 			if !isCompatible(local.poolType, remote.poolType) {
 				continue
 			}
-			// At least two distinct chains must participate: one supporting
-			// the local pool type and one supporting the remote pool type
-			// (they may be the same chain if it supports both).
-			distinctChains := make(map[uint64]bool)
-			localSupported, remoteSupported := false, false
-			for sel, caps := range capabilities {
+			// At least two chains must support the required types.
+			localCount, remoteCount := 0, 0
+			for _, caps := range capabilities {
+				hasLocal, hasRemote := false, false
 				for _, c := range caps {
 					if c.PoolType == local.poolType && c.PoolVersion.String() == local.version {
-						localSupported = true
-						distinctChains[sel] = true
+						hasLocal = true
 					}
 					if c.PoolType == remote.poolType && c.PoolVersion.String() == remote.version {
-						remoteSupported = true
-						distinctChains[sel] = true
+						hasRemote = true
 					}
 				}
+				if hasLocal {
+					localCount++
+				}
+				if hasRemote {
+					remoteCount++
+				}
 			}
-			if !localSupported || !remoteSupported || len(distinctChains) < 2 {
+			if localCount == 0 || remoteCount == 0 || (localCount+remoteCount) < 2 {
 				continue
 			}
 

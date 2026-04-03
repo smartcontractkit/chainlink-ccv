@@ -1282,15 +1282,15 @@ func (m *CCIP17EVMConfig) PostTokenDeploy(
 
 // GetTokenTransferConfigs builds TokenTransferConfig entries for all generic
 // token pools deployed on this EVM chain, using EVM-specific registry and CCV refs.
-// combos should be the same set used during deployment.
 func (m *CCIP17EVMConfig) GetTokenTransferConfigs(
 	env *deployment.Environment,
 	selector uint64,
 	remoteSelectors []uint64,
-	combos []devenvcommon.TokenCombination,
+	topology *ccipOffchain.EnvironmentTopology,
 ) ([]tokenscore.TokenTransferConfig, error) {
-	allSelectors := append([]uint64{selector}, remoteSelectors...)
-	applicableCombos := devenvcommon.FilterTokenCombinations(combos, nil, env.DataStore, allSelectors)
+	applicableCombos := devenvcommon.FilterTokenCombinations(
+		devenvcommon.AllTokenCombinations(), topology, env.DataStore, append([]uint64{selector}, remoteSelectors...),
+	)
 	merged := make(map[string]tokenscore.TokenTransferConfig)
 
 	for _, combo := range applicableCombos {

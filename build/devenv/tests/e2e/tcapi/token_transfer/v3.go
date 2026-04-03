@@ -11,7 +11,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/sequences"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v2_0_0/operations/mock_receiver_v2"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v2_0_0/operations/proxy"
-	bnm_drip_v1_0 "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_0_0/operations/burn_mint_erc20_with_drip"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_5_0/operations/burn_mint_erc20_with_drip"
 	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
@@ -159,10 +159,10 @@ func (tc *tokenTransferV3TestCase) HavePrerequisites(ctx context.Context, cfg *c
 
 func getTokenAddress(cfg *ccv.Cfg, chainSelector uint64, qualifier string) (protocol.UnknownAddress, error) {
 	return tcapi.GetContractAddress(cfg, chainSelector,
-		datastore.ContractType(bnm_drip_v1_0.ContractType),
-		bnm_drip_v1_0.Deploy.Version(),
+		datastore.ContractType(burn_mint_erc20_with_drip.ContractType),
+		burn_mint_erc20_with_drip.Deploy.Version(),
 		qualifier,
-		"burn mint erc20 with drip")
+		"burn mint erc677")
 }
 
 // TokenTransfer returns a single token transfer test case for the given combo, finality, receiver type, and name.
