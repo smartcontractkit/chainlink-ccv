@@ -78,6 +78,7 @@ func connectAllChains(
 		cvInputs := buildCommitteeVerifierInputs(topology, entry.remoteSelectors, entries)
 
 		for _, rs := range entry.remoteSelectors {
+			// Normalize selector pairs to avoid duplicate lane configs for (A,B) vs (B,A).
 			lo, hi := sel, rs
 			if lo > hi {
 				lo, hi = hi, lo
