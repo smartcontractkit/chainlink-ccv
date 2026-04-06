@@ -438,6 +438,10 @@ func ConfigureAllTokenTransfers(
 	byPoolIdentity := make(map[string][]tokenscore.TokenTransferConfig)
 
 	for i, impl := range impls {
+		tcp, ok := impl.(cciptestinterfaces.TokenConfigProvider)
+		if !ok {
+			continue
+		}
 		remoteSelectors := make([]uint64, 0, len(selectors)-1)
 		for _, s := range selectors {
 			if s != selectors[i] {
@@ -445,7 +449,7 @@ func ConfigureAllTokenTransfers(
 			}
 		}
 
-		cfgs, err := impl.GetTokenTransferConfigs(env, selectors[i], remoteSelectors, topology)
+		cfgs, err := tcp.GetTokenTransferConfigs(env, selectors[i], remoteSelectors, topology)
 		if err != nil {
 			return fmt.Errorf("get token transfer configs for selector %d: %w", selectors[i], err)
 		}

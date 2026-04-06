@@ -223,6 +223,11 @@ type ChainLaneProfile struct {
 // TokenConfigProvider abstracts the chain-specific decisions that feed into
 // TokenExpansion (token type, decimals, admin addresses, pre-mint amounts)
 // and any post-deployment work (e.g. funding lock-release pools on EVM).
+//
+// It is separate from OnChainConfigurable so chain families can deploy CCIP
+// core contracts and lanes without implementing token pools (e.g. messaging-only
+// or AltVM before token support exists). Devenv uses type assertions; when absent,
+// token deployment and ConfigureTokensForTransfers are skipped.
 type TokenConfigProvider interface {
 	// GetSupportedPools returns pool types and versions this chain can deploy.
 	GetSupportedPools() []devenvcommon.PoolCapability
@@ -258,7 +263,6 @@ type TokenConfigProvider interface {
 // OnChainConfigurable defines methods that allows devenv to
 // deploy, configure Chainlink product and connect on-chain part with other chains.
 type OnChainConfigurable interface {
-	TokenConfigProvider
 	// ChainFamily returns the family of the chain.
 	ChainFamily() string
 	// DeployContractsForSelector deploys contracts for chain X using topology for CommitteeVerifier configuration.

@@ -1029,7 +1029,11 @@ func NewEnvironment() (in *Cfg, err error) {
 		if lookupErr != nil {
 			return nil, lookupErr
 		}
-		capsBySelector[networkInfo.ChainSelector] = impl.GetSupportedPools()
+		if tcp, ok := impl.(cciptestinterfaces.TokenConfigProvider); ok {
+			capsBySelector[networkInfo.ChainSelector] = tcp.GetSupportedPools()
+		} else {
+			capsBySelector[networkInfo.ChainSelector] = nil
+		}
 	}
 	combos := devenvcommon.ComputeTokenCombinations(capsBySelector, topology)
 
@@ -1069,8 +1073,10 @@ func NewEnvironment() (in *Cfg, err error) {
 		// Deploy generic tokens and pools via the chain-agnostic path.
 		// USDC and Lombard stay inside DeployContractsForSelector.
 		tokenDS := datastore.NewMemoryDataStore()
-		if err = DeployTokensAndPools(impl, e, networkInfo.ChainSelector, combos, tokenDS); err != nil {
-			return nil, fmt.Errorf("deploy tokens and pools for selector %d: %w", networkInfo.ChainSelector, err)
+		if tcp, ok := impl.(cciptestinterfaces.TokenConfigProvider); ok {
+			if err = DeployTokensAndPools(tcp, e, networkInfo.ChainSelector, combos, tokenDS); err != nil {
+				return nil, fmt.Errorf("deploy tokens and pools for selector %d: %w", networkInfo.ChainSelector, err)
+			}
 		}
 		if err = ds.Merge(tokenDS.Seal()); err != nil {
 			return nil, err
