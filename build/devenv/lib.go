@@ -11,7 +11,6 @@ import (
 
 	chain_selectors "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
-	"github.com/smartcontractkit/chainlink-ccv/build/devenv/evm"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/registry"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/client"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
@@ -161,27 +160,14 @@ func (l *Lib) Chains(ctx context.Context) ([]ChainImpl, error) {
 
 		seen[details.ChainSelector] = struct{}{}
 
-		// Create built-in chain implementations and register them as defaults.
-		var impl cciptestinterfaces.CCIP17
-		switch bc.Out.Family {
-		case chain_selectors.FamilyEVM:
-			chainID := bc.ChainID
-			wsURL := bc.Out.Nodes[0].ExternalWSUrl
-			evmImpl, err := evm.NewCCIP17EVM(ctx, *l.l, env, chainID, wsURL)
-			if err != nil {
-				return nil, fmt.Errorf("creating CCIP17 EVM implementation for chain ID %s: %w", chainID, err)
-			}
-			impl = evmImpl
-		default:
-			fac, err := GetImplFactory(bc.Out.Family)
-			if err != nil {
-				return nil, fmt.Errorf("getting implementation factory for family %s: %w", bc.Out.Family, err)
-			}
-			theImpl, err := fac.New(ctx, l.cfg, *l.l, env, bc)
-			if err != nil {
-				return nil, fmt.Errorf("creating implementation for family %s: %w", bc.Out.Family, err)
-			}
-			impl = theImpl
+		// Create chain implementations via the registered ImplFactory for each family.
+		fac, err := GetImplFactory(bc.Out.Family)
+		if err != nil {
+			return nil, fmt.Errorf("getting implementation factory for chain ID %s selector %d family %s: %w", bc.ChainID, details.ChainSelector, bc.Out.Family, err)
+		}
+		impl, err := fac.New(ctx, l.cfg, *l.l, env, bc)
+		if err != nil {
+			return nil, fmt.Errorf("creating implementation for chain ID %s selector %d family %s: %w", bc.ChainID, details.ChainSelector, bc.Out.Family, err)
 		}
 
 		if err := chainImplRegistry.Register(bc.ChainID, bc.Out.Family, impl); err != nil {
