@@ -11,8 +11,10 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/smartcontractkit/chainlink-ccip/deployment/lanes"
-	adapters "github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/adapters"
+	tokensapi "github.com/smartcontractkit/chainlink-ccip/deployment/tokens"
+	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/adapters"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/offchain"
+	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
@@ -216,6 +218,46 @@ type ChainLaneProfile struct {
 	DefaultOutboundCCVs      []datastore.AddressRef
 
 	GasForVerification uint32
+}
+
+// TokenConfigProvider abstracts the chain-specific decisions that feed into
+// TokenExpansion (token type, decimals, admin addresses, pre-mint amounts)
+// and any post-deployment work (e.g. funding lock-release pools on EVM).
+//
+// It is separate from OnChainConfigurable so chain families can deploy CCIP
+// core contracts and lanes without implementing token pools (e.g. messaging-only
+// or AltVM before token support exists). Devenv uses type assertions; when absent,
+// token deployment and ConfigureTokensForTransfers are skipped.
+type TokenConfigProvider interface {
+	// GetSupportedPools returns pool types and versions this chain can deploy.
+	GetSupportedPools() []devenvcommon.PoolCapability
+
+	// GetTokenExpansionConfigs returns one TokenExpansionInputPerChain per
+	// token/pool that should be deployed on the given chain, driven by the
+	// pre-computed token combinations. Return nil, nil if token transfers
+	// are not supported.
+	GetTokenExpansionConfigs(
+		env *deployment.Environment,
+		selector uint64,
+		combos []devenvcommon.TokenCombination,
+	) ([]tokensapi.TokenExpansionInputPerChain, error)
+
+	// PostTokenDeploy runs chain-specific work after all tokens and pools have
+	// been deployed via TokenExpansion (e.g. funding lock-release pools on EVM).
+	PostTokenDeploy(
+		env *deployment.Environment,
+		selector uint64,
+		deployedRefs []datastore.AddressRef,
+	) error
+
+	// GetTokenTransferConfigs builds TokenTransferConfig entries for all pools
+	// deployed on this chain, using chain-specific registry and CCV refs.
+	GetTokenTransferConfigs(
+		env *deployment.Environment,
+		selector uint64,
+		remoteSelectors []uint64,
+		topology *offchain.EnvironmentTopology,
+	) ([]tokensapi.TokenTransferConfig, error)
 }
 
 // OnChainConfigurable defines methods that allows devenv to

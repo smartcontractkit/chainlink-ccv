@@ -22,8 +22,6 @@ import (
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 
-	tokenscore "github.com/smartcontractkit/chainlink-ccip/deployment/tokens"
-	changesetscore "github.com/smartcontractkit/chainlink-ccip/deployment/utils/changesets"
 	ccipAdapters "github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/adapters"
 	ccipChangesets "github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/changesets"
 	ccipOffchain "github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/offchain"
@@ -36,7 +34,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/chainconfig"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/committeeverifier"
 	executorsvc "github.com/smartcontractkit/chainlink-ccv/build/devenv/services/executor"
-	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tokenconfig"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/util"
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
@@ -1086,6 +1083,21 @@ func NewEnvironment() (in *Cfg, err error) {
 	}
 
 	timeTrack.Record("[infra] deploying blockchains")
+	// Collect pool capabilities from all impls and compute valid cross-chain combinations.
+	capsBySelector := make(map[uint64][]devenvcommon.PoolCapability, len(impls))
+	for i, impl := range impls {
+		networkInfo, lookupErr := chainsel.GetChainDetailsByChainIDAndFamily(in.Blockchains[i].ChainID, impl.ChainFamily())
+		if lookupErr != nil {
+			return nil, lookupErr
+		}
+		if tcp, ok := impl.(cciptestinterfaces.TokenConfigProvider); ok {
+			capsBySelector[networkInfo.ChainSelector] = tcp.GetSupportedPools()
+		} else {
+			capsBySelector[networkInfo.ChainSelector] = nil
+		}
+	}
+	combos := devenvcommon.ComputeTokenCombinations(capsBySelector, topology)
+
 	ds := datastore.NewMemoryDataStore()
 	for i, impl := range impls {
 		var networkInfo chainsel.ChainDetails
@@ -1102,13 +1114,41 @@ func NewEnvironment() (in *Cfg, err error) {
 				return nil, fmt.Errorf("failed to bump deployer nonce for chain %d: %w", networkInfo.ChainSelector, err)
 			}
 		}
+		// Per-chain accumulator so we can report all addresses deployed in
+		// this iteration (core contracts + tokens) to in.CLDF.
+		chainDS := datastore.NewMemoryDataStore()
+
 		var dsi datastore.DataStore
 		dsi, err = impl.DeployContractsForSelector(ctx, e, networkInfo.ChainSelector, topology)
 		if err != nil {
 			return nil, err
 		}
+		if err = ds.Merge(dsi); err != nil {
+			return nil, err
+		}
+		if err = chainDS.Merge(dsi); err != nil {
+			return nil, err
+		}
+		e.DataStore = ds.Seal()
+
+		// Deploy generic tokens and pools via the chain-agnostic path.
+		// USDC and Lombard stay inside DeployContractsForSelector.
+		tokenDS := datastore.NewMemoryDataStore()
+		if tcp, ok := impl.(cciptestinterfaces.TokenConfigProvider); ok {
+			if err = DeployTokensAndPools(tcp, e, networkInfo.ChainSelector, combos, tokenDS); err != nil {
+				return nil, fmt.Errorf("deploy tokens and pools for selector %d: %w", networkInfo.ChainSelector, err)
+			}
+		}
+		if err = ds.Merge(tokenDS.Seal()); err != nil {
+			return nil, err
+		}
+		if err = chainDS.Merge(tokenDS.Seal()); err != nil {
+			return nil, err
+		}
+		e.DataStore = ds.Seal()
+
 		var addresses []datastore.AddressRef
-		addresses, err = dsi.Addresses().Fetch()
+		addresses, err = chainDS.Seal().Addresses().Fetch()
 		if err != nil {
 			return nil, err
 		}
@@ -1118,9 +1158,6 @@ func NewEnvironment() (in *Cfg, err error) {
 			return nil, err
 		}
 		in.CLDF.AddAddresses(string(a))
-		if err = ds.Merge(dsi); err != nil {
-			return nil, err
-		}
 	}
 	e.DataStore = ds.Seal()
 	///////////////////////////
@@ -1131,33 +1168,10 @@ func NewEnvironment() (in *Cfg, err error) {
 	// START: Connect chains to each other //
 	/////////////////////////////////////////
 
-	// ConfigureTokensForTransfers must run first so token pools (including those used by CCTP/Lombard)
-	// have remote chain allowlists set. Otherwise sends can revert with custom error 0xa9902c7e (chain
-	// not allowed), where the error argument is the destination chain selector.
-	// Call it once per pool-identity group (e.g. all chains' configs for "BurnMintTokenPool 2.0.0 default"):
-	// an internal mapping is keyed such that the last config in the list gets the index for a given chain
-	// selector, so we invoke once per setup with all counterpart configs (same pool type on every chain)
-	// so remote tokens and mapping slots are correct.
-	// Token adapter registration is already registry-based (EVM adapters registered in evm/impl.go init()).
-	// A future improvement: add a GetTokenTransferConfigs() method to CCIP17Configuration so each
-	// chain impl provides its own token configs, rather than using a centralized BuildTokenTransferConfigs.
-	allTokenConfigs := tokenconfig.BuildTokenTransferConfigs(topology, selectors, e.DataStore)
-	if len(allTokenConfigs) > 0 {
-		byPoolIdentity := make(map[string][]tokenscore.TokenTransferConfig)
-		for i := range allTokenConfigs {
-			key := tokenconfig.PoolIdentityKey(&allTokenConfigs[i])
-			byPoolIdentity[key] = append(byPoolIdentity[key], allTokenConfigs[i])
-		}
-		tokenAdapterRegistry := tokenscore.GetTokenAdapterRegistry()
-		mcmsReaderRegistry := changesetscore.GetRegistry()
-		for _, group := range byPoolIdentity {
-			_, err = tokenscore.ConfigureTokensForTransfers(tokenAdapterRegistry, mcmsReaderRegistry).Apply(*e, tokenscore.ConfigureTokensForTransfersConfig{
-				Tokens: group,
-			})
-			if err != nil {
-				return nil, fmt.Errorf("configure tokens for transfers: %w", err)
-			}
-		}
+	// Configure cross-chain token transfers: each chain impl builds its own
+	// TokenTransferConfigs using chain-specific registry and CCV refs.
+	if err = ConfigureAllTokenTransfers(impls, selectors, e, topology); err != nil {
+		return nil, fmt.Errorf("configure all token transfers: %w", err)
 	}
 
 	var connectErr error

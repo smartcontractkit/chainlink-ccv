@@ -1119,10 +1119,10 @@ github.com/smartcontractkit/chainlink-aptos v0.0.0-20260306142855-8d629e752265 h
 github.com/smartcontractkit/chainlink-aptos v0.0.0-20260306142855-8d629e752265/go.mod h1:CQGkKp3YDsUuxixxmmngmRKfh6yIcftGEZsQrsSIIM8=
 github.com/smartcontractkit/chainlink-ccip v0.1.1-solana.0.20260406211403-2856e8088a47 h1:rfJcOgVzZVNT3o5JxYZUQoJFgkpTei+JtG2NUrR3W/Y=
 github.com/smartcontractkit/chainlink-ccip v0.1.1-solana.0.20260406211403-2856e8088a47/go.mod h1:iZTLsjnvzUR4QODACgkvJ2Xd1z1YYJJvEnLZ61K/sfw=
-github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm v0.0.0-20260402191319-c1b65265360d h1:GJIyLz8wb3u7Cqgwrph133E97k3uXTwVMnX/G3R9rWM=
-github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm v0.0.0-20260402191319-c1b65265360d/go.mod h1:zLqdD2kBX7NsntBneclb2yrHhjFaJdoyA8dK5eimlrE=
-github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment v0.0.0-20260402191319-c1b65265360d h1:bwPPR0uaku209EMZvq3+fzFG1pwxH12+1V6vbFkzVIU=
-github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment v0.0.0-20260402191319-c1b65265360d/go.mod h1:QwX+HNkW/rFrwqHqCEIPr5VhEWi1PDklXMC3KJTmmf8=
+github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm v0.0.0-20260406211403-2856e8088a47 h1:uHKVbrV8hGYOnxgc7gunZkMf0lMbidNmWInt5fsIOhU=
+github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm v0.0.0-20260406211403-2856e8088a47/go.mod h1:zLqdD2kBX7NsntBneclb2yrHhjFaJdoyA8dK5eimlrE=
+github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment v0.0.0-20260406211403-2856e8088a47 h1:6wYfZRUUbN9IqJ9hqCkWwr5qeLtKk4fPnXkU8c0lPu0=
+github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment v0.0.0-20260406211403-2856e8088a47/go.mod h1:EzTojOm8F1YRlDO2OFpIBcBnsBWgQCnXrLAsdgFdmaI=
 github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment v0.0.0-20260406211403-2856e8088a47 h1:D6JlONv+qfnaBEfcNjCI7o+BXv+Pt6UE3Afjx8hUBY8=
 github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment v0.0.0-20260406211403-2856e8088a47/go.mod h1:X9Sccn1RXZkwjt+6rTmmX0Lwwgeh9oDw5jhIVbm+UjA=
 github.com/smartcontractkit/chainlink-ccip/chains/solana v0.0.0-20260129103204-4c8453dd8139 h1:jkChf04hhdiMBApbb+lLDxHMY62Md6UeM7v++GSw3K8=

@@ -36,8 +36,8 @@ require (
 	github.com/jmoiron/sqlx v1.4.0
 	github.com/lib/pq v1.10.9
 	github.com/sethvargo/go-retry v0.3.0
-	github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm v0.0.0-20260402191319-c1b65265360d
-	github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment v0.0.0-20260402191319-c1b65265360d
+	github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm v0.0.0-20260406211403-2856e8088a47
+	github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment v0.0.0-20260406211403-2856e8088a47
 	github.com/smartcontractkit/chainlink-ccv v0.0.0-20260218133052-8e7fe2f457f9
 	github.com/smartcontractkit/chainlink-common/keystore v1.0.0
 	github.com/smartcontractkit/chainlink-evm/gethwrappers v0.0.0-20260119171452-39c98c3b33cd

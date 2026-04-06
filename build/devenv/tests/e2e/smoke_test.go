@@ -12,6 +12,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_5_0/operations/burn_mint_erc20_with_drip"
 	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/tcapi"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/tcapi/basic"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/tcapi/token_transfer"
@@ -58,7 +59,8 @@ func TestE2ESmoke_Basic(t *testing.T) {
 	})
 
 	t.Run("extra args v3 token transfer", func(t *testing.T) {
-		for _, tc := range token_transfer.All(src, dest) {
+		combos := common.AllTokenCombinations()
+		for _, tc := range token_transfer.All(src, dest, combos) {
 			if tc.HavePrerequisites(ctx, cfg) {
 				t.Run(tc.Name(), func(t *testing.T) {
 					subtestCtx := ccv.Plog.WithContext(t.Context())
@@ -68,7 +70,7 @@ func TestE2ESmoke_Basic(t *testing.T) {
 				t.Logf("Skipping %s because current environment does not have the prerequisites", tc.Name())
 			}
 		}
-		for _, tc := range token_transfer.All17(src, dest) {
+		for _, tc := range token_transfer.All17(src, dest, combos) {
 			if tc.HavePrerequisites(ctx, cfg) {
 				t.Run(tc.Name(), func(t *testing.T) {
 					subtestCtx := ccv.Plog.WithContext(t.Context())
