@@ -7,11 +7,13 @@ import (
 
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/rs/zerolog"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
 type eventKey struct {
 	chainSelector uint64
 	msgNum        uint64
+	messageID     protocol.Bytes32
 }
 
 type pollerResult[T any] struct {
@@ -48,17 +50,18 @@ func newEventPoller[T any](
 	}
 }
 
-func (p *eventPoller[T]) register(ctx context.Context, chainSelector, seq uint64) <-chan pollerResult[T] {
+func (p *eventPoller[T]) register(ctx context.Context, key eventKey) <-chan pollerResult[T] {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	key := eventKey{chainSelector: chainSelector, msgNum: seq}
+	chainSelector := key.chainSelector
 	resultCh := make(chan pollerResult[T], 1)
 
 	if cachedResult, found := p.cachedEvents[key]; found {
 		p.logger.Debug().
 			Uint64("chainSelector", chainSelector).
-			Uint64("seq", seq).
+			Uint64("seq", key.msgNum).
+			Bytes("messageID", key.messageID[:]).
 			Str("event", p.eventName).
 			Msg("Cache hit")
 		resultCh <- cachedResult
