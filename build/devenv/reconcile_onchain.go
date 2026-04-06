@@ -119,9 +119,10 @@ func reconfigureLanesFromTopology(
 		ccipAdapters.GetChainFamilyRegistry(),
 		changesetscore.GetRegistry(),
 	).Apply(*e, ccipChangesets.ConfigureChainsForLanesFromTopologyConfig{
-		Topology:      topology,
-		Chains:        chains,
-		UseTestRouter: useTestRouter,
+		Topology:            topology,
+		Chains:              chains,
+		UseTestRouter:       useTestRouter,
+		AllowOnrampOverride: true,
 	})
 	if err != nil {
 		return err

@@ -70,9 +70,10 @@ func connectAllChainsCanonical(
 	)
 
 	cfg := ccipChangesets.ConfigureChainsForLanesFromTopologyConfig{
-		Topology:      topology,
-		Chains:        partialChains,
-		UseTestRouter: useTestRouter,
+		Topology:            topology,
+		Chains:              partialChains,
+		UseTestRouter:       useTestRouter,
+		AllowOnrampOverride: true,
 	}
 	if err := cs.VerifyPreconditions(*e, cfg); err != nil {
 		return fmt.Errorf("connectAllChainsCanonical: precondition check failed: %w", err)
