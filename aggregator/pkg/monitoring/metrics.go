@@ -68,7 +68,7 @@ func MetricViews() []sdkmetric.View {
 		sdkmetric.NewView(
 			sdkmetric.Instrument{Name: "aggregator_time_to_aggregation_seconds"},
 			sdkmetric.Stream{Aggregation: sdkmetric.AggregationExplicitBucketHistogram{
-				Boundaries: []float64{0, 0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10},
+				Boundaries: []float64{1, 5, 10, 60, 300, 720, 1200, 3600, 7200, 10800, 21600, 43200, 86400},
 			}},
 		),
 		sdkmetric.NewView(
