@@ -93,7 +93,7 @@ func connectAllChainsCanonical(
 
 // ---------------------------------------------------------------------------
 // Legacy path: lanes.ConnectChains
-// ---------------------------------------------------------------------------
+// ---------------------------------------------------------------------------.
 type chainEntry struct {
 	remoteSelectors []uint64
 	impl            cciptestinterfaces.CCIP17Configuration
