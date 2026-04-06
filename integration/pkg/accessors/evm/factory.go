@@ -18,7 +18,6 @@ import (
 
 type factory struct {
 	lggr               logger.Logger
-	infos              chainaccess.Infos[Info]
 	onRampAddresses    map[string]string
 	rmnRemoteAddresses map[string]string
 	headTrackers       map[protocol.ChainSelector]heads.Tracker
@@ -30,14 +29,12 @@ type factory struct {
 // constructions / implementations of these objects.
 func NewFactory(
 	lggr logger.Logger,
-	infos chainaccess.Infos[Info],
 	onRampAddresses, rmnRemoteAddresses map[string]string,
 	headTrackers map[protocol.ChainSelector]heads.Tracker,
 	chainClients map[protocol.ChainSelector]client.Client,
 ) chainaccess.AccessorFactory {
 	return &factory{
 		lggr:               lggr,
-		infos:              infos,
 		onRampAddresses:    onRampAddresses,
 		rmnRemoteAddresses: rmnRemoteAddresses,
 		headTrackers:       headTrackers,

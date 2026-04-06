@@ -10,7 +10,6 @@ import (
 type CreateAccessorFactory[T any] func(
 	ctx context.Context,
 	lggr logger.Logger,
+	gcfg GenericConfig,
 	infos Infos[T],
-	onRampAddresses map[string]string,
-	rmnRemoteAddresses map[string]string,
 ) (AccessorFactory, error)

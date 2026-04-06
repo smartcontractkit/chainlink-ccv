@@ -5,11 +5,14 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/BurntSushi/toml"
+
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-type AccessorFactoryConstructor func(cfg string) AccessorFactory
+type AccessorFactoryConstructor func(lggr logger.Logger, cfg string) (AccessorFactory, error)
 
 var (
 	accessorConstructorMap      = make(map[string]AccessorFactoryConstructor)
@@ -33,18 +36,66 @@ type Registry struct {
 	factories map[string]AccessorFactory
 }
 
+// GenericConfig is an overlay of the app configuration. All configuration needed to construct the accessor
+// should be included here. Note that the Committee Configs are present, they must map to the same location
+// that they appear when parsing just the committee config file:
+//
+//	type ConfigWithBlockchainInfos struct {
+//	    Config
+//	    BlockchainInfos map[string]any `toml:"blockchain_infos"`
+//	}
+//
+//	type Config struct {
+//	    ...
+//	    // OnRampAddresses is a map the addresses of the on ramps for each chain selector.
+//	    OnRampAddresses map[string]string `toml:"on_ramp_addresses"`
+//	    // RMNRemoteAddresses is a map of RMN Remote contract addresses for each chain selector.
+//	    // Required for curse detection.
+//	    RMNRemoteAddresses map[string]string `toml:"rmn_remote_addresses"`
+//	    // DisableFinalityCheckers is a list of chain selectors for which the finality violation checker should be disabled.
+//	    // The chain selectors are formatted as strings of the chain selector.
+//	}
+//
+// TODO: Use protocol.Selector instead of string.
+type GenericConfig struct {
+	// ChainConfig is parsed by the concrete implementation.
+	ChainConfig Infos[string] `toml:"blockchain_infos"`
+
+	CommitteeConfig
+}
+
+// CommitteeConfig that is defined as part of the app and required by the SourceReader.
+type CommitteeConfig struct {
+	// OnRampAddresses is a map the addresses of the on ramps for each chain selector.
+	OnRampAddresses map[string]string `toml:"on_ramp_addresses"`
+
+	// RMNRemoteAddresses is a map of RMN Remote contract addresses for each chain selector.
+	// Required for curse detection.
+	RMNRemoteAddresses map[string]string `toml:"rmn_remote_addresses"`
+}
+
 // NewRegistry creates a new Registry with some configuration.
-func NewRegistry(config map[string]string) (*Registry, error) {
+func NewRegistry(lggr logger.Logger, config string) (AccessorFactory, error) {
+	var genericConfig GenericConfig
+	_, err := toml.Decode(config, &genericConfig)
+	if err != nil {
+		return nil, fmt.Errorf("error parsing config: %s", err)
+	}
+
 	reg := Registry{
 		factories: make(map[string]AccessorFactory),
 	}
 
-	for family, cfg := range config {
+	for family := range genericConfig.ChainConfig {
 		constructor, ok := accessorConstructorMap[family]
 		if !ok {
 			return nil, fmt.Errorf("configuration found for unknown accessor factory type: %s", family)
 		}
-		reg.factories[family] = constructor(cfg)
+		accessor, err := constructor(lggr, config)
+		if err != nil {
+			return nil, fmt.Errorf("failed to construct accessor factory for family %s: %w", family, err)
+		}
+		reg.factories[family] = accessor
 	}
 
 	return &reg, nil
