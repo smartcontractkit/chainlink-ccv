@@ -341,7 +341,7 @@ func buildCommitteeVerifierInputs(
 // up-to-date with the full state so that each TokenExpansion call can
 // resolve previously deployed contracts.
 func DeployTokensAndPools(
-	impl cciptestinterfaces.CCIP17Configuration,
+	impl cciptestinterfaces.TokenConfigProvider,
 	env *deployment.Environment,
 	selector uint64,
 	combos []devenvcommon.TokenCombination,
@@ -405,7 +405,7 @@ func DeployTokensAndPools(
 	}
 
 	if err := impl.PostTokenDeploy(env, selector, deployedRefs); err != nil {
-		return fmt.Errorf("post-token-deploy for selector %d: %w", selector, err)
+		return fmt.Errorf("PostTokenDeploy for selector %d: %w", selector, err)
 	}
 
 	return nil
@@ -432,7 +432,7 @@ func ConfigureAllTokenTransfers(
 		if cfg.TokenPoolRef.Version != nil {
 			v = cfg.TokenPoolRef.Version.String()
 		}
-		return string(cfg.TokenPoolRef.Type) + "\x00" + v + "\x00" + cfg.TokenPoolRef.Qualifier
+		return string(cfg.TokenPoolRef.Type) + "+" + v + "+" + cfg.TokenPoolRef.Qualifier
 	}
 
 	byPoolIdentity := make(map[string][]tokenscore.TokenTransferConfig)

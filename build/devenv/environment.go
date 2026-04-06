@@ -28,7 +28,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/offchain/shared"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
-	"github.com/smartcontractkit/chainlink-ccv/build/devenv/evm"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/offchainloader"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
@@ -413,10 +412,13 @@ func (c *Cfg) NewAggregatorClientForCommittee(logger zerolog.Logger, committeeNa
 func checkKeys(in *Cfg) error {
 	evmSimChainIDs := []string{"1337", "2337", "3337"}
 
-	// get the blockchains that are evm chains
 	evmBlockchains := make([]*blockchain.Input, 0)
 	for _, bc := range in.Blockchains {
-		if bc.Type == "anvil" {
+		family, err := blockchain.TypeToFamily(bc.Type)
+		if err != nil {
+			return fmt.Errorf("failed to resolve blockchain family for type %q: %w", bc.Type, err)
+		}
+		if string(family) == blockchain.FamilyEVM {
 			evmBlockchains = append(evmBlockchains, bc)
 		}
 	}
@@ -433,17 +435,20 @@ func checkKeys(in *Cfg) error {
 }
 
 func NewProductConfigurationFromNetwork(typ string) (cciptestinterfaces.CCIP17Configuration, error) {
-	switch typ {
-	case "anvil":
-		// TODO: move evm to the impl factory registry.
-		return evm.NewEmptyCCIP17EVM(), nil
-	default:
-		fac, err := GetImplFactory(typ)
-		if err != nil {
-			return nil, fmt.Errorf("could not find impl factory for chain family %s: %w", typ, err)
+	resolved, err := blockchain.TypeToFamily(typ)
+	if err != nil {
+		// typ might already be a family name — try the factory directly before giving up.
+		if fac, facErr := GetImplFactory(typ); facErr == nil {
+			return fac.NewEmpty(), nil
 		}
-		return fac.NewEmpty(), nil
+		return nil, fmt.Errorf("unknown blockchain type %q (not a recognized type or family): %w", typ, err)
 	}
+	family := string(resolved)
+	fac, err := GetImplFactory(family)
+	if err != nil {
+		return nil, fmt.Errorf("could not find impl factory for chain type %s (family %s): %w", typ, family, err)
+	}
+	return fac.NewEmpty(), nil
 }
 
 // enrichEnvironmentTopology injects SignerAddress values from verifier inputs into the EnvironmentTopology.
@@ -491,6 +496,8 @@ func buildEnvironmentTopology(in *Cfg, e *deployment.Environment) *ccipOffchain.
 		return &envCfg
 	}
 
+	// FeeAggregator fallback is EVM-only today. Non-EVM chains should register
+	// their own fee aggregator address in topology or via a family-specific hook.
 	evmChains := e.BlockChains.EVMChains()
 	for name, committee := range envCfg.NOPTopology.Committees {
 		if committee.ChainConfigs == nil {
@@ -601,8 +608,9 @@ func generateExecutorJobSpecs(
 	}
 	Plog.Info().Any("Addresses", addresses).Int("ImplsLen", len(impls)).Msg("Funding executors")
 	for i, impl := range impls {
+		// TODO: replace with a capability check on the impl (e.g. SupportsExecutor())
+		// rather than excluding by blockchain type.
 		if in.Blockchains[i].Type == blockchain.TypeCanton {
-			// Executor doesn't support Canton.
 			continue
 		}
 
@@ -1718,8 +1726,10 @@ func launchCLNodes(
 	return onchainPublicKeys, nil
 }
 
-// isBootstrappedExecutor returns true for executors whose binary uses bootstrap.Run
-// (currently all non-EVM families such as Stellar).
+// isBootstrappedExecutor returns true for executors whose binary uses bootstrap.Run.
+// Today this is determined by chain family (non-EVM families use bootstrap).
+// Ideally this would be an explicit configuration flag on the executor input
+// so new chain families don't rely on a "not EVM" heuristic.
 func isBootstrappedExecutor(exec *executorsvc.Input) bool {
 	return exec.ChainFamily != "" && exec.ChainFamily != chainsel.FamilyEVM
 }
