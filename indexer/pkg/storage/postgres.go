@@ -36,6 +36,25 @@ const (
 	// maxBatchSizeMessages is the maximum number of message rows that can be inserted in a single query
 	// to avoid Postgres bind parameter overflow (65535 limit). With 7 parameters per row, 5000 rows = 35000 parameters.
 	maxBatchSizeMessages = 5000
+
+	ccvDataConflictInsert = ` ON CONFLICT (message_id, verifier_source_address, verifier_dest_address) DO NOTHING`
+	ccvDataConflictUpsert = ` ON CONFLICT (message_id, verifier_source_address, verifier_dest_address) DO UPDATE SET
+		ccv_data = EXCLUDED.ccv_data,
+		attestation_timestamp = EXCLUDED.attestation_timestamp,
+		ingestion_timestamp = EXCLUDED.ingestion_timestamp,
+		message = EXCLUDED.message,
+		message_ccv_addresses = EXCLUDED.message_ccv_addresses,
+		message_executor_address = EXCLUDED.message_executor_address,
+		source_chain_selector = EXCLUDED.source_chain_selector,
+		dest_chain_selector = EXCLUDED.dest_chain_selector`
+
+	messagesConflictInsert = ` ON CONFLICT (message_id) DO NOTHING`
+	messagesConflictUpsert = ` ON CONFLICT (message_id) DO UPDATE SET
+		message = EXCLUDED.message,
+		ingestion_timestamp = EXCLUDED.ingestion_timestamp,
+		source_chain_selector = EXCLUDED.source_chain_selector,
+		dest_chain_selector = EXCLUDED.dest_chain_selector,
+		message_ccv_addresses = EXCLUDED.message_ccv_addresses`
 )
 
 type PostgresStorage struct {
@@ -205,7 +224,7 @@ func (d *PostgresStorage) QueryCCVData(
 	return results, nil
 }
 
-func buildBatchInsertCCVDataQuery(ccvDataList []common.VerifierResultWithMetadata) (string, []any, error) {
+func buildBatchCCVDataQuery(ccvDataList []common.VerifierResultWithMetadata, conflictClause string) (string, []any, error) {
 	var query strings.Builder
 	query.WriteString(`
 		INSERT INTO indexer.verifier_results (
@@ -263,9 +282,19 @@ func buildBatchInsertCCVDataQuery(ccvDataList []common.VerifierResultWithMetadat
 		}
 		query.WriteString(vc)
 	}
-	query.WriteString(" ON CONFLICT (message_id, verifier_source_address, verifier_dest_address) DO NOTHING")
+	query.WriteString(conflictClause)
 
 	return query.String(), args, nil
+}
+
+func buildBatchInsertCCVDataQuery(ccvDataList []common.VerifierResultWithMetadata) (string, []any, error) {
+	return buildBatchCCVDataQuery(ccvDataList, ccvDataConflictInsert)
+}
+
+// buildBatchUpsertCCVDataQuery builds an INSERT ... ON CONFLICT DO UPDATE query
+// for force-mode replay that overwrites existing CCV data.
+func buildBatchUpsertCCVDataQuery(ccvDataList []common.VerifierResultWithMetadata) (string, []any, error) {
+	return buildBatchCCVDataQuery(ccvDataList, ccvDataConflictUpsert)
 }
 
 // InsertVerifierResults inserts one or more verifier result entries into the database.
@@ -305,7 +334,53 @@ func (d *PostgresStorage) InsertVerifierResults(ctx context.Context, verifierRes
 	return nil
 }
 
-func buildBatchInsertMessagesQuery(messages []common.MessageWithMetadata) (string, []any, error) {
+// UpsertVerifierResults inserts or overwrites verifier results depending on force.
+// Used by the replay engine to support both backfill and force-overwrite modes.
+func (d *PostgresStorage) UpsertVerifierResults(ctx context.Context, verifierResults []common.VerifierResultWithMetadata, force bool) error {
+	if len(verifierResults) == 0 {
+		return nil
+	}
+	buildFn := buildBatchInsertCCVDataQuery
+	if force {
+		buildFn = buildBatchUpsertCCVDataQuery
+	}
+	for i := 0; i < len(verifierResults); i += maxBatchSizeCCVData {
+		end := min(i+maxBatchSizeCCVData, len(verifierResults))
+		query, args, err := buildFn(verifierResults[i:end])
+		if err != nil {
+			return err
+		}
+		if _, err := d.execContext(ctx, query, args...); err != nil {
+			return fmt.Errorf("failed to upsert CCV data chunk: %w", err)
+		}
+	}
+	return nil
+}
+
+// UpsertMessages inserts or overwrites messages depending on force.
+// Used by the replay engine to support both backfill and force-overwrite modes.
+func (d *PostgresStorage) UpsertMessages(ctx context.Context, messages []common.MessageWithMetadata, force bool) error {
+	if len(messages) == 0 {
+		return nil
+	}
+	buildFn := buildBatchInsertMessagesQuery
+	if force {
+		buildFn = buildBatchUpsertMessagesQuery
+	}
+	for i := 0; i < len(messages); i += maxBatchSizeMessages {
+		end := min(i+maxBatchSizeMessages, len(messages))
+		query, args, err := buildFn(messages[i:end])
+		if err != nil {
+			return err
+		}
+		if _, err := d.execContext(ctx, query, args...); err != nil {
+			return fmt.Errorf("failed to upsert messages chunk: %w", err)
+		}
+	}
+	return nil
+}
+
+func buildBatchMessagesQuery(messages []common.MessageWithMetadata, conflictClause string) (string, []any, error) {
 	var query strings.Builder
 	query.WriteString(`
 		INSERT INTO indexer.messages (
@@ -315,10 +390,12 @@ func buildBatchInsertMessagesQuery(messages []common.MessageWithMetadata) (strin
 			lastErr,
 			source_chain_selector,
 			dest_chain_selector,
-			ingestion_timestamp
+			ingestion_timestamp,
+			message_ccv_addresses
 		) VALUES `)
 
-	args := make([]any, 0, len(messages)*7)
+	const colsPerRow = 8
+	args := make([]any, 0, len(messages)*colsPerRow)
 	valueClauses := make([]string, 0, len(messages))
 
 	baseIdx := 0
@@ -332,8 +409,13 @@ func buildBatchInsertMessagesQuery(messages []common.MessageWithMetadata) (strin
 			return "", nil, fmt.Errorf("failed to get message ID at index %d: %w", i, err)
 		}
 
-		valueClause := fmt.Sprintf("($%d, $%d, $%d, $%d, $%d, $%d, $%d)",
-			baseIdx+1, baseIdx+2, baseIdx+3, baseIdx+4, baseIdx+5, baseIdx+6, baseIdx+7)
+		ccvAddressesHex := make([]string, len(msg.MessageCCVAddresses))
+		for j, addr := range msg.MessageCCVAddresses {
+			ccvAddressesHex[j] = addr.String()
+		}
+
+		valueClause := fmt.Sprintf("($%d, $%d, $%d, $%d, $%d, $%d, $%d, $%d)",
+			baseIdx+1, baseIdx+2, baseIdx+3, baseIdx+4, baseIdx+5, baseIdx+6, baseIdx+7, baseIdx+8)
 		valueClauses = append(valueClauses, valueClause)
 
 		args = append(args,
@@ -344,9 +426,10 @@ func buildBatchInsertMessagesQuery(messages []common.MessageWithMetadata) (strin
 			msg.Message.SourceChainSelector,
 			msg.Message.DestChainSelector,
 			msg.Metadata.IngestionTimestamp,
+			pq.Array(ccvAddressesHex),
 		)
 
-		baseIdx += 7
+		baseIdx += colsPerRow
 	}
 
 	for i, vc := range valueClauses {
@@ -355,9 +438,19 @@ func buildBatchInsertMessagesQuery(messages []common.MessageWithMetadata) (strin
 		}
 		query.WriteString(vc)
 	}
-	query.WriteString(" ON CONFLICT (message_id) DO NOTHING")
+	query.WriteString(conflictClause)
 
 	return query.String(), args, nil
+}
+
+func buildBatchInsertMessagesQuery(messages []common.MessageWithMetadata) (string, []any, error) {
+	return buildBatchMessagesQuery(messages, messagesConflictInsert)
+}
+
+// buildBatchUpsertMessagesQuery builds an INSERT ... ON CONFLICT DO UPDATE query
+// for force-mode replay that overwrites existing messages.
+func buildBatchUpsertMessagesQuery(messages []common.MessageWithMetadata) (string, []any, error) {
+	return buildBatchMessagesQuery(messages, messagesConflictUpsert)
 }
 
 // GetMessage performs a lookup by messageID in the database.
@@ -370,7 +463,8 @@ func (d *PostgresStorage) GetMessage(ctx context.Context, messageID protocol.Byt
 			lastErr,
 			source_chain_selector,
 			dest_chain_selector,
-			ingestion_timestamp
+			ingestion_timestamp,
+			message_ccv_addresses
 		FROM indexer.messages
 		WHERE message_id = $1
 	`
@@ -409,7 +503,8 @@ func (d *PostgresStorage) QueryMessages(
 			lastErr,
 			source_chain_selector,
 			dest_chain_selector,
-			ingestion_timestamp
+			ingestion_timestamp,
+			message_ccv_addresses
 		FROM indexer.messages
 		WHERE ingestion_timestamp >= $1 AND ingestion_timestamp <= $2
 	`
@@ -793,6 +888,7 @@ func (d *PostgresStorage) scanMessage(row interface {
 		sourceChainSelector uint64
 		destChainSelector   uint64
 		ingestionTimestamp  time.Time
+		ccvAddressesHex     pq.StringArray
 	)
 
 	err := row.Scan(
@@ -803,6 +899,7 @@ func (d *PostgresStorage) scanMessage(row interface {
 		&sourceChainSelector,
 		&destChainSelector,
 		&ingestionTimestamp,
+		&ccvAddressesHex,
 	)
 	if err != nil {
 		return common.MessageWithMetadata{}, fmt.Errorf("failed to scan row: %w", err)
@@ -818,6 +915,16 @@ func (d *PostgresStorage) scanMessage(row interface {
 		return common.MessageWithMetadata{}, fmt.Errorf("failed to parse status: %w", err)
 	}
 
+	ccvAddresses := make([]protocol.UnknownAddress, 0, len(ccvAddressesHex))
+	for _, hexAddr := range ccvAddressesHex {
+		addr, err := protocol.NewUnknownAddressFromHex(hexAddr)
+		if err != nil {
+			d.lggr.Warnw("Failed to decode CCV address from messages table", "address", hexAddr, "error", err)
+			continue
+		}
+		ccvAddresses = append(ccvAddresses, addr)
+	}
+
 	return common.MessageWithMetadata{
 		Message: message,
 		Metadata: common.MessageMetadata{
@@ -825,5 +932,6 @@ func (d *PostgresStorage) scanMessage(row interface {
 			IngestionTimestamp: ingestionTimestamp,
 			LastErr:            lastErr,
 		},
+		MessageCCVAddresses: ccvAddresses,
 	}, nil
 }

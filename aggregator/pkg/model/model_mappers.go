@@ -1,6 +1,7 @@
 package model
 
 import (
+	"bytes"
 	"fmt"
 	"slices"
 	"strings"
@@ -99,16 +100,6 @@ func MapAggregatedReportToVerifierResultProto(report *CommitAggregatedReport, c 
 		return nil, fmt.Errorf("quorum config not found for source selector: %d", report.GetSourceChainSelector())
 	}
 
-	destVerifierAddr, ok := c.GetDestinationVerifierAddress(report.GetDestinationSelector())
-	if !ok {
-		return nil, fmt.Errorf("destination verifier address not found for destination selector: %d", report.GetDestinationSelector())
-	}
-
-	encodedSignatures, err := encodeQuorumSignatures(report, quorumConfig)
-	if err != nil {
-		return nil, fmt.Errorf("encoding quorum signatures: %w", err)
-	}
-
 	ccvVersion := report.GetVersion()
 	if ccvVersion == nil {
 		return nil, fmt.Errorf("ccv version is missing from verification")
@@ -116,6 +107,21 @@ func MapAggregatedReportToVerifierResultProto(report *CommitAggregatedReport, c 
 	if len(ccvVersion) < committee.VerifierVersionLength {
 		return nil, fmt.Errorf("ccv version is too short (expected at least %d bytes, got %d)", committee.VerifierVersionLength, len(ccvVersion))
 	}
+
+	var destVerifierBytes []byte
+	if !bytes.Equal(ccvVersion, protocol.MessageDiscoveryVersion) {
+		destVerifierAddr, destOK := c.GetDestinationVerifierAddress(report.GetDestinationSelector())
+		if !destOK {
+			return nil, fmt.Errorf("destination verifier address not found for destination selector: %d", report.GetDestinationSelector())
+		}
+		destVerifierBytes = destVerifierAddr.Bytes()
+	}
+
+	encodedSignatures, err := encodeQuorumSignatures(report, quorumConfig)
+	if err != nil {
+		return nil, fmt.Errorf("encoding quorum signatures: %w", err)
+	}
+
 	ccvData := append(ccvVersion[:committee.VerifierVersionLength], encodedSignatures...)
 
 	ccvAddresses := make([][]byte, len(report.GetMessageCCVAddresses()))
@@ -136,7 +142,7 @@ func MapAggregatedReportToVerifierResultProto(report *CommitAggregatedReport, c 
 		Metadata: &verifierpb.VerifierResultMetadata{
 			Timestamp:             report.WrittenAt.UnixMilli(),
 			VerifierSourceAddress: quorumConfig.GetSourceVerifierAddress().Bytes(),
-			VerifierDestAddress:   destVerifierAddr.Bytes(),
+			VerifierDestAddress:   destVerifierBytes,
 		},
 	}, nil
 }

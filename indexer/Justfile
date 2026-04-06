@@ -9,6 +9,9 @@ default:
 build:
     docker build -f Dockerfile -t indexer:latest ..
 
+build-replay:
+    cd .. && go build -o indexer/bin/indexer-replay ./indexer/cmd/replay/main.go
+
 build-rc:
     docker build -f Dockerfile -t indexer:rc ..
 

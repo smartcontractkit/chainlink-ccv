@@ -22,17 +22,17 @@ func (_m *MockDestinationReader) EXPECT() *MockDestinationReader_Expecter {
 	return &MockDestinationReader_Expecter{mock: &_m.Mock}
 }
 
-// Close provides a mock function with no fields
-func (_m *MockDestinationReader) Close() error {
-	ret := _m.Called()
+// CheckHealth provides a mock function with given fields: chain
+func (_m *MockDestinationReader) CheckHealth(chain protocol.ChainSelector) error {
+	ret := _m.Called(chain)
 
 	if len(ret) == 0 {
-		panic("no return value specified for Close")
+		panic("no return value specified for CheckHealth")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func() error); ok {
-		r0 = rf()
+	if rf, ok := ret.Get(0).(func(protocol.ChainSelector) error); ok {
+		r0 = rf(chain)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -40,29 +40,30 @@ func (_m *MockDestinationReader) Close() error {
 	return r0
 }
 
-// MockDestinationReader_Close_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Close'
-type MockDestinationReader_Close_Call struct {
+// MockDestinationReader_CheckHealth_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CheckHealth'
+type MockDestinationReader_CheckHealth_Call struct {
 	*mock.Call
 }
 
-// Close is a helper method to define mock.On call
-func (_e *MockDestinationReader_Expecter) Close() *MockDestinationReader_Close_Call {
-	return &MockDestinationReader_Close_Call{Call: _e.mock.On("Close")}
+// CheckHealth is a helper method to define mock.On call
+//   - chain protocol.ChainSelector
+func (_e *MockDestinationReader_Expecter) CheckHealth(chain interface{}) *MockDestinationReader_CheckHealth_Call {
+	return &MockDestinationReader_CheckHealth_Call{Call: _e.mock.On("CheckHealth", chain)}
 }
 
-func (_c *MockDestinationReader_Close_Call) Run(run func()) *MockDestinationReader_Close_Call {
+func (_c *MockDestinationReader_CheckHealth_Call) Run(run func(chain protocol.ChainSelector)) *MockDestinationReader_CheckHealth_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run()
+		run(args[0].(protocol.ChainSelector))
 	})
 	return _c
 }
 
-func (_c *MockDestinationReader_Close_Call) Return(_a0 error) *MockDestinationReader_Close_Call {
+func (_c *MockDestinationReader_CheckHealth_Call) Return(_a0 error) *MockDestinationReader_CheckHealth_Call {
 	_c.Call.Return(_a0)
 	return _c
 }
 
-func (_c *MockDestinationReader_Close_Call) RunAndReturn(run func() error) *MockDestinationReader_Close_Call {
+func (_c *MockDestinationReader_CheckHealth_Call) RunAndReturn(run func(protocol.ChainSelector) error) *MockDestinationReader_CheckHealth_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -298,185 +299,107 @@ func (_c *MockDestinationReader_GetRMNCursedSubjects_Call) RunAndReturn(run func
 	return _c
 }
 
-// HealthReport provides a mock function with no fields
-func (_m *MockDestinationReader) HealthReport() map[string]error {
-	ret := _m.Called()
+// HasHonestAttempt provides a mock function with given fields: ctx, message, verifierResults, ccvAddressInfo
+func (_m *MockDestinationReader) HasHonestAttempt(ctx context.Context, message protocol.Message, verifierResults []protocol.VerifierResult, ccvAddressInfo protocol.CCVAddressInfo) (bool, error) {
+	ret := _m.Called(ctx, message, verifierResults, ccvAddressInfo)
 
 	if len(ret) == 0 {
-		panic("no return value specified for HealthReport")
+		panic("no return value specified for HasHonestAttempt")
 	}
 
-	var r0 map[string]error
-	if rf, ok := ret.Get(0).(func() map[string]error); ok {
-		r0 = rf()
+	var r0 bool
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, protocol.Message, []protocol.VerifierResult, protocol.CCVAddressInfo) (bool, error)); ok {
+		return rf(ctx, message, verifierResults, ccvAddressInfo)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, protocol.Message, []protocol.VerifierResult, protocol.CCVAddressInfo) bool); ok {
+		r0 = rf(ctx, message, verifierResults, ccvAddressInfo)
 	} else {
-		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(map[string]error)
-		}
+		r0 = ret.Get(0).(bool)
 	}
 
-	return r0
+	if rf, ok := ret.Get(1).(func(context.Context, protocol.Message, []protocol.VerifierResult, protocol.CCVAddressInfo) error); ok {
+		r1 = rf(ctx, message, verifierResults, ccvAddressInfo)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
 }
 
-// MockDestinationReader_HealthReport_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'HealthReport'
-type MockDestinationReader_HealthReport_Call struct {
+// MockDestinationReader_HasHonestAttempt_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'HasHonestAttempt'
+type MockDestinationReader_HasHonestAttempt_Call struct {
 	*mock.Call
 }
 
-// HealthReport is a helper method to define mock.On call
-func (_e *MockDestinationReader_Expecter) HealthReport() *MockDestinationReader_HealthReport_Call {
-	return &MockDestinationReader_HealthReport_Call{Call: _e.mock.On("HealthReport")}
+// HasHonestAttempt is a helper method to define mock.On call
+//   - ctx context.Context
+//   - message protocol.Message
+//   - verifierResults []protocol.VerifierResult
+//   - ccvAddressInfo protocol.CCVAddressInfo
+func (_e *MockDestinationReader_Expecter) HasHonestAttempt(ctx interface{}, message interface{}, verifierResults interface{}, ccvAddressInfo interface{}) *MockDestinationReader_HasHonestAttempt_Call {
+	return &MockDestinationReader_HasHonestAttempt_Call{Call: _e.mock.On("HasHonestAttempt", ctx, message, verifierResults, ccvAddressInfo)}
 }
 
-func (_c *MockDestinationReader_HealthReport_Call) Run(run func()) *MockDestinationReader_HealthReport_Call {
+func (_c *MockDestinationReader_HasHonestAttempt_Call) Run(run func(ctx context.Context, message protocol.Message, verifierResults []protocol.VerifierResult, ccvAddressInfo protocol.CCVAddressInfo)) *MockDestinationReader_HasHonestAttempt_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run()
+		run(args[0].(context.Context), args[1].(protocol.Message), args[2].([]protocol.VerifierResult), args[3].(protocol.CCVAddressInfo))
 	})
 	return _c
 }
 
-func (_c *MockDestinationReader_HealthReport_Call) Return(_a0 map[string]error) *MockDestinationReader_HealthReport_Call {
-	_c.Call.Return(_a0)
+func (_c *MockDestinationReader_HasHonestAttempt_Call) Return(_a0 bool, _a1 error) *MockDestinationReader_HasHonestAttempt_Call {
+	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockDestinationReader_HealthReport_Call) RunAndReturn(run func() map[string]error) *MockDestinationReader_HealthReport_Call {
+func (_c *MockDestinationReader_HasHonestAttempt_Call) RunAndReturn(run func(context.Context, protocol.Message, []protocol.VerifierResult, protocol.CCVAddressInfo) (bool, error)) *MockDestinationReader_HasHonestAttempt_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// Name provides a mock function with no fields
-func (_m *MockDestinationReader) Name() string {
-	ret := _m.Called()
+// IsReady provides a mock function with given fields: chain
+func (_m *MockDestinationReader) IsReady(chain protocol.ChainSelector) bool {
+	ret := _m.Called(chain)
 
 	if len(ret) == 0 {
-		panic("no return value specified for Name")
+		panic("no return value specified for IsReady")
 	}
 
-	var r0 string
-	if rf, ok := ret.Get(0).(func() string); ok {
-		r0 = rf()
+	var r0 bool
+	if rf, ok := ret.Get(0).(func(protocol.ChainSelector) bool); ok {
+		r0 = rf(chain)
 	} else {
-		r0 = ret.Get(0).(string)
+		r0 = ret.Get(0).(bool)
 	}
 
 	return r0
 }
 
-// MockDestinationReader_Name_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Name'
-type MockDestinationReader_Name_Call struct {
+// MockDestinationReader_IsReady_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'IsReady'
+type MockDestinationReader_IsReady_Call struct {
 	*mock.Call
 }
 
-// Name is a helper method to define mock.On call
-func (_e *MockDestinationReader_Expecter) Name() *MockDestinationReader_Name_Call {
-	return &MockDestinationReader_Name_Call{Call: _e.mock.On("Name")}
+// IsReady is a helper method to define mock.On call
+//   - chain protocol.ChainSelector
+func (_e *MockDestinationReader_Expecter) IsReady(chain interface{}) *MockDestinationReader_IsReady_Call {
+	return &MockDestinationReader_IsReady_Call{Call: _e.mock.On("IsReady", chain)}
 }
 
-func (_c *MockDestinationReader_Name_Call) Run(run func()) *MockDestinationReader_Name_Call {
+func (_c *MockDestinationReader_IsReady_Call) Run(run func(chain protocol.ChainSelector)) *MockDestinationReader_IsReady_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run()
+		run(args[0].(protocol.ChainSelector))
 	})
 	return _c
 }
 
-func (_c *MockDestinationReader_Name_Call) Return(_a0 string) *MockDestinationReader_Name_Call {
+func (_c *MockDestinationReader_IsReady_Call) Return(_a0 bool) *MockDestinationReader_IsReady_Call {
 	_c.Call.Return(_a0)
 	return _c
 }
 
-func (_c *MockDestinationReader_Name_Call) RunAndReturn(run func() string) *MockDestinationReader_Name_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// Ready provides a mock function with no fields
-func (_m *MockDestinationReader) Ready() error {
-	ret := _m.Called()
-
-	if len(ret) == 0 {
-		panic("no return value specified for Ready")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func() error); ok {
-		r0 = rf()
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// MockDestinationReader_Ready_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Ready'
-type MockDestinationReader_Ready_Call struct {
-	*mock.Call
-}
-
-// Ready is a helper method to define mock.On call
-func (_e *MockDestinationReader_Expecter) Ready() *MockDestinationReader_Ready_Call {
-	return &MockDestinationReader_Ready_Call{Call: _e.mock.On("Ready")}
-}
-
-func (_c *MockDestinationReader_Ready_Call) Run(run func()) *MockDestinationReader_Ready_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run()
-	})
-	return _c
-}
-
-func (_c *MockDestinationReader_Ready_Call) Return(_a0 error) *MockDestinationReader_Ready_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockDestinationReader_Ready_Call) RunAndReturn(run func() error) *MockDestinationReader_Ready_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// Start provides a mock function with given fields: _a0
-func (_m *MockDestinationReader) Start(_a0 context.Context) error {
-	ret := _m.Called(_a0)
-
-	if len(ret) == 0 {
-		panic("no return value specified for Start")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context) error); ok {
-		r0 = rf(_a0)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// MockDestinationReader_Start_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Start'
-type MockDestinationReader_Start_Call struct {
-	*mock.Call
-}
-
-// Start is a helper method to define mock.On call
-//   - _a0 context.Context
-func (_e *MockDestinationReader_Expecter) Start(_a0 interface{}) *MockDestinationReader_Start_Call {
-	return &MockDestinationReader_Start_Call{Call: _e.mock.On("Start", _a0)}
-}
-
-func (_c *MockDestinationReader_Start_Call) Run(run func(_a0 context.Context)) *MockDestinationReader_Start_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context))
-	})
-	return _c
-}
-
-func (_c *MockDestinationReader_Start_Call) Return(_a0 error) *MockDestinationReader_Start_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockDestinationReader_Start_Call) RunAndReturn(run func(context.Context) error) *MockDestinationReader_Start_Call {
+func (_c *MockDestinationReader_IsReady_Call) RunAndReturn(run func(protocol.ChainSelector) bool) *MockDestinationReader_IsReady_Call {
 	_c.Call.Return(run)
 	return _c
 }

@@ -49,6 +49,10 @@ func (c *NoopAggregatorMetricLabeler) IncrementCompletedAggregations(ctx context
 	// No-op
 }
 
+func (c *NoopAggregatorMetricLabeler) IncrementAggregationsBlockedUnexportable(ctx context.Context) {
+	// No-op
+}
+
 func (c *NoopAggregatorMetricLabeler) RecordAPIRequestDuration(ctx context.Context, duration time.Duration) {
 	// No-op
 }
