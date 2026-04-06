@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 	"sync"
-	"time"
 
 	adminv2 "github.com/digital-asset/dazl-client/v8/go/api/com/daml/ledger/api/v2/admin"
 	"github.com/rs/zerolog"
@@ -17,7 +16,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-deployments-framework/chain/canton/provider/authentication"
-	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm/provider/rpcclient"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/offchain"
@@ -71,54 +69,10 @@ func NewCLDFOperationsEnvironmentWithOffchain(cfg CLDFEnvironmentConfig) ([]uint
 
 	providers := make([]cldf_chain.BlockChain, 0)
 	selectors := make([]uint64, 0)
-	defaultTxTimeout := 30 * time.Second
 
-	// TODO: remove EVM and Canton from here and use the registry instead
+	// TODO: remove Canton from here and use the registry instead
 	for _, b := range cfg.Blockchains {
 		switch b.Out.Family {
-		case blockchain.FamilyEVM:
-			chainID := b.Out.ChainID
-			rpcWSURL := b.Out.Nodes[0].ExternalWSUrl
-			rpcHTTPURL := b.Out.Nodes[0].ExternalHTTPUrl
-
-			d, err := chainsel.GetChainDetailsByChainIDAndFamily(chainID, chainsel.FamilyEVM)
-			if err != nil {
-				return nil, nil, err
-			}
-			selectors = append(selectors, d.ChainSelector)
-
-			var confirmer cldf_evm_provider.ConfirmFunctor
-			switch b.Type {
-			case blockchain.TypeAnvil:
-				confirmer = cldf_evm_provider.ConfirmFuncGeth(defaultTxTimeout, cldf_evm_provider.WithTickInterval(5*time.Millisecond))
-			case blockchain.TypeGeth:
-				confirmer = cldf_evm_provider.ConfirmFuncGeth(defaultTxTimeout)
-			default:
-				panic(fmt.Sprintf("EVM blockchain type %s is not supported", b.Type))
-			}
-
-			p, err := cldf_evm_provider.NewRPCChainProvider(
-				d.ChainSelector,
-				cldf_evm_provider.RPCChainProviderConfig{
-					DeployerTransactorGen: cldf_evm_provider.TransactorFromRaw(
-						getNetworkPrivateKey(),
-					),
-					RPCs: []rpcclient.RPC{
-						{
-							Name:               "default",
-							WSURL:              rpcWSURL,
-							HTTPURL:            rpcHTTPURL,
-							PreferredURLScheme: rpcclient.URLSchemePreferenceHTTP,
-						},
-					},
-					UsersTransactorGen: GenerateUserTransactors(GetUserPrivateKeys()),
-					ConfirmFunctor:     confirmer,
-				},
-			).Initialize(context.Background())
-			if err != nil {
-				return nil, nil, err
-			}
-			providers = append(providers, p)
 		case blockchain.FamilyCanton:
 			d, err := chainsel.GetChainDetailsByChainIDAndFamily(b.Out.ChainID, chainsel.FamilyCanton)
 			if err != nil {
