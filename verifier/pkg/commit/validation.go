@@ -7,19 +7,25 @@ import (
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
 )
 
-// ValidateMessage validates a verification task message using the new format.
-func ValidateMessage(verificationTask *verifier.VerificationTask) error {
+// ValidateVerificationTask validates a verification task, including its message and blobs.
+func ValidateVerificationTask(verificationTask *verifier.VerificationTask) error {
 	if verificationTask == nil {
 		return fmt.Errorf("verification task is nil")
 	}
 
 	message := verificationTask.Message
-	// TODO: this check seems redundant - its already done in Verifier.ValidateMessage.
 	if message.Version != protocol.MessageVersion {
 		return fmt.Errorf("unsupported message version: %d", message.Version)
 	}
 
-	// Receipt blobs list must not be empty
+	if len(message.Sender) == 0 {
+		return fmt.Errorf("sender cannot be empty")
+	}
+
+	if len(message.Receiver) == 0 {
+		return fmt.Errorf("receiver cannot be empty")
+	}
+
 	if len(verificationTask.ReceiptBlobs) == 0 {
 		return fmt.Errorf("receipt blobs list is empty, at least one receipt blob is required")
 	}
