@@ -470,8 +470,10 @@ func enrichEnvironmentTopology(cfg *ccipOffchain.EnvironmentTopology, verifiers 
 			// For CL mode the signer address should be fetch from JD, or the NOP is not found
 			continue
 		}
-		if nop.SignerAddressByFamily[chainsel.FamilyEVM] == "" {
-			cfg.NOPTopology.SetNOPSignerAddress(ver.NOPAlias, chainsel.FamilyEVM, ver.Out.BootstrapKeys.ECDSAAddress)
+		evmSigner := nop.SignerAddressByFamily[chainsel.FamilyEVM]
+		if evmSigner == "" {
+			evmSigner = ver.Out.BootstrapKeys.ECDSAAddress
+			cfg.NOPTopology.SetNOPSignerAddress(ver.NOPAlias, chainsel.FamilyEVM, evmSigner)
 		}
 		if nop.SignerAddressByFamily[chainsel.FamilyCanton] == "" {
 			cfg.NOPTopology.SetNOPSignerAddress(ver.NOPAlias, chainsel.FamilyCanton, ver.Out.BootstrapKeys.ECDSAPublicKey)
@@ -479,8 +481,9 @@ func enrichEnvironmentTopology(cfg *ccipOffchain.EnvironmentTopology, verifiers 
 		if nop.SignerAddressByFamily[chainsel.FamilyStellar] == "" {
 			cfg.NOPTopology.SetNOPSignerAddress(ver.NOPAlias, chainsel.FamilyStellar, ver.Out.BootstrapKeys.EdDSAPublicKey)
 		}
+		// Solana committee verification uses ECDSA offchai since we don't have separate Solana key infra
 		if nop.SignerAddressByFamily[chainsel.FamilySolana] == "" {
-			cfg.NOPTopology.SetNOPSignerAddress(ver.NOPAlias, chainsel.FamilySolana, ver.Out.BootstrapKeys.ECDSAAddress)
+			cfg.NOPTopology.SetNOPSignerAddress(ver.NOPAlias, chainsel.FamilySolana, evmSigner)
 		}
 		seenAliases[ver.NOPAlias] = struct{}{}
 	}
