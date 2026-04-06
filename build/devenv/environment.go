@@ -989,7 +989,7 @@ func NewEnvironment() (in *Cfg, err error) {
 
 	// Register standalone verifiers with JD so they can receive job proposals.
 	if jdInfra != nil && jdInfra.OffchainClient != nil {
-		if err := registerStandaloneVerifiersWithJD(ctx, in.Verifier, jdInfra.OffchainClient); err != nil {
+		if err := registerStandaloneVerifiersWithJD(ctx, in.Verifier, jdInfra); err != nil {
 			return nil, err
 		}
 	}
@@ -2090,8 +2090,16 @@ func slicesEqual(a, b []string) bool {
 
 // registerStandaloneVerifiersWithJD registers standalone verifiers with JD in parallel
 // and waits for them to establish their WSRPC connections.
+// It also records each verifier's JD node ID in jdInfra.NodeIDMap (keyed by NOP alias) so that
+// deployment.Environment.NodeIDs is populated for changesets that list nodes by ID (e.g.
+// fetch-nop-signing-keys). CL-mode NOPs get the same map via RegisterNodesWithJD; standalone
+// verifiers do not, so we merge here.
 // TODO: this is common for all bootstrapped apps, make more general?
-func registerStandaloneVerifiersWithJD(ctx context.Context, verifiers []*committeeverifier.Input, jdClient offchain.Client) error {
+func registerStandaloneVerifiersWithJD(ctx context.Context, verifiers []*committeeverifier.Input, jdInfra *jobs.JDInfrastructure) error {
+	if jdInfra == nil || jdInfra.OffchainClient == nil {
+		return nil
+	}
+	jdClient := jdInfra.OffchainClient
 	// Filter to standalone verifiers only
 	var standaloneVerifiers []*committeeverifier.Input
 	for _, ver := range verifiers {
@@ -2122,9 +2130,15 @@ func registerStandaloneVerifiersWithJD(ctx context.Context, verifiers []*committ
 				return fmt.Errorf("failed to register bootstrap %s with JD: %w", ver.ContainerName, err)
 			}
 
-			// Store the JD node ID in the verifier output for later use when proposing jobs.
+			// Store the JD node ID on the verifier and in JDInfra.NodeIDMap so GetNodeIDs() is non-empty
+			// for CLDF deployment.Environment (fetch-nop-signing-keys, etc.).
 			mu.Lock()
 			ver.Out.JDNodeID = reg.NodeID
+			alias := ver.NOPAlias
+			if alias == "" {
+				alias = ver.ContainerName
+			}
+			jdInfra.NodeIDMap[alias] = reg.NodeID
 			mu.Unlock()
 
 			// Wait for bootstrap to connect to JD
