@@ -79,10 +79,8 @@ func connectAllChains(
 
 		for _, rs := range entry.remoteSelectors {
 			// Normalize selector pairs to avoid duplicate lane configs for (A,B) vs (B,A).
-			lo, hi := sel, rs
-			if lo > hi {
-				lo, hi = hi, lo
-			}
+			lo := min(sel, rs)
+			hi := max(sel, rs)
 			if _, dup := seen[[2]uint64{lo, hi}]; dup {
 				continue
 			}
