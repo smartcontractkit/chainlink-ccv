@@ -99,9 +99,13 @@ type Output struct {
 	JDNodeID string `toml:"jd_node_id"`
 }
 
-// RebuildExecutorJobSpecWithBlockchainInfos takes a job spec and rebuilds it with blockchain infos
-// added to the inner config. This is needed for standalone executors which require blockchain
-// connection information (CL nodes get this from their own chain config).
+func (v *Input) Restart(ctx context.Context) error {
+	if v == nil || v.Mode != services.Standalone {
+		return nil
+	}
+	return services.RestartContainer(ctx, v.ContainerName)
+}
+
 func (v *Input) RebuildExecutorJobSpecWithBlockchainInfos(jobSpec string, blockchainInfos map[string]any) (string, error) {
 	var spec executorpkg.JobSpec
 	if _, err := toml.Decode(jobSpec, &spec); err != nil {

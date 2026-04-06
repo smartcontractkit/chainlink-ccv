@@ -2,6 +2,7 @@ package evm
 
 import (
 	"context"
+	"encoding/binary"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -1357,6 +1358,38 @@ func (m *CCIP17EVMConfig) GetChainLaneProfile(_ *deployment.Environment, selecto
 	}, nil
 }
 
+func (m *CCIP17EVMConfig) GetConnectionProfile(_ *deployment.Environment, selector uint64) (lanes.ChainDefinition, lanes.CommitteeVerifierRemoteChainInput, error) {
+	override := evmFeeQuoterDestChainConfigOverride(selector)
+	chainDef := lanes.ChainDefinition{
+		FeeQuoterDestChainConfigOverrides: override,
+		ExecutorDestChainConfig: lanes.ExecutorDestChainConfig{
+			Enabled: true,
+		},
+		DefaultInboundCCVs: []datastore.AddressRef{
+			{
+				Type:          datastore.ContractType(versioned_verifier_resolver.CommitteeVerifierResolverType),
+				Version:       versioned_verifier_resolver.Version,
+				ChainSelector: selector,
+				Qualifier:     devenvcommon.DefaultCommitteeVerifierQualifier,
+			},
+		},
+		DefaultOutboundCCVs: []datastore.AddressRef{
+			{
+				Type:          datastore.ContractType(versioned_verifier_resolver.CommitteeVerifierResolverType),
+				Version:       versioned_verifier_resolver.Version,
+				ChainSelector: selector,
+				Qualifier:     devenvcommon.DefaultCommitteeVerifierQualifier,
+			},
+		},
+		AddressBytesLength:   20,
+		BaseExecutionGasCost: 150_000,
+	}
+	cvConfig := lanes.CommitteeVerifierRemoteChainInput{
+		GasForVerification: CommitteeVerifierGasForVerification,
+	}
+	return chainDef, cvConfig, nil
+}
+
 func evmFeeQuoterDestChainConfigOverride(selector uint64) *lanes.FeeQuoterDestChainConfigOverride {
 	override := lanes.FeeQuoterDestChainConfigOverride(func(cfg *lanes.FeeQuoterDestChainConfig) {
 		selectorBytes := changesetsutils.GetSelectorHex(selector)
@@ -1376,52 +1409,6 @@ func evmFeeQuoterDestChainConfigOverride(selector uint64) *lanes.FeeQuoterDestCh
 		}
 	})
 	return &override
-}
-
-func (m *CCIP17EVMConfig) GetChainLaneProfile(_ *deployment.Environment, selector uint64) (cciptestinterfaces.ChainLaneProfile, error) {
-	selectorBytes := changesetsutils.GetSelectorHex(selector)
-	var chainFamilySelector [4]byte
-	copy(chainFamilySelector[:], selectorBytes[:4])
-
-	return cciptestinterfaces.ChainLaneProfile{
-		AddressBytesLength:   20,
-		BaseExecutionGasCost: 150_000,
-		FeeQuoterDestChainConfig: adapters.FeeQuoterDestChainConfig{
-			IsEnabled:                   true,
-			MaxDataBytes:                30_000,
-			MaxPerMsgGasLimit:           3_000_000,
-			DestGasOverhead:             300_000,
-			DefaultTokenFeeUSDCents:     25,
-			DestGasPerPayloadByteBase:   16,
-			DefaultTokenDestGasOverhead: 90_000,
-			DefaultTxGasLimit:           200_000,
-			NetworkFeeUSDCents:          10,
-			ChainFamilySelector:         chainFamilySelector,
-			LinkFeeMultiplierPercent:    90,
-			USDPerUnitGas:               big.NewInt(1e6),
-		},
-		ExecutorDestChainConfig: adapters.ExecutorDestChainConfig{
-			Enabled: true,
-		},
-		DefaultExecutorQualifier: devenvcommon.DefaultExecutorQualifier,
-		DefaultInboundCCVs: []datastore.AddressRef{
-			{
-				Type:          datastore.ContractType(versioned_verifier_resolver.CommitteeVerifierResolverType),
-				Version:       versioned_verifier_resolver.Version,
-				ChainSelector: selector,
-				Qualifier:     devenvcommon.DefaultCommitteeVerifierQualifier,
-			},
-		},
-		DefaultOutboundCCVs: []datastore.AddressRef{
-			{
-				Type:          datastore.ContractType(versioned_verifier_resolver.CommitteeVerifierResolverType),
-				Version:       versioned_verifier_resolver.Version,
-				ChainSelector: selector,
-				Qualifier:     devenvcommon.DefaultCommitteeVerifierQualifier,
-			},
-		},
-		GasForVerification: CommitteeVerifierGasForVerification,
-	}, nil
 }
 
 func (m *CCIP17EVMConfig) PostConnect(e *deployment.Environment, selector uint64, remoteSelectors []uint64) error {

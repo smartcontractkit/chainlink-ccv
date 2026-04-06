@@ -98,11 +98,11 @@ func reconfigureLanesFromTopology(
 	if err != nil {
 		return fmt.Errorf("reconfigure lanes: %w", err)
 	}
-	if err := assertConnectionProfilesCoverSelectors(orderedSelectors, profiles, selectors); err != nil {
+	if err := assertConnectionProfilesCoverSelectors(orderedSelectors, selectors); err != nil {
 		return err
 	}
 
-	chains, err := buildPartialChainConfigsFromProfiles(topology, orderedSelectors, profiles, params)
+	chains, useTestRouter, err := buildPartialChainConfigsFromProfiles(topology, orderedSelectors, profiles, params)
 	if err != nil {
 		return fmt.Errorf("reconfigure lanes: %w", err)
 	}
@@ -119,8 +119,9 @@ func reconfigureLanesFromTopology(
 		ccipAdapters.GetChainFamilyRegistry(),
 		changesetscore.GetRegistry(),
 	).Apply(*e, ccipChangesets.ConfigureChainsForLanesFromTopologyConfig{
-		Topology: topology,
-		Chains:   chains,
+		Topology:      topology,
+		Chains:        chains,
+		UseTestRouter: useTestRouter,
 	})
 	if err != nil {
 		return err

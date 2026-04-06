@@ -131,7 +131,6 @@ func partialChainConfigFromProfile(
 
 	return ccipChangesets.PartialChainConfig{
 		ChainSelector:      localSelector,
-		UseTestRouter:      o.UseTestRouter,
 		CommitteeVerifiers: committeeVerifiers,
 		RemoteChains:       remoteChains,
 	}, nil
@@ -176,11 +175,7 @@ func buildConnectionProfilesFromImpls(
 	return orderedSelectors, profiles, nil
 }
 
-func assertConnectionProfilesCoverSelectors(
-	orderedSelectors []uint64,
-	profiles map[uint64]chainProfile,
-	selectors []uint64,
-) error {
+func assertConnectionProfilesCoverSelectors(orderedSelectors, selectors []uint64) error {
 	want := make(map[uint64]struct{}, len(selectors))
 	for _, s := range selectors {
 		want[s] = struct{}{}
@@ -228,14 +223,18 @@ func buildPartialChainConfigsFromProfiles(
 	orderedSelectors []uint64,
 	profiles map[uint64]chainProfile,
 	params ReconfigureLanesParams,
-) ([]ccipChangesets.PartialChainConfig, error) {
+) ([]ccipChangesets.PartialChainConfig, bool, error) {
+	useTestRouter := false
 	chains := make([]ccipChangesets.PartialChainConfig, 0, len(orderedSelectors))
 	for _, localSel := range orderedSelectors {
 		entry, ok := profiles[localSel]
 		if !ok {
-			return nil, fmt.Errorf("no profile for local chain %d", localSel)
+			return nil, false, fmt.Errorf("no profile for local chain %d", localSel)
 		}
 		o := lanePartialOverridesFromReconfigureParams(params, localSel)
+		if o.UseTestRouter {
+			useTestRouter = true
+		}
 		pc, err := partialChainConfigFromProfile(
 			localSel,
 			entry.remotes,
@@ -245,9 +244,9 @@ func buildPartialChainConfigsFromProfiles(
 			o,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("partial chain config for selector %d: %w", localSel, err)
+			return nil, false, fmt.Errorf("partial chain config for selector %d: %w", localSel, err)
 		}
 		chains = append(chains, pc)
 	}
-	return chains, nil
+	return chains, useTestRouter, nil
 }

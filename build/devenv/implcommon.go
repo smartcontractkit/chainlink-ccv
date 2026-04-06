@@ -19,12 +19,20 @@ import (
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
 
+// ---------------------------------------------------------------------------
+// Canonical path (new): ConfigureChainsForLanesFromTopology
+// ---------------------------------------------------------------------------
+
 type chainProfile struct {
 	remotes []uint64
 	impl    cciptestinterfaces.CCIP17Configuration
 	profile cciptestinterfaces.ChainLaneProfile
 }
 
+// connectAllChains configures lanes incrementally: each iteration adds one
+// chain to the mesh, mirroring how production environments grow. The
+// underlying ConfigureChainForLanes sequence is fully idempotent, so
+// re-running for already-configured contracts is a no-op.
 func connectAllChainsCanonical(
 	impls []cciptestinterfaces.CCIP17Configuration,
 	blockchains []*blockchain.Input,
@@ -44,7 +52,7 @@ func connectAllChainsCanonical(
 		return fmt.Errorf("connectAllChainsCanonical: %w", err)
 	}
 
-	partialChains, err := buildPartialChainConfigsFromProfiles(topology, orderedSelectors, profiles, ReconfigureLanesParams{})
+	partialChains, useTestRouter, err := buildPartialChainConfigsFromProfiles(topology, orderedSelectors, profiles, ReconfigureLanesParams{})
 	if err != nil {
 		return fmt.Errorf("connectAllChainsCanonical: %w", err)
 	}
@@ -62,8 +70,9 @@ func connectAllChainsCanonical(
 	)
 
 	cfg := ccipChangesets.ConfigureChainsForLanesFromTopologyConfig{
-		Topology: topology,
-		Chains:   partialChains,
+		Topology:      topology,
+		Chains:        partialChains,
+		UseTestRouter: useTestRouter,
 	}
 	if err := cs.VerifyPreconditions(*e, cfg); err != nil {
 		return fmt.Errorf("connectAllChainsCanonical: precondition check failed: %w", err)
@@ -82,6 +91,9 @@ func connectAllChainsCanonical(
 	return nil
 }
 
+// ---------------------------------------------------------------------------
+// Legacy path: lanes.ConnectChains
+// ---------------------------------------------------------------------------
 type chainEntry struct {
 	remoteSelectors []uint64
 	impl            cciptestinterfaces.CCIP17Configuration

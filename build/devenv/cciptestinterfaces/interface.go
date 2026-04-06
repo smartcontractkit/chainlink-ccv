@@ -226,13 +226,16 @@ type OnChainConfigurable interface {
 	// DeployContractsForSelector deploys contracts for chain X using topology for CommitteeVerifier configuration.
 	// Returns all the contract addresses and metadata as datastore.DataStore.
 	DeployContractsForSelector(ctx context.Context, env *deployment.Environment, selector uint64, topology *offchain.EnvironmentTopology) (datastore.DataStore, error)
-	// GetChainLaneProfile returns the canonical lane profile for this chain,
-	// used by ConfigureChainsForLanesFromTopology to assemble PartialChainConfig.
-	GetChainLaneProfile(env *deployment.Environment, selector uint64) (ChainLaneProfile, error)
 	// GetConnectionProfile returns a ChainDefinition describing this chain as a
-	// lane destination, plus the default committee verifier remote chain input
-	// to apply for each remote chain. Used by the legacy ConnectChains path.
+	// lane destination, plus the default committee verifier config to apply for
+	// each remote chain. The environment uses profiles from all chains to
+	// assemble the full cross-chain connection config.
 	GetConnectionProfile(env *deployment.Environment, selector uint64) (lanes.ChainDefinition, lanes.CommitteeVerifierRemoteChainInput, error)
+	// GetChainLaneProfile returns the lane profile for this chain, containing
+	// local contract refs, destination characteristics, and default per-remote
+	// settings. The environment uses profiles from all chains to assemble the
+	// full cross-chain connection config.
+	GetChainLaneProfile(env *deployment.Environment, selector uint64) (ChainLaneProfile, error)
 	// PostConnect runs chain-specific setup after all chains have been connected
 	// (e.g. USDC/Lombard token config, custom executor wiring).
 	PostConnect(env *deployment.Environment, selector uint64, remoteSelectors []uint64) error
