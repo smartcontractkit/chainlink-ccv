@@ -108,7 +108,7 @@ func accessorConstructorMapCopy() map[ChainFamily]AccessorFactoryConstructor {
 }
 
 // NewRegistry creates a new Registry with some configuration.
-func NewRegistry(lggr logger.Logger, config string) (AccessorFactory, error) {
+func NewRegistry(lggr logger.Logger, config string) (*Registry, error) {
 	reg := Registry{
 		factories: make(map[ChainFamily]AccessorFactory),
 	}

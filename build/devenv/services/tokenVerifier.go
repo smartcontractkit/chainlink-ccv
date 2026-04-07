@@ -219,10 +219,15 @@ func (v *TokenVerifierInput) GenerateConfigWithBlockchainInfos(blockchainInfos c
 		return nil, fmt.Errorf("GeneratedConfig is nil - token verifier config must be generated using changeset before launching")
 	}
 
+	anyInfo := make(ccvblockchain.Infos[any])
+	for k, info := range blockchainInfos {
+		anyInfo[k] = info
+	}
+
 	// Use the generated config directly (fake URLs are already injected in environment.go)
-	config := token.ConfigWithBlockchainInfos[evm.Info]{
+	config := token.ConfigWithBlockchainInfos{
 		Config:          *v.GeneratedConfig,
-		BlockchainInfos: blockchainInfos,
+		BlockchainInfos: anyInfo,
 	}
 
 	cfg, err := toml.Marshal(config)
