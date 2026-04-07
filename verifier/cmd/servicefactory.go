@@ -12,7 +12,6 @@ import (
 
 	"github.com/grafana/pyroscope-go"
 
-	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
@@ -34,7 +33,7 @@ import (
 // CreateAccessorFactoryFunc is a function that creates an accessor factory for a given chain family.
 // The blockchain infos map is keyed by chain selector (as string); the callback may build a
 // family-specific helper from it (e.g. blockchain.NewHelper for EVM).
-// Deprecated: use accessors.CreateAccessorFactory instead.
+// Deprecated: use chainaccess.CreateAccessorFactory instead.
 type CreateAccessorFactoryFunc[T any] func(
 	ctx context.Context,
 	lggr logger.Logger,
@@ -43,7 +42,7 @@ type CreateAccessorFactoryFunc[T any] func(
 ) (chainaccess.AccessorFactory, error)
 
 // chainSelectorsFromMap returns chain selectors parsed from the keys of a map keyed by selector string.
-func chainSelectorsFromMap[T any](m blockchain.Infos[T]) []protocol.ChainSelector {
+func chainSelectorsFromMap[T any](m chainaccess.Infos[T]) []protocol.ChainSelector {
 	out := make([]protocol.ChainSelector, 0, len(m))
 	for sel := range m {
 		u, err := strconv.ParseUint(sel, 10, 64)
