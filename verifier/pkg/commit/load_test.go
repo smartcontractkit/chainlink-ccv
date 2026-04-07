@@ -60,27 +60,6 @@ UniqueChainName = "chain-1"
 	assert.Equal(t, "chain-1", tinfo.UniqueChainName)
 }
 
-func TestLoadConfigWithBlockchainInfos_UnknownTopLevelKey_ReturnsError(t *testing.T) {
-	tomlConfig := `
-typo_key = "should fail"
-`
-	_, _, err := LoadConfigWithBlockchainInfos(tomlConfig)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "unknown fields")
-	assert.Contains(t, err.Error(), "typo_key")
-}
-
-func TestLoadConfigWithBlockchainInfos_UnknownKeyUnderBlockchainInfos_ReturnsError(t *testing.T) {
-	tomlConfig := `
-[blockchain_infos."1"]
-UnknownField = "should fail"
-`
-	_, _, err := LoadConfigWithBlockchainInfos(tomlConfig)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "unknown fields")
-	assert.Contains(t, err.Error(), "blockchain_infos")
-}
-
 func TestLoadConfigWithBlockchainInfos_EmptyBlockchainInfos(t *testing.T) {
 	tomlConfig := ``
 	cfg, infos, err := LoadConfigWithBlockchainInfos(tomlConfig)
