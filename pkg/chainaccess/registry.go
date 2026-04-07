@@ -3,6 +3,7 @@ package chainaccess
 import (
 	"context"
 	"fmt"
+	"maps"
 	"sync"
 
 	"github.com/BurntSushi/toml"
@@ -102,9 +103,7 @@ func accessorConstructorMapCopy() map[ChainFamily]AccessorFactoryConstructor {
 	accessorConstructorMapMutex.Lock()
 	defer accessorConstructorMapMutex.Unlock()
 	constructorCopy := make(map[ChainFamily]AccessorFactoryConstructor)
-	for family, constructor := range accessorConstructorMap {
-		constructorCopy[family] = constructor
-	}
+	maps.Copy(constructorCopy, accessorConstructorMap)
 	return constructorCopy
 }
 
