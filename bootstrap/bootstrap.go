@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/BurntSushi/toml"
 	"github.com/jmoiron/sqlx"
 	"go.uber.org/zap/zapcore"
 
@@ -18,6 +19,7 @@ import (
 	jdclient "github.com/smartcontractkit/chainlink-ccv/common/jd/client"
 	"github.com/smartcontractkit/chainlink-ccv/common/jd/lifecycle"
 	jobstore "github.com/smartcontractkit/chainlink-ccv/common/jd/store"
+	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
 	"github.com/smartcontractkit/chainlink-common/keystore"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -38,6 +40,9 @@ type ServiceDeps struct {
 
 	// Keystore is an initialized keystore that can be used by the service.
 	Keystore keystore.Keystore
+
+	// Registry for chainaccess.Accessor objects.
+	Registry *chainaccess.Registry
 }
 
 // ServiceFactory is an interface implemented by the application that seeks to be bootstrapped.
@@ -64,6 +69,10 @@ func (r *runner[AppConfig]) StartJob(ctx context.Context, spec string) error {
 		return fmt.Errorf("failed to parse app config toml: %w", err)
 	}
 
+	// Initialize registry.
+	reg, err := chainaccess.NewRegistry(r.deps.Logger, spec)
+	r.deps.Registry = reg
+
 	return r.fac.Start(ctx, appConfig, r.deps)
 }
 
@@ -88,6 +97,14 @@ type Bootstrapper[AppConfig any] struct {
 	name   string
 
 	logLevel zapcore.Level
+}
+
+func (b *Bootstrapper[AppConfig]) appCfgString() (string, error) {
+	data, err := toml.Marshal(b.appCfg)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal app config to toml: %w", err)
+	}
+	return string(data), nil
 }
 
 // NewBootstrapper creates a new [Bootstrapper] with the given config and service factory.
@@ -139,7 +156,13 @@ func NewBootstrapper[AppConfig any](
 
 // startWithAppConfig is a passthrough to the application's Start function.
 func (b *Bootstrapper[AppConfig]) startWithAppConfig(ctx context.Context) error {
-	return b.fac.Start(ctx, *b.appCfg, ServiceDeps{})
+	cfgStr, err := b.appCfgString()
+	if err != nil {
+		return fmt.Errorf("failed to get app config toml: %w", err)
+	}
+	reg, err := chainaccess.NewRegistry(b.lggr, cfgStr)
+
+	return b.fac.Start(ctx, *b.appCfg, ServiceDeps{Registry: reg})
 }
 
 // startWithJDLifecycle initializes all components required for the JD lifecycle manager and starts it.
