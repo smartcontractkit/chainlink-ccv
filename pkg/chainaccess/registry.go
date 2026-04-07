@@ -89,11 +89,23 @@ func (gc GenericConfig) GetConcreteConfig(selector protocol.ChainSelector, targe
 // CommitteeConfig that is defined as part of the app and required by the SourceReader.
 type CommitteeConfig struct {
 	// OnRampAddresses is a map the addresses of the on ramps for each chain selector.
-	OnRampAddresses map[string]string `toml:"on_ramp_addresses"`
+	OnRampAddresses map[string]string `json:"on_ramp_addresses" toml:"on_ramp_addresses"`
 
 	// RMNRemoteAddresses is a map of RMN Remote contract addresses for each chain selector.
 	// Required for curse detection.
-	RMNRemoteAddresses map[string]string `toml:"rmn_remote_addresses"`
+	RMNRemoteAddresses map[string]string `json:"rmn_remote_addresses" toml:"rmn_remote_addresses"`
+}
+
+// accessorConstructorMapCopy returns a copy of the accessorConstructorMap to avoid holding the lock during
+// delegate calls.
+func accessorConstructorMapCopy() map[ChainFamily]AccessorFactoryConstructor {
+	accessorConstructorMapMutex.Lock()
+	defer accessorConstructorMapMutex.Unlock()
+	constructorCopy := make(map[ChainFamily]AccessorFactoryConstructor)
+	for family, constructor := range accessorConstructorMap {
+		constructorCopy[family] = constructor
+	}
+	return constructorCopy
 }
 
 // NewRegistry creates a new Registry with some configuration.
@@ -102,9 +114,7 @@ func NewRegistry(lggr logger.Logger, config string) (AccessorFactory, error) {
 		factories: make(map[ChainFamily]AccessorFactory),
 	}
 
-	accessorConstructorMapMutex.Lock()
-	defer accessorConstructorMapMutex.Unlock()
-	for family, constructor := range accessorConstructorMap {
+	for family, constructor := range accessorConstructorMapCopy() {
 		accessor, err := constructor(lggr, config)
 		if err != nil {
 			return nil, fmt.Errorf("failed to construct accessor factory for family %s: %w", family, err)

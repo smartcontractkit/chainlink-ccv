@@ -26,9 +26,9 @@ var _ chainaccess.AccessorFactoryConstructor = CreateEVMAccessorFactory
 //
 //	 type Config struct {
 //	   Infos[string]string `toml:"blockchain_infos"`
-//	   CommitteeConfig     `toml:"???"`
-//	   TokenConfig         `toml:"???"`
-//	   ExecutorConfig      `toml:"???"`
+//	   CommitteeConfig
+//	   TokenConfig
+//	   ExecutorConfig
 //	}
 //
 // It will take all config values it needs from all available config. Note that it would be

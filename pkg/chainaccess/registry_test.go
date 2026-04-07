@@ -38,8 +38,7 @@ UniqueChainName = "ethereum-mainnet"
 		_, err := toml.Decode(rawCfg, &gc)
 		require.NoError(t, err)
 
-		// GetInfoString should marshal the any value back to TOML.
-		// Decode the TOML string into the concrete type.
+		// GetConcreteConfig should marshal the any value to a concrete type.
 		var concrete concreteChainInfo
 		err = gc.GetConcreteConfig(protocol.ChainSelector(123), &concrete)
 		require.NoError(t, err)

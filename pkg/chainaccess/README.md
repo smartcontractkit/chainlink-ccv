@@ -36,6 +36,6 @@ type GenericConfig struct {
 ```
 4. Each chain family implementation registers itself, so at this point the app simply creates the registry by passing in its app config:
 ```go
-chainAccessRegistry := chainaccess.NewRegistry(os.MustReadFile("config.toml"))
-accessor, err := chainAccessRegistry.GetAccessor(lggr, chainsel.ETHEREUM_MAINNET)
+chainAccessRegistry, err := chainaccess.NewRegistry(lggr, os.MustReadFile("config.toml"))
+accessor, err := chainAccessRegistry.GetAccessor(ctx, chainsel.ETHEREUM_MAINNET)
 ```

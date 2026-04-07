@@ -33,7 +33,7 @@ import (
 // CreateAccessorFactoryFunc is a function that creates an accessor factory for a given chain family.
 // The blockchain infos map is keyed by chain selector (as string); the callback may build a
 // family-specific helper from it (e.g. blockchain.NewHelper for EVM).
-// Deprecated: use accessors.CreateAccessorFactory instead.
+// Deprecated: use chainaccess.CreateAccessorFactory instead.
 type CreateAccessorFactoryFunc[T any] func(
 	ctx context.Context,
 	lggr logger.Logger,
