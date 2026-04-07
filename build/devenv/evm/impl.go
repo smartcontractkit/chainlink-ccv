@@ -1174,7 +1174,13 @@ func (m *CCIP17EVMConfig) PostDeployContractsForSelector(_ context.Context, env 
 	}
 
 	mcmsReaderRegistry := changesetscore.GetRegistry()
+
+	// Seed with env.DataStore so USDC/Lombard helpers can look up addresses
+	// deployed by the DeployChainContracts changeset (e.g. committee verifier).
 	ds := datastore.NewMemoryDataStore()
+	if err := ds.Merge(env.DataStore); err != nil {
+		return nil, fmt.Errorf("failed to seed post-deploy DS: %w", err)
+	}
 
 	if err := m.deployUSDCTokenAndPool(env, mcmsReaderRegistry, ds, create2Ref, selector); err != nil {
 		return nil, fmt.Errorf("failed to deploy USDC token and pool: %w", err)
