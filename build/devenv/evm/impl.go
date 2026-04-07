@@ -1074,28 +1074,8 @@ func buildMockReceivers(topology *ccipOffchain.EnvironmentTopology, selector uin
 	return receivers
 }
 
-func (m *CCIP17EVMConfig) DeployContractsForSelector(ctx context.Context, env *deployment.Environment, selector uint64, topology *ccipOffchain.EnvironmentTopology) (datastore.DataStore, error) {
-	l := m.logger
-	l.Info().Msg("Configuring contracts for selector")
-	l.Info().Any("Selector", selector).Msg("Deploying for chain selectors")
-	runningDS := datastore.NewMemoryDataStore()
-
-	l.Info().Uint64("Selector", selector).Msg("Configuring per-chain contracts bundle")
-	bundle := operations.NewBundle(
-		func() context.Context { return context.Background() },
-		env.Logger,
-		operations.NewMemoryReporter(),
-	)
-	env.OperationsBundle = bundle
-
-	usdPerLink, ok := new(big.Int).SetString("15000000000000000000", 10) // $15
-	if !ok {
-		return nil, errors.New("failed to parse USDPerLINK")
-	}
-	usdPerWeth, ok := new(big.Int).SetString("2000000000000000000000", 10) // $2000
-	if !ok {
-		return nil, errors.New("failed to parse USDPerWETH")
-	}
+func (m *CCIP17EVMConfig) PreDeployContractsForSelector(_ context.Context, env *deployment.Environment, selector uint64, _ *ccipOffchain.EnvironmentTopology) (datastore.DataStore, error) {
+	m.logger.Info().Uint64("Selector", selector).Msg("EVM pre-deploy: deploying CREATE2 factory")
 
 	create2FactoryRep, err := operations.ExecuteOperation(env.OperationsBundle, create2_factory.Deploy, env.BlockChains.EVMChains()[selector],
 		contract.DeployInput[create2_factory.ConstructorArgs]{
@@ -1106,93 +1086,105 @@ func (m *CCIP17EVMConfig) DeployContractsForSelector(ctx context.Context, env *d
 			},
 		})
 	if err != nil {
-		return nil, fmt.Errorf("failed to deploy/create2 factory: %w", err)
+		return nil, fmt.Errorf("failed to deploy CREATE2 factory: %w", err)
 	}
 
-	err = runningDS.Addresses().Add(create2FactoryRep.Output)
+	ds := datastore.NewMemoryDataStore()
+	if err := ds.Addresses().Add(create2FactoryRep.Output); err != nil {
+		return nil, fmt.Errorf("failed to add CREATE2 factory to datastore: %w", err)
+	}
+	return ds.Seal(), nil
+}
+
+func (m *CCIP17EVMConfig) GetDeployChainContractsCfg(env *deployment.Environment, selector uint64, topology *ccipOffchain.EnvironmentTopology) (ccipChangesets.DeployChainContractsPerChainCfg, error) {
+	create2Ref, err := env.DataStore.Addresses().Get(
+		datastore.NewAddressRefKey(selector, datastore.ContractType(create2_factory.ContractType), create2_factory.Version, ""),
+	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to add create2 factory to datastore: %w", err)
+		return ccipChangesets.DeployChainContractsPerChainCfg{}, fmt.Errorf("CREATE2 factory not found in datastore for chain %d: %w", selector, err)
+	}
+
+	usdPerLink, ok := new(big.Int).SetString("15000000000000000000", 10) // $15
+	if !ok {
+		return ccipChangesets.DeployChainContractsPerChainCfg{}, errors.New("failed to parse USDPerLINK")
+	}
+	usdPerWeth, ok := new(big.Int).SetString("2000000000000000000000", 10) // $2000
+	if !ok {
+		return ccipChangesets.DeployChainContractsPerChainCfg{}, errors.New("failed to parse USDPerWETH")
+	}
+
+	return ccipChangesets.DeployChainContractsPerChainCfg{
+		DeployerContract: create2Ref.Address,
+		DeployerKeyOwned: true,
+		RMNRemote: adapters.RMNRemoteDeployParams{
+			Version: semver.MustParse(rmn_remote.Deploy.Version()),
+		},
+		OffRamp: adapters.OffRampDeployParams{
+			Version:                   semver.MustParse(offrampoperations.Deploy.Version()),
+			GasForCallExactCheck:      5_000,
+			MaxGasBufferToUpdateState: 12_000,
+		},
+		OnRamp: adapters.OnRampDeployParams{
+			Version:               semver.MustParse(onrampoperations.Deploy.Version()),
+			FeeAggregator:         "0x0000000000000000000000000000000000000001",
+			MaxUSDCentsPerMessage: 100_00,
+		},
+		Executors: []adapters.ExecutorDeployParams{
+			{
+				Version:       semver.MustParse(proxy.Deploy.Version()),
+				MaxCCVsPerMsg: 10,
+				DynamicConfig: adapters.ExecutorDynamicDeployConfig{
+					FeeAggregator:         "0x0000000000000000000000000000000000000001",
+					MinBlockConfirmations: 0,
+					CcvAllowlistEnabled:   false,
+				},
+				Qualifier: devenvcommon.DefaultExecutorQualifier,
+			},
+			{
+				Version:       semver.MustParse(proxy.Deploy.Version()),
+				MaxCCVsPerMsg: 10,
+				DynamicConfig: adapters.ExecutorDynamicDeployConfig{
+					FeeAggregator:         "0x0000000000000000000000000000000000000001",
+					MinBlockConfirmations: 0,
+					CcvAllowlistEnabled:   false,
+				},
+				Qualifier: devenvcommon.CustomExecutorQualifier,
+			},
+		},
+		FeeQuoter: adapters.FeeQuoterDeployParams{
+			Version:                        semver.MustParse(fee_quoter.Deploy.Version()),
+			MaxFeeJuelsPerMsg:              big.NewInt(2e18),
+			LINKPremiumMultiplierWeiPerEth: 9e17,
+			WETHPremiumMultiplierWeiPerEth: 1e18,
+			USDPerLINK:                     usdPerLink,
+			USDPerWETH:                     usdPerWeth,
+		},
+		MockReceivers: buildMockReceivers(topology, selector),
+	}, nil
+}
+
+func (m *CCIP17EVMConfig) PostDeployContractsForSelector(_ context.Context, env *deployment.Environment, selector uint64, _ *ccipOffchain.EnvironmentTopology) (datastore.DataStore, error) {
+	m.logger.Info().Uint64("Selector", selector).Msg("EVM post-deploy: deploying USDC and Lombard token pools")
+
+	create2Ref, err := env.DataStore.Addresses().Get(
+		datastore.NewAddressRefKey(selector, datastore.ContractType(create2_factory.ContractType), create2_factory.Version, ""),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("CREATE2 factory not found in datastore for chain %d: %w", selector, err)
 	}
 
 	mcmsReaderRegistry := changesetscore.GetRegistry()
-	out, err := ccipChangesets.DeployChainContracts(adapters.GetDeployChainContractsRegistry()).Apply(*env, changesetscore.WithMCMS[ccipChangesets.DeployChainContractsCfg]{
-		Cfg: ccipChangesets.DeployChainContractsCfg{
-			Topology:                                topology,
-			ChainSelectors:                          []uint64{selector},
-			IgnoreImportedConfigFromPreviousVersion: true,
-			DefaultCfg: ccipChangesets.DeployChainContractsPerChainCfg{
-				DeployerContract: create2FactoryRep.Output.Address,
-				DeployerKeyOwned: true,
-				RMNRemote: adapters.RMNRemoteDeployParams{
-					Version: semver.MustParse(rmn_remote.Deploy.Version()),
-				},
-				OffRamp: adapters.OffRampDeployParams{
-					Version:                   semver.MustParse(offrampoperations.Deploy.Version()),
-					GasForCallExactCheck:      5_000,
-					MaxGasBufferToUpdateState: 12_000,
-				},
-				OnRamp: adapters.OnRampDeployParams{
-					Version:               semver.MustParse(onrampoperations.Deploy.Version()),
-					FeeAggregator:         "0x0000000000000000000000000000000000000001",
-					MaxUSDCentsPerMessage: 100_00,
-				},
-				Executors: []adapters.ExecutorDeployParams{
-					{
-						Version:       semver.MustParse(proxy.Deploy.Version()),
-						MaxCCVsPerMsg: 10,
-						DynamicConfig: adapters.ExecutorDynamicDeployConfig{
-							FeeAggregator:         "0x0000000000000000000000000000000000000001",
-							MinBlockConfirmations: 0,
-							CcvAllowlistEnabled:   false,
-						},
-						Qualifier: devenvcommon.DefaultExecutorQualifier,
-					},
-					{
-						Version:       semver.MustParse(proxy.Deploy.Version()),
-						MaxCCVsPerMsg: 10,
-						DynamicConfig: adapters.ExecutorDynamicDeployConfig{
-							FeeAggregator:         "0x0000000000000000000000000000000000000001",
-							MinBlockConfirmations: 0,
-							CcvAllowlistEnabled:   false,
-						},
-						Qualifier: devenvcommon.CustomExecutorQualifier,
-					},
-				},
-				FeeQuoter: adapters.FeeQuoterDeployParams{
-					Version:                        semver.MustParse(fee_quoter.Deploy.Version()),
-					MaxFeeJuelsPerMsg:              big.NewInt(2e18),
-					LINKPremiumMultiplierWeiPerEth: 9e17,
-					WETHPremiumMultiplierWeiPerEth: 1e18,
-					USDPerLINK:                     usdPerLink,
-					USDPerWETH:                     usdPerWeth,
-				},
-				MockReceivers: buildMockReceivers(topology, selector),
-			},
-		},
-	})
-	if err != nil {
-		return nil, err
-	}
-	err = runningDS.Merge(out.DataStore.Seal())
-	if err != nil {
-		return nil, err
-	}
-	env.DataStore = runningDS.Seal()
+	ds := datastore.NewMemoryDataStore()
 
-	// Generic token + pool deployment is handled by the chain-agnostic
-	// DeployTokensAndPools function called from environment.go after this
-	// method returns. Only USDC and Lombard (which have bespoke deployment
-	// flows) remain here.
-
-	if err := m.deployUSDCTokenAndPool(env, mcmsReaderRegistry, runningDS, create2FactoryRep.Output, selector); err != nil {
+	if err := m.deployUSDCTokenAndPool(env, mcmsReaderRegistry, ds, create2Ref, selector); err != nil {
 		return nil, fmt.Errorf("failed to deploy USDC token and pool: %w", err)
 	}
 
-	if err := m.deployLombardTokenAndPool(env, mcmsReaderRegistry, runningDS, create2FactoryRep.Output, selector); err != nil {
+	if err := m.deployLombardTokenAndPool(env, mcmsReaderRegistry, ds, create2Ref, selector); err != nil {
 		return nil, fmt.Errorf("failed to deploy Lombard token and pool: %w", err)
 	}
 
-	return runningDS.Seal(), nil
+	return ds.Seal(), nil
 }
 
 // GetSupportedPools returns the pool types and versions the EVM chain can deploy.

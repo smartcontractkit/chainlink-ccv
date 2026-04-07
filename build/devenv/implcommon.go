@@ -25,6 +25,103 @@ import (
 )
 
 // ---------------------------------------------------------------------------
+// Chain-agnostic contract deployment (matches the 1.6 pattern)
+// ---------------------------------------------------------------------------
+
+// DeployContractsForSelector is the shared entry point for deploying CCIP
+// contracts on a single chain. It follows the 1.6 pattern: the common code
+// calls the tooling API DeployChainContracts changeset; chain impls only
+// provide configuration and optional pre/post hooks.
+func DeployContractsForSelector(
+	ctx context.Context,
+	env *deployment.Environment,
+	impl cciptestinterfaces.OnChainConfigurable,
+	selector uint64,
+	topology *ccipOffchain.EnvironmentTopology,
+) (datastore.DataStore, error) {
+	runningDS := datastore.NewMemoryDataStore()
+
+	env.OperationsBundle = operations.NewBundle(
+		func() context.Context { return context.Background() },
+		env.Logger,
+		operations.NewMemoryReporter(),
+	)
+
+	// 1. Pre-hook (e.g. EVM deploys CREATE2 factory here).
+	preDS, err := impl.PreDeployContractsForSelector(ctx, env, selector, topology)
+	if err != nil {
+		return nil, fmt.Errorf("pre-deploy for selector %d: %w", selector, err)
+	}
+	if preDS != nil {
+		if err := runningDS.Merge(preDS); err != nil {
+			return nil, fmt.Errorf("merge pre-deploy DS: %w", err)
+		}
+		tmp := datastore.NewMemoryDataStore()
+		if err := tmp.Merge(env.DataStore); err != nil {
+			return nil, fmt.Errorf("merge env DS: %w", err)
+		}
+		if err := tmp.Merge(preDS); err != nil {
+			return nil, fmt.Errorf("merge pre DS into env: %w", err)
+		}
+		env.DataStore = tmp.Seal()
+	}
+
+	// 2. Get chain-specific config (reads pre-deployed addresses from env.DataStore).
+	cfg, err := impl.GetDeployChainContractsCfg(env, selector, topology)
+	if err != nil {
+		return nil, fmt.Errorf("get deploy config for selector %d: %w", selector, err)
+	}
+
+	// 3. Call the tooling API changeset.
+	registry := ccipAdapters.GetDeployChainContractsRegistry()
+	out, err := ccipChangesets.DeployChainContracts(registry).Apply(*env, changesetscore.WithMCMS[ccipChangesets.DeployChainContractsCfg]{
+		Cfg: ccipChangesets.DeployChainContractsCfg{
+			Topology:                                topology,
+			ChainSelectors:                          []uint64{selector},
+			IgnoreImportedConfigFromPreviousVersion: true,
+			DefaultCfg:                              cfg,
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("deploy chain contracts for selector %d: %w", selector, err)
+	}
+	if err := runningDS.Merge(out.DataStore.Seal()); err != nil {
+		return nil, fmt.Errorf("merge deploy output DS: %w", err)
+	}
+	{
+		tmp := datastore.NewMemoryDataStore()
+		if err := tmp.Merge(env.DataStore); err != nil {
+			return nil, fmt.Errorf("merge env DS: %w", err)
+		}
+		if err := tmp.Merge(out.DataStore.Seal()); err != nil {
+			return nil, fmt.Errorf("merge deploy output into env: %w", err)
+		}
+		env.DataStore = tmp.Seal()
+	}
+
+	// 4. Post-hook (e.g. EVM deploys USDC/Lombard pools here).
+	postDS, err := impl.PostDeployContractsForSelector(ctx, env, selector, topology)
+	if err != nil {
+		return nil, fmt.Errorf("post-deploy for selector %d: %w", selector, err)
+	}
+	if postDS != nil {
+		if err := runningDS.Merge(postDS); err != nil {
+			return nil, fmt.Errorf("merge post-deploy DS: %w", err)
+		}
+		tmp := datastore.NewMemoryDataStore()
+		if err := tmp.Merge(env.DataStore); err != nil {
+			return nil, fmt.Errorf("merge env DS: %w", err)
+		}
+		if err := tmp.Merge(postDS); err != nil {
+			return nil, fmt.Errorf("merge post DS into env: %w", err)
+		}
+		env.DataStore = tmp.Seal()
+	}
+
+	return runningDS.Seal(), nil
+}
+
+// ---------------------------------------------------------------------------
 // Canonical path (new): ConfigureChainsForLanesFromTopology
 // ---------------------------------------------------------------------------
 
