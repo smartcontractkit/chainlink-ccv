@@ -132,61 +132,6 @@ func TestNewCommitVerifier_NilMonitoring(t *testing.T) {
 	assert.Contains(t, err.Error(), "monitoring")
 }
 
-func TestCommitVerifier_ValidateMessage_Success(t *testing.T) {
-	signer, addr := newTestSigner(t)
-	config := newSingleChainConfig(1, addr, protocol.UnknownAddress([]byte{0xEE}))
-	cv, err := NewCommitVerifier(config, addr, signer, logger.Test(t), monitoring.NewFakeVerifierMonitoring())
-	require.NoError(t, err)
-
-	msg := protocol.Message{
-		Version:  protocol.MessageVersion,
-		Sender:   protocol.UnknownAddress([]byte{0x01}),
-		Receiver: protocol.UnknownAddress([]byte{0x02}),
-	}
-	require.NoError(t, cv.(*Verifier).ValidateMessage(msg))
-}
-
-func TestCommitVerifier_ValidateMessage_UnsupportedVersion(t *testing.T) {
-	signer, addr := newTestSigner(t)
-	config := newSingleChainConfig(1, addr, protocol.UnknownAddress([]byte{0xEE}))
-	cv, err := NewCommitVerifier(config, addr, signer, logger.Test(t), monitoring.NewFakeVerifierMonitoring())
-	require.NoError(t, err)
-
-	err = cv.(*Verifier).ValidateMessage(protocol.Message{Version: 99})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "unsupported message version")
-}
-
-func TestCommitVerifier_ValidateMessage_EmptySender(t *testing.T) {
-	signer, addr := newTestSigner(t)
-	config := newSingleChainConfig(1, addr, protocol.UnknownAddress([]byte{0xEE}))
-	cv, err := NewCommitVerifier(config, addr, signer, logger.Test(t), monitoring.NewFakeVerifierMonitoring())
-	require.NoError(t, err)
-
-	err = cv.(*Verifier).ValidateMessage(protocol.Message{
-		Version:  protocol.MessageVersion,
-		Sender:   nil,
-		Receiver: protocol.UnknownAddress([]byte{0x02}),
-	})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "sender cannot be empty")
-}
-
-func TestCommitVerifier_ValidateMessage_EmptyReceiver(t *testing.T) {
-	signer, addr := newTestSigner(t)
-	config := newSingleChainConfig(1, addr, protocol.UnknownAddress([]byte{0xEE}))
-	cv, err := NewCommitVerifier(config, addr, signer, logger.Test(t), monitoring.NewFakeVerifierMonitoring())
-	require.NoError(t, err)
-
-	err = cv.(*Verifier).ValidateMessage(protocol.Message{
-		Version:  protocol.MessageVersion,
-		Sender:   protocol.UnknownAddress([]byte{0x01}),
-		Receiver: nil,
-	})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "receiver cannot be empty")
-}
-
 func TestVerifyMessages_NilTasks_ReturnsNil(t *testing.T) {
 	signer, addr := newTestSigner(t)
 	config := newSingleChainConfig(1, addr, protocol.UnknownAddress([]byte{0xEE}))

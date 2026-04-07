@@ -37,6 +37,20 @@ type SequenceNumber uint64
 // UnknownAddress represents an address on an unknown chain.
 type UnknownAddress []byte
 
+// IsZeroOrEmpty returns true if the address is nil, empty, or all zero bytes.
+func (a UnknownAddress) IsZeroOrEmpty() bool {
+	if len(a) == 0 {
+		return true // empty
+	}
+
+	for _, b := range a {
+		if b != 0 {
+			return false
+		}
+	}
+	return true
+}
+
 // NewUnknownAddressFromHex creates an UnknownAddress from a hex string.
 func NewUnknownAddressFromHex(s string) (UnknownAddress, error) {
 	if s == "" {

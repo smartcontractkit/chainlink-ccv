@@ -10,64 +10,118 @@ import (
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
 )
 
-// TestValidateMessageErrors tests message validation error conditions.
-func TestValidateMessageErrors(t *testing.T) {
+// TestValidateVerificationTask tests validation error conditions.
+func TestValidateVerificationTask(t *testing.T) {
+	validBlobs := []protocol.ReceiptWithBlob{{}}
+
 	tests := []struct {
-		task            *verifier.VerificationTask
-		name            string
-		expectErr       string
-		verifier        protocol.UnknownAddress
-		defaultExecutor protocol.UnknownAddress
+		name      string
+		task      *verifier.VerificationTask
+		expectErr string
 	}{
 		{
-			name:            "nil_task",
-			task:            nil,
-			verifier:        protocol.UnknownAddress{},
-			defaultExecutor: protocol.UnknownAddress{},
-			expectErr:       "verification task is nil",
+			name:      "nil_task",
+			task:      nil,
+			expectErr: "verification task is nil",
 		},
 		{
 			name: "unsupported_version",
 			task: &verifier.VerificationTask{
 				Message: protocol.Message{
-					Version: 99, // Unsupported version
+					Version: 99,
 				},
 			},
-			verifier:        protocol.UnknownAddress{},
-			defaultExecutor: protocol.UnknownAddress{},
-			expectErr:       "unsupported message version",
+			expectErr: "unsupported message version",
+		},
+		{
+			name: "empty_sender",
+			task: &verifier.VerificationTask{
+				Message: protocol.Message{
+					Version: protocol.MessageVersion,
+					Sender:  nil,
+				},
+			},
+			expectErr: "sender cannot be empty or zero",
+		},
+		{
+			name: "zero_sender",
+			task: &verifier.VerificationTask{
+				Message: protocol.Message{
+					Version: protocol.MessageVersion,
+					Sender:  []byte{0x00, 0x00, 0x00},
+				},
+			},
+			expectErr: "sender cannot be empty or zero",
+		},
+		{
+			name: "empty_receiver",
+			task: &verifier.VerificationTask{
+				Message: protocol.Message{
+					Version:  protocol.MessageVersion,
+					Sender:   []byte{1},
+					Receiver: nil,
+				},
+			},
+			expectErr: "receiver cannot be empty or zero",
+		},
+		{
+			name: "zero_receiver",
+			task: &verifier.VerificationTask{
+				Message: protocol.Message{
+					Version:  protocol.MessageVersion,
+					Sender:   []byte{1},
+					Receiver: []byte{0x00, 0x00, 0x00},
+				},
+			},
+			expectErr: "receiver cannot be empty or zero",
 		},
 		{
 			name: "empty_receipt_blobs",
 			task: &verifier.VerificationTask{
 				Message: protocol.Message{
-					Version: protocol.MessageVersion,
+					Version:  protocol.MessageVersion,
+					Sender:   []byte{1},
+					Receiver: []byte{2},
 				},
 				ReceiptBlobs: []protocol.ReceiptWithBlob{},
 			},
-			verifier:        protocol.UnknownAddress{},
-			defaultExecutor: protocol.UnknownAddress{},
-			expectErr:       "receipt blobs list is empty",
+			expectErr: "receipt blobs list is empty",
 		},
 		{
 			name: "nil_receipt_blobs",
 			task: &verifier.VerificationTask{
 				Message: protocol.Message{
-					Version: protocol.MessageVersion,
+					Version:  protocol.MessageVersion,
+					Sender:   []byte{1},
+					Receiver: []byte{2},
 				},
 				ReceiptBlobs: nil,
 			},
-			verifier:        protocol.UnknownAddress{},
-			defaultExecutor: protocol.UnknownAddress{},
-			expectErr:       "receipt blobs list is empty",
+			expectErr: "receipt blobs list is empty",
+		},
+		{
+			name: "valid_task",
+			task: &verifier.VerificationTask{
+				Message: protocol.Message{
+					Version:  protocol.MessageVersion,
+					Sender:   []byte{1},
+					Receiver: []byte{2},
+				},
+				ReceiptBlobs: validBlobs,
+			},
+			expectErr: "",
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := ValidateMessage(tt.task)
-			require.Error(t, err)
-			assert.Contains(t, err.Error(), tt.expectErr)
+			err := ValidateVerificationTask(tt.task)
+			if tt.expectErr == "" {
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.expectErr)
+			}
 		})
 	}
 }
