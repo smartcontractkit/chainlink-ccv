@@ -18,12 +18,12 @@ func ValidateVerificationTask(verificationTask *verifier.VerificationTask) error
 		return fmt.Errorf("unsupported message version: %d", message.Version)
 	}
 
-	if len(message.Sender) == 0 {
-		return fmt.Errorf("sender cannot be empty")
+	if message.Sender.IsZeroOrEmpty() {
+		return fmt.Errorf("sender cannot be empty or zero")
 	}
 
-	if len(message.Receiver) == 0 {
-		return fmt.Errorf("receiver cannot be empty")
+	if message.Receiver.IsZeroOrEmpty() {
+		return fmt.Errorf("receiver cannot be empty or zero")
 	}
 
 	if len(verificationTask.ReceiptBlobs) == 0 {

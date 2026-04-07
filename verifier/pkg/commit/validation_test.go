@@ -41,7 +41,17 @@ func TestValidateVerificationTask(t *testing.T) {
 					Sender:  nil,
 				},
 			},
-			expectErr: "sender cannot be empty",
+			expectErr: "sender cannot be empty or zero",
+		},
+		{
+			name: "zero_sender",
+			task: &verifier.VerificationTask{
+				Message: protocol.Message{
+					Version: protocol.MessageVersion,
+					Sender:  []byte{0x00, 0x00, 0x00},
+				},
+			},
+			expectErr: "sender cannot be empty or zero",
 		},
 		{
 			name: "empty_receiver",
@@ -52,10 +62,21 @@ func TestValidateVerificationTask(t *testing.T) {
 					Receiver: nil,
 				},
 			},
-			expectErr: "receiver cannot be empty",
+			expectErr: "receiver cannot be empty or zero",
 		},
 		{
-			name: "empty_verifier_blobs",
+			name: "zero_receiver",
+			task: &verifier.VerificationTask{
+				Message: protocol.Message{
+					Version:  protocol.MessageVersion,
+					Sender:   []byte{1},
+					Receiver: []byte{0x00, 0x00, 0x00},
+				},
+			},
+			expectErr: "receiver cannot be empty or zero",
+		},
+		{
+			name: "empty_receipt_blobs",
 			task: &verifier.VerificationTask{
 				Message: protocol.Message{
 					Version:  protocol.MessageVersion,
@@ -67,7 +88,7 @@ func TestValidateVerificationTask(t *testing.T) {
 			expectErr: "receipt blobs list is empty",
 		},
 		{
-			name: "nil_verifier_blobs",
+			name: "nil_receipt_blobs",
 			task: &verifier.VerificationTask{
 				Message: protocol.Message{
 					Version:  protocol.MessageVersion,
