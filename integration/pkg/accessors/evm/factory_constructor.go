@@ -42,7 +42,7 @@ func CreateEVMAccessorFactory(lggr logger.Logger, cfg string) (chainaccess.Acces
 	// Convert Infos[string] -> Infos[evm.Info]
 	evmInfos := make(map[string]Info)
 
-	for selector, configStr := range genericConfig.ChainConfig.GetAllInfos() {
+	for _, selector := range genericConfig.ChainConfig.GetAllChainSelectors() {
 		// Verify chain family.
 		isEvm, err := chainsel.IsEvm(uint64(selector))
 		if err != nil {
@@ -54,10 +54,10 @@ func CreateEVMAccessorFactory(lggr logger.Logger, cfg string) (chainaccess.Acces
 		}
 
 		var info Info
-		if _, err = toml.Decode(configStr, &info); err != nil {
+		if err = genericConfig.GetConcreteConfig(selector, &info); err != nil {
 			return nil, fmt.Errorf("failed to decode EVM info for selector(%d): %w", selector, err)
 		}
-		evmInfos[fmt.Sprintf("%d", selector)] = info
+		evmInfos[selector.String()] = info
 	}
 
 	return CreateAccessorFactory(context.Background(), lggr, genericConfig, evmInfos)

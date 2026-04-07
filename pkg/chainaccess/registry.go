@@ -64,9 +64,26 @@ type Registry struct {
 // TODO: Use protocol.Selector instead of string for all the map[string].
 type GenericConfig struct {
 	// ChainConfig is parsed by the concrete implementation.
-	ChainConfig Infos[string] `toml:"blockchain_infos"`
+	ChainConfig Infos[any] `toml:"blockchain_infos"`
 
 	CommitteeConfig
+}
+
+func (gc GenericConfig) GetConcreteConfig(selector protocol.ChainSelector, target any) error {
+	info, ok := gc.ChainConfig[selector.String()]
+	if !ok {
+		return fmt.Errorf("chain selector '%s' not found", selector.String())
+	}
+	data, err := toml.Marshal(info)
+	if err != nil {
+		return fmt.Errorf("failed to marshal info for selector '%s': %w", selector.String(), err)
+	}
+
+	_, err = toml.Decode(string(data), target)
+	if err != nil {
+		return fmt.Errorf("failed to unmarshal info for selector '%s': %w", selector.String(), err)
+	}
+	return nil
 }
 
 // CommitteeConfig that is defined as part of the app and required by the SourceReader.
@@ -81,12 +98,6 @@ type CommitteeConfig struct {
 
 // NewRegistry creates a new Registry with some configuration.
 func NewRegistry(lggr logger.Logger, config string) (AccessorFactory, error) {
-	var genericConfig GenericConfig
-	_, err := toml.Decode(config, &genericConfig)
-	if err != nil {
-		return nil, fmt.Errorf("error parsing config: %w", err)
-	}
-
 	reg := Registry{
 		factories: make(map[ChainFamily]AccessorFactory),
 	}
