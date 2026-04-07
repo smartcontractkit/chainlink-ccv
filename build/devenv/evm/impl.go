@@ -1175,8 +1175,9 @@ func (m *CCIP17EVMConfig) PostDeployContractsForSelector(_ context.Context, env 
 
 	mcmsReaderRegistry := changesetscore.GetRegistry()
 
-	// Seed with env.DataStore so USDC/Lombard helpers can look up addresses
-	// deployed by the DeployChainContracts changeset (e.g. committee verifier).
+	// Seed working DS from env.DataStore so USDC/Lombard helpers can look up
+	// addresses deployed by the DeployChainContracts changeset (e.g. committee
+	// verifier). Only newly-added addresses are returned to the caller.
 	ds := datastore.NewMemoryDataStore()
 	if err := ds.Merge(env.DataStore); err != nil {
 		return nil, fmt.Errorf("failed to seed post-deploy DS: %w", err)
@@ -1190,7 +1191,36 @@ func (m *CCIP17EVMConfig) PostDeployContractsForSelector(_ context.Context, env 
 		return nil, fmt.Errorf("failed to deploy Lombard token and pool: %w", err)
 	}
 
-	return ds.Seal(), nil
+	return onlyNewAddresses(ds, env.DataStore)
+}
+
+// onlyNewAddresses returns a sealed DataStore containing only the AddressRefs
+// present in full that are not already in base. This prevents the seeded
+// env.DataStore content from leaking into the caller's accumulator.
+func onlyNewAddresses(full *datastore.MemoryDataStore, base datastore.DataStore) (datastore.DataStore, error) {
+	baseAddrs, err := base.Addresses().Fetch()
+	if err != nil {
+		return nil, fmt.Errorf("fetch base addresses: %w", err)
+	}
+	baseKeys := make(map[string]struct{}, len(baseAddrs))
+	for _, a := range baseAddrs {
+		baseKeys[a.Key().String()] = struct{}{}
+	}
+
+	allAddrs, err := full.Seal().Addresses().Fetch()
+	if err != nil {
+		return nil, fmt.Errorf("fetch full addresses: %w", err)
+	}
+
+	result := datastore.NewMemoryDataStore()
+	for _, a := range allAddrs {
+		if _, exists := baseKeys[a.Key().String()]; !exists {
+			if err := result.Addresses().Add(a); err != nil {
+				return nil, fmt.Errorf("add new address to result: %w", err)
+			}
+		}
+	}
+	return result.Seal(), nil
 }
 
 // GetSupportedPools returns the pool types and versions the EVM chain can deploy.
