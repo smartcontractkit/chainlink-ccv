@@ -5,6 +5,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
 // testChainInfo is a minimal struct used to test LoadConfigWithBlockchainInfos.
@@ -36,7 +39,7 @@ UniqueChainName = "chain-1"
 `
 	spec := JobSpec{CommitteeVerifierConfig: tomlConfig}
 
-	cfg, infos, err := LoadConfigWithBlockchainInfos[testChainInfo](spec)
+	cfg, infos, err := LoadConfigWithBlockchainInfos(spec)
 	require.NoError(t, err)
 	require.NotNil(t, cfg)
 	require.NotNil(t, infos)
@@ -48,10 +51,14 @@ UniqueChainName = "chain-1"
 	info, ok := infos["1"]
 	require.True(t, ok, "blockchain_infos should contain key \"1\"")
 	require.NotNil(t, info)
-	assert.Equal(t, "1", info.ChainID)
-	assert.Equal(t, "evm", info.Type)
-	assert.Equal(t, "evm", info.Family)
-	assert.Equal(t, "chain-1", info.UniqueChainName)
+
+	gcfg := chainaccess.GenericConfig{ChainConfig: infos}
+	var tinfo testChainInfo
+	require.NoError(t, gcfg.GetConcreteConfig(protocol.ChainSelector(1), &tinfo))
+	assert.Equal(t, "1", tinfo.ChainID)
+	assert.Equal(t, "evm", tinfo.Type)
+	assert.Equal(t, "evm", tinfo.Family)
+	assert.Equal(t, "chain-1", tinfo.UniqueChainName)
 }
 
 func TestLoadConfigWithBlockchainInfos_UnknownTopLevelKey_ReturnsError(t *testing.T) {
@@ -60,7 +67,7 @@ typo_key = "should fail"
 `
 	spec := JobSpec{CommitteeVerifierConfig: tomlConfig}
 
-	_, _, err := LoadConfigWithBlockchainInfos[testChainInfo](spec)
+	_, _, err := LoadConfigWithBlockchainInfos(spec)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unknown fields")
 	assert.Contains(t, err.Error(), "typo_key")
@@ -73,7 +80,7 @@ UnknownField = "should fail"
 `
 	spec := JobSpec{CommitteeVerifierConfig: tomlConfig}
 
-	_, _, err := LoadConfigWithBlockchainInfos[testChainInfo](spec)
+	_, _, err := LoadConfigWithBlockchainInfos(spec)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unknown fields")
 	assert.Contains(t, err.Error(), "blockchain_infos")
@@ -83,7 +90,7 @@ func TestLoadConfigWithBlockchainInfos_EmptyBlockchainInfos(t *testing.T) {
 	tomlConfig := ``
 	spec := JobSpec{CommitteeVerifierConfig: tomlConfig}
 
-	cfg, infos, err := LoadConfigWithBlockchainInfos[testChainInfo](spec)
+	cfg, infos, err := LoadConfigWithBlockchainInfos(spec)
 	require.NoError(t, err)
 	require.NotNil(t, cfg)
 	assert.Empty(t, infos, "blockchain_infos should be nil or empty when key is absent")

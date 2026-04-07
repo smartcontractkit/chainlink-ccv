@@ -14,7 +14,7 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
-	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm"
+	_ "github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm" // evm accessor driver
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/heartbeatclient"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -43,9 +43,9 @@ func main() {
 
 	err := bootstrap.Run(
 		"TokenVerifier",
-		&tokenVerifierFactory[evm.Info]{},
+		&tokenVerifierFactory{},
 		// TODO: remove the AppConfig generic type to streamline this API, update factory to accept config as a string.
-		bootstrap.WithTOMLAppConfig[token.ConfigWithBlockchainInfos[evm.Info]](configPath),
+		bootstrap.WithTOMLAppConfig[token.ConfigWithBlockchainInfos](configPath),
 	)
 	if err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "Failed to run token verifier: %v\n", err)
@@ -53,7 +53,7 @@ func main() {
 	}
 }
 
-type tokenVerifierFactory[T any] struct {
+type tokenVerifierFactory struct {
 	bootstrap.ServiceFactory[token.Config]
 
 	coordinators []*verifier.Coordinator
@@ -62,7 +62,7 @@ type tokenVerifierFactory[T any] struct {
 }
 
 // Stop tries to stop all services gracefully.
-func (tvf *tokenVerifierFactory[T]) Stop(ctx context.Context) error {
+func (tvf *tokenVerifierFactory) Stop(ctx context.Context) error {
 	// Graceful shutdown
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer shutdownCancel()
@@ -86,7 +86,7 @@ func (tvf *tokenVerifierFactory[T]) Stop(ctx context.Context) error {
 }
 
 // Start starts the service with the parsed config received from the bootstrapper.
-func (tvf *tokenVerifierFactory[T]) Start(ctx context.Context, appConfig token.ConfigWithBlockchainInfos[T], deps bootstrap.ServiceDeps) error {
+func (tvf *tokenVerifierFactory) Start(ctx context.Context, appConfig token.ConfigWithBlockchainInfos, deps bootstrap.ServiceDeps) error {
 	var errs []error
 	if len(errs) > 0 {
 		return errors.Join(errs...)
