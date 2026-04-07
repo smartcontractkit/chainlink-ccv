@@ -71,6 +71,9 @@ func (r *runner[AppConfig]) StartJob(ctx context.Context, spec string) error {
 
 	// Initialize registry.
 	reg, err := chainaccess.NewRegistry(r.deps.Logger, spec)
+	if err != nil {
+		return fmt.Errorf("failed to create registry: %w", err)
+	}
 	r.deps.Registry = reg
 
 	return r.fac.Start(ctx, appConfig, r.deps)
@@ -161,6 +164,9 @@ func (b *Bootstrapper[AppConfig]) startWithAppConfig(ctx context.Context) error 
 		return fmt.Errorf("failed to get app config toml: %w", err)
 	}
 	reg, err := chainaccess.NewRegistry(b.lggr, cfgStr)
+	if err != nil {
+		return fmt.Errorf("failed to create registry: %w", err)
+	}
 
 	return b.fac.Start(ctx, *b.appCfg, ServiceDeps{Registry: reg})
 }

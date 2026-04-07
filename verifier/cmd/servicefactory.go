@@ -75,20 +75,17 @@ type factory[T any] struct {
 // NewServiceFactory is deprecated use NewCommitteeVerifierServiceFactory instead.
 func NewServiceFactory[T any](
 	chainFamily string,
-	createAccessorFactoryFunc CreateAccessorFactoryFunc[T],
 ) bootstrap.ServiceFactory[commit.JobSpec] {
-	return NewCommitteeVerifierServiceFactory(chainFamily, createAccessorFactoryFunc)
+	return NewCommitteeVerifierServiceFactory[T](chainFamily)
 }
 
 // NewCommitteeVerifierServiceFactory creates a new ServiceFactory for the committee verifier service.
 // T is the chain config type for this family (e.g. blockchain.Info for EVM).
 func NewCommitteeVerifierServiceFactory[T any](
 	chainFamily string,
-	createAccessorFactoryFunc CreateAccessorFactoryFunc[T],
 ) bootstrap.ServiceFactory[commit.JobSpec] {
 	return &factory[T]{
-		createAccessorFactoryFunc: createAccessorFactoryFunc,
-		chainFamily:               chainFamily,
+		chainFamily: chainFamily,
 	}
 }
 
