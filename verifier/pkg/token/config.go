@@ -9,9 +9,9 @@ import (
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
 )
 
-type ConfigWithBlockchainInfos[T any] struct {
+type ConfigWithBlockchainInfos struct {
 	Config
-	BlockchainInfos chainaccess.Infos[T] `toml:"blockchain_infos"`
+	BlockchainInfos chainaccess.Infos[any] `toml:"blockchain_infos"`
 }
 
 type Config struct {
