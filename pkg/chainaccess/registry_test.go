@@ -11,7 +11,7 @@ import (
 )
 
 // concreteChainInfo is used to verify that the re-encoded "any" value from
-// GenericConfig.GetInfoString can be decoded into a concrete type.
+// GenericConfig.GetConcreteConfig can be decoded into a concrete type.
 type concreteChainInfo struct {
 	ChainID         string `toml:"ChainID"`
 	Type            string `toml:"Type"`

@@ -22,14 +22,18 @@ func init() {
 
 var _ chainaccess.AccessorFactoryConstructor = CreateEVMAccessorFactory
 
-// CreateEVMAccessorFactory expects a toml config file in the format:
+// CreateEVMAccessorFactory expects cfg to be TOML that decodes into
+// chainaccess.GenericConfig.
 //
-//	 type Config struct {
-//	   Infos[string]string `toml:"blockchain_infos"`
-//	   CommitteeConfig
-//	   TokenConfig
-//	   ExecutorConfig
-//	}
+// Per-chain EVM settings are read from `blockchain_infos.<selector>` entries, for
+// example:
+//
+//	[blockchain_infos.5009297550715157269]
+//	# EVM-specific Info fields for selector 5009297550715157269
+//
+// Shared sections from chainaccess.GenericConfig (for example on-ramp or RMN
+// remote addresses) may also be present and are used when constructing the
+// accessor factory.
 //
 // It will take all config values it needs from all available config. Note that it would be
 // very unusual for a config to have more than one of Committee/Token/Executor configs.
