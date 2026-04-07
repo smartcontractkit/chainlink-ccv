@@ -12,15 +12,20 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
+// AccessorFactoryConstructor creates an AccessorFactory for a specific chain family. When
+// GetAccessor is called, it will delegate to the AccessorFactory corresponding to the chain
+// family of the given chain selector.
 type AccessorFactoryConstructor func(lggr logger.Logger, cfg string) (AccessorFactory, error)
 
+type ChainFamily string
+
 var (
-	accessorConstructorMap      = make(map[string]AccessorFactoryConstructor)
+	accessorConstructorMap      = make(map[ChainFamily]AccessorFactoryConstructor)
 	accessorConstructorMapMutex sync.RWMutex
 )
 
 // Register an accessor factory constructor.
-func Register(name string, constructor AccessorFactoryConstructor) {
+func Register(name ChainFamily, constructor AccessorFactoryConstructor) {
 	accessorConstructorMapMutex.Lock()
 	defer accessorConstructorMapMutex.Unlock()
 
@@ -33,7 +38,7 @@ func Register(name string, constructor AccessorFactoryConstructor) {
 
 // Registry holds AccessorFactories for different chain families.
 type Registry struct {
-	factories map[string]AccessorFactory
+	factories map[ChainFamily]AccessorFactory
 }
 
 // GenericConfig is an overlay of the app configuration. All configuration needed to construct the accessor
@@ -56,7 +61,7 @@ type Registry struct {
 //	    // The chain selectors are formatted as strings of the chain selector.
 //	}
 //
-// TODO: Use protocol.Selector instead of string.
+// TODO: Use protocol.Selector instead of string for all the map[string].
 type GenericConfig struct {
 	// ChainConfig is parsed by the concrete implementation.
 	ChainConfig Infos[string] `toml:"blockchain_infos"`
@@ -79,18 +84,16 @@ func NewRegistry(lggr logger.Logger, config string) (AccessorFactory, error) {
 	var genericConfig GenericConfig
 	_, err := toml.Decode(config, &genericConfig)
 	if err != nil {
-		return nil, fmt.Errorf("error parsing config: %s", err)
+		return nil, fmt.Errorf("error parsing config: %w", err)
 	}
 
 	reg := Registry{
-		factories: make(map[string]AccessorFactory),
+		factories: make(map[ChainFamily]AccessorFactory),
 	}
 
-	for family := range genericConfig.ChainConfig {
-		constructor, ok := accessorConstructorMap[family]
-		if !ok {
-			return nil, fmt.Errorf("configuration found for unknown accessor factory type: %s", family)
-		}
+	accessorConstructorMapMutex.Lock()
+	defer accessorConstructorMapMutex.Unlock()
+	for family, constructor := range accessorConstructorMap {
 		accessor, err := constructor(lggr, config)
 		if err != nil {
 			return nil, fmt.Errorf("failed to construct accessor factory for family %s: %w", family, err)
@@ -110,7 +113,7 @@ func (r *Registry) GetAccessor(ctx context.Context, chainSelector protocol.Chain
 		return nil, fmt.Errorf("failed to get selector family for chain %d - update chain-selectors library?: %w", chainSelector, err)
 	}
 
-	factory, ok := r.factories[family]
+	factory, ok := r.factories[ChainFamily(family)]
 	if !ok {
 		return nil, fmt.Errorf("no factory registered for chain family %s (%d)", family, chainSelector)
 	}

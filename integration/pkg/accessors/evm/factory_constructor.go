@@ -64,6 +64,7 @@ func CreateEVMAccessorFactory(lggr logger.Logger, cfg string) (chainaccess.Acces
 }
 
 // CreateAccessorFactory creates a factory that can build EVM chain accessors.
+// TODO: Defer geth client and head tracker creation until GetAccessor is called.
 func CreateAccessorFactory(
 	ctx context.Context,
 	lggr logger.Logger,

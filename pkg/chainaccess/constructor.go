@@ -6,7 +6,7 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-// CreateAccessorFactory is a factory that can construct accessors needed by the verifier service.
+// CreateAccessorFactory is a factory that can construct chainaccess.Accessor objects.
 type CreateAccessorFactory[T any] func(
 	ctx context.Context,
 	lggr logger.Logger,
