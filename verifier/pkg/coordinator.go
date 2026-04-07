@@ -113,19 +113,18 @@ func NewCoordinatorWithDetector(
 			return fmt.Errorf("failed to create curse detector: %w", err)
 		}
 		vc.curseDetector = curseDetector
-		// TODO: return a wrapper object instead of separate services.
-		dbSRS, taskVerifierProcessor, storageWriterProcessor, taskQueueObs, resultQueueObs, err := createDurableProcessors(
+		processors, err := createDurableProcessors(
 			lggr, ds, config, verifier, monitoring, enabledSourceReaders, chainStatusManager, vc.curseDetector, messageTracker, storage,
 		)
 		if err != nil {
 			return fmt.Errorf("failed to create durable processors: %w", err)
 		}
-		vc.taskVerifierProcessor = taskVerifierProcessor
-		vc.storageWriterProcessor = storageWriterProcessor
-		vc.taskQueueObserver = taskQueueObs
-		vc.resultQueueObserver = resultQueueObs
+		vc.taskVerifierProcessor = processors.taskVerifierProcessor
+		vc.storageWriterProcessor = processors.storageWriterProcessor
+		vc.taskQueueObserver = processors.taskQueueObserver
+		vc.resultQueueObserver = processors.resultQueueObserver
 		vc.sourceReaderServices = make(map[protocol.ChainSelector]services.Service)
-		for chainSelector, srs := range dbSRS {
+		for chainSelector, srs := range processors.sourceReaderServices {
 			vc.sourceReaderServices[chainSelector] = srs
 		}
 		if heartbeatClient != nil && config.HeartbeatInterval > 0 {
@@ -147,6 +146,15 @@ func NewCoordinatorWithDetector(
 	return vc, nil
 }
 
+// durableProcessors holds all services created by createDurableProcessors.
+type durableProcessors struct {
+	sourceReaderServices   map[protocol.ChainSelector]*sourcereader.Service
+	taskVerifierProcessor  services.Service
+	storageWriterProcessor services.Service
+	taskQueueObserver      services.Service
+	resultQueueObserver    services.Service
+}
+
 // createDurableProcessors creates DB-backed source readers and processors using database-backed queues.
 // All three pipeline stages communicate via the database: SRS → ccv_task_verifier_jobs → TVP → ccv_storage_writer_jobs → SWP.
 func createDurableProcessors(
@@ -160,7 +168,7 @@ func createDurableProcessors(
 	curseDetector common.CurseCheckerService,
 	messageTracker MessageLatencyTracker,
 	storage protocol.CCVNodeDataWriter,
-) (map[protocol.ChainSelector]*sourcereader.Service, services.Service, services.Service, services.Service, services.Service, error) {
+) (*durableProcessors, error) {
 	taskQueue, err := jobqueue.NewPostgresJobQueue[VerificationTask](
 		ds,
 		jobqueue.QueueConfig{
@@ -172,7 +180,7 @@ func createDurableProcessors(
 		logger.With(lggr, "component", "task_queue"),
 	)
 	if err != nil {
-		return nil, nil, nil, nil, nil, fmt.Errorf("failed to create task queue: %w", err)
+		return nil, fmt.Errorf("failed to create task queue: %w", err)
 	}
 
 	// Wrap task queue with observability decorator
@@ -183,7 +191,7 @@ func createDurableProcessors(
 		monitoring.Metrics().RecordTaskVerificationQueueSize,
 	)
 	if err != nil {
-		return nil, nil, nil, nil, nil, fmt.Errorf("failed to create task queue observer: %w", err)
+		return nil, fmt.Errorf("failed to create task queue observer: %w", err)
 	}
 
 	resultQueue, err := jobqueue.NewPostgresJobQueue[protocol.VerifierNodeResult](
@@ -197,7 +205,7 @@ func createDurableProcessors(
 		logger.With(lggr, "component", "result_queue"),
 	)
 	if err != nil {
-		return nil, nil, nil, nil, nil, fmt.Errorf("failed to create result queue: %w", err)
+		return nil, fmt.Errorf("failed to create result queue: %w", err)
 	}
 
 	// Wrap result queue with observability decorator
@@ -208,31 +216,37 @@ func createDurableProcessors(
 		monitoring.Metrics().RecordStorageWriteQueueSize,
 	)
 	if err != nil {
-		return nil, nil, nil, nil, nil, fmt.Errorf("failed to create result queue observer: %w", err)
+		return nil, fmt.Errorf("failed to create result queue observer: %w", err)
 	}
 
 	sourceReadersDB, err := createSourceReadersDB(
 		lggr, config, chainStatusManager, curseDetector, monitoring, enabledSourceReaders, taskQueueObserver,
 	)
 	if err != nil {
-		return nil, nil, nil, nil, nil, fmt.Errorf("failed to create DB source reader services: %w", err)
+		return nil, fmt.Errorf("failed to create DB source reader services: %w", err)
 	}
 
 	taskVerifierProcessor, err := taskverifier.NewProcessor(
 		lggr, config.VerifierID, verifier, monitoring, messageTracker, taskQueueObserver, resultQueueObserver, config.StorageBatchSize,
 	)
 	if err != nil {
-		return nil, nil, nil, nil, nil, fmt.Errorf("failed to create task verifier processor DB: %w", err)
+		return nil, fmt.Errorf("failed to create task verifier processor DB: %w", err)
 	}
 
 	storageWriterProcessor, err := storagewriter.NewProcessor(
 		lggr, config.VerifierID, messageTracker, storage, resultQueueObserver, config,
 	)
 	if err != nil {
-		return nil, nil, nil, nil, nil, fmt.Errorf("failed to create storage writer processor DB: %w", err)
+		return nil, fmt.Errorf("failed to create storage writer processor DB: %w", err)
 	}
 
-	return sourceReadersDB, taskVerifierProcessor, storageWriterProcessor, taskQueueObserver, resultQueueObserver, nil
+	return &durableProcessors{
+		sourceReaderServices:   sourceReadersDB,
+		taskVerifierProcessor:  taskVerifierProcessor,
+		storageWriterProcessor: storageWriterProcessor,
+		taskQueueObserver:      taskQueueObserver,
+		resultQueueObserver:    resultQueueObserver,
+	}, nil
 }
 
 func (vc *Coordinator) Start(ctx context.Context) error {
