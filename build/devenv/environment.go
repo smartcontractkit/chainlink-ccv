@@ -22,21 +22,18 @@ import (
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 
-	tokenscore "github.com/smartcontractkit/chainlink-ccip/deployment/tokens"
-	changesetscore "github.com/smartcontractkit/chainlink-ccip/deployment/utils/changesets"
 	ccipAdapters "github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/adapters"
 	ccipChangesets "github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/changesets"
 	ccipOffchain "github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/offchain"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/offchain/shared"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
-	"github.com/smartcontractkit/chainlink-ccv/build/devenv/evm"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/offchainloader"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/chainconfig"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/committeeverifier"
-	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tokenconfig"
+	executorsvc "github.com/smartcontractkit/chainlink-ccv/build/devenv/services/executor"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/util"
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
@@ -98,7 +95,7 @@ type Cfg struct {
 	Fake               *services.FakeInput            `toml:"fake"                  validate:"required"`
 	Verifier           []*committeeverifier.Input     `toml:"verifier"              validate:"required"`
 	TokenVerifier      []*services.TokenVerifierInput `toml:"token_verifier"`
-	Executor           []*services.ExecutorInput      `toml:"executor"              validate:"required"`
+	Executor           []*executorsvc.Input           `toml:"executor"              validate:"required"`
 	Indexer            []*services.IndexerInput       `toml:"indexer"               validate:"required"`
 	Aggregator         []*services.AggregatorInput    `toml:"aggregator"            validate:"required"`
 	JD                 *jd.Input                      `toml:"jd"                    validate:"required"`
@@ -110,6 +107,9 @@ type Cfg struct {
 	// expandForHA() clones AggregatorInput / IndexerInput entries according
 	// to their per-service redundancy counts and updates the topology.
 	HighAvailability bool `toml:"high_availability"`
+	// UseLegacyConfigureLane selects the legacy lanes.ConnectChains path
+	// instead of the canonical ConfigureChainsForLanesFromTopology changeset.
+	UseLegacyConfigureLane bool `toml:"use_legacy_configure_lane"`
 	// AggregatorEndpoints map the verifier qualifier to the aggregator URL for that verifier.
 	AggregatorEndpoints map[string]string `toml:"aggregator_endpoints"`
 	// AggregatorCACertFiles map the verifier qualifier to the CA cert file path for TLS verification.
@@ -412,10 +412,13 @@ func (c *Cfg) NewAggregatorClientForCommittee(logger zerolog.Logger, committeeNa
 func checkKeys(in *Cfg) error {
 	evmSimChainIDs := []string{"1337", "2337", "3337"}
 
-	// get the blockchains that are evm chains
 	evmBlockchains := make([]*blockchain.Input, 0)
 	for _, bc := range in.Blockchains {
-		if bc.Type == "anvil" {
+		family, err := blockchain.TypeToFamily(bc.Type)
+		if err != nil {
+			return fmt.Errorf("failed to resolve blockchain family for type %q: %w", bc.Type, err)
+		}
+		if string(family) == blockchain.FamilyEVM {
 			evmBlockchains = append(evmBlockchains, bc)
 		}
 	}
@@ -432,17 +435,20 @@ func checkKeys(in *Cfg) error {
 }
 
 func NewProductConfigurationFromNetwork(typ string) (cciptestinterfaces.CCIP17Configuration, error) {
-	switch typ {
-	case "anvil":
-		// TODO: move evm to the impl factory registry.
-		return evm.NewEmptyCCIP17EVM(), nil
-	default:
-		fac, err := GetImplFactory(typ)
-		if err != nil {
-			return nil, fmt.Errorf("could not find impl factory for chain family %s: %w", typ, err)
+	resolved, err := blockchain.TypeToFamily(typ)
+	if err != nil {
+		// typ might already be a family name — try the factory directly before giving up.
+		if fac, facErr := GetImplFactory(typ); facErr == nil {
+			return fac.NewEmpty(), nil
 		}
-		return fac.NewEmpty(), nil
+		return nil, fmt.Errorf("unknown blockchain type %q (not a recognized type or family): %w", typ, err)
 	}
+	family := string(resolved)
+	fac, err := GetImplFactory(family)
+	if err != nil {
+		return nil, fmt.Errorf("could not find impl factory for chain type %s (family %s): %w", typ, family, err)
+	}
+	return fac.NewEmpty(), nil
 }
 
 // enrichEnvironmentTopology injects SignerAddress values from verifier inputs into the EnvironmentTopology.
@@ -490,6 +496,8 @@ func buildEnvironmentTopology(in *Cfg, e *deployment.Environment) *ccipOffchain.
 		return &envCfg
 	}
 
+	// FeeAggregator fallback is EVM-only today. Non-EVM chains should register
+	// their own fee aggregator address in topology or via a family-specific hook.
 	evmChains := e.BlockChains.EVMChains()
 	for name, committee := range envCfg.NOPTopology.Committees {
 		if committee.ChainConfigs == nil {
@@ -533,7 +541,7 @@ func generateExecutorJobSpecs(
 	}
 
 	// Group executors by qualifier
-	executorsByQualifier := make(map[string][]*services.ExecutorInput)
+	executorsByQualifier := make(map[string][]*executorsvc.Input)
 	for _, exec := range in.Executor {
 		qualifier := exec.ExecutorQualifier
 		if qualifier == "" {
@@ -588,7 +596,7 @@ func generateExecutorJobSpecs(
 	}
 
 	// Set transmitter keys for standalone mode
-	_, err := services.SetTransmitterPrivateKey(in.Executor)
+	_, err := executorsvc.SetTransmitterPrivateKey(in.Executor)
 	if err != nil {
 		return nil, fmt.Errorf("failed to set transmitter private key: %w", err)
 	}
@@ -600,8 +608,9 @@ func generateExecutorJobSpecs(
 	}
 	Plog.Info().Any("Addresses", addresses).Int("ImplsLen", len(impls)).Msg("Funding executors")
 	for i, impl := range impls {
+		// TODO: replace with a capability check on the impl (e.g. SupportsExecutor())
+		// rather than excluding by blockchain type.
 		if in.Blockchains[i].Type == blockchain.TypeCanton {
-			// Executor doesn't support Canton.
 			continue
 		}
 
@@ -778,7 +787,7 @@ func NewEnvironment() (in *Cfg, err error) {
 	// Executor config...
 	if in.Executor != nil {
 		for _, exec := range in.Executor {
-			services.ApplyExecutorDefaults(exec)
+			executorsvc.ApplyDefaults(exec)
 		}
 	}
 
@@ -1013,6 +1022,21 @@ func NewEnvironment() (in *Cfg, err error) {
 	}
 
 	timeTrack.Record("[infra] deploying blockchains")
+	// Collect pool capabilities from all impls and compute valid cross-chain combinations.
+	capsBySelector := make(map[uint64][]devenvcommon.PoolCapability, len(impls))
+	for i, impl := range impls {
+		networkInfo, lookupErr := chainsel.GetChainDetailsByChainIDAndFamily(in.Blockchains[i].ChainID, impl.ChainFamily())
+		if lookupErr != nil {
+			return nil, lookupErr
+		}
+		if tcp, ok := impl.(cciptestinterfaces.TokenConfigProvider); ok {
+			capsBySelector[networkInfo.ChainSelector] = tcp.GetSupportedPools()
+		} else {
+			capsBySelector[networkInfo.ChainSelector] = nil
+		}
+	}
+	combos := devenvcommon.ComputeTokenCombinations(capsBySelector, topology)
+
 	ds := datastore.NewMemoryDataStore()
 	for i, impl := range impls {
 		var networkInfo chainsel.ChainDetails
@@ -1029,13 +1053,41 @@ func NewEnvironment() (in *Cfg, err error) {
 				return nil, fmt.Errorf("failed to bump deployer nonce for chain %d: %w", networkInfo.ChainSelector, err)
 			}
 		}
+		// Per-chain accumulator so we can report all addresses deployed in
+		// this iteration (core contracts + tokens) to in.CLDF.
+		chainDS := datastore.NewMemoryDataStore()
+
 		var dsi datastore.DataStore
 		dsi, err = impl.DeployContractsForSelector(ctx, e, networkInfo.ChainSelector, topology)
 		if err != nil {
 			return nil, err
 		}
+		if err = ds.Merge(dsi); err != nil {
+			return nil, err
+		}
+		if err = chainDS.Merge(dsi); err != nil {
+			return nil, err
+		}
+		e.DataStore = ds.Seal()
+
+		// Deploy generic tokens and pools via the chain-agnostic path.
+		// USDC and Lombard stay inside DeployContractsForSelector.
+		tokenDS := datastore.NewMemoryDataStore()
+		if tcp, ok := impl.(cciptestinterfaces.TokenConfigProvider); ok {
+			if err = DeployTokensAndPools(tcp, e, networkInfo.ChainSelector, combos, tokenDS); err != nil {
+				return nil, fmt.Errorf("deploy tokens and pools for selector %d: %w", networkInfo.ChainSelector, err)
+			}
+		}
+		if err = ds.Merge(tokenDS.Seal()); err != nil {
+			return nil, err
+		}
+		if err = chainDS.Merge(tokenDS.Seal()); err != nil {
+			return nil, err
+		}
+		e.DataStore = ds.Seal()
+
 		var addresses []datastore.AddressRef
-		addresses, err = dsi.Addresses().Fetch()
+		addresses, err = chainDS.Seal().Addresses().Fetch()
 		if err != nil {
 			return nil, err
 		}
@@ -1045,9 +1097,6 @@ func NewEnvironment() (in *Cfg, err error) {
 			return nil, err
 		}
 		in.CLDF.AddAddresses(string(a))
-		if err = ds.Merge(dsi); err != nil {
-			return nil, err
-		}
 	}
 	e.DataStore = ds.Seal()
 	///////////////////////////
@@ -1058,36 +1107,20 @@ func NewEnvironment() (in *Cfg, err error) {
 	// START: Connect chains to each other //
 	/////////////////////////////////////////
 
-	// ConfigureTokensForTransfers must run first so token pools (including those used by CCTP/Lombard)
-	// have remote chain allowlists set. Otherwise sends can revert with custom error 0xa9902c7e (chain
-	// not allowed), where the error argument is the destination chain selector.
-	// Call it once per pool-identity group (e.g. all chains' configs for "BurnMintTokenPool 2.0.0 default"):
-	// an internal mapping is keyed such that the last config in the list gets the index for a given chain
-	// selector, so we invoke once per setup with all counterpart configs (same pool type on every chain)
-	// so remote tokens and mapping slots are correct.
-	// TODO: this code contains EVM specific logic and should be moved to EVM's impl.go, environment should
-	// fetch the token configs from impls and just run the changeset.
-	allTokenConfigs := tokenconfig.BuildTokenTransferConfigs(topology, selectors, e.DataStore)
-	if len(allTokenConfigs) > 0 {
-		byPoolIdentity := make(map[string][]tokenscore.TokenTransferConfig)
-		for i := range allTokenConfigs {
-			key := tokenconfig.PoolIdentityKey(&allTokenConfigs[i])
-			byPoolIdentity[key] = append(byPoolIdentity[key], allTokenConfigs[i])
-		}
-		tokenAdapterRegistry := tokenscore.GetTokenAdapterRegistry()
-		mcmsReaderRegistry := changesetscore.GetRegistry()
-		for _, group := range byPoolIdentity {
-			_, err = tokenscore.ConfigureTokensForTransfers(tokenAdapterRegistry, mcmsReaderRegistry).Apply(*e, tokenscore.ConfigureTokensForTransfersConfig{
-				Tokens: group,
-			})
-			if err != nil {
-				return nil, fmt.Errorf("configure tokens for transfers: %w", err)
-			}
-		}
+	// Configure cross-chain token transfers: each chain impl builds its own
+	// TokenTransferConfigs using chain-specific registry and CCV refs.
+	if err = ConfigureAllTokenTransfers(impls, selectors, e, topology); err != nil {
+		return nil, fmt.Errorf("configure all token transfers: %w", err)
 	}
 
-	if err := connectAllChains(impls, in.Blockchains, selectors, e, topology); err != nil {
-		return nil, err
+	var connectErr error
+	if in.UseLegacyConfigureLane {
+		connectErr = connectAllChainsLegacy(impls, in.Blockchains, selectors, e, topology)
+	} else {
+		connectErr = connectAllChainsCanonical(impls, in.Blockchains, selectors, e, topology)
+	}
+	if connectErr != nil {
+		return nil, connectErr
 	}
 
 	/////////////////////////////////////////
@@ -1316,7 +1349,7 @@ func NewEnvironment() (in *Cfg, err error) {
 	// START: Launch executors //
 	/////////////////////////////
 
-	_, err = generateExecutorJobSpecs(ctx, e, in, selectors, impls, topology, ds)
+	executorJobSpecs, err := generateExecutorJobSpecs(ctx, e, in, selectors, impls, topology, ds)
 	if err != nil {
 		return nil, err
 	}
@@ -1324,6 +1357,20 @@ func NewEnvironment() (in *Cfg, err error) {
 	_, err = launchStandaloneExecutors(in.Executor, blockchainOutputs)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create standalone executor: %w", err)
+	}
+
+	_, err = launchBootstrappedExecutors(in.Executor, blockchainOutputs, jdInfra)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create bootstrapped executors: %w", err)
+	}
+
+	if jdInfra != nil && jdInfra.OffchainClient != nil {
+		if err := registerExecutorsWithJD(ctx, in.Executor, jdInfra.OffchainClient); err != nil {
+			return nil, err
+		}
+		if err := proposeJobsToExecutors(ctx, in.Executor, executorJobSpecs, blockchainOutputs, jdInfra.OffchainClient); err != nil {
+			return nil, err
+		}
 	}
 
 	///////////////////////////
@@ -1684,12 +1731,19 @@ func launchCLNodes(
 	return onchainPublicKeys, nil
 }
 
-func launchStandaloneExecutors(in []*services.ExecutorInput, blockchainOutputs []*blockchain.Output) ([]*services.ExecutorOutput, error) {
-	var outs []*services.ExecutorOutput
-	// Start standalone executors if they are in standalone mode.
+// isBootstrappedExecutor returns true for executors whose binary uses bootstrap.Run.
+// Today this is determined by chain family (non-EVM families use bootstrap).
+// Ideally this would be an explicit configuration flag on the executor input
+// so new chain families don't rely on a "not EVM" heuristic.
+func isBootstrappedExecutor(exec *executorsvc.Input) bool {
+	return exec.ChainFamily != "" && exec.ChainFamily != chainsel.FamilyEVM
+}
+
+func launchStandaloneExecutors(in []*executorsvc.Input, blockchainOutputs []*blockchain.Output) ([]*executorsvc.Output, error) {
+	var outs []*executorsvc.Output
 	for _, exec := range in {
-		if exec != nil && exec.Mode == services.Standalone {
-			out, err := services.NewExecutor(exec, blockchainOutputs)
+		if exec != nil && exec.Mode == services.Standalone && !isBootstrappedExecutor(exec) {
+			out, err := executorsvc.NewStandalone(exec, blockchainOutputs)
 			if err != nil {
 				return nil, fmt.Errorf("failed to create executor service: %w", err)
 			}
@@ -1697,6 +1751,140 @@ func launchStandaloneExecutors(in []*services.ExecutorInput, blockchainOutputs [
 		}
 	}
 	return outs, nil
+}
+
+// launchBootstrappedExecutors launches executor containers that use bootstrap.Run
+// (non-EVM families). These require a DB, bootstrap config, and JD integration.
+func launchBootstrappedExecutors(in []*executorsvc.Input, blockchainOutputs []*blockchain.Output, jdInfra *jobs.JDInfrastructure) ([]*executorsvc.Output, error) {
+	var outs []*executorsvc.Output
+	for _, exec := range in {
+		if exec != nil && exec.Mode == services.Standalone && isBootstrappedExecutor(exec) {
+			out, err := executorsvc.New(exec, blockchainOutputs, jdInfra)
+			if err != nil {
+				return nil, fmt.Errorf("failed to create bootstrapped executor %s: %w", exec.ContainerName, err)
+			}
+			exec.Out = out
+			outs = append(outs, out)
+		}
+	}
+	return outs, nil
+}
+
+// registerExecutorsWithJD registers bootstrapped executors with the Job Distributor
+// and waits for them to establish their WSRPC connections.
+func registerExecutorsWithJD(ctx context.Context, executors []*executorsvc.Input, jdClient offchain.Client) error {
+	var bootstrapped []*executorsvc.Input
+	for _, exec := range executors {
+		if exec.Mode == services.Standalone && isBootstrappedExecutor(exec) {
+			bootstrapped = append(bootstrapped, exec)
+		}
+	}
+
+	if len(bootstrapped) == 0 {
+		return nil
+	}
+
+	g, gCtx := errgroup.WithContext(ctx)
+	var mu sync.Mutex
+
+	for _, exec := range bootstrapped {
+		g.Go(func() error {
+			if exec.Out == nil || exec.Out.BootstrapKeys.CSAPublicKey == "" {
+				return fmt.Errorf("bootstrapped executor %s started but CSAPublicKey not available", exec.ContainerName)
+			}
+
+			reg := &jobs.BootstrapJDRegistration{
+				Name:         exec.ContainerName,
+				CSAPublicKey: exec.Out.BootstrapKeys.CSAPublicKey,
+			}
+			if err := jobs.RegisterBootstrapWithJD(gCtx, jdClient, reg); err != nil {
+				return fmt.Errorf("failed to register executor %s with JD: %w", exec.ContainerName, err)
+			}
+
+			mu.Lock()
+			exec.Out.JDNodeID = reg.NodeID
+			mu.Unlock()
+
+			if err := jobs.WaitForBootstrapConnection(gCtx, jdClient, reg.NodeID, 60*time.Second); err != nil {
+				return fmt.Errorf("executor %s failed to connect to JD: %w", exec.ContainerName, err)
+			}
+
+			return nil
+		})
+	}
+
+	return g.Wait()
+}
+
+// proposeJobsToExecutors proposes executor job specs to bootstrapped executors via JD.
+// Each executor receives its job spec with blockchain infos injected for its chain family.
+func proposeJobsToExecutors(
+	ctx context.Context,
+	executors []*executorsvc.Input,
+	executorJobSpecs map[string]string,
+	blockchainOutputs []*blockchain.Output,
+	jdClient offchain.Client,
+) error {
+	var bootstrapped []*executorsvc.Input
+	for _, exec := range executors {
+		if exec.Mode == services.Standalone && isBootstrappedExecutor(exec) {
+			bootstrapped = append(bootstrapped, exec)
+		}
+	}
+
+	if len(bootstrapped) == 0 {
+		return nil
+	}
+
+	g, gCtx := errgroup.WithContext(ctx)
+
+	for _, exec := range bootstrapped {
+		g.Go(func() error {
+			if exec.Out == nil || exec.Out.JDNodeID == "" {
+				return fmt.Errorf("executor %s not registered with JD (missing JDNodeID)", exec.ContainerName)
+			}
+			nodeID := exec.Out.JDNodeID
+
+			loader, err := chainconfig.GetChainConfigLoader(exec.ChainFamily)
+			if err != nil {
+				return fmt.Errorf("failed to get chain config loader for family %s: %w", exec.ChainFamily, err)
+			}
+
+			blockchainInfos, err := loader(blockchainOutputs)
+			if err != nil {
+				return fmt.Errorf("failed to load chain config for family %s: %w", exec.ChainFamily, err)
+			}
+
+			baseJobSpec, ok := executorJobSpecs[exec.ContainerName]
+			if !ok {
+				return fmt.Errorf("no job spec found for executor %s", exec.ContainerName)
+			}
+
+			jobSpec, err := exec.RebuildExecutorJobSpecWithBlockchainInfos(baseJobSpec, blockchainInfos)
+			if err != nil {
+				return fmt.Errorf("failed to add blockchain infos to job spec for %s: %w", exec.ContainerName, err)
+			}
+
+			L.Info().Msgf("Proposing job to executor %s (node %s)", exec.ContainerName, nodeID)
+
+			resp, err := jdClient.ProposeJob(gCtx, &jobv1.ProposeJobRequest{
+				NodeId: nodeID,
+				Spec:   jobSpec,
+			})
+			if err != nil {
+				return fmt.Errorf("failed to propose job to executor %s: %w", exec.ContainerName, err)
+			}
+			L.Info().
+				Str("executor", exec.ContainerName).
+				Str("nodeID", nodeID).
+				Str("proposalID", resp.Proposal.Id).
+				Msg("Proposed job to executor via JD")
+
+			return nil
+		})
+	}
+
+	return g.Wait()
 }
 
 func launchStandaloneVerifiers(in *Cfg, blockchainOutputs []*blockchain.Output, jdInfra *jobs.JDInfrastructure) ([]*committeeverifier.Output, error) {

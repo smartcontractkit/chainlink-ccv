@@ -11,8 +11,10 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/smartcontractkit/chainlink-ccip/deployment/lanes"
-	ccipChangesets "github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/changesets"
+	tokensapi "github.com/smartcontractkit/chainlink-ccip/deployment/tokens"
+	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/adapters"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/offchain"
+	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
@@ -200,6 +202,64 @@ type OnChainCommittees struct {
 	Threshold          uint8
 }
 
+// ChainLaneProfile holds everything an impl needs to provide so that
+// connectAllChains can assemble PartialChainConfig entries for the
+// canonical ConfigureChainsForLanesFromTopology changeset.
+// Contract addresses (Router, OnRamp, FeeQuoter, OffRamp, Executor) are
+// resolved from the datastore by the changeset itself.
+type ChainLaneProfile struct {
+	AddressBytesLength       uint8
+	BaseExecutionGasCost     uint32
+	FeeQuoterDestChainConfig adapters.FeeQuoterDestChainConfig
+
+	ExecutorDestChainConfig  adapters.ExecutorDestChainConfig
+	DefaultExecutorQualifier string
+	DefaultInboundCCVs       []datastore.AddressRef
+	DefaultOutboundCCVs      []datastore.AddressRef
+
+	GasForVerification uint32
+}
+
+// TokenConfigProvider abstracts the chain-specific decisions that feed into
+// TokenExpansion (token type, decimals, admin addresses, pre-mint amounts)
+// and any post-deployment work (e.g. funding lock-release pools on EVM).
+//
+// It is separate from OnChainConfigurable so chain families can deploy CCIP
+// core contracts and lanes without implementing token pools (e.g. messaging-only
+// or AltVM before token support exists). Devenv uses type assertions; when absent,
+// token deployment and ConfigureTokensForTransfers are skipped.
+type TokenConfigProvider interface {
+	// GetSupportedPools returns pool types and versions this chain can deploy.
+	GetSupportedPools() []devenvcommon.PoolCapability
+
+	// GetTokenExpansionConfigs returns one TokenExpansionInputPerChain per
+	// token/pool that should be deployed on the given chain, driven by the
+	// pre-computed token combinations. Return nil, nil if token transfers
+	// are not supported.
+	GetTokenExpansionConfigs(
+		env *deployment.Environment,
+		selector uint64,
+		combos []devenvcommon.TokenCombination,
+	) ([]tokensapi.TokenExpansionInputPerChain, error)
+
+	// PostTokenDeploy runs chain-specific work after all tokens and pools have
+	// been deployed via TokenExpansion (e.g. funding lock-release pools on EVM).
+	PostTokenDeploy(
+		env *deployment.Environment,
+		selector uint64,
+		deployedRefs []datastore.AddressRef,
+	) error
+
+	// GetTokenTransferConfigs builds TokenTransferConfig entries for all pools
+	// deployed on this chain, using chain-specific registry and CCV refs.
+	GetTokenTransferConfigs(
+		env *deployment.Environment,
+		selector uint64,
+		remoteSelectors []uint64,
+		topology *offchain.EnvironmentTopology,
+	) ([]tokensapi.TokenTransferConfig, error)
+}
+
 // OnChainConfigurable defines methods that allows devenv to
 // deploy, configure Chainlink product and connect on-chain part with other chains.
 type OnChainConfigurable interface {
@@ -209,10 +269,15 @@ type OnChainConfigurable interface {
 	// Returns all the contract addresses and metadata as datastore.DataStore.
 	DeployContractsForSelector(ctx context.Context, env *deployment.Environment, selector uint64, topology *offchain.EnvironmentTopology) (datastore.DataStore, error)
 	// GetConnectionProfile returns a ChainDefinition describing this chain as a
-	// lane destination, plus the default committee verifier remote chain input
-	// to apply for each remote chain. The environment uses profiles from all
-	// chains to assemble the full cross-chain connection config.
-	GetConnectionProfile(env *deployment.Environment, selector uint64) (lanes.ChainDefinition, ccipChangesets.CommitteeVerifierRemoteChainConfig, error)
+	// lane destination, plus the default committee verifier config to apply for
+	// each remote chain. The environment uses profiles from all chains to
+	// assemble the full cross-chain connection config.
+	GetConnectionProfile(env *deployment.Environment, selector uint64) (lanes.ChainDefinition, lanes.CommitteeVerifierRemoteChainInput, error)
+	// GetChainLaneProfile returns the lane profile for this chain, containing
+	// local contract refs, destination characteristics, and default per-remote
+	// settings. The environment uses profiles from all chains to assemble the
+	// full cross-chain connection config.
+	GetChainLaneProfile(env *deployment.Environment, selector uint64) (ChainLaneProfile, error)
 	// PostConnect runs chain-specific setup after all chains have been connected
 	// (e.g. USDC/Lombard token config, custom executor wiring).
 	PostConnect(env *deployment.Environment, selector uint64, remoteSelectors []uint64) error

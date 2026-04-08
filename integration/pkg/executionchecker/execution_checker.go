@@ -2,59 +2,17 @@ package executionchecker
 
 import (
 	"bytes"
-	"context"
 	"errors"
 	"fmt"
 	"math/big"
 	"slices"
 
-	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-// AttemptCheckerService validates execution attempts to determine if a message
-// should be executed. It checks that existing attempts use honest call data and
-// gas limits before allowing new execution attempts.
-type AttemptCheckerService struct {
-	destinationReaders map[protocol.ChainSelector]chainaccess.DestinationReader
-	lggr               logger.Logger
-}
-
-func NewAttemptChecker(lggr logger.Logger, destinationReaders map[protocol.ChainSelector]chainaccess.DestinationReader) *AttemptCheckerService {
-	return &AttemptCheckerService{
-		destinationReaders: destinationReaders,
-		lggr:               lggr,
-	}
-}
-
-// HasHonestAttempt reports whether an honest execution attempt has been
-// made for the given message. It returns true if an honest execution attempt
-// already exists, false otherwise.
-func (e *AttemptCheckerService) HasHonestAttempt(ctx context.Context, message protocol.Message, verifierResults []protocol.VerifierResult, ccvAddressInfo protocol.CCVAddressInfo) (bool, error) {
-	executionAttempts, err := e.destinationReaders[message.DestChainSelector].GetExecutionAttempts(ctx, message)
-	if err != nil {
-		return false, err
-	}
-
-	for _, attempt := range executionAttempts {
-		honestCallData, err := e.isHonestCallData(message, attempt, verifierResults, ccvAddressInfo)
-		honestGasLimit := e.isHonestGasLimit(message, attempt)
-		if err != nil {
-			continue
-		}
-
-		if honestCallData && honestGasLimit {
-			return true, nil
-		}
-	}
-
-	return false, nil
-}
-
-// isHonestCallData reports whether the execution attempt's call data matches
+// IsHonestCallData reports whether the execution attempt's call data matches
 // the verifier results for all required CCVs and meets the optional CCV threshold.
-func (e *AttemptCheckerService) isHonestCallData(message protocol.Message, attempt protocol.ExecutionAttempt, verifierResults []protocol.VerifierResult, ccvAddressInfo protocol.CCVAddressInfo) (bool, error) {
+func IsHonestCallData(message protocol.Message, attempt protocol.ExecutionAttempt, verifierResults []protocol.VerifierResult, ccvAddressInfo protocol.CCVAddressInfo) (bool, error) {
 	err := assertMessageIDsMatch(message, attempt)
 	if err != nil {
 		return false, err
@@ -71,9 +29,9 @@ func (e *AttemptCheckerService) isHonestCallData(message protocol.Message, attem
 	return validRequiredCCVs && validOptionalCCVs, nil
 }
 
-// isHonestGasLimit reports whether the execution attempt's gas limit is at least
+// IsHonestGasLimit reports whether the execution attempt's gas limit is at least
 // the message's execution gas limit.
-func (e *AttemptCheckerService) isHonestGasLimit(message protocol.Message, attempt protocol.ExecutionAttempt) bool {
+func IsHonestGasLimit(message protocol.Message, attempt protocol.ExecutionAttempt) bool {
 	messageGasLimit := big.NewInt(int64(message.ExecutionGasLimit))
 	return messageGasLimit.Cmp(attempt.TransactionGasLimit) <= 0
 }
@@ -99,7 +57,6 @@ func honestCCVs(attempt protocol.ExecutionAttempt, attemptCCVs, expectedCCVs []s
 		if hasValidCCVData {
 			validCCVs++
 
-			// if we've already met the threshold, no need to check more CCVs
 			if validCCVs >= threshold {
 				return true
 			}

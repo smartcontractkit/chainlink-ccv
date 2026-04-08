@@ -12,7 +12,7 @@ import (
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm"
-	ccvblockchain "github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
+	ccvblockchain "github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	ctfblockchain "github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
 

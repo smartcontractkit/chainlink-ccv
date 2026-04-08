@@ -11,10 +11,10 @@ import (
 	"github.com/grafana/pyroscope-go"
 	"github.com/jmoiron/sqlx"
 
+	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 
 	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
-	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/db"
@@ -121,13 +121,13 @@ func LoadBlockchainInfo[T any](
 	ctx context.Context,
 	lggr logger.Logger,
 	config map[string]T,
-) blockchain.Infos[T] {
+) chainaccess.Infos[T] {
 	// Use actual blockchain information from configuration
 	if len(config) == 0 {
 		lggr.Warnw("No blockchain information in config")
 		return nil
 	}
-	infos := blockchain.Infos[T](config)
+	infos := chainaccess.Infos[T](config)
 	lggr.Infow("Using real blockchain information from environment",
 		"chainCount", len(config))
 	logBlockchainInfo(infos, lggr)
@@ -155,13 +155,13 @@ func StartPyroscope(lggr logger.Logger, pyroscopeAddress, serviceName string) (*
 	return profiler, nil
 }
 
-func logBlockchainInfo[T any](infos blockchain.Infos[T], lggr logger.Logger) {
+func logBlockchainInfo[T any](infos chainaccess.Infos[T], lggr logger.Logger) {
 	for _, chainID := range infos.GetAllChainSelectors() {
 		logChainInfo(infos, chainID, lggr)
 	}
 }
 
-func logChainInfo[T any](infos blockchain.Infos[T], chainSelector protocol.ChainSelector, lggr logger.Logger) {
+func logChainInfo[T any](infos chainaccess.Infos[T], chainSelector protocol.ChainSelector, lggr logger.Logger) {
 	info, err := infos.GetBlockchainByChainSelector(chainSelector)
 	if err == nil {
 		lggr.Infow("🔗 Blockchain available",

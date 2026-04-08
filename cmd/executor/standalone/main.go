@@ -22,7 +22,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/backofftimeprovider"
-	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/ccvstreamer"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/contracttransmitter"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/cursechecker"
@@ -181,6 +180,7 @@ func main() {
 			})
 		if err != nil {
 			lggr.Errorw("Failed to create destination reader", "error", err, "chainSelector", strSel)
+			chainClient.Close()
 			continue
 		}
 
@@ -323,7 +323,7 @@ func main() {
 	// Wait for shutdown signal
 	// ------------------------------------------------------------------------------------------------
 	<-sigCh
-	lggr.Infow("🛑 Shutdown signal received, stopping executor...")
+	lggr.Infow("Shutdown signal received, stopping executor...")
 
 	// Graceful shutdown
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -343,10 +343,10 @@ func main() {
 		lggr.Errorw("Execution coordinator shutdown timed out")
 	}
 
-	lggr.Infow("✅ Execution service stopped gracefully")
+	lggr.Infow("Execution service stopped gracefully")
 }
 
-func loadConfiguration(filepath string) (*executor.Configuration, *blockchain.Infos[evm.Info], error) {
+func loadConfiguration(filepath string) (*executor.Configuration, *chainaccess.Infos[evm.Info], error) {
 	var config executor.ConfigWithBlockchainInfo[evm.Info]
 	if _, err := toml.DecodeFile(filepath, &config); err != nil {
 		return nil, nil, err

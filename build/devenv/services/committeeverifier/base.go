@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/BurntSushi/toml"
@@ -312,10 +313,11 @@ func launchVerifier(ctx context.Context, in *Input, outputs []*blockchain.Output
 		return nil, fmt.Errorf("failed to get database mapped port: %w", err)
 	}
 
+	containerName := strings.TrimPrefix(inspect.Name, "/")
 	out := &Output{
 		ContainerName:   inspect.Name,
 		ExternalHTTPURL: fmt.Sprintf("http://%s:%s", host, verifierMapped.Port()),
-		InternalHTTPURL: fmt.Sprintf("http://%s:%d", inspect.Name, DefaultVerifierPort),
+		InternalHTTPURL: fmt.Sprintf("http://%s:%d", containerName, DefaultVerifierPort),
 		DBConnectionString: fmt.Sprintf("postgresql://%s:%s@localhost:%s/%s?sslmode=disable",
 			in.ContainerName, in.ContainerName, dbMapped.Port(), in.ContainerName),
 		BootstrapDBURL: fmt.Sprintf("http://%s:%s", host, bootstrapMapped.Port()),

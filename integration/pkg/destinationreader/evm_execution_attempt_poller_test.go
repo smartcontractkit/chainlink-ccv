@@ -976,3 +976,147 @@ func TestHTTPPolling_ContinuousRPCFailures(t *testing.T) {
 	assert.Equal(t, uint64(startBlock), poller.startBlock, "Poller should maintain start block")
 	assert.Equal(t, uint64(startBlock), poller.lastPolledBlock, "Poller should maintain last polled block")
 }
+
+func TestStart_NonBlocking(t *testing.T) {
+	const lookbackWindow = 1 * time.Hour
+
+	mockCli := new(mockClient)
+	poller := setupTestPoller(t, mockCli, lookbackWindow)
+
+	// Use a dynamic function that blocks until context is canceled,
+	// simulating a slow RPC call during getStartBlock.
+	blockCh := make(chan struct{})
+	mockCli.dynamicFunc = func(ctx context.Context, number *big.Int) (*types.Header, error) {
+		<-blockCh
+		return nil, errors.New("canceled")
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Start should return immediately even though the backfill hasn't finished.
+	err := poller.Start(ctx)
+	require.NoError(t, err)
+
+	// Ready should report backfill in progress.
+	assert.ErrorIs(t, poller.Ready(), ErrBackfillInProgress)
+
+	// Healthy should report no error (no fatal failure yet).
+	assert.NoError(t, poller.Healthy())
+
+	// Unblock the goroutine and clean up.
+	close(blockCh)
+	cancel()
+	require.NoError(t, poller.Close())
+}
+
+func TestReady_ReturnsNilAfterBackfillCompletes(t *testing.T) {
+	const (
+		totalBlocks    = 100
+		blockInterval  = 12 * time.Second
+		lookbackWindow = 10 * time.Minute
+	)
+
+	now := time.Now()
+	genesisTime := now.Add(-time.Duration(totalBlocks) * blockInterval)
+	calc := newBlockTimeCalculator(genesisTime, blockInterval)
+
+	mockCli := new(mockClient)
+	mockCli.headerFunc = func(blockNum uint64) *types.Header {
+		return calc.createHead(blockNum)
+	}
+	// Latest block for getStartBlock and pollForEvents
+	mockCli.On("HeaderByNumber", mock.Anything, (*big.Int)(nil)).Return(calc.createHead(totalBlocks), nil)
+
+	poller := setupTestPoller(t, mockCli, lookbackWindow)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	err := poller.Start(ctx)
+	require.NoError(t, err)
+
+	// Wait for backfill to complete.
+	require.Eventually(t, func() bool {
+		return poller.Ready() == nil
+	}, 5*time.Second, 10*time.Millisecond)
+
+	assert.NoError(t, poller.Healthy())
+	assert.True(t, poller.backfillComplete.Load())
+
+	cancel()
+	require.NoError(t, poller.Close())
+}
+
+func TestStart_ContextCancelDuringStartup_NotFatal(t *testing.T) {
+	const lookbackWindow = 1 * time.Hour
+
+	mockCli := new(mockClient)
+	poller := setupTestPoller(t, mockCli, lookbackWindow)
+
+	// Block getStartBlock until the cancel channel fires, then return
+	// a context-canceled error.
+	startedCh := make(chan struct{})
+	mockCli.dynamicFunc = func(ctx context.Context, number *big.Int) (*types.Header, error) {
+		close(startedCh)
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	err := poller.Start(ctx)
+	require.NoError(t, err)
+
+	// Wait until getStartBlock is actively running.
+	<-startedCh
+
+	// Shutdown the service; this cancels the context mid-startup.
+	cancel()
+	require.NoError(t, poller.Close())
+
+	// Context cancel should NOT set a fatal error — Healthy should return nil
+	// (or the not-started error from StateMachine, which is acceptable).
+	// The key invariant: fatalErr must not be set.
+	assert.Nil(t, poller.fatalErr.Load(), "context cancel during startup should not be treated as a fatal error")
+}
+
+func TestHealthy_ReturnsFatalError_WhenGetStartBlockFails(t *testing.T) {
+	const lookbackWindow = 1 * time.Hour
+
+	mockCli := new(mockClient)
+	poller := setupTestPoller(t, mockCli, lookbackWindow)
+
+	// getStartBlock will fail because HeaderByNumber returns an error.
+	mockCli.On("HeaderByNumber", mock.Anything, (*big.Int)(nil)).
+		Return(nil, errors.New("RPC permanently down"))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	err := poller.Start(ctx)
+	require.NoError(t, err)
+
+	// Wait for the startup goroutine to record the fatal error.
+	require.Eventually(t, func() bool {
+		return poller.Healthy() != nil
+	}, 5*time.Second, 10*time.Millisecond)
+
+	// Healthy should persistently return the fatal error.
+	healthErr := poller.Healthy()
+	assert.ErrorContains(t, healthErr, "failed to get start block")
+
+	// Calling Healthy again should still return the error (persistent).
+	healthErr2 := poller.Healthy()
+	assert.ErrorContains(t, healthErr2, "failed to get start block")
+
+	// Ready should return ErrBackfillInProgress since backfillComplete was never set.
+	assert.ErrorIs(t, poller.Ready(), ErrBackfillInProgress)
+
+	// HealthReport should surface the fatal error.
+	report := poller.HealthReport()
+	assert.Error(t, report[poller.Name()])
+
+	cancel()
+	require.NoError(t, poller.Close())
+}
