@@ -28,6 +28,18 @@ import (
 // Chain-agnostic contract deployment (matches the 1.6 pattern)
 // ---------------------------------------------------------------------------
 
+// mergeIntoSealed creates a new DataStore by merging all provided stores in
+// order and returns the sealed result.
+func mergeIntoSealed(stores ...datastore.DataStore) (datastore.DataStore, error) {
+	tmp := datastore.NewMemoryDataStore()
+	for _, s := range stores {
+		if err := tmp.Merge(s); err != nil {
+			return nil, err
+		}
+	}
+	return tmp.Seal(), nil
+}
+
 // DeployContractsForSelector is the shared entry point for deploying CCIP
 // contracts on a single chain. It follows the 1.6 pattern: the common code
 // calls the tooling API DeployChainContracts changeset; chain impls only
@@ -56,14 +68,11 @@ func DeployContractsForSelector(
 		if err := runningDS.Merge(preDS); err != nil {
 			return nil, fmt.Errorf("merge pre-deploy DS: %w", err)
 		}
-		tmp := datastore.NewMemoryDataStore()
-		if err := tmp.Merge(env.DataStore); err != nil {
-			return nil, fmt.Errorf("merge env DS: %w", err)
+		merged, err := mergeIntoSealed(env.DataStore, preDS)
+		if err != nil {
+			return nil, fmt.Errorf("update env DS with pre-deploy: %w", err)
 		}
-		if err := tmp.Merge(preDS); err != nil {
-			return nil, fmt.Errorf("merge pre DS into env: %w", err)
-		}
-		env.DataStore = tmp.Seal()
+		env.DataStore = merged
 	}
 
 	// 2. Get chain-specific config (reads pre-deployed addresses from env.DataStore).
@@ -88,16 +97,11 @@ func DeployContractsForSelector(
 	if err := runningDS.Merge(out.DataStore.Seal()); err != nil {
 		return nil, fmt.Errorf("merge deploy output DS: %w", err)
 	}
-	{
-		tmp := datastore.NewMemoryDataStore()
-		if err := tmp.Merge(env.DataStore); err != nil {
-			return nil, fmt.Errorf("merge env DS: %w", err)
-		}
-		if err := tmp.Merge(out.DataStore.Seal()); err != nil {
-			return nil, fmt.Errorf("merge deploy output into env: %w", err)
-		}
-		env.DataStore = tmp.Seal()
+	merged, err := mergeIntoSealed(env.DataStore, out.DataStore.Seal())
+	if err != nil {
+		return nil, fmt.Errorf("update env DS with deploy output: %w", err)
 	}
+	env.DataStore = merged
 
 	// 4. Post-hook (e.g. EVM deploys USDC/Lombard pools here).
 	postDS, err := impl.PostDeployContractsForSelector(ctx, env, selector, topology)
@@ -108,14 +112,11 @@ func DeployContractsForSelector(
 		if err := runningDS.Merge(postDS); err != nil {
 			return nil, fmt.Errorf("merge post-deploy DS: %w", err)
 		}
-		tmp := datastore.NewMemoryDataStore()
-		if err := tmp.Merge(env.DataStore); err != nil {
-			return nil, fmt.Errorf("merge env DS: %w", err)
+		merged, err := mergeIntoSealed(env.DataStore, postDS)
+		if err != nil {
+			return nil, fmt.Errorf("update env DS with post-deploy: %w", err)
 		}
-		if err := tmp.Merge(postDS); err != nil {
-			return nil, fmt.Errorf("merge post DS into env: %w", err)
-		}
-		env.DataStore = tmp.Seal()
+		env.DataStore = merged
 	}
 
 	return runningDS.Seal(), nil
