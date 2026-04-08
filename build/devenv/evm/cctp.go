@@ -15,14 +15,15 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v2_0_0/operations/usdc_token_pool_proxy"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/mock_usdc_token_messenger"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/mock_usdc_token_transmitter"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/utils/operations/contract"
 	burnminterc677ops "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_5_0/operations/burn_mint_erc20_with_drip"
 	changesetscore "github.com/smartcontractkit/chainlink-ccip/deployment/utils/changesets"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/adapters"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/changesets"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/cctp"
 	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm"
+	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm/operations/contract"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
@@ -308,12 +309,12 @@ func (m *CCIP17EVMConfig) deployCCTPMockReceivers(
 		// Set minimum block depth to 1
 		_, err1 = operations.ExecuteOperation(
 			env.OperationsBundle,
-			mock_receiver_v2.SetMinBlockConfirmations,
+			mock_receiver_v2.SetAllowedFinalityConfig,
 			env.BlockChains.EVMChains()[selector],
-			contract.FunctionInput[uint16]{
+			contract.FunctionInput[[4]byte]{
 				Address:       gethcommon.HexToAddress(deployReceiverReport.Output.Address),
 				ChainSelector: selector,
-				Args:          1,
+				Args:          protocol.NewFinality().WithBlockDepth(1).ToBytes(),
 			})
 		if err1 != nil {
 			return fmt.Errorf("failed to set minimum block depth for mock receiver %s on chain %d: %w", r.Qualifier, selector, err1)

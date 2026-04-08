@@ -411,9 +411,6 @@ func (r *VerifierResultMessage) ToMessage() (protocol.Message, error) {
 		return protocol.Message{}, fmt.Errorf("field OffRampAddressLength %d exceeds uint8 max",
 			r.OffRampAddressLength)
 	}
-	if r.Finality > math.MaxUint16 {
-		return protocol.Message{}, fmt.Errorf("field Finality %d exceeds uint16 max", r.Finality)
-	}
 	if r.SenderLength > math.MaxUint8 {
 		return protocol.Message{}, fmt.Errorf("field SenderLength %d exceeds uint8 max", r.SenderLength)
 	}
@@ -450,8 +447,7 @@ func (r *VerifierResultMessage) ToMessage() (protocol.Message, error) {
 		OnRampAddressLength: uint8(r.OnRampAddressLength),
 		//nolint:gosec // data length verified at this stage
 		OffRampAddressLength: uint8(r.OffRampAddressLength),
-		//nolint:gosec // data length verified at this stage
-		Finality: protocol.Finality(r.Finality),
+		Finality:             protocol.Finality(r.Finality),
 		//nolint:gosec // data length verified at this stage
 		SenderLength: uint8(r.SenderLength),
 		//nolint:gosec // data length verified at this stage

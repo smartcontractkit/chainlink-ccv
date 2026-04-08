@@ -1173,9 +1173,9 @@ func NewEnvironment() (in *Cfg, err error) {
 		instanceName := aggregatorInput.InstanceName()
 		cs := ccipChangesets.GenerateAggregatorConfig(ccipAdapters.GetAggregatorConfigRegistry())
 		output, err := cs.Apply(*e, ccipChangesets.GenerateAggregatorConfigInput{
+			Topology:           topology,
 			ServiceIdentifier:  instanceName + "-aggregator",
 			CommitteeQualifier: aggregatorInput.CommitteeName,
-			Topology:           topology,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate aggregator config for %s (committee %s): %w", instanceName, aggregatorInput.CommitteeName, err)

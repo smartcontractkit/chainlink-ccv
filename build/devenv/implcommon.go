@@ -7,6 +7,8 @@ import (
 
 	"github.com/Masterminds/semver/v3"
 
+	"github.com/smartcontractkit/chainlink-ccip/deployment/finality"
+
 	chainsel "github.com/smartcontractkit/chain-selectors"
 
 	"github.com/smartcontractkit/chainlink-ccip/deployment/lanes"
@@ -277,8 +279,9 @@ func buildPartialChainConfig(
 			}
 		}
 		cvConfigs = append(cvConfigs, ccipChangesets.CommitteeVerifierInputConfig{
-			CommitteeQualifier: qualifier,
-			RemoteChains:       remoteCV,
+			CommitteeQualifier:    qualifier,
+			RemoteChains:          remoteCV,
+			AllowedFinalityConfig: finality.Config{BlockDepth: 1, WaitForSafe: true},
 		})
 	}
 

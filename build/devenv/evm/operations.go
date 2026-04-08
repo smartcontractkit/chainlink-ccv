@@ -11,9 +11,9 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v2_0_0/operations/committee_verifier"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v2_0_0/operations/mock_receiver_v2"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/utils/operations/contract"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_2_0/operations/router"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm/operations/contract"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
@@ -83,11 +83,10 @@ func DeployReceiverForSelector(e *deployment.Environment, selector uint64, args 
 	if err != nil {
 		return datastore.AddressRef{}, fmt.Errorf("failed to deploy MockReceiver: %w", err)
 	}
-	// Set minimum block depth to 1
-	_, err = operations.ExecuteOperation(e.OperationsBundle, mock_receiver_v2.SetMinBlockConfirmations, chain, contract.FunctionInput[uint16]{
+	_, err = operations.ExecuteOperation(e.OperationsBundle, mock_receiver_v2.SetAllowedFinalityConfig, chain, contract.FunctionInput[[4]byte]{
 		Address:       common.HexToAddress(report.Output.Address),
 		ChainSelector: selector,
-		Args:          1,
+		Args:          protocol.NewFinality().WithSafe().WithBlockDepth(1).ToBytes(),
 	})
 	if err != nil {
 		return datastore.AddressRef{}, fmt.Errorf("failed to set minimum block depth for mock receiver on chain %d: %w", selector, err)
@@ -119,12 +118,12 @@ const (
 )
 
 // NewV3ExtraArgs encodes v3 extra args params.
-func NewV3ExtraArgs(finalityConfig uint16, gasLimit uint32, execAddr string, execArgs, tokenArgs []byte, ccvs []protocol.CCV) ([]byte, error) {
+func NewV3ExtraArgs(finalityConfig protocol.Finality, gasLimit uint32, execAddr string, execArgs, tokenArgs []byte, ccvs []protocol.CCV) ([]byte, error) {
 	// Manual encoding to match GenericExtraArgsV3 compact binary format
 	// Format (from ExtraArgsCodec.sol):
-	// - tag (4 bytes): 0x302326cb
+	// - tag (4 bytes): 0xa69dd4aa
 	// - gasLimit (4 bytes): uint32
-	// - blockConfirmations (2 bytes): uint16
+	// - requestedFinalityConfig (4 bytes): uint32
 	// - ccvsLength (1 byte): uint8
 	// For each CCV (repeated ccvsLength times):
 	//   - ccvAddressLength (1 byte): uint8 (0 or 20)
@@ -148,7 +147,7 @@ func NewV3ExtraArgs(finalityConfig uint16, gasLimit uint32, execAddr string, exe
 	// Write gasLimit (uint32, big-endian)
 	binary.Write(buf, binary.BigEndian, gasLimit)
 
-	// Write blockConfirmations (uint16, big-endian)
+	// Write blockConfirmations (uint32, big-endian)
 	binary.Write(buf, binary.BigEndian, finalityConfig)
 
 	// Write ccvsLength (uint8)

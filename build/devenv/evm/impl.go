@@ -29,6 +29,8 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
+	"github.com/smartcontractkit/chainlink-ccip/deployment/finality"
+
 	adapters_1_6_1 "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_1/adapters"
 	rmn_remote_binding "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/v1_6_0/rmn_remote"
 
@@ -45,11 +47,11 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/mock_lombard_bridge"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/offramp"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/onramp"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/utils/operations/contract"
 	bnm_drip_v1_0 "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_0_0/operations/burn_mint_erc20_with_drip"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_0_0/operations/link"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_0_0/operations/weth"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_5_0/operations/token_admin_registry"
+	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm/operations/contract"
 
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_0/operations/rmn_remote"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/adapters"
@@ -846,7 +848,7 @@ func serializeExtraArgsV2(opts cciptestinterfaces.MessageOptions) []byte {
 
 func serializeExtraArgsV3(opts cciptestinterfaces.MessageOptions) []byte {
 	extraArgs, err := NewV3ExtraArgs(
-		uint16(opts.FinalityConfig),
+		opts.FinalityConfig,
 		opts.ExecutionGasLimit,
 		opts.Executor.String(),
 		opts.ExecutorArgs,
@@ -1030,38 +1032,38 @@ func buildMockReceivers(topology *ccipOffchain.EnvironmentTopology, selector uin
 
 	if has(devenvcommon.DefaultCommitteeVerifierQualifier) {
 		receivers = append(receivers, adapters.MockReceiverDeployParams{
-			Version:                   receiverVersion,
-			MinimumBlockConfirmations: 1,
-			RequiredVerifiers:         []datastore.AddressRef{verifierRef(devenvcommon.DefaultCommitteeVerifierQualifier)},
-			Qualifier:                 devenvcommon.DefaultReceiverQualifier,
+			Version:               receiverVersion,
+			AllowedFinalityConfig: finality.Config{BlockDepth: 1, WaitForSafe: true},
+			RequiredVerifiers:     []datastore.AddressRef{verifierRef(devenvcommon.DefaultCommitteeVerifierQualifier)},
+			Qualifier:             devenvcommon.DefaultReceiverQualifier,
 		})
 	}
 	if has(devenvcommon.SecondaryCommitteeVerifierQualifier) {
 		receivers = append(receivers, adapters.MockReceiverDeployParams{
-			Version:                   receiverVersion,
-			MinimumBlockConfirmations: 1,
-			RequiredVerifiers:         []datastore.AddressRef{verifierRef(devenvcommon.SecondaryCommitteeVerifierQualifier)},
-			Qualifier:                 devenvcommon.SecondaryReceiverQualifier,
+			Version:               receiverVersion,
+			AllowedFinalityConfig: finality.Config{BlockDepth: 1, WaitForSafe: true},
+			RequiredVerifiers:     []datastore.AddressRef{verifierRef(devenvcommon.SecondaryCommitteeVerifierQualifier)},
+			Qualifier:             devenvcommon.SecondaryReceiverQualifier,
 		})
 	}
 
 	if has(devenvcommon.SecondaryCommitteeVerifierQualifier) && has(devenvcommon.TertiaryCommitteeVerifierQualifier) {
 		receivers = append(receivers, adapters.MockReceiverDeployParams{
-			Version:                   receiverVersion,
-			MinimumBlockConfirmations: 1,
-			RequiredVerifiers:         []datastore.AddressRef{verifierRef(devenvcommon.SecondaryCommitteeVerifierQualifier)},
-			OptionalVerifiers:         []datastore.AddressRef{verifierRef(devenvcommon.TertiaryCommitteeVerifierQualifier)},
-			OptionalThreshold:         1,
-			Qualifier:                 devenvcommon.TertiaryReceiverQualifier,
+			Version:               receiverVersion,
+			AllowedFinalityConfig: finality.Config{BlockDepth: 1, WaitForSafe: true},
+			RequiredVerifiers:     []datastore.AddressRef{verifierRef(devenvcommon.SecondaryCommitteeVerifierQualifier)},
+			OptionalVerifiers:     []datastore.AddressRef{verifierRef(devenvcommon.TertiaryCommitteeVerifierQualifier)},
+			OptionalThreshold:     1,
+			Qualifier:             devenvcommon.TertiaryReceiverQualifier,
 		})
 	}
 	if has(devenvcommon.DefaultCommitteeVerifierQualifier) &&
 		has(devenvcommon.SecondaryCommitteeVerifierQualifier) &&
 		has(devenvcommon.TertiaryCommitteeVerifierQualifier) {
 		receivers = append(receivers, adapters.MockReceiverDeployParams{
-			Version:                   receiverVersion,
-			MinimumBlockConfirmations: 1,
-			RequiredVerifiers:         []datastore.AddressRef{verifierRef(devenvcommon.DefaultCommitteeVerifierQualifier)},
+			Version:               receiverVersion,
+			AllowedFinalityConfig: finality.Config{BlockDepth: 1, WaitForSafe: true},
+			RequiredVerifiers:     []datastore.AddressRef{verifierRef(devenvcommon.DefaultCommitteeVerifierQualifier)},
 			OptionalVerifiers: []datastore.AddressRef{
 				verifierRef(devenvcommon.SecondaryCommitteeVerifierQualifier),
 				verifierRef(devenvcommon.TertiaryCommitteeVerifierQualifier),
@@ -1135,7 +1137,7 @@ func (m *CCIP17EVMConfig) GetDeployChainContractsCfg(env *deployment.Environment
 				MaxCCVsPerMsg: 10,
 				DynamicConfig: adapters.ExecutorDynamicDeployConfig{
 					FeeAggregator:         "0x0000000000000000000000000000000000000001",
-					MinBlockConfirmations: 0,
+					AllowedFinalityConfig: finality.Config{BlockDepth: 1, WaitForSafe: true},
 					CcvAllowlistEnabled:   false,
 				},
 				Qualifier: devenvcommon.DefaultExecutorQualifier,
@@ -1145,7 +1147,7 @@ func (m *CCIP17EVMConfig) GetDeployChainContractsCfg(env *deployment.Environment
 				MaxCCVsPerMsg: 10,
 				DynamicConfig: adapters.ExecutorDynamicDeployConfig{
 					FeeAggregator:         "0x0000000000000000000000000000000000000001",
-					MinBlockConfirmations: 0,
+					AllowedFinalityConfig: finality.Config{BlockDepth: 1, WaitForSafe: true},
 					CcvAllowlistEnabled:   false,
 				},
 				Qualifier: devenvcommon.CustomExecutorQualifier,
@@ -1383,8 +1385,8 @@ func (m *CCIP17EVMConfig) buildEVMTokenTransferConfig(
 			Type:    datastore.ContractType(token_admin_registry.ContractType),
 			Version: semver.MustParse(token_admin_registry.Deploy.Version()),
 		},
-		RemoteChains:     remoteChains,
-		MinFinalityValue: 1,
+		RemoteChains:          remoteChains,
+		AllowedFinalityConfig: finality.Config{BlockDepth: 1, WaitForSafe: true},
 	}
 }
 
