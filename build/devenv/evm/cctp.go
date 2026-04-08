@@ -15,7 +15,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v2_0_0/operations/usdc_token_pool_proxy"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/mock_usdc_token_messenger"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/mock_usdc_token_transmitter"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/utils/operations/contract"
 	burnminterc677ops "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_5_0/operations/burn_mint_erc20_with_drip"
 	changesetscore "github.com/smartcontractkit/chainlink-ccip/deployment/utils/changesets"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/adapters"
@@ -24,6 +23,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/cctp"
 	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm"
+	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm/operations/contract"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
@@ -197,12 +197,11 @@ func (m *CCIP17EVMConfig) configureUSDCForTransfer(
 			return fmt.Errorf("no CCTP domain mapping found for chain selector %d", rs)
 		}
 		remoteChains[rs] = adapters.RemoteCCTPChainConfig{
-			FeeUSDCents:           10,
-			GasForVerification:    100000,
-			PayloadSizeBytes:      1000,
-			LockOrBurnMechanism:   "CCTP_V2_WITH_CCV",
-			DomainIdentifier:      domain,
-			AllowedFinalityConfig: protocol.NewFinality().WithBlockDepth(1).ToBytes(),
+			FeeUSDCents:         10,
+			GasForVerification:  100000,
+			PayloadSizeBytes:    1000,
+			LockOrBurnMechanism: "CCTP_V2_WITH_CCV",
+			DomainIdentifier:    domain,
 		}
 	}
 

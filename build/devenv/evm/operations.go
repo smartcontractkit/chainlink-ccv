@@ -11,9 +11,9 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v2_0_0/operations/committee_verifier"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v2_0_0/operations/mock_receiver_v2"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/utils/operations/contract"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_2_0/operations/router"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm/operations/contract"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
@@ -281,11 +281,10 @@ func DeployAndConfigureNewCommitCCV(ctx context.Context, e *deployment.Environme
 			}
 			signatureConfigArgs.SignatureConfigs = append(signatureConfigArgs.SignatureConfigs, signatureConfig)
 			remoteChainConfigArgs = append(remoteChainConfigArgs, committee_verifier.RemoteChainConfigArgs{
-				AllowlistEnabled:      false,
-				Router:                MustGetContractAddressForSelector(addresses, sel, router.ContractType),
-				RemoteChainSelector:   remoteSel,
-				GasForVerification:    1, // TODO: set proper gas limit
-				AllowedFinalityConfig: protocol.NewFinality().WithSafe().WithBlockDepth(1).ToBytes(),
+				AllowlistEnabled:    false,
+				Router:              MustGetContractAddressForSelector(addresses, sel, router.ContractType),
+				RemoteChainSelector: remoteSel,
+				GasForVerification:  1, // TODO: set proper gas limit
 				// TODO: Missing fields?
 				// FeeUSDCents        uint16
 				// PayloadSizeBytes   uint32
