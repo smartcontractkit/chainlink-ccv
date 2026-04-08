@@ -2037,6 +2037,13 @@ type VerifierJobSpec struct {
 	CommitteeVerifierConfig string `toml:"committeeVerifierConfig"`
 }
 
+// ExecutorJobSpec represents the structure of an executor job spec TOML.
+type ExecutorJobSpec struct {
+	SchemaVersion  int    `toml:"schemaVersion"`
+	Type           string `toml:"type"`
+	ExecutorConfig string `toml:"executorConfig"`
+}
+
 // ParseVerifierConfigFromJobSpec extracts the inner commit.Config from a verifier job spec.
 func ParseVerifierConfigFromJobSpec(jobSpec string) (*commit.Config, error) {
 	var spec VerifierJobSpec
@@ -2050,13 +2057,6 @@ func ParseVerifierConfigFromJobSpec(jobSpec string) (*commit.Config, error) {
 	}
 
 	return &cfg, nil
-}
-
-// ExecutorJobSpec represents the structure of an executor job spec TOML.
-type ExecutorJobSpec struct {
-	SchemaVersion  int    `toml:"schemaVersion"`
-	Type           string `toml:"type"`
-	ExecutorConfig string `toml:"executorConfig"`
 }
 
 // ParseExecutorConfigFromJobSpec extracts the inner executor.Configuration from an executor job spec.
