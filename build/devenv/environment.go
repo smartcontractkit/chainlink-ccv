@@ -2077,31 +2077,6 @@ func (ejs ExecutorJobSpec) ToBootstrapJobSpec() bootstrap.JobSpec {
 	}
 }
 
-// ParseVerifierConfigFromJobSpec extracts the inner commit.Config from a verifier job spec.
-func ParseVerifierConfigFromJobSpec(spec bootstrap.JobSpec) (*commit.Config, error) {
-	var cfg commit.Config
-	if err := toml.Unmarshal([]byte(spec.AppConfig), &cfg); err != nil {
-		return nil, fmt.Errorf("failed to parse verifier config from job spec: %w", err)
-	}
-
-	return &cfg, nil
-}
-
-// ParseExecutorConfigFromJobSpec extracts the inner executor.Configuration from an executor job spec.
-func ParseExecutorConfigFromJobSpec(jobSpec string) (*executor.Configuration, error) {
-	var spec ExecutorJobSpec
-	if err := toml.Unmarshal([]byte(jobSpec), &spec); err != nil {
-		return nil, fmt.Errorf("failed to parse job spec: %w", err)
-	}
-
-	var cfg executor.Configuration
-	if err := toml.Unmarshal([]byte(spec.ExecutorConfig), &cfg); err != nil {
-		return nil, fmt.Errorf("failed to parse executor config from job spec: %w", err)
-	}
-
-	return &cfg, nil
-}
-
 // extractAndValidateDisableFinalityCheckers extracts DisableFinalityCheckers from verifiers
 // in a committee and validates that all verifiers have the same setting.
 func extractAndValidateDisableFinalityCheckers(committeeName string, verifiers []*committeeverifier.Input) (disableFinalityCheckersPerFamily map[string][]string, err error) {
@@ -2111,7 +2086,7 @@ func extractAndValidateDisableFinalityCheckers(committeeName string, verifiers [
 
 	disableFinalityCheckersPerFamily = make(map[string][]string)
 	for _, ver := range verifiers {
-		// if already set, check if its the same value
+		// if already set, check if it's the same value
 		if _, ok := disableFinalityCheckersPerFamily[ver.ChainFamily]; ok {
 			if !slicesEqual(disableFinalityCheckersPerFamily[ver.ChainFamily], ver.DisableFinalityCheckers) {
 				return nil, fmt.Errorf(
