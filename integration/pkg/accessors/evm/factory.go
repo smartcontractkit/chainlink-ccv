@@ -2,6 +2,7 @@ package evm
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 
@@ -42,9 +43,25 @@ func NewFactory(
 	}
 }
 
+func appendErrorIfNil(errs []error, ob any, errStr string) []error {
+	if ob == nil {
+		errs = append(errs, errors.New(errStr))
+	}
+	return errs
+}
+
 func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainSelector) (chainaccess.Accessor, error) {
-	if f == nil || f.onRampAddresses == nil || f.rmnRemoteAddresses == nil || f.chainClients == nil || f.headTrackers == nil {
-		return nil, fmt.Errorf("evm accessor factory is not fully initialized - can't get accessor for chain %d", chainSelector)
+	var errs []error
+	if f == nil {
+		errs = append(errs, errors.New("evm accessor factory is nil"))
+	} else {
+		errs = appendErrorIfNil(errs, f.onRampAddresses, "onramp addresses are nil")
+		errs = appendErrorIfNil(errs, f.rmnRemoteAddresses, "rmn remote addresses are nil")
+		errs = appendErrorIfNil(errs, f.headTrackers, "head trackers are nil")
+		errs = appendErrorIfNil(errs, f.chainClients, "chain clients are nil")
+	}
+	if len(errs) > 0 {
+		return nil, fmt.Errorf("cannot get accessor for chain %d: %w", chainSelector, errors.Join(errs...))
 	}
 
 	family, err := chainsel.GetSelectorFamily(uint64(chainSelector))

@@ -113,6 +113,7 @@ func NewRegistry(lggr logger.Logger, config string) (*Registry, error) {
 		factories: make(map[ChainFamily]AccessorFactory),
 	}
 
+	lggr.Infow("constructing accessor registry with config", "config", config)
 	for family, constructor := range accessorConstructorMapCopy() {
 		accessor, err := constructor(lggr, config)
 		if err != nil {
