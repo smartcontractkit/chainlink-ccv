@@ -13,6 +13,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/deployment/lanes"
 	tokensapi "github.com/smartcontractkit/chainlink-ccip/deployment/tokens"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/adapters"
+	ccipChangesets "github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/changesets"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/offchain"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -262,12 +263,26 @@ type TokenConfigProvider interface {
 
 // OnChainConfigurable defines methods that allows devenv to
 // deploy, configure Chainlink product and connect on-chain part with other chains.
+//
+// Contract deployment follows the 1.6 pattern: a shared common function calls
+// the tooling API DeployChainContracts changeset. Chain impls provide only
+// configuration (GetDeployChainContractsCfg) and optional pre/post hooks.
 type OnChainConfigurable interface {
 	// ChainFamily returns the family of the chain.
 	ChainFamily() string
-	// DeployContractsForSelector deploys contracts for chain X using topology for CommitteeVerifier configuration.
-	// Returns all the contract addresses and metadata as datastore.DataStore.
-	DeployContractsForSelector(ctx context.Context, env *deployment.Environment, selector uint64, topology *offchain.EnvironmentTopology) (datastore.DataStore, error)
+	// PreDeployContractsForSelector runs chain-specific setup before the common
+	// DeployChainContracts call (e.g. deploying CREATE2 factory on EVM).
+	// The returned DataStore is merged into env.DataStore before
+	// GetDeployChainContractsCfg is called.
+	PreDeployContractsForSelector(ctx context.Context, env *deployment.Environment, selector uint64, topology *offchain.EnvironmentTopology) (datastore.DataStore, error)
+	// GetDeployChainContractsCfg returns the per-chain configuration for the
+	// common DeployChainContracts changeset. Called after Pre, so env.DataStore
+	// includes pre-deployed addresses (e.g. CREATE2 factory).
+	GetDeployChainContractsCfg(env *deployment.Environment, selector uint64, topology *offchain.EnvironmentTopology) (ccipChangesets.DeployChainContractsPerChainCfg, error)
+	// PostDeployContractsForSelector runs chain-specific setup after the common
+	// DeployChainContracts call (e.g. deploying USDC/Lombard token pools on EVM).
+	// The returned DataStore is merged into the final result.
+	PostDeployContractsForSelector(ctx context.Context, env *deployment.Environment, selector uint64, topology *offchain.EnvironmentTopology) (datastore.DataStore, error)
 	// GetConnectionProfile returns a ChainDefinition describing this chain as a
 	// lane destination, plus the default committee verifier config to apply for
 	// each remote chain. The environment uses profiles from all chains to
