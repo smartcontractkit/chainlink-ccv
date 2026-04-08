@@ -9,12 +9,12 @@ on:
 
 jobs:
   test-coverage:
-    runs-on: runs-on=${{ github.run_id }}/family=c6i/cpu=32+48/ram=64+96/spot=false/image=ubuntu24-full-x64/extras=s3-cache+tmpfs
+    runs-on: runs-on=${{ github.run_id }}/family=c6i/cpu=16/ram=32/spot=false/image=ubuntu24-full-x64/extras=s3-cache+tmpfs
     env:
       COVERAGE_THRESHOLD: 37
     steps:
       - name: Checkout code
-        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        uses: actions/checkout@v5
         with:
           fetch-depth: 0
 
