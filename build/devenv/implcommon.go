@@ -183,7 +183,7 @@ func buildPartialChainConfig(
 		cvConfigs = append(cvConfigs, ccipChangesets.CommitteeVerifierInputConfig{
 			CommitteeQualifier:    qualifier,
 			RemoteChains:          remoteCV,
-			AllowedFinalityConfig: finality.Config{WaitForSafe: true, BlockDepth: 1},
+			AllowedFinalityConfig: finality.Config{BlockDepth: 1, WaitForSafe: true},
 		})
 	}
 

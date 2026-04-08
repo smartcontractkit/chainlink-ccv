@@ -1033,7 +1033,7 @@ func buildMockReceivers(topology *ccipOffchain.EnvironmentTopology, selector uin
 	if has(devenvcommon.DefaultCommitteeVerifierQualifier) {
 		receivers = append(receivers, adapters.MockReceiverDeployParams{
 			Version:               receiverVersion,
-			AllowedFinalityConfig: finality.Config{BlockDepth: 1},
+			AllowedFinalityConfig: finality.Config{BlockDepth: 1, WaitForSafe: true},
 			RequiredVerifiers:     []datastore.AddressRef{verifierRef(devenvcommon.DefaultCommitteeVerifierQualifier)},
 			Qualifier:             devenvcommon.DefaultReceiverQualifier,
 		})
@@ -1041,7 +1041,7 @@ func buildMockReceivers(topology *ccipOffchain.EnvironmentTopology, selector uin
 	if has(devenvcommon.SecondaryCommitteeVerifierQualifier) {
 		receivers = append(receivers, adapters.MockReceiverDeployParams{
 			Version:               receiverVersion,
-			AllowedFinalityConfig: finality.Config{BlockDepth: 1},
+			AllowedFinalityConfig: finality.Config{BlockDepth: 1, WaitForSafe: true},
 			RequiredVerifiers:     []datastore.AddressRef{verifierRef(devenvcommon.SecondaryCommitteeVerifierQualifier)},
 			Qualifier:             devenvcommon.SecondaryReceiverQualifier,
 		})
@@ -1050,7 +1050,7 @@ func buildMockReceivers(topology *ccipOffchain.EnvironmentTopology, selector uin
 	if has(devenvcommon.SecondaryCommitteeVerifierQualifier) && has(devenvcommon.TertiaryCommitteeVerifierQualifier) {
 		receivers = append(receivers, adapters.MockReceiverDeployParams{
 			Version:               receiverVersion,
-			AllowedFinalityConfig: finality.Config{BlockDepth: 1},
+			AllowedFinalityConfig: finality.Config{BlockDepth: 1, WaitForSafe: true},
 			RequiredVerifiers:     []datastore.AddressRef{verifierRef(devenvcommon.SecondaryCommitteeVerifierQualifier)},
 			OptionalVerifiers:     []datastore.AddressRef{verifierRef(devenvcommon.TertiaryCommitteeVerifierQualifier)},
 			OptionalThreshold:     1,
@@ -1062,7 +1062,7 @@ func buildMockReceivers(topology *ccipOffchain.EnvironmentTopology, selector uin
 		has(devenvcommon.TertiaryCommitteeVerifierQualifier) {
 		receivers = append(receivers, adapters.MockReceiverDeployParams{
 			Version:               receiverVersion,
-			AllowedFinalityConfig: finality.Config{BlockDepth: 1},
+			AllowedFinalityConfig: finality.Config{BlockDepth: 1, WaitForSafe: true},
 			RequiredVerifiers:     []datastore.AddressRef{verifierRef(devenvcommon.DefaultCommitteeVerifierQualifier)},
 			OptionalVerifiers: []datastore.AddressRef{
 				verifierRef(devenvcommon.SecondaryCommitteeVerifierQualifier),
@@ -1358,7 +1358,7 @@ func (m *CCIP17EVMConfig) buildEVMTokenTransferConfig(
 			Version: semver.MustParse(token_admin_registry.Deploy.Version()),
 		},
 		RemoteChains:          remoteChains,
-		AllowedFinalityConfig: finality.Config{BlockDepth: 1},
+		AllowedFinalityConfig: finality.Config{BlockDepth: 1, WaitForSafe: true},
 	}
 }
 
