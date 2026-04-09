@@ -34,24 +34,18 @@ jobs:
         with:
           just-version: '1.40.0'
 
-      - name: Authenticate to AWS ECR (primary)
-        uses: ./.github/actions/aws-ecr-auth
-        with:
-          role-to-assume: ${{ secrets.CCV_IAM_ROLE_PRIMARY }}
-          aws-region: us-west-2
-          registry-type: private
-
-      - name: Clear AWS credentials before secondary auth
-        uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502
-        with:
-          aws-region: us-west-2
-          unset-current-credentials: true
-
       - name: Authenticate to AWS ECR (secondary)
         uses: ./.github/actions/aws-ecr-auth
         with:
           role-to-assume: ${{ secrets.CCV_IAM_ROLE_SECONDARY }}
           aws-region: us-east-2
+          registry-type: private
+
+      - name: Authenticate to AWS ECR (primary)
+        uses: ./.github/actions/aws-ecr-auth
+        with:
+          role-to-assume: ${{ secrets.CCV_IAM_ROLE_PRIMARY }}
+          aws-region: us-west-2
           registry-type: private
 
       - name: Build & Publish Test Image
