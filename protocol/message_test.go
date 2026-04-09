@@ -206,7 +206,7 @@ func TestMessageDecodingErrors(t *testing.T) {
 				binary.BigEndian.PutUint64(data[1:9], 1)
 				binary.BigEndian.PutUint64(data[9:17], 2)
 				binary.BigEndian.PutUint64(data[17:25], 3)
-				data[67] = 10
+				data[69] = 10
 				return data
 			}(),
 			expectErr: "failed to read on-ramp address",

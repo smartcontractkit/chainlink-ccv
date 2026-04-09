@@ -1119,7 +1119,7 @@ func NewEnvironment() (in *Cfg, err error) {
 		chainDS := datastore.NewMemoryDataStore()
 
 		var dsi datastore.DataStore
-		dsi, err = impl.DeployContractsForSelector(ctx, e, networkInfo.ChainSelector, topology)
+		dsi, err = DeployContractsForSelector(ctx, e, impl, networkInfo.ChainSelector, topology)
 		if err != nil {
 			return nil, err
 		}

@@ -16,7 +16,6 @@ import (
 	x "github.com/smartcontractkit/chainlink-ccv/executor/pkg/executor"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/leaderelector"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/backofftimeprovider"
-	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/ccvstreamer"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/cursechecker"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
@@ -42,7 +41,7 @@ type ServiceComponents struct {
 type CreateExecutorComponentsFunc[T any] func(
 	ctx context.Context,
 	lggr logger.Logger,
-	blockchainInfos blockchain.Infos[T],
+	blockchainInfos chainaccess.Infos[T],
 	cfg executor.Configuration,
 ) (*ServiceComponents, error)
 

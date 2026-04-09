@@ -5,6 +5,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 )
 
 func TestConfig_Validate_Success(t *testing.T) {
@@ -15,40 +17,46 @@ func TestConfig_Validate_Success(t *testing.T) {
 		{
 			name: "single chain",
 			config: Config{
-				OnRampAddresses: map[string]string{
-					"1": "0xOnRamp1",
-				},
 				CommitteeVerifierAddresses: map[string]string{
 					"1": "0xCommittee1",
 				},
-				RMNRemoteAddresses: map[string]string{
-					"1": "0xRMNRemote1",
+				CommitteeConfig: chainaccess.CommitteeConfig{
+					OnRampAddresses: map[string]string{
+						"1": "0xOnRamp1",
+					},
+					RMNRemoteAddresses: map[string]string{
+						"1": "0xRMNRemote1",
+					},
 				},
 			},
 		},
 		{
 			name: "multiple chains",
 			config: Config{
-				OnRampAddresses: map[string]string{
-					"1": "0xOnRamp1",
-					"2": "0xOnRamp2",
-				},
 				CommitteeVerifierAddresses: map[string]string{
 					"1": "0xCommittee1",
 					"2": "0xCommittee2",
 				},
-				RMNRemoteAddresses: map[string]string{
-					"1": "0xRMNRemote1",
-					"2": "0xRMNRemote2",
+				CommitteeConfig: chainaccess.CommitteeConfig{
+					OnRampAddresses: map[string]string{
+						"1": "0xOnRamp1",
+						"2": "0xOnRamp2",
+					},
+					RMNRemoteAddresses: map[string]string{
+						"1": "0xRMNRemote1",
+						"2": "0xRMNRemote2",
+					},
 				},
 			},
 		},
 		{
 			name: "empty maps",
 			config: Config{
-				OnRampAddresses:            map[string]string{},
 				CommitteeVerifierAddresses: map[string]string{},
-				RMNRemoteAddresses:         map[string]string{},
+				CommitteeConfig: chainaccess.CommitteeConfig{
+					OnRampAddresses:    map[string]string{},
+					RMNRemoteAddresses: map[string]string{},
+				},
 			},
 		},
 	}
@@ -70,16 +78,18 @@ func TestConfig_Validate_Errors(t *testing.T) {
 		{
 			name: "onramp and committee length mismatch",
 			config: Config{
-				OnRampAddresses: map[string]string{
-					"1": "0xOnRamp1",
-					"2": "0xOnRamp2",
-				},
 				CommitteeVerifierAddresses: map[string]string{
 					"1": "0xCommittee1",
 				},
-				RMNRemoteAddresses: map[string]string{
-					"1": "0xRMNRemote1",
-					"2": "0xRMNRemote2",
+				CommitteeConfig: chainaccess.CommitteeConfig{
+					OnRampAddresses: map[string]string{
+						"1": "0xOnRamp1",
+						"2": "0xOnRamp2",
+					},
+					RMNRemoteAddresses: map[string]string{
+						"1": "0xRMNRemote1",
+						"2": "0xRMNRemote2",
+					},
 				},
 			},
 			errSubstr: "mismatched lengths",
@@ -87,16 +97,18 @@ func TestConfig_Validate_Errors(t *testing.T) {
 		{
 			name: "onramp and RMN Remote length mismatch",
 			config: Config{
-				OnRampAddresses: map[string]string{
-					"1": "0xOnRamp1",
-					"2": "0xOnRamp2",
-				},
 				CommitteeVerifierAddresses: map[string]string{
 					"1": "0xCommittee1",
 					"2": "0xCommittee2",
 				},
-				RMNRemoteAddresses: map[string]string{
-					"1": "0xRMNRemote1",
+				CommitteeConfig: chainaccess.CommitteeConfig{
+					OnRampAddresses: map[string]string{
+						"1": "0xOnRamp1",
+						"2": "0xOnRamp2",
+					},
+					RMNRemoteAddresses: map[string]string{
+						"1": "0xRMNRemote1",
+					},
 				},
 			},
 			errSubstr: "mismatched lengths",
@@ -104,17 +116,19 @@ func TestConfig_Validate_Errors(t *testing.T) {
 		{
 			name: "all three maps length mismatch",
 			config: Config{
-				OnRampAddresses: map[string]string{
-					"1": "0xOnRamp1",
-					"2": "0xOnRamp2",
-					"3": "0xOnRamp3",
-				},
 				CommitteeVerifierAddresses: map[string]string{
 					"1": "0xCommittee1",
 				},
-				RMNRemoteAddresses: map[string]string{
-					"1": "0xRMNRemote1",
-					"2": "0xRMNRemote2",
+				CommitteeConfig: chainaccess.CommitteeConfig{
+					OnRampAddresses: map[string]string{
+						"1": "0xOnRamp1",
+						"2": "0xOnRamp2",
+						"3": "0xOnRamp3",
+					},
+					RMNRemoteAddresses: map[string]string{
+						"1": "0xRMNRemote1",
+						"2": "0xRMNRemote2",
+					},
 				},
 			},
 			errSubstr: "mismatched lengths",
@@ -122,14 +136,16 @@ func TestConfig_Validate_Errors(t *testing.T) {
 		{
 			name: "onramp key absent from committee verifier addresses",
 			config: Config{
-				OnRampAddresses: map[string]string{
-					"1": "0xOnRamp1",
-				},
 				CommitteeVerifierAddresses: map[string]string{
 					"2": "0xCommittee2",
 				},
-				RMNRemoteAddresses: map[string]string{
-					"1": "0xRMNRemote1",
+				CommitteeConfig: chainaccess.CommitteeConfig{
+					OnRampAddresses: map[string]string{
+						"1": "0xOnRamp1",
+					},
+					RMNRemoteAddresses: map[string]string{
+						"1": "0xRMNRemote1",
+					},
 				},
 			},
 			errSubstr: "not in committee verifier addresses",
@@ -137,14 +153,16 @@ func TestConfig_Validate_Errors(t *testing.T) {
 		{
 			name: "onramp key absent from RMN Remote addresses",
 			config: Config{
-				OnRampAddresses: map[string]string{
-					"1": "0xOnRamp1",
-				},
 				CommitteeVerifierAddresses: map[string]string{
 					"1": "0xCommittee1",
 				},
-				RMNRemoteAddresses: map[string]string{
-					"2": "0xRMNRemote2",
+				CommitteeConfig: chainaccess.CommitteeConfig{
+					OnRampAddresses: map[string]string{
+						"1": "0xOnRamp1",
+					},
+					RMNRemoteAddresses: map[string]string{
+						"2": "0xRMNRemote2",
+					},
 				},
 			},
 			errSubstr: "not in RMN Remote addresses",

@@ -20,6 +20,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/adapters"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/changesets"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/cctp"
 	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm"
 	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm/operations/contract"
@@ -308,12 +309,12 @@ func (m *CCIP17EVMConfig) deployCCTPMockReceivers(
 		// Set minimum block depth to 1
 		_, err1 = operations.ExecuteOperation(
 			env.OperationsBundle,
-			mock_receiver_v2.SetMinBlockConfirmations,
+			mock_receiver_v2.SetAllowedFinalityConfig,
 			env.BlockChains.EVMChains()[selector],
-			contract.FunctionInput[uint16]{
+			contract.FunctionInput[[4]byte]{
 				Address:       gethcommon.HexToAddress(deployReceiverReport.Output.Address),
 				ChainSelector: selector,
-				Args:          1,
+				Args:          protocol.NewFinality().WithBlockDepth(1).ToBytes(),
 			})
 		if err1 != nil {
 			return fmt.Errorf("failed to set minimum block depth for mock receiver %s on chain %d: %w", r.Qualifier, selector, err1)

@@ -4,6 +4,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/offchain"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
+	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token"
@@ -86,9 +87,11 @@ func convertTokenVerifierConfig(src *offchain.TokenVerifierGeneratedConfig) *tok
 		return nil
 	}
 	dst := &token.Config{
-		PyroscopeURL:       src.PyroscopeURL,
-		OnRampAddresses:    src.OnRampAddresses,
-		RMNRemoteAddresses: src.RMNRemoteAddresses,
+		PyroscopeURL: src.PyroscopeURL,
+		CommitteeConfig: chainaccess.CommitteeConfig{
+			OnRampAddresses:    src.OnRampAddresses,
+			RMNRemoteAddresses: src.RMNRemoteAddresses,
+		},
 		Monitoring: verifier.MonitoringConfig{
 			Enabled: src.Monitoring.Enabled,
 			Type:    src.Monitoring.Type,

@@ -58,7 +58,7 @@ var attestationResponseBody = []byte(`
           "mintRecipient": "0xb7317b4EFEa194a22bEB42506065D3772C2E95EF",
           "amount": "5000",
           "messageSender": "0xca9142d0b9804ef5e239d3bc1c7aa0d1c74e7350",
- 		  "hookData": "0x35a2583827ef33516b82274412e89de14ddc7788847fb81282bbe5d37e6f00dee150c2f3"
+ 		  "hookData": "0x35a2583877d98f726d5cd28e5025ab36ec26024d57dc66915fe38d420c0d9a6cab6f44f8"
         }
       },
       "cctpVersion": "2",
@@ -214,8 +214,8 @@ func Test_cctpMatchesMessage(t *testing.T) {
 	require.NoError(t, err)
 
 	// Hardcoding hooks and messageID to avoid relying on logic we testing to generate them
-	hookData := "0x35a2583873fa314b5b2e7087b9ccac8eac29b001f339ff0447dff45a4924185338bffc7f"
-	messageID := internal.MustByteSliceFromHex("0x73fa314b5b2e7087b9ccac8eac29b001f339ff0447dff45a4924185338bffc7f")
+	hookData := "0x35a258383b3a5b9fce67c1c6eaa11b1b535b22bb084567125f584d47c8b57ce3050a09f2"
+	messageID := internal.MustByteSliceFromHex("0x3b3a5b9fce67c1c6eaa11b1b535b22bb084567125f584d47c8b57ce3050a09f2")
 
 	calculatedMessageID, err := ccipMessage.MessageID()
 	require.NoError(t, err)

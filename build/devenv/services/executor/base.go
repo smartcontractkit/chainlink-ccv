@@ -19,13 +19,13 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
-	bootstrap "github.com/smartcontractkit/chainlink-ccv/bootstrap"
+	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/util"
 	executorpkg "github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm"
-	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
+	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 	ctfblockchain "github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
@@ -143,7 +143,7 @@ func (v *Input) RebuildExecutorJobSpecWithBlockchainInfos(jobSpec string, blockc
 
 // GenerateConfigWithBlockchainInfos combines the pre-generated config with blockchain infos
 // for standalone mode deployment.
-func (v *Input) GenerateConfigWithBlockchainInfos(blockchainInfos blockchain.Infos[evm.Info]) ([]byte, error) {
+func (v *Input) GenerateConfigWithBlockchainInfos(blockchainInfos chainaccess.Infos[evm.Info]) ([]byte, error) {
 	if v.GeneratedConfig == "" {
 		return nil, fmt.Errorf("GeneratedConfig is empty - must be set from changeset output")
 	}
@@ -209,8 +209,8 @@ func ApplyDefaults(in *Input) {
 
 // filterOutUnsupportedChains filters out chains that are not supported by the executor.
 // As of writing, only EVM is supported by the standalone executor.
-func filterOutUnsupportedChains(blockchainInfos blockchain.Infos[evm.Info]) blockchain.Infos[evm.Info] {
-	filtered := make(blockchain.Infos[evm.Info])
+func filterOutUnsupportedChains(blockchainInfos chainaccess.Infos[evm.Info]) chainaccess.Infos[evm.Info] {
+	filtered := make(chainaccess.Infos[evm.Info])
 	for chainSelector, info := range blockchainInfos {
 		if info.Family == chainsel.FamilyEVM {
 			filtered[chainSelector] = info
