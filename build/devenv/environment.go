@@ -545,8 +545,8 @@ func generateExecutorJobSpecs(
 	impls []cciptestinterfaces.CCIP17Configuration,
 	topology *ccipOffchain.EnvironmentTopology,
 	ds datastore.MutableDataStore,
-) (map[string]string, error) {
-	executorJobSpecs := make(map[string]string)
+) (map[string]bootstrap.JobSpec, error) {
+	executorJobSpecs := make(map[string]bootstrap.JobSpec)
 
 	if len(in.Executor) == 0 {
 		return executorJobSpecs, nil
@@ -590,17 +590,31 @@ func generateExecutorJobSpecs(
 				return nil, fmt.Errorf("failed to get executor job spec for %s: %w", exec.ContainerName, err)
 			}
 
-			jobSpec := job.Spec
-			executorJobSpecs[exec.ContainerName] = jobSpec
+			// TODO: Use bootstrap.JobSpec in CLD to avoid this conversion here
+			var executorSpec ExecutorJobSpec
+			{
+				md, err := toml.Decode(job.Spec, &executorSpec)
+				if err != nil {
+					return nil, fmt.Errorf("failed to decode verifier job spec for %s: %w", exec.ContainerName, err)
+				}
+				if len(md.Undecoded()) > 0 {
+					L.Warn().
+						Str("spec", job.Spec).
+						Str("undecoded fields", fmt.Sprintf("%v", md.Undecoded())).
+						Msg("Undecoded fields in executor job spec")
+					return nil, fmt.Errorf("unknown fields in executor job spec for %s: %v", exec.ContainerName, md.Undecoded())
+				}
+				executorJobSpecs[exec.ContainerName] = executorSpec.ToBootstrapJobSpec()
+			}
 
 			// Extract inner config from job spec for standalone mode
-			execCfg, err := ParseExecutorConfigFromJobSpec(jobSpec)
-			if err != nil {
+			var cfg executor.Configuration
+			if err := toml.Unmarshal([]byte(executorSpec.ExecutorConfig), &cfg); err != nil {
 				return nil, fmt.Errorf("failed to parse executor config from job spec: %w", err)
 			}
 
 			// Marshal the inner config back to TOML for standalone mode
-			configBytes, err := toml.Marshal(execCfg)
+			configBytes, err := toml.Marshal(cfg)
 			if err != nil {
 				return nil, fmt.Errorf("failed to marshal executor config: %w", err)
 			}
@@ -1887,7 +1901,7 @@ func registerExecutorsWithJD(ctx context.Context, executors []*executorsvc.Input
 func proposeJobsToExecutors(
 	ctx context.Context,
 	executors []*executorsvc.Input,
-	executorJobSpecs map[string]string,
+	executorJobSpecs map[string]bootstrap.JobSpec,
 	blockchainOutputs []*blockchain.Output,
 	jdClient offchain.Client,
 ) error {
@@ -2084,21 +2098,6 @@ func (ejs ExecutorJobSpec) ToBootstrapJobSpec() bootstrap.JobSpec {
 		Type:          ejs.Type,
 		AppConfig:     ejs.ExecutorConfig,
 	}
-}
-
-// ParseExecutorConfigFromJobSpec extracts the inner executor.Configuration from an executor job spec.
-func ParseExecutorConfigFromJobSpec(jobSpec string) (*executor.Configuration, error) {
-	var spec ExecutorJobSpec
-	if err := toml.Unmarshal([]byte(jobSpec), &spec); err != nil {
-		return nil, fmt.Errorf("failed to parse job spec: %w", err)
-	}
-
-	var cfg executor.Configuration
-	if err := toml.Unmarshal([]byte(spec.ExecutorConfig), &cfg); err != nil {
-		return nil, fmt.Errorf("failed to parse executor config from job spec: %w", err)
-	}
-
-	return &cfg, nil
 }
 
 // extractAndValidateDisableFinalityCheckers extracts DisableFinalityCheckers from verifiers
