@@ -1,0 +1,87 @@
+name: "[TMP] Copy images to /containers/ path in primary/secondary ECR"
+
+on:
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  copy-image:
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - image: chainlink-ccv-aggregator
+            tag: 3edfa6c94fbc70cccb01d07910f07f63ee4357fe-rc
+          - image: chainlink-ccv-indexer
+            tag: 11cc5f4c09b3de621aed57caa887131a471a6022-rc
+          - image: chainlink-ccv-token-verifier
+            tag: fdba71c1334648bdb3ad9b79043ef3e2add311b6-rc
+    env:
+      SOURCE_REGISTRY: 323150190480.dkr.ecr.us-west-2.amazonaws.com
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Login to source ECR (323150190480)
+        uses: ./.github/actions/aws-ecr-auth
+        with:
+          role-to-assume: ${{ secrets.CCV_IAM_ROLE }}
+          aws-region: us-west-2
+          registry-type: private
+
+      - name: Pull image from source
+        run: docker pull "$SOURCE_REGISTRY/${{ matrix.image }}:${{ matrix.tag }}"
+
+      - name: Login to primary ECR and push
+        env:
+          ROLE_ARN: ${{ secrets.CCV_IAM_ROLE_PRIMARY }}
+          ECR_REGISTRY_PRIMARY: ${{ secrets.ECR_REGISTRY_PRIMARY }}
+        run: |
+          unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
+          OIDC_TOKEN=$(curl -sS \
+            -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sts.amazonaws.com" | jq -r '.value')
+          read -r KEY SECRET TOKEN < <(aws sts assume-role-with-web-identity \
+            --region us-west-2 \
+            --role-arn "$ROLE_ARN" \
+            --role-session-name GitHubActions \
+            --web-identity-token "$OIDC_TOKEN" \
+            --query 'Credentials.[AccessKeyId,SecretAccessKey,SessionToken]' \
+            --output text)
+          AWS_ACCESS_KEY_ID="$KEY" \
+          AWS_SECRET_ACCESS_KEY="$SECRET" \
+          AWS_SESSION_TOKEN="$TOKEN" \
+          aws ecr get-login-password --region us-west-2 | \
+            docker login --username AWS --password-stdin "$ECR_REGISTRY_PRIMARY"
+          docker tag "$SOURCE_REGISTRY/${{ matrix.image }}:${{ matrix.tag }}" \
+            "$ECR_REGISTRY_PRIMARY/containers/${{ matrix.image }}:${{ matrix.tag }}"
+          docker push "$ECR_REGISTRY_PRIMARY/containers/${{ matrix.image }}:${{ matrix.tag }}"
+
+      - name: Login to secondary ECR and push
+        env:
+          ROLE_ARN: ${{ secrets.CCV_IAM_ROLE_SECONDARY }}
+          ECR_REGISTRY_SECONDARY: ${{ secrets.ECR_REGISTRY_SECONDARY }}
+        run: |
+          unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
+          OIDC_TOKEN=$(curl -sS \
+            -H "Authorization: bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sts.amazonaws.com" | jq -r '.value')
+          read -r KEY SECRET TOKEN < <(aws sts assume-role-with-web-identity \
+            --region us-east-2 \
+            --role-arn "$ROLE_ARN" \
+            --role-session-name GitHubActions \
+            --web-identity-token "$OIDC_TOKEN" \
+            --query 'Credentials.[AccessKeyId,SecretAccessKey,SessionToken]' \
+            --output text)
+          AWS_ACCESS_KEY_ID="$KEY" \
+          AWS_SECRET_ACCESS_KEY="$SECRET" \
+          AWS_SESSION_TOKEN="$TOKEN" \
+          aws ecr get-login-password --region us-east-2 | \
+            docker login --username AWS --password-stdin "$ECR_REGISTRY_SECONDARY"
+          docker tag "$SOURCE_REGISTRY/${{ matrix.image }}:${{ matrix.tag }}" \
+            "$ECR_REGISTRY_SECONDARY/containers/${{ matrix.image }}:${{ matrix.tag }}"
+          docker push "$ECR_REGISTRY_SECONDARY/containers/${{ matrix.image }}:${{ matrix.tag }}"
