@@ -478,7 +478,7 @@ func enrichEnvironmentTopology(cfg *ccipOffchain.EnvironmentTopology, verifiers 
 		if nop.SignerAddressByFamily[chainsel.FamilyStellar] == "" {
 			cfg.NOPTopology.SetNOPSignerAddress(ver.NOPAlias, chainsel.FamilyStellar, ver.Out.BootstrapKeys.EdDSAPublicKey)
 		}
-		// Solana committee verification uses ECDSA offchai since we don't have separate Solana key infra
+		// Solana committee verification uses ECDSA offchain since we don't have separate Solana key infra
 		if nop.SignerAddressByFamily[chainsel.FamilySolana] == "" {
 			cfg.NOPTopology.SetNOPSignerAddress(ver.NOPAlias, chainsel.FamilySolana, evmSigner)
 		}
