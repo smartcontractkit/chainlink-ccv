@@ -22,9 +22,9 @@ type cfgWithBlockchainInfos[T any] struct {
 // blockchain.Info for EVM). Strict decode is applied: any unknown key in the
 // config (including under blockchain_infos.<selector>) causes an error.
 // The returned Configuration has defaults applied via GetNormalizedConfig.
-func LoadConfigWithBlockchainInfos[T any](spec JobSpec) (*Configuration, chainaccess.Infos[T], error) {
+func LoadConfigWithBlockchainInfos[T any](cfg string) (*Configuration, chainaccess.Infos[T], error) {
 	var decodeTarget cfgWithBlockchainInfos[T]
-	md, err := toml.Decode(spec.ExecutorConfig, &decodeTarget)
+	md, err := toml.Decode(cfg, &decodeTarget)
 	if err != nil {
 		return nil, chainaccess.Infos[T]{}, fmt.Errorf("failed to decode executor config: %w", err)
 	}
