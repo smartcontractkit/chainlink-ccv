@@ -60,7 +60,7 @@ type factory[T any] struct {
 
 // NewServiceFactory creates a new ServiceFactory for the executor service.
 // T is the chain config type for this family (e.g. blockchain.Info for EVM).
-func NewServiceFactory[T any](chainFamily string, createComponentsFunc CreateExecutorComponentsFunc[T]) bootstrap.ServiceFactory[bootstrap.JobSpec] {
+func NewServiceFactory[T any](chainFamily string, createComponentsFunc CreateExecutorComponentsFunc[T]) bootstrap.ServiceFactory[executor.JobSpec] {
 	return &factory[T]{
 		createComponentsFunc: createComponentsFunc,
 		chainFamily:          chainFamily,
@@ -68,13 +68,13 @@ func NewServiceFactory[T any](chainFamily string, createComponentsFunc CreateExe
 }
 
 // Start implements [bootstrap.ServiceFactory].
-func (f *factory[T]) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootstrap.ServiceDeps) error {
+func (f *factory[T]) Start(ctx context.Context, spec executor.JobSpec, deps bootstrap.ServiceDeps) error {
 	lggr := logger.Sugared(logger.Named(deps.Logger, "Executor"))
 	f.lggr = lggr
 
 	lggr.Infow("Starting executor service", "spec", spec)
 
-	executorConfig, blockchainInfos, err := executor.LoadConfigWithBlockchainInfos[T](spec.AppConfig)
+	executorConfig, blockchainInfos, err := executor.LoadConfigWithBlockchainInfos[T](spec.ExecutorConfig)
 	if err != nil {
 		lggr.Errorw("Failed to load configuration", "error", err)
 		return fmt.Errorf("failed to load configuration: %w", err)
