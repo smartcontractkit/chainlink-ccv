@@ -44,7 +44,7 @@ jobs:
       - name: Clear AWS credentials before secondary auth
         uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502
         with:
-          aws-region: us-east-2
+          aws-region: us-west-2
           unset-current-credentials: true
 
       - name: Authenticate to AWS ECR (secondary)
