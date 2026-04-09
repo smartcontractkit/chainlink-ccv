@@ -16,7 +16,6 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
-	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/heartbeatclient"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
@@ -63,7 +62,7 @@ type tokenVerifierFactory[T any] struct {
 	bootstrap.ServiceFactory[token.Config]
 
 	// TODO: rather than creating the factory in the bootstrap layer, can we pass in a registry?
-	createAccessorFactoryFunc accessors.CreateAccessorFactory[T]
+	createAccessorFactoryFunc chainaccess.CreateAccessorFactory[T]
 	// TODO: This no longer makes sense because 'CreateAccessorFactory' only supports one family.
 	supportedChainFamily []string
 
@@ -134,16 +133,20 @@ func (tvf *tokenVerifierFactory[T]) Start(ctx context.Context, appConfig token.C
 	protocol.InitChainSelectorCache()
 
 	// TODO: validate config?
-	config := appConfig.Config
+	cfg := appConfig.Config
 	blockchainInfos := appConfig.BlockchainInfos
 
-	_, err := cmd.StartPyroscope(tvf.lggr, config.PyroscopeURL, "tokenVerifier")
+	genericConfig := chainaccess.GenericConfig{
+		CommitteeConfig: cfg.CommitteeConfig,
+	}
+
+	_, err := cmd.StartPyroscope(tvf.lggr, cfg.PyroscopeURL, "tokenVerifier")
 	if err != nil {
 		tvf.lggr.Errorw("Failed to start pyroscope", "error", err)
 		os.Exit(1)
 	}
 
-	factory, err := tvf.createAccessorFactoryFunc(ctx, tvf.lggr, blockchainInfos, config.OnRampAddresses, config.RMNRemoteAddresses)
+	factory, err := tvf.createAccessorFactoryFunc(ctx, tvf.lggr, genericConfig, blockchainInfos)
 	if err != nil {
 		tvf.lggr.Errorw("Failed to create accessor factory", "error", err)
 		return fmt.Errorf("failed to create accessor factory: %w", err)
@@ -175,10 +178,10 @@ func (tvf *tokenVerifierFactory[T]) Start(ctx context.Context, appConfig token.C
 		tvf.lggr.Infow("Created source reader for chain", "chainSelector", selector)
 	}
 
-	verifierMonitoring := cmd.SetupMonitoring(tvf.lggr, config.Monitoring, "token_verifier")
+	verifierMonitoring := cmd.SetupMonitoring(tvf.lggr, cfg.Monitoring, "token_verifier")
 
 	rmnRemoteAddresses := make(map[string]protocol.UnknownAddress)
-	for selector, address := range config.RMNRemoteAddresses {
+	for selector, address := range cfg.RMNRemoteAddresses {
 		addr, err := protocol.NewUnknownAddressFromHex(address)
 		if err != nil {
 			tvf.lggr.Errorw("Failed to create RMN Remote address", "error", err, "selector", selector)
@@ -199,8 +202,8 @@ func (tvf *tokenVerifierFactory[T]) Start(ctx context.Context, appConfig token.C
 
 	// save the coordinators so that they can be shutdown later on.
 	chainStatusStore := chainstatus.NewPostgresChainStatusStore(db, tvf.lggr)
-	tvf.coordinators = make([]*verifier.Coordinator, 0, len(config.TokenVerifiers))
-	for _, verifierConfig := range config.TokenVerifiers {
+	tvf.coordinators = make([]*verifier.Coordinator, 0, len(cfg.TokenVerifiers))
+	for _, verifierConfig := range cfg.TokenVerifiers {
 		chainStatusManager := chainstatus.NewPostgresChainStatusManager(chainStatusStore, verifierConfig.VerifierID)
 		// Wrap chain status manager with monitoring decorator to track query durations
 		monitoredChainStatusManager := chainstatus.NewMonitoredChainStatusManager(chainStatusManager, verifierMonitoring.Metrics())

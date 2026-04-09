@@ -7,18 +7,122 @@ import (
 
 	"github.com/Masterminds/semver/v3"
 
+	"github.com/smartcontractkit/chainlink-ccip/deployment/finality"
+
 	chainsel "github.com/smartcontractkit/chain-selectors"
 
 	"github.com/smartcontractkit/chainlink-ccip/deployment/lanes"
+	tokenscore "github.com/smartcontractkit/chainlink-ccip/deployment/tokens"
 	changesetscore "github.com/smartcontractkit/chainlink-ccip/deployment/utils/changesets"
+	devenvmcms "github.com/smartcontractkit/chainlink-ccip/deployment/utils/mcms"
 	ccipAdapters "github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/adapters"
 	ccipChangesets "github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/changesets"
 	ccipOffchain "github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/offchain"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
+	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
+	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
+
+// ---------------------------------------------------------------------------
+// Chain-agnostic contract deployment (matches the 1.6 pattern)
+// ---------------------------------------------------------------------------
+
+// mergeIntoSealed creates a new DataStore by merging all provided stores in
+// order and returns the sealed result.
+func mergeIntoSealed(stores ...datastore.DataStore) (datastore.DataStore, error) {
+	tmp := datastore.NewMemoryDataStore()
+	for _, s := range stores {
+		if err := tmp.Merge(s); err != nil {
+			return nil, err
+		}
+	}
+	return tmp.Seal(), nil
+}
+
+// DeployContractsForSelector is the shared entry point for deploying CCIP
+// contracts on a single chain. It follows the 1.6 pattern: the common code
+// calls the tooling API DeployChainContracts changeset; chain impls only
+// provide configuration and optional pre/post hooks.
+func DeployContractsForSelector(
+	ctx context.Context,
+	env *deployment.Environment,
+	impl cciptestinterfaces.OnChainConfigurable,
+	selector uint64,
+	topology *ccipOffchain.EnvironmentTopology,
+) (datastore.DataStore, error) {
+	runningDS := datastore.NewMemoryDataStore()
+
+	env.OperationsBundle = operations.NewBundle(
+		func() context.Context { return context.Background() },
+		env.Logger,
+		operations.NewMemoryReporter(),
+	)
+
+	// 1. Pre-hook (e.g. EVM deploys CREATE2 factory here).
+	preDS, err := impl.PreDeployContractsForSelector(ctx, env, selector, topology)
+	if err != nil {
+		return nil, fmt.Errorf("pre-deploy for selector %d: %w", selector, err)
+	}
+	if preDS != nil {
+		if err := runningDS.Merge(preDS); err != nil {
+			return nil, fmt.Errorf("merge pre-deploy DS: %w", err)
+		}
+		merged, err := mergeIntoSealed(env.DataStore, preDS)
+		if err != nil {
+			return nil, fmt.Errorf("update env DS with pre-deploy: %w", err)
+		}
+		env.DataStore = merged
+	}
+
+	// 2. Get chain-specific config (reads pre-deployed addresses from env.DataStore).
+	cfg, err := impl.GetDeployChainContractsCfg(env, selector, topology)
+	if err != nil {
+		return nil, fmt.Errorf("get deploy config for selector %d: %w", selector, err)
+	}
+
+	// 3. Call the tooling API changeset.
+	registry := ccipAdapters.GetDeployChainContractsRegistry()
+	out, err := ccipChangesets.DeployChainContracts(registry).Apply(*env, changesetscore.WithMCMS[ccipChangesets.DeployChainContractsCfg]{
+		Cfg: ccipChangesets.DeployChainContractsCfg{
+			Topology:                                topology,
+			ChainSelectors:                          []uint64{selector},
+			IgnoreImportedConfigFromPreviousVersion: true,
+			DefaultCfg:                              cfg,
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("deploy chain contracts for selector %d: %w", selector, err)
+	}
+	if err := runningDS.Merge(out.DataStore.Seal()); err != nil {
+		return nil, fmt.Errorf("merge deploy output DS: %w", err)
+	}
+	merged, err := mergeIntoSealed(env.DataStore, out.DataStore.Seal())
+	if err != nil {
+		return nil, fmt.Errorf("update env DS with deploy output: %w", err)
+	}
+	env.DataStore = merged
+
+	// 4. Post-hook (e.g. EVM deploys USDC/Lombard pools here).
+	postDS, err := impl.PostDeployContractsForSelector(ctx, env, selector, topology)
+	if err != nil {
+		return nil, fmt.Errorf("post-deploy for selector %d: %w", selector, err)
+	}
+	if postDS != nil {
+		if err := runningDS.Merge(postDS); err != nil {
+			return nil, fmt.Errorf("merge post-deploy DS: %w", err)
+		}
+		merged, err := mergeIntoSealed(env.DataStore, postDS)
+		if err != nil {
+			return nil, fmt.Errorf("update env DS with post-deploy: %w", err)
+		}
+		env.DataStore = merged
+	}
+
+	return runningDS.Seal(), nil
+}
 
 // ---------------------------------------------------------------------------
 // Canonical path (new): ConfigureChainsForLanesFromTopology
@@ -175,8 +279,9 @@ func buildPartialChainConfig(
 			}
 		}
 		cvConfigs = append(cvConfigs, ccipChangesets.CommitteeVerifierInputConfig{
-			CommitteeQualifier: qualifier,
-			RemoteChains:       remoteCV,
+			CommitteeQualifier:    qualifier,
+			RemoteChains:          remoteCV,
+			AllowedFinalityConfig: finality.Config{BlockDepth: 1, WaitForSafe: true},
 		})
 	}
 
@@ -320,4 +425,154 @@ func buildCommitteeVerifierInputs(
 	}
 
 	return verifiers
+}
+
+// ---------------------------------------------------------------------------
+// Chain-agnostic token & pool deployment
+// ---------------------------------------------------------------------------
+
+// DeployTokensAndPools collects TokenExpansion configs from each chain impl
+// and deploys tokens and pools via the chain-agnostic TokenExpansion API.
+// Each impl provides its chain-specific config (token type, decimals, admins,
+// etc.) via GetTokenExpansionConfigs and handles post-deploy work (e.g.
+// funding lock-release pools) via PostTokenDeploy.
+//
+// deltaDS accumulates only the addresses deployed by this function (the
+// caller uses it to track per-chain additions). env.DataStore is kept
+// up-to-date with the full state so that each TokenExpansion call can
+// resolve previously deployed contracts.
+func DeployTokensAndPools(
+	impl cciptestinterfaces.TokenConfigProvider,
+	env *deployment.Environment,
+	selector uint64,
+	combos []devenvcommon.TokenCombination,
+	deltaDS *datastore.MemoryDataStore,
+) error {
+	configs, err := impl.GetTokenExpansionConfigs(env, selector, combos)
+	if err != nil {
+		return fmt.Errorf("get token expansion configs for selector %d: %w", selector, err)
+	}
+	if len(configs) == 0 {
+		return nil
+	}
+
+	var deployedRefs []datastore.AddressRef
+
+	for _, cfg := range configs {
+		poolInput := cfg.DeployTokenPoolInput
+		qualifier := ""
+		if poolInput != nil {
+			qualifier = poolInput.TokenPoolQualifier
+		}
+
+		out, err := tokenscore.TokenExpansion().Apply(*env, tokenscore.TokenExpansionInput{
+			ChainAdapterVersion: cfg.TokenPoolVersion,
+			MCMS:                devenvmcms.Input{},
+			TokenExpansionInputPerChain: map[uint64]tokenscore.TokenExpansionInputPerChain{
+				selector: cfg,
+			},
+		})
+		if err != nil {
+			return fmt.Errorf("failed to deploy %s token and pool: %w", qualifier, err)
+		}
+
+		if err := deltaDS.Merge(out.DataStore.Seal()); err != nil {
+			return fmt.Errorf("failed to merge delta datastore for %s token: %w", qualifier, err)
+		}
+
+		fullDS := datastore.NewMemoryDataStore()
+		if err := fullDS.Merge(env.DataStore); err != nil {
+			return fmt.Errorf("failed to merge env datastore: %w", err)
+		}
+		if err := fullDS.Merge(out.DataStore.Seal()); err != nil {
+			return fmt.Errorf("failed to merge output datastore: %w", err)
+		}
+		env.DataStore = fullDS.Seal()
+
+		if poolInput != nil {
+			ref, err := env.DataStore.Addresses().Get(
+				datastore.NewAddressRefKey(
+					selector,
+					datastore.ContractType(poolInput.PoolType),
+					cfg.TokenPoolVersion,
+					poolInput.TokenPoolQualifier,
+				),
+			)
+			if err != nil {
+				return fmt.Errorf("failed to get deployed token pool ref for %s: %w", qualifier, err)
+			}
+			deployedRefs = append(deployedRefs, ref)
+		}
+	}
+
+	if err := impl.PostTokenDeploy(env, selector, deployedRefs); err != nil {
+		return fmt.Errorf("PostTokenDeploy for selector %d: %w", selector, err)
+	}
+
+	return nil
+}
+
+// ---------------------------------------------------------------------------
+// Chain-agnostic token transfer configuration
+// ---------------------------------------------------------------------------
+
+// ConfigureAllTokenTransfers collects TokenTransferConfigs from all chain
+// impls, groups them by pool identity, and calls ConfigureTokensForTransfers
+// once per group. This replaces the EVM-specific BuildTokenTransferConfigs
+// call that previously lived in environment.go.
+func ConfigureAllTokenTransfers(
+	impls []cciptestinterfaces.CCIP17Configuration,
+	selectors []uint64,
+	env *deployment.Environment,
+	topology *ccipOffchain.EnvironmentTopology,
+) error {
+	// poolIdentityKey returns a key that groups configs across chains for the
+	// same pool type+version+qualifier.
+	poolIdentityKey := func(cfg *tokenscore.TokenTransferConfig) string {
+		v := ""
+		if cfg.TokenPoolRef.Version != nil {
+			v = cfg.TokenPoolRef.Version.String()
+		}
+		return string(cfg.TokenPoolRef.Type) + "+" + v + "+" + cfg.TokenPoolRef.Qualifier
+	}
+
+	byPoolIdentity := make(map[string][]tokenscore.TokenTransferConfig)
+
+	for i, impl := range impls {
+		tcp, ok := impl.(cciptestinterfaces.TokenConfigProvider)
+		if !ok {
+			continue
+		}
+		remoteSelectors := make([]uint64, 0, len(selectors)-1)
+		for _, s := range selectors {
+			if s != selectors[i] {
+				remoteSelectors = append(remoteSelectors, s)
+			}
+		}
+
+		cfgs, err := tcp.GetTokenTransferConfigs(env, selectors[i], remoteSelectors, topology)
+		if err != nil {
+			return fmt.Errorf("get token transfer configs for selector %d: %w", selectors[i], err)
+		}
+		for _, cfg := range cfgs {
+			key := poolIdentityKey(&cfg)
+			byPoolIdentity[key] = append(byPoolIdentity[key], cfg)
+		}
+	}
+
+	if len(byPoolIdentity) == 0 {
+		return nil
+	}
+
+	tokenAdapterRegistry := tokenscore.GetTokenAdapterRegistry()
+	mcmsReaderRegistry := changesetscore.GetRegistry()
+	for _, group := range byPoolIdentity {
+		_, err := tokenscore.ConfigureTokensForTransfers(tokenAdapterRegistry, mcmsReaderRegistry).Apply(*env, tokenscore.ConfigureTokensForTransfersConfig{
+			Tokens: group,
+		})
+		if err != nil {
+			return fmt.Errorf("configure tokens for transfers: %w", err)
+		}
+	}
+	return nil
 }

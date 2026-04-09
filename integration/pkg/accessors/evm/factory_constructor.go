@@ -2,9 +2,11 @@ package evm
 
 import (
 	"context"
+	"fmt"
+
+	"github.com/BurntSushi/toml"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
-	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/sourcereader"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -14,13 +16,64 @@ import (
 	"github.com/smartcontractkit/chainlink-evm/pkg/heads"
 )
 
+func init() {
+	chainaccess.Register(chainsel.FamilyEVM, CreateEVMAccessorFactory)
+}
+
+var _ chainaccess.AccessorFactoryConstructor = CreateEVMAccessorFactory
+
+// CreateEVMAccessorFactory expects cfg to be TOML that decodes into
+// chainaccess.GenericConfig.
+//
+// Per-chain EVM settings are read from `blockchain_infos.<selector>` entries, for
+// example:
+//
+//	[blockchain_infos.5009297550715157269]
+//	# EVM-specific Info fields for selector 5009297550715157269
+//
+// Shared sections from chainaccess.GenericConfig (for example on-ramp or RMN
+// remote addresses) may also be present and are used when constructing the
+// accessor factory.
+//
+// It will take all config values it needs from all available config. Note that it would be
+// very unusual for a config to have more than one of Committee/Token/Executor configs.
+func CreateEVMAccessorFactory(lggr logger.Logger, cfg string) (chainaccess.AccessorFactory, error) {
+	var genericConfig chainaccess.GenericConfig
+	if _, err := toml.Decode(cfg, &genericConfig); err != nil {
+		return nil, fmt.Errorf("failed to decode generic config: %w", err)
+	}
+
+	// Convert Infos[string] -> Infos[evm.Info]
+	evmInfos := make(map[string]Info)
+
+	for _, selector := range genericConfig.ChainConfig.GetAllChainSelectors() {
+		// Verify chain family.
+		isEvm, err := chainsel.IsEvm(uint64(selector))
+		if err != nil {
+			return nil, fmt.Errorf("failed to determine if selector(%d) is evm: %w", selector, err)
+		}
+		if !isEvm {
+			lggr.Debugw("skipping non-EVM chain selector in EVM accessor factory construction", "chainSelector", selector)
+			continue
+		}
+
+		var info Info
+		if err = genericConfig.GetConcreteConfig(selector, &info); err != nil {
+			return nil, fmt.Errorf("failed to decode EVM info for selector(%d): %w", selector, err)
+		}
+		evmInfos[selector.String()] = info
+	}
+
+	return CreateAccessorFactory(context.Background(), lggr, genericConfig, evmInfos)
+}
+
 // CreateAccessorFactory creates a factory that can build EVM chain accessors.
+// TODO: Defer geth client and head tracker creation until GetAccessor is called.
 func CreateAccessorFactory(
 	ctx context.Context,
 	lggr logger.Logger,
-	infos blockchain.Infos[Info],
-	onRampAddresses map[string]string,
-	rmnRemoteAddresses map[string]string,
+	generic chainaccess.GenericConfig,
+	infos chainaccess.Infos[Info],
 ) (chainaccess.AccessorFactory, error) {
 	// Create the chain clients then the head trackers
 	chainClients := make(map[protocol.ChainSelector]client.Client)
@@ -46,5 +99,5 @@ func CreateAccessorFactory(
 		headTrackers[selector] = headTracker
 	}
 
-	return NewFactory(lggr, infos, onRampAddresses, rmnRemoteAddresses, headTrackers, chainClients), nil
+	return NewFactory(lggr, generic.OnRampAddresses, generic.RMNRemoteAddresses, headTrackers, chainClients), nil
 }

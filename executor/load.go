@@ -5,7 +5,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 
-	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
+	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 )
 
 // cfgWithBlockchainInfos is used only for decoding; T is the chain config type
@@ -14,27 +14,27 @@ import (
 // keys under blockchain_infos.
 type cfgWithBlockchainInfos[T any] struct {
 	Configuration
-	BlockchainInfos blockchain.Infos[T] `toml:"blockchain_infos"`
+	BlockchainInfos chainaccess.Infos[T] `toml:"blockchain_infos"`
 }
 
 // LoadConfigWithBlockchainInfos decodes the executor config from the job spec
-// into a strongly-typed map[string]*T. The type T is chosen by the caller (e.g.
+// into a strongly-typed chainaccess.Infos[T]. The type T is chosen by the caller (e.g.
 // blockchain.Info for EVM). Strict decode is applied: any unknown key in the
 // config (including under blockchain_infos.<selector>) causes an error.
 // The returned Configuration has defaults applied via GetNormalizedConfig.
-func LoadConfigWithBlockchainInfos[T any](spec JobSpec) (*Configuration, blockchain.Infos[T], error) {
+func LoadConfigWithBlockchainInfos[T any](spec JobSpec) (*Configuration, chainaccess.Infos[T], error) {
 	var decodeTarget cfgWithBlockchainInfos[T]
 	md, err := toml.Decode(spec.ExecutorConfig, &decodeTarget)
 	if err != nil {
-		return nil, blockchain.Infos[T]{}, fmt.Errorf("failed to decode executor config: %w", err)
+		return nil, chainaccess.Infos[T]{}, fmt.Errorf("failed to decode executor config: %w", err)
 	}
 	if len(md.Undecoded()) > 0 {
-		return nil, blockchain.Infos[T]{}, fmt.Errorf("unknown fields in executor config: %v", md.Undecoded())
+		return nil, chainaccess.Infos[T]{}, fmt.Errorf("unknown fields in executor config: %v", md.Undecoded())
 	}
 
 	normalized, err := decodeTarget.GetNormalizedConfig()
 	if err != nil {
-		return nil, blockchain.Infos[T]{}, fmt.Errorf("failed to normalize executor config: %w", err)
+		return nil, chainaccess.Infos[T]{}, fmt.Errorf("failed to normalize executor config: %w", err)
 	}
 
 	return normalized, decodeTarget.BlockchainInfos, nil

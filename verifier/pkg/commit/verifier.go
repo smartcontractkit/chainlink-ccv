@@ -62,23 +62,6 @@ func (cv *Verifier) validate() error {
 	return nil
 }
 
-// ValidateMessage validates the new message format.
-func (cv *Verifier) ValidateMessage(message protocol.Message) error {
-	if message.Version != protocol.MessageVersion {
-		return fmt.Errorf("unsupported message version: %d", message.Version)
-	}
-
-	if len(message.Sender) == 0 {
-		return fmt.Errorf("sender cannot be empty")
-	}
-
-	if len(message.Receiver) == 0 {
-		return fmt.Errorf("receiver cannot be empty")
-	}
-
-	return nil
-}
-
 // VerifyMessages verifies a batch of messages using the new chain-agnostic format.
 // It processes tasks concurrently and returns all results (both successes and errors).
 // The caller is responsible for handling results (e.g., adding successes to a batcher).
@@ -160,13 +143,9 @@ func (cv *Verifier) verifyMessage(_ context.Context, verificationTask verifier.V
 	}
 
 	// 2. Validate message format and check verifier receipts
-	if err := cv.ValidateMessage(message); err != nil {
-		return nil, fmt.Errorf("message format validation failed for message %s: %w", msgIDStr, err)
-	}
-
-	if err := ValidateMessage(&verificationTask); err != nil {
+	if err := ValidateVerificationTask(&verificationTask); err != nil {
 		return nil, fmt.Errorf(
-			"message validation failed for message %s with verifier address %s and default executor address %s: %w",
+			"task validation failed for message %s with verifier address %s and default executor address %s: %w",
 			msgIDStr,
 			sourceConfig.VerifierAddress.String(),
 			sourceConfig.DefaultExecutorAddress.String(),
