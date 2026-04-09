@@ -35,6 +35,7 @@ jobs:
           role-to-assume: ${{ secrets.CCV_IAM_ROLE }}
           aws-region: us-west-2
           registry-type: private
+          registries: ${{ secrets.ECR_ACCOUNT_PRIMARY }}
 
       - name: Authenticate to AWS ECR (secondary)
         uses: ./.github/actions/aws-ecr-auth
@@ -42,6 +43,7 @@ jobs:
           role-to-assume: ${{ secrets.CCV_IAM_ROLE }}
           aws-region: us-east-2
           registry-type: private
+          registries: ${{ secrets.ECR_ACCOUNT_SECONDARY }}
 
       - name: Build & Publish Release Candidate
         env:
