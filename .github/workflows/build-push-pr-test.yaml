@@ -42,10 +42,10 @@ jobs:
           registry-type: private
 
       - name: Clear AWS credentials before secondary auth
-        run: |
-          echo "AWS_ACCESS_KEY_ID=" >> $GITHUB_ENV
-          echo "AWS_SECRET_ACCESS_KEY=" >> $GITHUB_ENV
-          echo "AWS_SESSION_TOKEN=" >> $GITHUB_ENV
+        uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502
+        with:
+          aws-region: us-east-2
+          unset-current-credentials: true
 
       - name: Authenticate to AWS ECR (secondary)
         uses: ./.github/actions/aws-ecr-auth
