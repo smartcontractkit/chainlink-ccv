@@ -593,9 +593,16 @@ func generateExecutorJobSpecs(
 			// TODO: Use bootstrap.JobSpec in CLD to avoid this conversion here
 			var executorSpec ExecutorJobSpec
 			{
-				_, err = toml.Decode(job.Spec, &executorSpec)
+				md, err := toml.Decode(job.Spec, &executorSpec)
 				if err != nil {
 					return nil, fmt.Errorf("failed to decode verifier job spec for %s: %w", exec.ContainerName, err)
+				}
+				if len(md.Undecoded()) > 0 {
+					L.Warn().
+						Str("spec", job.Spec).
+						Str("undecoded fields", fmt.Sprintf("%v", md.Undecoded())).
+						Msg("Undecoded fields in executor job spec")
+					return nil, fmt.Errorf("unknown fields in executor job spec for %s: %v", exec.ContainerName, md.Undecoded())
 				}
 				executorJobSpecs[exec.ContainerName] = executorSpec.ToBootstrapJobSpec()
 			}
@@ -768,8 +775,16 @@ func generateVerifierJobSpecs(
 
 					// TODO: Use bootstrap.JobSpec in CLD to avoid this conversion here
 					var verifierJobSpec VerifierJobSpec
-					if _, err := toml.Decode(job.Spec, &verifierJobSpec); err != nil {
+					md, err := toml.Decode(job.Spec, &verifierJobSpec)
+					if err != nil {
 						return nil, fmt.Errorf("failed to decode verifier job spec for %s: %w", ver.ContainerName, err)
+					}
+					if len(md.Undecoded()) > 0 {
+						L.Warn().
+							Str("spec", job.Spec).
+							Str("undecoded fields", fmt.Sprintf("%v", md.Undecoded())).
+							Msg("Undecoded fields in executor job spec")
+						return nil, fmt.Errorf("unknown fields in verifier job spec for %s aggregator: %v", ver.ContainerName, md.Undecoded())
 					}
 
 					allJobSpecs = append(allJobSpecs, verifierJobSpec.ToBootstrapJobSpec())
@@ -2049,6 +2064,8 @@ type IndexerSecret struct {
 
 // VerifierJobSpec represents the structure of a verifier job spec TOML.
 type VerifierJobSpec struct {
+	Name                    string `toml:"name"`
+	ExternalJobID           string `toml:"externalJobID"`
 	SchemaVersion           int    `toml:"schemaVersion"`
 	Type                    string `toml:"type"`
 	CommitteeVerifierConfig string `toml:"committeeVerifierConfig"`
@@ -2056,6 +2073,8 @@ type VerifierJobSpec struct {
 
 func (vjs VerifierJobSpec) ToBootstrapJobSpec() bootstrap.JobSpec {
 	return bootstrap.JobSpec{
+		Name:          vjs.Name,
+		ExternalJobID: vjs.ExternalJobID,
 		SchemaVersion: vjs.SchemaVersion,
 		Type:          vjs.Type,
 		AppConfig:     vjs.CommitteeVerifierConfig,
@@ -2064,6 +2083,8 @@ func (vjs VerifierJobSpec) ToBootstrapJobSpec() bootstrap.JobSpec {
 
 // ExecutorJobSpec represents the structure of an executor job spec TOML.
 type ExecutorJobSpec struct {
+	Name           string `toml:"name"`
+	ExternalJobID  string `toml:"externalJobID"`
 	SchemaVersion  int    `toml:"schemaVersion"`
 	Type           string `toml:"type"`
 	ExecutorConfig string `toml:"executorConfig"`
@@ -2071,6 +2092,8 @@ type ExecutorJobSpec struct {
 
 func (ejs ExecutorJobSpec) ToBootstrapJobSpec() bootstrap.JobSpec {
 	return bootstrap.JobSpec{
+		Name:          ejs.Name,
+		ExternalJobID: ejs.ExternalJobID,
 		SchemaVersion: ejs.SchemaVersion,
 		Type:          ejs.Type,
 		AppConfig:     ejs.ExecutorConfig,
