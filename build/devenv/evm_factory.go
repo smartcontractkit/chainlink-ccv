@@ -2,16 +2,20 @@ package ccv
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 	"time"
 
-	chainsel "github.com/smartcontractkit/chain-selectors"
-
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/rs/zerolog"
+
+	chainsel "github.com/smartcontractkit/chain-selectors"
 
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/evm"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/registry"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	cldf_chain "github.com/smartcontractkit/chainlink-deployments-framework/chain"
 	cldf_evm_provider "github.com/smartcontractkit/chainlink-deployments-framework/chain/evm/provider"
 	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm/provider/rpcclient"
@@ -45,6 +49,43 @@ func (f *evmImplFactory) New(
 	wsURL := bc.Out.Nodes[0].ExternalWSUrl
 	return evm.NewCCIP17EVM(ctx, lggr, env, chainID, wsURL)
 }
+
+func (f *evmImplFactory) DefaultSignerKey(keys services.BootstrapKeys) string {
+	return keys.ECDSAAddress
+}
+
+func (f *evmImplFactory) DefaultFeeAggregator(env *deployment.Environment, chainSelector uint64) string {
+	evmChains := env.BlockChains.EVMChains()
+	if chain, ok := evmChains[chainSelector]; ok {
+		return chain.DeployerKey.From.Hex()
+	}
+	return ""
+}
+
+func (f *evmImplFactory) SupportsFunding() bool {
+	return true
+}
+
+func (f *evmImplFactory) SupportsBootstrapExecutor() bool {
+	return false
+}
+
+func (f *evmImplFactory) GenerateTransmitterKey() (string, error) {
+	pk, err := crypto.GenerateKey()
+	if err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(crypto.FromECDSA(pk)), nil
+}
+
+func (f *evmImplFactory) TransmitterAddress(privateKeyHex string) (protocol.UnknownAddress, error) {
+	pk, err := crypto.HexToECDSA(privateKeyHex)
+	if err != nil {
+		return protocol.UnknownAddress{}, fmt.Errorf("invalid EVM private key: %w", err)
+	}
+	return protocol.UnknownAddress(crypto.PubkeyToAddress(pk.PublicKey).Bytes()), nil
+}
+
 
 // newEVMCLDFProviderFactory returns a CLDFProviderFactory that builds an EVM
 // CLDF BlockChain provider from the blockchain input. This extracts the inline

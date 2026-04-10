@@ -116,6 +116,8 @@ func init() {
 			tokenAdapterRegistry.RegisterTokenAdapter("evm", semver.MustParse(poolVersion), tokenAdapter)
 		}
 	}
+
+	cciptestinterfaces.RegisterExtraArgsSerializer(chainsel.FamilyEVM, SerializeEVMExtraArgs)
 }
 
 type CCIP17EVMConfig struct {
@@ -758,30 +760,28 @@ func (m *CCIP17EVM) GetUserNonce(ctx context.Context, userAddress protocol.Unkno
 	return m.chain.Client.PendingNonceAt(ctx, common.HexToAddress(userAddress.String()))
 }
 
+// serializeExtraArgs dispatches to the destination family's registered ExtraArgsSerializer.
+// New chain families register their serializer via cciptestinterfaces.RegisterExtraArgsSerializer
+// in their product repo, so no changes are needed here when adding a chain.
 func serializeExtraArgs(opts cciptestinterfaces.MessageOptions, destFamily string) []byte {
-	switch destFamily {
-	case chainsel.FamilyEVM, chainsel.FamilyCanton:
-		switch opts.Version {
-		case 1: // EVMExtraArgsV1
-			return serializeExtraArgsV1(opts)
-		case 2: // GenericExtraArgsV2
-			return serializeExtraArgsV2(opts)
-		case 3: // EVMExtraArgsV3
-			return serializeExtraArgsV3(opts)
-		default:
-			panic(fmt.Sprintf("unsupported message extra args version: %d", opts.Version))
-		}
-	case chainsel.FamilyStellar:
+	serializer, ok := cciptestinterfaces.GetExtraArgsSerializer(destFamily)
+	if !ok {
+		panic(fmt.Sprintf("no ExtraArgsSerializer registered for destination family %q", destFamily))
+	}
+	return serializer(opts)
+}
+
+// SerializeEVMExtraArgs is the EVM family's ExtraArgsSerializer, handling versions 1-3.
+func SerializeEVMExtraArgs(opts cciptestinterfaces.MessageOptions) []byte {
+	switch opts.Version {
+	case 1:
+		return serializeExtraArgsV1(opts)
+	case 2:
+		return serializeExtraArgsV2(opts)
+	case 3:
 		return serializeExtraArgsV3(opts)
-	case chainsel.FamilySolana:
-		switch opts.Version {
-		case 1: // SVMExtraArgsV1
-			return serializeExtraArgsSVMV1(opts)
-		default:
-			panic(fmt.Sprintf("unsupported message extra args version for family %s: %d", destFamily, opts.Version))
-		}
 	default:
-		panic(fmt.Sprintf("unsupported destination family: %s", destFamily))
+		panic(fmt.Sprintf("unsupported EVM message extra args version: %d", opts.Version))
 	}
 }
 

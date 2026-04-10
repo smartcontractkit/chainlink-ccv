@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"sync"
 	"time"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
@@ -296,6 +297,31 @@ type OnChainConfigurable interface {
 	// PostConnect runs chain-specific setup after all chains have been connected
 	// (e.g. USDC/Lombard token config, custom executor wiring).
 	PostConnect(env *deployment.Environment, selector uint64, remoteSelectors []uint64) error
+}
+
+// ExtraArgsSerializer serializes message extra args for a destination chain family.
+// Product repos register their implementation via RegisterExtraArgsSerializer.
+type ExtraArgsSerializer func(opts MessageOptions) []byte
+
+var (
+	extraArgsSerializers   = make(map[string]ExtraArgsSerializer)
+	extraArgsSerializersMu sync.Mutex
+)
+
+// RegisterExtraArgsSerializer registers an ExtraArgsSerializer for a chain family.
+// Product repos call this in their init() alongside other registrations.
+func RegisterExtraArgsSerializer(family string, serializer ExtraArgsSerializer) {
+	extraArgsSerializersMu.Lock()
+	defer extraArgsSerializersMu.Unlock()
+	extraArgsSerializers[family] = serializer
+}
+
+// GetExtraArgsSerializer returns the registered serializer for the given chain family.
+func GetExtraArgsSerializer(family string) (ExtraArgsSerializer, bool) {
+	extraArgsSerializersMu.Lock()
+	defer extraArgsSerializersMu.Unlock()
+	s, ok := extraArgsSerializers[family]
+	return s, ok
 }
 
 // DeployerNonceBumper is an optional interface. When implemented, devenv calls it before
