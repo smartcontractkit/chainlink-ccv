@@ -22,10 +22,10 @@ import (
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 
-	ccipAdapters "github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/adapters"
-	ccipChangesets "github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/changesets"
-	ccipOffchain "github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/offchain"
-	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/offchain/shared"
+	ccipAdapters "github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/adapters"
+	ccipChangesets "github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/changesets"
+	ccipOffchain "github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/offchain"
+	"github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/offchain/shared"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
