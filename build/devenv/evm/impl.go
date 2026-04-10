@@ -118,6 +118,11 @@ func init() {
 	}
 
 	cciptestinterfaces.RegisterExtraArgsSerializer(chainsel.FamilyEVM, SerializeEVMExtraArgs)
+	// Canton shares EVM's extra args serialization. Canton's product repo can
+	// register its own serializer if the formats ever diverge; until then, this
+	// provides backward compatibility with the previous FamilyEVM/FamilyCanton
+	// combined switch case.
+	cciptestinterfaces.RegisterExtraArgsSerializer(chainsel.FamilyCanton, SerializeEVMExtraArgs)
 }
 
 type CCIP17EVMConfig struct {
@@ -860,7 +865,6 @@ func serializeExtraArgsV3(opts cciptestinterfaces.MessageOptions) []byte {
 	}
 	return extraArgs
 }
-
 
 func (m *CCIP17EVM) ExposeMetrics(
 	ctx context.Context,

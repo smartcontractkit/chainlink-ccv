@@ -623,8 +623,9 @@ func generateExecutorJobSpecs(
 		exec.TransmitterPrivateKey = pk
 	}
 
-	// Fund executor addresses for standalone mode
-	addresses := make([]protocol.UnknownAddress, 0, len(in.Executor))
+	// Build executor transmitter addresses grouped by chain family so each chain
+	// only funds addresses in its native format.
+	addressesByFamily := make(map[string][]protocol.UnknownAddress)
 	for _, exec := range in.Executor {
 		family := exec.ChainFamily
 		if family == "" {
@@ -632,12 +633,15 @@ func generateExecutorJobSpecs(
 		}
 		fac, facErr := GetImplFactory(family)
 		if facErr != nil {
-			addresses = append(addresses, protocol.UnknownAddress{})
-			continue
+			return nil, fmt.Errorf("no impl factory for executor chain family %q: %w", family, facErr)
 		}
-		addresses = append(addresses, exec.GetTransmitterAddress(fac.TransmitterAddress))
+		addressesByFamily[family] = append(
+			addressesByFamily[family],
+			exec.GetTransmitterAddress(fac.TransmitterAddress),
+		)
 	}
-	Plog.Info().Any("Addresses", addresses).Int("ImplsLen", len(impls)).Msg("Funding executors")
+
+	Plog.Info().Any("AddressesByFamily", addressesByFamily).Int("ImplsLen", len(impls)).Msg("Funding executors")
 	for i, impl := range impls {
 		family, famErr := blockchain.TypeToFamily(in.Blockchains[i].Type)
 		if famErr != nil {
@@ -645,6 +649,10 @@ func generateExecutorJobSpecs(
 		}
 		fac, facErr := GetImplFactory(string(family))
 		if facErr != nil || !fac.SupportsFunding() {
+			continue
+		}
+		addresses := addressesByFamily[string(family)]
+		if len(addresses) == 0 {
 			continue
 		}
 

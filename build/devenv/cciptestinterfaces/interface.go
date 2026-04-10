@@ -305,21 +305,26 @@ type ExtraArgsSerializer func(opts MessageOptions) []byte
 
 var (
 	extraArgsSerializers   = make(map[string]ExtraArgsSerializer)
-	extraArgsSerializersMu sync.Mutex
+	extraArgsSerializersMu sync.RWMutex
 )
 
 // RegisterExtraArgsSerializer registers an ExtraArgsSerializer for a chain family.
+// If the family is already registered, the call is a no-op to match the pattern
+// used by other registries in this repo (e.g. CLDFProviderRegistry, ImplFactory).
 // Product repos call this in their init() alongside other registrations.
 func RegisterExtraArgsSerializer(family string, serializer ExtraArgsSerializer) {
 	extraArgsSerializersMu.Lock()
 	defer extraArgsSerializersMu.Unlock()
+	if _, ok := extraArgsSerializers[family]; ok {
+		return
+	}
 	extraArgsSerializers[family] = serializer
 }
 
 // GetExtraArgsSerializer returns the registered serializer for the given chain family.
 func GetExtraArgsSerializer(family string) (ExtraArgsSerializer, bool) {
-	extraArgsSerializersMu.Lock()
-	defer extraArgsSerializersMu.Unlock()
+	extraArgsSerializersMu.RLock()
+	defer extraArgsSerializersMu.RUnlock()
 	s, ok := extraArgsSerializers[family]
 	return s, ok
 }
