@@ -291,10 +291,11 @@ func (m *CCIP17EVM) getOrCreateOffRampPoller() (*eventPoller[cciptestinterfaces.
 			event := filter.Event
 			key := eventKey{chainSelector: event.SourceChainSelector, msgNum: event.MessageNumber}
 			events[key] = cciptestinterfaces.ExecutionStateChangedEvent{
-				MessageID:     event.MessageId,
-				MessageNumber: event.MessageNumber,
-				State:         cciptestinterfaces.MessageExecutionState(event.State),
-				ReturnData:    event.ReturnData,
+				SourceChainSelector: protocol.ChainSelector(event.SourceChainSelector),
+				MessageID:           event.MessageId,
+				MessageNumber:       event.MessageNumber,
+				State:               cciptestinterfaces.MessageExecutionState(event.State),
+				ReturnData:          event.ReturnData,
 			}
 		}
 
@@ -1410,67 +1411,6 @@ func (m *CCIP17EVM) GetMaxDataBytes(ctx context.Context, remoteChainSelector uin
 	return destChainConfig.MaxDataBytes, nil
 }
 
-func (m *CCIP17EVMConfig) GetConnectionProfile(_ *deployment.Environment, selector uint64) (lanes.ChainDefinition, lanes.CommitteeVerifierRemoteChainInput, error) {
-	chainDef := lanes.ChainDefinition{
-		Selector:                          selector,
-		AddressBytesLength:                20,
-		BaseExecutionGasCost:              150_000,
-		FeeQuoterDestChainConfigOverrides: evmFeeQuoterDestChainConfigOverride(selector),
-		ExecutorDestChainConfig: lanes.ExecutorDestChainConfig{
-			Enabled: true,
-		},
-		DefaultExecutor: datastore.AddressRef{
-			Type:          datastore.ContractType(sequences.ExecutorProxyType),
-			Version:       semver.MustParse(proxy.Deploy.Version()),
-			Qualifier:     devenvcommon.DefaultExecutorQualifier,
-			ChainSelector: selector,
-		},
-		DefaultInboundCCVs: []datastore.AddressRef{
-			{
-				Type:          datastore.ContractType(versioned_verifier_resolver.CommitteeVerifierResolverType),
-				Version:       versioned_verifier_resolver.Version,
-				ChainSelector: selector,
-				Qualifier:     devenvcommon.DefaultCommitteeVerifierQualifier,
-			},
-		},
-		DefaultOutboundCCVs: []datastore.AddressRef{
-			{
-				Type:          datastore.ContractType(versioned_verifier_resolver.CommitteeVerifierResolverType),
-				Version:       versioned_verifier_resolver.Version,
-				ChainSelector: selector,
-				Qualifier:     devenvcommon.DefaultCommitteeVerifierQualifier,
-			},
-		},
-	}
-
-	cvConfig := lanes.CommitteeVerifierRemoteChainInput{
-		GasForVerification: CommitteeVerifierGasForVerification,
-	}
-
-	return chainDef, cvConfig, nil
-}
-
-func evmFeeQuoterDestChainConfigOverride(selector uint64) *lanes.FeeQuoterDestChainConfigOverride {
-	override := lanes.FeeQuoterDestChainConfigOverride(func(cfg *lanes.FeeQuoterDestChainConfig) {
-		selectorBytes := changesetsutils.GetSelectorHex(selector)
-		cfg.IsEnabled = true
-		cfg.MaxDataBytes = 30_000
-		cfg.MaxPerMsgGasLimit = 3_000_000
-		cfg.DestGasOverhead = 300_000
-		cfg.DefaultTokenFeeUSDCents = 25
-		cfg.DestGasPerPayloadByteBase = 16
-		cfg.DefaultTokenDestGasOverhead = 90_000
-		cfg.DefaultTxGasLimit = 200_000
-		cfg.NetworkFeeUSDCents = 10
-		cfg.ChainFamilySelector = binary.BigEndian.Uint32(selectorBytes[:4])
-		cfg.V2Params = &lanes.FeeQuoterV2Params{
-			LinkFeeMultiplierPercent: 90,
-			USDPerUnitGas:            big.NewInt(1e6),
-		}
-	})
-	return &override
-}
-
 func (m *CCIP17EVMConfig) GetChainLaneProfile(_ *deployment.Environment, selector uint64) (cciptestinterfaces.ChainLaneProfile, error) {
 	selectorBytes := changesetsutils.GetSelectorHex(selector)
 	var chainFamilySelector [4]byte
@@ -1515,6 +1455,59 @@ func (m *CCIP17EVMConfig) GetChainLaneProfile(_ *deployment.Environment, selecto
 		},
 		GasForVerification: CommitteeVerifierGasForVerification,
 	}, nil
+}
+
+func (m *CCIP17EVMConfig) GetConnectionProfile(_ *deployment.Environment, selector uint64) (lanes.ChainDefinition, lanes.CommitteeVerifierRemoteChainInput, error) {
+	override := evmFeeQuoterDestChainConfigOverride(selector)
+	chainDef := lanes.ChainDefinition{
+		FeeQuoterDestChainConfigOverrides: override,
+		ExecutorDestChainConfig: lanes.ExecutorDestChainConfig{
+			Enabled: true,
+		},
+		DefaultInboundCCVs: []datastore.AddressRef{
+			{
+				Type:          datastore.ContractType(versioned_verifier_resolver.CommitteeVerifierResolverType),
+				Version:       versioned_verifier_resolver.Version,
+				ChainSelector: selector,
+				Qualifier:     devenvcommon.DefaultCommitteeVerifierQualifier,
+			},
+		},
+		DefaultOutboundCCVs: []datastore.AddressRef{
+			{
+				Type:          datastore.ContractType(versioned_verifier_resolver.CommitteeVerifierResolverType),
+				Version:       versioned_verifier_resolver.Version,
+				ChainSelector: selector,
+				Qualifier:     devenvcommon.DefaultCommitteeVerifierQualifier,
+			},
+		},
+		AddressBytesLength:   20,
+		BaseExecutionGasCost: 150_000,
+	}
+	cvConfig := lanes.CommitteeVerifierRemoteChainInput{
+		GasForVerification: CommitteeVerifierGasForVerification,
+	}
+	return chainDef, cvConfig, nil
+}
+
+func evmFeeQuoterDestChainConfigOverride(selector uint64) *lanes.FeeQuoterDestChainConfigOverride {
+	override := lanes.FeeQuoterDestChainConfigOverride(func(cfg *lanes.FeeQuoterDestChainConfig) {
+		selectorBytes := changesetsutils.GetSelectorHex(selector)
+		cfg.IsEnabled = true
+		cfg.MaxDataBytes = 30_000
+		cfg.MaxPerMsgGasLimit = 3_000_000
+		cfg.DestGasOverhead = 300_000
+		cfg.DefaultTokenFeeUSDCents = 25
+		cfg.DestGasPerPayloadByteBase = 16
+		cfg.DefaultTokenDestGasOverhead = 90_000
+		cfg.DefaultTxGasLimit = 200_000
+		cfg.NetworkFeeUSDCents = 10
+		cfg.ChainFamilySelector = binary.BigEndian.Uint32(selectorBytes[:4])
+		cfg.V2Params = &lanes.FeeQuoterV2Params{
+			LinkFeeMultiplierPercent: 90,
+			USDPerUnitGas:            big.NewInt(1e6),
+		}
+	})
+	return &override
 }
 
 func (m *CCIP17EVMConfig) PostConnect(e *deployment.Environment, selector uint64, remoteSelectors []uint64) error {
@@ -1793,10 +1786,11 @@ func (m *CCIP17EVM) ManuallyExecuteMessage(
 				continue
 			}
 			event = cciptestinterfaces.ExecutionStateChangedEvent{
-				MessageID:     parsedLog.MessageId,
-				MessageNumber: parsedLog.MessageNumber,
-				State:         cciptestinterfaces.MessageExecutionState(parsedLog.State),
-				ReturnData:    parsedLog.ReturnData,
+				SourceChainSelector: protocol.ChainSelector(parsedLog.SourceChainSelector),
+				MessageID:           parsedLog.MessageId,
+				MessageNumber:       parsedLog.MessageNumber,
+				State:               cciptestinterfaces.MessageExecutionState(parsedLog.State),
+				ReturnData:          parsedLog.ReturnData,
 			}
 			break
 		}

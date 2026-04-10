@@ -3,11 +3,8 @@ package ccv
 import (
 	"context"
 	"fmt"
-	"sort"
 
 	"github.com/Masterminds/semver/v3"
-
-	"github.com/smartcontractkit/chainlink-ccip/deployment/finality"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 
@@ -146,36 +143,20 @@ func connectAllChainsCanonical(
 	topology *ccipOffchain.EnvironmentTopology,
 ) error {
 	if len(blockchains) != len(impls) {
-		return fmt.Errorf("connectAllChains: mismatched lengths: %d impls and %d blockchains", len(impls), len(blockchains))
+		return fmt.Errorf("connectAllChainsCanonical: mismatched lengths: %d impls and %d blockchains", len(impls), len(blockchains))
 	}
 	if len(selectors) == 0 {
-		return fmt.Errorf("connectAllChains: selectors must be non-empty")
+		return fmt.Errorf("connectAllChainsCanonical: selectors must be non-empty")
 	}
 
-	profiles := make(map[uint64]chainProfile, len(impls))
-	orderedSelectors := make([]uint64, 0, len(impls))
-	for i, impl := range impls {
-		networkInfo, err := chainsel.GetChainDetailsByChainIDAndFamily(blockchains[i].ChainID, impl.ChainFamily())
-		if err != nil {
-			return fmt.Errorf("chain %d: %w", i, err)
-		}
-		sel := networkInfo.ChainSelector
-		remotes := make([]uint64, 0, len(selectors))
-		for _, s := range selectors {
-			if s != sel {
-				remotes = append(remotes, s)
-			}
-		}
-		profile, err := impl.GetChainLaneProfile(e, sel)
-		if err != nil {
-			return fmt.Errorf("get chain lane profile for chain %d: %w", sel, err)
-		}
-		profiles[sel] = chainProfile{
-			remotes: remotes,
-			impl:    impl,
-			profile: profile,
-		}
-		orderedSelectors = append(orderedSelectors, sel)
+	orderedSelectors, profiles, err := buildConnectionProfilesFromImpls(impls, blockchains, selectors, e)
+	if err != nil {
+		return fmt.Errorf("connectAllChainsCanonical: %w", err)
+	}
+
+	partialChains, useTestRouter, err := buildPartialChainConfigsFromProfiles(topology, orderedSelectors, profiles, ReconfigureLanesParams{})
+	if err != nil {
+		return fmt.Errorf("connectAllChainsCanonical: %w", err)
 	}
 
 	e.OperationsBundle = operations.NewBundle(
@@ -190,36 +171,16 @@ func connectAllChainsCanonical(
 		changesetscore.GetRegistry(),
 	)
 
-	for i := 1; i < len(orderedSelectors); i++ {
-		newSel := orderedSelectors[i]
-		previousSels := orderedSelectors[:i]
-
-		var configs []ccipChangesets.PartialChainConfig
-
-		newChainCfg, err := buildPartialChainConfig(newSel, previousSels, profiles, topology)
-		if err != nil {
-			return fmt.Errorf("round %d: build config for new chain %d: %w", i, newSel, err)
-		}
-		configs = append(configs, newChainCfg)
-
-		for _, prevSel := range previousSels {
-			prevChainCfg, err := buildPartialChainConfig(prevSel, []uint64{newSel}, profiles, topology)
-			if err != nil {
-				return fmt.Errorf("round %d: build config for existing chain %d: %w", i, prevSel, err)
-			}
-			configs = append(configs, prevChainCfg)
-		}
-
-		cfg := ccipChangesets.ConfigureChainsForLanesFromTopologyConfig{
-			Topology: topology,
-			Chains:   configs,
-		}
-		if err := cs.VerifyPreconditions(*e, cfg); err != nil {
-			return fmt.Errorf("round %d (adding chain %d): precondition check failed: %w", i, newSel, err)
-		}
-		if _, err := cs.Apply(*e, cfg); err != nil {
-			return fmt.Errorf("round %d (adding chain %d): configure chains for lanes: %w", i, newSel, err)
-		}
+	cfg := ccipChangesets.ConfigureChainsForLanesFromTopologyConfig{
+		Topology:      topology,
+		Chains:        partialChains,
+		UseTestRouter: useTestRouter,
+	}
+	if err := cs.VerifyPreconditions(*e, cfg); err != nil {
+		return fmt.Errorf("connectAllChainsCanonical: precondition check failed: %w", err)
+	}
+	if _, err := cs.Apply(*e, cfg); err != nil {
+		return fmt.Errorf("connectAllChainsCanonical: configure chains for lanes: %w", err)
 	}
 
 	for _, sel := range orderedSelectors {
@@ -232,70 +193,9 @@ func connectAllChainsCanonical(
 	return nil
 }
 
-func buildPartialChainConfig(
-	localSel uint64,
-	remoteSels []uint64,
-	profiles map[uint64]chainProfile,
-	topology *ccipOffchain.EnvironmentTopology,
-) (ccipChangesets.PartialChainConfig, error) {
-	localEntry, ok := profiles[localSel]
-	if !ok {
-		return ccipChangesets.PartialChainConfig{}, fmt.Errorf("no profile for local chain %d", localSel)
-	}
-	local := localEntry.profile
-
-	remoteChains := make(map[uint64]ccipChangesets.PartialRemoteChainConfig, len(remoteSels))
-	for _, rs := range remoteSels {
-		remoteEntry, ok := profiles[rs]
-		if !ok {
-			return ccipChangesets.PartialChainConfig{}, fmt.Errorf("no profile for remote chain %d", rs)
-		}
-		remote := remoteEntry.profile
-		allowTrafficFrom := true
-		remoteChains[rs] = ccipChangesets.PartialRemoteChainConfig{
-			AllowTrafficFrom:         &allowTrafficFrom,
-			DefaultInboundCCVs:       local.DefaultInboundCCVs,
-			DefaultOutboundCCVs:      local.DefaultOutboundCCVs,
-			DefaultExecutorQualifier: local.DefaultExecutorQualifier,
-			FeeQuoterDestChainConfig: remote.FeeQuoterDestChainConfig,
-			ExecutorDestChainConfig:  local.ExecutorDestChainConfig,
-			AddressBytesLength:       remote.AddressBytesLength,
-			BaseExecutionGasCost:     remote.BaseExecutionGasCost,
-		}
-	}
-
-	qualifiers := make([]string, 0, len(topology.NOPTopology.Committees))
-	for qualifier := range topology.NOPTopology.Committees {
-		qualifiers = append(qualifiers, qualifier)
-	}
-	sort.Strings(qualifiers)
-
-	cvConfigs := make([]ccipChangesets.CommitteeVerifierInputConfig, 0, len(qualifiers))
-	for _, qualifier := range qualifiers {
-		remoteCV := make(map[uint64]ccipChangesets.CommitteeVerifierRemoteChainConfig, len(remoteSels))
-		for _, rs := range remoteSels {
-			remoteCV[rs] = ccipChangesets.CommitteeVerifierRemoteChainConfig{
-				GasForVerification: profiles[rs].profile.GasForVerification,
-			}
-		}
-		cvConfigs = append(cvConfigs, ccipChangesets.CommitteeVerifierInputConfig{
-			CommitteeQualifier:    qualifier,
-			RemoteChains:          remoteCV,
-			AllowedFinalityConfig: finality.Config{BlockDepth: 1, WaitForSafe: true},
-		})
-	}
-
-	return ccipChangesets.PartialChainConfig{
-		ChainSelector:      localSel,
-		CommitteeVerifiers: cvConfigs,
-		RemoteChains:       remoteChains,
-	}, nil
-}
-
 // ---------------------------------------------------------------------------
 // Legacy path: lanes.ConnectChains
-// ---------------------------------------------------------------------------
-
+// ---------------------------------------------------------------------------.
 type chainEntry struct {
 	remoteSelectors []uint64
 	impl            cciptestinterfaces.CCIP17Configuration
@@ -383,15 +283,15 @@ func connectAllChainsLegacy(
 	mcmsReaderRegistry := changesetscore.GetRegistry()
 
 	connectChainsCS := lanes.ConnectChains(laneAdapterRegistry, mcmsReaderRegistry)
-	cfg := lanes.ConnectChainsConfig{
+	connectCfg := lanes.ConnectChainsConfig{
 		Lanes:              laneConfigs,
 		CommitteePopulator: populator,
 	}
-	if err := connectChainsCS.VerifyPreconditions(*e, cfg); err != nil {
-		return fmt.Errorf("connect chains precondition check failed: %w", err)
+	if err := connectChainsCS.VerifyPreconditions(*e, connectCfg); err != nil {
+		return fmt.Errorf("connectAllChainsLegacy: precondition check failed: %w", err)
 	}
-	if _, err := connectChainsCS.Apply(*e, cfg); err != nil {
-		return fmt.Errorf("configure chains for lanes: %w", err)
+	if _, err := connectChainsCS.Apply(*e, connectCfg); err != nil {
+		return fmt.Errorf("connectAllChainsLegacy: connect chains: %w", err)
 	}
 
 	for _, sel := range orderedSelectors {
