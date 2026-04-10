@@ -417,6 +417,10 @@ func (m *CCIP17EVMConfig) deployCircleContracts(
 	return usdcTokenAddr, messageTransmitterAddr, tokenMessengerAddr, nil
 }
 
+// filterOnlySupportedSelectors returns only the remote selectors that support CCTP.
+// CCTP (Circle's Cross-Chain Transfer Protocol) is currently only deployed on EVM chains.
+// When CCTP support is added for other families, this should check the CCTPChainRegistry
+// from v2_0_0/adapters rather than filtering by family string.
 func filterOnlySupportedSelectors(remoteSelectors []uint64) []uint64 {
 	supportedRemoteSelectors := make([]uint64, 0)
 	for _, rs := range remoteSelectors {
