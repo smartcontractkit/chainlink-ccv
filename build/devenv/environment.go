@@ -467,14 +467,20 @@ func enrichEnvironmentTopology(cfg *ccipOffchain.EnvironmentTopology, verifiers 
 			// For CL mode the signer address should be fetch from JD, or the NOP is not found
 			continue
 		}
-		if nop.SignerAddressByFamily[chainsel.FamilyEVM] == "" {
-			cfg.NOPTopology.SetNOPSignerAddress(ver.NOPAlias, chainsel.FamilyEVM, ver.Out.BootstrapKeys.ECDSAAddress)
+		evmSigner := nop.SignerAddressByFamily[chainsel.FamilyEVM]
+		if evmSigner == "" {
+			evmSigner = ver.Out.BootstrapKeys.ECDSAAddress
+			cfg.NOPTopology.SetNOPSignerAddress(ver.NOPAlias, chainsel.FamilyEVM, evmSigner)
 		}
 		if nop.SignerAddressByFamily[chainsel.FamilyCanton] == "" {
 			cfg.NOPTopology.SetNOPSignerAddress(ver.NOPAlias, chainsel.FamilyCanton, ver.Out.BootstrapKeys.ECDSAPublicKey)
 		}
 		if nop.SignerAddressByFamily[chainsel.FamilyStellar] == "" {
 			cfg.NOPTopology.SetNOPSignerAddress(ver.NOPAlias, chainsel.FamilyStellar, ver.Out.BootstrapKeys.EdDSAPublicKey)
+		}
+		// Solana committee verification uses ECDSA offchain since we don't have separate Solana key infra
+		if nop.SignerAddressByFamily[chainsel.FamilySolana] == "" {
+			cfg.NOPTopology.SetNOPSignerAddress(ver.NOPAlias, chainsel.FamilySolana, evmSigner)
 		}
 		seenAliases[ver.NOPAlias] = struct{}{}
 	}
@@ -2133,7 +2139,6 @@ func registerStandaloneVerifiersWithJD(ctx context.Context, verifiers []*committ
 				return fmt.Errorf("failed to register bootstrap %s with JD: %w", ver.ContainerName, err)
 			}
 
-			// Store the JD node ID in the verifier output for later use when proposing jobs.
 			mu.Lock()
 			ver.Out.JDNodeID = reg.NodeID
 			mu.Unlock()
