@@ -3,6 +3,7 @@ package ccv
 import (
 	"context"
 	"fmt"
+	"maps"
 	"sync"
 
 	"github.com/rs/zerolog"
@@ -100,8 +101,6 @@ func GetAllImplFactories() map[string]ImplFactory {
 	implFactoriesMu.Lock()
 	defer implFactoriesMu.Unlock()
 	result := make(map[string]ImplFactory, len(implFactories))
-	for k, v := range implFactories {
-		result[k] = v
-	}
+	maps.Copy(result, implFactories)
 	return result
 }

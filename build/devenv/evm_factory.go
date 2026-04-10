@@ -86,7 +86,6 @@ func (f *evmImplFactory) TransmitterAddress(privateKeyHex string) (protocol.Unkn
 	return protocol.UnknownAddress(crypto.PubkeyToAddress(pk.PublicKey).Bytes()), nil
 }
 
-
 // newEVMCLDFProviderFactory returns a CLDFProviderFactory that builds an EVM
 // CLDF BlockChain provider from the blockchain input. This extracts the inline
 // EVM branch formerly in NewCLDFOperationsEnvironmentWithOffchain.

@@ -861,21 +861,6 @@ func serializeExtraArgsV3(opts cciptestinterfaces.MessageOptions) []byte {
 	return extraArgs
 }
 
-func serializeExtraArgsSVMV1(_ cciptestinterfaces.MessageOptions) []byte {
-	// // Extra args tag for chains that use the Solana VM.
-	// bytes4 public constant SVM_EXTRA_ARGS_V1_TAG = 0x1f3b3aba;
-
-	// struct SVMExtraArgsV1 {
-	//   uint32 computeUnits;
-	//   uint64 accountIsWritableBitmap;
-	//   bool allowOutOfOrderExecution;
-	//   bytes32 tokenReceiver;
-	//   // Additional accounts needed for execution of CCIP receiver. Must be empty if message.receiver is zero.
-	//   // Token transfer related accounts are specified in the token pool lookup table on SVM.
-	//   bytes32[] accounts;
-	// }
-	return nil // TODO: implement when solana ported to 1.7 tests.
-}
 
 func (m *CCIP17EVM) ExposeMetrics(
 	ctx context.Context,
