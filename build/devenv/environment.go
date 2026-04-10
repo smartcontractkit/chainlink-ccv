@@ -502,9 +502,9 @@ func buildEnvironmentTopology(in *Cfg, e *deployment.Environment) *ccipOffchain.
 		return &envCfg
 	}
 
-	// FeeAggregator fallback is EVM-only today. Non-EVM chains should register
-	// their own fee aggregator address in topology or via a family-specific hook.
+	// When topology omits fee_aggregator for a chain, use the chain deployer as a devenv default
 	evmChains := e.BlockChains.EVMChains()
+	solanaChains := e.BlockChains.SolanaChains()
 	for name, committee := range envCfg.NOPTopology.Committees {
 		if committee.ChainConfigs == nil {
 			continue
@@ -517,6 +517,9 @@ func buildEnvironmentTopology(in *Cfg, e *deployment.Environment) *ccipOffchain.
 				}
 				if chain, ok := evmChains[sel]; ok {
 					chainCfg.FeeAggregator = chain.DeployerKey.From.Hex()
+					committee.ChainConfigs[chainSel] = chainCfg
+				} else if solChain, ok := solanaChains[sel]; ok && solChain.DeployerKey != nil {
+					chainCfg.FeeAggregator = solChain.DeployerKey.PublicKey().String()
 					committee.ChainConfigs[chainSel] = chainCfg
 				}
 			}
