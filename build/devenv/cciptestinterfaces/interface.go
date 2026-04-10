@@ -106,7 +106,7 @@ type MessageOptions struct {
 
 // MessageSentEvent is a chain-agnostic representation of the output of a ccipSend operation.
 type MessageSentEvent struct {
-	MessageID      [32]byte
+	MessageID      protocol.Bytes32
 	Sender         protocol.UnknownAddress
 	Message        *protocol.Message
 	ReceiptIssuers []protocol.UnknownAddress
