@@ -107,7 +107,6 @@ func (v *Input) RebuildExecutorJobSpecWithBlockchainInfos(jobSpec string, blockc
 	if _, err := toml.Decode(jobSpec, &spec); err != nil {
 		return "", fmt.Errorf("failed to parse job spec: %w", err)
 	}
-
 	var cfg executorpkg.Configuration
 	if _, err := toml.Decode(spec.ExecutorConfig, &cfg); err != nil {
 		return "", fmt.Errorf("failed to parse executor config from job spec: %w", err)

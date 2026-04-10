@@ -20,9 +20,9 @@ type cfgWithBlockchainInfos[T any] struct {
 // into a strongly-typed chainaccess.Infos[T]. The type T is chosen by the caller (e.g.
 // blockchain.Info for EVM). Strict decode is applied: any unknown key in the config
 // (including under blockchain_infos.<selector>) causes an error.
-func LoadConfigWithBlockchainInfos[T any](spec JobSpec) (*Config, chainaccess.Infos[T], error) {
+func LoadConfigWithBlockchainInfos[T any](cfg string) (*Config, chainaccess.Infos[T], error) {
 	var decodeTarget cfgWithBlockchainInfos[T]
-	md, err := toml.Decode(spec.CommitteeVerifierConfig, &decodeTarget)
+	md, err := toml.Decode(cfg, &decodeTarget)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to decode committee verifier config: %w", err)
 	}

@@ -74,7 +74,7 @@ func (f *factory[T]) Start(ctx context.Context, spec executor.JobSpec, deps boot
 
 	lggr.Infow("Starting executor service", "spec", spec)
 
-	executorConfig, blockchainInfos, err := executor.LoadConfigWithBlockchainInfos[T](spec)
+	executorConfig, blockchainInfos, err := executor.LoadConfigWithBlockchainInfos[T](spec.ExecutorConfig)
 	if err != nil {
 		lggr.Errorw("Failed to load configuration", "error", err)
 		return fmt.Errorf("failed to load configuration: %w", err)
