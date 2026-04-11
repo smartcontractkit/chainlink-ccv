@@ -14,7 +14,6 @@ import (
 
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 
-	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap/keys"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/heartbeatclient"
@@ -59,7 +58,7 @@ func chainSelectorsFromMap[T any](m chainaccess.Infos[T]) []protocol.ChainSelect
 // NOTE: this factory supports only a single chain family at a time.
 // This is by design, since deployed CCIP apps will be built with a single chain family, but potentially
 // supporting many chains from that same family.
-type factory[T any] struct {
+type factory struct {
 	lggr             logger.Logger
 	server           *http.Server
 	coordinator      *verifier.Coordinator
@@ -67,33 +66,16 @@ type factory[T any] struct {
 	aggregatorWriter *storageaccess.AggregatorWriter
 	heartbeatClient  *heartbeatclient.HeartbeatClient
 	chainStatusDB    sqlutil.DataSource
-
-	createAccessorFactoryFunc CreateAccessorFactoryFunc[T]
-	chainFamily               string
-}
-
-// NewServiceFactory is deprecated use NewCommitteeVerifierServiceFactory instead.
-func NewServiceFactory[T any](
-	chainFamily string,
-	createAccessorFactoryFunc CreateAccessorFactoryFunc[T],
-) bootstrap.ServiceFactory[commit.JobSpec] {
-	return NewCommitteeVerifierServiceFactory(chainFamily, createAccessorFactoryFunc)
 }
 
 // NewCommitteeVerifierServiceFactory creates a new ServiceFactory for the committee verifier service.
 // T is the chain config type for this family (e.g. blockchain.Info for EVM).
-func NewCommitteeVerifierServiceFactory[T any](
-	chainFamily string,
-	createAccessorFactoryFunc CreateAccessorFactoryFunc[T],
-) bootstrap.ServiceFactory[commit.JobSpec] {
-	return &factory[T]{
-		createAccessorFactoryFunc: createAccessorFactoryFunc,
-		chainFamily:               chainFamily,
-	}
+func NewCommitteeVerifierServiceFactory() bootstrap.ServiceFactory[commit.JobSpec] {
+	return &factory{}
 }
 
 // Start implements [bootstrap.ServiceFactory].
-func (f *factory[T]) Start(ctx context.Context, spec commit.JobSpec, deps bootstrap.ServiceDeps) error {
+func (f *factory) Start(ctx context.Context, spec commit.JobSpec, deps bootstrap.ServiceDeps) error {
 	lggr := logger.Sugared(logger.Named(deps.Logger, "CommitteeVerifier"))
 	f.lggr = lggr
 
@@ -101,7 +83,7 @@ func (f *factory[T]) Start(ctx context.Context, spec commit.JobSpec, deps bootst
 
 	protocol.InitChainSelectorCache()
 
-	config, blockchainInfos, err := commit.LoadConfigWithBlockchainInfos[T](spec)
+	config, blockchainInfos, err := commit.LoadConfigWithBlockchainInfos(spec)
 	if err != nil {
 		lggr.Errorw("Failed to load configuration", "error", err)
 		return fmt.Errorf("failed to load configuration: %w", err)
@@ -181,29 +163,9 @@ func (f *factory[T]) Start(ctx context.Context, spec commit.JobSpec, deps bootst
 
 	f.aggregatorWriter = aggregatorWriter
 
-	accessorFactory, err := f.createAccessorFactoryFunc(ctx, lggr, blockchainInfos, *config)
-	if err != nil {
-		lggr.Errorw("Failed to create accessor factory", "error", err)
-		return fmt.Errorf("failed to create accessor factory: %w", err)
-	}
-
 	sourceReaders := make(map[protocol.ChainSelector]chainaccess.SourceReader)
 	for _, selector := range chainSelectors {
-		family, err := chainsel.GetSelectorFamily(uint64(selector))
-		if err != nil {
-			lggr.Errorw("Failed to get selector family", "error", err, "selector", selector)
-			return fmt.Errorf("failed to get selector family: %w", err)
-		}
-		if family != f.chainFamily {
-			lggr.Warnw("Skipping chain in provided config, doesn't match expected chain family",
-				"selector", selector,
-				"family", family,
-				"expectedFamily", f.chainFamily,
-			)
-			continue
-		}
-
-		accessor, err := accessorFactory.GetAccessor(ctx, selector)
+		accessor, err := deps.Registry.GetAccessor(ctx, selector)
 		if err != nil {
 			lggr.Errorw("Failed to get accessor", "error", err, "selector", selector)
 			return fmt.Errorf("failed to get accessor: %w", err)
@@ -388,7 +350,7 @@ func (f *factory[T]) Start(ctx context.Context, spec commit.JobSpec, deps bootst
 }
 
 // Stop implements [bootstrap.ServiceFactory].
-func (f *factory[T]) Stop(ctx context.Context) error {
+func (f *factory) Stop(ctx context.Context) error {
 	var allErrors error
 	// Stop HTTP server
 	if f.server != nil {
