@@ -13,9 +13,9 @@ import (
 	solchain "github.com/smartcontractkit/chainlink-ccv/pricer/pkg/sol"
 	"github.com/smartcontractkit/chainlink-common/keystore"
 	commonconfig "github.com/smartcontractkit/chainlink-common/pkg/config"
+	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 	evmtoml "github.com/smartcontractkit/chainlink-evm/pkg/config/toml"
 	evmkeys "github.com/smartcontractkit/chainlink-evm/pkg/keys/v2"
-	"github.com/smartcontractkit/chainlink-evm/pkg/utils/big"
 	"github.com/smartcontractkit/chainlink-solana/pkg/solana/config"
 	solkeys "github.com/smartcontractkit/chainlink-solana/pkg/solana/keys"
 	soltesting "github.com/smartcontractkit/chainlink-solana/pkg/solana/testing"
@@ -41,7 +41,7 @@ func TestPricer(t *testing.T) {
 	require.NoError(t, err)
 
 	// TODO: Move this to chainlink-evm/pkg/config/toml.
-	evmChainID := big.NewI(1337)
+	evmChainID := sqlutil.NewI(1337)
 	evmCfg := evmtoml.EVMConfig{
 		ChainID: evmChainID,
 		Nodes: []*evmtoml.Node{
