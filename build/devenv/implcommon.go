@@ -526,17 +526,28 @@ func ConfigureAllTokenTransfers(
 	env *deployment.Environment,
 	topology *ccipOffchain.EnvironmentTopology,
 ) error {
-	// poolIdentityKey returns a key that groups configs across chains for the
-	// same pool type+version+qualifier.
-	poolIdentityKey := func(cfg *tokenscore.TokenTransferConfig) string {
+	refKey := func(ref datastore.AddressRef) string {
 		v := ""
-		if cfg.TokenPoolRef.Version != nil {
-			v = cfg.TokenPoolRef.Version.String()
+		if ref.Version != nil {
+			v = ref.Version.String()
 		}
-		return string(cfg.TokenPoolRef.Type) + "+" + v + "+" + cfg.TokenPoolRef.Qualifier
+		return string(ref.Type) + "+" + v + "+" + ref.Qualifier
+	}
+	laneKey := func(local datastore.AddressRef, remote datastore.AddressRef) string {
+		a := refKey(local)
+		b := refKey(remote)
+		if a > b {
+			a, b = b, a
+		}
+		return a + "<->" + b
 	}
 
-	byPoolIdentity := make(map[string][]tokenscore.TokenTransferConfig)
+	// Group by normalized lane pair, not just local pool identity. Mixed Canton/EVM
+	// lanes use different pool types on each side (for example LockRelease vs
+	// BurnMint), so grouping only by the local pool prevents the shared
+	// orchestration from building one complete cross-chain lane and Canton
+	// auto-configure never runs for that pair.
+	byLane := make(map[string]map[uint64]tokenscore.TokenTransferConfig)
 
 	for i, impl := range impls {
 		tcp, ok := impl.(cciptestinterfaces.TokenConfigProvider)
@@ -555,18 +566,44 @@ func ConfigureAllTokenTransfers(
 			return fmt.Errorf("get token transfer configs for selector %d: %w", selectors[i], err)
 		}
 		for _, cfg := range cfgs {
-			key := poolIdentityKey(&cfg)
-			byPoolIdentity[key] = append(byPoolIdentity[key], cfg)
+			for remoteSelector, remoteCfg := range cfg.RemoteChains {
+				if remoteCfg.RemotePool == nil {
+					continue
+				}
+
+				key := laneKey(cfg.TokenPoolRef, *remoteCfg.RemotePool)
+				splitCfg := cfg
+				splitCfg.RemoteChains = map[uint64]tokenscore.RemoteChainConfig[*datastore.AddressRef, datastore.AddressRef]{
+					remoteSelector: remoteCfg,
+				}
+
+				if byLane[key] == nil {
+					byLane[key] = make(map[uint64]tokenscore.TokenTransferConfig)
+				}
+
+				if existing, ok := byLane[key][cfg.ChainSelector]; ok {
+					for rs, rc := range splitCfg.RemoteChains {
+						existing.RemoteChains[rs] = rc
+					}
+					byLane[key][cfg.ChainSelector] = existing
+				} else {
+					byLane[key][cfg.ChainSelector] = splitCfg
+				}
+			}
 		}
 	}
 
-	if len(byPoolIdentity) == 0 {
+	if len(byLane) == 0 {
 		return nil
 	}
 
 	tokenAdapterRegistry := tokenscore.GetTokenAdapterRegistry()
 	mcmsReaderRegistry := changesetscore.GetRegistry()
-	for _, group := range byPoolIdentity {
+	for _, groupedBySelector := range byLane {
+		group := make([]tokenscore.TokenTransferConfig, 0, len(groupedBySelector))
+		for _, cfg := range groupedBySelector {
+			group = append(group, cfg)
+		}
 		_, err := tokenscore.ConfigureTokensForTransfers(tokenAdapterRegistry, mcmsReaderRegistry).Apply(*env, tokenscore.ConfigureTokensForTransfersConfig{
 			Tokens: group,
 		})

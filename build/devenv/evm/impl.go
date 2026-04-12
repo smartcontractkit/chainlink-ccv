@@ -1318,9 +1318,24 @@ func (m *CCIP17EVMConfig) GetTokenTransferConfigs(
 	remoteSelectors []uint64,
 	topology *ccipOffchain.EnvironmentTopology,
 ) ([]tokenscore.TokenTransferConfig, error) {
+	// Mixed Canton/EVM lanes do not have both pool refs on every selector.
+	// The old datastore-wide filter dropped those lanes before the shared
+	// cross-chain token-transfer orchestration could group and configure them,
+	// which prevented Canton auto-configure from running for mixed-family pairs.
+	// Filter by topology first, then check local/remote pool refs on the
+	// specific selectors below.
 	applicableCombos := devenvcommon.FilterTokenCombinations(
-		devenvcommon.AllTokenCombinations(), topology, env.DataStore, append([]uint64{selector}, remoteSelectors...),
+		devenvcommon.AllTokenCombinations(), topology, nil, nil,
 	)
+	hasAddressRef := func(chainSelector uint64, ref datastore.AddressRef) bool {
+		_, err := env.DataStore.Addresses().Get(datastore.NewAddressRefKey(
+			chainSelector,
+			ref.Type,
+			ref.Version,
+			ref.Qualifier,
+		))
+		return err == nil
+	}
 	merged := make(map[string]tokenscore.TokenTransferConfig)
 
 	for _, combo := range applicableCombos {
@@ -1331,7 +1346,21 @@ func (m *CCIP17EVMConfig) GetTokenTransferConfigs(
 			{combo.LocalPoolAddressRef(), combo.RemotePoolAddressRef(), combo.LocalPoolCCVQualifiers()},
 			{combo.RemotePoolAddressRef(), combo.LocalPoolAddressRef(), combo.RemotePoolCCVQualifiers()},
 		} {
-			cfg := m.buildEVMTokenTransferConfig(selector, remoteSelectors, pair.local, pair.remote, pair.ccvQuals)
+			if !hasAddressRef(selector, pair.local) {
+				continue
+			}
+
+			eligibleRemoteSelectors := make([]uint64, 0, len(remoteSelectors))
+			for _, rs := range remoteSelectors {
+				if hasAddressRef(rs, pair.remote) {
+					eligibleRemoteSelectors = append(eligibleRemoteSelectors, rs)
+				}
+			}
+			if len(eligibleRemoteSelectors) == 0 {
+				continue
+			}
+
+			cfg := m.buildEVMTokenTransferConfig(selector, eligibleRemoteSelectors, pair.local, pair.remote, pair.ccvQuals)
 			key := string(cfg.TokenPoolRef.Type) + "\x00" + cfg.TokenPoolRef.Version.String() + "\x00" + cfg.TokenPoolRef.Qualifier
 			if existing, ok := merged[key]; ok {
 				maps.Copy(existing.RemoteChains, cfg.RemoteChains)
