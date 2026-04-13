@@ -121,7 +121,10 @@ func LoadEVM(ctx context.Context, cfg ChainConfig, lggr logger.Logger, evmTxKeyS
 	if err := inMemoryStoreManager.Add(addresses...); err != nil {
 		return nil, fmt.Errorf("failed to add addresses to store manager: %w", err)
 	}
-	txmClient := clientwrappers.NewChainClient(evmClient)
+	txmClient, err := clientwrappers.NewChainClient(lggr, evmClient, false)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create txm client: %w", err)
+	}
 	priceMaxKey := func(addr common.Address) *assets.Wei {
 		return chainScopedCfg.EVM().GasEstimator().PriceMax()
 	}
