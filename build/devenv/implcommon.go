@@ -535,9 +535,14 @@ func ConfigureAllTokenTransfers(
 		return string(ref.Type) + "+" + v + "+" + ref.Qualifier
 	}
 
-	// laneKey builds one stable key for a local/remote pool pair so both
-	// directions of the same lane end up in the same group.
+	// laneKey keeps same-type lanes grouped by the local pool identity, which
+	// preserves the original directional behavior for cases like burn 1.6.1 <->
+	// burn 2.0.0. For mixed pool types, use a stable unordered pair so both
+	// directions of one mixed lane land in the same bucket.
 	laneKey := func(local, remote datastore.AddressRef) string {
+		if local.Type == remote.Type {
+			return refKey(local)
+		}
 		a := refKey(local)
 		b := refKey(remote)
 		if a > b {
@@ -546,10 +551,9 @@ func ConfigureAllTokenTransfers(
 		return a + "<->" + b
 	}
 
-	// Group by the full lane pair, not just the local pool. Mixed lanes use
-	// different local pool types on each side, so grouping by local pool alone
-	// splits one real lane into separate groups. The shared filter should ensure
-	// each selector emits only the orientation it actually supports.
+	// Mixed lanes use different local pool types on each side, so they need a
+	// stable pair key. Same-type lanes keep the local-pool key so directional
+	// pairs like burn 1.6.1 <-> burn 2.0.0 do not collapse into one bucket.
 
 	byLane := make(map[string]map[uint64]tokenscore.TokenTransferConfig)
 
