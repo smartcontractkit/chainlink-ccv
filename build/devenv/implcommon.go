@@ -535,25 +535,20 @@ func ConfigureAllTokenTransfers(
 		return string(ref.Type) + "+" + v + "+" + ref.Qualifier
 	}
 
-	// laneKey keeps same-type lanes grouped by the local pool identity, which
-	// preserves the original directional behavior for cases like burn 1.6.1 <->
-	// burn 2.0.0. For mixed pool types, use a stable unordered pair so both
-	// directions of one mixed lane land in the same bucket.
-	laneKey := func(local, remote datastore.AddressRef) string {
-		if local.Type == remote.Type {
-			return refKey(local)
+	// laneKey groups reciprocal configs for the same selector pair by the local
+	// pool identity each selector contributes. The selector ordering is stable,
+	// so A(local burn)->B(remote lock) and B(local lock)->A(remote burn) land in
+	// the same bucket, while the opposite orientation on the same selector pair
+	// stays distinct.
+	laneKey := func(local datastore.AddressRef, localSelector uint64, remote datastore.AddressRef, remoteSelector uint64) string {
+		leftSelector, leftRef := localSelector, local
+		rightSelector, rightRef := remoteSelector, remote
+		if leftSelector > rightSelector {
+			leftSelector, rightSelector = rightSelector, leftSelector
+			leftRef, rightRef = rightRef, leftRef
 		}
-		a := refKey(local)
-		b := refKey(remote)
-		if a > b {
-			a, b = b, a
-		}
-		return a + "<->" + b
+		return fmt.Sprintf("%d:%s<->%d:%s", leftSelector, refKey(leftRef), rightSelector, refKey(rightRef))
 	}
-
-	// Mixed lanes use different local pool types on each side, so they need a
-	// stable pair key. Same-type lanes keep the local-pool key so directional
-	// pairs like burn 1.6.1 <-> burn 2.0.0 do not collapse into one bucket.
 
 	byLane := make(map[string]map[uint64]tokenscore.TokenTransferConfig)
 
@@ -579,7 +574,7 @@ func ConfigureAllTokenTransfers(
 					continue
 				}
 
-				key := laneKey(cfg.TokenPoolRef, *remoteCfg.RemotePool)
+				key := laneKey(cfg.TokenPoolRef, cfg.ChainSelector, *remoteCfg.RemotePool, remoteSelector)
 				splitCfg := cfg
 				splitCfg.RemoteChains = map[uint64]tokenscore.RemoteChainConfig[*datastore.AddressRef, datastore.AddressRef]{
 					remoteSelector: remoteCfg,
