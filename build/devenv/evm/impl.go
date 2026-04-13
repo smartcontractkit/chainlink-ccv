@@ -1400,13 +1400,9 @@ func (m *CCIP17EVMConfig) buildEVMTokenTransferConfig(
 			DefaultFinalityInboundRateLimiterConfig:  tokenscore.RateLimiterConfigFloatInput{},
 			DefaultFinalityOutboundRateLimiterConfig: tokenscore.RateLimiterConfigFloatInput{},
 			CustomFinalityInboundRateLimiterConfig:   tokenscore.RateLimiterConfigFloatInput{},
-			CustomFinalityOutboundRateLimiterConfig: tokenscore.RateLimiterConfigFloatInput{
-				IsEnabled: true,
-				Capacity:  100000,
-				Rate:      100,
-			},
-			OutboundCCVs: ccvRefs,
-			InboundCCVs:  ccvRefs,
+			CustomFinalityOutboundRateLimiterConfig:  tokenscore.RateLimiterConfigFloatInput{},
+			OutboundCCVs:                             ccvRefs,
+			InboundCCVs:                              ccvRefs,
 		}
 	}
 
@@ -1418,8 +1414,8 @@ func (m *CCIP17EVMConfig) buildEVMTokenTransferConfig(
 		// source token unregistered on the EVM chain and OnRamp.getFee reverts with
 		// UnsupportedToken(address).
 		TokenRef: datastore.AddressRef{
-			Type:      datastore.ContractType("BurnMintERC20WithDripToken"),
-			Version:   semver.MustParse("1.0.0"),
+			Type:      datastore.ContractType(bnm_drip_v1_0.ContractType),
+			Version:   semver.MustParse(bnm_drip_v1_0.Deploy.Version()),
 			Qualifier: localRef.Qualifier,
 		},
 		RegistryRef: datastore.AddressRef{
