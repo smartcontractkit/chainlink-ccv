@@ -533,7 +533,10 @@ func ConfigureAllTokenTransfers(
 		}
 		return string(ref.Type) + "+" + v + "+" + ref.Qualifier
 	}
-	laneKey := func(local datastore.AddressRef, remote datastore.AddressRef) string {
+
+	// laneKey builds one stable key for a local/remote pool pair so both
+	// directions of the same lane end up in the same group.
+	laneKey := func(local, remote datastore.AddressRef) string {
 		a := refKey(local)
 		b := refKey(remote)
 		if a > b {
@@ -542,11 +545,53 @@ func ConfigureAllTokenTransfers(
 		return a + "<->" + b
 	}
 
-	// Group by normalized lane pair, not just local pool identity. Mixed Canton/EVM
-	// lanes use different pool types on each side (for example LockRelease vs
-	// BurnMint), so grouping only by the local pool prevents the shared
-	// orchestration from building one complete cross-chain lane and Canton
-	// auto-configure never runs for that pair.
+	// Group by the full lane pair, not just the local pool. Mixed EVM/Canton
+	// lanes use different local pool types on each side, so grouping by local
+	// pool alone split one real lane into separate groups and Canton auto-configure
+	// never saw a complete lane to configure.
+	//
+	// If one selector exposes both sides of the same mixed lane, keep the native
+	// local side for that chain family: BurnMint on EVM and LockRelease on Canton.
+	preferConfigForMixedLane := func(selector uint64, current, candidate tokenscore.TokenTransferConfig) (tokenscore.TokenTransferConfig, error) {
+		if refKey(current.TokenPoolRef) == refKey(candidate.TokenPoolRef) {
+			for rs, rc := range candidate.RemoteChains {
+				current.RemoteChains[rs] = rc
+			}
+			return current, nil
+		}
+
+		family, err := chainsel.GetSelectorFamily(selector)
+		if err != nil {
+			return tokenscore.TokenTransferConfig{}, fmt.Errorf("get selector family for %d: %w", selector, err)
+		}
+
+		switch family {
+		case chainsel.FamilyEVM:
+			if current.TokenPoolRef.Type == datastore.ContractType(devenvcommon.BurnMintTokenPoolType) {
+				return current, nil
+			}
+			if candidate.TokenPoolRef.Type == datastore.ContractType(devenvcommon.BurnMintTokenPoolType) {
+				return candidate, nil
+			}
+		case chainsel.FamilyCanton:
+			if current.TokenPoolRef.Type == datastore.ContractType(devenvcommon.LockReleaseTokenPoolType) {
+				return current, nil
+			}
+			if candidate.TokenPoolRef.Type == datastore.ContractType(devenvcommon.LockReleaseTokenPoolType) {
+				return candidate, nil
+			}
+		}
+
+		return tokenscore.TokenTransferConfig{}, fmt.Errorf(
+			"conflicting token configs for selector %d: %s/%s vs %s/%s",
+			selector,
+			current.TokenPoolRef.Type,
+			current.TokenPoolRef.Qualifier,
+			candidate.TokenPoolRef.Type,
+			candidate.TokenPoolRef.Qualifier,
+		)
+	}
+
 	byLane := make(map[string]map[uint64]tokenscore.TokenTransferConfig)
 
 	for i, impl := range impls {
@@ -582,10 +627,11 @@ func ConfigureAllTokenTransfers(
 				}
 
 				if existing, ok := byLane[key][cfg.ChainSelector]; ok {
-					for rs, rc := range splitCfg.RemoteChains {
-						existing.RemoteChains[rs] = rc
+					preferred, err := preferConfigForMixedLane(cfg.ChainSelector, existing, splitCfg)
+					if err != nil {
+						return err
 					}
-					byLane[key][cfg.ChainSelector] = existing
+					byLane[key][cfg.ChainSelector] = preferred
 				} else {
 					byLane[key][cfg.ChainSelector] = splitCfg
 				}

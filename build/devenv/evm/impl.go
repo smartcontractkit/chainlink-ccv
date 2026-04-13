@@ -1318,12 +1318,11 @@ func (m *CCIP17EVMConfig) GetTokenTransferConfigs(
 	remoteSelectors []uint64,
 	topology *ccipOffchain.EnvironmentTopology,
 ) ([]tokenscore.TokenTransferConfig, error) {
-	// Mixed Canton/EVM lanes do not have both pool refs on every selector.
-	// The old datastore-wide filter dropped those lanes before the shared
-	// cross-chain token-transfer orchestration could group and configure them,
-	// which prevented Canton auto-configure from running for mixed-family pairs.
-	// Filter by topology first, then check local/remote pool refs on the
-	// specific selectors below.
+	// Mixed EVM/Canton lanes use different pool types on each chain.
+	// The old filter required both pool refs to exist on every selector, so it
+	// dropped valid mixed lanes before auto-configure ran.
+	// Keep the topology combo here, then check the local ref on the local chain
+	// and the remote ref on each remote chain below.
 	applicableCombos := devenvcommon.FilterTokenCombinations(
 		devenvcommon.AllTokenCombinations(), topology, nil, nil,
 	)
@@ -1410,6 +1409,15 @@ func (m *CCIP17EVMConfig) buildEVMTokenTransferConfig(
 	return tokenscore.TokenTransferConfig{
 		ChainSelector: selector,
 		TokenPoolRef:  localRef,
+		// EVM configure uses the source token ref when registering the token/pool in the
+		// token admin registry. Without this, mixed EVM->Canton lanes can leave the
+		// source token unregistered on the EVM chain and OnRamp.getFee reverts with
+		// UnsupportedToken(address).
+		TokenRef: datastore.AddressRef{
+			Type:      datastore.ContractType("BurnMintERC20WithDripToken"),
+			Version:   semver.MustParse("1.0.0"),
+			Qualifier: localRef.Qualifier,
+		},
 		RegistryRef: datastore.AddressRef{
 			Type:    datastore.ContractType(token_admin_registry.ContractType),
 			Version: semver.MustParse(token_admin_registry.Deploy.Version()),
