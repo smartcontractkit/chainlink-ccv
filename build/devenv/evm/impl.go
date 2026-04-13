@@ -1318,55 +1318,19 @@ func (m *CCIP17EVMConfig) GetTokenTransferConfigs(
 	remoteSelectors []uint64,
 	topology *ccipOffchain.EnvironmentTopology,
 ) ([]tokenscore.TokenTransferConfig, error) {
-	// Mixed EVM/Canton lanes use different pool types on each chain.
-	// The old filter required both pool refs to exist on every selector, so it
-	// dropped valid mixed lanes before auto-configure ran.
-	// Keep the topology combo here, then check the local ref on the local chain
-	// and the remote ref on each remote chain below.
 	applicableCombos := devenvcommon.FilterTokenCombinations(
-		devenvcommon.AllTokenCombinations(), topology, nil, nil,
+		devenvcommon.AllTokenCombinations(), topology, env.DataStore, append([]uint64{selector}, remoteSelectors...),
 	)
-	hasAddressRef := func(chainSelector uint64, ref datastore.AddressRef) bool {
-		_, err := env.DataStore.Addresses().Get(datastore.NewAddressRefKey(
-			chainSelector,
-			ref.Type,
-			ref.Version,
-			ref.Qualifier,
-		))
-		return err == nil
-	}
 	merged := make(map[string]tokenscore.TokenTransferConfig)
 
 	for _, combo := range applicableCombos {
-		for _, pair := range []struct {
-			local, remote datastore.AddressRef
-			ccvQuals      []string
-		}{
-			{combo.LocalPoolAddressRef(), combo.RemotePoolAddressRef(), combo.LocalPoolCCVQualifiers()},
-			{combo.RemotePoolAddressRef(), combo.LocalPoolAddressRef(), combo.RemotePoolCCVQualifiers()},
-		} {
-			if !hasAddressRef(selector, pair.local) {
-				continue
-			}
-
-			eligibleRemoteSelectors := make([]uint64, 0, len(remoteSelectors))
-			for _, rs := range remoteSelectors {
-				if hasAddressRef(rs, pair.remote) {
-					eligibleRemoteSelectors = append(eligibleRemoteSelectors, rs)
-				}
-			}
-			if len(eligibleRemoteSelectors) == 0 {
-				continue
-			}
-
-			cfg := m.buildEVMTokenTransferConfig(selector, eligibleRemoteSelectors, pair.local, pair.remote, pair.ccvQuals)
-			key := string(cfg.TokenPoolRef.Type) + "\x00" + cfg.TokenPoolRef.Version.String() + "\x00" + cfg.TokenPoolRef.Qualifier
-			if existing, ok := merged[key]; ok {
-				maps.Copy(existing.RemoteChains, cfg.RemoteChains)
-				merged[key] = existing
-			} else {
-				merged[key] = cfg
-			}
+		cfg := m.buildEVMTokenTransferConfig(selector, remoteSelectors, combo.LocalPoolAddressRef(), combo.RemotePoolAddressRef(), combo.LocalPoolCCVQualifiers())
+		key := string(cfg.TokenPoolRef.Type) + "\x00" + cfg.TokenPoolRef.Version.String() + "\x00" + cfg.TokenPoolRef.Qualifier
+		if existing, ok := merged[key]; ok {
+			maps.Copy(existing.RemoteChains, cfg.RemoteChains)
+			merged[key] = existing
+		} else {
+			merged[key] = cfg
 		}
 	}
 
@@ -1409,10 +1373,6 @@ func (m *CCIP17EVMConfig) buildEVMTokenTransferConfig(
 	return tokenscore.TokenTransferConfig{
 		ChainSelector: selector,
 		TokenPoolRef:  localRef,
-		// EVM configure uses the source token ref when registering the token/pool in the
-		// token admin registry. Without this, mixed EVM->Canton lanes can leave the
-		// source token unregistered on the EVM chain and OnRamp.getFee reverts with
-		// UnsupportedToken(address).
 		TokenRef: datastore.AddressRef{
 			Type:      datastore.ContractType(bnm_drip_v1_0.ContractType),
 			Version:   semver.MustParse(bnm_drip_v1_0.Deploy.Version()),

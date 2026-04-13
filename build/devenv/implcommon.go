@@ -546,50 +546,10 @@ func ConfigureAllTokenTransfers(
 		return a + "<->" + b
 	}
 
-	// Group by the full lane pair, not just the local pool. Mixed EVM/Canton
-	// lanes use different local pool types on each side, so grouping by local
-	// pool alone split one real lane into separate groups and Canton auto-configure
-	// never saw a complete lane to configure.
-	//
-	// If one selector exposes both sides of the same mixed lane, keep the native
-	// local side for that chain family: BurnMint on EVM and LockRelease on Canton.
-	preferConfigForMixedLane := func(selector uint64, current, candidate tokenscore.TokenTransferConfig) (tokenscore.TokenTransferConfig, error) {
-		if refKey(current.TokenPoolRef) == refKey(candidate.TokenPoolRef) {
-			maps.Copy(current.RemoteChains, candidate.RemoteChains)
-			return current, nil
-		}
-
-		family, err := chainsel.GetSelectorFamily(selector)
-		if err != nil {
-			return tokenscore.TokenTransferConfig{}, fmt.Errorf("get selector family for %d: %w", selector, err)
-		}
-
-		switch family {
-		case chainsel.FamilyEVM:
-			if current.TokenPoolRef.Type == datastore.ContractType(devenvcommon.BurnMintTokenPoolType) {
-				return current, nil
-			}
-			if candidate.TokenPoolRef.Type == datastore.ContractType(devenvcommon.BurnMintTokenPoolType) {
-				return candidate, nil
-			}
-		case chainsel.FamilyCanton:
-			if current.TokenPoolRef.Type == datastore.ContractType(devenvcommon.LockReleaseTokenPoolType) {
-				return current, nil
-			}
-			if candidate.TokenPoolRef.Type == datastore.ContractType(devenvcommon.LockReleaseTokenPoolType) {
-				return candidate, nil
-			}
-		}
-
-		return tokenscore.TokenTransferConfig{}, fmt.Errorf(
-			"conflicting token configs for selector %d: %s/%s vs %s/%s",
-			selector,
-			current.TokenPoolRef.Type,
-			current.TokenPoolRef.Qualifier,
-			candidate.TokenPoolRef.Type,
-			candidate.TokenPoolRef.Qualifier,
-		)
-	}
+	// Group by the full lane pair, not just the local pool. Mixed lanes use
+	// different local pool types on each side, so grouping by local pool alone
+	// splits one real lane into separate groups. The shared filter should ensure
+	// each selector emits only the orientation it actually supports.
 
 	byLane := make(map[string]map[uint64]tokenscore.TokenTransferConfig)
 
@@ -626,11 +586,19 @@ func ConfigureAllTokenTransfers(
 				}
 
 				if existing, ok := byLane[key][cfg.ChainSelector]; ok {
-					preferred, err := preferConfigForMixedLane(cfg.ChainSelector, existing, splitCfg)
-					if err != nil {
-						return err
+					if refKey(existing.TokenPoolRef) != refKey(splitCfg.TokenPoolRef) {
+						return fmt.Errorf(
+							"selector %d produced conflicting local pool configs for lane %s: %s/%s vs %s/%s",
+							cfg.ChainSelector,
+							key,
+							existing.TokenPoolRef.Type,
+							existing.TokenPoolRef.Qualifier,
+							splitCfg.TokenPoolRef.Type,
+							splitCfg.TokenPoolRef.Qualifier,
+						)
 					}
-					byLane[key][cfg.ChainSelector] = preferred
+					maps.Copy(existing.RemoteChains, splitCfg.RemoteChains)
+					byLane[key][cfg.ChainSelector] = existing
 				} else {
 					byLane[key][cfg.ChainSelector] = splitCfg
 				}
