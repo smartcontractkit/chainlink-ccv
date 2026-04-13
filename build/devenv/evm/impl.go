@@ -1400,7 +1400,11 @@ func (m *CCIP17EVMConfig) buildEVMTokenTransferConfig(
 			DefaultFinalityInboundRateLimiterConfig:  tokenscore.RateLimiterConfigFloatInput{},
 			DefaultFinalityOutboundRateLimiterConfig: tokenscore.RateLimiterConfigFloatInput{},
 			CustomFinalityInboundRateLimiterConfig:   tokenscore.RateLimiterConfigFloatInput{},
-			CustomFinalityOutboundRateLimiterConfig:  tokenscore.RateLimiterConfigFloatInput{},
+			CustomFinalityOutboundRateLimiterConfig: tokenscore.RateLimiterConfigFloatInput{
+				IsEnabled: true,
+				Capacity:  100000,
+				Rate:      100,
+			},
 			OutboundCCVs:                             ccvRefs,
 			InboundCCVs:                              ccvRefs,
 		}
