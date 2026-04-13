@@ -34,9 +34,8 @@ Type = "evm"
 Family = "evm"
 UniqueChainName = "chain-1"
 `
-	spec := JobSpec{CommitteeVerifierConfig: tomlConfig}
 
-	cfg, infos, err := LoadConfigWithBlockchainInfos[testChainInfo](spec)
+	cfg, infos, err := LoadConfigWithBlockchainInfos[testChainInfo](tomlConfig)
 	require.NoError(t, err)
 	require.NotNil(t, cfg)
 	require.NotNil(t, infos)
@@ -58,9 +57,7 @@ func TestLoadConfigWithBlockchainInfos_UnknownTopLevelKey_ReturnsError(t *testin
 	tomlConfig := `
 typo_key = "should fail"
 `
-	spec := JobSpec{CommitteeVerifierConfig: tomlConfig}
-
-	_, _, err := LoadConfigWithBlockchainInfos[testChainInfo](spec)
+	_, _, err := LoadConfigWithBlockchainInfos[testChainInfo](tomlConfig)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unknown fields")
 	assert.Contains(t, err.Error(), "typo_key")
@@ -71,9 +68,7 @@ func TestLoadConfigWithBlockchainInfos_UnknownKeyUnderBlockchainInfos_ReturnsErr
 [blockchain_infos."1"]
 UnknownField = "should fail"
 `
-	spec := JobSpec{CommitteeVerifierConfig: tomlConfig}
-
-	_, _, err := LoadConfigWithBlockchainInfos[testChainInfo](spec)
+	_, _, err := LoadConfigWithBlockchainInfos[testChainInfo](tomlConfig)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "unknown fields")
 	assert.Contains(t, err.Error(), "blockchain_infos")
@@ -81,9 +76,7 @@ UnknownField = "should fail"
 
 func TestLoadConfigWithBlockchainInfos_EmptyBlockchainInfos(t *testing.T) {
 	tomlConfig := ``
-	spec := JobSpec{CommitteeVerifierConfig: tomlConfig}
-
-	cfg, infos, err := LoadConfigWithBlockchainInfos[testChainInfo](spec)
+	cfg, infos, err := LoadConfigWithBlockchainInfos[testChainInfo](tomlConfig)
 	require.NoError(t, err)
 	require.NotNil(t, cfg)
 	assert.Empty(t, infos, "blockchain_infos should be nil or empty when key is absent")

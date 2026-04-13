@@ -21,6 +21,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
+	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
 
 	ccipAdapters "github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/adapters"
 	ccipChangesets "github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/changesets"
@@ -544,8 +545,8 @@ func generateExecutorJobSpecs(
 	impls []cciptestinterfaces.CCIP17Configuration,
 	topology *ccipOffchain.EnvironmentTopology,
 	ds datastore.MutableDataStore,
-) (map[string]string, error) {
-	executorJobSpecs := make(map[string]string)
+) (map[string]bootstrap.JobSpec, error) {
+	executorJobSpecs := make(map[string]bootstrap.JobSpec)
 
 	if len(in.Executor) == 0 {
 		return executorJobSpecs, nil
@@ -588,17 +589,32 @@ func generateExecutorJobSpecs(
 			if err != nil {
 				return nil, fmt.Errorf("failed to get executor job spec for %s: %w", exec.ContainerName, err)
 			}
-			jobSpec := job.Spec
-			executorJobSpecs[exec.ContainerName] = jobSpec
+
+			// TODO: Use bootstrap.JobSpec in CLD to avoid this conversion here
+			var executorSpec ExecutorJobSpec
+			{
+				md, err := toml.Decode(job.Spec, &executorSpec)
+				if err != nil {
+					return nil, fmt.Errorf("failed to decode verifier job spec for %s: %w", exec.ContainerName, err)
+				}
+				if len(md.Undecoded()) > 0 {
+					L.Warn().
+						Str("spec", job.Spec).
+						Str("undecoded fields", fmt.Sprintf("%v", md.Undecoded())).
+						Msg("Undecoded fields in executor job spec")
+					return nil, fmt.Errorf("unknown fields in executor job spec for %s: %v", exec.ContainerName, md.Undecoded())
+				}
+				executorJobSpecs[exec.ContainerName] = executorSpec.ToBootstrapJobSpec()
+			}
 
 			// Extract inner config from job spec for standalone mode
-			execCfg, err := ParseExecutorConfigFromJobSpec(jobSpec)
-			if err != nil {
+			var cfg executor.Configuration
+			if err := toml.Unmarshal([]byte(executorSpec.ExecutorConfig), &cfg); err != nil {
 				return nil, fmt.Errorf("failed to parse executor config from job spec: %w", err)
 			}
 
 			// Marshal the inner config back to TOML for standalone mode
-			configBytes, err := toml.Marshal(execCfg)
+			configBytes, err := toml.Marshal(cfg)
 			if err != nil {
 				return nil, fmt.Errorf("failed to marshal executor config: %w", err)
 			}
@@ -678,8 +694,8 @@ func generateVerifierJobSpecs(
 	topology *ccipOffchain.EnvironmentTopology,
 	sharedTLSCerts *services.TLSCertPaths,
 	ds datastore.MutableDataStore,
-) (map[string][]string, error) {
-	verifierJobSpecs := make(map[string][]string)
+) (map[string][]bootstrap.JobSpec, error) {
+	verifierJobSpecs := make(map[string][]bootstrap.JobSpec)
 
 	if len(in.Verifier) == 0 {
 		return verifierJobSpecs, nil
@@ -749,14 +765,29 @@ func generateVerifierJobSpecs(
 					continue
 				}
 
-				allJobSpecs := make([]string, 0, len(aggNames))
+				allJobSpecs := make([]bootstrap.JobSpec, 0, len(aggNames))
 				for _, aggName := range aggNames {
 					jobSpecID := shared.NewVerifierJobID(shared.NOPAlias(ver.NOPAlias), aggName, shared.VerifierJobScope{CommitteeQualifier: committeeName})
 					job, err := ccipOffchain.GetJob(output.DataStore.Seal(), shared.NOPAlias(ver.NOPAlias), jobSpecID.ToJobID())
 					if err != nil {
 						return nil, fmt.Errorf("failed to get verifier job spec for %s aggregator %s: %w", ver.ContainerName, aggName, err)
 					}
-					allJobSpecs = append(allJobSpecs, job.Spec)
+
+					// TODO: Use bootstrap.JobSpec in CLD to avoid this conversion here
+					var verifierJobSpec VerifierJobSpec
+					md, err := toml.Decode(job.Spec, &verifierJobSpec)
+					if err != nil {
+						return nil, fmt.Errorf("failed to decode verifier job spec for %s: %w", ver.ContainerName, err)
+					}
+					if len(md.Undecoded()) > 0 {
+						L.Warn().
+							Str("spec", job.Spec).
+							Str("undecoded fields", fmt.Sprintf("%v", md.Undecoded())).
+							Msg("Undecoded fields in executor job spec")
+						return nil, fmt.Errorf("unknown fields in verifier job spec for %s aggregator: %v", ver.ContainerName, md.Undecoded())
+					}
+
+					allJobSpecs = append(allJobSpecs, verifierJobSpec.ToBootstrapJobSpec())
 				}
 
 				verifierJobSpecs[ver.NOPAlias] = allJobSpecs
@@ -766,10 +797,11 @@ func generateVerifierJobSpecs(
 				// single-aggregator committees the modulo collapses to 0, so all
 				// verifiers share the one aggregator — matching the non-HA model.
 				ownedAggIdx := ver.NodeIndex % len(aggNames)
-				verCfg, err := ParseVerifierConfigFromJobSpec(allJobSpecs[ownedAggIdx])
-				if err != nil {
+				var verCfg commit.Config
+				if err := toml.Unmarshal([]byte(allJobSpecs[ownedAggIdx].AppConfig), &verCfg); err != nil {
 					return nil, fmt.Errorf("failed to parse verifier config from job spec: %w", err)
 				}
+
 				configBytes, err := toml.Marshal(verCfg)
 				if err != nil {
 					return nil, fmt.Errorf("failed to marshal verifier config: %w", err)
@@ -1431,7 +1463,7 @@ func NewEnvironment() (in *Cfg, err error) {
 	// Each verifier owns one aggregator (NodeIndex % numAggs). Select the
 	// corresponding job spec so proposeJobsToStandaloneVerifiers gets a
 	// single spec per container.
-	ownedJobSpecs := make(map[string]string, len(verifierJobSpecs))
+	ownedJobSpecs := make(map[string]bootstrap.JobSpec, len(verifierJobSpecs))
 	for _, ver := range in.Verifier {
 		specs := verifierJobSpecs[ver.NOPAlias]
 		if len(specs) > 0 {
@@ -1869,7 +1901,7 @@ func registerExecutorsWithJD(ctx context.Context, executors []*executorsvc.Input
 func proposeJobsToExecutors(
 	ctx context.Context,
 	executors []*executorsvc.Input,
-	executorJobSpecs map[string]string,
+	executorJobSpecs map[string]bootstrap.JobSpec,
 	blockchainOutputs []*blockchain.Output,
 	jdClient offchain.Client,
 ) error {
@@ -2032,46 +2064,40 @@ type IndexerSecret struct {
 
 // VerifierJobSpec represents the structure of a verifier job spec TOML.
 type VerifierJobSpec struct {
+	Name                    string `toml:"name"`
+	ExternalJobID           string `toml:"externalJobID"`
 	SchemaVersion           int    `toml:"schemaVersion"`
 	Type                    string `toml:"type"`
 	CommitteeVerifierConfig string `toml:"committeeVerifierConfig"`
 }
 
-// ParseVerifierConfigFromJobSpec extracts the inner commit.Config from a verifier job spec.
-func ParseVerifierConfigFromJobSpec(jobSpec string) (*commit.Config, error) {
-	var spec VerifierJobSpec
-	if err := toml.Unmarshal([]byte(jobSpec), &spec); err != nil {
-		return nil, fmt.Errorf("failed to parse job spec: %w", err)
+func (vjs VerifierJobSpec) ToBootstrapJobSpec() bootstrap.JobSpec {
+	return bootstrap.JobSpec{
+		Name:          vjs.Name,
+		ExternalJobID: vjs.ExternalJobID,
+		SchemaVersion: vjs.SchemaVersion,
+		Type:          vjs.Type,
+		AppConfig:     vjs.CommitteeVerifierConfig,
 	}
-
-	var cfg commit.Config
-	if err := toml.Unmarshal([]byte(spec.CommitteeVerifierConfig), &cfg); err != nil {
-		return nil, fmt.Errorf("failed to parse verifier config from job spec: %w", err)
-	}
-
-	return &cfg, nil
 }
 
 // ExecutorJobSpec represents the structure of an executor job spec TOML.
 type ExecutorJobSpec struct {
+	Name           string `toml:"name"`
+	ExternalJobID  string `toml:"externalJobID"`
 	SchemaVersion  int    `toml:"schemaVersion"`
 	Type           string `toml:"type"`
 	ExecutorConfig string `toml:"executorConfig"`
 }
 
-// ParseExecutorConfigFromJobSpec extracts the inner executor.Configuration from an executor job spec.
-func ParseExecutorConfigFromJobSpec(jobSpec string) (*executor.Configuration, error) {
-	var spec ExecutorJobSpec
-	if err := toml.Unmarshal([]byte(jobSpec), &spec); err != nil {
-		return nil, fmt.Errorf("failed to parse job spec: %w", err)
+func (ejs ExecutorJobSpec) ToBootstrapJobSpec() bootstrap.JobSpec {
+	return bootstrap.JobSpec{
+		Name:          ejs.Name,
+		ExternalJobID: ejs.ExternalJobID,
+		SchemaVersion: ejs.SchemaVersion,
+		Type:          ejs.Type,
+		AppConfig:     ejs.ExecutorConfig,
 	}
-
-	var cfg executor.Configuration
-	if err := toml.Unmarshal([]byte(spec.ExecutorConfig), &cfg); err != nil {
-		return nil, fmt.Errorf("failed to parse executor config from job spec: %w", err)
-	}
-
-	return &cfg, nil
 }
 
 // extractAndValidateDisableFinalityCheckers extracts DisableFinalityCheckers from verifiers
@@ -2083,7 +2109,7 @@ func extractAndValidateDisableFinalityCheckers(committeeName string, verifiers [
 
 	disableFinalityCheckersPerFamily = make(map[string][]string)
 	for _, ver := range verifiers {
-		// if already set, check if its the same value
+		// if already set, check if it's the same value
 		if _, ok := disableFinalityCheckersPerFamily[ver.ChainFamily]; ok {
 			if !slicesEqual(disableFinalityCheckersPerFamily[ver.ChainFamily], ver.DisableFinalityCheckers) {
 				return nil, fmt.Errorf(
@@ -2201,7 +2227,7 @@ func registerStandaloneVerifiersWithJD(ctx context.Context, verifiers []*committ
 func proposeJobsToStandaloneVerifiers(
 	ctx context.Context,
 	verifiers []*committeeverifier.Input,
-	verifierJobSpecs map[string]string,
+	verifierJobSpecs map[string]bootstrap.JobSpec,
 	blockchainOutputs []*blockchain.Output,
 	jdClient offchain.Client,
 ) error {

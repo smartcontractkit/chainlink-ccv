@@ -76,7 +76,7 @@ type factory[T any] struct {
 func NewServiceFactory[T any](
 	chainFamily string,
 	createAccessorFactoryFunc CreateAccessorFactoryFunc[T],
-) bootstrap.ServiceFactory[commit.JobSpec] {
+) bootstrap.ServiceFactory[bootstrap.JobSpec] {
 	return NewCommitteeVerifierServiceFactory(chainFamily, createAccessorFactoryFunc)
 }
 
@@ -85,7 +85,7 @@ func NewServiceFactory[T any](
 func NewCommitteeVerifierServiceFactory[T any](
 	chainFamily string,
 	createAccessorFactoryFunc CreateAccessorFactoryFunc[T],
-) bootstrap.ServiceFactory[commit.JobSpec] {
+) bootstrap.ServiceFactory[bootstrap.JobSpec] {
 	return &factory[T]{
 		createAccessorFactoryFunc: createAccessorFactoryFunc,
 		chainFamily:               chainFamily,
@@ -93,7 +93,7 @@ func NewCommitteeVerifierServiceFactory[T any](
 }
 
 // Start implements [bootstrap.ServiceFactory].
-func (f *factory[T]) Start(ctx context.Context, spec commit.JobSpec, deps bootstrap.ServiceDeps) error {
+func (f *factory[T]) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootstrap.ServiceDeps) error {
 	lggr := logger.Sugared(logger.Named(deps.Logger, "CommitteeVerifier"))
 	f.lggr = lggr
 
@@ -101,7 +101,7 @@ func (f *factory[T]) Start(ctx context.Context, spec commit.JobSpec, deps bootst
 
 	protocol.InitChainSelectorCache()
 
-	config, blockchainInfos, err := commit.LoadConfigWithBlockchainInfos[T](spec)
+	config, blockchainInfos, err := commit.LoadConfigWithBlockchainInfos[T](spec.AppConfig)
 	if err != nil {
 		lggr.Errorw("Failed to load configuration", "error", err)
 		return fmt.Errorf("failed to load configuration: %w", err)
