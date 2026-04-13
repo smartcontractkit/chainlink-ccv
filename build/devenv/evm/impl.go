@@ -1405,8 +1405,8 @@ func (m *CCIP17EVMConfig) buildEVMTokenTransferConfig(
 				Capacity:  100000,
 				Rate:      100,
 			},
-			OutboundCCVs:                             ccvRefs,
-			InboundCCVs:                              ccvRefs,
+			OutboundCCVs: ccvRefs,
+			InboundCCVs:  ccvRefs,
 		}
 	}
 

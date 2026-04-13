@@ -3,6 +3,7 @@ package ccv
 import (
 	"context"
 	"fmt"
+	"maps"
 	"sort"
 
 	"github.com/Masterminds/semver/v3"
@@ -554,9 +555,7 @@ func ConfigureAllTokenTransfers(
 	// local side for that chain family: BurnMint on EVM and LockRelease on Canton.
 	preferConfigForMixedLane := func(selector uint64, current, candidate tokenscore.TokenTransferConfig) (tokenscore.TokenTransferConfig, error) {
 		if refKey(current.TokenPoolRef) == refKey(candidate.TokenPoolRef) {
-			for rs, rc := range candidate.RemoteChains {
-				current.RemoteChains[rs] = rc
-			}
+			maps.Copy(current.RemoteChains, candidate.RemoteChains)
 			return current, nil
 		}
 
