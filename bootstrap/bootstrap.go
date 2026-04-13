@@ -70,7 +70,6 @@ func (r *runner[AppConfig]) StartJob(ctx context.Context, spec string) error {
 	}
 
 	// Initialize registry.
-	r.deps.Logger.Infow("Calling NewRegistry with spec.")
 	reg, err := chainaccess.NewRegistry(r.deps.Logger, spec)
 	if err != nil {
 		return fmt.Errorf("failed to create registry: %w", err)
