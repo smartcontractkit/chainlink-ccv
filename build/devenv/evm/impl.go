@@ -116,6 +116,13 @@ func init() {
 			tokenAdapterRegistry.RegisterTokenAdapter("evm", semver.MustParse(poolVersion), tokenAdapter)
 		}
 	}
+
+	cciptestinterfaces.RegisterExtraArgsSerializer(chainsel.FamilyEVM, SerializeEVMExtraArgs)
+	// Canton shares EVM's extra args serialization. Canton's product repo can
+	// register its own serializer if the formats ever diverge; until then, this
+	// provides backward compatibility with the previous FamilyEVM/FamilyCanton
+	// combined switch case.
+	cciptestinterfaces.RegisterExtraArgsSerializer(chainsel.FamilyCanton, SerializeEVMExtraArgs)
 }
 
 type CCIP17EVMConfig struct {
@@ -758,30 +765,28 @@ func (m *CCIP17EVM) GetUserNonce(ctx context.Context, userAddress protocol.Unkno
 	return m.chain.Client.PendingNonceAt(ctx, common.HexToAddress(userAddress.String()))
 }
 
+// serializeExtraArgs dispatches to the destination family's registered ExtraArgsSerializer.
+// New chain families register their serializer via cciptestinterfaces.RegisterExtraArgsSerializer
+// in their product repo, so no changes are needed here when adding a chain.
 func serializeExtraArgs(opts cciptestinterfaces.MessageOptions, destFamily string) []byte {
-	switch destFamily {
-	case chainsel.FamilyEVM, chainsel.FamilyCanton:
-		switch opts.Version {
-		case 1: // EVMExtraArgsV1
-			return serializeExtraArgsV1(opts)
-		case 2: // GenericExtraArgsV2
-			return serializeExtraArgsV2(opts)
-		case 3: // EVMExtraArgsV3
-			return serializeExtraArgsV3(opts)
-		default:
-			panic(fmt.Sprintf("unsupported message extra args version: %d", opts.Version))
-		}
-	case chainsel.FamilyStellar:
+	serializer, ok := cciptestinterfaces.GetExtraArgsSerializer(destFamily)
+	if !ok {
+		panic(fmt.Sprintf("no ExtraArgsSerializer registered for destination family %q", destFamily))
+	}
+	return serializer(opts)
+}
+
+// SerializeEVMExtraArgs is the EVM family's ExtraArgsSerializer, handling versions 1-3.
+func SerializeEVMExtraArgs(opts cciptestinterfaces.MessageOptions) []byte {
+	switch opts.Version {
+	case 1:
+		return serializeExtraArgsV1(opts)
+	case 2:
+		return serializeExtraArgsV2(opts)
+	case 3:
 		return serializeExtraArgsV3(opts)
-	case chainsel.FamilySolana:
-		switch opts.Version {
-		case 1: // SVMExtraArgsV1
-			return serializeExtraArgsSVMV1(opts)
-		default:
-			panic(fmt.Sprintf("unsupported message extra args version for family %s: %d", destFamily, opts.Version))
-		}
 	default:
-		panic(fmt.Sprintf("unsupported destination family: %s", destFamily))
+		panic(fmt.Sprintf("unsupported EVM message extra args version: %d", opts.Version))
 	}
 }
 
@@ -859,22 +864,6 @@ func serializeExtraArgsV3(opts cciptestinterfaces.MessageOptions) []byte {
 		panic(fmt.Sprintf("failed to create V3 extra args: %v", err))
 	}
 	return extraArgs
-}
-
-func serializeExtraArgsSVMV1(_ cciptestinterfaces.MessageOptions) []byte {
-	// // Extra args tag for chains that use the Solana VM.
-	// bytes4 public constant SVM_EXTRA_ARGS_V1_TAG = 0x1f3b3aba;
-
-	// struct SVMExtraArgsV1 {
-	//   uint32 computeUnits;
-	//   uint64 accountIsWritableBitmap;
-	//   bool allowOutOfOrderExecution;
-	//   bytes32 tokenReceiver;
-	//   // Additional accounts needed for execution of CCIP receiver. Must be empty if message.receiver is zero.
-	//   // Token transfer related accounts are specified in the token pool lookup table on SVM.
-	//   bytes32[] accounts;
-	// }
-	return nil // TODO: implement when solana ported to 1.7 tests.
 }
 
 func (m *CCIP17EVM) ExposeMetrics(
