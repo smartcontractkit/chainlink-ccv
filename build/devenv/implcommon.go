@@ -261,6 +261,7 @@ func buildPartialChainConfig(
 			ExecutorDestChainConfig:  local.ExecutorDestChainConfig,
 			AddressBytesLength:       remote.AddressBytesLength,
 			BaseExecutionGasCost:     remote.BaseExecutionGasCost,
+			TokenReceiverAllowed:     remote.TokenReceiverAllowed,
 		}
 	}
 

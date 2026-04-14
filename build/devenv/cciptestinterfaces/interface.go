@@ -218,6 +218,12 @@ type ChainLaneProfile struct {
 	DefaultInboundCCVs       []datastore.AddressRef
 	DefaultOutboundCCVs      []datastore.AddressRef
 
+	// TokenReceiverAllowed controls whether the OnRamp on the source chain allows a
+	// non-empty tokenReceiver in extraArgs for messages destined to this chain.
+	// Required for SVM destinations where tokenReceiver is always present in SVMExtraArgsV1.
+	// When nil, the existing on-chain value is preserved (defaults to false on fresh deployments).
+	TokenReceiverAllowed *bool
+
 	GasForVerification uint32
 }
 
