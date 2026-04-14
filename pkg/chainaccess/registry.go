@@ -16,7 +16,7 @@ import (
 // AccessorFactoryConstructor creates an AccessorFactory for a specific chain family. When
 // GetAccessor is called, it will delegate to the AccessorFactory corresponding to the chain
 // family of the given chain selector.
-type AccessorFactoryConstructor func(lggr logger.Logger, cfg string) (AccessorFactory, error)
+type AccessorFactoryConstructor func(lggr logger.Logger, cfg GenericConfig) (AccessorFactory, error)
 
 type ChainFamily string
 
@@ -113,8 +113,14 @@ func NewRegistry(lggr logger.Logger, config string) (*Registry, error) {
 		factories: make(map[ChainFamily]AccessorFactory),
 	}
 
+	var genericConfig GenericConfig
+	if err := toml.Unmarshal([]byte(config), &genericConfig); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal generic config: %w", err)
+	}
+
 	for family, constructor := range accessorConstructorMapCopy() {
-		accessor, err := constructor(lggr, config)
+		lggr.Infow("Constructing accessor factory for chain family", "family", family)
+		accessor, err := constructor(lggr, genericConfig)
 		if err != nil {
 			return nil, fmt.Errorf("failed to construct accessor factory for family %s: %w", family, err)
 		}
