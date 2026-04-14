@@ -11,7 +11,7 @@ The following is a detailed outline for how to adopt the new pattern written by 
 
 # Adopting `chainaccess.Register` in Bootstrap Applications
 
-> **Scope of this guide**: PRs #1002 (`chainaccess.Register` registry), #1005 (registry integrated into bootstrap), and #1007 (`bootstrap.JobSpec` as standard config envelope).
+> **Scope of this guide**: PRs [#1002](https://github.com/smartcontractkit/chainlink-ccv/pull/1002) (`chainaccess.Register` registry), [#1005](https://github.com/smartcontractkit/chainlink-ccv/pull/1005) (registry integrated into bootstrap), and [#1007](https://github.com/smartcontractkit/chainlink-ccv/pull/1007) (`bootstrap.JobSpec` as standard config envelope).
 
 ---
 
