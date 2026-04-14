@@ -71,7 +71,7 @@ The new pattern moves family wiring to package `init()` functions and lets appli
 │                        └─ chainaccess.NewRegistry(lggr,           │
 │                                spec.AppConfig)                    │
 │                             ├─ calls "EVM" constructor            │
-│                             └─ returns Registry (AccessorFactory) │
+│                             └─ returns Registry (*Registry) │
 │                                  └─ .GetAccessor(ctx, selector)  │
 │                                       └─ Accessor.SourceReader()  │
 └───────────────────────────────────────────────────────────────────┘
@@ -97,7 +97,7 @@ Key properties:
 
 // AccessorFactoryConstructor creates an AccessorFactory for a specific chain family.
 // cfg is the full application config TOML string (the same string the service receives).
-type AccessorFactoryConstructor func(lggr logger.Logger, cfg chainaccess.GenericConfig) (AccessorFactory, error)
+type AccessorFactoryConstructor func(lggr logger.Logger, cfg chainaccess.GenericConfig) (*chainaccess.Registry, error)
 
 // Register stores a constructor under a family name.
 // Panics on duplicate registration (prevents silent mis-configuration).

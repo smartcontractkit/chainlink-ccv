@@ -63,7 +63,7 @@ var _ lifecycle.JobRunner = (*runner)(nil)
 
 // StartJob implements [lifecycle.JobRunner].
 func (r *runner) StartJob(ctx context.Context, config string) error {
-	r.deps.Logger.Infow("starting job", "config", config)
+	r.deps.Logger.Infow("starting job")
 
 	var spec JobSpec
 	if _, err := toml.Decode(config, &spec); err != nil {

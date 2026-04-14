@@ -20,8 +20,7 @@ func init() {
 
 var _ chainaccess.AccessorFactoryConstructor = CreateEVMAccessorFactory
 
-// CreateEVMAccessorFactory expects cfg to be TOML that decodes into
-// chainaccess.GenericConfig.
+// CreateEVMAccessorFactory is registered with chainaccess.Register to construct EVM accessors.
 //
 // Per-chain EVM settings are read from `blockchain_infos.<selector>` entries, for
 // example:
