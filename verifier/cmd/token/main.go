@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/BurntSushi/toml"
 	"go.uber.org/zap/zapcore"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
@@ -50,7 +51,7 @@ func main() {
 			createAccessorFactoryFunc: evm.CreateAccessorFactory,
 		},
 		// TODO: remove the AppConfig generic type to streamline this API, update factory to accept config as a string.
-		bootstrap.WithTOMLAppConfig[token.ConfigWithBlockchainInfos[evm.Info]](configPath),
+		bootstrap.WithTOMLAppConfig(configPath),
 	)
 	if err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "Failed to run token verifier: %v\n", err)
@@ -59,7 +60,7 @@ func main() {
 }
 
 type tokenVerifierFactory[T any] struct {
-	bootstrap.ServiceFactory[token.Config]
+	bootstrap.ServiceFactory
 
 	// TODO: rather than creating the factory in the bootstrap layer, can we pass in a registry?
 	createAccessorFactoryFunc chainaccess.CreateAccessorFactory[T]
@@ -96,7 +97,13 @@ func (tvf *tokenVerifierFactory[T]) Stop(ctx context.Context) error {
 }
 
 // Start starts the service with the parsed config received from the bootstrapper.
-func (tvf *tokenVerifierFactory[T]) Start(ctx context.Context, appConfig token.ConfigWithBlockchainInfos[T], deps bootstrap.ServiceDeps) error {
+func (tvf *tokenVerifierFactory[T]) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootstrap.ServiceDeps) error {
+	var appConfig token.ConfigWithBlockchainInfos[T]
+	_, err := toml.Decode(spec.AppConfig, &appConfig)
+	if err != nil {
+		return fmt.Errorf("unable to decode app config: %w", err)
+	}
+
 	var errs []error
 	if tvf.createAccessorFactoryFunc == nil {
 		errs = append(errs, fmt.Errorf("createAccessorFactoryFunc is required but was nil"))
@@ -140,7 +147,7 @@ func (tvf *tokenVerifierFactory[T]) Start(ctx context.Context, appConfig token.C
 		CommitteeConfig: cfg.CommitteeConfig,
 	}
 
-	_, err := cmd.StartPyroscope(tvf.lggr, cfg.PyroscopeURL, "tokenVerifier")
+	_, err = cmd.StartPyroscope(tvf.lggr, cfg.PyroscopeURL, "tokenVerifier")
 	if err != nil {
 		tvf.lggr.Errorw("Failed to start pyroscope", "error", err)
 		os.Exit(1)
