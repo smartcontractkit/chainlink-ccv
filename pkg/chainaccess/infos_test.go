@@ -66,13 +66,76 @@ func TestHelper_GetBlockchainByChainSelector_NilMapEntriesTreatedAsNotFound(t *t
 	}
 }
 
-/*
-func TestHelper_GetRPCEndpoint_ReturnsErrorWhenSelectorMapsToNil(t *testing.T) {
-	h := NewHelper(map[string]*Info{"1": nil})
-	_, err := h.GetRPCEndpoint(protocol.ChainSelector(1))
-	if err == nil {
-		t.Error("GetRPCEndpoint() expected error when map value is nil, got nil")
-	}
+func TestInfos_GetAllInfos(t *testing.T) {
+	t.Run("empty infos returns empty map", func(t *testing.T) {
+		infos := Infos[TestInfo]{}
+		result := infos.GetAllInfos()
+		if len(result) != 0 {
+			t.Errorf("expected empty map, got %v", result)
+		}
+	})
+
+	t.Run("valid numeric keys are converted to ChainSelectors", func(t *testing.T) {
+		infos := Infos[TestInfo]{
+			"100": {ChainID: "100", Type: "evm"},
+			"200": {ChainID: "200", Type: "evm"},
+		}
+		result := infos.GetAllInfos()
+		if len(result) != 2 {
+			t.Errorf("expected 2 entries, got %d", len(result))
+		}
+		if result[protocol.ChainSelector(100)].ChainID != "100" {
+			t.Errorf("expected ChainID 100, got %s", result[protocol.ChainSelector(100)].ChainID)
+		}
+		if result[protocol.ChainSelector(200)].ChainID != "200" {
+			t.Errorf("expected ChainID 200, got %s", result[protocol.ChainSelector(200)].ChainID)
+		}
+	})
+
+	t.Run("non-numeric keys are skipped", func(t *testing.T) {
+		infos := Infos[TestInfo]{
+			"valid":       {ChainID: "bad"},  // non-numeric: skipped
+			"also-bad":    {ChainID: "bad"},  // non-numeric: skipped
+			"42":          {ChainID: "good"}, // numeric: kept
+		}
+		result := infos.GetAllInfos()
+		if len(result) != 1 {
+			t.Errorf("expected 1 entry, got %d", len(result))
+		}
+		if result[protocol.ChainSelector(42)].ChainID != "good" {
+			t.Errorf("expected ChainID good, got %s", result[protocol.ChainSelector(42)].ChainID)
+		}
+	})
 }
 
-*/
+func TestInfos_GetAllChainSelectors(t *testing.T) {
+	t.Run("empty infos returns empty slice", func(t *testing.T) {
+		infos := Infos[TestInfo]{}
+		selectors := infos.GetAllChainSelectors()
+		if len(selectors) != 0 {
+			t.Errorf("expected empty slice, got %v", selectors)
+		}
+	})
+
+	t.Run("returns one selector per valid numeric key", func(t *testing.T) {
+		infos := Infos[TestInfo]{
+			"10": {ChainID: "10"},
+			"20": {ChainID: "20"},
+			"bad-key": {ChainID: "skip"},
+		}
+		selectors := infos.GetAllChainSelectors()
+		if len(selectors) != 2 {
+			t.Errorf("expected 2 selectors, got %d: %v", len(selectors), selectors)
+		}
+		found := make(map[protocol.ChainSelector]bool)
+		for _, s := range selectors {
+			found[s] = true
+		}
+		if !found[protocol.ChainSelector(10)] {
+			t.Error("expected selector 10, not found")
+		}
+		if !found[protocol.ChainSelector(20)] {
+			t.Error("expected selector 20, not found")
+		}
+	})
+}
