@@ -423,12 +423,15 @@ func tokenCombinationPoolsExistInDataStore(ds datastore.DataStore, selectors []u
 	if !dataStoreHasAddressRef(ds, selectors[0], combo.LocalPoolAddressRef()) {
 		return false
 	}
+	// A combo is usable for a selector if that selector has the local pool and at
+	// least one remote selector has the corresponding remote pool. Requiring the
+	// same remote pool to exist on every remote selector drops valid mixed lanes.
 	for _, sel := range selectors[1:] {
-		if !dataStoreHasAddressRef(ds, sel, combo.RemotePoolAddressRef()) {
-			return false
+		if dataStoreHasAddressRef(ds, sel, combo.RemotePoolAddressRef()) {
+			return true
 		}
 	}
-	return true
+	return len(selectors) == 1
 }
 
 func dataStoreHasAddressRef(ds datastore.DataStore, chainSelector uint64, ref datastore.AddressRef) bool {
