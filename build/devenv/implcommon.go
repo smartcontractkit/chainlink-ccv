@@ -7,15 +7,17 @@ import (
 
 	"github.com/Masterminds/semver/v3"
 
+	"github.com/smartcontractkit/chainlink-ccip/deployment/finality"
+
 	chainsel "github.com/smartcontractkit/chain-selectors"
 
 	"github.com/smartcontractkit/chainlink-ccip/deployment/lanes"
 	tokenscore "github.com/smartcontractkit/chainlink-ccip/deployment/tokens"
 	changesetscore "github.com/smartcontractkit/chainlink-ccip/deployment/utils/changesets"
 	devenvmcms "github.com/smartcontractkit/chainlink-ccip/deployment/utils/mcms"
-	ccipAdapters "github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/adapters"
-	ccipChangesets "github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/changesets"
-	ccipOffchain "github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/offchain"
+	ccipAdapters "github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/adapters"
+	ccipChangesets "github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/changesets"
+	ccipOffchain "github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/offchain"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
@@ -23,6 +25,104 @@ import (
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
+
+// ---------------------------------------------------------------------------
+// Chain-agnostic contract deployment (matches the 1.6 pattern)
+// ---------------------------------------------------------------------------
+
+// mergeIntoSealed creates a new DataStore by merging all provided stores in
+// order and returns the sealed result.
+func mergeIntoSealed(stores ...datastore.DataStore) (datastore.DataStore, error) {
+	tmp := datastore.NewMemoryDataStore()
+	for _, s := range stores {
+		if err := tmp.Merge(s); err != nil {
+			return nil, err
+		}
+	}
+	return tmp.Seal(), nil
+}
+
+// DeployContractsForSelector is the shared entry point for deploying CCIP
+// contracts on a single chain. It follows the 1.6 pattern: the common code
+// calls the tooling API DeployChainContracts changeset; chain impls only
+// provide configuration and optional pre/post hooks.
+func DeployContractsForSelector(
+	ctx context.Context,
+	env *deployment.Environment,
+	impl cciptestinterfaces.OnChainConfigurable,
+	selector uint64,
+	topology *ccipOffchain.EnvironmentTopology,
+) (datastore.DataStore, error) {
+	runningDS := datastore.NewMemoryDataStore()
+
+	env.OperationsBundle = operations.NewBundle(
+		func() context.Context { return context.Background() },
+		env.Logger,
+		operations.NewMemoryReporter(),
+	)
+
+	// 1. Pre-hook (e.g. EVM deploys CREATE2 factory here).
+	preDS, err := impl.PreDeployContractsForSelector(ctx, env, selector, topology)
+	if err != nil {
+		return nil, fmt.Errorf("pre-deploy for selector %d: %w", selector, err)
+	}
+	if preDS != nil {
+		if err := runningDS.Merge(preDS); err != nil {
+			return nil, fmt.Errorf("merge pre-deploy DS: %w", err)
+		}
+		merged, err := mergeIntoSealed(env.DataStore, preDS)
+		if err != nil {
+			return nil, fmt.Errorf("update env DS with pre-deploy: %w", err)
+		}
+		env.DataStore = merged
+	}
+
+	// 2. Get chain-specific config (reads pre-deployed addresses from env.DataStore).
+	cfg, err := impl.GetDeployChainContractsCfg(env, selector, topology)
+	if err != nil {
+		return nil, fmt.Errorf("get deploy config for selector %d: %w", selector, err)
+	}
+
+	// 3. Call the tooling API changeset.
+	registry := ccipAdapters.GetDeployChainContractsRegistry()
+	out, err := ccipChangesets.DeployChainContracts(registry).Apply(*env, changesetscore.WithMCMS[ccipChangesets.DeployChainContractsCfg]{
+		Cfg: ccipChangesets.DeployChainContractsCfg{
+			Topology:                                topology,
+			ChainSelectors:                          []uint64{selector},
+			IgnoreImportedConfigFromPreviousVersion: true,
+			DefaultCfg:                              cfg,
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("deploy chain contracts for selector %d: %w", selector, err)
+	}
+	if err := runningDS.Merge(out.DataStore.Seal()); err != nil {
+		return nil, fmt.Errorf("merge deploy output DS: %w", err)
+	}
+	merged, err := mergeIntoSealed(env.DataStore, out.DataStore.Seal())
+	if err != nil {
+		return nil, fmt.Errorf("update env DS with deploy output: %w", err)
+	}
+	env.DataStore = merged
+
+	// 4. Post-hook (e.g. EVM deploys USDC/Lombard pools here).
+	postDS, err := impl.PostDeployContractsForSelector(ctx, env, selector, topology)
+	if err != nil {
+		return nil, fmt.Errorf("post-deploy for selector %d: %w", selector, err)
+	}
+	if postDS != nil {
+		if err := runningDS.Merge(postDS); err != nil {
+			return nil, fmt.Errorf("merge post-deploy DS: %w", err)
+		}
+		merged, err := mergeIntoSealed(env.DataStore, postDS)
+		if err != nil {
+			return nil, fmt.Errorf("update env DS with post-deploy: %w", err)
+		}
+		env.DataStore = merged
+	}
+
+	return runningDS.Seal(), nil
+}
 
 // ---------------------------------------------------------------------------
 // Canonical path (new): ConfigureChainsForLanesFromTopology
@@ -179,8 +279,9 @@ func buildPartialChainConfig(
 			}
 		}
 		cvConfigs = append(cvConfigs, ccipChangesets.CommitteeVerifierInputConfig{
-			CommitteeQualifier: qualifier,
-			RemoteChains:       remoteCV,
+			CommitteeQualifier:    qualifier,
+			RemoteChains:          remoteCV,
+			AllowedFinalityConfig: finality.Config{BlockDepth: 1, WaitForSafe: true},
 		})
 	}
 

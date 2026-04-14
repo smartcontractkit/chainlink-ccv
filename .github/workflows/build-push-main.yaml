@@ -29,18 +29,26 @@ jobs:
         with:
           just-version: '1.40.0'
 
-      - name: Authenticate to AWS ECR
+      - name: Authenticate to AWS ECR (primary)
         uses: ./.github/actions/aws-ecr-auth
         with:
-          role-to-assume: ${{ secrets.CCV_IAM_ROLE }}
+          role-to-assume: ${{ secrets.CCV_IAM_ROLE_PRIMARY }}
           aws-region: us-west-2
+          registry-type: private
+
+      - name: Authenticate to AWS ECR (secondary)
+        uses: ./.github/actions/aws-ecr-auth
+        with:
+          role-to-assume: ${{ secrets.CCV_IAM_ROLE_SECONDARY }}
+          aws-region: us-east-2
           registry-type: private
 
       - name: Build & Publish Release Candidate
         env:
           MODULE: ${{ matrix.module }}
           COMMIT_SHA: ${{ github.sha }}
-          ECR_REGISTRY: ${{ secrets.ECR_REGISTRY }}
+          ECR_REGISTRY_PRIMARY: ${{ secrets.ECR_REGISTRY_PRIMARY }}
+          ECR_REGISTRY_SECONDARY: ${{ secrets.ECR_REGISTRY_SECONDARY }}
         run: |
           TAG="$COMMIT_SHA"
 
@@ -49,5 +57,7 @@ jobs:
           echo "Full Tag: $TAG"
           echo "Building latest main image.."
           just "$MODULE"/build-rc
-          echo "Publishing image.."
-          just "$MODULE"/publish-rc "$ECR_REGISTRY" "$TAG"
+          echo "Publishing image (primary).."
+          just "$MODULE"/publish-rc "$ECR_REGISTRY_PRIMARY" "$TAG"
+          echo "Publishing image (secondary).."
+          just "$MODULE"/publish-rc "$ECR_REGISTRY_SECONDARY" "$TAG"

@@ -29,32 +29,34 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
+	"github.com/smartcontractkit/chainlink-ccip/deployment/finality"
+
 	adapters_1_6_1 "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_1/adapters"
 	rmn_remote_binding "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/v1_6_0/rmn_remote"
 
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/create2_factory"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/sequences"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/versioned_verifier_resolver"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v2_0_0/operations/erc20_lock_box"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v2_0_0/operations/executor"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v2_0_0/operations/lock_release_token_pool"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v2_0_0/operations/mock_receiver_v2"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v2_0_0/operations/proxy"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/create2_factory"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/erc20_lock_box"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/executor"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/lock_release_token_pool"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/mock_receiver_v2"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/proxy"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/sequences"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/versioned_verifier_resolver"
 
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v2_0_0/operations/fee_quoter"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/mock_lombard_bridge"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/offramp"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/onramp"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/utils/operations/contract"
 	bnm_drip_v1_0 "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_0_0/operations/burn_mint_erc20_with_drip"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_0_0/operations/link"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_0_0/operations/weth"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_5_0/operations/token_admin_registry"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/fee_quoter"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/mock_lombard_bridge"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/offramp"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/onramp"
+	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm/operations/contract"
 
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_0/operations/rmn_remote"
-	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/adapters"
-	ccipChangesets "github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/changesets"
-	ccipOffchain "github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/offchain"
+	"github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/adapters"
+	ccipChangesets "github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/changesets"
+	ccipOffchain "github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/offchain"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -71,11 +73,11 @@ import (
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 
-	evmadapters "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/adapters"
-	offrampoperations "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v2_0_0/operations/offramp"
-	onrampoperations "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v2_0_0/operations/onramp"
-	feequoterwrapper "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/fee_quoter"
 	routeroperations "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_2_0/operations/router"
+	evmadapters "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/adapters"
+	offrampoperations "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/offramp"
+	onrampoperations "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/onramp"
+	feequoterwrapper "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/fee_quoter"
 	routerwrapper "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/v1_2_0/router"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/lanes"
 	tokenscore "github.com/smartcontractkit/chainlink-ccip/deployment/tokens"
@@ -114,6 +116,13 @@ func init() {
 			tokenAdapterRegistry.RegisterTokenAdapter("evm", semver.MustParse(poolVersion), tokenAdapter)
 		}
 	}
+
+	cciptestinterfaces.RegisterExtraArgsSerializer(chainsel.FamilyEVM, SerializeEVMExtraArgs)
+	// Canton shares EVM's extra args serialization. Canton's product repo can
+	// register its own serializer if the formats ever diverge; until then, this
+	// provides backward compatibility with the previous FamilyEVM/FamilyCanton
+	// combined switch case.
+	cciptestinterfaces.RegisterExtraArgsSerializer(chainsel.FamilyCanton, SerializeEVMExtraArgs)
 }
 
 type CCIP17EVMConfig struct {
@@ -756,30 +765,28 @@ func (m *CCIP17EVM) GetUserNonce(ctx context.Context, userAddress protocol.Unkno
 	return m.chain.Client.PendingNonceAt(ctx, common.HexToAddress(userAddress.String()))
 }
 
+// serializeExtraArgs dispatches to the destination family's registered ExtraArgsSerializer.
+// New chain families register their serializer via cciptestinterfaces.RegisterExtraArgsSerializer
+// in their product repo, so no changes are needed here when adding a chain.
 func serializeExtraArgs(opts cciptestinterfaces.MessageOptions, destFamily string) []byte {
-	switch destFamily {
-	case chainsel.FamilyEVM, chainsel.FamilyCanton:
-		switch opts.Version {
-		case 1: // EVMExtraArgsV1
-			return serializeExtraArgsV1(opts)
-		case 2: // GenericExtraArgsV2
-			return serializeExtraArgsV2(opts)
-		case 3: // EVMExtraArgsV3
-			return serializeExtraArgsV3(opts)
-		default:
-			panic(fmt.Sprintf("unsupported message extra args version: %d", opts.Version))
-		}
-	case chainsel.FamilyStellar:
+	serializer, ok := cciptestinterfaces.GetExtraArgsSerializer(destFamily)
+	if !ok {
+		panic(fmt.Sprintf("no ExtraArgsSerializer registered for destination family %q", destFamily))
+	}
+	return serializer(opts)
+}
+
+// SerializeEVMExtraArgs is the EVM family's ExtraArgsSerializer, handling versions 1-3.
+func SerializeEVMExtraArgs(opts cciptestinterfaces.MessageOptions) []byte {
+	switch opts.Version {
+	case 1:
+		return serializeExtraArgsV1(opts)
+	case 2:
+		return serializeExtraArgsV2(opts)
+	case 3:
 		return serializeExtraArgsV3(opts)
-	case chainsel.FamilySolana:
-		switch opts.Version {
-		case 1: // SVMExtraArgsV1
-			return serializeExtraArgsSVMV1(opts)
-		default:
-			panic(fmt.Sprintf("unsupported message extra args version for family %s: %d", destFamily, opts.Version))
-		}
 	default:
-		panic(fmt.Sprintf("unsupported destination family: %s", destFamily))
+		panic(fmt.Sprintf("unsupported EVM message extra args version: %d", opts.Version))
 	}
 }
 
@@ -846,7 +853,7 @@ func serializeExtraArgsV2(opts cciptestinterfaces.MessageOptions) []byte {
 
 func serializeExtraArgsV3(opts cciptestinterfaces.MessageOptions) []byte {
 	extraArgs, err := NewV3ExtraArgs(
-		uint16(opts.FinalityConfig),
+		opts.FinalityConfig,
 		opts.ExecutionGasLimit,
 		opts.Executor.String(),
 		opts.ExecutorArgs,
@@ -857,22 +864,6 @@ func serializeExtraArgsV3(opts cciptestinterfaces.MessageOptions) []byte {
 		panic(fmt.Sprintf("failed to create V3 extra args: %v", err))
 	}
 	return extraArgs
-}
-
-func serializeExtraArgsSVMV1(_ cciptestinterfaces.MessageOptions) []byte {
-	// // Extra args tag for chains that use the Solana VM.
-	// bytes4 public constant SVM_EXTRA_ARGS_V1_TAG = 0x1f3b3aba;
-
-	// struct SVMExtraArgsV1 {
-	//   uint32 computeUnits;
-	//   uint64 accountIsWritableBitmap;
-	//   bool allowOutOfOrderExecution;
-	//   bytes32 tokenReceiver;
-	//   // Additional accounts needed for execution of CCIP receiver. Must be empty if message.receiver is zero.
-	//   // Token transfer related accounts are specified in the token pool lookup table on SVM.
-	//   bytes32[] accounts;
-	// }
-	return nil // TODO: implement when solana ported to 1.7 tests.
 }
 
 func (m *CCIP17EVM) ExposeMetrics(
@@ -1030,38 +1021,38 @@ func buildMockReceivers(topology *ccipOffchain.EnvironmentTopology, selector uin
 
 	if has(devenvcommon.DefaultCommitteeVerifierQualifier) {
 		receivers = append(receivers, adapters.MockReceiverDeployParams{
-			Version:                   receiverVersion,
-			MinimumBlockConfirmations: 1,
-			RequiredVerifiers:         []datastore.AddressRef{verifierRef(devenvcommon.DefaultCommitteeVerifierQualifier)},
-			Qualifier:                 devenvcommon.DefaultReceiverQualifier,
+			Version:               receiverVersion,
+			AllowedFinalityConfig: finality.Config{BlockDepth: 1, WaitForSafe: true},
+			RequiredVerifiers:     []datastore.AddressRef{verifierRef(devenvcommon.DefaultCommitteeVerifierQualifier)},
+			Qualifier:             devenvcommon.DefaultReceiverQualifier,
 		})
 	}
 	if has(devenvcommon.SecondaryCommitteeVerifierQualifier) {
 		receivers = append(receivers, adapters.MockReceiverDeployParams{
-			Version:                   receiverVersion,
-			MinimumBlockConfirmations: 1,
-			RequiredVerifiers:         []datastore.AddressRef{verifierRef(devenvcommon.SecondaryCommitteeVerifierQualifier)},
-			Qualifier:                 devenvcommon.SecondaryReceiverQualifier,
+			Version:               receiverVersion,
+			AllowedFinalityConfig: finality.Config{BlockDepth: 1, WaitForSafe: true},
+			RequiredVerifiers:     []datastore.AddressRef{verifierRef(devenvcommon.SecondaryCommitteeVerifierQualifier)},
+			Qualifier:             devenvcommon.SecondaryReceiverQualifier,
 		})
 	}
 
 	if has(devenvcommon.SecondaryCommitteeVerifierQualifier) && has(devenvcommon.TertiaryCommitteeVerifierQualifier) {
 		receivers = append(receivers, adapters.MockReceiverDeployParams{
-			Version:                   receiverVersion,
-			MinimumBlockConfirmations: 1,
-			RequiredVerifiers:         []datastore.AddressRef{verifierRef(devenvcommon.SecondaryCommitteeVerifierQualifier)},
-			OptionalVerifiers:         []datastore.AddressRef{verifierRef(devenvcommon.TertiaryCommitteeVerifierQualifier)},
-			OptionalThreshold:         1,
-			Qualifier:                 devenvcommon.TertiaryReceiverQualifier,
+			Version:               receiverVersion,
+			AllowedFinalityConfig: finality.Config{BlockDepth: 1, WaitForSafe: true},
+			RequiredVerifiers:     []datastore.AddressRef{verifierRef(devenvcommon.SecondaryCommitteeVerifierQualifier)},
+			OptionalVerifiers:     []datastore.AddressRef{verifierRef(devenvcommon.TertiaryCommitteeVerifierQualifier)},
+			OptionalThreshold:     1,
+			Qualifier:             devenvcommon.TertiaryReceiverQualifier,
 		})
 	}
 	if has(devenvcommon.DefaultCommitteeVerifierQualifier) &&
 		has(devenvcommon.SecondaryCommitteeVerifierQualifier) &&
 		has(devenvcommon.TertiaryCommitteeVerifierQualifier) {
 		receivers = append(receivers, adapters.MockReceiverDeployParams{
-			Version:                   receiverVersion,
-			MinimumBlockConfirmations: 1,
-			RequiredVerifiers:         []datastore.AddressRef{verifierRef(devenvcommon.DefaultCommitteeVerifierQualifier)},
+			Version:               receiverVersion,
+			AllowedFinalityConfig: finality.Config{BlockDepth: 1, WaitForSafe: true},
+			RequiredVerifiers:     []datastore.AddressRef{verifierRef(devenvcommon.DefaultCommitteeVerifierQualifier)},
 			OptionalVerifiers: []datastore.AddressRef{
 				verifierRef(devenvcommon.SecondaryCommitteeVerifierQualifier),
 				verifierRef(devenvcommon.TertiaryCommitteeVerifierQualifier),
@@ -1074,28 +1065,8 @@ func buildMockReceivers(topology *ccipOffchain.EnvironmentTopology, selector uin
 	return receivers
 }
 
-func (m *CCIP17EVMConfig) DeployContractsForSelector(ctx context.Context, env *deployment.Environment, selector uint64, topology *ccipOffchain.EnvironmentTopology) (datastore.DataStore, error) {
-	l := m.logger
-	l.Info().Msg("Configuring contracts for selector")
-	l.Info().Any("Selector", selector).Msg("Deploying for chain selectors")
-	runningDS := datastore.NewMemoryDataStore()
-
-	l.Info().Uint64("Selector", selector).Msg("Configuring per-chain contracts bundle")
-	bundle := operations.NewBundle(
-		func() context.Context { return context.Background() },
-		env.Logger,
-		operations.NewMemoryReporter(),
-	)
-	env.OperationsBundle = bundle
-
-	usdPerLink, ok := new(big.Int).SetString("15000000000000000000", 10) // $15
-	if !ok {
-		return nil, errors.New("failed to parse USDPerLINK")
-	}
-	usdPerWeth, ok := new(big.Int).SetString("2000000000000000000000", 10) // $2000
-	if !ok {
-		return nil, errors.New("failed to parse USDPerWETH")
-	}
+func (m *CCIP17EVMConfig) PreDeployContractsForSelector(_ context.Context, env *deployment.Environment, selector uint64, _ *ccipOffchain.EnvironmentTopology) (datastore.DataStore, error) {
+	m.logger.Info().Uint64("Selector", selector).Msg("EVM pre-deploy: deploying CREATE2 factory")
 
 	create2FactoryRep, err := operations.ExecuteOperation(env.OperationsBundle, create2_factory.Deploy, env.BlockChains.EVMChains()[selector],
 		contract.DeployInput[create2_factory.ConstructorArgs]{
@@ -1106,93 +1077,141 @@ func (m *CCIP17EVMConfig) DeployContractsForSelector(ctx context.Context, env *d
 			},
 		})
 	if err != nil {
-		return nil, fmt.Errorf("failed to deploy/create2 factory: %w", err)
+		return nil, fmt.Errorf("failed to deploy CREATE2 factory: %w", err)
 	}
 
-	err = runningDS.Addresses().Add(create2FactoryRep.Output)
+	ds := datastore.NewMemoryDataStore()
+	if err := ds.Addresses().Add(create2FactoryRep.Output); err != nil {
+		return nil, fmt.Errorf("failed to add CREATE2 factory to datastore: %w", err)
+	}
+	return ds.Seal(), nil
+}
+
+func (m *CCIP17EVMConfig) GetDeployChainContractsCfg(env *deployment.Environment, selector uint64, topology *ccipOffchain.EnvironmentTopology) (ccipChangesets.DeployChainContractsPerChainCfg, error) {
+	create2Ref, err := env.DataStore.Addresses().Get(
+		datastore.NewAddressRefKey(selector, datastore.ContractType(create2_factory.ContractType), create2_factory.Version, ""),
+	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to add create2 factory to datastore: %w", err)
+		return ccipChangesets.DeployChainContractsPerChainCfg{}, fmt.Errorf("CREATE2 factory not found in datastore for chain %d: %w", selector, err)
+	}
+
+	usdPerLink, ok := new(big.Int).SetString("15000000000000000000", 10) // $15
+	if !ok {
+		return ccipChangesets.DeployChainContractsPerChainCfg{}, errors.New("failed to parse USDPerLINK")
+	}
+	usdPerWeth, ok := new(big.Int).SetString("2000000000000000000000", 10) // $2000
+	if !ok {
+		return ccipChangesets.DeployChainContractsPerChainCfg{}, errors.New("failed to parse USDPerWETH")
+	}
+
+	return ccipChangesets.DeployChainContractsPerChainCfg{
+		DeployerContract: create2Ref.Address,
+		DeployerKeyOwned: true,
+		RMNRemote: adapters.RMNRemoteDeployParams{
+			Version: semver.MustParse(rmn_remote.Deploy.Version()),
+		},
+		OffRamp: adapters.OffRampDeployParams{
+			Version:                   semver.MustParse(offrampoperations.Deploy.Version()),
+			GasForCallExactCheck:      5_000,
+			MaxGasBufferToUpdateState: 12_000,
+		},
+		OnRamp: adapters.OnRampDeployParams{
+			Version:               semver.MustParse(onrampoperations.Deploy.Version()),
+			FeeAggregator:         "0x0000000000000000000000000000000000000001",
+			MaxUSDCentsPerMessage: 100_00,
+		},
+		Executors: []adapters.ExecutorDeployParams{
+			{
+				Version:       semver.MustParse(proxy.Deploy.Version()),
+				MaxCCVsPerMsg: 10,
+				DynamicConfig: adapters.ExecutorDynamicDeployConfig{
+					FeeAggregator:         "0x0000000000000000000000000000000000000001",
+					AllowedFinalityConfig: finality.Config{BlockDepth: 1, WaitForSafe: true},
+					CcvAllowlistEnabled:   false,
+				},
+				Qualifier: devenvcommon.DefaultExecutorQualifier,
+			},
+			{
+				Version:       semver.MustParse(proxy.Deploy.Version()),
+				MaxCCVsPerMsg: 10,
+				DynamicConfig: adapters.ExecutorDynamicDeployConfig{
+					FeeAggregator:         "0x0000000000000000000000000000000000000001",
+					AllowedFinalityConfig: finality.Config{BlockDepth: 1, WaitForSafe: true},
+					CcvAllowlistEnabled:   false,
+				},
+				Qualifier: devenvcommon.CustomExecutorQualifier,
+			},
+		},
+		FeeQuoter: adapters.FeeQuoterDeployParams{
+			Version:                        semver.MustParse(fee_quoter.Deploy.Version()),
+			MaxFeeJuelsPerMsg:              big.NewInt(2e18),
+			LINKPremiumMultiplierWeiPerEth: 9e17,
+			WETHPremiumMultiplierWeiPerEth: 1e18,
+			USDPerLINK:                     usdPerLink,
+			USDPerWETH:                     usdPerWeth,
+		},
+		MockReceivers: buildMockReceivers(topology, selector),
+	}, nil
+}
+
+func (m *CCIP17EVMConfig) PostDeployContractsForSelector(_ context.Context, env *deployment.Environment, selector uint64, _ *ccipOffchain.EnvironmentTopology) (datastore.DataStore, error) {
+	m.logger.Info().Uint64("Selector", selector).Msg("EVM post-deploy: deploying USDC and Lombard token pools")
+
+	create2Ref, err := env.DataStore.Addresses().Get(
+		datastore.NewAddressRefKey(selector, datastore.ContractType(create2_factory.ContractType), create2_factory.Version, ""),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("CREATE2 factory not found in datastore for chain %d: %w", selector, err)
 	}
 
 	mcmsReaderRegistry := changesetscore.GetRegistry()
-	out, err := ccipChangesets.DeployChainContracts(adapters.GetDeployChainContractsRegistry()).Apply(*env, changesetscore.WithMCMS[ccipChangesets.DeployChainContractsCfg]{
-		Cfg: ccipChangesets.DeployChainContractsCfg{
-			Topology:                                topology,
-			ChainSelectors:                          []uint64{selector},
-			IgnoreImportedConfigFromPreviousVersion: true,
-			DefaultCfg: ccipChangesets.DeployChainContractsPerChainCfg{
-				DeployerContract: create2FactoryRep.Output.Address,
-				DeployerKeyOwned: true,
-				RMNRemote: adapters.RMNRemoteDeployParams{
-					Version: semver.MustParse(rmn_remote.Deploy.Version()),
-				},
-				OffRamp: adapters.OffRampDeployParams{
-					Version:                   semver.MustParse(offrampoperations.Deploy.Version()),
-					GasForCallExactCheck:      5_000,
-					MaxGasBufferToUpdateState: 12_000,
-				},
-				OnRamp: adapters.OnRampDeployParams{
-					Version:               semver.MustParse(onrampoperations.Deploy.Version()),
-					FeeAggregator:         "0x0000000000000000000000000000000000000001",
-					MaxUSDCentsPerMessage: 100_00,
-				},
-				Executors: []adapters.ExecutorDeployParams{
-					{
-						Version:       semver.MustParse(proxy.Deploy.Version()),
-						MaxCCVsPerMsg: 10,
-						DynamicConfig: adapters.ExecutorDynamicDeployConfig{
-							FeeAggregator:         "0x0000000000000000000000000000000000000001",
-							MinBlockConfirmations: 0,
-							CcvAllowlistEnabled:   false,
-						},
-						Qualifier: devenvcommon.DefaultExecutorQualifier,
-					},
-					{
-						Version:       semver.MustParse(proxy.Deploy.Version()),
-						MaxCCVsPerMsg: 10,
-						DynamicConfig: adapters.ExecutorDynamicDeployConfig{
-							FeeAggregator:         "0x0000000000000000000000000000000000000001",
-							MinBlockConfirmations: 0,
-							CcvAllowlistEnabled:   false,
-						},
-						Qualifier: devenvcommon.CustomExecutorQualifier,
-					},
-				},
-				FeeQuoter: adapters.FeeQuoterDeployParams{
-					Version:                        semver.MustParse(fee_quoter.Deploy.Version()),
-					MaxFeeJuelsPerMsg:              big.NewInt(2e18),
-					LINKPremiumMultiplierWeiPerEth: 9e17,
-					WETHPremiumMultiplierWeiPerEth: 1e18,
-					USDPerLINK:                     usdPerLink,
-					USDPerWETH:                     usdPerWeth,
-				},
-				MockReceivers: buildMockReceivers(topology, selector),
-			},
-		},
-	})
-	if err != nil {
-		return nil, err
-	}
-	err = runningDS.Merge(out.DataStore.Seal())
-	if err != nil {
-		return nil, err
-	}
-	env.DataStore = runningDS.Seal()
 
-	// Generic token + pool deployment is handled by the chain-agnostic
-	// DeployTokensAndPools function called from environment.go after this
-	// method returns. Only USDC and Lombard (which have bespoke deployment
-	// flows) remain here.
+	// Seed working DS from env.DataStore so USDC/Lombard helpers can look up
+	// addresses deployed by the DeployChainContracts changeset (e.g. committee
+	// verifier). Only newly-added addresses are returned to the caller.
+	ds := datastore.NewMemoryDataStore()
+	if err := ds.Merge(env.DataStore); err != nil {
+		return nil, fmt.Errorf("failed to seed post-deploy DS: %w", err)
+	}
 
-	if err := m.deployUSDCTokenAndPool(env, mcmsReaderRegistry, runningDS, create2FactoryRep.Output, selector); err != nil {
+	if err := m.deployUSDCTokenAndPool(env, mcmsReaderRegistry, ds, create2Ref, selector); err != nil {
 		return nil, fmt.Errorf("failed to deploy USDC token and pool: %w", err)
 	}
 
-	if err := m.deployLombardTokenAndPool(env, mcmsReaderRegistry, runningDS, create2FactoryRep.Output, selector); err != nil {
+	if err := m.deployLombardTokenAndPool(env, mcmsReaderRegistry, ds, create2Ref, selector); err != nil {
 		return nil, fmt.Errorf("failed to deploy Lombard token and pool: %w", err)
 	}
 
-	return runningDS.Seal(), nil
+	return onlyNewAddresses(ds, env.DataStore)
+}
+
+// onlyNewAddresses returns a sealed DataStore containing only the AddressRefs
+// present in full that are not already in base. This prevents the seeded
+// env.DataStore content from leaking into the caller's accumulator.
+func onlyNewAddresses(full *datastore.MemoryDataStore, base datastore.DataStore) (datastore.DataStore, error) {
+	baseAddrs, err := base.Addresses().Fetch()
+	if err != nil {
+		return nil, fmt.Errorf("fetch base addresses: %w", err)
+	}
+	baseKeys := make(map[string]struct{}, len(baseAddrs))
+	for _, a := range baseAddrs {
+		baseKeys[a.Key().String()] = struct{}{}
+	}
+
+	allAddrs, err := full.Seal().Addresses().Fetch()
+	if err != nil {
+		return nil, fmt.Errorf("fetch full addresses: %w", err)
+	}
+
+	result := datastore.NewMemoryDataStore()
+	for _, a := range allAddrs {
+		if _, exists := baseKeys[a.Key().String()]; !exists {
+			if err := result.Addresses().Add(a); err != nil {
+				return nil, fmt.Errorf("add new address to result: %w", err)
+			}
+		}
+	}
+	return result.Seal(), nil
 }
 
 // GetSupportedPools returns the pool types and versions the EVM chain can deploy.
@@ -1355,8 +1374,8 @@ func (m *CCIP17EVMConfig) buildEVMTokenTransferConfig(
 			Type:    datastore.ContractType(token_admin_registry.ContractType),
 			Version: semver.MustParse(token_admin_registry.Deploy.Version()),
 		},
-		RemoteChains:     remoteChains,
-		MinFinalityValue: 1,
+		RemoteChains:          remoteChains,
+		AllowedFinalityConfig: finality.Config{BlockDepth: 1, WaitForSafe: true},
 	}
 }
 

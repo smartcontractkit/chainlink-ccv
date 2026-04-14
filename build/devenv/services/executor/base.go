@@ -2,7 +2,6 @@ package executor
 
 import (
 	"context"
-	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,7 +12,6 @@ import (
 	"github.com/BurntSushi/toml"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/go-connections/nat"
-	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -102,14 +100,9 @@ type Output struct {
 // RebuildExecutorJobSpecWithBlockchainInfos takes a job spec and rebuilds it with blockchain infos
 // added to the inner config. This is needed for standalone executors which require blockchain
 // connection information (CL nodes get this from their own chain config).
-func (v *Input) RebuildExecutorJobSpecWithBlockchainInfos(jobSpec string, blockchainInfos map[string]any) (string, error) {
-	var spec executorpkg.JobSpec
-	if _, err := toml.Decode(jobSpec, &spec); err != nil {
-		return "", fmt.Errorf("failed to parse job spec: %w", err)
-	}
-
+func (v *Input) RebuildExecutorJobSpecWithBlockchainInfos(spec bootstrap.JobSpec, blockchainInfos map[string]any) (string, error) {
 	var cfg executorpkg.Configuration
-	if _, err := toml.Decode(spec.ExecutorConfig, &cfg); err != nil {
+	if _, err := toml.Decode(spec.AppConfig, &cfg); err != nil {
 		return "", fmt.Errorf("failed to parse executor config from job spec: %w", err)
 	}
 
@@ -128,7 +121,7 @@ func (v *Input) RebuildExecutorJobSpecWithBlockchainInfos(jobSpec string, blockc
 		return "", fmt.Errorf("failed to marshal enhanced config: %w", err)
 	}
 
-	spec.ExecutorConfig = string(innerConfigBytes)
+	spec.AppConfig = string(innerConfigBytes)
 	outerSpecBytes, err := toml.Marshal(spec)
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal job spec: %w", err)
@@ -162,13 +155,14 @@ func (v *Input) GenerateConfigWithBlockchainInfos(blockchainInfos chainaccess.In
 	return cfg, nil
 }
 
-func (v *Input) GetTransmitterAddress() protocol.UnknownAddress {
-	// TODO: not chain agnostic.
-	pk, err := crypto.HexToECDSA(v.TransmitterPrivateKey)
+// GetTransmitterAddress derives the on-chain transmitter address using the given
+// family-specific resolver. Pass ImplFactory.TransmitterAddress for the executor's chain family.
+func (v *Input) GetTransmitterAddress(resolver TransmitterAddressResolver) protocol.UnknownAddress {
+	addr, err := resolver(v.TransmitterPrivateKey)
 	if err != nil {
 		return protocol.UnknownAddress{}
 	}
-	return protocol.UnknownAddress(crypto.PubkeyToAddress(pk.PublicKey).Bytes())
+	return addr
 }
 
 func ApplyDefaults(in *Input) {
@@ -203,8 +197,10 @@ func ApplyDefaults(in *Input) {
 	}
 }
 
-// filterOutUnsupportedChains filters out chains that are not supported by the executor.
-// As of writing, only EVM is supported by the standalone executor.
+// filterOutUnsupportedChains filters blockchain infos to only include chains supported by
+// the standalone (non-bootstrapped) executor. The standalone executor binary only handles
+// EVM chains; non-EVM families use bootstrapped executors via isBootstrappedExecutor, which
+// delegates to ImplFactory.SupportsBootstrapExecutor().
 func filterOutUnsupportedChains(blockchainInfos chainaccess.Infos[evm.Info]) chainaccess.Infos[evm.Info] {
 	filtered := make(chainaccess.Infos[evm.Info])
 	for chainSelector, info := range blockchainInfos {
@@ -558,19 +554,19 @@ func createDBContainer(ctx context.Context, in *Input, chainFamily string) (*pos
 	return c, nil
 }
 
-func generateTransmitterPrivateKey() (string, error) {
-	// TODO: not chain agnostic.
-	pk, err := crypto.GenerateKey()
-	if err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(crypto.FromECDSA(pk)), nil
-}
+// TransmitterKeyGenerator generates a private key for executor transaction signing.
+// Callers supply a family-specific implementation (e.g. from ImplFactory.GenerateTransmitterKey).
+type TransmitterKeyGenerator func() (string, error)
 
-// SetTransmitterPrivateKey sets the transmitter private key for the provided execs array.
-func SetTransmitterPrivateKey(execs []*Input) ([]*Input, error) {
+// TransmitterAddressResolver derives an on-chain address from a hex-encoded private key.
+// Callers supply a family-specific implementation (e.g. from ImplFactory.TransmitterAddress).
+type TransmitterAddressResolver func(privateKeyHex string) (protocol.UnknownAddress, error)
+
+// SetTransmitterPrivateKey sets the transmitter private key for the provided execs array
+// using the given key generator. Pass a family-specific generator from ImplFactory.
+func SetTransmitterPrivateKey(execs []*Input, keyGen TransmitterKeyGenerator) ([]*Input, error) {
 	for _, exec := range execs {
-		pk, err := generateTransmitterPrivateKey()
+		pk, err := keyGen()
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate transmitter private key: %w", err)
 		}

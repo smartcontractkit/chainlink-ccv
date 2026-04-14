@@ -19,8 +19,8 @@ build-dev:
     docker build -f Dockerfile.dev -t indexer:dev ..
 
 publish-rc registry version:
-    docker tag indexer:rc {{registry}}/chainlink-ccv-indexer:{{version}}-rc
-    docker push {{registry}}/chainlink-ccv-indexer:{{version}}-rc
+    docker tag indexer:rc {{registry}}/containers/chainlink-ccv-indexer:{{version}}-rc
+    docker push {{registry}}/containers/chainlink-ccv-indexer:{{version}}-rc
 
 clean:
     docker rmi indexer:latest

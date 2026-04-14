@@ -58,7 +58,7 @@ const (
 				  "mintRecipient": "0xdoesntmatter",
 				  "amount": "5000",
 				  "messageSender": "0x1100000000000000000000000000000000000000",
-				  "hookData": "0x35a2583842fdceb59007e3a5aee1f4a6b2d92f2922e5ae879257aaea310aae61bf1bb993"
+				  "hookData": "0x35a2583831ab7010454e0e80083caea2c2dbee990371b8c05c9bfe6c51c74f9329a70a3f"
 				}
 			  },
 			  "cctpVersion": "2",
@@ -86,7 +86,7 @@ const (
 				  "mintRecipient": "0xdoesntmatter",
 				  "amount": "5000",
 				  "messageSender": "0x1100000000000000000000000000000000000000",
-				  "hookData": "0x35a2583842fdceb59007e3a5aee1f4a6b2d92f2922e5ae879257aaea310aae61bf1bb993"
+				  "hookData": "0x35a2583831ab7010454e0e80083caea2c2dbee990371b8c05c9bfe6c51c74f9329a70a3f"
 				}
 			  },
 			  "cctpVersion": "2",
@@ -114,7 +114,7 @@ const (
 				  "mintRecipient": "0xdoesntmatter",
 				  "amount": "5000",
 				  "messageSender": "0x1100000000000000000000000000000000000000",
-				  "hookData": "0x35a25838a912928643f3adf7fefe08dcbc40a1ca831ee861de1d65cca2c6e8a1a2bcda7a"
+				  "hookData": "0x35a2583817b6a89fdc899c55a1d57e9ebe61b756ec56696ee2782351b53cde6cc0df0af2"
 				}
 			  },
 			  "cctpVersion": "2",
@@ -143,7 +143,7 @@ const (
 				  "mintRecipient": "0xdoesntmatter",
 				  "amount": "5000",
 				  "messageSender": "0x2222222200000000000000000000000000000000",
-				  "hookData": "0x35a2583878bd0517e2f4167315be5921f215f8d12d8ba1b91d7884ec7fced62d1123f943"
+				  "hookData": "0x35a25838e424092df49b840a6c52a901f416c4563de97a9825559c2c9a52cda1391a28f4"
 				}
 			  },
 			  "cctpVersion": "2",
@@ -224,11 +224,11 @@ func Test_CCTPMessages_SingleSource(t *testing.T) {
 
 	msg1 := createTestMessageSentEvent(t, 100, chain1337, chain2337, 0, 300_000, 900)
 	msg1.TxHash = txHash1
-	require.Equal(t, "0x42fdceb59007e3a5aee1f4a6b2d92f2922e5ae879257aaea310aae61bf1bb993", msg1.MessageID.String())
+	require.Equal(t, "0x31ab7010454e0e80083caea2c2dbee990371b8c05c9bfe6c51c74f9329a70a3f", msg1.MessageID.String())
 
 	msg2 := createTestMessageSentEvent(t, 200, chain1337, chain2337, 0, 300_000, 901)
 	msg2.TxHash = txHash2
-	require.Equal(t, "0xa912928643f3adf7fefe08dcbc40a1ca831ee861de1d65cca2c6e8a1a2bcda7a", msg2.MessageID.String())
+	require.Equal(t, "0x17b6a89fdc899c55a1d57e9ebe61b756ec56696ee2782351b53cde6cc0df0af2", msg2.MessageID.String())
 	testEvents := []protocol.MessageSentEvent{msg1, msg2}
 
 	var messagesSent atomic.Int32
@@ -327,12 +327,12 @@ func Test_CCTPMessages_MultipleSources(t *testing.T) {
 	msg1337 := createTestMessageSentEvent(t, 100, chain1337, chain2337, 0, 300_000, 900)
 	msg1337.TxHash = txHash1
 	msg1337.Receipts[0].Issuer = testCCVAddr
-	require.Equal(t, "0x42fdceb59007e3a5aee1f4a6b2d92f2922e5ae879257aaea310aae61bf1bb993", msg1337.MessageID.String())
+	require.Equal(t, "0x31ab7010454e0e80083caea2c2dbee990371b8c05c9bfe6c51c74f9329a70a3f", msg1337.MessageID.String())
 
 	msg2337 := createTestMessageSentEvent(t, 100, chain2337, chain1337, 0, 300_000, 900)
 	msg2337.TxHash = txHash3
 	msg2337.Receipts[0].Issuer = destVerifier
-	require.Equal(t, "0x78bd0517e2f4167315be5921f215f8d12d8ba1b91d7884ec7fced62d1123f943", msg2337.MessageID.String())
+	require.Equal(t, "0xe424092df49b840a6c52a901f416c4563de97a9825559c2c9a52cda1391a28f4", msg2337.MessageID.String())
 
 	var sent1337 atomic.Int32
 	var sent2337 atomic.Int32
@@ -429,7 +429,7 @@ func Test_CCTPMessages_RetryingAttestation(t *testing.T) {
 
 	msg := createTestMessageSentEvent(t, 100, chain1337, chain2337, 0, 300_000, 900)
 	msg.TxHash = bytes.Repeat([]byte{0x1}, 32)
-	require.Equal(t, "0x42fdceb59007e3a5aee1f4a6b2d92f2922e5ae879257aaea310aae61bf1bb993", msg.MessageID.String())
+	require.Equal(t, "0x31ab7010454e0e80083caea2c2dbee990371b8c05c9bfe6c51c74f9329a70a3f", msg.MessageID.String())
 
 	var messagesSent atomic.Int32
 	sendEventsAsync([]protocol.MessageSentEvent{msg}, mockSetup.Channel, &messagesSent, 10*time.Millisecond)

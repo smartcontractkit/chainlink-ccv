@@ -12,12 +12,12 @@ import (
 	"github.com/stretchr/testify/require"
 
 	chain_selectors "github.com/smartcontractkit/chain-selectors"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/sequences"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/versioned_verifier_resolver"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v2_0_0/operations/cctp_verifier"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v2_0_0/operations/lombard_verifier"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v2_0_0/operations/mock_receiver_v2"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v2_0_0/operations/proxy"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/cctp_verifier"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/lombard_verifier"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/mock_receiver_v2"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/proxy"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/sequences"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/versioned_verifier_resolver"
 	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
@@ -103,7 +103,7 @@ func TestE2ESmoke_TokenVerification(t *testing.T) {
 			},
 			{
 				name:                    "USDC transfer to EOA receiver with fast finality",
-				finalityConfig:          1,
+				finalityConfig:          protocol.NewFinality().WithBlockDepth(1),
 				transferAmount:          big.NewInt(500),
 				receiver:                mustGetEOAReceiverAddress(t, destChain),
 				expectedReceiptIssuers:  4, // CCTP CCV, token pool, executor, network fee
@@ -123,7 +123,7 @@ func TestE2ESmoke_TokenVerification(t *testing.T) {
 			},
 			{
 				name:                    "USDC transfer to receiver contract but commit and CCTP verifiers are required on dest",
-				finalityConfig:          1,
+				finalityConfig:          protocol.NewFinality().WithBlockDepth(1),
 				transferAmount:          big.NewInt(10),
 				receiver:                cctpAndCommitteeReceiver,
 				executionGasLimit:       200_000,
