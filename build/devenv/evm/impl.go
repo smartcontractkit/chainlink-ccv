@@ -861,20 +861,42 @@ func serializeExtraArgsV3(opts cciptestinterfaces.MessageOptions) []byte {
 	return extraArgs
 }
 
-func serializeExtraArgsSVMV1(_ cciptestinterfaces.MessageOptions) []byte {
-	// // Extra args tag for chains that use the Solana VM.
-	// bytes4 public constant SVM_EXTRA_ARGS_V1_TAG = 0x1f3b3aba;
+func serializeExtraArgsSVMV1(opts cciptestinterfaces.MessageOptions) []byte {
+	svmExtraArgsV1Type, err := abi.NewType("tuple", "SVMExtraArgsV1", []abi.ArgumentMarshaling{
+		{Name: "computeUnits", Type: "uint32"},
+		{Name: "accountIsWritableBitmap", Type: "uint64"},
+		{Name: "allowOutOfOrderExecution", Type: "bool"},
+		{Name: "tokenReceiver", Type: "bytes32"},
+		{Name: "accounts", Type: "bytes32[]"},
+	})
+	if err != nil {
+		panic(fmt.Sprintf("failed to create SVMExtraArgsV1 tuple type: %v", err))
+	}
 
-	// struct SVMExtraArgsV1 {
-	//   uint32 computeUnits;
-	//   uint64 accountIsWritableBitmap;
-	//   bool allowOutOfOrderExecution;
-	//   bytes32 tokenReceiver;
-	//   // Additional accounts needed for execution of CCIP receiver. Must be empty if message.receiver is zero.
-	//   // Token transfer related accounts are specified in the token pool lookup table on SVM.
-	//   bytes32[] accounts;
-	// }
-	return nil // TODO: implement when solana ported to 1.7 tests.
+	arguments := abi.Arguments{{Type: svmExtraArgsV1Type, Name: "extraArgs"}}
+
+	type SVMExtraArgsV1 struct {
+		ComputeUnits             uint32
+		AccountIsWritableBitmap  uint64
+		AllowOutOfOrderExecution bool
+		TokenReceiver            [32]byte
+		Accounts                 [][32]byte
+	}
+
+	packed, err := arguments.Pack(SVMExtraArgsV1{
+		ComputeUnits:             uint32(opts.ExecutionGasLimit), //nolint:gosec
+		AccountIsWritableBitmap:  0,
+		AllowOutOfOrderExecution: opts.OutOfOrderExecution,
+		TokenReceiver:            [32]byte{},
+		Accounts:                 [][32]byte{},
+	})
+	if err != nil {
+		panic(fmt.Sprintf("failed to pack SVMExtraArgsV1: %v", err))
+	}
+
+	// bytes4 public constant SVM_EXTRA_ARGS_V1_TAG = 0x1f3b3aba;
+	tag, _ := hexutil.Decode("0x1f3b3aba")
+	return append(tag, packed...)
 }
 
 func (m *CCIP17EVM) ExposeMetrics(
