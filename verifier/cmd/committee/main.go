@@ -38,7 +38,7 @@ func main() {
 		cmd.NewCommitteeVerifierServiceFactory[evm.Info](
 			chainsel.FamilyEVM,
 			deprecatedCreateAccessorFactory),
-		bootstrap.WithLogLevel[bootstrap.JobSpec](zapcore.InfoLevel),
+		bootstrap.WithLogLevel(zapcore.InfoLevel),
 	); err != nil {
 		panic(fmt.Sprintf("failed to run EVM committee verifier: %s", err.Error()))
 	}

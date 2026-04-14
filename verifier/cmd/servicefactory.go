@@ -76,7 +76,7 @@ type factory[T any] struct {
 func NewServiceFactory[T any](
 	chainFamily string,
 	createAccessorFactoryFunc CreateAccessorFactoryFunc[T],
-) bootstrap.ServiceFactory[bootstrap.JobSpec] {
+) bootstrap.ServiceFactory {
 	return NewCommitteeVerifierServiceFactory(chainFamily, createAccessorFactoryFunc)
 }
 
@@ -85,7 +85,7 @@ func NewServiceFactory[T any](
 func NewCommitteeVerifierServiceFactory[T any](
 	chainFamily string,
 	createAccessorFactoryFunc CreateAccessorFactoryFunc[T],
-) bootstrap.ServiceFactory[bootstrap.JobSpec] {
+) bootstrap.ServiceFactory {
 	return &factory[T]{
 		createAccessorFactoryFunc: createAccessorFactoryFunc,
 		chainFamily:               chainFamily,

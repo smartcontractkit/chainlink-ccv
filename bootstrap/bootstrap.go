@@ -10,6 +10,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/BurntSushi/toml"
 	"github.com/jmoiron/sqlx"
 	"go.uber.org/zap/zapcore"
 
@@ -41,39 +42,38 @@ type ServiceDeps struct {
 }
 
 // ServiceFactory is an interface implemented by the application that seeks to be bootstrapped.
-type ServiceFactory[AppConfig any] interface {
+type ServiceFactory interface {
 	// Start starts the service with the parsed config received from JD.
-	Start(ctx context.Context, appConfig AppConfig, deps ServiceDeps) error
+	Start(ctx context.Context, spec JobSpec, deps ServiceDeps) error
 	// Stop stops the service.
 	Stop(ctx context.Context) error
 }
 
 // A runner adapts a [ServiceFactory] to the [lifecycle.JobRunner] interface.
-type runner[AppConfig any] struct {
-	fac  ServiceFactory[AppConfig]
+type runner struct {
+	fac  ServiceFactory
 	deps ServiceDeps
 }
 
-var _ lifecycle.JobRunner = (*runner[any])(nil)
+var _ lifecycle.JobRunner = (*runner)(nil)
 
 // StartJob implements [lifecycle.JobRunner].
-func (r *runner[AppConfig]) StartJob(ctx context.Context, spec string) error {
-	var appConfig AppConfig
-	err := parseTOMLStrict(spec, &appConfig)
+func (r *runner) StartJob(ctx context.Context, config string) error {
+	var spec JobSpec
+	_, err := toml.Decode(config, &spec)
 	if err != nil {
-		return fmt.Errorf("failed to parse app config toml: %w", err)
+		return fmt.Errorf("bootstrap: failed to parse config: %w", err)
 	}
-
-	return r.fac.Start(ctx, appConfig, r.deps)
+	return r.fac.Start(ctx, spec, r.deps)
 }
 
 // StopJob implements [lifecycle.JobRunner].
-func (r *runner[AppConfig]) StopJob(ctx context.Context) error {
+func (r *runner) StopJob(ctx context.Context) error {
 	return r.fac.Stop(ctx)
 }
 
 // A Bootstrapper manages the lifecycle of a CCIP standalone application.
-type Bootstrapper[AppConfig any] struct {
+type Bootstrapper struct {
 	lggr logger.Logger
 
 	// bootstrapper component configs
@@ -83,21 +83,21 @@ type Bootstrapper[AppConfig any] struct {
 	infoServer       *infoServer
 
 	// application
-	appCfg *AppConfig
-	fac    ServiceFactory[AppConfig]
+	appCfg *string
+	fac    ServiceFactory
 	name   string
 
 	logLevel zapcore.Level
 }
 
 // NewBootstrapper creates a new [Bootstrapper] with the given config and service factory.
-func NewBootstrapper[AppConfig any](
+func NewBootstrapper(
 	name string,
 	lggr logger.Logger,
-	fac ServiceFactory[AppConfig],
-	opts ...Option[AppConfig],
-) (*Bootstrapper[AppConfig], error) {
-	b := &Bootstrapper[AppConfig]{
+	fac ServiceFactory,
+	opts ...Option,
+) (*Bootstrapper, error) {
+	b := &Bootstrapper{
 		lggr:     lggr,
 		fac:      fac,
 		name:     name,
@@ -138,12 +138,22 @@ func NewBootstrapper[AppConfig any](
 }
 
 // startWithAppConfig is a passthrough to the application's Start function.
-func (b *Bootstrapper[AppConfig]) startWithAppConfig(ctx context.Context) error {
-	return b.fac.Start(ctx, *b.appCfg, ServiceDeps{})
+func (b *Bootstrapper) startWithAppConfig(ctx context.Context) error {
+	if b.appCfg == nil {
+		return fmt.Errorf("bootstrapper has no app config")
+	}
+	js := JobSpec{
+		Name:          "no-jd",
+		ExternalJobID: "",
+		SchemaVersion: 0,
+		Type:          "",
+		AppConfig:     *b.appCfg,
+	}
+	return b.fac.Start(ctx, js, ServiceDeps{})
 }
 
 // startWithJDLifecycle initializes all components required for the JD lifecycle manager and starts it.
-func (b *Bootstrapper[AppConfig]) startWithJDLifecycle(ctx context.Context) error {
+func (b *Bootstrapper) startWithJDLifecycle(ctx context.Context) error {
 	db, err := connectToDB(ctx, b.config.DB.URL)
 	if err != nil {
 		return fmt.Errorf("failed to connect to bootstrapper database: %w", err)
@@ -165,7 +175,7 @@ func (b *Bootstrapper[AppConfig]) startWithJDLifecycle(ctx context.Context) erro
 		return fmt.Errorf("failed to create service deps: %w", err)
 	}
 
-	jobRunner := &runner[AppConfig]{fac: b.fac, deps: deps}
+	jobRunner := &runner{fac: b.fac, deps: deps}
 	lifecycleManager, err := lifecycle.NewManager(lifecycle.Config{
 		JDClient: jdClient,
 		JobStore: jobstore.NewPostgresStore(db),
@@ -191,7 +201,7 @@ func (b *Bootstrapper[AppConfig]) startWithJDLifecycle(ctx context.Context) erro
 }
 
 // Start initializes the keystore, connects to JD, and starts the lifecycle manager.
-func (b *Bootstrapper[AppConfig]) Start(ctx context.Context) error {
+func (b *Bootstrapper) Start(ctx context.Context) error {
 	if b.config != nil {
 		return b.startWithJDLifecycle(ctx)
 	}
@@ -203,7 +213,7 @@ func (b *Bootstrapper[AppConfig]) Start(ctx context.Context) error {
 }
 
 // Stop shuts down the lifecycle manager and info server.
-func (b *Bootstrapper[AppConfig]) Stop(ctx context.Context) error {
+func (b *Bootstrapper) Stop(ctx context.Context) error {
 	if err := b.lifecycleManager.Stop(); err != nil {
 		return fmt.Errorf("failed to stop lifecycle manager: %w", err)
 	}
@@ -266,11 +276,11 @@ func initializeKeystore(ctx context.Context, lggr logger.Logger, db *sqlx.DB, ks
 }
 
 // Option configures a [Bootstrapper].
-type Option[AppConfig any] func(*Bootstrapper[AppConfig]) error
+type Option func(*Bootstrapper) error
 
 // WithLogLevel sets the log level for the logger passed to the application.
-func WithLogLevel[AppConfig any](logLevel zapcore.Level) Option[AppConfig] {
-	return func(b *Bootstrapper[AppConfig]) error {
+func WithLogLevel(logLevel zapcore.Level) Option {
+	return func(b *Bootstrapper) error {
 		b.logLevel = logLevel
 		return nil
 	}
@@ -278,8 +288,8 @@ func WithLogLevel[AppConfig any](logLevel zapcore.Level) Option[AppConfig] {
 
 // WithJD tells the bootstrapper to load config from JD and start the JD lifecycle manager.
 // This is the default option if no AppConfig is provided.
-func WithJD[AppConfig any]() Option[AppConfig] {
-	return func(b *Bootstrapper[AppConfig]) error {
+func WithJD() Option {
+	return func(b *Bootstrapper) error {
 		b.config = &Config{}
 		return nil
 	}
@@ -288,37 +298,33 @@ func WithJD[AppConfig any]() Option[AppConfig] {
 // WithBootstrapperConfigPath sets the bootstrapper config file path. If not set, the bootstrapper will look
 // for the config path in the BOOTSTRAPPER_CONFIG_PATH environment variable, and if that is not
 // set, it will default to DefaultConfigPath.
-func WithBootstrapperConfigPath[AppConfig any](path string) Option[AppConfig] {
-	return func(b *Bootstrapper[AppConfig]) error {
+func WithBootstrapperConfigPath(path string) Option {
+	return func(b *Bootstrapper) error {
 		b.configPath = path
 		return nil
 	}
 }
 
 // WithTOMLAppConfig tells bootstrap to load the application config from a given filepath instead of JD.
-func WithTOMLAppConfig[AppConfig any](configFilePath string) Option[AppConfig] {
-	return func(b *Bootstrapper[AppConfig]) error {
+func WithTOMLAppConfig(configFilePath string) Option {
+	return func(b *Bootstrapper) error {
 		configFilePath = filepath.Clean(configFilePath)
 		cfg, err := os.ReadFile(configFilePath)
 		if err != nil {
 			return err
 		}
-		var appConfig AppConfig
-		err = parseTOMLStrict(string(cfg), &appConfig)
-		if err != nil {
-			return err
-		}
-		b.appCfg = &appConfig
+		cfgs := string(cfg)
+		b.appCfg = &cfgs
 		return nil
 	}
 }
 
 // Run is a convenience function that loads config, creates a bootstrapper,
 // starts it, and blocks until SIGINT or SIGTERM is received.
-func Run[AppConfig any](
+func Run(
 	name string,
-	fac ServiceFactory[AppConfig],
-	opts ...Option[AppConfig],
+	fac ServiceFactory,
+	opts ...Option,
 ) error {
 	lggr, err := logger.NewWith(logging.DevelopmentConfig(zapcore.InfoLevel))
 	if err != nil {
