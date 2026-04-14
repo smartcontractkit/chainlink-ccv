@@ -1,9 +1,9 @@
 # Human Overview
 
 This document outlines changes related to the `chainaccess.Registry` adopted in the following PRs:
-https://github.com/smartcontractkit/chainlink-ccv/pull/1002
-https://github.com/smartcontractkit/chainlink-ccv/pull/1007
-https://github.com/smartcontractkit/chainlink-ccv/pull/1005
+* https://github.com/smartcontractkit/chainlink-ccv/pull/1002
+* https://github.com/smartcontractkit/chainlink-ccv/pull/1007
+* https://github.com/smartcontractkit/chainlink-ccv/pull/1005
 
 The primary purpose is to completely separate family specific accessor implementations from bootstrap applications by adopting a Registry + Driver style abstraction. Additional changes are planned, but they are much smaller and should be significantly easier to adopt than the initial set of changes outlined here.
 
