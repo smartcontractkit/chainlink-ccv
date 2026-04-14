@@ -63,17 +63,19 @@ var _ lifecycle.JobRunner = (*runner)(nil)
 
 // StartJob implements [lifecycle.JobRunner].
 func (r *runner) StartJob(ctx context.Context, config string) error {
-	// Initialize registry.
-	reg, err := chainaccess.NewRegistry(r.deps.Logger, config)
-	if err != nil {
-		return fmt.Errorf("failed to create registry: %w", err)
-	}
-	r.deps.Registry = reg
+	r.deps.Logger.Infow("starting job", "config", config)
 
 	var spec JobSpec
 	if _, err := toml.Decode(config, &spec); err != nil {
 		return fmt.Errorf("bootstrap: failed to parse config: %w", err)
 	}
+
+	// Initialize registry.
+	reg, err := chainaccess.NewRegistry(r.deps.Logger, spec.AppConfig)
+	if err != nil {
+		return fmt.Errorf("failed to create registry: %w", err)
+	}
+	r.deps.Registry = reg
 
 	return r.fac.Start(ctx, spec, r.deps)
 }
