@@ -109,8 +109,8 @@ ChainID = "1"
 		// Decoding that array into an int target field causes a type-mismatch error.
 		gc := chainaccess.GenericConfig{
 			ChainConfig: chainaccess.Infos[any]{
-				"123": map[string]interface{}{
-					"Items": []interface{}{int64(1), int64(2), int64(3)},
+				"123": map[string]any{
+					"Items": []any{int64(1), int64(2), int64(3)},
 				},
 			},
 		}

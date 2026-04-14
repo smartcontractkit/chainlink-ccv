@@ -94,9 +94,9 @@ func TestInfos_GetAllInfos(t *testing.T) {
 
 	t.Run("non-numeric keys are skipped", func(t *testing.T) {
 		infos := Infos[TestInfo]{
-			"valid":       {ChainID: "bad"},  // non-numeric: skipped
-			"also-bad":    {ChainID: "bad"},  // non-numeric: skipped
-			"42":          {ChainID: "good"}, // numeric: kept
+			"valid":    {ChainID: "bad"},  // non-numeric: skipped
+			"also-bad": {ChainID: "bad"},  // non-numeric: skipped
+			"42":       {ChainID: "good"}, // numeric: kept
 		}
 		result := infos.GetAllInfos()
 		if len(result) != 1 {
@@ -119,8 +119,8 @@ func TestInfos_GetAllChainSelectors(t *testing.T) {
 
 	t.Run("returns one selector per valid numeric key", func(t *testing.T) {
 		infos := Infos[TestInfo]{
-			"10": {ChainID: "10"},
-			"20": {ChainID: "20"},
+			"10":      {ChainID: "10"},
+			"20":      {ChainID: "20"},
 			"bad-key": {ChainID: "skip"},
 		}
 		selectors := infos.GetAllChainSelectors()
