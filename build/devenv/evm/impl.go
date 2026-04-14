@@ -1310,24 +1310,37 @@ func (m *CCIP17EVMConfig) GetTokenTransferConfigs(
 	applicableCombos := devenvcommon.FilterTokenCombinations(
 		devenvcommon.AllTokenCombinations(), topology, env.DataStore, append([]uint64{selector}, remoteSelectors...),
 	)
+	hasAddressRef := func(chainSelector uint64, ref datastore.AddressRef) bool {
+		_, err := env.DataStore.Addresses().Get(datastore.NewAddressRefKey(
+			chainSelector,
+			ref.Type,
+			ref.Version,
+			ref.Qualifier,
+		))
+		return err == nil
+	}
 	merged := make(map[string]tokenscore.TokenTransferConfig)
 
 	for _, combo := range applicableCombos {
-		for _, pair := range []struct {
-			local, remote datastore.AddressRef
-			ccvQuals      []string
-		}{
-			{combo.LocalPoolAddressRef(), combo.RemotePoolAddressRef(), combo.LocalPoolCCVQualifiers()},
-			{combo.RemotePoolAddressRef(), combo.LocalPoolAddressRef(), combo.RemotePoolCCVQualifiers()},
-		} {
-			cfg := m.buildEVMTokenTransferConfig(selector, remoteSelectors, pair.local, pair.remote, pair.ccvQuals)
-			key := string(cfg.TokenPoolRef.Type) + "\x00" + cfg.TokenPoolRef.Version.String() + "\x00" + cfg.TokenPoolRef.Qualifier
-			if existing, ok := merged[key]; ok {
-				maps.Copy(existing.RemoteChains, cfg.RemoteChains)
-				merged[key] = existing
-			} else {
-				merged[key] = cfg
+		eligibleRemoteSelectors := make([]uint64, 0, len(remoteSelectors))
+		// Emit only the remote selectors that actually have the pool required by
+		// this combo. ConfigureTokensForTransfers expects every advertised remote
+		// to have a reciprocal config on the other side.
+		for _, rs := range remoteSelectors {
+			if hasAddressRef(rs, combo.RemotePoolAddressRef()) {
+				eligibleRemoteSelectors = append(eligibleRemoteSelectors, rs)
 			}
+		}
+		if len(eligibleRemoteSelectors) == 0 {
+			continue
+		}
+		cfg := m.buildEVMTokenTransferConfig(selector, eligibleRemoteSelectors, combo.LocalPoolAddressRef(), combo.RemotePoolAddressRef(), combo.LocalPoolCCVQualifiers())
+		key := string(cfg.TokenPoolRef.Type) + "\x00" + cfg.TokenPoolRef.Version.String() + "\x00" + cfg.TokenPoolRef.Qualifier
+		if existing, ok := merged[key]; ok {
+			maps.Copy(existing.RemoteChains, cfg.RemoteChains)
+			merged[key] = existing
+		} else {
+			merged[key] = cfg
 		}
 	}
 
@@ -1346,16 +1359,15 @@ func (m *CCIP17EVMConfig) buildEVMTokenTransferConfig(
 	ccvQualifiers []string,
 ) tokenscore.TokenTransferConfig {
 	remoteChains := make(map[uint64]tokenscore.RemoteChainConfig[*datastore.AddressRef, datastore.AddressRef])
+	ccvRefs := make([]datastore.AddressRef, 0, len(ccvQualifiers))
+	for _, qualifier := range ccvQualifiers {
+		ccvRefs = append(ccvRefs, datastore.AddressRef{
+			Type:      datastore.ContractType(versioned_verifier_resolver.CommitteeVerifierResolverType),
+			Version:   versioned_verifier_resolver.Version,
+			Qualifier: qualifier,
+		})
+	}
 	for _, rs := range remoteSelectors {
-		ccvRefs := make([]datastore.AddressRef, 0, len(ccvQualifiers))
-		for _, qualifier := range ccvQualifiers {
-			ccvRefs = append(ccvRefs, datastore.AddressRef{
-				Type:      datastore.ContractType(versioned_verifier_resolver.CommitteeVerifierResolverType),
-				Version:   versioned_verifier_resolver.Version,
-				Qualifier: qualifier,
-			})
-		}
-
 		remoteChains[rs] = tokenscore.RemoteChainConfig[*datastore.AddressRef, datastore.AddressRef]{
 			RemotePool:                               &remoteRef,
 			DefaultFinalityInboundRateLimiterConfig:  tokenscore.RateLimiterConfigFloatInput{},
@@ -1370,6 +1382,11 @@ func (m *CCIP17EVMConfig) buildEVMTokenTransferConfig(
 	return tokenscore.TokenTransferConfig{
 		ChainSelector: selector,
 		TokenPoolRef:  localRef,
+		TokenRef: datastore.AddressRef{
+			Type:      datastore.ContractType(bnm_drip_v1_0.ContractType),
+			Version:   semver.MustParse(bnm_drip_v1_0.Deploy.Version()),
+			Qualifier: localRef.Qualifier,
+		},
 		RegistryRef: datastore.AddressRef{
 			Type:    datastore.ContractType(token_admin_registry.ContractType),
 			Version: semver.MustParse(token_admin_registry.Deploy.Version()),

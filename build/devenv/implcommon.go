@@ -3,6 +3,7 @@ package ccv
 import (
 	"context"
 	"fmt"
+	"maps"
 	"sort"
 
 	"github.com/Masterminds/semver/v3"
@@ -526,17 +527,30 @@ func ConfigureAllTokenTransfers(
 	env *deployment.Environment,
 	topology *ccipOffchain.EnvironmentTopology,
 ) error {
-	// poolIdentityKey returns a key that groups configs across chains for the
-	// same pool type+version+qualifier.
-	poolIdentityKey := func(cfg *tokenscore.TokenTransferConfig) string {
+	refKey := func(ref datastore.AddressRef) string {
 		v := ""
-		if cfg.TokenPoolRef.Version != nil {
-			v = cfg.TokenPoolRef.Version.String()
+		if ref.Version != nil {
+			v = ref.Version.String()
 		}
-		return string(cfg.TokenPoolRef.Type) + "+" + v + "+" + cfg.TokenPoolRef.Qualifier
+		return string(ref.Type) + "+" + v + "+" + ref.Qualifier
 	}
 
-	byPoolIdentity := make(map[string][]tokenscore.TokenTransferConfig)
+	// laneKey groups reciprocal configs for the same selector pair by the local
+	// pool identity each selector contributes. The selector ordering is stable,
+	// so A(local burn)->B(remote lock) and B(local lock)->A(remote burn) land in
+	// the same bucket, while the opposite orientation on the same selector pair
+	// stays distinct.
+	laneKey := func(local datastore.AddressRef, localSelector uint64, remote datastore.AddressRef, remoteSelector uint64) string {
+		leftSelector, leftRef := localSelector, local
+		rightSelector, rightRef := remoteSelector, remote
+		if leftSelector > rightSelector {
+			leftSelector, rightSelector = rightSelector, leftSelector
+			leftRef, rightRef = rightRef, leftRef
+		}
+		return fmt.Sprintf("%d:%s<->%d:%s", leftSelector, refKey(leftRef), rightSelector, refKey(rightRef))
+	}
+
+	byLane := make(map[string]map[uint64]tokenscore.TokenTransferConfig)
 
 	for i, impl := range impls {
 		tcp, ok := impl.(cciptestinterfaces.TokenConfigProvider)
@@ -555,18 +569,53 @@ func ConfigureAllTokenTransfers(
 			return fmt.Errorf("get token transfer configs for selector %d: %w", selectors[i], err)
 		}
 		for _, cfg := range cfgs {
-			key := poolIdentityKey(&cfg)
-			byPoolIdentity[key] = append(byPoolIdentity[key], cfg)
+			for remoteSelector, remoteCfg := range cfg.RemoteChains {
+				if remoteCfg.RemotePool == nil {
+					continue
+				}
+
+				key := laneKey(cfg.TokenPoolRef, cfg.ChainSelector, *remoteCfg.RemotePool, remoteSelector)
+				splitCfg := cfg
+				splitCfg.RemoteChains = map[uint64]tokenscore.RemoteChainConfig[*datastore.AddressRef, datastore.AddressRef]{
+					remoteSelector: remoteCfg,
+				}
+
+				if byLane[key] == nil {
+					byLane[key] = make(map[uint64]tokenscore.TokenTransferConfig)
+				}
+
+				if existing, ok := byLane[key][cfg.ChainSelector]; ok {
+					if refKey(existing.TokenPoolRef) != refKey(splitCfg.TokenPoolRef) {
+						return fmt.Errorf(
+							"selector %d produced conflicting local pool configs for lane %s: %s/%s vs %s/%s",
+							cfg.ChainSelector,
+							key,
+							existing.TokenPoolRef.Type,
+							existing.TokenPoolRef.Qualifier,
+							splitCfg.TokenPoolRef.Type,
+							splitCfg.TokenPoolRef.Qualifier,
+						)
+					}
+					maps.Copy(existing.RemoteChains, splitCfg.RemoteChains)
+					byLane[key][cfg.ChainSelector] = existing
+				} else {
+					byLane[key][cfg.ChainSelector] = splitCfg
+				}
+			}
 		}
 	}
 
-	if len(byPoolIdentity) == 0 {
+	if len(byLane) == 0 {
 		return nil
 	}
 
 	tokenAdapterRegistry := tokenscore.GetTokenAdapterRegistry()
 	mcmsReaderRegistry := changesetscore.GetRegistry()
-	for _, group := range byPoolIdentity {
+	for _, groupedBySelector := range byLane {
+		group := make([]tokenscore.TokenTransferConfig, 0, len(groupedBySelector))
+		for _, cfg := range groupedBySelector {
+			group = append(group, cfg)
+		}
 		_, err := tokenscore.ConfigureTokensForTransfers(tokenAdapterRegistry, mcmsReaderRegistry).Apply(*env, tokenscore.ConfigureTokensForTransfersConfig{
 			Tokens: group,
 		})
