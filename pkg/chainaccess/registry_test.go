@@ -1,4 +1,4 @@
-package chainaccess
+package chainaccess_test
 
 import (
 	"testing"
@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
@@ -34,7 +35,7 @@ Type = "evm"
 Family = "evm"
 UniqueChainName = "ethereum-mainnet"
 `
-		var gc GenericConfig
+		var gc chainaccess.GenericConfig
 		_, err := toml.Decode(rawCfg, &gc)
 		require.NoError(t, err)
 
@@ -59,7 +60,7 @@ UniqueChainName = "ethereum-mainnet"
 Name = "stellar"
 Nodes = ["node1.example.com", "node2.example.com"]
 `
-		var gc GenericConfig
+		var gc chainaccess.GenericConfig
 		_, err := toml.Decode(rawCfg, &gc)
 		require.NoError(t, err)
 
@@ -75,7 +76,7 @@ Nodes = ["node1.example.com", "node2.example.com"]
 [blockchain_infos."123"]
 ChainID = "1"
 `
-		var gc GenericConfig
+		var gc chainaccess.GenericConfig
 		_, err := toml.Decode(rawCfg, &gc)
 		require.NoError(t, err)
 
@@ -85,7 +86,7 @@ ChainID = "1"
 	})
 
 	t.Run("empty blockchain_infos returns error", func(t *testing.T) {
-		gc := GenericConfig{}
+		gc := chainaccess.GenericConfig{}
 		err := gc.GetConcreteConfig(protocol.ChainSelector(1), nil)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "not found")
