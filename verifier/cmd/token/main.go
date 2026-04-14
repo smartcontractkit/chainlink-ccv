@@ -45,7 +45,6 @@ func main() {
 	err := bootstrap.Run(
 		"TokenVerifier",
 		&tokenVerifierFactory{},
-		// TODO: remove the AppConfig generic type to streamline this API, update factory to accept config as a string.
 		bootstrap.WithTOMLAppConfig(configPath),
 	)
 	if err != nil {
