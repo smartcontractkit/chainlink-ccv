@@ -91,4 +91,35 @@ ChainID = "1"
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "not found")
 	})
+
+	t.Run("marshal error when chain info contains un-marshalable value", func(t *testing.T) {
+		// A channel cannot be represented in TOML, so toml.Marshal will return an error.
+		gc := chainaccess.GenericConfig{
+			ChainConfig: chainaccess.Infos[any]{
+				"123": make(chan int),
+			},
+		}
+		err := gc.GetConcreteConfig(protocol.ChainSelector(123), nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to marshal info")
+	})
+
+	t.Run("decode error when target type is incompatible with marshaled TOML", func(t *testing.T) {
+		// Store an array value so the marshaled TOML contains an array field.
+		// Decoding that array into an int target field causes a type-mismatch error.
+		gc := chainaccess.GenericConfig{
+			ChainConfig: chainaccess.Infos[any]{
+				"123": map[string]interface{}{
+					"Items": []interface{}{int64(1), int64(2), int64(3)},
+				},
+			},
+		}
+		type badTarget struct {
+			Items int `toml:"Items"` // array cannot decode into int
+		}
+		var target badTarget
+		err := gc.GetConcreteConfig(protocol.ChainSelector(123), &target)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "failed to unmarshal info")
+	})
 }
