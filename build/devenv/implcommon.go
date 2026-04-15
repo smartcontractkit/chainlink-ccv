@@ -591,4 +591,3 @@ func ConfigureAllTokenTransfers(
 	}
 	return nil
 }
-
