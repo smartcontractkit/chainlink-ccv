@@ -116,6 +116,13 @@ func init() {
 			tokenAdapterRegistry.RegisterTokenAdapter("evm", semver.MustParse(poolVersion), tokenAdapter)
 		}
 	}
+
+	cciptestinterfaces.RegisterExtraArgsSerializer(chainsel.FamilyEVM, SerializeEVMExtraArgs)
+	// Canton shares EVM's extra args serialization. Canton's product repo can
+	// register its own serializer if the formats ever diverge; until then, this
+	// provides backward compatibility with the previous FamilyEVM/FamilyCanton
+	// combined switch case.
+	cciptestinterfaces.RegisterExtraArgsSerializer(chainsel.FamilyCanton, SerializeEVMExtraArgs)
 }
 
 type CCIP17EVMConfig struct {
@@ -758,30 +765,28 @@ func (m *CCIP17EVM) GetUserNonce(ctx context.Context, userAddress protocol.Unkno
 	return m.chain.Client.PendingNonceAt(ctx, common.HexToAddress(userAddress.String()))
 }
 
+// serializeExtraArgs dispatches to the destination family's registered ExtraArgsSerializer.
+// New chain families register their serializer via cciptestinterfaces.RegisterExtraArgsSerializer
+// in their product repo, so no changes are needed here when adding a chain.
 func serializeExtraArgs(opts cciptestinterfaces.MessageOptions, destFamily string) []byte {
-	switch destFamily {
-	case chainsel.FamilyEVM, chainsel.FamilyCanton:
-		switch opts.Version {
-		case 1: // EVMExtraArgsV1
-			return serializeExtraArgsV1(opts)
-		case 2: // GenericExtraArgsV2
-			return serializeExtraArgsV2(opts)
-		case 3: // EVMExtraArgsV3
-			return serializeExtraArgsV3(opts)
-		default:
-			panic(fmt.Sprintf("unsupported message extra args version: %d", opts.Version))
-		}
-	case chainsel.FamilyStellar:
+	serializer, ok := cciptestinterfaces.GetExtraArgsSerializer(destFamily)
+	if !ok {
+		panic(fmt.Sprintf("no ExtraArgsSerializer registered for destination family %q", destFamily))
+	}
+	return serializer(opts)
+}
+
+// SerializeEVMExtraArgs is the EVM family's ExtraArgsSerializer, handling versions 1-3.
+func SerializeEVMExtraArgs(opts cciptestinterfaces.MessageOptions) []byte {
+	switch opts.Version {
+	case 1:
+		return serializeExtraArgsV1(opts)
+	case 2:
+		return serializeExtraArgsV2(opts)
+	case 3:
 		return serializeExtraArgsV3(opts)
-	case chainsel.FamilySolana:
-		switch opts.Version {
-		case 1: // SVMExtraArgsV1
-			return serializeExtraArgsSVMV1(opts)
-		default:
-			panic(fmt.Sprintf("unsupported message extra args version for family %s: %d", destFamily, opts.Version))
-		}
 	default:
-		panic(fmt.Sprintf("unsupported destination family: %s", destFamily))
+		panic(fmt.Sprintf("unsupported EVM message extra args version: %d", opts.Version))
 	}
 }
 
@@ -1343,24 +1348,37 @@ func (m *CCIP17EVMConfig) GetTokenTransferConfigs(
 	applicableCombos := devenvcommon.FilterTokenCombinations(
 		devenvcommon.AllTokenCombinations(), topology, env.DataStore, append([]uint64{selector}, remoteSelectors...),
 	)
+	hasAddressRef := func(chainSelector uint64, ref datastore.AddressRef) bool {
+		_, err := env.DataStore.Addresses().Get(datastore.NewAddressRefKey(
+			chainSelector,
+			ref.Type,
+			ref.Version,
+			ref.Qualifier,
+		))
+		return err == nil
+	}
 	merged := make(map[string]tokenscore.TokenTransferConfig)
 
 	for _, combo := range applicableCombos {
-		for _, pair := range []struct {
-			local, remote datastore.AddressRef
-			ccvQuals      []string
-		}{
-			{combo.LocalPoolAddressRef(), combo.RemotePoolAddressRef(), combo.LocalPoolCCVQualifiers()},
-			{combo.RemotePoolAddressRef(), combo.LocalPoolAddressRef(), combo.RemotePoolCCVQualifiers()},
-		} {
-			cfg := m.buildEVMTokenTransferConfig(selector, remoteSelectors, pair.local, pair.remote, pair.ccvQuals)
-			key := string(cfg.TokenPoolRef.Type) + "\x00" + cfg.TokenPoolRef.Version.String() + "\x00" + cfg.TokenPoolRef.Qualifier
-			if existing, ok := merged[key]; ok {
-				maps.Copy(existing.RemoteChains, cfg.RemoteChains)
-				merged[key] = existing
-			} else {
-				merged[key] = cfg
+		eligibleRemoteSelectors := make([]uint64, 0, len(remoteSelectors))
+		// Emit only the remote selectors that actually have the pool required by
+		// this combo. ConfigureTokensForTransfers expects every advertised remote
+		// to have a reciprocal config on the other side.
+		for _, rs := range remoteSelectors {
+			if hasAddressRef(rs, combo.RemotePoolAddressRef()) {
+				eligibleRemoteSelectors = append(eligibleRemoteSelectors, rs)
 			}
+		}
+		if len(eligibleRemoteSelectors) == 0 {
+			continue
+		}
+		cfg := m.buildEVMTokenTransferConfig(selector, eligibleRemoteSelectors, combo.LocalPoolAddressRef(), combo.RemotePoolAddressRef(), combo.LocalPoolCCVQualifiers())
+		key := string(cfg.TokenPoolRef.Type) + "\x00" + cfg.TokenPoolRef.Version.String() + "\x00" + cfg.TokenPoolRef.Qualifier
+		if existing, ok := merged[key]; ok {
+			maps.Copy(existing.RemoteChains, cfg.RemoteChains)
+			merged[key] = existing
+		} else {
+			merged[key] = cfg
 		}
 	}
 
@@ -1379,16 +1397,15 @@ func (m *CCIP17EVMConfig) buildEVMTokenTransferConfig(
 	ccvQualifiers []string,
 ) tokenscore.TokenTransferConfig {
 	remoteChains := make(map[uint64]tokenscore.RemoteChainConfig[*datastore.AddressRef, datastore.AddressRef])
+	ccvRefs := make([]datastore.AddressRef, 0, len(ccvQualifiers))
+	for _, qualifier := range ccvQualifiers {
+		ccvRefs = append(ccvRefs, datastore.AddressRef{
+			Type:      datastore.ContractType(versioned_verifier_resolver.CommitteeVerifierResolverType),
+			Version:   versioned_verifier_resolver.Version,
+			Qualifier: qualifier,
+		})
+	}
 	for _, rs := range remoteSelectors {
-		ccvRefs := make([]datastore.AddressRef, 0, len(ccvQualifiers))
-		for _, qualifier := range ccvQualifiers {
-			ccvRefs = append(ccvRefs, datastore.AddressRef{
-				Type:      datastore.ContractType(versioned_verifier_resolver.CommitteeVerifierResolverType),
-				Version:   versioned_verifier_resolver.Version,
-				Qualifier: qualifier,
-			})
-		}
-
 		remoteChains[rs] = tokenscore.RemoteChainConfig[*datastore.AddressRef, datastore.AddressRef]{
 			RemotePool:                               &remoteRef,
 			DefaultFinalityInboundRateLimiterConfig:  tokenscore.RateLimiterConfigFloatInput{},
@@ -1403,6 +1420,11 @@ func (m *CCIP17EVMConfig) buildEVMTokenTransferConfig(
 	return tokenscore.TokenTransferConfig{
 		ChainSelector: selector,
 		TokenPoolRef:  localRef,
+		TokenRef: datastore.AddressRef{
+			Type:      datastore.ContractType(bnm_drip_v1_0.ContractType),
+			Version:   semver.MustParse(bnm_drip_v1_0.Deploy.Version()),
+			Qualifier: localRef.Qualifier,
+		},
 		RegistryRef: datastore.AddressRef{
 			Type:    datastore.ContractType(token_admin_registry.ContractType),
 			Version: semver.MustParse(token_admin_registry.Deploy.Version()),
