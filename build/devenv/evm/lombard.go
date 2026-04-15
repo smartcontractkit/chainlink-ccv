@@ -258,7 +258,7 @@ func (m *CCIP17EVMConfig) configureLombardForTransfer(
 	for _, rs := range remoteSelectors {
 		remoteChains[rs] = adapters.RemoteLombardChainConfig{
 			FeeUSDCents:        45,
-			GasForVerification: 7_500*6 + 5_000 + 25_000,
+			GasForVerification: 7_500*6 + 350_000,
 			PayloadSizeBytes:   6*64 + 2*32,
 			LombardChainId:     uint32(rs),
 		}
