@@ -40,19 +40,6 @@ type CreateAccessorFactoryFunc[T any] func(
 	cfg commit.Config,
 ) (chainaccess.AccessorFactory, error)
 
-// chainSelectorsFromMap returns chain selectors parsed from the keys of a map keyed by selector string.
-func chainSelectorsFromMap[T any](m chainaccess.Infos[T]) []protocol.ChainSelector {
-	out := make([]protocol.ChainSelector, 0, len(m))
-	for sel := range m {
-		u, err := strconv.ParseUint(sel, 10, 64)
-		if err != nil {
-			continue
-		}
-		out = append(out, protocol.ChainSelector(u))
-	}
-	return out
-}
-
 // factory is a ServiceFactory implementation that creates a committee verifier service.
 // T is the chain config type for this family (e.g. blockchain.Info for EVM).
 // NOTE: this factory supports only a single chain family at a time.
@@ -83,12 +70,16 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 
 	protocol.InitChainSelectorCache()
 
-	config, blockchainInfos, err := commit.LoadConfigWithBlockchainInfos(spec.AppConfig)
+	genericConfig, err := spec.GetGenericConfig()
 	if err != nil {
-		lggr.Errorw("Failed to load configuration", "error", err)
-		return fmt.Errorf("failed to load configuration: %w", err)
+		return fmt.Errorf("failed to get generic config: %w", err)
 	}
-	lggr.Infow("Using blockchain information from config", "info", blockchainInfos)
+
+	var config commit.Config
+	if err := spec.GetAppConfig(&config); err != nil {
+		return fmt.Errorf("failed to get app config: %w", err)
+	}
+	lggr.Infow("Using blockchain information from config", "info", genericConfig.ChainConfig)
 
 	// TODO: this should be passed in via the config maybe?
 	apiKey := os.Getenv("VERIFIER_AGGREGATOR_API_KEY")
@@ -121,7 +112,7 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 	}
 	f.profiler = profiler
 
-	chainSelectors := chainSelectorsFromMap(blockchainInfos)
+	chainSelectors := genericConfig.ChainConfig.GetAllChainSelectors()
 
 	// Create verifier addresses before source readers setup
 	verifierAddresses := make(map[string]protocol.UnknownAddress)
