@@ -900,7 +900,7 @@ func serializeExtraArgsSVMV1(opts cciptestinterfaces.MessageOptions) []byte {
 	}
 
 	packed, err := arguments.Pack(SVMExtraArgsV1{
-		ComputeUnits:             uint32(opts.ExecutionGasLimit), //nolint:gosec
+		ComputeUnits:             opts.ExecutionGasLimit,
 		AccountIsWritableBitmap:  0,
 		AllowOutOfOrderExecution: opts.OutOfOrderExecution,
 		TokenReceiver:            [32]byte{},
