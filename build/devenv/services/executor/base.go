@@ -147,7 +147,6 @@ func (v *Input) GenerateConfigWithBlockchainInfos(blockchainInfos chainaccess.In
 		BlockchainInfos chainaccess.Infos[evm.Info] `toml:"blockchain_infos"`
 	}
 
-
 	config := configWithBlockchainInfos{
 		Configuration:   baseConfig,
 		BlockchainInfos: blockchainInfos,
