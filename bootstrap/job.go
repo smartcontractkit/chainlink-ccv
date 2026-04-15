@@ -31,7 +31,7 @@ func (js JobSpec) GetAppConfig(cfg any) error {
 		return fmt.Errorf("error decoding app config: %w", err)
 	}
 
-	// Filter out undecoded fields under blockchain_infos.
+	// Filter out undecoded fields under blockchain_info.
 	var undecoded []string
 	for _, key := range md.Undecoded() {
 		if key[0] != "blockchain_infos" {
