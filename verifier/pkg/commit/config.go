@@ -7,11 +7,6 @@ import (
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
 )
 
-type ConfigWithBlockchainInfos struct {
-	Config
-	BlockchainInfos map[string]any `toml:"blockchain_infos"`
-}
-
 type Config struct {
 	VerifierID        string `toml:"verifier_id"`
 	AggregatorAddress string `toml:"aggregator_address"`
