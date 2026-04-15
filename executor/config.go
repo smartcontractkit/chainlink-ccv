@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"net/url"
 	"time"
-
-	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 )
 
 const (
@@ -19,11 +17,6 @@ const (
 	IndexerQueryLimitDefault = 100
 	IndexerQueryLimitMax     = 10000
 )
-
-type ConfigWithBlockchainInfo[T any] struct {
-	Configuration
-	BlockchainInfos chainaccess.Infos[T] `toml:"blockchain_infos"`
-}
 
 // Configuration is the complete set of information an executor needs to operate normally.
 // We can use time.Duration directly in this config because burntSushi can parse duration from strings.
