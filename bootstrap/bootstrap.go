@@ -156,7 +156,7 @@ func (b *Bootstrapper) startWithAppConfig(ctx context.Context) error {
 		return fmt.Errorf("bootstrapper has no app config")
 	}
 
-	b.lggr.Infow("Calling NewRegistry with app config.")
+	b.lggr.Infow("Calling NewRegistry with app config")
 	reg, err := chainaccess.NewRegistry(b.lggr, *b.appCfg)
 	if err != nil {
 		return fmt.Errorf("failed to create registry: %w", err)
