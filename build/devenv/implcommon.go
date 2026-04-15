@@ -8,8 +8,6 @@ import (
 
 	"github.com/Masterminds/semver/v3"
 
-	"github.com/smartcontractkit/chainlink-ccip/deployment/finality"
-
 	chainsel "github.com/smartcontractkit/chain-selectors"
 
 	"github.com/smartcontractkit/chainlink-ccip/deployment/lanes"
@@ -260,7 +258,6 @@ func buildPartialChainConfig(
 			DefaultExecutorQualifier: local.DefaultExecutorQualifier,
 			FeeQuoterDestChainConfig: remote.FeeQuoterDestChainConfig,
 			ExecutorDestChainConfig:  local.ExecutorDestChainConfig,
-			AddressBytesLength:       remote.AddressBytesLength,
 			BaseExecutionGasCost:     remote.BaseExecutionGasCost,
 		}
 	}
@@ -282,7 +279,7 @@ func buildPartialChainConfig(
 		cvConfigs = append(cvConfigs, ccipChangesets.CommitteeVerifierInputConfig{
 			CommitteeQualifier:    qualifier,
 			RemoteChains:          remoteCV,
-			AllowedFinalityConfig: finality.Config{BlockDepth: 1, WaitForSafe: true},
+			AllowedFinalityConfig: local.AllowedFinalityConfig,
 		})
 	}
 
@@ -535,22 +532,15 @@ func ConfigureAllTokenTransfers(
 		return string(ref.Type) + "+" + v + "+" + ref.Qualifier
 	}
 
-	// laneKey groups reciprocal configs for the same selector pair by the local
-	// pool identity each selector contributes. The selector ordering is stable,
-	// so A(local burn)->B(remote lock) and B(local lock)->A(remote burn) land in
-	// the same bucket, while the opposite orientation on the same selector pair
-	// stays distinct.
-	laneKey := func(local datastore.AddressRef, localSelector uint64, remote datastore.AddressRef, remoteSelector uint64) string {
-		leftSelector, leftRef := localSelector, local
-		rightSelector, rightRef := remoteSelector, remote
-		if leftSelector > rightSelector {
-			leftSelector, rightSelector = rightSelector, leftSelector
-			leftRef, rightRef = rightRef, leftRef
-		}
-		return fmt.Sprintf("%d:%s<->%d:%s", leftSelector, refKey(leftRef), rightSelector, refKey(rightRef))
+	// Group by (chainSelector, poolIdentity) so each pool gets ALL its remote
+	// chains in a single ConfigureTokensForTransfers call. The upstream sequence
+	// validates that remoteChains includes every chain the pool already supports,
+	// so splitting by lane would fail when a pool has more than one remote.
+	type poolKey struct {
+		chainSelector uint64
+		poolID        string
 	}
-
-	byLane := make(map[string]map[uint64]tokenscore.TokenTransferConfig)
+	byPool := make(map[poolKey]tokenscore.TokenTransferConfig)
 
 	for i, impl := range impls {
 		tcp, ok := impl.(cciptestinterfaces.TokenConfigProvider)
@@ -569,59 +559,36 @@ func ConfigureAllTokenTransfers(
 			return fmt.Errorf("get token transfer configs for selector %d: %w", selectors[i], err)
 		}
 		for _, cfg := range cfgs {
-			for remoteSelector, remoteCfg := range cfg.RemoteChains {
-				if remoteCfg.RemotePool == nil {
-					continue
-				}
-
-				key := laneKey(cfg.TokenPoolRef, cfg.ChainSelector, *remoteCfg.RemotePool, remoteSelector)
-				splitCfg := cfg
-				splitCfg.RemoteChains = map[uint64]tokenscore.RemoteChainConfig[*datastore.AddressRef, datastore.AddressRef]{
-					remoteSelector: remoteCfg,
-				}
-
-				if byLane[key] == nil {
-					byLane[key] = make(map[uint64]tokenscore.TokenTransferConfig)
-				}
-
-				if existing, ok := byLane[key][cfg.ChainSelector]; ok {
-					if refKey(existing.TokenPoolRef) != refKey(splitCfg.TokenPoolRef) {
-						return fmt.Errorf(
-							"selector %d produced conflicting local pool configs for lane %s: %s/%s vs %s/%s",
-							cfg.ChainSelector,
-							key,
-							existing.TokenPoolRef.Type,
-							existing.TokenPoolRef.Qualifier,
-							splitCfg.TokenPoolRef.Type,
-							splitCfg.TokenPoolRef.Qualifier,
-						)
-					}
-					maps.Copy(existing.RemoteChains, splitCfg.RemoteChains)
-					byLane[key][cfg.ChainSelector] = existing
-				} else {
-					byLane[key][cfg.ChainSelector] = splitCfg
-				}
+			pk := poolKey{
+				chainSelector: cfg.ChainSelector,
+				poolID:        refKey(cfg.TokenPoolRef),
+			}
+			if existing, ok := byPool[pk]; ok {
+				maps.Copy(existing.RemoteChains, cfg.RemoteChains)
+				byPool[pk] = existing
+			} else {
+				byPool[pk] = cfg
 			}
 		}
 	}
 
-	if len(byLane) == 0 {
+	if len(byPool) == 0 {
 		return nil
+	}
+
+	allConfigs := make([]tokenscore.TokenTransferConfig, 0, len(byPool))
+	for _, cfg := range byPool {
+		allConfigs = append(allConfigs, cfg)
 	}
 
 	tokenAdapterRegistry := tokenscore.GetTokenAdapterRegistry()
 	mcmsReaderRegistry := changesetscore.GetRegistry()
-	for _, groupedBySelector := range byLane {
-		group := make([]tokenscore.TokenTransferConfig, 0, len(groupedBySelector))
-		for _, cfg := range groupedBySelector {
-			group = append(group, cfg)
-		}
-		_, err := tokenscore.ConfigureTokensForTransfers(tokenAdapterRegistry, mcmsReaderRegistry).Apply(*env, tokenscore.ConfigureTokensForTransfersConfig{
-			Tokens: group,
-		})
-		if err != nil {
-			return fmt.Errorf("configure tokens for transfers: %w", err)
-		}
+	_, err := tokenscore.ConfigureTokensForTransfers(tokenAdapterRegistry, mcmsReaderRegistry).Apply(*env, tokenscore.ConfigureTokensForTransfersConfig{
+		Tokens: allConfigs,
+	})
+	if err != nil {
+		return fmt.Errorf("configure tokens for transfers: %w", err)
 	}
 	return nil
 }
+

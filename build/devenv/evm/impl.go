@@ -1369,13 +1369,9 @@ func (m *CCIP17EVMConfig) buildEVMTokenTransferConfig(
 	}
 	for _, rs := range remoteSelectors {
 		remoteChains[rs] = tokenscore.RemoteChainConfig[*datastore.AddressRef, datastore.AddressRef]{
-			RemotePool:                               &remoteRef,
-			DefaultFinalityInboundRateLimiterConfig:  tokenscore.RateLimiterConfigFloatInput{},
-			DefaultFinalityOutboundRateLimiterConfig: tokenscore.RateLimiterConfigFloatInput{},
-			CustomFinalityInboundRateLimiterConfig:   tokenscore.RateLimiterConfigFloatInput{},
-			CustomFinalityOutboundRateLimiterConfig:  tokenscore.RateLimiterConfigFloatInput{},
-			OutboundCCVs:                             ccvRefs,
-			InboundCCVs:                              ccvRefs,
+			RemotePool:   &remoteRef,
+			OutboundCCVs: ccvRefs,
+			InboundCCVs:  ccvRefs,
 		}
 	}
 
@@ -1478,48 +1474,10 @@ func evmFeeQuoterDestChainConfigOverride(selector uint64) *lanes.FeeQuoterDestCh
 }
 
 func (m *CCIP17EVMConfig) GetChainLaneProfile(_ *deployment.Environment, selector uint64) (cciptestinterfaces.ChainLaneProfile, error) {
-	selectorBytes := changesetsutils.GetSelectorHex(selector)
-	var chainFamilySelector [4]byte
-	copy(chainFamilySelector[:], selectorBytes[:4])
-
 	return cciptestinterfaces.ChainLaneProfile{
-		AddressBytesLength:   20,
-		BaseExecutionGasCost: 150_000,
-		FeeQuoterDestChainConfig: adapters.FeeQuoterDestChainConfig{
-			IsEnabled:                   true,
-			MaxDataBytes:                30_000,
-			MaxPerMsgGasLimit:           3_000_000,
-			DestGasOverhead:             300_000,
-			DefaultTokenFeeUSDCents:     25,
-			DestGasPerPayloadByteBase:   16,
-			DefaultTokenDestGasOverhead: 90_000,
-			DefaultTxGasLimit:           200_000,
-			NetworkFeeUSDCents:          10,
-			ChainFamilySelector:         chainFamilySelector,
-			LinkFeeMultiplierPercent:    90,
-			USDPerUnitGas:               big.NewInt(1e6),
+		FeeQuoterDestChainConfig: ccipChangesets.FeeQuoterDestChainConfigOverrides{
+			USDPerUnitGas: big.NewInt(1e6),
 		},
-		ExecutorDestChainConfig: adapters.ExecutorDestChainConfig{
-			Enabled: true,
-		},
-		DefaultExecutorQualifier: devenvcommon.DefaultExecutorQualifier,
-		DefaultInboundCCVs: []datastore.AddressRef{
-			{
-				Type:          datastore.ContractType(versioned_verifier_resolver.CommitteeVerifierResolverType),
-				Version:       versioned_verifier_resolver.Version,
-				ChainSelector: selector,
-				Qualifier:     devenvcommon.DefaultCommitteeVerifierQualifier,
-			},
-		},
-		DefaultOutboundCCVs: []datastore.AddressRef{
-			{
-				Type:          datastore.ContractType(versioned_verifier_resolver.CommitteeVerifierResolverType),
-				Version:       versioned_verifier_resolver.Version,
-				ChainSelector: selector,
-				Qualifier:     devenvcommon.DefaultCommitteeVerifierQualifier,
-			},
-		},
-		GasForVerification: CommitteeVerifierGasForVerification,
 	}, nil
 }
 
