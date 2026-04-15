@@ -19,6 +19,7 @@ import (
 	jdclient "github.com/smartcontractkit/chainlink-ccv/common/jd/client"
 	"github.com/smartcontractkit/chainlink-ccv/common/jd/lifecycle"
 	jobstore "github.com/smartcontractkit/chainlink-ccv/common/jd/store"
+	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
 	"github.com/smartcontractkit/chainlink-common/keystore"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -39,6 +40,9 @@ type ServiceDeps struct {
 
 	// Keystore is an initialized keystore that can be used by the service.
 	Keystore keystore.Keystore
+
+	// Registry for chainaccess.Accessor objects.
+	Registry *chainaccess.Registry
 }
 
 // ServiceFactory is an interface implemented by the application that seeks to be bootstrapped.
@@ -59,11 +63,20 @@ var _ lifecycle.JobRunner = (*runner)(nil)
 
 // StartJob implements [lifecycle.JobRunner].
 func (r *runner) StartJob(ctx context.Context, config string) error {
+	r.deps.Logger.Infow("starting job")
+
 	var spec JobSpec
-	_, err := toml.Decode(config, &spec)
-	if err != nil {
+	if _, err := toml.Decode(config, &spec); err != nil {
 		return fmt.Errorf("bootstrap: failed to parse config: %w", err)
 	}
+
+	// Initialize registry.
+	reg, err := chainaccess.NewRegistry(r.deps.Logger, spec.AppConfig)
+	if err != nil {
+		return fmt.Errorf("failed to create registry: %w", err)
+	}
+	r.deps.Registry = reg
+
 	return r.fac.Start(ctx, spec, r.deps)
 }
 
@@ -142,6 +155,13 @@ func (b *Bootstrapper) startWithAppConfig(ctx context.Context) error {
 	if b.appCfg == nil {
 		return fmt.Errorf("bootstrapper has no app config")
 	}
+
+	b.lggr.Infow("Calling NewRegistry with app config")
+	reg, err := chainaccess.NewRegistry(b.lggr, *b.appCfg)
+	if err != nil {
+		return fmt.Errorf("failed to create registry: %w", err)
+	}
+
 	js := JobSpec{
 		Name:          "no-jd",
 		ExternalJobID: "",
@@ -149,7 +169,8 @@ func (b *Bootstrapper) startWithAppConfig(ctx context.Context) error {
 		Type:          "",
 		AppConfig:     *b.appCfg,
 	}
-	return b.fac.Start(ctx, js, ServiceDeps{})
+
+	return b.fac.Start(ctx, js, ServiceDeps{Registry: reg})
 }
 
 // startWithJDLifecycle initializes all components required for the JD lifecycle manager and starts it.

@@ -16,6 +16,7 @@ import (
 	_ "github.com/lib/pq"
 
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap/db"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
 // setupBootstrapTestDB starts a postgres container and returns the connection URL
@@ -136,7 +137,10 @@ var _ ServiceFactory = (*spyServiceFactoryDummy)(nil)
 
 func TestRunner(t *testing.T) {
 	t.Parallel()
-	ctx := context.Background()
+	ctx := t.Context()
+	deps := ServiceDeps{
+		Logger: logger.Test(t),
+	}
 
 	t.Run("parses TOML into AppConfig", func(t *testing.T) {
 		t.Parallel()
@@ -147,7 +151,7 @@ func TestRunner(t *testing.T) {
 				return nil
 			},
 		}
-		r := &runner{fac: fac, deps: ServiceDeps{}}
+		r := &runner{fac: fac, deps: deps}
 
 		cfg := `name = "test-name"
 count = 42`
@@ -165,7 +169,7 @@ count = 42`
 				return nil
 			},
 		}
-		r := &runner{fac: fac, deps: ServiceDeps{}}
+		r := &runner{fac: fac, deps: deps}
 
 		// runner parses spec as TOML into AppConfig, then calls fac.Start(ctx, appConfig, deps)
 		// use empty TOML so parseTomlStrict[any] succeeds (no undecoded fields)
@@ -182,7 +186,7 @@ count = 42`
 				return nil
 			},
 		}
-		r := &runner{fac: fac, deps: ServiceDeps{}}
+		r := &runner{fac: fac, deps: deps}
 
 		require.NoError(t, r.StopJob(ctx))
 		require.True(t, stopped)
@@ -195,7 +199,7 @@ count = 42`
 				return errors.New("boom")
 			},
 		}
-		r := &runner{fac: fac, deps: ServiceDeps{}}
+		r := &runner{fac: fac, deps: deps}
 		require.EqualError(t, r.StartJob(ctx, ""), "boom")
 	})
 
@@ -206,7 +210,7 @@ count = 42`
 				return errors.New("stop failed")
 			},
 		}
-		r := &runner{fac: fac, deps: ServiceDeps{}}
+		r := &runner{fac: fac, deps: deps}
 		require.EqualError(t, r.StopJob(ctx), "stop failed")
 	})
 }
