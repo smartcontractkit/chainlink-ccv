@@ -123,6 +123,7 @@ func init() {
 	// provides backward compatibility with the previous FamilyEVM/FamilyCanton
 	// combined switch case.
 	cciptestinterfaces.RegisterExtraArgsSerializer(chainsel.FamilyCanton, SerializeEVMExtraArgs)
+	cciptestinterfaces.RegisterExtraArgsSerializer(chainsel.FamilySolana, serializeExtraArgsSVMV1)
 }
 
 type CCIP17EVMConfig struct {
@@ -785,6 +786,16 @@ func SerializeEVMExtraArgs(opts cciptestinterfaces.MessageOptions) []byte {
 		return serializeExtraArgsV2(opts)
 	case 3:
 		return serializeExtraArgsV3(opts)
+	default:
+		panic(fmt.Sprintf("unsupported EVM message extra args version: %d", opts.Version))
+	}
+}
+
+// SerializeSVMExtraArgs is the Solana family's ExtraArgsSerializer, handling versions 1.
+func SerializeSVMExtraArgs(opts cciptestinterfaces.MessageOptions) []byte {
+	switch opts.Version {
+	case 1:
+		return serializeExtraArgsSVMV1(opts)
 	default:
 		panic(fmt.Sprintf("unsupported EVM message extra args version: %d", opts.Version))
 	}
