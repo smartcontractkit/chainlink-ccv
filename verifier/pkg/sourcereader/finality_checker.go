@@ -42,7 +42,7 @@ type FinalityViolationCheckerService struct {
 	sourceReader  chainaccess.SourceReader
 	chainSelector protocol.ChainSelector
 	lggr          logger.Logger
-	metrics       verifier.MetricLabeler
+	metrics       verifier.FinalityCheckerMetrics
 
 	// Stored finalized blocks (keyed by block number)
 	finalizedBlocks map[uint64]protocol.BlockHeader
@@ -59,7 +59,7 @@ func NewFinalityViolationCheckerService(
 	sourceReader chainaccess.SourceReader,
 	chainSelector protocol.ChainSelector,
 	lggr logger.Logger,
-	metrics verifier.MetricLabeler,
+	metrics verifier.FinalityCheckerMetrics,
 ) (*FinalityViolationCheckerService, error) {
 	if sourceReader == nil {
 		return nil, fmt.Errorf("sourceReader cannot be nil")

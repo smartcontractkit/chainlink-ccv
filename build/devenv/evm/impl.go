@@ -666,6 +666,7 @@ func (m *CCIP17EVM) SendMessageWithNonce(ctx context.Context, dest uint64, field
 		msg,
 	)
 	if err != nil {
+		l.Error().Err(err).Str("rtr", rout.Address().String()).Msg("failed to send message")
 		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("failed to get fee: %w", err)
 	}
 
