@@ -175,31 +175,31 @@ ClusterName = "mainnet-beta"
 	require.NoError(t, err)
 
 	t.Run("decodes EVM entries with EVM-specific shape", func(t *testing.T) {
-		result := make(map[protocol.ChainSelector]evmChainConfig)
+		var result chainaccess.Infos[evmChainConfig]
 		err := gc.GetAllConcreteConfig("evm", &result)
 		require.NoError(t, err)
 
 		require.Len(t, result, 1)
-		info, ok := result[evmSelector]
+		info, ok := result[evmSelector.String()]
 		require.True(t, ok, "expected evm selector to be present")
 		assert.Equal(t, "https://mainnet.infura.io", info.RPCURL)
 		assert.Equal(t, int64(1), info.ChainID)
 	})
 
 	t.Run("decodes Solana entries with Solana-specific shape", func(t *testing.T) {
-		result := make(map[protocol.ChainSelector]solanaChainConfig)
+		var result chainaccess.Infos[solanaChainConfig]
 		err := gc.GetAllConcreteConfig("solana", &result)
 		require.NoError(t, err)
 
 		require.Len(t, result, 1)
-		info, ok := result[solanaSelector]
+		info, ok := result[solanaSelector.String()]
 		require.True(t, ok, "expected solana selector to be present")
 		assert.Equal(t, "wss://api.mainnet-beta.solana.com", info.WSEndpoint)
 		assert.Equal(t, "mainnet-beta", info.ClusterName)
 	})
 
 	t.Run("returns empty map when no chains match the family", func(t *testing.T) {
-		result := make(map[protocol.ChainSelector]evmChainConfig)
+		var result chainaccess.Infos[evmChainConfig]
 		err := gc.GetAllConcreteConfig("aptos", &result)
 		require.NoError(t, err)
 		assert.Empty(t, result)
@@ -213,14 +213,14 @@ ClusterName = "mainnet-beta"
 	})
 
 	t.Run("returns error when target is not a pointer", func(t *testing.T) {
-		bad := make(map[protocol.ChainSelector]evmChainConfig)
+		bad := make(chainaccess.Infos[evmChainConfig])
 		err := gc.GetAllConcreteConfig("evm", bad)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "pointer to a map")
 	})
 
 	t.Run("initialises a nil map automatically", func(t *testing.T) {
-		var result map[protocol.ChainSelector]evmChainConfig
+		var result chainaccess.Infos[evmChainConfig]
 		err := gc.GetAllConcreteConfig("evm", &result)
 		require.NoError(t, err)
 		require.NotNil(t, result)
@@ -235,7 +235,7 @@ ClusterName = "mainnet-beta"
 				"999999999999": map[string]any{"RPCUrl": "https://unknown"},
 			},
 		}
-		result := make(map[protocol.ChainSelector]evmChainConfig)
+		var result chainaccess.Infos[evmChainConfig]
 		err := gc.GetAllConcreteConfig("evm", &result)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to get the chain selector family")
@@ -249,9 +249,10 @@ ClusterName = "mainnet-beta"
 				evmSelector.String(): make(chan int),
 			},
 		}
-		result := make(map[protocol.ChainSelector]evmChainConfig)
+		var result chainaccess.Infos[evmChainConfig]
 		err := gc.GetAllConcreteConfig("evm", &result)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "failed to marshal info")
 	})
 }
+

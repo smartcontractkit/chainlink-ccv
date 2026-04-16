@@ -36,7 +36,7 @@ var _ chainaccess.AccessorFactoryConstructor = CreateEVMAccessorFactory
 // very unusual for a config to have more than one of Committee/Token/Executor configs.
 func CreateEVMAccessorFactory(lggr logger.Logger, genericConfig chainaccess.GenericConfig) (chainaccess.AccessorFactory, error) {
 	// Convert Infos[string] -> Infos[evm.Info]
-	evmInfos := make(map[string]Info)
+	evmInfos := make(chainaccess.Infos[Info])
 	err := genericConfig.GetAllConcreteConfig(chainsel.FamilyEVM, &evmInfos)
 	if err != nil {
 		return nil, fmt.Errorf("error getting evm info: %s", err)

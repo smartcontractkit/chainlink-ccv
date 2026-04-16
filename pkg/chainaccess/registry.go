@@ -71,9 +71,10 @@ type GenericConfig struct {
 	CommitteeConfig
 }
 
-// GetAllConcreteConfig populates target, which must be a pointer to a map[protocol.ChainSelector]T,
-// with the decoded chain configs for every chain selector present in ChainConfig.
-// The selector parameter is unused and kept for interface compatibility.
+// GetAllConcreteConfig populates target, which must be a pointer to an Infos[T]
+// (i.e. *map[string]T), with the decoded chain configs for every chain selector
+// in ChainConfig that belongs to the given family. The map key is the chain
+// selector formatted as a decimal string, matching the Infos key convention.
 func (gc GenericConfig) GetAllConcreteConfig(family string, target any) error {
 	rv := reflect.ValueOf(target)
 	if rv.Kind() != reflect.Ptr || rv.Elem().Kind() != reflect.Map {
@@ -97,7 +98,7 @@ func (gc GenericConfig) GetAllConcreteConfig(family string, target any) error {
 		if err := gc.GetConcreteConfig(sel, elem.Interface()); err != nil {
 			return err
 		}
-		mapVal.SetMapIndex(reflect.ValueOf(sel), elem.Elem())
+		mapVal.SetMapIndex(reflect.ValueOf(sel.String()), elem.Elem())
 	}
 	return nil
 }
