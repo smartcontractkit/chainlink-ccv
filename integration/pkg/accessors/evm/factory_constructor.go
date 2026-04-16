@@ -41,17 +41,15 @@ func CreateEVMAccessorFactory(lggr logger.Logger, genericConfig chainaccess.Gene
 	// TODO: This could be a helper on the generic config object.
 	for _, selector := range genericConfig.ChainConfig.GetAllChainSelectors() {
 		// Verify chain family.
-		isEvm, err := chainsel.IsEvm(uint64(selector))
-		if err != nil {
-			return nil, fmt.Errorf("failed to determine if selector(%d) is evm: %w", selector, err)
-		}
+		// TODO IsEvm() will be fixed in chain-selectors/pull/186
+		isEvm, _ := chainsel.IsEvm(uint64(selector))
 		if !isEvm {
 			lggr.Debugw("skipping non-EVM chain selector in EVM accessor factory construction", "chainSelector", selector)
 			continue
 		}
 
 		var info Info
-		if err = genericConfig.GetConcreteConfig(selector, &info); err != nil {
+		if err := genericConfig.GetConcreteConfig(selector, &info); err != nil {
 			return nil, fmt.Errorf("failed to decode EVM info for selector(%d): %w", selector, err)
 		}
 
