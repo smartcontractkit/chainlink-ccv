@@ -37,10 +37,11 @@ type v3TestCaseBase struct {
 // v3TestCase is for tests that use ExtraArgsV3.
 type v3TestCase struct {
 	v3TestCaseBase
-	receiver protocol.UnknownAddress
-	ccvs     []protocol.CCV
-	executor protocol.UnknownAddress
-	hydrate  func(ctx context.Context, tc *v3TestCase, cfg *ccv.Cfg) bool
+	receiver      protocol.UnknownAddress
+	ccvs          []protocol.CCV
+	useTestRouter bool
+	executor      protocol.UnknownAddress
+	hydrate       func(ctx context.Context, tc *v3TestCase, cfg *ccv.Cfg) bool
 }
 
 func (tc *v3TestCase) Name() string {
@@ -64,6 +65,7 @@ func (tc *v3TestCase) Run(ctx context.Context, harness tcapi.TestHarness, cfg *c
 			FinalityConfig:    tc.finality,
 			Executor:          tc.executor,
 			CCVs:              tc.ccvs,
+			UseTestRouter:     tc.useTestRouter,
 		})
 	if err != nil {
 		return fmt.Errorf("failed to send message: %w", err)

@@ -67,7 +67,7 @@ type Input struct {
 	GeneratedConfig string `toml:"-"`
 
 	// GeneratedJobSpecs contains all job specs for this executor.
-	GeneratedJobSpecs []string `toml:"-"`
+	GeneratedJobSpecs []bootstrap.JobSpec `toml:"-"`
 
 	// Bootstrap is the bootstrap configuration for bootstrapped mode.
 	Bootstrap *services.BootstrapInput `toml:"bootstrap"`
@@ -97,9 +97,13 @@ type Output struct {
 	JDNodeID string `toml:"jd_node_id"`
 }
 
-// RebuildExecutorJobSpecWithBlockchainInfos takes a job spec and rebuilds it with blockchain infos
-// added to the inner config. This is needed for standalone executors which require blockchain
-// connection information (CL nodes get this from their own chain config).
+func (v *Input) Restart(ctx context.Context) error {
+	if v == nil || v.Mode != services.Standalone {
+		return nil
+	}
+	return services.RestartContainer(ctx, v.ContainerName)
+}
+
 func (v *Input) RebuildExecutorJobSpecWithBlockchainInfos(spec bootstrap.JobSpec, blockchainInfos map[string]any) (string, error) {
 	var cfg executorpkg.Configuration
 	if _, err := toml.Decode(spec.AppConfig, &cfg); err != nil {
@@ -566,6 +570,9 @@ type TransmitterAddressResolver func(privateKeyHex string) (protocol.UnknownAddr
 // using the given key generator. Pass a family-specific generator from ImplFactory.
 func SetTransmitterPrivateKey(execs []*Input, keyGen TransmitterKeyGenerator) ([]*Input, error) {
 	for _, exec := range execs {
+		if exec.TransmitterPrivateKey != "" {
+			continue
+		}
 		pk, err := keyGen()
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate transmitter private key: %w", err)
