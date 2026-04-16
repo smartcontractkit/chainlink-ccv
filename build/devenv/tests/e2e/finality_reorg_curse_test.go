@@ -5,6 +5,8 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math/big"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -386,6 +388,147 @@ func TestE2EReorg(t *testing.T) {
 		verifyMessageExists(event4.MessageID, "Message to chain2 after global uncurse")
 
 		l.Info().Msg("✨ Test completed: Global curse verified - both lanes blocked, then unblocked after uncurse")
+	})
+
+	t.Run("lane curse blocks one lane while peer lane keeps verifying traffic", func(t *testing.T) {
+		err := srcImpl.Curse(ctx, [][16]byte{chainSelectorToSubject(destSelector)})
+		require.NoError(t, err)
+		t.Cleanup(func() {
+			_ = srcImpl.Uncurse(ctx, [][16]byte{chainSelectorToSubject(destSelector)})
+		})
+
+		_, err = srcImpl.SendMessage(ctx, destSelector, newMessageFields(receiver, "blocked lane msg"), defaultMessageOptions)
+		require.Error(t, err, "send to cursed lane (chain0 -> chain1) should fail")
+
+		uncursedMsgIDs := make([][32]byte, 0, 3)
+		for i := range 3 {
+			evt, sendErr := srcImpl.SendMessage(ctx, destSelector2, newMessageFields(receiver2, fmt.Sprintf("uncursed lane msg %d", i)), defaultMessageOptions)
+			require.NoError(t, sendErr, "send to uncursed lane (chain0 -> chain2) should succeed")
+			uncursedMsgIDs = append(uncursedMsgIDs, evt.MessageID)
+		}
+
+		anvilHelper.MustMine(ctx, verifier.ConfirmationDepth+5)
+		for i, msgID := range uncursedMsgIDs {
+			verifyMessageExists(msgID, fmt.Sprintf("Uncursed lane message %d", i))
+		}
+
+		_, err = srcImpl.SendMessage(ctx, destSelector, newMessageFields(receiver, "still blocked"), defaultMessageOptions)
+		require.Error(t, err, "cursed lane should still be blocked after uncursed lane traffic")
+	})
+
+	t.Run("curse on dest2 lane does not block dest1 lane", func(t *testing.T) {
+		err := srcImpl.Curse(ctx, [][16]byte{chainSelectorToSubject(destSelector2)})
+		require.NoError(t, err)
+		t.Cleanup(func() {
+			_ = srcImpl.Uncurse(ctx, [][16]byte{chainSelectorToSubject(destSelector2)})
+		})
+
+		_, err = srcImpl.SendMessage(ctx, destSelector2, newMessageFields(receiver2, "blocked dest2 msg"), defaultMessageOptions)
+		require.Error(t, err, "send to cursed lane (chain0 -> chain2) should fail")
+
+		evt, err := srcImpl.SendMessage(ctx, destSelector, newMessageFields(receiver, "dest1 msg while dest2 cursed"), defaultMessageOptions)
+		require.NoError(t, err)
+		anvilHelper.MustMine(ctx, verifier.ConfirmationDepth+5)
+		verifyMessageExists(evt.MessageID, "dest1 message while dest2 cursed")
+	})
+
+	t.Run("dropped message under curse can be replayed via CLI checkpoint rewind", func(t *testing.T) {
+		require.GreaterOrEqual(t, len(in.Verifier), 1)
+		require.NotNil(t, in.Verifier[0].Out)
+		verifierID := in.Verifier[0].Out.VerifierID
+		require.NotEmpty(t, verifierID)
+
+		// Every verifier with the same VerifierID belongs to the same committee. The aggregator
+		// only returns a result once every member has signed, so every committee member's DB
+		// checkpoint must be rewound and process restarted.
+		var committeeContainers []string
+		for _, v := range in.Verifier {
+			if v.Out == nil || v.Out.VerifierID != verifierID {
+				continue
+			}
+			name := strings.TrimPrefix(v.Out.ContainerName, "/")
+			require.NotEmpty(t, name, "verifier container name must be set")
+			committeeContainers = append(committeeContainers, name)
+		}
+		require.NotEmpty(t, committeeContainers, "no committee verifiers matched %s", verifierID)
+
+		cliArgs := func(subcommand string, extra ...string) []string {
+			return append([]string{verifierBinary, "ccv", "chain-statuses", subcommand}, extra...)
+		}
+		sourceSelectorStr := strconv.FormatUint(srcSelector, 10)
+
+		// A prior iteration may have left a committee process paused by pkill -STOP.
+		contAllCommitteeProcesses := func() {
+			for _, c := range committeeContainers {
+				_, _ = execInContainer(c, "pkill", "-CONT", "-f", committeeProcessMatch)
+			}
+		}
+		contAllCommitteeProcesses()
+		t.Cleanup(contAllCommitteeProcesses)
+
+		logAssert := logasserter.New(DefaultLokiURL, l.With().Str("component", "log-asserter").Logger())
+		require.NoError(t, logAssert.StartStreaming(ctx, []logasserter.LogStage{
+			logasserter.MessageReachedVerifier(),
+			logasserter.MessageDroppedInVerifier(),
+		}))
+		t.Cleanup(logAssert.StopStreaming)
+
+		// Send a message and wait for it to enter the verifier's pending queue before cursing.
+		// Doing so makes the subsequent drop deterministic once the curse detector catches up.
+		event, err := srcImpl.SendMessage(ctx, destSelector, newMessageFields(receiver, "curse recovery msg"), defaultMessageOptions)
+		require.NoError(t, err)
+		logSentMessage(event, "Message to be dropped during curse")
+		droppedMsgID := event.MessageID
+
+		anvilHelper.MustMine(ctx, verifier.ConfirmationDepth/5)
+		reachedCtx, reachedCancel := context.WithTimeout(ctx, 60*time.Second)
+		defer reachedCancel()
+		_, err = logAssert.WaitForStage(reachedCtx, droppedMsgID, logasserter.MessageReachedVerifier())
+		require.NoError(t, err, "message should reach verifier pending queue before curse is applied")
+
+		require.NoError(t, srcImpl.Curse(ctx, [][16]byte{chainSelectorToSubject(destSelector)}))
+		t.Cleanup(func() {
+			_ = srcImpl.Uncurse(ctx, [][16]byte{chainSelectorToSubject(destSelector)})
+		})
+
+		dropCtx, dropCancel := context.WithTimeout(ctx, 60*time.Second)
+		defer dropCancel()
+		_, err = logAssert.WaitForStage(dropCtx, droppedMsgID, logasserter.MessageDroppedInVerifier())
+		require.NoError(t, err, "message should be dropped in verifier due to curse")
+		verifyMessageNotExists(droppedMsgID, "Dropped message should not be in aggregator")
+
+		// Advance the finalized checkpoint well past the dropped message block while the curse is
+		// still active. Without this, the verifier would keep re-fetching the log each poll, and
+		// lifting the curse alone would verify the message - masking the need for a CLI rewind.
+		anvilHelper.MustMine(ctx, verifier.ConfirmationDepth*3+30)
+		verifyMessageNotExists(droppedMsgID, "Dropped message should not reach aggregator while cursed")
+
+		require.NoError(t, srcImpl.Uncurse(ctx, [][16]byte{chainSelectorToSubject(destSelector)}))
+
+		// With the checkpoint past the message block, uncursing on-chain alone must not replay it.
+		anvilHelper.MustMine(ctx, verifier.ConfirmationDepth+5)
+		time.Sleep(10 * time.Second)
+		verifyMessageNotExists(droppedMsgID, "Dropped message should not reappear after uncurse alone")
+
+		// Each committee member has its own DB: pause it, rewind the finalized height, restart it.
+		for _, c := range committeeContainers {
+			_, stopErr := execInContainer(c, "pkill", "-STOP", "-f", committeeProcessMatch)
+			require.NoError(t, stopErr, "pkill STOP on %s", c)
+			_, setErr := execInContainer(c, cliArgs("set-finalized-height", "--chain-selector", sourceSelectorStr, "--verifier-id", verifierID, "--block-height", "0")...)
+			require.NoError(t, setErr, "set-finalized-height on %s", c)
+		}
+		for _, c := range committeeContainers {
+			restartVerifierAndWaitReady(t, c, cliArgs)
+		}
+
+		// Push finality well past the dropped message block again so the fresh rescan that starts
+		// at block 1 can mark the message ready for verification immediately.
+		anvilHelper.MustMine(ctx, verifier.ConfirmationDepth*2+10)
+
+		waitCtx, waitCancel := context.WithTimeout(ctx, 120*time.Second)
+		defer waitCancel()
+		_, err = defaultAggregatorClient.WaitForVerifierResultForMessage(waitCtx, droppedMsgID, 1*time.Second)
+		require.NoError(t, err, "dropped message should be reprocessed after CLI checkpoint rewind and restart")
 	})
 
 	t.Run("reorg with faster-than-finality message", func(t *testing.T) {
