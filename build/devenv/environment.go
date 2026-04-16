@@ -1930,7 +1930,7 @@ func proposeJobsToExecutors(
 				return fmt.Errorf("failed to get chain config loader for family %s: %w", exec.ChainFamily, err)
 			}
 
-			blockchainInfos, err := loader(blockchainOutputs)
+			blockchainInfos, err := loader(filterOutputsByFamily(blockchainOutputs, exec.ChainFamily))
 			if err != nil {
 				return fmt.Errorf("failed to load chain config for family %s: %w", exec.ChainFamily, err)
 			}
@@ -2259,7 +2259,7 @@ func proposeJobsToStandaloneVerifiers(
 				return fmt.Errorf("failed to get chain config loader for family %s: %w", ver.ChainFamily, err)
 			}
 
-			blockchainInfos, err := loader(blockchainOutputs)
+			blockchainInfos, err := loader(filterOutputsByFamily(blockchainOutputs, ver.ChainFamily))
 			if err != nil {
 				return fmt.Errorf("failed to load chain config for family %s: %w", ver.ChainFamily, err)
 			}
@@ -2297,4 +2297,15 @@ func proposeJobsToStandaloneVerifiers(
 	}
 
 	return g.Wait()
+}
+
+// filterOutputsByFamily returns only the blockchain outputs matching the given chain family.
+func filterOutputsByFamily(outputs []*blockchain.Output, family string) []*blockchain.Output {
+	var filtered []*blockchain.Output
+	for _, out := range outputs {
+		if out.Family == family {
+			filtered = append(filtered, out)
+		}
+	}
+	return filtered
 }
