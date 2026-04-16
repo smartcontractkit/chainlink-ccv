@@ -29,35 +29,7 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-// CreateAccessorFactoryFunc is a function that creates an accessor factory for a given chain family.
-// The blockchain infos map is keyed by chain selector (as string); the callback may build a
-// family-specific helper from it (e.g. blockchain.NewHelper for EVM).
-// Deprecated: use chainaccess.CreateAccessorFactory instead.
-type CreateAccessorFactoryFunc[T any] func(
-	ctx context.Context,
-	lggr logger.Logger,
-	infos map[string]T,
-	cfg commit.Config,
-) (chainaccess.AccessorFactory, error)
-
-// chainSelectorsFromMap returns chain selectors parsed from the keys of a map keyed by selector string.
-func chainSelectorsFromMap[T any](m chainaccess.Infos[T]) []protocol.ChainSelector {
-	out := make([]protocol.ChainSelector, 0, len(m))
-	for sel := range m {
-		u, err := strconv.ParseUint(sel, 10, 64)
-		if err != nil {
-			continue
-		}
-		out = append(out, protocol.ChainSelector(u))
-	}
-	return out
-}
-
 // factory is a ServiceFactory implementation that creates a committee verifier service.
-// T is the chain config type for this family (e.g. blockchain.Info for EVM).
-// NOTE: this factory supports only a single chain family at a time.
-// This is by design, since deployed CCIP apps will be built with a single chain family, but potentially
-// supporting many chains from that same family.
 type factory struct {
 	lggr             logger.Logger
 	server           *http.Server
@@ -69,7 +41,6 @@ type factory struct {
 }
 
 // NewCommitteeVerifierServiceFactory creates a new ServiceFactory for the committee verifier service.
-// T is the chain config type for this family (e.g. blockchain.Info for EVM).
 func NewCommitteeVerifierServiceFactory() bootstrap.ServiceFactory {
 	return &factory{}
 }
@@ -83,12 +54,16 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 
 	protocol.InitChainSelectorCache()
 
-	config, blockchainInfos, err := commit.LoadConfigWithBlockchainInfos(spec.AppConfig)
+	genericConfig, err := spec.GetGenericConfig()
 	if err != nil {
-		lggr.Errorw("Failed to load configuration", "error", err)
-		return fmt.Errorf("failed to load configuration: %w", err)
+		return fmt.Errorf("failed to get generic config: %w", err)
 	}
-	lggr.Infow("Using blockchain information from config", "info", blockchainInfos)
+
+	var config commit.Config
+	if err := spec.GetAppConfig(&config); err != nil {
+		return fmt.Errorf("failed to get app config: %w", err)
+	}
+	lggr.Infow("Using blockchain information from config", "info", genericConfig.ChainConfig)
 
 	// TODO: this should be passed in via the config maybe?
 	apiKey := os.Getenv("VERIFIER_AGGREGATOR_API_KEY")
@@ -121,7 +96,7 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 	}
 	f.profiler = profiler
 
-	chainSelectors := chainSelectorsFromMap(blockchainInfos)
+	chainSelectors := genericConfig.ChainConfig.GetAllChainSelectors()
 
 	// Create verifier addresses before source readers setup
 	verifierAddresses := make(map[string]protocol.UnknownAddress)

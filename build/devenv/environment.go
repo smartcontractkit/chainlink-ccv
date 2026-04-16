@@ -1940,7 +1940,7 @@ func proposeJobsToExecutors(
 				return fmt.Errorf("no job spec found for executor %s", exec.ContainerName)
 			}
 
-			jobSpec, err := exec.RebuildExecutorJobSpecWithBlockchainInfos(baseJobSpec, blockchainInfos)
+			jobSpec, err := executorsvc.RebuildExecutorJobSpecWithBlockchainInfos(baseJobSpec, blockchainInfos)
 			if err != nil {
 				return fmt.Errorf("failed to add blockchain infos to job spec for %s: %w", exec.ContainerName, err)
 			}
@@ -2272,7 +2272,7 @@ func proposeJobsToStandaloneVerifiers(
 
 			// For standalone verifiers, we need to inject blockchain_infos into the config
 			// because they don't have CL node chain configuration
-			jobSpec, err := ver.RebuildVerifierJobSpecWithBlockchainInfos(baseJobSpec, blockchainInfos)
+			jobSpec, err := committeeverifier.RebuildVerifierJobSpecWithBlockchainInfos(baseJobSpec, blockchainInfos)
 			if err != nil {
 				return fmt.Errorf("failed to add blockchain infos to job spec for %s: %w", ver.NOPAlias, err)
 			}
