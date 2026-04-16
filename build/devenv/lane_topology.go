@@ -7,8 +7,8 @@ import (
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 
-	ccipChangesets "github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/changesets"
-	ccipOffchain "github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/offchain"
+	ccipChangesets "github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/changesets"
+	ccipOffchain "github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/offchain"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
@@ -37,13 +37,13 @@ func mergeCommitteeVerifierRemoteChainConfigForReconcile(
 	if len(patch.RemovedAllowlistedSenders) > 0 {
 		out.RemovedAllowlistedSenders = patch.RemovedAllowlistedSenders
 	}
-	if patch.GasForVerification != 0 {
+	if patch.GasForVerification != nil {
 		out.GasForVerification = patch.GasForVerification
 	}
-	if patch.FeeUSDCents != 0 {
+	if patch.FeeUSDCents != nil {
 		out.FeeUSDCents = patch.FeeUSDCents
 	}
-	if patch.PayloadSizeBytes != 0 {
+	if patch.PayloadSizeBytes != nil {
 		out.PayloadSizeBytes = patch.PayloadSizeBytes
 	}
 	return out
@@ -124,7 +124,6 @@ func partialChainConfigFromProfile(
 			DefaultExecutorQualifier: local.DefaultExecutorQualifier,
 			FeeQuoterDestChainConfig: remote.FeeQuoterDestChainConfig,
 			ExecutorDestChainConfig:  local.ExecutorDestChainConfig,
-			AddressBytesLength:       remote.AddressBytesLength,
 			BaseExecutionGasCost:     remote.BaseExecutionGasCost,
 		}
 	}

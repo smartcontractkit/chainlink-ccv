@@ -3,7 +3,7 @@ package ccv
 import (
 	"fmt"
 
-	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/offchain/shared"
+	"github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/offchain/shared"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 )
 

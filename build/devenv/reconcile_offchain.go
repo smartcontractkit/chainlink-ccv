@@ -6,10 +6,11 @@ import (
 
 	"google.golang.org/grpc/credentials/insecure"
 
-	ccipAdapters "github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/adapters"
-	ccipChangesets "github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/changesets"
-	ccipOffchain "github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/offchain"
-	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/offchain/shared"
+	ccipAdapters "github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/adapters"
+	ccipChangesets "github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/changesets"
+	ccipOffchain "github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/offchain"
+	"github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/offchain/shared"
+	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/offchainloader"
@@ -209,7 +210,7 @@ func configureOffchainFromTopology(
 	topology *ccipOffchain.EnvironmentTopology,
 	sharedTLSCerts *services.TLSCertPaths,
 	ds datastore.MutableDataStore,
-) (map[string][]string, error) {
+) (map[string][]bootstrap.JobSpec, error) {
 	if e == nil || in == nil || topology == nil {
 		return nil, fmt.Errorf("environment, config, and topology are required")
 	}

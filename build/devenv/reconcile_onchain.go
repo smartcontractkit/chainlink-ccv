@@ -4,11 +4,11 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v2_0_0/operations/committee_verifier"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/committee_verifier"
 	changesetscore "github.com/smartcontractkit/chainlink-ccip/deployment/utils/changesets"
-	ccipAdapters "github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/adapters"
-	ccipChangesets "github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/changesets"
-	ccipOffchain "github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/offchain"
+	ccipAdapters "github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/adapters"
+	ccipChangesets "github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/changesets"
+	ccipOffchain "github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/offchain"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
@@ -46,8 +46,9 @@ func CommitteeRemotePatchesFromAllowlistArgs(
 		for i, addr := range a.RemovedAllowlistedSenders {
 			removed[i] = addr.Hex()
 		}
+		allow := a.AllowlistEnabled
 		inner[a.DestChainSelector] = ccipChangesets.CommitteeVerifierRemoteChainConfig{
-			AllowlistEnabled:          a.AllowlistEnabled,
+			AllowlistEnabled:          &allow,
 			AddedAllowlistedSenders:   added,
 			RemovedAllowlistedSenders: removed,
 		}
