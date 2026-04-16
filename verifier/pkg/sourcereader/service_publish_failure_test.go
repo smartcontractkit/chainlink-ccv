@@ -134,7 +134,7 @@ func TestSRS_PublishFailure_TasksRemainInPendingQueue(t *testing.T) {
 	queue.SetFailOnPublish(true)
 
 	// First attempt - should fail but keep task in pendingTasks
-	srs.sendReadyMessages(ctx, latest, finalized)
+	srs.sendReadyMessages(ctx, latest, nil, finalized)
 
 	srs.mu.RLock()
 	pendingCount := len(srs.pendingTasks)
@@ -154,7 +154,7 @@ func TestSRS_PublishFailure_TasksRemainInPendingQueue(t *testing.T) {
 	queue.SetFailOnPublish(false)
 
 	// Second attempt - should succeed
-	srs.sendReadyMessages(ctx, latest, finalized)
+	srs.sendReadyMessages(ctx, latest, nil, finalized)
 
 	srs.mu.RLock()
 	pendingCount = len(srs.pendingTasks)
@@ -201,7 +201,7 @@ func TestSRS_PublishFailure_CursedTasksDroppedImmediately(t *testing.T) {
 		Return(true, nil).Once()
 
 	// Send ready messages - cursed task should be dropped immediately
-	srs.sendReadyMessages(ctx, latest, finalized)
+	srs.sendReadyMessages(ctx, latest, nil, finalized)
 
 	srs.mu.RLock()
 	pendingCount := len(srs.pendingTasks)
@@ -256,7 +256,7 @@ func TestSRS_PublishFailure_PartialBatch(t *testing.T) {
 	queue.SetFailOnPublish(true)
 
 	// First attempt - should fail
-	srs.sendReadyMessages(ctx, latest, finalized)
+	srs.sendReadyMessages(ctx, latest, nil, finalized)
 
 	srs.mu.RLock()
 	pendingCount := len(srs.pendingTasks)
@@ -270,7 +270,7 @@ func TestSRS_PublishFailure_PartialBatch(t *testing.T) {
 	queue.SetFailOnPublish(false)
 
 	// Second attempt - should succeed for all tasks
-	srs.sendReadyMessages(ctx, latest, finalized)
+	srs.sendReadyMessages(ctx, latest, nil, finalized)
 
 	srs.mu.RLock()
 	pendingCount = len(srs.pendingTasks)
@@ -320,7 +320,7 @@ func TestSRS_PublishFailure_ReorgTrackerNotAffected(t *testing.T) {
 	queue.SetFailOnPublish(true)
 
 	// Attempt to publish - should fail
-	srs.sendReadyMessages(ctx, latest, finalized)
+	srs.sendReadyMessages(ctx, latest, nil, finalized)
 
 	// CRITICAL: Reorg tracker should NOT be modified when publish fails
 	require.True(t, srs.reorgTracker.RequiresFinalization(task.Message.DestChainSelector, task.Message.SequenceNumber),
@@ -330,7 +330,7 @@ func TestSRS_PublishFailure_ReorgTrackerNotAffected(t *testing.T) {
 	queue.SetFailOnPublish(false)
 
 	// Second attempt - should succeed
-	srs.sendReadyMessages(ctx, latest, finalized)
+	srs.sendReadyMessages(ctx, latest, nil, finalized)
 
 	// Now reorg tracker should be cleared
 	require.False(t, srs.reorgTracker.RequiresFinalization(task.Message.DestChainSelector, task.Message.SequenceNumber),

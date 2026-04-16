@@ -5,12 +5,18 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"sync"
 	"time"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/prometheus/client_golang/prometheus"
 
-	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/offchain"
+	"github.com/smartcontractkit/chainlink-ccip/deployment/lanes"
+	tokensapi "github.com/smartcontractkit/chainlink-ccip/deployment/tokens"
+	"github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/adapters"
+	ccipChangesets "github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/changesets"
+	"github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/offchain"
+	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
@@ -88,7 +94,7 @@ type MessageOptions struct {
 	// CCVs are the CCVs for the message
 	CCVs []protocol.CCV
 	// FinalityConfig is the finality config for the message
-	FinalityConfig uint16
+	FinalityConfig protocol.Finality
 	// Executor is the executor address
 	Executor protocol.UnknownAddress
 	// ExecutorArgs are the executor arguments for the message
@@ -198,17 +204,129 @@ type OnChainCommittees struct {
 	Threshold          uint8
 }
 
+// ChainLaneProfile holds everything an impl needs to provide so that
+// connectAllChains can assemble PartialChainConfig entries for the
+// canonical ConfigureChainsForLanesFromTopology changeset.
+// Contract addresses (Router, OnRamp, FeeQuoter, OffRamp, Executor) are
+// resolved from the datastore by the changeset itself.
+type ChainLaneProfile struct {
+	AddressBytesLength       uint8
+	BaseExecutionGasCost     uint32
+	FeeQuoterDestChainConfig adapters.FeeQuoterDestChainConfig
+
+	ExecutorDestChainConfig  adapters.ExecutorDestChainConfig
+	DefaultExecutorQualifier string
+	DefaultInboundCCVs       []datastore.AddressRef
+	DefaultOutboundCCVs      []datastore.AddressRef
+
+	GasForVerification uint32
+}
+
+// TokenConfigProvider abstracts the chain-specific decisions that feed into
+// TokenExpansion (token type, decimals, admin addresses, pre-mint amounts)
+// and any post-deployment work (e.g. funding lock-release pools on EVM).
+//
+// It is separate from OnChainConfigurable so chain families can deploy CCIP
+// core contracts and lanes without implementing token pools (e.g. messaging-only
+// or AltVM before token support exists). Devenv uses type assertions; when absent,
+// token deployment and ConfigureTokensForTransfers are skipped.
+type TokenConfigProvider interface {
+	// GetSupportedPools returns pool types and versions this chain can deploy.
+	GetSupportedPools() []devenvcommon.PoolCapability
+
+	// GetTokenExpansionConfigs returns one TokenExpansionInputPerChain per
+	// token/pool that should be deployed on the given chain, driven by the
+	// pre-computed token combinations. Return nil, nil if token transfers
+	// are not supported.
+	GetTokenExpansionConfigs(
+		env *deployment.Environment,
+		selector uint64,
+		combos []devenvcommon.TokenCombination,
+	) ([]tokensapi.TokenExpansionInputPerChain, error)
+
+	// PostTokenDeploy runs chain-specific work after all tokens and pools have
+	// been deployed via TokenExpansion (e.g. funding lock-release pools on EVM).
+	PostTokenDeploy(
+		env *deployment.Environment,
+		selector uint64,
+		deployedRefs []datastore.AddressRef,
+	) error
+
+	// GetTokenTransferConfigs builds TokenTransferConfig entries for all pools
+	// deployed on this chain, using chain-specific registry and CCV refs.
+	GetTokenTransferConfigs(
+		env *deployment.Environment,
+		selector uint64,
+		remoteSelectors []uint64,
+		topology *offchain.EnvironmentTopology,
+	) ([]tokensapi.TokenTransferConfig, error)
+}
+
 // OnChainConfigurable defines methods that allows devenv to
 // deploy, configure Chainlink product and connect on-chain part with other chains.
+//
+// Contract deployment follows the 1.6 pattern: a shared common function calls
+// the tooling API DeployChainContracts changeset. Chain impls provide only
+// configuration (GetDeployChainContractsCfg) and optional pre/post hooks.
 type OnChainConfigurable interface {
 	// ChainFamily returns the family of the chain.
 	ChainFamily() string
-	// DeployContractsForSelector deploys contracts for chain X using topology for CommitteeVerifier configuration.
-	// Returns all the contract addresses and metadata as datastore.DataStore.
-	DeployContractsForSelector(ctx context.Context, env *deployment.Environment, selector uint64, topology *offchain.EnvironmentTopology) (datastore.DataStore, error)
-	// ConnectContractsWithSelectors connects this chain onRamp to one or multiple offRamps for remote selectors (other chains)
-	// and configures CommitteeVerifiers with signers from topology.
-	ConnectContractsWithSelectors(ctx context.Context, e *deployment.Environment, selector uint64, remoteSelectors []uint64, topology *offchain.EnvironmentTopology) error
+	// PreDeployContractsForSelector runs chain-specific setup before the common
+	// DeployChainContracts call (e.g. deploying CREATE2 factory on EVM).
+	// The returned DataStore is merged into env.DataStore before
+	// GetDeployChainContractsCfg is called.
+	PreDeployContractsForSelector(ctx context.Context, env *deployment.Environment, selector uint64, topology *offchain.EnvironmentTopology) (datastore.DataStore, error)
+	// GetDeployChainContractsCfg returns the per-chain configuration for the
+	// common DeployChainContracts changeset. Called after Pre, so env.DataStore
+	// includes pre-deployed addresses (e.g. CREATE2 factory).
+	GetDeployChainContractsCfg(env *deployment.Environment, selector uint64, topology *offchain.EnvironmentTopology) (ccipChangesets.DeployChainContractsPerChainCfg, error)
+	// PostDeployContractsForSelector runs chain-specific setup after the common
+	// DeployChainContracts call (e.g. deploying USDC/Lombard token pools on EVM).
+	// The returned DataStore is merged into the final result.
+	PostDeployContractsForSelector(ctx context.Context, env *deployment.Environment, selector uint64, topology *offchain.EnvironmentTopology) (datastore.DataStore, error)
+	// GetConnectionProfile returns a ChainDefinition describing this chain as a
+	// lane destination, plus the default committee verifier config to apply for
+	// each remote chain. The environment uses profiles from all chains to
+	// assemble the full cross-chain connection config.
+	GetConnectionProfile(env *deployment.Environment, selector uint64) (lanes.ChainDefinition, lanes.CommitteeVerifierRemoteChainInput, error)
+	// GetChainLaneProfile returns the lane profile for this chain, containing
+	// local contract refs, destination characteristics, and default per-remote
+	// settings. The environment uses profiles from all chains to assemble the
+	// full cross-chain connection config.
+	GetChainLaneProfile(env *deployment.Environment, selector uint64) (ChainLaneProfile, error)
+	// PostConnect runs chain-specific setup after all chains have been connected
+	// (e.g. USDC/Lombard token config, custom executor wiring).
+	PostConnect(env *deployment.Environment, selector uint64, remoteSelectors []uint64) error
+}
+
+// ExtraArgsSerializer serializes message extra args for a destination chain family.
+// Product repos register their implementation via RegisterExtraArgsSerializer.
+type ExtraArgsSerializer func(opts MessageOptions) []byte
+
+var (
+	extraArgsSerializers   = make(map[string]ExtraArgsSerializer)
+	extraArgsSerializersMu sync.RWMutex
+)
+
+// RegisterExtraArgsSerializer registers an ExtraArgsSerializer for a chain family.
+// If the family is already registered, the call is a no-op to match the pattern
+// used by other registries in this repo (e.g. CLDFProviderRegistry, ImplFactory).
+// Product repos call this in their init() alongside other registrations.
+func RegisterExtraArgsSerializer(family string, serializer ExtraArgsSerializer) {
+	extraArgsSerializersMu.Lock()
+	defer extraArgsSerializersMu.Unlock()
+	if _, ok := extraArgsSerializers[family]; ok {
+		return
+	}
+	extraArgsSerializers[family] = serializer
+}
+
+// GetExtraArgsSerializer returns the registered serializer for the given chain family.
+func GetExtraArgsSerializer(family string) (ExtraArgsSerializer, bool) {
+	extraArgsSerializersMu.RLock()
+	defer extraArgsSerializersMu.RUnlock()
+	s, ok := extraArgsSerializers[family]
+	return s, ok
 }
 
 // DeployerNonceBumper is an optional interface. When implemented, devenv calls it before

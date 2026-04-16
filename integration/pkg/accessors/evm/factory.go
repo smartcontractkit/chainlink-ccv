@@ -2,15 +2,13 @@ package evm
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"strconv"
 
 	"github.com/ethereum/go-ethereum/common"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/onramp"
-	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
-	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/sourcereader"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -19,10 +17,10 @@ import (
 )
 
 type factory struct {
-	lggr               logger.Logger
-	helper             *blockchain.Helper
-	onRampAddresses    map[string]string
-	rmnRemoteAddresses map[string]string
+	lggr logger.Logger
+	// TODO: put these in a single map.
+	onRampAddresses    map[protocol.ChainSelector]string
+	rmnRemoteAddresses map[protocol.ChainSelector]string
 	headTrackers       map[protocol.ChainSelector]heads.Tracker
 	chainClients       map[protocol.ChainSelector]client.Client
 }
@@ -32,14 +30,13 @@ type factory struct {
 // constructions / implementations of these objects.
 func NewFactory(
 	lggr logger.Logger,
-	helper *blockchain.Helper,
-	onRampAddresses, rmnRemoteAddresses map[string]string,
+	// TODO: use ethereum address instead of string
+	onRampAddresses, rmnRemoteAddresses map[protocol.ChainSelector]string,
 	headTrackers map[protocol.ChainSelector]heads.Tracker,
 	chainClients map[protocol.ChainSelector]client.Client,
 ) chainaccess.AccessorFactory {
 	return &factory{
 		lggr:               lggr,
-		helper:             helper,
 		onRampAddresses:    onRampAddresses,
 		rmnRemoteAddresses: rmnRemoteAddresses,
 		headTrackers:       headTrackers,
@@ -47,9 +44,25 @@ func NewFactory(
 	}
 }
 
+func appendErrorIfNil(errs []error, ob any, errStr string) []error {
+	if ob == nil {
+		errs = append(errs, errors.New(errStr))
+	}
+	return errs
+}
+
 func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainSelector) (chainaccess.Accessor, error) {
-	if f == nil || f.onRampAddresses == nil || f.rmnRemoteAddresses == nil || f.chainClients == nil || f.headTrackers == nil {
-		return nil, fmt.Errorf("evm accessor factory is not fully initialized - can't get accessor for chain %d", chainSelector)
+	var errs []error
+	if f == nil {
+		errs = append(errs, errors.New("evm accessor factory is nil"))
+	} else {
+		errs = appendErrorIfNil(errs, f.onRampAddresses, "onramp addresses are nil")
+		errs = appendErrorIfNil(errs, f.rmnRemoteAddresses, "rmn remote addresses are nil")
+		errs = appendErrorIfNil(errs, f.headTrackers, "head trackers are nil")
+		errs = appendErrorIfNil(errs, f.chainClients, "chain clients are nil")
+	}
+	if len(errs) > 0 {
+		return nil, fmt.Errorf("cannot get accessor for chain %d: %w", chainSelector, errors.Join(errs...))
 	}
 
 	family, err := chainsel.GetSelectorFamily(uint64(chainSelector))
@@ -60,12 +73,10 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 		return nil, fmt.Errorf("skipping chain, only evm is supported for chain %d, family %s", chainSelector, family)
 	}
 
-	strSelector := strconv.FormatUint(uint64(chainSelector), 10)
-
-	if f.onRampAddresses[strSelector] == "" {
+	if f.onRampAddresses[chainSelector] == "" {
 		return nil, fmt.Errorf("on ramp address is not set for chain %d", chainSelector)
 	}
-	if f.rmnRemoteAddresses[strSelector] == "" {
+	if f.rmnRemoteAddresses[chainSelector] == "" {
 		return nil, fmt.Errorf("RMN Remote address is not set for chain %d", chainSelector)
 	}
 
@@ -79,11 +90,11 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 		return nil, fmt.Errorf("head tracker is not set for chain %d", chainSelector)
 	}
 
-	evmSourceReader, err := sourcereader.NewEVMSourceReader(
+	evmSourceReader, err := NewEVMSourceReader(
 		chainClient,
 		headTracker,
-		common.HexToAddress(f.onRampAddresses[strSelector]),
-		common.HexToAddress(f.rmnRemoteAddresses[strSelector]),
+		common.HexToAddress(f.onRampAddresses[chainSelector]),
+		common.HexToAddress(f.rmnRemoteAddresses[chainSelector]),
 		onramp.OnRampCCIPMessageSent{}.Topic().Hex(),
 		chainSelector,
 		f.lggr,

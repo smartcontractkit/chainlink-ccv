@@ -3,6 +3,7 @@ package commit
 import (
 	"fmt"
 
+	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
 )
 
@@ -32,19 +33,17 @@ type Config struct {
 	PyroscopeURL string `toml:"pyroscope_url"`
 	// CommitteeVerifierAddresses is a map the addresses of the committee verifiers for each chain selector.
 	CommitteeVerifierAddresses map[string]string `toml:"committee_verifier_addresses"`
-	// OnRampAddresses is a map the addresses of the on ramps for each chain selector.
-	OnRampAddresses map[string]string `toml:"on_ramp_addresses"`
 	// DefaultExecutorOnRampAddresses is a map the addresses of the default executor on ramps for each chain selector.
 	// The committee verifier will verify messages that specify the default executor even if they don't
 	// specify the committee verifier.
 	DefaultExecutorOnRampAddresses map[string]string `toml:"default_executor_on_ramp_addresses"`
-	// RMNRemoteAddresses is a map of RMN Remote contract addresses for each chain selector.
-	// Required for curse detection.
-	RMNRemoteAddresses map[string]string `toml:"rmn_remote_addresses"`
 	// DisableFinalityCheckers is a list of chain selectors for which the finality violation checker should be disabled.
 	// The chain selectors are formatted as strings of the chain selector.
 	DisableFinalityCheckers []string                  `toml:"disable_finality_checkers"`
 	Monitoring              verifier.MonitoringConfig `toml:"monitoring"`
+
+	// CommitteeConfig that is needed by the SourceReader and the application.
+	chainaccess.CommitteeConfig
 }
 
 func (c *Config) Validate() error {

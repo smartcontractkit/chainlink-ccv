@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/BurntSushi/toml"
@@ -15,7 +16,6 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
-
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
@@ -91,7 +91,7 @@ type Input struct {
 	AggregatorOutput *services.AggregatorOutput `toml:"-"`
 
 	// GeneratedJobSpecs contains all job specs for this verifier, one per aggregator in the committee.
-	GeneratedJobSpecs []string `toml:"-"`
+	GeneratedJobSpecs []bootstrap.JobSpec `toml:"-"`
 
 	// GeneratedConfig is the verifier configuration TOML derived from
 	// GeneratedJobSpecs[NodeIndex % numAggregators].
@@ -103,16 +103,10 @@ type Input struct {
 // added to the inner config. This is needed for standalone verifiers which require blockchain
 // connection information (CL nodes get this from their own chain config).
 // TODO: we stick with the job spec so that there isn't special logic for standalone verifiers.
-func (v *Input) RebuildVerifierJobSpecWithBlockchainInfos(jobSpec string, blockchainInfos map[string]any) (string, error) {
-	// Parse the outer job spec first.
-	var spec commit.JobSpec
-	if _, err := toml.Decode(jobSpec, &spec); err != nil {
-		return "", fmt.Errorf("failed to parse job spec: %w", err)
-	}
-
+func (v *Input) RebuildVerifierJobSpecWithBlockchainInfos(spec bootstrap.JobSpec, blockchainInfos map[string]any) (string, error) {
 	// Parse the inner config next.
 	var cfg commit.Config
-	if _, err := toml.Decode(spec.CommitteeVerifierConfig, &cfg); err != nil {
+	if _, err := toml.Decode(spec.AppConfig, &cfg); err != nil {
 		return "", fmt.Errorf("failed to parse verifier config from job spec: %w", err)
 	}
 
@@ -128,7 +122,7 @@ func (v *Input) RebuildVerifierJobSpecWithBlockchainInfos(jobSpec string, blockc
 	}
 
 	// Rebuild the job spec with the enhanced config
-	spec.CommitteeVerifierConfig = string(innerConfigBytes)
+	spec.AppConfig = string(innerConfigBytes)
 	outerSpecBytes, err := toml.Marshal(spec)
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal job spec: %w", err)
@@ -312,10 +306,11 @@ func launchVerifier(ctx context.Context, in *Input, outputs []*blockchain.Output
 		return nil, fmt.Errorf("failed to get database mapped port: %w", err)
 	}
 
+	containerName := strings.TrimPrefix(inspect.Name, "/")
 	out := &Output{
 		ContainerName:   inspect.Name,
 		ExternalHTTPURL: fmt.Sprintf("http://%s:%s", host, verifierMapped.Port()),
-		InternalHTTPURL: fmt.Sprintf("http://%s:%d", inspect.Name, DefaultVerifierPort),
+		InternalHTTPURL: fmt.Sprintf("http://%s:%d", containerName, DefaultVerifierPort),
 		DBConnectionString: fmt.Sprintf("postgresql://%s:%s@localhost:%s/%s?sslmode=disable",
 			in.ContainerName, in.ContainerName, dbMapped.Port(), in.ContainerName),
 		BootstrapDBURL: fmt.Sprintf("http://%s:%s", host, bootstrapMapped.Port()),

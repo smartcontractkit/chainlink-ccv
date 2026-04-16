@@ -2,10 +2,9 @@ package evm
 
 import (
 	"context"
+	"fmt"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
-	"github.com/smartcontractkit/chainlink-ccv/integration/pkg"
-	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/sourcereader"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -15,31 +14,80 @@ import (
 	"github.com/smartcontractkit/chainlink-evm/pkg/heads"
 )
 
+func init() {
+	chainaccess.Register(chainsel.FamilyEVM, CreateEVMAccessorFactory)
+}
+
+var _ chainaccess.AccessorFactoryConstructor = CreateEVMAccessorFactory
+
+// CreateEVMAccessorFactory is registered with chainaccess.Register to construct EVM accessors.
+//
+// Per-chain EVM settings are read from `blockchain_infos.<selector>` entries, for
+// example:
+//
+//	[blockchain_infos.5009297550715157269]
+//	# EVM-specific Info fields for selector 5009297550715157269
+//
+// Shared sections from chainaccess.GenericConfig (for example on-ramp or RMN
+// remote addresses) may also be present and are used when constructing the
+// accessor factory.
+//
+// It will take all config values it needs from all available config. Note that it would be
+// very unusual for a config to have more than one of Committee/Token/Executor configs.
+func CreateEVMAccessorFactory(lggr logger.Logger, genericConfig chainaccess.GenericConfig) (chainaccess.AccessorFactory, error) {
+	// Convert Infos[string] -> Infos[evm.Info]
+	evmInfos := make(map[string]Info)
+
+	// TODO: This could be a helper on the generic config object.
+	for _, selector := range genericConfig.ChainConfig.GetAllChainSelectors() {
+		// Verify chain family.
+		isEvm, err := chainsel.IsEvm(uint64(selector))
+		if err != nil {
+			return nil, fmt.Errorf("failed to determine if selector(%d) is evm: %w", selector, err)
+		}
+		if !isEvm {
+			lggr.Debugw("skipping non-EVM chain selector in EVM accessor factory construction", "chainSelector", selector)
+			continue
+		}
+
+		var info Info
+		if err = genericConfig.GetConcreteConfig(selector, &info); err != nil {
+			return nil, fmt.Errorf("failed to decode EVM info for selector(%d): %w", selector, err)
+		}
+
+		lggr.Infow("loaded EVM chain info for selector", "chainSelector", selector, "chainID", info.ChainID, "uniqueChainName", info.UniqueChainName)
+		evmInfos[selector.String()] = info
+	}
+
+	return CreateAccessorFactory(context.Background(), lggr, genericConfig, evmInfos)
+}
+
 // CreateAccessorFactory creates a factory that can build EVM chain accessors.
+// TODO: Defer geth client and head tracker creation until GetAccessor is called.
 func CreateAccessorFactory(
 	ctx context.Context,
 	lggr logger.Logger,
-	blockchainInfos map[string]*blockchain.Info,
-	onRampAddresses map[string]string,
-	rmnRemoteAddresses map[string]string,
+	generic chainaccess.GenericConfig,
+	infos chainaccess.Infos[Info],
 ) (chainaccess.AccessorFactory, error) {
-	helper := blockchain.NewHelper(blockchainInfos)
 	// Create the chain clients then the head trackers
 	chainClients := make(map[protocol.ChainSelector]client.Client)
 	headTrackers := make(map[protocol.ChainSelector]heads.Tracker)
-	for _, selector := range helper.GetAllChainSelectors() {
+	for _, selector := range infos.GetAllChainSelectors() {
+		lggr.Infow("Creating EVM client and head tracker for chain selector", "chainSelector", selector)
 		family, err := chainsel.GetSelectorFamily(uint64(selector))
 		if err != nil {
-			lggr.Errorw("❌ Failed to get selector family - update chain-selectors library?", "chainSelector", selector, "error", err)
+			lggr.Errorw("Failed to get selector family - update chain-selectors library?", "chainSelector", selector, "error", err)
 			continue
 		}
 		if family != chainsel.FamilyEVM {
+			lggr.Infow("Skipping non EVM info", "chainSelector", selector)
 			// Skip non-EVM chains in EVM registration.
 			continue
 		}
-		chainClient, err := pkg.CreateHealthyMultiNodeClient(ctx, helper, lggr, selector)
+		chainClient, err := CreateHealthyMultiNodeClient(ctx, infos, lggr, selector)
 		if err != nil {
-			lggr.Errorw("❌ Failed to create multi-node EVM client - bad RPC?", "chainSelector", selector, "error", err)
+			lggr.Errorw("Failed to create multi-node EVM client - bad RPC?", "chainSelector", selector, "error", err)
 			continue
 		}
 		chainClients[selector] = chainClient
@@ -48,5 +96,9 @@ func CreateAccessorFactory(
 		headTrackers[selector] = headTracker
 	}
 
-	return NewFactory(lggr, helper, onRampAddresses, rmnRemoteAddresses, headTrackers, chainClients), nil
+	// Convert from map[string]string -> map[chainsel]string
+	onRampInfos := chainaccess.Infos[string](generic.OnRampAddresses).GetAllInfos()
+	rmnRemoteInfos := chainaccess.Infos[string](generic.RMNRemoteAddresses).GetAllInfos()
+
+	return NewFactory(lggr, onRampInfos, rmnRemoteInfos, headTrackers, chainClients), nil
 }

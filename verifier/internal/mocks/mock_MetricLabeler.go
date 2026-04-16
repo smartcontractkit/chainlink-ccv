@@ -564,6 +564,40 @@ func (_c *MockMetricLabeler_RecordSourceChainLatestBlock_Call) RunAndReturn(run 
 	return _c
 }
 
+// RecordSourceChainSafeBlock provides a mock function with given fields: ctx, blockNum
+func (_m *MockMetricLabeler) RecordSourceChainSafeBlock(ctx context.Context, blockNum int64) {
+	_m.Called(ctx, blockNum)
+}
+
+// MockMetricLabeler_RecordSourceChainSafeBlock_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RecordSourceChainSafeBlock'
+type MockMetricLabeler_RecordSourceChainSafeBlock_Call struct {
+	*mock.Call
+}
+
+// RecordSourceChainSafeBlock is a helper method to define mock.On call
+//   - ctx context.Context
+//   - blockNum int64
+func (_e *MockMetricLabeler_Expecter) RecordSourceChainSafeBlock(ctx interface{}, blockNum interface{}) *MockMetricLabeler_RecordSourceChainSafeBlock_Call {
+	return &MockMetricLabeler_RecordSourceChainSafeBlock_Call{Call: _e.mock.On("RecordSourceChainSafeBlock", ctx, blockNum)}
+}
+
+func (_c *MockMetricLabeler_RecordSourceChainSafeBlock_Call) Run(run func(ctx context.Context, blockNum int64)) *MockMetricLabeler_RecordSourceChainSafeBlock_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(int64))
+	})
+	return _c
+}
+
+func (_c *MockMetricLabeler_RecordSourceChainSafeBlock_Call) Return() *MockMetricLabeler_RecordSourceChainSafeBlock_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockMetricLabeler_RecordSourceChainSafeBlock_Call) RunAndReturn(run func(context.Context, int64)) *MockMetricLabeler_RecordSourceChainSafeBlock_Call {
+	_c.Run(run)
+	return _c
+}
+
 // RecordStorageQueryDuration provides a mock function with given fields: ctx, method, duration
 func (_m *MockMetricLabeler) RecordStorageQueryDuration(ctx context.Context, method string, duration time.Duration) {
 	_m.Called(ctx, method, duration)

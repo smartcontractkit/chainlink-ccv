@@ -15,9 +15,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	chain_selectors "github.com/smartcontractkit/chain-selectors"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/sequences"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/versioned_verifier_resolver"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v2_0_0/operations/proxy"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/proxy"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/sequences"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/versioned_verifier_resolver"
 	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
@@ -402,7 +402,7 @@ func TestE2EReorg(t *testing.T) {
 		// 7. Verify message IS verified after finalization
 
 		// Custom finality: 5 blocks (much faster than ConfirmationDepth)
-		const customFinality uint16 = 5
+		const customFinality protocol.Finality = 5
 		customFinalityMessageOptions := cciptestinterfaces.MessageOptions{
 			Version:        3,
 			FinalityConfig: customFinality,
@@ -496,7 +496,7 @@ func TestE2EReorg(t *testing.T) {
 		// 6. Verify NEW message waits for full finalization (reorg tracking from sentTasks)
 
 		// Custom finality: 5 blocks (much faster than ConfirmationDepth)
-		const customFinality uint16 = 5
+		const customFinality protocol.Finality = 5
 		customFinalityMessageOptions := cciptestinterfaces.MessageOptions{
 			Version:        3,
 			FinalityConfig: customFinality,

@@ -18,7 +18,8 @@ import (
 
 	aggregator "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/util"
-	ccvblockchain "github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm"
+	ccvblockchain "github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 
@@ -213,15 +214,20 @@ func NewTokenVerifier(in *TokenVerifierInput, blockchainOutputs []*blockchain.Ou
 	}, nil
 }
 
-func (v *TokenVerifierInput) GenerateConfigWithBlockchainInfos(blockchainInfos map[string]*ccvblockchain.Info) (verifierTomlConfig []byte, err error) {
+func (v *TokenVerifierInput) GenerateConfigWithBlockchainInfos(blockchainInfos ccvblockchain.Infos[evm.Info]) (verifierTomlConfig []byte, err error) {
 	if v.GeneratedConfig == nil {
 		return nil, fmt.Errorf("GeneratedConfig is nil - token verifier config must be generated using changeset before launching")
+	}
+
+	anyInfo := make(ccvblockchain.Infos[any])
+	for k, info := range blockchainInfos {
+		anyInfo[k] = info
 	}
 
 	// Use the generated config directly (fake URLs are already injected in environment.go)
 	config := token.ConfigWithBlockchainInfos{
 		Config:          *v.GeneratedConfig,
-		BlockchainInfos: blockchainInfos,
+		BlockchainInfos: anyInfo,
 	}
 
 	cfg, err := toml.Marshal(config)

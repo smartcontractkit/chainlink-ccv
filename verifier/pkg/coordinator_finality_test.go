@@ -111,7 +111,7 @@ func TestFinality_CustomFinality(t *testing.T) {
 		}
 	}()
 
-	customFinality := uint16(15)
+	customFinality := protocol.Finality(15)
 	customGasLimit := uint32(300_000)
 
 	readyMessage := testutil.CreateTestMessage(t, 1, 1337, 2337, customFinality, customGasLimit)
@@ -308,6 +308,7 @@ func initializeCoordinator(t *testing.T, verifierID string) *coordinatorTestSetu
 		}
 		return latest, finalized, nil
 	}).Maybe()
+	mockSetup.Reader.EXPECT().LatestSafeBlock(mock.Anything).Return(nil, nil).Maybe()
 
 	verifierAddr := make([]byte, 20)
 	verifierAddr[0] = 0x11

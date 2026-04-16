@@ -16,8 +16,8 @@ build-dev:
     docker build -f Dockerfile.dev -t executor:dev ..
 
 publish-rc registry version:
-    docker tag executor:rc {{registry}}/chainlink-ccv-executor:{{version}}-rc
-    docker push {{registry}}/chainlink-ccv-executor:{{version}}-rc
+    docker tag executor:rc {{registry}}/containers/chainlink-ccv-executor:{{version}}-rc
+    docker push {{registry}}/containers/chainlink-ccv-executor:{{version}}-rc
 
 clean:
     docker rmi executor:latest

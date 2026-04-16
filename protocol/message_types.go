@@ -15,7 +15,7 @@ import (
 const (
 	MessageIDSize                 = 32  // Size of a message ID in bytes
 	MessageVersion                = 1   // Current message format version
-	MinSizeRequiredMsgFields      = 77  // Minimum size for required fields in Message
+	MinSizeRequiredMsgFields      = 79  // Minimum size for required fields in Message
 	MinSizeRequiredMsgTokenFields = 39  // Minimum size for required fields in TokenTransfer
 	MaxCCVsPerMessage             = 255 // Maximum number of CCV addresses per message (limited by uint8)
 	MaxUnknownAddressBytes        = 255 // Maximum size of any UnknownAddress in bytes (limited by uint8)
@@ -236,7 +236,7 @@ type Message struct {
 	SequenceNumber       SequenceNumber `json:"sequence_number"`
 	ExecutionGasLimit    uint32         `json:"execution_gas_limit"`
 	CcipReceiveGasLimit  uint32         `json:"ccip_receive_gas_limit"`
-	Finality             uint16         `json:"finality"`
+	Finality             Finality       `json:"finality"`
 	CcvAndExecutorHash   Bytes32        `json:"ccv_and_executor_hash"`
 	DestBlobLength       uint16         `json:"dest_blob_length"`
 	TokenTransferLength  uint16         `json:"token_transfer_length"`
@@ -280,7 +280,7 @@ func (m *Message) Encode() ([]byte, error) {
 		return nil, err
 	}
 
-	// Finality (2 bytes, big-endian)
+	// Finality (4 bytes, big-endian)
 	if err := binary.Write(&buf, binary.BigEndian, m.Finality); err != nil {
 		return nil, err
 	}
@@ -696,7 +696,7 @@ func NewMessage(
 	sourceChain, destChain ChainSelector,
 	sequenceNumber SequenceNumber,
 	onRampAddress, offRampAddress UnknownAddress,
-	finality uint16,
+	finality Finality,
 	executionGasLimit, ccipReceiveGasLimit uint32,
 	ccvAndExecutorHash Bytes32,
 	sender, receiver UnknownAddress,

@@ -8,21 +8,22 @@ import (
 	gethcommon "github.com/ethereum/go-ethereum/common"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
-	evmadapters "github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/adapters"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/create2_factory"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/versioned_verifier_resolver"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v2_0_0/operations/mock_receiver_v2"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v2_0_0/operations/usdc_token_pool_proxy"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/mock_usdc_token_messenger"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/mock_usdc_token_transmitter"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/utils/operations/contract"
 	burnminterc677ops "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_5_0/operations/burn_mint_erc20_with_drip"
+	evmadapters "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/adapters"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/create2_factory"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/mock_receiver_v2"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/usdc_token_pool_proxy"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/versioned_verifier_resolver"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/mock_usdc_token_messenger"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/mock_usdc_token_transmitter"
 	changesetscore "github.com/smartcontractkit/chainlink-ccip/deployment/utils/changesets"
-	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/adapters"
-	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/changesets"
+	"github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/adapters"
+	"github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/changesets"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/cctp"
 	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm"
+	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm/operations/contract"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
@@ -308,12 +309,12 @@ func (m *CCIP17EVMConfig) deployCCTPMockReceivers(
 		// Set minimum block depth to 1
 		_, err1 = operations.ExecuteOperation(
 			env.OperationsBundle,
-			mock_receiver_v2.SetMinBlockConfirmations,
+			mock_receiver_v2.SetAllowedFinalityConfig,
 			env.BlockChains.EVMChains()[selector],
-			contract.FunctionInput[uint16]{
+			contract.FunctionInput[[4]byte]{
 				Address:       gethcommon.HexToAddress(deployReceiverReport.Output.Address),
 				ChainSelector: selector,
-				Args:          1,
+				Args:          protocol.NewFinality().WithBlockDepth(1).ToBytes(),
 			})
 		if err1 != nil {
 			return fmt.Errorf("failed to set minimum block depth for mock receiver %s on chain %d: %w", r.Qualifier, selector, err1)
@@ -416,6 +417,10 @@ func (m *CCIP17EVMConfig) deployCircleContracts(
 	return usdcTokenAddr, messageTransmitterAddr, tokenMessengerAddr, nil
 }
 
+// filterOnlySupportedSelectors returns only the remote selectors that support CCTP.
+// CCTP (Circle's Cross-Chain Transfer Protocol) is currently only deployed on EVM chains.
+// When CCTP support is added for other families, this should check the CCTPChainRegistry
+// from v2_0_0/adapters rather than filtering by family string.
 func filterOnlySupportedSelectors(remoteSelectors []uint64) []uint64 {
 	supportedRemoteSelectors := make([]uint64, 0)
 	for _, rs := range remoteSelectors {

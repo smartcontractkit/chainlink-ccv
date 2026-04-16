@@ -16,8 +16,8 @@ build-dev:
     docker build -f Dockerfile.dev -t aggregator:dev ..
 
 publish-rc registry version:
-    docker tag aggregator:rc {{registry}}/chainlink-ccv-aggregator:{{version}}-rc
-    docker push {{registry}}/chainlink-ccv-aggregator:{{version}}-rc
+    docker tag aggregator:rc {{registry}}/containers/chainlink-ccv-aggregator:{{version}}-rc
+    docker push {{registry}}/containers/chainlink-ccv-aggregator:{{version}}-rc
 
 clean:
     docker rmi aggregator:latest

@@ -174,6 +174,7 @@ func TestScheduler_RunMovesDelayedToReady(t *testing.T) {
 
 	// start scheduler run loop to process delayed heap
 	s.Start(ctx)
+	defer s.Stop()
 
 	select {
 	case got := <-s.Ready():
@@ -208,6 +209,7 @@ func TestScheduler_RunDoesNotLeakGoroutinesUnderBurst(t *testing.T) {
 	defer cancel()
 
 	s.Start(ctx)
+	defer s.Stop()
 
 	// Do NOT consume from Ready — simulate backpressure from a saturated worker pool.
 	time.Sleep(100 * time.Millisecond)
@@ -218,4 +220,15 @@ func TestScheduler_RunDoesNotLeakGoroutinesUnderBurst(t *testing.T) {
 	require.LessOrEqual(t, peakGoroutines-baselineGoroutines, maxAllowedGrowth,
 		"goroutine count grew by %d (from %d to %d); expected bounded growth under backpressure",
 		peakGoroutines-baselineGoroutines, baselineGoroutines, peakGoroutines)
+}
+
+func TestScheduler_DoubleStop(t *testing.T) {
+	lggr := logger.Test(t)
+	scfg := config.SchedulerConfig{TickerInterval: 10, BaseDelay: 10, MaxDelay: 1000, VerificationVisibilityWindow: 60}
+	s, err := NewScheduler(lggr, scfg)
+	require.NoError(t, err)
+
+	s.Start(t.Context())
+	s.Stop()
+	s.Stop()
 }

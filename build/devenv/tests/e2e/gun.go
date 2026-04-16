@@ -14,9 +14,9 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v1_7_0/versioned_verifier_resolver"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment/v2_0_0/operations/mock_receiver_v2"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_0_0/operations/weth"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/mock_receiver_v2"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/versioned_verifier_resolver"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
@@ -272,7 +272,7 @@ func (m *EVMTXGun) selectMessageProfile(srcSelector, destSelector uint64) (ccipt
 				FeeToken: protocol.UnknownAddress(common.HexToAddress(wethContract.Address).Bytes()),
 			}, cciptestinterfaces.MessageOptions{
 				Version:        3,
-				FinalityConfig: uint16(finality.Int64()),
+				FinalityConfig: protocol.Finality(finality.Int64()),
 				CCVs: []protocol.CCV{
 					{
 						CCVAddress: common.HexToAddress(committeeVerifierProxyRef.Address).Bytes(),
@@ -294,7 +294,7 @@ func (m *EVMTXGun) selectMessageProfile(srcSelector, destSelector uint64) (ccipt
 	}
 	opts := cciptestinterfaces.MessageOptions{
 		Version:        3,
-		FinalityConfig: uint16(messageProfile.Finality),
+		FinalityConfig: protocol.Finality(messageProfile.Finality),
 	}
 
 	if messageProfile.HasData {

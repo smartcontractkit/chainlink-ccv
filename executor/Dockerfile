@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.7
-FROM golang:1.25.6-alpine AS builder
+FROM golang:1.25.7-alpine AS builder
 WORKDIR /
 
 # Copy module files first to maximize cache reuse across apps
@@ -9,7 +9,7 @@ RUN --mount=type=cache,target=/go/pkg/mod,id=ccv-go-mod \
 
 # Then copy the rest of the source and build
 COPY . .
-WORKDIR /cmd/executor
+WORKDIR /cmd/executor/standalone
 RUN --mount=type=cache,target=/root/.cache/go-build,id=ccv-go-build \
     --mount=type=cache,target=/go/pkg/mod,id=ccv-go-mod \
     CGO_ENABLED=0 go build -ldflags='-s -w' -o /bin/executor main.go

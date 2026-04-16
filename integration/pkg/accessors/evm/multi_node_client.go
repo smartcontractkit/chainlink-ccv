@@ -1,4 +1,4 @@
-package pkg
+package evm
 
 import (
 	"context"
@@ -6,7 +6,7 @@ import (
 	"math/big"
 	"time"
 
-	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
+	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-evm/pkg/client"
@@ -15,17 +15,17 @@ import (
 
 func ptr[T any](t T) *T { return &t }
 
-func CreateHealthyMultiNodeClient(ctx context.Context, blockchainHelper *blockchain.Helper, lggr logger.Logger, chainSelector protocol.ChainSelector) (client.Client, error) {
-	blockchainInfo, err := blockchainHelper.GetBlockchainByChainSelector(chainSelector)
+func CreateHealthyMultiNodeClient(ctx context.Context, infos chainaccess.Infos[Info], lggr logger.Logger, chainSelector protocol.ChainSelector) (client.Client, error) {
+	info, err := infos.GetBlockchainByChainSelector(chainSelector)
 	if err != nil {
 		lggr.Errorw("Failed to get blockchain info", "error", err, "chainSelector", chainSelector)
+		return nil, fmt.Errorf("failed to get blockchain info for chain selector %v: %w", chainSelector, err)
 	}
-
-	return CreateMultiNodeClientFromInfo(ctx, blockchainInfo, lggr)
+	return CreateMultiNodeClientFromInfo(ctx, info, lggr)
 }
 
 // CreateMultiNodeClientFromInfo creates EVM client and tests the connection.
-func CreateMultiNodeClientFromInfo(ctx context.Context, blockchainInfo *blockchain.Info, lggr logger.Logger) (client.Client, error) {
+func CreateMultiNodeClientFromInfo(ctx context.Context, blockchainInfo Info, lggr logger.Logger) (client.Client, error) {
 	noNewHeadsThreshold := 3 * time.Minute
 	selectionMode := ptr("HighestHead")
 	leaseDuration := 0 * time.Second
@@ -89,6 +89,7 @@ func CreateMultiNodeClientFromInfo(ctx context.Context, blockchainInfo *blockcha
 	err = chainClient.Dial(ctx)
 	if err != nil {
 		lggr.Errorw("Failed to dial multinode chain client", "error", err)
+		chainClient.Close()
 		return nil, fmt.Errorf("failed to dial evm client: %w", err)
 	}
 
@@ -96,6 +97,7 @@ func CreateMultiNodeClientFromInfo(ctx context.Context, blockchainInfo *blockcha
 	latestBlock, err := chainClient.LatestBlockHeight(ctx)
 	if err != nil {
 		lggr.Errorw("Failed to get block height", "error", err)
+		chainClient.Close()
 		return nil, fmt.Errorf("failed to get block height: %w", err)
 	}
 	lggr.Infow("Latest block (via multinode)", "blockNumber", latestBlock)
@@ -108,6 +110,7 @@ func CreateMultiNodeClientFromInfo(ctx context.Context, blockchainInfo *blockcha
 	header, err := chainClient.HeadByNumber(ctx, latestBlock)
 	if err != nil {
 		lggr.Errorw("Failed to get block head", "error", err)
+		chainClient.Close()
 		return nil, fmt.Errorf("failed to get block head: %w", err)
 	}
 	lggr.Infow("Block header",

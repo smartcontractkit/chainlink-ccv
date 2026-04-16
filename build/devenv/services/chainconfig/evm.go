@@ -5,27 +5,27 @@ import (
 	"strconv"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
-	ccvblockchain "github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm"
 	ctfblockchain "github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
 
-// EVMChainConfigLoader converts the provided CTF blockchain outputs to a map of chain selector to blockchain.Info.
+// EVMChainConfigLoader converts the provided CTF blockchain outputs to a map of chain selector to evm.Info.
 // TODO: this should be moved out of devenv into the evm chain-specific repo eventually and registered from there.
 func EVMChainConfigLoader(outputs []*ctfblockchain.Output) (map[string]any, error) {
 	infos := make(map[string]any)
 	for _, output := range outputs {
-		info := &ccvblockchain.Info{
+		info := &evm.Info{
 			ChainID:         output.ChainID,
 			Type:            output.Type,
 			Family:          output.Family,
 			UniqueChainName: output.ContainerName,
-			Nodes:           make([]*ccvblockchain.Node, 0, len(output.Nodes)),
+			Nodes:           make([]evm.Node, 0, len(output.Nodes)),
 		}
 
 		// Convert all nodes
 		for _, node := range output.Nodes {
 			if node != nil {
-				info.Nodes = append(info.Nodes, &ccvblockchain.Node{
+				info.Nodes = append(info.Nodes, evm.Node{
 					ExternalHTTPUrl: node.ExternalHTTPUrl,
 					InternalHTTPUrl: node.InternalHTTPUrl,
 					ExternalWSUrl:   node.ExternalWSUrl,

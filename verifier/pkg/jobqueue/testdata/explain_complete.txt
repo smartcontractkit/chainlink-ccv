@@ -1,0 +1,23 @@
+=== EXPLAIN ANALYZE: complete ===
+Insert on public.ccv_task_verifier_jobs_archive  (cost=80.60..80.80 rows=0 width=0) (actual time=0.691..0.692 rows=0 loops=1)
+  Buffers: shared hit=164 dirtied=1 written=1
+  CTE completed
+    ->  Delete on public.ccv_task_verifier_jobs  (cost=43.00..80.60 rows=9 width=6) (actual time=0.094..0.110 rows=10 loops=1)
+          Output: ccv_task_verifier_jobs.id, ccv_task_verifier_jobs.job_id, ccv_task_verifier_jobs.owner_id, ccv_task_verifier_jobs.chain_selector, ccv_task_verifier_jobs.message_id, ccv_task_verifier_jobs.task_data, ccv_task_verifier_jobs.created_at, ccv_task_verifier_jobs.available_at, ccv_task_verifier_jobs.started_at, ccv_task_verifier_jobs.attempt_count, ccv_task_verifier_jobs.retry_deadline, ccv_task_verifier_jobs.last_error
+          Buffers: shared hit=42
+          ->  Bitmap Heap Scan on public.ccv_task_verifier_jobs  (cost=43.00..80.60 rows=9 width=6) (actual time=0.036..0.041 rows=10 loops=1)
+                Output: ccv_task_verifier_jobs.ctid
+                Recheck Cond: (ccv_task_verifier_jobs.job_id = ANY ('{05157c0e-8af1-57d2-b313-a5b90d9e4917,b53a314e-1dba-5f42-bfe7-3bde0be6ed59,b1676c89-475d-5fe5-8ac2-92d1d6c0458a,a6ed7808-e6ab-5405-85b2-8fddd2ef8648,7e5667e3-7742-5565-9ac2-cef1d83df605,324353be-24f0-5a0a-b74e-68262945996f,e85e9c72-8e43-5909-8fdd-e0d50bb08ac2,e0452850-5a7d-54fc-a2cb-452e584ede37,a0b2b743-0273-5188-a369-f2a7675d0da6,35a44589-0020-5aa0-a8ad-97836ab6f7b7}'::uuid[]))
+                Filter: (ccv_task_verifier_jobs.owner_id = 'explain-owner'::text)
+                Heap Blocks: exact=1
+                Buffers: shared hit=21
+                ->  Bitmap Index Scan on ccv_task_verifier_jobs_job_id_key  (cost=0.00..42.98 rows=10 width=0) (actual time=0.032..0.032 rows=10 loops=1)
+                      Index Cond: (ccv_task_verifier_jobs.job_id = ANY ('{05157c0e-8af1-57d2-b313-a5b90d9e4917,b53a314e-1dba-5f42-bfe7-3bde0be6ed59,b1676c89-475d-5fe5-8ac2-92d1d6c0458a,a6ed7808-e6ab-5405-85b2-8fddd2ef8648,7e5667e3-7742-5565-9ac2-cef1d83df605,324353be-24f0-5a0a-b74e-68262945996f,e85e9c72-8e43-5909-8fdd-e0d50bb08ac2,e0452850-5a7d-54fc-a2cb-452e584ede37,a0b2b743-0273-5188-a369-f2a7675d0da6,35a44589-0020-5aa0-a8ad-97836ab6f7b7}'::uuid[]))
+                      Buffers: shared hit=20
+  ->  CTE Scan on completed  (cost=0.00..0.20 rows=9 width=248) (actual time=0.098..0.239 rows=10 loops=1)
+        Output: completed.id, completed.job_id, completed.owner_id, completed.chain_selector, completed.message_id, completed.task_data, 'completed'::text, completed.created_at, completed.available_at, completed.started_at, completed.attempt_count, completed.retry_deadline, completed.last_error, now()
+        Buffers: shared hit=42
+Planning:
+  Buffers: shared hit=6
+Planning Time: 0.176 ms
+Execution Time: 0.914 ms

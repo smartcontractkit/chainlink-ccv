@@ -20,14 +20,24 @@ jobs:
       - name: Install Just
         uses: extractions/setup-just@e33e0265a09d6d736e2ee1e0eb685ef1de4669ff # v3
 
-      - name: Authenticate to AWS ECR
+      - name: Authenticate to AWS ECR (primary)
         uses: ./.github/actions/aws-ecr-auth
         with:
-          role-to-assume: ${{ secrets.CCV_IAM_ROLE }}
+          role-to-assume: ${{ secrets.CCV_IAM_ROLE_PRIMARY }}
           aws-region: us-west-2
           registry-type: private
 
+      - name: Authenticate to AWS ECR (secondary)
+        uses: ./.github/actions/aws-ecr-auth
+        with:
+          role-to-assume: ${{ secrets.CCV_IAM_ROLE_SECONDARY }}
+          aws-region: us-east-2
+          registry-type: private
+
       - name: Build & Publish Release Candidate
+        env:
+          ECR_REGISTRY_PRIMARY: ${{ secrets.ECR_REGISTRY_PRIMARY }}
+          ECR_REGISTRY_SECONDARY: ${{ secrets.ECR_REGISTRY_SECONDARY }}
         run: |
           MODULE=$(echo "${{ github.ref_name }}" | cut -d'/' -f1)
           FULL_TAG=$(echo "${{ github.ref_name }}" | cut -d'/' -f2)
@@ -37,5 +47,7 @@ jobs:
           echo "Full Tag: $FULL_TAG"
           echo "Building Release Candidate Image.."
           just "$MODULE"/build-rc
-          echo "Publishing Release Candidate Image.."
-          just "$MODULE"/publish-rc "${{ secrets.ECR_REGISTRY }}" "$VERSION"
+          echo "Publishing Release Candidate Image (primary).."
+          just "$MODULE"/publish-rc "$ECR_REGISTRY_PRIMARY" "$VERSION"
+          echo "Publishing Release Candidate Image (secondary).."
+          just "$MODULE"/publish-rc "$ECR_REGISTRY_SECONDARY" "$VERSION"

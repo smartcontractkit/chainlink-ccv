@@ -2,7 +2,6 @@ package services
 
 import (
 	"context"
-	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,13 +10,13 @@ import (
 	"github.com/BurntSushi/toml"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/go-connections/nat"
-	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/testcontainers/testcontainers-go"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/util"
 	"github.com/smartcontractkit/chainlink-ccv/executor"
-	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm"
+	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 	ctfblockchain "github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
@@ -61,7 +60,7 @@ type ExecutorOutput struct {
 
 // GenerateConfigWithBlockchainInfos combines the pre-generated config with blockchain infos
 // for standalone mode deployment.
-func (v *ExecutorInput) GenerateConfigWithBlockchainInfos(blockchainInfos map[string]*blockchain.Info) ([]byte, error) {
+func (v *ExecutorInput) GenerateConfigWithBlockchainInfos(blockchainInfos chainaccess.Infos[evm.Info]) ([]byte, error) {
 	if v.GeneratedConfig == "" {
 		return nil, fmt.Errorf("GeneratedConfig is empty - must be set from changeset output")
 	}
@@ -73,7 +72,7 @@ func (v *ExecutorInput) GenerateConfigWithBlockchainInfos(blockchainInfos map[st
 	}
 
 	// Wrap with blockchain infos for standalone mode
-	config := executor.ConfigWithBlockchainInfo{
+	config := executor.ConfigWithBlockchainInfo[evm.Info]{
 		Configuration:   baseConfig,
 		BlockchainInfos: blockchainInfos,
 	}
@@ -86,13 +85,17 @@ func (v *ExecutorInput) GenerateConfigWithBlockchainInfos(blockchainInfos map[st
 	return cfg, nil
 }
 
-func (v *ExecutorInput) GetTransmitterAddress() protocol.UnknownAddress {
-	// TODO: not chain agnostic.
-	pk, err := crypto.HexToECDSA(v.TransmitterPrivateKey)
+// TransmitterAddressResolver derives an on-chain address from a hex-encoded private key.
+type TransmitterAddressResolver func(privateKeyHex string) (protocol.UnknownAddress, error)
+
+// GetTransmitterAddress derives the on-chain transmitter address using the given
+// family-specific resolver.
+func (v *ExecutorInput) GetTransmitterAddress(resolver TransmitterAddressResolver) protocol.UnknownAddress {
+	addr, err := resolver(v.TransmitterPrivateKey)
 	if err != nil {
 		return protocol.UnknownAddress{}
 	}
-	return protocol.UnknownAddress(crypto.PubkeyToAddress(pk.PublicKey).Bytes())
+	return addr
 }
 
 func ApplyExecutorDefaults(in *ExecutorInput) {
@@ -110,10 +113,12 @@ func ApplyExecutorDefaults(in *ExecutorInput) {
 	}
 }
 
-// filterOutUnsupportedChains filters out chains that are not supported by the executor.
-// As of writing, only EVM is supported by the executor.
-func filterOutUnsupportedChains(blockchainInfos map[string]*blockchain.Info) map[string]*blockchain.Info {
-	filtered := make(map[string]*blockchain.Info)
+// filterOutUnsupportedChains filters blockchain infos to only include chains supported by
+// the standalone executor. The standalone executor binary only handles EVM chains; non-EVM
+// families use bootstrapped executors via isBootstrappedExecutor, which delegates to
+// ImplFactory.SupportsBootstrapExecutor().
+func filterOutUnsupportedChains(blockchainInfos chainaccess.Infos[evm.Info]) chainaccess.Infos[evm.Info] {
+	filtered := make(chainaccess.Infos[evm.Info])
 	for chainSelector, info := range blockchainInfos {
 		if info.Family == chainsel.FamilyEVM {
 			filtered[chainSelector] = info
@@ -212,19 +217,14 @@ func NewExecutor(in *ExecutorInput, blockchainOutputs []*ctfblockchain.Output) (
 	return in.Out, nil
 }
 
-func generateTransmitterPrivateKey() (string, error) {
-	// TODO: not chain agnostic.
-	pk, err := crypto.GenerateKey()
-	if err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(crypto.FromECDSA(pk)), nil
-}
+// TransmitterKeyGenerator generates a private key for executor transaction signing.
+type TransmitterKeyGenerator func() (string, error)
 
-// SetTransmitterPrivateKey sets the transmitter private key for the provided execs array.
-func SetTransmitterPrivateKey(execs []*ExecutorInput) ([]*ExecutorInput, error) {
+// SetTransmitterPrivateKey sets the transmitter private key for the provided execs array
+// using the given key generator.
+func SetTransmitterPrivateKey(execs []*ExecutorInput, keyGen TransmitterKeyGenerator) ([]*ExecutorInput, error) {
 	for _, exec := range execs {
-		pk, err := generateTransmitterPrivateKey()
+		pk, err := keyGen()
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate transmitter private key: %w", err)
 		}

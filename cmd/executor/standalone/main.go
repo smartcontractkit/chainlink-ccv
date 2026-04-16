@@ -20,9 +20,8 @@ import (
 	x "github.com/smartcontractkit/chainlink-ccv/executor/pkg/executor"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/leaderelector"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
-	"github.com/smartcontractkit/chainlink-ccv/integration/pkg"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/backofftimeprovider"
-	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/ccvstreamer"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/contracttransmitter"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/cursechecker"
@@ -160,15 +159,11 @@ func main() {
 	destReaders := make(map[protocol.ChainSelector]chainaccess.DestinationReader)
 	enabledDestChains := make([]protocol.ChainSelector, 0)
 	rmnReaders := make(map[protocol.ChainSelector]chainaccess.RMNCurseReader)
-	for strSel, chain := range blockchainInfo {
+	for selector, chain := range blockchainInfo.GetAllInfos() {
+		strSel := strconv.FormatUint(uint64(selector), 10)
 		chainConfig := executorConfig.ChainConfiguration[strSel]
-		selector, err := strconv.ParseUint(strSel, 10, 64)
-		if err != nil {
-			lggr.Errorw("Invalid chain selector in configuration", "error", err, "chainSelector", strSel)
-			continue
-		}
 
-		chainClient, err := pkg.CreateMultiNodeClientFromInfo(ctx, chain, lggr)
+		chainClient, err := evm.CreateMultiNodeClientFromInfo(ctx, chain, lggr)
 		if err != nil {
 			lggr.Errorw("Failed to create chain client", "error", err, "chainSelector", strSel)
 			continue
@@ -176,7 +171,7 @@ func main() {
 		dr, err := destinationreader.NewEvmDestinationReader(
 			destinationreader.Params{
 				Lggr:                      lggr,
-				ChainSelector:             protocol.ChainSelector(selector),
+				ChainSelector:             selector,
 				ChainClient:               chainClient,
 				OfframpAddress:            chainConfig.OffRampAddress,
 				RmnRemoteAddress:          chainConfig.RmnAddress,
@@ -185,6 +180,7 @@ func main() {
 			})
 		if err != nil {
 			lggr.Errorw("Failed to create destination reader", "error", err, "chainSelector", strSel)
+			chainClient.Close()
 			continue
 		}
 
@@ -197,7 +193,7 @@ func main() {
 		ct, err := contracttransmitter.NewEVMContractTransmitterFromRPC(
 			ctx,
 			lggr,
-			protocol.ChainSelector(selector),
+			selector,
 			chain.Nodes[0].InternalHTTPUrl,
 			pk,
 			common.HexToAddress(chainConfig.OffRampAddress),
@@ -207,11 +203,11 @@ func main() {
 			os.Exit(1)
 		}
 		if dr != nil {
-			destReaders[protocol.ChainSelector(selector)] = dr
-			rmnReaders[protocol.ChainSelector(selector)] = dr
+			destReaders[selector] = dr
+			rmnReaders[selector] = dr
 		}
-		contractTransmitters[protocol.ChainSelector(selector)] = ct
-		enabledDestChains = append(enabledDestChains, protocol.ChainSelector(selector))
+		contractTransmitters[selector] = ct
+		enabledDestChains = append(enabledDestChains, selector)
 	}
 
 	//
@@ -327,7 +323,7 @@ func main() {
 	// Wait for shutdown signal
 	// ------------------------------------------------------------------------------------------------
 	<-sigCh
-	lggr.Infow("🛑 Shutdown signal received, stopping executor...")
+	lggr.Infow("Shutdown signal received, stopping executor...")
 
 	// Graceful shutdown
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -347,11 +343,11 @@ func main() {
 		lggr.Errorw("Execution coordinator shutdown timed out")
 	}
 
-	lggr.Infow("✅ Execution service stopped gracefully")
+	lggr.Infow("Execution service stopped gracefully")
 }
 
-func loadConfiguration(filepath string) (*executor.Configuration, map[string]*blockchain.Info, error) {
-	var config executor.ConfigWithBlockchainInfo
+func loadConfiguration(filepath string) (*executor.Configuration, *chainaccess.Infos[evm.Info], error) {
+	var config executor.ConfigWithBlockchainInfo[evm.Info]
 	if _, err := toml.DecodeFile(filepath, &config); err != nil {
 		return nil, nil, err
 	}
@@ -360,5 +356,5 @@ func loadConfiguration(filepath string) (*executor.Configuration, map[string]*bl
 	if err != nil {
 		return nil, nil, err
 	}
-	return normalizedConfig, config.BlockchainInfos, nil
+	return normalizedConfig, &config.BlockchainInfos, nil
 }

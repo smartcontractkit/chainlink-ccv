@@ -35,12 +35,42 @@ type requestWithSize struct {
 	ccvData protocol.VerifierNodeResult
 }
 
+// CommitteeBatchWriter is the subset of CommitteeVerifierClient used by AggregatorWriter.
+type CommitteeBatchWriter interface {
+	// BatchWriteCommitteeVerifierNodeResult issues a batched write RPC to the committee verifier.
+	BatchWriteCommitteeVerifierNodeResult(
+		ctx context.Context,
+		in *committeepb.BatchWriteCommitteeVerifierNodeResultRequest,
+		opts ...grpc.CallOption,
+	) (*committeepb.BatchWriteCommitteeVerifierNodeResultResponse, error)
+}
+
 type AggregatorWriter struct {
-	client             committeepb.CommitteeVerifierClient
+	client             CommitteeBatchWriter
 	conn               *grpc.ClientConn
 	lggr               logger.Logger
 	maxSendMessageSize int
 	maxRecvMessageSize int
+}
+
+func finalizedNonRetryableFailure(r protocol.WriteResult) bool {
+	return r.Error != nil && !r.Retryable
+}
+
+func applyBatchWideRetryableFailure(results []protocol.WriteResult, batch []requestWithSize, err error) {
+	for _, item := range batch {
+		slot := &results[item.origIdx]
+		if finalizedNonRetryableFailure(*slot) {
+			continue
+		}
+		slot.Error = err
+		slot.Status = protocol.WriteFailure
+		slot.Retryable = true
+	}
+}
+
+func missingPerItemBatchResult(r protocol.WriteResult) bool {
+	return r.Status != protocol.WriteSuccess && r.Error == nil
 }
 
 func mapCCVDataToCCVNodeDataProto(ccvData protocol.VerifierNodeResult) (*committeepb.WriteCommitteeVerifierNodeResultRequest, error) {
@@ -181,6 +211,9 @@ func (a *AggregatorWriter) splitIntoBatches(requests []requestWithSize) [][]requ
 func (a *AggregatorWriter) sendBatch(ctx context.Context, batch []requestWithSize, results []protocol.WriteResult) error {
 	requests := make([]*committeepb.WriteCommitteeVerifierNodeResultRequest, len(batch))
 	for i, item := range batch {
+		if item.req == nil {
+			return fmt.Errorf("internal error: nil WriteCommitteeVerifierNodeResultRequest in batch at position %d", i)
+		}
 		requests[i] = item.req
 	}
 
@@ -190,41 +223,54 @@ func (a *AggregatorWriter) sendBatch(ctx context.Context, batch []requestWithSiz
 		},
 	)
 	if err != nil {
-		// If the entire gRPC call failed, mark all in this batch as failed (still retryable)
 		batchErr := fmt.Errorf("error calling BatchWriteCommitteeVerifierNodeResult: %w", err)
-		for _, item := range batch {
-			if results[item.origIdx].Error == nil {
-				results[item.origIdx].Error = batchErr
-				results[item.origIdx].Status = protocol.WriteFailure
-				results[item.origIdx].Retryable = true
-			}
-		}
+		applyBatchWideRetryableFailure(results, batch, batchErr)
 		return batchErr
 	}
 
-	// Process individual responses
+	if responses == nil {
+		errNil := fmt.Errorf("BatchWriteCommitteeVerifierNodeResult returned nil response")
+		applyBatchWideRetryableFailure(results, batch, errNil)
+		return errNil
+	}
+
 	for i, resp := range responses.Responses {
 		if i >= len(batch) {
 			continue
 		}
 
 		item := batch[i]
+		idx := item.origIdx
+		slot := &results[idx]
+		if finalizedNonRetryableFailure(*slot) {
+			continue
+		}
+
 		messageID := item.ccvData.MessageID.String()
 
+		if resp == nil {
+			slot.Status = protocol.WriteFailure
+			slot.Error = fmt.Errorf("write failed: nil response for batch index %d", i)
+			slot.Retryable = true
+			a.lggr.Errorw("BatchWriteCommitteeVerifierNodeResult returned nil response entry",
+				"batchIndex", i,
+				"messageID", messageID,
+			)
+			continue
+		}
+
 		if resp.Status != committeepb.WriteStatus_SUCCESS {
-			// Extract detailed error information from the Errors array if available
 			var errorCode string
 			var errorMessage string
 			if i < len(responses.Errors) && responses.Errors[i] != nil {
-				// Convert the int32 code to gRPC codes.Code for human-readable output
 				errorCode = codes.Code(responses.Errors[i].GetCode()).String() //nolint:gosec // gRPC error codes are always non-negative.
 				errorMessage = responses.Errors[i].GetMessage()
 			}
 
-			results[item.origIdx].Status = protocol.WriteFailure
-			results[item.origIdx].Error = fmt.Errorf("write failed with status %s: code=%s, message=%s",
+			slot.Status = protocol.WriteFailure
+			slot.Error = fmt.Errorf("write failed with status %s: code=%s, message=%s",
 				resp.Status.String(), errorCode, errorMessage)
-			results[item.origIdx].Retryable = true // Always retryable for aggregator
+			slot.Retryable = true
 
 			a.lggr.Errorw("BatchWriteCommitteeVerifierNodeResult failed",
 				"status", resp.Status.String(),
@@ -233,11 +279,26 @@ func (a *AggregatorWriter) sendBatch(ctx context.Context, batch []requestWithSiz
 				"errorMessage", errorMessage,
 			)
 		} else {
-			results[item.origIdx].Status = protocol.WriteSuccess
-			results[item.origIdx].Error = nil
-			results[item.origIdx].Retryable = false // Success, no retry needed
+			slot.Status = protocol.WriteSuccess
+			slot.Error = nil
+			slot.Retryable = false
 			a.lggr.Infow("Successfully stored CCV data", "messageID", messageID)
 		}
+	}
+
+	for _, item := range batch {
+		idx := item.origIdx
+		slot := &results[idx]
+		if !missingPerItemBatchResult(*slot) {
+			continue
+		}
+		slot.Status = protocol.WriteFailure
+		slot.Error = fmt.Errorf("missing batch response for request (messageID=%s)", item.ccvData.MessageID.String())
+		slot.Retryable = true
+		a.lggr.Errorw("Batch response missing for batched request",
+			"messageID", item.ccvData.MessageID.String(),
+			"origIdx", idx,
+		)
 	}
 
 	return nil

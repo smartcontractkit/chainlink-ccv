@@ -2,7 +2,6 @@ package destinationreader
 
 import (
 	"context"
-	"encoding/hex"
 	"errors"
 	"math/big"
 	"testing"
@@ -16,6 +15,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/offramp"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-evm/pkg/client"
 )
@@ -766,13 +766,65 @@ func TestStartHTTPMode_PreservesLastPolledBlock(t *testing.T) {
 	}
 }
 
-// validExecuteCallDataHex is a real ABI-encoded execute(bytes,address[],bytes[],uint32) call
-// captured from an on-chain transaction.
-const validExecuteCallDataHex = "3b81ab9b0000000000000000000000000000000000000000000000000000000000000080000000000000000000000000000000000000000000000000000000000000022000000000000000000000000000000000000000000000000000000000000002800000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000016401ccf0a31a221f3c9bde41ba4fc9d91ad9000000000000145e000f4e6000030d4000008d7bbba13d6a09289463df0e520d10ef00d537fa7a44e76486bdb33022d2ee6b200000000000000000000000002162318d639bbbc2bc8d1562a7bafa459b9f29bf146ab86b3872421d418137f193fec05661947c5f0e20000000000000000000000000da9e8e71bb750a996af33ebb8abb18cd9eb9dc75144f32ae7f112c26b109357785e5c66dc5d747fbce000000af010000000000000000000000000000000000000000000000000000000000000001200000000000000000000000008d20c68db3e596b30a142b7092127adc889d1e0020000000000000000000000000c47e4b3124597fdf8dd07843d4a7052f2ee80c301493283b6b889c591893db0dc93bad71656d5d8923144f32ae7f112c26b109357785e5c66dc5d747fbce0020000000000000000000000000000000000000000000000000000000000000000800000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000020000000000000000000000003162012041baaf4739cb99ddbc70765f4581f54b000000000000000000000000997bbb1be075e6e9e7802b84c27c79e820a337a30000000000000000000000000000000000000000000000000000000000000002000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000005000000000000000000000000000000000000000000000000000000000000000484eba555880000000000000000000000000000000000000000000000000000000000000040000000000000000000000000000000000000000000000000000000000000022000000000000000000000000000000000000000000000000000000000000001a4e288fb4a4402fb0a3289aceac41d5260d9031d376f3a9f3ee389439558417173c1f6f6b30000000000000000000000000000000000000000000000000000000000000013000000000000000000000000a2e96f8e7de37be991ee0ac8e878ed5784350f4b000000000000000000000000ff9aef444d833bf5ebbaa40a5dff55dfa5739cd700000000000000000000000019ab033f5169c1c8da895aad5d1cc20f49dfff9100000000000000000000000000000000000000000000000000000000000000c000000000000000000000000000000000000000000000000000000000000000a50200000000000000000000000093283b6b889c591893db0dc93bad71656d5d8923000000000000000000000000da9e8e71bb750a996af33ebb8abb18cd9eb9dc750000000000000000000000004f32ae7f112c26b109357785e5c66dc5d747fbce0000000000000000000000000000000000000000000000000000000000000001eba555886e19dca884914cc5720ebdda8c6414cd1bd666f3aeee0f143e0a281e62f4c49900000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000024000000000000000000000000000000000000000000000000000000000000000200000000000000000000000000000000000000000000000000000000000000004000000000000000000000000000000000000000000000000000000000000008000000000000000000000000000000000000000000000000000000000000000e0000000000000000000000000000000000000000000000000000000000000014000000000000000000000000000000000000000000000000000000000000001a000000000000000000000000000000000000000000000000000000000000000409841b903ae4d23ab34da554b2ef81847d60cb03f02ebf863044750caa127a7563a9373427f462a5429971cb9bc268241daca2a7e3927d56a4341d9ef139d4aad000000000000000000000000000000000000000000000000000000000000004097b370d278ed66ef18141f6c5e5f5b0d855d94b7a1be0aa2c63238a64ce871a6005ef3140d22f92cd5b6aecc8ce02d1ef536a5315f4faacb8b9e849d61599b0a0000000000000000000000000000000000000000000000000000000000000040d7acb0a6c8ad32bc4cae3af556387ba5b5b0c0a71f53c02847fbc4d1c1c4b6a877bf44158125500eefcaa2f37cf0d92c690acf2bc2ade18488363bb78a2d852b0000000000000000000000000000000000000000000000000000000000000040c5b81ff69aa3b970c5d492e82529748ac43cd021d39dc4d87811d43460b5cad832c240239cfe99b2aaf50a9f84c4fc72ef1471b0bd7a56e767e63fa9f6d55a1900000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000018649ff34ed01806fbfc901b4f207f986068dd3591f0e9efc147b703a84d6c3102bc186d69fb97ae080e7f705e3d717b1d341d2bac86b7e8603e73c9958a8d22aafbfaa5160bd92a4efcd39d61a654dfd44c873c1c9b92fa801239cc97008f9a4fb086003a0a66c64f3f8c2ddff52a455ded976064b198c051dd7595e08a8a512aea49dfae209f6abb4e320aa053b0801584bc3a3c767652bc283d669c1affcc0c56b24d3fdd2bbbfcf2af847c55928c065d195be6cd9efe3f258b966b76beb0bd08106bab39cf324f340abc3ffcbee50e8f1122b0e75711686ad0d75d8b672a0e58dc2c256e6a62f1951f63eb53572d38ea9b2fc275ec57b1a1e050f8d1e9b95bc97890c8db2722a8636e1d4b68014aa71a054a3034d21490bb322642958daabd4c0e43cccbea0a14231d23acc359e7bb2379e6fb248fa6e768f40684dbd654ff0d63caf864a0b99db39b7810d54c0796d8fe138151e1cfa69d8f0bb6951821a0cb174ec764e25455d5e7916ef0e3b38a7b510d7dbdff5c331023da46f0b3e5eb01da79b61ff090000000000000000000000000000000000000000000000000000"
+// buildValidExecuteCallData constructs an ABI-encoded execute(bytes,address[],bytes[],uint32)
+// call using the current protocol.Message wire format. This replaces a previously captured
+// on-chain hex.
+func buildValidExecuteCallData(t *testing.T) []byte {
+	t.Helper()
+
+	onRampAddr := protocol.UnknownAddress(common.HexToAddress("0x1111111111111111111111111111111111111111").Bytes())
+	offRampAddr := protocol.UnknownAddress(common.HexToAddress("0x2222222222222222222222222222222222222222").Bytes())
+	sender := protocol.UnknownAddress(common.HexToAddress("0x3333333333333333333333333333333333333333").Bytes())
+	receiver := protocol.UnknownAddress(common.HexToAddress("0x4444444444444444444444444444444444444444").Bytes())
+
+	ccvAddr1 := common.HexToAddress("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
+	ccvAddr2 := common.HexToAddress("0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")
+	executorAddr := protocol.UnknownAddress(ccvAddr1.Bytes())
+
+	ccvHash, err := protocol.ComputeCCVAndExecutorHash(
+		[]protocol.UnknownAddress{
+			protocol.UnknownAddress(ccvAddr1.Bytes()),
+			protocol.UnknownAddress(ccvAddr2.Bytes()),
+		},
+		executorAddr,
+	)
+	require.NoError(t, err)
+
+	msg, err := protocol.NewMessage(
+		protocol.ChainSelector(1),
+		protocol.ChainSelector(2),
+		protocol.SequenceNumber(42),
+		onRampAddr,
+		offRampAddr,
+		protocol.FinalityWaitForFinality,
+		200_000,
+		100_000,
+		ccvHash,
+		sender,
+		receiver,
+		[]byte("dest-blob"),
+		[]byte("hello"),
+		nil,
+	)
+	require.NoError(t, err)
+
+	encodedMsg, err := msg.Encode()
+	require.NoError(t, err)
+
+	ccvs := []common.Address{ccvAddr1, ccvAddr2}
+	ccvData := [][]byte{[]byte("ccv-data-1"), []byte("ccv-data-2")}
+
+	method, ok := offrampABI.Methods[executeMethodName]
+	require.True(t, ok, "execute method must exist in offramp ABI")
+
+	packed, err := method.Inputs.Pack(encodedMsg, ccvs, ccvData, uint32(0))
+	require.NoError(t, err)
+
+	return append(method.ID, packed...)
+}
 
 func TestDecodeCallDataToExecutionAttempt(t *testing.T) {
-	validCallData, err := hex.DecodeString(validExecuteCallDataHex)
-	require.NoError(t, err)
+	validCallData := buildValidExecuteCallData(t)
 
 	t.Run("successfully decodes valid execute call data", func(t *testing.T) {
 		mockCli := new(mockClient)
@@ -923,4 +975,148 @@ func TestHTTPPolling_ContinuousRPCFailures(t *testing.T) {
 	// Verify poller fields are set correctly
 	assert.Equal(t, uint64(startBlock), poller.startBlock, "Poller should maintain start block")
 	assert.Equal(t, uint64(startBlock), poller.lastPolledBlock, "Poller should maintain last polled block")
+}
+
+func TestStart_NonBlocking(t *testing.T) {
+	const lookbackWindow = 1 * time.Hour
+
+	mockCli := new(mockClient)
+	poller := setupTestPoller(t, mockCli, lookbackWindow)
+
+	// Use a dynamic function that blocks until context is canceled,
+	// simulating a slow RPC call during getStartBlock.
+	blockCh := make(chan struct{})
+	mockCli.dynamicFunc = func(ctx context.Context, number *big.Int) (*types.Header, error) {
+		<-blockCh
+		return nil, errors.New("canceled")
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Start should return immediately even though the backfill hasn't finished.
+	err := poller.Start(ctx)
+	require.NoError(t, err)
+
+	// Ready should report backfill in progress.
+	assert.ErrorIs(t, poller.Ready(), ErrBackfillInProgress)
+
+	// Healthy should report no error (no fatal failure yet).
+	assert.NoError(t, poller.Healthy())
+
+	// Unblock the goroutine and clean up.
+	close(blockCh)
+	cancel()
+	require.NoError(t, poller.Close())
+}
+
+func TestReady_ReturnsNilAfterBackfillCompletes(t *testing.T) {
+	const (
+		totalBlocks    = 100
+		blockInterval  = 12 * time.Second
+		lookbackWindow = 10 * time.Minute
+	)
+
+	now := time.Now()
+	genesisTime := now.Add(-time.Duration(totalBlocks) * blockInterval)
+	calc := newBlockTimeCalculator(genesisTime, blockInterval)
+
+	mockCli := new(mockClient)
+	mockCli.headerFunc = func(blockNum uint64) *types.Header {
+		return calc.createHead(blockNum)
+	}
+	// Latest block for getStartBlock and pollForEvents
+	mockCli.On("HeaderByNumber", mock.Anything, (*big.Int)(nil)).Return(calc.createHead(totalBlocks), nil)
+
+	poller := setupTestPoller(t, mockCli, lookbackWindow)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	err := poller.Start(ctx)
+	require.NoError(t, err)
+
+	// Wait for backfill to complete.
+	require.Eventually(t, func() bool {
+		return poller.Ready() == nil
+	}, 5*time.Second, 10*time.Millisecond)
+
+	assert.NoError(t, poller.Healthy())
+	assert.True(t, poller.backfillComplete.Load())
+
+	cancel()
+	require.NoError(t, poller.Close())
+}
+
+func TestStart_ContextCancelDuringStartup_NotFatal(t *testing.T) {
+	const lookbackWindow = 1 * time.Hour
+
+	mockCli := new(mockClient)
+	poller := setupTestPoller(t, mockCli, lookbackWindow)
+
+	// Block getStartBlock until the cancel channel fires, then return
+	// a context-canceled error.
+	startedCh := make(chan struct{})
+	mockCli.dynamicFunc = func(ctx context.Context, number *big.Int) (*types.Header, error) {
+		close(startedCh)
+		<-ctx.Done()
+		return nil, ctx.Err()
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	err := poller.Start(ctx)
+	require.NoError(t, err)
+
+	// Wait until getStartBlock is actively running.
+	<-startedCh
+
+	// Shutdown the service; this cancels the context mid-startup.
+	cancel()
+	require.NoError(t, poller.Close())
+
+	// Context cancel should NOT set a fatal error — Healthy should return nil
+	// (or the not-started error from StateMachine, which is acceptable).
+	// The key invariant: fatalErr must not be set.
+	assert.Nil(t, poller.fatalErr.Load(), "context cancel during startup should not be treated as a fatal error")
+}
+
+func TestHealthy_ReturnsFatalError_WhenGetStartBlockFails(t *testing.T) {
+	const lookbackWindow = 1 * time.Hour
+
+	mockCli := new(mockClient)
+	poller := setupTestPoller(t, mockCli, lookbackWindow)
+
+	// getStartBlock will fail because HeaderByNumber returns an error.
+	mockCli.On("HeaderByNumber", mock.Anything, (*big.Int)(nil)).
+		Return(nil, errors.New("RPC permanently down"))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	err := poller.Start(ctx)
+	require.NoError(t, err)
+
+	// Wait for the startup goroutine to record the fatal error.
+	require.Eventually(t, func() bool {
+		return poller.Healthy() != nil
+	}, 5*time.Second, 10*time.Millisecond)
+
+	// Healthy should persistently return the fatal error.
+	healthErr := poller.Healthy()
+	assert.ErrorContains(t, healthErr, "failed to get start block")
+
+	// Calling Healthy again should still return the error (persistent).
+	healthErr2 := poller.Healthy()
+	assert.ErrorContains(t, healthErr2, "failed to get start block")
+
+	// Ready should return ErrBackfillInProgress since backfillComplete was never set.
+	assert.ErrorIs(t, poller.Ready(), ErrBackfillInProgress)
+
+	// HealthReport should surface the fatal error.
+	report := poller.HealthReport()
+	assert.Error(t, report[poller.Name()])
+
+	cancel()
+	require.NoError(t, poller.Close())
 }

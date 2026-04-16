@@ -11,10 +11,10 @@ import (
 	"github.com/grafana/pyroscope-go"
 	"github.com/jmoiron/sqlx"
 
+	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 
 	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
-	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/blockchain"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/db"
@@ -117,21 +117,21 @@ func ConnectToPostgresDB(lggr logger.Logger) (sqlutil.DataSource, error) {
 	return sqlxDB, nil
 }
 
-func LoadBlockchainInfo(
+func LoadBlockchainInfo[T any](
 	ctx context.Context,
 	lggr logger.Logger,
-	config map[string]*blockchain.Info,
-) *blockchain.Helper {
+	config map[string]T,
+) chainaccess.Infos[T] {
 	// Use actual blockchain information from configuration
 	if len(config) == 0 {
 		lggr.Warnw("No blockchain information in config")
 		return nil
 	}
-	blockchainHelper := blockchain.NewHelper(config)
+	infos := chainaccess.Infos[T](config)
 	lggr.Infow("Using real blockchain information from environment",
 		"chainCount", len(config))
-	logBlockchainInfo(blockchainHelper, lggr)
-	return blockchainHelper
+	logBlockchainInfo(infos, lggr)
+	return infos
 }
 
 func StartPyroscope(lggr logger.Logger, pyroscopeAddress, serviceName string) (*pyroscope.Profiler, error) {
@@ -155,26 +155,18 @@ func StartPyroscope(lggr logger.Logger, pyroscopeAddress, serviceName string) (*
 	return profiler, nil
 }
 
-func logBlockchainInfo(blockchainHelper *blockchain.Helper, lggr logger.Logger) {
-	for _, chainID := range blockchainHelper.GetAllChainSelectors() {
-		logChainInfo(blockchainHelper, chainID, lggr)
+func logBlockchainInfo[T any](infos chainaccess.Infos[T], lggr logger.Logger) {
+	for _, chainID := range infos.GetAllChainSelectors() {
+		logChainInfo(infos, chainID, lggr)
 	}
 }
 
-func logChainInfo(blockchainHelper *blockchain.Helper, chainSelector protocol.ChainSelector, lggr logger.Logger) {
-	info, err := blockchainHelper.GetBlockchainByChainSelector(chainSelector)
+func logChainInfo[T any](infos chainaccess.Infos[T], chainSelector protocol.ChainSelector, lggr logger.Logger) {
+	info, err := infos.GetBlockchainByChainSelector(chainSelector)
 	if err == nil {
-		lggr.Infow("🔗 Blockchain available", "chainSelector", chainSelector, "info", info, "nodeCount", len(info.Nodes))
-	}
-
-	n, err := info.GetFirstNode()
-	if err != nil {
-		lggr.Infow("Node Info", "chainSelector", chainSelector,
-			"ExternalWSURL", n.ExternalWSUrl,
-			"InternalWSURL", n.InternalWSUrl,
-			"ExternalHTTPURL", n.ExternalHTTPUrl,
-			"InternalHTTPURL", n.InternalHTTPUrl,
-		)
+		lggr.Infow("🔗 Blockchain available",
+			"chainSelector", chainSelector,
+			"info", info)
 	}
 }
 

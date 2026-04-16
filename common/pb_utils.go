@@ -22,7 +22,7 @@ func MapProtoMessageToProtocolMessage(m *verifierpb.Message) (*protocol.Message,
 		OnRampAddress:        m.OnRampAddress,
 		OffRampAddressLength: uint8(m.OffRampAddressLength), //nolint:gosec // G115: Protocol-defined conversion
 		OffRampAddress:       m.OffRampAddress,
-		Finality:             uint16(m.Finality), //nolint:gosec // G115: Protocol-defined conversion
+		Finality:             protocol.Finality(m.Finality),
 		ExecutionGasLimit:    m.ExecutionGasLimit,
 		CcipReceiveGasLimit:  m.CcipReceiveGasLimit,
 		CcvAndExecutorHash:   ccvAndExecutorHash,
