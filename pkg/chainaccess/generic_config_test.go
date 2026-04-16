@@ -255,4 +255,3 @@ ClusterName = "mainnet-beta"
 		assert.Contains(t, err.Error(), "failed to marshal info")
 	})
 }
-
