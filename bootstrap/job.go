@@ -20,7 +20,7 @@ type JobSpec struct {
 func (js JobSpec) GetGenericConfig() (chainaccess.GenericConfig, error) {
 	var gcfg chainaccess.GenericConfig
 	if _, err := toml.Decode(js.AppConfig, &gcfg); err != nil {
-		return chainaccess.GenericConfig{}, fmt.Errorf("error decoding app config %s: %w", js.AppConfig, err)
+		return chainaccess.GenericConfig{}, fmt.Errorf("error decoding app config: %w", err)
 	}
 	return gcfg, nil
 }
@@ -28,7 +28,7 @@ func (js JobSpec) GetGenericConfig() (chainaccess.GenericConfig, error) {
 func (js JobSpec) GetAppConfig(cfg any) error {
 	md, err := toml.Decode(js.AppConfig, cfg)
 	if err != nil {
-		return fmt.Errorf("error decoding app config %s: %w", js.AppConfig, err)
+		return fmt.Errorf("error decoding app config: %w", err)
 	}
 
 	// Filter out undecoded fields under blockchain_info.
