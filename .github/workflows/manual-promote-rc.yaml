@@ -38,11 +38,6 @@ jobs:
           echo "Pulling source image: ${SOURCE}"
           docker pull "${SOURCE}"
 
-      - name: Clear AWS credentials before destination auth
-        uses: aws-actions/configure-aws-credentials@e3dd6a429d7300a6a4c196c26e071d42e0343502
-        with:
-          aws-region: us-west-2
-          unset-current-credentials: true
 
       - name: Authenticate to AWS ECR (destination)
         uses: ./.github/actions/aws-ecr-auth
