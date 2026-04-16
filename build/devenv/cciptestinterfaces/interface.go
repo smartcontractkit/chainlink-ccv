@@ -11,6 +11,7 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/prometheus/client_golang/prometheus"
 
+	"github.com/smartcontractkit/chainlink-ccip/deployment/finality"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/lanes"
 	tokensapi "github.com/smartcontractkit/chainlink-ccip/deployment/tokens"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/adapters"
@@ -209,23 +210,19 @@ type OnChainCommittees struct {
 // canonical ConfigureChainsForLanesFromTopology changeset.
 // Contract addresses (Router, OnRamp, FeeQuoter, OffRamp, Executor) are
 // resolved from the datastore by the changeset itself.
+//
+// Fields use the changeset's override/pointer types directly so family impls
+// express only the values they want to override; nil/zero means "use adapter default".
 type ChainLaneProfile struct {
-	AddressBytesLength       uint8
-	BaseExecutionGasCost     uint32
-	FeeQuoterDestChainConfig adapters.FeeQuoterDestChainConfig
-
-	ExecutorDestChainConfig  adapters.ExecutorDestChainConfig
+	BaseExecutionGasCost     *uint32
+	FeeQuoterDestChainConfig ccipChangesets.FeeQuoterDestChainConfigOverrides
+	ExecutorDestChainConfig  *adapters.ExecutorDestChainConfig
 	DefaultExecutorQualifier string
 	DefaultInboundCCVs       []datastore.AddressRef
 	DefaultOutboundCCVs      []datastore.AddressRef
-
-	// TokenReceiverAllowed controls whether the OnRamp on the source chain allows a
-	// non-empty tokenReceiver in extraArgs for messages destined to this chain.
-	// Required for SVM destinations where tokenReceiver is always present in SVMExtraArgsV1.
-	// When nil, the existing on-chain value is preserved (defaults to false on fresh deployments).
-	TokenReceiverAllowed *bool
-
-	GasForVerification uint32
+  TokenReceiverAllowed     *bool
+	GasForVerification       *uint32
+	AllowedFinalityConfig    *finality.Config
 }
 
 // TokenConfigProvider abstracts the chain-specific decisions that feed into
