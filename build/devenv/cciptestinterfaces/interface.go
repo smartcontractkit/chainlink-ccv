@@ -179,7 +179,7 @@ type Chain interface {
 	Curse(ctx context.Context, subjects [][16]byte) error
 	// Uncurse uncurses a list of chains on this chain.
 	Uncurse(ctx context.Context, subjects [][16]byte) error
-	// GetRoundRobinSendingKey gets the round robin sending key for the chain.
+	// GetRoundRobinUser returns a function that yields the next round-robin transact opts for the chain.
 	GetRoundRobinUser() func() *bind.TransactOpts
 	// ChainSelector gets the selector for this chain.
 	ChainSelector() uint64
@@ -197,6 +197,41 @@ type Chain interface {
 // destination chain so deliverAndHandle returns exactly 36 bytes and LombardVerifier.verifyMessage succeeds.
 type LombardMailboxBridgedMessageSetter interface {
 	SetLombardMailboxBridgedMessage(ctx context.Context, messageID [32]byte) error
+}
+
+// ProgressableChain is optionally implemented by chain families that can
+// drive block progression on demand (e.g. anvil via evm_mine). Test code
+// must type-assert and also call SupportManualBlockProgress at runtime,
+// since the static interface only proves the methods exist - the
+// underlying node (e.g. a real testnet RPC) may still reject them.
+type ProgressableChain interface {
+	// SupportManualBlockProgress returns true iff the underlying node both
+	// supports forced block progression AND is configured to mine on each
+	// tx (so messages sent by tests actually get included).
+	SupportManualBlockProgress(ctx context.Context) bool
+	// AdvanceBlocks mines numBlocks blocks on the chain.
+	AdvanceBlocks(ctx context.Context, numBlocks int) error
+}
+
+// SnapshotID identifies a snapshot taken on a ReorgableChain. It is
+// opaque to the caller; each chain family defines its own encoding.
+type SnapshotID string
+
+// ReorgableChain is optionally implemented by chain families that can
+// snapshot and revert the node state to simulate reorgs (e.g. anvil via
+// evm_snapshot / evm_revert). Keep this distinct from ProgressableChain:
+// a curse test only needs block progression, not reorg primitives.
+type ReorgableChain interface {
+	// SupportReorgs returns true iff the underlying node supports taking
+	// snapshots and reverting to them.
+	SupportReorgs(ctx context.Context) bool
+	// Snapshot captures the current chain state and returns an ID that
+	// can be passed to Revert.
+	Snapshot(ctx context.Context) (SnapshotID, error)
+	// Revert restores the chain to the state captured by the given
+	// snapshot. Implementations may invalidate the snapshot after a
+	// successful revert - check the implementation before reusing an ID.
+	Revert(ctx context.Context, id SnapshotID) error
 }
 
 type OnChainCommittees struct {

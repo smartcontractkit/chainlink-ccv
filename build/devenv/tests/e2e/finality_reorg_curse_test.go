@@ -5,12 +5,9 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math/big"
-	"strconv"
-	"strings"
 	"testing"
 	"time"
 
-	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/jmoiron/sqlx"
 	_ "github.com/lib/pq"
 	"github.com/rs/zerolog"
@@ -24,6 +21,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/logasserter"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/verifiercli"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/chainstatus"
@@ -78,7 +76,6 @@ func TestE2EReorg(t *testing.T) {
 		_ = chainStatusDB.Close()
 	})
 
-	// Get the source and destination chain selectors
 	srcImpl := chains[0]
 	destImpl := chains[1]
 	dest2Impl := chains[2]
@@ -87,19 +84,33 @@ func TestE2EReorg(t *testing.T) {
 	destSelector := destImpl.Details.ChainSelector
 	destSelector2 := dest2Impl.Details.ChainSelector
 
-	// Get eth client for source chain using HTTP URL
-	srcHTTPURL := in.Blockchains[0].Out.Nodes[0].ExternalHTTPUrl
-	ethClient, err := ethclient.Dial(srcHTTPURL)
-	require.NoError(t, err)
+	// The source chain must support driving block progression and
+	// snapshot/revert from the test. Skip cleanly if the concrete impl
+	// doesn't satisfy the interfaces (e.g. a real testnet RPC).
+	progressable, ok := srcImpl.CCIP17.(cciptestinterfaces.ProgressableChain)
+	if !ok {
+		t.Skip("source chain does not implement ProgressableChain; skipping finality/reorg/curse tests")
+	}
+	reorgable, ok := srcImpl.CCIP17.(cciptestinterfaces.ReorgableChain)
+	if !ok {
+		t.Skip("source chain does not implement ReorgableChain; skipping finality/reorg/curse tests")
+	}
+	require.True(t, progressable.SupportManualBlockProgress(ctx),
+		"source chain must support manual block progression with automining enabled; run with env-src-auto-mine.toml")
+	require.True(t, reorgable.SupportReorgs(ctx),
+		"source chain must support snapshot/revert for reorg tests")
 
-	anvilHelper := NewAnvilRPCHelper(ethClient, *l)
-
-	// Assert that the source chain has auto-mining enabled (instant mining)
-	// This test requires auto-mining/instant-mining (no blocks produced periodically without txs) to properly test reorg behavior
-	automine, err := anvilHelper.GetAutomine(ctx)
-	require.NoError(t, err, "failed to get automine status from source chain")
-	require.True(t, automine, "source chain must have auto-mining enabled (instant mining). Run with env-src-auto-mine.toml configuration")
-	l.Info().Bool("automine", automine).Msg("✅ Verified source chain has auto-mining enabled")
+	advanceBlocks := func(numBlocks int) {
+		require.NoError(t, progressable.AdvanceBlocks(ctx, numBlocks), "advance %d blocks", numBlocks)
+	}
+	snapshot := func() cciptestinterfaces.SnapshotID {
+		id, err := reorgable.Snapshot(ctx)
+		require.NoError(t, err, "take snapshot")
+		return id
+	}
+	revert := func(id cciptestinterfaces.SnapshotID) {
+		require.NoError(t, reorgable.Revert(ctx, id), "revert to snapshot %s", id)
+	}
 
 	receiver := mustGetEOAReceiverAddress(t, destImpl)
 
@@ -181,12 +192,11 @@ func TestE2EReorg(t *testing.T) {
 
 	t.Run("simple reorg with message ordering", func(t *testing.T) {
 		// 1/5 Blocks
-		anvilHelper.MustMine(ctx, verifier.ConfirmationDepth/5)
-		snapshotID, err := anvilHelper.Snapshot(ctx)
-		require.NoError(t, err)
+		advanceBlocks(verifier.ConfirmationDepth / 5)
+		snapshotID := snapshot()
 		l.Info().Msg("💾 Snapshot created (2 blocks before messages)")
 		// 2/5 Blocks
-		anvilHelper.MustMine(ctx, verifier.ConfirmationDepth/5)
+		advanceBlocks(verifier.ConfirmationDepth / 5)
 
 		event1, err := srcImpl.SendMessage(ctx, destSelector, newMessageFields(receiver, "message 1"), defaultMessageOptions)
 		require.NoError(t, err)
@@ -199,13 +209,12 @@ func TestE2EReorg(t *testing.T) {
 		msg2IDBeforeReorg := event2.MessageID
 
 		// 3/5 Blocks + 2 (for above messages to be mined)
-		anvilHelper.MustMine(ctx, verifier.ConfirmationDepth/5)
+		advanceBlocks(verifier.ConfirmationDepth / 5)
 
 		l.Info().Msg("🔄 Triggering reorg by reverting to snapshot")
-		err = anvilHelper.Revert(ctx, snapshotID)
-		require.NoError(t, err)
+		revert(snapshotID)
 
-		anvilHelper.MustMine(ctx, 1)
+		advanceBlocks(1)
 
 		event3, err := srcImpl.SendMessage(ctx, destSelector, newMessageFields(receiver, "message 2"), defaultMessageOptions)
 		require.NoError(t, err)
@@ -223,7 +232,7 @@ func TestE2EReorg(t *testing.T) {
 		msg3ID := event5.MessageID
 
 		l.Info().Int("blocks", verifier.ConfirmationDepth+5).Msg("⛏️  Mining blocks to cross finality threshold")
-		anvilHelper.MustMine(ctx, verifier.ConfirmationDepth+5)
+		advanceBlocks(verifier.ConfirmationDepth + 5)
 
 		// Verify all messages are found in aggregator after finality
 		l.Info().Msg("🔍 Verifying messages are in aggregator (after finality)")
@@ -260,7 +269,7 @@ func TestE2EReorg(t *testing.T) {
 		logSentMessage(event1, "Sending message 1")
 		msg1ID := event1.MessageID
 
-		anvilHelper.MustMine(ctx, verifier.ConfirmationDepth/5)
+		advanceBlocks(verifier.ConfirmationDepth / 5)
 
 		l.Info().Msg("Applying lane curse between chain0 and chain1 (before message gets picked up by verifier)")
 		// normally it's bidirectional, for the sake of the test we only curse one direction
@@ -289,7 +298,7 @@ func TestE2EReorg(t *testing.T) {
 		require.NoError(t, err)
 		logSentMessage(event2, "Verifying uncursed lane (to chain2)")
 
-		anvilHelper.MustMine(ctx, verifier.ConfirmationDepth+5)
+		advanceBlocks(verifier.ConfirmationDepth + 5)
 		verifyMessageExists(event2.MessageID, "Uncursed lane message")
 		l.Info().Msg("✅ Confirmed uncursed lane still works")
 
@@ -303,7 +312,7 @@ func TestE2EReorg(t *testing.T) {
 		require.NoError(t, err)
 		logSentMessage(event3, "Sending message 2 after uncurse")
 
-		anvilHelper.MustMine(ctx, verifier.ConfirmationDepth+5)
+		advanceBlocks(verifier.ConfirmationDepth + 5)
 		verifyMessageExists(event3.MessageID, "Message 2 after uncurse")
 
 		l.Info().Msg("✨ Test completed: Lane curse verified - message dropped, uncursed lane worked")
@@ -338,7 +347,7 @@ func TestE2EReorg(t *testing.T) {
 		logSentMessage(event2, "Sending message to chain2")
 		msg2ID := event2.MessageID
 
-		anvilHelper.MustMine(ctx, verifier.ConfirmationDepth/5)
+		advanceBlocks(verifier.ConfirmationDepth / 5)
 
 		l.Info().Msg("🌐 Applying GLOBAL curse to source chain (affects ALL lanes from this chain)")
 		err = srcImpl.Curse(ctx, [][16]byte{globalCurseSubject()})
@@ -377,14 +386,14 @@ func TestE2EReorg(t *testing.T) {
 		require.NoError(t, err)
 		logSentMessage(event3, "Sending message to chain1 after uncurse")
 
-		anvilHelper.MustMine(ctx, verifier.ConfirmationDepth+5)
+		advanceBlocks(verifier.ConfirmationDepth + 5)
 		verifyMessageExists(event3.MessageID, "Message to chain1 after global uncurse")
 
 		event4, err := srcImpl.SendMessage(ctx, destSelector2, newMessageFields(receiver2, "post-global-uncurse msg to chain2"), defaultMessageOptions)
 		require.NoError(t, err)
 		logSentMessage(event4, "Sending message to chain2 after uncurse")
 
-		anvilHelper.MustMine(ctx, verifier.ConfirmationDepth+5)
+		advanceBlocks(verifier.ConfirmationDepth + 5)
 		verifyMessageExists(event4.MessageID, "Message to chain2 after global uncurse")
 
 		l.Info().Msg("✨ Test completed: Global curse verified - both lanes blocked, then unblocked after uncurse")
@@ -407,7 +416,7 @@ func TestE2EReorg(t *testing.T) {
 			uncursedMsgIDs = append(uncursedMsgIDs, evt.MessageID)
 		}
 
-		anvilHelper.MustMine(ctx, verifier.ConfirmationDepth+5)
+		advanceBlocks(verifier.ConfirmationDepth + 5)
 		for i, msgID := range uncursedMsgIDs {
 			verifyMessageExists(msgID, fmt.Sprintf("Uncursed lane message %d", i))
 		}
@@ -428,7 +437,7 @@ func TestE2EReorg(t *testing.T) {
 
 		evt, err := srcImpl.SendMessage(ctx, destSelector, newMessageFields(receiver, "dest1 msg while dest2 cursed"), defaultMessageOptions)
 		require.NoError(t, err)
-		anvilHelper.MustMine(ctx, verifier.ConfirmationDepth+5)
+		advanceBlocks(verifier.ConfirmationDepth + 5)
 		verifyMessageExists(evt.MessageID, "dest1 message while dest2 cursed")
 	})
 
@@ -441,30 +450,21 @@ func TestE2EReorg(t *testing.T) {
 		// Every verifier with the same VerifierID belongs to the same committee. The aggregator
 		// only returns a result once every member has signed, so every committee member's DB
 		// checkpoint must be rewound and process restarted.
-		var committeeContainers []string
+		var members []*verifiercli.Client
 		for _, v := range in.Verifier {
 			if v.Out == nil || v.Out.VerifierID != verifierID {
 				continue
 			}
-			name := strings.TrimPrefix(v.Out.ContainerName, "/")
-			require.NotEmpty(t, name, "verifier container name must be set")
-			committeeContainers = append(committeeContainers, name)
+			require.NotEmpty(t, v.Out.ContainerName, "verifier container name must be set")
+			members = append(members, verifiercli.NewClient(v.Out.ContainerName))
 		}
-		require.NotEmpty(t, committeeContainers, "no committee verifiers matched %s", verifierID)
+		committee, err := verifiercli.NewCommitteeClient(verifierID, members...)
+		require.NoError(t, err)
 
-		cliArgs := func(subcommand string, extra ...string) []string {
-			return append([]string{verifierBinary, "ccv", "chain-statuses", subcommand}, extra...)
-		}
-		sourceSelectorStr := strconv.FormatUint(srcSelector, 10)
-
-		// A prior iteration may have left a committee process paused by pkill -STOP.
-		contAllCommitteeProcesses := func() {
-			for _, c := range committeeContainers {
-				_, _ = execInContainer(c, "pkill", "-CONT", "-f", committeeProcessMatch)
-			}
-		}
-		contAllCommitteeProcesses()
-		t.Cleanup(contAllCommitteeProcesses)
+		// A prior iteration may have left a committee process paused by pkill -STOP;
+		// resume now and again on cleanup so we don't leak a paused process.
+		committee.ResumeAllBestEffort(ctx)
+		t.Cleanup(func() { committee.ResumeAllBestEffort(ctx) })
 
 		logAssert := logasserter.New(DefaultLokiURL, l.With().Str("component", "log-asserter").Logger())
 		require.NoError(t, logAssert.StartStreaming(ctx, []logasserter.LogStage{
@@ -480,7 +480,7 @@ func TestE2EReorg(t *testing.T) {
 		logSentMessage(event, "Message to be dropped during curse")
 		droppedMsgID := event.MessageID
 
-		anvilHelper.MustMine(ctx, verifier.ConfirmationDepth/5)
+		advanceBlocks(verifier.ConfirmationDepth / 5)
 		reachedCtx, reachedCancel := context.WithTimeout(ctx, 60*time.Second)
 		defer reachedCancel()
 		_, err = logAssert.WaitForStage(reachedCtx, droppedMsgID, logasserter.MessageReachedVerifier())
@@ -500,30 +500,23 @@ func TestE2EReorg(t *testing.T) {
 		// Advance the finalized checkpoint well past the dropped message block while the curse is
 		// still active. Without this, the verifier would keep re-fetching the log each poll, and
 		// lifting the curse alone would verify the message - masking the need for a CLI rewind.
-		anvilHelper.MustMine(ctx, verifier.ConfirmationDepth*3+30)
+		advanceBlocks(verifier.ConfirmationDepth*3 + 30)
 		verifyMessageNotExists(droppedMsgID, "Dropped message should not reach aggregator while cursed")
 
 		require.NoError(t, srcImpl.Uncurse(ctx, [][16]byte{chainSelectorToSubject(destSelector)}))
 
 		// With the checkpoint past the message block, uncursing on-chain alone must not replay it.
-		anvilHelper.MustMine(ctx, verifier.ConfirmationDepth+5)
+		advanceBlocks(verifier.ConfirmationDepth + 5)
 		time.Sleep(10 * time.Second)
 		verifyMessageNotExists(droppedMsgID, "Dropped message should not reappear after uncurse alone")
 
-		// Each committee member has its own DB: pause it, rewind the finalized height, restart it.
-		for _, c := range committeeContainers {
-			_, stopErr := execInContainer(c, "pkill", "-STOP", "-f", committeeProcessMatch)
-			require.NoError(t, stopErr, "pkill STOP on %s", c)
-			_, setErr := execInContainer(c, cliArgs("set-finalized-height", "--chain-selector", sourceSelectorStr, "--verifier-id", verifierID, "--block-height", "0")...)
-			require.NoError(t, setErr, "set-finalized-height on %s", c)
-		}
-		for _, c := range committeeContainers {
-			restartVerifierAndWaitReady(t, c, cliArgs)
-		}
+		require.NoError(t, committee.RewindFinalizedHeight(ctx,
+			verifiercli.FormatChainSelector(srcSelector), verifiercli.FormatBlockHeight(0)),
+			"rewind committee finalized height")
 
 		// Push finality well past the dropped message block again so the fresh rescan that starts
 		// at block 1 can mark the message ready for verification immediately.
-		anvilHelper.MustMine(ctx, verifier.ConfirmationDepth*2+10)
+		advanceBlocks(verifier.ConfirmationDepth*2 + 10)
 
 		waitCtx, waitCancel := context.WithTimeout(ctx, 120*time.Second)
 		defer waitCancel()
@@ -560,9 +553,8 @@ func TestE2EReorg(t *testing.T) {
 		}
 
 		// Create snapshot before sending message
-		snapshotID, err := anvilHelper.Snapshot(ctx)
-		require.NoError(t, err)
-		l.Info().Str("snapshotID", snapshotID).Msg("💾 Snapshot created before sending custom finality message")
+		snapshotID := snapshot()
+		l.Info().Str("snapshotID", string(snapshotID)).Msg("💾 Snapshot created before sending custom finality message")
 
 		// Send message with custom finality
 		event1, err := srcImpl.SendMessage(ctx, destSelector, newMessageFields(receiver, "fast finality message"), customFinalityMessageOptions)
@@ -573,15 +565,14 @@ func TestE2EReorg(t *testing.T) {
 		// Mine only 1-2 blocks - NOT enough for custom finality to be met
 		// This ensures the verifier hasn't verified the message yet
 		l.Info().Int("blocks", 2).Msg("⛏️  Mining just 2 blocks (not enough for custom finality)")
-		anvilHelper.MustMine(ctx, 2)
+		advanceBlocks(2)
 
 		// Trigger reorg IMMEDIATELY by reverting to snapshot (before custom finality is met)
 		l.Info().Msg("🔄 Triggering reorg by reverting to snapshot (before custom finality met)")
-		err = anvilHelper.Revert(ctx, snapshotID)
-		require.NoError(t, err)
+		revert(snapshotID)
 
 		// Mine 1 block to advance chain
-		anvilHelper.MustMine(ctx, 1)
+		advanceBlocks(1)
 		// Give the verifier time to process
 		time.Sleep(3 * time.Second)
 
@@ -594,7 +585,7 @@ func TestE2EReorg(t *testing.T) {
 		// Mine enough blocks for custom finality to be met (but NOT full finalization)
 		blocksToMineForCustomFinality := int(customFinality) + 1
 		l.Info().Int("blocks", blocksToMineForCustomFinality).Msg("⛏️  Mining blocks for custom finality")
-		anvilHelper.MustMine(ctx, blocksToMineForCustomFinality)
+		advanceBlocks(blocksToMineForCustomFinality)
 
 		// At this point, custom finality is met but full finalization is not
 		// The message should NOT be in the aggregator yet because its seqNum was tracked as reorged
@@ -610,7 +601,7 @@ func TestE2EReorg(t *testing.T) {
 		// Now mine to full finalization
 		remainingBlocks := verifier.ConfirmationDepth - blocksToMineForCustomFinality + 5
 		l.Info().Int("blocks", remainingBlocks).Msg("⛏️  Mining remaining blocks to reach full finalization")
-		anvilHelper.MustMine(ctx, remainingBlocks)
+		advanceBlocks(remainingBlocks)
 
 		// Now the message should be verified (after full finalization)
 		l.Info().Msg("🔍 Verifying message is in aggregator after full finalization")
@@ -654,9 +645,8 @@ func TestE2EReorg(t *testing.T) {
 		}
 
 		// Create snapshot before sending message
-		snapshotID, err := anvilHelper.Snapshot(ctx)
-		require.NoError(t, err)
-		l.Info().Str("snapshotID", snapshotID).Msg("💾 Snapshot created before sending message")
+		snapshotID := snapshot()
+		l.Info().Str("snapshotID", string(snapshotID)).Msg("💾 Snapshot created before sending message")
 
 		// Send message with custom finality
 		event1, err := srcImpl.SendMessage(ctx, destSelector, newMessageFields(receiver, "message to be verified then reorged"), customFinalityMessageOptions)
@@ -667,7 +657,7 @@ func TestE2EReorg(t *testing.T) {
 		// Mine enough blocks for custom finality to be met
 		blocksToMineForCustomFinality := int(customFinality) + 1
 		l.Info().Int("blocks", blocksToMineForCustomFinality).Msg("⛏️  Mining blocks for custom finality")
-		anvilHelper.MustMine(ctx, blocksToMineForCustomFinality)
+		advanceBlocks(blocksToMineForCustomFinality)
 
 		// Wait for the message to be verified (first execution)
 		l.Info().Msg("⏳ Waiting for first message to be verified...")
@@ -677,11 +667,10 @@ func TestE2EReorg(t *testing.T) {
 
 		// Now trigger reorg by reverting to snapshot (removes the verified message from chain)
 		l.Info().Msg("🔄 Triggering reorg by reverting to snapshot (after first verification)")
-		err = anvilHelper.Revert(ctx, snapshotID)
-		require.NoError(t, err)
+		revert(snapshotID)
 
 		// Mine 1 block to advance chain
-		anvilHelper.MustMine(ctx, 1)
+		advanceBlocks(1)
 		// Give the verifier time to process
 		time.Sleep(3 * time.Second)
 
@@ -696,7 +685,7 @@ func TestE2EReorg(t *testing.T) {
 
 		// Mine enough blocks for custom finality to be met (but NOT full finalization)
 		l.Info().Int("blocks", blocksToMineForCustomFinality).Msg("⛏️  Mining blocks for custom finality again")
-		anvilHelper.MustMine(ctx, blocksToMineForCustomFinality)
+		advanceBlocks(blocksToMineForCustomFinality)
 
 		// Give the verifier time to process
 		time.Sleep(3 * time.Second)
@@ -711,7 +700,7 @@ func TestE2EReorg(t *testing.T) {
 		// Now mine to full finalization
 		remainingBlocks := verifier.ConfirmationDepth - blocksToMineForCustomFinality + 5
 		l.Info().Int("blocks", remainingBlocks).Msg("⛏️  Mining remaining blocks to reach full finalization")
-		anvilHelper.MustMine(ctx, remainingBlocks)
+		advanceBlocks(remainingBlocks)
 
 		// Now the replacement message should be verified (after full finalization)
 		l.Info().Msg("🔍 Verifying replacement message is in aggregator after full finalization")
@@ -725,9 +714,8 @@ func TestE2EReorg(t *testing.T) {
 		l.Info().Uint64("srcSelector", srcSelector).Msg("Source chain selector for finality violation test")
 
 		l.Info().Msg("💾 Creating initial snapshot before mining blocks")
-		snapshotID, err := anvilHelper.Snapshot(ctx)
-		require.NoError(t, err)
-		l.Info().Str("snapshotID", snapshotID).Msg("✅ Initial snapshot created")
+		snapshotID := snapshot()
+		l.Info().Str("snapshotID", string(snapshotID)).Msg("✅ Initial snapshot created")
 
 		l.Info().Msg("📨 Sending pre-violation message")
 		event1, err := srcImpl.SendMessage(ctx, destSelector, newMessageFields(receiver, "pre-violation message"), defaultMessageOptions)
@@ -736,7 +724,7 @@ func TestE2EReorg(t *testing.T) {
 		preViolationMessageID := event1.MessageID
 
 		l.Info().Int("blocks", verifier.ConfirmationDepth+5).Msg("⛏️  Mining blocks to establish finalized state")
-		anvilHelper.MustMine(ctx, verifier.ConfirmationDepth+5)
+		advanceBlocks(verifier.ConfirmationDepth + 5)
 		l.Info().Msg("✅ Finalized state established")
 
 		// Wait for message to be processed and appear in aggregator
@@ -749,12 +737,11 @@ func TestE2EReorg(t *testing.T) {
 		toBeDroppedMessageID := event2.MessageID
 
 		l.Info().Msg("⚠️  Triggering finality violation by reverting to initial snapshot")
-		err = anvilHelper.Revert(ctx, snapshotID)
-		require.NoError(t, err)
+		revert(snapshotID)
 		l.Info().Msg("✅ Reverted to initial snapshot (deep reorg past finalized blocks)")
 		// Mine some blocks to give system opportunity to process (if it were working)
 		l.Info().Int("blocks", verifier.ConfirmationDepth+5).Msg("⛏️  Mining blocks after revert")
-		anvilHelper.MustMine(ctx, verifier.ConfirmationDepth+5)
+		advanceBlocks(verifier.ConfirmationDepth + 5)
 		verifyMessageNotExists(toBeDroppedMessageID, "Post-violation message")
 
 		l.Info().Msg("🔍 Verifying chain status in verifier's local storage...")

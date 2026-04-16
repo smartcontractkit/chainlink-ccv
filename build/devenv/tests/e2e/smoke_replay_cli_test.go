@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"fmt"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -26,6 +27,12 @@ import (
 )
 
 const replayBinary = "/bin/indexer-replay"
+
+func execInContainer(containerName string, args ...string) (string, error) {
+	cmd := exec.Command("docker", append([]string{"exec", containerName}, args...)...)
+	out, err := cmd.CombinedOutput()
+	return string(out), err
+}
 
 func openIndexerDB(t *testing.T, in *ccv.Cfg) (*sql.DB, string) {
 	t.Helper()
