@@ -123,7 +123,7 @@ func init() {
 	// provides backward compatibility with the previous FamilyEVM/FamilyCanton
 	// combined switch case.
 	cciptestinterfaces.RegisterExtraArgsSerializer(chainsel.FamilyCanton, SerializeEVMExtraArgs)
-	cciptestinterfaces.RegisterExtraArgsSerializer(chainsel.FamilySolana, serializeExtraArgsSVMV1)
+	cciptestinterfaces.RegisterExtraArgsSerializer(chainsel.FamilySolana, SerializeSVMExtraArgs)
 }
 
 type CCIP17EVMConfig struct {
