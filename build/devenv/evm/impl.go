@@ -1108,6 +1108,7 @@ func (m *CCIP17EVMConfig) GetDeployChainContractsCfg(env *deployment.Environment
 	return ccipChangesets.DeployChainContractsPerChainCfg{
 		DeployerContract: create2Ref.Address,
 		DeployerKeyOwned: true,
+		DeployTestRouter: true,
 		RMNRemote: adapters.RMNRemoteDeployParams{
 			Version: semver.MustParse(rmn_remote.Deploy.Version()),
 		},
