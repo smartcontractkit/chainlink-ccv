@@ -212,6 +212,15 @@ ClusterName = "mainnet-beta"
 		assert.Contains(t, err.Error(), "pointer to a map")
 	})
 
+	t.Run("returns error when map key type is not string", func(t *testing.T) {
+		// Infos[T] requires string keys; a non-string key map must be rejected
+		// before SetMapIndex is called, otherwise it panics at runtime.
+		bad := make(map[protocol.ChainSelector]evmChainConfig)
+		err := gc.GetAllConcreteConfig("evm", &bad)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "map key must be string")
+	})
+
 	t.Run("returns error when target is not a pointer", func(t *testing.T) {
 		bad := make(chainaccess.Infos[evmChainConfig])
 		err := gc.GetAllConcreteConfig("evm", bad)

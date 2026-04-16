@@ -80,6 +80,9 @@ func (gc GenericConfig) GetAllConcreteConfig(family string, target any) error {
 	if rv.Kind() != reflect.Ptr || rv.Elem().Kind() != reflect.Map {
 		return fmt.Errorf("GetAllConcreteConfig: target must be a pointer to a map, got %T", target)
 	}
+	if rv.Elem().Type().Key().Kind() != reflect.String {
+		return fmt.Errorf("GetAllConcreteConfig: map key must be string (Infos[T] uses string keys), got %s", rv.Elem().Type().Key())
+	}
 	mapVal := rv.Elem()
 	if mapVal.IsNil() {
 		mapVal.Set(reflect.MakeMap(mapVal.Type()))
@@ -118,7 +121,7 @@ func (gc GenericConfig) GetConcreteConfig(selector protocol.ChainSelector, targe
 		return fmt.Errorf("failed to unmarshal info for selector '%s': %w", selector.String(), err)
 	}
 	if len(md.Undecoded()) > 0 {
-		return fmt.Errorf("chain selector '%s' contains unknown fields: %s", selector.String(), md.Undecoded())
+		return fmt.Errorf("chain selector '%s' contains unknown fields: %v", selector.String(), md.Undecoded())
 	}
 
 	return nil
