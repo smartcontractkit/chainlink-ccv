@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"reflect"
 	"sync"
 
 	"github.com/BurntSushi/toml"
@@ -70,6 +71,37 @@ type GenericConfig struct {
 	CommitteeConfig
 }
 
+// GetAllConcreteConfig populates target, which must be a pointer to a map[protocol.ChainSelector]T,
+// with the decoded chain configs for every chain selector present in ChainConfig.
+// The selector parameter is unused and kept for interface compatibility.
+func (gc GenericConfig) GetAllConcreteConfig(family string, target any) error {
+	rv := reflect.ValueOf(target)
+	if rv.Kind() != reflect.Ptr || rv.Elem().Kind() != reflect.Map {
+		return fmt.Errorf("GetAllConcreteConfig: target must be a pointer to a map, got %T", target)
+	}
+	mapVal := rv.Elem()
+	if mapVal.IsNil() {
+		mapVal.Set(reflect.MakeMap(mapVal.Type()))
+	}
+	elemType := mapVal.Type().Elem()
+
+	for _, sel := range gc.ChainConfig.GetAllChainSelectors() {
+		fam, err := chainsel.GetSelectorFamily(uint64(sel))
+		if err != nil {
+			return fmt.Errorf("GetAllConcreteConfig: failed to get the chain selector family: %w", err)
+		}
+		if fam != family {
+			continue
+		}
+		elem := reflect.New(elemType)
+		if err := gc.GetConcreteConfig(sel, elem.Interface()); err != nil {
+			return err
+		}
+		mapVal.SetMapIndex(reflect.ValueOf(sel), elem.Elem())
+	}
+	return nil
+}
+
 func (gc GenericConfig) GetConcreteConfig(selector protocol.ChainSelector, target any) error {
 	info, ok := gc.ChainConfig[selector.String()]
 	if !ok {
@@ -80,10 +112,14 @@ func (gc GenericConfig) GetConcreteConfig(selector protocol.ChainSelector, targe
 		return fmt.Errorf("failed to marshal info for selector '%s': %w", selector.String(), err)
 	}
 
-	_, err = toml.Decode(string(data), target)
+	md, err := toml.Decode(string(data), target)
 	if err != nil {
 		return fmt.Errorf("failed to unmarshal info for selector '%s': %w", selector.String(), err)
 	}
+	if len(md.Undecoded()) > 0 {
+		return fmt.Errorf("chain selector '%s' contains unknown fields: %s", selector.String(), md.Undecoded())
+	}
+
 	return nil
 }
 
