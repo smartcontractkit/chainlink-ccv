@@ -1,18 +1,15 @@
-name: Manual promote RC image
+name: Promote RC image e41e205c8bfa6033e6c66ad2ea7d0969bac99ff1-rc
 
 on:
   pull_request:
     types: [opened, synchronize, reopened]
-  workflow_dispatch:
-    inputs:
-      image-tag:
-        description: "Full image tag to promote (e.g. e41e205c8bfa6033e6c66ad2ea7d0969bac99ff1-rc)"
-        required: true
-        default: "e41e205c8bfa6033e6c66ad2ea7d0969bac99ff1-rc"
+
+env:
+  IMAGE_TAG: e41e205c8bfa6033e6c66ad2ea7d0969bac99ff1-rc
 
 jobs:
   promote-rc:
-    name: Promote ${{ matrix.module }} (${{ inputs.image-tag }})
+    name: Promote ${{ matrix.module }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -35,7 +32,6 @@ jobs:
       - name: Pull RC image from primary ECR
         env:
           MODULE: ${{ matrix.module }}
-          IMAGE_TAG: ${{ inputs.image-tag }}
           PRIMARY_ECR_REPO: ${{ secrets.ECR_REGISTRY_PRIMARY }}
         run: |
           SOURCE="${PRIMARY_ECR_REPO}/containers/chainlink-ccv-${MODULE}:${IMAGE_TAG}"
@@ -58,12 +54,16 @@ jobs:
       - name: Re-tag and push to destination ECR
         env:
           MODULE: ${{ matrix.module }}
-          IMAGE_TAG: ${{ inputs.image-tag }}
           PRIMARY_ECR_REPO: ${{ secrets.ECR_REGISTRY_PRIMARY }}
           ECR_REGISTRY: ${{ secrets.ECR_REGISTRY }}
         run: |
           SOURCE="${PRIMARY_ECR_REPO}/containers/chainlink-ccv-${MODULE}:${IMAGE_TAG}"
           DEST="${ECR_REGISTRY}/containers/chainlink-ccv-${MODULE}:${IMAGE_TAG}"
+
+          echo "Module:  ${MODULE}"
+          echo "Tag:     ${IMAGE_TAG}"
+          echo "Source:  ${SOURCE}"
+          echo "Dest:    ${DEST}"
 
           docker tag "${SOURCE}" "${DEST}"
           echo "Pushing ${DEST}"
