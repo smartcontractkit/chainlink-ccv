@@ -3,6 +3,7 @@ package ccv
 import (
 	"context"
 	"fmt"
+	"maps"
 
 	"github.com/Masterminds/semver/v3"
 
@@ -12,9 +13,9 @@ import (
 	tokenscore "github.com/smartcontractkit/chainlink-ccip/deployment/tokens"
 	changesetscore "github.com/smartcontractkit/chainlink-ccip/deployment/utils/changesets"
 	devenvmcms "github.com/smartcontractkit/chainlink-ccip/deployment/utils/mcms"
-	ccipAdapters "github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/adapters"
-	ccipChangesets "github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/changesets"
-	ccipOffchain "github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/offchain"
+	ccipAdapters "github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/adapters"
+	ccipChangesets "github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/changesets"
+	ccipOffchain "github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/offchain"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
@@ -426,17 +427,23 @@ func ConfigureAllTokenTransfers(
 	env *deployment.Environment,
 	topology *ccipOffchain.EnvironmentTopology,
 ) error {
-	// poolIdentityKey returns a key that groups configs across chains for the
-	// same pool type+version+qualifier.
-	poolIdentityKey := func(cfg *tokenscore.TokenTransferConfig) string {
+	refKey := func(ref datastore.AddressRef) string {
 		v := ""
-		if cfg.TokenPoolRef.Version != nil {
-			v = cfg.TokenPoolRef.Version.String()
+		if ref.Version != nil {
+			v = ref.Version.String()
 		}
-		return string(cfg.TokenPoolRef.Type) + "+" + v + "+" + cfg.TokenPoolRef.Qualifier
+		return string(ref.Type) + "+" + v + "+" + ref.Qualifier
 	}
 
-	byPoolIdentity := make(map[string][]tokenscore.TokenTransferConfig)
+	// Group by (chainSelector, poolIdentity) so each pool gets ALL its remote
+	// chains in a single ConfigureTokensForTransfers call. The upstream sequence
+	// validates that remoteChains includes every chain the pool already supports,
+	// so splitting by lane would fail when a pool has more than one remote.
+	type poolKey struct {
+		chainSelector uint64
+		poolID        string
+	}
+	byPool := make(map[poolKey]tokenscore.TokenTransferConfig)
 
 	for i, impl := range impls {
 		tcp, ok := impl.(cciptestinterfaces.TokenConfigProvider)
@@ -455,24 +462,35 @@ func ConfigureAllTokenTransfers(
 			return fmt.Errorf("get token transfer configs for selector %d: %w", selectors[i], err)
 		}
 		for _, cfg := range cfgs {
-			key := poolIdentityKey(&cfg)
-			byPoolIdentity[key] = append(byPoolIdentity[key], cfg)
+			pk := poolKey{
+				chainSelector: cfg.ChainSelector,
+				poolID:        refKey(cfg.TokenPoolRef),
+			}
+			if existing, ok := byPool[pk]; ok {
+				maps.Copy(existing.RemoteChains, cfg.RemoteChains)
+				byPool[pk] = existing
+			} else {
+				byPool[pk] = cfg
+			}
 		}
 	}
 
-	if len(byPoolIdentity) == 0 {
+	if len(byPool) == 0 {
 		return nil
+	}
+
+	allConfigs := make([]tokenscore.TokenTransferConfig, 0, len(byPool))
+	for _, cfg := range byPool {
+		allConfigs = append(allConfigs, cfg)
 	}
 
 	tokenAdapterRegistry := tokenscore.GetTokenAdapterRegistry()
 	mcmsReaderRegistry := changesetscore.GetRegistry()
-	for _, group := range byPoolIdentity {
-		_, err := tokenscore.ConfigureTokensForTransfers(tokenAdapterRegistry, mcmsReaderRegistry).Apply(*env, tokenscore.ConfigureTokensForTransfersConfig{
-			Tokens: group,
-		})
-		if err != nil {
-			return fmt.Errorf("configure tokens for transfers: %w", err)
-		}
+	_, err := tokenscore.ConfigureTokensForTransfers(tokenAdapterRegistry, mcmsReaderRegistry).Apply(*env, tokenscore.ConfigureTokensForTransfersConfig{
+		Tokens: allConfigs,
+	})
+	if err != nil {
+		return fmt.Errorf("configure tokens for transfers: %w", err)
 	}
 	return nil
 }

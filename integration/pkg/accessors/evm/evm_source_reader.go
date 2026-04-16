@@ -224,7 +224,7 @@ func (r *SourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock, to
 			"messageId", common.Bytes2Hex(event.MessageId[:]))
 		decodedMsg, err := protocol.DecodeMessage(event.EncodedMessage)
 		if err != nil {
-			r.lggr.Errorw("Failed to decode message", "error", err)
+			r.lggr.Errorw("Failed to decode message", "error", err, "rawMessage", event.EncodedMessage)
 			continue // to next message
 		}
 		r.lggr.Infow("Decoded message",

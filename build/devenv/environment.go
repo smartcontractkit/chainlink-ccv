@@ -21,11 +21,12 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
+	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
 
-	ccipAdapters "github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/adapters"
-	ccipChangesets "github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/changesets"
-	ccipOffchain "github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/offchain"
-	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/offchain/shared"
+	ccipAdapters "github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/adapters"
+	ccipChangesets "github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/changesets"
+	ccipOffchain "github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/offchain"
+	"github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/offchain/shared"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
@@ -456,7 +457,12 @@ func NewProductConfigurationFromNetwork(typ string) (cciptestinterfaces.CCIP17Co
 // Each verifier's NOPAlias identifies which NOP in the topology it belongs to.
 // Only the first verifier for each NOP sets the signer address (subsequent verifiers with the
 // same NOPAlias are ignored to avoid overwriting with wrong keys due to round-robin wrap-around).
+//
+// Signer key selection is delegated to each registered ImplFactory via DefaultSignerKey,
+// so adding a new chain family requires no changes here.
 func enrichEnvironmentTopology(cfg *ccipOffchain.EnvironmentTopology, verifiers []*committeeverifier.Input) {
+	factories := GetAllImplFactories()
+
 	seenAliases := make(map[string]struct{})
 	for _, ver := range verifiers {
 		if _, seen := seenAliases[ver.NOPAlias]; seen {
@@ -464,18 +470,19 @@ func enrichEnvironmentTopology(cfg *ccipOffchain.EnvironmentTopology, verifiers 
 		}
 		nop, ok := cfg.NOPTopology.GetNOP(ver.NOPAlias)
 		if !ok || nop.GetMode() == shared.NOPModeCL {
-			// For CL mode the signer address should be fetch from JD, or the NOP is not found
 			continue
 		}
-		if nop.SignerAddressByFamily[chainsel.FamilyEVM] == "" {
-			cfg.NOPTopology.SetNOPSignerAddress(ver.NOPAlias, chainsel.FamilyEVM, ver.Out.BootstrapKeys.ECDSAAddress)
+
+		for family, factory := range factories {
+			if nop.SignerAddressByFamily[family] != "" {
+				continue
+			}
+			signerKey := factory.DefaultSignerKey(ver.Out.BootstrapKeys)
+			if signerKey != "" {
+				cfg.NOPTopology.SetNOPSignerAddress(ver.NOPAlias, family, signerKey)
+			}
 		}
-		if nop.SignerAddressByFamily[chainsel.FamilyCanton] == "" {
-			cfg.NOPTopology.SetNOPSignerAddress(ver.NOPAlias, chainsel.FamilyCanton, ver.Out.BootstrapKeys.ECDSAPublicKey)
-		}
-		if nop.SignerAddressByFamily[chainsel.FamilyStellar] == "" {
-			cfg.NOPTopology.SetNOPSignerAddress(ver.NOPAlias, chainsel.FamilyStellar, ver.Out.BootstrapKeys.EdDSAPublicKey)
-		}
+
 		seenAliases[ver.NOPAlias] = struct{}{}
 	}
 }
@@ -484,7 +491,7 @@ func enrichEnvironmentTopology(cfg *ccipOffchain.EnvironmentTopology, verifiers 
 // enriches it with signer addresses, and returns it. This is used by both executor
 // and verifier changesets as the single source of truth.
 // For each chain_config entry that lacks a FeeAggregator, the corresponding
-// chain's deployer key is used as a fallback.
+// chain's deployer key is used as a fallback via the registered ImplFactory.
 func BuildEnvironmentTopology(in *Cfg, e *deployment.Environment) *ccipOffchain.EnvironmentTopology {
 	if in.EnvironmentTopology == nil {
 		return nil
@@ -496,9 +503,6 @@ func BuildEnvironmentTopology(in *Cfg, e *deployment.Environment) *ccipOffchain.
 		return &envCfg
 	}
 
-	// FeeAggregator fallback is EVM-only today. Non-EVM chains should register
-	// their own fee aggregator address in topology or via a family-specific hook.
-	evmChains := e.BlockChains.EVMChains()
 	for name, committee := range envCfg.NOPTopology.Committees {
 		if committee.ChainConfigs == nil {
 			continue
@@ -509,8 +513,16 @@ func BuildEnvironmentTopology(in *Cfg, e *deployment.Environment) *ccipOffchain.
 				if err != nil {
 					continue
 				}
-				if chain, ok := evmChains[sel]; ok {
-					chainCfg.FeeAggregator = chain.DeployerKey.From.Hex()
+				family, err := chainsel.GetSelectorFamily(sel)
+				if err != nil {
+					continue
+				}
+				fac, err := GetImplFactory(family)
+				if err != nil {
+					continue
+				}
+				if addr := fac.DefaultFeeAggregator(e, sel); addr != "" {
+					chainCfg.FeeAggregator = addr
 					committee.ChainConfigs[chainSel] = chainCfg
 				}
 			}
@@ -571,16 +583,28 @@ func generateExecutorJobSpecs(
 			if err != nil {
 				return fmt.Errorf("failed to get executor job spec for %s: %w", exec.ContainerName, err)
 			}
-			jobSpec := job.Spec
-			exec.GeneratedJobSpecs = []string{jobSpec}
 
-			execCfg, err := ParseExecutorConfigFromJobSpec(jobSpec)
+			var executorSpec ExecutorJobSpec
+			md, err := toml.Decode(job.Spec, &executorSpec)
 			if err != nil {
+				return fmt.Errorf("failed to decode executor job spec for %s: %w", exec.ContainerName, err)
+			}
+			if len(md.Undecoded()) > 0 {
+				L.Warn().
+					Str("spec", job.Spec).
+					Str("undecoded fields", fmt.Sprintf("%v", md.Undecoded())).
+					Msg("Undecoded fields in executor job spec")
+				return fmt.Errorf("unknown fields in executor job spec for %s: %v", exec.ContainerName, md.Undecoded())
+			}
+			exec.GeneratedJobSpecs = []bootstrap.JobSpec{executorSpec.ToBootstrapJobSpec()}
+
+			var cfg executor.Configuration
+			if err := toml.Unmarshal([]byte(executorSpec.ExecutorConfig), &cfg); err != nil {
 				return fmt.Errorf("failed to parse executor config from job spec: %w", err)
 			}
 
 			// Marshal the inner config back to TOML for standalone mode
-			configBytes, err := toml.Marshal(execCfg)
+			configBytes, err := toml.Marshal(cfg)
 			if err != nil {
 				return fmt.Errorf("failed to marshal executor config: %w", err)
 			}
@@ -588,10 +612,23 @@ func generateExecutorJobSpecs(
 		}
 	}
 
-	// Set transmitter keys for standalone mode
-	_, err := executorsvc.SetTransmitterPrivateKey(in.Executor)
-	if err != nil {
-		return fmt.Errorf("failed to set transmitter private key: %w", err)
+	for _, exec := range in.Executor {
+		if exec.TransmitterPrivateKey != "" {
+			continue
+		}
+		family := exec.ChainFamily
+		if family == "" {
+			family = chainsel.FamilyEVM
+		}
+		fac, facErr := GetImplFactory(family)
+		if facErr != nil {
+			return fmt.Errorf("no impl factory for executor chain family %q: %w", family, facErr)
+		}
+		pk, pkErr := fac.GenerateTransmitterKey()
+		if pkErr != nil {
+			return fmt.Errorf("failed to generate transmitter key for family %q: %w", family, pkErr)
+		}
+		exec.TransmitterPrivateKey = pk
 	}
 
 	return nil
@@ -602,22 +639,41 @@ func fundStandaloneExecutorAddresses(
 	in *Cfg,
 	impls []cciptestinterfaces.CCIP17Configuration,
 ) error {
-	addresses := make([]protocol.UnknownAddress, 0, len(in.Executor))
+	addressesByFamily := make(map[string][]protocol.UnknownAddress)
 	for _, exec := range in.Executor {
 		if exec == nil || exec.Mode != services.Standalone {
 			continue
 		}
-		addresses = append(addresses, exec.GetTransmitterAddress())
+		family := exec.ChainFamily
+		if family == "" {
+			family = chainsel.FamilyEVM
+		}
+		fac, facErr := GetImplFactory(family)
+		if facErr != nil {
+			return fmt.Errorf("no impl factory for executor chain family %q: %w", family, facErr)
+		}
+		addressesByFamily[family] = append(
+			addressesByFamily[family],
+			exec.GetTransmitterAddress(fac.TransmitterAddress),
+		)
 	}
-	if len(addresses) == 0 {
+
+	if len(addressesByFamily) == 0 {
 		return nil
 	}
 
-	Plog.Info().Any("Addresses", addresses).Int("ImplsLen", len(impls)).Msg("Funding executors")
+	Plog.Info().Any("AddressesByFamily", addressesByFamily).Int("ImplsLen", len(impls)).Msg("Funding executors")
 	for i, impl := range impls {
-		// TODO: replace with a capability check on the impl (e.g. SupportsExecutor())
-		// rather than excluding by blockchain type.
-		if in.Blockchains[i].Type == blockchain.TypeCanton {
+		family, famErr := blockchain.TypeToFamily(in.Blockchains[i].Type)
+		if famErr != nil {
+			continue
+		}
+		fac, facErr := GetImplFactory(string(family))
+		if facErr != nil || !fac.SupportsFunding() {
+			continue
+		}
+		addresses := addressesByFamily[string(family)]
+		if len(addresses) == 0 {
 			continue
 		}
 
@@ -641,8 +697,8 @@ func generateVerifierJobSpecs(
 	topology *ccipOffchain.EnvironmentTopology,
 	sharedTLSCerts *services.TLSCertPaths,
 	ds datastore.MutableDataStore,
-) (map[string][]string, error) {
-	verifierJobSpecs := make(map[string][]string)
+) (map[string][]bootstrap.JobSpec, error) {
+	verifierJobSpecs := make(map[string][]bootstrap.JobSpec)
 
 	if len(in.Verifier) == 0 {
 		return verifierJobSpecs, nil
@@ -727,14 +783,29 @@ func generateVerifierJobSpecs(
 			}
 
 			for _, ver := range activeFamilyVerifiers {
-				allJobSpecs := make([]string, 0, len(aggNames))
+				allJobSpecs := make([]bootstrap.JobSpec, 0, len(aggNames))
 				for _, aggName := range aggNames {
 					jobSpecID := shared.NewVerifierJobID(shared.NOPAlias(ver.NOPAlias), aggName, shared.VerifierJobScope{CommitteeQualifier: committeeName})
 					job, err := ccipOffchain.GetJob(output.DataStore.Seal(), shared.NOPAlias(ver.NOPAlias), jobSpecID.ToJobID())
 					if err != nil {
 						return nil, fmt.Errorf("failed to get verifier job spec for %s aggregator %s: %w", ver.ContainerName, aggName, err)
 					}
-					allJobSpecs = append(allJobSpecs, job.Spec)
+
+					// TODO: Use bootstrap.JobSpec in CLD to avoid this conversion here
+					var verifierJobSpec VerifierJobSpec
+					md, err := toml.Decode(job.Spec, &verifierJobSpec)
+					if err != nil {
+						return nil, fmt.Errorf("failed to decode verifier job spec for %s: %w", ver.ContainerName, err)
+					}
+					if len(md.Undecoded()) > 0 {
+						L.Warn().
+							Str("spec", job.Spec).
+							Str("undecoded fields", fmt.Sprintf("%v", md.Undecoded())).
+							Msg("Undecoded fields in verifier job spec")
+						return nil, fmt.Errorf("unknown fields in verifier job spec for %s aggregator: %v", ver.ContainerName, md.Undecoded())
+					}
+
+					allJobSpecs = append(allJobSpecs, verifierJobSpec.ToBootstrapJobSpec())
 				}
 
 				verifierJobSpecs[ver.NOPAlias] = allJobSpecs
@@ -744,10 +815,11 @@ func generateVerifierJobSpecs(
 				// single-aggregator committees the modulo collapses to 0, so all
 				// verifiers share the one aggregator — matching the non-HA model.
 				ownedAggIdx := ver.NodeIndex % len(aggNames)
-				verCfg, err := ParseVerifierConfigFromJobSpec(allJobSpecs[ownedAggIdx])
-				if err != nil {
+				var verCfg commit.Config
+				if err := toml.Unmarshal([]byte(allJobSpecs[ownedAggIdx].AppConfig), &verCfg); err != nil {
 					return nil, fmt.Errorf("failed to parse verifier config from job spec: %w", err)
 				}
+
 				configBytes, err := toml.Marshal(verCfg)
 				if err != nil {
 					return nil, fmt.Errorf("failed to marshal verifier config: %w", err)
@@ -1401,7 +1473,7 @@ func NewEnvironment() (in *Cfg, err error) {
 	// Each verifier owns one aggregator (NodeIndex % numAggs). Select the
 	// corresponding job spec so proposeJobsToStandaloneVerifiers gets a
 	// single spec per container.
-	ownedJobSpecs := make(map[string]string, len(verifierJobSpecs))
+	ownedJobSpecs := make(map[string]bootstrap.JobSpec, len(verifierJobSpecs))
 	for _, ver := range in.Verifier {
 		specs := verifierJobSpecs[ver.NOPAlias]
 		if len(specs) > 0 {
@@ -1739,11 +1811,17 @@ func launchCLNodes(
 }
 
 // isBootstrappedExecutor returns true for executors whose binary uses bootstrap.Run.
-// Today this is determined by chain family (non-EVM families use bootstrap).
-// Ideally this would be an explicit configuration flag on the executor input
-// so new chain families don't rely on a "not EVM" heuristic.
+// This is determined by asking the registered ImplFactory for the executor's chain
+// family whether it supports the bootstrap executor lifecycle.
 func isBootstrappedExecutor(exec *executorsvc.Input) bool {
-	return exec.ChainFamily != "" && exec.ChainFamily != chainsel.FamilyEVM
+	if exec.ChainFamily == "" {
+		return false
+	}
+	fac, err := GetImplFactory(exec.ChainFamily)
+	if err != nil {
+		return false
+	}
+	return fac.SupportsBootstrapExecutor()
 }
 
 func launchStandaloneExecutors(in []*executorsvc.Input, blockchainOutputs []*blockchain.Output) ([]*executorsvc.Output, error) {
@@ -1990,46 +2068,40 @@ type IndexerSecret struct {
 
 // VerifierJobSpec represents the structure of a verifier job spec TOML.
 type VerifierJobSpec struct {
+	Name                    string `toml:"name"`
+	ExternalJobID           string `toml:"externalJobID"`
 	SchemaVersion           int    `toml:"schemaVersion"`
 	Type                    string `toml:"type"`
 	CommitteeVerifierConfig string `toml:"committeeVerifierConfig"`
 }
 
-// ParseVerifierConfigFromJobSpec extracts the inner commit.Config from a verifier job spec.
-func ParseVerifierConfigFromJobSpec(jobSpec string) (*commit.Config, error) {
-	var spec VerifierJobSpec
-	if err := toml.Unmarshal([]byte(jobSpec), &spec); err != nil {
-		return nil, fmt.Errorf("failed to parse job spec: %w", err)
+func (vjs VerifierJobSpec) ToBootstrapJobSpec() bootstrap.JobSpec {
+	return bootstrap.JobSpec{
+		Name:          vjs.Name,
+		ExternalJobID: vjs.ExternalJobID,
+		SchemaVersion: vjs.SchemaVersion,
+		Type:          vjs.Type,
+		AppConfig:     vjs.CommitteeVerifierConfig,
 	}
-
-	var cfg commit.Config
-	if err := toml.Unmarshal([]byte(spec.CommitteeVerifierConfig), &cfg); err != nil {
-		return nil, fmt.Errorf("failed to parse verifier config from job spec: %w", err)
-	}
-
-	return &cfg, nil
 }
 
 // ExecutorJobSpec represents the structure of an executor job spec TOML.
 type ExecutorJobSpec struct {
+	Name           string `toml:"name"`
+	ExternalJobID  string `toml:"externalJobID"`
 	SchemaVersion  int    `toml:"schemaVersion"`
 	Type           string `toml:"type"`
 	ExecutorConfig string `toml:"executorConfig"`
 }
 
-// ParseExecutorConfigFromJobSpec extracts the inner executor.Configuration from an executor job spec.
-func ParseExecutorConfigFromJobSpec(jobSpec string) (*executor.Configuration, error) {
-	var spec ExecutorJobSpec
-	if err := toml.Unmarshal([]byte(jobSpec), &spec); err != nil {
-		return nil, fmt.Errorf("failed to parse job spec: %w", err)
+func (ejs ExecutorJobSpec) ToBootstrapJobSpec() bootstrap.JobSpec {
+	return bootstrap.JobSpec{
+		Name:          ejs.Name,
+		ExternalJobID: ejs.ExternalJobID,
+		SchemaVersion: ejs.SchemaVersion,
+		Type:          ejs.Type,
+		AppConfig:     ejs.ExecutorConfig,
 	}
-
-	var cfg executor.Configuration
-	if err := toml.Unmarshal([]byte(spec.ExecutorConfig), &cfg); err != nil {
-		return nil, fmt.Errorf("failed to parse executor config from job spec: %w", err)
-	}
-
-	return &cfg, nil
 }
 
 // extractAndValidateDisableFinalityCheckers extracts DisableFinalityCheckers from verifiers
@@ -2041,7 +2113,7 @@ func extractAndValidateDisableFinalityCheckers(committeeName string, verifiers [
 
 	disableFinalityCheckersPerFamily = make(map[string][]string)
 	for _, ver := range verifiers {
-		// if already set, check if its the same value
+		// if already set, check if it's the same value
 		if _, ok := disableFinalityCheckersPerFamily[ver.ChainFamily]; ok {
 			if !slicesEqual(disableFinalityCheckersPerFamily[ver.ChainFamily], ver.DisableFinalityCheckers) {
 				return nil, fmt.Errorf(
@@ -2138,7 +2210,6 @@ func registerStandaloneVerifiersWithJD(ctx context.Context, verifiers []*committ
 				return fmt.Errorf("failed to register bootstrap %s with JD: %w", ver.ContainerName, err)
 			}
 
-			// Store the JD node ID in the verifier output for later use when proposing jobs.
 			mu.Lock()
 			ver.Out.JDNodeID = reg.NodeID
 			mu.Unlock()
@@ -2160,7 +2231,7 @@ func registerStandaloneVerifiersWithJD(ctx context.Context, verifiers []*committ
 func proposeJobsToStandaloneVerifiers(
 	ctx context.Context,
 	verifiers []*committeeverifier.Input,
-	verifierJobSpecs map[string]string,
+	verifierJobSpecs map[string]bootstrap.JobSpec,
 	blockchainOutputs []*blockchain.Output,
 	jdClient offchain.Client,
 ) error {

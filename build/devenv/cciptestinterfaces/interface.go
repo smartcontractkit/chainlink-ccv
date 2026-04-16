@@ -5,16 +5,18 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"sync"
 	"time"
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/prometheus/client_golang/prometheus"
 
+	"github.com/smartcontractkit/chainlink-ccip/deployment/finality"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/lanes"
 	tokensapi "github.com/smartcontractkit/chainlink-ccip/deployment/tokens"
-	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/adapters"
-	ccipChangesets "github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/changesets"
-	"github.com/smartcontractkit/chainlink-ccip/deployment/v1_7_0/offchain"
+	"github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/adapters"
+	ccipChangesets "github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/changesets"
+	"github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/offchain"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
@@ -208,17 +210,18 @@ type OnChainCommittees struct {
 // canonical ConfigureChainsForLanesFromTopology changeset.
 // Contract addresses (Router, OnRamp, FeeQuoter, OffRamp, Executor) are
 // resolved from the datastore by the changeset itself.
+//
+// Fields use the changeset's override/pointer types directly so family impls
+// express only the values they want to override; nil/zero means "use adapter default".
 type ChainLaneProfile struct {
-	AddressBytesLength       uint8
-	BaseExecutionGasCost     uint32
-	FeeQuoterDestChainConfig adapters.FeeQuoterDestChainConfig
-
-	ExecutorDestChainConfig  adapters.ExecutorDestChainConfig
+	BaseExecutionGasCost     *uint32
+	FeeQuoterDestChainConfig ccipChangesets.FeeQuoterDestChainConfigOverrides
+	ExecutorDestChainConfig  *adapters.ExecutorDestChainConfig
 	DefaultExecutorQualifier string
 	DefaultInboundCCVs       []datastore.AddressRef
 	DefaultOutboundCCVs      []datastore.AddressRef
-
-	GasForVerification uint32
+	GasForVerification       *uint32
+	AllowedFinalityConfig    *finality.Config
 }
 
 // TokenConfigProvider abstracts the chain-specific decisions that feed into
@@ -296,6 +299,36 @@ type OnChainConfigurable interface {
 	// PostConnect runs chain-specific setup after all chains have been connected
 	// (e.g. USDC/Lombard token config, custom executor wiring).
 	PostConnect(env *deployment.Environment, selector uint64, remoteSelectors []uint64) error
+}
+
+// ExtraArgsSerializer serializes message extra args for a destination chain family.
+// Product repos register their implementation via RegisterExtraArgsSerializer.
+type ExtraArgsSerializer func(opts MessageOptions) []byte
+
+var (
+	extraArgsSerializers   = make(map[string]ExtraArgsSerializer)
+	extraArgsSerializersMu sync.RWMutex
+)
+
+// RegisterExtraArgsSerializer registers an ExtraArgsSerializer for a chain family.
+// If the family is already registered, the call is a no-op to match the pattern
+// used by other registries in this repo (e.g. CLDFProviderRegistry, ImplFactory).
+// Product repos call this in their init() alongside other registrations.
+func RegisterExtraArgsSerializer(family string, serializer ExtraArgsSerializer) {
+	extraArgsSerializersMu.Lock()
+	defer extraArgsSerializersMu.Unlock()
+	if _, ok := extraArgsSerializers[family]; ok {
+		return
+	}
+	extraArgsSerializers[family] = serializer
+}
+
+// GetExtraArgsSerializer returns the registered serializer for the given chain family.
+func GetExtraArgsSerializer(family string) (ExtraArgsSerializer, bool) {
+	extraArgsSerializersMu.RLock()
+	defer extraArgsSerializersMu.RUnlock()
+	s, ok := extraArgsSerializers[family]
+	return s, ok
 }
 
 // DeployerNonceBumper is an optional interface. When implemented, devenv calls it before
