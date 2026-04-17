@@ -7,6 +7,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/rs/zerolog"
+
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
@@ -57,78 +58,85 @@ func newEventPoller[T any](
 	}
 }
 
-func (p *eventPoller[T]) register(ctx context.Context, key eventKey) <-chan pollerResult[T] {
+func (p *eventPoller[T]) registerByMessageID(ctx context.Context, key eventKey) <-chan pollerResult[T] {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
 	resultCh := make(chan pollerResult[T], 1)
+	msgIDKey := eventKey{chainSelector: key.chainSelector, messageID: key.messageID}
 
-	if key.messageID != (protocol.Bytes32{}) {
-		msgIDKey := eventKey{chainSelector: key.chainSelector, messageID: key.messageID}
-
-		if cachedResult, found := p.cachedByMessageID[msgIDKey]; found {
-			p.logger.Debug().
-				Uint64("chainSelector", key.chainSelector).
-				Bytes("messageID", key.messageID[:]).
-				Str("event", p.eventName).
-				Msg("Cache hit")
-			resultCh <- cachedResult
-			close(resultCh)
-			return resultCh
-		}
-
-		if existingCh, exists := p.waitersByMessageID[msgIDKey]; exists {
-			return existingCh
-		}
-
-		p.waitersByMessageID[msgIDKey] = resultCh
-		go func() {
-			<-ctx.Done()
-			p.mu.Lock()
-			defer p.mu.Unlock()
-			if ch, exists := p.waitersByMessageID[msgIDKey]; exists {
-				delete(p.waitersByMessageID, msgIDKey)
-				ch <- pollerResult[T]{err: ctx.Err()}
-				close(ch)
-			}
-		}()
-	} else {
-		seqKey := eventKey{chainSelector: key.chainSelector, msgNum: key.msgNum}
-
-		if cachedResult, found := p.cachedBySeqNum[seqKey]; found {
-			p.logger.Debug().
-				Uint64("chainSelector", key.chainSelector).
-				Uint64("seq", key.msgNum).
-				Str("event", p.eventName).
-				Msg("Cache hit")
-			resultCh <- cachedResult
-			close(resultCh)
-			return resultCh
-		}
-
-		if existingCh, exists := p.waitersBySeqNum[seqKey]; exists {
-			return existingCh
-		}
-
-		p.waitersBySeqNum[seqKey] = resultCh
-		go func() {
-			<-ctx.Done()
-			p.mu.Lock()
-			defer p.mu.Unlock()
-			if ch, exists := p.waitersBySeqNum[seqKey]; exists {
-				delete(p.waitersBySeqNum, seqKey)
-				ch <- pollerResult[T]{err: ctx.Err()}
-				close(ch)
-			}
-		}()
+	if cachedResult, found := p.cachedByMessageID[msgIDKey]; found {
+		p.logger.Debug().
+			Uint64("chainSelector", key.chainSelector).
+			Bytes("messageID", key.messageID[:]).
+			Str("event", p.eventName).
+			Msg("Cache hit")
+		resultCh <- cachedResult
+		close(resultCh)
+		return resultCh
 	}
 
+	if existingCh, exists := p.waitersByMessageID[msgIDKey]; exists {
+		return existingCh
+	}
+
+	p.waitersByMessageID[msgIDKey] = resultCh
+	go func() {
+		<-ctx.Done()
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		if ch, exists := p.waitersByMessageID[msgIDKey]; exists {
+			delete(p.waitersByMessageID, msgIDKey)
+			ch <- pollerResult[T]{err: ctx.Err()}
+			close(ch)
+		}
+	}()
 	if !p.running {
 		p.running = true
 		p.stopCh = make(chan struct{})
 		go p.run()
 	}
+	return resultCh
+}
 
+func (p *eventPoller[T]) registerBySequenceNumber(ctx context.Context, key eventKey) <-chan pollerResult[T] {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	resultCh := make(chan pollerResult[T], 1)
+	seqKey := eventKey{chainSelector: key.chainSelector, msgNum: key.msgNum}
+
+	if cachedResult, found := p.cachedBySeqNum[seqKey]; found {
+		p.logger.Debug().
+			Uint64("chainSelector", key.chainSelector).
+			Uint64("seq", key.msgNum).
+			Str("event", p.eventName).
+			Msg("Cache hit")
+		resultCh <- cachedResult
+		close(resultCh)
+		return resultCh
+	}
+
+	if existingCh, exists := p.waitersBySeqNum[seqKey]; exists {
+		return existingCh
+	}
+
+	p.waitersBySeqNum[seqKey] = resultCh
+	go func() {
+		<-ctx.Done()
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		if ch, exists := p.waitersBySeqNum[seqKey]; exists {
+			delete(p.waitersBySeqNum, seqKey)
+			ch <- pollerResult[T]{err: ctx.Err()}
+			close(ch)
+		}
+	}()
+	if !p.running {
+		p.running = true
+		p.stopCh = make(chan struct{})
+		go p.run()
+	}
 	return resultCh
 }
 

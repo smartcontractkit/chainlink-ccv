@@ -420,7 +420,7 @@ func (m *CCIP17EVM) WaitOneSentEventBySeqNo(ctx context.Context, to, seq uint64,
 	if err != nil {
 		return cciptestinterfaces.MessageSentEvent{}, err
 	}
-	resultCh := poller.register(ctx, eventKey{chainSelector: to, msgNum: seq})
+	resultCh := poller.registerBySequenceNumber(ctx, eventKey{chainSelector: to, msgNum: seq})
 
 	select {
 	case <-ctx.Done():
@@ -455,13 +455,14 @@ func (m *CCIP17EVM) ConfirmExecOnDest(ctx context.Context, from uint64, key ccip
 	}
 
 	pollerKey := eventKey{chainSelector: from, msgNum: key.SeqNum, messageID: key.MessageID}
+	var resultCh <-chan pollerResult[cciptestinterfaces.ExecutionStateChangedEvent]
 	if key.MessageID != (protocol.Bytes32{}) {
 		l.Info().Uint64("from", from).Bytes("messageID", key.MessageID[:]).Msg("Awaiting ExecutionStateChanged event")
+		resultCh = poller.registerByMessageID(ctx, pollerKey)
 	} else {
 		l.Info().Uint64("from", from).Uint64("to", m.chainDetails.ChainSelector).Uint64("seq", key.SeqNum).Msg("Awaiting ExecutionStateChanged event")
+		resultCh = poller.registerBySequenceNumber(ctx, pollerKey)
 	}
-
-	resultCh := poller.register(ctx, pollerKey)
 
 	select {
 	case <-ctx.Done():
