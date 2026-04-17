@@ -1,7 +1,7 @@
 package offchainloader
 
 import (
-	"github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/offchain"
+	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
@@ -14,30 +14,30 @@ import (
 )
 
 func GetAggregatorConfig(ds datastore.DataStore, id string) (*model.Committee, error) {
-	ccipCfg, err := offchain.GetAggregatorConfig(ds, id)
+	ccvCfg, err := ccvdeployment.GetAggregatorConfig(ds, id)
 	if err != nil {
 		return nil, err
 	}
-	return convertCommittee(ccipCfg), nil
+	return convertCommittee(ccvCfg), nil
 }
 
 func GetIndexerConfig(ds datastore.DataStore, id string) (*config.GeneratedConfig, error) {
-	ccipCfg, err := offchain.GetIndexerConfig(ds, id)
+	ccvCfg, err := ccvdeployment.GetIndexerConfig(ds, id)
 	if err != nil {
 		return nil, err
 	}
-	return convertIndexerConfig(ccipCfg), nil
+	return convertIndexerConfig(ccvCfg), nil
 }
 
 func GetTokenVerifierConfig(ds datastore.DataStore, id string) (*token.Config, error) {
-	ccipCfg, err := offchain.GetTokenVerifierConfig(ds, id)
+	ccvCfg, err := ccvdeployment.GetTokenVerifierConfig(ds, id)
 	if err != nil {
 		return nil, err
 	}
-	return convertTokenVerifierConfig(ccipCfg), nil
+	return convertTokenVerifierConfig(ccvCfg), nil
 }
 
-func convertCommittee(src *offchain.Committee) *model.Committee {
+func convertCommittee(src *ccvdeployment.Committee) *model.Committee {
 	if src == nil {
 		return nil
 	}
@@ -53,7 +53,7 @@ func convertCommittee(src *offchain.Committee) *model.Committee {
 	return dst
 }
 
-func convertQuorumConfig(src *offchain.QuorumConfig) *model.QuorumConfig {
+func convertQuorumConfig(src *ccvdeployment.QuorumConfig) *model.QuorumConfig {
 	if src == nil {
 		return nil
 	}
@@ -68,7 +68,7 @@ func convertQuorumConfig(src *offchain.QuorumConfig) *model.QuorumConfig {
 	}
 }
 
-func convertIndexerConfig(src *offchain.IndexerGeneratedConfig) *config.GeneratedConfig {
+func convertIndexerConfig(src *ccvdeployment.IndexerGeneratedConfig) *config.GeneratedConfig {
 	if src == nil {
 		return nil
 	}
@@ -82,7 +82,7 @@ func convertIndexerConfig(src *offchain.IndexerGeneratedConfig) *config.Generate
 	return &config.GeneratedConfig{Verifier: verifiers}
 }
 
-func convertTokenVerifierConfig(src *offchain.TokenVerifierGeneratedConfig) *token.Config {
+func convertTokenVerifierConfig(src *ccvdeployment.TokenVerifierGeneratedConfig) *token.Config {
 	if src == nil {
 		return nil
 	}
@@ -125,7 +125,7 @@ func convertTokenVerifierConfig(src *offchain.TokenVerifierGeneratedConfig) *tok
 	return dst
 }
 
-func convertCCTPConfig(src *offchain.CCTPVerifierConfig) *cctp.CCTPConfig {
+func convertCCTPConfig(src *ccvdeployment.CCTPVerifierConfig) *cctp.CCTPConfig {
 	if src == nil {
 		return nil
 	}
@@ -145,7 +145,7 @@ func convertCCTPConfig(src *offchain.CCTPVerifierConfig) *cctp.CCTPConfig {
 	return dst
 }
 
-func convertLombardConfig(src *offchain.LombardVerifierConfig) *lombard.LombardConfig {
+func convertLombardConfig(src *ccvdeployment.LombardVerifierConfig) *lombard.LombardConfig {
 	if src == nil {
 		return nil
 	}
