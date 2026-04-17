@@ -71,7 +71,7 @@ func (tc *v3TestCase) Run(ctx context.Context, harness tcapi.TestHarness, cfg *c
 	if len(sendMessageResult.ReceiptIssuers) != tc.numExpectedReceipts {
 		return fmt.Errorf("expected %d receipt issuers, got %d", tc.numExpectedReceipts, len(sendMessageResult.ReceiptIssuers))
 	}
-	sentEvent, err := tc.src.WaitOneSentEventBySeqNo(ctx, tc.dst.ChainSelector(), seqNo, tcapi.DefaultSentTimeout)
+	sentEvent, err := tc.src.ConfirmSendOnSource(ctx, tc.dst.ChainSelector(), cciptestinterfaces.MessageEventKey{SeqNum: seqNo}, tcapi.DefaultSentTimeout)
 	if err != nil {
 		return fmt.Errorf("failed to wait for sent event: %w", err)
 	}
@@ -106,7 +106,7 @@ func (tc *v3TestCase) Run(ctx context.Context, harness tcapi.TestHarness, cfg *c
 		return fmt.Errorf("expected %d indexed verifications, got %d", tc.numExpectedVerifications, len(result.IndexedVerifications.Results))
 	}
 
-	e, err := chainMap[tc.dst.ChainSelector()].ConfirmExecOnDest(ctx, tc.src.ChainSelector(), cciptestinterfaces.ExecEventKey{SeqNum: seqNo}, tcapi.DefaultExecTimeout)
+	e, err := chainMap[tc.dst.ChainSelector()].ConfirmExecOnDest(ctx, tc.src.ChainSelector(), cciptestinterfaces.MessageEventKey{SeqNum: seqNo}, tcapi.DefaultExecTimeout)
 	if err != nil {
 		return fmt.Errorf("failed to wait for exec event: %w", err)
 	}

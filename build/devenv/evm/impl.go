@@ -407,20 +407,32 @@ func (m *CCIP17EVM) GetExpectedNextSequenceNumber(ctx context.Context, to uint64
 	return m.onRamp.GetExpectedNextMessageNumber(&bind.CallOpts{Context: ctx}, to)
 }
 
-// WaitOneSentEventBySeqNo wait and fetch strictly one CCIPMessageSent event by selector and sequence number and selector.
-func (m *CCIP17EVM) WaitOneSentEventBySeqNo(ctx context.Context, to, seq uint64, timeout time.Duration) (cciptestinterfaces.MessageSentEvent, error) {
-	l := m.logger
-	ctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-	ticker := time.NewTicker(1 * time.Second)
-	defer ticker.Stop()
+func (m *CCIP17EVM) ConfirmSendOnSource(ctx context.Context, to uint64, key cciptestinterfaces.MessageEventKey, timeout time.Duration) (cciptestinterfaces.MessageSentEvent, error) {
+	if key.MessageID == (protocol.Bytes32{}) && key.SeqNum == 0 {
+		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("MessageEventKey must have MessageID or SeqNum set")
+	}
 
-	l.Info().Uint64("from", m.chainDetails.ChainSelector).Uint64("to", to).Uint64("seq", seq).Msg("Awaiting CCIPMessageSent event")
+	l := m.logger
+	if timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
+
 	poller, err := m.getOrCreateOnRampPoller()
 	if err != nil {
 		return cciptestinterfaces.MessageSentEvent{}, err
 	}
-	resultCh := poller.registerBySequenceNumber(ctx, eventKey{chainSelector: to, msgNum: seq})
+
+	pollerKey := eventKey{chainSelector: to, msgNum: key.SeqNum, messageID: key.MessageID}
+	var resultCh <-chan pollerResult[cciptestinterfaces.MessageSentEvent]
+	if key.MessageID != (protocol.Bytes32{}) {
+		l.Info().Uint64("from", m.chainDetails.ChainSelector).Uint64("to", to).Bytes("messageID", key.MessageID[:]).Msg("Awaiting CCIPMessageSent event")
+		resultCh = poller.registerByMessageID(ctx, pollerKey)
+	} else {
+		l.Info().Uint64("from", m.chainDetails.ChainSelector).Uint64("to", to).Uint64("seq", key.SeqNum).Msg("Awaiting CCIPMessageSent event")
+		resultCh = poller.registerBySequenceNumber(ctx, pollerKey)
+	}
 
 	select {
 	case <-ctx.Done():
@@ -433,9 +445,9 @@ func (m *CCIP17EVM) WaitOneSentEventBySeqNo(ctx context.Context, to, seq uint64,
 	}
 }
 
-func (m *CCIP17EVM) ConfirmExecOnDest(ctx context.Context, from uint64, key cciptestinterfaces.ExecEventKey, timeout time.Duration) (cciptestinterfaces.ExecutionStateChangedEvent, error) {
+func (m *CCIP17EVM) ConfirmExecOnDest(ctx context.Context, from uint64, key cciptestinterfaces.MessageEventKey, timeout time.Duration) (cciptestinterfaces.ExecutionStateChangedEvent, error) {
 	if key.MessageID == (protocol.Bytes32{}) && key.SeqNum == 0 {
-		return cciptestinterfaces.ExecutionStateChangedEvent{}, fmt.Errorf("ExecEventKey must have MessageID or SeqNum set")
+		return cciptestinterfaces.ExecutionStateChangedEvent{}, fmt.Errorf("MessageEventKey must have MessageID or SeqNum set")
 	}
 
 	l := m.logger

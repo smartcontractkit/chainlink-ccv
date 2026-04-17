@@ -128,8 +128,8 @@ func (s *haTestSetup) sendAndAssertExecution(
 	})
 	require.NoError(t, err)
 
-	sentEvent, err := s.chainMap[s.fromSelector].WaitOneSentEventBySeqNo(
-		ctx, s.toSelector, seqNo, defaultSentTimeout)
+	sentEvent, err := s.chainMap[s.fromSelector].ConfirmSendOnSource(
+		ctx, s.toSelector, cciptestinterfaces.MessageEventKey{SeqNum: seqNo}, defaultSentTimeout)
 	require.NoError(t, err)
 	messageID := sentEvent.MessageID
 
@@ -152,7 +152,7 @@ func (s *haTestSetup) sendAndAssertExecution(
 	}
 
 	e, err := s.chainMap[s.toSelector].ConfirmExecOnDest(
-		ctx, s.fromSelector, cciptestinterfaces.ExecEventKey{SeqNum: seqNo}, defaultExecTimeout)
+		ctx, s.fromSelector, cciptestinterfaces.MessageEventKey{SeqNum: seqNo}, defaultExecTimeout)
 	require.NoError(t, err)
 	require.NotNil(t, e)
 	require.Equal(t, cciptestinterfaces.ExecutionStateSuccess, e.State,
