@@ -106,7 +106,7 @@ func (tc *v3TestCase) Run(ctx context.Context, harness tcapi.TestHarness, cfg *c
 		return fmt.Errorf("expected %d indexed verifications, got %d", tc.numExpectedVerifications, len(result.IndexedVerifications.Results))
 	}
 
-	e, err := chainMap[tc.dst.ChainSelector()].WaitOneExecEventBySeqNo(ctx, tc.src.ChainSelector(), seqNo, tcapi.DefaultExecTimeout)
+	e, err := chainMap[tc.dst.ChainSelector()].ConfirmExecOnDest(ctx, tc.src.ChainSelector(), cciptestinterfaces.ExecEventKey{SeqNum: seqNo}, tcapi.DefaultExecTimeout)
 	if err != nil {
 		return fmt.Errorf("failed to wait for exec event: %w", err)
 	}

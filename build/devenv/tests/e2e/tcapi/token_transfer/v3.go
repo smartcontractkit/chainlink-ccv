@@ -122,7 +122,7 @@ func (tc *tokenTransferV3TestCase) Run(ctx context.Context, harness tcapi.TestHa
 	}
 
 	destChain := chainMap[tc.dst.ChainSelector()]
-	execEvt, err := destChain.WaitOneExecEventBySeqNo(ctx, tc.src.ChainSelector(), seqNo, tokenTransferExecTimeout)
+	execEvt, err := destChain.ConfirmExecOnDest(ctx, tc.src.ChainSelector(), cciptestinterfaces.ExecEventKey{SeqNum: seqNo}, tokenTransferExecTimeout)
 	if err != nil {
 		return fmt.Errorf("wait for exec event: %w", err)
 	}

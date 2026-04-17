@@ -282,7 +282,7 @@ func runUSDCTestCase(
 		require.NotNil(t, res.AggregatedResult)
 	}
 
-	execEvt, err := destChain.WaitOneExecEventBySeqNo(ctx, sourceSelector, seqNo, 45*time.Second)
+	execEvt, err := destChain.ConfirmExecOnDest(ctx, sourceSelector, cciptestinterfaces.ExecEventKey{SeqNum: seqNo}, 45*time.Second)
 	require.NoError(t, err)
 	require.NotNil(t, execEvt)
 	require.Equalf(t, cciptestinterfaces.ExecutionStateSuccess, execEvt.State, "unexpected state, return data: %x", execEvt.ReturnData)
@@ -410,7 +410,7 @@ func runLombardTestCase(
 	require.NoError(t, err)
 	require.NotNil(t, res.AggregatedResult)
 
-	execEvt, err := destChain.WaitOneExecEventBySeqNo(ctx, sourceSelector, seqNo, 45*time.Second)
+	execEvt, err := destChain.ConfirmExecOnDest(ctx, sourceSelector, cciptestinterfaces.ExecEventKey{SeqNum: seqNo}, 45*time.Second)
 	require.NoError(t, err)
 	require.NotNil(t, execEvt)
 	require.Equalf(t, cciptestinterfaces.ExecutionStateSuccess, execEvt.State, "unexpected state, return data: %x", execEvt.ReturnData)

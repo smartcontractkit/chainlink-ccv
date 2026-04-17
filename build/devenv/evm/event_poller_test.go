@@ -25,10 +25,10 @@ func TestEventPollerCache(t *testing.T) {
 			MessageNumber: 100,
 			State:         cciptestinterfaces.MessageExecutionState(1),
 		}
-		poller.cachedEvents[key] = pollerResult[cciptestinterfaces.ExecutionStateChangedEvent]{event: expectedEvent}
+		poller.cachedBySeqNum[key] = pollerResult[cciptestinterfaces.ExecutionStateChangedEvent]{event: expectedEvent}
 
 		ctx := context.Background()
-		resultCh := poller.register(ctx, 1, 100)
+		resultCh := poller.register(ctx, eventKey{chainSelector: 1, msgNum: 100})
 
 		select {
 		case result := <-resultCh:
@@ -50,7 +50,7 @@ func TestEventPollerCache(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 		defer cancel()
 
-		resultCh := poller.register(ctx, 1, 100)
+		resultCh := poller.register(ctx, eventKey{chainSelector: 1, msgNum: 100})
 
 		select {
 		case result := <-resultCh:
@@ -70,8 +70,8 @@ func TestEventPollerCache(t *testing.T) {
 
 		ctx := t.Context()
 
-		resultCh1 := poller.register(ctx, 1, 100)
-		resultCh2 := poller.register(ctx, 1, 100)
+		resultCh1 := poller.register(ctx, eventKey{chainSelector: 1, msgNum: 100})
+		resultCh2 := poller.register(ctx, eventKey{chainSelector: 1, msgNum: 100})
 
 		require.Equal(t, resultCh1, resultCh2, "multiple callers for same key should get the same channel")
 	})
@@ -88,11 +88,11 @@ func TestEventPollerCache(t *testing.T) {
 			MessageID:     [32]byte{1, 2, 3},
 			MessageNumber: 100,
 		}
-		poller.cachedEvents[key] = pollerResult[cciptestinterfaces.ExecutionStateChangedEvent]{event: expectedEvent}
+		poller.cachedBySeqNum[key] = pollerResult[cciptestinterfaces.ExecutionStateChangedEvent]{event: expectedEvent}
 
 		ctx := context.Background()
-		resultCh1 := poller.register(ctx, 1, 100)
-		resultCh2 := poller.register(ctx, 1, 100)
+		resultCh1 := poller.register(ctx, eventKey{chainSelector: 1, msgNum: 100})
+		resultCh2 := poller.register(ctx, eventKey{chainSelector: 1, msgNum: 100})
 
 		result1 := <-resultCh1
 		result2 := <-resultCh2
@@ -116,10 +116,10 @@ func TestEventPollerMessageSent(t *testing.T) {
 		expectedEvent := cciptestinterfaces.MessageSentEvent{
 			MessageID: [32]byte{1, 2, 3},
 		}
-		poller.cachedEvents[key] = pollerResult[cciptestinterfaces.MessageSentEvent]{event: expectedEvent}
+		poller.cachedBySeqNum[key] = pollerResult[cciptestinterfaces.MessageSentEvent]{event: expectedEvent}
 
 		ctx := context.Background()
-		resultCh := poller.register(ctx, 1, 100)
+		resultCh := poller.register(ctx, eventKey{chainSelector: 1, msgNum: 100})
 
 		select {
 		case result := <-resultCh:
