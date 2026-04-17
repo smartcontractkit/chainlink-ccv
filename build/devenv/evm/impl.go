@@ -162,12 +162,11 @@ func NewCCIP17EVM(ctx context.Context, logger zerolog.Logger, e *deployment.Envi
 		TipCapMultiplier: 2,
 	}
 	var (
-		chainDetails  chainsel.ChainDetails
-		ethClient     *ethclient.Client
-		onRamp        *onramp.OnRamp
-		offRamp       *offramp.OffRamp
-		offRampPoller eventPoller[cciptestinterfaces.ExecutionStateChangedEvent]
-		onRampPoller  eventPoller[cciptestinterfaces.MessageSentEvent]
+		chainDetails chainsel.ChainDetails
+		ethClient    *ethclient.Client
+		onRamp       *onramp.OnRamp
+		offRamp      *offramp.OffRamp
+		onRampPoller eventPoller[cciptestinterfaces.MessageSentEvent]
 	)
 	chainDetails, err := chainsel.GetChainDetailsByChainIDAndFamily(chainID, chainsel.FamilyEVM)
 	if err != nil {
@@ -208,16 +207,15 @@ func NewCCIP17EVM(ctx context.Context, logger zerolog.Logger, e *deployment.Envi
 	}
 
 	return &CCIP17EVM{
-		e:             e,
-		ds:            e.DataStore,
-		chain:         e.BlockChains.EVMChains()[chainDetails.ChainSelector],
-		logger:        logger,
-		chainDetails:  chainDetails,
-		ethClient:     ethClient,
-		onRamp:        onRamp,
-		offRamp:       offRamp,
-		offRampPoller: &offRampPoller,
-		onRampPoller:  &onRampPoller,
+		e:            e,
+		ds:           e.DataStore,
+		chain:        e.BlockChains.EVMChains()[chainDetails.ChainSelector],
+		logger:       logger,
+		chainDetails: chainDetails,
+		ethClient:    ethClient,
+		onRamp:       onRamp,
+		offRamp:      offRamp,
+		onRampPoller: &onRampPoller,
 	}, nil
 }
 
@@ -280,6 +278,10 @@ func (m *CCIP17EVM) getOrCreateOffRampPoller() (*eventPoller[cciptestinterfaces.
 	m.pollersMu.Lock()
 	defer m.pollersMu.Unlock()
 
+	if m.offRampPoller != nil {
+		return m.offRampPoller, nil
+	}
+
 	ethClient := m.ethClient
 	offRamp := m.offRamp
 
@@ -296,7 +298,11 @@ func (m *CCIP17EVM) getOrCreateOffRampPoller() (*eventPoller[cciptestinterfaces.
 		events := make(map[eventKey]cciptestinterfaces.ExecutionStateChangedEvent)
 		for filter.Next() {
 			event := filter.Event
-			key := eventKey{chainSelector: event.SourceChainSelector, msgNum: event.MessageNumber}
+			key := eventKey{
+				chainSelector: event.SourceChainSelector,
+				msgNum:        event.MessageNumber,
+				messageID:     event.MessageId,
+			}
 			events[key] = cciptestinterfaces.ExecutionStateChangedEvent{
 				MessageID:     event.MessageId,
 				MessageNumber: event.MessageNumber,
@@ -414,7 +420,7 @@ func (m *CCIP17EVM) WaitOneSentEventBySeqNo(ctx context.Context, to, seq uint64,
 	if err != nil {
 		return cciptestinterfaces.MessageSentEvent{}, err
 	}
-	resultCh := poller.register(ctx, to, seq)
+	resultCh := poller.registerBySequenceNumber(ctx, eventKey{chainSelector: to, msgNum: seq})
 
 	select {
 	case <-ctx.Done():
@@ -427,8 +433,11 @@ func (m *CCIP17EVM) WaitOneSentEventBySeqNo(ctx context.Context, to, seq uint64,
 	}
 }
 
-// WaitOneExecEventBySeqNo wait and fetch strictly one ExecutionStateChanged event by sequence number and selector.
-func (m *CCIP17EVM) WaitOneExecEventBySeqNo(ctx context.Context, from, seq uint64, timeout time.Duration) (cciptestinterfaces.ExecutionStateChangedEvent, error) {
+func (m *CCIP17EVM) ConfirmExecOnDest(ctx context.Context, from uint64, key cciptestinterfaces.ExecEventKey, timeout time.Duration) (cciptestinterfaces.ExecutionStateChangedEvent, error) {
+	if key.MessageID == (protocol.Bytes32{}) && key.SeqNum == 0 {
+		return cciptestinterfaces.ExecutionStateChangedEvent{}, fmt.Errorf("ExecEventKey must have MessageID or SeqNum set")
+	}
+
 	l := m.logger
 	if timeout > 0 {
 		var cancel context.CancelFunc
@@ -436,14 +445,20 @@ func (m *CCIP17EVM) WaitOneExecEventBySeqNo(ctx context.Context, from, seq uint6
 		defer cancel()
 	}
 
-	l.Info().Uint64("from", from).Uint64("to", m.chainDetails.ChainSelector).Uint64("seq", seq).Msg("Awaiting ExecutionStateChanged event")
-
 	poller, err := m.getOrCreateOffRampPoller()
 	if err != nil {
 		return cciptestinterfaces.ExecutionStateChangedEvent{}, err
 	}
 
-	resultCh := poller.register(ctx, from, seq)
+	pollerKey := eventKey{chainSelector: from, msgNum: key.SeqNum, messageID: key.MessageID}
+	var resultCh <-chan pollerResult[cciptestinterfaces.ExecutionStateChangedEvent]
+	if key.MessageID != (protocol.Bytes32{}) {
+		l.Info().Uint64("from", from).Bytes("messageID", key.MessageID[:]).Msg("Awaiting ExecutionStateChanged event")
+		resultCh = poller.registerByMessageID(ctx, pollerKey)
+	} else {
+		l.Info().Uint64("from", from).Uint64("to", m.chainDetails.ChainSelector).Uint64("seq", key.SeqNum).Msg("Awaiting ExecutionStateChanged event")
+		resultCh = poller.registerBySequenceNumber(ctx, pollerKey)
+	}
 
 	select {
 	case <-ctx.Done():
