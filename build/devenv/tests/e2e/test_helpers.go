@@ -28,7 +28,7 @@ import (
 const DefaultLokiURL = "ws://localhost:3030"
 
 // DefaultSmokeTestConfig is the default path to the smoke test configuration file.
-const DefaultSmokeTestConfig = "../../env-out.toml"
+const DefaultSmokeTestConfig = "../../../env-out.toml"
 
 // GetSmokeTestConfig returns the smoke test configuration path from environment
 // variable SMOKE_TEST_CONFIG, or the default path if not set.

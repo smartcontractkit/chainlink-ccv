@@ -1,0 +1,55 @@
+package messaging
+
+import (
+	"testing"
+
+	chain_selectors "github.com/smartcontractkit/chain-selectors"
+	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/evm"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/tcapi"
+	"github.com/stretchr/testify/require"
+)
+
+var (
+	_ = chainAsSource(&evm.CCIP17EVM{})
+	_ = chainAsDestination(&evm.CCIP17EVM{})
+)
+
+func TestEVM2EVMPOC(t *testing.T) {
+	cfg, err := ccv.LoadOutput[ccv.Cfg]("../../../env-out.toml")
+	require.NoError(t, err)
+
+	ctx := ccv.Plog.WithContext(t.Context())
+
+	harness, err := tcapi.NewTestHarness(
+		ctx,
+		e2e.GetSmokeTestConfig(),
+		cfg,
+		chain_selectors.FamilyEVM,
+	)
+	require.NoError(t, err)
+
+	chains, err := harness.Lib.Chains(ctx)
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, len(chains), 2, "expected at least 2 chains for this test in the environment")
+
+	src, dest := chains[0].CCIP17, chains[1].CCIP17
+
+	receiver, err := dest.GetEOAReceiverAddress()
+	require.NoError(t, err)
+
+	srcChain, srcOk := src.(chainAsSource)
+	destChain, destOk := dest.(chainAsDestination)
+	require.True(t, srcOk, "srcChain does not match the chainAsSource interface!")
+	require.True(t, destOk, "destChain does not match the chainAsDestination interface!")
+	TestBasicMessage(ctx, t, srcChain, destChain, cciptestinterfaces.MessageFields{
+		Receiver: receiver,
+		Data:     []byte{},
+	}, cciptestinterfaces.MessageOptions{
+		Version:             2,
+		ExecutionGasLimit:   200_000,
+		OutOfOrderExecution: false,
+	})
+}

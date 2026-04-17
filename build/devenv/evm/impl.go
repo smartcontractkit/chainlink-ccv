@@ -792,6 +792,10 @@ func (m *CCIP17EVM) GetUserNonce(ctx context.Context, userAddress protocol.Unkno
 	return m.chain.Client.PendingNonceAt(ctx, common.HexToAddress(userAddress.String()))
 }
 
+func (m *CCIP17EVM) SerializeExtraArgs(opts cciptestinterfaces.MessageOptions) []byte {
+	return serializeExtraArgs(opts, chainsel.FamilyEVM)
+}
+
 // serializeExtraArgs dispatches to the destination family's registered ExtraArgsSerializer.
 // New chain families register their serializer via cciptestinterfaces.RegisterExtraArgsSerializer
 // in their product repo, so no changes are needed here when adding a chain.
@@ -2084,4 +2088,154 @@ func (m *CCIP17EVM) SetLombardMailboxBridgedMessage(ctx context.Context, message
 		return fmt.Errorf("confirm setMessageId tx: %w", err)
 	}
 	return nil
+}
+
+func (m *CCIP17EVM) ConfirmMessageOnSource(ctx context.Context, messageID protocol.Bytes32, tx protocol.ByteSlice) error {
+	// stub for now because chain.Client can't grab *types.Transaction from a []byte in ctf
+	return nil
+	// txHash := common.Hash(tx)
+
+	// tx, _, err := m.chain.Client.TransactionByHash(ctx, txHash)
+	// if err != nil {
+	// 	return fmt.Errorf("failed to get transaction: %w", err)
+	// }
+	// _, err = m.chain.Confirm(txHash)
+	// if err != nil {
+	// 	return fmt.Errorf("failed to confirm transaction: %w", err)
+	// }
+
+	// receipt, err := m.chain.Client.TransactionReceipt(ctx, txHash)
+	// if err != nil {
+	// 	return fmt.Errorf("failed to get transaction receipt: %w", err)
+	// }
+
+	// var messageSentEvent *onramp.OnRampCCIPMessageSent
+	// for _, log := range receipt.Logs {
+	// 	if log.Topics[0] == ccipMessageSentTopic {
+	// 		messageSentEvent, err = m.onRamp.ParseCCIPMessageSent(*log)
+	// 		if err != nil {
+
+	// 			return fmt.Errorf("failed to parse CCIPMessageSent event: %w", err)
+	// 		}
+	// 		break
+	// 	}
+	// }
+
+	// if messageSentEvent == nil {
+	// 	return cciptestinterfaces.MessageSentEvent{}, errors.New("no CCIPMessageSent event found")
+	// }
+
+	// return nil
+}
+
+func (m *CCIP17EVM) WaitExecStateChangeByMessageID(ctx context.Context, to uint64, messageID protocol.Bytes32, timeout time.Duration) (cciptestinterfaces.ExecutionStateChangedEvent, error) {
+	l := m.logger
+	if timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
+	poller, err := m.getOrCreateOffRampPoller()
+	if err != nil {
+		return cciptestinterfaces.ExecutionStateChangedEvent{}, err
+	}
+	resultCh := poller.register(ctx, eventKey{chainSelector: to, messageID: messageID})
+
+	select {
+	case <-ctx.Done():
+		l.Info().Msg("Context done while waiting for ExecutionStateChanged event")
+		return cciptestinterfaces.ExecutionStateChangedEvent{}, ctx.Err()
+	case result := <-resultCh:
+		if result.err != nil {
+			return cciptestinterfaces.ExecutionStateChangedEvent{}, result.err
+		}
+		return result.event, nil
+	}
+}
+
+func (m *CCIP17EVM) BuildExtraArgs(ctx context.Context, destChain uint64, opts cciptestinterfaces.MessageOptions) ([]byte, error) {
+	return serializeExtraArgs(opts, chainsel.FamilyEVM), nil
+}
+
+func (m *CCIP17EVM) BuildChainMessage(ctx context.Context, extraArgs []byte, messageFields cciptestinterfaces.MessageFields) (any, error) {
+	ret := routerwrapper.ClientEVM2AnyMessage{
+		Receiver:  common.LeftPadBytes(messageFields.Receiver.Bytes(), 32),
+		Data:      messageFields.Data,
+		ExtraArgs: extraArgs,
+	}
+	if messageFields.TokenAmount.Amount != nil {
+		ret.TokenAmounts = []routeroperations.EVMTokenAmount{{
+			Token:  common.HexToAddress(messageFields.TokenAmount.TokenAddress.String()),
+			Amount: messageFields.TokenAmount.Amount,
+		}}
+	}
+	return ret, nil
+}
+
+func (m *CCIP17EVM) SendChainMessage(ctx context.Context, destChain uint64, msg any) (protocol.Bytes32, protocol.ByteSlice, error) {
+	message, ok := msg.(routerwrapper.ClientEVM2AnyMessage)
+	if !ok {
+		return protocol.Bytes32{}, protocol.ByteSlice{}, errors.New("expected router.ClientEVM2AnyMessage")
+	}
+
+	l := m.logger
+	srcChain := m.chain
+	sender := m.chain.DeployerKey
+
+	routerContractType := routeroperations.ContractType
+	routerVersion := semver.MustParse(routeroperations.Deploy.Version())
+	routerRefs := m.ds.Addresses().Filter(
+		datastore.AddressRefByChainSelector(srcChain.Selector),
+		datastore.AddressRefByType(datastore.ContractType(routerContractType)),
+		datastore.AddressRefByVersion(routerVersion),
+	)
+	if len(routerRefs) != 1 {
+		return protocol.Bytes32{}, protocol.ByteSlice{}, fmt.Errorf("expected exactly one router for selector %d type %s version %s, got %d", srcChain.Selector, routerContractType, routerVersion.String(), len(routerRefs))
+	}
+	routerRef := routerRefs[0]
+
+	routerAddress := common.HexToAddress(routerRef.Address)
+	rout, err := routerwrapper.NewRouter(routerAddress, srcChain.Client)
+	if err != nil {
+		return protocol.Bytes32{}, protocol.ByteSlice{}, fmt.Errorf("create router wrapper: %w", err)
+	}
+
+	fee, err := rout.GetFee(&bind.CallOpts{Context: ctx}, destChain, message)
+	if err != nil {
+		return protocol.Bytes32{}, protocol.ByteSlice{}, fmt.Errorf("failed to get fee: %w", err)
+	}
+
+	senderKeyCopy := &bind.TransactOpts{
+		From:   sender.From,
+		Signer: sender.Signer,
+		Value:  fee,
+	}
+
+	tx, err := rout.CcipSend(senderKeyCopy, destChain, message)
+	if err != nil {
+		return protocol.Bytes32{}, protocol.ByteSlice{}, fmt.Errorf("failed to send CCIP message: %w", err)
+	}
+	txHash := tx.Hash()
+
+	_, err = srcChain.Confirm(tx)
+	if err != nil {
+		return protocol.Bytes32{}, protocol.ByteSlice{}, fmt.Errorf("failed to confirm transaction: %w", err)
+	}
+	receipt, err := srcChain.Client.TransactionReceipt(ctx, txHash)
+	if err != nil {
+		return protocol.Bytes32{}, protocol.ByteSlice{}, fmt.Errorf("failed to get transaction receipt: %w", err)
+	}
+
+	var messageSentEvent *onramp.OnRampCCIPMessageSent
+	for _, log := range receipt.Logs {
+		if log.Topics[0] == ccipMessageSentTopic {
+			messageSentEvent, err = m.onRamp.ParseCCIPMessageSent(*log)
+			if err != nil {
+				l.Warn().Err(err).Msg("Failed to parse CCIPMessageSent event")
+				continue
+			}
+			break
+		}
+	}
+	return messageSentEvent.MessageId, txHash[:], nil
 }
