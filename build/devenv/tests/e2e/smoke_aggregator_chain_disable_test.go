@@ -124,7 +124,7 @@ func TestE2ESmoke_AggregatorChainDisableEnable(t *testing.T) {
 	require.NoError(t, err)
 	_, err = otherSrc.SendMessage(ctx, disabledSrcSelector,
 		cciptestinterfaces.MessageFields{Receiver: receiverOnDisabledSrc},
-		cciptestinterfaces.MessageOptions{})
+		cciptestinterfaces.MessageOptions{Version: 3})
 	require.NoError(t, err)
 	sentEvtAlt, err := otherSrc.WaitOneSentEventBySeqNo(ctx, disabledSrcSelector, seqNoAlt, defaultSentTimeout)
 	require.NoError(t, err)
@@ -141,7 +141,7 @@ func TestE2ESmoke_AggregatorChainDisableEnable(t *testing.T) {
 	require.NoError(t, err)
 	_, err = disabledSrc.SendMessage(ctx, otherSrcSelector,
 		cciptestinterfaces.MessageFields{Receiver: receiverOnOtherSrc},
-		cciptestinterfaces.MessageOptions{})
+		cciptestinterfaces.MessageOptions{Version: 3})
 	require.NoError(t, err)
 	sentEvt, err := disabledSrc.WaitOneSentEventBySeqNo(ctx, otherSrcSelector, seqNo, defaultSentTimeout)
 	require.NoError(t, err)
@@ -166,7 +166,7 @@ func TestE2ESmoke_AggregatorChainDisableEnable(t *testing.T) {
 	require.NoError(t, err)
 	_, err = disabledSrc.SendMessage(ctx, otherSrcSelector,
 		cciptestinterfaces.MessageFields{Receiver: receiverOnOtherSrc},
-		cciptestinterfaces.MessageOptions{})
+		cciptestinterfaces.MessageOptions{Version: 3})
 	require.NoError(t, err)
 	sentEvtRecovery, err := disabledSrc.WaitOneSentEventBySeqNo(ctx, otherSrcSelector, seqNoRecovery, defaultSentTimeout)
 	require.NoError(t, err)
