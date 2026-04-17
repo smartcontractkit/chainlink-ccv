@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/offchain"
+	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
 )
@@ -387,12 +387,12 @@ type cfgOption func(*Cfg)
 func buildCfgPtr(opts ...cfgOption) *Cfg {
 	c := &Cfg{
 		HighAvailability: true,
-		EnvironmentTopology: &offchain.EnvironmentTopology{
-			NOPTopology: &offchain.NOPTopology{
-				NOPs: []offchain.NOPConfig{
+		EnvironmentTopology: &ccvdeployment.EnvironmentTopology{
+			NOPTopology: &ccvdeployment.NOPTopology{
+				NOPs: []ccvdeployment.NOPConfig{
 					{Alias: "nop-1", Name: "nop-1"},
 				},
-				Committees: make(map[string]offchain.CommitteeConfig),
+				Committees: make(map[string]ccvdeployment.CommitteeConfig),
 			},
 		},
 	}
@@ -437,17 +437,17 @@ func withAggregatorWithClients(committee string, hostPort, dbPort, redisPort, re
 
 func withTopologyCommittee(name, qualifier string, insecure bool) cfgOption {
 	return func(c *Cfg) {
-		c.EnvironmentTopology.NOPTopology.Committees[name] = offchain.CommitteeConfig{
+		c.EnvironmentTopology.NOPTopology.Committees[name] = ccvdeployment.CommitteeConfig{
 			Qualifier:       qualifier,
 			VerifierVersion: semver.MustParse("2.0.0"),
-			Aggregators: []offchain.AggregatorConfig{
+			Aggregators: []ccvdeployment.AggregatorConfig{
 				{
 					Name:                         "default",
 					Address:                      fmt.Sprintf("%s-aggregator:50051", name),
 					InsecureAggregatorConnection: insecure,
 				},
 			},
-			ChainConfigs: map[string]offchain.ChainCommitteeConfig{
+			ChainConfigs: map[string]ccvdeployment.ChainCommitteeConfig{
 				"3379446385462418246": {
 					NOPAliases: []string{"nop-1"},
 					Threshold:  1,
