@@ -75,3 +75,21 @@ func (c *CommitVerificationRecord) SetTimestampFromMillis(timestampMillis int64)
 func (c *CommitVerificationRecord) GetTimestamp() time.Time {
 	return c.createdAt
 }
+
+// GetSourceChainSelector returns the source chain selector from the message.
+// Satisfies chaindisable.LaneReport.
+func (c *CommitVerificationRecord) GetSourceChainSelector() uint64 {
+	if c.Message == nil {
+		return 0
+	}
+	return uint64(c.Message.SourceChainSelector)
+}
+
+// GetDestinationSelector returns the destination chain selector from the message.
+// Satisfies chaindisable.LaneReport.
+func (c *CommitVerificationRecord) GetDestinationSelector() uint64 {
+	if c.Message == nil {
+		return 0
+	}
+	return uint64(c.Message.DestChainSelector)
+}

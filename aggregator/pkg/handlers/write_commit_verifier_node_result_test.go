@@ -12,6 +12,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/auth"
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/chaindisable"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
@@ -49,6 +50,44 @@ func makeValidProtoRequest() *committeepb.WriteCommitteeVerifierNodeResultReques
 			ExecutorAddress: executorAddr,
 		},
 	}
+}
+
+// alwaysDisabledChecker is a chaindisable.Checker that always reports the chain as disabled.
+type alwaysDisabledChecker struct{}
+
+func (alwaysDisabledChecker) IsDisabled(_ chaindisable.LaneReport) bool { return true }
+
+func TestWriteCommitCCVNodeDataHandler_ChainDisabledGate(t *testing.T) {
+	t.Parallel()
+
+	const testCallerID = "test-caller"
+
+	lggr := logger.TestSugared(t)
+	store := mocks.NewMockCommitVerificationStore(t)
+	agg := mocks.NewMockAggregationTriggerer(t)
+	sig := mocks.NewMockSignatureValidator(t)
+	mon := mocks.NewMockAggregatorMonitoring(t)
+
+	// None of these should be called when the chain is disabled
+	store.EXPECT().SaveCommitVerification(mock.Anything, mock.Anything, mock.Anything).Maybe()
+	agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Maybe()
+	sig.EXPECT().ValidateSignature(mock.Anything, mock.Anything).Maybe()
+	sig.EXPECT().DeriveAggregationKey(mock.Anything, mock.Anything).Maybe()
+	mon.EXPECT().Metrics().Maybe()
+
+	handler := NewWriteCommitCCVNodeDataHandler(store, agg, mon, lggr, sig, time.Millisecond, alwaysDisabledChecker{})
+	ctx := auth.ToContext(context.Background(), auth.CreateCallerIdentity(testCallerID, false))
+
+	resp, err := handler.Handle(ctx, makeValidProtoRequest())
+
+	require.Error(t, err)
+	require.Equal(t, codes.FailedPrecondition, status.Code(err))
+	require.NotNil(t, resp)
+	require.Equal(t, committeepb.WriteStatus_FAILED, resp.Status)
+
+	// Verify neither storage nor aggregation was touched
+	store.AssertNotCalled(t, "SaveCommitVerification")
+	agg.AssertNotCalled(t, "CheckAggregation")
 }
 
 func TestWriteCommitCCVNodeDataHandler_Handle_Table(t *testing.T) {
@@ -189,7 +228,7 @@ func TestWriteCommitCCVNodeDataHandler_Handle_Table(t *testing.T) {
 			labeler.EXPECT().With(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(labeler).Maybe()
 			labeler.EXPECT().IncrementVerificationsTotal(mock.Anything).Maybe()
 
-			handler := NewWriteCommitCCVNodeDataHandler(store, agg, mon, lggr, sig, time.Millisecond)
+			handler := NewWriteCommitCCVNodeDataHandler(store, agg, mon, lggr, sig, time.Millisecond, chaindisable.NoopChecker{})
 
 			ctx := auth.ToContext(context.Background(), auth.CreateCallerIdentity(testCallerID, false))
 			resp, err := handler.Handle(ctx, tc.req)

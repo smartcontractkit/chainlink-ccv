@@ -22,6 +22,9 @@ trustedProxies = [
     "192.168.0.0/16",
 ]
 
+[chainDisable]
+refreshInterval = "2s"
+
 [orphanRecovery]
 enabled = false
 interval = "5m"

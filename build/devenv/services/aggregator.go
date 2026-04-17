@@ -126,8 +126,13 @@ type AggregatorInput struct {
 }
 
 type AggregatorOutput struct {
-	UseCache           bool   `toml:"use_cache"`
-	ContainerName      string `toml:"container_name"`
+	UseCache bool `toml:"use_cache"`
+	// AggregatorContainerName is the container running the aggregator binary.
+	// Use this for docker exec CLI invocations (e.g. `aggregator chains disable`).
+	AggregatorContainerName string `toml:"aggregator_container_name"`
+	// NginxContainerName is the nginx TLS proxy container fronting the aggregator.
+	// Use this for chaos/HA tests that kill the proxy or for connectivity checks.
+	NginxContainerName string `toml:"nginx_container_name"`
 	Address            string `toml:"address"`
 	ExternalHTTPUrl    string `toml:"external_http_url"`
 	ExternalHTTPSUrl   string `toml:"external_https_url"`
@@ -581,9 +586,10 @@ func NewAggregator(in *AggregatorInput) (*AggregatorOutput, error) {
 	}
 
 	in.Out = &AggregatorOutput{
-		ContainerName:      nginxContainerName,
-		Address:            fmt.Sprintf("%s:443", nginxContainerName),
-		ExternalHTTPUrl:    fmt.Sprintf("%s:%d", aggregatorContainerName, DefaultAggregatorGRPCPort),
+		AggregatorContainerName: aggregatorContainerName,
+		NginxContainerName:      nginxContainerName,
+		Address:                 fmt.Sprintf("%s:443", nginxContainerName),
+		ExternalHTTPUrl:         fmt.Sprintf("%s:%d", aggregatorContainerName, DefaultAggregatorGRPCPort),
 		ExternalHTTPSUrl:   fmt.Sprintf("%s:%d", host, in.HostPort),
 		TLSCACertFile:      tlsCerts.CACertFile,
 		ClientCredentials:  clientCredentials,

@@ -9,6 +9,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/auth"
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/chaindisable"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/scope"
@@ -38,6 +39,7 @@ type WriteCommitVerifierNodeResultHandler struct {
 	l                       logger.SugaredLogger
 	signatureValidator      SignatureValidator
 	checkAggregationTimeout time.Duration
+	chainDisableChecker     chaindisable.Checker
 }
 
 func (h *WriteCommitVerifierNodeResultHandler) logger(ctx context.Context) logger.SugaredLogger {
@@ -69,6 +71,13 @@ func (h *WriteCommitVerifierNodeResultHandler) Handle(ctx context.Context, req *
 	}
 	ctx = scope.WithMessageID(ctx, record.MessageID)
 	reqLogger = h.logger(ctx)
+
+	if h.chainDisableChecker.IsDisabled(record) {
+		reqLogger.Infow("Rejected write: chain processing is disabled")
+		return &committeepb.WriteCommitteeVerifierNodeResultResponse{
+			Status: committeepb.WriteStatus_FAILED,
+		}, status.Error(codes.FailedPrecondition, "chain processing is disabled")
+	}
 
 	validationResult, err := h.signatureValidator.ValidateSignature(ctx, record)
 	if err != nil {
@@ -130,7 +139,7 @@ func (h *WriteCommitVerifierNodeResultHandler) Handle(ctx context.Context, req *
 }
 
 // NewWriteCommitCCVNodeDataHandler creates a new instance of WriteCommitCCVNodeDataHandler.
-func NewWriteCommitCCVNodeDataHandler(store common.CommitVerificationStore, aggregator AggregationTriggerer, m common.AggregatorMonitoring, l logger.SugaredLogger, signatureValidator SignatureValidator, checkAggregationTimeout time.Duration) *WriteCommitVerifierNodeResultHandler {
+func NewWriteCommitCCVNodeDataHandler(store common.CommitVerificationStore, aggregator AggregationTriggerer, m common.AggregatorMonitoring, l logger.SugaredLogger, signatureValidator SignatureValidator, checkAggregationTimeout time.Duration, chainDisableChecker chaindisable.Checker) *WriteCommitVerifierNodeResultHandler {
 	return &WriteCommitVerifierNodeResultHandler{
 		storage:                 store,
 		aggregator:              aggregator,
@@ -138,5 +147,6 @@ func NewWriteCommitCCVNodeDataHandler(store common.CommitVerificationStore, aggr
 		l:                       l,
 		signatureValidator:      signatureValidator,
 		checkAggregationTimeout: checkAggregationTimeout,
+		chainDisableChecker:     chainDisableChecker,
 	}
 }

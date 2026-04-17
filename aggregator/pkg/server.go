@@ -24,6 +24,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/aggregation"
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/chaindisable"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/handlers"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/health"
@@ -55,6 +56,7 @@ type Server struct {
 	l                                         logger.SugaredLogger
 	config                                    *model.AggregatorConfig
 	store                                     common.CommitVerificationStore
+	chainDisableRegistry                      *chaindisable.Registry
 	aggregator                                *aggregation.CommitReportAggregator
 	recoverer                                 *OrphanRecoverer
 	readCommitVerifierNodeResultHandler       *handlers.ReadCommitVerifierNodeResultHandler
@@ -162,6 +164,16 @@ func (s *Server) Start(lis net.Listener) error {
 		return nil
 	}, func(error) {
 		aggregatorCancel()
+	})
+
+	// Periodically refresh the chain-disable registry from the database.
+	chainDisableCtx, chainDisableCancel := context.WithCancel(context.Background())
+	g.Add(func() error {
+		s.chainDisableRegistry.StartPeriodicRefresh(chainDisableCtx, s.config.ChainDisable.RefreshInterval)
+		<-chainDisableCtx.Done()
+		return nil
+	}, func(error) {
+		chainDisableCancel()
 	})
 
 	if s.config.OrphanRecovery.Enabled && s.recoverer != nil {
@@ -300,18 +312,30 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig, aggMonito
 	)
 
 	factory := storage.NewStorageFactory(l)
-	store, err := factory.CreateStorage(config.Storage, aggMonitoring)
+	rawStore, err := factory.CreateStorage(config.Storage, aggMonitoring)
 	if err != nil {
 		l.Fatalf("Failed to create storage: %v", err)
 		return nil
 	}
 
-	store = storage.WrapWithMetrics(store, aggMonitoring, l)
+	// Build the chain-disable registry from the raw store before metrics wrapping.
+	// DatabaseStorage implements chaindisable.Store; the metrics wrapper does not need to.
+	chainDisableStore, ok := rawStore.(chaindisable.Store)
+	if !ok {
+		l.Fatalf("Storage does not implement chaindisable.Store")
+		return nil
+	}
+	chainDisableRegistry := chaindisable.NewRegistry(chainDisableStore, l)
+	if err := chainDisableRegistry.Refresh(context.Background()); err != nil {
+		l.Warnw("Failed initial chain-disable registry refresh", "error", err)
+	}
+
+	store := storage.WrapWithMetrics(rawStore, aggMonitoring, l)
 	validator := quorum.NewQuorumValidator(config, l)
 
 	agg := createAggregator(store, store, store, validator, config, l, aggMonitoring)
 
-	writeCommitVerifierNodeResultHandler := handlers.NewWriteCommitCCVNodeDataHandler(store, agg, aggMonitoring, l, validator, config.Aggregation.CheckAggregationTimeout)
+	writeCommitVerifierNodeResultHandler := handlers.NewWriteCommitCCVNodeDataHandler(store, agg, aggMonitoring, l, validator, config.Aggregation.CheckAggregationTimeout, chainDisableRegistry)
 	readCommitVerifierNodeResultHandler := handlers.NewReadCommitVerifierNodeResultHandler(store, l)
 	getMessagesSinceHandler := handlers.NewGetMessagesSinceHandler(store, config.Committee, l, aggMonitoring)
 	getVerifierResultsForMessageHandler := handlers.NewGetVerifierResultsForMessageHandler(store, config.Committee, config.MaxMessageIDsPerBatch, l)
@@ -410,6 +434,7 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig, aggMonito
 		l:                                    l,
 		config:                               config,
 		store:                                store,
+		chainDisableRegistry:                 chainDisableRegistry,
 		aggregator:                           agg,
 		readCommitVerifierNodeResultHandler:  readCommitVerifierNodeResultHandler,
 		writeCommitVerifierNodeResultHandler: writeCommitVerifierNodeResultHandler,
