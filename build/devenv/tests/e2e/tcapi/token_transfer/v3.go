@@ -93,7 +93,7 @@ func (tc *tokenTransferV3TestCase) Run(ctx context.Context, harness tcapi.TestHa
 		return fmt.Errorf("expected %d receipt issuers, got %d", tc.numExpectedRecv, len(sendRes.ReceiptIssuers))
 	}
 
-	sentEvt, err := tc.src.WaitOneSentEventBySeqNo(ctx, tc.dst.ChainSelector(), seqNo, tcapi.DefaultSentTimeout)
+	sentEvt, err := tc.src.ConfirmSendOnSource(ctx, tc.dst.ChainSelector(), cciptestinterfaces.MessageEventKey{SeqNum: seqNo}, tcapi.DefaultSentTimeout)
 	if err != nil {
 		return fmt.Errorf("wait for sent event: %w", err)
 	}
@@ -122,7 +122,7 @@ func (tc *tokenTransferV3TestCase) Run(ctx context.Context, harness tcapi.TestHa
 	}
 
 	destChain := chainMap[tc.dst.ChainSelector()]
-	execEvt, err := destChain.ConfirmExecOnDest(ctx, tc.src.ChainSelector(), cciptestinterfaces.ExecEventKey{SeqNum: seqNo}, tokenTransferExecTimeout)
+	execEvt, err := destChain.ConfirmExecOnDest(ctx, tc.src.ChainSelector(), cciptestinterfaces.MessageEventKey{SeqNum: seqNo}, tokenTransferExecTimeout)
 	if err != nil {
 		return fmt.Errorf("wait for exec event: %w", err)
 	}

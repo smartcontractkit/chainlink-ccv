@@ -122,7 +122,7 @@ func runV2TestCase(
 	})
 	require.NoError(t, err)
 
-	sentEvent, err := chainMap[tc.fromSelector].WaitOneSentEventBySeqNo(ctx, tc.toSelector, seqNo, defaultSentTimeout)
+	sentEvent, err := chainMap[tc.fromSelector].ConfirmSendOnSource(ctx, tc.toSelector, cciptestinterfaces.MessageEventKey{SeqNum: seqNo}, defaultSentTimeout)
 	require.NoError(t, err)
 	messageID := sentEvent.MessageID
 
@@ -133,7 +133,7 @@ func runV2TestCase(
 	require.Len(t, result.IndexedVerifications.Results, tc.numExpectedVerifications)
 
 	if tc.assertExecuted {
-		e, err := chainMap[tc.toSelector].ConfirmExecOnDest(ctx, tc.fromSelector, cciptestinterfaces.ExecEventKey{SeqNum: seqNo}, defaultExecTimeout)
+		e, err := chainMap[tc.toSelector].ConfirmExecOnDest(ctx, tc.fromSelector, cciptestinterfaces.MessageEventKey{SeqNum: seqNo}, defaultExecTimeout)
 		require.NoError(t, err)
 		require.NotNil(t, e)
 

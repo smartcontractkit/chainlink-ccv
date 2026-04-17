@@ -131,7 +131,7 @@ func TestE2ESmoke_ChainStatusDisableEnable(t *testing.T) {
 	require.NoError(t, err)
 	_, err = srcImpl.SendMessage(ctx, destSelector, messageFields, messageOpts)
 	require.NoError(t, err)
-	sentEvt, err := srcImpl.WaitOneSentEventBySeqNo(ctx, destSelector, seqNo, defaultSentTimeout)
+	sentEvt, err := srcImpl.ConfirmSendOnSource(ctx, destSelector, cciptestinterfaces.MessageEventKey{SeqNum: seqNo}, defaultSentTimeout)
 	require.NoError(t, err)
 	msgID1 := sentEvt.MessageID
 
@@ -150,7 +150,7 @@ func TestE2ESmoke_ChainStatusDisableEnable(t *testing.T) {
 	require.NoError(t, err)
 	_, err = srcImpl.SendMessage(ctx, destSelector, cciptestinterfaces.MessageFields{Receiver: receiver, Data: []byte("disable-enable-test-2")}, messageOpts)
 	require.NoError(t, err)
-	sentEvt2, err := srcImpl.WaitOneSentEventBySeqNo(ctx, destSelector, seqNo2, defaultSentTimeout)
+	sentEvt2, err := srcImpl.ConfirmSendOnSource(ctx, destSelector, cciptestinterfaces.MessageEventKey{SeqNum: seqNo2}, defaultSentTimeout)
 	require.NoError(t, err)
 	msgID2 := sentEvt2.MessageID
 
@@ -224,7 +224,7 @@ func TestE2ESmoke_ChainStatusFinalizedHeight(t *testing.T) {
 	require.NoError(t, err)
 	_, err = srcImpl.SendMessage(ctx, destSelector, messageFields, messageOpts)
 	require.NoError(t, err)
-	sentEvt, err := srcImpl.WaitOneSentEventBySeqNo(ctx, destSelector, seqNo, defaultSentTimeout)
+	sentEvt, err := srcImpl.ConfirmSendOnSource(ctx, destSelector, cciptestinterfaces.MessageEventKey{SeqNum: seqNo}, defaultSentTimeout)
 	require.NoError(t, err)
 	msgID := sentEvt.MessageID
 
