@@ -115,7 +115,7 @@ func TestEventPollerMessageSent(t *testing.T) {
 
 		key := eventKey{chainSelector: 1, msgNum: 100}
 		expectedEvent := cciptestinterfaces.MessageSentEvent{
-			MessageID: [32]byte{1, 2, 3},
+			MessageID: protocol.Bytes32{1, 2, 3},
 		}
 		poller.cachedBySeqNum[key] = pollerResult[cciptestinterfaces.MessageSentEvent]{event: expectedEvent}
 
@@ -138,9 +138,9 @@ func TestEventPollerByMessageID(t *testing.T) {
 		pollFn := func(start, end uint64) (map[eventKey]cciptestinterfaces.MessageSentEvent, error) {
 			return nil, nil
 		}
-		poller := newEventPoller[cciptestinterfaces.MessageSentEvent](nil, zerolog.Nop(), "test", pollFn)
+		poller := newEventPoller(nil, zerolog.Nop(), "test", pollFn)
 
-		messageID := [32]byte{1, 2, 3, 4}
+		messageID := protocol.Bytes32{1, 2, 3, 4}
 		key := eventKey{chainSelector: 7, messageID: messageID}
 		expectedEvent := cciptestinterfaces.MessageSentEvent{
 			MessageID: messageID,
@@ -166,9 +166,9 @@ func TestEventPollerByMessageID(t *testing.T) {
 		pollFn := func(start, end uint64) (map[eventKey]cciptestinterfaces.MessageSentEvent, error) {
 			return nil, nil
 		}
-		poller := newEventPoller[cciptestinterfaces.MessageSentEvent](nil, zerolog.Nop(), "test", pollFn)
+		poller := newEventPoller(nil, zerolog.Nop(), "test", pollFn)
 
-		messageID := [32]byte{3, 4, 5, 6}
+		messageID := protocol.Bytes32{3, 4, 5, 6}
 		key := eventKey{chainSelector: 5, messageID: messageID}
 
 		ctx := context.Background()
@@ -181,9 +181,9 @@ func TestEventPollerByMessageID(t *testing.T) {
 		pollFn := func(start, end uint64) (map[eventKey]cciptestinterfaces.MessageSentEvent, error) {
 			return nil, nil
 		}
-		poller := newEventPoller[cciptestinterfaces.MessageSentEvent](nil, zerolog.Nop(), "test", pollFn)
+		poller := newEventPoller(nil, zerolog.Nop(), "test", pollFn)
 
-		messageID := [32]byte{9, 8, 7, 6}
+		messageID := protocol.Bytes32{9, 8, 7, 6}
 		key := eventKey{chainSelector: 2, messageID: messageID}
 		ctx, cancel := context.WithCancel(context.Background())
 		ch := poller.registerByMessageID(ctx, key)

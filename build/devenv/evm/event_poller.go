@@ -62,10 +62,10 @@ func (p *eventPoller[T]) registerByMessageID(ctx context.Context, key eventKey) 
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	resultCh := make(chan pollerResult[T], 1)
 	msgIDKey := eventKey{chainSelector: key.chainSelector, messageID: key.messageID}
 
 	if cachedResult, found := p.cachedByMessageID[msgIDKey]; found {
+		resultCh := make(chan pollerResult[T], 1)
 		p.logger.Debug().
 			Uint64("chainSelector", key.chainSelector).
 			Bytes("messageID", key.messageID[:]).
@@ -80,6 +80,7 @@ func (p *eventPoller[T]) registerByMessageID(ctx context.Context, key eventKey) 
 		return existingCh
 	}
 
+	resultCh := make(chan pollerResult[T], 1)
 	p.waitersByMessageID[msgIDKey] = resultCh
 	go func() {
 		<-ctx.Done()
@@ -103,10 +104,10 @@ func (p *eventPoller[T]) registerBySequenceNumber(ctx context.Context, key event
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	resultCh := make(chan pollerResult[T], 1)
 	seqKey := eventKey{chainSelector: key.chainSelector, msgNum: key.msgNum}
 
 	if cachedResult, found := p.cachedBySeqNum[seqKey]; found {
+		resultCh := make(chan pollerResult[T], 1)
 		p.logger.Debug().
 			Uint64("chainSelector", key.chainSelector).
 			Uint64("seq", key.msgNum).
@@ -121,6 +122,7 @@ func (p *eventPoller[T]) registerBySequenceNumber(ctx context.Context, key event
 		return existingCh
 	}
 
+	resultCh := make(chan pollerResult[T], 1)
 	p.waitersBySeqNum[seqKey] = resultCh
 	go func() {
 		<-ctx.Done()

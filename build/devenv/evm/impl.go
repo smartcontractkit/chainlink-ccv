@@ -434,19 +434,15 @@ func (m *CCIP17EVM) WaitOneSentEventBySeqNo(ctx context.Context, to, seq uint64,
 }
 
 func (m *CCIP17EVM) ConfirmExecOnDest(ctx context.Context, from uint64, key cciptestinterfaces.ExecEventKey, timeout time.Duration) (cciptestinterfaces.ExecutionStateChangedEvent, error) {
+	if key.MessageID == (protocol.Bytes32{}) && key.SeqNum == 0 {
+		return cciptestinterfaces.ExecutionStateChangedEvent{}, fmt.Errorf("ExecEventKey must have MessageID or SeqNum set")
+	}
+
 	l := m.logger
 	if timeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, timeout)
 		defer cancel()
-	}
-	if key.MessageID != (protocol.Bytes32{}) && key.SeqNum != 0 {
-		return cciptestinterfaces.ExecutionStateChangedEvent{}, fmt.Errorf("both MessageID and SeqNum are set in ExecEventKey")
-	}
-	if key.MessageID != (protocol.Bytes32{}) {
-		l.Info().Uint64("from", from).Bytes("messageID", key.MessageID[:]).Msg("Awaiting ExecutionStateChanged event")
-	} else {
-		l.Info().Uint64("from", from).Uint64("to", m.chainDetails.ChainSelector).Uint64("seq", key.SeqNum).Msg("Awaiting ExecutionStateChanged event")
 	}
 
 	poller, err := m.getOrCreateOffRampPoller()

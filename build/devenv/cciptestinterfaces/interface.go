@@ -150,8 +150,9 @@ type ExecutionStateChangedEvent struct {
 	ReturnData          []byte
 }
 
-// ExecEventKey identifies an execution state change event by either sequence number or message ID.
-// If MessageID is non-zero it takes precedence over SeqNum.
+// ExecEventKey identifies an execution state change event by sequence number or message ID.
+// Exactly one field must be set: a non-zero MessageID is used for message-ID-based lookup;
+// otherwise SeqNum is used. Setting both causes ConfirmExecOnDest to prefer MessageID.
 type ExecEventKey struct {
 	SeqNum    uint64
 	MessageID protocol.Bytes32
