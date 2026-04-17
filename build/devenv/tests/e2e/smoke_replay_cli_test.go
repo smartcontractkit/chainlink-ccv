@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"fmt"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -26,6 +27,12 @@ import (
 )
 
 const replayBinary = "/bin/indexer-replay"
+
+func execInContainer(ctx context.Context, containerName string, args ...string) (string, error) {
+	cmd := exec.CommandContext(ctx, "docker", append([]string{"exec", containerName}, args...)...)
+	out, err := cmd.CombinedOutput()
+	return string(out), err
+}
 
 func openIndexerDB(t *testing.T, in *ccv.Cfg) (*sql.DB, string) {
 	t.Helper()
@@ -74,7 +81,7 @@ func TestE2ESmoke_ReplayCLI(t *testing.T) {
 	})
 
 	t.Run("list empty", func(t *testing.T) {
-		out, err := execInContainer(containerName, replayCLIArgs("list")...)
+		out, err := execInContainer(t.Context(), containerName, replayCLIArgs("list")...)
 		require.NoError(t, err, "list should succeed; output: %s", out)
 		require.Contains(t, out, "No replay jobs found", "empty list should report no jobs; output: %s", out)
 	})
@@ -88,20 +95,20 @@ func TestE2ESmoke_ReplayCLI(t *testing.T) {
 		)
 		require.NoError(t, err, "seeding fake replay job")
 
-		out, err := execInContainer(containerName, replayCLIArgs("list")...)
+		out, err := execInContainer(ctx, containerName, replayCLIArgs("list")...)
 		require.NoError(t, err, "list should succeed; output: %s", out)
 		require.Contains(t, out, fakeJobID, "list output must contain the seeded job ID; output: %s", out)
 	})
 
 	t.Run("status", func(t *testing.T) {
-		out, err := execInContainer(containerName, replayCLIArgs("status", "--id", fakeJobID)...)
+		out, err := execInContainer(t.Context(), containerName, replayCLIArgs("status", "--id", fakeJobID)...)
 		require.NoError(t, err, "status should succeed; output: %s", out)
 		require.Contains(t, out, fakeJobID, "status output must contain the job ID; output: %s", out)
 		require.Contains(t, out, "completed", "status output must show completed status; output: %s", out)
 	})
 
 	t.Run("discovery", func(t *testing.T) {
-		out, err := execInContainer(containerName, replayCLIArgs("discovery", "--since", "1")...)
+		out, err := execInContainer(t.Context(), containerName, replayCLIArgs("discovery", "--since", "1")...)
 		require.NoError(t, err, "discovery replay should succeed with sequence 1; output: %s", out)
 	})
 }
@@ -234,7 +241,7 @@ func TestE2ESmoke_ReplayForceOverwrite(t *testing.T) {
 
 	// ── Step 2: replay msg1 only with --force via --ids ─────────────────────
 	t.Log("Step 2: replaying msg1 with messages --ids --force...")
-	out, err := execInContainer(containerName,
+	out, err := execInContainer(ctx, containerName,
 		replayCLIArgs("messages", "--ids", msgHex1, "--force")...)
 	require.NoError(t, err, "messages replay failed; output: %s", out)
 
@@ -254,7 +261,7 @@ func TestE2ESmoke_ReplayForceOverwrite(t *testing.T) {
 
 	// ── Step 3: replay both with --force via discovery --since ───────────────
 	t.Logf("Step 3: replaying both with discovery --since %s --force...", discoverySince)
-	out, err = execInContainer(containerName,
+	out, err = execInContainer(ctx, containerName,
 		replayCLIArgs("discovery", "--since", discoverySince, "--force")...)
 	require.NoError(t, err, "discovery force replay failed; output: %s", out)
 
@@ -274,7 +281,7 @@ func TestE2ESmoke_ReplayForceOverwrite(t *testing.T) {
 
 	// ── Step 4: replay without --force (backfill-only, nothing to fill) ─────
 	t.Logf("Step 4: replaying with discovery --since %s (no --force)...", discoverySince)
-	out, err = execInContainer(containerName,
+	out, err = execInContainer(ctx, containerName,
 		replayCLIArgs("discovery", "--since", discoverySince)...)
 	require.NoError(t, err, "discovery backfill replay failed; output: %s", out)
 
