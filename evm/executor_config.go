@@ -3,6 +3,12 @@ package evm
 import (
 	"fmt"
 
+	chainsel "github.com/smartcontractkit/chain-selectors"
+	dsutils "github.com/smartcontractkit/chainlink-ccip/deployment/utils/datastore"
+	execop "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/executor"
+	offrampop "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/offramp"
+	rmnremote "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_0/operations/rmn_remote"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/sequences"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 
 	"github.com/smartcontractkit/chainlink-ccv/executor"
@@ -10,17 +16,61 @@ import (
 
 type evmExecutorConfigAdapter struct{}
 
-// GetDeployedChains returns EVM chain selectors that have executor contracts deployed
-// for the given qualifier, as recorded in the datastore.
 func (a *evmExecutorConfigAdapter) GetDeployedChains(ds datastore.DataStore, qualifier string) []uint64 {
-	// TODO: query EVM contract addresses from the datastore keyed by qualifier.
-	return nil
+	if ds == nil {
+		return nil
+	}
+	refs := ds.Addresses().Filter(
+		datastore.AddressRefByQualifier(qualifier),
+		datastore.AddressRefByType(datastore.ContractType(sequences.ExecutorProxyType)),
+	)
+	seen := make(map[uint64]struct{}, len(refs))
+	chains := make([]uint64, 0, len(refs))
+	for _, ref := range refs {
+		if _, exists := seen[ref.ChainSelector]; exists {
+			continue
+		}
+		family, err := chainsel.GetSelectorFamily(ref.ChainSelector)
+		if err != nil || family != chainsel.FamilyEVM {
+			continue
+		}
+		seen[ref.ChainSelector] = struct{}{}
+		chains = append(chains, ref.ChainSelector)
+	}
+	return chains
 }
 
-// BuildChainConfig reads EVM-specific contract addresses from the datastore and returns
-// the executor chain configuration for the given chain selector and qualifier.
 func (a *evmExecutorConfigAdapter) BuildChainConfig(ds datastore.DataStore, chainSelector uint64, qualifier string) (executor.ChainConfiguration, error) {
-	// TODO: resolve OffRampAddress, RmnAddress, DefaultExecutorAddress from the
-	// EVM-specific datastore entries for this chainSelector and qualifier.
-	return executor.ChainConfiguration{}, fmt.Errorf("EVM executor config adapter not yet implemented for chain %d", chainSelector)
+	toAddress := func(ref datastore.AddressRef) (string, error) { return ref.Address, nil }
+
+	offRampAddr, err := dsutils.FindAndFormatRef(ds, datastore.AddressRef{
+		Type:    datastore.ContractType(offrampop.ContractType),
+		Version: offrampop.Version,
+	}, chainSelector, toAddress)
+	if err != nil {
+		return executor.ChainConfiguration{}, fmt.Errorf("failed to get off ramp address for chain %d: %w", chainSelector, err)
+	}
+
+	rmnRemoteAddr, err := dsutils.FindAndFormatRef(ds, datastore.AddressRef{
+		Type:    datastore.ContractType(rmnremote.ContractType),
+		Version: rmnremote.Version,
+	}, chainSelector, toAddress)
+	if err != nil {
+		return executor.ChainConfiguration{}, fmt.Errorf("failed to get rmn remote address for chain %d: %w", chainSelector, err)
+	}
+
+	executorAddr, err := dsutils.FindAndFormatRef(ds, datastore.AddressRef{
+		Type:      datastore.ContractType(sequences.ExecutorProxyType),
+		Qualifier: qualifier,
+		Version:   execop.Version,
+	}, chainSelector, toAddress)
+	if err != nil {
+		return executor.ChainConfiguration{}, fmt.Errorf("failed to get executor proxy address for chain %d: %w", chainSelector, err)
+	}
+
+	return executor.ChainConfiguration{
+		OffRampAddress:         offRampAddr,
+		RmnAddress:             rmnRemoteAddr,
+		DefaultExecutorAddress: executorAddr,
+	}, nil
 }
