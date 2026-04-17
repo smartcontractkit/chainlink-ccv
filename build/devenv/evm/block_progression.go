@@ -3,7 +3,6 @@ package evm
 import (
 	"context"
 	"fmt"
-	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 )
@@ -12,10 +11,6 @@ import (
 //
 // A real (non-anvil) RPC will pass the compile-time check but
 // SupportManualBlockProgress / SupportReorgs return false at runtime.
-
-// Pollers inthe verifier/indexer need a beat to observe newly mined blocks before
-// the test makes its next assertion.
-const postMineSettle = 3 * time.Second
 
 var (
 	_ cciptestinterfaces.ProgressableChain = (*CCIP17EVM)(nil)
@@ -48,12 +43,6 @@ func (m *CCIP17EVM) AdvanceBlocks(ctx context.Context, numBlocks int) error {
 		}
 	}
 	m.logger.Debug().Int("numBlocks", numBlocks).Msg("Advanced blocks")
-
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-time.After(postMineSettle):
-	}
 	return nil
 }
 
@@ -74,17 +63,17 @@ func (m *CCIP17EVM) SupportReorgs(ctx context.Context) bool {
 func (m *CCIP17EVM) Snapshot(ctx context.Context) (cciptestinterfaces.SnapshotID, error) {
 	var snapshotID string
 	if err := m.ethClient.Client().CallContext(ctx, &snapshotID, "evm_snapshot"); err != nil {
-		return "", fmt.Errorf("evm_snapshot: %w", err)
+		return nil, fmt.Errorf("evm_snapshot: %w", err)
 	}
 	m.logger.Debug().Str("snapshotID", snapshotID).Msg("Created snapshot")
-	return cciptestinterfaces.SnapshotID(snapshotID), nil
+	return cciptestinterfaces.SnapshotID([]byte(snapshotID)), nil
 }
 
 // Revert restores the chain to the given snapshot. Anvil invalidates the
 // snapshot (and any taken after it) on success, so callers must take a
 // fresh snapshot if they need to revert again.
 func (m *CCIP17EVM) Revert(ctx context.Context, id cciptestinterfaces.SnapshotID) error {
-	if id == "" {
+	if len(id) == 0 {
 		return fmt.Errorf("revert: empty snapshot id")
 	}
 	var ok bool

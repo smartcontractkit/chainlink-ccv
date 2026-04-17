@@ -215,7 +215,7 @@ type ProgressableChain interface {
 
 // SnapshotID identifies a snapshot taken on a ReorgableChain. It is
 // opaque to the caller; each chain family defines its own encoding.
-type SnapshotID string
+type SnapshotID []byte
 
 // ReorgableChain is optionally implemented by chain families that can
 // snapshot and revert the node state to simulate reorgs (e.g. anvil via

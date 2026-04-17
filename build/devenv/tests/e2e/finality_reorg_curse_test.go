@@ -102,6 +102,7 @@ func TestE2EReorg(t *testing.T) {
 
 	advanceBlocks := func(numBlocks int) {
 		require.NoError(t, progressable.AdvanceBlocks(ctx, numBlocks), "advance %d blocks", numBlocks)
+		time.Sleep(3 * time.Second) // Give the verifier time to process
 	}
 	snapshot := func() cciptestinterfaces.SnapshotID {
 		id, err := reorgable.Snapshot(ctx)
