@@ -248,7 +248,7 @@ func (m *CCIP17EVM) getOrCreateOnRampPoller() (*eventPoller[cciptestinterfaces.M
 				m.logger.Warn().Err(err).Str("msgId", common.Bytes2Hex(event.MessageId[:])).Msg("Failed to decode message, skipping")
 				continue
 			}
-			key := eventKey{chainSelector: event.DestChainSelector, msgNum: uint64(message.SequenceNumber)}
+			key := eventKey{chainSelector: event.DestChainSelector, msgNum: uint64(message.SequenceNumber), messageID: event.MessageId}
 
 			ev := cciptestinterfaces.MessageSentEvent{
 				MessageID:      event.MessageId,
@@ -2088,69 +2088,6 @@ func (m *CCIP17EVM) SetLombardMailboxBridgedMessage(ctx context.Context, message
 		return fmt.Errorf("confirm setMessageId tx: %w", err)
 	}
 	return nil
-}
-
-func (m *CCIP17EVM) ConfirmMessageOnSource(ctx context.Context, messageID protocol.Bytes32, tx protocol.ByteSlice) error {
-	// stub for now because chain.Client can't grab *types.Transaction from a []byte in ctf
-	return nil
-	// txHash := common.Hash(tx)
-
-	// tx, _, err := m.chain.Client.TransactionByHash(ctx, txHash)
-	// if err != nil {
-	// 	return fmt.Errorf("failed to get transaction: %w", err)
-	// }
-	// _, err = m.chain.Confirm(txHash)
-	// if err != nil {
-	// 	return fmt.Errorf("failed to confirm transaction: %w", err)
-	// }
-
-	// receipt, err := m.chain.Client.TransactionReceipt(ctx, txHash)
-	// if err != nil {
-	// 	return fmt.Errorf("failed to get transaction receipt: %w", err)
-	// }
-
-	// var messageSentEvent *onramp.OnRampCCIPMessageSent
-	// for _, log := range receipt.Logs {
-	// 	if log.Topics[0] == ccipMessageSentTopic {
-	// 		messageSentEvent, err = m.onRamp.ParseCCIPMessageSent(*log)
-	// 		if err != nil {
-
-	// 			return fmt.Errorf("failed to parse CCIPMessageSent event: %w", err)
-	// 		}
-	// 		break
-	// 	}
-	// }
-
-	// if messageSentEvent == nil {
-	// 	return cciptestinterfaces.MessageSentEvent{}, errors.New("no CCIPMessageSent event found")
-	// }
-
-	// return nil
-}
-
-func (m *CCIP17EVM) WaitExecStateChangeByMessageID(ctx context.Context, to uint64, messageID protocol.Bytes32, timeout time.Duration) (cciptestinterfaces.ExecutionStateChangedEvent, error) {
-	l := m.logger
-	if timeout > 0 {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, timeout)
-		defer cancel()
-	}
-	poller, err := m.getOrCreateOffRampPoller()
-	if err != nil {
-		return cciptestinterfaces.ExecutionStateChangedEvent{}, err
-	}
-	resultCh := poller.register(ctx, eventKey{chainSelector: to, messageID: messageID})
-
-	select {
-	case <-ctx.Done():
-		l.Info().Msg("Context done while waiting for ExecutionStateChanged event")
-		return cciptestinterfaces.ExecutionStateChangedEvent{}, ctx.Err()
-	case result := <-resultCh:
-		if result.err != nil {
-			return cciptestinterfaces.ExecutionStateChangedEvent{}, result.err
-		}
-		return result.event, nil
-	}
 }
 
 func (m *CCIP17EVM) BuildExtraArgs(ctx context.Context, destChain uint64, opts cciptestinterfaces.MessageOptions) ([]byte, error) {

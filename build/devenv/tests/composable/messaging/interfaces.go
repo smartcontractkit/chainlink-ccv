@@ -15,7 +15,8 @@ type genericChain interface {
 type chainAsDestination interface {
 	SerializeExtraArgs(opts cciptestinterfaces.MessageOptions) []byte
 	GetEOAReceiverAddress() (protocol.UnknownAddress, error)
-	WaitExecStateChangeByMessageID(ctx context.Context, from uint64, messageID protocol.Bytes32, timeout time.Duration) (cciptestinterfaces.ExecutionStateChangedEvent, error)
+	ConfirmExecOnDest(ctx context.Context, from uint64, key cciptestinterfaces.MessageEventKey, timeout time.Duration) (cciptestinterfaces.ExecutionStateChangedEvent, error)
+
 	genericChain
 }
 
@@ -31,6 +32,6 @@ type chainAsSource interface {
 
 	SendChainMessage(ctx context.Context, destChain uint64, message any) (protocol.Bytes32, protocol.ByteSlice, error)
 
-	ConfirmMessageOnSource(ctx context.Context, messageID protocol.Bytes32, tx protocol.ByteSlice) error
+	ConfirmSendOnSource(ctx context.Context, to uint64, key cciptestinterfaces.MessageEventKey, timeout time.Duration) (cciptestinterfaces.MessageSentEvent, error)
 	genericChain
 }

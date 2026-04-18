@@ -16,15 +16,17 @@ func TestBasicMessage(ctx context.Context, t *testing.T, srcChain chainAsSource,
 
 	srcMessage, err := srcChain.BuildChainMessage(ctx, extraArgs, fields)
 	// send message using chainAsSource
-	messageID, tx, err := srcChain.SendChainMessage(ctx, destChain.ChainSelector(), srcMessage)
+	messageID, _, err := srcChain.SendChainMessage(ctx, destChain.ChainSelector(), srcMessage)
 	if err != nil {
 		require.NoError(t, err)
 	}
 
-	err = srcChain.ConfirmMessageOnSource(ctx, messageID, tx)
-	require.NoError(t, err)
+	_, err = srcChain.ConfirmSendOnSource(ctx, destChain.ChainSelector(), cciptestinterfaces.MessageEventKey{MessageID: messageID}, 40*time.Second)
+	if err != nil {
+		require.NoError(t, err)
+	}
 
-	execEvent, err := destChain.WaitExecStateChangeByMessageID(ctx, srcChain.ChainSelector(), messageID, 40*time.Second)
+	execEvent, err := destChain.ConfirmExecOnDest(ctx, srcChain.ChainSelector(), cciptestinterfaces.MessageEventKey{MessageID: messageID}, 40*time.Second)
 	if err != nil {
 		require.NoError(t, err)
 	}
