@@ -43,6 +43,7 @@ var (
 func NewExecutorCoordinator(
 	lggr logger.Logger,
 	cfg executor.Configuration,
+	chainAddresses chainaccess.GenericConfig,
 	// TODO: all these are EVM specific, shouldn't be.
 	relayers map[protocol.ChainSelector]legacyevm.Chain,
 	keys map[protocol.ChainSelector]keys.RoundRobin,
@@ -55,8 +56,6 @@ func NewExecutorCoordinator(
 
 	lggr.Infow("Executor configuration", "config", cfg)
 
-	offRampAddresses := make(map[protocol.ChainSelector]protocol.UnknownAddress, len(cfg.ChainConfiguration))
-	rmnAddresses := make(map[protocol.ChainSelector]protocol.UnknownAddress, len(cfg.ChainConfiguration))
 	execPool := make(map[protocol.ChainSelector][]string, len(cfg.ChainConfiguration))
 	execIntervals := make(map[protocol.ChainSelector]time.Duration, len(cfg.ChainConfiguration))
 	defaultExecutorAddresses := make(map[protocol.ChainSelector]protocol.UnknownAddress, len(cfg.ChainConfiguration))
@@ -67,14 +66,6 @@ func NewExecutorCoordinator(
 			return nil, fmt.Errorf("failed to parse selector '%s': %w", selStr, err)
 		}
 		sel := protocol.ChainSelector(intSel)
-		offRampAddresses[sel], err = protocol.NewUnknownAddressFromHex(chainConfig.OffRampAddress)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse offramp address '%s': %w", chainConfig.OffRampAddress, err)
-		}
-		rmnAddresses[sel], err = protocol.NewUnknownAddressFromHex(chainConfig.RmnAddress)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse rmn address '%s': %w", chainConfig.RmnAddress, err)
-		}
 		execPool[sel] = chainConfig.ExecutorPool
 		execIntervals[sel] = chainConfig.ExecutionInterval
 		defaultExecutorAddresses[sel], err = protocol.NewUnknownAddressFromHex(chainConfig.DefaultExecutorAddress)
@@ -96,16 +87,22 @@ func NewExecutorCoordinator(
 	rmnReaders := make(map[protocol.ChainSelector]chainaccess.RMNCurseReader)
 	enabledDestChains := make([]protocol.ChainSelector, 0)
 	for sel, chain := range relayers {
-		if _, ok := offRampAddresses[sel]; !ok {
+		offRampAddrStr := chainAddresses.OffRampAddresses[sel.String()]
+		if offRampAddrStr == "" {
 			lggr.Warnw("No offramp configured for chain, skipping.", "chainID", sel)
 			continue
 		}
+		offRampAddr, err := protocol.NewUnknownAddressFromHex(offRampAddrStr)
+		if err != nil {
+			return nil, fmt.Errorf("failed to parse offramp address '%s': %w", offRampAddrStr, err)
+		}
+		rmnAddrStr := chainAddresses.RMNRemoteAddresses[sel.String()]
 
 		transmitters[sel] = contracttransmitter.NewEVMContractTransmitterFromTxm(
 			logger.With(lggr, "component", "ContractTransmitter"),
 			sel,
 			chain.TxManager(),
-			common.HexToAddress(offRampAddresses[sel].String()),
+			common.HexToAddress(offRampAddr.String()),
 			keys[sel],
 			fromAddresses[sel],
 			executorMonitoring,
@@ -116,8 +113,8 @@ func NewExecutorCoordinator(
 				Lggr:                      logger.With(lggr, "component", "DestinationReader"),
 				ChainSelector:             sel,
 				ChainClient:               chain.Client(),
-				OfframpAddress:            offRampAddresses[sel].String(), // TODO: use UnknownAddress instead of string?
-				RmnRemoteAddress:          rmnAddresses[sel].String(),
+				OfframpAddress:            offRampAddrStr,
+				RmnRemoteAddress:          rmnAddrStr,
 				ExecutionVisabilityWindow: cfg.MaxRetryDuration,
 				Monitoring:                executorMonitoring,
 			})

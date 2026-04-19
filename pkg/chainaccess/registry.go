@@ -6,6 +6,7 @@ import (
 	"maps"
 	"reflect"
 	"sync"
+	"time"
 
 	"github.com/BurntSushi/toml"
 
@@ -69,6 +70,7 @@ type GenericConfig struct {
 	ChainConfig Infos[any] `toml:"blockchain_infos"`
 
 	CommitteeConfig
+	ExecutorConfig
 }
 
 // GetAllConcreteConfig populates target, which must be a pointer to an Infos[T]
@@ -127,14 +129,29 @@ func (gc GenericConfig) GetConcreteConfig(selector protocol.ChainSelector, targe
 	return nil
 }
 
-// CommitteeConfig that is defined as part of the app and required by the SourceReader.
+// CommitteeConfig holds source-side contract addresses used by committee verifiers.
+// It is embedded in GenericConfig.
 type CommitteeConfig struct {
-	// OnRampAddresses is a map the addresses of the on ramps for each chain selector.
+	// OnRampAddresses maps chain selectors (as decimal strings) to OnRamp contract addresses.
 	OnRampAddresses map[string]string `json:"on_ramp_addresses" toml:"on_ramp_addresses"`
 
-	// RMNRemoteAddresses is a map of RMN Remote contract addresses for each chain selector.
-	// Required for curse detection.
+	// RMNRemoteAddresses maps chain selectors to RMN Remote contract addresses.
+	// Used by source readers for curse detection.
 	RMNRemoteAddresses map[string]string `json:"rmn_remote_addresses" toml:"rmn_remote_addresses"`
+}
+
+// ExecutorConfig holds destination-side contract addresses and executor tuning parameters.
+// It is embedded in GenericConfig alongside CommitteeConfig so that a single config
+// file covers both verifier and executor needs.
+type ExecutorConfig struct {
+	// OffRampAddresses maps chain selectors (as decimal strings) to OffRamp contract addresses.
+	// Required by destination readers and contract transmitters.
+	OffRampAddresses map[string]string `json:"off_ramp_addresses" toml:"off_ramp_addresses"`
+
+	// ExecutionVisibilityWindow is how far back a DestinationReader looks for execution
+	// attempts when deciding whether an honest attempt has been made.
+	// Defaults to 8 hours when zero.
+	ExecutionVisibilityWindow time.Duration `toml:"execution_visibility_window"`
 }
 
 // accessorConstructorMapCopy returns a copy of the accessorConstructorMap to avoid holding the lock during

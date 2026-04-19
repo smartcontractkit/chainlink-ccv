@@ -82,6 +82,7 @@ func CreateAccessorFactory(
 	// Convert from map[string]string -> map[chainsel]string
 	onRampInfos := chainaccess.Infos[string](generic.OnRampAddresses).GetAllInfos()
 	rmnRemoteInfos := chainaccess.Infos[string](generic.RMNRemoteAddresses).GetAllInfos()
+	offRampInfos := chainaccess.Infos[string](generic.OffRampAddresses).GetAllInfos()
 
-	return NewFactory(lggr, onRampInfos, rmnRemoteInfos, headTrackers, chainClients), nil
+	return NewFactory(lggr, onRampInfos, rmnRemoteInfos, offRampInfos, generic.ExecutionVisibilityWindow, headTrackers, chainClients), nil
 }

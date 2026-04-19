@@ -23,6 +23,7 @@ const (
 type ConfigWithBlockchainInfo[T any] struct {
 	Configuration
 	BlockchainInfos chainaccess.Infos[T] `toml:"blockchain_infos"`
+	chainaccess.ExecutorConfig
 }
 
 // Configuration is the complete set of information an executor needs to operate normally.
@@ -61,13 +62,10 @@ type Configuration struct {
 	WorkerCount        int                           `toml:"worker_count"`
 }
 
-// ChainConfiguration is all the configuration an executor needs to know about a specific chain.
-// This is separate from chain-specific RPC information in BlockchainInfos.
+// ChainConfiguration is all the executor-specific configuration for a single destination chain.
+// Contract addresses (OffRamp, RMN Remote) are in chainaccess.CommitteeConfig so they are
+// shared with the accessor layer without duplication.
 type ChainConfiguration struct {
-	// RMN address is the address of the RMN contract to check for curse state.
-	RmnAddress string `toml:"rmn_address"`
-	// OffRamp address is the address of the offramp contract to send messages to.
-	OffRampAddress string `toml:"off_ramp_address"`
 	// Executor pool is the list of executor IDs used for turn taking. This executor's ID must be in the list.
 	ExecutorPool []string `toml:"executor_pool"`
 	// ExecutionInterval is how long each executor has to process a message before the next executor in the cluster takes over.
@@ -127,12 +125,6 @@ func (c *Configuration) Validate() error {
 	}
 
 	for chainSel, chainConfig := range c.ChainConfiguration {
-		if chainConfig.RmnAddress == "" {
-			return fmt.Errorf("rmn_address must be configured for chain %s", chainSel)
-		}
-		if chainConfig.OffRampAddress == "" {
-			return fmt.Errorf("off_ramp_address must be configured for chain %s", chainSel)
-		}
 		if chainConfig.DefaultExecutorAddress == "" {
 			return fmt.Errorf("default_executor_address must be configured for chain %s", chainSel)
 		}
