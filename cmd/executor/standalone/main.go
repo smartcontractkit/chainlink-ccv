@@ -355,7 +355,8 @@ func main() {
 func loadConfiguration(filepath string) (*executor.Configuration, *chainaccess.Infos[evm.Info], chainaccess.GenericConfig, error) {
 	var config struct {
 		executor.ConfigWithBlockchainInfo[evm.Info]
-		chainaccess.GenericConfig
+		chainaccess.CommitteeConfig
+		chainaccess.ExecutorConfig
 	}
 	if _, err := toml.DecodeFile(filepath, &config); err != nil {
 		return nil, nil, chainaccess.GenericConfig{}, err
@@ -365,5 +366,31 @@ func loadConfiguration(filepath string) (*executor.Configuration, *chainaccess.I
 	if err != nil {
 		return nil, nil, chainaccess.GenericConfig{}, err
 	}
-	return normalizedConfig, &config.BlockchainInfos, config.GenericConfig, nil
+
+	// Build GenericConfig address maps. Prefer top-level ExecutorConfig/CommitteeConfig
+	// fields if present; fall back to per-chain ChainConfiguration values.
+	offRampAddresses := make(map[string]string, len(normalizedConfig.ChainConfiguration))
+	rmnRemoteAddresses := make(map[string]string, len(normalizedConfig.ChainConfiguration))
+	for sel, cc := range normalizedConfig.ChainConfiguration {
+		offRampAddresses[sel] = cc.OffRampAddress
+		rmnRemoteAddresses[sel] = cc.RmnAddress
+	}
+	for k, v := range config.ExecutorConfig.OffRampAddresses {
+		offRampAddresses[k] = v
+	}
+	for k, v := range config.CommitteeConfig.RMNRemoteAddresses {
+		rmnRemoteAddresses[k] = v
+	}
+
+	genericConfig := chainaccess.GenericConfig{
+		CommitteeConfig: chainaccess.CommitteeConfig{
+			OnRampAddresses:    config.CommitteeConfig.OnRampAddresses,
+			RMNRemoteAddresses: rmnRemoteAddresses,
+		},
+		ExecutorConfig: chainaccess.ExecutorConfig{
+			OffRampAddresses:          offRampAddresses,
+			ExecutionVisibilityWindow: normalizedConfig.MaxRetryDuration,
+		},
+	}
+	return normalizedConfig, &config.BlockchainInfos, genericConfig, nil
 }
