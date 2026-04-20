@@ -2028,7 +2028,7 @@ func (m *CCIP17EVM) SendChainMessage(ctx context.Context, destChain uint64, msg 
 	}
 
 	msgValue := fee
-	if evmOpts.ValidateTokenBalances {
+	if !evmOpts.DisableTokenAmountValidation {
 		msgValue, err = m.validateTokenBalances(ctx, m.chain, routerAddress, message.FeeToken, fee, message.TokenAmounts, m.logger)
 		if err != nil {
 			return cciptestinterfaces.MessageSentEvent{}, protocol.ByteSlice{}, fmt.Errorf("failed to validate token balances: %w", err)
