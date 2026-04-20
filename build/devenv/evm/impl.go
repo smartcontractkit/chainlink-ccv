@@ -634,15 +634,14 @@ func (m *CCIP17EVM) validateTokenBalances(ctx context.Context, srcChain evm.Chai
 }
 
 // SendMessage sends a CCIP message to the specified destination chain with the specified message options.
-// We're keeping this for backwardsd compatability while we move to the new composable interfaces.
+// We're keeping this for backward compatibility while we move to the new composable interfaces.
 func (m *CCIP17EVM) SendMessage(ctx context.Context, dest uint64, fields cciptestinterfaces.MessageFields, opts cciptestinterfaces.MessageOptions) (cciptestinterfaces.MessageSentEvent, error) {
 	msg, err := m.BuildChainMessage(ctx, dest, fields, opts)
 	if err != nil {
 		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("failed to build chain message: %w", err)
 	}
 
-	// Use default send options (no nonce/sender override)
-	sendOption := EVMSendOptions{}
+	sendOption := EVMSendOptions{UseTestRouter: opts.UseTestRouter}
 
 	sentEvent, _, err := m.SendChainMessage(ctx, dest, msg, sendOption)
 	if err != nil {
@@ -2110,6 +2109,7 @@ func (m *CCIP17EVM) BuildChainMessage(ctx context.Context, destChain uint64, mes
 	ret := routerwrapper.ClientEVM2AnyMessage{
 		Receiver:  common.LeftPadBytes(messageFields.Receiver.Bytes(), 32),
 		Data:      messageFields.Data,
+		FeeToken:  common.HexToAddress(messageFields.FeeToken.String()),
 		ExtraArgs: extraArgs,
 	}
 	if messageFields.TokenAmount.Amount != nil {
@@ -2131,7 +2131,19 @@ func (m *CCIP17EVM) SendChainMessage(ctx context.Context, destChain uint64, msg 
 	srcChain := m.chain
 	sender := m.chain.DeployerKey
 
+	// Parse send options first so UseTestRouter affects router selection.
+	var evmOpts EVMSendOptions
+	if o, ok := sendOption.(EVMSendOptions); ok {
+		evmOpts = o
+	}
+	if evmOpts.Sender != nil {
+		sender = evmOpts.Sender
+	}
+
 	routerContractType := routeroperations.ContractType
+	if evmOpts.UseTestRouter {
+		routerContractType = routeroperations.TestRouterContractType
+	}
 	routerVersion := semver.MustParse(routeroperations.Deploy.Version())
 	routerRefs := m.ds.Addresses().Filter(
 		datastore.AddressRefByChainSelector(srcChain.Selector),
@@ -2141,9 +2153,8 @@ func (m *CCIP17EVM) SendChainMessage(ctx context.Context, destChain uint64, msg 
 	if len(routerRefs) != 1 {
 		return cciptestinterfaces.MessageSentEvent{}, protocol.ByteSlice{}, fmt.Errorf("expected exactly one router for selector %d type %s version %s, got %d", srcChain.Selector, routerContractType, routerVersion.String(), len(routerRefs))
 	}
-	routerRef := routerRefs[0]
 
-	routerAddress := common.HexToAddress(routerRef.Address)
+	routerAddress := common.HexToAddress(routerRefs[0].Address)
 	rout, err := routerwrapper.NewRouter(routerAddress, srcChain.Client)
 	if err != nil {
 		return cciptestinterfaces.MessageSentEvent{}, protocol.ByteSlice{}, fmt.Errorf("create router wrapper: %w", err)
@@ -2154,19 +2165,19 @@ func (m *CCIP17EVM) SendChainMessage(ctx context.Context, destChain uint64, msg 
 		return cciptestinterfaces.MessageSentEvent{}, protocol.ByteSlice{}, fmt.Errorf("failed to get fee: %w", err)
 	}
 
+	// If an ERC20 fee token is set, the fee is paid via token approval, not native value.
+	msgValue := fee
+	if message.FeeToken != (common.Address{}) {
+		msgValue = big.NewInt(0)
+	}
+
 	senderKeyCopy := &bind.TransactOpts{
 		From:   sender.From,
 		Signer: sender.Signer,
-		Value:  fee,
+		Value:  msgValue,
 	}
-	if evmSendOption, ok := sendOption.(EVMSendOptions); ok {
-		if evmSendOption.Nonce != nil {
-			senderKeyCopy.Nonce = new(big.Int).SetUint64(*evmSendOption.Nonce)
-		}
-		if evmSendOption.Sender != nil {
-			senderKeyCopy.From = evmSendOption.Sender.From
-			senderKeyCopy.Signer = evmSendOption.Sender.Signer
-		}
+	if evmOpts.Nonce != nil {
+		senderKeyCopy.Nonce = new(big.Int).SetUint64(*evmOpts.Nonce)
 	}
 
 	tx, err := rout.CcipSend(senderKeyCopy, destChain, message)
@@ -2180,9 +2191,7 @@ func (m *CCIP17EVM) SendChainMessage(ctx context.Context, destChain uint64, msg 
 		return cciptestinterfaces.MessageSentEvent{}, protocol.ByteSlice{}, fmt.Errorf("failed to confirm transaction: %w", err)
 	}
 
-	dcc, err := m.onRamp.GetDestChainConfig(&bind.CallOpts{
-		Context: ctx,
-	}, destChain)
+	dcc, err := m.onRamp.GetDestChainConfig(&bind.CallOpts{Context: ctx}, destChain)
 	if err != nil {
 		return cciptestinterfaces.MessageSentEvent{}, protocol.ByteSlice{}, fmt.Errorf("failed to get dest chain config: %w", err)
 	}
@@ -2203,6 +2212,10 @@ func (m *CCIP17EVM) SendChainMessage(ctx context.Context, destChain uint64, msg 
 			break
 		}
 	}
+	if messageSentEvent == nil {
+		return cciptestinterfaces.MessageSentEvent{}, protocol.ByteSlice{}, errors.New("no CCIPMessageSent event found in transaction receipt")
+	}
+
 	decodedMessage, err := protocol.DecodeMessage(messageSentEvent.EncodedMessage)
 	if err != nil {
 		return cciptestinterfaces.MessageSentEvent{}, protocol.ByteSlice{}, fmt.Errorf("failed to decode message: %w", err)
@@ -2215,6 +2228,10 @@ func (m *CCIP17EVM) SendChainMessage(ctx context.Context, destChain uint64, msg 
 		ReceiptIssuers: make([]protocol.UnknownAddress, 0, len(messageSentEvent.Receipts)),
 		VerifierBlobs:  messageSentEvent.VerifierBlobs,
 	}
+	for _, r := range messageSentEvent.Receipts {
+		result.ReceiptIssuers = append(result.ReceiptIssuers, protocol.UnknownAddress(r.Issuer.Bytes()))
+	}
+
 	l.Info().
 		Str("TxHash", messageSentEvent.Raw.TxHash.String()).
 		Uint64("BlockNumber", messageSentEvent.Raw.BlockNumber).
@@ -2238,8 +2255,9 @@ func (m *CCIP17EVM) SendChainMessage(ctx context.Context, destChain uint64, msg 
 }
 
 type EVMSendOptions struct {
-	Nonce  *uint64
-	Sender *bind.TransactOpts
+	Nonce         *uint64
+	Sender        *bind.TransactOpts
+	UseTestRouter bool
 }
 
 type IEVMSendOptions interface {
