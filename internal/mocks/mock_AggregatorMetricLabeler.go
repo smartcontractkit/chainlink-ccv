@@ -665,6 +665,40 @@ func (_c *MockAggregatorMetricLabeler_RecordTimeToAggregation_Call) RunAndReturn
 	return _c
 }
 
+// SetChainDisabledStatus provides a mock function with given fields: ctx, disabled
+func (_m *MockAggregatorMetricLabeler) SetChainDisabledStatus(ctx context.Context, disabled int64) {
+	_m.Called(ctx, disabled)
+}
+
+// MockAggregatorMetricLabeler_SetChainDisabledStatus_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetChainDisabledStatus'
+type MockAggregatorMetricLabeler_SetChainDisabledStatus_Call struct {
+	*mock.Call
+}
+
+// SetChainDisabledStatus is a helper method to define mock.On call
+//   - ctx context.Context
+//   - disabled int64
+func (_e *MockAggregatorMetricLabeler_Expecter) SetChainDisabledStatus(ctx interface{}, disabled interface{}) *MockAggregatorMetricLabeler_SetChainDisabledStatus_Call {
+	return &MockAggregatorMetricLabeler_SetChainDisabledStatus_Call{Call: _e.mock.On("SetChainDisabledStatus", ctx, disabled)}
+}
+
+func (_c *MockAggregatorMetricLabeler_SetChainDisabledStatus_Call) Run(run func(ctx context.Context, disabled int64)) *MockAggregatorMetricLabeler_SetChainDisabledStatus_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(int64))
+	})
+	return _c
+}
+
+func (_c *MockAggregatorMetricLabeler_SetChainDisabledStatus_Call) Return() *MockAggregatorMetricLabeler_SetChainDisabledStatus_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockAggregatorMetricLabeler_SetChainDisabledStatus_Call) RunAndReturn(run func(context.Context, int64)) *MockAggregatorMetricLabeler_SetChainDisabledStatus_Call {
+	_c.Run(run)
+	return _c
+}
+
 // SetOrphanBacklog provides a mock function with given fields: ctx, count
 func (_m *MockAggregatorMetricLabeler) SetOrphanBacklog(ctx context.Context, count int) {
 	_m.Called(ctx, count)

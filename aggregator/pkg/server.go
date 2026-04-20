@@ -10,9 +10,11 @@ import (
 	"os"
 	"os/signal"
 	"runtime/debug"
+	"strconv"
 	"sync"
 	"syscall"
 	"time"
+
 
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors"
 	"github.com/grpc-ecosystem/go-grpc-middleware/v2/interceptors/recovery"
@@ -24,6 +26,7 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/aggregation"
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/chainstatus"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/handlers"
@@ -325,7 +328,27 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig, aggMonito
 		l.Fatalf("Storage does not implement chainstatus.Store")
 		return nil
 	}
-	chainStatusRegistry := chainstatus.NewRegistry(chainStatusStore, l)
+	chainStatusOpts := []chainstatus.RegistryOption{}
+	if config.Committee != nil {
+		sourceSels := make([]uint64, 0, len(config.Committee.QuorumConfigs))
+		for selStr := range config.Committee.QuorumConfigs {
+			if sel, err := strconv.ParseUint(selStr, 10, 64); err == nil {
+				sourceSels = append(sourceSels, sel)
+			}
+		}
+		destSels := make([]uint64, 0, len(config.Committee.DestinationVerifiers))
+		for selStr := range config.Committee.DestinationVerifiers {
+			if sel, err := strconv.ParseUint(selStr, 10, 64); err == nil {
+				destSels = append(destSels, sel)
+			}
+		}
+		chainStatusOpts = append(chainStatusOpts, chainstatus.WithStatusMetrics(
+			monitoring.NewChainStatusMetrics(aggMonitoring),
+			sourceSels,
+			destSels,
+		))
+	}
+	chainStatusRegistry := chainstatus.NewRegistry(chainStatusStore, l, chainStatusOpts...)
 	if err := chainStatusRegistry.Refresh(context.Background()); err != nil {
 		l.Warnw("Failed initial chain-disable registry refresh", "error", err)
 	}

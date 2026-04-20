@@ -9,6 +9,11 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
+// StatusMetrics is an optional dependency for recording chain-disabled metrics after each refresh.
+type StatusMetrics interface {
+	SetChainDisabledStatus(ctx context.Context, selector uint64, side LaneSide, disabled bool)
+}
+
 // Registry holds the in-memory set of disabled chains, refreshed periodically from the Store.
 // It implements Checker.
 type Registry struct {
@@ -16,22 +21,42 @@ type Registry struct {
 	mu              sync.RWMutex
 	disabledSources map[uint64]struct{}
 	disabledDests   map[uint64]struct{}
+	sourceSels      []uint64 // committee source selectors covered by metrics
+	destSels        []uint64 // committee dest selectors covered by metrics
+	statusMetrics   StatusMetrics
 	lggr            logger.SugaredLogger
 }
 
 var _ Checker = (*Registry)(nil)
 
+// RegistryOption configures optional Registry behaviour.
+type RegistryOption func(*Registry)
+
+// WithStatusMetrics attaches a metrics reporter and the full set of committee selectors to
+// the Registry. After each successful Refresh the gauge is emitted for every selector.
+func WithStatusMetrics(m StatusMetrics, sourceSels, destSels []uint64) RegistryOption {
+	return func(r *Registry) {
+		r.statusMetrics = m
+		r.sourceSels = sourceSels
+		r.destSels = destSels
+	}
+}
+
 // NewRegistry creates a registry backed by the given store. Call Refresh before use.
-func NewRegistry(store Store, lggr logger.SugaredLogger) *Registry {
-	return &Registry{
+func NewRegistry(store Store, lggr logger.SugaredLogger, opts ...RegistryOption) *Registry {
+	r := &Registry{
 		store:           store,
 		disabledSources: make(map[uint64]struct{}),
 		disabledDests:   make(map[uint64]struct{}),
 		lggr:            lggr,
 	}
+	for _, o := range opts {
+		o(r)
+	}
+	return r
 }
 
-// Refresh reloads the disabled chain set from the store.
+// Refresh reloads the disabled chain set from the store and emits status metrics when configured.
 func (r *Registry) Refresh(ctx context.Context) error {
 	statuses, err := r.store.ListDisabled(ctx)
 	if err != nil {
@@ -53,6 +78,18 @@ func (r *Registry) Refresh(ctx context.Context) error {
 	r.disabledSources = newSources
 	r.disabledDests = newDests
 	r.mu.Unlock()
+
+	if r.statusMetrics != nil {
+		for _, sel := range r.sourceSels {
+			_, disabled := newSources[sel]
+			r.statusMetrics.SetChainDisabledStatus(ctx, sel, LaneSideSource, disabled)
+		}
+		for _, sel := range r.destSels {
+			_, disabled := newDests[sel]
+			r.statusMetrics.SetChainDisabledStatus(ctx, sel, LaneSideDestination, disabled)
+		}
+	}
+
 	return nil
 }
 
