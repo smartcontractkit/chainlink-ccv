@@ -203,6 +203,9 @@ func (c *EnvironmentTopology) Validate() error {
 		addressSet[addr] = struct{}{}
 	}
 
+	if c.NOPTopology == nil {
+		return fmt.Errorf("nop_topology is required")
+	}
 	if err := c.NOPTopology.Validate(); err != nil {
 		return fmt.Errorf("nop_topology validation failed: %w", err)
 	}

@@ -19,7 +19,7 @@ type GenerateAggregatorConfigInput struct {
 	Topology           *ccvdeployment.EnvironmentTopology
 }
 
-func GenerateAggregatorConfig(registry *adapters.AggregatorConfigRegistry) deployment.ChangeSetV2[GenerateAggregatorConfigInput] {
+func GenerateAggregatorConfig(registry *adapters.Registry) deployment.ChangeSetV2[GenerateAggregatorConfigInput] {
 	validate := func(e deployment.Environment, cfg GenerateAggregatorConfigInput) error {
 		if cfg.ServiceIdentifier == "" {
 			return fmt.Errorf("service identifier is required")
@@ -91,7 +91,7 @@ func resolveAggregatorChainSelectors(e deployment.Environment, cfg GenerateAggre
 
 func buildAggregatorCommittee(
 	e deployment.Environment,
-	registry *adapters.AggregatorConfigRegistry,
+	registry *adapters.Registry,
 	committeeQualifier string,
 	chainSelectors []uint64,
 ) (*ccvdeployment.Committee, error) {
@@ -104,12 +104,15 @@ func buildAggregatorCommittee(
 	seen := make(map[chainQualifier]bool)
 	allCommittees := make(map[string][]*adapters.CommitteeState)
 	for _, sel := range chainSelectors {
-		adapter, err := registry.GetByChain(sel)
+		a, err := registry.GetByChain(sel)
 		if err != nil {
 			return nil, err
 		}
+		if a.Aggregator == nil {
+			return nil, fmt.Errorf("no aggregator config adapter registered for chain %d", sel)
+		}
 
-		states, err := adapter.ScanCommitteeStates(ctx, e, sel)
+		states, err := a.Aggregator.ScanCommitteeStates(ctx, e, sel)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan committee states on chain %d: %w", sel, err)
 		}
@@ -149,7 +152,7 @@ func buildAggregatorCommittee(
 
 func buildQuorumConfigs(
 	ds datastore.DataStore,
-	registry *adapters.AggregatorConfigRegistry,
+	registry *adapters.Registry,
 	committeeStates []*adapters.CommitteeState,
 	committeeQualifier string,
 	chainSelectors []uint64,
@@ -175,12 +178,15 @@ func buildQuorumConfigs(
 				continue
 			}
 
-			adapter, err := registry.GetByChain(sigConfig.SourceChainSelector)
+			a, err := registry.GetByChain(sigConfig.SourceChainSelector)
 			if err != nil {
 				return nil, err
 			}
+			if a.Aggregator == nil {
+				return nil, fmt.Errorf("no aggregator config adapter registered for chain %d", sigConfig.SourceChainSelector)
+			}
 
-			sourceVerifierAddr, err := adapter.ResolveVerifierAddress(ds, sigConfig.SourceChainSelector, committeeQualifier)
+			sourceVerifierAddr, err := a.Aggregator.ResolveVerifierAddress(ds, sigConfig.SourceChainSelector, committeeQualifier)
 			if err != nil {
 				return nil, fmt.Errorf("failed to resolve source verifier for chain %d: %w", sigConfig.SourceChainSelector, err)
 			}
@@ -235,19 +241,22 @@ func validateSignatureConfigConsistency(
 
 func buildDestinationVerifiers(
 	ds datastore.DataStore,
-	registry *adapters.AggregatorConfigRegistry,
+	registry *adapters.Registry,
 	committeeQualifier string,
 	destChainSelectors []uint64,
 ) (map[string]string, error) {
 	destVerifiers := make(map[string]string, len(destChainSelectors))
 
 	for _, chainSelector := range destChainSelectors {
-		adapter, err := registry.GetByChain(chainSelector)
+		a, err := registry.GetByChain(chainSelector)
 		if err != nil {
 			return nil, err
 		}
+		if a.Aggregator == nil {
+			return nil, fmt.Errorf("no aggregator config adapter registered for chain %d", chainSelector)
+		}
 
-		addr, err := adapter.ResolveVerifierAddress(ds, chainSelector, committeeQualifier)
+		addr, err := a.Aggregator.ResolveVerifierAddress(ds, chainSelector, committeeQualifier)
 		if err != nil {
 			return nil, fmt.Errorf("failed to resolve destination verifier for chain %d: %w", chainSelector, err)
 		}

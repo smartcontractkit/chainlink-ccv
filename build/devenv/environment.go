@@ -570,7 +570,7 @@ func generateExecutorJobSpecs(
 			execNOPAliases = append(execNOPAliases, exec.NOPAlias)
 		}
 
-		cs := ccvchangesets.ApplyExecutorConfig(ccvadapters.GetExecutorConfigRegistry())
+		cs := ccvchangesets.ApplyExecutorConfig(ccvadapters.GetRegistry())
 		output, err := cs.Apply(*e, ccvchangesets.ApplyExecutorConfigInput{
 			Topology:          topology,
 			ExecutorQualifier: qualifier,
@@ -731,7 +731,7 @@ func generateVerifierJobSpecs(
 			}
 
 			disableFinalityCheckers := disableFinalityCheckersPerFamily[family]
-			cs := ccvchangesets.ApplyVerifierConfig(ccvadapters.GetVerifierJobConfigRegistry())
+			cs := ccvchangesets.ApplyVerifierConfig(ccvadapters.GetRegistry())
 			output, err := cs.Apply(*e, ccvchangesets.ApplyVerifierConfigInput{
 				Topology:                 topology,
 				CommitteeQualifier:       committeeName,
@@ -1245,7 +1245,7 @@ func NewEnvironment() (in *Cfg, err error) {
 
 		// Use changeset to generate committee config from on-chain state
 		instanceName := aggregatorInput.InstanceName()
-		cs := ccvchangesets.GenerateAggregatorConfig(ccvadapters.GetAggregatorConfigRegistry())
+		cs := ccvchangesets.GenerateAggregatorConfig(ccvadapters.GetRegistry())
 		output, err := cs.Apply(*e, ccvchangesets.GenerateAggregatorConfigInput{
 			Topology:           topology,
 			ServiceIdentifier:  instanceName + "-aggregator",
@@ -1286,7 +1286,7 @@ func NewEnvironment() (in *Cfg, err error) {
 	// One shared config is generated; all indexers use the same config and duplicated secrets/auth.
 	if len(in.Aggregator) > 0 && len(in.Indexer) > 0 {
 		firstIdx := in.Indexer[0]
-		cs := ccvchangesets.GenerateIndexerConfig(ccvadapters.GetIndexerConfigRegistry())
+		cs := ccvchangesets.GenerateIndexerConfig(ccvadapters.GetRegistry())
 		output, err := cs.Apply(*e, ccvchangesets.GenerateIndexerConfigInput{
 			ServiceIdentifier:                "indexer",
 			CommitteeVerifierNameToQualifier: firstIdx.CommitteeVerifierNameToQualifier,
@@ -1503,15 +1503,15 @@ func NewEnvironment() (in *Cfg, err error) {
 		}
 
 		// Use changeset to generate token verifier config from on-chain state
-		cs := ccvchangesets.GenerateTokenVerifierConfig(ccvadapters.GetTokenVerifierConfigRegistry())
+		cs := ccvchangesets.GenerateTokenVerifierConfig(ccvadapters.GetRegistry())
 		output, err := cs.Apply(*e, ccvchangesets.GenerateTokenVerifierConfigInput{
 			ServiceIdentifier: "TokenVerifier",
 			ChainSelectors:    selectors,
 			PyroscopeURL:      template.PyroscopeURL,
-			Monitoring: ccvshared.MonitoringInput{
+			Monitoring: ccvdeployment.MonitoringConfig{
 				Enabled: template.Monitoring.Enabled,
 				Type:    template.Monitoring.Type,
-				Beholder: ccvshared.BeholderInput{
+				Beholder: ccvdeployment.BeholderConfig{
 					InsecureConnection:       template.Monitoring.Beholder.InsecureConnection,
 					CACertFile:               template.Monitoring.Beholder.CACertFile,
 					OtelExporterGRPCEndpoint: template.Monitoring.Beholder.OtelExporterGRPCEndpoint,

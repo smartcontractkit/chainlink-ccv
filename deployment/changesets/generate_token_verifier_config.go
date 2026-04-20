@@ -61,12 +61,12 @@ type GenerateTokenVerifierConfigInput struct {
 	ServiceIdentifier string
 	ChainSelectors    []uint64
 	PyroscopeURL      string
-	Monitoring        shared.MonitoringInput
+	Monitoring        ccvdeployment.MonitoringConfig
 	Lombard           LombardConfigInput
 	CCTP              CCTPConfigInput
 }
 
-func GenerateTokenVerifierConfig(registry *adapters.TokenVerifierConfigRegistry) deployment.ChangeSetV2[GenerateTokenVerifierConfigInput] {
+func GenerateTokenVerifierConfig(registry *adapters.Registry) deployment.ChangeSetV2[GenerateTokenVerifierConfigInput] {
 	validate := func(e deployment.Environment, cfg GenerateTokenVerifierConfigInput) error {
 		if cfg.ServiceIdentifier == "" {
 			return fmt.Errorf("service identifier is required")
@@ -97,12 +97,15 @@ func GenerateTokenVerifierConfig(registry *adapters.TokenVerifierConfigRegistry)
 		lombardVerifierResolverAddresses := make(map[string]string)
 
 		for _, sel := range selectors {
-			adapter, err := registry.GetByChain(sel)
+			a, err := registry.GetByChain(sel)
 			if err != nil {
 				return deployment.ChangesetOutput{}, err
 			}
+			if a.TokenVerifier == nil {
+				return deployment.ChangesetOutput{}, fmt.Errorf("no token verifier config adapter registered for chain %d", sel)
+			}
 
-			addrs, err := adapter.ResolveTokenVerifierAddresses(
+			addrs, err := a.TokenVerifier.ResolveTokenVerifierAddresses(
 				e.DataStore, sel, cctpCfg.Qualifier, lombardCfg.Qualifier,
 			)
 			if err != nil {

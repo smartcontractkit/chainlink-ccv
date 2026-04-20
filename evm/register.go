@@ -27,10 +27,12 @@ func init() {
 		return lower
 	})
 
-	// Register EVM adapter implementations in the deployment registries.
-	adapters.GetExecutorConfigRegistry().Register(chainsel.FamilyEVM, &evmExecutorConfigAdapter{})
-	adapters.GetVerifierJobConfigRegistry().Register(chainsel.FamilyEVM, &evmVerifierConfigAdapter{})
-	adapters.GetAggregatorConfigRegistry().Register(chainsel.FamilyEVM, &evmAggregatorConfigAdapter{})
-	adapters.GetIndexerConfigRegistry().Register(chainsel.FamilyEVM, &evmIndexerConfigAdapter{})
-	adapters.GetTokenVerifierConfigRegistry().Register(chainsel.FamilyEVM, &evmTokenVerifierConfigAdapter{})
+	// Register all EVM adapter implementations in the combined registry.
+	adapters.GetRegistry().Register(chainsel.FamilyEVM, adapters.ChainAdapters{
+		Aggregator:    &evmAggregatorConfigAdapter{},
+		Executor:      &evmExecutorConfigAdapter{},
+		Verifier:      &evmVerifierConfigAdapter{},
+		Indexer:       &evmIndexerConfigAdapter{},
+		TokenVerifier: &evmTokenVerifierConfigAdapter{},
+	})
 }

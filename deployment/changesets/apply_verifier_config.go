@@ -32,7 +32,7 @@ type ApplyVerifierConfigInput struct {
 	RevokeOrphanedJobs bool
 }
 
-func ApplyVerifierConfig(registry *adapters.VerifierConfigRegistry) deployment.ChangeSetV2[ApplyVerifierConfigInput] {
+func ApplyVerifierConfig(registry *adapters.Registry) deployment.ChangeSetV2[ApplyVerifierConfigInput] {
 	validate := func(e deployment.Environment, cfg ApplyVerifierConfigInput) error {
 		if cfg.Topology == nil {
 			return fmt.Errorf("topology is required")
@@ -213,19 +213,19 @@ func ApplyVerifierConfig(registry *adapters.VerifierConfigRegistry) deployment.C
 // getSignerFamilyFromRegistry returns the signing key family by querying the registered
 // adapter for any of the given chain selectors.  All adapters in a committee are expected
 // to agree on the signer family (e.g. every EVM adapter returns chainsel.FamilyEVM).
-func getSignerFamilyFromRegistry(registry *adapters.VerifierConfigRegistry, selectors []uint64) (string, error) {
+func getSignerFamilyFromRegistry(registry *adapters.Registry, selectors []uint64) (string, error) {
 	for _, sel := range selectors {
-		adapter, err := registry.GetByChain(sel)
-		if err != nil {
+		a, err := registry.GetByChain(sel)
+		if err != nil || a.Verifier == nil {
 			continue
 		}
-		return adapter.GetSignerAddressFamily(), nil
+		return a.Verifier.GetSignerAddressFamily(), nil
 	}
 	return "", fmt.Errorf("no registered verifier adapter found for any committee chain selector")
 }
 
 func buildVerifierContractConfigs(
-	registry *adapters.VerifierConfigRegistry,
+	registry *adapters.Registry,
 	e deployment.Environment,
 	selectors []uint64,
 	committeeQualifier string,
@@ -233,11 +233,14 @@ func buildVerifierContractConfigs(
 ) (map[string]*adapters.VerifierContractAddresses, error) {
 	configs := make(map[string]*adapters.VerifierContractAddresses, len(selectors))
 	for _, sel := range selectors {
-		adapter, err := registry.GetByChain(sel)
+		a, err := registry.GetByChain(sel)
 		if err != nil {
 			return nil, fmt.Errorf("no adapter for chain %d: %w", sel, err)
 		}
-		addrs, err := adapter.ResolveVerifierContractAddresses(e.DataStore, sel, committeeQualifier, executorQualifier)
+		if a.Verifier == nil {
+			return nil, fmt.Errorf("no verifier config adapter registered for chain %d", sel)
+		}
+		addrs, err := a.Verifier.ResolveVerifierContractAddresses(e.DataStore, sel, committeeQualifier, executorQualifier)
 		if err != nil {
 			return nil, fmt.Errorf("failed to resolve contract addresses for chain %d: %w", sel, err)
 		}

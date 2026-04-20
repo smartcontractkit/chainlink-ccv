@@ -28,7 +28,7 @@ type ApplyExecutorConfigInput struct {
 	RevokeOrphanedJobs bool
 }
 
-func ApplyExecutorConfig(registry *adapters.ExecutorConfigRegistry) deployment.ChangeSetV2[ApplyExecutorConfigInput] {
+func ApplyExecutorConfig(registry *adapters.Registry) deployment.ChangeSetV2[ApplyExecutorConfigInput] {
 	validate := func(e deployment.Environment, cfg ApplyExecutorConfigInput) error {
 		if cfg.Topology == nil {
 			return fmt.Errorf("topology is required")
@@ -74,7 +74,7 @@ func ApplyExecutorConfig(registry *adapters.ExecutorConfigRegistry) deployment.C
 	}
 
 	apply := func(e deployment.Environment, cfg ApplyExecutorConfigInput) (deployment.ChangesetOutput, error) {
-		selectors := registry.AllDeployedChains(e.DataStore, cfg.ExecutorQualifier)
+		selectors := registry.AllDeployedExecutorChains(e.DataStore, cfg.ExecutorQualifier)
 		pool := cfg.Topology.ExecutorPools[cfg.ExecutorQualifier]
 
 		if len(selectors) == 0 {
@@ -180,18 +180,21 @@ func ApplyExecutorConfig(registry *adapters.ExecutorConfigRegistry) deployment.C
 }
 
 func buildExecutorChainConfigs(
-	registry *adapters.ExecutorConfigRegistry,
+	registry *adapters.Registry,
 	ds datastore.DataStore,
 	selectors []uint64,
 	qualifier string,
 ) (map[string]executor.ChainConfiguration, error) {
 	chainConfigs := make(map[string]executor.ChainConfiguration, len(selectors))
 	for _, sel := range selectors {
-		adapter, err := registry.GetByChain(sel)
+		a, err := registry.GetByChain(sel)
 		if err != nil {
 			return nil, fmt.Errorf("no adapter for chain %d: %w", sel, err)
 		}
-		cfg, err := adapter.BuildChainConfig(ds, sel, qualifier)
+		if a.Executor == nil {
+			return nil, fmt.Errorf("no executor config adapter registered for chain %d", sel)
+		}
+		cfg, err := a.Executor.BuildChainConfig(ds, sel, qualifier)
 		if err != nil {
 			return nil, fmt.Errorf("failed to build config for chain %d: %w", sel, err)
 		}

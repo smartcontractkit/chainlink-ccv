@@ -19,7 +19,7 @@ type GenerateIndexerConfigInput struct {
 	LombardVerifierNameToQualifier   map[string]string
 }
 
-func GenerateIndexerConfig(registry *adapters.IndexerConfigRegistry) deployment.ChangeSetV2[GenerateIndexerConfigInput] {
+func GenerateIndexerConfig(registry *adapters.Registry) deployment.ChangeSetV2[GenerateIndexerConfigInput] {
 	validate := func(e deployment.Environment, cfg GenerateIndexerConfigInput) error {
 		if cfg.ServiceIdentifier == "" {
 			return fmt.Errorf("service identifier is required")
@@ -61,7 +61,7 @@ func GenerateIndexerConfig(registry *adapters.IndexerConfigRegistry) deployment.
 
 func buildIndexerVerifierMap(
 	ds datastore.DataStore,
-	registry *adapters.IndexerConfigRegistry,
+	registry *adapters.Registry,
 	selectors []uint64,
 	cfg GenerateIndexerConfigInput,
 ) (map[string][]string, error) {
@@ -91,7 +91,7 @@ func buildIndexerVerifierMap(
 
 func collectVerifierAddresses(
 	ds datastore.DataStore,
-	registry *adapters.IndexerConfigRegistry,
+	registry *adapters.Registry,
 	selectors []uint64,
 	qualifier string,
 	kind adapters.VerifierKind,
@@ -104,12 +104,15 @@ func collectVerifierAddresses(
 	var addresses []string
 
 	for _, sel := range selectors {
-		adapter, err := registry.GetByChain(sel)
+		a, err := registry.GetByChain(sel)
 		if err != nil {
 			return nil, err
 		}
+		if a.Indexer == nil {
+			return nil, fmt.Errorf("no indexer config adapter registered for chain %d", sel)
+		}
 
-		addrs, err := adapter.ResolveVerifierAddresses(ds, sel, qualifier, kind)
+		addrs, err := a.Indexer.ResolveVerifierAddresses(ds, sel, qualifier, kind)
 		if err != nil {
 			var missingErr *adapters.MissingIndexerVerifierAddressesError
 			if errors.As(err, &missingErr) {
