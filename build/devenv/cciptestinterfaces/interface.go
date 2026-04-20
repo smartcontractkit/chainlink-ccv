@@ -168,8 +168,6 @@ type Chain interface {
 	// SendMessageWithNonce sends a CCIP message to the specified destination chain with the specified message options and nonce.
 	// A nil nonce instructs the client to use the pending nonce from the RPC node.
 	SendMessageWithNonce(ctx context.Context, dest uint64, fields MessageFields, opts MessageOptions, sender *bind.TransactOpts, nonce *uint64, disableTokenAmountCheck bool) (MessageSentEvent, error)
-	// GetUserNonce returns the nonce for the given user address on this chain.
-	GetUserNonce(ctx context.Context, userAddress protocol.UnknownAddress) (uint64, error)
 	// GetExpectedNextSequenceNumber gets an expected sequence number for message to the specified destination chain.
 	GetExpectedNextSequenceNumber(ctx context.Context, to uint64) (uint64, error)
 	// ConfirmSendOnSource waits until exactly one CCIPMessageSent event is emitted on-chain for the specified destination chain, identified by sequence number or message ID.
@@ -186,8 +184,6 @@ type Chain interface {
 	Curse(ctx context.Context, subjects [][16]byte) error
 	// Uncurse uncurses a list of chains on this chain.
 	Uncurse(ctx context.Context, subjects [][16]byte) error
-	// GetRoundRobinUser returns a function that yields the next round-robin transact opts for the chain.
-	GetRoundRobinUser() func() *bind.TransactOpts
 	// ChainSelector gets the selector for this chain.
 	ChainSelector() uint64
 	// NativeBalance returns the native token balance of the given address on this chain.
@@ -395,4 +391,28 @@ type OffChainConfigurable interface {
 	// FundAddresses funds addresses for some amount of native currency
 	// using chain-specific clients or CLDF
 	FundAddresses(ctx context.Context, bc *blockchain.Input, addresses []protocol.UnknownAddress, nativeAmount *big.Int) error
+}
+
+type ChainSendOption interface {
+	IsSendOption() bool
+}
+
+type genericChain interface {
+	ChainSelector() uint64
+}
+
+type ChainAsDestination interface {
+	GetEOAReceiverAddress() (protocol.UnknownAddress, error)
+	ConfirmExecOnDest(ctx context.Context, from uint64, key MessageEventKey, timeout time.Duration) (ExecutionStateChangedEvent, error)
+
+	genericChain
+}
+
+type ChainAsSource interface {
+	BuildChainMessage(ctx context.Context, destChain uint64, messageFields MessageFields, opts MessageOptions) (any, error)
+
+	SendChainMessage(ctx context.Context, destChain uint64, message any, sendOption ChainSendOption) (MessageSentEvent, protocol.ByteSlice, error)
+
+	ConfirmSendOnSource(ctx context.Context, to uint64, key MessageEventKey, timeout time.Duration) (MessageSentEvent, error)
+	genericChain
 }

@@ -13,8 +13,8 @@ import (
 )
 
 var (
-	_ = chainAsSource(&evm.CCIP17EVM{})
-	_ = chainAsDestination(&evm.CCIP17EVM{})
+	_ = cciptestinterfaces.ChainAsSource(&evm.CCIP17EVM{})
+	_ = cciptestinterfaces.ChainAsDestination(&evm.CCIP17EVM{})
 )
 
 func TestEVM2EVMPOC(t *testing.T) {
@@ -40,10 +40,11 @@ func TestEVM2EVMPOC(t *testing.T) {
 	receiver, err := dest.GetEOAReceiverAddress()
 	require.NoError(t, err)
 
-	srcChain, srcOk := src.(chainAsSource)
-	destChain, destOk := dest.(chainAsDestination)
+	srcChain, srcOk := src.(cciptestinterfaces.ChainAsSource)
+	destChain, destOk := dest.(cciptestinterfaces.ChainAsDestination)
 	require.True(t, srcOk, "srcChain does not match the chainAsSource interface!")
 	require.True(t, destOk, "destChain does not match the chainAsDestination interface!")
+
 	TestBasicMessage(ctx, t, srcChain, destChain, cciptestinterfaces.MessageFields{
 		Receiver: receiver,
 		Data:     []byte{},
@@ -51,5 +52,5 @@ func TestEVM2EVMPOC(t *testing.T) {
 		Version:             2,
 		ExecutionGasLimit:   200_000,
 		OutOfOrderExecution: false,
-	})
+	}, nil)
 }

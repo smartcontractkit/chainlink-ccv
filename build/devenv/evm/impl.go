@@ -633,8 +633,24 @@ func (m *CCIP17EVM) validateTokenBalances(ctx context.Context, srcChain evm.Chai
 	return msgValue, nil
 }
 
+// SendMessage sends a CCIP message to the specified destination chain with the specified message options.
+// We're keeping this for backwardsd compatability while we move to the new composable interfaces
 func (m *CCIP17EVM) SendMessage(ctx context.Context, dest uint64, fields cciptestinterfaces.MessageFields, opts cciptestinterfaces.MessageOptions) (cciptestinterfaces.MessageSentEvent, error) {
-	return m.SendMessageWithNonce(ctx, dest, fields, opts, nil, nil, false)
+
+	msg, err := m.BuildChainMessage(ctx, dest, fields, opts)
+	if err != nil {
+		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("failed to build chain message: %w", err)
+	}
+
+	// Use default send options (no nonce/sender override)
+	sendOption := EVMSendOptions{}
+
+	sentEvent, _, err := m.SendChainMessage(ctx, dest, msg, sendOption)
+	if err != nil {
+		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("failed to send chain message: %w", err)
+	}
+
+	return sentEvent, nil
 }
 
 func (m *CCIP17EVM) SendMessageWithNonce(ctx context.Context, dest uint64, fields cciptestinterfaces.MessageFields, opts cciptestinterfaces.MessageOptions, sender *bind.TransactOpts, nonce *uint64, disableTokenAmountCheck bool) (cciptestinterfaces.MessageSentEvent, error) {
@@ -790,10 +806,6 @@ func (m *CCIP17EVM) SendMessageWithNonce(ctx context.Context, dest uint64, field
 
 func (m *CCIP17EVM) GetUserNonce(ctx context.Context, userAddress protocol.UnknownAddress) (uint64, error) {
 	return m.chain.Client.PendingNonceAt(ctx, common.HexToAddress(userAddress.String()))
-}
-
-func (m *CCIP17EVM) SerializeExtraArgs(opts cciptestinterfaces.MessageOptions) []byte {
-	return serializeExtraArgs(opts, chainsel.FamilyEVM)
 }
 
 // serializeExtraArgs dispatches to the destination family's registered ExtraArgsSerializer.
@@ -2090,11 +2102,12 @@ func (m *CCIP17EVM) SetLombardMailboxBridgedMessage(ctx context.Context, message
 	return nil
 }
 
-func (m *CCIP17EVM) BuildExtraArgs(ctx context.Context, destChain uint64, opts cciptestinterfaces.MessageOptions) ([]byte, error) {
-	return serializeExtraArgs(opts, chainsel.FamilyEVM), nil
-}
-
-func (m *CCIP17EVM) BuildChainMessage(ctx context.Context, extraArgs []byte, messageFields cciptestinterfaces.MessageFields) (any, error) {
+func (m *CCIP17EVM) BuildChainMessage(ctx context.Context, destChain uint64, messageFields cciptestinterfaces.MessageFields, opts cciptestinterfaces.MessageOptions) (any, error) {
+	chainFamily, err := chainsel.GetSelectorFamily(destChain)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get destination chain family: %w", err)
+	}
+	extraArgs := serializeExtraArgs(opts, chainFamily)
 	ret := routerwrapper.ClientEVM2AnyMessage{
 		Receiver:  common.LeftPadBytes(messageFields.Receiver.Bytes(), 32),
 		Data:      messageFields.Data,
@@ -2109,10 +2122,10 @@ func (m *CCIP17EVM) BuildChainMessage(ctx context.Context, extraArgs []byte, mes
 	return ret, nil
 }
 
-func (m *CCIP17EVM) SendChainMessage(ctx context.Context, destChain uint64, msg any) (protocol.Bytes32, protocol.ByteSlice, error) {
+func (m *CCIP17EVM) SendChainMessage(ctx context.Context, destChain uint64, msg any, sendOption cciptestinterfaces.ChainSendOption) (cciptestinterfaces.MessageSentEvent, protocol.ByteSlice, error) {
 	message, ok := msg.(routerwrapper.ClientEVM2AnyMessage)
 	if !ok {
-		return protocol.Bytes32{}, protocol.ByteSlice{}, errors.New("expected router.ClientEVM2AnyMessage")
+		return cciptestinterfaces.MessageSentEvent{}, protocol.ByteSlice{}, errors.New("expected router.ClientEVM2AnyMessage")
 	}
 
 	l := m.logger
@@ -2127,19 +2140,19 @@ func (m *CCIP17EVM) SendChainMessage(ctx context.Context, destChain uint64, msg 
 		datastore.AddressRefByVersion(routerVersion),
 	)
 	if len(routerRefs) != 1 {
-		return protocol.Bytes32{}, protocol.ByteSlice{}, fmt.Errorf("expected exactly one router for selector %d type %s version %s, got %d", srcChain.Selector, routerContractType, routerVersion.String(), len(routerRefs))
+		return cciptestinterfaces.MessageSentEvent{}, protocol.ByteSlice{}, fmt.Errorf("expected exactly one router for selector %d type %s version %s, got %d", srcChain.Selector, routerContractType, routerVersion.String(), len(routerRefs))
 	}
 	routerRef := routerRefs[0]
 
 	routerAddress := common.HexToAddress(routerRef.Address)
 	rout, err := routerwrapper.NewRouter(routerAddress, srcChain.Client)
 	if err != nil {
-		return protocol.Bytes32{}, protocol.ByteSlice{}, fmt.Errorf("create router wrapper: %w", err)
+		return cciptestinterfaces.MessageSentEvent{}, protocol.ByteSlice{}, fmt.Errorf("create router wrapper: %w", err)
 	}
 
 	fee, err := rout.GetFee(&bind.CallOpts{Context: ctx}, destChain, message)
 	if err != nil {
-		return protocol.Bytes32{}, protocol.ByteSlice{}, fmt.Errorf("failed to get fee: %w", err)
+		return cciptestinterfaces.MessageSentEvent{}, protocol.ByteSlice{}, fmt.Errorf("failed to get fee: %w", err)
 	}
 
 	senderKeyCopy := &bind.TransactOpts{
@@ -2147,20 +2160,29 @@ func (m *CCIP17EVM) SendChainMessage(ctx context.Context, destChain uint64, msg 
 		Signer: sender.Signer,
 		Value:  fee,
 	}
+	if evmSendOption, ok := sendOption.(EVMSendOptions); ok {
+		if evmSendOption.Nonce != nil {
+			senderKeyCopy.Nonce = new(big.Int).SetUint64(*evmSendOption.Nonce)
+		}
+		if evmSendOption.Sender != nil {
+			senderKeyCopy.From = evmSendOption.Sender.From
+			senderKeyCopy.Signer = evmSendOption.Sender.Signer
+		}
+	}
 
 	tx, err := rout.CcipSend(senderKeyCopy, destChain, message)
 	if err != nil {
-		return protocol.Bytes32{}, protocol.ByteSlice{}, fmt.Errorf("failed to send CCIP message: %w", err)
+		return cciptestinterfaces.MessageSentEvent{}, protocol.ByteSlice{}, fmt.Errorf("failed to send CCIP message: %w", err)
 	}
 	txHash := tx.Hash()
 
 	_, err = srcChain.Confirm(tx)
 	if err != nil {
-		return protocol.Bytes32{}, protocol.ByteSlice{}, fmt.Errorf("failed to confirm transaction: %w", err)
+		return cciptestinterfaces.MessageSentEvent{}, protocol.ByteSlice{}, fmt.Errorf("failed to confirm transaction: %w", err)
 	}
 	receipt, err := srcChain.Client.TransactionReceipt(ctx, txHash)
 	if err != nil {
-		return protocol.Bytes32{}, protocol.ByteSlice{}, fmt.Errorf("failed to get transaction receipt: %w", err)
+		return cciptestinterfaces.MessageSentEvent{}, protocol.ByteSlice{}, fmt.Errorf("failed to get transaction receipt: %w", err)
 	}
 
 	var messageSentEvent *onramp.OnRampCCIPMessageSent
@@ -2174,5 +2196,47 @@ func (m *CCIP17EVM) SendChainMessage(ctx context.Context, destChain uint64, msg 
 			break
 		}
 	}
-	return messageSentEvent.MessageId, txHash[:], nil
+	decodedMessage, err := protocol.DecodeMessage(messageSentEvent.EncodedMessage)
+	if err != nil {
+		return cciptestinterfaces.MessageSentEvent{}, protocol.ByteSlice{}, fmt.Errorf("failed to decode message: %w", err)
+	}
+	return cciptestinterfaces.MessageSentEvent{
+		MessageID:      messageSentEvent.MessageId,
+		Sender:         protocol.UnknownAddress(messageSentEvent.Sender.Bytes()),
+		Message:        decodedMessage,
+		ReceiptIssuers: make([]protocol.UnknownAddress, 0, len(messageSentEvent.Receipts)),
+		VerifierBlobs:  messageSentEvent.VerifierBlobs,
+	}, txHash[:], nil
+}
+
+type EVMSendOptions struct {
+	Nonce  *uint64
+	Sender *bind.TransactOpts
+}
+
+type IEVMSendOptions interface {
+	cciptestinterfaces.ChainSendOption
+	WithEVMSendOptions() *EVMSendOptions
+}
+
+func (o EVMSendOptions) IsSendOption() bool { return true }
+func WithEVMSendOptions(nonce *uint64, sender *bind.TransactOpts) cciptestinterfaces.ChainSendOption {
+	return EVMSendOptions{
+		Nonce:  nonce,
+		Sender: sender,
+	}
+}
+
+func NewEVMSendOptions(nonce *uint64, sender *bind.TransactOpts) EVMSendOptions {
+	return EVMSendOptions{
+		Nonce:  nonce,
+		Sender: sender,
+	}
+}
+
+type EVMOptions interface {
+	// GetRoundRobinUser returns a function that yields the next round-robin transact opts for the chain.
+	GetRoundRobinUser() func() *bind.TransactOpts
+	// GetUserNonce returns the nonce for the given user address on this chain.
+	GetUserNonce(ctx context.Context, userAddress protocol.UnknownAddress) (uint64, error)
 }
