@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"maps"
 	"net/http"
 	"os"
 	"os/signal"
@@ -375,9 +376,7 @@ func loadConfiguration(filepath string) (*executor.Configuration, *chainaccess.I
 	for sel, cc := range normalizedConfig.ChainConfiguration {
 		rmnRemoteAddresses[sel] = cc.RmnAddress
 	}
-	for k, v := range config.RMNRemoteAddresses {
-		rmnRemoteAddresses[k] = v
-	}
+	maps.Copy(rmnRemoteAddresses, config.RMNRemoteAddresses)
 
 	genericConfig := chainaccess.GenericConfig{
 		CommitteeConfig: chainaccess.CommitteeConfig{

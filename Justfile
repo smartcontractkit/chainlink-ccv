@@ -49,14 +49,7 @@ fmt: ensure-golangci-lint
 
 # Run golangci-lint
 lint fix="": ensure-golangci-lint
-    #!/usr/bin/env bash
-    set -eo pipefail
-    ret=0
-    while IFS= read -r go_mod; do
-        dir=$(dirname "$go_mod")
-        (cd "$dir" && golangci-lint run {{ if fix != "" { "--fix" } else { "" } }}) || ret=$?
-    done < <(find . -type f -name go.mod)
-    exit $ret
+    gomods -c 'golangci-lint run {{ if fix != "" { "--fix" } else { "" } }}'
 
 shellcheck:
     @command -v shellcheck >/dev/null 2>&1 || { \
