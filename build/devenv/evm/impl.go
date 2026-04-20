@@ -2165,10 +2165,11 @@ func (m *CCIP17EVM) SendChainMessage(ctx context.Context, destChain uint64, msg 
 		return cciptestinterfaces.MessageSentEvent{}, protocol.ByteSlice{}, fmt.Errorf("failed to get fee: %w", err)
 	}
 
-	// If an ERC20 fee token is set, the fee is paid via token approval, not native value.
-	msgValue := fee
-	if message.FeeToken != (common.Address{}) {
-		msgValue = big.NewInt(0)
+	// Ensure the sender has sufficient fee token balance and, for ERC20 fee tokens,
+	// approve the router to spend the fee. Returns msgValue=fee for native, msgValue=0 for ERC20.
+	_, msgValue, err := m.haveEnoughFeeTokens(ctx, srcChain, sender, routerAddress, message.FeeToken, fee)
+	if err != nil {
+		return cciptestinterfaces.MessageSentEvent{}, protocol.ByteSlice{}, fmt.Errorf("failed to ensure fee token allowance: %w", err)
 	}
 
 	senderKeyCopy := &bind.TransactOpts{
