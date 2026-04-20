@@ -17,9 +17,10 @@ type EVMOptions interface {
 }
 
 type EVMSendOptions struct {
-	Nonce         *uint64
-	Sender        *bind.TransactOpts
-	UseTestRouter bool
+	Nonce                 *uint64
+	Sender                *bind.TransactOpts
+	UseTestRouter         bool
+	ValidateTokenBalances bool
 }
 
 type IEVMSendOptions interface {
@@ -28,16 +29,11 @@ type IEVMSendOptions interface {
 }
 
 func (o EVMSendOptions) IsSendOption() bool { return true }
-func WithEVMSendOptions(nonce *uint64, sender *bind.TransactOpts) cciptestinterfaces.ChainSendOption {
+func WithEVMSendOptions(nonce *uint64, sender *bind.TransactOpts, validateTokenBalances bool) cciptestinterfaces.ChainSendOption {
 	return EVMSendOptions{
-		Nonce:  nonce,
-		Sender: sender,
-	}
-}
-
-func NewEVMSendOptions(nonce *uint64, sender *bind.TransactOpts) EVMSendOptions {
-	return EVMSendOptions{
-		Nonce:  nonce,
-		Sender: sender,
+		Nonce:                 nonce,
+		Sender:                sender,
+		ValidateTokenBalances: validateTokenBalances,
+		UseTestRouter:         false,
 	}
 }

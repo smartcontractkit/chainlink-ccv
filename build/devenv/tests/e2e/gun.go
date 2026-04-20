@@ -76,11 +76,12 @@ func (m *EVMTXGun) CloseSentChannel() {
 	})
 }
 
-func NewEVMTransactionGun(cfg *ccv.Cfg, e *deployment.Environment, selectors []uint64, impls map[uint64]cciptestinterfaces.CCIP17, srcSelectors, destSelectors []uint64) *EVMTXGun {
+func NewEVMTransactionGun(cfg *ccv.Cfg, e *deployment.Environment, selectors []uint64, impls map[uint64]cciptestinterfaces.CCIP17, srcSelectors, destSelectors []uint64) (*EVMTXGun, error) {
 	userSelector := make(map[uint64]func() *bind.TransactOpts)
 	for _, chain := range srcSelectors {
 		if evmImpl, ok := impls[chain].(evm.EVMOptions); ok {
 			userSelector[chain] = evmImpl.GetRoundRobinUser()
+			return nil, fmt.Errorf("selector %d was not found in impls", chain)
 		}
 	}
 	return &EVMTXGun{
@@ -93,7 +94,7 @@ func NewEVMTransactionGun(cfg *ccv.Cfg, e *deployment.Environment, selectors []u
 		srcSelectors:  srcSelectors,
 		destSelectors: destSelectors,
 		userSelector:  userSelector,
-	}
+	}, nil
 }
 
 func NewEVMTransactionGunFromTestConfig(cfg *ccv.Cfg, testProfile *load.TestProfileConfig, messageProfiles []load.MessageProfileConfig, e *deployment.Environment, impls map[uint64]cciptestinterfaces.CCIP17) *EVMTXGun {
@@ -196,7 +197,7 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 
 	c, ok := m.impl[srcSelector]
 	if !ok {
-		return &wasp.Response{Error: "impl is not CCIP17", Failed: true}
+		return &wasp.Response{Error: fmt.Sprintf("selector %d was not found in impls", srcSelector), Failed: true}
 	}
 
 	chainAsSource, ok := c.(cciptestinterfaces.ChainAsSource)
@@ -209,8 +210,11 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 		return &wasp.Response{Error: fmt.Errorf("failed to build message: %w", err).Error(), Failed: true}
 	}
 
-	sendOption := evm.NewEVMSendOptions(&currentNonce, sender)
-	sentEvent, _, err := chainAsSource.SendChainMessage(ctx, destSelector, srcMessage, sendOption)
+	sentEvent, _, err := chainAsSource.SendChainMessage(ctx, destSelector, srcMessage, evm.EVMSendOptions{
+		Nonce:                 &currentNonce,
+		Sender:                sender,
+		ValidateTokenBalances: true,
+	})
 	if err != nil {
 		return &wasp.Response{Error: fmt.Errorf("failed to send message: %w", err).Error(), Failed: true}
 	}

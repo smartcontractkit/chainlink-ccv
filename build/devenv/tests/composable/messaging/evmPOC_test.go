@@ -19,8 +19,12 @@ var (
 	_ = cciptestinterfaces.ChainAsDestination(&evm.CCIP17EVM{})
 )
 
+const (
+	composableTestPath = "../../../env-out.toml"
+)
+
 func TestEVM2EVMPOC(t *testing.T) {
-	cfg, err := ccv.LoadOutput[ccv.Cfg]("../../../env-out.toml")
+	cfg, err := ccv.LoadOutput[ccv.Cfg](composableTestPath)
 	require.NoError(t, err)
 
 	ctx := ccv.Plog.WithContext(t.Context())
@@ -47,12 +51,12 @@ func TestEVM2EVMPOC(t *testing.T) {
 	require.True(t, srcOk, "srcChain does not match the chainAsSource interface!")
 	require.True(t, destOk, "destChain does not match the chainAsDestination interface!")
 
-	TestBasicMessage(ctx, t, srcChain, destChain, cciptestinterfaces.MessageFields{
+	require.NoError(t, BasicMessageTestScenario(ctx, t, srcChain, destChain, cciptestinterfaces.MessageFields{
 		Receiver: receiver,
 		Data:     []byte{},
 	}, cciptestinterfaces.MessageOptions{
 		Version:             2,
 		ExecutionGasLimit:   200_000,
 		OutOfOrderExecution: false,
-	}, nil)
+	}, nil))
 }

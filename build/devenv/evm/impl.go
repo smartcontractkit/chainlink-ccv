@@ -1986,7 +1986,7 @@ func (m *CCIP17EVM) BuildChainMessage(ctx context.Context, destChain uint64, mes
 func (m *CCIP17EVM) SendChainMessage(ctx context.Context, destChain uint64, msg any, sendOption cciptestinterfaces.ChainSendOption) (cciptestinterfaces.MessageSentEvent, protocol.ByteSlice, error) {
 	message, ok := msg.(routerwrapper.ClientEVM2AnyMessage)
 	if !ok {
-		return cciptestinterfaces.MessageSentEvent{}, protocol.ByteSlice{}, errors.New("expected router.ClientEVM2AnyMessage")
+		return cciptestinterfaces.MessageSentEvent{}, protocol.ByteSlice{}, errors.New("expected routerwrapper.ClientEVM2AnyMessage")
 	}
 
 	l := m.logger
@@ -2027,9 +2027,12 @@ func (m *CCIP17EVM) SendChainMessage(ctx context.Context, destChain uint64, msg 
 		return cciptestinterfaces.MessageSentEvent{}, protocol.ByteSlice{}, fmt.Errorf("failed to get fee: %w", err)
 	}
 
-	msgValue, err := m.validateTokenBalances(ctx, m.chain, routerAddress, message.FeeToken, fee, message.TokenAmounts, m.logger)
-	if err != nil {
-		return cciptestinterfaces.MessageSentEvent{}, protocol.ByteSlice{}, fmt.Errorf("failed to validate token balances: %w", err)
+	msgValue := fee
+	if evmOpts.ValidateTokenBalances {
+		msgValue, err = m.validateTokenBalances(ctx, m.chain, routerAddress, message.FeeToken, fee, message.TokenAmounts, m.logger)
+		if err != nil {
+			return cciptestinterfaces.MessageSentEvent{}, protocol.ByteSlice{}, fmt.Errorf("failed to validate token balances: %w", err)
+		}
 	}
 
 	senderKeyCopy := &bind.TransactOpts{
