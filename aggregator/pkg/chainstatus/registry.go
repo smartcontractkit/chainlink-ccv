@@ -11,6 +11,7 @@ import (
 
 // StatusMetrics is an optional dependency for recording chain-disabled metrics after each refresh.
 type StatusMetrics interface {
+	// SetChainDisabledStatus emits the metrics for the disabled status for a chain.
 	SetChainDisabledStatus(ctx context.Context, selector uint64, side LaneSide, disabled bool)
 }
 
