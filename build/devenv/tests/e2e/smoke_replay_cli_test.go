@@ -151,7 +151,7 @@ func sendAndWaitForIndexed(
 	)
 	require.NoError(t, err, "failed to send message")
 
-	sentEvt, err := src.WaitOneSentEventBySeqNo(ctx, dest.ChainSelector(), seqNo, tcapi.DefaultSentTimeout)
+	sentEvt, err := src.ConfirmSendOnSource(ctx, dest.ChainSelector(), cciptestinterfaces.MessageEventKey{SeqNum: seqNo}, tcapi.DefaultSentTimeout)
 	require.NoError(t, err, "failed to wait for sent event")
 	msgIDHex := "0x" + hex.EncodeToString(sentEvt.MessageID[:])
 	t.Logf("Message sent: %s", msgIDHex)

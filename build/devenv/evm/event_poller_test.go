@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
 func TestEventPollerCache(t *testing.T) {
@@ -25,10 +26,10 @@ func TestEventPollerCache(t *testing.T) {
 			MessageNumber: 100,
 			State:         cciptestinterfaces.MessageExecutionState(1),
 		}
-		poller.cachedEvents[key] = pollerResult[cciptestinterfaces.ExecutionStateChangedEvent]{event: expectedEvent}
+		poller.cachedBySeqNum[key] = pollerResult[cciptestinterfaces.ExecutionStateChangedEvent]{event: expectedEvent}
 
 		ctx := context.Background()
-		resultCh := poller.register(ctx, 1, 100)
+		resultCh := poller.registerBySequenceNumber(ctx, eventKey{chainSelector: 1, msgNum: 100})
 
 		select {
 		case result := <-resultCh:
@@ -50,7 +51,7 @@ func TestEventPollerCache(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 		defer cancel()
 
-		resultCh := poller.register(ctx, 1, 100)
+		resultCh := poller.registerBySequenceNumber(ctx, eventKey{chainSelector: 1, msgNum: 100})
 
 		select {
 		case result := <-resultCh:
@@ -70,8 +71,8 @@ func TestEventPollerCache(t *testing.T) {
 
 		ctx := t.Context()
 
-		resultCh1 := poller.register(ctx, 1, 100)
-		resultCh2 := poller.register(ctx, 1, 100)
+		resultCh1 := poller.registerBySequenceNumber(ctx, eventKey{chainSelector: 1, msgNum: 100})
+		resultCh2 := poller.registerBySequenceNumber(ctx, eventKey{chainSelector: 1, msgNum: 100})
 
 		require.Equal(t, resultCh1, resultCh2, "multiple callers for same key should get the same channel")
 	})
@@ -88,11 +89,11 @@ func TestEventPollerCache(t *testing.T) {
 			MessageID:     [32]byte{1, 2, 3},
 			MessageNumber: 100,
 		}
-		poller.cachedEvents[key] = pollerResult[cciptestinterfaces.ExecutionStateChangedEvent]{event: expectedEvent}
+		poller.cachedBySeqNum[key] = pollerResult[cciptestinterfaces.ExecutionStateChangedEvent]{event: expectedEvent}
 
 		ctx := context.Background()
-		resultCh1 := poller.register(ctx, 1, 100)
-		resultCh2 := poller.register(ctx, 1, 100)
+		resultCh1 := poller.registerBySequenceNumber(ctx, eventKey{chainSelector: 1, msgNum: 100})
+		resultCh2 := poller.registerBySequenceNumber(ctx, eventKey{chainSelector: 1, msgNum: 100})
 
 		result1 := <-resultCh1
 		result2 := <-resultCh2
@@ -114,12 +115,12 @@ func TestEventPollerMessageSent(t *testing.T) {
 
 		key := eventKey{chainSelector: 1, msgNum: 100}
 		expectedEvent := cciptestinterfaces.MessageSentEvent{
-			MessageID: [32]byte{1, 2, 3},
+			MessageID: protocol.Bytes32{1, 2, 3},
 		}
-		poller.cachedEvents[key] = pollerResult[cciptestinterfaces.MessageSentEvent]{event: expectedEvent}
+		poller.cachedBySeqNum[key] = pollerResult[cciptestinterfaces.MessageSentEvent]{event: expectedEvent}
 
 		ctx := context.Background()
-		resultCh := poller.register(ctx, 1, 100)
+		resultCh := poller.registerBySequenceNumber(ctx, eventKey{chainSelector: 1, msgNum: 100})
 
 		select {
 		case result := <-resultCh:
@@ -128,6 +129,71 @@ func TestEventPollerMessageSent(t *testing.T) {
 			require.Equal(t, expectedEvent.Sender, result.event.Sender)
 		case <-time.After(100 * time.Millisecond):
 			t.Fatal("expected to receive cached result immediately")
+		}
+	})
+}
+
+func TestEventPollerByMessageID(t *testing.T) {
+	t.Run("cache hit returns immediately for events registered by message ID", func(t *testing.T) {
+		pollFn := func(start, end uint64) (map[eventKey]cciptestinterfaces.MessageSentEvent, error) {
+			return nil, nil
+		}
+		poller := newEventPoller(nil, zerolog.Nop(), "test", pollFn)
+
+		messageID := protocol.Bytes32{1, 2, 3, 4}
+		key := eventKey{chainSelector: 7, messageID: messageID}
+		expectedEvent := cciptestinterfaces.MessageSentEvent{
+			MessageID: messageID,
+			Sender:    protocol.UnknownAddress([]byte{9, 9, 9, 9}),
+		}
+		poller.cachedByMessageID[key] = pollerResult[cciptestinterfaces.MessageSentEvent]{event: expectedEvent}
+
+		ctx := context.Background()
+		// Use a key with same chainSelector and messageID - msgNum can be 0 for messageID based lookup
+		resultCh := poller.registerByMessageID(ctx, eventKey{chainSelector: 7, messageID: messageID})
+
+		select {
+		case result := <-resultCh:
+			require.NoError(t, result.err)
+			require.Equal(t, expectedEvent.MessageID, result.event.MessageID)
+			require.Equal(t, expectedEvent.Sender, result.event.Sender)
+		case <-time.After(100 * time.Millisecond):
+			t.Fatal("expected to receive cached result immediately")
+		}
+	})
+
+	t.Run("duplicate registerByMessageID returns same channel", func(t *testing.T) {
+		pollFn := func(start, end uint64) (map[eventKey]cciptestinterfaces.MessageSentEvent, error) {
+			return nil, nil
+		}
+		poller := newEventPoller(nil, zerolog.Nop(), "test", pollFn)
+
+		messageID := protocol.Bytes32{3, 4, 5, 6}
+		key := eventKey{chainSelector: 5, messageID: messageID}
+
+		ctx := context.Background()
+		ch1 := poller.registerByMessageID(ctx, key)
+		ch2 := poller.registerByMessageID(ctx, key)
+		require.Equal(t, ch1, ch2, "registerByMessageID should return same channel for duplicate key registration")
+	})
+
+	t.Run("registerByMessageID context cancellation closes channel with error", func(t *testing.T) {
+		pollFn := func(start, end uint64) (map[eventKey]cciptestinterfaces.MessageSentEvent, error) {
+			return nil, nil
+		}
+		poller := newEventPoller(nil, zerolog.Nop(), "test", pollFn)
+
+		messageID := protocol.Bytes32{9, 8, 7, 6}
+		key := eventKey{chainSelector: 2, messageID: messageID}
+		ctx, cancel := context.WithCancel(context.Background())
+		ch := poller.registerByMessageID(ctx, key)
+
+		cancel()
+		select {
+		case result := <-ch:
+			require.Error(t, result.err)
+		case <-time.After(100 * time.Millisecond):
+			t.Fatal("expected result on channel after context cancellation")
 		}
 	})
 }

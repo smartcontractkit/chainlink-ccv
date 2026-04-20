@@ -108,7 +108,7 @@ type MessageOptions struct {
 
 // MessageSentEvent is a chain-agnostic representation of the output of a ccipSend operation.
 type MessageSentEvent struct {
-	MessageID      [32]byte
+	MessageID      protocol.Bytes32
 	Sender         protocol.UnknownAddress
 	Message        *protocol.Message
 	ReceiptIssuers []protocol.UnknownAddress
@@ -150,6 +150,13 @@ type ExecutionStateChangedEvent struct {
 	ReturnData          []byte
 }
 
+// MessageEventKey identifies a CCIP message event by sequence number or message ID.
+// User should only define one or the other.
+type MessageEventKey struct {
+	SeqNum    uint64
+	MessageID protocol.Bytes32
+}
+
 // Chain provides methods to interact with a single chain that has CCIP deployed.
 type Chain interface {
 	// GetEOAReceiverAddress gets an EOA receiver address for this chain.
@@ -165,10 +172,10 @@ type Chain interface {
 	GetUserNonce(ctx context.Context, userAddress protocol.UnknownAddress) (uint64, error)
 	// GetExpectedNextSequenceNumber gets an expected sequence number for message to the specified destination chain.
 	GetExpectedNextSequenceNumber(ctx context.Context, to uint64) (uint64, error)
-	// WaitOneSentEventBySeqNo waits until exactly one event for CCIP message sent is emitted on-chain for the specified destination chain and sequence number.
-	WaitOneSentEventBySeqNo(ctx context.Context, to, seq uint64, timeout time.Duration) (MessageSentEvent, error)
-	// WaitOneExecEventBySeqNo waits until exactly one event for CCIP execution state change is emitted on-chain for the specified source chain and sequence number.
-	WaitOneExecEventBySeqNo(ctx context.Context, from, seq uint64, timeout time.Duration) (ExecutionStateChangedEvent, error)
+	// ConfirmSendOnSource waits until exactly one CCIPMessageSent event is emitted on-chain for the specified destination chain, identified by sequence number or message ID.
+	ConfirmSendOnSource(ctx context.Context, to uint64, key MessageEventKey, timeout time.Duration) (MessageSentEvent, error)
+	// ConfirmExecOnDest waits until exactly one ExecutionStateChanged event is emitted on-chain for the specified source chain, identified by sequence number or message ID.
+	ConfirmExecOnDest(ctx context.Context, from uint64, key MessageEventKey, timeout time.Duration) (ExecutionStateChangedEvent, error)
 	// GetTokenBalance gets the balance of an account for a token on the specified chain.
 	GetTokenBalance(ctx context.Context, address, tokenAddress protocol.UnknownAddress) (*big.Int, error)
 	// GetMaxDataBytes gets the maximum data size for a CCIP message to the specified remote chain.
