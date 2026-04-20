@@ -70,6 +70,9 @@ type Configuration struct {
 type ChainConfiguration struct {
 	// RmnAddress is the address of the RMN Remote contract on this destination chain.
 	RmnAddress string `toml:"rmn_address"`
+	// OffRampAddress is the address of the OffRamp contract on this destination chain.
+	// Takes precedence over the top-level off_ramp_addresses map when both are present.
+	OffRampAddress string `toml:"off_ramp_address"`
 	// ExecutorPool is the list of executor IDs used for turn taking. This executor's ID must be in the list.
 	ExecutorPool []string `toml:"executor_pool"`
 	// ExecutionInterval is how long each executor has to process a message before the next executor in the cluster takes over.
@@ -132,7 +135,7 @@ func (c *Configuration) Validate() error {
 		if chainConfig.RmnAddress == "" {
 			return fmt.Errorf("rmn_address must be configured for chain %s", chainSel)
 		}
-		if c.OffRampAddresses[chainSel] == "" {
+		if chainConfig.OffRampAddress == "" && c.OffRampAddresses[chainSel] == "" {
 			return fmt.Errorf("off_ramp_address must be configured for chain %s", chainSel)
 		}
 		if chainConfig.DefaultExecutorAddress == "" {

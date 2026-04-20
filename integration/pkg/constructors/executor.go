@@ -86,7 +86,11 @@ func NewExecutorCoordinator(
 	rmnReaders := make(map[protocol.ChainSelector]chainaccess.RMNCurseReader)
 	enabledDestChains := make([]protocol.ChainSelector, 0)
 	for sel, chain := range relayers {
-		offRampAddrStr := cfg.OffRampAddresses[sel.String()]
+		chainCfg := cfg.ChainConfiguration[sel.String()]
+		offRampAddrStr := chainCfg.OffRampAddress
+		if offRampAddrStr == "" {
+			offRampAddrStr = cfg.OffRampAddresses[sel.String()]
+		}
 		if offRampAddrStr == "" {
 			lggr.Warnw("No offramp configured for chain, skipping.", "chainID", sel)
 			continue
@@ -95,7 +99,7 @@ func NewExecutorCoordinator(
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse offramp address '%s': %w", offRampAddrStr, err)
 		}
-		rmnAddrStr := cfg.ChainConfiguration[sel.String()].RmnAddress
+		rmnAddrStr := chainCfg.RmnAddress
 
 		transmitters[sel] = contracttransmitter.NewEVMContractTransmitterFromTxm(
 			logger.With(lggr, "component", "ContractTransmitter"),
