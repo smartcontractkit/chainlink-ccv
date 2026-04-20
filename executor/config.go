@@ -59,16 +59,17 @@ type Configuration struct {
 	// This is used to configure the chain-specific configuration for each chain such as addresses, executor pool, and execution interval.
 	ChainConfiguration map[string]ChainConfiguration `toml:"chain_configuration"`
 	WorkerCount        int                           `toml:"worker_count"`
+
+	// ExecutorConfig holds destination-side contract addresses. Embedding it here places
+	// off_ramp_addresses and execution_visibility_window at the same top-level TOML location
+	// as in GenericConfig, making the executor config a valid overlay target.
+	chainaccess.ExecutorConfig
 }
 
 // ChainConfiguration is all the executor-specific configuration for a single destination chain.
-// When using the Registry, contract addresses come from chainaccess.ExecutorConfig/CommitteeConfig
-// instead. These fields remain for deployments that configure the executor directly without the Registry.
 type ChainConfiguration struct {
 	// RmnAddress is the address of the RMN Remote contract on this destination chain.
 	RmnAddress string `toml:"rmn_address"`
-	// OffRampAddress is the address of the OffRamp contract on this destination chain.
-	OffRampAddress string `toml:"off_ramp_address"`
 	// ExecutorPool is the list of executor IDs used for turn taking. This executor's ID must be in the list.
 	ExecutorPool []string `toml:"executor_pool"`
 	// ExecutionInterval is how long each executor has to process a message before the next executor in the cluster takes over.
@@ -131,7 +132,7 @@ func (c *Configuration) Validate() error {
 		if chainConfig.RmnAddress == "" {
 			return fmt.Errorf("rmn_address must be configured for chain %s", chainSel)
 		}
-		if chainConfig.OffRampAddress == "" {
+		if c.OffRampAddresses[chainSel] == "" {
 			return fmt.Errorf("off_ramp_address must be configured for chain %s", chainSel)
 		}
 		if chainConfig.DefaultExecutorAddress == "" {
@@ -175,6 +176,10 @@ func (c *Configuration) GetNormalizedConfig() (*Configuration, error) {
 	normalized.LookbackWindow = parseOrDefault(c.LookbackWindow, lookbackWindowDefault)
 	normalized.ReaderCacheExpiry = parseOrDefault(c.ReaderCacheExpiry, readerCacheExpiryDefault)
 	normalized.MaxRetryDuration = parseOrDefault(c.MaxRetryDuration, maxRetryDurationDefault)
+	// Default ExecutionVisibilityWindow to MaxRetryDuration when not explicitly set.
+	if c.ExecutionVisibilityWindow == 0 {
+		normalized.ExecutionVisibilityWindow = normalized.MaxRetryDuration
+	}
 	if c.IndexerQueryLimit == 0 {
 		normalized.IndexerQueryLimit = IndexerQueryLimitDefault
 	}

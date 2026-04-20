@@ -353,10 +353,11 @@ func main() {
 }
 
 func loadConfiguration(filepath string) (*executor.Configuration, *chainaccess.Infos[evm.Info], chainaccess.GenericConfig, error) {
+	// CommitteeConfig is added separately because it is not part of executor.Configuration.
+	// ExecutorConfig is promoted through executor.Configuration, so no separate embed is needed.
 	var config struct {
 		executor.ConfigWithBlockchainInfo[evm.Info]
 		chainaccess.CommitteeConfig
-		chainaccess.ExecutorConfig
 	}
 	if _, err := toml.DecodeFile(filepath, &config); err != nil {
 		return nil, nil, chainaccess.GenericConfig{}, err
@@ -367,16 +368,12 @@ func loadConfiguration(filepath string) (*executor.Configuration, *chainaccess.I
 		return nil, nil, chainaccess.GenericConfig{}, err
 	}
 
-	// Build GenericConfig address maps. Prefer top-level ExecutorConfig/CommitteeConfig
-	// fields if present; fall back to per-chain ChainConfiguration values.
-	offRampAddresses := make(map[string]string, len(normalizedConfig.ChainConfiguration))
+	// RMN addresses live in per-chain ChainConfiguration for the standalone path.
+	// Merge them into CommitteeConfig.RMNRemoteAddresses, letting any top-level
+	// CommitteeConfig values (from an overlay file) take precedence.
 	rmnRemoteAddresses := make(map[string]string, len(normalizedConfig.ChainConfiguration))
 	for sel, cc := range normalizedConfig.ChainConfiguration {
-		offRampAddresses[sel] = cc.OffRampAddress
 		rmnRemoteAddresses[sel] = cc.RmnAddress
-	}
-	for k, v := range config.ExecutorConfig.OffRampAddresses {
-		offRampAddresses[k] = v
 	}
 	for k, v := range config.CommitteeConfig.RMNRemoteAddresses {
 		rmnRemoteAddresses[k] = v
@@ -387,10 +384,7 @@ func loadConfiguration(filepath string) (*executor.Configuration, *chainaccess.I
 			OnRampAddresses:    config.CommitteeConfig.OnRampAddresses,
 			RMNRemoteAddresses: rmnRemoteAddresses,
 		},
-		ExecutorConfig: chainaccess.ExecutorConfig{
-			OffRampAddresses:          offRampAddresses,
-			ExecutionVisibilityWindow: normalizedConfig.MaxRetryDuration,
-		},
+		ExecutorConfig: normalizedConfig.ExecutorConfig,
 	}
 	return normalizedConfig, &config.BlockchainInfos, genericConfig, nil
 }
