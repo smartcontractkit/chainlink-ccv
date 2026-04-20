@@ -211,7 +211,7 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 		return &wasp.Response{Error: fmt.Errorf("failed to build message: %w", err).Error(), Failed: true}
 	}
 
-	sentEvent, _, err := chainAsSource.SendChainMessage(ctx, destSelector, srcMessage, evm.EVMSendOptions{
+	sentEvent, _, err := chainAsSource.SendChainMessage(ctx, destSelector, srcMessage, evm.SendOptions{
 		Nonce:                        &currentNonce,
 		Sender:                       sender,
 		DisableTokenAmountValidation: true,

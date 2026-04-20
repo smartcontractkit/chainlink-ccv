@@ -30,7 +30,8 @@ type ChainAsDestination interface {
 }
 ```
 
-The removed methods (`SendMessageWithNonce`, `GetUserNonce`, `GetRoundRobinUser`) were EVM-specific and have been moved to the new `evm.EVMOptions` interface.
+The removed methods (`GetUserNonce`, `GetRoundRobinUser`) were EVM-specific and have been moved to the new `evm.EVMOptions` interface.
+The method (`SendMessageWithNonce`) has been removed entirely, the functionality is built in using SendOptions.
 
 ### New EVM-specific types in `build/devenv/evm/interface.go`
 

@@ -652,7 +652,7 @@ func (m *CCIP17EVM) SendMessage(ctx context.Context, dest uint64, fields cciptes
 		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("failed to build chain message: %w", err)
 	}
 
-	sendOption := EVMSendOptions{UseTestRouter: opts.UseTestRouter}
+	sendOption := SendOptions{UseTestRouter: opts.UseTestRouter}
 
 	sentEvent, _, err := m.SendChainMessage(ctx, dest, msg, sendOption)
 	if err != nil {
@@ -1960,7 +1960,7 @@ func (m *CCIP17EVM) SetLombardMailboxBridgedMessage(ctx context.Context, message
 	return nil
 }
 
-func (m *CCIP17EVM) BuildChainMessage(ctx context.Context, destChain uint64, messageFields cciptestinterfaces.MessageFields, opts cciptestinterfaces.MessageOptions) (any, error) {
+func (m *CCIP17EVM) BuildChainMessage(ctx context.Context, destChain uint64, messageFields cciptestinterfaces.MessageFields, opts cciptestinterfaces.MessageOptions) (cciptestinterfaces.ChainAsSourceMessage, error) {
 	chainFamily, err := chainsel.GetSelectorFamily(destChain)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get destination chain family: %w", err)
@@ -1983,7 +1983,7 @@ func (m *CCIP17EVM) BuildChainMessage(ctx context.Context, destChain uint64, mes
 	return ret, nil
 }
 
-func (m *CCIP17EVM) SendChainMessage(ctx context.Context, destChain uint64, msg any, sendOption cciptestinterfaces.ChainSendOption) (cciptestinterfaces.MessageSentEvent, protocol.ByteSlice, error) {
+func (m *CCIP17EVM) SendChainMessage(ctx context.Context, destChain uint64, msg cciptestinterfaces.ChainAsSourceMessage, sendOption cciptestinterfaces.ChainSendOption) (cciptestinterfaces.MessageSentEvent, protocol.ByteSlice, error) {
 	message, ok := msg.(routerwrapper.ClientEVM2AnyMessage)
 	if !ok {
 		return cciptestinterfaces.MessageSentEvent{}, protocol.ByteSlice{}, errors.New("expected routerwrapper.ClientEVM2AnyMessage")
@@ -1994,8 +1994,8 @@ func (m *CCIP17EVM) SendChainMessage(ctx context.Context, destChain uint64, msg 
 	sender := m.chain.DeployerKey
 
 	// Parse send options first so UseTestRouter affects router selection.
-	var evmOpts EVMSendOptions
-	if o, ok := sendOption.(EVMSendOptions); ok {
+	var evmOpts SendOptions
+	if o, ok := sendOption.(SendOptions); ok {
 		evmOpts = o
 	}
 	if evmOpts.Sender != nil {

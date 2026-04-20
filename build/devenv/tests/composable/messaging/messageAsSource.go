@@ -9,6 +9,10 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 )
 
+// BasicMessageTestScenario is a helper test scenario that sends a CCIP message using the ChainAsSource and ChainAsDestination interfaces.
+// It uses these partial interfaces to build, send, and assert messages in a way that is reusable across different chain families.
+// After a chain integration implements either ChainAsSource or ChainAsDestination, they can wire up this test scenario to verify their implementation (evmPOC_test.go is an example).
+// This test scenario supports partial implementation, so an integration can implement source side FIRST, connecting it to the existing EVM destination to confirm source side functionality.
 func BasicMessageTestScenario(
 	ctx context.Context,
 	t *testing.T,

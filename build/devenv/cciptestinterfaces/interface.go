@@ -389,6 +389,9 @@ type OffChainConfigurable interface {
 	FundAddresses(ctx context.Context, bc *blockchain.Input, addresses []protocol.UnknownAddress, nativeAmount *big.Int) error
 }
 
+// ChainSendOption is a marker interface for chain-specific send parameters.
+// The expected usage is that a chain family integration will define a struct that satisfies this interface, then type check against their struct in their test.
+// Generic tests accept `ChainSendOption` as a parameter, the implementation casts the parameter to their struct type and uses it.
 type ChainSendOption interface {
 	IsSendOption() bool
 }
@@ -397,18 +400,37 @@ type genericChain interface {
 	ChainSelector() uint64
 }
 
+// ChainAsDestination is implemented by any chain that can RECEIVE CCIP messages.
+// Chain families can implement this interface to run partial CCIP message tests without having to implement the full `Chain` interface.
 type ChainAsDestination interface {
+	genericChain
+	// GetEOAReceiverAddress returns an EOA receiver address for this chain.
 	GetEOAReceiverAddress() (protocol.UnknownAddress, error)
+	// ConfirmExecOnDest confirms that a CCIP message was executed on this chain.
+	// Implementation should support confirmation by either message ID or sequence number, passed in as the `MessageEventKey`.
+	// The timeout is the maximum duration to wait for the event to be emitted.
 	ConfirmExecOnDest(ctx context.Context, from uint64, key MessageEventKey, timeout time.Duration) (ExecutionStateChangedEvent, error)
-
-	genericChain
 }
 
+// ChainAsSource is implemented by any chain that can ORIGINATE CCIP messages.
+// Chain families can implement this interface to run partial CCIP message tests without having to implement the full `Chain` interface.
 type ChainAsSource interface {
-	BuildChainMessage(ctx context.Context, destChain uint64, messageFields MessageFields, opts MessageOptions) (any, error)
-
-	SendChainMessage(ctx context.Context, destChain uint64, message any, sendOption ChainSendOption) (MessageSentEvent, protocol.ByteSlice, error)
-
-	ConfirmSendOnSource(ctx context.Context, to uint64, key MessageEventKey, timeout time.Duration) (MessageSentEvent, error)
 	genericChain
+	// BuildChainMessage builds a CCIP message for the given destination chain.
+	// It will call into the registered extra args serializer per destination chain for now, until we have a more generic way to manage extra args.
+	// It returns a generic type that is specific to the chain family. The returned message is expected to be directly passed in ot the SendChainMessage method.
+	// For example, the EVM implementation returns a routerwrapper.ClientEVM2AnyMessage.
+	BuildChainMessage(ctx context.Context, destChain uint64, messageFields MessageFields, opts MessageOptions) (ChainAsSourceMessage, error)
+	// SendChainMessage sends a CCIP message to the given destination chain.
+	// sendOptions is a Marker Interface for chain-specific send parameters. Expected usage is that implementation will type assert the sendOption to their struct type and use it.
+	// For example, the EVM implementation will type assert the sendOption to evm.EVMSendOptions to access nonce/sender/etc.
+	// The ChainAsSourceMessage is expected to be the same type that was returned by the BuildChainMessage method. For EVM this is routerwrapper.ClientEVM2AnyMessage.
+	SendChainMessage(ctx context.Context, destChain uint64, message ChainAsSourceMessage, sendOption ChainSendOption) (MessageSentEvent, protocol.ByteSlice, error)
+	// ConfirmSendOnSource confirms that a CCIP message was sent on this chain.
+	// Implementation should support confirmation by either message ID or sequence number, passed in as the `MessageEventKey`.
+	// The timeout is the maximum duration to wait for the event to be emitted.
+	ConfirmSendOnSource(ctx context.Context, to uint64, key MessageEventKey, timeout time.Duration) (MessageSentEvent, error)
 }
+
+// ChainAsSourceMessage is a generic type to indicate to users that the message generated from BuildChainMessage is expected to be passed directly to SendChainMessage.
+type ChainAsSourceMessage any
