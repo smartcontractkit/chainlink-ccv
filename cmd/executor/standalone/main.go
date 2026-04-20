@@ -375,13 +375,13 @@ func loadConfiguration(filepath string) (*executor.Configuration, *chainaccess.I
 	for sel, cc := range normalizedConfig.ChainConfiguration {
 		rmnRemoteAddresses[sel] = cc.RmnAddress
 	}
-	for k, v := range config.CommitteeConfig.RMNRemoteAddresses {
+	for k, v := range config.RMNRemoteAddresses {
 		rmnRemoteAddresses[k] = v
 	}
 
 	genericConfig := chainaccess.GenericConfig{
 		CommitteeConfig: chainaccess.CommitteeConfig{
-			OnRampAddresses:    config.CommitteeConfig.OnRampAddresses,
+			OnRampAddresses:    config.OnRampAddresses,
 			RMNRemoteAddresses: rmnRemoteAddresses,
 		},
 		ExecutorConfig: normalizedConfig.ExecutorConfig,
