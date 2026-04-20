@@ -600,18 +600,14 @@ func (m *CCIP17EVM) haveEnoughFeeTokens(ctx context.Context, chain evm.Chain, au
 	}
 }
 
-func (m *CCIP17EVM) validateTokenBalances(ctx context.Context, srcChain evm.Chain, routerAddress common.Address, fields cciptestinterfaces.MessageFields, fee *big.Int, tokenAmounts []routeroperations.EVMTokenAmount, validateBalances bool, l zerolog.Logger) (*big.Int, error) {
-	haveEnoughFeeTokens, msgValue, err := m.haveEnoughFeeTokens(ctx, srcChain, srcChain.DeployerKey, routerAddress, common.HexToAddress(fields.FeeToken.String()), fee)
+func (m *CCIP17EVM) validateTokenBalances(ctx context.Context, srcChain evm.Chain, routerAddress common.Address, feeToken common.Address, fee *big.Int, tokenAmounts []routeroperations.EVMTokenAmount, l zerolog.Logger) (*big.Int, error) {
+	haveEnoughFeeTokens, msgValue, err := m.haveEnoughFeeTokens(ctx, srcChain, srcChain.DeployerKey, routerAddress, feeToken, fee)
 	if err != nil {
 		return nil, fmt.Errorf("failed to check if have enough fee tokens: %w", err)
 	}
 
-	if !validateBalances {
-		return msgValue, nil
-	}
-
 	if !haveEnoughFeeTokens {
-		return nil, fmt.Errorf("not enough tokens to send message, feeToken: %s, fee: %s, msgValue: %s", fields.FeeToken.String(), fee.String(), msgValue.String())
+		return nil, fmt.Errorf("not enough tokens to send message, feeToken: %s, fee: %s, msgValue: %s", feeToken.Hex(), fee.String(), msgValue.String())
 	}
 
 	if len(tokenAmounts) > 0 {
@@ -625,7 +621,7 @@ func (m *CCIP17EVM) validateTokenBalances(ctx context.Context, srcChain evm.Chai
 	}
 
 	l.Info().
-		Str("FeeToken", fields.FeeToken.String()).
+		Str("FeeToken", feeToken.Hex()).
 		Str("Amount", fee.String()).
 		Str("MsgValue", msgValue.String()).
 		Msg("Have enough tokens to send message")
@@ -1955,6 +1951,7 @@ func (m *CCIP17EVM) BuildChainMessage(ctx context.Context, destChain uint64, mes
 		return nil, fmt.Errorf("failed to get destination chain family: %w", err)
 	}
 	extraArgs := serializeExtraArgs(opts, chainFamily)
+
 	ret := routerwrapper.ClientEVM2AnyMessage{
 		Receiver:  common.LeftPadBytes(messageFields.Receiver.Bytes(), 32),
 		Data:      messageFields.Data,
@@ -1967,6 +1964,7 @@ func (m *CCIP17EVM) BuildChainMessage(ctx context.Context, destChain uint64, mes
 			Amount: messageFields.TokenAmount.Amount,
 		}}
 	}
+
 	return ret, nil
 }
 
@@ -2014,11 +2012,9 @@ func (m *CCIP17EVM) SendChainMessage(ctx context.Context, destChain uint64, msg 
 		return cciptestinterfaces.MessageSentEvent{}, protocol.ByteSlice{}, fmt.Errorf("failed to get fee: %w", err)
 	}
 
-	// Ensure the sender has sufficient fee token balance and, for ERC20 fee tokens,
-	// approve the router to spend the fee. Returns msgValue=fee for native, msgValue=0 for ERC20.
-	_, msgValue, err := m.haveEnoughFeeTokens(ctx, srcChain, sender, routerAddress, message.FeeToken, fee)
+	msgValue, err := m.validateTokenBalances(ctx, m.chain, routerAddress, message.FeeToken, fee, message.TokenAmounts, m.logger)
 	if err != nil {
-		return cciptestinterfaces.MessageSentEvent{}, protocol.ByteSlice{}, fmt.Errorf("failed to ensure fee token allowance: %w", err)
+		return cciptestinterfaces.MessageSentEvent{}, protocol.ByteSlice{}, fmt.Errorf("failed to validate token balances: %w", err)
 	}
 
 	senderKeyCopy := &bind.TransactOpts{
