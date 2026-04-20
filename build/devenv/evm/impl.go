@@ -634,9 +634,8 @@ func (m *CCIP17EVM) validateTokenBalances(ctx context.Context, srcChain evm.Chai
 }
 
 // SendMessage sends a CCIP message to the specified destination chain with the specified message options.
-// We're keeping this for backwardsd compatability while we move to the new composable interfaces
+// We're keeping this for backwardsd compatability while we move to the new composable interfaces.
 func (m *CCIP17EVM) SendMessage(ctx context.Context, dest uint64, fields cciptestinterfaces.MessageFields, opts cciptestinterfaces.MessageOptions) (cciptestinterfaces.MessageSentEvent, error) {
-
 	msg, err := m.BuildChainMessage(ctx, dest, fields, opts)
 	if err != nil {
 		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("failed to build chain message: %w", err)
