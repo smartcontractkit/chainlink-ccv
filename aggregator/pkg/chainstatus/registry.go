@@ -29,7 +29,7 @@ type Registry struct {
 
 var _ Checker = (*Registry)(nil)
 
-// RegistryOption configures optional Registry behaviour.
+// RegistryOption configures optional Registry behavior.
 type RegistryOption func(*Registry)
 
 // WithStatusMetrics attaches a metrics reporter and the full set of committee selectors to
