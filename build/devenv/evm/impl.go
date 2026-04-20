@@ -2180,6 +2180,14 @@ func (m *CCIP17EVM) SendChainMessage(ctx context.Context, destChain uint64, msg 
 	if err != nil {
 		return cciptestinterfaces.MessageSentEvent{}, protocol.ByteSlice{}, fmt.Errorf("failed to confirm transaction: %w", err)
 	}
+
+	dcc, err := m.onRamp.GetDestChainConfig(&bind.CallOpts{
+		Context: ctx,
+	}, destChain)
+	if err != nil {
+		return cciptestinterfaces.MessageSentEvent{}, protocol.ByteSlice{}, fmt.Errorf("failed to get dest chain config: %w", err)
+	}
+
 	receipt, err := srcChain.Client.TransactionReceipt(ctx, txHash)
 	if err != nil {
 		return cciptestinterfaces.MessageSentEvent{}, protocol.ByteSlice{}, fmt.Errorf("failed to get transaction receipt: %w", err)
@@ -2200,13 +2208,34 @@ func (m *CCIP17EVM) SendChainMessage(ctx context.Context, destChain uint64, msg 
 	if err != nil {
 		return cciptestinterfaces.MessageSentEvent{}, protocol.ByteSlice{}, fmt.Errorf("failed to decode message: %w", err)
 	}
-	return cciptestinterfaces.MessageSentEvent{
+
+	result := cciptestinterfaces.MessageSentEvent{
 		MessageID:      messageSentEvent.MessageId,
 		Sender:         protocol.UnknownAddress(messageSentEvent.Sender.Bytes()),
 		Message:        decodedMessage,
 		ReceiptIssuers: make([]protocol.UnknownAddress, 0, len(messageSentEvent.Receipts)),
 		VerifierBlobs:  messageSentEvent.VerifierBlobs,
-	}, txHash[:], nil
+	}
+	l.Info().
+		Str("TxHash", messageSentEvent.Raw.TxHash.String()).
+		Uint64("BlockNumber", messageSentEvent.Raw.BlockNumber).
+		Str("Sender", sender.From.String()).
+		Bool("Executed", receipt != nil).
+		Uint64("SrcChainSelector", srcChain.Selector).
+		Uint64("DestChainSelector", destChain).
+		Str("SrcRouter", rout.Address().Hex()).
+		Str("MessageID", hexutil.Encode(result.MessageID[:])).
+		Any("DefaultCCVs", dcc.DefaultCCVs).
+		Any("LaneMandatedCCVs", dcc.LaneMandatedCCVs).
+		Any("DefaultExecutor", dcc.DefaultExecutor).
+		Any("OffRamp", hexutil.Encode(dcc.OffRamp)).
+		Int("NumReceipts", len(result.ReceiptIssuers)).
+		Int("NumVerifierBlobs", len(result.VerifierBlobs)).
+		Any("ReceiptIssuers", result.ReceiptIssuers).
+		Uint64("SeqNo", uint64(result.Message.SequenceNumber)).
+		Msg("CCIP message sent")
+
+	return result, txHash[:], nil
 }
 
 type EVMSendOptions struct {
