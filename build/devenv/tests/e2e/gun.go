@@ -79,10 +79,11 @@ func (m *EVMTXGun) CloseSentChannel() {
 func NewEVMTransactionGun(cfg *ccv.Cfg, e *deployment.Environment, selectors []uint64, impls map[uint64]cciptestinterfaces.CCIP17, srcSelectors, destSelectors []uint64) (*EVMTXGun, error) {
 	userSelector := make(map[uint64]func() *bind.TransactOpts)
 	for _, chain := range srcSelectors {
-		if evmImpl, ok := impls[chain].(evm.EVMOptions); ok {
-			userSelector[chain] = evmImpl.GetRoundRobinUser()
-			return nil, fmt.Errorf("selector %d was not found in impls", chain)
+		evmImpl, ok := impls[chain].(evm.EVMOptions)
+		if !ok {
+			return nil, fmt.Errorf("selector %d does not implement EVMOptions", chain)
 		}
+		userSelector[chain] = evmImpl.GetRoundRobinUser()
 	}
 	return &EVMTXGun{
 		cfg:           cfg,
