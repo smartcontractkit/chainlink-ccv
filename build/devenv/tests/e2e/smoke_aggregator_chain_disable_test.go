@@ -126,7 +126,7 @@ func TestE2ESmoke_AggregatorChainDisableEnable(t *testing.T) {
 		cciptestinterfaces.MessageFields{Receiver: receiverOnDisabledSrc},
 		cciptestinterfaces.MessageOptions{Version: 3})
 	require.NoError(t, err)
-	sentEvtAlt, err := otherSrc.WaitOneSentEventBySeqNo(ctx, disabledSrcSelector, seqNoAlt, defaultSentTimeout)
+	sentEvtAlt, err := otherSrc.ConfirmSendOnSource(ctx, disabledSrcSelector, cciptestinterfaces.MessageEventKey{SeqNum: seqNoAlt}, defaultSentTimeout)
 	require.NoError(t, err)
 
 	nonDisabledCtx, cancelNonDisabled := context.WithTimeout(ctx, 45*time.Second)
@@ -143,7 +143,7 @@ func TestE2ESmoke_AggregatorChainDisableEnable(t *testing.T) {
 		cciptestinterfaces.MessageFields{Receiver: receiverOnOtherSrc},
 		cciptestinterfaces.MessageOptions{Version: 3})
 	require.NoError(t, err)
-	sentEvt, err := disabledSrc.WaitOneSentEventBySeqNo(ctx, otherSrcSelector, seqNo, defaultSentTimeout)
+	sentEvt, err := disabledSrc.ConfirmSendOnSource(ctx, otherSrcSelector, cciptestinterfaces.MessageEventKey{SeqNum: seqNo}, defaultSentTimeout)
 	require.NoError(t, err)
 
 	// Give verifiers enough time to attempt — and fail — writing their results.
@@ -168,7 +168,7 @@ func TestE2ESmoke_AggregatorChainDisableEnable(t *testing.T) {
 		cciptestinterfaces.MessageFields{Receiver: receiverOnOtherSrc},
 		cciptestinterfaces.MessageOptions{Version: 3})
 	require.NoError(t, err)
-	sentEvtRecovery, err := disabledSrc.WaitOneSentEventBySeqNo(ctx, otherSrcSelector, seqNoRecovery, defaultSentTimeout)
+	sentEvtRecovery, err := disabledSrc.ConfirmSendOnSource(ctx, otherSrcSelector, cciptestinterfaces.MessageEventKey{SeqNum: seqNoRecovery}, defaultSentTimeout)
 	require.NoError(t, err)
 
 	recoveryCtx, cancelRecovery := context.WithTimeout(ctx, 45*time.Second)
