@@ -600,8 +600,23 @@ func (m *CCIP17EVM) haveEnoughFeeTokens(ctx context.Context, chain evm.Chain, au
 	}
 }
 
-func (m *CCIP17EVM) validateTokenBalances(ctx context.Context, srcChain evm.Chain, routerAddress common.Address, feeToken common.Address, fee *big.Int, tokenAmounts []routeroperations.EVMTokenAmount, l zerolog.Logger) (*big.Int, error) {
-	haveEnoughFeeTokens, msgValue, err := m.haveEnoughFeeTokens(ctx, srcChain, srcChain.DeployerKey, routerAddress, feeToken, fee)
+func (m *CCIP17EVM) validateTokenBalances(
+	ctx context.Context,
+	srcChain evm.Chain,
+	routerAddress common.Address,
+	feeToken common.Address,
+	fee *big.Int,
+	tokenAmounts []routeroperations.EVMTokenAmount,
+	l zerolog.Logger,
+) (*big.Int, error) {
+	haveEnoughFeeTokens, msgValue, err := m.haveEnoughFeeTokens(
+		ctx,
+		srcChain,
+		srcChain.DeployerKey,
+		routerAddress,
+		feeToken,
+		fee,
+	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to check if have enough fee tokens: %w", err)
 	}
