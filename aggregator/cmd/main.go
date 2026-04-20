@@ -22,6 +22,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/cli/chains"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/configuration"
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/storage/postgres"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -33,7 +34,6 @@ import (
 )
 
 func main() {
-	// Determine log level from environment variable, defaulting to "info"
 	logLevelStr := os.Getenv("LOG_LEVEL")
 	if logLevelStr == "" {
 		logLevelStr = "info"
@@ -48,31 +48,84 @@ func main() {
 		panic(fmt.Sprintf("Failed to create logger: %v", err))
 	}
 	lggr = logger.Named(lggr, "aggregator")
-
 	sugaredLggr := logger.Sugared(lggr)
 
-	// Route "chains" subcommand to the CLI before treating os.Args[1] as a config path.
-	if len(os.Args) >= 2 && os.Args[1] == "chains" {
-		runChainsCLI(os.Args[1:], sugaredLggr)
-		return
+	var (
+		loadedConfig   *model.AggregatorConfig
+		chainsDepsOnce sync.Once
+		chainsDeps     chains.Deps
+	)
+
+	getChainsDepsFn := func() chains.Deps {
+		chainsDepsOnce.Do(func() {
+			db, err := sql.Open("postgres", loadedConfig.Storage.ConnectionURL)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "failed to open database: %v\n", err)
+				os.Exit(1)
+			}
+			sqlxDB := sqlx.NewDb(db, "postgres")
+			store := postgres.NewDatabaseStorage(sqlxDB, loadedConfig.Storage.PageSize, loadedConfig.Storage.QueryTimeout, sugaredLggr)
+			chainsDeps = chains.Deps{
+				Logger:    lggr,
+				Store:     store,
+				Committee: loadedConfig.Committee,
+			}
+		})
+		return chainsDeps
 	}
 
-	filePath, ok := os.LookupEnv("AGGREGATOR_CONFIG_PATH")
-	if !ok {
-		filePath = aggregator.DefaultConfigFile
+	app := cli.NewApp()
+	app.Name = filepath.Base(os.Args[0])
+	app.Usage = "Aggregator service and chain management CLI"
+	app.Flags = []cli.Flag{
+		cli.StringFlag{
+			Name:   "config, c",
+			Usage:  "Path to config file",
+			EnvVar: "AGGREGATOR_CONFIG_PATH",
+			Value:  aggregator.DefaultConfigFile,
+		},
 	}
-	if len(os.Args) > 1 {
-		filePath = os.Args[1]
+
+	app.Action = func(c *cli.Context) error {
+		runServer(c.String("config"), lggr, sugaredLggr)
+		return nil
 	}
-	config, err := configuration.LoadConfig(filePath, sugaredLggr)
+
+	app.Commands = []cli.Command{
+		{
+			Name:  "chains",
+			Usage: "Disable, enable, or inspect chain processing status",
+			Before: func(c *cli.Context) error {
+				cfg, err := configuration.LoadConfig(c.GlobalString("config"), sugaredLggr)
+				if err != nil {
+					return fmt.Errorf("failed to load config: %w", err)
+				}
+				if err := cfg.LoadFromEnvironment(); err != nil {
+					return fmt.Errorf("failed to load config from environment: %w", err)
+				}
+				loadedConfig = cfg
+				return nil
+			},
+			Subcommands: chains.InitChainsCommandsWithFactory(getChainsDepsFn),
+		},
+	}
+
+	if err := app.Run(os.Args); err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err)
+		os.Exit(1)
+	}
+}
+
+func runServer(configPath string, lggr logger.Logger, sugaredLggr logger.SugaredLogger) {
+	config, err := configuration.LoadConfig(configPath, sugaredLggr)
 	if err != nil {
-		lggr.Errorw("Failed to load configuration", "path", filePath, "error", err)
+		lggr.Errorw("Failed to load configuration", "path", configPath, "error", err)
 		os.Exit(1)
 	}
 	lggr.Infow("Loaded configuration", "config", config)
 
 	if err := config.LoadFromEnvironment(); err != nil {
-		lggr.Errorw("Failed to load configuration from environment", "path", filePath, "error", err)
+		lggr.Errorw("Failed to load configuration from environment", "path", configPath, "error", err)
 		os.Exit(1)
 	}
 	lggr.Infow("Successfully loaded configuration from environment variables")
@@ -123,65 +176,4 @@ func main() {
 		sugaredLggr.Errorw("failed to close listener", "error", err)
 	}
 	sugaredLggr.Info("Aggregator service shut down gracefully")
-}
-
-// runChainsCLI handles the "aggregator chains ..." subcommand.
-// Config is read from AGGREGATOR_CONFIG_PATH env var or the default path.
-func runChainsCLI(args []string, lggr logger.SugaredLogger) {
-	filePath, ok := os.LookupEnv("AGGREGATOR_CONFIG_PATH")
-	if !ok {
-		filePath = aggregator.DefaultConfigFile
-	}
-
-	config, err := configuration.LoadConfig(filePath, lggr)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to load config: %v\n", err)
-		os.Exit(1)
-	}
-	if err := config.LoadFromEnvironment(); err != nil {
-		fmt.Fprintf(os.Stderr, "failed to load config from environment: %v\n", err)
-		os.Exit(1)
-	}
-
-	var (
-		chainsDepsOnce sync.Once
-		chainsDeps     chains.Deps
-	)
-	getChainsDepsFn := func() chains.Deps {
-		chainsDepsOnce.Do(func() {
-			db, err := sql.Open("postgres", config.Storage.ConnectionURL)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "failed to open database: %v\n", err)
-				os.Exit(1)
-			}
-			sqlxDB := sqlx.NewDb(db, "postgres")
-			if err := postgres.RunMigrations(sqlxDB, "postgres"); err != nil {
-				fmt.Fprintf(os.Stderr, "failed to run migrations: %v\n", err)
-				os.Exit(1)
-			}
-			store := postgres.NewDatabaseStorage(sqlxDB, config.Storage.PageSize, config.Storage.QueryTimeout, lggr)
-			chainsDeps = chains.Deps{
-				Logger:    lggr,
-				Store:     store,
-				Committee: config.Committee,
-			}
-		})
-		return chainsDeps
-	}
-
-	app := cli.NewApp()
-	app.Name = filepath.Base(os.Args[0])
-	app.Usage = "Aggregator chain disable/enable CLI"
-	app.Commands = []cli.Command{
-		{
-			Name:        "chains",
-			Usage:       "Disable, enable, or inspect chain processing status",
-			Subcommands: chains.InitChainsCommandsWithFactory(getChainsDepsFn),
-		},
-	}
-
-	if err := app.Run(append([]string{app.Name}, args...)); err != nil {
-		fmt.Fprintf(os.Stderr, "%v\n", err)
-		os.Exit(1)
-	}
 }

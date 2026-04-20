@@ -7,10 +7,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/chaindisable"
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/chainstatus"
 )
 
-var _ chaindisable.Store = (*DatabaseStorage)(nil)
+var _ chainstatus.Store = (*DatabaseStorage)(nil)
 
 type chainStatusRow struct {
 	ChainSelector uint64    `db:"chain_selector"`
@@ -19,17 +19,17 @@ type chainStatusRow struct {
 	UpdatedAt     time.Time `db:"updated_at"`
 }
 
-func rowToChainStatus(r chainStatusRow) chaindisable.ChainStatus {
-	return chaindisable.ChainStatus{
+func rowToChainStatus(r chainStatusRow) chainstatus.ChainStatus {
+	return chainstatus.ChainStatus{
 		ChainSelector: r.ChainSelector,
-		Side:          chaindisable.LaneSide(r.LaneSide),
+		Side:          chainstatus.LaneSide(r.LaneSide),
 		Disabled:      r.Disabled,
 		UpdatedAt:     r.UpdatedAt,
 	}
 }
 
 // BatchSetStatus upserts the disabled flag for the given lane side and selectors.
-func (d *DatabaseStorage) BatchSetStatus(ctx context.Context, side chaindisable.LaneSide, selectors []uint64, disabled bool) error {
+func (d *DatabaseStorage) BatchSetStatus(ctx context.Context, side chainstatus.LaneSide, selectors []uint64, disabled bool) error {
 	ctx, cancel := d.withTimeout(ctx)
 	defer cancel()
 
@@ -46,7 +46,7 @@ func (d *DatabaseStorage) BatchSetStatus(ctx context.Context, side chaindisable.
 }
 
 // List returns all chain status rows (including re-enabled ones for audit trail).
-func (d *DatabaseStorage) List(ctx context.Context) ([]chaindisable.ChainStatus, error) {
+func (d *DatabaseStorage) List(ctx context.Context) ([]chainstatus.ChainStatus, error) {
 	ctx, cancel := d.withTimeout(ctx)
 	defer cancel()
 
@@ -59,7 +59,7 @@ func (d *DatabaseStorage) List(ctx context.Context) ([]chaindisable.ChainStatus,
 		return nil, fmt.Errorf("failed to list chain statuses: %w", err)
 	}
 
-	statuses := make([]chaindisable.ChainStatus, len(rows))
+	statuses := make([]chainstatus.ChainStatus, len(rows))
 	for i, r := range rows {
 		statuses[i] = rowToChainStatus(r)
 	}
@@ -67,7 +67,7 @@ func (d *DatabaseStorage) List(ctx context.Context) ([]chaindisable.ChainStatus,
 }
 
 // ListDisabled returns only rows where disabled = true.
-func (d *DatabaseStorage) ListDisabled(ctx context.Context) ([]chaindisable.ChainStatus, error) {
+func (d *DatabaseStorage) ListDisabled(ctx context.Context) ([]chainstatus.ChainStatus, error) {
 	ctx, cancel := d.withTimeout(ctx)
 	defer cancel()
 
@@ -81,7 +81,7 @@ func (d *DatabaseStorage) ListDisabled(ctx context.Context) ([]chaindisable.Chai
 		return nil, fmt.Errorf("failed to list disabled chain statuses: %w", err)
 	}
 
-	statuses := make([]chaindisable.ChainStatus, len(rows))
+	statuses := make([]chainstatus.ChainStatus, len(rows))
 	for i, r := range rows {
 		statuses[i] = rowToChainStatus(r)
 	}
@@ -89,7 +89,7 @@ func (d *DatabaseStorage) ListDisabled(ctx context.Context) ([]chaindisable.Chai
 }
 
 // Get returns the status for a specific selector + lane side. Returns nil if no row exists (= enabled).
-func (d *DatabaseStorage) Get(ctx context.Context, side chaindisable.LaneSide, selector uint64) (*chaindisable.ChainStatus, error) {
+func (d *DatabaseStorage) Get(ctx context.Context, side chainstatus.LaneSide, selector uint64) (*chainstatus.ChainStatus, error) {
 	ctx, cancel := d.withTimeout(ctx)
 	defer cancel()
 

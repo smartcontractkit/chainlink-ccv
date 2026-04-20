@@ -1,4 +1,4 @@
-package chaindisable
+package chainstatus
 
 // LaneReport exposes the chain selectors for both ends of a lane.
 // Both *model.CommitVerificationRecord and *model.CommitAggregatedReport satisfy this interface.

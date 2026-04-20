@@ -61,7 +61,7 @@ func TestE2ESmoke_AggregatorChainsCLI(t *testing.T) {
 }
 
 // TestE2ESmoke_AggregatorChainDisableEnable validates the full user-visible
-// behaviour of the aggregator chain kill switch across three phases:
+// behavior of the aggregator chain kill switch across three phases:
 //
 //  1. Non-disabled lane — while chains[0] is disabled as a SOURCE, messages on
 //     the reverse lane (chains[1] → chains[0]) are unaffected because chains[0]

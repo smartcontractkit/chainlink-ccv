@@ -22,7 +22,7 @@ trustedProxies = [
     "192.168.0.0/16",
 ]
 
-[chainDisable]
+[chainStatus]
 refreshInterval = "2s"
 
 [orphanRecovery]

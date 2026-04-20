@@ -77,7 +77,7 @@ func (c *CommitVerificationRecord) GetTimestamp() time.Time {
 }
 
 // GetSourceChainSelector returns the source chain selector from the message.
-// Satisfies chaindisable.LaneReport.
+// Satisfies chainstatus.LaneReport.
 func (c *CommitVerificationRecord) GetSourceChainSelector() uint64 {
 	if c.Message == nil {
 		return 0
@@ -86,7 +86,7 @@ func (c *CommitVerificationRecord) GetSourceChainSelector() uint64 {
 }
 
 // GetDestinationSelector returns the destination chain selector from the message.
-// Satisfies chaindisable.LaneReport.
+// Satisfies chainstatus.LaneReport.
 func (c *CommitVerificationRecord) GetDestinationSelector() uint64 {
 	if c.Message == nil {
 		return 0

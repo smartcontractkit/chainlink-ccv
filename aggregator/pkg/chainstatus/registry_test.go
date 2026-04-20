@@ -1,4 +1,4 @@
-package chaindisable_test
+package chainstatus_test
 
 import (
 	"context"
@@ -12,34 +12,34 @@ import (
 
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
-	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/chaindisable"
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/chainstatus"
 )
 
 // fakeStore is a minimal in-memory Store for unit tests.
 type fakeStore struct {
-	disabled []chaindisable.ChainStatus
+	disabled []chainstatus.ChainStatus
 	err      error
 }
 
-func (f *fakeStore) BatchSetStatus(_ context.Context, _ chaindisable.LaneSide, _ []uint64, _ bool) error {
+func (f *fakeStore) BatchSetStatus(_ context.Context, _ chainstatus.LaneSide, _ []uint64, _ bool) error {
 	return f.err
 }
 
-func (f *fakeStore) List(_ context.Context) ([]chaindisable.ChainStatus, error) {
+func (f *fakeStore) List(_ context.Context) ([]chainstatus.ChainStatus, error) {
 	return f.disabled, f.err
 }
 
-func (f *fakeStore) ListDisabled(_ context.Context) ([]chaindisable.ChainStatus, error) {
+func (f *fakeStore) ListDisabled(_ context.Context) ([]chainstatus.ChainStatus, error) {
 	return f.disabled, f.err
 }
 
-func (f *fakeStore) Get(_ context.Context, _ chaindisable.LaneSide, _ uint64) (*chaindisable.ChainStatus, error) {
+func (f *fakeStore) Get(_ context.Context, _ chainstatus.LaneSide, _ uint64) (*chainstatus.ChainStatus, error) {
 	return nil, f.err
 }
 
-func newTestRegistry(t *testing.T, store chaindisable.Store) *chaindisable.Registry {
+func newTestRegistry(t *testing.T, store chainstatus.Store) *chainstatus.Registry {
 	t.Helper()
-	return chaindisable.NewRegistry(store, logger.Sugared(logger.Test(t)))
+	return chainstatus.NewRegistry(store, logger.Sugared(logger.Test(t)))
 }
 
 // laneReport is a minimal LaneReport for tests.
@@ -62,8 +62,8 @@ func TestRegistry_IsDisabled_EmptyRegistry_AlwaysFalse(t *testing.T) {
 func TestRegistry_Refresh_LoadsDisabledSources(t *testing.T) {
 	t.Parallel()
 	store := &fakeStore{
-		disabled: []chaindisable.ChainStatus{
-			{ChainSelector: 100, Side: chaindisable.LaneSideSource, Disabled: true},
+		disabled: []chainstatus.ChainStatus{
+			{ChainSelector: 100, Side: chainstatus.LaneSideSource, Disabled: true},
 		},
 	}
 	reg := newTestRegistry(t, store)
@@ -77,8 +77,8 @@ func TestRegistry_Refresh_LoadsDisabledSources(t *testing.T) {
 func TestRegistry_Refresh_LoadsDisabledDestinations(t *testing.T) {
 	t.Parallel()
 	store := &fakeStore{
-		disabled: []chaindisable.ChainStatus{
-			{ChainSelector: 200, Side: chaindisable.LaneSideDestination, Disabled: true},
+		disabled: []chainstatus.ChainStatus{
+			{ChainSelector: 200, Side: chainstatus.LaneSideDestination, Disabled: true},
 		},
 	}
 	reg := newTestRegistry(t, store)
@@ -91,9 +91,9 @@ func TestRegistry_Refresh_LoadsDisabledDestinations(t *testing.T) {
 func TestRegistry_IsDisabled_SourceOrDestinationSuffices(t *testing.T) {
 	t.Parallel()
 	store := &fakeStore{
-		disabled: []chaindisable.ChainStatus{
-			{ChainSelector: 10, Side: chaindisable.LaneSideSource, Disabled: true},
-			{ChainSelector: 20, Side: chaindisable.LaneSideDestination, Disabled: true},
+		disabled: []chainstatus.ChainStatus{
+			{ChainSelector: 10, Side: chainstatus.LaneSideSource, Disabled: true},
+			{ChainSelector: 20, Side: chainstatus.LaneSideDestination, Disabled: true},
 		},
 	}
 	reg := newTestRegistry(t, store)
@@ -108,8 +108,8 @@ func TestRegistry_IsDisabled_SourceOrDestinationSuffices(t *testing.T) {
 func TestRegistry_Refresh_Error_PropagatesAndPreservesState(t *testing.T) {
 	t.Parallel()
 	store := &fakeStore{
-		disabled: []chaindisable.ChainStatus{
-			{ChainSelector: 50, Side: chaindisable.LaneSideSource, Disabled: true},
+		disabled: []chainstatus.ChainStatus{
+			{ChainSelector: 50, Side: chainstatus.LaneSideSource, Disabled: true},
 		},
 	}
 	reg := newTestRegistry(t, store)
@@ -127,8 +127,8 @@ func TestRegistry_Refresh_Error_PropagatesAndPreservesState(t *testing.T) {
 func TestRegistry_Refresh_ClearsStaleEntries(t *testing.T) {
 	t.Parallel()
 	store := &fakeStore{
-		disabled: []chaindisable.ChainStatus{
-			{ChainSelector: 300, Side: chaindisable.LaneSideSource, Disabled: true},
+		disabled: []chainstatus.ChainStatus{
+			{ChainSelector: 300, Side: chainstatus.LaneSideSource, Disabled: true},
 		},
 	}
 	reg := newTestRegistry(t, store)
@@ -188,7 +188,7 @@ func TestRegistry_StartPeriodicRefresh_StopsOnContextCancel(t *testing.T) {
 
 func TestNoopChecker_NeverDisables(t *testing.T) {
 	t.Parallel()
-	checker := chaindisable.NoopChecker{}
+	checker := chainstatus.NoopChecker{}
 
 	assert.False(t, checker.IsDisabled(laneReport{source: 1, dest: 2}))
 	assert.False(t, checker.IsDisabled(laneReport{source: 0, dest: 0}))
@@ -200,19 +200,19 @@ type countingStore struct {
 	refreshCount *atomic.Int32
 }
 
-func (c *countingStore) BatchSetStatus(_ context.Context, _ chaindisable.LaneSide, _ []uint64, _ bool) error {
+func (c *countingStore) BatchSetStatus(_ context.Context, _ chainstatus.LaneSide, _ []uint64, _ bool) error {
 	return nil
 }
 
-func (c *countingStore) List(_ context.Context) ([]chaindisable.ChainStatus, error) {
+func (c *countingStore) List(_ context.Context) ([]chainstatus.ChainStatus, error) {
 	return nil, nil
 }
 
-func (c *countingStore) ListDisabled(_ context.Context) ([]chaindisable.ChainStatus, error) {
+func (c *countingStore) ListDisabled(_ context.Context) ([]chainstatus.ChainStatus, error) {
 	c.refreshCount.Add(1)
 	return nil, nil
 }
 
-func (c *countingStore) Get(_ context.Context, _ chaindisable.LaneSide, _ uint64) (*chaindisable.ChainStatus, error) {
+func (c *countingStore) Get(_ context.Context, _ chainstatus.LaneSide, _ uint64) (*chainstatus.ChainStatus, error) {
 	return nil, nil
 }

@@ -157,8 +157,8 @@ type AggregationConfig struct {
 	MaxConsecutiveErrors uint32 `toml:"maxConsecutiveErrors"`
 }
 
-// ChainDisableConfig controls the chain-disable registry refresh behavior.
-type ChainDisableConfig struct {
+// ChainStatusConfig controls the chain-disable registry refresh behavior.
+type ChainStatusConfig struct {
 	// RefreshInterval controls how often the in-memory registry is refreshed from the database.
 	RefreshInterval time.Duration `toml:"refreshInterval"`
 }
@@ -406,7 +406,7 @@ type AggregatorConfig struct {
 	Storage                                     *StorageConfig       `toml:"storage"`
 	APIClients                                  []*ClientConfig      `toml:"clients"`
 	Aggregation                                 AggregationConfig    `toml:"aggregation"`
-	ChainDisable                                ChainDisableConfig   `toml:"chainDisable"`
+	ChainStatus                                 ChainStatusConfig    `toml:"chainStatus"`
 	OrphanRecovery                              OrphanRecoveryConfig `toml:"orphanRecovery"`
 	RateLimiting                                RateLimitingConfig   `toml:"rateLimiting"`
 	HealthCheck                                 HealthCheckConfig    `toml:"healthCheck"`
@@ -568,8 +568,8 @@ func (c *AggregatorConfig) SetDefaults() {
 	}
 
 	// Default chain-disable registry refresh: 30 seconds
-	if c.ChainDisable.RefreshInterval == 0 {
-		c.ChainDisable.RefreshInterval = 30 * time.Second
+	if c.ChainStatus.RefreshInterval == 0 {
+		c.ChainStatus.RefreshInterval = 30 * time.Second
 	}
 
 	// Default orphan recovery: enabled with 5 minute interval

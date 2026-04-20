@@ -590,10 +590,10 @@ func NewAggregator(in *AggregatorInput) (*AggregatorOutput, error) {
 		NginxContainerName:      nginxContainerName,
 		Address:                 fmt.Sprintf("%s:443", nginxContainerName),
 		ExternalHTTPUrl:         fmt.Sprintf("%s:%d", aggregatorContainerName, DefaultAggregatorGRPCPort),
-		ExternalHTTPSUrl:   fmt.Sprintf("%s:%d", host, in.HostPort),
-		TLSCACertFile:      tlsCerts.CACertFile,
-		ClientCredentials:  clientCredentials,
-		GeneratedCommittee: in.GeneratedCommittee,
+		ExternalHTTPSUrl:        fmt.Sprintf("%s:%d", host, in.HostPort),
+		TLSCACertFile:           tlsCerts.CACertFile,
+		ClientCredentials:       clientCredentials,
+		GeneratedCommittee:      in.GeneratedCommittee,
 	}
 	return in.Out, nil
 }

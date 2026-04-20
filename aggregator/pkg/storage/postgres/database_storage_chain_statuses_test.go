@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/chaindisable"
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/chainstatus"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/testutil"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
@@ -29,18 +29,18 @@ func TestDatabaseStorage_BatchSetStatus_Disable(t *testing.T) {
 	defer cleanup()
 	ctx := context.Background()
 
-	err := storage.BatchSetStatus(ctx, chaindisable.LaneSideSource, []uint64{1001, 1002}, true)
+	err := storage.BatchSetStatus(ctx, chainstatus.LaneSideSource, []uint64{1001, 1002}, true)
 	require.NoError(t, err)
 
-	s1, err := storage.Get(ctx, chaindisable.LaneSideSource, 1001)
+	s1, err := storage.Get(ctx, chainstatus.LaneSideSource, 1001)
 	require.NoError(t, err)
 	require.NotNil(t, s1)
 	assert.True(t, s1.Disabled)
-	assert.Equal(t, chaindisable.LaneSideSource, s1.Side)
+	assert.Equal(t, chainstatus.LaneSideSource, s1.Side)
 	assert.Equal(t, uint64(1001), s1.ChainSelector)
 	assert.False(t, s1.UpdatedAt.IsZero())
 
-	s2, err := storage.Get(ctx, chaindisable.LaneSideSource, 1002)
+	s2, err := storage.Get(ctx, chainstatus.LaneSideSource, 1002)
 	require.NoError(t, err)
 	require.NotNil(t, s2)
 	assert.True(t, s2.Disabled)
@@ -52,10 +52,10 @@ func TestDatabaseStorage_BatchSetStatus_Enable(t *testing.T) {
 	defer cleanup()
 	ctx := context.Background()
 
-	require.NoError(t, storage.BatchSetStatus(ctx, chaindisable.LaneSideSource, []uint64{2001}, true))
-	require.NoError(t, storage.BatchSetStatus(ctx, chaindisable.LaneSideSource, []uint64{2001}, false))
+	require.NoError(t, storage.BatchSetStatus(ctx, chainstatus.LaneSideSource, []uint64{2001}, true))
+	require.NoError(t, storage.BatchSetStatus(ctx, chainstatus.LaneSideSource, []uint64{2001}, false))
 
-	s, err := storage.Get(ctx, chaindisable.LaneSideSource, 2001)
+	s, err := storage.Get(ctx, chainstatus.LaneSideSource, 2001)
 	require.NoError(t, err)
 	require.NotNil(t, s, "row should exist for audit trail after re-enable")
 	assert.False(t, s.Disabled)
@@ -67,10 +67,10 @@ func TestDatabaseStorage_BatchSetStatus_Idempotent(t *testing.T) {
 	defer cleanup()
 	ctx := context.Background()
 
-	require.NoError(t, storage.BatchSetStatus(ctx, chaindisable.LaneSideSource, []uint64{3001}, true))
-	require.NoError(t, storage.BatchSetStatus(ctx, chaindisable.LaneSideSource, []uint64{3001}, true))
+	require.NoError(t, storage.BatchSetStatus(ctx, chainstatus.LaneSideSource, []uint64{3001}, true))
+	require.NoError(t, storage.BatchSetStatus(ctx, chainstatus.LaneSideSource, []uint64{3001}, true))
 
-	s, err := storage.Get(ctx, chaindisable.LaneSideSource, 3001)
+	s, err := storage.Get(ctx, chainstatus.LaneSideSource, 3001)
 	require.NoError(t, err)
 	require.NotNil(t, s)
 	assert.True(t, s.Disabled)
@@ -82,7 +82,7 @@ func TestDatabaseStorage_BatchSetStatus_EmptySelectors(t *testing.T) {
 	defer cleanup()
 	ctx := context.Background()
 
-	err := storage.BatchSetStatus(ctx, chaindisable.LaneSideSource, []uint64{}, true)
+	err := storage.BatchSetStatus(ctx, chainstatus.LaneSideSource, []uint64{}, true)
 	require.NoError(t, err)
 }
 
@@ -92,20 +92,20 @@ func TestDatabaseStorage_BatchSetStatus_SourceAndDestinationAreIndependent(t *te
 	defer cleanup()
 	ctx := context.Background()
 
-	require.NoError(t, storage.BatchSetStatus(ctx, chaindisable.LaneSideSource, []uint64{4001}, true))
-	require.NoError(t, storage.BatchSetStatus(ctx, chaindisable.LaneSideDestination, []uint64{4001}, true))
+	require.NoError(t, storage.BatchSetStatus(ctx, chainstatus.LaneSideSource, []uint64{4001}, true))
+	require.NoError(t, storage.BatchSetStatus(ctx, chainstatus.LaneSideDestination, []uint64{4001}, true))
 
-	src, err := storage.Get(ctx, chaindisable.LaneSideSource, 4001)
+	src, err := storage.Get(ctx, chainstatus.LaneSideSource, 4001)
 	require.NoError(t, err)
 	require.NotNil(t, src)
 	assert.True(t, src.Disabled)
-	assert.Equal(t, chaindisable.LaneSideSource, src.Side)
+	assert.Equal(t, chainstatus.LaneSideSource, src.Side)
 
-	dst, err := storage.Get(ctx, chaindisable.LaneSideDestination, 4001)
+	dst, err := storage.Get(ctx, chainstatus.LaneSideDestination, 4001)
 	require.NoError(t, err)
 	require.NotNil(t, dst)
 	assert.True(t, dst.Disabled)
-	assert.Equal(t, chaindisable.LaneSideDestination, dst.Side)
+	assert.Equal(t, chainstatus.LaneSideDestination, dst.Side)
 }
 
 func TestDatabaseStorage_Get_NoRow_ReturnsNil(t *testing.T) {
@@ -114,7 +114,7 @@ func TestDatabaseStorage_Get_NoRow_ReturnsNil(t *testing.T) {
 	defer cleanup()
 	ctx := context.Background()
 
-	s, err := storage.Get(ctx, chaindisable.LaneSideSource, 9999)
+	s, err := storage.Get(ctx, chainstatus.LaneSideSource, 9999)
 	require.NoError(t, err)
 	assert.Nil(t, s, "no row should return nil (= enabled by default)")
 }
@@ -125,9 +125,9 @@ func TestDatabaseStorage_Get_WrongSide_ReturnsNil(t *testing.T) {
 	defer cleanup()
 	ctx := context.Background()
 
-	require.NoError(t, storage.BatchSetStatus(ctx, chaindisable.LaneSideSource, []uint64{5001}, true))
+	require.NoError(t, storage.BatchSetStatus(ctx, chainstatus.LaneSideSource, []uint64{5001}, true))
 
-	s, err := storage.Get(ctx, chaindisable.LaneSideDestination, 5001)
+	s, err := storage.Get(ctx, chainstatus.LaneSideDestination, 5001)
 	require.NoError(t, err)
 	assert.Nil(t, s)
 }
@@ -149,16 +149,16 @@ func TestDatabaseStorage_List_ReturnsAllRows(t *testing.T) {
 	defer cleanup()
 	ctx := context.Background()
 
-	require.NoError(t, storage.BatchSetStatus(ctx, chaindisable.LaneSideSource, []uint64{6001}, true))
-	require.NoError(t, storage.BatchSetStatus(ctx, chaindisable.LaneSideDestination, []uint64{6002}, true))
+	require.NoError(t, storage.BatchSetStatus(ctx, chainstatus.LaneSideSource, []uint64{6001}, true))
+	require.NoError(t, storage.BatchSetStatus(ctx, chainstatus.LaneSideDestination, []uint64{6002}, true))
 	// Re-enable one — should still appear in List
-	require.NoError(t, storage.BatchSetStatus(ctx, chaindisable.LaneSideSource, []uint64{6001}, false))
+	require.NoError(t, storage.BatchSetStatus(ctx, chainstatus.LaneSideSource, []uint64{6001}, false))
 
 	statuses, err := storage.List(ctx)
 	require.NoError(t, err)
 	require.Len(t, statuses, 2, "List should return all rows including re-enabled ones")
 
-	byKey := make(map[string]chaindisable.ChainStatus)
+	byKey := make(map[string]chainstatus.ChainStatus)
 	for _, s := range statuses {
 		byKey[string(s.Side)+":"+string(rune(s.ChainSelector))] = s
 	}
@@ -167,11 +167,11 @@ func TestDatabaseStorage_List_ReturnsAllRows(t *testing.T) {
 	found6001 := false
 	found6002 := false
 	for _, s := range statuses {
-		if s.ChainSelector == 6001 && s.Side == chaindisable.LaneSideSource {
+		if s.ChainSelector == 6001 && s.Side == chainstatus.LaneSideSource {
 			assert.False(t, s.Disabled)
 			found6001 = true
 		}
-		if s.ChainSelector == 6002 && s.Side == chaindisable.LaneSideDestination {
+		if s.ChainSelector == 6002 && s.Side == chainstatus.LaneSideDestination {
 			assert.True(t, s.Disabled)
 			found6002 = true
 		}
@@ -186,10 +186,10 @@ func TestDatabaseStorage_ListDisabled_OnlyDisabled(t *testing.T) {
 	defer cleanup()
 	ctx := context.Background()
 
-	require.NoError(t, storage.BatchSetStatus(ctx, chaindisable.LaneSideSource, []uint64{7001, 7002}, true))
-	require.NoError(t, storage.BatchSetStatus(ctx, chaindisable.LaneSideDestination, []uint64{7003}, true))
+	require.NoError(t, storage.BatchSetStatus(ctx, chainstatus.LaneSideSource, []uint64{7001, 7002}, true))
+	require.NoError(t, storage.BatchSetStatus(ctx, chainstatus.LaneSideDestination, []uint64{7003}, true))
 	// Re-enable 7002 — should not appear in ListDisabled
-	require.NoError(t, storage.BatchSetStatus(ctx, chaindisable.LaneSideSource, []uint64{7002}, false))
+	require.NoError(t, storage.BatchSetStatus(ctx, chainstatus.LaneSideSource, []uint64{7002}, false))
 
 	statuses, err := storage.ListDisabled(ctx)
 	require.NoError(t, err)
@@ -225,15 +225,15 @@ func TestDatabaseStorage_ChainStatus_UpdatedAt_ChangesOnUpdate(t *testing.T) {
 	defer cleanup()
 	ctx := context.Background()
 
-	require.NoError(t, storage.BatchSetStatus(ctx, chaindisable.LaneSideSource, []uint64{8001}, true))
-	s1, err := storage.Get(ctx, chaindisable.LaneSideSource, 8001)
+	require.NoError(t, storage.BatchSetStatus(ctx, chainstatus.LaneSideSource, []uint64{8001}, true))
+	s1, err := storage.Get(ctx, chainstatus.LaneSideSource, 8001)
 	require.NoError(t, err)
 	require.NotNil(t, s1)
 
 	// Small sleep to ensure updated_at changes
 	time.Sleep(10 * time.Millisecond)
-	require.NoError(t, storage.BatchSetStatus(ctx, chaindisable.LaneSideSource, []uint64{8001}, false))
-	s2, err := storage.Get(ctx, chaindisable.LaneSideSource, 8001)
+	require.NoError(t, storage.BatchSetStatus(ctx, chainstatus.LaneSideSource, []uint64{8001}, false))
+	s2, err := storage.Get(ctx, chainstatus.LaneSideSource, 8001)
 	require.NoError(t, err)
 	require.NotNil(t, s2)
 

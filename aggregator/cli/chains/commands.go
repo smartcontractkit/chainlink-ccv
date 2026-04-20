@@ -11,7 +11,7 @@ import (
 	"github.com/urfave/cli"
 
 	chainselectors "github.com/smartcontractkit/chain-selectors"
-	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/chaindisable"
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/chainstatus"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
@@ -19,7 +19,7 @@ import (
 // Deps holds dependencies for the aggregator chains CLI commands.
 type Deps struct {
 	Logger    logger.Logger
-	Store     chaindisable.Store
+	Store     chainstatus.Store
 	Committee *model.Committee
 }
 
@@ -116,11 +116,11 @@ func setStatusActionWithFactory(getDeps func() Deps, disabled bool) func(c *cli.
 		if useAll {
 			allSources := committeeSourceSelectors(deps.Committee)
 			allDests := committeeDestSelectors(deps.Committee)
-			if err := deps.Store.BatchSetStatus(ctx, chaindisable.LaneSideSource, allSources, disabled); err != nil {
+			if err := deps.Store.BatchSetStatus(ctx, chainstatus.LaneSideSource, allSources, disabled); err != nil {
 				deps.Logger.Errorw("failed to set source statuses", "error", err)
 				return err
 			}
-			if err := deps.Store.BatchSetStatus(ctx, chaindisable.LaneSideDestination, allDests, disabled); err != nil {
+			if err := deps.Store.BatchSetStatus(ctx, chainstatus.LaneSideDestination, allDests, disabled); err != nil {
 				deps.Logger.Errorw("failed to set destination statuses", "error", err)
 				return err
 			}
@@ -133,7 +133,7 @@ func setStatusActionWithFactory(getDeps func() Deps, disabled bool) func(c *cli.
 			if err != nil {
 				return fmt.Errorf("invalid --source: %w", err)
 			}
-			if err := deps.Store.BatchSetStatus(ctx, chaindisable.LaneSideSource, selectors, disabled); err != nil {
+			if err := deps.Store.BatchSetStatus(ctx, chainstatus.LaneSideSource, selectors, disabled); err != nil {
 				deps.Logger.Errorw("failed to set source statuses", "error", err)
 				return err
 			}
@@ -145,7 +145,7 @@ func setStatusActionWithFactory(getDeps func() Deps, disabled bool) func(c *cli.
 			if err != nil {
 				return fmt.Errorf("invalid --destination: %w", err)
 			}
-			if err := deps.Store.BatchSetStatus(ctx, chaindisable.LaneSideDestination, selectors, disabled); err != nil {
+			if err := deps.Store.BatchSetStatus(ctx, chainstatus.LaneSideDestination, selectors, disabled); err != nil {
 				deps.Logger.Errorw("failed to set destination statuses", "error", err)
 				return err
 			}
@@ -161,20 +161,47 @@ func listActionWithFactory(getDeps func() Deps) func(c *cli.Context) error {
 		deps := getDeps()
 		ctx := context.Background()
 
-		var (
-			statuses []chaindisable.ChainStatus
-			err      error
-		)
-		if c.Bool("only-disabled") {
-			statuses, err = deps.Store.ListDisabled(ctx)
-		} else {
-			statuses, err = deps.Store.List(ctx)
-		}
+		dbRows, err := deps.Store.List(ctx)
 		if err != nil {
 			deps.Logger.Errorw("list chain statuses failed", "error", err)
 			return err
 		}
-		return renderList(statuses)
+
+		type key struct {
+			sel  uint64
+			side chainstatus.LaneSide
+		}
+		known := make(map[key]chainstatus.ChainStatus, len(dbRows))
+		for _, s := range dbRows {
+			known[key{s.ChainSelector, s.Side}] = s
+		}
+
+		merged := make([]chainstatus.ChainStatus, 0, len(dbRows))
+		merged = append(merged, dbRows...)
+		for _, sel := range committeeSourceSelectors(deps.Committee) {
+			k := key{sel, chainstatus.LaneSideSource}
+			if _, ok := known[k]; !ok {
+				merged = append(merged, chainstatus.ChainStatus{ChainSelector: sel, Side: chainstatus.LaneSideSource})
+			}
+		}
+		for _, sel := range committeeDestSelectors(deps.Committee) {
+			k := key{sel, chainstatus.LaneSideDestination}
+			if _, ok := known[k]; !ok {
+				merged = append(merged, chainstatus.ChainStatus{ChainSelector: sel, Side: chainstatus.LaneSideDestination})
+			}
+		}
+
+		if c.Bool("only-disabled") {
+			filtered := merged[:0]
+			for _, s := range merged {
+				if s.Disabled {
+					filtered = append(filtered, s)
+				}
+			}
+			merged = filtered
+		}
+
+		return renderList(merged)
 	}
 }
 
@@ -189,13 +216,13 @@ func getActionWithFactory(getDeps func() Deps) func(c *cli.Context) error {
 			return fmt.Errorf("one of --source or --destination is required")
 		}
 
-		var statuses []chaindisable.ChainStatus
+		var statuses []chainstatus.ChainStatus
 		if sourceStr != "" {
 			sel, err := parseSelector(sourceStr)
 			if err != nil {
 				return fmt.Errorf("invalid --source: %w", err)
 			}
-			s, err := deps.Store.Get(ctx, chaindisable.LaneSideSource, sel)
+			s, err := deps.Store.Get(ctx, chainstatus.LaneSideSource, sel)
 			if err != nil {
 				deps.Logger.Errorw("get source chain status failed", "error", err)
 				return err
@@ -203,7 +230,7 @@ func getActionWithFactory(getDeps func() Deps) func(c *cli.Context) error {
 			if s != nil {
 				statuses = append(statuses, *s)
 			} else {
-				statuses = append(statuses, chaindisable.ChainStatus{ChainSelector: sel, Side: chaindisable.LaneSideSource, Disabled: false})
+				statuses = append(statuses, chainstatus.ChainStatus{ChainSelector: sel, Side: chainstatus.LaneSideSource, Disabled: false})
 			}
 		}
 		if destStr != "" {
@@ -211,7 +238,7 @@ func getActionWithFactory(getDeps func() Deps) func(c *cli.Context) error {
 			if err != nil {
 				return fmt.Errorf("invalid --destination: %w", err)
 			}
-			s, err := deps.Store.Get(ctx, chaindisable.LaneSideDestination, sel)
+			s, err := deps.Store.Get(ctx, chainstatus.LaneSideDestination, sel)
 			if err != nil {
 				deps.Logger.Errorw("get destination chain status failed", "error", err)
 				return err
@@ -219,14 +246,14 @@ func getActionWithFactory(getDeps func() Deps) func(c *cli.Context) error {
 			if s != nil {
 				statuses = append(statuses, *s)
 			} else {
-				statuses = append(statuses, chaindisable.ChainStatus{ChainSelector: sel, Side: chaindisable.LaneSideDestination, Disabled: false})
+				statuses = append(statuses, chainstatus.ChainStatus{ChainSelector: sel, Side: chainstatus.LaneSideDestination, Disabled: false})
 			}
 		}
 		return renderList(statuses)
 	}
 }
 
-func renderList(statuses []chaindisable.ChainStatus) error {
+func renderList(statuses []chainstatus.ChainStatus) error {
 	if len(statuses) == 0 {
 		fmt.Println("No chain status rows found.") //nolint:forbidigo // CLI user output
 		return nil

@@ -1,4 +1,4 @@
-package chaindisable
+package chainstatus
 
 import (
 	"context"

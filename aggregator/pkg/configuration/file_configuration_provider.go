@@ -30,7 +30,7 @@ func LoadConfig(filePath string, lggr logger.SugaredLogger) (*model.AggregatorCo
 			return nil, fmt.Errorf("failed to load generated config from %s: %w", generatedPath, err)
 		}
 		config.MergeGeneratedConfig(generated)
-		lggr.Infow("Merged generated config", "config", config)
+		lggr.Infow("Merged generated config", "path", generatedPath)
 	}
 
 	return &config, nil
