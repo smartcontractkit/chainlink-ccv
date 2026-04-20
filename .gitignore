@@ -24,3 +24,5 @@ indexer/secrets.toml
 
 # Ignore the build output of the ccv development environment
 build/devenv/ccv
+# Added by code-review-graph
+.code-review-graph/
