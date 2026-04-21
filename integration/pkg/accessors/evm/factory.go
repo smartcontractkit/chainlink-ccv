@@ -7,10 +7,10 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
-
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/onramp"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/contracttransmitter"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/destinationreader"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -32,6 +32,10 @@ type factory struct {
 
 	destChainConfigs          map[protocol.ChainSelector]chainaccess.DestinationChainConfig
 	executionVisibilityWindow time.Duration
+	// rpcURLs holds the primary HTTP RPC URL for each chain, used by the contract transmitter's
+	// own ethclient (separate from the multi-node chain client used by the source/destination readers).
+	rpcURLs              map[protocol.ChainSelector]string
+	transmitterPrivateKey string
 }
 
 // NewFactory creates a new EVM AccessorFactory.
@@ -45,6 +49,8 @@ func NewFactory(
 	chainClients map[protocol.ChainSelector]client.Client,
 	destChainConfigs map[protocol.ChainSelector]chainaccess.DestinationChainConfig,
 	executionVisibilityWindow time.Duration,
+	rpcURLs map[protocol.ChainSelector]string,
+	transmitterPrivateKey string,
 ) chainaccess.AccessorFactory {
 	if executionVisibilityWindow == 0 {
 		executionVisibilityWindow = defaultExecutionVisibilityWindow
@@ -57,6 +63,8 @@ func NewFactory(
 		chainClients:              chainClients,
 		destChainConfigs:          destChainConfigs,
 		executionVisibilityWindow: executionVisibilityWindow,
+		rpcURLs:                   rpcURLs,
+		transmitterPrivateKey:     transmitterPrivateKey,
 	}
 }
 
@@ -137,18 +145,42 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 		}
 	}
 
-	return newAccessor(evmSourceReader, evmDestReader), nil
+	var evmContractTransmitter chainaccess.ContractTransmitter
+	if destCfg, ok := f.destChainConfigs[chainSelector]; ok && destCfg.OffRampAddress != "" && f.transmitterPrivateKey != "" {
+		rpcURL, hasURL := f.rpcURLs[chainSelector]
+		if !hasURL {
+			f.lggr.Warnw("No RPC URL for chain, ContractTransmitter will be unavailable", "chainSelector", chainSelector)
+		} else {
+			ct, err := contracttransmitter.NewEVMContractTransmitterFromRPC(
+				ctx,
+				f.lggr,
+				chainSelector,
+				rpcURL,
+				f.transmitterPrivateKey,
+				common.HexToAddress(destCfg.OffRampAddress),
+			)
+			if err != nil {
+				f.lggr.Warnw("Failed to create EVM contract transmitter, ContractTransmitter will be unavailable", "chainSelector", chainSelector, "error", err)
+			} else {
+				evmContractTransmitter = ct
+			}
+		}
+	}
+
+	return newAccessor(evmSourceReader, evmDestReader, evmContractTransmitter), nil
 }
 
 type accessor struct {
-	sourceReader      chainaccess.SourceReader
-	destinationReader chainaccess.DestinationReader
+	sourceReader        chainaccess.SourceReader
+	destinationReader   chainaccess.DestinationReader
+	contractTransmitter chainaccess.ContractTransmitter
 }
 
-func newAccessor(sourceReader chainaccess.SourceReader, destinationReader chainaccess.DestinationReader) chainaccess.Accessor {
+func newAccessor(sourceReader chainaccess.SourceReader, destinationReader chainaccess.DestinationReader, contractTransmitter chainaccess.ContractTransmitter) chainaccess.Accessor {
 	return &accessor{
-		sourceReader:      sourceReader,
-		destinationReader: destinationReader,
+		sourceReader:        sourceReader,
+		destinationReader:   destinationReader,
+		contractTransmitter: contractTransmitter,
 	}
 }
 
@@ -166,4 +198,9 @@ func (a *accessor) DestinationReader() chainaccess.DestinationReader {
 	return a.destinationReader
 }
 
-func (a *accessor) ContractTransmitter() chainaccess.ContractTransmitter { return nil }
+func (a *accessor) ContractTransmitter() chainaccess.ContractTransmitter {
+	if a == nil {
+		return nil
+	}
+	return a.contractTransmitter
+}
