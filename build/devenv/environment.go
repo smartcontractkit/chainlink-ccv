@@ -2298,14 +2298,3 @@ func proposeJobsToStandaloneVerifiers(
 
 	return g.Wait()
 }
-
-// filterOutputsByFamily returns only the blockchain outputs matching the given chain family.
-func filterOutputsByFamily(outputs []*blockchain.Output, family string) []*blockchain.Output {
-	var filtered []*blockchain.Output
-	for _, out := range outputs {
-		if out.Family == family {
-			filtered = append(filtered, out)
-		}
-	}
-	return filtered
-}
