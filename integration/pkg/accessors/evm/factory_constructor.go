@@ -79,9 +79,10 @@ func CreateAccessorFactory(
 		headTrackers[selector] = headTracker
 	}
 
-	// Convert from map[string]string -> map[chainsel]string
+	// Convert from map[string]T -> map[chainsel]T
 	onRampInfos := chainaccess.Infos[string](generic.OnRampAddresses).GetAllInfos()
 	rmnRemoteInfos := chainaccess.Infos[string](generic.RMNRemoteAddresses).GetAllInfos()
+	destChainConfigs := chainaccess.Infos[chainaccess.DestinationChainConfig](generic.ChainConfiguration).GetAllInfos()
 
-	return NewFactory(lggr, onRampInfos, rmnRemoteInfos, headTrackers, chainClients), nil
+	return NewFactory(lggr, onRampInfos, rmnRemoteInfos, headTrackers, chainClients, destChainConfigs, generic.MaxRetryDuration), nil
 }

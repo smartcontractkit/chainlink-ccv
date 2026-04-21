@@ -6,6 +6,7 @@ import (
 	"maps"
 	"reflect"
 	"sync"
+	"time"
 
 	"github.com/BurntSushi/toml"
 
@@ -156,11 +157,17 @@ type DestinationChainConfig struct {
 //
 // Example executor config shape mirrored here:
 //
+//	max_retry_duration = "8h"
+//
 //	[chain_configuration."<selector>"]
 //	off_ramp_address = "0x..."
 //	rmn_address      = "0x..."
 //	# executor-only fields (executor_pool, execution_interval, etc.) are ignored by this overlay
 type ExecutorConfig struct {
+	// MaxRetryDuration is the maximum duration the executor cluster will retry a message before
+	// giving up. It doubles as the ExecutionVisibilityWindow for the EvmDestinationReader, which
+	// must look back at least this far to detect all honest execution attempts.
+	MaxRetryDuration   time.Duration                     `toml:"max_retry_duration"`
 	ChainConfiguration map[string]DestinationChainConfig `toml:"chain_configuration"`
 }
 

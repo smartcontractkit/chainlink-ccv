@@ -4,17 +4,23 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/onramp"
+	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/destinationreader"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-evm/pkg/client"
 	"github.com/smartcontractkit/chainlink-evm/pkg/heads"
 )
+
+// defaultExecutionVisibilityWindow mirrors executor.maxRetryDurationDefault.
+const defaultExecutionVisibilityWindow = 8 * time.Hour
 
 type factory struct {
 	lggr logger.Logger
@@ -23,6 +29,9 @@ type factory struct {
 	rmnRemoteAddresses map[protocol.ChainSelector]string
 	headTrackers       map[protocol.ChainSelector]heads.Tracker
 	chainClients       map[protocol.ChainSelector]client.Client
+
+	destChainConfigs          map[protocol.ChainSelector]chainaccess.DestinationChainConfig
+	executionVisibilityWindow time.Duration
 }
 
 // NewFactory creates a new EVM AccessorFactory.
@@ -34,13 +43,20 @@ func NewFactory(
 	onRampAddresses, rmnRemoteAddresses map[protocol.ChainSelector]string,
 	headTrackers map[protocol.ChainSelector]heads.Tracker,
 	chainClients map[protocol.ChainSelector]client.Client,
+	destChainConfigs map[protocol.ChainSelector]chainaccess.DestinationChainConfig,
+	executionVisibilityWindow time.Duration,
 ) chainaccess.AccessorFactory {
+	if executionVisibilityWindow == 0 {
+		executionVisibilityWindow = defaultExecutionVisibilityWindow
+	}
 	return &factory{
-		lggr:               lggr,
-		onRampAddresses:    onRampAddresses,
-		rmnRemoteAddresses: rmnRemoteAddresses,
-		headTrackers:       headTrackers,
-		chainClients:       chainClients,
+		lggr:                      lggr,
+		onRampAddresses:           onRampAddresses,
+		rmnRemoteAddresses:        rmnRemoteAddresses,
+		headTrackers:              headTrackers,
+		chainClients:              chainClients,
+		destChainConfigs:          destChainConfigs,
+		executionVisibilityWindow: executionVisibilityWindow,
 	}
 }
 
@@ -103,16 +119,36 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 		return nil, fmt.Errorf("failed to create EVM source reader: %w", err)
 	}
 
-	return newAccessor(evmSourceReader), nil
+	var evmDestReader chainaccess.DestinationReader
+	if destCfg, ok := f.destChainConfigs[chainSelector]; ok && destCfg.OffRampAddress != "" {
+		dr, err := destinationreader.NewEvmDestinationReader(destinationreader.Params{
+			Lggr:                      f.lggr,
+			ChainSelector:             chainSelector,
+			ChainClient:               chainClient,
+			OfframpAddress:            destCfg.OffRampAddress,
+			RmnRemoteAddress:          destCfg.RmnAddress,
+			ExecutionVisabilityWindow: f.executionVisibilityWindow,
+			Monitoring:                monitoring.NewNoopExecutorMonitoring(),
+		})
+		if err != nil {
+			f.lggr.Warnw("Failed to create EVM destination reader, DestinationReader will be unavailable", "chainSelector", chainSelector, "error", err)
+		} else {
+			evmDestReader = dr
+		}
+	}
+
+	return newAccessor(evmSourceReader, evmDestReader), nil
 }
 
 type accessor struct {
-	sourceReader chainaccess.SourceReader
+	sourceReader      chainaccess.SourceReader
+	destinationReader chainaccess.DestinationReader
 }
 
-func newAccessor(sourceReader chainaccess.SourceReader) chainaccess.Accessor {
+func newAccessor(sourceReader chainaccess.SourceReader, destinationReader chainaccess.DestinationReader) chainaccess.Accessor {
 	return &accessor{
-		sourceReader: sourceReader,
+		sourceReader:      sourceReader,
+		destinationReader: destinationReader,
 	}
 }
 
@@ -123,6 +159,11 @@ func (a *accessor) SourceReader() chainaccess.SourceReader {
 	return a.sourceReader
 }
 
-func (a *accessor) DestinationReader() chainaccess.DestinationReader { return nil }
+func (a *accessor) DestinationReader() chainaccess.DestinationReader {
+	if a == nil {
+		return nil
+	}
+	return a.destinationReader
+}
 
 func (a *accessor) ContractTransmitter() chainaccess.ContractTransmitter { return nil }
