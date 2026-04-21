@@ -2,38 +2,38 @@ package monitoring
 
 import "fmt"
 
-// MonitoringConfig provides monitoring configuration for CCV services.
-type MonitoringConfig struct {
+// Config provides monitoring configuration for CCV services.
+type Config struct {
 	// Enabled enables the monitoring system.
-	Enabled bool `toml:"Enabled" json:"enabled"`
+	Enabled bool `json:"enabled" toml:"Enabled"`
 	// Type is the type of monitoring system to use (beholder, noop).
-	Type string `toml:"Type" json:"type"`
+	Type string `json:"type" toml:"Type"`
 	// Beholder is the configuration for the beholder client (Not required if type is noop).
-	Beholder BeholderConfig `toml:"Beholder" json:"beholder"`
+	Beholder BeholderConfig `json:"beholder" toml:"Beholder"`
 }
 
 // BeholderConfig wraps OpenTelemetry configuration for the beholder client.
 type BeholderConfig struct {
 	// InsecureConnection disables TLS for the beholder client.
-	InsecureConnection bool `toml:"InsecureConnection" json:"insecure_connection"`
+	InsecureConnection bool `json:"insecure_connection"         toml:"InsecureConnection"`
 	// CACertFile is the path to the CA certificate file for the beholder client.
-	CACertFile string `toml:"CACertFile" json:"ca_cert_file"`
+	CACertFile string `json:"ca_cert_file"                toml:"CACertFile"`
 	// OtelExporterGRPCEndpoint is the endpoint for the beholder client to export to the collector.
-	OtelExporterGRPCEndpoint string `toml:"OtelExporterGRPCEndpoint" json:"otel_exporter_grpc_endpoint"`
+	OtelExporterGRPCEndpoint string `json:"otel_exporter_grpc_endpoint" toml:"OtelExporterGRPCEndpoint"`
 	// OtelExporterHTTPEndpoint is the endpoint for the beholder client to export to the collector.
-	OtelExporterHTTPEndpoint string `toml:"OtelExporterHTTPEndpoint" json:"otel_exporter_http_endpoint"`
+	OtelExporterHTTPEndpoint string `json:"otel_exporter_http_endpoint" toml:"OtelExporterHTTPEndpoint"`
 	// LogStreamingEnabled enables log streaming to the collector.
-	LogStreamingEnabled bool `toml:"LogStreamingEnabled" json:"log_streaming_enabled"`
+	LogStreamingEnabled bool `json:"log_streaming_enabled"       toml:"LogStreamingEnabled"`
 	// MetricReaderInterval is the interval to scrape metrics (in seconds).
-	MetricReaderInterval int64 `toml:"MetricReaderInterval" json:"metric_reader_interval"`
+	MetricReaderInterval int64 `json:"metric_reader_interval"      toml:"MetricReaderInterval"`
 	// TraceSampleRatio is the ratio of traces to sample.
-	TraceSampleRatio float64 `toml:"TraceSampleRatio" json:"trace_sample_ratio"`
+	TraceSampleRatio float64 `json:"trace_sample_ratio"          toml:"TraceSampleRatio"`
 	// TraceBatchTimeout is the timeout for a batch of traces.
-	TraceBatchTimeout int64 `toml:"TraceBatchTimeout" json:"trace_batch_timeout"`
+	TraceBatchTimeout int64 `json:"trace_batch_timeout"         toml:"TraceBatchTimeout"`
 }
 
 // Validate performs validation on the monitoring configuration.
-func (m *MonitoringConfig) Validate() error {
+func (m *Config) Validate() error {
 	if m.Enabled && m.Type == "" {
 		return fmt.Errorf("monitoring type is required when monitoring is enabled")
 	}

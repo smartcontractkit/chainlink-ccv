@@ -18,7 +18,7 @@ import (
 
 // Signer represents a participant in the commit verification process.
 type Signer struct {
-	Address string `toml:"address" json:"address"`
+	Address string `json:"address" toml:"address"`
 }
 
 // SignerIdentifier holds the chain-native signer identifier.
@@ -45,9 +45,9 @@ type Committee struct {
 	// The aggregator uses this to verify signatures from each chain's
 	// commit verifier set.
 	// Map structure: source selector -> QuorumConfig
-	QuorumConfigs map[SourceSelector]*QuorumConfig `toml:"quorumConfigs" json:"quorumConfigs"`
+	QuorumConfigs map[SourceSelector]*QuorumConfig `json:"quorumConfigs"        toml:"quorumConfigs"`
 	// DestinationVerifiers maps destination chain selectors to their verifier contract addresses.
-	DestinationVerifiers map[DestinationSelector]string `toml:"destinationVerifiers" json:"destinationVerifiers"`
+	DestinationVerifiers map[DestinationSelector]string `json:"destinationVerifiers" toml:"destinationVerifiers"`
 	// destinationVerifiersParsed holds the parsed addresses, populated during validation.
 	destinationVerifiersParsed map[DestinationSelector]protocol.UnknownAddress
 }
@@ -88,9 +88,9 @@ func (c *Committee) SetQuorumConfig(sourceSelector SourceSelector, quorumConfig 
 
 // QuorumConfig represents the configuration for a quorum of signers.
 type QuorumConfig struct {
-	SourceVerifierAddress string   `toml:"sourceVerifierAddress" json:"sourceVerifierAddress"`
-	Signers               []Signer `toml:"signers" json:"signers"`
-	Threshold             uint8    `toml:"threshold" json:"threshold"`
+	SourceVerifierAddress string   `json:"sourceVerifierAddress" toml:"sourceVerifierAddress"`
+	Signers               []Signer `json:"signers"               toml:"signers"`
+	Threshold             uint8    `json:"threshold"             toml:"threshold"`
 	// sourceVerifierAddressParsed holds the parsed address, populated during validation.
 	sourceVerifierAddressParsed protocol.UnknownAddress
 }
@@ -364,7 +364,7 @@ func (c *RateLimitingConfig) getMostRestrictiveGroupLimit(client auth.ClientConf
 
 // Type aliases — canonical definitions live in pkg/monitoring.
 type (
-	MonitoringConfig = monitoring.MonitoringConfig
+	MonitoringConfig = monitoring.Config
 	BeholderConfig   = monitoring.BeholderConfig
 )
 

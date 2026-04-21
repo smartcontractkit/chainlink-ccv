@@ -195,6 +195,6 @@ func (c *Configuration) GetNormalizedConfig() (*Configuration, error) {
 
 // Type aliases — canonical definitions live in pkg/monitoring.
 type (
-	MonitoringConfig = monitoring.MonitoringConfig
+	MonitoringConfig = monitoring.Config
 	BeholderConfig   = monitoring.BeholderConfig
 )
