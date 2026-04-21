@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
+
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/onramp"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
@@ -150,29 +151,34 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 		}
 	}
 
-	var evmContractTransmitter chainaccess.ContractTransmitter
-	if destCfg, ok := f.destChainConfigs[chainSelector]; ok && destCfg.OffRampAddress != "" && f.transmitterPrivateKey != "" {
-		rpcURL, hasURL := f.rpcURLs[chainSelector]
-		if !hasURL {
-			f.lggr.Warnw("No RPC URL for chain, ContractTransmitter will be unavailable", "chainSelector", chainSelector)
-		} else {
-			ct, err := contracttransmitter.NewEVMContractTransmitterFromRPC(
-				ctx,
-				f.lggr,
-				chainSelector,
-				rpcURL,
-				f.transmitterPrivateKey,
-				common.HexToAddress(destCfg.OffRampAddress),
-			)
-			if err != nil {
-				f.lggr.Warnw("Failed to create EVM contract transmitter, ContractTransmitter will be unavailable", "chainSelector", chainSelector, "error", err)
-			} else {
-				evmContractTransmitter = ct
-			}
-		}
-	}
+	evmContractTransmitter := f.newContractTransmitter(ctx, chainSelector)
 
 	return newAccessor(evmSourceReader, evmDestReader, evmContractTransmitter), nil
+}
+
+func (f *factory) newContractTransmitter(ctx context.Context, chainSelector protocol.ChainSelector) chainaccess.ContractTransmitter {
+	destCfg, ok := f.destChainConfigs[chainSelector]
+	if !ok || destCfg.OffRampAddress == "" || f.transmitterPrivateKey == "" {
+		return nil
+	}
+	rpcURL, hasURL := f.rpcURLs[chainSelector]
+	if !hasURL {
+		f.lggr.Warnw("No RPC URL for chain, ContractTransmitter will be unavailable", "chainSelector", chainSelector)
+		return nil
+	}
+	ct, err := contracttransmitter.NewEVMContractTransmitterFromRPC(
+		ctx,
+		f.lggr,
+		chainSelector,
+		rpcURL,
+		f.transmitterPrivateKey,
+		common.HexToAddress(destCfg.OffRampAddress),
+	)
+	if err != nil {
+		f.lggr.Warnw("Failed to create EVM contract transmitter, ContractTransmitter will be unavailable", "chainSelector", chainSelector, "error", err)
+		return nil
+	}
+	return ct
 }
 
 type accessor struct {
