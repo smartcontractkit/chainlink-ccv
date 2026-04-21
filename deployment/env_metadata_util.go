@@ -7,13 +7,16 @@ import (
 
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
+	indexerconfig "github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
 	"github.com/smartcontractkit/chainlink-ccv/deployment/shared"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token"
 )
 
 type OffchainConfigs struct {
-	Aggregators    map[string]*Committee                    `json:"aggregators,omitempty"`
-	Indexers       map[string]*IndexerGeneratedConfig       `json:"indexers,omitempty"`
-	TokenVerifiers map[string]*TokenVerifierGeneratedConfig `json:"tokenVerifiers,omitempty"`
+	Aggregators    map[string]*model.Committee              `json:"aggregators,omitempty"`
+	Indexers       map[string]*indexerconfig.GeneratedConfig `json:"indexers,omitempty"`
+	TokenVerifiers map[string]*token.Config                 `json:"tokenVerifiers,omitempty"`
 	NOPJobs        shared.NOPJobs                           `json:"nopJobs,omitempty"`
 }
 
@@ -21,7 +24,7 @@ type CCVEnvMetadata struct {
 	OffchainConfigs *OffchainConfigs `json:"offchainConfigs,omitempty"`
 }
 
-func SaveAggregatorConfig(ds datastore.MutableDataStore, serviceIdentifier string, cfg *Committee) error {
+func SaveAggregatorConfig(ds datastore.MutableDataStore, serviceIdentifier string, cfg *model.Committee) error {
 	ccvMeta, err := loadOrCreateCCVEnvMetadata(ds)
 	if err != nil {
 		return err
@@ -31,7 +34,7 @@ func SaveAggregatorConfig(ds datastore.MutableDataStore, serviceIdentifier strin
 		ccvMeta.OffchainConfigs = &OffchainConfigs{}
 	}
 	if ccvMeta.OffchainConfigs.Aggregators == nil {
-		ccvMeta.OffchainConfigs.Aggregators = make(map[string]*Committee)
+		ccvMeta.OffchainConfigs.Aggregators = make(map[string]*model.Committee)
 	}
 
 	ccvMeta.OffchainConfigs.Aggregators[serviceIdentifier] = cfg
@@ -39,7 +42,7 @@ func SaveAggregatorConfig(ds datastore.MutableDataStore, serviceIdentifier strin
 	return persistCCVEnvMetadata(ds, ccvMeta)
 }
 
-func GetAggregatorConfig(ds datastore.DataStore, serviceIdentifier string) (*Committee, error) {
+func GetAggregatorConfig(ds datastore.DataStore, serviceIdentifier string) (*model.Committee, error) {
 	ccvMeta, err := loadCCVEnvMetadata(ds)
 	if err != nil {
 		return nil, err
@@ -57,7 +60,7 @@ func GetAggregatorConfig(ds datastore.DataStore, serviceIdentifier string) (*Com
 	return cfg, nil
 }
 
-func SaveIndexerConfig(ds datastore.MutableDataStore, serviceIdentifier string, cfg *IndexerGeneratedConfig) error {
+func SaveIndexerConfig(ds datastore.MutableDataStore, serviceIdentifier string, cfg *indexerconfig.GeneratedConfig) error {
 	ccvMeta, err := loadOrCreateCCVEnvMetadata(ds)
 	if err != nil {
 		return err
@@ -67,7 +70,7 @@ func SaveIndexerConfig(ds datastore.MutableDataStore, serviceIdentifier string, 
 		ccvMeta.OffchainConfigs = &OffchainConfigs{}
 	}
 	if ccvMeta.OffchainConfigs.Indexers == nil {
-		ccvMeta.OffchainConfigs.Indexers = make(map[string]*IndexerGeneratedConfig)
+		ccvMeta.OffchainConfigs.Indexers = make(map[string]*indexerconfig.GeneratedConfig)
 	}
 
 	ccvMeta.OffchainConfigs.Indexers[serviceIdentifier] = cfg
@@ -75,7 +78,7 @@ func SaveIndexerConfig(ds datastore.MutableDataStore, serviceIdentifier string, 
 	return persistCCVEnvMetadata(ds, ccvMeta)
 }
 
-func GetIndexerConfig(ds datastore.DataStore, serviceIdentifier string) (*IndexerGeneratedConfig, error) {
+func GetIndexerConfig(ds datastore.DataStore, serviceIdentifier string) (*indexerconfig.GeneratedConfig, error) {
 	ccvMeta, err := loadCCVEnvMetadata(ds)
 	if err != nil {
 		return nil, err
@@ -93,7 +96,7 @@ func GetIndexerConfig(ds datastore.DataStore, serviceIdentifier string) (*Indexe
 	return cfg, nil
 }
 
-func SaveTokenVerifierConfig(ds datastore.MutableDataStore, serviceIdentifier string, cfg *TokenVerifierGeneratedConfig) error {
+func SaveTokenVerifierConfig(ds datastore.MutableDataStore, serviceIdentifier string, cfg *token.Config) error {
 	ccvMeta, err := loadOrCreateCCVEnvMetadata(ds)
 	if err != nil {
 		return err
@@ -103,7 +106,7 @@ func SaveTokenVerifierConfig(ds datastore.MutableDataStore, serviceIdentifier st
 		ccvMeta.OffchainConfigs = &OffchainConfigs{}
 	}
 	if ccvMeta.OffchainConfigs.TokenVerifiers == nil {
-		ccvMeta.OffchainConfigs.TokenVerifiers = make(map[string]*TokenVerifierGeneratedConfig)
+		ccvMeta.OffchainConfigs.TokenVerifiers = make(map[string]*token.Config)
 	}
 
 	ccvMeta.OffchainConfigs.TokenVerifiers[serviceIdentifier] = cfg
@@ -111,7 +114,7 @@ func SaveTokenVerifierConfig(ds datastore.MutableDataStore, serviceIdentifier st
 	return persistCCVEnvMetadata(ds, ccvMeta)
 }
 
-func GetTokenVerifierConfig(ds datastore.DataStore, serviceIdentifier string) (*TokenVerifierGeneratedConfig, error) {
+func GetTokenVerifierConfig(ds datastore.DataStore, serviceIdentifier string) (*token.Config, error) {
 	ccvMeta, err := loadCCVEnvMetadata(ds)
 	if err != nil {
 		return nil, err

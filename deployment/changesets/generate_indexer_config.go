@@ -10,6 +10,7 @@ import (
 
 	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
 	"github.com/smartcontractkit/chainlink-ccv/deployment/adapters"
+	indexerconfig "github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
 )
 
 type GenerateIndexerConfigInput struct {
@@ -136,8 +137,8 @@ func collectVerifierAddresses(
 	return addresses, nil
 }
 
-func toIndexerGeneratedConfig(verifierMap map[string][]string) *ccvdeployment.IndexerGeneratedConfig {
-	verifiers := make([]ccvdeployment.IndexerVerifierConfig, 0, len(verifierMap))
+func toIndexerGeneratedConfig(verifierMap map[string][]string) *indexerconfig.GeneratedConfig {
+	verifiers := make([]indexerconfig.GeneratedVerifierConfig, 0, len(verifierMap))
 
 	names := make([]string, 0, len(verifierMap))
 	for name := range verifierMap {
@@ -155,13 +156,13 @@ func toIndexerGeneratedConfig(verifierMap map[string][]string) *ccvdeployment.In
 				unique = append(unique, addr)
 			}
 		}
-		verifiers = append(verifiers, ccvdeployment.IndexerVerifierConfig{
+		verifiers = append(verifiers, indexerconfig.GeneratedVerifierConfig{
 			Name:            name,
 			IssuerAddresses: unique,
 		})
 	}
 
-	return &ccvdeployment.IndexerGeneratedConfig{
-		Verifiers: verifiers,
+	return &indexerconfig.GeneratedConfig{
+		Verifier: verifiers,
 	}
 }

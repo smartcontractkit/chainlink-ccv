@@ -56,7 +56,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_0/operations/rmn_remote"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/adapters"
 	ccipChangesets "github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/changesets"
-	ccipOffchain "github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/offchain"
+	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -1001,7 +1001,7 @@ func (m *CCIP17EVMConfig) ConfigureNodes(ctx context.Context, bc *blockchain.Inp
 // For each committee qualifier in the topology, a receiver requiring that committee's
 // verifier is created. Multi-committee receivers (requiring one committee with optional
 // verifiers from others) are only created when all referenced committees exist.
-func buildMockReceivers(topology *ccipOffchain.EnvironmentTopology, selector uint64) []adapters.MockReceiverDeployParams {
+func buildMockReceivers(topology *ccvdeployment.EnvironmentTopology, selector uint64) []adapters.MockReceiverDeployParams {
 	has := func(q string) bool {
 		_, ok := topology.NOPTopology.Committees[q]
 		return ok
@@ -1065,7 +1065,7 @@ func buildMockReceivers(topology *ccipOffchain.EnvironmentTopology, selector uin
 	return receivers
 }
 
-func (m *CCIP17EVMConfig) PreDeployContractsForSelector(_ context.Context, env *deployment.Environment, selector uint64, _ *ccipOffchain.EnvironmentTopology) (datastore.DataStore, error) {
+func (m *CCIP17EVMConfig) PreDeployContractsForSelector(_ context.Context, env *deployment.Environment, selector uint64, _ *ccvdeployment.EnvironmentTopology) (datastore.DataStore, error) {
 	m.logger.Info().Uint64("Selector", selector).Msg("EVM pre-deploy: deploying CREATE2 factory")
 
 	create2FactoryRep, err := operations.ExecuteOperation(env.OperationsBundle, create2_factory.Deploy, env.BlockChains.EVMChains()[selector],
@@ -1087,7 +1087,7 @@ func (m *CCIP17EVMConfig) PreDeployContractsForSelector(_ context.Context, env *
 	return ds.Seal(), nil
 }
 
-func (m *CCIP17EVMConfig) GetDeployChainContractsCfg(env *deployment.Environment, selector uint64, topology *ccipOffchain.EnvironmentTopology) (ccipChangesets.DeployChainContractsPerChainCfg, error) {
+func (m *CCIP17EVMConfig) GetDeployChainContractsCfg(env *deployment.Environment, selector uint64, topology *ccvdeployment.EnvironmentTopology) (ccipChangesets.DeployChainContractsPerChainCfg, error) {
 	create2Ref, err := env.DataStore.Addresses().Get(
 		datastore.NewAddressRefKey(selector, datastore.ContractType(create2_factory.ContractType), create2_factory.Version, ""),
 	)
@@ -1154,7 +1154,7 @@ func (m *CCIP17EVMConfig) GetDeployChainContractsCfg(env *deployment.Environment
 	}, nil
 }
 
-func (m *CCIP17EVMConfig) PostDeployContractsForSelector(_ context.Context, env *deployment.Environment, selector uint64, _ *ccipOffchain.EnvironmentTopology) (datastore.DataStore, error) {
+func (m *CCIP17EVMConfig) PostDeployContractsForSelector(_ context.Context, env *deployment.Environment, selector uint64, _ *ccvdeployment.EnvironmentTopology) (datastore.DataStore, error) {
 	m.logger.Info().Uint64("Selector", selector).Msg("EVM post-deploy: deploying USDC and Lombard token pools")
 
 	create2Ref, err := env.DataStore.Addresses().Get(
@@ -1305,7 +1305,7 @@ func (m *CCIP17EVMConfig) GetTokenTransferConfigs(
 	env *deployment.Environment,
 	selector uint64,
 	remoteSelectors []uint64,
-	topology *ccipOffchain.EnvironmentTopology,
+	topology *ccvdeployment.EnvironmentTopology,
 ) ([]tokenscore.TokenTransferConfig, error) {
 	applicableCombos := devenvcommon.FilterTokenCombinations(
 		devenvcommon.AllTokenCombinations(), topology, env.DataStore, append([]uint64{selector}, remoteSelectors...),

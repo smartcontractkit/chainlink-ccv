@@ -10,6 +10,12 @@ import (
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 
+	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/cctp"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/lombard"
+
 	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
 	"github.com/smartcontractkit/chainlink-ccv/deployment/adapters"
 	"github.com/smartcontractkit/chainlink-ccv/deployment/shared"
@@ -125,25 +131,14 @@ func GenerateTokenVerifierConfig(registry *adapters.Registry) deployment.ChangeS
 			}
 		}
 
-		config := &ccvdeployment.TokenVerifierGeneratedConfig{
-			PyroscopeURL:       cfg.PyroscopeURL,
-			OnRampAddresses:    onRampAddresses,
-			RMNRemoteAddresses: rmnRemoteAddresses,
-			TokenVerifiers:     []ccvdeployment.TokenVerifierEntry{},
-			Monitoring: ccvdeployment.TokenVerifierMonitoringConfig{
-				Enabled: cfg.Monitoring.Enabled,
-				Type:    cfg.Monitoring.Type,
-				Beholder: ccvdeployment.TokenVerifierBeholderConfig{
-					InsecureConnection:       cfg.Monitoring.Beholder.InsecureConnection,
-					CACertFile:               cfg.Monitoring.Beholder.CACertFile,
-					OtelExporterGRPCEndpoint: cfg.Monitoring.Beholder.OtelExporterGRPCEndpoint,
-					OtelExporterHTTPEndpoint: cfg.Monitoring.Beholder.OtelExporterHTTPEndpoint,
-					LogStreamingEnabled:      cfg.Monitoring.Beholder.LogStreamingEnabled,
-					MetricReaderInterval:     cfg.Monitoring.Beholder.MetricReaderInterval,
-					TraceSampleRatio:         cfg.Monitoring.Beholder.TraceSampleRatio,
-					TraceBatchTimeout:        cfg.Monitoring.Beholder.TraceBatchTimeout,
-				},
+		tvConfig := &token.Config{
+			PyroscopeURL: cfg.PyroscopeURL,
+			CommitteeConfig: chainaccess.CommitteeConfig{
+				OnRampAddresses:    onRampAddresses,
+				RMNRemoteAddresses: rmnRemoteAddresses,
 			},
+			TokenVerifiers: []token.VerifierConfig{},
+			Monitoring:     cfg.Monitoring,
 		}
 
 		if len(cctpVerifierAddresses) > 0 {
@@ -151,18 +146,18 @@ func GenerateTokenVerifierConfig(registry *adapters.Registry) deployment.ChangeS
 			if cctpVerifierID == "" {
 				cctpVerifierID = fmt.Sprintf("cctp-%s", cctpCfg.Qualifier)
 			}
-			config.TokenVerifiers = append(config.TokenVerifiers, ccvdeployment.TokenVerifierEntry{
+			tvConfig.TokenVerifiers = append(tvConfig.TokenVerifiers, token.VerifierConfig{
 				VerifierID: cctpVerifierID,
 				Type:       "cctp",
 				Version:    "2.0",
-				CCTP: &ccvdeployment.CCTPVerifierConfig{
+				CCTPConfig: &cctp.CCTPConfig{
 					AttestationAPI:         cctpCfg.AttestationAPI,
 					AttestationAPITimeout:  cctpCfg.AttestationAPITimeout,
 					AttestationAPIInterval: cctpCfg.AttestationAPIInterval,
 					AttestationAPICooldown: cctpCfg.AttestationAPICooldown,
-					VerifierVersion:        cctpCfg.VerifierVersion,
-					Verifiers:              cctpVerifierAddresses,
-					VerifierResolvers:      cctpVerifierResolverAddresses,
+					VerifierVersion:        protocol.ByteSlice(cctpCfg.VerifierVersion),
+					Verifiers:              stringsToAnyMap(cctpVerifierAddresses),
+					VerifierResolvers:      stringsToAnyMap(cctpVerifierResolverAddresses),
 				},
 			})
 		}
@@ -172,17 +167,17 @@ func GenerateTokenVerifierConfig(registry *adapters.Registry) deployment.ChangeS
 			if lombardVerifierID == "" {
 				lombardVerifierID = fmt.Sprintf("lombard-%s", lombardCfg.Qualifier)
 			}
-			config.TokenVerifiers = append(config.TokenVerifiers, ccvdeployment.TokenVerifierEntry{
+			tvConfig.TokenVerifiers = append(tvConfig.TokenVerifiers, token.VerifierConfig{
 				VerifierID: lombardVerifierID,
 				Type:       "lombard",
 				Version:    "1.0",
-				Lombard: &ccvdeployment.LombardVerifierConfig{
+				LombardConfig: &lombard.LombardConfig{
 					AttestationAPI:          lombardCfg.AttestationAPI,
 					AttestationAPITimeout:   lombardCfg.AttestationAPITimeout,
 					AttestationAPIInterval:  lombardCfg.AttestationAPIInterval,
 					AttestationAPIBatchSize: lombardCfg.AttestationAPIBatchSize,
-					VerifierVersion:         lombardCfg.VerifierVersion,
-					VerifierResolvers:       lombardVerifierResolverAddresses,
+					VerifierVersion:         protocol.ByteSlice(lombardCfg.VerifierVersion),
+					VerifierResolvers:       stringsToAnyMap(lombardVerifierResolverAddresses),
 				},
 			})
 		}
@@ -194,7 +189,7 @@ func GenerateTokenVerifierConfig(registry *adapters.Registry) deployment.ChangeS
 			}
 		}
 
-		if err := ccvdeployment.SaveTokenVerifierConfig(outputDS, cfg.ServiceIdentifier, config); err != nil {
+		if err := ccvdeployment.SaveTokenVerifierConfig(outputDS, cfg.ServiceIdentifier, tvConfig); err != nil {
 			return deployment.ChangesetOutput{}, fmt.Errorf("failed to save token verifier config: %w", err)
 		}
 
@@ -204,6 +199,17 @@ func GenerateTokenVerifierConfig(registry *adapters.Registry) deployment.ChangeS
 	}
 
 	return deployment.CreateChangeSet(apply, validate)
+}
+
+func stringsToAnyMap(src map[string]string) map[string]any {
+	if src == nil {
+		return nil
+	}
+	dst := make(map[string]any, len(src))
+	for k, v := range src {
+		dst[k] = v
+	}
+	return dst
 }
 
 func applyLombardDefaults(cfg LombardConfigInput, isProd bool) LombardConfigInput {

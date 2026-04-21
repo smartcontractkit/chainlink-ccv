@@ -11,13 +11,14 @@ import (
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/auth"
+	"github.com/smartcontractkit/chainlink-ccv/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	hmacutil "github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
 )
 
 // Signer represents a participant in the commit verification process.
 type Signer struct {
-	Address string `toml:"address"`
+	Address string `toml:"address" json:"address"`
 }
 
 // SignerIdentifier holds the chain-native signer identifier.
@@ -44,9 +45,9 @@ type Committee struct {
 	// The aggregator uses this to verify signatures from each chain's
 	// commit verifier set.
 	// Map structure: source selector -> QuorumConfig
-	QuorumConfigs map[SourceSelector]*QuorumConfig `toml:"quorumConfigs"`
+	QuorumConfigs map[SourceSelector]*QuorumConfig `toml:"quorumConfigs" json:"quorumConfigs"`
 	// DestinationVerifiers maps destination chain selectors to their verifier contract addresses.
-	DestinationVerifiers map[DestinationSelector]string `toml:"destinationVerifiers"`
+	DestinationVerifiers map[DestinationSelector]string `toml:"destinationVerifiers" json:"destinationVerifiers"`
 	// destinationVerifiersParsed holds the parsed addresses, populated during validation.
 	destinationVerifiersParsed map[DestinationSelector]protocol.UnknownAddress
 }
@@ -87,9 +88,9 @@ func (c *Committee) SetQuorumConfig(sourceSelector SourceSelector, quorumConfig 
 
 // QuorumConfig represents the configuration for a quorum of signers.
 type QuorumConfig struct {
-	SourceVerifierAddress string   `toml:"sourceVerifierAddress"`
-	Signers               []Signer `toml:"signers"`
-	Threshold             uint8    `toml:"threshold"`
+	SourceVerifierAddress string   `toml:"sourceVerifierAddress" json:"sourceVerifierAddress"`
+	Signers               []Signer `toml:"signers" json:"signers"`
+	Threshold             uint8    `toml:"threshold" json:"threshold"`
 	// sourceVerifierAddressParsed holds the parsed address, populated during validation.
 	sourceVerifierAddressParsed protocol.UnknownAddress
 }
@@ -361,35 +362,11 @@ func (c *RateLimitingConfig) getMostRestrictiveGroupLimit(client auth.ClientConf
 	return mostRestrictive
 }
 
-// MonitoringConfig provides monitoring configuration for aggregator.
-type MonitoringConfig struct {
-	// Enabled enables the monitoring system.
-	Enabled bool `toml:"Enabled"`
-	// Type is the type of monitoring system to use (beholder, noop).
-	Type string `toml:"Type"`
-	// Beholder is the configuration for the beholder client (Not required if type is noop).
-	Beholder BeholderConfig `toml:"Beholder"`
-}
-
-// BeholderConfig wraps OpenTelemetry configuration for the beholder client.
-type BeholderConfig struct {
-	// InsecureConnection disables TLS for the beholder client.
-	InsecureConnection bool `toml:"InsecureConnection"`
-	// CACertFile is the path to the CA certificate file for the beholder client.
-	CACertFile string `toml:"CACertFile"`
-	// OtelExporterGRPCEndpoint is the endpoint for the beholder client to export to the collector.
-	OtelExporterGRPCEndpoint string `toml:"OtelExporterGRPCEndpoint"`
-	// OtelExporterHTTPEndpoint is the endpoint for the beholder client to export to the collector.
-	OtelExporterHTTPEndpoint string `toml:"OtelExporterHTTPEndpoint"`
-	// LogStreamingEnabled enables log streaming to the collector.
-	LogStreamingEnabled bool `toml:"LogStreamingEnabled"`
-	// MetricReaderInterval is the interval to scrape metrics (in seconds).
-	MetricReaderInterval int64 `toml:"MetricReaderInterval"`
-	// TraceSampleRatio is the ratio of traces to sample.
-	TraceSampleRatio float64 `toml:"TraceSampleRatio"`
-	// TraceBatchTimeout is the timeout for a batch of traces.
-	TraceBatchTimeout int64 `toml:"TraceBatchTimeout"`
-}
+// Type aliases — canonical definitions live in pkg/monitoring.
+type (
+	MonitoringConfig = monitoring.MonitoringConfig
+	BeholderConfig   = monitoring.BeholderConfig
+)
 
 // AggregatorConfig is the root configuration for the pb.
 type AggregatorConfig struct {

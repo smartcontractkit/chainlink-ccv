@@ -12,6 +12,7 @@ import (
 	"github.com/Masterminds/semver/v3"
 
 	"github.com/smartcontractkit/chainlink-ccv/deployment/shared"
+	"github.com/smartcontractkit/chainlink-ccv/pkg/monitoring"
 )
 
 // EnvironmentTopology holds all environment-specific configuration that cannot be inferred
@@ -135,22 +136,11 @@ type ChainExecutorPoolConfig struct {
 	ExecutionInterval time.Duration `toml:"execution_interval"`
 }
 
-type MonitoringConfig struct {
-	Enabled  bool           `toml:"Enabled"`
-	Type     string         `toml:"Type"`
-	Beholder BeholderConfig `toml:"Beholder"`
-}
-
-type BeholderConfig struct {
-	InsecureConnection       bool    `toml:"InsecureConnection"`
-	CACertFile               string  `toml:"CACertFile"`
-	OtelExporterGRPCEndpoint string  `toml:"OtelExporterGRPCEndpoint"`
-	OtelExporterHTTPEndpoint string  `toml:"OtelExporterHTTPEndpoint"`
-	LogStreamingEnabled      bool    `toml:"LogStreamingEnabled"`
-	MetricReaderInterval     int64   `toml:"MetricReaderInterval"`
-	TraceSampleRatio         float64 `toml:"TraceSampleRatio"`
-	TraceBatchTimeout        int64   `toml:"TraceBatchTimeout"`
-}
+// Type aliases — canonical definitions live in pkg/monitoring.
+type (
+	MonitoringConfig = monitoring.MonitoringConfig
+	BeholderConfig   = monitoring.BeholderConfig
+)
 
 func LoadEnvironmentTopology(path string) (*EnvironmentTopology, error) {
 	data, err := os.ReadFile(path) //nolint:gosec // G304: path is provided by trusted caller
