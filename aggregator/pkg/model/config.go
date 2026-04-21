@@ -89,8 +89,8 @@ func (c *Committee) SetQuorumConfig(sourceSelector SourceSelector, quorumConfig 
 // QuorumConfig represents the configuration for a quorum of signers.
 type QuorumConfig struct {
 	SourceVerifierAddress string   `json:"sourceVerifierAddress" toml:"sourceVerifierAddress"`
-	Signers               []Signer `json:"signers" toml:"signers"`
-	Threshold             uint8    `json:"threshold" toml:"threshold"`
+	Signers               []Signer `json:"signers"               toml:"signers"`
+	Threshold             uint8    `json:"threshold"             toml:"threshold"`
 	// sourceVerifierAddressParsed holds the parsed address, populated during validation.
 	sourceVerifierAddressParsed protocol.UnknownAddress
 }
