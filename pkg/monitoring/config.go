@@ -15,21 +15,21 @@ type Config struct {
 // BeholderConfig wraps OpenTelemetry configuration for the beholder client.
 type BeholderConfig struct {
 	// InsecureConnection disables TLS for the beholder client.
-	InsecureConnection bool `json:"insecure_connection"         toml:"InsecureConnection"`
+	InsecureConnection bool `json:"insecure_connection" toml:"InsecureConnection"`
 	// CACertFile is the path to the CA certificate file for the beholder client.
-	CACertFile string `json:"ca_cert_file"                toml:"CACertFile"`
+	CACertFile string `json:"ca_cert_file" toml:"CACertFile"`
 	// OtelExporterGRPCEndpoint is the endpoint for the beholder client to export to the collector.
 	OtelExporterGRPCEndpoint string `json:"otel_exporter_grpc_endpoint" toml:"OtelExporterGRPCEndpoint"`
 	// OtelExporterHTTPEndpoint is the endpoint for the beholder client to export to the collector.
 	OtelExporterHTTPEndpoint string `json:"otel_exporter_http_endpoint" toml:"OtelExporterHTTPEndpoint"`
 	// LogStreamingEnabled enables log streaming to the collector.
-	LogStreamingEnabled bool `json:"log_streaming_enabled"       toml:"LogStreamingEnabled"`
+	LogStreamingEnabled bool `json:"log_streaming_enabled" toml:"LogStreamingEnabled"`
 	// MetricReaderInterval is the interval to scrape metrics (in seconds).
-	MetricReaderInterval int64 `json:"metric_reader_interval"      toml:"MetricReaderInterval"`
+	MetricReaderInterval int64 `json:"metric_reader_interval" toml:"MetricReaderInterval"`
 	// TraceSampleRatio is the ratio of traces to sample.
-	TraceSampleRatio float64 `json:"trace_sample_ratio"          toml:"TraceSampleRatio"`
+	TraceSampleRatio float64 `json:"trace_sample_ratio" toml:"TraceSampleRatio"`
 	// TraceBatchTimeout is the timeout for a batch of traces.
-	TraceBatchTimeout int64 `json:"trace_batch_timeout"         toml:"TraceBatchTimeout"`
+	TraceBatchTimeout int64 `json:"trace_batch_timeout" toml:"TraceBatchTimeout"`
 }
 
 // Validate performs validation on the monitoring configuration.

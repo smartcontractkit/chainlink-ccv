@@ -45,7 +45,7 @@ type Committee struct {
 	// The aggregator uses this to verify signatures from each chain's
 	// commit verifier set.
 	// Map structure: source selector -> QuorumConfig
-	QuorumConfigs map[SourceSelector]*QuorumConfig `json:"quorumConfigs"        toml:"quorumConfigs"`
+	QuorumConfigs map[SourceSelector]*QuorumConfig `json:"quorumConfigs" toml:"quorumConfigs"`
 	// DestinationVerifiers maps destination chain selectors to their verifier contract addresses.
 	DestinationVerifiers map[DestinationSelector]string `json:"destinationVerifiers" toml:"destinationVerifiers"`
 	// destinationVerifiersParsed holds the parsed addresses, populated during validation.
@@ -89,8 +89,8 @@ func (c *Committee) SetQuorumConfig(sourceSelector SourceSelector, quorumConfig 
 // QuorumConfig represents the configuration for a quorum of signers.
 type QuorumConfig struct {
 	SourceVerifierAddress string   `json:"sourceVerifierAddress" toml:"sourceVerifierAddress"`
-	Signers               []Signer `json:"signers"               toml:"signers"`
-	Threshold             uint8    `json:"threshold"             toml:"threshold"`
+	Signers               []Signer `json:"signers" toml:"signers"`
+	Threshold             uint8    `json:"threshold" toml:"threshold"`
 	// sourceVerifierAddressParsed holds the parsed address, populated during validation.
 	sourceVerifierAddressParsed protocol.UnknownAddress
 }
