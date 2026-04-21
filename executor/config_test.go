@@ -5,12 +5,13 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 )
 
 func validChainConfig() ChainConfiguration {
 	return ChainConfiguration{
 		RmnAddress:             "0x1234567890abcdef",
-		OffRampAddress:         "0xabcdef1234567890",
 		DefaultExecutorAddress: "0xdeadbeef12345678",
 		ExecutorPool:           []string{"executor-1", "executor-2"},
 	}
@@ -20,6 +21,9 @@ func validConfig() Configuration {
 	return Configuration{
 		ExecutorID:     "executor-1",
 		IndexerAddress: []string{"http://indexer1:8100"},
+		ExecutorConfig: chainaccess.ExecutorConfig{
+			OffRampAddresses: map[string]string{"1": "0xabcdef1234567890"},
+		},
 		ChainConfiguration: map[string]ChainConfiguration{
 			"1": validChainConfig(),
 		},
@@ -177,9 +181,7 @@ func TestConfiguration_Validate(t *testing.T) {
 			name: "missing_offramp_address_fails",
 			config: func() Configuration {
 				c := validConfig()
-				cc := validChainConfig()
-				cc.OffRampAddress = ""
-				c.ChainConfiguration = map[string]ChainConfiguration{"1": cc}
+				c.OffRampAddresses = nil
 				return c
 			}(),
 			wantErrContains: "off_ramp_address must be configured",

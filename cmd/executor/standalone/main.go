@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"maps"
 	"net/http"
 	"os"
 	"os/signal"
@@ -71,7 +72,7 @@ func main() {
 	}
 	lggr = logger.Named(lggr, "executor")
 
-	executorConfig, blockchainInfo, err := loadConfiguration(configPath)
+	executorConfig, blockchainInfo, chainAddresses, err := loadConfiguration(configPath)
 	if err != nil {
 		lggr.Errorw("Failed to load configuration", "path", configPath, "error", err)
 		os.Exit(1)
@@ -159,9 +160,21 @@ func main() {
 	destReaders := make(map[protocol.ChainSelector]chainaccess.DestinationReader)
 	enabledDestChains := make([]protocol.ChainSelector, 0)
 	rmnReaders := make(map[protocol.ChainSelector]chainaccess.RMNCurseReader)
+	pk := os.Getenv(privateKeyEnvVar)
+	if pk == "" {
+		lggr.Errorf("Environment variable %s is not set", privateKeyEnvVar)
+		os.Exit(1)
+	}
+
 	for selector, chain := range blockchainInfo.GetAllInfos() {
 		strSel := strconv.FormatUint(uint64(selector), 10)
-		chainConfig := executorConfig.ChainConfiguration[strSel]
+
+		offRampAddrStr := chainAddresses.OffRampAddresses[strSel]
+		if offRampAddrStr == "" {
+			lggr.Warnw("No offramp configured for chain, skipping.", "chainSelector", strSel)
+			continue
+		}
+		rmnAddrStr := chainAddresses.RMNRemoteAddresses[strSel]
 
 		chainClient, err := evm.CreateMultiNodeClientFromInfo(ctx, chain, lggr)
 		if err != nil {
@@ -173,8 +186,8 @@ func main() {
 				Lggr:                      lggr,
 				ChainSelector:             selector,
 				ChainClient:               chainClient,
-				OfframpAddress:            chainConfig.OffRampAddress,
-				RmnRemoteAddress:          chainConfig.RmnAddress,
+				OfframpAddress:            offRampAddrStr,
+				RmnRemoteAddress:          rmnAddrStr,
 				ExecutionVisabilityWindow: executorConfig.MaxRetryDuration,
 				Monitoring:                executorMonitoring,
 			})
@@ -184,19 +197,13 @@ func main() {
 			continue
 		}
 
-		pk := os.Getenv(privateKeyEnvVar)
-		if pk == "" {
-			lggr.Errorf("Environment variable %s is not set", privateKeyEnvVar)
-			os.Exit(1)
-		}
-
 		ct, err := contracttransmitter.NewEVMContractTransmitterFromRPC(
 			ctx,
 			lggr,
 			selector,
 			chain.Nodes[0].InternalHTTPUrl,
 			pk,
-			common.HexToAddress(chainConfig.OffRampAddress),
+			common.HexToAddress(offRampAddrStr),
 		)
 		if err != nil {
 			lggr.Errorw("Failed to create contract transmitter", "error", err)
@@ -346,15 +353,37 @@ func main() {
 	lggr.Infow("Execution service stopped gracefully")
 }
 
-func loadConfiguration(filepath string) (*executor.Configuration, *chainaccess.Infos[evm.Info], error) {
-	var config executor.ConfigWithBlockchainInfo[evm.Info]
+func loadConfiguration(filepath string) (*executor.Configuration, *chainaccess.Infos[evm.Info], chainaccess.GenericConfig, error) {
+	// CommitteeConfig is added separately because it is not part of executor.Configuration.
+	// ExecutorConfig is promoted through executor.Configuration, so no separate embed is needed.
+	var config struct {
+		executor.ConfigWithBlockchainInfo[evm.Info]
+		chainaccess.CommitteeConfig
+	}
 	if _, err := toml.DecodeFile(filepath, &config); err != nil {
-		return nil, nil, err
+		return nil, nil, chainaccess.GenericConfig{}, err
 	}
 
 	normalizedConfig, err := config.GetNormalizedConfig()
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, chainaccess.GenericConfig{}, err
 	}
-	return normalizedConfig, &config.BlockchainInfos, nil
+
+	// RMN addresses live in per-chain ChainConfiguration for the standalone path.
+	// Merge them into CommitteeConfig.RMNRemoteAddresses, letting any top-level
+	// CommitteeConfig values (from an overlay file) take precedence.
+	rmnRemoteAddresses := make(map[string]string, len(normalizedConfig.ChainConfiguration))
+	for sel, cc := range normalizedConfig.ChainConfiguration {
+		rmnRemoteAddresses[sel] = cc.RmnAddress
+	}
+	maps.Copy(rmnRemoteAddresses, config.RMNRemoteAddresses)
+
+	genericConfig := chainaccess.GenericConfig{
+		CommitteeConfig: chainaccess.CommitteeConfig{
+			OnRampAddresses:    config.OnRampAddresses,
+			RMNRemoteAddresses: rmnRemoteAddresses,
+		},
+		ExecutorConfig: normalizedConfig.ExecutorConfig,
+	}
+	return normalizedConfig, &config.BlockchainInfos, genericConfig, nil
 }

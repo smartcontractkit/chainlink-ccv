@@ -71,9 +71,16 @@ type MessageFilter interface {
 
 // Accessor provides objects that in turn provide specific kinds of blockchain access.
 // It is scoped to a particular chain selector.
+//
+// Capabilities beyond SourceReader are optional: callers must check the bool return
+// before using the value. A false return means the underlying factory does not support
+// that capability for this chain.
 type Accessor interface {
 	// SourceReader returns the SourceReader for the chain selector.
 	SourceReader() SourceReader
+	// GetDestinationReader returns the DestinationReader for the chain selector, if
+	// the factory that produced this Accessor supports destination-side reads.
+	GetDestinationReader() (DestinationReader, bool)
 }
 
 // AccessorFactory creates Accessors for specific chain selectors.

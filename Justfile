@@ -49,7 +49,7 @@ fmt: ensure-golangci-lint
 
 # Run golangci-lint
 lint fix="": ensure-golangci-lint
-    find . -type f -name go.mod -execdir golangci-lint run {{ if fix != "" { "--fix" } else { "" } }} \;
+    gomods -c 'golangci-lint run {{ if fix != "" { "--fix" } else { "" } }}'
 
 shellcheck:
     @command -v shellcheck >/dev/null 2>&1 || { \

@@ -37,6 +37,10 @@ type testAccessor struct{}
 
 func (a *testAccessor) SourceReader() chainaccess.SourceReader { return nil }
 
+func (a *testAccessor) GetDestinationReader() (chainaccess.DestinationReader, bool) {
+	return nil, false
+}
+
 func init() {
 	// Register a test constructor for the "evm" family so that NewRegistry
 	// can build a Registry without real RPC connections.
