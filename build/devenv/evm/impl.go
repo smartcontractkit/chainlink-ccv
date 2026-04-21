@@ -123,6 +123,7 @@ func init() {
 	// provides backward compatibility with the previous FamilyEVM/FamilyCanton
 	// combined switch case.
 	cciptestinterfaces.RegisterExtraArgsSerializer(chainsel.FamilyCanton, SerializeEVMExtraArgs)
+	cciptestinterfaces.RegisterExtraArgsSerializer(chainsel.FamilySolana, SerializeSVMExtraArgs)
 }
 
 type CCIP17EVMConfig struct {
@@ -691,6 +692,16 @@ func SerializeEVMExtraArgs(opts cciptestinterfaces.MessageOptions) []byte {
 	}
 }
 
+// SerializeSVMExtraArgs is the Solana family's ExtraArgsSerializer, handling versions 1.
+func SerializeSVMExtraArgs(opts cciptestinterfaces.MessageOptions) []byte {
+	switch opts.Version {
+	case 1:
+		return serializeExtraArgsSVMV1(opts)
+	default:
+		panic(fmt.Sprintf("unsupported EVM message extra args version: %d", opts.Version))
+	}
+}
+
 func serializeExtraArgsV1(opts cciptestinterfaces.MessageOptions) []byte {
 	evmExtraArgsV1Type, err := abi.NewType("tuple", "EVMExtraArgsV1", []abi.ArgumentMarshaling{
 		{Name: "gasLimit", Type: "uint256"},
@@ -765,6 +776,44 @@ func serializeExtraArgsV3(opts cciptestinterfaces.MessageOptions) []byte {
 		panic(fmt.Sprintf("failed to create V3 extra args: %v", err))
 	}
 	return extraArgs
+}
+
+func serializeExtraArgsSVMV1(opts cciptestinterfaces.MessageOptions) []byte {
+	svmExtraArgsV1Type, err := abi.NewType("tuple", "SVMExtraArgsV1", []abi.ArgumentMarshaling{
+		{Name: "computeUnits", Type: "uint32"},
+		{Name: "accountIsWritableBitmap", Type: "uint64"},
+		{Name: "allowOutOfOrderExecution", Type: "bool"},
+		{Name: "tokenReceiver", Type: "bytes32"},
+		{Name: "accounts", Type: "bytes32[]"},
+	})
+	if err != nil {
+		panic(fmt.Sprintf("failed to create SVMExtraArgsV1 tuple type: %v", err))
+	}
+
+	arguments := abi.Arguments{{Type: svmExtraArgsV1Type, Name: "extraArgs"}}
+
+	type SVMExtraArgsV1 struct {
+		ComputeUnits             uint32
+		AccountIsWritableBitmap  uint64
+		AllowOutOfOrderExecution bool
+		TokenReceiver            [32]byte
+		Accounts                 [][32]byte
+	}
+
+	packed, err := arguments.Pack(SVMExtraArgsV1{
+		ComputeUnits:             opts.ExecutionGasLimit,
+		AccountIsWritableBitmap:  0,
+		AllowOutOfOrderExecution: opts.OutOfOrderExecution,
+		TokenReceiver:            [32]byte{},
+		Accounts:                 [][32]byte{},
+	})
+	if err != nil {
+		panic(fmt.Sprintf("failed to pack SVMExtraArgsV1: %v", err))
+	}
+
+	// bytes4 public constant SVM_EXTRA_ARGS_V1_TAG = 0x1f3b3aba;
+	tag, _ := hexutil.Decode("0x1f3b3aba")
+	return append(tag, packed...)
 }
 
 func (m *CCIP17EVM) ExposeMetrics(

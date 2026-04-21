@@ -254,6 +254,7 @@ type ChainLaneProfile struct {
 	DefaultExecutorQualifier string
 	DefaultInboundCCVs       []datastore.AddressRef
 	DefaultOutboundCCVs      []datastore.AddressRef
+	TokenReceiverAllowed     *bool
 	GasForVerification       *uint32
 	AllowedFinalityConfig    *finality.Config
 }

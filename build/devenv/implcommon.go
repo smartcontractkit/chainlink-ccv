@@ -259,6 +259,7 @@ func buildPartialChainConfig(
 			FeeQuoterDestChainConfig: remote.FeeQuoterDestChainConfig,
 			ExecutorDestChainConfig:  local.ExecutorDestChainConfig,
 			BaseExecutionGasCost:     remote.BaseExecutionGasCost,
+			TokenReceiverAllowed:     remote.TokenReceiverAllowed,
 		}
 	}
 
