@@ -24,17 +24,22 @@ const defaultExecutionVisibilityWindow = 8 * time.Hour
 
 type factory struct {
 	lggr logger.Logger
+
+	// SourceReader dependencies.
 	// TODO: put these in a single map.
 	onRampAddresses    map[protocol.ChainSelector]string
 	rmnRemoteAddresses map[protocol.ChainSelector]string
 	headTrackers       map[protocol.ChainSelector]heads.Tracker
 	chainClients       map[protocol.ChainSelector]client.Client
 
+	// DestinationReader dependencies.
 	destChainConfigs          map[protocol.ChainSelector]chainaccess.DestinationChainConfig
 	executionVisibilityWindow time.Duration
-	// rpcURLs holds the primary HTTP RPC URL for each chain, used by the contract transmitter's
-	// own ethclient (separate from the multi-node chain client used by the source/destination readers).
-	rpcURLs              map[protocol.ChainSelector]string
+
+	// ContractTransmitter dependencies.
+	// rpcURLs holds the primary HTTP RPC URL for each chain. The contract transmitter dials its
+	// own ethclient rather than sharing the multi-node client used by the readers.
+	rpcURLs               map[protocol.ChainSelector]string
 	transmitterPrivateKey string
 }
 
