@@ -122,3 +122,7 @@ func (a *accessor) SourceReader() chainaccess.SourceReader {
 	}
 	return a.sourceReader
 }
+
+func (a *accessor) DestinationReader() chainaccess.DestinationReader { return nil }
+
+func (a *accessor) ContractTransmitter() chainaccess.ContractTransmitter { return nil }

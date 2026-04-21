@@ -35,7 +35,9 @@ func (f *testEVMFactory) GetAccessor(_ context.Context, _ protocol.ChainSelector
 
 type testAccessor struct{}
 
-func (a *testAccessor) SourceReader() chainaccess.SourceReader { return nil }
+func (a *testAccessor) SourceReader() chainaccess.SourceReader           { return nil }
+func (a *testAccessor) DestinationReader() chainaccess.DestinationReader  { return nil }
+func (a *testAccessor) ContractTransmitter() chainaccess.ContractTransmitter { return nil }
 
 func init() {
 	// Register a test constructor for the "evm" family so that NewRegistry
