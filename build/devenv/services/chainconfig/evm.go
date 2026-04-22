@@ -14,6 +14,9 @@ import (
 func EVMChainConfigLoader(outputs []*ctfblockchain.Output) (map[string]any, error) {
 	infos := make(map[string]any)
 	for _, output := range outputs {
+		if output.Family != chainsel.FamilyEVM {
+			continue
+		}
 		info := &evm.Info{
 			ChainID:         output.ChainID,
 			Type:            output.Type,
