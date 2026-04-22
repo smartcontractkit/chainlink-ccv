@@ -51,10 +51,10 @@ fmt: ensure-golangci-lint
 lint fix="": ensure-golangci-lint
     gomods -c 'golangci-lint run {{ if fix != "" { "--fix" } else { "" } }}'
     golangci-lint run {{ if fix != "" { "--fix" } else { "" } }}
-    cd build/devenv && golangci-lint run {{ if fix != "" { "--fix" } else { "" } }}
-    cd build/devenv/fakes && golangci-lint run {{ if fix != "" { "--fix" } else { "" } }}
-    cd indexer/cmd/oapigen && golangci-lint run {{ if fix != "" { "--fix" } else { "" } }}
-    cd deployment && golangci-lint run {{ if fix != "" { "--fix" } else { "" } }}
+    cd build/devenv && golangci-lint run --config ../../.golangci.yaml {{ if fix != "" { "--fix" } else { "" } }}
+    cd build/devenv/fakes && golangci-lint run --config ../../../.golangci.yaml {{ if fix != "" { "--fix" } else { "" } }}
+    cd indexer/cmd/oapigen && golangci-lint run --config ../../../.golangci.yaml {{ if fix != "" { "--fix" } else { "" } }}
+    cd deployment && golangci-lint run --config ../.golangci.yaml {{ if fix != "" { "--fix" } else { "" } }}
 
 shellcheck:
     @command -v shellcheck >/dev/null 2>&1 || { \

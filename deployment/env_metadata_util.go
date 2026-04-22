@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 
@@ -251,23 +252,20 @@ func mergeOffchainConfigs(existingMeta map[string]any, oc *OffchainConfigs) (map
 	return existingOC, nil
 }
 
-// isNilValue reports whether v is a typed nil map (or untyped nil). The fields on
-// OffchainConfigs are typed map values which need a reflect-style check, but for the
-// concrete map types we only need to compare the underlying length using a type switch.
+// isNilValue reports whether v is an untyped nil or a typed nil reference value
+// (map, slice, pointer, interface, channel, or func). It uses reflection so callers
+// don't need to be updated when OffchainConfigs gains new map fields.
 func isNilValue(v any) bool {
-	switch m := v.(type) {
-	case nil:
+	if v == nil {
 		return true
-	case map[string]*model.Committee:
-		return m == nil
-	case map[string]*indexerconfig.GeneratedConfig:
-		return m == nil
-	case map[string]*token.Config:
-		return m == nil
-	case shared.NOPJobs:
-		return m == nil
 	}
-	return false
+	rv := reflect.ValueOf(v)
+	switch rv.Kind() {
+	case reflect.Map, reflect.Slice, reflect.Ptr, reflect.Interface, reflect.Chan, reflect.Func:
+		return rv.IsNil()
+	default:
+		return false
+	}
 }
 
 func marshalToAny(v any) (any, error) {
