@@ -171,13 +171,14 @@ func main() {
 		dr := accessor.DestinationReader()
 		ct := accessor.ContractTransmitter()
 
-		if dr != nil {
-			destReaders[selector] = dr
-			rmnReaders[selector] = dr
+		if dr == nil || ct == nil {
+			lggr.Warnw("Skipping chain: missing DestinationReader or ContractTransmitter", "chainSelector", strSel, "hasDestReader", dr != nil, "hasTransmitter", ct != nil)
+			continue
 		}
-		if ct != nil {
-			contractTransmitters[selector] = ct
-		}
+
+		destReaders[selector] = dr
+		rmnReaders[selector] = dr
+		contractTransmitters[selector] = ct
 		enabledDestChains = append(enabledDestChains, selector)
 	}
 
