@@ -60,10 +60,8 @@ func DeployContractsForSelector(
 		operations.NewMemoryReporter(),
 	)
 
-	ccipTopology := convertTopologyToCCIP(topology)
-
 	// 1. Pre-hook (e.g. EVM deploys CREATE2 factory here).
-	preDS, err := impl.PreDeployContractsForSelector(ctx, env, selector, ccipTopology)
+	preDS, err := impl.PreDeployContractsForSelector(ctx, env, selector, topology)
 	if err != nil {
 		return nil, fmt.Errorf("pre-deploy for selector %d: %w", selector, err)
 	}
@@ -79,7 +77,7 @@ func DeployContractsForSelector(
 	}
 
 	// 2. Get chain-specific config (reads pre-deployed addresses from env.DataStore).
-	cfg, err := impl.GetDeployChainContractsCfg(env, selector, ccipTopology)
+	cfg, err := impl.GetDeployChainContractsCfg(env, selector, topology)
 	if err != nil {
 		return nil, fmt.Errorf("get deploy config for selector %d: %w", selector, err)
 	}
@@ -108,7 +106,7 @@ func DeployContractsForSelector(
 	env.DataStore = merged
 
 	// 4. Post-hook (e.g. EVM deploys USDC/Lombard pools here).
-	postDS, err := impl.PostDeployContractsForSelector(ctx, env, selector, ccipTopology)
+	postDS, err := impl.PostDeployContractsForSelector(ctx, env, selector, topology)
 	if err != nil {
 		return nil, fmt.Errorf("post-deploy for selector %d: %w", selector, err)
 	}
@@ -558,7 +556,7 @@ func ConfigureAllTokenTransfers(
 			}
 		}
 
-		cfgs, err := tcp.GetTokenTransferConfigs(env, selectors[i], remoteSelectors, convertTopologyToCCIP(topology))
+		cfgs, err := tcp.GetTokenTransferConfigs(env, selectors[i], remoteSelectors, topology)
 		if err != nil {
 			return fmt.Errorf("get token transfer configs for selector %d: %w", selectors[i], err)
 		}

@@ -1108,7 +1108,7 @@ func NewEnvironment() (in *Cfg, err error) {
 			capsBySelector[networkInfo.ChainSelector] = nil
 		}
 	}
-	combos := devenvcommon.ComputeTokenCombinations(capsBySelector, convertTopologyToCCIP(topology))
+	combos := devenvcommon.ComputeTokenCombinations(capsBySelector, topology)
 
 	ds := datastore.NewMemoryDataStore()
 	for i, impl := range impls {
