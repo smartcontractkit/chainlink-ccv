@@ -22,9 +22,9 @@ import (
 	ns "github.com/smartcontractkit/chainlink-testing-framework/framework/components/simple_node_set"
 	sdkclient "github.com/smartcontractkit/chainlink/deployment/environment/web/sdk/client"
 
-	ccipChangesets "github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/changesets"
-	ccipOffchain "github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/offchain"
-	"github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/offchain/shared"
+	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
+	ccvchangesets "github.com/smartcontractkit/chainlink-ccv/deployment/changesets"
+	ccvshared "github.com/smartcontractkit/chainlink-ccv/deployment/shared"
 )
 
 type JDInfrastructure struct {
@@ -415,7 +415,7 @@ func SyncAndVerifyJobProposals(e *deployment.Environment) error {
 		return fmt.Errorf("datastore is required for job proposal verification")
 	}
 
-	allJobs, err := ccipOffchain.GetAllJobs(e.DataStore)
+	allJobs, err := ccvdeployment.GetAllJobs(e.DataStore)
 	if err != nil {
 		return fmt.Errorf("failed to get all jobs: %w", err)
 	}
@@ -423,7 +423,7 @@ func SyncAndVerifyJobProposals(e *deployment.Environment) error {
 	clJobCount := 0
 	for _, nopJobs := range allJobs {
 		for _, job := range nopJobs {
-			if job.Mode == shared.NOPModeCL {
+			if job.Mode == ccvshared.NOPModeCL {
 				clJobCount++
 			}
 		}
@@ -434,12 +434,12 @@ func SyncAndVerifyJobProposals(e *deployment.Environment) error {
 		return nil
 	}
 
-	output, err := ccipChangesets.SyncJobProposals().Apply(*e, ccipChangesets.SyncJobProposalsInput{})
+	output, err := ccvchangesets.SyncJobProposals().Apply(*e, ccvchangesets.SyncJobProposalsInput{})
 	if err != nil {
 		return fmt.Errorf("failed to sync job proposals: %w", err)
 	}
 
-	updatedJobs, err := ccipOffchain.GetAllJobs(output.DataStore.Seal())
+	updatedJobs, err := ccvdeployment.GetAllJobs(output.DataStore.Seal())
 	if err != nil {
 		return fmt.Errorf("failed to get updated jobs: %w", err)
 	}
@@ -447,7 +447,7 @@ func SyncAndVerifyJobProposals(e *deployment.Environment) error {
 	pendingCLJobs := make([]string, 0)
 	for nopAlias, nopJobs := range updatedJobs {
 		for jobID, job := range nopJobs {
-			if job.Mode == shared.NOPModeCL && job.LatestStatus() != shared.JobProposalStatusApproved {
+			if job.Mode == ccvshared.NOPModeCL && job.LatestStatus() != ccvshared.JobProposalStatusApproved {
 				pendingCLJobs = append(pendingCLJobs,
 					fmt.Sprintf("%s/%s: %s", nopAlias, jobID, job.LatestStatus()))
 			}
