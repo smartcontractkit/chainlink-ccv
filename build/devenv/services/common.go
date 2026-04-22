@@ -46,7 +46,7 @@ func GoSourcePathMounts(rootPath, containerDirTarget string) testcontainers.Cont
 
 	mounts := make([]testcontainers.ContainerMount, 0, 1)
 	mounts = append(mounts,
-		testcontainers.BindMount(
+		testcontainers.BindMount( //nolint:staticcheck // TODO: migrate to Files/HostConfigModifier
 			absRootPath,
 			testcontainers.ContainerMountTarget(containerDirTarget),
 		),
@@ -79,11 +79,11 @@ func GoCacheMounts() testcontainers.ContainerMounts {
 		goBuildCachePath = filepath.Join(homeDir, ".cache", "go-build")
 	}
 	mounts = append(mounts,
-		testcontainers.BindMount(
+		testcontainers.BindMount( //nolint:staticcheck // TODO: migrate to Files/HostConfigModifier
 			goModCachePath,
 			"/go/pkg/mod",
 		),
-		testcontainers.BindMount(
+		testcontainers.BindMount( //nolint:staticcheck // TODO: migrate to Files/HostConfigModifier
 			goBuildCachePath,
 			"/root/.cache/go-build",
 		),
