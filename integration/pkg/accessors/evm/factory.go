@@ -194,23 +194,23 @@ func newAccessor(sourceReader chainaccess.SourceReader, destinationReader chaina
 	}
 }
 
-func (a *accessor) SourceReader() chainaccess.SourceReader {
-	if a == nil {
-		return nil
+func (a *accessor) SourceReader() (chainaccess.SourceReader, error) {
+	if a == nil || a.sourceReader == nil {
+		return nil, errors.New("source reader not available")
 	}
-	return a.sourceReader
+	return a.sourceReader, nil
 }
 
-func (a *accessor) DestinationReader() chainaccess.DestinationReader {
-	if a == nil {
-		return nil
+func (a *accessor) DestinationReader() (chainaccess.DestinationReader, error) {
+	if a == nil || a.destinationReader == nil {
+		return nil, errors.New("destination reader not available")
 	}
-	return a.destinationReader
+	return a.destinationReader, nil
 }
 
-func (a *accessor) ContractTransmitter() chainaccess.ContractTransmitter {
-	if a == nil {
-		return nil
+func (a *accessor) ContractTransmitter() (chainaccess.ContractTransmitter, error) {
+	if a == nil || a.contractTransmitter == nil {
+		return nil, errors.New("contract transmitter not available")
 	}
-	return a.contractTransmitter
+	return a.contractTransmitter, nil
 }

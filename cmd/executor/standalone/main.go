@@ -168,11 +168,11 @@ func main() {
 			continue
 		}
 
-		dr := accessor.DestinationReader()
-		ct := accessor.ContractTransmitter()
+		dr, drErr := accessor.DestinationReader()
+		ct, ctErr := accessor.ContractTransmitter()
 
-		if dr == nil || ct == nil {
-			lggr.Warnw("Skipping chain: missing DestinationReader or ContractTransmitter", "chainSelector", strSel, "hasDestReader", dr != nil, "hasTransmitter", ct != nil)
+		if drErr != nil || ctErr != nil {
+			lggr.Warnw("Skipping chain: missing DestinationReader or ContractTransmitter", "chainSelector", strSel, "destReaderErr", drErr, "transmitterErr", ctErr)
 			continue
 		}
 
