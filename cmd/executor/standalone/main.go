@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/grafana/pyroscope-go"
 	"go.uber.org/zap/zapcore"
 
@@ -19,10 +20,12 @@ import (
 	x "github.com/smartcontractkit/chainlink-ccv/executor/pkg/executor"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/leaderelector"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
-	_ "github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/backofftimeprovider"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/ccvstreamer"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/contracttransmitter"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/cursechecker"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/destinationreader"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
@@ -32,6 +35,7 @@ import (
 
 const (
 	configPathEnvVar = "EXECUTOR_CONFIG_PATH"
+	privateKeyEnvVar = "EXECUTOR_TRANSMITTER_PRIVATE_KEY"
 	// indexerPollingInterval describes how frequently we ask indexer for new messages.
 	// This should be kept at 1s for consistent behavior across all executors.
 	indexerPollingInterval = 1 * time.Second
@@ -67,7 +71,7 @@ func main() {
 	}
 	lggr = logger.Named(lggr, "executor")
 
-	executorConfig, registry, err := loadConfiguration(lggr, configPath)
+	executorConfig, blockchainInfo, err := loadConfiguration(configPath)
 	if err != nil {
 		lggr.Errorw("Failed to load configuration", "path", configPath, "error", err)
 		os.Exit(1)
@@ -95,6 +99,7 @@ func main() {
 	protocol.InitChainSelectorCache()
 
 	lggr.Infow("Executor configuration", "config", executorConfig)
+	lggr.Infow("Blockchain information", "blockchainInfo", blockchainInfo)
 
 	//
 	// Setup OTEL Monitoring (via beholder)
@@ -154,30 +159,54 @@ func main() {
 	destReaders := make(map[protocol.ChainSelector]chainaccess.DestinationReader)
 	enabledDestChains := make([]protocol.ChainSelector, 0)
 	rmnReaders := make(map[protocol.ChainSelector]chainaccess.RMNCurseReader)
-	for strSel := range executorConfig.ChainConfiguration {
-		selectorUint, err := strconv.ParseUint(strSel, 10, 64)
+	for selector, chain := range blockchainInfo.GetAllInfos() {
+		strSel := strconv.FormatUint(uint64(selector), 10)
+		chainConfig := executorConfig.ChainConfiguration[strSel]
+
+		chainClient, err := evm.CreateMultiNodeClientFromInfo(ctx, chain, lggr)
 		if err != nil {
-			lggr.Errorw("Invalid chain selector in configuration", "error", err, "chainSelector", strSel)
+			lggr.Errorw("Failed to create chain client", "error", err, "chainSelector", strSel)
 			continue
 		}
-		selector := protocol.ChainSelector(selectorUint)
-
-		accessor, err := registry.GetAccessor(ctx, selector)
+		dr, err := destinationreader.NewEvmDestinationReader(
+			destinationreader.Params{
+				Lggr:                      lggr,
+				ChainSelector:             selector,
+				ChainClient:               chainClient,
+				OfframpAddress:            chainConfig.OffRampAddress,
+				RmnRemoteAddress:          chainConfig.RmnAddress,
+				ExecutionVisabilityWindow: executorConfig.MaxRetryDuration,
+				Monitoring:                executorMonitoring,
+			})
 		if err != nil {
-			lggr.Errorw("Failed to get accessor for chain", "error", err, "chainSelector", strSel)
+			lggr.Errorw("Failed to create destination reader", "error", err, "chainSelector", strSel)
+			chainClient.Close()
 			continue
 		}
 
-		dr := accessor.DestinationReader()
-		ct := accessor.ContractTransmitter()
+		pk := os.Getenv(privateKeyEnvVar)
+		if pk == "" {
+			lggr.Errorf("Environment variable %s is not set", privateKeyEnvVar)
+			os.Exit(1)
+		}
 
+		ct, err := contracttransmitter.NewEVMContractTransmitterFromRPC(
+			ctx,
+			lggr,
+			selector,
+			chain.Nodes[0].InternalHTTPUrl,
+			pk,
+			common.HexToAddress(chainConfig.OffRampAddress),
+		)
+		if err != nil {
+			lggr.Errorw("Failed to create contract transmitter", "error", err)
+			os.Exit(1)
+		}
 		if dr != nil {
 			destReaders[selector] = dr
 			rmnReaders[selector] = dr
 		}
-		if ct != nil {
-			contractTransmitters[selector] = ct
-		}
+		contractTransmitters[selector] = ct
 		enabledDestChains = append(enabledDestChains, selector)
 	}
 
@@ -317,25 +346,15 @@ func main() {
 	lggr.Infow("Execution service stopped gracefully")
 }
 
-func loadConfiguration(lggr logger.Logger, filepath string) (*executor.Configuration, *chainaccess.Registry, error) {
-	content, err := os.ReadFile(filepath) // #nosec G304 -- config file path is operator-controlled
-	if err != nil {
+func loadConfiguration(filepath string) (*executor.Configuration, *chainaccess.Infos[evm.Info], error) {
+	var config executor.ConfigWithBlockchainInfo[evm.Info]
+	if _, err := toml.DecodeFile(filepath, &config); err != nil {
 		return nil, nil, err
 	}
 
-	var config executor.ConfigWithBlockchainInfo[any]
-	if _, err := toml.Decode(string(content), &config); err != nil {
-		return nil, nil, err
-	}
 	normalizedConfig, err := config.GetNormalizedConfig()
 	if err != nil {
 		return nil, nil, err
 	}
-
-	registry, err := chainaccess.NewRegistry(lggr, string(content))
-	if err != nil {
-		return nil, nil, err
-	}
-
-	return normalizedConfig, registry, nil
+	return normalizedConfig, &config.BlockchainInfos, nil
 }
