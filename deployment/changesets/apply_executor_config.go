@@ -339,17 +339,17 @@ func buildExecutorJobSpecs(
 		jobSpecID := shared.NewExecutorJobID(nopAlias, scope)
 
 		executorCfg := executor.Configuration{
-			IndexerAddress:    indexerAddress,
-			ExecutorID:        jobSpecID.GetExecutorID(),
-			PyroscopeURL:      pyroscopeURL,
-			NtpServer:         pool.NtpServer,
-			IndexerQueryLimit: pool.IndexerQueryLimit,
-			BackoffDuration:   pool.BackoffDuration,
-			LookbackWindow:    pool.LookbackWindow,
-			ReaderCacheExpiry: pool.ReaderCacheExpiry,
-			MaxRetryDuration:  pool.MaxRetryDuration,
-			WorkerCount:       pool.WorkerCount,
-			Monitoring:        monitoring,
+			IndexerAddress:     indexerAddress,
+			ExecutorID:         jobSpecID.GetExecutorID(),
+			PyroscopeURL:       pyroscopeURL,
+			NtpServer:          pool.NtpServer,
+			IndexerQueryLimit:  pool.IndexerQueryLimit,
+			BackoffDuration:    pool.BackoffDuration,
+			LookbackWindow:     pool.LookbackWindow,
+			ReaderCacheExpiry:  pool.ReaderCacheExpiry,
+			MaxRetryDuration:   pool.MaxRetryDuration,
+			WorkerCount:        pool.WorkerCount,
+			Monitoring:         monitoring,
 			ChainConfiguration: chainCfgs,
 		}
 

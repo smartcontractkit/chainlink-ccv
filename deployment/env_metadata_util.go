@@ -8,16 +8,16 @@ import (
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
-	indexerconfig "github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
 	"github.com/smartcontractkit/chainlink-ccv/deployment/shared"
+	indexerconfig "github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token"
 )
 
 type OffchainConfigs struct {
-	Aggregators    map[string]*model.Committee              `json:"aggregators,omitempty"`
+	Aggregators    map[string]*model.Committee               `json:"aggregators,omitempty"`
 	Indexers       map[string]*indexerconfig.GeneratedConfig `json:"indexers,omitempty"`
-	TokenVerifiers map[string]*token.Config                 `json:"tokenVerifiers,omitempty"`
-	NOPJobs        shared.NOPJobs                           `json:"nopJobs,omitempty"`
+	TokenVerifiers map[string]*token.Config                  `json:"tokenVerifiers,omitempty"`
+	NOPJobs        shared.NOPJobs                            `json:"nopJobs,omitempty"`
 }
 
 type CCVEnvMetadata struct {
