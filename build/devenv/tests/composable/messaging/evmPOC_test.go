@@ -61,9 +61,9 @@ func TestEVM2EVMPOC(t *testing.T) {
 				Data:     []byte{},
 			},
 			[]cciptestinterfaces.ExtraArgsOption{
-				evm.WithExecutionGasLimit(200_000),
-				evm.WithVersion(3),
-				evm.WithOutOfOrderExecution(false),
+				cciptestinterfaces.WithExecutionGasLimit(200_000),
+				cciptestinterfaces.WithVersion(3),
+				cciptestinterfaces.WithOutOfOrderExecution(false),
 			},
 			nil,
 		),
