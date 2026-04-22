@@ -49,7 +49,7 @@ fmt: ensure-golangci-lint
 
 # Run golangci-lint
 lint fix="": ensure-golangci-lint
-    #gomods -c 'golangci-lint run {{ if fix != "" { "--fix" } else { "" } }}'
+    gomods -c 'golangci-lint run {{ if fix != "" { "--fix" } else { "" } }}'
     golangci-lint run {{ if fix != "" { "--fix" } else { "" } }}
     cd build/devenv && golangci-lint run {{ if fix != "" { "--fix" } else { "" } }}
     cd build/devenv/fakes && golangci-lint run {{ if fix != "" { "--fix" } else { "" } }}
