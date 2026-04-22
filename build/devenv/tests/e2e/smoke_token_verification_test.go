@@ -21,6 +21,7 @@ import (
 	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/evm"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
@@ -220,7 +221,7 @@ func runUSDCTestCase(
 	require.NoError(t, err)
 	l.Info().Uint64("SeqNo", seqNo).Str("Token", "").Msg("expecting sequence number")
 
-	messageOptions := cciptestinterfaces.MessageOptions{
+	messageOptions := evm.MessageOptions{
 		Version:           3,
 		FinalityConfig:    tc.finalityConfig,
 		ExecutionGasLimit: tc.executionGasLimit,
@@ -329,7 +330,7 @@ func runLombardTestCase(
 	require.NoError(t, err)
 	l.Info().Uint64("SeqNo", seqNo).Str("Token", common.LombardContractsQualifier).Msg("expecting sequence number")
 
-	messageOptions := cciptestinterfaces.MessageOptions{
+	messageOptions := evm.MessageOptions{
 		Version:           3,
 		FinalityConfig:    tc.finalityConfig,
 		ExecutionGasLimit: tc.executionGasLimit,

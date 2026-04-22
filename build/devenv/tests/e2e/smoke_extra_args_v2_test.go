@@ -14,6 +14,7 @@ import (
 	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/evm"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
@@ -115,7 +116,7 @@ func runV2TestCase(
 	_, err = chainMap[tc.fromSelector].SendMessage(ctx, tc.toSelector, cciptestinterfaces.MessageFields{
 		Receiver: tc.receiver,
 		Data:     []byte{},
-	}, cciptestinterfaces.MessageOptions{
+	}, evm.MessageOptions{
 		Version:             2,
 		ExecutionGasLimit:   200_000,
 		OutOfOrderExecution: true,

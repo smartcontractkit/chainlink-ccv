@@ -647,10 +647,27 @@ func (m *CCIP17EVM) validateTokenBalances(
 
 // SendMessage sends a CCIP message to the specified destination chain with the specified message options.
 // We're keeping this for backward compatibility while we move to the new composable interfaces.
-func (m *CCIP17EVM) SendMessage(ctx context.Context, dest uint64, fields cciptestinterfaces.MessageFields, opts cciptestinterfaces.MessageOptions) (cciptestinterfaces.MessageSentEvent, error) {
-	msg, err := m.BuildChainMessage(ctx, dest, fields, opts)
+func (m *CCIP17EVM) SendMessage(ctx context.Context, dest uint64, fields cciptestinterfaces.MessageFields, extraArgsProvider cciptestinterfaces.ExtraArgsDataProvider) (cciptestinterfaces.MessageSentEvent, error) {
+	opts, ok := extraArgsProvider.(MessageOptions)
+	if !ok {
+		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("extraArgsProvider is not a MessageOptions")
+	}
+	extraArgs, err := m.ExtraArgsSerializer(opts)
 	if err != nil {
-		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("failed to build chain message: %w", err)
+		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("failed to serialize extra args: %w", err)
+	}
+
+	msg := routerwrapper.ClientEVM2AnyMessage{
+		Receiver:  common.LeftPadBytes(fields.Receiver.Bytes(), 32),
+		Data:      fields.Data,
+		FeeToken:  common.HexToAddress(fields.FeeToken.String()),
+		ExtraArgs: extraArgs,
+	}
+	if fields.TokenAmount.Amount != nil {
+		msg.TokenAmounts = []routeroperations.EVMTokenAmount{{
+			Token:  common.HexToAddress(fields.TokenAmount.TokenAddress.String()),
+			Amount: fields.TokenAmount.Amount,
+		}}
 	}
 
 	sendOption := SendOptions{UseTestRouter: opts.UseTestRouter}
@@ -667,42 +684,50 @@ func (m *CCIP17EVM) GetUserNonce(ctx context.Context, userAddress protocol.Unkno
 	return m.chain.Client.PendingNonceAt(ctx, common.HexToAddress(userAddress.String()))
 }
 
-// serializeExtraArgs dispatches to the destination family's registered ExtraArgsSerializer.
-// New chain families register their serializer via cciptestinterfaces.RegisterExtraArgsSerializer
-// in their product repo, so no changes are needed here when adding a chain.
-func serializeExtraArgs(opts cciptestinterfaces.MessageOptions, destFamily string) []byte {
-	serializer, ok := cciptestinterfaces.GetExtraArgsSerializer(destFamily)
-	if !ok {
-		panic(fmt.Sprintf("no ExtraArgsSerializer registered for destination family %q", destFamily))
+func (m *CCIP17EVM) ExtraArgsSerializer(provider cciptestinterfaces.ExtraArgsDataProvider) ([]byte, error) {
+	switch p := provider.(type) {
+	case MessageOptions:
+		return SerializeEVMExtraArgs(p)
+	case SVMMessageOptions:
+		return SerializeSVMExtraArgs(p)
+	default:
+		return nil, fmt.Errorf("unsupported ExtraArgsDataProvider type %T", provider)
 	}
-	return serializer(opts)
 }
 
 // SerializeEVMExtraArgs is the EVM family's ExtraArgsSerializer, handling versions 1-3.
-func SerializeEVMExtraArgs(opts cciptestinterfaces.MessageOptions) []byte {
+func SerializeEVMExtraArgs(provider cciptestinterfaces.ExtraArgsDataProvider) ([]byte, error) {
+	opts, ok := provider.(MessageOptions)
+	if !ok {
+		return nil, fmt.Errorf("provider is not a MessageOptions")
+	}
 	switch opts.Version {
 	case 1:
-		return serializeExtraArgsV1(opts)
+		return serializeExtraArgsV1(opts), nil
 	case 2:
-		return serializeExtraArgsV2(opts)
+		return serializeExtraArgsV2(opts), nil
 	case 3:
-		return serializeExtraArgsV3(opts)
+		return serializeExtraArgsV3(opts), nil
 	default:
 		panic(fmt.Sprintf("unsupported EVM message extra args version: %d", opts.Version))
 	}
 }
 
 // SerializeSVMExtraArgs is the Solana family's ExtraArgsSerializer, handling versions 1.
-func SerializeSVMExtraArgs(opts cciptestinterfaces.MessageOptions) []byte {
+func SerializeSVMExtraArgs(provider cciptestinterfaces.ExtraArgsDataProvider) ([]byte, error) {
+	opts, ok := provider.(SVMMessageOptions)
+	if !ok {
+		return nil, fmt.Errorf("provider is not a SVMMessageOptions")
+	}
 	switch opts.Version {
 	case 1:
-		return serializeExtraArgsSVMV1(opts)
+		return serializeExtraArgsSVMV1(opts), nil
 	default:
 		panic(fmt.Sprintf("unsupported EVM message extra args version: %d", opts.Version))
 	}
 }
 
-func serializeExtraArgsV1(opts cciptestinterfaces.MessageOptions) []byte {
+func serializeExtraArgsV1(opts MessageOptions) []byte {
 	evmExtraArgsV1Type, err := abi.NewType("tuple", "EVMExtraArgsV1", []abi.ArgumentMarshaling{
 		{Name: "gasLimit", Type: "uint256"},
 	})
@@ -730,7 +755,7 @@ func serializeExtraArgsV1(opts cciptestinterfaces.MessageOptions) []byte {
 	return append(selector, packed...)
 }
 
-func serializeExtraArgsV2(opts cciptestinterfaces.MessageOptions) []byte {
+func serializeExtraArgsV2(opts MessageOptions) []byte {
 	genericExtraArgsV2Type, err := abi.NewType("tuple", "GenericExtraArgsV2", []abi.ArgumentMarshaling{
 		{Name: "gasLimit", Type: "uint256"},
 		{Name: "allowOutOfOrderExecution", Type: "bool"},
@@ -763,7 +788,7 @@ func serializeExtraArgsV2(opts cciptestinterfaces.MessageOptions) []byte {
 	return append(selector, packed...)
 }
 
-func serializeExtraArgsV3(opts cciptestinterfaces.MessageOptions) []byte {
+func serializeExtraArgsV3(opts MessageOptions) []byte {
 	extraArgs, err := NewV3ExtraArgs(
 		opts.FinalityConfig,
 		opts.ExecutionGasLimit,
@@ -778,7 +803,7 @@ func serializeExtraArgsV3(opts cciptestinterfaces.MessageOptions) []byte {
 	return extraArgs
 }
 
-func serializeExtraArgsSVMV1(opts cciptestinterfaces.MessageOptions) []byte {
+func serializeExtraArgsSVMV1(opts SVMMessageOptions) []byte {
 	svmExtraArgsV1Type, err := abi.NewType("tuple", "SVMExtraArgsV1", []abi.ArgumentMarshaling{
 		{Name: "computeUnits", Type: "uint32"},
 		{Name: "accountIsWritableBitmap", Type: "uint64"},
@@ -801,11 +826,11 @@ func serializeExtraArgsSVMV1(opts cciptestinterfaces.MessageOptions) []byte {
 	}
 
 	packed, err := arguments.Pack(SVMExtraArgsV1{
-		ComputeUnits:             opts.ExecutionGasLimit,
-		AccountIsWritableBitmap:  0,
-		AllowOutOfOrderExecution: opts.OutOfOrderExecution,
-		TokenReceiver:            [32]byte{},
-		Accounts:                 [][32]byte{},
+		ComputeUnits:             opts.ComputeUnits,
+		AccountIsWritableBitmap:  opts.AccountIsWritableBitmap,
+		AllowOutOfOrderExecution: opts.AllowOutOfOrderExecution,
+		TokenReceiver:            opts.TokenReceiver,
+		Accounts:                 opts.Accounts,
 	})
 	if err != nil {
 		panic(fmt.Sprintf("failed to pack SVMExtraArgsV1: %v", err))
@@ -2009,12 +2034,10 @@ func (m *CCIP17EVM) SetLombardMailboxBridgedMessage(ctx context.Context, message
 	return nil
 }
 
-func (m *CCIP17EVM) BuildChainMessage(ctx context.Context, destChain uint64, messageFields cciptestinterfaces.MessageFields, opts cciptestinterfaces.MessageOptions) (cciptestinterfaces.ChainAsSourceMessage, error) {
-	chainFamily, err := chainsel.GetSelectorFamily(destChain)
-	if err != nil {
+func (m *CCIP17EVM) BuildChainMessage(ctx context.Context, destChain uint64, messageFields cciptestinterfaces.MessageFields, extraArgs []byte) (cciptestinterfaces.GenericChainMessage, error) {
+	if _, err := chainsel.GetSelectorFamily(destChain); err != nil {
 		return nil, fmt.Errorf("failed to get destination chain family: %w", err)
 	}
-	extraArgs := serializeExtraArgs(opts, chainFamily)
 
 	ret := routerwrapper.ClientEVM2AnyMessage{
 		Receiver:  common.LeftPadBytes(messageFields.Receiver.Bytes(), 32),
@@ -2032,7 +2055,7 @@ func (m *CCIP17EVM) BuildChainMessage(ctx context.Context, destChain uint64, mes
 	return ret, nil
 }
 
-func (m *CCIP17EVM) SendChainMessage(ctx context.Context, destChain uint64, msg cciptestinterfaces.ChainAsSourceMessage, sendOption cciptestinterfaces.ChainSendOption) (cciptestinterfaces.MessageSentEvent, protocol.ByteSlice, error) {
+func (m *CCIP17EVM) SendChainMessage(ctx context.Context, destChain uint64, msg cciptestinterfaces.GenericChainMessage, sendOption cciptestinterfaces.ChainSendOption) (cciptestinterfaces.MessageSentEvent, protocol.ByteSlice, error) {
 	message, ok := msg.(routerwrapper.ClientEVM2AnyMessage)
 	if !ok {
 		return cciptestinterfaces.MessageSentEvent{}, protocol.ByteSlice{}, errors.New("expected routerwrapper.ClientEVM2AnyMessage")

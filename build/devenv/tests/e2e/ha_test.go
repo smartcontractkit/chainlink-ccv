@@ -13,6 +13,7 @@ import (
 	chain_selectors "github.com/smartcontractkit/chain-selectors"
 	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/evm"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
@@ -121,7 +122,7 @@ func (s *haTestSetup) sendAndAssertExecution(
 	_, err = s.chainMap[s.fromSelector].SendMessage(ctx, s.toSelector, cciptestinterfaces.MessageFields{
 		Receiver: mustGetEOAReceiverAddress(t, s.chainMap[s.toSelector]),
 		Data:     []byte{},
-	}, cciptestinterfaces.MessageOptions{
+	}, evm.MessageOptions{
 		Version:             2,
 		ExecutionGasLimit:   200_000,
 		OutOfOrderExecution: true,

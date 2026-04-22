@@ -82,29 +82,6 @@ type MessageFields struct {
 	FeeToken protocol.UnknownAddress
 }
 
-// MessageOptions consists of all the ways one can modify a CCIP message
-// using extraArgs.
-type MessageOptions struct {
-	// Version indicates the version of the extraArgs.
-	Version uint8
-	// ExecutionGasLimit is the execution gas limit for the message
-	ExecutionGasLimit uint32
-	// OutOfOrderExecution is whether to execute the message out of order
-	OutOfOrderExecution bool
-	// CCVs are the CCVs for the message
-	CCVs []protocol.CCV
-	// FinalityConfig is the finality config for the message
-	FinalityConfig protocol.Finality
-	// Executor is the executor address
-	Executor protocol.UnknownAddress
-	// ExecutorArgs are the executor arguments for the message
-	ExecutorArgs []byte
-	// TokenArgs are the token arguments for the message
-	TokenArgs []byte
-	// UseTestRouter when true looks up the TestRouter contract type in the datastore instead of Router.
-	UseTestRouter bool
-}
-
 // MessageSentEvent is a chain-agnostic representation of the output of a ccipSend operation.
 type MessageSentEvent struct {
 	MessageID      protocol.Bytes32
@@ -163,7 +140,7 @@ type Chain interface {
 	// GetSenderAddress gets the sender address for this chain.
 	GetSenderAddress() (protocol.UnknownAddress, error)
 	// SendMessage sends a CCIP message to the specified destination chain with the specified message options.
-	SendMessage(ctx context.Context, dest uint64, fields MessageFields, opts MessageOptions) (MessageSentEvent, error)
+	SendMessage(ctx context.Context, dest uint64, fields MessageFields, dataProvider ExtraArgsDataProvider) (MessageSentEvent, error)
 	// GetExpectedNextSequenceNumber gets an expected sequence number for message to the specified destination chain.
 	GetExpectedNextSequenceNumber(ctx context.Context, to uint64) (uint64, error)
 	// ConfirmSendOnSource waits until exactly one CCIPMessageSent event is emitted on-chain for the specified destination chain, identified by sequence number or message ID.
@@ -338,7 +315,7 @@ type OnChainConfigurable interface {
 
 // ExtraArgsSerializer serializes message extra args for a destination chain family.
 // Product repos register their implementation via RegisterExtraArgsSerializer.
-type ExtraArgsSerializer func(opts MessageOptions) []byte
+type ExtraArgsSerializer func(provider ExtraArgsDataProvider) ([]byte, error)
 
 var (
 	extraArgsSerializers   = make(map[string]ExtraArgsSerializer)
@@ -397,6 +374,13 @@ type ChainSendOption interface {
 	IsSendOption() bool
 }
 
+// ExtraArgsDataProvider is a marker interface for destination-shaped extra-args data.
+// A source chain's BuildChainMessage type-switches on the concrete provider to pick
+// the right encoder. Each chain family defines its own concrete provider struct.
+type ExtraArgsDataProvider interface {
+	IsExtraArgsDataProvider()
+}
+
 type genericChain interface {
 	ChainSelector() uint64
 }
@@ -405,6 +389,9 @@ type genericChain interface {
 // Chain families can implement this interface to run partial CCIP message tests without having to implement the full `Chain` interface.
 type ChainAsDestination interface {
 	genericChain
+	// ExtraArgsProvider returns the extra-args data provider for this destination chain.
+	// The output of this method will be passed to the ExtraArgsEncoder in ChainAsSource.
+	// ExtraArgsProvider(any) (ExtraArgsDataProvider, error)
 	// GetEOAReceiverAddress returns an EOA receiver address for this chain.
 	GetEOAReceiverAddress() (protocol.UnknownAddress, error)
 	// ConfirmExecOnDest confirms that a CCIP message was executed on this chain.
@@ -417,21 +404,25 @@ type ChainAsDestination interface {
 // Chain families can implement this interface to run partial CCIP message tests without having to implement the full `Chain` interface.
 type ChainAsSource interface {
 	genericChain
+	// ExtraArgsSerializer serializes the extra args for the given destination chain.
+	// Implementation should type assert the ExtraArgsDataProvider to struct types from supported destination chain families.
+	ExtraArgsSerializer(ExtraArgsDataProvider) ([]byte, error)
 	// BuildChainMessage builds a CCIP message for the given destination chain.
 	// It will call into the registered extra args serializer per destination chain for now, until we have a more generic way to manage extra args.
 	// It returns a generic type that is specific to the chain family. The returned message is expected to be directly passed in ot the SendChainMessage method.
 	// For example, the EVM implementation returns a routerwrapper.ClientEVM2AnyMessage.
-	BuildChainMessage(ctx context.Context, destChain uint64, messageFields MessageFields, opts MessageOptions) (ChainAsSourceMessage, error)
+	BuildChainMessage(ctx context.Context, destChain uint64, messageFields MessageFields, extraArgs []byte) (GenericChainMessage, error)
 	// SendChainMessage sends a CCIP message to the given destination chain.
 	// sendOptions is a Marker Interface for chain-specific send parameters. Expected usage is that implementation will type assert the sendOption to their struct type and use it.
 	// For example, the EVM implementation will type assert the sendOption to evm.EVMSendOptions to access nonce/sender/etc.
 	// The ChainAsSourceMessage is expected to be the same type that was returned by the BuildChainMessage method. For EVM this is routerwrapper.ClientEVM2AnyMessage.
-	SendChainMessage(ctx context.Context, destChain uint64, message ChainAsSourceMessage, sendOption ChainSendOption) (MessageSentEvent, protocol.ByteSlice, error)
+	SendChainMessage(ctx context.Context, destChain uint64, message GenericChainMessage, sendOption ChainSendOption) (MessageSentEvent, protocol.ByteSlice, error)
 	// ConfirmSendOnSource confirms that a CCIP message was sent on this chain.
 	// Implementation should support confirmation by either message ID or sequence number, passed in as the `MessageEventKey`.
 	// The timeout is the maximum duration to wait for the event to be emitted.
 	ConfirmSendOnSource(ctx context.Context, to uint64, key MessageEventKey, timeout time.Duration) (MessageSentEvent, error)
 }
 
-// ChainAsSourceMessage is a generic type to indicate to users that the message generated from BuildChainMessage is expected to be passed directly to SendChainMessage.
-type ChainAsSourceMessage any
+// GenericChainMessage is a generic type to indicate to users that the message generated from BuildChainMessage is expected to be passed directly to SendChainMessage.
+// For example, EVM will return a routerwrapper.ClientEVM2AnyMessage.
+type GenericChainMessage any

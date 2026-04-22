@@ -20,6 +20,7 @@ import (
 	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/evm"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/tcapi"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
@@ -142,7 +143,7 @@ func sendAndWaitForIndexed(
 
 	_, err = src.SendMessage(ctx, dest.ChainSelector(),
 		cciptestinterfaces.MessageFields{Receiver: receiver, Data: msgData},
-		cciptestinterfaces.MessageOptions{
+		evm.MessageOptions{
 			Version:        3,
 			FinalityConfig: 1,
 			Executor:       executorAddr,

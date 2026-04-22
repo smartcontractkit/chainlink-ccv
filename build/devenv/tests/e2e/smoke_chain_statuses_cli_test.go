@@ -16,6 +16,7 @@ import (
 	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/evm"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/verifiercli"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
@@ -105,7 +106,7 @@ func TestE2ESmoke_ChainStatusDisableEnable(t *testing.T) {
 		"committee verifier proxy")
 	receiver := mustGetEOAReceiverAddress(t, destImpl)
 
-	messageOpts := cciptestinterfaces.MessageOptions{
+	messageOpts := evm.MessageOptions{
 		Version:  3,
 		Executor: executorAddr,
 		CCVs: []protocol.CCV{
@@ -127,11 +128,9 @@ func TestE2ESmoke_ChainStatusDisableEnable(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, vc.RestartAndWaitReady(cliCtx))
 
-	seqNo, err := srcImpl.GetExpectedNextSequenceNumber(ctx, destSelector)
+	sentEvent, err := srcImpl.SendMessage(ctx, destSelector, messageFields, messageOpts)
 	require.NoError(t, err)
-	_, err = srcImpl.SendMessage(ctx, destSelector, messageFields, messageOpts)
-	require.NoError(t, err)
-	sentEvt, err := srcImpl.ConfirmSendOnSource(ctx, destSelector, cciptestinterfaces.MessageEventKey{SeqNum: seqNo}, defaultSentTimeout)
+	sentEvt, err := srcImpl.ConfirmSendOnSource(ctx, destSelector, cciptestinterfaces.MessageEventKey{MessageID: sentEvent.MessageID}, defaultSentTimeout)
 	require.NoError(t, err)
 	msgID1 := sentEvt.MessageID
 
@@ -146,11 +145,9 @@ func TestE2ESmoke_ChainStatusDisableEnable(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, vc.RestartAndWaitReady(cliCtx))
 
-	seqNo2, err := srcImpl.GetExpectedNextSequenceNumber(ctx, destSelector)
+	sentEvent2, err := srcImpl.SendMessage(ctx, destSelector, cciptestinterfaces.MessageFields{Receiver: receiver, Data: []byte("disable-enable-test-2")}, messageOpts)
 	require.NoError(t, err)
-	_, err = srcImpl.SendMessage(ctx, destSelector, cciptestinterfaces.MessageFields{Receiver: receiver, Data: []byte("disable-enable-test-2")}, messageOpts)
-	require.NoError(t, err)
-	sentEvt2, err := srcImpl.ConfirmSendOnSource(ctx, destSelector, cciptestinterfaces.MessageEventKey{SeqNum: seqNo2}, defaultSentTimeout)
+	sentEvt2, err := srcImpl.ConfirmSendOnSource(ctx, destSelector, cciptestinterfaces.MessageEventKey{MessageID: sentEvent2.MessageID}, defaultSentTimeout)
 	require.NoError(t, err)
 	msgID2 := sentEvt2.MessageID
 
@@ -200,7 +197,7 @@ func TestE2ESmoke_ChainStatusFinalizedHeight(t *testing.T) {
 		"committee verifier proxy")
 	receiver := mustGetEOAReceiverAddress(t, destImpl)
 
-	messageOpts := cciptestinterfaces.MessageOptions{
+	messageOpts := evm.MessageOptions{
 		Version:  3,
 		Executor: executorAddr,
 		CCVs:     []protocol.CCV{{CCVAddress: ccvAddr, Args: []byte{}, ArgsLen: 0}},

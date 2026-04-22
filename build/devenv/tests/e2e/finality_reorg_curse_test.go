@@ -20,6 +20,7 @@ import (
 	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/evm"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/logasserter"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/verifiercli"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -131,7 +132,7 @@ func TestE2EReorg(t *testing.T) {
 	receiver2 := mustGetEOAReceiverAddress(t, dest2Impl)
 
 	// Default message options for sending CCIP messages
-	defaultMessageOptions := cciptestinterfaces.MessageOptions{
+	defaultMessageOptions := evm.MessageOptions{
 		Version:  3,
 		Executor: executorAddr,
 		CCVs: []protocol.CCV{
@@ -540,7 +541,7 @@ func TestE2EReorg(t *testing.T) {
 
 		// Custom finality: 5 blocks (much faster than ConfirmationDepth)
 		const customFinality protocol.Finality = 5
-		customFinalityMessageOptions := cciptestinterfaces.MessageOptions{
+		customFinalityMessageOptions := evm.MessageOptions{
 			Version:        3,
 			FinalityConfig: customFinality,
 			Executor:       executorAddr,
@@ -632,7 +633,7 @@ func TestE2EReorg(t *testing.T) {
 
 		// Custom finality: 5 blocks (much faster than ConfirmationDepth)
 		const customFinality protocol.Finality = 5
-		customFinalityMessageOptions := cciptestinterfaces.MessageOptions{
+		customFinalityMessageOptions := evm.MessageOptions{
 			Version:        3,
 			FinalityConfig: customFinality,
 			Executor:       executorAddr,

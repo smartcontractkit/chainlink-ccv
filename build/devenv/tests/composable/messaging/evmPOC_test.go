@@ -54,7 +54,7 @@ func TestEVM2EVMPOC(t *testing.T) {
 	require.NoError(t, BasicMessageTestScenario(ctx, t, srcChain, destChain, cciptestinterfaces.MessageFields{
 		Receiver: receiver,
 		Data:     []byte{},
-	}, cciptestinterfaces.MessageOptions{
+	}, evm.MessageOptions{
 		Version:             2,
 		ExecutionGasLimit:   200_000,
 		OutOfOrderExecution: false,
