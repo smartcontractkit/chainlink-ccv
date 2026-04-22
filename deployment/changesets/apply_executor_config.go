@@ -349,7 +349,7 @@ func buildExecutorJobSpecs(
 			ReaderCacheExpiry: pool.ReaderCacheExpiry,
 			MaxRetryDuration:  pool.MaxRetryDuration,
 			WorkerCount:       pool.WorkerCount,
-			Monitoring:        toExecutorMonitoring(monitoring),
+			Monitoring:        monitoring,
 			ChainConfiguration: chainCfgs,
 		}
 
@@ -374,23 +374,6 @@ executorConfig = '''
 	}
 
 	return jobSpecs, scope, nil
-}
-
-func toExecutorMonitoring(m ccvdeployment.MonitoringConfig) executor.MonitoringConfig {
-	return executor.MonitoringConfig{
-		Enabled: m.Enabled,
-		Type:    m.Type,
-		Beholder: executor.BeholderConfig{
-			InsecureConnection:       m.Beholder.InsecureConnection,
-			CACertFile:               m.Beholder.CACertFile,
-			OtelExporterGRPCEndpoint: m.Beholder.OtelExporterGRPCEndpoint,
-			OtelExporterHTTPEndpoint: m.Beholder.OtelExporterHTTPEndpoint,
-			LogStreamingEnabled:      m.Beholder.LogStreamingEnabled,
-			MetricReaderInterval:     m.Beholder.MetricReaderInterval,
-			TraceSampleRatio:         m.Beholder.TraceSampleRatio,
-			TraceBatchTimeout:        m.Beholder.TraceBatchTimeout,
-		},
-	}
 }
 
 func buildNOPModes(nops []ccvdeployment.NOPConfig) map[shared.NOPAlias]shared.NOPMode {

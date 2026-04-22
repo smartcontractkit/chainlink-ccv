@@ -13,7 +13,6 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/commit"
-	vtypes "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
 
 	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
 	"github.com/smartcontractkit/chainlink-ccv/deployment/adapters"
@@ -338,7 +337,7 @@ func buildVerifierJobSpecs(
 				CommitteeVerifierAddresses:     filterAddressesByChains(committeeVerifierAddrs, nopChains),
 				DefaultExecutorOnRampAddresses: filterAddressesByChains(executorOnRampAddrs, nopChains),
 				DisableFinalityCheckers:        sortedFinalityCheckers,
-				Monitoring:                     toVerifierMonitoring(monitoring),
+				Monitoring:                     monitoring,
 				CommitteeConfig: chainaccess.CommitteeConfig{
 					OnRampAddresses:    filterAddressesByChains(onRampAddrs, nopChains),
 					RMNRemoteAddresses: filterAddressesByChains(rmnRemoteAddrs, nopChains),
@@ -367,23 +366,6 @@ committeeVerifierConfig = '''
 	}
 
 	return jobSpecs, scope, nil
-}
-
-func toVerifierMonitoring(m ccvdeployment.MonitoringConfig) vtypes.MonitoringConfig {
-	return vtypes.MonitoringConfig{
-		Enabled: m.Enabled,
-		Type:    m.Type,
-		Beholder: vtypes.BeholderConfig{
-			InsecureConnection:       m.Beholder.InsecureConnection,
-			CACertFile:               m.Beholder.CACertFile,
-			OtelExporterGRPCEndpoint: m.Beholder.OtelExporterGRPCEndpoint,
-			OtelExporterHTTPEndpoint: m.Beholder.OtelExporterHTTPEndpoint,
-			LogStreamingEnabled:      m.Beholder.LogStreamingEnabled,
-			MetricReaderInterval:     m.Beholder.MetricReaderInterval,
-			TraceSampleRatio:         m.Beholder.TraceSampleRatio,
-			TraceBatchTimeout:        m.Beholder.TraceBatchTimeout,
-		},
-	}
 }
 
 // fetchSigningKeysForNOPs fetches signing keys from JD for NOPs that are missing a signer

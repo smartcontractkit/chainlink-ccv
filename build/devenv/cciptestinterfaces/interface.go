@@ -15,8 +15,8 @@ import (
 	tokensapi "github.com/smartcontractkit/chainlink-ccip/deployment/tokens"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/adapters"
 	ccipChangesets "github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/changesets"
-	"github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/offchain"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
+	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
@@ -295,7 +295,7 @@ type TokenConfigProvider interface {
 		env *deployment.Environment,
 		selector uint64,
 		remoteSelectors []uint64,
-		topology *offchain.EnvironmentTopology,
+		topology *ccvdeployment.EnvironmentTopology,
 	) ([]tokensapi.TokenTransferConfig, error)
 }
 
@@ -312,15 +312,15 @@ type OnChainConfigurable interface {
 	// DeployChainContracts call (e.g. deploying CREATE2 factory on EVM).
 	// The returned DataStore is merged into env.DataStore before
 	// GetDeployChainContractsCfg is called.
-	PreDeployContractsForSelector(ctx context.Context, env *deployment.Environment, selector uint64, topology *offchain.EnvironmentTopology) (datastore.DataStore, error)
+	PreDeployContractsForSelector(ctx context.Context, env *deployment.Environment, selector uint64, topology *ccvdeployment.EnvironmentTopology) (datastore.DataStore, error)
 	// GetDeployChainContractsCfg returns the per-chain configuration for the
 	// common DeployChainContracts changeset. Called after Pre, so env.DataStore
 	// includes pre-deployed addresses (e.g. CREATE2 factory).
-	GetDeployChainContractsCfg(env *deployment.Environment, selector uint64, topology *offchain.EnvironmentTopology) (ccipChangesets.DeployChainContractsPerChainCfg, error)
+	GetDeployChainContractsCfg(env *deployment.Environment, selector uint64, topology *ccvdeployment.EnvironmentTopology) (ccipChangesets.DeployChainContractsPerChainCfg, error)
 	// PostDeployContractsForSelector runs chain-specific setup after the common
 	// DeployChainContracts call (e.g. deploying USDC/Lombard token pools on EVM).
 	// The returned DataStore is merged into the final result.
-	PostDeployContractsForSelector(ctx context.Context, env *deployment.Environment, selector uint64, topology *offchain.EnvironmentTopology) (datastore.DataStore, error)
+	PostDeployContractsForSelector(ctx context.Context, env *deployment.Environment, selector uint64, topology *ccvdeployment.EnvironmentTopology) (datastore.DataStore, error)
 	// GetConnectionProfile returns a ChainDefinition describing this chain as a
 	// lane destination, plus the default committee verifier config to apply for
 	// each remote chain. The environment uses profiles from all chains to
