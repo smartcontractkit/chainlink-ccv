@@ -38,9 +38,11 @@ type testAccessor struct{}
 func (a *testAccessor) SourceReader() (chainaccess.SourceReader, error) {
 	return nil, errors.New("source reader not available")
 }
+
 func (a *testAccessor) DestinationReader() (chainaccess.DestinationReader, error) {
 	return nil, errors.New("destination reader not available")
 }
+
 func (a *testAccessor) ContractTransmitter() (chainaccess.ContractTransmitter, error) {
 	return nil, errors.New("contract transmitter not available")
 }
