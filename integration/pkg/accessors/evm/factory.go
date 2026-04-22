@@ -103,34 +103,33 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 		return nil, fmt.Errorf("skipping chain, only evm is supported for chain %d, family %s", chainSelector, family)
 	}
 
-	if f.onRampAddresses[chainSelector] == "" {
-		return nil, fmt.Errorf("on ramp address is not set for chain %d", chainSelector)
-	}
-	if f.rmnRemoteAddresses[chainSelector] == "" {
-		return nil, fmt.Errorf("RMN Remote address is not set for chain %d", chainSelector)
-	}
-
 	chainClient, ok := f.chainClients[chainSelector]
 	if !ok {
 		return nil, fmt.Errorf("chain client is not set for chain %d", chainSelector)
 	}
 
-	headTracker, ok := f.headTrackers[chainSelector]
-	if !ok {
-		return nil, fmt.Errorf("head tracker is not set for chain %d", chainSelector)
-	}
-
-	evmSourceReader, err := NewEVMSourceReader(
-		chainClient,
-		headTracker,
-		common.HexToAddress(f.onRampAddresses[chainSelector]),
-		common.HexToAddress(f.rmnRemoteAddresses[chainSelector]),
-		onramp.OnRampCCIPMessageSent{}.Topic().Hex(),
-		chainSelector,
-		f.lggr,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create EVM source reader: %w", err)
+	// SourceReader is optional: if on-ramp or RMN-remote addresses are absent (e.g. executor-only
+	// config), we skip it rather than returning an error. DestinationReader and ContractTransmitter
+	// can still be built from chain_configuration alone.
+	var evmSourceReader chainaccess.SourceReader
+	if f.onRampAddresses[chainSelector] != "" && f.rmnRemoteAddresses[chainSelector] != "" {
+		headTracker, ok := f.headTrackers[chainSelector]
+		if !ok {
+			return nil, fmt.Errorf("head tracker is not set for chain %d", chainSelector)
+		}
+		sr, err := NewEVMSourceReader(
+			chainClient,
+			headTracker,
+			common.HexToAddress(f.onRampAddresses[chainSelector]),
+			common.HexToAddress(f.rmnRemoteAddresses[chainSelector]),
+			onramp.OnRampCCIPMessageSent{}.Topic().Hex(),
+			chainSelector,
+			f.lggr,
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create EVM source reader: %w", err)
+		}
+		evmSourceReader = sr
 	}
 
 	var evmDestReader chainaccess.DestinationReader
