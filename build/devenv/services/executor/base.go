@@ -269,7 +269,7 @@ func NewStandalone(in *Input, blockchainOutputs []*ctfblockchain.Output) (*Outpu
 		},
 	}
 
-	req.Mounts = append(req.Mounts, testcontainers.BindMount( //nolint:staticcheck // TODO: migrate to Files/HostConfigModifier
+	req.Mounts = append(req.Mounts, testcontainers.BindMount(
 		configFilePath,
 		executorpkg.DefaultConfigFile,
 	))
@@ -495,7 +495,7 @@ func baseImageRequest(in *Input, envVars map[string]string, bootstrapConfigFileP
 	}
 
 	req.Mounts = testcontainers.Mounts()
-	req.Mounts = append(req.Mounts, testcontainers.BindMount( //nolint:staticcheck // TODO: migrate to Files/HostConfigModifier
+	req.Mounts = append(req.Mounts, testcontainers.BindMount(
 		bootstrapConfigFilePath,
 		bootstrap.DefaultConfigPath,
 	))

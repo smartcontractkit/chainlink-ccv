@@ -184,7 +184,7 @@ func NewExecutor(in *ExecutorInput, blockchainOutputs []*ctfblockchain.Output) (
 		},
 	}
 
-	req.Mounts = append(req.Mounts, testcontainers.BindMount( //nolint:staticcheck // TODO: migrate to Files/HostConfigModifier
+	req.Mounts = append(req.Mounts, testcontainers.BindMount(
 		configFilePath,
 		executor.DefaultConfigFile,
 	))
