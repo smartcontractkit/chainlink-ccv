@@ -60,7 +60,7 @@ type factory[T any] struct {
 
 // NewServiceFactory creates a new ServiceFactory for the executor service.
 // T is the chain config type for this family (e.g. blockchain.Info for EVM).
-func NewServiceFactory[T any](chainFamily string, createComponentsFunc CreateExecutorComponentsFunc[T]) bootstrap.ServiceFactory[bootstrap.JobSpec] {
+func NewServiceFactory[T any](chainFamily string, createComponentsFunc CreateExecutorComponentsFunc[T]) bootstrap.ServiceFactory {
 	return &factory[T]{
 		createComponentsFunc: createComponentsFunc,
 		chainFamily:          chainFamily,

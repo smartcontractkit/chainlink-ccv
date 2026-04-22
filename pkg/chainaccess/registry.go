@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"reflect"
 	"sync"
 
 	"github.com/BurntSushi/toml"
@@ -16,7 +17,7 @@ import (
 // AccessorFactoryConstructor creates an AccessorFactory for a specific chain family. When
 // GetAccessor is called, it will delegate to the AccessorFactory corresponding to the chain
 // family of the given chain selector.
-type AccessorFactoryConstructor func(lggr logger.Logger, cfg string) (AccessorFactory, error)
+type AccessorFactoryConstructor func(lggr logger.Logger, cfg GenericConfig) (AccessorFactory, error)
 
 type ChainFamily string
 
@@ -70,6 +71,41 @@ type GenericConfig struct {
 	CommitteeConfig
 }
 
+// GetAllConcreteConfig populates target, which must be a pointer to an Infos[T]
+// (i.e. *map[string]T), with the decoded chain configs for every chain selector
+// in ChainConfig that belongs to the given family. The map key is the chain
+// selector formatted as a decimal string, matching the Infos key convention.
+func (gc GenericConfig) GetAllConcreteConfig(family string, target any) error {
+	rv := reflect.ValueOf(target)
+	if rv.Kind() != reflect.Ptr || rv.Elem().Kind() != reflect.Map {
+		return fmt.Errorf("GetAllConcreteConfig: target must be a pointer to a map, got %T", target)
+	}
+	if rv.Elem().Type().Key().Kind() != reflect.String {
+		return fmt.Errorf("GetAllConcreteConfig: map key must be string (Infos[T] uses string keys), got %s", rv.Elem().Type().Key())
+	}
+	mapVal := rv.Elem()
+	if mapVal.IsNil() {
+		mapVal.Set(reflect.MakeMap(mapVal.Type()))
+	}
+	elemType := mapVal.Type().Elem()
+
+	for _, sel := range gc.ChainConfig.GetAllChainSelectors() {
+		fam, err := chainsel.GetSelectorFamily(uint64(sel))
+		if err != nil {
+			return fmt.Errorf("GetAllConcreteConfig: failed to get the chain selector family: %w", err)
+		}
+		if fam != family {
+			continue
+		}
+		elem := reflect.New(elemType)
+		if err := gc.GetConcreteConfig(sel, elem.Interface()); err != nil {
+			return err
+		}
+		mapVal.SetMapIndex(reflect.ValueOf(sel.String()), elem.Elem())
+	}
+	return nil
+}
+
 func (gc GenericConfig) GetConcreteConfig(selector protocol.ChainSelector, target any) error {
 	info, ok := gc.ChainConfig[selector.String()]
 	if !ok {
@@ -80,10 +116,14 @@ func (gc GenericConfig) GetConcreteConfig(selector protocol.ChainSelector, targe
 		return fmt.Errorf("failed to marshal info for selector '%s': %w", selector.String(), err)
 	}
 
-	_, err = toml.Decode(string(data), target)
+	md, err := toml.Decode(string(data), target)
 	if err != nil {
 		return fmt.Errorf("failed to unmarshal info for selector '%s': %w", selector.String(), err)
 	}
+	if len(md.Undecoded()) > 0 {
+		return fmt.Errorf("chain selector '%s' contains unknown fields: %v", selector.String(), md.Undecoded())
+	}
+
 	return nil
 }
 
@@ -108,13 +148,19 @@ func accessorConstructorMapCopy() map[ChainFamily]AccessorFactoryConstructor {
 }
 
 // NewRegistry creates a new Registry with some configuration.
-func NewRegistry(lggr logger.Logger, config string) (AccessorFactory, error) {
+func NewRegistry(lggr logger.Logger, config string) (*Registry, error) {
 	reg := Registry{
 		factories: make(map[ChainFamily]AccessorFactory),
 	}
 
+	var genericConfig GenericConfig
+	if err := toml.Unmarshal([]byte(config), &genericConfig); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal generic config: %w", err)
+	}
+
 	for family, constructor := range accessorConstructorMapCopy() {
-		accessor, err := constructor(lggr, config)
+		lggr.Infow("Constructing accessor factory for chain family", "family", family)
+		accessor, err := constructor(lggr, genericConfig)
 		if err != nil {
 			return nil, fmt.Errorf("failed to construct accessor factory for family %s: %w", family, err)
 		}

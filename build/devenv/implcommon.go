@@ -3,11 +3,10 @@ package ccv
 import (
 	"context"
 	"fmt"
+	"maps"
 	"sort"
 
 	"github.com/Masterminds/semver/v3"
-
-	"github.com/smartcontractkit/chainlink-ccip/deployment/finality"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 
@@ -17,9 +16,9 @@ import (
 	devenvmcms "github.com/smartcontractkit/chainlink-ccip/deployment/utils/mcms"
 	ccipAdapters "github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/adapters"
 	ccipChangesets "github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/changesets"
-	ccipOffchain "github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/offchain"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
+	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
@@ -51,7 +50,7 @@ func DeployContractsForSelector(
 	env *deployment.Environment,
 	impl cciptestinterfaces.OnChainConfigurable,
 	selector uint64,
-	topology *ccipOffchain.EnvironmentTopology,
+	topology *ccvdeployment.EnvironmentTopology,
 ) (datastore.DataStore, error) {
 	runningDS := datastore.NewMemoryDataStore()
 
@@ -61,8 +60,10 @@ func DeployContractsForSelector(
 		operations.NewMemoryReporter(),
 	)
 
+	ccipTopology := convertTopologyToCCIP(topology)
+
 	// 1. Pre-hook (e.g. EVM deploys CREATE2 factory here).
-	preDS, err := impl.PreDeployContractsForSelector(ctx, env, selector, topology)
+	preDS, err := impl.PreDeployContractsForSelector(ctx, env, selector, ccipTopology)
 	if err != nil {
 		return nil, fmt.Errorf("pre-deploy for selector %d: %w", selector, err)
 	}
@@ -78,7 +79,7 @@ func DeployContractsForSelector(
 	}
 
 	// 2. Get chain-specific config (reads pre-deployed addresses from env.DataStore).
-	cfg, err := impl.GetDeployChainContractsCfg(env, selector, topology)
+	cfg, err := impl.GetDeployChainContractsCfg(env, selector, ccipTopology)
 	if err != nil {
 		return nil, fmt.Errorf("get deploy config for selector %d: %w", selector, err)
 	}
@@ -87,7 +88,7 @@ func DeployContractsForSelector(
 	registry := ccipAdapters.GetDeployChainContractsRegistry()
 	out, err := ccipChangesets.DeployChainContracts(registry).Apply(*env, changesetscore.WithMCMS[ccipChangesets.DeployChainContractsCfg]{
 		Cfg: ccipChangesets.DeployChainContractsCfg{
-			Topology:                                topology,
+			Topology:                                ccipTopology,
 			ChainSelectors:                          []uint64{selector},
 			IgnoreImportedConfigFromPreviousVersion: true,
 			DefaultCfg:                              cfg,
@@ -106,7 +107,7 @@ func DeployContractsForSelector(
 	env.DataStore = merged
 
 	// 4. Post-hook (e.g. EVM deploys USDC/Lombard pools here).
-	postDS, err := impl.PostDeployContractsForSelector(ctx, env, selector, topology)
+	postDS, err := impl.PostDeployContractsForSelector(ctx, env, selector, ccipTopology)
 	if err != nil {
 		return nil, fmt.Errorf("post-deploy for selector %d: %w", selector, err)
 	}
@@ -143,7 +144,7 @@ func connectAllChainsCanonical(
 	blockchains []*blockchain.Input,
 	selectors []uint64,
 	e *deployment.Environment,
-	topology *ccipOffchain.EnvironmentTopology,
+	topology *ccvdeployment.EnvironmentTopology,
 ) error {
 	if len(blockchains) != len(impls) {
 		return fmt.Errorf("connectAllChains: mismatched lengths: %d impls and %d blockchains", len(impls), len(blockchains))
@@ -211,7 +212,7 @@ func connectAllChainsCanonical(
 		}
 
 		cfg := ccipChangesets.ConfigureChainsForLanesFromTopologyConfig{
-			Topology: topology,
+			Topology: convertTopologyToCCIP(topology),
 			Chains:   configs,
 		}
 		if err := cs.VerifyPreconditions(*e, cfg); err != nil {
@@ -236,7 +237,7 @@ func buildPartialChainConfig(
 	localSel uint64,
 	remoteSels []uint64,
 	profiles map[uint64]chainProfile,
-	topology *ccipOffchain.EnvironmentTopology,
+	topology *ccvdeployment.EnvironmentTopology,
 ) (ccipChangesets.PartialChainConfig, error) {
 	localEntry, ok := profiles[localSel]
 	if !ok {
@@ -259,8 +260,8 @@ func buildPartialChainConfig(
 			DefaultExecutorQualifier: local.DefaultExecutorQualifier,
 			FeeQuoterDestChainConfig: remote.FeeQuoterDestChainConfig,
 			ExecutorDestChainConfig:  local.ExecutorDestChainConfig,
-			AddressBytesLength:       remote.AddressBytesLength,
 			BaseExecutionGasCost:     remote.BaseExecutionGasCost,
+			TokenReceiverAllowed:     remote.TokenReceiverAllowed,
 		}
 	}
 
@@ -281,7 +282,7 @@ func buildPartialChainConfig(
 		cvConfigs = append(cvConfigs, ccipChangesets.CommitteeVerifierInputConfig{
 			CommitteeQualifier:    qualifier,
 			RemoteChains:          remoteCV,
-			AllowedFinalityConfig: finality.Config{BlockDepth: 1, WaitForSafe: true},
+			AllowedFinalityConfig: local.AllowedFinalityConfig,
 		})
 	}
 
@@ -308,7 +309,7 @@ func connectAllChainsLegacy(
 	blockchains []*blockchain.Input,
 	selectors []uint64,
 	e *deployment.Environment,
-	topology *ccipOffchain.EnvironmentTopology,
+	topology *ccvdeployment.EnvironmentTopology,
 ) error {
 	if len(blockchains) != len(impls) {
 		return fmt.Errorf("connectAllChainsLegacy: mismatched lengths: %d impls and %d blockchains", len(impls), len(blockchains))
@@ -376,7 +377,7 @@ func connectAllChainsLegacy(
 
 	populator := ccipChangesets.NewTopologyCommitteePopulator(
 		ccipAdapters.GetCommitteeVerifierContractRegistry(),
-		topology,
+		convertTopologyToCCIP(topology),
 	)
 
 	laneAdapterRegistry := lanes.GetLaneAdapterRegistry()
@@ -405,7 +406,7 @@ func connectAllChainsLegacy(
 }
 
 func buildCommitteeVerifierInputs(
-	topology *ccipOffchain.EnvironmentTopology,
+	topology *ccvdeployment.EnvironmentTopology,
 	remoteSelectors []uint64,
 	entries map[uint64]chainEntry,
 ) []lanes.CommitteeVerifierInput {
@@ -524,19 +525,25 @@ func ConfigureAllTokenTransfers(
 	impls []cciptestinterfaces.CCIP17Configuration,
 	selectors []uint64,
 	env *deployment.Environment,
-	topology *ccipOffchain.EnvironmentTopology,
+	topology *ccvdeployment.EnvironmentTopology,
 ) error {
-	// poolIdentityKey returns a key that groups configs across chains for the
-	// same pool type+version+qualifier.
-	poolIdentityKey := func(cfg *tokenscore.TokenTransferConfig) string {
+	refKey := func(ref datastore.AddressRef) string {
 		v := ""
-		if cfg.TokenPoolRef.Version != nil {
-			v = cfg.TokenPoolRef.Version.String()
+		if ref.Version != nil {
+			v = ref.Version.String()
 		}
-		return string(cfg.TokenPoolRef.Type) + "+" + v + "+" + cfg.TokenPoolRef.Qualifier
+		return string(ref.Type) + "+" + v + "+" + ref.Qualifier
 	}
 
-	byPoolIdentity := make(map[string][]tokenscore.TokenTransferConfig)
+	// Group by (chainSelector, poolIdentity) so each pool gets ALL its remote
+	// chains in a single ConfigureTokensForTransfers call. The upstream sequence
+	// validates that remoteChains includes every chain the pool already supports,
+	// so splitting by lane would fail when a pool has more than one remote.
+	type poolKey struct {
+		chainSelector uint64
+		poolID        string
+	}
+	byPool := make(map[poolKey]tokenscore.TokenTransferConfig)
 
 	for i, impl := range impls {
 		tcp, ok := impl.(cciptestinterfaces.TokenConfigProvider)
@@ -550,29 +557,40 @@ func ConfigureAllTokenTransfers(
 			}
 		}
 
-		cfgs, err := tcp.GetTokenTransferConfigs(env, selectors[i], remoteSelectors, topology)
+		cfgs, err := tcp.GetTokenTransferConfigs(env, selectors[i], remoteSelectors, convertTopologyToCCIP(topology))
 		if err != nil {
 			return fmt.Errorf("get token transfer configs for selector %d: %w", selectors[i], err)
 		}
 		for _, cfg := range cfgs {
-			key := poolIdentityKey(&cfg)
-			byPoolIdentity[key] = append(byPoolIdentity[key], cfg)
+			pk := poolKey{
+				chainSelector: cfg.ChainSelector,
+				poolID:        refKey(cfg.TokenPoolRef),
+			}
+			if existing, ok := byPool[pk]; ok {
+				maps.Copy(existing.RemoteChains, cfg.RemoteChains)
+				byPool[pk] = existing
+			} else {
+				byPool[pk] = cfg
+			}
 		}
 	}
 
-	if len(byPoolIdentity) == 0 {
+	if len(byPool) == 0 {
 		return nil
+	}
+
+	allConfigs := make([]tokenscore.TokenTransferConfig, 0, len(byPool))
+	for _, cfg := range byPool {
+		allConfigs = append(allConfigs, cfg)
 	}
 
 	tokenAdapterRegistry := tokenscore.GetTokenAdapterRegistry()
 	mcmsReaderRegistry := changesetscore.GetRegistry()
-	for _, group := range byPoolIdentity {
-		_, err := tokenscore.ConfigureTokensForTransfers(tokenAdapterRegistry, mcmsReaderRegistry).Apply(*env, tokenscore.ConfigureTokensForTransfersConfig{
-			Tokens: group,
-		})
-		if err != nil {
-			return fmt.Errorf("configure tokens for transfers: %w", err)
-		}
+	_, err := tokenscore.ConfigureTokensForTransfers(tokenAdapterRegistry, mcmsReaderRegistry).Apply(*env, tokenscore.ConfigureTokensForTransfersConfig{
+		Tokens: allConfigs,
+	})
+	if err != nil {
+		return fmt.Errorf("configure tokens for transfers: %w", err)
 	}
 	return nil
 }

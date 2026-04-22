@@ -25,6 +25,7 @@ import (
 	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/evm"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/load"
 )
 
@@ -75,10 +76,14 @@ func (m *EVMTXGun) CloseSentChannel() {
 	})
 }
 
-func NewEVMTransactionGun(cfg *ccv.Cfg, e *deployment.Environment, selectors []uint64, impls map[uint64]cciptestinterfaces.CCIP17, srcSelectors, destSelectors []uint64) *EVMTXGun {
+func NewEVMTransactionGun(cfg *ccv.Cfg, e *deployment.Environment, selectors []uint64, impls map[uint64]cciptestinterfaces.CCIP17, srcSelectors, destSelectors []uint64) (*EVMTXGun, error) {
 	userSelector := make(map[uint64]func() *bind.TransactOpts)
 	for _, chain := range srcSelectors {
-		userSelector[chain] = impls[chain].GetRoundRobinUser()
+		evmImpl, ok := impls[chain].(evm.EVMOptions)
+		if !ok {
+			return nil, fmt.Errorf("selector %d does not implement EVMOptions", chain)
+		}
+		userSelector[chain] = evmImpl.GetRoundRobinUser()
 	}
 	return &EVMTXGun{
 		cfg:           cfg,
@@ -90,7 +95,7 @@ func NewEVMTransactionGun(cfg *ccv.Cfg, e *deployment.Environment, selectors []u
 		srcSelectors:  srcSelectors,
 		destSelectors: destSelectors,
 		userSelector:  userSelector,
-	}
+	}, nil
 }
 
 func NewEVMTransactionGunFromTestConfig(cfg *ccv.Cfg, testProfile *load.TestProfileConfig, messageProfiles []load.MessageProfileConfig, e *deployment.Environment, impls map[uint64]cciptestinterfaces.CCIP17) *EVMTXGun {
@@ -110,7 +115,9 @@ func NewEVMTransactionGunFromTestConfig(cfg *ccv.Cfg, testProfile *load.TestProf
 
 	userSelector := make(map[uint64]func() *bind.TransactOpts)
 	for _, chain := range srcSelectors {
-		userSelector[chain] = impls[chain].GetRoundRobinUser()
+		if evmImpl, ok := impls[chain].(evm.EVMOptions); ok {
+			userSelector[chain] = evmImpl.GetRoundRobinUser()
+		}
 	}
 
 	return &EVMTXGun{
@@ -133,11 +140,16 @@ func (m *EVMTXGun) initNonce(key NonceKey, userAddress common.Address) error {
 		return nil
 	}
 
-	n, err := m.impl[key.Selector].GetUserNonce(context.Background(), protocol.UnknownAddress(userAddress.Bytes()))
+	var evmImpl evm.EVMOptions
+	evmImpl, ok := m.impl[key.Selector].(evm.EVMOptions)
+	if !ok {
+		return fmt.Errorf("impl is not EVMOptions")
+	}
+
+	n, err := evmImpl.GetUserNonce(context.Background(), protocol.UnknownAddress(userAddress.Bytes()))
 	if err != nil {
 		return fmt.Errorf("failed to get pending nonce for selector %d: %w", key.Selector, err)
 	}
-
 	// Allocate a pointer so the stored value can be incremented atomically across
 	// goroutines without replacing the map entry. LoadOrStore ensures exactly one
 	// pointer wins even if multiple goroutines race through initialization.
@@ -186,10 +198,24 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 
 	c, ok := m.impl[srcSelector]
 	if !ok {
-		return &wasp.Response{Error: "impl is not CCIP17EVM", Failed: true}
+		return &wasp.Response{Error: fmt.Sprintf("selector %d was not found in impls", srcSelector), Failed: true}
 	}
 
-	sentEvent, err := c.SendMessageWithNonce(ctx, destSelector, fields, opts, sender, &currentNonce, true)
+	chainAsSource, ok := c.(cciptestinterfaces.ChainAsSource)
+	if !ok {
+		return &wasp.Response{Error: "impl is not ChainAsSource", Failed: true}
+	}
+
+	srcMessage, err := chainAsSource.BuildChainMessage(ctx, destSelector, fields, opts)
+	if err != nil {
+		return &wasp.Response{Error: fmt.Errorf("failed to build message: %w", err).Error(), Failed: true}
+	}
+
+	sentEvent, _, err := chainAsSource.SendChainMessage(ctx, destSelector, srcMessage, evm.SendOptions{
+		Nonce:                        &currentNonce,
+		Sender:                       sender,
+		DisableTokenAmountValidation: true,
+	})
 	if err != nil {
 		return &wasp.Response{Error: fmt.Errorf("failed to send message: %w", err).Error(), Failed: true}
 	}

@@ -397,9 +397,9 @@ func qualifiersAvailable(qualifiers []string, topology *offchain.EnvironmentTopo
 }
 
 // FilterTokenCombinations returns only the token combinations whose CCV qualifiers
-// all exist as committees in the topology, and when ds is non-nil, whose local and
-// remote pool address refs exist in ds for every selector (each chain deploys both
-// pools across bidirectional transfer configs).
+// all exist as committees in the topology. When ds is non-nil, selectors[0] is treated
+// as the local chain and selectors[1:] as candidate remotes, and the filter keeps only
+// combinations whose declared local->remote orientation exists in the datastore.
 // Pass ds nil to skip the datastore check.
 func FilterTokenCombinations(combos []TokenCombination, topology *offchain.EnvironmentTopology, ds datastore.DataStore, selectors []uint64) []TokenCombination {
 	filtered := make([]TokenCombination, 0, len(combos))
@@ -417,14 +417,21 @@ func FilterTokenCombinations(combos []TokenCombination, topology *offchain.Envir
 }
 
 func tokenCombinationPoolsExistInDataStore(ds datastore.DataStore, selectors []uint64, combo TokenCombination) bool {
-	local := combo.LocalPoolAddressRef()
-	remote := combo.RemotePoolAddressRef()
-	for _, sel := range selectors {
-		if !dataStoreHasAddressRef(ds, sel, local) || !dataStoreHasAddressRef(ds, sel, remote) {
-			return false
+	if len(selectors) == 0 {
+		return true
+	}
+	if !dataStoreHasAddressRef(ds, selectors[0], combo.LocalPoolAddressRef()) {
+		return false
+	}
+	// A combo is usable for a selector if that selector has the local pool and at
+	// least one remote selector has the corresponding remote pool. Requiring the
+	// same remote pool to exist on every remote selector drops valid mixed lanes.
+	for _, sel := range selectors[1:] {
+		if dataStoreHasAddressRef(ds, sel, combo.RemotePoolAddressRef()) {
+			return true
 		}
 	}
-	return true
+	return len(selectors) == 1
 }
 
 func dataStoreHasAddressRef(ds datastore.DataStore, chainSelector uint64, ref datastore.AddressRef) bool {

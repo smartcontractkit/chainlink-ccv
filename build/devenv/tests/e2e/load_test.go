@@ -92,7 +92,7 @@ func assertMessagesAsync(tc TestingContext, gun *EVMTXGun, overallTimeout time.D
 					return
 				}
 
-				execEvent, err := tc.Impl[msg.ChainPair.Dest].WaitOneExecEventBySeqNo(verifyCtx, msg.ChainPair.Src, msg.SeqNo, 0)
+				execEvent, err := tc.Impl[msg.ChainPair.Dest].ConfirmExecOnDest(verifyCtx, msg.ChainPair.Src, cciptestinterfaces.MessageEventKey{SeqNum: msg.SeqNo}, 0)
 				if err != nil {
 					if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 						tc.T.Logf("Message %d verification cancelled or timed out", msg.SeqNo)
@@ -257,7 +257,10 @@ func gasControlFunc(t *testing.T, r *rpc.RPCClient, blockPace time.Duration) {
 }
 
 func createLoadProfile(in *ccv.Cfg, rps int64, testDuration time.Duration, e *deployment.Environment, selectors []uint64, impl map[uint64]cciptestinterfaces.CCIP17, s, d cldfevm.Chain) (*wasp.Profile, *EVMTXGun) {
-	gun := NewEVMTransactionGun(in, e, selectors, impl, []uint64{s.Selector}, []uint64{d.Selector})
+	gun, err := NewEVMTransactionGun(in, e, selectors, impl, []uint64{s.Selector}, []uint64{d.Selector})
+	if err != nil {
+		panic(err)
+	}
 	profile := wasp.NewProfile().
 		Add(wasp.NewGenerator(&wasp.Config{
 			LoadType: wasp.RPS,

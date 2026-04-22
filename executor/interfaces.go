@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
 	commonmetrics "github.com/smartcontractkit/chainlink-ccv/common/metrics"
 	v1 "github.com/smartcontractkit/chainlink-ccv/indexer/pkg/api/handlers/v1"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
@@ -72,6 +73,8 @@ type Monitoring interface {
 
 // MetricLabeler provides all metric recording functionality for the indexer.
 type MetricLabeler interface {
+	ccvcommon.CurseCheckerMetrics
+
 	// With returns a new metrics labeler with the given key-value pairs.
 	With(keyValues ...string) MetricLabeler
 	// RecordMessageExecutionLatency records the duration of the full ExecuteMessage operation.
@@ -106,8 +109,4 @@ type MetricLabeler interface {
 	// has entered an unrecoverable failure state (e.g. the execution attempt
 	// poller permanently failed). This should trigger an alert.
 	IncrementDestinationReaderCriticalFailure(ctx context.Context, destChainSelector protocol.ChainSelector)
-	// SetRemoteChainCursed sets value 1 if source chain is cursed
-	SetRemoteChainCursed(ctx context.Context, localSelector, remoteSelector protocol.ChainSelector, cursed bool)
-	// SetLocalChainGlobalCursed sets value 1 if source chain is cursed
-	SetLocalChainGlobalCursed(ctx context.Context, localSelector protocol.ChainSelector, globalCurse bool)
 }

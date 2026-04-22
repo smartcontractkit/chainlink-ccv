@@ -100,15 +100,15 @@ type Output struct {
 // RebuildExecutorJobSpecWithBlockchainInfos takes a job spec and rebuilds it with blockchain infos
 // added to the inner config. This is needed for standalone executors which require blockchain
 // connection information (CL nodes get this from their own chain config).
-func (v *Input) RebuildExecutorJobSpecWithBlockchainInfos(spec bootstrap.JobSpec, blockchainInfos map[string]any) (string, error) {
+func RebuildExecutorJobSpecWithBlockchainInfos(spec bootstrap.JobSpec, blockchainInfos map[string]any) (string, error) {
 	var cfg executorpkg.Configuration
-	if _, err := toml.Decode(spec.AppConfig, &cfg); err != nil {
+	if err := spec.GetAppConfig(&cfg); err != nil {
 		return "", fmt.Errorf("failed to parse executor config from job spec: %w", err)
 	}
 
 	type configWithBlockchainInfos struct {
 		executorpkg.Configuration
-		BlockchainInfos map[string]any `toml:"blockchain_infos"`
+		BlockchainInfos chainaccess.Infos[any] `toml:"blockchain_infos"`
 	}
 
 	configWithInfos := configWithBlockchainInfos{
@@ -142,7 +142,12 @@ func (v *Input) GenerateConfigWithBlockchainInfos(blockchainInfos chainaccess.In
 		return nil, fmt.Errorf("failed to parse generated config: %w", err)
 	}
 
-	config := executorpkg.ConfigWithBlockchainInfo[evm.Info]{
+	type configWithBlockchainInfos struct {
+		executorpkg.Configuration
+		BlockchainInfos chainaccess.Infos[evm.Info] `toml:"blockchain_infos"`
+	}
+
+	config := configWithBlockchainInfos{
 		Configuration:   baseConfig,
 		BlockchainInfos: blockchainInfos,
 	}
