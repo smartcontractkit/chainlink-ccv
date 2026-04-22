@@ -175,65 +175,99 @@ func parseCCVEnvMetadata(metadata any) (*CCVEnvMetadata, error) {
 // when chains or jobs are removed. Unknown sibling keys under offchainConfigs
 // and non-CCV top-level keys are preserved.
 func persistCCVEnvMetadata(ds datastore.MutableDataStore, ccvMeta *CCVEnvMetadata) error {
-	var existingMeta map[string]any
-	envMeta, err := ds.EnvMetadata().Get()
+	existingMeta, err := loadExistingEnvMetadata(ds)
 	if err != nil {
-		if !errors.Is(err, datastore.ErrEnvMetadataNotSet) {
-			return fmt.Errorf("failed to get env metadata: %w", err)
-		}
-		existingMeta = make(map[string]any)
-	} else if envMeta.Metadata != nil {
-		data, err := json.Marshal(envMeta.Metadata)
-		if err != nil {
-			return fmt.Errorf("failed to marshal existing env metadata: %w", err)
-		}
-		if err := json.Unmarshal(data, &existingMeta); err != nil {
-			return fmt.Errorf("failed to unmarshal existing env metadata: %w", err)
-		}
-	} else {
-		existingMeta = make(map[string]any)
+		return err
 	}
 
 	if ccvMeta.OffchainConfigs != nil {
-		existingOC, ok := existingMeta["offchainConfigs"].(map[string]any)
-		if !ok {
-			existingOC = make(map[string]any)
+		existingOC, err := mergeOffchainConfigs(existingMeta, ccvMeta.OffchainConfigs)
+		if err != nil {
+			return err
 		}
-
-		oc := ccvMeta.OffchainConfigs
-		if oc.Aggregators != nil {
-			v, err := marshalToAny(oc.Aggregators)
-			if err != nil {
-				return fmt.Errorf("failed to convert aggregators: %w", err)
-			}
-			existingOC["aggregators"] = v
-		}
-		if oc.Indexers != nil {
-			v, err := marshalToAny(oc.Indexers)
-			if err != nil {
-				return fmt.Errorf("failed to convert indexers: %w", err)
-			}
-			existingOC["indexers"] = v
-		}
-		if oc.TokenVerifiers != nil {
-			v, err := marshalToAny(oc.TokenVerifiers)
-			if err != nil {
-				return fmt.Errorf("failed to convert token verifiers: %w", err)
-			}
-			existingOC["tokenVerifiers"] = v
-		}
-		if oc.NOPJobs != nil {
-			v, err := marshalToAny(oc.NOPJobs)
-			if err != nil {
-				return fmt.Errorf("failed to convert NOP jobs: %w", err)
-			}
-			existingOC["nopJobs"] = v
-		}
-
 		existingMeta["offchainConfigs"] = existingOC
 	}
 
 	return ds.EnvMetadata().Set(datastore.EnvMetadata{Metadata: existingMeta})
+}
+
+// loadExistingEnvMetadata reads the current env metadata as a generic map so it can
+// be shallow-merged with new CCV values. A missing or nil metadata is returned as an
+// empty map.
+func loadExistingEnvMetadata(ds datastore.MutableDataStore) (map[string]any, error) {
+	envMeta, err := ds.EnvMetadata().Get()
+	if err != nil {
+		if errors.Is(err, datastore.ErrEnvMetadataNotSet) {
+			return make(map[string]any), nil
+		}
+		return nil, fmt.Errorf("failed to get env metadata: %w", err)
+	}
+	if envMeta.Metadata == nil {
+		return make(map[string]any), nil
+	}
+
+	data, err := json.Marshal(envMeta.Metadata)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal existing env metadata: %w", err)
+	}
+	var existingMeta map[string]any
+	if err := json.Unmarshal(data, &existingMeta); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal existing env metadata: %w", err)
+	}
+	return existingMeta, nil
+}
+
+// mergeOffchainConfigs merges the non-nil fields of oc into the offchainConfigs sub-map of
+// existingMeta. Unknown sibling keys already present under offchainConfigs are preserved.
+func mergeOffchainConfigs(existingMeta map[string]any, oc *OffchainConfigs) (map[string]any, error) {
+	existingOC, ok := existingMeta["offchainConfigs"].(map[string]any)
+	if !ok {
+		existingOC = make(map[string]any)
+	}
+
+	type entry struct {
+		key   string
+		value any
+		label string
+	}
+	entries := []entry{
+		{"aggregators", oc.Aggregators, "aggregators"},
+		{"indexers", oc.Indexers, "indexers"},
+		{"tokenVerifiers", oc.TokenVerifiers, "token verifiers"},
+		{"nopJobs", oc.NOPJobs, "NOP jobs"},
+	}
+
+	for _, e := range entries {
+		if isNilValue(e.value) {
+			continue
+		}
+		v, err := marshalToAny(e.value)
+		if err != nil {
+			return nil, fmt.Errorf("failed to convert %s: %w", e.label, err)
+		}
+		existingOC[e.key] = v
+	}
+
+	return existingOC, nil
+}
+
+// isNilValue reports whether v is a typed nil map (or untyped nil). The fields on
+// OffchainConfigs are typed map values which need a reflect-style check, but for the
+// concrete map types we only need to compare the underlying length using a type switch.
+func isNilValue(v any) bool {
+	switch m := v.(type) {
+	case nil:
+		return true
+	case map[string]*model.Committee:
+		return m == nil
+	case map[string]*indexerconfig.GeneratedConfig:
+		return m == nil
+	case map[string]*token.Config:
+		return m == nil
+	case shared.NOPJobs:
+		return m == nil
+	}
+	return false
 }
 
 func marshalToAny(v any) (any, error) {
