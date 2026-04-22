@@ -1,2 +1,3 @@
 * @smartcontractkit/ccip-1-7-offchain
 build/devenv @smartcontractkit/ccip-platform
+deployment @smartcontractkit/ccip-platform
