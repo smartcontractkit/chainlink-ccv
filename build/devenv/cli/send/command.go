@@ -23,7 +23,6 @@ import (
 	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
-	"github.com/smartcontractkit/chainlink-ccv/build/devenv/evm"
 )
 
 func Command() *cobra.Command {
@@ -141,10 +140,10 @@ func run(args sendArgs) error {
 	return nil
 }
 
-func getMessageOptions(args sendArgs, addrs datastore.AddressRefStore) (evm.MessageOptions, error) {
+func getMessageOptions(args sendArgs, addrs datastore.AddressRefStore) (cciptestinterfaces.MessageOptions, error) {
 	if args.finalitySel == 0 {
 		// V2 format - use the dedicated V2 function
-		return evm.MessageOptions{
+		return cciptestinterfaces.MessageOptions{
 			Version:             2,
 			ExecutionGasLimit:   200_000,
 			OutOfOrderExecution: true,
@@ -159,9 +158,9 @@ func getMessageOptions(args sendArgs, addrs datastore.AddressRefStore) (evm.Mess
 			semver.MustParse(executor_operations.Deploy.Version()),
 			devenvcommon.DefaultExecutorQualifier))
 	if err != nil {
-		return evm.MessageOptions{}, fmt.Errorf("failed to get executor address: %w", err)
+		return cciptestinterfaces.MessageOptions{}, fmt.Errorf("failed to get executor address: %w", err)
 	}
-	opts := evm.MessageOptions{
+	opts := cciptestinterfaces.MessageOptions{
 		Version:        3,
 		FinalityConfig: protocol.Finality(args.finalitySel),
 		Executor:       common.HexToAddress(executorRef.Address).Bytes(),
@@ -179,7 +178,7 @@ func getMessageOptions(args sendArgs, addrs datastore.AddressRefStore) (evm.Mess
 			versioned_verifier_resolver.Version,
 			devenvcommon.DefaultCommitteeVerifierQualifier))
 	if err != nil {
-		return evm.MessageOptions{}, fmt.Errorf("failed to get committee verifier proxy address: %w", err)
+		return cciptestinterfaces.MessageOptions{}, fmt.Errorf("failed to get committee verifier proxy address: %w", err)
 	}
 	opts.CCVs = []protocol.CCV{
 		{

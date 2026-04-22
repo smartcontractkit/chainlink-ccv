@@ -16,7 +16,6 @@ import (
 	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
-	"github.com/smartcontractkit/chainlink-ccv/build/devenv/evm"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/verifiercli"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
@@ -106,7 +105,7 @@ func TestE2ESmoke_ChainStatusDisableEnable(t *testing.T) {
 		"committee verifier proxy")
 	receiver := mustGetEOAReceiverAddress(t, destImpl)
 
-	messageOpts := evm.MessageOptions{
+	messageOpts := cciptestinterfaces.MessageOptions{
 		Version:  3,
 		Executor: executorAddr,
 		CCVs: []protocol.CCV{
@@ -197,7 +196,7 @@ func TestE2ESmoke_ChainStatusFinalizedHeight(t *testing.T) {
 		"committee verifier proxy")
 	receiver := mustGetEOAReceiverAddress(t, destImpl)
 
-	messageOpts := evm.MessageOptions{
+	messageOpts := cciptestinterfaces.MessageOptions{
 		Version:  3,
 		Executor: executorAddr,
 		CCVs:     []protocol.CCV{{CCVAddress: ccvAddr, Args: []byte{}, ArgsLen: 0}},

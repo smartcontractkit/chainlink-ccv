@@ -206,7 +206,7 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 		return &wasp.Response{Error: "impl is not ChainAsSource", Failed: true}
 	}
 
-	extraArgs, err := chainAsSource.ExtraArgsSerializer(opts)
+	extraArgs, err := chainAsSource.SerializeGenericExtraArgs(opts)
 	if err != nil {
 		return &wasp.Response{Error: fmt.Errorf("failed to serialize extra args: %w", err).Error(), Failed: true}
 	}
@@ -260,7 +260,7 @@ func (m *EVMTXGun) SelectDestSelector(excludeSelector uint64) (uint64, error) {
 	return load.GetSelectorByRatio(choices)
 }
 
-func (m *EVMTXGun) selectMessageProfile(srcSelector, destSelector uint64) (cciptestinterfaces.MessageFields, evm.MessageOptions, error) {
+func (m *EVMTXGun) selectMessageProfile(srcSelector, destSelector uint64) (cciptestinterfaces.MessageFields, cciptestinterfaces.MessageOptions, error) {
 	mockReceiverRef, err := m.e.DataStore.Addresses().Get(
 		datastore.NewAddressRefKey(
 			destSelector,
@@ -268,7 +268,7 @@ func (m *EVMTXGun) selectMessageProfile(srcSelector, destSelector uint64) (ccipt
 			semver.MustParse(mock_receiver_v2.Deploy.Version()),
 			devenvcommon.DefaultReceiverQualifier))
 	if err != nil {
-		return cciptestinterfaces.MessageFields{}, evm.MessageOptions{}, fmt.Errorf("could not find mock receiver address in datastore: %w", err)
+		return cciptestinterfaces.MessageFields{}, cciptestinterfaces.MessageOptions{}, fmt.Errorf("could not find mock receiver address in datastore: %w", err)
 	}
 
 	wethContract, err := m.e.DataStore.Addresses().Get(
@@ -278,7 +278,7 @@ func (m *EVMTXGun) selectMessageProfile(srcSelector, destSelector uint64) (ccipt
 			semver.MustParse(weth.Deploy.Version()),
 			""))
 	if err != nil {
-		return cciptestinterfaces.MessageFields{}, evm.MessageOptions{}, fmt.Errorf("could not find WETH address in datastore: %w", err)
+		return cciptestinterfaces.MessageFields{}, cciptestinterfaces.MessageOptions{}, fmt.Errorf("could not find WETH address in datastore: %w", err)
 	}
 
 	committeeVerifierProxyRef, err := m.e.DataStore.Addresses().Get(
@@ -288,20 +288,20 @@ func (m *EVMTXGun) selectMessageProfile(srcSelector, destSelector uint64) (ccipt
 			versioned_verifier_resolver.Version,
 			devenvcommon.DefaultCommitteeVerifierQualifier))
 	if err != nil {
-		return cciptestinterfaces.MessageFields{}, evm.MessageOptions{}, fmt.Errorf("could not find committee verifier proxy address in datastore: %w", err)
+		return cciptestinterfaces.MessageFields{}, cciptestinterfaces.MessageOptions{}, fmt.Errorf("could not find committee verifier proxy address in datastore: %w", err)
 	}
 
 	// generate a random finality between 0 (chain default finality) and 1 (custom finality)
 	finality, err := rand.Int(rand.Reader, big.NewInt(2))
 	if err != nil {
-		return cciptestinterfaces.MessageFields{}, evm.MessageOptions{}, fmt.Errorf("failed to generate finality: %w", err)
+		return cciptestinterfaces.MessageFields{}, cciptestinterfaces.MessageOptions{}, fmt.Errorf("failed to generate finality: %w", err)
 	}
 	if m.testConfig == nil || m.testConfig.Messages == nil {
 		return cciptestinterfaces.MessageFields{
 				Receiver: protocol.UnknownAddress(common.HexToAddress(mockReceiverRef.Address).Bytes()),
 				Data:     []byte{},
 				FeeToken: protocol.UnknownAddress(common.HexToAddress(wethContract.Address).Bytes()),
-			}, evm.MessageOptions{
+			}, cciptestinterfaces.MessageOptions{
 				Version:        3,
 				FinalityConfig: protocol.Finality(finality.Int64()),
 				CCVs: []protocol.CCV{
@@ -316,14 +316,14 @@ func (m *EVMTXGun) selectMessageProfile(srcSelector, destSelector uint64) (ccipt
 	}
 	messageProfile, err := load.GetMessageByRatio(m.testConfig.Messages, m.messageProfiles)
 	if err != nil {
-		return cciptestinterfaces.MessageFields{}, evm.MessageOptions{}, fmt.Errorf("failed to get message profile: %w", err)
+		return cciptestinterfaces.MessageFields{}, cciptestinterfaces.MessageOptions{}, fmt.Errorf("failed to get message profile: %w", err)
 	}
 	fields := cciptestinterfaces.MessageFields{
 		Receiver: protocol.UnknownAddress(common.HexToAddress(mockReceiverRef.Address).Bytes()),
 		Data:     []byte{},
 		FeeToken: protocol.UnknownAddress(common.HexToAddress(wethContract.Address).Bytes()),
 	}
-	opts := evm.MessageOptions{
+	opts := cciptestinterfaces.MessageOptions{
 		Version:        3,
 		FinalityConfig: protocol.Finality(messageProfile.Finality),
 	}
@@ -332,7 +332,7 @@ func (m *EVMTXGun) selectMessageProfile(srcSelector, destSelector uint64) (ccipt
 		data := make([]byte, avgMsgDataSize)
 		_, err2 := rand.Read(data)
 		if err2 != nil {
-			return cciptestinterfaces.MessageFields{}, evm.MessageOptions{}, fmt.Errorf("failed to generate data: %w", err2)
+			return cciptestinterfaces.MessageFields{}, cciptestinterfaces.MessageOptions{}, fmt.Errorf("failed to generate data: %w", err2)
 		}
 		fields.Data = data
 	}

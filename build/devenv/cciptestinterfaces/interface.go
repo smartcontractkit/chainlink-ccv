@@ -371,7 +371,7 @@ type OffChainConfigurable interface {
 // The expected usage is that a chain family integration will define a struct that satisfies this interface, then type check against their struct in their test.
 // Generic tests accept `ChainSendOption` as a parameter, the implementation casts the parameter to their struct type and uses it.
 type ChainSendOption interface {
-	IsSendOption() bool
+	IsSendOption()
 }
 
 // ExtraArgsDataProvider is a marker interface for destination-shaped extra-args data.
@@ -389,9 +389,12 @@ type genericChain interface {
 // Chain families can implement this interface to run partial CCIP message tests without having to implement the full `Chain` interface.
 type ChainAsDestination interface {
 	genericChain
-	// ExtraArgsProvider returns the extra-args data provider for this destination chain.
-	// The output of this method will be passed to the ExtraArgsEncoder in ChainAsSource.
-	// ExtraArgsProvider(any) (ExtraArgsDataProvider, error)
+	// ExtraArgsBuilder allocates a destination-shaped ExtraArgsDataProvider (populated with
+	// chain-family defaults) and applies the given options to it. Callers pass options from
+	// the destination chain's package (e.g. evm.WithExecutionGasLimit, svm.WithComputeUnits);
+	// applying an option built for a different chain family returns an error.
+	// The returned provider is intended to be handed to ChainAsSource.SerializeGenericExtraArgs.
+	ExtraArgsBuilder(opts ...ExtraArgsOption) (ExtraArgsDataProvider, error)
 	// GetEOAReceiverAddress returns an EOA receiver address for this chain.
 	GetEOAReceiverAddress() (protocol.UnknownAddress, error)
 	// ConfirmExecOnDest confirms that a CCIP message was executed on this chain.
@@ -404,9 +407,9 @@ type ChainAsDestination interface {
 // Chain families can implement this interface to run partial CCIP message tests without having to implement the full `Chain` interface.
 type ChainAsSource interface {
 	genericChain
-	// ExtraArgsSerializer serializes the extra args for the given destination chain.
+	// SerializeGenericExtraArgs serializes the extra args for the given destination chain.
 	// Implementation should type assert the ExtraArgsDataProvider to struct types from supported destination chain families.
-	ExtraArgsSerializer(ExtraArgsDataProvider) ([]byte, error)
+	SerializeGenericExtraArgs(ExtraArgsDataProvider) ([]byte, error)
 	// BuildChainMessage builds a CCIP message for the given destination chain.
 	// It will call into the registered extra args serializer per destination chain for now, until we have a more generic way to manage extra args.
 	// It returns a generic type that is specific to the chain family. The returned message is expected to be directly passed in ot the SendChainMessage method.

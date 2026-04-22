@@ -648,11 +648,11 @@ func (m *CCIP17EVM) validateTokenBalances(
 // SendMessage sends a CCIP message to the specified destination chain with the specified message options.
 // We're keeping this for backward compatibility while we move to the new composable interfaces.
 func (m *CCIP17EVM) SendMessage(ctx context.Context, dest uint64, fields cciptestinterfaces.MessageFields, extraArgsProvider cciptestinterfaces.ExtraArgsDataProvider) (cciptestinterfaces.MessageSentEvent, error) {
-	opts, ok := extraArgsProvider.(MessageOptions)
+	opts, ok := extraArgsProvider.(cciptestinterfaces.MessageOptions)
 	if !ok {
 		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("extraArgsProvider is not a MessageOptions")
 	}
-	extraArgs, err := m.ExtraArgsSerializer(opts)
+	extraArgs, err := m.SerializeGenericExtraArgs(opts)
 	if err != nil {
 		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("failed to serialize extra args: %w", err)
 	}
@@ -684,11 +684,11 @@ func (m *CCIP17EVM) GetUserNonce(ctx context.Context, userAddress protocol.Unkno
 	return m.chain.Client.PendingNonceAt(ctx, common.HexToAddress(userAddress.String()))
 }
 
-func (m *CCIP17EVM) ExtraArgsSerializer(provider cciptestinterfaces.ExtraArgsDataProvider) ([]byte, error) {
+func (m *CCIP17EVM) SerializeGenericExtraArgs(provider cciptestinterfaces.ExtraArgsDataProvider) ([]byte, error) {
 	switch p := provider.(type) {
-	case MessageOptions:
+	case cciptestinterfaces.MessageOptions:
 		return SerializeEVMExtraArgs(p)
-	case SVMMessageOptions:
+	case cciptestinterfaces.SVMMessageOptions:
 		return SerializeSVMExtraArgs(p)
 	default:
 		return nil, fmt.Errorf("unsupported ExtraArgsDataProvider type %T", provider)
@@ -697,7 +697,7 @@ func (m *CCIP17EVM) ExtraArgsSerializer(provider cciptestinterfaces.ExtraArgsDat
 
 // SerializeEVMExtraArgs is the EVM family's ExtraArgsSerializer, handling versions 1-3.
 func SerializeEVMExtraArgs(provider cciptestinterfaces.ExtraArgsDataProvider) ([]byte, error) {
-	opts, ok := provider.(MessageOptions)
+	opts, ok := provider.(cciptestinterfaces.MessageOptions)
 	if !ok {
 		return nil, fmt.Errorf("provider is not a MessageOptions")
 	}
@@ -715,7 +715,7 @@ func SerializeEVMExtraArgs(provider cciptestinterfaces.ExtraArgsDataProvider) ([
 
 // SerializeSVMExtraArgs is the Solana family's ExtraArgsSerializer, handling versions 1.
 func SerializeSVMExtraArgs(provider cciptestinterfaces.ExtraArgsDataProvider) ([]byte, error) {
-	opts, ok := provider.(SVMMessageOptions)
+	opts, ok := provider.(cciptestinterfaces.SVMMessageOptions)
 	if !ok {
 		return nil, fmt.Errorf("provider is not a SVMMessageOptions")
 	}
@@ -727,7 +727,7 @@ func SerializeSVMExtraArgs(provider cciptestinterfaces.ExtraArgsDataProvider) ([
 	}
 }
 
-func serializeExtraArgsV1(opts MessageOptions) []byte {
+func serializeExtraArgsV1(opts cciptestinterfaces.MessageOptions) []byte {
 	evmExtraArgsV1Type, err := abi.NewType("tuple", "EVMExtraArgsV1", []abi.ArgumentMarshaling{
 		{Name: "gasLimit", Type: "uint256"},
 	})
@@ -755,7 +755,7 @@ func serializeExtraArgsV1(opts MessageOptions) []byte {
 	return append(selector, packed...)
 }
 
-func serializeExtraArgsV2(opts MessageOptions) []byte {
+func serializeExtraArgsV2(opts cciptestinterfaces.MessageOptions) []byte {
 	genericExtraArgsV2Type, err := abi.NewType("tuple", "GenericExtraArgsV2", []abi.ArgumentMarshaling{
 		{Name: "gasLimit", Type: "uint256"},
 		{Name: "allowOutOfOrderExecution", Type: "bool"},
@@ -788,7 +788,7 @@ func serializeExtraArgsV2(opts MessageOptions) []byte {
 	return append(selector, packed...)
 }
 
-func serializeExtraArgsV3(opts MessageOptions) []byte {
+func serializeExtraArgsV3(opts cciptestinterfaces.MessageOptions) []byte {
 	extraArgs, err := NewV3ExtraArgs(
 		opts.FinalityConfig,
 		opts.ExecutionGasLimit,
@@ -803,7 +803,7 @@ func serializeExtraArgsV3(opts MessageOptions) []byte {
 	return extraArgs
 }
 
-func serializeExtraArgsSVMV1(opts SVMMessageOptions) []byte {
+func serializeExtraArgsSVMV1(opts cciptestinterfaces.SVMMessageOptions) []byte {
 	svmExtraArgsV1Type, err := abi.NewType("tuple", "SVMExtraArgsV1", []abi.ArgumentMarshaling{
 		{Name: "computeUnits", Type: "uint32"},
 		{Name: "accountIsWritableBitmap", Type: "uint64"},
@@ -2034,11 +2034,22 @@ func (m *CCIP17EVM) SetLombardMailboxBridgedMessage(ctx context.Context, message
 	return nil
 }
 
-func (m *CCIP17EVM) BuildChainMessage(ctx context.Context, destChain uint64, messageFields cciptestinterfaces.MessageFields, extraArgs []byte) (cciptestinterfaces.GenericChainMessage, error) {
-	if _, err := chainsel.GetSelectorFamily(destChain); err != nil {
-		return nil, fmt.Errorf("failed to get destination chain family: %w", err)
+// ExtraArgsBuilder allocates an EVM-shaped MessageOptions populated with the
+// family's defaults (V3, 200k execution gas limit) and applies the given options.
+// Callers pass evm.WithXxx(...) option constructors; an option built for another
+// chain family returns an error rather than silently no-op'ing.
+func (m *CCIP17EVM) ExtraArgsBuilder(opts ...cciptestinterfaces.ExtraArgsOption) (cciptestinterfaces.ExtraArgsDataProvider, error) {
+	// Chain implementations can provide defaults here if desired.
+	mo := &cciptestinterfaces.MessageOptions{}
+	for _, opt := range opts {
+		if err := opt(mo); err != nil {
+			return nil, err
+		}
 	}
+	return *mo, nil
+}
 
+func (m *CCIP17EVM) BuildChainMessage(ctx context.Context, destChain uint64, messageFields cciptestinterfaces.MessageFields, extraArgs []byte) (cciptestinterfaces.GenericChainMessage, error) {
 	ret := routerwrapper.ClientEVM2AnyMessage{
 		Receiver:  common.LeftPadBytes(messageFields.Receiver.Bytes(), 32),
 		Data:      messageFields.Data,

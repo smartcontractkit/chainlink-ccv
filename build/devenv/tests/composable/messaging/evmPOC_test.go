@@ -51,12 +51,21 @@ func TestEVM2EVMPOC(t *testing.T) {
 	require.True(t, srcOk, "srcChain does not match the chainAsSource interface!")
 	require.True(t, destOk, "destChain does not match the chainAsDestination interface!")
 
-	require.NoError(t, BasicMessageTestScenario(ctx, t, srcChain, destChain, cciptestinterfaces.MessageFields{
-		Receiver: receiver,
-		Data:     []byte{},
-	}, evm.MessageOptions{
-		Version:             2,
-		ExecutionGasLimit:   200_000,
-		OutOfOrderExecution: false,
-	}, nil))
+	require.NoError(t,
+		BasicMessageTestScenario(ctx,
+			t,
+			srcChain,
+			destChain,
+			cciptestinterfaces.MessageFields{
+				Receiver: receiver,
+				Data:     []byte{},
+			},
+			[]cciptestinterfaces.ExtraArgsOption{
+				evm.WithExecutionGasLimit(200_000),
+				evm.WithVersion(3),
+				evm.WithOutOfOrderExecution(false),
+			},
+			nil,
+		),
+	)
 }

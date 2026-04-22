@@ -19,10 +19,14 @@ func BasicMessageTestScenario(
 	srcChain cciptestinterfaces.ChainAsSource,
 	destChain cciptestinterfaces.ChainAsDestination,
 	fields cciptestinterfaces.MessageFields,
-	extraArgsProvider cciptestinterfaces.ExtraArgsDataProvider,
+	extraArgsOptions []cciptestinterfaces.ExtraArgsOption,
 	sendOption cciptestinterfaces.ChainSendOption,
 ) error {
-	extraArgs, err := srcChain.ExtraArgsSerializer(extraArgsProvider)
+	provider, err := destChain.ExtraArgsBuilder(extraArgsOptions...)
+	if err != nil {
+		return fmt.Errorf("failed to build extra args: %w", err)
+	}
+	extraArgs, err := srcChain.SerializeGenericExtraArgs(provider)
 	if err != nil {
 		return fmt.Errorf("failed to serialize extra args: %w", err)
 	}
