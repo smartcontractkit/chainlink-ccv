@@ -29,9 +29,9 @@ const (
 )
 
 var (
-	// bytes4(keccak256("CCTPVerifier 2.0.0")) = 0x35a25838
+	// bytes4(keccak256("CCTPVerifier 2.0.0")) = 0x35a25838.
 	DefaultCCTPVerifierVersion = mustDecodeHex("35a25838")
-	// bytes4(keccak256("LombardVerifier 2.0.0")) = 0xeba55588
+	// bytes4(keccak256("LombardVerifier 2.0.0")) = 0xeba55588.
 	DefaultLombardVerifierVersion = mustDecodeHex("eba55588")
 )
 

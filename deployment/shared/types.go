@@ -84,7 +84,6 @@ func (j *JobInfo) LatestStatus() JobProposalStatus {
 // NOPJobs maps NOP alias -> job ID -> job info.
 type NOPJobs map[NOPAlias]map[JobID]JobInfo
 
-
 type JobID string
 
 // CCVJobNamespace is a UUID v5 namespace for generating deterministic external job IDs.
