@@ -14,11 +14,12 @@ import (
 	"github.com/grafana/pyroscope-go"
 	"go.uber.org/zap/zapcore"
 
+	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
+	cmdexecutor "github.com/smartcontractkit/chainlink-ccv/cmd/executor"
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 	adapter "github.com/smartcontractkit/chainlink-ccv/executor/pkg/adapter"
 	x "github.com/smartcontractkit/chainlink-ccv/executor/pkg/executor"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/leaderelector"
-	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
 	_ "github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/backofftimeprovider"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/ccvstreamer"
@@ -26,7 +27,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
-	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -35,7 +35,7 @@ const (
 	// indexerPollingInterval describes how frequently we ask indexer for new messages.
 	// This should be kept at 1s for consistent behavior across all executors.
 	indexerPollingInterval = 1 * time.Second
-	// indexerGarbagecollectionInterval describes how frequently we garbage collect message duplicates from the indexer results
+	// indexerGarbageCollectionInterval describes how frequently we garbage collect message duplicates from the indexer results.
 	// if this is too short, we will assume a message is net new every time it is read from the indexer.
 	indexerGarbageCollectionInterval = 1 * time.Hour
 	// messageContextWindow is the time window we use to expire duplicate messages from the indexer.
@@ -44,127 +44,69 @@ const (
 	messageContextWindow = 9 * time.Hour
 )
 
-func main() {
-	//
-	// Load configuration
-	// ------------------------------------------------------------------------------------------------
-	configPath := executor.DefaultConfigFile
-	if len(os.Args) > 1 {
-		configPath = os.Args[1]
+type executorFactory struct {
+	bootstrap.ServiceFactory
+
+	coordinator *executor.Coordinator
+	profiler    *pyroscope.Profiler
+	lggr        logger.Logger
+}
+
+func (f *executorFactory) Stop(_ context.Context) error {
+	var err error
+	if f.coordinator != nil {
+		err = f.coordinator.Close()
 	}
-	envConfig := os.Getenv(configPathEnvVar)
-	if envConfig != "" {
-		configPath = envConfig
+	if f.profiler != nil {
+		_ = f.profiler.Stop()
+	}
+	return err
+}
+
+func (f *executorFactory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootstrap.ServiceDeps) error {
+	var rawConfig executor.ConfigWithBlockchainInfo[any]
+	if _, err := toml.Decode(spec.AppConfig, &rawConfig); err != nil {
+		return fmt.Errorf("failed to decode executor config: %w", err)
 	}
 
-	//
-	// Initialize logger
-	// ------------------------------------------------------------------------------------------------
-	// Keeping it at info level because debug will spam the logs with a lot of RPC caller related logs.
-	lggr, err := logger.NewWith(logging.DevelopmentConfig(zapcore.InfoLevel))
+	executorConfig, err := rawConfig.GetNormalizedConfig()
 	if err != nil {
-		panic(fmt.Sprintf("Failed to create logger: %v", err))
+		return fmt.Errorf("failed to normalize executor config: %w", err)
 	}
-	lggr = logger.Named(lggr, "executor")
 
-	executorConfig, registry, err := loadConfiguration(lggr, configPath)
+	f.lggr, err = logger.NewWith(logging.DevelopmentConfig(zapcore.InfoLevel))
 	if err != nil {
-		lggr.Errorw("Failed to load configuration", "path", configPath, "error", err)
-		os.Exit(1)
+		return fmt.Errorf("failed to create logger: %w", err)
 	}
+	f.lggr = logger.Sugared(logger.Named(f.lggr, "executor"))
 
-	if _, err := pyroscope.Start(pyroscope.Config{
-		ApplicationName: "executor",
-		ServerAddress:   executorConfig.PyroscopeURL,
-		Logger:          nil, // Disable pyroscope logging - so noisy
-		ProfileTypes: []pyroscope.ProfileType{
-			pyroscope.ProfileCPU,
-			pyroscope.ProfileAllocObjects,
-			pyroscope.ProfileAllocSpace,
-			pyroscope.ProfileGoroutines,
-			pyroscope.ProfileBlockDuration,
-			pyroscope.ProfileMutexDuration,
-		},
-	}); err != nil {
-		lggr.Errorw("Failed to start pyroscope", "error", err)
+	f.profiler, err = cmdexecutor.StartPyroscope(f.lggr, executorConfig.PyroscopeURL, "executor")
+	if err != nil {
+		f.lggr.Errorw("Failed to start pyroscope", "error", err)
 	}
-
-	// Use SugaredLogger for better API
-	lggr = logger.Sugared(lggr)
 
 	protocol.InitChainSelectorCache()
 
-	lggr.Infow("Executor configuration", "config", executorConfig)
+	f.lggr.Infow("Executor configuration", "config", executorConfig)
 
-	//
-	// Setup OTEL Monitoring (via beholder)
-	// ------------------------------------------------------------------------------------------------
-	var executorMonitoring executor.Monitoring
-	if executorConfig.Monitoring.Enabled && executorConfig.Monitoring.Type == "beholder" {
-		beholderConfig := beholder.Config{
-			InsecureConnection:       executorConfig.Monitoring.Beholder.InsecureConnection,
-			CACertFile:               executorConfig.Monitoring.Beholder.CACertFile,
-			OtelExporterHTTPEndpoint: executorConfig.Monitoring.Beholder.OtelExporterHTTPEndpoint,
-			OtelExporterGRPCEndpoint: executorConfig.Monitoring.Beholder.OtelExporterGRPCEndpoint,
-			LogStreamingEnabled:      executorConfig.Monitoring.Beholder.LogStreamingEnabled,
-			MetricReaderInterval:     time.Second * time.Duration(executorConfig.Monitoring.Beholder.MetricReaderInterval),
-			TraceSampleRatio:         executorConfig.Monitoring.Beholder.TraceSampleRatio,
-			TraceBatchTimeout:        time.Second * time.Duration(executorConfig.Monitoring.Beholder.TraceBatchTimeout),
-			// TODO add CSA auth when run in standalone mode
-			// AuthPublicKeyHex: ...,
-			// AuthHeaders: ...,
-			// Note: due to OTEL spec, all histogram buckets must be defined when the beholder client is created.
-			MetricViews: monitoring.MetricViews(),
-		}
+	executorMonitoring := cmdexecutor.SetupMonitoring(f.lggr, executorConfig.Monitoring)
 
-		// Create the beholder client
-		beholderClient, err := beholder.NewClient(beholderConfig)
-		if err != nil {
-			lggr.Fatalf("Failed to create beholder client: %v", err)
-		}
-
-		// Set the beholder client and global otel providers
-		beholder.SetClient(beholderClient)
-		beholder.SetGlobalOtelProviders()
-
-		executorMonitoring, err = monitoring.InitMonitoring()
-		if err != nil {
-			lggr.Fatalf("Failed to initialize indexer monitoring: %v", err)
-		}
-	} else {
-		lggr.Info("Using noop monitoring")
-		executorMonitoring = monitoring.NewNoopExecutorMonitoring()
-	}
-
-	//
-	// Initialize Context
-	// ------------------------------------------------------------------------------------------------
-	// Create context with cancellation
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	// Setup graceful shutdown
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-
-	//
-	// Initialize executor components
-	// ------------------------------------------------------------------------------------------------
 	contractTransmitters := make(map[protocol.ChainSelector]chainaccess.ContractTransmitter)
 	destReaders := make(map[protocol.ChainSelector]chainaccess.DestinationReader)
-	enabledDestChains := make([]protocol.ChainSelector, 0)
 	rmnReaders := make(map[protocol.ChainSelector]chainaccess.RMNCurseReader)
+	enabledDestChains := make([]protocol.ChainSelector, 0)
+
 	for strSel := range executorConfig.ChainConfiguration {
 		selectorUint, err := strconv.ParseUint(strSel, 10, 64)
 		if err != nil {
-			lggr.Errorw("Invalid chain selector in configuration", "error", err, "chainSelector", strSel)
+			f.lggr.Errorw("Invalid chain selector in configuration", "error", err, "chainSelector", strSel)
 			continue
 		}
 		selector := protocol.ChainSelector(selectorUint)
 
-		accessor, err := registry.GetAccessor(ctx, selector)
+		accessor, err := deps.Registry.GetAccessor(ctx, selector)
 		if err != nil {
-			lggr.Errorw("Failed to get accessor for chain", "error", err, "chainSelector", strSel)
+			f.lggr.Errorw("Failed to get accessor for chain", "error", err, "chainSelector", strSel)
 			continue
 		}
 
@@ -172,7 +114,7 @@ func main() {
 		ct, ctErr := accessor.ContractTransmitter()
 
 		if drErr != nil || ctErr != nil {
-			lggr.Warnw("Skipping chain: missing DestinationReader or ContractTransmitter", "chainSelector", strSel, "destReaderErr", drErr, "transmitterErr", ctErr)
+			f.lggr.Warnw("Skipping chain: missing DestinationReader or ContractTransmitter", "chainSelector", strSel, "destReaderErr", drErr, "transmitterErr", ctErr)
 			continue
 		}
 
@@ -182,80 +124,63 @@ func main() {
 		enabledDestChains = append(enabledDestChains, selector)
 	}
 
-	//
-	// Initialize curse checker
-	// ------------------------------------------------------------------------------------------------
 	curseChecker := cursechecker.NewCachedCurseChecker(cursechecker.Params{
-		Lggr:        lggr,
+		Lggr:        f.lggr,
 		Metrics:     executorMonitoring.Metrics(),
 		RmnReaders:  rmnReaders,
 		CacheExpiry: executorConfig.ReaderCacheExpiry,
 	})
 
-	//
-	// Initialize indexer adapter with multiple clients (supports concurrent queries)
-	// ------------------------------------------------------------------------------------------------
 	httpClient := &http.Client{Timeout: 30 * time.Second}
 	verifierResultReader, err := adapter.NewIndexerReaderAdapter(
 		executorConfig.IndexerAddress,
 		httpClient,
 		executorMonitoring,
-		lggr,
+		f.lggr,
 	)
 	if err != nil {
-		lggr.Errorw("Failed to create indexer adapter", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("failed to create indexer adapter: %w", err)
 	}
 
-	//
-	// Parse per chain configuration from executor configuration
-	// ------------------------------------------------------------------------------------------------
 	execPool := make(map[protocol.ChainSelector][]string)
 	execIntervals := make(map[protocol.ChainSelector]time.Duration)
 	defaultExecutorAddresses := make(map[protocol.ChainSelector]protocol.UnknownAddress)
 
 	for strSel, chainConfig := range executorConfig.ChainConfiguration {
-		selector, err := strconv.ParseUint(strSel, 10, 64)
+		selectorUint, err := strconv.ParseUint(strSel, 10, 64)
 		if err != nil {
-			lggr.Errorw("Invalid chain selector in configuration", "error", err, "chainSelector", strSel)
+			f.lggr.Errorw("Invalid chain selector in configuration", "error", err, "chainSelector", strSel)
 			continue
 		}
-		execPool[protocol.ChainSelector(selector)] = chainConfig.ExecutorPool
-		execIntervals[protocol.ChainSelector(selector)] = chainConfig.ExecutionInterval
-		defaultExecutorAddresses[protocol.ChainSelector(selector)], err = protocol.NewUnknownAddressFromHex(chainConfig.DefaultExecutorAddress)
+		sel := protocol.ChainSelector(selectorUint)
+		execPool[sel] = chainConfig.ExecutorPool
+		execIntervals[sel] = chainConfig.ExecutionInterval
+		defaultExecutorAddresses[sel], err = protocol.NewUnknownAddressFromHex(chainConfig.DefaultExecutorAddress)
 		if err != nil {
-			lggr.Errorw("Invalid default executor address in configuration", "error", err, "chainSelector", strSel)
+			f.lggr.Errorw("Invalid default executor address in configuration", "error", err, "chainSelector", strSel)
 			continue
 		}
 	}
 
-	//
-	// Initialize Message Handler
-	// ------------------------------------------------------------------------------------------------
-	ex := x.NewChainlinkExecutor(lggr, contractTransmitters, destReaders, curseChecker, verifierResultReader, executorMonitoring, defaultExecutorAddresses)
+	ex := x.NewChainlinkExecutor(f.lggr, contractTransmitters, destReaders, curseChecker, verifierResultReader, executorMonitoring, defaultExecutorAddresses)
 	if err := ex.Validate(); err != nil {
-		lggr.Errorw("Failed to validate chainlink executor", "error", err)
-		os.Exit(1)
-		return
+		return fmt.Errorf("failed to validate chainlink executor: %w", err)
 	}
 
-	//
-	// Initialize leader elector
-	// ------------------------------------------------------------------------------------------------
 	le, err := leaderelector.NewHashBasedLeaderElector(
-		lggr,
+		f.lggr,
 		execPool,
 		executorConfig.ExecutorID,
 		execIntervals,
 	)
 	if err != nil {
-		lggr.Errorw("Failed to create leader elector", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("failed to create leader elector: %w", err)
 	}
-	timeProvider := backofftimeprovider.NewBackoffNTPProvider(lggr, executorConfig.BackoffDuration, executorConfig.NtpServer)
+
+	timeProvider := backofftimeprovider.NewBackoffNTPProvider(f.lggr, executorConfig.BackoffDuration, executorConfig.NtpServer)
 
 	indexerStream := ccvstreamer.NewIndexerStorageStreamer(
-		lggr,
+		f.lggr,
 		ccvstreamer.IndexerStorageConfig{
 			IndexerClient:     verifierResultReader,
 			InitialQueryTime:  time.Now().Add(-1 * executorConfig.LookbackWindow),
@@ -268,11 +193,8 @@ func main() {
 			EnabledDestChains: enabledDestChains,
 		})
 
-	//
-	// Initialize executor coordinator
-	// ------------------------------------------------------------------------------------------------
-	coordinator, err := executor.NewCoordinator(
-		lggr,
+	f.coordinator, err = executor.NewCoordinator(
+		f.lggr,
 		ex,
 		indexerStream,
 		le,
@@ -282,28 +204,66 @@ func main() {
 		executorConfig.WorkerCount,
 	)
 	if err != nil {
-		lggr.Errorw("Failed to create execution coordinator", "error", err)
+		return fmt.Errorf("failed to create execution coordinator: %w", err)
+	}
+
+	if err := f.coordinator.Start(ctx); err != nil {
+		return fmt.Errorf("failed to start execution coordinator: %w", err)
+	}
+
+	return nil
+}
+
+func main() {
+	configPath := executor.DefaultConfigFile
+	if len(os.Args) > 1 {
+		configPath = os.Args[1]
+	}
+	if envConfig := os.Getenv(configPathEnvVar); envConfig != "" {
+		configPath = envConfig
+	}
+
+	lggr, err := logger.NewWith(logging.DevelopmentConfig(zapcore.InfoLevel))
+	if err != nil {
+		panic(fmt.Sprintf("Failed to create logger: %v", err))
+	}
+	lggr = logger.Named(lggr, "executor")
+
+	content, err := os.ReadFile(configPath) // #nosec G304 -- config file path is operator-controlled
+	if err != nil {
+		lggr.Errorw("Failed to read config file", "path", configPath, "error", err)
 		os.Exit(1)
 	}
 
-	if err := coordinator.Start(ctx); err != nil {
-		lggr.Errorw("Failed to start execution coordinator", "error", err)
+	reg, err := chainaccess.NewRegistry(lggr, string(content))
+	if err != nil {
+		lggr.Errorw("Failed to create registry", "error", err)
 		os.Exit(1)
 	}
 
-	//
-	// Wait for shutdown signal
-	// ------------------------------------------------------------------------------------------------
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	fac := &executorFactory{}
+	spec := bootstrap.JobSpec{AppConfig: string(content)}
+	deps := bootstrap.ServiceDeps{Registry: reg}
+
+	if err := fac.Start(ctx, spec, deps); err != nil {
+		lggr.Errorw("Failed to start executor", "error", err)
+		os.Exit(1)
+	}
+
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 	<-sigCh
 	lggr.Infow("Shutdown signal received, stopping executor...")
 
-	// Graceful shutdown
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer shutdownCancel()
 
 	done := make(chan error, 1)
 	go func() {
-		done <- coordinator.Close()
+		done <- fac.Stop(shutdownCtx)
 	}()
 
 	select {
@@ -316,27 +276,4 @@ func main() {
 	}
 
 	lggr.Infow("Execution service stopped gracefully")
-}
-
-func loadConfiguration(lggr logger.Logger, filepath string) (*executor.Configuration, *chainaccess.Registry, error) {
-	content, err := os.ReadFile(filepath) // #nosec G304 -- config file path is operator-controlled
-	if err != nil {
-		return nil, nil, err
-	}
-
-	var config executor.ConfigWithBlockchainInfo[any]
-	if _, err := toml.Decode(string(content), &config); err != nil {
-		return nil, nil, err
-	}
-	normalizedConfig, err := config.GetNormalizedConfig()
-	if err != nil {
-		return nil, nil, err
-	}
-
-	registry, err := chainaccess.NewRegistry(lggr, string(content))
-	if err != nil {
-		return nil, nil, err
-	}
-
-	return normalizedConfig, registry, nil
 }
