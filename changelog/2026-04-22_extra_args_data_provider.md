@@ -32,18 +32,18 @@
   ```go
   BuildChainMessage(ctx, destChain, fields MessageFields, extraArgs []byte) (GenericChainMessage, error)
   ```
-  The caller is expected to serialize extra args via `ChainAsSource.SerializeGenericExtraArgs(provider)` first.
+  The caller is expected to serialize extra args via `ChainAsSource.SerializeExtraArgs(provider)` first.
 - **Why:** the source shouldn't know about destination-specific option structs; it only needs the opaque byte blob to stuff into the on-chain message.
 - **Who is affected:** every `ChainAsSource` implementor and every caller (`tests/composable/messaging/agnostic_chain_test.go:16`, `tests/e2e/gun.go:206`).
 
-### `ChainAsSource` gains `SerializeGenericExtraArgs`
+### `ChainAsSource` gains `SerializeExtraArgs`
 
 - **What changed:** new required method.
 - **After:**
   ```go
-  SerializeGenericExtraArgs(ExtraArgsDataProvider) ([]byte, error)
+  SerializeExtraArgs(ExtraArgsDataProvider) ([]byte, error)
   ```
-  Implementations type-switch on the provider (see `*evm.CCIP17EVM.SerializeGenericExtraArgs` at `build/devenv/evm/impl.go:687`, which dispatches to `SerializeEVMExtraArgs` or `SerializeSVMExtraArgs`).
+  Implementations type-switch on the provider (see `*evm.CCIP17EVM.SerializeExtraArgs` at `build/devenv/evm/impl.go:687`, which dispatches to `SerializeEVMExtraArgs` or `SerializeSVMExtraArgs`).
 - **Why:** replaces the single-serializer-per-family registry (`RegisterExtraArgsSerializer`) with per-source dispatch, so one source chain can serialize to multiple destination families.
 
 ### `ChainSendOption.IsSendOption()` return type
@@ -82,7 +82,7 @@
 
 1. **Update `ChainAsSource` implementations:**
    - Change `BuildChainMessage` to accept `extraArgs []byte` and return `GenericChainMessage`.
-   - Add a `SerializeGenericExtraArgs(ExtraArgsDataProvider) ([]byte, error)` method that type-switches on the providers you support.
+   - Add a `SerializeExtraArgs(ExtraArgsDataProvider) ([]byte, error)` method that type-switches on the providers you support.
    - Change `SendChainMessage`'s `message` parameter type to `GenericChainMessage`.
 
 2. **Update `ChainAsDestination` implementations:** add
@@ -94,7 +94,7 @@
                return nil, err
            }
        }
-       return *p, nil // or p, consistent with what SerializeGenericExtraArgs expects
+       return *p, nil // or p, consistent with what SerializeExtraArgs expects
    }
    ```
 
@@ -112,7 +112,7 @@
    msg, err := src.BuildChainMessage(ctx, destSel, fields, opts)
 
    // After
-   extraArgs, err := src.SerializeGenericExtraArgs(opts)
+   extraArgs, err := src.SerializeExtraArgs(opts)
    if err != nil { /* handle */ }
    msg, err := src.BuildChainMessage(ctx, destSel, fields, extraArgs)
    ```
@@ -129,14 +129,14 @@
    func BasicMessageTestScenario(..., extraArgsOptions []cciptestinterfaces.ExtraArgsOption, ...) error {
        provider, err := destChain.ExtraArgsBuilder(extraArgsOptions...)
        if err != nil { return fmt.Errorf("build extra args: %w", err) }
-       extraArgs, err := srcChain.SerializeGenericExtraArgs(provider)
+       extraArgs, err := srcChain.SerializeExtraArgs(provider)
        if err != nil { return fmt.Errorf("serialize extra args: %w", err) }
        srcMessage, err := srcChain.BuildChainMessage(ctx, destChain.ChainSelector(), fields, extraArgs)
        ...
    }
    ```
 
-6. **Callers constructing `MessageOptions{...}` literals** do not need to change the literal — the struct still exists, just moved from `interface.go` to `extra_args.go` in the same package. `cciptestinterfaces.MessageOptions{...}` continues to satisfy `ExtraArgsDataProvider` and can be passed directly to `SendMessage` / `SerializeGenericExtraArgs`.
+6. **Callers constructing `MessageOptions{...}` literals** do not need to change the literal — the struct still exists, just moved from `interface.go` to `extra_args.go` in the same package. `cciptestinterfaces.MessageOptions{...}` continues to satisfy `ExtraArgsDataProvider` and can be passed directly to `SendMessage` / `SerializeExtraArgs`.
 
 ## New Features / Additions
 
@@ -145,7 +145,7 @@
 - **`cciptestinterfaces.SVMMessageOptions`** — Solana-shaped extra args (ComputeUnits, AccountIsWritableBitmap, AllowOutOfOrderExecution, TokenReceiver, Accounts). See `build/devenv/cciptestinterfaces/extra_args.go:104`.
 - **EVM option constructors** for mutating `*MessageOptions`: `WithVersion`, `WithExecutionGasLimit`, `WithOutOfOrderExecution`, `WithCCVs`, `WithFinalityConfig`, `WithExecutor`, `WithExecutorArgs`, `WithTokenArgs`, `WithUseTestRouter`. Defined in `build/devenv/cciptestinterfaces/extra_args.go:50`.
   - Usage: pass to `destChain.ExtraArgsBuilder(...)`. Errors from applying an option to a non-EVM provider carry the constructor name (e.g. `"evm.WithExecutionGasLimit: expected *MessageOptions (EVM family), got <T>"`).
-- **`*evm.CCIP17EVM.SerializeGenericExtraArgs`** — type-switches on `ExtraArgsDataProvider` and dispatches to `SerializeEVMExtraArgs` or `SerializeSVMExtraArgs`. Replaces the previous single `serializeExtraArgs` helper that looked up a serializer from the destination family registry.
+- **`*evm.CCIP17EVM.SerializeExtraArgs`** — type-switches on `ExtraArgsDataProvider` and dispatches to `SerializeEVMExtraArgs` or `SerializeSVMExtraArgs`. Replaces the previous single `serializeExtraArgs` helper that looked up a serializer from the destination family registry.
 - **`serializeExtraArgsSVMV1`** now consumes `SVMMessageOptions` fields directly (ComputeUnits, AccountIsWritableBitmap, TokenReceiver, Accounts) instead of reinterpreting EVM `MessageOptions` fields with SVM semantics. See `build/devenv/evm/impl.go:806`.
 
 ## Examples
@@ -160,7 +160,7 @@ provider, err := destChain.ExtraArgsBuilder(
 )
 if err != nil { /* handle */ }
 
-extraArgs, err := srcChain.SerializeGenericExtraArgs(provider)
+extraArgs, err := srcChain.SerializeExtraArgs(provider)
 if err != nil { /* handle */ }
 
 msg, err := srcChain.BuildChainMessage(ctx, destChain.ChainSelector(), fields, extraArgs)

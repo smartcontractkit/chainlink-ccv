@@ -31,8 +31,6 @@ type MessageOptions struct {
 	ExecutorArgs []byte
 	// TokenArgs are the token arguments for the message
 	TokenArgs []byte
-	// UseTestRouter when true looks up the TestRouter contract type in the datastore instead of Router.
-	UseTestRouter bool
 }
 
 func (m MessageOptions) IsExtraArgsDataProvider() {}
@@ -95,12 +93,6 @@ func WithExecutorArgs(args []byte) ExtraArgsOption {
 func WithTokenArgs(args []byte) ExtraArgsOption {
 	return func(p ExtraArgsDataProvider) error {
 		return mutateMessageOptions("evm.WithTokenArgs", p, func(m *MessageOptions) { m.TokenArgs = args })
-	}
-}
-
-func WithUseTestRouter(b bool) ExtraArgsOption {
-	return func(p ExtraArgsDataProvider) error {
-		return mutateMessageOptions("evm.WithUseTestRouter", p, func(m *MessageOptions) { m.UseTestRouter = b })
 	}
 }
 

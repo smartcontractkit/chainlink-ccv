@@ -652,7 +652,7 @@ func (m *CCIP17EVM) SendMessage(ctx context.Context, dest uint64, fields cciptes
 	if !ok {
 		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("extraArgsProvider is not a MessageOptions")
 	}
-	extraArgs, err := m.SerializeGenericExtraArgs(opts)
+	extraArgs, err := m.SerializeExtraArgs(opts)
 	if err != nil {
 		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("failed to serialize extra args: %w", err)
 	}
@@ -670,9 +670,7 @@ func (m *CCIP17EVM) SendMessage(ctx context.Context, dest uint64, fields cciptes
 		}}
 	}
 
-	sendOption := SendOptions{UseTestRouter: opts.UseTestRouter}
-
-	sentEvent, _, err := m.SendChainMessage(ctx, dest, msg, sendOption)
+	sentEvent, _, err := m.SendChainMessage(ctx, dest, msg, nil)
 	if err != nil {
 		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("failed to send chain message: %w", err)
 	}
@@ -684,7 +682,7 @@ func (m *CCIP17EVM) GetUserNonce(ctx context.Context, userAddress protocol.Unkno
 	return m.chain.Client.PendingNonceAt(ctx, common.HexToAddress(userAddress.String()))
 }
 
-func (m *CCIP17EVM) SerializeGenericExtraArgs(provider cciptestinterfaces.ExtraArgsDataProvider) ([]byte, error) {
+func (m *CCIP17EVM) SerializeExtraArgs(provider cciptestinterfaces.ExtraArgsDataProvider) ([]byte, error) {
 	switch p := provider.(type) {
 	case cciptestinterfaces.MessageOptions:
 		return SerializeEVMExtraArgs(p)

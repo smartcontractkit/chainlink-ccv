@@ -23,6 +23,7 @@ import (
 	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/evm"
 )
 
 func Command() *cobra.Command {
@@ -128,9 +129,25 @@ func run(args sendArgs) error {
 	if err != nil {
 		return fmt.Errorf("failed to get message options: %w", err)
 	}
-	messageOptions.UseTestRouter = args.useTestRouter
 
-	result, err := impl.SendMessage(ctx, args.destSel, messageFields, messageOptions)
+	senderImpl, ok := impl.(cciptestinterfaces.ChainAsSource)
+	if !ok {
+		return fmt.Errorf("impl is not ChainAsSource")
+	}
+
+	// use evm impl for now, until we have a long term plan for the cli.
+	extraArgs, err := senderImpl.SerializeExtraArgs(messageOptions)
+	if err != nil {
+		return fmt.Errorf("failed to serialize extra args: %w", err)
+	}
+
+	message, err := senderImpl.BuildChainMessage(ctx, args.destSel, messageFields, extraArgs)
+	if err != nil {
+		return fmt.Errorf("failed to build message: %w", err)
+	}
+	result, _, err := senderImpl.SendChainMessage(ctx, args.destSel, message, evm.SendOptions{
+		UseTestRouter: args.useTestRouter,
+	})
 	if err != nil {
 		return fmt.Errorf("failed to send message: %w", err)
 	}

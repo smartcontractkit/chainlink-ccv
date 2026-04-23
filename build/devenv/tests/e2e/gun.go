@@ -206,7 +206,7 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 		return &wasp.Response{Error: "impl is not ChainAsSource", Failed: true}
 	}
 
-	extraArgs, err := chainAsSource.SerializeGenericExtraArgs(opts)
+	extraArgs, err := chainAsSource.SerializeExtraArgs(opts)
 	if err != nil {
 		return &wasp.Response{Error: fmt.Errorf("failed to serialize extra args: %w", err).Error(), Failed: true}
 	}

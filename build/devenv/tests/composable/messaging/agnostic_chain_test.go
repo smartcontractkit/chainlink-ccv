@@ -26,7 +26,7 @@ func BasicMessageTestScenario(
 	if err != nil {
 		return fmt.Errorf("failed to build extra args: %w", err)
 	}
-	extraArgs, err := srcChain.SerializeGenericExtraArgs(provider)
+	extraArgs, err := srcChain.SerializeExtraArgs(provider)
 	if err != nil {
 		return fmt.Errorf("failed to serialize extra args: %w", err)
 	}

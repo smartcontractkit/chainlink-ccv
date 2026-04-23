@@ -389,11 +389,10 @@ type genericChain interface {
 // Chain families can implement this interface to run partial CCIP message tests without having to implement the full `Chain` interface.
 type ChainAsDestination interface {
 	genericChain
-	// ExtraArgsBuilder allocates a destination-shaped ExtraArgsDataProvider (populated with
-	// chain-family defaults) and applies the given options to it. Callers pass options from
+	// ExtraArgsBuilder allocates a destination-shaped ExtraArgsDataProvider and applies the given options to it. Callers pass options from
 	// the destination chain's package (e.g. evm.WithExecutionGasLimit, svm.WithComputeUnits);
 	// applying an option built for a different chain family returns an error.
-	// The returned provider is intended to be handed to ChainAsSource.SerializeGenericExtraArgs.
+	// The returned provider is intended to be handed to ChainAsSource.SerializeExtraArgs.
 	ExtraArgsBuilder(opts ...ExtraArgsOption) (ExtraArgsDataProvider, error)
 	// GetEOAReceiverAddress returns an EOA receiver address for this chain.
 	GetEOAReceiverAddress() (protocol.UnknownAddress, error)
@@ -407,9 +406,9 @@ type ChainAsDestination interface {
 // Chain families can implement this interface to run partial CCIP message tests without having to implement the full `Chain` interface.
 type ChainAsSource interface {
 	genericChain
-	// SerializeGenericExtraArgs serializes the extra args for the given destination chain.
+	// SerializeExtraArgs serializes the extra args for the given destination chain.
 	// Implementation should type assert the ExtraArgsDataProvider to struct types from supported destination chain families.
-	SerializeGenericExtraArgs(ExtraArgsDataProvider) ([]byte, error)
+	SerializeExtraArgs(ExtraArgsDataProvider) ([]byte, error)
 	// BuildChainMessage builds a CCIP message for the given destination chain.
 	// It will call into the registered extra args serializer per destination chain for now, until we have a more generic way to manage extra args.
 	// It returns a generic type that is specific to the chain family. The returned message is expected to be directly passed in ot the SendChainMessage method.
