@@ -188,6 +188,7 @@ func NewTokenVerifier(in *TokenVerifierInput, blockchainOutputs []*blockchain.Ou
 		framework.L.Warn().Err(err).Int("attempt", attempt).Msg("Container failed to start, retrying...")
 
 		if c != nil {
+			_ = SaveFailingTestcontainerLogs(ctx, c, in.ContainerName, attempt)
 			_ = c.Terminate(ctx)
 		}
 

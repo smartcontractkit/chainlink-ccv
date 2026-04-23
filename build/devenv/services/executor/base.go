@@ -446,6 +446,7 @@ func startContainer(ctx context.Context, req testcontainers.ContainerRequest) (t
 		framework.L.Warn().Err(err).Int("attempt", attempt).Msg("Container failed to start, retrying...")
 
 		if c != nil {
+			_ = services.SaveFailingTestcontainerLogs(ctx, c, req.Name, attempt)
 			_ = c.Terminate(ctx)
 		}
 
