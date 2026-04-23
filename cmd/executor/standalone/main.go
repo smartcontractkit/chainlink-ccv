@@ -5,9 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"os/signal"
 	"strconv"
-	"syscall"
 	"time"
 
 	"github.com/BurntSushi/toml"
@@ -223,57 +221,13 @@ func main() {
 		configPath = envConfig
 	}
 
-	lggr, err := logger.NewWith(logging.DevelopmentConfig(zapcore.InfoLevel))
+	err := bootstrap.Run(
+		"Executor",
+		&executorFactory{},
+		bootstrap.WithTOMLAppConfig(configPath),
+	)
 	if err != nil {
-		panic(fmt.Sprintf("Failed to create logger: %v", err))
-	}
-	lggr = logger.Named(lggr, "executor")
-
-	content, err := os.ReadFile(configPath) // #nosec G304 -- config file path is operator-controlled
-	if err != nil {
-		lggr.Errorw("Failed to read config file", "path", configPath, "error", err)
+		_, _ = fmt.Fprintf(os.Stderr, "Failed to run executor: %v\n", err)
 		os.Exit(1)
 	}
-
-	reg, err := chainaccess.NewRegistry(lggr, string(content))
-	if err != nil {
-		lggr.Errorw("Failed to create registry", "error", err)
-		os.Exit(1)
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	fac := &executorFactory{}
-	spec := bootstrap.JobSpec{AppConfig: string(content)}
-	deps := bootstrap.ServiceDeps{Registry: reg}
-
-	if err := fac.Start(ctx, spec, deps); err != nil {
-		lggr.Errorw("Failed to start executor", "error", err)
-		os.Exit(1)
-	}
-
-	sigCh := make(chan os.Signal, 1)
-	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-	<-sigCh
-	lggr.Infow("Shutdown signal received, stopping executor...")
-
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer shutdownCancel()
-
-	done := make(chan error, 1)
-	go func() {
-		done <- fac.Stop(shutdownCtx)
-	}()
-
-	select {
-	case err := <-done:
-		if err != nil {
-			lggr.Errorw("Execution coordinator stop error", "error", err)
-		}
-	case <-shutdownCtx.Done():
-		lggr.Errorw("Execution coordinator shutdown timed out")
-	}
-
-	lggr.Infow("Execution service stopped gracefully")
 }
