@@ -8,8 +8,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 
-	"github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/offchain"
-
+	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
@@ -237,7 +236,7 @@ func All17TokenCombinations() []TokenCombination {
 //   - LockRelease pairs with BurnMint (in both directions)
 func ComputeTokenCombinations(
 	capabilities map[uint64][]PoolCapability,
-	topology *offchain.EnvironmentTopology,
+	topology *ccvdeployment.EnvironmentTopology,
 ) []TokenCombination {
 	// Collect the set of distinct pool capabilities across all chains.
 	type capKey struct {
@@ -357,7 +356,7 @@ func newTokenCombination(localType, localVersion string, localCCVs []string, rem
 // ccvQualifierPermutations returns the set of CCV qualifier slices to exercise,
 // derived from the topology's available committees. It always includes the
 // empty-qualifier case (no explicit CCVs) for pools that support it.
-func ccvQualifierPermutations(topology *offchain.EnvironmentTopology) [][]string {
+func ccvQualifierPermutations(topology *ccvdeployment.EnvironmentTopology) [][]string {
 	result := [][]string{
 		{}, // no explicit CCVs
 	}
@@ -384,7 +383,7 @@ func ccvQualifierPermutations(topology *offchain.EnvironmentTopology) [][]string
 }
 
 // qualifiersAvailable returns true if all qualifiers exist as committees in the topology.
-func qualifiersAvailable(qualifiers []string, topology *offchain.EnvironmentTopology) bool {
+func qualifiersAvailable(qualifiers []string, topology *ccvdeployment.EnvironmentTopology) bool {
 	if topology == nil || topology.NOPTopology == nil {
 		return len(qualifiers) == 0
 	}
@@ -401,7 +400,7 @@ func qualifiersAvailable(qualifiers []string, topology *offchain.EnvironmentTopo
 // as the local chain and selectors[1:] as candidate remotes, and the filter keeps only
 // combinations whose declared local->remote orientation exists in the datastore.
 // Pass ds nil to skip the datastore check.
-func FilterTokenCombinations(combos []TokenCombination, topology *offchain.EnvironmentTopology, ds datastore.DataStore, selectors []uint64) []TokenCombination {
+func FilterTokenCombinations(combos []TokenCombination, topology *ccvdeployment.EnvironmentTopology, ds datastore.DataStore, selectors []uint64) []TokenCombination {
 	filtered := make([]TokenCombination, 0, len(combos))
 	for _, combo := range combos {
 		if !qualifiersAvailable(combo.LocalPoolCCVQualifiers(), topology) ||

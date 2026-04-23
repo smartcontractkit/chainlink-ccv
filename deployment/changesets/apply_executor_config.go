@@ -7,6 +7,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 
+	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
@@ -78,37 +79,18 @@ func ApplyExecutorConfig(registry *adapters.Registry) deployment.ChangeSetV2[App
 		pool := cfg.Topology.ExecutorPools[cfg.ExecutorQualifier]
 
 		if len(selectors) == 0 {
-			if !cfg.RevokeOrphanedJobs {
-				e.Logger.Infow("No deployed chains found for executor pool, nothing to do",
-					"qualifier", cfg.ExecutorQualifier)
-				ds := datastore.NewMemoryDataStore()
-				if e.DataStore != nil {
-					if err := ds.Merge(e.DataStore); err != nil {
-						return deployment.ChangesetOutput{}, fmt.Errorf("failed to merge datastore: %w", err)
-					}
-				}
-				return deployment.ChangesetOutput{DataStore: ds}, nil
-			}
-			e.Logger.Infow("No deployed chains for executor pool, running orphan cleanup only",
-				"qualifier", cfg.ExecutorQualifier)
-			nopModes := buildNOPModes(cfg.Topology.NOPTopology.NOPs)
-			scope := shared.ExecutorJobScope{ExecutorQualifier: cfg.ExecutorQualifier}
-			manageReport, err := operations.ExecuteSequence(
-				e.OperationsBundle,
-				sequences.ManageJobProposals,
-				sequences.ManageJobProposalsDeps{Env: e},
-				sequences.ManageJobProposalsInput{
-					JobSpecs:           nil,
-					AffectedScope:      scope,
-					Labels:             map[string]string{"job_type": "executor", "executor": cfg.ExecutorQualifier},
-					NOPs:               sequences.NOPContext{Modes: nopModes, TargetNOPs: cfg.TargetNOPs, AllNOPs: getAllNOPAliases(cfg.Topology.NOPTopology.NOPs)},
-					RevokeOrphanedJobs: true,
-				},
+			return runOrphanJobCleanup(
+				e,
+				cfg.RevokeOrphanedJobs,
+				shared.ExecutorJobScope{ExecutorQualifier: cfg.ExecutorQualifier},
+				map[string]string{"job_type": "executor", "executor": cfg.ExecutorQualifier},
+				buildNOPModes(cfg.Topology.NOPTopology.NOPs),
+				cfg.TargetNOPs,
+				getAllNOPAliases(cfg.Topology.NOPTopology.NOPs),
+				"No deployed chains found for executor pool, nothing to do",
+				"No deployed chains for executor pool, running orphan cleanup only",
+				"qualifier", cfg.ExecutorQualifier,
 			)
-			if err != nil {
-				return deployment.ChangesetOutput{Reports: manageReport.ExecutionReports}, fmt.Errorf("failed to manage job proposals (orphan cleanup): %w", err)
-			}
-			return deployment.ChangesetOutput{Reports: manageReport.ExecutionReports, DataStore: manageReport.Output.DataStore}, nil
 		}
 
 		nopsToValidate := cfg.TargetNOPs
@@ -259,7 +241,7 @@ func validateExecutorChainSupport(
 }
 
 func getRequiredChainsForExecutorNOP(nopAlias string, pool ccvdeployment.ExecutorPoolConfig, _ []uint64) ([]uint64, error) {
-	var requiredChains []uint64
+	requiredChains := make([]uint64, 0, len(pool.ChainConfigs))
 	for chainSelectorStr, chainCfg := range pool.ChainConfigs {
 		if !slices.Contains(chainCfg.NOPAliases, nopAlias) {
 			continue
@@ -328,8 +310,10 @@ func buildExecutorJobSpecs(
 			sortedPool := slices.Clone(chainCfg.NOPAliases)
 			slices.Sort(sortedPool)
 			chainCfgs[chainSelectorStr] = executor.ChainConfiguration{
-				OffRampAddress:         adapterCfg.OffRampAddress,
-				RmnAddress:             adapterCfg.RmnAddress,
+				DestinationChainConfig: chainaccess.DestinationChainConfig{
+					OffRampAddress: adapterCfg.OffRampAddress,
+					RmnAddress:     adapterCfg.RmnAddress,
+				},
 				DefaultExecutorAddress: adapterCfg.DefaultExecutorAddress,
 				ExecutorPool:           sortedPool,
 				ExecutionInterval:      chainCfg.ExecutionInterval,
@@ -339,17 +323,17 @@ func buildExecutorJobSpecs(
 		jobSpecID := shared.NewExecutorJobID(nopAlias, scope)
 
 		executorCfg := executor.Configuration{
-			IndexerAddress:    indexerAddress,
-			ExecutorID:        jobSpecID.GetExecutorID(),
-			PyroscopeURL:      pyroscopeURL,
-			NtpServer:         pool.NtpServer,
-			IndexerQueryLimit: pool.IndexerQueryLimit,
-			BackoffDuration:   pool.BackoffDuration,
-			LookbackWindow:    pool.LookbackWindow,
-			ReaderCacheExpiry: pool.ReaderCacheExpiry,
-			MaxRetryDuration:  pool.MaxRetryDuration,
-			WorkerCount:       pool.WorkerCount,
-			Monitoring:        toExecutorMonitoring(monitoring),
+			IndexerAddress:     indexerAddress,
+			ExecutorID:         jobSpecID.GetExecutorID(),
+			PyroscopeURL:       pyroscopeURL,
+			NtpServer:          pool.NtpServer,
+			IndexerQueryLimit:  pool.IndexerQueryLimit,
+			BackoffDuration:    pool.BackoffDuration,
+			LookbackWindow:     pool.LookbackWindow,
+			ReaderCacheExpiry:  pool.ReaderCacheExpiry,
+			MaxRetryDuration:   pool.MaxRetryDuration,
+			WorkerCount:        pool.WorkerCount,
+			Monitoring:         monitoring,
 			ChainConfiguration: chainCfgs,
 		}
 
@@ -374,23 +358,6 @@ executorConfig = '''
 	}
 
 	return jobSpecs, scope, nil
-}
-
-func toExecutorMonitoring(m ccvdeployment.MonitoringConfig) executor.MonitoringConfig {
-	return executor.MonitoringConfig{
-		Enabled: m.Enabled,
-		Type:    m.Type,
-		Beholder: executor.BeholderConfig{
-			InsecureConnection:       m.Beholder.InsecureConnection,
-			CACertFile:               m.Beholder.CACertFile,
-			OtelExporterGRPCEndpoint: m.Beholder.OtelExporterGRPCEndpoint,
-			OtelExporterHTTPEndpoint: m.Beholder.OtelExporterHTTPEndpoint,
-			LogStreamingEnabled:      m.Beholder.LogStreamingEnabled,
-			MetricReaderInterval:     m.Beholder.MetricReaderInterval,
-			TraceSampleRatio:         m.Beholder.TraceSampleRatio,
-			TraceBatchTimeout:        m.Beholder.TraceBatchTimeout,
-		},
-	}
 }
 
 func buildNOPModes(nops []ccvdeployment.NOPConfig) map[shared.NOPAlias]shared.NOPMode {

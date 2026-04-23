@@ -4,24 +4,28 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/deployment/shared"
+	indexerconfig "github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token"
 )
 
 type OffchainConfigs struct {
-	Aggregators    map[string]*Committee                    `json:"aggregators,omitempty"`
-	Indexers       map[string]*IndexerGeneratedConfig       `json:"indexers,omitempty"`
-	TokenVerifiers map[string]*TokenVerifierGeneratedConfig `json:"tokenVerifiers,omitempty"`
-	NOPJobs        shared.NOPJobs                           `json:"nopJobs,omitempty"`
+	Aggregators    map[string]*model.Committee               `json:"aggregators,omitempty"`
+	Indexers       map[string]*indexerconfig.GeneratedConfig `json:"indexers,omitempty"`
+	TokenVerifiers map[string]*token.Config                  `json:"tokenVerifiers,omitempty"`
+	NOPJobs        shared.NOPJobs                            `json:"nopJobs,omitempty"`
 }
 
 type CCVEnvMetadata struct {
 	OffchainConfigs *OffchainConfigs `json:"offchainConfigs,omitempty"`
 }
 
-func SaveAggregatorConfig(ds datastore.MutableDataStore, serviceIdentifier string, cfg *Committee) error {
+func SaveAggregatorConfig(ds datastore.MutableDataStore, serviceIdentifier string, cfg *model.Committee) error {
 	ccvMeta, err := loadOrCreateCCVEnvMetadata(ds)
 	if err != nil {
 		return err
@@ -31,7 +35,7 @@ func SaveAggregatorConfig(ds datastore.MutableDataStore, serviceIdentifier strin
 		ccvMeta.OffchainConfigs = &OffchainConfigs{}
 	}
 	if ccvMeta.OffchainConfigs.Aggregators == nil {
-		ccvMeta.OffchainConfigs.Aggregators = make(map[string]*Committee)
+		ccvMeta.OffchainConfigs.Aggregators = make(map[string]*model.Committee)
 	}
 
 	ccvMeta.OffchainConfigs.Aggregators[serviceIdentifier] = cfg
@@ -39,7 +43,7 @@ func SaveAggregatorConfig(ds datastore.MutableDataStore, serviceIdentifier strin
 	return persistCCVEnvMetadata(ds, ccvMeta)
 }
 
-func GetAggregatorConfig(ds datastore.DataStore, serviceIdentifier string) (*Committee, error) {
+func GetAggregatorConfig(ds datastore.DataStore, serviceIdentifier string) (*model.Committee, error) {
 	ccvMeta, err := loadCCVEnvMetadata(ds)
 	if err != nil {
 		return nil, err
@@ -57,7 +61,7 @@ func GetAggregatorConfig(ds datastore.DataStore, serviceIdentifier string) (*Com
 	return cfg, nil
 }
 
-func SaveIndexerConfig(ds datastore.MutableDataStore, serviceIdentifier string, cfg *IndexerGeneratedConfig) error {
+func SaveIndexerConfig(ds datastore.MutableDataStore, serviceIdentifier string, cfg *indexerconfig.GeneratedConfig) error {
 	ccvMeta, err := loadOrCreateCCVEnvMetadata(ds)
 	if err != nil {
 		return err
@@ -67,7 +71,7 @@ func SaveIndexerConfig(ds datastore.MutableDataStore, serviceIdentifier string, 
 		ccvMeta.OffchainConfigs = &OffchainConfigs{}
 	}
 	if ccvMeta.OffchainConfigs.Indexers == nil {
-		ccvMeta.OffchainConfigs.Indexers = make(map[string]*IndexerGeneratedConfig)
+		ccvMeta.OffchainConfigs.Indexers = make(map[string]*indexerconfig.GeneratedConfig)
 	}
 
 	ccvMeta.OffchainConfigs.Indexers[serviceIdentifier] = cfg
@@ -75,7 +79,7 @@ func SaveIndexerConfig(ds datastore.MutableDataStore, serviceIdentifier string, 
 	return persistCCVEnvMetadata(ds, ccvMeta)
 }
 
-func GetIndexerConfig(ds datastore.DataStore, serviceIdentifier string) (*IndexerGeneratedConfig, error) {
+func GetIndexerConfig(ds datastore.DataStore, serviceIdentifier string) (*indexerconfig.GeneratedConfig, error) {
 	ccvMeta, err := loadCCVEnvMetadata(ds)
 	if err != nil {
 		return nil, err
@@ -93,7 +97,7 @@ func GetIndexerConfig(ds datastore.DataStore, serviceIdentifier string) (*Indexe
 	return cfg, nil
 }
 
-func SaveTokenVerifierConfig(ds datastore.MutableDataStore, serviceIdentifier string, cfg *TokenVerifierGeneratedConfig) error {
+func SaveTokenVerifierConfig(ds datastore.MutableDataStore, serviceIdentifier string, cfg *token.Config) error {
 	ccvMeta, err := loadOrCreateCCVEnvMetadata(ds)
 	if err != nil {
 		return err
@@ -103,7 +107,7 @@ func SaveTokenVerifierConfig(ds datastore.MutableDataStore, serviceIdentifier st
 		ccvMeta.OffchainConfigs = &OffchainConfigs{}
 	}
 	if ccvMeta.OffchainConfigs.TokenVerifiers == nil {
-		ccvMeta.OffchainConfigs.TokenVerifiers = make(map[string]*TokenVerifierGeneratedConfig)
+		ccvMeta.OffchainConfigs.TokenVerifiers = make(map[string]*token.Config)
 	}
 
 	ccvMeta.OffchainConfigs.TokenVerifiers[serviceIdentifier] = cfg
@@ -111,7 +115,7 @@ func SaveTokenVerifierConfig(ds datastore.MutableDataStore, serviceIdentifier st
 	return persistCCVEnvMetadata(ds, ccvMeta)
 }
 
-func GetTokenVerifierConfig(ds datastore.DataStore, serviceIdentifier string) (*TokenVerifierGeneratedConfig, error) {
+func GetTokenVerifierConfig(ds datastore.DataStore, serviceIdentifier string) (*token.Config, error) {
 	ccvMeta, err := loadCCVEnvMetadata(ds)
 	if err != nil {
 		return nil, err
@@ -172,65 +176,96 @@ func parseCCVEnvMetadata(metadata any) (*CCVEnvMetadata, error) {
 // when chains or jobs are removed. Unknown sibling keys under offchainConfigs
 // and non-CCV top-level keys are preserved.
 func persistCCVEnvMetadata(ds datastore.MutableDataStore, ccvMeta *CCVEnvMetadata) error {
-	var existingMeta map[string]any
-	envMeta, err := ds.EnvMetadata().Get()
+	existingMeta, err := loadExistingEnvMetadata(ds)
 	if err != nil {
-		if !errors.Is(err, datastore.ErrEnvMetadataNotSet) {
-			return fmt.Errorf("failed to get env metadata: %w", err)
-		}
-		existingMeta = make(map[string]any)
-	} else if envMeta.Metadata != nil {
-		data, err := json.Marshal(envMeta.Metadata)
-		if err != nil {
-			return fmt.Errorf("failed to marshal existing env metadata: %w", err)
-		}
-		if err := json.Unmarshal(data, &existingMeta); err != nil {
-			return fmt.Errorf("failed to unmarshal existing env metadata: %w", err)
-		}
-	} else {
-		existingMeta = make(map[string]any)
+		return err
 	}
 
 	if ccvMeta.OffchainConfigs != nil {
-		existingOC, ok := existingMeta["offchainConfigs"].(map[string]any)
-		if !ok {
-			existingOC = make(map[string]any)
+		existingOC, err := mergeOffchainConfigs(existingMeta, ccvMeta.OffchainConfigs)
+		if err != nil {
+			return err
 		}
-
-		oc := ccvMeta.OffchainConfigs
-		if oc.Aggregators != nil {
-			v, err := marshalToAny(oc.Aggregators)
-			if err != nil {
-				return fmt.Errorf("failed to convert aggregators: %w", err)
-			}
-			existingOC["aggregators"] = v
-		}
-		if oc.Indexers != nil {
-			v, err := marshalToAny(oc.Indexers)
-			if err != nil {
-				return fmt.Errorf("failed to convert indexers: %w", err)
-			}
-			existingOC["indexers"] = v
-		}
-		if oc.TokenVerifiers != nil {
-			v, err := marshalToAny(oc.TokenVerifiers)
-			if err != nil {
-				return fmt.Errorf("failed to convert token verifiers: %w", err)
-			}
-			existingOC["tokenVerifiers"] = v
-		}
-		if oc.NOPJobs != nil {
-			v, err := marshalToAny(oc.NOPJobs)
-			if err != nil {
-				return fmt.Errorf("failed to convert NOP jobs: %w", err)
-			}
-			existingOC["nopJobs"] = v
-		}
-
 		existingMeta["offchainConfigs"] = existingOC
 	}
 
 	return ds.EnvMetadata().Set(datastore.EnvMetadata{Metadata: existingMeta})
+}
+
+// loadExistingEnvMetadata reads the current env metadata as a generic map so it can
+// be shallow-merged with new CCV values. A missing or nil metadata is returned as an
+// empty map.
+func loadExistingEnvMetadata(ds datastore.MutableDataStore) (map[string]any, error) {
+	envMeta, err := ds.EnvMetadata().Get()
+	if err != nil {
+		if errors.Is(err, datastore.ErrEnvMetadataNotSet) {
+			return make(map[string]any), nil
+		}
+		return nil, fmt.Errorf("failed to get env metadata: %w", err)
+	}
+	if envMeta.Metadata == nil {
+		return make(map[string]any), nil
+	}
+
+	data, err := json.Marshal(envMeta.Metadata)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal existing env metadata: %w", err)
+	}
+	var existingMeta map[string]any
+	if err := json.Unmarshal(data, &existingMeta); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal existing env metadata: %w", err)
+	}
+	return existingMeta, nil
+}
+
+// mergeOffchainConfigs merges the non-nil fields of oc into the offchainConfigs sub-map of
+// existingMeta. Unknown sibling keys already present under offchainConfigs are preserved.
+func mergeOffchainConfigs(existingMeta map[string]any, oc *OffchainConfigs) (map[string]any, error) {
+	existingOC, ok := existingMeta["offchainConfigs"].(map[string]any)
+	if !ok {
+		existingOC = make(map[string]any)
+	}
+
+	type entry struct {
+		key   string
+		value any
+		label string
+	}
+	entries := []entry{
+		{"aggregators", oc.Aggregators, "aggregators"},
+		{"indexers", oc.Indexers, "indexers"},
+		{"tokenVerifiers", oc.TokenVerifiers, "token verifiers"},
+		{"nopJobs", oc.NOPJobs, "NOP jobs"},
+	}
+
+	for _, e := range entries {
+		if isNilValue(e.value) {
+			continue
+		}
+		v, err := marshalToAny(e.value)
+		if err != nil {
+			return nil, fmt.Errorf("failed to convert %s: %w", e.label, err)
+		}
+		existingOC[e.key] = v
+	}
+
+	return existingOC, nil
+}
+
+// isNilValue reports whether v is an untyped nil or a typed nil reference value
+// (map, slice, pointer, interface, channel, or func). It uses reflection so callers
+// don't need to be updated when OffchainConfigs gains new map fields.
+func isNilValue(v any) bool {
+	if v == nil {
+		return true
+	}
+	rv := reflect.ValueOf(v)
+	switch rv.Kind() {
+	case reflect.Map, reflect.Slice, reflect.Ptr, reflect.Interface, reflect.Chan, reflect.Func:
+		return rv.IsNil()
+	default:
+		return false
+	}
 }
 
 func marshalToAny(v any) (any, error) {

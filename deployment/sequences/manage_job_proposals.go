@@ -333,7 +333,7 @@ func detectCLToStandaloneTransitions(newJobs []shared.JobInfo, existingJobs shar
 	return transitioned
 }
 
-func clearJDMetadata(jobs []shared.JobInfo, transitioned []shared.JobInfo) {
+func clearJDMetadata(jobs, transitioned []shared.JobInfo) {
 	transitionedSet := make(map[shared.JobID]bool, len(transitioned))
 	for _, t := range transitioned {
 		transitionedSet[t.JobID] = true

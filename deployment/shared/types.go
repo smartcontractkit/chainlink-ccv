@@ -84,7 +84,6 @@ func (j *JobInfo) LatestStatus() JobProposalStatus {
 // NOPJobs maps NOP alias -> job ID -> job info.
 type NOPJobs map[NOPAlias]map[JobID]JobInfo
 
-
 type JobID string
 
 // CCVJobNamespace is a UUID v5 namespace for generating deterministic external job IDs.
@@ -94,7 +93,10 @@ func (id JobID) ToExternalJobID() string {
 	return uuid.NewSHA1(CCVJobNamespace, []byte(id)).String()
 }
 
+// JobScope determines whether a given job ID belongs to the scope being managed
+// (e.g. an executor pool qualifier or a verifier committee qualifier).
 type JobScope interface {
+	// IsJobInScope reports whether the given job ID falls within this scope.
 	IsJobInScope(jobID JobID) bool
 }
 

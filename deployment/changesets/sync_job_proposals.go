@@ -6,8 +6,8 @@ import (
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
 
-	"github.com/smartcontractkit/chainlink-ccv/deployment/shared"
 	syncjobproposals "github.com/smartcontractkit/chainlink-ccv/deployment/operations/sync_job_proposals"
+	"github.com/smartcontractkit/chainlink-ccv/deployment/shared"
 )
 
 type SyncJobProposalsInput struct {

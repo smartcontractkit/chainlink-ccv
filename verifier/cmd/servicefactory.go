@@ -145,10 +145,10 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 			lggr.Errorw("Failed to get accessor", "error", err, "selector", selector)
 			return fmt.Errorf("failed to get accessor: %w", err)
 		}
-		reader := accessor.SourceReader()
-		if reader == nil {
-			lggr.Errorw("Failed to get source reader for chain", "selector", selector)
-			return fmt.Errorf("failed to get source reader for chain: %w", err)
+		reader, err := accessor.SourceReader()
+		if err != nil {
+			lggr.Errorw("Failed to get source reader for chain", "selector", selector, "error", err)
+			return fmt.Errorf("failed to get source reader for chain %d: %w", selector, err)
 		}
 		sourceReaders[selector] = reader
 	}

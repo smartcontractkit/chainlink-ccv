@@ -29,6 +29,9 @@ func (e *MissingIndexerVerifierAddressesError) Error() string {
 	)
 }
 
+// IndexerConfigAdapter resolves verifier addresses recorded for an indexer from the datastore.
 type IndexerConfigAdapter interface {
+	// ResolveVerifierAddresses returns the verifier contract addresses of the given kind
+	// for the chain selector and qualifier as recorded in the datastore.
 	ResolveVerifierAddresses(ds datastore.DataStore, chainSelector uint64, qualifier string, kind VerifierKind) ([]string, error)
 }

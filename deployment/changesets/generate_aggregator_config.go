@@ -9,6 +9,7 @@ import (
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
 	"github.com/smartcontractkit/chainlink-ccv/deployment/adapters"
 )
@@ -94,7 +95,7 @@ func buildAggregatorCommittee(
 	registry *adapters.Registry,
 	committeeQualifier string,
 	chainSelectors []uint64,
-) (*ccvdeployment.Committee, error) {
+) (*model.Committee, error) {
 	ctx := context.Background()
 
 	type chainQualifier struct {
@@ -144,7 +145,7 @@ func buildAggregatorCommittee(
 		return nil, fmt.Errorf("failed to build destination verifiers: %w", err)
 	}
 
-	return &ccvdeployment.Committee{
+	return &model.Committee{
 		QuorumConfigs:        quorumConfigs,
 		DestinationVerifiers: destVerifiers,
 	}, nil
@@ -156,13 +157,13 @@ func buildQuorumConfigs(
 	committeeStates []*adapters.CommitteeState,
 	committeeQualifier string,
 	chainSelectors []uint64,
-) (map[string]*ccvdeployment.QuorumConfig, error) {
+) (map[string]*model.QuorumConfig, error) {
 	supportedChains := make(map[uint64]bool, len(chainSelectors))
 	for _, sel := range chainSelectors {
 		supportedChains[sel] = true
 	}
 
-	quorumConfigs := make(map[string]*ccvdeployment.QuorumConfig)
+	quorumConfigs := make(map[string]*model.QuorumConfig)
 
 	for _, state := range committeeStates {
 		for _, sigConfig := range state.SignatureConfigs {
@@ -191,12 +192,12 @@ func buildQuorumConfigs(
 				return nil, fmt.Errorf("failed to resolve source verifier for chain %d: %w", sigConfig.SourceChainSelector, err)
 			}
 
-			signers := make([]ccvdeployment.Signer, 0, len(sigConfig.Signers))
+			signers := make([]model.Signer, 0, len(sigConfig.Signers))
 			for _, addr := range sigConfig.Signers {
-				signers = append(signers, ccvdeployment.Signer{Address: addr})
+				signers = append(signers, model.Signer{Address: addr})
 			}
 
-			quorumConfigs[chainSelectorStr] = &ccvdeployment.QuorumConfig{
+			quorumConfigs[chainSelectorStr] = &model.QuorumConfig{
 				SourceVerifierAddress: sourceVerifierAddr,
 				Signers:               signers,
 				Threshold:             sigConfig.Threshold,
@@ -208,7 +209,7 @@ func buildQuorumConfigs(
 }
 
 func validateSignatureConfigConsistency(
-	existing *ccvdeployment.QuorumConfig,
+	existing *model.QuorumConfig,
 	newSig adapters.SignatureConfig,
 	chainSelectorStr string,
 	committeeQualifier string,

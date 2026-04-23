@@ -7,13 +7,11 @@ import (
 
 	"github.com/BurntSushi/toml"
 
-	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
 
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/commit"
-	vtypes "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
 
 	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
 	"github.com/smartcontractkit/chainlink-ccv/deployment/adapters"
@@ -92,38 +90,18 @@ func ApplyVerifierConfig(registry *adapters.Registry) deployment.ChangeSetV2[App
 		}
 
 		if len(selectors) == 0 {
-			if !cfg.RevokeOrphanedJobs {
-				e.Logger.Infow("No chain configs found for committee, nothing to do",
-					"committee", cfg.CommitteeQualifier)
-				ds := datastore.NewMemoryDataStore()
-				if e.DataStore != nil {
-					if err := ds.Merge(e.DataStore); err != nil {
-						return deployment.ChangesetOutput{}, fmt.Errorf("failed to merge datastore: %w", err)
-					}
-				}
-				return deployment.ChangesetOutput{DataStore: ds}, nil
-			}
-			e.Logger.Infow("No chain configs for committee, running orphan cleanup only",
-				"committee", cfg.CommitteeQualifier)
-			nopModes := buildNOPModes(cfg.Topology.NOPTopology.NOPs)
-			scope := shared.VerifierJobScope{CommitteeQualifier: cfg.CommitteeQualifier}
-			manageReport, err := operations.ExecuteSequence(
-				e.OperationsBundle,
-				sequences.ManageJobProposals,
-				sequences.ManageJobProposalsDeps{Env: e},
-				sequences.ManageJobProposalsInput{
-					JobSpecs:           nil,
-					AffectedScope:      scope,
-					Labels:             map[string]string{"job_type": "verifier", "committee": cfg.CommitteeQualifier},
-					NOPs:               sequences.NOPContext{Modes: nopModes, TargetNOPs: cfg.TargetNOPs, AllNOPs: getAllNOPAliases(cfg.Topology.NOPTopology.NOPs)},
-					RevokeOrphanedJobs: true,
-				},
+			return runOrphanJobCleanup(
+				e,
+				cfg.RevokeOrphanedJobs,
+				shared.VerifierJobScope{CommitteeQualifier: cfg.CommitteeQualifier},
+				map[string]string{"job_type": "verifier", "committee": cfg.CommitteeQualifier},
+				buildNOPModes(cfg.Topology.NOPTopology.NOPs),
+				cfg.TargetNOPs,
+				getAllNOPAliases(cfg.Topology.NOPTopology.NOPs),
+				"No chain configs found for committee, nothing to do",
+				"No chain configs for committee, running orphan cleanup only",
+				"committee", cfg.CommitteeQualifier,
 			)
-			if err != nil {
-				return deployment.ChangesetOutput{Reports: manageReport.ExecutionReports},
-					fmt.Errorf("failed to manage job proposals (orphan cleanup): %w", err)
-			}
-			return deployment.ChangesetOutput{Reports: manageReport.ExecutionReports, DataStore: manageReport.Output.DataStore}, nil
 		}
 
 		// Derive the signing key family from the registered adapter — no hardcoded chain family.
@@ -338,7 +316,7 @@ func buildVerifierJobSpecs(
 				CommitteeVerifierAddresses:     filterAddressesByChains(committeeVerifierAddrs, nopChains),
 				DefaultExecutorOnRampAddresses: filterAddressesByChains(executorOnRampAddrs, nopChains),
 				DisableFinalityCheckers:        sortedFinalityCheckers,
-				Monitoring:                     toVerifierMonitoring(monitoring),
+				Monitoring:                     monitoring,
 				CommitteeConfig: chainaccess.CommitteeConfig{
 					OnRampAddresses:    filterAddressesByChains(onRampAddrs, nopChains),
 					RMNRemoteAddresses: filterAddressesByChains(rmnRemoteAddrs, nopChains),
@@ -367,23 +345,6 @@ committeeVerifierConfig = '''
 	}
 
 	return jobSpecs, scope, nil
-}
-
-func toVerifierMonitoring(m ccvdeployment.MonitoringConfig) vtypes.MonitoringConfig {
-	return vtypes.MonitoringConfig{
-		Enabled: m.Enabled,
-		Type:    m.Type,
-		Beholder: vtypes.BeholderConfig{
-			InsecureConnection:       m.Beholder.InsecureConnection,
-			CACertFile:               m.Beholder.CACertFile,
-			OtelExporterGRPCEndpoint: m.Beholder.OtelExporterGRPCEndpoint,
-			OtelExporterHTTPEndpoint: m.Beholder.OtelExporterHTTPEndpoint,
-			LogStreamingEnabled:      m.Beholder.LogStreamingEnabled,
-			MetricReaderInterval:     m.Beholder.MetricReaderInterval,
-			TraceSampleRatio:         m.Beholder.TraceSampleRatio,
-			TraceBatchTimeout:        m.Beholder.TraceBatchTimeout,
-		},
-	}
 }
 
 // fetchSigningKeysForNOPs fetches signing keys from JD for NOPs that are missing a signer

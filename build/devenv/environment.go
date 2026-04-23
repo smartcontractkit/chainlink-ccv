@@ -26,7 +26,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
-	"github.com/smartcontractkit/chainlink-ccv/build/devenv/offchainloader"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/chainconfig"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/committeeverifier"
@@ -1109,7 +1108,7 @@ func NewEnvironment() (in *Cfg, err error) {
 			capsBySelector[networkInfo.ChainSelector] = nil
 		}
 	}
-	combos := devenvcommon.ComputeTokenCombinations(capsBySelector, convertTopologyToCCIP(topology))
+	combos := devenvcommon.ComputeTokenCombinations(capsBySelector, topology)
 
 	ds := datastore.NewMemoryDataStore()
 	for i, impl := range impls {
@@ -1256,7 +1255,7 @@ func NewEnvironment() (in *Cfg, err error) {
 		}
 
 		// Get generated config from output datastore
-		aggCfg, err := offchainloader.GetAggregatorConfig(output.DataStore.Seal(), instanceName+"-aggregator")
+		aggCfg, err := ccvdeployment.GetAggregatorConfig(output.DataStore.Seal(), instanceName+"-aggregator")
 		if err != nil {
 			return nil, fmt.Errorf("failed to get aggregator config from output: %w", err)
 		}
@@ -1297,7 +1296,7 @@ func NewEnvironment() (in *Cfg, err error) {
 			return nil, fmt.Errorf("failed to generate indexer config: %w", err)
 		}
 
-		idxCfg, err := offchainloader.GetIndexerConfig(output.DataStore.Seal(), "indexer")
+		idxCfg, err := ccvdeployment.GetIndexerConfig(output.DataStore.Seal(), "indexer")
 		if err != nil {
 			return nil, fmt.Errorf("failed to get indexer config from output: %w", err)
 		}
@@ -1537,7 +1536,7 @@ func NewEnvironment() (in *Cfg, err error) {
 		}
 
 		// Get generated config from output datastore
-		tokenVerifierCfg, err := offchainloader.GetTokenVerifierConfig(
+		tokenVerifierCfg, err := ccvdeployment.GetTokenVerifierConfig(
 			output.DataStore.Seal(), "TokenVerifier",
 		)
 		if err != nil {
