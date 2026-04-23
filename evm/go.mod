@@ -14,8 +14,8 @@ require (
 	github.com/smartcontractkit/chain-selectors v1.0.98
 	github.com/smartcontractkit/chainlink-ccip/chains/evm v0.0.0-20260416055149-75c017f534ca
 	github.com/smartcontractkit/chainlink-ccip/deployment v0.0.0-20260416055149-75c017f534ca
-	github.com/smartcontractkit/chainlink-ccv v0.0.0
-	github.com/smartcontractkit/chainlink-ccv/deployment v0.0.0
+	github.com/smartcontractkit/chainlink-ccv v0.0.0-00010101000000-000000000000
+	github.com/smartcontractkit/chainlink-ccv/deployment v0.0.0-00010101000000-000000000000
 	github.com/smartcontractkit/chainlink-deployments-framework v0.94.1
 	github.com/smartcontractkit/chainlink-protos/job-distributor v0.18.0
 )
