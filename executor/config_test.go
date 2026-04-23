@@ -5,12 +5,16 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 )
 
 func validChainConfig() ChainConfiguration {
 	return ChainConfiguration{
-		RmnAddress:             "0x1234567890abcdef",
-		OffRampAddress:         "0xabcdef1234567890",
+		DestinationChainConfig: chainaccess.DestinationChainConfig{
+			RmnAddress:     "0x1234567890abcdef",
+			OffRampAddress: "0xabcdef1234567890",
+		},
 		DefaultExecutorAddress: "0xdeadbeef12345678",
 		ExecutorPool:           []string{"executor-1", "executor-2"},
 	}

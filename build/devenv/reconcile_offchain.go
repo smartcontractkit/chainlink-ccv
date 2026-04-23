@@ -8,13 +8,12 @@ import (
 
 	ccipAdapters "github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/adapters"
 	ccipChangesets "github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/changesets"
-	ccipOffchain "github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/offchain"
-	"github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/offchain/shared"
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
-	"github.com/smartcontractkit/chainlink-ccv/build/devenv/offchainloader"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
+	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
+	ccvshared "github.com/smartcontractkit/chainlink-ccv/deployment/shared"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/offchain"
@@ -51,7 +50,7 @@ func ConfigureTopologyLanesAndOffchain(
 	ctx context.Context,
 	e *deployment.Environment,
 	in *Cfg,
-	topology *ccipOffchain.EnvironmentTopology,
+	topology *ccvdeployment.EnvironmentTopology,
 	selectors []uint64,
 	blockchains []*blockchain.Input,
 	impls []cciptestinterfaces.CCIP17Configuration,
@@ -59,7 +58,7 @@ func ConfigureTopologyLanesAndOffchain(
 	sharedTLSCerts *services.TLSCertPaths,
 	offchainOpts ConfigureOffchainOptions,
 ) error {
-	if err := reconfigureLanesFromTopology(ctx, e, topology, selectors, blockchains, impls, laneParams); err != nil {
+	if err := reconfigureLanesFromTopology(ctx, e, convertTopologyToCCIP(topology), selectors, blockchains, impls, laneParams); err != nil {
 		return fmt.Errorf("configure topology lanes and offchain: on-chain: %w", err)
 	}
 	if err := configureOffchainAfterOnChainChange(ctx, e, in, impls, topology, sharedTLSCerts, offchainOpts); err != nil {
@@ -75,7 +74,7 @@ func configureOffchainAfterOnChainChange(
 	e *deployment.Environment,
 	in *Cfg,
 	impls []cciptestinterfaces.CCIP17Configuration,
-	topology *ccipOffchain.EnvironmentTopology,
+	topology *ccvdeployment.EnvironmentTopology,
 	sharedTLSCerts *services.TLSCertPaths,
 	opts ConfigureOffchainOptions,
 ) error {
@@ -207,7 +206,7 @@ func ImplConfigurationsFromCfg(in *Cfg) ([]cciptestinterfaces.CCIP17Configuratio
 func configureOffchainFromTopology(
 	e *deployment.Environment,
 	in *Cfg,
-	topology *ccipOffchain.EnvironmentTopology,
+	topology *ccvdeployment.EnvironmentTopology,
 	sharedTLSCerts *services.TLSCertPaths,
 	ds datastore.MutableDataStore,
 ) (map[string][]bootstrap.JobSpec, error) {
@@ -221,6 +220,8 @@ func configureOffchainFromTopology(
 		}
 	}
 
+	ccipTopology := convertTopologyToCCIP(topology)
+
 	ResetMemoryOperationsBundle(e)
 
 	for _, aggregatorInput := range in.Aggregator {
@@ -232,12 +233,12 @@ func configureOffchainFromTopology(
 		output, err := ccipChangesets.GenerateAggregatorConfig(ccipAdapters.GetAggregatorConfigRegistry()).Apply(*e, ccipChangesets.GenerateAggregatorConfigInput{
 			ServiceIdentifier:  instanceName + "-aggregator",
 			CommitteeQualifier: aggregatorInput.CommitteeName,
-			Topology:           topology,
+			Topology:           ccipTopology,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("generate aggregator config %s: %w", instanceName, err)
 		}
-		aggCfg, err := offchainloader.GetAggregatorConfig(output.DataStore.Seal(), instanceName+"-aggregator")
+		aggCfg, err := ccvdeployment.GetAggregatorConfig(output.DataStore.Seal(), instanceName+"-aggregator")
 		if err != nil {
 			return nil, fmt.Errorf("get aggregator config %s: %w", instanceName, err)
 		}
@@ -259,7 +260,7 @@ func configureOffchainFromTopology(
 		if err != nil {
 			return nil, fmt.Errorf("generate indexer config: %w", err)
 		}
-		idxCfg, err := offchainloader.GetIndexerConfig(output.DataStore.Seal(), "indexer")
+		idxCfg, err := ccvdeployment.GetIndexerConfig(output.DataStore.Seal(), "indexer")
 		if err != nil {
 			return nil, fmt.Errorf("get indexer config: %w", err)
 		}
@@ -317,13 +318,13 @@ func acceptPendingJobsAndSync(ctx context.Context, e *deployment.Environment, in
 	return nil
 }
 
-func clModeNOPAliases(topology *ccipOffchain.EnvironmentTopology) []string {
+func clModeNOPAliases(topology *ccvdeployment.EnvironmentTopology) []string {
 	if topology == nil || topology.NOPTopology == nil {
 		return nil
 	}
 	aliases := make([]string, 0, len(topology.NOPTopology.NOPs))
 	for _, nop := range topology.NOPTopology.NOPs {
-		if nop.GetMode() == shared.NOPModeCL {
+		if nop.GetMode() == ccvshared.NOPModeCL {
 			alias := nop.Alias
 			if alias == "" {
 				alias = nop.Name

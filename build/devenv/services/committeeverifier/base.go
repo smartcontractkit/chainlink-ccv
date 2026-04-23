@@ -103,14 +103,18 @@ type Input struct {
 // added to the inner config. This is needed for standalone verifiers which require blockchain
 // connection information (CL nodes get this from their own chain config).
 // TODO: we stick with the job spec so that there isn't special logic for standalone verifiers.
-func (v *Input) RebuildVerifierJobSpecWithBlockchainInfos(spec bootstrap.JobSpec, blockchainInfos map[string]any) (string, error) {
-	// Parse the inner config next.
+func RebuildVerifierJobSpecWithBlockchainInfos(spec bootstrap.JobSpec, blockchainInfos map[string]any) (string, error) {
 	var cfg commit.Config
-	if _, err := toml.Decode(spec.AppConfig, &cfg); err != nil {
+	if err := spec.GetAppConfig(&cfg); err != nil {
 		return "", fmt.Errorf("failed to parse verifier config from job spec: %w", err)
 	}
 
-	configWithInfos := commit.ConfigWithBlockchainInfos{
+	type configWithBlockchainInfos struct {
+		commit.Config
+		BlockchainInfos map[string]any `toml:"blockchain_infos"`
+	}
+
+	configWithInfos := configWithBlockchainInfos{
 		Config:          cfg,
 		BlockchainInfos: blockchainInfos,
 	}
@@ -422,7 +426,7 @@ func baseImageRequest(in *Input, envVars map[string]string, bootstrapConfigFileP
 	}
 
 	req.Mounts = testcontainers.Mounts()
-	req.Mounts = append(req.Mounts, testcontainers.BindMount( //nolint:staticcheck // we're still using it...
+	req.Mounts = append(req.Mounts, testcontainers.BindMount(
 		bootstrapConfigFilePath,
 		bootstrap.DefaultConfigPath,
 	))

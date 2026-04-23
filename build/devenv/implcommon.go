@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"sort"
 
 	"github.com/Masterminds/semver/v3"
 
@@ -15,9 +16,9 @@ import (
 	devenvmcms "github.com/smartcontractkit/chainlink-ccip/deployment/utils/mcms"
 	ccipAdapters "github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/adapters"
 	ccipChangesets "github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/changesets"
-	ccipOffchain "github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/offchain"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
+	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
@@ -49,7 +50,7 @@ func DeployContractsForSelector(
 	env *deployment.Environment,
 	impl cciptestinterfaces.OnChainConfigurable,
 	selector uint64,
-	topology *ccipOffchain.EnvironmentTopology,
+	topology *ccvdeployment.EnvironmentTopology,
 ) (datastore.DataStore, error) {
 	runningDS := datastore.NewMemoryDataStore()
 
@@ -82,10 +83,11 @@ func DeployContractsForSelector(
 	}
 
 	// 3. Call the tooling API changeset.
+	ccipTopology := convertTopologyToCCIP(topology)
 	registry := ccipAdapters.GetDeployChainContractsRegistry()
 	out, err := ccipChangesets.DeployChainContracts(registry).Apply(*env, changesetscore.WithMCMS[ccipChangesets.DeployChainContractsCfg]{
 		Cfg: ccipChangesets.DeployChainContractsCfg{
-			Topology:                                topology,
+			Topology:                                ccipTopology,
 			ChainSelectors:                          []uint64{selector},
 			IgnoreImportedConfigFromPreviousVersion: true,
 			DefaultCfg:                              cfg,
@@ -141,7 +143,7 @@ func connectAllChainsCanonical(
 	blockchains []*blockchain.Input,
 	selectors []uint64,
 	e *deployment.Environment,
-	topology *ccipOffchain.EnvironmentTopology,
+	topology *ccvdeployment.EnvironmentTopology,
 ) error {
 	if len(blockchains) != len(impls) {
 		return fmt.Errorf("connectAllChainsCanonical: mismatched lengths: %d impls and %d blockchains", len(impls), len(blockchains))
@@ -150,14 +152,30 @@ func connectAllChainsCanonical(
 		return fmt.Errorf("connectAllChainsCanonical: selectors must be non-empty")
 	}
 
-	orderedSelectors, profiles, err := buildConnectionProfilesFromImpls(impls, blockchains, selectors, e)
-	if err != nil {
-		return fmt.Errorf("connectAllChainsCanonical: %w", err)
-	}
-
-	partialChains, useTestRouter, err := buildPartialChainConfigsFromProfiles(topology, orderedSelectors, profiles, ReconfigureLanesParams{})
-	if err != nil {
-		return fmt.Errorf("connectAllChainsCanonical: %w", err)
+	profiles := make(map[uint64]chainProfile, len(impls))
+	orderedSelectors := make([]uint64, 0, len(impls))
+	for i, impl := range impls {
+		networkInfo, err := chainsel.GetChainDetailsByChainIDAndFamily(blockchains[i].ChainID, impl.ChainFamily())
+		if err != nil {
+			return fmt.Errorf("chain %d: %w", i, err)
+		}
+		sel := networkInfo.ChainSelector
+		remotes := make([]uint64, 0, len(selectors))
+		for _, s := range selectors {
+			if s != sel {
+				remotes = append(remotes, s)
+			}
+		}
+		profile, err := impl.GetChainLaneProfile(e, sel)
+		if err != nil {
+			return fmt.Errorf("get chain lane profile for chain %d: %w", sel, err)
+		}
+		profiles[sel] = chainProfile{
+			remotes: remotes,
+			impl:    impl,
+			profile: profile,
+		}
+		orderedSelectors = append(orderedSelectors, sel)
 	}
 
 	e.OperationsBundle = operations.NewBundle(
@@ -172,16 +190,36 @@ func connectAllChainsCanonical(
 		changesetscore.GetRegistry(),
 	)
 
-	cfg := ccipChangesets.ConfigureChainsForLanesFromTopologyConfig{
-		Topology:      topology,
-		Chains:        partialChains,
-		UseTestRouter: useTestRouter,
-	}
-	if err := cs.VerifyPreconditions(*e, cfg); err != nil {
-		return fmt.Errorf("connectAllChainsCanonical: precondition check failed: %w", err)
-	}
-	if _, err := cs.Apply(*e, cfg); err != nil {
-		return fmt.Errorf("connectAllChainsCanonical: configure chains for lanes: %w", err)
+	for i := 1; i < len(orderedSelectors); i++ {
+		newSel := orderedSelectors[i]
+		previousSels := orderedSelectors[:i]
+
+		var configs []ccipChangesets.PartialChainConfig
+
+		newChainCfg, err := buildPartialChainConfig(newSel, previousSels, profiles, topology)
+		if err != nil {
+			return fmt.Errorf("round %d: build config for new chain %d: %w", i, newSel, err)
+		}
+		configs = append(configs, newChainCfg)
+
+		for _, prevSel := range previousSels {
+			prevChainCfg, err := buildPartialChainConfig(prevSel, []uint64{newSel}, profiles, topology)
+			if err != nil {
+				return fmt.Errorf("round %d: build config for existing chain %d: %w", i, prevSel, err)
+			}
+			configs = append(configs, prevChainCfg)
+		}
+
+		cfg := ccipChangesets.ConfigureChainsForLanesFromTopologyConfig{
+			Topology: convertTopologyToCCIP(topology),
+			Chains:   configs,
+		}
+		if err := cs.VerifyPreconditions(*e, cfg); err != nil {
+			return fmt.Errorf("round %d (adding chain %d): precondition check failed: %w", i, newSel, err)
+		}
+		if _, err := cs.Apply(*e, cfg); err != nil {
+			return fmt.Errorf("round %d (adding chain %d): configure chains for lanes: %w", i, newSel, err)
+		}
 	}
 
 	for _, sel := range orderedSelectors {
@@ -194,9 +232,70 @@ func connectAllChainsCanonical(
 	return nil
 }
 
+func buildPartialChainConfig(
+	localSel uint64,
+	remoteSels []uint64,
+	profiles map[uint64]chainProfile,
+	topology *ccvdeployment.EnvironmentTopology,
+) (ccipChangesets.PartialChainConfig, error) {
+	localEntry, ok := profiles[localSel]
+	if !ok {
+		return ccipChangesets.PartialChainConfig{}, fmt.Errorf("no profile for local chain %d", localSel)
+	}
+	local := localEntry.profile
+
+	remoteChains := make(map[uint64]ccipChangesets.PartialRemoteChainConfig, len(remoteSels))
+	for _, rs := range remoteSels {
+		remoteEntry, ok := profiles[rs]
+		if !ok {
+			return ccipChangesets.PartialChainConfig{}, fmt.Errorf("no profile for remote chain %d", rs)
+		}
+		remote := remoteEntry.profile
+		allowTrafficFrom := true
+		remoteChains[rs] = ccipChangesets.PartialRemoteChainConfig{
+			AllowTrafficFrom:         &allowTrafficFrom,
+			DefaultInboundCCVs:       local.DefaultInboundCCVs,
+			DefaultOutboundCCVs:      local.DefaultOutboundCCVs,
+			DefaultExecutorQualifier: local.DefaultExecutorQualifier,
+			FeeQuoterDestChainConfig: remote.FeeQuoterDestChainConfig,
+			ExecutorDestChainConfig:  local.ExecutorDestChainConfig,
+			BaseExecutionGasCost:     remote.BaseExecutionGasCost,
+			TokenReceiverAllowed:     remote.TokenReceiverAllowed,
+		}
+	}
+
+	qualifiers := make([]string, 0, len(topology.NOPTopology.Committees))
+	for qualifier := range topology.NOPTopology.Committees {
+		qualifiers = append(qualifiers, qualifier)
+	}
+	sort.Strings(qualifiers)
+
+	cvConfigs := make([]ccipChangesets.CommitteeVerifierInputConfig, 0, len(qualifiers))
+	for _, qualifier := range qualifiers {
+		remoteCV := make(map[uint64]ccipChangesets.CommitteeVerifierRemoteChainConfig, len(remoteSels))
+		for _, rs := range remoteSels {
+			remoteCV[rs] = ccipChangesets.CommitteeVerifierRemoteChainConfig{
+				GasForVerification: profiles[rs].profile.GasForVerification,
+			}
+		}
+		cvConfigs = append(cvConfigs, ccipChangesets.CommitteeVerifierInputConfig{
+			CommitteeQualifier:    qualifier,
+			RemoteChains:          remoteCV,
+			AllowedFinalityConfig: local.AllowedFinalityConfig,
+		})
+	}
+
+	return ccipChangesets.PartialChainConfig{
+		ChainSelector:      localSel,
+		CommitteeVerifiers: cvConfigs,
+		RemoteChains:       remoteChains,
+	}, nil
+}
+
 // ---------------------------------------------------------------------------
 // Legacy path: lanes.ConnectChains
-// ---------------------------------------------------------------------------.
+// ---------------------------------------------------------------------------
+
 type chainEntry struct {
 	remoteSelectors []uint64
 	impl            cciptestinterfaces.CCIP17Configuration
@@ -209,7 +308,7 @@ func connectAllChainsLegacy(
 	blockchains []*blockchain.Input,
 	selectors []uint64,
 	e *deployment.Environment,
-	topology *ccipOffchain.EnvironmentTopology,
+	topology *ccvdeployment.EnvironmentTopology,
 ) error {
 	if len(blockchains) != len(impls) {
 		return fmt.Errorf("connectAllChainsLegacy: mismatched lengths: %d impls and %d blockchains", len(impls), len(blockchains))
@@ -277,7 +376,7 @@ func connectAllChainsLegacy(
 
 	populator := ccipChangesets.NewTopologyCommitteePopulator(
 		ccipAdapters.GetCommitteeVerifierContractRegistry(),
-		topology,
+		convertTopologyToCCIP(topology),
 	)
 
 	laneAdapterRegistry := lanes.GetLaneAdapterRegistry()
@@ -306,7 +405,7 @@ func connectAllChainsLegacy(
 }
 
 func buildCommitteeVerifierInputs(
-	topology *ccipOffchain.EnvironmentTopology,
+	topology *ccvdeployment.EnvironmentTopology,
 	remoteSelectors []uint64,
 	entries map[uint64]chainEntry,
 ) []lanes.CommitteeVerifierInput {
@@ -425,7 +524,7 @@ func ConfigureAllTokenTransfers(
 	impls []cciptestinterfaces.CCIP17Configuration,
 	selectors []uint64,
 	env *deployment.Environment,
-	topology *ccipOffchain.EnvironmentTopology,
+	topology *ccvdeployment.EnvironmentTopology,
 ) error {
 	refKey := func(ref datastore.AddressRef) string {
 		v := ""

@@ -3,8 +3,8 @@ package ccv
 import (
 	"fmt"
 
-	"github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/offchain/shared"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
+	ccvshared "github.com/smartcontractkit/chainlink-ccv/deployment/shared"
 )
 
 // RequireFullCLModeForEnvironmentChangeReconcile returns an error if the loaded env-out is not a
@@ -18,13 +18,13 @@ func RequireFullCLModeForEnvironmentChangeReconcile(in *Cfg) error {
 		return fmt.Errorf("environment_topology.nop_topology is required")
 	}
 	for _, nop := range in.EnvironmentTopology.NOPTopology.NOPs {
-		if nop.GetMode() != shared.NOPModeCL {
+		if nop.GetMode() != ccvshared.NOPModeCL {
 			ident := nop.Alias
 			if ident == "" {
 				ident = nop.Name
 			}
 			return fmt.Errorf("NOP %q must use topology mode %q for environment-change reconcile tests (got %q)",
-				ident, shared.NOPModeCL, nop.GetMode())
+				ident, ccvshared.NOPModeCL, nop.GetMode())
 		}
 	}
 	for _, v := range in.Verifier {

@@ -70,10 +70,18 @@ type MessageFilter interface {
 }
 
 // Accessor provides objects that in turn provide specific kinds of blockchain access.
-// It is scoped to a particular chain selector.
+// It is scoped to a particular chain selector. All methods are optional: implementations
+// return an error for capabilities they do not support.
+//
+// A committee/verifier accessor typically provides only SourceReader.
+// An executor accessor typically provides only DestinationReader and ContractTransmitter.
 type Accessor interface {
-	// SourceReader returns the SourceReader for the chain selector.
-	SourceReader() SourceReader
+	// SourceReader returns the SourceReader for this chain, or an error if not available.
+	SourceReader() (SourceReader, error)
+	// DestinationReader returns the DestinationReader for this chain, or an error if not available.
+	DestinationReader() (DestinationReader, error)
+	// ContractTransmitter returns the ContractTransmitter for this chain, or an error if not available.
+	ContractTransmitter() (ContractTransmitter, error)
 }
 
 // AccessorFactory creates Accessors for specific chain selectors.

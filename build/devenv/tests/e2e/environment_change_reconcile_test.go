@@ -21,7 +21,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/proxy"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/sequences"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/versioned_verifier_resolver"
-	ccipOffchain "github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/offchain"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/offchain/operations/fetch_signing_keys"
 	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
@@ -29,6 +28,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/tcapi"
 	ccvcomm "github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/common/committee"
+	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
@@ -55,7 +55,7 @@ type environmentChangeReconcileHarness struct {
 	Cfg       *ccv.Cfg
 	Selectors []uint64
 	Env       *deployment.Environment
-	Topology  *ccipOffchain.EnvironmentTopology
+	Topology  *ccvdeployment.EnvironmentTopology
 	Impls     []cciptestinterfaces.CCIP17Configuration
 }
 
@@ -225,9 +225,9 @@ func runEnvironmentChangeEOADefaultVerifierWithIndexedResult(
 	if len(sendMessageResult.ReceiptIssuers) != 3 {
 		return tcapi.AssertionResult{}, fmt.Errorf("expected 3 receipt issuers, got %d", len(sendMessageResult.ReceiptIssuers))
 	}
-	sentEvent, err := src.WaitOneSentEventBySeqNo(ctx, dest.ChainSelector(), seqNo, tcapi.DefaultSentTimeout)
+	sentEvent, err := src.ConfirmSendOnSource(ctx, dest.ChainSelector(), cciptestinterfaces.MessageEventKey{SeqNum: seqNo}, tcapi.DefaultSentTimeout)
 	if err != nil {
-		return tcapi.AssertionResult{}, fmt.Errorf("failed to wait for sent event: %w", err)
+		return tcapi.AssertionResult{}, fmt.Errorf("failed to confirm send on source: %w", err)
 	}
 	aggregatorClient := harness.AggregatorClients[devenvcommon.DefaultCommitteeVerifierQualifier]
 	chainMap, err := harness.Lib.ChainsMap(ctx)
@@ -253,9 +253,9 @@ func runEnvironmentChangeEOADefaultVerifierWithIndexedResult(
 	if len(result.IndexedVerifications.Results) != 1 {
 		return result, fmt.Errorf("expected 1 indexed verification, got %d", len(result.IndexedVerifications.Results))
 	}
-	e, err := chainMap[dest.ChainSelector()].WaitOneExecEventBySeqNo(ctx, src.ChainSelector(), seqNo, environmentChangePostMessageExecTimeout)
+	e, err := chainMap[dest.ChainSelector()].ConfirmExecOnDest(ctx, src.ChainSelector(), cciptestinterfaces.MessageEventKey{SeqNum: seqNo}, environmentChangePostMessageExecTimeout)
 	if err != nil {
-		return result, fmt.Errorf("failed to wait for exec event: %w", err)
+		return result, fmt.Errorf("failed to confirm exec on dest: %w", err)
 	}
 	if e.State != cciptestinterfaces.ExecutionStateSuccess {
 		return result, fmt.Errorf("expected execution state success, got %s", e.State)
@@ -429,7 +429,7 @@ func TestEnvironmentChangeReconcile_TestRouterLaneThenProductionRouterExpectMess
 	requireEnvironmentChangeEOADefaultVerifierMessageWithTestRouter(t, ctx, th, h.Cfg, src, dest, false)
 }
 
-func pickRemovableNOPAliasFromDefaultCommittee(t *testing.T, topo *ccipOffchain.EnvironmentTopology) string {
+func pickRemovableNOPAliasFromDefaultCommittee(t *testing.T, topo *ccvdeployment.EnvironmentTopology) string {
 	t.Helper()
 	require.NotNil(t, topo.NOPTopology)
 	comm, ok := topo.NOPTopology.Committees[devenvcommon.DefaultCommitteeVerifierQualifier]
@@ -446,7 +446,7 @@ func pickRemovableNOPAliasFromDefaultCommittee(t *testing.T, topo *ccipOffchain.
 	return refAliases[len(refAliases)-1]
 }
 
-func removeNOPAliasFromEveryCommitteeChainConfigs(t *testing.T, topo *ccipOffchain.EnvironmentTopology, removeAlias string) {
+func removeNOPAliasFromEveryCommitteeChainConfigs(t *testing.T, topo *ccvdeployment.EnvironmentTopology, removeAlias string) {
 	t.Helper()
 	require.NotNil(t, topo.NOPTopology)
 	for qual, comm := range topo.NOPTopology.Committees {
@@ -524,7 +524,7 @@ func TestEnvironmentChangeReconcile_RemoveDefaultCommitteeNOPAndLowerThresholdEx
 	topoSnap, err := toml.Marshal(*h.Cfg.EnvironmentTopology)
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		var restored ccipOffchain.EnvironmentTopology
+		var restored ccvdeployment.EnvironmentTopology
 		if err := toml.Unmarshal(topoSnap, &restored); err != nil {
 			t.Logf("reconcile test cleanup: restore topology: %v", err)
 			return
