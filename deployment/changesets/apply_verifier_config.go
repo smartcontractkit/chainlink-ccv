@@ -7,7 +7,6 @@ import (
 
 	"github.com/BurntSushi/toml"
 
-	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
 
@@ -91,38 +90,18 @@ func ApplyVerifierConfig(registry *adapters.Registry) deployment.ChangeSetV2[App
 		}
 
 		if len(selectors) == 0 {
-			if !cfg.RevokeOrphanedJobs {
-				e.Logger.Infow("No chain configs found for committee, nothing to do",
-					"committee", cfg.CommitteeQualifier)
-				ds := datastore.NewMemoryDataStore()
-				if e.DataStore != nil {
-					if err := ds.Merge(e.DataStore); err != nil {
-						return deployment.ChangesetOutput{}, fmt.Errorf("failed to merge datastore: %w", err)
-					}
-				}
-				return deployment.ChangesetOutput{DataStore: ds}, nil
-			}
-			e.Logger.Infow("No chain configs for committee, running orphan cleanup only",
-				"committee", cfg.CommitteeQualifier)
-			nopModes := buildNOPModes(cfg.Topology.NOPTopology.NOPs)
-			scope := shared.VerifierJobScope{CommitteeQualifier: cfg.CommitteeQualifier}
-			manageReport, err := operations.ExecuteSequence(
-				e.OperationsBundle,
-				sequences.ManageJobProposals,
-				sequences.ManageJobProposalsDeps{Env: e},
-				sequences.ManageJobProposalsInput{
-					JobSpecs:           nil,
-					AffectedScope:      scope,
-					Labels:             map[string]string{"job_type": "verifier", "committee": cfg.CommitteeQualifier},
-					NOPs:               sequences.NOPContext{Modes: nopModes, TargetNOPs: cfg.TargetNOPs, AllNOPs: getAllNOPAliases(cfg.Topology.NOPTopology.NOPs)},
-					RevokeOrphanedJobs: true,
-				},
+			return runOrphanJobCleanup(
+				e,
+				cfg.RevokeOrphanedJobs,
+				shared.VerifierJobScope{CommitteeQualifier: cfg.CommitteeQualifier},
+				map[string]string{"job_type": "verifier", "committee": cfg.CommitteeQualifier},
+				buildNOPModes(cfg.Topology.NOPTopology.NOPs),
+				cfg.TargetNOPs,
+				getAllNOPAliases(cfg.Topology.NOPTopology.NOPs),
+				"No chain configs found for committee, nothing to do",
+				"No chain configs for committee, running orphan cleanup only",
+				"committee", cfg.CommitteeQualifier,
 			)
-			if err != nil {
-				return deployment.ChangesetOutput{Reports: manageReport.ExecutionReports},
-					fmt.Errorf("failed to manage job proposals (orphan cleanup): %w", err)
-			}
-			return deployment.ChangesetOutput{Reports: manageReport.ExecutionReports, DataStore: manageReport.Output.DataStore}, nil
 		}
 
 		// Derive the signing key family from the registered adapter — no hardcoded chain family.

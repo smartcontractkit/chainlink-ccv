@@ -11,7 +11,12 @@ type VerifierContractAddresses struct {
 	RMNRemoteAddress         string
 }
 
+// VerifierConfigAdapter resolves verifier-related on-chain addresses and the signing
+// key family expected for a chain.
 type VerifierConfigAdapter interface {
+	// ResolveVerifierContractAddresses returns the verifier-related on-chain addresses for
+	// the given chain selector. The committee and executor qualifiers identify which
+	// deployments to look up in the datastore.
 	ResolveVerifierContractAddresses(
 		ds datastore.DataStore,
 		chainSelector uint64,
