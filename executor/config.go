@@ -65,11 +65,11 @@ type Configuration struct {
 // ChainConfiguration is all the configuration an executor needs to know about a specific chain.
 // This is separate from chain-specific RPC information in BlockchainInfos.
 type ChainConfiguration struct {
-	// RMN address is the address of the RMN contract to check for curse state.
-	RmnAddress string `toml:"rmn_address"`
-	// OffRamp address is the address of the offramp contract to send messages to.
-	OffRampAddress string `toml:"off_ramp_address"`
-	// Executor pool is the list of executor IDs used for turn taking. This executor's ID must be in the list.
+	// DestinationChainConfig holds the off-ramp and RMN addresses. It is embedded so that the
+	// TOML field paths (off_ramp_address, rmn_address) are identical to what the chainaccess
+	// Registry reads via ExecutorConfig, allowing both to overlay the same config file.
+	chainaccess.DestinationChainConfig
+	// ExecutorPool is the list of executor IDs used for turn taking. This executor's ID must be in the list.
 	ExecutorPool []string `toml:"executor_pool"`
 	// ExecutionInterval is how long each executor has to process a message before the next executor in the cluster takes over.
 	ExecutionInterval time.Duration `toml:"execution_interval"`

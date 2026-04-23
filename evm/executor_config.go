@@ -9,6 +9,7 @@ import (
 	offrampop "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/offramp"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/sequences"
 	dsutils "github.com/smartcontractkit/chainlink-ccip/deployment/utils/datastore"
+	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 
 	"github.com/smartcontractkit/chainlink-ccv/executor"
@@ -69,8 +70,10 @@ func (a *evmExecutorConfigAdapter) BuildChainConfig(ds datastore.DataStore, chai
 	}
 
 	return executor.ChainConfiguration{
-		OffRampAddress:         offRampAddr,
-		RmnAddress:             rmnRemoteAddr,
+		DestinationChainConfig: chainaccess.DestinationChainConfig{
+			OffRampAddress: offRampAddr,
+			RmnAddress:     rmnRemoteAddr,
+		},
 		DefaultExecutorAddress: executorAddr,
 	}, nil
 }

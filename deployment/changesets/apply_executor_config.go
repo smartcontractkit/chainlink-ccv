@@ -7,6 +7,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 
+	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
@@ -309,8 +310,10 @@ func buildExecutorJobSpecs(
 			sortedPool := slices.Clone(chainCfg.NOPAliases)
 			slices.Sort(sortedPool)
 			chainCfgs[chainSelectorStr] = executor.ChainConfiguration{
-				OffRampAddress:         adapterCfg.OffRampAddress,
-				RmnAddress:             adapterCfg.RmnAddress,
+				DestinationChainConfig: chainaccess.DestinationChainConfig{
+					OffRampAddress: adapterCfg.OffRampAddress,
+					RmnAddress:     adapterCfg.RmnAddress,
+				},
 				DefaultExecutorAddress: adapterCfg.DefaultExecutorAddress,
 				ExecutorPool:           sortedPool,
 				ExecutionInterval:      chainCfg.ExecutionInterval,
