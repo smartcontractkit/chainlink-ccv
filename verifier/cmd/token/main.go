@@ -141,11 +141,12 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, spec bootstrap.JobSp
 			tvf.lggr.Errorw("Skipping chain, failed to get accessor for chain selector", "error", err, "chainSelector", selector)
 			continue
 		}
-		if accessor.SourceReader() == nil {
-			tvf.lggr.Errorw("Skipping chain, failed to get source reader for chain selector", "chainSelector", selector)
+		reader, err := accessor.SourceReader()
+		if err != nil {
+			tvf.lggr.Warnw("Skipping chain, source reader not available", "chainSelector", selector, "error", err)
 			continue
 		}
-		sourceReaders[selector] = accessor.SourceReader()
+		sourceReaders[selector] = reader
 		tvf.lggr.Infow("Created source reader for chain", "chainSelector", selector)
 	}
 

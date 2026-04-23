@@ -3,6 +3,7 @@ package evm
 import (
 	"context"
 	"fmt"
+	"os"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/sourcereader"
@@ -53,9 +54,10 @@ func CreateAccessorFactory(
 	generic chainaccess.GenericConfig,
 	infos chainaccess.Infos[Info],
 ) (chainaccess.AccessorFactory, error) {
-	// Create the chain clients then the head trackers
+	// Create the chain clients, head trackers, and collect primary RPC URLs.
 	chainClients := make(map[protocol.ChainSelector]client.Client)
 	headTrackers := make(map[protocol.ChainSelector]heads.Tracker)
+	rpcURLs := make(map[protocol.ChainSelector]string)
 	for _, selector := range infos.GetAllChainSelectors() {
 		lggr.Infow("Creating EVM client and head tracker for chain selector", "chainSelector", selector)
 		family, err := chainsel.GetSelectorFamily(uint64(selector))
@@ -74,14 +76,24 @@ func CreateAccessorFactory(
 			continue
 		}
 		chainClients[selector] = chainClient
+		headTrackers[selector] = sourcereader.NewSimpleHeadTrackerWrapper(chainClient, lggr)
 
-		headTracker := sourcereader.NewSimpleHeadTrackerWrapper(chainClient, lggr)
-		headTrackers[selector] = headTracker
+		if info, err := infos.GetBlockchainByChainSelector(selector); err == nil {
+			if node, err := info.GetFirstNode(); err == nil {
+				rpcURLs[selector] = node.InternalHTTPUrl
+			}
+		}
 	}
 
-	// Convert from map[string]string -> map[chainsel]string
+	// Convert from map[string]T -> map[chainsel]T
 	onRampInfos := chainaccess.Infos[string](generic.OnRampAddresses).GetAllInfos()
 	rmnRemoteInfos := chainaccess.Infos[string](generic.RMNRemoteAddresses).GetAllInfos()
+	destChainConfigs := chainaccess.Infos[chainaccess.DestinationChainConfig](generic.ChainConfiguration).GetAllInfos()
 
-	return NewFactory(lggr, onRampInfos, rmnRemoteInfos, headTrackers, chainClients), nil
+	transmitterPrivateKey := os.Getenv("EXECUTOR_TRANSMITTER_PRIVATE_KEY")
+	if transmitterPrivateKey == "" {
+		lggr.Info("EXECUTOR_TRANSMITTER_PRIVATE_KEY not set, ContractTransmitter will be unavailable")
+	}
+
+	return NewFactory(lggr, onRampInfos, rmnRemoteInfos, headTrackers, chainClients, destChainConfigs, generic.MaxRetryDuration, rpcURLs, transmitterPrivateKey), nil
 }
