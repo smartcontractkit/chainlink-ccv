@@ -95,6 +95,7 @@ jobs:
             const coverage = process.env.coverage;
             const coverage_target = process.env.coverage_target;
             const coverage_report = process.env.coverage_report;
+            const coverageCommentPrefix = "Code coverage report:";
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
