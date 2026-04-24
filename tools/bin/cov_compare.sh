@@ -155,7 +155,7 @@ total2=$(awk '$1 == "total:" { gsub("%", "", $NF); print $NF }' "$raw2")
 
 # Markdown header
 if [ "$NO_HEADER" -eq 0 ]; then
-  echo "| Top Package | \`${LABEL1}\` | \`${LABEL2}\` | Diff |"
+  echo "| Package | \`${LABEL1}\` | \`${LABEL2}\` | Diff |"
 fi
 
 # Results
