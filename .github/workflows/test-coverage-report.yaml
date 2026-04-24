@@ -57,7 +57,7 @@ jobs:
           just test-coverage coverage_target.out short
           # switch back to the head ref
           git checkout ${{ github.head_ref }}
-          ./tools/bin/cov_compare.sh --no-header coverage_target.out coverage.out > table.txt
+          ./tools/bin/cov_compare.sh coverage_target.out coverage.out --label1="${{ github.base_ref }}" --label2="${{ github.head_ref }}" > table.txt
           cat table.txt
           {
             echo 'coverage_report<<COVERAGE_REPORT_DELIM'
@@ -95,9 +95,10 @@ jobs:
             const coverage = process.env.coverage;
             const coverage_target = process.env.coverage_target;
             const coverage_report = process.env.coverage_report;
+            const coverageCommentPrefix = "Code coverage report:";
             github.rest.issues.createComment({
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: `Code coverage report:\n| Package | \`${{ github.base_ref }}\` | \`${{ github.head_ref }}\` | diff |\n ${coverage_report}`
+              body: `${coverageCommentPrefix}\n${coverage_report}`
             });

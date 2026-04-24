@@ -28,7 +28,6 @@ const DefaultGasLimitOverride uint32 = 0
 var _ chainaccess.ContractTransmitter = &EVMContractTransmitter{}
 
 type EVMContractTransmitter struct {
-	ctx           context.Context
 	lggr          logger.Logger
 	TransactOpts  *bind.TransactOpts
 	Client        *ethclient.Client
@@ -38,7 +37,7 @@ type EVMContractTransmitter struct {
 	mu            sync.Mutex
 }
 
-func NewEVMContractTransmitterFromRPC(ctx context.Context, lggr logger.Logger, chainSelector protocol.ChainSelector, rpc, privatekey string, offRampAddress common.Address) (*EVMContractTransmitter, error) {
+func NewEVMContractTransmitterFromRPC(_ context.Context, lggr logger.Logger, chainSelector protocol.ChainSelector, rpc, privatekey string, offRampAddress common.Address) (*EVMContractTransmitter, error) {
 	// create a client for the off ramp contract
 	client, err := ethclient.Dial(rpc)
 	if err != nil {
@@ -67,7 +66,6 @@ func NewEVMContractTransmitterFromRPC(ctx context.Context, lggr logger.Logger, c
 	}
 
 	return &EVMContractTransmitter{
-		ctx:           ctx,
 		lggr:          lggr,
 		chainSelector: chainSelector,
 		TransactOpts:  auth,
@@ -77,7 +75,7 @@ func NewEVMContractTransmitterFromRPC(ctx context.Context, lggr logger.Logger, c
 	}, nil
 }
 
-func (ct *EVMContractTransmitter) GetTransactOpts() (*bind.TransactOpts, error) {
+func (ct *EVMContractTransmitter) GetTransactOpts(ctx context.Context) (*bind.TransactOpts, error) {
 	publicKey := ct.Pk.Public()
 	publicKeyECDSA, ok := publicKey.(*ecdsa.PublicKey)
 	if !ok {
@@ -85,12 +83,12 @@ func (ct *EVMContractTransmitter) GetTransactOpts() (*bind.TransactOpts, error) 
 	}
 
 	fromAddress := crypto.PubkeyToAddress(*publicKeyECDSA)
-	nonce, err := ct.Client.PendingNonceAt(ct.ctx, fromAddress)
+	nonce, err := ct.Client.PendingNonceAt(ctx, fromAddress)
 	if err != nil {
 		return nil, err
 	}
 
-	gasPrice, err := ct.Client.SuggestGasPrice(ct.ctx)
+	gasPrice, err := ct.Client.SuggestGasPrice(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -112,7 +110,7 @@ func (ct *EVMContractTransmitter) ConvertAndWriteMessageToChain(ctx context.Cont
 	for _, ccv := range report.CCVS {
 		contractCcvs = append(contractCcvs, common.HexToAddress(ccv.String()))
 	}
-	opts, err := ct.GetTransactOpts()
+	opts, err := ct.GetTransactOpts(ctx)
 	if err != nil {
 		return err
 	}

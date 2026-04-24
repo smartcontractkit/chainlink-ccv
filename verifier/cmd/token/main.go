@@ -9,7 +9,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/BurntSushi/toml"
 	"go.uber.org/zap/zapcore"
 
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
@@ -88,8 +87,7 @@ func (tvf *tokenVerifierFactory) Stop(ctx context.Context) error {
 // Start starts the service with the parsed config received from the bootstrapper.
 func (tvf *tokenVerifierFactory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootstrap.ServiceDeps) error {
 	var appConfig token.ConfigWithBlockchainInfos
-	_, err := toml.Decode(spec.AppConfig, &appConfig)
-	if err != nil {
+	if err := spec.GetAppConfig(&appConfig); err != nil {
 		return fmt.Errorf("unable to decode app config: %w", err)
 	}
 
@@ -126,7 +124,7 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, spec bootstrap.JobSp
 	cfg := appConfig.Config
 	blockchainInfos := appConfig.BlockchainInfos
 
-	_, err = cmd.StartPyroscope(tvf.lggr, cfg.PyroscopeURL, "tokenVerifier")
+	_, err := cmd.StartPyroscope(tvf.lggr, cfg.PyroscopeURL, "tokenVerifier")
 	if err != nil {
 		tvf.lggr.Errorw("Failed to start pyroscope", "error", err)
 		os.Exit(1)

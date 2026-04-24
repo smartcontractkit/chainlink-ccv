@@ -18,6 +18,8 @@ packages:
 
   github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess:
     interfaces:
+      Accessor:
+      AccessorFactory:
       SourceReader:
       DestinationReader:
       ContractTransmitter:
