@@ -8,7 +8,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/BurntSushi/toml"
 	"github.com/grafana/pyroscope-go"
 	"go.uber.org/zap/zapcore"
 
@@ -63,7 +62,7 @@ func (f *executorFactory) Stop(_ context.Context) error {
 
 func (f *executorFactory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootstrap.ServiceDeps) error {
 	var rawConfig executor.ConfigWithBlockchainInfo[any]
-	if _, err := toml.Decode(spec.AppConfig, &rawConfig); err != nil {
+	if err := spec.GetAppConfig(&rawConfig); err != nil {
 		return fmt.Errorf("failed to decode executor config: %w", err)
 	}
 
