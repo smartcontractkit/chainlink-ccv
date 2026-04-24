@@ -163,7 +163,8 @@ echo "|------------|------------|------------|------|"
 join -a1 -a2 -e "0.00" -o 0,1.2,2.2 "$tmp1" "$tmp2" \
   | awk '{
       diff = $3 - $2
-      printf "| %s | %.2f%% | %.2f%% | %+0.2f%% |\n", $1, $2, $3, diff
+      emoji = (diff <= -10) ? " ⚠️" : (diff >= 10) ? " 🎉" : ""
+      printf "| %s | %.2f%% | %.2f%% | %+0.2f%%%s |\n", $1, $2, $3, diff, emoji
     }'
 
 # Overall total row (covers only files present on the current filesystem).
@@ -172,7 +173,8 @@ if [ -n "$total1" ] || [ -n "$total2" ]; then
   t2="${total2:-0.00}"
   awk -v t1="$t1" -v t2="$t2" 'BEGIN {
     diff = t2 - t1
-    printf "| **Total** | %.2f%% | %.2f%% | %+.2f%% |\n", t1, t2, diff
+    emoji = (diff <= -10) ? " ⚠️" : (diff >= 10) ? " 🎉" : ""
+    printf "| **Total** | %.2f%% | %.2f%% | %+.2f%%%s |\n", t1, t2, diff, emoji
   }'
 fi
 
