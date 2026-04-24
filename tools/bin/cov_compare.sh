@@ -186,14 +186,14 @@ only_in_2=$(comm -13 "$files1" "$files2")
 if [ -n "$only_in_1" ] || [ -n "$only_in_2" ]; then
   echo
   if [ -n "$only_in_1" ]; then
-    echo "Files removed (only in \`${LABEL1}\`):"
+    echo "Files removed (from \`${LABEL1}\`):"
     echo "- ${only_in_1//$'\n'/$'\n- '}"
   fi
   if [ -n "$only_in_1" ] && [ -n "$only_in_2" ]; then
     echo
   fi
   if [ -n "$only_in_2" ]; then
-    echo "Files added (only in \`${LABEL2}\`):"
+    echo "Files added (in \`${LABEL2}\`):"
     echo "- ${only_in_2//$'\n'/$'\n- '}"
   fi
 fi
