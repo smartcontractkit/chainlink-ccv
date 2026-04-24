@@ -442,6 +442,10 @@ linters:
           - gocyclo
           - gosec
           - revive
+      - path: build/devenv
+        linters:
+          - staticcheck
+        text: "testcontainers.BindMount is deprecated"
       - path: 'pkg/handlers/validations\.go'
         linters:
           - gci

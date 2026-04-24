@@ -92,6 +92,39 @@ func (_c *MockMetricLabeler_IncrementActiveRequestsCounter_Call) RunAndReturn(ru
 	return _c
 }
 
+// IncrementCriticalSourceInvariantViolations provides a mock function with given fields: ctx
+func (_m *MockMetricLabeler) IncrementCriticalSourceInvariantViolations(ctx context.Context) {
+	_m.Called(ctx)
+}
+
+// MockMetricLabeler_IncrementCriticalSourceInvariantViolations_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'IncrementCriticalSourceInvariantViolations'
+type MockMetricLabeler_IncrementCriticalSourceInvariantViolations_Call struct {
+	*mock.Call
+}
+
+// IncrementCriticalSourceInvariantViolations is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *MockMetricLabeler_Expecter) IncrementCriticalSourceInvariantViolations(ctx interface{}) *MockMetricLabeler_IncrementCriticalSourceInvariantViolations_Call {
+	return &MockMetricLabeler_IncrementCriticalSourceInvariantViolations_Call{Call: _e.mock.On("IncrementCriticalSourceInvariantViolations", ctx)}
+}
+
+func (_c *MockMetricLabeler_IncrementCriticalSourceInvariantViolations_Call) Run(run func(ctx context.Context)) *MockMetricLabeler_IncrementCriticalSourceInvariantViolations_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context))
+	})
+	return _c
+}
+
+func (_c *MockMetricLabeler_IncrementCriticalSourceInvariantViolations_Call) Return() *MockMetricLabeler_IncrementCriticalSourceInvariantViolations_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockMetricLabeler_IncrementCriticalSourceInvariantViolations_Call) RunAndReturn(run func(context.Context)) *MockMetricLabeler_IncrementCriticalSourceInvariantViolations_Call {
+	_c.Run(run)
+	return _c
+}
+
 // IncrementHTTPRequestCounter provides a mock function with given fields: ctx
 func (_m *MockMetricLabeler) IncrementHTTPRequestCounter(ctx context.Context) {
 	_m.Called(ctx)

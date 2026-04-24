@@ -2,6 +2,7 @@ package constructors
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"time"
 
@@ -91,6 +92,10 @@ func NewVerificationCoordinator(
 			continue
 		}
 
+		chainMetrics := verifierMonitoring.Metrics().With(
+			"chain_selector", fmt.Sprintf("%d", sel),
+			"chain_name", sel.ChainName(),
+		)
 		sourceReader, err := evm.NewEVMSourceReader(
 			chain.Client(),
 			chain.HeadTracker(),
@@ -100,7 +105,11 @@ func NewVerificationCoordinator(
 			// TODO: does this need to be configurable?
 			onramp.OnRampCCIPMessageSent{}.Topic().Hex(),
 			sel,
-			logger.With(lggr, "component", "SourceReader", "chainID", sel))
+			logger.With(lggr, "component", "SourceReader", "chainID", sel),
+			func(ctx context.Context) {
+				chainMetrics.IncrementCriticalSourceInvariantViolations(ctx)
+			},
+		)
 		if err != nil {
 			lggr.Errorw("Failed to create source reader.", "error", err, "chainID", sel)
 			return nil, fmt.Errorf("failed to create source reader: %w", err)

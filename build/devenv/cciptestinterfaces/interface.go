@@ -8,7 +8,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/smartcontractkit/chainlink-ccip/deployment/finality"
@@ -16,8 +15,8 @@ import (
 	tokensapi "github.com/smartcontractkit/chainlink-ccip/deployment/tokens"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/adapters"
 	ccipChangesets "github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/changesets"
-	"github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/offchain"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
+	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
@@ -108,7 +107,7 @@ type MessageOptions struct {
 
 // MessageSentEvent is a chain-agnostic representation of the output of a ccipSend operation.
 type MessageSentEvent struct {
-	MessageID      [32]byte
+	MessageID      protocol.Bytes32
 	Sender         protocol.UnknownAddress
 	Message        *protocol.Message
 	ReceiptIssuers []protocol.UnknownAddress
@@ -150,6 +149,13 @@ type ExecutionStateChangedEvent struct {
 	ReturnData          []byte
 }
 
+// MessageEventKey identifies a CCIP message event by sequence number or message ID.
+// User should only define one or the other.
+type MessageEventKey struct {
+	SeqNum    uint64
+	MessageID protocol.Bytes32
+}
+
 // Chain provides methods to interact with a single chain that has CCIP deployed.
 type Chain interface {
 	// GetEOAReceiverAddress gets an EOA receiver address for this chain.
@@ -158,17 +164,12 @@ type Chain interface {
 	GetSenderAddress() (protocol.UnknownAddress, error)
 	// SendMessage sends a CCIP message to the specified destination chain with the specified message options.
 	SendMessage(ctx context.Context, dest uint64, fields MessageFields, opts MessageOptions) (MessageSentEvent, error)
-	// SendMessageWithNonce sends a CCIP message to the specified destination chain with the specified message options and nonce.
-	// A nil nonce instructs the client to use the pending nonce from the RPC node.
-	SendMessageWithNonce(ctx context.Context, dest uint64, fields MessageFields, opts MessageOptions, sender *bind.TransactOpts, nonce *uint64, disableTokenAmountCheck bool) (MessageSentEvent, error)
-	// GetUserNonce returns the nonce for the given user address on this chain.
-	GetUserNonce(ctx context.Context, userAddress protocol.UnknownAddress) (uint64, error)
 	// GetExpectedNextSequenceNumber gets an expected sequence number for message to the specified destination chain.
 	GetExpectedNextSequenceNumber(ctx context.Context, to uint64) (uint64, error)
-	// WaitOneSentEventBySeqNo waits until exactly one event for CCIP message sent is emitted on-chain for the specified destination chain and sequence number.
-	WaitOneSentEventBySeqNo(ctx context.Context, to, seq uint64, timeout time.Duration) (MessageSentEvent, error)
-	// WaitOneExecEventBySeqNo waits until exactly one event for CCIP execution state change is emitted on-chain for the specified source chain and sequence number.
-	WaitOneExecEventBySeqNo(ctx context.Context, from, seq uint64, timeout time.Duration) (ExecutionStateChangedEvent, error)
+	// ConfirmSendOnSource waits until exactly one CCIPMessageSent event is emitted on-chain for the specified destination chain, identified by sequence number or message ID.
+	ConfirmSendOnSource(ctx context.Context, to uint64, key MessageEventKey, timeout time.Duration) (MessageSentEvent, error)
+	// ConfirmExecOnDest waits until exactly one ExecutionStateChanged event is emitted on-chain for the specified source chain, identified by sequence number or message ID.
+	ConfirmExecOnDest(ctx context.Context, from uint64, key MessageEventKey, timeout time.Duration) (ExecutionStateChangedEvent, error)
 	// GetTokenBalance gets the balance of an account for a token on the specified chain.
 	GetTokenBalance(ctx context.Context, address, tokenAddress protocol.UnknownAddress) (*big.Int, error)
 	// GetMaxDataBytes gets the maximum data size for a CCIP message to the specified remote chain.
@@ -179,8 +180,6 @@ type Chain interface {
 	Curse(ctx context.Context, subjects [][16]byte) error
 	// Uncurse uncurses a list of chains on this chain.
 	Uncurse(ctx context.Context, subjects [][16]byte) error
-	// GetRoundRobinSendingKey gets the round robin sending key for the chain.
-	GetRoundRobinUser() func() *bind.TransactOpts
 	// ChainSelector gets the selector for this chain.
 	ChainSelector() uint64
 	// NativeBalance returns the native token balance of the given address on this chain.
@@ -197,6 +196,41 @@ type Chain interface {
 // destination chain so deliverAndHandle returns exactly 36 bytes and LombardVerifier.verifyMessage succeeds.
 type LombardMailboxBridgedMessageSetter interface {
 	SetLombardMailboxBridgedMessage(ctx context.Context, messageID [32]byte) error
+}
+
+// ProgressableChain is optionally implemented by chain families that can
+// drive block progression on demand (e.g. anvil via evm_mine). Test code
+// must type-assert and also call SupportManualBlockProgress at runtime,
+// since the static interface only proves the methods exist - the
+// underlying node (e.g. a real testnet RPC) may still reject them.
+type ProgressableChain interface {
+	// SupportManualBlockProgress returns true iff the underlying node both
+	// supports forced block progression AND is configured to mine on each
+	// tx (so messages sent by tests actually get included).
+	SupportManualBlockProgress(ctx context.Context) bool
+	// AdvanceBlocks mines numBlocks blocks on the chain.
+	AdvanceBlocks(ctx context.Context, numBlocks int) error
+}
+
+// SnapshotID identifies a snapshot taken on a ReorgableChain. It is
+// opaque to the caller; each chain family defines its own encoding.
+type SnapshotID []byte
+
+// ReorgableChain is optionally implemented by chain families that can
+// snapshot and revert the node state to simulate reorgs (e.g. anvil via
+// evm_snapshot / evm_revert). Keep this distinct from ProgressableChain:
+// a curse test only needs block progression, not reorg primitives.
+type ReorgableChain interface {
+	// SupportReorgs returns true iff the underlying node supports taking
+	// snapshots and reverting to them.
+	SupportReorgs(ctx context.Context) bool
+	// Snapshot captures the current chain state and returns an ID that
+	// can be passed to Revert.
+	Snapshot(ctx context.Context) (SnapshotID, error)
+	// Revert restores the chain to the state captured by the given
+	// snapshot. Implementations may invalidate the snapshot after a
+	// successful revert - check the implementation before reusing an ID.
+	Revert(ctx context.Context, id SnapshotID) error
 }
 
 type OnChainCommittees struct {
@@ -220,6 +254,7 @@ type ChainLaneProfile struct {
 	DefaultExecutorQualifier string
 	DefaultInboundCCVs       []datastore.AddressRef
 	DefaultOutboundCCVs      []datastore.AddressRef
+	TokenReceiverAllowed     *bool
 	GasForVerification       *uint32
 	AllowedFinalityConfig    *finality.Config
 }
@@ -260,7 +295,7 @@ type TokenConfigProvider interface {
 		env *deployment.Environment,
 		selector uint64,
 		remoteSelectors []uint64,
-		topology *offchain.EnvironmentTopology,
+		topology *ccvdeployment.EnvironmentTopology,
 	) ([]tokensapi.TokenTransferConfig, error)
 }
 
@@ -277,15 +312,15 @@ type OnChainConfigurable interface {
 	// DeployChainContracts call (e.g. deploying CREATE2 factory on EVM).
 	// The returned DataStore is merged into env.DataStore before
 	// GetDeployChainContractsCfg is called.
-	PreDeployContractsForSelector(ctx context.Context, env *deployment.Environment, selector uint64, topology *offchain.EnvironmentTopology) (datastore.DataStore, error)
+	PreDeployContractsForSelector(ctx context.Context, env *deployment.Environment, selector uint64, topology *ccvdeployment.EnvironmentTopology) (datastore.DataStore, error)
 	// GetDeployChainContractsCfg returns the per-chain configuration for the
 	// common DeployChainContracts changeset. Called after Pre, so env.DataStore
 	// includes pre-deployed addresses (e.g. CREATE2 factory).
-	GetDeployChainContractsCfg(env *deployment.Environment, selector uint64, topology *offchain.EnvironmentTopology) (ccipChangesets.DeployChainContractsPerChainCfg, error)
+	GetDeployChainContractsCfg(env *deployment.Environment, selector uint64, topology *ccvdeployment.EnvironmentTopology) (ccipChangesets.DeployChainContractsPerChainCfg, error)
 	// PostDeployContractsForSelector runs chain-specific setup after the common
 	// DeployChainContracts call (e.g. deploying USDC/Lombard token pools on EVM).
 	// The returned DataStore is merged into the final result.
-	PostDeployContractsForSelector(ctx context.Context, env *deployment.Environment, selector uint64, topology *offchain.EnvironmentTopology) (datastore.DataStore, error)
+	PostDeployContractsForSelector(ctx context.Context, env *deployment.Environment, selector uint64, topology *ccvdeployment.EnvironmentTopology) (datastore.DataStore, error)
 	// GetConnectionProfile returns a ChainDefinition describing this chain as a
 	// lane destination, plus the default committee verifier config to apply for
 	// each remote chain. The environment uses profiles from all chains to
@@ -354,3 +389,49 @@ type OffChainConfigurable interface {
 	// using chain-specific clients or CLDF
 	FundAddresses(ctx context.Context, bc *blockchain.Input, addresses []protocol.UnknownAddress, nativeAmount *big.Int) error
 }
+
+// ChainSendOption is a marker interface for chain-specific send parameters.
+// The expected usage is that a chain family integration will define a struct that satisfies this interface, then type check against their struct in their test.
+// Generic tests accept `ChainSendOption` as a parameter, the implementation casts the parameter to their struct type and uses it.
+type ChainSendOption interface {
+	IsSendOption() bool
+}
+
+type genericChain interface {
+	ChainSelector() uint64
+}
+
+// ChainAsDestination is implemented by any chain that can RECEIVE CCIP messages.
+// Chain families can implement this interface to run partial CCIP message tests without having to implement the full `Chain` interface.
+type ChainAsDestination interface {
+	genericChain
+	// GetEOAReceiverAddress returns an EOA receiver address for this chain.
+	GetEOAReceiverAddress() (protocol.UnknownAddress, error)
+	// ConfirmExecOnDest confirms that a CCIP message was executed on this chain.
+	// Implementation should support confirmation by either message ID or sequence number, passed in as the `MessageEventKey`.
+	// The timeout is the maximum duration to wait for the event to be emitted.
+	ConfirmExecOnDest(ctx context.Context, from uint64, key MessageEventKey, timeout time.Duration) (ExecutionStateChangedEvent, error)
+}
+
+// ChainAsSource is implemented by any chain that can ORIGINATE CCIP messages.
+// Chain families can implement this interface to run partial CCIP message tests without having to implement the full `Chain` interface.
+type ChainAsSource interface {
+	genericChain
+	// BuildChainMessage builds a CCIP message for the given destination chain.
+	// It will call into the registered extra args serializer per destination chain for now, until we have a more generic way to manage extra args.
+	// It returns a generic type that is specific to the chain family. The returned message is expected to be directly passed in ot the SendChainMessage method.
+	// For example, the EVM implementation returns a routerwrapper.ClientEVM2AnyMessage.
+	BuildChainMessage(ctx context.Context, destChain uint64, messageFields MessageFields, opts MessageOptions) (ChainAsSourceMessage, error)
+	// SendChainMessage sends a CCIP message to the given destination chain.
+	// sendOptions is a Marker Interface for chain-specific send parameters. Expected usage is that implementation will type assert the sendOption to their struct type and use it.
+	// For example, the EVM implementation will type assert the sendOption to evm.EVMSendOptions to access nonce/sender/etc.
+	// The ChainAsSourceMessage is expected to be the same type that was returned by the BuildChainMessage method. For EVM this is routerwrapper.ClientEVM2AnyMessage.
+	SendChainMessage(ctx context.Context, destChain uint64, message ChainAsSourceMessage, sendOption ChainSendOption) (MessageSentEvent, protocol.ByteSlice, error)
+	// ConfirmSendOnSource confirms that a CCIP message was sent on this chain.
+	// Implementation should support confirmation by either message ID or sequence number, passed in as the `MessageEventKey`.
+	// The timeout is the maximum duration to wait for the event to be emitted.
+	ConfirmSendOnSource(ctx context.Context, to uint64, key MessageEventKey, timeout time.Duration) (MessageSentEvent, error)
+}
+
+// ChainAsSourceMessage is a generic type to indicate to users that the message generated from BuildChainMessage is expected to be passed directly to SendChainMessage.
+type ChainAsSourceMessage any

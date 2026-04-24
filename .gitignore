@@ -25,6 +25,8 @@ indexer/secrets.toml
 # Ignore the build output of the ccv development environment
 build/devenv/ccv
 
+coverage.out
+
 **/.venv/
 **/__pycache__/
 **/*.pyc

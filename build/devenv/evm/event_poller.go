@@ -7,11 +7,14 @@ import (
 
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/rs/zerolog"
+
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
 type eventKey struct {
 	chainSelector uint64
 	msgNum        uint64
+	messageID     protocol.Bytes32
 }
 
 type pollerResult[T any] struct {
@@ -19,17 +22,22 @@ type pollerResult[T any] struct {
 	err   error
 }
 
+// eventPoller polls for on-chain events and delivers them to registered waiters.
+// Waiters may register by sequence number or by message ID; two separate maps
+// provide O(1) lookup for each key type.
 type eventPoller[T any] struct {
-	ethClient        *ethclient.Client
-	logger           zerolog.Logger
-	eventName        string
-	lastScannedBlock uint64
-	waiters          map[eventKey]chan pollerResult[T]
-	cachedEvents     map[eventKey]pollerResult[T]
-	mu               sync.Mutex
-	running          bool
-	stopCh           chan struct{}
-	pollFn           func(start, end uint64) (map[eventKey]T, error)
+	ethClient          *ethclient.Client
+	logger             zerolog.Logger
+	eventName          string
+	lastScannedBlock   uint64
+	waitersBySeqNum    map[eventKey]chan pollerResult[T]
+	waitersByMessageID map[eventKey]chan pollerResult[T]
+	cachedBySeqNum     map[eventKey]pollerResult[T]
+	cachedByMessageID  map[eventKey]pollerResult[T]
+	mu                 sync.Mutex
+	running            bool
+	stopCh             chan struct{}
+	pollFn             func(start, end uint64) (map[eventKey]T, error)
 }
 
 func newEventPoller[T any](
@@ -39,26 +47,28 @@ func newEventPoller[T any](
 	pollFn func(start, end uint64) (map[eventKey]T, error),
 ) *eventPoller[T] {
 	return &eventPoller[T]{
-		ethClient:    ethClient,
-		logger:       logger,
-		eventName:    eventName,
-		waiters:      make(map[eventKey]chan pollerResult[T]),
-		cachedEvents: make(map[eventKey]pollerResult[T]),
-		pollFn:       pollFn,
+		ethClient:          ethClient,
+		logger:             logger,
+		eventName:          eventName,
+		waitersBySeqNum:    make(map[eventKey]chan pollerResult[T]),
+		waitersByMessageID: make(map[eventKey]chan pollerResult[T]),
+		cachedBySeqNum:     make(map[eventKey]pollerResult[T]),
+		cachedByMessageID:  make(map[eventKey]pollerResult[T]),
+		pollFn:             pollFn,
 	}
 }
 
-func (p *eventPoller[T]) register(ctx context.Context, chainSelector, seq uint64) <-chan pollerResult[T] {
+func (p *eventPoller[T]) registerByMessageID(ctx context.Context, key eventKey) <-chan pollerResult[T] {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	key := eventKey{chainSelector: chainSelector, msgNum: seq}
-	resultCh := make(chan pollerResult[T], 1)
+	msgIDKey := eventKey{chainSelector: key.chainSelector, messageID: key.messageID}
 
-	if cachedResult, found := p.cachedEvents[key]; found {
+	if cachedResult, found := p.cachedByMessageID[msgIDKey]; found {
+		resultCh := make(chan pollerResult[T], 1)
 		p.logger.Debug().
-			Uint64("chainSelector", chainSelector).
-			Uint64("seq", seq).
+			Uint64("chainSelector", key.chainSelector).
+			Bytes("messageID", key.messageID[:]).
 			Str("event", p.eventName).
 			Msg("Cache hit")
 		resultCh <- cachedResult
@@ -66,29 +76,69 @@ func (p *eventPoller[T]) register(ctx context.Context, chainSelector, seq uint64
 		return resultCh
 	}
 
-	if existingCh, exists := p.waiters[key]; exists {
+	if existingCh, exists := p.waitersByMessageID[msgIDKey]; exists {
 		return existingCh
 	}
 
-	p.waiters[key] = resultCh
-
+	resultCh := make(chan pollerResult[T], 1)
+	p.waitersByMessageID[msgIDKey] = resultCh
+	go func() {
+		<-ctx.Done()
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		if ch, exists := p.waitersByMessageID[msgIDKey]; exists {
+			delete(p.waitersByMessageID, msgIDKey)
+			ch <- pollerResult[T]{err: ctx.Err()}
+			close(ch)
+		}
+	}()
 	if !p.running {
 		p.running = true
 		p.stopCh = make(chan struct{})
 		go p.run()
 	}
+	return resultCh
+}
 
+func (p *eventPoller[T]) registerBySequenceNumber(ctx context.Context, key eventKey) <-chan pollerResult[T] {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	seqKey := eventKey{chainSelector: key.chainSelector, msgNum: key.msgNum}
+
+	if cachedResult, found := p.cachedBySeqNum[seqKey]; found {
+		resultCh := make(chan pollerResult[T], 1)
+		p.logger.Debug().
+			Uint64("chainSelector", key.chainSelector).
+			Uint64("seq", key.msgNum).
+			Str("event", p.eventName).
+			Msg("Cache hit")
+		resultCh <- cachedResult
+		close(resultCh)
+		return resultCh
+	}
+
+	if existingCh, exists := p.waitersBySeqNum[seqKey]; exists {
+		return existingCh
+	}
+
+	resultCh := make(chan pollerResult[T], 1)
+	p.waitersBySeqNum[seqKey] = resultCh
 	go func() {
 		<-ctx.Done()
 		p.mu.Lock()
 		defer p.mu.Unlock()
-		if ch, exists := p.waiters[key]; exists {
-			delete(p.waiters, key)
+		if ch, exists := p.waitersBySeqNum[seqKey]; exists {
+			delete(p.waitersBySeqNum, seqKey)
 			ch <- pollerResult[T]{err: ctx.Err()}
 			close(ch)
 		}
 	}()
-
+	if !p.running {
+		p.running = true
+		p.stopCh = make(chan struct{})
+		go p.run()
+	}
 	return resultCh
 }
 
@@ -108,7 +158,7 @@ func (p *eventPoller[T]) run() {
 
 func (p *eventPoller[T]) poll() {
 	p.mu.Lock()
-	if len(p.waiters) == 0 {
+	if len(p.waitersBySeqNum) == 0 && len(p.waitersByMessageID) == 0 {
 		p.running = false
 		close(p.stopCh)
 		p.mu.Unlock()
@@ -138,11 +188,11 @@ func (p *eventPoller[T]) poll() {
 
 	for key, event := range events {
 		result := pollerResult[T]{event: event}
-
 		p.addToCache(key, result)
 
-		if ch, exists := p.waiters[key]; exists {
-			delete(p.waiters, key)
+		seqKey := eventKey{chainSelector: key.chainSelector, msgNum: key.msgNum}
+		if ch, exists := p.waitersBySeqNum[seqKey]; exists {
+			delete(p.waitersBySeqNum, seqKey)
 			p.logger.Info().
 				Uint64("chainSelector", key.chainSelector).
 				Uint64("seqNo", key.msgNum).
@@ -151,15 +201,35 @@ func (p *eventPoller[T]) poll() {
 			ch <- result
 			close(ch)
 		}
+
+		if key.messageID != (protocol.Bytes32{}) {
+			msgIDKey := eventKey{chainSelector: key.chainSelector, messageID: key.messageID}
+			if ch, exists := p.waitersByMessageID[msgIDKey]; exists {
+				delete(p.waitersByMessageID, msgIDKey)
+				p.logger.Info().
+					Uint64("chainSelector", key.chainSelector).
+					Bytes("messageID", key.messageID[:]).
+					Str("event", p.eventName).
+					Msg("Event received")
+				ch <- result
+				close(ch)
+			}
+		}
 	}
 
 	p.lastScannedBlock = latestBlock
 }
 
 func (p *eventPoller[T]) addToCache(key eventKey, result pollerResult[T]) {
-	if _, exists := p.cachedEvents[key]; exists {
-		return
+	seqKey := eventKey{chainSelector: key.chainSelector, msgNum: key.msgNum}
+	if _, exists := p.cachedBySeqNum[seqKey]; !exists {
+		p.cachedBySeqNum[seqKey] = result
 	}
 
-	p.cachedEvents[key] = result
+	if key.messageID != (protocol.Bytes32{}) {
+		msgIDKey := eventKey{chainSelector: key.chainSelector, messageID: key.messageID}
+		if _, exists := p.cachedByMessageID[msgIDKey]; !exists {
+			p.cachedByMessageID[msgIDKey] = result
+		}
+	}
 }
