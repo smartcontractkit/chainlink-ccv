@@ -24,3 +24,7 @@ indexer/secrets.toml
 
 # Ignore the build output of the ccv development environment
 build/devenv/ccv
+
+**/.venv/
+**/__pycache__/
+**/*.pyc
