@@ -97,6 +97,9 @@ type MetricLabeler interface {
 	// IncrementTaskVerificationPermanentErrors increments the counter for non-retryable verification errors.
 	IncrementTaskVerificationPermanentErrors(ctx context.Context)
 
+	// IncrementCriticalSourceInvariantViolations increments when encoded source-chain data disagrees with configured on-chain facts (e.g. onRamp in message vs observed contract).
+	IncrementCriticalSourceInvariantViolations(ctx context.Context)
+
 	// Heartbeat tracking
 
 	// IncrementHeartbeatsSent increments the counter for successfully sent heartbeats.

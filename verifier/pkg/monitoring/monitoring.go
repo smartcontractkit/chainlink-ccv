@@ -144,6 +144,8 @@ func (f *FakeVerifierMetricLabeler) IncrementStorageWriteErrors(context.Context)
 
 func (f *FakeVerifierMetricLabeler) IncrementTaskVerificationPermanentErrors(context.Context) {}
 
+func (f *FakeVerifierMetricLabeler) IncrementCriticalSourceInvariantViolations(context.Context) {}
+
 func (f *FakeVerifierMetricLabeler) RecordSourceChainLatestBlock(_ context.Context, blockNum int64) {
 	f.SourceChainLatestBLock.Store(blockNum)
 }
