@@ -36,15 +36,63 @@ fi
 COV1="$1"
 COV2="$2"
 
+# Locate the module root and import path so coverage import paths can be
+# resolved to filesystem paths for existence checks.
+MODULE_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || pwd)
+MODULE_PATH=$(grep '^module ' "$MODULE_ROOT/go.mod" 2>/dev/null | awk '{print $2}' | head -1)
+
+# List all unique source-file import paths referenced in a coverage profile.
+list_profile_files() {
+  grep -v '^mode:' "$1" | sed 's/\(.*\.go\):.*/\1/' | sort -u
+}
+
+# Write a filtered copy of a coverage profile to stdout, omitting lines for
+# source files that do not exist on the current filesystem.
+# go tool cover aborts on the first missing file, so pre-filtering is required
+# for correct output when comparing profiles from different commits.
+filter_missing_files() {
+  local profile="$1"
+
+  # Build a grep -E alternation pattern for import paths absent on disk.
+  local pattern=""
+  while IFS= read -r pkg_file; do
+    local rel="${pkg_file#${MODULE_PATH}/}"
+    if [ ! -f "$MODULE_ROOT/$rel" ]; then
+      # Escape regex metacharacters that appear in import paths (primarily '.').
+      local escaped
+      escaped=$(printf '%s' "$pkg_file" | sed 's/\./\\./g')
+      pattern="${pattern:+${pattern}|}^${escaped}:"
+    fi
+  done < <(list_profile_files "$profile")
+
+  if [ -z "$pattern" ]; then
+    cat "$profile"
+  else
+    grep -v -E "$pattern" "$profile"
+  fi
+}
+
 tmp1=$(mktemp)
 tmp2=$(mktemp)
+f1=$(mktemp)
+f2=$(mktemp)
 err1=$(mktemp)
 err2=$(mktemp)
+files1=$(mktemp)
+files2=$(mktemp)
 
 cleanup() {
-  rm -f "$tmp1" "$tmp2" "$err1" "$err2"
+  rm -f "$tmp1" "$tmp2" "$f1" "$f2" "$err1" "$err2" "$files1" "$files2"
 }
 trap cleanup EXIT
+
+# Snapshot file lists before filtering (used for the added/removed report).
+list_profile_files "$COV1" > "$files1"
+list_profile_files "$COV2" > "$files2"
+
+# Build filtered profiles so go tool cover won't abort on missing files.
+filter_missing_files "$COV1" > "$f1"
+filter_missing_files "$COV2" > "$f2"
 
 # Extract top-level package coverage (simple average)
 extract_top_pkg_coverage() {
@@ -73,11 +121,11 @@ extract_top_pkg_coverage() {
 ok1=1
 ok2=1
 
-if ! extract_top_pkg_coverage "$COV1" "$err1" | sort > "$tmp1"; then
+if ! extract_top_pkg_coverage "$f1" "$err1" | sort > "$tmp1"; then
   ok1=0
 fi
 
-if ! extract_top_pkg_coverage "$COV2" "$err2" | sort > "$tmp2"; then
+if ! extract_top_pkg_coverage "$f2" "$err2" | sort > "$tmp2"; then
   ok2=0
 fi
 
@@ -101,7 +149,28 @@ join -a1 -a2 -e "0.00" -o 0,1.2,2.2 "$tmp1" "$tmp2" \
       printf "| %s | %.2f%% | %.2f%% | %+0.2f%% |\n", $1, $2, $3, diff
     }'
 
-# Emit errors AFTER results, separated by a blank line
+# Report files that appear in one profile but not the other.
+# comm requires sorted input; list_profile_files guarantees that via sort -u.
+only_in_1=$(comm -23 "$files1" "$files2")
+only_in_2=$(comm -13 "$files1" "$files2")
+
+if [ -n "$only_in_1" ] || [ -n "$only_in_2" ]; then
+  echo
+  if [ -n "$only_in_1" ]; then
+    echo "Files removed (only in \`$(basename "$COV1")\`):"
+    echo "$only_in_1" | sed 's/^/- /'
+  fi
+  if [ -n "$only_in_1" ] && [ -n "$only_in_2" ]; then
+    echo
+  fi
+  if [ -n "$only_in_2" ]; then
+    echo "Files added (only in \`$(basename "$COV2")\`):"
+    echo "$only_in_2" | sed 's/^/- /'
+  fi
+fi
+
+# Emit any unexpected stderr from go tool cover after the results.
+# Missing-file errors are handled above and should not appear here.
 if [ -s "$err1" ] || [ -s "$err2" ]; then
   echo
   if [ -s "$err1" ]; then
