@@ -1416,8 +1416,6 @@ func (m *CCIP17EVMConfig) GetConnectionProfile(_ *deployment.Environment, select
 				Qualifier:     devenvcommon.DefaultCommitteeVerifierQualifier,
 			},
 		},
-		AddressBytesLength:   20,
-		BaseExecutionGasCost: 150_000,
 	}
 	cvConfig := lanes.CommitteeVerifierRemoteChainInput{
 		GasForVerification: CommitteeVerifierGasForVerification,

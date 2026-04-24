@@ -21,6 +21,7 @@ import (
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/indexercli"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/tcapi"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/verifiercli"
 	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
@@ -227,19 +228,15 @@ func refreshNOPTopologyIndex(t *testing.T, topo *ccvdeployment.EnvironmentTopolo
 
 func requireIndexerDiscoveryReplaySinceForce(t *testing.T, ctx context.Context, cfg *ccv.Cfg, since uint64) {
 	t.Helper()
-	containerName := indexerContainerName(t, cfg)
-	out, err := execInContainer(ctx, containerName, replayCLIArgs(
-		"discovery",
-		"--since", strconv.FormatUint(since, 10),
-		"--force",
-	)...)
+	indexer := indexercli.NewClient(indexerContainerName(t, cfg))
+	out, err := indexer.DiscoverySince(ctx, strconv.FormatUint(since, 10), true)
 	require.NoError(t, err, "indexer discovery replay: %s", out)
 }
 
 func requireIndexerReplayMessagesByIDsForce(t *testing.T, ctx context.Context, cfg *ccv.Cfg, msgIDHex string) {
 	t.Helper()
-	containerName := indexerContainerName(t, cfg)
-	out, err := execInContainer(ctx, containerName, replayCLIArgs("messages", "--ids", msgIDHex, "--force")...)
+	indexer := indexercli.NewClient(indexerContainerName(t, cfg))
+	out, err := indexer.MessagesByID(ctx, msgIDHex, true)
 	require.NoError(t, err, "indexer messages replay: %s", out)
 }
 
@@ -314,25 +311,8 @@ func requireRestartDefaultExecutorContainers(t *testing.T, ctx context.Context, 
 	slices.Sort(containerNames)
 	require.NotEmpty(t, containerNames, "default executor container names")
 	for _, containerName := range containerNames {
-		require.NoError(t, services.RestartContainer(ctx, containerName))
-		require.NoError(t, waitCLNodeHealthy(ctx, containerName))
+		require.NoError(t, verifiercli.NewCLNodeClient(containerName).RestartAndWaitReady(ctx))
 	}
-}
-
-func waitCLNodeHealthy(ctx context.Context, containerName string) error {
-	deadline := time.Now().Add(60 * time.Second)
-	for time.Now().Before(deadline) {
-		_, err := execInContainer(ctx, containerName, "curl", "-sf", "http://localhost:6688/health")
-		if err == nil {
-			return nil
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(2 * time.Second):
-		}
-	}
-	return fmt.Errorf("CL node %s did not become healthy in time", containerName)
 }
 
 func rewindCLVerifierSourceHeights(t *testing.T, ctx context.Context, containerName string, verifierIDs []string, srcSel uint64) {
@@ -351,30 +331,18 @@ func rewindCLVerifierSourceHeights(t *testing.T, ctx context.Context, containerN
 		ids = append(ids, id)
 	}
 	require.NotEmpty(t, ids, "verifier IDs for CL rewind")
-	_, err := execInContainer(ctx, containerName, "pkill", "-STOP", "-f", "chainlink")
-	require.NoError(t, err)
-	t.Cleanup(func() { _, _ = execInContainer(ctx, containerName, "pkill", "-CONT", "-f", "chainlink") })
-	sel := strconv.FormatUint(srcSel, 10)
+	vc := verifiercli.NewCLNodeClient(containerName)
+	require.NoError(t, vc.Pause(ctx))
+	t.Cleanup(func() { vc.ResumeBestEffort(ctx) })
 	for _, verifierID := range ids {
-		_, err = execInContainer(ctx, containerName,
-			"chainlink",
-			"-c", "/config/config",
-			"-c", "/config/overrides",
-			"-c", "/config/user-overrides",
-			"-s", "/config/secrets",
-			"-s", "/config/secrets-overrides",
-			"-s", "/config/user-secrets-overrides",
-			"local", "ccv", "chain-statuses",
-			"--password", "/config/node_password",
-			"set-finalized-height",
-			"--chain-selector", sel,
-			"--verifier-id", verifierID,
-			"--block-height", "0",
+		_, err := vc.ChainStatuses().SetFinalizedHeight(ctx,
+			verifiercli.FormatChainSelector(srcSel),
+			verifierID,
+			verifiercli.FormatBlockHeight(0),
 		)
 		require.NoError(t, err)
 	}
-	require.NoError(t, services.RestartContainer(ctx, containerName))
-	require.NoError(t, waitCLNodeHealthy(ctx, containerName))
+	require.NoError(t, vc.RestartAndWaitReady(ctx))
 }
 
 func requireRewindAllDefaultVerifierSourceHeights(t *testing.T, ctx context.Context, cfg *ccv.Cfg, srcSel uint64) {

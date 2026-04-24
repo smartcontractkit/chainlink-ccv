@@ -2,7 +2,6 @@ package ccv
 
 import (
 	"fmt"
-	"maps"
 	"sort"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
@@ -20,17 +19,13 @@ type LanePartialConfigOverrides struct {
 	UseTestRouter          bool
 }
 
-func mapsCloneCV(m map[uint64]ccipChangesets.CommitteeVerifierRemoteChainConfig) map[uint64]ccipChangesets.CommitteeVerifierRemoteChainConfig {
-	out := make(map[uint64]ccipChangesets.CommitteeVerifierRemoteChainConfig, len(m))
-	maps.Copy(out, m)
-	return out
-}
-
 func mergeCommitteeVerifierRemoteChainConfigForReconcile(
 	base, patch ccipChangesets.CommitteeVerifierRemoteChainConfig,
 ) ccipChangesets.CommitteeVerifierRemoteChainConfig {
 	out := base
-	out.AllowlistEnabled = patch.AllowlistEnabled
+	if patch.AllowlistEnabled != nil {
+		out.AllowlistEnabled = patch.AllowlistEnabled
+	}
 	if len(patch.AddedAllowlistedSenders) > 0 {
 		out.AddedAllowlistedSenders = patch.AddedAllowlistedSenders
 	}
@@ -52,7 +47,6 @@ func mergeCommitteeVerifierRemoteChainConfigForReconcile(
 func committeeVerifiersForTopology(
 	topology *ccipOffchain.EnvironmentTopology,
 	remoteSelectors []uint64,
-	profiles map[uint64]chainProfile,
 ) ([]ccipChangesets.CommitteeVerifierInputConfig, error) {
 	if topology == nil || topology.NOPTopology == nil {
 		return nil, fmt.Errorf("topology with NOPTopology is required")
@@ -68,22 +62,20 @@ func committeeVerifiersForTopology(
 	for _, qualifier := range qualifiers {
 		remoteCV := make(map[uint64]ccipChangesets.CommitteeVerifierRemoteChainConfig, len(remoteSelectors))
 		for _, rs := range remoteSelectors {
-			remoteCV[rs] = ccipChangesets.CommitteeVerifierRemoteChainConfig{
-				GasForVerification: profiles[rs].profile.GasForVerification,
-			}
+			remoteCV[rs] = ccipChangesets.CommitteeVerifierRemoteChainConfig{}
 		}
 		verifiers = append(verifiers, ccipChangesets.CommitteeVerifierInputConfig{
 			CommitteeQualifier: qualifier,
-			RemoteChains:       mapsCloneCV(remoteCV),
+			RemoteChains:       remoteCV,
 		})
 	}
 	return verifiers, nil
 }
 
 // partialChainConfigFromProfile builds one PartialChainConfig for localSelector
-// using ChainLaneProfile data. Committee verifiers use each peer's
-// GasForVerification; remote chain configs use the remote's FeeQuoterDestChainConfig
-// and the local chain's executor/CCV defaults. LanePartialConfigOverrides are merged.
+// using ChainLaneProfile data. Empty committee remote configs and adapter-backed
+// remote chain fields are resolved by the changeset defaults; profiles only carry
+// explicit fee quoter, executor, and CCV overrides.
 func partialChainConfigFromProfile(
 	localSelector uint64,
 	remoteSelectors []uint64,
@@ -92,7 +84,7 @@ func partialChainConfigFromProfile(
 	profiles map[uint64]chainProfile,
 	o LanePartialConfigOverrides,
 ) (ccipChangesets.PartialChainConfig, error) {
-	committeeVerifiers, err := committeeVerifiersForTopology(topology, remoteSelectors, profiles)
+	committeeVerifiers, err := committeeVerifiersForTopology(topology, remoteSelectors)
 	if err != nil {
 		return ccipChangesets.PartialChainConfig{}, err
 	}
@@ -116,15 +108,12 @@ func partialChainConfigFromProfile(
 			return ccipChangesets.PartialChainConfig{}, fmt.Errorf("missing profile for remote selector %d", rs)
 		}
 		remote := remoteProfile.profile
-		allowTrafficFrom := true
 		remoteChains[rs] = ccipChangesets.PartialRemoteChainConfig{
-			AllowTrafficFrom:         &allowTrafficFrom,
 			DefaultInboundCCVs:       local.DefaultInboundCCVs,
 			DefaultOutboundCCVs:      local.DefaultOutboundCCVs,
 			DefaultExecutorQualifier: local.DefaultExecutorQualifier,
 			FeeQuoterDestChainConfig: remote.FeeQuoterDestChainConfig,
 			ExecutorDestChainConfig:  local.ExecutorDestChainConfig,
-			BaseExecutionGasCost:     remote.BaseExecutionGasCost,
 		}
 	}
 
