@@ -3,11 +3,11 @@ package executor
 import (
 	"context"
 	"errors"
-	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -20,65 +20,43 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
-// testEVMMode controls stub accessor behavior:
-//   0 (default) – GetAccessor returns an error (chain skipped)
-//   1            – GetAccessor returns a working stub accessor
-var testEVMMode atomic.Int32
+// evmFactory is the per-test AccessorFactory used by the registered "evm" driver.
+// Tests that need working accessor behavior assign a configured mock before calling
+// Start and register cleanup via t.Cleanup to restore the nil default.
+var evmFactory chainaccess.AccessorFactory
 
-func init() {
-	// Register a test EVM factory so that NewRegistry picks it up.
-	// Default fail mode keeps existing tests working; individual tests
-	// can switch to working mode via testEVMMode.Store(1).
-	chainaccess.Register("evm", func(_ logger.Logger, _ chainaccess.GenericConfig) (chainaccess.AccessorFactory, error) {
-		return &testEVMFactory{}, nil
-	})
-}
+type evmFactoryProxy struct{}
 
-type testEVMFactory struct{}
-
-func (f *testEVMFactory) GetAccessor(_ context.Context, _ protocol.ChainSelector) (chainaccess.Accessor, error) {
-	if testEVMMode.Load() == 1 {
-		return &testAccessor{}, nil
+func (p *evmFactoryProxy) GetAccessor(ctx context.Context, sel protocol.ChainSelector) (chainaccess.Accessor, error) {
+	if evmFactory != nil {
+		return evmFactory.GetAccessor(ctx, sel)
 	}
 	return nil, errors.New("no accessor in test mode")
 }
 
-type testAccessor struct{}
-
-func (a *testAccessor) SourceReader() (chainaccess.SourceReader, error) {
-	return nil, errors.New("source reader not available")
-}
-func (a *testAccessor) DestinationReader() (chainaccess.DestinationReader, error) {
-	return &testDR{}, nil
-}
-func (a *testAccessor) ContractTransmitter() (chainaccess.ContractTransmitter, error) {
-	return &testCT{}, nil
+func init() {
+	// Register a test EVM factory so that NewRegistry picks it up.
+	// Default nil evmFactory keeps existing tests working (GetAccessor returns error);
+	// tests that need a working accessor assign evmFactory before calling Start.
+	chainaccess.Register("evm", func(_ logger.Logger, _ chainaccess.GenericConfig) (chainaccess.AccessorFactory, error) {
+		return &evmFactoryProxy{}, nil
+	})
 }
 
-type testCT struct{}
-
-func (*testCT) ConvertAndWriteMessageToChain(_ context.Context, _ protocol.AbstractAggregatedReport) error {
-	return nil
-}
-
-type testDR struct{}
-
-func (*testDR) GetRMNCursedSubjects(_ context.Context) ([]protocol.Bytes16, error) {
-	return nil, nil
-}
-func (*testDR) GetMessageSuccess(_ context.Context, _ protocol.Message) (bool, error) {
-	return false, nil
-}
-func (*testDR) GetCCVSForMessage(_ context.Context, _ protocol.Message) (protocol.CCVAddressInfo, error) {
-	return protocol.CCVAddressInfo{}, nil
-}
-func (*testDR) GetExecutionAttempts(_ context.Context, _ protocol.Message) ([]protocol.ExecutionAttempt, error) {
-	return nil, nil
-}
-func (*testDR) IsReady(_ protocol.ChainSelector) bool          { return true }
-func (*testDR) CheckHealth(_ protocol.ChainSelector) error     { return nil }
-func (*testDR) HasHonestAttempt(_ context.Context, _ protocol.Message, _ []protocol.VerifierResult, _ protocol.CCVAddressInfo) (bool, error) {
-	return false, nil
+// newWorkingEVMFactory wires up a mock AccessorFactory that returns a functional
+// mock Accessor (with mock ContractTransmitter and DestinationReader). It sets the
+// package-level evmFactory and registers cleanup to restore the nil default.
+func newWorkingEVMFactory(t *testing.T) {
+	t.Helper()
+	ct := mocks.NewMockContractTransmitter(t)
+	dr := mocks.NewMockDestinationReader(t)
+	acc := mocks.NewMockAccessor(t)
+	acc.EXPECT().ContractTransmitter().Return(ct, nil)
+	acc.EXPECT().DestinationReader().Return(dr, nil)
+	fac := mocks.NewMockAccessorFactory(t)
+	fac.EXPECT().GetAccessor(mock.Anything, mock.Anything).Return(acc, nil)
+	evmFactory = fac
+	t.Cleanup(func() { evmFactory = nil })
 }
 
 // --- tests ---
@@ -204,13 +182,11 @@ executor_pool        = ["test-executor"]
 	assert.Contains(t, err.Error(), "failed to validate chainlink executor")
 }
 
-// TestFactory_Start_LeaderElectorError switches the test EVM factory to working
-// mode so accessor lookups succeed and contractTransmitters becomes non-empty.
-// Validation then passes, but duplicate entries in executor_pool cause
-// NewHashBasedLeaderElector to fail.
+// TestFactory_Start_LeaderElectorError uses working accessor mocks so
+// contractTransmitters becomes non-empty and validation passes, but duplicate
+// entries in executor_pool cause NewHashBasedLeaderElector to fail.
 func TestFactory_Start_LeaderElectorError(t *testing.T) {
-	testEVMMode.Store(1)
-	defer testEVMMode.Store(0)
+	newWorkingEVMFactory(t)
 
 	const appConfig = `
 executor_id = "test-executor"
@@ -231,12 +207,10 @@ executor_pool        = ["test-executor", "test-executor"]
 	assert.Contains(t, err.Error(), "failed to create leader elector")
 }
 
-// TestFactory_Start_Success runs a full startup/shutdown cycle using stub
-// accessors and a valid config (including execution_interval). No external
-// services are required.
+// TestFactory_Start_Success runs a full startup/shutdown cycle using mock
+// accessors and a valid config. No external services are required.
 func TestFactory_Start_Success(t *testing.T) {
-	testEVMMode.Store(1)
-	defer testEVMMode.Store(0)
+	newWorkingEVMFactory(t)
 
 	const appConfig = `
 executor_id = "test-executor"
