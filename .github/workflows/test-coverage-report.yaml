@@ -99,5 +99,5 @@ jobs:
               issue_number: context.issue.number,
               owner: context.repo.owner,
               repo: context.repo.repo,
-              body: `Code coverage report:\n| Package | \`${{ github.base_ref }}\` | \`${{ github.head_ref }}\` | diff |\n ${coverage_report}`
+              body: `${coverageCommentPrefix}\n${coverage_report}`
             });
