@@ -43,7 +43,7 @@ MODULE_PATH=$(grep '^module ' "$MODULE_ROOT/go.mod" 2>/dev/null | awk '{print $2
 
 # List all unique source-file import paths referenced in a coverage profile.
 list_profile_files() {
-  grep -v '^mode:' "$1" | sed 's/\(.*\.go\):.*/\1/' | sort -u
+  grep -v '^mode:' "$1" | cut -d: -f1 | sort | uniq
 }
 
 # Write a filtered copy of a coverage profile to stdout, omitting lines for
@@ -56,7 +56,7 @@ filter_missing_files() {
   # Build a grep -E alternation pattern for import paths absent on disk.
   local pattern=""
   while IFS= read -r pkg_file; do
-    local rel="${pkg_file#${MODULE_PATH}/}"
+    local rel="${pkg_file#"${MODULE_PATH}"/}"
     if [ ! -f "$MODULE_ROOT/$rel" ]; then
       # Escape regex metacharacters that appear in import paths (primarily '.').
       local escaped
@@ -158,14 +158,14 @@ if [ -n "$only_in_1" ] || [ -n "$only_in_2" ]; then
   echo
   if [ -n "$only_in_1" ]; then
     echo "Files removed (only in \`$(basename "$COV1")\`):"
-    echo "$only_in_1" | sed 's/^/- /'
+    echo "- ${only_in_1//$'\n'/$'\n- '}"
   fi
   if [ -n "$only_in_1" ] && [ -n "$only_in_2" ]; then
     echo
   fi
   if [ -n "$only_in_2" ]; then
     echo "Files added (only in \`$(basename "$COV2")\`):"
-    echo "$only_in_2" | sed 's/^/- /'
+    echo "- ${only_in_2//$'\n'/$'\n- '}"
   fi
 fi
 
