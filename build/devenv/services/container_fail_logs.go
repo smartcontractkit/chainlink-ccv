@@ -13,16 +13,8 @@ import (
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 )
 
-// FailingTestcontainerLogsDir is where we write Docker logs for a testcontainers
-// instance that failed its wait strategy, immediately before Terminate(). It sits
-// beside the usual CTF log tree (DefaultCTFLogsDir, e.g. logs/docker-* from
-// "ccv dl") so CI and local runs can collect it the same way.
-func FailingTestcontainerLogsDir() string {
-	return fmt.Sprintf("%s-failed-start", framework.DefaultCTFLogsDir)
-}
-
 // SaveFailingTestcontainerLogs copies the container log stream to
-// {FailingTestcontainerLogsDir}/{name}-attempt-{N}.log. It is best-effort: errors
+// {DefaultCTFLogsDir}/{name}-attempt-{N}.log. It is best-effort: errors
 // are logged and returned so callers can ignore them before Terminate.
 func SaveFailingTestcontainerLogs(ctx context.Context, c testcontainers.Container, containerName string, attempt int) error {
 	if c == nil {
@@ -35,11 +27,7 @@ func SaveFailingTestcontainerLogs(ctx context.Context, c testcontainers.Containe
 	}
 	defer reader.Close()
 
-	dir := FailingTestcontainerLogsDir()
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		framework.L.Warn().Err(err).Str("dir", dir).Msg("failed to create failed-start log directory")
-		return err
-	}
+	dir := framework.DefaultCTFLogsDir
 
 	name := strings.TrimSpace(containerName)
 	if name == "" {
