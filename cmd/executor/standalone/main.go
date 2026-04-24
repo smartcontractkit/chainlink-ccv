@@ -7,6 +7,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
 	cmdexecutor "github.com/smartcontractkit/chainlink-ccv/cmd/executor"
 	executorsvc "github.com/smartcontractkit/chainlink-ccv/executor"
+	_ "github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm" // evm accessor driver
 )
 
 const configPathEnvVar = "EXECUTOR_CONFIG_PATH"
