@@ -126,6 +126,7 @@ func (m *noopMetricLabeler) RecordTaskVerificationQueueSize(ctx context.Context,
 func (m *noopMetricLabeler) RecordStorageWriteQueueSize(ctx context.Context, size int64)         {}
 func (m *noopMetricLabeler) IncrementStorageWriteErrors(ctx context.Context)                     {}
 func (m *noopMetricLabeler) IncrementTaskVerificationPermanentErrors(ctx context.Context)        {}
+func (m *noopMetricLabeler) IncrementCriticalSourceInvariantViolations(ctx context.Context)      {}
 func (m *noopMetricLabeler) RecordSourceChainLatestBlock(ctx context.Context, blockNum int64)    {}
 func (m *noopMetricLabeler) RecordSourceChainFinalizedBlock(ctx context.Context, blockNum int64) {}
 func (m *noopMetricLabeler) RecordSourceChainSafeBlock(ctx context.Context, blockNum int64)      {}

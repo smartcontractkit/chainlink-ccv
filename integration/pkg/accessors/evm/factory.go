@@ -125,6 +125,7 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 			onramp.OnRampCCIPMessageSent{}.Topic().Hex(),
 			chainSelector,
 			f.lggr,
+			nil,
 		)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create EVM source reader: %w", err)
