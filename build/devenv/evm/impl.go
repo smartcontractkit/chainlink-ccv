@@ -486,6 +486,27 @@ func (m *CCIP17EVM) ConfirmExecOnDest(ctx context.Context, from uint64, key ccip
 	}
 }
 
+// WaitForExecutionState polls the OffRamp's getExecutionState view until the
+// message reaches the target state or the context expires. This bypasses the
+// event-poller cache which only stores the first event per (chain, seqNo) key
+// and is therefore unsuitable for detecting state transitions (e.g. FAILURE->SUCCESS).
+func (m *CCIP17EVM) WaitForExecutionState(ctx context.Context, msgID protocol.Bytes32, target cciptestinterfaces.MessageExecutionState, interval time.Duration) error {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		state, err := m.offRamp.GetExecutionState(&bind.CallOpts{Context: ctx}, msgID)
+		if err == nil && cciptestinterfaces.MessageExecutionState(state) == target {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("timed out waiting for execution state %s on message %x (last state=%d, last err=%v)",
+				target, msgID, state, err)
+		case <-ticker.C:
+		}
+	}
+}
+
 func (m *CCIP17EVM) GetEOAReceiverAddress() (protocol.UnknownAddress, error) {
 	// returns the same address for each chain for now - we might need to extend this in the future if we'd ever
 	// need to access any funds on the EOA itself.

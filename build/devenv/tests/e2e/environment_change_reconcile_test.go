@@ -25,6 +25,7 @@ import (
 	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
+	ccvevm "github.com/smartcontractkit/chainlink-ccv/build/devenv/evm"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/tcapi"
 	ccvcomm "github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/common/committee"
@@ -261,6 +262,103 @@ func runEnvironmentChangeEOADefaultVerifierWithIndexedResult(
 		return result, fmt.Errorf("expected execution state success, got %s", e.State)
 	}
 	return result, nil
+}
+
+// runEnvironmentChangeEOADefaultVerifierIndexedResultUntilExecStops returns the message ID and
+// sequence number when the indexer and aggregator pipeline succeeds but destination execution
+// does not reach SUCCESS (typically FAILURE after a committee threshold mismatch).
+func runEnvironmentChangeEOADefaultVerifierIndexedResultUntilExecStops(
+	ctx context.Context,
+	harness tcapi.TestHarness,
+	cfg *ccv.Cfg,
+	src, dest cciptestinterfaces.CCIP17,
+	useTestRouter bool,
+) ([32]byte, uint64, tcapi.AssertionResult, cciptestinterfaces.MessageExecutionState, error) {
+	var zeroMsg [32]byte
+	inputs, err := environmentChangeEOADefaultVerifierConfig(cfg, src, dest)
+	if err != nil {
+		return zeroMsg, 0, tcapi.AssertionResult{}, 0, fmt.Errorf("%w: %w", errEnvironmentChangeEOADefaultVerifierPrerequisites, err)
+	}
+
+	seqNo, err := src.GetExpectedNextSequenceNumber(ctx, dest.ChainSelector())
+	if err != nil {
+		return zeroMsg, 0, tcapi.AssertionResult{}, 0, fmt.Errorf("failed to get expected next sequence number: %w", err)
+	}
+	sendMessageResult, err := src.SendMessage(
+		ctx, dest.ChainSelector(), cciptestinterfaces.MessageFields{
+			Receiver: inputs.receiver,
+			Data:     []byte("multi-verifier test"),
+		}, cciptestinterfaces.MessageOptions{
+			Version:           3,
+			ExecutionGasLimit: 200_000,
+			FinalityConfig:    1,
+			Executor:          inputs.executor,
+			CCVs:              inputs.ccvs,
+			UseTestRouter:     useTestRouter,
+		},
+	)
+	if err != nil {
+		return zeroMsg, 0, tcapi.AssertionResult{}, 0, fmt.Errorf("failed to send message: %w", err)
+	}
+	if len(sendMessageResult.ReceiptIssuers) != 3 {
+		return zeroMsg, 0, tcapi.AssertionResult{}, 0, fmt.Errorf("expected 3 receipt issuers, got %d", len(sendMessageResult.ReceiptIssuers))
+	}
+	sentEvent, err := src.ConfirmSendOnSource(ctx, dest.ChainSelector(), cciptestinterfaces.MessageEventKey{SeqNum: seqNo}, tcapi.DefaultSentTimeout)
+	if err != nil {
+		return zeroMsg, 0, tcapi.AssertionResult{}, 0, fmt.Errorf("failed to confirm send on source: %w", err)
+	}
+	aggregatorClient := harness.AggregatorClients[devenvcommon.DefaultCommitteeVerifierQualifier]
+	chainMap, err := harness.Lib.ChainsMap(ctx)
+	if err != nil {
+		return zeroMsg, 0, tcapi.AssertionResult{}, 0, fmt.Errorf("failed to get chains map: %w", err)
+	}
+	testCtx, cleanup := tcapi.NewTestingContext(ctx, chainMap, aggregatorClient, harness.IndexerMonitor)
+	defer cleanup()
+
+	result, err := testCtx.AssertMessage(sentEvent.MessageID, tcapi.AssertMessageOptions{
+		TickInterval:            time.Second,
+		ExpectedVerifierResults: 1,
+		Timeout:                 environmentChangeAssertMessageTimeout,
+		AssertVerifierLogs:      false,
+		AssertExecutorLogs:      false,
+	})
+	if err != nil {
+		return sentEvent.MessageID, seqNo, result, 0, fmt.Errorf("failed to assert message: %w", err)
+	}
+	if result.AggregatedResult == nil {
+		return sentEvent.MessageID, seqNo, result, 0, fmt.Errorf("aggregated result is nil")
+	}
+	if len(result.IndexedVerifications.Results) != 1 {
+		return sentEvent.MessageID, seqNo, result, 0, fmt.Errorf("expected 1 indexed verification, got %d", len(result.IndexedVerifications.Results))
+	}
+	e, err := chainMap[dest.ChainSelector()].ConfirmExecOnDest(ctx, src.ChainSelector(), cciptestinterfaces.MessageEventKey{SeqNum: seqNo}, environmentChangePostMessageExecTimeout)
+	if err != nil {
+		return sentEvent.MessageID, seqNo, result, 0, fmt.Errorf("failed to confirm exec on dest: %w", err)
+	}
+	if e.State == cciptestinterfaces.ExecutionStateSuccess {
+		return sentEvent.MessageID, seqNo, result, e.State, fmt.Errorf("expected execution to stop before success, got success")
+	}
+	return sentEvent.MessageID, seqNo, result, e.State, nil
+}
+
+// requireEnvironmentChangeMessageReachesExecutionSuccess polls the OffRamp
+// getExecutionState view directly until the message reaches SUCCESS. This
+// bypasses the event-poller cache (which write-once caches the first event per
+// seqNo and would immediately return the stale FAILURE for a retried message).
+func requireEnvironmentChangeMessageReachesExecutionSuccess(
+	t *testing.T,
+	ctx context.Context,
+	dest cciptestinterfaces.CCIP17,
+	msgID [32]byte,
+) {
+	t.Helper()
+	destEVM, ok := dest.(*ccvevm.CCIP17EVM)
+	require.True(t, ok, "dest chain must be *CCIP17EVM for direct execution-state polling")
+	pollCtx, cancel := context.WithTimeout(ctx, environmentChangeAssertMessageTimeout+environmentChangePostMessageExecTimeout)
+	defer cancel()
+	require.NoError(t, destEVM.WaitForExecutionState(
+		pollCtx, msgID, cciptestinterfaces.ExecutionStateSuccess, 2*time.Second,
+	), "expected original message to reach SUCCESS after recovery")
 }
 
 func twoDistinctEVMSelectorsFromHarness(t *testing.T, h *environmentChangeReconcileHarness) (srcSel, destSel uint64) {

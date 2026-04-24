@@ -744,9 +744,10 @@ func generateVerifierJobSpecs(
 				if _, ok := activeNOPAliases[ver.NOPAlias]; !ok {
 					ver.GeneratedJobSpecs = nil
 					ver.GeneratedConfig = ""
-					if ver.Out != nil {
-						ver.Out.VerifierID = ""
+					if ver.Out == nil {
+						ver.Out = &committeeverifier.Output{}
 					}
+					ver.Out.VerifierID = ""
 					continue
 				}
 				activeFamilyVerifiers = append(activeFamilyVerifiers, ver)
@@ -831,10 +832,13 @@ func generateVerifierJobSpecs(
 				}
 				ver.GeneratedConfig = string(configBytes)
 
-				// Store the VerifierID in the output for test access
-				if ver.Out != nil {
-					ver.Out.VerifierID = verCfg.VerifierID
+				// Store the VerifierID in the output for test access. CL-mode verifiers
+				// don't have an Out populated by launchStandaloneVerifiers, so initialize
+				// it here so VerifierID is observable regardless of mode.
+				if ver.Out == nil {
+					ver.Out = &committeeverifier.Output{}
 				}
+				ver.Out.VerifierID = verCfg.VerifierID
 
 				if sharedTLSCerts != nil && !ver.InsecureAggregatorConnection {
 					ver.TLSCACertFile = sharedTLSCerts.CACertFile

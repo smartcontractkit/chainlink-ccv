@@ -10,6 +10,7 @@ import (
 	ccipChangesets "github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/changesets"
 	ccipOffchain "github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/offchain"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
+	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
@@ -66,6 +67,22 @@ func ResetMemoryOperationsBundle(e *deployment.Environment) {
 		e.Logger,
 		operations.NewMemoryReporter(),
 	)
+}
+
+// ReconfigureLanesOnchainOnly applies topology-derived lane configuration on-chain
+// (committee verifier signature configs, remote chain configs, router lanes) without
+// regenerating off-chain configs or restarting any services. Intended for tests that
+// need on-chain and aggregator configs to be intentionally out of sync.
+func ReconfigureLanesOnchainOnly(
+	ctx context.Context,
+	e *deployment.Environment,
+	topology *ccvdeployment.EnvironmentTopology,
+	selectors []uint64,
+	blockchains []*blockchain.Input,
+	impls []cciptestinterfaces.CCIP17Configuration,
+	params ReconfigureLanesParams,
+) error {
+	return reconfigureLanesFromTopology(ctx, e, convertTopologyToCCIP(topology), selectors, blockchains, impls, params)
 }
 
 // reconfigureLanesFromTopology runs ConfigureChainsForLanesFromTopology once with a PartialChainConfig per chain

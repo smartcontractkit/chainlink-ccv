@@ -44,6 +44,20 @@ func (o ConfigureOffchainOptions) effectiveRestartTomlConsumers() bool {
 	return *o.RestartTomlConsumers
 }
 
+// ReconfigureOffchainOnly regenerates off-chain configs (aggregator, indexer, verifier job specs)
+// and restarts TOML-bound services without applying any on-chain lane changes. Intended for tests
+// that need to update the verifier signing key before the on-chain quorum is changed.
+func ReconfigureOffchainOnly(
+	ctx context.Context,
+	e *deployment.Environment,
+	in *Cfg,
+	topology *ccvdeployment.EnvironmentTopology,
+	impls []cciptestinterfaces.CCIP17Configuration,
+	opts ConfigureOffchainOptions,
+) error {
+	return configureOffchainAfterOnChainChange(ctx, e, in, impls, topology, nil, opts)
+}
+
 // ConfigureTopologyLanesAndOffchain applies on-chain lane changes from topology and params, then runs off-chain
 // regeneration (aggregator, indexer, executor, verifier) and restarts TOML-bound Docker services by default.
 func ConfigureTopologyLanesAndOffchain(
