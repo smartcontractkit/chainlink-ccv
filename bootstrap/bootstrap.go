@@ -233,13 +233,27 @@ func (b *Bootstrapper) Start(ctx context.Context) error {
 	return fmt.Errorf("no configuration provided: either JD config or app config must be provided")
 }
 
-// Stop shuts down the lifecycle manager and info server.
+// Stop shuts down all active components.
+//
+// The two startup modes own mutually exclusive sets of objects, so stopping every
+// non-nil field is sufficient to cover both without double-stopping anything:
+//   - JD mode (lifecycleManager/infoServer set, appCfg nil): the lifecycle manager and info server are stopped.
+//   - Static-config mode (appCfg set, lifecycleManager/infoServer nil): the factory is stopped directly.
 func (b *Bootstrapper) Stop(ctx context.Context) error {
-	if err := b.lifecycleManager.Stop(); err != nil {
-		return fmt.Errorf("failed to stop lifecycle manager: %w", err)
+	if b.lifecycleManager != nil {
+		if err := b.lifecycleManager.Stop(); err != nil {
+			return fmt.Errorf("failed to stop lifecycle manager: %w", err)
+		}
 	}
-	if err := b.infoServer.Stop(ctx); err != nil {
-		return fmt.Errorf("failed to stop info server: %w", err)
+	if b.infoServer != nil {
+		if err := b.infoServer.Stop(ctx); err != nil {
+			return fmt.Errorf("failed to stop info server: %w", err)
+		}
+	}
+	if b.appCfg != nil {
+		if err := b.fac.Stop(ctx); err != nil {
+			return fmt.Errorf("failed to stop service factory: %w", err)
+		}
 	}
 	return nil
 }
