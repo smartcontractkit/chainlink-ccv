@@ -339,7 +339,7 @@ func startContainer(ctx context.Context, req testcontainers.ContainerRequest) (t
 			Started:          true,
 		})
 		if err == nil {
-			break
+			return c, nil
 		}
 
 		lastErr = err
@@ -355,11 +355,7 @@ func startContainer(ctx context.Context, req testcontainers.ContainerRequest) (t
 		}
 	}
 
-	if lastErr != nil {
-		return nil, fmt.Errorf("failed to start container after %d attempts: %w", maxAttempts, lastErr)
-	}
-
-	return c, nil
+	return nil, fmt.Errorf("failed to start container after %d attempts: %w", maxAttempts, lastErr)
 }
 
 func baseImageRequest(in *Input, envVars map[string]string, bootstrapConfigFilePath string) (testcontainers.ContainerRequest, error) {

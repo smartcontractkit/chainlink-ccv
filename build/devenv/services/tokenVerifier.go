@@ -181,6 +181,7 @@ func NewTokenVerifier(in *TokenVerifierInput, blockchainOutputs []*blockchain.Ou
 			Started:          true,
 		})
 		if err == nil {
+			lastErr = nil
 			break
 		}
 

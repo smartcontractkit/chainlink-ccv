@@ -28,6 +28,10 @@ func SaveFailingTestcontainerLogs(ctx context.Context, c testcontainers.Containe
 	defer reader.Close()
 
 	dir := framework.DefaultCTFLogsDir
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		framework.L.Warn().Err(err).Str("path", dir).Msg("failed to create failed-start log dir")
+		return err
+	}
 
 	name := strings.TrimSpace(containerName)
 	if name == "" {
