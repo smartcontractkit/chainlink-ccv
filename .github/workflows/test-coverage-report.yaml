@@ -57,7 +57,7 @@ jobs:
           just test-coverage coverage_target.out short
           # switch back to the head ref
           git checkout ${{ github.head_ref }}
-          ./tools/bin/cov_compare.sh --no-header coverage_target.out coverage.out > table.txt
+          ./tools/bin/cov_compare.sh --no-header coverage_target.out coverage.out --label1="${{ github.base_ref }}" --label2="${{ github.head_ref }}" > table.txt
           cat table.txt
           {
             echo 'coverage_report<<COVERAGE_REPORT_DELIM'
