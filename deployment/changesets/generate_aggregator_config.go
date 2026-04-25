@@ -20,6 +20,18 @@ type GenerateAggregatorConfigInput struct {
 	Topology           *ccvdeployment.EnvironmentTopology
 }
 
+// GenerateAggregatorConfigImperativeInput is the topology-free counterpart to
+// GenerateAggregatorConfigInput. ChainSelectors replaces the topology-based chain
+// resolution, and ThresholdOverride (when non-nil) replaces the threshold read from
+// onchain state — needed for offchain-first coupled products where the onchain change
+// has not yet landed.
+type GenerateAggregatorConfigImperativeInput struct {
+	ServiceIdentifier  string
+	CommitteeQualifier string
+	ChainSelectors     []uint64
+	ThresholdOverride  *uint8
+}
+
 func GenerateAggregatorConfig(registry *adapters.Registry) deployment.ChangeSetV2[GenerateAggregatorConfigInput] {
 	validate := func(e deployment.Environment, cfg GenerateAggregatorConfigInput) error {
 		if cfg.ServiceIdentifier == "" {
@@ -38,7 +50,7 @@ func GenerateAggregatorConfig(registry *adapters.Registry) deployment.ChangeSetV
 			return deployment.ChangesetOutput{}, err
 		}
 
-		committee, err := buildAggregatorCommittee(e, registry, cfg.CommitteeQualifier, chainSelectors)
+		committee, err := buildAggregatorCommittee(e, registry, cfg.CommitteeQualifier, chainSelectors, nil)
 		if err != nil {
 			return deployment.ChangesetOutput{}, fmt.Errorf("failed to build aggregator config: %w", err)
 		}
@@ -57,6 +69,52 @@ func GenerateAggregatorConfig(registry *adapters.Registry) deployment.ChangeSetV
 		return deployment.ChangesetOutput{
 			DataStore: outputDS,
 		}, nil
+	}
+
+	return deployment.CreateChangeSet(apply, validate)
+}
+
+// GenerateAggregatorConfigImperative is the topology-free companion to GenerateAggregatorConfig.
+// It accepts chain selectors directly and an optional threshold override, making it suitable
+// for use inside coupled-committee changesets where topology is not available.
+func GenerateAggregatorConfigImperative(registry *adapters.Registry) deployment.ChangeSetV2[GenerateAggregatorConfigImperativeInput] {
+	validate := func(e deployment.Environment, cfg GenerateAggregatorConfigImperativeInput) error {
+		if cfg.ServiceIdentifier == "" {
+			return fmt.Errorf("service identifier is required")
+		}
+		if cfg.CommitteeQualifier == "" {
+			return fmt.Errorf("committee qualifier is required")
+		}
+		if len(cfg.ChainSelectors) == 0 {
+			return fmt.Errorf("at least one chain selector is required")
+		}
+		envSelectors := e.BlockChains.ListChainSelectors()
+		for _, sel := range cfg.ChainSelectors {
+			if !slices.Contains(envSelectors, sel) {
+				return fmt.Errorf("chain selector %d is not available in environment", sel)
+			}
+		}
+		return nil
+	}
+
+	apply := func(e deployment.Environment, cfg GenerateAggregatorConfigImperativeInput) (deployment.ChangesetOutput, error) {
+		committee, err := buildAggregatorCommittee(e, registry, cfg.CommitteeQualifier, cfg.ChainSelectors, cfg.ThresholdOverride)
+		if err != nil {
+			return deployment.ChangesetOutput{}, fmt.Errorf("failed to build aggregator config: %w", err)
+		}
+
+		outputDS := datastore.NewMemoryDataStore()
+		if e.DataStore != nil {
+			if err := outputDS.Merge(e.DataStore); err != nil {
+				return deployment.ChangesetOutput{}, fmt.Errorf("failed to merge existing datastore: %w", err)
+			}
+		}
+
+		if err := ccvdeployment.SaveAggregatorConfig(outputDS, cfg.ServiceIdentifier, committee); err != nil {
+			return deployment.ChangesetOutput{}, fmt.Errorf("failed to save aggregator config: %w", err)
+		}
+
+		return deployment.ChangesetOutput{DataStore: outputDS}, nil
 	}
 
 	return deployment.CreateChangeSet(apply, validate)
@@ -95,6 +153,7 @@ func buildAggregatorCommittee(
 	registry *adapters.Registry,
 	committeeQualifier string,
 	chainSelectors []uint64,
+	thresholdOverride *uint8,
 ) (*model.Committee, error) {
 	ctx := context.Background()
 
@@ -112,8 +171,11 @@ func buildAggregatorCommittee(
 		if a.Aggregator == nil {
 			return nil, fmt.Errorf("no aggregator config adapter registered for chain %d", sel)
 		}
+		if a.CommitteeVerifierOnchain == nil {
+			return nil, fmt.Errorf("no CommitteeVerifierOnchain adapter registered for chain %d", sel)
+		}
 
-		states, err := a.Aggregator.ScanCommitteeStates(ctx, e, sel)
+		states, err := a.CommitteeVerifierOnchain.ScanCommitteeStates(ctx, e, sel)
 		if err != nil {
 			return nil, fmt.Errorf("failed to scan committee states on chain %d: %w", sel, err)
 		}
@@ -135,7 +197,7 @@ func buildAggregatorCommittee(
 		return nil, fmt.Errorf("committee %q not found in deployed verifier state", committeeQualifier)
 	}
 
-	quorumConfigs, err := buildQuorumConfigs(e.DataStore, registry, committeeStates, committeeQualifier, chainSelectors)
+	quorumConfigs, err := buildQuorumConfigs(e.DataStore, registry, committeeStates, committeeQualifier, chainSelectors, thresholdOverride)
 	if err != nil {
 		return nil, fmt.Errorf("failed to build quorum configs: %w", err)
 	}
@@ -157,6 +219,7 @@ func buildQuorumConfigs(
 	committeeStates []*adapters.CommitteeState,
 	committeeQualifier string,
 	chainSelectors []uint64,
+	thresholdOverride *uint8,
 ) (map[string]*model.QuorumConfig, error) {
 	supportedChains := make(map[uint64]bool, len(chainSelectors))
 	for _, sel := range chainSelectors {
@@ -197,10 +260,15 @@ func buildQuorumConfigs(
 				signers = append(signers, model.Signer{Address: addr})
 			}
 
+			threshold := sigConfig.Threshold
+			if thresholdOverride != nil {
+				threshold = *thresholdOverride
+			}
+
 			quorumConfigs[chainSelectorStr] = &model.QuorumConfig{
 				SourceVerifierAddress: sourceVerifierAddr,
 				Signers:               signers,
-				Threshold:             sigConfig.Threshold,
+				Threshold:             threshold,
 			}
 		}
 	}

@@ -29,10 +29,11 @@ func init() {
 
 	// Register all EVM adapter implementations in the combined registry.
 	adapters.GetRegistry().Register(chainsel.FamilyEVM, adapters.ChainAdapters{
-		Aggregator:    &evmAggregatorConfigAdapter{},
-		Executor:      &evmExecutorConfigAdapter{},
-		Verifier:      &evmVerifierConfigAdapter{},
-		Indexer:       &evmIndexerConfigAdapter{},
-		TokenVerifier: &evmTokenVerifierConfigAdapter{},
+		Aggregator:               &evmAggregatorConfigAdapter{},
+		Executor:                 &evmExecutorConfigAdapter{},
+		Verifier:                 &evmVerifierConfigAdapter{},
+		Indexer:                  &evmIndexerConfigAdapter{},
+		TokenVerifier:            &evmTokenVerifierConfigAdapter{},
+		CommitteeVerifierOnchain: &evmCommitteeVerifierOnchainAdapter{},
 	})
 }
