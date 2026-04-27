@@ -12,8 +12,8 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/auth"
-	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/chainstatus"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/messagedisablement"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
@@ -52,12 +52,12 @@ func makeValidProtoRequest() *committeepb.WriteCommitteeVerifierNodeResultReques
 	}
 }
 
-// alwaysDisabledChecker is a chainstatus.Checker that always reports the chain as disabled.
+// alwaysDisabledChecker is a messagedisablement.Checker that always reports the message as disabled.
 type alwaysDisabledChecker struct{}
 
-func (alwaysDisabledChecker) IsDisabled(_ chainstatus.LaneReport) bool { return true }
+func (alwaysDisabledChecker) IsDisabled(_ messagedisablement.MessageReport) bool { return true }
 
-func TestWriteCommitCCVNodeDataHandler_ChainStatusdGate(t *testing.T) {
+func TestWriteCommitCCVNodeDataHandler_MessageDisablementGate(t *testing.T) {
 	t.Parallel()
 
 	const testCallerID = "test-caller"
@@ -68,7 +68,7 @@ func TestWriteCommitCCVNodeDataHandler_ChainStatusdGate(t *testing.T) {
 	sig := mocks.NewMockSignatureValidator(t)
 	mon := mocks.NewMockAggregatorMonitoring(t)
 
-	// None of these should be called when the chain is disabled
+	// None of these should be called when the message is disabled
 	store.EXPECT().SaveCommitVerification(mock.Anything, mock.Anything, mock.Anything).Maybe()
 	agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Maybe()
 	sig.EXPECT().ValidateSignature(mock.Anything, mock.Anything).Maybe()
@@ -85,8 +85,11 @@ func TestWriteCommitCCVNodeDataHandler_ChainStatusdGate(t *testing.T) {
 	require.NotNil(t, resp)
 	require.Equal(t, committeepb.WriteStatus_FAILED, resp.Status)
 
-	// Verify neither storage nor aggregation was touched
+	// Verify no downstream validation, storage, metrics, or aggregation work was touched.
+	sig.AssertNotCalled(t, "ValidateSignature")
+	sig.AssertNotCalled(t, "DeriveAggregationKey")
 	store.AssertNotCalled(t, "SaveCommitVerification")
+	mon.AssertNotCalled(t, "Metrics")
 	agg.AssertNotCalled(t, "CheckAggregation")
 }
 
@@ -228,7 +231,7 @@ func TestWriteCommitCCVNodeDataHandler_Handle_Table(t *testing.T) {
 			labeler.EXPECT().With(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(labeler).Maybe()
 			labeler.EXPECT().IncrementVerificationsTotal(mock.Anything).Maybe()
 
-			handler := NewWriteCommitCCVNodeDataHandler(store, agg, mon, lggr, sig, time.Millisecond, chainstatus.NoopChecker{})
+			handler := NewWriteCommitCCVNodeDataHandler(store, agg, mon, lggr, sig, time.Millisecond, messagedisablement.NoopChecker{})
 
 			ctx := auth.ToContext(context.Background(), auth.CreateCallerIdentity(testCallerID, false))
 			resp, err := handler.Handle(ctx, tc.req)

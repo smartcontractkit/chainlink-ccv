@@ -73,7 +73,8 @@ type AggregatorMetricLabeler interface {
 	// IncrementGRPCErrors increments the counter for gRPC errors by status code.
 	// code should be the gRPC status code string (e.g. "ResourceExhausted", "Internal").
 	IncrementGRPCErrors(ctx context.Context, code, method string)
-	// SetChainDisabledStatus records whether a chain is disabled (1) or enabled (0).
-	// Callers should attach chain_selector, chain_name, and side labels via With().
-	SetChainDisabledStatus(ctx context.Context, disabled int64)
+	// SetMessageDisablementRuleActive records whether a message disablement rule is active (1) or inactive (0).
+	SetMessageDisablementRuleActive(ctx context.Context, active int64, keyValues ...string)
+	// SetMessageDisablementRulesRefreshFailure records whether the latest message disablement rules refresh failed.
+	SetMessageDisablementRulesRefreshFailure(ctx context.Context, failed int64)
 }

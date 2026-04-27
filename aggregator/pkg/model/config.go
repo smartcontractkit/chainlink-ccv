@@ -157,8 +157,8 @@ type AggregationConfig struct {
 	MaxConsecutiveErrors uint32 `toml:"maxConsecutiveErrors"`
 }
 
-// ChainStatusConfig controls the chain-disable registry refresh behavior.
-type ChainStatusConfig struct {
+// MessageDisablementRulesConfig controls the message-disablement registry refresh behavior.
+type MessageDisablementRulesConfig struct {
 	// RefreshInterval controls how often the in-memory registry is refreshed from the database.
 	RefreshInterval time.Duration `toml:"refreshInterval"`
 }
@@ -399,22 +399,22 @@ type BeholderConfig struct {
 
 // AggregatorConfig is the root configuration for the pb.
 type AggregatorConfig struct {
-	AggregatorID                                string               `toml:"aggregatorID"`
-	GeneratedConfigPath                         string               `toml:"generatedConfigPath"`
-	Committee                                   *Committee           `toml:"committee"`
-	Server                                      ServerConfig         `toml:"server"`
-	Storage                                     *StorageConfig       `toml:"storage"`
-	APIClients                                  []*ClientConfig      `toml:"clients"`
-	Aggregation                                 AggregationConfig    `toml:"aggregation"`
-	ChainStatus                                 ChainStatusConfig    `toml:"chainStatus"`
-	OrphanRecovery                              OrphanRecoveryConfig `toml:"orphanRecovery"`
-	RateLimiting                                RateLimitingConfig   `toml:"rateLimiting"`
-	HealthCheck                                 HealthCheckConfig    `toml:"healthCheck"`
-	AnonymousAuth                               AnonymousAuthConfig  `toml:"anonymousAuth"`
-	Monitoring                                  MonitoringConfig     `toml:"monitoring"`
-	PyroscopeURL                                string               `toml:"pyroscope_url"`
-	MaxMessageIDsPerBatch                       int                  `toml:"maxMessageIDsPerBatch"`
-	MaxCommitVerifierNodeResultRequestsPerBatch int                  `toml:"maxCommitVerifierNodeResultRequestsPerBatch"`
+	AggregatorID                                string                        `toml:"aggregatorID"`
+	GeneratedConfigPath                         string                        `toml:"generatedConfigPath"`
+	Committee                                   *Committee                    `toml:"committee"`
+	Server                                      ServerConfig                  `toml:"server"`
+	Storage                                     *StorageConfig                `toml:"storage"`
+	APIClients                                  []*ClientConfig               `toml:"clients"`
+	Aggregation                                 AggregationConfig             `toml:"aggregation"`
+	MessageDisablementRules                     MessageDisablementRulesConfig `toml:"messageDisablementRules"`
+	OrphanRecovery                              OrphanRecoveryConfig          `toml:"orphanRecovery"`
+	RateLimiting                                RateLimitingConfig            `toml:"rateLimiting"`
+	HealthCheck                                 HealthCheckConfig             `toml:"healthCheck"`
+	AnonymousAuth                               AnonymousAuthConfig           `toml:"anonymousAuth"`
+	Monitoring                                  MonitoringConfig              `toml:"monitoring"`
+	PyroscopeURL                                string                        `toml:"pyroscope_url"`
+	MaxMessageIDsPerBatch                       int                           `toml:"maxMessageIDsPerBatch"`
+	MaxCommitVerifierNodeResultRequestsPerBatch int                           `toml:"maxCommitVerifierNodeResultRequestsPerBatch"`
 }
 
 type APIKeyPairEnv struct {
@@ -567,9 +567,9 @@ func (c *AggregatorConfig) SetDefaults() {
 		c.Storage.QueryTimeout = 10 * time.Second
 	}
 
-	// Default chain-disable registry refresh: 30 seconds
-	if c.ChainStatus.RefreshInterval == 0 {
-		c.ChainStatus.RefreshInterval = 30 * time.Second
+	// Default message-disablement registry refresh: 30 seconds
+	if c.MessageDisablementRules.RefreshInterval == 0 {
+		c.MessageDisablementRules.RefreshInterval = 30 * time.Second
 	}
 
 	// Default orphan recovery: enabled with 5 minute interval

@@ -128,7 +128,7 @@ type AggregatorInput struct {
 type AggregatorOutput struct {
 	UseCache bool `toml:"use_cache"`
 	// AggregatorContainerName is the container running the aggregator binary.
-	// Use this for docker exec CLI invocations (e.g. `aggregator chains disable`).
+	// Use this for docker exec CLI invocations (e.g. `aggregator message-disablement-rules list`).
 	AggregatorContainerName string `toml:"aggregator_container_name"`
 	// NginxContainerName is the nginx TLS proxy container fronting the aggregator.
 	// Use this for chaos/HA tests that kill the proxy or for connectivity checks.

@@ -3,15 +3,12 @@ package monitoring
 import (
 	"context"
 	"fmt"
-	"strconv"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
 
-	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/chainstatus"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
-	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"github.com/smartcontractkit/chainlink-common/pkg/metrics"
 
@@ -58,8 +55,9 @@ type AggregatorMetrics struct {
 	grpcPayloadSizeBytes metric.Int64Histogram
 	grpcErrorsTotal      metric.Int64Counter
 
-	// Chain status metrics
-	chainDisabledStatus metric.Int64Gauge
+	// Message disablement rules metrics
+	messageDisablementRuleActive          metric.Int64Gauge
+	messageDisablementRulesRefreshFailure metric.Int64Gauge
 }
 
 // grpcPayloadSizeBuckets defines histogram buckets for gRPC payload sizes in bytes.
@@ -298,13 +296,22 @@ func InitMetrics() (am *AggregatorMetrics, err error) {
 		return nil, fmt.Errorf("failed to register grpc errors total counter: %w", err)
 	}
 
-	am.chainDisabledStatus, err = beholder.GetMeter().Int64Gauge(
-		"aggregator_chain_disabled_status",
-		metric.WithDescription("Whether a chain is disabled (1) or enabled (0) for a given lane side"),
+	am.messageDisablementRuleActive, err = beholder.GetMeter().Int64Gauge(
+		"aggregator_message_disablement_rule_active",
+		metric.WithDescription("Whether a message disablement rule is active (1) or inactive (0)"),
 		metric.WithUnit("1"),
 	)
 	if err != nil {
-		return nil, fmt.Errorf("failed to register chain disabled status gauge: %w", err)
+		return nil, fmt.Errorf("failed to register message disablement rule active gauge: %w", err)
+	}
+
+	am.messageDisablementRulesRefreshFailure, err = beholder.GetMeter().Int64Gauge(
+		"aggregator_message_disablement_rules_refresh_failure",
+		metric.WithDescription("Whether the latest message disablement rules refresh failed (1) or succeeded (0)"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register message disablement rules refresh failure gauge: %w", err)
 	}
 
 	return am, nil
@@ -459,30 +466,16 @@ func (c *AggregatorMetricLabeler) IncrementGRPCErrors(ctx context.Context, code,
 	}...), metric.WithAttributes(otelLabels...))
 }
 
-func (c *AggregatorMetricLabeler) SetChainDisabledStatus(ctx context.Context, disabled int64) {
-	otelLabels := beholder.OtelAttributes(c.Labels).AsStringAttributes()
-	c.am.chainDisabledStatus.Record(ctx, disabled, metric.WithAttributes(otelLabels...))
-}
-
-// ChainStatusMetrics implements chainstatus.StatusMetrics using the aggregator gauge.
-type ChainStatusMetrics struct {
-	m common.AggregatorMonitoring
-}
-
-// NewChainStatusMetrics creates a ChainStatusMetrics that emits the aggregator_chain_disabled_status
-// gauge. It is passed to chainstatus.WithStatusMetrics when constructing the Registry.
-func NewChainStatusMetrics(m common.AggregatorMonitoring) *ChainStatusMetrics {
-	return &ChainStatusMetrics{m: m}
-}
-
-func (c *ChainStatusMetrics) SetChainDisabledStatus(ctx context.Context, selector uint64, side chainstatus.LaneSide, disabled bool) {
-	val := int64(0)
-	if disabled {
-		val = 1
+func (c *AggregatorMetricLabeler) SetMessageDisablementRuleActive(ctx context.Context, active int64, keyValues ...string) {
+	labeler := c.Labeler
+	if len(keyValues) > 0 {
+		labeler = labeler.With(keyValues...)
 	}
-	c.m.Metrics().With(
-		"chain_selector", strconv.FormatUint(selector, 10),
-		"chain_name", protocol.ChainSelector(selector).ChainName(),
-		"side", string(side),
-	).SetChainDisabledStatus(ctx, val)
+	otelLabels := beholder.OtelAttributes(labeler.Labels).AsStringAttributes()
+	c.am.messageDisablementRuleActive.Record(ctx, active, metric.WithAttributes(otelLabels...))
+}
+
+func (c *AggregatorMetricLabeler) SetMessageDisablementRulesRefreshFailure(ctx context.Context, failed int64) {
+	otelLabels := beholder.OtelAttributes(c.Labels).AsStringAttributes()
+	c.am.messageDisablementRulesRefreshFailure.Record(ctx, failed, metric.WithAttributes(otelLabels...))
 }

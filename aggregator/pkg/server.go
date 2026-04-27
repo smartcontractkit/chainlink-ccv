@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/signal"
 	"runtime/debug"
-	"strconv"
 	"sync"
 	"syscall"
 	"time"
@@ -25,14 +24,13 @@ import (
 	"google.golang.org/grpc/status"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/aggregation"
-	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/chainstatus"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/handlers"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/health"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/heartbeat"
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/messagedisablement"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/middlewares"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
-	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/quorum"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/storage"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -58,7 +56,7 @@ type Server struct {
 	l                                         logger.SugaredLogger
 	config                                    *model.AggregatorConfig
 	store                                     common.CommitVerificationStore
-	chainStatusRegistry                       *chainstatus.Registry
+	messageDisablementRegistry                *messagedisablement.Registry
 	aggregator                                *aggregation.CommitReportAggregator
 	recoverer                                 *OrphanRecoverer
 	readCommitVerifierNodeResultHandler       *handlers.ReadCommitVerifierNodeResultHandler
@@ -168,14 +166,14 @@ func (s *Server) Start(lis net.Listener) error {
 		aggregatorCancel()
 	})
 
-	// Periodically refresh the chain-disable registry from the database.
-	chainStatusCtx, chainStatusCancel := context.WithCancel(context.Background())
+	// Periodically refresh the message-disablement registry from the database.
+	messageDisablementCtx, messageDisablementCancel := context.WithCancel(context.Background())
 	g.Add(func() error {
-		s.chainStatusRegistry.StartPeriodicRefresh(chainStatusCtx, s.config.ChainStatus.RefreshInterval)
-		<-chainStatusCtx.Done()
+		s.messageDisablementRegistry.StartPeriodicRefresh(messageDisablementCtx, s.config.MessageDisablementRules.RefreshInterval)
+		<-messageDisablementCtx.Done()
 		return nil
 	}, func(error) {
-		chainStatusCancel()
+		messageDisablementCancel()
 	})
 
 	if s.config.OrphanRecovery.Enabled && s.recoverer != nil {
@@ -320,36 +318,20 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig, aggMonito
 		return nil
 	}
 
-	// Build the chain-disable registry from the raw store before metrics wrapping.
-	// DatabaseStorage implements chainstatus.Store; the metrics wrapper does not need to.
-	chainStatusStore, ok := rawStore.(chainstatus.Store)
+	// Build the message-disablement registry from the raw store before metrics wrapping.
+	// DatabaseStorage implements messagedisablement.Store; the metrics wrapper does not need to.
+	messageDisablementStore, ok := rawStore.(messagedisablement.Store)
 	if !ok {
-		l.Fatalf("Storage does not implement chainstatus.Store")
+		l.Fatalf("Storage does not implement messagedisablement.Store")
 		return nil
 	}
-	chainStatusOpts := []chainstatus.RegistryOption{}
-	if config.Committee != nil {
-		sourceSels := make([]uint64, 0, len(config.Committee.QuorumConfigs))
-		for selStr := range config.Committee.QuorumConfigs {
-			if sel, err := strconv.ParseUint(selStr, 10, 64); err == nil {
-				sourceSels = append(sourceSels, sel)
-			}
-		}
-		destSels := make([]uint64, 0, len(config.Committee.DestinationVerifiers))
-		for selStr := range config.Committee.DestinationVerifiers {
-			if sel, err := strconv.ParseUint(selStr, 10, 64); err == nil {
-				destSels = append(destSels, sel)
-			}
-		}
-		chainStatusOpts = append(chainStatusOpts, chainstatus.WithStatusMetrics(
-			monitoring.NewChainStatusMetrics(aggMonitoring),
-			sourceSels,
-			destSels,
-		))
-	}
-	chainStatusRegistry := chainstatus.NewRegistry(chainStatusStore, l, chainStatusOpts...)
-	if err := chainStatusRegistry.Refresh(context.Background()); err != nil {
-		l.Warnw("Failed initial chain-disable registry refresh", "error", err)
+	messageDisablementRegistry := messagedisablement.NewRegistry(
+		messageDisablementStore,
+		l,
+		messagedisablement.WithMetrics(aggMonitoring.Metrics()),
+	)
+	if err := messageDisablementRegistry.Refresh(context.Background()); err != nil {
+		l.Warnw("Failed initial message-disablement registry refresh", "error", err)
 	}
 
 	store := storage.WrapWithMetrics(rawStore, aggMonitoring, l)
@@ -357,7 +339,7 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig, aggMonito
 
 	agg := createAggregator(store, store, store, validator, config, l, aggMonitoring)
 
-	writeCommitVerifierNodeResultHandler := handlers.NewWriteCommitCCVNodeDataHandler(store, agg, aggMonitoring, l, validator, config.Aggregation.CheckAggregationTimeout, chainStatusRegistry)
+	writeCommitVerifierNodeResultHandler := handlers.NewWriteCommitCCVNodeDataHandler(store, agg, aggMonitoring, l, validator, config.Aggregation.CheckAggregationTimeout, messageDisablementRegistry)
 	readCommitVerifierNodeResultHandler := handlers.NewReadCommitVerifierNodeResultHandler(store, l)
 	getMessagesSinceHandler := handlers.NewGetMessagesSinceHandler(store, config.Committee, l, aggMonitoring)
 	getVerifierResultsForMessageHandler := handlers.NewGetVerifierResultsForMessageHandler(store, config.Committee, config.MaxMessageIDsPerBatch, l)
@@ -456,7 +438,7 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig, aggMonito
 		l:                                    l,
 		config:                               config,
 		store:                                store,
-		chainStatusRegistry:                  chainStatusRegistry,
+		messageDisablementRegistry:           messageDisablementRegistry,
 		aggregator:                           agg,
 		readCommitVerifierNodeResultHandler:  readCommitVerifierNodeResultHandler,
 		writeCommitVerifierNodeResultHandler: writeCommitVerifierNodeResultHandler,

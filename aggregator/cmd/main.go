@@ -19,7 +19,7 @@ import (
 	"github.com/urfave/cli"
 	"go.uber.org/zap/zapcore"
 
-	"github.com/smartcontractkit/chainlink-ccv/aggregator/cli/chains"
+	messagedisablementcli "github.com/smartcontractkit/chainlink-ccv/aggregator/cli/messagedisablement"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/configuration"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
@@ -51,13 +51,13 @@ func main() {
 	sugaredLggr := logger.Sugared(lggr)
 
 	var (
-		loadedConfig   *model.AggregatorConfig
-		chainsDepsOnce sync.Once
-		chainsDeps     chains.Deps
+		loadedConfig                *model.AggregatorConfig
+		messageDisablementDepsOnce  sync.Once
+		messageDisablementRulesDeps messagedisablementcli.Deps
 	)
 
-	getChainsDepsFn := func() chains.Deps {
-		chainsDepsOnce.Do(func() {
+	getMessageDisablementRulesDepsFn := func() messagedisablementcli.Deps {
+		messageDisablementDepsOnce.Do(func() {
 			db, err := sql.Open("postgres", loadedConfig.Storage.ConnectionURL)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "failed to open database: %v\n", err)
@@ -65,18 +65,17 @@ func main() {
 			}
 			sqlxDB := sqlx.NewDb(db, "postgres")
 			store := postgres.NewDatabaseStorage(sqlxDB, loadedConfig.Storage.PageSize, loadedConfig.Storage.QueryTimeout, sugaredLggr)
-			chainsDeps = chains.Deps{
-				Logger:    lggr,
-				Store:     store,
-				Committee: loadedConfig.Committee,
+			messageDisablementRulesDeps = messagedisablementcli.Deps{
+				Logger: lggr,
+				Store:  store,
 			}
 		})
-		return chainsDeps
+		return messageDisablementRulesDeps
 	}
 
 	app := cli.NewApp()
 	app.Name = filepath.Base(os.Args[0])
-	app.Usage = "Aggregator service and chain management CLI"
+	app.Usage = "Aggregator service and message disablement CLI"
 	app.Flags = []cli.Flag{
 		cli.StringFlag{
 			Name:   "config, c",
@@ -93,8 +92,8 @@ func main() {
 
 	app.Commands = []cli.Command{
 		{
-			Name:  "chains",
-			Usage: "Disable, enable, or inspect chain processing status",
+			Name:  "message-disablement-rules",
+			Usage: "Create, delete, or inspect message disablement rules",
 			Before: func(c *cli.Context) error {
 				cfg, err := configuration.LoadConfig(c.GlobalString("config"), sugaredLggr)
 				if err != nil {
@@ -106,7 +105,7 @@ func main() {
 				loadedConfig = cfg
 				return nil
 			},
-			Subcommands: chains.InitChainsCommandsWithFactory(getChainsDepsFn),
+			Subcommands: messagedisablementcli.InitMessageDisablementRulesCommandsWithFactory(getMessageDisablementRulesDepsFn),
 		},
 	}
 

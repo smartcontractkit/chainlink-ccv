@@ -64,8 +64,8 @@ func (c *Client) Exec(ctx context.Context, args ...string) (string, error) {
 	return string(out), nil
 }
 
-// CLI runs the aggregator CLI subcommand tree. Prefer the sub-clients —
-// Chains — which compose these for you.
+// CLI runs the aggregator CLI subcommand tree. Prefer the sub-clients, which
+// compose these calls for you.
 func (c *Client) CLI(ctx context.Context, subcommand []string, args ...string) (string, error) {
 	full := append([]string{c.binaryPath}, subcommand...)
 	full = append(full, args...)

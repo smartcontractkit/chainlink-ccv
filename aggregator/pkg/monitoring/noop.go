@@ -4,7 +4,6 @@ import (
 	"context"
 	"time"
 
-	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/chainstatus"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	commonmetrics "github.com/smartcontractkit/chainlink-ccv/common/metrics"
 )
@@ -138,15 +137,10 @@ func (c *NoopAggregatorMetricLabeler) IncrementGRPCErrors(_ context.Context, _, 
 	// No-op
 }
 
-func (c *NoopAggregatorMetricLabeler) SetChainDisabledStatus(_ context.Context, _ int64) {
+func (c *NoopAggregatorMetricLabeler) SetMessageDisablementRuleActive(_ context.Context, _ int64, _ ...string) {
 	// No-op
 }
 
-type NoopChainStatusMetrics struct{}
-
-func NewNoopChainStatusMetrics() *NoopChainStatusMetrics {
-	return &NoopChainStatusMetrics{}
-}
-
-func (c *NoopChainStatusMetrics) SetChainDisabledStatus(_ context.Context, _ uint64, _ chainstatus.LaneSide, _ bool) {
+func (c *NoopAggregatorMetricLabeler) SetMessageDisablementRulesRefreshFailure(_ context.Context, _ int64) {
+	// No-op
 }
