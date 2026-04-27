@@ -236,7 +236,11 @@ func buildQuorumConfigs(
 
 			chainSelectorStr := strconv.FormatUint(sigConfig.SourceChainSelector, 10)
 			if existing, exists := quorumConfigs[chainSelectorStr]; exists {
-				if err := validateSignatureConfigConsistency(existing, sigConfig, chainSelectorStr, committeeQualifier); err != nil {
+				effectiveSig := sigConfig
+				if thresholdOverride != nil {
+					effectiveSig.Threshold = *thresholdOverride
+				}
+				if err := validateSignatureConfigConsistency(existing, effectiveSig, chainSelectorStr, committeeQualifier); err != nil {
 					return nil, err
 				}
 				continue
