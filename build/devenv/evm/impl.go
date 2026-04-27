@@ -743,6 +743,7 @@ func SerializeAny2EVMMessageV1(provider cciptestinterfaces.ExtraArgsDataProvider
 func (m *CCIP17EVM) SerializeAny2EVMMessageV2(provider cciptestinterfaces.ExtraArgsDataProvider) ([]byte, error) {
 	return SerializeAny2EVMMessageV2(provider)
 }
+
 func SerializeAny2EVMMessageV2(provider cciptestinterfaces.ExtraArgsDataProvider) ([]byte, error) {
 	opts, ok := provider.(cciptestinterfaces.Any2EVMMessageV2Data)
 	if !ok {
