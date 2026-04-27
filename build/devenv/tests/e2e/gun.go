@@ -206,7 +206,7 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 		return &wasp.Response{Error: "impl is not ChainAsSource", Failed: true}
 	}
 
-	extraArgs, err := chainAsSource.SerializeExtraArgs(opts)
+	extraArgs, err := evm.SerializeEVMExtraArgs(3, opts)
 	if err != nil {
 		return &wasp.Response{Error: fmt.Errorf("failed to serialize extra args: %w", err).Error(), Failed: true}
 	}
@@ -302,7 +302,6 @@ func (m *EVMTXGun) selectMessageProfile(srcSelector, destSelector uint64) (ccipt
 				Data:     []byte{},
 				FeeToken: protocol.UnknownAddress(common.HexToAddress(wethContract.Address).Bytes()),
 			}, cciptestinterfaces.MessageOptions{
-				Version:        3,
 				FinalityConfig: protocol.Finality(finality.Int64()),
 				CCVs: []protocol.CCV{
 					{
@@ -324,7 +323,6 @@ func (m *EVMTXGun) selectMessageProfile(srcSelector, destSelector uint64) (ccipt
 		FeeToken: protocol.UnknownAddress(common.HexToAddress(wethContract.Address).Bytes()),
 	}
 	opts := cciptestinterfaces.MessageOptions{
-		Version:        3,
 		FinalityConfig: protocol.Finality(messageProfile.Finality),
 	}
 

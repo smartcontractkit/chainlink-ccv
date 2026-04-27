@@ -59,12 +59,11 @@ func (tc *v3TestCase) Run(ctx context.Context, harness tcapi.TestHarness, cfg *c
 			Receiver: tc.receiver,
 			Data:     tc.msgData,
 		}, cciptestinterfaces.MessageOptions{
-			Version:           3,
 			ExecutionGasLimit: 200_000,
 			FinalityConfig:    tc.finality,
 			Executor:          tc.executor,
 			CCVs:              tc.ccvs,
-		})
+		}, 3)
 	if err != nil {
 		return fmt.Errorf("failed to send message: %w", err)
 	}

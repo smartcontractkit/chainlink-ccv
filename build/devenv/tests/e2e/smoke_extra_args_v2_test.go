@@ -116,10 +116,11 @@ func runV2TestCase(
 		Receiver: tc.receiver,
 		Data:     []byte{},
 	}, cciptestinterfaces.MessageOptions{
-		Version:             2,
 		ExecutionGasLimit:   200_000,
 		OutOfOrderExecution: true,
-	})
+	},
+		2,
+	)
 	require.NoError(t, err)
 
 	sentEvent, err := chainMap[tc.fromSelector].ConfirmSendOnSource(ctx, tc.toSelector, cciptestinterfaces.MessageEventKey{SeqNum: seqNo}, defaultSentTimeout)

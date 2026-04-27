@@ -221,7 +221,6 @@ func runUSDCTestCase(
 	l.Info().Uint64("SeqNo", seqNo).Str("Token", "").Msg("expecting sequence number")
 
 	messageOptions := cciptestinterfaces.MessageOptions{
-		Version:           3,
 		FinalityConfig:    tc.finalityConfig,
 		ExecutionGasLimit: tc.executionGasLimit,
 		Executor:          getContractAddress(t, in, sourceSelector, datastore.ContractType(sequences.ExecutorProxyType), proxy.Deploy.Version(), common.DefaultExecutorQualifier, "executor"),
@@ -241,6 +240,7 @@ func runUSDCTestCase(
 			},
 		},
 		messageOptions,
+		3,
 	)
 	require.NoError(t, err)
 	require.NotNil(t, sendRes)
@@ -330,7 +330,6 @@ func runLombardTestCase(
 	l.Info().Uint64("SeqNo", seqNo).Str("Token", common.LombardContractsQualifier).Msg("expecting sequence number")
 
 	messageOptions := cciptestinterfaces.MessageOptions{
-		Version:           3,
 		FinalityConfig:    tc.finalityConfig,
 		ExecutionGasLimit: tc.executionGasLimit,
 		Executor:          getContractAddress(t, in, sourceSelector, datastore.ContractType(sequences.ExecutorProxyType), proxy.Deploy.Version(), common.DefaultExecutorQualifier, "executor"),
@@ -346,6 +345,7 @@ func runLombardTestCase(
 			},
 		},
 		messageOptions,
+		3,
 	)
 	if tc.shouldRevert {
 		require.Error(t, err)
