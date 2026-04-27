@@ -148,6 +148,10 @@ type DestinationChainConfig struct {
 	OffRampAddress string `toml:"off_ramp_address"`
 	// RmnAddress is the address of the RMN Remote contract on the destination chain.
 	RmnAddress string `toml:"rmn_address"`
+	// TransmitterKeyName is the name of the ECDSA key in the keystore used to sign and submit
+	// transactions to the OffRamp on this chain. If empty, the ContractTransmitter will be
+	// unavailable for this chain.
+	TransmitterKeyName string `toml:"transmitter_key_name"`
 }
 
 // ExecutorConfig is an overlay of the executor application configuration. It reads the subset of

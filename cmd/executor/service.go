@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/grafana/pyroscope-go"
 	"go.uber.org/zap/zapcore"
 
@@ -17,6 +18,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/leaderelector"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/backofftimeprovider"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/ccvstreamer"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/contracttransmitter"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/cursechecker"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -95,7 +97,7 @@ func (f *Factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 	rmnReaders := make(map[protocol.ChainSelector]chainaccess.RMNCurseReader)
 	enabledDestChains := make([]protocol.ChainSelector, 0)
 
-	for strSel := range executorConfig.ChainConfiguration {
+	for strSel, chainConfig := range executorConfig.ChainConfiguration {
 		selectorUint, err := strconv.ParseUint(strSel, 10, 64)
 		if err != nil {
 			f.lggr.Errorw("Invalid chain selector in configuration", "error", err, "chainSelector", strSel)
@@ -110,11 +112,32 @@ func (f *Factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 		}
 
 		dr, drErr := accessor.DestinationReader()
-		ct, ctErr := accessor.ContractTransmitter()
-
-		if drErr != nil || ctErr != nil {
-			f.lggr.Warnw("Skipping chain: missing DestinationReader or ContractTransmitter", "chainSelector", strSel, "destReaderErr", drErr, "transmitterErr", ctErr)
+		if drErr != nil {
+			f.lggr.Warnw("Skipping chain: missing DestinationReader", "chainSelector", strSel, "error", drErr)
 			continue
+		}
+
+		var ct chainaccess.ContractTransmitter
+		if deps.Keystore != nil && chainConfig.TransmitterKeyName != "" && chainConfig.TransmitterRPCURL != "" {
+			ct, err = contracttransmitter.NewEVMContractTransmitterFromKeystore(
+				ctx,
+				f.lggr,
+				selector,
+				chainConfig.TransmitterRPCURL,
+				deps.Keystore,
+				chainConfig.TransmitterKeyName,
+				common.HexToAddress(chainConfig.OffRampAddress),
+			)
+			if err != nil {
+				f.lggr.Warnw("Failed to create keystore contract transmitter, falling back to accessor", "chainSelector", strSel, "error", err)
+			}
+		}
+		if ct == nil {
+			ct, err = accessor.ContractTransmitter()
+			if err != nil {
+				f.lggr.Warnw("Skipping chain: missing ContractTransmitter", "chainSelector", strSel, "error", err)
+				continue
+			}
 		}
 
 		destReaders[selector] = dr
