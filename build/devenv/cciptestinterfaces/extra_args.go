@@ -4,15 +4,8 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
-// ExtraArgsOption mutates a chain-specific ExtraArgsDataProvider that has been
-// allocated by a destination chain's ExtraArgsBuilder. Each chain family defines
-// its own option constructors (e.g. evm.WithExecutionGasLimit) that type-assert
-// the provider to the concrete struct; applying an option to the wrong chain
-// family returns an error rather than silently no-op'ing.
-type ExtraArgsOption func(ExtraArgsDataProvider) error
-
 // MessageOptions represents modifications one can make to a CCIP messagev3 through extra args.
-// TODO: rename this to Any2AnyMessageV3Data.
+// TODO: rename this to GenericExtraArgsV3.
 type MessageOptions struct {
 	// ExecutionGasLimit is the execution gas limit for the message
 	ExecutionGasLimit uint32

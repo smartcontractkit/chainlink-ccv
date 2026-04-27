@@ -698,8 +698,13 @@ func SerializeEVMExtraArgs(version uint8, opts cciptestinterfaces.MessageOptions
 	case 3:
 		return SerializeMessageV3ExtraArgs(opts)
 	default:
-		panic(fmt.Sprintf("unsupported EVM message extra args version: %d", version))
+		return nil, fmt.Errorf("unsupported EVM message extra args version: %d", version)
 	}
+}
+
+// SerializeAny2EVMMessageV1 is separate from the method to support registration as well as implementing an interface.
+func (m *CCIP17EVM) SerializeAny2EVMMessageV1(provider cciptestinterfaces.ExtraArgsDataProvider) ([]byte, error) {
+	return SerializeAny2EVMMessageV1(provider)
 }
 
 func SerializeAny2EVMMessageV1(provider cciptestinterfaces.ExtraArgsDataProvider) ([]byte, error) {
@@ -734,6 +739,10 @@ func SerializeAny2EVMMessageV1(provider cciptestinterfaces.ExtraArgsDataProvider
 	return append(selector, packed...), nil
 }
 
+// SerializeAny2EVMMessageV2 is separate from the method to support registration as well as implementing an interface.
+func (m *CCIP17EVM) SerializeAny2EVMMessageV2(provider cciptestinterfaces.ExtraArgsDataProvider) ([]byte, error) {
+	return SerializeAny2EVMMessageV2(provider)
+}
 func SerializeAny2EVMMessageV2(provider cciptestinterfaces.ExtraArgsDataProvider) ([]byte, error) {
 	opts, ok := provider.(cciptestinterfaces.Any2EVMMessageV2Data)
 	if !ok {
@@ -744,7 +753,7 @@ func SerializeAny2EVMMessageV2(provider cciptestinterfaces.ExtraArgsDataProvider
 		{Name: "allowOutOfOrderExecution", Type: "bool"},
 	})
 	if err != nil {
-		panic(fmt.Sprintf("failed to create GenericExtraArgsV2 tuple type: %v", err))
+		return nil, fmt.Errorf("failed to create GenericExtraArgsV2 tuple type: %v", err)
 	}
 
 	arguments := abi.Arguments{
@@ -764,11 +773,16 @@ func SerializeAny2EVMMessageV2(provider cciptestinterfaces.ExtraArgsDataProvider
 		AllowOutOfOrderExecution: opts.AllowOutOfOrderExecution,
 	})
 	if err != nil {
-		panic(fmt.Sprintf("failed to pack extraArgs: %v", err))
+		return nil, fmt.Errorf("failed to pack extraArgs: %v", err)
 	}
 
 	selector, _ := hexutil.Decode("0x181dcf10")
 	return append(selector, packed...), nil
+}
+
+// SerializeMessageV3ExtraArgs is separate from the method to support registration as well as implementing an interface.
+func (m *CCIP17EVM) SerializeMessageV3ExtraArgs(provider cciptestinterfaces.ExtraArgsDataProvider) ([]byte, error) {
+	return SerializeMessageV3ExtraArgs(provider)
 }
 
 func SerializeMessageV3ExtraArgs(provider cciptestinterfaces.ExtraArgsDataProvider) ([]byte, error) {
@@ -785,11 +799,14 @@ func SerializeMessageV3ExtraArgs(provider cciptestinterfaces.ExtraArgsDataProvid
 		opts.CCVs,
 	)
 	if err != nil {
-		panic(fmt.Sprintf("failed to create V3 extra args: %v", err))
+		return nil, fmt.Errorf("failed to create V3 extra args: %v", err)
 	}
 	return extraArgs, nil
 }
 
+func (m *CCIP17EVM) SerializeAny2SVMMessageV1(provider cciptestinterfaces.ExtraArgsDataProvider) ([]byte, error) {
+	return SerializeAny2SVMMessageV1(provider)
+}
 func SerializeAny2SVMMessageV1(provider cciptestinterfaces.ExtraArgsDataProvider) ([]byte, error) {
 	opts, ok := provider.(cciptestinterfaces.Any2SVMMessageV1Data)
 	if !ok {
@@ -803,7 +820,7 @@ func SerializeAny2SVMMessageV1(provider cciptestinterfaces.ExtraArgsDataProvider
 		{Name: "accounts", Type: "bytes32[]"},
 	})
 	if err != nil {
-		panic(fmt.Sprintf("failed to create SVMExtraArgsV1 tuple type: %v", err))
+		return nil, fmt.Errorf("failed to create SVMExtraArgsV1 tuple type: %v", err)
 	}
 
 	arguments := abi.Arguments{{Type: svmExtraArgsV1Type, Name: "extraArgs"}}
@@ -824,7 +841,7 @@ func SerializeAny2SVMMessageV1(provider cciptestinterfaces.ExtraArgsDataProvider
 		Accounts:                 opts.Accounts,
 	})
 	if err != nil {
-		panic(fmt.Sprintf("failed to pack SVMExtraArgsV1: %v", err))
+		return nil, fmt.Errorf("failed to pack SVMExtraArgsV1: %v", err)
 	}
 
 	// bytes4 public constant SVM_EXTRA_ARGS_V1_TAG = 0x1f3b3aba;
@@ -2025,21 +2042,6 @@ func (m *CCIP17EVM) SetLombardMailboxBridgedMessage(ctx context.Context, message
 	return nil
 }
 
-// ExtraArgsBuilder allocates an EVM-shaped MessageOptions populated with the
-// family's defaults (V3, 200k execution gas limit) and applies the given options.
-// Callers pass evm.WithXxx(...) option constructors; an option built for another
-// chain family returns an error rather than silently no-op'ing.
-func (m *CCIP17EVM) ExtraArgsBuilder(opts ...cciptestinterfaces.ExtraArgsOption) (cciptestinterfaces.ExtraArgsDataProvider, error) {
-	// Chain implementations can provide defaults here if desired.
-	mo := &cciptestinterfaces.MessageOptions{}
-	for _, opt := range opts {
-		if err := opt(mo); err != nil {
-			return nil, err
-		}
-	}
-	return *mo, nil
-}
-
 func (m *CCIP17EVM) BuildChainMessage(ctx context.Context, destChain uint64, messageFields cciptestinterfaces.MessageFields, extraArgs []byte) (cciptestinterfaces.GenericChainMessage, error) {
 	ret := routerwrapper.ClientEVM2AnyMessage{
 		Receiver:  common.LeftPadBytes(messageFields.Receiver.Bytes(), 32),
@@ -2215,4 +2217,12 @@ func (m *CCIP17EVM) BuildV3ExtraArgs(
 		CCVs:                opts.CCVs,
 		OutOfOrderExecution: opts.OutOfOrderExecution,
 	})
+}
+
+func (m *CCIP17EVM) GetExecutorArgs(opts any) ([]byte, error) {
+	return nil, nil
+}
+
+func (m *CCIP17EVM) GetTokenArgs(opts any) ([]byte, error) {
+	return nil, nil
 }

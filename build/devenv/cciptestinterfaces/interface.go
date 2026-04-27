@@ -381,8 +381,8 @@ type ChainSendOption interface {
 }
 
 // ExtraArgsDataProvider is a marker interface for destination-shaped extra-args data.
-// A source chain's BuildChainMessage type-switches on the concrete provider to pick
-// the right encoder. Each chain family defines its own concrete provider struct.
+// Each chain family defines its own concrete provider struct and is responsible for
+// serializing that struct into the `extraArgs []byte` passed to BuildChainMessage.
 type ExtraArgsDataProvider interface {
 	IsExtraArgsDataProvider()
 }
@@ -409,13 +409,13 @@ type ChainAsSource interface {
 	genericChain
 	// BuildChainMessage builds a CCIP message for the given destination chain.
 	// It will call into the registered extra args serializer per destination chain for now, until we have a more generic way to manage extra args.
-	// It returns a generic type that is specific to the chain family. The returned message is expected to be directly passed in ot the SendChainMessage method.
+	// It returns a generic type that is specific to the chain family. The returned message is expected to be directly passed in to the SendChainMessage method.
 	// For example, the EVM implementation returns a routerwrapper.ClientEVM2AnyMessage.
 	BuildChainMessage(ctx context.Context, destChain uint64, messageFields MessageFields, extraArgs []byte) (GenericChainMessage, error)
 	// SendChainMessage sends a CCIP message to the given destination chain.
 	// sendOptions is a Marker Interface for chain-specific send parameters. Expected usage is that implementation will type assert the sendOption to their struct type and use it.
 	// For example, the EVM implementation will type assert the sendOption to evm.EVMSendOptions to access nonce/sender/etc.
-	// The ChainAsSourceMessage is expected to be the same type that was returned by the BuildChainMessage method. For EVM this is routerwrapper.ClientEVM2AnyMessage.
+	// The GenericChainMessage is expected to be the same type that was returned by the BuildChainMessage method. For EVM this is routerwrapper.ClientEVM2AnyMessage.
 	SendChainMessage(ctx context.Context, destChain uint64, message GenericChainMessage, sendOption ChainSendOption) (MessageSentEvent, protocol.ByteSlice, error)
 	// ConfirmSendOnSource confirms that a CCIP message was sent on this chain.
 	// Implementation should support confirmation by either message ID or sequence number, passed in as the `MessageEventKey`.
