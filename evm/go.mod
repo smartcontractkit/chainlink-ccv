@@ -10,7 +10,7 @@ replace (
 
 require (
 	github.com/smartcontractkit/chain-selectors v1.0.98
-	github.com/smartcontractkit/chainlink-ccv/deployment v0.0.0
+	github.com/smartcontractkit/chainlink-ccv/deployment v0.0.1
 	github.com/smartcontractkit/chainlink-protos/job-distributor v0.18.0
 )
 
