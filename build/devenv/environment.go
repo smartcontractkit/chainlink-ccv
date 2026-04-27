@@ -36,7 +36,6 @@ import (
 	ccvchangesets "github.com/smartcontractkit/chainlink-ccv/deployment/changesets"
 	ccvshared "github.com/smartcontractkit/chainlink-ccv/deployment/shared"
 	_ "github.com/smartcontractkit/chainlink-ccv/evm"
-	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/commit"
@@ -534,8 +533,7 @@ func buildEnvironmentTopology(in *Cfg, e *deployment.Environment) *ccvdeployment
 }
 
 // generateExecutorJobSpecs generates job specs for all executors using the changeset.
-// It returns a map of container name -> job spec for use in CL mode.
-// For standalone mode, it also sets GeneratedConfig on each executor.
+// It returns a map of container name -> job spec.
 // The ds parameter is a mutable datastore that will be updated with the changeset output.
 func generateExecutorJobSpecs(
 	ctx context.Context,
@@ -606,23 +604,10 @@ func generateExecutorJobSpecs(
 				}
 				executorJobSpecs[exec.ContainerName] = executorSpec.ToBootstrapJobSpec()
 			}
-
-			// Extract inner config from job spec for standalone mode
-			var cfg executor.Configuration
-			if err := toml.Unmarshal([]byte(executorSpec.ExecutorConfig), &cfg); err != nil {
-				return nil, fmt.Errorf("failed to parse executor config from job spec: %w", err)
-			}
-
-			// Marshal the inner config back to TOML for standalone mode
-			configBytes, err := toml.Marshal(cfg)
-			if err != nil {
-				return nil, fmt.Errorf("failed to marshal executor config: %w", err)
-			}
-			exec.GeneratedConfig = string(configBytes)
 		}
 	}
 
-	// Set transmitter keys for standalone mode using family-specific key generation
+	// Set transmitter keys using family-specific key generation
 	for _, exec := range in.Executor {
 		family := exec.ChainFamily
 		if family == "" {
@@ -1428,14 +1413,9 @@ func NewEnvironment() (in *Cfg, err error) {
 		return nil, err
 	}
 
-	_, err = launchStandaloneExecutors(in.Executor, blockchainOutputs)
+	_, err = launchExecutors(in.Executor, blockchainOutputs, jdInfra)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create standalone executor: %w", err)
-	}
-
-	_, err = launchBootstrappedExecutors(in.Executor, blockchainOutputs, jdInfra)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create bootstrapped executors: %w", err)
+		return nil, fmt.Errorf("failed to create executors: %w", err)
 	}
 
 	if jdInfra != nil && jdInfra.OffchainClient != nil {
@@ -1805,43 +1785,14 @@ func launchCLNodes(
 	return onchainPublicKeys, nil
 }
 
-// isBootstrappedExecutor returns true for executors whose binary uses bootstrap.Run.
-// This is determined by asking the registered ImplFactory for the executor's chain
-// family whether it supports the bootstrap executor lifecycle.
-func isBootstrappedExecutor(exec *executorsvc.Input) bool {
-	if exec.ChainFamily == "" {
-		return false
-	}
-	fac, err := GetImplFactory(exec.ChainFamily)
-	if err != nil {
-		return false
-	}
-	return fac.SupportsBootstrapExecutor()
-}
-
-func launchStandaloneExecutors(in []*executorsvc.Input, blockchainOutputs []*blockchain.Output) ([]*executorsvc.Output, error) {
+// launchExecutors starts executor containers for all Standalone-mode inputs.
+func launchExecutors(in []*executorsvc.Input, blockchainOutputs []*blockchain.Output, jdInfra *jobs.JDInfrastructure) ([]*executorsvc.Output, error) {
 	var outs []*executorsvc.Output
 	for _, exec := range in {
-		if exec != nil && exec.Mode == services.Standalone && !isBootstrappedExecutor(exec) {
-			out, err := executorsvc.NewStandalone(exec, blockchainOutputs)
-			if err != nil {
-				return nil, fmt.Errorf("failed to create executor service: %w", err)
-			}
-			outs = append(outs, out)
-		}
-	}
-	return outs, nil
-}
-
-// launchBootstrappedExecutors launches executor containers that use bootstrap.Run
-// (non-EVM families). These require a DB, bootstrap config, and JD integration.
-func launchBootstrappedExecutors(in []*executorsvc.Input, blockchainOutputs []*blockchain.Output, jdInfra *jobs.JDInfrastructure) ([]*executorsvc.Output, error) {
-	var outs []*executorsvc.Output
-	for _, exec := range in {
-		if exec != nil && exec.Mode == services.Standalone && isBootstrappedExecutor(exec) {
+		if exec != nil && exec.Mode == services.Standalone {
 			out, err := executorsvc.New(exec, blockchainOutputs, jdInfra)
 			if err != nil {
-				return nil, fmt.Errorf("failed to create bootstrapped executor %s: %w", exec.ContainerName, err)
+				return nil, fmt.Errorf("failed to create executor %s: %w", exec.ContainerName, err)
 			}
 			exec.Out = out
 			outs = append(outs, out)
@@ -1850,24 +1801,24 @@ func launchBootstrappedExecutors(in []*executorsvc.Input, blockchainOutputs []*b
 	return outs, nil
 }
 
-// registerExecutorsWithJD registers bootstrapped executors with the Job Distributor
+// registerExecutorsWithJD registers executors with the Job Distributor
 // and waits for them to establish their WSRPC connections.
 func registerExecutorsWithJD(ctx context.Context, executors []*executorsvc.Input, jdClient offchain.Client) error {
-	var bootstrapped []*executorsvc.Input
+	var standalone []*executorsvc.Input
 	for _, exec := range executors {
-		if exec.Mode == services.Standalone && isBootstrappedExecutor(exec) {
-			bootstrapped = append(bootstrapped, exec)
+		if exec.Mode == services.Standalone {
+			standalone = append(standalone, exec)
 		}
 	}
 
-	if len(bootstrapped) == 0 {
+	if len(standalone) == 0 {
 		return nil
 	}
 
 	g, gCtx := errgroup.WithContext(ctx)
 	var mu sync.Mutex
 
-	for _, exec := range bootstrapped {
+	for _, exec := range standalone {
 		g.Go(func() error {
 			if exec.Out == nil || exec.Out.BootstrapKeys.CSAPublicKey == "" {
 				return fmt.Errorf("bootstrapped executor %s started but CSAPublicKey not available", exec.ContainerName)
@@ -1896,7 +1847,7 @@ func registerExecutorsWithJD(ctx context.Context, executors []*executorsvc.Input
 	return g.Wait()
 }
 
-// proposeJobsToExecutors proposes executor job specs to bootstrapped executors via JD.
+// proposeJobsToExecutors proposes executor job specs to executors via JD.
 // Each executor receives its job spec with blockchain infos injected for its chain family.
 func proposeJobsToExecutors(
 	ctx context.Context,
@@ -1905,20 +1856,20 @@ func proposeJobsToExecutors(
 	blockchainOutputs []*blockchain.Output,
 	jdClient offchain.Client,
 ) error {
-	var bootstrapped []*executorsvc.Input
+	var standalone []*executorsvc.Input
 	for _, exec := range executors {
-		if exec.Mode == services.Standalone && isBootstrappedExecutor(exec) {
-			bootstrapped = append(bootstrapped, exec)
+		if exec.Mode == services.Standalone {
+			standalone = append(standalone, exec)
 		}
 	}
 
-	if len(bootstrapped) == 0 {
+	if len(standalone) == 0 {
 		return nil
 	}
 
 	g, gCtx := errgroup.WithContext(ctx)
 
-	for _, exec := range bootstrapped {
+	for _, exec := range standalone {
 		g.Go(func() error {
 			if exec.Out == nil || exec.Out.JDNodeID == "" {
 				return fmt.Errorf("executor %s not registered with JD (missing JDNodeID)", exec.ContainerName)

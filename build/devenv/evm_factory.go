@@ -66,10 +66,6 @@ func (f *evmImplFactory) SupportsFunding() bool {
 	return true
 }
 
-func (f *evmImplFactory) SupportsBootstrapExecutor() bool {
-	return false
-}
-
 func (f *evmImplFactory) GenerateTransmitterKey() (string, error) {
 	pk, err := crypto.GenerateKey()
 	if err != nil {
