@@ -10,7 +10,6 @@ import (
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	nodev1 "github.com/smartcontractkit/chainlink-protos/job-distributor/v1/node"
 
-	"github.com/smartcontractkit/chainlink-ccv/deployment/adapters"
 	"github.com/smartcontractkit/chainlink-ccv/deployment/shared"
 )
 
@@ -27,13 +26,9 @@ func init() {
 		return lower
 	})
 
-	// Register all EVM adapter implementations in the combined registry.
-	adapters.GetRegistry().Register(chainsel.FamilyEVM, adapters.ChainAdapters{
-		Aggregator:               &evmAggregatorConfigAdapter{},
-		Executor:                 &evmExecutorConfigAdapter{},
-		Verifier:                 &evmVerifierConfigAdapter{},
-		Indexer:                  &evmIndexerConfigAdapter{},
-		TokenVerifier:            &evmTokenVerifierConfigAdapter{},
-		CommitteeVerifierOnchain: &evmCommitteeVerifierOnchainAdapter{},
-	})
+	// EVM offchain and onchain adapter implementations are registered by
+	// chainlink-ccip/chains/evm, which owns the EVM contract layer. Import
+	// that package to ensure the adapters are registered:
+	//
+	//   import _ "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/adapters"
 }

@@ -4,9 +4,10 @@ go 1.25.7
 
 replace github.com/smartcontractkit/chainlink-ccv => ../..
 
-replace github.com/smartcontractkit/chainlink-ccv/deployment => ../../deployment
+// TODO: re-enable
+// replace github.com/smartcontractkit/chainlink-ccv/deployment => ../../deployment
 
-replace github.com/smartcontractkit/chainlink-ccv/evm => ../../evm
+// replace github.com/smartcontractkit/chainlink-ccv/evm => ../../evm
 
 require (
 	github.com/BurntSushi/toml v1.6.0
