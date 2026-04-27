@@ -85,11 +85,15 @@ After:
   [executor.db]
     image = "postgres:16-alpine"
     name = "my-executor-db"
-    port = 8460
 ```
 
-The `port` field on `[[executor]]` itself is no longer used for standalone mode
-(the executor registers with JD over WSRPC, not a fixed HTTP port).
+Two port fields have been removed:
+
+- **`port` on `[[executor]]`** — removed entirely. The executor no longer exposes an
+  HTTP port; it registers with JD over WSRPC.
+- **`port` on `[executor.db]`** — removed entirely. The database port is allocated
+  internally by Docker and is not user-configurable. The `DefaultExecutorDBPort`
+  constant has also been removed.
 
 ---
 
