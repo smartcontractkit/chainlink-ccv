@@ -808,6 +808,7 @@ func SerializeMessageV3ExtraArgs(provider cciptestinterfaces.ExtraArgsDataProvid
 func (m *CCIP17EVM) SerializeAny2SVMMessageV1(provider cciptestinterfaces.ExtraArgsDataProvider) ([]byte, error) {
 	return SerializeAny2SVMMessageV1(provider)
 }
+
 func SerializeAny2SVMMessageV1(provider cciptestinterfaces.ExtraArgsDataProvider) ([]byte, error) {
 	opts, ok := provider.(cciptestinterfaces.Any2SVMMessageV1Data)
 	if !ok {
