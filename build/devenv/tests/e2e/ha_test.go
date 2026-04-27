@@ -122,10 +122,9 @@ func (s *haTestSetup) sendAndAssertExecution(
 		Receiver: mustGetEOAReceiverAddress(t, s.chainMap[s.toSelector]),
 		Data:     []byte{},
 	}, cciptestinterfaces.MessageOptions{
-		Version:             2,
 		ExecutionGasLimit:   200_000,
 		OutOfOrderExecution: true,
-	})
+	}, 2)
 	require.NoError(t, err)
 
 	sentEvent, err := s.chainMap[s.fromSelector].ConfirmSendOnSource(

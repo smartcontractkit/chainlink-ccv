@@ -80,11 +80,11 @@ func (tc *tokenTransferV3TestCase) Run(ctx context.Context, harness tcapi.TestHa
 			},
 		},
 		cciptestinterfaces.MessageOptions{
-			Version:           3,
 			ExecutionGasLimit: 200_000,
 			FinalityConfig:    tc.finalityConfig,
 			Executor:          tc.executor,
 		},
+		3,
 	)
 	if err != nil {
 		return fmt.Errorf("send message: %w", err)

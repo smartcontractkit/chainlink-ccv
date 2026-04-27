@@ -140,7 +140,8 @@ type Chain interface {
 	// GetSenderAddress gets the sender address for this chain.
 	GetSenderAddress() (protocol.UnknownAddress, error)
 	// SendMessage sends a CCIP message to the specified destination chain with the specified message options.
-	SendMessage(ctx context.Context, dest uint64, fields MessageFields, dataProvider ExtraArgsDataProvider) (MessageSentEvent, error)
+	// DEPRECATED: Use SendChainMessage instead.
+	SendMessage(ctx context.Context, dest uint64, fields MessageFields, dataProvider ExtraArgsDataProvider, messageVersion uint8) (MessageSentEvent, error)
 	// GetExpectedNextSequenceNumber gets an expected sequence number for message to the specified destination chain.
 	GetExpectedNextSequenceNumber(ctx context.Context, to uint64) (uint64, error)
 	// ConfirmSendOnSource waits until exactly one CCIPMessageSent event is emitted on-chain for the specified destination chain, identified by sequence number or message ID.
@@ -318,28 +319,33 @@ type OnChainConfigurable interface {
 type ExtraArgsSerializer func(provider ExtraArgsDataProvider) ([]byte, error)
 
 var (
-	extraArgsSerializers   = make(map[string]ExtraArgsSerializer)
+	extraArgsSerializers   = make(map[ExtraArgsSerializerEntry]ExtraArgsSerializer)
 	extraArgsSerializersMu sync.RWMutex
 )
+
+type ExtraArgsSerializerEntry struct {
+	Version uint8
+	Family  string
+}
 
 // RegisterExtraArgsSerializer registers an ExtraArgsSerializer for a chain family.
 // If the family is already registered, the call is a no-op to match the pattern
 // used by other registries in this repo (e.g. CLDFProviderRegistry, ImplFactory).
 // Product repos call this in their init() alongside other registrations.
-func RegisterExtraArgsSerializer(family string, serializer ExtraArgsSerializer) {
+func RegisterExtraArgsSerializer(entry ExtraArgsSerializerEntry, serializer ExtraArgsSerializer) {
 	extraArgsSerializersMu.Lock()
 	defer extraArgsSerializersMu.Unlock()
-	if _, ok := extraArgsSerializers[family]; ok {
+	if _, ok := extraArgsSerializers[entry]; ok {
 		return
 	}
-	extraArgsSerializers[family] = serializer
+	extraArgsSerializers[entry] = serializer
 }
 
 // GetExtraArgsSerializer returns the registered serializer for the given chain family.
-func GetExtraArgsSerializer(family string) (ExtraArgsSerializer, bool) {
+func GetExtraArgsSerializer(entry ExtraArgsSerializerEntry) (ExtraArgsSerializer, bool) {
 	extraArgsSerializersMu.RLock()
 	defer extraArgsSerializersMu.RUnlock()
-	s, ok := extraArgsSerializers[family]
+	s, ok := extraArgsSerializers[entry]
 	return s, ok
 }
 
@@ -389,11 +395,6 @@ type genericChain interface {
 // Chain families can implement this interface to run partial CCIP message tests without having to implement the full `Chain` interface.
 type ChainAsDestination interface {
 	genericChain
-	// ExtraArgsBuilder allocates a destination-shaped ExtraArgsDataProvider and applies the given options to it. Callers pass options from
-	// the destination chain's package (e.g. evm.WithExecutionGasLimit, svm.WithComputeUnits);
-	// applying an option built for a different chain family returns an error.
-	// The returned provider is intended to be handed to ChainAsSource.SerializeExtraArgs.
-	ExtraArgsBuilder(opts ...ExtraArgsOption) (ExtraArgsDataProvider, error)
 	// GetEOAReceiverAddress returns an EOA receiver address for this chain.
 	GetEOAReceiverAddress() (protocol.UnknownAddress, error)
 	// ConfirmExecOnDest confirms that a CCIP message was executed on this chain.
@@ -406,9 +407,6 @@ type ChainAsDestination interface {
 // Chain families can implement this interface to run partial CCIP message tests without having to implement the full `Chain` interface.
 type ChainAsSource interface {
 	genericChain
-	// SerializeExtraArgs serializes the extra args for the given destination chain.
-	// Implementation should type assert the ExtraArgsDataProvider to struct types from supported destination chain families.
-	SerializeExtraArgs(ExtraArgsDataProvider) ([]byte, error)
 	// BuildChainMessage builds a CCIP message for the given destination chain.
 	// It will call into the registered extra args serializer per destination chain for now, until we have a more generic way to manage extra args.
 	// It returns a generic type that is specific to the chain family. The returned message is expected to be directly passed in ot the SendChainMessage method.

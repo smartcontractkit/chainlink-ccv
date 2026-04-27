@@ -1,8 +1,6 @@
 package cciptestinterfaces
 
 import (
-	"fmt"
-
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
@@ -13,10 +11,9 @@ import (
 // family returns an error rather than silently no-op'ing.
 type ExtraArgsOption func(ExtraArgsDataProvider) error
 
-// MessageOptions represents EVM modifications one can make to a CCIP message for through extra args.
+// MessageOptions represents modifications one can make to a CCIP messagev3 through extra args.
+// TODO: rename this to Any2AnyMessageV3Data.
 type MessageOptions struct {
-	// Version indicates the version of the extraArgs.
-	Version uint8
 	// ExecutionGasLimit is the execution gas limit for the message
 	ExecutionGasLimit uint32
 	// OutOfOrderExecution is whether to execute the message out of order
@@ -33,70 +30,55 @@ type MessageOptions struct {
 	TokenArgs []byte
 }
 
+// This fulfills the marker interface ExtraArgsDataProvider.
 func (m MessageOptions) IsExtraArgsDataProvider() {}
 
-// mutateMessageOptions type-asserts the provider to *MessageOptions
-// (the EVM family's destination-shaped extra args) and applies the given mutation.
-// It returns an error if the provider is not the EVM variant, so a test that passes
-// an EVM option to a non-EVM destination fails loudly rather than silently no-op'ing.
-func mutateMessageOptions(name string, p ExtraArgsDataProvider, mut func(*MessageOptions)) error {
-	m, ok := p.(*MessageOptions)
-	if !ok {
-		return fmt.Errorf("%s: expected *MessageOptions (EVM family), got %T", name, p)
-	}
-	mut(m)
-	return nil
+// MessageV3Destination is an interface for any chain that can receive a V3 message.
+// We use an interface rather than a struct because the V3 message structure is chain agnostic.
+type MessageV3Destination interface {
+	// GetExecutorArgs returns the executor arguments for the message.
+	// The opts parameter will be passed by the caller, implementer should type assert the opts to the concrete type.
+	GetExecutorArgs(opts any) ([]byte, error)
+	// GetTokenArgs returns the token arguments for the message.
+	// The opts parameter will be passed by the caller, implementer should type assert the opts to the concrete type.
+	GetTokenArgs(opts any) ([]byte, error)
 }
 
-func WithVersion(v uint8) ExtraArgsOption {
-	return func(p ExtraArgsDataProvider) error {
-		return mutateMessageOptions("evm.WithVersion", p, func(m *MessageOptions) { m.Version = v })
-	}
+// MessageV3Source is an interface for any chain that can send a V3 message.
+// We use an interface rather than a struct because the V3 message structure is chain agnostic.
+type MessageV3Source interface {
+	SerializeMessageV3ExtraArgs(opts MessageOptions) ([]byte, error)
 }
 
-func WithExecutionGasLimit(limit uint32) ExtraArgsOption {
-	return func(p ExtraArgsDataProvider) error {
-		return mutateMessageOptions("evm.WithExecutionGasLimit", p, func(m *MessageOptions) { m.ExecutionGasLimit = limit })
-	}
+// Any2EVMMessageV2Data represents the data for V2 messages arriving at an EVM chain.
+type Any2EVMMessageV2Data struct {
+	GasLimit                 uint32
+	AllowOutOfOrderExecution bool
 }
 
-func WithOutOfOrderExecution(b bool) ExtraArgsOption {
-	return func(p ExtraArgsDataProvider) error {
-		return mutateMessageOptions("evm.WithOutOfOrderExecution", p, func(m *MessageOptions) { m.OutOfOrderExecution = b })
-	}
+// This fulfills the marker interface ExtraArgsDataProvider.
+func (m Any2EVMMessageV2Data) IsExtraArgsDataProvider() {}
+
+// Any2EVMMessageV2 is an interface for any chain that can send a V2 message to an EVM chain.
+type Any2EVMMessageV2 interface {
+	SerializeAny2EVMMessageV2(opts any) ([]byte, error)
 }
 
-func WithCCVs(ccvs []protocol.CCV) ExtraArgsOption {
-	return func(p ExtraArgsDataProvider) error {
-		return mutateMessageOptions("evm.WithCCVs", p, func(m *MessageOptions) { m.CCVs = ccvs })
-	}
+// Any2EVMMessageV1Data represents the data for V1 messages arriving at an EVM chain.
+type Any2EVMMessageV1Data struct {
+	GasLimit uint32
 }
 
-func WithFinalityConfig(fc protocol.Finality) ExtraArgsOption {
-	return func(p ExtraArgsDataProvider) error {
-		return mutateMessageOptions("evm.WithFinalityConfig", p, func(m *MessageOptions) { m.FinalityConfig = fc })
-	}
+// This fulfills the marker interface ExtraArgsDataProvider.
+func (m Any2EVMMessageV1Data) IsExtraArgsDataProvider() {}
+
+// Any2EVMMessageV1 is an interface for any chain that can send a V1 message to an EVM chain.
+type Any2EVMMessageV1 interface {
+	SerializeAny2EVMMessageV1(opts any) ([]byte, error)
 }
 
-func WithExecutor(addr protocol.UnknownAddress) ExtraArgsOption {
-	return func(p ExtraArgsDataProvider) error {
-		return mutateMessageOptions("evm.WithExecutor", p, func(m *MessageOptions) { m.Executor = addr })
-	}
-}
-
-func WithExecutorArgs(args []byte) ExtraArgsOption {
-	return func(p ExtraArgsDataProvider) error {
-		return mutateMessageOptions("evm.WithExecutorArgs", p, func(m *MessageOptions) { m.ExecutorArgs = args })
-	}
-}
-
-func WithTokenArgs(args []byte) ExtraArgsOption {
-	return func(p ExtraArgsDataProvider) error {
-		return mutateMessageOptions("evm.WithTokenArgs", p, func(m *MessageOptions) { m.TokenArgs = args })
-	}
-}
-
-type SVMMessageOptions struct {
+// Any2SVMMessageV1Data represents the data for V1 messages arriving at a SVM chain.
+type Any2SVMMessageV1Data struct {
 	Version                  uint8
 	ComputeUnits             uint32
 	AccountIsWritableBitmap  uint64
@@ -105,4 +87,10 @@ type SVMMessageOptions struct {
 	Accounts                 [][32]byte
 }
 
-func (m SVMMessageOptions) IsExtraArgsDataProvider() {}
+// This fulfills the marker interface ExtraArgsDataProvider.
+func (m Any2SVMMessageV1Data) IsExtraArgsDataProvider() {}
+
+// Any2SVMMessageV1 is an interface for any chain that can send a V1 message to a SVM chain.
+type Any2SVMMessageV1 interface {
+	SerializeAny2SVMMessageV1(opts any) ([]byte, error)
+}
