@@ -32,32 +32,8 @@ func MessageV3TestScenario(
 	if !ok {
 		return fmt.Errorf("source chain does not support V3 message")
 	}
-	// provider, err := destChain.ExtraArgsBuilder(extraArgsOptions...)
-	// if err != nil {
-	// 	return fmt.Errorf("failed to build extra args: %w", err)
-	// }
-	// extraArgs, err := srcChain.SerializeExtraArgs(provider)
-	// if err != nil {
-	// 	return fmt.Errorf("failed to serialize extra args: %w", err)
-	// }
 
-	execArgs, err := v3Receiver.GetExecutorArgs(executorArgsParams)
-	if err != nil {
-		return fmt.Errorf("failed to get executor args: %w", err)
-	}
-	tokenArgs, err := v3Receiver.GetTokenArgs(tokenArgsParams)
-	if err != nil {
-		return fmt.Errorf("failed to get token args: %w", err)
-	}
-	extraArgs, err := v3Serializer.SerializeMessageV3ExtraArgs(cciptestinterfaces.MessageOptions{
-		FinalityConfig:      opts.FinalityConfig,
-		ExecutionGasLimit:   opts.ExecutionGasLimit,
-		Executor:            opts.Executor,
-		ExecutorArgs:        execArgs,
-		TokenArgs:           tokenArgs,
-		CCVs:                opts.CCVs,
-		OutOfOrderExecution: opts.OutOfOrderExecution,
-	})
+	extraArgs, err := v3Serializer.BuildV3ExtraArgs(opts, v3Receiver, executorArgsParams, tokenArgsParams)
 	if err != nil {
 		return fmt.Errorf("failed to encode V3 extra args: %w", err)
 	}
@@ -103,10 +79,13 @@ func MessageV2TestScenario(
 	}
 	sourceExtraArgs, err := v2Source.SerializeAny2EVMMessageV2(opts)
 	if err != nil {
-		return fmt.Errorf("failed to build V3 args: %w", err)
+		return fmt.Errorf("failed to serialize V2 args: %w", err)
 	}
 
 	message, err := source.BuildChainMessage(ctx, dest.ChainSelector(), fields, sourceExtraArgs)
+	if err != nil {
+		return fmt.Errorf("failed to build chain message: %w", err)
+	}
 	messageSentEvent, _, err := source.SendChainMessage(ctx, dest.ChainSelector(), message, sendOption)
 	if err != nil {
 		return fmt.Errorf("failed to send chain message: %w", err)

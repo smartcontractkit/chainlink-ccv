@@ -47,7 +47,7 @@ type MessageV3Destination interface {
 // MessageV3Source is an interface for any chain that can send a V3 message.
 // We use an interface rather than a struct because the V3 message structure is chain agnostic.
 type MessageV3Source interface {
-	SerializeMessageV3ExtraArgs(opts MessageOptions) ([]byte, error)
+	BuildV3ExtraArgs(opts MessageOptions, destChain MessageV3Destination, executorArgsParams any, tokenArgsParams any) ([]byte, error)
 }
 
 // Any2EVMMessageV2Data represents the data for V2 messages arriving at an EVM chain.

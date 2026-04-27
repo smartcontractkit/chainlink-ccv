@@ -2191,3 +2191,23 @@ func (m *CCIP17EVM) SendChainMessage(ctx context.Context, destChain uint64, msg 
 
 	return result, txHash[:], nil
 }
+
+func (m *CCIP17EVM) BuildV3ExtraArgs(opts cciptestinterfaces.MessageOptions, destChain cciptestinterfaces.MessageV3Destination, executorArgsParams any, tokenArgsParams any) ([]byte, error) {
+	execArgs, err := destChain.GetExecutorArgs(executorArgsParams)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get executor args: %w", err)
+	}
+	tokenArgs, err := destChain.GetTokenArgs(tokenArgsParams)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get token args: %w", err)
+	}
+	return SerializeMessageV3ExtraArgs(cciptestinterfaces.MessageOptions{
+		FinalityConfig:      opts.FinalityConfig,
+		ExecutionGasLimit:   opts.ExecutionGasLimit,
+		Executor:            opts.Executor,
+		ExecutorArgs:        execArgs,
+		TokenArgs:           tokenArgs,
+		CCVs:                opts.CCVs,
+		OutOfOrderExecution: opts.OutOfOrderExecution,
+	})
+}

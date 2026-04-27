@@ -1,185 +1,242 @@
-# Chain-agnostic extra args via `ExtraArgsDataProvider` and functional-option `ExtraArgsBuilder`
+# Per-version `ExtraArgsDataProvider` structs and pre-serialized extra args on `BuildChainMessage`
 
 ## Executive Summary
 
-- Replaces the EVM-leaning `MessageOptions` surface on `Chain` / `ChainAsSource` with a marker interface `ExtraArgsDataProvider` and a per-family builder method `ChainAsDestination.ExtraArgsBuilder(opts ...ExtraArgsOption)`.
-- Motivated by adding Solana (`SVMMessageOptions`) support: source chains can no longer assume the extra-args struct is EVM-shaped, so serialization is now type-switched on the provider instead of a single registered serializer.
-- Affects every implementor of `cciptestinterfaces.Chain`, `ChainAsSource`, `ChainAsDestination`, or `ChainSendOption`, plus every test or CLI that built a `MessageOptions` literal and passed it into `BuildChainMessage` / `SendMessage`.
-- Breaking: `BuildChainMessage` now takes pre-serialized `extraArgs []byte`; `ChainSendOption.IsSendOption()` loses its `bool` return; `ExtraArgsSerializer` returns `(..., error)`; new required methods appear on `ChainAsDestination` and `ChainAsSource`.
+- Replaces the single EVM-shaped `cciptestinterfaces.MessageOptions` (with a `Version` field) with one `ExtraArgsDataProvider`-implementing struct per `(message version, destination family)` and switches the registry / source-chain plumbing to look up serializers by `(family, version)`.
+- Motivated by adding non-EVM destinations (Solana) and non-V3 message versions: a single struct could not represent V1/V2/V3-EVM and V1-SVM extra args without overloading fields.
+- Affects every implementor of `cciptestinterfaces.Chain`, `ChainAsSource`, `ChainSendOption`, and `ExtraArgsSerializer`, plus every test or CLI that built a `MessageOptions` literal — `MessageOptions.Version` and `MessageOptions.UseTestRouter` no longer exist.
+- Breaking: `Chain.SendMessage` takes an `ExtraArgsDataProvider` plus a separate `messageVersion uint8`; `ChainAsSource.BuildChainMessage` takes pre-serialized `[]byte`; `ChainSendOption.IsSendOption()` loses its `bool` return; `ExtraArgsSerializer` returns `(..., error)` and is keyed by `ExtraArgsSerializerEntry{Family, Version}`; `ChainAsSourceMessage` renamed to `GenericChainMessage`.
+
+## AI Adapter Index
+
+Read this table first. For each row, run the `Search` pattern against the consumer repo; if it produces hits, follow the linked `Section` for migration detail. Symbols not in this table are unchanged — do not load source for them. The `evm.*` and `messaging.*` rows live in this repo's `build/devenv/...` tree; downstream repos that vendor or shadow these packages should look in the corresponding paths.
+
+| Symbol | Kind | Search | Location | Section |
+|---|---|---|---|---|
+| `cciptestinterfaces.Chain.SendMessage` | signature-changed (and deprecated) | `\.SendMessage\(` | `build/devenv/cciptestinterfaces/interface.go:144` | [Chain.SendMessage signature](#chainsendmessage-signature) |
+| `cciptestinterfaces.ChainAsSource.BuildChainMessage` | signature-changed | `\.BuildChainMessage\(` | `build/devenv/cciptestinterfaces/interface.go:414` | [ChainAsSource.BuildChainMessage takes serialized bytes](#chainassourcebuildchainmessage-takes-serialized-bytes) |
+| `cciptestinterfaces.ChainSendOption.IsSendOption` | signature-changed | `\bIsSendOption\(\)` | `build/devenv/cciptestinterfaces/interface.go:380` | [ChainSendOption.IsSendOption() return type](#chainsendoptionissendoption-return-type) |
+| `cciptestinterfaces.ExtraArgsSerializer` | signature-changed | `\bExtraArgsSerializer\b` | `build/devenv/cciptestinterfaces/interface.go:319` | [ExtraArgsSerializer signature and registry key](#extraargsserializer-signature-and-registry-key) |
+| `cciptestinterfaces.RegisterExtraArgsSerializer` | signature-changed | `\bRegisterExtraArgsSerializer\(` | `build/devenv/cciptestinterfaces/interface.go:335` | [ExtraArgsSerializer signature and registry key](#extraargsserializer-signature-and-registry-key) |
+| `cciptestinterfaces.GetExtraArgsSerializer` | signature-changed | `\bGetExtraArgsSerializer\(` | `build/devenv/cciptestinterfaces/interface.go:345` | [ExtraArgsSerializer signature and registry key](#extraargsserializer-signature-and-registry-key) |
+| `cciptestinterfaces.MessageOptions.Version` | removed | `\bVersion:\s*\d` | — | [MessageOptions loses Version and UseTestRouter](#messageoptions-loses-version-and-usetestrouter) |
+| `cciptestinterfaces.MessageOptions.UseTestRouter` | removed | `\bUseTestRouter\b` | — | [MessageOptions loses Version and UseTestRouter](#messageoptions-loses-version-and-usetestrouter) |
+| `evm.SerializeEVMExtraArgs` | signature-changed | `\bSerializeEVMExtraArgs\(` | `build/devenv/evm/impl.go:692` | [ExtraArgsSerializer signature and registry key](#extraargsserializer-signature-and-registry-key) |
+| `evm.SerializeSVMExtraArgs` | removed | `\bSerializeSVMExtraArgs\b` | — | [ExtraArgsSerializer signature and registry key](#extraargsserializer-signature-and-registry-key) |
+| `messaging.BasicMessageTestScenario` | removed | `\bBasicMessageTestScenario\b` | — | [Migration Guide step 7](#migration-guide) |
+| `cciptestinterfaces.ChainAsSourceMessage → cciptestinterfaces.GenericChainMessage` | renamed | `\bChainAsSourceMessage\b` | `build/devenv/cciptestinterfaces/interface.go:428` | [ChainAsSourceMessage renamed to GenericChainMessage](#chainassourcemessage-renamed-to-genericchainmessage) |
+| `messaging.TestEVM2EVMPOC → messaging.TestEVM2EVMV3` | renamed | `\bTestEVM2EVMPOC\b` | `build/devenv/tests/composable/messaging/evmPOC_test.go:26` | [Migration Guide step 7](#migration-guide) |
+| `cciptestinterfaces.ExtraArgsDataProvider` | added | — | `build/devenv/cciptestinterfaces/interface.go:386` | [New Features / Additions](#new-features--additions) |
+| `cciptestinterfaces.ExtraArgsOption` | added | — | `build/devenv/cciptestinterfaces/extra_args.go:12` | [New Features / Additions](#new-features--additions) |
+| `cciptestinterfaces.ExtraArgsSerializerEntry` | added | — | `build/devenv/cciptestinterfaces/interface.go:326` | [ExtraArgsSerializer signature and registry key](#extraargsserializer-signature-and-registry-key) |
+| `cciptestinterfaces.MessageV3Source` | added | — | `build/devenv/cciptestinterfaces/extra_args.go:49` | [New Features / Additions](#new-features--additions) |
+| `cciptestinterfaces.MessageV3Destination` | added | — | `build/devenv/cciptestinterfaces/extra_args.go:38` | [New Features / Additions](#new-features--additions) |
+| `cciptestinterfaces.Any2EVMMessageV1` / `Any2EVMMessageV1Data` | added | — | `build/devenv/cciptestinterfaces/extra_args.go:68` | [New Features / Additions](#new-features--additions) |
+| `cciptestinterfaces.Any2EVMMessageV2` / `Any2EVMMessageV2Data` | added | — | `build/devenv/cciptestinterfaces/extra_args.go:54` | [New Features / Additions](#new-features--additions) |
+| `cciptestinterfaces.Any2SVMMessageV1` / `Any2SVMMessageV1Data` | added | — | `build/devenv/cciptestinterfaces/extra_args.go:81` | [New Features / Additions](#new-features--additions) |
+| `evm.CCIP17EVM.ExtraArgsBuilder` | added | — | `build/devenv/evm/impl.go:2032` | [New Features / Additions](#new-features--additions) |
+| `evm.SerializeMessageV3ExtraArgs` | added | — | `build/devenv/evm/impl.go:774` | [New Features / Additions](#new-features--additions) |
+| `evm.SerializeAny2EVMMessageV1` | added | — | `build/devenv/evm/impl.go:705` | [New Features / Additions](#new-features--additions) |
+| `evm.SerializeAny2EVMMessageV2` | added | — | `build/devenv/evm/impl.go:737` | [New Features / Additions](#new-features--additions) |
+| `evm.SerializeAny2SVMMessageV1` | added | — | `build/devenv/evm/impl.go:793` | [New Features / Additions](#new-features--additions) |
+| `messaging.MessageV3TestScenario` | added | — | `build/devenv/tests/composable/messaging/agnostic_chain_test.go:16` | [New Features / Additions](#new-features--additions) |
+| `messaging.MessageV2TestScenario` | added | — | `build/devenv/tests/composable/messaging/agnostic_chain_test.go:91` | [New Features / Additions](#new-features--additions) |
 
 ## Breaking Changes
 
-### `ChainAsDestination` gains `ExtraArgsBuilder`
+### `MessageOptions` loses `Version` and `UseTestRouter`
 
-- **What changed:** new required method on `cciptestinterfaces.ChainAsDestination`.
-- **Before:** interface had no way for a destination chain to allocate its own extra-args shape.
+- **What changed:** struct moved from `interface.go` to a new `extra_args.go` and slimmed down.
+- **Before:** `MessageOptions` carried `Version uint8` and `UseTestRouter bool` alongside the V3 fields.
+- **After:** the struct holds only the V3 payload (ExecutionGasLimit, OutOfOrderExecution, CCVs, FinalityConfig, Executor, ExecutorArgs, TokenArgs) and now satisfies the new `ExtraArgsDataProvider` marker. There is a TODO at `build/devenv/cciptestinterfaces/extra_args.go:15` to rename it to `Any2AnyMessageV3Data`.
+- **Why:** `Version` no longer belongs on the data struct — it is now passed alongside the provider so the registry can pick the right serializer. `UseTestRouter` is an EVM send-time concern and now lives on `evm.SendOptions`.
+- **Who is affected:** every caller building `MessageOptions{...}` literals with `Version: ...` or `UseTestRouter: ...` (every e2e test in `build/devenv/tests/e2e/`, `gun.go`, and `cli/send/command.go`).
+
+### `Chain.SendMessage` signature
+
+- **What changed:** generic `Chain` interface; method is now marked `// DEPRECATED: Use SendChainMessage instead.`
+- **Before:**
+  ```go
+  SendMessage(ctx, dest uint64, fields MessageFields, opts MessageOptions) (MessageSentEvent, error)
+  ```
 - **After:**
   ```go
-  ExtraArgsBuilder(opts ...ExtraArgsOption) (ExtraArgsDataProvider, error)
+  SendMessage(ctx, dest uint64, fields MessageFields, dataProvider ExtraArgsDataProvider, messageVersion uint8) (MessageSentEvent, error)
   ```
-  The destination allocates its family-specific provider (e.g. `*MessageOptions` for EVM, `*SVMMessageOptions` for SVM) and applies each option; options that don't match the provider's concrete type return an error.
-- **Why:** the destination chain is the only party that knows the shape of its extra args. Hoisting construction there lets generic tests stay agnostic.
-- **Who is affected:** every `ChainAsDestination` implementation. Currently only `*evm.CCIP17EVM` at `build/devenv/evm/impl.go:2037`.
+- **Why:** `Version` was removed from the data struct, so the version is now an explicit parameter; the data parameter is the marker interface so SVM/V1/V2 providers are accepted.
+- **Who is affected:** every `Chain` implementor and every caller. `*evm.CCIP17EVM.SendMessage` now type-asserts the provider to `MessageOptions` and invokes `SerializeEVMExtraArgs(messageVersion, opts)` internally — non-EVM providers passed to the EVM impl error out.
 
 ### `ChainAsSource.BuildChainMessage` takes serialized bytes
 
 - **What changed:** `cciptestinterfaces.ChainAsSource.BuildChainMessage` signature.
-- **Before:**
-  ```go
-  BuildChainMessage(ctx, destChain, fields MessageFields, opts MessageOptions) (ChainAsSourceMessage, error)
-  ```
-- **After:**
-  ```go
-  BuildChainMessage(ctx, destChain, fields MessageFields, extraArgs []byte) (GenericChainMessage, error)
-  ```
-  The caller is expected to serialize extra args via `ChainAsSource.SerializeExtraArgs(provider)` first.
-- **Why:** the source shouldn't know about destination-specific option structs; it only needs the opaque byte blob to stuff into the on-chain message.
-- **Who is affected:** every `ChainAsSource` implementor and every caller (`tests/composable/messaging/agnostic_chain_test.go:16`, `tests/e2e/gun.go:206`).
-
-### `ChainAsSource` gains `SerializeExtraArgs`
-
-- **What changed:** new required method.
-- **After:**
-  ```go
-  SerializeExtraArgs(ExtraArgsDataProvider) ([]byte, error)
-  ```
-  Implementations type-switch on the provider (see `*evm.CCIP17EVM.SerializeExtraArgs` at `build/devenv/evm/impl.go:687`, which dispatches to `SerializeEVMExtraArgs` or `SerializeSVMExtraArgs`).
-- **Why:** replaces the single-serializer-per-family registry (`RegisterExtraArgsSerializer`) with per-source dispatch, so one source chain can serialize to multiple destination families.
+- **Before:** `BuildChainMessage(ctx, destChain, fields, opts MessageOptions) (ChainAsSourceMessage, error)`
+- **After:** `BuildChainMessage(ctx, destChain, fields, extraArgs []byte) (GenericChainMessage, error)`
+- **Why:** the source chain shouldn't know the destination's option struct; it only needs the opaque blob to embed in the on-chain message. Serialization moves up to the caller (a test scenario, CLI, or load gun), which knows which version + family it is targeting.
+- **Who is affected:** every `ChainAsSource` implementor and every caller (`tests/e2e/gun.go:209`, `cli/send/command.go:144`, the new test scenarios in `tests/composable/messaging/agnostic_chain_test.go`).
 
 ### `ChainSendOption.IsSendOption()` return type
 
 - **What changed:** marker method signature.
 - **Before:** `IsSendOption() bool`
 - **After:** `IsSendOption()`
-- **Why:** the returned bool was never inspected; it was pure boilerplate.
+- **Why:** the returned bool was never inspected.
 - **Who is affected:** every `ChainSendOption` implementor. `evm.SendOptions.IsSendOption` already updated at `build/devenv/evm/interface.go:38`.
 
-### `ExtraArgsSerializer` signature
+### `ExtraArgsSerializer` signature and registry key
 
-- **What changed:** registered-serializer type.
-- **Before:** `type ExtraArgsSerializer func(opts MessageOptions) []byte`
-- **After:** `type ExtraArgsSerializer func(provider ExtraArgsDataProvider) ([]byte, error)`
-- **Why:** the serializer now receives the generic marker interface (so it can be invoked for SVM or EVM providers) and reports unsupported-type errors instead of panicking.
-- **Who is affected:** any product repo that calls `cciptestinterfaces.RegisterExtraArgsSerializer`. The registry itself is retained at `build/devenv/cciptestinterfaces/interface.go:297` for backward usage.
-
-### `Chain.SendMessage` opts parameter
-
-- **What changed:** generic `Chain` interface.
-- **Before:** `SendMessage(ctx, dest, fields, opts MessageOptions) (MessageSentEvent, error)`
-- **After:** `SendMessage(ctx, dest, fields, dataProvider ExtraArgsDataProvider) (MessageSentEvent, error)`
-- **Why:** same motivation — `MessageOptions` is no longer the only valid shape.
-- **Who is affected:** callers passing `MessageOptions` literals keep working (the value still satisfies `ExtraArgsDataProvider`); callers that passed typed variables of exact type `cciptestinterfaces.MessageOptions` are unaffected.
+- **What changed:** registered-serializer type and the `Register/GetExtraArgsSerializer` API.
+- **Before:**
+  ```go
+  type ExtraArgsSerializer func(opts MessageOptions) []byte
+  func RegisterExtraArgsSerializer(family string, serializer ExtraArgsSerializer)
+  func GetExtraArgsSerializer(family string) (ExtraArgsSerializer, bool)
+  ```
+- **After:**
+  ```go
+  type ExtraArgsSerializer func(provider ExtraArgsDataProvider) ([]byte, error)
+  type ExtraArgsSerializerEntry struct { Version uint8; Family string }
+  func RegisterExtraArgsSerializer(entry ExtraArgsSerializerEntry, serializer ExtraArgsSerializer)
+  func GetExtraArgsSerializer(entry ExtraArgsSerializerEntry) (ExtraArgsSerializer, bool)
+  ```
+- **Why:** one serializer per (family, version) lets a single source chain encode different versions to the same destination family; the marker-interface input lets the same registry serve EVM and SVM providers; returning an error replaces the previous panic on unsupported types.
+- **Who is affected:** any product repo that calls `RegisterExtraArgsSerializer`. EVM now registers four entries (`build/devenv/evm/impl.go:120`): `(EVM, 1)`, `(EVM, 2)`, `(EVM, 3)`, `(Canton, 1)`, `(Canton, 2)`, `(Canton, 3)`, `(Solana, 1)`.
 
 ### `ChainAsSourceMessage` renamed to `GenericChainMessage`
 
 - **What changed:** type alias in `cciptestinterfaces`.
 - **Before:** `type ChainAsSourceMessage any`
 - **After:** `type GenericChainMessage any`
-- **Why:** the type is also used as the input to `SendChainMessage`, so "as source" was misleading.
-- **Who is affected:** any code that named the alias explicitly (tests typically let type inference handle it).
+- **Why:** the alias is also used as the input to `SendChainMessage`, so "as source" was misleading.
+- **Who is affected:** any code that named the alias explicitly (tests typically rely on type inference).
 
 ## Migration Guide
 
-1. **Update `ChainAsSource` implementations:**
-   - Change `BuildChainMessage` to accept `extraArgs []byte` and return `GenericChainMessage`.
-   - Add a `SerializeExtraArgs(ExtraArgsDataProvider) ([]byte, error)` method that type-switches on the providers you support.
-   - Change `SendChainMessage`'s `message` parameter type to `GenericChainMessage`.
-
-2. **Update `ChainAsDestination` implementations:** add
-   ```go
-   func (c *YourChain) ExtraArgsBuilder(opts ...cciptestinterfaces.ExtraArgsOption) (cciptestinterfaces.ExtraArgsDataProvider, error) {
-       p := &YourChainExtraArgs{}
-       for _, opt := range opts {
-           if err := opt(p); err != nil {
-               return nil, err
-           }
-       }
-       return *p, nil // or p, consistent with what SerializeExtraArgs expects
-   }
-   ```
-
-3. **Update `ChainSendOption` implementations:** drop the `bool` return from `IsSendOption`:
+1. **Strip `Version` and `UseTestRouter` from `MessageOptions` literals.** The struct keeps the V3 payload fields only.
    ```go
    // Before
-   func (o SendOptions) IsSendOption() bool { return true }
+   opts := cciptestinterfaces.MessageOptions{
+       Version:             3,
+       ExecutionGasLimit:   200_000,
+       OutOfOrderExecution: false,
+       UseTestRouter:       true,
+   }
    // After
-   func (o SendOptions) IsSendOption() {}
+   opts := cciptestinterfaces.MessageOptions{
+       ExecutionGasLimit:   200_000,
+       OutOfOrderExecution: false,
+   }
+   // and pass UseTestRouter via evm.SendOptions on SendChainMessage:
+   sendOpt := evm.SendOptions{UseTestRouter: true}
    ```
 
-4. **Update callers that built messages end-to-end:** serialize first, then build.
+2. **Pass `messageVersion` explicitly to `Chain.SendMessage`:**
+   ```go
+   // Before
+   evt, err := src.SendMessage(ctx, dest, fields, opts)
+   // After
+   evt, err := src.SendMessage(ctx, dest, fields, opts, 3) // version is now an explicit arg
+   ```
+
+3. **Serialize before calling `BuildChainMessage`:**
    ```go
    // Before
    msg, err := src.BuildChainMessage(ctx, destSel, fields, opts)
 
-   // After
-   extraArgs, err := src.SerializeExtraArgs(opts)
+   // After — using the EVM family helper (CLI/load-gun pattern)
+   extraArgs, err := evm.SerializeEVMExtraArgs(3, opts)
    if err != nil { /* handle */ }
    msg, err := src.BuildChainMessage(ctx, destSel, fields, extraArgs)
    ```
 
-5. **Update generic scenario helpers to take options instead of a concrete struct** (see `tests/composable/messaging/agnostic_chain_test.go`):
+4. **`ChainSendOption` implementors:** drop the `bool` return.
    ```go
-   // Before
-   func BasicMessageTestScenario(..., opts cciptestinterfaces.MessageOptions, ...) error {
-       srcMessage, err := srcChain.BuildChainMessage(ctx, destChain.ChainSelector(), fields, opts)
-       ...
-   }
-
-   // After
-   func BasicMessageTestScenario(..., extraArgsOptions []cciptestinterfaces.ExtraArgsOption, ...) error {
-       provider, err := destChain.ExtraArgsBuilder(extraArgsOptions...)
-       if err != nil { return fmt.Errorf("build extra args: %w", err) }
-       extraArgs, err := srcChain.SerializeExtraArgs(provider)
-       if err != nil { return fmt.Errorf("serialize extra args: %w", err) }
-       srcMessage, err := srcChain.BuildChainMessage(ctx, destChain.ChainSelector(), fields, extraArgs)
-       ...
-   }
+   // Before: func (o SendOptions) IsSendOption() bool { return true }
+   // After:  func (o SendOptions) IsSendOption() {}
    ```
 
-6. **Callers constructing `MessageOptions{...}` literals** do not need to change the literal — the struct still exists, just moved from `interface.go` to `extra_args.go` in the same package. `cciptestinterfaces.MessageOptions{...}` continues to satisfy `ExtraArgsDataProvider` and can be passed directly to `SendMessage` / `SerializeExtraArgs`.
+5. **Update `RegisterExtraArgsSerializer` calls in product repos:**
+   ```go
+   // Before
+   cciptestinterfaces.RegisterExtraArgsSerializer(chainsel.FamilyEVM, SerializeEVMExtraArgs)
+   // After — register one entry per supported version, with a serializer that
+   // takes ExtraArgsDataProvider and returns ([]byte, error)
+   cciptestinterfaces.RegisterExtraArgsSerializer(
+       cciptestinterfaces.ExtraArgsSerializerEntry{Family: chainsel.FamilyEVM, Version: 3},
+       SerializeMessageV3ExtraArgs,
+   )
+   ```
+
+6. **Rename type references:** `cciptestinterfaces.ChainAsSourceMessage` → `cciptestinterfaces.GenericChainMessage`.
+
+7. **Migrate generic test scenarios.** `BasicMessageTestScenario` was deleted. Use the per-version helpers in `tests/composable/messaging/agnostic_chain_test.go`:
+   - `MessageV3TestScenario` — type-asserts the destination to `MessageV3Destination` (for `GetExecutorArgs` / `GetTokenArgs`) and the source to `MessageV3Source` (for `SerializeMessageV3ExtraArgs`).
+   - `MessageV2TestScenario` — type-asserts the source to `Any2EVMMessageV2` and serializes via `SerializeAny2EVMMessageV2`.
 
 ## New Features / Additions
 
-- **`cciptestinterfaces.ExtraArgsDataProvider`** — marker interface satisfied by any chain family's extra-args struct. See `build/devenv/cciptestinterfaces/interface.go:376`.
-- **`cciptestinterfaces.ExtraArgsOption`** — `func(ExtraArgsDataProvider) error`. Option functions type-assert the provider to the concrete struct they target; mismatches return a typed error rather than silently no-op'ing. See `build/devenv/cciptestinterfaces/extra_args.go:14`.
-- **`cciptestinterfaces.SVMMessageOptions`** — Solana-shaped extra args (ComputeUnits, AccountIsWritableBitmap, AllowOutOfOrderExecution, TokenReceiver, Accounts). See `build/devenv/cciptestinterfaces/extra_args.go:104`.
-- **EVM option constructors** for mutating `*MessageOptions`: `WithVersion`, `WithExecutionGasLimit`, `WithOutOfOrderExecution`, `WithCCVs`, `WithFinalityConfig`, `WithExecutor`, `WithExecutorArgs`, `WithTokenArgs`, `WithUseTestRouter`. Defined in `build/devenv/cciptestinterfaces/extra_args.go:50`.
-  - Usage: pass to `destChain.ExtraArgsBuilder(...)`. Errors from applying an option to a non-EVM provider carry the constructor name (e.g. `"evm.WithExecutionGasLimit: expected *MessageOptions (EVM family), got <T>"`).
-- **`*evm.CCIP17EVM.SerializeExtraArgs`** — type-switches on `ExtraArgsDataProvider` and dispatches to `SerializeEVMExtraArgs` or `SerializeSVMExtraArgs`. Replaces the previous single `serializeExtraArgs` helper that looked up a serializer from the destination family registry.
-- **`serializeExtraArgsSVMV1`** now consumes `SVMMessageOptions` fields directly (ComputeUnits, AccountIsWritableBitmap, TokenReceiver, Accounts) instead of reinterpreting EVM `MessageOptions` fields with SVM semantics. See `build/devenv/evm/impl.go:806`.
+- **`cciptestinterfaces.ExtraArgsDataProvider`** — marker interface satisfied by every chain-shaped extra-args struct. See `build/devenv/cciptestinterfaces/interface.go:386`.
+- **Per-(version, family) data structs**, all in `build/devenv/cciptestinterfaces/extra_args.go`:
+  - `MessageOptions` (V3, currently chain-agnostic; carries `FinalityConfig`, `CCVs`, etc.)
+  - `Any2EVMMessageV1Data` (`GasLimit`)
+  - `Any2EVMMessageV2Data` (`GasLimit`, `AllowOutOfOrderExecution`)
+  - `Any2SVMMessageV1Data` (`Version`, `ComputeUnits`, `AccountIsWritableBitmap`, `AllowOutOfOrderExecution`, `TokenReceiver`, `Accounts`)
+- **Optional source-side interfaces** that chain families can implement à la carte; generic test scenarios type-assert to them:
+  - `MessageV3Source` — `SerializeMessageV3ExtraArgs(MessageOptions) ([]byte, error)`
+  - `Any2EVMMessageV1` — `SerializeAny2EVMMessageV1(any) ([]byte, error)`
+  - `Any2EVMMessageV2` — `SerializeAny2EVMMessageV2(any) ([]byte, error)`
+  - `Any2SVMMessageV1` — `SerializeAny2SVMMessageV1(any) ([]byte, error)`
+- **Optional destination-side interface** `MessageV3Destination` for V3-specific destination-shape helpers (`GetExecutorArgs`, `GetTokenArgs`). See `build/devenv/cciptestinterfaces/extra_args.go:38`.
+- **`cciptestinterfaces.ExtraArgsOption`** — `func(ExtraArgsDataProvider) error`. Functional-option type intended for a future builder API; declared at `build/devenv/cciptestinterfaces/extra_args.go:12` and accepted by `*evm.CCIP17EVM.ExtraArgsBuilder` (`build/devenv/evm/impl.go:2032`). No `WithXxx` constructors are defined yet, and `ExtraArgsBuilder` is not yet wired into the standard test scenarios.
+- **EVM per-(version, family) serializers**, each type-asserting the provider:
+  - `SerializeMessageV3ExtraArgs`, `SerializeAny2EVMMessageV1`, `SerializeAny2EVMMessageV2`, `SerializeAny2SVMMessageV1` (all in `build/devenv/evm/impl.go`).
+  - Thin EVM-specific dispatcher `SerializeEVMExtraArgs(version uint8, opts MessageOptions) ([]byte, error)` retained for callers (CLI, load gun) that hold a `MessageOptions` literal directly.
+- **Generic test scenarios** in `build/devenv/tests/composable/messaging/agnostic_chain_test.go`: `MessageV3TestScenario`, `MessageV2TestScenario`. The `evmPOC_test.go` proof-of-concept was renamed and split into `TestEVM2EVMV3` and `TestEVM2EVMV2`.
 
 ## Examples
 
-Build and send a message to an EVM destination using the functional-options builder:
+V3 send via the optional source/destination interfaces (matches `MessageV3TestScenario`):
 
 ```go
-provider, err := destChain.ExtraArgsBuilder(
-    cciptestinterfaces.WithVersion(3),
-    cciptestinterfaces.WithExecutionGasLimit(200_000),
-    cciptestinterfaces.WithOutOfOrderExecution(false),
-)
-if err != nil { /* handle */ }
+v3Source, _ := srcChain.(cciptestinterfaces.MessageV3Source)
+v3Dest, _   := destChain.(cciptestinterfaces.MessageV3Destination)
 
-extraArgs, err := srcChain.SerializeExtraArgs(provider)
-if err != nil { /* handle */ }
+execArgs, err := v3Dest.GetExecutorArgs(executorArgsParams)
+tokenArgs, err := v3Dest.GetTokenArgs(tokenArgsParams)
+
+extraArgs, err := v3Source.SerializeMessageV3ExtraArgs(cciptestinterfaces.MessageOptions{
+    FinalityConfig:    opts.FinalityConfig,
+    ExecutionGasLimit: opts.ExecutionGasLimit,
+    Executor:          opts.Executor,
+    ExecutorArgs:      execArgs,
+    TokenArgs:         tokenArgs,
+    CCVs:              opts.CCVs,
+})
 
 msg, err := srcChain.BuildChainMessage(ctx, destChain.ChainSelector(), fields, extraArgs)
+sentEvent, _, err := srcChain.SendChainMessage(ctx, destChain.ChainSelector(), msg, sendOption)
 ```
 
-Generic scenario helper — no destination-family knowledge required:
+V2 send (EVM destination):
 
 ```go
-BasicMessageTestScenario(ctx, t, srcChain, destChain, fields,
-    []cciptestinterfaces.ExtraArgsOption{
-        cciptestinterfaces.WithExecutionGasLimit(200_000),
-        cciptestinterfaces.WithVersion(3),
-        cciptestinterfaces.WithOutOfOrderExecution(false),
-    },
-    nil,
-)
+v2Source, _ := srcChain.(cciptestinterfaces.Any2EVMMessageV2)
+extraArgs, err := v2Source.SerializeAny2EVMMessageV2(cciptestinterfaces.Any2EVMMessageV2Data{
+    GasLimit:                 200_000,
+    AllowOutOfOrderExecution: false,
+})
+msg, err := srcChain.BuildChainMessage(ctx, destChain.ChainSelector(), fields, extraArgs)
+sentEvent, _, err := srcChain.SendChainMessage(ctx, destChain.ChainSelector(), msg, sendOption)
+```
+
+CLI / load-gun pattern, using the EVM-specific dispatcher when the caller already has a `MessageOptions`:
+
+```go
+extraArgs, err := evm.SerializeEVMExtraArgs(3, messageOptions)
+msg, err := senderImpl.BuildChainMessage(ctx, destSel, fields, extraArgs)
+sentEvent, _, err := senderImpl.SendChainMessage(ctx, destSel, msg, evm.SendOptions{UseTestRouter: useTestRouter})
 ```
 
 ## References
 
+- Commits on `aw/extraArgsRemake` vs `main`: `2ff7e6d2` (switch messageOptions to an interface), `d5ba454f` (bring extra args back to cciptestinterfaces, use optional interfaces for the extra args builder), `275a1f8b` (functional options pattern), `e2e1f8f6` (changelog), `7b832388` (remove testrouter from message options), `1b31a48d` (use distinct structs for different extra arg types).
 - Prior changelog entries this builds on: `2026-04-20_composable_chain_interfaces.md` (introduced `ChainAsSource` / `ChainAsDestination` / `ChainSendOption`).
-- Commits on `aw/extraArgInterfaces` vs `main`: `2ff7e6d2` (switch messageOptions to an interface), `d5ba454f` (bring extra args back to cciptestinterfaces, use optional interfaces for the extra args builder).

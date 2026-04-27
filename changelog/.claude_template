@@ -9,6 +9,8 @@ When generating a changelog from a branch, Claude Code should follow this struct
 
 ## Authoring guidance
 
+- The primary consumer of this changelog is an AI tasked with adapting a downstream codebase to match. Optimize for that: dense, concrete, machine-parseable. Humans can skim the same content; AIs cannot skim — they read what they're pointed at.
+- The `AI Adapter Index` section below is the entry point for that consumer. Populate it before writing prose — the prose sections exist to expand on rows in the index, not the other way around.
 - Write for an integrator who has not seen the PR. Assume they know the platform, not this specific change.
 - Derive content from the branch diff, commit messages, and linked PRs/issues. Do not invent behavior that isn't in the code.
 - Sections marked *(optional)* may be omitted when they do not apply — do not leave them empty with "N/A".
@@ -25,6 +27,32 @@ When generating a changelog from a branch, Claude Code should follow this struct
 - <One-line bullet: why it was made / what problem it solves>
 - <One-line bullet: who is affected (which packages, interfaces, consumers)>
 - <One-line bullet: headline impact (e.g., "introduces a breaking change to X", "adds optional Y", "deprecates Z")>
+
+## AI Adapter Index
+
+The expected consumer of this changelog is an AI adapting a downstream repo. This table is its entry point: every symbol or behavior touched gets one row, with a grep pattern for finding consumer call sites and an anchor into the rest of this file for migration detail. The AI is expected to:
+
+1. Read this table.
+2. Run each `Search` pattern against the consumer repo.
+3. For rows that produce hits, read **only** the linked `Section`. Skip rows with zero hits.
+4. Treat any symbol *not* listed here as unchanged — do not load source for it.
+
+Authoring rules:
+
+- One row per touched symbol or behavior. Anything load-bearing for the migration must appear here. Anything not here is, by contract, unchanged.
+- `Symbol` — fully-qualified name (`package.Type.Method`, `package.Symbol`). For renames, write `OldName → NewName`.
+- `Kind` — one of: `added`, `removed`, `renamed`, `signature-changed`, `behavior-changed`, `deprecated`.
+- `Search` — the narrowest literal or regex that still catches every consumer call site (e.g. `\.SendMessage\(`, `cciptestinterfaces\.MessageOptions\b`). Prefer regex over loose substring matches; pin word boundaries when the name is short or generic.
+- `Location` — `file_path:line_number` in *this* repo for the new definition (or, for `removed`, the prior definition). `—` if not applicable.
+- `Section` — anchor link to the heading in this file that holds the full migration detail (e.g. `[#chain-sendmessage-signature](#chain-sendmessage-signature)`). Every row must link to a section that actually exists.
+- Order rows by `Kind` priority: `removed` and `signature-changed` first (consumer will hit compile errors), then `renamed`, `behavior-changed`, `deprecated`, `added` last.
+- Omit this section only when the changelog touches no code (pure-doc, infra-only).
+
+| Symbol | Kind | Search | Location | Section |
+|---|---|---|---|---|
+| `package.Type.Method` | signature-changed | `\.Method\(` | `path/file.go:123` | [#method-signature](#method-signature) |
+| `package.OldName → package.NewName` | renamed | `\bOldName\b` | `path/file.go:45` | [#oldname-renamed](#oldname-renamed) |
+| `package.RemovedSymbol` | removed | `\bRemovedSymbol\b` | — | [#removedsymbol-removed](#removedsymbol-removed) |
 
 ## Breaking Changes
 
