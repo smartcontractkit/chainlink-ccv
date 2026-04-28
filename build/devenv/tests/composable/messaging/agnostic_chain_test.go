@@ -15,7 +15,6 @@ import (
 // This test scenario supports partial implementation, so an integration can implement source side FIRST, connecting it to the existing EVM destination to confirm source side functionality.
 func MessageV3TestScenario(
 	ctx context.Context,
-	t *testing.T,
 	srcChain cciptestinterfaces.ChainAsSource,
 	destChain cciptestinterfaces.ChainAsDestination,
 	fields cciptestinterfaces.MessageFields,
@@ -28,17 +27,17 @@ func MessageV3TestScenario(
 	if !ok {
 		return fmt.Errorf("dest chain does not support V3 message")
 	}
-	v3Serializer, ok := srcChain.(cciptestinterfaces.MessageV3Source)
+	v3Source, ok := srcChain.(cciptestinterfaces.MessageV3Source)
 	if !ok {
 		return fmt.Errorf("source chain does not support V3 message")
 	}
 
-	extraArgs, err := v3Serializer.BuildV3ExtraArgs(opts, v3Receiver, executorArgsParams, tokenArgsParams)
+	extraArgs, err := v3Source.BuildV3ExtraArgs(opts, v3Receiver, executorArgsParams, tokenArgsParams)
 	if err != nil {
 		return fmt.Errorf("failed to encode V3 extra args: %w", err)
 	}
 
-	srcMessage, err := srcChain.BuildChainMessage(ctx, destChain.ChainSelector(), fields, extraArgs)
+	srcMessage, err := srcChain.BuildChainMessage(ctx, fields, extraArgs)
 	if err != nil {
 		return fmt.Errorf("failed to build chain message: %w", err)
 	}
@@ -70,19 +69,19 @@ func MessageV2TestScenario(
 	source cciptestinterfaces.ChainAsSource,
 	dest cciptestinterfaces.ChainAsDestination,
 	fields cciptestinterfaces.MessageFields,
-	opts cciptestinterfaces.Any2EVMMessageV2Data,
+	opts cciptestinterfaces.EVMExtraArgsV2Data,
 	sendOption cciptestinterfaces.ChainSendOption,
 ) error {
-	v2Source, ok := source.(cciptestinterfaces.Any2EVMMessageV2)
+	v2Source, ok := source.(cciptestinterfaces.EVMExtraArgsV2)
 	if !ok {
 		return fmt.Errorf("source chain does not implement V2 message")
 	}
-	sourceExtraArgs, err := v2Source.SerializeAny2EVMMessageV2(opts)
+	sourceExtraArgs, err := v2Source.BuildEVMExtraArgsV2(opts)
 	if err != nil {
 		return fmt.Errorf("failed to serialize V2 args: %w", err)
 	}
 
-	message, err := source.BuildChainMessage(ctx, dest.ChainSelector(), fields, sourceExtraArgs)
+	message, err := source.BuildChainMessage(ctx, fields, sourceExtraArgs)
 	if err != nil {
 		return fmt.Errorf("failed to build chain message: %w", err)
 	}

@@ -53,7 +53,6 @@ func TestEVM2EVMV3(t *testing.T) {
 
 	require.NoError(t,
 		MessageV3TestScenario(ctx,
-			t,
 			srcChain,
 			destChain,
 			cciptestinterfaces.MessageFields{
@@ -108,7 +107,7 @@ func TestEVM2EVMV2(t *testing.T) {
 				Receiver: receiver,
 				Data:     []byte{},
 			},
-			cciptestinterfaces.Any2EVMMessageV2Data{
+			cciptestinterfaces.EVMExtraArgsV2Data{
 				GasLimit:                 200_000,
 				AllowOutOfOrderExecution: false,
 			},

@@ -211,7 +211,7 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 		return &wasp.Response{Error: fmt.Errorf("failed to serialize extra args: %w", err).Error(), Failed: true}
 	}
 
-	srcMessage, err := chainAsSource.BuildChainMessage(ctx, destSelector, fields, extraArgs)
+	srcMessage, err := chainAsSource.BuildChainMessage(ctx, fields, extraArgs)
 	if err != nil {
 		return &wasp.Response{Error: fmt.Errorf("failed to build message: %w", err).Error(), Failed: true}
 	}

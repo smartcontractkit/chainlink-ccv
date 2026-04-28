@@ -118,18 +118,18 @@ func init() {
 	}
 
 	cciptestinterfaces.RegisterExtraArgsSerializer(cciptestinterfaces.ExtraArgsSerializerEntry{Family: chainsel.FamilyEVM, Version: 3}, SerializeMessageV3ExtraArgs)
-	cciptestinterfaces.RegisterExtraArgsSerializer(cciptestinterfaces.ExtraArgsSerializerEntry{Family: chainsel.FamilyEVM, Version: 2}, SerializeAny2EVMMessageV2)
-	cciptestinterfaces.RegisterExtraArgsSerializer(cciptestinterfaces.ExtraArgsSerializerEntry{Family: chainsel.FamilyEVM, Version: 1}, SerializeAny2EVMMessageV1)
+	cciptestinterfaces.RegisterExtraArgsSerializer(cciptestinterfaces.ExtraArgsSerializerEntry{Family: chainsel.FamilyEVM, Version: 2}, BuildEVMExtraArgsV2)
+	cciptestinterfaces.RegisterExtraArgsSerializer(cciptestinterfaces.ExtraArgsSerializerEntry{Family: chainsel.FamilyEVM, Version: 1}, BuildEVMExtraArgsV1)
 	// Canton shares EVM's extra args serialization. Canton's product repo can
 	// register its own serializer if the formats ever diverge; until then, this
 	// provides backward compatibility with the previous FamilyEVM/FamilyCanton
 	// combined switch case.
 
 	cciptestinterfaces.RegisterExtraArgsSerializer(cciptestinterfaces.ExtraArgsSerializerEntry{Family: chainsel.FamilyCanton, Version: 3}, SerializeMessageV3ExtraArgs)
-	cciptestinterfaces.RegisterExtraArgsSerializer(cciptestinterfaces.ExtraArgsSerializerEntry{Family: chainsel.FamilyCanton, Version: 2}, SerializeAny2EVMMessageV2)
-	cciptestinterfaces.RegisterExtraArgsSerializer(cciptestinterfaces.ExtraArgsSerializerEntry{Family: chainsel.FamilyCanton, Version: 1}, SerializeAny2EVMMessageV1)
+	cciptestinterfaces.RegisterExtraArgsSerializer(cciptestinterfaces.ExtraArgsSerializerEntry{Family: chainsel.FamilyCanton, Version: 2}, BuildEVMExtraArgsV2)
+	cciptestinterfaces.RegisterExtraArgsSerializer(cciptestinterfaces.ExtraArgsSerializerEntry{Family: chainsel.FamilyCanton, Version: 1}, BuildEVMExtraArgsV1)
 
-	cciptestinterfaces.RegisterExtraArgsSerializer(cciptestinterfaces.ExtraArgsSerializerEntry{Family: chainsel.FamilySolana, Version: 1}, SerializeAny2SVMMessageV1)
+	cciptestinterfaces.RegisterExtraArgsSerializer(cciptestinterfaces.ExtraArgsSerializerEntry{Family: chainsel.FamilySolana, Version: 1}, BuildSVMExtraArgsV1)
 }
 
 type CCIP17EVMConfig struct {
@@ -692,9 +692,9 @@ func (m *CCIP17EVM) GetUserNonce(ctx context.Context, userAddress protocol.Unkno
 func SerializeEVMExtraArgs(version uint8, opts cciptestinterfaces.MessageOptions) ([]byte, error) {
 	switch version {
 	case 1:
-		return SerializeAny2EVMMessageV1(cciptestinterfaces.Any2EVMMessageV1Data{GasLimit: opts.ExecutionGasLimit})
+		return BuildEVMExtraArgsV1(cciptestinterfaces.EVMExtraArgsV1{GasLimit: opts.ExecutionGasLimit})
 	case 2:
-		return SerializeAny2EVMMessageV2(cciptestinterfaces.Any2EVMMessageV2Data{GasLimit: opts.ExecutionGasLimit, AllowOutOfOrderExecution: opts.OutOfOrderExecution})
+		return BuildEVMExtraArgsV2(cciptestinterfaces.EVMExtraArgsV2Data{GasLimit: opts.ExecutionGasLimit, AllowOutOfOrderExecution: opts.OutOfOrderExecution})
 	case 3:
 		return SerializeMessageV3ExtraArgs(opts)
 	default:
@@ -702,15 +702,15 @@ func SerializeEVMExtraArgs(version uint8, opts cciptestinterfaces.MessageOptions
 	}
 }
 
-// SerializeAny2EVMMessageV1 is separate from the method to support registration as well as implementing an interface.
-func (m *CCIP17EVM) SerializeAny2EVMMessageV1(provider cciptestinterfaces.ExtraArgsDataProvider) ([]byte, error) {
-	return SerializeAny2EVMMessageV1(provider)
+// BuildEVMExtraArgsV1 is separate from the method to support registration as well as implementing an interface.
+func (m *CCIP17EVM) BuildEVMExtraArgsV1(provider cciptestinterfaces.ExtraArgsDataProvider) ([]byte, error) {
+	return BuildEVMExtraArgsV1(provider)
 }
 
-func SerializeAny2EVMMessageV1(provider cciptestinterfaces.ExtraArgsDataProvider) ([]byte, error) {
-	opts, ok := provider.(cciptestinterfaces.Any2EVMMessageV1Data)
+func BuildEVMExtraArgsV1(provider cciptestinterfaces.ExtraArgsDataProvider) ([]byte, error) {
+	opts, ok := provider.(cciptestinterfaces.EVMExtraArgsV1)
 	if !ok {
-		return nil, fmt.Errorf("provider is not a Any2EVMMessageV1Data")
+		return nil, fmt.Errorf("provider is not a EVMExtraArgsV1")
 	}
 	evmExtraArgsV1Type, err := abi.NewType("tuple", "EVMExtraArgsV1", []abi.ArgumentMarshaling{
 		{Name: "gasLimit", Type: "uint256"},
@@ -739,15 +739,15 @@ func SerializeAny2EVMMessageV1(provider cciptestinterfaces.ExtraArgsDataProvider
 	return append(selector, packed...), nil
 }
 
-// SerializeAny2EVMMessageV2 is separate from the method to support registration as well as implementing an interface.
-func (m *CCIP17EVM) SerializeAny2EVMMessageV2(provider cciptestinterfaces.ExtraArgsDataProvider) ([]byte, error) {
-	return SerializeAny2EVMMessageV2(provider)
+// BuildEVMExtraArgsV2 is separate from the method to support registration as well as implementing an interface.
+func (m *CCIP17EVM) BuildEVMExtraArgsV2(provider cciptestinterfaces.ExtraArgsDataProvider) ([]byte, error) {
+	return BuildEVMExtraArgsV2(provider)
 }
 
-func SerializeAny2EVMMessageV2(provider cciptestinterfaces.ExtraArgsDataProvider) ([]byte, error) {
-	opts, ok := provider.(cciptestinterfaces.Any2EVMMessageV2Data)
+func BuildEVMExtraArgsV2(provider cciptestinterfaces.ExtraArgsDataProvider) ([]byte, error) {
+	opts, ok := provider.(cciptestinterfaces.EVMExtraArgsV2Data)
 	if !ok {
-		return nil, fmt.Errorf("provider is not a Any2EVMMessageV2Data")
+		return nil, fmt.Errorf("provider is not a EVMExtraArgsV2Data")
 	}
 	genericExtraArgsV2Type, err := abi.NewType("tuple", "GenericExtraArgsV2", []abi.ArgumentMarshaling{
 		{Name: "gasLimit", Type: "uint256"},
@@ -805,14 +805,14 @@ func SerializeMessageV3ExtraArgs(provider cciptestinterfaces.ExtraArgsDataProvid
 	return extraArgs, nil
 }
 
-func (m *CCIP17EVM) SerializeAny2SVMMessageV1(provider cciptestinterfaces.ExtraArgsDataProvider) ([]byte, error) {
-	return SerializeAny2SVMMessageV1(provider)
+func (m *CCIP17EVM) BuildSVMExtraArgsV1(provider cciptestinterfaces.ExtraArgsDataProvider) ([]byte, error) {
+	return BuildSVMExtraArgsV1(provider)
 }
 
-func SerializeAny2SVMMessageV1(provider cciptestinterfaces.ExtraArgsDataProvider) ([]byte, error) {
-	opts, ok := provider.(cciptestinterfaces.Any2SVMMessageV1Data)
+func BuildSVMExtraArgsV1(provider cciptestinterfaces.ExtraArgsDataProvider) ([]byte, error) {
+	opts, ok := provider.(cciptestinterfaces.SVMExtraArgsV1)
 	if !ok {
-		return nil, fmt.Errorf("provider is not a Any2SVMMessageV1Data")
+		return nil, fmt.Errorf("provider is not a SVMExtraArgsV1")
 	}
 	svmExtraArgsV1Type, err := abi.NewType("tuple", "SVMExtraArgsV1", []abi.ArgumentMarshaling{
 		{Name: "computeUnits", Type: "uint32"},
@@ -2044,7 +2044,7 @@ func (m *CCIP17EVM) SetLombardMailboxBridgedMessage(ctx context.Context, message
 	return nil
 }
 
-func (m *CCIP17EVM) BuildChainMessage(ctx context.Context, destChain uint64, messageFields cciptestinterfaces.MessageFields, extraArgs []byte) (cciptestinterfaces.GenericChainMessage, error) {
+func (m *CCIP17EVM) BuildChainMessage(ctx context.Context, messageFields cciptestinterfaces.MessageFields, extraArgs cciptestinterfaces.GenericExtraArgs) (cciptestinterfaces.GenericChainMessage, error) {
 	ret := routerwrapper.ClientEVM2AnyMessage{
 		Receiver:  common.LeftPadBytes(messageFields.Receiver.Bytes(), 32),
 		Data:      messageFields.Data,

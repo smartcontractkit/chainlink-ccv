@@ -141,7 +141,7 @@ func run(args sendArgs) error {
 		return fmt.Errorf("failed to serialize extra args: %w", err)
 	}
 
-	message, err := senderImpl.BuildChainMessage(ctx, args.destSel, messageFields, extraArgs)
+	message, err := senderImpl.BuildChainMessage(ctx, messageFields, extraArgs)
 	if err != nil {
 		return fmt.Errorf("failed to build message: %w", err)
 	}

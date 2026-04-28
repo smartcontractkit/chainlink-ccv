@@ -411,7 +411,7 @@ type ChainAsSource interface {
 	// It will call into the registered extra args serializer per destination chain for now, until we have a more generic way to manage extra args.
 	// It returns a generic type that is specific to the chain family. The returned message is expected to be directly passed in to the SendChainMessage method.
 	// For example, the EVM implementation returns a routerwrapper.ClientEVM2AnyMessage.
-	BuildChainMessage(ctx context.Context, destChain uint64, messageFields MessageFields, extraArgs []byte) (GenericChainMessage, error)
+	BuildChainMessage(ctx context.Context, messageFields MessageFields, extraArgs GenericExtraArgs) (GenericChainMessage, error)
 	// SendChainMessage sends a CCIP message to the given destination chain.
 	// sendOptions is a Marker Interface for chain-specific send parameters. Expected usage is that implementation will type assert the sendOption to their struct type and use it.
 	// For example, the EVM implementation will type assert the sendOption to evm.EVMSendOptions to access nonce/sender/etc.
@@ -426,3 +426,6 @@ type ChainAsSource interface {
 // GenericChainMessage is a generic type to indicate to users that the message generated from BuildChainMessage is expected to be passed directly to SendChainMessage.
 // For example, EVM will return a routerwrapper.ClientEVM2AnyMessage.
 type GenericChainMessage any
+
+// GenericExtraArgs is a generic type to indicate how to combine ChainAsSource and MessageV3Source interfaces.
+type GenericExtraArgs []byte

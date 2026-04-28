@@ -10,6 +10,7 @@ type MessageOptions struct {
 	// ExecutionGasLimit is the execution gas limit for the message
 	ExecutionGasLimit uint32
 	// OutOfOrderExecution is whether to execute the message out of order
+	// TODO: remove this when we rename this to GenericExtraArgsV3, it's kept for now for backward compatibility.
 	OutOfOrderExecution bool
 	// CCVs are the CCVs for the message
 	CCVs []protocol.CCV
@@ -26,15 +27,21 @@ type MessageOptions struct {
 // This fulfills the marker interface ExtraArgsDataProvider.
 func (m MessageOptions) IsExtraArgsDataProvider() {}
 
+// MessageV3ExecutorArgs is a type to indicate how to use the MessageV3Destination interface.
+type MessageV3ExecutorArgs []byte
+
+// MessageV3TokenArgs is a type to indicate how to use the MessageV3Destination interface.
+type MessageV3TokenArgs []byte
+
 // MessageV3Destination is an interface for any chain that can receive a V3 message.
 // We use an interface rather than a struct because the V3 message structure is chain agnostic.
 type MessageV3Destination interface {
 	// GetExecutorArgs returns the executor arguments for the message.
 	// The opts parameter will be passed by the caller, implementer should type assert the opts to the concrete type.
-	GetExecutorArgs(opts any) ([]byte, error)
+	GetExecutorArgs(opts any) (MessageV3ExecutorArgs, error)
 	// GetTokenArgs returns the token arguments for the message.
 	// The opts parameter will be passed by the caller, implementer should type assert the opts to the concrete type.
-	GetTokenArgs(opts any) ([]byte, error)
+	GetTokenArgs(opts any) (MessageV3TokenArgs, error)
 }
 
 // MessageV3Source is an interface for any chain that can send a V3 message.
@@ -47,38 +54,38 @@ type MessageV3Source interface {
 		destChain MessageV3Destination,
 		executorArgsParams any,
 		tokenArgsParams any,
-	) ([]byte, error)
+	) (GenericExtraArgs, error)
 }
 
-// Any2EVMMessageV2Data represents the data for V2 messages arriving at an EVM chain.
-type Any2EVMMessageV2Data struct {
+// EVMExtraArgsV2Data represents the data for V2 messages arriving at an EVM chain.
+type EVMExtraArgsV2Data struct {
 	GasLimit                 uint32
 	AllowOutOfOrderExecution bool
 }
 
 // This fulfills the marker interface ExtraArgsDataProvider.
-func (m Any2EVMMessageV2Data) IsExtraArgsDataProvider() {}
+func (m EVMExtraArgsV2Data) IsExtraArgsDataProvider() {}
 
-// Any2EVMMessageV2 is an interface for any chain that can send a V2 message to an EVM chain.
-type Any2EVMMessageV2 interface {
-	SerializeAny2EVMMessageV2(opts any) ([]byte, error)
+// EVMExtraArgsV2 is an interface for any chain that can send a V2 message to an EVM chain.
+type EVMExtraArgsV2 interface {
+	BuildEVMExtraArgsV2(opts any) (GenericExtraArgs, error)
 }
 
-// Any2EVMMessageV1Data represents the data for V1 messages arriving at an EVM chain.
-type Any2EVMMessageV1Data struct {
+// EVMExtraArgsV1 represents the data for V1 messages arriving at an EVM chain.
+type EVMExtraArgsV1 struct {
 	GasLimit uint32
 }
 
 // This fulfills the marker interface ExtraArgsDataProvider.
-func (m Any2EVMMessageV1Data) IsExtraArgsDataProvider() {}
+func (m EVMExtraArgsV1) IsExtraArgsDataProvider() {}
 
 // Any2EVMMessageV1 is an interface for any chain that can send a V1 message to an EVM chain.
 type Any2EVMMessageV1 interface {
-	SerializeAny2EVMMessageV1(opts any) ([]byte, error)
+	BuildEVMExtraArgsV1(opts any) (GenericExtraArgs, error)
 }
 
-// Any2SVMMessageV1Data represents the data for V1 messages arriving at a SVM chain.
-type Any2SVMMessageV1Data struct {
+// SVMExtraArgsV1 represents the data for V1 messages arriving at a SVM chain.
+type SVMExtraArgsV1 struct {
 	Version                  uint8
 	ComputeUnits             uint32
 	AccountIsWritableBitmap  uint64
@@ -88,9 +95,9 @@ type Any2SVMMessageV1Data struct {
 }
 
 // This fulfills the marker interface ExtraArgsDataProvider.
-func (m Any2SVMMessageV1Data) IsExtraArgsDataProvider() {}
+func (m SVMExtraArgsV1) IsExtraArgsDataProvider() {}
 
 // Any2SVMMessageV1 is an interface for any chain that can send a V1 message to a SVM chain.
 type Any2SVMMessageV1 interface {
-	SerializeAny2SVMMessageV1(opts any) ([]byte, error)
+	BuildSVMExtraArgsV1(opts any) (GenericExtraArgs, error)
 }
