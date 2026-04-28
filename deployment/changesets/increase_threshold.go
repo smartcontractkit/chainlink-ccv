@@ -11,29 +11,46 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/deployment/adapters"
 )
 
-// IncreaseThresholdInput is the input for the IncreaseThreshold changeset.
-type IncreaseThresholdInput struct {
+// IncreaseThresholdOffchainInput is the input for step-1 of the IncreaseThreshold two-entry product.
+type IncreaseThresholdOffchainInput struct {
 	// CommitteeQualifier identifies the committee whose threshold is being raised.
 	CommitteeQualifier string
 	// ChainSelectors are the destination chains on which the committee verifier is deployed.
 	ChainSelectors []uint64
 	// NewThreshold is the desired threshold. Must be greater than the current onchain threshold.
 	NewThreshold uint8
-	// ServiceIdentifier scopes the aggregator config DataStore output.
-	ServiceIdentifier string
+	// ServiceIdentifiers lists every aggregator service that consumes this committee's config.
+	// All are updated atomically in a single changeset run.
+	ServiceIdentifiers []string
 }
 
-// IncreaseThreshold is an offchain-first single-pass changeset (§5.5).
+// IncreaseThresholdInput is the input for step-2 of the IncreaseThreshold two-entry product.
+type IncreaseThresholdInput struct {
+	// CommitteeQualifier identifies the committee whose threshold is being raised.
+	CommitteeQualifier string
+	// ChainSelectors are the destination chains on which the committee verifier is deployed.
+	ChainSelectors []uint64
+	// NewThreshold is the threshold to set onchain. Must be greater than the current onchain
+	// threshold and must match the value used in step-1.
+	NewThreshold uint8
+	// ServiceIdentifiers lists every aggregator service that step-1 updated.
+	// Used as a safety backstop: validate confirms each service's DataStore config already
+	// reflects NewThreshold before the onchain change is submitted.
+	ServiceIdentifiers []string
+}
+
+// IncreaseThresholdOffchain is step-1 of a coupled offchain-first two-entry product (§5.5).
 //
-// It regenerates the aggregator config with the new threshold before submitting the
-// onchain change. This ordering is safe because a higher threshold in the offchain
-// config is a strict superset of the pre-change onchain requirements — over-signed
-// messages are harmless until the onchain change catches up.
+// It regenerates the aggregator config with the new threshold without touching onchain state.
+// The DataStore output is deployed to the aggregator service before step-2 runs.
 //
-// In deployer-key mode (the only mode supported until Phase 0) the onchain transaction
-// is submitted directly inside Apply.
-func IncreaseThreshold(registry *adapters.Registry) deployment.ChangeSetV2[IncreaseThresholdInput] {
-	validate := func(e deployment.Environment, cfg IncreaseThresholdInput) error {
+// Offchain-first ordering is required because a higher threshold in the offchain config is a
+// strict superset of the pre-change onchain requirements — over-signed messages are harmless
+// until the onchain change catches up. Submitting the onchain change first would cause
+// verifiers to accept bundles with fewer signers than the new offchain config requires,
+// producing under-signed messages from the aggregator's perspective.
+func IncreaseThresholdOffchain(registry *adapters.Registry) deployment.ChangeSetV2[IncreaseThresholdOffchainInput] {
+	validate := func(e deployment.Environment, cfg IncreaseThresholdOffchainInput) error {
 		if cfg.CommitteeQualifier == "" {
 			return fmt.Errorf("committee qualifier is required")
 		}
@@ -43,8 +60,8 @@ func IncreaseThreshold(registry *adapters.Registry) deployment.ChangeSetV2[Incre
 		if cfg.NewThreshold == 0 {
 			return fmt.Errorf("new threshold must be greater than zero")
 		}
-		if cfg.ServiceIdentifier == "" {
-			return fmt.Errorf("service identifier is required")
+		if len(cfg.ServiceIdentifiers) == 0 {
+			return fmt.Errorf("at least one service identifier is required")
 		}
 		for _, sel := range cfg.ChainSelectors {
 			a, err := registry.GetByChain(sel)
@@ -58,26 +75,16 @@ func IncreaseThreshold(registry *adapters.Registry) deployment.ChangeSetV2[Incre
 				return fmt.Errorf("chain %d: no Aggregator adapter registered", sel)
 			}
 		}
-		return nil
-	}
 
-	apply := func(e deployment.Environment, cfg IncreaseThresholdInput) (deployment.ChangesetOutput, error) {
 		ctx := context.Background()
-
-		// Collect current committee state across all destination chains.
 		committeeStates, err := scanCommitteeStatesForChains(ctx, e, registry, cfg.CommitteeQualifier, cfg.ChainSelectors)
 		if err != nil {
-			return deployment.ChangesetOutput{}, err
+			return err
 		}
+		return validateThresholdIncrease(committeeStates, cfg.NewThreshold, cfg.CommitteeQualifier)
+	}
 
-		// Validate that the new threshold is actually an increase and does not exceed
-		// the signer count on any chain.
-		if err := validateThresholdIncrease(committeeStates, cfg.NewThreshold, cfg.CommitteeQualifier); err != nil {
-			return deployment.ChangesetOutput{}, err
-		}
-
-		// Step 1 (offchain-first): regenerate aggregator config with the new threshold.
-		// This DataStore mutation lands at merge time, before the timelock fires.
+	apply := func(e deployment.Environment, cfg IncreaseThresholdOffchainInput) (deployment.ChangesetOutput, error) {
 		committee, err := buildAggregatorCommittee(e, registry, cfg.CommitteeQualifier, cfg.ChainSelectors, &cfg.NewThreshold)
 		if err != nil {
 			return deployment.ChangesetOutput{}, fmt.Errorf("failed to build aggregator config: %w", err)
@@ -89,12 +96,99 @@ func IncreaseThreshold(registry *adapters.Registry) deployment.ChangeSetV2[Incre
 				return deployment.ChangesetOutput{}, fmt.Errorf("failed to merge datastore: %w", err)
 			}
 		}
-		if err := ccvdeployment.SaveAggregatorConfig(outputDS, cfg.ServiceIdentifier, committee); err != nil {
-			return deployment.ChangesetOutput{}, fmt.Errorf("failed to save aggregator config: %w", err)
+		for _, svcID := range cfg.ServiceIdentifiers {
+			if err := ccvdeployment.SaveAggregatorConfig(outputDS, svcID, committee); err != nil {
+				return deployment.ChangesetOutput{}, fmt.Errorf("failed to save aggregator config for %q: %w", svcID, err)
+			}
 		}
 
-		// Step 2 (onchain): submit applySignatureConfigs with the updated threshold.
-		// In deployer-key mode this is a direct transaction submission.
+		// No onchain output — the onchain change is deferred to step-2 (IncreaseThreshold),
+		// which runs after the aggregator service has picked up the new config.
+		return deployment.ChangesetOutput{DataStore: outputDS}, nil
+	}
+
+	return deployment.CreateChangeSet(apply, validate)
+}
+
+// IncreaseThreshold is step-2 of the IncreaseThreshold two-entry product (§5.5).
+//
+// It submits the onchain applySignatureConfigs call only. Validate enforces two
+// preconditions before allowing the onchain mutation:
+//
+//  1. Every service identifier's DataStore aggregator config already reflects NewThreshold,
+//     confirming step-1 (IncreaseThresholdOffchain) has been deployed and nodes are
+//     collecting signatures at the new quorum. Without this guard the onchain change could
+//     fire while aggregators are still producing bundles signed at the old threshold,
+//     making them invalid against the updated contract.
+//  2. The current onchain threshold is still below NewThreshold, guarding against
+//     double-fires and out-of-order manual invocations.
+//
+// In deployer-key mode the transaction is submitted directly inside Apply.
+// MCMS-mode support is deferred to Phase 0 (CLD post-proposal hook prerequisite).
+func IncreaseThreshold(registry *adapters.Registry) deployment.ChangeSetV2[IncreaseThresholdInput] {
+	validate := func(e deployment.Environment, cfg IncreaseThresholdInput) error {
+		if cfg.CommitteeQualifier == "" {
+			return fmt.Errorf("committee qualifier is required")
+		}
+		if len(cfg.ChainSelectors) == 0 {
+			return fmt.Errorf("at least one chain selector is required")
+		}
+		if cfg.NewThreshold == 0 {
+			return fmt.Errorf("new threshold must be greater than zero")
+		}
+		if len(cfg.ServiceIdentifiers) == 0 {
+			return fmt.Errorf("at least one service identifier is required")
+		}
+		for _, sel := range cfg.ChainSelectors {
+			a, err := registry.GetByChain(sel)
+			if err != nil {
+				return fmt.Errorf("chain %d: %w", sel, err)
+			}
+			if a.CommitteeVerifierOnchain == nil {
+				return fmt.Errorf("chain %d: no CommitteeVerifierOnchain adapter registered", sel)
+			}
+		}
+
+		// Safety backstop 1: assert every aggregator's DataStore config already reflects
+		// NewThreshold. This confirms step-1 has been deployed and nodes are collecting
+		// signatures at the new quorum before the contract enforces it. Without this guard,
+		// the onchain change could fire while aggregators are still producing bundles signed
+		// at the old (lower) threshold, making them invalid.
+		if e.DataStore != nil {
+			for _, svcID := range cfg.ServiceIdentifiers {
+				committee, err := ccvdeployment.GetAggregatorConfig(e.DataStore, svcID)
+				if err != nil {
+					return fmt.Errorf("aggregator config for %q not found in DataStore — step-1 (IncreaseThresholdOffchain) may not have been deployed: %w", svcID, err)
+				}
+				for chainSel, qc := range committee.QuorumConfigs {
+					if qc.Threshold != cfg.NewThreshold {
+						return fmt.Errorf(
+							"aggregator %q chain %s: DataStore threshold %d does not match expected %d — step-1 (IncreaseThresholdOffchain) may not have been deployed yet",
+							svcID, chainSel, qc.Threshold, cfg.NewThreshold,
+						)
+					}
+				}
+			}
+		}
+
+		// Safety backstop 2: assert the onchain threshold has not yet been raised to
+		// NewThreshold. Catches double-fires and out-of-order manual invocations.
+		ctx := context.Background()
+		committeeStates, err := scanCommitteeStatesForChains(ctx, e, registry, cfg.CommitteeQualifier, cfg.ChainSelectors)
+		if err != nil {
+			return err
+		}
+		return validateThresholdIncrease(committeeStates, cfg.NewThreshold, cfg.CommitteeQualifier)
+	}
+
+	apply := func(e deployment.Environment, cfg IncreaseThresholdInput) (deployment.ChangesetOutput, error) {
+		ctx := context.Background()
+
+		committeeStates, err := scanCommitteeStatesForChains(ctx, e, registry, cfg.CommitteeQualifier, cfg.ChainSelectors)
+		if err != nil {
+			return deployment.ChangesetOutput{}, err
+		}
+
 		for _, sel := range cfg.ChainSelectors {
 			change, err := buildSignatureConfigChange(committeeStates[sel], cfg.NewThreshold)
 			if err != nil {
@@ -107,7 +201,8 @@ func IncreaseThreshold(registry *adapters.Registry) deployment.ChangeSetV2[Incre
 			}
 		}
 
-		return deployment.ChangesetOutput{DataStore: outputDS}, nil
+		// No DataStore output — aggregator config was already written in step-1.
+		return deployment.ChangesetOutput{}, nil
 	}
 
 	return deployment.CreateChangeSet(apply, validate)

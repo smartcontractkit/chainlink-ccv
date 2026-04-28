@@ -101,8 +101,9 @@ type DecreaseThresholdOffchainInput struct {
 	// Acts as a safety backstop: if the onchain change hasn't landed (e.g. due to a hook
 	// misfire or manual replay), Apply returns an error rather than writing stale config.
 	ExpectedThreshold uint8
-	// ServiceIdentifier scopes the aggregator config DataStore output.
-	ServiceIdentifier string
+	// ServiceIdentifiers lists every aggregator service that consumes this committee's config.
+	// All are updated atomically in a single changeset run.
+	ServiceIdentifiers []string
 }
 
 // DecreaseThresholdOffchain is step-2 of the DecreaseThreshold two-entry product (§5.6).
@@ -121,8 +122,8 @@ func DecreaseThresholdOffchain(registry *adapters.Registry) deployment.ChangeSet
 		if cfg.ExpectedThreshold == 0 {
 			return fmt.Errorf("expected threshold must be greater than zero")
 		}
-		if cfg.ServiceIdentifier == "" {
-			return fmt.Errorf("service identifier is required")
+		if len(cfg.ServiceIdentifiers) == 0 {
+			return fmt.Errorf("at least one service identifier is required")
 		}
 
 		// Safety backstop: assert the onchain threshold already matches ExpectedThreshold
@@ -157,8 +158,10 @@ func DecreaseThresholdOffchain(registry *adapters.Registry) deployment.ChangeSet
 				return deployment.ChangesetOutput{}, fmt.Errorf("failed to merge datastore: %w", err)
 			}
 		}
-		if err := ccvdeployment.SaveAggregatorConfig(outputDS, cfg.ServiceIdentifier, committee); err != nil {
-			return deployment.ChangesetOutput{}, fmt.Errorf("failed to save aggregator config: %w", err)
+		for _, svcID := range cfg.ServiceIdentifiers {
+			if err := ccvdeployment.SaveAggregatorConfig(outputDS, svcID, committee); err != nil {
+				return deployment.ChangesetOutput{}, fmt.Errorf("failed to save aggregator config for %q: %w", svcID, err)
+			}
 		}
 
 		return deployment.ChangesetOutput{DataStore: outputDS}, nil
