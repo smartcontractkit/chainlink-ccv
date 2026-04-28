@@ -31,7 +31,7 @@ Read this table first. For each row, run the `Search` pattern against the consum
 | `cciptestinterfaces.MessageV3Destination` | added | — | `build/devenv/cciptestinterfaces/extra_args.go:31` | [New Features / Additions](#new-features--additions) |
 | `cciptestinterfaces.Any2EVMMessageV1` / `EVMExtraArgsV1` | added | — | `build/devenv/cciptestinterfaces/extra_args.go:68` | [New Features / Additions](#new-features--additions) |
 | `cciptestinterfaces.EVMExtraArgsV2` / `EVMExtraArgsV2Data` | added | — | `build/devenv/cciptestinterfaces/extra_args.go:54` | [New Features / Additions](#new-features--additions) |
-| `cciptestinterfaces.Any2SVMMessageV1` / `SVMExtraArgsV1` | added | — | `build/devenv/cciptestinterfaces/extra_args.go:81` | [New Features / Additions](#new-features--additions) |
+| `cciptestinterfaces.SVMExtraArgsV1` / `SVMExtraArgsV1` | added | — | `build/devenv/cciptestinterfaces/extra_args.go:81` | [New Features / Additions](#new-features--additions) |
 | `evm.CCIP17EVM.BuildV3ExtraArgs` | added | — | `build/devenv/evm/impl.go:2197` | [New Features / Additions](#new-features--additions) |
 | `evm.CCIP17EVM.GetExecutorArgs` | added | — | `build/devenv/evm/impl.go:2222` | [New Features / Additions](#new-features--additions) |
 | `evm.CCIP17EVM.GetTokenArgs` | added | — | `build/devenv/evm/impl.go:2226` | [New Features / Additions](#new-features--additions) |
@@ -41,7 +41,7 @@ Read this table first. For each row, run the `Search` pattern against the consum
 | `evm.BuildSVMExtraArgsV1` | added | — | `build/devenv/evm/impl.go:810` | [New Features / Additions](#new-features--additions) |
 | `messaging.MessageV3TestScenario` | added | — | `build/devenv/tests/composable/messaging/agnostic_chain_test.go:16` | [New Features / Additions](#new-features--additions) |
 | `messaging.MessageV2TestScenario` | added | — | `build/devenv/tests/composable/messaging/agnostic_chain_test.go:67` | [New Features / Additions](#new-features--additions) |
-| `messaging.Any2SVMMessageV1TestScenario` | added | — | `build/devenv/tests/composable/messaging/agnostic_chain_test.go:108` | [New Features / Additions](#new-features--additions) |
+| `messaging.SVMExtraArgsV1TestScenario` | added | — | `build/devenv/tests/composable/messaging/agnostic_chain_test.go:108` | [New Features / Additions](#new-features--additions) |
 
 ## Breaking Changes
 
@@ -172,7 +172,7 @@ Read this table first. For each row, run the `Search` pattern against the consum
 7. **Migrate generic test scenarios.** `BasicMessageTestScenario` was deleted. Use the per-version helpers in `tests/composable/messaging/agnostic_chain_test.go`:
    - `MessageV3TestScenario` — type-asserts the destination to `MessageV3Destination` (for `GetExecutorArgs` / `GetTokenArgs`) and the source to `MessageV3Source` (which exposes `BuildV3ExtraArgs`).
    - `MessageV2TestScenario` — type-asserts the source to `EVMExtraArgsV2` and serializes via `BuildEVMExtraArgsV2`.
-   - `Any2SVMMessageV1TestScenario` — type-asserts the source to `Any2SVMMessageV1` and serializes via `BuildSVMExtraArgsV1`.
+   - `SVMExtraArgsV1TestScenario` — type-asserts the source to `SVMExtraArgsV1` and serializes via `BuildSVMExtraArgsV1`.
 
    `TestEVM2EVMPOC` is gone; use `TestEVM2EVMV3` and `TestEVM2EVMV2` in `evmPOC_test.go` as references.
 
@@ -188,12 +188,12 @@ Read this table first. For each row, run the `Search` pattern against the consum
   - `MessageV3Source` — `BuildV3ExtraArgs(opts MessageOptions, destChain MessageV3Destination, executorArgsParams any, tokenArgsParams any) ([]byte, error)`. The implementation is expected to call into `destChain.GetExecutorArgs` / `GetTokenArgs` and then serialize the resulting `MessageOptions`. EVM's implementation lives at `build/devenv/evm/impl.go:2197`.
   - `Any2EVMMessageV1` — `BuildEVMExtraArgsV1(opts any) ([]byte, error)`
   - `EVMExtraArgsV2` — `BuildEVMExtraArgsV2(opts any) ([]byte, error)`
-  - `Any2SVMMessageV1` — `BuildSVMExtraArgsV1(opts any) ([]byte, error)`
+  - `SVMExtraArgsV1` — `BuildSVMExtraArgsV1(opts any) ([]byte, error)`
 - **Optional destination-side interface `MessageV3Destination`** — `GetExecutorArgs(opts any) ([]byte, error)` and `GetTokenArgs(opts any) ([]byte, error)` for V3-specific destination-shape helpers. See `build/devenv/cciptestinterfaces/extra_args.go:31`.
 - **EVM per-(version, family) serializers**, each type-asserting the provider:
   - `SerializeMessageV3ExtraArgs`, `BuildEVMExtraArgsV1`, `BuildEVMExtraArgsV2`, `BuildSVMExtraArgsV1` (all in `build/devenv/evm/impl.go`). Each is exposed both as a free function (for the registry) and as a method on `*CCIP17EVM` (for satisfying the per-version source interfaces).
   - Thin EVM-specific dispatcher `SerializeEVMExtraArgs(version uint8, opts MessageOptions) ([]byte, error)` retained for callers (CLI, load gun, deprecated `Chain.SendMessage`) that hold a `MessageOptions` literal and a separate version.
-- **Generic test scenarios** in `build/devenv/tests/composable/messaging/agnostic_chain_test.go`: `MessageV3TestScenario`, `MessageV2TestScenario`, `Any2SVMMessageV1TestScenario`. The `evmPOC_test.go` proof-of-concept was renamed and split into `TestEVM2EVMV3` and `TestEVM2EVMV2`.
+- **Generic test scenarios** in `build/devenv/tests/composable/messaging/agnostic_chain_test.go`: `MessageV3TestScenario`, `MessageV2TestScenario`, `SVMExtraArgsV1TestScenario`. The `evmPOC_test.go` proof-of-concept was renamed and split into `TestEVM2EVMV3` and `TestEVM2EVMV2`.
 - **CI:** new `TestEVM2EVMV3` job added to `.github/workflows/test-smoke.yaml` so the composable V3 path runs against every PR.
 
 ## Examples

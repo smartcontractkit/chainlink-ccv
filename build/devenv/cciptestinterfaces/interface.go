@@ -316,7 +316,7 @@ type OnChainConfigurable interface {
 
 // ExtraArgsSerializer serializes message extra args for a destination chain family.
 // Product repos register their implementation via RegisterExtraArgsSerializer.
-type ExtraArgsSerializer func(provider ExtraArgsDataProvider) ([]byte, error)
+type ExtraArgsSerializer func(provider ExtraArgsDataProvider) (GenericExtraArgs, error)
 
 var (
 	extraArgsSerializers   = make(map[ExtraArgsSerializerEntry]ExtraArgsSerializer)
@@ -406,6 +406,7 @@ type ChainAsDestination interface {
 // ChainAsSource is implemented by any chain that can ORIGINATE CCIP messages.
 // Chain families can implement this interface to run partial CCIP message tests without having to implement the full `Chain` interface.
 type ChainAsSource interface {
+	// TODO: Remove genericChain interface
 	genericChain
 	// BuildChainMessage builds a CCIP message for the given destination chain.
 	// It will call into the registered extra args serializer per destination chain for now, until we have a more generic way to manage extra args.

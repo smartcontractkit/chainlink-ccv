@@ -85,7 +85,7 @@ type Any2EVMMessageV1 interface {
 }
 
 // SVMExtraArgsV1 represents the data for V1 messages arriving at a SVM chain.
-type SVMExtraArgsV1 struct {
+type SVMExtraArgsV1Data struct {
 	Version                  uint8
 	ComputeUnits             uint32
 	AccountIsWritableBitmap  uint64
@@ -95,9 +95,9 @@ type SVMExtraArgsV1 struct {
 }
 
 // This fulfills the marker interface ExtraArgsDataProvider.
-func (m SVMExtraArgsV1) IsExtraArgsDataProvider() {}
+func (m SVMExtraArgsV1Data) IsExtraArgsDataProvider() {}
 
-// Any2SVMMessageV1 is an interface for any chain that can send a V1 message to a SVM chain.
-type Any2SVMMessageV1 interface {
+// SVMExtraArgsV1 is an interface for any chain that can send a V1 message to a SVM chain.
+type SVMExtraArgsV1 interface {
 	BuildSVMExtraArgsV1(opts any) (GenericExtraArgs, error)
 }

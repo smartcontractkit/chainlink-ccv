@@ -99,8 +99,7 @@ func TestEVM2EVMV2(t *testing.T) {
 	require.True(t, destOk, "destChain does not match the chainAsDestination interface!")
 
 	require.NoError(t,
-		MessageV2TestScenario(ctx,
-			t,
+		EVMMessageV2TestScenario(ctx,
 			srcChain,
 			destChain,
 			cciptestinterfaces.MessageFields{

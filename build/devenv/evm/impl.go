@@ -703,11 +703,11 @@ func SerializeEVMExtraArgs(version uint8, opts cciptestinterfaces.MessageOptions
 }
 
 // BuildEVMExtraArgsV1 is separate from the method to support registration as well as implementing an interface.
-func (m *CCIP17EVM) BuildEVMExtraArgsV1(provider cciptestinterfaces.ExtraArgsDataProvider) ([]byte, error) {
+func (m *CCIP17EVM) BuildEVMExtraArgsV1(provider cciptestinterfaces.ExtraArgsDataProvider) (cciptestinterfaces.GenericExtraArgs, error) {
 	return BuildEVMExtraArgsV1(provider)
 }
 
-func BuildEVMExtraArgsV1(provider cciptestinterfaces.ExtraArgsDataProvider) ([]byte, error) {
+func BuildEVMExtraArgsV1(provider cciptestinterfaces.ExtraArgsDataProvider) (cciptestinterfaces.GenericExtraArgs, error) {
 	opts, ok := provider.(cciptestinterfaces.EVMExtraArgsV1)
 	if !ok {
 		return nil, fmt.Errorf("provider is not a EVMExtraArgsV1")
@@ -740,11 +740,11 @@ func BuildEVMExtraArgsV1(provider cciptestinterfaces.ExtraArgsDataProvider) ([]b
 }
 
 // BuildEVMExtraArgsV2 is separate from the method to support registration as well as implementing an interface.
-func (m *CCIP17EVM) BuildEVMExtraArgsV2(provider cciptestinterfaces.ExtraArgsDataProvider) ([]byte, error) {
+func (m *CCIP17EVM) BuildEVMExtraArgsV2(provider cciptestinterfaces.ExtraArgsDataProvider) (cciptestinterfaces.GenericExtraArgs, error) {
 	return BuildEVMExtraArgsV2(provider)
 }
 
-func BuildEVMExtraArgsV2(provider cciptestinterfaces.ExtraArgsDataProvider) ([]byte, error) {
+func BuildEVMExtraArgsV2(provider cciptestinterfaces.ExtraArgsDataProvider) (cciptestinterfaces.GenericExtraArgs, error) {
 	opts, ok := provider.(cciptestinterfaces.EVMExtraArgsV2Data)
 	if !ok {
 		return nil, fmt.Errorf("provider is not a EVMExtraArgsV2Data")
@@ -782,11 +782,11 @@ func BuildEVMExtraArgsV2(provider cciptestinterfaces.ExtraArgsDataProvider) ([]b
 }
 
 // SerializeMessageV3ExtraArgs is separate from the method to support registration as well as implementing an interface.
-func (m *CCIP17EVM) SerializeMessageV3ExtraArgs(provider cciptestinterfaces.ExtraArgsDataProvider) ([]byte, error) {
+func (m *CCIP17EVM) SerializeMessageV3ExtraArgs(provider cciptestinterfaces.ExtraArgsDataProvider) (cciptestinterfaces.GenericExtraArgs, error) {
 	return SerializeMessageV3ExtraArgs(provider)
 }
 
-func SerializeMessageV3ExtraArgs(provider cciptestinterfaces.ExtraArgsDataProvider) ([]byte, error) {
+func SerializeMessageV3ExtraArgs(provider cciptestinterfaces.ExtraArgsDataProvider) (cciptestinterfaces.GenericExtraArgs, error) {
 	opts, ok := provider.(cciptestinterfaces.MessageOptions)
 	if !ok {
 		return nil, fmt.Errorf("provider is not a MessageOptions")
@@ -805,12 +805,12 @@ func SerializeMessageV3ExtraArgs(provider cciptestinterfaces.ExtraArgsDataProvid
 	return extraArgs, nil
 }
 
-func (m *CCIP17EVM) BuildSVMExtraArgsV1(provider cciptestinterfaces.ExtraArgsDataProvider) ([]byte, error) {
+func (m *CCIP17EVM) BuildSVMExtraArgsV1(provider cciptestinterfaces.ExtraArgsDataProvider) (cciptestinterfaces.GenericExtraArgs, error) {
 	return BuildSVMExtraArgsV1(provider)
 }
 
-func BuildSVMExtraArgsV1(provider cciptestinterfaces.ExtraArgsDataProvider) ([]byte, error) {
-	opts, ok := provider.(cciptestinterfaces.SVMExtraArgsV1)
+func BuildSVMExtraArgsV1(provider cciptestinterfaces.ExtraArgsDataProvider) (cciptestinterfaces.GenericExtraArgs, error) {
+	opts, ok := provider.(cciptestinterfaces.SVMExtraArgsV1Data)
 	if !ok {
 		return nil, fmt.Errorf("provider is not a SVMExtraArgsV1")
 	}
@@ -827,15 +827,7 @@ func BuildSVMExtraArgsV1(provider cciptestinterfaces.ExtraArgsDataProvider) ([]b
 
 	arguments := abi.Arguments{{Type: svmExtraArgsV1Type, Name: "extraArgs"}}
 
-	type SVMExtraArgsV1 struct {
-		ComputeUnits             uint32
-		AccountIsWritableBitmap  uint64
-		AllowOutOfOrderExecution bool
-		TokenReceiver            [32]byte
-		Accounts                 [][32]byte
-	}
-
-	packed, err := arguments.Pack(SVMExtraArgsV1{
+	packed, err := arguments.Pack(cciptestinterfaces.SVMExtraArgsV1Data{
 		ComputeUnits:             opts.ComputeUnits,
 		AccountIsWritableBitmap:  opts.AccountIsWritableBitmap,
 		AllowOutOfOrderExecution: opts.AllowOutOfOrderExecution,

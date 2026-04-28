@@ -3,7 +3,6 @@ package messaging
 import (
 	"context"
 	"fmt"
-	"testing"
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
@@ -63,9 +62,9 @@ func MessageV3TestScenario(
 	return nil
 }
 
-func MessageV2TestScenario(
+// EVMMessageV2TestScenario is a helper test scenario that sends a CCIP message using the ChainAsSource and EVMExtraArgsV2 interfaces.
+func EVMMessageV2TestScenario(
 	ctx context.Context,
-	t *testing.T,
 	source cciptestinterfaces.ChainAsSource,
 	dest cciptestinterfaces.ChainAsDestination,
 	fields cciptestinterfaces.MessageFields,
@@ -76,9 +75,51 @@ func MessageV2TestScenario(
 	if !ok {
 		return fmt.Errorf("source chain does not implement V2 message")
 	}
+
 	sourceExtraArgs, err := v2Source.BuildEVMExtraArgsV2(opts)
 	if err != nil {
 		return fmt.Errorf("failed to serialize V2 args: %w", err)
+	}
+
+	message, err := source.BuildChainMessage(ctx, fields, sourceExtraArgs)
+	if err != nil {
+		return fmt.Errorf("failed to build chain message: %w", err)
+	}
+	messageSentEvent, _, err := source.SendChainMessage(ctx, dest.ChainSelector(), message, sendOption)
+	if err != nil {
+		return fmt.Errorf("failed to send chain message: %w", err)
+	}
+	sentEvent, err := source.ConfirmSendOnSource(ctx, dest.ChainSelector(), cciptestinterfaces.MessageEventKey{MessageID: messageSentEvent.MessageID}, 40*time.Second)
+	if err != nil {
+		return fmt.Errorf("failed to confirm send on source: %w", err)
+	}
+
+	execEvent, err := dest.ConfirmExecOnDest(ctx, source.ChainSelector(), cciptestinterfaces.MessageEventKey{MessageID: sentEvent.MessageID}, 40*time.Second)
+	if err != nil {
+		return fmt.Errorf("failed to confirm exec on dest: %w", err)
+	}
+	if execEvent.State != cciptestinterfaces.ExecutionStateSuccess {
+		return fmt.Errorf("unexpected execution state %s, return data: %x", execEvent.State, execEvent.ReturnData)
+	}
+	return nil
+}
+
+func SVMMessageV2TestScenario(
+	ctx context.Context,
+	source cciptestinterfaces.ChainAsSource,
+	dest cciptestinterfaces.ChainAsDestination,
+	fields cciptestinterfaces.MessageFields,
+	opts cciptestinterfaces.SVMExtraArgsV1Data,
+	sendOption cciptestinterfaces.ChainSendOption,
+) error {
+	svmSource, ok := source.(cciptestinterfaces.SVMExtraArgsV1)
+	if !ok {
+		return fmt.Errorf("source chain does not implement SVM message")
+	}
+
+	sourceExtraArgs, err := svmSource.BuildSVMExtraArgsV1(opts)
+	if err != nil {
+		return fmt.Errorf("failed to serialize SVM args: %w", err)
 	}
 
 	message, err := source.BuildChainMessage(ctx, fields, sourceExtraArgs)
