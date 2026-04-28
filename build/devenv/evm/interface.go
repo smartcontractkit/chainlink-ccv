@@ -35,7 +35,7 @@ type SendOptionsAccessor interface {
 	WithEVMSendOptions() *SendOptions
 }
 
-func (o SendOptions) IsSendOption() bool { return true }
+func (o SendOptions) IsSendOption() {}
 
 // WithEVMSendOptions is a convenience method to create a sendOptions struct.
 // Not strictly required, but it demonstrates how altVMs can add their own chain specific logic to the SendChainMessage method.

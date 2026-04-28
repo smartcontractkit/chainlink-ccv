@@ -23,6 +23,7 @@ import (
 	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/evm"
 )
 
 func Command() *cobra.Command {
@@ -124,13 +125,29 @@ func run(args sendArgs) error {
 		Data:        []byte{},
 		TokenAmount: args.tokenAmount,
 	}
-	messageOptions, err := getMessageOptions(args, ds.Addresses())
+	messageOptions, msgVersion, err := getMessageOptions(args, ds.Addresses())
 	if err != nil {
 		return fmt.Errorf("failed to get message options: %w", err)
 	}
-	messageOptions.UseTestRouter = args.useTestRouter
 
-	result, err := impl.SendMessage(ctx, args.destSel, messageFields, messageOptions)
+	senderImpl, ok := impl.(cciptestinterfaces.ChainAsSource)
+	if !ok {
+		return fmt.Errorf("impl is not ChainAsSource")
+	}
+
+	// use evm impl for now, until we have a long term plan for the cli.
+	extraArgs, err := evm.SerializeEVMExtraArgs(msgVersion, messageOptions)
+	if err != nil {
+		return fmt.Errorf("failed to serialize extra args: %w", err)
+	}
+
+	message, err := senderImpl.BuildChainMessage(ctx, messageFields, extraArgs)
+	if err != nil {
+		return fmt.Errorf("failed to build message: %w", err)
+	}
+	result, _, err := senderImpl.SendChainMessage(ctx, args.destSel, message, evm.SendOptions{
+		UseTestRouter: args.useTestRouter,
+	})
 	if err != nil {
 		return fmt.Errorf("failed to send message: %w", err)
 	}
@@ -140,14 +157,13 @@ func run(args sendArgs) error {
 	return nil
 }
 
-func getMessageOptions(args sendArgs, addrs datastore.AddressRefStore) (cciptestinterfaces.MessageOptions, error) {
+func getMessageOptions(args sendArgs, addrs datastore.AddressRefStore) (cciptestinterfaces.MessageOptions, uint8, error) {
 	if args.finalitySel == 0 {
 		// V2 format - use the dedicated V2 function
 		return cciptestinterfaces.MessageOptions{
-			Version:             2,
 			ExecutionGasLimit:   200_000,
 			OutOfOrderExecution: true,
-		}, nil
+		}, 2, nil
 	}
 
 	// V3 format with finality config
@@ -158,10 +174,9 @@ func getMessageOptions(args sendArgs, addrs datastore.AddressRefStore) (cciptest
 			semver.MustParse(executor_operations.Deploy.Version()),
 			devenvcommon.DefaultExecutorQualifier))
 	if err != nil {
-		return cciptestinterfaces.MessageOptions{}, fmt.Errorf("failed to get executor address: %w", err)
+		return cciptestinterfaces.MessageOptions{}, 0, fmt.Errorf("failed to get executor address: %w", err)
 	}
 	opts := cciptestinterfaces.MessageOptions{
-		Version:        3,
 		FinalityConfig: protocol.Finality(args.finalitySel),
 		Executor:       common.HexToAddress(executorRef.Address).Bytes(),
 		ExecutorArgs:   nil,
@@ -169,7 +184,7 @@ func getMessageOptions(args sendArgs, addrs datastore.AddressRefStore) (cciptest
 	}
 	if args.omitCommittee {
 		opts.CCVs = nil
-		return opts, nil
+		return opts, 3, nil
 	}
 	committeeVerifierProxyRef, err := addrs.Get(
 		datastore.NewAddressRefKey(
@@ -178,7 +193,7 @@ func getMessageOptions(args sendArgs, addrs datastore.AddressRefStore) (cciptest
 			versioned_verifier_resolver.Version,
 			devenvcommon.DefaultCommitteeVerifierQualifier))
 	if err != nil {
-		return cciptestinterfaces.MessageOptions{}, fmt.Errorf("failed to get committee verifier proxy address: %w", err)
+		return cciptestinterfaces.MessageOptions{}, 0, fmt.Errorf("failed to get committee verifier proxy address: %w", err)
 	}
 	opts.CCVs = []protocol.CCV{
 		{
@@ -187,7 +202,7 @@ func getMessageOptions(args sendArgs, addrs datastore.AddressRefStore) (cciptest
 			ArgsLen:    0,
 		},
 	}
-	return opts, nil
+	return opts, 3, nil
 }
 
 func parseTokenAmount(input string) (cciptestinterfaces.TokenAmount, error) {

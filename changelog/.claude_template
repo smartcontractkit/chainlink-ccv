@@ -1,0 +1,127 @@
+# Changelog Template
+
+This template defines the consistent format for changelog entries in this directory.
+When generating a changelog from a branch, Claude Code should follow this structure.
+
+## Filename convention
+
+`YYYY-MM-DD_short_topic_name.md` — use the date the change lands (or is expected to land) and a snake_case slug describing the change.
+
+## Authoring guidance
+
+- The primary consumer of this changelog is an AI tasked with adapting a downstream codebase to match. Optimize for that: dense, concrete, machine-parseable. Humans can skim the same content; AIs cannot skim — they read what they're pointed at.
+- The `AI Adapter Index` section below is the entry point for that consumer. Populate it before writing prose — the prose sections exist to expand on rows in the index, not the other way around.
+- Write for an integrator who has not seen the PR. Assume they know the platform, not this specific change.
+- Derive content from the branch diff, commit messages, and linked PRs/issues. Do not invent behavior that isn't in the code.
+- Sections marked *(optional)* may be omitted when they do not apply — do not leave them empty with "N/A".
+- Prefer concrete code snippets and exact symbol names (`Package.Type.Method`) over prose descriptions.
+- Use `file_path:line_number` references when pointing at specific code.
+
+---
+
+# <Title of the change>
+
+## Executive Summary
+
+- <One-line bullet: what this change is>
+- <One-line bullet: why it was made / what problem it solves>
+- <One-line bullet: who is affected (which packages, interfaces, consumers)>
+- <One-line bullet: headline impact (e.g., "introduces a breaking change to X", "adds optional Y", "deprecates Z")>
+
+## AI Adapter Index
+
+The expected consumer of this changelog is an AI adapting a downstream repo. This table is its entry point: every symbol or behavior touched gets one row, with a grep pattern for finding consumer call sites and an anchor into the rest of this file for migration detail. The AI is expected to:
+
+1. Read this table.
+2. Run each `Search` pattern against the consumer repo.
+3. For rows that produce hits, read **only** the linked `Section`. Skip rows with zero hits.
+4. Treat any symbol *not* listed here as unchanged — do not load source for it.
+
+Authoring rules:
+
+- One row per touched symbol or behavior. Anything load-bearing for the migration must appear here. Anything not here is, by contract, unchanged.
+- `Symbol` — fully-qualified name (`package.Type.Method`, `package.Symbol`). For renames, write `OldName → NewName`.
+- `Kind` — one of: `added`, `removed`, `renamed`, `signature-changed`, `behavior-changed`, `deprecated`.
+- `Search` — the narrowest literal or regex that still catches every consumer call site (e.g. `\.SendMessage\(`, `cciptestinterfaces\.MessageOptions\b`). Prefer regex over loose substring matches; pin word boundaries when the name is short or generic.
+- `Location` — `file_path:line_number` in *this* repo for the new definition (or, for `removed`, the prior definition). `—` if not applicable.
+- `Section` — anchor link to the heading in this file that holds the full migration detail (e.g. `[#chain-sendmessage-signature](#chain-sendmessage-signature)`). Every row must link to a section that actually exists.
+- Order rows by `Kind` priority: `removed` and `signature-changed` first (consumer will hit compile errors), then `renamed`, `behavior-changed`, `deprecated`, `added` last.
+- Omit this section only when the changelog touches no code (pure-doc, infra-only).
+
+| Symbol | Kind | Search | Location | Section |
+|---|---|---|---|---|
+| `package.Type.Method` | signature-changed | `\.Method\(` | `path/file.go:123` | [#method-signature](#method-signature) |
+| `package.OldName → package.NewName` | renamed | `\bOldName\b` | `path/file.go:45` | [#oldname-renamed](#oldname-renamed) |
+| `package.RemovedSymbol` | removed | `\bRemovedSymbol\b` | — | [#removedsymbol-removed](#removedsymbol-removed) |
+
+## Breaking Changes
+
+For each breaking change, include:
+
+### <Name of the breaking change>
+
+- **What changed:** <symbol / interface / behavior that changed>
+- **Before:** <prior signature or behavior>
+- **After:** <new signature or behavior>
+- **Why:** <reason for the break>
+- **Who is affected:** <which consumers / call sites>
+
+If there are no breaking changes, state: *No breaking changes.*
+
+## Migration Guide
+
+Step-by-step instructions a consumer can follow mechanically to adopt this change.
+
+1. <Action — e.g., "Update import path from X to Y">
+2. <Action — e.g., "Replace calls to `OldMethod(a, b)` with `NewMethod(ctx, a, b)`">
+3. <Action — e.g., "Regenerate mocks: `go generate ./...`">
+
+Include before/after code blocks for non-trivial migrations:
+
+```go
+// Before
+result := client.OldMethod(a, b)
+```
+
+```go
+// After
+result, err := client.NewMethod(ctx, a, b)
+```
+
+Omit this section if there are no breaking changes and no migration is required.
+
+## New Features / Additions
+
+Non-breaking capabilities consumers can opt into.
+
+- **<Feature name>** — <one-line description>. See `<package/file.go>`.
+  - Usage: <when to use it, what it replaces or complements>
+
+## Deprecations *(optional)*
+
+Symbols or behaviors scheduled for removal in a future release. Give consumers enough notice to migrate.
+
+- **<Deprecated symbol>** — deprecated in favor of `<replacement>`. Planned removal: <version or date>.
+
+## Compatibility & Requirements *(optional)*
+
+- **Minimum versions:** <e.g., Go 1.22+, chainlink-common v1.2.3+>
+- **Dependency bumps:** <list any significant dependency changes>
+- **Supported environments / chains:** <list any environment- or chain-specific notes>
+- **Feature flags / rollout:** <flag name, default state, rollout stage>
+
+## Examples *(optional)*
+
+Short, copy-pasteable snippets for the most common integration patterns introduced by this change.
+
+```go
+// Example: <one-line description of what this example demonstrates>
+<code>
+```
+
+## References *(optional)*
+
+- PR: <link>
+- Design doc: <link>
+- Related issues: <links>
+- Prior changelog entries this builds on: <filename(s) in this directory>
