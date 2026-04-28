@@ -8,8 +8,8 @@ import (
 	"go.uber.org/zap/zapcore"
 
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
-	_ "github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm" // evm accessor driver
 	cmd "github.com/smartcontractkit/chainlink-ccv/cmd/verifier"
+	_ "github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm" // evm accessor driver
 )
 
 func main() {
