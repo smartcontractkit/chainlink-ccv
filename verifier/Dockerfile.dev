@@ -11,6 +11,6 @@ RUN --mount=type=cache,target=/go/pkg/mod,id=ccv-go-mod \
 # Then copy the rest of the source
 COPY . .
 ARG VERIFIER_TYPE=committee
-WORKDIR /app/verifier/cmd/${VERIFIER_TYPE}
+WORKDIR /app/cmd/verifier/${VERIFIER_TYPE}
 
 CMD ["air", "-c", "air.toml"]

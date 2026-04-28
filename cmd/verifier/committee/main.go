@@ -9,7 +9,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
 	_ "github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm" // evm accessor driver
-	cmd "github.com/smartcontractkit/chainlink-ccv/verifier/cmd"
+	cmd "github.com/smartcontractkit/chainlink-ccv/cmd/verifier"
 )
 
 func main() {
