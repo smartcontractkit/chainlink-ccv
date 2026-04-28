@@ -146,10 +146,10 @@ func connectAllChainsCanonical(
 	topology *ccvdeployment.EnvironmentTopology,
 ) error {
 	if len(blockchains) != len(impls) {
-		return fmt.Errorf("connectAllChains: mismatched lengths: %d impls and %d blockchains", len(impls), len(blockchains))
+		return fmt.Errorf("connectAllChainsCanonical: mismatched lengths: %d impls and %d blockchains", len(impls), len(blockchains))
 	}
 	if len(selectors) == 0 {
-		return fmt.Errorf("connectAllChains: selectors must be non-empty")
+		return fmt.Errorf("connectAllChainsCanonical: selectors must be non-empty")
 	}
 
 	profiles := make(map[uint64]chainProfile, len(impls))
@@ -383,15 +383,15 @@ func connectAllChainsLegacy(
 	mcmsReaderRegistry := changesetscore.GetRegistry()
 
 	connectChainsCS := lanes.ConnectChains(laneAdapterRegistry, mcmsReaderRegistry)
-	cfg := lanes.ConnectChainsConfig{
+	connectCfg := lanes.ConnectChainsConfig{
 		Lanes:              laneConfigs,
 		CommitteePopulator: populator,
 	}
-	if err := connectChainsCS.VerifyPreconditions(*e, cfg); err != nil {
-		return fmt.Errorf("connect chains precondition check failed: %w", err)
+	if err := connectChainsCS.VerifyPreconditions(*e, connectCfg); err != nil {
+		return fmt.Errorf("connectAllChainsLegacy: precondition check failed: %w", err)
 	}
-	if _, err := connectChainsCS.Apply(*e, cfg); err != nil {
-		return fmt.Errorf("configure chains for lanes: %w", err)
+	if _, err := connectChainsCS.Apply(*e, connectCfg); err != nil {
+		return fmt.Errorf("connectAllChainsLegacy: connect chains: %w", err)
 	}
 
 	for _, sel := range orderedSelectors {

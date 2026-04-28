@@ -1,4 +1,5 @@
-## CL mode environment topology for 2-node setup
+## CL mode environment topology for key rotation tests.
+## Default committee uses 2-of-3 so rotating one signer exercises quorum behavior.
 [environment_topology]
 indexer_address = ["http://indexer-1:8100"]
 pyroscope_url = "http://host.docker.internal:4040"
@@ -23,6 +24,10 @@ name = "node-0"
 alias = "node-1"
 name = "node-1"
 
+[[environment_topology.nop_topology.nops]]
+alias = "node-2"
+name = "node-2"
+
 [environment_topology.nop_topology.committees.default]
 qualifier = "default"
 verifier_version = "2.0.0"
@@ -33,16 +38,16 @@ address = "default-aggregator:50051"
 insecure_connection = true
 
 [environment_topology.nop_topology.committees.default.chain_configs.3379446385462418246]
-nop_aliases = ["node-0", "node-1"]
-threshold = 1
+nop_aliases = ["node-0", "node-1", "node-2"]
+threshold = 2
 
 [environment_topology.nop_topology.committees.default.chain_configs.12922642891491394802]
-nop_aliases = ["node-0", "node-1"]
-threshold = 1
+nop_aliases = ["node-0", "node-1", "node-2"]
+threshold = 2
 
 [environment_topology.nop_topology.committees.default.chain_configs.4793464827907405086]
-nop_aliases = ["node-0", "node-1"]
-threshold = 1
+nop_aliases = ["node-0", "node-1", "node-2"]
+threshold = 2
 
 [environment_topology.nop_topology.committees.secondary]
 qualifier = "secondary"
@@ -130,7 +135,7 @@ execution_interval = 15_000_000_000
 
 [[nodesets]]
   name = "don"
-  nodes = 2
+  nodes = 3
   override_mode = "each"
 
   [nodesets.db]
@@ -154,7 +159,16 @@ execution_interval = 15_000_000_000
     [nodesets.node_specs.node.env_vars]
       CL_EVM_CMD=""
 
-## Default Verifier Setup (2 nodes)
+  [[nodesets.node_specs]]
+
+    [nodesets.node_specs.node]
+      docker_ctx = "../../../chainlink"
+      docker_file = "plugins/chainlink.Dockerfile"
+
+    [nodesets.node_specs.node.env_vars]
+      CL_EVM_CMD=""
+
+## Default Verifier Setup (3 nodes)
 [[verifier]]
   mode = "cl"
   image = "verifier:dev"
@@ -186,6 +200,22 @@ execution_interval = 15_000_000_000
     image = "postgres:16-alpine"
     name = "default-verifier-2-db"
     port = 8433
+
+[[verifier]]
+  mode = "cl"
+  image = "verifier:dev"
+  container_name = "default-verifier-3"
+  nop_alias = "node-2"
+  port = 8700
+  source_code_path = "../verifier"
+  root_path = "../../"
+  committee_name = "default"
+  node_index = 0
+  insecure_aggregator_connection = true
+  [verifier.db]
+    image = "postgres:16-alpine"
+    name = "default-verifier-3-db"
+    port = 8438
 
 # Secondary Verifier Setup (shares same 2 nodes)
 [[verifier]]
@@ -282,3 +312,147 @@ execution_interval = 15_000_000_000
   container_name = "custom-executor-1"
   nop_alias = "node-0"
   executor_qualifier = "custom"
+
+[[aggregator]]
+  committee_name = "default"
+  image = "aggregator:dev"
+  host_port = 50051
+  redundant_aggregators = 1
+  source_code_path = "../aggregator"
+  root_path = "../../"
+
+  [aggregator.db]
+    image = "postgres:16-alpine"
+    host_port  = 7432
+
+  [aggregator.redis]
+    image = "redis:7-alpine"
+    host_port  = 6379
+
+  [[aggregator.api_clients]]
+  client_id = "default-verifier-1"
+  description = "Development default verifier 1"
+  enabled = true
+  groups = ["verifiers"]
+
+  [[aggregator.api_clients]]
+  client_id = "default-verifier-2"
+  description = "Development default verifier 2"
+  enabled = true
+  groups = ["verifiers"]
+
+  [[aggregator.api_clients]]
+  client_id = "default-verifier-3"
+  description = "Development default verifier 3"
+  enabled = true
+  groups = ["verifiers"]
+
+  [[aggregator.api_clients]]
+  client_id = "monitoring"
+  description = "Monitoring and infrastructure client"
+  enabled = true
+  groups = ["monitoring"]
+
+  [[aggregator.api_clients]]
+  client_id = "indexer"
+  description = "Development Indexer"
+  enabled = true
+  groups = ["indexer"]
+
+  [aggregator.env]
+    storage_connection_url = "postgresql://aggregator:aggregator@default-aggregator-db:5432/aggregator?sslmode=disable"
+    redis_address = "default-aggregator-redis:6379"
+    redis_password = ""
+    redis_db = "0"
+
+[[aggregator]]
+  committee_name = "secondary"
+  image = "aggregator:dev"
+  host_port = 50052
+  redundant_aggregators = 0
+  source_code_path = "../aggregator"
+  root_path = "../../"
+
+  [aggregator.db]
+    image = "postgres:16-alpine"
+    host_port  = 7433
+
+  [aggregator.redis]
+    image = "redis:7-alpine"
+    host_port  = 6380
+
+  [[aggregator.api_clients]]
+  client_id = "secondary-verifier-1"
+  description = "Development secondary verifier 1"
+  enabled = true
+  groups = ["verifiers"]
+
+  [[aggregator.api_clients]]
+  client_id = "secondary-verifier-2"
+  description = "Development secondary verifier 2"
+  enabled = true
+  groups = ["verifiers"]
+
+  [[aggregator.api_clients]]
+  client_id = "monitoring"
+  description = "Monitoring and infrastructure client"
+  enabled = true
+  groups = ["monitoring"]
+
+  [[aggregator.api_clients]]
+  client_id = "indexer"
+  description = "Development Indexer"
+  enabled = true
+  groups = ["indexer"]
+
+  [aggregator.env]
+    storage_connection_url = "postgresql://aggregator:aggregator@secondary-aggregator-db:5432/aggregator?sslmode=disable"
+    redis_address = "secondary-aggregator-redis:6379"
+    redis_password = ""
+    redis_db = "0"
+
+[[aggregator]]
+  committee_name = "tertiary"
+  image = "aggregator:dev"
+  host_port = 50053
+  redundant_aggregators = 0
+  source_code_path = "../aggregator"
+  root_path = "../../"
+
+  [aggregator.db]
+    image = "postgres:16-alpine"
+    host_port  = 7434
+
+  [aggregator.redis]
+    image = "redis:7-alpine"
+    host_port  = 6381
+
+  [[aggregator.api_clients]]
+  client_id = "tertiary-verifier-1"
+  description = "Development tertiary verifier 1"
+  enabled = true
+  groups = ["verifiers"]
+
+  [[aggregator.api_clients]]
+  client_id = "tertiary-verifier-2"
+  description = "Development tertiary verifier 2"
+  enabled = true
+  groups = ["verifiers"]
+
+  [[aggregator.api_clients]]
+  client_id = "monitoring"
+  description = "Monitoring and infrastructure client"
+  enabled = true
+  groups = ["monitoring"]
+
+  [[aggregator.api_clients]]
+  client_id = "indexer"
+  description = "Development Indexer"
+  enabled = true
+  groups = ["indexer"]
+
+  [aggregator.env]
+    storage_connection_url = "postgresql://aggregator:aggregator@tertiary-aggregator-db:5432/aggregator?sslmode=disable"
+    redis_address = "tertiary-aggregator-redis:6379"
+    redis_password = ""
+    redis_db = "0"

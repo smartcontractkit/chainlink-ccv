@@ -305,10 +305,11 @@ func (m *CCIP17EVM) getOrCreateOffRampPoller() (*eventPoller[cciptestinterfaces.
 				messageID:     event.MessageId,
 			}
 			events[key] = cciptestinterfaces.ExecutionStateChangedEvent{
-				MessageID:     event.MessageId,
-				MessageNumber: event.MessageNumber,
-				State:         cciptestinterfaces.MessageExecutionState(event.State),
-				ReturnData:    event.ReturnData,
+				SourceChainSelector: protocol.ChainSelector(event.SourceChainSelector),
+				MessageID:           event.MessageId,
+				MessageNumber:       event.MessageNumber,
+				State:               cciptestinterfaces.MessageExecutionState(event.State),
+				ReturnData:          event.ReturnData,
 			}
 		}
 
@@ -482,6 +483,27 @@ func (m *CCIP17EVM) ConfirmExecOnDest(ctx context.Context, from uint64, key ccip
 			return cciptestinterfaces.ExecutionStateChangedEvent{}, result.err
 		}
 		return result.event, nil
+	}
+}
+
+// WaitForExecutionState polls the OffRamp's getExecutionState view until the
+// message reaches the target state or the context expires. This bypasses the
+// event-poller cache which only stores the first event per (chain, seqNo) key
+// and is therefore unsuitable for detecting state transitions (e.g. FAILURE->SUCCESS).
+func (m *CCIP17EVM) WaitForExecutionState(ctx context.Context, msgID protocol.Bytes32, target cciptestinterfaces.MessageExecutionState, interval time.Duration) error {
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		state, err := m.offRamp.GetExecutionState(&bind.CallOpts{Context: ctx}, msgID)
+		if err == nil && cciptestinterfaces.MessageExecutionState(state) == target {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("timed out waiting for execution state %s on message %x (last state=%d, last err=%v)",
+				target, msgID, state, err)
+		case <-ticker.C:
+		}
 	}
 }
 
@@ -1057,6 +1079,7 @@ func (m *CCIP17EVMConfig) GetDeployChainContractsCfg(env *deployment.Environment
 	return ccipChangesets.DeployChainContractsPerChainCfg{
 		DeployerContract: create2Ref.Address,
 		DeployerKeyOwned: true,
+		DeployTestRouter: true,
 		RMNRemote: adapters.RMNRemoteDeployParams{
 			Version: semver.MustParse(rmn_remote.Deploy.Version()),
 		},
@@ -1362,20 +1385,20 @@ func (m *CCIP17EVM) GetMaxDataBytes(ctx context.Context, remoteChainSelector uin
 	return destChainConfig.MaxDataBytes, nil
 }
 
+func (m *CCIP17EVMConfig) GetChainLaneProfile(_ *deployment.Environment, selector uint64) (cciptestinterfaces.ChainLaneProfile, error) {
+	return cciptestinterfaces.ChainLaneProfile{
+		FeeQuoterDestChainConfig: ccipChangesets.FeeQuoterDestChainConfigOverrides{
+			USDPerUnitGas: big.NewInt(1e6),
+		},
+	}, nil
+}
+
 func (m *CCIP17EVMConfig) GetConnectionProfile(_ *deployment.Environment, selector uint64) (lanes.ChainDefinition, lanes.CommitteeVerifierRemoteChainInput, error) {
+	override := evmFeeQuoterDestChainConfigOverride(selector)
 	chainDef := lanes.ChainDefinition{
-		Selector:                          selector,
-		AddressBytesLength:                20,
-		BaseExecutionGasCost:              150_000,
-		FeeQuoterDestChainConfigOverrides: evmFeeQuoterDestChainConfigOverride(selector),
+		FeeQuoterDestChainConfigOverrides: override,
 		ExecutorDestChainConfig: lanes.ExecutorDestChainConfig{
 			Enabled: true,
-		},
-		DefaultExecutor: datastore.AddressRef{
-			Type:          datastore.ContractType(sequences.ExecutorProxyType),
-			Version:       semver.MustParse(proxy.Deploy.Version()),
-			Qualifier:     devenvcommon.DefaultExecutorQualifier,
-			ChainSelector: selector,
 		},
 		DefaultInboundCCVs: []datastore.AddressRef{
 			{
@@ -1394,11 +1417,9 @@ func (m *CCIP17EVMConfig) GetConnectionProfile(_ *deployment.Environment, select
 			},
 		},
 	}
-
 	cvConfig := lanes.CommitteeVerifierRemoteChainInput{
 		GasForVerification: CommitteeVerifierGasForVerification,
 	}
-
 	return chainDef, cvConfig, nil
 }
 
@@ -1421,14 +1442,6 @@ func evmFeeQuoterDestChainConfigOverride(selector uint64) *lanes.FeeQuoterDestCh
 		}
 	})
 	return &override
-}
-
-func (m *CCIP17EVMConfig) GetChainLaneProfile(_ *deployment.Environment, selector uint64) (cciptestinterfaces.ChainLaneProfile, error) {
-	return cciptestinterfaces.ChainLaneProfile{
-		FeeQuoterDestChainConfig: ccipChangesets.FeeQuoterDestChainConfigOverrides{
-			USDPerUnitGas: big.NewInt(1e6),
-		},
-	}, nil
 }
 
 func (m *CCIP17EVMConfig) PostConnect(e *deployment.Environment, selector uint64, remoteSelectors []uint64) error {
@@ -1707,10 +1720,11 @@ func (m *CCIP17EVM) ManuallyExecuteMessage(
 				continue
 			}
 			event = cciptestinterfaces.ExecutionStateChangedEvent{
-				MessageID:     parsedLog.MessageId,
-				MessageNumber: parsedLog.MessageNumber,
-				State:         cciptestinterfaces.MessageExecutionState(parsedLog.State),
-				ReturnData:    parsedLog.ReturnData,
+				SourceChainSelector: protocol.ChainSelector(parsedLog.SourceChainSelector),
+				MessageID:           parsedLog.MessageId,
+				MessageNumber:       parsedLog.MessageNumber,
+				State:               cciptestinterfaces.MessageExecutionState(parsedLog.State),
+				ReturnData:          parsedLog.ReturnData,
 			}
 			break
 		}

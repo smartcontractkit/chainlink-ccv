@@ -85,6 +85,39 @@ func (v *ExecutorInput) GenerateConfigWithBlockchainInfos(blockchainInfos chaina
 	return cfg, nil
 }
 
+// ConfigureConfigFile persists the current standalone executor config and returns the host path.
+func (v *ExecutorInput) ConfigureConfigFile(blockchainOutputs []*ctfblockchain.Output) (string, error) {
+	if v == nil {
+		return "", nil
+	}
+	ApplyExecutorDefaults(v)
+
+	blockchainInfos, err := ConvertBlockchainOutputsToInfo(blockchainOutputs)
+	if err != nil {
+		return "", fmt.Errorf("failed to generate blockchain infos from blockchain outputs: %w", err)
+	}
+	blockchainInfos = filterOutUnsupportedChains(blockchainInfos)
+
+	config, err := v.GenerateConfigWithBlockchainInfos(blockchainInfos)
+	if err != nil {
+		return "", fmt.Errorf("failed to generate config for executor: %w", err)
+	}
+	confDir := util.CCVConfigDir()
+	configFilePath := filepath.Join(confDir, fmt.Sprintf("executor-%s-config.toml", v.ContainerName))
+	if err := os.WriteFile(configFilePath, config, 0o644); err != nil {
+		return "", fmt.Errorf("failed to write executor config to file: %w", err)
+	}
+	return configFilePath, nil
+}
+
+// Restart restarts the running executor container.
+func (v *ExecutorInput) Restart(ctx context.Context) error {
+	if v == nil || v.Mode != Standalone {
+		return nil
+	}
+	return RestartContainer(ctx, v.ContainerName)
+}
+
 // TransmitterAddressResolver derives an on-chain address from a hex-encoded private key.
 type TransmitterAddressResolver func(privateKeyHex string) (protocol.UnknownAddress, error)
 
@@ -140,24 +173,9 @@ func NewExecutor(in *ExecutorInput, blockchainOutputs []*ctfblockchain.Output) (
 	if err != nil {
 		return in.Out, err
 	}
-
-	// Generate blockchain infos for standalone mode
-	blockchainInfos, err := ConvertBlockchainOutputsToInfo(blockchainOutputs)
+	configFilePath, err := in.ConfigureConfigFile(blockchainOutputs)
 	if err != nil {
-		return nil, fmt.Errorf("failed to generate blockchain infos from blockchain outputs: %w", err)
-	}
-
-	blockchainInfos = filterOutUnsupportedChains(blockchainInfos)
-
-	// Generate and store config file with blockchain infos for standalone mode
-	config, err := in.GenerateConfigWithBlockchainInfos(blockchainInfos)
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate config for executor: %w", err)
-	}
-	confDir := util.CCVConfigDir()
-	configFilePath := filepath.Join(confDir, fmt.Sprintf("executor-%s-config.toml", in.ContainerName))
-	if err := os.WriteFile(configFilePath, config, 0o644); err != nil {
-		return nil, fmt.Errorf("failed to write executor config to file: %w", err)
+		return nil, err
 	}
 
 	/* Service */
@@ -224,6 +242,9 @@ type TransmitterKeyGenerator func() (string, error)
 // using the given key generator.
 func SetTransmitterPrivateKey(execs []*ExecutorInput, keyGen TransmitterKeyGenerator) ([]*ExecutorInput, error) {
 	for _, exec := range execs {
+		if exec.TransmitterPrivateKey != "" {
+			continue
+		}
 		pk, err := keyGen()
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate transmitter private key: %w", err)

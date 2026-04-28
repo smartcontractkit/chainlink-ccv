@@ -47,6 +47,11 @@ const (
 	DefaultAggregatorGRPCPort          = 50051
 )
 
+// AggregatorGeneratedConfigContainerPath is the committee TOML path inside the aggregator container (matches NewAggregator ContainerFile).
+func AggregatorGeneratedConfigContainerPath(instanceName string) string {
+	return "/etc/aggregator-" + instanceName + "-generated.toml"
+}
+
 type AggregatorDBInput struct {
 	Image string `toml:"image"`
 	// HostPort is the port on the host machine that the database will be exposed on.
@@ -301,6 +306,54 @@ func (a *AggregatorInput) GenerateConfigs(generatedConfigFileName string) (*Gene
 		MainConfig:      mainCfg,
 		GeneratedConfig: genCfgBytes,
 	}, nil
+}
+
+// ConfigureGeneratedConfigFile persists only aggregator-*-generated.toml (committee).
+// Main config stays the file from NewAggregator.
+func (a *AggregatorInput) ConfigureGeneratedConfigFile() error {
+	if a == nil {
+		return nil
+	}
+	if a.GeneratedCommittee == nil {
+		return fmt.Errorf("ConfigureGeneratedConfigFile: GeneratedCommittee is required")
+	}
+	confDir := util.CCVConfigDir()
+	instanceName := a.InstanceName()
+	generatedConfigFileName := fmt.Sprintf("aggregator-%s-generated.toml", instanceName)
+	configResult, err := a.GenerateConfigs(generatedConfigFileName)
+	if err != nil {
+		return fmt.Errorf("write aggregator config files: generate: %w", err)
+	}
+	generatedConfigFilePath := filepath.Join(confDir, generatedConfigFileName)
+	if err := os.WriteFile(generatedConfigFilePath, configResult.GeneratedConfig, 0o644); err != nil {
+		return fmt.Errorf("write aggregator generated config: %w", err)
+	}
+	return nil
+}
+
+// RefreshConfig refreshes the generated committee TOML on disk and syncs it into the running container.
+func (a *AggregatorInput) RefreshConfig(ctx context.Context) error {
+	if a == nil {
+		return nil
+	}
+	if err := a.ConfigureGeneratedConfigFile(); err != nil {
+		return err
+	}
+	instanceName := a.InstanceName()
+	hostPath := filepath.Join(util.CCVConfigDir(), fmt.Sprintf("aggregator-%s-generated.toml", instanceName))
+	containerName := fmt.Sprintf("%s-%s", instanceName, AggregatorContainerNameSuffix)
+	if err := DockerCopyFileToContainer(ctx, hostPath, containerName, AggregatorGeneratedConfigContainerPath(instanceName)); err != nil {
+		return fmt.Errorf("refresh aggregator generated config: %w", err)
+	}
+	return nil
+}
+
+// Restart restarts the running aggregator container.
+func (a *AggregatorInput) Restart(ctx context.Context) error {
+	if a == nil {
+		return nil
+	}
+	return RestartContainer(ctx, fmt.Sprintf("%s-%s", a.InstanceName(), AggregatorContainerNameSuffix))
 }
 
 func (a *AggregatorInput) GetAPIKeys() ([]AggregatorClientConfig, error) {

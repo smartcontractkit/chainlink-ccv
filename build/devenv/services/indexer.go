@@ -118,6 +118,113 @@ func injectPostgresURI(cfg *config.Config, uri string) {
 	cfg.Storage.Single.Postgres.URI = uri
 }
 
+// ConfigureConfigFiles persists the current indexer config, generated config, and secrets
+// using the same paths NewIndexer mounts into the running container.
+func (in *IndexerInput) ConfigureConfigFiles() (string, string, string, error) {
+	if in == nil {
+		return "", "", "", nil
+	}
+	defaults(in)
+
+	if in.GeneratedCfg == nil {
+		return "", "", "", fmt.Errorf("GeneratedCfg is required for indexer")
+	}
+	if in.IndexerConfig == nil {
+		return "", "", "", fmt.Errorf("IndexerConfig is required for indexer")
+	}
+
+	confDir := util.CCVConfigDir()
+	configFileName := fmt.Sprintf("indexer-%s-config.toml", in.ContainerName)
+	generatedConfigFileName := "generated.toml"
+	secretsFileName := fmt.Sprintf("indexer-%s-secrets.toml", in.ContainerName)
+
+	configPath := filepath.Join(confDir, configFileName)
+	generatedConfigPath := filepath.Join(confDir, fmt.Sprintf("indexer-%s-generated.toml", in.ContainerName))
+	secretsPath := filepath.Join(confDir, secretsFileName)
+
+	in.IndexerConfig.GeneratedConfigPath = generatedConfigFileName
+
+	dbName := in.DB.Database
+	if dbName == "" {
+		dbName = in.ContainerName
+	}
+	dbUser := in.DB.Username
+	if dbUser == "" {
+		dbUser = in.ContainerName
+	}
+	dbPass := in.DB.Password
+	if dbPass == "" {
+		dbPass = in.ContainerName
+	}
+
+	dbContainerName := in.ContainerName + IndexerDBContainerSuffix
+	var dbConnectionString string
+	if in.StorageConnectionURL != "" {
+		dbConnectionString = in.StorageConnectionURL
+	} else {
+		dbConnectionString = fmt.Sprintf("postgresql://%s:%s@%s:5432/%s?sslmode=disable",
+			dbUser, dbPass, dbContainerName, dbName)
+	}
+	injectPostgresURI(in.IndexerConfig, dbConnectionString)
+
+	buff := new(bytes.Buffer)
+	encoder := toml.NewEncoder(buff)
+	encoder.Indent = ""
+	if err := encoder.Encode(in.IndexerConfig); err != nil {
+		return "", "", "", fmt.Errorf("failed to encode config: %w", err)
+	}
+	if err := os.WriteFile(configPath, buff.Bytes(), 0o644); err != nil {
+		return "", "", "", fmt.Errorf("failed to write config: %w", err)
+	}
+
+	genBuff := new(bytes.Buffer)
+	genEncoder := toml.NewEncoder(genBuff)
+	genEncoder.Indent = ""
+	if err := genEncoder.Encode(in.GeneratedCfg); err != nil {
+		return "", "", "", fmt.Errorf("failed to encode generated config: %w", err)
+	}
+	if err := os.WriteFile(generatedConfigPath, genBuff.Bytes(), 0o644); err != nil {
+		return "", "", "", fmt.Errorf("failed to write generated config: %w", err)
+	}
+
+	secretsToEncode := in.Secrets
+	if secretsToEncode == nil {
+		secretsToEncode = &config.SecretsConfig{}
+	}
+	secretsBuffer := new(bytes.Buffer)
+	secEncoder := toml.NewEncoder(secretsBuffer)
+	secEncoder.Indent = ""
+	if err := secEncoder.Encode(secretsToEncode); err != nil {
+		return "", "", "", fmt.Errorf("failed to encode secrets: %w", err)
+	}
+	if err := os.WriteFile(secretsPath, secretsBuffer.Bytes(), 0o644); err != nil {
+		return "", "", "", fmt.Errorf("failed to write secrets file: %w", err)
+	}
+
+	return configPath, generatedConfigPath, secretsPath, nil
+}
+
+// RefreshConfig rewrites the mounted indexer config files from the current in-memory config.
+func (in *IndexerInput) RefreshConfig(context.Context) error {
+	if in == nil {
+		return nil
+	}
+	_, _, _, err := in.ConfigureConfigFiles()
+	return err
+}
+
+// Restart restarts the running indexer container.
+func (in *IndexerInput) Restart(ctx context.Context) error {
+	if in == nil {
+		return nil
+	}
+	name := in.ContainerName
+	if in.Out != nil && in.Out.ContainerName != "" {
+		name = in.Out.ContainerName
+	}
+	return RestartContainer(ctx, name)
+}
+
 // NewIndexer creates and starts a new Service container using testcontainers.
 // Will be called once per indexer instance.
 func NewIndexer(in *IndexerInput) (*IndexerOutput, error) {
@@ -142,20 +249,13 @@ func NewIndexer(in *IndexerInput) (*IndexerOutput, error) {
 	if err != nil {
 		return in.Out, err
 	}
+	configPath, generatedConfigPath, secretsPath, err := in.ConfigureConfigFiles()
+	if err != nil {
+		return nil, err
+	}
 
-	// Per-instance config dir and filenames (supports multiple indexers, like NewAggregator per committee).
-	confDir := util.CCVConfigDir()
-	configFileName := fmt.Sprintf("indexer-%s-config.toml", in.ContainerName)
-	generatedConfigFileName := "generated.toml"
-	secretsFileName := fmt.Sprintf("indexer-%s-secrets.toml", in.ContainerName)
-
-	configPath := filepath.Join(confDir, configFileName)
-	generatedConfigPath := filepath.Join(confDir, fmt.Sprintf("indexer-%s-generated.toml", in.ContainerName))
-	secretsPath := filepath.Join(confDir, secretsFileName)
-
-	in.IndexerConfig.GeneratedConfigPath = generatedConfigFileName
-
-	// Per-instance DB credentials (from config or derived from container name for multi-instance isolation).
+	// Database: unique name and host port per instance (like aggregator DB per committee).
+	// one db instance per indexer.
 	dbName := in.DB.Database
 	if dbName == "" {
 		dbName = in.ContainerName
@@ -168,8 +268,6 @@ func NewIndexer(in *IndexerInput) (*IndexerOutput, error) {
 	if dbPass == "" {
 		dbPass = in.ContainerName
 	}
-
-	// DB connection string: from config (StorageConnectionURL) when set, else build from DB/container (aligned with aggregator).
 	dbContainerName := in.ContainerName + IndexerDBContainerSuffix
 	var dbConnectionString string
 	if in.StorageConnectionURL != "" {
@@ -178,45 +276,6 @@ func NewIndexer(in *IndexerInput) (*IndexerOutput, error) {
 		dbConnectionString = fmt.Sprintf("postgresql://%s:%s@%s:5432/%s?sslmode=disable",
 			dbUser, dbPass, dbContainerName, dbName)
 	}
-	injectPostgresURI(in.IndexerConfig, dbConnectionString)
-
-	buff := new(bytes.Buffer)
-	encoder := toml.NewEncoder(buff)
-	encoder.Indent = ""
-	err = encoder.Encode(in.IndexerConfig)
-	if err != nil {
-		return nil, fmt.Errorf("failed to encode config: %w", err)
-	}
-	if err := os.WriteFile(configPath, buff.Bytes(), 0o644); err != nil {
-		return nil, fmt.Errorf("failed to write config: %w", err)
-	}
-
-	genBuff := new(bytes.Buffer)
-	genEncoder := toml.NewEncoder(genBuff)
-	genEncoder.Indent = ""
-	if err := genEncoder.Encode(in.GeneratedCfg); err != nil {
-		return nil, fmt.Errorf("failed to encode generated config: %w", err)
-	}
-	if err := os.WriteFile(generatedConfigPath, genBuff.Bytes(), 0o644); err != nil {
-		return nil, fmt.Errorf("failed to write generated config: %w", err)
-	}
-
-	secretsToEncode := in.Secrets
-	if secretsToEncode == nil {
-		secretsToEncode = &config.SecretsConfig{}
-	}
-	secretsBuffer := new(bytes.Buffer)
-	secEncoder := toml.NewEncoder(secretsBuffer)
-	secEncoder.Indent = ""
-	if err := secEncoder.Encode(secretsToEncode); err != nil {
-		return nil, fmt.Errorf("failed to encode secrets: %w", err)
-	}
-	if err := os.WriteFile(secretsPath, secretsBuffer.Bytes(), 0o644); err != nil {
-		return nil, fmt.Errorf("failed to write secrets file: %w", err)
-	}
-
-	// Database: unique name and host port per instance (like aggregator DB per committee).
-	// one db instance per indexer.
 	_, err = postgres.Run(ctx,
 		in.DB.Image,
 		testcontainers.WithName(dbContainerName),
@@ -252,6 +311,7 @@ func NewIndexer(in *IndexerInput) (*IndexerOutput, error) {
 	internalPortStr := strconv.Itoa(internalPort)
 
 	// Container paths for mounted config (same path in every container; each has its own files).
+	generatedConfigFileName := "generated.toml"
 	containerConfigPath := filepath.Join(IndexerConfigDirContainer, "config.toml")
 	containerGeneratedPath := filepath.Join(IndexerConfigDirContainer, generatedConfigFileName)
 	containerSecretsPath := filepath.Join(IndexerConfigDirContainer, "secrets.toml")

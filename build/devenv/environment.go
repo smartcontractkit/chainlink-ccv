@@ -533,23 +533,22 @@ func buildEnvironmentTopology(in *Cfg, e *deployment.Environment) *ccvdeployment
 	return &envCfg
 }
 
+// BuildEnvironmentTopology is the exported entry point used by tests and harness code.
+func BuildEnvironmentTopology(in *Cfg, e *deployment.Environment) *ccvdeployment.EnvironmentTopology {
+	return buildEnvironmentTopology(in, e)
+}
+
 // generateExecutorJobSpecs generates job specs for all executors using the changeset.
-// It returns a map of container name -> job spec for use in CL mode.
 // For standalone mode, it also sets GeneratedConfig on each executor.
 // The ds parameter is a mutable datastore that will be updated with the changeset output.
 func generateExecutorJobSpecs(
-	ctx context.Context,
 	e *deployment.Environment,
 	in *Cfg,
-	selectors []uint64,
-	impls []cciptestinterfaces.CCIP17Configuration,
 	topology *ccvdeployment.EnvironmentTopology,
 	ds datastore.MutableDataStore,
-) (map[string]bootstrap.JobSpec, error) {
-	executorJobSpecs := make(map[string]bootstrap.JobSpec)
-
+) error {
 	if len(in.Executor) == 0 {
-		return executorJobSpecs, nil
+		return nil
 	}
 
 	// Group executors by qualifier
@@ -576,85 +575,96 @@ func generateExecutorJobSpecs(
 			TargetNOPs:        ccvshared.ConvertStringToNopAliases(execNOPAliases),
 		})
 		if err != nil {
-			return nil, fmt.Errorf("failed to generate executor configs for qualifier %s: %w", qualifier, err)
+			return fmt.Errorf("failed to generate executor configs for qualifier %s: %w", qualifier, err)
 		}
 
 		if err := ds.Merge(output.DataStore.Seal()); err != nil {
-			return nil, fmt.Errorf("failed to merge executor job specs datastore: %w", err)
+			return fmt.Errorf("failed to merge executor job specs datastore: %w", err)
 		}
 
 		for _, exec := range qualifierExecutors {
 			jobSpecID := ccvshared.NewExecutorJobID(ccvshared.NOPAlias(exec.NOPAlias), ccvshared.ExecutorJobScope{ExecutorQualifier: qualifier})
 			job, err := ccvdeployment.GetJob(output.DataStore.Seal(), ccvshared.NOPAlias(exec.NOPAlias), jobSpecID.ToJobID())
 			if err != nil {
-				return nil, fmt.Errorf("failed to get executor job spec for %s: %w", exec.ContainerName, err)
+				return fmt.Errorf("failed to get executor job spec for %s: %w", exec.ContainerName, err)
 			}
 
-			// TODO: Use bootstrap.JobSpec in CLD to avoid this conversion here
 			var executorSpec ExecutorJobSpec
-			{
-				md, err := toml.Decode(job.Spec, &executorSpec)
-				if err != nil {
-					return nil, fmt.Errorf("failed to decode verifier job spec for %s: %w", exec.ContainerName, err)
-				}
-				if len(md.Undecoded()) > 0 {
-					L.Warn().
-						Str("spec", job.Spec).
-						Str("undecoded fields", fmt.Sprintf("%v", md.Undecoded())).
-						Msg("Undecoded fields in executor job spec")
-					return nil, fmt.Errorf("unknown fields in executor job spec for %s: %v", exec.ContainerName, md.Undecoded())
-				}
-				executorJobSpecs[exec.ContainerName] = executorSpec.ToBootstrapJobSpec()
+			md, err := toml.Decode(job.Spec, &executorSpec)
+			if err != nil {
+				return fmt.Errorf("failed to decode executor job spec for %s: %w", exec.ContainerName, err)
 			}
+			if len(md.Undecoded()) > 0 {
+				L.Warn().
+					Str("spec", job.Spec).
+					Str("undecoded fields", fmt.Sprintf("%v", md.Undecoded())).
+					Msg("Undecoded fields in executor job spec")
+				return fmt.Errorf("unknown fields in executor job spec for %s: %v", exec.ContainerName, md.Undecoded())
+			}
+			exec.GeneratedJobSpecs = []bootstrap.JobSpec{executorSpec.ToBootstrapJobSpec()}
 
-			// Extract inner config from job spec for standalone mode
 			var cfg executor.Configuration
 			if err := toml.Unmarshal([]byte(executorSpec.ExecutorConfig), &cfg); err != nil {
-				return nil, fmt.Errorf("failed to parse executor config from job spec: %w", err)
+				return fmt.Errorf("failed to parse executor config from job spec: %w", err)
 			}
 
 			// Marshal the inner config back to TOML for standalone mode
 			configBytes, err := toml.Marshal(cfg)
 			if err != nil {
-				return nil, fmt.Errorf("failed to marshal executor config: %w", err)
+				return fmt.Errorf("failed to marshal executor config: %w", err)
 			}
 			exec.GeneratedConfig = string(configBytes)
 		}
 	}
 
-	// Set transmitter keys for standalone mode using family-specific key generation
 	for _, exec := range in.Executor {
+		if exec.TransmitterPrivateKey != "" {
+			continue
+		}
 		family := exec.ChainFamily
 		if family == "" {
 			family = chainsel.FamilyEVM
 		}
 		fac, facErr := GetImplFactory(family)
 		if facErr != nil {
-			return nil, fmt.Errorf("no impl factory for executor chain family %q: %w", family, facErr)
+			return fmt.Errorf("no impl factory for executor chain family %q: %w", family, facErr)
 		}
 		pk, pkErr := fac.GenerateTransmitterKey()
 		if pkErr != nil {
-			return nil, fmt.Errorf("failed to generate transmitter key for family %q: %w", family, pkErr)
+			return fmt.Errorf("failed to generate transmitter key for family %q: %w", family, pkErr)
 		}
 		exec.TransmitterPrivateKey = pk
 	}
 
-	// Build executor transmitter addresses grouped by chain family so each chain
-	// only funds addresses in its native format.
+	return nil
+}
+
+func fundStandaloneExecutorAddresses(
+	ctx context.Context,
+	in *Cfg,
+	impls []cciptestinterfaces.CCIP17Configuration,
+) error {
 	addressesByFamily := make(map[string][]protocol.UnknownAddress)
 	for _, exec := range in.Executor {
+		if exec == nil || exec.Mode != services.Standalone {
+			continue
+		}
 		family := exec.ChainFamily
 		if family == "" {
 			family = chainsel.FamilyEVM
 		}
 		fac, facErr := GetImplFactory(family)
 		if facErr != nil {
-			return nil, fmt.Errorf("no impl factory for executor chain family %q: %w", family, facErr)
+			return fmt.Errorf("no impl factory for executor chain family %q: %w", family, facErr)
 		}
 		addressesByFamily[family] = append(
 			addressesByFamily[family],
 			exec.GetTransmitterAddress(fac.TransmitterAddress),
 		)
+	}
+
+	if len(addressesByFamily) == 0 {
+		return nil
 	}
 
 	Plog.Info().Any("AddressesByFamily", addressesByFamily).Int("ImplsLen", len(impls)).Msg("Funding executors")
@@ -674,12 +684,11 @@ func generateExecutorJobSpecs(
 
 		Plog.Info().Int("ImplIndex", i).Msg("Funding executor")
 		if err := impl.FundAddresses(ctx, in.Blockchains[i], addresses, big.NewInt(5)); err != nil {
-			return nil, fmt.Errorf("failed to fund addresses for executors: %w", err)
+			return fmt.Errorf("failed to fund addresses for executors: %w", err)
 		}
 		Plog.Info().Int("ImplIndex", i).Msg("Funded executors")
 	}
-
-	return executorJobSpecs, nil
+	return nil
 }
 
 // generateVerifierJobSpecs generates job specs for all verifiers using the changeset.
@@ -690,7 +699,6 @@ func generateExecutorJobSpecs(
 func generateVerifierJobSpecs(
 	e *deployment.Environment,
 	in *Cfg,
-	selectors []uint64,
 	topology *ccvdeployment.EnvironmentTopology,
 	sharedTLSCerts *services.TLSCertPaths,
 	ds datastore.MutableDataStore,
@@ -722,11 +730,31 @@ func generateVerifierJobSpecs(
 		}
 
 		for family := range families {
+			activeNOPAliases, err := topologyVerifierNOPAliasesForCommitteeFamily(topology, committeeName, family)
+			if err != nil {
+				return nil, err
+			}
+
+			activeFamilyVerifiers := make([]*committeeverifier.Input, 0, len(committeeVerifiers))
 			verNOPAliases := make([]ccvshared.NOPAlias, 0, len(committeeVerifiers))
 			for _, ver := range committeeVerifiers {
-				if ver.ChainFamily == family {
-					verNOPAliases = append(verNOPAliases, ccvshared.NOPAlias(ver.NOPAlias))
+				if ver.ChainFamily != family {
+					continue
 				}
+				if _, ok := activeNOPAliases[ver.NOPAlias]; !ok {
+					ver.GeneratedJobSpecs = nil
+					ver.GeneratedConfig = ""
+					if ver.Out == nil {
+						ver.Out = &committeeverifier.Output{}
+					}
+					ver.Out.VerifierID = ""
+					continue
+				}
+				activeFamilyVerifiers = append(activeFamilyVerifiers, ver)
+				verNOPAliases = append(verNOPAliases, ccvshared.NOPAlias(ver.NOPAlias))
+			}
+			if len(activeFamilyVerifiers) == 0 {
+				continue
 			}
 
 			disableFinalityCheckers := disableFinalityCheckersPerFamily[family]
@@ -755,16 +783,12 @@ func generateVerifierJobSpecs(
 			// 1:1 verifier-to-aggregator mapping. For single-aggregator committees
 			// this constraint doesn't apply — all verifiers share the one aggregator.
 			if len(aggNames) > 1 {
-				if err := validateStandaloneVerifierNodeIndices(committeeName, committeeVerifiers, len(aggNames)); err != nil {
+				if err := validateStandaloneVerifierNodeIndices(committeeName, activeFamilyVerifiers, len(aggNames)); err != nil {
 					return nil, err
 				}
 			}
 
-			for _, ver := range committeeVerifiers {
-				if ver.ChainFamily != family {
-					continue
-				}
-
+			for _, ver := range activeFamilyVerifiers {
 				allJobSpecs := make([]bootstrap.JobSpec, 0, len(aggNames))
 				for _, aggName := range aggNames {
 					jobSpecID := ccvshared.NewVerifierJobID(ccvshared.NOPAlias(ver.NOPAlias), aggName, ccvshared.VerifierJobScope{CommitteeQualifier: committeeName})
@@ -783,7 +807,7 @@ func generateVerifierJobSpecs(
 						L.Warn().
 							Str("spec", job.Spec).
 							Str("undecoded fields", fmt.Sprintf("%v", md.Undecoded())).
-							Msg("Undecoded fields in executor job spec")
+							Msg("Undecoded fields in verifier job spec")
 						return nil, fmt.Errorf("unknown fields in verifier job spec for %s aggregator: %v", ver.ContainerName, md.Undecoded())
 					}
 
@@ -808,10 +832,13 @@ func generateVerifierJobSpecs(
 				}
 				ver.GeneratedConfig = string(configBytes)
 
-				// Store the VerifierID in the output for test access
-				if ver.Out != nil {
-					ver.Out.VerifierID = verCfg.VerifierID
+				// Store the VerifierID in the output for test access. CL-mode verifiers
+				// don't have an Out populated by launchStandaloneVerifiers, so initialize
+				// it here so VerifierID is observable regardless of mode.
+				if ver.Out == nil {
+					ver.Out = &committeeverifier.Output{}
 				}
+				ver.Out.VerifierID = verCfg.VerifierID
 
 				if sharedTLSCerts != nil && !ver.InsecureAggregatorConnection {
 					ver.TLSCACertFile = sharedTLSCerts.CACertFile
@@ -822,6 +849,48 @@ func generateVerifierJobSpecs(
 	}
 
 	return verifierJobSpecs, nil
+}
+
+func topologyVerifierNOPAliasesForCommitteeFamily(
+	topology *ccvdeployment.EnvironmentTopology,
+	committeeName string,
+	family string,
+) (map[string]struct{}, error) {
+	activeNOPAliases := make(map[string]struct{})
+	if topology == nil || topology.NOPTopology == nil {
+		return activeNOPAliases, nil
+	}
+
+	var committee *ccvdeployment.CommitteeConfig
+	for _, candidate := range topology.NOPTopology.Committees {
+		if strings.EqualFold(candidate.Qualifier, committeeName) {
+			candidateCopy := candidate
+			committee = &candidateCopy
+			break
+		}
+	}
+	if committee == nil {
+		return nil, fmt.Errorf("committee %s not found in topology", committeeName)
+	}
+
+	for selectorStr, chainCfg := range committee.ChainConfigs {
+		selector, err := strconv.ParseUint(selectorStr, 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("parse committee %s chain selector %q: %w", committeeName, selectorStr, err)
+		}
+		selectorFamily, err := chainsel.GetSelectorFamily(selector)
+		if err != nil {
+			return nil, fmt.Errorf("get chain family for selector %d: %w", selector, err)
+		}
+		if selectorFamily != family {
+			continue
+		}
+		for _, nopAlias := range chainCfg.NOPAliases {
+			activeNOPAliases[nopAlias] = struct{}{}
+		}
+	}
+
+	return activeNOPAliases, nil
 }
 
 // NewEnvironment creates a new CCIP CCV environment locally in Docker.
@@ -1089,7 +1158,7 @@ func NewEnvironment() (in *Cfg, err error) {
 	}
 	L.Info().Any("Selectors", selectors).Msg("Deploying for chain selectors")
 
-	topology := buildEnvironmentTopology(in, e)
+	topology := BuildEnvironmentTopology(in, e)
 	if topology == nil {
 		return nil, fmt.Errorf("failed to build environment topology")
 	}
@@ -1238,29 +1307,18 @@ func NewEnvironment() (in *Cfg, err error) {
 		}
 	}
 
-	// Generate aggregator configs using changesets (on-chain state as source of truth)
+	verifierJobSpecs, err := configureOffchainFromTopology(e, in, topology, sharedTLSCerts, ds)
+	if err != nil {
+		return nil, fmt.Errorf("failed to regenerate offchain config: %w", err)
+	}
+	if err := fundStandaloneExecutorAddresses(ctx, in, impls); err != nil {
+		return nil, fmt.Errorf("failed to fund standalone executor addresses: %w", err)
+	}
+
 	for _, aggregatorInput := range in.Aggregator {
-		aggregatorInput.SharedTLSCerts = sharedTLSCerts
-
-		// Use changeset to generate committee config from on-chain state
-		instanceName := aggregatorInput.InstanceName()
-		cs := ccvchangesets.GenerateAggregatorConfig(ccvadapters.GetRegistry())
-		output, err := cs.Apply(*e, ccvchangesets.GenerateAggregatorConfigInput{
-			Topology:           topology,
-			ServiceIdentifier:  instanceName + "-aggregator",
-			CommitteeQualifier: aggregatorInput.CommitteeName,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("failed to generate aggregator config for %s (committee %s): %w", instanceName, aggregatorInput.CommitteeName, err)
+		if sharedTLSCerts != nil {
+			aggregatorInput.SharedTLSCerts = sharedTLSCerts
 		}
-
-		// Get generated config from output datastore
-		aggCfg, err := ccvdeployment.GetAggregatorConfig(output.DataStore.Seal(), instanceName+"-aggregator")
-		if err != nil {
-			return nil, fmt.Errorf("failed to get aggregator config from output: %w", err)
-		}
-		aggregatorInput.GeneratedCommittee = aggCfg
-
 		out, err := services.NewAggregator(aggregatorInput)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create aggregator service for committee %s: %w", aggregatorInput.CommitteeName, err)
@@ -1269,7 +1327,6 @@ func NewEnvironment() (in *Cfg, err error) {
 		if out.TLSCACertFile != "" {
 			in.AggregatorCACertFiles[aggregatorInput.CommitteeName] = out.TLSCACertFile
 		}
-		e.DataStore = output.DataStore.Seal()
 	}
 
 	///////////////////////////////
@@ -1281,31 +1338,6 @@ func NewEnvironment() (in *Cfg, err error) {
 	// start up the indexer(s) after the aggregators are up to avoid spamming of errors
 	// in the logs when they start before the aggregators are up.
 	///////////////////////////
-	// Generate indexer config using changeset (on-chain state as source of truth).
-	// One shared config is generated; all indexers use the same config and duplicated secrets/auth.
-	if len(in.Aggregator) > 0 && len(in.Indexer) > 0 {
-		firstIdx := in.Indexer[0]
-		cs := ccvchangesets.GenerateIndexerConfig(ccvadapters.GetRegistry())
-		output, err := cs.Apply(*e, ccvchangesets.GenerateIndexerConfigInput{
-			ServiceIdentifier:                "indexer",
-			CommitteeVerifierNameToQualifier: firstIdx.CommitteeVerifierNameToQualifier,
-			CCTPVerifierNameToQualifier:      firstIdx.CCTPVerifierNameToQualifier,
-			LombardVerifierNameToQualifier:   firstIdx.LombardVerifierNameToQualifier,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("failed to generate indexer config: %w", err)
-		}
-
-		idxCfg, err := ccvdeployment.GetIndexerConfig(output.DataStore.Seal(), "indexer")
-		if err != nil {
-			return nil, fmt.Errorf("failed to get indexer config from output: %w", err)
-		}
-		e.DataStore = output.DataStore.Seal()
-		for _, idxIn := range in.Indexer {
-			idxIn.GeneratedCfg = idxCfg
-		}
-	}
-
 	if len(in.Indexer) < 1 {
 		return nil, fmt.Errorf("at least one indexer is required")
 	}
@@ -1423,11 +1455,6 @@ func NewEnvironment() (in *Cfg, err error) {
 	// START: Launch executors //
 	/////////////////////////////
 
-	executorJobSpecs, err := generateExecutorJobSpecs(ctx, e, in, selectors, impls, topology, ds)
-	if err != nil {
-		return nil, err
-	}
-
 	_, err = launchStandaloneExecutors(in.Executor, blockchainOutputs)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create standalone executor: %w", err)
@@ -1442,7 +1469,7 @@ func NewEnvironment() (in *Cfg, err error) {
 		if err := registerExecutorsWithJD(ctx, in.Executor, jdInfra.OffchainClient); err != nil {
 			return nil, err
 		}
-		if err := proposeJobsToExecutors(ctx, in.Executor, executorJobSpecs, blockchainOutputs, jdInfra.OffchainClient); err != nil {
+		if err := proposeJobsToExecutors(ctx, in.Executor, blockchainOutputs, jdInfra.OffchainClient); err != nil {
 			return nil, err
 		}
 	}
@@ -1454,11 +1481,6 @@ func NewEnvironment() (in *Cfg, err error) {
 	/////////////////////////////
 	// START: Launch verifiers //
 	/////////////////////////////
-
-	verifierJobSpecs, err := generateVerifierJobSpecs(e, in, selectors, topology, sharedTLSCerts, ds)
-	if err != nil {
-		return nil, err
-	}
 
 	// Each verifier owns one aggregator (NodeIndex % numAggs). Select the
 	// corresponding job spec so proposeJobsToStandaloneVerifiers gets a
@@ -1564,15 +1586,10 @@ func NewEnvironment() (in *Cfg, err error) {
 	////////////////////////////////////////////////////
 
 	e.DataStore = ds.Seal()
+	in.CLDF.DataStore = e.DataStore
 
-	if in.JDInfra != nil {
-		if err := jobs.AcceptPendingJobs(ctx, in.ClientLookup); err != nil {
-			return nil, fmt.Errorf("failed to accept pending jobs: %w", err)
-		}
-
-		if err := jobs.SyncAndVerifyJobProposals(e); err != nil {
-			return nil, fmt.Errorf("failed to sync/verify job proposals: %w", err)
-		}
+	if err := acceptPendingJobsAndSync(ctx, e, in); err != nil {
+		return nil, fmt.Errorf("failed to accept pending jobs: %w", err)
 	}
 
 	timeTrack.Print()
@@ -1901,7 +1918,6 @@ func registerExecutorsWithJD(ctx context.Context, executors []*executorsvc.Input
 func proposeJobsToExecutors(
 	ctx context.Context,
 	executors []*executorsvc.Input,
-	executorJobSpecs map[string]bootstrap.JobSpec,
 	blockchainOutputs []*blockchain.Output,
 	jdClient offchain.Client,
 ) error {
@@ -1935,10 +1951,10 @@ func proposeJobsToExecutors(
 				return fmt.Errorf("failed to load chain config for family %s: %w", exec.ChainFamily, err)
 			}
 
-			baseJobSpec, ok := executorJobSpecs[exec.ContainerName]
-			if !ok {
+			if len(exec.GeneratedJobSpecs) == 0 {
 				return fmt.Errorf("no job spec found for executor %s", exec.ContainerName)
 			}
+			baseJobSpec := exec.GeneratedJobSpecs[0]
 
 			jobSpec, err := executorsvc.RebuildExecutorJobSpecWithBlockchainInfos(baseJobSpec, blockchainInfos)
 			if err != nil {

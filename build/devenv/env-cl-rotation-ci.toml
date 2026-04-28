@@ -1,0 +1,32 @@
+## CI-specific override for env-cl-rotation.toml: use the pre-built CL image.
+[[nodesets]]
+  name = "don"
+  nodes = 3
+  override_mode = "each"
+
+  [nodesets.db]
+    image = "postgres:15.0"
+
+  [[nodesets.node_specs]]
+
+    [nodesets.node_specs.node]
+      image = "docker.io/library/local:latest"
+
+    [nodesets.node_specs.node.env_vars]
+      CL_EVM_CMD=""
+
+  [[nodesets.node_specs]]
+
+    [nodesets.node_specs.node]
+      image = "docker.io/library/local:latest"
+
+    [nodesets.node_specs.node.env_vars]
+      CL_EVM_CMD=""
+
+  [[nodesets.node_specs]]
+
+    [nodesets.node_specs.node]
+      image = "docker.io/library/local:latest"
+
+    [nodesets.node_specs.node.env_vars]
+      CL_EVM_CMD=""
