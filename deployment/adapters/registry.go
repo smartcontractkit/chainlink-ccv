@@ -11,11 +11,12 @@ import (
 // ChainAdapters bundles all chain-family-specific adapter implementations.
 // A nil field means the adapter is not supported for that family.
 type ChainAdapters struct {
-	Aggregator    AggregatorConfigAdapter
-	Executor      ExecutorConfigAdapter
-	Verifier      VerifierConfigAdapter
-	Indexer       IndexerConfigAdapter
-	TokenVerifier TokenVerifierConfigAdapter
+	Aggregator              AggregatorConfigAdapter
+	Executor                ExecutorConfigAdapter
+	Verifier                VerifierConfigAdapter
+	Indexer                 IndexerConfigAdapter
+	TokenVerifier           TokenVerifierConfigAdapter
+	CommitteeVerifierOnchain CommitteeVerifierOnchainAdapter
 }
 
 // Registry is a single registry mapping chain family → ChainAdapters.
@@ -39,12 +40,34 @@ func GetRegistry() *Registry {
 	return singletonRegistry
 }
 
+// Register merges a into the existing ChainAdapters for the given family.
+// Non-nil fields in a overwrite the corresponding field in the existing entry;
+// nil fields leave the existing value unchanged. This allows separate packages
+// (e.g. ccip for onchain adapters, ccv/evm for offchain adapters) to each
+// register their piece independently without conflicting.
 func (r *Registry) Register(family string, a ChainAdapters) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if _, exists := r.adapters[family]; !exists {
-		r.adapters[family] = a
+	existing := r.adapters[family]
+	if a.Aggregator != nil {
+		existing.Aggregator = a.Aggregator
 	}
+	if a.Executor != nil {
+		existing.Executor = a.Executor
+	}
+	if a.Verifier != nil {
+		existing.Verifier = a.Verifier
+	}
+	if a.Indexer != nil {
+		existing.Indexer = a.Indexer
+	}
+	if a.TokenVerifier != nil {
+		existing.TokenVerifier = a.TokenVerifier
+	}
+	if a.CommitteeVerifierOnchain != nil {
+		existing.CommitteeVerifierOnchain = a.CommitteeVerifierOnchain
+	}
+	r.adapters[family] = existing
 }
 
 func (r *Registry) Get(family string) (ChainAdapters, bool) {

@@ -1,10 +1,7 @@
 package adapters
 
 import (
-	"context"
-
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
-	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 )
 
 type CommitteeState struct {
@@ -20,11 +17,9 @@ type SignatureConfig struct {
 	Threshold           uint8
 }
 
-// AggregatorConfigAdapter provides chain-family-specific logic to discover committee state
-// and resolve verifier addresses for aggregator offchain config.
+// AggregatorConfigAdapter provides chain-family-specific offchain logic for aggregator config:
+// resolving verifier addresses from the datastore without any onchain reads.
 type AggregatorConfigAdapter interface {
-	// ScanCommitteeStates returns committee states for the given chain from the deployment env.
-	ScanCommitteeStates(ctx context.Context, env deployment.Environment, chainSelector uint64) ([]*CommitteeState, error)
 	// ResolveVerifierAddress returns the verifier contract address for the given chain and qualifier using the datastore.
 	ResolveVerifierAddress(ds datastore.DataStore, chainSelector uint64, qualifier string) (string, error)
 }
