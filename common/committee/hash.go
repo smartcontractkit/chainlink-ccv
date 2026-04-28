@@ -21,7 +21,7 @@ func NewSignableHash(messageID protocol.Bytes32, verifierBlobData []byte) ([32]b
 	if blobLen < VerifierVersionLength {
 		return [32]byte{}, fmt.Errorf("verifier blob data too short for message %s (expected at least %d bytes, got %d)", messageID.String(), VerifierVersionLength, blobLen)
 	}
-	var preImage []byte
+	preImage := make([]byte, 0, VerifierVersionLength+len(messageID))
 	preImage = append(preImage, verifierBlobData[:VerifierVersionLength]...)
 	preImage = append(preImage, messageID[:]...)
 	return protocol.Keccak256(preImage), nil

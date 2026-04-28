@@ -32,7 +32,7 @@ func TestNewSignableHash(t *testing.T) {
 	})
 
 	t.Run("valid input with verifier blob data longer than version", func(t *testing.T) {
-		longVerifierBlobData := make([]byte, len(validBlob))
+		longVerifierBlobData := make([]byte, len(validBlob), len(validBlob)+4)
 		copy(longVerifierBlobData, validBlob)
 		longVerifierBlobData = append(longVerifierBlobData, 0x05, 0x06, 0x07, 0x08)
 

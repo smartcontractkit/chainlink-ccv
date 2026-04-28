@@ -228,7 +228,7 @@ func TestInMemoryOffchainStorage_GetCCVDataByTimestamp(t *testing.T) {
 			require.Equal(t, tt.expectedCount, len(response))
 
 			// Verify nonces match expected by collecting from all destination chains
-			var actualNonces []uint64
+			actualNonces := make([]uint64, 0, len(response))
 			for _, ccv := range response {
 				actualNonces = append(actualNonces, uint64(ccv.Data.Message.SequenceNumber))
 			}
