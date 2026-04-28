@@ -13,6 +13,6 @@
 <!-- Run through this list before requesting review. -->
 ## Checklist
 
-- [ ] Breaking changes documented in changelog (see `changelog' directory)
+- [ ] Breaking changes documented in changelog (see `changelog` directory)
 - [ ] `just lint fix` - no new lint errors
 - [ ] `just generate` - mocks and protobufs are up to date
