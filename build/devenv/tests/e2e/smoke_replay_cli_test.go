@@ -143,11 +143,11 @@ func sendAndWaitForIndexed(
 	_, err = src.SendMessage(ctx, dest.ChainSelector(),
 		cciptestinterfaces.MessageFields{Receiver: receiver, Data: msgData},
 		cciptestinterfaces.MessageOptions{
-			Version:        3,
 			FinalityConfig: 1,
 			Executor:       executorAddr,
 			CCVs:           []protocol.CCV{{CCVAddress: ccvAddr, Args: []byte{}, ArgsLen: 0}},
 		},
+		3,
 	)
 	require.NoError(t, err, "failed to send message")
 

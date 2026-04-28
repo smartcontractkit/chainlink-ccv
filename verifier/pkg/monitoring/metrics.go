@@ -38,6 +38,8 @@ type VerifierMetrics struct {
 	taskVerificationPermanentErrors metric.Int64Counter
 	storageWriteErrorsCounter       metric.Int64Counter
 
+	criticalSourceInvariantViolations metric.Int64Counter
+
 	// Heartbeat Tracking
 	heartbeatsSentCounter           metric.Int64Counter
 	heartbeatsFailedCounter         metric.Int64Counter
@@ -277,6 +279,14 @@ func InitMetrics() (*VerifierMetrics, error) {
 		return nil, fmt.Errorf("failed to register task verification permanent errors counter: %w", err)
 	}
 
+	vm.criticalSourceInvariantViolations, err = beholder.GetMeter().Int64Counter(
+		"verifier_critical_source_invariant_violations_total",
+		metric.WithDescription("Encoded CCIP message disagrees with configured source chain observation (e.g. onRamp address or message id vs log)"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register critical source invariant violations counter: %w", err)
+	}
+
 	// HTTP API Metrics
 	vm.httpActiveRequestsUpDownCounter, err = beholder.GetMeter().Int64UpDownCounter(
 		"verifier_http_active_requests",
@@ -431,6 +441,11 @@ func (v *VerifierMetricLabeler) IncrementStorageWriteErrors(ctx context.Context)
 func (v *VerifierMetricLabeler) IncrementTaskVerificationPermanentErrors(ctx context.Context) {
 	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
 	v.vm.taskVerificationPermanentErrors.Add(ctx, 1, metric.WithAttributes(otelLabels...))
+}
+
+func (v *VerifierMetricLabeler) IncrementCriticalSourceInvariantViolations(ctx context.Context) {
+	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
+	v.vm.criticalSourceInvariantViolations.Add(ctx, 1, metric.WithAttributes(otelLabels...))
 }
 
 func (v *VerifierMetricLabeler) IncrementHeartbeatsSent(ctx context.Context) {

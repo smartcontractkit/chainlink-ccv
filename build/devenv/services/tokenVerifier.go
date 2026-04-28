@@ -156,7 +156,7 @@ func NewTokenVerifier(in *TokenVerifierInput, blockchainOutputs []*blockchain.Ou
 	}
 
 	req.Mounts = testcontainers.Mounts()
-	req.Mounts = append(req.Mounts, testcontainers.BindMount( //nolint:staticcheck // we're still using it...
+	req.Mounts = append(req.Mounts, testcontainers.BindMount(
 		configFilePath,
 		aggregator.DefaultConfigFile, // TODO: switch to token verifier path, not aggregator path.
 	))
@@ -181,6 +181,7 @@ func NewTokenVerifier(in *TokenVerifierInput, blockchainOutputs []*blockchain.Ou
 			Started:          true,
 		})
 		if err == nil {
+			lastErr = nil
 			break
 		}
 
@@ -188,6 +189,7 @@ func NewTokenVerifier(in *TokenVerifierInput, blockchainOutputs []*blockchain.Ou
 		framework.L.Warn().Err(err).Int("attempt", attempt).Msg("Container failed to start, retrying...")
 
 		if c != nil {
+			_ = SaveFailingTestcontainerLogs(ctx, c, in.ContainerName, attempt)
 			_ = c.Terminate(ctx)
 		}
 

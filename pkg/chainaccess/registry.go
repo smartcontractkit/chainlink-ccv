@@ -6,6 +6,7 @@ import (
 	"maps"
 	"reflect"
 	"sync"
+	"time"
 
 	"github.com/BurntSushi/toml"
 
@@ -69,6 +70,7 @@ type GenericConfig struct {
 	ChainConfig Infos[any] `toml:"blockchain_infos"`
 
 	CommitteeConfig
+	ExecutorConfig
 }
 
 // GetAllConcreteConfig populates target, which must be a pointer to an Infos[T]
@@ -135,6 +137,38 @@ type CommitteeConfig struct {
 	// RMNRemoteAddresses is a map of RMN Remote contract addresses for each chain selector.
 	// Required for curse detection.
 	RMNRemoteAddresses map[string]string `json:"rmn_remote_addresses" toml:"rmn_remote_addresses"`
+}
+
+// DestinationChainConfig is the subset of per-chain executor configuration needed to construct
+// a DestinationReader and ContractTransmitter. It is embedded in executor.ChainConfiguration so
+// that the TOML field paths are identical in both the executor service config and the GenericConfig
+// overlay read by the Registry.
+type DestinationChainConfig struct {
+	// OffRampAddress is the address of the OffRamp contract on the destination chain.
+	OffRampAddress string `toml:"off_ramp_address"`
+	// RmnAddress is the address of the RMN Remote contract on the destination chain.
+	RmnAddress string `toml:"rmn_address"`
+}
+
+// ExecutorConfig is an overlay of the executor application configuration. It reads the subset of
+// chain_configuration entries needed to construct DestinationReader and ContractTransmitter objects.
+// The TOML key "chain_configuration" and per-chain field names must match exactly what the executor
+// service parses (executor.ChainConfiguration embeds DestinationChainConfig for this reason).
+//
+// Example executor config shape mirrored here:
+//
+//	max_retry_duration = "8h"
+//
+//	[chain_configuration."<selector>"]
+//	off_ramp_address = "0x..."
+//	rmn_address      = "0x..."
+//	# executor-only fields (executor_pool, execution_interval, etc.) are ignored by this overlay
+type ExecutorConfig struct {
+	// MaxRetryDuration is the maximum duration the executor cluster will retry a message before
+	// giving up. It doubles as the ExecutionVisibilityWindow for the EvmDestinationReader, which
+	// must look back at least this far to detect all honest execution attempts.
+	MaxRetryDuration   time.Duration                     `toml:"max_retry_duration"`
+	ChainConfiguration map[string]DestinationChainConfig `toml:"chain_configuration"`
 }
 
 // accessorConstructorMapCopy returns a copy of the accessorConstructorMap to avoid holding the lock during

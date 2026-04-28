@@ -22,6 +22,7 @@ func (n *NoopMetricLabeler) RecordTaskVerificationQueueSize(_ context.Context, _
 func (n *NoopMetricLabeler) RecordStorageWriteQueueSize(_ context.Context, _ int64)               {}
 func (n *NoopMetricLabeler) IncrementStorageWriteErrors(_ context.Context)                        {}
 func (n *NoopMetricLabeler) IncrementTaskVerificationPermanentErrors(_ context.Context)           {}
+func (n *NoopMetricLabeler) IncrementCriticalSourceInvariantViolations(_ context.Context)         {}
 func (n *NoopMetricLabeler) IncrementHeartbeatsSent(_ context.Context)                            {}
 func (n *NoopMetricLabeler) IncrementHeartbeatsFailed(_ context.Context)                          {}
 func (n *NoopMetricLabeler) RecordHeartbeatDuration(_ context.Context, _ time.Duration)           {}

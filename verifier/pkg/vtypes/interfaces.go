@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/smartcontractkit/chainlink-ccv/common"
 	commonmetrics "github.com/smartcontractkit/chainlink-ccv/common/metrics"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
@@ -48,8 +49,16 @@ type Monitoring interface {
 	commonmetrics.ServiceMetrics
 }
 
+type FinalityCheckerMetrics interface {
+	// SetVerifierFinalityViolated sets value 1 if finality violated
+	SetVerifierFinalityViolated(ctx context.Context, selector protocol.ChainSelector, violated bool)
+}
+
 // MetricLabeler provides all metric recording functionality for the verifier.
 type MetricLabeler interface {
+	FinalityCheckerMetrics
+	common.CurseCheckerMetrics
+
 	// With returns a new metrics labeler with the given key-value pairs.
 	With(keyValues ...string) MetricLabeler
 
@@ -88,6 +97,9 @@ type MetricLabeler interface {
 	// IncrementTaskVerificationPermanentErrors increments the counter for non-retryable verification errors.
 	IncrementTaskVerificationPermanentErrors(ctx context.Context)
 
+	// IncrementCriticalSourceInvariantViolations increments when encoded source-chain data disagrees with configured on-chain facts (e.g. onRamp in message vs observed contract).
+	IncrementCriticalSourceInvariantViolations(ctx context.Context)
+
 	// Heartbeat tracking
 
 	// IncrementHeartbeatsSent increments the counter for successfully sent heartbeats.
@@ -115,12 +127,6 @@ type MetricLabeler interface {
 	RecordSourceChainSafeBlock(ctx context.Context, blockNum int64)
 	// RecordReorgTrackedSeqNums records the number of sequence numbers being tracked due to reorg.
 	RecordReorgTrackedSeqNums(ctx context.Context, count int64)
-	// SetVerifierFinalityViolated sets value 1 if finality violated
-	SetVerifierFinalityViolated(ctx context.Context, selector protocol.ChainSelector, violated bool)
-	// SetRemoteChainCursed sets value 1 if source chain is cursed
-	SetRemoteChainCursed(ctx context.Context, localSelector, remoteSelector protocol.ChainSelector, cursed bool)
-	// SetLocalChainGlobalCursed sets value 1 if source chain is cursed
-	SetLocalChainGlobalCursed(ctx context.Context, localSelector protocol.ChainSelector, globalCurse bool)
 
 	// HTTP API metrics
 
