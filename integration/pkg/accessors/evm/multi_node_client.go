@@ -30,6 +30,7 @@ func CreateMultiNodeClientFromInfo(ctx context.Context, blockchainInfo Info, lgg
 	selectionMode := ptr("HighestHead")
 	leaseDuration := 0 * time.Second
 	pollFailureThreshold := ptr(uint32(5))
+	pollSuccessThreshold := ptr(uint32(0))
 	pollInterval := 2 * time.Second
 	syncThreshold := ptr(uint32(5))
 	nodeIsSyncingEnabled := ptr(false)
@@ -62,7 +63,7 @@ func CreateMultiNodeClientFromInfo(ctx context.Context, blockchainInfo Info, lgg
 	safeTagSupported := ptr(true)
 	lggr.Infow("Testing multinode chain client", "chainSelector", blockchainInfo.ChainID, "wsURL", wsURL, "httpURL", httpURL)
 	chainCfg, nodePool, nodes, err := client.NewClientConfigs(selectionMode, leaseDuration, chainTypeStr, nodeConfigs,
-		pollFailureThreshold, pollInterval, syncThreshold, nodeIsSyncingEnabled, noNewHeadsThreshold, finalityDepth,
+		pollFailureThreshold, pollSuccessThreshold, pollInterval, syncThreshold, nodeIsSyncingEnabled, noNewHeadsThreshold, finalityDepth,
 		finalityTagEnabled, safeTagSupported, finalizedBlockOffset, enforceRepeatableRead, deathDeclarationDelay, noNewFinalizedBlocksThreshold,
 		finalizedBlockPollInterval, newHeadsPollInterval, confirmationTimeout, safeDepth)
 	if err != nil {
