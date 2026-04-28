@@ -194,7 +194,7 @@ func TestInMemoryOffchainStorage_GetCCVDataByTimestamp(t *testing.T) {
 			limit:          100,
 			offset:         0,
 			expectedCount:  0,
-			expectedNonces: nil,
+			expectedNonces: []uint64{},
 		},
 		{
 			name:           "pagination test - first page",
