@@ -216,7 +216,7 @@ func TestRegistry_RefreshRecordsMetrics(t *testing.T) {
 	labels := labelsToMap(activeEvents[0].labels)
 	assert.NotContains(t, labels, "rule_id")
 	assert.NotContains(t, labels, "rule_data")
-	assert.Equal(t, "Chain", labels["rule_type"])
+	assert.Equal(t, "chain", labels["rule_type"])
 	assert.Equal(t, "10", labels["chain_selector"])
 
 	store.rules = nil
@@ -226,7 +226,7 @@ func TestRegistry_RefreshRecordsMetrics(t *testing.T) {
 	require.Len(t, activeEvents, 2)
 	assert.Equal(t, int64(0), activeEvents[1].value)
 	inactiveLabels := labelsToMap(activeEvents[1].labels)
-	assert.Equal(t, "Chain", inactiveLabels["rule_type"])
+	assert.Equal(t, "chain", inactiveLabels["rule_type"])
 	assert.Equal(t, "10", inactiveLabels["chain_selector"])
 	assert.NotContains(t, inactiveLabels, "rule_id")
 	assert.NotContains(t, inactiveLabels, "rule_data")

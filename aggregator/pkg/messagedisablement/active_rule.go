@@ -1,5 +1,7 @@
 package messagedisablement
 
+import "strings"
+
 type activeRule interface {
 	IsDisabled(MessageReport) bool
 	metricKey() string
@@ -7,11 +9,15 @@ type activeRule interface {
 }
 
 func ruleMetricKey(rule Rule) string {
-	return string(rule.Type) + "|" + string(rule.Data)
+	return ruleTypeMetricValue(rule.Type)
 }
 
 func ruleMetricLabels(rule Rule) []string {
 	return []string{
-		"rule_type", string(rule.Type),
+		"rule_type", ruleTypeMetricValue(rule.Type),
 	}
+}
+
+func ruleTypeMetricValue(ruleType RuleType) string {
+	return strings.ToLower(string(ruleType))
 }
