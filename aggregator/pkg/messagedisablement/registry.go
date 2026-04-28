@@ -10,7 +10,9 @@ import (
 )
 
 type Metrics interface {
+	// SetMessageDisablementRuleActive records whether a disablement rule is active.
 	SetMessageDisablementRuleActive(ctx context.Context, active int64, keyValues ...string)
+	// SetMessageDisablementRulesRefreshFailure records whether the latest registry refresh failed.
 	SetMessageDisablementRulesRefreshFailure(ctx context.Context, failed int64)
 }
 

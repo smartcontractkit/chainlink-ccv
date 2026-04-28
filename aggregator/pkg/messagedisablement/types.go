@@ -44,9 +44,13 @@ type TokenRuleData struct {
 }
 
 type Store interface {
+	// Create persists a new message disablement rule.
 	Create(ctx context.Context, ruleType RuleType, data json.RawMessage) (Rule, error)
+	// List returns message disablement rules, optionally filtered by type.
 	List(ctx context.Context, ruleType *RuleType) ([]Rule, error)
+	// Get returns a message disablement rule by id, or nil when it does not exist.
 	Get(ctx context.Context, id string) (*Rule, error)
+	// Delete removes a message disablement rule by id.
 	Delete(ctx context.Context, id string) error
 }
 

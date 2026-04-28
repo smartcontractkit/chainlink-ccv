@@ -267,8 +267,7 @@ func TestRegistry_StartPeriodicRefresh_CallsRefreshRepeatedly(t *testing.T) {
 
 	store := &fakeStore{}
 	registry := messagedisablement.NewRegistry(store, logger.Sugared(logger.Test(t)))
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	registry.StartPeriodicRefresh(ctx, 10*time.Millisecond)
 
