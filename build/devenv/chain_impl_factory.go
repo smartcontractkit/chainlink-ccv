@@ -49,11 +49,6 @@ type ImplFactory interface {
 	// primitives in devenv (e.g. Canton) return false.
 	SupportsFunding() bool
 
-	// SupportsBootstrapExecutor reports whether executors for this family
-	// use the bootstrap.Run lifecycle (JD-managed with DB). Families that
-	// use standalone executors (legacy mode, no bootstrap) return false.
-	SupportsBootstrapExecutor() bool
-
 	// GenerateTransmitterKey generates a fresh private key for executor
 	// transaction signing in the native format for this chain family.
 	// Returns the hex-encoded private key string.

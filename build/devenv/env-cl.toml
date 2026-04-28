@@ -256,29 +256,35 @@ execution_interval = 15_000_000_000
 [[executor]]
   mode = "cl"
   image = "executor:dev"
-  port = 8101
   source_code_path = "../executor"
   root_path = "../../"
   container_name = "default-executor-1"
   nop_alias = "node-0"
   executor_qualifier = "default"
+  [executor.db]
+    image = "postgres:16-alpine"
+    name = "default-executor-1-db"
 
 [[executor]]
   mode = "cl"
   image = "executor:dev"
-  port = 8102
   source_code_path = "../executor"
   root_path = "../../"
   container_name = "default-executor-2"
   nop_alias = "node-1"
   executor_qualifier = "default"
+  [executor.db]
+    image = "postgres:16-alpine"
+    name = "default-executor-2-db"
 
 [[executor]]
   mode = "cl"
   image = "executor:dev"
-  port = 8103
   source_code_path = "../executor"
   root_path = "../../"
   container_name = "custom-executor-1"
   nop_alias = "node-0"
   executor_qualifier = "custom"
+  [executor.db]
+    image = "postgres:16-alpine"
+    name = "custom-executor-1-db"

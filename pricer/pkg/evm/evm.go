@@ -130,9 +130,11 @@ func LoadEVM(ctx context.Context, cfg ChainConfig, lggr logger.Logger, evmTxKeyS
 	}
 	chainStore := keys.NewChainStore(evmTxKeyStore, evmClient.ConfiguredChainID())
 	attemptBuilder := txm.NewAttemptBuilder(priceMaxKey, nil, chainStore, 0)
+	chainID := evmClient.ConfiguredChainID()
+	txmMetrics := txm.NewTxmMetrics(lggr, chainID)
 	evmTxm := txm.NewTxm(
 		lggr,
-		evmClient.ConfiguredChainID(),
+		chainID,
 		txmClient,
 		attemptBuilder,
 		inMemoryStoreManager,
@@ -140,6 +142,7 @@ func LoadEVM(ctx context.Context, cfg ChainConfig, lggr logger.Logger, evmTxKeyS
 		txm.Config{},
 		txmKeyStore,
 		nil, // errorHandler
+		txmMetrics,
 	)
 
 	return &Chain{

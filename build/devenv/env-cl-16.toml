@@ -767,172 +767,206 @@ execution_interval = 15_000_000_000
 [[executor]]
   mode = "cl"
   image = "executor:dev"
-  port = 8101
   source_code_path = "../executor"
   root_path = "../../"
   container_name = "default-executor-1"
   nop_alias = "node-0"
   executor_qualifier = "default"
+  [executor.db]
+    image = "postgres:16-alpine"
+    name = "default-executor-1-db"
 
 [[executor]]
   mode = "cl"
   image = "executor:dev"
-  port = 8102
   source_code_path = "../executor"
   root_path = "../../"
   container_name = "default-executor-2"
   nop_alias = "node-1"
   executor_qualifier = "default"
+  [executor.db]
+    image = "postgres:16-alpine"
+    name = "default-executor-2-db"
 
 [[executor]]
   mode = "cl"
   image = "executor:dev"
-  port = 8103
   source_code_path = "../executor"
   root_path = "../../"
   container_name = "default-executor-3"
   nop_alias = "node-2"
   executor_qualifier = "default"
+  [executor.db]
+    image = "postgres:16-alpine"
+    name = "default-executor-3-db"
 
 [[executor]]
   mode = "cl"
   image = "executor:dev"
-  port = 8104
   source_code_path = "../executor"
   root_path = "../../"
   container_name = "default-executor-4"
   nop_alias = "node-3"
   executor_qualifier = "default"
+  [executor.db]
+    image = "postgres:16-alpine"
+    name = "default-executor-4-db"
 
 [[executor]]
   mode = "cl"
   image = "executor:dev"
-  port = 8105
   source_code_path = "../executor"
   root_path = "../../"
   container_name = "default-executor-5"
   nop_alias = "node-4"
   executor_qualifier = "default"
+  [executor.db]
+    image = "postgres:16-alpine"
+    name = "default-executor-5-db"
 
 [[executor]]
   mode = "cl"
   image = "executor:dev"
-  port = 8106
   source_code_path = "../executor"
   root_path = "../../"
   container_name = "default-executor-6"
   nop_alias = "node-5"
   executor_qualifier = "default"
+  [executor.db]
+    image = "postgres:16-alpine"
+    name = "default-executor-6-db"
 
 [[executor]]
   mode = "cl"
   image = "executor:dev"
-  port = 8107
   source_code_path = "../executor"
   root_path = "../../"
   container_name = "default-executor-7"
   nop_alias = "node-6"
   executor_qualifier = "default"
+  [executor.db]
+    image = "postgres:16-alpine"
+    name = "default-executor-7-db"
 
 [[executor]]
   mode = "cl"
   image = "executor:dev"
-  port = 8108
   source_code_path = "../executor"
   root_path = "../../"
   container_name = "default-executor-8"
   nop_alias = "node-7"
   executor_qualifier = "default"
+  [executor.db]
+    image = "postgres:16-alpine"
+    name = "default-executor-8-db"
 
 [[executor]]
   mode = "cl"
   image = "executor:dev"
-  port = 8109
   source_code_path = "../executor"
   root_path = "../../"
   container_name = "default-executor-9"
   nop_alias = "node-8"
   executor_qualifier = "default"
+  [executor.db]
+    image = "postgres:16-alpine"
+    name = "default-executor-9-db"
 
 [[executor]]
   mode = "cl"
   image = "executor:dev"
-  port = 8110
   source_code_path = "../executor"
   root_path = "../../"
   container_name = "default-executor-10"
   nop_alias = "node-9"
   executor_qualifier = "default"
+  [executor.db]
+    image = "postgres:16-alpine"
+    name = "default-executor-10-db"
 
 [[executor]]
   mode = "cl"
   image = "executor:dev"
-  port = 8111
   source_code_path = "../executor"
   root_path = "../../"
   container_name = "default-executor-11"
   nop_alias = "node-10"
   executor_qualifier = "default"
+  [executor.db]
+    image = "postgres:16-alpine"
+    name = "default-executor-11-db"
 
 [[executor]]
   mode = "cl"
   image = "executor:dev"
-  port = 8112
   source_code_path = "../executor"
   root_path = "../../"
   container_name = "default-executor-12"
   nop_alias = "node-11"
   executor_qualifier = "default"
+  [executor.db]
+    image = "postgres:16-alpine"
+    name = "default-executor-12-db"
 
 [[executor]]
   mode = "cl"
   image = "executor:dev"
-  port = 8113
   source_code_path = "../executor"
   root_path = "../../"
   container_name = "default-executor-13"
   nop_alias = "node-12"
   executor_qualifier = "default"
+  [executor.db]
+    image = "postgres:16-alpine"
+    name = "default-executor-13-db"
 
 [[executor]]
   mode = "cl"
   image = "executor:dev"
-  port = 8114
   source_code_path = "../executor"
   root_path = "../../"
   container_name = "default-executor-14"
   nop_alias = "node-13"
   executor_qualifier = "default"
+  [executor.db]
+    image = "postgres:16-alpine"
+    name = "default-executor-14-db"
 
 [[executor]]
   mode = "cl"
   image = "executor:dev"
-  port = 8115
   source_code_path = "../executor"
   root_path = "../../"
   container_name = "default-executor-15"
   nop_alias = "node-14"
   executor_qualifier = "default"
+  [executor.db]
+    image = "postgres:16-alpine"
+    name = "default-executor-15-db"
 
 [[executor]]
   mode = "cl"
   image = "executor:dev"
-  port = 8116
   source_code_path = "../executor"
   root_path = "../../"
   container_name = "default-executor-16"
   nop_alias = "node-15"
   executor_qualifier = "default"
+  [executor.db]
+    image = "postgres:16-alpine"
+    name = "default-executor-16-db"
 
 [[executor]]
   mode = "cl"
   image = "executor:dev"
-  port = 8117
   source_code_path = "../executor"
   root_path = "../../"
   container_name = "custom-executor-1"
   nop_alias = "node-0"
   executor_qualifier = "custom"
+  [executor.db]
+    image = "postgres:16-alpine"
+    name = "custom-executor-1-db"
 
 [[indexer]]
   image = "indexer:dev"
