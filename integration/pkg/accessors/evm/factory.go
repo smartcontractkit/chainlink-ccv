@@ -159,34 +159,7 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 	}
 
 	rpcURL := f.rpcURLs[chainSelector]
-	evmContractTransmitter := f.newContractTransmitter(ctx, chainSelector)
-
-	return newAccessor(f.lggr, chainSelector, rpcURL, offRampAddr, keyName, evmSourceReader, evmDestReader, evmContractTransmitter), nil
-}
-
-func (f *factory) newContractTransmitter(ctx context.Context, chainSelector protocol.ChainSelector) chainaccess.ContractTransmitter {
-	destCfg, ok := f.destChainConfigs[chainSelector]
-	if !ok || destCfg.OffRampAddress == "" || f.transmitterPrivateKey == "" {
-		return nil
-	}
-	rpcURL, hasURL := f.rpcURLs[chainSelector]
-	if !hasURL {
-		f.lggr.Warnw("No RPC URL for chain, ContractTransmitter will be unavailable", "chainSelector", chainSelector)
-		return nil
-	}
-	ct, err := contracttransmitter.NewEVMContractTransmitterFromRPC(
-		ctx,
-		f.lggr,
-		chainSelector,
-		rpcURL,
-		f.transmitterPrivateKey,
-		common.HexToAddress(destCfg.OffRampAddress),
-	)
-	if err != nil {
-		f.lggr.Warnw("Failed to create EVM contract transmitter, ContractTransmitter will be unavailable", "chainSelector", chainSelector, "error", err)
-		return nil
-	}
-	return ct
+	return newAccessor(f.lggr, chainSelector, rpcURL, offRampAddr, keyName, evmSourceReader, evmDestReader, nil), nil
 }
 
 type accessor struct {
