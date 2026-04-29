@@ -1,7 +1,7 @@
 root = ".."
 
 [build]
-cmd = "go build -o ./tmp/token /app/verifier/cmd/token"
+cmd = "go build -o ./tmp/token /app/cmd/verifier/token"
 bin = "tmp/token"
 include_dir = ["app"]
 include_ext = ["go", "mod", "sum"]
