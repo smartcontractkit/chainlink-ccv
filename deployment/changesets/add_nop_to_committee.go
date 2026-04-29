@@ -49,6 +49,9 @@ type AddNOPOffchainInput struct {
 // requirement — the existing signers already satisfy the current threshold.
 func AddNOPToCommittee(registry *adapters.Registry) deployment.ChangeSetV2[AddNOPToCommitteeInput] {
 	validate := func(e deployment.Environment, cfg AddNOPToCommitteeInput) error {
+		if e.Offchain == nil {
+			return fmt.Errorf("offchain client is required")
+		}
 		if cfg.CommitteeQualifier == "" {
 			return fmt.Errorf("committee qualifier is required")
 		}
@@ -207,6 +210,13 @@ func buildAddSignerChange(state *adapters.CommitteeState, newSigner string, newT
 		threshold := sc.Threshold
 		if newThreshold != 0 {
 			threshold = newThreshold
+		}
+		newSignerCount := len(sc.Signers) + 1
+		if threshold == 0 || int(threshold) > newSignerCount {
+			return adapters.SignatureConfigChange{}, fmt.Errorf(
+				"source chain %d: invalid threshold %d for %d signers after adding signer %q",
+				sc.SourceChainSelector, threshold, newSignerCount, newSigner,
+			)
 		}
 		newConfigs = append(newConfigs, adapters.SignatureConfig{
 			SourceChainSelector: sc.SourceChainSelector,

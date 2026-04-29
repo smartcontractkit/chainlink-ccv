@@ -13,6 +13,9 @@ import (
 	cldfevm "github.com/smartcontractkit/chainlink-deployments-framework/chain/evm"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
+	csav1 "github.com/smartcontractkit/chainlink-protos/job-distributor/v1/csa"
+	jobv1 "github.com/smartcontractkit/chainlink-protos/job-distributor/v1/job"
+	nodev1 "github.com/smartcontractkit/chainlink-protos/job-distributor/v1/node"
 
 	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
 	"github.com/smartcontractkit/chainlink-ccv/deployment/adapters"
@@ -47,12 +50,23 @@ func TestBuildAddSignerChange_ReplacesThresholdWhenNonZero(t *testing.T) {
 func TestBuildAddSignerChange_KeepsThresholdWhenZero(t *testing.T) {
 	state := &adapters.CommitteeState{
 		SignatureConfigs: []adapters.SignatureConfig{
-			{SourceChainSelector: 1, Signers: []string{"0xAAA"}, Threshold: 3},
+			{SourceChainSelector: 1, Signers: []string{"0xAAA"}, Threshold: 2},
 		},
 	}
 	change, err := buildAddSignerChange(state, "0xBBB", 0)
 	require.NoError(t, err)
-	assert.Equal(t, uint8(3), change.NewConfigs[0].Threshold)
+	assert.Equal(t, uint8(2), change.NewConfigs[0].Threshold)
+}
+
+func TestBuildAddSignerChange_ErrorsWhenThresholdExceedsNewSignerCount(t *testing.T) {
+	state := &adapters.CommitteeState{
+		SignatureConfigs: []adapters.SignatureConfig{
+			{SourceChainSelector: 1, Signers: []string{"0xAAA"}, Threshold: 1},
+		},
+	}
+	_, err := buildAddSignerChange(state, "0xBBB", 3)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "invalid threshold 3 for 2 signers")
 }
 
 func TestBuildAddSignerChange_ErrorsIfAlreadyMember(t *testing.T) {
@@ -115,9 +129,15 @@ func newEVMRegistry(onchain adapters.CommitteeVerifierOnchainAdapter) *adapters.
 	return r
 }
 
+func newTestEnvironmentWithOffchain() deployment.Environment {
+	return deployment.Environment{
+		Offchain: &stubOffchainClient{},
+	}
+}
+
 func TestAddNOPToCommittee_Validation_MissingQualifier(t *testing.T) {
 	cs := AddNOPToCommittee(newEVMRegistry(&stubOnchainAdapter{}))
-	err := cs.VerifyPreconditions(deployment.Environment{}, AddNOPToCommitteeInput{
+	err := cs.VerifyPreconditions(newTestEnvironmentWithOffchain(), AddNOPToCommitteeInput{
 		ChainSelectors: []uint64{chainsel.TEST_90000001.Selector},
 		NOPAlias:       "nop1",
 	})
@@ -127,7 +147,7 @@ func TestAddNOPToCommittee_Validation_MissingQualifier(t *testing.T) {
 
 func TestAddNOPToCommittee_Validation_MissingChainSelectors(t *testing.T) {
 	cs := AddNOPToCommittee(newEVMRegistry(&stubOnchainAdapter{}))
-	err := cs.VerifyPreconditions(deployment.Environment{}, AddNOPToCommitteeInput{
+	err := cs.VerifyPreconditions(newTestEnvironmentWithOffchain(), AddNOPToCommitteeInput{
 		CommitteeQualifier: "default",
 		NOPAlias:           "nop1",
 	})
@@ -137,12 +157,23 @@ func TestAddNOPToCommittee_Validation_MissingChainSelectors(t *testing.T) {
 
 func TestAddNOPToCommittee_Validation_MissingNOPAlias(t *testing.T) {
 	cs := AddNOPToCommittee(newEVMRegistry(&stubOnchainAdapter{}))
-	err := cs.VerifyPreconditions(deployment.Environment{}, AddNOPToCommitteeInput{
+	err := cs.VerifyPreconditions(newTestEnvironmentWithOffchain(), AddNOPToCommitteeInput{
 		CommitteeQualifier: "default",
 		ChainSelectors:     []uint64{chainsel.TEST_90000001.Selector},
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "NOP alias is required")
+}
+
+func TestAddNOPToCommittee_Validation_RequiresOffchainClient(t *testing.T) {
+	cs := AddNOPToCommittee(newEVMRegistry(&stubOnchainAdapter{}))
+	err := cs.VerifyPreconditions(deployment.Environment{}, AddNOPToCommitteeInput{
+		CommitteeQualifier: "default",
+		ChainSelectors:     []uint64{chainsel.TEST_90000001.Selector},
+		NOPAlias:           "nop1",
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "offchain client is required")
 }
 
 // ---- AddNOPOffchain validation ----
@@ -318,6 +349,12 @@ type stubOnchainAdapter struct {
 	scanErr  error
 	applyErr error
 	applied  []adapters.SignatureConfigChange
+}
+
+type stubOffchainClient struct {
+	jobv1.JobServiceClient
+	nodev1.NodeServiceClient
+	csav1.CSAServiceClient
 }
 
 var _ adapters.CommitteeVerifierOnchainAdapter = (*stubOnchainAdapter)(nil)

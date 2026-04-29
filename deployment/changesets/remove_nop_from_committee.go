@@ -48,6 +48,9 @@ type RemoveNOPOffchainInput struct {
 // them harmlessly until step-2 updates the offchain config.
 func RemoveNOPFromCommittee(registry *adapters.Registry) deployment.ChangeSetV2[RemoveNOPFromCommitteeInput] {
 	validate := func(e deployment.Environment, cfg RemoveNOPFromCommitteeInput) error {
+		if e.Offchain == nil {
+			return fmt.Errorf("offchain client is required")
+		}
 		if cfg.CommitteeQualifier == "" {
 			return fmt.Errorf("committee qualifier is required")
 		}

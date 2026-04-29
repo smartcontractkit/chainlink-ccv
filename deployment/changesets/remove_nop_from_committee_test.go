@@ -129,7 +129,7 @@ func TestBuildRemoveSignerChange_MultipleSourceChains(t *testing.T) {
 
 func TestRemoveNOPFromCommittee_Validation_MissingQualifier(t *testing.T) {
 	cs := RemoveNOPFromCommittee(newEVMRegistry(&stubOnchainAdapter{}))
-	err := cs.VerifyPreconditions(deployment.Environment{}, RemoveNOPFromCommitteeInput{
+	err := cs.VerifyPreconditions(newTestEnvironmentWithOffchain(), RemoveNOPFromCommitteeInput{
 		ChainSelectors: []uint64{chainsel.TEST_90000001.Selector},
 		NOPAlias:       "nop1",
 	})
@@ -139,7 +139,7 @@ func TestRemoveNOPFromCommittee_Validation_MissingQualifier(t *testing.T) {
 
 func TestRemoveNOPFromCommittee_Validation_MissingChainSelectors(t *testing.T) {
 	cs := RemoveNOPFromCommittee(newEVMRegistry(&stubOnchainAdapter{}))
-	err := cs.VerifyPreconditions(deployment.Environment{}, RemoveNOPFromCommitteeInput{
+	err := cs.VerifyPreconditions(newTestEnvironmentWithOffchain(), RemoveNOPFromCommitteeInput{
 		CommitteeQualifier: "default",
 		NOPAlias:           "nop1",
 	})
@@ -149,7 +149,7 @@ func TestRemoveNOPFromCommittee_Validation_MissingChainSelectors(t *testing.T) {
 
 func TestRemoveNOPFromCommittee_Validation_MissingNOPAlias(t *testing.T) {
 	cs := RemoveNOPFromCommittee(newEVMRegistry(&stubOnchainAdapter{}))
-	err := cs.VerifyPreconditions(deployment.Environment{}, RemoveNOPFromCommitteeInput{
+	err := cs.VerifyPreconditions(newTestEnvironmentWithOffchain(), RemoveNOPFromCommitteeInput{
 		CommitteeQualifier: "default",
 		ChainSelectors:     []uint64{chainsel.TEST_90000001.Selector},
 	})
@@ -157,6 +157,16 @@ func TestRemoveNOPFromCommittee_Validation_MissingNOPAlias(t *testing.T) {
 	assert.Contains(t, err.Error(), "NOP alias is required")
 }
 
+func TestRemoveNOPFromCommittee_Validation_RequiresOffchainClient(t *testing.T) {
+	cs := RemoveNOPFromCommittee(newEVMRegistry(&stubOnchainAdapter{}))
+	err := cs.VerifyPreconditions(deployment.Environment{}, RemoveNOPFromCommitteeInput{
+		CommitteeQualifier: "default",
+		ChainSelectors:     []uint64{chainsel.TEST_90000001.Selector},
+		NOPAlias:           "nop1",
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "offchain client is required")
+}
 
 // ---- RemoveNOPOffchain validation ----
 
