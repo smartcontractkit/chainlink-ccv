@@ -8,8 +8,5 @@ CREATE TABLE message_disablement_rules (
     UNIQUE (type, data)
 );
 
-CREATE INDEX idx_message_disablement_rules_type ON message_disablement_rules (type);
-
 -- +goose Down
-DROP INDEX IF EXISTS idx_message_disablement_rules_type;
 DROP TABLE IF EXISTS message_disablement_rules;
