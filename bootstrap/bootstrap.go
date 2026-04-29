@@ -123,6 +123,15 @@ func NewBootstrapper(
 		}
 	}
 
+	// Backwards compatibility: if no keys are declared, initialize the original default set.
+	if len(b.keys) == 0 {
+		b.keys = []keyToInit{
+			{keys.DefaultCSAKeyName, "csa", keystore.Ed25519},
+			{keys.DefaultECDSASigningKeyName, "signing", keystore.ECDSA_S256},
+			{keys.DefaultEdDSASigningKeyName, "signing", keystore.Ed25519},
+		}
+	}
+
 	// If no configuration is provided, default to JD lifecycle manager with config loaded from the default path.
 	if b.appCfg == nil && b.config == nil {
 		b.config = &Config{}
@@ -330,6 +339,7 @@ func WithKey(name, purpose string, keyType keystore.KeyType) Option {
 		return nil
 	}
 }
+
 
 // WithJD tells the bootstrapper to load config from JD and start the JD lifecycle manager.
 // This is the default option if no AppConfig is provided.
