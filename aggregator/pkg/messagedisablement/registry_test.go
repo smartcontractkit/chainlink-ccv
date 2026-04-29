@@ -17,8 +17,11 @@ import (
 )
 
 type fakeStore struct {
-	rules []messagedisablement.Rule
-	err   error
+	mu         sync.Mutex
+	rules      []messagedisablement.Rule
+	err        error
+	listCalls  int
+	listCallCh chan struct{}
 }
 
 func (f *fakeStore) Create(context.Context, messagedisablement.RuleType, json.RawMessage) (messagedisablement.Rule, error) {
@@ -26,7 +29,20 @@ func (f *fakeStore) Create(context.Context, messagedisablement.RuleType, json.Ra
 }
 
 func (f *fakeStore) List(context.Context, *messagedisablement.RuleType) ([]messagedisablement.Rule, error) {
-	return f.rules, f.err
+	f.mu.Lock()
+	f.listCalls++
+	rules := append([]messagedisablement.Rule(nil), f.rules...)
+	err := f.err
+	listCallCh := f.listCallCh
+	f.mu.Unlock()
+
+	if listCallCh != nil {
+		select {
+		case listCallCh <- struct{}{}:
+		default:
+		}
+	}
+	return rules, err
 }
 
 func (f *fakeStore) Get(context.Context, string) (*messagedisablement.Rule, error) {
@@ -35,6 +51,12 @@ func (f *fakeStore) Get(context.Context, string) (*messagedisablement.Rule, erro
 
 func (f *fakeStore) Delete(context.Context, string) error {
 	return f.err
+}
+
+func (f *fakeStore) listCallCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.listCalls
 }
 
 type metricEvent struct {
@@ -81,6 +103,17 @@ func labelsToMap(labels []string) map[string]string {
 		out[labels[i]] = labels[i+1]
 	}
 	return out
+}
+
+func assertMetricEvent(t *testing.T, events []metricEvent, value int64, ruleType, chainSelector string) {
+	t.Helper()
+	for _, event := range events {
+		labels := labelsToMap(event.labels)
+		if event.value == value && labels["rule_type"] == ruleType && labels["chain_selector"] == chainSelector {
+			return
+		}
+	}
+	require.Failf(t, "metric event not found", "value=%d rule_type=%s chain_selector=%s events=%v", value, ruleType, chainSelector, events)
 }
 
 type report struct {
@@ -232,6 +265,35 @@ func TestRegistry_RefreshRecordsMetrics(t *testing.T) {
 	assert.NotContains(t, inactiveLabels, "rule_data")
 }
 
+func TestRegistry_RefreshRecordsMetricsForSameTypeRules(t *testing.T) {
+	t.Parallel()
+
+	chain10Data, err := messagedisablement.NewChainRuleData(10)
+	require.NoError(t, err)
+	chain20Data, err := messagedisablement.NewChainRuleData(20)
+	require.NoError(t, err)
+	chain10Rule := makeRule(t, messagedisablement.RuleTypeChain, chain10Data)
+	chain20Rule := makeRule(t, messagedisablement.RuleTypeChain, chain20Data)
+	store := &fakeStore{rules: []messagedisablement.Rule{chain10Rule, chain20Rule}}
+	metrics := &fakeMetrics{}
+	registry := messagedisablement.NewRegistry(store, logger.Sugared(logger.Test(t)), messagedisablement.WithMetrics(metrics))
+
+	require.NoError(t, registry.Refresh(context.Background()))
+
+	activeEvents := metrics.eventsByName("active_rule")
+	require.Len(t, activeEvents, 2)
+	assertMetricEvent(t, activeEvents, 1, "chain", "10")
+	assertMetricEvent(t, activeEvents, 1, "chain", "20")
+
+	store.rules = []messagedisablement.Rule{chain20Rule}
+	require.NoError(t, registry.Refresh(context.Background()))
+
+	activeEvents = metrics.eventsByName("active_rule")
+	require.Len(t, activeEvents, 4)
+	assertMetricEvent(t, activeEvents[2:], 0, "chain", "10")
+	assertMetricEvent(t, activeEvents[2:], 1, "chain", "20")
+}
+
 func TestRegistry_RefreshFailureRecordsMetricAndKeepsPreviousRules(t *testing.T) {
 	t.Parallel()
 
@@ -265,13 +327,13 @@ func TestNoopChecker_NeverDisables(t *testing.T) {
 func TestRegistry_StartPeriodicRefresh_CallsRefreshRepeatedly(t *testing.T) {
 	t.Parallel()
 
-	store := &fakeStore{}
-	registry := messagedisablement.NewRegistry(store, logger.Sugared(logger.Test(t)))
+	store := &fakeStore{listCallCh: make(chan struct{}, 4)}
+	registry := messagedisablement.NewRegistry(store, logger.Sugared(logger.Nop()))
 	ctx := t.Context()
 
 	registry.StartPeriodicRefresh(ctx, 10*time.Millisecond)
 
 	require.Eventually(t, func() bool {
-		return !registry.IsDisabled(report{source: 1, dest: 2})
+		return store.listCallCount() >= 2
 	}, 100*time.Millisecond, 5*time.Millisecond)
 }

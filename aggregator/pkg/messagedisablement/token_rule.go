@@ -30,7 +30,7 @@ func (r tokenActiveRule) IsDisabled(report MessageReport) bool {
 }
 
 func (r tokenActiveRule) metricKey() string {
-	return ruleMetricKey(r.rule)
+	return internalRuleMetricID(r.rule)
 }
 
 func (r tokenActiveRule) metricLabels() []string {

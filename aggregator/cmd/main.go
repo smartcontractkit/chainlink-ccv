@@ -10,7 +10,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"sync"
 	"syscall"
 	"time"
 
@@ -22,7 +21,6 @@ import (
 	messagedisablementcli "github.com/smartcontractkit/chainlink-ccv/aggregator/cli/messagedisablement"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/configuration"
-	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/storage/postgres"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -51,25 +49,11 @@ func main() {
 	sugaredLggr := logger.Sugared(lggr)
 
 	var (
-		loadedConfig                *model.AggregatorConfig
-		messageDisablementDepsOnce  sync.Once
+		messageDisablementRulesDB   *sql.DB
 		messageDisablementRulesDeps messagedisablementcli.Deps
 	)
 
 	getMessageDisablementRulesDepsFn := func() messagedisablementcli.Deps {
-		messageDisablementDepsOnce.Do(func() {
-			db, err := sql.Open("postgres", loadedConfig.Storage.ConnectionURL)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "failed to open database: %v\n", err)
-				os.Exit(1)
-			}
-			sqlxDB := sqlx.NewDb(db, "postgres")
-			store := postgres.NewDatabaseStorage(sqlxDB, loadedConfig.Storage.PageSize, loadedConfig.Storage.QueryTimeout, sugaredLggr)
-			messageDisablementRulesDeps = messagedisablementcli.Deps{
-				Logger: lggr,
-				Store:  store,
-			}
-		})
 		return messageDisablementRulesDeps
 	}
 
@@ -102,7 +86,27 @@ func main() {
 				if err := cfg.LoadFromEnvironment(); err != nil {
 					return fmt.Errorf("failed to load config from environment: %w", err)
 				}
-				loadedConfig = cfg
+				db, err := sql.Open("postgres", cfg.Storage.ConnectionURL)
+				if err != nil {
+					return fmt.Errorf("failed to open database: %w", err)
+				}
+				messageDisablementRulesDB = db
+				sqlxDB := sqlx.NewDb(db, "postgres")
+				store := postgres.NewDatabaseStorage(sqlxDB, cfg.Storage.PageSize, cfg.Storage.QueryTimeout, sugaredLggr)
+				messageDisablementRulesDeps = messagedisablementcli.Deps{
+					Logger: lggr,
+					Store:  store,
+				}
+				return nil
+			},
+			After: func(c *cli.Context) error {
+				if messageDisablementRulesDB == nil {
+					return nil
+				}
+				if err := messageDisablementRulesDB.Close(); err != nil {
+					return fmt.Errorf("failed to close database: %w", err)
+				}
+				messageDisablementRulesDB = nil
 				return nil
 			},
 			Subcommands: messagedisablementcli.InitMessageDisablementRulesCommandsWithFactory(getMessageDisablementRulesDepsFn),

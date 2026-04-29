@@ -23,7 +23,7 @@ func (r laneActiveRule) IsDisabled(report MessageReport) bool {
 }
 
 func (r laneActiveRule) metricKey() string {
-	return ruleMetricKey(r.rule)
+	return internalRuleMetricID(r.rule)
 }
 
 func (r laneActiveRule) metricLabels() []string {

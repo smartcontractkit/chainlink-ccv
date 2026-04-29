@@ -21,7 +21,7 @@ func (r chainActiveRule) IsDisabled(report MessageReport) bool {
 }
 
 func (r chainActiveRule) metricKey() string {
-	return ruleMetricKey(r.rule)
+	return internalRuleMetricID(r.rule)
 }
 
 func (r chainActiveRule) metricLabels() []string {

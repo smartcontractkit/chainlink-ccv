@@ -8,8 +8,8 @@ type activeRule interface {
 	metricLabels() []string
 }
 
-func ruleMetricKey(rule Rule) string {
-	return ruleTypeMetricValue(rule.Type)
+func internalRuleMetricID(rule Rule) string {
+	return ruleTypeMetricValue(rule.Type) + "|" + string(rule.Data)
 }
 
 func ruleMetricLabels(rule Rule) []string {
