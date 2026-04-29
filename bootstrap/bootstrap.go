@@ -328,7 +328,11 @@ type keyToInit struct {
 	keyType keystore.KeyType
 }
 
-// WithKey tells the bootstrapper about keys that must be available, they are initialized if needed.
+// WithKey declares a key that the bootstrapper must ensure exists, creating it if absent.
+// When no WithKey options are provided, the bootstrapper applies a default set of three keys:
+// keys.DefaultCSAKeyName (Ed25519), keys.DefaultECDSASigningKeyName (ECDSA_S256), and
+// keys.DefaultEdDSASigningKeyName (Ed25519). Passing one or more WithKey options suppresses
+// those defaults entirely; the caller is responsible for declaring every key it requires.
 func WithKey(name, purpose string, keyType keystore.KeyType) Option {
 	return func(b *Bootstrapper) error {
 		b.keys = append(b.keys, keyToInit{

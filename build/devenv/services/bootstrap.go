@@ -103,16 +103,16 @@ type BootstrapKeys struct {
 // GetExecutorBootstrapKeys fetches only the CSA key from the bootstrap server.
 // Executors only need the CSA key for JD registration.
 func GetExecutorBootstrapKeys(bootstrapURL string) (BootstrapKeys, error) {
-	return fetchBootstrapKeys(bootstrapURL, []string{bskeys.DefaultCSAKeyName}, false)
+	return fetchBootstrapKeys(bootstrapURL, []string{bskeys.DefaultCSAKeyName})
 }
 
 // GetBootstrapKeys fetches the CSA and ECDSA keys from the bootstrap server.
 // Verifiers need both for JD registration and signing.
 func GetBootstrapKeys(bootstrapURL string) (BootstrapKeys, error) {
-	return fetchBootstrapKeys(bootstrapURL, []string{bskeys.DefaultCSAKeyName, bskeys.DefaultECDSASigningKeyName}, true)
+	return fetchBootstrapKeys(bootstrapURL, []string{bskeys.DefaultCSAKeyName, bskeys.DefaultECDSASigningKeyName})
 }
 
-func fetchBootstrapKeys(bootstrapURL string, keyNames []string, includeECDSA bool) (BootstrapKeys, error) {
+func fetchBootstrapKeys(bootstrapURL string, keyNames []string) (BootstrapKeys, error) {
 	request := keystore.GetKeysRequest{KeyNames: keyNames}
 	jsonRequest, err := json.Marshal(request)
 	if err != nil {
@@ -158,11 +158,7 @@ func fetchBootstrapKeys(bootstrapURL string, keyNames []string, includeECDSA boo
 		CSAPublicKey: hex.EncodeToString(csaKey.KeyInfo.PublicKey),
 	}
 
-	if includeECDSA {
-		ecdsaKeyResp, ok := keyMap[bskeys.DefaultECDSASigningKeyName]
-		if !ok {
-			return BootstrapKeys{}, fmt.Errorf("ECDSA key %q not found in response", bskeys.DefaultECDSASigningKeyName)
-		}
+	if ecdsaKeyResp, ok := keyMap[bskeys.DefaultECDSASigningKeyName]; ok {
 		ecdsaPublicKey, err := crypto.UnmarshalPubkey(ecdsaKeyResp.KeyInfo.PublicKey)
 		if err != nil {
 			return BootstrapKeys{}, fmt.Errorf("failed to unmarshal ECDSA public key: %w", err)
