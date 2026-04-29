@@ -16,16 +16,21 @@ Use `--preserve-created-at` only when you intentionally want source timestamps.
 
 ## Requirements
 
-Python 3 with `psycopg3`:
-
-```bash
-python3 -m pip install 'psycopg[binary]'
-```
+[uv](https://docs.astral.sh/uv/) — dependencies are declared inline (PEP 723) and
+installed automatically on first run.
 
 ## Usage
 
 ```bash
-tools/migrate_aggregator/migrate_commit_verification_records.py \
+./tools/migrate_aggregator/migrate_commit_verification_records.py \
+--source-url "$SOURCE_DATABASE_URL" \
+--dest-url "$DEST_DATABASE_URL"
+```
+
+which is an equivalent to
+
+```bash
+uv run tools/migrate_aggregator/migrate_commit_verification_records.py \
   --source-url "$SOURCE_DATABASE_URL" \
   --dest-url "$DEST_DATABASE_URL"
 ```
@@ -35,17 +40,26 @@ Connection URLs can also be supplied through environment variables:
 ```bash
 SOURCE_DATABASE_URL='postgres://...' \
 DEST_DATABASE_URL='postgres://...' \
-tools/migrate_aggregator/migrate_commit_verification_records.py
+uv run tools/migrate_aggregator/migrate_commit_verification_records.py
 ```
 
-Dry run:
+Dry run (scans source only; `--dest-url` is not required):
 
 ```bash
-tools/migrate_aggregator/migrate_commit_verification_records.py \
+./tools/migrate_aggregator/migrate_commit_verification_records.py \
   --source-url "$SOURCE_DATABASE_URL" \
-  --dest-url "$DEST_DATABASE_URL" \
   --dry-run
 ```
+
+## Source quiescing
+
+The tool snapshots `MIN(id)` and `MAX(id)` from the source once at startup and
+uses those bounds for all COPY batches. Rows inserted into the source after that
+snapshot are not migrated.
+
+**Stop the source aggregator (or make it read-only) before running the migration**
+to ensure a complete copy. If the source was still writing during the run, re-run
+the tool after quiescing — `ON CONFLICT DO NOTHING` makes repeated runs safe.
 
 ## Performance
 

@@ -1,4 +1,8 @@
-#!/usr/bin/env python3
+#!/usr/bin/env -S uv run
+# /// script
+# requires-python = ">=3.9"
+# dependencies = ["psycopg[binary]"]
+# ///
 """Migrate aggregator commit_verification_records between Postgres databases."""
 
 from __future__ import annotations
@@ -15,7 +19,7 @@ try:
     import psycopg
     from psycopg.rows import dict_row
 except ImportError:
-    print("ERROR: missing psycopg3 driver. Install it with: python3 -m pip install 'psycopg[binary]'", file=sys.stderr)
+    print("ERROR: missing psycopg3 driver. Run the script with: uv run migrate_commit_verification_records.py", file=sys.stderr)
     raise SystemExit(2)
 
 
@@ -114,8 +118,8 @@ def parse_args() -> argparse.Namespace:
     args = parser.parse_args()
     if not args.source_url:
         parser.error("--source-url or SOURCE_DATABASE_URL is required")
-    if not args.dest_url:
-        parser.error("--dest-url or DEST_DATABASE_URL is required")
+    if not args.dry_run and not args.dest_url:
+        parser.error("--dest-url or DEST_DATABASE_URL is required unless --dry-run is set")
     if args.copy_batches <= 0:
         parser.error("--copy-batches must be greater than 0")
     return args
@@ -287,7 +291,7 @@ def collect_stats(conn: Any) -> MigrationStats:
 
 def migrate(args: argparse.Namespace) -> int:
     print("Using Postgres driver: psycopg3")
-    with closing(connect(args.source_url)) as source_conn, closing(connect(args.dest_url)) as dest_conn:
+    with closing(connect(args.source_url)) as source_conn:
         source_stats = get_source_stats(source_conn)
         print(
             f"Source rows: {source_stats.row_count} "
@@ -298,7 +302,7 @@ def migrate(args: argparse.Namespace) -> int:
             print("Dry run requested; skipping destination insert.")
             return 0
 
-        with tempfile.TemporaryDirectory(prefix="commit_verification_records_") as temp_dir:
+        with closing(connect(args.dest_url)) as dest_conn, tempfile.TemporaryDirectory(prefix="commit_verification_records_") as temp_dir:
             batches = build_copy_batches(source_stats, args.copy_batches, temp_dir)
             print(f"Exporting source rows with COPY into {len(batches)} local batch files...")
             copied_bytes = 0
@@ -340,12 +344,12 @@ def migrate(args: argparse.Namespace) -> int:
                 f"inserted={inserted} skipped_unique_verification={int(staged_count) - inserted}"
             )
 
-        stats = collect_stats(dest_conn)
-        print("Migration result:")
-        print(f"  staged rows: {stats.staged_count}")
-        print(f"  inserted rows: {stats.inserted_count}")
-        print(f"  skipped unique_verification rows: {stats.skipped_unique_verification_count}")
-        print(f"  rows present after migration: {stats.present_after_count}")
+            stats = collect_stats(dest_conn)
+            print("Migration result:")
+            print(f"  staged rows: {stats.staged_count}")
+            print(f"  inserted rows: {stats.inserted_count}")
+            print(f"  skipped unique_verification rows: {stats.skipped_unique_verification_count}")
+            print(f"  rows present after migration: {stats.present_after_count}")
 
     return 0
 
