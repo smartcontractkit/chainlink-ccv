@@ -94,6 +94,7 @@ type Bootstrapper struct {
 	config           *Config
 	lifecycleManager *lifecycle.Manager
 	infoServer       *infoServer
+	keys             []keyToInit
 
 	// application
 	appCfg *string
@@ -180,7 +181,7 @@ func (b *Bootstrapper) startWithJDLifecycle(ctx context.Context) error {
 		return fmt.Errorf("failed to connect to bootstrapper database: %w", err)
 	}
 
-	keyStore, csaSigner, err := initializeKeystore(ctx, b.lggr, db, b.config.Keystore.Password)
+	keyStore, csaSigner, err := initializeKeystore(ctx, b.lggr, db, b.config.Keystore.Password, b.keys)
 	if err != nil {
 		return fmt.Errorf("failed to initialize keystore: %w", err)
 	}
@@ -281,22 +282,18 @@ func newServiceDeps(keyStore keystore.Keystore, logLevel zapcore.Level, name str
 	}, nil
 }
 
-func initializeKeystore(ctx context.Context, lggr logger.Logger, db *sqlx.DB, ksPassword string) (keystore.Keystore, crypto.Signer, error) {
+func initializeKeystore(ctx context.Context, lggr logger.Logger, db *sqlx.DB, ksPassword string, requiredKeys []keyToInit) (keystore.Keystore, crypto.Signer, error) {
 	ks, err := keystore.LoadKeystore(ctx, keys.NewPGStorage(db, "default"), ksPassword)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to load keystore: %w", err)
 	}
 
-	requiredKeys := []struct {
-		name    string
-		purpose string
-		keyType keystore.KeyType
-	}{
+	defaultKeys := []keyToInit{
 		{keys.DefaultCSAKeyName, "csa", keystore.Ed25519},
 		{keys.DefaultECDSASigningKeyName, "signing", keystore.ECDSA_S256},
 		{keys.DefaultEdDSASigningKeyName, "signing", keystore.Ed25519},
 	}
-	for _, k := range requiredKeys {
+	for _, k := range append(defaultKeys, requiredKeys...) {
 		if err := keys.EnsureKey(ctx, lggr, ks, k.name, k.purpose, k.keyType); err != nil {
 			return nil, nil, fmt.Errorf("failed to ensure %s key: %w", k.purpose, err)
 		}
@@ -317,6 +314,24 @@ type Option func(*Bootstrapper) error
 func WithLogLevel(logLevel zapcore.Level) Option {
 	return func(b *Bootstrapper) error {
 		b.logLevel = logLevel
+		return nil
+	}
+}
+
+type keyToInit struct {
+	name    string
+	purpose string
+	keyType keystore.KeyType
+}
+
+// WithKey tells the bootstrapper about keys that must be available, they are initialized if needed.
+func WithKey(name, purpose string, keyType keystore.KeyType) Option {
+	return func(b *Bootstrapper) error {
+		b.keys = append(b.keys, keyToInit{
+			name:    name,
+			purpose: purpose,
+			keyType: keyType,
+		})
 		return nil
 	}
 }
