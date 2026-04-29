@@ -10,10 +10,15 @@ import (
 	"github.com/stretchr/testify/require"
 
 	chain_selectors "github.com/smartcontractkit/chain-selectors"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/proxy"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/sequences"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/versioned_verifier_resolver"
 	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/aggregatorcli"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 )
 
@@ -105,6 +110,7 @@ func TestE2ESmoke_AggregatorLaneDisablementRule(t *testing.T) {
 	blockedSrcSelector := blockedSrc.Details.ChainSelector
 	blockedDestSelector := blockedDest.Details.ChainSelector
 	allowedDestSelector := allowedDest.Details.ChainSelector
+	messageOpts := messageDisablementOptions(t, in, blockedSrcSelector)
 
 	receiverOnBlockedDest := mustGetEOAReceiverAddress(t, blockedDest)
 	receiverOnAllowedDest := mustGetEOAReceiverAddress(t, allowedDest)
@@ -130,7 +136,8 @@ func TestE2ESmoke_AggregatorLaneDisablementRule(t *testing.T) {
 	require.NoError(t, err)
 	_, err = blockedSrc.SendMessage(ctx, allowedDestSelector,
 		cciptestinterfaces.MessageFields{Receiver: receiverOnAllowedDest},
-		cciptestinterfaces.MessageOptions{Version: 3})
+		messageOpts,
+		messageDisablementMessageVersion)
 	require.NoError(t, err)
 	sentEvtAllowed, err := blockedSrc.ConfirmSendOnSource(ctx, allowedDestSelector, cciptestinterfaces.MessageEventKey{SeqNum: seqNoAllowed}, defaultSentTimeout)
 	require.NoError(t, err)
@@ -145,7 +152,8 @@ func TestE2ESmoke_AggregatorLaneDisablementRule(t *testing.T) {
 	require.NoError(t, err)
 	_, err = blockedSrc.SendMessage(ctx, blockedDestSelector,
 		cciptestinterfaces.MessageFields{Receiver: receiverOnBlockedDest},
-		cciptestinterfaces.MessageOptions{Version: 3})
+		messageOpts,
+		messageDisablementMessageVersion)
 	require.NoError(t, err)
 	sentEvtBlocked, err := blockedSrc.ConfirmSendOnSource(ctx, blockedDestSelector, cciptestinterfaces.MessageEventKey{SeqNum: seqNoBlocked}, defaultSentTimeout)
 	require.NoError(t, err)
@@ -165,7 +173,8 @@ func TestE2ESmoke_AggregatorLaneDisablementRule(t *testing.T) {
 	require.NoError(t, err)
 	_, err = blockedSrc.SendMessage(ctx, blockedDestSelector,
 		cciptestinterfaces.MessageFields{Receiver: receiverOnBlockedDest},
-		cciptestinterfaces.MessageOptions{Version: 3})
+		messageOpts,
+		messageDisablementMessageVersion)
 	require.NoError(t, err)
 	sentEvtRecovery, err := blockedSrc.ConfirmSendOnSource(ctx, blockedDestSelector, cciptestinterfaces.MessageEventKey{SeqNum: seqNoRecovery}, defaultSentTimeout)
 	require.NoError(t, err)
@@ -204,8 +213,10 @@ func TestE2ESmoke_AggregatorChainDisablementRule(t *testing.T) {
 	src := chains[0]
 	blockedDest := chains[1]
 	allowedDest := chains[2]
+	srcSelector := src.Details.ChainSelector
 	blockedDestSelector := blockedDest.Details.ChainSelector
 	allowedDestSelector := allowedDest.Details.ChainSelector
+	messageOpts := messageDisablementOptions(t, in, srcSelector)
 
 	ac := aggregatorcli.NewClient(in.Aggregator[0].Out.AggregatorContainerName)
 	rulesClient := ac.MessageDisablementRules()
@@ -225,12 +236,12 @@ func TestE2ESmoke_AggregatorChainDisablementRule(t *testing.T) {
 
 	allowedSent := sendMessageAndConfirm(t, ctx, src, allowedDestSelector,
 		cciptestinterfaces.MessageFields{Receiver: mustGetEOAReceiverAddress(t, allowedDest)},
-		cciptestinterfaces.MessageOptions{Version: 3})
+		messageOpts)
 	requireAggregatorResult(t, ctx, aggregatorClient, allowedSent.MessageID, "message on unrelated chain should still reach the aggregator")
 
 	blockedSent := sendMessageAndConfirm(t, ctx, src, blockedDestSelector,
 		cciptestinterfaces.MessageFields{Receiver: mustGetEOAReceiverAddress(t, blockedDest)},
-		cciptestinterfaces.MessageOptions{Version: 3})
+		messageOpts)
 	requireNoAggregatorResult(t, ctx, aggregatorClient, blockedSent.MessageID, "message touching disabled chain should not be in aggregator")
 
 	_, err = rulesClient.Delete(cliCtx, ruleID)
@@ -239,8 +250,32 @@ func TestE2ESmoke_AggregatorChainDisablementRule(t *testing.T) {
 
 	recoverySent := sendMessageAndConfirm(t, ctx, src, blockedDestSelector,
 		cciptestinterfaces.MessageFields{Receiver: mustGetEOAReceiverAddress(t, blockedDest)},
-		cciptestinterfaces.MessageOptions{Version: 3})
+		messageOpts)
 	requireAggregatorResult(t, ctx, aggregatorClient, recoverySent.MessageID, "message should reach the aggregator after chain rule is deleted")
+}
+
+const messageDisablementMessageVersion uint8 = 3
+
+func messageDisablementOptions(t *testing.T, in *ccv.Cfg, srcSelector uint64) cciptestinterfaces.MessageOptions {
+	t.Helper()
+
+	executorAddr := getContractAddress(t, in, srcSelector,
+		datastore.ContractType(sequences.ExecutorProxyType),
+		proxy.Deploy.Version(),
+		devenvcommon.DefaultExecutorQualifier,
+		"executor")
+	ccvAddr := getContractAddress(t, in, srcSelector,
+		datastore.ContractType(versioned_verifier_resolver.CommitteeVerifierResolverType),
+		versioned_verifier_resolver.Version.String(),
+		devenvcommon.DefaultCommitteeVerifierQualifier,
+		"committee verifier proxy")
+
+	return cciptestinterfaces.MessageOptions{
+		Executor: executorAddr,
+		CCVs: []protocol.CCV{
+			{CCVAddress: ccvAddr, Args: []byte{}, ArgsLen: 0},
+		},
+	}
 }
 
 func sendMessageAndConfirm(
@@ -255,7 +290,7 @@ func sendMessageAndConfirm(
 
 	seqNo, err := src.GetExpectedNextSequenceNumber(ctx, destSelector)
 	require.NoError(t, err)
-	_, err = src.SendMessage(ctx, destSelector, fields, opts)
+	_, err = src.SendMessage(ctx, destSelector, fields, opts, messageDisablementMessageVersion)
 	require.NoError(t, err)
 	sentEvt, err := src.ConfirmSendOnSource(ctx, destSelector, cciptestinterfaces.MessageEventKey{SeqNum: seqNo}, defaultSentTimeout)
 	require.NoError(t, err)
