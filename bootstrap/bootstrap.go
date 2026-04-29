@@ -340,7 +340,6 @@ func WithKey(name, purpose string, keyType keystore.KeyType) Option {
 	}
 }
 
-
 // WithJD tells the bootstrapper to load config from JD and start the JD lifecycle manager.
 // This is the default option if no AppConfig is provided.
 func WithJD() Option {
