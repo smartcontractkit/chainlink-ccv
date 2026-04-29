@@ -288,12 +288,7 @@ func initializeKeystore(ctx context.Context, lggr logger.Logger, db *sqlx.DB, ks
 		return nil, nil, fmt.Errorf("failed to load keystore: %w", err)
 	}
 
-	defaultKeys := []keyToInit{
-		{keys.DefaultCSAKeyName, "csa", keystore.Ed25519},
-		{keys.DefaultECDSASigningKeyName, "signing", keystore.ECDSA_S256},
-		{keys.DefaultEdDSASigningKeyName, "signing", keystore.Ed25519},
-	}
-	for _, k := range append(defaultKeys, requiredKeys...) {
+	for _, k := range requiredKeys {
 		if err := keys.EnsureKey(ctx, lggr, ks, k.name, k.purpose, k.keyType); err != nil {
 			return nil, nil, fmt.Errorf("failed to ensure %s key: %w", k.purpose, err)
 		}

@@ -11,11 +11,11 @@ import (
 // ChainAdapters bundles all chain-family-specific adapter implementations.
 // A nil field means the adapter is not supported for that family.
 type ChainAdapters struct {
-	Aggregator              AggregatorConfigAdapter
-	Executor                ExecutorConfigAdapter
-	Verifier                VerifierConfigAdapter
-	Indexer                 IndexerConfigAdapter
-	TokenVerifier           TokenVerifierConfigAdapter
+	Aggregator               AggregatorConfigAdapter
+	Executor                 ExecutorConfigAdapter
+	Verifier                 VerifierConfigAdapter
+	Indexer                  IndexerConfigAdapter
+	TokenVerifier            TokenVerifierConfigAdapter
 	CommitteeVerifierOnchain CommitteeVerifierOnchainAdapter
 }
 
