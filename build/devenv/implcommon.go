@@ -517,27 +517,19 @@ func DeployTokensAndPools(
 // ---------------------------------------------------------------------------
 
 // ConfigureAllTokenTransfers collects TokenTransferConfigs from all chain
-// impls, groups them by pool identity, and calls ConfigureTokensForTransfers
-// once per group. This replaces the EVM-specific BuildTokenTransferConfigs
-// call that previously lived in environment.go.
+// impls, groups them by local pool identity, and calls
+// ConfigureTokensForTransfers once per group. This replaces the EVM-specific
+// BuildTokenTransferConfigs call that previously lived in environment.go.
 func ConfigureAllTokenTransfers(
 	impls []cciptestinterfaces.CCIP17Configuration,
 	selectors []uint64,
 	env *deployment.Environment,
 	topology *ccvdeployment.EnvironmentTopology,
 ) error {
-	refKey := func(ref datastore.AddressRef) string {
-		v := ""
-		if ref.Version != nil {
-			v = ref.Version.String()
-		}
-		return string(ref.Type) + "+" + v + "+" + ref.Qualifier
-	}
-
-	// Group by (chainSelector, poolIdentity) so each pool gets ALL its remote
-	// chains in a single ConfigureTokensForTransfers call. The upstream sequence
-	// validates that remoteChains includes every chain the pool already supports,
-	// so splitting by lane would fail when a pool has more than one remote.
+	// First merge duplicate configs for the same local pool. Each merged config
+	// keeps all remote lanes for that pool; the next phase splits unrelated
+	// tokens into separate ConfigureTokensForTransfers calls because upstream
+	// keys the Tokens slice by chain selector.
 	type poolKey struct {
 		chainSelector uint64
 		poolID        string
@@ -563,7 +555,7 @@ func ConfigureAllTokenTransfers(
 		for _, cfg := range cfgs {
 			pk := poolKey{
 				chainSelector: cfg.ChainSelector,
-				poolID:        refKey(cfg.TokenPoolRef),
+				poolID:        tokenTransferRefKey(cfg.TokenPoolRef),
 			}
 			if existing, ok := byPool[pk]; ok {
 				maps.Copy(existing.RemoteChains, cfg.RemoteChains)
@@ -583,13 +575,52 @@ func ConfigureAllTokenTransfers(
 		allConfigs = append(allConfigs, cfg)
 	}
 
+	batches := buildTokenTransferBatches(allConfigs)
+
 	tokenAdapterRegistry := tokenscore.GetTokenAdapterRegistry()
 	mcmsReaderRegistry := changesetscore.GetRegistry()
-	_, err := tokenscore.ConfigureTokensForTransfers(tokenAdapterRegistry, mcmsReaderRegistry).Apply(*env, tokenscore.ConfigureTokensForTransfersConfig{
-		Tokens: allConfigs,
-	})
-	if err != nil {
-		return fmt.Errorf("configure tokens for transfers: %w", err)
+	for i, batch := range batches {
+		_, err := tokenscore.ConfigureTokensForTransfers(tokenAdapterRegistry, mcmsReaderRegistry).Apply(*env, tokenscore.ConfigureTokensForTransfersConfig{
+			Tokens: batch,
+		})
+		if err != nil {
+			return fmt.Errorf("configure tokens for transfers batch %d: %w", i, err)
+		}
 	}
 	return nil
+}
+
+func tokenTransferRefKey(ref datastore.AddressRef) string {
+	v := ""
+	if ref.Version != nil {
+		v = ref.Version.String()
+	}
+	return string(ref.Type) + "+" + v + "+" + ref.Qualifier
+}
+
+func buildTokenTransferBatches(configs []tokenscore.TokenTransferConfig) [][]tokenscore.TokenTransferConfig {
+	// Configure each logical token/pool independently across lanes. The upstream
+	// changeset expects one local pool identity per call, while each batch may
+	// still include that pool's configs from multiple chains.
+	byPool := make(map[string][]tokenscore.TokenTransferConfig)
+	for _, cfg := range configs {
+		poolKey := tokenTransferRefKey(cfg.TokenPoolRef)
+		byPool[poolKey] = append(byPool[poolKey], cfg)
+	}
+
+	groupKeys := make([]string, 0, len(byPool))
+	for groupKey := range byPool {
+		groupKeys = append(groupKeys, groupKey)
+	}
+	sort.Strings(groupKeys)
+
+	batches := make([][]tokenscore.TokenTransferConfig, 0, len(groupKeys))
+	for _, groupKey := range groupKeys {
+		batch := append([]tokenscore.TokenTransferConfig(nil), byPool[groupKey]...)
+		sort.Slice(batch, func(i, j int) bool {
+			return batch[i].ChainSelector < batch[j].ChainSelector
+		})
+		batches = append(batches, batch)
+	}
+	return batches
 }

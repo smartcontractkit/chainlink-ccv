@@ -43,6 +43,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/sequences"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/versioned_verifier_resolver"
 
+	bnm_v1_0 "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_0_0/operations/burn_mint_erc20"
 	bnm_drip_v1_0 "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_0_0/operations/burn_mint_erc20_with_drip"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_0_0/operations/link"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_0_0/operations/weth"
@@ -1254,7 +1255,7 @@ func (m *CCIP17EVMConfig) GetTokenExpansionConfigs(
 	return configs, nil
 }
 
-// PostTokenDeploy funds any lock-release token pools that were deployed on this EVM chain.
+// PostTokenDeploy applies EVM-specific generic token post-deployment setup.
 func (m *CCIP17EVMConfig) PostTokenDeploy(
 	env *deployment.Environment,
 	selector uint64,
@@ -1267,7 +1268,14 @@ func (m *CCIP17EVMConfig) PostTokenDeploy(
 	fundAmount := new(big.Int).Div(deployerBalance, big.NewInt(10))
 
 	for _, ref := range deployedRefs {
-		if ref.Type == datastore.ContractType(lock_release_token_pool.ContractType) {
+		switch {
+		case string(ref.Type) == devenvcommon.BurnMintTokenPoolType:
+			// TODO: Remove this once the token expansion CS grants mint/burn roles
+			// for BurnMintERC20WithDripToken pools.
+			if err := m.grantBurnMintRolesForTokenPool(env, selector, ref); err != nil {
+				return fmt.Errorf("failed to grant mint/burn roles for %s token: %w", ref.Qualifier, err)
+			}
+		case ref.Type == datastore.ContractType(lock_release_token_pool.ContractType):
 			if err := m.fundLockReleaseTokenPool(env, selector, ref, fundAmount); err != nil {
 				return fmt.Errorf("failed to fund lock-release token pool for %s token: %w", ref.Qualifier, err)
 			}
@@ -1646,6 +1654,63 @@ func (m *CCIP17EVMConfig) fundLockReleaseTokenPool(
 	}
 	if receipt.Status != types.ReceiptStatusSuccessful {
 		return fmt.Errorf("transfer transaction failed with status: %d", receipt.Status)
+	}
+
+	return nil
+}
+
+func (m *CCIP17EVMConfig) grantBurnMintRolesForTokenPool(
+	env *deployment.Environment,
+	selector uint64,
+	tokenPoolRef datastore.AddressRef,
+) error {
+	qualifier := tokenPoolRef.Qualifier
+	tokenRef, err := env.DataStore.Addresses().Get(datastore.NewAddressRefKey(
+		selector,
+		datastore.ContractType(bnm_drip_v1_0.ContractType),
+		semver.MustParse(bnm_drip_v1_0.Deploy.Version()),
+		qualifier,
+	))
+	if err != nil {
+		return fmt.Errorf("failed to get token address for %s burn/mint pool: %w", qualifier, err)
+	}
+
+	poolRef, err := env.DataStore.Addresses().Get(datastore.NewAddressRefKey(
+		selector,
+		tokenPoolRef.Type,
+		tokenPoolRef.Version,
+		qualifier,
+	))
+	if err != nil {
+		return fmt.Errorf("failed to get burn/mint pool address for %s token: %w", qualifier, err)
+	}
+
+	chain, ok := env.BlockChains.EVMChains()[selector]
+	if !ok {
+		return fmt.Errorf("evm chain not found for selector %d", selector)
+	}
+
+	tokenAddr := common.HexToAddress(tokenRef.Address)
+	if tokenAddr == (common.Address{}) {
+		return fmt.Errorf("token address is zero for %s burn/mint pool", qualifier)
+	}
+	poolAddr := common.HexToAddress(poolRef.Address)
+	if poolAddr == (common.Address{}) {
+		return fmt.Errorf("burn/mint pool address is zero for %s token", qualifier)
+	}
+
+	_, err = operations.ExecuteOperation(
+		env.OperationsBundle,
+		bnm_v1_0.GrantMintAndBurnRoles,
+		chain,
+		contract.FunctionInput[common.Address]{
+			ChainSelector: selector,
+			Address:       tokenAddr,
+			Args:          poolAddr,
+		},
+	)
+	if err != nil {
+		return fmt.Errorf("failed to grant mint/burn roles to pool %s for token %s: %w", poolAddr, tokenAddr, err)
 	}
 
 	return nil
