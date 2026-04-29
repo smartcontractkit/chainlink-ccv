@@ -1254,7 +1254,7 @@ func (m *CCIP17EVMConfig) GetTokenExpansionConfigs(
 	return configs, nil
 }
 
-// PostTokenDeploy applies EVM-specific generic token post-deployment setup.
+// PostTokenDeploy funds any lock-release token pools that were deployed on this EVM chain.
 func (m *CCIP17EVMConfig) PostTokenDeploy(
 	env *deployment.Environment,
 	selector uint64,
