@@ -150,12 +150,16 @@ func fetchBootstrapKeys(bootstrapURL string, keyNames []string) (BootstrapKeys, 
 		keyMap[k.KeyInfo.Name] = k
 	}
 
-	csaKey, ok := keyMap[bskeys.DefaultCSAKeyName]
-	if !ok {
-		return BootstrapKeys{}, fmt.Errorf("CSA key %q not found in response", bskeys.DefaultCSAKeyName)
+	// Confirm every requested name is present — a count match alone doesn't
+	// catch the server returning a different key with the same cardinality.
+	for _, name := range keyNames {
+		if _, ok := keyMap[name]; !ok {
+			return BootstrapKeys{}, fmt.Errorf("key %q not found in response", name)
+		}
 	}
+
 	result := BootstrapKeys{
-		CSAPublicKey: hex.EncodeToString(csaKey.KeyInfo.PublicKey),
+		CSAPublicKey: hex.EncodeToString(keyMap[bskeys.DefaultCSAKeyName].KeyInfo.PublicKey),
 	}
 
 	if ecdsaKeyResp, ok := keyMap[bskeys.DefaultECDSASigningKeyName]; ok {

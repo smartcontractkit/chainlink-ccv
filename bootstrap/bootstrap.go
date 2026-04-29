@@ -297,13 +297,20 @@ func initializeKeystore(ctx context.Context, lggr logger.Logger, db *sqlx.DB, ks
 		return nil, nil, fmt.Errorf("failed to load keystore: %w", err)
 	}
 
+	var csaKeyName string
 	for _, k := range requiredKeys {
 		if err := keys.EnsureKey(ctx, lggr, ks, k.name, k.purpose, k.keyType); err != nil {
-			return nil, nil, fmt.Errorf("failed to ensure %s key: %w", k.purpose, err)
+			return nil, nil, fmt.Errorf("failed to ensure key %q (purpose=%q, type=%v): %w", k.name, k.purpose, k.keyType, err)
+		}
+		if k.purpose == "csa" {
+			csaKeyName = k.name
 		}
 	}
+	if csaKeyName == "" {
+		return nil, nil, fmt.Errorf("no key with purpose %q declared; a CSA key is required for JD communication", "csa")
+	}
 
-	csaSigner, err := keys.NewCSASigner(ctx, ks, keys.DefaultCSAKeyName)
+	csaSigner, err := keys.NewCSASigner(ctx, ks, csaKeyName)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get csa signer: %w", err)
 	}
