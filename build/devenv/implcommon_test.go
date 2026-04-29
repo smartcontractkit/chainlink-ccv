@@ -99,9 +99,8 @@ func testTokenPoolRef(selector uint64, qualifier string) datastore.AddressRef {
 func testTokenTransferConfig(local datastore.AddressRef, remotes ...datastore.AddressRef) tokenscore.TokenTransferConfig {
 	remoteChains := make(map[uint64]tokenscore.RemoteChainConfig[*datastore.AddressRef, datastore.AddressRef], len(remotes))
 	for _, remote := range remotes {
-		remoteRef := remote
 		remoteChains[remote.ChainSelector] = tokenscore.RemoteChainConfig[*datastore.AddressRef, datastore.AddressRef]{
-			RemotePool: &remoteRef,
+			RemotePool: &remote,
 		}
 	}
 	return tokenscore.TokenTransferConfig{
