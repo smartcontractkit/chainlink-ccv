@@ -143,16 +143,31 @@ func fetchBootstrapKeys(bootstrapURL string, keyNames []string, includeECDSA boo
 		return BootstrapKeys{}, fmt.Errorf("expected %d keys, got %d", len(keyNames), len(response.Keys))
 	}
 
+	// Build a name→key map; the keystore returns keys sorted alphabetically,
+	// not in request order, so positional indexing is unsafe.
+	keyMap := make(map[string]keystore.GetKeyResponse, len(response.Keys))
+	for _, k := range response.Keys {
+		keyMap[k.KeyInfo.Name] = k
+	}
+
+	csaKey, ok := keyMap[bskeys.DefaultCSAKeyName]
+	if !ok {
+		return BootstrapKeys{}, fmt.Errorf("CSA key %q not found in response", bskeys.DefaultCSAKeyName)
+	}
 	result := BootstrapKeys{
-		CSAPublicKey: hex.EncodeToString(response.Keys[0].KeyInfo.PublicKey),
+		CSAPublicKey: hex.EncodeToString(csaKey.KeyInfo.PublicKey),
 	}
 
 	if includeECDSA {
-		ecdsaPublicKey, err := crypto.UnmarshalPubkey(response.Keys[1].KeyInfo.PublicKey)
+		ecdsaKeyResp, ok := keyMap[bskeys.DefaultECDSASigningKeyName]
+		if !ok {
+			return BootstrapKeys{}, fmt.Errorf("ECDSA key %q not found in response", bskeys.DefaultECDSASigningKeyName)
+		}
+		ecdsaPublicKey, err := crypto.UnmarshalPubkey(ecdsaKeyResp.KeyInfo.PublicKey)
 		if err != nil {
 			return BootstrapKeys{}, fmt.Errorf("failed to unmarshal ECDSA public key: %w", err)
 		}
-		result.ECDSAPublicKey = hex.EncodeToString(response.Keys[1].KeyInfo.PublicKey)
+		result.ECDSAPublicKey = hex.EncodeToString(ecdsaKeyResp.KeyInfo.PublicKey)
 		result.ECDSAAddress = hex.EncodeToString(crypto.PubkeyToAddress(*ecdsaPublicKey).Bytes())
 	}
 
