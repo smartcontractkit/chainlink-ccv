@@ -7,7 +7,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/grafana/pyroscope-go"
 	"go.uber.org/zap/zapcore"
 
@@ -18,11 +17,11 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/leaderelector"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/backofftimeprovider"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/ccvstreamer"
-	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/contracttransmitter"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/cursechecker"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
+	"github.com/smartcontractkit/chainlink-common/keystore"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -47,6 +46,14 @@ type Factory struct {
 }
 
 var _ bootstrap.ServiceFactory = (*Factory)(nil)
+
+// KeystoreSetter is an optional interface implemented by Accessors that support
+// keystore-managed signing keys. The executor checks for it via type assertion
+// so that pkg/chainaccess remains free of keystore dependencies.
+type KeystoreSetter interface {
+	// SetKeystore injects the keystore so the accessor can build a keystore-backed ContractTransmitter.
+	SetKeystore(ks keystore.Keystore)
+}
 
 // NewFactory creates a new executor Factory.
 func NewFactory() *Factory {
@@ -97,7 +104,7 @@ func (f *Factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 	rmnReaders := make(map[protocol.ChainSelector]chainaccess.RMNCurseReader)
 	enabledDestChains := make([]protocol.ChainSelector, 0)
 
-	for strSel, chainConfig := range executorConfig.ChainConfiguration {
+	for strSel := range executorConfig.ChainConfiguration {
 		selectorUint, err := strconv.ParseUint(strSel, 10, 64)
 		if err != nil {
 			f.lggr.Errorw("Invalid chain selector in configuration", "error", err, "chainSelector", strSel)
@@ -111,33 +118,16 @@ func (f *Factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 			continue
 		}
 
-		dr, drErr := accessor.DestinationReader()
-		if drErr != nil {
-			f.lggr.Warnw("Skipping chain: missing DestinationReader", "chainSelector", strSel, "error", drErr)
-			continue
+		if setter, ok := accessor.(KeystoreSetter); ok {
+			setter.SetKeystore(deps.Keystore)
 		}
 
-		var ct chainaccess.ContractTransmitter
-		if deps.Keystore != nil && chainConfig.TransmitterKeyName != "" && chainConfig.TransmitterRPCURL != "" {
-			ct, err = contracttransmitter.NewEVMContractTransmitterFromKeystore(
-				ctx,
-				f.lggr,
-				selector,
-				chainConfig.TransmitterRPCURL,
-				deps.Keystore,
-				chainConfig.TransmitterKeyName,
-				common.HexToAddress(chainConfig.OffRampAddress),
-			)
-			if err != nil {
-				f.lggr.Warnw("Failed to create keystore contract transmitter, falling back to accessor", "chainSelector", strSel, "error", err)
-			}
-		}
-		if ct == nil {
-			ct, err = accessor.ContractTransmitter()
-			if err != nil {
-				f.lggr.Warnw("Skipping chain: missing ContractTransmitter", "chainSelector", strSel, "error", err)
-				continue
-			}
+		dr, drErr := accessor.DestinationReader()
+		ct, ctErr := accessor.ContractTransmitter()
+
+		if drErr != nil || ctErr != nil {
+			f.lggr.Warnw("Skipping chain: missing DestinationReader or ContractTransmitter", "chainSelector", strSel, "destReaderErr", drErr, "transmitterErr", ctErr)
+			continue
 		}
 
 		destReaders[selector] = dr

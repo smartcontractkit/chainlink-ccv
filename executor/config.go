@@ -75,14 +75,6 @@ type ChainConfiguration struct {
 	ExecutionInterval time.Duration `toml:"execution_interval"`
 	// DefaultExecutorAddress is the address of the default executor to check against the message receipts.
 	DefaultExecutorAddress string `toml:"default_executor_address"`
-	// TransmitterKeyName is the keystore key used to sign and submit OffRamp transactions on this
-	// chain. Must be paired with TransmitterRPCURL. When both are set and a keystore is available
-	// in ServiceDeps, a keystore-based ContractTransmitter is used instead of the fallback
-	// accessor transmitter.
-	TransmitterKeyName string `toml:"transmitter_key_name"`
-	// TransmitterRPCURL is the HTTP RPC endpoint dialled by the keystore-based ContractTransmitter.
-	// It may differ from the multi-node RPC used by the readers.
-	TransmitterRPCURL string `toml:"transmitter_rpc_url"`
 }
 
 func (c *Configuration) Validate() error {
