@@ -89,15 +89,14 @@ func GenerateBootstrapConfig(in BootstrapInput) ([]byte, error) {
 	return toml.Marshal(config)
 }
 
-// BootstrapKeys are the keys that are ensured to exist by the bootstrap library,
-// in hexadecimal format.
+// BootstrapKeys holds the public keys exposed by the bootstrap info-server.
 type BootstrapKeys struct {
-	// CSAPublicKey is the CSA public key used for JD communcations.
+	// CSAPublicKey is the CSA public key used for JD communications.
 	CSAPublicKey string `toml:"csa_public_key"`
-	// ECDSAPublicKey is the public key used to sign messages using ECDSA.
-	ECDSAPublicKey string `toml:"ecdsa_public_key"`
-	// ECDSAAddress is the Ethereum address derived from the ECDSA public key.
-	ECDSAAddress string `toml:"ecdsa_address"`
+	// ECDSAPublicKey is the ECDSA signing public key (verifier only).
+	ECDSAPublicKey string `toml:"ecdsa_public_key,omitempty"`
+	// ECDSAAddress is the Ethereum address derived from the ECDSA public key (verifier only).
+	ECDSAAddress string `toml:"ecdsa_address,omitempty"`
 }
 
 // GetExecutorBootstrapKeys fetches only the CSA key from the bootstrap server.
@@ -107,7 +106,7 @@ func GetExecutorBootstrapKeys(bootstrapURL string) (BootstrapKeys, error) {
 }
 
 // GetBootstrapKeys fetches the CSA and ECDSA keys from the bootstrap server.
-// Verifiers need both for JD registration and signing.
+// Verifiers need both for JD registration and committee signer registration.
 func GetBootstrapKeys(bootstrapURL string) (BootstrapKeys, error) {
 	return fetchBootstrapKeys(bootstrapURL, []string{bskeys.DefaultCSAKeyName, bskeys.DefaultECDSASigningKeyName})
 }
@@ -138,9 +137,6 @@ func fetchBootstrapKeys(bootstrapURL string, keyNames []string) (BootstrapKeys, 
 	var response keystore.GetKeysResponse
 	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
 		return BootstrapKeys{}, fmt.Errorf("failed to decode response: %w", err)
-	}
-	if len(response.Keys) != len(keyNames) {
-		return BootstrapKeys{}, fmt.Errorf("expected %d keys, got %d", len(keyNames), len(response.Keys))
 	}
 
 	// Build a name→key map; the keystore returns keys sorted alphabetically,
