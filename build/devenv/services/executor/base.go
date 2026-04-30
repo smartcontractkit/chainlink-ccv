@@ -22,7 +22,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/util"
 	executorpkg "github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
-	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 	ctfblockchain "github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
@@ -53,9 +52,6 @@ type Input struct {
 
 	// ExecutorQualifier is the qualifier for the executor contract.
 	ExecutorQualifier string `toml:"executor_qualifier"`
-
-	// TransmitterPrivateKey is used in standalone mode for transaction signing.
-	TransmitterPrivateKey string `toml:"transmitter_private_key"`
 
 	// GeneratedJobSpecs contains all job specs for this executor.
 	GeneratedJobSpecs []string `toml:"-"`
@@ -118,16 +114,6 @@ func RebuildExecutorJobSpecWithBlockchainInfos(spec bootstrap.JobSpec, blockchai
 	}
 
 	return string(outerSpecBytes), nil
-}
-
-// GetTransmitterAddress derives the on-chain transmitter address using the given
-// family-specific resolver. Pass ImplFactory.TransmitterAddress for the executor's chain family.
-func (v *Input) GetTransmitterAddress(resolver TransmitterAddressResolver) protocol.UnknownAddress {
-	addr, err := resolver(v.TransmitterPrivateKey)
-	if err != nil {
-		return protocol.UnknownAddress{}
-	}
-	return addr
 }
 
 func ApplyDefaults(in *Input) {
@@ -197,10 +183,6 @@ func launchExecutor(ctx context.Context, in *Input, outputs []*ctfblockchain.Out
 	bs.JD.ServerCSAPublicKey = jdCSAKey
 	bs.JD.ServerWSRPCURL = jdInfra.JDOutput.InternalWSRPCUrl
 
-	envVars := map[string]string{
-		"EXECUTOR_TRANSMITTER_PRIVATE_KEY": in.TransmitterPrivateKey,
-	}
-
 	bootstrapConfig, err := services.GenerateBootstrapConfig(*bs)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate bootstrap config: %w", err)
@@ -212,7 +194,7 @@ func launchExecutor(ctx context.Context, in *Input, outputs []*ctfblockchain.Out
 		return nil, fmt.Errorf("failed to write bootstrap config to file: %w", err)
 	}
 
-	req, err := baseImageRequest(in, envVars, bootstrapConfigFilePath)
+	req, err := baseImageRequest(in, bootstrapConfigFilePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create base image request: %w", err)
 	}
@@ -315,7 +297,7 @@ func startContainer(ctx context.Context, req testcontainers.ContainerRequest) (t
 	return nil, fmt.Errorf("failed to start container after %d attempts: %w", maxAttempts, lastErr)
 }
 
-func baseImageRequest(in *Input, envVars map[string]string, bootstrapConfigFilePath string) (testcontainers.ContainerRequest, error) {
+func baseImageRequest(in *Input, bootstrapConfigFilePath string) (testcontainers.ContainerRequest, error) {
 	req := testcontainers.ContainerRequest{
 		Image:    in.Image,
 		Name:     in.ContainerName,
@@ -324,7 +306,6 @@ func baseImageRequest(in *Input, envVars map[string]string, bootstrapConfigFileP
 		NetworkAliases: map[string][]string{
 			framework.DefaultNetworkName: {in.ContainerName},
 		},
-		Env:          envVars,
 		ExposedPorts: []string{DefaultExecutorPortTCP, services.DefaultBootstrapListenPortTCP},
 		HostConfigModifier: func(h *container.HostConfig) {
 			h.PortBindings = nat.PortMap{
@@ -413,23 +394,3 @@ func createDBContainer(ctx context.Context, in *Input, chainFamily string) (*pos
 	return c, nil
 }
 
-// TransmitterKeyGenerator generates a private key for executor transaction signing.
-// Callers supply a family-specific implementation (e.g. from ImplFactory.GenerateTransmitterKey).
-type TransmitterKeyGenerator func() (string, error)
-
-// TransmitterAddressResolver derives an on-chain address from a hex-encoded private key.
-// Callers supply a family-specific implementation (e.g. from ImplFactory.TransmitterAddress).
-type TransmitterAddressResolver func(privateKeyHex string) (protocol.UnknownAddress, error)
-
-// SetTransmitterPrivateKey sets the transmitter private key for the provided execs array
-// using the given key generator. Pass a family-specific generator from ImplFactory.
-func SetTransmitterPrivateKey(execs []*Input, keyGen TransmitterKeyGenerator) ([]*Input, error) {
-	for _, exec := range execs {
-		pk, err := keyGen()
-		if err != nil {
-			return nil, fmt.Errorf("failed to generate transmitter private key: %w", err)
-		}
-		exec.TransmitterPrivateKey = pk
-	}
-	return execs, nil
-}

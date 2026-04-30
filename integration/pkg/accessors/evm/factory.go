@@ -42,8 +42,7 @@ type factory struct {
 	// ContractTransmitter dependencies.
 	// rpcURLs holds the primary HTTP RPC URL for each chain. The contract transmitter dials its
 	// own ethclient rather than sharing the multi-node client used by the readers.
-	rpcURLs               map[protocol.ChainSelector]string
-	transmitterPrivateKey string
+	rpcURLs map[protocol.ChainSelector]string
 }
 
 // NewFactory creates a new EVM AccessorFactory.
@@ -58,7 +57,6 @@ func NewFactory(
 	destChainConfigs map[protocol.ChainSelector]chainaccess.DestinationChainConfig,
 	executionVisibilityWindow time.Duration,
 	rpcURLs map[protocol.ChainSelector]string,
-	transmitterPrivateKey string,
 ) chainaccess.AccessorFactory {
 	if executionVisibilityWindow == 0 {
 		executionVisibilityWindow = defaultExecutionVisibilityWindow
@@ -72,7 +70,6 @@ func NewFactory(
 		destChainConfigs:          destChainConfigs,
 		executionVisibilityWindow: executionVisibilityWindow,
 		rpcURLs:                   rpcURLs,
-		transmitterPrivateKey:     transmitterPrivateKey,
 	}
 }
 
