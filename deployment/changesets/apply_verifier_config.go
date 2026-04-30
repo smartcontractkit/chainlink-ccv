@@ -6,6 +6,7 @@ import (
 	"strconv"
 
 	"github.com/BurntSushi/toml"
+
 	chainsel "github.com/smartcontractkit/chain-selectors"
 
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
@@ -257,7 +258,8 @@ type verifierNOPInput struct {
 	Mode                  shared.NOPMode
 }
 
-type verifierAggregatorInput struct {
+// AggregatorRef describes a single aggregator instance a verifier NOP connects to.
+type AggregatorRef struct {
 	Name                         string
 	Address                      string
 	InsecureAggregatorConnection bool
@@ -265,7 +267,7 @@ type verifierAggregatorInput struct {
 
 type verifierCommitteeInput struct {
 	Qualifier       string
-	Aggregators     []verifierAggregatorInput
+	Aggregators     []AggregatorRef
 	NOPAliases      []shared.NOPAlias
 	ChainNOPAliases map[string][]shared.NOPAlias
 }
@@ -450,9 +452,9 @@ func convertNOPsToVerifierInput(
 }
 
 func convertTopologyCommittee(committee ccvdeployment.CommitteeConfig) verifierCommitteeInput {
-	aggregators := make([]verifierAggregatorInput, len(committee.Aggregators))
+	aggregators := make([]AggregatorRef, len(committee.Aggregators))
 	for i, agg := range committee.Aggregators {
-		aggregators[i] = verifierAggregatorInput{
+		aggregators[i] = AggregatorRef{
 			Name:                         agg.Name,
 			Address:                      agg.Address,
 			InsecureAggregatorConnection: agg.InsecureAggregatorConnection,

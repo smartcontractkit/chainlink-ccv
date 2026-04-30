@@ -7,9 +7,12 @@ import (
 
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
+	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
 
 	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
 	"github.com/smartcontractkit/chainlink-ccv/deployment/adapters"
+	"github.com/smartcontractkit/chainlink-ccv/deployment/operations/revoke_jobs"
+	"github.com/smartcontractkit/chainlink-ccv/deployment/shared"
 )
 
 // RemoveNOPFromCommitteeInput is the input for step-1 of the RemoveNOP two-entry product.
@@ -41,6 +44,9 @@ type RemoveNOPOffchainInput struct {
 	// ServiceIdentifiers lists every aggregator service that consumes this committee's config.
 	// All are updated atomically in a single changeset run.
 	ServiceIdentifiers []string
+	// NOPAlias is the alias of the NOP whose verifier jobs should be revoked. All in-scope
+	// verifier jobs for this NOP are revoked from JD and removed from the DataStore.
+	NOPAlias shared.NOPAlias
 }
 
 // RemoveNOPFromCommittee is step-1 of a coupled onchain-first two-entry product.
@@ -57,75 +63,18 @@ type RemoveNOPOffchainInput struct {
 // them harmlessly until step-2 updates the offchain config.
 func RemoveNOPFromCommittee(registry *adapters.Registry) deployment.ChangeSetV2[RemoveNOPFromCommitteeInput] {
 	validate := func(e deployment.Environment, cfg RemoveNOPFromCommitteeInput) error {
-		if e.Offchain == nil {
-			return fmt.Errorf("offchain client is required")
-		}
-		if cfg.CommitteeQualifier == "" {
-			return fmt.Errorf("committee qualifier is required")
-		}
-		if len(cfg.SourceChainSelectors) == 0 {
-			return fmt.Errorf("at least one source chain selector is required")
-		}
-		if cfg.NOPAlias == "" {
-			return fmt.Errorf("NOP alias is required")
-		}
-		// Validate all source chains belong to the same signing family.
-		if _, err := getSignerFamilyFromRegistry(registry, cfg.SourceChainSelectors); err != nil {
-			return err
-		}
-		return nil
+		return validateStep1NOP(e, cfg.CommitteeQualifier, cfg.NOPAlias, cfg.SourceChainSelectors, registry)
 	}
 
 	apply := func(e deployment.Environment, cfg RemoveNOPFromCommitteeInput) (deployment.ChangesetOutput, error) {
-		ctx := context.Background()
-
 		signerFamily, err := getSignerFamilyFromRegistry(registry, cfg.SourceChainSelectors)
 		if err != nil {
 			return deployment.ChangesetOutput{}, err
 		}
-
-		signerAddress, err := fetchSignerAddress(e, cfg.NOPAlias, signerFamily)
-		if err != nil {
+		if err := applySignerChangesOnchain(e, registry, cfg.CommitteeQualifier, cfg.NOPAlias, signerFamily,
+			cfg.SourceChainSelectors, cfg.NewThreshold, buildRemoveSignerChange); err != nil {
 			return deployment.ChangesetOutput{}, err
 		}
-
-		destChains := registry.AllDeployedCommitteeVerifierChains(e.DataStore, cfg.CommitteeQualifier)
-		if len(destChains) == 0 {
-			return deployment.ChangesetOutput{}, fmt.Errorf(
-				"no dest chains found with committee verifier for qualifier %q — ensure adapters are registered and the committee is deployed",
-				cfg.CommitteeQualifier,
-			)
-		}
-
-		committeeStates, err := scanCommitteeStatesForChains(ctx, e, registry, cfg.CommitteeQualifier, destChains)
-		if err != nil {
-			return deployment.ChangesetOutput{}, err
-		}
-
-		applied := 0
-		for _, sel := range destChains {
-			change, err := buildRemoveSignerChange(committeeStates[sel], signerAddress, cfg.NewThreshold, cfg.SourceChainSelectors)
-			if err != nil {
-				return deployment.ChangesetOutput{}, fmt.Errorf("dest chain %d: %w", sel, err)
-			}
-			if len(change.NewConfigs) == 0 {
-				continue // this dest chain has no configs for the requested source chains
-			}
-			a, _ := registry.GetByChain(sel)
-			if err := a.CommitteeVerifierOnchain.ApplySignatureConfigs(ctx, e, sel, cfg.CommitteeQualifier, change); err != nil {
-				return deployment.ChangesetOutput{}, fmt.Errorf("dest chain %d: ApplySignatureConfigs failed: %w", sel, err)
-			}
-			applied++
-		}
-
-		if applied == 0 {
-			return deployment.ChangesetOutput{}, fmt.Errorf(
-				"no dest chain had source chain configs for selectors %v in committee %q — verify the committee is deployed and source chains are configured",
-				cfg.SourceChainSelectors, cfg.CommitteeQualifier,
-			)
-		}
-
-		// No DataStore output — aggregator config regen is deferred to step-2.
 		return deployment.ChangesetOutput{}, nil
 	}
 
@@ -142,8 +91,8 @@ func RemoveNOPFromCommittee(registry *adapters.Registry) deployment.ChangeSetV2[
 // the DataStore for each listed service identifier. Dest chains are discovered automatically
 // from the registry — the same set used by step-1.
 //
-// Note: JD verifier job revocation for the removed NOP is not yet implemented here.
-// That requires the ApplyVerifierConfigForNOPs helper (Phase B open item).
+// When NOPAlias is set, all verifier jobs scoped to this committee for that NOP are revoked
+// from JD and removed from the DataStore in the same run.
 func RemoveNOPOffchain(registry *adapters.Registry) deployment.ChangeSetV2[RemoveNOPOffchainInput] {
 	validate := func(e deployment.Environment, cfg RemoveNOPOffchainInput) error {
 		if cfg.CommitteeQualifier == "" {
@@ -154,6 +103,9 @@ func RemoveNOPOffchain(registry *adapters.Registry) deployment.ChangeSetV2[Remov
 		}
 		if len(cfg.ServiceIdentifiers) == 0 {
 			return fmt.Errorf("at least one service identifier is required")
+		}
+		if cfg.NOPAlias == "" {
+			return fmt.Errorf("NOP alias is required for job revocation")
 		}
 
 		destChains := registry.AllDeployedCommitteeVerifierChains(e.DataStore, cfg.CommitteeQualifier)
@@ -228,10 +180,82 @@ func RemoveNOPOffchain(registry *adapters.Registry) deployment.ChangeSetV2[Remov
 			}
 		}
 
+		if err := revokeVerifierJobsForNOP(e, cfg.NOPAlias, cfg.CommitteeQualifier, outputDS); err != nil {
+			return deployment.ChangesetOutput{}, err
+		}
+
 		return deployment.ChangesetOutput{DataStore: outputDS}, nil
 	}
 
 	return deployment.CreateChangeSet(apply, validate)
+}
+
+// revokeVerifierJobsForNOP collects all verifier jobs scoped to committeeQualifier for
+// nopAlias, revokes CL-mode ones via JD, and removes all of them from the DataStore.
+func revokeVerifierJobsForNOP(
+	e deployment.Environment,
+	nopAlias shared.NOPAlias,
+	committeeQualifier string,
+	ds datastore.MutableDataStore,
+) error {
+	scope := shared.VerifierJobScope{CommitteeQualifier: committeeQualifier}
+
+	// nil expectedJobsByNOP → every in-scope job for this NOP is treated as orphaned.
+	orphanedJobs, err := ccvdeployment.CollectOrphanedJobs(
+		ds.Seal(),
+		scope,
+		nil,
+		map[shared.NOPAlias]bool{nopAlias: true},
+		nil,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to collect orphaned jobs for NOP %q: %w", nopAlias, err)
+	}
+
+	if len(orphanedJobs) == 0 {
+		e.Logger.Infow("No verifier jobs to revoke for NOP", "nopAlias", nopAlias, "committee", committeeQualifier)
+		return nil
+	}
+
+	// Revoke CL-mode jobs that haven't already been revoked.
+	clJobsToRevoke := make([]shared.JobInfo, 0, len(orphanedJobs))
+	for _, j := range orphanedJobs {
+		if j.Mode == shared.NOPModeCL && j.LatestStatus() != shared.JobProposalStatusRevoked {
+			clJobsToRevoke = append(clJobsToRevoke, j)
+		}
+	}
+
+	if len(clJobsToRevoke) > 0 {
+		if e.Offchain == nil {
+			return fmt.Errorf("offchain client required to revoke CL-mode jobs for NOP %q but e.Offchain is nil", nopAlias)
+		}
+		revokeReport, err := operations.ExecuteOperation(
+			e.OperationsBundle,
+			revoke_jobs.RevokeJobs,
+			revoke_jobs.RevokeJobsDeps{
+				JDClient: e.Offchain,
+				Logger:   e.Logger,
+				NodeIDs:  e.NodeIDs,
+			},
+			revoke_jobs.RevokeJobsInput{
+				Jobs: clJobsToRevoke,
+			},
+		)
+		if err != nil {
+			return fmt.Errorf("failed to revoke jobs for NOP %q: %w", nopAlias, err)
+		}
+		e.Logger.Infow("Verifier jobs revoked for NOP",
+			"nopAlias", nopAlias,
+			"count", len(revokeReport.Output.RevokedJobs),
+			"committee", committeeQualifier,
+		)
+	}
+
+	if err := ccvdeployment.CleanupOrphanedJobs(ds, orphanedJobs); err != nil {
+		return fmt.Errorf("failed to clean up jobs for NOP %q: %w", nopAlias, err)
+	}
+
+	return nil
 }
 
 // buildRemoveSignerChange constructs a SignatureConfigChange that removes signerToRemove from
@@ -276,7 +300,7 @@ func buildRemoveSignerChange(state *adapters.CommitteeState, signerToRemove stri
 		if newThreshold != 0 {
 			threshold = newThreshold
 		}
-		if threshold > uint8(len(remaining)) {
+		if int(threshold) > len(remaining) {
 			return adapters.SignatureConfigChange{}, fmt.Errorf(
 				"source chain %d: threshold %d exceeds remaining signer count %d after removal",
 				sc.SourceChainSelector, threshold, len(remaining),

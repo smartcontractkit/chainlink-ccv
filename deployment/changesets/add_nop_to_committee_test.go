@@ -3,22 +3,35 @@ package changesets
 import (
 	"context"
 	"fmt"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	cldf_chain "github.com/smartcontractkit/chainlink-deployments-framework/chain"
 	cldfevm "github.com/smartcontractkit/chainlink-deployments-framework/chain/evm"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
+	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
 	csav1 "github.com/smartcontractkit/chainlink-protos/job-distributor/v1/csa"
 	jobv1 "github.com/smartcontractkit/chainlink-protos/job-distributor/v1/job"
 	nodev1 "github.com/smartcontractkit/chainlink-protos/job-distributor/v1/node"
 
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+
 	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
 	"github.com/smartcontractkit/chainlink-ccv/deployment/adapters"
+	"github.com/smartcontractkit/chainlink-ccv/deployment/shared"
+)
+
+const (
+	testQualifier    = "default"
+	testVerifierAddr = "0x1111111111111111111111111111111111111111"
+	testNOPAlias     = "nop1"
+	testSignerAddr   = "0xSIGNERADDRESS"
 )
 
 // ---- pure helper: buildAddSignerChange ----
@@ -165,7 +178,7 @@ func TestAddNOPToCommittee_Validation_MissingQualifier(t *testing.T) {
 	cs := AddNOPToCommittee(newEVMRegistry(&stubOnchainAdapter{}))
 	err := cs.VerifyPreconditions(newTestEnvironmentWithOffchain(), AddNOPToCommitteeInput{
 		SourceChainSelectors: []uint64{chainsel.TEST_90000001.Selector},
-		NOPAlias:             "nop1",
+		NOPAlias:             testNOPAlias,
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "committee qualifier is required")
@@ -174,8 +187,8 @@ func TestAddNOPToCommittee_Validation_MissingQualifier(t *testing.T) {
 func TestAddNOPToCommittee_Validation_MissingSourceChainSelectors(t *testing.T) {
 	cs := AddNOPToCommittee(newEVMRegistry(&stubOnchainAdapter{}))
 	err := cs.VerifyPreconditions(newTestEnvironmentWithOffchain(), AddNOPToCommitteeInput{
-		CommitteeQualifier: "default",
-		NOPAlias:           "nop1",
+		CommitteeQualifier: testQualifier,
+		NOPAlias:           testNOPAlias,
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "at least one source chain selector is required")
@@ -184,7 +197,7 @@ func TestAddNOPToCommittee_Validation_MissingSourceChainSelectors(t *testing.T) 
 func TestAddNOPToCommittee_Validation_MissingNOPAlias(t *testing.T) {
 	cs := AddNOPToCommittee(newEVMRegistry(&stubOnchainAdapter{}))
 	err := cs.VerifyPreconditions(newTestEnvironmentWithOffchain(), AddNOPToCommitteeInput{
-		CommitteeQualifier:   "default",
+		CommitteeQualifier:   testQualifier,
 		SourceChainSelectors: []uint64{chainsel.TEST_90000001.Selector},
 	})
 	require.Error(t, err)
@@ -194,9 +207,9 @@ func TestAddNOPToCommittee_Validation_MissingNOPAlias(t *testing.T) {
 func TestAddNOPToCommittee_Validation_RequiresOffchainClient(t *testing.T) {
 	cs := AddNOPToCommittee(newEVMRegistry(&stubOnchainAdapter{}))
 	err := cs.VerifyPreconditions(deployment.Environment{}, AddNOPToCommitteeInput{
-		CommitteeQualifier:   "default",
+		CommitteeQualifier:   testQualifier,
 		SourceChainSelectors: []uint64{chainsel.TEST_90000001.Selector},
-		NOPAlias:             "nop1",
+		NOPAlias:             testNOPAlias,
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "offchain client is required")
@@ -217,7 +230,7 @@ func TestAddNOPOffchain_Validation_MissingQualifier(t *testing.T) {
 func TestAddNOPOffchain_Validation_MissingSourceChainSelectors(t *testing.T) {
 	cs := AddNOPOffchain(newFullEVMRegistry(&stubFullAdapter{}))
 	err := cs.VerifyPreconditions(deployment.Environment{}, AddNOPOffchainInput{
-		CommitteeQualifier: "default",
+		CommitteeQualifier: testQualifier,
 		ServiceIdentifiers: []string{"svc1"},
 	})
 	require.Error(t, err)
@@ -227,18 +240,54 @@ func TestAddNOPOffchain_Validation_MissingSourceChainSelectors(t *testing.T) {
 func TestAddNOPOffchain_Validation_MissingServiceIdentifiers(t *testing.T) {
 	cs := AddNOPOffchain(newFullEVMRegistry(&stubFullAdapter{}))
 	err := cs.VerifyPreconditions(deployment.Environment{}, AddNOPOffchainInput{
-		CommitteeQualifier:   "default",
+		CommitteeQualifier:   testQualifier,
 		SourceChainSelectors: []uint64{chainsel.TEST_90000001.Selector},
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "at least one service identifier is required")
 }
 
+func TestAddNOPOffchain_Validation_MissingNOPAlias(t *testing.T) {
+	cs := AddNOPOffchain(newFullEVMRegistry(&stubFullAdapter{}))
+	err := cs.VerifyPreconditions(deployment.Environment{}, AddNOPOffchainInput{
+		CommitteeQualifier:   testQualifier,
+		SourceChainSelectors: []uint64{chainsel.TEST_90000001.Selector},
+		ServiceIdentifiers:   []string{"svc1"},
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "NOP alias is required for job provisioning")
+}
+
+func TestAddNOPOffchain_Validation_MissingAggregators(t *testing.T) {
+	cs := AddNOPOffchain(newFullEVMRegistry(&stubFullAdapter{}))
+	err := cs.VerifyPreconditions(deployment.Environment{}, AddNOPOffchainInput{
+		CommitteeQualifier:   testQualifier,
+		SourceChainSelectors: []uint64{chainsel.TEST_90000001.Selector},
+		ServiceIdentifiers:   []string{"svc1"},
+		NOPAlias:             testNOPAlias,
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "at least one aggregator is required for job provisioning")
+}
+
+func TestAddNOPOffchain_Validation_MissingExecutorQualifier(t *testing.T) {
+	cs := AddNOPOffchain(newFullEVMRegistry(&stubFullAdapter{}))
+	err := cs.VerifyPreconditions(deployment.Environment{}, AddNOPOffchainInput{
+		CommitteeQualifier:   testQualifier,
+		SourceChainSelectors: []uint64{chainsel.TEST_90000001.Selector},
+		ServiceIdentifiers:   []string{"svc1"},
+		NOPAlias:             testNOPAlias,
+		Aggregators:          []AggregatorRef{{Name: "agg", Address: "0xAGG"}},
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "executor qualifier is required for job provisioning")
+}
+
 // ---- AddNOPOffchain backstop validation ----
 
 func TestAddNOPOffchain_Validation_BackstopPassesWhenSignerPresent(t *testing.T) {
 	sel1 := chainsel.TEST_90000001.Selector
-	qualifier := "default"
+	qualifier := testQualifier
 	signer := "0xNEW"
 
 	adapter := &stubFullAdapter{
@@ -265,13 +314,16 @@ func TestAddNOPOffchain_Validation_BackstopPassesWhenSignerPresent(t *testing.T)
 		SourceChainSelectors:  []uint64{sel1},
 		ExpectedSignerAddress: signer,
 		ServiceIdentifiers:    []string{"svc1"},
+		NOPAlias:              testNOPAlias,
+		Aggregators:           []AggregatorRef{{Name: "agg", Address: "0xAGG"}},
+		ExecutorQualifier:     "default-executor",
 	})
 	require.NoError(t, err)
 }
 
 func TestAddNOPOffchain_Validation_BackstopFailsWhenSignerAbsent(t *testing.T) {
 	sel1 := chainsel.TEST_90000001.Selector
-	qualifier := "default"
+	qualifier := testQualifier
 
 	adapter := &stubFullAdapter{
 		states: map[uint64][]*adapters.CommitteeState{
@@ -298,43 +350,47 @@ func TestAddNOPOffchain_Validation_BackstopFailsWhenSignerAbsent(t *testing.T) {
 		SourceChainSelectors:  []uint64{sel1},
 		ExpectedSignerAddress: "0xNEW",
 		ServiceIdentifiers:    []string{"svc1"},
+		NOPAlias:              testNOPAlias,
+		Aggregators:           []AggregatorRef{{Name: "agg", Address: "0xAGG"}},
+		ExecutorQualifier:     "default-executor",
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "step-1 (AddNOPToCommittee) may not have been applied")
 }
 
 func TestAddNOPOffchain_Validation_BackstopSkippedWhenAddressEmpty(t *testing.T) {
-	// No states registered — if backstop ran it would fail. Passing empty
-	// ExpectedSignerAddress skips the check entirely.
+	sel1 := chainsel.TEST_90000001.Selector
 	adapter := &stubFullAdapter{
-		states:        map[uint64][]*adapters.CommitteeState{chainsel.TEST_90000001.Selector: {}},
-		verifierAddrs: map[uint64]string{chainsel.TEST_90000001.Selector: "0x1111"},
+		states:        map[uint64][]*adapters.CommitteeState{sel1: {}},
+		verifierAddrs: map[uint64]string{sel1: "0x1111"},
 	}
 	cs := AddNOPOffchain(newFullEVMRegistry(adapter))
 	env := deployment.Environment{
-		BlockChains: newTestBlockChains([]uint64{chainsel.TEST_90000001.Selector}),
+		BlockChains: newTestBlockChains([]uint64{sel1}),
 		DataStore:   datastore.NewMemoryDataStore().Seal(),
 	}
 
+	// No ExpectedSignerAddress → backstop skipped. All required fields are provided
+	// so validation completes without error.
 	err := cs.VerifyPreconditions(env, AddNOPOffchainInput{
-		CommitteeQualifier:   "default",
-		SourceChainSelectors: []uint64{chainsel.TEST_90000001.Selector},
+		CommitteeQualifier:   testQualifier,
+		SourceChainSelectors: []uint64{sel1},
 		ServiceIdentifiers:   []string{"svc1"},
-		// ExpectedSignerAddress intentionally empty
+		NOPAlias:             testNOPAlias,
+		Aggregators:          []AggregatorRef{{Name: "agg", Address: "0xAGG"}},
+		ExecutorQualifier:    "default-executor",
 	})
-	// Passes through to the committee-not-found error from the adapter, not a backstop error.
-	// The key point is no "step-1 may not have been applied" message.
-	if err != nil {
-		assert.NotContains(t, err.Error(), "step-1")
-	}
+	require.NoError(t, err)
 }
 
 // ---- AddNOPOffchain apply ----
 
 func TestAddNOPOffchain_Apply_WritesAggregatorConfigToDataStore(t *testing.T) {
 	sel1 := chainsel.TEST_90000001.Selector
-	qualifier := "default"
-	verifierAddr := "0x1111111111111111111111111111111111111111"
+	qualifier := testQualifier
+	verifierAddr := testVerifierAddr
+	nopAlias := testNOPAlias
+	signerAddr := testSignerAddr
 
 	adapter := &stubFullAdapter{
 		states: map[uint64][]*adapters.CommitteeState{
@@ -353,15 +409,16 @@ func TestAddNOPOffchain_Apply_WritesAggregatorConfigToDataStore(t *testing.T) {
 	r := newFullEVMRegistry(adapter)
 	cs := AddNOPOffchain(r)
 
-	env := deployment.Environment{
-		BlockChains: newTestBlockChains([]uint64{sel1}),
-		DataStore:   datastore.NewMemoryDataStore().Seal(),
-	}
+	env := newTestEnvForApply(t, nopAlias, []uint64{sel1})
 
 	out, err := cs.Apply(env, AddNOPOffchainInput{
-		CommitteeQualifier:   qualifier,
-		SourceChainSelectors: []uint64{sel1},
-		ServiceIdentifiers:   []string{"my-aggregator"},
+		CommitteeQualifier:    qualifier,
+		SourceChainSelectors:  []uint64{sel1},
+		ServiceIdentifiers:    []string{"my-aggregator"},
+		NOPAlias:              shared.NOPAlias(nopAlias),
+		Aggregators:           testAggregatorRefs(),
+		ExecutorQualifier:     "default-executor",
+		ExpectedSignerAddress: signerAddr,
 	})
 	require.NoError(t, err)
 	require.NotNil(t, out.DataStore)
@@ -378,9 +435,11 @@ func TestAddNOPOffchain_Apply_UsesAllDiscoveredDestChains(t *testing.T) {
 	// names source chain sel1. The fix for the partial-config truncation bug.
 	sel1 := chainsel.TEST_90000001.Selector
 	sel2 := chainsel.TEST_90000002.Selector
-	qualifier := "default"
-	addr1 := "0x1111111111111111111111111111111111111111"
+	qualifier := testQualifier
+	addr1 := testVerifierAddr
 	addr2 := "0x2222222222222222222222222222222222222222"
+	nopAlias := testNOPAlias
+	signerAddr := testSignerAddr
 
 	adapter := &stubFullAdapter{
 		states: map[uint64][]*adapters.CommitteeState{
@@ -407,15 +466,16 @@ func TestAddNOPOffchain_Apply_UsesAllDiscoveredDestChains(t *testing.T) {
 	r := newFullEVMRegistry(adapter)
 	cs := AddNOPOffchain(r)
 
-	env := deployment.Environment{
-		BlockChains: newTestBlockChains([]uint64{sel1, sel2}),
-		DataStore:   datastore.NewMemoryDataStore().Seal(),
-	}
+	env := newTestEnvForApply(t, nopAlias, []uint64{sel1, sel2})
 
 	out, err := cs.Apply(env, AddNOPOffchainInput{
-		CommitteeQualifier:   qualifier,
-		SourceChainSelectors: []uint64{sel1},
-		ServiceIdentifiers:   []string{"my-aggregator"},
+		CommitteeQualifier:    qualifier,
+		SourceChainSelectors:  []uint64{sel1},
+		ServiceIdentifiers:    []string{"my-aggregator"},
+		NOPAlias:              shared.NOPAlias(nopAlias),
+		Aggregators:           testAggregatorRefs(),
+		ExecutorQualifier:     "default-executor",
+		ExpectedSignerAddress: signerAddr,
 	})
 	require.NoError(t, err)
 
@@ -442,7 +502,7 @@ func TestAddNOPOffchain_Apply_ScanError(t *testing.T) {
 	}
 
 	_, err := cs.Apply(env, AddNOPOffchainInput{
-		CommitteeQualifier:   "default",
+		CommitteeQualifier:   testQualifier,
 		SourceChainSelectors: []uint64{sel1},
 		ServiceIdentifiers:   []string{"svc1"},
 	})
@@ -465,7 +525,7 @@ func TestAddNOPOffchain_Apply_CommitteeNotFound(t *testing.T) {
 	}
 
 	_, err := cs.Apply(env, AddNOPOffchainInput{
-		CommitteeQualifier:   "default",
+		CommitteeQualifier:   testQualifier,
 		SourceChainSelectors: []uint64{sel1},
 		ServiceIdentifiers:   []string{"svc1"},
 	})
@@ -475,8 +535,10 @@ func TestAddNOPOffchain_Apply_CommitteeNotFound(t *testing.T) {
 
 func TestAddNOPOffchain_Apply_PreservesExistingDataStoreEntries(t *testing.T) {
 	sel1 := chainsel.TEST_90000001.Selector
-	qualifier := "default"
-	verifierAddr := "0x1111111111111111111111111111111111111111"
+	qualifier := testQualifier
+	verifierAddr := testVerifierAddr
+	nopAlias := testNOPAlias
+	signerAddr := testSignerAddr
 
 	adapter := &stubFullAdapter{
 		states: map[uint64][]*adapters.CommitteeState{
@@ -495,16 +557,16 @@ func TestAddNOPOffchain_Apply_PreservesExistingDataStoreEntries(t *testing.T) {
 	r := newFullEVMRegistry(adapter)
 	cs := AddNOPOffchain(r)
 
-	ds := datastore.NewMemoryDataStore()
-	env := deployment.Environment{
-		BlockChains: newTestBlockChains([]uint64{sel1}),
-		DataStore:   ds.Seal(),
-	}
+	env := newTestEnvForApply(t, nopAlias, []uint64{sel1})
 
 	out, err := cs.Apply(env, AddNOPOffchainInput{
-		CommitteeQualifier:   qualifier,
-		SourceChainSelectors: []uint64{sel1},
-		ServiceIdentifiers:   []string{"svc-a", "svc-b"},
+		CommitteeQualifier:    qualifier,
+		SourceChainSelectors:  []uint64{sel1},
+		ServiceIdentifiers:    []string{"svc-a", "svc-b"},
+		NOPAlias:              shared.NOPAlias(nopAlias),
+		Aggregators:           testAggregatorRefs(),
+		ExecutorQualifier:     "default-executor",
+		ExpectedSignerAddress: signerAddr,
 	})
 	require.NoError(t, err)
 	require.NotNil(t, out.DataStore)
@@ -526,10 +588,36 @@ type stubOnchainAdapter struct {
 	applied  []adapters.SignatureConfigChange
 }
 
+// stubOffchainClient satisfies offchain.Client. Only the JDClient methods needed by our test
+// flow (ListNodes, ProposeJob) are implemented; all others are left as nil embeddings and
+// will panic if unexpectedly called.
 type stubOffchainClient struct {
 	jobv1.JobServiceClient
 	nodev1.NodeServiceClient
 	csav1.CSAServiceClient
+
+	// nodes maps nodeID → node name (NOP alias). Used by ListNodes and ProposeJob stubs.
+	nodes map[string]string
+}
+
+func (s *stubOffchainClient) ListNodes(_ context.Context, in *nodev1.ListNodesRequest, _ ...grpc.CallOption) (*nodev1.ListNodesResponse, error) {
+	result := make([]*nodev1.Node, 0, len(s.nodes))
+	for id, name := range s.nodes {
+		if in.Filter != nil && len(in.Filter.Ids) > 0 {
+			found := slices.Contains(in.Filter.Ids, id)
+			if !found {
+				continue
+			}
+		}
+		result = append(result, &nodev1.Node{Id: id, Name: name})
+	}
+	return &nodev1.ListNodesResponse{Nodes: result}, nil
+}
+
+func (s *stubOffchainClient) ProposeJob(_ context.Context, _ *jobv1.ProposeJobRequest, _ ...grpc.CallOption) (*jobv1.ProposeJobResponse, error) {
+	return &jobv1.ProposeJobResponse{
+		Proposal: &jobv1.Proposal{Id: "fake-proposal-id", JobId: "fake-jd-job-id"},
+	}, nil
 }
 
 var _ adapters.CommitteeVerifierOnchainAdapter = (*stubOnchainAdapter)(nil)
@@ -573,7 +661,8 @@ func (s *stubAggregatorAdapter) ResolveVerifierAddress(_ datastore.DataStore, ch
 	return addr, nil
 }
 
-// stubFullAdapter combines both adapter interfaces for offchain-step tests.
+// stubFullAdapter combines CommitteeVerifierOnchainAdapter, AggregatorConfigAdapter,
+// and VerifierConfigAdapter for offchain-step tests.
 // GetDeployedChains returns the keys of the states map, mirroring how a real EVM
 // adapter discovers dest chains from the datastore.
 type stubFullAdapter struct {
@@ -583,8 +672,11 @@ type stubFullAdapter struct {
 	resolveErr    error
 }
 
-var _ adapters.CommitteeVerifierOnchainAdapter = (*stubFullAdapter)(nil)
-var _ adapters.AggregatorConfigAdapter = (*stubFullAdapter)(nil)
+var (
+	_ adapters.CommitteeVerifierOnchainAdapter = (*stubFullAdapter)(nil)
+	_ adapters.AggregatorConfigAdapter         = (*stubFullAdapter)(nil)
+	_ adapters.VerifierConfigAdapter           = (*stubFullAdapter)(nil)
+)
 
 func (s *stubFullAdapter) ScanCommitteeStates(_ context.Context, _ deployment.Environment, chainSelector uint64) ([]*adapters.CommitteeState, error) {
 	if s.scanErr != nil {
@@ -616,11 +708,26 @@ func (s *stubFullAdapter) ResolveVerifierAddress(_ datastore.DataStore, chainSel
 	return addr, nil
 }
 
+func (s *stubFullAdapter) ResolveVerifierContractAddresses(_ datastore.DataStore, chainSelector uint64, _, _ string) (*adapters.VerifierContractAddresses, error) {
+	addr := s.verifierAddrs[chainSelector]
+	return &adapters.VerifierContractAddresses{
+		CommitteeVerifierAddress: addr,
+		OnRampAddress:            "0x000000000000000000000000000000000000AAAA",
+		ExecutorProxyAddress:     "0x000000000000000000000000000000000000BBBB",
+		RMNRemoteAddress:         "0x000000000000000000000000000000000000CCCC",
+	}, nil
+}
+
+func (s *stubFullAdapter) GetSignerAddressFamily() string {
+	return chainsel.FamilyEVM
+}
+
 func newFullEVMRegistry(a *stubFullAdapter) *adapters.Registry {
 	r := adapters.GetRegistry()
 	r.Register(chainsel.FamilyEVM, adapters.ChainAdapters{
 		CommitteeVerifierOnchain: a,
 		Aggregator:               a,
+		Verifier:                 a,
 	})
 	return r
 }
@@ -631,4 +738,35 @@ func newTestBlockChains(selectors []uint64) cldf_chain.BlockChains {
 		chains[sel] = cldfevm.Chain{Selector: sel}
 	}
 	return cldf_chain.NewBlockChains(chains)
+}
+
+// newTestEnvForApply builds a deployment.Environment with all the infrastructure needed for
+// changeset apply functions that invoke ManageJobProposals (Logger, OperationsBundle, Offchain,
+// NodeIDs).
+func newTestEnvForApply(t *testing.T, nopAlias string, chainSelectors []uint64) deployment.Environment {
+	t.Helper()
+	nodeID := "node-" + nopAlias
+	lggr := logger.Test(t)
+	bundle := operations.NewBundle(
+		func() context.Context { return context.Background() },
+		lggr,
+		operations.NewMemoryReporter(),
+	)
+	return deployment.Environment{
+		Logger:           lggr,
+		BlockChains:      newTestBlockChains(chainSelectors),
+		DataStore:        datastore.NewMemoryDataStore().Seal(),
+		Offchain:         &stubOffchainClient{nodes: map[string]string{nodeID: nopAlias}},
+		NodeIDs:          []string{nodeID},
+		OperationsBundle: bundle,
+	}
+}
+
+// testAggregatorRefs returns a minimal AggregatorRef slice for tests that exercise the
+// job provisioning path but don't care about the specific aggregator values.
+func testAggregatorRefs() []AggregatorRef {
+	return []AggregatorRef{{
+		Name:    "test-aggregator",
+		Address: "0xAGGAGGAGGAGGAGGAGGAGGAGGAGGAGGAGGAGGAGG",
+	}}
 }
