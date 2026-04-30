@@ -7,6 +7,9 @@ import (
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
 )
 
+// DefaultECDSASigningKeyName is the keystore key name for the ECDSA key used to sign verification results.
+const DefaultECDSASigningKeyName = "bootstrap_default_ecdsa_signing_key"
+
 type Config struct {
 	VerifierID        string `toml:"verifier_id"`
 	AggregatorAddress string `toml:"aggregator_address"`
