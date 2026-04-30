@@ -134,27 +134,26 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 
 	var evmDestReader chainaccess.DestinationReader
 	var offRampAddr common.Address
+	destCfg := f.destChainConfigs[chainSelector]
 	keyName := executor.DefaultEVMTransmitterKeyName
-	if destCfg, ok := f.destChainConfigs[chainSelector]; ok {
-		if destCfg.TransmitterKeyName != "" {
-			keyName = destCfg.TransmitterKeyName
-		}
-		if destCfg.OffRampAddress != "" {
-			offRampAddr = common.HexToAddress(destCfg.OffRampAddress)
-			dr, err := destinationreader.NewEvmDestinationReader(destinationreader.Params{
-				Lggr:                      f.lggr,
-				ChainSelector:             chainSelector,
-				ChainClient:               chainClient,
-				OfframpAddress:            destCfg.OffRampAddress,
-				RmnRemoteAddress:          destCfg.RmnAddress,
-				ExecutionVisabilityWindow: f.executionVisibilityWindow,
-				Monitoring:                monitoring.NewNoopExecutorMonitoring(),
-			})
-			if err != nil {
-				f.lggr.Warnw("Failed to create EVM destination reader, DestinationReader will be unavailable", "chainSelector", chainSelector, "error", err)
-			} else {
-				evmDestReader = dr
-			}
+	if destCfg.TransmitterKeyName != "" {
+		keyName = destCfg.TransmitterKeyName
+	}
+	if destCfg.OffRampAddress != "" {
+		offRampAddr = common.HexToAddress(destCfg.OffRampAddress)
+		dr, err := destinationreader.NewEvmDestinationReader(destinationreader.Params{
+			Lggr:                      f.lggr,
+			ChainSelector:             chainSelector,
+			ChainClient:               chainClient,
+			OfframpAddress:            destCfg.OffRampAddress,
+			RmnRemoteAddress:          destCfg.RmnAddress,
+			ExecutionVisabilityWindow: f.executionVisibilityWindow,
+			Monitoring:                monitoring.NewNoopExecutorMonitoring(),
+		})
+		if err != nil {
+			f.lggr.Warnw("Failed to create EVM destination reader, DestinationReader will be unavailable", "chainSelector", chainSelector, "error", err)
+		} else {
+			evmDestReader = dr
 		}
 	}
 
