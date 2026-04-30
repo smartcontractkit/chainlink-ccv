@@ -65,11 +65,24 @@ type TokenCombination struct {
 	expectedVerifierResults int
 }
 
+// canonicalPairQualifier returns the same qualifier string regardless of which
+// side of a pool pair is treated as "local". The two pool descriptions are
+// sorted alphabetically so that BurnMint↔LockRelease and LockRelease↔BurnMint
+// both produce the same base string.
+func (s TokenCombination) canonicalPairQualifier() string {
+	a := fmt.Sprintf("%s %s %v", s.localPoolType, s.localPoolVersion, s.localPoolCCVQualifiers)
+	b := fmt.Sprintf("%s %s %v", s.remotePoolType, s.remotePoolVersion, s.remotePoolCCVQualifiers)
+	if a > b {
+		a, b = b, a
+	}
+	return fmt.Sprintf("TEST (%s, %s)", a, b)
+}
+
 // LocalPoolAddressRef returns the address ref for the local token pool.
 func (s TokenCombination) LocalPoolAddressRef() datastore.AddressRef {
 	qualifier := s.localPoolQualifier
 	if qualifier == "" {
-		qualifier = fmt.Sprintf("TEST (%s %s %v to %s %s %v)", s.localPoolType, s.localPoolVersion, s.localPoolCCVQualifiers, s.remotePoolType, s.remotePoolVersion, s.remotePoolCCVQualifiers)
+		qualifier = s.canonicalPairQualifier() + ":local"
 	}
 	return datastore.AddressRef{
 		Type:      datastore.ContractType(s.localPoolType),
@@ -82,7 +95,7 @@ func (s TokenCombination) LocalPoolAddressRef() datastore.AddressRef {
 func (s TokenCombination) RemotePoolAddressRef() datastore.AddressRef {
 	qualifier := s.remotePoolQualifier
 	if qualifier == "" {
-		qualifier = fmt.Sprintf("TEST (%s %s %v to %s %s %v)", s.remotePoolType, s.remotePoolVersion, s.remotePoolCCVQualifiers, s.localPoolType, s.localPoolVersion, s.localPoolCCVQualifiers)
+		qualifier = s.canonicalPairQualifier() + ":remote"
 	}
 	return datastore.AddressRef{
 		Type:      datastore.ContractType(s.remotePoolType),

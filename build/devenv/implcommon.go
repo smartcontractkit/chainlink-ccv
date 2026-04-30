@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"maps"
 	"sort"
+	"strings"
 
 	"github.com/Masterminds/semver/v3"
 
@@ -598,13 +599,24 @@ func tokenTransferRefKey(ref datastore.AddressRef) string {
 	return string(ref.Type) + "+" + v + "+" + ref.Qualifier
 }
 
+// poolPairBatchKey strips the ":local" / ":remote" direction suffix that
+// TokenCombination.LocalPoolAddressRef / RemotePoolAddressRef append to the
+// canonical pair qualifier, returning the shared base so that both sides of a
+// bidirectional pair land in the same ConfigureTokensForTransfers call.
+// Qualifiers without either suffix are returned unchanged.
+func poolPairBatchKey(qualifier string) string {
+	q := strings.TrimSuffix(qualifier, ":local")
+	q = strings.TrimSuffix(q, ":remote")
+	return q
+}
+
 func buildTokenTransferBatches(configs []tokenscore.TokenTransferConfig) [][]tokenscore.TokenTransferConfig {
 	// Configure each logical token/pool independently across lanes. The upstream
 	// changeset expects one local pool identity per call, while each batch may
 	// still include that pool's configs from multiple chains.
 	byPool := make(map[string][]tokenscore.TokenTransferConfig)
 	for _, cfg := range configs {
-		poolKey := tokenTransferRefKey(cfg.TokenPoolRef)
+		poolKey := poolPairBatchKey(cfg.TokenPoolRef.Qualifier)
 		byPool[poolKey] = append(byPool[poolKey], cfg)
 	}
 

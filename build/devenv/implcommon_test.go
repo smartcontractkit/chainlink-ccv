@@ -87,6 +87,34 @@ func TestBuildTokenTransferBatchesAsymmetricPoolsSplitByLocalPool(t *testing.T) 
 	require.Equal(t, map[string]bool{"burn": true, "lock": true}, seenQualifiers)
 }
 
+// TestBuildTokenTransferBatchesCrossTypePools verifies that an EVM
+// BurnMintTokenPool and a Canton LockReleaseTokenPool for the same token pair
+// land in the same batch. Both carry the canonical pair qualifier produced by
+// TokenCombination, differing only in the ":local" / ":remote" suffix.
+func TestBuildTokenTransferBatchesCrossTypePools(t *testing.T) {
+	const pairQualifier = "TEST (BurnMintTokenPool 2.0.0 [default], LockReleaseTokenPool 2.0.0 [default])"
+	evmPool := datastore.AddressRef{
+		ChainSelector: 1,
+		Type:          datastore.ContractType("BurnMintTokenPool"),
+		Version:       semver.MustParse("2.0.0"),
+		Qualifier:     pairQualifier + ":local",
+	}
+	cantonPool := datastore.AddressRef{
+		ChainSelector: 2,
+		Type:          datastore.ContractType("LockReleaseTokenPool"),
+		Version:       semver.MustParse("2.0.0"),
+		Qualifier:     pairQualifier + ":remote",
+	}
+
+	batches := buildTokenTransferBatches([]tokenscore.TokenTransferConfig{
+		testTokenTransferConfig(evmPool, cantonPool),
+		testTokenTransferConfig(cantonPool, evmPool),
+	})
+	require.Len(t, batches, 1)
+	require.Len(t, batches[0], 2)
+	requireNoDuplicateTokenTransferSelectors(t, batches[0])
+}
+
 func testTokenPoolRef(selector uint64, qualifier string) datastore.AddressRef {
 	return datastore.AddressRef{
 		ChainSelector: selector,
