@@ -24,9 +24,7 @@ func main() {
 		"EVMCommitteeVerifier",
 		cmd.NewCommitteeVerifierServiceFactory(),
 		bootstrap.WithLogLevel(zapcore.InfoLevel),
-		bootstrap.WithKey(keys.DefaultCSAKeyName, "csa", keystore.Ed25519),                 // node identity key for JD communication
 		bootstrap.WithKey(keys.DefaultECDSASigningKeyName, "signing", keystore.ECDSA_S256), // ECDSA key for signing verification results
-		bootstrap.WithKey(keys.DefaultEdDSASigningKeyName, "signing", keystore.Ed25519),    // EdDSA key for signing verification results
 	); err != nil {
 		panic(fmt.Sprintf("failed to run EVM committee verifier: %s", err.Error()))
 	}

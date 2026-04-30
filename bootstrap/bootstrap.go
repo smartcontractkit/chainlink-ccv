@@ -124,6 +124,7 @@ func NewBootstrapper(
 	}
 
 	// Backwards compatibility: if no keys are declared, initialize the original default set.
+	// Deprecated: we should remove these once all apps and integrations define required keys.
 	if len(b.keys) == 0 {
 		b.keys = []keyToInit{
 			{keys.DefaultCSAKeyName, "csa", keystore.Ed25519},
@@ -135,6 +136,21 @@ func NewBootstrapper(
 	// If no configuration is provided, default to JD lifecycle manager with config loaded from the default path.
 	if b.appCfg == nil && b.config == nil {
 		b.config = &Config{}
+	}
+
+	// JD mode requires a CSA key for node authentication. Inject the default if the caller
+	// did not explicitly declare one, so callers only need to list their application keys.
+	if b.config != nil {
+		hasCSA := false
+		for _, k := range b.keys {
+			if k.purpose == "csa" {
+				hasCSA = true
+				break
+			}
+		}
+		if !hasCSA {
+			b.keys = append([]keyToInit{{keys.DefaultCSAKeyName, "csa", keystore.Ed25519}}, b.keys...)
+		}
 	}
 
 	if b.config != nil {
@@ -353,6 +369,9 @@ func WithKey(name, purpose string, keyType keystore.KeyType) Option {
 
 // WithJD tells the bootstrapper to load config from JD and start the JD lifecycle manager.
 // This is the default option if no AppConfig is provided.
+// JD mode requires a keystore and a CSA key for node authentication. The bootstrapper
+// automatically provisions keys.DefaultCSAKeyName unless a key with purpose "csa" is
+// already declared via WithKey.
 func WithJD() Option {
 	return func(b *Bootstrapper) error {
 		b.config = &Config{}
