@@ -65,24 +65,28 @@ type TokenCombination struct {
 	expectedVerifierResults int
 }
 
-// canonicalPairQualifier returns the same qualifier string regardless of which
-// side of a pool pair is treated as "local". The two pool descriptions are
-// sorted alphabetically so that BurnMint↔LockRelease and LockRelease↔BurnMint
-// both produce the same base string.
-func (s TokenCombination) canonicalPairQualifier() string {
-	a := fmt.Sprintf("%s %s %v", s.localPoolType, s.localPoolVersion, s.localPoolCCVQualifiers)
-	b := fmt.Sprintf("%s %s %v", s.remotePoolType, s.remotePoolVersion, s.remotePoolCCVQualifiers)
+func poolDescription(poolType, poolVersion string, ccvQualifiers []string) string {
+	return fmt.Sprintf("%s %s %v", poolType, poolVersion, ccvQualifiers)
+}
+
+func poolPairQualifier(a, b string) string {
 	if a > b {
 		a, b = b, a
 	}
 	return fmt.Sprintf("TEST (%s, %s)", a, b)
 }
 
+func poolInstanceQualifier(poolDesc, counterpartPoolDesc string) string {
+	return fmt.Sprintf("%s::%s", poolPairQualifier(poolDesc, counterpartPoolDesc), poolDesc)
+}
+
 // LocalPoolAddressRef returns the address ref for the local token pool.
 func (s TokenCombination) LocalPoolAddressRef() datastore.AddressRef {
 	qualifier := s.localPoolQualifier
 	if qualifier == "" {
-		qualifier = s.canonicalPairQualifier() + ":local"
+		localPoolDesc := poolDescription(s.localPoolType, s.localPoolVersion, s.localPoolCCVQualifiers)
+		remotePoolDesc := poolDescription(s.remotePoolType, s.remotePoolVersion, s.remotePoolCCVQualifiers)
+		qualifier = poolInstanceQualifier(localPoolDesc, remotePoolDesc)
 	}
 	return datastore.AddressRef{
 		Type:      datastore.ContractType(s.localPoolType),
@@ -95,7 +99,9 @@ func (s TokenCombination) LocalPoolAddressRef() datastore.AddressRef {
 func (s TokenCombination) RemotePoolAddressRef() datastore.AddressRef {
 	qualifier := s.remotePoolQualifier
 	if qualifier == "" {
-		qualifier = s.canonicalPairQualifier() + ":remote"
+		remotePoolDesc := poolDescription(s.remotePoolType, s.remotePoolVersion, s.remotePoolCCVQualifiers)
+		localPoolDesc := poolDescription(s.localPoolType, s.localPoolVersion, s.localPoolCCVQualifiers)
+		qualifier = poolInstanceQualifier(remotePoolDesc, localPoolDesc)
 	}
 	return datastore.AddressRef{
 		Type:      datastore.ContractType(s.remotePoolType),
