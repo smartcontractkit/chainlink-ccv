@@ -47,19 +47,17 @@ func TestBuildTokenTransferBatchesSymmetricTokenAcrossAllLanes(t *testing.T) {
 		testTokenTransferConfig(pool3, pool1, pool2),
 	})
 	require.NoError(t, err)
-	require.Len(t, batches, 3)
+	require.Len(t, batches, 1)
 
-	for _, batch := range batches {
-		require.Len(t, batch, 2)
-		requireNoDuplicateTokenTransferSelectors(t, batch)
-		for _, cfg := range batch {
-			require.Len(t, cfg.RemoteChains, 1)
-		}
-		requireReciprocalTokenTransferBatch(t, batch)
+	require.Len(t, batches[0], 3)
+	requireNoDuplicateTokenTransferSelectors(t, batches[0])
+	for _, cfg := range batches[0] {
+		require.Len(t, cfg.RemoteChains, 2)
+		requireBatchContainsRemoteSelectors(t, batches[0], cfg)
 	}
 }
 
-func TestBuildTokenTransferBatchesAsymmetricPoolsSplitByReciprocalLane(t *testing.T) {
+func TestBuildTokenTransferBatchesAsymmetricPoolsSplitByLocalPoolInstance(t *testing.T) {
 	burn1 := testTokenPoolRef(1, "TEST (burn, lock)::burn")
 	burn2 := testTokenPoolRef(2, "TEST (burn, lock)::burn")
 	burn3 := testTokenPoolRef(3, "TEST (burn, lock)::burn")
@@ -76,15 +74,17 @@ func TestBuildTokenTransferBatchesAsymmetricPoolsSplitByReciprocalLane(t *testin
 		testTokenTransferConfig(lock3, burn1, burn2),
 	})
 	require.NoError(t, err)
-	require.Len(t, batches, 6)
+	require.Len(t, batches, 2)
 
 	for _, batch := range batches {
-		require.Len(t, batch, 2)
+		require.Len(t, batch, 3)
 		requireNoDuplicateTokenTransferSelectors(t, batch)
+		qualifier := batch[0].TokenPoolRef.Qualifier
 		for _, cfg := range batch {
-			require.Len(t, cfg.RemoteChains, 1)
+			require.Equal(t, qualifier, cfg.TokenPoolRef.Qualifier)
+			require.Len(t, cfg.RemoteChains, 2)
+			requireBatchContainsRemoteSelectors(t, batch, cfg)
 		}
-		requireReciprocalTokenTransferBatch(t, batch)
 	}
 }
 
@@ -182,7 +182,10 @@ func TestBuildTokenTransferBatchesCrossTypePoolsSplitDuplicateSelectors(t *testi
 	for _, batch := range batches {
 		require.Len(t, batch, 2)
 		requireNoDuplicateTokenTransferSelectors(t, batch)
-		requireReciprocalTokenTransferBatch(t, batch)
+		for _, cfg := range batch {
+			require.Len(t, cfg.RemoteChains, 1)
+			requireBatchContainsRemoteSelectors(t, batch, cfg)
+		}
 	}
 }
 
@@ -228,7 +231,10 @@ func TestBuildTokenTransferBatchesSameTypeVersionsSplitByLocalVersion(t *testing
 	for _, batch := range batches {
 		require.Len(t, batch, 2)
 		requireNoDuplicateTokenTransferSelectors(t, batch)
-		requireReciprocalTokenTransferBatch(t, batch)
+		for _, cfg := range batch {
+			require.Len(t, cfg.RemoteChains, 1)
+			requireBatchContainsRemoteSelectors(t, batch, cfg)
+		}
 	}
 }
 
@@ -279,5 +285,18 @@ func requireReciprocalTokenTransferBatch(t *testing.T, batch []tokenscore.TokenT
 			require.True(t, ok, "batch is missing remote selector %d", remoteSelector)
 			require.Equal(t, tokenTransferRefKey(counterpart.TokenPoolRef), tokenTransferRefKey(*remoteCfg.RemotePool))
 		}
+	}
+}
+
+func requireBatchContainsRemoteSelectors(t *testing.T, batch []tokenscore.TokenTransferConfig, cfg tokenscore.TokenTransferConfig) {
+	t.Helper()
+
+	selectors := make(map[uint64]struct{}, len(batch))
+	for _, batchCfg := range batch {
+		selectors[batchCfg.ChainSelector] = struct{}{}
+	}
+	for remoteSelector := range cfg.RemoteChains {
+		_, ok := selectors[remoteSelector]
+		require.True(t, ok, "batch is missing remote selector %d", remoteSelector)
 	}
 }

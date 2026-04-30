@@ -653,43 +653,12 @@ func (k tokenTransferNodeKey) String() string {
 	return fmt.Sprintf("%d/%s", k.chainSelector, k.poolKey)
 }
 
-type tokenTransferLaneKey struct {
-	from tokenTransferNodeKey
-	to   tokenTransferNodeKey
-}
-
-func (k tokenTransferLaneKey) String() string {
-	return k.from.String() + "->" + k.to.String()
-}
-
-func sortedTokenTransferLaneKeys(lanes map[tokenTransferLaneKey]struct{}) []tokenTransferLaneKey {
-	keys := make([]tokenTransferLaneKey, 0, len(lanes))
-	for lane := range lanes {
-		keys = append(keys, lane)
-	}
-	sort.Slice(keys, func(i, j int) bool {
-		return keys[i].String() < keys[j].String()
-	})
-	return keys
-}
-
-func tokenTransferConfigForRemote(cfg tokenscore.TokenTransferConfig, remoteSelector uint64) (tokenscore.TokenTransferConfig, error) {
-	remoteCfg, ok := cfg.RemoteChains[remoteSelector]
-	if !ok {
-		return tokenscore.TokenTransferConfig{}, fmt.Errorf("remote selector %d is missing from token transfer config %s", remoteSelector, tokenTransferConfigNodeKey(cfg))
-	}
-	clone := cfg
-	clone.RemoteChains = map[uint64]tokenscore.RemoteChainConfig[*datastore.AddressRef, datastore.AddressRef]{
-		remoteSelector: remoteCfg,
-	}
-	return clone, nil
-}
-
 func buildTokenTransferBatches(configs []tokenscore.TokenTransferConfig) ([][]tokenscore.TokenTransferConfig, error) {
 	// Group first so unrelated token pairs never get matched together. Within a
-	// group, batches are emitted per reciprocal lane. This keeps the local pool
-	// in each batch aligned with the RemotePool refs that the changeset will
-	// configure on-chain.
+	// group, split only when a ConfigureTokensForTransfers call would contain two
+	// configs for the same selector. Each config keeps its full RemoteChains map:
+	// the EVM token-pool sequence requires every call for an already-active pool
+	// to include all supported remote chains.
 	byPair := make(map[string][]tokenscore.TokenTransferConfig)
 	for _, cfg := range configs {
 		pairKey := canonicalPoolPairKey(cfg.TokenPoolRef)
@@ -704,15 +673,21 @@ func buildTokenTransferBatches(configs []tokenscore.TokenTransferConfig) ([][]to
 
 	batches := make([][]tokenscore.TokenTransferConfig, 0, len(groupKeys))
 	for _, groupKey := range groupKeys {
-		group := byPair[groupKey]
-		configByNode := make(map[tokenTransferNodeKey]tokenscore.TokenTransferConfig, len(group))
-		lanes := make(map[tokenTransferLaneKey]struct{})
+		group := append([]tokenscore.TokenTransferConfig(nil), byPair[groupKey]...)
+		sort.Slice(group, func(i, j int) bool {
+			if group[i].ChainSelector != group[j].ChainSelector {
+				return group[i].ChainSelector < group[j].ChainSelector
+			}
+			return tokenTransferRefKey(group[i].TokenPoolRef) < tokenTransferRefKey(group[j].TokenPoolRef)
+		})
+
+		configByNode := make(map[tokenTransferNodeKey]struct{}, len(group))
 		for _, cfg := range group {
 			from := tokenTransferConfigNodeKey(cfg)
 			if _, exists := configByNode[from]; exists {
 				return nil, fmt.Errorf("duplicate token transfer config for %s", from)
 			}
-			configByNode[from] = cfg
+			configByNode[from] = struct{}{}
 		}
 		for _, cfg := range group {
 			from := tokenTransferConfigNodeKey(cfg)
@@ -724,38 +699,33 @@ func buildTokenTransferBatches(configs []tokenscore.TokenTransferConfig) ([][]to
 				if _, exists := configByNode[to]; !exists {
 					return nil, fmt.Errorf("token transfer config %s references remote pool %s, but that pool is not present in the same batch group", from, to)
 				}
-				lanes[tokenTransferLaneKey{from: from, to: to}] = struct{}{}
 			}
 		}
 
-		visited := make(map[tokenTransferLaneKey]bool, len(lanes))
-		for _, lane := range sortedTokenTransferLaneKeys(lanes) {
-			if visited[lane] {
-				continue
-			}
-			reverse := tokenTransferLaneKey{from: lane.to, to: lane.from}
-			if _, exists := lanes[reverse]; !exists {
-				return nil, fmt.Errorf("token transfer lane %s is missing reciprocal lane %s", lane, reverse)
-			}
-			fromCfg, err := tokenTransferConfigForRemote(configByNode[lane.from], lane.to.chainSelector)
-			if err != nil {
-				return nil, err
-			}
-			toCfg, err := tokenTransferConfigForRemote(configByNode[lane.to], lane.from.chainSelector)
-			if err != nil {
-				return nil, err
-			}
-			batch := []tokenscore.TokenTransferConfig{fromCfg, toCfg}
-			sort.Slice(batch, func(i, j int) bool {
-				if batch[i].ChainSelector != batch[j].ChainSelector {
-					return batch[i].ChainSelector < batch[j].ChainSelector
-				}
-				return tokenTransferRefKey(batch[i].TokenPoolRef) < tokenTransferRefKey(batch[j].TokenPoolRef)
-			})
-			batches = append(batches, batch)
-			visited[lane] = true
-			visited[reverse] = true
-		}
+		batches = append(batches, splitTokenTransferBatchBySelector(group)...)
 	}
 	return batches, nil
+}
+
+func splitTokenTransferBatchBySelector(configs []tokenscore.TokenTransferConfig) [][]tokenscore.TokenTransferConfig {
+	batches := make([][]tokenscore.TokenTransferConfig, 0, 1)
+	seenSelectors := make([]map[uint64]bool, 0, 1)
+	for _, cfg := range configs {
+		placed := false
+		for i := range batches {
+			if seenSelectors[i][cfg.ChainSelector] {
+				continue
+			}
+			batches[i] = append(batches[i], cfg)
+			seenSelectors[i][cfg.ChainSelector] = true
+			placed = true
+			break
+		}
+		if placed {
+			continue
+		}
+		batches = append(batches, []tokenscore.TokenTransferConfig{cfg})
+		seenSelectors = append(seenSelectors, map[uint64]bool{cfg.ChainSelector: true})
+	}
+	return batches
 }
