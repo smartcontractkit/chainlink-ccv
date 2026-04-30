@@ -9,8 +9,6 @@ import (
 
 	"github.com/ethereum/go-ethereum/accounts/abi/bind/v2"
 	"github.com/ethereum/go-ethereum/common"
-	"github.com/ethereum/go-ethereum/core/types"
-	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/ethereum/go-ethereum/ethclient"
 
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/offramp"
@@ -19,6 +17,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/keystore"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	evmkeys "github.com/smartcontractkit/chainlink-evm/pkg/keys/v2"
 
 	chainselectors "github.com/smartcontractkit/chain-selectors"
 )
@@ -27,7 +26,7 @@ var _ chainaccess.ContractTransmitter = &KeystoreEVMContractTransmitter{}
 
 // KeystoreEVMContractTransmitter submits OffRamp execute transactions using a
 // keystore-managed secp256k1 key. Private key material never leaves the
-// keystore; signing is delegated via the keystore's Sign method.
+// keystore; signing is delegated via [evmkeys.TxKey.GetTransactOpts].
 //
 // This is the keystore-backed equivalent of [EVMContractTransmitter].
 // The TxManager-backed [TXMEVMContractTransmitter] is preferred for production
@@ -35,9 +34,7 @@ var _ chainaccess.ContractTransmitter = &KeystoreEVMContractTransmitter{}
 // transmitter is suitable for simpler deployments or testing.
 type KeystoreEVMContractTransmitter struct {
 	lggr          logger.Logger
-	ks            keystore.Keystore
-	keyName       string
-	addr          common.Address
+	txKey         *evmkeys.TxKey
 	chainID       *big.Int
 	Client        *ethclient.Client
 	OffRamp       offramp.OffRamp
@@ -47,9 +44,9 @@ type KeystoreEVMContractTransmitter struct {
 
 // NewEVMContractTransmitterFromKeystore constructs a [KeystoreEVMContractTransmitter].
 //
-// keyName is the key name as stored in the keystore (plain name, no chain-family prefix).
-// The keystore is queried directly using the name as-is, matching how the verifier
-// accesses its signing key.
+// keyName must be the full keystore path (e.g. executor.DefaultEVMTransmitterKeyName
+// which is "evm/tx/executor_evm_transmitter_key"). [evmkeys.GetTxKeys] is called with
+// [evmkeys.WithNoPrefix] so the name is used as-is without an additional evm/tx/ prefix.
 func NewEVMContractTransmitterFromKeystore(
 	ctx context.Context,
 	lggr logger.Logger,
@@ -71,24 +68,13 @@ func NewEVMContractTransmitterFromKeystore(
 	chainID := new(big.Int)
 	chainID.SetString(id, 10)
 
-	keysResp, err := ks.GetKeys(ctx, keystore.GetKeysRequest{KeyNames: []string{keyName}})
+	txKeys, err := evmkeys.GetTxKeys(ctx, ks, []string{keyName}, evmkeys.WithNoPrefix())
 	if err != nil {
-		return nil, fmt.Errorf("failed to get key %q from keystore: %w", keyName, err)
+		return nil, fmt.Errorf("failed to get tx key %q from keystore: %w", keyName, err)
 	}
-	if len(keysResp.Keys) == 0 {
+	if len(txKeys) == 0 {
 		return nil, fmt.Errorf("key %q not found in keystore", keyName)
 	}
-
-	keyInfo := keysResp.Keys[0].KeyInfo
-	if keyInfo.KeyType != keystore.ECDSA_S256 {
-		return nil, fmt.Errorf("key %q has unexpected type %s, expected %s", keyName, keyInfo.KeyType, keystore.ECDSA_S256)
-	}
-
-	publicKey, err := crypto.UnmarshalPubkey(keyInfo.PublicKey)
-	if err != nil {
-		return nil, fmt.Errorf("failed to unmarshal public key for %q: %w", keyName, err)
-	}
-	addr := crypto.PubkeyToAddress(*publicKey)
 
 	boundContract, err := offramp.NewOffRamp(offRampAddress, client)
 	if err != nil {
@@ -97,9 +83,7 @@ func NewEVMContractTransmitterFromKeystore(
 
 	return &KeystoreEVMContractTransmitter{
 		lggr:          lggr,
-		ks:            ks,
-		keyName:       keyName,
-		addr:          addr,
+		txKey:         txKeys[0],
 		chainID:       chainID,
 		Client:        client,
 		OffRamp:       *boundContract,
@@ -110,7 +94,7 @@ func NewEVMContractTransmitterFromKeystore(
 // GetTransactOpts builds [bind.TransactOpts] backed by the keystore key.
 // Nonce and gas price are fetched live from the pending state.
 func (ct *KeystoreEVMContractTransmitter) GetTransactOpts(ctx context.Context) (*bind.TransactOpts, error) {
-	nonce, err := ct.Client.PendingNonceAt(ctx, ct.addr)
+	nonce, err := ct.Client.PendingNonceAt(ctx, ct.txKey.Address())
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch pending nonce: %w", err)
 	}
@@ -120,26 +104,9 @@ func (ct *KeystoreEVMContractTransmitter) GetTransactOpts(ctx context.Context) (
 		return nil, fmt.Errorf("failed to suggest gas price: %w", err)
 	}
 
-	chainID := ct.chainID
-	ks := ct.ks
-	keyName := ct.keyName
-	auth := &bind.TransactOpts{
-		From: ct.addr,
-		Signer: func(address common.Address, tx *types.Transaction) (*types.Transaction, error) {
-			if ct.addr != address {
-				return nil, bind.ErrNotAuthorized
-			}
-			signer := types.LatestSignerForChainID(chainID)
-			h := signer.Hash(tx)
-			signResp, err := ks.Sign(ctx, keystore.SignRequest{
-				KeyName: keyName,
-				Data:    h[:],
-			})
-			if err != nil {
-				return nil, fmt.Errorf("keystore sign failed: %w", err)
-			}
-			return tx.WithSignature(signer, signResp.Signature)
-		},
+	auth, err := ct.txKey.GetTransactOpts(ctx, ct.chainID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get transact opts from keystore key: %w", err)
 	}
 
 	auth.Nonce = big.NewInt(int64(nonce)) //nolint:gosec // G115 will replace with txm
