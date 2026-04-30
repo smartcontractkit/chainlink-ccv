@@ -12,7 +12,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
-	bskeys "github.com/smartcontractkit/chainlink-ccv/bootstrap/keys"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/commit"
 	"github.com/smartcontractkit/chainlink-common/keystore"
 )
 
@@ -102,13 +102,13 @@ type BootstrapKeys struct {
 // GetExecutorBootstrapKeys fetches only the CSA key from the bootstrap server.
 // Executors only need the CSA key for JD registration.
 func GetExecutorBootstrapKeys(bootstrapURL string) (BootstrapKeys, error) {
-	return fetchBootstrapKeys(bootstrapURL, []string{bskeys.DefaultCSAKeyName})
+	return fetchBootstrapKeys(bootstrapURL, []string{bootstrap.DefaultCSAKeyName})
 }
 
 // GetBootstrapKeys fetches the CSA and ECDSA keys from the bootstrap server.
 // Verifiers need both for JD registration and committee signer registration.
 func GetBootstrapKeys(bootstrapURL string) (BootstrapKeys, error) {
-	return fetchBootstrapKeys(bootstrapURL, []string{bskeys.DefaultCSAKeyName, bskeys.DefaultECDSASigningKeyName})
+	return fetchBootstrapKeys(bootstrapURL, []string{bootstrap.DefaultCSAKeyName, commit.DefaultECDSASigningKeyName})
 }
 
 func fetchBootstrapKeys(bootstrapURL string, keyNames []string) (BootstrapKeys, error) {
@@ -155,10 +155,10 @@ func fetchBootstrapKeys(bootstrapURL string, keyNames []string) (BootstrapKeys, 
 	}
 
 	result := BootstrapKeys{
-		CSAPublicKey: hex.EncodeToString(keyMap[bskeys.DefaultCSAKeyName].KeyInfo.PublicKey),
+		CSAPublicKey: hex.EncodeToString(keyMap[bootstrap.DefaultCSAKeyName].KeyInfo.PublicKey),
 	}
 
-	if ecdsaKeyResp, ok := keyMap[bskeys.DefaultECDSASigningKeyName]; ok {
+	if ecdsaKeyResp, ok := keyMap[commit.DefaultECDSASigningKeyName]; ok {
 		ecdsaPublicKey, err := crypto.UnmarshalPubkey(ecdsaKeyResp.KeyInfo.PublicKey)
 		if err != nil {
 			return BootstrapKeys{}, fmt.Errorf("failed to unmarshal ECDSA public key: %w", err)

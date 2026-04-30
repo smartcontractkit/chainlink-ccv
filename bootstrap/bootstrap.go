@@ -127,9 +127,9 @@ func NewBootstrapper(
 	// Deprecated: we should remove these once all apps and integrations define required keys.
 	if len(b.keys) == 0 {
 		b.keys = []keyToInit{
-			{keys.DefaultCSAKeyName, "csa", keystore.Ed25519},
-			{keys.DefaultECDSASigningKeyName, "signing", keystore.ECDSA_S256},
-			{keys.DefaultEdDSASigningKeyName, "signing", keystore.Ed25519},
+			{DefaultCSAKeyName, "csa", keystore.Ed25519},
+			{defaultECDSASigningKeyName, "signing", keystore.ECDSA_S256},
+			{defaultEdDSASigningKeyName, "signing", keystore.Ed25519},
 		}
 	}
 
@@ -149,7 +149,7 @@ func NewBootstrapper(
 			}
 		}
 		if !hasCSA {
-			b.keys = append([]keyToInit{{keys.DefaultCSAKeyName, "csa", keystore.Ed25519}}, b.keys...)
+			b.keys = append([]keyToInit{{DefaultCSAKeyName, "csa", keystore.Ed25519}}, b.keys...)
 		}
 	}
 
@@ -352,9 +352,8 @@ type keyToInit struct {
 }
 
 // WithKey declares a key that the bootstrapper must ensure exists, creating it if absent.
-// When no WithKey options are provided, the bootstrapper applies a default set of three keys:
-// keys.DefaultCSAKeyName (Ed25519), keys.DefaultECDSASigningKeyName (ECDSA_S256), and
-// keys.DefaultEdDSASigningKeyName (Ed25519). Passing one or more WithKey options suppresses
+// When no WithKey options are provided, the bootstrapper applies a deprecated default set of
+// three keys (CSA, ECDSA signing, EdDSA signing). Passing one or more WithKey options suppresses
 // those defaults entirely; the caller is responsible for declaring every key it requires.
 func WithKey(name, purpose string, keyType keystore.KeyType) Option {
 	return func(b *Bootstrapper) error {
@@ -370,7 +369,7 @@ func WithKey(name, purpose string, keyType keystore.KeyType) Option {
 // WithJD tells the bootstrapper to load config from JD and start the JD lifecycle manager.
 // This is the default option if no AppConfig is provided.
 // JD mode requires a keystore and a CSA key for node authentication. The bootstrapper
-// automatically provisions keys.DefaultCSAKeyName unless a key with purpose "csa" is
+// automatically provisions bootstrap.DefaultCSAKeyName unless a key with purpose "csa" is
 // already declared via WithKey.
 func WithJD() Option {
 	return func(b *Bootstrapper) error {

@@ -17,7 +17,6 @@ import (
 	_ "github.com/lib/pq"
 
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap/db"
-	"github.com/smartcontractkit/chainlink-ccv/bootstrap/keys"
 	"github.com/smartcontractkit/chainlink-common/keystore"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
@@ -152,9 +151,9 @@ func TestNewBootstrapper_WithKey_Defaults(t *testing.T) {
 
 	// No WithKey options → the three original defaults must be applied.
 	require.Len(t, b.keys, 3)
-	require.Equal(t, keys.DefaultCSAKeyName, b.keys[0].name)
-	require.Equal(t, keys.DefaultECDSASigningKeyName, b.keys[1].name)
-	require.Equal(t, keys.DefaultEdDSASigningKeyName, b.keys[2].name)
+	require.Equal(t, DefaultCSAKeyName, b.keys[0].name)
+	require.Equal(t, defaultECDSASigningKeyName, b.keys[1].name)
+	require.Equal(t, defaultEdDSASigningKeyName, b.keys[2].name)
 }
 
 func TestNewBootstrapper_WithKey_Explicit(t *testing.T) {
