@@ -23,7 +23,7 @@ func TestBuildRemoveSignerChange_RemovesSigner(t *testing.T) {
 			{SourceChainSelector: 1, Signers: []string{"0xAAA", "0xBBB", "0xCCC"}, Threshold: 2},
 		},
 	}
-	change, err := buildRemoveSignerChange(state, "0xBBB", 0)
+	change, err := buildRemoveSignerChange(state, "0xBBB", 0, []uint64{1})
 	require.NoError(t, err)
 	require.Len(t, change.NewConfigs, 1)
 	assert.Equal(t, []string{"0xAAA", "0xCCC"}, change.NewConfigs[0].Signers)
@@ -36,7 +36,7 @@ func TestBuildRemoveSignerChange_ReplacesThresholdWhenNonZero(t *testing.T) {
 			{SourceChainSelector: 1, Signers: []string{"0xAAA", "0xBBB", "0xCCC"}, Threshold: 3},
 		},
 	}
-	change, err := buildRemoveSignerChange(state, "0xCCC", 2)
+	change, err := buildRemoveSignerChange(state, "0xCCC", 2, []uint64{1})
 	require.NoError(t, err)
 	assert.Equal(t, uint8(2), change.NewConfigs[0].Threshold)
 }
@@ -47,7 +47,7 @@ func TestBuildRemoveSignerChange_KeepsThresholdWhenZero(t *testing.T) {
 			{SourceChainSelector: 1, Signers: []string{"0xAAA", "0xBBB"}, Threshold: 1},
 		},
 	}
-	change, err := buildRemoveSignerChange(state, "0xBBB", 0)
+	change, err := buildRemoveSignerChange(state, "0xBBB", 0, []uint64{1})
 	require.NoError(t, err)
 	assert.Equal(t, uint8(1), change.NewConfigs[0].Threshold)
 }
@@ -58,7 +58,7 @@ func TestBuildRemoveSignerChange_ErrorsIfSignerNotFound(t *testing.T) {
 			{SourceChainSelector: 1, Signers: []string{"0xAAA", "0xBBB"}, Threshold: 1},
 		},
 	}
-	_, err := buildRemoveSignerChange(state, "0xCCC", 0)
+	_, err := buildRemoveSignerChange(state, "0xCCC", 0, []uint64{1})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "not found in committee")
 }
@@ -69,7 +69,7 @@ func TestBuildRemoveSignerChange_CaseInsensitiveMatch(t *testing.T) {
 			{SourceChainSelector: 1, Signers: []string{"0xabc", "0xDEF"}, Threshold: 1},
 		},
 	}
-	change, err := buildRemoveSignerChange(state, "0xABC", 0)
+	change, err := buildRemoveSignerChange(state, "0xABC", 0, []uint64{1})
 	require.NoError(t, err)
 	assert.Equal(t, []string{"0xDEF"}, change.NewConfigs[0].Signers)
 }
@@ -80,7 +80,7 @@ func TestBuildRemoveSignerChange_ErrorsOnLastSigner(t *testing.T) {
 			{SourceChainSelector: 1, Signers: []string{"0xAAA"}, Threshold: 1},
 		},
 	}
-	_, err := buildRemoveSignerChange(state, "0xAAA", 0)
+	_, err := buildRemoveSignerChange(state, "0xAAA", 0, []uint64{1})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "cannot remove the last signer")
 }
@@ -91,21 +91,18 @@ func TestBuildRemoveSignerChange_ErrorsWhenThresholdExceedsRemaining(t *testing.
 			{SourceChainSelector: 1, Signers: []string{"0xAAA", "0xBBB", "0xCCC"}, Threshold: 2},
 		},
 	}
-	// Removing one signer leaves 2. Requesting threshold of 3 is invalid.
-	_, err := buildRemoveSignerChange(state, "0xCCC", 3)
+	_, err := buildRemoveSignerChange(state, "0xCCC", 3, []uint64{1})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "threshold 3 exceeds remaining signer count 2")
 }
 
 func TestBuildRemoveSignerChange_CurrentThresholdExceedsRemainingIsAlsoCaught(t *testing.T) {
-	// Threshold of 2 was set before removal; only 1 signer remains after.
-	// Keeping existing threshold (newThreshold=0) should also error.
 	state := &adapters.CommitteeState{
 		SignatureConfigs: []adapters.SignatureConfig{
 			{SourceChainSelector: 1, Signers: []string{"0xAAA", "0xBBB"}, Threshold: 2},
 		},
 	}
-	_, err := buildRemoveSignerChange(state, "0xBBB", 0)
+	_, err := buildRemoveSignerChange(state, "0xBBB", 0, []uint64{1})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "threshold 2 exceeds remaining signer count 1")
 }
@@ -117,7 +114,7 @@ func TestBuildRemoveSignerChange_MultipleSourceChains(t *testing.T) {
 			{SourceChainSelector: 2, Signers: []string{"0xAAA", "0xBBB"}, Threshold: 1},
 		},
 	}
-	change, err := buildRemoveSignerChange(state, "0xAAA", 0)
+	change, err := buildRemoveSignerChange(state, "0xAAA", 0, []uint64{1, 2})
 	require.NoError(t, err)
 	require.Len(t, change.NewConfigs, 2)
 	for _, cfg := range change.NewConfigs {
@@ -125,33 +122,58 @@ func TestBuildRemoveSignerChange_MultipleSourceChains(t *testing.T) {
 	}
 }
 
+func TestBuildRemoveSignerChange_OnlyUpdatesRequestedSourceChains(t *testing.T) {
+	state := &adapters.CommitteeState{
+		SignatureConfigs: []adapters.SignatureConfig{
+			{SourceChainSelector: 1, Signers: []string{"0xAAA", "0xBBB"}, Threshold: 1},
+			{SourceChainSelector: 2, Signers: []string{"0xAAA", "0xBBB"}, Threshold: 1},
+		},
+	}
+	// Only request source chain 1 — source chain 2 must not appear in NewConfigs.
+	change, err := buildRemoveSignerChange(state, "0xAAA", 0, []uint64{1})
+	require.NoError(t, err)
+	require.Len(t, change.NewConfigs, 1)
+	assert.Equal(t, uint64(1), change.NewConfigs[0].SourceChainSelector)
+}
+
+func TestBuildRemoveSignerChange_ReturnsEmptyWhenNoSourceChainsMatch(t *testing.T) {
+	state := &adapters.CommitteeState{
+		SignatureConfigs: []adapters.SignatureConfig{
+			{SourceChainSelector: 1, Signers: []string{"0xAAA", "0xBBB"}, Threshold: 1},
+		},
+	}
+	change, err := buildRemoveSignerChange(state, "0xAAA", 0, []uint64{99})
+	require.NoError(t, err)
+	assert.Empty(t, change.NewConfigs)
+}
+
 // ---- RemoveNOPFromCommittee validation ----
 
 func TestRemoveNOPFromCommittee_Validation_MissingQualifier(t *testing.T) {
 	cs := RemoveNOPFromCommittee(newEVMRegistry(&stubOnchainAdapter{}))
 	err := cs.VerifyPreconditions(newTestEnvironmentWithOffchain(), RemoveNOPFromCommitteeInput{
-		ChainSelectors: []uint64{chainsel.TEST_90000001.Selector},
-		NOPAlias:       "nop1",
+		SourceChainSelectors: []uint64{chainsel.TEST_90000001.Selector},
+		NOPAlias:             "nop1",
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "committee qualifier is required")
 }
 
-func TestRemoveNOPFromCommittee_Validation_MissingChainSelectors(t *testing.T) {
+func TestRemoveNOPFromCommittee_Validation_MissingSourceChainSelectors(t *testing.T) {
 	cs := RemoveNOPFromCommittee(newEVMRegistry(&stubOnchainAdapter{}))
 	err := cs.VerifyPreconditions(newTestEnvironmentWithOffchain(), RemoveNOPFromCommitteeInput{
 		CommitteeQualifier: "default",
 		NOPAlias:           "nop1",
 	})
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "at least one chain selector is required")
+	assert.Contains(t, err.Error(), "at least one source chain selector is required")
 }
 
 func TestRemoveNOPFromCommittee_Validation_MissingNOPAlias(t *testing.T) {
 	cs := RemoveNOPFromCommittee(newEVMRegistry(&stubOnchainAdapter{}))
 	err := cs.VerifyPreconditions(newTestEnvironmentWithOffchain(), RemoveNOPFromCommitteeInput{
-		CommitteeQualifier: "default",
-		ChainSelectors:     []uint64{chainsel.TEST_90000001.Selector},
+		CommitteeQualifier:   "default",
+		SourceChainSelectors: []uint64{chainsel.TEST_90000001.Selector},
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "NOP alias is required")
@@ -160,9 +182,9 @@ func TestRemoveNOPFromCommittee_Validation_MissingNOPAlias(t *testing.T) {
 func TestRemoveNOPFromCommittee_Validation_RequiresOffchainClient(t *testing.T) {
 	cs := RemoveNOPFromCommittee(newEVMRegistry(&stubOnchainAdapter{}))
 	err := cs.VerifyPreconditions(deployment.Environment{}, RemoveNOPFromCommitteeInput{
-		CommitteeQualifier: "default",
-		ChainSelectors:     []uint64{chainsel.TEST_90000001.Selector},
-		NOPAlias:           "nop1",
+		CommitteeQualifier:   "default",
+		SourceChainSelectors: []uint64{chainsel.TEST_90000001.Selector},
+		NOPAlias:             "nop1",
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "offchain client is required")
@@ -173,31 +195,102 @@ func TestRemoveNOPFromCommittee_Validation_RequiresOffchainClient(t *testing.T) 
 func TestRemoveNOPOffchain_Validation_MissingQualifier(t *testing.T) {
 	cs := RemoveNOPOffchain(newFullEVMRegistry(&stubFullAdapter{}))
 	err := cs.VerifyPreconditions(deployment.Environment{}, RemoveNOPOffchainInput{
-		ChainSelectors:     []uint64{chainsel.TEST_90000001.Selector},
-		ServiceIdentifiers: []string{"svc1"},
+		SourceChainSelectors: []uint64{chainsel.TEST_90000001.Selector},
+		ServiceIdentifiers:   []string{"svc1"},
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "committee qualifier is required")
 }
 
-func TestRemoveNOPOffchain_Validation_MissingChainSelectors(t *testing.T) {
+func TestRemoveNOPOffchain_Validation_MissingSourceChainSelectors(t *testing.T) {
 	cs := RemoveNOPOffchain(newFullEVMRegistry(&stubFullAdapter{}))
 	err := cs.VerifyPreconditions(deployment.Environment{}, RemoveNOPOffchainInput{
 		CommitteeQualifier: "default",
 		ServiceIdentifiers: []string{"svc1"},
 	})
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "at least one chain selector is required")
+	assert.Contains(t, err.Error(), "at least one source chain selector is required")
 }
 
 func TestRemoveNOPOffchain_Validation_MissingServiceIdentifiers(t *testing.T) {
 	cs := RemoveNOPOffchain(newFullEVMRegistry(&stubFullAdapter{}))
 	err := cs.VerifyPreconditions(deployment.Environment{}, RemoveNOPOffchainInput{
-		CommitteeQualifier: "default",
-		ChainSelectors:     []uint64{chainsel.TEST_90000001.Selector},
+		CommitteeQualifier:   "default",
+		SourceChainSelectors: []uint64{chainsel.TEST_90000001.Selector},
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "at least one service identifier is required")
+}
+
+// ---- RemoveNOPOffchain backstop validation ----
+
+func TestRemoveNOPOffchain_Validation_BackstopPassesWhenSignerAbsent(t *testing.T) {
+	sel1 := chainsel.TEST_90000001.Selector
+	qualifier := "default"
+	removedSigner := "0xDEAD"
+
+	adapter := &stubFullAdapter{
+		states: map[uint64][]*adapters.CommitteeState{
+			sel1: {{
+				Qualifier:     qualifier,
+				ChainSelector: sel1,
+				SignatureConfigs: []adapters.SignatureConfig{
+					// removed signer is gone — step-1 has landed
+					{SourceChainSelector: sel1, Signers: []string{"0xAAA", "0xBBB"}, Threshold: 1},
+				},
+			}},
+		},
+		verifierAddrs: map[uint64]string{sel1: "0x1111"},
+	}
+
+	cs := RemoveNOPOffchain(newFullEVMRegistry(adapter))
+	env := deployment.Environment{
+		BlockChains: newTestBlockChains([]uint64{sel1}),
+		DataStore:   datastore.NewMemoryDataStore().Seal(),
+	}
+
+	err := cs.VerifyPreconditions(env, RemoveNOPOffchainInput{
+		CommitteeQualifier:   qualifier,
+		SourceChainSelectors: []uint64{sel1},
+		RemovedSignerAddress: removedSigner,
+		ServiceIdentifiers:   []string{"svc1"},
+	})
+	require.NoError(t, err)
+}
+
+func TestRemoveNOPOffchain_Validation_BackstopFailsWhenSignerStillPresent(t *testing.T) {
+	sel1 := chainsel.TEST_90000001.Selector
+	qualifier := "default"
+	removedSigner := "0xDEAD"
+
+	adapter := &stubFullAdapter{
+		states: map[uint64][]*adapters.CommitteeState{
+			sel1: {{
+				Qualifier:     qualifier,
+				ChainSelector: sel1,
+				SignatureConfigs: []adapters.SignatureConfig{
+					// removed signer still present — step-1 has not landed
+					{SourceChainSelector: sel1, Signers: []string{"0xAAA", removedSigner}, Threshold: 1},
+				},
+			}},
+		},
+		verifierAddrs: map[uint64]string{sel1: "0x1111"},
+	}
+
+	cs := RemoveNOPOffchain(newFullEVMRegistry(adapter))
+	env := deployment.Environment{
+		BlockChains: newTestBlockChains([]uint64{sel1}),
+		DataStore:   datastore.NewMemoryDataStore().Seal(),
+	}
+
+	err := cs.VerifyPreconditions(env, RemoveNOPOffchainInput{
+		CommitteeQualifier:   qualifier,
+		SourceChainSelectors: []uint64{sel1},
+		RemovedSignerAddress: removedSigner,
+		ServiceIdentifiers:   []string{"svc1"},
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "step-1 (RemoveNOPFromCommittee) may not have been applied")
 }
 
 // ---- RemoveNOPOffchain apply ----
@@ -208,7 +301,6 @@ func TestRemoveNOPOffchain_Apply_WritesUpdatedAggregatorConfig(t *testing.T) {
 	verifierAddr := "0x1111111111111111111111111111111111111111"
 
 	// After removal, committee has 2 signers (0xAAA was removed onchain by step-1).
-	// sel1 is both source and destination so buildQuorumConfigs includes it.
 	adapter := &stubFullAdapter{
 		states: map[uint64][]*adapters.CommitteeState{
 			sel1: {{
@@ -230,9 +322,9 @@ func TestRemoveNOPOffchain_Apply_WritesUpdatedAggregatorConfig(t *testing.T) {
 	}
 
 	out, err := cs.Apply(env, RemoveNOPOffchainInput{
-		CommitteeQualifier: qualifier,
-		ChainSelectors:     []uint64{sel1},
-		ServiceIdentifiers: []string{"my-aggregator"},
+		CommitteeQualifier:   qualifier,
+		SourceChainSelectors: []uint64{sel1},
+		ServiceIdentifiers:   []string{"my-aggregator"},
 	})
 	require.NoError(t, err)
 	require.NotNil(t, out.DataStore)
@@ -243,19 +335,72 @@ func TestRemoveNOPOffchain_Apply_WritesUpdatedAggregatorConfig(t *testing.T) {
 	require.Len(t, signers, 2, "two signers remain after removal")
 }
 
+func TestRemoveNOPOffchain_Apply_UsesAllDiscoveredDestChains(t *testing.T) {
+	sel1 := chainsel.TEST_90000001.Selector
+	sel2 := chainsel.TEST_90000002.Selector
+	qualifier := "default"
+	addr1 := "0x1111111111111111111111111111111111111111"
+	addr2 := "0x2222222222222222222222222222222222222222"
+
+	adapter := &stubFullAdapter{
+		states: map[uint64][]*adapters.CommitteeState{
+			sel1: {{
+				Qualifier:     qualifier,
+				ChainSelector: sel1,
+				Address:       addr1,
+				SignatureConfigs: []adapters.SignatureConfig{
+					{SourceChainSelector: sel1, Signers: []string{"0xBBB"}, Threshold: 1},
+				},
+			}},
+			sel2: {{
+				Qualifier:     qualifier,
+				ChainSelector: sel2,
+				Address:       addr2,
+				SignatureConfigs: []adapters.SignatureConfig{
+					{SourceChainSelector: sel1, Signers: []string{"0xBBB"}, Threshold: 1},
+				},
+			}},
+		},
+		verifierAddrs: map[uint64]string{sel1: addr1, sel2: addr2},
+	}
+
+	cs := RemoveNOPOffchain(newFullEVMRegistry(adapter))
+	env := deployment.Environment{
+		BlockChains: newTestBlockChains([]uint64{sel1, sel2}),
+		DataStore:   datastore.NewMemoryDataStore().Seal(),
+	}
+
+	out, err := cs.Apply(env, RemoveNOPOffchainInput{
+		CommitteeQualifier:   qualifier,
+		SourceChainSelectors: []uint64{sel1},
+		ServiceIdentifiers:   []string{"my-aggregator"},
+	})
+	require.NoError(t, err)
+
+	cfg, err := ccvdeployment.GetAggregatorConfig(out.DataStore.Seal(), "my-aggregator")
+	require.NoError(t, err)
+	assert.Contains(t, cfg.DestinationVerifiers, fmt.Sprintf("%d", sel1))
+	assert.Contains(t, cfg.DestinationVerifiers, fmt.Sprintf("%d", sel2))
+}
+
 func TestRemoveNOPOffchain_Apply_ScanError(t *testing.T) {
 	sel1 := chainsel.TEST_90000001.Selector
 
-	adapter := &stubFullAdapter{scanErr: fmt.Errorf("node unreachable")}
+	// states must have the chain key so GetDeployedChains returns it; the scan itself
+	// will then fail with the injected error.
+	adapter := &stubFullAdapter{
+		states:  map[uint64][]*adapters.CommitteeState{sel1: nil},
+		scanErr: fmt.Errorf("node unreachable"),
+	}
 	cs := RemoveNOPOffchain(newFullEVMRegistry(adapter))
 	env := deployment.Environment{
 		BlockChains: newTestBlockChains([]uint64{sel1}),
 	}
 
 	_, err := cs.Apply(env, RemoveNOPOffchainInput{
-		CommitteeQualifier: "default",
-		ChainSelectors:     []uint64{sel1},
-		ServiceIdentifiers: []string{"svc1"},
+		CommitteeQualifier:   "default",
+		SourceChainSelectors: []uint64{sel1},
+		ServiceIdentifiers:   []string{"svc1"},
 	})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "node unreachable")
@@ -287,9 +432,9 @@ func TestRemoveNOPOffchain_Apply_MultipleServiceIdentifiers(t *testing.T) {
 	}
 
 	out, err := cs.Apply(env, RemoveNOPOffchainInput{
-		CommitteeQualifier: qualifier,
-		ChainSelectors:     []uint64{sel1},
-		ServiceIdentifiers: []string{"svc-primary", "svc-secondary"},
+		CommitteeQualifier:   qualifier,
+		SourceChainSelectors: []uint64{sel1},
+		ServiceIdentifiers:   []string{"svc-primary", "svc-secondary"},
 	})
 	require.NoError(t, err)
 	require.NotNil(t, out.DataStore)
