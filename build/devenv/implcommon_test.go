@@ -33,6 +33,7 @@ func TestBuildTokenTransferBatchesMultipleTokensSameSelectors(t *testing.T) {
 			require.Equal(t, qualifier, cfg.TokenPoolRef.Qualifier)
 		}
 	}
+	t.FailNow()
 }
 
 func TestBuildTokenTransferBatchesSymmetricTokenAcrossAllLanes(t *testing.T) {
