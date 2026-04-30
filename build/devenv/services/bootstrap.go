@@ -89,28 +89,30 @@ func GenerateBootstrapConfig(in BootstrapInput) ([]byte, error) {
 	return toml.Marshal(config)
 }
 
-// BootstrapKeys are the keys that are ensured to exist by the bootstrap library,
-// in hexadecimal format.
+// BootstrapKeys holds the public keys exposed by the bootstrap info-server.
 type BootstrapKeys struct {
-	// CSAPublicKey is the CSA public key used for JD communcations.
+	// CSAPublicKey is the CSA public key used for JD communications.
 	CSAPublicKey string `toml:"csa_public_key"`
-	// ECDSAPublicKey is the public key used to sign messages using ECDSA.
-	ECDSAPublicKey string `toml:"ecdsa_public_key"`
-	// ECDSAAddress is the Ethereum address derived from the ECDSA public key.
-	ECDSAAddress string `toml:"ecdsa_address"`
-	// EdDSAPublicKey is the public key used to sign messages using EdDSA.
-	EdDSAPublicKey string `toml:"ed25519_public_key"`
+	// ECDSAPublicKey is the ECDSA signing public key (verifier only).
+	ECDSAPublicKey string `toml:"ecdsa_public_key,omitempty"`
+	// ECDSAAddress is the Ethereum address derived from the ECDSA public key (verifier only).
+	ECDSAAddress string `toml:"ecdsa_address,omitempty"`
 }
 
-// GetBootstrapKeys fetches the keys that are ensured to exist by the bootstrap library.
-func GetBootstrapKeys(bootstrapURL string) (keys BootstrapKeys, err error) {
-	request := keystore.GetKeysRequest{
-		KeyNames: []string{
-			bskeys.DefaultCSAKeyName,
-			bskeys.DefaultECDSASigningKeyName,
-			bskeys.DefaultEdDSASigningKeyName,
-		},
-	}
+// GetExecutorBootstrapKeys fetches only the CSA key from the bootstrap server.
+// Executors only need the CSA key for JD registration.
+func GetExecutorBootstrapKeys(bootstrapURL string) (BootstrapKeys, error) {
+	return fetchBootstrapKeys(bootstrapURL, []string{bskeys.DefaultCSAKeyName})
+}
+
+// GetBootstrapKeys fetches the CSA and ECDSA keys from the bootstrap server.
+// Verifiers need both for JD registration and committee signer registration.
+func GetBootstrapKeys(bootstrapURL string) (BootstrapKeys, error) {
+	return fetchBootstrapKeys(bootstrapURL, []string{bskeys.DefaultCSAKeyName, bskeys.DefaultECDSASigningKeyName})
+}
+
+func fetchBootstrapKeys(bootstrapURL string, keyNames []string) (BootstrapKeys, error) {
+	request := keystore.GetKeysRequest{KeyNames: keyNames}
 	jsonRequest, err := json.Marshal(request)
 	if err != nil {
 		return BootstrapKeys{}, fmt.Errorf("failed to marshal request: %w", err)
@@ -136,24 +138,34 @@ func GetBootstrapKeys(bootstrapURL string) (keys BootstrapKeys, err error) {
 	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
 		return BootstrapKeys{}, fmt.Errorf("failed to decode response: %w", err)
 	}
-	if len(response.Keys) == 0 {
-		return BootstrapKeys{}, fmt.Errorf("no keys returned by bootstrap server")
-	}
-	if len(response.Keys) != 3 {
-		return BootstrapKeys{}, fmt.Errorf("expected 3 keys, got %d", len(response.Keys))
+
+	// Build a name→key map; the keystore returns keys sorted alphabetically,
+	// not in request order, so positional indexing is unsafe.
+	keyMap := make(map[string]keystore.GetKeyResponse, len(response.Keys))
+	for _, k := range response.Keys {
+		keyMap[k.KeyInfo.Name] = k
 	}
 
-	// Transform ECDSA public key to Ethereum address.
-	ecdsaPublicKey, err := crypto.UnmarshalPubkey(response.Keys[1].KeyInfo.PublicKey)
-	if err != nil {
-		return BootstrapKeys{}, fmt.Errorf("failed to unmarshal ECDSA public key: %w", err)
+	// Confirm every requested name is present — a count match alone doesn't
+	// catch the server returning a different key with the same cardinality.
+	for _, name := range keyNames {
+		if _, ok := keyMap[name]; !ok {
+			return BootstrapKeys{}, fmt.Errorf("key %q not found in response", name)
+		}
 	}
-	ecdsaAddress := crypto.PubkeyToAddress(*ecdsaPublicKey).Bytes()
 
-	return BootstrapKeys{
-		CSAPublicKey:   hex.EncodeToString(response.Keys[0].KeyInfo.PublicKey),
-		ECDSAPublicKey: hex.EncodeToString(response.Keys[1].KeyInfo.PublicKey),
-		ECDSAAddress:   hex.EncodeToString(ecdsaAddress),
-		EdDSAPublicKey: hex.EncodeToString(response.Keys[2].KeyInfo.PublicKey),
-	}, nil
+	result := BootstrapKeys{
+		CSAPublicKey: hex.EncodeToString(keyMap[bskeys.DefaultCSAKeyName].KeyInfo.PublicKey),
+	}
+
+	if ecdsaKeyResp, ok := keyMap[bskeys.DefaultECDSASigningKeyName]; ok {
+		ecdsaPublicKey, err := crypto.UnmarshalPubkey(ecdsaKeyResp.KeyInfo.PublicKey)
+		if err != nil {
+			return BootstrapKeys{}, fmt.Errorf("failed to unmarshal ECDSA public key: %w", err)
+		}
+		result.ECDSAPublicKey = hex.EncodeToString(ecdsaKeyResp.KeyInfo.PublicKey)
+		result.ECDSAAddress = hex.EncodeToString(crypto.PubkeyToAddress(*ecdsaPublicKey).Bytes())
+	}
+
+	return result, nil
 }

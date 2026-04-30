@@ -94,6 +94,7 @@ type Bootstrapper struct {
 	config           *Config
 	lifecycleManager *lifecycle.Manager
 	infoServer       *infoServer
+	keys             []keyToInit
 
 	// application
 	appCfg *string
@@ -122,9 +123,34 @@ func NewBootstrapper(
 		}
 	}
 
+	// Backwards compatibility: if no keys are declared, initialize the original default set.
+	// Deprecated: we should remove these once all apps and integrations define required keys.
+	if len(b.keys) == 0 {
+		b.keys = []keyToInit{
+			{keys.DefaultCSAKeyName, "csa", keystore.Ed25519},
+			{keys.DefaultECDSASigningKeyName, "signing", keystore.ECDSA_S256},
+			{keys.DefaultEdDSASigningKeyName, "signing", keystore.Ed25519},
+		}
+	}
+
 	// If no configuration is provided, default to JD lifecycle manager with config loaded from the default path.
 	if b.appCfg == nil && b.config == nil {
 		b.config = &Config{}
+	}
+
+	// JD mode requires a CSA key for node authentication. Inject the default if the caller
+	// did not explicitly declare one, so callers only need to list their application keys.
+	if b.config != nil {
+		hasCSA := false
+		for _, k := range b.keys {
+			if k.purpose == "csa" {
+				hasCSA = true
+				break
+			}
+		}
+		if !hasCSA {
+			b.keys = append([]keyToInit{{keys.DefaultCSAKeyName, "csa", keystore.Ed25519}}, b.keys...)
+		}
 	}
 
 	if b.config != nil {
@@ -180,7 +206,7 @@ func (b *Bootstrapper) startWithJDLifecycle(ctx context.Context) error {
 		return fmt.Errorf("failed to connect to bootstrapper database: %w", err)
 	}
 
-	keyStore, csaSigner, err := initializeKeystore(ctx, b.lggr, db, b.config.Keystore.Password)
+	keyStore, csaSigner, err := initializeKeystore(ctx, b.lggr, db, b.config.Keystore.Password, b.keys)
 	if err != nil {
 		return fmt.Errorf("failed to initialize keystore: %w", err)
 	}
@@ -281,28 +307,26 @@ func newServiceDeps(keyStore keystore.Keystore, logLevel zapcore.Level, name str
 	}, nil
 }
 
-func initializeKeystore(ctx context.Context, lggr logger.Logger, db *sqlx.DB, ksPassword string) (keystore.Keystore, crypto.Signer, error) {
+func initializeKeystore(ctx context.Context, lggr logger.Logger, db *sqlx.DB, ksPassword string, requiredKeys []keyToInit) (keystore.Keystore, crypto.Signer, error) {
 	ks, err := keystore.LoadKeystore(ctx, keys.NewPGStorage(db, "default"), ksPassword)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to load keystore: %w", err)
 	}
 
-	requiredKeys := []struct {
-		name    string
-		purpose string
-		keyType keystore.KeyType
-	}{
-		{keys.DefaultCSAKeyName, "csa", keystore.Ed25519},
-		{keys.DefaultECDSASigningKeyName, "signing", keystore.ECDSA_S256},
-		{keys.DefaultEdDSASigningKeyName, "signing", keystore.Ed25519},
-	}
+	var csaKeyName string
 	for _, k := range requiredKeys {
 		if err := keys.EnsureKey(ctx, lggr, ks, k.name, k.purpose, k.keyType); err != nil {
-			return nil, nil, fmt.Errorf("failed to ensure %s key: %w", k.purpose, err)
+			return nil, nil, fmt.Errorf("failed to ensure key %q (purpose=%q, type=%v): %w", k.name, k.purpose, k.keyType, err)
+		}
+		if k.purpose == "csa" {
+			csaKeyName = k.name
 		}
 	}
+	if csaKeyName == "" {
+		return nil, nil, fmt.Errorf("no key with purpose %q declared; a CSA key is required for JD communication", "csa")
+	}
 
-	csaSigner, err := keys.NewCSASigner(ctx, ks, keys.DefaultCSAKeyName)
+	csaSigner, err := keys.NewCSASigner(ctx, ks, csaKeyName)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to get csa signer: %w", err)
 	}
@@ -321,8 +345,33 @@ func WithLogLevel(logLevel zapcore.Level) Option {
 	}
 }
 
+type keyToInit struct {
+	name    string
+	purpose string
+	keyType keystore.KeyType
+}
+
+// WithKey declares a key that the bootstrapper must ensure exists, creating it if absent.
+// When no WithKey options are provided, the bootstrapper applies a default set of three keys:
+// keys.DefaultCSAKeyName (Ed25519), keys.DefaultECDSASigningKeyName (ECDSA_S256), and
+// keys.DefaultEdDSASigningKeyName (Ed25519). Passing one or more WithKey options suppresses
+// those defaults entirely; the caller is responsible for declaring every key it requires.
+func WithKey(name, purpose string, keyType keystore.KeyType) Option {
+	return func(b *Bootstrapper) error {
+		b.keys = append(b.keys, keyToInit{
+			name:    name,
+			purpose: purpose,
+			keyType: keyType,
+		})
+		return nil
+	}
+}
+
 // WithJD tells the bootstrapper to load config from JD and start the JD lifecycle manager.
 // This is the default option if no AppConfig is provided.
+// JD mode requires a keystore and a CSA key for node authentication. The bootstrapper
+// automatically provisions keys.DefaultCSAKeyName unless a key with purpose "csa" is
+// already declared via WithKey.
 func WithJD() Option {
 	return func(b *Bootstrapper) error {
 		b.config = &Config{}

@@ -251,7 +251,7 @@ func launchExecutor(ctx context.Context, in *Input, outputs []*ctfblockchain.Out
 		return nil, fmt.Errorf("failed to get bootstrap mapped port: %w", err)
 	}
 	bootstrapURL := fmt.Sprintf("http://%s:%s", host, bootstrapMapped.Port())
-	bootstrapKeys, err := services.GetBootstrapKeys(bootstrapURL)
+	bootstrapKeys, err := services.GetExecutorBootstrapKeys(bootstrapURL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get bootstrap keys: %w", err)
 	}
