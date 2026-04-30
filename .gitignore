@@ -26,3 +26,7 @@ indexer/secrets.toml
 build/devenv/ccv
 
 coverage.out
+
+**/.venv/
+**/__pycache__/
+**/*.pyc

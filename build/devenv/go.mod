@@ -4,11 +4,6 @@ go 1.25.7
 
 replace github.com/smartcontractkit/chainlink-ccv => ../..
 
-// TODO: re-enable
-// replace github.com/smartcontractkit/chainlink-ccv/deployment => ../../deployment
-
-// replace github.com/smartcontractkit/chainlink-ccv/evm => ../../evm
-
 require (
 	github.com/BurntSushi/toml v1.6.0
 	github.com/Masterminds/semver/v3 v3.4.0
@@ -21,8 +16,8 @@ require (
 	github.com/prometheus/client_golang v1.23.2
 	github.com/rs/zerolog v1.34.0
 	github.com/smartcontractkit/chain-selectors v1.0.98
-	github.com/smartcontractkit/chainlink-ccip/chains/evm v0.0.0-20260429185044-4e114a086ab0
-	github.com/smartcontractkit/chainlink-ccip/deployment v0.0.0-20260429185044-4e114a086ab0
+	github.com/smartcontractkit/chainlink-ccip/chains/evm v0.0.0-20260429214841-fb2e77efc1aa
+	github.com/smartcontractkit/chainlink-ccip/deployment v0.0.0-20260429214841-fb2e77efc1aa
 	github.com/smartcontractkit/chainlink-common v0.11.2-0.20260407150650-8115835abd6e
 	github.com/smartcontractkit/chainlink-deployments-framework v0.96.0
 	github.com/smartcontractkit/chainlink-testing-framework/framework v0.15.16
@@ -41,8 +36,7 @@ require (
 	github.com/lib/pq v1.11.1
 	github.com/sethvargo/go-retry v0.3.0
 	github.com/smartcontractkit/chainlink-ccv v0.0.1
-	github.com/smartcontractkit/chainlink-ccv/deployment v0.0.1
-	github.com/smartcontractkit/chainlink-ccv/evm v0.0.1
+	github.com/smartcontractkit/chainlink-ccv/deployment v0.0.2-0.20260428205321-9ce8f4c44d23
 	github.com/smartcontractkit/chainlink-common/keystore v1.0.2
 	github.com/smartcontractkit/chainlink-evm/gethwrappers v0.0.0-20260119171452-39c98c3b33cd
 	github.com/smartcontractkit/chainlink-protos/chainlink-ccv/committee-verifier v0.0.0-20251211142334-5c3421fe2c8d
