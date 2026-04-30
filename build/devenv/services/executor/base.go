@@ -20,7 +20,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/util"
-	executorpkg "github.com/smartcontractkit/chainlink-ccv/executor"
+	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 	ctfblockchain "github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
@@ -87,13 +87,13 @@ type Output struct {
 // added to the inner config. This is needed for standalone executors which require blockchain
 // connection information (CL nodes get this from their own chain config).
 func RebuildExecutorJobSpecWithBlockchainInfos(spec bootstrap.JobSpec, blockchainInfos map[string]any) (string, error) {
-	var cfg executorpkg.Configuration
+	var cfg executor.Configuration
 	if err := spec.GetAppConfig(&cfg); err != nil {
 		return "", fmt.Errorf("failed to parse executor config from job spec: %w", err)
 	}
 
 	type configWithBlockchainInfos struct {
-		executorpkg.Configuration
+		executor.Configuration
 		BlockchainInfos chainaccess.Infos[any] `toml:"blockchain_infos"`
 	}
 
@@ -233,7 +233,11 @@ func launchExecutor(ctx context.Context, in *Input, outputs []*ctfblockchain.Out
 		return nil, fmt.Errorf("failed to get bootstrap mapped port: %w", err)
 	}
 	bootstrapURL := fmt.Sprintf("http://%s:%s", host, bootstrapMapped.Port())
-	bootstrapKeys, err := services.GetExecutorBootstrapKeys(bootstrapURL)
+
+	// Fetches the CSA key and EVM transmitter key from the bootstrap server.
+	// The CSA key is used for JD registration; the EVM transmitter key is used to derive the
+	// on-chain address that must be funded before the executor can submit transactions.
+	bootstrapKeys, err := services.FetchBootstrapKeys(bootstrapURL, []string{bootstrap.DefaultCSAKeyName, executor.DefaultEVMTransmitterKeyName})
 	if err != nil {
 		return nil, fmt.Errorf("failed to get bootstrap keys: %w", err)
 	}

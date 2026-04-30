@@ -103,24 +103,9 @@ type BootstrapKeys struct {
 	EVMTransmitterAddress string `toml:"evm_transmitter_address,omitempty"`
 }
 
-// GetExecutorBootstrapKeys fetches the CSA key and EVM transmitter key from the bootstrap server.
-// The CSA key is used for JD registration; the EVM transmitter key is used to derive the
-// on-chain address that must be funded before the executor can submit transactions.
-func GetExecutorBootstrapKeys(bootstrapURL string) (BootstrapKeys, error) {
-	keys, err := fetchBootstrapKeys(bootstrapURL, []string{bootstrap.DefaultCSAKeyName, executor.DefaultEVMTransmitterKeyName})
-	if err != nil {
-		return BootstrapKeys{}, err
-	}
-	return keys, nil
-}
-
-// GetBootstrapKeys fetches the CSA and ECDSA keys from the bootstrap server.
-// Verifiers need both for JD registration and committee signer registration.
-func GetBootstrapKeys(bootstrapURL string) (BootstrapKeys, error) {
-	return fetchBootstrapKeys(bootstrapURL, []string{bootstrap.DefaultCSAKeyName, commit.DefaultECDSASigningKeyName})
-}
-
-func fetchBootstrapKeys(bootstrapURL string, keyNames []string) (BootstrapKeys, error) {
+// FetchBootstrapKeys queries the bootstrap HTTP info server for public key material by name.
+// Devenv calls this after a container starts to retrieve keys needed for JD registration and on-chain funding.
+func FetchBootstrapKeys(bootstrapURL string, keyNames []string) (BootstrapKeys, error) {
 	request := keystore.GetKeysRequest{KeyNames: keyNames}
 	jsonRequest, err := json.Marshal(request)
 	if err != nil {
@@ -163,6 +148,8 @@ func fetchBootstrapKeys(bootstrapURL string, keyNames []string) (BootstrapKeys, 
 		}
 	}
 
+	// TODO: avoid referencing commit, executor, and JD-specific key names here; the caller
+	// should pass in the names and map the results without this function knowing about them.
 	result := BootstrapKeys{
 		CSAPublicKey: hex.EncodeToString(keyMap[bootstrap.DefaultCSAKeyName].KeyInfo.PublicKey),
 	}
