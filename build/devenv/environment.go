@@ -2,6 +2,7 @@ package ccv
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -1418,6 +1419,10 @@ func NewEnvironment() (in *Cfg, err error) {
 		return nil, fmt.Errorf("failed to create executors: %w", err)
 	}
 
+	if err := fundBootstrappedExecutors(ctx, in.Executor, in.Blockchains, impls); err != nil {
+		return nil, fmt.Errorf("failed to fund bootstrapped executor transmitters: %w", err)
+	}
+
 	if jdInfra != nil && jdInfra.OffchainClient != nil {
 		if err := registerExecutorsWithJD(ctx, in.Executor, jdInfra.OffchainClient); err != nil {
 			return nil, err
@@ -1783,6 +1788,59 @@ func launchCLNodes(
 	Plog.Info().Any("OnchainPublicKeys", onchainPublicKeys).Msg("Onchain public keys for all nodes")
 
 	return onchainPublicKeys, nil
+}
+
+// fundBootstrappedExecutors funds the EVM transmitter addresses of all bootstrapped
+// (non-standalone) executors that have an EVMTransmitterAddress in their BootstrapKeys.
+// Standalone executors are funded earlier via their TransmitterPrivateKey before launch.
+func fundBootstrappedExecutors(
+	ctx context.Context,
+	executors []*executorsvc.Input,
+	blockchains []*blockchain.Input,
+	impls []cciptestinterfaces.CCIP17Configuration,
+) error {
+	addressesByFamily := make(map[string][]protocol.UnknownAddress)
+	for _, exec := range executors {
+		if exec == nil || exec.Mode == services.Standalone {
+			continue
+		}
+		if exec.Out == nil || exec.Out.BootstrapKeys.EVMTransmitterAddress == "" {
+			continue
+		}
+		family := exec.ChainFamily
+		if family == "" {
+			family = chainsel.FamilyEVM
+		}
+		addrBytes, err := hex.DecodeString(exec.Out.BootstrapKeys.EVMTransmitterAddress)
+		if err != nil {
+			return fmt.Errorf("invalid EVM transmitter address for executor %s: %w", exec.ContainerName, err)
+		}
+		addressesByFamily[family] = append(addressesByFamily[family], protocol.UnknownAddress(addrBytes))
+	}
+
+	for i, impl := range impls {
+		if i >= len(blockchains) {
+			break
+		}
+		family, famErr := blockchain.TypeToFamily(blockchains[i].Type)
+		if famErr != nil {
+			continue
+		}
+		fac, facErr := GetImplFactory(string(family))
+		if facErr != nil || !fac.SupportsFunding() {
+			continue
+		}
+		addresses := addressesByFamily[string(family)]
+		if len(addresses) == 0 {
+			continue
+		}
+		Plog.Info().Int("ImplIndex", i).Msg("Funding bootstrapped executor transmitters")
+		if err := impl.FundAddresses(ctx, blockchains[i], addresses, big.NewInt(5)); err != nil {
+			return fmt.Errorf("failed to fund bootstrapped executor transmitters: %w", err)
+		}
+		Plog.Info().Int("ImplIndex", i).Msg("Funded bootstrapped executor transmitters")
+	}
+	return nil
 }
 
 // launchExecutors starts executor containers for all Standalone-mode inputs.

@@ -149,8 +149,8 @@ type DestinationChainConfig struct {
 	// RmnAddress is the address of the RMN Remote contract on the destination chain.
 	RmnAddress string `toml:"rmn_address"`
 	// TransmitterKeyName is the name of the ECDSA key in the keystore used to sign and submit
-	// transactions to the OffRamp on this chain. If empty, the ContractTransmitter will be
-	// unavailable for this chain.
+	// transactions to the OffRamp on this chain. If empty, the EVM accessor defaults to
+	// executor.DefaultEVMTransmitterKeyName.
 	TransmitterKeyName string `toml:"transmitter_key_name"`
 }
 

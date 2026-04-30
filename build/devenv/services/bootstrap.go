@@ -12,6 +12,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
+	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/commit"
 	"github.com/smartcontractkit/chainlink-common/keystore"
 )
@@ -97,12 +98,20 @@ type BootstrapKeys struct {
 	ECDSAPublicKey string `toml:"ecdsa_public_key,omitempty"`
 	// ECDSAAddress is the Ethereum address derived from the ECDSA public key (verifier only).
 	ECDSAAddress string `toml:"ecdsa_address,omitempty"`
+	// EVMTransmitterAddress is the Ethereum address derived from the executor's EVM transmitter key.
+	// Only populated for executor nodes.
+	EVMTransmitterAddress string `toml:"evm_transmitter_address,omitempty"`
 }
 
-// GetExecutorBootstrapKeys fetches only the CSA key from the bootstrap server.
-// Executors only need the CSA key for JD registration.
+// GetExecutorBootstrapKeys fetches the CSA key and EVM transmitter key from the bootstrap server.
+// The CSA key is used for JD registration; the EVM transmitter key is used to derive the
+// on-chain address that must be funded before the executor can submit transactions.
 func GetExecutorBootstrapKeys(bootstrapURL string) (BootstrapKeys, error) {
-	return fetchBootstrapKeys(bootstrapURL, []string{bootstrap.DefaultCSAKeyName})
+	keys, err := fetchBootstrapKeys(bootstrapURL, []string{bootstrap.DefaultCSAKeyName, executor.DefaultEVMTransmitterKeyName})
+	if err != nil {
+		return BootstrapKeys{}, err
+	}
+	return keys, nil
 }
 
 // GetBootstrapKeys fetches the CSA and ECDSA keys from the bootstrap server.
@@ -165,6 +174,14 @@ func fetchBootstrapKeys(bootstrapURL string, keyNames []string) (BootstrapKeys, 
 		}
 		result.ECDSAPublicKey = hex.EncodeToString(ecdsaKeyResp.KeyInfo.PublicKey)
 		result.ECDSAAddress = hex.EncodeToString(crypto.PubkeyToAddress(*ecdsaPublicKey).Bytes())
+	}
+
+	if evmKeyResp, ok := keyMap[executor.DefaultEVMTransmitterKeyName]; ok {
+		evmPublicKey, err := crypto.UnmarshalPubkey(evmKeyResp.KeyInfo.PublicKey)
+		if err != nil {
+			return BootstrapKeys{}, fmt.Errorf("failed to unmarshal EVM transmitter public key: %w", err)
+		}
+		result.EVMTransmitterAddress = hex.EncodeToString(crypto.PubkeyToAddress(*evmPublicKey).Bytes())
 	}
 
 	return result, nil

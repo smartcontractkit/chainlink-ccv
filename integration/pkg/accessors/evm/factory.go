@@ -10,6 +10,7 @@ import (
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/onramp"
+	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/contracttransmitter"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/destinationreader"
@@ -136,9 +137,11 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 
 	var evmDestReader chainaccess.DestinationReader
 	var offRampAddr common.Address
-	var keyName string
+	keyName := executor.DefaultEVMTransmitterKeyName
 	if destCfg, ok := f.destChainConfigs[chainSelector]; ok {
-		keyName = destCfg.TransmitterKeyName
+		if destCfg.TransmitterKeyName != "" {
+			keyName = destCfg.TransmitterKeyName
+		}
 		if destCfg.OffRampAddress != "" {
 			offRampAddr = common.HexToAddress(destCfg.OffRampAddress)
 			dr, err := destinationreader.NewEvmDestinationReader(destinationreader.Params{
