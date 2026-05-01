@@ -58,10 +58,15 @@ func (h *BatchWriteCommitVerifierNodeResultHandler) Handle(ctx context.Context, 
 			if err != nil {
 				statusErr, ok := grpcstatus.FromError(err)
 				if !ok {
-					h.logger(ctx).Errorw("unexpected error type", "error", err)
+					if ctx.Err() == nil {
+						h.logger(ctx).Errorw("unexpected error type", "error", err)
+					}
 					SetBatchError(errors, i, codes.Unknown, "internal error")
 				} else {
-					h.logger(ctx).Errorw("failed to write commit verification node result", "error", statusErr)
+					code := statusErr.Code()
+					if code != codes.Canceled && code != codes.DeadlineExceeded {
+						h.logger(ctx).Errorw("failed to write commit verification node result", "error", statusErr)
+					}
 					errors[i] = statusErr.Proto()
 				}
 			} else {

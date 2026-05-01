@@ -126,6 +126,16 @@ func (h *WriteCommitVerifierNodeResultHandler) Handle(ctx context.Context, req *
 			}, status.Error(codes.ResourceExhausted, "service temporarily unavailable: aggregation queue full")
 		}
 
+		if ctx.Err() != nil {
+			code := codes.DeadlineExceeded
+			if ctx.Err() == context.Canceled {
+				code = codes.Canceled
+			}
+			return &committeepb.WriteCommitteeVerifierNodeResultResponse{
+				Status: committeepb.WriteStatus_FAILED,
+			}, status.Error(code, "request cancelled")
+		}
+
 		reqLogger.Errorw("failed to trigger aggregation", "error", err)
 		return &committeepb.WriteCommitteeVerifierNodeResultResponse{
 			Status: committeepb.WriteStatus_FAILED,
