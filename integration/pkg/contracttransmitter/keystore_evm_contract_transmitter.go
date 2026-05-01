@@ -75,6 +75,9 @@ func NewEVMContractTransmitterFromKeystore(
 	if len(txKeys) == 0 {
 		return nil, fmt.Errorf("key %q not found in keystore", keyName)
 	}
+	if len(txKeys) > 1 {
+		lggr.Warnw("Multiple keys returned for key name; only the first will be used", "keyName", keyName, "count", len(txKeys))
+	}
 
 	boundContract, err := offramp.NewOffRamp(offRampAddress, client)
 	if err != nil {

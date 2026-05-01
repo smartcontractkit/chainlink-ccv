@@ -37,7 +37,7 @@ func (kr *KeystoreRegistry) GetAccessor(ctx context.Context, chainSelector proto
 	}
 	if setter, ok := accessor.(KeystoreSetter); ok {
 		setter.SetKeystore(kr.ks)
-	} else {
+	} else if kr.ks != nil {
 		kr.lggr.Warnw("Accessor does not implement KeystoreSetter; keystore will not be injected", "chainSelector", chainSelector)
 	}
 	return accessor, nil

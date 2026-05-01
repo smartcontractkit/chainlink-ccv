@@ -201,12 +201,15 @@ func newAccessor(
 	}
 }
 
-// SetKeystore builds and installs a keystore-backed ContractTransmitter, replacing any
-// previously set transmitter (e.g. the env-var fallback). No-op when ks is nil,
+// SetKeystore builds and installs a keystore-backed ContractTransmitter. No-op when ks is nil,
 // keyName is empty, or no RPC URL is available for this chain.
 func (a *accessor) SetKeystore(ks keystore.Keystore) {
-	if ks == nil || a.keyName == "" || a.rpcURL == "" {
-		a.lggr.Warnw("Keystore, transmitter key name, or RPC URL not set; skipping keystore contract transmitter setup", "chainSelector", a.chainSelector, "keyNameSet", a.keyName != "", "rpcURLSet", a.rpcURL != "")
+	if ks == nil || a.keyName == "" || a.rpcURL == "" || a.offRampAddr == (common.Address{}) {
+		a.lggr.Warnw("skipping keystore contract transmitter setup due to missing parameter",
+			"chainSelector", a.chainSelector,
+			"keyNameSet", a.keyName != "",
+			"rpcURLSet", a.rpcURL != "",
+			"offRampAddrSet", a.offRampAddr != (common.Address{}))
 		return
 	}
 	ct, err := contracttransmitter.NewEVMContractTransmitterFromKeystore(

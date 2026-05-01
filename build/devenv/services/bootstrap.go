@@ -150,8 +150,9 @@ func FetchBootstrapKeys(bootstrapURL string, keyNames ...string) (BootstrapKeys,
 
 	// TODO: avoid referencing commit, executor, and JD-specific key names here; the caller
 	// should pass in the names and map the results without this function knowing about them.
-	result := BootstrapKeys{
-		CSAPublicKey: hex.EncodeToString(keyMap[bootstrap.DefaultCSAKeyName].KeyInfo.PublicKey),
+	var result BootstrapKeys
+	if csaKeyResp, ok := keyMap[bootstrap.DefaultCSAKeyName]; ok {
+		result.CSAPublicKey = hex.EncodeToString(csaKeyResp.KeyInfo.PublicKey)
 	}
 
 	if ecdsaKeyResp, ok := keyMap[commit.DefaultECDSASigningKeyName]; ok {
