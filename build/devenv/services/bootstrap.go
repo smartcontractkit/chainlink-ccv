@@ -12,6 +12,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
+	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/commit"
 	"github.com/smartcontractkit/chainlink-common/keystore"
 )
@@ -97,21 +98,14 @@ type BootstrapKeys struct {
 	ECDSAPublicKey string `toml:"ecdsa_public_key,omitempty"`
 	// ECDSAAddress is the Ethereum address derived from the ECDSA public key (verifier only).
 	ECDSAAddress string `toml:"ecdsa_address,omitempty"`
+	// EVMTransmitterAddress is the Ethereum address derived from the executor's EVM transmitter key.
+	// Only populated for executor nodes.
+	EVMTransmitterAddress string `toml:"evm_transmitter_address,omitempty"`
 }
 
-// GetExecutorBootstrapKeys fetches only the CSA key from the bootstrap server.
-// Executors only need the CSA key for JD registration.
-func GetExecutorBootstrapKeys(bootstrapURL string) (BootstrapKeys, error) {
-	return fetchBootstrapKeys(bootstrapURL, []string{bootstrap.DefaultCSAKeyName})
-}
-
-// GetBootstrapKeys fetches the CSA and ECDSA keys from the bootstrap server.
-// Verifiers need both for JD registration and committee signer registration.
-func GetBootstrapKeys(bootstrapURL string) (BootstrapKeys, error) {
-	return fetchBootstrapKeys(bootstrapURL, []string{bootstrap.DefaultCSAKeyName, commit.DefaultECDSASigningKeyName})
-}
-
-func fetchBootstrapKeys(bootstrapURL string, keyNames []string) (BootstrapKeys, error) {
+// FetchBootstrapKeys queries the bootstrap HTTP info server for public key material by name.
+// Devenv calls this after a container starts to retrieve keys needed for JD registration and on-chain funding.
+func FetchBootstrapKeys(bootstrapURL string, keyNames ...string) (BootstrapKeys, error) {
 	request := keystore.GetKeysRequest{KeyNames: keyNames}
 	jsonRequest, err := json.Marshal(request)
 	if err != nil {
@@ -154,8 +148,11 @@ func fetchBootstrapKeys(bootstrapURL string, keyNames []string) (BootstrapKeys, 
 		}
 	}
 
-	result := BootstrapKeys{
-		CSAPublicKey: hex.EncodeToString(keyMap[bootstrap.DefaultCSAKeyName].KeyInfo.PublicKey),
+	// TODO: avoid referencing commit, executor, and JD-specific key names here; the caller
+	// should pass in the names and map the results without this function knowing about them.
+	var result BootstrapKeys
+	if csaKeyResp, ok := keyMap[bootstrap.DefaultCSAKeyName]; ok {
+		result.CSAPublicKey = hex.EncodeToString(csaKeyResp.KeyInfo.PublicKey)
 	}
 
 	if ecdsaKeyResp, ok := keyMap[commit.DefaultECDSASigningKeyName]; ok {
@@ -165,6 +162,14 @@ func fetchBootstrapKeys(bootstrapURL string, keyNames []string) (BootstrapKeys, 
 		}
 		result.ECDSAPublicKey = hex.EncodeToString(ecdsaKeyResp.KeyInfo.PublicKey)
 		result.ECDSAAddress = hex.EncodeToString(crypto.PubkeyToAddress(*ecdsaPublicKey).Bytes())
+	}
+
+	if evmKeyResp, ok := keyMap[executor.DefaultEVMTransmitterKeyName]; ok {
+		evmPublicKey, err := crypto.UnmarshalPubkey(evmKeyResp.KeyInfo.PublicKey)
+		if err != nil {
+			return BootstrapKeys{}, fmt.Errorf("failed to unmarshal EVM transmitter public key: %w", err)
+		}
+		result.EVMTransmitterAddress = hex.EncodeToString(crypto.PubkeyToAddress(*evmPublicKey).Bytes())
 	}
 
 	return result, nil

@@ -3,7 +3,6 @@ package evm
 import (
 	"context"
 	"fmt"
-	"os"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/sourcereader"
@@ -90,10 +89,5 @@ func CreateAccessorFactory(
 	rmnRemoteInfos := chainaccess.Infos[string](generic.RMNRemoteAddresses).GetAllInfos()
 	destChainConfigs := chainaccess.Infos[chainaccess.DestinationChainConfig](generic.ChainConfiguration).GetAllInfos()
 
-	transmitterPrivateKey := os.Getenv("EXECUTOR_TRANSMITTER_PRIVATE_KEY")
-	if transmitterPrivateKey == "" {
-		lggr.Info("EXECUTOR_TRANSMITTER_PRIVATE_KEY not set, ContractTransmitter will be unavailable")
-	}
-
-	return NewFactory(lggr, onRampInfos, rmnRemoteInfos, headTrackers, chainClients, destChainConfigs, generic.MaxRetryDuration, rpcURLs, transmitterPrivateKey), nil
+	return NewFactory(lggr, onRampInfos, rmnRemoteInfos, headTrackers, chainClients, destChainConfigs, generic.MaxRetryDuration, rpcURLs), nil
 }

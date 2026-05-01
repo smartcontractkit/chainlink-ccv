@@ -2,11 +2,9 @@ package ccv
 
 import (
 	"context"
-	"encoding/hex"
 	"fmt"
 	"time"
 
-	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/rs/zerolog"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
@@ -15,7 +13,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/evm"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/registry"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
-	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	cldf_chain "github.com/smartcontractkit/chainlink-deployments-framework/chain"
 	cldf_evm_provider "github.com/smartcontractkit/chainlink-deployments-framework/chain/evm/provider"
 	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm/provider/rpcclient"
@@ -64,22 +61,6 @@ func (f *evmImplFactory) DefaultFeeAggregator(env *deployment.Environment, chain
 
 func (f *evmImplFactory) SupportsFunding() bool {
 	return true
-}
-
-func (f *evmImplFactory) GenerateTransmitterKey() (string, error) {
-	pk, err := crypto.GenerateKey()
-	if err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(crypto.FromECDSA(pk)), nil
-}
-
-func (f *evmImplFactory) TransmitterAddress(privateKeyHex string) (protocol.UnknownAddress, error) {
-	pk, err := crypto.HexToECDSA(privateKeyHex)
-	if err != nil {
-		return protocol.UnknownAddress{}, fmt.Errorf("invalid EVM private key: %w", err)
-	}
-	return protocol.UnknownAddress(crypto.PubkeyToAddress(pk.PublicKey).Bytes()), nil
 }
 
 // newEVMCLDFProviderFactory returns a CLDFProviderFactory that builds an EVM

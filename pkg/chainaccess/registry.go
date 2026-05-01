@@ -39,8 +39,15 @@ func Register(name ChainFamily, constructor AccessorFactoryConstructor) {
 	accessorConstructorMap[name] = constructor
 }
 
-// Registry holds AccessorFactories for different chain families.
-type Registry struct {
+// Registry is the interface for obtaining chain Accessors by selector.
+type Registry interface {
+	// GetAccessor returns the Accessor for the given chain selector, or an error if no factory
+	// is registered for the chain's family.
+	GetAccessor(ctx context.Context, chainSelector protocol.ChainSelector) (Accessor, error)
+}
+
+// registry is the concrete Registry backed by registered AccessorFactories.
+type registry struct {
 	factories map[ChainFamily]AccessorFactory
 }
 
@@ -148,6 +155,10 @@ type DestinationChainConfig struct {
 	OffRampAddress string `toml:"off_ramp_address"`
 	// RmnAddress is the address of the RMN Remote contract on the destination chain.
 	RmnAddress string `toml:"rmn_address"`
+	// TransmitterKeyName is the name of the ECDSA key in the keystore used to sign and submit
+	// transactions to the OffRamp on this chain. If empty, the EVM accessor defaults to
+	// executor.DefaultEVMTransmitterKeyName.
+	TransmitterKeyName string `toml:"transmitter_key_name"`
 }
 
 // ExecutorConfig is an overlay of the executor application configuration. It reads the subset of
@@ -182,8 +193,8 @@ func accessorConstructorMapCopy() map[ChainFamily]AccessorFactoryConstructor {
 }
 
 // NewRegistry creates a new Registry with some configuration.
-func NewRegistry(lggr logger.Logger, config string) (*Registry, error) {
-	reg := Registry{
+func NewRegistry(lggr logger.Logger, config string) (Registry, error) {
+	reg := registry{
 		factories: make(map[ChainFamily]AccessorFactory),
 	}
 
@@ -207,7 +218,7 @@ func NewRegistry(lggr logger.Logger, config string) (*Registry, error) {
 // GetAccessor creates an Accessor for the given chain selector using the registered AccessorFactory.
 // It returns an error if no factory is registered for the chain family.
 // Not concurrent safe.
-func (r *Registry) GetAccessor(ctx context.Context, chainSelector protocol.ChainSelector) (Accessor, error) {
+func (r *registry) GetAccessor(ctx context.Context, chainSelector protocol.ChainSelector) (Accessor, error) {
 	family, err := chainsel.GetSelectorFamily(uint64(chainSelector))
 	if err != nil {
 		return nil, fmt.Errorf("failed to get selector family for chain %d - update chain-selectors library?: %w", chainSelector, err)

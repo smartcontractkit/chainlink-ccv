@@ -82,6 +82,17 @@ type Accessor interface {
 	DestinationReader() (DestinationReader, error)
 	// ContractTransmitter returns the ContractTransmitter for this chain, or an error if not available.
 	ContractTransmitter() (ContractTransmitter, error)
+
+	// Optional hook: bootstrap.KeystoreSetter
+	//
+	// Accessors that require a keystore for signing (e.g. to build a keystore-backed
+	// ContractTransmitter) should also implement bootstrap.KeystoreSetter:
+	//
+	//   SetKeystore(ks keystore.Keystore)
+	//
+	// bootstrap.KeystoreRegistry checks for this interface after every GetAccessor call
+	// and invokes SetKeystore automatically, so implementations do not need to arrange
+	// injection themselves.
 }
 
 // AccessorFactory creates Accessors for specific chain selectors.
