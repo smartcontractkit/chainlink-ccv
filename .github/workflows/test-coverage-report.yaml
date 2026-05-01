@@ -47,14 +47,14 @@ jobs:
 
       - name: Run tests
         run: |
-          just test-coverage coverage.out short
+          just test-coverage coverage.out 1
       - name: Coverage on target branch
         if: github.event_name == 'pull_request'
         run: |
           git fetch origin ${{ github.base_ref }}
           git branch -a
           git checkout ${{ github.base_ref }}
-          just test-coverage coverage_target.out short
+          just test-coverage coverage_target.out 1
           # switch back to the head ref
           git checkout ${{ github.head_ref }}
           ./tools/bin/cov_compare.sh coverage_target.out coverage.out --label1="${{ github.base_ref }}" --label2="${{ github.head_ref }}" > table.txt

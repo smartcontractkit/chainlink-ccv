@@ -54,7 +54,7 @@ jobs:
 
       - name: Run tests
         run: |
-          just test-coverage coverage.out
+          just test-coverage
           total=$(go tool cover -func=coverage.out | grep total | awk '{print $3}')
           echo "Total coverage: $total"
           echo "$total" | awk -v threshold="$COVERAGE_THRESHOLD" '{ pc=substr($0, 1, length($0)-1); if (pc < threshold) { print "Coverage (" pc "%) is less than " threshold "%"; exit 1 } }'
