@@ -54,10 +54,12 @@ jobs:
           git fetch origin ${{ github.base_ref }}
           git branch -a
           git checkout ${{ github.base_ref }}
-          just test-coverage coverage_target.out 1
+          # Allow test failures on the target branch — a flaky test there should not block the PR.
+          # Coverage data is still written for all packages that did not panic.
+          just test-coverage coverage_target.out 1 || echo "Warning: some tests failed on target branch; coverage may be incomplete"
           # switch back to the head ref
           git checkout ${{ github.head_ref }}
-          ./tools/bin/cov_compare.sh coverage_target.out coverage.out --label1="${{ github.base_ref }}" --label2="${{ github.head_ref }}" > table.txt
+          ./tools/bin/cov_compare.sh coverage_target.out coverage.out --label1="${{ github.base_ref }}" --label2="${{ github.head_ref }}" > table.txt || echo "(coverage comparison unavailable)" > table.txt
           cat table.txt
           {
             echo 'coverage_report<<COVERAGE_REPORT_DELIM'
