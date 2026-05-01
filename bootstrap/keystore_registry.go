@@ -12,6 +12,7 @@ import (
 // KeystoreSetter is implemented by Accessors that support keystore-managed signing keys.
 // The executor checks for it so that pkg/chainaccess remains free of keystore dependencies.
 type KeystoreSetter interface {
+	// SetKeystore injects the keystore so the accessor can build a keystore-backed ContractTransmitter.
 	SetKeystore(ks keystore.Keystore)
 }
 

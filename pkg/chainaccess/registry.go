@@ -41,6 +41,8 @@ func Register(name ChainFamily, constructor AccessorFactoryConstructor) {
 
 // Registry is the interface for obtaining chain Accessors by selector.
 type Registry interface {
+	// GetAccessor returns the Accessor for the given chain selector, or an error if no factory
+	// is registered for the chain's family.
 	GetAccessor(ctx context.Context, chainSelector protocol.ChainSelector) (Accessor, error)
 }
 
