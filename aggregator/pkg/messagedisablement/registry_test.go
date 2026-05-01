@@ -197,6 +197,16 @@ func TestRegistry_TokenRule_DisablesSourceOrDestinationTokenTouch(t *testing.T) 
 		dest:   20,
 		token:  &protocol.TokenTransfer{SourceTokenAddress: protocol.ByteSlice{0xbb}, DestTokenAddress: protocol.ByteSlice{0xcc}},
 	}))
+	assert.False(t, registry.IsDisabled(report{
+		source: 30,
+		dest:   10,
+		token:  &protocol.TokenTransfer{SourceTokenAddress: protocol.ByteSlice{0xaa}, DestTokenAddress: protocol.ByteSlice{0xbb}},
+	}))
+	assert.False(t, registry.IsDisabled(report{
+		source: 20,
+		dest:   30,
+		token:  &protocol.TokenTransfer{SourceTokenAddress: protocol.ByteSlice{0xbb}, DestTokenAddress: protocol.ByteSlice{0xaa}},
+	}))
 }
 
 func TestRegistry_TokenRule_DoesNotDisableNonTokenMessage(t *testing.T) {
