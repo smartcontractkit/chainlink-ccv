@@ -28,6 +28,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/handlers"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/health"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/heartbeat"
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/messagedisablement"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/middlewares"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/quorum"
@@ -55,6 +56,7 @@ type Server struct {
 	l                                         logger.SugaredLogger
 	config                                    *model.AggregatorConfig
 	store                                     common.CommitVerificationStore
+	messageDisablementRegistry                *messagedisablement.Registry
 	aggregator                                *aggregation.CommitReportAggregator
 	recoverer                                 *OrphanRecoverer
 	readCommitVerifierNodeResultHandler       *handlers.ReadCommitVerifierNodeResultHandler
@@ -162,6 +164,16 @@ func (s *Server) Start(lis net.Listener) error {
 		return nil
 	}, func(error) {
 		aggregatorCancel()
+	})
+
+	// Periodically refresh the message-disablement registry from the database.
+	messageDisablementCtx, messageDisablementCancel := context.WithCancel(context.Background())
+	g.Add(func() error {
+		s.messageDisablementRegistry.StartPeriodicRefresh(messageDisablementCtx, s.config.MessageDisablementRules.RefreshInterval)
+		<-messageDisablementCtx.Done()
+		return nil
+	}, func(error) {
+		messageDisablementCancel()
 	})
 
 	if s.config.OrphanRecovery.Enabled && s.recoverer != nil {
@@ -300,18 +312,34 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig, aggMonito
 	)
 
 	factory := storage.NewStorageFactory(l)
-	store, err := factory.CreateStorage(config.Storage, aggMonitoring)
+	rawStore, err := factory.CreateStorage(config.Storage, aggMonitoring)
 	if err != nil {
 		l.Fatalf("Failed to create storage: %v", err)
 		return nil
 	}
 
-	store = storage.WrapWithMetrics(store, aggMonitoring, l)
+	// Build the message-disablement registry from the raw store before metrics wrapping.
+	// DatabaseStorage implements messagedisablement.Store; the metrics wrapper does not need to.
+	messageDisablementStore, ok := rawStore.(messagedisablement.Store)
+	if !ok {
+		l.Fatalf("Storage does not implement messagedisablement.Store")
+		return nil
+	}
+	messageDisablementRegistry := messagedisablement.NewRegistry(
+		messageDisablementStore,
+		l,
+		messagedisablement.WithMetrics(aggMonitoring.Metrics()),
+	)
+	if err := messageDisablementRegistry.Refresh(context.Background()); err != nil {
+		l.Warnw("Failed initial message-disablement registry refresh", "error", err)
+	}
+
+	store := storage.WrapWithMetrics(rawStore, aggMonitoring, l)
 	validator := quorum.NewQuorumValidator(config, l)
 
 	agg := createAggregator(store, store, store, validator, config, l, aggMonitoring)
 
-	writeCommitVerifierNodeResultHandler := handlers.NewWriteCommitCCVNodeDataHandler(store, agg, aggMonitoring, l, validator, config.Aggregation.CheckAggregationTimeout)
+	writeCommitVerifierNodeResultHandler := handlers.NewWriteCommitCCVNodeDataHandler(store, agg, aggMonitoring, l, validator, config.Aggregation.CheckAggregationTimeout, messageDisablementRegistry)
 	readCommitVerifierNodeResultHandler := handlers.NewReadCommitVerifierNodeResultHandler(store, l)
 	getMessagesSinceHandler := handlers.NewGetMessagesSinceHandler(store, config.Committee, l, aggMonitoring)
 	getVerifierResultsForMessageHandler := handlers.NewGetVerifierResultsForMessageHandler(store, config.Committee, config.MaxMessageIDsPerBatch, l)
@@ -410,6 +438,7 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig, aggMonito
 		l:                                    l,
 		config:                               config,
 		store:                                store,
+		messageDisablementRegistry:           messageDisablementRegistry,
 		aggregator:                           agg,
 		readCommitVerifierNodeResultHandler:  readCommitVerifierNodeResultHandler,
 		writeCommitVerifierNodeResultHandler: writeCommitVerifierNodeResultHandler,

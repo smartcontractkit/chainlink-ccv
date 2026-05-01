@@ -78,10 +78,10 @@ func (s *haTestSetup) survivingAggClient(committee string, killedContainers ...s
 		if agg.CommitteeName != committee || agg.Out == nil {
 			continue
 		}
-		if killed[agg.Out.ContainerName] {
+		if killed[agg.Out.NginxContainerName] {
 			continue
 		}
-		if client, ok := s.aggClients[agg.Out.ContainerName]; ok {
+		if client, ok := s.aggClients[agg.Out.NginxContainerName]; ok {
 			return client
 		}
 	}
@@ -248,7 +248,7 @@ func TestHA_SingleAggregatorDown(t *testing.T) {
 	committeeAggs := setup.aggsByCommittee(haCommittee)
 	require.Len(t, committeeAggs, 2, "need 2 aggregators in %q for this test", haCommittee)
 
-	killedAgg := committeeAggs[0].Out.ContainerName
+	killedAgg := committeeAggs[0].Out.NginxContainerName
 	require.NotEmpty(t, killedAgg)
 
 	// Phase 1: Kill one aggregator, send a message, assert it flows via the survivor.
@@ -297,7 +297,7 @@ func TestHA_CrossComponentDown(t *testing.T) {
 	committeeAggs := setup.aggsByCommittee(haCommittee)
 	require.Len(t, committeeAggs, 2, "need 2 aggregators in %q for this test", haCommittee)
 
-	killedAgg := committeeAggs[0].Out.ContainerName
+	killedAgg := committeeAggs[0].Out.NginxContainerName
 	killedIdx := setup.in.Indexer[0].Out.ContainerName
 	require.NotEmpty(t, killedAgg)
 	require.NotEmpty(t, killedIdx)
@@ -348,12 +348,12 @@ func setupHATest(t *testing.T) *haTestSetup {
 			"aggregator output is nil — was the environment started?")
 		client, err := ccv.NewAggregatorClient(
 			l.With().Str("component",
-				fmt.Sprintf("agg-client-%s", agg.Out.ContainerName)).Logger(),
+				fmt.Sprintf("agg-client-%s", agg.Out.NginxContainerName)).Logger(),
 			agg.Out.ExternalHTTPSUrl,
 			agg.Out.TLSCACertFile,
 		)
 		require.NoError(t, err)
-		aggClients[agg.Out.ContainerName] = client
+		aggClients[agg.Out.NginxContainerName] = client
 		t.Cleanup(func() { client.Close() })
 	}
 

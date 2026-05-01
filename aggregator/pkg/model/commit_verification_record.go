@@ -75,3 +75,27 @@ func (c *CommitVerificationRecord) SetTimestampFromMillis(timestampMillis int64)
 func (c *CommitVerificationRecord) GetTimestamp() time.Time {
 	return c.createdAt
 }
+
+// GetSourceChainSelector returns the source chain selector from the message.
+func (c *CommitVerificationRecord) GetSourceChainSelector() uint64 {
+	if c.Message == nil {
+		return 0
+	}
+	return uint64(c.Message.SourceChainSelector)
+}
+
+// GetDestinationSelector returns the destination chain selector from the message.
+func (c *CommitVerificationRecord) GetDestinationSelector() uint64 {
+	if c.Message == nil {
+		return 0
+	}
+	return uint64(c.Message.DestChainSelector)
+}
+
+// GetTokenTransfer returns the token transfer from the message when present.
+func (c *CommitVerificationRecord) GetTokenTransfer() *protocol.TokenTransfer {
+	if c.Message == nil {
+		return nil
+	}
+	return c.Message.TokenTransfer
+}

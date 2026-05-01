@@ -34,7 +34,7 @@ func TestChaos_AggregatorOutageRecovery(t *testing.T) {
 	var defaultAggregatorContainerName string
 	for _, agg := range setup.in.Aggregator {
 		if agg.CommitteeName == devenvcommon.DefaultCommitteeVerifierQualifier {
-			defaultAggregatorContainerName = agg.Out.ContainerName
+			defaultAggregatorContainerName = agg.Out.NginxContainerName
 			break
 		}
 	}

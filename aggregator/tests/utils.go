@@ -13,6 +13,7 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 	"go.uber.org/zap/zapcore"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/test/bufconn"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
@@ -206,10 +207,6 @@ func CreateAuthenticatedClient(t *testing.T, listener *bufconn.Listener, options
 		_, clientConfig = option(dummyConfig, clientConfig)
 	}
 
-	ctx := context.Background()
-	ctx, cancel := context.WithTimeout(ctx, time.Second)
-	defer cancel()
-
 	var clientOptions []grpc.DialOption
 	if !clientConfig.SkipAuth {
 		hmacConfig := &hmacutil.ClientConfig{
@@ -221,17 +218,17 @@ func CreateAuthenticatedClient(t *testing.T, listener *bufconn.Listener, options
 		}
 	}
 
-	aggregatorClient, aggregatorConn, err := createAggregatorClient(ctx, listener, clientOptions...)
+	aggregatorClient, aggregatorConn, err := createAggregatorClient(listener, clientOptions...)
 	if err != nil {
 		t.Fatalf("failed to create aggregator client: %v", err)
 	}
 
-	ccvDataClient, ccvDataConn, err := createCCVDataClient(ctx, listener, clientOptions...)
+	ccvDataClient, ccvDataConn, err := createCCVDataClient(listener, clientOptions...)
 	if err != nil {
 		t.Fatalf("failed to create CCV data client: %v", err)
 	}
 
-	messageDiscoveryClient, messageDiscoveryConn, err := createMessageDiscoveryClient(ctx, listener, clientOptions...)
+	messageDiscoveryClient, messageDiscoveryConn, err := createMessageDiscoveryClient(listener, clientOptions...)
 	if err != nil {
 		_ = aggregatorConn.Close()
 		_ = ccvDataConn.Close()
@@ -297,22 +294,20 @@ func setupPostgresStorage(t *testing.T, existingConfig *model.StorageConfig) (*m
 	return storageConfig, cleanup, nil
 }
 
-func createCCVDataClient(ctx context.Context, ccvDataBuf *bufconn.Listener, opts ...grpc.DialOption) (verifierpb.VerifierClient, *grpc.ClientConn, error) {
+func createCCVDataClient(ccvDataBuf *bufconn.Listener, opts ...grpc.DialOption) (verifierpb.VerifierClient, *grpc.ClientConn, error) {
 	bufDialer := func(context.Context, string) (net.Conn, error) {
 		return ccvDataBuf.Dial()
 	}
 
-	//nolint:staticcheck // grpc.WithInsecure is deprecated but needed for test setup
 	defaultOpts := []grpc.DialOption{
 		grpc.WithContextDialer(bufDialer),
-		grpc.WithInsecure(),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	}
 
 	// Append custom options (like interceptors)
 	allOpts := append(defaultOpts, opts...)
 
-	//nolint:staticcheck // grpc.DialContext is deprecated but needed for bufconn test setup
-	ccvDataConn, err := grpc.DialContext(ctx, "bufnet", allOpts...)
+	ccvDataConn, err := grpc.NewClient("passthrough:///bufnet", allOpts...)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -321,22 +316,20 @@ func createCCVDataClient(ctx context.Context, ccvDataBuf *bufconn.Listener, opts
 	return client, ccvDataConn, nil
 }
 
-func createAggregatorClient(ctx context.Context, aggregatorBuf *bufconn.Listener, opts ...grpc.DialOption) (committeepb.CommitteeVerifierClient, *grpc.ClientConn, error) {
+func createAggregatorClient(aggregatorBuf *bufconn.Listener, opts ...grpc.DialOption) (committeepb.CommitteeVerifierClient, *grpc.ClientConn, error) {
 	bufDialer := func(context.Context, string) (net.Conn, error) {
 		return aggregatorBuf.Dial()
 	}
 
-	//nolint:staticcheck // grpc.WithInsecure is deprecated but needed for test setup
 	defaultOpts := []grpc.DialOption{
 		grpc.WithContextDialer(bufDialer),
-		grpc.WithInsecure(),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	}
 
 	// Append custom options (like interceptors)
 	allOpts := append(defaultOpts, opts...)
 
-	//nolint:staticcheck // grpc.DialContext is deprecated but needed for bufconn test setup
-	aggregatorConn, err := grpc.DialContext(ctx, "bufnet", allOpts...)
+	aggregatorConn, err := grpc.NewClient("passthrough:///bufnet", allOpts...)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -345,22 +338,20 @@ func createAggregatorClient(ctx context.Context, aggregatorBuf *bufconn.Listener
 	return client, aggregatorConn, nil
 }
 
-func createMessageDiscoveryClient(ctx context.Context, messageDiscoveryBuf *bufconn.Listener, opts ...grpc.DialOption) (msgdiscoverypb.MessageDiscoveryClient, *grpc.ClientConn, error) {
+func createMessageDiscoveryClient(messageDiscoveryBuf *bufconn.Listener, opts ...grpc.DialOption) (msgdiscoverypb.MessageDiscoveryClient, *grpc.ClientConn, error) {
 	bufDialer := func(context.Context, string) (net.Conn, error) {
 		return messageDiscoveryBuf.Dial()
 	}
 
-	//nolint:staticcheck // grpc.WithInsecure is deprecated but needed for test setup
 	defaultOpts := []grpc.DialOption{
 		grpc.WithContextDialer(bufDialer),
-		grpc.WithInsecure(),
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
 	}
 
 	// Append custom options (like interceptors)
 	allOpts := append(defaultOpts, opts...)
 
-	//nolint:staticcheck // grpc.DialContext is deprecated but needed for bufconn test setup
-	messageDiscoveryConn, err := grpc.DialContext(ctx, "bufnet", allOpts...)
+	messageDiscoveryConn, err := grpc.NewClient("passthrough:///bufnet", allOpts...)
 	if err != nil {
 		return nil, nil, err
 	}

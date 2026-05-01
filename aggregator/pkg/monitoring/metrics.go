@@ -54,6 +54,10 @@ type AggregatorMetrics struct {
 	// gRPC transport metrics
 	grpcPayloadSizeBytes metric.Int64Histogram
 	grpcErrorsTotal      metric.Int64Counter
+
+	// Message disablement rules metrics
+	messageDisablementRuleActive          metric.Int64Gauge
+	messageDisablementRulesRefreshFailure metric.Int64Gauge
 }
 
 // grpcPayloadSizeBuckets defines histogram buckets for gRPC payload sizes in bytes.
@@ -292,6 +296,24 @@ func InitMetrics() (am *AggregatorMetrics, err error) {
 		return nil, fmt.Errorf("failed to register grpc errors total counter: %w", err)
 	}
 
+	am.messageDisablementRuleActive, err = beholder.GetMeter().Int64Gauge(
+		"aggregator_message_disablement_rule_active",
+		metric.WithDescription("Whether a message disablement rule is active (1) or inactive (0)"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register message disablement rule active gauge: %w", err)
+	}
+
+	am.messageDisablementRulesRefreshFailure, err = beholder.GetMeter().Int64Gauge(
+		"aggregator_message_disablement_rules_refresh_failure",
+		metric.WithDescription("Whether the latest message disablement rules refresh failed (1) or succeeded (0)"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register message disablement rules refresh failure gauge: %w", err)
+	}
+
 	return am, nil
 }
 
@@ -442,4 +464,18 @@ func (c *AggregatorMetricLabeler) IncrementGRPCErrors(ctx context.Context, code,
 		attribute.String("code", code),
 		attribute.String("method", method),
 	}...), metric.WithAttributes(otelLabels...))
+}
+
+func (c *AggregatorMetricLabeler) SetMessageDisablementRuleActive(ctx context.Context, active int64, keyValues ...string) {
+	labeler := c.Labeler
+	if len(keyValues) > 0 {
+		labeler = labeler.With(keyValues...)
+	}
+	otelLabels := beholder.OtelAttributes(labeler.Labels).AsStringAttributes()
+	c.am.messageDisablementRuleActive.Record(ctx, active, metric.WithAttributes(otelLabels...))
+}
+
+func (c *AggregatorMetricLabeler) SetMessageDisablementRulesRefreshFailure(ctx context.Context, failed int64) {
+	otelLabels := beholder.OtelAttributes(c.Labels).AsStringAttributes()
+	c.am.messageDisablementRulesRefreshFailure.Record(ctx, failed, metric.WithAttributes(otelLabels...))
 }

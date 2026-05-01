@@ -136,3 +136,11 @@ func (c *NoopAggregatorMetricLabeler) RecordGRPCPayloadSize(_ context.Context, _
 func (c *NoopAggregatorMetricLabeler) IncrementGRPCErrors(_ context.Context, _, _ string) {
 	// No-op
 }
+
+func (c *NoopAggregatorMetricLabeler) SetMessageDisablementRuleActive(_ context.Context, _ int64, _ ...string) {
+	// No-op
+}
+
+func (c *NoopAggregatorMetricLabeler) SetMessageDisablementRulesRefreshFailure(_ context.Context, _ int64) {
+	// No-op
+}
