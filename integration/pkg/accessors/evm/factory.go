@@ -80,6 +80,11 @@ func appendErrorIfNil(errs []error, ob any, errStr string) []error {
 	return errs
 }
 
+// isValidAddress reports whether s is a non-empty hex address that is not the zero address.
+func isValidAddress(s string) bool {
+	return s != "" && common.HexToAddress(s) != (common.Address{})
+}
+
 func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainSelector) (chainaccess.Accessor, error) {
 	var errs []error
 	if f == nil {
@@ -111,7 +116,7 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 	// config), we skip it rather than returning an error. DestinationReader and ContractTransmitter
 	// can still be built from chain_configuration alone.
 	var evmSourceReader chainaccess.SourceReader
-	if f.onRampAddresses[chainSelector] != "" && f.rmnRemoteAddresses[chainSelector] != "" {
+	if isValidAddress(f.onRampAddresses[chainSelector]) && isValidAddress(f.rmnRemoteAddresses[chainSelector]) {
 		headTracker, ok := f.headTrackers[chainSelector]
 		if !ok {
 			return nil, fmt.Errorf("head tracker is not set for chain %d", chainSelector)
@@ -135,11 +140,7 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 	var evmDestReader chainaccess.DestinationReader
 	var offRampAddr common.Address
 	destCfg := f.destChainConfigs[chainSelector]
-	keyName := executor.DefaultEVMTransmitterKeyName
-	if destCfg.TransmitterKeyName != "" {
-		keyName = destCfg.TransmitterKeyName
-	}
-	if destCfg.OffRampAddress != "" {
+	if isValidAddress(destCfg.OffRampAddress) {
 		offRampAddr = common.HexToAddress(destCfg.OffRampAddress)
 		dr, err := destinationreader.NewEvmDestinationReader(destinationreader.Params{
 			Lggr:                      f.lggr,
@@ -155,6 +156,10 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 		} else {
 			evmDestReader = dr
 		}
+	}
+	keyName := executor.DefaultEVMTransmitterKeyName
+	if destCfg.TransmitterKeyName != "" {
+		keyName = destCfg.TransmitterKeyName
 	}
 
 	rpcURL := f.rpcURLs[chainSelector]
@@ -201,6 +206,7 @@ func newAccessor(
 // keyName is empty, or no RPC URL is available for this chain.
 func (a *accessor) SetKeystore(ks keystore.Keystore) {
 	if ks == nil || a.keyName == "" || a.rpcURL == "" {
+		a.lggr.Warnw("Keystore, transmitter key name, or RPC URL not set; skipping keystore contract transmitter setup", "chainSelector", a.chainSelector, "keyNameSet", a.keyName != "", "rpcURLSet", a.rpcURL != "")
 		return
 	}
 	ct, err := contracttransmitter.NewEVMContractTransmitterFromKeystore(

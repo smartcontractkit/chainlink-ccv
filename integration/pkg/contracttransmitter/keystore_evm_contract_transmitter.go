@@ -91,9 +91,9 @@ func NewEVMContractTransmitterFromKeystore(
 	}, nil
 }
 
-// GetTransactOpts builds [bind.TransactOpts] backed by the keystore key.
+// getTransactOpts builds [bind.TransactOpts] backed by the keystore key.
 // Nonce and gas price are fetched live from the pending state.
-func (ct *KeystoreEVMContractTransmitter) GetTransactOpts(ctx context.Context) (*bind.TransactOpts, error) {
+func (ct *KeystoreEVMContractTransmitter) getTransactOpts(ctx context.Context) (*bind.TransactOpts, error) {
 	nonce, err := ct.Client.PendingNonceAt(ctx, ct.txKey.Address())
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch pending nonce: %w", err)
@@ -131,7 +131,7 @@ func (ct *KeystoreEVMContractTransmitter) ConvertAndWriteMessageToChain(ctx cont
 		contractCcvs = append(contractCcvs, common.HexToAddress(ccv.String()))
 	}
 
-	opts, err := ct.GetTransactOpts(ctx)
+	opts, err := ct.getTransactOpts(ctx)
 	if err != nil {
 		return err
 	}
