@@ -105,7 +105,7 @@ type BootstrapKeys struct {
 
 // FetchBootstrapKeys queries the bootstrap HTTP info server for public key material by name.
 // Devenv calls this after a container starts to retrieve keys needed for JD registration and on-chain funding.
-func FetchBootstrapKeys(bootstrapURL string, keyNames []string) (BootstrapKeys, error) {
+func FetchBootstrapKeys(bootstrapURL string, keyNames ...string) (BootstrapKeys, error) {
 	request := keystore.GetKeysRequest{KeyNames: keyNames}
 	jsonRequest, err := json.Marshal(request)
 	if err != nil {

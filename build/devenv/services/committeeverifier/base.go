@@ -294,7 +294,7 @@ func launchVerifier(ctx context.Context, in *Input, outputs []*blockchain.Output
 
 	// Fetches the CSA and ECDSA keys from the bootstrap server.
 	// Verifiers need both for JD registration and committee signer registration.
-	bootstrapKeys, err := services.FetchBootstrapKeys(bootstrapURL, []string{bootstrap.DefaultCSAKeyName, commit.DefaultECDSASigningKeyName})
+	bootstrapKeys, err := services.FetchBootstrapKeys(bootstrapURL, bootstrap.DefaultCSAKeyName, commit.DefaultECDSASigningKeyName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get bootstrap keys: %w", err)
 	}

@@ -42,7 +42,7 @@ type ServiceDeps struct {
 	Keystore keystore.Keystore
 
 	// Registry for chainaccess.Accessor objects.
-	Registry *chainaccess.Registry
+	Registry chainaccess.Registry
 }
 
 // ServiceFactory is an interface implemented by the application that seeks to be bootstrapped.
@@ -70,12 +70,13 @@ func (r *runner) StartJob(ctx context.Context, config string) error {
 		return fmt.Errorf("bootstrap: failed to parse config: %w", err)
 	}
 
-	// Initialize registry.
+	// Initialize registry, wrapping it so the keystore is injected into any
+	// Accessor that implements KeystoreSetter.
 	reg, err := chainaccess.NewRegistry(r.deps.Logger, spec.AppConfig)
 	if err != nil {
 		return fmt.Errorf("failed to create registry: %w", err)
 	}
-	r.deps.Registry = reg
+	r.deps.Registry = NewKeystoreRegistry(r.deps.Logger, reg, r.deps.Keystore)
 
 	return r.fac.Start(ctx, spec, r.deps)
 }

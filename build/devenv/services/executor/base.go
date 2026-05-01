@@ -237,7 +237,7 @@ func launchExecutor(ctx context.Context, in *Input, outputs []*ctfblockchain.Out
 	// Fetches the CSA key and EVM transmitter key from the bootstrap server.
 	// The CSA key is used for JD registration; the EVM transmitter key is used to derive the
 	// on-chain address that must be funded before the executor can submit transactions.
-	bootstrapKeys, err := services.FetchBootstrapKeys(bootstrapURL, []string{bootstrap.DefaultCSAKeyName, executor.DefaultEVMTransmitterKeyName})
+	bootstrapKeys, err := services.FetchBootstrapKeys(bootstrapURL, bootstrap.DefaultCSAKeyName, executor.DefaultEVMTransmitterKeyName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get bootstrap keys: %w", err)
 	}

@@ -21,7 +21,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
-	"github.com/smartcontractkit/chainlink-common/keystore"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -46,14 +45,6 @@ type Factory struct {
 }
 
 var _ bootstrap.ServiceFactory = (*Factory)(nil)
-
-// KeystoreSetter is an optional interface implemented by Accessors that support
-// keystore-managed signing keys. The executor checks for it via type assertion
-// so that pkg/chainaccess remains free of keystore dependencies.
-type KeystoreSetter interface {
-	// SetKeystore injects the keystore so the accessor can build a keystore-backed ContractTransmitter.
-	SetKeystore(ks keystore.Keystore)
-}
 
 // NewFactory creates a new executor Factory.
 func NewFactory() *Factory {
@@ -116,10 +107,6 @@ func (f *Factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 		if err != nil {
 			f.lggr.Errorw("Failed to get accessor for chain", "error", err, "chainSelector", strSel)
 			continue
-		}
-
-		if setter, ok := accessor.(KeystoreSetter); ok {
-			setter.SetKeystore(deps.Keystore)
 		}
 
 		dr, drErr := accessor.DestinationReader()
