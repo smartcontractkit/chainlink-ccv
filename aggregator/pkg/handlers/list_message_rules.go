@@ -13,6 +13,7 @@ import (
 )
 
 type MessageRulesRegistry interface {
+	// ActiveRulesSnapshot returns the active message rules, or false if the registry is not ready.
 	ActiveRulesSnapshot() ([]messagedisablement.Rule, bool)
 }
 
