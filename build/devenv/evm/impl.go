@@ -28,7 +28,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
-
 	"github.com/smartcontractkit/chainlink-ccip/deployment/finality"
 
 	adapters_1_6_1 "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_1/adapters"
@@ -2193,7 +2192,7 @@ func (m *CCIP17EVM) BuildV3ExtraArgs(
 	destChain cciptestinterfaces.MessageV3Destination,
 	executorArgsParams any,
 	tokenArgsParams any,
-) ([]byte, error) {
+) (cciptestinterfaces.GenericExtraArgs, error) {
 	execArgs, err := destChain.GetExecutorArgs(executorArgsParams)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get executor args: %w", err)
