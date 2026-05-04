@@ -1,0 +1,8 @@
+[pricer]
+  image = "pricer:dev"
+  source_code_path = "../pricer"
+  root_path = "../../"
+  [pricer.keystore]
+    address = "0x9221E2E83903C731C2927CCd84e5fa02B22Bb1E2"
+    file_path = "../pricer/keystore.json"
+    password = "keystore_test_password"
