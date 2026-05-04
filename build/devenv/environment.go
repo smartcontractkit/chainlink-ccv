@@ -21,6 +21,8 @@ import (
 	"github.com/rs/zerolog"
 	"golang.org/x/sync/errgroup"
 
+	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
+
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
 
@@ -751,34 +753,71 @@ func generateVerifierJobSpecs(
 
 // NewEnvironment creates a new CCIP CCV environment locally in Docker.
 func NewEnvironment() (in *Cfg, err error) {
-	ctx := context.Background()
+	ctx := L.WithContext(context.Background())
 	timeTrack := NewTimeTracker(Plog)
 
-	// track environment startup result and time using getDX app
 	defer func() {
 		dxTracker := initDxTracker()
 		sendStartupMetrics(dxTracker, err, timeTrack.SinceStart().Seconds())
 	}()
 
-	ctx = L.WithContext(ctx)
-	if err = framework.DefaultNetwork(nil); err != nil {
-		return nil, err
-	}
-
-	/////////////////////////////
-	// START: Read Config toml //
-	/////////////////////////////
-
 	configs := strings.Split(os.Getenv(EnvVarTestConfigs), ",")
-	if len(configs) > 1 {
-		L.Warn().Msg("Multiple configuration files detected, this feature may be unsupported in the future.")
-	}
 	in, err = Load[Cfg](configs)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load configuration: %w", err)
 	}
 
-	if err = in.expandForHA(); err != nil {
+	in, err = runLegacyEnvironment(ctx, in)
+	if err != nil {
+		return nil, err
+	}
+
+	return in, Store(in)
+}
+
+// NewEnvironmentPhased creates a new CCIP CCV environment using the component
+// registry runtime. This is the experimental successor to NewEnvironment.
+func NewEnvironmentPhased() (in *Cfg, err error) {
+	ctx := L.WithContext(context.Background())
+	timeTrack := NewTimeTracker(Plog)
+
+	defer func() {
+		dxTracker := initDxTracker()
+		sendStartupMetrics(dxTracker, err, timeTrack.SinceStart().Seconds())
+	}()
+
+	configs := strings.Split(os.Getenv(EnvVarTestConfigs), ",")
+	if len(configs) > 1 {
+		L.Warn().Msg("Multiple configuration files detected, this feature may be unsupported in the future.")
+	}
+	var rawConfig map[string]any
+	rawConfig, err = loadRaw(configs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load configuration: %w", err)
+	}
+
+	var runtimeOut map[string]any
+	runtimeOut, err = devenvruntime.NewEnvironment(ctx, rawConfig, L)
+	if err != nil {
+		return nil, err
+	}
+
+	var ok bool
+	in, ok = runtimeOut[legacyCfgKey].(*Cfg)
+	if !ok {
+		err = fmt.Errorf("runtime did not return a *Cfg")
+		return nil, err
+	}
+
+	return in, Store(in)
+}
+
+func runLegacyEnvironment(ctx context.Context, in *Cfg) (*Cfg, error) {
+	if err := framework.DefaultNetwork(nil); err != nil {
+		return nil, err
+	}
+
+	if err := in.expandForHA(); err != nil {
 		return nil, fmt.Errorf("failed to expand HA configuration: %w", err)
 	}
 
@@ -789,9 +828,7 @@ func NewEnvironment() (in *Cfg, err error) {
 		}
 	}
 
-	/////////////////////////////
-	// END: Read Config toml //
-	/////////////////////////////
+	timeTrack := NewTimeTracker(Plog)
 
 	// Start fake data provider. Used for USDC verifier.
 	fakeOut, err := services.NewFake(in.Fake)
@@ -1504,7 +1541,7 @@ func NewEnvironment() (in *Cfg, err error) {
 		return nil, err
 	}
 
-	return in, Store(in)
+	return in, nil
 }
 
 // launchCLNodes encapsulates the logic required to launch the core node. It may be better to wrap this in a service.

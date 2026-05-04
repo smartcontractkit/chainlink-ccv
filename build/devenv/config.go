@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -142,6 +143,29 @@ func getNetworkPrivateKey() string {
 		return DefaultAnvilKey
 	}
 	return pk
+}
+
+// loadRaw loads TOML configuration files into an opaque map, merging multiple
+// files left-to-right. This is used by the component runtime to route top-level
+// config keys to registered components. Validation is not performed here; each
+// component is responsible for validating its own config slice.
+func loadRaw(paths []string) (map[string]any, error) {
+	result := map[string]any{}
+	for _, path := range paths {
+		L.Info().Str("Path", path).Msg("Loading configuration input")
+		data, err := os.ReadFile(filepath.Join(DefaultConfigDir, path))
+		if err != nil {
+			return nil, fmt.Errorf("error reading config file %s: %w", path, err)
+		}
+		// Unmarshal into a fresh map to avoid go-toml panicking when SetLen is
+		// called on an array-table slice stored as interface{} in a reused map.
+		var fileMap map[string]any
+		if err := toml.Unmarshal(data, &fileMap); err != nil {
+			return nil, fmt.Errorf("failed to decode config %s: %w", path, err)
+		}
+		maps.Copy(result, fileMap)
+	}
+	return result, nil
 }
 
 func GetUserPrivateKeys() []string {

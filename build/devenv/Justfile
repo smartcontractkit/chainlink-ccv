@@ -105,7 +105,7 @@ build-jd-docker:
     fi
     echo "Done!"
 smoke-test:
-    cd tests/e2e && go test -v -run TestE2ESmoke
+    cd tests/e2e && go test -v -timeout 20m -run TestE2ESmoke
 
 # Install and authenticate with GH CLI
 setup-gh:

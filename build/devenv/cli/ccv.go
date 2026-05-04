@@ -37,6 +37,9 @@ const (
 	LocalCCVDashboard      = "http://localhost:3000/d/f8a04cef-653f-46d3-86df-87c532300672/ccv-services?orgId=1&refresh=5s"
 )
 
+// newEnvFn is set by PersistentPreRunE based on the --env-mode flag.
+var newEnvFn func() (*ccv.Cfg, error)
+
 var rootCmd = &cobra.Command{
 	Use:   "ccv",
 	Short: "A CCV local environment tool",
@@ -48,6 +51,18 @@ var rootCmd = &cobra.Command{
 		if debug {
 			framework.L.Info().Msg("Debug mode enabled, setting CTF_CLNODE_DLV=true")
 			os.Setenv("CTF_CLNODE_DLV", "true")
+		}
+		mode, err := cmd.Flags().GetString("env-mode")
+		if err != nil {
+			return err
+		}
+		switch mode {
+		case "legacy":
+			newEnvFn = ccv.NewEnvironment
+		case "phased":
+			newEnvFn = ccv.NewEnvironmentPhased
+		default:
+			panic(fmt.Sprintf("unknown --env-mode %q", mode))
 		}
 		return nil
 	},
@@ -69,11 +84,10 @@ var restartCmd = &cobra.Command{
 		_ = os.Setenv("CTF_CONFIGS", configFile)
 		_ = os.Setenv("TESTCONTAINERS_RYUK_DISABLED", "true")
 		framework.L.Info().Msg("Tearing down the development environment")
-		err := framework.RemoveTestContainers()
-		if err != nil {
+		if err := framework.RemoveTestContainers(); err != nil {
 			return fmt.Errorf("failed to clean Docker resources: %w", err)
 		}
-		_, err = ccv.NewEnvironment()
+		_, err := newEnvFn()
 		return err
 	},
 }
@@ -93,11 +107,8 @@ var upCmd = &cobra.Command{
 		framework.L.Info().Str("Config", configFile).Msg("Creating development environment")
 		_ = os.Setenv("CTF_CONFIGS", configFile)
 		_ = os.Setenv("TESTCONTAINERS_RYUK_DISABLED", "true")
-		_, err := ccv.NewEnvironment()
-		if err != nil {
-			return err
-		}
-		return nil
+		_, err := newEnvFn()
+		return err
 	},
 }
 
@@ -650,6 +661,7 @@ var txInfoCmd = &cobra.Command{
 
 func init() {
 	rootCmd.PersistentFlags().BoolP("debug", "d", false, "Enable running services with dlv to allow remote debugging.")
+	rootCmd.PersistentFlags().String("env-mode", "legacy", "Environment startup mode: legacy (default) or phased.")
 
 	// Fund addresses
 	rootCmd.AddCommand(fundAddressesCmd)
