@@ -108,7 +108,7 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, spec bootstrap.JobSp
 			zapLevel = zapcore.InfoLevel
 		}
 		var err error
-		tvf.lggr, err = logger.NewWith(logging.DevelopmentConfig(zapLevel))
+		tvf.lggr, err = logger.NewWith(logging.ProductionConfig(zapLevel))
 		if err != nil {
 			return fmt.Errorf("failed to create logger: %v", err)
 		}

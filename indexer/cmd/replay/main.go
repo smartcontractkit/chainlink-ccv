@@ -412,7 +412,7 @@ func mustCreateLogger(cfg *config.Config) logger.Logger {
 	if err != nil {
 		logLevel = zapcore.InfoLevel
 	}
-	lggr, err := logger.NewWith(logging.DevelopmentConfig(logLevel))
+	lggr, err := logger.NewWith(logging.ProductionConfig(logLevel))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to create logger: %v\n", err)
 		os.Exit(1)

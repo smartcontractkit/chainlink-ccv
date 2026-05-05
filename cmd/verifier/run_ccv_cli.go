@@ -21,7 +21,7 @@ import (
 // Call this when os.Args[1] == "ccv"; pass os.Args[1:] so the app receives ["ccv", "chain-statuses", subcommand, ...].
 // urfave/cli treats args[0] as the program name, so we prepend app.Name so "ccv" is parsed as the first command.
 func RunCCVCLI(args []string) {
-	lggr, err := logger.NewWith(logging.DevelopmentConfig(zapcore.InfoLevel))
+	lggr, err := logger.NewWith(logging.ProductionConfig(zapcore.InfoLevel))
 	if err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "failed to create logger: %v\n", err)
 		os.Exit(1)
