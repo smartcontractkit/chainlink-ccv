@@ -32,7 +32,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/deployment/finality"
 
 	adapters_1_6_1 "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_1/adapters"
-	rmn_remote_binding "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/v1_6_0/rmn_remote"
 
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/create2_factory"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/erc20_lock_box"
@@ -1750,114 +1749,6 @@ func (m *CCIP17EVM) ManuallyExecuteMessage(
 		Msg("Execution transaction mined")
 
 	return event, nil
-}
-
-// ============================================================================
-// RMN Curse Operations
-// ============================================================================
-
-// getRMNRemoteAddress returns the RMN Remote contract address for a given chain.
-func (m *CCIP17EVM) getRMNRemoteAddress() (common.Address, error) {
-	rmnRemoteRef, err := m.e.DataStore.Addresses().Get(
-		datastore.NewAddressRefKey(
-			m.chainDetails.ChainSelector,
-			datastore.ContractType(rmn_remote.ContractType),
-			rmn_remote.Version,
-			"",
-		),
-	)
-	if err != nil {
-		return common.Address{}, fmt.Errorf("failed to get RMN Remote address for chain %d: %w", m.chainDetails.ChainSelector, err)
-	}
-	return common.HexToAddress(rmnRemoteRef.Address), nil
-}
-
-func (m *CCIP17EVM) getRMNRemote() (*rmn_remote_binding.RMNRemote, error) {
-	rmnRemoteAddr, err := m.getRMNRemoteAddress()
-	if err != nil {
-		return nil, err
-	}
-
-	rmnRemote, err := rmn_remote_binding.NewRMNRemote(rmnRemoteAddr, m.ethClient)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create RMN Remote contract binding: %w", err)
-	}
-	return rmnRemote, nil
-}
-
-// Curse applies curses to the RMN Remote contract on a given chain.
-// The subjects parameter contains the curse subjects (either chain selectors or global curse).
-func (m *CCIP17EVM) Curse(ctx context.Context, subjects [][16]byte) error {
-	rmnRemote, err := m.getRMNRemote()
-	if err != nil {
-		return err
-	}
-
-	// Get deployer key for transaction signing
-	txOpts := m.e.BlockChains.EVMChains()[m.chainDetails.ChainSelector].DeployerKey
-	if txOpts == nil {
-		return fmt.Errorf("deployer key not found for chain %d", m.chainDetails.ChainSelector)
-	}
-
-	// Call Curse method
-	tx, err := rmnRemote.Curse0(txOpts, subjects)
-	if err != nil {
-		return fmt.Errorf("failed to call Curse on RMN Remote: %w", err)
-	}
-
-	// Wait for transaction receipt
-	receipt, err := bind.WaitMined(ctx, m.ethClient, tx.Hash())
-	if err != nil {
-		return fmt.Errorf("failed to wait for curse transaction: %w", err)
-	}
-	if receipt.Status != types.ReceiptStatusSuccessful {
-		return fmt.Errorf("curse transaction failed")
-	}
-
-	m.logger.Info().
-		Uint64("chain", m.chainDetails.ChainSelector).
-		Str("tx", tx.Hash().Hex()).
-		Int("numSubjects", len(subjects)).
-		Msg("Cursed subjects on chain")
-
-	return nil
-}
-
-// Uncurse removes curses from the RMN Remote contract on a given chain.
-// The subjects parameter contains the curse subjects to remove (either chain selectors or global curse).
-func (m *CCIP17EVM) Uncurse(ctx context.Context, subjects [][16]byte) error {
-	rmnRemote, err := m.getRMNRemote()
-	if err != nil {
-		return err
-	}
-
-	// Get deployer key for transaction signing
-	txOpts := m.e.BlockChains.EVMChains()[m.chainDetails.ChainSelector].DeployerKey
-	if txOpts == nil {
-		return fmt.Errorf("deployer key not found for chain %d", m.chainDetails.ChainSelector)
-	}
-
-	tx, err := rmnRemote.Uncurse0(txOpts, subjects)
-	if err != nil {
-		return fmt.Errorf("failed to call Uncurse on RMN Remote: %w", err)
-	}
-
-	// Wait for transaction receipt
-	receipt, err := bind.WaitMined(ctx, m.ethClient, tx.Hash())
-	if err != nil {
-		return fmt.Errorf("failed to wait for uncurse transaction: %w", err)
-	}
-	if receipt.Status != types.ReceiptStatusSuccessful {
-		return fmt.Errorf("uncurse transaction failed")
-	}
-
-	m.logger.Info().
-		Uint64("chain", m.chainDetails.ChainSelector).
-		Str("tx", tx.Hash().Hex()).
-		Int("numSubjects", len(subjects)).
-		Msg("Applied uncurse on chain")
-
-	return nil
 }
 
 func (m *CCIP17EVM) GetRoundRobinUser() func() *bind.TransactOpts {

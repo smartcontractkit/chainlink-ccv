@@ -14,6 +14,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/registry"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/client"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
+	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 )
 
 type ChainImpl struct {
@@ -26,6 +27,7 @@ type Lib struct {
 	cfg            *Cfg
 	l              *zerolog.Logger
 	familiesToLoad []string
+	cldfEnv        *deployment.Environment
 }
 
 // NewLib creates a new Lib object given a logger and envOutFile.
@@ -39,11 +41,18 @@ func NewLib(logger *zerolog.Logger, envOutFile string, familiesToLoad ...string)
 		return nil, fmt.Errorf("failed to load environment output: %w", err)
 	}
 
+	// Load CLDF env
+	_, env, err := NewCLDFOperationsEnvironment(cfg.Blockchains, cfg.CLDF.DataStore)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create CLDF operations environment: %w", err)
+	}
+
 	lib := &Lib{
 		envOutFile:     envOutFile,
 		cfg:            cfg,
 		l:              logger,
 		familiesToLoad: familiesToLoad,
+		cldfEnv:        env,
 	}
 
 	if err := lib.verify(); err != nil {
@@ -83,7 +92,18 @@ func (l *Lib) verify() error {
 	if l.l == nil {
 		return fmt.Errorf("logger is nil")
 	}
+	if l.cldfEnv == nil {
+		return fmt.Errorf("CLDF environment is nil")
+	}
 	return nil
+}
+
+// CLDFEnvironment returns the CLDF environment.
+func (l *Lib) CLDFEnvironment() (*deployment.Environment, error) {
+	if err := l.verify(); err != nil {
+		return nil, fmt.Errorf("failed to initialize CLDF environment: %w", err)
+	}
+	return l.cldfEnv, nil
 }
 
 func (l *Lib) DataStore() (datastore.DataStore, error) {
@@ -134,11 +154,6 @@ func (l *Lib) Chains(ctx context.Context) ([]ChainImpl, error) {
 		return nil, fmt.Errorf("invalid library object: %w", err)
 	}
 
-	_, env, err := NewCLDFOperationsEnvironment(l.cfg.Blockchains, l.cfg.CLDF.DataStore)
-	if err != nil {
-		return nil, fmt.Errorf("creating CLDF operations environment: %w", err)
-	}
-
 	// Track which selectors were handled from the cfg so we can append registry-only entries afterwards.
 	chainImplRegistry := registry.GetGlobalChainImplRegistry()
 	seen := make(map[uint64]struct{})
@@ -165,7 +180,7 @@ func (l *Lib) Chains(ctx context.Context) ([]ChainImpl, error) {
 		if err != nil {
 			return nil, fmt.Errorf("getting implementation factory for chain ID %s selector %d family %s: %w", bc.ChainID, details.ChainSelector, bc.Out.Family, err)
 		}
-		impl, err := fac.New(ctx, l.cfg, *l.l, env, bc)
+		impl, err := fac.New(ctx, l.cfg, *l.l, l.cldfEnv, bc)
 		if err != nil {
 			return nil, fmt.Errorf("creating implementation for chain ID %s selector %d family %s: %w", bc.ChainID, details.ChainSelector, bc.Out.Family, err)
 		}
