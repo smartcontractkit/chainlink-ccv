@@ -87,6 +87,11 @@ func TestE2EReorg(t *testing.T) {
 	destImpl := chains[1]
 	dest2Impl := chains[2]
 
+	curseAdapter, ok := fastcurse.GetCurseRegistry().GetCurseAdapter(chain_selectors.FamilyEVM, semver.MustParse("1.6.0"))
+	require.True(t, ok)
+	require.NotNil(t, curseAdapter)
+	require.NoError(t, curseAdapter.Initialize(*cldfEnv, srcImpl.ChainSelector()))
+
 	srcSelector := srcImpl.Details.ChainSelector
 	destSelector := destImpl.Details.ChainSelector
 	destSelector2 := dest2Impl.Details.ChainSelector
@@ -161,19 +166,19 @@ func TestE2EReorg(t *testing.T) {
 	// Helper to log a sent message event
 	logSentMessage := func(event cciptestinterfaces.MessageSentEvent, description string) {
 		l.Info().
-			Str("messageID", fmt.Sprintf("%x", event.MessageID)).
+			Str("messageID", fmt.Sprintf("%x", event.MessageID[:])).
 			Int("seqNumber", int(event.Message.SequenceNumber)).
 			Msgf("📨 %s", description)
 	}
 
 	// Helper function to verify a message exists in aggregator (with polling)
 	verifyMessageExists := func(messageID [32]byte, description string) {
-		waitCtx, waitCancel := context.WithTimeout(ctx, 10*time.Second)
+		waitCtx, waitCancel := context.WithTimeout(ctx, 30*time.Second)
 		defer waitCancel()
 		result, err := defaultAggregatorClient.WaitForVerifierResultForMessage(waitCtx, messageID, 500*time.Millisecond)
 		require.NoError(t, err, "%s should be found after finality", description)
 		l.Info().
-			Str("messageID", fmt.Sprintf("%x", messageID)).
+			Str("messageID", fmt.Sprintf("%x", messageID[:])).
 			Str("verifierResult", fmt.Sprintf("%x", result)).
 			Msgf("✅ %s verified in aggregator after finality", description)
 	}
@@ -267,7 +272,7 @@ func TestE2EReorg(t *testing.T) {
 
 		l.Info().Msg("Applying lane curse between chain0 and chain1 (before message gets picked up by verifier)")
 		// normally it's bidirectional, for the sake of the test we only curse one direction
-		curseSelector(t, cldfEnv, srcImpl.ChainSelector(), destSelector, false)
+		curseSelector(t, cldfEnv, curseAdapter, srcImpl.ChainSelector(), destSelector, false)
 
 		l.Info().Msg("🔍 Asserting message reached verifier but was dropped due to curse")
 		assertCtx, assertCancel := context.WithTimeout(ctx, 100*time.Second)
@@ -276,7 +281,7 @@ func TestE2EReorg(t *testing.T) {
 		_, err = logAssert.WaitForStage(assertCtx, msg1ID, logasserter.MessageDroppedInVerifier())
 		require.NoError(t, err, "message should be dropped in verifier due to curse")
 		l.Info().
-			Str("messageID", fmt.Sprintf("%x", msg1ID)).
+			Str("messageID", fmt.Sprintf("%x", msg1ID[:])).
 			Msg("✅ Confirmed message was dropped in verifier after curse")
 
 		// Verify the message is NOT in the aggregator (it was dropped, not processed)
@@ -297,7 +302,7 @@ func TestE2EReorg(t *testing.T) {
 
 		// Uncurse the lane
 		l.Info().Msg("🔓 Uncursing the cursed lane")
-		uncurseSelector(t, cldfEnv, srcImpl.ChainSelector(), destSelector, false)
+		uncurseSelector(t, cldfEnv, curseAdapter, srcImpl.ChainSelector(), destSelector, false)
 
 		// Send a message again on the previously cursed lane to verify it works now
 		event3, err := srcImpl.SendMessage(ctx, destSelector, newMessageFields(receiver, "message 2 after uncurse"), defaultMessageOptions, defaultMessageVersion)
@@ -342,7 +347,7 @@ func TestE2EReorg(t *testing.T) {
 		advanceBlocks(verifier.ConfirmationDepth / 5)
 
 		l.Info().Msg("🌐 Applying GLOBAL curse to source chain (affects ALL lanes from this chain)")
-		curseSelector(t, cldfEnv, srcImpl.ChainSelector(), 0, true)
+		curseSelector(t, cldfEnv, curseAdapter, srcImpl.ChainSelector(), 0, true)
 
 		l.Info().Msg("🔍 Asserting BOTH messages are dropped due to global curse")
 		assertCtx, assertCancel := context.WithTimeout(ctx, 100*time.Second)
@@ -352,14 +357,14 @@ func TestE2EReorg(t *testing.T) {
 		_, err = logAssert.WaitForStage(assertCtx, msg1ID, logasserter.MessageDroppedInVerifier())
 		require.NoError(t, err, "message to chain1 should be dropped due to global curse")
 		l.Info().
-			Str("messageID", fmt.Sprintf("%x", msg1ID)).
+			Str("messageID", fmt.Sprintf("%x", msg1ID[:])).
 			Msg("✅ Confirmed message to chain1 was dropped due to global curse")
 
 		// Verify message to chain2 is dropped
 		_, err = logAssert.WaitForStage(assertCtx, msg2ID, logasserter.MessageDroppedInVerifier())
 		require.NoError(t, err, "message to chain2 should be dropped due to global curse")
 		l.Info().
-			Str("messageID", fmt.Sprintf("%x", msg2ID)).
+			Str("messageID", fmt.Sprintf("%x", msg2ID[:])).
 			Msg("✅ Confirmed message to chain2 was dropped due to global curse")
 
 		// Verify BOTH messages are NOT in the aggregator
@@ -368,7 +373,7 @@ func TestE2EReorg(t *testing.T) {
 
 		// Uncurse the chain
 		l.Info().Msg("🔓 Removing global curse from source chain")
-		uncurseSelector(t, cldfEnv, srcImpl.ChainSelector(), 0, true)
+		uncurseSelector(t, cldfEnv, curseAdapter, srcImpl.ChainSelector(), 0, true)
 
 		// Send new messages after uncurse to verify both lanes work
 		l.Info().Msg("📨 Sending messages after global uncurse to verify lanes work")
@@ -390,9 +395,9 @@ func TestE2EReorg(t *testing.T) {
 	})
 
 	t.Run("lane curse blocks one lane while peer lane keeps verifying traffic", func(t *testing.T) {
-		curseSelector(t, cldfEnv, srcImpl.ChainSelector(), destSelector, false)
+		curseSelector(t, cldfEnv, curseAdapter, srcImpl.ChainSelector(), destSelector, false)
 		t.Cleanup(func() {
-			uncurseSelector(t, cldfEnv, srcImpl.ChainSelector(), destSelector, false)
+			uncurseSelector(t, cldfEnv, curseAdapter, srcImpl.ChainSelector(), destSelector, false)
 		})
 
 		_, err := srcImpl.SendMessage(ctx, destSelector, newMessageFields(receiver, "blocked lane msg"), defaultMessageOptions, defaultMessageVersion)
@@ -415,9 +420,9 @@ func TestE2EReorg(t *testing.T) {
 	})
 
 	t.Run("curse on dest2 lane does not block dest1 lane", func(t *testing.T) {
-		curseSelector(t, cldfEnv, srcImpl.ChainSelector(), destSelector2, false)
+		curseSelector(t, cldfEnv, curseAdapter, srcImpl.ChainSelector(), destSelector2, false)
 		t.Cleanup(func() {
-			uncurseSelector(t, cldfEnv, srcImpl.ChainSelector(), destSelector2, false)
+			uncurseSelector(t, cldfEnv, curseAdapter, srcImpl.ChainSelector(), destSelector2, false)
 		})
 
 		_, err = srcImpl.SendMessage(ctx, destSelector2, newMessageFields(receiver2, "blocked dest2 msg"), defaultMessageOptions, defaultMessageVersion)
@@ -474,9 +479,9 @@ func TestE2EReorg(t *testing.T) {
 		_, err = logAssert.WaitForStage(reachedCtx, droppedMsgID, logasserter.MessageReachedVerifier())
 		require.NoError(t, err, "message should reach verifier pending queue before curse is applied")
 
-		curseSelector(t, cldfEnv, srcImpl.ChainSelector(), destSelector, false)
+		curseSelector(t, cldfEnv, curseAdapter, srcImpl.ChainSelector(), destSelector, false)
 		t.Cleanup(func() {
-			uncurseSelector(t, cldfEnv, srcImpl.ChainSelector(), destSelector, false)
+			uncurseSelector(t, cldfEnv, curseAdapter, srcImpl.ChainSelector(), destSelector, false)
 		})
 
 		dropCtx, dropCancel := context.WithTimeout(ctx, 60*time.Second)
@@ -491,7 +496,7 @@ func TestE2EReorg(t *testing.T) {
 		advanceBlocks(verifier.ConfirmationDepth*3 + 30)
 		verifyMessageNotExists(droppedMsgID, "Dropped message should not reach aggregator while cursed")
 
-		uncurseSelector(t, cldfEnv, srcImpl.ChainSelector(), destSelector, false)
+		uncurseSelector(t, cldfEnv, curseAdapter, srcImpl.ChainSelector(), destSelector, false)
 
 		// With the checkpoint past the message block, uncursing on-chain alone must not replay it.
 		advanceBlocks(verifier.ConfirmationDepth + 5)
@@ -774,7 +779,7 @@ func TestE2EReorg(t *testing.T) {
 	})
 }
 
-func curseSelector(t *testing.T, env *deployment.Environment, chainSelector, subjectChainSelector uint64, globalCurse bool) {
+func curseSelector(t *testing.T, env *deployment.Environment, adapter fastcurse.CurseAdapter, chainSelector, subjectChainSelector uint64, globalCurse bool) {
 	curseCS := fastcurse.CurseChangeset(fastcurse.GetCurseRegistry(), changesets.GetRegistry())
 	output, err := curseCS.Apply(*env, fastcurse.RMNCurseConfig{
 		CurseActions: []fastcurse.CurseActionInput{
@@ -788,9 +793,21 @@ func curseSelector(t *testing.T, env *deployment.Environment, chainSelector, sub
 	})
 	require.NoError(t, err)
 	require.Greater(t, len(output.Reports), 0)
+
+	// Verify the curse is applied
+	if subjectChainSelector != 0 {
+		isCursed, err := adapter.IsSubjectCursedOnChain(*env, chainSelector, fastcurse.GenericSelectorToSubject(subjectChainSelector))
+		require.NoError(t, err)
+		require.True(t, isCursed, "subject should be cursed on chain")
+	}
+	if globalCurse {
+		isCursed, err := adapter.IsSubjectCursedOnChain(*env, chainSelector, fastcurse.GlobalCurseSubject())
+		require.NoError(t, err)
+		require.True(t, isCursed, "global curse should be active on chain")
+	}
 }
 
-func uncurseSelector(t *testing.T, env *deployment.Environment, chainSelector, subjectChainSelector uint64, globalCurse bool) {
+func uncurseSelector(t *testing.T, env *deployment.Environment, adapter fastcurse.CurseAdapter, chainSelector, subjectChainSelector uint64, globalCurse bool) {
 	uncurseCS := fastcurse.UncurseChangeset(fastcurse.GetCurseRegistry(), changesets.GetRegistry())
 	output, err := uncurseCS.Apply(*env, fastcurse.RMNCurseConfig{
 		CurseActions: []fastcurse.CurseActionInput{
@@ -804,4 +821,16 @@ func uncurseSelector(t *testing.T, env *deployment.Environment, chainSelector, s
 	})
 	require.NoError(t, err)
 	require.Greater(t, len(output.Reports), 0)
+
+	// Verify the curse is lifted
+	if subjectChainSelector != 0 {
+		isCursed, err := adapter.IsSubjectCursedOnChain(*env, chainSelector, fastcurse.GenericSelectorToSubject(subjectChainSelector))
+		require.NoError(t, err)
+		require.False(t, isCursed, "subject should not be cursed on chain")
+	}
+	if globalCurse {
+		isCursed, err := adapter.IsSubjectCursedOnChain(*env, chainSelector, fastcurse.GlobalCurseSubject())
+		require.NoError(t, err)
+		require.False(t, isCursed, "global curse should not be active on chain")
+	}
 }
