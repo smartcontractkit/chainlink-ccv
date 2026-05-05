@@ -2105,10 +2105,10 @@ func (m *CCIP17EVM) BuildV3ExtraArgs(
 	})
 }
 
-func (m *CCIP17EVM) GetExecutorArgs(opts any) ([]byte, error) {
+func (m *CCIP17EVM) GetExecutorArgs(opts any) (cciptestinterfaces.MessageV3ExecutorArgs, error) {
 	return nil, nil
 }
 
-func (m *CCIP17EVM) GetTokenArgs(opts any) ([]byte, error) {
+func (m *CCIP17EVM) GetTokenArgs(opts any) (cciptestinterfaces.MessageV3TokenArgs, error) {
 	return nil, nil
 }
