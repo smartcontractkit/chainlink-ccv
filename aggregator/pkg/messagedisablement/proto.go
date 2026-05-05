@@ -49,11 +49,7 @@ func RuleToProto(rule Rule) (*messagepb.MessageRule, error) {
 		if err != nil {
 			return nil, err
 		}
-		token, err := NormalizeTokenAddress(data.TokenAddress)
-		if err != nil {
-			return nil, err
-		}
-		tokenBytes, err := protocol.NewByteSliceFromHex(token)
+		tokenBytes, err := protocol.NewByteSliceFromHex(data.TokenAddress)
 		if err != nil {
 			return nil, err
 		}
