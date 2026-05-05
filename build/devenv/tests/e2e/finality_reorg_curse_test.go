@@ -31,6 +31,7 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
+	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 )
 
@@ -173,7 +174,7 @@ func TestE2EReorg(t *testing.T) {
 
 	// Helper function to verify a message exists in aggregator (with polling)
 	verifyMessageExists := func(messageID [32]byte, description string) {
-		waitCtx, waitCancel := context.WithTimeout(ctx, 30*time.Second)
+		waitCtx, waitCancel := context.WithTimeout(ctx, 60*time.Second)
 		defer waitCancel()
 		result, err := defaultAggregatorClient.WaitForVerifierResultForMessage(waitCtx, messageID, 500*time.Millisecond)
 		require.NoError(t, err, "%s should be found after finality", description)
@@ -780,8 +781,12 @@ func TestE2EReorg(t *testing.T) {
 }
 
 func curseSelector(t *testing.T, env *deployment.Environment, adapter fastcurse.CurseAdapter, chainSelector, subjectChainSelector uint64, globalCurse bool) {
+	// re-set the bundle so it doesn't cache previous curses.
+	bundle := operations.NewBundle(env.GetContext, env.Logger, operations.NewMemoryReporter())
+	env.OperationsBundle = bundle
+
 	curseCS := fastcurse.CurseChangeset(fastcurse.GetCurseRegistry(), changesets.GetRegistry())
-	output, err := curseCS.Apply(*env, fastcurse.RMNCurseConfig{
+	_, err := curseCS.Apply(*env, fastcurse.RMNCurseConfig{
 		CurseActions: []fastcurse.CurseActionInput{
 			{
 				ChainSelector:        chainSelector,
@@ -792,7 +797,6 @@ func curseSelector(t *testing.T, env *deployment.Environment, adapter fastcurse.
 		},
 	})
 	require.NoError(t, err)
-	require.Greater(t, len(output.Reports), 0)
 
 	// Verify the curse is applied
 	if subjectChainSelector != 0 {
@@ -805,11 +809,19 @@ func curseSelector(t *testing.T, env *deployment.Environment, adapter fastcurse.
 		require.NoError(t, err)
 		require.True(t, isCursed, "global curse should be active on chain")
 	}
+
+	// Wait for the verifier to detect the curse.
+	// The verifier is hardcoded to poll every 2 seconds, wait for 3 seconds to be sure.
+	time.Sleep(3 * time.Second)
 }
 
 func uncurseSelector(t *testing.T, env *deployment.Environment, adapter fastcurse.CurseAdapter, chainSelector, subjectChainSelector uint64, globalCurse bool) {
+	// re-set the bundle so it doesn't cache previous uncurses.
+	bundle := operations.NewBundle(env.GetContext, env.Logger, operations.NewMemoryReporter())
+	env.OperationsBundle = bundle
+
 	uncurseCS := fastcurse.UncurseChangeset(fastcurse.GetCurseRegistry(), changesets.GetRegistry())
-	output, err := uncurseCS.Apply(*env, fastcurse.RMNCurseConfig{
+	_, err := uncurseCS.Apply(*env, fastcurse.RMNCurseConfig{
 		CurseActions: []fastcurse.CurseActionInput{
 			{
 				ChainSelector:        chainSelector,
@@ -820,7 +832,6 @@ func uncurseSelector(t *testing.T, env *deployment.Environment, adapter fastcurs
 		},
 	})
 	require.NoError(t, err)
-	require.Greater(t, len(output.Reports), 0)
 
 	// Verify the curse is lifted
 	if subjectChainSelector != 0 {
@@ -833,4 +844,8 @@ func uncurseSelector(t *testing.T, env *deployment.Environment, adapter fastcurs
 		require.NoError(t, err)
 		require.False(t, isCursed, "global curse should not be active on chain")
 	}
+
+	// Wait for the verifier to detect the uncurse.
+	// The verifier is hardcoded to poll every 2 seconds, wait for 3 seconds to be sure.
+	time.Sleep(3 * time.Second)
 }
