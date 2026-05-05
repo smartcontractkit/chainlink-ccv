@@ -1,14 +1,13 @@
 package messagedisablement
 
 import (
-	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
 
 	"github.com/urfave/cli"
 
-	rules "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/messagedisablement"
+	rules "github.com/smartcontractkit/chainlink-ccv/common/messagerules"
 )
 
 func ruleIDFlag() cli.StringFlag {
@@ -27,13 +26,13 @@ func tokenFlag() cli.StringSliceFlag {
 	return cli.StringSliceFlag{Name: "token", Usage: "Token rule as <selector>,<token-address>. For create, may be repeated.", Required: true}
 }
 
-func chainDataFromContext(c *cli.Context) ([]json.RawMessage, error) {
+func chainDataFromContext(c *cli.Context) ([]rules.RuleData, error) {
 	values := c.StringSlice("chain")
 	if len(values) == 0 {
 		return nil, fmt.Errorf("--chain is required")
 	}
 
-	var data []json.RawMessage
+	var data []rules.RuleData
 	for _, value := range values {
 		parts := splitCommaList(value)
 		if len(parts) == 0 {
@@ -54,13 +53,13 @@ func chainDataFromContext(c *cli.Context) ([]json.RawMessage, error) {
 	return data, nil
 }
 
-func laneDataFromContext(c *cli.Context) ([]json.RawMessage, error) {
+func laneDataFromContext(c *cli.Context) ([]rules.RuleData, error) {
 	values := c.StringSlice("lane")
 	if len(values) == 0 {
 		return nil, fmt.Errorf("--lane is required")
 	}
 
-	data := make([]json.RawMessage, 0, len(values))
+	data := make([]rules.RuleData, 0, len(values))
 	for _, value := range values {
 		parts := splitRulePair(value)
 		if len(parts) != 2 {
@@ -83,13 +82,13 @@ func laneDataFromContext(c *cli.Context) ([]json.RawMessage, error) {
 	return data, nil
 }
 
-func tokenDataFromContext(c *cli.Context) ([]json.RawMessage, error) {
+func tokenDataFromContext(c *cli.Context) ([]rules.RuleData, error) {
 	values := c.StringSlice("token")
 	if len(values) == 0 {
 		return nil, fmt.Errorf("--token is required")
 	}
 
-	data := make([]json.RawMessage, 0, len(values))
+	data := make([]rules.RuleData, 0, len(values))
 	for _, value := range values {
 		parts := splitRulePair(value)
 		if len(parts) != 2 {

@@ -1,8 +1,7 @@
-package messagedisablement_test
+package messagerules
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"sync"
 	"testing"
@@ -11,27 +10,27 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/messagedisablement"
+	shared "github.com/smartcontractkit/chainlink-ccv/common/messagerules"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
 type fakeStore struct {
 	mu         sync.Mutex
-	rules      []messagedisablement.Rule
+	rules      []shared.Rule
 	err        error
 	listCalls  int
 	listCallCh chan struct{}
 }
 
-func (f *fakeStore) Create(context.Context, messagedisablement.RuleType, json.RawMessage) (messagedisablement.Rule, error) {
-	return messagedisablement.Rule{}, f.err
+func (f *fakeStore) Create(context.Context, shared.RuleData) (shared.Rule, error) {
+	return shared.Rule{}, f.err
 }
 
-func (f *fakeStore) List(context.Context, *messagedisablement.RuleType) ([]messagedisablement.Rule, error) {
+func (f *fakeStore) List(context.Context, *shared.RuleType) ([]shared.Rule, error) {
 	f.mu.Lock()
 	f.listCalls++
-	rules := append([]messagedisablement.Rule(nil), f.rules...)
+	rules := append([]shared.Rule(nil), f.rules...)
 	err := f.err
 	listCallCh := f.listCallCh
 	f.mu.Unlock()
@@ -45,7 +44,7 @@ func (f *fakeStore) List(context.Context, *messagedisablement.RuleType) ([]messa
 	return rules, err
 }
 
-func (f *fakeStore) Get(context.Context, string) (*messagedisablement.Rule, error) {
+func (f *fakeStore) Get(context.Context, string) (*shared.Rule, error) {
 	return nil, f.err
 }
 
@@ -128,30 +127,26 @@ func (r report) GetTokenTransfer() *protocol.TokenTransfer {
 	return r.token
 }
 
-func newRegistry(t *testing.T, rules []messagedisablement.Rule) *messagedisablement.Registry {
+func newRegistry(t *testing.T, rules []shared.Rule) *Registry {
 	t.Helper()
-	registry := messagedisablement.NewRegistry(&fakeStore{rules: rules}, logger.Sugared(logger.Test(t)))
+	registry := NewRegistry(&fakeStore{rules: rules}, logger.Sugared(logger.Test(t)))
 	require.NoError(t, registry.Refresh(context.Background()))
 	return registry
 }
 
-func makeRule(t *testing.T, ruleType messagedisablement.RuleType, data json.RawMessage) messagedisablement.Rule {
+func makeRule(t *testing.T, data shared.RuleData) shared.Rule {
 	t.Helper()
-	normalized, err := messagedisablement.NormalizeRuleData(ruleType, data)
+	rule, err := shared.NewRule(shared.NewRuleID(), data, time.Time{}, time.Time{})
 	require.NoError(t, err)
-	return messagedisablement.Rule{
-		ID:   messagedisablement.NewRuleID(),
-		Type: ruleType,
-		Data: normalized,
-	}
+	return rule
 }
 
 func TestRegistry_ChainRule_DisablesAnythingTouchingSelector(t *testing.T) {
 	t.Parallel()
 
-	data, err := messagedisablement.NewChainRuleData(10)
+	data, err := shared.NewChainRuleData(10)
 	require.NoError(t, err)
-	registry := newRegistry(t, []messagedisablement.Rule{makeRule(t, messagedisablement.RuleTypeChain, data)})
+	registry := newRegistry(t, []shared.Rule{makeRule(t, data)})
 
 	assert.True(t, registry.IsDisabled(report{source: 10, dest: 20}))
 	assert.True(t, registry.IsDisabled(report{source: 20, dest: 10}))
@@ -161,9 +156,9 @@ func TestRegistry_ChainRule_DisablesAnythingTouchingSelector(t *testing.T) {
 func TestRegistry_LaneRule_DisablesUnorderedLane(t *testing.T) {
 	t.Parallel()
 
-	data, err := messagedisablement.NewLaneRuleData(20, 10)
+	data, err := shared.NewLaneRuleData(20, 10)
 	require.NoError(t, err)
-	registry := newRegistry(t, []messagedisablement.Rule{makeRule(t, messagedisablement.RuleTypeLane, data)})
+	registry := newRegistry(t, []shared.Rule{makeRule(t, data)})
 
 	assert.True(t, registry.IsDisabled(report{source: 10, dest: 20}))
 	assert.True(t, registry.IsDisabled(report{source: 20, dest: 10}))
@@ -173,13 +168,13 @@ func TestRegistry_LaneRule_DisablesUnorderedLane(t *testing.T) {
 func TestRegistry_TokenRule_DisablesSourceOrDestinationTokenTouch(t *testing.T) {
 	t.Parallel()
 
-	sourceData, err := messagedisablement.NewTokenRuleData(10, "0xAA")
+	sourceData, err := shared.NewTokenRuleData(10, "0xAA")
 	require.NoError(t, err)
-	destData, err := messagedisablement.NewTokenRuleData(20, "aa")
+	destData, err := shared.NewTokenRuleData(20, "aa")
 	require.NoError(t, err)
-	registry := newRegistry(t, []messagedisablement.Rule{
-		makeRule(t, messagedisablement.RuleTypeToken, sourceData),
-		makeRule(t, messagedisablement.RuleTypeToken, destData),
+	registry := newRegistry(t, []shared.Rule{
+		makeRule(t, sourceData),
+		makeRule(t, destData),
 	})
 
 	assert.True(t, registry.IsDisabled(report{
@@ -212,19 +207,17 @@ func TestRegistry_TokenRule_DisablesSourceOrDestinationTokenTouch(t *testing.T) 
 func TestRegistry_TokenRule_DoesNotDisableNonTokenMessage(t *testing.T) {
 	t.Parallel()
 
-	data, err := messagedisablement.NewTokenRuleData(10, "0xAA")
+	data, err := shared.NewTokenRuleData(10, "0xAA")
 	require.NoError(t, err)
-	registry := newRegistry(t, []messagedisablement.Rule{makeRule(t, messagedisablement.RuleTypeToken, data)})
+	registry := newRegistry(t, []shared.Rule{makeRule(t, data)})
 
 	assert.False(t, registry.IsDisabled(report{source: 10, dest: 20}))
 }
 
-func TestRegistry_RefreshInvalidDataReturnsError(t *testing.T) {
+func TestRegistry_RefreshInvalidRuleReturnsError(t *testing.T) {
 	t.Parallel()
 
-	registry := messagedisablement.NewRegistry(&fakeStore{rules: []messagedisablement.Rule{
-		{ID: messagedisablement.NewRuleID(), Type: messagedisablement.RuleTypeLane, Data: json.RawMessage(`{"selector_a":10,"selector_b":10}`)},
-	}}, logger.Sugared(logger.Test(t)))
+	registry := NewRegistry(&fakeStore{rules: []shared.Rule{{}}}, logger.Sugared(logger.Test(t)))
 
 	require.Error(t, registry.Refresh(context.Background()))
 }
@@ -232,7 +225,7 @@ func TestRegistry_RefreshInvalidDataReturnsError(t *testing.T) {
 func TestRegistry_RefreshStoreErrorReturnsError(t *testing.T) {
 	t.Parallel()
 
-	registry := messagedisablement.NewRegistry(&fakeStore{err: errors.New("db down")}, logger.Sugared(logger.Test(t)))
+	registry := NewRegistry(&fakeStore{err: errors.New("db down")}, logger.Sugared(logger.Test(t)))
 
 	require.Error(t, registry.Refresh(context.Background()))
 }
@@ -240,12 +233,12 @@ func TestRegistry_RefreshStoreErrorReturnsError(t *testing.T) {
 func TestRegistry_RefreshRecordsMetrics(t *testing.T) {
 	t.Parallel()
 
-	data, err := messagedisablement.NewChainRuleData(10)
+	data, err := shared.NewChainRuleData(10)
 	require.NoError(t, err)
-	rule := makeRule(t, messagedisablement.RuleTypeChain, data)
-	store := &fakeStore{rules: []messagedisablement.Rule{rule}}
+	rule := makeRule(t, data)
+	store := &fakeStore{rules: []shared.Rule{rule}}
 	metrics := &fakeMetrics{}
-	registry := messagedisablement.NewRegistry(store, logger.Sugared(logger.Test(t)), messagedisablement.WithMetrics(metrics))
+	registry := NewRegistry(store, logger.Sugared(logger.Test(t)), WithMetrics(metrics))
 
 	require.NoError(t, registry.Refresh(context.Background()))
 
@@ -278,15 +271,15 @@ func TestRegistry_RefreshRecordsMetrics(t *testing.T) {
 func TestRegistry_RefreshRecordsMetricsForSameTypeRules(t *testing.T) {
 	t.Parallel()
 
-	chain10Data, err := messagedisablement.NewChainRuleData(10)
+	chain10Data, err := shared.NewChainRuleData(10)
 	require.NoError(t, err)
-	chain20Data, err := messagedisablement.NewChainRuleData(20)
+	chain20Data, err := shared.NewChainRuleData(20)
 	require.NoError(t, err)
-	chain10Rule := makeRule(t, messagedisablement.RuleTypeChain, chain10Data)
-	chain20Rule := makeRule(t, messagedisablement.RuleTypeChain, chain20Data)
-	store := &fakeStore{rules: []messagedisablement.Rule{chain10Rule, chain20Rule}}
+	chain10Rule := makeRule(t, chain10Data)
+	chain20Rule := makeRule(t, chain20Data)
+	store := &fakeStore{rules: []shared.Rule{chain10Rule, chain20Rule}}
 	metrics := &fakeMetrics{}
-	registry := messagedisablement.NewRegistry(store, logger.Sugared(logger.Test(t)), messagedisablement.WithMetrics(metrics))
+	registry := NewRegistry(store, logger.Sugared(logger.Test(t)), WithMetrics(metrics))
 
 	require.NoError(t, registry.Refresh(context.Background()))
 
@@ -295,7 +288,7 @@ func TestRegistry_RefreshRecordsMetricsForSameTypeRules(t *testing.T) {
 	assertMetricEvent(t, activeEvents, 1, "chain", "10")
 	assertMetricEvent(t, activeEvents, 1, "chain", "20")
 
-	store.rules = []messagedisablement.Rule{chain20Rule}
+	store.rules = []shared.Rule{chain20Rule}
 	require.NoError(t, registry.Refresh(context.Background()))
 
 	activeEvents = metrics.eventsByName("active_rule")
@@ -307,11 +300,11 @@ func TestRegistry_RefreshRecordsMetricsForSameTypeRules(t *testing.T) {
 func TestRegistry_RefreshFailureRecordsMetricAndKeepsPreviousRules(t *testing.T) {
 	t.Parallel()
 
-	data, err := messagedisablement.NewChainRuleData(10)
+	data, err := shared.NewChainRuleData(10)
 	require.NoError(t, err)
-	store := &fakeStore{rules: []messagedisablement.Rule{makeRule(t, messagedisablement.RuleTypeChain, data)}}
+	store := &fakeStore{rules: []shared.Rule{makeRule(t, data)}}
 	metrics := &fakeMetrics{}
-	registry := messagedisablement.NewRegistry(store, logger.Sugared(logger.Test(t)), messagedisablement.WithMetrics(metrics))
+	registry := NewRegistry(store, logger.Sugared(logger.Test(t)), WithMetrics(metrics))
 	require.NoError(t, registry.Refresh(context.Background()))
 	require.True(t, registry.IsDisabled(report{source: 10, dest: 20}))
 
@@ -328,7 +321,7 @@ func TestRegistry_RefreshFailureRecordsMetricAndKeepsPreviousRules(t *testing.T)
 func TestNoopChecker_NeverDisables(t *testing.T) {
 	t.Parallel()
 
-	checker := messagedisablement.NoopChecker{}
+	checker := shared.NoopChecker{}
 
 	assert.False(t, checker.IsDisabled(report{source: 1, dest: 2}))
 	assert.False(t, checker.IsDisabled(nil))
@@ -338,7 +331,7 @@ func TestRegistry_StartPeriodicRefresh_CallsRefreshRepeatedly(t *testing.T) {
 	t.Parallel()
 
 	store := &fakeStore{listCallCh: make(chan struct{}, 4)}
-	registry := messagedisablement.NewRegistry(store, logger.Sugared(logger.Nop()))
+	registry := NewRegistry(store, logger.Sugared(logger.Nop()))
 	ctx := t.Context()
 
 	registry.StartPeriodicRefresh(ctx, 10*time.Millisecond)

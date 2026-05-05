@@ -28,11 +28,12 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/handlers"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/health"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/heartbeat"
-	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/messagedisablement"
+	aggregatormessagerules "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/messagerules"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/middlewares"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/quorum"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/storage"
+	messagerules "github.com/smartcontractkit/chainlink-ccv/common/messagerules"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
 	committeepb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/committee-verifier/v1"
@@ -56,7 +57,7 @@ type Server struct {
 	l                                         logger.SugaredLogger
 	config                                    *model.AggregatorConfig
 	store                                     common.CommitVerificationStore
-	messageDisablementRegistry                *messagedisablement.Registry
+	messageDisablementRegistry                *aggregatormessagerules.Registry
 	aggregator                                *aggregation.CommitReportAggregator
 	recoverer                                 *OrphanRecoverer
 	readCommitVerifierNodeResultHandler       *handlers.ReadCommitVerifierNodeResultHandler
@@ -319,16 +320,16 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig, aggMonito
 	}
 
 	// Build the message-disablement registry from the raw store before metrics wrapping.
-	// DatabaseStorage implements messagedisablement.Store; the metrics wrapper does not need to.
-	messageDisablementStore, ok := rawStore.(messagedisablement.Store)
+	// DatabaseStorage implements messagerules.Store; the metrics wrapper does not need to.
+	messageDisablementStore, ok := rawStore.(messagerules.Store)
 	if !ok {
-		l.Fatalf("Storage does not implement messagedisablement.Store")
+		l.Fatalf("Storage does not implement messagerules.Store")
 		return nil
 	}
-	messageDisablementRegistry := messagedisablement.NewRegistry(
+	messageDisablementRegistry := aggregatormessagerules.NewRegistry(
 		messageDisablementStore,
 		l,
-		messagedisablement.WithMetrics(aggMonitoring.Metrics()),
+		aggregatormessagerules.WithMetrics(aggMonitoring.Metrics()),
 	)
 	if err := messageDisablementRegistry.Refresh(context.Background()); err != nil {
 		l.Warnw("Failed initial message-disablement registry refresh", "error", err)

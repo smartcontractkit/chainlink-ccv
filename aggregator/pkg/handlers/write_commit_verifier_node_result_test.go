@@ -13,9 +13,9 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/auth"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
-	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/messagedisablement"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
+	messagerules "github.com/smartcontractkit/chainlink-ccv/common/messagerules"
 	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -52,10 +52,10 @@ func makeValidProtoRequest() *committeepb.WriteCommitteeVerifierNodeResultReques
 	}
 }
 
-// alwaysDisabledChecker is a messagedisablement.Checker that always reports the message as disabled.
+// alwaysDisabledChecker is a messagerules.Checker that always reports the message as disabled.
 type alwaysDisabledChecker struct{}
 
-func (alwaysDisabledChecker) IsDisabled(_ messagedisablement.MessageReport) bool { return true }
+func (alwaysDisabledChecker) IsDisabled(_ messagerules.MessageReport) bool { return true }
 
 func TestWriteCommitCCVNodeDataHandler_MessageDisablementGate(t *testing.T) {
 	t.Parallel()
@@ -231,7 +231,7 @@ func TestWriteCommitCCVNodeDataHandler_Handle_Table(t *testing.T) {
 			labeler.EXPECT().With(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(labeler).Maybe()
 			labeler.EXPECT().IncrementVerificationsTotal(mock.Anything).Maybe()
 
-			handler := NewWriteCommitCCVNodeDataHandler(store, agg, mon, lggr, sig, time.Millisecond, messagedisablement.NoopChecker{})
+			handler := NewWriteCommitCCVNodeDataHandler(store, agg, mon, lggr, sig, time.Millisecond, messagerules.NoopChecker{})
 
 			ctx := auth.ToContext(context.Background(), auth.CreateCallerIdentity(testCallerID, false))
 			resp, err := handler.Handle(ctx, tc.req)
