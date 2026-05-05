@@ -11,8 +11,8 @@ import (
 func DevelopmentConfig(level zapcore.Level) func(*zap.Config) {
 	return func(config *zap.Config) {
 		config.Level = zap.NewAtomicLevelAt(level)
-		// Capture stack traces at WARN level or higher.
-		config.Development = true
+		// Development enable panic behavior, so we disable it in all cases.
+		config.Development = false
 		// Always show caller information in the logs w/ file name and line number.
 		config.DisableCaller = false
 		// Always show stack traces. This is useful for debugging.
