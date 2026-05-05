@@ -69,11 +69,31 @@ var ruleTestCases = []ruleTestCase{
 }
 
 func TestRulesToProto(t *testing.T) {
-	for _, tc := range ruleTestCases {
-		t.Run(tc.Name, func(t *testing.T) {
-			pbRule, err := RuleToProto(tc.Rule)
-			require.NoError(t, err)
-			assert.Equal(t, tc.Proto, pbRule)
+	t.Run("success", func(t *testing.T) {
+		rules := make([]Rule, 0, len(ruleTestCases))
+		expected := make([]*messagepb.MessageRule, 0, len(ruleTestCases))
+		for _, tc := range ruleTestCases {
+			rules = append(rules, tc.Rule)
+			expected = append(expected, tc.Proto)
+		}
+
+		pbRules, err := RulesToProto(rules)
+		require.NoError(t, err)
+		assert.Equal(t, expected, pbRules)
+	})
+
+	t.Run("wraps failing rule id in error", func(t *testing.T) {
+		_, err := RulesToProto([]Rule{
+			{
+				ID:        "bad-rule-id",
+				Type:      RuleTypeChain,
+				Data:      []byte("{"),
+				CreatedAt: staticCreatedAt,
+				UpdatedAt: staticUpdatedAt,
+			},
 		})
-	}
+
+		require.Error(t, err)
+		assert.ErrorContains(t, err, "bad-rule-id")
+	})
 }
