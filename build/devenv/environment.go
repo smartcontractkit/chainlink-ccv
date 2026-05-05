@@ -567,10 +567,18 @@ func generateExecutorJobSpecs(
 			execNOPAliases = append(execNOPAliases, exec.NOPAlias)
 		}
 
+		pool, ok := topology.ExecutorPools[qualifier]
+		if !ok {
+			return nil, fmt.Errorf("executor pool %q not found in topology", qualifier)
+		}
 		cs := ccvchangesets.ApplyExecutorConfig(ccvadapters.GetRegistry())
 		output, err := cs.Apply(*e, ccvchangesets.ApplyExecutorConfigInput{
-			Topology:          topology,
 			ExecutorQualifier: qualifier,
+			NOPs:              nopInputsFromTopology(topology),
+			Pool:              executorPoolInputFromTopology(pool),
+			IndexerAddress:    topology.IndexerAddress,
+			PyroscopeURL:      topology.PyroscopeURL,
+			Monitoring:        topology.Monitoring,
 			TargetNOPs:        ccvshared.ConvertStringToNopAliases(execNOPAliases),
 		})
 		if err != nil {
@@ -715,11 +723,18 @@ func generateVerifierJobSpecs(
 			}
 
 			disableFinalityCheckers := disableFinalityCheckersPerFamily[family]
+			committee, ok := topology.NOPTopology.Committees[committeeName]
+			if !ok {
+				return nil, fmt.Errorf("committee %q not found in topology", committeeName)
+			}
 			cs := ccvchangesets.ApplyVerifierConfig(ccvadapters.GetRegistry())
 			output, err := cs.Apply(*e, ccvchangesets.ApplyVerifierConfigInput{
-				Topology:                 topology,
 				CommitteeQualifier:       committeeName,
 				DefaultExecutorQualifier: devenvcommon.DefaultExecutorQualifier,
+				NOPs:                     nopInputsFromTopology(topology),
+				Committee:                committeeInputFromTopology(committee),
+				PyroscopeURL:             topology.PyroscopeURL,
+				Monitoring:               topology.Monitoring,
 				TargetNOPs:               verNOPAliases,
 				DisableFinalityCheckers:  disableFinalityCheckers,
 			})
@@ -1229,11 +1244,15 @@ func NewEnvironment() (in *Cfg, err error) {
 
 		// Use changeset to generate committee config from on-chain state
 		instanceName := aggregatorInput.InstanceName()
+		committee, ok := topology.NOPTopology.Committees[aggregatorInput.CommitteeName]
+		if !ok {
+			return nil, fmt.Errorf("committee %q not found in topology", aggregatorInput.CommitteeName)
+		}
 		cs := ccvchangesets.GenerateAggregatorConfig(ccvadapters.GetRegistry())
 		output, err := cs.Apply(*e, ccvchangesets.GenerateAggregatorConfigInput{
-			Topology:           topology,
 			ServiceIdentifier:  instanceName + "-aggregator",
 			CommitteeQualifier: aggregatorInput.CommitteeName,
+			ChainSelectors:     committeeChainSelectorsFromTopology(committee),
 		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate aggregator config for %s (committee %s): %w", instanceName, aggregatorInput.CommitteeName, err)

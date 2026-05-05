@@ -14,71 +14,36 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/deployment/adapters"
 )
 
+// GenerateAggregatorConfigInput is the imperative input for the aggregator-config
+// regen changeset. Callers pass the chain selectors directly — there is no
+// topology lookup. ThresholdOverride (when non-nil) replaces the threshold read
+// from onchain state, supporting offchain-first coupled products such as
+// IncreaseThresholdOffchain (§5.5).
 type GenerateAggregatorConfigInput struct {
-	ServiceIdentifier  string
+	// ServiceIdentifier is the aggregator service whose DataStore-backed config
+	// is being written.
+	ServiceIdentifier string
+	// CommitteeQualifier identifies the committee whose state is being scanned.
 	CommitteeQualifier string
-	Topology           *ccvdeployment.EnvironmentTopology
+	// ChainSelectors are the destination chains hosting the committee verifier
+	// to scan. The aggregator config is built from the union of source-chain
+	// signature configs found across these chains.
+	ChainSelectors []uint64
+	// ThresholdOverride, when non-nil, replaces the threshold read from onchain
+	// state. Used by offchain-first coupled products to publish the post-change
+	// threshold ahead of the onchain mutation.
+	ThresholdOverride *uint8
 }
 
-// GenerateAggregatorConfigImperativeInput is the topology-free counterpart to
-// GenerateAggregatorConfigInput. ChainSelectors replaces the topology-based chain
-// resolution, and ThresholdOverride (when non-nil) replaces the threshold read from
-// onchain state — needed for offchain-first coupled products where the onchain change
-// has not yet landed.
-type GenerateAggregatorConfigImperativeInput struct {
-	ServiceIdentifier  string
-	CommitteeQualifier string
-	ChainSelectors     []uint64
-	ThresholdOverride  *uint8
-}
-
+// GenerateAggregatorConfig is the offchain-only single-entry product that
+// regenerates an aggregator's quorum config from onchain committee state and
+// writes it to the DataStore for the named service identifier.
+//
+// The input is imperative — callers pass the chain selectors directly, with no
+// *EnvironmentTopology. For coupled-committee products that need to publish the
+// post-change threshold ahead of the onchain mutation, set ThresholdOverride.
 func GenerateAggregatorConfig(registry *adapters.Registry) deployment.ChangeSetV2[GenerateAggregatorConfigInput] {
 	validate := func(e deployment.Environment, cfg GenerateAggregatorConfigInput) error {
-		if cfg.ServiceIdentifier == "" {
-			return fmt.Errorf("service identifier is required")
-		}
-		if cfg.CommitteeQualifier == "" {
-			return fmt.Errorf("committee qualifier is required")
-		}
-		_, err := resolveAggregatorChainSelectors(e, cfg)
-		return err
-	}
-
-	apply := func(e deployment.Environment, cfg GenerateAggregatorConfigInput) (deployment.ChangesetOutput, error) {
-		chainSelectors, err := resolveAggregatorChainSelectors(e, cfg)
-		if err != nil {
-			return deployment.ChangesetOutput{}, err
-		}
-
-		committee, err := buildAggregatorCommittee(e, registry, cfg.CommitteeQualifier, chainSelectors, nil)
-		if err != nil {
-			return deployment.ChangesetOutput{}, fmt.Errorf("failed to build aggregator config: %w", err)
-		}
-
-		outputDS := datastore.NewMemoryDataStore()
-		if e.DataStore != nil {
-			if err := outputDS.Merge(e.DataStore); err != nil {
-				return deployment.ChangesetOutput{}, fmt.Errorf("failed to merge existing datastore: %w", err)
-			}
-		}
-
-		if err := ccvdeployment.SaveAggregatorConfig(outputDS, cfg.ServiceIdentifier, committee); err != nil {
-			return deployment.ChangesetOutput{}, fmt.Errorf("failed to save aggregator config: %w", err)
-		}
-
-		return deployment.ChangesetOutput{
-			DataStore: outputDS,
-		}, nil
-	}
-
-	return deployment.CreateChangeSet(apply, validate)
-}
-
-// GenerateAggregatorConfigImperative is the topology-free companion to GenerateAggregatorConfig.
-// It accepts chain selectors directly and an optional threshold override, making it suitable
-// for use inside coupled-committee changesets where topology is not available.
-func GenerateAggregatorConfigImperative(registry *adapters.Registry) deployment.ChangeSetV2[GenerateAggregatorConfigImperativeInput] {
-	validate := func(e deployment.Environment, cfg GenerateAggregatorConfigImperativeInput) error {
 		if cfg.ServiceIdentifier == "" {
 			return fmt.Errorf("service identifier is required")
 		}
@@ -97,7 +62,7 @@ func GenerateAggregatorConfigImperative(registry *adapters.Registry) deployment.
 		return nil
 	}
 
-	apply := func(e deployment.Environment, cfg GenerateAggregatorConfigImperativeInput) (deployment.ChangesetOutput, error) {
+	apply := func(e deployment.Environment, cfg GenerateAggregatorConfigInput) (deployment.ChangesetOutput, error) {
 		committee, err := buildAggregatorCommittee(e, registry, cfg.CommitteeQualifier, cfg.ChainSelectors, cfg.ThresholdOverride)
 		if err != nil {
 			return deployment.ChangesetOutput{}, fmt.Errorf("failed to build aggregator config: %w", err)
@@ -118,34 +83,6 @@ func GenerateAggregatorConfigImperative(registry *adapters.Registry) deployment.
 	}
 
 	return deployment.CreateChangeSet(apply, validate)
-}
-
-func resolveAggregatorChainSelectors(e deployment.Environment, cfg GenerateAggregatorConfigInput) ([]uint64, error) {
-	if cfg.Topology == nil {
-		return nil, fmt.Errorf("topology is required")
-	}
-	if cfg.Topology.NOPTopology == nil {
-		return nil, fmt.Errorf("NOP topology is required")
-	}
-
-	committee, ok := cfg.Topology.NOPTopology.Committees[cfg.CommitteeQualifier]
-	if !ok {
-		return nil, fmt.Errorf("committee %q not found in topology", cfg.CommitteeQualifier)
-	}
-
-	chainSelectors, err := getCommitteeChainSelectors(committee)
-	if err != nil {
-		return nil, err
-	}
-
-	envSelectors := e.BlockChains.ListChainSelectors()
-	for _, s := range chainSelectors {
-		if !slices.Contains(envSelectors, s) {
-			return nil, fmt.Errorf("committee %q references chain selector %d which is not available in environment", cfg.CommitteeQualifier, s)
-		}
-	}
-
-	return chainSelectors, nil
 }
 
 func buildAggregatorCommittee(
