@@ -22,7 +22,7 @@ import (
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
 
-func ptr[T any](t T) *T { return &t }
+func ptr[T any](t T) *T { return new(t) }
 
 func TestPricer(t *testing.T) {
 	t.Skip("flaky")
@@ -46,7 +46,7 @@ func TestPricer(t *testing.T) {
 		ChainID: evmChainID,
 		Nodes: []*evmtoml.Node{
 			{
-				Name:    ptr("test-pricer-geth"),
+				Name:    new("test-pricer-geth"),
 				WSURL:   commonconfig.MustParseURL(bcOutput.Nodes[0].ExternalWSUrl),
 				HTTPURL: commonconfig.MustParseURL(bcOutput.Nodes[0].ExternalHTTPUrl),
 			},
@@ -67,9 +67,9 @@ func TestPricer(t *testing.T) {
 		ChainID: &solChainID,
 		Nodes: []*config.Node{
 			{
-				Name:     ptr("test-pricer-solana"),
+				Name:     new("test-pricer-solana"),
 				URL:      commonconfig.MustParseURL(solURL),
-				Order:    ptr(int32(1)),
+				Order:    new(int32(1)),
 				SendOnly: false,
 			},
 		},
