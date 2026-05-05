@@ -11,13 +11,6 @@ import (
 type CompiledRules struct {
 	rules         []activeRule
 	rulesSnapshot []Rule
-	counts        RuleCounts
-}
-
-type RuleCounts struct {
-	Chain int
-	Lane  int
-	Token int
 }
 
 type activeRule interface {
@@ -52,21 +45,18 @@ func CompileRules(rules []Rule) (CompiledRules, error) {
 				return CompiledRules{}, fmt.Errorf("invalid Chain rule %s: %w", rule.ID, err)
 			}
 			active = chainActiveRule{data: data}
-			compiled.counts.Chain++
 		case RuleTypeLane:
 			data, err := rule.LaneData()
 			if err != nil {
 				return CompiledRules{}, fmt.Errorf("invalid Lane rule %s: %w", rule.ID, err)
 			}
 			active = laneActiveRule{data: data}
-			compiled.counts.Lane++
 		case RuleTypeToken:
 			data, err := rule.TokenData()
 			if err != nil {
 				return CompiledRules{}, fmt.Errorf("invalid Token rule %s: %w", rule.ID, err)
 			}
 			active = tokenActiveRule{data: data}
-			compiled.counts.Token++
 		default:
 			return CompiledRules{}, fmt.Errorf("unknown rule type %q for rule %s", rule.Type, rule.ID)
 		}
@@ -93,10 +83,6 @@ func (c CompiledRules) ActiveRuleCount() int {
 
 func (c CompiledRules) RulesSnapshot() []Rule {
 	return slices.Clone(c.rulesSnapshot)
-}
-
-func (c CompiledRules) RuleCounts() RuleCounts {
-	return c.counts
 }
 
 func (r chainActiveRule) IsDisabled(report MessageReport) bool {

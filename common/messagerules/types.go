@@ -42,8 +42,11 @@ type TokenRuleData struct {
 }
 
 type MessageReport interface {
+	// GetSourceChainSelector returns the source chain selector for the message.
 	GetSourceChainSelector() uint64
+	// GetDestinationSelector returns the destination chain selector for the message.
 	GetDestinationSelector() uint64
+	// GetTokenTransfer returns the token transfer carried by the message, if any.
 	GetTokenTransfer() *protocol.TokenTransfer
 }
 
@@ -68,6 +71,7 @@ func (r messageReport) GetTokenTransfer() *protocol.TokenTransfer {
 }
 
 type Checker interface {
+	// IsDisabled reports whether the given message report is disabled by the checker.
 	IsDisabled(report MessageReport) bool
 }
 

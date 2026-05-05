@@ -88,7 +88,6 @@ func RuleFromProto(rule *messagepb.MessageRule) (Rule, error) {
 		UpdatedAt: unixMillis(rule.GetUpdatedAtUnixMillis()),
 	}
 
-	var err error
 	switch condition := rule.GetCondition().(type) {
 	case *messagepb.MessageRule_Chain:
 		if condition.Chain == nil {
@@ -118,9 +117,6 @@ func RuleFromProto(rule *messagepb.MessageRule) (Rule, error) {
 		}
 	default:
 		return Rule{}, fmt.Errorf("message rule %q has no condition", rule.GetId())
-	}
-	if err != nil {
-		return Rule{}, err
 	}
 
 	return out, nil

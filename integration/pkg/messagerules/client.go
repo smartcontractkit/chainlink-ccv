@@ -18,7 +18,9 @@ import (
 const MinTLSVersion = tls.VersionTLS12
 
 type Client interface {
+	// ListMessageRules fetches the current message rules from the aggregator.
 	ListMessageRules(ctx context.Context) ([]shared.Rule, error)
+	// Close releases resources held by the client.
 	Close() error
 }
 

@@ -81,7 +81,6 @@ func TestCompiledRulesMatchMessages(t *testing.T) {
 	}))
 	require.False(t, compiled.IsDisabled(testMessageReport{source: 1, dest: 2}))
 	require.Equal(t, 3, compiled.ActiveRuleCount())
-	require.Equal(t, RuleCounts{Chain: 1, Lane: 1, Token: 1}, compiled.RuleCounts())
 
 	snapshot := compiled.RulesSnapshot()
 	require.Len(t, snapshot, 3)
