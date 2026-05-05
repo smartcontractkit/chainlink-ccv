@@ -55,11 +55,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_0/operations/rmn_remote"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/adapters"
 	ccipChangesets "github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/changesets"
-	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
-	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
-	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
-	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/lombard"
 	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
@@ -69,6 +64,12 @@ import (
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/clclient"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/simple_node_set"
+
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
+	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
+	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/lombard"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 
@@ -2084,7 +2085,7 @@ func (m *CCIP17EVM) BuildV3ExtraArgs(
 	destChain cciptestinterfaces.MessageV3Destination,
 	executorArgsParams any,
 	tokenArgsParams any,
-) ([]byte, error) {
+) (cciptestinterfaces.GenericExtraArgs, error) {
 	execArgs, err := destChain.GetExecutorArgs(executorArgsParams)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get executor args: %w", err)
