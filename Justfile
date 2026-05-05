@@ -58,18 +58,31 @@ shellcheck:
     }
     find . -type f -name *.sh -execdir shellcheck {} +
 
+check-go-versions:
+    ./tools/bin/check-go-versions.sh
+
+# Run hygiene targets and fail if any modify the repo. Default: tidy mock generate shellcheck
+check-repo-clean +targets="tidy mock generate shellcheck":
+    ./tools/bin/check_repo_clean.sh {{targets}}
+
+# Render inter-module dependency graph as mermaid markdown
+modgraph: ensure-go
+    ./tools/bin/modgraph.sh
+
 mod-download: ensure-go
     go mod download
 
-test short="": ensure-go
-    gomods -w go test -fullpath -shuffle on {{ if short != "" { "-short" } else { "" } }} -v -race ./...
+test short="" all="": ensure-go
+    {{ if all != "" { "gomods -w" } else { "" } }} go test -fullpath -shuffle on {{ if short != "" { "-short" } else { "" } }} -v -race ./...
 
-test-coverage coverage_file="coverage.out" short="":
-    # coverage_file := env_var_or_default('COVERAGE_FILE', 'coverage.out')
-    go test -v -race -fullpath -shuffle on {{ if short != "" { "-short" } else { "" } }} -v -coverprofile={{coverage_file}} ./...
-    # Filter mockery-generated files (mock_*.go) from coverage profile
-    { head -n1 {{coverage_file}}; tail -n +2 {{coverage_file}} | grep -v -E '{{COVERAGE_EXCLUDE_REGEX}}' || true; } > {{coverage_file}}.filtered
-    mv {{coverage_file}}.filtered {{coverage_file}}
+# When all="1", generates <module-dir>/<coverage_file> for each module (discoverable via find . -name coverage.out).
+test-coverage coverage_file="coverage.out" short="" all="":
+    {{ if all != "" { "gomods -w" } else { "" } }} go test -v -race -fullpath -shuffle on {{ if short != "" { "-short" } else { "" } }} -coverprofile={{coverage_file}} ./...
+    {{ if all != "" { "gomods -w " } else { "" } }}sh -c '{ head -n1 {{coverage_file}}; tail -n +2 {{coverage_file}} | grep -v -E "{{COVERAGE_EXCLUDE_REGEX}}" || true; } > {{coverage_file}}.filtered && mv {{coverage_file}}.filtered {{coverage_file}}'
+
+# Compare per-module coverage between two profiles. Run test-coverage all=1 twice with different coverage_file names first.
+cov-compare base="coverage_base.out" new="coverage.out":
+    gomods -c 'printf "\n### %s\n" "$(basename $PWD)"; {{justfile_directory()}}/tools/bin/cov_compare.sh "{{base}}" "{{new}}" || echo "(skipped — run: just test-coverage all=1)"'
 
 bump-chainlink-ccip sha:
     @echo "Bumping chainlink-ccip dependencies in root..."

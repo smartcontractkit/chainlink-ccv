@@ -44,7 +44,7 @@ jobs:
 
       # Check that go.mod files have fully specificed Go versions that match tool-versions.env
       - name: Enforce go.mod Go versions
-        run: tools/bin/check-go-versions.sh
+        run: just check-go-versions
 
       - name: Run repo hygiene checks
-        run: tools/bin/check_repo_clean.sh tidy mock generate shellcheck
+        run: just check-repo-clean
