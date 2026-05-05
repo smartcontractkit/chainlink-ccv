@@ -539,7 +539,6 @@ func buildEnvironmentTopology(in *Cfg, e *deployment.Environment) *ccvdeployment
 func generateExecutorJobSpecs(
 	e *deployment.Environment,
 	in *Cfg,
-	selectors []uint64,
 	topology *ccvdeployment.EnvironmentTopology,
 	ds datastore.MutableDataStore,
 ) (map[string]bootstrap.JobSpec, error) {
@@ -617,7 +616,6 @@ func generateExecutorJobSpecs(
 func generateVerifierJobSpecs(
 	e *deployment.Environment,
 	in *Cfg,
-	selectors []uint64,
 	topology *ccvdeployment.EnvironmentTopology,
 	sharedTLSCerts *services.TLSCertPaths,
 	ds datastore.MutableDataStore,
@@ -1350,7 +1348,7 @@ func NewEnvironment() (in *Cfg, err error) {
 	// START: Launch executors //
 	/////////////////////////////
 
-	executorJobSpecs, err := generateExecutorJobSpecs(e, in, selectors, topology, ds)
+	executorJobSpecs, err := generateExecutorJobSpecs(e, in, topology, ds)
 	if err != nil {
 		return nil, err
 	}
@@ -1381,7 +1379,7 @@ func NewEnvironment() (in *Cfg, err error) {
 	// START: Launch verifiers //
 	/////////////////////////////
 
-	verifierJobSpecs, err := generateVerifierJobSpecs(e, in, selectors, topology, sharedTLSCerts, ds)
+	verifierJobSpecs, err := generateVerifierJobSpecs(e, in, topology, sharedTLSCerts, ds)
 	if err != nil {
 		return nil, err
 	}
