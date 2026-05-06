@@ -2,7 +2,10 @@ package blockchains
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
+	"slices"
 
 	"github.com/pelletier/go-toml/v2"
 	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
@@ -10,6 +13,12 @@ import (
 )
 
 const configKey = "blockchains"
+
+// defaultAnvilKey is the first Anvil/Geth private key used as a local-dev fallback.
+const defaultAnvilKey = "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+
+// simChainIDs are the well-known simulated chain IDs used by Anvil/Geth in devenv.
+var simChainIDs = []string{"1337", "2337", "3337"}
 
 func init() {
 	if err := devenvruntime.Register(configKey, factory); err != nil {
@@ -25,22 +34,59 @@ type component struct{}
 
 func (c *component) ValidateConfig(_ any) error { return nil }
 
-// RunPhase1 deploys all blockchain networks defined in [[blockchains]] config.
-// Each blockchain.Input.Out is populated in-place by NewBlockchainNetwork so
-// downstream phases can access RPC URLs via the returned slice.
+// RunPhase1 deploys all blockchain networks defined in [[blockchains]] config,
+// validates private key compatibility, and collects the resulting outputs.
 func (c *component) RunPhase1(_ context.Context, _ map[string]any, componentConfig any) (map[string]any, error) {
 	bcs, err := decode(componentConfig)
 	if err != nil {
 		return nil, err
 	}
 
+	if err := checkBlockchainKeys(bcs); err != nil {
+		return nil, err
+	}
+
+	blockchainOutputs := make([]*blockchain.Output, len(bcs))
 	for i, bc := range bcs {
 		if _, err := blockchain.NewBlockchainNetwork(bc); err != nil {
 			return nil, fmt.Errorf("blockchain[%d] %q: %w", i, bc.ContainerName, err)
 		}
+		blockchainOutputs[i] = bc.Out
 	}
 
-	return map[string]any{configKey: bcs}, nil
+	return map[string]any{
+		configKey:           bcs,
+		"blockchainOutputs": blockchainOutputs,
+	}, nil
+}
+
+// checkBlockchainKeys validates that the active private key is compatible with
+// the declared blockchain types (simulated vs real networks).
+func checkBlockchainKeys(bcs []*blockchain.Input) error {
+	pk := networkPrivateKey()
+	for _, bc := range bcs {
+		family, err := blockchain.TypeToFamily(bc.Type)
+		if err != nil {
+			return fmt.Errorf("failed to resolve blockchain family for type %q: %w", bc.Type, err)
+		}
+		if string(family) != blockchain.FamilyEVM {
+			continue
+		}
+		if pk != defaultAnvilKey && slices.Contains(simChainIDs, bc.ChainID) {
+			return errors.New("you are trying to run simulated chains with a key that do not belong to Anvil, please run 'unset PRIVATE_KEY'")
+		}
+		if pk == defaultAnvilKey && !slices.Contains(simChainIDs, bc.ChainID) {
+			return errors.New("you are trying to run on real networks but is not using the Anvil private key, export your private key 'export PRIVATE_KEY=...'")
+		}
+	}
+	return nil
+}
+
+func networkPrivateKey() string {
+	if pk := os.Getenv("PRIVATE_KEY"); pk != "" {
+		return pk
+	}
+	return defaultAnvilKey
 }
 
 // decode converts the raw map[string]any slice from loadRaw into []*blockchain.Input

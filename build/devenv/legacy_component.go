@@ -29,8 +29,8 @@ func (l *legacyComponent) ValidateConfig(_ any) error { return nil }
 // RunPhase2 runs the environment startup after blockchain networks have been
 // deployed in Phase 1. It reads the pre-populated []*blockchain.Input from
 // priorOutputs and injects them into the loaded config before calling
-// runLegacyEnvironment.
-func (l *legacyComponent) RunPhase2(ctx context.Context, _ map[string]any, _ any, priorOutputs map[string]any) (map[string]any, error) {
+// runPhasedEnvironment.
+func (l *legacyComponent) RunPhase2(ctx context.Context, _ map[string]any, _ any, priorOutputs map[string]any, implMap map[string]any) (map[string]any, error) {
 	configs := strings.Split(os.Getenv(EnvVarTestConfigs), ",")
 	if len(configs) > 1 {
 		L.Warn().Msg("Multiple configuration files detected, this feature may be unsupported in the future.")
@@ -45,7 +45,7 @@ func (l *legacyComponent) RunPhase2(ctx context.Context, _ map[string]any, _ any
 		in.Blockchains = bcs
 	}
 
-	cfg, err := runLegacyEnvironment(ctx, in)
+	cfg, err := runPhasedEnvironment(ctx, in, priorOutputs, implMap)
 	if err != nil {
 		return nil, err
 	}

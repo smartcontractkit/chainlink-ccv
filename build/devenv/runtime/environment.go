@@ -7,6 +7,7 @@ import (
 	"sort"
 
 	"github.com/rs/zerolog"
+	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
 
 // NewEnvironment runs the environment startup using the global registry.
@@ -58,11 +59,29 @@ func NewEnvironmentWithRegistry(ctx context.Context, rawConfig map[string]any, r
 		}
 	}
 
+	// Build implMap: for each blockchain deployed in Phase 1, instantiate its
+	// empty CCIP17Configuration using the registered NetworkConfigFactory.
+	implMap := map[string]any{}
+	if bcs, ok := accumulated["blockchains"].([]*blockchain.Input); ok {
+		for _, bc := range bcs {
+			family, err := blockchain.TypeToFamily(bc.Type)
+			if err != nil {
+				if f, ok := GetNetworkFactory(bc.Type); ok {
+					implMap[bc.ContainerName] = f.NewEmpty()
+				}
+				continue
+			}
+			if f, ok := GetNetworkFactory(string(family)); ok {
+				implMap[bc.ContainerName] = f.NewEmpty()
+			}
+		}
+	}
+
 	// Phase 2
 	for _, key := range sortedKeys(specific) {
 		comp := specific[key]
 		if p2, ok := comp.(Phase2Component); ok {
-			out, err := p2.RunPhase2(ctx, rawConfig, rawConfig[key], maps.Clone(accumulated))
+			out, err := p2.RunPhase2(ctx, rawConfig, rawConfig[key], maps.Clone(accumulated), implMap)
 			if err != nil {
 				return nil, fmt.Errorf("phase2 %s: %w", key, err)
 			}
@@ -71,7 +90,7 @@ func NewEnvironmentWithRegistry(ctx context.Context, rawConfig map[string]any, r
 	}
 	if fallback != nil {
 		if p2, ok := fallback.(Phase2Component); ok {
-			out, err := p2.RunPhase2(ctx, rawConfig, unclaimed, maps.Clone(accumulated))
+			out, err := p2.RunPhase2(ctx, rawConfig, unclaimed, maps.Clone(accumulated), implMap)
 			if err != nil {
 				return nil, fmt.Errorf("phase2 fallback: %w", err)
 			}
@@ -83,7 +102,7 @@ func NewEnvironmentWithRegistry(ctx context.Context, rawConfig map[string]any, r
 	for _, key := range sortedKeys(specific) {
 		comp := specific[key]
 		if p3, ok := comp.(Phase3Component); ok {
-			out, err := p3.RunPhase3(ctx, rawConfig, rawConfig[key], maps.Clone(accumulated))
+			out, err := p3.RunPhase3(ctx, rawConfig, rawConfig[key], maps.Clone(accumulated), implMap)
 			if err != nil {
 				return nil, fmt.Errorf("phase3 %s: %w", key, err)
 			}
@@ -92,7 +111,7 @@ func NewEnvironmentWithRegistry(ctx context.Context, rawConfig map[string]any, r
 	}
 	if fallback != nil {
 		if p3, ok := fallback.(Phase3Component); ok {
-			out, err := p3.RunPhase3(ctx, rawConfig, unclaimed, maps.Clone(accumulated))
+			out, err := p3.RunPhase3(ctx, rawConfig, unclaimed, maps.Clone(accumulated), implMap)
 			if err != nil {
 				return nil, fmt.Errorf("phase3 fallback: %w", err)
 			}
@@ -104,14 +123,14 @@ func NewEnvironmentWithRegistry(ctx context.Context, rawConfig map[string]any, r
 	for _, key := range sortedKeys(specific) {
 		comp := specific[key]
 		if p4, ok := comp.(Phase4Component); ok {
-			if err := p4.RunPhase4(ctx, rawConfig, rawConfig[key], maps.Clone(accumulated)); err != nil {
+			if err := p4.RunPhase4(ctx, rawConfig, rawConfig[key], maps.Clone(accumulated), implMap); err != nil {
 				return nil, fmt.Errorf("phase4 %s: %w", key, err)
 			}
 		}
 	}
 	if fallback != nil {
 		if p4, ok := fallback.(Phase4Component); ok {
-			if err := p4.RunPhase4(ctx, rawConfig, unclaimed, maps.Clone(accumulated)); err != nil {
+			if err := p4.RunPhase4(ctx, rawConfig, unclaimed, maps.Clone(accumulated), implMap); err != nil {
 				return nil, fmt.Errorf("phase4 fallback: %w", err)
 			}
 		}

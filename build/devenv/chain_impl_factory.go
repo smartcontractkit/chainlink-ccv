@@ -9,6 +9,7 @@ import (
 	"github.com/rs/zerolog"
 
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
+	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
@@ -59,8 +60,17 @@ func init() {
 	implFactories = make(map[string]ImplFactory)
 }
 
+// networkConfigAdapter wraps ImplFactory to satisfy devenvruntime.NetworkConfigFactory.
+// ImplFactory.NewEmpty() returns cciptestinterfaces.CCIP17Configuration; the adapter
+// boxes it as any so the runtime package avoids importing domain types.
+type networkConfigAdapter struct{ ImplFactory }
+
+func (a networkConfigAdapter) NewEmpty() any { return a.ImplFactory.NewEmpty() }
+
 // RegisterImplFactory registers a new implementation factory for a given chain family.
 // If the family is already registered, the call is a no-op.
+// It also registers the factory with the runtime's NetworkConfigFactory registry so
+// the runtime can instantiate CCIP17Configuration objects after Phase 1.
 func RegisterImplFactory(family string, factory ImplFactory) {
 	implFactoriesMu.Lock()
 	defer implFactoriesMu.Unlock()
@@ -68,6 +78,7 @@ func RegisterImplFactory(family string, factory ImplFactory) {
 		return
 	}
 	implFactories[family] = factory
+	devenvruntime.RegisterNetworkFactory(family, networkConfigAdapter{factory})
 }
 
 // GetImplFactory returns the implementation factory for a given chain family.
