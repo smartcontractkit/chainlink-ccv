@@ -2098,7 +2098,7 @@ func runPhasedEnvironment(ctx context.Context, in *Cfg, priorOutputs map[string]
 	// START: Launch executors //
 	/////////////////////////////
 
-	executorJobSpecs, err := generateExecutorJobSpecs(e, in, selectors, topology, ds)
+	executorJobSpecs, err := generateExecutorJobSpecs(e, in, topology, ds)
 	if err != nil {
 		return nil, err
 	}
@@ -2129,7 +2129,7 @@ func runPhasedEnvironment(ctx context.Context, in *Cfg, priorOutputs map[string]
 	// START: Launch verifiers //
 	/////////////////////////////
 
-	verifierJobSpecs, err := generateVerifierJobSpecs(e, in, selectors, topology, sharedTLSCerts, ds)
+	verifierJobSpecs, err := generateVerifierJobSpecs(e, in, topology, sharedTLSCerts, ds)
 	if err != nil {
 		return nil, err
 	}
