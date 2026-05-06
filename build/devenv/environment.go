@@ -27,9 +27,9 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
 
 	_ "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/adapters"
-	_ "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/blockchains"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
+	_ "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/blockchains"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/chainconfig"
@@ -1544,10 +1544,10 @@ func runLegacyEnvironment(ctx context.Context, in *Cfg) (*Cfg, error) {
 	return in, nil
 }
 
-func runPhasedEnvironment(ctx context.Context, in *Cfg, priorOutputs map[string]any, implMap map[string]any) (*Cfg, error) {
+func runPhasedEnvironment(ctx context.Context, in *Cfg, priorOutputs map[string]any, implMap map[string]cciptestinterfaces.CCIP17Configuration) (*Cfg, error) {
 	impls := make([]cciptestinterfaces.CCIP17Configuration, len(in.Blockchains))
 	for i, bc := range in.Blockchains {
-		impl, ok := implMap[bc.ContainerName].(cciptestinterfaces.CCIP17Configuration)
+		impl, ok := implMap[bc.ContainerName]
 		if !ok {
 			return nil, fmt.Errorf("no impl found for blockchain %q", bc.ContainerName)
 		}

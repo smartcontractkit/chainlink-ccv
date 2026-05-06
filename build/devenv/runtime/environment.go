@@ -7,6 +7,8 @@ import (
 	"sort"
 
 	"github.com/rs/zerolog"
+
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
 
@@ -61,18 +63,18 @@ func NewEnvironmentWithRegistry(ctx context.Context, rawConfig map[string]any, r
 
 	// Build implMap: for each blockchain deployed in Phase 1, instantiate its
 	// empty CCIP17Configuration using the registered NetworkConfigFactory.
-	implMap := map[string]any{}
+	implMap := map[string]cciptestinterfaces.CCIP17Configuration{}
 	if bcs, ok := accumulated["blockchains"].([]*blockchain.Input); ok {
 		for _, bc := range bcs {
 			family, err := blockchain.TypeToFamily(bc.Type)
 			if err != nil {
 				if f, ok := GetNetworkFactory(bc.Type); ok {
-					implMap[bc.ContainerName] = f.NewEmpty()
+					implMap[bc.ContainerName] = f()
 				}
 				continue
 			}
 			if f, ok := GetNetworkFactory(string(family)); ok {
-				implMap[bc.ContainerName] = f.NewEmpty()
+				implMap[bc.ContainerName] = f()
 			}
 		}
 	}

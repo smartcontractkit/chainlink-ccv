@@ -60,13 +60,6 @@ func init() {
 	implFactories = make(map[string]ImplFactory)
 }
 
-// networkConfigAdapter wraps ImplFactory to satisfy devenvruntime.NetworkConfigFactory.
-// ImplFactory.NewEmpty() returns cciptestinterfaces.CCIP17Configuration; the adapter
-// boxes it as any so the runtime package avoids importing domain types.
-type networkConfigAdapter struct{ ImplFactory }
-
-func (a networkConfigAdapter) NewEmpty() any { return a.ImplFactory.NewEmpty() }
-
 // RegisterImplFactory registers a new implementation factory for a given chain family.
 // If the family is already registered, the call is a no-op.
 // It also registers the factory with the runtime's NetworkConfigFactory registry so
@@ -78,7 +71,7 @@ func RegisterImplFactory(family string, factory ImplFactory) {
 		return
 	}
 	implFactories[family] = factory
-	devenvruntime.RegisterNetworkFactory(family, networkConfigAdapter{factory})
+	devenvruntime.RegisterNetworkFactory(family, factory.NewEmpty)
 }
 
 // GetImplFactory returns the implementation factory for a given chain family.

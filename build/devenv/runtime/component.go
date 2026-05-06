@@ -3,6 +3,8 @@ package devenvruntime
 import (
 	"context"
 	"sync"
+
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 )
 
 // Component is the base interface all components must implement.
@@ -14,20 +16,13 @@ type Component interface {
 // previousOutput is nil on first run.
 type ComponentFactory func(previousOutput map[string]any) (Component, error)
 
-// NetworkConfigFactory creates an empty chain-family-specific CCIP17Configuration object.
-// NewEmpty returns any to avoid importing domain types into the runtime package;
-// callers in package ccv type-assert the result to cciptestinterfaces.CCIP17Configuration.
-type NetworkConfigFactory interface {
-	NewEmpty() any
-}
-
 var (
-	networkFactories   = map[string]NetworkConfigFactory{}
+	networkFactories   = map[string]func() cciptestinterfaces.CCIP17Configuration{}
 	networkFactoriesMu sync.Mutex
 )
 
-// RegisterNetworkFactory registers a factory for a chain family. Duplicate registrations are ignored.
-func RegisterNetworkFactory(family string, f NetworkConfigFactory) {
+// RegisterNetworkFactory registers a constructor for a chain family. Duplicate registrations are ignored.
+func RegisterNetworkFactory(family string, f func() cciptestinterfaces.CCIP17Configuration) {
 	networkFactoriesMu.Lock()
 	defer networkFactoriesMu.Unlock()
 	if _, ok := networkFactories[family]; !ok {
@@ -35,8 +30,8 @@ func RegisterNetworkFactory(family string, f NetworkConfigFactory) {
 	}
 }
 
-// GetNetworkFactory returns the registered factory for a chain family.
-func GetNetworkFactory(family string) (NetworkConfigFactory, bool) {
+// GetNetworkFactory returns the registered constructor for a chain family.
+func GetNetworkFactory(family string) (func() cciptestinterfaces.CCIP17Configuration, bool) {
 	networkFactoriesMu.Lock()
 	defer networkFactoriesMu.Unlock()
 	f, ok := networkFactories[family]
@@ -49,18 +44,18 @@ type Phase1Component interface {
 }
 
 // Phase2Component runs during Phase 2 (protocol platform deployments).
-// implMap maps blockchain container name to its empty CCIP17Configuration object,
+// implMap maps blockchain container name to its CCIP17Configuration object,
 // built by the runtime after Phase 1 using registered NetworkConfigFactory instances.
 type Phase2Component interface {
-	RunPhase2(ctx context.Context, globalConfig map[string]any, componentConfig any, priorOutputs map[string]any, implMap map[string]any) (map[string]any, error)
+	RunPhase2(ctx context.Context, globalConfig map[string]any, componentConfig any, priorOutputs map[string]any, implMap map[string]cciptestinterfaces.CCIP17Configuration) (map[string]any, error)
 }
 
 // Phase3Component runs during Phase 3 (CCVs and token pools).
 type Phase3Component interface {
-	RunPhase3(ctx context.Context, globalConfig map[string]any, componentConfig any, priorOutputs map[string]any, implMap map[string]any) (map[string]any, error)
+	RunPhase3(ctx context.Context, globalConfig map[string]any, componentConfig any, priorOutputs map[string]any, implMap map[string]cciptestinterfaces.CCIP17Configuration) (map[string]any, error)
 }
 
 // Phase4Component runs during Phase 4 (final configuration).
 type Phase4Component interface {
-	RunPhase4(ctx context.Context, globalConfig map[string]any, componentConfig any, priorOutputs map[string]any, implMap map[string]any) error
+	RunPhase4(ctx context.Context, globalConfig map[string]any, componentConfig any, priorOutputs map[string]any, implMap map[string]cciptestinterfaces.CCIP17Configuration) error
 }
