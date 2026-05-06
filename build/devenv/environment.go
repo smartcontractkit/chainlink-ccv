@@ -27,6 +27,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
 
 	_ "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/adapters"
+	_ "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/blockchains"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
@@ -854,13 +855,17 @@ func runLegacyEnvironment(ctx context.Context, in *Cfg) (*Cfg, error) {
 		impls = append(impls, impl)
 	}
 
-	blockchainOutputs := make([]*blockchain.Output, len(impls))
-	for i, impl := range impls {
-		out, err := impl.DeployLocalNetwork(ctx, in.Blockchains[i])
+	// Deploy any blockchains that were not already started in Phase 1.
+	blockchainOutputs := make([]*blockchain.Output, len(in.Blockchains))
+	for i, bc := range in.Blockchains {
+		if bc.Out != nil {
+			blockchainOutputs[i] = bc.Out
+			continue
+		}
+		out, err := blockchain.NewBlockchainNetwork(bc)
 		if err != nil {
 			return nil, fmt.Errorf("failed to deploy local networks: %w", err)
 		}
-
 		blockchainOutputs[i] = out
 	}
 

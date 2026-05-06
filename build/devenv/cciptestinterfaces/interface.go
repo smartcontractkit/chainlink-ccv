@@ -354,10 +354,8 @@ type DeployerNonceBumper interface {
 }
 
 // OffChainConfigurable defines methods that allows to
-// deploy a local blockchain network for tests and configure CL nodes for Chainlink product.
+// configure CL nodes for Chainlink product.
 type OffChainConfigurable interface {
-	// DeployLocalNetwork deploy local node of network X
-	DeployLocalNetwork(ctx context.Context, bcs *blockchain.Input) (*blockchain.Output, error)
 	// ConfigureNodes configure CL nodes from blockchain data
 	// returns a piece of TOML config as a string that the framework inject into final configuration
 	ConfigureNodes(ctx context.Context, blockchain *blockchain.Input) (string, error)

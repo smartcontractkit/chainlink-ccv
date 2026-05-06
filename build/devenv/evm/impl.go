@@ -938,16 +938,6 @@ func (m *CCIP17EVMConfig) BumpDeployerNonce(ctx context.Context, env *deployment
 	return nil
 }
 
-func (m *CCIP17EVMConfig) DeployLocalNetwork(ctx context.Context, bc *blockchain.Input) (*blockchain.Output, error) {
-	l := m.logger
-	l.Info().Msg("Deploying EVM networks")
-	out, err := blockchain.NewBlockchainNetwork(bc)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create blockchain network: %w", err)
-	}
-	return out, nil
-}
-
 func (m *CCIP17EVMConfig) ConfigureNodes(ctx context.Context, bc *blockchain.Input) (string, error) {
 	l := m.logger
 	l.Info().Msg("Configuring CL nodes")

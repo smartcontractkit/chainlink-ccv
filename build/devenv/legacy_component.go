@@ -7,10 +7,11 @@ import (
 	"strings"
 
 	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
+	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
 
 // legacyCfgKey is the output map key under which the legacy component stores
-// the fully-initialized *Cfg so that NewEnvironment() can extract it.
+// the fully-initialized *Cfg so that NewEnvironmentPhased() can extract it.
 const legacyCfgKey = "_legacy_cfg"
 
 func init() {
@@ -25,9 +26,11 @@ type legacyComponent struct{}
 
 func (l *legacyComponent) ValidateConfig(_ any) error { return nil }
 
-// RunPhase1 runs the entire environment startup. All phases are collapsed into
-// Phase 1 until individual components are extracted in later PRs.
-func (l *legacyComponent) RunPhase1(ctx context.Context, _ map[string]any, _ any) (map[string]any, error) {
+// RunPhase2 runs the environment startup after blockchain networks have been
+// deployed in Phase 1. It reads the pre-populated []*blockchain.Input from
+// priorOutputs and injects them into the loaded config before calling
+// runLegacyEnvironment.
+func (l *legacyComponent) RunPhase2(ctx context.Context, _ map[string]any, _ any, priorOutputs map[string]any) (map[string]any, error) {
 	configs := strings.Split(os.Getenv(EnvVarTestConfigs), ",")
 	if len(configs) > 1 {
 		L.Warn().Msg("Multiple configuration files detected, this feature may be unsupported in the future.")
@@ -36,6 +39,12 @@ func (l *legacyComponent) RunPhase1(ctx context.Context, _ map[string]any, _ any
 	if err != nil {
 		return nil, fmt.Errorf("failed to load configuration: %w", err)
 	}
+
+	// Inject blockchains that were deployed in Phase 1.
+	if bcs, ok := priorOutputs["blockchains"].([]*blockchain.Input); ok {
+		in.Blockchains = bcs
+	}
+
 	cfg, err := runLegacyEnvironment(ctx, in)
 	if err != nil {
 		return nil, err
