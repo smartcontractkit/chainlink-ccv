@@ -129,21 +129,21 @@ func applySignerChangesOnchain(
 		return err
 	}
 
-	destChains := registry.AllDeployedCommitteeVerifierChains(e.DataStore, committeeQualifier)
-	if len(destChains) == 0 {
+	committeeChains := registry.AllDeployedCommitteeVerifierChains(e.DataStore, committeeQualifier)
+	if len(committeeChains) == 0 {
 		return fmt.Errorf(
 			"no dest chains found with committee verifier for qualifier %q — ensure adapters are registered and the committee is deployed",
 			committeeQualifier,
 		)
 	}
 
-	committeeStates, err := scanCommitteeStatesForChains(ctx, e, registry, committeeQualifier, destChains)
+	committeeStates, err := scanCommitteeStatesForChains(ctx, e, registry, committeeQualifier, committeeChains)
 	if err != nil {
 		return err
 	}
 
 	applied := 0
-	for _, sel := range destChains {
+	for _, sel := range committeeChains {
 		change, err := buildChange(committeeStates[sel], signerAddress, newThreshold, sourceChainSelectors)
 		if err != nil {
 			return fmt.Errorf("dest chain %d: %w", sel, err)
@@ -202,11 +202,11 @@ func AddNOPOffchain(registry *adapters.Registry) deployment.ChangeSetV2[AddNOPOf
 			return fmt.Errorf("executor qualifier is required for job provisioning")
 		}
 
-		destChains := registry.AllDeployedCommitteeVerifierChains(e.DataStore, cfg.CommitteeQualifier)
-		if len(destChains) == 0 {
+		committeeChains := registry.AllDeployedCommitteeVerifierChains(e.DataStore, cfg.CommitteeQualifier)
+		if len(committeeChains) == 0 {
 			return fmt.Errorf("no dest chains found for committee %q — step-1 may not have been applied or adapters are not registered", cfg.CommitteeQualifier)
 		}
-		for _, sel := range destChains {
+		for _, sel := range committeeChains {
 			a, err := registry.GetByChain(sel)
 			if err != nil {
 				return fmt.Errorf("dest chain %d: %w", sel, err)
@@ -223,7 +223,7 @@ func AddNOPOffchain(registry *adapters.Registry) deployment.ChangeSetV2[AddNOPOf
 		// every source chain. Catches hook misfires and out-of-order manual invocations.
 		if cfg.ExpectedSignerAddress != "" {
 			ctx := context.Background()
-			committeeStates, err := scanCommitteeStatesForChains(ctx, e, registry, cfg.CommitteeQualifier, destChains)
+			committeeStates, err := scanCommitteeStatesForChains(ctx, e, registry, cfg.CommitteeQualifier, committeeChains)
 			if err != nil {
 				return err
 			}
@@ -257,12 +257,12 @@ func AddNOPOffchain(registry *adapters.Registry) deployment.ChangeSetV2[AddNOPOf
 	}
 
 	apply := func(e deployment.Environment, cfg AddNOPOffchainInput) (deployment.ChangesetOutput, error) {
-		destChains := registry.AllDeployedCommitteeVerifierChains(e.DataStore, cfg.CommitteeQualifier)
-		if len(destChains) == 0 {
+		committeeChains := registry.AllDeployedCommitteeVerifierChains(e.DataStore, cfg.CommitteeQualifier)
+		if len(committeeChains) == 0 {
 			return deployment.ChangesetOutput{}, fmt.Errorf("no dest chains found for committee %q", cfg.CommitteeQualifier)
 		}
 
-		committee, err := buildAggregatorCommittee(e, registry, cfg.CommitteeQualifier, destChains, nil)
+		committee, err := buildAggregatorCommittee(e, registry, cfg.CommitteeQualifier, committeeChains, nil)
 		if err != nil {
 			return deployment.ChangesetOutput{}, fmt.Errorf("failed to build aggregator config: %w", err)
 		}
@@ -279,7 +279,7 @@ func AddNOPOffchain(registry *adapters.Registry) deployment.ChangeSetV2[AddNOPOf
 			}
 		}
 
-		manageDS, reports, err := provisionVerifierJobForNOP(e, registry, cfg, destChains, outputDS.Seal())
+		manageDS, reports, err := provisionVerifierJobForNOP(e, registry, cfg, committeeChains, outputDS.Seal())
 		if err != nil {
 			return deployment.ChangesetOutput{Reports: reports}, err
 		}
@@ -297,7 +297,7 @@ func provisionVerifierJobForNOP(
 	e deployment.Environment,
 	registry *adapters.Registry,
 	cfg AddNOPOffchainInput,
-	destChains []uint64,
+	committeeChains []uint64,
 	baseDS datastore.DataStore,
 ) (datastore.MutableDataStore, []operations.Report[any, any], error) {
 	signerFamily, err := getSignerFamilyFromRegistry(registry, cfg.SourceChainSelectors)
@@ -314,7 +314,7 @@ func provisionVerifierJobForNOP(
 		signerAddress = addr
 	}
 
-	contractAddresses, err := buildVerifierContractConfigs(registry, e, destChains, cfg.CommitteeQualifier, cfg.ExecutorQualifier)
+	contractAddresses, err := buildVerifierContractConfigs(registry, e, committeeChains, cfg.CommitteeQualifier, cfg.ExecutorQualifier)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to build verifier contract configs: %w", err)
 	}
