@@ -21,99 +21,104 @@ func main() {
 		os.Exit(2)
 	}
 
-	outPath := os.Args[1]
-	out, err := getOutputFile(outPath)
-	if err != nil {
-		_, _ = fmt.Fprintln(os.Stderr, "failed to open output file:", err)
-		os.Exit(1)
-	}
-	defer func() { _ = out.Close() }()
+	if true {
+		os.Exit(0)
+	} else {
 
-	// Create a new stdlib HTTP router.
-	mux := http.NewServeMux()
-
-	// Create a Huma v2 API on top of the router.
-	cfg := huma.DefaultConfig("Indexer API", "1.0.0")
-	api := humago.New(mux, cfg)
-
-	// Huma will use this to override its built in error type.
-	huma.NewError = func(status int, msg string, errs ...error) huma.StatusError {
-		return v1.ErrorResponse{
-			Status:  status,
-			Message: msg,
+		outPath := os.Args[1]
+		out, err := getOutputFile(outPath)
+		if err != nil {
+			_, _ = fmt.Fprintln(os.Stderr, "failed to open output file:", err)
+			os.Exit(1)
 		}
-	}
-	grp := huma.NewGroup(api, "/v1")
+		defer func() { _ = out.Close() }()
 
-	// Register root-level health and readiness endpoints (explicit type args)
-	huma.Register(api, huma.Operation{
-		OperationID: "health",
-		Method:      http.MethodGet,
-		Path:        "/health",
-		Description: "Liveness probe that returns a plain 200.",
-	}, func(ctx context.Context, _ *struct{}) (*struct{}, error) {
-		return nil, nil
-	})
+		// Create a new stdlib HTTP router.
+		mux := http.NewServeMux()
 
-	huma.Register(api, huma.Operation{
-		OperationID: "ready",
-		Method:      http.MethodGet,
-		Path:        "/ready",
-		Description: "Readiness probe that returns 200 if the service has storage access.",
-	}, func(ctx context.Context, _ *struct{}) (*struct{}, error) {
-		return nil, nil
-	})
+		// Create a Huma v2 API on top of the router.
+		cfg := huma.DefaultConfig("Indexer API", "1.0.0")
+		api := humago.New(mux, cfg)
 
-	// Register v1 endpoints
-	huma.Register(grp, huma.Operation{
-		OperationID: "verifier-results",
-		Method:      http.MethodGet,
-		Path:        "/verifierresults",
-		Description: "Get verifier results",
-	}, func(ctx context.Context, input *v1.VerifierResultsInput) (*v1.VerifierResultsResponse, error) {
-		return nil, nil
-	})
-
-	huma.Register(grp, huma.Operation{
-		OperationID: "verifier-results-by-message-id",
-		Method:      http.MethodGet,
-		Path:        "/verifierresults/{messageID}",
-		Description: "Get message by ID",
-	}, func(ctx context.Context, input *v1.VerifierResultsByMessageIDInput) (*v1.VerifierResultsByMessageIDResponse, error) {
-		return nil, nil
-	})
-
-	huma.Register(grp, huma.Operation{
-		OperationID: "messages",
-		Method:      http.MethodGet,
-		Path:        "/messages",
-		Description: "Get messages",
-	}, func(ctx context.Context, input *v1.MessagesInput) (*v1.MessagesResponse, error) {
-		return nil, nil
-	})
-
-	oapi := api.OpenAPI()
-
-	// Remove $schema properties from all schemas (it was only in ErrorResponse)
-	if oapi.Components != nil {
-		for _, schema := range oapi.Components.Schemas.Map() {
-			delete(schema.Properties, "$schema")
+		// Huma will use this to override its built in error type.
+		huma.NewError = func(status int, msg string, errs ...error) huma.StatusError {
+			return v1.ErrorResponse{
+				Status:  status,
+				Message: msg,
+			}
 		}
-	}
+		grp := huma.NewGroup(api, "/v1")
 
-	// yml, err := api.OpenAPI().Downgrade()
-	yml, err := api.OpenAPI().DowngradeYAML()
-	if err != nil {
-		_, _ = fmt.Fprintln(os.Stderr, "failed to generate openapi yaml:", err)
-		os.Exit(1)
-	}
+		// Register root-level health and readiness endpoints (explicit type args)
+		huma.Register(api, huma.Operation{
+			OperationID: "health",
+			Method:      http.MethodGet,
+			Path:        "/health",
+			Description: "Liveness probe that returns a plain 200.",
+		}, func(ctx context.Context, _ *struct{}) (*struct{}, error) {
+			return nil, nil
+		})
 
-	if _, err := out.Write(yml); err != nil {
-		_, _ = fmt.Fprintln(os.Stderr, "failed to write file:", err)
-		os.Exit(1)
-	}
+		huma.Register(api, huma.Operation{
+			OperationID: "ready",
+			Method:      http.MethodGet,
+			Path:        "/ready",
+			Description: "Readiness probe that returns 200 if the service has storage access.",
+		}, func(ctx context.Context, _ *struct{}) (*struct{}, error) {
+			return nil, nil
+		})
 
-	_, _ = fmt.Fprintf(os.Stderr, "wrote OpenAPI YAML to %s\n", outPath)
+		// Register v1 endpoints
+		huma.Register(grp, huma.Operation{
+			OperationID: "verifier-results",
+			Method:      http.MethodGet,
+			Path:        "/verifierresults",
+			Description: "Get verifier results",
+		}, func(ctx context.Context, input *v1.VerifierResultsInput) (*v1.VerifierResultsResponse, error) {
+			return nil, nil
+		})
+
+		huma.Register(grp, huma.Operation{
+			OperationID: "verifier-results-by-message-id",
+			Method:      http.MethodGet,
+			Path:        "/verifierresults/{messageID}",
+			Description: "Get message by ID",
+		}, func(ctx context.Context, input *v1.VerifierResultsByMessageIDInput) (*v1.VerifierResultsByMessageIDResponse, error) {
+			return nil, nil
+		})
+
+		huma.Register(grp, huma.Operation{
+			OperationID: "messages",
+			Method:      http.MethodGet,
+			Path:        "/messages",
+			Description: "Get messages",
+		}, func(ctx context.Context, input *v1.MessagesInput) (*v1.MessagesResponse, error) {
+			return nil, nil
+		})
+
+		oapi := api.OpenAPI()
+
+		// Remove $schema properties from all schemas (it was only in ErrorResponse)
+		if oapi.Components != nil {
+			for _, schema := range oapi.Components.Schemas.Map() {
+				delete(schema.Properties, "$schema")
+			}
+		}
+
+		// yml, err := api.OpenAPI().Downgrade()
+		yml, err := api.OpenAPI().DowngradeYAML()
+		if err != nil {
+			_, _ = fmt.Fprintln(os.Stderr, "failed to generate openapi yaml:", err)
+			os.Exit(1)
+		}
+
+		if _, err := out.Write(yml); err != nil {
+			_, _ = fmt.Fprintln(os.Stderr, "failed to write file:", err)
+			os.Exit(1)
+		}
+
+		_, _ = fmt.Fprintf(os.Stderr, "wrote OpenAPI YAML to %s\n", outPath)
+	}
 }
 
 func getOutputFile(path string) (*os.File, error) {
