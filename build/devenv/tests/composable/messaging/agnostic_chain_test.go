@@ -21,6 +21,7 @@ func MessageV3TestScenario(
 	sendOption cciptestinterfaces.ChainSendOption,
 	executorArgsParams any,
 	tokenArgsParams any,
+	tokenReceiverParams any,
 ) error {
 	v3Receiver, ok := destChain.(cciptestinterfaces.MessageV3Destination)
 	if !ok {
@@ -31,7 +32,7 @@ func MessageV3TestScenario(
 		return fmt.Errorf("source chain does not support V3 message")
 	}
 
-	extraArgs, err := v3Source.BuildV3ExtraArgs(opts, v3Receiver, executorArgsParams, tokenArgsParams)
+	extraArgs, err := v3Source.BuildV3ExtraArgs(opts, v3Receiver, executorArgsParams, tokenReceiverParams, tokenArgsParams)
 	if err != nil {
 		return fmt.Errorf("failed to encode V3 extra args: %w", err)
 	}
