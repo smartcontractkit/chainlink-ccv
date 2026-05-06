@@ -60,9 +60,8 @@ func NewPollerService(client Client, pollInterval, clientTimeout time.Duration, 
 
 func (s *PollerService) Start(ctx context.Context) error {
 	return s.StartOnce(s.Name(), func() error {
-		s.poll(ctx)
-
 		s.wg.Go(func() {
+			s.poll(ctx)
 			s.pollLoop()
 		})
 
