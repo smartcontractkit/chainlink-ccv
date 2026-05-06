@@ -61,6 +61,7 @@ type MessageV3Source interface {
 		opts MessageOptions,
 		destChain MessageV3Destination,
 		executorArgsParams any,
+		tokenReceiverParams any,
 		tokenArgsParams any,
 	) (GenericExtraArgs, error)
 }
