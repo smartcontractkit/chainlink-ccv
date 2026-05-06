@@ -1,11 +1,14 @@
-package messagedisablement
+package messagerules
 
 import (
 	"context"
 	"fmt"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
+	shared "github.com/smartcontractkit/chainlink-ccv/common/messagerules"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -32,17 +35,18 @@ func WithMetrics(metrics Metrics) RegistryOption {
 }
 
 type Registry struct {
-	store                  Store
+	store                  shared.Store
 	metrics                Metrics
 	mu                     sync.RWMutex
-	activeRules            []activeRule
+	activeRules            shared.CompiledRules
 	activeRuleMetricLabels map[string][]string
 	lggr                   logger.SugaredLogger
+	ready                  bool
 }
 
-var _ Checker = (*Registry)(nil)
+var _ shared.Checker = (*Registry)(nil)
 
-func NewRegistry(store Store, lggr logger.SugaredLogger, opts ...RegistryOption) *Registry {
+func NewRegistry(store shared.Store, lggr logger.SugaredLogger, opts ...RegistryOption) *Registry {
 	r := &Registry{
 		store:                  store,
 		metrics:                noopMetrics{},
@@ -66,7 +70,7 @@ func (r *Registry) Refresh(ctx context.Context) error {
 		return fmt.Errorf("failed to list message disablement rules: %w", err)
 	}
 
-	compiled, err := compileRules(rules)
+	compiled, err := shared.CompileRules(rules)
 	if err != nil {
 		r.metrics.SetMessageDisablementRulesRefreshFailure(ctx, 1)
 		r.lggr.Errorw("Failed to compile message disablement rules for registry refresh",
@@ -77,25 +81,25 @@ func (r *Registry) Refresh(ctx context.Context) error {
 		return err
 	}
 
+	metricLabels := metricLabelsForRules(compiled.RulesSnapshot())
+
 	r.mu.Lock()
 	previousMetricLabels := r.activeRuleMetricLabels
-	r.activeRules = compiled.rules
-	r.activeRuleMetricLabels = compiled.metricLabels
+	r.activeRules = compiled
+	r.activeRuleMetricLabels = metricLabels
+	r.ready = true
 	r.mu.Unlock()
 
 	r.metrics.SetMessageDisablementRulesRefreshFailure(ctx, 0)
-	r.emitActiveRuleMetrics(ctx, previousMetricLabels, compiled.metricLabels)
+	r.emitActiveRuleMetrics(ctx, previousMetricLabels, metricLabels)
 	r.lggr.Infow("Refreshed message disablement rules registry",
-		"rule_count", len(compiled.rules),
-		"chain_rules", compiled.chainCount,
-		"lane_rules", compiled.laneCount,
-		"token_rules", compiled.tokenCount,
+		"rule_count", compiled.ActiveRuleCount(),
 	)
 
 	return nil
 }
 
-func (r *Registry) IsDisabled(report MessageReport) bool {
+func (r *Registry) IsDisabled(report shared.MessageReport) bool {
 	if report == nil {
 		return false
 	}
@@ -103,12 +107,7 @@ func (r *Registry) IsDisabled(report MessageReport) bool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	for _, rule := range r.activeRules {
-		if rule.IsDisabled(report) {
-			return true
-		}
-	}
-	return false
+	return r.activeRules.IsDisabled(report)
 }
 
 func (r *Registry) StartPeriodicRefresh(ctx context.Context, interval time.Duration) {
@@ -140,7 +139,13 @@ func (r *Registry) StartPeriodicRefresh(ctx context.Context, interval time.Durat
 func (r *Registry) ActiveRuleCount() int {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	return len(r.activeRules)
+	return r.activeRules.ActiveRuleCount()
+}
+
+func (r *Registry) ActiveRulesSnapshot() ([]shared.Rule, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.activeRules.RulesSnapshot(), r.ready
 }
 
 func (r *Registry) emitActiveRuleMetrics(ctx context.Context, previous, current map[string][]string) {
@@ -154,53 +159,57 @@ func (r *Registry) emitActiveRuleMetrics(ctx context.Context, previous, current 
 	}
 }
 
-type compiledRules struct {
-	rules        []activeRule
-	metricLabels map[string][]string
-	chainCount   int
-	laneCount    int
-	tokenCount   int
+func metricLabelsForRules(rules []shared.Rule) map[string][]string {
+	ruleMetricKey := func(rule shared.Rule) (string, error) {
+		ruleType, data, err := shared.EncodeRuleData(rule.Data)
+		if err != nil {
+			return "", err
+		}
+		return ruleTypeMetricValue(ruleType) + "|" + string(data), nil
+	}
+
+	labels := make(map[string][]string, len(rules))
+	for _, rule := range rules {
+		key, err := ruleMetricKey(rule)
+		if err != nil {
+			continue
+		}
+		labels[key] = ruleMetricLabels(rule)
+	}
+	return labels
 }
 
-func compileRules(rules []Rule) (compiledRules, error) {
-	compiled := compiledRules{
-		rules:        make([]activeRule, 0, len(rules)),
-		metricLabels: make(map[string][]string, len(rules)),
+func ruleMetricLabels(rule shared.Rule) []string {
+	labels := []string{
+		"rule_type", ruleTypeMetricValue(rule.Type),
 	}
 
-	for _, rule := range rules {
-		normalized, err := NormalizeRuleData(rule.Type, rule.Data)
-		if err != nil {
-			return compiledRules{}, fmt.Errorf("invalid message disablement rule %s: %w", rule.ID, err)
+	switch rule.Type {
+	case shared.RuleTypeChain:
+		data, err := rule.ChainData()
+		if err == nil {
+			labels = append(labels, "chain_selector", strconv.FormatUint(data.ChainSelector, 10))
 		}
-		rule.Data = normalized
-
-		var active activeRule
-		switch rule.Type {
-		case RuleTypeChain:
-			active, err = newChainActiveRule(rule)
-			if err != nil {
-				return compiledRules{}, fmt.Errorf("invalid Chain rule %s: %w", rule.ID, err)
-			}
-			compiled.chainCount++
-		case RuleTypeLane:
-			active, err = newLaneActiveRule(rule)
-			if err != nil {
-				return compiledRules{}, fmt.Errorf("invalid Lane rule %s: %w", rule.ID, err)
-			}
-			compiled.laneCount++
-		case RuleTypeToken:
-			active, err = newTokenActiveRule(rule)
-			if err != nil {
-				return compiledRules{}, fmt.Errorf("invalid Token rule %s: %w", rule.ID, err)
-			}
-			compiled.tokenCount++
-		default:
-			return compiledRules{}, fmt.Errorf("unknown rule type %q for rule %s", rule.Type, rule.ID)
+	case shared.RuleTypeLane:
+		data, err := rule.LaneData()
+		if err == nil {
+			labels = append(labels,
+				"selector_a", strconv.FormatUint(data.SelectorA, 10),
+				"selector_b", strconv.FormatUint(data.SelectorB, 10),
+			)
 		}
-		compiled.rules = append(compiled.rules, active)
-		compiled.metricLabels[active.metricKey()] = active.metricLabels()
+	case shared.RuleTypeToken:
+		data, err := rule.TokenData()
+		if err == nil {
+			labels = append(labels,
+				"chain_selector", strconv.FormatUint(data.ChainSelector, 10),
+				"token_address", data.TokenAddress,
+			)
+		}
 	}
+	return labels
+}
 
-	return compiled, nil
+func ruleTypeMetricValue(ruleType shared.RuleType) string {
+	return strings.ToLower(string(ruleType))
 }
