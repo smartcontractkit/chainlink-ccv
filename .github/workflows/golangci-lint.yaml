@@ -53,7 +53,7 @@ jobs:
           install-only: true
 
       - name: Install just
-        uses: extractions/setup-just@v3
+        uses: extractions/setup-just@e33e0265a09d6d736e2ee1e0eb685ef1de4669ff # v3
 
       - name: Install gomods
         run: go install github.com/jmank88/gomods@v${{ steps.tool-versions.outputs.gomods_version }}
