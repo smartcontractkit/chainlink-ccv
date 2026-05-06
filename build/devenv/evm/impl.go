@@ -796,6 +796,7 @@ func SerializeMessageV3ExtraArgs(provider cciptestinterfaces.ExtraArgsDataProvid
 		opts.ExecutionGasLimit,
 		opts.Executor.String(),
 		opts.ExecutorArgs,
+		opts.TokenReceiver,
 		opts.TokenArgs,
 		opts.CCVs,
 	)

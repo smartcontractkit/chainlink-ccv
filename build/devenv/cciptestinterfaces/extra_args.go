@@ -20,7 +20,7 @@ type MessageOptions struct {
 	Executor protocol.UnknownAddress
 	// ExecutorArgs are the executor arguments for the message
 	ExecutorArgs []byte
-	// TokenReceiver is the token receiver address, used when token receiver different from the message receiver
+	// TokenReceiver is the token receiver address, used when token receiver is different from the message receiver
 	TokenReceiver []byte
 	// TokenArgs are the token arguments for the message
 	TokenArgs []byte
@@ -55,7 +55,7 @@ type MessageV3Destination interface {
 // MessageV3Source is an interface for any chain that can send a V3 message.
 // We use an interface rather than a struct because the V3 message structure is chain agnostic.
 type MessageV3Source interface {
-	// BuildV3ExtraArgs builds the V3 extra arguments for the message including calling the destination chain's GetExecutorArgs and GetTokenArgs.
+	// BuildV3ExtraArgs builds the V3 extra arguments for the message including calling the destination chain's GetExecutorArgs, GetTokenReceiver and GetTokenArgs.
 	// then serializing the results into the source chain specific encoding format, and returning the result.
 	BuildV3ExtraArgs(
 		opts MessageOptions,
