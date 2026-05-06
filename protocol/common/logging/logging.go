@@ -1,6 +1,8 @@
 package logging
 
 import (
+	"os"
+
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
@@ -45,4 +47,11 @@ func ProductionConfig(level zapcore.Level) func(*zap.Config) {
 		// Encode duration using the default Go stringer.
 		config.EncoderConfig.EncodeDuration = zapcore.StringDurationEncoder
 	}
+}
+
+func GetLogProfile(level zapcore.Level) func(*zap.Config) {
+	if os.Getenv("DEVELOPMENT_LOG_PROFILE") == "true" {
+		return DevelopmentConfig(level)
+	}
+	return ProductionConfig(level)
 }

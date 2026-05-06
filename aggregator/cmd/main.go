@@ -41,7 +41,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Invalid LOG_LEVEL '%s', defaulting to 'info'\n", logLevelStr)
 		zapLevel = zapcore.InfoLevel
 	}
-	lggr, err := logger.NewWith(logging.ProductionConfig(zapLevel))
+	lggr, err := logger.NewWith(logging.GetLogProfile(zapLevel))
 	if err != nil {
 		panic(fmt.Sprintf("Failed to create logger: %v", err))
 	}

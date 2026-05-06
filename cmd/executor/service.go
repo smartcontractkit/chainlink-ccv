@@ -73,7 +73,7 @@ func (f *Factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 		return fmt.Errorf("failed to normalize executor config: %w", err)
 	}
 
-	f.lggr, err = logger.NewWith(logging.ProductionConfig(zapcore.InfoLevel))
+	f.lggr, err = logger.NewWith(logging.GetLogProfile(zapcore.InfoLevel))
 	if err != nil {
 		return fmt.Errorf("failed to create logger: %w", err)
 	}
