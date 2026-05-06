@@ -2112,3 +2112,7 @@ func (m *CCIP17EVM) GetExecutorArgs(_ any) (cciptestinterfaces.MessageV3Executor
 func (m *CCIP17EVM) GetTokenArgs(_ any) (cciptestinterfaces.MessageV3TokenArgs, error) {
 	return nil, nil
 }
+
+func (m *CCIP17EVM) GetTokenReceiver(_ any) (cciptestinterfaces.MessageV3TokenReceiver, error) {
+	return nil, nil
+}

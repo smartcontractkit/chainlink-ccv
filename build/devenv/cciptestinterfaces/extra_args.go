@@ -20,6 +20,8 @@ type MessageOptions struct {
 	Executor protocol.UnknownAddress
 	// ExecutorArgs are the executor arguments for the message
 	ExecutorArgs []byte
+	// TokenReceiver is the token receiver address, used when token receiver different from the message receiver
+	TokenReceiver []byte
 	// TokenArgs are the token arguments for the message
 	TokenArgs []byte
 }
@@ -33,12 +35,18 @@ type MessageV3ExecutorArgs []byte
 // MessageV3TokenArgs is a type to indicate how to use the MessageV3Destination interface.
 type MessageV3TokenArgs []byte
 
+// MessageV3TokenReceiver is a type to indicate how to use the MessageV3Destination interface.
+type MessageV3TokenReceiver []byte
+
 // MessageV3Destination is an interface for any chain that can receive a V3 message.
 // We use an interface rather than a struct because the V3 message structure is chain agnostic.
 type MessageV3Destination interface {
 	// GetExecutorArgs returns the executor arguments for the message.
 	// The opts parameter will be passed by the caller, implementer should type assert the opts to the concrete type.
 	GetExecutorArgs(opts any) (MessageV3ExecutorArgs, error)
+	// GetTokenReceiver returns the token receiver for the message.
+	// The opts parameter will be passed by the caller, implementer should type assert the opts to the concrete type.
+	GetTokenReceiver(opts any) (MessageV3TokenReceiver, error)
 	// GetTokenArgs returns the token arguments for the message.
 	// The opts parameter will be passed by the caller, implementer should type assert the opts to the concrete type.
 	GetTokenArgs(opts any) (MessageV3TokenArgs, error)
