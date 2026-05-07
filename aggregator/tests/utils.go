@@ -299,6 +299,7 @@ func createCCVDataClient(ccvDataBuf *bufconn.Listener, opts ...grpc.DialOption) 
 		return ccvDataBuf.Dial()
 	}
 
+	//nolint:prealloc // small fixed defaults; clarity over preallocation
 	defaultOpts := []grpc.DialOption{
 		grpc.WithContextDialer(bufDialer),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
@@ -321,6 +322,7 @@ func createAggregatorClient(aggregatorBuf *bufconn.Listener, opts ...grpc.DialOp
 		return aggregatorBuf.Dial()
 	}
 
+	//nolint:prealloc // small fixed defaults; clarity over preallocation
 	defaultOpts := []grpc.DialOption{
 		grpc.WithContextDialer(bufDialer),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),
@@ -343,6 +345,7 @@ func createMessageDiscoveryClient(messageDiscoveryBuf *bufconn.Listener, opts ..
 		return messageDiscoveryBuf.Dial()
 	}
 
+	//nolint:prealloc // small fixed defaults; clarity over preallocation
 	defaultOpts := []grpc.DialOption{
 		grpc.WithContextDialer(bufDialer),
 		grpc.WithTransportCredentials(insecure.NewCredentials()),

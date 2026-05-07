@@ -287,7 +287,7 @@ func Test_ToVerifierFormat(t *testing.T) {
 		rawPayloadLength := uint16(len(rawPayload))
 		proofLength := uint16(len(proof))
 
-		expected := protocol.ByteSlice{}
+		expected := make(protocol.ByteSlice, 0, len(verifierVersion)+lengthPrefixBytes+len(rawPayload)+lengthPrefixBytes+len(proof))
 		expected = append(expected, verifierVersion...)
 		expected = append(expected, byte(rawPayloadLength>>8), byte(rawPayloadLength))
 		expected = append(expected, rawPayload...)
@@ -317,7 +317,7 @@ func Test_ToVerifierFormat(t *testing.T) {
 		rawPayloadLength := uint16(len(rawPayload))
 		proofLength := uint16(len(proof))
 
-		expected := protocol.ByteSlice{}
+		expected := make(protocol.ByteSlice, 0, len(verifierVersion)+lengthPrefixBytes+len(rawPayload)+lengthPrefixBytes)
 		expected = append(expected, verifierVersion...)
 		expected = append(expected, byte(rawPayloadLength>>8), byte(rawPayloadLength))
 		expected = append(expected, rawPayload...)
@@ -345,7 +345,7 @@ func Test_ToVerifierFormat(t *testing.T) {
 		rawPayloadLength := uint16(len(rawPayload))
 		proofLength := uint16(len(proof))
 
-		expected := protocol.ByteSlice{}
+		expected := make(protocol.ByteSlice, 0, len(verifierVersion)+lengthPrefixBytes+lengthPrefixBytes+len(proof))
 		expected = append(expected, verifierVersion...)
 		expected = append(expected, byte(rawPayloadLength>>8), byte(rawPayloadLength))
 		expected = append(expected, byte(proofLength>>8), byte(proofLength))

@@ -75,7 +75,6 @@ func CreateTestMessageSentEvents(
 
 	events := make([]protocol.MessageSentEvent, len(blockNumbers))
 	for i, blockNum := range blockNumbers {
-		//nolint:gosec // used in tests
 		seqNum := startNonce + uint64(i)
 		message := CreateTestMessage(t, protocol.SequenceNumber(seqNum), chainSelector, destChain, 0, 300_000)
 		messageID, _ := message.MessageID()
