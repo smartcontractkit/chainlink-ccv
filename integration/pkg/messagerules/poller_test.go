@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -21,7 +22,7 @@ func TestPollerService_UnknownUntilSuccessfulPoll(t *testing.T) {
 	client := mocks.NewMockClient(t)
 	client.EXPECT().ListMessageRules(mock.Anything).Return(nil, errors.New("boom"))
 	client.EXPECT().Close().Return(nil)
-	svc, err := NewPollerService(client, 0, 0, logger.Test(t), metrics)
+	svc, err := NewPollerService(client, time.Hour, time.Hour, logger.Test(t), metrics)
 	require.NoError(t, err)
 
 	err = svc.Start(context.Background())
@@ -41,22 +42,24 @@ func TestPollerService_UsesLastSuccessfulRules(t *testing.T) {
 	data, err := shared.NewChainRuleData(10)
 	require.NoError(t, err)
 	client.EXPECT().ListMessageRules(mock.Anything).Return([]shared.Rule{{ID: "rule", Type: shared.RuleTypeChain, Data: data}}, nil).Once()
-	svc, err := NewPollerService(client, 0, 0, logger.Test(t), metrics)
+	svc, err := NewPollerService(client, time.Hour, time.Hour, logger.Test(t), metrics)
 	require.NoError(t, err)
 
 	err = svc.Start(context.Background())
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, svc.Close()) })
 
-	disabled, err := svc.IsMessageDisabled(context.Background(), protocol.Message{SourceChainSelector: 10, DestChainSelector: 20})
-	require.NoError(t, err)
-	require.True(t, disabled)
+	require.Eventually(t, func() bool {
+		disabled, err := svc.IsMessageDisabled(context.Background(), protocol.Message{SourceChainSelector: 10, DestChainSelector: 20})
+		return err == nil && disabled
+	}, time.Second, time.Millisecond)
 
 	metrics.EXPECT().SetMessageDisablementRulesRefreshFailure(mock.Anything, int64(1))
 	client.EXPECT().ListMessageRules(mock.Anything).Return(nil, errors.New("transient"))
 	svc.poll(context.Background())
 
-	disabled, err = svc.IsMessageDisabled(context.Background(), protocol.Message{SourceChainSelector: 10, DestChainSelector: 20})
-	require.NoError(t, err)
-	require.True(t, disabled)
+	require.Eventually(t, func() bool {
+		disabled, err := svc.IsMessageDisabled(context.Background(), protocol.Message{SourceChainSelector: 10, DestChainSelector: 20})
+		return err == nil && disabled
+	}, time.Second, time.Millisecond)
 }
