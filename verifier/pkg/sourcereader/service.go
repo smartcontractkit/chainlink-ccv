@@ -2,6 +2,7 @@ package sourcereader
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/big"
 	"runtime/debug"
@@ -154,9 +155,31 @@ func (r *Service) Start(ctx context.Context) error {
 	return r.StartOnce(r.Name(), func() error {
 		r.logger.Infow("Starting Service")
 
+		// Optional: chain SourceReader may also implement services.Service when it owns
+		// long-lived subcomponents (e.g. Solana logpoller / EncodedLogCollector worker pool).
+		// Pure pull readers skip this branch; no change to chainaccess.SourceReader interface.
+		chainSrcReaderSvc, ok := r.sourceReader.(services.Service)
+		chainSrcReaderStarted := false
+		if ok {
+			if err := chainSrcReaderSvc.Start(ctx); err != nil {
+				if cErr := chainSrcReaderSvc.Close(); cErr != nil {
+					if !errors.Is(cErr, services.ErrCannotStopUnstarted) && !errors.Is(cErr, services.ErrAlreadyStopped) {
+						r.logger.Debugw("close chain source reader service after failed start", "err", cErr)
+					}
+				}
+				return fmt.Errorf("start chain source reader service: %w", err)
+			}
+			chainSrcReaderStarted = true
+		}
+
 		startBlock, err := r.initializeStartBlock(ctx)
 		if err != nil {
 			r.logger.Errorw("Failed to initialize start block", "error", err)
+			if chainSrcReaderStarted {
+				if cErr := chainSrcReaderSvc.Close(); cErr != nil {
+					r.logger.Warnw("close nested after init failure", "err", cErr)
+				}
+			}
 			return err
 		}
 		r.lastProcessedFinalizedBlock.Store(startBlock)
@@ -177,6 +200,12 @@ func (r *Service) Close() error {
 		close(r.stopCh)
 		r.wg.Wait()
 		r.logger.Infow("Service stopped")
+
+		if chainSrcReaderSvc, ok := r.sourceReader.(services.Service); ok {
+			if err := chainSrcReaderSvc.Close(); err != nil {
+				return fmt.Errorf("close chain source reader service: %w", err)
+			}
+		}
 		return nil
 	})
 }
