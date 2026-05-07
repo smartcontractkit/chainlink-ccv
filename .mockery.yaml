@@ -4,6 +4,10 @@ dir: ./internal/mocks
 outpkg: mocks
 
 packages:
+  github.com/smartcontractkit/chainlink-ccv/integration/pkg/messagerules:
+    interfaces:
+      Client:
+
   github.com/smartcontractkit/chainlink-ccv/common/jd/client:
     interfaces:
       ClientInterface:
@@ -36,6 +40,7 @@ packages:
       CurseCheckerService:
       TimeProvider:
       CurseCheckerMetrics:
+      MessageRulesCheckerMetrics:
 
   github.com/smartcontractkit/chainlink-ccv/protocol:
     interfaces:

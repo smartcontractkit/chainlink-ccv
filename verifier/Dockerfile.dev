@@ -13,4 +13,6 @@ COPY . .
 ARG VERIFIER_TYPE=committee
 WORKDIR /app/cmd/verifier/${VERIFIER_TYPE}
 
+ENV DEVELOPMENT_LOG_PROFILE=true
+
 CMD ["air", "-c", "air.toml"]

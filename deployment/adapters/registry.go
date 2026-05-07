@@ -89,6 +89,22 @@ func (r *Registry) GetByChain(chainSelector uint64) (ChainAdapters, error) {
 	return a, nil
 }
 
+// AllDeployedCommitteeVerifierChains returns every destination chain selector that has a
+// committee verifier deployed for the given qualifier, across all registered chain families.
+// Discovery is datastore-only — no onchain calls are made. The per-family implementation
+// (e.g. EVM) lives in chainlink-ccip/chains/evm and registers via Register at startup.
+func (r *Registry) AllDeployedCommitteeVerifierChains(ds datastore.DataStore, qualifier string) []uint64 {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	var chains []uint64
+	for _, a := range r.adapters {
+		if a.Aggregator != nil {
+			chains = append(chains, a.Aggregator.GetDeployedChains(ds, qualifier)...)
+		}
+	}
+	return chains
+}
+
 // AllDeployedExecutorChains collects all chain selectors with executor proxies deployed,
 // across all registered families.
 func (r *Registry) AllDeployedExecutorChains(ds datastore.DataStore, qualifier string) []uint64 {

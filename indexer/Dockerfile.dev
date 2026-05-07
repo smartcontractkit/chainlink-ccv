@@ -12,4 +12,5 @@ RUN --mount=type=cache,target=/go/pkg/mod,id=ccv-go-mod \
 COPY . .
 RUN CGO_ENABLED=0 go build -o /bin/indexer-replay ./indexer/cmd/replay/main.go
 WORKDIR /app/indexer
+ENV DEVELOPMENT_LOG_PROFILE=true
 CMD ["air", "-c", "air.toml"]

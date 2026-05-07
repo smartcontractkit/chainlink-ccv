@@ -704,6 +704,8 @@ github.com/smartcontractkit/chainlink-protos/chainlink-ccv/committee-verifier v0
 github.com/smartcontractkit/chainlink-protos/chainlink-ccv/committee-verifier v0.0.0-20251211142334-5c3421fe2c8d/go.mod h1:oNFoKHRIerxuaANa8ASNejtHrdsG26LqGtQ2XhSac2g=
 github.com/smartcontractkit/chainlink-protos/chainlink-ccv/message-discovery v0.0.0-20251211142334-5c3421fe2c8d h1:pKCyW7BYzO5GThFNlXZY0Azx/yOnI4b5GeuLeU23ie0=
 github.com/smartcontractkit/chainlink-protos/chainlink-ccv/message-discovery v0.0.0-20251211142334-5c3421fe2c8d/go.mod h1:ATjAPIVJibHRcIfiG47rEQkUIOoYa6KDvWj3zwCAw6g=
+github.com/smartcontractkit/chainlink-protos/chainlink-ccv/message-rules v0.0.0-20260505131349-78e491b80735 h1:TisH4dYVSh33CZI7qzIkGZx7RzhnynQuQEAdhjnzvb4=
+github.com/smartcontractkit/chainlink-protos/chainlink-ccv/message-rules v0.0.0-20260505131349-78e491b80735/go.mod h1:zAJq6Tpkx5AdFUwW67dIYnW+Bdf50drCCpMR81Qxb4E=
 github.com/smartcontractkit/chainlink-protos/chainlink-ccv/verifier v0.0.0-20251211142334-5c3421fe2c8d h1:AJy55QJ/pBhXkZjc7N+ATnWfxrcjq9BI9DmdtdjwDUQ=
 github.com/smartcontractkit/chainlink-protos/chainlink-ccv/verifier v0.0.0-20251211142334-5c3421fe2c8d/go.mod h1:5JdppgngCOUS76p61zCinSCgOhPeYQ+OcDUuome5THQ=
 github.com/smartcontractkit/chainlink-protos/cre/go v0.0.0-20260409211238-5b99921cbc7c h1:7V+V3R//Z/g1kiz/to9MGT4KmcSTcbv2YSsRDD0RN5A=
