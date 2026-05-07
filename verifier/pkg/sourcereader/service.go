@@ -2,7 +2,6 @@ package sourcereader
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"math/big"
 	"runtime/debug"
@@ -162,11 +161,6 @@ func (r *Service) Start(ctx context.Context) error {
 		chainSrcReaderStarted := false
 		if ok {
 			if err := chainSrcReaderSvc.Start(ctx); err != nil {
-				if cErr := chainSrcReaderSvc.Close(); cErr != nil {
-					if !errors.Is(cErr, services.ErrCannotStopUnstarted) && !errors.Is(cErr, services.ErrAlreadyStopped) {
-						r.logger.Debugw("close chain source reader service after failed start", "err", cErr)
-					}
-				}
 				return fmt.Errorf("start chain source reader service: %w", err)
 			}
 			chainSrcReaderStarted = true
