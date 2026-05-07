@@ -59,17 +59,11 @@ runs:
     - name: Install just
       uses: extractions/setup-just@69d82fb0233557aec017ef13706851d0694e0f1d # v2.0.0
 
-    # Build golangci-lint with the Go toolchain set up above (derived from
-    # go.mod) rather than downloading a prebuilt binary. Prebuilt releases are
-    # built with whatever Go the maintainers happened to use and refuse to
-    # parse code targeting a newer Go release. `go install` here always
-    # produces a binary built with the same Go version that compiles the
-    # linted code, so the version-mismatch check inside golangci-lint is
-    # satisfied automatically.
     - name: Install golangci-lint
       shell: bash
       run: |
-        go install "github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v${{ steps.tool-versions.outputs.golangci_lint_version }}"
+        curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh \
+          | sh -s -- -b $(go env GOPATH)/bin v${{ steps.tool-versions.outputs.golangci_lint_version }}
         golangci-lint version
 
     - name: Run lint
