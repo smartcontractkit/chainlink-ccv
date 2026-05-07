@@ -330,7 +330,6 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig, aggMonito
 	}
 
 	// Build the message-disablement registry from the raw store before metrics wrapping.
-	// DatabaseStorage implements messagerules.Store; the metrics wrapper does not need to.
 	messageDisablementRegistry := messagerules.NewRegistry(
 		rawStore,
 		l,
