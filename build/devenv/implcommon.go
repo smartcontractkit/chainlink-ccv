@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"maps"
 	"sort"
+	"strings"
 
 	"github.com/Masterminds/semver/v3"
 
@@ -517,27 +518,19 @@ func DeployTokensAndPools(
 // ---------------------------------------------------------------------------
 
 // ConfigureAllTokenTransfers collects TokenTransferConfigs from all chain
-// impls, groups them by pool identity, and calls ConfigureTokensForTransfers
-// once per group. This replaces the EVM-specific BuildTokenTransferConfigs
-// call that previously lived in environment.go.
+// impls, groups them by local pool identity, and calls
+// ConfigureTokensForTransfers once per group. This replaces the EVM-specific
+// BuildTokenTransferConfigs call that previously lived in environment.go.
 func ConfigureAllTokenTransfers(
 	impls []cciptestinterfaces.CCIP17Configuration,
 	selectors []uint64,
 	env *deployment.Environment,
 	topology *ccvdeployment.EnvironmentTopology,
 ) error {
-	refKey := func(ref datastore.AddressRef) string {
-		v := ""
-		if ref.Version != nil {
-			v = ref.Version.String()
-		}
-		return string(ref.Type) + "+" + v + "+" + ref.Qualifier
-	}
-
-	// Group by (chainSelector, poolIdentity) so each pool gets ALL its remote
-	// chains in a single ConfigureTokensForTransfers call. The upstream sequence
-	// validates that remoteChains includes every chain the pool already supports,
-	// so splitting by lane would fail when a pool has more than one remote.
+	// First merge duplicate configs for the same local pool. Each merged config
+	// keeps all remote lanes for that pool; the next phase splits unrelated
+	// tokens into separate ConfigureTokensForTransfers calls because upstream
+	// keys the Tokens slice by chain selector.
 	type poolKey struct {
 		chainSelector uint64
 		poolID        string
@@ -563,7 +556,7 @@ func ConfigureAllTokenTransfers(
 		for _, cfg := range cfgs {
 			pk := poolKey{
 				chainSelector: cfg.ChainSelector,
-				poolID:        refKey(cfg.TokenPoolRef),
+				poolID:        tokenTransferRefKey(cfg.TokenPoolRef),
 			}
 			if existing, ok := byPool[pk]; ok {
 				maps.Copy(existing.RemoteChains, cfg.RemoteChains)
@@ -583,13 +576,156 @@ func ConfigureAllTokenTransfers(
 		allConfigs = append(allConfigs, cfg)
 	}
 
+	batches, err := buildTokenTransferBatches(allConfigs)
+	if err != nil {
+		return err
+	}
+
 	tokenAdapterRegistry := tokenscore.GetTokenAdapterRegistry()
 	mcmsReaderRegistry := changesetscore.GetRegistry()
-	_, err := tokenscore.ConfigureTokensForTransfers(tokenAdapterRegistry, mcmsReaderRegistry).Apply(*env, tokenscore.ConfigureTokensForTransfersConfig{
-		Tokens: allConfigs,
-	})
-	if err != nil {
-		return fmt.Errorf("configure tokens for transfers: %w", err)
+	for i, batch := range batches {
+		_, err := tokenscore.ConfigureTokensForTransfers(tokenAdapterRegistry, mcmsReaderRegistry).Apply(*env, tokenscore.ConfigureTokensForTransfersConfig{
+			Tokens: batch,
+		})
+		if err != nil {
+			return fmt.Errorf("configure tokens for transfers batch %d: %w", i, err)
+		}
 	}
 	return nil
+}
+
+func tokenTransferRefKey(ref datastore.AddressRef) string {
+	v := ""
+	if ref.Version != nil {
+		v = ref.Version.String()
+	}
+	return string(ref.Type) + "+" + v + "+" + ref.Qualifier
+}
+
+// canonicalPoolPairKey returns a stable batch key for a pool reference.
+//
+// It accepts both the current canonical "BASE (POOL_A, POOL_B)" format and
+// the older directional "BASE (POOL_A to POOL_B)" / ":local" / ":remote" forms.
+// Plain qualifiers without a recognizable pair fall through to tokenTransferRefKey.
+func canonicalPoolPairKey(ref datastore.AddressRef) string {
+	qualifier := strings.TrimSuffix(strings.TrimSuffix(ref.Qualifier, ":local"), ":remote")
+	if pairQualifier, _, ok := strings.Cut(qualifier, "::"); ok {
+		qualifier = pairQualifier
+	}
+	base, rest, ok := strings.Cut(qualifier, " (")
+	if !ok || !strings.HasSuffix(rest, ")") {
+		return tokenTransferRefKey(ref)
+	}
+	inner := strings.TrimSuffix(rest, ")")
+	a, b, ok := strings.Cut(inner, ", ")
+	if !ok {
+		a, b, ok = strings.Cut(inner, " to ")
+		if !ok {
+			return tokenTransferRefKey(ref)
+		}
+	}
+	if a > b {
+		a, b = b, a
+	}
+	return base + "+" + a + "+" + b
+}
+
+type tokenTransferNodeKey struct {
+	chainSelector uint64
+	poolKey       string
+}
+
+func tokenTransferConfigNodeKey(cfg tokenscore.TokenTransferConfig) tokenTransferNodeKey {
+	return tokenTransferNodeKey{
+		chainSelector: cfg.ChainSelector,
+		poolKey:       tokenTransferRefKey(cfg.TokenPoolRef),
+	}
+}
+
+func tokenTransferRemoteNodeKey(chainSelector uint64, ref datastore.AddressRef) tokenTransferNodeKey {
+	return tokenTransferNodeKey{
+		chainSelector: chainSelector,
+		poolKey:       tokenTransferRefKey(ref),
+	}
+}
+
+func (k tokenTransferNodeKey) String() string {
+	return fmt.Sprintf("%d/%s", k.chainSelector, k.poolKey)
+}
+
+func buildTokenTransferBatches(configs []tokenscore.TokenTransferConfig) ([][]tokenscore.TokenTransferConfig, error) {
+	// Group first so unrelated token pairs never get matched together. Within a
+	// group, split only when a ConfigureTokensForTransfers call would contain two
+	// configs for the same selector. Each config keeps its full RemoteChains map:
+	// the EVM token-pool sequence requires every call for an already-active pool
+	// to include all supported remote chains.
+	byPair := make(map[string][]tokenscore.TokenTransferConfig)
+	for _, cfg := range configs {
+		pairKey := canonicalPoolPairKey(cfg.TokenPoolRef)
+		byPair[pairKey] = append(byPair[pairKey], cfg)
+	}
+
+	groupKeys := make([]string, 0, len(byPair))
+	for groupKey := range byPair {
+		groupKeys = append(groupKeys, groupKey)
+	}
+	sort.Strings(groupKeys)
+
+	batches := make([][]tokenscore.TokenTransferConfig, 0, len(groupKeys))
+	for _, groupKey := range groupKeys {
+		group := append([]tokenscore.TokenTransferConfig(nil), byPair[groupKey]...)
+		sort.Slice(group, func(i, j int) bool {
+			if group[i].ChainSelector != group[j].ChainSelector {
+				return group[i].ChainSelector < group[j].ChainSelector
+			}
+			return tokenTransferRefKey(group[i].TokenPoolRef) < tokenTransferRefKey(group[j].TokenPoolRef)
+		})
+
+		configByNode := make(map[tokenTransferNodeKey]struct{}, len(group))
+		for _, cfg := range group {
+			from := tokenTransferConfigNodeKey(cfg)
+			if _, exists := configByNode[from]; exists {
+				return nil, fmt.Errorf("duplicate token transfer config for %s", from)
+			}
+			configByNode[from] = struct{}{}
+		}
+		for _, cfg := range group {
+			from := tokenTransferConfigNodeKey(cfg)
+			for remoteSelector, remoteCfg := range cfg.RemoteChains {
+				if remoteCfg.RemotePool == nil {
+					return nil, fmt.Errorf("token transfer config %s has nil remote pool for remote selector %d", from, remoteSelector)
+				}
+				to := tokenTransferRemoteNodeKey(remoteSelector, *remoteCfg.RemotePool)
+				if _, exists := configByNode[to]; !exists {
+					return nil, fmt.Errorf("token transfer config %s references remote pool %s, but that pool is not present in the same batch group", from, to)
+				}
+			}
+		}
+
+		batches = append(batches, splitTokenTransferBatchBySelector(group)...)
+	}
+	return batches, nil
+}
+
+func splitTokenTransferBatchBySelector(configs []tokenscore.TokenTransferConfig) [][]tokenscore.TokenTransferConfig {
+	batches := make([][]tokenscore.TokenTransferConfig, 0, 1)
+	seenSelectors := make([]map[uint64]bool, 0, 1)
+	for _, cfg := range configs {
+		placed := false
+		for i := range batches {
+			if seenSelectors[i][cfg.ChainSelector] {
+				continue
+			}
+			batches[i] = append(batches[i], cfg)
+			seenSelectors[i][cfg.ChainSelector] = true
+			placed = true
+			break
+		}
+		if placed {
+			continue
+		}
+		batches = append(batches, []tokenscore.TokenTransferConfig{cfg})
+		seenSelectors = append(seenSelectors, map[uint64]bool{cfg.ChainSelector: true})
+	}
+	return batches
 }

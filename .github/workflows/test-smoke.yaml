@@ -73,6 +73,11 @@ jobs:
             config: env.toml
             timeout: 5m
             working-directory: build/devenv/tests/e2e
+          - name: TestE2ESmoke_AggregatorMessageDisablementRules
+            run_cmd: TestE2ESmoke_Aggregator(MessageDisablementRulesCLI|LaneDisablementRule|ChainDisablementRule)
+            config: env.toml
+            timeout: 10m
+            working-directory: build/devenv/tests/e2e
     steps:
       - name: Enable S3 Cache for Self-Hosted Runners
         uses: runs-on/action@cd2b598b0515d39d78c38a02d529db87d2196d1e # v2.0.3

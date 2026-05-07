@@ -1,7 +1,6 @@
 package changesets
 
 import (
-	"context"
 	"fmt"
 	"strings"
 
@@ -108,11 +107,11 @@ func RemoveNOPOffchain(registry *adapters.Registry) deployment.ChangeSetV2[Remov
 			return fmt.Errorf("NOP alias is required for job revocation")
 		}
 
-		destChains := registry.AllDeployedCommitteeVerifierChains(e.DataStore, cfg.CommitteeQualifier)
-		if len(destChains) == 0 {
+		committeeChains := registry.AllDeployedCommitteeVerifierChains(e.DataStore, cfg.CommitteeQualifier)
+		if len(committeeChains) == 0 {
 			return fmt.Errorf("no dest chains found for committee %q — step-1 may not have been applied or adapters are not registered", cfg.CommitteeQualifier)
 		}
-		for _, sel := range destChains {
+		for _, sel := range committeeChains {
 			a, err := registry.GetByChain(sel)
 			if err != nil {
 				return fmt.Errorf("dest chain %d: %w", sel, err)
@@ -128,8 +127,7 @@ func RemoveNOPOffchain(registry *adapters.Registry) deployment.ChangeSetV2[Remov
 		// Safety backstop: assert the removed signer is absent onchain on every dest chain for
 		// every source chain. Catches hook misfires and out-of-order manual invocations.
 		if cfg.RemovedSignerAddress != "" {
-			ctx := context.Background()
-			committeeStates, err := scanCommitteeStatesForChains(ctx, e, registry, cfg.CommitteeQualifier, destChains)
+			committeeStates, err := scanCommitteeStatesForChains(e.GetContext(), e, registry, cfg.CommitteeQualifier, committeeChains)
 			if err != nil {
 				return err
 			}
@@ -158,12 +156,12 @@ func RemoveNOPOffchain(registry *adapters.Registry) deployment.ChangeSetV2[Remov
 	}
 
 	apply := func(e deployment.Environment, cfg RemoveNOPOffchainInput) (deployment.ChangesetOutput, error) {
-		destChains := registry.AllDeployedCommitteeVerifierChains(e.DataStore, cfg.CommitteeQualifier)
-		if len(destChains) == 0 {
+		committeeChains := registry.AllDeployedCommitteeVerifierChains(e.DataStore, cfg.CommitteeQualifier)
+		if len(committeeChains) == 0 {
 			return deployment.ChangesetOutput{}, fmt.Errorf("no dest chains found for committee %q", cfg.CommitteeQualifier)
 		}
 
-		committee, err := buildAggregatorCommittee(e, registry, cfg.CommitteeQualifier, destChains, nil)
+		committee, err := buildAggregatorCommittee(e, registry, cfg.CommitteeQualifier, committeeChains, nil)
 		if err != nil {
 			return deployment.ChangesetOutput{}, fmt.Errorf("failed to build aggregator config: %w", err)
 		}

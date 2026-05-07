@@ -12,6 +12,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/auth"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
+	messagerules "github.com/smartcontractkit/chainlink-ccv/common/messagerules"
 	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
@@ -85,7 +86,7 @@ func TestBatchWriteCommitCCVNodeDataHandler_BatchSizeValidation(t *testing.T) {
 			labeler.EXPECT().With(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(labeler).Maybe()
 			labeler.EXPECT().IncrementVerificationsTotal(mock.Anything).Maybe()
 
-			writeHandler := NewWriteCommitCCVNodeDataHandler(store, agg, mon, lggr, sig, time.Millisecond)
+			writeHandler := NewWriteCommitCCVNodeDataHandler(store, agg, mon, lggr, sig, time.Millisecond, messagerules.NoopChecker{})
 			batchHandler := NewBatchWriteCommitVerifierNodeResultHandler(writeHandler, tc.maxBatchSize)
 
 			requests := make([]*committeepb.WriteCommitteeVerifierNodeResultRequest, tc.numRequests)
@@ -141,7 +142,7 @@ func TestBatchWriteCommitCCVNodeDataHandler_MixedSuccessAndInvalidArgument(t *te
 	labeler.EXPECT().With(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(labeler).Maybe()
 	labeler.EXPECT().IncrementVerificationsTotal(mock.Anything).Maybe()
 
-	writeHandler := NewWriteCommitCCVNodeDataHandler(store, agg, mon, lggr, sig, time.Millisecond)
+	writeHandler := NewWriteCommitCCVNodeDataHandler(store, agg, mon, lggr, sig, time.Millisecond, messagerules.NoopChecker{})
 	batchHandler := NewBatchWriteCommitVerifierNodeResultHandler(writeHandler, 10)
 
 	validReq := makeValidProtoRequest()
@@ -192,7 +193,7 @@ func TestBatchWriteCommitCCVNodeDataHandler_NilRequestAtIndexReturnsInvalidArgum
 	labeler.EXPECT().With(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(labeler).Maybe()
 	labeler.EXPECT().IncrementVerificationsTotal(mock.Anything).Maybe()
 
-	writeHandler := NewWriteCommitCCVNodeDataHandler(store, agg, mon, lggr, sig, time.Millisecond)
+	writeHandler := NewWriteCommitCCVNodeDataHandler(store, agg, mon, lggr, sig, time.Millisecond, messagerules.NoopChecker{})
 	batchHandler := NewBatchWriteCommitVerifierNodeResultHandler(writeHandler, 10)
 
 	validReq := makeValidProtoRequest()
@@ -248,7 +249,7 @@ func TestBatchWriteCommitCCVNodeDataHandler_CancelledContextReturnsImmediately(t
 	labeler.EXPECT().With(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(labeler).Maybe()
 	labeler.EXPECT().IncrementVerificationsTotal(mock.Anything).Maybe()
 
-	writeHandler := NewWriteCommitCCVNodeDataHandler(store, agg, mon, lggr, sig, blockDuration)
+	writeHandler := NewWriteCommitCCVNodeDataHandler(store, agg, mon, lggr, sig, blockDuration, messagerules.NoopChecker{})
 	batchHandler := NewBatchWriteCommitVerifierNodeResultHandler(writeHandler, 10)
 
 	ctx, cancel := context.WithCancel(auth.ToContext(context.Background(), auth.CreateCallerIdentity(testCallerID, false)))

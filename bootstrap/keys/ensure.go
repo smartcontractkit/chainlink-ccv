@@ -11,13 +11,6 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-// Default key names used by the bootstrapper.
-const (
-	DefaultECDSASigningKeyName = "bootstrap_default_ecdsa_signing_key"
-	DefaultEdDSASigningKeyName = "bootstrap_default_eddsa_signing_key"
-	DefaultCSAKeyName          = "bootstrap_default_csa_key"
-)
-
 // EnsureKey creates keyName in the keystore if it does not already exist.
 func EnsureKey(
 	ctx context.Context,

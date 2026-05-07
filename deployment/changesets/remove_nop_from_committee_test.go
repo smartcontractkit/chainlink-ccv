@@ -1,6 +1,7 @@
 package changesets
 
 import (
+	"context"
 	"fmt"
 	"testing"
 
@@ -261,6 +262,7 @@ func TestRemoveNOPOffchain_Validation_BackstopPassesWhenSignerAbsent(t *testing.
 	env := deployment.Environment{
 		BlockChains: newTestBlockChains([]uint64{sel1}),
 		DataStore:   datastore.NewMemoryDataStore().Seal(),
+		GetContext:  func() context.Context { return context.Background() },
 	}
 
 	err := cs.VerifyPreconditions(env, RemoveNOPOffchainInput{
@@ -296,6 +298,7 @@ func TestRemoveNOPOffchain_Validation_BackstopFailsWhenSignerStillPresent(t *tes
 	env := deployment.Environment{
 		BlockChains: newTestBlockChains([]uint64{sel1}),
 		DataStore:   datastore.NewMemoryDataStore().Seal(),
+		GetContext:  func() context.Context { return context.Background() },
 	}
 
 	err := cs.VerifyPreconditions(env, RemoveNOPOffchainInput{

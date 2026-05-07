@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	chain_selectors "github.com/smartcontractkit/chain-selectors"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_5_0/operations/burn_mint_erc20_with_drip"
+	burn_mint_erc20_with_drip_v1_5 "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_5_0/operations/burn_mint_erc20_with_drip"
 	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
@@ -104,10 +104,18 @@ func getContractAddress(t *testing.T, ccvCfg *ccv.Cfg, chainSelector uint64, con
 	return protocol.UnknownAddress(gethcommon.HexToAddress(ref.Address).Bytes())
 }
 
-func getTokenAddress(t *testing.T, ccvCfg *ccv.Cfg, chainSelector uint64, qualifier string) protocol.UnknownAddress {
+func getUSDCTokenAddress(t *testing.T, ccvCfg *ccv.Cfg, chainSelector uint64) protocol.UnknownAddress {
 	return getContractAddress(t, ccvCfg, chainSelector,
-		datastore.ContractType(burn_mint_erc20_with_drip.ContractType),
-		burn_mint_erc20_with_drip.Deploy.Version(),
-		qualifier,
-		"burn mint erc677")
+		datastore.ContractType(burn_mint_erc20_with_drip_v1_5.ContractType),
+		burn_mint_erc20_with_drip_v1_5.Deploy.Version(),
+		"",
+		"USDC")
+}
+
+func getLombardTokenAddress(t *testing.T, ccvCfg *ccv.Cfg, chainSelector uint64) protocol.UnknownAddress {
+	return getContractAddress(t, ccvCfg, chainSelector,
+		datastore.ContractType(burn_mint_erc20_with_drip_v1_5.ContractType),
+		burn_mint_erc20_with_drip_v1_5.Deploy.Version(),
+		common.LombardContractsQualifier,
+		"Lombard token")
 }

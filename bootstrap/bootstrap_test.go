@@ -3,6 +3,7 @@ package bootstrap
 import (
 	"context"
 	"errors"
+	"os"
 	"testing"
 	"time"
 
@@ -16,6 +17,7 @@ import (
 	_ "github.com/lib/pq"
 
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap/db"
+	"github.com/smartcontractkit/chainlink-common/keystore"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -132,6 +134,48 @@ func (s *spyServiceFactoryDummy) Stop(ctx context.Context) error {
 }
 
 var _ ServiceFactory = (*spyServiceFactoryDummy)(nil)
+
+// --- WithKey / NewBootstrapper key tests ---
+
+func TestNewBootstrapper_WithKey_Defaults(t *testing.T) {
+	t.Parallel()
+	lggr := logger.Test(t)
+
+	// Create an empty temp TOML file so WithTOMLAppConfig succeeds without hitting JD config.
+	f, err := os.CreateTemp(t.TempDir(), "*.toml")
+	require.NoError(t, err)
+	require.NoError(t, f.Close())
+
+	b, err := NewBootstrapper("test", lggr, &mockServiceFactory{}, WithTOMLAppConfig(f.Name()))
+	require.NoError(t, err)
+
+	// No WithKey options → the three original defaults must be applied.
+	require.Len(t, b.keys, 3)
+	require.Equal(t, DefaultCSAKeyName, b.keys[0].name)
+	require.Equal(t, defaultECDSASigningKeyName, b.keys[1].name)
+	require.Equal(t, defaultEdDSASigningKeyName, b.keys[2].name)
+}
+
+func TestNewBootstrapper_WithKey_Explicit(t *testing.T) {
+	t.Parallel()
+	lggr := logger.Test(t)
+
+	f, err := os.CreateTemp(t.TempDir(), "*.toml")
+	require.NoError(t, err)
+	require.NoError(t, f.Close())
+
+	b, err := NewBootstrapper("test", lggr, &mockServiceFactory{},
+		WithTOMLAppConfig(f.Name()),
+		WithKey("my_csa", "csa", keystore.Ed25519),
+		WithKey("my_signing", "signing", keystore.ECDSA_S256),
+	)
+	require.NoError(t, err)
+
+	// Explicit WithKey options must suppress defaults and preserve order.
+	require.Len(t, b.keys, 2)
+	require.Equal(t, "my_csa", b.keys[0].name)
+	require.Equal(t, "my_signing", b.keys[1].name)
+}
 
 // --- runner tests ---
 

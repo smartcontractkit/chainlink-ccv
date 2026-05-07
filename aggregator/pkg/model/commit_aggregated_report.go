@@ -69,6 +69,13 @@ func (c *CommitAggregatedReport) GetSourceChainSelector() uint64 {
 	return msg.SourceChainSelector
 }
 
+func (c *CommitAggregatedReport) GetTokenTransfer() *protocol.TokenTransfer {
+	if len(c.Verifications) == 0 || c.Verifications[0].Message == nil {
+		return nil
+	}
+	return c.Verifications[0].Message.TokenTransfer
+}
+
 func (c *CommitAggregatedReport) GetOffRampAddress() []byte {
 	msg := c.GetProtoMessage()
 	if msg == nil {

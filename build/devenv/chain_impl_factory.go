@@ -10,7 +10,6 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
-	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
@@ -48,15 +47,6 @@ type ImplFactory interface {
 	// funding of executor addresses. Families that lack on-chain transfer
 	// primitives in devenv (e.g. Canton) return false.
 	SupportsFunding() bool
-
-	// GenerateTransmitterKey generates a fresh private key for executor
-	// transaction signing in the native format for this chain family.
-	// Returns the hex-encoded private key string.
-	GenerateTransmitterKey() (string, error)
-
-	// TransmitterAddress derives the on-chain transmitter address from the
-	// given hex-encoded private key in the native format for this family.
-	TransmitterAddress(privateKeyHex string) (protocol.UnknownAddress, error)
 }
 
 var (

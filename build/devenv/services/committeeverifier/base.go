@@ -214,7 +214,7 @@ func launchVerifier(ctx context.Context, in *Input, outputs []*blockchain.Output
 		return nil, fmt.Errorf("failed to get JD server CSA public key: %w", err)
 	}
 
-	bootstrap := in.Bootstrap
+	bootstrapInput := in.Bootstrap
 	dbContainer, err := createDBContainer(ctx, in, in.ChainFamily)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create verifier database: %w", err)
@@ -222,10 +222,10 @@ func launchVerifier(ctx context.Context, in *Input, outputs []*blockchain.Output
 
 	// Update bootstrap config w/ the database and JD info.
 	// TODO: make this easier? All standalone setups will have to do the same thing.
-	bootstrap.DB.URL = fmt.Sprintf("postgresql://%s:%s@%s:5432/%s?sslmode=disable",
+	bootstrapInput.DB.URL = fmt.Sprintf("postgresql://%s:%s@%s:5432/%s?sslmode=disable",
 		in.ContainerName, in.ContainerName, dbContainerName(in.DB.Name, in.ChainFamily), services.DefaultBootstrapDBName)
-	bootstrap.JD.ServerCSAPublicKey = jdCSAKey
-	bootstrap.JD.ServerWSRPCURL = jdInfra.JDOutput.InternalWSRPCUrl
+	bootstrapInput.JD.ServerCSAPublicKey = jdCSAKey
+	bootstrapInput.JD.ServerWSRPCURL = jdInfra.JDOutput.InternalWSRPCUrl
 
 	envVars, err := getAggregatorSecrets(in)
 	if err != nil {
@@ -238,7 +238,7 @@ func launchVerifier(ctx context.Context, in *Input, outputs []*blockchain.Output
 	envVars["CL_DATABASE_URL"] = internalDBConnectionString
 
 	// Generate and store config file.
-	bootstrapConfig, err := services.GenerateBootstrapConfig(*bootstrap)
+	bootstrapConfig, err := services.GenerateBootstrapConfig(*bootstrapInput)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate bootstrap config: %w", err)
 	}
@@ -291,7 +291,10 @@ func launchVerifier(ctx context.Context, in *Input, outputs []*blockchain.Output
 		return nil, fmt.Errorf("failed to get bootstrap mapped port: %w", err)
 	}
 	bootstrapURL := fmt.Sprintf("http://%s:%s", host, bootstrapMapped.Port())
-	bootstrapKeys, err := services.GetBootstrapKeys(bootstrapURL)
+
+	// Fetches the CSA and ECDSA keys from the bootstrap server.
+	// Verifiers need both for JD registration and committee signer registration.
+	bootstrapKeys, err := services.FetchBootstrapKeys(bootstrapURL, bootstrap.DefaultCSAKeyName, commit.DefaultECDSASigningKeyName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get bootstrap keys: %w", err)
 	}

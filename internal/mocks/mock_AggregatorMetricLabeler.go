@@ -665,6 +665,89 @@ func (_c *MockAggregatorMetricLabeler_RecordTimeToAggregation_Call) RunAndReturn
 	return _c
 }
 
+// SetMessageDisablementRuleActive provides a mock function with given fields: ctx, active, keyValues
+func (_m *MockAggregatorMetricLabeler) SetMessageDisablementRuleActive(ctx context.Context, active int64, keyValues ...string) {
+	_va := make([]interface{}, len(keyValues))
+	for _i := range keyValues {
+		_va[_i] = keyValues[_i]
+	}
+	var _ca []interface{}
+	_ca = append(_ca, ctx, active)
+	_ca = append(_ca, _va...)
+	_m.Called(_ca...)
+}
+
+// MockAggregatorMetricLabeler_SetMessageDisablementRuleActive_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetMessageDisablementRuleActive'
+type MockAggregatorMetricLabeler_SetMessageDisablementRuleActive_Call struct {
+	*mock.Call
+}
+
+// SetMessageDisablementRuleActive is a helper method to define mock.On call
+//   - ctx context.Context
+//   - active int64
+//   - keyValues ...string
+func (_e *MockAggregatorMetricLabeler_Expecter) SetMessageDisablementRuleActive(ctx interface{}, active interface{}, keyValues ...interface{}) *MockAggregatorMetricLabeler_SetMessageDisablementRuleActive_Call {
+	return &MockAggregatorMetricLabeler_SetMessageDisablementRuleActive_Call{Call: _e.mock.On("SetMessageDisablementRuleActive",
+		append([]interface{}{ctx, active}, keyValues...)...)}
+}
+
+func (_c *MockAggregatorMetricLabeler_SetMessageDisablementRuleActive_Call) Run(run func(ctx context.Context, active int64, keyValues ...string)) *MockAggregatorMetricLabeler_SetMessageDisablementRuleActive_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		variadicArgs := make([]string, len(args)-2)
+		for i, a := range args[2:] {
+			if a != nil {
+				variadicArgs[i] = a.(string)
+			}
+		}
+		run(args[0].(context.Context), args[1].(int64), variadicArgs...)
+	})
+	return _c
+}
+
+func (_c *MockAggregatorMetricLabeler_SetMessageDisablementRuleActive_Call) Return() *MockAggregatorMetricLabeler_SetMessageDisablementRuleActive_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockAggregatorMetricLabeler_SetMessageDisablementRuleActive_Call) RunAndReturn(run func(context.Context, int64, ...string)) *MockAggregatorMetricLabeler_SetMessageDisablementRuleActive_Call {
+	_c.Run(run)
+	return _c
+}
+
+// SetMessageDisablementRulesRefreshFailure provides a mock function with given fields: ctx, failed
+func (_m *MockAggregatorMetricLabeler) SetMessageDisablementRulesRefreshFailure(ctx context.Context, failed int64) {
+	_m.Called(ctx, failed)
+}
+
+// MockAggregatorMetricLabeler_SetMessageDisablementRulesRefreshFailure_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetMessageDisablementRulesRefreshFailure'
+type MockAggregatorMetricLabeler_SetMessageDisablementRulesRefreshFailure_Call struct {
+	*mock.Call
+}
+
+// SetMessageDisablementRulesRefreshFailure is a helper method to define mock.On call
+//   - ctx context.Context
+//   - failed int64
+func (_e *MockAggregatorMetricLabeler_Expecter) SetMessageDisablementRulesRefreshFailure(ctx interface{}, failed interface{}) *MockAggregatorMetricLabeler_SetMessageDisablementRulesRefreshFailure_Call {
+	return &MockAggregatorMetricLabeler_SetMessageDisablementRulesRefreshFailure_Call{Call: _e.mock.On("SetMessageDisablementRulesRefreshFailure", ctx, failed)}
+}
+
+func (_c *MockAggregatorMetricLabeler_SetMessageDisablementRulesRefreshFailure_Call) Run(run func(ctx context.Context, failed int64)) *MockAggregatorMetricLabeler_SetMessageDisablementRulesRefreshFailure_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(int64))
+	})
+	return _c
+}
+
+func (_c *MockAggregatorMetricLabeler_SetMessageDisablementRulesRefreshFailure_Call) Return() *MockAggregatorMetricLabeler_SetMessageDisablementRulesRefreshFailure_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockAggregatorMetricLabeler_SetMessageDisablementRulesRefreshFailure_Call) RunAndReturn(run func(context.Context, int64)) *MockAggregatorMetricLabeler_SetMessageDisablementRulesRefreshFailure_Call {
+	_c.Run(run)
+	return _c
+}
+
 // SetOrphanBacklog provides a mock function with given fields: ctx, count
 func (_m *MockAggregatorMetricLabeler) SetOrphanBacklog(ctx context.Context, count int) {
 	_m.Called(ctx, count)

@@ -68,7 +68,7 @@ func (m EVMExtraArgsV2Data) IsExtraArgsDataProvider() {}
 
 // EVMExtraArgsV2 is an interface for any chain that can send a V2 message to an EVM chain.
 type EVMExtraArgsV2 interface {
-	BuildEVMExtraArgsV2(opts any) (GenericExtraArgs, error)
+	BuildEVMExtraArgsV2(provider ExtraArgsDataProvider) (GenericExtraArgs, error)
 }
 
 // EVMExtraArgsV1 represents the data for V1 messages arriving at an EVM chain.
@@ -81,7 +81,7 @@ func (m EVMExtraArgsV1) IsExtraArgsDataProvider() {}
 
 // Any2EVMMessageV1 is an interface for any chain that can send a V1 message to an EVM chain.
 type Any2EVMMessageV1 interface {
-	BuildEVMExtraArgsV1(opts any) (GenericExtraArgs, error)
+	BuildEVMExtraArgsV1(provider ExtraArgsDataProvider) (GenericExtraArgs, error)
 }
 
 // SVMExtraArgsV1 represents the data for V1 messages arriving at a SVM chain.
@@ -99,5 +99,5 @@ func (m SVMExtraArgsV1Data) IsExtraArgsDataProvider() {}
 
 // SVMExtraArgsV1 is an interface for any chain that can send a V1 message to a SVM chain.
 type SVMExtraArgsV1 interface {
-	BuildSVMExtraArgsV1(opts any) (GenericExtraArgs, error)
+	BuildSVMExtraArgsV1(provider ExtraArgsDataProvider) (GenericExtraArgs, error)
 }

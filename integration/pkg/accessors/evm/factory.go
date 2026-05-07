@@ -10,11 +10,13 @@ import (
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/onramp"
+	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/contracttransmitter"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/destinationreader"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-common/keystore"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-evm/pkg/client"
 	"github.com/smartcontractkit/chainlink-evm/pkg/heads"
@@ -40,8 +42,7 @@ type factory struct {
 	// ContractTransmitter dependencies.
 	// rpcURLs holds the primary HTTP RPC URL for each chain. The contract transmitter dials its
 	// own ethclient rather than sharing the multi-node client used by the readers.
-	rpcURLs               map[protocol.ChainSelector]string
-	transmitterPrivateKey string
+	rpcURLs map[protocol.ChainSelector]string
 }
 
 // NewFactory creates a new EVM AccessorFactory.
@@ -56,7 +57,6 @@ func NewFactory(
 	destChainConfigs map[protocol.ChainSelector]chainaccess.DestinationChainConfig,
 	executionVisibilityWindow time.Duration,
 	rpcURLs map[protocol.ChainSelector]string,
-	transmitterPrivateKey string,
 ) chainaccess.AccessorFactory {
 	if executionVisibilityWindow == 0 {
 		executionVisibilityWindow = defaultExecutionVisibilityWindow
@@ -70,7 +70,6 @@ func NewFactory(
 		destChainConfigs:          destChainConfigs,
 		executionVisibilityWindow: executionVisibilityWindow,
 		rpcURLs:                   rpcURLs,
-		transmitterPrivateKey:     transmitterPrivateKey,
 	}
 }
 
@@ -79,6 +78,11 @@ func appendErrorIfNil(errs []error, ob any, errStr string) []error {
 		errs = append(errs, errors.New(errStr))
 	}
 	return errs
+}
+
+// isValidAddress reports whether s is a non-empty hex address that is not the zero address.
+func isValidAddress(s string) bool {
+	return s != "" && common.HexToAddress(s) != (common.Address{})
 }
 
 func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainSelector) (chainaccess.Accessor, error) {
@@ -112,7 +116,7 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 	// config), we skip it rather than returning an error. DestinationReader and ContractTransmitter
 	// can still be built from chain_configuration alone.
 	var evmSourceReader chainaccess.SourceReader
-	if f.onRampAddresses[chainSelector] != "" && f.rmnRemoteAddresses[chainSelector] != "" {
+	if isValidAddress(f.onRampAddresses[chainSelector]) && isValidAddress(f.rmnRemoteAddresses[chainSelector]) {
 		headTracker, ok := f.headTrackers[chainSelector]
 		if !ok {
 			return nil, fmt.Errorf("head tracker is not set for chain %d", chainSelector)
@@ -134,7 +138,10 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 	}
 
 	var evmDestReader chainaccess.DestinationReader
-	if destCfg, ok := f.destChainConfigs[chainSelector]; ok && destCfg.OffRampAddress != "" {
+	var offRampAddr common.Address
+	destCfg := f.destChainConfigs[chainSelector]
+	if isValidAddress(destCfg.OffRampAddress) {
+		offRampAddr = common.HexToAddress(destCfg.OffRampAddress)
 		dr, err := destinationreader.NewEvmDestinationReader(destinationreader.Params{
 			Lggr:                      f.lggr,
 			ChainSelector:             chainSelector,
@@ -150,49 +157,75 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 			evmDestReader = dr
 		}
 	}
-
-	evmContractTransmitter := f.newContractTransmitter(ctx, chainSelector)
-
-	return newAccessor(evmSourceReader, evmDestReader, evmContractTransmitter), nil
-}
-
-func (f *factory) newContractTransmitter(ctx context.Context, chainSelector protocol.ChainSelector) chainaccess.ContractTransmitter {
-	destCfg, ok := f.destChainConfigs[chainSelector]
-	if !ok || destCfg.OffRampAddress == "" || f.transmitterPrivateKey == "" {
-		return nil
+	keyName := executor.DefaultEVMTransmitterKeyName
+	if destCfg.TransmitterKeyName != "" {
+		keyName = destCfg.TransmitterKeyName
 	}
-	rpcURL, hasURL := f.rpcURLs[chainSelector]
-	if !hasURL {
-		f.lggr.Warnw("No RPC URL for chain, ContractTransmitter will be unavailable", "chainSelector", chainSelector)
-		return nil
-	}
-	ct, err := contracttransmitter.NewEVMContractTransmitterFromRPC(
-		ctx,
-		f.lggr,
-		chainSelector,
-		rpcURL,
-		f.transmitterPrivateKey,
-		common.HexToAddress(destCfg.OffRampAddress),
-	)
-	if err != nil {
-		f.lggr.Warnw("Failed to create EVM contract transmitter, ContractTransmitter will be unavailable", "chainSelector", chainSelector, "error", err)
-		return nil
-	}
-	return ct
+
+	rpcURL := f.rpcURLs[chainSelector]
+	return newAccessor(f.lggr, chainSelector, rpcURL, offRampAddr, keyName, evmSourceReader, evmDestReader, nil), nil
 }
 
 type accessor struct {
 	sourceReader        chainaccess.SourceReader
 	destinationReader   chainaccess.DestinationReader
 	contractTransmitter chainaccess.ContractTransmitter
+
+	// stored for lazy keystore transmitter construction via SetKeystore
+	lggr          logger.Logger
+	chainSelector protocol.ChainSelector
+	rpcURL        string
+	offRampAddr   common.Address
+	keyName       string
 }
 
-func newAccessor(sourceReader chainaccess.SourceReader, destinationReader chainaccess.DestinationReader, contractTransmitter chainaccess.ContractTransmitter) chainaccess.Accessor {
+func newAccessor(
+	lggr logger.Logger,
+	chainSelector protocol.ChainSelector,
+	rpcURL string,
+	offRampAddr common.Address,
+	keyName string,
+	sourceReader chainaccess.SourceReader,
+	destinationReader chainaccess.DestinationReader,
+	contractTransmitter chainaccess.ContractTransmitter,
+) chainaccess.Accessor {
 	return &accessor{
+		lggr:                lggr,
+		chainSelector:       chainSelector,
+		rpcURL:              rpcURL,
+		offRampAddr:         offRampAddr,
+		keyName:             keyName,
 		sourceReader:        sourceReader,
 		destinationReader:   destinationReader,
 		contractTransmitter: contractTransmitter,
 	}
+}
+
+// SetKeystore builds and installs a keystore-backed ContractTransmitter. No-op when ks is nil,
+// keyName is empty, or no RPC URL is available for this chain.
+func (a *accessor) SetKeystore(ks keystore.Keystore) {
+	if ks == nil || a.keyName == "" || a.rpcURL == "" || a.offRampAddr == (common.Address{}) {
+		a.lggr.Warnw("skipping keystore contract transmitter setup due to missing parameter",
+			"chainSelector", a.chainSelector,
+			"keyNameSet", a.keyName != "",
+			"rpcURLSet", a.rpcURL != "",
+			"offRampAddrSet", a.offRampAddr != (common.Address{}))
+		return
+	}
+	ct, err := contracttransmitter.NewEVMContractTransmitterFromKeystore(
+		context.Background(),
+		a.lggr,
+		a.chainSelector,
+		a.rpcURL,
+		ks,
+		a.keyName,
+		a.offRampAddr,
+	)
+	if err != nil {
+		a.lggr.Warnw("Failed to create keystore contract transmitter", "chainSelector", a.chainSelector, "error", err)
+		return
+	}
+	a.contractTransmitter = ct
 }
 
 func (a *accessor) SourceReader() (chainaccess.SourceReader, error) {

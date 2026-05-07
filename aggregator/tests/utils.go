@@ -2,6 +2,7 @@ package tests
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"os"
 	"testing"
@@ -17,6 +18,8 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/monitoring"
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/storage"
+	"github.com/smartcontractkit/chainlink-ccv/common/messagerules"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
@@ -24,6 +27,7 @@ import (
 	hmacutil "github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
 	committeepb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/committee-verifier/v1"
 	msgdiscoverypb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/message-discovery/v1"
+	messagerulespb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/message-rules/v1"
 	verifierpb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/verifier/v1"
 )
 
@@ -39,6 +43,23 @@ type ClientConfig struct {
 }
 
 type ConfigOption = func(*model.AggregatorConfig, *ClientConfig) (*model.AggregatorConfig, *ClientConfig)
+
+type MessageRulesControl struct {
+	store   messagerules.Store
+	refresh func(context.Context) error
+}
+
+func (c *MessageRulesControl) Create(ctx context.Context, data messagerules.RuleData) (messagerules.Rule, error) {
+	return c.store.Create(ctx, data)
+}
+
+func (c *MessageRulesControl) Delete(ctx context.Context, id string) error {
+	return c.store.Delete(ctx, id)
+}
+
+func (c *MessageRulesControl) Refresh(ctx context.Context) error {
+	return c.refresh(ctx)
+}
 
 func WithCommitteeConfig(committeeConfig *model.Committee) ConfigOption {
 	return func(cfg *model.AggregatorConfig, clientCfg *ClientConfig) (*model.AggregatorConfig, *ClientConfig) {
@@ -106,8 +127,33 @@ func CreateServerAndClient(t *testing.T, options ...ConfigOption) (committeepb.C
 	return aggregatorClient, ccvDataClient, messageDiscoveryClient, cleanup, nil
 }
 
+func CreateServerAndClientWithMessageRulesControl(t *testing.T, options ...ConfigOption) (committeepb.CommitteeVerifierClient, verifierpb.VerifierClient, msgdiscoverypb.MessageDiscoveryClient, *MessageRulesControl, func(), error) {
+	listener, control, serverCleanup, err := CreateServerOnlyWithMessageRulesControl(t, options...)
+	if err != nil {
+		return nil, nil, nil, nil, nil, err
+	}
+
+	aggregatorClient, ccvDataClient, messageDiscoveryClient, clientCleanup := CreateAuthenticatedClient(
+		t,
+		listener,
+		options...,
+	)
+
+	cleanup := func() {
+		clientCleanup()
+		serverCleanup()
+	}
+
+	return aggregatorClient, ccvDataClient, messageDiscoveryClient, control, cleanup, nil
+}
+
 // CreateServerOnly creates and starts a test gRPC server using bufconn for in-memory communication.
 func CreateServerOnly(t *testing.T, options ...ConfigOption) (*bufconn.Listener, func(), error) {
+	listener, _, cleanup, err := CreateServerOnlyWithMessageRulesControl(t, options...)
+	return listener, cleanup, err
+}
+
+func CreateServerOnlyWithMessageRulesControl(t *testing.T, options ...ConfigOption) (*bufconn.Listener, *MessageRulesControl, func(), error) {
 	buf := bufconn.Listen(bufSize)
 	lggr, err := logger.NewWith(logging.DevelopmentConfig(zapcore.DebugLevel))
 	require.NoError(t, err)
@@ -151,6 +197,7 @@ func CreateServerOnly(t *testing.T, options ...ConfigOption) (*bufconn.Listener,
 			DefaultLimits: map[string]model.RateLimitConfig{
 				// Generous defaults for tests - 10000 requests per second
 				msgdiscoverypb.MessageDiscovery_GetMessagesSince_FullMethodName:                    {LimitPerSecond: 10000},
+				messagerulespb.MessageRules_ListMessageRules_FullMethodName:                        {LimitPerSecond: 10000},
 				verifierpb.Verifier_GetVerifierResultsForMessage_FullMethodName:                    {LimitPerSecond: 10000},
 				committeepb.CommitteeVerifier_WriteCommitteeVerifierNodeResult_FullMethodName:      {LimitPerSecond: 10000},
 				committeepb.CommitteeVerifier_BatchWriteCommitteeVerifierNodeResult_FullMethodName: {LimitPerSecond: 10000},
@@ -174,9 +221,20 @@ func CreateServerOnly(t *testing.T, options ...ConfigOption) (*bufconn.Listener,
 	// Setup PostgreSQL storage
 	storageConfig, cleanupStorage, err := setupPostgresStorage(t, config.Storage)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	config.Storage = storageConfig
+
+	rawRuleStore, err := storage.NewStorageFactory(sugaredLggr).CreateStorage(config.Storage, &monitoring.NoopAggregatorMonitoring{})
+	if err != nil {
+		cleanupStorage()
+		return nil, nil, nil, err
+	}
+	messageRulesStore, ok := rawRuleStore.(messagerules.Store)
+	if !ok {
+		cleanupStorage()
+		return nil, nil, nil, fmt.Errorf("test storage does not implement message rules store")
+	}
 
 	s := agg.NewServer(sugaredLggr, config, &monitoring.NoopAggregatorMonitoring{})
 	err = s.Start(buf)
@@ -184,11 +242,18 @@ func CreateServerOnly(t *testing.T, options ...ConfigOption) (*bufconn.Listener,
 		t.Fatalf("failed to start server: %v", err)
 	}
 
+	control := &MessageRulesControl{
+		store: messageRulesStore,
+		refresh: func(ctx context.Context) error {
+			return s.RefreshMessageDisablementRules(ctx)
+		},
+	}
+
 	cleanup := func() {
 		cleanupStorage()
 	}
 
-	return buf, cleanup, nil
+	return buf, control, cleanup, nil
 }
 
 // CreateAuthenticatedClient creates a gRPC client with optional HMAC authentication.

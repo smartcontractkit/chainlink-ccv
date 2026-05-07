@@ -205,8 +205,8 @@ func runUSDCTestCase(
 ) {
 	sender := mustGetSenderAddress(t, sourceChain)
 
-	srcToken := getTokenAddress(t, in, sourceSelector, "")
-	destToken := getTokenAddress(t, in, destSelector, "")
+	srcToken := getUSDCTokenAddress(t, in, sourceSelector)
+	destToken := getUSDCTokenAddress(t, in, destSelector)
 
 	startBal, err := destChain.GetTokenBalance(ctx, tc.receiver, destToken)
 	require.NoError(t, err)
@@ -314,8 +314,8 @@ func runLombardTestCase(
 ) {
 	sender := mustGetSenderAddress(t, sourceChain)
 
-	srcToken := getTokenAddress(t, in, sourceSelector, common.LombardContractsQualifier)
-	destToken := getTokenAddress(t, in, destSelector, common.LombardContractsQualifier)
+	srcToken := getLombardTokenAddress(t, in, sourceSelector)
+	destToken := getLombardTokenAddress(t, in, destSelector)
 
 	startBal, err := destChain.GetTokenBalance(ctx, tc.receiver, destToken)
 	require.NoError(t, err)

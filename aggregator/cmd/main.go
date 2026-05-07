@@ -3,19 +3,26 @@ package main
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"net"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 	"time"
 
+	"github.com/jmoiron/sqlx"
+	_ "github.com/lib/pq"
+	"github.com/urfave/cli"
 	"go.uber.org/zap/zapcore"
 
+	messagedisablementcli "github.com/smartcontractkit/chainlink-ccv/aggregator/cli/messagedisablement"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/configuration"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/monitoring"
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/storage/postgres"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
 	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
@@ -25,7 +32,6 @@ import (
 )
 
 func main() {
-	// Determine log level from environment variable, defaulting to "info"
 	logLevelStr := os.Getenv("LOG_LEVEL")
 	if logLevelStr == "" {
 		logLevelStr = "info"
@@ -35,30 +41,94 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Invalid LOG_LEVEL '%s', defaulting to 'info'\n", logLevelStr)
 		zapLevel = zapcore.InfoLevel
 	}
-	lggr, err := logger.NewWith(logging.DevelopmentConfig(zapLevel))
+	lggr, err := logger.NewWith(logging.GetLogProfile(zapLevel))
 	if err != nil {
 		panic(fmt.Sprintf("Failed to create logger: %v", err))
 	}
 	lggr = logger.Named(lggr, "aggregator")
-
 	sugaredLggr := logger.Sugared(lggr)
 
-	filePath, ok := os.LookupEnv("AGGREGATOR_CONFIG_PATH")
-	if !ok {
-		filePath = aggregator.DefaultConfigFile
+	var (
+		messageDisablementRulesDB   *sql.DB
+		messageDisablementRulesDeps messagedisablementcli.Deps
+	)
+
+	getMessageDisablementRulesDepsFn := func() messagedisablementcli.Deps {
+		return messageDisablementRulesDeps
 	}
-	if len(os.Args) > 1 {
-		filePath = os.Args[1]
+
+	app := cli.NewApp()
+	app.Name = filepath.Base(os.Args[0])
+	app.Usage = "Aggregator service and message disablement CLI"
+	app.Flags = []cli.Flag{
+		cli.StringFlag{
+			Name:   "config, c",
+			Usage:  "Path to config file",
+			EnvVar: "AGGREGATOR_CONFIG_PATH",
+			Value:  aggregator.DefaultConfigFile,
+		},
 	}
-	config, err := configuration.LoadConfig(filePath, sugaredLggr)
+
+	app.Action = func(c *cli.Context) error {
+		runServer(c.String("config"), lggr, sugaredLggr)
+		return nil
+	}
+
+	app.Commands = []cli.Command{
+		{
+			Name:  "message-disablement-rules",
+			Usage: "Create, delete, or inspect message disablement rules",
+			Before: func(c *cli.Context) error {
+				cfg, err := configuration.LoadConfig(c.GlobalString("config"), sugaredLggr)
+				if err != nil {
+					return fmt.Errorf("failed to load config: %w", err)
+				}
+				if err := cfg.LoadFromEnvironment(); err != nil {
+					return fmt.Errorf("failed to load config from environment: %w", err)
+				}
+				db, err := sql.Open("postgres", cfg.Storage.ConnectionURL)
+				if err != nil {
+					return fmt.Errorf("failed to open database: %w", err)
+				}
+				messageDisablementRulesDB = db
+				sqlxDB := sqlx.NewDb(db, "postgres")
+				store := postgres.NewDatabaseStorage(sqlxDB, cfg.Storage.PageSize, cfg.Storage.QueryTimeout, sugaredLggr)
+				messageDisablementRulesDeps = messagedisablementcli.Deps{
+					Logger: lggr,
+					Store:  store,
+				}
+				return nil
+			},
+			After: func(c *cli.Context) error {
+				if messageDisablementRulesDB == nil {
+					return nil
+				}
+				if err := messageDisablementRulesDB.Close(); err != nil {
+					return fmt.Errorf("failed to close database: %w", err)
+				}
+				messageDisablementRulesDB = nil
+				return nil
+			},
+			Subcommands: messagedisablementcli.InitMessageDisablementRulesCommandsWithFactory(getMessageDisablementRulesDepsFn),
+		},
+	}
+
+	if err := app.Run(os.Args); err != nil {
+		fmt.Fprintf(os.Stderr, "%v\n", err)
+		os.Exit(1)
+	}
+}
+
+func runServer(configPath string, lggr logger.Logger, sugaredLggr logger.SugaredLogger) {
+	config, err := configuration.LoadConfig(configPath, sugaredLggr)
 	if err != nil {
-		lggr.Errorw("Failed to load configuration", "path", filePath, "error", err)
+		lggr.Errorw("Failed to load configuration", "path", configPath, "error", err)
 		os.Exit(1)
 	}
 	lggr.Infow("Loaded configuration", "config", config)
 
 	if err := config.LoadFromEnvironment(); err != nil {
-		lggr.Errorw("Failed to load configuration from environment", "path", filePath, "error", err)
+		lggr.Errorw("Failed to load configuration from environment", "path", configPath, "error", err)
 		os.Exit(1)
 	}
 	lggr.Infow("Successfully loaded configuration from environment variables")

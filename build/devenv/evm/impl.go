@@ -32,7 +32,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/deployment/finality"
 
 	adapters_1_6_1 "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_1/adapters"
-	rmn_remote_binding "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/v1_6_0/rmn_remote"
 
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/create2_factory"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/erc20_lock_box"
@@ -56,11 +55,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_0/operations/rmn_remote"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/adapters"
 	ccipChangesets "github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/changesets"
-	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
-	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
-	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
-	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/lombard"
 	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
@@ -70,6 +64,12 @@ import (
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/clclient"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/simple_node_set"
+
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
+	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
+	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/lombard"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 
@@ -1752,114 +1752,6 @@ func (m *CCIP17EVM) ManuallyExecuteMessage(
 	return event, nil
 }
 
-// ============================================================================
-// RMN Curse Operations
-// ============================================================================
-
-// getRMNRemoteAddress returns the RMN Remote contract address for a given chain.
-func (m *CCIP17EVM) getRMNRemoteAddress() (common.Address, error) {
-	rmnRemoteRef, err := m.e.DataStore.Addresses().Get(
-		datastore.NewAddressRefKey(
-			m.chainDetails.ChainSelector,
-			datastore.ContractType(rmn_remote.ContractType),
-			rmn_remote.Version,
-			"",
-		),
-	)
-	if err != nil {
-		return common.Address{}, fmt.Errorf("failed to get RMN Remote address for chain %d: %w", m.chainDetails.ChainSelector, err)
-	}
-	return common.HexToAddress(rmnRemoteRef.Address), nil
-}
-
-func (m *CCIP17EVM) getRMNRemote() (*rmn_remote_binding.RMNRemote, error) {
-	rmnRemoteAddr, err := m.getRMNRemoteAddress()
-	if err != nil {
-		return nil, err
-	}
-
-	rmnRemote, err := rmn_remote_binding.NewRMNRemote(rmnRemoteAddr, m.ethClient)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create RMN Remote contract binding: %w", err)
-	}
-	return rmnRemote, nil
-}
-
-// Curse applies curses to the RMN Remote contract on a given chain.
-// The subjects parameter contains the curse subjects (either chain selectors or global curse).
-func (m *CCIP17EVM) Curse(ctx context.Context, subjects [][16]byte) error {
-	rmnRemote, err := m.getRMNRemote()
-	if err != nil {
-		return err
-	}
-
-	// Get deployer key for transaction signing
-	txOpts := m.e.BlockChains.EVMChains()[m.chainDetails.ChainSelector].DeployerKey
-	if txOpts == nil {
-		return fmt.Errorf("deployer key not found for chain %d", m.chainDetails.ChainSelector)
-	}
-
-	// Call Curse method
-	tx, err := rmnRemote.Curse0(txOpts, subjects)
-	if err != nil {
-		return fmt.Errorf("failed to call Curse on RMN Remote: %w", err)
-	}
-
-	// Wait for transaction receipt
-	receipt, err := bind.WaitMined(ctx, m.ethClient, tx.Hash())
-	if err != nil {
-		return fmt.Errorf("failed to wait for curse transaction: %w", err)
-	}
-	if receipt.Status != types.ReceiptStatusSuccessful {
-		return fmt.Errorf("curse transaction failed")
-	}
-
-	m.logger.Info().
-		Uint64("chain", m.chainDetails.ChainSelector).
-		Str("tx", tx.Hash().Hex()).
-		Int("numSubjects", len(subjects)).
-		Msg("Cursed subjects on chain")
-
-	return nil
-}
-
-// Uncurse removes curses from the RMN Remote contract on a given chain.
-// The subjects parameter contains the curse subjects to remove (either chain selectors or global curse).
-func (m *CCIP17EVM) Uncurse(ctx context.Context, subjects [][16]byte) error {
-	rmnRemote, err := m.getRMNRemote()
-	if err != nil {
-		return err
-	}
-
-	// Get deployer key for transaction signing
-	txOpts := m.e.BlockChains.EVMChains()[m.chainDetails.ChainSelector].DeployerKey
-	if txOpts == nil {
-		return fmt.Errorf("deployer key not found for chain %d", m.chainDetails.ChainSelector)
-	}
-
-	tx, err := rmnRemote.Uncurse0(txOpts, subjects)
-	if err != nil {
-		return fmt.Errorf("failed to call Uncurse on RMN Remote: %w", err)
-	}
-
-	// Wait for transaction receipt
-	receipt, err := bind.WaitMined(ctx, m.ethClient, tx.Hash())
-	if err != nil {
-		return fmt.Errorf("failed to wait for uncurse transaction: %w", err)
-	}
-	if receipt.Status != types.ReceiptStatusSuccessful {
-		return fmt.Errorf("uncurse transaction failed")
-	}
-
-	m.logger.Info().
-		Uint64("chain", m.chainDetails.ChainSelector).
-		Str("tx", tx.Hash().Hex()).
-		Int("numSubjects", len(subjects)).
-		Msg("Applied uncurse on chain")
-
-	return nil
-}
-
 func (m *CCIP17EVM) GetRoundRobinUser() func() *bind.TransactOpts {
 	if len(m.chain.Users) == 0 {
 		return func() *bind.TransactOpts {
@@ -2193,7 +2085,7 @@ func (m *CCIP17EVM) BuildV3ExtraArgs(
 	destChain cciptestinterfaces.MessageV3Destination,
 	executorArgsParams any,
 	tokenArgsParams any,
-) ([]byte, error) {
+) (cciptestinterfaces.GenericExtraArgs, error) {
 	execArgs, err := destChain.GetExecutorArgs(executorArgsParams)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get executor args: %w", err)
@@ -2213,10 +2105,10 @@ func (m *CCIP17EVM) BuildV3ExtraArgs(
 	})
 }
 
-func (m *CCIP17EVM) GetExecutorArgs(opts any) ([]byte, error) {
+func (m *CCIP17EVM) GetExecutorArgs(_ any) (cciptestinterfaces.MessageV3ExecutorArgs, error) {
 	return nil, nil
 }
 
-func (m *CCIP17EVM) GetTokenArgs(opts any) ([]byte, error) {
+func (m *CCIP17EVM) GetTokenArgs(_ any) (cciptestinterfaces.MessageV3TokenArgs, error) {
 	return nil, nil
 }

@@ -2,6 +2,7 @@ package ccv
 
 import (
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -23,6 +24,7 @@ import (
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
 
+	_ "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/adapters"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
@@ -35,7 +37,6 @@ import (
 	ccvadapters "github.com/smartcontractkit/chainlink-ccv/deployment/adapters"
 	ccvchangesets "github.com/smartcontractkit/chainlink-ccv/deployment/changesets"
 	ccvshared "github.com/smartcontractkit/chainlink-ccv/deployment/shared"
-	_ "github.com/smartcontractkit/chainlink-ccv/evm"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/commit"
@@ -536,11 +537,8 @@ func buildEnvironmentTopology(in *Cfg, e *deployment.Environment) *ccvdeployment
 // It returns a map of container name -> job spec.
 // The ds parameter is a mutable datastore that will be updated with the changeset output.
 func generateExecutorJobSpecs(
-	ctx context.Context,
 	e *deployment.Environment,
 	in *Cfg,
-	selectors []uint64,
-	impls []cciptestinterfaces.CCIP17Configuration,
 	topology *ccvdeployment.EnvironmentTopology,
 	ds datastore.MutableDataStore,
 ) (map[string]bootstrap.JobSpec, error) {
@@ -615,63 +613,6 @@ func generateExecutorJobSpecs(
 		}
 	}
 
-	// Set transmitter keys using family-specific key generation
-	for _, exec := range in.Executor {
-		family := exec.ChainFamily
-		if family == "" {
-			family = chainsel.FamilyEVM
-		}
-		fac, facErr := GetImplFactory(family)
-		if facErr != nil {
-			return nil, fmt.Errorf("no impl factory for executor chain family %q: %w", family, facErr)
-		}
-		pk, pkErr := fac.GenerateTransmitterKey()
-		if pkErr != nil {
-			return nil, fmt.Errorf("failed to generate transmitter key for family %q: %w", family, pkErr)
-		}
-		exec.TransmitterPrivateKey = pk
-	}
-
-	// Build executor transmitter addresses grouped by chain family so each chain
-	// only funds addresses in its native format.
-	addressesByFamily := make(map[string][]protocol.UnknownAddress)
-	for _, exec := range in.Executor {
-		family := exec.ChainFamily
-		if family == "" {
-			family = chainsel.FamilyEVM
-		}
-		fac, facErr := GetImplFactory(family)
-		if facErr != nil {
-			return nil, fmt.Errorf("no impl factory for executor chain family %q: %w", family, facErr)
-		}
-		addressesByFamily[family] = append(
-			addressesByFamily[family],
-			exec.GetTransmitterAddress(fac.TransmitterAddress),
-		)
-	}
-
-	Plog.Info().Any("AddressesByFamily", addressesByFamily).Int("ImplsLen", len(impls)).Msg("Funding executors")
-	for i, impl := range impls {
-		family, famErr := blockchain.TypeToFamily(in.Blockchains[i].Type)
-		if famErr != nil {
-			continue
-		}
-		fac, facErr := GetImplFactory(string(family))
-		if facErr != nil || !fac.SupportsFunding() {
-			continue
-		}
-		addresses := addressesByFamily[string(family)]
-		if len(addresses) == 0 {
-			continue
-		}
-
-		Plog.Info().Int("ImplIndex", i).Msg("Funding executor")
-		if err := impl.FundAddresses(ctx, in.Blockchains[i], addresses, big.NewInt(5)); err != nil {
-			return nil, fmt.Errorf("failed to fund addresses for executors: %w", err)
-		}
-		Plog.Info().Int("ImplIndex", i).Msg("Funded executors")
-	}
-
 	return executorJobSpecs, nil
 }
 
@@ -683,7 +624,6 @@ func generateExecutorJobSpecs(
 func generateVerifierJobSpecs(
 	e *deployment.Environment,
 	in *Cfg,
-	selectors []uint64,
 	topology *ccvdeployment.EnvironmentTopology,
 	sharedTLSCerts *services.TLSCertPaths,
 	ds datastore.MutableDataStore,
@@ -1427,7 +1367,7 @@ func NewEnvironment() (in *Cfg, err error) {
 	// START: Launch executors //
 	/////////////////////////////
 
-	executorJobSpecs, err := generateExecutorJobSpecs(ctx, e, in, selectors, impls, topology, ds)
+	executorJobSpecs, err := generateExecutorJobSpecs(e, in, topology, ds)
 	if err != nil {
 		return nil, err
 	}
@@ -1435,6 +1375,10 @@ func NewEnvironment() (in *Cfg, err error) {
 	_, err = launchExecutors(in.Executor, blockchainOutputs, jdInfra)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create executors: %w", err)
+	}
+
+	if err := fundExecutorTransmitters(ctx, in.Executor, in.Blockchains, impls); err != nil {
+		return nil, fmt.Errorf("failed to fund executor transmitters: %w", err)
 	}
 
 	if jdInfra != nil && jdInfra.OffchainClient != nil {
@@ -1454,7 +1398,7 @@ func NewEnvironment() (in *Cfg, err error) {
 	// START: Launch verifiers //
 	/////////////////////////////
 
-	verifierJobSpecs, err := generateVerifierJobSpecs(e, in, selectors, topology, sharedTLSCerts, ds)
+	verifierJobSpecs, err := generateVerifierJobSpecs(e, in, topology, sharedTLSCerts, ds)
 	if err != nil {
 		return nil, err
 	}
@@ -1802,6 +1746,58 @@ func launchCLNodes(
 	Plog.Info().Any("OnchainPublicKeys", onchainPublicKeys).Msg("Onchain public keys for all nodes")
 
 	return onchainPublicKeys, nil
+}
+
+// fundExecutorTransmitters funds the EVM transmitter addresses of all executors after launch.
+// Addresses are derived from the keystore key exposed by the bootstrap HTTP server.
+func fundExecutorTransmitters(
+	ctx context.Context,
+	executors []*executorsvc.Input,
+	blockchains []*blockchain.Input,
+	impls []cciptestinterfaces.CCIP17Configuration,
+) error {
+	addressesByFamily := make(map[string][]protocol.UnknownAddress)
+	for _, exec := range executors {
+		if exec == nil {
+			continue
+		}
+		if exec.Out == nil || exec.Out.BootstrapKeys.EVMTransmitterAddress == "" {
+			continue
+		}
+		family := exec.ChainFamily
+		if family == "" {
+			family = chainsel.FamilyEVM
+		}
+		addrBytes, err := hex.DecodeString(exec.Out.BootstrapKeys.EVMTransmitterAddress)
+		if err != nil {
+			return fmt.Errorf("invalid EVM transmitter address for executor %s: %w", exec.ContainerName, err)
+		}
+		addressesByFamily[family] = append(addressesByFamily[family], protocol.UnknownAddress(addrBytes))
+	}
+
+	for i, impl := range impls {
+		if i >= len(blockchains) {
+			break
+		}
+		family, famErr := blockchain.TypeToFamily(blockchains[i].Type)
+		if famErr != nil {
+			continue
+		}
+		fac, facErr := GetImplFactory(string(family))
+		if facErr != nil || !fac.SupportsFunding() {
+			continue
+		}
+		addresses := addressesByFamily[string(family)]
+		if len(addresses) == 0 {
+			continue
+		}
+		Plog.Info().Int("ImplIndex", i).Msg("Funding executor transmitters")
+		if err := impl.FundAddresses(ctx, blockchains[i], addresses, big.NewInt(5)); err != nil {
+			return fmt.Errorf("failed to fund executor transmitters: %w", err)
+		}
+		Plog.Info().Int("ImplIndex", i).Msg("Funded executor transmitters")
+	}
+	return nil
 }
 
 // launchExecutors starts executor containers for all Standalone-mode inputs.

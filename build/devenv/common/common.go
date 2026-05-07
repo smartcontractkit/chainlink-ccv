@@ -65,11 +65,28 @@ type TokenCombination struct {
 	expectedVerifierResults int
 }
 
+func poolDescription(poolType, poolVersion string, ccvQualifiers []string) string {
+	return fmt.Sprintf("%s %s %v", poolType, poolVersion, ccvQualifiers)
+}
+
+func poolPairQualifier(a, b string) string {
+	if a > b {
+		a, b = b, a
+	}
+	return fmt.Sprintf("TEST (%s, %s)", a, b)
+}
+
+func poolInstanceQualifier(poolDesc, counterpartPoolDesc string) string {
+	return fmt.Sprintf("%s::%s", poolPairQualifier(poolDesc, counterpartPoolDesc), poolDesc)
+}
+
 // LocalPoolAddressRef returns the address ref for the local token pool.
 func (s TokenCombination) LocalPoolAddressRef() datastore.AddressRef {
 	qualifier := s.localPoolQualifier
 	if qualifier == "" {
-		qualifier = fmt.Sprintf("TEST (%s %s %v to %s %s %v)", s.localPoolType, s.localPoolVersion, s.localPoolCCVQualifiers, s.remotePoolType, s.remotePoolVersion, s.remotePoolCCVQualifiers)
+		localPoolDesc := poolDescription(s.localPoolType, s.localPoolVersion, s.localPoolCCVQualifiers)
+		remotePoolDesc := poolDescription(s.remotePoolType, s.remotePoolVersion, s.remotePoolCCVQualifiers)
+		qualifier = poolInstanceQualifier(localPoolDesc, remotePoolDesc)
 	}
 	return datastore.AddressRef{
 		Type:      datastore.ContractType(s.localPoolType),
@@ -82,7 +99,9 @@ func (s TokenCombination) LocalPoolAddressRef() datastore.AddressRef {
 func (s TokenCombination) RemotePoolAddressRef() datastore.AddressRef {
 	qualifier := s.remotePoolQualifier
 	if qualifier == "" {
-		qualifier = fmt.Sprintf("TEST (%s %s %v to %s %s %v)", s.remotePoolType, s.remotePoolVersion, s.remotePoolCCVQualifiers, s.localPoolType, s.localPoolVersion, s.localPoolCCVQualifiers)
+		remotePoolDesc := poolDescription(s.remotePoolType, s.remotePoolVersion, s.remotePoolCCVQualifiers)
+		localPoolDesc := poolDescription(s.localPoolType, s.localPoolVersion, s.localPoolCCVQualifiers)
+		qualifier = poolInstanceQualifier(remotePoolDesc, localPoolDesc)
 	}
 	return datastore.AddressRef{
 		Type:      datastore.ContractType(s.remotePoolType),
