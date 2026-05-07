@@ -42,6 +42,9 @@ func (n *NoopMetricLabeler) SetRemoteChainCursed(_ context.Context, _, _ protoco
 
 func (n *NoopMetricLabeler) SetLocalChainGlobalCursed(_ context.Context, _ protocol.ChainSelector, _ bool) {
 }
+
+func (n *NoopMetricLabeler) SetMessageDisablementRulesRefreshFailure(_ context.Context, _ int64) {}
+
 func (n *NoopMetricLabeler) IncrementActiveRequestsCounter(_ context.Context) {}
 func (n *NoopMetricLabeler) IncrementHTTPRequestCounter(_ context.Context)    {}
 func (n *NoopMetricLabeler) DecrementActiveRequestsCounter(_ context.Context) {}

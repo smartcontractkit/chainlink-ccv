@@ -2,6 +2,7 @@ package commit
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
@@ -25,6 +26,11 @@ type Config struct {
 	// Should match or be less than the aggregator's server maxSendMsgSizeBytes setting.
 	// If 0 or not set, defaults to 4MB.
 	AggregatorMaxRecvMsgSizeBytes int `toml:"aggregator_max_recv_msg_size_bytes"`
+
+	// MessageDisablementRulesPollInterval is how often to refresh message disablement rules from the aggregator. Zero uses the integration package default.
+	MessageDisablementRulesPollInterval time.Duration `toml:"message_disablement_rules_poll_interval"`
+	// MessageDisablementRulesClientTimeout is the timeout for each ListMessageRules RPC. Zero uses the integration package default.
+	MessageDisablementRulesClientTimeout time.Duration `toml:"message_disablement_rules_client_timeout"`
 
 	SignerAddress string `toml:"signer_address"`
 

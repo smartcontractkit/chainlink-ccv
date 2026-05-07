@@ -17,15 +17,19 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/aggregatorcli"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/logasserter"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/verifiercli"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 )
 
 // aggregatorRefreshBuffer is the time to wait after a CLI mutation for the
-// aggregator registry to pick up the DB change. The devenv template sets
-// messageDisablementRules.refreshInterval = "2s", so 5s gives a comfortable margin.
-const aggregatorRefreshBuffer = 5 * time.Second
+// aggregator registry and verifier message-rules poller to pick up the DB
+// change. The devenv template and verifier default poll every 2s, so 10s gives
+// a comfortable margin across both loops.
+const aggregatorRefreshBuffer = 10 * time.Second
 
 func TestE2ESmoke_AggregatorMessageDisablementRulesCLI(t *testing.T) {
 	smokeTestConfig := GetSmokeTestConfig()
@@ -75,13 +79,15 @@ func TestE2ESmoke_AggregatorMessageDisablementRulesCLI(t *testing.T) {
 }
 
 // TestE2ESmoke_AggregatorLaneDisablementRule validates the full user-visible
-// behavior of aggregator message disablement rules across three phases:
+// behavior of aggregator message disablement rules:
 //
-//  1. Unrelated lane — while the lane between chains[0] and chains[1] is
+//  1. Unrelated lane - while the lane between chains[0] and chains[1] is
 //     disabled, chains[0] -> chains[2] continues to be processed normally.
-//  2. Disabled lane — messages on chains[0] -> chains[1] are rejected by the
-//     aggregator with FailedPrecondition and never reach the result store.
-//  3. Recovery — deleting the lane rule restores normal processing.
+//  2. Disabled lane - messages on chains[0] -> chains[1] are dropped by the
+//     verifier and never reach the result store.
+//  3. Replay - deleting the rule alone does not replay a dropped message once
+//     the verifier checkpoint has advanced; rewinding the committee checkpoint
+//     makes the original message process normally.
 func TestE2ESmoke_AggregatorLaneDisablementRule(t *testing.T) {
 	smokeTestConfig := GetSmokeTestConfig()
 	in, err := ccv.LoadOutput[ccv.Cfg](smokeTestConfig)
@@ -110,7 +116,16 @@ func TestE2ESmoke_AggregatorLaneDisablementRule(t *testing.T) {
 	blockedSrcSelector := blockedSrc.Details.ChainSelector
 	blockedDestSelector := blockedDest.Details.ChainSelector
 	allowedDestSelector := allowedDest.Details.ChainSelector
-	messageOpts := messageDisablementOptions(t, in, blockedSrcSelector)
+	progressable, ok := blockedSrc.CCIP17.(cciptestinterfaces.ProgressableChain)
+	if !ok {
+		t.Skip("source chain does not implement ProgressableChain; skipping message-disablement replay smoke test")
+	}
+	require.True(t, progressable.SupportManualBlockProgress(ctx),
+		"source chain must support manual block progression with automining enabled; run with env-src-auto-mine.toml")
+	advanceBlocks := func(numBlocks int) {
+		require.NoError(t, progressable.AdvanceBlocks(ctx, numBlocks), "advance %d blocks", numBlocks)
+		time.Sleep(3 * time.Second)
+	}
 
 	receiverOnBlockedDest := mustGetEOAReceiverAddress(t, blockedDest)
 	receiverOnAllowedDest := mustGetEOAReceiverAddress(t, allowedDest)
@@ -131,63 +146,63 @@ func TestE2ESmoke_AggregatorLaneDisablementRule(t *testing.T) {
 
 	time.Sleep(aggregatorRefreshBuffer)
 
+	committee := newVerifierCommitteeClientForSmoke(t, in)
+	committee.ResumeAllBestEffort(ctx)
+	t.Cleanup(func() { committee.ResumeAllBestEffort(ctx) })
+
+	logAssert := logasserter.New(DefaultLokiURL, zerolog.Ctx(ctx).With().Str("component", "log-asserter").Logger())
+	require.NoError(t, logAssert.StartStreaming(ctx, []logasserter.LogStage{
+		logasserter.MessageReachedVerifier(),
+		logasserter.MessageDroppedInVerifier(),
+	}))
+	t.Cleanup(logAssert.StopStreaming)
+
+	messageOpts := committeeV3MessageOptions(t, in, blockedSrcSelector)
+
 	// Phase A: chains[0] -> chains[2] is unrelated to the disabled lane.
-	seqNoAllowed, err := blockedSrc.GetExpectedNextSequenceNumber(ctx, allowedDestSelector)
-	require.NoError(t, err)
-	_, err = blockedSrc.SendMessage(ctx, allowedDestSelector,
+	sentEvtAllowed := sendMessageAndConfirm(t, ctx, blockedSrc, allowedDestSelector,
 		cciptestinterfaces.MessageFields{Receiver: receiverOnAllowedDest},
-		messageOpts,
-		messageDisablementMessageVersion)
-	require.NoError(t, err)
-	sentEvtAllowed, err := blockedSrc.ConfirmSendOnSource(ctx, allowedDestSelector, cciptestinterfaces.MessageEventKey{SeqNum: seqNoAllowed}, defaultSentTimeout)
-	require.NoError(t, err)
+		messageOpts, 3)
+	advanceBlocks(verifier.ConfirmationDepth + 5)
+	requireAggregatorResult(t, ctx, aggregatorClient, sentEvtAllowed.MessageID, "message on unrelated lane should still reach the aggregator")
 
-	allowedCtx, cancelAllowed := context.WithTimeout(ctx, 45*time.Second)
-	defer cancelAllowed()
-	_, err = aggregatorClient.WaitForVerifierResultForMessage(allowedCtx, sentEvtAllowed.MessageID, 500*time.Millisecond)
-	require.NoError(t, err, "message on unrelated lane should still reach the aggregator")
-
-	// Phase B: chains[0] -> chains[1] is rejected by the lane rule.
-	seqNoBlocked, err := blockedSrc.GetExpectedNextSequenceNumber(ctx, blockedDestSelector)
-	require.NoError(t, err)
-	_, err = blockedSrc.SendMessage(ctx, blockedDestSelector,
+	// Phase B: chains[0] -> chains[1] is dropped by the verifier.
+	sentEvtBlocked := sendMessageAndConfirm(t, ctx, blockedSrc, blockedDestSelector,
 		cciptestinterfaces.MessageFields{Receiver: receiverOnBlockedDest},
-		messageOpts,
-		messageDisablementMessageVersion)
-	require.NoError(t, err)
-	sentEvtBlocked, err := blockedSrc.ConfirmSendOnSource(ctx, blockedDestSelector, cciptestinterfaces.MessageEventKey{SeqNum: seqNoBlocked}, defaultSentTimeout)
-	require.NoError(t, err)
+		messageOpts, 3)
+	advanceBlocks(verifier.ConfirmationDepth / 5)
+	reachedCtx, cancelReached := context.WithTimeout(ctx, 60*time.Second)
+	defer cancelReached()
+	_, err = logAssert.WaitForStage(reachedCtx, sentEvtBlocked.MessageID, logasserter.MessageReachedVerifier())
+	require.NoError(t, err, "message should reach verifier pending queue before it is dropped")
+	dropCtx, cancelDrop := context.WithTimeout(ctx, 60*time.Second)
+	defer cancelDrop()
+	_, err = logAssert.WaitForStage(dropCtx, sentEvtBlocked.MessageID, logasserter.MessageDroppedInVerifier())
+	require.NoError(t, err, "message should be dropped in verifier due to message disablement rule")
+	requireNoAggregatorResult(t, ctx, aggregatorClient, sentEvtBlocked.MessageID, "message should not be in aggregator while lane rule exists")
 
-	time.Sleep(20 * time.Second)
-	notProcessedCtx, cancelNotProcessed := context.WithTimeout(ctx, 5*time.Second)
-	defer cancelNotProcessed()
-	_, err = aggregatorClient.GetVerifierResultForMessage(notProcessedCtx, sentEvtBlocked.MessageID)
-	require.Error(t, err, "message should not be in aggregator while lane rule exists")
+	// Move the checkpoint past the dropped message while the rule is active. Removing the
+	// rule alone should not replay it; replay requires an operator checkpoint rewind.
+	advanceBlocks(verifier.ConfirmationDepth*3 + 30)
+	requireNoAggregatorResult(t, ctx, aggregatorClient, sentEvtBlocked.MessageID, "dropped message should not reach aggregator while rule exists")
 
-	// Phase C: deleting the rule restores the lane.
 	_, err = rulesClient.Delete(cliCtx, ruleID)
 	require.NoError(t, err, "CLI delete lane rule should succeed")
 	time.Sleep(aggregatorRefreshBuffer)
+	advanceBlocks(verifier.ConfirmationDepth + 5)
+	requireNoAggregatorResult(t, ctx, aggregatorClient, sentEvtBlocked.MessageID, "dropped message should not reappear after rule deletion alone")
 
-	seqNoRecovery, err := blockedSrc.GetExpectedNextSequenceNumber(ctx, blockedDestSelector)
-	require.NoError(t, err)
-	_, err = blockedSrc.SendMessage(ctx, blockedDestSelector,
-		cciptestinterfaces.MessageFields{Receiver: receiverOnBlockedDest},
-		messageOpts,
-		messageDisablementMessageVersion)
-	require.NoError(t, err)
-	sentEvtRecovery, err := blockedSrc.ConfirmSendOnSource(ctx, blockedDestSelector, cciptestinterfaces.MessageEventKey{SeqNum: seqNoRecovery}, defaultSentTimeout)
-	require.NoError(t, err)
+	require.NoError(t, committee.RewindFinalizedHeight(ctx,
+		verifiercli.FormatChainSelector(blockedSrcSelector), verifiercli.FormatBlockHeight(0)),
+		"rewind committee finalized height")
 
-	recoveryCtx, cancelRecovery := context.WithTimeout(ctx, 45*time.Second)
-	defer cancelRecovery()
-	_, err = aggregatorClient.WaitForVerifierResultForMessage(recoveryCtx, sentEvtRecovery.MessageID, 500*time.Millisecond)
-	require.NoError(t, err, "message should reach the aggregator after lane rule is deleted")
+	advanceBlocks(verifier.ConfirmationDepth*2 + 10)
+	requireAggregatorResult(t, ctx, aggregatorClient, sentEvtBlocked.MessageID, "dropped message should be reprocessed after checkpoint rewind")
 }
 
 // TestE2ESmoke_AggregatorChainDisablementRule validates that a Chain rule
-// blocks any message touching the configured selector while unrelated chains
-// keep flowing.
+// drops any message touching the configured selector while unrelated chains
+// keep flowing, and that dropped messages require a checkpoint rewind to replay.
 func TestE2ESmoke_AggregatorChainDisablementRule(t *testing.T) {
 	smokeTestConfig := GetSmokeTestConfig()
 	in, err := ccv.LoadOutput[ccv.Cfg](smokeTestConfig)
@@ -213,10 +228,19 @@ func TestE2ESmoke_AggregatorChainDisablementRule(t *testing.T) {
 	src := chains[0]
 	blockedDest := chains[1]
 	allowedDest := chains[2]
-	srcSelector := src.Details.ChainSelector
 	blockedDestSelector := blockedDest.Details.ChainSelector
 	allowedDestSelector := allowedDest.Details.ChainSelector
-	messageOpts := messageDisablementOptions(t, in, srcSelector)
+	srcSelector := src.Details.ChainSelector
+	progressable, ok := src.CCIP17.(cciptestinterfaces.ProgressableChain)
+	if !ok {
+		t.Skip("source chain does not implement ProgressableChain; skipping message-disablement replay smoke test")
+	}
+	require.True(t, progressable.SupportManualBlockProgress(ctx),
+		"source chain must support manual block progression with automining enabled; run with env-src-auto-mine.toml")
+	advanceBlocks := func(numBlocks int) {
+		require.NoError(t, progressable.AdvanceBlocks(ctx, numBlocks), "advance %d blocks", numBlocks)
+		time.Sleep(3 * time.Second)
+	}
 
 	ac := aggregatorcli.NewClient(in.Aggregator[0].Out.AggregatorContainerName)
 	rulesClient := ac.MessageDisablementRules()
@@ -234,29 +258,57 @@ func TestE2ESmoke_AggregatorChainDisablementRule(t *testing.T) {
 
 	time.Sleep(aggregatorRefreshBuffer)
 
+	committee := newVerifierCommitteeClientForSmoke(t, in)
+	committee.ResumeAllBestEffort(ctx)
+	t.Cleanup(func() { committee.ResumeAllBestEffort(ctx) })
+
+	logAssert := logasserter.New(DefaultLokiURL, zerolog.Ctx(ctx).With().Str("component", "log-asserter").Logger())
+	require.NoError(t, logAssert.StartStreaming(ctx, []logasserter.LogStage{
+		logasserter.MessageReachedVerifier(),
+		logasserter.MessageDroppedInVerifier(),
+	}))
+	t.Cleanup(logAssert.StopStreaming)
+
+	messageOpts := committeeV3MessageOptions(t, in, srcSelector)
+
 	allowedSent := sendMessageAndConfirm(t, ctx, src, allowedDestSelector,
 		cciptestinterfaces.MessageFields{Receiver: mustGetEOAReceiverAddress(t, allowedDest)},
-		messageOpts)
+		messageOpts, 3)
+	advanceBlocks(verifier.ConfirmationDepth + 5)
 	requireAggregatorResult(t, ctx, aggregatorClient, allowedSent.MessageID, "message on unrelated chain should still reach the aggregator")
 
 	blockedSent := sendMessageAndConfirm(t, ctx, src, blockedDestSelector,
 		cciptestinterfaces.MessageFields{Receiver: mustGetEOAReceiverAddress(t, blockedDest)},
-		messageOpts)
+		messageOpts, 3)
+	advanceBlocks(verifier.ConfirmationDepth / 5)
+	reachedCtx, cancelReached := context.WithTimeout(ctx, 60*time.Second)
+	defer cancelReached()
+	_, err = logAssert.WaitForStage(reachedCtx, blockedSent.MessageID, logasserter.MessageReachedVerifier())
+	require.NoError(t, err, "message should reach verifier pending queue before it is dropped")
+	dropCtx, cancelDrop := context.WithTimeout(ctx, 60*time.Second)
+	defer cancelDrop()
+	_, err = logAssert.WaitForStage(dropCtx, blockedSent.MessageID, logasserter.MessageDroppedInVerifier())
+	require.NoError(t, err, "message should be dropped in verifier due to message disablement rule")
 	requireNoAggregatorResult(t, ctx, aggregatorClient, blockedSent.MessageID, "message touching disabled chain should not be in aggregator")
+
+	advanceBlocks(verifier.ConfirmationDepth*3 + 30)
+	requireNoAggregatorResult(t, ctx, aggregatorClient, blockedSent.MessageID, "dropped message should not reach aggregator while rule exists")
 
 	_, err = rulesClient.Delete(cliCtx, ruleID)
 	require.NoError(t, err, "CLI delete chain rule should succeed")
 	time.Sleep(aggregatorRefreshBuffer)
+	advanceBlocks(verifier.ConfirmationDepth + 5)
+	requireNoAggregatorResult(t, ctx, aggregatorClient, blockedSent.MessageID, "dropped message should not reappear after rule deletion alone")
 
-	recoverySent := sendMessageAndConfirm(t, ctx, src, blockedDestSelector,
-		cciptestinterfaces.MessageFields{Receiver: mustGetEOAReceiverAddress(t, blockedDest)},
-		messageOpts)
-	requireAggregatorResult(t, ctx, aggregatorClient, recoverySent.MessageID, "message should reach the aggregator after chain rule is deleted")
+	require.NoError(t, committee.RewindFinalizedHeight(ctx,
+		verifiercli.FormatChainSelector(srcSelector), verifiercli.FormatBlockHeight(0)),
+		"rewind committee finalized height")
+
+	advanceBlocks(verifier.ConfirmationDepth*2 + 10)
+	requireAggregatorResult(t, ctx, aggregatorClient, blockedSent.MessageID, "dropped message should be reprocessed after checkpoint rewind")
 }
 
-const messageDisablementMessageVersion uint8 = 3
-
-func messageDisablementOptions(t *testing.T, in *ccv.Cfg, srcSelector uint64) cciptestinterfaces.MessageOptions {
+func committeeV3MessageOptions(t *testing.T, in *ccv.Cfg, srcSelector uint64) cciptestinterfaces.MessageOptions {
 	t.Helper()
 
 	executorAddr := getContractAddress(t, in, srcSelector,
@@ -284,13 +336,14 @@ func sendMessageAndConfirm(
 	src cciptestinterfaces.CCIP17,
 	destSelector uint64,
 	fields cciptestinterfaces.MessageFields,
-	opts cciptestinterfaces.MessageOptions,
+	extraArgs cciptestinterfaces.ExtraArgsDataProvider,
+	messageVersion uint8,
 ) cciptestinterfaces.MessageSentEvent {
 	t.Helper()
 
 	seqNo, err := src.GetExpectedNextSequenceNumber(ctx, destSelector)
 	require.NoError(t, err)
-	_, err = src.SendMessage(ctx, destSelector, fields, opts, messageDisablementMessageVersion)
+	_, err = src.SendMessage(ctx, destSelector, fields, extraArgs, messageVersion)
 	require.NoError(t, err)
 	sentEvt, err := src.ConfirmSendOnSource(ctx, destSelector, cciptestinterfaces.MessageEventKey{SeqNum: seqNo}, defaultSentTimeout)
 	require.NoError(t, err)
@@ -314,4 +367,26 @@ func requireNoAggregatorResult(t *testing.T, ctx context.Context, aggregatorClie
 	defer cancel()
 	_, err := aggregatorClient.GetVerifierResultForMessage(notProcessedCtx, messageID)
 	require.Error(t, err, msg)
+}
+
+func newVerifierCommitteeClientForSmoke(t *testing.T, in *ccv.Cfg) *verifiercli.CommitteeClient {
+	t.Helper()
+
+	require.GreaterOrEqual(t, len(in.Verifier), 1)
+	require.NotNil(t, in.Verifier[0].Out)
+	verifierID := in.Verifier[0].Out.VerifierID
+	require.NotEmpty(t, verifierID)
+
+	var members []*verifiercli.Client
+	for _, v := range in.Verifier {
+		if v.Out == nil || v.Out.VerifierID != verifierID {
+			continue
+		}
+		require.NotEmpty(t, v.Out.ContainerName, "verifier container name must be set")
+		members = append(members, verifiercli.NewClient(v.Out.ContainerName))
+	}
+
+	committee, err := verifiercli.NewCommitteeClient(verifierID, members...)
+	require.NoError(t, err)
+	return committee
 }

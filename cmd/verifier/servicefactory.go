@@ -16,6 +16,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/heartbeatclient"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/messagerules"
 	"github.com/smartcontractkit/chainlink-ccv/integration/storageaccess"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -243,6 +244,30 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 		heartbeat.NewHeartbeatMonitoringAdapter(verifierMonitoring),
 	)
 
+	messageRulesClient, err := messagerules.NewGRPCClient(
+		config.AggregatorAddress,
+		lggr,
+		hmacConfig,
+		config.InsecureAggregatorConnection,
+		config.AggregatorMaxRecvMsgSizeBytes,
+	)
+	if err != nil {
+		lggr.Errorw("Failed to create message rules gRPC client", "error", err)
+		return fmt.Errorf("failed to create message rules client: %w", err)
+	}
+
+	messageRulesPoller, err := messagerules.NewPollerService(
+		messageRulesClient,
+		config.MessageDisablementRulesPollInterval,
+		config.MessageDisablementRulesClientTimeout,
+		logger.With(lggr, "component", "MessageRulesPoller"),
+		verifierMonitoring.Metrics(),
+	)
+	if err != nil {
+		lggr.Errorw("Failed to create message rules poller", "error", err)
+		return fmt.Errorf("failed to create message rules poller: %w", err)
+	}
+
 	messageTracker := monitoring.NewMessageLatencyTracker(
 		lggr,
 		config.VerifierID,
@@ -259,6 +284,7 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 		verifierMonitoring,
 		chainStatusManager,
 		observedHeartbeatClient,
+		messageRulesPoller,
 		chainStatusDB,
 	)
 	if err != nil {
