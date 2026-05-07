@@ -75,7 +75,7 @@ jobs:
             working-directory: build/devenv/tests/e2e
           - name: TestE2ESmoke_AggregatorMessageDisablementRules
             run_cmd: TestE2ESmoke_Aggregator(MessageDisablementRulesCLI|LaneDisablementRule|ChainDisablementRule)
-            config: env.toml
+            config: env.toml,env-src-auto-mine.toml
             timeout: 10m
             working-directory: build/devenv/tests/e2e
     steps:
