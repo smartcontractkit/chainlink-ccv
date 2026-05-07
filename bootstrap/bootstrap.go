@@ -297,7 +297,7 @@ func connectToDB(ctx context.Context, connStr string) (*sqlx.DB, error) {
 }
 
 func newServiceDeps(keyStore keystore.Keystore, logLevel zapcore.Level, name string) (ServiceDeps, error) {
-	lggr, err := logger.NewWith(logging.DevelopmentConfig(logLevel))
+	lggr, err := logger.NewWith(logging.GetLogProfile(logLevel))
 	if err != nil {
 		return ServiceDeps{}, fmt.Errorf("failed to create logger: %w", err)
 	}
@@ -410,7 +410,7 @@ func Run(
 	fac ServiceFactory,
 	opts ...Option,
 ) error {
-	lggr, err := logger.NewWith(logging.DevelopmentConfig(zapcore.InfoLevel))
+	lggr, err := logger.NewWith(logging.GetLogProfile(zapcore.InfoLevel))
 	if err != nil {
 		return fmt.Errorf("failed to create logger: %w", err)
 	}

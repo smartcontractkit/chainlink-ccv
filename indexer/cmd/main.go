@@ -42,7 +42,7 @@ func main() {
 		panic(err)
 	}
 
-	lggr, err := logger.NewWith(logging.DevelopmentConfig(logLevel))
+	lggr, err := logger.NewWith(logging.GetLogProfile(logLevel))
 	if err != nil {
 		panic(fmt.Sprintf("Failed to create logger: %v", err))
 	}
