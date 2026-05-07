@@ -256,10 +256,19 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 		return fmt.Errorf("failed to create message rules client: %w", err)
 	}
 
+	messageRulesPollInterval, err := config.MessageDisablementRulesPollIntervalDuration()
+	if err != nil {
+		return fmt.Errorf("message disablement rules poll interval: %w", err)
+	}
+	messageRulesClientTimeout, err := config.MessageDisablementRulesClientTimeoutDuration()
+	if err != nil {
+		return fmt.Errorf("message disablement rules client timeout: %w", err)
+	}
+
 	messageRulesPoller, err := messagerules.NewPollerService(
 		messageRulesClient,
-		config.MessageDisablementRulesPollInterval,
-		config.MessageDisablementRulesClientTimeout,
+		messageRulesPollInterval,
+		messageRulesClientTimeout,
 		logger.With(lggr, "component", "MessageRulesPoller"),
 		verifierMonitoring.Metrics(),
 	)

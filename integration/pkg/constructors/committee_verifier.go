@@ -214,10 +214,19 @@ func NewVerificationCoordinator(
 		return nil, fmt.Errorf("failed to create message rules client: %w", err)
 	}
 
+	messageRulesPollInterval, err := cfg.MessageDisablementRulesPollIntervalDuration()
+	if err != nil {
+		return nil, fmt.Errorf("message disablement rules poll interval: %w", err)
+	}
+	messageRulesClientTimeout, err := cfg.MessageDisablementRulesClientTimeoutDuration()
+	if err != nil {
+		return nil, fmt.Errorf("message disablement rules client timeout: %w", err)
+	}
+
 	messageRulesPoller, err := messagerules.NewPollerService(
 		messageRulesClient,
-		cfg.MessageDisablementRulesPollInterval,
-		cfg.MessageDisablementRulesClientTimeout,
+		messageRulesPollInterval,
+		messageRulesClientTimeout,
 		logger.With(lggr, "component", "MessageRulesPoller"),
 		verifierMonitoring.Metrics(),
 	)
