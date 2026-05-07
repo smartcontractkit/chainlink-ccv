@@ -25,11 +25,6 @@ packages:
       ContractTransmitter:
       RMNCurseReader:
 
-  github.com/digital-asset/dazl-client/v8/go/api/com/daml/ledger/api/v2:
-    interfaces:
-      StateServiceClient:
-      UpdateServiceClient:
-
   github.com/smartcontractkit/chainlink-ccv/common:
     interfaces:
       CurseChecker:
