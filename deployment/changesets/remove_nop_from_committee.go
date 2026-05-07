@@ -1,7 +1,6 @@
 package changesets
 
 import (
-	"context"
 	"fmt"
 	"strings"
 
@@ -128,8 +127,7 @@ func RemoveNOPOffchain(registry *adapters.Registry) deployment.ChangeSetV2[Remov
 		// Safety backstop: assert the removed signer is absent onchain on every dest chain for
 		// every source chain. Catches hook misfires and out-of-order manual invocations.
 		if cfg.RemovedSignerAddress != "" {
-			ctx := context.Background()
-			committeeStates, err := scanCommitteeStatesForChains(ctx, e, registry, cfg.CommitteeQualifier, committeeChains)
+			committeeStates, err := scanCommitteeStatesForChains(e.GetContext(), e, registry, cfg.CommitteeQualifier, committeeChains)
 			if err != nil {
 				return err
 			}

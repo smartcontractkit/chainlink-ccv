@@ -1,7 +1,36 @@
 package changesets
 
+// AddNOP two-entry product overview
+//
+// Adding a NOP to a committee is a coupled, onchain-first operation split across two
+// changesets that must run in order:
+//
+//  1. AddNOPToCommittee (step-1, onchain) — fetches the new NOP's signing address from JD,
+//     reads the current committee state on every dest chain that has this committee
+//     verifier deployed (auto-discovered from the registry), and submits an
+//     applySignatureConfigs call that appends the new signer to each of the specified
+//     source chain configs. No offchain state is touched.
+//
+//  2. AddNOPOffchain (step-2, offchain) — re-reads the now-updated onchain committee
+//     state, regenerates the aggregator config, and writes it to the DataStore for every
+//     listed service identifier. In the same run, verifier jobs for the new NOP are
+//     provisioned via JD. Validate optionally backstops the ordering by asserting the new
+//     signer is already onchain (when ExpectedSignerAddress is set), guarding against
+//     hook misfires or out-of-order manual invocations.
+//
+// Onchain-first ordering is safe for an add: the existing signers already satisfy the
+// current threshold, so appending a new signer cannot raise the quorum requirement.
+//
+// In CLD, step-2 is wired as a post-proposal hook on step-1's MCMS proposal so it runs
+// automatically after timelock execution. Outside of CLD (e.g. devenv), the caller is
+// responsible for invoking step-2 once step-1's transactions have landed onchain.
+//
+// Both steps assume CL mode: signer addresses are fetched from JD by NOPAlias and
+// verifier jobs are managed via JD job proposals. Standalone-NOP support is a follow-up;
+// it would require an alternate signer-address source (e.g. supplied directly in the
+// input) and a different job-management path that does not depend on JD.
+
 import (
-	"context"
 	"fmt"
 	"slices"
 	"strings"
@@ -15,6 +44,13 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/deployment/operations/fetch_signing_keys"
 	"github.com/smartcontractkit/chainlink-ccv/deployment/sequences"
 	"github.com/smartcontractkit/chainlink-ccv/deployment/shared"
+)
+
+// Job proposal label keys/values shared across NOP-management changesets.
+const (
+	jobLabelKeyJobType    = "job_type"
+	jobLabelKeyCommittee  = "committee"
+	jobLabelValueVerifier = "verifier"
 )
 
 // AddNOPToCommitteeInput is the input for step-1 of the AddNOP two-entry product.
@@ -122,7 +158,7 @@ func applySignerChangesOnchain(
 	newThreshold uint8,
 	buildChange func(*adapters.CommitteeState, string, uint8, []uint64) (adapters.SignatureConfigChange, error),
 ) error {
-	ctx := context.Background()
+	ctx := e.GetContext()
 
 	signerAddress, err := fetchSignerAddress(e, nopAlias, signerFamily)
 	if err != nil {
@@ -144,16 +180,16 @@ func applySignerChangesOnchain(
 
 	applied := 0
 	for _, sel := range committeeChains {
-		change, err := buildChange(committeeStates[sel], signerAddress, newThreshold, sourceChainSelectors)
-		if err != nil {
-			return fmt.Errorf("dest chain %d: %w", sel, err)
+		change, buildErr := buildChange(committeeStates[sel], signerAddress, newThreshold, sourceChainSelectors)
+		if buildErr != nil {
+			return fmt.Errorf("dest chain %d: %w", sel, buildErr)
 		}
 		if len(change.NewConfigs) == 0 {
 			continue // this dest chain has no configs for the requested source chains
 		}
 		a, _ := registry.GetByChain(sel)
-		if err := a.CommitteeVerifierOnchain.ApplySignatureConfigs(ctx, e, sel, committeeQualifier, change); err != nil {
-			return fmt.Errorf("dest chain %d: ApplySignatureConfigs failed: %w", sel, err)
+		if applyErr := a.CommitteeVerifierOnchain.ApplySignatureConfigs(ctx, e, sel, committeeQualifier, change); applyErr != nil {
+			return fmt.Errorf("dest chain %d: ApplySignatureConfigs failed: %w", sel, applyErr)
 		}
 		applied++
 	}
@@ -222,8 +258,7 @@ func AddNOPOffchain(registry *adapters.Registry) deployment.ChangeSetV2[AddNOPOf
 		// Safety backstop: assert the new signer is present onchain on every dest chain for
 		// every source chain. Catches hook misfires and out-of-order manual invocations.
 		if cfg.ExpectedSignerAddress != "" {
-			ctx := context.Background()
-			committeeStates, err := scanCommitteeStatesForChains(ctx, e, registry, cfg.CommitteeQualifier, committeeChains)
+			committeeStates, err := scanCommitteeStatesForChains(e.GetContext(), e, registry, cfg.CommitteeQualifier, committeeChains)
 			if err != nil {
 				return err
 			}
@@ -358,8 +393,8 @@ func provisionVerifierJobForNOP(
 			JobSpecs:      jobSpecs,
 			AffectedScope: scope,
 			Labels: map[string]string{
-				"job_type":  "verifier",
-				"committee": cfg.CommitteeQualifier,
+				jobLabelKeyJobType:   jobLabelValueVerifier,
+				jobLabelKeyCommittee: cfg.CommitteeQualifier,
 			},
 			NOPs: sequences.NOPContext{
 				Modes:      map[shared.NOPAlias]shared.NOPMode{cfg.NOPAlias: shared.NOPModeCL},

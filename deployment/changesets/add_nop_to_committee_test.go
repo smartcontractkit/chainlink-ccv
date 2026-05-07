@@ -307,6 +307,7 @@ func TestAddNOPOffchain_Validation_BackstopPassesWhenSignerPresent(t *testing.T)
 	env := deployment.Environment{
 		BlockChains: newTestBlockChains([]uint64{sel1}),
 		DataStore:   datastore.NewMemoryDataStore().Seal(),
+		GetContext:  func() context.Context { return context.Background() },
 	}
 
 	err := cs.VerifyPreconditions(env, AddNOPOffchainInput{
@@ -343,6 +344,7 @@ func TestAddNOPOffchain_Validation_BackstopFailsWhenSignerAbsent(t *testing.T) {
 	env := deployment.Environment{
 		BlockChains: newTestBlockChains([]uint64{sel1}),
 		DataStore:   datastore.NewMemoryDataStore().Seal(),
+		GetContext:  func() context.Context { return context.Background() },
 	}
 
 	err := cs.VerifyPreconditions(env, AddNOPOffchainInput{
