@@ -22,8 +22,6 @@ import (
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
 
-func ptr[T any](t T) *T { return new(t) }
-
 func TestPricer(t *testing.T) {
 	t.Skip("flaky")
 
