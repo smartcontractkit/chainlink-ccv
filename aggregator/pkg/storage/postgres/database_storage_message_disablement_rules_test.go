@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/messagedisablement"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/testutil"
+	messagerules "github.com/smartcontractkit/chainlink-ccv/common/messagerules"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -31,13 +31,15 @@ func TestDatabaseStorage_MessageDisablementRules_CreateGetDelete(t *testing.T) {
 	defer cleanup()
 	ctx := context.Background()
 
-	chainData, err := messagedisablement.NewChainRuleData(1001)
+	chainData, err := messagerules.NewChainRuleData(1001)
 	require.NoError(t, err)
-	created, err := storage.Create(ctx, messagedisablement.RuleTypeChain, chainData)
+	created, err := storage.Create(ctx, chainData)
 	require.NoError(t, err)
 	require.NotEmpty(t, created.ID)
-	assert.Equal(t, messagedisablement.RuleTypeChain, created.Type)
-	assert.JSONEq(t, `{"chain_selector":1001}`, string(created.Data))
+	assert.Equal(t, messagerules.RuleTypeChain, created.Type)
+	_, raw, err := messagerules.EncodeRuleData(created.Data)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"chain_selector":1001}`, string(raw))
 	assert.False(t, created.CreatedAt.IsZero())
 	assert.False(t, created.UpdatedAt.IsZero())
 
@@ -59,25 +61,27 @@ func TestDatabaseStorage_MessageDisablementRules_ListWithTypeFilter(t *testing.T
 	defer cleanup()
 	ctx := context.Background()
 
-	chainData, err := messagedisablement.NewChainRuleData(1001)
+	chainData, err := messagerules.NewChainRuleData(1001)
 	require.NoError(t, err)
-	tokenData, err := messagedisablement.NewTokenRuleData(2002, "0xABCDEF")
+	tokenData, err := messagerules.NewTokenRuleData(2002, "0xABCDEF")
 	require.NoError(t, err)
-	_, err = storage.Create(ctx, messagedisablement.RuleTypeChain, chainData)
+	_, err = storage.Create(ctx, chainData)
 	require.NoError(t, err)
-	_, err = storage.Create(ctx, messagedisablement.RuleTypeToken, tokenData)
+	_, err = storage.Create(ctx, tokenData)
 	require.NoError(t, err)
 
 	allRules, err := storage.List(ctx, nil)
 	require.NoError(t, err)
 	assert.Len(t, allRules, 2)
 
-	ruleType := messagedisablement.RuleTypeToken
+	ruleType := messagerules.RuleTypeToken
 	tokenRules, err := storage.List(ctx, &ruleType)
 	require.NoError(t, err)
 	require.Len(t, tokenRules, 1)
-	assert.Equal(t, messagedisablement.RuleTypeToken, tokenRules[0].Type)
-	assert.JSONEq(t, `{"chain_selector":2002,"token_address":"0xabcdef"}`, string(tokenRules[0].Data))
+	assert.Equal(t, messagerules.RuleTypeToken, tokenRules[0].Type)
+	_, raw, err := messagerules.EncodeRuleData(tokenRules[0].Data)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"chain_selector":2002,"token_address":"0xabcdef"}`, string(raw))
 }
 
 func TestDatabaseStorage_MessageDisablementRules_DuplicatePrevention(t *testing.T) {
@@ -87,21 +91,21 @@ func TestDatabaseStorage_MessageDisablementRules_DuplicatePrevention(t *testing.
 	defer cleanup()
 	ctx := context.Background()
 
-	laneData, err := messagedisablement.NewLaneRuleData(1001, 2002)
+	laneData, err := messagerules.NewLaneRuleData(1001, 2002)
 	require.NoError(t, err)
-	_, err = storage.Create(ctx, messagedisablement.RuleTypeLane, laneData)
+	_, err = storage.Create(ctx, laneData)
 	require.NoError(t, err)
 
-	reversedLaneData, err := messagedisablement.NewLaneRuleData(2002, 1001)
+	reversedLaneData, err := messagerules.NewLaneRuleData(2002, 1001)
 	require.NoError(t, err)
-	_, err = storage.Create(ctx, messagedisablement.RuleTypeLane, reversedLaneData)
+	_, err = storage.Create(ctx, reversedLaneData)
 	require.Error(t, err)
 
-	chainData, err := messagedisablement.NewChainRuleData(3003)
+	chainData, err := messagerules.NewChainRuleData(3003)
 	require.NoError(t, err)
-	_, err = storage.Create(ctx, messagedisablement.RuleTypeChain, chainData)
+	_, err = storage.Create(ctx, chainData)
 	require.NoError(t, err)
-	_, err = storage.Create(ctx, messagedisablement.RuleTypeChain, chainData)
+	_, err = storage.Create(ctx, chainData)
 	require.Error(t, err)
 }
 
@@ -112,15 +116,17 @@ func TestDatabaseStorage_MessageDisablementRules_LargeChainSelector(t *testing.T
 	defer cleanup()
 	ctx := context.Background()
 
-	data, err := messagedisablement.NewChainRuleData(math.MaxUint64)
+	data, err := messagerules.NewChainRuleData(math.MaxUint64)
 	require.NoError(t, err)
-	created, err := storage.Create(ctx, messagedisablement.RuleTypeChain, data)
+	created, err := storage.Create(ctx, data)
 	require.NoError(t, err)
 
 	got, err := storage.Get(ctx, created.ID)
 	require.NoError(t, err)
 	require.NotNil(t, got)
-	assert.JSONEq(t, `{"chain_selector":18446744073709551615}`, string(got.Data))
+	_, raw, err := messagerules.EncodeRuleData(got.Data)
+	require.NoError(t, err)
+	assert.JSONEq(t, `{"chain_selector":18446744073709551615}`, string(raw))
 }
 
 func TestDatabaseStorage_MessageDisablementRules_NotFoundAndValidation(t *testing.T) {
@@ -134,9 +140,9 @@ func TestDatabaseStorage_MessageDisablementRules_NotFoundAndValidation(t *testin
 	require.Error(t, err)
 	assert.Nil(t, got)
 
-	err = storage.Delete(ctx, messagedisablement.NewRuleID())
+	err = storage.Delete(ctx, messagerules.NewRuleID())
 	require.Error(t, err)
 
-	_, err = storage.Create(ctx, messagedisablement.RuleTypeChain, []byte(`{"chain_selector":0}`))
+	_, err = messagerules.NewChainRuleData(0)
 	require.Error(t, err)
 }

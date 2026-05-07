@@ -7,7 +7,7 @@ import (
 
 	"github.com/olekukonko/tablewriter"
 
-	rules "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/messagedisablement"
+	rules "github.com/smartcontractkit/chainlink-ccv/common/messagerules"
 )
 
 func renderList(disablementRules []rules.Rule) error {
@@ -20,10 +20,14 @@ func renderList(disablementRules []rules.Rule) error {
 	table.SetHeader([]string{"ID", "Type", "Data", "Created At", "Updated At"})
 	table.SetBorder(false)
 	for _, rule := range disablementRules {
+		_, data, err := rules.EncodeRuleData(rule.Data)
+		if err != nil {
+			return err
+		}
 		table.Append([]string{
 			rule.ID,
 			string(rule.Type),
-			string(rule.Data),
+			string(data),
 			formatTime(rule.CreatedAt),
 			formatTime(rule.UpdatedAt),
 		})

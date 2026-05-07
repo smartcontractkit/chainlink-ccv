@@ -1,6 +1,8 @@
 package messagerules
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -22,9 +24,13 @@ const (
 type Rule struct {
 	ID        string
 	Type      RuleType
-	data      any
+	Data      RuleData
 	CreatedAt time.Time
 	UpdatedAt time.Time
+}
+
+type RuleData interface {
+	ruleType() RuleType
 }
 
 type ChainRuleData struct {
@@ -39,6 +45,35 @@ type LaneRuleData struct {
 type TokenRuleData struct {
 	ChainSelector uint64 `json:"chain_selector"`
 	TokenAddress  string `json:"token_address"`
+}
+
+func (ChainRuleData) ruleType() RuleType { return RuleTypeChain }
+func (LaneRuleData) ruleType() RuleType  { return RuleTypeLane }
+func (TokenRuleData) ruleType() RuleType { return RuleTypeToken }
+
+type Store interface {
+	// Create persists a new message disablement rule.
+	Create(ctx context.Context, data RuleData) (Rule, error)
+	// List returns message disablement rules, optionally filtered by type.
+	List(ctx context.Context, ruleType *RuleType) ([]Rule, error)
+	// Get returns a message disablement rule by id, or nil when it does not exist.
+	Get(ctx context.Context, id string) (*Rule, error)
+	// Delete removes a message disablement rule by id.
+	Delete(ctx context.Context, id string) error
+}
+
+func NewRule(id string, data RuleData, createdAt, updatedAt time.Time) (Rule, error) {
+	normalized, err := normalizeRuleData(data)
+	if err != nil {
+		return Rule{}, err
+	}
+	return Rule{
+		ID:        id,
+		Type:      normalized.ruleType(),
+		Data:      normalized,
+		CreatedAt: createdAt,
+		UpdatedAt: updatedAt,
+	}, nil
 }
 
 type MessageReport interface {
@@ -124,12 +159,65 @@ func NormalizeTokenAddress(addr string) (string, error) {
 	return decoded.String(), nil
 }
 
+func NewChainRuleData(selector uint64) (ChainRuleData, error) {
+	return normalizeChainRuleData(ChainRuleData{ChainSelector: selector})
+}
+
+func NewLaneRuleData(selectorA, selectorB uint64) (LaneRuleData, error) {
+	return normalizeLaneRuleData(LaneRuleData{SelectorA: selectorA, SelectorB: selectorB})
+}
+
+func NewTokenRuleData(selector uint64, tokenAddress string) (TokenRuleData, error) {
+	token, err := NormalizeTokenAddress(tokenAddress)
+	if err != nil {
+		return TokenRuleData{}, err
+	}
+	return normalizeTokenRuleData(TokenRuleData{ChainSelector: selector, TokenAddress: token})
+}
+
+func DecodeRuleData(ruleType RuleType, raw []byte) (RuleData, error) {
+	switch ruleType {
+	case RuleTypeChain:
+		var data ChainRuleData
+		if err := json.Unmarshal(raw, &data); err != nil {
+			return nil, fmt.Errorf("invalid Chain rule data: %w", err)
+		}
+		return normalizeChainRuleData(data)
+	case RuleTypeLane:
+		var data LaneRuleData
+		if err := json.Unmarshal(raw, &data); err != nil {
+			return nil, fmt.Errorf("invalid Lane rule data: %w", err)
+		}
+		return normalizeLaneRuleData(data)
+	case RuleTypeToken:
+		var data TokenRuleData
+		if err := json.Unmarshal(raw, &data); err != nil {
+			return nil, fmt.Errorf("invalid Token rule data: %w", err)
+		}
+		return normalizeTokenRuleData(data)
+	default:
+		return nil, fmt.Errorf("unknown rule type %q", ruleType)
+	}
+}
+
+func EncodeRuleData(data RuleData) (RuleType, []byte, error) {
+	normalized, err := normalizeRuleData(data)
+	if err != nil {
+		return "", nil, err
+	}
+	raw, err := json.Marshal(normalized)
+	if err != nil {
+		return "", nil, err
+	}
+	return normalized.ruleType(), raw, nil
+}
+
 func (r Rule) ChainData() (ChainRuleData, error) {
 	if r.Type != RuleTypeChain {
 		return ChainRuleData{}, fmt.Errorf("rule type is %s, not Chain", r.Type)
 	}
 
-	data, ok := r.data.(ChainRuleData)
+	data, ok := r.Data.(ChainRuleData)
 	if !ok {
 		return ChainRuleData{}, fmt.Errorf("rule data is not a ChainRuleData")
 	}
@@ -140,7 +228,7 @@ func (r Rule) LaneData() (LaneRuleData, error) {
 	if r.Type != RuleTypeLane {
 		return LaneRuleData{}, fmt.Errorf("rule type is %s, not Lane", r.Type)
 	}
-	data, ok := r.data.(LaneRuleData)
+	data, ok := r.Data.(LaneRuleData)
 	if !ok {
 		return LaneRuleData{}, fmt.Errorf("rule data is not a LaneRuleData")
 	}
@@ -151,9 +239,56 @@ func (r Rule) TokenData() (TokenRuleData, error) {
 	if r.Type != RuleTypeToken {
 		return TokenRuleData{}, fmt.Errorf("rule type is %s, not Token", r.Type)
 	}
-	data, ok := r.data.(TokenRuleData)
+	data, ok := r.Data.(TokenRuleData)
 	if !ok {
 		return TokenRuleData{}, fmt.Errorf("rule data is not a TokenRuleData")
 	}
+	return data, nil
+}
+
+func normalizeRuleData(data RuleData) (RuleData, error) {
+	switch data := data.(type) {
+	case ChainRuleData:
+		return normalizeChainRuleData(data)
+	case LaneRuleData:
+		return normalizeLaneRuleData(data)
+	case TokenRuleData:
+		return normalizeTokenRuleData(data)
+	case nil:
+		return nil, errors.New("rule data cannot be nil")
+	default:
+		return nil, fmt.Errorf("unknown rule data type %T", data)
+	}
+}
+
+func normalizeChainRuleData(data ChainRuleData) (ChainRuleData, error) {
+	if data.ChainSelector == 0 {
+		return ChainRuleData{}, errors.New("chain selector cannot be zero")
+	}
+	return data, nil
+}
+
+func normalizeLaneRuleData(data LaneRuleData) (LaneRuleData, error) {
+	if data.SelectorA == 0 || data.SelectorB == 0 {
+		return LaneRuleData{}, errors.New("lane selectors cannot be zero")
+	}
+	if data.SelectorA == data.SelectorB {
+		return LaneRuleData{}, errors.New("lane selectors must be different")
+	}
+	if data.SelectorB < data.SelectorA {
+		data.SelectorA, data.SelectorB = data.SelectorB, data.SelectorA
+	}
+	return data, nil
+}
+
+func normalizeTokenRuleData(data TokenRuleData) (TokenRuleData, error) {
+	if data.ChainSelector == 0 {
+		return TokenRuleData{}, errors.New("chain selector cannot be zero")
+	}
+	token, err := NormalizeTokenAddress(data.TokenAddress)
+	if err != nil {
+		return TokenRuleData{}, err
+	}
+	data.TokenAddress = token
 	return data, nil
 }

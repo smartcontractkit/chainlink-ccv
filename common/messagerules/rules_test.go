@@ -31,17 +31,30 @@ func TestRuleProtoRoundTrip(t *testing.T) {
 	createdAt := time.UnixMilli(1000).UTC()
 	updatedAt := time.UnixMilli(2000).UTC()
 
+	chainData, err := NewChainRuleData(10)
+	require.NoError(t, err)
+	laneData, err := NewLaneRuleData(30, 20)
+	require.NoError(t, err)
+	tokenData, err := NewTokenRuleData(40, "0x0102")
+	require.NoError(t, err)
+	chainRule, err := NewRule("chain", chainData, createdAt, updatedAt)
+	require.NoError(t, err)
+	laneRule, err := NewRule("lane", laneData, createdAt, updatedAt)
+	require.NoError(t, err)
+	tokenRule, err := NewRule("token", tokenData, createdAt, updatedAt)
+	require.NoError(t, err)
+
 	rules := []Rule{
-		{ID: "chain", Type: RuleTypeChain, data: ChainRuleData{ChainSelector: 10}, CreatedAt: createdAt, UpdatedAt: updatedAt},
-		{ID: "lane", Type: RuleTypeLane, data: LaneRuleData{SelectorA: 30, SelectorB: 20}, CreatedAt: createdAt, UpdatedAt: updatedAt},
-		{ID: "token", Type: RuleTypeToken, data: TokenRuleData{ChainSelector: 40, TokenAddress: "0x0102"}, CreatedAt: createdAt, UpdatedAt: updatedAt},
+		chainRule,
+		laneRule,
+		tokenRule,
 	}
 
 	pbRules, err := RulesToProto(rules)
 	require.NoError(t, err)
 	require.Equal(t, uint64(10), pbRules[0].GetChain().GetChainSelector())
-	require.Equal(t, uint64(30), pbRules[1].GetLane().GetSelectorA())
-	require.Equal(t, uint64(20), pbRules[1].GetLane().GetSelectorB())
+	require.Equal(t, uint64(20), pbRules[1].GetLane().GetSelectorA())
+	require.Equal(t, uint64(30), pbRules[1].GetLane().GetSelectorB())
 	require.Equal(t, uint64(40), pbRules[2].GetToken().GetChainSelector())
 	require.Equal(t, []byte{0x01, 0x02}, pbRules[2].GetToken().GetTokenAddress())
 	require.Equal(t, int64(1000), pbRules[0].GetCreatedAtUnixMillis())
@@ -56,18 +69,27 @@ func TestRuleProtoRoundTrip(t *testing.T) {
 	require.Equal(t, createdAt, decoded[0].CreatedAt)
 	require.Equal(t, updatedAt, decoded[0].UpdatedAt)
 
-	tokenRule, err := decoded[2].TokenData()
+	decodedTokenRule, err := decoded[2].TokenData()
 	require.NoError(t, err)
-	require.Equal(t, uint64(40), tokenRule.ChainSelector)
-	require.Equal(t, "0x0102", tokenRule.TokenAddress)
+	require.Equal(t, uint64(40), decodedTokenRule.ChainSelector)
+	require.Equal(t, "0x0102", decodedTokenRule.TokenAddress)
 }
 
 func TestCompiledRulesMatchMessages(t *testing.T) {
-	compiled, err := CompileRules([]Rule{
-		{ID: "chain", Type: RuleTypeChain, data: ChainRuleData{ChainSelector: 10}},
-		{ID: "lane", Type: RuleTypeLane, data: LaneRuleData{SelectorA: 30, SelectorB: 20}},
-		{ID: "token", Type: RuleTypeToken, data: TokenRuleData{ChainSelector: 40, TokenAddress: "0x0102"}},
-	})
+	chainData, err := NewChainRuleData(10)
+	require.NoError(t, err)
+	laneData, err := NewLaneRuleData(30, 20)
+	require.NoError(t, err)
+	tokenData, err := NewTokenRuleData(40, "0x0102")
+	require.NoError(t, err)
+	chainRule, err := NewRule("chain", chainData, time.Time{}, time.Time{})
+	require.NoError(t, err)
+	laneRule, err := NewRule("lane", laneData, time.Time{}, time.Time{})
+	require.NoError(t, err)
+	tokenRule, err := NewRule("token", tokenData, time.Time{}, time.Time{})
+	require.NoError(t, err)
+
+	compiled, err := CompileRules([]Rule{chainRule, laneRule, tokenRule})
 	require.NoError(t, err)
 
 	require.True(t, compiled.IsDisabled(testMessageReport{source: 10, dest: 99}))
@@ -86,6 +108,25 @@ func TestCompiledRulesMatchMessages(t *testing.T) {
 	require.Len(t, snapshot, 3)
 	laneSnapshot, err := snapshot[1].LaneData()
 	require.NoError(t, err)
-	require.Equal(t, uint64(30), laneSnapshot.SelectorA)
-	require.Equal(t, uint64(20), laneSnapshot.SelectorB)
+	require.Equal(t, uint64(20), laneSnapshot.SelectorA)
+	require.Equal(t, uint64(30), laneSnapshot.SelectorB)
+}
+
+func TestRuleDataJSONBoundary(t *testing.T) {
+	laneData, err := DecodeRuleData(RuleTypeLane, []byte(`{"selector_a":30,"selector_b":20}`))
+	require.NoError(t, err)
+
+	ruleType, raw, err := EncodeRuleData(laneData)
+	require.NoError(t, err)
+	require.Equal(t, RuleTypeLane, ruleType)
+	require.JSONEq(t, `{"selector_a":20,"selector_b":30}`, string(raw))
+
+	tokenData, err := DecodeRuleData(RuleTypeToken, []byte(`{"chain_selector":40,"token_address":"AA"}`))
+	require.NoError(t, err)
+	_, raw, err = EncodeRuleData(tokenData)
+	require.NoError(t, err)
+	require.JSONEq(t, `{"chain_selector":40,"token_address":"0xaa"}`, string(raw))
+
+	_, err = DecodeRuleData(RuleTypeChain, []byte(`{"chain_selector":0}`))
+	require.Error(t, err)
 }

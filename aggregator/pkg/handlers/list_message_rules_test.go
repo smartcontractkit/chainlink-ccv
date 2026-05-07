@@ -9,17 +9,17 @@ import (
 	"google.golang.org/grpc/codes"
 	grpcstatus "google.golang.org/grpc/status"
 
-	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/messagedisablement"
+	messagerules "github.com/smartcontractkit/chainlink-ccv/common/messagerules"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	messagepb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/message-rules/v1"
 )
 
 type fakeMessageRulesRegistry struct {
-	rules []messagedisablement.Rule
+	rules []messagerules.Rule
 	ok    bool
 }
 
-func (f fakeMessageRulesRegistry) ActiveRulesSnapshot() ([]messagedisablement.Rule, bool) {
+func (f fakeMessageRulesRegistry) ActiveRulesSnapshot() ([]messagerules.Rule, bool) {
 	return f.rules, f.ok
 }
 
@@ -36,20 +36,22 @@ func TestListMessageRulesHandler_ReturnsActiveRules(t *testing.T) {
 	createdAt := time.UnixMilli(1000).UTC()
 	updatedAt := time.UnixMilli(2000).UTC()
 
-	chainData, err := messagedisablement.NewChainRuleData(10)
+	chainData, err := messagerules.NewChainRuleData(10)
 	require.NoError(t, err)
-	laneData, err := messagedisablement.NewLaneRuleData(20, 10)
+	laneData, err := messagerules.NewLaneRuleData(20, 10)
 	require.NoError(t, err)
-	tokenData, err := messagedisablement.NewTokenRuleData(30, "0x0102")
+	tokenData, err := messagerules.NewTokenRuleData(30, "0x0102")
+	require.NoError(t, err)
+	chainRule, err := messagerules.NewRule("chain", chainData, createdAt, updatedAt)
+	require.NoError(t, err)
+	laneRule, err := messagerules.NewRule("lane", laneData, createdAt, updatedAt)
+	require.NoError(t, err)
+	tokenRule, err := messagerules.NewRule("token", tokenData, createdAt, updatedAt)
 	require.NoError(t, err)
 
 	handler := NewListMessageRulesHandler(fakeMessageRulesRegistry{
-		ok: true,
-		rules: []messagedisablement.Rule{
-			{ID: "chain", Type: messagedisablement.RuleTypeChain, Data: chainData, CreatedAt: createdAt, UpdatedAt: updatedAt},
-			{ID: "lane", Type: messagedisablement.RuleTypeLane, Data: laneData, CreatedAt: createdAt, UpdatedAt: updatedAt},
-			{ID: "token", Type: messagedisablement.RuleTypeToken, Data: tokenData, CreatedAt: createdAt, UpdatedAt: updatedAt},
-		},
+		ok:    true,
+		rules: []messagerules.Rule{chainRule, laneRule, tokenRule},
 	}, logger.Sugared(logger.Test(t)))
 
 	resp, err := handler.Handle(context.Background(), &messagepb.ListMessageRulesRequest{})

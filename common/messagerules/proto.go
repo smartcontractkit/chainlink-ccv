@@ -42,11 +42,7 @@ func RuleToProto(rule Rule) (*messagepb.MessageRule, error) {
 		if err != nil {
 			return nil, err
 		}
-		token, err := NormalizeTokenAddress(data.TokenAddress)
-		if err != nil {
-			return nil, err
-		}
-		tokenBytes, err := protocol.NewByteSliceFromHex(token)
+		tokenBytes, err := protocol.NewByteSliceFromHex(data.TokenAddress)
 		if err != nil {
 			return nil, err
 		}
@@ -82,44 +78,43 @@ func RuleFromProto(rule *messagepb.MessageRule) (Rule, error) {
 		return Rule{}, fmt.Errorf("message rule cannot be nil")
 	}
 
-	out := Rule{
-		ID:        rule.GetId(),
-		CreatedAt: unixMillis(rule.GetCreatedAtUnixMillis()),
-		UpdatedAt: unixMillis(rule.GetUpdatedAtUnixMillis()),
-	}
+	createdAt := unixMillis(rule.GetCreatedAtUnixMillis())
+	updatedAt := unixMillis(rule.GetUpdatedAtUnixMillis())
 
 	switch condition := rule.GetCondition().(type) {
 	case *messagepb.MessageRule_Chain:
 		if condition.Chain == nil {
 			return Rule{}, fmt.Errorf("chain rule condition cannot be nil")
 		}
-		out.Type = RuleTypeChain
-		out.data = ChainRuleData{
-			ChainSelector: condition.Chain.GetChainSelector(),
+		data, err := NewChainRuleData(condition.Chain.GetChainSelector())
+		if err != nil {
+			return Rule{}, err
 		}
+		return NewRule(rule.GetId(), data, createdAt, updatedAt)
 	case *messagepb.MessageRule_Lane:
 		if condition.Lane == nil {
 			return Rule{}, fmt.Errorf("lane rule condition cannot be nil")
 		}
-		out.Type = RuleTypeLane
-		out.data = LaneRuleData{
-			SelectorA: condition.Lane.GetSelectorA(),
-			SelectorB: condition.Lane.GetSelectorB(),
+		data, err := NewLaneRuleData(condition.Lane.GetSelectorA(), condition.Lane.GetSelectorB())
+		if err != nil {
+			return Rule{}, err
 		}
+		return NewRule(rule.GetId(), data, createdAt, updatedAt)
 	case *messagepb.MessageRule_Token:
 		if condition.Token == nil {
 			return Rule{}, fmt.Errorf("token rule condition cannot be nil")
 		}
-		out.Type = RuleTypeToken
-		out.data = TokenRuleData{
-			ChainSelector: condition.Token.GetChainSelector(),
-			TokenAddress:  fmt.Sprintf("0x%x", condition.Token.GetTokenAddress()),
+		data, err := NewTokenRuleData(
+			condition.Token.GetChainSelector(),
+			fmt.Sprintf("0x%x", condition.Token.GetTokenAddress()),
+		)
+		if err != nil {
+			return Rule{}, err
 		}
+		return NewRule(rule.GetId(), data, createdAt, updatedAt)
 	default:
 		return Rule{}, fmt.Errorf("message rule %q has no condition", rule.GetId())
 	}
-
-	return out, nil
 }
 
 func RulesToProto(rules []Rule) ([]*messagepb.MessageRule, error) {

@@ -6,15 +6,15 @@ import (
 	"google.golang.org/grpc/codes"
 	grpcstatus "google.golang.org/grpc/status"
 
-	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/messagedisablement"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/scope"
+	messagerules "github.com/smartcontractkit/chainlink-ccv/common/messagerules"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	messagepb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/message-rules/v1"
 )
 
 type MessageRulesRegistry interface {
 	// ActiveRulesSnapshot returns the active message rules, or false if the registry is not ready.
-	ActiveRulesSnapshot() ([]messagedisablement.Rule, bool)
+	ActiveRulesSnapshot() ([]messagerules.Rule, bool)
 }
 
 type ListMessageRulesHandler struct {
@@ -33,7 +33,7 @@ func (h *ListMessageRulesHandler) Handle(ctx context.Context, _ *messagepb.ListM
 		return nil, grpcstatus.Error(codes.Unavailable, "message rules are not available")
 	}
 
-	pbRules, err := messagedisablement.RulesToProto(rules)
+	pbRules, err := messagerules.RulesToProto(rules)
 	if err != nil {
 		h.logger(ctx).Errorw("Failed to map message rules to proto", "error", err)
 		return nil, grpcstatus.Error(codes.Internal, "failed to list message rules")
