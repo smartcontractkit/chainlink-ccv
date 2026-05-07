@@ -377,7 +377,7 @@ func newVerifierCommitteeClientForSmoke(t *testing.T, in *ccv.Cfg) *verifiercli.
 	verifierID := in.Verifier[0].Out.VerifierID
 	require.NotEmpty(t, verifierID)
 
-	members := make([]*verifiercli.Client, 1)
+	members := make([]*verifiercli.Client, 0)
 	for _, v := range in.Verifier {
 		if v.Out == nil || v.Out.VerifierID != verifierID {
 			continue
