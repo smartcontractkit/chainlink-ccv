@@ -56,6 +56,8 @@ type Coordinator struct {
 	resultQueueObserver services.Service
 
 	monitoring commonmetrics.ServiceMetrics
+
+	messageRulesSvc common.MessageRulesCheckerService
 }
 
 func NewCoordinator(
@@ -68,6 +70,7 @@ func NewCoordinator(
 	monitoring Monitoring,
 	chainStatusManager protocol.ChainStatusManager,
 	heartbeatClient heartbeatclient.HeartbeatSender,
+	messageRulesSvc common.MessageRulesCheckerService,
 	ds sqlutil.DataSource,
 ) (*Coordinator, error) {
 	if ds == nil {
@@ -75,7 +78,7 @@ func NewCoordinator(
 	}
 	return NewCoordinatorWithDetector(
 		lggr, verifier, sourceReaders, storage, config,
-		messageTracker, monitoring, chainStatusManager, nil, heartbeatClient, ds,
+		messageTracker, monitoring, chainStatusManager, nil, heartbeatClient, messageRulesSvc, ds,
 	)
 }
 
@@ -90,6 +93,7 @@ func NewCoordinatorWithDetector(
 	chainStatusManager protocol.ChainStatusManager,
 	detector common.CurseCheckerService,
 	heartbeatClient heartbeatclient.HeartbeatSender,
+	messageRulesSvc common.MessageRulesCheckerService,
 	ds sqlutil.DataSource,
 ) (*Coordinator, error) {
 	if ds == nil {
@@ -99,7 +103,12 @@ func NewCoordinatorWithDetector(
 		return nil, errors.New("verifier is required")
 	}
 	lggr = logger.With(lggr, "verifierID", config.VerifierID)
-	vc := &Coordinator{lggr: lggr, verifierID: config.VerifierID, monitoring: monitoring}
+	vc := &Coordinator{
+		lggr:            lggr,
+		verifierID:      config.VerifierID,
+		monitoring:      monitoring,
+		messageRulesSvc: messageRulesSvc,
+	}
 	vc.initFn = func(ctx context.Context) error {
 		enabledSourceReaders, err := filterOnlyEnabledSourceReaders(ctx, lggr, config, sourceReaders, chainStatusManager)
 		if err != nil {
@@ -113,8 +122,14 @@ func NewCoordinatorWithDetector(
 			return fmt.Errorf("failed to create curse detector: %w", err)
 		}
 		vc.curseDetector = curseDetector
+
+		messageRulesChecker := common.MessageRulesChecker(common.AllowAllMessagesChecker{})
+		if vc.messageRulesSvc != nil {
+			messageRulesChecker = vc.messageRulesSvc
+		}
+
 		processors, err := createDurableProcessors(
-			lggr, ds, config, verifier, monitoring, enabledSourceReaders, chainStatusManager, vc.curseDetector, messageTracker, storage,
+			lggr, ds, config, verifier, monitoring, enabledSourceReaders, chainStatusManager, vc.curseDetector, messageTracker, storage, messageRulesChecker,
 		)
 		if err != nil {
 			return fmt.Errorf("failed to create durable processors: %w", err)
@@ -168,6 +183,7 @@ func createDurableProcessors(
 	curseDetector common.CurseCheckerService,
 	messageTracker MessageLatencyTracker,
 	storage protocol.CCVNodeDataWriter,
+	messageRulesChecker common.MessageRulesChecker,
 ) (*durableProcessors, error) {
 	taskQueue, err := jobqueue.NewPostgresJobQueue[VerificationTask](
 		ds,
@@ -220,7 +236,7 @@ func createDurableProcessors(
 	}
 
 	sourceReadersDB, err := createSourceReadersDB(
-		lggr, config, chainStatusManager, curseDetector, monitoring, enabledSourceReaders, taskQueueObserver,
+		lggr, config, chainStatusManager, curseDetector, monitoring, enabledSourceReaders, taskQueueObserver, messageRulesChecker,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create DB source reader services: %w", err)
@@ -256,6 +272,12 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 		if vc.initFn != nil {
 			if err := vc.initFn(ctx); err != nil {
 				return err
+			}
+		}
+
+		if vc.messageRulesSvc != nil {
+			if err := vc.messageRulesSvc.Start(ctx); err != nil {
+				return fmt.Errorf("failed to start message rules service: %w", err)
 			}
 		}
 
@@ -318,6 +340,7 @@ func createSourceReadersDB(
 	monitoring Monitoring,
 	enabledSourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
 	taskQueue jobqueue.JobQueue[VerificationTask],
+	messageRulesChecker common.MessageRulesChecker,
 ) (map[protocol.ChainSelector]*sourcereader.Service, error) {
 	sourceReaderServices := make(map[protocol.ChainSelector]*sourcereader.Service)
 	for chainSelector, sourceReader := range enabledSourceReaders {
@@ -327,7 +350,7 @@ func createSourceReadersDB(
 		srs, err := sourcereader.NewService(
 			sourceReader, chainSelector, chainStatusManager,
 			logger.With(lggr, "component", "SourceReaderDB", "chainID", chainSelector),
-			sourceCfg, curseDetector, filter, monitoring.Metrics(), taskQueue,
+			sourceCfg, curseDetector, filter, monitoring.Metrics(), taskQueue, messageRulesChecker,
 		)
 		if err != nil {
 			lggr.Errorw("failed to create Service for chain, skipping this chain", "chainSelector", chainSelector, "error", err)
@@ -398,6 +421,12 @@ func (vc *Coordinator) Close() error {
 			}
 		}
 
+		if vc.messageRulesSvc != nil {
+			if err := vc.messageRulesSvc.Close(); err != nil {
+				errs = append(errs, fmt.Errorf("failed to stop message rules service: %w", err))
+			}
+		}
+
 		if vc.taskVerifierProcessor != nil {
 			if err := vc.taskVerifierProcessor.Close(); err != nil {
 				errs = append(errs, fmt.Errorf("failed to stop verifier processor: %w", err))
@@ -464,6 +493,11 @@ func (vc *Coordinator) Name() string {
 func (vc *Coordinator) HealthReport() map[string]error {
 	report := make(map[string]error)
 	report[vc.Name()] = vc.Ready()
+	if vc.messageRulesSvc != nil {
+		if hr, ok := vc.messageRulesSvc.(protocol.HealthReporter); ok {
+			maps.Copy(report, hr.HealthReport())
+		}
+	}
 	if vc.taskVerifierProcessor != nil {
 		maps.Copy(report, vc.taskVerifierProcessor.HealthReport())
 	}

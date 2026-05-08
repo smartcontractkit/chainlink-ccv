@@ -162,7 +162,7 @@ func EncodeSignatures(signatures []Data) ([]byte, error) {
 
 	// Write signature length as first 2 bytes (big-endian uint16)
 	result[0] = byte(signatureLength >> 8)
-	result[1] = byte(signatureLength)
+	result[1] = byte(signatureLength) //nolint:gosec // G115: signatureLength bounded by MaxUint16 check above
 
 	// Write concatenated R,S pairs
 	offset := 2

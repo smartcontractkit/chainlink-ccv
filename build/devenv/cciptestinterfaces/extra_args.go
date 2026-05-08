@@ -20,6 +20,8 @@ type MessageOptions struct {
 	Executor protocol.UnknownAddress
 	// ExecutorArgs are the executor arguments for the message
 	ExecutorArgs []byte
+	// TokenReceiver is the token receiver address, used when token receiver is different from the message receiver
+	TokenReceiver []byte
 	// TokenArgs are the token arguments for the message
 	TokenArgs []byte
 }
@@ -33,12 +35,18 @@ type MessageV3ExecutorArgs []byte
 // MessageV3TokenArgs is a type to indicate how to use the MessageV3Destination interface.
 type MessageV3TokenArgs []byte
 
+// MessageV3TokenReceiver is a type to indicate how to use the MessageV3Destination interface.
+type MessageV3TokenReceiver []byte
+
 // MessageV3Destination is an interface for any chain that can receive a V3 message.
 // We use an interface rather than a struct because the V3 message structure is chain agnostic.
 type MessageV3Destination interface {
 	// GetExecutorArgs returns the executor arguments for the message.
 	// The opts parameter will be passed by the caller, implementer should type assert the opts to the concrete type.
 	GetExecutorArgs(opts any) (MessageV3ExecutorArgs, error)
+	// GetTokenReceiver returns the token receiver for the message.
+	// The opts parameter will be passed by the caller, implementer should type assert the opts to the concrete type.
+	GetTokenReceiver(opts any) (MessageV3TokenReceiver, error)
 	// GetTokenArgs returns the token arguments for the message.
 	// The opts parameter will be passed by the caller, implementer should type assert the opts to the concrete type.
 	GetTokenArgs(opts any) (MessageV3TokenArgs, error)
@@ -47,12 +55,13 @@ type MessageV3Destination interface {
 // MessageV3Source is an interface for any chain that can send a V3 message.
 // We use an interface rather than a struct because the V3 message structure is chain agnostic.
 type MessageV3Source interface {
-	// BuildV3ExtraArgs builds the V3 extra arguments for the message including calling the destination chain's GetExecutorArgs and GetTokenArgs.
+	// BuildV3ExtraArgs builds the V3 extra arguments for the message including calling the destination chain's GetExecutorArgs, GetTokenReceiver and GetTokenArgs.
 	// then serializing the results into the source chain specific encoding format, and returning the result.
 	BuildV3ExtraArgs(
 		opts MessageOptions,
 		destChain MessageV3Destination,
 		executorArgsParams any,
+		tokenReceiverParams any,
 		tokenArgsParams any,
 	) (GenericExtraArgs, error)
 }
@@ -68,7 +77,7 @@ func (m EVMExtraArgsV2Data) IsExtraArgsDataProvider() {}
 
 // EVMExtraArgsV2 is an interface for any chain that can send a V2 message to an EVM chain.
 type EVMExtraArgsV2 interface {
-	BuildEVMExtraArgsV2(opts any) (GenericExtraArgs, error)
+	BuildEVMExtraArgsV2(provider ExtraArgsDataProvider) (GenericExtraArgs, error)
 }
 
 // EVMExtraArgsV1 represents the data for V1 messages arriving at an EVM chain.
@@ -81,7 +90,7 @@ func (m EVMExtraArgsV1) IsExtraArgsDataProvider() {}
 
 // Any2EVMMessageV1 is an interface for any chain that can send a V1 message to an EVM chain.
 type Any2EVMMessageV1 interface {
-	BuildEVMExtraArgsV1(opts any) (GenericExtraArgs, error)
+	BuildEVMExtraArgsV1(provider ExtraArgsDataProvider) (GenericExtraArgs, error)
 }
 
 // SVMExtraArgsV1 represents the data for V1 messages arriving at a SVM chain.
@@ -99,5 +108,5 @@ func (m SVMExtraArgsV1Data) IsExtraArgsDataProvider() {}
 
 // SVMExtraArgsV1 is an interface for any chain that can send a V1 message to a SVM chain.
 type SVMExtraArgsV1 interface {
-	BuildSVMExtraArgsV1(opts any) (GenericExtraArgs, error)
+	BuildSVMExtraArgsV1(provider ExtraArgsDataProvider) (GenericExtraArgs, error)
 }

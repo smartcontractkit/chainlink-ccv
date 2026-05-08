@@ -154,10 +154,6 @@ type Chain interface {
 	GetMaxDataBytes(ctx context.Context, remoteChainSelector uint64) (uint32, error)
 	// ManuallyExecuteMessage manually executes a message on this chain and returns an error if the execution fails.
 	ManuallyExecuteMessage(ctx context.Context, message protocol.Message, gasLimit uint64, ccvs []protocol.UnknownAddress, verifierResults [][]byte) (ExecutionStateChangedEvent, error)
-	// Curse curses a list of chains on this chain.
-	Curse(ctx context.Context, subjects [][16]byte) error
-	// Uncurse uncurses a list of chains on this chain.
-	Uncurse(ctx context.Context, subjects [][16]byte) error
 	// ChainSelector gets the selector for this chain.
 	ChainSelector() uint64
 	// NativeBalance returns the native token balance of the given address on this chain.

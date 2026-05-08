@@ -140,6 +140,9 @@ func (m *noopMetricLabeler) SetRemoteChainCursed(ctx context.Context, localSelec
 
 func (m *noopMetricLabeler) SetLocalChainGlobalCursed(ctx context.Context, localSelector protocol.ChainSelector, globalCurse bool) {
 }
+
+func (m *noopMetricLabeler) SetMessageDisablementRulesRefreshFailure(context.Context, int64) {}
+
 func (m *noopMetricLabeler) IncrementHeartbeatsSent(ctx context.Context)                           {}
 func (m *noopMetricLabeler) IncrementHeartbeatsFailed(ctx context.Context)                         {}
 func (m *noopMetricLabeler) RecordHeartbeatDuration(ctx context.Context, duration time.Duration)   {}
@@ -436,7 +439,7 @@ func createDurableProcessorsWithPollInterval(
 	}
 
 	sourceReadersDB, err := createSourceReadersDB(
-		lggr, config, chainStatusManager, curseDetector, monitoring, enabledSourceReaders, taskQueue,
+		lggr, config, chainStatusManager, curseDetector, monitoring, enabledSourceReaders, taskQueue, common.AllowAllMessagesChecker{},
 	)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to create DB source reader services: %w", err)

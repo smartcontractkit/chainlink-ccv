@@ -223,7 +223,7 @@ func (c *CommitReportAggregator) StartBackground(ctx context.Context) {
 		close(drainDeadline)
 	}()
 
-	go func() {
+	go func() { //nolint:gosec // G118: long-lived drain goroutine outlives the request ctx by design
 		defer close(c.done)
 		defer poolCancel()
 		lggr := c.logger(context.Background())

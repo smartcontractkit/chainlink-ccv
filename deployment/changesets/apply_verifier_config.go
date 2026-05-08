@@ -7,6 +7,8 @@ import (
 
 	"github.com/BurntSushi/toml"
 
+	chainsel "github.com/smartcontractkit/chain-selectors"
+
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
 
@@ -188,18 +190,41 @@ func ApplyVerifierConfig(registry *adapters.Registry) deployment.ChangeSetV2[App
 	return deployment.CreateChangeSet(apply, validate)
 }
 
-// getSignerFamilyFromRegistry returns the signing key family by querying the registered
-// adapter for any of the given chain selectors.  All adapters in a committee are expected
-// to agree on the signer family (e.g. every EVM adapter returns chainsel.FamilyEVM).
+// getSignerFamilyFromRegistry returns the signing key family implied by the selected
+// chains. If a verifier adapter is registered for a selector, it must agree with the
+// family derived from that selector.
 func getSignerFamilyFromRegistry(registry *adapters.Registry, selectors []uint64) (string, error) {
+	if len(selectors) == 0 {
+		return "", fmt.Errorf("at least one committee chain selector is required")
+	}
+
+	var signerFamily string
 	for _, sel := range selectors {
+		family, err := chainsel.GetSelectorFamily(sel)
+		if err != nil {
+			return "", fmt.Errorf("failed to get chain family for selector %d: %w", sel, err)
+		}
+		if signerFamily == "" {
+			signerFamily = family
+		} else if family != signerFamily {
+			return "", fmt.Errorf(
+				"committee chain selectors span multiple signer families: %q and %q",
+				signerFamily, family,
+			)
+		}
+
 		a, err := registry.GetByChain(sel)
 		if err != nil || a.Verifier == nil {
 			continue
 		}
-		return a.Verifier.GetSignerAddressFamily(), nil
+		if adapterFamily := a.Verifier.GetSignerAddressFamily(); adapterFamily != signerFamily {
+			return "", fmt.Errorf(
+				"chain %d: verifier adapter signer family %q does not match chain family %q",
+				sel, adapterFamily, signerFamily,
+			)
+		}
 	}
-	return "", fmt.Errorf("no registered verifier adapter found for any committee chain selector")
+	return signerFamily, nil
 }
 
 func buildVerifierContractConfigs(
@@ -233,7 +258,8 @@ type verifierNOPInput struct {
 	Mode                  shared.NOPMode
 }
 
-type verifierAggregatorInput struct {
+// AggregatorRef describes a single aggregator instance a verifier NOP connects to.
+type AggregatorRef struct {
 	Name                         string
 	Address                      string
 	InsecureAggregatorConnection bool
@@ -241,7 +267,7 @@ type verifierAggregatorInput struct {
 
 type verifierCommitteeInput struct {
 	Qualifier       string
-	Aggregators     []verifierAggregatorInput
+	Aggregators     []AggregatorRef
 	NOPAliases      []shared.NOPAlias
 	ChainNOPAliases map[string][]shared.NOPAlias
 }
@@ -426,9 +452,9 @@ func convertNOPsToVerifierInput(
 }
 
 func convertTopologyCommittee(committee ccvdeployment.CommitteeConfig) verifierCommitteeInput {
-	aggregators := make([]verifierAggregatorInput, len(committee.Aggregators))
+	aggregators := make([]AggregatorRef, len(committee.Aggregators))
 	for i, agg := range committee.Aggregators {
-		aggregators[i] = verifierAggregatorInput{
+		aggregators[i] = AggregatorRef{
 			Name:                         agg.Name,
 			Address:                      agg.Address,
 			InsecureAggregatorConnection: agg.InsecureAggregatorConnection,

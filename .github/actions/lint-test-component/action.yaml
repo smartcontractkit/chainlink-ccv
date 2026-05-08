@@ -69,7 +69,7 @@ runs:
     - name: Run lint
       shell: bash
       working-directory: ${{ inputs.dir }}
-      run: just lint
+      run: just lint --timeout 15m
 
     - name: Run tests
       shell: bash

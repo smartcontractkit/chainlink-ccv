@@ -169,6 +169,9 @@ func (f *FakeVerifierMetricLabeler) SetRemoteChainCursed(ctx context.Context, lo
 func (f *FakeVerifierMetricLabeler) SetLocalChainGlobalCursed(ctx context.Context, localSelector protocol.ChainSelector, globalCurse bool) {
 }
 
+func (f *FakeVerifierMetricLabeler) SetMessageDisablementRulesRefreshFailure(context.Context, int64) {
+}
+
 func (f *FakeVerifierMetricLabeler) IncrementActiveRequestsCounter(context.Context) {}
 
 func (f *FakeVerifierMetricLabeler) IncrementHTTPRequestCounter(context.Context) {}

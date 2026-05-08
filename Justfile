@@ -48,8 +48,8 @@ fmt: ensure-golangci-lint
     find . -type f -name go.mod -execdir golangci-lint fmt \;
 
 # Run golangci-lint
-lint fix="": ensure-golangci-lint
-    gomods -c 'golangci-lint run --config {{justfile_directory()}}/.golangci.yaml {{ if fix != "" { "--fix" } else { "" } }}'
+lint fix="" timeout="10m": ensure-golangci-lint
+    gomods -c 'golangci-lint run --config {{justfile_directory()}}/.golangci.yaml {{ if fix != "" { "--fix" } else { "" } }} --timeout {{timeout}}'
 
 shellcheck:
     @command -v shellcheck >/dev/null 2>&1 || { \
@@ -73,10 +73,10 @@ test-coverage coverage_file="coverage.out" short="":
 
 bump-chainlink-ccip sha:
     @echo "Bumping chainlink-ccip dependencies in root..."
-    go get github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm@{{sha}}
+    go get github.com/smartcontractkit/chainlink-ccip/chains/evm@{{sha}}
 
     @echo "Bumping chainlink-ccip dependencies in build/devenv..."
-    (cd build/devenv && go get github.com/smartcontractkit/chainlink-ccip@{{sha}} && go get github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment@{{sha}} && go get github.com/smartcontractkit/chainlink-ccip/deployment@{{sha}} && go get github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/deployment@{{sha}} && go get github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm@{{sha}})
+    (cd build/devenv && go get github.com/smartcontractkit/chainlink-ccip@{{sha}} && go get github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment@{{sha}} && go get github.com/smartcontractkit/chainlink-ccip/deployment@{{sha}} && go get github.com/smartcontractkit/chainlink-ccip/chains/evm@{{sha}})
 
     @just tidy
 
