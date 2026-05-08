@@ -1703,7 +1703,7 @@ func TestSRS_EventMonitoringLoop_PanicInProcessEventCycle(t *testing.T) {
 	t.Logf("FetchMessageSentEvents called %d times (including 1 panic)", actualFetchCount)
 }
 
-// nestedReader composes a mockery-generated SourceReader and services.Service mock
+// nestedReader composes a mockery-generated SourceReader and services.Service mock.
 type nestedReader struct {
 	*mocks.MockSourceReader
 	*mocks.MockService
@@ -1722,7 +1722,7 @@ func allowNestedPollLoop(sr *mocks.MockSourceReader, curse *mocks.MockCurseCheck
 // TestSRS_NestedSourceReader verifies that the verifier Service drives the optional
 // services.Service lifecycle on chain readers that own long-lived background workers
 // (e.g. Solana logpoller). Pure pull readers (e.g. EVM) skip the lifecycle branch since
-// they don't satisfy services.Service
+// they don't satisfy services.Service.
 func TestSRS_NestedSourceReader(t *testing.T) {
 	ctx := context.Background()
 	chain := protocol.ChainSelector(1337)
