@@ -48,8 +48,8 @@ fmt: ensure-golangci-lint
     find . -type f -name go.mod -execdir golangci-lint fmt \;
 
 # Run golangci-lint
-lint fix="": ensure-golangci-lint
-    gomods -c 'golangci-lint run --config {{justfile_directory()}}/.golangci.yaml {{ if fix != "" { "--fix" } else { "" } }}'
+lint fix="" timeout="10m": ensure-golangci-lint
+    gomods -c 'golangci-lint run --config {{justfile_directory()}}/.golangci.yaml {{ if fix != "" { "--fix" } else { "" } }} --timeout {{timeout}}'
 
 shellcheck:
     @command -v shellcheck >/dev/null 2>&1 || { \
