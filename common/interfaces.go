@@ -12,6 +12,10 @@ import (
 // Callers should treat the lane as cursed (fail closed) when this error is returned.
 var ErrCurseStateUnknown = errors.New("curse state unknown: no successful RPC poll yet")
 
+// ErrMessageRulesStateUnknown indicates message rules could not be determined.
+// Callers should block/retry until a successful rules refresh instead of dropping or signing.
+var ErrMessageRulesStateUnknown = errors.New("message rules state unknown: no successful aggregator poll yet")
+
 // CurseChecker abstracts checking for chain curse status.
 // Implementations expected to use RMNCurseReader to poll RMN Remote contracts and maintain curse state.
 // Reusable for both verifier (source RMN Remotes) and executor (dest RMN Remotes).
@@ -44,4 +48,22 @@ type CurseCheckerMetrics interface {
 type TimeProvider interface {
 	// GetTime provides the current time.
 	GetTime() time.Time
+}
+
+// MessageRulesChecker validates that messages match active message rules.
+type MessageRulesChecker interface {
+	// IsMessageDisabled checks whether the provided message matches an active message rule.
+	// Returns (true, nil) if disabled, (false, nil) if not disabled.
+	// Returns (true, ErrMessageRulesStateUnknown) when state is unknown (fail closed).
+	IsMessageDisabled(ctx context.Context, message protocol.Message) (bool, error)
+}
+
+type MessageRulesCheckerMetrics interface {
+	// SetMessageDisablementRulesRefreshFailure records whether the latest registry refresh failed.
+	SetMessageDisablementRulesRefreshFailure(ctx context.Context, failed int64)
+}
+
+type MessageRulesCheckerService interface {
+	protocol.Service
+	MessageRulesChecker
 }

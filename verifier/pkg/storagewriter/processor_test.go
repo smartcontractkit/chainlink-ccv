@@ -62,7 +62,7 @@ func TestProcessorDB_ProcessBatchesSuccessfully(t *testing.T) {
 		})
 
 		// Publish test results
-		batch1 := []protocol.VerifierNodeResult{
+		batch1 := []protocol.VerifierNodeResult{ //nolint:prealloc // false positive: batch1 is spread into Publish, not appended
 			createTestVerifierNodeResult(1),
 			createTestVerifierNodeResult(2),
 		}

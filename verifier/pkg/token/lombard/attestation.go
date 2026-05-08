@@ -12,6 +12,9 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
+// lengthPrefixBytes is the wire-format size of a uint16 big-endian length prefix.
+const lengthPrefixBytes = 2
+
 type AttestationService interface {
 	// Fetch retrieves the attestations for a given verification task batch. It should slice batch into smaller
 	// requests if number of tasks exceeds allowed limit.
@@ -123,14 +126,16 @@ func (a *Attestation) ToVerifierFormat() (protocol.ByteSlice, error) {
 	// #nosec G115 -- overflow checked above, safe to cast to uint16
 	proofLength := uint16(len(proof))
 
-	var output protocol.ByteSlice
+	output := make(protocol.ByteSlice, 0, len(a.verifierVersion)+lengthPrefixBytes+len(rawPayload)+lengthPrefixBytes+len(proof))
 	// Add version tag (4 bytes)
 	output = append(output, a.verifierVersion...)
 	// Add rawPayloadLength (2 bytes, big-endian)
+	//nolint:gosec // G115: byte truncation is the intended big-endian encoding
 	output = append(output, byte(rawPayloadLength>>8), byte(rawPayloadLength))
 	// Add rawPayload
 	output = append(output, rawPayload...)
 	// Add proofLength (2 bytes, big-endian)
+	//nolint:gosec // G115: byte truncation is the intended big-endian encoding
 	output = append(output, byte(proofLength>>8), byte(proofLength))
 	// Add proof
 	output = append(output, proof...)

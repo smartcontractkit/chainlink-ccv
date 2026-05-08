@@ -12,6 +12,12 @@ ensure-modgraph:
 
 ensure-golangci-lint:
 	@golangci-lint --version | grep -q "$VERSION_GOLANGCI_LINT" || (echo "Please use golangci-lint $VERSION_GOLANGCI_LINT (just install-go-tools)" && exit 1)
+	@# Catch the version-mismatch up front: golangci-lint refuses to load a
+	@# config whose `go` directive is newer than the Go version it was built
+	@# with ("the Go language version (goX.Y) used to build golangci-lint is
+	@# lower than the targeted Go version (X.Y.Z)"). A stale binary in $GOBIN
+	@# is the usual culprit after a Go version bump.
+	@go version -m $(which golangci-lint) | head -1 | grep -q "go$VERSION_GO" || (echo "golangci-lint was not built with go$VERSION_GO; rebuild it: just install-go-tools (or: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v$VERSION_GOLANGCI_LINT)" && exit 1)
 
 ensure-protoc:
 	@protoc --version | grep -q "libprotoc $VERSION_PROTOC" || (echo "Please use protoc $VERSION_PROTOC (just install-go-tools)" && exit 1)

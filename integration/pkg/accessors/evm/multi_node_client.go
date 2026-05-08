@@ -13,7 +13,7 @@ import (
 	"github.com/smartcontractkit/chainlink-evm/pkg/config/chaintype"
 )
 
-func ptr[T any](t T) *T { return &t }
+func ptr[T any](t T) *T { return new(t) }
 
 func CreateHealthyMultiNodeClient(ctx context.Context, infos chainaccess.Infos[Info], lggr logger.Logger, chainSelector protocol.ChainSelector) (client.Client, error) {
 	info, err := infos.GetBlockchainByChainSelector(chainSelector)
@@ -27,16 +27,16 @@ func CreateHealthyMultiNodeClient(ctx context.Context, infos chainaccess.Infos[I
 // CreateMultiNodeClientFromInfo creates EVM client and tests the connection.
 func CreateMultiNodeClientFromInfo(ctx context.Context, blockchainInfo Info, lggr logger.Logger) (client.Client, error) {
 	noNewHeadsThreshold := 3 * time.Minute
-	selectionMode := ptr("HighestHead")
+	selectionMode := new("HighestHead")
 	leaseDuration := 0 * time.Second
-	pollFailureThreshold := ptr(uint32(5))
-	pollSuccessThreshold := ptr(uint32(0))
+	pollFailureThreshold := new(uint32(5))
+	pollSuccessThreshold := new(uint32(0))
 	pollInterval := 2 * time.Second
-	syncThreshold := ptr(uint32(5))
-	nodeIsSyncingEnabled := ptr(false)
+	syncThreshold := new(uint32(5))
+	nodeIsSyncingEnabled := new(false)
 	chainTypeStr := blockchainInfo.Type
 	finalizedBlockOffset := ptr[uint32](16)
-	enforceRepeatableRead := ptr(true)
+	enforceRepeatableRead := new(true)
 	deathDeclarationDelay := time.Second * 3
 	noNewFinalizedBlocksThreshold := 15 * time.Minute // High value - allows slow chains and manual mining
 	finalizedBlockPollInterval := time.Second * 10
@@ -52,15 +52,15 @@ func CreateMultiNodeClientFromInfo(ctx context.Context, blockchainInfo Info, lgg
 	httpURL := n.InternalHTTPUrl
 	nodeConfigs := []client.NodeConfig{
 		{
-			Name:    ptr(blockchainInfo.UniqueChainName),
-			WSURL:   ptr(wsURL),
-			HTTPURL: ptr(httpURL),
+			Name:    new(blockchainInfo.UniqueChainName),
+			WSURL:   new(wsURL),
+			HTTPURL: new(httpURL),
 		},
 	}
-	finalityDepth := ptr(uint32(10))
-	safeDepth := ptr(uint32(6))
-	finalityTagEnabled := ptr(true)
-	safeTagSupported := ptr(true)
+	finalityDepth := new(uint32(10))
+	safeDepth := new(uint32(6))
+	finalityTagEnabled := new(true)
+	safeTagSupported := new(true)
 	lggr.Infow("Testing multinode chain client", "chainSelector", blockchainInfo.ChainID, "wsURL", wsURL, "httpURL", httpURL)
 	chainCfg, nodePool, nodes, err := client.NewClientConfigs(selectionMode, leaseDuration, chainTypeStr, nodeConfigs,
 		pollFailureThreshold, pollSuccessThreshold, pollInterval, syncThreshold, nodeIsSyncingEnabled, noNewHeadsThreshold, finalityDepth,
