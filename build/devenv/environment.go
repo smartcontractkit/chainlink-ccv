@@ -566,8 +566,8 @@ func generateExecutorJobSpecs(
 		cs := ccvchangesets.ApplyExecutorConfig(ccvadapters.GetRegistry())
 		output, err := cs.Apply(*e, ccvchangesets.ApplyExecutorConfigInput{
 			ExecutorQualifier: qualifier,
-			NOPs:              nopInputsFromTopology(topology),
-			Pool:              executorPoolInputFromTopology(pool),
+			NOPs:              ccvchangesets.NOPInputsFromTopology(topology),
+			Pool:              ccvchangesets.ExecutorPoolInputFromTopology(pool),
 			IndexerAddress:    topology.IndexerAddress,
 			PyroscopeURL:      topology.PyroscopeURL,
 			Monitoring:        topology.Monitoring,
@@ -665,8 +665,8 @@ func generateVerifierJobSpecs(
 			output, err := cs.Apply(*e, ccvchangesets.ApplyVerifierConfigInput{
 				CommitteeQualifier:       committeeName,
 				DefaultExecutorQualifier: devenvcommon.DefaultExecutorQualifier,
-				NOPs:                     nopInputsFromTopology(topology),
-				Committee:                committeeInputFromTopology(committee),
+				NOPs:                     ccvchangesets.NOPInputsFromTopology(topology),
+				Committee:                ccvchangesets.CommitteeInputFromTopology(committee),
 				PyroscopeURL:             topology.PyroscopeURL,
 				Monitoring:               topology.Monitoring,
 				TargetNOPs:               verNOPAliases,

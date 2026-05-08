@@ -123,14 +123,142 @@ owns the public name. `ThresholdOverride` was already present and is unchanged
 ## Migration
 
 Callers that already had a topology in scope can build the new inputs by
-slicing the topology per call. Reference helpers live in
-`chainlink-ccv/build/devenv/topology_to_imperative.go`:
+slicing the topology per call. Exported helpers ship alongside the
+changeset inputs in `chainlink-ccv/deployment/changesets/topology_inputs.go`,
+so live-env consumers (`chainlink-deployments`) and the dev-env share one
+implementation:
 
-* `nopInputsFromTopology(topology)` → `[]NOPInput`
-* `committeeInputFromTopology(topology.NOPTopology.Committees[name])` → `CommitteeInput`
-* `executorPoolInputFromTopology(topology.ExecutorPools[name])` → `ExecutorPoolInput`
-* `committeeChainSelectorsFromTopology(committee)` → `[]uint64`
+* `changesets.NOPInputsFromTopology(topology)` → `[]NOPInput`
+* `changesets.CommitteeInputFromTopology(topology.NOPTopology.Committees[name])` → `CommitteeInput`
+* `changesets.ExecutorPoolInputFromTopology(topology.ExecutorPools[name])` → `ExecutorPoolInput`
+* `changesets.CommitteeChainSelectorsFromTopology(committee)` → `[]uint64`
 
 Coupled-committee products (`AddNOPToCommittee` / `RemoveNOPFromCommittee` /
 `IncreaseThreshold` / `DecreaseThreshold` and their offchain steps) were
 already imperative and are unchanged.
+
+### Worked example: TOML topology → imperative inputs
+
+The live-env TOML topologies kept in
+`chainlink-deployments/domains/ccv/<env>/topology.toml` are unchanged on
+disk. Only the in-process boundary moves: instead of handing the full
+`*EnvironmentTopology` to a changeset, the caller slices it into the new
+inputs. Using `prod_testnet/topology.toml` as the reference shape:
+
+```toml
+# topology.toml (excerpt — fields not used by the new inputs are elided)
+[[nop_topology.nops]]
+alias = "ccv-prod-testnet-0"
+name  = "DexTrac"
+# ... 20 more NOPs
+
+[nop_topology.committees.default]
+qualifier = "default"
+[[nop_topology.committees.default.aggregators]]
+name    = "aggregator-1"
+address = "aggregator-1.testnet.ccip.chain.link"
+[[nop_topology.committees.default.aggregators]]
+name    = "aggregator-2"
+address = "aggregator-2.testnet.ccip.chain.link"
+
+# ethereum-sepolia
+[nop_topology.committees.default.chain_configs.16015286601757825753]
+nop_aliases     = ["ccv-prod-testnet-0", ..., "ccv-prod-testnet-15"]
+threshold       = 9                                  # onchain-only — NOT on CommitteeInput
+fee_aggregator  = "0x14eaEc5b6d..."                  # onchain-only — NOT on CommitteeInput
+allowlist_admin = "0x000000000..."                   # onchain-only — NOT on CommitteeInput
+
+[executor_pools.default]
+indexer_query_limit  = 100
+backoff_duration     = 15_000_000_000                # 15s
+lookback_window      = 3_600_000_000_000             # 1h
+reader_cache_expiry  = 300_000_000_000               # 5m
+max_retry_duration   = 28_800_000_000_000            # 8h
+worker_count         = 100
+ntp_server           = "time.google.com"
+
+# ethereum-sepolia
+[executor_pools.default.chain_configs."16015286601757825753"]
+nop_aliases        = ["ccv-prod-testnet-0", ..., "ccv-prod-testnet-15"]
+execution_interval = 15_000_000_000                  # 15s
+```
+
+The same data, delivered through the imperative inputs (one shape per call):
+
+```go
+// Shared across both ApplyVerifierConfig and ApplyExecutorConfig.
+nops := []changesets.NOPInput{
+    {Alias: "ccv-prod-testnet-0",  /* SignerAddressByFamily, Mode from topology */},
+    // ...
+    {Alias: "ccv-prod-testnet-20", /* ... */},
+}
+
+// ApplyVerifierConfig: one CommitteeInput per [nop_topology.committees.<name>].
+// threshold / fee_aggregator / allowlist_admin are NOT carried — they belong to
+// onchain state and are written by the onchain changesets, not by the offchain
+// verifier-config publisher.
+committee := changesets.CommitteeInput{
+    Qualifier: "default",
+    Aggregators: []changesets.AggregatorRef{
+        {Name: "aggregator-1", Address: "aggregator-1.testnet.ccip.chain.link"},
+        {Name: "aggregator-2", Address: "aggregator-2.testnet.ccip.chain.link"},
+    },
+    ChainConfigs: map[uint64]changesets.CommitteeChainMembership{
+        16015286601757825753: {NOPAliases: []shared.NOPAlias{
+            "ccv-prod-testnet-0", /* ... */, "ccv-prod-testnet-15",
+        }},
+        // ... one entry per [nop_topology.committees.default.chain_configs.<sel>]
+    },
+}
+
+// ApplyExecutorConfig: one ExecutorPoolInput per [executor_pools.<name>].
+// Pool-wide tuning that the topology folded into ExecutorPoolConfig is now
+// flat on the input.
+pool := changesets.ExecutorPoolInput{
+    IndexerQueryLimit: 100,
+    BackoffDuration:   15 * time.Second,
+    LookbackWindow:    1 * time.Hour,
+    ReaderCacheExpiry: 5 * time.Minute,
+    MaxRetryDuration:  8 * time.Hour,
+    WorkerCount:       100,
+    NtpServer:         "time.google.com",
+    ChainConfigs: map[uint64]changesets.ChainExecutorPoolMembership{
+        16015286601757825753: {
+            NOPAliases:        []shared.NOPAlias{"ccv-prod-testnet-0", /* ... */},
+            ExecutionInterval: 15 * time.Second,
+        },
+        // ... one entry per [executor_pools.default.chain_configs."<sel>"]
+    },
+}
+
+// GenerateAggregatorConfig: just the chain selectors the committee is
+// deployed on — i.e. the keys of nop_topology.committees.default.chain_configs.
+chainSelectors := []uint64{
+    16015286601757825753, // ethereum-sepolia
+    // ... etc
+}
+```
+
+Field-by-field map:
+
+| TOML key                                                            | New input field                            |
+| ------------------------------------------------------------------- | ------------------------------------------ |
+| `[[nop_topology.nops]].alias`                                       | `NOPInput.Alias`                           |
+| (per-NOP signer addrs in topology)                                  | `NOPInput.SignerAddressByFamily`           |
+| (per-NOP mode in topology)                                          | `NOPInput.Mode`                            |
+| `nop_topology.committees.<n>.qualifier`                             | `CommitteeInput.Qualifier`                 |
+| `nop_topology.committees.<n>.aggregators[*]`                        | `CommitteeInput.Aggregators[*]`            |
+| `nop_topology.committees.<n>.chain_configs.<sel>.nop_aliases`       | `CommitteeInput.ChainConfigs[<sel>].NOPAliases` |
+| `nop_topology.committees.<n>.chain_configs.<sel>.{threshold,fee_aggregator,allowlist_admin}` | _not carried — onchain-only_ |
+| `executor_pools.<n>.{indexer_query_limit,backoff_duration,...}`     | `ExecutorPoolInput.{IndexerQueryLimit,BackoffDuration,...}` |
+| `executor_pools.<n>.chain_configs."<sel>".nop_aliases`              | `ExecutorPoolInput.ChainConfigs[<sel>].NOPAliases` |
+| `executor_pools.<n>.chain_configs."<sel>".execution_interval`       | `ExecutorPoolInput.ChainConfigs[<sel>].ExecutionInterval` |
+| keys of `nop_topology.committees.<n>.chain_configs`                 | `GenerateAggregatorConfigInput.ChainSelectors` |
+| `indexer_address` (top-level)                                       | `ApplyExecutorConfigInput.IndexerAddress`  |
+| `monitoring`        (top-level)                                     | `ApplyExecutorConfigInput.Monitoring` / `ApplyVerifierConfigInput.Monitoring` |
+
+The TOML stays the source of truth for live environments; the exported
+helpers in `chainlink-ccv/deployment/changesets/topology_inputs.go` are
+the canonical implementation of this mapping. Both the dev-env and
+`chainlink-deployments` callers consume them directly when invoking the
+changesets.

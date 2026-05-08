@@ -461,7 +461,7 @@ func NewEnvironment() (in *Cfg, err error) {
 		output, err := cs.Apply(*e, ccvchangesets.GenerateAggregatorConfigInput{
 			ServiceIdentifier:  instanceName + "-aggregator",
 			CommitteeQualifier: aggregatorInput.CommitteeName,
-			ChainSelectors:     committeeChainSelectorsFromTopology(committee),
+			ChainSelectors:     ccvchangesets.CommitteeChainSelectorsFromTopology(committee),
 		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate aggregator config for %s (committee %s): %w", instanceName, aggregatorInput.CommitteeName, err)
