@@ -835,6 +835,40 @@ func (_c *MockMetricLabeler_SetLocalChainGlobalCursed_Call) RunAndReturn(run fun
 	return _c
 }
 
+// SetMessageDisablementRulesRefreshFailure provides a mock function with given fields: ctx, failed
+func (_m *MockMetricLabeler) SetMessageDisablementRulesRefreshFailure(ctx context.Context, failed int64) {
+	_m.Called(ctx, failed)
+}
+
+// MockMetricLabeler_SetMessageDisablementRulesRefreshFailure_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetMessageDisablementRulesRefreshFailure'
+type MockMetricLabeler_SetMessageDisablementRulesRefreshFailure_Call struct {
+	*mock.Call
+}
+
+// SetMessageDisablementRulesRefreshFailure is a helper method to define mock.On call
+//   - ctx context.Context
+//   - failed int64
+func (_e *MockMetricLabeler_Expecter) SetMessageDisablementRulesRefreshFailure(ctx interface{}, failed interface{}) *MockMetricLabeler_SetMessageDisablementRulesRefreshFailure_Call {
+	return &MockMetricLabeler_SetMessageDisablementRulesRefreshFailure_Call{Call: _e.mock.On("SetMessageDisablementRulesRefreshFailure", ctx, failed)}
+}
+
+func (_c *MockMetricLabeler_SetMessageDisablementRulesRefreshFailure_Call) Run(run func(ctx context.Context, failed int64)) *MockMetricLabeler_SetMessageDisablementRulesRefreshFailure_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(int64))
+	})
+	return _c
+}
+
+func (_c *MockMetricLabeler_SetMessageDisablementRulesRefreshFailure_Call) Return() *MockMetricLabeler_SetMessageDisablementRulesRefreshFailure_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockMetricLabeler_SetMessageDisablementRulesRefreshFailure_Call) RunAndReturn(run func(context.Context, int64)) *MockMetricLabeler_SetMessageDisablementRulesRefreshFailure_Call {
+	_c.Run(run)
+	return _c
+}
+
 // SetRemoteChainCursed provides a mock function with given fields: ctx, localSelector, remoteSelector, cursed
 func (_m *MockMetricLabeler) SetRemoteChainCursed(ctx context.Context, localSelector protocol.ChainSelector, remoteSelector protocol.ChainSelector, cursed bool) {
 	_m.Called(ctx, localSelector, remoteSelector, cursed)

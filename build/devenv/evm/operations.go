@@ -115,10 +115,14 @@ const (
 	// MaxTokenArgsLength is the maximum length of token arguments.
 	// Limited by uint16 encoding in GenericExtraArgsV3 format.
 	MaxTokenArgsLength = 65535
+
+	// MaxTokenReceiverLength is the maximum length of the token receiver payload.
+	// Limited by uint8 length prefix in GenericExtraArgsV3 format (matches ExtraArgsCodec.sol).
+	MaxTokenReceiverLength = 255
 )
 
 // NewV3ExtraArgs encodes v3 extra args params.
-func NewV3ExtraArgs(finalityConfig protocol.Finality, gasLimit uint32, execAddr string, execArgs, tokenArgs []byte, ccvs []protocol.CCV) ([]byte, error) {
+func NewV3ExtraArgs(finalityConfig protocol.Finality, gasLimit uint32, execAddr string, execArgs, tokenReceiver, tokenArgs []byte, ccvs []protocol.CCV) ([]byte, error) {
 	// Manual encoding to match GenericExtraArgsV3 compact binary format
 	// Format (from ExtraArgsCodec.sol):
 	// - tag (4 bytes): 0xa69dd4aa
@@ -134,8 +138,9 @@ func NewV3ExtraArgs(finalityConfig protocol.Finality, gasLimit uint32, execAddr 
 	// - executor (variable): bytes (20 bytes if non-zero)
 	// - executorArgsLength (2 bytes): uint16
 	// - executorArgs (variable): bytes
-	// - tokenReceiverLength (1 byte): uint8 (0 or 20)
-	// - tokenReceiver (variable): bytes (20 bytes if non-zero)
+	// - tokenReceiverLength (1 byte): uint8 (length of tokenReceiver payload; max 255)
+	// - tokenReceiver (variable): opaque bytes (destination-family-specific: EVM address, Solana pubkey, etc.).
+	//   Empty payload means use the message receiver for token transfers (see GenericExtraArgsV3 in ExtraArgsCodec.sol).
 	// - tokenArgsLength (2 bytes): uint16
 	// - tokenArgs (variable): bytes
 
@@ -204,9 +209,11 @@ func NewV3ExtraArgs(finalityConfig protocol.Finality, gasLimit uint32, execAddr 
 	// Write executorArgs
 	buf.Write(execArgs)
 
-	// Write tokenReceiver (always empty for now)
-	// Write tokenReceiverLength = 0
-	buf.WriteByte(0)
+	if len(tokenReceiver) > MaxTokenReceiverLength {
+		return nil, fmt.Errorf("token receiver too long: %d bytes (max %d)", len(tokenReceiver), MaxTokenReceiverLength)
+	}
+	buf.WriteByte(uint8(len(tokenReceiver)))
+	buf.Write(tokenReceiver)
 
 	// Write tokenArgsLength (uint16, big-endian)
 	if len(tokenArgs) > MaxTokenArgsLength {

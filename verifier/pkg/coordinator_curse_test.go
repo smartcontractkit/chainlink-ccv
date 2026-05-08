@@ -136,6 +136,7 @@ func setupCurseTest(t *testing.T, sourceChain, destChain protocol.ChainSelector,
 		setup.chainStatusManager,
 		setup.mockCurseChecker,
 		heartbeatclient.NewNoopHeartbeatClient(),
+		nil,
 		sqlxDB,
 	)
 	require.NoError(t, err)

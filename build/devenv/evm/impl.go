@@ -796,6 +796,7 @@ func SerializeMessageV3ExtraArgs(provider cciptestinterfaces.ExtraArgsDataProvid
 		opts.ExecutionGasLimit,
 		opts.Executor.String(),
 		opts.ExecutorArgs,
+		opts.TokenReceiver,
 		opts.TokenArgs,
 		opts.CCVs,
 	)
@@ -2084,11 +2085,16 @@ func (m *CCIP17EVM) BuildV3ExtraArgs(
 	opts cciptestinterfaces.MessageOptions,
 	destChain cciptestinterfaces.MessageV3Destination,
 	executorArgsParams any,
+	tokenReceiverParams any,
 	tokenArgsParams any,
 ) (cciptestinterfaces.GenericExtraArgs, error) {
 	execArgs, err := destChain.GetExecutorArgs(executorArgsParams)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get executor args: %w", err)
+	}
+	tokenReceiver, err := destChain.GetTokenReceiver(tokenReceiverParams)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get token receiver: %w", err)
 	}
 	tokenArgs, err := destChain.GetTokenArgs(tokenArgsParams)
 	if err != nil {
@@ -2099,6 +2105,7 @@ func (m *CCIP17EVM) BuildV3ExtraArgs(
 		ExecutionGasLimit:   opts.ExecutionGasLimit,
 		Executor:            opts.Executor,
 		ExecutorArgs:        execArgs,
+		TokenReceiver:       tokenReceiver,
 		TokenArgs:           tokenArgs,
 		CCVs:                opts.CCVs,
 		OutOfOrderExecution: opts.OutOfOrderExecution,
@@ -2110,5 +2117,9 @@ func (m *CCIP17EVM) GetExecutorArgs(_ any) (cciptestinterfaces.MessageV3Executor
 }
 
 func (m *CCIP17EVM) GetTokenArgs(_ any) (cciptestinterfaces.MessageV3TokenArgs, error) {
+	return nil, nil
+}
+
+func (m *CCIP17EVM) GetTokenReceiver(_ any) (cciptestinterfaces.MessageV3TokenReceiver, error) {
 	return nil, nil
 }
