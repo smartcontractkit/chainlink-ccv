@@ -5,7 +5,6 @@ import (
 	"errors"
 	"math/big"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -1704,79 +1703,87 @@ func TestSRS_EventMonitoringLoop_PanicInProcessEventCycle(t *testing.T) {
 	t.Logf("FetchMessageSentEvents called %d times (including 1 panic)", actualFetchCount)
 }
 
-// sourceReaderWithNestedSvc: mock SourceReader plus nested Service Start/Close counters.
-type sourceReaderWithNestedSvc struct {
+// nestedReader composes a mockery-generated SourceReader and services.Service mock
+type nestedReader struct {
 	*mocks.MockSourceReader
-	startCount, closeCount atomic.Int32
-	startErr               error
+	*mocks.MockService
 }
 
-func (w *sourceReaderWithNestedSvc) Start(context.Context) error {
-	w.startCount.Add(1)
-	return w.startErr
-}
-func (w *sourceReaderWithNestedSvc) Close() error { w.closeCount.Add(1); return nil }
-func (w *sourceReaderWithNestedSvc) Name() string { return "nested.test" }
-func (w *sourceReaderWithNestedSvc) Ready() error { return nil }
-func (w *sourceReaderWithNestedSvc) HealthReport() map[string]error {
-	return map[string]error{w.Name(): nil}
-}
-
-func newNestedReaderHarness(t *testing.T, startErr error) (*sourceReaderWithNestedSvc, *mocks.MockSourceReader, *mocks.MockChainStatusManager, *mocks.MockCurseCheckerService) {
-	t.Helper()
-	r := mocks.NewMockSourceReader(t)
-	w := &sourceReaderWithNestedSvc{MockSourceReader: r, startErr: startErr}
-	return w, r, mocks.NewMockChainStatusManager(t), mocks.NewMockCurseCheckerService(t)
-}
-
-// allowNestedPollLoop: poll loop may run; we only care about nested Start/Close, not real events.
-func allowNestedPollLoop(r *mocks.MockSourceReader, curse *mocks.MockCurseCheckerService) {
-	r.EXPECT().LatestAndFinalizedBlock(mock.Anything).Return(
+// allowNestedPollLoop registers no-op expectations for the read calls the verifier's poll loop
+// makes when it actually runs. only care about nested Start/Close ordering here.
+func allowNestedPollLoop(sr *mocks.MockSourceReader, curse *mocks.MockCurseCheckerService) {
+	sr.EXPECT().LatestAndFinalizedBlock(mock.Anything).Return(
 		&protocol.BlockHeader{Number: 200}, &protocol.BlockHeader{Number: 150}, nil).Maybe()
-	r.EXPECT().LatestSafeBlock(mock.Anything).Return(nil, nil).Maybe()
-	r.EXPECT().FetchMessageSentEvents(mock.Anything, mock.Anything, mock.Anything).Return(nil, nil).Maybe()
+	sr.EXPECT().LatestSafeBlock(mock.Anything).Return(nil, nil).Maybe()
+	sr.EXPECT().FetchMessageSentEvents(mock.Anything, mock.Anything, mock.Anything).Return(nil, nil).Maybe()
 	curse.EXPECT().IsRemoteChainCursed(mock.Anything, mock.Anything, mock.Anything).Return(false, nil).Maybe()
 }
 
+// TestSRS_NestedSourceReader verifies that the verifier Service drives the optional
+// services.Service lifecycle on chain readers that own long-lived background workers
+// (e.g. Solana logpoller). Pure pull readers (e.g. EVM) skip the lifecycle branch since
+// they don't satisfy services.Service
 func TestSRS_NestedSourceReader(t *testing.T) {
 	ctx := context.Background()
 	chain := protocol.ChainSelector(1337)
 
 	t.Run("happy_path", func(t *testing.T) {
 		t.Parallel()
-		w, r, mgr, curse := newNestedReaderHarness(t, nil)
-		// init succeeds so nested Start runs, then the poll goroutine starts.
+		sr := mocks.NewMockSourceReader(t)
+		svc := mocks.NewMockService(t)
+		w := &nestedReader{MockSourceReader: sr, MockService: svc}
+		mgr := mocks.NewMockChainStatusManager(t)
+		curse := mocks.NewMockCurseCheckerService(t)
+
+		// nested Start runs once before init; nested Close runs once on SRS Close.
+		svc.EXPECT().Start(mock.Anything).Return(nil).Once()
+		svc.EXPECT().Close().Return(nil).Once()
+		// init succeeds so the poll goroutine starts.
 		mgr.EXPECT().ReadChainStatuses(mock.Anything, mock.Anything).Return(map[protocol.ChainSelector]*protocol.ChainStatusInfo{
 			chain: {ChainSelector: chain, FinalizedBlockHeight: big.NewInt(100)},
 		}, nil).Times(1)
-		allowNestedPollLoop(r, curse)
+		allowNestedPollLoop(sr, curse)
+
 		srs, _, _ := newTestSRS(t, chain, w, mgr, curse, 50*time.Millisecond, 5000)
 		require.NoError(t, srs.Start(ctx))
-		// nested Close not called until SRS Close (nested Start ran exactly once).
-		assert.Equal(t, int32(1), w.startCount.Load())
-		assert.Equal(t, int32(0), w.closeCount.Load())
+		// Between Start and Close: nested Start ran exactly once, nested Close not yet.
+		svc.AssertNumberOfCalls(t, "Start", 1)
+		svc.AssertNumberOfCalls(t, "Close", 0)
 		require.NoError(t, srs.Close())
-		// SRS Close stops the loop then calls nested Close once.
-		assert.Equal(t, int32(1), w.closeCount.Load())
+		// SRS Close stops the loop then calls nested Close once (asserted by Once() via t.Cleanup).
 	})
 
 	t.Run("close_after_init_fails", func(t *testing.T) {
 		t.Parallel()
-		w, _, mgr, curse := newNestedReaderHarness(t, nil)
+		sr := mocks.NewMockSourceReader(t)
+		svc := mocks.NewMockService(t)
+		w := &nestedReader{MockSourceReader: sr, MockService: svc}
+		mgr := mocks.NewMockChainStatusManager(t)
+		curse := mocks.NewMockCurseCheckerService(t)
+
 		initErr := errors.New("read chain status failed")
-		// nested Start succeeds; ReadChainStatuses fails before the poll loop is spawned.
+		// nested Start succeeds; ReadChainStatuses fails before the poll loop is spawned;
+		// verifier unwinds with nested Close.
+		svc.EXPECT().Start(mock.Anything).Return(nil).Once()
+		svc.EXPECT().Close().Return(nil).Once()
 		mgr.EXPECT().ReadChainStatuses(mock.Anything, mock.Anything).Return(nil, initErr).Times(1)
+		// Start returns the init error; verifier unwinds with nested Close.
 		srs, _, _ := newTestSRS(t, chain, w, mgr, curse, time.Second, 5000)
 		require.ErrorIs(t, srs.Start(ctx), initErr)
-		// Start returns the init error; verifier unwinds with nested Close (start once, close once).
-		assert.Equal(t, int32(1), w.startCount.Load())
-		assert.Equal(t, int32(1), w.closeCount.Load())
 	})
 
 	t.Run("nested_start_err", func(t *testing.T) {
 		t.Parallel()
+		sr := mocks.NewMockSourceReader(t)
+		svc := mocks.NewMockService(t)
+		w := &nestedReader{MockSourceReader: sr, MockService: svc}
+		mgr := mocks.NewMockChainStatusManager(t)
+		curse := mocks.NewMockCurseCheckerService(t)
+
 		nestErr := errors.New("nested start failed")
-		w, _, mgr, curse := newNestedReaderHarness(t, nestErr)
+		// nested Start fails; verifier must NOT call nested Close
+		svc.EXPECT().Start(mock.Anything).Return(nestErr).Once()
+
 		srs, _, _ := newTestSRS(t, chain, w, mgr, curse, time.Second, 5000)
 		require.Same(t, w, srs.sourceReader)
 		err := srs.Start(ctx)
@@ -1784,9 +1791,8 @@ func TestSRS_NestedSourceReader(t *testing.T) {
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "start chain source reader service")
 		require.ErrorIs(t, err, nestErr)
-		// nested Start ran; verifier does not call nested Close on this path.
-		assert.Equal(t, int32(1), w.startCount.Load())
-		assert.Zero(t, w.closeCount.Load())
+		// Close must not have been called
+		svc.AssertNumberOfCalls(t, "Close", 0)
 	})
 }
 

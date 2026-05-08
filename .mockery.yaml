@@ -34,6 +34,10 @@ packages:
       StateServiceClient:
       UpdateServiceClient:
 
+  github.com/smartcontractkit/chainlink-common/pkg/services:
+    interfaces:
+      Service:
+
   github.com/smartcontractkit/chainlink-ccv/common:
     interfaces:
       CurseChecker:
