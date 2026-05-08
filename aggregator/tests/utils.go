@@ -367,7 +367,7 @@ func createCCVDataClient(ctx context.Context, ccvDataBuf *bufconn.Listener, opts
 		return ccvDataBuf.Dial()
 	}
 
-	//nolint:staticcheck // grpc.WithInsecure is deprecated but needed for test setup
+	//nolint:prealloc,staticcheck // small fixed defaults; grpc.WithInsecure is deprecated but needed for test setup
 	defaultOpts := []grpc.DialOption{
 		grpc.WithContextDialer(bufDialer),
 		grpc.WithInsecure(),
@@ -391,7 +391,7 @@ func createAggregatorClient(ctx context.Context, aggregatorBuf *bufconn.Listener
 		return aggregatorBuf.Dial()
 	}
 
-	//nolint:staticcheck // grpc.WithInsecure is deprecated but needed for test setup
+	//nolint:prealloc,staticcheck // small fixed defaults; grpc.WithInsecure is deprecated but needed for test setup
 	defaultOpts := []grpc.DialOption{
 		grpc.WithContextDialer(bufDialer),
 		grpc.WithInsecure(),
@@ -415,7 +415,7 @@ func createMessageDiscoveryClient(ctx context.Context, messageDiscoveryBuf *bufc
 		return messageDiscoveryBuf.Dial()
 	}
 
-	//nolint:staticcheck // grpc.WithInsecure is deprecated but needed for test setup
+	//nolint:prealloc,staticcheck // small fixed defaults; grpc.WithInsecure is deprecated but needed for test setup
 	defaultOpts := []grpc.DialOption{
 		grpc.WithContextDialer(bufDialer),
 		grpc.WithInsecure(),
