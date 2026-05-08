@@ -300,6 +300,7 @@ func createCCTPCoordinator(
 		verifierMonitoring,
 		chainStatusManager,
 		heartbeatclient.NewNoopHeartbeatClient(),
+		nil,
 		db,
 	)
 	if err != nil {
@@ -354,6 +355,7 @@ func createLombardCoordinator(
 		verifierMonitoring,
 		chainStatusManager,
 		heartbeatclient.NewNoopHeartbeatClient(),
+		nil,
 		db,
 	)
 	if err != nil {

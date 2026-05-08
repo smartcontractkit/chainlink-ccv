@@ -84,6 +84,7 @@ func newTestSRS(
 		&noopFilter{},
 		&testutil.NoopMetricLabeler{},
 		queue,
+		common.AllowAllMessagesChecker{},
 	)
 	require.NoError(t, err)
 
@@ -787,6 +788,7 @@ func TestSRS_DisableFinalityChecker(t *testing.T) {
 		&noopFilter{},
 		&testutil.NoopMetricLabeler{},
 		&fakeTaskQueue{},
+		common.AllowAllMessagesChecker{},
 	)
 	require.NoError(t, err)
 
