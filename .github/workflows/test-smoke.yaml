@@ -78,6 +78,12 @@ jobs:
             config: env.toml,env-src-auto-mine.toml
             timeout: 10m
             working-directory: build/devenv/tests/e2e
+          - name: TestE2ESmoke_Basic_Phased
+            run_cmd: TestE2ESmoke_Basic
+            config: env.toml
+            flags: --env-mode phased
+            timeout: 15m
+            working-directory: build/devenv/tests/e2e
     steps:
       - name: Enable S3 Cache for Self-Hosted Runners
         uses: runs-on/action@cd2b598b0515d39d78c38a02d529db87d2196d1e # v2.0.3
@@ -140,7 +146,7 @@ jobs:
           JD_IMAGE: ${{ secrets.JD_IMAGE }}
         run: |
           cd cmd/ccv && go install . && cd -
-          ccv u ${{ matrix.test.config }} && ccv obs up -m loki
+          ccv ${{ matrix.test.flags || '' }} u ${{ matrix.test.config }} && ccv obs up -m loki
 
       - name: Run Test ${{ matrix.test.name }}
         id: test_run
