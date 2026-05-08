@@ -118,7 +118,7 @@ func main() {
 
 func getOutputFile(path string) (*os.File, error) {
 	// If outPath already exists and is a directory, fail early.
-	if st, err := os.Stat(path); err == nil && st.IsDir() {
+	if st, err := os.Stat(path); err == nil && st.IsDir() { //nolint:gosec // G703: code generator tool, path comes from trusted CLI flag
 		_, _ = fmt.Fprintf(os.Stderr, "output path is an existing directory: %s\n", path)
 		os.Exit(2)
 	}
