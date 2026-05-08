@@ -102,20 +102,17 @@ func runPhasedEnvironment(ctx context.Context, in *Cfg) (_ *Cfg, err error) {
 	// and gather the deploy Outputs that downstream services need.
 	///////////////////////////////////////
 
-	impls := make([]cciptestinterfaces.CCIP17Configuration, 0, len(in.Blockchains))
-	for _, bc := range in.Blockchains {
-		impl, err := NewProductConfigurationFromNetwork(bc.Type)
-		if err != nil {
-			return nil, err
-		}
-		impls = append(impls, impl)
-	}
-
+	impls := make([]cciptestinterfaces.CCIP17Configuration, len(in.Blockchains))
 	blockchainOutputs := make([]*blockchain.Output, len(in.Blockchains))
 	for i, bc := range in.Blockchains {
 		if bc.Out == nil {
 			return nil, fmt.Errorf("blockchain[%d] %q: phase 1 did not populate Out", i, bc.ContainerName)
 		}
+		impl, err := NewProductConfigurationFromNetwork(bc.Type)
+		if err != nil {
+			return nil, err
+		}
+		impls[i] = impl
 		blockchainOutputs[i] = bc.Out
 	}
 
