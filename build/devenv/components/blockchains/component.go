@@ -36,25 +36,34 @@ func factory(_ map[string]any) (devenvruntime.Component, error) {
 
 type component struct{}
 
-func (c *component) ValidateConfig(_ any) error { return nil }
+// ValidateConfig decodes the raw [[blockchains]] config and runs all static
+// validation: that at least one chain is declared, that each declared Type
+// resolves to a known family, and that the active PRIVATE_KEY is compatible
+// with the declared chains (Anvil key for sim chain IDs, real key otherwise).
+func (c *component) ValidateConfig(componentConfig any) error {
+	bcs, err := decode(componentConfig)
+	if err != nil {
+		return err
+	}
+	if len(bcs) == 0 {
+		return errors.New("no [[blockchains]] entries declared in config")
+	}
+	return checkBlockchainKeys(bcs)
+}
 
-// RunPhase1 deploys all blockchain networks declared under [[blockchains]] in
-// the TOML config. It validates that the active private key is compatible with
-// the declared chains, brings up each network via blockchain.NewBlockchainNetwork
-// (which populates each Input's Out field), and emits two outputs:
+// RunPhase1 brings up each declared blockchain network via
+// blockchain.NewBlockchainNetwork (which populates each Input's Out field)
+// and emits two outputs:
 //   - "blockchains" — []*blockchain.Input with Out populated, for downstream
 //     components that need both the input parameters and deploy result.
 //   - "blockchainOutputs" — []*blockchain.Output, for downstream components
 //     that only need the deploy result.
+//
+// All static validation (decode, key compatibility, non-empty list) happens
+// in ValidateConfig; this method assumes it has already passed.
 func (c *component) RunPhase1(_ context.Context, _ map[string]any, componentConfig any) (map[string]any, error) {
 	bcs, err := decode(componentConfig)
 	if err != nil {
-		return nil, err
-	}
-	if len(bcs) == 0 {
-		return nil, errors.New("no [[blockchains]] entries declared in config")
-	}
-	if err := checkBlockchainKeys(bcs); err != nil {
 		return nil, err
 	}
 
