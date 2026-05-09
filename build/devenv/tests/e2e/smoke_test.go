@@ -8,7 +8,6 @@ import (
 	gethcommon "github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/require"
 
-	chain_selectors "github.com/smartcontractkit/chain-selectors"
 	burn_mint_erc20_with_drip_v1_5 "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_5_0/operations/burn_mint_erc20_with_drip"
 	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
@@ -31,26 +30,33 @@ func TestE2ESmoke_Basic(t *testing.T) {
 
 	ctx := ccv.Plog.WithContext(t.Context())
 
-	harness, err := tcapi.NewTestHarness(
-		ctx,
-		GetSmokeTestConfig(),
-		cfg,
-		chain_selectors.FamilyEVM,
-	)
+	_, env, err := ccv.NewCLDFOperationsEnvironment(cfg.Blockchains, cfg.CLDF.DataStore)
 	require.NoError(t, err)
 
-	chains, err := harness.Lib.Chains(ctx)
+	sels, err := FirstTwoEVMSelectors(cfg)
 	require.NoError(t, err)
-	require.GreaterOrEqual(t, len(chains), 2, "expected at least 2 chains for this test in the environment")
+	require.GreaterOrEqual(t, len(sels), 2, "expected at least 2 EVM chains for this test in the environment")
+	srcSel, dstSel := sels[0], sels[1]
 
-	src, dest := chains[0].CCIP17, chains[1].CCIP17
+	aggregators, err := ccv.NewAggregatorClientsFromCfg(ctx, cfg)
+	require.NoError(t, err)
+	mon, err := ccv.FirstIndexerMonitorFromEndpoints(ctx, cfg.IndexerEndpoints, ccv.Plog)
+	require.NoError(t, err)
+
+	caseOpts := []tcapi.CaseOption{
+		tcapi.WithLane(srcSel, dstSel),
+		tcapi.WithAggregatorClients(aggregators),
+		tcapi.WithIndexerMonitor(mon),
+	}
 
 	t.Run("extra args v3 messaging", func(t *testing.T) {
-		for _, tc := range basic.All(src, dest) {
-			if tc.HavePrerequisites(ctx, cfg) {
+		cases, err := basic.All(ctx, env, caseOpts...)
+		require.NoError(t, err)
+		for _, tc := range cases {
+			if tc.HavePrerequisites(ctx) {
 				t.Run(tc.Name(), func(t *testing.T) {
 					subtestCtx := ccv.Plog.WithContext(t.Context())
-					require.NoError(t, tc.Run(subtestCtx, harness, cfg))
+					require.NoError(t, tc.Run(subtestCtx))
 				})
 			} else {
 				t.Logf("Skipping %s because current environment does not have the prerequisites", tc.Name())
@@ -60,21 +66,25 @@ func TestE2ESmoke_Basic(t *testing.T) {
 
 	t.Run("extra args v3 token transfer", func(t *testing.T) {
 		combos := common.AllTokenCombinations()
-		for _, tc := range token_transfer.All(src, dest, combos) {
-			if tc.HavePrerequisites(ctx, cfg) {
+		cases, err := token_transfer.All(ctx, env, combos, caseOpts...)
+		require.NoError(t, err)
+		for _, tc := range cases {
+			if tc.HavePrerequisites(ctx) {
 				t.Run(tc.Name(), func(t *testing.T) {
 					subtestCtx := ccv.Plog.WithContext(t.Context())
-					require.NoError(t, tc.Run(subtestCtx, harness, cfg))
+					require.NoError(t, tc.Run(subtestCtx))
 				})
 			} else {
 				t.Logf("Skipping %s because current environment does not have the prerequisites", tc.Name())
 			}
 		}
-		for _, tc := range token_transfer.All17(src, dest, combos) {
-			if tc.HavePrerequisites(ctx, cfg) {
+		cases17, err := token_transfer.All17(ctx, env, combos, caseOpts...)
+		require.NoError(t, err)
+		for _, tc := range cases17 {
+			if tc.HavePrerequisites(ctx) {
 				t.Run(tc.Name(), func(t *testing.T) {
 					subtestCtx := ccv.Plog.WithContext(t.Context())
-					require.NoError(t, tc.Run(subtestCtx, harness, cfg))
+					require.NoError(t, tc.Run(subtestCtx))
 				})
 			} else {
 				t.Logf("Skipping %s because current environment does not have the prerequisites", tc.Name())

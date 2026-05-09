@@ -13,12 +13,12 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/proxy"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/sequences"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/versioned_verifier_resolver"
-	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/tcapi"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
+	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 )
 
 // v3TestCaseBase contains test data that can be specified w/out the environment.
@@ -37,17 +37,18 @@ type v3TestCaseBase struct {
 // v3TestCase is for tests that use ExtraArgsV3.
 type v3TestCase struct {
 	v3TestCaseBase
+	deps     *tcapi.CaseDeps
 	receiver protocol.UnknownAddress
 	ccvs     []protocol.CCV
 	executor protocol.UnknownAddress
-	hydrate  func(ctx context.Context, tc *v3TestCase, cfg *ccv.Cfg) bool
+	hydrate  func(ctx context.Context, tc *v3TestCase) bool
 }
 
 func (tc *v3TestCase) Name() string {
 	return tc.name
 }
 
-func (tc *v3TestCase) Run(ctx context.Context, harness tcapi.TestHarness, cfg *ccv.Cfg) error {
+func (tc *v3TestCase) Run(ctx context.Context) error {
 	l := zerolog.Ctx(ctx)
 	seqNo, err := tc.src.GetExpectedNextSequenceNumber(ctx, tc.dst.ChainSelector())
 	if err != nil {
@@ -76,33 +77,36 @@ func (tc *v3TestCase) Run(ctx context.Context, harness tcapi.TestHarness, cfg *c
 	}
 	messageID := sentEvent.MessageID
 
-	aggregatorClient := harness.AggregatorClients[common.DefaultCommitteeVerifierQualifier]
+	aggregatorClient := tc.deps.AggregatorClients[common.DefaultCommitteeVerifierQualifier]
 	if tc.aggregatorQualifier != "" && tc.aggregatorQualifier != common.DefaultCommitteeVerifierQualifier {
-		if client, ok := harness.AggregatorClients[tc.aggregatorQualifier]; ok {
+		if client, ok := tc.deps.AggregatorClients[tc.aggregatorQualifier]; ok {
 			aggregatorClient = client
 		}
 	}
-	chainMap, err := harness.Lib.ChainsMap(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get chains map: %w", err)
-	}
-	testCtx, cleanupFn := tcapi.NewTestingContext(ctx, chainMap, aggregatorClient, harness.IndexerMonitor)
-	defer cleanupFn()
-	result, err := testCtx.AssertMessage(messageID, tcapi.AssertMessageOptions{
-		TickInterval:            1 * time.Second,
-		ExpectedVerifierResults: tc.numExpectedVerifications,
-		Timeout:                 tcapi.DefaultExecTimeout,
-		AssertVerifierLogs:      false,
-		AssertExecutorLogs:      false,
-	})
-	if err != nil {
-		return fmt.Errorf("failed to assert message: %w", err)
-	}
-	if result.AggregatedResult == nil {
-		return fmt.Errorf("aggregated result is nil")
-	}
-	if len(result.IndexedVerifications.Results) != tc.numExpectedVerifications {
-		return fmt.Errorf("expected %d indexed verifications, got %d", tc.numExpectedVerifications, len(result.IndexedVerifications.Results))
+	chainMap := tc.deps.ChainMap
+
+	offchain := aggregatorClient != nil || tc.deps.IndexerMonitor != nil
+	if offchain {
+		testCtx, cleanupFn := tcapi.NewTestingContext(ctx, chainMap, aggregatorClient, tc.deps.IndexerMonitor)
+		defer cleanupFn()
+		result, err := testCtx.AssertMessage(messageID, tcapi.AssertMessageOptions{
+			TickInterval:            1 * time.Second,
+			ExpectedVerifierResults: tc.numExpectedVerifications,
+			Timeout:                 tcapi.DefaultExecTimeout,
+			AssertVerifierLogs:      false,
+			AssertExecutorLogs:      false,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to assert message: %w", err)
+		}
+		if aggregatorClient != nil && result.AggregatedResult == nil {
+			return fmt.Errorf("aggregated result is nil")
+		}
+		if tc.deps.IndexerMonitor != nil && len(result.IndexedVerifications.Results) != tc.numExpectedVerifications {
+			return fmt.Errorf("expected %d indexed verifications, got %d", tc.numExpectedVerifications, len(result.IndexedVerifications.Results))
+		}
+	} else {
+		l.Info().Msg("skipping aggregator/indexer assertions (off-chain clients not configured)")
 	}
 
 	e, err := chainMap[tc.dst.ChainSelector()].ConfirmExecOnDest(ctx, tc.src.ChainSelector(), cciptestinterfaces.MessageEventKey{SeqNum: seqNo}, tcapi.DefaultExecTimeout)
@@ -117,12 +121,12 @@ func (tc *v3TestCase) Run(ctx context.Context, harness tcapi.TestHarness, cfg *c
 	return nil
 }
 
-func (tc *v3TestCase) HavePrerequisites(ctx context.Context, cfg *ccv.Cfg) bool {
-	return tc.hydrate(ctx, tc, cfg)
+func (tc *v3TestCase) HavePrerequisites(ctx context.Context) bool {
+	return tc.hydrate(ctx, tc)
 }
 
-func getCommitteeCCV(cfg *ccv.Cfg, srcChainSelector uint64, qualifier, contractName string) (protocol.CCV, error) {
-	addr, err := tcapi.GetContractAddress(cfg, srcChainSelector, datastore.ContractType(versioned_verifier_resolver.CommitteeVerifierResolverType), versioned_verifier_resolver.Version.String(), qualifier, contractName)
+func getCommitteeCCV(ds datastore.DataStore, srcChainSelector uint64, qualifier, contractName string) (protocol.CCV, error) {
+	addr, err := tcapi.GetContractAddress(ds, srcChainSelector, datastore.ContractType(versioned_verifier_resolver.CommitteeVerifierResolverType), versioned_verifier_resolver.Version.String(), qualifier, contractName)
 	if err != nil {
 		return protocol.CCV{}, err
 	}
@@ -130,12 +134,13 @@ func getCommitteeCCV(cfg *ccv.Cfg, srcChainSelector uint64, qualifier, contractN
 }
 
 // CustomExecutor returns a test case that uses the custom executor.
-func CustomExecutor(src, dest cciptestinterfaces.CCIP17) tcapi.TestCase {
-	return customExecutor(src, dest)
+func CustomExecutor(src, dest cciptestinterfaces.CCIP17, deps *tcapi.CaseDeps) tcapi.TestCase {
+	return customExecutor(src, dest, deps)
 }
 
-func customExecutor(src, dest cciptestinterfaces.CCIP17) *v3TestCase {
+func customExecutor(src, dest cciptestinterfaces.CCIP17, deps *tcapi.CaseDeps) *v3TestCase {
 	return &v3TestCase{
+		deps: deps,
 		v3TestCaseBase: v3TestCaseBase{
 			name:                     "custom executor",
 			src:                      src,
@@ -146,18 +151,18 @@ func customExecutor(src, dest cciptestinterfaces.CCIP17) *v3TestCase {
 			expectFail:               false,
 			numExpectedVerifications: 1,
 		},
-		hydrate: func(ctx context.Context, tc *v3TestCase, cfg *ccv.Cfg) bool {
-			receiver, err := tcapi.GetContractAddress(cfg, dest.ChainSelector(), datastore.ContractType(mock_receiver_v2.ContractType), mock_receiver_v2.Deploy.Version(), common.DefaultReceiverQualifier, "default mock receiver")
+		hydrate: func(ctx context.Context, tc *v3TestCase) bool {
+			receiver, err := tcapi.GetContractAddress(tc.deps.DataStore, dest.ChainSelector(), datastore.ContractType(mock_receiver_v2.ContractType), mock_receiver_v2.Deploy.Version(), common.DefaultReceiverQualifier, "default mock receiver")
 			if err != nil {
 				return false
 			}
 			tc.receiver = receiver
-			ccvAddr, err := tcapi.GetContractAddress(cfg, src.ChainSelector(), datastore.ContractType(versioned_verifier_resolver.CommitteeVerifierResolverType), versioned_verifier_resolver.Version.String(), common.DefaultCommitteeVerifierQualifier, "committee verifier proxy")
+			ccvAddr, err := tcapi.GetContractAddress(tc.deps.DataStore, src.ChainSelector(), datastore.ContractType(versioned_verifier_resolver.CommitteeVerifierResolverType), versioned_verifier_resolver.Version.String(), common.DefaultCommitteeVerifierQualifier, "committee verifier proxy")
 			if err != nil {
 				return false
 			}
 			tc.ccvs = []protocol.CCV{{CCVAddress: ccvAddr, Args: []byte{}, ArgsLen: 0}}
-			executorAddr, err := tcapi.GetContractAddress(cfg, src.ChainSelector(), datastore.ContractType(sequences.ExecutorProxyType), proxy.Deploy.Version(), common.CustomExecutorQualifier, "executor")
+			executorAddr, err := tcapi.GetContractAddress(tc.deps.DataStore, src.ChainSelector(), datastore.ContractType(sequences.ExecutorProxyType), proxy.Deploy.Version(), common.CustomExecutorQualifier, "executor")
 			if err != nil {
 				return false
 			}
@@ -168,12 +173,13 @@ func customExecutor(src, dest cciptestinterfaces.CCIP17) *v3TestCase {
 }
 
 // EOAReceiverDefaultVerifier returns a test case: EOA receiver and default committee verifier.
-func EOAReceiverDefaultVerifier(src, dest cciptestinterfaces.CCIP17) tcapi.TestCase {
-	return eoaReceiverDefaultVerifier(src, dest)
+func EOAReceiverDefaultVerifier(src, dest cciptestinterfaces.CCIP17, deps *tcapi.CaseDeps) tcapi.TestCase {
+	return eoaReceiverDefaultVerifier(src, dest, deps)
 }
 
-func eoaReceiverDefaultVerifier(src, dest cciptestinterfaces.CCIP17) *v3TestCase {
+func eoaReceiverDefaultVerifier(src, dest cciptestinterfaces.CCIP17, deps *tcapi.CaseDeps) *v3TestCase {
 	return &v3TestCase{
+		deps: deps,
 		v3TestCaseBase: v3TestCaseBase{
 			name:                     "EOA receiver and default committee verifier",
 			src:                      src,
@@ -183,18 +189,18 @@ func eoaReceiverDefaultVerifier(src, dest cciptestinterfaces.CCIP17) *v3TestCase
 			numExpectedReceipts:      3,
 			numExpectedVerifications: 1,
 		},
-		hydrate: func(ctx context.Context, tc *v3TestCase, cfg *ccv.Cfg) bool {
+		hydrate: func(ctx context.Context, tc *v3TestCase) bool {
 			receiver, err := tc.dst.GetEOAReceiverAddress()
 			if err != nil {
 				return false
 			}
 			tc.receiver = receiver
-			ccv, err := getCommitteeCCV(cfg, tc.src.ChainSelector(), common.DefaultCommitteeVerifierQualifier, "committee verifier proxy")
+			ccv, err := getCommitteeCCV(tc.deps.DataStore, tc.src.ChainSelector(), common.DefaultCommitteeVerifierQualifier, "committee verifier proxy")
 			if err != nil {
 				return false
 			}
 			tc.ccvs = []protocol.CCV{ccv}
-			executorAddr, err := tcapi.GetContractAddress(cfg, tc.src.ChainSelector(), datastore.ContractType(sequences.ExecutorProxyType), proxy.Deploy.Version(), common.DefaultExecutorQualifier, "executor")
+			executorAddr, err := tcapi.GetContractAddress(tc.deps.DataStore, tc.src.ChainSelector(), datastore.ContractType(sequences.ExecutorProxyType), proxy.Deploy.Version(), common.DefaultExecutorQualifier, "executor")
 			if err != nil {
 				return false
 			}
@@ -205,12 +211,13 @@ func eoaReceiverDefaultVerifier(src, dest cciptestinterfaces.CCIP17) *v3TestCase
 }
 
 // EOAReceiverSecondaryVerifier returns a test case: EOA receiver and secondary committee verifier.
-func EOAReceiverSecondaryVerifier(src, dest cciptestinterfaces.CCIP17) tcapi.TestCase {
-	return eoaReceiverSecondaryVerifier(src, dest)
+func EOAReceiverSecondaryVerifier(src, dest cciptestinterfaces.CCIP17, deps *tcapi.CaseDeps) tcapi.TestCase {
+	return eoaReceiverSecondaryVerifier(src, dest, deps)
 }
 
-func eoaReceiverSecondaryVerifier(src, dest cciptestinterfaces.CCIP17) *v3TestCase {
+func eoaReceiverSecondaryVerifier(src, dest cciptestinterfaces.CCIP17, deps *tcapi.CaseDeps) *v3TestCase {
 	return &v3TestCase{
+		deps: deps,
 		v3TestCaseBase: v3TestCaseBase{
 			name:                     "EOA receiver and secondary committee verifier",
 			src:                      src,
@@ -220,22 +227,22 @@ func eoaReceiverSecondaryVerifier(src, dest cciptestinterfaces.CCIP17) *v3TestCa
 			numExpectedReceipts:      4,
 			numExpectedVerifications: 2,
 		},
-		hydrate: func(ctx context.Context, tc *v3TestCase, cfg *ccv.Cfg) bool {
+		hydrate: func(ctx context.Context, tc *v3TestCase) bool {
 			receiver, err := tc.dst.GetEOAReceiverAddress()
 			if err != nil {
 				return false
 			}
 			tc.receiver = receiver
-			sec, err := getCommitteeCCV(cfg, tc.src.ChainSelector(), common.SecondaryCommitteeVerifierQualifier, "secondary committee verifier proxy")
+			sec, err := getCommitteeCCV(tc.deps.DataStore, tc.src.ChainSelector(), common.SecondaryCommitteeVerifierQualifier, "secondary committee verifier proxy")
 			if err != nil {
 				return false
 			}
-			def, err := getCommitteeCCV(cfg, tc.src.ChainSelector(), common.DefaultCommitteeVerifierQualifier, "default committee verifier proxy")
+			def, err := getCommitteeCCV(tc.deps.DataStore, tc.src.ChainSelector(), common.DefaultCommitteeVerifierQualifier, "default committee verifier proxy")
 			if err != nil {
 				return false
 			}
 			tc.ccvs = []protocol.CCV{sec, def}
-			executorAddr, err := tcapi.GetContractAddress(cfg, tc.src.ChainSelector(), datastore.ContractType(sequences.ExecutorProxyType), proxy.Deploy.Version(), common.DefaultExecutorQualifier, "executor")
+			executorAddr, err := tcapi.GetContractAddress(tc.deps.DataStore, tc.src.ChainSelector(), datastore.ContractType(sequences.ExecutorProxyType), proxy.Deploy.Version(), common.DefaultExecutorQualifier, "executor")
 			if err != nil {
 				return false
 			}
@@ -246,12 +253,13 @@ func eoaReceiverSecondaryVerifier(src, dest cciptestinterfaces.CCIP17) *v3TestCa
 }
 
 // ReceiverSecondaryVerifierRequired returns a test case: receiver with secondary verifier required.
-func ReceiverSecondaryVerifierRequired(src, dest cciptestinterfaces.CCIP17) tcapi.TestCase {
-	return receiverSecondaryVerifierRequired(src, dest)
+func ReceiverSecondaryVerifierRequired(src, dest cciptestinterfaces.CCIP17, deps *tcapi.CaseDeps) tcapi.TestCase {
+	return receiverSecondaryVerifierRequired(src, dest, deps)
 }
 
-func receiverSecondaryVerifierRequired(src, dest cciptestinterfaces.CCIP17) *v3TestCase {
+func receiverSecondaryVerifierRequired(src, dest cciptestinterfaces.CCIP17, deps *tcapi.CaseDeps) *v3TestCase {
 	return &v3TestCase{
+		deps: deps,
 		v3TestCaseBase: v3TestCaseBase{
 			name:                     "receiver w/ secondary verifier required",
 			src:                      src,
@@ -262,18 +270,18 @@ func receiverSecondaryVerifierRequired(src, dest cciptestinterfaces.CCIP17) *v3T
 			numExpectedVerifications: 1,
 			aggregatorQualifier:      common.SecondaryCommitteeVerifierQualifier,
 		},
-		hydrate: func(ctx context.Context, tc *v3TestCase, cfg *ccv.Cfg) bool {
-			receiver, err := tcapi.GetContractAddress(cfg, tc.dst.ChainSelector(), datastore.ContractType(mock_receiver_v2.ContractType), mock_receiver_v2.Deploy.Version(), common.SecondaryReceiverQualifier, "secondary mock receiver")
+		hydrate: func(ctx context.Context, tc *v3TestCase) bool {
+			receiver, err := tcapi.GetContractAddress(tc.deps.DataStore, tc.dst.ChainSelector(), datastore.ContractType(mock_receiver_v2.ContractType), mock_receiver_v2.Deploy.Version(), common.SecondaryReceiverQualifier, "secondary mock receiver")
 			if err != nil {
 				return false
 			}
 			tc.receiver = receiver
-			ccv, err := getCommitteeCCV(cfg, tc.src.ChainSelector(), common.SecondaryCommitteeVerifierQualifier, "secondary committee verifier proxy")
+			ccv, err := getCommitteeCCV(tc.deps.DataStore, tc.src.ChainSelector(), common.SecondaryCommitteeVerifierQualifier, "secondary committee verifier proxy")
 			if err != nil {
 				return false
 			}
 			tc.ccvs = []protocol.CCV{ccv}
-			executorAddr, err := tcapi.GetContractAddress(cfg, tc.src.ChainSelector(), datastore.ContractType(sequences.ExecutorProxyType), proxy.Deploy.Version(), common.DefaultExecutorQualifier, "executor")
+			executorAddr, err := tcapi.GetContractAddress(tc.deps.DataStore, tc.src.ChainSelector(), datastore.ContractType(sequences.ExecutorProxyType), proxy.Deploy.Version(), common.DefaultExecutorQualifier, "executor")
 			if err != nil {
 				return false
 			}
@@ -284,12 +292,13 @@ func receiverSecondaryVerifierRequired(src, dest cciptestinterfaces.CCIP17) *v3T
 }
 
 // ReceiverSecondaryRequiredTertiaryOptionalThreshold1 returns a test case: receiver w/ secondary required and tertiary optional threshold=1.
-func ReceiverSecondaryRequiredTertiaryOptionalThreshold1(src, dest cciptestinterfaces.CCIP17) tcapi.TestCase {
-	return receiverSecondaryRequiredTertiaryOptionalThreshold1(src, dest)
+func ReceiverSecondaryRequiredTertiaryOptionalThreshold1(src, dest cciptestinterfaces.CCIP17, deps *tcapi.CaseDeps) tcapi.TestCase {
+	return receiverSecondaryRequiredTertiaryOptionalThreshold1(src, dest, deps)
 }
 
-func receiverSecondaryRequiredTertiaryOptionalThreshold1(src, dest cciptestinterfaces.CCIP17) *v3TestCase {
+func receiverSecondaryRequiredTertiaryOptionalThreshold1(src, dest cciptestinterfaces.CCIP17, deps *tcapi.CaseDeps) *v3TestCase {
 	return &v3TestCase{
+		deps: deps,
 		v3TestCaseBase: v3TestCaseBase{
 			name:                     "receiver w/ secondary required and tertiary optional threshold=1",
 			src:                      src,
@@ -300,22 +309,22 @@ func receiverSecondaryRequiredTertiaryOptionalThreshold1(src, dest cciptestinter
 			numExpectedVerifications: 2,
 			aggregatorQualifier:      common.SecondaryCommitteeVerifierQualifier,
 		},
-		hydrate: func(ctx context.Context, tc *v3TestCase, cfg *ccv.Cfg) bool {
-			receiver, err := tcapi.GetContractAddress(cfg, tc.dst.ChainSelector(), datastore.ContractType(mock_receiver_v2.ContractType), mock_receiver_v2.Deploy.Version(), common.SecondaryReceiverQualifier, "secondary mock receiver")
+		hydrate: func(ctx context.Context, tc *v3TestCase) bool {
+			receiver, err := tcapi.GetContractAddress(tc.deps.DataStore, tc.dst.ChainSelector(), datastore.ContractType(mock_receiver_v2.ContractType), mock_receiver_v2.Deploy.Version(), common.SecondaryReceiverQualifier, "secondary mock receiver")
 			if err != nil {
 				return false
 			}
 			tc.receiver = receiver
-			sec, err := getCommitteeCCV(cfg, tc.src.ChainSelector(), common.SecondaryCommitteeVerifierQualifier, "secondary committee verifier proxy")
+			sec, err := getCommitteeCCV(tc.deps.DataStore, tc.src.ChainSelector(), common.SecondaryCommitteeVerifierQualifier, "secondary committee verifier proxy")
 			if err != nil {
 				return false
 			}
-			ter, err := getCommitteeCCV(cfg, tc.src.ChainSelector(), common.TertiaryCommitteeVerifierQualifier, "tertiary committee verifier proxy")
+			ter, err := getCommitteeCCV(tc.deps.DataStore, tc.src.ChainSelector(), common.TertiaryCommitteeVerifierQualifier, "tertiary committee verifier proxy")
 			if err != nil {
 				return false
 			}
 			tc.ccvs = []protocol.CCV{sec, ter}
-			executorAddr, err := tcapi.GetContractAddress(cfg, tc.src.ChainSelector(), datastore.ContractType(sequences.ExecutorProxyType), executor.Deploy.Version(), common.DefaultExecutorQualifier, "executor")
+			executorAddr, err := tcapi.GetContractAddress(tc.deps.DataStore, tc.src.ChainSelector(), datastore.ContractType(sequences.ExecutorProxyType), executor.Deploy.Version(), common.DefaultExecutorQualifier, "executor")
 			if err != nil {
 				return false
 			}
@@ -326,12 +335,13 @@ func receiverSecondaryRequiredTertiaryOptionalThreshold1(src, dest cciptestinter
 }
 
 // ReceiverQuaternaryAllThreeVerifiers returns a test case: receiver w/ default required, secondary and tertiary optional, message specifies all three.
-func ReceiverQuaternaryAllThreeVerifiers(src, dest cciptestinterfaces.CCIP17) tcapi.TestCase {
-	return receiverQuaternaryAllThreeVerifiers(src, dest)
+func ReceiverQuaternaryAllThreeVerifiers(src, dest cciptestinterfaces.CCIP17, deps *tcapi.CaseDeps) tcapi.TestCase {
+	return receiverQuaternaryAllThreeVerifiers(src, dest, deps)
 }
 
-func receiverQuaternaryAllThreeVerifiers(src, dest cciptestinterfaces.CCIP17) *v3TestCase {
+func receiverQuaternaryAllThreeVerifiers(src, dest cciptestinterfaces.CCIP17, deps *tcapi.CaseDeps) *v3TestCase {
 	return &v3TestCase{
+		deps: deps,
 		v3TestCaseBase: v3TestCaseBase{
 			name:                     "receiver w/ default required, secondary and tertiary optional, threshold=1, message specifies all three",
 			src:                      src,
@@ -341,26 +351,26 @@ func receiverQuaternaryAllThreeVerifiers(src, dest cciptestinterfaces.CCIP17) *v
 			numExpectedReceipts:      5,
 			numExpectedVerifications: 3,
 		},
-		hydrate: func(ctx context.Context, tc *v3TestCase, cfg *ccv.Cfg) bool {
-			receiver, err := tcapi.GetContractAddress(cfg, tc.dst.ChainSelector(), datastore.ContractType(mock_receiver_v2.ContractType), mock_receiver_v2.Deploy.Version(), common.QuaternaryReceiverQualifier, "quaternary mock receiver")
+		hydrate: func(ctx context.Context, tc *v3TestCase) bool {
+			receiver, err := tcapi.GetContractAddress(tc.deps.DataStore, tc.dst.ChainSelector(), datastore.ContractType(mock_receiver_v2.ContractType), mock_receiver_v2.Deploy.Version(), common.QuaternaryReceiverQualifier, "quaternary mock receiver")
 			if err != nil {
 				return false
 			}
 			tc.receiver = receiver
-			def, err := getCommitteeCCV(cfg, tc.src.ChainSelector(), common.DefaultCommitteeVerifierQualifier, "default committee verifier proxy")
+			def, err := getCommitteeCCV(tc.deps.DataStore, tc.src.ChainSelector(), common.DefaultCommitteeVerifierQualifier, "default committee verifier proxy")
 			if err != nil {
 				return false
 			}
-			sec, err := getCommitteeCCV(cfg, tc.src.ChainSelector(), common.SecondaryCommitteeVerifierQualifier, "secondary committee verifier proxy")
+			sec, err := getCommitteeCCV(tc.deps.DataStore, tc.src.ChainSelector(), common.SecondaryCommitteeVerifierQualifier, "secondary committee verifier proxy")
 			if err != nil {
 				return false
 			}
-			ter, err := getCommitteeCCV(cfg, tc.src.ChainSelector(), common.TertiaryCommitteeVerifierQualifier, "tertiary committee verifier proxy")
+			ter, err := getCommitteeCCV(tc.deps.DataStore, tc.src.ChainSelector(), common.TertiaryCommitteeVerifierQualifier, "tertiary committee verifier proxy")
 			if err != nil {
 				return false
 			}
 			tc.ccvs = []protocol.CCV{def, sec, ter}
-			executorAddr, err := tcapi.GetContractAddress(cfg, tc.src.ChainSelector(), datastore.ContractType(sequences.ExecutorProxyType), proxy.Deploy.Version(), common.DefaultExecutorQualifier, "executor")
+			executorAddr, err := tcapi.GetContractAddress(tc.deps.DataStore, tc.src.ChainSelector(), datastore.ContractType(sequences.ExecutorProxyType), proxy.Deploy.Version(), common.DefaultExecutorQualifier, "executor")
 			if err != nil {
 				return false
 			}
@@ -371,12 +381,13 @@ func receiverQuaternaryAllThreeVerifiers(src, dest cciptestinterfaces.CCIP17) *v
 }
 
 // ReceiverQuaternaryDefaultAndSecondary returns a test case: receiver w/ default and secondary verifiers.
-func ReceiverQuaternaryDefaultAndSecondary(src, dest cciptestinterfaces.CCIP17) tcapi.TestCase {
-	return receiverQuaternaryDefaultAndSecondary(src, dest)
+func ReceiverQuaternaryDefaultAndSecondary(src, dest cciptestinterfaces.CCIP17, deps *tcapi.CaseDeps) tcapi.TestCase {
+	return receiverQuaternaryDefaultAndSecondary(src, dest, deps)
 }
 
-func receiverQuaternaryDefaultAndSecondary(src, dest cciptestinterfaces.CCIP17) *v3TestCase {
+func receiverQuaternaryDefaultAndSecondary(src, dest cciptestinterfaces.CCIP17, deps *tcapi.CaseDeps) *v3TestCase {
 	return &v3TestCase{
+		deps: deps,
 		v3TestCaseBase: v3TestCaseBase{
 			name:                     "receiver w/ default required, secondary and tertiary optional, threshold=1, message specifies default and secondary",
 			src:                      src,
@@ -386,22 +397,22 @@ func receiverQuaternaryDefaultAndSecondary(src, dest cciptestinterfaces.CCIP17) 
 			numExpectedReceipts:      4,
 			numExpectedVerifications: 2,
 		},
-		hydrate: func(ctx context.Context, tc *v3TestCase, cfg *ccv.Cfg) bool {
-			receiver, err := tcapi.GetContractAddress(cfg, tc.dst.ChainSelector(), datastore.ContractType(mock_receiver_v2.ContractType), mock_receiver_v2.Deploy.Version(), common.QuaternaryReceiverQualifier, "quaternary mock receiver")
+		hydrate: func(ctx context.Context, tc *v3TestCase) bool {
+			receiver, err := tcapi.GetContractAddress(tc.deps.DataStore, tc.dst.ChainSelector(), datastore.ContractType(mock_receiver_v2.ContractType), mock_receiver_v2.Deploy.Version(), common.QuaternaryReceiverQualifier, "quaternary mock receiver")
 			if err != nil {
 				return false
 			}
 			tc.receiver = receiver
-			def, err := getCommitteeCCV(cfg, tc.src.ChainSelector(), common.DefaultCommitteeVerifierQualifier, "default committee verifier proxy")
+			def, err := getCommitteeCCV(tc.deps.DataStore, tc.src.ChainSelector(), common.DefaultCommitteeVerifierQualifier, "default committee verifier proxy")
 			if err != nil {
 				return false
 			}
-			sec, err := getCommitteeCCV(cfg, tc.src.ChainSelector(), common.SecondaryCommitteeVerifierQualifier, "secondary committee verifier proxy")
+			sec, err := getCommitteeCCV(tc.deps.DataStore, tc.src.ChainSelector(), common.SecondaryCommitteeVerifierQualifier, "secondary committee verifier proxy")
 			if err != nil {
 				return false
 			}
 			tc.ccvs = []protocol.CCV{def, sec}
-			executorAddr, err := tcapi.GetContractAddress(cfg, tc.src.ChainSelector(), datastore.ContractType(sequences.ExecutorProxyType), proxy.Deploy.Version(), common.DefaultExecutorQualifier, "executor")
+			executorAddr, err := tcapi.GetContractAddress(tc.deps.DataStore, tc.src.ChainSelector(), datastore.ContractType(sequences.ExecutorProxyType), proxy.Deploy.Version(), common.DefaultExecutorQualifier, "executor")
 			if err != nil {
 				return false
 			}
@@ -412,12 +423,13 @@ func receiverQuaternaryDefaultAndSecondary(src, dest cciptestinterfaces.CCIP17) 
 }
 
 // ReceiverQuaternaryDefaultAndTertiary returns a test case: receiver w/ default and tertiary verifiers.
-func ReceiverQuaternaryDefaultAndTertiary(src, dest cciptestinterfaces.CCIP17) tcapi.TestCase {
-	return receiverQuaternaryDefaultAndTertiary(src, dest)
+func ReceiverQuaternaryDefaultAndTertiary(src, dest cciptestinterfaces.CCIP17, deps *tcapi.CaseDeps) tcapi.TestCase {
+	return receiverQuaternaryDefaultAndTertiary(src, dest, deps)
 }
 
-func receiverQuaternaryDefaultAndTertiary(src, dest cciptestinterfaces.CCIP17) *v3TestCase {
+func receiverQuaternaryDefaultAndTertiary(src, dest cciptestinterfaces.CCIP17, deps *tcapi.CaseDeps) *v3TestCase {
 	return &v3TestCase{
+		deps: deps,
 		v3TestCaseBase: v3TestCaseBase{
 			name:                     "receiver w/ default required, secondary and tertiary optional, threshold=1, message specifies default and tertiary",
 			src:                      src,
@@ -427,22 +439,22 @@ func receiverQuaternaryDefaultAndTertiary(src, dest cciptestinterfaces.CCIP17) *
 			numExpectedReceipts:      4,
 			numExpectedVerifications: 2,
 		},
-		hydrate: func(ctx context.Context, tc *v3TestCase, cfg *ccv.Cfg) bool {
-			receiver, err := tcapi.GetContractAddress(cfg, tc.dst.ChainSelector(), datastore.ContractType(mock_receiver_v2.ContractType), mock_receiver_v2.Deploy.Version(), common.QuaternaryReceiverQualifier, "quaternary mock receiver")
+		hydrate: func(ctx context.Context, tc *v3TestCase) bool {
+			receiver, err := tcapi.GetContractAddress(tc.deps.DataStore, tc.dst.ChainSelector(), datastore.ContractType(mock_receiver_v2.ContractType), mock_receiver_v2.Deploy.Version(), common.QuaternaryReceiverQualifier, "quaternary mock receiver")
 			if err != nil {
 				return false
 			}
 			tc.receiver = receiver
-			def, err := getCommitteeCCV(cfg, tc.src.ChainSelector(), common.DefaultCommitteeVerifierQualifier, "default committee verifier proxy")
+			def, err := getCommitteeCCV(tc.deps.DataStore, tc.src.ChainSelector(), common.DefaultCommitteeVerifierQualifier, "default committee verifier proxy")
 			if err != nil {
 				return false
 			}
-			ter, err := getCommitteeCCV(cfg, tc.src.ChainSelector(), common.TertiaryCommitteeVerifierQualifier, "tertiary committee verifier proxy")
+			ter, err := getCommitteeCCV(tc.deps.DataStore, tc.src.ChainSelector(), common.TertiaryCommitteeVerifierQualifier, "tertiary committee verifier proxy")
 			if err != nil {
 				return false
 			}
 			tc.ccvs = []protocol.CCV{def, ter}
-			executorAddr, err := tcapi.GetContractAddress(cfg, tc.src.ChainSelector(), datastore.ContractType(sequences.ExecutorProxyType), proxy.Deploy.Version(), common.DefaultExecutorQualifier, "executor")
+			executorAddr, err := tcapi.GetContractAddress(tc.deps.DataStore, tc.src.ChainSelector(), datastore.ContractType(sequences.ExecutorProxyType), proxy.Deploy.Version(), common.DefaultExecutorQualifier, "executor")
 			if err != nil {
 				return false
 			}
@@ -453,12 +465,13 @@ func receiverQuaternaryDefaultAndTertiary(src, dest cciptestinterfaces.CCIP17) *
 }
 
 // MaxDataSize returns a test case that sends the maximum allowed data size.
-func MaxDataSize(src, dest cciptestinterfaces.CCIP17) tcapi.TestCase {
-	return maxDataSize(src, dest)
+func MaxDataSize(src, dest cciptestinterfaces.CCIP17, deps *tcapi.CaseDeps) tcapi.TestCase {
+	return maxDataSize(src, dest, deps)
 }
 
-func maxDataSize(src, dest cciptestinterfaces.CCIP17) *v3TestCase {
+func maxDataSize(src, dest cciptestinterfaces.CCIP17, deps *tcapi.CaseDeps) *v3TestCase {
 	return &v3TestCase{
+		deps: deps,
 		v3TestCaseBase: v3TestCaseBase{
 			name:                     "max data size",
 			src:                      src,
@@ -468,23 +481,23 @@ func maxDataSize(src, dest cciptestinterfaces.CCIP17) *v3TestCase {
 			expectFail:               false,
 			numExpectedVerifications: 1,
 		},
-		hydrate: func(ctx context.Context, tc *v3TestCase, cfg *ccv.Cfg) bool {
+		hydrate: func(ctx context.Context, tc *v3TestCase) bool {
 			maxDataBytes, err := tc.dst.GetMaxDataBytes(ctx, tc.dst.ChainSelector())
 			if err != nil {
 				return false
 			}
 			tc.msgData = bytes.Repeat([]byte("a"), int(maxDataBytes))
-			receiver, err := tcapi.GetContractAddress(cfg, tc.dst.ChainSelector(), datastore.ContractType(mock_receiver_v2.ContractType), mock_receiver_v2.Deploy.Version(), common.DefaultReceiverQualifier, "default mock receiver")
+			receiver, err := tcapi.GetContractAddress(tc.deps.DataStore, tc.dst.ChainSelector(), datastore.ContractType(mock_receiver_v2.ContractType), mock_receiver_v2.Deploy.Version(), common.DefaultReceiverQualifier, "default mock receiver")
 			if err != nil {
 				return false
 			}
 			tc.receiver = receiver
-			ccv, err := getCommitteeCCV(cfg, tc.src.ChainSelector(), common.DefaultCommitteeVerifierQualifier, "committee verifier proxy")
+			ccv, err := getCommitteeCCV(tc.deps.DataStore, tc.src.ChainSelector(), common.DefaultCommitteeVerifierQualifier, "committee verifier proxy")
 			if err != nil {
 				return false
 			}
 			tc.ccvs = []protocol.CCV{ccv}
-			executorAddr, err := tcapi.GetContractAddress(cfg, tc.src.ChainSelector(), datastore.ContractType(sequences.ExecutorProxyType), proxy.Deploy.Version(), common.DefaultExecutorQualifier, "executor")
+			executorAddr, err := tcapi.GetContractAddress(tc.deps.DataStore, tc.src.ChainSelector(), datastore.ContractType(sequences.ExecutorProxyType), proxy.Deploy.Version(), common.DefaultExecutorQualifier, "executor")
 			if err != nil {
 				return false
 			}
@@ -497,12 +510,13 @@ func maxDataSize(src, dest cciptestinterfaces.CCIP17) *v3TestCase {
 // EOAReceiverDefaultVerifier_SafeTag returns a test case identical to EOAReceiverDefaultVerifier
 // but with the finality field set to FinalityWaitForSafe (0x00010000), exercising the Ethereum
 // `safe` head fast-confirmation path end-to-end.
-func EOAReceiverDefaultVerifier_SafeTag(src, dest cciptestinterfaces.CCIP17) tcapi.TestCase {
-	return eoaReceiverDefaultVerifierSafeTag(src, dest)
+func EOAReceiverDefaultVerifier_SafeTag(src, dest cciptestinterfaces.CCIP17, deps *tcapi.CaseDeps) tcapi.TestCase {
+	return eoaReceiverDefaultVerifierSafeTag(src, dest, deps)
 }
 
-func eoaReceiverDefaultVerifierSafeTag(src, dest cciptestinterfaces.CCIP17) *v3TestCase {
+func eoaReceiverDefaultVerifierSafeTag(src, dest cciptestinterfaces.CCIP17, deps *tcapi.CaseDeps) *v3TestCase {
 	return &v3TestCase{
+		deps: deps,
 		v3TestCaseBase: v3TestCaseBase{
 			name:                     "EOA receiver, default committee verifier, safe-tag finality",
 			src:                      src,
@@ -512,18 +526,18 @@ func eoaReceiverDefaultVerifierSafeTag(src, dest cciptestinterfaces.CCIP17) *v3T
 			numExpectedReceipts:      3,
 			numExpectedVerifications: 1,
 		},
-		hydrate: func(ctx context.Context, tc *v3TestCase, cfg *ccv.Cfg) bool {
+		hydrate: func(ctx context.Context, tc *v3TestCase) bool {
 			receiver, err := tc.dst.GetEOAReceiverAddress()
 			if err != nil {
 				return false
 			}
 			tc.receiver = receiver
-			ccv, err := getCommitteeCCV(cfg, tc.src.ChainSelector(), common.DefaultCommitteeVerifierQualifier, "committee verifier proxy")
+			ccv, err := getCommitteeCCV(tc.deps.DataStore, tc.src.ChainSelector(), common.DefaultCommitteeVerifierQualifier, "committee verifier proxy")
 			if err != nil {
 				return false
 			}
 			tc.ccvs = []protocol.CCV{ccv}
-			executorAddr, err := tcapi.GetContractAddress(cfg, tc.src.ChainSelector(), datastore.ContractType(sequences.ExecutorProxyType), proxy.Deploy.Version(), common.DefaultExecutorQualifier, "executor")
+			executorAddr, err := tcapi.GetContractAddress(tc.deps.DataStore, tc.src.ChainSelector(), datastore.ContractType(sequences.ExecutorProxyType), proxy.Deploy.Version(), common.DefaultExecutorQualifier, "executor")
 			if err != nil {
 				return false
 			}
@@ -534,17 +548,23 @@ func eoaReceiverDefaultVerifierSafeTag(src, dest cciptestinterfaces.CCIP17) *v3T
 }
 
 // All returns all basic v3 messaging test cases (custom executor, multi-verifier, max data size).
-func All(src, dest cciptestinterfaces.CCIP17) []tcapi.TestCase {
-	return []tcapi.TestCase{
-		customExecutor(src, dest),
-		eoaReceiverDefaultVerifier(src, dest),
-		eoaReceiverDefaultVerifierSafeTag(src, dest),
-		eoaReceiverSecondaryVerifier(src, dest),
-		receiverSecondaryVerifierRequired(src, dest),
-		receiverSecondaryRequiredTertiaryOptionalThreshold1(src, dest),
-		receiverQuaternaryAllThreeVerifiers(src, dest),
-		receiverQuaternaryDefaultAndSecondary(src, dest),
-		receiverQuaternaryDefaultAndTertiary(src, dest),
-		maxDataSize(src, dest),
+func All(ctx context.Context, env *deployment.Environment, opts ...tcapi.CaseOption) ([]tcapi.TestCase, error) {
+	deps, err := tcapi.BuildCaseDeps(ctx, env, opts...)
+	if err != nil {
+		return nil, err
 	}
+	src := deps.ChainMap[deps.SrcSelector]
+	dst := deps.ChainMap[deps.DstSelector]
+	return []tcapi.TestCase{
+		customExecutor(src, dst, deps),
+		eoaReceiverDefaultVerifier(src, dst, deps),
+		eoaReceiverDefaultVerifierSafeTag(src, dst, deps),
+		eoaReceiverSecondaryVerifier(src, dst, deps),
+		receiverSecondaryVerifierRequired(src, dst, deps),
+		receiverSecondaryRequiredTertiaryOptionalThreshold1(src, dst, deps),
+		receiverQuaternaryAllThreeVerifiers(src, dst, deps),
+		receiverQuaternaryDefaultAndSecondary(src, dst, deps),
+		receiverQuaternaryDefaultAndTertiary(src, dst, deps),
+		maxDataSize(src, dst, deps),
+	}, nil
 }

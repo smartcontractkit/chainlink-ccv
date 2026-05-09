@@ -11,9 +11,9 @@ import (
 	"time"
 
 	_ "github.com/lib/pq"
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 
-	chain_selectors "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/proxy"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/sequences"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/versioned_verifier_resolver"
@@ -187,15 +187,30 @@ func TestE2ESmoke_ReplayForceOverwrite(t *testing.T) {
 
 	ctx := ccv.Plog.WithContext(t.Context())
 
-	harness, err := tcapi.NewTestHarness(ctx, smokeTestConfig, in, chain_selectors.FamilyEVM)
+	sels, err := FirstTwoEVMSelectors(in)
+	require.NoError(t, err)
+	require.GreaterOrEqual(t, len(sels), 2, "expected at least 2 EVM chains")
+	srcSel, dstSel := sels[0], sels[1]
+
+	_, env, err := ccv.NewCLDFOperationsEnvironment(in.Blockchains, in.CLDF.DataStore)
 	require.NoError(t, err)
 
-	chains, err := harness.Lib.Chains(ctx)
+	src, err := ccv.NewCCIP17ForChainSelector(ctx, *zerolog.Ctx(ctx), env, srcSel)
 	require.NoError(t, err)
-	require.GreaterOrEqual(t, len(chains), 2, "expected at least 2 chains")
+	dest, err := ccv.NewCCIP17ForChainSelector(ctx, *zerolog.Ctx(ctx), env, dstSel)
+	require.NoError(t, err)
 
-	src := chains[0].CCIP17
-	dest := chains[1].CCIP17
+	aggregators, err := ccv.NewAggregatorClientsFromCfg(ctx, in)
+	require.NoError(t, err)
+	mon, err := ccv.FirstIndexerMonitorFromEndpoints(ctx, in.IndexerEndpoints, ccv.Plog)
+	require.NoError(t, err)
+
+	aggregatorClient := aggregators[devenvcommon.DefaultCommitteeVerifierQualifier]
+	chainMap := map[uint64]cciptestinterfaces.CCIP17{
+		srcSel: src,
+		dstSel: dest,
+	}
+	testCtx, cleanupFn := tcapi.NewTestingContext(ctx, chainMap, aggregatorClient, mon)
 
 	executorAddr := getContractAddress(t, in, src.ChainSelector(),
 		datastore.ContractType(sequences.ExecutorProxyType),
@@ -209,10 +224,6 @@ func TestE2ESmoke_ReplayForceOverwrite(t *testing.T) {
 		"committee verifier proxy")
 	receiver := mustGetEOAReceiverAddress(t, dest)
 
-	aggregatorClient := harness.AggregatorClients[devenvcommon.DefaultCommitteeVerifierQualifier]
-	chainMap, err := harness.Lib.ChainsMap(ctx)
-	require.NoError(t, err)
-	testCtx, cleanupFn := tcapi.NewTestingContext(ctx, chainMap, aggregatorClient, harness.IndexerMonitor)
 	defer cleanupFn()
 
 	t.Cleanup(func() {
@@ -298,6 +309,7 @@ func TestE2ESmoke_ReplayForceOverwrite(t *testing.T) {
 		"msg2 ingestion_timestamp must NOT change on backfill-only replay (already exists)")
 
 	// ── Final: verify data integrity via indexer HTTP API ────────────────────
+	require.NotNil(t, mon, "indexer monitor required for replay verification")
 	for _, tc := range []struct {
 		name  string
 		msgID protocol.Bytes32
@@ -305,7 +317,7 @@ func TestE2ESmoke_ReplayForceOverwrite(t *testing.T) {
 		{"msg1", msgID1},
 		{"msg2", msgID2},
 	} {
-		verifs, err := harness.IndexerMonitor.GetVerificationsForMessageID(ctx, tc.msgID)
+		verifs, err := mon.GetVerificationsForMessageID(ctx, tc.msgID)
 		require.NoError(t, err, "%s: failed to read verifications after all replays", tc.name)
 		require.GreaterOrEqual(t, len(verifs.Results), 1,
 			"%s: verifications must still be present after all replays", tc.name)
