@@ -101,6 +101,9 @@ type BootstrapKeys struct {
 	// EVMTransmitterAddress is the Ethereum address derived from the executor's EVM transmitter key.
 	// Only populated for executor nodes.
 	EVMTransmitterAddress string `toml:"evm_transmitter_address,omitempty"`
+	// Keys contains ALL fetched keystore responses keyed by name.
+	// This allows chain families to access their specific key types generically.
+	Keys map[string]keystore.GetKeyResponse `toml:"keys,omitempty"`
 }
 
 // FetchBootstrapKeys queries the bootstrap HTTP info server for public key material by name.
@@ -151,6 +154,9 @@ func FetchBootstrapKeys(bootstrapURL string, keyNames ...string) (BootstrapKeys,
 	// TODO: avoid referencing commit, executor, and JD-specific key names here; the caller
 	// should pass in the names and map the results without this function knowing about them.
 	var result BootstrapKeys
+	// Store ALL fetched keys in the generic Keys map for chain-family-specific access
+	result.Keys = keyMap
+
 	if csaKeyResp, ok := keyMap[bootstrap.DefaultCSAKeyName]; ok {
 		result.CSAPublicKey = hex.EncodeToString(csaKeyResp.KeyInfo.PublicKey)
 	}

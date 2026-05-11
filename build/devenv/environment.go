@@ -2,7 +2,6 @@ package ccv
 
 import (
 	"context"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"maps"
@@ -965,33 +964,43 @@ func launchCLNodes(
 	return onchainPublicKeys, nil
 }
 
-// fundExecutorTransmitters funds the EVM transmitter addresses of all executors after launch.
-// Addresses are derived from the keystore key exposed by the bootstrap HTTP server.
+// fundExecutorTransmitters funds the transmitter addresses of all executors after launch.
+// Addresses are derived from the keystore keys exposed by the bootstrap HTTP server.
+// Each chain family's ImplFactory specifies which key name to use and how to convert
+// the public key to a chain-specific address.
 func fundExecutorTransmitters(
 	ctx context.Context,
 	executors []*executorsvc.Input,
 	blockchains []*blockchain.Input,
 	impls []cciptestinterfaces.CCIP17Configuration,
 ) error {
+	// Group addresses by chain family
 	addressesByFamily := make(map[string][]protocol.UnknownAddress)
+
 	for _, exec := range executors {
-		if exec == nil {
-			continue
-		}
-		if exec.Out == nil || exec.Out.BootstrapKeys.EVMTransmitterAddress == "" {
+		if exec == nil || exec.Out == nil {
 			continue
 		}
 		family := exec.ChainFamily
 		if family == "" {
 			family = chainsel.FamilyEVM
 		}
-		addrBytes, err := hex.DecodeString(exec.Out.BootstrapKeys.EVMTransmitterAddress)
-		if err != nil {
-			return fmt.Errorf("invalid EVM transmitter address for executor %s: %w", exec.ContainerName, err)
+
+		// Get the factory for this chain family to extract addresses
+		fac, facErr := GetImplFactory(family)
+		if facErr != nil {
+			Plog.Warn().Str("family", family).Str("executor", exec.ContainerName).Msg("No ImplFactory found, skipping executor transmitter funding")
+			continue
 		}
-		addressesByFamily[family] = append(addressesByFamily[family], protocol.UnknownAddress(addrBytes))
+
+		// Extract addresses using the factory's chain-specific logic
+		addresses := fac.DeriveAddressesFromKeys(exec.Out.BootstrapKeys)
+		if len(addresses) > 0 {
+			addressesByFamily[family] = append(addressesByFamily[family], addresses...)
+		}
 	}
 
+	// Fund addresses for each blockchain implementation
 	for i, impl := range impls {
 		if i >= len(blockchains) {
 			break
@@ -1008,11 +1017,11 @@ func fundExecutorTransmitters(
 		if len(addresses) == 0 {
 			continue
 		}
-		Plog.Info().Int("ImplIndex", i).Msg("Funding executor transmitters")
+		Plog.Info().Int("ImplIndex", i).Str("family", string(family)).Msg("Funding executor transmitters")
 		if err := impl.FundAddresses(ctx, blockchains[i], addresses, big.NewInt(5)); err != nil {
-			return fmt.Errorf("failed to fund executor transmitters: %w", err)
+			return fmt.Errorf("failed to fund executor transmitters for family %s: %w", family, err)
 		}
-		Plog.Info().Int("ImplIndex", i).Msg("Funded executor transmitters")
+		Plog.Info().Int("ImplIndex", i).Str("family", string(family)).Msg("Funded executor transmitters")
 	}
 	return nil
 }
