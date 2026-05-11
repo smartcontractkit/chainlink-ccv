@@ -67,7 +67,8 @@ func NewPhasedEnvironment() (in *Cfg, err error) {
 // component. As components are extracted from the monolith in subsequent PRs,
 // the work in this function will shrink; the original NewEnvironment in
 // environment_monolith.go remains the stable reference path.
-func runPhasedEnvironment(ctx context.Context, in *Cfg) (_ *Cfg, err error) {
+func runPhasedEnvironment(ctx context.Context, cfg *Cfg) (in *Cfg, err error) {
+	in = cfg
 	timeTrack := NewTimeTracker(Plog)
 
 	// track environment startup result and time using getDX app

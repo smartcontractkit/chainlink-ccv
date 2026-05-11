@@ -419,10 +419,10 @@ func checkKeys(in *Cfg) error {
 		}
 	}
 	for _, bc := range evmBlockchains {
-		if getNetworkPrivateKey() != DefaultAnvilKey && slices.Contains(evmSimChainIDs, bc.ChainID) {
+		if getNetworkPrivateKey() != devenvcommon.DefaultAnvilKey && slices.Contains(evmSimChainIDs, bc.ChainID) {
 			return errors.New("you are trying to run simulated chains with a key that do not belong to Anvil, please run 'unset PRIVATE_KEY'")
 		}
-		if getNetworkPrivateKey() == DefaultAnvilKey && !slices.Contains(evmSimChainIDs, bc.ChainID) {
+		if getNetworkPrivateKey() == devenvcommon.DefaultAnvilKey && !slices.Contains(evmSimChainIDs, bc.ChainID) {
 			return errors.New("you are trying to run on real networks but is not using the Anvil private key, export your private key 'export PRIVATE_KEY=...'")
 		}
 	}

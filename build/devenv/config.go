@@ -25,6 +25,8 @@ import (
 	"github.com/rs/zerolog/log"
 
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
+
+	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 )
 
 const (
@@ -32,7 +34,6 @@ const (
 	DefaultConfigDir = "."
 	// EnvVarTestConfigs is the environment variable name to read config paths from, ex.: CTF_CONFIGS=env.toml,overrides.toml.
 	EnvVarTestConfigs = "CTF_CONFIGS"
-	DefaultAnvilKey   = "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
 	DefaultLokiURL    = "http://localhost:3030/loki/api/v1/push"
 	DefaultTempoURL   = "http://localhost:4318/v1/traces"
 )
@@ -163,7 +164,7 @@ func getNetworkPrivateKey() string {
 	pk := os.Getenv("PRIVATE_KEY")
 	if pk == "" {
 		// that's the first Anvil and Geth private key, serves as a fallback for local testing if not overridden
-		return DefaultAnvilKey
+		return devenvcommon.DefaultAnvilKey
 	}
 	return pk
 }
