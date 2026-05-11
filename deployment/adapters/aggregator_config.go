@@ -39,4 +39,11 @@ type AggregatorConfigAdapter interface {
 	// This is used to populate the destination verifier addresses.
 	// If the chain family doesn't need any special logic, this can return the same value as ResolveSourceVerifierAddress.
 	ResolveDestinationVerifierAddress(ds datastore.DataStore, chainSelector uint64, qualifier string) (string, error)
+
+	// GetDeployedChains returns all destination chain selectors for which a committee verifier
+	// with the given qualifier is recorded in the datastore. The EVM implementation lives in
+	// chainlink-ccip/chains/evm and is registered via adapters.Registry at process startup.
+	// Used by the registry to enumerate all dest chains that must be updated when committee
+	// membership changes, without requiring an exhaustive onchain scan.
+	GetDeployedChains(ds datastore.DataStore, qualifier string) []uint64
 }

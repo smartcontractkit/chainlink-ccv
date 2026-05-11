@@ -250,7 +250,7 @@ func runExplainAnalyze(t *testing.T, db *sqlx.DB, label, query string, args ...a
 	defer rows.Close()
 
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("=== EXPLAIN ANALYZE: %s ===\n", label))
+	fmt.Fprintf(&sb, "=== EXPLAIN ANALYZE: %s ===\n", label)
 	for rows.Next() {
 		var line string
 		require.NoError(t, rows.Scan(&line))

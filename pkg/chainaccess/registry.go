@@ -86,7 +86,7 @@ type GenericConfig struct {
 // selector formatted as a decimal string, matching the Infos key convention.
 func (gc GenericConfig) GetAllConcreteConfig(family string, target any) error {
 	rv := reflect.ValueOf(target)
-	if rv.Kind() != reflect.Ptr || rv.Elem().Kind() != reflect.Map {
+	if rv.Kind() != reflect.Pointer || rv.Elem().Kind() != reflect.Map {
 		return fmt.Errorf("GetAllConcreteConfig: target must be a pointer to a map, got %T", target)
 	}
 	if rv.Elem().Type().Key().Kind() != reflect.String {

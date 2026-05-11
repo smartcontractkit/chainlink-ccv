@@ -2,6 +2,8 @@ package commit
 
 import (
 	"fmt"
+	"strings"
+	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
@@ -26,6 +28,16 @@ type Config struct {
 	// If 0 or not set, defaults to 4MB.
 	AggregatorMaxRecvMsgSizeBytes int `toml:"aggregator_max_recv_msg_size_bytes"`
 
+	// MessageDisablementRulesPollInterval and MessageDisablementRulesClientTimeout are Go duration strings
+	// (e.g. "2s", "500ms"). Empty means use the integration package default for that setting.
+	//
+	// They are stored as strings (not time.Duration) because the Chainlink node unmarshals
+	// committeeVerifierConfig with github.com/pelletier/go-toml, which does not decode TOML
+	// duration strings into time.Duration. Standalone / devenv decoding uses github.com/BurntSushi/toml,
+	// which does support time.Duration; using string keeps both paths and changeset marshaling compatible.
+	MessageDisablementRulesPollInterval  string `toml:"message_disablement_rules_poll_interval"`
+	MessageDisablementRulesClientTimeout string `toml:"message_disablement_rules_client_timeout"`
+
 	SignerAddress string `toml:"signer_address"`
 
 	PyroscopeURL string `toml:"pyroscope_url"`
@@ -42,6 +54,28 @@ type Config struct {
 
 	// CommitteeConfig that is needed by the SourceReader and the application.
 	chainaccess.CommitteeConfig
+}
+
+func parseOptionalDurationString(value, fieldName string) (time.Duration, error) {
+	s := strings.TrimSpace(value)
+	if s == "" {
+		return 0, nil
+	}
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		return 0, fmt.Errorf("invalid %s %q: %w", fieldName, value, err)
+	}
+	return d, nil
+}
+
+// MessageDisablementRulesPollIntervalDuration returns the configured poll interval, or zero to use the integration default.
+func (c *Config) MessageDisablementRulesPollIntervalDuration() (time.Duration, error) {
+	return parseOptionalDurationString(c.MessageDisablementRulesPollInterval, "message_disablement_rules_poll_interval")
+}
+
+// MessageDisablementRulesClientTimeoutDuration returns the configured RPC timeout, or zero to use the integration default.
+func (c *Config) MessageDisablementRulesClientTimeoutDuration() (time.Duration, error) {
+	return parseOptionalDurationString(c.MessageDisablementRulesClientTimeout, "message_disablement_rules_client_timeout")
 }
 
 func (c *Config) Validate() error {
@@ -65,6 +99,13 @@ func (c *Config) Validate() error {
 		if _, ok := c.RMNRemoteAddresses[k]; !ok {
 			return fmt.Errorf("invalid verifier configuration, chain selector in onramp (%s) not in RMN Remote addresses", k)
 		}
+	}
+
+	if _, err := c.MessageDisablementRulesPollIntervalDuration(); err != nil {
+		return err
+	}
+	if _, err := c.MessageDisablementRulesClientTimeoutDuration(); err != nil {
+		return err
 	}
 
 	return nil

@@ -54,10 +54,10 @@ func FormatChainValidationError(results []ChainValidationResult) error {
 	sb.WriteString("chain support validation failed:\n")
 
 	for _, result := range results {
-		sb.WriteString(fmt.Sprintf("  NOP %q missing chain configs for:\n", result.NOPAlias))
+		fmt.Fprintf(&sb, "  NOP %q missing chain configs for:\n", result.NOPAlias)
 		for _, chainSelector := range result.MissingChains {
 			chainName := formatChainName(chainSelector)
-			sb.WriteString(fmt.Sprintf("    - %d (%s)\n", chainSelector, chainName))
+			fmt.Fprintf(&sb, "    - %d (%s)\n", chainSelector, chainName)
 		}
 	}
 
