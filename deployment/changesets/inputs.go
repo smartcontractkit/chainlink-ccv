@@ -33,7 +33,7 @@ func (n NOPInput) GetMode() shared.NOPMode {
 //
 // ChainConfigs maps chain selector → per-chain NOP membership. When empty, every
 // NOP listed in NOPs (or filtered through TargetNOPs) participates on every chain
-// the committee is deployed on (mirrors the per-NOP "all chains" behaviour used
+// the committee is deployed on (mirrors the per-NOP "all chains" behavior used
 // by AddNOPOffchain's verifier-job provisioning).
 type CommitteeInput struct {
 	Qualifier    string

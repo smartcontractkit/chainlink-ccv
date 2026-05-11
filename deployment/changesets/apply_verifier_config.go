@@ -488,7 +488,7 @@ func toVerifierCommitteeInput(committee CommitteeInput, nops []NOPInput) verifie
 
 // committeeNOPAliasesFromInput returns the union of NOP aliases referenced by the
 // committee's chain configs. When ChainConfigs is empty the result falls back to
-// every alias listed in nops — matching the per-NOP "all chains" behaviour used
+// every alias listed in nops — matching the per-NOP "all chains" behavior used
 // by AddNOPOffchain's verifier-job provisioning.
 func committeeNOPAliasesFromInput(committee CommitteeInput, nops []NOPInput) []shared.NOPAlias {
 	if len(committee.ChainConfigs) == 0 {
