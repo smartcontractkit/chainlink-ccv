@@ -52,7 +52,7 @@ require (
 	github.com/oapi-codegen/runtime v1.1.2
 	github.com/patrickmn/go-cache v2.1.0+incompatible
 	github.com/redis/go-redis/v9 v9.7.0
-	github.com/smartcontractkit/chainlink-ccip/chains/evm v0.0.0-20260508191240-2b5d3b6b3bc3
+	github.com/smartcontractkit/chainlink-ccip/chains/evm v0.0.0-20260511132501-d0c2a01af26b
 	github.com/smartcontractkit/chainlink-common/keystore v1.0.2
 	github.com/smartcontractkit/chainlink-framework/chains v0.0.0-20260423135514-5b1a7565a99c
 	github.com/smartcontractkit/chainlink-protos/chainlink-ccv/committee-verifier v0.0.0-20251211142334-5c3421fe2c8d
