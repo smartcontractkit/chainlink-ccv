@@ -12,6 +12,10 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
+// DefaultAnvilKey is the first Anvil/Geth funded private key, used as the
+// devenv-default deployer key when PRIVATE_KEY is unset.
+const DefaultAnvilKey = "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
+
 const (
 	// These qualifiers are used to distinguish between multiple deployments of the committee verifier proxy and mock receiver
 	// on the same chain.

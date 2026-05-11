@@ -9,6 +9,7 @@ import (
 
 	"github.com/pelletier/go-toml/v2"
 
+	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
@@ -17,7 +18,6 @@ import (
 const (
 	configKey        = "blockchains"
 	outputsKey       = "blockchainOutputs"
-	defaultAnvilKey  = "ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80"
 	privateKeyEnvVar = "PRIVATE_KEY"
 )
 
@@ -73,10 +73,15 @@ func (c *component) RunPhase1(_ context.Context, _ map[string]any, componentConf
 
 	blockchainOutputs := make([]*blockchain.Output, len(bcs))
 	for i, bc := range bcs {
-		if _, err := blockchain.NewBlockchainNetwork(bc); err != nil {
+		out, err := blockchain.NewBlockchainNetwork(bc)
+		if err != nil {
 			return nil, fmt.Errorf("blockchain[%d] %q: %w", i, bc.ContainerName, err)
 		}
-		blockchainOutputs[i] = bc.Out
+		if out == nil {
+			return nil, fmt.Errorf("blockchain[%d] %q: NewBlockchainNetwork returned nil output", i, bc.ContainerName)
+		}
+		bc.Out = out
+		blockchainOutputs[i] = out
 	}
 
 	return map[string]any{
@@ -98,10 +103,10 @@ func checkBlockchainKeys(bcs []*blockchain.Input) error {
 		if string(family) != blockchain.FamilyEVM {
 			continue
 		}
-		if pk != defaultAnvilKey && slices.Contains(simChainIDs, bc.ChainID) {
+		if pk != devenvcommon.DefaultAnvilKey && slices.Contains(simChainIDs, bc.ChainID) {
 			return errors.New("simulated chain configured with a non-Anvil private key; run 'unset PRIVATE_KEY'")
 		}
-		if pk == defaultAnvilKey && !slices.Contains(simChainIDs, bc.ChainID) {
+		if pk == devenvcommon.DefaultAnvilKey && !slices.Contains(simChainIDs, bc.ChainID) {
 			return errors.New("real chain configured without a private key; export PRIVATE_KEY before running")
 		}
 	}
@@ -112,7 +117,7 @@ func networkPrivateKey() string {
 	if pk := os.Getenv(privateKeyEnvVar); pk != "" {
 		return pk
 	}
-	return defaultAnvilKey
+	return devenvcommon.DefaultAnvilKey
 }
 
 // decode round-trips the raw TOML map[string]any into []*blockchain.Input by
