@@ -31,10 +31,10 @@ func (n NOPInput) GetMode() shared.NOPMode {
 // CommitteeInput is the imperative per-committee input for ApplyVerifierConfig.
 // It replaces the topology-driven committee lookup.
 //
-// ChainConfigs maps chain selector → per-chain NOP membership. When empty, every
-// NOP listed in NOPs (or filtered through TargetNOPs) participates on every chain
-// the committee is deployed on (mirrors the per-NOP "all chains" behavior used
-// by AddNOPOffchain's verifier-job provisioning).
+// ChainConfigs maps chain selector → per-chain NOP membership. Callers must
+// supply the chains the committee is deployed on; an empty map means
+// "no chain configs to provision" — ApplyVerifierConfig will skip job-spec
+// generation and only run orphan-job cleanup (when RevokeOrphanedJobs is set).
 type CommitteeInput struct {
 	Qualifier    string
 	Aggregators  []AggregatorRef

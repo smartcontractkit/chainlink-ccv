@@ -53,6 +53,13 @@ func GenerateAggregatorConfig(registry *adapters.Registry) deployment.ChangeSetV
 		if len(cfg.ChainSelectors) == 0 {
 			return fmt.Errorf("at least one chain selector is required")
 		}
+		seenSelectors := make(map[uint64]bool, len(cfg.ChainSelectors))
+		for _, sel := range cfg.ChainSelectors {
+			if seenSelectors[sel] {
+				return fmt.Errorf("duplicate chain selector %d in ChainSelectors", sel)
+			}
+			seenSelectors[sel] = true
+		}
 		envSelectors := e.BlockChains.ListChainSelectors()
 		for _, sel := range cfg.ChainSelectors {
 			if !slices.Contains(envSelectors, sel) {

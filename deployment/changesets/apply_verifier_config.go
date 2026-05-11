@@ -164,7 +164,14 @@ func ApplyVerifierConfig(registry *adapters.Registry) deployment.ChangeSetV2[App
 		}
 
 		nopInputs := mergeSigningKeysIntoNOPInputs(cfg.NOPs, signingKeysByNOP, signerFamily)
-		committeeInternal := toVerifierCommitteeInput(cfg.Committee, cfg.NOPs)
+		// Default Committee.Qualifier from CommitteeQualifier so VerifierJobScope
+		// and downstream metadata are always non-empty. Validation already enforces
+		// equality when both are set.
+		committeeForBuild := cfg.Committee
+		if committeeForBuild.Qualifier == "" {
+			committeeForBuild.Qualifier = cfg.CommitteeQualifier
+		}
+		committeeInternal := toVerifierCommitteeInput(committeeForBuild, cfg.NOPs)
 
 		jobSpecs, scope, err := buildVerifierJobSpecs(
 			contractAddresses,

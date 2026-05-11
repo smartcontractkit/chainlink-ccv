@@ -1,6 +1,7 @@
 package changesets
 
 import (
+	"slices"
 	"strconv"
 
 	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
@@ -90,6 +91,8 @@ func ExecutorPoolInputFromTopology(pool ccvdeployment.ExecutorPoolConfig) Execut
 // CommitteeChainSelectorsFromTopology returns the destination chain selectors a
 // committee is configured for. Used to seed the imperative GenerateAggregatorConfig
 // changeset, which expects chain selectors directly rather than a topology blob.
+// The returned slice is sorted so that downstream error messages and config
+// generation are deterministic across calls.
 func CommitteeChainSelectorsFromTopology(committee ccvdeployment.CommitteeConfig) []uint64 {
 	out := make([]uint64, 0, len(committee.ChainConfigs))
 	for chainSelectorStr := range committee.ChainConfigs {
@@ -99,5 +102,6 @@ func CommitteeChainSelectorsFromTopology(committee ccvdeployment.CommitteeConfig
 		}
 		out = append(out, sel)
 	}
+	slices.Sort(out)
 	return out
 }
