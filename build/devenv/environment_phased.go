@@ -30,7 +30,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
-	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
 
@@ -63,11 +62,12 @@ func NewPhasedEnvironment() (in *Cfg, err error) {
 }
 
 // runPhasedEnvironment is a fork of NewEnvironment's body. It is invoked by the
-// legacy fallback component during the runtime's Phase 2. As components are
-// extracted from the monolith in subsequent PRs, the work in this function will
-// shrink; the original NewEnvironment in environment_monolith.go remains the
-// stable reference path.
-func runPhasedEnvironment(ctx context.Context) (in *Cfg, err error) {
+// legacy fallback component during the runtime's Phase 2 with a *Cfg whose
+// Blockchains slice has already been deployed by the blockchains Phase 1
+// component. As components are extracted from the monolith in subsequent PRs,
+// the work in this function will shrink; the original NewEnvironment in
+// environment_monolith.go remains the stable reference path.
+func runPhasedEnvironment(ctx context.Context, in *Cfg) (_ *Cfg, err error) {
 	timeTrack := NewTimeTracker(Plog)
 
 	// track environment startup result and time using getDX app
@@ -77,22 +77,6 @@ func runPhasedEnvironment(ctx context.Context) (in *Cfg, err error) {
 	}()
 
 	ctx = L.WithContext(ctx)
-	if err = framework.DefaultNetwork(nil); err != nil {
-		return nil, err
-	}
-
-	/////////////////////////////
-	// START: Read Config toml //
-	/////////////////////////////
-
-	configs := strings.Split(os.Getenv(EnvVarTestConfigs), ",")
-	if len(configs) > 1 {
-		L.Warn().Msg("Multiple configuration files detected, this feature may be unsupported in the future.")
-	}
-	in, err = Load[Cfg](configs)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load configuration: %w", err)
-	}
 
 	if err = in.expandForHA(); err != nil {
 		return nil, fmt.Errorf("failed to expand HA configuration: %w", err)
@@ -105,47 +89,36 @@ func runPhasedEnvironment(ctx context.Context) (in *Cfg, err error) {
 		}
 	}
 
-	/////////////////////////////
-	// END: Read Config toml //
-	/////////////////////////////
-
 	// Start fake data provider. Used for USDC verifier.
 	fakeOut, err := services.NewFake(in.Fake)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create fake data provider: %w", err)
 	}
 
-	///////////////////////////////
-	// START: Deploy blockchains //
-	// The services crash if the RPC is not available.
-	///////////////////////////////
-	if err = checkKeys(in); err != nil {
-		return nil, err
-	}
+	///////////////////////////////////////
+	// START: Resolve deployed blockchains
+	// Networks themselves were brought up in Phase 1 by the blockchains
+	// component; here we just build the per-chain CCIP17Configuration impls
+	// and gather the deploy Outputs that downstream services need.
+	///////////////////////////////////////
 
-	impls := make([]cciptestinterfaces.CCIP17Configuration, 0)
-	for _, bc := range in.Blockchains {
-		var impl cciptestinterfaces.CCIP17Configuration
-		impl, err = NewProductConfigurationFromNetwork(bc.Type)
+	impls := make([]cciptestinterfaces.CCIP17Configuration, len(in.Blockchains))
+	blockchainOutputs := make([]*blockchain.Output, len(in.Blockchains))
+	for i, bc := range in.Blockchains {
+		if bc.Out == nil {
+			return nil, fmt.Errorf("blockchain[%d] %q: phase 1 did not populate Out", i, bc.ContainerName)
+		}
+		impl, err := NewProductConfigurationFromNetwork(bc.Type)
 		if err != nil {
 			return nil, err
 		}
-		impls = append(impls, impl)
+		impls[i] = impl
+		blockchainOutputs[i] = bc.Out
 	}
 
-	blockchainOutputs := make([]*blockchain.Output, len(impls))
-	for i, impl := range impls {
-		out, err := impl.DeployLocalNetwork(ctx, in.Blockchains[i])
-		if err != nil {
-			return nil, fmt.Errorf("failed to deploy local networks: %w", err)
-		}
-
-		blockchainOutputs[i] = out
-	}
-
-	/////////////////////////////
-	// END: Deploy blockchains //
-	/////////////////////////////
+	///////////////////////////////////////
+	// END: Resolve deployed blockchains //
+	///////////////////////////////////////
 
 	//////////////////////////////////////////////////
 	// START: Generate Aggregator Credentials       //
