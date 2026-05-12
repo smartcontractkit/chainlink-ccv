@@ -11,9 +11,9 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/moby/moby/client"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/moby/moby/client"
 	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
 
@@ -730,7 +730,7 @@ func init() {
 }
 
 func checkDockerIsRunning() {
-	cli, err := client.NewClientWithOpts(client.FromEnv)
+	cli, err := client.New(client.FromEnv)
 	if err != nil {
 		fmt.Println("Can't create Docker client, please check if Docker daemon is running!")
 		os.Exit(1)
