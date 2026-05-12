@@ -54,6 +54,9 @@ func NewEnvironmentWithRegistry(ctx context.Context, rawConfig map[string]any, r
 	{
 		const phase = 1
 		for _, key := range sortedKeys(specific) {
+			if _, present := rawConfig[key]; !present {
+				continue
+			}
 			comp := specific[key]
 			if p1, ok := comp.(Phase1Component); ok {
 				out, err := p1.RunPhase1(ctx, rawConfig, rawConfig[key])
@@ -81,6 +84,9 @@ func NewEnvironmentWithRegistry(ctx context.Context, rawConfig map[string]any, r
 		const phase = 2
 		phaseSnapshot := maps.Clone(accumulated)
 		for _, key := range sortedKeys(specific) {
+			if _, present := rawConfig[key]; !present {
+				continue
+			}
 			comp := specific[key]
 			if p2, ok := comp.(Phase2Component); ok {
 				out, err := p2.RunPhase2(ctx, rawConfig, rawConfig[key], maps.Clone(phaseSnapshot))
@@ -108,6 +114,9 @@ func NewEnvironmentWithRegistry(ctx context.Context, rawConfig map[string]any, r
 		const phase = 3
 		phaseSnapshot := maps.Clone(accumulated)
 		for _, key := range sortedKeys(specific) {
+			if _, present := rawConfig[key]; !present {
+				continue
+			}
 			comp := specific[key]
 			if p3, ok := comp.(Phase3Component); ok {
 				out, err := p3.RunPhase3(ctx, rawConfig, rawConfig[key], maps.Clone(phaseSnapshot))
@@ -135,6 +144,9 @@ func NewEnvironmentWithRegistry(ctx context.Context, rawConfig map[string]any, r
 		const phase = 4
 		phaseSnapshot := maps.Clone(accumulated)
 		for _, key := range sortedKeys(specific) {
+			if _, present := rawConfig[key]; !present {
+				continue
+			}
 			comp := specific[key]
 			if p4, ok := comp.(Phase4Component); ok {
 				out, err := p4.RunPhase4(ctx, rawConfig, rawConfig[key], maps.Clone(phaseSnapshot))

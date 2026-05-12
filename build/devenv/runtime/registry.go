@@ -56,9 +56,15 @@ func (r *Registry) instantiate(previousOutput map[string]any) (map[string]Compon
 	return specific, fallbackComp, nil
 }
 
-// validate calls ValidateConfig on all instantiated components.
+// validate calls ValidateConfig on all instantiated components whose
+// top-level config key is present in rawConfig. Components whose key is
+// unset are dormant — neither validated nor phase-executed — so registered
+// components can sit out runs that don't configure them.
 func (r *Registry) validate(rawConfig map[string]any, specific map[string]Component, fallback Component) error {
 	for key, comp := range specific {
+		if _, ok := rawConfig[key]; !ok {
+			continue
+		}
 		if err := comp.ValidateConfig(rawConfig[key]); err != nil {
 			return fmt.Errorf("component %q config invalid: %w", key, err)
 		}

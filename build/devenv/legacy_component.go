@@ -55,11 +55,11 @@ func (l *legacyComponent) RunPhase3(
 	}
 	in.Blockchains = bcs
 
-	nss, ok := priorOutputs["nodesets"].([]*ns.Input)
-	if !ok {
-		return nil, fmt.Errorf("phase 2 did not produce []*ns.Input under \"nodesets\"")
+	// nodesets are optional: env.toml may omit [[nodesets]] entirely, in which
+	// case the chainlinknode component is dormant and produces no output.
+	if nss, ok := priorOutputs["nodesets"].([]*ns.Input); ok {
+		in.NodeSets = nss
 	}
-	in.NodeSets = nss
 
 	cfg, err := runPhasedEnvironment(ctx, in)
 	if err != nil {
