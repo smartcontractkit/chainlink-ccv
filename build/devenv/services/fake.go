@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/go-connections/nat"
+	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/api/types/network"
 	"github.com/testcontainers/testcontainers-go"
 
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
@@ -70,8 +70,8 @@ func NewFake(in *FakeInput) (*FakeOutput, error) {
 		},
 		ExposedPorts: []string{"9111/tcp"},
 		HostConfigModifier: func(h *container.HostConfig) {
-			h.PortBindings = nat.PortMap{
-				"9111/tcp": []nat.PortBinding{
+			h.PortBindings = network.PortMap{
+				network.MustParsePort("9111/tcp"): []network.PortBinding{
 					{HostPort: strconv.Itoa(in.Port)},
 				},
 			}
