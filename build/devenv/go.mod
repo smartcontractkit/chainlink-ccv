@@ -9,9 +9,9 @@ require (
 	github.com/Masterminds/semver/v3 v3.4.0
 	github.com/c-bata/go-prompt v0.2.6
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc
-	github.com/docker/docker v28.5.3-0.20260325154711-31a1689cb0a1+incompatible
-	github.com/docker/go-connections v0.6.0
 	github.com/ethereum/go-ethereum v1.17.2
+	github.com/moby/moby/api v1.54.1
+	github.com/moby/moby/client v0.4.0
 	github.com/pelletier/go-toml/v2 v2.2.4
 	github.com/prometheus/client_golang v1.23.2
 	github.com/rs/zerolog v1.34.0
@@ -58,6 +58,7 @@ require (
 	github.com/creachadair/jrpc2 v1.2.0 // indirect
 	github.com/creachadair/mds v0.13.4 // indirect
 	github.com/digital-asset/dazl-client/v8 v8.9.0 // indirect
+	github.com/docker/go-connections v0.6.0 // indirect
 	github.com/go-redsync/redsync/v4 v4.13.0 // indirect
 	github.com/grafana/otel-profiling-go v0.5.1 // indirect
 	github.com/hashicorp/go-version v1.7.0 // indirect
@@ -67,8 +68,6 @@ require (
 	github.com/knadh/koanf/maps v0.1.2 // indirect
 	github.com/knadh/koanf/providers/confmap v0.1.0 // indirect
 	github.com/knadh/koanf/v2 v2.1.2 // indirect
-	github.com/moby/moby/api v1.54.1 // indirect
-	github.com/moby/moby/client v0.4.0 // indirect
 	github.com/moby/spdystream v0.5.1 // indirect
 	github.com/mxk/go-flowrate v0.0.0-20140419014527-cca7078d478f // indirect
 	github.com/oapi-codegen/runtime v1.1.2 // indirect
@@ -95,7 +94,6 @@ require (
 	github.com/smartcontractkit/chainlink-protos/op-catalog v0.0.4 // indirect
 	github.com/smartcontractkit/chainlink-protos/orchestrator v0.10.0 // indirect
 	github.com/smartcontractkit/chainlink-protos/svr v1.1.1-0.20260203131522-bb8bc5c423b3 // indirect
-	github.com/smartcontractkit/chainlink-testing-framework/framework/components/fake v0.14.10-0.20260511090359-ad529f1d6d79 // indirect
 	github.com/smartcontractkit/chainlink-ton v0.0.0-20260415120434-cecc380f8d87 // indirect
 	github.com/smartcontractkit/chainlink/v2 v2.29.0 // indirect
 	github.com/smartcontractkit/wsrpc v0.8.5-0.20250502134807-c57d3d995945 // indirect
@@ -361,7 +359,6 @@ require (
 	github.com/modern-go/concurrent v0.0.0-20180306012644-bacd9c7ef1dd // indirect
 	github.com/modern-go/reflect2 v1.0.2 // indirect
 	github.com/montanaflynn/stats v0.7.1 // indirect
-	github.com/morikuni/aec v1.1.0 // indirect
 	github.com/mostynb/zstdpool-freelist v0.0.0-20201229113212-927304c0c3b1 // indirect
 	github.com/mr-tron/base58 v1.2.0 // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect

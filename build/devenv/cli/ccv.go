@@ -11,7 +11,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/docker/docker/client"
+	"github.com/moby/moby/client"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/rs/zerolog"
@@ -736,7 +736,7 @@ func checkDockerIsRunning() {
 		os.Exit(1)
 	}
 	defer cli.Close()
-	_, err = cli.Ping(context.Background())
+	_, err = cli.Ping(context.Background(), client.PingOptions{})
 	if err != nil {
 		fmt.Println("Docker is not running, please start Docker daemon first!")
 		os.Exit(1)
