@@ -198,7 +198,7 @@ func buildQuorumConfigs(
 				return nil, fmt.Errorf("no aggregator config adapter registered for chain %d", sigConfig.SourceChainSelector)
 			}
 
-			sourceVerifierAddr, err := a.Aggregator.ResolveVerifierAddress(ds, sigConfig.SourceChainSelector, committeeQualifier)
+			sourceVerifierAddr, err := a.Aggregator.ResolveSourceVerifierAddress(ds, sigConfig.SourceChainSelector, committeeQualifier)
 			if err != nil {
 				return nil, fmt.Errorf("failed to resolve source verifier for chain %d: %w", sigConfig.SourceChainSelector, err)
 			}
@@ -273,7 +273,7 @@ func buildDestinationVerifiers(
 			return nil, fmt.Errorf("no aggregator config adapter registered for chain %d", chainSelector)
 		}
 
-		addr, err := a.Aggregator.ResolveVerifierAddress(ds, chainSelector, committeeQualifier)
+		addr, err := a.Aggregator.ResolveDestinationVerifierAddress(ds, chainSelector, committeeQualifier)
 		if err != nil {
 			return nil, fmt.Errorf("failed to resolve destination verifier for chain %d: %w", chainSelector, err)
 		}
