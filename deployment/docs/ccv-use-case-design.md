@@ -153,7 +153,7 @@ Two sequential sub-use-cases that together form the lane connection lifecycle:
 - **Current v1 flow:** Re-run `ConfigureChainsForLanesFromTopology` with `UseTestRouter=false`. No dedicated changeset.  
 - **Coupling:** **Onchain-only.** Same as S5.2.1 \- no offchain services need to change; the Router swap is transparent to verifiers and executors.  
 - **Urgency:** Routine.  
-- **Proposed v2 shape:** **Single-entry**, onchain-only. `LaneExpansion(srcChain, destChain, laneConfig, useTestRouter=false)`. Configures OnRamp and OffRamp with the TestRouter address via `ApplyDestChainConfigUpdates` / `ApplySourceChainConfigUpdates`, then wires them into the TestRouter via `ApplyRampUpdates`. Returns BatchOps in MCMS mode; runs immediately in deployer-key.
+- **Proposed v2 shape:** **Single-entry**, onchain-only. `PromoteLaneRouter(srcChain, destChain, laneConfig)`. Re-configures OnRamp and OffRamp with the production Router address via `ApplyDestChainConfigUpdates` / `ApplySourceChainConfigUpdates`, then wires them into the production Router via `ApplyRampUpdates`. Returns BatchOps in MCMS mode; runs immediately in deployer-key.
 
 ### 5.3 Add signer (`AddNOPToCommittee`)
 
