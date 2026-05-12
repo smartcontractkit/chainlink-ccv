@@ -23,6 +23,7 @@ import (
 	_ "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/adapters"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
+	_ "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/blockchains"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/chainconfig"
@@ -418,10 +419,10 @@ func checkKeys(in *Cfg) error {
 		}
 	}
 	for _, bc := range evmBlockchains {
-		if getNetworkPrivateKey() != DefaultAnvilKey && slices.Contains(evmSimChainIDs, bc.ChainID) {
+		if getNetworkPrivateKey() != devenvcommon.DefaultAnvilKey && slices.Contains(evmSimChainIDs, bc.ChainID) {
 			return errors.New("you are trying to run simulated chains with a key that do not belong to Anvil, please run 'unset PRIVATE_KEY'")
 		}
-		if getNetworkPrivateKey() == DefaultAnvilKey && !slices.Contains(evmSimChainIDs, bc.ChainID) {
+		if getNetworkPrivateKey() == devenvcommon.DefaultAnvilKey && !slices.Contains(evmSimChainIDs, bc.ChainID) {
 			return errors.New("you are trying to run on real networks but is not using the Anvil private key, export your private key 'export PRIVATE_KEY=...'")
 		}
 	}
@@ -559,10 +560,18 @@ func generateExecutorJobSpecs(
 			execNOPAliases = append(execNOPAliases, exec.NOPAlias)
 		}
 
+		pool, ok := topology.ExecutorPools[qualifier]
+		if !ok {
+			return nil, fmt.Errorf("executor pool %q not found in topology", qualifier)
+		}
 		cs := ccvchangesets.ApplyExecutorConfig(ccvadapters.GetRegistry())
 		output, err := cs.Apply(*e, ccvchangesets.ApplyExecutorConfigInput{
-			Topology:          topology,
 			ExecutorQualifier: qualifier,
+			NOPs:              ccvchangesets.NOPInputsFromTopology(topology),
+			Pool:              ccvchangesets.ExecutorPoolInputFromTopology(pool),
+			IndexerAddress:    topology.IndexerAddress,
+			PyroscopeURL:      topology.PyroscopeURL,
+			Monitoring:        topology.Monitoring,
 			TargetNOPs:        ccvshared.ConvertStringToNopAliases(execNOPAliases),
 		})
 		if err != nil {
@@ -649,11 +658,18 @@ func generateVerifierJobSpecs(
 			}
 
 			disableFinalityCheckers := disableFinalityCheckersPerFamily[family]
+			committee, ok := topology.NOPTopology.Committees[committeeName]
+			if !ok {
+				return nil, fmt.Errorf("committee %q not found in topology", committeeName)
+			}
 			cs := ccvchangesets.ApplyVerifierConfig(ccvadapters.GetRegistry())
 			output, err := cs.Apply(*e, ccvchangesets.ApplyVerifierConfigInput{
-				Topology:                 topology,
 				CommitteeQualifier:       committeeName,
 				DefaultExecutorQualifier: devenvcommon.DefaultExecutorQualifier,
+				NOPs:                     ccvchangesets.NOPInputsFromTopology(topology),
+				Committee:                ccvchangesets.CommitteeInputFromTopology(committee),
+				PyroscopeURL:             topology.PyroscopeURL,
+				Monitoring:               topology.Monitoring,
 				TargetNOPs:               verNOPAliases,
 				DisableFinalityCheckers:  disableFinalityCheckers,
 			})

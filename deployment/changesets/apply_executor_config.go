@@ -21,42 +21,77 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/deployment/shared"
 )
 
+// ApplyExecutorConfigInput is the imperative input for the ApplyExecutorConfig
+// changeset. It replaces the prior topology-driven input — callers describe the
+// executor pool, the participating NOPs, and the indexer / monitoring settings
+// directly, without supplying a *EnvironmentTopology.
 type ApplyExecutorConfigInput struct {
-	Topology          *ccvdeployment.EnvironmentTopology
+	// ExecutorQualifier identifies the executor pool being published.
 	ExecutorQualifier string
-	TargetNOPs        []shared.NOPAlias
+	// NOPs describes every NOP referenced by the pool. Only Mode and Alias are
+	// consulted by this changeset (signer addresses are unused).
+	NOPs []NOPInput
+	// Pool is the per-pool description: per-chain NOP membership, execution
+	// interval, and pool-wide tuning.
+	Pool ExecutorPoolInput
+	// IndexerAddress lists the indexer endpoints the executor connects to.
+	IndexerAddress []string
+	// PyroscopeURL is forwarded into the executor job spec for profiling. Must be
+	// empty in production environments (validated below).
+	PyroscopeURL string
+	// Monitoring is forwarded into the executor job spec.
+	Monitoring ccvdeployment.MonitoringConfig
+	// TargetNOPs filters the publish set. Empty means "all NOPs in the pool".
+	TargetNOPs []shared.NOPAlias
 	// RevokeOrphanedJobs when true revokes and cleans up orphaned jobs; default false.
 	RevokeOrphanedJobs bool
 }
 
+// ApplyExecutorConfig is the offchain-only single-entry product for §5.9 / §5.10:
+// publish or refresh executor job specs for an executor pool. It writes new job
+// specs via JD (CL-mode NOPs) and persists job metadata into the DataStore. No
+// onchain state is touched and no MCMS coordination is required.
+//
+// The input is imperative — callers pass the pool description and the
+// participating NOPs directly, with no *EnvironmentTopology.
 func ApplyExecutorConfig(registry *adapters.Registry) deployment.ChangeSetV2[ApplyExecutorConfigInput] {
 	validate := func(e deployment.Environment, cfg ApplyExecutorConfigInput) error {
-		if cfg.Topology == nil {
-			return fmt.Errorf("topology is required")
-		}
-
 		if cfg.ExecutorQualifier == "" {
 			return fmt.Errorf("executor qualifier is required")
 		}
-
-		if cfg.Topology.NOPTopology == nil || len(cfg.Topology.NOPTopology.NOPs) == 0 {
-			return fmt.Errorf("NOP topology with at least one NOP is required")
+		if len(cfg.NOPs) == 0 {
+			return fmt.Errorf("at least one NOP is required")
+		}
+		if len(cfg.IndexerAddress) == 0 {
+			return fmt.Errorf("indexer address is required")
+		}
+		if len(cfg.Pool.ChainConfigs) == 0 {
+			return fmt.Errorf("executor pool %q requires non-empty ChainConfigs", cfg.ExecutorQualifier)
 		}
 
-		if len(cfg.Topology.IndexerAddress) == 0 {
-			return fmt.Errorf("indexer address is required in topology")
+		nopSet := make(map[shared.NOPAlias]bool, len(cfg.NOPs))
+		for _, nop := range cfg.NOPs {
+			if nop.Alias == "" {
+				return fmt.Errorf("NOP alias is required")
+			}
+			if nopSet[nop.Alias] {
+				return fmt.Errorf("duplicate NOP alias %q", nop.Alias)
+			}
+			nopSet[nop.Alias] = true
 		}
 
-		pool, ok := cfg.Topology.ExecutorPools[cfg.ExecutorQualifier]
-		if !ok {
-			return fmt.Errorf("executor pool %q not found in topology", cfg.ExecutorQualifier)
+		for chainSelector, chainCfg := range cfg.Pool.ChainConfigs {
+			for _, alias := range chainCfg.NOPAliases {
+				if !nopSet[alias] {
+					return fmt.Errorf(
+						"executor pool chain %d references unknown NOP alias %q",
+						chainSelector, alias,
+					)
+				}
+			}
 		}
 
-		if len(pool.ChainConfigs) == 0 {
-			return fmt.Errorf("executor pool %q requires non-empty chain_configs", cfg.ExecutorQualifier)
-		}
-
-		poolNOPs := getExecutorPoolNOPAliases(pool)
+		poolNOPs := executorPoolNOPAliases(cfg.Pool)
 		if len(poolNOPs) == 0 {
 			return fmt.Errorf("executor pool %q has no NOPs", cfg.ExecutorQualifier)
 		}
@@ -66,17 +101,14 @@ func ApplyExecutorConfig(registry *adapters.Registry) deployment.ChangeSetV2[App
 			}
 		}
 
-		if shared.IsProductionEnvironment(e.Name) {
-			if cfg.Topology.PyroscopeURL != "" {
-				return fmt.Errorf("pyroscope URL is not supported for production environments")
-			}
+		if shared.IsProductionEnvironment(e.Name) && cfg.PyroscopeURL != "" {
+			return fmt.Errorf("pyroscope URL is not supported for production environments")
 		}
 		return nil
 	}
 
 	apply := func(e deployment.Environment, cfg ApplyExecutorConfigInput) (deployment.ChangesetOutput, error) {
 		selectors := registry.AllDeployedExecutorChains(e.DataStore, cfg.ExecutorQualifier)
-		pool := cfg.Topology.ExecutorPools[cfg.ExecutorQualifier]
 
 		if len(selectors) == 0 {
 			return runOrphanJobCleanup(
@@ -84,9 +116,9 @@ func ApplyExecutorConfig(registry *adapters.Registry) deployment.ChangeSetV2[App
 				cfg.RevokeOrphanedJobs,
 				shared.ExecutorJobScope{ExecutorQualifier: cfg.ExecutorQualifier},
 				map[string]string{"job_type": "executor", "executor": cfg.ExecutorQualifier},
-				buildNOPModes(cfg.Topology.NOPTopology.NOPs),
+				buildNOPModes(cfg.NOPs),
 				cfg.TargetNOPs,
-				getAllNOPAliases(cfg.Topology.NOPTopology.NOPs),
+				allNOPAliases(cfg.NOPs),
 				"No deployed chains found for executor pool, nothing to do",
 				"No deployed chains for executor pool, running orphan cleanup only",
 				"qualifier", cfg.ExecutorQualifier,
@@ -95,11 +127,11 @@ func ApplyExecutorConfig(registry *adapters.Registry) deployment.ChangeSetV2[App
 
 		nopsToValidate := cfg.TargetNOPs
 		if len(nopsToValidate) == 0 {
-			nopsToValidate = getExecutorPoolNOPAliases(pool)
+			nopsToValidate = executorPoolNOPAliases(cfg.Pool)
 		}
 
-		clNOPs := filterCLModeNOPs(nopsToValidate, cfg.Topology.NOPTopology.NOPs)
-		if err := validateExecutorChainSupport(e, pool, clNOPs, selectors); err != nil {
+		clNOPs := filterCLModeNOPs(nopsToValidate, cfg.NOPs)
+		if err := validateExecutorChainSupport(e, cfg.Pool, clNOPs, selectors); err != nil {
 			return deployment.ChangesetOutput{}, err
 		}
 
@@ -108,16 +140,16 @@ func ApplyExecutorConfig(registry *adapters.Registry) deployment.ChangeSetV2[App
 			return deployment.ChangesetOutput{}, err
 		}
 
-		nopModes := buildNOPModes(cfg.Topology.NOPTopology.NOPs)
+		nopModes := buildNOPModes(cfg.NOPs)
 
 		jobSpecs, scope, err := buildExecutorJobSpecs(
 			chainConfigs,
 			cfg.ExecutorQualifier,
 			cfg.TargetNOPs,
-			pool,
-			cfg.Topology.IndexerAddress,
-			cfg.Topology.PyroscopeURL,
-			cfg.Topology.Monitoring,
+			cfg.Pool,
+			cfg.IndexerAddress,
+			cfg.PyroscopeURL,
+			cfg.Monitoring,
 		)
 		if err != nil {
 			return deployment.ChangesetOutput{}, err
@@ -137,7 +169,7 @@ func ApplyExecutorConfig(registry *adapters.Registry) deployment.ChangeSetV2[App
 				NOPs: sequences.NOPContext{
 					Modes:      nopModes,
 					TargetNOPs: cfg.TargetNOPs,
-					AllNOPs:    getAllNOPAliases(cfg.Topology.NOPTopology.NOPs),
+					AllNOPs:    allNOPAliases(cfg.NOPs),
 				},
 				RevokeOrphanedJobs: cfg.RevokeOrphanedJobs,
 			},
@@ -185,24 +217,26 @@ func buildExecutorChainConfigs(
 	return chainConfigs, nil
 }
 
-func getExecutorPoolNOPAliases(pool ccvdeployment.ExecutorPoolConfig) []shared.NOPAlias {
-	aliasSet := make(map[string]struct{})
+// executorPoolNOPAliases returns the union of NOP aliases referenced by the pool's
+// chain configs, sorted for deterministic ordering.
+func executorPoolNOPAliases(pool ExecutorPoolInput) []shared.NOPAlias {
+	aliasSet := make(map[shared.NOPAlias]struct{})
 	for _, chainCfg := range pool.ChainConfigs {
 		for _, alias := range chainCfg.NOPAliases {
 			aliasSet[alias] = struct{}{}
 		}
 	}
-	aliases := make([]string, 0, len(aliasSet))
-	for a := range aliasSet {
-		aliases = append(aliases, a)
+	aliases := make([]shared.NOPAlias, 0, len(aliasSet))
+	for alias := range aliasSet {
+		aliases = append(aliases, alias)
 	}
 	slices.Sort(aliases)
-	return shared.ConvertStringToNopAliases(aliases)
+	return aliases
 }
 
 func validateExecutorChainSupport(
 	e deployment.Environment,
-	pool ccvdeployment.ExecutorPoolConfig,
+	pool ExecutorPoolInput,
 	nopsToValidate []shared.NOPAlias,
 	deployedChains []uint64,
 ) error {
@@ -223,10 +257,7 @@ func validateExecutorChainSupport(
 
 	var validationResults []shared.ChainValidationResult
 	for _, nopAlias := range nopsToValidate {
-		requiredChains, err := getRequiredChainsForExecutorNOP(string(nopAlias), pool, deployedChains)
-		if err != nil {
-			return err
-		}
+		requiredChains := requiredChainsForExecutorNOP(nopAlias, pool)
 		result := shared.ValidateNOPChainSupport(
 			string(nopAlias),
 			requiredChains,
@@ -240,19 +271,15 @@ func validateExecutorChainSupport(
 	return shared.FormatChainValidationError(validationResults)
 }
 
-func getRequiredChainsForExecutorNOP(nopAlias string, pool ccvdeployment.ExecutorPoolConfig, _ []uint64) ([]uint64, error) {
+func requiredChainsForExecutorNOP(nopAlias shared.NOPAlias, pool ExecutorPoolInput) []uint64 {
 	requiredChains := make([]uint64, 0, len(pool.ChainConfigs))
-	for chainSelectorStr, chainCfg := range pool.ChainConfigs {
-		if !slices.Contains(chainCfg.NOPAliases, nopAlias) {
-			continue
+	for chainSelector, chainCfg := range pool.ChainConfigs {
+		if slices.Contains(chainCfg.NOPAliases, nopAlias) {
+			requiredChains = append(requiredChains, chainSelector)
 		}
-		sel, err := strconv.ParseUint(chainSelectorStr, 10, 64)
-		if err != nil {
-			return nil, fmt.Errorf("executor pool chain_configs key %q is not a valid chain selector: %w", chainSelectorStr, err)
-		}
-		requiredChains = append(requiredChains, sel)
 	}
-	return requiredChains, nil
+	slices.Sort(requiredChains)
+	return requiredChains
 }
 
 func fetchNodeChainSupport(e deployment.Environment, nopAliases []string) (shared.ChainSupportByNOP, error) {
@@ -283,7 +310,7 @@ func buildExecutorJobSpecs(
 	adapterChainConfigs map[string]executor.ChainConfiguration,
 	executorQualifier string,
 	targetNOPs []shared.NOPAlias,
-	pool ccvdeployment.ExecutorPoolConfig,
+	pool ExecutorPoolInput,
 	indexerAddress []string,
 	pyroscopeURL string,
 	monitoring ccvdeployment.MonitoringConfig,
@@ -292,7 +319,7 @@ func buildExecutorJobSpecs(
 		ExecutorQualifier: executorQualifier,
 	}
 
-	poolNOPs := getExecutorPoolNOPAliases(pool)
+	poolNOPs := executorPoolNOPAliases(pool)
 	nopAliases := targetNOPs
 	if len(nopAliases) == 0 {
 		nopAliases = poolNOPs
@@ -303,19 +330,24 @@ func buildExecutorJobSpecs(
 	for _, nopAlias := range nopAliases {
 		chainCfgs := make(map[string]executor.ChainConfiguration)
 		for chainSelectorStr, adapterCfg := range adapterChainConfigs {
-			chainCfg, ok := pool.ChainConfigs[chainSelectorStr]
+			chainSelector, err := strconv.ParseUint(chainSelectorStr, 10, 64)
+			if err != nil {
+				return nil, scope, fmt.Errorf("internal: adapter chain key %q is not a valid chain selector: %w", chainSelectorStr, err)
+			}
+			chainCfg, ok := pool.ChainConfigs[chainSelector]
 			if !ok {
 				continue
 			}
 			sortedPool := slices.Clone(chainCfg.NOPAliases)
 			slices.Sort(sortedPool)
+			sortedPoolStrs := shared.ConvertNopAliasToString(sortedPool)
 			chainCfgs[chainSelectorStr] = executor.ChainConfiguration{
 				DestinationChainConfig: chainaccess.DestinationChainConfig{
 					OffRampAddress: adapterCfg.OffRampAddress,
 					RmnAddress:     adapterCfg.RmnAddress,
 				},
 				DefaultExecutorAddress: adapterCfg.DefaultExecutorAddress,
-				ExecutorPool:           sortedPool,
+				ExecutorPool:           sortedPoolStrs,
 				ExecutionInterval:      chainCfg.ExecutionInterval,
 			}
 		}
@@ -358,32 +390,4 @@ executorConfig = '''
 	}
 
 	return jobSpecs, scope, nil
-}
-
-func buildNOPModes(nops []ccvdeployment.NOPConfig) map[shared.NOPAlias]shared.NOPMode {
-	nopModes := make(map[shared.NOPAlias]shared.NOPMode)
-	for _, nop := range nops {
-		mode := nop.GetMode()
-		nopModes[shared.NOPAlias(nop.Alias)] = mode
-	}
-	return nopModes
-}
-
-func filterCLModeNOPs(aliases []shared.NOPAlias, nops []ccvdeployment.NOPConfig) []shared.NOPAlias {
-	modeByAlias := buildNOPModes(nops)
-	filtered := make([]shared.NOPAlias, 0, len(aliases))
-	for _, alias := range aliases {
-		if mode, ok := modeByAlias[alias]; ok && mode == shared.NOPModeCL {
-			filtered = append(filtered, alias)
-		}
-	}
-	return filtered
-}
-
-func getAllNOPAliases(nops []ccvdeployment.NOPConfig) []shared.NOPAlias {
-	aliases := make([]shared.NOPAlias, len(nops))
-	for i, nop := range nops {
-		aliases[i] = shared.NOPAlias(nop.Alias)
-	}
-	return aliases
 }
