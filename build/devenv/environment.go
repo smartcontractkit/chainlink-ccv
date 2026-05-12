@@ -560,10 +560,18 @@ func generateExecutorJobSpecs(
 			execNOPAliases = append(execNOPAliases, exec.NOPAlias)
 		}
 
+		pool, ok := topology.ExecutorPools[qualifier]
+		if !ok {
+			return nil, fmt.Errorf("executor pool %q not found in topology", qualifier)
+		}
 		cs := ccvchangesets.ApplyExecutorConfig(ccvadapters.GetRegistry())
 		output, err := cs.Apply(*e, ccvchangesets.ApplyExecutorConfigInput{
-			Topology:          topology,
 			ExecutorQualifier: qualifier,
+			NOPs:              ccvchangesets.NOPInputsFromTopology(topology),
+			Pool:              ccvchangesets.ExecutorPoolInputFromTopology(pool),
+			IndexerAddress:    topology.IndexerAddress,
+			PyroscopeURL:      topology.PyroscopeURL,
+			Monitoring:        topology.Monitoring,
 			TargetNOPs:        ccvshared.ConvertStringToNopAliases(execNOPAliases),
 		})
 		if err != nil {
@@ -650,11 +658,18 @@ func generateVerifierJobSpecs(
 			}
 
 			disableFinalityCheckers := disableFinalityCheckersPerFamily[family]
+			committee, ok := topology.NOPTopology.Committees[committeeName]
+			if !ok {
+				return nil, fmt.Errorf("committee %q not found in topology", committeeName)
+			}
 			cs := ccvchangesets.ApplyVerifierConfig(ccvadapters.GetRegistry())
 			output, err := cs.Apply(*e, ccvchangesets.ApplyVerifierConfigInput{
-				Topology:                 topology,
 				CommitteeQualifier:       committeeName,
 				DefaultExecutorQualifier: devenvcommon.DefaultExecutorQualifier,
+				NOPs:                     ccvchangesets.NOPInputsFromTopology(topology),
+				Committee:                ccvchangesets.CommitteeInputFromTopology(committee),
+				PyroscopeURL:             topology.PyroscopeURL,
+				Monitoring:               topology.Monitoring,
 				TargetNOPs:               verNOPAliases,
 				DisableFinalityCheckers:  disableFinalityCheckers,
 			})

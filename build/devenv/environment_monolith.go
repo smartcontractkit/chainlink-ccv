@@ -453,11 +453,15 @@ func NewEnvironment() (in *Cfg, err error) {
 
 		// Use changeset to generate committee config from on-chain state
 		instanceName := aggregatorInput.InstanceName()
+		committee, ok := topology.NOPTopology.Committees[aggregatorInput.CommitteeName]
+		if !ok {
+			return nil, fmt.Errorf("committee %q not found in topology", aggregatorInput.CommitteeName)
+		}
 		cs := ccvchangesets.GenerateAggregatorConfig(ccvadapters.GetRegistry())
 		output, err := cs.Apply(*e, ccvchangesets.GenerateAggregatorConfigInput{
-			Topology:           topology,
 			ServiceIdentifier:  instanceName + "-aggregator",
 			CommitteeQualifier: aggregatorInput.CommitteeName,
+			ChainSelectors:     ccvchangesets.CommitteeChainSelectorsFromTopology(committee),
 		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate aggregator config for %s (committee %s): %w", instanceName, aggregatorInput.CommitteeName, err)
