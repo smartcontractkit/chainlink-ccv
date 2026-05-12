@@ -30,6 +30,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
+	"github.com/smartcontractkit/chainlink-testing-framework/framework/clclient"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
 
@@ -178,25 +179,55 @@ func runPhasedEnvironment(ctx context.Context, cfg *Cfg) (in *Cfg, err error) {
 	// END: Deploy Pricer service //
 	////////////////////////////////
 
-	////////////////////////////
-	// START: Launch CL Nodes //
-	////////////////////////////
+	///////////////////////////////////
+	// START: Post-launch CL Node setup
+	// CL node containers themselves were brought up in Phase 2 by the
+	// chainlinknode component, loaded with per-chain TOML from each impl's
+	// OffChainConfigurable.ConfigureNodes. Here we fund them and (for
+	// observability) read back their OCR2 onchain public keys.
+	// Aggregator HMAC secrets injection is no longer performed here — it will
+	// be applied via the CL node API + JD in a subsequent change.
+	///////////////////////////////////
 
-	// We launch the CL nodes first because they don't require any configuration from
-	// the rest of the system to be up and running.
-	// In addition, if we need to launch the nodes (i.e if some services are not standalone),
-	// we need to launch the nodes first to get the onchain public keys which will then
-	// be used to configure the rest of the system (aggregator, onchain committees, etc.).
-	timeTrack.Record("[infra] deploying CL nodes")
-	_, err = launchCLNodes(ctx, in, impls, in.Verifier, in.Aggregator)
-	if err != nil {
-		return nil, fmt.Errorf("failed to launch CL nodes: %w", err)
+	if len(in.NodeSets) > 0 {
+		timeTrack.Record("[infra] post-launch CL node setup")
+		for i, impl := range impls {
+			if err := impl.FundNodes(ctx, in.NodeSets, in.Blockchains[i], big.NewInt(1), big.NewInt(5)); err != nil {
+				return nil, fmt.Errorf("failed to fund nodes: %w", err)
+			}
+		}
+
+		onchainPublicKeys := make(map[string][]string)
+		for _, nodeset := range in.NodeSets {
+			nc, err := clclient.New(nodeset.Out.CLNodes)
+			if err != nil {
+				return nil, fmt.Errorf("failed to connect CL node clients: %w", err)
+			}
+			for _, cc := range nc {
+				ocr2Keys, err := cc.MustReadOCR2Keys()
+				if err != nil {
+					return nil, fmt.Errorf("failed to read OCR2 keys: %w", err)
+				}
+				for _, keyData := range ocr2Keys.Data {
+					onchainPublicKeys[keyData.Attributes.ChainType] = append(
+						onchainPublicKeys[keyData.Attributes.ChainType],
+						prefixWith0xIfNeeded(
+							strings.TrimPrefix(
+								keyData.Attributes.OnChainPublicKey,
+								fmt.Sprintf("ocr2on_%s_", keyData.Attributes.ChainType),
+							),
+						),
+					)
+				}
+			}
+		}
+		Plog.Info().Any("OnchainPublicKeys", onchainPublicKeys).Msg("Onchain public keys for all nodes")
+		timeTrack.Record("[infra] post-launch CL node setup done")
 	}
-	timeTrack.Record("[infra] deployed CL nodes")
 
-	//////////////////////////
-	// END: Launch CL Nodes //
-	//////////////////////////
+	///////////////////////////////////
+	// END: Post-launch CL Node setup //
+	///////////////////////////////////
 
 	//////////////////////////////////////
 	// START: Start JD Infrastructure   //
