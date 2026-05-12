@@ -20,6 +20,29 @@ func compFactory(c Component) ComponentFactory {
 	return func(_ map[string]any) (Component, error) { return c, nil }
 }
 
+// builtinComp implements Component + BuiltinComponent via embedded mocks.
+// onCall (if non-nil) runs with the priorOutputs map handed to the
+// component, before output is returned.
+type builtinComp struct {
+	*mocks.MockComponent
+	*mocks.MockBuiltinComponent
+}
+
+func newBuiltinComp(t *testing.T, output map[string]any, onCall func(prior map[string]any)) *builtinComp {
+	t.Helper()
+	c := mocks.NewMockComponent(t)
+	c.EXPECT().ValidateConfig(mock.Anything).Return(nil)
+	b := mocks.NewMockBuiltinComponent(t)
+	b.EXPECT().RunBuiltin(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		RunAndReturn(func(_ context.Context, _ map[string]any, _ any, prior map[string]any) (map[string]any, error) {
+			if onCall != nil {
+				onCall(prior)
+			}
+			return output, nil
+		})
+	return &builtinComp{MockComponent: c, MockBuiltinComponent: b}
+}
+
 // p1Comp implements Component + Phase1Component via embedded mocks.
 type p1Comp struct {
 	*mocks.MockComponent
@@ -264,4 +287,79 @@ func TestFallbackOverwriteDetection(t *testing.T) {
 	require.Contains(t, err.Error(), "phase 2")
 	require.Contains(t, err.Error(), `"<fallback>"`)
 	require.Contains(t, err.Error(), `"shared"`)
+}
+
+// withBuiltinOrder temporarily replaces the package-level builtinOrder for
+// the duration of the test. Tests run sequentially in this package so a
+// straight global swap is safe.
+func withBuiltinOrder(t *testing.T, order []string) {
+	t.Helper()
+	orig := builtinOrder
+	t.Cleanup(func() { builtinOrder = orig })
+	builtinOrder = order
+}
+
+func TestBuiltin_OutputsVisibleToLaterPhases(t *testing.T) {
+	withBuiltinOrder(t, []string{"Infra"})
+
+	b := newBuiltinComp(t, map[string]any{"from-builtin": "hello"}, nil)
+	var p2Prior map[string]any
+	consumer := newP2Comp(t, nil, func(p map[string]any) { p2Prior = p })
+
+	r := NewRegistry()
+	require.NoError(t, r.Register("Infra", compFactory(b)))
+	require.NoError(t, r.Register("Consumer", compFactory(consumer)))
+
+	_, err := runEnv(t, r, map[string]any{"Infra": nil, "Consumer": nil})
+	require.NoError(t, err)
+	require.Equal(t, "hello", p2Prior["from-builtin"],
+		"phase 2 consumer must see builtin output via priorOutputs")
+}
+
+func TestBuiltin_OrderIsRespected(t *testing.T) {
+	withBuiltinOrder(t, []string{"First", "Second"})
+
+	first := newBuiltinComp(t, map[string]any{"from-first": 1}, nil)
+
+	var secondPrior map[string]any
+	second := newBuiltinComp(t, map[string]any{"from-second": 2}, func(p map[string]any) { secondPrior = p })
+
+	r := NewRegistry()
+	require.NoError(t, r.Register("First", compFactory(first)))
+	require.NoError(t, r.Register("Second", compFactory(second)))
+
+	_, err := runEnv(t, r, map[string]any{"First": nil, "Second": nil})
+	require.NoError(t, err)
+	require.Equal(t, 1, secondPrior["from-first"],
+		"second builtin must see first builtin's output (proves declared order, not registration order or alpha)")
+}
+
+func TestBuiltin_NotInBuiltinOrderRejected(t *testing.T) {
+	// builtinOrder default ["blockchains"] does not contain "Rogue".
+	// The rogue mock is constructed without an EXPECT().RunBuiltin call
+	// because the sanity check must reject it before any builtin runs.
+	c := mocks.NewMockComponent(t)
+	c.EXPECT().ValidateConfig(mock.Anything).Return(nil)
+	b := mocks.NewMockBuiltinComponent(t)
+	rogue := &builtinComp{MockComponent: c, MockBuiltinComponent: b}
+
+	r := NewRegistry()
+	require.NoError(t, r.Register("Rogue", compFactory(rogue)))
+
+	_, err := runEnv(t, r, map[string]any{"Rogue": nil})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), `"Rogue"`)
+	require.Contains(t, err.Error(), "BuiltinComponent")
+	require.Contains(t, err.Error(), "builtinOrder")
+}
+
+func TestBuiltin_MissingFromRegistryIsSkipped(t *testing.T) {
+	// builtinOrder lists a key that has no registered component. The loop
+	// should skip it without error (registration is the caller's choice;
+	// tests with minimal registries are the motivating case).
+	withBuiltinOrder(t, []string{"missing"})
+
+	r := NewRegistry()
+	_, err := runEnv(t, r, map[string]any{})
+	require.NoError(t, err)
 }

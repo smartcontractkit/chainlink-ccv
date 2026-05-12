@@ -51,7 +51,7 @@ func (c *component) ValidateConfig(componentConfig any) error {
 	return checkBlockchainKeys(bcs)
 }
 
-// RunPhase1 brings up each declared blockchain network via
+// RunBuiltin brings up each declared blockchain network via
 // blockchain.NewBlockchainNetwork (which populates each Input's Out field)
 // and emits two outputs:
 //   - "blockchains" — []*blockchain.Input with Out populated, for downstream
@@ -61,7 +61,9 @@ func (c *component) ValidateConfig(componentConfig any) error {
 //
 // All static validation (decode, key compatibility, non-empty list) happens
 // in ValidateConfig; this method assumes it has already passed.
-func (c *component) RunPhase1(_ context.Context, _ map[string]any, componentConfig any) (map[string]any, error) {
+//
+// blockchains is the first builtin, so priorOutputs is always empty.
+func (c *component) RunBuiltin(_ context.Context, _ map[string]any, componentConfig any, _ map[string]any) (map[string]any, error) {
 	bcs, err := decode(componentConfig)
 	if err != nil {
 		return nil, err
