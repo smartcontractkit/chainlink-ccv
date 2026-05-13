@@ -303,8 +303,8 @@ github.com/smartcontractkit/chainlink-protos/cre/go v0.0.0-20260409211238-5b9992
 github.com/smartcontractkit/chainlink-protos/cre/go v0.0.0-20260409211238-5b99921cbc7c/go.mod h1:Jqt53s27Tr0jDl8mdBXg1xhu6F8Fci8JOuq43tgHOM8=
 github.com/smartcontractkit/chainlink-protos/linking-service/go v0.0.0-20251002192024-d2ad9222409b h1:QuI6SmQFK/zyUlVWEf0GMkiUYBPY4lssn26nKSd/bOM=
 github.com/smartcontractkit/chainlink-protos/linking-service/go v0.0.0-20251002192024-d2ad9222409b/go.mod h1:qSTSwX3cBP3FKQwQacdjArqv0g6QnukjV4XuzO6UyoY=
-github.com/smartcontractkit/chainlink-testing-framework/framework v0.16.0 h1:Py3ZY0opZSK7a6zcuOsq0EYkQjUASv9UHb5Q7aiz+Ug=
-github.com/smartcontractkit/chainlink-testing-framework/framework v0.16.0/go.mod h1:8NnRD5t7yljxFC3ffIloVKkhWlul4a3oQ63FL7AZc6s=
+github.com/smartcontractkit/chainlink-testing-framework/framework v0.16.1 h1:wZd5hIQRcQaq3FgW1lg/4ilk68Id6cxYKFNU9iTnugs=
+github.com/smartcontractkit/chainlink-testing-framework/framework v0.16.1/go.mod h1:wxgGfrJpzIdC1wyMJEGOfN4H4yPQTZD/DdrMRBxA0io=
 github.com/smartcontractkit/chainlink-testing-framework/framework/components/fake v0.14.10-0.20260511081501-829666151188 h1:D9EHR8q4+lfzYP+/MAPREd7p+6LMz3hH4I8JlhF54i8=
 github.com/smartcontractkit/chainlink-testing-framework/framework/components/fake v0.14.10-0.20260511081501-829666151188/go.mod h1:qHbBXsBZZa3dZtdqiathlLUeNrzCWKqGdwvsukNxqgo=
 github.com/smartcontractkit/libocr v0.0.0-20260304194147-a03701e2c02e h1:poXTj5cFVM6XfC4HICIDYkDVc/A6OYB0eeID0wU2JQE=
@@ -421,8 +421,8 @@ golang.org/x/net v0.0.0-20200226121028-0de0cce0169b/go.mod h1:z5CRVTTTmAJ677TzLL
 golang.org/x/net v0.0.0-20201021035429-f5854403a974/go.mod h1:sp8m0HH+o8qH0wwXwYZr8TS3Oi6o0r6Gce1SSxlDquU=
 golang.org/x/net v0.52.0 h1:He/TN1l0e4mmR3QqHMT2Xab3Aj3L9qjbhRm78/6jrW0=
 golang.org/x/net v0.52.0/go.mod h1:R1MAz7uMZxVMualyPXb+VaqGSa3LIaUqk0eEt3w36Sw=
-golang.org/x/oauth2 v0.35.0 h1:Mv2mzuHuZuY2+bkyWXIHMfhNdJAdwW3FuWeCPYN5GVQ=
-golang.org/x/oauth2 v0.35.0/go.mod h1:lzm5WQJQwKZ3nwavOZ3IS5Aulzxi68dUSgRHujetwEA=
+golang.org/x/oauth2 v0.36.0 h1:peZ/1z27fi9hUOFCAZaHyrpWG5lwe0RJEEEeH0ThlIs=
+golang.org/x/oauth2 v0.36.0/go.mod h1:YDBUJMTkDnJS+A4BP4eZBjCqtokkg1hODuPjwiGPO7Q=
 golang.org/x/sync v0.0.0-20190423024810-112230192c58/go.mod h1:RxMgew5VJxzue5/jJTE5uejpjVlOe/izrB70Jof72aM=
 golang.org/x/sync v0.0.0-20190911185100-cd5d95a43a6e/go.mod h1:RxMgew5VJxzue5/jJTE5uejpjVlOe/izrB70Jof72aM=
 golang.org/x/sync v0.0.0-20201020160332-67f06af15bc9/go.mod h1:RxMgew5VJxzue5/jJTE5uejpjVlOe/izrB70Jof72aM=
@@ -464,8 +464,8 @@ google.golang.org/genproto/googleapis/api v0.0.0-20260401024825-9d38bb4040a9 h1:
 google.golang.org/genproto/googleapis/api v0.0.0-20260401024825-9d38bb4040a9/go.mod h1:7QBABkRtR8z+TEnmXTqIqwJLlzrZKVfAUm7tY3yGv0M=
 google.golang.org/genproto/googleapis/rpc v0.0.0-20260401024825-9d38bb4040a9 h1:m8qni9SQFH0tJc1X0vmnpw/0t+AImlSvp30sEupozUg=
 google.golang.org/genproto/googleapis/rpc v0.0.0-20260401024825-9d38bb4040a9/go.mod h1:4Hqkh8ycfw05ld/3BWL7rJOSfebL2Q+DVDeRgYgxUU8=
-google.golang.org/grpc v1.80.0 h1:Xr6m2WmWZLETvUNvIUmeD5OAagMw3FiKmMlTdViWsHM=
-google.golang.org/grpc v1.80.0/go.mod h1:ho/dLnxwi3EDJA4Zghp7k2Ec1+c2jqup0bFkw07bwF4=
+google.golang.org/grpc v1.81.0 h1:W3G9N3KQf3BU+YuCtGKJk0CmxQNbAISICD/9AORxLIw=
+google.golang.org/grpc v1.81.0/go.mod h1:xGH9GfzOyMTGIOXBJmXt+BX/V0kcdQbdcuwQ/zNw42I=
 google.golang.org/protobuf v1.36.11 h1:fV6ZwhNocDyBLK0dj+fg8ektcVegBBuEolpbTQyBNVE=
 google.golang.org/protobuf v1.36.11/go.mod h1:HTf+CrKn2C3g5S8VImy6tdcUvCska2kB7j23XfzDpco=
 gopkg.in/check.v1 v0.0.0-20161208181325-20d25e280405/go.mod h1:Co6ibVJAznAaIkqp8huTwlJQCZ016jof/cbN4VW5Yz0=
