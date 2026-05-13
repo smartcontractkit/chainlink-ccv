@@ -1604,25 +1604,19 @@ func TestSRS_EventMonitoringLoop_ContinuesAfterPanic(t *testing.T) {
 		require.NoError(t, srs.Close())
 	}()
 
-	// Wait for multiple poll cycles to complete
-	// This gives time for:
-	// - 1st call: successful processing
-	// - 2nd call: panic and recovery
-	// - 3rd+ calls: continued processing after panic
-	time.Sleep(300 * time.Millisecond)
+	// Wait until we observe at least three LatestAndFinalizedBlock calls:
+	// 1) first successful poll, 2) poll that panics (recovered in-loop), 3) post-recovery poll.
+	// A fixed sleep is flaky under -race, -short, or slow CI schedulers.
+	require.Eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return callCount >= 3
+	}, tests.WaitTimeout(t), 25*time.Millisecond,
+		"eventMonitoringLoop should continue processing after panic recovery")
 
-	// Verify that the loop continued processing after the panic
 	mu.Lock()
 	actualCallCount := callCount
 	mu.Unlock()
-
-	// We should have at least 3 calls:
-	// 1. First successful call
-	// 2. Call that panicked
-	// 3. Call(s) after recovery proving the loop continued
-	assert.GreaterOrEqual(t, actualCallCount, 3,
-		"eventMonitoringLoop should continue processing after panic recovery")
-
 	t.Logf("LatestAndFinalizedBlock called %d times (including 1 panic)", actualCallCount)
 }
 
@@ -1688,18 +1682,16 @@ func TestSRS_EventMonitoringLoop_PanicInProcessEventCycle(t *testing.T) {
 		require.NoError(t, srs.Close())
 	}()
 
-	// Wait for multiple poll cycles
-	time.Sleep(300 * time.Millisecond)
+	require.Eventually(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return fetchCallCount >= 3
+	}, tests.WaitTimeout(t), 25*time.Millisecond,
+		"eventMonitoringLoop should continue processing after panic in processEventCycle")
 
-	// Verify that the loop continued processing after the panic
 	mu.Lock()
 	actualFetchCount := fetchCallCount
 	mu.Unlock()
-
-	// Should have at least 3 fetch calls (before, panic, after)
-	assert.GreaterOrEqual(t, actualFetchCount, 3,
-		"eventMonitoringLoop should continue processing after panic in processEventCycle")
-
 	t.Logf("FetchMessageSentEvents called %d times (including 1 panic)", actualFetchCount)
 }
 
