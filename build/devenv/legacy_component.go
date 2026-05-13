@@ -79,9 +79,9 @@ func (l *legacyComponent) RunPhase4(
 		in.Executor = execs
 	}
 
-	cfg, err := runPhasedEnvironment(ctx, in)
+	cfg, phaseEffects, err := runPhasedEnvironment(ctx, in)
 	if err != nil {
 		return nil, nil, err
 	}
-	return map[string]any{legacyCfgKey: cfg}, nil, nil
+	return map[string]any{legacyCfgKey: cfg}, phaseEffects, nil
 }

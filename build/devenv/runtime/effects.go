@@ -1,6 +1,9 @@
 package devenvruntime
 
-import "math/big"
+import (
+	"context"
+	"math/big"
+)
 
 // Effect is a cross-cutting side-effect request returned by a component's
 // RunPhaseN method. The runtime collects effects from all components in a
@@ -17,19 +20,22 @@ type Effect interface{ effectMarker() }
 // FundingEffect requests that Address be funded on ChainSelector.
 // The runtime satisfies this by calling impl.FundAddresses on the chain
 // implementation that holds the prefunded Anvil/deployer keys.
+// Address is a lower-case hex string without the 0x prefix
+// (the format returned by hex.EncodeToString(pubkeyToAddress.Bytes())).
 type FundingEffect struct {
 	ChainSelector uint64
-	Address       string
+	Address       string // hex without 0x prefix
 	NativeAmount  *big.Int
 	LinkAmount    *big.Int // zero if not required
 }
 
 // JobProposalEffect requests that JobSpec be proposed to the node identified
-// by NOPAlias via the Job Distributor. JobSpec must be fully-rendered TOML
+// by NodeID via the Job Distributor. JobSpec must be fully-rendered TOML
 // (blockchain_infos injected, etc.) before this effect is returned.
 type JobProposalEffect struct {
-	NOPAlias string
-	JobSpec  string
+	NOPAlias string // for logging / human identification
+	NodeID   string // JD node ID used to route the proposal
+	JobSpec  string // fully-rendered TOML; blockchain_infos already injected
 }
 
 // CLNodeConfigEffect requests that Secrets be applied to the CL node
@@ -44,3 +50,18 @@ type CLNodeConfigEffect struct {
 func (FundingEffect) effectMarker()      {}
 func (JobProposalEffect) effectMarker()  {}
 func (CLNodeConfigEffect) effectMarker() {}
+
+// EffectExecutor is implemented by the environment orchestrator to process
+// side-effect requests returned by components. The runtime calls Execute once
+// per phase (only when effects were emitted) after merging all component
+// outputs into the accumulated map. accumulated contains the full output state
+// at the end of the current phase.
+type EffectExecutor interface {
+	Execute(ctx context.Context, effects []Effect, accumulated map[string]any) error
+}
+
+type noopEffectExecutor struct{}
+
+func (noopEffectExecutor) Execute(_ context.Context, _ []Effect, _ map[string]any) error {
+	return nil
+}

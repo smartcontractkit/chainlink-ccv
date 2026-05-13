@@ -14,7 +14,7 @@ import (
 
 func runEnv(t *testing.T, r *devenvruntime.Registry, rawConfig map[string]any) (map[string]any, error) {
 	t.Helper()
-	return devenvruntime.NewEnvironmentWithRegistry(context.Background(), rawConfig, r, zerolog.Nop())
+	return devenvruntime.NewEnvironmentWithRegistry(context.Background(), rawConfig, r, nil, zerolog.Nop())
 }
 
 func compFactory(c devenvruntime.Component) devenvruntime.ComponentFactory {

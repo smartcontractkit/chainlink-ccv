@@ -11,7 +11,7 @@ import (
 
 // NewEnvironment runs the environment startup using the global registry.
 func NewEnvironment(ctx context.Context, rawConfig map[string]any, logger zerolog.Logger) (map[string]any, error) {
-	return NewEnvironmentWithRegistry(ctx, rawConfig, global, logger)
+	return NewEnvironmentWithRegistry(ctx, rawConfig, global, noopEffectExecutor{}, logger)
 }
 
 // NewEnvironmentWithRegistry runs the environment startup using the provided registry.
@@ -33,7 +33,10 @@ func NewEnvironment(ctx context.Context, rawConfig map[string]any, logger zerolo
 // After all components in a phase run, the runtime collects their Effect
 // requests and executes them in a fixed order (CLNodeConfigEffect →
 // FundingEffect → JobProposalEffect) before advancing to the next phase.
-func NewEnvironmentWithRegistry(ctx context.Context, rawConfig map[string]any, r *Registry, logger zerolog.Logger) (map[string]any, error) {
+func NewEnvironmentWithRegistry(ctx context.Context, rawConfig map[string]any, r *Registry, effectExecutor EffectExecutor, logger zerolog.Logger) (map[string]any, error) {
+	if effectExecutor == nil {
+		effectExecutor = noopEffectExecutor{}
+	}
 	specific, fallback, err := r.instantiate(nil)
 	if err != nil {
 		return nil, err
@@ -84,7 +87,9 @@ func NewEnvironmentWithRegistry(ctx context.Context, rawConfig map[string]any, r
 			}
 			phaseEffects = append(phaseEffects, effects...)
 		}
-		_ = phaseEffects // effect execution added when first component emits effects
+		if err := effectExecutor.Execute(ctx, phaseEffects, accumulated); err != nil {
+			return nil, fmt.Errorf("phase1 effects: %w", err)
+		}
 	}
 
 	// Phase 2
@@ -118,7 +123,9 @@ func NewEnvironmentWithRegistry(ctx context.Context, rawConfig map[string]any, r
 			}
 			phaseEffects = append(phaseEffects, effects...)
 		}
-		_ = phaseEffects
+		if err := effectExecutor.Execute(ctx, phaseEffects, accumulated); err != nil {
+			return nil, fmt.Errorf("phase2 effects: %w", err)
+		}
 	}
 
 	// Phase 3
@@ -152,7 +159,9 @@ func NewEnvironmentWithRegistry(ctx context.Context, rawConfig map[string]any, r
 			}
 			phaseEffects = append(phaseEffects, effects...)
 		}
-		_ = phaseEffects
+		if err := effectExecutor.Execute(ctx, phaseEffects, accumulated); err != nil {
+			return nil, fmt.Errorf("phase3 effects: %w", err)
+		}
 	}
 
 	// Phase 4
@@ -186,7 +195,9 @@ func NewEnvironmentWithRegistry(ctx context.Context, rawConfig map[string]any, r
 			}
 			phaseEffects = append(phaseEffects, effects...)
 		}
-		_ = phaseEffects
+		if err := effectExecutor.Execute(ctx, phaseEffects, accumulated); err != nil {
+			return nil, fmt.Errorf("phase4 effects: %w", err)
+		}
 	}
 
 	return accumulated, nil

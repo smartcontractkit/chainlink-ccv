@@ -20,6 +20,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
 	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/chainconfig"
 	executorsvc "github.com/smartcontractkit/chainlink-ccv/build/devenv/services/executor"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/util"
 	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
@@ -49,7 +50,7 @@ func NewPhasedEnvironment() (in *Cfg, err error) {
 		return nil, fmt.Errorf("failed to load configuration: %w", err)
 	}
 
-	out, err := devenvruntime.NewEnvironment(ctx, rawConfig, L)
+	out, err := devenvruntime.NewEnvironmentWithRegistry(ctx, rawConfig, devenvruntime.GlobalRegistry(), newDevenvEffectExecutor(), L)
 	if err != nil {
 		return nil, err
 	}
@@ -67,7 +68,7 @@ func NewPhasedEnvironment() (in *Cfg, err error) {
 // component. As components are extracted from the monolith in subsequent PRs,
 // the work in this function will shrink; the original NewEnvironment in
 // environment_monolith.go remains the stable reference path.
-func runPhasedEnvironment(ctx context.Context, cfg *Cfg) (in *Cfg, err error) {
+func runPhasedEnvironment(ctx context.Context, cfg *Cfg) (in *Cfg, effects []devenvruntime.Effect, err error) {
 	in = cfg
 	timeTrack := NewTimeTracker(Plog)
 
@@ -80,7 +81,7 @@ func runPhasedEnvironment(ctx context.Context, cfg *Cfg) (in *Cfg, err error) {
 	ctx = L.WithContext(ctx)
 
 	if err = in.expandForHA(); err != nil {
-		return nil, fmt.Errorf("failed to expand HA configuration: %w", err)
+		return nil, nil, fmt.Errorf("failed to expand HA configuration: %w", err)
 	}
 
 	// Executor config...
@@ -93,7 +94,7 @@ func runPhasedEnvironment(ctx context.Context, cfg *Cfg) (in *Cfg, err error) {
 	// Start fake data provider. Used for USDC verifier.
 	fakeOut, err := services.NewFake(in.Fake)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create fake data provider: %w", err)
+		return nil, nil, fmt.Errorf("failed to create fake data provider: %w", err)
 	}
 
 	///////////////////////////////////////
@@ -107,11 +108,11 @@ func runPhasedEnvironment(ctx context.Context, cfg *Cfg) (in *Cfg, err error) {
 	blockchainOutputs := make([]*blockchain.Output, len(in.Blockchains))
 	for i, bc := range in.Blockchains {
 		if bc.Out == nil {
-			return nil, fmt.Errorf("blockchain[%d] %q: phase 1 did not populate Out", i, bc.ContainerName)
+			return nil, nil, fmt.Errorf("blockchain[%d] %q: phase 1 did not populate Out", i, bc.ContainerName)
 		}
 		impl, err := NewProductConfigurationFromNetwork(bc.Type)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		impls[i] = impl
 		blockchainOutputs[i] = bc.Out
@@ -130,7 +131,7 @@ func runPhasedEnvironment(ctx context.Context, cfg *Cfg) (in *Cfg, err error) {
 	for _, agg := range in.Aggregator {
 		creds, err := agg.EnsureClientCredentials()
 		if err != nil {
-			return nil, fmt.Errorf("failed to ensure client credentials for aggregator %s: %w", agg.CommitteeName, err)
+			return nil, nil, fmt.Errorf("failed to ensure client credentials for aggregator %s: %w", agg.CommitteeName, err)
 		}
 
 		// Set the aggregator output client credentials so that the verifier has access to it.
@@ -155,7 +156,7 @@ func runPhasedEnvironment(ctx context.Context, cfg *Cfg) (in *Cfg, err error) {
 	// START: Deploy Pricer service //
 	//////////////////////////////////
 	if _, err := services.NewPricer(in.Pricer); err != nil {
-		return nil, fmt.Errorf("failed to setup pricer service: %w", err)
+		return nil, nil, fmt.Errorf("failed to setup pricer service: %w", err)
 	}
 
 	if in.Pricer != nil {
@@ -168,7 +169,7 @@ func runPhasedEnvironment(ctx context.Context, cfg *Cfg) (in *Cfg, err error) {
 				big.NewInt(5),
 			)
 			if err != nil {
-				return nil, fmt.Errorf("failed to fund pricer address: %w", err)
+				return nil, nil, fmt.Errorf("failed to fund pricer address: %w", err)
 			}
 			Plog.Info().Int("ImplIndex", i).Msg("Funded pricer address")
 		}
@@ -190,7 +191,7 @@ func runPhasedEnvironment(ctx context.Context, cfg *Cfg) (in *Cfg, err error) {
 	timeTrack.Record("[infra] deploying CL nodes")
 	_, err = launchCLNodes(ctx, in, impls, in.Verifier, in.Aggregator)
 	if err != nil {
-		return nil, fmt.Errorf("failed to launch CL nodes: %w", err)
+		return nil, nil, fmt.Errorf("failed to launch CL nodes: %w", err)
 	}
 	timeTrack.Record("[infra] deployed CL nodes")
 
@@ -220,7 +221,7 @@ func runPhasedEnvironment(ctx context.Context, cfg *Cfg) (in *Cfg, err error) {
 	// Create client lookup only for CL-mode NOPs (returns nil if no CL nodes)
 	clientLookup, err := jobs.NewNodeSetClientLookup(in.NodeSets, clModeNopAliases)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create NodeSet client lookup: %w", err)
+		return nil, nil, fmt.Errorf("failed to create NodeSet client lookup: %w", err)
 	}
 	in.ClientLookup = clientLookup
 
@@ -234,7 +235,7 @@ func runPhasedEnvironment(ctx context.Context, cfg *Cfg) (in *Cfg, err error) {
 		if err != nil {
 			L.Error().Msg("Unable to start JD infrastructure." +
 				"Make sure the container has been built with 'just build-jd-docker'.")
-			return nil, fmt.Errorf("failed to start JD infrastructure: %w", err)
+			return nil, nil, fmt.Errorf("failed to start JD infrastructure: %w", err)
 		}
 		in.JDInfra = jdInfraStarted
 	}
@@ -243,7 +244,7 @@ func runPhasedEnvironment(ctx context.Context, cfg *Cfg) (in *Cfg, err error) {
 	// Only register and connect CL-mode NOPs with JD
 	if jdInfra != nil && clientLookup != nil {
 		if err := jobs.RegisterNodesWithJD(ctx, jdInfra, clientLookup, clModeNopAliases); err != nil {
-			return nil, fmt.Errorf("failed to register nodes with JD: %w", err)
+			return nil, nil, fmt.Errorf("failed to register nodes with JD: %w", err)
 		}
 
 		chainIDs := make([]string, len(in.Blockchains))
@@ -252,7 +253,7 @@ func runPhasedEnvironment(ctx context.Context, cfg *Cfg) (in *Cfg, err error) {
 		}
 
 		if err := jobs.ConnectNodesToJD(ctx, jdInfra, clientLookup, chainIDs); err != nil {
-			return nil, fmt.Errorf("failed to connect nodes to JD: %w", err)
+			return nil, nil, fmt.Errorf("failed to connect nodes to JD: %w", err)
 		}
 	}
 	timeTrack.Record("[infra] started JD infrastructure")
@@ -271,13 +272,13 @@ func runPhasedEnvironment(ctx context.Context, cfg *Cfg) (in *Cfg, err error) {
 
 	_, err = launchStandaloneVerifiers(in, blockchainOutputs, jdInfra)
 	if err != nil {
-		return nil, fmt.Errorf("failed to launch standalone verifiers: %w", err)
+		return nil, nil, fmt.Errorf("failed to launch standalone verifiers: %w", err)
 	}
 
 	// Register standalone verifiers with JD so they can receive job proposals.
 	if jdInfra != nil && jdInfra.OffchainClient != nil {
 		if err := registerStandaloneVerifiersWithJD(ctx, in.Verifier, jdInfra.OffchainClient); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
 
@@ -305,13 +306,13 @@ func runPhasedEnvironment(ctx context.Context, cfg *Cfg) (in *Cfg, err error) {
 	}
 	selectors, e, err = NewCLDFOperationsEnvironmentWithOffchain(cldfCfg)
 	if err != nil {
-		return nil, fmt.Errorf("creating CLDF operations environment: %w", err)
+		return nil, nil, fmt.Errorf("creating CLDF operations environment: %w", err)
 	}
 	L.Info().Any("Selectors", selectors).Msg("Deploying for chain selectors")
 
 	topology := buildEnvironmentTopology(in, e)
 	if topology == nil {
-		return nil, fmt.Errorf("failed to build environment topology")
+		return nil, nil, fmt.Errorf("failed to build environment topology")
 	}
 
 	timeTrack.Record("[infra] deploying blockchains")
@@ -320,7 +321,7 @@ func runPhasedEnvironment(ctx context.Context, cfg *Cfg) (in *Cfg, err error) {
 	for i, impl := range impls {
 		networkInfo, lookupErr := chainsel.GetChainDetailsByChainIDAndFamily(in.Blockchains[i].ChainID, impl.ChainFamily())
 		if lookupErr != nil {
-			return nil, lookupErr
+			return nil, nil, lookupErr
 		}
 		if tcp, ok := impl.(cciptestinterfaces.TokenConfigProvider); ok {
 			capsBySelector[networkInfo.ChainSelector] = tcp.GetSupportedPools()
@@ -335,7 +336,7 @@ func runPhasedEnvironment(ctx context.Context, cfg *Cfg) (in *Cfg, err error) {
 		var networkInfo chainsel.ChainDetails
 		networkInfo, err = chainsel.GetChainDetailsByChainIDAndFamily(in.Blockchains[i].ChainID, impl.ChainFamily())
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		L.Info().Uint64("Selector", networkInfo.ChainSelector).Msg("Deployed chain selector")
 		// The goal here is to shift the nonce for the deployer to intentionally create different contract addresses on each chain.
@@ -343,7 +344,7 @@ func runPhasedEnvironment(ctx context.Context, cfg *Cfg) (in *Cfg, err error) {
 		// In practice we want to use CREATE2 and share the same contract addresses across chains. However not all chains support CREATE2.
 		if bumper, ok := impl.(cciptestinterfaces.DeployerNonceBumper); ok && i > 0 {
 			if err := bumper.BumpDeployerNonce(ctx, e, networkInfo.ChainSelector, i); err != nil {
-				return nil, fmt.Errorf("failed to bump deployer nonce for chain %d: %w", networkInfo.ChainSelector, err)
+				return nil, nil, fmt.Errorf("failed to bump deployer nonce for chain %d: %w", networkInfo.ChainSelector, err)
 			}
 		}
 		// Per-chain accumulator so we can report all addresses deployed in
@@ -353,13 +354,13 @@ func runPhasedEnvironment(ctx context.Context, cfg *Cfg) (in *Cfg, err error) {
 		var dsi datastore.DataStore
 		dsi, err = DeployContractsForSelector(ctx, e, impl, networkInfo.ChainSelector, topology)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if err = ds.Merge(dsi); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if err = chainDS.Merge(dsi); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		e.DataStore = ds.Seal()
 
@@ -368,26 +369,26 @@ func runPhasedEnvironment(ctx context.Context, cfg *Cfg) (in *Cfg, err error) {
 		tokenDS := datastore.NewMemoryDataStore()
 		if tcp, ok := impl.(cciptestinterfaces.TokenConfigProvider); ok {
 			if err = DeployTokensAndPools(tcp, e, networkInfo.ChainSelector, combos, tokenDS); err != nil {
-				return nil, fmt.Errorf("deploy tokens and pools for selector %d: %w", networkInfo.ChainSelector, err)
+				return nil, nil, fmt.Errorf("deploy tokens and pools for selector %d: %w", networkInfo.ChainSelector, err)
 			}
 		}
 		if err = ds.Merge(tokenDS.Seal()); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if err = chainDS.Merge(tokenDS.Seal()); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		e.DataStore = ds.Seal()
 
 		var addresses []datastore.AddressRef
 		addresses, err = chainDS.Seal().Addresses().Fetch()
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		var a []byte
 		a, err = json.Marshal(addresses)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		in.CLDF.AddAddresses(string(a))
 	}
@@ -403,7 +404,7 @@ func runPhasedEnvironment(ctx context.Context, cfg *Cfg) (in *Cfg, err error) {
 	// Configure cross-chain token transfers: each chain impl builds its own
 	// TokenTransferConfigs using chain-specific registry and CCV refs.
 	if err = ConfigureAllTokenTransfers(impls, selectors, e, topology); err != nil {
-		return nil, fmt.Errorf("configure all token transfers: %w", err)
+		return nil, nil, fmt.Errorf("configure all token transfers: %w", err)
 	}
 
 	var connectErr error
@@ -413,7 +414,7 @@ func runPhasedEnvironment(ctx context.Context, cfg *Cfg) (in *Cfg, err error) {
 		connectErr = connectAllChainsCanonical(impls, in.Blockchains, selectors, e, topology)
 	}
 	if connectErr != nil {
-		return nil, connectErr
+		return nil, nil, connectErr
 	}
 
 	/////////////////////////////////////////
@@ -425,7 +426,7 @@ func runPhasedEnvironment(ctx context.Context, cfg *Cfg) (in *Cfg, err error) {
 	/////////////////////////////////////////
 
 	if err := launchGenericServices(ctx, in, e, blockchainOutputs); err != nil {
-		return nil, fmt.Errorf("failed to launch generic services: %w", err)
+		return nil, nil, fmt.Errorf("failed to launch generic services: %w", err)
 	}
 
 	/////////////////////////////////////////
@@ -454,7 +455,7 @@ func runPhasedEnvironment(ctx context.Context, cfg *Cfg) (in *Cfg, err error) {
 		var err error
 		sharedTLSCerts, err = services.GenerateTLSCertificates(allHostnames, tlsCertDir)
 		if err != nil {
-			return nil, fmt.Errorf("failed to generate shared TLS certificates: %w", err)
+			return nil, nil, fmt.Errorf("failed to generate shared TLS certificates: %w", err)
 		}
 	}
 
@@ -466,7 +467,7 @@ func runPhasedEnvironment(ctx context.Context, cfg *Cfg) (in *Cfg, err error) {
 		instanceName := aggregatorInput.InstanceName()
 		committee, ok := topology.NOPTopology.Committees[aggregatorInput.CommitteeName]
 		if !ok {
-			return nil, fmt.Errorf("committee %q not found in topology", aggregatorInput.CommitteeName)
+			return nil, nil, fmt.Errorf("committee %q not found in topology", aggregatorInput.CommitteeName)
 		}
 		cs := ccvchangesets.GenerateAggregatorConfig(ccvadapters.GetRegistry())
 		output, err := cs.Apply(*e, ccvchangesets.GenerateAggregatorConfigInput{
@@ -475,19 +476,19 @@ func runPhasedEnvironment(ctx context.Context, cfg *Cfg) (in *Cfg, err error) {
 			ChainSelectors:     ccvchangesets.CommitteeChainSelectorsFromTopology(committee),
 		})
 		if err != nil {
-			return nil, fmt.Errorf("failed to generate aggregator config for %s (committee %s): %w", instanceName, aggregatorInput.CommitteeName, err)
+			return nil, nil, fmt.Errorf("failed to generate aggregator config for %s (committee %s): %w", instanceName, aggregatorInput.CommitteeName, err)
 		}
 
 		// Get generated config from output datastore
 		aggCfg, err := ccvdeployment.GetAggregatorConfig(output.DataStore.Seal(), instanceName+"-aggregator")
 		if err != nil {
-			return nil, fmt.Errorf("failed to get aggregator config from output: %w", err)
+			return nil, nil, fmt.Errorf("failed to get aggregator config from output: %w", err)
 		}
 		aggregatorInput.GeneratedCommittee = aggCfg
 
 		out, err := services.NewAggregator(aggregatorInput)
 		if err != nil {
-			return nil, fmt.Errorf("failed to create aggregator service for committee %s: %w", aggregatorInput.CommitteeName, err)
+			return nil, nil, fmt.Errorf("failed to create aggregator service for committee %s: %w", aggregatorInput.CommitteeName, err)
 		}
 		in.AggregatorEndpoints[aggregatorInput.CommitteeName] = out.ExternalHTTPSUrl
 		if out.TLSCACertFile != "" {
@@ -517,12 +518,12 @@ func runPhasedEnvironment(ctx context.Context, cfg *Cfg) (in *Cfg, err error) {
 			LombardVerifierNameToQualifier:   firstIdx.LombardVerifierNameToQualifier,
 		})
 		if err != nil {
-			return nil, fmt.Errorf("failed to generate indexer config: %w", err)
+			return nil, nil, fmt.Errorf("failed to generate indexer config: %w", err)
 		}
 
 		idxCfg, err := ccvdeployment.GetIndexerConfig(output.DataStore.Seal(), "indexer")
 		if err != nil {
-			return nil, fmt.Errorf("failed to get indexer config from output: %w", err)
+			return nil, nil, fmt.Errorf("failed to get indexer config from output: %w", err)
 		}
 		e.DataStore = output.DataStore.Seal()
 		for _, idxIn := range in.Indexer {
@@ -531,7 +532,7 @@ func runPhasedEnvironment(ctx context.Context, cfg *Cfg) (in *Cfg, err error) {
 	}
 
 	if len(in.Indexer) < 1 {
-		return nil, fmt.Errorf("at least one indexer is required")
+		return nil, nil, fmt.Errorf("at least one indexer is required")
 	}
 
 	// Ensure unique container names and DB host ports; always use indexer-1, indexer-2, ... for consistency.
@@ -562,7 +563,7 @@ func runPhasedEnvironment(ctx context.Context, cfg *Cfg) (in *Cfg, err error) {
 	}
 
 	if sharedTLSCerts == nil {
-		return nil, fmt.Errorf("shared TLS certificates are required for indexer")
+		return nil, nil, fmt.Errorf("shared TLS certificates are required for indexer")
 	}
 
 	// Build discovery secrets from aggregators (same creds used for all indexers).
@@ -630,7 +631,7 @@ func runPhasedEnvironment(ctx context.Context, cfg *Cfg) (in *Cfg, err error) {
 
 		indexerOut, err := services.NewIndexer(idxIn)
 		if err != nil {
-			return nil, fmt.Errorf("failed to create indexer service (index %d): %w", idxPos, err)
+			return nil, nil, fmt.Errorf("failed to create indexer service (index %d): %w", idxPos, err)
 		}
 		externalURLs = append(externalURLs, indexerOut.ExternalHTTPURL)
 		internalURLs = append(internalURLs, indexerOut.InternalHTTPURL)
@@ -649,25 +650,48 @@ func runPhasedEnvironment(ctx context.Context, cfg *Cfg) (in *Cfg, err error) {
 
 	executorJobSpecs, err := generateExecutorJobSpecs(e, in, topology, ds)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	_, err = launchExecutors(in.Executor, blockchainOutputs, jdInfra)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create executors: %w", err)
-	}
-
-	if err := fundExecutorTransmitters(ctx, in.Executor, in.Blockchains, impls); err != nil {
-		return nil, fmt.Errorf("failed to fund executor transmitters: %w", err)
+		return nil, nil, fmt.Errorf("failed to create executors: %w", err)
 	}
 
 	if jdInfra != nil && jdInfra.OffchainClient != nil {
 		if err := registerExecutorsWithJD(ctx, in.Executor, jdInfra.OffchainClient); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
-		if err := proposeJobsToExecutors(ctx, in.Executor, executorJobSpecs, blockchainOutputs, jdInfra.OffchainClient); err != nil {
-			return nil, err
+	}
+
+	for _, exec := range in.Executor {
+		if exec == nil || exec.Mode != services.Standalone {
+			continue
 		}
+		if exec.Out == nil || exec.Out.JDNodeID == "" {
+			continue
+		}
+		loader, loaderErr := chainconfig.GetChainConfigLoader(exec.ChainFamily)
+		if loaderErr != nil {
+			return nil, nil, fmt.Errorf("chain config loader for executor %s: %w", exec.ContainerName, loaderErr)
+		}
+		blockchainInfos, loaderErr := loader(blockchainOutputs)
+		if loaderErr != nil {
+			return nil, nil, fmt.Errorf("loading chain config for executor %s: %w", exec.ContainerName, loaderErr)
+		}
+		baseSpec, ok := executorJobSpecs[exec.ContainerName]
+		if !ok {
+			return nil, nil, fmt.Errorf("no job spec found for executor %s", exec.ContainerName)
+		}
+		jobSpec, specErr := executorsvc.RebuildExecutorJobSpecWithBlockchainInfos(baseSpec, blockchainInfos)
+		if specErr != nil {
+			return nil, nil, fmt.Errorf("building job spec for executor %s: %w", exec.ContainerName, specErr)
+		}
+		effects = append(effects, devenvruntime.JobProposalEffect{
+			NOPAlias: exec.NOPAlias,
+			NodeID:   exec.Out.JDNodeID,
+			JobSpec:  jobSpec,
+		})
 	}
 
 	///////////////////////////
@@ -680,7 +704,7 @@ func runPhasedEnvironment(ctx context.Context, cfg *Cfg) (in *Cfg, err error) {
 
 	verifierJobSpecs, err := generateVerifierJobSpecs(e, in, topology, sharedTLSCerts, ds)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	// Each verifier owns one aggregator (NodeIndex % numAggs). Select the
@@ -697,7 +721,7 @@ func runPhasedEnvironment(ctx context.Context, cfg *Cfg) (in *Cfg, err error) {
 	// Propose jobs to standalone verifiers via JD
 	if jdInfra != nil && jdInfra.OffchainClient != nil {
 		if err := proposeJobsToStandaloneVerifiers(ctx, in.Verifier, ownedJobSpecs, blockchainOutputs, jdInfra.OffchainClient); err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 	}
 
@@ -716,12 +740,12 @@ func runPhasedEnvironment(ctx context.Context, cfg *Cfg) (in *Cfg, err error) {
 		}
 
 		if fakeOut == nil {
-			return nil, fmt.Errorf("fake data provider is required for token verifiers to provide attestation API endpoints, but it was not created successfully")
+			return nil, nil, fmt.Errorf("fake data provider is required for token verifiers to provide attestation API endpoints, but it was not created successfully")
 		}
 
 		template, err := tokenVerifierInput.GenerateTemplateConfig()
 		if err != nil {
-			return nil, fmt.Errorf("failed to generate template config for token verifier: %w", err)
+			return nil, nil, fmt.Errorf("failed to generate template config for token verifier: %w", err)
 		}
 
 		// Use changeset to generate token verifier config from on-chain state
@@ -755,7 +779,7 @@ func runPhasedEnvironment(ctx context.Context, cfg *Cfg) (in *Cfg, err error) {
 			},
 		})
 		if err != nil {
-			return nil, fmt.Errorf("failed to generate token verifier config: %w", err)
+			return nil, nil, fmt.Errorf("failed to generate token verifier config: %w", err)
 		}
 
 		// Get generated config from output datastore
@@ -763,7 +787,7 @@ func runPhasedEnvironment(ctx context.Context, cfg *Cfg) (in *Cfg, err error) {
 			output.DataStore.Seal(), "TokenVerifier",
 		)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get token verifier config from output: %w", err)
+			return nil, nil, fmt.Errorf("failed to get token verifier config from output: %w", err)
 		}
 		in.TokenVerifier[i].GeneratedConfig = tokenVerifierCfg
 		e.DataStore = output.DataStore.Seal()
@@ -772,7 +796,7 @@ func runPhasedEnvironment(ctx context.Context, cfg *Cfg) (in *Cfg, err error) {
 	if fakeOut != nil {
 		_, err = launchStandaloneTokenVerifiers(in, blockchainOutputs)
 		if err != nil {
-			return nil, fmt.Errorf("failed to create standalone token verifiers: %w", err)
+			return nil, nil, fmt.Errorf("failed to create standalone token verifiers: %w", err)
 		}
 	}
 
@@ -790,18 +814,18 @@ func runPhasedEnvironment(ctx context.Context, cfg *Cfg) (in *Cfg, err error) {
 
 	if in.JDInfra != nil {
 		if err := jobs.AcceptPendingJobs(ctx, in.ClientLookup); err != nil {
-			return nil, fmt.Errorf("failed to accept pending jobs: %w", err)
+			return nil, nil, fmt.Errorf("failed to accept pending jobs: %w", err)
 		}
 
 		if err := jobs.SyncAndVerifyJobProposals(e); err != nil {
-			return nil, fmt.Errorf("failed to sync/verify job proposals: %w", err)
+			return nil, nil, fmt.Errorf("failed to sync/verify job proposals: %w", err)
 		}
 	}
 
 	timeTrack.Print()
 	if err = PrintCLDFAddresses(in); err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
-	return in, Store(in)
+	return in, effects, Store(in)
 }

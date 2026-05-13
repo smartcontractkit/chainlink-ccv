@@ -99,3 +99,8 @@ func Register(configKey string, fac ComponentFactory) error {
 func SetFallback(fac ComponentFactory) {
 	global.SetFallback(fac)
 }
+
+// GlobalRegistry returns the package-level registry populated by component init() calls.
+func GlobalRegistry() *Registry {
+	return global
+}

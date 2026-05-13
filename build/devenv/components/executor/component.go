@@ -3,12 +3,14 @@ package executor
 import (
 	"context"
 	"fmt"
+	"math/big"
 	"sync"
 	"time"
 
 	"github.com/pelletier/go-toml/v2"
 	"golang.org/x/sync/errgroup"
 
+	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
 	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
@@ -35,9 +37,10 @@ func (c *component) ValidateConfig(componentConfig any) error {
 	return err
 }
 
-// RunPhase3 launches standalone executor containers and registers them with JD.
-// Job spec generation, address funding, and job proposal are deferred to Phase 4
-// (the legacy monolith) because they require deployed contract addresses.
+// RunPhase3 launches standalone executor containers, registers them with JD,
+// and emits FundingEffect requests for transmitter addresses. Job spec
+// generation and proposal are deferred to Phase 4 because they require
+// deployed contract addresses.
 func (c *component) RunPhase3(
 	ctx context.Context,
 	_ map[string]any,
@@ -56,6 +59,8 @@ func (c *component) RunPhase3(
 	if !ok {
 		return nil, nil, fmt.Errorf("phase 1 did not produce []*blockchain.Output under \"blockchainOutputs\"")
 	}
+
+	blockchains, _ := priorOutputs["blockchains"].([]*ctfblockchain.Input)
 
 	jdInfra, ok := priorOutputs["jd"].(*jobs.JDInfrastructure)
 	if !ok || jdInfra == nil {
@@ -78,7 +83,40 @@ func (c *component) RunPhase3(
 		return nil, nil, err
 	}
 
-	return map[string]any{configKey: executors}, nil, nil
+	var effects []devenvruntime.Effect
+	for _, exec := range executors {
+		if exec == nil || exec.Mode != services.Standalone || exec.Out == nil {
+			continue
+		}
+		addr := exec.Out.BootstrapKeys.EVMTransmitterAddress
+		if addr == "" {
+			continue
+		}
+		family := exec.ChainFamily
+		if family == "" {
+			family = chainsel.FamilyEVM
+		}
+		for _, bc := range blockchains {
+			if bc == nil {
+				continue
+			}
+			bcFamily, ferr := ctfblockchain.TypeToFamily(bc.Type)
+			if ferr != nil || string(bcFamily) != family {
+				continue
+			}
+			sel, serr := chainsel.GetChainDetailsByChainIDAndFamily(bc.ChainID, family)
+			if serr != nil {
+				continue
+			}
+			effects = append(effects, devenvruntime.FundingEffect{
+				ChainSelector: sel.ChainSelector,
+				Address:       addr,
+				NativeAmount:  big.NewInt(5),
+			})
+		}
+	}
+
+	return map[string]any{configKey: executors}, effects, nil
 }
 
 // registerWithJD registers all standalone executors with JD and waits for their
