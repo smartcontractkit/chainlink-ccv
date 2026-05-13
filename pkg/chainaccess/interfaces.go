@@ -82,6 +82,8 @@ type Accessor interface {
 	DestinationReader() (DestinationReader, error)
 	// ContractTransmitter returns the ContractTransmitter for this chain, or an error if not available.
 	ContractTransmitter() (ContractTransmitter, error)
+	// Close releases any background services the accessor started. Stateless accessors return nil.
+	Close() error
 
 	// Optional hook: bootstrap.KeystoreSetter
 	//

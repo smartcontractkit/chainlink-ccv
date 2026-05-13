@@ -20,6 +20,51 @@ func (_m *MockAccessor) EXPECT() *MockAccessor_Expecter {
 	return &MockAccessor_Expecter{mock: &_m.Mock}
 }
 
+// Close provides a mock function with no fields
+func (_m *MockAccessor) Close() error {
+	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for Close")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func() error); ok {
+		r0 = rf()
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockAccessor_Close_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Close'
+type MockAccessor_Close_Call struct {
+	*mock.Call
+}
+
+// Close is a helper method to define mock.On call
+func (_e *MockAccessor_Expecter) Close() *MockAccessor_Close_Call {
+	return &MockAccessor_Close_Call{Call: _e.mock.On("Close")}
+}
+
+func (_c *MockAccessor_Close_Call) Run(run func()) *MockAccessor_Close_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run()
+	})
+	return _c
+}
+
+func (_c *MockAccessor_Close_Call) Return(_a0 error) *MockAccessor_Close_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockAccessor_Close_Call) RunAndReturn(run func() error) *MockAccessor_Close_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // ContractTransmitter provides a mock function with no fields
 func (_m *MockAccessor) ContractTransmitter() (chainaccess.ContractTransmitter, error) {
 	ret := _m.Called()
