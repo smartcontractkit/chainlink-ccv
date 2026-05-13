@@ -25,6 +25,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainimpl"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	_ "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/blockchains"
+	_ "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/executor"
 	_ "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/jd"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
@@ -1036,27 +1037,36 @@ func fundExecutorTransmitters(
 }
 
 // launchExecutors starts executor containers for all Standalone-mode inputs.
+// Executors that were already launched by the executor component (Out != nil)
+// are skipped — they are collected into the output slice but not re-launched.
 func launchExecutors(in []*executorsvc.Input, blockchainOutputs []*blockchain.Output, jdInfra *jobs.JDInfrastructure) ([]*executorsvc.Output, error) {
 	var outs []*executorsvc.Output
 	for _, exec := range in {
-		if exec != nil && exec.Mode == services.Standalone {
-			out, err := executorsvc.New(exec, blockchainOutputs, jdInfra)
-			if err != nil {
-				return nil, fmt.Errorf("failed to create executor %s: %w", exec.ContainerName, err)
-			}
-			exec.Out = out
-			outs = append(outs, out)
+		if exec == nil || exec.Mode != services.Standalone {
+			continue
 		}
+		if exec.Out != nil {
+			outs = append(outs, exec.Out)
+			continue
+		}
+		out, err := executorsvc.New(exec, blockchainOutputs, jdInfra)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create executor %s: %w", exec.ContainerName, err)
+		}
+		exec.Out = out
+		outs = append(outs, out)
 	}
 	return outs, nil
 }
 
 // registerExecutorsWithJD registers executors with the Job Distributor
-// and waits for them to establish their WSRPC connections.
+// and waits for them to establish their WSRPC connections. Executors that
+// were already registered by the executor component (JDNodeID != "") are
+// skipped — their JDNodeID is already populated and the connection is live.
 func registerExecutorsWithJD(ctx context.Context, executors []*executorsvc.Input, jdClient offchain.Client) error {
 	var standalone []*executorsvc.Input
 	for _, exec := range executors {
-		if exec.Mode == services.Standalone {
+		if exec.Mode == services.Standalone && (exec.Out == nil || exec.Out.JDNodeID == "") {
 			standalone = append(standalone, exec)
 		}
 	}

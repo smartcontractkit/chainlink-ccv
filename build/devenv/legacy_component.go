@@ -8,6 +8,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
 	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
+	executorsvc "github.com/smartcontractkit/chainlink-ccv/build/devenv/services/executor"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 	ns "github.com/smartcontractkit/chainlink-testing-framework/framework/components/simple_node_set"
 )
@@ -28,14 +29,14 @@ type legacyComponent struct{}
 
 func (l *legacyComponent) ValidateConfig(_ any) error { return nil }
 
-// RunPhase3 invokes the forked monolith runPhasedEnvironment after splicing
-// the blockchain inputs deployed in Phase 1 and the CL node sets created in
-// Phase 2 into the loaded *Cfg. The legacy fallback runs in Phase 3 because
-// the runtime captures each phase's snapshot once at the start of the phase
-// — Phase 2 components' outputs are only visible to Phase 3 callers. As
-// components are extracted, the body of runPhasedEnvironment will continue
-// to shrink.
-func (l *legacyComponent) RunPhase3(
+// RunPhase4 invokes the forked monolith runPhasedEnvironment after splicing
+// the blockchain inputs deployed in Phase 1, the CL node sets created in
+// Phase 2, and any standalone executors launched in Phase 3 into the loaded
+// *Cfg. The legacy fallback runs in Phase 4 so that Phase 3 specific
+// components (executor) can complete before the monolith runs contract
+// deployment, job spec generation, funding, and job proposal. As components
+// are extracted, the body of runPhasedEnvironment will continue to shrink.
+func (l *legacyComponent) RunPhase4(
 	ctx context.Context,
 	_ map[string]any,
 	_ any,
@@ -68,6 +69,14 @@ func (l *legacyComponent) RunPhase3(
 	// registration and chain-config wiring.
 	if jdInfra, ok := priorOutputs["jd"].(*jobs.JDInfrastructure); ok {
 		in.JDInfra = jdInfra
+	}
+
+	// executor is optional: env.toml may omit [[executor]] entirely. When
+	// present, the executor component launches containers and registers with JD
+	// in Phase 3; the monolith skips launch/registration and proceeds directly
+	// to job spec generation, funding, and job proposal.
+	if execs, ok := priorOutputs["executor"].([]*executorsvc.Input); ok {
+		in.Executor = execs
 	}
 
 	cfg, err := runPhasedEnvironment(ctx, in)
