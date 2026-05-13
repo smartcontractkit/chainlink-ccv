@@ -2,11 +2,12 @@ package adapters
 
 import (
 	"github.com/Masterminds/semver/v3"
-	mcms_types "github.com/smartcontractkit/mcms/types"
 
-	cldf_chain "github.com/smartcontractkit/chainlink-deployments-framework/chain"
+	mcmstypes "github.com/smartcontractkit/mcms/types"
+
+	"github.com/smartcontractkit/chainlink-deployments-framework/chain"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
-	cldf_ops "github.com/smartcontractkit/chainlink-deployments-framework/operations"
+	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
 )
 
 // CommitteeVerifierDeployParams describes the per-committee deployment
@@ -48,7 +49,7 @@ type DeployCommitteeVerifierInput struct {
 // running in deployer-key-owned mode.
 type DeployCommitteeVerifierOutput struct {
 	Addresses               []datastore.AddressRef
-	BatchOps                []mcms_types.BatchOperation
+	BatchOps                []mcmstypes.BatchOperation
 	RefsToTransferOwnership []datastore.AddressRef
 }
 
@@ -58,9 +59,14 @@ type DeployCommitteeVerifierOutput struct {
 // chain-family packages (e.g. chainlink-ccip/chains/evm) and register
 // themselves into the singleton Registry at process startup.
 //
-// The adapter returns a cldf_ops.Sequence rather than executing directly so
-// that the chain-agnostic changeset can drive the OperationsBundle and
+// The adapter returns an operations.Sequence rather than executing directly
+// so that the chain-agnostic changeset can drive the OperationsBundle and
 // collect ExecutionReports uniformly across families.
 type CommitteeVerifierDeployAdapter interface {
-	DeployCommitteeVerifier() *cldf_ops.Sequence[DeployCommitteeVerifierInput, DeployCommitteeVerifierOutput, cldf_chain.BlockChains]
+	// DeployCommitteeVerifier returns the per-family sequence that the
+	// chain-agnostic changeset executes against BlockChains. The sequence
+	// is expected to be idempotent: re-running on a chain where the
+	// verifier already exists reconciles any drifted dynamic config rather
+	// than redeploying.
+	DeployCommitteeVerifier() *operations.Sequence[DeployCommitteeVerifierInput, DeployCommitteeVerifierOutput, chain.BlockChains]
 }
