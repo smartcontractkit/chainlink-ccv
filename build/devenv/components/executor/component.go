@@ -68,10 +68,13 @@ func (c *component) RunPhase3(
 	}
 
 	for _, exec := range executors {
-		if exec == nil || exec.Mode != services.Standalone {
+		if exec == nil {
 			continue
 		}
 		executorsvc.ApplyDefaults(exec)
+		if exec.Mode != services.Standalone {
+			continue
+		}
 		out, err := executorsvc.New(exec, blockchainOutputs, jdInfra)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to launch executor %s: %w", exec.ContainerName, err)
