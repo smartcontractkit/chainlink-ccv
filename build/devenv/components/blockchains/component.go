@@ -61,24 +61,24 @@ func (c *component) ValidateConfig(componentConfig any) error {
 //
 // All static validation (decode, key compatibility, non-empty list) happens
 // in ValidateConfig; this method assumes it has already passed.
-func (c *component) RunPhase1(_ context.Context, _ map[string]any, componentConfig any) (map[string]any, error) {
+func (c *component) RunPhase1(_ context.Context, _ map[string]any, componentConfig any) (map[string]any, []devenvruntime.Effect, error) {
 	bcs, err := decode(componentConfig)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	if err := framework.DefaultNetwork(nil); err != nil {
-		return nil, fmt.Errorf("setting up default docker network: %w", err)
+		return nil, nil, fmt.Errorf("setting up default docker network: %w", err)
 	}
 
 	blockchainOutputs := make([]*blockchain.Output, len(bcs))
 	for i, bc := range bcs {
 		out, err := blockchain.NewBlockchainNetwork(bc)
 		if err != nil {
-			return nil, fmt.Errorf("blockchain[%d] %q: %w", i, bc.ContainerName, err)
+			return nil, nil, fmt.Errorf("blockchain[%d] %q: %w", i, bc.ContainerName, err)
 		}
 		if out == nil {
-			return nil, fmt.Errorf("blockchain[%d] %q: NewBlockchainNetwork returned nil output", i, bc.ContainerName)
+			return nil, nil, fmt.Errorf("blockchain[%d] %q: NewBlockchainNetwork returned nil output", i, bc.ContainerName)
 		}
 		bc.Out = out
 		blockchainOutputs[i] = out
@@ -87,7 +87,7 @@ func (c *component) RunPhase1(_ context.Context, _ map[string]any, componentConf
 	return map[string]any{
 		configKey:  bcs,
 		outputsKey: blockchainOutputs,
-	}, nil
+	}, nil, nil
 }
 
 // checkBlockchainKeys validates that the active private key is compatible with
