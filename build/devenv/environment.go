@@ -25,6 +25,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainimpl"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	_ "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/blockchains"
+	_ "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/jd"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/chainconfig"

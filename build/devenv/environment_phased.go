@@ -224,16 +224,21 @@ func runPhasedEnvironment(ctx context.Context, cfg *Cfg) (in *Cfg, err error) {
 	}
 	in.ClientLookup = clientLookup
 
-	jdInfra, err := jobs.StartJDInfrastructure(ctx, jobs.JDInfrastructureConfig{
-		JDInput:  in.JD,
-		NodeSets: in.NodeSets,
-	})
-	if err != nil {
-		L.Error().Msg("Unable to start JD infrastructure." +
-			"Make sure the container has been built with 'just build-jd-docker'.")
-		return nil, fmt.Errorf("failed to start JD infrastructure: %w", err)
+	// When the JD component ran in Phase 2 it already started the container
+	// and populated in.JDInfra; skip StartJDInfrastructure in that case.
+	if in.JDInfra == nil {
+		jdInfraStarted, err := jobs.StartJDInfrastructure(ctx, jobs.JDInfrastructureConfig{
+			JDInput:  in.JD,
+			NodeSets: in.NodeSets,
+		})
+		if err != nil {
+			L.Error().Msg("Unable to start JD infrastructure." +
+				"Make sure the container has been built with 'just build-jd-docker'.")
+			return nil, fmt.Errorf("failed to start JD infrastructure: %w", err)
+		}
+		in.JDInfra = jdInfraStarted
 	}
-	in.JDInfra = jdInfra
+	jdInfra := in.JDInfra
 
 	// Only register and connect CL-mode NOPs with JD
 	if jdInfra != nil && clientLookup != nil {

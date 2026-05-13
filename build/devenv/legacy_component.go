@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
 	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 	ns "github.com/smartcontractkit/chainlink-testing-framework/framework/components/simple_node_set"
@@ -59,6 +60,14 @@ func (l *legacyComponent) RunPhase3(
 	// case the chainlinknode component is dormant and produces no output.
 	if nss, ok := priorOutputs["nodesets"].([]*ns.Input); ok {
 		in.NodeSets = nss
+	}
+
+	// jd is optional: env.toml may omit [jd] entirely. When present, the JD
+	// component starts the container in Phase 2 so runPhasedEnvironment can
+	// skip the StartJDInfrastructure call and proceed directly to node
+	// registration and chain-config wiring.
+	if jdInfra, ok := priorOutputs["jd"].(*jobs.JDInfrastructure); ok {
+		in.JDInfra = jdInfra
 	}
 
 	cfg, err := runPhasedEnvironment(ctx, in)
