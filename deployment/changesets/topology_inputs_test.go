@@ -4,8 +4,9 @@ import (
 	"strconv"
 	"testing"
 
-	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/stretchr/testify/require"
+
+	chainsel "github.com/smartcontractkit/chain-selectors"
 
 	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
 )
