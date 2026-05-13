@@ -84,13 +84,6 @@ func runPhasedEnvironment(ctx context.Context, cfg *Cfg) (in *Cfg, effects []dev
 		return nil, nil, fmt.Errorf("failed to expand HA configuration: %w", err)
 	}
 
-	// Executor config...
-	if in.Executor != nil {
-		for _, exec := range in.Executor {
-			executorsvc.ApplyDefaults(exec)
-		}
-	}
-
 	// Start fake data provider. Used for USDC verifier.
 	fakeOut, err := services.NewFake(in.Fake)
 	if err != nil {
@@ -225,24 +218,13 @@ func runPhasedEnvironment(ctx context.Context, cfg *Cfg) (in *Cfg, effects []dev
 	}
 	in.ClientLookup = clientLookup
 
-	// When the JD component ran in Phase 2 it already started the container
-	// and populated in.JDInfra; skip StartJDInfrastructure in that case.
 	if in.JDInfra == nil {
-		jdInfraStarted, err := jobs.StartJDInfrastructure(ctx, jobs.JDInfrastructureConfig{
-			JDInput:  in.JD,
-			NodeSets: in.NodeSets,
-		})
-		if err != nil {
-			L.Error().Msg("Unable to start JD infrastructure." +
-				"Make sure the container has been built with 'just build-jd-docker'.")
-			return nil, nil, fmt.Errorf("failed to start JD infrastructure: %w", err)
-		}
-		in.JDInfra = jdInfraStarted
+		return nil, nil, fmt.Errorf("JD infrastructure was not started by Phase 2 component")
 	}
 	jdInfra := in.JDInfra
 
 	// Only register and connect CL-mode NOPs with JD
-	if jdInfra != nil && clientLookup != nil {
+	if clientLookup != nil {
 		if err := jobs.RegisterNodesWithJD(ctx, jdInfra, clientLookup, clModeNopAliases); err != nil {
 			return nil, nil, fmt.Errorf("failed to register nodes with JD: %w", err)
 		}
@@ -276,10 +258,8 @@ func runPhasedEnvironment(ctx context.Context, cfg *Cfg) (in *Cfg, effects []dev
 	}
 
 	// Register standalone verifiers with JD so they can receive job proposals.
-	if jdInfra != nil && jdInfra.OffchainClient != nil {
-		if err := registerStandaloneVerifiersWithJD(ctx, in.Verifier, jdInfra.OffchainClient); err != nil {
-			return nil, nil, err
-		}
+	if err := registerStandaloneVerifiersWithJD(ctx, in.Verifier, jdInfra.OffchainClient); err != nil {
+		return nil, nil, err
 	}
 
 	/////////////////////////////////////////////
@@ -297,12 +277,10 @@ func runPhasedEnvironment(ctx context.Context, cfg *Cfg) (in *Cfg, effects []dev
 	in.CLDF.Init()
 
 	cldfCfg := CLDFEnvironmentConfig{
-		Blockchains: in.Blockchains,
-		DataStore:   in.CLDF.DataStore,
-	}
-	if in.JDInfra != nil && in.JDInfra.OffchainClient != nil {
-		cldfCfg.OffchainClient = in.JDInfra.OffchainClient
-		cldfCfg.NodeIDs = in.JDInfra.GetNodeIDs()
+		Blockchains:    in.Blockchains,
+		DataStore:      in.CLDF.DataStore,
+		OffchainClient: in.JDInfra.OffchainClient,
+		NodeIDs:        in.JDInfra.GetNodeIDs(),
 	}
 	selectors, e, err = NewCLDFOperationsEnvironmentWithOffchain(cldfCfg)
 	if err != nil {
@@ -653,17 +631,6 @@ func runPhasedEnvironment(ctx context.Context, cfg *Cfg) (in *Cfg, effects []dev
 		return nil, nil, err
 	}
 
-	_, err = launchExecutors(in.Executor, blockchainOutputs, jdInfra)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create executors: %w", err)
-	}
-
-	if jdInfra != nil && jdInfra.OffchainClient != nil {
-		if err := registerExecutorsWithJD(ctx, in.Executor, jdInfra.OffchainClient); err != nil {
-			return nil, nil, err
-		}
-	}
-
 	for _, exec := range in.Executor {
 		if exec == nil || exec.Mode != services.Standalone {
 			continue
@@ -719,10 +686,8 @@ func runPhasedEnvironment(ctx context.Context, cfg *Cfg) (in *Cfg, effects []dev
 	}
 
 	// Propose jobs to standalone verifiers via JD
-	if jdInfra != nil && jdInfra.OffchainClient != nil {
-		if err := proposeJobsToStandaloneVerifiers(ctx, in.Verifier, ownedJobSpecs, blockchainOutputs, jdInfra.OffchainClient); err != nil {
-			return nil, nil, err
-		}
+	if err := proposeJobsToStandaloneVerifiers(ctx, in.Verifier, ownedJobSpecs, blockchainOutputs, jdInfra.OffchainClient); err != nil {
+		return nil, nil, err
 	}
 
 	/////////////////////////////
@@ -812,14 +777,12 @@ func runPhasedEnvironment(ctx context.Context, cfg *Cfg) (in *Cfg, effects []dev
 
 	e.DataStore = ds.Seal()
 
-	if in.JDInfra != nil {
-		if err := jobs.AcceptPendingJobs(ctx, in.ClientLookup); err != nil {
-			return nil, nil, fmt.Errorf("failed to accept pending jobs: %w", err)
-		}
+	if err := jobs.AcceptPendingJobs(ctx, in.ClientLookup); err != nil {
+		return nil, nil, fmt.Errorf("failed to accept pending jobs: %w", err)
+	}
 
-		if err := jobs.SyncAndVerifyJobProposals(e); err != nil {
-			return nil, nil, fmt.Errorf("failed to sync/verify job proposals: %w", err)
-		}
+	if err := jobs.SyncAndVerifyJobProposals(e); err != nil {
+		return nil, nil, fmt.Errorf("failed to sync/verify job proposals: %w", err)
 	}
 
 	timeTrack.Print()
