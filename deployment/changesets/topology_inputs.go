@@ -4,6 +4,8 @@ import (
 	"slices"
 	"strconv"
 
+	chainsel "github.com/smartcontractkit/chain-selectors"
+
 	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
 	"github.com/smartcontractkit/chainlink-ccv/deployment/shared"
 )
@@ -59,6 +61,25 @@ func CommitteeInputFromTopology(committee ccvdeployment.CommitteeConfig) Committ
 		Aggregators:  aggregators,
 		ChainConfigs: chainConfigs,
 	}
+}
+
+// CommitteeInputFromTopologyPerFamily is like [CommitteeInputFromTopology] but keeps only
+// source-chain configs whose selector maps to chainFamily (e.g. chainsel.FamilyEVM,
+// chainsel.FamilySolana). Callers that invoke [ApplyVerifierConfig] once per verifier
+// chain family must pass a committee sliced this way so signer-family checks see a
+// single family per invocation.
+func CommitteeInputFromTopologyPerFamily(committee ccvdeployment.CommitteeConfig, chainFamily string) CommitteeInput {
+	out := CommitteeInputFromTopology(committee)
+	filtered := make(map[uint64]CommitteeChainMembership, len(out.ChainConfigs))
+	for sel, membership := range out.ChainConfigs {
+		family, err := chainsel.GetSelectorFamily(sel)
+		if err != nil || family != chainFamily {
+			continue
+		}
+		filtered[sel] = membership
+	}
+	out.ChainConfigs = filtered
+	return out
 }
 
 // ExecutorPoolInputFromTopology converts a topology ExecutorPoolConfig into the

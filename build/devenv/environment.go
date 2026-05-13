@@ -667,7 +667,7 @@ func generateVerifierJobSpecs(
 				CommitteeQualifier:       committeeName,
 				DefaultExecutorQualifier: devenvcommon.DefaultExecutorQualifier,
 				NOPs:                     ccvchangesets.NOPInputsFromTopology(topology),
-				Committee:                ccvchangesets.CommitteeInputFromTopology(committee),
+				Committee:                ccvchangesets.CommitteeInputFromTopologyPerFamily(committee, family),
 				PyroscopeURL:             topology.PyroscopeURL,
 				Monitoring:               topology.Monitoring,
 				TargetNOPs:               verNOPAliases,
