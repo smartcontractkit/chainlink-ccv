@@ -15,7 +15,7 @@ func TestCommitteeInputFromTopologyPerFamily_filtersChainConfigs(t *testing.T) {
 	committee := ccvdeployment.CommitteeConfig{
 		Qualifier: "default",
 		ChainConfigs: map[string]ccvdeployment.ChainCommitteeConfig{
-			strconv.FormatUint(chainsel.SOLANA_DEVNET.Selector, 10):     {NOPAliases: []string{"nop1"}},
+			strconv.FormatUint(chainsel.SOLANA_DEVNET.Selector, 10):    {NOPAliases: []string{"nop1"}},
 			strconv.FormatUint(chainsel.ETHEREUM_MAINNET.Selector, 10): {NOPAliases: []string{"nop2"}},
 		},
 	}
