@@ -4,6 +4,7 @@ import (
 	"slices"
 	"strconv"
 
+	chainsel "github.com/smartcontractkit/chain-selectors"
 	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
 	"github.com/smartcontractkit/chainlink-ccv/deployment/shared"
 )
@@ -27,12 +28,10 @@ func NOPInputsFromTopology(topology *ccvdeployment.EnvironmentTopology) []NOPInp
 	return out
 }
 
-// CommitteeInputFromTopology converts a topology CommitteeConfig into the
-// imperative ApplyVerifierConfig committee input. The onchain-only fields
-// (threshold, fee aggregator, allowlist admin) are intentionally not carried
-// — those are written by the onchain changesets, not by the offchain
-// verifier-config publisher.
-func CommitteeInputFromTopology(committee ccvdeployment.CommitteeConfig) CommitteeInput {
+// CommitteeInputFromTopologyPerFamily converts a topology CommitteeConfig into the imperative changeset CommitteeInput,
+// filtering the chain configs to only include those matching the given chain family. Callers that invoke [ApplyVerifierConfig] once per verifier
+// chain family must pass a committee sliced this way so signer-family checks see a single family per invocation.
+func CommitteeInputFromTopologyPerFamily(committee ccvdeployment.CommitteeConfig, chainFamily string) CommitteeInput {
 	aggregators := make([]AggregatorRef, len(committee.Aggregators))
 	for i, agg := range committee.Aggregators {
 		aggregators[i] = AggregatorRef{
@@ -49,6 +48,13 @@ func CommitteeInputFromTopology(committee ccvdeployment.CommitteeConfig) Committ
 			// Topology validation rejects non-uint64 keys; defensive skip.
 			continue
 		}
+
+		family, err := chainsel.GetSelectorFamily(sel)
+		if err != nil || family != chainFamily {
+			// Skip chain configs that don't match the requested family.
+			continue
+		}
+
 		chainConfigs[sel] = CommitteeChainMembership{
 			NOPAliases: shared.ConvertStringToNopAliases(chainCfg.NOPAliases),
 		}
