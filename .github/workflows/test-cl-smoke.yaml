@@ -79,6 +79,11 @@ jobs:
             run_cmd: TestHA_CrossComponentDown
             config: "env.toml,env-HA.toml,env-cl.toml,env-cl-ci.toml"
             timeout: 10m
+          - name: TestE2ESmoke_Basic_Phased
+            run_cmd: TestE2ESmoke_Basic
+            config: "env.toml,env-cl.toml,env-cl-ci.toml"
+            flags: --env-mode phased
+            timeout: 15m
           # We need to configure HeadTracker for the CL tests to have finality depth. Otherwise, it does instant finality.
           # - name: TestE2EReorg
           #   config: "env.toml,env-src-auto-mine.toml,env-cl.toml,env-cl-ci.toml"
@@ -162,7 +167,7 @@ jobs:
         env:
           JD_IMAGE: ${{ secrets.JD_IMAGE }}
         run: |
-          ccv u ${{ matrix.test.config }}
+          ccv ${{ matrix.test.flags || '' }} u ${{ matrix.test.config }}
 
       - name: Run Smoke Test
         id: test_run

@@ -22,8 +22,10 @@ import (
 
 	_ "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/adapters"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainimpl"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	_ "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/blockchains"
+	_ "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/chainlinknode"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/chainconfig"
@@ -434,13 +436,13 @@ func NewProductConfigurationFromNetwork(typ string) (cciptestinterfaces.CCIP17Co
 	resolved, err := blockchain.TypeToFamily(typ)
 	if err != nil {
 		// typ might already be a family name — try the factory directly before giving up.
-		if fac, facErr := GetImplFactory(typ); facErr == nil {
+		if fac, facErr := chainimpl.GetImplFactory(typ); facErr == nil {
 			return fac.NewEmpty(), nil
 		}
 		return nil, fmt.Errorf("unknown blockchain type %q (not a recognized type or family): %w", typ, err)
 	}
 	family := string(resolved)
-	fac, err := GetImplFactory(family)
+	fac, err := chainimpl.GetImplFactory(family)
 	if err != nil {
 		return nil, fmt.Errorf("could not find impl factory for chain type %s (family %s): %w", typ, family, err)
 	}
@@ -456,7 +458,7 @@ func NewProductConfigurationFromNetwork(typ string) (cciptestinterfaces.CCIP17Co
 // Signer key selection is delegated to each registered ImplFactory via DefaultSignerKey,
 // so adding a new chain family requires no changes here.
 func enrichEnvironmentTopology(cfg *ccvdeployment.EnvironmentTopology, verifiers []*committeeverifier.Input) {
-	factories := GetAllImplFactories()
+	factories := chainimpl.GetAllImplFactories()
 
 	seenAliases := make(map[string]struct{})
 	for _, ver := range verifiers {
@@ -512,7 +514,7 @@ func buildEnvironmentTopology(in *Cfg, e *deployment.Environment) *ccvdeployment
 				if err != nil {
 					continue
 				}
-				fac, err := GetImplFactory(family)
+				fac, err := chainimpl.GetImplFactory(family)
 				if err != nil {
 					continue
 				}
@@ -1016,7 +1018,7 @@ func fundExecutorTransmitters(
 		if famErr != nil {
 			continue
 		}
-		fac, facErr := GetImplFactory(string(family))
+		fac, facErr := chainimpl.GetImplFactory(string(family))
 		if facErr != nil || !fac.SupportsFunding() {
 			continue
 		}

@@ -10,6 +10,7 @@ import (
 	chainsel "github.com/smartcontractkit/chain-selectors"
 
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainimpl"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/evm"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/registry"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
@@ -21,14 +22,12 @@ import (
 )
 
 func init() {
-	RegisterImplFactory(chainsel.FamilyEVM, &evmImplFactory{})
+	chainimpl.RegisterImplFactory(chainsel.FamilyEVM, &evmImplFactory{})
 	registry.RegisterCLDFProviderFactory(blockchain.FamilyEVM, newEVMCLDFProviderFactory())
 }
 
-// evmImplFactory implements ImplFactory for EVM chains, delegating to the evm
-// package's constructors. It lives in the ccv package (rather than evm) to
-// avoid a circular import: the ImplFactory interface references *Cfg which is
-// defined here.
+// evmImplFactory implements chainimpl.ImplFactory for EVM chains, delegating
+// to the evm package's constructors.
 type evmImplFactory struct{}
 
 func (f *evmImplFactory) NewEmpty() cciptestinterfaces.CCIP17Configuration {
@@ -37,7 +36,6 @@ func (f *evmImplFactory) NewEmpty() cciptestinterfaces.CCIP17Configuration {
 
 func (f *evmImplFactory) New(
 	ctx context.Context,
-	cfg *Cfg,
 	lggr zerolog.Logger,
 	env *deployment.Environment,
 	bc *blockchain.Input,
