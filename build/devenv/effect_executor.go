@@ -32,6 +32,8 @@ func (e *devenvEffectExecutor) Execute(ctx context.Context, effects []devenvrunt
 			funding = append(funding, typed)
 		case devenvruntime.JobProposalEffect:
 			proposals = append(proposals, typed)
+		default:
+			return fmt.Errorf("unsupported effect type %T", typed)
 		}
 	}
 	if err := executeFundingEffects(ctx, funding, accumulated); err != nil {
@@ -99,6 +101,17 @@ func executeJobProposalEffects(ctx context.Context, effects []devenvruntime.JobP
 		})
 		if err != nil {
 			return fmt.Errorf("proposing job to node %s (nop %s): %w", je.NodeID, je.NOPAlias, err)
+		}
+	}
+
+	if cfg, ok := accumulated[legacyCfgKey].(*Cfg); ok && cfg != nil && cfg.ClientLookup != nil {
+		if err := jobs.AcceptPendingJobs(ctx, cfg.ClientLookup); err != nil {
+			return fmt.Errorf("accepting pending jobs: %w", err)
+		}
+	}
+	if setup, ok := accumulated[legacySetupKey].(*phasedSetup); ok && setup != nil && setup.E != nil {
+		if err := jobs.SyncAndVerifyJobProposals(setup.E); err != nil {
+			return fmt.Errorf("syncing job proposals: %w", err)
 		}
 	}
 	return nil

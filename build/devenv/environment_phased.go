@@ -668,21 +668,7 @@ func runPhasedEnvironmentFinish(ctx context.Context, setup *phasedSetup) (cfg *C
 	// END: Launch token verifiers //
 	///////////////////////////////////
 
-	////////////////////////////////////////////////////
-	// Jobs are now proposed via JD during changeset execution.
-	// AcceptPendingJobs should be called after all changesets complete
-	// to accept the proposed jobs on CL nodes.
-	////////////////////////////////////////////////////
-
 	e.DataStore = ds.Seal()
-
-	if err := jobs.AcceptPendingJobs(ctx, in.ClientLookup); err != nil {
-		return nil, nil, fmt.Errorf("failed to accept pending jobs: %w", err)
-	}
-
-	if err := jobs.SyncAndVerifyJobProposals(e); err != nil {
-		return nil, nil, fmt.Errorf("failed to sync/verify job proposals: %w", err)
-	}
 
 	setup.TimeTrack.Print()
 	if err = PrintCLDFAddresses(in); err != nil {
