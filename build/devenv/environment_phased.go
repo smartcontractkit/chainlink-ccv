@@ -70,12 +70,13 @@ type phasedSetup struct {
 	TimeTrack         *TimeTracker
 }
 
-// runPhasedEnvironmentSetup runs everything through aggregator launch and
-// indexer config generation. Container naming, TLS wiring, discovery config,
-// and secrets for indexers are handled by the indexer Phase 4 component, which
-// reads "aggregators" and "shared_tls_certs" from the phase snapshot and
-// mutates the shared *IndexerInput pointers. runPhasedEnvironmentFinish reads
-// idxIn.Out via those same pointers for URL collection.
+// runPhasedEnvironmentSetup runs through aggregator config generation and
+// indexer config generation. Aggregator container launch is delegated to the
+// CommitteeCCV Phase 4 component, which reads "aggregators" and calls
+// services.NewAggregator, mutating the shared *AggregatorInput pointers.
+// Indexer container naming, TLS wiring, discovery config, and secrets are
+// delegated to the indexer Phase 4 component. runPhasedEnvironmentFinish
+// collects endpoints from the mutated Out fields on those shared pointers.
 func runPhasedEnvironmentSetup(ctx context.Context, in *Cfg) (*phasedSetup, error) {
 	var err error
 	timeTrack := NewTimeTracker(Plog)
@@ -408,16 +409,9 @@ func runPhasedEnvironmentSetup(ctx context.Context, in *Cfg) (*phasedSetup, erro
 			return nil, fmt.Errorf("failed to get aggregator config from output: %w", err)
 		}
 		aggregatorInput.GeneratedCommittee = aggCfg
-
-		out, err := services.NewAggregator(aggregatorInput)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create aggregator service for committee %s: %w", aggregatorInput.CommitteeName, err)
-		}
-		in.AggregatorEndpoints[aggregatorInput.CommitteeName] = out.ExternalHTTPSUrl
-		if out.TLSCACertFile != "" {
-			in.AggregatorCACertFiles[aggregatorInput.CommitteeName] = out.TLSCACertFile
-		}
 		e.DataStore = output.DataStore.Seal()
+		// Aggregator container launch is handled by the CommitteeCCV Phase 4 component,
+		// which reads "aggregators" from the phase snapshot and calls services.NewAggregator.
 	}
 
 	///////////////////////////
@@ -489,6 +483,16 @@ func runPhasedEnvironmentFinish(ctx context.Context, setup *phasedSetup) (cfg *C
 	blockchainOutputs := setup.BlockchainOutputs
 	ds := setup.DS
 	fakeOut := setup.FakeOut
+
+	// Collect aggregator endpoints from Out fields populated by the CommitteeCCV Phase 4 component.
+	for _, agg := range in.Aggregator {
+		if agg.Out != nil {
+			in.AggregatorEndpoints[agg.CommitteeName] = agg.Out.ExternalHTTPSUrl
+			if agg.Out.TLSCACertFile != "" {
+				in.AggregatorCACertFiles[agg.CommitteeName] = agg.Out.TLSCACertFile
+			}
+		}
+	}
 
 	// Collect indexer URLs from Out fields populated by the indexer Phase 4 component.
 	externalURLs := make([]string, 0, len(in.Indexer))
