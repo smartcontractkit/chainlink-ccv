@@ -37,24 +37,16 @@ func executeFundingEffects(ctx context.Context, effects []devenvruntime.Effect, 
 		return nil
 	}
 
-	// Group addresses by chain selector.
-	addrsBySelector := make(map[uint64][]protocol.UnknownAddress)
-	amountBySelector := make(map[uint64]*big.Int)
+	// Group effects by chain selector; each effect carries its own address and amount.
+	effectsBySelector := make(map[uint64][]devenvruntime.FundingEffect)
 	for _, eff := range effects {
 		fe, ok := eff.(devenvruntime.FundingEffect)
 		if !ok {
 			continue
 		}
-		addrBytes, err := hex.DecodeString(fe.Address)
-		if err != nil {
-			return fmt.Errorf("invalid funding address %q: %w", fe.Address, err)
-		}
-		addrsBySelector[fe.ChainSelector] = append(addrsBySelector[fe.ChainSelector], protocol.UnknownAddress(addrBytes))
-		if amountBySelector[fe.ChainSelector] == nil {
-			amountBySelector[fe.ChainSelector] = fe.NativeAmount
-		}
+		effectsBySelector[fe.ChainSelector] = append(effectsBySelector[fe.ChainSelector], fe)
 	}
-	if len(addrsBySelector) == 0 {
+	if len(effectsBySelector) == 0 {
 		return nil
 	}
 
@@ -72,16 +64,18 @@ func executeFundingEffects(ctx context.Context, effects []devenvruntime.Effect, 
 		if err != nil {
 			return fmt.Errorf("looking up chain selector for %q: %w", bc.ChainID, err)
 		}
-		addrs := addrsBySelector[sel.ChainSelector]
-		if len(addrs) == 0 {
-			continue
-		}
-		amount := amountBySelector[sel.ChainSelector]
-		if amount == nil {
-			amount = big.NewInt(5)
-		}
-		if err := impl.FundAddresses(ctx, bc, addrs, amount); err != nil {
-			return fmt.Errorf("funding addresses on chain %d: %w", sel.ChainSelector, err)
+		for _, fe := range effectsBySelector[sel.ChainSelector] {
+			addrBytes, err := hex.DecodeString(fe.Address)
+			if err != nil {
+				return fmt.Errorf("invalid funding address %q: %w", fe.Address, err)
+			}
+			amount := fe.NativeAmount
+			if amount == nil {
+				amount = big.NewInt(5)
+			}
+			if err := impl.FundAddresses(ctx, bc, []protocol.UnknownAddress{protocol.UnknownAddress(addrBytes)}, amount); err != nil {
+				return fmt.Errorf("funding %s on chain %d: %w", fe.Address, sel.ChainSelector, err)
+			}
 		}
 	}
 	return nil
