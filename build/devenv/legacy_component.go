@@ -114,6 +114,14 @@ func (l *legacyComponent) RunPhase4(
 		return nil, nil, fmt.Errorf("phase 3 did not produce *phasedSetup under %q", legacySetupKey)
 	}
 
+	// The executor Phase 3 component launched containers and registered with JD
+	// (setting exec.Out and exec.Out.JDNodeID). Replace the TOML-loaded slice
+	// in setup.In with those processed inputs so runPhasedEnvironmentFinish can
+	// propose job specs to the correct JD node IDs.
+	if execs, ok := priorOutputs["executor"].([]*executorsvc.Input); ok {
+		setup.In.Executor = execs
+	}
+
 	cfg, phaseEffects, err := runPhasedEnvironmentFinish(ctx, setup)
 	if err != nil {
 		return nil, nil, err
