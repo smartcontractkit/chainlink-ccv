@@ -163,6 +163,7 @@ func DeployCommitteeVerifier(registry *adapters.Registry) deployment.ChangeSetV2
 					e.BlockChains,
 					input,
 				)
+				allReports = append(allReports, report.ExecutionReports...)
 				if err != nil {
 					return deployment.ChangesetOutput{Reports: allReports},
 						fmt.Errorf("chain %d committee %q: deploy failed: %w", sel, committee.Qualifier, err)
@@ -171,7 +172,7 @@ func DeployCommitteeVerifier(registry *adapters.Registry) deployment.ChangeSetV2
 				for _, ref := range report.Output.Addresses {
 					if addErr := ds.Addresses().Add(ref); addErr != nil &&
 						!errors.Is(addErr, datastore.ErrAddressRefExists) {
-						return deployment.ChangesetOutput{Reports: allReports},
+						return deployment.ChangesetOutput{Reports: allReports, DataStore: ds},
 							fmt.Errorf("chain %d committee %q: failed to add %s %s at %s to datastore: %w",
 								sel, committee.Qualifier, ref.Type, ref.Version, ref.Address, addErr)
 					}
@@ -179,8 +180,6 @@ func DeployCommitteeVerifier(registry *adapters.Registry) deployment.ChangeSetV2
 					// the same chain so addresses just-deployed by this loop are visible.
 					existingAddresses = append(existingAddresses, ref)
 				}
-
-				allReports = append(allReports, report.ExecutionReports...)
 			}
 		}
 
