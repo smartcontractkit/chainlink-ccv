@@ -9,13 +9,13 @@ import (
 	"strings"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
-	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
 	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/chainconfig"
+	committeeverifier "github.com/smartcontractkit/chainlink-ccv/build/devenv/services/committeeverifier"
 	executorsvc "github.com/smartcontractkit/chainlink-ccv/build/devenv/services/executor"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/util"
 	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
@@ -515,7 +515,6 @@ func runPhasedEnvironmentFinish(ctx context.Context, setup *phasedSetup) (cfg *C
 		return nil, nil, err
 	}
 
-	jdInfra := in.JDInfra
 	for _, exec := range in.Executor {
 		if exec == nil || exec.Mode != services.Standalone {
 			continue
@@ -559,20 +558,35 @@ func runPhasedEnvironmentFinish(ctx context.Context, setup *phasedSetup) (cfg *C
 		return nil, nil, err
 	}
 
-	// Each verifier owns one aggregator (NodeIndex % numAggs). Select the
-	// corresponding job spec so proposeJobsToStandaloneVerifiers gets a
-	// single spec per container.
-	ownedJobSpecs := make(map[string]bootstrap.JobSpec, len(verifierJobSpecs))
 	for _, ver := range in.Verifier {
-		specs := verifierJobSpecs[ver.NOPAlias]
-		if len(specs) > 0 {
-			ownedJobSpecs[ver.NOPAlias] = specs[ver.NodeIndex%len(specs)]
+		if ver.Mode != services.Standalone {
+			continue
 		}
-	}
-
-	// Propose jobs to standalone verifiers via JD
-	if err := proposeJobsToStandaloneVerifiers(ctx, in.Verifier, ownedJobSpecs, blockchainOutputs, jdInfra.OffchainClient); err != nil {
-		return nil, nil, err
+		if ver.Out == nil || ver.Out.JDNodeID == "" {
+			return nil, nil, fmt.Errorf("verifier %s not registered with JD (missing JDNodeID)", ver.NOPAlias)
+		}
+		specs := verifierJobSpecs[ver.NOPAlias]
+		if len(specs) == 0 {
+			continue
+		}
+		baseSpec := specs[ver.NodeIndex%len(specs)]
+		loader, loaderErr := chainconfig.GetChainConfigLoader(ver.ChainFamily)
+		if loaderErr != nil {
+			return nil, nil, fmt.Errorf("chain config loader for verifier %s: %w", ver.NOPAlias, loaderErr)
+		}
+		blockchainInfos, loaderErr := loader(blockchainOutputs)
+		if loaderErr != nil {
+			return nil, nil, fmt.Errorf("loading chain config for verifier %s: %w", ver.NOPAlias, loaderErr)
+		}
+		jobSpec, specErr := committeeverifier.RebuildVerifierJobSpecWithBlockchainInfos(baseSpec, blockchainInfos)
+		if specErr != nil {
+			return nil, nil, fmt.Errorf("building job spec for verifier %s: %w", ver.NOPAlias, specErr)
+		}
+		effects = append(effects, devenvruntime.JobProposalEffect{
+			NOPAlias: ver.NOPAlias,
+			NodeID:   ver.Out.JDNodeID,
+			JobSpec:  jobSpec,
+		})
 	}
 
 	/////////////////////////////
