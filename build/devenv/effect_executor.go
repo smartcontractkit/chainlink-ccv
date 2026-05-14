@@ -25,13 +25,26 @@ func (e *devenvEffectExecutor) Execute(ctx context.Context, effects []devenvrunt
 	if len(effects) == 0 {
 		return nil
 	}
-	if err := executeFundingEffects(ctx, effects, accumulated); err != nil {
+	var funding []devenvruntime.FundingEffect
+	var proposals []devenvruntime.JobProposalEffect
+	for _, eff := range effects {
+		switch typed := eff.(type) {
+		case devenvruntime.FundingEffect:
+			funding = append(funding, typed)
+		case devenvruntime.JobProposalEffect:
+			proposals = append(proposals, typed)
+		}
+	}
+	if err := executeFundingEffects(ctx, funding, accumulated); err != nil {
 		return err
 	}
-	return executeJobProposalEffects(ctx, effects, accumulated)
+	return executeJobProposalEffects(ctx, proposals, accumulated)
 }
 
-func executeFundingEffects(ctx context.Context, effects []devenvruntime.Effect, accumulated map[string]any) error {
+func executeFundingEffects(ctx context.Context, effects []devenvruntime.FundingEffect, accumulated map[string]any) error {
+	if len(effects) == 0 {
+		return nil
+	}
 	blockchains, _ := accumulated["blockchains"].([]*ctfblockchain.Input)
 	if len(blockchains) == 0 {
 		return nil
@@ -39,15 +52,8 @@ func executeFundingEffects(ctx context.Context, effects []devenvruntime.Effect, 
 
 	// Group effects by chain selector; each effect carries its own address and amount.
 	effectsBySelector := make(map[uint64][]devenvruntime.FundingEffect)
-	for _, eff := range effects {
-		fe, ok := eff.(devenvruntime.FundingEffect)
-		if !ok {
-			continue
-		}
+	for _, fe := range effects {
 		effectsBySelector[fe.ChainSelector] = append(effectsBySelector[fe.ChainSelector], fe)
-	}
-	if len(effectsBySelector) == 0 {
-		return nil
 	}
 
 	for _, bc := range blockchains {
@@ -81,18 +87,17 @@ func executeFundingEffects(ctx context.Context, effects []devenvruntime.Effect, 
 	return nil
 }
 
-func executeJobProposalEffects(ctx context.Context, effects []devenvruntime.Effect, accumulated map[string]any) error {
+func executeJobProposalEffects(ctx context.Context, effects []devenvruntime.JobProposalEffect, accumulated map[string]any) error {
+	if len(effects) == 0 {
+		return nil
+	}
 	jdInfra, _ := accumulated["jd"].(*jobs.JDInfrastructure)
 	if jdInfra == nil || jdInfra.OffchainClient == nil {
 		return nil
 	}
 	jdClient := jdInfra.OffchainClient
 
-	for _, eff := range effects {
-		je, ok := eff.(devenvruntime.JobProposalEffect)
-		if !ok {
-			continue
-		}
+	for _, je := range effects {
 		_, err := jdClient.ProposeJob(ctx, &jobv1.ProposeJobRequest{
 			NodeId: je.NodeID,
 			Spec:   je.JobSpec,
