@@ -95,6 +95,8 @@ func (l *legacyComponent) RunPhase3(
 	return map[string]any{
 		legacySetupKey:           setup,
 		preparedIndexerInputsKey: setup.In.Indexer,
+		"aggregators":            setup.In.Aggregator,
+		"shared_tls_certs":       setup.SharedTLSCerts,
 	}, nil, nil
 }
 

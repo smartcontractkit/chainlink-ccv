@@ -4,10 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"maps"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
@@ -24,7 +22,6 @@ import (
 	ccvadapters "github.com/smartcontractkit/chainlink-ccv/deployment/adapters"
 	ccvchangesets "github.com/smartcontractkit/chainlink-ccv/deployment/changesets"
 	ccvshared "github.com/smartcontractkit/chainlink-ccv/deployment/shared"
-	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
@@ -74,11 +71,11 @@ type phasedSetup struct {
 }
 
 // runPhasedEnvironmentSetup runs everything through aggregator launch and
-// indexer input preparation. It fully populates each *services.IndexerInput
-// (TLS certs, discoveries, secrets) but does NOT call services.NewIndexer —
-// that is left to the indexer Phase 4 component, which mutates idxIn.Out on
-// the shared pointer. runPhasedEnvironmentFinish reads those Out fields for URL
-// collection.
+// indexer config generation. Container naming, TLS wiring, discovery config,
+// and secrets for indexers are handled by the indexer Phase 4 component, which
+// reads "aggregators" and "shared_tls_certs" from the phase snapshot and
+// mutates the shared *IndexerInput pointers. runPhasedEnvironmentFinish reads
+// idxIn.Out via those same pointers for URL collection.
 func runPhasedEnvironmentSetup(ctx context.Context, in *Cfg) (*phasedSetup, error) {
 	var err error
 	timeTrack := NewTimeTracker(Plog)
@@ -455,101 +452,11 @@ func runPhasedEnvironmentSetup(ctx context.Context, in *Cfg) (*phasedSetup, erro
 		return nil, fmt.Errorf("at least one indexer is required")
 	}
 
-	// Ensure unique container names and DB host ports; always use indexer-1, indexer-2, ... for consistency.
-	for i := range in.Indexer {
-		if in.Indexer[i].ContainerName == "" {
-			in.Indexer[i].ContainerName = fmt.Sprintf("indexer-%d", i+1)
-		}
-		if in.Indexer[i].DB != nil && in.Indexer[i].DB.HostPort == 0 && len(in.Indexer) > 1 {
-			in.Indexer[i].DB.HostPort = services.DefaultIndexerDBPort + i
-		}
-		// Ensure StorageConnectionURL matches the DB container we create (indexer-1-db, indexer-2-db, ...).
-		// Env.toml may have single-instance URLs; overwrite so migrations and storage use the correct host/credentials.
-		idx := in.Indexer[i]
-		dbName := idx.ContainerName
-		if idx.DB != nil && idx.DB.Database != "" {
-			dbName = idx.DB.Database
-		}
-		dbUser := idx.ContainerName
-		if idx.DB != nil && idx.DB.Username != "" {
-			dbUser = idx.DB.Username
-		}
-		dbPass := idx.ContainerName
-		if idx.DB != nil && idx.DB.Password != "" {
-			dbPass = idx.DB.Password
-		}
-		dbHost := idx.ContainerName + "-db"
-		in.Indexer[i].StorageConnectionURL = fmt.Sprintf("postgresql://%s:%s@%s:5432/%s?sslmode=disable", dbUser, dbPass, dbHost, dbName)
-	}
-
-	if sharedTLSCerts == nil {
-		return nil, fmt.Errorf("shared TLS certificates are required for indexer")
-	}
-
-	// Build discovery secrets from aggregators (same creds used for all indexers).
-	// Ensure every discovery index 0..n-1 has an entry so the written secrets file has Discoveries.0, .1, ...;
-	// otherwise the indexer can panic in CI with "discovery index 0 not found in secrets" when merging.
-	discoverySecrets := make(map[string]config.DiscoverySecrets)
-	verifierSecrets := make(map[string]config.VerifierSecrets)
-	for idx, agg := range in.Aggregator {
-		key := strconv.Itoa(idx)
-		var disc config.DiscoverySecrets
-		var ver config.VerifierSecrets
-		if agg.Out != nil {
-			if creds, ok := agg.Out.GetCredentialsForClient("indexer"); ok {
-				disc = config.DiscoverySecrets{APIKey: creds.APIKey, Secret: creds.Secret}
-				ver = config.VerifierSecrets{APIKey: creds.APIKey, Secret: creds.Secret}
-			}
-		}
-		discoverySecrets[key] = disc
-		verifierSecrets[key] = ver
-	}
-
-	// Populate each IndexerInput fully (TLS, discoveries, secrets) so that the
-	// indexer Phase 4 component can call services.NewIndexer without any
-	// additional setup. services.NewIndexer mutates idxIn.Out on the shared
-	// pointer; runPhasedEnvironmentFinish reads those Out fields for URLs.
-	for _, idxIn := range in.Indexer {
-		idxIn.TLSCACertFile = sharedTLSCerts.CACertFile
-
-		idxIn.IndexerConfig.Discoveries = make([]config.DiscoveryConfig, len(in.Aggregator))
-		for i, agg := range in.Aggregator {
-			if agg.Out != nil {
-				idxIn.IndexerConfig.Discoveries[i].Address = agg.Out.Address
-				if creds, ok := agg.Out.GetCredentialsForClient("indexer"); ok {
-					idxIn.IndexerConfig.Discoveries[i].APIKey = creds.APIKey
-					idxIn.IndexerConfig.Discoveries[i].Secret = creds.Secret
-				}
-			}
-			if idxIn.IndexerConfig.Discoveries[i].PollInterval == 0 {
-				idxIn.IndexerConfig.Discoveries[i].PollInterval = 500
-			}
-			if idxIn.IndexerConfig.Discoveries[i].Timeout == 0 {
-				idxIn.IndexerConfig.Discoveries[i].Timeout = 5000
-			}
-			if idxIn.IndexerConfig.Discoveries[i].NtpServer == "" {
-				idxIn.IndexerConfig.Discoveries[i].NtpServer = "time.google.com"
-			}
-		}
-
-		// Duplicate same secrets/auth for this indexer (Verifier push to indexer uses same creds).
-		if idxIn.Secrets == nil {
-			idxIn.Secrets = &config.SecretsConfig{
-				Discoveries: make(map[string]config.DiscoverySecrets),
-				Verifier:    make(map[string]config.VerifierSecrets),
-			}
-		}
-		if idxIn.Secrets.Discoveries == nil {
-			idxIn.Secrets.Discoveries = make(map[string]config.DiscoverySecrets)
-		}
-		if idxIn.Secrets.Verifier == nil {
-			idxIn.Secrets.Verifier = make(map[string]config.VerifierSecrets)
-		}
-		maps.Copy(idxIn.Secrets.Discoveries, discoverySecrets)
-		maps.Copy(idxIn.Secrets.Verifier, verifierSecrets)
-		// Ensure storage secrets use the same DB URL we set on StorageConnectionURL (indexer loads secrets and overwrites config URI).
-		idxIn.Secrets.Storage.Single.Postgres.URI = idxIn.StorageConnectionURL
-	}
+	// Indexer container naming, DB wiring, TLS, discovery config, and secrets
+	// are handled by the indexer Phase 4 component, which reads "aggregators"
+	// and "shared_tls_certs" from the phase snapshot and mutates the shared
+	// *IndexerInput pointers. runPhasedEnvironmentFinish reads idxIn.Out via
+	// those same pointers for URL collection.
 
 	return &phasedSetup{
 		In:                in,
