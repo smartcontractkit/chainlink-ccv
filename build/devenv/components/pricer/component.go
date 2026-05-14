@@ -49,13 +49,14 @@ func (c *component) RunPhase3(
 		return map[string]any{configKey: input}, nil, nil
 	}
 
+	services.ApplyPricerDefaults(input)
+
 	if _, err := services.NewPricer(input); err != nil {
 		return nil, nil, fmt.Errorf("starting pricer: %w", err)
 	}
 
 	blockchains, _ := priorOutputs["blockchains"].([]*ctfblockchain.Input)
 
-	services.ApplyPricerDefaults(input)
 	addr, err := protocol.NewUnknownAddressFromHex(input.Keystore.Address)
 	if err != nil {
 		return nil, nil, fmt.Errorf("pricer invalid keystore address: %w", err)
