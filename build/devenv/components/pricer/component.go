@@ -4,13 +4,13 @@ import (
 	"context"
 	"fmt"
 	"math/big"
-	"strings"
 
 	"github.com/pelletier/go-toml/v2"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	ctfblockchain "github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
 
@@ -56,7 +56,10 @@ func (c *component) RunPhase3(
 	blockchains, _ := priorOutputs["blockchains"].([]*ctfblockchain.Input)
 
 	services.ApplyPricerDefaults(input)
-	addr := strings.TrimPrefix(input.Keystore.Address, "0x")
+	addr, err := protocol.NewUnknownAddressFromHex(input.Keystore.Address)
+	if err != nil {
+		return nil, nil, fmt.Errorf("pricer invalid keystore address: %w", err)
+	}
 
 	var effects []devenvruntime.Effect
 	for _, bc := range blockchains {

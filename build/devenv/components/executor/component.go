@@ -15,6 +15,7 @@ import (
 	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	executorsvc "github.com/smartcontractkit/chainlink-ccv/build/devenv/services/executor"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	ctfblockchain "github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
 
@@ -91,9 +92,13 @@ func (c *component) RunPhase3(
 		if exec == nil || exec.Mode != services.Standalone || exec.Out == nil {
 			continue
 		}
-		addr := exec.Out.BootstrapKeys.EVMTransmitterAddress
-		if addr == "" {
+		addrStr := exec.Out.BootstrapKeys.EVMTransmitterAddress
+		if addrStr == "" {
 			continue
+		}
+		addr, addrErr := protocol.NewUnknownAddressFromHex(addrStr)
+		if addrErr != nil {
+			return nil, nil, fmt.Errorf("executor %s invalid transmitter address: %w", exec.ContainerName, addrErr)
 		}
 		family := exec.ChainFamily
 		if family == "" {

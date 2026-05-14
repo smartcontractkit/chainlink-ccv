@@ -3,6 +3,8 @@ package devenvruntime
 import (
 	"context"
 	"math/big"
+
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
 // Effect is a cross-cutting side-effect request returned by a component's
@@ -20,11 +22,9 @@ type Effect interface{ effectMarker() }
 // FundingEffect requests that Address be funded on ChainSelector.
 // The runtime satisfies this by calling impl.FundAddresses on the chain
 // implementation that holds the prefunded Anvil/deployer keys.
-// Address is a lower-case hex string without the 0x prefix
-// (the format returned by hex.EncodeToString(pubkeyToAddress.Bytes())).
 type FundingEffect struct {
 	ChainSelector uint64
-	Address       string // hex without 0x prefix
+	Address       protocol.UnknownAddress
 	NativeAmount  *big.Int
 	LinkAmount    *big.Int // zero if not required
 }

@@ -2,7 +2,6 @@ package ccv
 
 import (
 	"context"
-	"encoding/hex"
 	"fmt"
 	"math/big"
 
@@ -71,15 +70,11 @@ func executeFundingEffects(ctx context.Context, effects []devenvruntime.FundingE
 			return fmt.Errorf("looking up chain selector for %q: %w", bc.ChainID, err)
 		}
 		for _, fe := range effectsBySelector[sel.ChainSelector] {
-			addrBytes, err := hex.DecodeString(fe.Address)
-			if err != nil {
-				return fmt.Errorf("invalid funding address %q: %w", fe.Address, err)
-			}
 			amount := fe.NativeAmount
 			if amount == nil {
 				amount = big.NewInt(5)
 			}
-			if err := impl.FundAddresses(ctx, bc, []protocol.UnknownAddress{protocol.UnknownAddress(addrBytes)}, amount); err != nil {
+			if err := impl.FundAddresses(ctx, bc, []protocol.UnknownAddress{fe.Address}, amount); err != nil {
 				return fmt.Errorf("funding %s on chain %d: %w", fe.Address, sel.ChainSelector, err)
 			}
 		}
