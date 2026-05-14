@@ -27,6 +27,7 @@ import (
 	_ "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/blockchains"
 	_ "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/executor"
 	_ "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/fake"
+	_ "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/indexer"
 	_ "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/jd"
 	_ "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/pricer"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
