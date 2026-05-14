@@ -5,13 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
-	"math/big"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
-
-	"github.com/ethereum/go-ethereum/common"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
@@ -28,7 +25,6 @@ import (
 	ccvchangesets "github.com/smartcontractkit/chainlink-ccv/deployment/changesets"
 	ccvshared "github.com/smartcontractkit/chainlink-ccv/deployment/shared"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
-	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
@@ -84,10 +80,10 @@ func runPhasedEnvironment(ctx context.Context, cfg *Cfg) (in *Cfg, effects []dev
 		return nil, nil, fmt.Errorf("failed to expand HA configuration: %w", err)
 	}
 
-	// Start fake data provider. Used for USDC verifier.
-	fakeOut, err := services.NewFake(in.Fake)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create fake data provider: %w", err)
+	// Fake container started by Phase 1 component; read its output here.
+	var fakeOut *services.FakeOutput
+	if in.Fake != nil {
+		fakeOut = in.Fake.Out
 	}
 
 	///////////////////////////////////////
@@ -145,32 +141,7 @@ func runPhasedEnvironment(ctx context.Context, cfg *Cfg) (in *Cfg, effects []dev
 	// END: Generate Aggregator Credentials //
 	//////////////////////////////////////////
 
-	//////////////////////////////////
-	// START: Deploy Pricer service //
-	//////////////////////////////////
-	if _, err := services.NewPricer(in.Pricer); err != nil {
-		return nil, nil, fmt.Errorf("failed to setup pricer service: %w", err)
-	}
-
-	if in.Pricer != nil {
-		for i, impl := range impls {
-			Plog.Info().Int("ImplIndex", i).Msg("Funding pricer key")
-			err = impl.FundAddresses(
-				ctx,
-				in.Blockchains[i],
-				[]protocol.UnknownAddress{common.HexToAddress(in.Pricer.Keystore.Address).Bytes()},
-				big.NewInt(5),
-			)
-			if err != nil {
-				return nil, nil, fmt.Errorf("failed to fund pricer address: %w", err)
-			}
-			Plog.Info().Int("ImplIndex", i).Msg("Funded pricer address")
-		}
-	}
-
-	////////////////////////////////
-	// END: Deploy Pricer service //
-	////////////////////////////////
+	// Pricer container started and funded by Phase 3 pricer component.
 
 	////////////////////////////
 	// START: Launch CL Nodes //

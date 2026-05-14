@@ -8,6 +8,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
 	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	executorsvc "github.com/smartcontractkit/chainlink-ccv/build/devenv/services/executor"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 	ns "github.com/smartcontractkit/chainlink-testing-framework/framework/components/simple_node_set"
@@ -77,6 +78,19 @@ func (l *legacyComponent) RunPhase4(
 	// to job spec generation, funding, and job proposal.
 	if execs, ok := priorOutputs["executor"].([]*executorsvc.Input); ok {
 		in.Executor = execs
+	}
+
+	// fake is optional: env.toml may omit [fake] entirely. When present, the
+	// fake component starts the container in Phase 1; the monolith reads the
+	// output to wire attestation API endpoints into token verifier configs.
+	if fake, ok := priorOutputs["fake"].(*services.FakeInput); ok {
+		in.Fake = fake
+	}
+
+	// pricer is optional: env.toml may omit [pricer] entirely. When present,
+	// the pricer component starts the container and funds its key in Phase 3.
+	if pricer, ok := priorOutputs["pricer"].(*services.PricerInput); ok {
+		in.Pricer = pricer
 	}
 
 	cfg, phaseEffects, err := runPhasedEnvironment(ctx, in)
