@@ -2,6 +2,7 @@ package sourcereader
 
 import (
 	"context"
+	"fmt"
 	"math/big"
 	"testing"
 
@@ -326,6 +327,48 @@ func TestFinalityViolationChecker_ParentHashMismatch(t *testing.T) {
 	assert.Contains(t, err.Error(), "finality violation")
 	assert.Contains(t, err.Error(), "parent hash")
 	assert.True(t, checker.IsFinalityViolated())
+}
+
+func TestFinalityViolationChecker_LargeGapCapped(t *testing.T) {
+	lggr, _ := logger.New()
+
+	// Simulate the scenario where the RPC lags by millions of blocks.
+	// Only blocks near the new finalized tip need to be in the mock; the checker
+	// must not try to fetch the entire gap.
+	const startBlock = 93154146
+	const newFinalized = 95322726 // gap of ~2.1M blocks
+
+	blocks := make(map[uint64]protocol.BlockHeader)
+	// Populate only the window the checker should actually fetch
+	windowStart := uint64(newFinalized) - MaxFinalityBlocksStored + 1
+	for i := windowStart; i <= newFinalized; i++ {
+		hash := makeBytes32(fmt.Sprintf("hash%d", i))
+		parent := makeBytes32(fmt.Sprintf("hash%d", i-1))
+		blocks[i] = protocol.BlockHeader{Number: i, Hash: hash, ParentHash: parent}
+	}
+	// Also add the initial block so the first UpdateFinalized call succeeds.
+	blocks[startBlock] = protocol.BlockHeader{
+		Number:     startBlock,
+		Hash:       makeBytes32("hashStart"),
+		ParentHash: makeBytes32("hashStartParent"),
+	}
+
+	mockSetup := setupMockSourceReaderForFinality(t, blocks)
+	metrics := &testutil.NoopMetricLabeler{}
+
+	checker, err := NewFinalityViolationCheckerService(mockSetup.Reader, protocol.ChainSelector(1), lggr, metrics)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+
+	err = checker.UpdateFinalized(ctx, startBlock)
+	require.NoError(t, err)
+
+	// This must not allocate millions of block headers.
+	err = checker.UpdateFinalized(ctx, newFinalized)
+	require.NoError(t, err)
+	assert.False(t, checker.IsFinalityViolated())
+	assert.LessOrEqual(t, len(checker.finalizedBlocks), MaxFinalityBlocksStored)
 }
 
 func TestNoOpFinalityViolationChecker(t *testing.T) {

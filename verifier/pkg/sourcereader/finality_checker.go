@@ -116,6 +116,18 @@ func (f *FinalityViolationCheckerService) UpdateFinalized(ctx context.Context, f
 		)
 	}
 
+	// Cap the range to MaxFinalityBlocksStored to prevent OOM when the RPC lags by many blocks.
+	// Trimming happens after storage, so without this cap a multi-million-block gap would be
+	// fully fetched and stored before any trimming occurs.
+	if toBlock-fromBlock+1 > MaxFinalityBlocksStored {
+		f.lggr.Warnw("Block range exceeds MaxFinalityBlocksStored, capping fetch window",
+			"fromBlock", fromBlock,
+			"toBlock", toBlock,
+			"cappedFromBlock", toBlock-MaxFinalityBlocksStored+1,
+		)
+		fromBlock = toBlock - MaxFinalityBlocksStored + 1
+	}
+
 	// Fetch blocks in range [fromBlock, toBlock]
 	// Note: When finalizedBlock == lastFinalized, this still fetches and verifies the hash
 	headers, err := f.fetchBlockRange(ctx, fromBlock, toBlock)
