@@ -1,4 +1,4 @@
-package devenvruntime
+package devenvruntime_test
 
 import (
 	"context"
@@ -9,15 +9,16 @@ import (
 	"github.com/stretchr/testify/require"
 
 	mocks "github.com/smartcontractkit/chainlink-ccv/build/devenv/internal/mocks"
+	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
 )
 
-func runEnv(t *testing.T, r *Registry, rawConfig map[string]any) (map[string]any, error) {
+func runEnv(t *testing.T, r *devenvruntime.Registry, rawConfig map[string]any) (map[string]any, error) {
 	t.Helper()
-	return NewEnvironmentWithRegistry(context.Background(), rawConfig, r, zerolog.Nop())
+	return devenvruntime.NewEnvironmentWithRegistry(context.Background(), rawConfig, r, nil, zerolog.Nop())
 }
 
-func compFactory(c Component) ComponentFactory {
-	return func(_ map[string]any) (Component, error) { return c, nil }
+func compFactory(c devenvruntime.Component) devenvruntime.ComponentFactory {
+	return func(_ map[string]any) (devenvruntime.Component, error) { return c, nil }
 }
 
 // p1Comp implements Component + Phase1Component via embedded mocks.
@@ -31,7 +32,7 @@ func newP1Comp(t *testing.T, output map[string]any) *p1Comp {
 	c := mocks.NewMockComponent(t)
 	c.EXPECT().ValidateConfig(mock.Anything).Return(nil)
 	p := mocks.NewMockPhase1Component(t)
-	p.EXPECT().RunPhase1(mock.Anything, mock.Anything, mock.Anything).Return(output, nil)
+	p.EXPECT().RunPhase1(mock.Anything, mock.Anything, mock.Anything).Return(output, nil, nil)
 	return &p1Comp{MockComponent: c, MockPhase1Component: p}
 }
 
@@ -48,11 +49,11 @@ func newP2Comp(t *testing.T, output map[string]any, onCall func(prior map[string
 	c.EXPECT().ValidateConfig(mock.Anything).Return(nil)
 	p := mocks.NewMockPhase2Component(t)
 	p.EXPECT().RunPhase2(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-		RunAndReturn(func(_ context.Context, _ map[string]any, _ any, prior map[string]any) (map[string]any, error) {
+		RunAndReturn(func(_ context.Context, _ map[string]any, _ any, prior map[string]any) (map[string]any, []devenvruntime.Effect, error) {
 			if onCall != nil {
 				onCall(prior)
 			}
-			return output, nil
+			return output, nil, nil
 		})
 	return &p2Comp{MockComponent: c, MockPhase2Component: p}
 }
@@ -74,29 +75,29 @@ func newP234Capturer(t *testing.T, p2, p3, p4 *map[string]any) *p234Comp {
 
 	mp2 := mocks.NewMockPhase2Component(t)
 	mp2.EXPECT().RunPhase2(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-		RunAndReturn(func(_ context.Context, _ map[string]any, _ any, prior map[string]any) (map[string]any, error) {
+		RunAndReturn(func(_ context.Context, _ map[string]any, _ any, prior map[string]any) (map[string]any, []devenvruntime.Effect, error) {
 			if p2 != nil {
 				*p2 = prior
 			}
-			return nil, nil
+			return nil, nil, nil
 		})
 
 	mp3 := mocks.NewMockPhase3Component(t)
 	mp3.EXPECT().RunPhase3(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-		RunAndReturn(func(_ context.Context, _ map[string]any, _ any, prior map[string]any) (map[string]any, error) {
+		RunAndReturn(func(_ context.Context, _ map[string]any, _ any, prior map[string]any) (map[string]any, []devenvruntime.Effect, error) {
 			if p3 != nil {
 				*p3 = prior
 			}
-			return nil, nil
+			return nil, nil, nil
 		})
 
 	mp4 := mocks.NewMockPhase4Component(t)
 	mp4.EXPECT().RunPhase4(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-		RunAndReturn(func(_ context.Context, _ map[string]any, _ any, prior map[string]any) (map[string]any, error) {
+		RunAndReturn(func(_ context.Context, _ map[string]any, _ any, prior map[string]any) (map[string]any, []devenvruntime.Effect, error) {
 			if p4 != nil {
 				*p4 = prior
 			}
-			return nil, nil
+			return nil, nil, nil
 		})
 
 	return &p234Comp{
@@ -112,7 +113,7 @@ func TestPhaseSnapshot_SiblingsCannotSeeEachOther(t *testing.T) {
 	alpha := newP2Comp(t, map[string]any{"from-alpha": 1}, func(p map[string]any) { alphaPrior = p })
 	beta := newP2Comp(t, map[string]any{"from-beta": 2}, func(p map[string]any) { betaPrior = p })
 
-	r := NewRegistry()
+	r := devenvruntime.NewRegistry()
 	require.NoError(t, r.Register("Alpha", compFactory(alpha)))
 	require.NoError(t, r.Register("Beta", compFactory(beta)))
 
@@ -137,7 +138,7 @@ func TestPhaseSnapshot_MutationByOneSiblingDoesNotLeak(t *testing.T) {
 	var observerPrior map[string]any
 	observer := newP2Comp(t, nil, func(p map[string]any) { observerPrior = p })
 
-	r := NewRegistry()
+	r := devenvruntime.NewRegistry()
 	require.NoError(t, r.Register("Producer", compFactory(producer)))
 	// Sort order in phase 2: Mutator < Observer < Producer. Mutator runs first
 	// and trashes its priorOutputs clone; Observer must still see the pristine
@@ -160,7 +161,7 @@ func TestPhaseSnapshot_NextPhaseSeesPriorPhaseOutputs(t *testing.T) {
 	var p2Prior, p3Prior, p4Prior map[string]any
 	consumer := newP234Capturer(t, &p2Prior, &p3Prior, &p4Prior)
 
-	r := NewRegistry()
+	r := devenvruntime.NewRegistry()
 	require.NoError(t, r.Register("Producer", compFactory(producer)))
 	require.NoError(t, r.Register("Consumer", compFactory(consumer)))
 
@@ -176,7 +177,7 @@ func TestMergeNoOverwrite_SamePhaseCollision(t *testing.T) {
 	alpha := newP2Comp(t, map[string]any{"shared": 1}, nil)
 	beta := newP2Comp(t, map[string]any{"shared": 2}, nil)
 
-	r := NewRegistry()
+	r := devenvruntime.NewRegistry()
 	require.NoError(t, r.Register("Alpha", compFactory(alpha)))
 	require.NoError(t, r.Register("Beta", compFactory(beta)))
 
@@ -192,7 +193,7 @@ func TestMergeNoOverwrite_PriorPhaseCollision(t *testing.T) {
 	producer := newP1Comp(t, map[string]any{"shared": "p1"})
 	overwriter := newP2Comp(t, map[string]any{"shared": "p2"}, nil)
 
-	r := NewRegistry()
+	r := devenvruntime.NewRegistry()
 	require.NoError(t, r.Register("Overwriter", compFactory(overwriter)))
 	require.NoError(t, r.Register("Producer", compFactory(producer)))
 
@@ -207,7 +208,7 @@ func TestMergeNoOverwrite_DistinctKeysSucceed(t *testing.T) {
 	a := newP2Comp(t, map[string]any{"a-key": "a-val"}, nil)
 	b := newP2Comp(t, map[string]any{"b-key": "b-val"}, nil)
 
-	r := NewRegistry()
+	r := devenvruntime.NewRegistry()
 	require.NoError(t, r.Register("A", compFactory(a)))
 	require.NoError(t, r.Register("B", compFactory(b)))
 
@@ -221,7 +222,7 @@ func TestPhase1_OverwriteDetection(t *testing.T) {
 	a := newP1Comp(t, map[string]any{"shared": 1})
 	b := newP1Comp(t, map[string]any{"shared": 2})
 
-	r := NewRegistry()
+	r := devenvruntime.NewRegistry()
 	require.NoError(t, r.Register("A", compFactory(a)))
 	require.NoError(t, r.Register("B", compFactory(b)))
 
@@ -238,7 +239,7 @@ func TestFallbackHonorsSnapshot(t *testing.T) {
 	var fallbackPrior map[string]any
 	fb := newP2Comp(t, map[string]any{"from-fallback": 2}, func(p map[string]any) { fallbackPrior = p })
 
-	r := NewRegistry()
+	r := devenvruntime.NewRegistry()
 	require.NoError(t, r.Register("Specific", compFactory(specific)))
 	r.SetFallback(compFactory(fb))
 
@@ -255,7 +256,7 @@ func TestFallbackOverwriteDetection(t *testing.T) {
 	specific := newP2Comp(t, map[string]any{"shared": "specific"}, nil)
 	fb := newP2Comp(t, map[string]any{"shared": "fallback"}, nil)
 
-	r := NewRegistry()
+	r := devenvruntime.NewRegistry()
 	require.NoError(t, r.Register("Specific", compFactory(specific)))
 	r.SetFallback(compFactory(fb))
 
