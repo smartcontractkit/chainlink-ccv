@@ -6,7 +6,6 @@ import (
 
 	"github.com/Masterminds/semver/v3"
 
-	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 )
@@ -17,8 +16,8 @@ const (
 )
 
 // GetContractAddress returns the contract address for the given chain and contract reference.
-func GetContractAddress(ccvCfg *ccv.Cfg, chainSelector uint64, contractType datastore.ContractType, version, qualifier, contractName string) (protocol.UnknownAddress, error) {
-	ref, err := ccvCfg.CLDF.DataStore.Addresses().Get(
+func GetContractAddress(ds datastore.DataStore, chainSelector uint64, contractType datastore.ContractType, version, qualifier, contractName string) (protocol.UnknownAddress, error) {
+	ref, err := ds.Addresses().Get(
 		datastore.NewAddressRefKey(chainSelector, contractType, semver.MustParse(version), qualifier),
 	)
 	if err != nil {

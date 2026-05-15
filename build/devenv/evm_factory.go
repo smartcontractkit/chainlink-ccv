@@ -27,8 +27,7 @@ func init() {
 
 // evmImplFactory implements ImplFactory for EVM chains, delegating to the evm
 // package's constructors. It lives in the ccv package (rather than evm) to
-// avoid a circular import: the ImplFactory interface references *Cfg which is
-// defined here.
+// avoid a circular import with the evm package.
 type evmImplFactory struct{}
 
 func (f *evmImplFactory) NewEmpty() cciptestinterfaces.CCIP17Configuration {
@@ -37,14 +36,11 @@ func (f *evmImplFactory) NewEmpty() cciptestinterfaces.CCIP17Configuration {
 
 func (f *evmImplFactory) New(
 	ctx context.Context,
-	cfg *Cfg,
 	lggr zerolog.Logger,
 	env *deployment.Environment,
-	bc *blockchain.Input,
+	chainSelector uint64,
 ) (cciptestinterfaces.CCIP17, error) {
-	chainID := bc.ChainID
-	wsURL := bc.Out.Nodes[0].ExternalWSUrl
-	return evm.NewCCIP17EVM(ctx, lggr, env, chainID, wsURL)
+	return evm.NewCCIP17EVM(ctx, lggr, env, chainSelector)
 }
 
 func (f *evmImplFactory) DefaultSignerKey(keys services.BootstrapKeys) string {

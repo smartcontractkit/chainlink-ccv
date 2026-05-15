@@ -3,15 +3,13 @@ package messaging
 import (
 	"testing"
 
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
-
-	chain_selectors "github.com/smartcontractkit/chain-selectors"
 
 	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/evm"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e"
-	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/tcapi"
 )
 
 var (
@@ -29,19 +27,17 @@ func TestEVM2EVMV3(t *testing.T) {
 
 	ctx := ccv.Plog.WithContext(t.Context())
 
-	harness, err := tcapi.NewTestHarness(
-		ctx,
-		e2e.GetSmokeTestConfig(),
-		cfg,
-		chain_selectors.FamilyEVM,
-	)
+	_, env, err := ccv.NewCLDFOperationsEnvironment(cfg.Blockchains, cfg.CLDF.DataStore)
 	require.NoError(t, err)
 
-	chains, err := harness.Lib.Chains(ctx)
+	sels, err := e2e.FirstTwoEVMSelectors(cfg)
 	require.NoError(t, err)
-	require.GreaterOrEqual(t, len(chains), 2, "expected at least 2 chains for this test in the environment")
+	require.GreaterOrEqual(t, len(sels), 2, "expected at least 2 chains for this test in the environment")
 
-	src, dest := chains[0].CCIP17, chains[1].CCIP17
+	src, err := ccv.NewCCIP17ForChainSelector(ctx, *zerolog.Ctx(ctx), env, sels[0])
+	require.NoError(t, err)
+	dest, err := ccv.NewCCIP17ForChainSelector(ctx, *zerolog.Ctx(ctx), env, sels[1])
+	require.NoError(t, err)
 
 	receiver, err := dest.GetEOAReceiverAddress()
 	require.NoError(t, err)
@@ -77,19 +73,17 @@ func TestEVM2EVMV2(t *testing.T) {
 
 	ctx := ccv.Plog.WithContext(t.Context())
 
-	harness, err := tcapi.NewTestHarness(
-		ctx,
-		e2e.GetSmokeTestConfig(),
-		cfg,
-		chain_selectors.FamilyEVM,
-	)
+	_, env, err := ccv.NewCLDFOperationsEnvironment(cfg.Blockchains, cfg.CLDF.DataStore)
 	require.NoError(t, err)
 
-	chains, err := harness.Lib.Chains(ctx)
+	sels, err := e2e.FirstTwoEVMSelectors(cfg)
 	require.NoError(t, err)
-	require.GreaterOrEqual(t, len(chains), 2, "expected at least 2 chains for this test in the environment")
+	require.GreaterOrEqual(t, len(sels), 2, "expected at least 2 chains for this test in the environment")
 
-	src, dest := chains[0].CCIP17, chains[1].CCIP17
+	src, err := ccv.NewCCIP17ForChainSelector(ctx, *zerolog.Ctx(ctx), env, sels[0])
+	require.NoError(t, err)
+	dest, err := ccv.NewCCIP17ForChainSelector(ctx, *zerolog.Ctx(ctx), env, sels[1])
+	require.NoError(t, err)
 
 	receiver, err := dest.GetEOAReceiverAddress()
 	require.NoError(t, err)

@@ -180,7 +180,7 @@ func (l *Lib) Chains(ctx context.Context) ([]ChainImpl, error) {
 		if err != nil {
 			return nil, fmt.Errorf("getting implementation factory for chain ID %s selector %d family %s: %w", bc.ChainID, details.ChainSelector, bc.Out.Family, err)
 		}
-		impl, err := fac.New(ctx, l.cfg, *l.l, l.cldfEnv, bc)
+		impl, err := fac.New(ctx, *l.l, l.cldfEnv, details.ChainSelector)
 		if err != nil {
 			return nil, fmt.Errorf("creating implementation for chain ID %s selector %d family %s: %w", bc.ChainID, details.ChainSelector, bc.Out.Family, err)
 		}
