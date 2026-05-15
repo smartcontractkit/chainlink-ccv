@@ -58,7 +58,7 @@ type ServiceFactory interface {
 type runner struct {
 	fac       ServiceFactory
 	deps      ServiceDeps
-	accessors *AccessorTracker
+	accCloser *AccessorCloserRegistry
 }
 
 var _ lifecycle.JobRunner = (*runner)(nil)
@@ -75,18 +75,18 @@ func (r *runner) StartJob(ctx context.Context, config string) (startErr error) {
 
 	// Initialize registry, wrapping it so the keystore is injected into any
 	// Accessor that implements KeystoreSetter.
-	// Registry chain: NewRegistry > KeystoreRegistry (keystore injection) > AccessorTracker (accessor cleanup tracking).
+	// Registry chain: NewRegistry > KeystoreRegistry (keystore injection) > AccessorCloserRegistry (accessor cleanup tracking).
 	reg, err := chainaccess.NewRegistry(r.deps.Logger, spec.AppConfig)
 	if err != nil {
 		return fmt.Errorf("failed to create registry: %w", err)
 	}
-	r.accessors = NewAccessorTracker(r.deps.Logger, NewKeystoreRegistry(r.deps.Logger, reg, r.deps.Keystore))
-	r.deps.Registry = r.accessors
+	r.accCloser = NewAccessorCloserRegistry(r.deps.Logger, NewKeystoreRegistry(r.deps.Logger, reg, r.deps.Keystore))
+	r.deps.Registry = r.accCloser
 
 	// safety net
 	defer func() {
 		if startErr != nil {
-			if cErr := r.accessors.CloseAll(); cErr != nil {
+			if cErr := r.accCloser.CloseAll(); cErr != nil {
 				r.deps.Logger.Warnw("close accessors after failed StartJob", "error", cErr)
 			}
 		}
@@ -102,8 +102,8 @@ func (r *runner) StopJob(ctx context.Context) error {
 	if err := r.fac.Stop(ctx); err != nil {
 		errs = append(errs, fmt.Errorf("stop service factory: %w", err))
 	}
-	if r.accessors != nil {
-		if err := r.accessors.CloseAll(); err != nil {
+	if r.accCloser != nil {
+		if err := r.accCloser.CloseAll(); err != nil {
 			errs = append(errs, fmt.Errorf("close accessors: %w", err))
 		}
 	}
@@ -126,8 +126,8 @@ type Bootstrapper struct {
 	fac    ServiceFactory
 	name   string
 
-	// accessors is set by startWithAppConfig; JD mode uses runner.accessors instead.
-	accessors *AccessorTracker
+	// accCloser is set by startWithAppConfig; JD mode uses runner.accCloser instead.
+	accCloser *AccessorCloserRegistry
 
 	logLevel zapcore.Level
 }
@@ -215,14 +215,14 @@ func (b *Bootstrapper) startWithAppConfig(ctx context.Context) (startErr error) 
 	if err != nil {
 		return fmt.Errorf("failed to create registry: %w", err)
 	}
-	b.accessors = NewAccessorTracker(b.lggr, reg)
+	b.accCloser = NewAccessorCloserRegistry(b.lggr, reg)
 	// safety net for partial-Start failure since Bootstrapper.Stop is not guaranteed
 	defer func() {
 		if startErr != nil {
-			if cErr := b.accessors.CloseAll(); cErr != nil {
+			if cErr := b.accCloser.CloseAll(); cErr != nil {
 				b.lggr.Warnw("close accessors after failed startWithAppConfig", "error", cErr)
 			}
-			b.accessors = nil
+			b.accCloser = nil
 		}
 	}()
 
@@ -234,7 +234,7 @@ func (b *Bootstrapper) startWithAppConfig(ctx context.Context) (startErr error) 
 		AppConfig:     *b.appCfg,
 	}
 
-	return b.fac.Start(ctx, js, ServiceDeps{Registry: b.accessors})
+	return b.fac.Start(ctx, js, ServiceDeps{Registry: b.accCloser})
 }
 
 // startWithJDLifecycle initializes all components required for the JD lifecycle manager and starts it.
@@ -303,7 +303,7 @@ func (b *Bootstrapper) Start(ctx context.Context) error {
 // non-nil field is sufficient to cover both without double-stopping anything:
 //   - JD mode (lifecycleManager/infoServer set, appCfg nil): the lifecycle manager and info server are stopped.
 //     Accessor cleanup is owned by runner.StopJob, invoked by the lifecycle manager.
-//   - Static-config mode (appCfg set, lifecycleManager/infoServer nil): factory.Stop runs first, then accessors.CloseAll
+//   - Static-config mode (appCfg set, lifecycleManager/infoServer nil): factory.Stop runs first, then accCloser.CloseAll
 func (b *Bootstrapper) Stop(ctx context.Context) error {
 	if b.lifecycleManager != nil {
 		if err := b.lifecycleManager.Stop(); err != nil {
@@ -320,11 +320,11 @@ func (b *Bootstrapper) Stop(ctx context.Context) error {
 		if err := b.fac.Stop(ctx); err != nil {
 			errs = append(errs, fmt.Errorf("failed to stop service factory: %w", err))
 		}
-		if b.accessors != nil {
-			if err := b.accessors.CloseAll(); err != nil {
+		if b.accCloser != nil {
+			if err := b.accCloser.CloseAll(); err != nil {
 				errs = append(errs, fmt.Errorf("failed to close accessors: %w", err))
 			}
-			b.accessors = nil
+			b.accCloser = nil
 		}
 		return errors.Join(errs...)
 	}

@@ -11,13 +11,12 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-// AccessorTracker wraps a chainaccess.Registry, tracks every Accessor handed
+// AccessorCloserRegistry wraps a chainaccess.Registry, tracks every Accessor handed
 // out, and closes them all via CloseAll at shutdown.
 //
 // Callers must invoke CloseAll after factory.Stop (or its equivalent) returns,
-// so the factory's coordinator drains its readers before the underlying log
-// pollers are torn down.
-type AccessorTracker struct {
+// so the factory's coordinator drains its readers first.
+type AccessorCloserRegistry struct {
 	lggr  logger.Logger
 	inner chainaccess.Registry
 
@@ -25,30 +24,31 @@ type AccessorTracker struct {
 	accessors []chainaccess.Accessor
 }
 
-// NewAccessorTracker wraps inner so every successful GetAccessor result is tracked.
-func NewAccessorTracker(lggr logger.Logger, inner chainaccess.Registry) *AccessorTracker {
-	return &AccessorTracker{lggr: lggr, inner: inner}
+// NewAccessorCloserRegistry wraps inner so every successful GetAccessor result is tracked.
+func NewAccessorCloserRegistry(lggr logger.Logger, inner chainaccess.Registry) *AccessorCloserRegistry {
+	return &AccessorCloserRegistry{lggr: lggr, inner: inner}
 }
 
 // GetAccessor delegates to the inner Registry and tracks the returned Accessor.
-func (t *AccessorTracker) GetAccessor(ctx context.Context, chainSelector protocol.ChainSelector) (chainaccess.Accessor, error) {
+func (t *AccessorCloserRegistry) GetAccessor(ctx context.Context, chainSelector protocol.ChainSelector) (chainaccess.Accessor, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	a, err := t.inner.GetAccessor(ctx, chainSelector)
 	if err != nil {
 		return nil, err
 	}
-	t.mu.Lock()
 	t.accessors = append(t.accessors, a)
-	t.mu.Unlock()
 	return a, nil
 }
 
 // CloseAll closes every Accessor handed out since construction or the last successful CloseAll.
 // A second CloseAll with no intervening GetAccessor returns nil.
-func (t *AccessorTracker) CloseAll() error {
+func (t *AccessorCloserRegistry) CloseAll() error {
 	t.mu.Lock()
+	defer t.mu.Unlock()
+
 	accessors := t.accessors
 	t.accessors = nil
-	t.mu.Unlock()
 
 	if len(accessors) == 0 {
 		return nil
