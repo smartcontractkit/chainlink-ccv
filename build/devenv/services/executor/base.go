@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/go-connections/nat"
+	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/api/types/network"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -312,11 +312,11 @@ func baseImageRequest(in *Input, bootstrapConfigFilePath string) (testcontainers
 		},
 		ExposedPorts: []string{DefaultExecutorPortTCP, services.DefaultBootstrapListenPortTCP},
 		HostConfigModifier: func(h *container.HostConfig) {
-			h.PortBindings = nat.PortMap{
-				DefaultExecutorPortTCP: []nat.PortBinding{
+			h.PortBindings = network.PortMap{
+				network.MustParsePort(DefaultExecutorPortTCP): []network.PortBinding{
 					{HostPort: ""},
 				},
-				services.DefaultBootstrapListenPortTCP: []nat.PortBinding{
+				network.MustParsePort(services.DefaultBootstrapListenPortTCP): []network.PortBinding{
 					{HostPort: ""},
 				},
 			}
@@ -378,8 +378,8 @@ func createDBContainer(ctx context.Context, in *Input, chainFamily string) (*pos
 				},
 				Labels: framework.DefaultTCLabels(),
 				HostConfigModifier: func(h *container.HostConfig) {
-					h.PortBindings = nat.PortMap{
-						"5432/tcp": []nat.PortBinding{
+					h.PortBindings = network.PortMap{
+						network.MustParsePort("5432/tcp"): []network.PortBinding{
 							{HostPort: ""},
 						},
 					}

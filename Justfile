@@ -47,9 +47,10 @@ tidy: ensure-go
 fmt: ensure-golangci-lint
     find . -type f -name go.mod -execdir golangci-lint fmt \;
 
-# Run golangci-lint
+# Run golangci-lint (positional args: fix?, timeout?). Pass `true` or `fix` as the first arg to add
+# golangci's --fix; other tokens (e.g. mistyped `--timeout`) must not enable --fix.
 lint fix="" timeout="10m": ensure-golangci-lint
-    gomods -c 'golangci-lint run --config {{justfile_directory()}}/.golangci.yaml {{ if fix != "" { "--fix" } else { "" } }} --timeout {{timeout}}'
+    gomods -c 'golangci-lint run --config {{justfile_directory()}}/.golangci.yaml {{ if fix == "true" { "--fix" } else if fix == "fix" { "--fix" } else { "" } }} --timeout {{timeout}}'
 
 shellcheck:
     @command -v shellcheck >/dev/null 2>&1 || { \

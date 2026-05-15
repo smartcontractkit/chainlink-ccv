@@ -22,71 +22,102 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/deployment/shared"
 )
 
+// ApplyVerifierConfigInput is the imperative input for the ApplyVerifierConfig
+// changeset. It replaces the prior topology-driven input — callers describe the
+// committee, the participating NOPs, and any monitoring/profiling settings
+// directly, without supplying a *EnvironmentTopology.
 type ApplyVerifierConfigInput struct {
-	Topology                 *ccvdeployment.EnvironmentTopology
-	CommitteeQualifier       string
+	// CommitteeQualifier identifies the committee being published.
+	CommitteeQualifier string
+	// DefaultExecutorQualifier resolves the per-chain executor proxy address that
+	// gets baked into the verifier job spec.
 	DefaultExecutorQualifier string
-	TargetNOPs               []shared.NOPAlias
-	DisableFinalityCheckers  []string
+	// NOPs describes every NOP referenced by the committee. SignerAddressByFamily
+	// is consulted first; missing entries fall back to a JD lookup.
+	NOPs []NOPInput
+	// Committee is the per-committee description: qualifier, aggregators, and
+	// per-source-chain NOP membership.
+	Committee CommitteeInput
+	// PyroscopeURL is forwarded into the verifier job spec for profiling. Must be
+	// empty in production environments (validated below).
+	PyroscopeURL string
+	// Monitoring is forwarded into the verifier job spec.
+	Monitoring ccvdeployment.MonitoringConfig
+	// TargetNOPs filters the publish set. Empty means "all NOPs in the committee".
+	TargetNOPs []shared.NOPAlias
+	// DisableFinalityCheckers lists chain-selector strings whose finality checks
+	// should be skipped. Sorted before being baked into the job spec for stable
+	// hashing.
+	DisableFinalityCheckers []string
 	// RevokeOrphanedJobs when true revokes and cleans up orphaned jobs; default false.
 	RevokeOrphanedJobs bool
 }
 
+// ApplyVerifierConfig is the offchain-only single-entry product for §5.9 / §5.10:
+// publish or refresh verifier job specs for a committee. It writes new job specs
+// via JD (CL-mode NOPs) and persists job metadata into the DataStore. No onchain
+// state is touched and no MCMS coordination is required.
+//
+// The input is imperative — callers pass the committee description and the
+// participating NOPs directly, with no *EnvironmentTopology.
 func ApplyVerifierConfig(registry *adapters.Registry) deployment.ChangeSetV2[ApplyVerifierConfigInput] {
 	validate := func(e deployment.Environment, cfg ApplyVerifierConfigInput) error {
-		if cfg.Topology == nil {
-			return fmt.Errorf("topology is required")
-		}
-
-		if cfg.Topology.NOPTopology == nil || len(cfg.Topology.NOPTopology.NOPs) == 0 {
-			return fmt.Errorf("NOP topology with at least one NOP is required")
-		}
-
 		if cfg.CommitteeQualifier == "" {
 			return fmt.Errorf("committee qualifier is required")
 		}
-
 		if cfg.DefaultExecutorQualifier == "" {
 			return fmt.Errorf("default executor qualifier is required")
 		}
-
-		committee, ok := cfg.Topology.NOPTopology.Committees[cfg.CommitteeQualifier]
-		if !ok {
-			return fmt.Errorf("committee %q not found in topology", cfg.CommitteeQualifier)
+		if cfg.Committee.Qualifier != "" && cfg.Committee.Qualifier != cfg.CommitteeQualifier {
+			return fmt.Errorf(
+				"committee qualifier mismatch: top-level %q vs Committee.Qualifier %q",
+				cfg.CommitteeQualifier, cfg.Committee.Qualifier,
+			)
 		}
-
-		if len(committee.Aggregators) == 0 {
+		if len(cfg.Committee.Aggregators) == 0 {
 			return fmt.Errorf("at least one aggregator is required for committee %q", cfg.CommitteeQualifier)
 		}
+		if len(cfg.NOPs) == 0 {
+			return fmt.Errorf("at least one NOP is required")
+		}
 
-		nopSet := make(map[string]bool)
-		for _, nop := range cfg.Topology.NOPTopology.NOPs {
+		nopSet := make(map[shared.NOPAlias]bool, len(cfg.NOPs))
+		for _, nop := range cfg.NOPs {
+			if nop.Alias == "" {
+				return fmt.Errorf("NOP alias is required")
+			}
+			if nopSet[nop.Alias] {
+				return fmt.Errorf("duplicate NOP alias %q", nop.Alias)
+			}
 			nopSet[nop.Alias] = true
 		}
 
-		nopAliases := cfg.TargetNOPs
-		if len(nopAliases) == 0 {
-			nopAliases = shared.ConvertStringToNopAliases(getCommitteeNOPAliases(committee))
-		}
-
-		for _, alias := range nopAliases {
-			if !nopSet[string(alias)] {
-				return fmt.Errorf("NOP alias %q not found in topology", alias)
+		for chainSelector, chainCfg := range cfg.Committee.ChainConfigs {
+			for _, alias := range chainCfg.NOPAliases {
+				if !nopSet[alias] {
+					return fmt.Errorf(
+						"committee chain %d references unknown NOP alias %q",
+						chainSelector, alias,
+					)
+				}
 			}
 		}
 
-		if shared.IsProductionEnvironment(e.Name) {
-			if cfg.Topology.PyroscopeURL != "" {
-				return fmt.Errorf("pyroscope URL is not supported for production environments")
+		for _, alias := range cfg.TargetNOPs {
+			if !nopSet[alias] {
+				return fmt.Errorf("NOP alias %q not found in NOPs", alias)
 			}
+		}
+
+		if shared.IsProductionEnvironment(e.Name) && cfg.PyroscopeURL != "" {
+			return fmt.Errorf("pyroscope URL is not supported for production environments")
 		}
 
 		return nil
 	}
 
 	apply := func(e deployment.Environment, cfg ApplyVerifierConfigInput) (deployment.ChangesetOutput, error) {
-		committee := cfg.Topology.NOPTopology.Committees[cfg.CommitteeQualifier]
-		selectors, err := getCommitteeChainSelectors(committee)
+		selectors, err := committeeChainSelectorsFromInput(cfg.Committee)
 		if err != nil {
 			return deployment.ChangesetOutput{}, err
 		}
@@ -97,16 +128,15 @@ func ApplyVerifierConfig(registry *adapters.Registry) deployment.ChangeSetV2[App
 				cfg.RevokeOrphanedJobs,
 				shared.VerifierJobScope{CommitteeQualifier: cfg.CommitteeQualifier},
 				map[string]string{"job_type": "verifier", "committee": cfg.CommitteeQualifier},
-				buildNOPModes(cfg.Topology.NOPTopology.NOPs),
+				buildNOPModes(cfg.NOPs),
 				cfg.TargetNOPs,
-				getAllNOPAliases(cfg.Topology.NOPTopology.NOPs),
+				allNOPAliases(cfg.NOPs),
 				"No chain configs found for committee, nothing to do",
 				"No chain configs for committee, running orphan cleanup only",
 				"committee", cfg.CommitteeQualifier,
 			)
 		}
 
-		// Derive the signing key family from the registered adapter — no hardcoded chain family.
 		signerFamily, err := getSignerFamilyFromRegistry(registry, selectors)
 		if err != nil {
 			return deployment.ChangesetOutput{}, fmt.Errorf("failed to determine signer address family: %w", err)
@@ -114,17 +144,17 @@ func ApplyVerifierConfig(registry *adapters.Registry) deployment.ChangeSetV2[App
 
 		nopsToValidate := cfg.TargetNOPs
 		if len(nopsToValidate) == 0 {
-			nopsToValidate = shared.ConvertStringToNopAliases(getCommitteeNOPAliases(committee))
+			nopsToValidate = committeeNOPAliasesFromInput(cfg.Committee, cfg.NOPs)
 		}
 
-		targetedNOPs := filterNOPsByAliases(cfg.Topology.NOPTopology.NOPs, shared.ConvertNopAliasToString(nopsToValidate))
-		signingKeysByNOP, err := fetchSigningKeysForNOPs(e, targetedNOPs, signerFamily)
+		targetedNOPs := filterNOPInputsByAliases(cfg.NOPs, nopsToValidate)
+		signingKeysByNOP, err := fetchSigningKeysForNOPInputs(e, targetedNOPs, signerFamily)
 		if err != nil {
 			return deployment.ChangesetOutput{}, fmt.Errorf("failed to fetch signing keys: %w", err)
 		}
 
-		clNOPs := filterCLModeNOPs(nopsToValidate, cfg.Topology.NOPTopology.NOPs)
-		if err := validateVerifierChainSupport(e, clNOPs, committee); err != nil {
+		clNOPs := filterCLModeNOPs(nopsToValidate, cfg.NOPs)
+		if err := validateVerifierChainSupport(e, clNOPs, cfg.Committee); err != nil {
 			return deployment.ChangesetOutput{}, err
 		}
 
@@ -133,16 +163,23 @@ func ApplyVerifierConfig(registry *adapters.Registry) deployment.ChangeSetV2[App
 			return deployment.ChangesetOutput{}, err
 		}
 
-		nopInputs := convertNOPsToVerifierInput(cfg.Topology.NOPTopology.NOPs, signingKeysByNOP, signerFamily)
-		committeeInput := convertTopologyCommittee(committee)
+		nopInputs := mergeSigningKeysIntoNOPInputs(cfg.NOPs, signingKeysByNOP, signerFamily)
+		// Default Committee.Qualifier from CommitteeQualifier so VerifierJobScope
+		// and downstream metadata are always non-empty. Validation already enforces
+		// equality when both are set.
+		committeeForBuild := cfg.Committee
+		if committeeForBuild.Qualifier == "" {
+			committeeForBuild.Qualifier = cfg.CommitteeQualifier
+		}
+		committeeInternal := toVerifierCommitteeInput(committeeForBuild, cfg.NOPs)
 
 		jobSpecs, scope, err := buildVerifierJobSpecs(
 			contractAddresses,
 			cfg.TargetNOPs,
 			nopInputs,
-			committeeInput,
-			cfg.Topology.PyroscopeURL,
-			cfg.Topology.Monitoring,
+			committeeInternal,
+			cfg.PyroscopeURL,
+			cfg.Monitoring,
 			cfg.DisableFinalityCheckers,
 			signerFamily,
 		)
@@ -150,7 +187,7 @@ func ApplyVerifierConfig(registry *adapters.Registry) deployment.ChangeSetV2[App
 			return deployment.ChangesetOutput{}, err
 		}
 
-		nopModes := buildNOPModes(cfg.Topology.NOPTopology.NOPs)
+		nopModes := buildNOPModes(cfg.NOPs)
 
 		manageReport, err := operations.ExecuteSequence(
 			e.OperationsBundle,
@@ -166,7 +203,7 @@ func ApplyVerifierConfig(registry *adapters.Registry) deployment.ChangeSetV2[App
 				NOPs: sequences.NOPContext{
 					Modes:      nopModes,
 					TargetNOPs: cfg.TargetNOPs,
-					AllNOPs:    getAllNOPAliases(cfg.Topology.NOPTopology.NOPs),
+					AllNOPs:    allNOPAliases(cfg.NOPs),
 				},
 				RevokeOrphanedJobs: cfg.RevokeOrphanedJobs,
 			},
@@ -373,22 +410,12 @@ committeeVerifierConfig = '''
 	return jobSpecs, scope, nil
 }
 
-// fetchSigningKeysForNOPs fetches signing keys from JD for NOPs that are missing a signer
-// address for the given signerFamily.
-func fetchSigningKeysForNOPs(
+// fetchSigningKeysForNOPInputs fetches signing keys from JD for NOPs that are missing
+// a signer address for the given signerFamily.
+func fetchSigningKeysForNOPInputs(
 	e deployment.Environment,
-	nops []ccvdeployment.NOPConfig,
+	nops []NOPInput,
 	signerFamily string,
-) (fetch_signing_keys.SigningKeysByNOP, error) {
-	return fetchSigningKeysForNOPsFiltered(e, nops, func(nop ccvdeployment.NOPConfig) bool {
-		return nop.SignerAddressByFamily == nil || nop.SignerAddressByFamily[signerFamily] == ""
-	})
-}
-
-func fetchSigningKeysForNOPsFiltered(
-	e deployment.Environment,
-	nops []ccvdeployment.NOPConfig,
-	include func(ccvdeployment.NOPConfig) bool,
 ) (fetch_signing_keys.SigningKeysByNOP, error) {
 	if e.Offchain == nil {
 		return nil, nil
@@ -396,8 +423,8 @@ func fetchSigningKeysForNOPsFiltered(
 
 	aliases := make([]string, 0, len(nops))
 	for _, nop := range nops {
-		if include(nop) {
-			aliases = append(aliases, nop.Alias)
+		if nop.SignerAddressByFamily == nil || nop.SignerAddressByFamily[signerFamily] == "" {
+			aliases = append(aliases, string(nop.Alias))
 		}
 	}
 
@@ -424,62 +451,95 @@ func fetchSigningKeysForNOPsFiltered(
 	return report.Output.SigningKeysByNOP, nil
 }
 
-func convertNOPsToVerifierInput(
-	nops []ccvdeployment.NOPConfig,
+// mergeSigningKeysIntoNOPInputs converts public NOPInput slices into the internal
+// verifierNOPInput shape consumed by buildVerifierJobSpecs, filling in signer
+// addresses fetched from JD when the caller did not supply them inline.
+func mergeSigningKeysIntoNOPInputs(
+	nops []NOPInput,
 	signingKeysByNOP fetch_signing_keys.SigningKeysByNOP,
 	signerFamily string,
 ) []verifierNOPInput {
 	result := make([]verifierNOPInput, len(nops))
-
 	for i, nop := range nops {
 		signerAddresses := nop.SignerAddressByFamily
-
-		if signer, ok := signerFromJDIfMissing(signerAddresses, nop.Alias, signerFamily, signingKeysByNOP); ok {
+		if signer, ok := signerFromJDIfMissing(signerAddresses, string(nop.Alias), signerFamily, signingKeysByNOP); ok {
 			if signerAddresses == nil {
 				signerAddresses = make(map[string]string)
 			}
 			signerAddresses[signerFamily] = signer
 		}
-
 		result[i] = verifierNOPInput{
-			Alias:                 shared.NOPAlias(nop.Alias),
+			Alias:                 nop.Alias,
 			SignerAddressByFamily: signerAddresses,
 			Mode:                  nop.GetMode(),
 		}
 	}
-
 	return result
 }
 
-func convertTopologyCommittee(committee ccvdeployment.CommitteeConfig) verifierCommitteeInput {
-	aggregators := make([]AggregatorRef, len(committee.Aggregators))
-	for i, agg := range committee.Aggregators {
-		aggregators[i] = AggregatorRef{
-			Name:                         agg.Name,
-			Address:                      agg.Address,
-			InsecureAggregatorConnection: agg.InsecureAggregatorConnection,
-		}
-	}
-
+// toVerifierCommitteeInput converts the public CommitteeInput into the internal
+// verifierCommitteeInput shape used by buildVerifierJobSpecs.
+func toVerifierCommitteeInput(committee CommitteeInput, nops []NOPInput) verifierCommitteeInput {
 	chainNOPAliases := make(map[string][]shared.NOPAlias, len(committee.ChainConfigs))
-	for chainSelector, chainConfig := range committee.ChainConfigs {
-		chainNOPAliases[chainSelector] = shared.ConvertStringToNopAliases(chainConfig.NOPAliases)
+	for chainSelector, chainCfg := range committee.ChainConfigs {
+		chainNOPAliases[strconv.FormatUint(chainSelector, 10)] = slices.Clone(chainCfg.NOPAliases)
 	}
 
 	return verifierCommitteeInput{
 		Qualifier:       committee.Qualifier,
-		Aggregators:     aggregators,
-		NOPAliases:      shared.ConvertStringToNopAliases(getCommitteeNOPAliases(committee)),
+		Aggregators:     committee.Aggregators,
+		NOPAliases:      committeeNOPAliasesFromInput(committee, nops),
 		ChainNOPAliases: chainNOPAliases,
 	}
 }
 
-func filterNOPsByAliases(nops []ccvdeployment.NOPConfig, aliases []string) []ccvdeployment.NOPConfig {
-	aliasSet := make(map[string]struct{}, len(aliases))
+// committeeNOPAliasesFromInput returns the union of NOP aliases referenced by the
+// committee's chain configs. When ChainConfigs is empty the result falls back to
+// every alias listed in nops — matching the per-NOP "all chains" behavior used
+// by AddNOPOffchain's verifier-job provisioning.
+func committeeNOPAliasesFromInput(committee CommitteeInput, nops []NOPInput) []shared.NOPAlias {
+	if len(committee.ChainConfigs) == 0 {
+		out := make([]shared.NOPAlias, len(nops))
+		for i, nop := range nops {
+			out[i] = nop.Alias
+		}
+		slices.Sort(out)
+		return out
+	}
+	aliasSet := make(map[shared.NOPAlias]struct{})
+	for _, chainCfg := range committee.ChainConfigs {
+		for _, alias := range chainCfg.NOPAliases {
+			aliasSet[alias] = struct{}{}
+		}
+	}
+	out := make([]shared.NOPAlias, 0, len(aliasSet))
+	for alias := range aliasSet {
+		out = append(out, alias)
+	}
+	slices.Sort(out)
+	return out
+}
+
+// committeeChainSelectorsFromInput extracts the sorted set of source-chain
+// selectors the committee is configured for. Empty when no chain configs are set.
+func committeeChainSelectorsFromInput(committee CommitteeInput) ([]uint64, error) {
+	selectors := make([]uint64, 0, len(committee.ChainConfigs))
+	for chainSelector := range committee.ChainConfigs {
+		selectors = append(selectors, chainSelector)
+	}
+	slices.Sort(selectors)
+	return selectors, nil
+}
+
+func filterNOPInputsByAliases(nops []NOPInput, aliases []shared.NOPAlias) []NOPInput {
+	if len(aliases) == 0 {
+		return slices.Clone(nops)
+	}
+	aliasSet := make(map[shared.NOPAlias]struct{}, len(aliases))
 	for _, a := range aliases {
 		aliasSet[a] = struct{}{}
 	}
-	filtered := make([]ccvdeployment.NOPConfig, 0, len(aliases))
+	filtered := make([]NOPInput, 0, len(aliases))
 	for _, nop := range nops {
 		if _, ok := aliasSet[nop.Alias]; ok {
 			filtered = append(filtered, nop)
@@ -488,38 +548,10 @@ func filterNOPsByAliases(nops []ccvdeployment.NOPConfig, aliases []string) []ccv
 	return filtered
 }
 
-func getCommitteeNOPAliases(committee ccvdeployment.CommitteeConfig) []string {
-	aliasSet := make(map[string]struct{})
-	for _, chainConfig := range committee.ChainConfigs {
-		for _, alias := range chainConfig.NOPAliases {
-			aliasSet[alias] = struct{}{}
-		}
-	}
-	aliases := make([]string, 0, len(aliasSet))
-	for alias := range aliasSet {
-		aliases = append(aliases, alias)
-	}
-	slices.Sort(aliases)
-	return aliases
-}
-
-func getCommitteeChainSelectors(committee ccvdeployment.CommitteeConfig) ([]uint64, error) {
-	selectors := make([]uint64, 0, len(committee.ChainConfigs))
-	for chainStr := range committee.ChainConfigs {
-		sel, err := strconv.ParseUint(chainStr, 10, 64)
-		if err != nil {
-			return nil, fmt.Errorf("committee chain_configs key %q is not a valid chain selector: %w", chainStr, err)
-		}
-		selectors = append(selectors, sel)
-	}
-	slices.Sort(selectors)
-	return selectors, nil
-}
-
 func validateVerifierChainSupport(
 	e deployment.Environment,
 	nopsToValidate []shared.NOPAlias,
-	committee ccvdeployment.CommitteeConfig,
+	committee CommitteeInput,
 ) error {
 	if e.Offchain == nil {
 		e.Logger.Debugw("Offchain client not available, skipping chain support validation")
@@ -538,10 +570,7 @@ func validateVerifierChainSupport(
 
 	var validationResults []shared.ChainValidationResult
 	for _, nopAlias := range nopsToValidate {
-		requiredChains, err := getRequiredChainsForNOP(string(nopAlias), committee)
-		if err != nil {
-			return err
-		}
+		requiredChains := getRequiredChainsForVerifierNOP(nopAlias, committee)
 		result := shared.ValidateNOPChainSupport(
 			string(nopAlias),
 			requiredChains,
@@ -555,18 +584,15 @@ func validateVerifierChainSupport(
 	return shared.FormatChainValidationError(validationResults)
 }
 
-func getRequiredChainsForNOP(nopAlias string, committee ccvdeployment.CommitteeConfig) ([]uint64, error) {
+func getRequiredChainsForVerifierNOP(nopAlias shared.NOPAlias, committee CommitteeInput) []uint64 {
 	var requiredChains []uint64
-	for chainSelectorStr, chainConfig := range committee.ChainConfigs {
-		if slices.Contains(chainConfig.NOPAliases, nopAlias) {
-			sel, err := strconv.ParseUint(chainSelectorStr, 10, 64)
-			if err != nil {
-				return nil, fmt.Errorf("committee chain_configs key %q is not a valid chain selector: %w", chainSelectorStr, err)
-			}
-			requiredChains = append(requiredChains, sel)
+	for chainSelector, chainCfg := range committee.ChainConfigs {
+		if slices.Contains(chainCfg.NOPAliases, nopAlias) {
+			requiredChains = append(requiredChains, chainSelector)
 		}
 	}
-	return requiredChains, nil
+	slices.Sort(requiredChains)
+	return requiredChains
 }
 
 func signerFromJDIfMissing(

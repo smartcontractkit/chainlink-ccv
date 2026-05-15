@@ -17,11 +17,29 @@ type SignatureConfig struct {
 	Threshold           uint8
 }
 
-// AggregatorConfigAdapter provides chain-family-specific offchain logic for aggregator config:
-// resolving verifier addresses from the datastore without any onchain reads.
+// AggregatorConfigAdapter provides chain-family-specific offchain logic for populating
+// the aggregator config.
+//
+// The aggregator's committee configuration is organized to include the following:
+// * quorum configs for each source chain selector, which includes the source verifier address,
+// * destination verifier addresses for each destination chain selector.
+//
+// Note that a source chain selector can also be a destination chain selector, i.e. the selectors
+// refer to the same chain.
+//
+// Most chains will resolve the same address in the quorum configs and the destination verifier addresses.
+// However, some chains may not.
 type AggregatorConfigAdapter interface {
-	// ResolveVerifierAddress returns the verifier contract address for the given chain and qualifier using the datastore.
-	ResolveVerifierAddress(ds datastore.DataStore, chainSelector uint64, qualifier string) (string, error)
+	// ResolveSourceVerifierAddress returns the source verifier contract address for the given chain and qualifier using the datastore.
+	// This is used to populate the quorum configs.
+	// If the chain family doesn't need any special logic, this can return the same value as ResolveDestinationVerifierAddress.
+	ResolveSourceVerifierAddress(ds datastore.DataStore, chainSelector uint64, qualifier string) (string, error)
+
+	// ResolveDestinationVerifierAddress returns the destination verifier contract address for the given chain and qualifier using the datastore.
+	// This is used to populate the destination verifier addresses.
+	// If the chain family doesn't need any special logic, this can return the same value as ResolveSourceVerifierAddress.
+	ResolveDestinationVerifierAddress(ds datastore.DataStore, chainSelector uint64, qualifier string) (string, error)
+
 	// GetDeployedChains returns all destination chain selectors for which a committee verifier
 	// with the given qualifier is recorded in the datastore. The EVM implementation lives in
 	// chainlink-ccip/chains/evm and is registered via adapters.Registry at process startup.

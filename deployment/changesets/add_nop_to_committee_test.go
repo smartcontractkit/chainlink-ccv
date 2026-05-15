@@ -652,7 +652,15 @@ func (s *stubAggregatorAdapter) GetDeployedChains(_ datastore.DataStore, _ strin
 	return s.deployedChains
 }
 
-func (s *stubAggregatorAdapter) ResolveVerifierAddress(_ datastore.DataStore, chainSelector uint64, _ string) (string, error) {
+func (s *stubAggregatorAdapter) ResolveSourceVerifierAddress(ds datastore.DataStore, chainSelector uint64, qualifier string) (string, error) {
+	return s.resolveVerifierAddress(ds, chainSelector, qualifier)
+}
+
+func (s *stubAggregatorAdapter) ResolveDestinationVerifierAddress(ds datastore.DataStore, chainSelector uint64, qualifier string) (string, error) {
+	return s.resolveVerifierAddress(ds, chainSelector, qualifier)
+}
+
+func (s *stubAggregatorAdapter) resolveVerifierAddress(_ datastore.DataStore, chainSelector uint64, _ string) (string, error) {
 	if s.resolveErr != nil {
 		return "", s.resolveErr
 	}
@@ -699,7 +707,17 @@ func (s *stubFullAdapter) GetDeployedChains(_ datastore.DataStore, _ string) []u
 	return chains
 }
 
-func (s *stubFullAdapter) ResolveVerifierAddress(_ datastore.DataStore, chainSelector uint64, _ string) (string, error) {
+// ResolveDestinationVerifierAddress implements [adapters.AggregatorConfigAdapter].
+func (s *stubFullAdapter) ResolveDestinationVerifierAddress(ds datastore.DataStore, chainSelector uint64, qualifier string) (string, error) {
+	return s.resolveVerifierAddress(ds, chainSelector, qualifier)
+}
+
+// ResolveSourceVerifierAddress implements [adapters.AggregatorConfigAdapter].
+func (s *stubFullAdapter) ResolveSourceVerifierAddress(ds datastore.DataStore, chainSelector uint64, qualifier string) (string, error) {
+	return s.resolveVerifierAddress(ds, chainSelector, qualifier)
+}
+
+func (s *stubFullAdapter) resolveVerifierAddress(_ datastore.DataStore, chainSelector uint64, _ string) (string, error) {
 	if s.resolveErr != nil {
 		return "", s.resolveErr
 	}

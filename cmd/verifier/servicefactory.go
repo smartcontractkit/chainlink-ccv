@@ -314,13 +314,16 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 
 	verifierMonitoring.RecordServiceStarted(ctx)
 
-	// Setup HTTP server for health checks and status
-	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+	// Dedicated mux per Start(): JD job replacement calls Start again after Stop. Using
+	// http.HandleFunc would register on DefaultServeMux, which is never cleared — second
+	// Start panics with conflicting pattern "/".
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		lggr.Infow("CCV Verifier is running!\n")
 		lggr.Infow("Verifier ID: %s\n", coordinatorConfig.VerifierID)
 	})
 
-	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		for serviceName, err := range coordinator.HealthReport() {
 			if err != nil {
 				w.WriteHeader(http.StatusServiceUnavailable)
@@ -332,7 +335,7 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 		lggr.Infow("Healthy\n")
 	})
 
-	http.HandleFunc("/stats", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/stats", func(w http.ResponseWriter, r *http.Request) {
 		stats := aggregatorWriter.GetStats()
 		lggr.Infow("Storage Statistics:\n")
 		for key, value := range stats {
@@ -342,7 +345,12 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 
 	// Start HTTP server
 	// TODO: listen port should be configurable.
-	server := &http.Server{Addr: ":8100", ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second}
+	server := &http.Server{
+		Addr:         ":8100",
+		Handler:      mux,
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 10 * time.Second,
+	}
 	go func() {
 		lggr.Infow("🌐 HTTP server starting", "port", "8100")
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {

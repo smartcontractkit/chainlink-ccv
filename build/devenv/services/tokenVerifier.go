@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/go-connections/nat"
+	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/api/types/network"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -94,8 +94,8 @@ func NewTokenVerifier(in *TokenVerifierInput, blockchainOutputs []*blockchain.Ou
 				},
 				Labels: framework.DefaultTCLabels(),
 				HostConfigModifier: func(h *container.HostConfig) {
-					h.PortBindings = nat.PortMap{
-						"5432/tcp": []nat.PortBinding{
+					h.PortBindings = network.PortMap{
+						network.MustParsePort("5432/tcp"): []network.PortBinding{
 							{HostPort: strconv.Itoa(in.DB.Port)},
 						},
 					}
@@ -143,9 +143,9 @@ func NewTokenVerifier(in *TokenVerifierInput, blockchainOutputs []*blockchain.Ou
 		// add more internal ports here with /tcp suffix, ex.: 9222/tcp
 		ExposedPorts: []string{"8100/tcp"},
 		HostConfigModifier: func(h *container.HostConfig) {
-			h.PortBindings = nat.PortMap{
+			h.PortBindings = network.PortMap{
 				// add more internal/external pairs here, ex.: 9222/tcp as a key and HostPort is the exposed port (no /tcp prefix!)
-				"8100/tcp": []nat.PortBinding{
+				network.MustParsePort("8100/tcp"): []network.PortBinding{
 					{HostPort: strconv.Itoa(in.Port)},
 				},
 			}
