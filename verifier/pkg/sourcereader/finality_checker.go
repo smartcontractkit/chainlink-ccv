@@ -106,6 +106,10 @@ func (f *FinalityViolationCheckerService) UpdateFinalized(ctx context.Context, f
 	}
 
 	if finalizedBlock < f.lastFinalized {
+		if f.lastFinalized-finalizedBlock+1 > MaxFinalityBlocksStored {
+			return fmt.Errorf("new finalized block %d is too far behind last recorded %d",
+				finalizedBlock, f.lastFinalized)
+		}
 		f.lggr.Warnw("Finalized block number decreased - RPC may be lagging, verifying full range",
 			"lastFinalized", f.lastFinalized,
 			"newFinalized", finalizedBlock,
