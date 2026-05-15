@@ -8,10 +8,12 @@ import (
 	gethcommon "github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/require"
 
+	chainsel "github.com/smartcontractkit/chain-selectors"
 	burn_mint_erc20_with_drip_v1_5 "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_5_0/operations/burn_mint_erc20_with_drip"
 	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
+	evmaddr "github.com/smartcontractkit/chainlink-ccv/build/devenv/evm/addressresolver"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/tcapi"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/tcapi/basic"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/tcapi/token_transfer"
@@ -48,9 +50,12 @@ func TestE2ESmoke_Basic(t *testing.T) {
 		tcapi.WithAggregatorClients(aggregators),
 		tcapi.WithIndexerMonitor(mon),
 	}
+	addressResolvers := tcapi.AddressResolvers{
+		chainsel.FamilyEVM: evmaddr.New(),
+	}
 
 	t.Run("extra args v3 messaging", func(t *testing.T) {
-		cases, err := basic.All(ctx, env, caseOpts...)
+		cases, err := basic.All(ctx, env, addressResolvers, caseOpts...)
 		require.NoError(t, err)
 		for _, tc := range cases {
 			if tc.HavePrerequisites(ctx) {
@@ -66,7 +71,7 @@ func TestE2ESmoke_Basic(t *testing.T) {
 
 	t.Run("extra args v3 token transfer", func(t *testing.T) {
 		combos := common.AllTokenCombinations()
-		cases, err := token_transfer.All(ctx, env, combos, caseOpts...)
+		cases, err := token_transfer.All(ctx, env, addressResolvers, combos, caseOpts...)
 		require.NoError(t, err)
 		for _, tc := range cases {
 			if tc.HavePrerequisites(ctx) {
@@ -78,7 +83,7 @@ func TestE2ESmoke_Basic(t *testing.T) {
 				t.Logf("Skipping %s because current environment does not have the prerequisites", tc.Name())
 			}
 		}
-		cases17, err := token_transfer.All17(ctx, env, combos, caseOpts...)
+		cases17, err := token_transfer.All17(ctx, env, addressResolvers, combos, caseOpts...)
 		require.NoError(t, err)
 		for _, tc := range cases17 {
 			if tc.HavePrerequisites(ctx) {
