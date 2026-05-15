@@ -1,4 +1,8 @@
-package ccv
+// Package chainimpl holds the per-chain CCIP17 implementation factory
+// registry. It lives in its own package so callers below the ccv package
+// (e.g. phased-runtime components) can resolve chain implementations without
+// importing the ccv package and creating an import cycle.
+package chainimpl
 
 import (
 	"context"
@@ -26,7 +30,6 @@ type ImplFactory interface {
 	// tests.
 	New(
 		ctx context.Context,
-		cfg *Cfg,
 		lggr zerolog.Logger,
 		env *deployment.Environment,
 		bc *blockchain.Input,
@@ -58,7 +61,6 @@ type ImplFactory interface {
 }
 
 var (
-	// implFactories is a map of chain family to implementation factory.
 	implFactories   map[string]ImplFactory
 	implFactoriesMu sync.Mutex
 )

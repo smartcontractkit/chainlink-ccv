@@ -5,6 +5,7 @@ package mocks
 import (
 	context "context"
 
+	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
 	mock "github.com/stretchr/testify/mock"
 )
 
@@ -22,7 +23,7 @@ func (_m *MockPhase2Component) EXPECT() *MockPhase2Component_Expecter {
 }
 
 // RunPhase2 provides a mock function with given fields: ctx, globalConfig, componentConfig, priorOutputs
-func (_m *MockPhase2Component) RunPhase2(ctx context.Context, globalConfig map[string]interface{}, componentConfig interface{}, priorOutputs map[string]interface{}) (map[string]interface{}, error) {
+func (_m *MockPhase2Component) RunPhase2(ctx context.Context, globalConfig map[string]interface{}, componentConfig interface{}, priorOutputs map[string]interface{}) (map[string]interface{}, []devenvruntime.Effect, error) {
 	ret := _m.Called(ctx, globalConfig, componentConfig, priorOutputs)
 
 	if len(ret) == 0 {
@@ -30,8 +31,9 @@ func (_m *MockPhase2Component) RunPhase2(ctx context.Context, globalConfig map[s
 	}
 
 	var r0 map[string]interface{}
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, map[string]interface{}, interface{}, map[string]interface{}) (map[string]interface{}, error)); ok {
+	var r1 []devenvruntime.Effect
+	var r2 error
+	if rf, ok := ret.Get(0).(func(context.Context, map[string]interface{}, interface{}, map[string]interface{}) (map[string]interface{}, []devenvruntime.Effect, error)); ok {
 		return rf(ctx, globalConfig, componentConfig, priorOutputs)
 	}
 	if rf, ok := ret.Get(0).(func(context.Context, map[string]interface{}, interface{}, map[string]interface{}) map[string]interface{}); ok {
@@ -42,13 +44,21 @@ func (_m *MockPhase2Component) RunPhase2(ctx context.Context, globalConfig map[s
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, map[string]interface{}, interface{}, map[string]interface{}) error); ok {
+	if rf, ok := ret.Get(1).(func(context.Context, map[string]interface{}, interface{}, map[string]interface{}) []devenvruntime.Effect); ok {
 		r1 = rf(ctx, globalConfig, componentConfig, priorOutputs)
 	} else {
-		r1 = ret.Error(1)
+		if ret.Get(1) != nil {
+			r1 = ret.Get(1).([]devenvruntime.Effect)
+		}
 	}
 
-	return r0, r1
+	if rf, ok := ret.Get(2).(func(context.Context, map[string]interface{}, interface{}, map[string]interface{}) error); ok {
+		r2 = rf(ctx, globalConfig, componentConfig, priorOutputs)
+	} else {
+		r2 = ret.Error(2)
+	}
+
+	return r0, r1, r2
 }
 
 // MockPhase2Component_RunPhase2_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RunPhase2'
@@ -72,12 +82,12 @@ func (_c *MockPhase2Component_RunPhase2_Call) Run(run func(ctx context.Context, 
 	return _c
 }
 
-func (_c *MockPhase2Component_RunPhase2_Call) Return(_a0 map[string]interface{}, _a1 error) *MockPhase2Component_RunPhase2_Call {
-	_c.Call.Return(_a0, _a1)
+func (_c *MockPhase2Component_RunPhase2_Call) Return(_a0 map[string]interface{}, _a1 []devenvruntime.Effect, _a2 error) *MockPhase2Component_RunPhase2_Call {
+	_c.Call.Return(_a0, _a1, _a2)
 	return _c
 }
 
-func (_c *MockPhase2Component_RunPhase2_Call) RunAndReturn(run func(context.Context, map[string]interface{}, interface{}, map[string]interface{}) (map[string]interface{}, error)) *MockPhase2Component_RunPhase2_Call {
+func (_c *MockPhase2Component_RunPhase2_Call) RunAndReturn(run func(context.Context, map[string]interface{}, interface{}, map[string]interface{}) (map[string]interface{}, []devenvruntime.Effect, error)) *MockPhase2Component_RunPhase2_Call {
 	_c.Call.Return(run)
 	return _c
 }

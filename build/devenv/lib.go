@@ -11,6 +11,7 @@ import (
 
 	chain_selectors "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainimpl"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/registry"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/client"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
@@ -211,11 +212,11 @@ func (l *libFromCCV) Chains(ctx context.Context) ([]ChainImpl, error) {
 		seen[details.ChainSelector] = struct{}{}
 
 		// Create chain implementations via the registered ImplFactory for each family.
-		fac, err := GetImplFactory(bc.Out.Family)
+		fac, err := chainimpl.GetImplFactory(bc.Out.Family)
 		if err != nil {
 			return nil, fmt.Errorf("getting implementation factory for chain ID %s selector %d family %s: %w", bc.ChainID, details.ChainSelector, bc.Out.Family, err)
 		}
-		impl, err := fac.New(ctx, l.cfg, *l.l, l.cldfEnv, bc)
+		impl, err := fac.New(ctx, *l.l, l.cldfEnv, bc)
 		if err != nil {
 			return nil, fmt.Errorf("creating implementation for chain ID %s selector %d family %s: %w", bc.ChainID, details.ChainSelector, bc.Out.Family, err)
 		}
