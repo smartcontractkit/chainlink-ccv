@@ -10,9 +10,9 @@ import (
 	"github.com/rs/zerolog"
 
 	chain_selectors "github.com/smartcontractkit/chain-selectors"
+	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainimpl"
-	"github.com/smartcontractkit/chainlink-ccv/build/devenv/registry"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/client"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
@@ -59,11 +59,10 @@ type Lib interface {
 }
 
 type libFromCCV struct {
-	envOutFile     string
-	cfg            *Cfg
-	l              *zerolog.Logger
-	familiesToLoad []string
-	cldfEnv        *deployment.Environment
+	envOutFile string
+	cfg        *Cfg
+	libCLDF    Lib
+	l          zerolog.Logger
 }
 
 // NewLibFromCCVEnv creates Lib given a logger and envOutFile.
@@ -83,19 +82,17 @@ func NewLibFromCCVEnv(logger *zerolog.Logger, envOutFile string, familiesToLoad 
 		return nil, fmt.Errorf("failed to create CLDF operations environment: %w", err)
 	}
 
-	lib := &libFromCCV{
-		envOutFile:     envOutFile,
-		cfg:            cfg,
-		l:              logger,
-		familiesToLoad: familiesToLoad,
-		cldfEnv:        env,
+	cldfLib, err := NewLibFromCLDFEnv(logger, env, familiesToLoad...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create CLDF library: %w", err)
 	}
 
-	if err := lib.verify(); err != nil {
-		return nil, fmt.Errorf("invalid library object: %w", err)
-	}
-
-	return lib, nil
+	return &libFromCCV{
+		envOutFile: envOutFile,
+		cfg:        cfg,
+		libCLDF:    cldfLib,
+		l:          *logger,
+	}, nil
 }
 
 // NewImpl is a convenience function that fetches a specific impl from the library.
@@ -125,12 +122,7 @@ func (l *libFromCCV) verify() error {
 	if l.cfg == nil {
 		return fmt.Errorf("configuration is nil")
 	}
-	if l.l == nil {
-		return fmt.Errorf("logger is nil")
-	}
-	if l.cldfEnv == nil {
-		return fmt.Errorf("CLDF environment is nil")
-	}
+
 	return nil
 }
 
@@ -139,14 +131,11 @@ func (l *libFromCCV) CLDFEnvironment() (*deployment.Environment, error) {
 	if err := l.verify(); err != nil {
 		return nil, fmt.Errorf("failed to initialize CLDF environment: %w", err)
 	}
-	return l.cldfEnv, nil
+	return l.libCLDF.CLDFEnvironment()
 }
 
 func (l *libFromCCV) DataStore() (datastore.DataStore, error) {
-	if err := l.verify(); err != nil {
-		return nil, fmt.Errorf("failed to initialize datastore: %w", err)
-	}
-	return l.cfg.CLDF.DataStore, nil
+	return l.libCLDF.DataStore()
 }
 
 func (l *libFromCCV) Indexer() (*client.IndexerClient, error) {
@@ -186,79 +175,17 @@ func (l *libFromCCV) AllIndexers() ([]*client.IndexerClient, error) {
 // additional chain implementations that were externally registered via
 // registry.GetGlobalChainImplRegistry().Register() but are not present in the cfg.
 func (l *libFromCCV) Chains(ctx context.Context) ([]ChainImpl, error) {
-	if err := l.verify(); err != nil {
-		return nil, fmt.Errorf("invalid library object: %w", err)
-	}
-
-	// Track which selectors were handled from the cfg so we can append registry-only entries afterwards.
-	chainImplRegistry := registry.GetGlobalChainImplRegistry()
-	seen := make(map[uint64]struct{})
-	impls := make([]ChainImpl, 0, len(l.cfg.Blockchains))
-	for _, bc := range l.cfg.Blockchains {
-		if len(l.familiesToLoad) > 0 && !slices.Contains(l.familiesToLoad, bc.Out.Family) {
-			l.l.Info().
-				Any("familiesToLoad", l.familiesToLoad).
-				Str("chainID", bc.ChainID).
-				Str("family", bc.Out.Family).
-				Msg("Skipping chain because it is not in the families to load")
-			continue
-		}
-
-		details, err := chain_selectors.GetChainDetailsByChainIDAndFamily(bc.ChainID, bc.Out.Family)
-		if err != nil {
-			return nil, fmt.Errorf("getting chain details for chain ID %s and family %s: %w", bc.ChainID, bc.Out.Family, err)
-		}
-
-		seen[details.ChainSelector] = struct{}{}
-
-		// Create chain implementations via the registered ImplFactory for each family.
-		fac, err := chainimpl.GetImplFactory(bc.Out.Family)
-		if err != nil {
-			return nil, fmt.Errorf("getting implementation factory for chain ID %s selector %d family %s: %w", bc.ChainID, details.ChainSelector, bc.Out.Family, err)
-		}
-		impl, err := fac.New(ctx, *l.l, l.cldfEnv, details.ChainSelector)
-		if err != nil {
-			return nil, fmt.Errorf("creating implementation for chain ID %s selector %d family %s: %w", bc.ChainID, details.ChainSelector, bc.Out.Family, err)
-		}
-
-		if err := chainImplRegistry.Register(bc.ChainID, bc.Out.Family, impl); err != nil {
-			return nil, fmt.Errorf("registering chain implementation for chain ID %s with family %s: %w", bc.ChainID, bc.Out.Family, err)
-		}
-		impls = append(impls, ChainImpl{
-			CCIP17:  impl,
-			Details: details,
-		})
-	}
-
-	// Append any externally registered impls that were not in the cfg but are present in the registry.
-	for selector, entry := range chainImplRegistry.GetAll() {
-		if _, ok := seen[selector]; ok {
-			continue
-		}
-		impls = append(impls, ChainImpl{
-			CCIP17:  entry.Impl,
-			Details: entry.Details,
-		})
-	}
-
-	return impls, nil
+	return l.libCLDF.Chains(ctx)
 }
 
 func (l *libFromCCV) ChainsMap(ctx context.Context) (map[uint64]cciptestinterfaces.CCIP17, error) {
-	impls, err := l.Chains(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get chain implementations: %w", err)
-	}
-	chainMap := make(map[uint64]cciptestinterfaces.CCIP17)
-	for _, impl := range impls {
-		chainMap[impl.Details.ChainSelector] = impl.CCIP17
-	}
-
-	return chainMap, nil
+	return l.libCLDF.ChainsMap(ctx)
 }
 
 type libFromCLDF struct {
-	env *deployment.Environment
+	env            *deployment.Environment
+	familiesToLoad []string
+	l              zerolog.Logger
 }
 
 // AllIndexers implements [Lib].
@@ -273,12 +200,52 @@ func (l *libFromCLDF) CLDFEnvironment() (*deployment.Environment, error) {
 
 // Chains implements [Lib].
 func (l *libFromCLDF) Chains(ctx context.Context) ([]ChainImpl, error) {
-	panic("unimplemented")
+	chainMap, err := l.ChainsMap(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get chain map: %w", err)
+	}
+
+	chainImpls := make([]ChainImpl, 0, len(chainMap))
+	for selector, impl := range chainMap {
+		details, err := chainsel.GetChainDetails(selector)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get chain details for chain %d: %w", selector, err)
+		}
+		chainImpls = append(chainImpls, ChainImpl{
+			CCIP17:  impl,
+			Details: details,
+		})
+	}
+
+	return chainImpls, nil
 }
 
 // ChainsMap implements [Lib].
 func (l *libFromCLDF) ChainsMap(ctx context.Context) (map[uint64]cciptestinterfaces.CCIP17, error) {
-	panic("unimplemented")
+	chainMap := make(map[uint64]cciptestinterfaces.CCIP17)
+	for selector := range l.env.BlockChains.All() {
+		family, err := chainsel.GetSelectorFamily(selector)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get selector family for chain %d: %w", selector, err)
+		}
+
+		if len(l.familiesToLoad) > 0 && !slices.Contains(l.familiesToLoad, family) {
+			continue
+		}
+
+		implFactory, err := chainimpl.GetImplFactory(family)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get implementation factory for family %s: %w", family, err)
+		}
+		impl, err := implFactory.New(ctx, l.l, l.env, selector)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create implementation for chain %d: %w", selector, err)
+		}
+
+		chainMap[selector] = impl
+	}
+
+	return chainMap, nil
 }
 
 // DataStore implements [Lib].
@@ -291,9 +258,11 @@ func (l *libFromCLDF) Indexer() (*client.IndexerClient, error) {
 	return nil, fmt.Errorf("no indexer clients available in CLDF environment")
 }
 
-func NewLibFromCLDFEnv(env *deployment.Environment) (Lib, error) {
+func NewLibFromCLDFEnv(logger *zerolog.Logger, env *deployment.Environment, familiesToLoad ...string) (Lib, error) {
 	lib := &libFromCLDF{
-		env: env,
+		env:            env,
+		familiesToLoad: familiesToLoad,
+		l:              *logger,
 	}
 	return lib, nil
 }
