@@ -22,8 +22,15 @@ import (
 
 	_ "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/adapters"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainimpl"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	_ "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/blockchains"
+	_ "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/committeeccv"
+	_ "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/executor"
+	_ "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/fake"
+	_ "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/indexer"
+	_ "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/jd"
+	_ "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/pricer"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/chainconfig"
@@ -434,13 +441,13 @@ func NewProductConfigurationFromNetwork(typ string) (cciptestinterfaces.CCIP17Co
 	resolved, err := blockchain.TypeToFamily(typ)
 	if err != nil {
 		// typ might already be a family name — try the factory directly before giving up.
-		if fac, facErr := GetImplFactory(typ); facErr == nil {
+		if fac, facErr := chainimpl.GetImplFactory(typ); facErr == nil {
 			return fac.NewEmpty(), nil
 		}
 		return nil, fmt.Errorf("unknown blockchain type %q (not a recognized type or family): %w", typ, err)
 	}
 	family := string(resolved)
-	fac, err := GetImplFactory(family)
+	fac, err := chainimpl.GetImplFactory(family)
 	if err != nil {
 		return nil, fmt.Errorf("could not find impl factory for chain type %s (family %s): %w", typ, family, err)
 	}
@@ -456,7 +463,7 @@ func NewProductConfigurationFromNetwork(typ string) (cciptestinterfaces.CCIP17Co
 // Signer key selection is delegated to each registered ImplFactory via DefaultSignerKey,
 // so adding a new chain family requires no changes here.
 func enrichEnvironmentTopology(cfg *ccvdeployment.EnvironmentTopology, verifiers []*committeeverifier.Input) {
-	factories := GetAllImplFactories()
+	factories := chainimpl.GetAllImplFactories()
 
 	seenAliases := make(map[string]struct{})
 	for _, ver := range verifiers {
@@ -512,7 +519,7 @@ func buildEnvironmentTopology(in *Cfg, e *deployment.Environment) *ccvdeployment
 				if err != nil {
 					continue
 				}
-				fac, err := GetImplFactory(family)
+				fac, err := chainimpl.GetImplFactory(family)
 				if err != nil {
 					continue
 				}
@@ -1016,7 +1023,7 @@ func fundExecutorTransmitters(
 		if famErr != nil {
 			continue
 		}
-		fac, facErr := GetImplFactory(string(family))
+		fac, facErr := chainimpl.GetImplFactory(string(family))
 		if facErr != nil || !fac.SupportsFunding() {
 			continue
 		}
@@ -1034,27 +1041,36 @@ func fundExecutorTransmitters(
 }
 
 // launchExecutors starts executor containers for all Standalone-mode inputs.
+// Executors that were already launched by the executor component (Out != nil)
+// are skipped — they are collected into the output slice but not re-launched.
 func launchExecutors(in []*executorsvc.Input, blockchainOutputs []*blockchain.Output, jdInfra *jobs.JDInfrastructure) ([]*executorsvc.Output, error) {
 	var outs []*executorsvc.Output
 	for _, exec := range in {
-		if exec != nil && exec.Mode == services.Standalone {
-			out, err := executorsvc.New(exec, blockchainOutputs, jdInfra)
-			if err != nil {
-				return nil, fmt.Errorf("failed to create executor %s: %w", exec.ContainerName, err)
-			}
-			exec.Out = out
-			outs = append(outs, out)
+		if exec == nil || exec.Mode != services.Standalone {
+			continue
 		}
+		if exec.Out != nil {
+			outs = append(outs, exec.Out)
+			continue
+		}
+		out, err := executorsvc.New(exec, blockchainOutputs, jdInfra)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create executor %s: %w", exec.ContainerName, err)
+		}
+		exec.Out = out
+		outs = append(outs, out)
 	}
 	return outs, nil
 }
 
 // registerExecutorsWithJD registers executors with the Job Distributor
-// and waits for them to establish their WSRPC connections.
+// and waits for them to establish their WSRPC connections. Executors that
+// were already registered by the executor component (JDNodeID != "") are
+// skipped — their JDNodeID is already populated and the connection is live.
 func registerExecutorsWithJD(ctx context.Context, executors []*executorsvc.Input, jdClient offchain.Client) error {
 	var standalone []*executorsvc.Input
 	for _, exec := range executors {
-		if exec.Mode == services.Standalone {
+		if exec.Mode == services.Standalone && (exec.Out == nil || exec.Out.JDNodeID == "") {
 			standalone = append(standalone, exec)
 		}
 	}
