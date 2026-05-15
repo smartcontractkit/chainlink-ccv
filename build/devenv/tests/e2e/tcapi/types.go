@@ -45,12 +45,12 @@ type TestHarness struct {
 	AggregatorClients map[string]*ccv.AggregatorClient
 	// IndexerMonitor is the indexer monitor.
 	IndexerMonitor *ccv.IndexerMonitor
-	Lib            *ccv.Lib
+	Lib            ccv.Lib
 }
 
 func NewTestHarness(ctx context.Context, envOutPath string, cfg *ccv.Cfg, familiesToLoad ...string) (TestHarness, error) {
 	l := zerolog.Ctx(ctx)
-	lib, err := ccv.NewLib(l, envOutPath, familiesToLoad...)
+	lib, err := ccv.NewLibFromCCVEnv(l, envOutPath, familiesToLoad...)
 	if err != nil {
 		return TestHarness{}, err
 	}
@@ -94,7 +94,7 @@ func SetupAggregatorClients(
 // Returns nil if the indexer is not available (no error is raised).
 func SetupIndexerMonitor(
 	ctx context.Context,
-	lib *ccv.Lib,
+	lib ccv.Lib,
 ) (*ccv.IndexerMonitor, error) {
 	monitors, err := SetupAllIndexerMonitors(ctx, lib)
 	if err != nil {
@@ -108,7 +108,7 @@ func SetupIndexerMonitor(
 
 func SetupAllIndexerMonitors(
 	ctx context.Context,
-	lib *ccv.Lib,
+	lib ccv.Lib,
 ) (map[string]*ccv.IndexerMonitor, error) {
 	indexerClients, err := lib.AllIndexers()
 	if err != nil {

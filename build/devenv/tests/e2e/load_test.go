@@ -305,7 +305,7 @@ func TestE2ELoad(t *testing.T) {
 
 	ctx := ccv.Plog.WithContext(context.Background())
 	l := zerolog.Ctx(ctx)
-	lib, err := ccv.NewLib(l, outfile, chain_selectors.FamilyEVM)
+	lib, err := ccv.NewLibFromCCVEnv(l, outfile, chain_selectors.FamilyEVM)
 	require.NoError(t, err)
 	chainImpls, err := lib.ChainsMap(ctx)
 	require.NoError(t, err)
@@ -718,7 +718,7 @@ func TestStaging(t *testing.T) {
 
 	ctx := ccv.Plog.WithContext(context.Background())
 	l := zerolog.Ctx(ctx)
-	lib, err := ccv.NewLib(l, outfile, chain_selectors.FamilyEVM)
+	lib, err := ccv.NewLibFromCCVEnv(l, outfile, chain_selectors.FamilyEVM)
 	require.NoError(t, err)
 	chainImpls, err := lib.ChainsMap(ctx)
 	require.NoError(t, err)

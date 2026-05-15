@@ -331,7 +331,7 @@ func setupHATest(t *testing.T) *haTestSetup {
 	ctx := ccv.Plog.WithContext(t.Context())
 	l := zerolog.Ctx(ctx)
 
-	lib, err := ccv.NewLib(l, envOutPath, chain_selectors.FamilyEVM)
+	lib, err := ccv.NewLibFromCCVEnv(l, envOutPath, chain_selectors.FamilyEVM)
 	require.NoError(t, err)
 	chains, err := lib.Chains(ctx)
 	require.NoError(t, err)

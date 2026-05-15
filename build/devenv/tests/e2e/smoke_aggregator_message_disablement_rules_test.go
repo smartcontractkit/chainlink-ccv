@@ -94,7 +94,7 @@ func TestE2ESmoke_AggregatorLaneDisablementRule(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx := ccv.Plog.WithContext(t.Context())
-	lib, err := ccv.NewLib(zerolog.Ctx(ctx), smokeTestConfig, chain_selectors.FamilyEVM)
+	lib, err := ccv.NewLibFromCCVEnv(zerolog.Ctx(ctx), smokeTestConfig, chain_selectors.FamilyEVM)
 	require.NoError(t, err)
 	chains, err := lib.Chains(ctx)
 	require.NoError(t, err)
@@ -209,7 +209,7 @@ func TestE2ESmoke_AggregatorChainDisablementRule(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx := ccv.Plog.WithContext(t.Context())
-	lib, err := ccv.NewLib(zerolog.Ctx(ctx), smokeTestConfig, chain_selectors.FamilyEVM)
+	lib, err := ccv.NewLibFromCCVEnv(zerolog.Ctx(ctx), smokeTestConfig, chain_selectors.FamilyEVM)
 	require.NoError(t, err)
 	chains, err := lib.Chains(ctx)
 	require.NoError(t, err)

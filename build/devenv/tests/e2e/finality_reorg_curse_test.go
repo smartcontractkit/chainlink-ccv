@@ -43,7 +43,7 @@ func TestE2EReorg(t *testing.T) {
 	ctx := ccv.Plog.WithContext(context.Background())
 	l := zerolog.Ctx(ctx)
 	smokeTestConfig := GetSmokeTestConfig()
-	lib, err := ccv.NewLib(l, smokeTestConfig, chain_selectors.FamilyEVM)
+	lib, err := ccv.NewLibFromCCVEnv(l, smokeTestConfig, chain_selectors.FamilyEVM)
 	require.NoError(t, err)
 	cldfEnv, err := lib.CLDFEnvironment()
 	require.NoError(t, err)

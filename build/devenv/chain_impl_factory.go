@@ -21,6 +21,7 @@ type ImplFactory interface {
 	// NewEmpty creates an empty cciptestinterfaces.CCIP17Configuration object, this is
 	// primarily used to spin up new environments.
 	NewEmpty() cciptestinterfaces.CCIP17Configuration
+
 	// New creates a new cciptestinterfaces.CCIP17 object, this is primarily used in
 	// tests.
 	New(
@@ -29,6 +30,13 @@ type ImplFactory interface {
 		lggr zerolog.Logger,
 		env *deployment.Environment,
 		bc *blockchain.Input,
+	) (cciptestinterfaces.CCIP17, error)
+
+	// NewFromCLDFEnv creates a new cciptestinterfaces.CCIP17 object from a CLDF environment.
+	NewFromCLDFEnv(
+		lggr zerolog.Logger,
+		env *deployment.Environment,
+		chainSelector uint64,
 	) (cciptestinterfaces.CCIP17, error)
 
 	// DefaultSignerKey returns the default signer key for this chain family

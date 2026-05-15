@@ -51,6 +51,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/offramp"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/onramp"
 	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm/operations/contract"
+	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm/provider/rpcclient"
 
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_0/operations/rmn_remote"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/adapters"
@@ -217,6 +218,80 @@ func NewCCIP17EVM(ctx context.Context, logger zerolog.Logger, e *deployment.Envi
 		e:            e,
 		ds:           e.DataStore,
 		chain:        e.BlockChains.EVMChains()[chainDetails.ChainSelector],
+		logger:       logger,
+		chainDetails: chainDetails,
+		ethClient:    ethClient,
+		onRamp:       onRamp,
+		offRamp:      offRamp,
+		onRampPoller: &onRampPoller,
+	}, nil
+}
+
+func extractEthClientFromBackend(client interface{}) (*ethclient.Client, error) {
+	switch c := client.(type) {
+	case *ethclient.Client:
+		return c, nil
+	case *rpcclient.MultiClient:
+		return c.Client, nil
+	default:
+		return nil, fmt.Errorf("unsupported EVM on-chain client type %T", client)
+	}
+}
+
+// NewCCIP17EVM creates new smart-contracts wrappers with utility functions for CCIP17EVM implementation.
+func NewCCIP17EVMFromCLDFEnv(e *deployment.Environment, chainSelector uint64) (*CCIP17EVM, error) {
+	var (
+		onRamp       *onramp.OnRamp
+		offRamp      *offramp.OffRamp
+		onRampPoller eventPoller[cciptestinterfaces.MessageSentEvent]
+	)
+	chainDetails, err := chainsel.GetChainDetails(chainSelector)
+	if err != nil {
+		return nil, fmt.Errorf("get chain details for selector %d: %w", chainSelector, err)
+	}
+
+	evmChains := e.BlockChains.EVMChains()
+	cldfChain, ok := evmChains[chainSelector]
+	if !ok {
+		return nil, fmt.Errorf("evm chain %d not found in environment", chainSelector)
+	}
+
+	ethClient, err := extractEthClientFromBackend(cldfChain.Client)
+	if err != nil {
+		return nil, fmt.Errorf("extract eth client for chain %d: %w", chainSelector, err)
+	}
+
+	onRampAddressRef, err := e.DataStore.Addresses().Get(datastore.NewAddressRefKey(
+		chainDetails.ChainSelector,
+		datastore.ContractType(onrampoperations.ContractType),
+		semver.MustParse(onrampoperations.Deploy.Version()),
+		"",
+	))
+	if err != nil {
+		return nil, fmt.Errorf("get on ramp address for chain %d from datastore: %w", chainDetails.ChainSelector, err)
+	}
+	offRampAddressRef, err := e.DataStore.Addresses().Get(datastore.NewAddressRefKey(
+		chainDetails.ChainSelector,
+		datastore.ContractType(offrampoperations.ContractType),
+		semver.MustParse(offrampoperations.Deploy.Version()),
+		"",
+	))
+	if err != nil {
+		return nil, fmt.Errorf("get off ramp address for chain %d from datastore: %w", chainDetails.ChainSelector, err)
+	}
+	onRamp, err = onramp.NewOnRamp(common.HexToAddress(onRampAddressRef.Address), ethClient)
+	if err != nil {
+		return nil, fmt.Errorf("create on ramp wrapper for chain %d: %w", chainDetails.ChainSelector, err)
+	}
+	offRamp, err = offramp.NewOffRamp(common.HexToAddress(offRampAddressRef.Address), ethClient)
+	if err != nil {
+		return nil, fmt.Errorf("create off ramp wrapper for chain %d: %w", chainDetails.ChainSelector, err)
+	}
+
+	return &CCIP17EVM{
+		e:            e,
+		ds:           e.DataStore,
+		chain:        cldfChain,
 		logger:       logger,
 		chainDetails: chainDetails,
 		ethClient:    ethClient,

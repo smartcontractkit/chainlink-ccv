@@ -47,6 +47,14 @@ func (f *evmImplFactory) New(
 	return evm.NewCCIP17EVM(ctx, lggr, env, chainID, wsURL)
 }
 
+func (f *evmImplFactory) NewFromCLDFEnv(
+	lggr zerolog.Logger,
+	env *deployment.Environment,
+	chainSelector uint64,
+) (cciptestinterfaces.CCIP17, error) {
+	return evm.NewCCIP17EVMFromCLDFEnv(env, chainSelector)
+}
+
 func (f *evmImplFactory) DefaultSignerKey(keys services.BootstrapKeys) string {
 	return keys.ECDSAAddress
 }

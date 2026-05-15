@@ -22,7 +22,42 @@ type ChainImpl struct {
 	Details chain_selectors.ChainDetails
 }
 
-type Lib struct {
+// Lib abstracts an environment that CCIP is deployed on so that tests
+// can be written once and run on any environment.
+//
+// Lib is currently implemented with two "backends":
+// 1. A CCV devenv output file, i.e. env-out.toml.
+// 2. A CLDF environment.
+//
+// Note that not all methods may be implemented by all backends.
+// For example, as of writing, a CLDF environment doesn't store indexer
+// or aggregator endpoints, so the [Lib.Indexer] and [Lib.AllIndexers]
+// methods will return an error.
+type Lib interface {
+	// Chains returns a slice of [ChainImpl] objects in an unspecified order.
+	Chains(ctx context.Context) ([]ChainImpl, error)
+
+	// ChainsMap returns a map of chain selector to [cciptestinterfaces.CCIP17].
+	ChainsMap(ctx context.Context) (map[uint64]cciptestinterfaces.CCIP17, error)
+
+	// CLDFEnvironment returns the CLDF [deployment.Environment], if its available.
+	// or an error if no CLDF environment is available.
+	CLDFEnvironment() (*deployment.Environment, error)
+
+	// DataStore returns the CLDF [datastore.DataStore], if its available.
+	// or an error if no data store is available.
+	DataStore() (datastore.DataStore, error)
+
+	// Indexer returns the first indexer client from [Lib.AllIndexers],
+	// or an error if no indexer clients are available.
+	Indexer() (*client.IndexerClient, error)
+
+	// AllIndexers returns all indexer clients available.
+	// or an error if no indexer clients are available.
+	AllIndexers() ([]*client.IndexerClient, error)
+}
+
+type libFromCCV struct {
 	envOutFile     string
 	cfg            *Cfg
 	l              *zerolog.Logger
@@ -30,12 +65,12 @@ type Lib struct {
 	cldfEnv        *deployment.Environment
 }
 
-// NewLib creates a new Lib object given a logger and envOutFile.
+// NewLibFromCCVEnv creates Lib given a logger and envOutFile.
 // If familiesToLoad is provided, only chains with the given families will be loaded.
 // If familiesToLoad is not provided, all chains will be loaded.
-// The Lib instance uses the global chain family registry which can be extended
-// via RegisterChainFamilyAdapter() before calling NewLib.
-func NewLib(logger *zerolog.Logger, envOutFile string, familiesToLoad ...string) (*Lib, error) {
+// The instance uses the global chain family registry which can be extended
+// via RegisterChainFamilyAdapter() before calling NewLibFromCCVEnv.
+func NewLibFromCCVEnv(logger *zerolog.Logger, envOutFile string, familiesToLoad ...string) (Lib, error) {
 	cfg, err := LoadOutput[Cfg](envOutFile)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load environment output: %w", err)
@@ -47,7 +82,7 @@ func NewLib(logger *zerolog.Logger, envOutFile string, familiesToLoad ...string)
 		return nil, fmt.Errorf("failed to create CLDF operations environment: %w", err)
 	}
 
-	lib := &Lib{
+	lib := &libFromCCV{
 		envOutFile:     envOutFile,
 		cfg:            cfg,
 		l:              logger,
@@ -64,7 +99,7 @@ func NewLib(logger *zerolog.Logger, envOutFile string, familiesToLoad ...string)
 
 // NewImpl is a convenience function that fetches a specific impl from the library.
 func NewImpl(logger *zerolog.Logger, envOutFile string, selector uint64) (cciptestinterfaces.CCIP17, error) {
-	lib, err := NewLib(logger, envOutFile)
+	lib, err := NewLibFromCCVEnv(logger, envOutFile)
 	if err != nil {
 		return ChainImpl{}, fmt.Errorf("failed to create CCV library: %w", err)
 	}
@@ -82,7 +117,7 @@ func NewImpl(logger *zerolog.Logger, envOutFile string, selector uint64) (ccipte
 	return impl, nil
 }
 
-func (l *Lib) verify() error {
+func (l *libFromCCV) verify() error {
 	if l.envOutFile == "" {
 		return fmt.Errorf("environment output file is not set")
 	}
@@ -99,21 +134,21 @@ func (l *Lib) verify() error {
 }
 
 // CLDFEnvironment returns the CLDF environment.
-func (l *Lib) CLDFEnvironment() (*deployment.Environment, error) {
+func (l *libFromCCV) CLDFEnvironment() (*deployment.Environment, error) {
 	if err := l.verify(); err != nil {
 		return nil, fmt.Errorf("failed to initialize CLDF environment: %w", err)
 	}
 	return l.cldfEnv, nil
 }
 
-func (l *Lib) DataStore() (datastore.DataStore, error) {
+func (l *libFromCCV) DataStore() (datastore.DataStore, error) {
 	if err := l.verify(); err != nil {
 		return nil, fmt.Errorf("failed to initialize datastore: %w", err)
 	}
 	return l.cfg.CLDF.DataStore, nil
 }
 
-func (l *Lib) Indexer() (*client.IndexerClient, error) {
+func (l *libFromCCV) Indexer() (*client.IndexerClient, error) {
 	allIndexers, err := l.AllIndexers()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get all indexer clients: %w", err)
@@ -124,7 +159,7 @@ func (l *Lib) Indexer() (*client.IndexerClient, error) {
 	return allIndexers[0], nil
 }
 
-func (l *Lib) AllIndexers() ([]*client.IndexerClient, error) {
+func (l *libFromCCV) AllIndexers() ([]*client.IndexerClient, error) {
 	if err := l.verify(); err != nil {
 		return nil, fmt.Errorf("failed to initialize indexer client: %w", err)
 	}
@@ -149,7 +184,7 @@ func (l *Lib) AllIndexers() ([]*client.IndexerClient, error) {
 // Chains returns a slice of Chains in Blockchain cfg order, followed by any
 // additional chain implementations that were externally registered via
 // registry.GetGlobalChainImplRegistry().Register() but are not present in the cfg.
-func (l *Lib) Chains(ctx context.Context) ([]ChainImpl, error) {
+func (l *libFromCCV) Chains(ctx context.Context) ([]ChainImpl, error) {
 	if err := l.verify(); err != nil {
 		return nil, fmt.Errorf("invalid library object: %w", err)
 	}
@@ -208,7 +243,7 @@ func (l *Lib) Chains(ctx context.Context) ([]ChainImpl, error) {
 	return impls, nil
 }
 
-func (l *Lib) ChainsMap(ctx context.Context) (map[uint64]cciptestinterfaces.CCIP17, error) {
+func (l *libFromCCV) ChainsMap(ctx context.Context) (map[uint64]cciptestinterfaces.CCIP17, error) {
 	impls, err := l.Chains(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get chain implementations: %w", err)
@@ -219,4 +254,45 @@ func (l *Lib) ChainsMap(ctx context.Context) (map[uint64]cciptestinterfaces.CCIP
 	}
 
 	return chainMap, nil
+}
+
+type libFromCLDF struct {
+	env *deployment.Environment
+}
+
+// AllIndexers implements [Lib].
+func (l *libFromCLDF) AllIndexers() ([]*client.IndexerClient, error) {
+	return nil, fmt.Errorf("no indexer clients available in CLDF environment")
+}
+
+// CLDFEnvironment implements [Lib].
+func (l *libFromCLDF) CLDFEnvironment() (*deployment.Environment, error) {
+	return l.env, nil
+}
+
+// Chains implements [Lib].
+func (l *libFromCLDF) Chains(ctx context.Context) ([]ChainImpl, error) {
+	panic("unimplemented")
+}
+
+// ChainsMap implements [Lib].
+func (l *libFromCLDF) ChainsMap(ctx context.Context) (map[uint64]cciptestinterfaces.CCIP17, error) {
+	panic("unimplemented")
+}
+
+// DataStore implements [Lib].
+func (l *libFromCLDF) DataStore() (datastore.DataStore, error) {
+	return l.env.DataStore, nil
+}
+
+// Indexer implements [Lib].
+func (l *libFromCLDF) Indexer() (*client.IndexerClient, error) {
+	return nil, fmt.Errorf("no indexer clients available in CLDF environment")
+}
+
+func NewLibFromCLDFEnv(env *deployment.Environment) (Lib, error) {
+	lib := &libFromCLDF{
+		env: env,
+	}
+	return lib, nil
 }
