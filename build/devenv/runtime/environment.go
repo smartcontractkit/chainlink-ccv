@@ -4,10 +4,24 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"slices"
 	"sort"
 
 	"github.com/rs/zerolog"
 )
+
+// builtinOrder is the fixed execution order of BuiltinComponents. Builtins
+// represent infrastructure that subsequent components depend on; they run
+// before any Phase 1-4 components.
+//
+// To add a new builtin: register its component normally via Register, have
+// it implement BuiltinComponent, and append its config key here in the
+// position that respects its dependencies.
+//
+// When the dependency graph is non-trivial enough that maintaining this
+// list by hand is fragile, replace it with a topological sort over a
+// DependsOn() method (the planned follow-up refactor).
+var builtinOrder = []string{"blockchains"}
 
 // NewEnvironment runs the environment startup using the global registry.
 func NewEnvironment(ctx context.Context, rawConfig map[string]any, logger zerolog.Logger) (map[string]any, error) {
@@ -49,6 +63,41 @@ func NewEnvironmentWithRegistry(ctx context.Context, rawConfig map[string]any, r
 		logger.Error().Strs("keys", keys).Msg("unclaimed config keys with no fallback component registered")
 	}
 	accumulated := map[string]any{}
+
+	// Sanity check: any component implementing BuiltinComponent must appear
+	// in builtinOrder, or it would silently never run.
+	for key, comp := range specific {
+		if _, ok := comp.(BuiltinComponent); ok && !slices.Contains(builtinOrder, key) {
+			return nil, fmt.Errorf("component %q implements BuiltinComponent but is not in builtinOrder", key)
+		}
+	}
+
+	// Builtins run before Phase 1 in the order declared by builtinOrder.
+	// Unlike phases (where same-stage siblings can't see each other),
+	// builtins are explicitly ordered and each one sees all previously-run
+	// builtins' outputs via priorOutputs — that's the whole point of
+	// declaring an order. Outputs merge via mergeNoOverwrite after each
+	// call returns.
+	for _, key := range builtinOrder {
+		comp, ok := specific[key]
+		if !ok {
+			// Builtin not registered in this run (e.g. minimal test
+			// registry). Skipping is intentional — registration is the
+			// caller's responsibility.
+			continue
+		}
+		b, ok := comp.(BuiltinComponent)
+		if !ok {
+			return nil, fmt.Errorf("component %q listed in builtinOrder does not implement BuiltinComponent", key)
+		}
+		out, err := b.RunBuiltin(ctx, rawConfig, rawConfig[key], maps.Clone(accumulated))
+		if err != nil {
+			return nil, fmt.Errorf("builtin %s: %w", key, err)
+		}
+		if err := mergeNoOverwrite(accumulated, out, 0, key); err != nil {
+			return nil, err
+		}
+	}
 
 	// Phase 1 (no priorOutputs by interface; merge rules still apply).
 	{
@@ -164,15 +213,20 @@ const fallbackOwner = "<fallback>"
 
 // mergeNoOverwrite copies src into dst, returning an error if any key in src
 // already exists in dst. The phase number and owner identify the offending
-// component in the error message.
+// component in the error message. A phase of 0 identifies a builtin
+// component (which runs before Phase 1).
 func mergeNoOverwrite(dst, src map[string]any, phase int, owner string) error {
 	for k, v := range src {
 		if _, exists := dst[k]; exists {
+			stage := fmt.Sprintf("phase %d", phase)
+			if phase == 0 {
+				stage = "builtin"
+			}
 			return fmt.Errorf(
-				"phase %d component %q wrote output key %q that is already set; "+
-					"same-phase components must not collide and components must not "+
-					"overwrite outputs from prior phases",
-				phase, owner, k)
+				"%s component %q wrote output key %q that is already set; "+
+					"same-stage components must not collide and components must not "+
+					"overwrite outputs from prior stages",
+				stage, owner, k)
 		}
 		dst[k] = v
 	}
