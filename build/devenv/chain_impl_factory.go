@@ -10,6 +10,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
@@ -36,6 +37,18 @@ type ImplFactory interface {
 	// appropriate key type (e.g. EVM uses ECDSAAddress, Stellar uses EdDSA).
 	// Return "" if no default signer is available.
 	DefaultSignerKey(keys services.BootstrapKeys) string
+
+	// DefaultTransmitterKeyName returns the keystore key name used for
+	// transaction transmission on this chain family (e.g.,
+	// executor.DefaultEVMTransmitterKeyName for EVM,
+	// common.StellarTransmitterKeyName for Stellar).
+	DefaultTransmitterKeyName() string
+
+	// DeriveAddressesFromKeys extracts protocol addresses from bootstrap keys
+	// for this chain family. It should look up its DefaultTransmitterKeyName
+	// in keys.Keys and convert the public key to the appropriate address format.
+	// Returns nil if the key is not found.
+	DeriveAddressesFromKeys(keys services.BootstrapKeys) []protocol.UnknownAddress
 
 	// DefaultFeeAggregator returns a fee aggregator address to use as a
 	// fallback when topology omits one for the given chain. Each family

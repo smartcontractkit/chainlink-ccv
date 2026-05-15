@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/rs/zerolog"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
@@ -13,6 +14,8 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/evm"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/registry"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
+	"github.com/smartcontractkit/chainlink-ccv/executor"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	cldf_chain "github.com/smartcontractkit/chainlink-deployments-framework/chain"
 	cldf_evm_provider "github.com/smartcontractkit/chainlink-deployments-framework/chain/evm/provider"
 	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm/provider/rpcclient"
@@ -49,6 +52,22 @@ func (f *evmImplFactory) New(
 
 func (f *evmImplFactory) DefaultSignerKey(keys services.BootstrapKeys) string {
 	return keys.ECDSAAddress
+}
+
+func (f *evmImplFactory) DefaultTransmitterKeyName() string {
+	return executor.DefaultEVMTransmitterKeyName
+}
+
+func (f *evmImplFactory) DeriveAddressesFromKeys(keys services.BootstrapKeys) []protocol.UnknownAddress {
+	keyResp, ok := keys.Keys[f.DefaultTransmitterKeyName()]
+	if !ok {
+		return nil
+	}
+	evmPublicKey, err := crypto.UnmarshalPubkey(keyResp.KeyInfo.PublicKey)
+	if err != nil {
+		return nil
+	}
+	return []protocol.UnknownAddress{protocol.UnknownAddress(crypto.PubkeyToAddress(*evmPublicKey).Bytes())}
 }
 
 func (f *evmImplFactory) DefaultFeeAggregator(env *deployment.Environment, chainSelector uint64) string {
