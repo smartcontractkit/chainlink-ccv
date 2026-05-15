@@ -36,45 +36,52 @@ func New() addressresolver.AddressResolver {
 	return Resolver{}
 }
 
-// Resolve implements [addressresolver.AddressResolver].
-func (Resolver) Resolve(ds datastore.DataStore, chainSelector uint64, ref addressresolver.ContractRef) (protocol.UnknownAddress, error) {
-	switch ref.Role {
-	case addressresolver.RoleMockReceiver:
-		return getContractAddress(ds, chainSelector,
-			datastore.ContractType(mock_receiver_v2.ContractType),
-			mock_receiver_v2.Deploy.Version(),
-			ref.Qualifier,
-			"mock receiver",
-		)
-	case addressresolver.RoleExecutor:
-		return getContractAddress(ds, chainSelector,
-			datastore.ContractType(sequences.ExecutorProxyType),
-			proxy.Deploy.Version(),
-			ref.Qualifier,
-			"executor",
-		)
-	case addressresolver.RoleExecutorImpl:
-		return getContractAddress(ds, chainSelector,
-			datastore.ContractType(sequences.ExecutorProxyType),
-			executor.Deploy.Version(),
-			ref.Qualifier,
-			"executor",
-		)
-	case addressresolver.RoleCommitteeVerifierResolver:
-		return getContractAddress(ds, chainSelector,
-			datastore.ContractType(versioned_verifier_resolver.CommitteeVerifierResolverType),
-			versioned_verifier_resolver.Version.String(),
-			ref.Qualifier,
-			"committee verifier proxy",
-		)
-	case addressresolver.RoleBurnMintERC20:
-		return getContractAddress(ds, chainSelector,
-			datastore.ContractType(burn_mint_erc20_with_drip.ContractType),
-			burn_mint_erc20_with_drip.Deploy.Version(),
-			ref.Qualifier,
-			"burn mint erc677",
-		)
-	default:
-		return protocol.UnknownAddress{}, fmt.Errorf("evmaddr: unsupported contract role %q", ref.Role)
-	}
+// GetContractReceiver implements [addressresolver.AddressResolver].
+func (Resolver) GetContractReceiver(ds datastore.DataStore, chainSelector uint64, qualifier string) (protocol.UnknownAddress, error) {
+	return getContractAddress(ds, chainSelector,
+		datastore.ContractType(mock_receiver_v2.ContractType),
+		mock_receiver_v2.Deploy.Version(),
+		qualifier,
+		"mock receiver",
+	)
+}
+
+// GetExecutor implements [addressresolver.AddressResolver].
+func (Resolver) GetExecutor(ds datastore.DataStore, chainSelector uint64, qualifier string) (protocol.UnknownAddress, error) {
+	return getContractAddress(ds, chainSelector,
+		datastore.ContractType(sequences.ExecutorProxyType),
+		proxy.Deploy.Version(),
+		qualifier,
+		"executor",
+	)
+}
+
+// GetExecutorImpl implements [addressresolver.AddressResolver].
+func (Resolver) GetExecutorImpl(ds datastore.DataStore, chainSelector uint64, qualifier string) (protocol.UnknownAddress, error) {
+	return getContractAddress(ds, chainSelector,
+		datastore.ContractType(sequences.ExecutorProxyType),
+		executor.Deploy.Version(),
+		qualifier,
+		"executor",
+	)
+}
+
+// GetCommitteeCCV implements [addressresolver.AddressResolver].
+func (Resolver) GetCommitteeCCV(ds datastore.DataStore, chainSelector uint64, qualifier string) (protocol.UnknownAddress, error) {
+	return getContractAddress(ds, chainSelector,
+		datastore.ContractType(versioned_verifier_resolver.CommitteeVerifierResolverType),
+		versioned_verifier_resolver.Version.String(),
+		qualifier,
+		"committee verifier proxy",
+	)
+}
+
+// GetBurnMintERC20 implements [addressresolver.AddressResolver].
+func (Resolver) GetBurnMintERC20(ds datastore.DataStore, chainSelector uint64, qualifier string) (protocol.UnknownAddress, error) {
+	return getContractAddress(ds, chainSelector,
+		datastore.ContractType(burn_mint_erc20_with_drip.ContractType),
+		burn_mint_erc20_with_drip.Deploy.Version(),
+		qualifier,
+		"burn mint erc677",
+	)
 }

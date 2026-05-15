@@ -119,6 +119,42 @@ func (tc *v3TestCase) HavePrerequisites(ctx context.Context) bool {
 	return tc.hydrate(ctx, tc)
 }
 
+func committeeVerifierCCV(deps *tcapi.CaseDeps, srcSel uint64, qual string) (protocol.CCV, error) {
+	r, err := deps.ResolverAt(srcSel)
+	if err != nil {
+		return protocol.CCV{}, err
+	}
+	addr, err := r.GetCommitteeCCV(deps.DataStore, srcSel, qual)
+	if err != nil {
+		return protocol.CCV{}, err
+	}
+	return protocol.CCV{CCVAddress: addr, Args: []byte{}, ArgsLen: 0}, nil
+}
+
+func mockReceiverAddr(deps *tcapi.CaseDeps, dstSel uint64, qual string) (protocol.UnknownAddress, error) {
+	r, err := deps.ResolverAt(dstSel)
+	if err != nil {
+		return protocol.UnknownAddress{}, err
+	}
+	return r.GetContractReceiver(deps.DataStore, dstSel, qual)
+}
+
+func executorAddr(deps *tcapi.CaseDeps, srcSel uint64, qual string) (protocol.UnknownAddress, error) {
+	r, err := deps.ResolverAt(srcSel)
+	if err != nil {
+		return protocol.UnknownAddress{}, err
+	}
+	return r.GetExecutor(deps.DataStore, srcSel, qual)
+}
+
+func executorImplAddr(deps *tcapi.CaseDeps, srcSel uint64, qual string) (protocol.UnknownAddress, error) {
+	r, err := deps.ResolverAt(srcSel)
+	if err != nil {
+		return protocol.UnknownAddress{}, err
+	}
+	return r.GetExecutorImpl(deps.DataStore, srcSel, qual)
+}
+
 // CustomExecutor returns a test case that uses the custom executor.
 func CustomExecutor(src, dest cciptestinterfaces.CCIP17, deps *tcapi.CaseDeps) tcapi.TestCase {
 	return customExecutor(src, dest, deps)
@@ -138,17 +174,17 @@ func customExecutor(src, dest cciptestinterfaces.CCIP17, deps *tcapi.CaseDeps) *
 			numExpectedVerifications: 1,
 		},
 		hydrate: func(ctx context.Context, tc *v3TestCase) bool {
-			receiver, err := tc.deps.ResolveAddress(dest.ChainSelector(), tcapi.ContractRef{Role: tcapi.RoleMockReceiver, Qualifier: common.DefaultReceiverQualifier})
+			receiver, err := mockReceiverAddr(tc.deps, dest.ChainSelector(), common.DefaultReceiverQualifier)
 			if err != nil {
 				return false
 			}
 			tc.receiver = receiver
-			ccv, err := tc.deps.CommitteeCCV(src.ChainSelector(), common.DefaultCommitteeVerifierQualifier)
+			ccv, err := committeeVerifierCCV(tc.deps, src.ChainSelector(), common.DefaultCommitteeVerifierQualifier)
 			if err != nil {
 				return false
 			}
 			tc.ccvs = []protocol.CCV{ccv}
-			executorAddr, err := tc.deps.ResolveAddress(src.ChainSelector(), tcapi.ContractRef{Role: tcapi.RoleExecutor, Qualifier: common.CustomExecutorQualifier})
+			executorAddr, err := executorAddr(tc.deps, src.ChainSelector(), common.CustomExecutorQualifier)
 			if err != nil {
 				return false
 			}
@@ -181,12 +217,12 @@ func eoaReceiverDefaultVerifier(src, dest cciptestinterfaces.CCIP17, deps *tcapi
 				return false
 			}
 			tc.receiver = receiver
-			ccv, err := tc.deps.CommitteeCCV(tc.src.ChainSelector(), common.DefaultCommitteeVerifierQualifier)
+			ccv, err := committeeVerifierCCV(tc.deps, tc.src.ChainSelector(), common.DefaultCommitteeVerifierQualifier)
 			if err != nil {
 				return false
 			}
 			tc.ccvs = []protocol.CCV{ccv}
-			executorAddr, err := tc.deps.ResolveAddress(tc.src.ChainSelector(), tcapi.ContractRef{Role: tcapi.RoleExecutor, Qualifier: common.DefaultExecutorQualifier})
+			executorAddr, err := executorAddr(tc.deps, tc.src.ChainSelector(), common.DefaultExecutorQualifier)
 			if err != nil {
 				return false
 			}
@@ -219,16 +255,16 @@ func eoaReceiverSecondaryVerifier(src, dest cciptestinterfaces.CCIP17, deps *tca
 				return false
 			}
 			tc.receiver = receiver
-			sec, err := tc.deps.CommitteeCCV(tc.src.ChainSelector(), common.SecondaryCommitteeVerifierQualifier)
+			sec, err := committeeVerifierCCV(tc.deps, tc.src.ChainSelector(), common.SecondaryCommitteeVerifierQualifier)
 			if err != nil {
 				return false
 			}
-			def, err := tc.deps.CommitteeCCV(tc.src.ChainSelector(), common.DefaultCommitteeVerifierQualifier)
+			def, err := committeeVerifierCCV(tc.deps, tc.src.ChainSelector(), common.DefaultCommitteeVerifierQualifier)
 			if err != nil {
 				return false
 			}
 			tc.ccvs = []protocol.CCV{sec, def}
-			executorAddr, err := tc.deps.ResolveAddress(tc.src.ChainSelector(), tcapi.ContractRef{Role: tcapi.RoleExecutor, Qualifier: common.DefaultExecutorQualifier})
+			executorAddr, err := executorAddr(tc.deps, tc.src.ChainSelector(), common.DefaultExecutorQualifier)
 			if err != nil {
 				return false
 			}
@@ -257,17 +293,17 @@ func receiverSecondaryVerifierRequired(src, dest cciptestinterfaces.CCIP17, deps
 			aggregatorQualifier:      common.SecondaryCommitteeVerifierQualifier,
 		},
 		hydrate: func(ctx context.Context, tc *v3TestCase) bool {
-			receiver, err := tc.deps.ResolveAddress(tc.dst.ChainSelector(), tcapi.ContractRef{Role: tcapi.RoleMockReceiver, Qualifier: common.SecondaryReceiverQualifier})
+			receiver, err := mockReceiverAddr(tc.deps, tc.dst.ChainSelector(), common.SecondaryReceiverQualifier)
 			if err != nil {
 				return false
 			}
 			tc.receiver = receiver
-			ccv, err := tc.deps.CommitteeCCV(tc.src.ChainSelector(), common.SecondaryCommitteeVerifierQualifier)
+			ccv, err := committeeVerifierCCV(tc.deps, tc.src.ChainSelector(), common.SecondaryCommitteeVerifierQualifier)
 			if err != nil {
 				return false
 			}
 			tc.ccvs = []protocol.CCV{ccv}
-			executorAddr, err := tc.deps.ResolveAddress(tc.src.ChainSelector(), tcapi.ContractRef{Role: tcapi.RoleExecutor, Qualifier: common.DefaultExecutorQualifier})
+			executorAddr, err := executorAddr(tc.deps, tc.src.ChainSelector(), common.DefaultExecutorQualifier)
 			if err != nil {
 				return false
 			}
@@ -296,21 +332,21 @@ func receiverSecondaryRequiredTertiaryOptionalThreshold1(src, dest cciptestinter
 			aggregatorQualifier:      common.SecondaryCommitteeVerifierQualifier,
 		},
 		hydrate: func(ctx context.Context, tc *v3TestCase) bool {
-			receiver, err := tc.deps.ResolveAddress(tc.dst.ChainSelector(), tcapi.ContractRef{Role: tcapi.RoleMockReceiver, Qualifier: common.SecondaryReceiverQualifier})
+			receiver, err := mockReceiverAddr(tc.deps, tc.dst.ChainSelector(), common.SecondaryReceiverQualifier)
 			if err != nil {
 				return false
 			}
 			tc.receiver = receiver
-			sec, err := tc.deps.CommitteeCCV(tc.src.ChainSelector(), common.SecondaryCommitteeVerifierQualifier)
+			sec, err := committeeVerifierCCV(tc.deps, tc.src.ChainSelector(), common.SecondaryCommitteeVerifierQualifier)
 			if err != nil {
 				return false
 			}
-			ter, err := tc.deps.CommitteeCCV(tc.src.ChainSelector(), common.TertiaryCommitteeVerifierQualifier)
+			ter, err := committeeVerifierCCV(tc.deps, tc.src.ChainSelector(), common.TertiaryCommitteeVerifierQualifier)
 			if err != nil {
 				return false
 			}
 			tc.ccvs = []protocol.CCV{sec, ter}
-			executorAddr, err := tc.deps.ResolveAddress(tc.src.ChainSelector(), tcapi.ContractRef{Role: tcapi.RoleExecutorImpl, Qualifier: common.DefaultExecutorQualifier})
+			executorAddr, err := executorImplAddr(tc.deps, tc.src.ChainSelector(), common.DefaultExecutorQualifier)
 			if err != nil {
 				return false
 			}
@@ -338,25 +374,25 @@ func receiverQuaternaryAllThreeVerifiers(src, dest cciptestinterfaces.CCIP17, de
 			numExpectedVerifications: 3,
 		},
 		hydrate: func(ctx context.Context, tc *v3TestCase) bool {
-			receiver, err := tc.deps.ResolveAddress(tc.dst.ChainSelector(), tcapi.ContractRef{Role: tcapi.RoleMockReceiver, Qualifier: common.QuaternaryReceiverQualifier})
+			receiver, err := mockReceiverAddr(tc.deps, tc.dst.ChainSelector(), common.QuaternaryReceiverQualifier)
 			if err != nil {
 				return false
 			}
 			tc.receiver = receiver
-			def, err := tc.deps.CommitteeCCV(tc.src.ChainSelector(), common.DefaultCommitteeVerifierQualifier)
+			def, err := committeeVerifierCCV(tc.deps, tc.src.ChainSelector(), common.DefaultCommitteeVerifierQualifier)
 			if err != nil {
 				return false
 			}
-			sec, err := tc.deps.CommitteeCCV(tc.src.ChainSelector(), common.SecondaryCommitteeVerifierQualifier)
+			sec, err := committeeVerifierCCV(tc.deps, tc.src.ChainSelector(), common.SecondaryCommitteeVerifierQualifier)
 			if err != nil {
 				return false
 			}
-			ter, err := tc.deps.CommitteeCCV(tc.src.ChainSelector(), common.TertiaryCommitteeVerifierQualifier)
+			ter, err := committeeVerifierCCV(tc.deps, tc.src.ChainSelector(), common.TertiaryCommitteeVerifierQualifier)
 			if err != nil {
 				return false
 			}
 			tc.ccvs = []protocol.CCV{def, sec, ter}
-			executorAddr, err := tc.deps.ResolveAddress(tc.src.ChainSelector(), tcapi.ContractRef{Role: tcapi.RoleExecutor, Qualifier: common.DefaultExecutorQualifier})
+			executorAddr, err := executorAddr(tc.deps, tc.src.ChainSelector(), common.DefaultExecutorQualifier)
 			if err != nil {
 				return false
 			}
@@ -384,21 +420,21 @@ func receiverQuaternaryDefaultAndSecondary(src, dest cciptestinterfaces.CCIP17, 
 			numExpectedVerifications: 2,
 		},
 		hydrate: func(ctx context.Context, tc *v3TestCase) bool {
-			receiver, err := tc.deps.ResolveAddress(tc.dst.ChainSelector(), tcapi.ContractRef{Role: tcapi.RoleMockReceiver, Qualifier: common.QuaternaryReceiverQualifier})
+			receiver, err := mockReceiverAddr(tc.deps, tc.dst.ChainSelector(), common.QuaternaryReceiverQualifier)
 			if err != nil {
 				return false
 			}
 			tc.receiver = receiver
-			def, err := tc.deps.CommitteeCCV(tc.src.ChainSelector(), common.DefaultCommitteeVerifierQualifier)
+			def, err := committeeVerifierCCV(tc.deps, tc.src.ChainSelector(), common.DefaultCommitteeVerifierQualifier)
 			if err != nil {
 				return false
 			}
-			sec, err := tc.deps.CommitteeCCV(tc.src.ChainSelector(), common.SecondaryCommitteeVerifierQualifier)
+			sec, err := committeeVerifierCCV(tc.deps, tc.src.ChainSelector(), common.SecondaryCommitteeVerifierQualifier)
 			if err != nil {
 				return false
 			}
 			tc.ccvs = []protocol.CCV{def, sec}
-			executorAddr, err := tc.deps.ResolveAddress(tc.src.ChainSelector(), tcapi.ContractRef{Role: tcapi.RoleExecutor, Qualifier: common.DefaultExecutorQualifier})
+			executorAddr, err := executorAddr(tc.deps, tc.src.ChainSelector(), common.DefaultExecutorQualifier)
 			if err != nil {
 				return false
 			}
@@ -426,21 +462,21 @@ func receiverQuaternaryDefaultAndTertiary(src, dest cciptestinterfaces.CCIP17, d
 			numExpectedVerifications: 2,
 		},
 		hydrate: func(ctx context.Context, tc *v3TestCase) bool {
-			receiver, err := tc.deps.ResolveAddress(tc.dst.ChainSelector(), tcapi.ContractRef{Role: tcapi.RoleMockReceiver, Qualifier: common.QuaternaryReceiverQualifier})
+			receiver, err := mockReceiverAddr(tc.deps, tc.dst.ChainSelector(), common.QuaternaryReceiverQualifier)
 			if err != nil {
 				return false
 			}
 			tc.receiver = receiver
-			def, err := tc.deps.CommitteeCCV(tc.src.ChainSelector(), common.DefaultCommitteeVerifierQualifier)
+			def, err := committeeVerifierCCV(tc.deps, tc.src.ChainSelector(), common.DefaultCommitteeVerifierQualifier)
 			if err != nil {
 				return false
 			}
-			ter, err := tc.deps.CommitteeCCV(tc.src.ChainSelector(), common.TertiaryCommitteeVerifierQualifier)
+			ter, err := committeeVerifierCCV(tc.deps, tc.src.ChainSelector(), common.TertiaryCommitteeVerifierQualifier)
 			if err != nil {
 				return false
 			}
 			tc.ccvs = []protocol.CCV{def, ter}
-			executorAddr, err := tc.deps.ResolveAddress(tc.src.ChainSelector(), tcapi.ContractRef{Role: tcapi.RoleExecutor, Qualifier: common.DefaultExecutorQualifier})
+			executorAddr, err := executorAddr(tc.deps, tc.src.ChainSelector(), common.DefaultExecutorQualifier)
 			if err != nil {
 				return false
 			}
@@ -473,17 +509,17 @@ func maxDataSize(src, dest cciptestinterfaces.CCIP17, deps *tcapi.CaseDeps) *v3T
 				return false
 			}
 			tc.msgData = bytes.Repeat([]byte("a"), int(maxDataBytes))
-			receiver, err := tc.deps.ResolveAddress(tc.dst.ChainSelector(), tcapi.ContractRef{Role: tcapi.RoleMockReceiver, Qualifier: common.DefaultReceiverQualifier})
+			receiver, err := mockReceiverAddr(tc.deps, tc.dst.ChainSelector(), common.DefaultReceiverQualifier)
 			if err != nil {
 				return false
 			}
 			tc.receiver = receiver
-			ccv, err := tc.deps.CommitteeCCV(tc.src.ChainSelector(), common.DefaultCommitteeVerifierQualifier)
+			ccv, err := committeeVerifierCCV(tc.deps, tc.src.ChainSelector(), common.DefaultCommitteeVerifierQualifier)
 			if err != nil {
 				return false
 			}
 			tc.ccvs = []protocol.CCV{ccv}
-			executorAddr, err := tc.deps.ResolveAddress(tc.src.ChainSelector(), tcapi.ContractRef{Role: tcapi.RoleExecutor, Qualifier: common.DefaultExecutorQualifier})
+			executorAddr, err := executorAddr(tc.deps, tc.src.ChainSelector(), common.DefaultExecutorQualifier)
 			if err != nil {
 				return false
 			}
@@ -518,12 +554,12 @@ func eoaReceiverDefaultVerifierSafeTag(src, dest cciptestinterfaces.CCIP17, deps
 				return false
 			}
 			tc.receiver = receiver
-			ccv, err := tc.deps.CommitteeCCV(tc.src.ChainSelector(), common.DefaultCommitteeVerifierQualifier)
+			ccv, err := committeeVerifierCCV(tc.deps, tc.src.ChainSelector(), common.DefaultCommitteeVerifierQualifier)
 			if err != nil {
 				return false
 			}
 			tc.ccvs = []protocol.CCV{ccv}
-			executorAddr, err := tc.deps.ResolveAddress(tc.src.ChainSelector(), tcapi.ContractRef{Role: tcapi.RoleExecutor, Qualifier: common.DefaultExecutorQualifier})
+			executorAddr, err := executorAddr(tc.deps, tc.src.ChainSelector(), common.DefaultExecutorQualifier)
 			if err != nil {
 				return false
 			}

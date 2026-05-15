@@ -187,24 +187,41 @@ func tokenTransferCase(src, dest cciptestinterfaces.CCIP17, deps *tcapi.CaseDeps
 			if tc.useEOAReceiver {
 				tc.receiver, err = tc.dst.GetEOAReceiverAddress()
 			} else {
-				tc.receiver, err = tc.deps.ResolveAddress(tc.dst.ChainSelector(), tcapi.ContractRef{Role: tcapi.RoleMockReceiver, Qualifier: common.DefaultReceiverQualifier})
+				var r tcapi.AddressResolver
+				r, err = tc.deps.ResolverAt(tc.dst.ChainSelector())
+				if err != nil {
+					return false
+				}
+				tc.receiver, err = r.GetContractReceiver(tc.deps.DataStore, tc.dst.ChainSelector(), common.DefaultReceiverQualifier)
 			}
 			if err != nil {
 				return false
 			}
 
 			srcQualifier := tc.combo.LocalPoolAddressRef().Qualifier
-			tc.srcToken, err = tc.deps.ResolveAddress(tc.src.ChainSelector(), tcapi.ContractRef{Role: tcapi.RoleBurnMintERC20, Qualifier: srcQualifier})
+			rSrc, err := tc.deps.ResolverAt(tc.src.ChainSelector())
+			if err != nil {
+				return false
+			}
+			tc.srcToken, err = rSrc.GetBurnMintERC20(tc.deps.DataStore, tc.src.ChainSelector(), srcQualifier)
 			if err != nil {
 				return false
 			}
 			destQualifier := tc.combo.RemotePoolAddressRef().Qualifier
-			tc.destToken, err = tc.deps.ResolveAddress(tc.dst.ChainSelector(), tcapi.ContractRef{Role: tcapi.RoleBurnMintERC20, Qualifier: destQualifier})
+			rDst, err := tc.deps.ResolverAt(tc.dst.ChainSelector())
+			if err != nil {
+				return false
+			}
+			tc.destToken, err = rDst.GetBurnMintERC20(tc.deps.DataStore, tc.dst.ChainSelector(), destQualifier)
 			if err != nil {
 				return false
 			}
 
-			tc.executor, err = tc.deps.ResolveAddress(tc.src.ChainSelector(), tcapi.ContractRef{Role: tcapi.RoleExecutor, Qualifier: common.DefaultExecutorQualifier})
+			rExec, err := tc.deps.ResolverAt(tc.src.ChainSelector())
+			if err != nil {
+				return false
+			}
+			tc.executor, err = rExec.GetExecutor(tc.deps.DataStore, tc.src.ChainSelector(), common.DefaultExecutorQualifier)
 			return err == nil
 		},
 	}
