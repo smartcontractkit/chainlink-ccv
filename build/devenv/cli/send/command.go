@@ -13,6 +13,8 @@ import (
 	"github.com/spf13/cobra"
 
 	chain_selectors "github.com/smartcontractkit/chain-selectors"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_0_0/operations/link"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_0_0/operations/weth"
 	executor_operations "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/executor"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/mock_receiver_v2"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/sequences"
@@ -29,6 +31,7 @@ import (
 func Command() *cobra.Command {
 	var args sendArgs
 	var token string
+	var feeToken string
 
 	cmd := &cobra.Command{
 		Use:     "send",
@@ -40,6 +43,7 @@ func Command() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			args.feeToken = feeToken
 
 			return run(args)
 		},
@@ -49,6 +53,7 @@ func Command() *cobra.Command {
 	cmd.Flags().StringVar(&args.receiverAddress, "receiver-address", "", "Receiver address to use, if not provided, will look up the mock receiver contract address from the datastore")
 	cmd.Flags().StringVar(&args.env, "env", "out", "Select environment file to use (e.g., 'staging' for env-staging.toml, defaults to 'out' for env-out.toml)")
 	cmd.Flags().StringVar(&token, "token", "", "Token amounts to send in the format <amount>:<tokenAddress>, e.g., 1000000000000000000:0xTokenAddress")
+	cmd.Flags().StringVar(&feeToken, "fee-token", "", "Fee token to pay in: empty/'native' (default), 'wrapped'/'weth' for wrapped native, 'link' for LINK, or a raw 0x... address on the source chain")
 	cmd.Flags().Uint64Var(&args.srcSel, "src", 0, "Source chain selector")
 	cmd.Flags().Uint64Var(&args.destSel, "dest", 0, "Destination chain selector")
 	cmd.Flags().Uint64Var(&args.finalitySel, "finality", 0, "Finality chain selector (optional, only for V3 messages)")
@@ -69,6 +74,7 @@ type sendArgs struct {
 	omitCommittee     bool
 
 	tokenAmount cciptestinterfaces.TokenAmount
+	feeToken    string
 
 	srcSel      uint64
 	destSel     uint64
@@ -88,7 +94,7 @@ func run(args sendArgs) error {
 	l := zerolog.Ctx(ctx)
 	lib, err := ccv.NewLib(l, envFile, chain_selectors.FamilyEVM)
 	if err != nil {
-		return fmt.Errorf("no implementation found for source chain selector %d", args.srcSel)
+		return fmt.Errorf("failed to initialize lib from %s: %w", envFile, err)
 	}
 
 	chains, err := lib.ChainsMap(ctx)
@@ -98,7 +104,11 @@ func run(args sendArgs) error {
 
 	impl, ok := chains[args.srcSel]
 	if !ok {
-		return fmt.Errorf("no implementation found for source chain selector %d", args.srcSel)
+		available := make([]uint64, 0, len(chains))
+		for sel := range chains {
+			available = append(available, sel)
+		}
+		return fmt.Errorf("no implementation found for source chain selector %d (available: %v)", args.srcSel, available)
 	}
 
 	ds, err := lib.DataStore()
@@ -120,10 +130,16 @@ func run(args sendArgs) error {
 		args.receiverAddress = mockReceiver.Address
 	}
 
+	feeTokenAddr, err := resolveFeeToken(args.feeToken, args.srcSel, ds.Addresses())
+	if err != nil {
+		return fmt.Errorf("failed to resolve fee token: %w", err)
+	}
+
 	messageFields := cciptestinterfaces.MessageFields{
 		Receiver:    common.HexToAddress(args.receiverAddress).Bytes(),
 		Data:        []byte{},
 		TokenAmount: args.tokenAmount,
+		FeeToken:    feeTokenAddr,
 	}
 	messageOptions, msgVersion, err := getMessageOptions(args, ds.Addresses())
 	if err != nil {
@@ -203,6 +219,45 @@ func getMessageOptions(args sendArgs, addrs datastore.AddressRefStore) (cciptest
 		},
 	}
 	return opts, 3, nil
+}
+
+// resolveFeeToken converts the --fee-token CLI value into an on-chain address.
+// Supported inputs:
+//   - "" or "native": pay in the chain's native gas token (zero address).
+//   - "wrapped" / "weth" / "wrapped-native": look up the wrapped native (WETH) on
+//     the source chain from the datastore.
+//   - "link": look up the LINK token on the source chain from the datastore.
+//   - a raw 0x... hex address: used as-is.
+func resolveFeeToken(input string, srcSel uint64, addrs datastore.AddressRefStore) (protocol.UnknownAddress, error) {
+	switch strings.ToLower(strings.TrimSpace(input)) {
+	case "", "native":
+		return nil, nil
+	case "wrapped", "weth", "wrapped-native":
+		ref, err := addrs.Get(datastore.NewAddressRefKey(
+			srcSel,
+			datastore.ContractType(weth.ContractType),
+			semver.MustParse(weth.Deploy.Version()),
+			""))
+		if err != nil {
+			return nil, fmt.Errorf("failed to look up wrapped native (WETH) on source chain %d: %w", srcSel, err)
+		}
+		return protocol.UnknownAddress(common.HexToAddress(ref.Address).Bytes()), nil
+	case "link":
+		ref, err := addrs.Get(datastore.NewAddressRefKey(
+			srcSel,
+			datastore.ContractType(link.ContractType),
+			link.Version,
+			""))
+		if err != nil {
+			return nil, fmt.Errorf("failed to look up LINK on source chain %d: %w", srcSel, err)
+		}
+		return protocol.UnknownAddress(common.HexToAddress(ref.Address).Bytes()), nil
+	default:
+		if !common.IsHexAddress(input) {
+			return nil, fmt.Errorf("invalid fee token %q: expected 'native', 'wrapped'/'weth', 'link', or a 0x... address", input)
+		}
+		return protocol.UnknownAddress(common.HexToAddress(input).Bytes()), nil
+	}
 }
 
 func parseTokenAmount(input string) (cciptestinterfaces.TokenAmount, error) {
