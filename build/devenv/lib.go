@@ -126,7 +126,7 @@ func (l *libFromCCV) verify() error {
 	return nil
 }
 
-// CLDFEnvironment returns the CLDF environment.
+// CLDFEnvironment implements [Lib].
 func (l *libFromCCV) CLDFEnvironment() (*deployment.Environment, error) {
 	if err := l.verify(); err != nil {
 		return nil, fmt.Errorf("failed to initialize CLDF environment: %w", err)
@@ -134,10 +134,12 @@ func (l *libFromCCV) CLDFEnvironment() (*deployment.Environment, error) {
 	return l.libCLDF.CLDFEnvironment()
 }
 
+// DataStore implements [Lib].
 func (l *libFromCCV) DataStore() (datastore.DataStore, error) {
 	return l.libCLDF.DataStore()
 }
 
+// Indexer implements [Lib].
 func (l *libFromCCV) Indexer() (*client.IndexerClient, error) {
 	allIndexers, err := l.AllIndexers()
 	if err != nil {
@@ -149,6 +151,7 @@ func (l *libFromCCV) Indexer() (*client.IndexerClient, error) {
 	return allIndexers[0], nil
 }
 
+// AllIndexers implements [Lib].
 func (l *libFromCCV) AllIndexers() ([]*client.IndexerClient, error) {
 	if err := l.verify(); err != nil {
 		return nil, fmt.Errorf("failed to initialize indexer client: %w", err)
@@ -171,13 +174,12 @@ func (l *libFromCCV) AllIndexers() ([]*client.IndexerClient, error) {
 	return indexers, nil
 }
 
-// Chains returns a slice of Chains in Blockchain cfg order, followed by any
-// additional chain implementations that were externally registered via
-// registry.GetGlobalChainImplRegistry().Register() but are not present in the cfg.
+// Chains implements [Lib].
 func (l *libFromCCV) Chains(ctx context.Context) ([]ChainImpl, error) {
 	return l.libCLDF.Chains(ctx)
 }
 
+// ChainsMap implements [Lib].
 func (l *libFromCCV) ChainsMap(ctx context.Context) (map[uint64]cciptestinterfaces.CCIP17, error) {
 	return l.libCLDF.ChainsMap(ctx)
 }

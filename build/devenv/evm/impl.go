@@ -163,7 +163,7 @@ func NewEmptyCCIP17EVM() *CCIP17EVMConfig {
 	}
 }
 
-func extractEthClientFromBackend(client interface{}) (*ethclient.Client, error) {
+func extractEthClientFromBackend(client any) (*ethclient.Client, error) {
 	switch c := client.(type) {
 	case *ethclient.Client:
 		return c, nil
