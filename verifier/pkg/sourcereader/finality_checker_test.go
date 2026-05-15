@@ -329,24 +329,63 @@ func TestFinalityViolationChecker_ParentHashMismatch(t *testing.T) {
 	assert.True(t, checker.IsFinalityViolated())
 }
 
-func TestFinalityViolationChecker_LargeGapCapped(t *testing.T) {
+func TestFinalityViolationChecker_LargeForwardGapCapped(t *testing.T) {
 	lggr, _ := logger.New()
 
-	// Simulate the scenario where the RPC lags by millions of blocks.
-	// Only blocks near the new finalized tip need to be in the mock; the checker
-	// must not try to fetch the entire gap.
+	// Simulate the scenario where the RPC jumps ahead by millions of blocks.
+	// The checker caps toBlock so it only fetches MaxFinalityBlocksStored blocks per call,
+	// advancing lastFinalized partially and leaving no gaps in validation coverage.
 	const startBlock = 93154146
 	const newFinalized = 95322726 // gap of ~2.1M blocks
+	const expectedAdvance = uint64(startBlock + MaxFinalityBlocksStored - 1)
 
 	blocks := make(map[uint64]protocol.BlockHeader)
-	// Populate only the window the checker should actually fetch
-	windowStart := uint64(newFinalized) - MaxFinalityBlocksStored + 1
-	for i := windowStart; i <= newFinalized; i++ {
-		hash := makeBytes32(fmt.Sprintf("hash%d", i))
-		parent := makeBytes32(fmt.Sprintf("hash%d", i-1))
-		blocks[i] = protocol.BlockHeader{Number: i, Hash: hash, ParentHash: parent}
+	// Populate the window the checker should actually fetch: [startBlock, startBlock+999]
+	for i := uint64(startBlock); i <= expectedAdvance; i++ {
+		blocks[i] = protocol.BlockHeader{
+			Number:     i,
+			Hash:       makeBytes32(fmt.Sprintf("hash%d", i)),
+			ParentHash: makeBytes32(fmt.Sprintf("hash%d", i-1)),
+		}
 	}
-	// Also add the initial block so the first UpdateFinalized call succeeds.
+
+	mockSetup := setupMockSourceReaderForFinality(t, blocks)
+	metrics := &testutil.NoopMetricLabeler{}
+
+	checker, err := NewFinalityViolationCheckerService(mockSetup.Reader, protocol.ChainSelector(1), lggr, metrics)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+
+	err = checker.UpdateFinalized(ctx, startBlock)
+	require.NoError(t, err)
+
+	// Must not OOM; lastFinalized advances by exactly MaxFinalityBlocksStored, not to newFinalized.
+	err = checker.UpdateFinalized(ctx, newFinalized)
+	require.NoError(t, err)
+	assert.False(t, checker.IsFinalityViolated())
+	assert.Equal(t, expectedAdvance, checker.lastFinalized)
+	assert.LessOrEqual(t, len(checker.finalizedBlocks), MaxFinalityBlocksStored)
+}
+
+func TestFinalityViolationChecker_LargeBackwardGapCapped(t *testing.T) {
+	lggr, _ := logger.New()
+
+	// Simulate the RPC reporting a finalized block that is millions behind lastFinalized.
+	// The checker should cap the backward range and not OOM. lastFinalized must not regress.
+	const startBlock = 95322726
+	const laggedBlock = 93154146 // ~2.1M blocks behind
+	const expectedAdvance = uint64(laggedBlock + MaxFinalityBlocksStored - 1)
+
+	blocks := make(map[uint64]protocol.BlockHeader)
+	// Populate [laggedBlock, laggedBlock+999] — the capped backward window
+	for i := uint64(laggedBlock); i <= expectedAdvance; i++ {
+		blocks[i] = protocol.BlockHeader{
+			Number:     i,
+			Hash:       makeBytes32(fmt.Sprintf("hash%d", i)),
+			ParentHash: makeBytes32(fmt.Sprintf("hash%d", i-1)),
+		}
+	}
 	blocks[startBlock] = protocol.BlockHeader{
 		Number:     startBlock,
 		Hash:       makeBytes32("hashStart"),
@@ -364,11 +403,11 @@ func TestFinalityViolationChecker_LargeGapCapped(t *testing.T) {
 	err = checker.UpdateFinalized(ctx, startBlock)
 	require.NoError(t, err)
 
-	// This must not allocate millions of block headers.
-	err = checker.UpdateFinalized(ctx, newFinalized)
+	// Must not OOM; lastFinalized must not regress below startBlock.
+	err = checker.UpdateFinalized(ctx, laggedBlock)
 	require.NoError(t, err)
 	assert.False(t, checker.IsFinalityViolated())
-	assert.LessOrEqual(t, len(checker.finalizedBlocks), MaxFinalityBlocksStored)
+	assert.Equal(t, uint64(startBlock), checker.lastFinalized)
 }
 
 func TestNoOpFinalityViolationChecker(t *testing.T) {

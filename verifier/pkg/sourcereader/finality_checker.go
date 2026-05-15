@@ -105,16 +105,16 @@ func (f *FinalityViolationCheckerService) UpdateFinalized(ctx context.Context, f
 		return nil
 	}
 
-	// Determine range to verify - handles both forward progress and RPC lagging behind
-	fromBlock := min(f.lastFinalized, finalizedBlock)
-	toBlock := max(f.lastFinalized, finalizedBlock)
-
 	if finalizedBlock < f.lastFinalized {
 		f.lggr.Warnw("Finalized block number decreased - RPC may be lagging, verifying full range",
 			"lastFinalized", f.lastFinalized,
 			"newFinalized", finalizedBlock,
 		)
 	}
+
+	// Determine range to verify - handles both forward progress and RPC lagging behind
+	fromBlock := min(f.lastFinalized, finalizedBlock)
+	toBlock := max(f.lastFinalized, finalizedBlock)
 
 	// Cap the range to MaxFinalityBlocksStored to prevent OOM when the RPC lags by many blocks.
 	// Trimming happens after storage, so without this cap a multi-million-block gap would be
@@ -123,9 +123,9 @@ func (f *FinalityViolationCheckerService) UpdateFinalized(ctx context.Context, f
 		f.lggr.Warnw("Block range exceeds MaxFinalityBlocksStored, capping fetch window",
 			"fromBlock", fromBlock,
 			"toBlock", toBlock,
-			"cappedFromBlock", toBlock-MaxFinalityBlocksStored+1,
+			"cappedToBlock", fromBlock+MaxFinalityBlocksStored-1,
 		)
-		fromBlock = toBlock - MaxFinalityBlocksStored + 1
+		toBlock = fromBlock + MaxFinalityBlocksStored - 1
 	}
 
 	// Fetch blocks in range [fromBlock, toBlock]
@@ -148,8 +148,8 @@ func (f *FinalityViolationCheckerService) UpdateFinalized(ctx context.Context, f
 	}
 
 	// Only advance lastFinalized when moving forward
-	if finalizedBlock > f.lastFinalized {
-		f.lastFinalized = finalizedBlock
+	if toBlock > f.lastFinalized {
+		f.lastFinalized = toBlock
 	}
 	f.lggr.Debugw("Updated finalized blocks",
 		"lastFinalized", f.lastFinalized,
