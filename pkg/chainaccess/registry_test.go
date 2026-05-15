@@ -47,6 +47,10 @@ func (a *testAccessor) ContractTransmitter() (chainaccess.ContractTransmitter, e
 	return nil, errors.New("contract transmitter not available")
 }
 
+func (a *testAccessor) Close() error {
+	return nil
+}
+
 func init() {
 	// Register a test constructor for the "evm" family so that NewRegistry
 	// can build a Registry without real RPC connections.

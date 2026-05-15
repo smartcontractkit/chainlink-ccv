@@ -3,6 +3,7 @@ package bootstrap
 import (
 	"context"
 	"crypto"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -55,14 +56,16 @@ type ServiceFactory interface {
 
 // A runner adapts a [ServiceFactory] to the [lifecycle.JobRunner] interface.
 type runner struct {
-	fac  ServiceFactory
-	deps ServiceDeps
+	fac       ServiceFactory
+	deps      ServiceDeps
+	accCloser *AccessorCloserRegistry
 }
 
 var _ lifecycle.JobRunner = (*runner)(nil)
 
 // StartJob implements [lifecycle.JobRunner].
-func (r *runner) StartJob(ctx context.Context, config string) error {
+// On Start failure, the deferred CloseAll is the only chance to release accessors.
+func (r *runner) StartJob(ctx context.Context, config string) (startErr error) {
 	r.deps.Logger.Infow("starting job")
 
 	var spec JobSpec
@@ -72,18 +75,39 @@ func (r *runner) StartJob(ctx context.Context, config string) error {
 
 	// Initialize registry, wrapping it so the keystore is injected into any
 	// Accessor that implements KeystoreSetter.
+	// Registry chain: NewRegistry > KeystoreRegistry (keystore injection) > AccessorCloserRegistry (accessor cleanup tracking).
 	reg, err := chainaccess.NewRegistry(r.deps.Logger, spec.AppConfig)
 	if err != nil {
 		return fmt.Errorf("failed to create registry: %w", err)
 	}
-	r.deps.Registry = NewKeystoreRegistry(r.deps.Logger, reg, r.deps.Keystore)
+	r.accCloser = NewAccessorCloserRegistry(r.deps.Logger, NewKeystoreRegistry(r.deps.Logger, reg, r.deps.Keystore))
+	r.deps.Registry = r.accCloser
+
+	// safety net
+	defer func() {
+		if startErr != nil {
+			if cErr := r.accCloser.CloseAll(); cErr != nil {
+				r.deps.Logger.Warnw("close accessors after failed StartJob", "error", cErr)
+			}
+		}
+	}()
 
 	return r.fac.Start(ctx, spec, r.deps)
 }
 
 // StopJob implements [lifecycle.JobRunner].
+// CloseAll runs after factory.Stop so the coordinator drains its readers before underlying services are released.
 func (r *runner) StopJob(ctx context.Context) error {
-	return r.fac.Stop(ctx)
+	var errs []error
+	if err := r.fac.Stop(ctx); err != nil {
+		errs = append(errs, fmt.Errorf("stop service factory: %w", err))
+	}
+	if r.accCloser != nil {
+		if err := r.accCloser.CloseAll(); err != nil {
+			errs = append(errs, fmt.Errorf("close accessors: %w", err))
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // A Bootstrapper manages the lifecycle of a CCIP standalone application.
@@ -101,6 +125,9 @@ type Bootstrapper struct {
 	appCfg *string
 	fac    ServiceFactory
 	name   string
+
+	// accCloser is set by startWithAppConfig; JD mode uses runner.accCloser instead.
+	accCloser *AccessorCloserRegistry
 
 	logLevel zapcore.Level
 }
@@ -178,7 +205,7 @@ func NewBootstrapper(
 }
 
 // startWithAppConfig is a passthrough to the application's Start function.
-func (b *Bootstrapper) startWithAppConfig(ctx context.Context) error {
+func (b *Bootstrapper) startWithAppConfig(ctx context.Context) (startErr error) {
 	if b.appCfg == nil {
 		return fmt.Errorf("bootstrapper has no app config")
 	}
@@ -188,6 +215,16 @@ func (b *Bootstrapper) startWithAppConfig(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to create registry: %w", err)
 	}
+	b.accCloser = NewAccessorCloserRegistry(b.lggr, reg)
+	// safety net for partial-Start failure since Bootstrapper.Stop is not guaranteed
+	defer func() {
+		if startErr != nil {
+			if cErr := b.accCloser.CloseAll(); cErr != nil {
+				b.lggr.Warnw("close accessors after failed startWithAppConfig", "error", cErr)
+			}
+			b.accCloser = nil
+		}
+	}()
 
 	js := JobSpec{
 		Name:          "no-jd",
@@ -197,7 +234,7 @@ func (b *Bootstrapper) startWithAppConfig(ctx context.Context) error {
 		AppConfig:     *b.appCfg,
 	}
 
-	return b.fac.Start(ctx, js, ServiceDeps{Registry: reg})
+	return b.fac.Start(ctx, js, ServiceDeps{Registry: b.accCloser})
 }
 
 // startWithJDLifecycle initializes all components required for the JD lifecycle manager and starts it.
@@ -265,7 +302,8 @@ func (b *Bootstrapper) Start(ctx context.Context) error {
 // The two startup modes own mutually exclusive sets of objects, so stopping every
 // non-nil field is sufficient to cover both without double-stopping anything:
 //   - JD mode (lifecycleManager/infoServer set, appCfg nil): the lifecycle manager and info server are stopped.
-//   - Static-config mode (appCfg set, lifecycleManager/infoServer nil): the factory is stopped directly.
+//     Accessor cleanup is owned by runner.StopJob, invoked by the lifecycle manager.
+//   - Static-config mode (appCfg set, lifecycleManager/infoServer nil): factory.Stop runs first, then accCloser.CloseAll
 func (b *Bootstrapper) Stop(ctx context.Context) error {
 	if b.lifecycleManager != nil {
 		if err := b.lifecycleManager.Stop(); err != nil {
@@ -278,9 +316,17 @@ func (b *Bootstrapper) Stop(ctx context.Context) error {
 		}
 	}
 	if b.appCfg != nil {
+		var errs []error
 		if err := b.fac.Stop(ctx); err != nil {
-			return fmt.Errorf("failed to stop service factory: %w", err)
+			errs = append(errs, fmt.Errorf("failed to stop service factory: %w", err))
 		}
+		if b.accCloser != nil {
+			if err := b.accCloser.CloseAll(); err != nil {
+				errs = append(errs, fmt.Errorf("failed to close accessors: %w", err))
+			}
+			b.accCloser = nil
+		}
+		return errors.Join(errs...)
 	}
 	return nil
 }

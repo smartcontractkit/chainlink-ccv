@@ -248,3 +248,8 @@ func (a *accessor) ContractTransmitter() (chainaccess.ContractTransmitter, error
 	}
 	return a.contractTransmitter, nil
 }
+
+// Close releases any resources owned by the EVM accessor. The current EVM
+// implementation builds stateless readers and a keystore-backed transmitter
+// that the keystore itself owns, so there is nothing to release here.
+func (a *accessor) Close() error { return nil }
