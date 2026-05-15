@@ -9,7 +9,6 @@ import (
 
 	"github.com/rs/zerolog"
 
-	chain_selectors "github.com/smartcontractkit/chain-selectors"
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainimpl"
@@ -20,7 +19,7 @@ import (
 
 type ChainImpl struct {
 	cciptestinterfaces.CCIP17
-	Details chain_selectors.ChainDetails
+	Details chainsel.ChainDetails
 }
 
 // Lib abstracts an environment that CCIP is deployed on so that tests
