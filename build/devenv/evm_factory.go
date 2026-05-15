@@ -38,19 +38,9 @@ func (f *evmImplFactory) New(
 	ctx context.Context,
 	lggr zerolog.Logger,
 	env *deployment.Environment,
-	bc *blockchain.Input,
-) (cciptestinterfaces.CCIP17, error) {
-	chainID := bc.ChainID
-	wsURL := bc.Out.Nodes[0].ExternalWSUrl
-	return evm.NewCCIP17EVM(ctx, lggr, env, chainID, wsURL)
-}
-
-func (f *evmImplFactory) NewFromCLDFEnv(
-	lggr zerolog.Logger,
-	env *deployment.Environment,
 	chainSelector uint64,
 ) (cciptestinterfaces.CCIP17, error) {
-	return evm.NewCCIP17EVMFromCLDFEnv(env, chainSelector)
+	return evm.NewCCIP17EVM(ctx, lggr, env, chainSelector)
 }
 
 func (f *evmImplFactory) DefaultSignerKey(keys services.BootstrapKeys) string {

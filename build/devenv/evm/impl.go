@@ -163,70 +163,6 @@ func NewEmptyCCIP17EVM() *CCIP17EVMConfig {
 	}
 }
 
-// NewCCIP17EVM creates new smart-contracts wrappers with utility functions for CCIP17EVM implementation.
-func NewCCIP17EVM(ctx context.Context, logger zerolog.Logger, e *deployment.Environment, chainID, wsURL string) (*CCIP17EVM, error) {
-	gas := &GasSettings{
-		FeeCapMultiplier: 2,
-		TipCapMultiplier: 2,
-	}
-	var (
-		chainDetails chainsel.ChainDetails
-		ethClient    *ethclient.Client
-		onRamp       *onramp.OnRamp
-		offRamp      *offramp.OffRamp
-		onRampPoller eventPoller[cciptestinterfaces.MessageSentEvent]
-	)
-	chainDetails, err := chainsel.GetChainDetailsByChainIDAndFamily(chainID, chainsel.FamilyEVM)
-	if err != nil {
-		return nil, fmt.Errorf("get chain details for chain %s: %w", chainID, err)
-	}
-
-	client, _, _, err := ETHClient(ctx, wsURL, gas)
-	if err != nil {
-		return nil, fmt.Errorf("create eth client for chain %s: %w", chainID, err)
-	}
-	ethClient = client
-
-	onRampAddressRef, err := e.DataStore.Addresses().Get(datastore.NewAddressRefKey(
-		chainDetails.ChainSelector,
-		datastore.ContractType(onrampoperations.ContractType),
-		semver.MustParse(onrampoperations.Deploy.Version()),
-		"",
-	))
-	if err != nil {
-		return nil, fmt.Errorf("get on ramp address for chain %d (id %s) from datastore: %w", chainDetails.ChainSelector, chainID, err)
-	}
-	offRampAddressRef, err := e.DataStore.Addresses().Get(datastore.NewAddressRefKey(
-		chainDetails.ChainSelector,
-		datastore.ContractType(offrampoperations.ContractType),
-		semver.MustParse(offrampoperations.Deploy.Version()),
-		"",
-	))
-	if err != nil {
-		return nil, fmt.Errorf("get off ramp address for chain %d (id %s) from datastore: %w", chainDetails.ChainSelector, chainID, err)
-	}
-	onRamp, err = onramp.NewOnRamp(common.HexToAddress(onRampAddressRef.Address), client)
-	if err != nil {
-		return nil, fmt.Errorf("create on ramp wrapper for chain %d (id %s): %w", chainDetails.ChainSelector, chainID, err)
-	}
-	offRamp, err = offramp.NewOffRamp(common.HexToAddress(offRampAddressRef.Address), client)
-	if err != nil {
-		return nil, fmt.Errorf("create off ramp wrapper for chain %d (id %s): %w", chainDetails.ChainSelector, chainID, err)
-	}
-
-	return &CCIP17EVM{
-		e:            e,
-		ds:           e.DataStore,
-		chain:        e.BlockChains.EVMChains()[chainDetails.ChainSelector],
-		logger:       logger,
-		chainDetails: chainDetails,
-		ethClient:    ethClient,
-		onRamp:       onRamp,
-		offRamp:      offRamp,
-		onRampPoller: &onRampPoller,
-	}, nil
-}
-
 func extractEthClientFromBackend(client interface{}) (*ethclient.Client, error) {
 	switch c := client.(type) {
 	case *ethclient.Client:
@@ -239,7 +175,7 @@ func extractEthClientFromBackend(client interface{}) (*ethclient.Client, error) 
 }
 
 // NewCCIP17EVM creates new smart-contracts wrappers with utility functions for CCIP17EVM implementation.
-func NewCCIP17EVMFromCLDFEnv(e *deployment.Environment, chainSelector uint64) (*CCIP17EVM, error) {
+func NewCCIP17EVM(ctx context.Context, logger zerolog.Logger, e *deployment.Environment, chainSelector uint64) (*CCIP17EVM, error) {
 	var (
 		onRamp       *onramp.OnRamp
 		offRamp      *offramp.OffRamp
