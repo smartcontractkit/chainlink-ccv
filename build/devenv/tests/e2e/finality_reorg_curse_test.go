@@ -84,34 +84,26 @@ func TestE2EReorg(t *testing.T) {
 		_ = chainStatusDB.Close()
 	})
 
-	srcImpl := chains[0]
-	destImpl := chains[1]
-	dest2Impl := chains[2]
+	srcImpl, progressable, reorgable, ok := chainSupportingReorgs(ctx, chains)
+	require.True(t, ok,
+		"expected at least one chain implementing ProgressableChain and ReorgableChain with SupportManualBlockProgress and SupportReorgs; run with env-src-auto-mine.toml (and an anvil-style node with snapshot/revert) on that chain")
+	srcSelector := srcImpl.Details.ChainSelector
+	var others []ccv.ChainImpl
+	for _, ch := range chains {
+		if ch.Details.ChainSelector != srcSelector {
+			others = append(others, ch)
+		}
+	}
+	require.GreaterOrEqual(t, len(others), 2, "expected at least two chains distinct from the reorg-test source")
+	destImpl := others[0]
+	dest2Impl := others[1]
+	destSelector := destImpl.Details.ChainSelector
+	destSelector2 := dest2Impl.Details.ChainSelector
 
 	curseAdapter, ok := fastcurse.GetCurseRegistry().GetCurseAdapter(chain_selectors.FamilyEVM, semver.MustParse("1.6.0"))
 	require.True(t, ok)
 	require.NotNil(t, curseAdapter)
-	require.NoError(t, curseAdapter.Initialize(*cldfEnv, srcImpl.ChainSelector()))
-
-	srcSelector := srcImpl.Details.ChainSelector
-	destSelector := destImpl.Details.ChainSelector
-	destSelector2 := dest2Impl.Details.ChainSelector
-
-	// The source chain must support driving block progression and
-	// snapshot/revert from the test. Skip cleanly if the concrete impl
-	// doesn't satisfy the interfaces (e.g. a real testnet RPC).
-	progressable, ok := srcImpl.CCIP17.(cciptestinterfaces.ProgressableChain)
-	if !ok {
-		t.Skip("source chain does not implement ProgressableChain; skipping finality/reorg/curse tests")
-	}
-	reorgable, ok := srcImpl.CCIP17.(cciptestinterfaces.ReorgableChain)
-	if !ok {
-		t.Skip("source chain does not implement ReorgableChain; skipping finality/reorg/curse tests")
-	}
-	require.True(t, progressable.SupportManualBlockProgress(ctx),
-		"source chain must support manual block progression with automining enabled; run with env-src-auto-mine.toml")
-	require.True(t, reorgable.SupportReorgs(ctx),
-		"source chain must support snapshot/revert for reorg tests")
+	require.NoError(t, curseAdapter.Initialize(*cldfEnv, srcSelector))
 
 	advanceBlocks := func(numBlocks int) {
 		require.NoError(t, progressable.AdvanceBlocks(ctx, numBlocks), "advance %d blocks", numBlocks)
@@ -848,4 +840,28 @@ func uncurseSelector(t *testing.T, env *deployment.Environment, adapter fastcurs
 	// Wait for the verifier to detect the uncurse.
 	// The verifier is hardcoded to poll every 2 seconds, wait for 3 seconds to be sure.
 	time.Sleep(3 * time.Second)
+}
+
+// chainSupportingReorgs returns the first chain in chains whose CCIP17
+// implements both ProgressableChain and ReorgableChain, and for which
+// SupportManualBlockProgress(ctx) and SupportReorgs(ctx) are true.
+// Slice order does not matter (e.g. lib.Chains order is not guaranteed).
+func chainSupportingReorgs(ctx context.Context, chains []ccv.ChainImpl) (
+	src ccv.ChainImpl,
+	progress cciptestinterfaces.ProgressableChain,
+	reorg cciptestinterfaces.ReorgableChain,
+	ok bool,
+) {
+	for _, ch := range chains {
+		p, okP := ch.CCIP17.(cciptestinterfaces.ProgressableChain)
+		if !okP || !p.SupportManualBlockProgress(ctx) {
+			continue
+		}
+		r, okR := ch.CCIP17.(cciptestinterfaces.ReorgableChain)
+		if !okR || !r.SupportReorgs(ctx) {
+			continue
+		}
+		return ch, p, r, true
+	}
+	return ccv.ChainImpl{}, nil, nil, false
 }
