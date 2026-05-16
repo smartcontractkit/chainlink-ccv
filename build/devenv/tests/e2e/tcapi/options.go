@@ -1,7 +1,7 @@
-// Test wiring is configured with functional options (WithLane, WithAggregatorClients,
-// WithIndexerMonitor). Pass those to case constructors—for example basic.All or
-// token_transfer.All—alongside a deployment.Environment. BuildCaseDeps resolves options
-// inside those subpackages into CaseDeps; external test code should not call it directly.
+// Test wiring requires AddressResolvers (one per chain family on the lane) plus optional
+// functional options (WithLane, WithAggregatorClients, WithIndexerMonitor). Pass those to
+// case constructors—for example basic.All or token_transfer.All—alongside a
+// deployment.Environment.
 package tcapi
 
 import (
@@ -12,6 +12,7 @@ import (
 
 	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/tcapi/addressresolver"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 )
@@ -25,6 +26,7 @@ type CaseDeps struct {
 	AggregatorClients map[string]*ccv.AggregatorClient
 	IndexerMonitor    *ccv.IndexerMonitor
 	ChainMap          map[uint64]cciptestinterfaces.CCIP17
+	AddressResolvers  AddressResolvers
 }
 
 type caseConfig struct {
@@ -89,9 +91,12 @@ func resolveCaseConfig(env *deployment.Environment, opts ...CaseOption) (*caseCo
 // BuildCaseDeps resolves CaseOptions into CaseDeps (CCIP17 handles and optional off-chain clients).
 // It is intended for use inside this module (basic and token_transfer packages), not as the primary
 // API for test authors; pass CaseOptions built from the With* functions to those constructors instead.
-func BuildCaseDeps(ctx context.Context, env *deployment.Environment, opts ...CaseOption) (*CaseDeps, error) {
+func BuildCaseDeps(ctx context.Context, env *deployment.Environment, addressResolvers AddressResolvers, opts ...CaseOption) (*CaseDeps, error) {
 	rc, err := resolveCaseConfig(env, opts...)
 	if err != nil {
+		return nil, err
+	}
+	if err := addressresolver.ValidateResolvers(addressResolvers, rc.srcSel, rc.dstSel); err != nil {
 		return nil, err
 	}
 	lg := zerolog.Ctx(ctx)
@@ -115,5 +120,6 @@ func BuildCaseDeps(ctx context.Context, env *deployment.Environment, opts ...Cas
 		AggregatorClients: rc.aggregators,
 		IndexerMonitor:    rc.indexer,
 		ChainMap:          chainMap,
+		AddressResolvers:  addressResolvers,
 	}, nil
 }

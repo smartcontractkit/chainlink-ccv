@@ -8,15 +8,10 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_0_0/operations/burn_mint_erc20_with_drip"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/mock_receiver_v2"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/proxy"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/sequences"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/tcapi"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 )
 
@@ -164,14 +159,6 @@ func (tc *tokenTransferV3TestCase) HavePrerequisites(ctx context.Context) bool {
 	return tc.hydrate(ctx, tc)
 }
 
-func getTokenAddress(ds datastore.DataStore, chainSelector uint64, qualifier string) (protocol.UnknownAddress, error) {
-	return tcapi.GetContractAddress(ds, chainSelector,
-		datastore.ContractType(burn_mint_erc20_with_drip.ContractType),
-		burn_mint_erc20_with_drip.Deploy.Version(),
-		qualifier,
-		"burn mint erc677")
-}
-
 // TokenTransfer returns a single token transfer test case for the given combo, finality, receiver type, and name.
 func TokenTransfer(src, dest cciptestinterfaces.CCIP17, deps *tcapi.CaseDeps, combo common.TokenCombination, finalityConfig protocol.Finality, useEOAReceiver bool, name string) tcapi.TestCase {
 	return tokenTransferCase(src, dest, deps, combo, finalityConfig, useEOAReceiver, name)
@@ -200,32 +187,49 @@ func tokenTransferCase(src, dest cciptestinterfaces.CCIP17, deps *tcapi.CaseDeps
 			if tc.useEOAReceiver {
 				tc.receiver, err = tc.dst.GetEOAReceiverAddress()
 			} else {
-				tc.receiver, err = tcapi.GetContractAddress(tc.deps.DataStore, tc.dst.ChainSelector(), datastore.ContractType(mock_receiver_v2.ContractType), mock_receiver_v2.Deploy.Version(), common.DefaultReceiverQualifier, "default mock receiver")
+				var r tcapi.AddressResolver
+				r, err = tc.deps.ResolverAt(tc.dst.ChainSelector())
+				if err != nil {
+					return false
+				}
+				tc.receiver, err = r.GetContractReceiver(tc.deps.DataStore, tc.dst.ChainSelector(), common.DefaultReceiverQualifier)
 			}
 			if err != nil {
 				return false
 			}
 
 			srcQualifier := tc.combo.LocalPoolAddressRef().Qualifier
-			tc.srcToken, err = getTokenAddress(tc.deps.DataStore, tc.src.ChainSelector(), srcQualifier)
+			rSrc, err := tc.deps.ResolverAt(tc.src.ChainSelector())
+			if err != nil {
+				return false
+			}
+			tc.srcToken, err = rSrc.GetBurnMintERC20(tc.deps.DataStore, tc.src.ChainSelector(), srcQualifier)
 			if err != nil {
 				return false
 			}
 			destQualifier := tc.combo.RemotePoolAddressRef().Qualifier
-			tc.destToken, err = getTokenAddress(tc.deps.DataStore, tc.dst.ChainSelector(), destQualifier)
+			rDst, err := tc.deps.ResolverAt(tc.dst.ChainSelector())
+			if err != nil {
+				return false
+			}
+			tc.destToken, err = rDst.GetBurnMintERC20(tc.deps.DataStore, tc.dst.ChainSelector(), destQualifier)
 			if err != nil {
 				return false
 			}
 
-			tc.executor, err = tcapi.GetContractAddress(tc.deps.DataStore, tc.src.ChainSelector(), datastore.ContractType(sequences.ExecutorProxyType), proxy.Deploy.Version(), common.DefaultExecutorQualifier, "executor")
+			rExec, err := tc.deps.ResolverAt(tc.src.ChainSelector())
+			if err != nil {
+				return false
+			}
+			tc.executor, err = rExec.GetExecutor(tc.deps.DataStore, tc.src.ChainSelector(), common.DefaultExecutorQualifier)
 			return err == nil
 		},
 	}
 }
 
 // All returns test cases for the given token combinations with EOA receiver and combo finality.
-func All(ctx context.Context, env *deployment.Environment, combos []common.TokenCombination, opts ...tcapi.CaseOption) ([]tcapi.TestCase, error) {
-	deps, err := tcapi.BuildCaseDeps(ctx, env, opts...)
+func All(ctx context.Context, env *deployment.Environment, addressResolvers tcapi.AddressResolvers, combos []common.TokenCombination, opts ...tcapi.CaseOption) ([]tcapi.TestCase, error) {
+	deps, err := tcapi.BuildCaseDeps(ctx, env, addressResolvers, opts...)
 	if err != nil {
 		return nil, err
 	}
@@ -240,8 +244,8 @@ func All(ctx context.Context, env *deployment.Environment, combos []common.Token
 }
 
 // All17 returns test cases for 2.0.0-only token combinations: EOA and mock receiver with default finality (0).
-func All17(ctx context.Context, env *deployment.Environment, combos []common.TokenCombination, opts ...tcapi.CaseOption) ([]tcapi.TestCase, error) {
-	deps, err := tcapi.BuildCaseDeps(ctx, env, opts...)
+func All17(ctx context.Context, env *deployment.Environment, addressResolvers tcapi.AddressResolvers, combos []common.TokenCombination, opts ...tcapi.CaseOption) ([]tcapi.TestCase, error) {
+	deps, err := tcapi.BuildCaseDeps(ctx, env, addressResolvers, opts...)
 	if err != nil {
 		return nil, err
 	}
