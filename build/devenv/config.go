@@ -125,15 +125,13 @@ func LoadOutput[T any](outputPath string) (*T, error) {
 	}
 
 	// Load env metadata into the datastore so that tests can query it appropriately.
-	envMetadataOut := make(map[string]any)
+	var dsMetaData datastore.EnvMetadata
 	if c.CLDF.EnvMetadata != "" {
-		if err := json.Unmarshal([]byte(c.CLDF.EnvMetadata), &envMetadataOut); err != nil {
+		if err := json.Unmarshal([]byte(c.CLDF.EnvMetadata), &dsMetaData); err != nil {
 			return nil, fmt.Errorf("failed to unmarshal env metadata from config: %w", err)
 		}
 	}
-	err = ds.EnvMetadataStore.Set(datastore.EnvMetadata{
-		Metadata: envMetadataOut,
-	})
+	err = ds.EnvMetadata().Set(dsMetaData)
 	if err != nil {
 		return nil, fmt.Errorf("failed to set env metadata in datastore: %w", err)
 	}
