@@ -670,6 +670,17 @@ func runPhasedEnvironmentFinish(ctx context.Context, setup *phasedSetup) (cfg *C
 
 	e.DataStore = ds.Seal()
 
+	// Save the env metadata to the output CLDF struct so that it can be used by tests.
+	envMetadata, err := e.DataStore.EnvMetadata().Get()
+	if err != nil && err != datastore.ErrEnvMetadataNotSet {
+		return nil, nil, fmt.Errorf("failed to get env metadata from datastore: %w", err)
+	}
+	envMetadataJSON, err := json.Marshal(envMetadata)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to marshal env metadata: %w", err)
+	}
+	in.CLDF.AddEnvMetadata(string(envMetadataJSON))
+
 	setup.TimeTrack.Print()
 	if err = PrintCLDFAddresses(in); err != nil {
 		return nil, nil, err
