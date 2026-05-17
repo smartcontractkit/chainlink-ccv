@@ -8,13 +8,13 @@ replace (
 )
 
 require (
-	github.com/BurntSushi/toml v1.5.0
+	github.com/BurntSushi/toml v1.6.0
 	github.com/Masterminds/semver/v3 v3.4.0
 	github.com/google/uuid v1.6.0
-	github.com/smartcontractkit/chain-selectors v1.0.98
+	github.com/smartcontractkit/chain-selectors v1.0.99
 	github.com/smartcontractkit/chainlink-ccv v0.0.1
 	github.com/smartcontractkit/chainlink-common v0.11.2-0.20260417081611-8bdbd9f45629
-	github.com/smartcontractkit/chainlink-deployments-framework v0.94.1
+	github.com/smartcontractkit/chainlink-deployments-framework v0.101.1
 	github.com/smartcontractkit/chainlink-protos/job-distributor v0.18.0
 	github.com/stretchr/testify v1.11.1
 	google.golang.org/grpc v1.81.0
@@ -58,7 +58,7 @@ require (
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.0 // indirect
 	github.com/digital-asset/dazl-client/v8 v8.9.0 // indirect
 	github.com/ethereum/c-kzg-4844/v2 v2.1.6 // indirect
-	github.com/ethereum/go-ethereum v1.17.2 // indirect
+	github.com/ethereum/go-ethereum v1.17.3 // indirect
 	github.com/fatih/color v1.18.0 // indirect
 	github.com/fbsobreira/gotron-sdk v0.0.0-20250403083053-2943ce8c759b // indirect
 	github.com/fsnotify/fsnotify v1.9.0 // indirect
@@ -149,8 +149,8 @@ require (
 	github.com/smartcontractkit/chainlink-protos/cre/go v0.0.0-20260409211238-5b99921cbc7c // indirect
 	github.com/smartcontractkit/chainlink-protos/linking-service/go v0.0.0-20251002192024-d2ad9222409b // indirect
 	github.com/smartcontractkit/chainlink-protos/node-platform v0.0.0-20260211172625-dff40e83b3c9 // indirect
-	github.com/smartcontractkit/chainlink-sui v0.0.0-20260205175622-33e65031f9a9 // indirect
-	github.com/smartcontractkit/chainlink-ton v0.0.0-20260219201907-054376f21418 // indirect
+	github.com/smartcontractkit/chainlink-sui v0.0.0-20260428231901-a394dd724761 // indirect
+	github.com/smartcontractkit/chainlink-ton v1.0.5-0.20260430134932-681b7a7fe426 // indirect
 	github.com/smartcontractkit/chainlink-tron/relayer v0.0.11-0.20250908203554-5bd9d2fe9513 // indirect
 	github.com/smartcontractkit/freeport v0.1.3-0.20250828155247-add56fa28aad // indirect
 	github.com/smartcontractkit/grpc-proxy v0.0.0-20240830132753-a7e17fec5ab7 // indirect
@@ -203,16 +203,16 @@ require (
 	go.uber.org/zap v1.27.1 // indirect
 	go.yaml.in/yaml/v2 v2.4.2 // indirect
 	golang.org/x/arch v0.8.0 // indirect
-	golang.org/x/crypto v0.49.0 // indirect
+	golang.org/x/crypto v0.50.0 // indirect
 	golang.org/x/exp v0.0.0-20260218203240-3dfff04db8fa // indirect
-	golang.org/x/net v0.52.0 // indirect
+	golang.org/x/net v0.53.0 // indirect
 	golang.org/x/oauth2 v0.36.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
-	golang.org/x/sys v0.42.0 // indirect
-	golang.org/x/term v0.41.0 // indirect
-	golang.org/x/text v0.35.0 // indirect
+	golang.org/x/sys v0.43.0 // indirect
+	golang.org/x/term v0.42.0 // indirect
+	golang.org/x/text v0.36.0 // indirect
 	golang.org/x/time v0.15.0 // indirect
-	golang.org/x/tools v0.42.0 // indirect
+	golang.org/x/tools v0.43.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260401024825-9d38bb4040a9 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260401024825-9d38bb4040a9 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
