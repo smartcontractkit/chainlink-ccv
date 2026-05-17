@@ -17,6 +17,7 @@ type ChainAdapters struct {
 	Indexer                  IndexerConfigAdapter
 	TokenVerifier            TokenVerifierConfigAdapter
 	CommitteeVerifierOnchain CommitteeVerifierOnchainAdapter
+	CommitteeVerifierDeploy  CommitteeVerifierDeployAdapter
 }
 
 // Registry is a single registry mapping chain family → ChainAdapters.
@@ -66,6 +67,9 @@ func (r *Registry) Register(family string, a ChainAdapters) {
 	}
 	if a.CommitteeVerifierOnchain != nil {
 		existing.CommitteeVerifierOnchain = a.CommitteeVerifierOnchain
+	}
+	if a.CommitteeVerifierDeploy != nil {
+		existing.CommitteeVerifierDeploy = a.CommitteeVerifierDeploy
 	}
 	r.adapters[family] = existing
 }
