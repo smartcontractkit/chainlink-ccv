@@ -86,7 +86,7 @@ func run(args sendArgs) error {
 	}
 
 	l := zerolog.Ctx(ctx)
-	lib, err := ccv.NewLib(l, envFile, chain_selectors.FamilyEVM)
+	lib, err := ccv.NewLibFromCCVEnv(l, envFile, chain_selectors.FamilyEVM)
 	if err != nil {
 		return fmt.Errorf("no implementation found for source chain selector %d", args.srcSel)
 	}

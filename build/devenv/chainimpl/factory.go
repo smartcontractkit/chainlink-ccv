@@ -15,7 +15,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
-	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
 
 // ImplFactory is a factory for creating CCIP17 implementations.
@@ -25,13 +24,14 @@ type ImplFactory interface {
 	// NewEmpty creates an empty cciptestinterfaces.CCIP17Configuration object, this is
 	// primarily used to spin up new environments.
 	NewEmpty() cciptestinterfaces.CCIP17Configuration
+
 	// New creates a new cciptestinterfaces.CCIP17 object, this is primarily used in
 	// tests.
 	New(
 		ctx context.Context,
 		lggr zerolog.Logger,
 		env *deployment.Environment,
-		bc *blockchain.Input,
+		chainSelector uint64,
 	) (cciptestinterfaces.CCIP17, error)
 
 	// DefaultSignerKey returns the default signer key for this chain family

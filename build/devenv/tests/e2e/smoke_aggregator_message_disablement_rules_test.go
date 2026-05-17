@@ -81,9 +81,9 @@ func TestE2ESmoke_AggregatorMessageDisablementRulesCLI(t *testing.T) {
 // TestE2ESmoke_AggregatorLaneDisablementRule validates the full user-visible
 // behavior of aggregator message disablement rules:
 //
-//  1. Unrelated lane - while the lane between chains[0] and chains[1] is
-//     disabled, chains[0] -> chains[2] continues to be processed normally.
-//  2. Disabled lane - messages on chains[0] -> chains[1] are dropped by the
+//  1. Unrelated lane - while the lane between the progressable source and
+//     blockedDest is disabled, source -> allowedDest continues to be processed normally.
+//  2. Disabled lane - messages on source -> blockedDest are dropped by the
 //     verifier and never reach the result store.
 //  3. Replay - deleting the rule alone does not replay a dropped message once
 //     the verifier checkpoint has advanced; rewinding the committee checkpoint
@@ -94,7 +94,7 @@ func TestE2ESmoke_AggregatorLaneDisablementRule(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx := ccv.Plog.WithContext(t.Context())
-	lib, err := ccv.NewLib(zerolog.Ctx(ctx), smokeTestConfig, chain_selectors.FamilyEVM)
+	lib, err := ccv.NewLibFromCCVEnv(zerolog.Ctx(ctx), smokeTestConfig, chain_selectors.FamilyEVM)
 	require.NoError(t, err)
 	chains, err := lib.Chains(ctx)
 	require.NoError(t, err)
@@ -110,18 +110,21 @@ func TestE2ESmoke_AggregatorLaneDisablementRule(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = aggregatorClient.Close() })
 
-	blockedSrc := chains[0]
-	blockedDest := chains[1]
-	allowedDest := chains[2]
+	blockedSrc, progressable, ok := chainSupportingManualBlockProgress(ctx, chains)
+	require.True(t, ok,
+		"expected at least one chain implementing ProgressableChain with SupportManualBlockProgress; run with env-src-auto-mine.toml on a chain that uses automining")
 	blockedSrcSelector := blockedSrc.Details.ChainSelector
+	var others []ccv.ChainImpl
+	for _, ch := range chains {
+		if ch.Details.ChainSelector != blockedSrcSelector {
+			others = append(others, ch)
+		}
+	}
+	require.GreaterOrEqual(t, len(others), 2, "expected at least two chains distinct from the manual-progress source")
+	blockedDest := others[0]
+	allowedDest := others[1]
 	blockedDestSelector := blockedDest.Details.ChainSelector
 	allowedDestSelector := allowedDest.Details.ChainSelector
-	progressable, ok := blockedSrc.CCIP17.(cciptestinterfaces.ProgressableChain)
-	if !ok {
-		t.Skip("source chain does not implement ProgressableChain; skipping message-disablement replay smoke test")
-	}
-	require.True(t, progressable.SupportManualBlockProgress(ctx),
-		"source chain must support manual block progression with automining enabled; run with env-src-auto-mine.toml")
 	advanceBlocks := func(numBlocks int) {
 		require.NoError(t, progressable.AdvanceBlocks(ctx, numBlocks), "advance %d blocks", numBlocks)
 		time.Sleep(3 * time.Second)
@@ -159,14 +162,14 @@ func TestE2ESmoke_AggregatorLaneDisablementRule(t *testing.T) {
 
 	messageOpts := committeeV3MessageOptions(t, in, blockedSrcSelector)
 
-	// Phase A: chains[0] -> chains[2] is unrelated to the disabled lane.
+	// Phase A: source -> allowedDest is unrelated to the disabled lane.
 	sentEvtAllowed := sendMessageAndConfirm(t, ctx, blockedSrc, allowedDestSelector,
 		cciptestinterfaces.MessageFields{Receiver: receiverOnAllowedDest},
 		messageOpts, 3)
 	advanceBlocks(verifier.ConfirmationDepth + 5)
 	requireAggregatorResult(t, ctx, aggregatorClient, sentEvtAllowed.MessageID, "message on unrelated lane should still reach the aggregator")
 
-	// Phase B: chains[0] -> chains[1] is dropped by the verifier.
+	// Phase B: source -> blockedDest is dropped by the verifier.
 	sentEvtBlocked := sendMessageAndConfirm(t, ctx, blockedSrc, blockedDestSelector,
 		cciptestinterfaces.MessageFields{Receiver: receiverOnBlockedDest},
 		messageOpts, 3)
@@ -209,7 +212,7 @@ func TestE2ESmoke_AggregatorChainDisablementRule(t *testing.T) {
 	require.NoError(t, err)
 
 	ctx := ccv.Plog.WithContext(t.Context())
-	lib, err := ccv.NewLib(zerolog.Ctx(ctx), smokeTestConfig, chain_selectors.FamilyEVM)
+	lib, err := ccv.NewLibFromCCVEnv(zerolog.Ctx(ctx), smokeTestConfig, chain_selectors.FamilyEVM)
 	require.NoError(t, err)
 	chains, err := lib.Chains(ctx)
 	require.NoError(t, err)
@@ -225,18 +228,21 @@ func TestE2ESmoke_AggregatorChainDisablementRule(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = aggregatorClient.Close() })
 
-	src := chains[0]
-	blockedDest := chains[1]
-	allowedDest := chains[2]
+	src, progressable, ok := chainSupportingManualBlockProgress(ctx, chains)
+	require.True(t, ok,
+		"expected at least one chain implementing ProgressableChain with SupportManualBlockProgress; run with env-src-auto-mine.toml on a chain that uses automining")
+	srcSelector := src.Details.ChainSelector
+	var others []ccv.ChainImpl
+	for _, ch := range chains {
+		if ch.Details.ChainSelector != srcSelector {
+			others = append(others, ch)
+		}
+	}
+	require.GreaterOrEqual(t, len(others), 2, "expected at least two chains distinct from the manual-progress source")
+	blockedDest := others[0]
+	allowedDest := others[1]
 	blockedDestSelector := blockedDest.Details.ChainSelector
 	allowedDestSelector := allowedDest.Details.ChainSelector
-	srcSelector := src.Details.ChainSelector
-	progressable, ok := src.CCIP17.(cciptestinterfaces.ProgressableChain)
-	if !ok {
-		t.Skip("source chain does not implement ProgressableChain; skipping message-disablement replay smoke test")
-	}
-	require.True(t, progressable.SupportManualBlockProgress(ctx),
-		"source chain must support manual block progression with automining enabled; run with env-src-auto-mine.toml")
 	advanceBlocks := func(numBlocks int) {
 		require.NoError(t, progressable.AdvanceBlocks(ctx, numBlocks), "advance %d blocks", numBlocks)
 		time.Sleep(3 * time.Second)
@@ -389,4 +395,20 @@ func newVerifierCommitteeClientForSmoke(t *testing.T, in *ccv.Cfg) *verifiercli.
 	committee, err := verifiercli.NewCommitteeClient(verifierID, members...)
 	require.NoError(t, err)
 	return committee
+}
+
+// chainSupportingManualBlockProgress returns the first chain in chains whose
+// CCIP17 implements ProgressableChain and SupportManualBlockProgress(ctx) is true.
+// The order of chains does not matter (e.g. lib.Chains order is not guaranteed).
+func chainSupportingManualBlockProgress(ctx context.Context, chains []ccv.ChainImpl) (ccv.ChainImpl, cciptestinterfaces.ProgressableChain, bool) {
+	for _, ch := range chains {
+		p, ok := ch.CCIP17.(cciptestinterfaces.ProgressableChain)
+		if !ok {
+			continue
+		}
+		if p.SupportManualBlockProgress(ctx) {
+			return ch, p, true
+		}
+	}
+	return ccv.ChainImpl{}, nil, false
 }
