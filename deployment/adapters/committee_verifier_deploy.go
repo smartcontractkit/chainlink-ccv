@@ -29,28 +29,23 @@ type CommitteeVerifierDeployParams struct {
 // responsible for interpreting DeployerContract (e.g. a CREATE2Factory hex
 // address on EVM) and for looking up family-specific dependencies (such as
 // the RMNProxy) from ExistingAddresses.
+//
+// Deployed contracts remain owned by the deployer key. Transferring
+// ownership to a timelock/MCMS is composed by a separate changeset on top
+// (see CCIP-11432).
 type DeployCommitteeVerifierInput struct {
 	ChainSelector     uint64
 	DeployerContract  string
 	ExistingAddresses []datastore.AddressRef
 	Params            CommitteeVerifierDeployParams
-	// DeployerKeyOwned, when true, leaves the deployed contracts owned by the
-	// deployer key. When false, the adapter is expected to surface the
-	// contracts that need ownership transfer in RefsToTransferOwnership so
-	// the caller can wire up MCMS-based transfer. The current chain-agnostic
-	// changeset only supports DeployerKeyOwned=true.
-	DeployerKeyOwned bool
 }
 
 // DeployCommitteeVerifierOutput is the chain-agnostic output of a
-// CommitteeVerifier deploy. Adapters return any newly deployed addresses,
-// MCMS batch operations produced by post-deploy configuration writes, and
-// the subset of contracts that still need ownership transfer when not
-// running in deployer-key-owned mode.
+// CommitteeVerifier deploy. Adapters return any newly deployed addresses
+// and MCMS batch operations produced by post-deploy configuration writes.
 type DeployCommitteeVerifierOutput struct {
-	Addresses               []datastore.AddressRef
-	BatchOps                []mcmstypes.BatchOperation
-	RefsToTransferOwnership []datastore.AddressRef
+	Addresses []datastore.AddressRef
+	BatchOps  []mcmstypes.BatchOperation
 }
 
 // CommitteeVerifierDeployAdapter is the chain-family-specific entry point

@@ -61,11 +61,9 @@ func (c DeployCommitteeVerifierInput) resolveChainCfg(sel uint64) DeployCommitte
 // re-running on a chain where the verifier already exists is a no-op (or
 // reconciles any drifted dynamic config).
 //
-// Ownership transfer is intentionally out of scope for this first iteration.
-// Callers must run in deployer-key-owned mode (Params.DeployerKeyOwned-equivalent
-// is implicit here — the adapter is invoked with DeployerKeyOwned=true).
-// Wiring up MCMS-based ownership transfer is tracked as a follow-up so the
-// changeset can graduate to managing it alongside the deploy.
+// Deployed contracts remain owned by the deployer key. Wiring up MCMS-based
+// ownership transfer is tracked as a follow-up (CCIP-11432) so the deploy +
+// transfer can be composed once the CLD pieces land.
 func DeployCommitteeVerifier(registry *adapters.Registry) deployment.ChangeSetV2[DeployCommitteeVerifierInput] {
 	validate := func(e deployment.Environment, cfg DeployCommitteeVerifierInput) error {
 		if len(cfg.ChainSelectors) == 0 {
@@ -86,16 +84,15 @@ func DeployCommitteeVerifier(registry *adapters.Registry) deployment.ChangeSetV2
 				return fmt.Errorf("chain selector %d is not available in environment", sel)
 			}
 
-			perChain := cfg.resolveChainCfg(sel)
-			if perChain.DeployerContract == "" {
+			if cfg.resolveChainCfg(sel).DeployerContract == "" {
 				return fmt.Errorf("DeployerContract is required for chain %d", sel)
 			}
 
-			a, err := registry.GetByChain(sel)
+			chainAdapter, err := registry.GetByChain(sel)
 			if err != nil {
 				return fmt.Errorf("chain %d: %w", sel, err)
 			}
-			if a.CommitteeVerifierDeploy == nil {
+			if chainAdapter.CommitteeVerifierDeploy == nil {
 				return fmt.Errorf("chain %d: no CommitteeVerifierDeploy adapter registered", sel)
 			}
 		}
@@ -106,19 +103,19 @@ func DeployCommitteeVerifier(registry *adapters.Registry) deployment.ChangeSetV2
 		}
 
 		seenQualifier := make(map[string]bool, len(cfg.Committees))
-		for _, c := range cfg.Committees {
-			if c.Qualifier == "" {
+		for _, committee := range cfg.Committees {
+			if committee.Qualifier == "" {
 				return errors.New("committee qualifier is required")
 			}
-			if seenQualifier[c.Qualifier] {
-				return fmt.Errorf("duplicate committee qualifier %q in Committees", c.Qualifier)
+			if seenQualifier[committee.Qualifier] {
+				return fmt.Errorf("duplicate committee qualifier %q in Committees", committee.Qualifier)
 			}
-			seenQualifier[c.Qualifier] = true
-			if c.Version == nil {
-				return fmt.Errorf("committee %q: Version is required", c.Qualifier)
+			seenQualifier[committee.Qualifier] = true
+			if committee.Version == nil {
+				return fmt.Errorf("committee %q: Version is required", committee.Qualifier)
 			}
-			if c.FeeAggregator == "" {
-				return fmt.Errorf("committee %q: FeeAggregator is required", c.Qualifier)
+			if committee.FeeAggregator == "" {
+				return fmt.Errorf("committee %q: FeeAggregator is required", committee.Qualifier)
 			}
 		}
 
@@ -130,13 +127,11 @@ func DeployCommitteeVerifier(registry *adapters.Registry) deployment.ChangeSetV2
 		var allReports []operations.Report[any, any]
 
 		for _, sel := range cfg.ChainSelectors {
-			a, err := registry.GetByChain(sel)
+			chainAdapter, err := registry.GetByChain(sel)
 			if err != nil {
 				return deployment.ChangesetOutput{Reports: allReports},
 					fmt.Errorf("chain %d: %w", sel, err)
 			}
-
-			perChain := cfg.resolveChainCfg(sel)
 
 			existingAddresses := e.DataStore.Addresses().Filter(
 				datastore.AddressRefByChainSelector(sel),
@@ -145,10 +140,9 @@ func DeployCommitteeVerifier(registry *adapters.Registry) deployment.ChangeSetV2
 			for _, committee := range cfg.Committees {
 				input := adapters.DeployCommitteeVerifierInput{
 					ChainSelector:     sel,
-					DeployerContract:  perChain.DeployerContract,
+					DeployerContract:  cfg.resolveChainCfg(sel).DeployerContract,
 					ExistingAddresses: existingAddresses,
 					Params:            committee,
-					DeployerKeyOwned:  true,
 				}
 
 				e.Logger.Infow(
@@ -159,7 +153,7 @@ func DeployCommitteeVerifier(registry *adapters.Registry) deployment.ChangeSetV2
 
 				report, err := operations.ExecuteSequence(
 					e.OperationsBundle,
-					a.CommitteeVerifierDeploy.DeployCommitteeVerifier(),
+					chainAdapter.CommitteeVerifierDeploy.DeployCommitteeVerifier(),
 					e.BlockChains,
 					input,
 				)

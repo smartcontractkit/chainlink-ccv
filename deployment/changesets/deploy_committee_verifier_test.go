@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/Masterminds/semver/v3"
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
@@ -78,8 +77,7 @@ func TestDeployCommitteeVerifier_Validation_NoChainSelectors(t *testing.T) {
 	err := cs.VerifyPreconditions(newDeployTestEnv(nil), DeployCommitteeVerifierInput{
 		Committees: []adapters.CommitteeVerifierDeployParams{validCommittee()},
 	})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "at least one chain selector is required")
+	require.ErrorContains(t, err, "at least one chain selector is required")
 }
 
 func TestDeployCommitteeVerifier_Validation_NoCommittees(t *testing.T) {
@@ -91,27 +89,22 @@ func TestDeployCommitteeVerifier_Validation_NoCommittees(t *testing.T) {
 			DeployerContract: "0x0000000000000000000000000000000000000FAC",
 		},
 	})
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "at least one committee is required")
+	require.ErrorContains(t, err, "at least one committee is required")
 }
 
 func TestDeployCommitteeVerifier_Validation_DuplicateChainSelectors(t *testing.T) {
 	sel := chainsel.TEST_90000001.Selector
 	cs := DeployCommitteeVerifier(newDeployTestRegistry())
-	input := validInput([]uint64{sel, sel})
-	err := cs.VerifyPreconditions(newDeployTestEnv([]uint64{sel}), input)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "duplicate chain selector")
+	err := cs.VerifyPreconditions(newDeployTestEnv([]uint64{sel}), validInput([]uint64{sel, sel}))
+	require.ErrorContains(t, err, "duplicate chain selector")
 }
 
 func TestDeployCommitteeVerifier_Validation_ChainNotInEnvironment(t *testing.T) {
 	envSel := chainsel.TEST_90000001.Selector
 	otherSel := chainsel.TEST_90000002.Selector
 	cs := DeployCommitteeVerifier(newDeployTestRegistry())
-	input := validInput([]uint64{otherSel})
-	err := cs.VerifyPreconditions(newDeployTestEnv([]uint64{envSel}), input)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "is not available in environment")
+	err := cs.VerifyPreconditions(newDeployTestEnv([]uint64{envSel}), validInput([]uint64{otherSel}))
+	require.ErrorContains(t, err, "is not available in environment")
 }
 
 func TestDeployCommitteeVerifier_Validation_MissingDeployerContract(t *testing.T) {
@@ -120,8 +113,7 @@ func TestDeployCommitteeVerifier_Validation_MissingDeployerContract(t *testing.T
 	input := validInput([]uint64{sel})
 	input.DefaultCfg.DeployerContract = ""
 	err := cs.VerifyPreconditions(newDeployTestEnv([]uint64{sel}), input)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "DeployerContract is required")
+	require.ErrorContains(t, err, "DeployerContract is required")
 }
 
 func TestDeployCommitteeVerifier_Validation_DeployerContractFromPerChainOverride(t *testing.T) {
@@ -133,8 +125,7 @@ func TestDeployCommitteeVerifier_Validation_DeployerContractFromPerChainOverride
 	input.ChainCfgs = map[uint64]DeployCommitteeVerifierPerChainCfg{
 		sel: {DeployerContract: "0x0000000000000000000000000000000000000FAC"},
 	}
-	err := cs.VerifyPreconditions(newDeployTestEnv([]uint64{sel}), input)
-	require.NoError(t, err)
+	require.NoError(t, cs.VerifyPreconditions(newDeployTestEnv([]uint64{sel}), input))
 }
 
 func TestDeployCommitteeVerifier_Validation_ChainCfgsSelectorNotInChainSelectors(t *testing.T) {
@@ -146,8 +137,7 @@ func TestDeployCommitteeVerifier_Validation_ChainCfgsSelectorNotInChainSelectors
 		otherSel: {DeployerContract: "0x0000000000000000000000000000000000000FAC"},
 	}
 	err := cs.VerifyPreconditions(newDeployTestEnv([]uint64{sel, otherSel}), input)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "ChainCfgs contains selector")
+	require.ErrorContains(t, err, "ChainCfgs contains selector")
 }
 
 func TestDeployCommitteeVerifier_Validation_MissingCommitteeQualifier(t *testing.T) {
@@ -156,8 +146,7 @@ func TestDeployCommitteeVerifier_Validation_MissingCommitteeQualifier(t *testing
 	input := validInput([]uint64{sel})
 	input.Committees[0].Qualifier = ""
 	err := cs.VerifyPreconditions(newDeployTestEnv([]uint64{sel}), input)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "committee qualifier is required")
+	require.ErrorContains(t, err, "committee qualifier is required")
 }
 
 func TestDeployCommitteeVerifier_Validation_DuplicateCommitteeQualifier(t *testing.T) {
@@ -166,8 +155,7 @@ func TestDeployCommitteeVerifier_Validation_DuplicateCommitteeQualifier(t *testi
 	input := validInput([]uint64{sel})
 	input.Committees = append(input.Committees, validCommittee())
 	err := cs.VerifyPreconditions(newDeployTestEnv([]uint64{sel}), input)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "duplicate committee qualifier")
+	require.ErrorContains(t, err, "duplicate committee qualifier")
 }
 
 func TestDeployCommitteeVerifier_Validation_MissingCommitteeVersion(t *testing.T) {
@@ -176,8 +164,7 @@ func TestDeployCommitteeVerifier_Validation_MissingCommitteeVersion(t *testing.T
 	input := validInput([]uint64{sel})
 	input.Committees[0].Version = nil
 	err := cs.VerifyPreconditions(newDeployTestEnv([]uint64{sel}), input)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "Version is required")
+	require.ErrorContains(t, err, "Version is required")
 }
 
 func TestDeployCommitteeVerifier_Validation_MissingFeeAggregator(t *testing.T) {
@@ -186,13 +173,11 @@ func TestDeployCommitteeVerifier_Validation_MissingFeeAggregator(t *testing.T) {
 	input := validInput([]uint64{sel})
 	input.Committees[0].FeeAggregator = ""
 	err := cs.VerifyPreconditions(newDeployTestEnv([]uint64{sel}), input)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "FeeAggregator is required")
+	require.ErrorContains(t, err, "FeeAggregator is required")
 }
 
 func TestDeployCommitteeVerifier_Validation_HappyPath(t *testing.T) {
 	sel := chainsel.TEST_90000001.Selector
 	cs := DeployCommitteeVerifier(newDeployTestRegistry())
-	err := cs.VerifyPreconditions(newDeployTestEnv([]uint64{sel}), validInput([]uint64{sel}))
-	require.NoError(t, err)
+	require.NoError(t, cs.VerifyPreconditions(newDeployTestEnv([]uint64{sel}), validInput([]uint64{sel})))
 }
