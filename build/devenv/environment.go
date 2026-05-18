@@ -22,7 +22,7 @@ import (
 
 	_ "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/adapters"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
-	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainimpl"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainreg"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	_ "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/blockchains"
 	_ "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/committeeccv"
@@ -33,7 +33,6 @@ import (
 	_ "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/pricer"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
-	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/chainconfig"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/committeeverifier"
 	executorsvc "github.com/smartcontractkit/chainlink-ccv/build/devenv/services/executor"
 	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
@@ -441,17 +440,20 @@ func NewProductConfigurationFromNetwork(typ string) (cciptestinterfaces.CCIP17Co
 	resolved, err := blockchain.TypeToFamily(typ)
 	if err != nil {
 		// typ might already be a family name — try the factory directly before giving up.
-		if fac, facErr := chainimpl.GetImplFactory(typ); facErr == nil {
-			return fac.NewEmpty(), nil
+		if reg, regErr := chainreg.GetRegistry().Get(typ); regErr == nil && reg.ImplFactory != nil {
+			return reg.ImplFactory.NewEmpty(), nil
 		}
 		return nil, fmt.Errorf("unknown blockchain type %q (not a recognized type or family): %w", typ, err)
 	}
 	family := string(resolved)
-	fac, err := chainimpl.GetImplFactory(family)
+	reg, err := chainreg.GetRegistry().Get(family)
 	if err != nil {
-		return nil, fmt.Errorf("could not find impl factory for chain type %s (family %s): %w", typ, family, err)
+		return nil, fmt.Errorf("could not find chain registration for chain type %s (family %s): %w", typ, family, err)
 	}
-	return fac.NewEmpty(), nil
+	if reg.ImplFactory == nil {
+		return nil, fmt.Errorf("implementation factory for family %s not found", family)
+	}
+	return reg.ImplFactory.NewEmpty(), nil
 }
 
 // enrichEnvironmentTopology injects SignerAddress values from verifier inputs into the EnvironmentTopology.
@@ -463,7 +465,7 @@ func NewProductConfigurationFromNetwork(typ string) (cciptestinterfaces.CCIP17Co
 // Signer key selection is delegated to each registered ImplFactory via DefaultSignerKey,
 // so adding a new chain family requires no changes here.
 func enrichEnvironmentTopology(cfg *ccvdeployment.EnvironmentTopology, verifiers []*committeeverifier.Input) {
-	factories := chainimpl.GetAllImplFactories()
+	factories := chainreg.GetRegistry().GetAllImplFactories()
 
 	seenAliases := make(map[string]struct{})
 	for _, ver := range verifiers {
@@ -519,11 +521,11 @@ func buildEnvironmentTopology(in *Cfg, e *deployment.Environment) *ccvdeployment
 				if err != nil {
 					continue
 				}
-				fac, err := chainimpl.GetImplFactory(family)
-				if err != nil {
+				reg, err := chainreg.GetRegistry().Get(family)
+				if err != nil || reg.ImplFactory == nil {
 					continue
 				}
-				if addr := fac.DefaultFeeAggregator(e, sel); addr != "" {
+				if addr := reg.ImplFactory.DefaultFeeAggregator(e, sel); addr != "" {
 					chainCfg.FeeAggregator = addr
 					committee.ChainConfigs[chainSel] = chainCfg
 				}
@@ -1023,8 +1025,8 @@ func fundExecutorTransmitters(
 		if famErr != nil {
 			continue
 		}
-		fac, facErr := chainimpl.GetImplFactory(string(family))
-		if facErr != nil || !fac.SupportsFunding() {
+		reg, facErr := chainreg.GetRegistry().Get(string(family))
+		if facErr != nil || reg.ImplFactory == nil || !reg.ImplFactory.SupportsFunding() {
 			continue
 		}
 		addresses := addressesByFamily[string(family)]
@@ -1140,12 +1142,14 @@ func proposeJobsToExecutors(
 			}
 			nodeID := exec.Out.JDNodeID
 
-			loader, err := chainconfig.GetChainConfigLoader(exec.ChainFamily)
+			reg, err := chainreg.GetRegistry().Get(exec.ChainFamily)
 			if err != nil {
-				return fmt.Errorf("failed to get chain config loader for family %s: %w", exec.ChainFamily, err)
+				return fmt.Errorf("failed to get chain registration for family %s: %w", exec.ChainFamily, err)
 			}
-
-			blockchainInfos, err := loader(blockchainOutputs)
+			if reg.ChainConfigLoader == nil {
+				return fmt.Errorf("chain config loader for family %s not found", exec.ChainFamily)
+			}
+			blockchainInfos, err := reg.ChainConfigLoader(blockchainOutputs)
 			if err != nil {
 				return fmt.Errorf("failed to load chain config for family %s: %w", exec.ChainFamily, err)
 			}
@@ -1469,12 +1473,14 @@ func proposeJobsToStandaloneVerifiers(
 			}
 			nodeID := ver.Out.JDNodeID
 
-			loader, err := chainconfig.GetChainConfigLoader(ver.ChainFamily)
+			reg, err := chainreg.GetRegistry().Get(ver.ChainFamily)
 			if err != nil {
-				return fmt.Errorf("failed to get chain config loader for family %s: %w", ver.ChainFamily, err)
+				return fmt.Errorf("failed to get chain registration for family %s: %w", ver.ChainFamily, err)
 			}
-
-			blockchainInfos, err := loader(blockchainOutputs)
+			if reg.ChainConfigLoader == nil {
+				return fmt.Errorf("chain config loader for family %s not found", ver.ChainFamily)
+			}
+			blockchainInfos, err := reg.ChainConfigLoader(blockchainOutputs)
 			if err != nil {
 				return fmt.Errorf("failed to load chain config for family %s: %w", ver.ChainFamily, err)
 			}

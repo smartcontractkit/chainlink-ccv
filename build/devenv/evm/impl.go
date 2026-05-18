@@ -117,20 +117,6 @@ func init() {
 			tokenAdapterRegistry.RegisterTokenAdapter("evm", semver.MustParse(poolVersion), tokenAdapter)
 		}
 	}
-
-	cciptestinterfaces.RegisterExtraArgsSerializer(cciptestinterfaces.ExtraArgsSerializerEntry{Family: chainsel.FamilyEVM, Version: 3}, SerializeMessageV3ExtraArgs)
-	cciptestinterfaces.RegisterExtraArgsSerializer(cciptestinterfaces.ExtraArgsSerializerEntry{Family: chainsel.FamilyEVM, Version: 2}, BuildEVMExtraArgsV2)
-	cciptestinterfaces.RegisterExtraArgsSerializer(cciptestinterfaces.ExtraArgsSerializerEntry{Family: chainsel.FamilyEVM, Version: 1}, BuildEVMExtraArgsV1)
-	// Canton shares EVM's extra args serialization. Canton's product repo can
-	// register its own serializer if the formats ever diverge; until then, this
-	// provides backward compatibility with the previous FamilyEVM/FamilyCanton
-	// combined switch case.
-
-	cciptestinterfaces.RegisterExtraArgsSerializer(cciptestinterfaces.ExtraArgsSerializerEntry{Family: chainsel.FamilyCanton, Version: 3}, SerializeMessageV3ExtraArgs)
-	cciptestinterfaces.RegisterExtraArgsSerializer(cciptestinterfaces.ExtraArgsSerializerEntry{Family: chainsel.FamilyCanton, Version: 2}, BuildEVMExtraArgsV2)
-	cciptestinterfaces.RegisterExtraArgsSerializer(cciptestinterfaces.ExtraArgsSerializerEntry{Family: chainsel.FamilyCanton, Version: 1}, BuildEVMExtraArgsV1)
-
-	cciptestinterfaces.RegisterExtraArgsSerializer(cciptestinterfaces.ExtraArgsSerializerEntry{Family: chainsel.FamilySolana, Version: 1}, BuildSVMExtraArgsV1)
 }
 
 type CCIP17EVMConfig struct {

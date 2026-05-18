@@ -1,4 +1,4 @@
-package chainconfig
+package evm
 
 import (
 	"fmt"
@@ -9,9 +9,8 @@ import (
 	ctfblockchain "github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
 
-// EVMChainConfigLoader converts the provided CTF blockchain outputs to a map of chain selector to evm.Info.
-// TODO: this should be moved out of devenv into the evm chain-specific repo eventually and registered from there.
-func EVMChainConfigLoader(outputs []*ctfblockchain.Output) (map[string]any, error) {
+// ChainConfigLoader converts CTF blockchain outputs to a map of chain selector to evm.Info.
+func ChainConfigLoader(outputs []*ctfblockchain.Output) (map[string]any, error) {
 	infos := make(map[string]any)
 	for _, output := range outputs {
 		if output.Family != chainsel.FamilyEVM {
@@ -25,7 +24,6 @@ func EVMChainConfigLoader(outputs []*ctfblockchain.Output) (map[string]any, erro
 			Nodes:           make([]evm.Node, 0, len(output.Nodes)),
 		}
 
-		// Convert all nodes
 		for _, node := range output.Nodes {
 			if node != nil {
 				info.Nodes = append(info.Nodes, evm.Node{
@@ -42,9 +40,7 @@ func EVMChainConfigLoader(outputs []*ctfblockchain.Output) (map[string]any, erro
 			return nil, fmt.Errorf("failed to get chain details for chain %s, family %s: %w", output.ChainID, output.Family, err)
 		}
 
-		strSelector := strconv.FormatUint(details.ChainSelector, 10)
-
-		infos[strSelector] = info
+		infos[strconv.FormatUint(details.ChainSelector, 10)] = info
 	}
 
 	return infos, nil

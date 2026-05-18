@@ -311,7 +311,7 @@ type OnChainConfigurable interface {
 }
 
 // ExtraArgsSerializer serializes message extra args for a destination chain family.
-// Product repos register their implementation via RegisterExtraArgsSerializer.
+// Product repos register via chainreg.Registration.ExtraArgsSerializers or RegisterExtraArgsSerializer.
 type ExtraArgsSerializer func(provider ExtraArgsDataProvider) (GenericExtraArgs, error)
 
 var (
@@ -326,7 +326,7 @@ type ExtraArgsSerializerEntry struct {
 
 // RegisterExtraArgsSerializer registers an ExtraArgsSerializer for a chain family.
 // If the family is already registered, the call is a no-op to match the pattern
-// used by other registries in this repo (e.g. CLDFProviderRegistry, ImplFactory).
+// used by chainreg (see build/devenv/chainreg).
 // Product repos call this in their init() alongside other registrations.
 func RegisterExtraArgsSerializer(entry ExtraArgsSerializerEntry, serializer ExtraArgsSerializer) {
 	extraArgsSerializersMu.Lock()
