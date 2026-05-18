@@ -52,9 +52,17 @@ type Lib interface {
 	// or an error if no indexer clients are available.
 	Indexer() (*client.IndexerClient, error)
 
+	// IndexerMonitor returns a new [IndexerMonitor] for the indexer client,
+	// or an error if no indexer client is available.
+	IndexerMonitor() (*IndexerMonitor, error)
+
 	// AllIndexers returns all indexer clients available.
 	// or an error if no indexer clients are available.
 	AllIndexers() ([]*client.IndexerClient, error)
+
+	// AllAggregators returns a mapping of qualifier name to the client of the aggregator for that qualifier.
+	// or an error if no aggregator clients are available.
+	AllAggregators() (map[string]*AggregatorClient, error)
 }
 
 type libFromCCV struct {
@@ -125,6 +133,28 @@ func (l *libFromCCV) verify() error {
 	return nil
 }
 
+// AllAggregators implements [Lib].
+func (l *libFromCCV) AllAggregators() (map[string]*AggregatorClient, error) {
+	if err := l.verify(); err != nil {
+		return nil, fmt.Errorf("failed to initialize aggregator clients: %w", err)
+	}
+
+	if len(l.cfg.AggregatorEndpoints) == 0 {
+		return nil, fmt.Errorf("no aggregator endpoints configured")
+	}
+
+	aggregators := make(map[string]*AggregatorClient, len(l.cfg.AggregatorEndpoints))
+	for qualifier, endpoint := range l.cfg.AggregatorEndpoints {
+		ac, err := NewAggregatorClient(l.l, endpoint, l.cfg.AggregatorCACertFiles[qualifier])
+		if err != nil {
+			return nil, fmt.Errorf("failed to create aggregator client for qualifier %s: %w", qualifier, err)
+		}
+		aggregators[qualifier] = ac
+	}
+
+	return aggregators, nil
+}
+
 // CLDFEnvironment implements [Lib].
 func (l *libFromCCV) CLDFEnvironment() (*deployment.Environment, error) {
 	if err := l.verify(); err != nil {
@@ -148,6 +178,15 @@ func (l *libFromCCV) Indexer() (*client.IndexerClient, error) {
 		return nil, fmt.Errorf("no indexer clients found")
 	}
 	return allIndexers[0], nil
+}
+
+// IndexerMonitor implements [Lib].
+func (l *libFromCCV) IndexerMonitor() (*IndexerMonitor, error) {
+	indexerClient, err := l.Indexer()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get indexer client: %w", err)
+	}
+	return NewIndexerMonitor(l.l, indexerClient)
 }
 
 // AllIndexers implements [Lib].
@@ -257,6 +296,16 @@ func (l *libFromCLDF) DataStore() (datastore.DataStore, error) {
 // Indexer implements [Lib].
 func (l *libFromCLDF) Indexer() (*client.IndexerClient, error) {
 	return nil, fmt.Errorf("no indexer clients available in CLDF environment")
+}
+
+// IndexerMonitor implements [Lib].
+func (l *libFromCLDF) IndexerMonitor() (*IndexerMonitor, error) {
+	return nil, fmt.Errorf("no indexer monitor available in CLDF environment")
+}
+
+// AllAggregators implements [Lib].
+func (l *libFromCLDF) AllAggregators() (map[string]*AggregatorClient, error) {
+	return nil, fmt.Errorf("no aggregator clients available in CLDF environment")
 }
 
 func NewLibFromCLDFEnv(logger *zerolog.Logger, env *deployment.Environment, familiesToLoad ...string) (Lib, error) {
