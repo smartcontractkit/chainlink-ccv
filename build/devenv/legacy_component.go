@@ -4,12 +4,16 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
 	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	executorsvc "github.com/smartcontractkit/chainlink-ccv/build/devenv/services/executor"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/util"
+	ccvshared "github.com/smartcontractkit/chainlink-ccv/deployment/shared"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 	ns "github.com/smartcontractkit/chainlink-testing-framework/framework/components/simple_node_set"
 )
@@ -17,16 +21,6 @@ import (
 // legacyCfgKey is the output map key under which the legacy fallback component
 // stores the fully-initialized *Cfg so that NewPhasedEnvironment can extract it.
 const legacyCfgKey = "_legacy_cfg"
-
-// legacySetupKey is the output map key under which RunPhase3 stores the
-// *phasedSetup so that RunPhase4 can call runPhasedEnvironmentFinish.
-const legacySetupKey = "_legacy_setup"
-
-// preparedIndexerInputsKey is the output map key under which RunPhase3 stores
-// the slice of fully-prepared *services.IndexerInput pointers so that the
-// indexer Phase 4 component can call services.NewIndexer for each one without
-// importing the parent ccv package.
-const preparedIndexerInputsKey = "_prepared_indexer_inputs"
 
 func init() {
 	devenvruntime.SetFallback(legacyFactory)
@@ -40,13 +34,10 @@ type legacyComponent struct{}
 
 func (l *legacyComponent) ValidateConfig(_ any) error { return nil }
 
-// RunPhase3 loads the TOML config, splices in the Phase 1/2/3 outputs produced
-// by dedicated components (blockchains, nodesets, jd, executor, fake, pricer),
-// and calls runPhasedEnvironmentSetup. The resulting *phasedSetup (under
-// legacySetupKey) and the fully-prepared []*services.IndexerInput (under
-// preparedIndexerInputsKey) are passed forward so that the indexer Phase 4
-// component can launch indexer containers and RunPhase4 can complete wiring.
-func (l *legacyComponent) RunPhase3(
+// RunPhase2 handles credential generation, CL node launch, JD registration,
+// and verifier launch. Contract deployment and config generation are deferred
+// to the protocol_contracts Phase 3 component.
+func (l *legacyComponent) RunPhase2(
 	ctx context.Context,
 	_ map[string]any,
 	_ any,
@@ -87,33 +78,132 @@ func (l *legacyComponent) RunPhase3(
 		in.Pricer = pricer
 	}
 
-	setup, err := runPhasedEnvironmentSetup(ctx, in)
+	if err = in.expandForHA(); err != nil {
+		return nil, nil, fmt.Errorf("failed to expand HA configuration: %w", err)
+	}
+
+	// Build per-chain impls — needed by launchCLNodes.
+	impls := make([]cciptestinterfaces.CCIP17Configuration, len(in.Blockchains))
+	blockchainOutputs := make([]*blockchain.Output, len(in.Blockchains))
+	for i, bc := range in.Blockchains {
+		if bc.Out == nil {
+			return nil, nil, fmt.Errorf("blockchain[%d] %q: phase 1 did not populate Out", i, bc.ContainerName)
+		}
+		impl, ierr := NewProductConfigurationFromNetwork(bc.Type)
+		if ierr != nil {
+			return nil, nil, ierr
+		}
+		impls[i] = impl
+		blockchainOutputs[i] = bc.Out
+	}
+
+	// Generate HMAC credentials for all aggregators before launching CL nodes,
+	// so the nodes can receive credentials via secrets.
+	for _, agg := range in.Aggregator {
+		creds, cerr := agg.EnsureClientCredentials()
+		if cerr != nil {
+			return nil, nil, fmt.Errorf("failed to ensure client credentials for aggregator %s: %w", agg.CommitteeName, cerr)
+		}
+		if agg.Out == nil {
+			agg.Out = &services.AggregatorOutput{}
+		}
+		agg.Out.ClientCredentials = creds
+		for clientID, c := range creds {
+			Plog.Debug().
+				Str("aggregator", agg.CommitteeName).
+				Str("clientID", clientID).
+				Str("apiKey", c.APIKey[:8]+"...").
+				Msg("Generated aggregator credentials")
+		}
+	}
+
+	_, err = launchCLNodes(ctx, in, impls, in.Verifier, in.Aggregator)
 	if err != nil {
+		return nil, nil, fmt.Errorf("failed to launch CL nodes: %w", err)
+	}
+
+	// Extract only CL-mode NOP aliases for JD/client operations.
+	// Standalone NOPs don't have CL nodes and don't need JD registration.
+	clModeNopAliases := make([]string, 0)
+	if in.EnvironmentTopology != nil && in.EnvironmentTopology.NOPTopology != nil {
+		for _, nop := range in.EnvironmentTopology.NOPTopology.NOPs {
+			if nop.GetMode() == ccvshared.NOPModeCL {
+				clModeNopAliases = append(clModeNopAliases, nop.Alias)
+			}
+		}
+	} else {
+		L.Warn().Msg("No environment topology defined, skipping NOP alias extraction")
+	}
+
+	clientLookup, err := jobs.NewNodeSetClientLookup(in.NodeSets, clModeNopAliases)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create NodeSet client lookup: %w", err)
+	}
+
+	if in.JDInfra == nil {
+		return nil, nil, fmt.Errorf("JD infrastructure was not started by Phase 1 jd component")
+	}
+	jdInfra := in.JDInfra
+
+	if clientLookup != nil {
+		if err := jobs.RegisterNodesWithJD(ctx, jdInfra, clientLookup, clModeNopAliases); err != nil {
+			return nil, nil, fmt.Errorf("failed to register nodes with JD: %w", err)
+		}
+		chainIDs := make([]string, len(in.Blockchains))
+		for i, bc := range in.Blockchains {
+			chainIDs[i] = bc.ChainID
+		}
+		if err := jobs.ConnectNodesToJD(ctx, jdInfra, clientLookup, chainIDs); err != nil {
+			return nil, nil, fmt.Errorf("failed to connect nodes to JD: %w", err)
+		}
+	}
+
+	_, err = launchStandaloneVerifiers(in, blockchainOutputs, jdInfra)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to launch standalone verifiers: %w", err)
+	}
+	if err := registerStandaloneVerifiersWithJD(ctx, in.Verifier, jdInfra.OffchainClient); err != nil {
 		return nil, nil, err
 	}
 
+	// Generate shared TLS certificates from aggregator hostnames. This depends
+	// only on container naming — not on deployed contract addresses — so it
+	// belongs here alongside other credential infrastructure.
+	var sharedTLSCerts *services.TLSCertPaths
+	if len(in.Aggregator) > 0 {
+		var allHostnames []string
+		for _, agg := range in.Aggregator {
+			nginxName := fmt.Sprintf("%s-%s", agg.InstanceName(), services.AggregatorNginxContainerNameSuffix)
+			aggName := fmt.Sprintf("%s-%s", agg.InstanceName(), services.AggregatorContainerNameSuffix)
+			allHostnames = append(allHostnames, nginxName, aggName)
+		}
+		allHostnames = append(allHostnames, "localhost")
+		tlsCertDir := filepath.Join(util.CCVConfigDir(), "tls-shared")
+		sharedTLSCerts, err = services.GenerateTLSCertificates(allHostnames, tlsCertDir)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to generate shared TLS certificates: %w", err)
+		}
+	}
+
 	return map[string]any{
-		legacySetupKey:           setup,
-		preparedIndexerInputsKey: setup.In.Indexer,
-		"aggregators":            setup.In.Aggregator,
-		"shared_tls_certs":       setup.SharedTLSCerts,
+		"verifiers":               in.Verifier,
+		"_aggregators_with_creds": in.Aggregator,
+		"_cl_client_lookup":       clientLookup,
+		"shared_tls_certs":        sharedTLSCerts,
 	}, nil, nil
 }
 
-// RunPhase4 reads the *phasedSetup produced by RunPhase3 (after the indexer
-// Phase 4 component has called services.NewIndexer for each prepared input,
-// mutating idxIn.Out on the shared pointers), then calls
-// runPhasedEnvironmentFinish to complete contract deployment, job spec
-// generation, funding, and job proposal.
+// RunPhase4 reads the *phasedSetup produced by protocol_contracts Phase 3, launches
+// generic services, and calls runPhasedEnvironmentFinish to complete wiring.
 func (l *legacyComponent) RunPhase4(
 	ctx context.Context,
 	_ map[string]any,
 	_ any,
 	priorOutputs map[string]any,
 ) (map[string]any, []devenvruntime.Effect, error) {
-	setup, ok := priorOutputs[legacySetupKey].(*phasedSetup)
+	setup, ok := priorOutputs["_protocol_setup"].(*phasedSetup)
 	if !ok {
-		return nil, nil, fmt.Errorf("phase 3 did not produce *phasedSetup under %q", legacySetupKey)
+		return nil, nil, fmt.Errorf("phase 3 did not produce *phasedSetup under \"_protocol_setup\"")
 	}
 
 	// The executor Phase 3 component launched containers and registered with JD
@@ -122,6 +212,16 @@ func (l *legacyComponent) RunPhase4(
 	// propose job specs to the correct JD node IDs.
 	if execs, ok := priorOutputs["executor"].([]*executorsvc.Input); ok {
 		setup.In.Executor = execs
+	}
+
+	// Restore the CL client lookup from Phase 2 into the in-memory Cfg so that
+	// launchGenericServices and runPhasedEnvironmentFinish can reference CL nodes.
+	if clientLookup, ok := priorOutputs["_cl_client_lookup"].(*jobs.NodeSetClientLookup); ok {
+		setup.In.ClientLookup = clientLookup
+	}
+
+	if err := launchGenericServices(ctx, setup.In, setup.E, setup.BlockchainOutputs); err != nil {
+		return nil, nil, fmt.Errorf("failed to launch generic services: %w", err)
 	}
 
 	cfg, phaseEffects, err := runPhasedEnvironmentFinish(ctx, setup)
