@@ -341,7 +341,7 @@ func runPhasedEnvironmentSetup(ctx context.Context, in *Cfg) (*phasedSetup, erro
 	}
 
 	var connectErr error
-	if in.UseLegacyConfigureLane {
+	if in.ProtocolContracts.UseLegacyConfigureLane {
 		connectErr = connectAllChainsLegacy(impls, in.Blockchains, selectors, e, topology)
 	} else {
 		connectErr = connectAllChainsCanonical(impls, in.Blockchains, selectors, e, topology)
