@@ -90,9 +90,7 @@ const (
 	DefaultDecimals      = 18
 )
 
-var (
-	ccipMessageSentTopic = onramp.OnRampCCIPMessageSent{}.Topic()
-)
+var ccipMessageSentTopic = onramp.OnRampCCIPMessageSent{}.Topic()
 
 type CCIP17EVMConfig struct {
 	logger zerolog.Logger

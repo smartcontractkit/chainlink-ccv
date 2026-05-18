@@ -18,7 +18,7 @@ import (
 
 // ImplFactory is a factory for creating CCIP17 implementations.
 // Product repos (chainlink-canton, chainlink-stellar, chainlink-ccip-solana)
-// implement this interface and register via RegisterImplFactory in their init().
+// implement this interface and register it via Registration.ImplFactory in their init().
 type ImplFactory interface {
 	// NewEmpty creates an empty cciptestinterfaces.CCIP17Configuration object, this is
 	// primarily used to spin up new environments.

@@ -9,14 +9,14 @@ import (
 
 	"github.com/Masterminds/semver/v3"
 	"github.com/rs/zerolog"
+	"github.com/testcontainers/testcontainers-go"
+
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	cldf_chain "github.com/smartcontractkit/chainlink-deployments-framework/chain"
 	cldf_evm_provider "github.com/smartcontractkit/chainlink-deployments-framework/chain/evm/provider"
 	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm/provider/rpcclient"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
-	ctfblockchain "github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
-	"github.com/testcontainers/testcontainers-go"
 
 	adapters_1_6_1 "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_1/adapters"
 	evmadapters "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/adapters"
@@ -204,7 +204,7 @@ func getUserPrivateKeys() []string {
 }
 
 // ChainConfigLoader converts CTF blockchain outputs to a map of chain selector to evm.Info.
-func ChainConfigLoader(outputs []*ctfblockchain.Output) (map[string]any, error) {
+func ChainConfigLoader(outputs []*blockchain.Output) (map[string]any, error) {
 	infos := make(map[string]any)
 	for _, output := range outputs {
 		if output.Family != chainsel.FamilyEVM {

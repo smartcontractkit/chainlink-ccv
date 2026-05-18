@@ -52,7 +52,7 @@ func (r *Registry) Add(family string, reg Registration) error {
 	return nil
 }
 
-func mergeRegistration(existing Registration, incoming Registration) Registration {
+func mergeRegistration(existing, incoming Registration) Registration {
 	if existing.ImplFactory == nil {
 		existing.ImplFactory = incoming.ImplFactory
 	}
