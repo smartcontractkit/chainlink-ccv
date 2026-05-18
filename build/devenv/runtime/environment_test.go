@@ -266,3 +266,65 @@ func TestFallbackOverwriteDetection(t *testing.T) {
 	require.Contains(t, err.Error(), `"<fallback>"`)
 	require.Contains(t, err.Error(), `"shared"`)
 }
+
+func TestMultiInstance_SlicesAccumulated(t *testing.T) {
+	// Two elements under the same config key, each producing a length-1 slice.
+	// The runtime should concatenate them into a single slice.
+	inst := mocks.NewMockComponent(t)
+	inst.EXPECT().ValidateConfig(mock.Anything).Return(nil).Times(2)
+
+	p1 := mocks.NewMockPhase1Component(t)
+	call := 0
+	p1.EXPECT().RunPhase1(mock.Anything, mock.Anything, mock.Anything).
+		RunAndReturn(func(_ context.Context, _ map[string]any, elem any) (map[string]any, []devenvruntime.Effect, error) {
+			call++
+			if call == 1 {
+				return map[string]any{"items": []string{"a"}}, nil, nil
+			}
+			return map[string]any{"items": []string{"b"}}, nil, nil
+		}).Times(2)
+
+	type both struct {
+		*mocks.MockComponent
+		*mocks.MockPhase1Component
+	}
+	comp := &both{inst, p1}
+
+	r := devenvruntime.NewRegistry()
+	require.NoError(t, r.Register("things", func(_ map[string]any) (devenvruntime.Component, error) {
+		return comp, nil
+	}))
+
+	out, err := runEnv(t, r, map[string]any{"things": []any{"e1", "e2"}})
+	require.NoError(t, err)
+	require.Equal(t, []string{"a", "b"}, out["items"])
+}
+
+func TestMultiInstance_ScalarCollisionErrors(t *testing.T) {
+	// Two elements that both write a scalar (not a slice) to the same key should error.
+	inst := mocks.NewMockComponent(t)
+	inst.EXPECT().ValidateConfig(mock.Anything).Return(nil).Times(2)
+
+	p1 := mocks.NewMockPhase1Component(t)
+	call := 0
+	p1.EXPECT().RunPhase1(mock.Anything, mock.Anything, mock.Anything).
+		RunAndReturn(func(_ context.Context, _ map[string]any, elem any) (map[string]any, []devenvruntime.Effect, error) {
+			call++
+			return map[string]any{"scalar": call}, nil, nil
+		}).Times(2)
+
+	type both struct {
+		*mocks.MockComponent
+		*mocks.MockPhase1Component
+	}
+	comp := &both{inst, p1}
+
+	r := devenvruntime.NewRegistry()
+	require.NoError(t, r.Register("things", func(_ map[string]any) (devenvruntime.Component, error) {
+		return comp, nil
+	}))
+
+	_, err := runEnv(t, r, map[string]any{"things": []any{"e1", "e2"}})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "cannot accumulate")
+}

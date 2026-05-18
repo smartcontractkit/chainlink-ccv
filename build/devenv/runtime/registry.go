@@ -60,13 +60,20 @@ func (r *Registry) instantiate(previousOutput map[string]any) (map[string]Compon
 // top-level config key is present in rawConfig. Components whose key is
 // unset are dormant — neither validated nor phase-executed — so registered
 // components can sit out runs that don't configure them.
+//
+// When rawConfig[key] is a []any (TOML array-of-tables), ValidateConfig is
+// called once per element so each instance is validated independently.
 func (r *Registry) validate(rawConfig map[string]any, specific map[string]Component, fallback Component) error {
 	for key, comp := range specific {
-		if _, ok := rawConfig[key]; !ok {
+		rawVal, ok := rawConfig[key]
+		if !ok {
 			continue
 		}
-		if err := comp.ValidateConfig(rawConfig[key]); err != nil {
-			return fmt.Errorf("component %q config invalid: %w", key, err)
+		elems := configElements(rawVal)
+		for i, elem := range elems {
+			if err := comp.ValidateConfig(elem); err != nil {
+				return fmt.Errorf("component %q config invalid: %w", phaseLabel(key, i, len(elems)), err)
+			}
 		}
 	}
 	if fallback != nil {
