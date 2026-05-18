@@ -40,6 +40,13 @@ const (
 var DefaultVerifierDBConnectionString = fmt.Sprintf("postgresql://%s:%s@localhost:%d/%s?sslmode=disable",
 	DefaultVerifierName, DefaultVerifierName, DefaultVerifierDBPort, DefaultVerifierName)
 
+// ReqModifier modifies a committee verifier testcontainers.ContainerRequest.
+type ReqModifier func(
+	req testcontainers.ContainerRequest,
+	verifierInput *Input,
+	outputs []*blockchain.Output,
+) (testcontainers.ContainerRequest, error)
+
 type DBInput struct {
 	Image string `toml:"image"`
 	Name  string `toml:"name"`

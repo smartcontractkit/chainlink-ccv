@@ -31,8 +31,6 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccip/deployment/finality"
 
-	adapters_1_6_1 "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_1/adapters"
-
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/create2_factory"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/erc20_lock_box"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/executor"
@@ -75,7 +73,6 @@ import (
 	chainsel "github.com/smartcontractkit/chain-selectors"
 
 	routeroperations "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_2_0/operations/router"
-	evmadapters "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/adapters"
 	offrampoperations "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/offramp"
 	onrampoperations "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/onramp"
 	feequoterwrapper "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/fee_quoter"
@@ -95,29 +92,7 @@ const (
 
 var (
 	ccipMessageSentTopic = onramp.OnRampCCIPMessageSent{}.Topic()
-
-	tokenPoolVersions = []string{
-		"1.6.1",
-		"2.0.0",
-	}
 )
-
-// init registers evm token adapters for pool versions 1.6.1 and 2.0.0 so that ConfigureTokensForTransfers
-// (called from environment.go) can process token configs that reference these pool versions.
-func init() {
-	tokenAdapterRegistry := tokenscore.GetTokenAdapterRegistry()
-	for _, poolVersion := range tokenPoolVersions {
-		var tokenAdapter tokenscore.TokenAdapter
-		tokenAdapter = &evmadapters.TokenAdapter{}
-		if poolVersion == "1.6.1" {
-			tokenAdapter = &adapters_1_6_1.TokenAdapter{}
-		}
-		_, ok := tokenAdapterRegistry.GetTokenAdapter("evm", semver.MustParse(poolVersion))
-		if !ok {
-			tokenAdapterRegistry.RegisterTokenAdapter("evm", semver.MustParse(poolVersion), tokenAdapter)
-		}
-	}
-}
 
 type CCIP17EVMConfig struct {
 	logger zerolog.Logger

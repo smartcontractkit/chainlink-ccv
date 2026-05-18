@@ -23,6 +23,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
+	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 	ctfblockchain "github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
 
@@ -35,6 +36,13 @@ const (
 
 	DefaultExecutorDBImage = "postgres:16-alpine"
 )
+
+// ReqModifier modifies an executor testcontainers.ContainerRequest.
+type ReqModifier func(
+	req testcontainers.ContainerRequest,
+	executorInput *Input,
+	outputs []*blockchain.Output,
+) (testcontainers.ContainerRequest, error)
 
 type Input struct {
 	Mode           services.Mode `toml:"mode"`
