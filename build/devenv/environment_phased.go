@@ -10,11 +10,11 @@ import (
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainreg"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
 	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
-	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/chainconfig"
 	committeeverifier "github.com/smartcontractkit/chainlink-ccv/build/devenv/services/committeeverifier"
 	executorsvc "github.com/smartcontractkit/chainlink-ccv/build/devenv/services/executor"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/util"
@@ -522,11 +522,14 @@ func runPhasedEnvironmentFinish(ctx context.Context, setup *phasedSetup) (cfg *C
 		if exec.Out == nil || exec.Out.JDNodeID == "" {
 			continue
 		}
-		loader, loaderErr := chainconfig.GetChainConfigLoader(exec.ChainFamily)
+		reg, loaderErr := chainreg.GetRegistry().Get(exec.ChainFamily)
 		if loaderErr != nil {
-			return nil, nil, fmt.Errorf("chain config loader for executor %s: %w", exec.ContainerName, loaderErr)
+			return nil, nil, fmt.Errorf("chain registration for executor %s: %w", exec.ContainerName, loaderErr)
 		}
-		blockchainInfos, loaderErr := loader(blockchainOutputs)
+		if reg.ChainConfigLoader == nil {
+			return nil, nil, fmt.Errorf("chain config loader for family %s not found", exec.ChainFamily)
+		}
+		blockchainInfos, loaderErr := reg.ChainConfigLoader(blockchainOutputs)
 		if loaderErr != nil {
 			return nil, nil, fmt.Errorf("loading chain config for executor %s: %w", exec.ContainerName, loaderErr)
 		}
@@ -570,11 +573,14 @@ func runPhasedEnvironmentFinish(ctx context.Context, setup *phasedSetup) (cfg *C
 			continue
 		}
 		baseSpec := specs[ver.NodeIndex%len(specs)]
-		loader, loaderErr := chainconfig.GetChainConfigLoader(ver.ChainFamily)
+		reg, loaderErr := chainreg.GetRegistry().Get(ver.ChainFamily)
 		if loaderErr != nil {
-			return nil, nil, fmt.Errorf("chain config loader for verifier %s: %w", ver.NOPAlias, loaderErr)
+			return nil, nil, fmt.Errorf("chain registration for verifier %s: %w", ver.NOPAlias, loaderErr)
 		}
-		blockchainInfos, loaderErr := loader(blockchainOutputs)
+		if reg.ChainConfigLoader == nil {
+			return nil, nil, fmt.Errorf("chain config loader for family %s not found", ver.ChainFamily)
+		}
+		blockchainInfos, loaderErr := reg.ChainConfigLoader(blockchainOutputs)
 		if loaderErr != nil {
 			return nil, nil, fmt.Errorf("loading chain config for verifier %s: %w", ver.NOPAlias, loaderErr)
 		}

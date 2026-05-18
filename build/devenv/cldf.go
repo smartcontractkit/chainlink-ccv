@@ -10,7 +10,7 @@ import (
 	"github.com/rs/zerolog/log"
 	"go.uber.org/zap/zapcore"
 
-	"github.com/smartcontractkit/chainlink-ccv/build/devenv/registry"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainreg"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
@@ -78,11 +78,14 @@ func NewCLDFOperationsEnvironmentWithOffchain(cfg CLDFEnvironmentConfig) ([]uint
 	selectors := make([]uint64, 0)
 
 	for _, b := range cfg.Blockchains {
-		factory, ok := registry.GetGlobalCLDFProviderRegistry().Get(b.Out.Family)
-		if !ok {
+		reg, err := chainreg.GetRegistry().Get(b.Out.Family)
+		if err != nil {
+			return nil, nil, fmt.Errorf("unsupported blockchain family, missing chain registration: %s", b.Out.Family)
+		}
+		if reg.CLDFProvider == nil {
 			return nil, nil, fmt.Errorf("unsupported blockchain family, missing CLDF provider factory: %s", b.Out.Family)
 		}
-		provider, selector, err := factory(context.Background(), b)
+		provider, selector, err := reg.CLDFProvider(context.Background(), b)
 		if err != nil {
 			return nil, nil, err
 		}

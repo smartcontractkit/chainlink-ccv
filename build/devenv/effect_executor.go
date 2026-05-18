@@ -6,7 +6,7 @@ import (
 	"math/big"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
-	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainimpl"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainreg"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
 	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -63,8 +63,8 @@ func executeFundingEffects(ctx context.Context, effects []devenvruntime.FundingE
 			return fmt.Errorf("creating impl for blockchain %q: %w", bc.ContainerName, err)
 		}
 		family := impl.ChainFamily()
-		fac, err := chainimpl.GetImplFactory(family)
-		if err != nil || !fac.SupportsFunding() {
+		reg, err := chainreg.GetRegistry().Get(family)
+		if err != nil || reg.ImplFactory == nil || !reg.ImplFactory.SupportsFunding() {
 			continue
 		}
 		sel, err := chainsel.GetChainDetailsByChainIDAndFamily(bc.ChainID, family)

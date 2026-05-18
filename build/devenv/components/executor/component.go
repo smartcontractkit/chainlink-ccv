@@ -11,6 +11,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainreg"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
 	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
@@ -76,7 +77,7 @@ func (c *component) RunPhase3(
 		if exec.Mode != services.Standalone {
 			continue
 		}
-		out, err := executorsvc.New(exec, blockchainOutputs, jdInfra)
+		out, err := executorsvc.New(exec, blockchainOutputs, jdInfra, chainreg.GetRegistry().GetExecutorModifiers())
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to launch executor %s: %w", exec.ContainerName, err)
 		}

@@ -11,7 +11,7 @@ import (
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
-	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainimpl"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainreg"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/client"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
@@ -72,11 +72,9 @@ type libFromCCV struct {
 	l          zerolog.Logger
 }
 
-// NewLibFromCCVEnv creates Lib given a logger and envOutFile.
+// NewLibFromCCVEnv creates a new [Lib] from a CCV environment output file.
 // If familiesToLoad is provided, only chains with the given families will be loaded.
 // If familiesToLoad is not provided, all chains will be loaded.
-// The instance uses the global chain family registry which can be extended
-// via RegisterChainFamilyAdapter() before calling NewLibFromCCVEnv.
 func NewLibFromCCVEnv(logger *zerolog.Logger, envOutFile string, familiesToLoad ...string) (Lib, error) {
 	cfg, err := LoadOutput[Cfg](envOutFile)
 	if err != nil {
@@ -273,11 +271,14 @@ func (l *libFromCLDF) ChainsMap(ctx context.Context) (map[uint64]cciptestinterfa
 			continue
 		}
 
-		implFactory, err := chainimpl.GetImplFactory(family)
+		reg, err := chainreg.GetRegistry().Get(family)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get implementation factory for family %s: %w", family, err)
+			return nil, fmt.Errorf("failed to get chain registration for family %s: %w", family, err)
 		}
-		impl, err := implFactory.New(ctx, l.l, l.env, selector)
+		if reg.ImplFactory == nil {
+			return nil, fmt.Errorf("implementation factory for family %s not found", family)
+		}
+		impl, err := reg.ImplFactory.New(ctx, l.l, l.env, selector)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create implementation for chain %d: %w", selector, err)
 		}
@@ -308,6 +309,9 @@ func (l *libFromCLDF) AllAggregators() (map[string]*AggregatorClient, error) {
 	return nil, fmt.Errorf("no aggregator clients available in CLDF environment")
 }
 
+// NewLibFromCLDFEnv creates a new [Lib] from a [deployment.Environment].
+// If familiesToLoad is provided, only chains with the given families will be loaded.
+// If familiesToLoad is not provided, all chains will be loaded.
 func NewLibFromCLDFEnv(logger *zerolog.Logger, env *deployment.Environment, familiesToLoad ...string) (Lib, error) {
 	lib := &libFromCLDF{
 		env:            env,
