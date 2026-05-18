@@ -7,53 +7,34 @@ replace github.com/fbsobreira/gotron-sdk => github.com/smartcontractkit/chainlin
 replace (
 	github.com/gogo/protobuf => github.com/regen-network/protobuf v1.3.3-alpha.regen.1
 	github.com/prometheus/common => github.com/prometheus/common v0.66.1
-	github.com/smartcontractkit/chainlink-testing-framework/lib => github.com/smartcontractkit/chainlink-testing-framework/lib v1.54.4
 )
 
 require (
-	github.com/BurntSushi/toml v1.5.0
-	github.com/ethereum/go-ethereum v1.17.2
+	github.com/BurntSushi/toml v1.6.0
+	github.com/beevik/ntp v1.5.0
+	github.com/ethereum/go-ethereum v1.17.3
 	github.com/failsafe-go/failsafe-go v0.9.0
+	github.com/gagliardetto/solana-go v1.13.0
 	github.com/gin-gonic/gin v1.10.1
 	github.com/go-ozzo/ozzo-validation/v4 v4.3.0
 	github.com/google/uuid v1.6.0
 	github.com/grafana/pyroscope-go v1.2.8
 	github.com/grpc-ecosystem/go-grpc-middleware/v2 v2.3.2
 	github.com/hashicorp/golang-lru/v2 v2.0.7
-	github.com/oklog/run v1.2.0
-	github.com/olekukonko/tablewriter v0.0.5
-	github.com/pelletier/go-toml/v2 v2.2.4 // indirect
-	github.com/pressly/goose/v3 v3.26.0
-	github.com/prometheus/client_golang v1.23.2
-	github.com/smartcontractkit/chain-selectors v1.0.98
-	github.com/smartcontractkit/chainlink-common v0.11.2-0.20260417081611-8bdbd9f45629
-	github.com/smartcontractkit/chainlink-evm v0.3.4-0.20260427132147-1ef18876ae9b
-	github.com/smartcontractkit/chainlink-evm/gethwrappers v0.0.0-20260119171452-39c98c3b33cd // indirect
-	github.com/stretchr/testify v1.11.1
-	github.com/testcontainers/testcontainers-go v0.42.0
-	github.com/ulule/limiter/v3 v3.11.2
-	github.com/urfave/cli v1.22.14
-	go.opentelemetry.io/otel v1.43.0
-	go.opentelemetry.io/otel/metric v1.43.0
-	go.opentelemetry.io/otel/sdk/metric v1.43.0
-	go.uber.org/zap v1.27.1
-	golang.org/x/exp v0.0.0-20260218203240-3dfff04db8fa // indirect
-	golang.org/x/sync v0.20.0
-	google.golang.org/grpc v1.81.0
-	google.golang.org/protobuf v1.36.11
-	modernc.org/sqlite v1.39.0 // indirect
-)
-
-require (
-	github.com/beevik/ntp v1.5.0
-	github.com/gagliardetto/solana-go v1.13.0
 	github.com/jmoiron/sqlx v1.4.0
 	github.com/lib/pq v1.11.1
 	github.com/oapi-codegen/runtime v1.1.2
+	github.com/oklog/run v1.2.0
+	github.com/olekukonko/tablewriter v0.0.5
 	github.com/patrickmn/go-cache v2.1.0+incompatible
-	github.com/redis/go-redis/v9 v9.7.0
+	github.com/pressly/goose/v3 v3.26.0
+	github.com/prometheus/client_golang v1.23.2
+	github.com/redis/go-redis/v9 v9.19.0
+	github.com/smartcontractkit/chain-selectors v1.0.99
 	github.com/smartcontractkit/chainlink-ccip/chains/evm v0.0.0-20260511191507-89ef44a4c8ce
+	github.com/smartcontractkit/chainlink-common v0.11.2-0.20260417081611-8bdbd9f45629
 	github.com/smartcontractkit/chainlink-common/keystore v1.0.2
+	github.com/smartcontractkit/chainlink-evm v0.3.4-0.20260427132147-1ef18876ae9b
 	github.com/smartcontractkit/chainlink-framework/chains v0.0.0-20260423135514-5b1a7565a99c
 	github.com/smartcontractkit/chainlink-protos/chainlink-ccv/committee-verifier v0.0.0-20251211142334-5c3421fe2c8d
 	github.com/smartcontractkit/chainlink-protos/chainlink-ccv/heartbeat v0.0.0-20260115142640-f6b99095c12e
@@ -66,11 +47,22 @@ require (
 	github.com/smartcontractkit/wsrpc v0.8.5-0.20250502134807-c57d3d995945
 	github.com/sourcegraph/conc v0.3.1-0.20240121214520-5f936abd7ae8
 	github.com/spf13/cobra v1.9.1
+	github.com/stretchr/testify v1.11.1
+	github.com/testcontainers/testcontainers-go v0.42.0
 	github.com/testcontainers/testcontainers-go/modules/postgres v0.41.0
+	github.com/ulule/limiter/v3 v3.11.2
+	github.com/urfave/cli v1.22.14
+	go.opentelemetry.io/otel v1.43.0
+	go.opentelemetry.io/otel/metric v1.43.0
+	go.opentelemetry.io/otel/sdk/metric v1.43.0
 	go.uber.org/goleak v1.3.0
-	golang.org/x/crypto v0.49.0
+	go.uber.org/zap v1.27.1
+	golang.org/x/crypto v0.50.0
+	golang.org/x/sync v0.20.0
 	golang.org/x/time v0.15.0
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260401024825-9d38bb4040a9
+	google.golang.org/grpc v1.81.0
+	google.golang.org/protobuf v1.36.11
 )
 
 require (
@@ -140,7 +132,6 @@ require (
 	github.com/dchest/siphash v1.2.3 // indirect
 	github.com/deckarep/golang-set/v2 v2.8.0 // indirect
 	github.com/decred/dcrd/dcrec/secp256k1/v4 v4.4.0 // indirect
-	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
 	github.com/distribution/reference v0.6.0 // indirect
 	github.com/docker/go-connections v0.6.0 // indirect
 	github.com/docker/go-units v0.5.0 // indirect
@@ -251,6 +242,7 @@ require (
 	github.com/opencontainers/go-digest v1.0.0 // indirect
 	github.com/opencontainers/image-spec v1.1.1 // indirect
 	github.com/pelletier/go-toml v1.9.5 // indirect
+	github.com/pelletier/go-toml/v2 v2.2.4 // indirect
 	github.com/pion/dtls/v2 v2.2.12 // indirect
 	github.com/pion/logging v0.2.2 // indirect
 	github.com/pion/stun/v2 v2.0.0 // indirect
@@ -276,6 +268,7 @@ require (
 	github.com/shopspring/decimal v1.4.0 // indirect
 	github.com/sirupsen/logrus v1.9.4 // indirect
 	github.com/smartcontractkit/chainlink-common/pkg/chipingress v0.0.10 // indirect
+	github.com/smartcontractkit/chainlink-evm/gethwrappers v0.0.0-20260119171452-39c98c3b33cd // indirect
 	github.com/smartcontractkit/chainlink-framework/metrics v0.0.0-20260423135514-5b1a7565a99c // indirect
 	github.com/smartcontractkit/chainlink-framework/multinode v0.0.0-20260423135514-5b1a7565a99c // indirect
 	github.com/smartcontractkit/chainlink-protos/cre/go v0.0.0-20260409211238-5b99921cbc7c // indirect
@@ -328,17 +321,19 @@ require (
 	go.opentelemetry.io/otel/sdk/log v0.19.0 // indirect
 	go.opentelemetry.io/otel/trace v1.43.0 // indirect
 	go.opentelemetry.io/proto/otlp v1.10.0 // indirect
+	go.uber.org/atomic v1.11.0 // indirect
 	go.uber.org/multierr v1.11.0 // indirect
 	go.uber.org/ratelimit v0.3.1 // indirect
 	go.yaml.in/yaml/v2 v2.4.2 // indirect
 	golang.org/x/arch v0.8.0 // indirect
-	golang.org/x/mod v0.33.0 // indirect
-	golang.org/x/net v0.52.0 // indirect
+	golang.org/x/exp v0.0.0-20260218203240-3dfff04db8fa // indirect
+	golang.org/x/mod v0.34.0 // indirect
+	golang.org/x/net v0.53.0 // indirect
 	golang.org/x/oauth2 v0.36.0 // indirect
-	golang.org/x/sys v0.42.0 // indirect
-	golang.org/x/term v0.41.0 // indirect
-	golang.org/x/text v0.35.0 // indirect
-	golang.org/x/tools v0.42.0 // indirect
+	golang.org/x/sys v0.43.0 // indirect
+	golang.org/x/term v0.42.0 // indirect
+	golang.org/x/text v0.36.0 // indirect
+	golang.org/x/tools v0.43.0 // indirect
 	google.golang.org/genproto/googleapis/api v0.0.0-20260401024825-9d38bb4040a9 // indirect
 	gopkg.in/evanphx/json-patch.v4 v4.12.0 // indirect
 	gopkg.in/guregu/null.v4 v4.0.0 // indirect
@@ -352,6 +347,7 @@ require (
 	k8s.io/klog/v2 v2.130.1 // indirect
 	k8s.io/kube-openapi v0.0.0-20241212222426-2c72e554b1e7 // indirect
 	k8s.io/utils v0.0.0-20241104163129-6fe5fd82f078 // indirect
+	modernc.org/sqlite v1.39.0 // indirect
 	sigs.k8s.io/json v0.0.0-20241010143419-9aa6b5e7a4b3 // indirect
 	sigs.k8s.io/structured-merge-diff/v4 v4.4.2 // indirect
 	sigs.k8s.io/yaml v1.4.0 // indirect
