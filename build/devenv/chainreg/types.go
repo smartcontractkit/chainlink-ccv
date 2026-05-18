@@ -16,17 +16,38 @@ import (
 	ctfblockchain "github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
 
-// ImplFactory creates CCIP17 implementations for a chain family.
+// ImplFactory is a factory for creating CCIP17 implementations.
+// Product repos (chainlink-canton, chainlink-stellar, chainlink-ccip-solana)
+// implement this interface and register via RegisterImplFactory in their init().
 type ImplFactory interface {
+	// NewEmpty creates an empty cciptestinterfaces.CCIP17Configuration object, this is
+	// primarily used to spin up new environments.
 	NewEmpty() cciptestinterfaces.CCIP17Configuration
+
+	// New creates a new cciptestinterfaces.CCIP17 object, this is primarily used in
+	// tests.
 	New(
 		ctx context.Context,
 		lggr zerolog.Logger,
 		env *deployment.Environment,
 		chainSelector uint64,
 	) (cciptestinterfaces.CCIP17, error)
+
+	// DefaultSignerKey returns the default signer key for this chain family
+	// given the bootstrap keys from a verifier node. Each family selects the
+	// appropriate key type (e.g. EVM uses ECDSAAddress, Stellar uses EdDSA).
+	// Return "" if no default signer is available.
 	DefaultSignerKey(keys services.BootstrapKeys) string
+
+	// DefaultFeeAggregator returns a fee aggregator address to use as a
+	// fallback when topology omits one for the given chain. Each family
+	// extracts the deployer address in its native format from the environment.
+	// Return "" if no fallback is available for the given selector.
 	DefaultFeeAggregator(env *deployment.Environment, chainSelector uint64) string
+
+	// SupportsFunding reports whether this chain family supports native token
+	// funding of executor addresses. Families that lack on-chain transfer
+	// primitives in devenv (e.g. Canton) return false.
 	SupportsFunding() bool
 }
 
@@ -65,11 +86,11 @@ type ExtraArgsSerializer = cciptestinterfaces.ExtraArgsSerializer
 // Registration groups every devenv extension for one chain family.
 // Fields are optional; callers should set what the family supports.
 type Registration struct {
-	ImplFactory            ImplFactory
-	CLDFProvider           CLDFProviderFactory
-	ChainConfigLoader      ChainConfigLoader
-	Launcher               Launcher
-	VerifierModifier       VerifierModifier
-	ExecutorModifier       ExecutorModifier
-	ExtraArgsSerializers   map[uint8]ExtraArgsSerializer
+	ImplFactory          ImplFactory
+	CLDFProvider         CLDFProviderFactory
+	ChainConfigLoader    ChainConfigLoader
+	Launcher             Launcher
+	VerifierModifier     VerifierModifier
+	ExecutorModifier     ExecutorModifier
+	ExtraArgsSerializers map[uint8]ExtraArgsSerializer
 }
