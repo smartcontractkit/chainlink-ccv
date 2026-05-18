@@ -5,12 +5,12 @@ import (
 	"fmt"
 	"sync"
 
+	rpcstatus "google.golang.org/genproto/googleapis/rpc/status"
 	"google.golang.org/grpc/codes"
+	grpcstatus "google.golang.org/grpc/status"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/scope"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
-
-	grpcstatus "google.golang.org/grpc/status"
 
 	committeepb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/committee-verifier/v1"
 )
@@ -23,6 +23,22 @@ type BatchWriteCommitVerifierNodeResultHandler struct {
 
 func (h *BatchWriteCommitVerifierNodeResultHandler) logger(ctx context.Context) logger.SugaredLogger {
 	return scope.AugmentLogger(ctx, h.handler.l)
+}
+
+func (h *BatchWriteCommitVerifierNodeResultHandler) handleBatchItemError(ctx context.Context, errors []*rpcstatus.Status, i int, err error) {
+	statusErr, ok := grpcstatus.FromError(err)
+	if !ok {
+		if ctx.Err() == nil {
+			h.logger(ctx).Errorw("unexpected error type", "error", err)
+		}
+		SetBatchError(errors, i, codes.Unknown, "internal error")
+		return
+	}
+	code := statusErr.Code()
+	if code != codes.Canceled && code != codes.DeadlineExceeded {
+		h.logger(ctx).Errorw("failed to write commit verification node result", "error", statusErr)
+	}
+	errors[i] = statusErr.Proto()
 }
 
 // Handle processes the write request and saves the commit verification record.
@@ -55,18 +71,12 @@ func (h *BatchWriteCommitVerifierNodeResultHandler) Handle(ctx context.Context, 
 				return
 			}
 			resp, err := h.handler.Handle(ctx, r)
-			if err != nil {
-				statusErr, ok := grpcstatus.FromError(err)
-				if !ok {
-					h.logger(ctx).Errorw("unexpected error type", "error", err)
-					SetBatchError(errors, i, codes.Unknown, "internal error")
-				} else {
-					h.logger(ctx).Errorw("failed to write commit verification node result", "error", statusErr)
-					errors[i] = statusErr.Proto()
-				}
-			} else {
+			if err == nil {
 				SetBatchSuccess(errors, i)
+				responses[i] = resp
+				return
 			}
+			h.handleBatchItemError(ctx, errors, i, err)
 			responses[i] = resp
 		}(i, r)
 	}

@@ -165,9 +165,14 @@ func (p *eventPoller[T]) poll() {
 		return
 	}
 	lastScanned := p.lastScannedBlock
+	client := p.ethClient
 	p.mu.Unlock()
 
-	latestBlock, err := p.ethClient.BlockNumber(context.Background())
+	if client == nil {
+		return
+	}
+
+	latestBlock, err := client.BlockNumber(context.Background())
 	if err != nil {
 		p.logger.Warn().Err(err).Str("event", p.eventName).Msg("Failed to get latest block number")
 		return
