@@ -777,6 +777,17 @@ func NewEnvironment() (in *Cfg, err error) {
 
 	e.DataStore = ds.Seal()
 
+	// Save the env metadata to the output CLDF struct so that it can be used by tests.
+	envMetadata, err := e.DataStore.EnvMetadata().Get()
+	if err != nil && err != datastore.ErrEnvMetadataNotSet {
+		return nil, fmt.Errorf("failed to get env metadata from datastore: %w", err)
+	}
+	envMetadataJSON, err := json.Marshal(envMetadata)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal env metadata: %w", err)
+	}
+	in.CLDF.AddEnvMetadata(string(envMetadataJSON))
+
 	if in.JDInfra != nil {
 		if err := jobs.AcceptPendingJobs(ctx, in.ClientLookup); err != nil {
 			return nil, fmt.Errorf("failed to accept pending jobs: %w", err)

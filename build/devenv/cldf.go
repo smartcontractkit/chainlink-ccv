@@ -26,8 +26,15 @@ import (
 var Plog = log.Output(zerolog.ConsoleWriter{Out: os.Stderr}).Level(zerolog.DebugLevel).With().Fields(map[string]any{"component": "ccv"}).Logger()
 
 type CLDF struct {
-	mu        sync.Mutex          `toml:"-"`
-	Addresses []string            `toml:"addresses"`
+	mu sync.Mutex `toml:"-"`
+
+	// Addresses contains the addresses of all the contracts deployed to the environment.
+	// Each element corresponds to a chain.
+	Addresses []string `toml:"addresses"`
+
+	// EnvMetadata contains the EnvMetadata portion of the datastore, as populated by the environment setup.
+	EnvMetadata string `toml:"env_metadata"`
+
 	DataStore datastore.DataStore `toml:"-"`
 }
 
@@ -39,6 +46,12 @@ func (c *CLDF) AddAddresses(addresses string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.Addresses = append(c.Addresses, addresses)
+}
+
+func (c *CLDF) AddEnvMetadata(envMetadata string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.EnvMetadata = envMetadata
 }
 
 type CLDFEnvironmentConfig struct {
