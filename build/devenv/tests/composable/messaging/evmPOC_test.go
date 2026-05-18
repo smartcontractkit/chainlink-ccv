@@ -23,6 +23,7 @@ func TestEVM2EVMV3(t *testing.T) {
 	ctx := ccv.Plog.WithContext(t.Context())
 
 	lib, err := ccv.NewLibFromCCVEnv(&ccv.Plog, composableTestPath)
+	require.NoError(t, err)
 
 	chains, err := lib.Chains(ctx)
 	require.NoError(t, err)
