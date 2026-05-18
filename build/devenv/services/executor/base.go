@@ -145,7 +145,7 @@ func ApplyDefaults(in *Input) {
 }
 
 // New creates an executor managed by JD via bootstrap.Run.
-func New(in *Input, outputs []*ctfblockchain.Output, jdInfra *jobs.JDInfrastructure) (*Output, error) {
+func New(in *Input, outputs []*ctfblockchain.Output, jdInfra *jobs.JDInfrastructure, modifiers map[string]ReqModifier) (*Output, error) {
 	if in == nil {
 		return nil, nil
 	}
@@ -158,7 +158,7 @@ func New(in *Input, outputs []*ctfblockchain.Output, jdInfra *jobs.JDInfrastruct
 		return nil, fmt.Errorf("JD infrastructure is not set")
 	}
 
-	out, err := launchExecutor(ctx, in, outputs, jdInfra)
+	out, err := launchExecutor(ctx, in, outputs, jdInfra, modifiers)
 	if err != nil {
 		return nil, fmt.Errorf("failed to launch executor: %w", err)
 	}
@@ -166,7 +166,7 @@ func New(in *Input, outputs []*ctfblockchain.Output, jdInfra *jobs.JDInfrastruct
 	return out, nil
 }
 
-func launchExecutor(ctx context.Context, in *Input, outputs []*ctfblockchain.Output, jdInfra *jobs.JDInfrastructure) (*Output, error) {
+func launchExecutor(ctx context.Context, in *Input, outputs []*ctfblockchain.Output, jdInfra *jobs.JDInfrastructure, modifiers map[string]ReqModifier) (*Output, error) {
 	jdCSAKey, err := jobs.GetJDCSAPublicKey(ctx, jdInfra.OffchainClient)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get JD server CSA public key: %w", err)
@@ -199,7 +199,7 @@ func launchExecutor(ctx context.Context, in *Input, outputs []*ctfblockchain.Out
 		return nil, fmt.Errorf("failed to create base image request: %w", err)
 	}
 
-	modifier, ok := modifierPerFamily[in.ChainFamily]
+	modifier, ok := modifiers[in.ChainFamily]
 	if !ok {
 		return nil, fmt.Errorf("no modifier found for chain family %s", in.ChainFamily)
 	}

@@ -186,7 +186,7 @@ func ApplyDefaults(in Input) Input {
 	return in
 }
 
-func New(in *Input, outputs []*blockchain.Output, jdInfra *jobs.JDInfrastructure) (*Output, error) {
+func New(in *Input, outputs []*blockchain.Output, jdInfra *jobs.JDInfrastructure, modifiers map[string]ReqModifier) (*Output, error) {
 	if in == nil {
 		return nil, nil
 	}
@@ -199,7 +199,7 @@ func New(in *Input, outputs []*blockchain.Output, jdInfra *jobs.JDInfrastructure
 		return nil, fmt.Errorf("JD infrastructure is not set")
 	}
 
-	out, err := launchVerifier(ctx, in, outputs, jdInfra)
+	out, err := launchVerifier(ctx, in, outputs, jdInfra, modifiers)
 	if err != nil {
 		return nil, fmt.Errorf("failed to launch verifier: %w", err)
 	}
@@ -207,7 +207,7 @@ func New(in *Input, outputs []*blockchain.Output, jdInfra *jobs.JDInfrastructure
 	return out, nil
 }
 
-func launchVerifier(ctx context.Context, in *Input, outputs []*blockchain.Output, jdInfra *jobs.JDInfrastructure) (*Output, error) {
+func launchVerifier(ctx context.Context, in *Input, outputs []*blockchain.Output, jdInfra *jobs.JDInfrastructure, modifiers map[string]ReqModifier) (*Output, error) {
 	// Get the JD server CSA public key
 	jdCSAKey, err := jobs.GetJDCSAPublicKey(ctx, jdInfra.OffchainClient)
 	if err != nil {
@@ -255,7 +255,7 @@ func launchVerifier(ctx context.Context, in *Input, outputs []*blockchain.Output
 	}
 
 	// Get the modifier for the chain family.
-	modifier, ok := modifierPerFamily[in.ChainFamily]
+	modifier, ok := modifiers[in.ChainFamily]
 	if !ok {
 		return nil, fmt.Errorf("no modifier found for chain family %s", in.ChainFamily)
 	}

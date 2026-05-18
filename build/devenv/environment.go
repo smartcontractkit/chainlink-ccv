@@ -1055,7 +1055,7 @@ func launchExecutors(in []*executorsvc.Input, blockchainOutputs []*blockchain.Ou
 			outs = append(outs, exec.Out)
 			continue
 		}
-		out, err := executorsvc.New(exec, blockchainOutputs, jdInfra)
+		out, err := executorsvc.New(exec, blockchainOutputs, jdInfra, chainreg.GetRegistry().GetExecutorModifiers())
 		if err != nil {
 			return nil, fmt.Errorf("failed to create executor %s: %w", exec.ContainerName, err)
 		}
@@ -1219,7 +1219,7 @@ func launchStandaloneVerifiers(in *Cfg, blockchainOutputs []*blockchain.Output, 
 		}
 		aggIdx := ver.NodeIndex % len(aggOuts)
 		ver.AggregatorOutput = aggOuts[aggIdx]
-		out, err := committeeverifier.New(ver, blockchainOutputs, jdInfra)
+		out, err := committeeverifier.New(ver, blockchainOutputs, jdInfra, chainreg.GetRegistry().GetVerifierModifiers())
 		if err != nil {
 			return nil, fmt.Errorf("failed to create verifier service: %w", err)
 		}

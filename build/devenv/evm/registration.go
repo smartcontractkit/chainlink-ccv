@@ -8,6 +8,7 @@ import (
 )
 
 func init() {
+	// Register EVM with chainreg
 	if err := chainreg.Register(chainsel.FamilyEVM, chainreg.Registration{
 		ImplFactory:       &ImplFactory{},
 		CLDFProvider:      NewCLDFProviderFactory(),
@@ -22,6 +23,11 @@ func init() {
 	}); err != nil {
 		panic("evm chainreg: " + err.Error())
 	}
+
+	// Register EVM extra-args serializers
+	registerExtraArgs(chainsel.FamilyEVM, 1, BuildEVMExtraArgsV1)
+	registerExtraArgs(chainsel.FamilyEVM, 2, BuildEVMExtraArgsV2)
+	registerExtraArgs(chainsel.FamilyEVM, 3, SerializeMessageV3ExtraArgs)
 
 	// Cross-family extra-args defaults until product repos register their own serializers.
 	registerExtraArgs(chainsel.FamilyCanton, 1, BuildEVMExtraArgsV1)

@@ -4,10 +4,6 @@ import (
 	"fmt"
 	"maps"
 	"sync"
-
-	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
-	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/committeeverifier"
-	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/executor"
 )
 
 // Registry maps chain family to Registration.
@@ -51,23 +47,7 @@ func (r *Registry) Add(family string, reg Registration) error {
 	}
 
 	r.registrations[family] = reg
-	r.applySideEffects(family, reg)
 	return nil
-}
-
-func (r *Registry) applySideEffects(family string, reg Registration) {
-	for version, serializer := range reg.ExtraArgsSerializers {
-		cciptestinterfaces.RegisterExtraArgsSerializer(
-			cciptestinterfaces.ExtraArgsSerializerEntry{Family: family, Version: version},
-			serializer,
-		)
-	}
-	if reg.VerifierModifier != nil {
-		committeeverifier.SetModifier(family, reg.VerifierModifier)
-	}
-	if reg.ExecutorModifier != nil {
-		executor.SetModifier(family, reg.ExecutorModifier)
-	}
 }
 
 // Get returns the Registration for family.
@@ -104,4 +84,32 @@ func (r *Registry) GetAllImplFactories() map[string]ImplFactory {
 		}
 	}
 	return result
+}
+
+// GetVerifierModifiers returns a map of chain family to verifier modifier from the registry.
+func (r *Registry) GetVerifierModifiers() map[string]VerifierModifier {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	modifiers := make(map[string]VerifierModifier)
+	for family, reg := range r.registrations {
+		if reg.VerifierModifier != nil {
+			modifiers[family] = reg.VerifierModifier
+		}
+	}
+	return modifiers
+}
+
+// GetExecutorModifiers returns a map of chain family to executor modifier from the registry.
+func (r *Registry) GetExecutorModifiers() map[string]ExecutorModifier {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	modifiers := make(map[string]ExecutorModifier)
+	for family, reg := range r.registrations {
+		if reg.ExecutorModifier != nil {
+			modifiers[family] = reg.ExecutorModifier
+		}
+	}
+	return modifiers
 }
