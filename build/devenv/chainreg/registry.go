@@ -37,17 +37,51 @@ func Register(family string, reg Registration) error {
 	return GetRegistry().Add(family, reg)
 }
 
-// Add registers reg for family. If the family is already registered, Add is a no-op and returns nil.
+// Add registers reg for family. If the family is already registered, Add merges
+// any fields that were not already set. Existing fields win.
 func (r *Registry) Add(family string, reg Registration) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	if _, exists := r.registrations[family]; exists {
+	if existing, exists := r.registrations[family]; exists {
+		r.registrations[family] = mergeRegistration(existing, reg)
 		return nil
 	}
 
 	r.registrations[family] = reg
 	return nil
+}
+
+func mergeRegistration(existing Registration, incoming Registration) Registration {
+	if existing.ImplFactory == nil {
+		existing.ImplFactory = incoming.ImplFactory
+	}
+	if existing.CLDFProvider == nil {
+		existing.CLDFProvider = incoming.CLDFProvider
+	}
+	if existing.ChainConfigLoader == nil {
+		existing.ChainConfigLoader = incoming.ChainConfigLoader
+	}
+	if existing.Launcher == nil {
+		existing.Launcher = incoming.Launcher
+	}
+	if existing.VerifierModifier == nil {
+		existing.VerifierModifier = incoming.VerifierModifier
+	}
+	if existing.ExecutorModifier == nil {
+		existing.ExecutorModifier = incoming.ExecutorModifier
+	}
+	if len(incoming.ExtraArgsSerializers) > 0 {
+		if existing.ExtraArgsSerializers == nil {
+			existing.ExtraArgsSerializers = make(map[uint8]ExtraArgsSerializer, len(incoming.ExtraArgsSerializers))
+		}
+		for version, serializer := range incoming.ExtraArgsSerializers {
+			if _, exists := existing.ExtraArgsSerializers[version]; !exists {
+				existing.ExtraArgsSerializers[version] = serializer
+			}
+		}
+	}
+	return existing
 }
 
 // Get returns the Registration for family.
@@ -98,6 +132,19 @@ func (r *Registry) GetVerifierModifiers() map[string]VerifierModifier {
 		}
 	}
 	return modifiers
+}
+
+// GetExtraArgsSerializer returns the registered extra-args serializer for family and version.
+func (r *Registry) GetExtraArgsSerializer(family string, version uint8) (ExtraArgsSerializer, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	reg, ok := r.registrations[family]
+	if !ok || reg.ExtraArgsSerializers == nil {
+		return nil, false
+	}
+	serializer, ok := reg.ExtraArgsSerializers[version]
+	return serializer, ok
 }
 
 // GetExecutorModifiers returns a map of chain family to executor modifier from the registry.

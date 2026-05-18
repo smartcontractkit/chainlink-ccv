@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
-	"sync"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -311,39 +310,8 @@ type OnChainConfigurable interface {
 }
 
 // ExtraArgsSerializer serializes message extra args for a destination chain family.
-// Product repos register via chainreg.Registration.ExtraArgsSerializers or RegisterExtraArgsSerializer.
+// Product repos register serializers via chainreg.Registration.ExtraArgsSerializers.
 type ExtraArgsSerializer func(provider ExtraArgsDataProvider) (GenericExtraArgs, error)
-
-var (
-	extraArgsSerializers   = make(map[ExtraArgsSerializerEntry]ExtraArgsSerializer)
-	extraArgsSerializersMu sync.RWMutex
-)
-
-type ExtraArgsSerializerEntry struct {
-	Version uint8
-	Family  string
-}
-
-// RegisterExtraArgsSerializer registers an ExtraArgsSerializer for a chain family.
-// If the family is already registered, the call is a no-op to match the pattern
-// used by chainreg (see build/devenv/chainreg).
-// Product repos call this in their init() alongside other registrations.
-func RegisterExtraArgsSerializer(entry ExtraArgsSerializerEntry, serializer ExtraArgsSerializer) {
-	extraArgsSerializersMu.Lock()
-	defer extraArgsSerializersMu.Unlock()
-	if _, ok := extraArgsSerializers[entry]; ok {
-		return
-	}
-	extraArgsSerializers[entry] = serializer
-}
-
-// GetExtraArgsSerializer returns the registered serializer for the given chain family.
-func GetExtraArgsSerializer(entry ExtraArgsSerializerEntry) (ExtraArgsSerializer, bool) {
-	extraArgsSerializersMu.RLock()
-	defer extraArgsSerializersMu.RUnlock()
-	s, ok := extraArgsSerializers[entry]
-	return s, ok
-}
 
 // DeployerNonceBumper is an optional interface. When implemented, devenv calls it before
 // DeployContractsForSelector so that contract addresses differ across chains (e.g. by sending

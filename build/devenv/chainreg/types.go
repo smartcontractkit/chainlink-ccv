@@ -59,6 +59,9 @@ type VerifierModifier = committeeverifier.ReqModifier
 // ExecutorModifier adjusts executor testcontainer requests for a chain family.
 type ExecutorModifier = executor.ReqModifier
 
+// ExtraArgsSerializer serializes message extra args for a destination chain family.
+type ExtraArgsSerializer = cciptestinterfaces.ExtraArgsSerializer
+
 // Registration groups every devenv extension for one chain family.
 // Fields are optional; callers should set what the family supports.
 type Registration struct {
@@ -68,5 +71,5 @@ type Registration struct {
 	Launcher               Launcher
 	VerifierModifier       VerifierModifier
 	ExecutorModifier       ExecutorModifier
-	ExtraArgsSerializers   map[uint8]cciptestinterfaces.ExtraArgsSerializer
+	ExtraArgsSerializers   map[uint8]ExtraArgsSerializer
 }
