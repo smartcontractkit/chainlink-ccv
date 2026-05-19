@@ -215,9 +215,13 @@ func (l *legacyComponent) RunPhase4(
 	}
 
 	// Restore the CL client lookup from Phase 2 into the in-memory Cfg so that
-	// runPhasedEnvironmentFinish can reference CL nodes.
+	// launchGenericServices and runPhasedEnvironmentFinish can reference CL nodes.
 	if clientLookup, ok := priorOutputs["_cl_client_lookup"].(*jobs.NodeSetClientLookup); ok {
 		setup.In.ClientLookup = clientLookup
+	}
+
+	if err := launchGenericServices(ctx, setup.In, setup.E, setup.BlockchainOutputs); err != nil {
+		return nil, nil, fmt.Errorf("failed to launch generic services: %w", err)
 	}
 
 	cfg, phaseEffects, err := runPhasedEnvironmentFinish(ctx, setup)

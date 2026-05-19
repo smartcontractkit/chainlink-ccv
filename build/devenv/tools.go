@@ -1,4 +1,4 @@
-package monolith
+package ccv
 
 import (
 	"encoding/json"
@@ -11,6 +11,10 @@ import (
 
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 )
+
+/*
+This code should be generalized and moved to devenv library after we finish CCIPv1.7 environment!
+*/
 
 type TimeTracker struct {
 	logger    zerolog.Logger

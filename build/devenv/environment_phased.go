@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainreg"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
@@ -17,6 +18,8 @@ import (
 	ccvadapters "github.com/smartcontractkit/chainlink-ccv/deployment/adapters"
 	ccvchangesets "github.com/smartcontractkit/chainlink-ccv/deployment/changesets"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
+	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
+	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
 
 // NewPhasedEnvironment creates a new CCIP CCV environment using the phased
@@ -45,6 +48,22 @@ func NewPhasedEnvironment() (in *Cfg, err error) {
 		return nil, fmt.Errorf("runtime did not return a *Cfg")
 	}
 	return cfg, nil
+}
+
+// PhasedSetup carries all state produced by the protocol_contracts Phase 3 component
+// so that runPhasedEnvironmentFinish (called from legacy Phase 4) can complete the
+// environment without re-deriving it.
+type PhasedSetup struct {
+	In                *Cfg
+	E                 *deployment.Environment
+	Topology          *ccvdeployment.EnvironmentTopology
+	SharedTLSCerts    *services.TLSCertPaths
+	BlockchainOutputs []*blockchain.Output
+	Selectors         []uint64
+	DS                datastore.MutableDataStore
+	Impls             []cciptestinterfaces.CCIP17Configuration
+	FakeOut           *services.FakeOutput
+	TimeTrack         *TimeTracker
 }
 
 // runPhasedEnvironmentFinish runs from executor job-spec generation through job
