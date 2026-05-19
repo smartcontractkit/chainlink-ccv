@@ -165,8 +165,11 @@ func getCommitteeCCV(resolver chainreg.AddressResolver, ds datastore.DataStore, 
 
 // v3Env holds devenv handles loaded for v3 test case hydration.
 type v3Env struct {
-	DS          datastore.DataStore
-	Dst         cciptestinterfaces.CCIP17
+	DS  datastore.DataStore
+	Dst interface {
+		GetEOAReceiverAddress() (protocol.UnknownAddress, error)
+		GetMaxDataBytes(ctx context.Context, remoteChainSelector uint64) (uint32, error)
+	}
 	SrcResolver chainreg.AddressResolver
 	DstResolver chainreg.AddressResolver
 }
