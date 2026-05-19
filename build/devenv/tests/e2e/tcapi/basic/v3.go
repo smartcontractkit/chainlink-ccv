@@ -39,13 +39,31 @@ type v3TestCase struct {
 	ccvs     []protocol.CCV
 	executor protocol.UnknownAddress
 	hydrate  func(ctx context.Context, tc *v3TestCase) bool
+	hydrated bool
 }
 
 func (tc *v3TestCase) Name() string {
 	return tc.name
 }
 
+func (tc *v3TestCase) ensureHydrated(ctx context.Context) error {
+	if tc.hydrated {
+		return nil
+	}
+	if tc.hydrate == nil {
+		return fmt.Errorf("%s: missing hydrate func", tc.name)
+	}
+	if !tc.hydrate(ctx, tc) {
+		return fmt.Errorf("%s: prerequisites not met", tc.name)
+	}
+	tc.hydrated = true
+	return nil
+}
+
 func (tc *v3TestCase) Run(ctx context.Context) error {
+	if err := tc.ensureHydrated(ctx); err != nil {
+		return err
+	}
 	chainMap, err := tc.lib.ChainsMap(ctx)
 	if err != nil {
 		return fmt.Errorf("failed to get chains map: %w", err)
@@ -133,7 +151,7 @@ func (tc *v3TestCase) Run(ctx context.Context) error {
 }
 
 func (tc *v3TestCase) HavePrerequisites(ctx context.Context) bool {
-	return tc.hydrate(ctx, tc)
+	return tc.ensureHydrated(ctx) == nil
 }
 
 func getCommitteeCCV(resolver chainreg.AddressResolver, ds datastore.DataStore, srcChainSelector uint64, qualifier string) (protocol.CCV, error) {

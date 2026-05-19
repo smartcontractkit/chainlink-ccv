@@ -44,13 +44,31 @@ type tokenTransferV3TestCase struct {
 	destToken protocol.UnknownAddress
 	executor  protocol.UnknownAddress
 	hydrate   func(ctx context.Context, tc *tokenTransferV3TestCase) bool
+	hydrated  bool
 }
 
 func (tc *tokenTransferV3TestCase) Name() string {
 	return tc.name
 }
 
+func (tc *tokenTransferV3TestCase) ensureHydrated(ctx context.Context) error {
+	if tc.hydrated {
+		return nil
+	}
+	if tc.hydrate == nil {
+		return fmt.Errorf("%s: missing hydrate func", tc.name)
+	}
+	if !tc.hydrate(ctx, tc) {
+		return fmt.Errorf("%s: prerequisites not met", tc.name)
+	}
+	tc.hydrated = true
+	return nil
+}
+
 func (tc *tokenTransferV3TestCase) Run(ctx context.Context) error {
+	if err := tc.ensureHydrated(ctx); err != nil {
+		return err
+	}
 	l := zerolog.Ctx(ctx)
 	chainMap, err := tc.lib.ChainsMap(ctx)
 	if err != nil {
@@ -169,7 +187,7 @@ func (tc *tokenTransferV3TestCase) Run(ctx context.Context) error {
 }
 
 func (tc *tokenTransferV3TestCase) HavePrerequisites(ctx context.Context) bool {
-	return tc.hydrate(ctx, tc)
+	return tc.ensureHydrated(ctx) == nil
 }
 
 func getTokenAddress(ds datastore.DataStore, chainSelector uint64, qualifier string) (protocol.UnknownAddress, error) {
