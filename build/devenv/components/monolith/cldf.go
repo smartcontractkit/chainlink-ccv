@@ -1,4 +1,4 @@
-package ccv
+package monolith
 
 import (
 	"context"

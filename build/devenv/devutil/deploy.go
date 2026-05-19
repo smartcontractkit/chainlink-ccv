@@ -1,4 +1,4 @@
-package ccv
+package devutil
 
 import (
 	"context"
@@ -135,7 +135,7 @@ type chainProfile struct {
 	profile cciptestinterfaces.ChainLaneProfile
 }
 
-// connectAllChains configures lanes incrementally: each iteration adds one
+// ConnectAllChainsCanonical configures lanes incrementally: each iteration adds one
 // chain to the mesh, mirroring how production environments grow. The
 // underlying ConfigureChainForLanes sequence is fully idempotent, so
 // re-running for already-configured contracts is a no-op.
