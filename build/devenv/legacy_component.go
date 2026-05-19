@@ -78,7 +78,7 @@ func (l *legacyComponent) RunPhase2(
 		in.Pricer = pricer
 	}
 
-	if err = in.expandForHA(); err != nil {
+	if err = in.ExpandForHA(); err != nil {
 		return nil, nil, fmt.Errorf("failed to expand HA configuration: %w", err)
 	}
 
@@ -193,7 +193,7 @@ func (l *legacyComponent) RunPhase2(
 	}, nil, nil
 }
 
-// RunPhase4 reads the *phasedSetup produced by protocol_contracts Phase 3, launches
+// RunPhase4 reads the *PhasedSetup produced by protocol_contracts Phase 3, launches
 // generic services, and calls runPhasedEnvironmentFinish to complete wiring.
 func (l *legacyComponent) RunPhase4(
 	ctx context.Context,
@@ -201,9 +201,9 @@ func (l *legacyComponent) RunPhase4(
 	_ any,
 	priorOutputs map[string]any,
 ) (map[string]any, []devenvruntime.Effect, error) {
-	setup, ok := priorOutputs["_protocol_setup"].(*phasedSetup)
+	setup, ok := priorOutputs["_protocol_setup"].(*PhasedSetup)
 	if !ok {
-		return nil, nil, fmt.Errorf("phase 3 did not produce *phasedSetup under \"_protocol_setup\"")
+		return nil, nil, fmt.Errorf("phase 3 did not produce *PhasedSetup under \"_protocol_setup\"")
 	}
 
 	// The executor Phase 3 component launched containers and registered with JD

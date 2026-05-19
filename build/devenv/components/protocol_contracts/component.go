@@ -1,4 +1,4 @@
-package ccv
+package protocol_contracts
 
 import (
 	"context"
@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
+	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
@@ -24,18 +25,18 @@ import (
 )
 
 func init() {
-	if err := devenvruntime.Register("protocol_contracts", protocolContractsFactory); err != nil {
+	if err := devenvruntime.Register("protocol_contracts", factory); err != nil {
 		panic(fmt.Sprintf("protocol_contracts component: %v", err))
 	}
 }
 
-func protocolContractsFactory(_ map[string]any) (devenvruntime.Component, error) {
-	return &protocolContractsComponent{}, nil
+func factory(_ map[string]any) (devenvruntime.Component, error) {
+	return &component{}, nil
 }
 
-type protocolContractsComponent struct{}
+type component struct{}
 
-func (p *protocolContractsComponent) ValidateConfig(_ any) error { return nil }
+func (p *component) ValidateConfig(_ any) error { return nil }
 
 // RunPhase3 deploys contracts, configures lanes, and generates aggregator/indexer
 // configs. Infrastructure work (CL nodes, JD registration, verifier launch,
@@ -45,17 +46,17 @@ func (p *protocolContractsComponent) ValidateConfig(_ any) error { return nil }
 // proxy/resolver and MockReceivers when the topology includes committees.
 // Extracting CommitteeVerifier deployment into a standalone component (using the
 // DeployCommitteeVerifier changeset) is tracked as a follow-up.
-func (p *protocolContractsComponent) RunPhase3(
+func (p *component) RunPhase3(
 	ctx context.Context,
 	_ map[string]any,
 	_ any,
 	priorOutputs map[string]any,
 ) (map[string]any, []devenvruntime.Effect, error) {
-	configs := strings.Split(os.Getenv(EnvVarTestConfigs), ",")
+	configs := strings.Split(os.Getenv(ccv.EnvVarTestConfigs), ",")
 	if len(configs) > 1 {
-		L.Warn().Msg("Multiple configuration files detected, this feature may be unsupported in the future.")
+		ccv.L.Warn().Msg("Multiple configuration files detected, this feature may be unsupported in the future.")
 	}
-	in, err := Load[Cfg](configs)
+	in, err := ccv.Load[ccv.Cfg](configs)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to load configuration: %w", err)
 	}
@@ -89,7 +90,7 @@ func (p *protocolContractsComponent) RunPhase3(
 	// expandForHA expands both aggregators and indexers. We call it first so
 	// indexers are correctly expanded, then replace in.Aggregator with the
 	// Phase 2 output that is already expanded and credentialed.
-	if err = in.expandForHA(); err != nil {
+	if err = in.ExpandForHA(); err != nil {
 		return nil, nil, fmt.Errorf("failed to expand HA configuration: %w", err)
 	}
 	if aggsWithCreds, ok := priorOutputs["_aggregators_with_creds"].([]*services.AggregatorInput); ok {
@@ -100,8 +101,8 @@ func (p *protocolContractsComponent) RunPhase3(
 	}
 	sharedTLSCerts, _ := priorOutputs["shared_tls_certs"].(*services.TLSCertPaths)
 
-	timeTrack := NewTimeTracker(Plog)
-	ctx = L.WithContext(ctx)
+	timeTrack := ccv.NewTimeTracker(ccv.Plog)
+	ctx = ccv.L.WithContext(ctx)
 
 	var fakeOut *services.FakeOutput
 	if in.Fake != nil {
@@ -114,7 +115,7 @@ func (p *protocolContractsComponent) RunPhase3(
 		if bc.Out == nil {
 			return nil, nil, fmt.Errorf("blockchain[%d] %q: phase 1 did not populate Out", i, bc.ContainerName)
 		}
-		impl, ierr := NewProductConfigurationFromNetwork(bc.Type)
+		impl, ierr := ccv.NewProductConfigurationFromNetwork(bc.Type)
 		if ierr != nil {
 			return nil, nil, ierr
 		}
@@ -123,19 +124,19 @@ func (p *protocolContractsComponent) RunPhase3(
 	}
 
 	in.CLDF.Init()
-	cldfCfg := CLDFEnvironmentConfig{
+	cldfCfg := ccv.CLDFEnvironmentConfig{
 		Blockchains:    in.Blockchains,
 		DataStore:      in.CLDF.DataStore,
 		OffchainClient: in.JDInfra.OffchainClient,
 		NodeIDs:        in.JDInfra.GetNodeIDs(),
 	}
-	selectors, e, err := NewCLDFOperationsEnvironmentWithOffchain(cldfCfg)
+	selectors, e, err := ccv.NewCLDFOperationsEnvironmentWithOffchain(cldfCfg)
 	if err != nil {
 		return nil, nil, fmt.Errorf("creating CLDF operations environment: %w", err)
 	}
-	L.Info().Any("Selectors", selectors).Msg("Deploying for chain selectors")
+	ccv.L.Info().Any("Selectors", selectors).Msg("Deploying for chain selectors")
 
-	topology := buildEnvironmentTopology(in, e)
+	topology := ccv.BuildEnvironmentTopology(in, e)
 	if topology == nil {
 		return nil, nil, fmt.Errorf("failed to build environment topology")
 	}
@@ -162,7 +163,7 @@ func (p *protocolContractsComponent) RunPhase3(
 		if nerr != nil {
 			return nil, nil, nerr
 		}
-		L.Info().Uint64("Selector", networkInfo.ChainSelector).Msg("Deploying chain selector")
+		ccv.L.Info().Uint64("Selector", networkInfo.ChainSelector).Msg("Deploying chain selector")
 		// Shift the deployer nonce intentionally so each chain gets different
 		// contract addresses, catching bugs that assume address uniformity.
 		if bumper, ok := impl.(cciptestinterfaces.DeployerNonceBumper); ok && i > 0 {
@@ -172,7 +173,7 @@ func (p *protocolContractsComponent) RunPhase3(
 		}
 		chainDS := datastore.NewMemoryDataStore()
 
-		dsi, derr := DeployContractsForSelector(ctx, e, impl, networkInfo.ChainSelector, topology)
+		dsi, derr := ccv.DeployContractsForSelector(ctx, e, impl, networkInfo.ChainSelector, topology)
 		if derr != nil {
 			return nil, nil, derr
 		}
@@ -186,7 +187,7 @@ func (p *protocolContractsComponent) RunPhase3(
 
 		tokenDS := datastore.NewMemoryDataStore()
 		if tcp, ok := impl.(cciptestinterfaces.TokenConfigProvider); ok {
-			if err = DeployTokensAndPools(tcp, e, networkInfo.ChainSelector, combos, tokenDS); err != nil {
+			if err = ccv.DeployTokensAndPools(tcp, e, networkInfo.ChainSelector, combos, tokenDS); err != nil {
 				return nil, nil, fmt.Errorf("deploy tokens and pools for selector %d: %w", networkInfo.ChainSelector, err)
 			}
 		}
@@ -212,15 +213,15 @@ func (p *protocolContractsComponent) RunPhase3(
 	}
 	e.DataStore = ds.Seal()
 
-	if err = ConfigureAllTokenTransfers(impls, selectors, e, topology); err != nil {
+	if err = ccv.ConfigureAllTokenTransfers(impls, selectors, e, topology); err != nil {
 		return nil, nil, fmt.Errorf("configure all token transfers: %w", err)
 	}
 
 	var connectErr error
 	if in.ProtocolContracts.UseLegacyConfigureLane {
-		connectErr = connectAllChainsLegacy(impls, in.Blockchains, selectors, e, topology)
+		connectErr = ccv.ConnectAllChainsLegacy(impls, in.Blockchains, selectors, e, topology)
 	} else {
-		connectErr = connectAllChainsCanonical(impls, in.Blockchains, selectors, e, topology)
+		connectErr = ccv.ConnectAllChainsCanonical(impls, in.Blockchains, selectors, e, topology)
 	}
 	if connectErr != nil {
 		return nil, nil, connectErr
@@ -289,7 +290,7 @@ func (p *protocolContractsComponent) RunPhase3(
 	return map[string]any{
 		"aggregators":              in.Aggregator,
 		"_prepared_indexer_inputs": in.Indexer,
-		"_protocol_setup": &phasedSetup{
+		"_protocol_setup": &ccv.PhasedSetup{
 			In:                in,
 			E:                 e,
 			Topology:          topology,

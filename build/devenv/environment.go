@@ -31,6 +31,7 @@ import (
 	_ "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/indexer"
 	_ "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/jd"
 	_ "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/pricer"
+	_ "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/protocol_contracts"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/committeeverifier"
@@ -117,10 +118,10 @@ type Cfg struct {
 	CLNodesFundingETH  float64                        `toml:"cl_nodes_funding_eth"`
 	CLNodesFundingLink float64                        `toml:"cl_nodes_funding_link"`
 	// HighAvailability enables devenv-level service redundancy. When true,
-	// expandForHA() clones AggregatorInput / IndexerInput entries according
+	// ExpandForHA() clones AggregatorInput / IndexerInput entries according
 	// to their per-service redundancy counts and updates the topology.
-	HighAvailability    bool                 `toml:"high_availability"`
-	ProtocolContracts   ProtocolContractsCfg `toml:"protocol_contracts"`
+	HighAvailability  bool                 `toml:"high_availability"`
+	ProtocolContracts ProtocolContractsCfg `toml:"protocol_contracts"`
 	// AggregatorEndpoints map the verifier qualifier to the aggregator URL for that verifier.
 	AggregatorEndpoints map[string]string `toml:"aggregator_endpoints"`
 	// AggregatorCACertFiles map the verifier qualifier to the CA cert file path for TLS verification.
@@ -140,11 +141,11 @@ type Cfg struct {
 	GenericServices map[uint64]*GenericServiceDefinition `toml:"generic_services" validate:"required"`
 }
 
-// expandForHA clones AggregatorInput / IndexerInput entries based on their
+// ExpandForHA clones AggregatorInput / IndexerInput entries based on their
 // per-service redundancy counts and updates the EnvironmentTopology so that
 // downstream changesets and service launches see the expanded set.
 // When HighAvailability is false this is a no-op.
-func (c *Cfg) expandForHA() error {
+func (c *Cfg) ExpandForHA() error {
 	if !c.HighAvailability {
 		return nil
 	}
@@ -500,12 +501,12 @@ func enrichEnvironmentTopology(cfg *ccvdeployment.EnvironmentTopology, verifiers
 	}
 }
 
-// buildEnvironmentTopology creates a copy of the EnvironmentTopology from the Cfg,
+// BuildEnvironmentTopology creates a copy of the EnvironmentTopology from the Cfg,
 // enriches it with signer addresses, and returns it. This is used by both executor
 // and verifier changesets as the single source of truth.
 // For each chain_config entry that lacks a FeeAggregator, the corresponding
 // chain's deployer key is used as a fallback via the registered ImplFactory.
-func buildEnvironmentTopology(in *Cfg, e *deployment.Environment) *ccvdeployment.EnvironmentTopology {
+func BuildEnvironmentTopology(in *Cfg, e *deployment.Environment) *ccvdeployment.EnvironmentTopology {
 	if in.EnvironmentTopology == nil {
 		return nil
 	}

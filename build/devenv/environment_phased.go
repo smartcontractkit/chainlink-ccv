@@ -50,10 +50,10 @@ func NewPhasedEnvironment() (in *Cfg, err error) {
 	return cfg, nil
 }
 
-// phasedSetup carries all state produced by the protocol_contracts Phase 3 component
+// PhasedSetup carries all state produced by the protocol_contracts Phase 3 component
 // so that runPhasedEnvironmentFinish (called from legacy Phase 4) can complete the
 // environment without re-deriving it.
-type phasedSetup struct {
+type PhasedSetup struct {
 	In                *Cfg
 	E                 *deployment.Environment
 	Topology          *ccvdeployment.EnvironmentTopology
@@ -70,7 +70,7 @@ type phasedSetup struct {
 // proposal acceptance. It expects each IndexerInput's Out field to be populated
 // by the indexer Phase 4 component (via services.NewIndexer), so URL collection
 // can proceed without re-launching containers.
-func runPhasedEnvironmentFinish(ctx context.Context, setup *phasedSetup) (cfg *Cfg, effects []devenvruntime.Effect, err error) {
+func runPhasedEnvironmentFinish(ctx context.Context, setup *PhasedSetup) (cfg *Cfg, effects []devenvruntime.Effect, err error) {
 	defer func() {
 		dxTracker := initDxTracker()
 		sendStartupMetrics(dxTracker, err, setup.TimeTrack.SinceStart().Seconds())
