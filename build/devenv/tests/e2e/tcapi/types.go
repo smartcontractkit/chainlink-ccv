@@ -16,8 +16,12 @@ import (
 	verifierpb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/verifier/v1"
 )
 
-// DefaultLokiURL is the default Loki WebSocket URL for log streaming in tests.
-const DefaultLokiURL = "ws://localhost:3030"
+const (
+	// DefaultLokiURL is the default Loki WebSocket URL for log streaming in tests.
+	DefaultLokiURL     = "ws://localhost:3030"
+	DefaultExecTimeout = 40 * time.Second
+	DefaultSentTimeout = 10 * time.Second
+)
 
 // TestCase represents a test case that can be run in a variety of environments.
 // Implementations may resolve environment-specific configuration (e.g. contract
