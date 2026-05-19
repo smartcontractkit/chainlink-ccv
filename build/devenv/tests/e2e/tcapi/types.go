@@ -20,19 +20,25 @@ import (
 const DefaultLokiURL = "ws://localhost:3030"
 
 // TestCase represents a test case that can be run in a variety of environments.
+// Implementations may resolve environment-specific configuration (e.g. contract
+// addresses) during HavePrerequisites or Run.
 type TestCase interface {
 	// Name returns the name of the test case.
 	Name() string
 
 	// Run runs the test case.
 	// The context is typically derived from the *testing.T's Context() method.
+	// Implementations hydrate any required configuration before executing; callers
+	// do not need to call HavePrerequisites first. Returns an error if prerequisites
+	// are not met.
 	Run(ctx context.Context) error
 
-	// HavePrerequisites checks if the test case has all the prerequisites to run.
+	// HavePrerequisites reports whether this test case can run in the current
+	// environment (e.g. required contracts deployed, services running).
 	// The context is typically derived from the *testing.T's Context() method.
-	// This typically checks things like e.g. whether the environment has a specific contract
-	// deployed, or a specific service is running.
-	// Returns true if the test case has all the prerequisites to run, false otherwise.
+	// Implementations typically perform the same hydration as Run; when it succeeds,
+	// subsequent Run calls reuse that state. Returns false to skip the test without
+	// treating it as a failure.
 	HavePrerequisites(ctx context.Context) bool
 }
 
