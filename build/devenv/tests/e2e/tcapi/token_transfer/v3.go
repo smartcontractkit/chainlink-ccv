@@ -8,12 +8,11 @@ import (
 
 	"github.com/rs/zerolog"
 
+	chain_selectors "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_0_0/operations/burn_mint_erc20_with_drip"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/mock_receiver_v2"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/proxy"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/sequences"
 	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainreg"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/tcapi"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -200,6 +199,25 @@ func tokenTransferCase(lib ccv.Lib, src, dest uint64, combo common.TokenCombinat
 			numExpectedVer:  combo.ExpectedVerifierResults(),
 		},
 		hydrate: func(ctx context.Context, tc *tokenTransferV3TestCase) bool {
+			srcFamily, err := chain_selectors.GetSelectorFamily(tc.src)
+			if err != nil {
+				return false
+			}
+			srcReg, err := chainreg.GetRegistry().Get(srcFamily)
+			if err != nil {
+				return false
+			}
+			dstFamily, err := chain_selectors.GetSelectorFamily(tc.dst)
+			if err != nil {
+				return false
+			}
+			dstReg, err := chainreg.GetRegistry().Get(dstFamily)
+			if err != nil {
+				return false
+			}
+			if srcReg.AddressResolver == nil || dstReg.AddressResolver == nil {
+				return false
+			}
 			ds, err := tc.lib.DataStore()
 			if err != nil {
 				return false
@@ -225,24 +243,24 @@ func tokenTransferCase(lib ccv.Lib, src, dest uint64, combo common.TokenCombinat
 			if tc.useEOAReceiver {
 				tc.receiver, err = dst.GetEOAReceiverAddress()
 			} else {
-				tc.receiver, err = tcapi.GetContractAddress(ds, tc.dst, datastore.ContractType(mock_receiver_v2.ContractType), mock_receiver_v2.Deploy.Version(), common.DefaultReceiverQualifier, "default mock receiver")
+				tc.receiver, err = dstReg.AddressResolver.GetContractReceiver(ds, tc.dst, common.DefaultReceiverQualifier)
 			}
 			if err != nil {
 				return false
 			}
 
 			srcQualifier := tc.combo.LocalPoolAddressRef().Qualifier
-			tc.srcToken, err = getTokenAddress(ds, tc.src, srcQualifier)
+			tc.srcToken, err = srcReg.AddressResolver.GetTokenPool(ds, tc.src, srcQualifier)
 			if err != nil {
 				return false
 			}
 			destQualifier := tc.combo.RemotePoolAddressRef().Qualifier
-			tc.destToken, err = getTokenAddress(ds, tc.dst, destQualifier)
+			tc.destToken, err = dstReg.AddressResolver.GetTokenPool(ds, tc.dst, destQualifier)
 			if err != nil {
 				return false
 			}
 
-			tc.executor, err = tcapi.GetContractAddress(ds, tc.src, datastore.ContractType(sequences.ExecutorProxyType), proxy.Deploy.Version(), common.DefaultExecutorQualifier, "executor")
+			tc.executor, err = srcReg.AddressResolver.GetExecutor(ds, tc.src, common.DefaultExecutorQualifier)
 			return err == nil
 		},
 	}

@@ -11,7 +11,9 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/committeeverifier"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/executor"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/util"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	cldf_chain "github.com/smartcontractkit/chainlink-deployments-framework/chain"
+	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	ctfblockchain "github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
@@ -83,6 +85,25 @@ type ExecutorModifier = executor.ReqModifier
 // ExtraArgsSerializer serializes message extra args for a destination chain family.
 type ExtraArgsSerializer = cciptestinterfaces.ExtraArgsSerializer
 
+// AddressResolver is used by the test framework to resolve addresses of certain
+// on-chain contracts. It is expected that it is implemented per-family.
+type AddressResolver interface {
+	// GetContractReceiver returns the receiver contract address for the given chain selector and qualifier.
+	// This typically returns the mock receiver contract, extensively used in tests.
+	GetContractReceiver(ds datastore.DataStore, chainSelector uint64, qualifier string) (protocol.UnknownAddress, error)
+
+	// GetExecutor returns the executor contract address for the given chain selector and qualifier.
+	GetExecutor(ds datastore.DataStore, chainSelector uint64, qualifier string) (protocol.UnknownAddress, error)
+
+	// GetCommitteeCCV returns the committee CCV address for the given chain selector and qualifier.
+	// This address must be usable as a CCV contract address onchain.
+	// For EVM, this is typically the committee verifier resolver proxy address.
+	GetCommitteeCCV(ds datastore.DataStore, chainSelector uint64, qualifier string) (protocol.UnknownAddress, error)
+
+	// GetTokenPool returns the token pool address for the given chain selector and qualifier.
+	GetTokenPool(ds datastore.DataStore, chainSelector uint64, qualifier string) (protocol.UnknownAddress, error)
+}
+
 // Registration groups every devenv extension for one chain family.
 // Fields are optional; callers should set what the family supports.
 type Registration struct {
@@ -93,4 +114,5 @@ type Registration struct {
 	VerifierModifier     VerifierModifier
 	ExecutorModifier     ExecutorModifier
 	ExtraArgsSerializers map[uint8]ExtraArgsSerializer
+	AddressResolver      AddressResolver
 }
