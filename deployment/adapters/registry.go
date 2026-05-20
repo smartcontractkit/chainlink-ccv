@@ -85,8 +85,8 @@ var (
 	committeeVerifierDeployOnce      sync.Once
 	laneConfigRegistry               *FamilyRegistry[LaneConfigAdapter]
 	laneConfigOnce                   sync.Once
-	protocolContractsDeployRegistry     *FamilyRegistry[ProtocolContractsDeployAdapter]
-	protocolContractsDeployOnce         sync.Once
+	protocolContractsDeployRegistry  *FamilyRegistry[ProtocolContractsDeployAdapter]
+	protocolContractsDeployOnce      sync.Once
 )
 
 func GetAggregatorRegistry() *FamilyRegistry[AggregatorConfigAdapter] {
