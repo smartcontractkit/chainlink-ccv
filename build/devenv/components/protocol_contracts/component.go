@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"github.com/rs/zerolog"
+	zlog "github.com/rs/zerolog/log"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
@@ -26,10 +27,6 @@ import (
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
 
-var plog = zerolog.New(os.Stderr).With().
-	Str("component", "protocol_contracts").
-	Logger().Level(zerolog.DebugLevel)
-
 func init() {
 	if err := devenvruntime.Register("protocol_contracts", factory); err != nil {
 		panic(fmt.Sprintf("protocol_contracts component: %v", err))
@@ -37,10 +34,19 @@ func init() {
 }
 
 func factory(_ map[string]any) (devenvruntime.Component, error) {
-	return &component{}, nil
+	// Default logger; overridden by the runtime via SetLogger if available.
+	return &component{
+		lggr: zlog.Output(zerolog.ConsoleWriter{Out: os.Stderr}).Level(zerolog.DebugLevel).With().Str("component", "protocol_contracts").Logger(),
+	}, nil
 }
 
-type component struct{}
+type component struct {
+	lggr zerolog.Logger
+}
+
+func (p *component) SetLogger(lggr zerolog.Logger) {
+	p.lggr = lggr.With().Str("component", "protocol_contracts").Logger()
+}
 
 func (p *component) ValidateConfig(_ any) error { return nil }
 
@@ -80,8 +86,8 @@ func (p *component) RunPhase3(
 	indexerInputs, _ := priorOutputs["_indexer_inputs"].([]*services.IndexerInput)
 	sharedTLSCerts, _ := priorOutputs["shared_tls_certs"].(*services.TLSCertPaths)
 
-	timeTrack := timing.New(plog)
-	ctx = plog.WithContext(ctx)
+	timeTrack := timing.New(p.lggr)
+	ctx = p.lggr.WithContext(ctx)
 
 	var fakeOut *services.FakeOutput
 	if fake, ok := priorOutputs["fake"].(*services.FakeInput); ok && fake != nil {
@@ -113,7 +119,7 @@ func (p *component) RunPhase3(
 	if err != nil {
 		return nil, nil, fmt.Errorf("creating CLDF operations environment: %w", err)
 	}
-	plog.Info().Any("Selectors", selectors).Msg("Deploying for chain selectors")
+	p.lggr.Info().Any("Selectors", selectors).Msg("Deploying for chain selectors")
 
 	topology := ccdeploy.BuildEnvironmentTopology(envTopology, verifiers, e)
 	if topology == nil {
@@ -142,7 +148,7 @@ func (p *component) RunPhase3(
 		if nerr != nil {
 			return nil, nil, nerr
 		}
-		plog.Info().Uint64("Selector", networkInfo.ChainSelector).Msg("Deploying chain selector")
+		p.lggr.Info().Uint64("Selector", networkInfo.ChainSelector).Msg("Deploying chain selector")
 		// Shift the deployer nonce intentionally so each chain gets different
 		// contract addresses, catching bugs that assume address uniformity.
 		if bumper, ok := impl.(cciptestinterfaces.DeployerNonceBumper); ok && i > 0 {
