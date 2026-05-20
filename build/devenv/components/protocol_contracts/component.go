@@ -9,14 +9,15 @@ import (
 	"github.com/rs/zerolog"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
-	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainreg"
 	ccldf "github.com/smartcontractkit/chainlink-ccv/build/devenv/cldf"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	ccdeploy "github.com/smartcontractkit/chainlink-ccv/build/devenv/deploy"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
 	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/committeeverifier"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/timing"
 	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
 	ccvadapters "github.com/smartcontractkit/chainlink-ccv/deployment/adapters"
@@ -57,24 +58,39 @@ func (p *component) RunPhase3(
 	_ any,
 	priorOutputs map[string]any,
 ) (map[string]any, []devenvruntime.Effect, error) {
-	// Config was loaded and fully expanded (ExpandForHA, credentials) by legacy RunPhase2.
-	in, ok := priorOutputs["_cfg"].(*ccv.Cfg)
+	blockchains, ok := priorOutputs["blockchains"].([]*blockchain.Input)
 	if !ok {
-		return nil, nil, fmt.Errorf("phase 2 did not produce *Cfg under \"_cfg\"")
+		return nil, nil, fmt.Errorf("phase 1 did not produce []*blockchain.Input under \"blockchains\"")
 	}
+	cldf, ok := priorOutputs["_cldf"].(*ccldf.CLDF)
+	if !ok {
+		return nil, nil, fmt.Errorf("phase 2 did not produce *ccldf.CLDF under \"_cldf\"")
+	}
+	jdInfra, ok := priorOutputs["jd"].(*jobs.JDInfrastructure)
+	if !ok {
+		return nil, nil, fmt.Errorf("phase 2 did not produce *jobs.JDInfrastructure under \"jd\"")
+	}
+	envTopology, ok := priorOutputs["_environment_topology"].(*ccvdeployment.EnvironmentTopology)
+	if !ok {
+		return nil, nil, fmt.Errorf("phase 2 did not produce *EnvironmentTopology under \"_environment_topology\"")
+	}
+	verifiers, _ := priorOutputs["verifiers"].([]*committeeverifier.Input)
+	useLegacyConfigureLane, _ := priorOutputs["_use_legacy_configure_lane"].(bool)
+	aggregators, _ := priorOutputs["_aggregators_with_creds"].([]*services.AggregatorInput)
+	indexerInputs, _ := priorOutputs["_indexer_inputs"].([]*services.IndexerInput)
 	sharedTLSCerts, _ := priorOutputs["shared_tls_certs"].(*services.TLSCertPaths)
 
 	timeTrack := timing.New(plog)
 	ctx = plog.WithContext(ctx)
 
 	var fakeOut *services.FakeOutput
-	if in.Fake != nil {
-		fakeOut = in.Fake.Out
+	if fake, ok := priorOutputs["fake"].(*services.FakeInput); ok && fake != nil {
+		fakeOut = fake.Out
 	}
 
-	impls := make([]cciptestinterfaces.CCIP17Configuration, len(in.Blockchains))
-	blockchainOutputs := make([]*blockchain.Output, len(in.Blockchains))
-	for i, bc := range in.Blockchains {
+	impls := make([]cciptestinterfaces.CCIP17Configuration, len(blockchains))
+	blockchainOutputs := make([]*blockchain.Output, len(blockchains))
+	for i, bc := range blockchains {
 		if bc.Out == nil {
 			return nil, nil, fmt.Errorf("blockchain[%d] %q: phase 1 did not populate Out", i, bc.ContainerName)
 		}
@@ -86,12 +102,12 @@ func (p *component) RunPhase3(
 		blockchainOutputs[i] = bc.Out
 	}
 
-	in.CLDF.Init()
+	cldf.Init()
 	cldfCfg := ccldf.CLDFEnvironmentConfig{
-		Blockchains:    in.Blockchains,
-		DataStore:      in.CLDF.DataStore,
-		OffchainClient: in.JDInfra.OffchainClient,
-		NodeIDs:        in.JDInfra.GetNodeIDs(),
+		Blockchains:    blockchains,
+		DataStore:      cldf.DataStore,
+		OffchainClient: jdInfra.OffchainClient,
+		NodeIDs:        jdInfra.GetNodeIDs(),
 	}
 	selectors, e, err := ccldf.NewCLDFOperationsEnvironmentWithOffchain(cldfCfg)
 	if err != nil {
@@ -99,7 +115,7 @@ func (p *component) RunPhase3(
 	}
 	plog.Info().Any("Selectors", selectors).Msg("Deploying for chain selectors")
 
-	topology := ccdeploy.BuildEnvironmentTopology(in.EnvironmentTopology, in.Verifier, e)
+	topology := ccdeploy.BuildEnvironmentTopology(envTopology, verifiers, e)
 	if topology == nil {
 		return nil, nil, fmt.Errorf("failed to build environment topology")
 	}
@@ -108,7 +124,7 @@ func (p *component) RunPhase3(
 
 	capsBySelector := make(map[uint64][]devenvcommon.PoolCapability, len(impls))
 	for i, impl := range impls {
-		networkInfo, lookupErr := chainsel.GetChainDetailsByChainIDAndFamily(in.Blockchains[i].ChainID, impl.ChainFamily())
+		networkInfo, lookupErr := chainsel.GetChainDetailsByChainIDAndFamily(blockchains[i].ChainID, impl.ChainFamily())
 		if lookupErr != nil {
 			return nil, nil, lookupErr
 		}
@@ -122,7 +138,7 @@ func (p *component) RunPhase3(
 
 	ds := datastore.NewMemoryDataStore()
 	for i, impl := range impls {
-		networkInfo, nerr := chainsel.GetChainDetailsByChainIDAndFamily(in.Blockchains[i].ChainID, impl.ChainFamily())
+		networkInfo, nerr := chainsel.GetChainDetailsByChainIDAndFamily(blockchains[i].ChainID, impl.ChainFamily())
 		if nerr != nil {
 			return nil, nil, nerr
 		}
@@ -172,7 +188,7 @@ func (p *component) RunPhase3(
 		if err != nil {
 			return nil, nil, err
 		}
-		in.CLDF.AddAddresses(string(a))
+		cldf.AddAddresses(string(a))
 	}
 	e.DataStore = ds.Seal()
 
@@ -181,10 +197,10 @@ func (p *component) RunPhase3(
 	}
 
 	var connectErr error
-	if in.ProtocolContracts.UseLegacyConfigureLane {
-		connectErr = ccdeploy.ConnectAllChainsLegacy(impls, in.Blockchains, selectors, e, topology)
+	if useLegacyConfigureLane {
+		connectErr = ccdeploy.ConnectAllChainsLegacy(impls, blockchains, selectors, e, topology)
 	} else {
-		connectErr = ccdeploy.ConnectAllChainsCanonical(impls, in.Blockchains, selectors, e, topology)
+		connectErr = ccdeploy.ConnectAllChainsCanonical(impls, blockchains, selectors, e, topology)
 	}
 	if connectErr != nil {
 		return nil, nil, connectErr
@@ -192,10 +208,7 @@ func (p *component) RunPhase3(
 
 	timeTrack.Record("[contracts] deployed")
 
-	in.AggregatorEndpoints = make(map[string]string)
-	in.AggregatorCACertFiles = make(map[string]string)
-
-	for _, aggregatorInput := range in.Aggregator {
+	for _, aggregatorInput := range aggregators {
 		aggregatorInput.SharedTLSCerts = sharedTLSCerts
 
 		instanceName := aggregatorInput.InstanceName()
@@ -223,8 +236,8 @@ func (p *component) RunPhase3(
 		// which reads "aggregators" from the phase snapshot and calls services.NewAggregator.
 	}
 
-	if len(in.Aggregator) > 0 && len(in.Indexer) > 0 {
-		firstIdx := in.Indexer[0]
+	if len(aggregators) > 0 && len(indexerInputs) > 0 {
+		firstIdx := indexerInputs[0]
 		cs := ccvchangesets.GenerateIndexerConfig(ccvadapters.GetRegistry())
 		output, err := cs.Apply(*e, ccvchangesets.GenerateIndexerConfigInput{
 			ServiceIdentifier:                "indexer",
@@ -241,18 +254,18 @@ func (p *component) RunPhase3(
 			return nil, nil, fmt.Errorf("failed to get indexer config from output: %w", err)
 		}
 		e.DataStore = output.DataStore.Seal()
-		for _, idxIn := range in.Indexer {
+		for _, idxIn := range indexerInputs {
 			idxIn.GeneratedCfg = idxCfg
 		}
 	}
 
-	if len(in.Indexer) < 1 {
+	if len(indexerInputs) < 1 {
 		return nil, nil, fmt.Errorf("at least one indexer is required")
 	}
 
 	return map[string]any{
-		"aggregators":              in.Aggregator,
-		"_prepared_indexer_inputs": in.Indexer,
+		"aggregators":              aggregators,
+		"_prepared_indexer_inputs": indexerInputs,
 		"_env":                     e,
 		"_topology":                topology,
 		"_blockchain_outputs":      blockchainOutputs,

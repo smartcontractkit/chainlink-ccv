@@ -31,7 +31,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainreg"
 	ccldf "github.com/smartcontractkit/chainlink-ccv/build/devenv/cldf"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cli/send"
-	_ "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/protocol_contracts"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/evm"
 )
 

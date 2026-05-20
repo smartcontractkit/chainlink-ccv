@@ -190,11 +190,15 @@ func (l *legacyComponent) RunPhase2(
 	}
 
 	return map[string]any{
-		"verifiers":               in.Verifier,
-		"_aggregators_with_creds": in.Aggregator,
-		"_cl_client_lookup":       clientLookup,
-		"shared_tls_certs":        sharedTLSCerts,
-		"_cfg":                    in,
+		"verifiers":                  in.Verifier,
+		"_aggregators_with_creds":    in.Aggregator,
+		"_cl_client_lookup":          clientLookup,
+		"shared_tls_certs":           sharedTLSCerts,
+		"_cfg":                       in,
+		"_cldf":                      &in.CLDF,
+		"_environment_topology":      in.EnvironmentTopology,
+		"_use_legacy_configure_lane": in.ProtocolContracts.UseLegacyConfigureLane,
+		"_indexer_inputs":            in.Indexer,
 	}, nil, nil
 }
 

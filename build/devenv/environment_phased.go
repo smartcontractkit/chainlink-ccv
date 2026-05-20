@@ -85,6 +85,8 @@ func runPhasedEnvironmentFinish(ctx context.Context, setup *PhasedSetup) (cfg *C
 	fakeOut := setup.FakeOut
 
 	// Collect aggregator endpoints from Out fields populated by the CommitteeCCV Phase 4 component.
+	in.AggregatorEndpoints = make(map[string]string)
+	in.AggregatorCACertFiles = make(map[string]string)
 	for _, agg := range in.Aggregator {
 		if agg.Out != nil {
 			in.AggregatorEndpoints[agg.CommitteeName] = agg.Out.ExternalHTTPSUrl
