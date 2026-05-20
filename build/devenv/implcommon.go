@@ -139,7 +139,7 @@ type chainProfile struct {
 // chain to the mesh, mirroring how production environments grow. The
 // underlying ConfigureChainForLanes sequence is fully idempotent, so
 // re-running for already-configured contracts is a no-op.
-func connectAllChainsCanonical(
+func ConnectAllChainsCanonical(
 	impls []cciptestinterfaces.CCIP17Configuration,
 	blockchains []*blockchain.Input,
 	selectors []uint64,
@@ -304,7 +304,7 @@ type chainEntry struct {
 	cvConfig        lanes.CommitteeVerifierRemoteChainInput
 }
 
-func connectAllChainsLegacy(
+func ConnectAllChainsLegacy(
 	impls []cciptestinterfaces.CCIP17Configuration,
 	blockchains []*blockchain.Input,
 	selectors []uint64,
@@ -312,10 +312,10 @@ func connectAllChainsLegacy(
 	topology *ccvdeployment.EnvironmentTopology,
 ) error {
 	if len(blockchains) != len(impls) {
-		return fmt.Errorf("connectAllChainsLegacy: mismatched lengths: %d impls and %d blockchains", len(impls), len(blockchains))
+		return fmt.Errorf("ConnectAllChainsLegacy: mismatched lengths: %d impls and %d blockchains", len(impls), len(blockchains))
 	}
 	if len(selectors) == 0 {
-		return fmt.Errorf("connectAllChainsLegacy: selectors must be non-empty")
+		return fmt.Errorf("ConnectAllChainsLegacy: selectors must be non-empty")
 	}
 
 	entries := make(map[uint64]chainEntry, len(impls))

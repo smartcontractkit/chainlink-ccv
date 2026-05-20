@@ -62,7 +62,7 @@ func NewEnvironment() (in *Cfg, err error) {
 		return nil, fmt.Errorf("failed to load configuration: %w", err)
 	}
 
-	if err = in.expandForHA(); err != nil {
+	if err = in.ExpandForHA(); err != nil {
 		return nil, fmt.Errorf("failed to expand HA configuration: %w", err)
 	}
 
@@ -298,7 +298,7 @@ func NewEnvironment() (in *Cfg, err error) {
 	}
 	L.Info().Any("Selectors", selectors).Msg("Deploying for chain selectors")
 
-	topology := buildEnvironmentTopology(in, e)
+	topology := BuildEnvironmentTopology(in, e)
 	if topology == nil {
 		return nil, fmt.Errorf("failed to build environment topology")
 	}
@@ -396,10 +396,10 @@ func NewEnvironment() (in *Cfg, err error) {
 	}
 
 	var connectErr error
-	if in.UseLegacyConfigureLane {
-		connectErr = connectAllChainsLegacy(impls, in.Blockchains, selectors, e, topology)
+	if in.ProtocolContracts.UseLegacyConfigureLane {
+		connectErr = ConnectAllChainsLegacy(impls, in.Blockchains, selectors, e, topology)
 	} else {
-		connectErr = connectAllChainsCanonical(impls, in.Blockchains, selectors, e, topology)
+		connectErr = ConnectAllChainsCanonical(impls, in.Blockchains, selectors, e, topology)
 	}
 	if connectErr != nil {
 		return nil, connectErr

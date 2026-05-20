@@ -109,7 +109,7 @@ func executeJobProposalEffects(ctx context.Context, effects []devenvruntime.JobP
 			return fmt.Errorf("accepting pending jobs: %w", err)
 		}
 	}
-	if setup, ok := accumulated[legacySetupKey].(*phasedSetup); ok && setup != nil && setup.E != nil {
+	if setup, ok := accumulated["_protocol_setup"].(*PhasedSetup); ok && setup != nil && setup.E != nil {
 		if err := jobs.SyncAndVerifyJobProposals(setup.E); err != nil {
 			return fmt.Errorf("syncing job proposals: %w", err)
 		}

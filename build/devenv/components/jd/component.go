@@ -30,15 +30,13 @@ func (c *component) ValidateConfig(componentConfig any) error {
 	return err
 }
 
-// RunPhase2 starts the JD container and creates the JD client. Node
-// registration and chain-config wiring happen later in Phase 3 after CL nodes
-// are running (still inside the legacy monolith until CommitteeCCV is
-// extracted).
-func (c *component) RunPhase2(
+// RunPhase1 starts the JD container and creates the JD client. Node
+// registration and chain-config wiring happen later in Phase 2 in the legacy
+// component after CL nodes are running.
+func (c *component) RunPhase1(
 	ctx context.Context,
 	_ map[string]any,
 	componentConfig any,
-	_ map[string]any,
 ) (map[string]any, []devenvruntime.Effect, error) {
 	input, err := decode(componentConfig)
 	if err != nil {
