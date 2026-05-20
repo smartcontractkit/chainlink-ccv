@@ -28,8 +28,8 @@ import (
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 
 	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
-	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cli/send"
 	ccldf "github.com/smartcontractkit/chainlink-ccv/build/devenv/cldf"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cli/send"
 	_ "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/protocol_contracts"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/evm"
 )
