@@ -64,7 +64,7 @@ func NewPhasedEnvironment() (in *Cfg, err error) {
 		cfg.IndexerInternalEndpoints = internalURLs
 	}
 
-	return cfg, nil
+	return cfg, Store(cfg)
 }
 
 // runPhasedEnvironmentFinish runs from executor job-spec generation through job
@@ -284,5 +284,5 @@ func runPhasedEnvironmentFinish(
 		return nil, nil, err
 	}
 
-	return in, effects, Store(in)
+	return in, effects, nil
 }
