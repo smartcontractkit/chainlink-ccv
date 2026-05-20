@@ -8,13 +8,14 @@ import (
 
 	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
+	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
+	ccvadapters "github.com/smartcontractkit/chainlink-ccv/deployment/adapters"
+	ccvchangesets "github.com/smartcontractkit/chainlink-ccv/deployment/changesets"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
+	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 )
 
 const configKey = "indexer"
-
-// preparedIndexerInputsKey must match the constant in legacy_component.go.
-const preparedIndexerInputsKey = "_prepared_indexer_inputs"
 
 func init() {
 	if err := devenvruntime.Register(configKey, factory); err != nil {
@@ -30,9 +31,10 @@ type component struct{}
 
 func (c *component) ValidateConfig(_ any) error { return nil }
 
-// RunPhase4 takes the *services.IndexerInput pointers published by the legacy
-// Phase 3 component, wires TLS, aggregator discovery config, and secrets, then
-// calls services.NewIndexer. Mutations on the shared pointers are visible to
+// RunPhase4 reads the []*services.IndexerInput pointers published by the legacy
+// Phase 2 component, generates indexer configuration from deployed contracts,
+// wires TLS, aggregator discovery config, and secrets, then calls
+// services.NewIndexer. Mutations on the shared pointers are visible to
 // runPhasedEnvironmentFinish, which reads idxIn.Out for URL collection.
 func (c *component) RunPhase4(
 	_ context.Context,
@@ -40,10 +42,35 @@ func (c *component) RunPhase4(
 	_ any,
 	priorOutputs map[string]any,
 ) (map[string]any, []devenvruntime.Effect, error) {
-	inputs, ok := priorOutputs[preparedIndexerInputsKey].([]*services.IndexerInput)
+	inputs, ok := priorOutputs["_indexer_inputs"].([]*services.IndexerInput)
 	if !ok {
 		// No indexer inputs — env.toml omits [[indexer]].
 		return map[string]any{}, nil, nil
+	}
+
+	e, ok := priorOutputs["_env"].(*deployment.Environment)
+	if !ok {
+		return nil, nil, fmt.Errorf("phase 3 did not produce *deployment.Environment under \"_env\"")
+	}
+
+	firstIdx := inputs[0]
+	cs := ccvchangesets.GenerateIndexerConfig(ccvadapters.GetRegistry())
+	localEnv := *e
+	output, err := cs.Apply(localEnv, ccvchangesets.GenerateIndexerConfigInput{
+		ServiceIdentifier:                "indexer",
+		CommitteeVerifierNameToQualifier: firstIdx.CommitteeVerifierNameToQualifier,
+		CCTPVerifierNameToQualifier:      firstIdx.CCTPVerifierNameToQualifier,
+		LombardVerifierNameToQualifier:   firstIdx.LombardVerifierNameToQualifier,
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("generating indexer config: %w", err)
+	}
+	idxCfg, err := ccvdeployment.GetIndexerConfig(output.DataStore.Seal(), "indexer")
+	if err != nil {
+		return nil, nil, fmt.Errorf("getting indexer config: %w", err)
+	}
+	for _, idxIn := range inputs {
+		idxIn.GeneratedCfg = idxCfg
 	}
 
 	aggregators, _ := priorOutputs["aggregators"].([]*services.AggregatorInput)

@@ -199,7 +199,6 @@ func (l *legacyComponent) RunPhase2(
 		"_cldf":                      &in.CLDF,
 		"_environment_topology":      in.EnvironmentTopology,
 		"_use_legacy_configure_lane": in.ProtocolContracts.UseLegacyConfigureLane,
-		"_indexer_inputs":            in.Indexer,
 	}, nil, nil
 }
 
@@ -225,9 +224,9 @@ func (l *legacyComponent) RunPhase4(
 		return nil, nil, fmt.Errorf("phase 3 did not produce *EnvironmentTopology under \"_topology\"")
 	}
 	sharedTLSCerts, _ := priorOutputs["shared_tls_certs"].(*services.TLSCertPaths) // optional: only present when TLS is configured
-	blockchainOutputs, ok := priorOutputs["_blockchain_outputs"].([]*blockchain.Output)
+	blockchainOutputs, ok := priorOutputs["blockchainOutputs"].([]*blockchain.Output)
 	if !ok {
-		return nil, nil, fmt.Errorf("phase 3 did not produce []*blockchain.Output under \"_blockchain_outputs\"")
+		return nil, nil, fmt.Errorf("phase 1 did not produce []*blockchain.Output under \"blockchainOutputs\"")
 	}
 	selectors, ok := priorOutputs["_selectors"].([]uint64)
 	if !ok {
@@ -237,7 +236,10 @@ func (l *legacyComponent) RunPhase4(
 	if !ok {
 		return nil, nil, fmt.Errorf("phase 3 did not produce MutableDataStore under \"_ds\"")
 	}
-	fakeOut, _ := priorOutputs["_fake_out"].(*services.FakeOutput) // optional: only present in fake-mode environments
+	var fakeOut *services.FakeOutput
+	if fake, ok := priorOutputs["fake"].(*services.FakeInput); ok && fake != nil {
+		fakeOut = fake.Out
+	}
 	timeTrack, ok := priorOutputs["_time_track"].(*timing.TimeTracker)
 	if !ok {
 		return nil, nil, fmt.Errorf("phase 3 did not produce *timing.TimeTracker under \"_time_track\"")
