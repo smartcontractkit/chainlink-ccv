@@ -2,7 +2,6 @@ package adapters
 
 import (
 	"github.com/Masterminds/semver/v3"
-
 	mcmstypes "github.com/smartcontractkit/mcms/types"
 
 	"github.com/smartcontractkit/chainlink-deployments-framework/chain"
@@ -16,10 +15,10 @@ type ExecutorDeployParams struct {
 	Version   *semver.Version
 }
 
-// ChainContractsDeployInput is the per-chain input for deploying CCIP protocol
-// contracts (RMNRemote, OnRamp, OffRamp, FeeQuoter, Router, Executors).
+// ProtocolContractsDeployInput is the per-chain input for deploying CCIP
+// protocol contracts (RMNRemote, OnRamp, OffRamp, FeeQuoter, Router, Executors).
 // Committee verifiers are deployed separately via CommitteeVerifierDeployAdapter.
-type ChainContractsDeployInput struct {
+type ProtocolContractsDeployInput struct {
 	// ChainSelector is the chain to deploy on.
 	ChainSelector uint64
 	// DeployerContract is the deployer/factory address (e.g. CREATE2Factory on EVM).
@@ -39,8 +38,8 @@ type ChainContractsDeployInput struct {
 	FamilyExtras map[string]any
 }
 
-// ChainContractsDeployOutput is the output of a chain contracts deployment.
-type ChainContractsDeployOutput struct {
+// ProtocolContractsDeployOutput is the output of a protocol contracts deployment.
+type ProtocolContractsDeployOutput struct {
 	// Addresses are newly deployed contract addresses.
 	Addresses []datastore.AddressRef
 	// BatchOps are MCMS batch operations (e.g. ownership transfer).
@@ -50,14 +49,15 @@ type ChainContractsDeployOutput struct {
 	RefsToTransferOwnership []datastore.AddressRef
 }
 
-// ChainContractsDeployAdapter deploys CCIP protocol contracts on a single chain.
-// Implementations are chain-family-specific and registered via Registry.
+// ProtocolContractsDeployAdapter deploys CCIP protocol contracts on a single
+// chain. Implementations are chain-family-specific and registered via the
+// singleton FamilyRegistry.
 //
-// The adapter's DeployChainContracts sequence is expected to be idempotent:
-// re-running on a chain where contracts already exist reconciles any drifted
-// config rather than redeploying.
-type ChainContractsDeployAdapter interface {
-	// DeployChainContracts returns the per-family sequence that deploys the
+// The adapter's sequence is expected to be idempotent: re-running on a chain
+// where contracts already exist reconciles any drifted config rather than
+// redeploying.
+type ProtocolContractsDeployAdapter interface {
+	// DeployProtocolContracts returns the per-family sequence that deploys the
 	// core CCIP protocol contracts on one chain.
-	DeployChainContracts() *operations.Sequence[ChainContractsDeployInput, ChainContractsDeployOutput, chain.BlockChains]
+	DeployProtocolContracts() *operations.Sequence[ProtocolContractsDeployInput, ProtocolContractsDeployOutput, chain.BlockChains]
 }

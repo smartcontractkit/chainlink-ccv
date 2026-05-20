@@ -85,8 +85,8 @@ var (
 	committeeVerifierDeployOnce      sync.Once
 	laneConfigRegistry               *FamilyRegistry[LaneConfigAdapter]
 	laneConfigOnce                   sync.Once
-	chainContractsDeployRegistry     *FamilyRegistry[ChainContractsDeployAdapter]
-	chainContractsDeployOnce         sync.Once
+	protocolContractsDeployRegistry     *FamilyRegistry[ProtocolContractsDeployAdapter]
+	protocolContractsDeployOnce         sync.Once
 )
 
 func GetAggregatorRegistry() *FamilyRegistry[AggregatorConfigAdapter] {
@@ -129,9 +129,9 @@ func GetLaneConfigRegistry() *FamilyRegistry[LaneConfigAdapter] {
 	return laneConfigRegistry
 }
 
-func GetChainContractsDeployRegistry() *FamilyRegistry[ChainContractsDeployAdapter] {
-	chainContractsDeployOnce.Do(func() { chainContractsDeployRegistry = newFamilyRegistry[ChainContractsDeployAdapter]() })
-	return chainContractsDeployRegistry
+func GetProtocolContractsDeployRegistry() *FamilyRegistry[ProtocolContractsDeployAdapter] {
+	protocolContractsDeployOnce.Do(func() { protocolContractsDeployRegistry = newFamilyRegistry[ProtocolContractsDeployAdapter]() })
+	return protocolContractsDeployRegistry
 }
 
 // --------------------------------------------------------------------
