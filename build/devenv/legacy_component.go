@@ -224,14 +224,20 @@ func (l *legacyComponent) RunPhase4(
 	if !ok {
 		return nil, nil, fmt.Errorf("phase 3 did not produce *EnvironmentTopology under \"_topology\"")
 	}
-	sharedTLSCerts, _ := priorOutputs["shared_tls_certs"].(*services.TLSCertPaths)
-	blockchainOutputs, _ := priorOutputs["_blockchain_outputs"].([]*blockchain.Output)
-	selectors, _ := priorOutputs["_selectors"].([]uint64)
+	sharedTLSCerts, _ := priorOutputs["shared_tls_certs"].(*services.TLSCertPaths) // optional: only present when TLS is configured
+	blockchainOutputs, ok := priorOutputs["_blockchain_outputs"].([]*blockchain.Output)
+	if !ok {
+		return nil, nil, fmt.Errorf("phase 3 did not produce []*blockchain.Output under \"_blockchain_outputs\"")
+	}
+	selectors, ok := priorOutputs["_selectors"].([]uint64)
+	if !ok {
+		return nil, nil, fmt.Errorf("phase 3 did not produce []uint64 under \"_selectors\"")
+	}
 	ds, ok := priorOutputs["_ds"].(datastore.MutableDataStore)
 	if !ok {
 		return nil, nil, fmt.Errorf("phase 3 did not produce MutableDataStore under \"_ds\"")
 	}
-	fakeOut, _ := priorOutputs["_fake_out"].(*services.FakeOutput)
+	fakeOut, _ := priorOutputs["_fake_out"].(*services.FakeOutput) // optional: only present in fake-mode environments
 	timeTrack, ok := priorOutputs["_time_track"].(*timing.TimeTracker)
 	if !ok {
 		return nil, nil, fmt.Errorf("phase 3 did not produce *timing.TimeTracker under \"_time_track\"")
