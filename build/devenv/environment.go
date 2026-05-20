@@ -8,7 +8,6 @@ import (
 	"maps"
 	"math/big"
 	"slices"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -444,87 +443,6 @@ func checkKeys(in *Cfg) error {
 	}
 
 	return nil
-}
-
-// enrichEnvironmentTopology injects SignerAddress values from verifier inputs into the EnvironmentTopology.
-// This is needed because signer addresses are only known after key generation or CL node launch.
-// Each verifier's NOPAlias identifies which NOP in the topology it belongs to.
-// Only the first verifier for each NOP sets the signer address (subsequent verifiers with the
-// same NOPAlias are ignored to avoid overwriting with wrong keys due to round-robin wrap-around).
-//
-// Signer key selection is delegated to each registered ImplFactory via DefaultSignerKey,
-// so adding a new chain family requires no changes here.
-func enrichEnvironmentTopology(cfg *ccvdeployment.EnvironmentTopology, verifiers []*committeeverifier.Input) {
-	factories := chainreg.GetRegistry().GetAllImplFactories()
-
-	seenAliases := make(map[string]struct{})
-	for _, ver := range verifiers {
-		if _, seen := seenAliases[ver.NOPAlias]; seen {
-			continue
-		}
-		nop, ok := cfg.NOPTopology.GetNOP(ver.NOPAlias)
-		if !ok || nop.GetMode() == ccvshared.NOPModeCL {
-			continue
-		}
-
-		for family, factory := range factories {
-			if nop.SignerAddressByFamily[family] != "" {
-				continue
-			}
-			signerKey := factory.DefaultSignerKey(ver.Out.BootstrapKeys)
-			if signerKey != "" {
-				cfg.NOPTopology.SetNOPSignerAddress(ver.NOPAlias, family, signerKey)
-			}
-		}
-
-		seenAliases[ver.NOPAlias] = struct{}{}
-	}
-}
-
-// BuildEnvironmentTopology creates a copy of the EnvironmentTopology from the Cfg,
-// enriches it with signer addresses, and returns it. This is used by both executor
-// and verifier changesets as the single source of truth.
-// For each chain_config entry that lacks a FeeAggregator, the corresponding
-// chain's deployer key is used as a fallback via the registered ImplFactory.
-func BuildEnvironmentTopology(in *Cfg, e *deployment.Environment) *ccvdeployment.EnvironmentTopology {
-	if in.EnvironmentTopology == nil {
-		return nil
-	}
-	envCfg := *in.EnvironmentTopology
-	enrichEnvironmentTopology(&envCfg, in.Verifier)
-
-	if envCfg.NOPTopology == nil {
-		return &envCfg
-	}
-
-	for name, committee := range envCfg.NOPTopology.Committees {
-		if committee.ChainConfigs == nil {
-			continue
-		}
-		for chainSel, chainCfg := range committee.ChainConfigs {
-			if chainCfg.FeeAggregator == "" {
-				sel, err := strconv.ParseUint(chainSel, 10, 64)
-				if err != nil {
-					continue
-				}
-				family, err := chainsel.GetSelectorFamily(sel)
-				if err != nil {
-					continue
-				}
-				reg, err := chainreg.GetRegistry().Get(family)
-				if err != nil || reg.ImplFactory == nil {
-					continue
-				}
-				if addr := reg.ImplFactory.DefaultFeeAggregator(e, sel); addr != "" {
-					chainCfg.FeeAggregator = addr
-					committee.ChainConfigs[chainSel] = chainCfg
-				}
-			}
-		}
-		envCfg.NOPTopology.Committees[name] = committee
-	}
-
-	return &envCfg
 }
 
 // generateExecutorJobSpecs generates job specs for all executors using the changeset.

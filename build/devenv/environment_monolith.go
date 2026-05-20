@@ -301,7 +301,7 @@ func NewEnvironment() (in *Cfg, err error) {
 	}
 	L.Info().Any("Selectors", selectors).Msg("Deploying for chain selectors")
 
-	topology := BuildEnvironmentTopology(in, e)
+	topology := ccdeploy.BuildEnvironmentTopology(in.EnvironmentTopology, in.Verifier, e)
 	if topology == nil {
 		return nil, fmt.Errorf("failed to build environment topology")
 	}

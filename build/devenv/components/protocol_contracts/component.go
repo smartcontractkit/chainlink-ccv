@@ -99,7 +99,7 @@ func (p *component) RunPhase3(
 	}
 	plog.Info().Any("Selectors", selectors).Msg("Deploying for chain selectors")
 
-	topology := ccv.BuildEnvironmentTopology(in, e)
+	topology := ccdeploy.BuildEnvironmentTopology(in.EnvironmentTopology, in.Verifier, e)
 	if topology == nil {
 		return nil, nil, fmt.Errorf("failed to build environment topology")
 	}
