@@ -40,6 +40,8 @@ import (
 // convertTopologyToCCIP converts ccvdeployment.EnvironmentTopology to the
 // ccipOffchain.EnvironmentTopology required by onchain changesets in chainlink-ccip
 // that have not yet migrated to the ccv deployment package. Phase 2 bridge shim.
+// TODO: consolidate the two EnvironmentTopology types into one, or remove the
+// topology field from the upstream changesets entirely, and delete this function.
 func convertTopologyToCCIP(src *ccvdeployment.EnvironmentTopology) *ccipOffchain.EnvironmentTopology {
 	if src == nil {
 		return nil
