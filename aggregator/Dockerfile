@@ -13,7 +13,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build,id=ccv-go-build \
     --mount=type=cache,target=/go/pkg/mod,id=ccv-go-mod \
     cd aggregator && CGO_ENABLED=0 go build -ldflags='-s -w' -o /bin/aggregator cmd/main.go
 
-FROM alpine:latest
+FROM alpine:3.22
 WORKDIR /app
 RUN apk --no-cache add ca-certificates
 COPY --from=builder /bin/aggregator bin/

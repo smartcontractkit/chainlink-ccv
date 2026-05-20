@@ -15,7 +15,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build,id=ccv-go-build \
     CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags='-s -w' -o /bin/pricer main.go
 
 # Release on alpine to keep size small
-FROM alpine:latest
+FROM alpine:3.22
 RUN apk --no-cache add ca-certificates
 COPY --from=builder /bin/pricer /bin/
 ENTRYPOINT ["/bin/pricer"]
