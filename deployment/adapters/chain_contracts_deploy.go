@@ -2,6 +2,7 @@ package adapters
 
 import (
 	"github.com/Masterminds/semver/v3"
+
 	mcmstypes "github.com/smartcontractkit/mcms/types"
 
 	"github.com/smartcontractkit/chainlink-deployments-framework/chain"
