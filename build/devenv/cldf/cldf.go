@@ -1,8 +1,7 @@
 // Package cldf provides CLDF (Chainlink Deployments Framework) environment
 // helpers for the devenv. It is intentionally isolated from the root ccv
 // package so that components can import it without pulling in the full devenv
-// dependency graph. Root ccv/cldf.go re-exports these symbols via type aliases
-// and thin wrappers for backward compatibility with existing callers.
+// dependency graph. Callers import this package directly.
 package cldf
 
 import (

@@ -1,8 +1,7 @@
 // Package deploy contains on-chain contract deployment and lane configuration
 // logic for the devenv. It is intentionally isolated from the root ccv package
 // so that components can import it without pulling in the full devenv dependency
-// graph. Root ccv/implcommon.go re-exports the public functions as thin wrappers
-// for backward compatibility with existing callers.
+// graph. Callers import this package directly.
 package deploy
 
 import (
