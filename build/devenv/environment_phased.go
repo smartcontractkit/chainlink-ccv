@@ -47,13 +47,28 @@ func NewPhasedEnvironment() (in *Cfg, err error) {
 	if !ok {
 		return nil, fmt.Errorf("runtime did not return a *Cfg")
 	}
+
+	// Collect indexer URLs from the "indexer" key published by the indexer
+	// Phase 4 component. This happens after all phases complete so the output
+	// is visible here even though Phase 4 siblings cannot see each other.
+	if indexers, ok := out["indexer"].([]*services.IndexerInput); ok {
+		externalURLs := make([]string, 0, len(indexers))
+		internalURLs := make([]string, 0, len(indexers))
+		for _, idxIn := range indexers {
+			if idxIn.Out != nil {
+				externalURLs = append(externalURLs, idxIn.Out.ExternalHTTPURL)
+				internalURLs = append(internalURLs, idxIn.Out.InternalHTTPURL)
+			}
+		}
+		cfg.IndexerEndpoints = externalURLs
+		cfg.IndexerInternalEndpoints = internalURLs
+	}
+
 	return cfg, nil
 }
 
 // runPhasedEnvironmentFinish runs from executor job-spec generation through job
-// proposal acceptance. It expects each IndexerInput's Out field to be populated
-// by the indexer Phase 4 component (via services.NewIndexer), so URL collection
-// can proceed without re-launching containers.
+// proposal acceptance.
 func runPhasedEnvironmentFinish(
 	ctx context.Context,
 	in *Cfg,
@@ -83,17 +98,7 @@ func runPhasedEnvironmentFinish(
 		}
 	}
 
-	// Collect indexer URLs from Out fields populated by the indexer Phase 4 component.
-	externalURLs := make([]string, 0, len(in.Indexer))
-	internalURLs := make([]string, 0, len(in.Indexer))
-	for _, idxIn := range in.Indexer {
-		if idxIn.Out != nil {
-			externalURLs = append(externalURLs, idxIn.Out.ExternalHTTPURL)
-			internalURLs = append(internalURLs, idxIn.Out.InternalHTTPURL)
-		}
-	}
-	in.IndexerEndpoints = externalURLs
-	in.IndexerInternalEndpoints = internalURLs
+
 
 	/////////////////////////////
 	// START: Launch executors //
