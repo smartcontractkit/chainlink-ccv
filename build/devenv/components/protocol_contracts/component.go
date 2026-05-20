@@ -4,24 +4,20 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
-	"strings"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
+	ccldf "github.com/smartcontractkit/chainlink-ccv/build/devenv/cldf"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
-	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
+	ccdeploy "github.com/smartcontractkit/chainlink-ccv/build/devenv/deploy"
 	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
-	committeeverifier "github.com/smartcontractkit/chainlink-ccv/build/devenv/services/committeeverifier"
-	executorsvc "github.com/smartcontractkit/chainlink-ccv/build/devenv/services/executor"
 	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
 	ccvadapters "github.com/smartcontractkit/chainlink-ccv/deployment/adapters"
 	ccvchangesets "github.com/smartcontractkit/chainlink-ccv/deployment/changesets"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
-	ns "github.com/smartcontractkit/chainlink-testing-framework/framework/components/simple_node_set"
 )
 
 func init() {
@@ -52,52 +48,10 @@ func (p *component) RunPhase3(
 	_ any,
 	priorOutputs map[string]any,
 ) (map[string]any, []devenvruntime.Effect, error) {
-	configs := strings.Split(os.Getenv(ccv.EnvVarTestConfigs), ",")
-	if len(configs) > 1 {
-		ccv.L.Warn().Msg("Multiple configuration files detected, this feature may be unsupported in the future.")
-	}
-	in, err := ccv.Load[ccv.Cfg](configs)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to load configuration: %w", err)
-	}
-
-	bcs, ok := priorOutputs["blockchains"].([]*blockchain.Input)
+	// Config was loaded and fully expanded (ExpandForHA, credentials) by legacy RunPhase2.
+	in, ok := priorOutputs["_cfg"].(*ccv.Cfg)
 	if !ok {
-		return nil, nil, fmt.Errorf("phase 1 did not produce []*blockchain.Input under \"blockchains\"")
-	}
-	in.Blockchains = bcs
-
-	if nss, ok := priorOutputs["nodesets"].([]*ns.Input); ok {
-		in.NodeSets = nss
-	}
-
-	if jdInfra, ok := priorOutputs["jd"].(*jobs.JDInfrastructure); ok {
-		in.JDInfra = jdInfra
-	}
-
-	if execs, ok := priorOutputs["executor"].([]*executorsvc.Input); ok {
-		in.Executor = execs
-	}
-
-	if fake, ok := priorOutputs["fake"].(*services.FakeInput); ok {
-		in.Fake = fake
-	}
-
-	if pricer, ok := priorOutputs["pricer"].(*services.PricerInput); ok {
-		in.Pricer = pricer
-	}
-
-	// expandForHA expands both aggregators and indexers. We call it first so
-	// indexers are correctly expanded, then replace in.Aggregator with the
-	// Phase 2 output that is already expanded and credentialed.
-	if err = in.ExpandForHA(); err != nil {
-		return nil, nil, fmt.Errorf("failed to expand HA configuration: %w", err)
-	}
-	if aggsWithCreds, ok := priorOutputs["_aggregators_with_creds"].([]*services.AggregatorInput); ok {
-		in.Aggregator = aggsWithCreds
-	}
-	if verifiers, ok := priorOutputs["verifiers"].([]*committeeverifier.Input); ok {
-		in.Verifier = verifiers
+		return nil, nil, fmt.Errorf("phase 2 did not produce *Cfg under \"_cfg\"")
 	}
 	sharedTLSCerts, _ := priorOutputs["shared_tls_certs"].(*services.TLSCertPaths)
 
@@ -124,13 +78,13 @@ func (p *component) RunPhase3(
 	}
 
 	in.CLDF.Init()
-	cldfCfg := ccv.CLDFEnvironmentConfig{
+	cldfCfg := ccldf.CLDFEnvironmentConfig{
 		Blockchains:    in.Blockchains,
 		DataStore:      in.CLDF.DataStore,
 		OffchainClient: in.JDInfra.OffchainClient,
 		NodeIDs:        in.JDInfra.GetNodeIDs(),
 	}
-	selectors, e, err := ccv.NewCLDFOperationsEnvironmentWithOffchain(cldfCfg)
+	selectors, e, err := ccldf.NewCLDFOperationsEnvironmentWithOffchain(cldfCfg)
 	if err != nil {
 		return nil, nil, fmt.Errorf("creating CLDF operations environment: %w", err)
 	}
@@ -173,7 +127,7 @@ func (p *component) RunPhase3(
 		}
 		chainDS := datastore.NewMemoryDataStore()
 
-		dsi, derr := ccv.DeployContractsForSelector(ctx, e, impl, networkInfo.ChainSelector, topology)
+		dsi, derr := ccdeploy.DeployContractsForSelector(ctx, e, impl, networkInfo.ChainSelector, topology)
 		if derr != nil {
 			return nil, nil, derr
 		}
@@ -187,7 +141,7 @@ func (p *component) RunPhase3(
 
 		tokenDS := datastore.NewMemoryDataStore()
 		if tcp, ok := impl.(cciptestinterfaces.TokenConfigProvider); ok {
-			if err = ccv.DeployTokensAndPools(tcp, e, networkInfo.ChainSelector, combos, tokenDS); err != nil {
+			if err = ccdeploy.DeployTokensAndPools(tcp, e, networkInfo.ChainSelector, combos, tokenDS); err != nil {
 				return nil, nil, fmt.Errorf("deploy tokens and pools for selector %d: %w", networkInfo.ChainSelector, err)
 			}
 		}
@@ -213,15 +167,15 @@ func (p *component) RunPhase3(
 	}
 	e.DataStore = ds.Seal()
 
-	if err = ccv.ConfigureAllTokenTransfers(impls, selectors, e, topology); err != nil {
+	if err = ccdeploy.ConfigureAllTokenTransfers(impls, selectors, e, topology); err != nil {
 		return nil, nil, fmt.Errorf("configure all token transfers: %w", err)
 	}
 
 	var connectErr error
 	if in.ProtocolContracts.UseLegacyConfigureLane {
-		connectErr = ccv.ConnectAllChainsLegacy(impls, in.Blockchains, selectors, e, topology)
+		connectErr = ccdeploy.ConnectAllChainsLegacy(impls, in.Blockchains, selectors, e, topology)
 	} else {
-		connectErr = ccv.ConnectAllChainsCanonical(impls, in.Blockchains, selectors, e, topology)
+		connectErr = ccdeploy.ConnectAllChainsCanonical(impls, in.Blockchains, selectors, e, topology)
 	}
 	if connectErr != nil {
 		return nil, nil, connectErr
@@ -290,17 +244,13 @@ func (p *component) RunPhase3(
 	return map[string]any{
 		"aggregators":              in.Aggregator,
 		"_prepared_indexer_inputs": in.Indexer,
-		"_protocol_setup": &ccv.PhasedSetup{
-			In:                in,
-			E:                 e,
-			Topology:          topology,
-			SharedTLSCerts:    sharedTLSCerts,
-			BlockchainOutputs: blockchainOutputs,
-			Selectors:         selectors,
-			DS:                ds,
-			Impls:             impls,
-			FakeOut:           fakeOut,
-			TimeTrack:         timeTrack,
-		},
+		"_env":                     e,
+		"_topology":                topology,
+		"_blockchain_outputs":      blockchainOutputs,
+		"_selectors":               selectors,
+		"_ds":                      ds,
+		"_impls":                   impls,
+		"_fake_out":                fakeOut,
+		"_time_track":              timeTrack,
 	}, nil, nil
 }

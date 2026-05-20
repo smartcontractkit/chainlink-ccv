@@ -10,6 +10,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
 	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	jobv1 "github.com/smartcontractkit/chainlink-protos/job-distributor/v1/job"
 	ctfblockchain "github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
@@ -109,8 +110,8 @@ func executeJobProposalEffects(ctx context.Context, effects []devenvruntime.JobP
 			return fmt.Errorf("accepting pending jobs: %w", err)
 		}
 	}
-	if setup, ok := accumulated["_protocol_setup"].(*PhasedSetup); ok && setup != nil && setup.E != nil {
-		if err := jobs.SyncAndVerifyJobProposals(setup.E); err != nil {
+	if e, ok := accumulated["_env"].(*deployment.Environment); ok && e != nil {
+		if err := jobs.SyncAndVerifyJobProposals(e); err != nil {
 			return fmt.Errorf("syncing job proposals: %w", err)
 		}
 	}

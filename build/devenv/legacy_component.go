@@ -13,7 +13,10 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	executorsvc "github.com/smartcontractkit/chainlink-ccv/build/devenv/services/executor"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/util"
+	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
 	ccvshared "github.com/smartcontractkit/chainlink-ccv/deployment/shared"
+	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
+	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 	ns "github.com/smartcontractkit/chainlink-testing-framework/framework/components/simple_node_set"
 )
@@ -190,34 +193,64 @@ func (l *legacyComponent) RunPhase2(
 		"_aggregators_with_creds": in.Aggregator,
 		"_cl_client_lookup":       clientLookup,
 		"shared_tls_certs":        sharedTLSCerts,
+		"_cfg":                    in,
 	}, nil, nil
 }
 
-// RunPhase4 reads the *PhasedSetup produced by protocol_contracts Phase 3, launches
-// generic services, and calls runPhasedEnvironmentFinish to complete wiring.
+// RunPhase4 assembles a PhasedSetup from the individual keys published by
+// legacy RunPhase2 and protocol_contracts RunPhase3, launches generic services,
+// and calls runPhasedEnvironmentFinish to complete wiring.
 func (l *legacyComponent) RunPhase4(
 	ctx context.Context,
 	_ map[string]any,
 	_ any,
 	priorOutputs map[string]any,
 ) (map[string]any, []devenvruntime.Effect, error) {
-	setup, ok := priorOutputs["_protocol_setup"].(*PhasedSetup)
+	in, ok := priorOutputs["_cfg"].(*Cfg)
 	if !ok {
-		return nil, nil, fmt.Errorf("phase 3 did not produce *PhasedSetup under \"_protocol_setup\"")
+		return nil, nil, fmt.Errorf("phase 2 did not produce *Cfg under \"_cfg\"")
 	}
+	e, ok := priorOutputs["_env"].(*deployment.Environment)
+	if !ok {
+		return nil, nil, fmt.Errorf("phase 3 did not produce *deployment.Environment under \"_env\"")
+	}
+	topology, ok := priorOutputs["_topology"].(*ccvdeployment.EnvironmentTopology)
+	if !ok {
+		return nil, nil, fmt.Errorf("phase 3 did not produce *EnvironmentTopology under \"_topology\"")
+	}
+	sharedTLSCerts, _ := priorOutputs["shared_tls_certs"].(*services.TLSCertPaths)
+	blockchainOutputs, _ := priorOutputs["_blockchain_outputs"].([]*blockchain.Output)
+	selectors, _ := priorOutputs["_selectors"].([]uint64)
+	ds, _ := priorOutputs["_ds"].(datastore.MutableDataStore)
+	impls, _ := priorOutputs["_impls"].([]cciptestinterfaces.CCIP17Configuration)
+	fakeOut, _ := priorOutputs["_fake_out"].(*services.FakeOutput)
+	timeTrack, _ := priorOutputs["_time_track"].(*TimeTracker)
 
 	// The executor Phase 3 component launched containers and registered with JD
-	// (setting exec.Out and exec.Out.JDNodeID). Replace the TOML-loaded slice
-	// in setup.In with those processed inputs so runPhasedEnvironmentFinish can
+	// (setting exec.Out and exec.Out.JDNodeID). Replace the Phase 2 slice
+	// with those processed inputs so runPhasedEnvironmentFinish can
 	// propose job specs to the correct JD node IDs.
 	if execs, ok := priorOutputs["executor"].([]*executorsvc.Input); ok {
-		setup.In.Executor = execs
+		in.Executor = execs
 	}
 
 	// Restore the CL client lookup from Phase 2 into the in-memory Cfg so that
 	// launchGenericServices and runPhasedEnvironmentFinish can reference CL nodes.
 	if clientLookup, ok := priorOutputs["_cl_client_lookup"].(*jobs.NodeSetClientLookup); ok {
-		setup.In.ClientLookup = clientLookup
+		in.ClientLookup = clientLookup
+	}
+
+	setup := &PhasedSetup{
+		In:                in,
+		E:                 e,
+		Topology:          topology,
+		SharedTLSCerts:    sharedTLSCerts,
+		BlockchainOutputs: blockchainOutputs,
+		Selectors:         selectors,
+		DS:                ds,
+		Impls:             impls,
+		FakeOut:           fakeOut,
+		TimeTrack:         timeTrack,
 	}
 
 	if err := launchGenericServices(ctx, setup.In, setup.E, setup.BlockchainOutputs); err != nil {

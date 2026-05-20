@@ -1,4 +1,4 @@
-package ccv
+package deploy
 
 import (
 	"testing"
