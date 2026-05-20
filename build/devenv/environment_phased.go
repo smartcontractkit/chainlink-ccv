@@ -98,8 +98,6 @@ func runPhasedEnvironmentFinish(
 		}
 	}
 
-
-
 	/////////////////////////////
 	// START: Launch executors //
 	/////////////////////////////
