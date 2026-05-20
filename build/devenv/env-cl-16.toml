@@ -218,7 +218,7 @@ execution_interval = 15_000_000_000
   type = "anvil"
 
 [fake]
-  image = "ccv-fakes:dev"
+  image = "ccv-fakes:latest"
   port = 9111
   source_code_path = "../build/devenv/fakes"
   root_path = "../../"
@@ -414,7 +414,7 @@ execution_interval = 15_000_000_000
 ## Default Verifier Setup (16 nodes)
 [[verifier]]
   mode = "cl"
-  image = "verifier:dev"
+  image = "verifier:latest"
   container_name = "default-verifier-1"
   nop_alias = "node-0"
   port = 8100
@@ -432,7 +432,7 @@ execution_interval = 15_000_000_000
 
 [[verifier]]
   mode = "cl"
-  image = "verifier:dev"
+  image = "verifier:latest"
   container_name = "default-verifier-2"
   nop_alias = "node-1"
   port = 8200
@@ -449,7 +449,7 @@ execution_interval = 15_000_000_000
 
 [[verifier]]
   mode = "cl"
-  image = "verifier:dev"
+  image = "verifier:latest"
   container_name = "default-verifier-3"
   nop_alias = "node-2"
   port = 8300
@@ -466,7 +466,7 @@ execution_interval = 15_000_000_000
 
 [[verifier]]
   mode = "cl"
-  image = "verifier:dev"
+  image = "verifier:latest"
   container_name = "default-verifier-4"
   nop_alias = "node-3"
   port = 8400
@@ -483,7 +483,7 @@ execution_interval = 15_000_000_000
 
 [[verifier]]
   mode = "cl"
-  image = "verifier:dev"
+  image = "verifier:latest"
   container_name = "default-verifier-5"
   nop_alias = "node-4"
   port = 8500
@@ -500,7 +500,7 @@ execution_interval = 15_000_000_000
 
 [[verifier]]
   mode = "cl"
-  image = "verifier:dev"
+  image = "verifier:latest"
   container_name = "default-verifier-6"
   nop_alias = "node-5"
   port = 8600
@@ -517,7 +517,7 @@ execution_interval = 15_000_000_000
 
 [[verifier]]
   mode = "cl"
-  image = "verifier:dev"
+  image = "verifier:latest"
   container_name = "default-verifier-7"
   nop_alias = "node-6"
   port = 8700
@@ -534,7 +534,7 @@ execution_interval = 15_000_000_000
 
 [[verifier]]
   mode = "cl"
-  image = "verifier:dev"
+  image = "verifier:latest"
   container_name = "default-verifier-8"
   nop_alias = "node-7"
   port = 9100
@@ -551,7 +551,7 @@ execution_interval = 15_000_000_000
 
 [[verifier]]
   mode = "cl"
-  image = "verifier:dev"
+  image = "verifier:latest"
   container_name = "default-verifier-9"
   nop_alias = "node-8"
   port = 9200
@@ -568,7 +568,7 @@ execution_interval = 15_000_000_000
 
 [[verifier]]
   mode = "cl"
-  image = "verifier:dev"
+  image = "verifier:latest"
   container_name = "default-verifier-10"
   nop_alias = "node-9"
   port = 9300
@@ -585,7 +585,7 @@ execution_interval = 15_000_000_000
 
 [[verifier]]
   mode = "cl"
-  image = "verifier:dev"
+  image = "verifier:latest"
   container_name = "default-verifier-11"
   nop_alias = "node-10"
   port = 9400
@@ -602,7 +602,7 @@ execution_interval = 15_000_000_000
 
 [[verifier]]
   mode = "cl"
-  image = "verifier:dev"
+  image = "verifier:latest"
   container_name = "default-verifier-12"
   nop_alias = "node-11"
   port = 9500
@@ -619,7 +619,7 @@ execution_interval = 15_000_000_000
 
 [[verifier]]
   mode = "cl"
-  image = "verifier:dev"
+  image = "verifier:latest"
   container_name = "default-verifier-13"
   nop_alias = "node-12"
   port = 9600
@@ -636,7 +636,7 @@ execution_interval = 15_000_000_000
 
 [[verifier]]
   mode = "cl"
-  image = "verifier:dev"
+  image = "verifier:latest"
   container_name = "default-verifier-14"
   nop_alias = "node-13"
   port = 9700
@@ -653,7 +653,7 @@ execution_interval = 15_000_000_000
 
 [[verifier]]
   mode = "cl"
-  image = "verifier:dev"
+  image = "verifier:latest"
   container_name = "default-verifier-15"
   nop_alias = "node-14"
   port = 9800
@@ -670,7 +670,7 @@ execution_interval = 15_000_000_000
 
 [[verifier]]
   mode = "cl"
-  image = "verifier:dev"
+  image = "verifier:latest"
   container_name = "default-verifier-16"
   nop_alias = "node-15"
   port = 10100
@@ -688,7 +688,7 @@ execution_interval = 15_000_000_000
 # Secondary Verifier Setup
 [[verifier]]
   mode = "cl"
-  image = "verifier:dev"
+  image = "verifier:latest"
   container_name = "secondary-verifier-1"
   nop_alias = "node-0"
   port = 10200
@@ -705,7 +705,7 @@ execution_interval = 15_000_000_000
 
 [[verifier]]
   mode = "cl"
-  image = "verifier:dev"
+  image = "verifier:latest"
   container_name = "secondary-verifier-2"
   nop_alias = "node-1"
   port = 10300
@@ -723,7 +723,7 @@ execution_interval = 15_000_000_000
 # Tertiary Verifier Setup
 [[verifier]]
   mode = "cl"
-  image = "verifier:dev"
+  image = "verifier:latest"
   container_name = "tertiary-verifier-1"
   nop_alias = "node-0"
   port = 10400
@@ -740,7 +740,7 @@ execution_interval = 15_000_000_000
 
 [[verifier]]
   mode = "cl"
-  image = "verifier:dev"
+  image = "verifier:latest"
   container_name = "tertiary-verifier-2"
   nop_alias = "node-1"
   port = 10500
@@ -757,7 +757,7 @@ execution_interval = 15_000_000_000
 
 [[executor]]
   mode = "cl"
-  image = "executor:dev"
+  image = "executor:latest"
   source_code_path = "../executor"
   root_path = "../../"
   container_name = "default-executor-1"
@@ -769,7 +769,7 @@ execution_interval = 15_000_000_000
 
 [[executor]]
   mode = "cl"
-  image = "executor:dev"
+  image = "executor:latest"
   source_code_path = "../executor"
   root_path = "../../"
   container_name = "default-executor-2"
@@ -781,7 +781,7 @@ execution_interval = 15_000_000_000
 
 [[executor]]
   mode = "cl"
-  image = "executor:dev"
+  image = "executor:latest"
   source_code_path = "../executor"
   root_path = "../../"
   container_name = "default-executor-3"
@@ -793,7 +793,7 @@ execution_interval = 15_000_000_000
 
 [[executor]]
   mode = "cl"
-  image = "executor:dev"
+  image = "executor:latest"
   source_code_path = "../executor"
   root_path = "../../"
   container_name = "default-executor-4"
@@ -805,7 +805,7 @@ execution_interval = 15_000_000_000
 
 [[executor]]
   mode = "cl"
-  image = "executor:dev"
+  image = "executor:latest"
   source_code_path = "../executor"
   root_path = "../../"
   container_name = "default-executor-5"
@@ -817,7 +817,7 @@ execution_interval = 15_000_000_000
 
 [[executor]]
   mode = "cl"
-  image = "executor:dev"
+  image = "executor:latest"
   source_code_path = "../executor"
   root_path = "../../"
   container_name = "default-executor-6"
@@ -829,7 +829,7 @@ execution_interval = 15_000_000_000
 
 [[executor]]
   mode = "cl"
-  image = "executor:dev"
+  image = "executor:latest"
   source_code_path = "../executor"
   root_path = "../../"
   container_name = "default-executor-7"
@@ -841,7 +841,7 @@ execution_interval = 15_000_000_000
 
 [[executor]]
   mode = "cl"
-  image = "executor:dev"
+  image = "executor:latest"
   source_code_path = "../executor"
   root_path = "../../"
   container_name = "default-executor-8"
@@ -853,7 +853,7 @@ execution_interval = 15_000_000_000
 
 [[executor]]
   mode = "cl"
-  image = "executor:dev"
+  image = "executor:latest"
   source_code_path = "../executor"
   root_path = "../../"
   container_name = "default-executor-9"
@@ -865,7 +865,7 @@ execution_interval = 15_000_000_000
 
 [[executor]]
   mode = "cl"
-  image = "executor:dev"
+  image = "executor:latest"
   source_code_path = "../executor"
   root_path = "../../"
   container_name = "default-executor-10"
@@ -877,7 +877,7 @@ execution_interval = 15_000_000_000
 
 [[executor]]
   mode = "cl"
-  image = "executor:dev"
+  image = "executor:latest"
   source_code_path = "../executor"
   root_path = "../../"
   container_name = "default-executor-11"
@@ -889,7 +889,7 @@ execution_interval = 15_000_000_000
 
 [[executor]]
   mode = "cl"
-  image = "executor:dev"
+  image = "executor:latest"
   source_code_path = "../executor"
   root_path = "../../"
   container_name = "default-executor-12"
@@ -901,7 +901,7 @@ execution_interval = 15_000_000_000
 
 [[executor]]
   mode = "cl"
-  image = "executor:dev"
+  image = "executor:latest"
   source_code_path = "../executor"
   root_path = "../../"
   container_name = "default-executor-13"
@@ -913,7 +913,7 @@ execution_interval = 15_000_000_000
 
 [[executor]]
   mode = "cl"
-  image = "executor:dev"
+  image = "executor:latest"
   source_code_path = "../executor"
   root_path = "../../"
   container_name = "default-executor-14"
@@ -925,7 +925,7 @@ execution_interval = 15_000_000_000
 
 [[executor]]
   mode = "cl"
-  image = "executor:dev"
+  image = "executor:latest"
   source_code_path = "../executor"
   root_path = "../../"
   container_name = "default-executor-15"
@@ -937,7 +937,7 @@ execution_interval = 15_000_000_000
 
 [[executor]]
   mode = "cl"
-  image = "executor:dev"
+  image = "executor:latest"
   source_code_path = "../executor"
   root_path = "../../"
   container_name = "default-executor-16"
@@ -949,7 +949,7 @@ execution_interval = 15_000_000_000
 
 [[executor]]
   mode = "cl"
-  image = "executor:dev"
+  image = "executor:latest"
   source_code_path = "../executor"
   root_path = "../../"
   container_name = "custom-executor-1"
@@ -960,7 +960,7 @@ execution_interval = 15_000_000_000
     name = "custom-executor-1-db"
 
 [[indexer]]
-  image = "indexer:dev"
+  image = "indexer:latest"
   port = 8103
   source_code_path = "../indexer"
   root_path = "../../"
@@ -1053,7 +1053,7 @@ LockTimeout = 30
 
 [[aggregator]]
   committee_name = "default"
-  image = "aggregator:dev"
+  image = "aggregator:latest"
   host_port = 50051
   source_code_path = "../aggregator"
   root_path = "../../"
@@ -1183,7 +1183,7 @@ LockTimeout = 30
 
 [[aggregator]]
   committee_name = "secondary"
-  image = "aggregator:dev"
+  image = "aggregator:latest"
   host_port = 50052
   source_code_path = "../aggregator"
   root_path = "../../"
@@ -1229,7 +1229,7 @@ LockTimeout = 30
 
 [[aggregator]]
   committee_name = "tertiary"
-  image = "aggregator:dev"
+  image = "aggregator:latest"
   host_port = 50053
   source_code_path = "../aggregator"
   root_path = "../../"
