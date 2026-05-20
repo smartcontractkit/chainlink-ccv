@@ -16,6 +16,10 @@ RUN --mount=type=cache,target=/root/.cache/go-build,id=ccv-go-build \
 FROM alpine:3.22
 WORKDIR /app
 RUN apk --no-cache add ca-certificates
+# Create a non-root user and group for running the application
+RUN addgroup -S aggregator && adduser -S aggregator -G aggregator
+RUN chown -R aggregator:aggregator /bin/aggregator
+USER aggregator:aggregator
 COPY --from=builder /bin/aggregator bin/
 COPY --from=builder /app/aggregator/migrations /migrations
 RUN ln -s /migrations /app/migrations || true

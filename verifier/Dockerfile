@@ -19,5 +19,9 @@ RUN --mount=type=cache,target=/root/.cache/go-build,id=ccv-go-build \
 
 FROM alpine:3.22
 RUN apk --no-cache add ca-certificates
+# Create a non-root user and group for running the application
+RUN addgroup -S verifier && adduser -S verifier -G verifier
+RUN chown -R verifier:verifier /bin/verifier
+USER verifier:verifier
 COPY --from=builder /bin/verifier /bin/
 CMD ["/bin/verifier"]

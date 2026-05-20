@@ -17,5 +17,9 @@ RUN --mount=type=cache,target=/root/.cache/go-build,id=ccv-go-build \
 # Release on alpine to keep size small
 FROM alpine:3.22
 RUN apk --no-cache add ca-certificates
+# Create a non-root user and group for running the application
+RUN addgroup -S pricer && adduser -S pricer -G pricer
 COPY --from=builder /bin/pricer /bin/
+RUN chown -R pricer:pricer /bin/pricer
+USER pricer:pricer
 ENTRYPOINT ["/bin/pricer"]

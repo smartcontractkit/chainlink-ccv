@@ -16,6 +16,10 @@ RUN --mount=type=cache,target=/root/.cache/go-build,id=ccv-go-build \
 
 FROM alpine:3.22
 RUN apk --no-cache add ca-certificates
+# Create a non-root user and group for running the application
+RUN addgroup -S indexer && adduser -S indexer -G indexer
+RUN chown -R indexer:indexer /bin/indexer /bin/indexer-replay
+USER indexer:indexer
 COPY --from=builder /bin/indexer /bin/
 COPY --from=builder /bin/indexer-replay /bin/
 COPY --from=builder /app/indexer/migrations ./migrations

@@ -16,5 +16,9 @@ RUN --mount=type=cache,target=/root/.cache/go-build,id=ccv-go-build \
 
 FROM alpine:3.22
 RUN apk --no-cache add ca-certificates
+# Create a non-root user and group for running the application
+RUN addgroup -S executor && adduser -S executor -G executor
+RUN chown -R executor:executor /bin/executor
+USER executor:executor
 COPY --from=builder /bin/executor /bin/
 CMD ["/bin/executor"]
