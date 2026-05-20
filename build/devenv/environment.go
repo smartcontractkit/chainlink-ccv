@@ -23,6 +23,7 @@ import (
 	_ "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/adapters"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainreg"
+	ccldf "github.com/smartcontractkit/chainlink-ccv/build/devenv/cldf"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	_ "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/blockchains"
 	_ "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/committeeccv"
@@ -103,7 +104,7 @@ type Cfg struct {
 	// consumers can detect incompatible configs. Version 0 (implicit/absent)
 	// predates the [protocol_contracts] section.
 	Version            int                            `toml:"version"`
-	CLDF               CLDF                           `toml:"cldf"                  validate:"required"`
+	CLDF               ccldf.CLDF                     `toml:"cldf"                  validate:"required"`
 	Pricer             *services.PricerInput          `toml:"pricer"                validate:"required"`
 	Fake               *services.FakeInput            `toml:"fake"                  validate:"required"`
 	Verifier           []*committeeverifier.Input     `toml:"verifier"              validate:"required"`

@@ -29,6 +29,7 @@ import (
 
 	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cli/send"
+	ccldf "github.com/smartcontractkit/chainlink-ccv/build/devenv/cldf"
 	_ "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/protocol_contracts"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/evm"
 )
@@ -247,7 +248,7 @@ var deployCommitVerifierCmd = &cobra.Command{
 			addresses = append(addresses, common.HexToAddress(addr))
 		}
 
-		selectors, e, err := ccv.NewCLDFOperationsEnvironment(in.Blockchains, in.CLDF.DataStore)
+		selectors, e, err := ccldf.NewCLDFOperationsEnvironment(in.Blockchains, in.CLDF.DataStore)
 		if err != nil {
 			return fmt.Errorf("creating CLDF operations environment: %w", err)
 		}
@@ -319,7 +320,7 @@ var deployReceiverCmd = &cobra.Command{
 			Threshold: uint8(optionalThreshold),
 		}
 
-		_, e, err := ccv.NewCLDFOperationsEnvironment(in.Blockchains, in.CLDF.DataStore)
+		_, e, err := ccldf.NewCLDFOperationsEnvironment(in.Blockchains, in.CLDF.DataStore)
 		if err != nil {
 			return fmt.Errorf("creating CLDF operations environment: %w", err)
 		}
