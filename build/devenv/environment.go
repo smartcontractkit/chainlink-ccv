@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"maps"
 	"math/big"
+	"os"
 	"slices"
 	"strings"
 	"sync"
@@ -14,6 +15,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 	"golang.org/x/sync/errgroup"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
@@ -53,6 +55,8 @@ import (
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/jd"
 	ns "github.com/smartcontractkit/chainlink-testing-framework/framework/components/simple_node_set"
 )
+
+var Plog = log.Output(zerolog.ConsoleWriter{Out: os.Stderr}).Level(zerolog.DebugLevel).With().Fields(map[string]any{"component": "ccv"}).Logger()
 
 const (
 	CommonCLNodesConfig = `
