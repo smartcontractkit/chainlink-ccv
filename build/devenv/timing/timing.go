@@ -30,7 +30,7 @@ func New(l zerolog.Logger) *TimeTracker { //nolint:gocritic
 		start:     now,
 		last:      now,
 		logger:    l,
-		intervals: make([]interval, 0),
+		intervals: nil,
 	}
 }
 
@@ -49,13 +49,13 @@ func (t *TimeTracker) Print() {
 	t.logger.Debug().Msg("Time tracking results:")
 	for _, i := range t.intervals {
 		t.logger.Debug().
-			Str("Tag", i.tag).
-			Str("Duration", i.delta.String()).
+			Str("tag", i.tag).
+			Str("duration", i.delta.String()).
 			Send()
 	}
 
 	t.logger.Debug().
-		Str("Duration", total.String()).
+		Str("duration", total.String()).
 		Msg("Total environment boot up time")
 }
 

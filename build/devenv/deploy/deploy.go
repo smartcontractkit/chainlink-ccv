@@ -764,6 +764,9 @@ func splitTokenTransferBatchBySelector(configs []tokenscore.TokenTransferConfig)
 // Signer key selection is delegated to each registered ImplFactory via DefaultSignerKey,
 // so adding a new chain family requires no changes here.
 func enrichEnvironmentTopology(cfg *ccvdeployment.EnvironmentTopology, verifiers []*committeeverifier.Input) {
+	if cfg.NOPTopology == nil {
+		return
+	}
 	factories := chainreg.GetRegistry().GetAllImplFactories()
 
 	seenAliases := make(map[string]struct{})

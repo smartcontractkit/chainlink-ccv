@@ -11,6 +11,7 @@ import (
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/timing"
 	committeeverifier "github.com/smartcontractkit/chainlink-ccv/build/devenv/services/committeeverifier"
 	executorsvc "github.com/smartcontractkit/chainlink-ccv/build/devenv/services/executor"
 	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
@@ -63,7 +64,7 @@ func runPhasedEnvironmentFinish(
 	selectors []uint64,
 	ds datastore.MutableDataStore,
 	fakeOut *services.FakeOutput,
-	timeTrack *TimeTracker,
+	timeTrack *timing.TimeTracker,
 ) (cfg *Cfg, effects []devenvruntime.Effect, err error) {
 	defer func() {
 		dxTracker := initDxTracker()

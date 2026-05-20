@@ -6,23 +6,8 @@ import (
 	"os"
 	"text/tabwriter"
 
-	"github.com/rs/zerolog"
-
-	"github.com/smartcontractkit/chainlink-ccv/build/devenv/timing"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 )
-
-/*
-This code should be generalized and moved to devenv library after we finish CCIPv1.7 environment!
-*/
-
-// TimeTracker is an alias for timing.TimeTracker; existing callers need not change.
-type TimeTracker = timing.TimeTracker
-
-// NewTimeTracker creates a new TimeTracker anchored to the current wall-clock time.
-func NewTimeTracker(l zerolog.Logger) *TimeTracker { //nolint:gocritic
-	return timing.New(l)
-}
 
 func PrintCLDFAddresses(in *Cfg) error {
 	for _, addr := range in.CLDF.Addresses {

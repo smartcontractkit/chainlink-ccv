@@ -11,6 +11,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainreg"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
 	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/timing"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	executorsvc "github.com/smartcontractkit/chainlink-ccv/build/devenv/services/executor"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/util"
@@ -202,9 +203,9 @@ func (l *legacyComponent) RunPhase2(
 	}, nil, nil
 }
 
-// RunPhase4 assembles a PhasedSetup from the individual keys published by
-// legacy RunPhase2 and protocol_contracts RunPhase3, launches generic services,
-// and calls runPhasedEnvironmentFinish to complete wiring.
+// RunPhase4 reads individual keys published by legacy RunPhase2 and
+// protocol_contracts RunPhase3, launches generic services, and calls
+// runPhasedEnvironmentFinish to complete wiring.
 func (l *legacyComponent) RunPhase4(
 	ctx context.Context,
 	_ map[string]any,
@@ -226,9 +227,15 @@ func (l *legacyComponent) RunPhase4(
 	sharedTLSCerts, _ := priorOutputs["shared_tls_certs"].(*services.TLSCertPaths)
 	blockchainOutputs, _ := priorOutputs["_blockchain_outputs"].([]*blockchain.Output)
 	selectors, _ := priorOutputs["_selectors"].([]uint64)
-	ds, _ := priorOutputs["_ds"].(datastore.MutableDataStore)
+	ds, ok := priorOutputs["_ds"].(datastore.MutableDataStore)
+	if !ok {
+		return nil, nil, fmt.Errorf("phase 3 did not produce MutableDataStore under \"_ds\"")
+	}
 	fakeOut, _ := priorOutputs["_fake_out"].(*services.FakeOutput)
-	timeTrack, _ := priorOutputs["_time_track"].(*TimeTracker)
+	timeTrack, ok := priorOutputs["_time_track"].(*timing.TimeTracker)
+	if !ok {
+		return nil, nil, fmt.Errorf("phase 3 did not produce *timing.TimeTracker under \"_time_track\"")
+	}
 
 	// The executor Phase 3 component launched containers and registered with JD
 	// (setting exec.Out and exec.Out.JDNodeID). Replace the Phase 2 slice
