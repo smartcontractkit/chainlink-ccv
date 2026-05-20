@@ -7,7 +7,6 @@ import (
 	"os"
 	"strings"
 
-	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainreg"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
@@ -50,39 +49,26 @@ func NewPhasedEnvironment() (in *Cfg, err error) {
 	return cfg, nil
 }
 
-// PhasedSetup carries all state produced by the protocol_contracts Phase 3 component
-// so that runPhasedEnvironmentFinish (called from legacy Phase 4) can complete the
-// environment without re-deriving it.
-type PhasedSetup struct {
-	In                *Cfg
-	E                 *deployment.Environment
-	Topology          *ccvdeployment.EnvironmentTopology
-	SharedTLSCerts    *services.TLSCertPaths
-	BlockchainOutputs []*blockchain.Output
-	Selectors         []uint64
-	DS                datastore.MutableDataStore
-	Impls             []cciptestinterfaces.CCIP17Configuration
-	FakeOut           *services.FakeOutput
-	TimeTrack         *TimeTracker
-}
-
 // runPhasedEnvironmentFinish runs from executor job-spec generation through job
 // proposal acceptance. It expects each IndexerInput's Out field to be populated
 // by the indexer Phase 4 component (via services.NewIndexer), so URL collection
 // can proceed without re-launching containers.
-func runPhasedEnvironmentFinish(ctx context.Context, setup *PhasedSetup) (cfg *Cfg, effects []devenvruntime.Effect, err error) {
+func runPhasedEnvironmentFinish(
+	ctx context.Context,
+	in *Cfg,
+	e *deployment.Environment,
+	topology *ccvdeployment.EnvironmentTopology,
+	sharedTLSCerts *services.TLSCertPaths,
+	blockchainOutputs []*blockchain.Output,
+	selectors []uint64,
+	ds datastore.MutableDataStore,
+	fakeOut *services.FakeOutput,
+	timeTrack *TimeTracker,
+) (cfg *Cfg, effects []devenvruntime.Effect, err error) {
 	defer func() {
 		dxTracker := initDxTracker()
-		sendStartupMetrics(dxTracker, err, setup.TimeTrack.SinceStart().Seconds())
+		sendStartupMetrics(dxTracker, err, timeTrack.SinceStart().Seconds())
 	}()
-
-	in := setup.In
-	e := setup.E
-	topology := setup.Topology
-	sharedTLSCerts := setup.SharedTLSCerts
-	blockchainOutputs := setup.BlockchainOutputs
-	ds := setup.DS
-	fakeOut := setup.FakeOut
 
 	// Collect aggregator endpoints from Out fields populated by the CommitteeCCV Phase 4 component.
 	in.AggregatorEndpoints = make(map[string]string)
@@ -224,7 +210,7 @@ func runPhasedEnvironmentFinish(ctx context.Context, setup *PhasedSetup) (cfg *C
 		cs := ccvchangesets.GenerateTokenVerifierConfig(ccvadapters.GetRegistry())
 		output, err := cs.Apply(*e, ccvchangesets.GenerateTokenVerifierConfigInput{
 			ServiceIdentifier: "TokenVerifier",
-			ChainSelectors:    setup.Selectors,
+			ChainSelectors:    selectors,
 			PyroscopeURL:      template.PyroscopeURL,
 			Monitoring: ccvdeployment.MonitoringConfig{
 				Enabled: template.Monitoring.Enabled,
@@ -289,7 +275,7 @@ func runPhasedEnvironmentFinish(ctx context.Context, setup *PhasedSetup) (cfg *C
 	}
 	in.CLDF.AddEnvMetadata(string(envMetadataJSON))
 
-	setup.TimeTrack.Print()
+	timeTrack.Print()
 	if err = PrintCLDFAddresses(in); err != nil {
 		return nil, nil, err
 	}

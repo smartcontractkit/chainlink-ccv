@@ -227,7 +227,6 @@ func (l *legacyComponent) RunPhase4(
 	blockchainOutputs, _ := priorOutputs["_blockchain_outputs"].([]*blockchain.Output)
 	selectors, _ := priorOutputs["_selectors"].([]uint64)
 	ds, _ := priorOutputs["_ds"].(datastore.MutableDataStore)
-	impls, _ := priorOutputs["_impls"].([]cciptestinterfaces.CCIP17Configuration)
 	fakeOut, _ := priorOutputs["_fake_out"].(*services.FakeOutput)
 	timeTrack, _ := priorOutputs["_time_track"].(*TimeTracker)
 
@@ -245,24 +244,11 @@ func (l *legacyComponent) RunPhase4(
 		in.ClientLookup = clientLookup
 	}
 
-	setup := &PhasedSetup{
-		In:                in,
-		E:                 e,
-		Topology:          topology,
-		SharedTLSCerts:    sharedTLSCerts,
-		BlockchainOutputs: blockchainOutputs,
-		Selectors:         selectors,
-		DS:                ds,
-		Impls:             impls,
-		FakeOut:           fakeOut,
-		TimeTrack:         timeTrack,
-	}
-
-	if err := launchGenericServices(ctx, setup.In, setup.E, setup.BlockchainOutputs); err != nil {
+	if err := launchGenericServices(ctx, in, e, blockchainOutputs); err != nil {
 		return nil, nil, fmt.Errorf("failed to launch generic services: %w", err)
 	}
 
-	cfg, phaseEffects, err := runPhasedEnvironmentFinish(ctx, setup)
+	cfg, phaseEffects, err := runPhasedEnvironmentFinish(ctx, in, e, topology, sharedTLSCerts, blockchainOutputs, selectors, ds, fakeOut, timeTrack)
 	if err != nil {
 		return nil, nil, err
 	}
