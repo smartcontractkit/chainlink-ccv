@@ -22,7 +22,6 @@ import (
 	executorsvc "github.com/smartcontractkit/chainlink-ccv/build/devenv/services/executor"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/util"
 	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
-	ccvadapters "github.com/smartcontractkit/chainlink-ccv/deployment/adapters"
 	ccvchangesets "github.com/smartcontractkit/chainlink-ccv/deployment/changesets"
 	ccvshared "github.com/smartcontractkit/chainlink-ccv/deployment/shared"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
@@ -457,7 +456,7 @@ func NewEnvironment() (in *Cfg, err error) {
 		if !ok {
 			return nil, fmt.Errorf("committee %q not found in topology", aggregatorInput.CommitteeName)
 		}
-		cs := ccvchangesets.GenerateAggregatorConfig(ccvadapters.GetRegistry())
+		cs := ccvchangesets.GenerateAggregatorConfig()
 		output, err := cs.Apply(*e, ccvchangesets.GenerateAggregatorConfigInput{
 			ServiceIdentifier:  instanceName + "-aggregator",
 			CommitteeQualifier: aggregatorInput.CommitteeName,
@@ -498,7 +497,7 @@ func NewEnvironment() (in *Cfg, err error) {
 	// One shared config is generated; all indexers use the same config and duplicated secrets/auth.
 	if len(in.Aggregator) > 0 && len(in.Indexer) > 0 {
 		firstIdx := in.Indexer[0]
-		cs := ccvchangesets.GenerateIndexerConfig(ccvadapters.GetRegistry())
+		cs := ccvchangesets.GenerateIndexerConfig()
 		output, err := cs.Apply(*e, ccvchangesets.GenerateIndexerConfigInput{
 			ServiceIdentifier:                "indexer",
 			CommitteeVerifierNameToQualifier: firstIdx.CommitteeVerifierNameToQualifier,
@@ -714,7 +713,7 @@ func NewEnvironment() (in *Cfg, err error) {
 		}
 
 		// Use changeset to generate token verifier config from on-chain state
-		cs := ccvchangesets.GenerateTokenVerifierConfig(ccvadapters.GetRegistry())
+		cs := ccvchangesets.GenerateTokenVerifierConfig()
 		output, err := cs.Apply(*e, ccvchangesets.GenerateTokenVerifierConfigInput{
 			ServiceIdentifier: "TokenVerifier",
 			ChainSelectors:    selectors,

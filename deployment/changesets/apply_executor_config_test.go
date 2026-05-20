@@ -10,13 +10,10 @@ import (
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 
-	"github.com/smartcontractkit/chainlink-ccv/deployment/adapters"
 	"github.com/smartcontractkit/chainlink-ccv/deployment/shared"
 )
 
-func newEmptyExecutorRegistry() *adapters.Registry {
-	return adapters.GetRegistry()
-}
+// No adapter registration needed — validation tests don't reach the adapter layer.
 
 func sampleExecutorPool(sel uint64, aliases ...shared.NOPAlias) ExecutorPoolInput {
 	return ExecutorPoolInput{
@@ -32,7 +29,7 @@ func sampleExecutorPool(sel uint64, aliases ...shared.NOPAlias) ExecutorPoolInpu
 }
 
 func TestApplyExecutorConfig_Validation_RequiresQualifier(t *testing.T) {
-	cs := ApplyExecutorConfig(newEmptyExecutorRegistry())
+	cs := ApplyExecutorConfig()
 	err := cs.VerifyPreconditions(deployment.Environment{}, ApplyExecutorConfigInput{
 		NOPs:           []NOPInput{{Alias: "nop1"}},
 		IndexerAddress: []string{"indexer:1234"},
@@ -43,7 +40,7 @@ func TestApplyExecutorConfig_Validation_RequiresQualifier(t *testing.T) {
 }
 
 func TestApplyExecutorConfig_Validation_RequiresNOPs(t *testing.T) {
-	cs := ApplyExecutorConfig(newEmptyExecutorRegistry())
+	cs := ApplyExecutorConfig()
 	err := cs.VerifyPreconditions(deployment.Environment{}, ApplyExecutorConfigInput{
 		ExecutorQualifier: "default-executor",
 		IndexerAddress:    []string{"indexer:1234"},
@@ -54,7 +51,7 @@ func TestApplyExecutorConfig_Validation_RequiresNOPs(t *testing.T) {
 }
 
 func TestApplyExecutorConfig_Validation_RequiresIndexerAddress(t *testing.T) {
-	cs := ApplyExecutorConfig(newEmptyExecutorRegistry())
+	cs := ApplyExecutorConfig()
 	err := cs.VerifyPreconditions(deployment.Environment{}, ApplyExecutorConfigInput{
 		ExecutorQualifier: "default-executor",
 		NOPs:              []NOPInput{{Alias: "nop1"}},
@@ -65,7 +62,7 @@ func TestApplyExecutorConfig_Validation_RequiresIndexerAddress(t *testing.T) {
 }
 
 func TestApplyExecutorConfig_Validation_RequiresPoolChainConfigs(t *testing.T) {
-	cs := ApplyExecutorConfig(newEmptyExecutorRegistry())
+	cs := ApplyExecutorConfig()
 	err := cs.VerifyPreconditions(deployment.Environment{}, ApplyExecutorConfigInput{
 		ExecutorQualifier: "default-executor",
 		NOPs:              []NOPInput{{Alias: "nop1"}},
@@ -76,7 +73,7 @@ func TestApplyExecutorConfig_Validation_RequiresPoolChainConfigs(t *testing.T) {
 }
 
 func TestApplyExecutorConfig_Validation_DuplicateNOPAliasRejected(t *testing.T) {
-	cs := ApplyExecutorConfig(newEmptyExecutorRegistry())
+	cs := ApplyExecutorConfig()
 	err := cs.VerifyPreconditions(deployment.Environment{}, ApplyExecutorConfigInput{
 		ExecutorQualifier: "default-executor",
 		NOPs:              []NOPInput{{Alias: "nop1"}, {Alias: "nop1"}},
@@ -88,7 +85,7 @@ func TestApplyExecutorConfig_Validation_DuplicateNOPAliasRejected(t *testing.T) 
 }
 
 func TestApplyExecutorConfig_Validation_PoolReferencesUnknownNOPRejected(t *testing.T) {
-	cs := ApplyExecutorConfig(newEmptyExecutorRegistry())
+	cs := ApplyExecutorConfig()
 	err := cs.VerifyPreconditions(deployment.Environment{}, ApplyExecutorConfigInput{
 		ExecutorQualifier: "default-executor",
 		NOPs:              []NOPInput{{Alias: "nop1"}},
@@ -100,7 +97,7 @@ func TestApplyExecutorConfig_Validation_PoolReferencesUnknownNOPRejected(t *test
 }
 
 func TestApplyExecutorConfig_Validation_TargetNOPMustBeInPool(t *testing.T) {
-	cs := ApplyExecutorConfig(newEmptyExecutorRegistry())
+	cs := ApplyExecutorConfig()
 	err := cs.VerifyPreconditions(deployment.Environment{}, ApplyExecutorConfigInput{
 		ExecutorQualifier: "default-executor",
 		NOPs:              []NOPInput{{Alias: "nop1"}, {Alias: "nop2"}},
@@ -113,7 +110,7 @@ func TestApplyExecutorConfig_Validation_TargetNOPMustBeInPool(t *testing.T) {
 }
 
 func TestApplyExecutorConfig_Validation_ProductionRejectsPyroscope(t *testing.T) {
-	cs := ApplyExecutorConfig(newEmptyExecutorRegistry())
+	cs := ApplyExecutorConfig()
 	err := cs.VerifyPreconditions(deployment.Environment{Name: "mainnet"}, ApplyExecutorConfigInput{
 		ExecutorQualifier: "default-executor",
 		NOPs:              []NOPInput{{Alias: "nop1"}},
@@ -126,7 +123,7 @@ func TestApplyExecutorConfig_Validation_ProductionRejectsPyroscope(t *testing.T)
 }
 
 func TestApplyExecutorConfig_Validation_AcceptsValidImperativeInput(t *testing.T) {
-	cs := ApplyExecutorConfig(newEmptyExecutorRegistry())
+	cs := ApplyExecutorConfig()
 	err := cs.VerifyPreconditions(deployment.Environment{}, ApplyExecutorConfigInput{
 		ExecutorQualifier: "default-executor",
 		NOPs:              []NOPInput{{Alias: "nop1", Mode: shared.NOPModeCL}},

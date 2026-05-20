@@ -20,7 +20,7 @@ type GenerateIndexerConfigInput struct {
 	LombardVerifierNameToQualifier   map[string]string
 }
 
-func GenerateIndexerConfig(registry *adapters.Registry) deployment.ChangeSetV2[GenerateIndexerConfigInput] {
+func GenerateIndexerConfig() deployment.ChangeSetV2[GenerateIndexerConfigInput] {
 	validate := func(e deployment.Environment, cfg GenerateIndexerConfigInput) error {
 		if cfg.ServiceIdentifier == "" {
 			return fmt.Errorf("service identifier is required")
@@ -34,7 +34,7 @@ func GenerateIndexerConfig(registry *adapters.Registry) deployment.ChangeSetV2[G
 	}
 
 	apply := func(e deployment.Environment, cfg GenerateIndexerConfigInput) (deployment.ChangesetOutput, error) {
-		verifierMap, err := buildIndexerVerifierMap(e.DataStore, registry, e.BlockChains.ListChainSelectors(), cfg)
+		verifierMap, err := buildIndexerVerifierMap(e.DataStore, e.BlockChains.ListChainSelectors(), cfg)
 		if err != nil {
 			return deployment.ChangesetOutput{}, err
 		}
@@ -62,7 +62,6 @@ func GenerateIndexerConfig(registry *adapters.Registry) deployment.ChangeSetV2[G
 
 func buildIndexerVerifierMap(
 	ds datastore.DataStore,
-	registry *adapters.Registry,
 	selectors []uint64,
 	cfg GenerateIndexerConfigInput,
 ) (map[string][]string, error) {
@@ -79,7 +78,7 @@ func buildIndexerVerifierMap(
 
 	for _, km := range kindMappings {
 		for name, qualifier := range km.nameToQualifier {
-			addresses, err := collectVerifierAddresses(ds, registry, selectors, qualifier, km.kind)
+			addresses, err := collectVerifierAddresses(ds, selectors, qualifier, km.kind)
 			if err != nil {
 				return nil, fmt.Errorf("failed to resolve addresses for verifier %q (qualifier %q): %w", name, qualifier, err)
 			}
@@ -92,12 +91,11 @@ func buildIndexerVerifierMap(
 
 func collectVerifierAddresses(
 	ds datastore.DataStore,
-	registry *adapters.Registry,
 	selectors []uint64,
 	qualifier string,
 	kind adapters.VerifierKind,
 ) ([]string, error) {
-	if !registry.HasAdapters() {
+	if adapters.GetIndexerRegistry().IsEmpty() {
 		return nil, fmt.Errorf("no indexer config adapter registered")
 	}
 
@@ -105,15 +103,12 @@ func collectVerifierAddresses(
 	var addresses []string
 
 	for _, sel := range selectors {
-		a, err := registry.GetByChain(sel)
+		indexer, err := adapters.GetIndexerRegistry().Get(sel)
 		if err != nil {
-			return nil, err
-		}
-		if a.Indexer == nil {
-			return nil, fmt.Errorf("no indexer config adapter registered for chain %d", sel)
+			return nil, fmt.Errorf("no indexer config adapter registered for chain %d: %w", sel, err)
 		}
 
-		addrs, err := a.Indexer.ResolveVerifierAddresses(ds, sel, qualifier, kind)
+		addrs, err := indexer.ResolveVerifierAddresses(ds, sel, qualifier, kind)
 		if err != nil {
 			var missingErr *adapters.MissingIndexerVerifierAddressesError
 			if errors.As(err, &missingErr) {

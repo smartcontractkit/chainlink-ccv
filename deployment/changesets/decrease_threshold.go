@@ -34,7 +34,7 @@ type DecreaseThresholdInput struct {
 //
 // In deployer-key mode the transaction is submitted directly inside Apply.
 // MCMS-mode support is deferred to Phase 0 (CLD post-proposal hook prerequisite).
-func DecreaseThreshold(registry *adapters.Registry) deployment.ChangeSetV2[DecreaseThresholdInput] {
+func DecreaseThreshold() deployment.ChangeSetV2[DecreaseThresholdInput] {
 	validate := func(e deployment.Environment, cfg DecreaseThresholdInput) error {
 		if cfg.CommitteeQualifier == "" {
 			return fmt.Errorf("committee qualifier is required")
@@ -46,15 +46,11 @@ func DecreaseThreshold(registry *adapters.Registry) deployment.ChangeSetV2[Decre
 			return fmt.Errorf("new threshold must be greater than zero")
 		}
 		for _, sel := range cfg.ChainSelectors {
-			a, err := registry.GetByChain(sel)
-			if err != nil {
+			if _, err := adapters.GetCommitteeVerifierOnchainRegistry().Get(sel); err != nil {
 				return fmt.Errorf("chain %d: %w", sel, err)
 			}
-			if a.CommitteeVerifierOnchain == nil {
-				return fmt.Errorf("chain %d: no CommitteeVerifierOnchain adapter registered", sel)
-			}
-			if a.Aggregator == nil {
-				return fmt.Errorf("chain %d: no Aggregator adapter registered", sel)
+			if _, err := adapters.GetAggregatorRegistry().Get(sel); err != nil {
+				return fmt.Errorf("chain %d: %w", sel, err)
 			}
 		}
 		return nil
@@ -63,7 +59,7 @@ func DecreaseThreshold(registry *adapters.Registry) deployment.ChangeSetV2[Decre
 	apply := func(e deployment.Environment, cfg DecreaseThresholdInput) (deployment.ChangesetOutput, error) {
 		ctx := context.Background()
 
-		committeeStates, err := scanCommitteeStatesForChains(ctx, e, registry, cfg.CommitteeQualifier, cfg.ChainSelectors)
+		committeeStates, err := scanCommitteeStatesForChains(ctx, e, cfg.CommitteeQualifier, cfg.ChainSelectors)
 		if err != nil {
 			return deployment.ChangesetOutput{}, err
 		}
@@ -78,8 +74,11 @@ func DecreaseThreshold(registry *adapters.Registry) deployment.ChangeSetV2[Decre
 				return deployment.ChangesetOutput{}, fmt.Errorf("chain %d: failed to build signature config change: %w", sel, err)
 			}
 
-			a, _ := registry.GetByChain(sel)
-			if err := a.CommitteeVerifierOnchain.ApplySignatureConfigs(ctx, e, sel, cfg.CommitteeQualifier, change); err != nil {
+			onchain, err := adapters.GetCommitteeVerifierOnchainRegistry().Get(sel)
+			if err != nil {
+				return deployment.ChangesetOutput{}, fmt.Errorf("chain %d: %w", sel, err)
+			}
+			if err := onchain.ApplySignatureConfigs(ctx, e, sel, cfg.CommitteeQualifier, change); err != nil {
 				return deployment.ChangesetOutput{}, fmt.Errorf("chain %d: ApplySignatureConfigs failed: %w", sel, err)
 			}
 		}
@@ -111,7 +110,7 @@ type DecreaseThresholdOffchainInput struct {
 // It asserts that the onchain threshold has already been lowered to ExpectedThreshold,
 // then regenerates the aggregator config to match. Triggered by the CLD post-proposal
 // hook after timelock execution.
-func DecreaseThresholdOffchain(registry *adapters.Registry) deployment.ChangeSetV2[DecreaseThresholdOffchainInput] {
+func DecreaseThresholdOffchain() deployment.ChangeSetV2[DecreaseThresholdOffchainInput] {
 	validate := func(e deployment.Environment, cfg DecreaseThresholdOffchainInput) error {
 		if cfg.CommitteeQualifier == "" {
 			return fmt.Errorf("committee qualifier is required")
@@ -129,7 +128,7 @@ func DecreaseThresholdOffchain(registry *adapters.Registry) deployment.ChangeSet
 		// Safety backstop: assert the onchain threshold already matches ExpectedThreshold
 		// on every chain. Catches hook misfires and out-of-order manual invocations.
 		ctx := context.Background()
-		committeeStates, err := scanCommitteeStatesForChains(ctx, e, registry, cfg.CommitteeQualifier, cfg.ChainSelectors)
+		committeeStates, err := scanCommitteeStatesForChains(ctx, e, cfg.CommitteeQualifier, cfg.ChainSelectors)
 		if err != nil {
 			return err
 		}
@@ -147,7 +146,7 @@ func DecreaseThresholdOffchain(registry *adapters.Registry) deployment.ChangeSet
 	}
 
 	apply := func(e deployment.Environment, cfg DecreaseThresholdOffchainInput) (deployment.ChangesetOutput, error) {
-		committee, err := buildAggregatorCommittee(e, registry, cfg.CommitteeQualifier, cfg.ChainSelectors, &cfg.ExpectedThreshold)
+		committee, err := buildAggregatorCommittee(e, cfg.CommitteeQualifier, cfg.ChainSelectors, &cfg.ExpectedThreshold)
 		if err != nil {
 			return deployment.ChangesetOutput{}, fmt.Errorf("failed to build aggregator config: %w", err)
 		}

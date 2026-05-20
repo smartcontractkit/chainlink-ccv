@@ -15,7 +15,6 @@ import (
 	committeeverifier "github.com/smartcontractkit/chainlink-ccv/build/devenv/services/committeeverifier"
 	executorsvc "github.com/smartcontractkit/chainlink-ccv/build/devenv/services/executor"
 	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
-	ccvadapters "github.com/smartcontractkit/chainlink-ccv/deployment/adapters"
 	ccvchangesets "github.com/smartcontractkit/chainlink-ccv/deployment/changesets"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
@@ -219,7 +218,7 @@ func runPhasedEnvironmentFinish(ctx context.Context, setup *PhasedSetup) (cfg *C
 		}
 
 		// Use changeset to generate token verifier config from on-chain state
-		cs := ccvchangesets.GenerateTokenVerifierConfig(ccvadapters.GetRegistry())
+		cs := ccvchangesets.GenerateTokenVerifierConfig()
 		output, err := cs.Apply(*e, ccvchangesets.GenerateTokenVerifierConfigInput{
 			ServiceIdentifier: "TokenVerifier",
 			ChainSelectors:    setup.Selectors,

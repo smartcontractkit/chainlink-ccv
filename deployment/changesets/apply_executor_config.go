@@ -54,7 +54,7 @@ type ApplyExecutorConfigInput struct {
 //
 // The input is imperative — callers pass the pool description and the
 // participating NOPs directly, with no *EnvironmentTopology.
-func ApplyExecutorConfig(registry *adapters.Registry) deployment.ChangeSetV2[ApplyExecutorConfigInput] {
+func ApplyExecutorConfig() deployment.ChangeSetV2[ApplyExecutorConfigInput] {
 	validate := func(e deployment.Environment, cfg ApplyExecutorConfigInput) error {
 		if cfg.ExecutorQualifier == "" {
 			return fmt.Errorf("executor qualifier is required")
@@ -108,7 +108,7 @@ func ApplyExecutorConfig(registry *adapters.Registry) deployment.ChangeSetV2[App
 	}
 
 	apply := func(e deployment.Environment, cfg ApplyExecutorConfigInput) (deployment.ChangesetOutput, error) {
-		selectors := registry.AllDeployedExecutorChains(e.DataStore, cfg.ExecutorQualifier)
+		selectors := adapters.AllDeployedExecutorChains(e.DataStore, cfg.ExecutorQualifier)
 
 		if len(selectors) == 0 {
 			return runOrphanJobCleanup(
@@ -135,7 +135,7 @@ func ApplyExecutorConfig(registry *adapters.Registry) deployment.ChangeSetV2[App
 			return deployment.ChangesetOutput{}, err
 		}
 
-		chainConfigs, err := buildExecutorChainConfigs(registry, e.DataStore, selectors, cfg.ExecutorQualifier)
+		chainConfigs, err := buildExecutorChainConfigs(e.DataStore, selectors, cfg.ExecutorQualifier)
 		if err != nil {
 			return deployment.ChangesetOutput{}, err
 		}
@@ -194,21 +194,17 @@ func ApplyExecutorConfig(registry *adapters.Registry) deployment.ChangeSetV2[App
 }
 
 func buildExecutorChainConfigs(
-	registry *adapters.Registry,
 	ds datastore.DataStore,
 	selectors []uint64,
 	qualifier string,
 ) (map[string]executor.ChainConfiguration, error) {
 	chainConfigs := make(map[string]executor.ChainConfiguration, len(selectors))
 	for _, sel := range selectors {
-		a, err := registry.GetByChain(sel)
+		exec, err := adapters.GetExecutorRegistry().Get(sel)
 		if err != nil {
-			return nil, fmt.Errorf("no adapter for chain %d: %w", sel, err)
+			return nil, fmt.Errorf("no executor config adapter registered for chain %d: %w", sel, err)
 		}
-		if a.Executor == nil {
-			return nil, fmt.Errorf("no executor config adapter registered for chain %d", sel)
-		}
-		cfg, err := a.Executor.BuildChainConfig(ds, sel, qualifier)
+		cfg, err := exec.BuildChainConfig(ds, sel, qualifier)
 		if err != nil {
 			return nil, fmt.Errorf("failed to build config for chain %d: %w", sel, err)
 		}

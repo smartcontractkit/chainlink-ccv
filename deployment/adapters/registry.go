@@ -8,124 +8,152 @@ import (
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 )
 
-// ChainAdapters bundles all chain-family-specific adapter implementations.
-// A nil field means the adapter is not supported for that family.
-type ChainAdapters struct {
-	Aggregator               AggregatorConfigAdapter
-	Executor                 ExecutorConfigAdapter
-	Verifier                 VerifierConfigAdapter
-	Indexer                  IndexerConfigAdapter
-	TokenVerifier            TokenVerifierConfigAdapter
-	CommitteeVerifierOnchain CommitteeVerifierOnchainAdapter
-	CommitteeVerifierDeploy  CommitteeVerifierDeployAdapter
-}
+// --------------------------------------------------------------------
+// Generic per-family registry
+// --------------------------------------------------------------------
 
-// Registry is a single registry mapping chain family → ChainAdapters.
-// Use GetRegistry() to obtain the process-wide singleton.
-type Registry struct {
+// FamilyRegistry is a simple per-chain-family adapter registry.
+// Each adapter interface gets its own singleton FamilyRegistry[T].
+type FamilyRegistry[T any] struct {
 	mu       sync.Mutex
-	adapters map[string]ChainAdapters
+	adapters map[string]T // family → adapter
 }
 
-var (
-	singletonRegistry *Registry
-	registryOnce      sync.Once
-)
-
-func GetRegistry() *Registry {
-	registryOnce.Do(func() {
-		singletonRegistry = &Registry{
-			adapters: make(map[string]ChainAdapters),
-		}
-	})
-	return singletonRegistry
+func newFamilyRegistry[T any]() *FamilyRegistry[T] {
+	return &FamilyRegistry[T]{adapters: make(map[string]T)}
 }
 
-// Register merges a into the existing ChainAdapters for the given family.
-// Non-nil fields in a overwrite the corresponding field in the existing entry;
-// nil fields leave the existing value unchanged. This allows separate packages
-// (e.g. ccip for onchain adapters, ccv/evm for offchain adapters) to each
-// register their piece independently without conflicting.
-func (r *Registry) Register(family string, a ChainAdapters) {
+// Register sets the adapter for the given chain family.
+func (r *FamilyRegistry[T]) Register(family string, adapter T) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	existing := r.adapters[family]
-	if a.Aggregator != nil {
-		existing.Aggregator = a.Aggregator
-	}
-	if a.Executor != nil {
-		existing.Executor = a.Executor
-	}
-	if a.Verifier != nil {
-		existing.Verifier = a.Verifier
-	}
-	if a.Indexer != nil {
-		existing.Indexer = a.Indexer
-	}
-	if a.TokenVerifier != nil {
-		existing.TokenVerifier = a.TokenVerifier
-	}
-	if a.CommitteeVerifierOnchain != nil {
-		existing.CommitteeVerifierOnchain = a.CommitteeVerifierOnchain
-	}
-	if a.CommitteeVerifierDeploy != nil {
-		existing.CommitteeVerifierDeploy = a.CommitteeVerifierDeploy
-	}
-	r.adapters[family] = existing
+	r.adapters[family] = adapter
 }
 
-func (r *Registry) Get(family string) (ChainAdapters, bool) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	a, ok := r.adapters[family]
-	return a, ok
-}
-
-func (r *Registry) GetByChain(chainSelector uint64) (ChainAdapters, error) {
+// Get returns the adapter registered for the chain that owns chainSelector.
+func (r *FamilyRegistry[T]) Get(chainSelector uint64) (T, error) {
 	family, err := chainsel.GetSelectorFamily(chainSelector)
 	if err != nil {
-		return ChainAdapters{}, fmt.Errorf("failed to get chain family for selector %d: %w", chainSelector, err)
+		var zero T
+		return zero, fmt.Errorf("failed to get chain family for selector %d: %w", chainSelector, err)
 	}
-	a, ok := r.Get(family)
+	r.mu.Lock()
+	v, ok := r.adapters[family]
+	r.mu.Unlock()
 	if !ok {
-		return ChainAdapters{}, fmt.Errorf("no adapters registered for chain family %q", family)
+		var zero T
+		return zero, fmt.Errorf("no adapter registered for chain family %q (selector %d)", family, chainSelector)
 	}
-	return a, nil
+	return v, nil
 }
 
-// AllDeployedCommitteeVerifierChains returns every destination chain selector that has a
-// committee verifier deployed for the given qualifier, across all registered chain families.
-// Discovery is datastore-only — no onchain calls are made. The per-family implementation
-// (e.g. EVM) lives in chainlink-ccip/chains/evm and registers via Register at startup.
-func (r *Registry) AllDeployedCommitteeVerifierChains(ds datastore.DataStore, qualifier string) []uint64 {
+// ForEach calls fn for every registered adapter. Intended for cross-family
+// discovery (e.g. AllDeployedCommitteeVerifierChains).
+func (r *FamilyRegistry[T]) ForEach(fn func(family string, adapter T)) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	var chains []uint64
-	for _, a := range r.adapters {
-		if a.Aggregator != nil {
-			chains = append(chains, a.Aggregator.GetDeployedChains(ds, qualifier)...)
-		}
+	for f, a := range r.adapters {
+		fn(f, a)
 	}
+}
+
+// IsEmpty reports whether any adapter has been registered.
+func (r *FamilyRegistry[T]) IsEmpty() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return len(r.adapters) == 0
+}
+
+// --------------------------------------------------------------------
+// Per-adapter-type singletons
+// --------------------------------------------------------------------
+
+var (
+	aggregatorRegistry               *FamilyRegistry[AggregatorConfigAdapter]
+	aggregatorOnce                   sync.Once
+	executorRegistry                 *FamilyRegistry[ExecutorConfigAdapter]
+	executorOnce                     sync.Once
+	verifierRegistry                 *FamilyRegistry[VerifierConfigAdapter]
+	verifierOnce                     sync.Once
+	indexerRegistry                  *FamilyRegistry[IndexerConfigAdapter]
+	indexerOnce                      sync.Once
+	tokenVerifierRegistry            *FamilyRegistry[TokenVerifierConfigAdapter]
+	tokenVerifierOnce                sync.Once
+	committeeVerifierOnchainRegistry *FamilyRegistry[CommitteeVerifierOnchainAdapter]
+	committeeVerifierOnchainOnce     sync.Once
+	committeeVerifierDeployRegistry  *FamilyRegistry[CommitteeVerifierDeployAdapter]
+	committeeVerifierDeployOnce      sync.Once
+	laneConfigRegistry               *FamilyRegistry[LaneConfigAdapter]
+	laneConfigOnce                   sync.Once
+	chainContractsDeployRegistry     *FamilyRegistry[ChainContractsDeployAdapter]
+	chainContractsDeployOnce         sync.Once
+)
+
+func GetAggregatorRegistry() *FamilyRegistry[AggregatorConfigAdapter] {
+	aggregatorOnce.Do(func() { aggregatorRegistry = newFamilyRegistry[AggregatorConfigAdapter]() })
+	return aggregatorRegistry
+}
+
+func GetExecutorRegistry() *FamilyRegistry[ExecutorConfigAdapter] {
+	executorOnce.Do(func() { executorRegistry = newFamilyRegistry[ExecutorConfigAdapter]() })
+	return executorRegistry
+}
+
+func GetVerifierRegistry() *FamilyRegistry[VerifierConfigAdapter] {
+	verifierOnce.Do(func() { verifierRegistry = newFamilyRegistry[VerifierConfigAdapter]() })
+	return verifierRegistry
+}
+
+func GetIndexerRegistry() *FamilyRegistry[IndexerConfigAdapter] {
+	indexerOnce.Do(func() { indexerRegistry = newFamilyRegistry[IndexerConfigAdapter]() })
+	return indexerRegistry
+}
+
+func GetTokenVerifierRegistry() *FamilyRegistry[TokenVerifierConfigAdapter] {
+	tokenVerifierOnce.Do(func() { tokenVerifierRegistry = newFamilyRegistry[TokenVerifierConfigAdapter]() })
+	return tokenVerifierRegistry
+}
+
+func GetCommitteeVerifierOnchainRegistry() *FamilyRegistry[CommitteeVerifierOnchainAdapter] {
+	committeeVerifierOnchainOnce.Do(func() { committeeVerifierOnchainRegistry = newFamilyRegistry[CommitteeVerifierOnchainAdapter]() })
+	return committeeVerifierOnchainRegistry
+}
+
+func GetCommitteeVerifierDeployRegistry() *FamilyRegistry[CommitteeVerifierDeployAdapter] {
+	committeeVerifierDeployOnce.Do(func() { committeeVerifierDeployRegistry = newFamilyRegistry[CommitteeVerifierDeployAdapter]() })
+	return committeeVerifierDeployRegistry
+}
+
+func GetLaneConfigRegistry() *FamilyRegistry[LaneConfigAdapter] {
+	laneConfigOnce.Do(func() { laneConfigRegistry = newFamilyRegistry[LaneConfigAdapter]() })
+	return laneConfigRegistry
+}
+
+func GetChainContractsDeployRegistry() *FamilyRegistry[ChainContractsDeployAdapter] {
+	chainContractsDeployOnce.Do(func() { chainContractsDeployRegistry = newFamilyRegistry[ChainContractsDeployAdapter]() })
+	return chainContractsDeployRegistry
+}
+
+// --------------------------------------------------------------------
+// Cross-family discovery helpers
+// --------------------------------------------------------------------
+
+// AllDeployedCommitteeVerifierChains returns every chain selector that has a
+// committee verifier deployed for the given qualifier, across all families.
+func AllDeployedCommitteeVerifierChains(ds datastore.DataStore, qualifier string) []uint64 {
+	var chains []uint64
+	GetAggregatorRegistry().ForEach(func(_ string, a AggregatorConfigAdapter) {
+		chains = append(chains, a.GetDeployedChains(ds, qualifier)...)
+	})
 	return chains
 }
 
-// AllDeployedExecutorChains collects all chain selectors with executor proxies deployed,
-// across all registered families.
-func (r *Registry) AllDeployedExecutorChains(ds datastore.DataStore, qualifier string) []uint64 {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+// AllDeployedExecutorChains returns every chain selector with executor proxies
+// deployed, across all families.
+func AllDeployedExecutorChains(ds datastore.DataStore, qualifier string) []uint64 {
 	var chains []uint64
-	for _, a := range r.adapters {
-		if a.Executor != nil {
-			chains = append(chains, a.Executor.GetDeployedChains(ds, qualifier)...)
-		}
-	}
+	GetExecutorRegistry().ForEach(func(_ string, a ExecutorConfigAdapter) {
+		chains = append(chains, a.GetDeployedChains(ds, qualifier)...)
+	})
 	return chains
-}
-
-// HasAdapters reports whether any chain family has been registered.
-func (r *Registry) HasAdapters() bool {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	return len(r.adapters) > 0
 }

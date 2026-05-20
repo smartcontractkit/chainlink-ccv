@@ -64,7 +64,7 @@ func (c DeployCommitteeVerifierInput) resolveChainCfg(sel uint64) DeployCommitte
 // Deployed contracts remain owned by the deployer key. Wiring up MCMS-based
 // ownership transfer is tracked as a follow-up (CCIP-11432) so the deploy +
 // transfer can be composed once the CLD pieces land.
-func DeployCommitteeVerifier(registry *adapters.Registry) deployment.ChangeSetV2[DeployCommitteeVerifierInput] {
+func DeployCommitteeVerifier() deployment.ChangeSetV2[DeployCommitteeVerifierInput] {
 	validate := func(e deployment.Environment, cfg DeployCommitteeVerifierInput) error {
 		if len(cfg.ChainSelectors) == 0 {
 			return errors.New("at least one chain selector is required")
@@ -88,12 +88,8 @@ func DeployCommitteeVerifier(registry *adapters.Registry) deployment.ChangeSetV2
 				return fmt.Errorf("DeployerContract is required for chain %d", sel)
 			}
 
-			chainAdapter, err := registry.GetByChain(sel)
-			if err != nil {
+			if _, err := adapters.GetCommitteeVerifierDeployRegistry().Get(sel); err != nil {
 				return fmt.Errorf("chain %d: %w", sel, err)
-			}
-			if chainAdapter.CommitteeVerifierDeploy == nil {
-				return fmt.Errorf("chain %d: no CommitteeVerifierDeploy adapter registered", sel)
 			}
 		}
 		for sel := range cfg.ChainCfgs {
@@ -127,7 +123,7 @@ func DeployCommitteeVerifier(registry *adapters.Registry) deployment.ChangeSetV2
 		var allReports []operations.Report[any, any]
 
 		for _, sel := range cfg.ChainSelectors {
-			chainAdapter, err := registry.GetByChain(sel)
+			deployer, err := adapters.GetCommitteeVerifierDeployRegistry().Get(sel)
 			if err != nil {
 				return deployment.ChangesetOutput{Reports: allReports},
 					fmt.Errorf("chain %d: %w", sel, err)
@@ -153,7 +149,7 @@ func DeployCommitteeVerifier(registry *adapters.Registry) deployment.ChangeSetV2
 
 				report, err := operations.ExecuteSequence(
 					e.OperationsBundle,
-					chainAdapter.CommitteeVerifierDeploy.DeployCommitteeVerifier(),
+					deployer.DeployCommitteeVerifier(),
 					e.BlockChains,
 					input,
 				)
