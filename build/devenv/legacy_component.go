@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainreg"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
 	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
@@ -92,7 +93,7 @@ func (l *legacyComponent) RunPhase2(
 		if bc.Out == nil {
 			return nil, nil, fmt.Errorf("blockchain[%d] %q: phase 1 did not populate Out", i, bc.ContainerName)
 		}
-		impl, ierr := NewProductConfigurationFromNetwork(bc.Type)
+		impl, ierr := chainreg.NewProductConfigurationFromNetwork(bc.Type)
 		if ierr != nil {
 			return nil, nil, ierr
 		}

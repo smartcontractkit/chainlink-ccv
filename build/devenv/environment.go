@@ -446,26 +446,6 @@ func checkKeys(in *Cfg) error {
 	return nil
 }
 
-func NewProductConfigurationFromNetwork(typ string) (cciptestinterfaces.CCIP17Configuration, error) {
-	resolved, err := blockchain.TypeToFamily(typ)
-	if err != nil {
-		// typ might already be a family name — try the factory directly before giving up.
-		if reg, regErr := chainreg.GetRegistry().Get(typ); regErr == nil && reg.ImplFactory != nil {
-			return reg.ImplFactory.NewEmpty(), nil
-		}
-		return nil, fmt.Errorf("unknown blockchain type %q (not a recognized type or family): %w", typ, err)
-	}
-	family := string(resolved)
-	reg, err := chainreg.GetRegistry().Get(family)
-	if err != nil {
-		return nil, fmt.Errorf("could not find chain registration for chain type %s (family %s): %w", typ, family, err)
-	}
-	if reg.ImplFactory == nil {
-		return nil, fmt.Errorf("implementation factory for family %s not found", family)
-	}
-	return reg.ImplFactory.NewEmpty(), nil
-}
-
 // enrichEnvironmentTopology injects SignerAddress values from verifier inputs into the EnvironmentTopology.
 // This is needed because signer addresses are only known after key generation or CL node launch.
 // Each verifier's NOPAlias identifies which NOP in the topology it belongs to.

@@ -59,7 +59,7 @@ func executeFundingEffects(ctx context.Context, effects []devenvruntime.FundingE
 	}
 
 	for _, bc := range blockchains {
-		impl, err := NewProductConfigurationFromNetwork(bc.Type)
+		impl, err := chainreg.NewProductConfigurationFromNetwork(bc.Type)
 		if err != nil {
 			return fmt.Errorf("creating impl for blockchain %q: %w", bc.ContainerName, err)
 		}

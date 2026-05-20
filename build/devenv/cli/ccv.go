@@ -28,6 +28,7 @@ import (
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 
 	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainreg"
 	ccldf "github.com/smartcontractkit/chainlink-ccv/build/devenv/cldf"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cli/send"
 	_ "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/protocol_contracts"
@@ -564,7 +565,7 @@ var fundAddressesCmd = &cobra.Command{
 			return fmt.Errorf("blockchain with chain ID %s not found, please update the env file or use a different chain-selector", chainIDStr)
 		}
 
-		impl, err := ccv.NewProductConfigurationFromNetwork(input.Type)
+		impl, err := chainreg.NewProductConfigurationFromNetwork(input.Type)
 		if err != nil {
 			return fmt.Errorf("failed to create product configuration: %w", err)
 		}

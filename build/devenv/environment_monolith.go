@@ -16,6 +16,7 @@ import (
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainreg"
 	ccldf "github.com/smartcontractkit/chainlink-ccv/build/devenv/cldf"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	ccdeploy "github.com/smartcontractkit/chainlink-ccv/build/devenv/deploy"
@@ -96,7 +97,7 @@ func NewEnvironment() (in *Cfg, err error) {
 	impls := make([]cciptestinterfaces.CCIP17Configuration, 0)
 	for _, bc := range in.Blockchains {
 		var impl cciptestinterfaces.CCIP17Configuration
-		impl, err = NewProductConfigurationFromNetwork(bc.Type)
+		impl, err = chainreg.NewProductConfigurationFromNetwork(bc.Type)
 		if err != nil {
 			return nil, err
 		}

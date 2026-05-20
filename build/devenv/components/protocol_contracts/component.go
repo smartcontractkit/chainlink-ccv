@@ -11,6 +11,7 @@ import (
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainreg"
 	ccldf "github.com/smartcontractkit/chainlink-ccv/build/devenv/cldf"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	ccdeploy "github.com/smartcontractkit/chainlink-ccv/build/devenv/deploy"
@@ -77,7 +78,7 @@ func (p *component) RunPhase3(
 		if bc.Out == nil {
 			return nil, nil, fmt.Errorf("blockchain[%d] %q: phase 1 did not populate Out", i, bc.ContainerName)
 		}
-		impl, ierr := ccv.NewProductConfigurationFromNetwork(bc.Type)
+		impl, ierr := chainreg.NewProductConfigurationFromNetwork(bc.Type)
 		if ierr != nil {
 			return nil, nil, ierr
 		}

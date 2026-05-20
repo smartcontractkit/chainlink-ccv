@@ -4,6 +4,9 @@ import (
 	"fmt"
 	"maps"
 	"sync"
+
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
+	ctfblockchain "github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
 
 // Registry maps chain family to Registration.
@@ -159,4 +162,26 @@ func (r *Registry) GetExecutorModifiers() map[string]ExecutorModifier {
 		}
 	}
 	return modifiers
+}
+
+// NewProductConfigurationFromNetwork returns the CCIP17Configuration for the given
+// blockchain type string (e.g. "simulated", "evm") via the process-wide registry.
+func NewProductConfigurationFromNetwork(typ string) (cciptestinterfaces.CCIP17Configuration, error) {
+	resolved, err := ctfblockchain.TypeToFamily(typ)
+	if err != nil {
+		// typ might already be a family name — try the factory directly before giving up.
+		if reg, regErr := GetRegistry().Get(typ); regErr == nil && reg.ImplFactory != nil {
+			return reg.ImplFactory.NewEmpty(), nil
+		}
+		return nil, fmt.Errorf("unknown blockchain type %q (not a recognized type or family): %w", typ, err)
+	}
+	family := string(resolved)
+	reg, err := GetRegistry().Get(family)
+	if err != nil {
+		return nil, fmt.Errorf("could not find chain registration for chain type %s (family %s): %w", typ, family, err)
+	}
+	if reg.ImplFactory == nil {
+		return nil, fmt.Errorf("implementation factory for family %s not found", family)
+	}
+	return reg.ImplFactory.NewEmpty(), nil
 }
