@@ -18,6 +18,8 @@ type ChainAdapters struct {
 	TokenVerifier            TokenVerifierConfigAdapter
 	CommitteeVerifierOnchain CommitteeVerifierOnchainAdapter
 	CommitteeVerifierDeploy  CommitteeVerifierDeployAdapter
+	LaneConfig               LaneConfigAdapter
+	ChainContractsDeploy     ChainContractsDeployAdapter
 }
 
 // Registry is a single registry mapping chain family → ChainAdapters.
@@ -32,11 +34,17 @@ var (
 	registryOnce      sync.Once
 )
 
+// NewRegistry creates a new, empty Registry. Prefer GetRegistry() for
+// production code; use NewRegistry() in tests that need an isolated registry.
+func NewRegistry() *Registry {
+	return &Registry{
+		adapters: make(map[string]ChainAdapters),
+	}
+}
+
 func GetRegistry() *Registry {
 	registryOnce.Do(func() {
-		singletonRegistry = &Registry{
-			adapters: make(map[string]ChainAdapters),
-		}
+		singletonRegistry = NewRegistry()
 	})
 	return singletonRegistry
 }
@@ -70,6 +78,12 @@ func (r *Registry) Register(family string, a ChainAdapters) {
 	}
 	if a.CommitteeVerifierDeploy != nil {
 		existing.CommitteeVerifierDeploy = a.CommitteeVerifierDeploy
+	}
+	if a.LaneConfig != nil {
+		existing.LaneConfig = a.LaneConfig
+	}
+	if a.ChainContractsDeploy != nil {
+		existing.ChainContractsDeploy = a.ChainContractsDeploy
 	}
 	r.adapters[family] = existing
 }
