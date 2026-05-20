@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 
+	"github.com/rs/zerolog"
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
@@ -13,12 +15,17 @@ import (
 	ccdeploy "github.com/smartcontractkit/chainlink-ccv/build/devenv/deploy"
 	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/timing"
 	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
 	ccvadapters "github.com/smartcontractkit/chainlink-ccv/deployment/adapters"
 	ccvchangesets "github.com/smartcontractkit/chainlink-ccv/deployment/changesets"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
+
+var plog = zerolog.New(os.Stderr).With().
+	Str("component", "protocol_contracts").
+	Logger().Level(zerolog.DebugLevel)
 
 func init() {
 	if err := devenvruntime.Register("protocol_contracts", factory); err != nil {
@@ -55,8 +62,8 @@ func (p *component) RunPhase3(
 	}
 	sharedTLSCerts, _ := priorOutputs["shared_tls_certs"].(*services.TLSCertPaths)
 
-	timeTrack := ccv.NewTimeTracker(ccv.Plog)
-	ctx = ccv.L.WithContext(ctx)
+	timeTrack := timing.New(plog)
+	ctx = plog.WithContext(ctx)
 
 	var fakeOut *services.FakeOutput
 	if in.Fake != nil {
@@ -88,7 +95,7 @@ func (p *component) RunPhase3(
 	if err != nil {
 		return nil, nil, fmt.Errorf("creating CLDF operations environment: %w", err)
 	}
-	ccv.L.Info().Any("Selectors", selectors).Msg("Deploying for chain selectors")
+	plog.Info().Any("Selectors", selectors).Msg("Deploying for chain selectors")
 
 	topology := ccv.BuildEnvironmentTopology(in, e)
 	if topology == nil {
@@ -117,7 +124,7 @@ func (p *component) RunPhase3(
 		if nerr != nil {
 			return nil, nil, nerr
 		}
-		ccv.L.Info().Uint64("Selector", networkInfo.ChainSelector).Msg("Deploying chain selector")
+		plog.Info().Uint64("Selector", networkInfo.ChainSelector).Msg("Deploying chain selector")
 		// Shift the deployer nonce intentionally so each chain gets different
 		// contract addresses, catching bugs that assume address uniformity.
 		if bumper, ok := impl.(cciptestinterfaces.DeployerNonceBumper); ok && i > 0 {
