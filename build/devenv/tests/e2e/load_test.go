@@ -33,6 +33,7 @@ import (
 
 	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
+	ccldf "github.com/smartcontractkit/chainlink-ccv/build/devenv/cldf"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 )
 
@@ -294,13 +295,13 @@ func TestE2ELoad(t *testing.T) {
 		_ = os.Setenv("LOKI_URL", ccv.DefaultLokiURL)
 	}
 
-	selectors, e, err := ccv.NewCLDFOperationsEnvironment(in.Blockchains, in.CLDF.DataStore)
+	selectors, e, err := ccldf.NewCLDFOperationsEnvironment(in.Blockchains, in.CLDF.DataStore)
 	require.NoError(t, err)
 	chains := e.BlockChains.EVMChains()
 	require.NotNil(t, chains)
 	srcChain := chains[selectors[0]]
 	dstChain := chains[selectors[1]]
-	b := ccv.NewDefaultCLDFBundle(e)
+	b := ccldf.NewDefaultCLDFBundle(e)
 	e.OperationsBundle = b
 
 	ctx := ccv.Plog.WithContext(context.Background())
@@ -709,11 +710,11 @@ func TestStaging(t *testing.T) {
 		require.NoError(t, err)
 	})
 
-	_, e, err := ccv.NewCLDFOperationsEnvironment(in.Blockchains, in.CLDF.DataStore)
+	_, e, err := ccldf.NewCLDFOperationsEnvironment(in.Blockchains, in.CLDF.DataStore)
 	require.NoError(t, err)
 	chains := e.BlockChains.EVMChains()
 	require.NotNil(t, chains)
-	b := ccv.NewDefaultCLDFBundle(e)
+	b := ccldf.NewDefaultCLDFBundle(e)
 	e.OperationsBundle = b
 
 	ctx := ccv.Plog.WithContext(context.Background())
