@@ -554,8 +554,9 @@ func (d *PostgresStorage) QueryMessages(
 	return results, nil
 }
 
-// GetProcessingMessages returns all messages with PROCESSING status.
-func (d *PostgresStorage) GetProcessingMessages(ctx context.Context) ([]common.MessageWithMetadata, error) {
+// GetProcessingMessages returns a page of messages with PROCESSING status whose
+// ingestion_timestamp is after createdAfter.
+func (d *PostgresStorage) GetProcessingMessages(ctx context.Context, createdAfter time.Time, limit, offset uint64) ([]common.MessageWithMetadata, error) {
 	startQueryMetric := time.Now()
 	var err error
 	defer func() {
@@ -574,9 +575,12 @@ func (d *PostgresStorage) GetProcessingMessages(ctx context.Context) ([]common.M
 			message_ccv_addresses
 		FROM indexer.messages
 		WHERE status = $1
+		  AND ingestion_timestamp > $2
+		ORDER BY ingestion_timestamp ASC
+		LIMIT $3 OFFSET $4
 	`
 
-	rows, err := d.queryContext(ctx, query, common.MessageProcessingString)
+	rows, err := d.queryContext(ctx, query, common.MessageProcessingString, createdAfter, limit, offset)
 	if err != nil {
 		d.lggr.Errorw("Failed to query processing messages", "error", err)
 		return nil, fmt.Errorf("failed to query processing messages: %w", err)

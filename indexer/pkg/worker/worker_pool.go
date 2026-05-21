@@ -74,33 +74,54 @@ func (p *Pool) Start(ctx context.Context) {
 	}
 }
 
-// hydrateFromStorage loads all PROCESSING messages from storage and enqueues them as tasks.
+// hydrateFromStorage loads PROCESSING messages from storage in pages and enqueues them as tasks.
 func (p *Pool) hydrateFromStorage(ctx context.Context) error {
-	messages, err := p.storage.GetProcessingMessages(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get processing messages: %w", err)
+	batchSize := p.config.HydrationBatchSize
+	if batchSize == 0 {
+		batchSize = 100
 	}
 
-	if len(messages) == 0 {
-		return nil
-	}
+	// Only resume messages that are still within the visibility window.
+	createdAfter := time.Now().Add(-p.scheduler.VerificationVisibilityWindow())
 
-	p.logger.Infow("Resuming pending tasks from storage", "count", len(messages))
-
-	for _, msg := range messages {
-		vr := protocol.VerifierResult{
-			MessageID:           msg.Message.MustMessageID(),
-			Message:             msg.Message,
-			MessageCCVAddresses: msg.MessageCCVAddresses,
-		}
-		task, err := NewTask(p.logger, vr, p.registry, p.storage, msg.Metadata.IngestionTimestamp.Add(p.scheduler.VerificationVisibilityWindow()))
+	var (
+		offset uint64
+		total  int
+	)
+	for {
+		messages, err := p.storage.GetProcessingMessages(ctx, createdAfter, batchSize, offset)
 		if err != nil {
-			p.logger.Errorw("Failed to create task for processing message", "error", err)
-			continue
+			return fmt.Errorf("failed to get processing messages: %w", err)
 		}
-		if err := p.scheduler.Enqueue(ctx, task); err != nil {
-			p.logger.Errorw("Failed to enqueue hydrated task", "error", err)
+		if len(messages) == 0 {
+			break
 		}
+
+		total += len(messages)
+		for _, msg := range messages {
+			vr := protocol.VerifierResult{
+				MessageID:           msg.Message.MustMessageID(),
+				Message:             msg.Message,
+				MessageCCVAddresses: msg.MessageCCVAddresses,
+			}
+			task, err := NewTask(p.logger, vr, p.registry, p.storage, msg.Metadata.IngestionTimestamp.Add(p.scheduler.VerificationVisibilityWindow()))
+			if err != nil {
+				p.logger.Errorw("Failed to create task for processing message", "error", err)
+				continue
+			}
+			if err := p.scheduler.Enqueue(ctx, task); err != nil {
+				p.logger.Errorw("Failed to enqueue hydrated task", "error", err)
+			}
+		}
+
+		if uint64(len(messages)) < batchSize {
+			break
+		}
+		offset += batchSize
+	}
+
+	if total > 0 {
+		p.logger.Infow("Resumed pending tasks from storage", "count", total)
 	}
 	return nil
 }

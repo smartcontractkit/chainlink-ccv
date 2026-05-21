@@ -64,6 +64,8 @@ type PoolConfig struct {
 	// WorkerTimeout is the number of seconds a worker can attempt to retrieve verifications for
 	// Note: This value should always be higher then the maximum timeout on the slowest configured verifier.
 	WorkerTimeout int `toml:"WorkerTimeout"`
+	// HydrationBatchSize controls how many PROCESSING messages are loaded from storage per page during startup hydration.
+	HydrationBatchSize uint64 `toml:"HydrationBatchSize"`
 }
 
 // APIConfig provides all configuration for the API inside the indexer.

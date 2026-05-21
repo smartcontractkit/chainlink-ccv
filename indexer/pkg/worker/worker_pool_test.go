@@ -188,7 +188,7 @@ func TestWorkerPool_StartStop_ClosedDiscovery(t *testing.T) {
 	poolCfg := config.PoolConfig{ConcurrentWorkers: 1, WorkerTimeout: 1}
 	reg := registry.NewVerifierRegistry()
 	storage := mocks.NewMockIndexerStorage(t)
-	storage.On("GetProcessingMessages", mock.Anything).Return([]common.MessageWithMetadata{}, nil)
+	storage.On("GetProcessingMessages", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return([]common.MessageWithMetadata{}, nil)
 
 	p, err := NewWorkerPool(lggr, poolCfg, discoveryCh, scheduler, reg, storage)
 	require.NoError(t, err)
@@ -224,7 +224,7 @@ func TestWorkerPool_StartStop_Cancel(t *testing.T) {
 	poolCfg := config.PoolConfig{ConcurrentWorkers: 1, WorkerTimeout: 1}
 	reg := registry.NewVerifierRegistry()
 	storage := mocks.NewMockIndexerStorage(t)
-	storage.On("GetProcessingMessages", mock.Anything).Return([]common.MessageWithMetadata{}, nil)
+	storage.On("GetProcessingMessages", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return([]common.MessageWithMetadata{}, nil)
 
 	p, err := NewWorkerPool(lggr, poolCfg, discoveryCh, scheduler, reg, storage)
 	require.NoError(t, err)
@@ -380,7 +380,7 @@ func TestRun_PoolFull_EnqueuesTask(t *testing.T) {
 		}
 	}).Return([]common.VerifierResultWithMetadata{}, nil)
 	storageMock.On("UpdateMessageStatus", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
-	storageMock.On("GetProcessingMessages", mock.Anything).Return([]common.MessageWithMetadata{}, nil)
+	storageMock.On("GetProcessingMessages", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return([]common.MessageWithMetadata{}, nil)
 	discoveryCh := make(chan common.VerifierResultWithMetadata, 1)
 
 	p, err := NewWorkerPool(lggr, config.PoolConfig{ConcurrentWorkers: 1, WorkerTimeout: 1}, discoveryCh, s, registry.NewVerifierRegistry(), storageMock)
@@ -437,7 +437,7 @@ func TestPool_HydratesProcessingTasksOnStart(t *testing.T) {
 	now := time.Now()
 	msg1 := common.MessageWithMetadata{Metadata: common.MessageMetadata{Status: common.MessageProcessing, IngestionTimestamp: now}}
 	msg2 := common.MessageWithMetadata{Metadata: common.MessageMetadata{Status: common.MessageProcessing, IngestionTimestamp: now}}
-	storageMock.On("GetProcessingMessages", mock.Anything).Return([]common.MessageWithMetadata{msg1, msg2}, nil)
+	storageMock.On("GetProcessingMessages", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return([]common.MessageWithMetadata{msg1, msg2}, nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
