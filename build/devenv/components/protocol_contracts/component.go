@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 
+	"github.com/pelletier/go-toml/v2"
 	"github.com/rs/zerolog"
 	zlog "github.com/rs/zerolog/log"
 
@@ -60,8 +61,8 @@ func (p *component) ValidateConfig(_ any) error { return nil }
 // DeployCommitteeVerifier changeset) is tracked as a follow-up.
 func (p *component) RunPhase3(
 	ctx context.Context,
-	_ map[string]any,
-	_ any,
+	globalConfig map[string]any,
+	componentConfig any,
 	priorOutputs map[string]any,
 ) (map[string]any, []devenvruntime.Effect, error) {
 	blockchains, ok := priorOutputs["blockchains"].([]*blockchain.Input)
@@ -73,12 +74,20 @@ func (p *component) RunPhase3(
 	if !ok {
 		return nil, nil, fmt.Errorf("phase 2 did not produce *jobs.JDInfrastructure under \"jd\"")
 	}
-	envTopology, ok := priorOutputs["_environment_topology"].(*ccvdeployment.EnvironmentTopology)
-	if !ok {
-		return nil, nil, fmt.Errorf("phase 2 did not produce *EnvironmentTopology under \"_environment_topology\"")
+	envTopology, err := decodeTopology(globalConfig["environment_topology"])
+	if err != nil {
+		return nil, nil, fmt.Errorf("decoding environment_topology: %w", err)
+	}
+	if envTopology == nil {
+		return nil, nil, fmt.Errorf("environment_topology is required but not found in config")
+	}
+	var useLegacyConfigureLane bool
+	if m, ok := componentConfig.(map[string]any); ok {
+		if v, ok := m["use_legacy_configure_lane"].(bool); ok {
+			useLegacyConfigureLane = v
+		}
 	}
 	verifiers, _ := priorOutputs["verifiers"].([]*committeeverifier.Input)
-	useLegacyConfigureLane, _ := priorOutputs["_use_legacy_configure_lane"].(bool)
 	aggregators, _ := priorOutputs["_aggregators_with_creds"].([]*services.AggregatorInput)
 	sharedTLSCerts, _ := priorOutputs["shared_tls_certs"].(*services.TLSCertPaths)
 
@@ -255,4 +264,20 @@ func (p *component) RunPhase3(
 		"_impls":      impls,
 		"_time_track": timeTrack,
 	}, nil, nil
+}
+
+func decodeTopology(raw any) (*ccvdeployment.EnvironmentTopology, error) {
+	b, err := toml.Marshal(struct {
+		V any `toml:"environment_topology"`
+	}{V: raw})
+	if err != nil {
+		return nil, fmt.Errorf("re-encoding environment_topology: %w", err)
+	}
+	var wrapper struct {
+		V *ccvdeployment.EnvironmentTopology `toml:"environment_topology"`
+	}
+	if err := toml.Unmarshal(b, &wrapper); err != nil {
+		return nil, fmt.Errorf("decoding environment_topology: %w", err)
+	}
+	return wrapper.V, nil
 }
