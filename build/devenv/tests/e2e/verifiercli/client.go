@@ -21,11 +21,11 @@ const (
 	// DefaultBinaryPath is the in-container path of the committee binary
 	// in the standard devenv image. Override with WithBinaryPath for
 	// alternate layouts.
-	DefaultBinaryPath = "/app/cmd/verifier/committee/tmp/committee"
+	DefaultBinaryPath = "/bin/verifier"
 
 	// DefaultProcessMatch is the pgrep/pkill pattern that matches the
 	// running committee process inside the container.
-	DefaultProcessMatch = "tmp/committee"
+	DefaultProcessMatch = "verifier"
 
 	// defaultRestartReadyTimeout bounds how long RestartAndWaitReady
 	// will poll the CLI before giving up.
