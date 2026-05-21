@@ -47,6 +47,9 @@ type MessageStorageReader interface {
 	GetMessage(ctx context.Context, messageID protocol.Bytes32) (MessageWithMetadata, error)
 	// QueryMessages retrieves all messages that matches the filter set
 	QueryMessages(ctx context.Context, start, end int64, sourceChainSelectors, destChainSelectors []protocol.ChainSelector, limit, offset uint64) ([]MessageWithMetadata, error)
+	// GetProcessingMessages returns all messages currently in PROCESSING status.
+	// Used at startup to resume tasks that were interrupted before completion.
+	GetProcessingMessages(ctx context.Context) ([]MessageWithMetadata, error)
 }
 
 // MessageStorageWriter provides the interface to update message state in storage.

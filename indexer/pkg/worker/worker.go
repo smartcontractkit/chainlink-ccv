@@ -33,10 +33,12 @@ func Execute(ctx context.Context, task *Task) (*TaskResult, error) {
 	}
 
 	// Log out useful information about this run
-	task.logger.Infof("Source Specified CCVs %s", totalVerifiers)
-	task.logger.Infof("Exisiting Verifications %s", existingVerifiers)
-	task.logger.Infof("Attempting to Retrieve %s", attemptingToRetrieve)
-	task.logger.Infof("Unknown CCVs %s", unknownCCVs)
+	task.logger.Infow("Task verifier summary",
+		"sourceCCVs", totalVerifiers,
+		"existingVerifications", existingVerifiers,
+		"attemptingToRetrieve", attemptingToRetrieve,
+		"unknownCCVs", unknownCCVs,
+	)
 
 	// Process all verifier calls concurrently and collect successful results.
 	// Each verifier reader returns a channel that will emit one result when ready.

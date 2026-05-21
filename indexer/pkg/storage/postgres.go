@@ -25,6 +25,7 @@ const (
 	opQueryCCVData          = "QueryCCVData"
 	opBatchInsertCCVData    = "BatchInsertCCVData"
 	opQueryMessages         = "QueryMessages"
+	opGetProcessingMessages = "GetProcessingMessages"
 	opUpdateMessageStatus   = "UpdateMessageStatus"
 	opCreateDiscoveryState  = "CreateDiscoveryState"
 	opPersistDiscoveryBatch = "PersistDiscoveryBatch"
@@ -531,6 +532,54 @@ func (d *PostgresStorage) QueryMessages(
 	if err != nil {
 		d.lggr.Errorw("Failed to query messages", "error", err)
 		return nil, fmt.Errorf("failed to query messages: %w", err)
+	}
+	defer func() {
+		if cerr := rows.Close(); cerr != nil {
+			d.lggr.Errorw("Failed to close rows", "error", cerr)
+		}
+	}()
+
+	var results []common.MessageWithMetadata
+	for rows.Next() {
+		message, err := d.scanMessage(rows)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan message: %w", err)
+		}
+		results = append(results, message)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating over rows: %w", err)
+	}
+	return results, nil
+}
+
+// GetProcessingMessages returns all messages with PROCESSING status.
+func (d *PostgresStorage) GetProcessingMessages(ctx context.Context) ([]common.MessageWithMetadata, error) {
+	startQueryMetric := time.Now()
+	var err error
+	defer func() {
+		d.monitoring.Metrics().RecordStorageQueryDuration(ctx, time.Since(startQueryMetric), opGetProcessingMessages, err != nil)
+	}()
+
+	query := `
+		SELECT
+			message_id,
+			message,
+			status,
+			lastErr,
+			source_chain_selector,
+			dest_chain_selector,
+			ingestion_timestamp,
+			message_ccv_addresses
+		FROM indexer.messages
+		WHERE status = $1
+	`
+
+	rows, err := d.queryContext(ctx, query, common.MessageProcessingString)
+	if err != nil {
+		d.lggr.Errorw("Failed to query processing messages", "error", err)
+		return nil, fmt.Errorf("failed to query processing messages: %w", err)
 	}
 	defer func() {
 		if cerr := rows.Close(); cerr != nil {

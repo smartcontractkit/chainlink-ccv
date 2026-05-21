@@ -44,7 +44,10 @@ func TestPool_EnqueueMessagesCreatesTask(t *testing.T) {
 	go p.enqueueMessages(ctx)
 
 	// send a discovery message
-	discoveryCh <- common.VerifierResultWithMetadata{VerifierResult: protocol.VerifierResult{MessageID: protocol.Bytes32{}}}
+	discoveryCh <- common.VerifierResultWithMetadata{
+		VerifierResult: protocol.VerifierResult{MessageID: protocol.Bytes32{}},
+		Metadata:       common.VerifierResultMetadata{IngestionTimestamp: time.Now()},
+	}
 
 	// wait for a task to be enqueued into scheduler.Ready
 	select {
@@ -85,7 +88,7 @@ func TestRun_MarksSuccessful(t *testing.T) {
 		close(done)
 	}).Return(nil)
 
-	task, err := NewTask(lggr, msg, registry.NewVerifierRegistry(), storage, time.Second)
+	task, err := NewTask(lggr, msg, registry.NewVerifierRegistry(), storage, time.Now().Add(time.Second))
 	require.NoError(t, err)
 
 	// run only the run loop
@@ -135,7 +138,7 @@ func TestRun_RetriesOnError(t *testing.T) {
 	storage.On("GetCCVData", mock.Anything, mock.Anything).Return(nil, errors.New("db fail"))
 
 	msg := protocol.VerifierResult{}
-	task, err := NewTask(lggr, msg, registry.NewVerifierRegistry(), storage, time.Second)
+	task, err := NewTask(lggr, msg, registry.NewVerifierRegistry(), storage, time.Now().Add(time.Second))
 	require.NoError(t, err)
 
 	// Instead of starting p.run (which would consume Ready()), run Execute synchronously
@@ -185,6 +188,7 @@ func TestWorkerPool_StartStop_ClosedDiscovery(t *testing.T) {
 	poolCfg := config.PoolConfig{ConcurrentWorkers: 1, WorkerTimeout: 1}
 	reg := registry.NewVerifierRegistry()
 	storage := mocks.NewMockIndexerStorage(t)
+	storage.On("GetProcessingMessages", mock.Anything).Return([]common.MessageWithMetadata{}, nil)
 
 	p, err := NewWorkerPool(lggr, poolCfg, discoveryCh, scheduler, reg, storage)
 	require.NoError(t, err)
@@ -220,6 +224,7 @@ func TestWorkerPool_StartStop_Cancel(t *testing.T) {
 	poolCfg := config.PoolConfig{ConcurrentWorkers: 1, WorkerTimeout: 1}
 	reg := registry.NewVerifierRegistry()
 	storage := mocks.NewMockIndexerStorage(t)
+	storage.On("GetProcessingMessages", mock.Anything).Return([]common.MessageWithMetadata{}, nil)
 
 	p, err := NewWorkerPool(lggr, poolCfg, discoveryCh, scheduler, reg, storage)
 	require.NoError(t, err)
@@ -375,6 +380,7 @@ func TestRun_PoolFull_EnqueuesTask(t *testing.T) {
 		}
 	}).Return([]common.VerifierResultWithMetadata{}, nil)
 	storageMock.On("UpdateMessageStatus", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	storageMock.On("GetProcessingMessages", mock.Anything).Return([]common.MessageWithMetadata{}, nil)
 	discoveryCh := make(chan common.VerifierResultWithMetadata, 1)
 
 	p, err := NewWorkerPool(lggr, config.PoolConfig{ConcurrentWorkers: 1, WorkerTimeout: 1}, discoveryCh, s, registry.NewVerifierRegistry(), storageMock)
@@ -382,9 +388,9 @@ func TestRun_PoolFull_EnqueuesTask(t *testing.T) {
 
 	// Create two tasks
 	msg := protocol.VerifierResult{}
-	task1, err := NewTask(lggr, msg, p.registry, p.storage, time.Second)
+	task1, err := NewTask(lggr, msg, p.registry, p.storage, time.Now().Add(time.Second))
 	require.NoError(t, err)
-	task2, err := NewTask(lggr, msg, p.registry, p.storage, time.Second)
+	task2, err := NewTask(lggr, msg, p.registry, p.storage, time.Now().Add(time.Second))
 	require.NoError(t, err)
 
 	// Start the pool
@@ -416,6 +422,54 @@ func TestRun_PoolFull_EnqueuesTask(t *testing.T) {
 	p.Stop()
 }
 
+func TestPool_HydratesProcessingTasksOnStart(t *testing.T) {
+	lggr := logger.Test(t)
+
+	scheduler, err := NewScheduler(lggr, config.SchedulerConfig{TickerInterval: 50, BaseDelay: 0, MaxDelay: 0, VerificationVisibilityWindow: 60})
+	require.NoError(t, err)
+
+	storageMock := mocks.NewMockIndexerStorage(t)
+	discoveryCh := make(chan common.VerifierResultWithMetadata, 1)
+	p, err := NewWorkerPool(lggr, config.PoolConfig{ConcurrentWorkers: 2, WorkerTimeout: 1}, discoveryCh, scheduler, registry.NewVerifierRegistry(), storageMock)
+	require.NoError(t, err)
+
+	// Seed storage with 2 PROCESSING messages that the pool should resume on startup.
+	now := time.Now()
+	msg1 := common.MessageWithMetadata{Metadata: common.MessageMetadata{Status: common.MessageProcessing, IngestionTimestamp: now}}
+	msg2 := common.MessageWithMetadata{Metadata: common.MessageMetadata{Status: common.MessageProcessing, IngestionTimestamp: now}}
+	storageMock.On("GetProcessingMessages", mock.Anything).Return([]common.MessageWithMetadata{msg1, msg2}, nil)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	// Collect tasks from Ready() concurrently — hydrateFromStorage blocks on each send
+	// to the scheduler's unbuffered-for-2 ready channel, so a consumer must be running.
+	received := make(chan *Task, 2)
+	go func() {
+		for {
+			select {
+			case task := <-scheduler.Ready():
+				received <- task
+			case <-ctx.Done():
+				return
+			}
+		}
+	}()
+
+	err = p.hydrateFromStorage(ctx)
+	require.NoError(t, err)
+
+	// Both tasks should have been enqueued.
+	for i := range 2 {
+		select {
+		case task := <-received:
+			require.NotNil(t, task)
+		case <-time.After(500 * time.Millisecond):
+			t.Fatalf("timed out waiting for hydrated task %d", i+1)
+		}
+	}
+}
+
 func TestHandleDLQ_SetsMessageTimeoutOnExpiredTask(t *testing.T) {
 	lggr := logger.Test(t)
 
@@ -432,7 +486,7 @@ func TestHandleDLQ_SetsMessageTimeoutOnExpiredTask(t *testing.T) {
 	require.NoError(t, err)
 
 	msg := protocol.VerifierResult{}
-	task, err := NewTask(lggr, msg, p.registry, p.storage, time.Second)
+	task, err := NewTask(lggr, msg, p.registry, p.storage, time.Now().Add(time.Second))
 	require.NoError(t, err)
 	task.ttl = time.Now().Add(-time.Minute)
 	task.lastErr = errors.New("simulated failure")

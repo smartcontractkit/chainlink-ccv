@@ -11,6 +11,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/registry"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -67,6 +68,41 @@ func (p *Pool) Start(ctx context.Context) {
 	go p.run(childCtx)
 	go p.enqueueMessages(childCtx)
 	go p.handleDLQ(childCtx)
+
+	if err := p.hydrateFromStorage(childCtx); err != nil {
+		p.logger.Errorw("Failed to hydrate pending tasks from storage on startup", "error", err)
+	}
+}
+
+// hydrateFromStorage loads all PROCESSING messages from storage and enqueues them as tasks.
+func (p *Pool) hydrateFromStorage(ctx context.Context) error {
+	messages, err := p.storage.GetProcessingMessages(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to get processing messages: %w", err)
+	}
+
+	if len(messages) == 0 {
+		return nil
+	}
+
+	p.logger.Infow("Resuming pending tasks from storage", "count", len(messages))
+
+	for _, msg := range messages {
+		vr := protocol.VerifierResult{
+			MessageID:           msg.Message.MustMessageID(),
+			Message:             msg.Message,
+			MessageCCVAddresses: msg.MessageCCVAddresses,
+		}
+		task, err := NewTask(p.logger, vr, p.registry, p.storage, msg.Metadata.IngestionTimestamp.Add(p.scheduler.VerificationVisibilityWindow()))
+		if err != nil {
+			p.logger.Errorw("Failed to create task for processing message", "error", err)
+			continue
+		}
+		if err := p.scheduler.Enqueue(ctx, task); err != nil {
+			p.logger.Errorw("Failed to enqueue hydrated task", "error", err)
+		}
+	}
+	return nil
 }
 
 func (p *Pool) Stop() {
@@ -142,7 +178,7 @@ func (p *Pool) enqueueMessages(ctx context.Context) {
 				return
 			}
 			p.logger.Infow("Enqueueing new Message", "messageID", message.VerifierResult.MessageID.String())
-			task, err := NewTask(p.logger, message.VerifierResult, p.registry, p.storage, p.scheduler.VerificationVisibilityWindow())
+			task, err := NewTask(p.logger, message.VerifierResult, p.registry, p.storage, message.Metadata.IngestionTimestamp.Add(p.scheduler.VerificationVisibilityWindow()))
 			// This shouldn't happen, it can only be caused by an invalid hex conversion.
 			// We're unable to retry the message or send it to the DLQ.
 			if err != nil {
