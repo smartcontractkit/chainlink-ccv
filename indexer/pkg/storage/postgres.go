@@ -63,7 +63,7 @@ type PostgresStorage struct {
 	monitoring common.IndexerMonitoring
 }
 
-func NewPostgresStorage(ctx context.Context, lggr logger.Logger, monitoring common.IndexerMonitoring, uri, driverName string, config pg.DBConfig) (*PostgresStorage, error) {
+func NewPostgresStorage(ctx context.Context, lggr logger.Logger, monitoring common.IndexerMonitoring, uri, driverName string, config pg.DBConfig, connMaxLifetime, connMaxIdleTime time.Duration) (*PostgresStorage, error) {
 	if lggr == nil {
 		return nil, fmt.Errorf("logger is required")
 	}
@@ -76,13 +76,15 @@ func NewPostgresStorage(ctx context.Context, lggr logger.Logger, monitoring comm
 	if driverName == "" {
 		return nil, fmt.Errorf("database driver name is required")
 	}
-	ds, err := config.New(ctx, uri, driverName)
+	db, err := config.New(ctx, uri, driverName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open database connection: %w", err)
 	}
+	db.SetConnMaxLifetime(connMaxLifetime)
+	db.SetConnMaxIdleTime(connMaxIdleTime)
 
 	return &PostgresStorage{
-		ds:         ds,
+		ds:         db,
 		lggr:       lggr,
 		monitoring: monitoring,
 	}, nil
