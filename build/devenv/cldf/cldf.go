@@ -1,13 +1,14 @@
-package ccv
+// Package cldf provides CLDF (Chainlink Deployments Framework) environment
+// helpers for the devenv. It is intentionally isolated from the root ccv
+// package so that components can import it without pulling in the full devenv
+// dependency graph. Callers import this package directly.
+package cldf
 
 import (
 	"context"
 	"fmt"
-	"os"
 	"sync"
 
-	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
 	"go.uber.org/zap/zapcore"
 
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainreg"
@@ -22,8 +23,6 @@ import (
 	cldf_chain "github.com/smartcontractkit/chainlink-deployments-framework/chain"
 	cldf_evm_provider "github.com/smartcontractkit/chainlink-deployments-framework/chain/evm/provider"
 )
-
-var Plog = log.Output(zerolog.ConsoleWriter{Out: os.Stderr}).Level(zerolog.DebugLevel).With().Fields(map[string]any{"component": "ccv"}).Logger()
 
 type CLDF struct {
 	mu sync.Mutex `toml:"-"`

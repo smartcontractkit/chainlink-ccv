@@ -139,7 +139,7 @@ jobs:
           go mod download
 
       - name: Build Docker Images
-        run: just build-docker-dev-ci
+        run: just build-docker-ci
         env:
           DOCKER_BUILDKIT: 1
 

@@ -14,7 +14,7 @@ import (
 
 const (
 	DefaultFakeName  = "fake"
-	DefaultFakeImage = "ccv-fakes:dev"
+	DefaultFakeImage = "ccv-fakes:latest"
 	DefaultFakePort  = 9111
 )
 

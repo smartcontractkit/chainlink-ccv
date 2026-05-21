@@ -24,6 +24,7 @@ import (
 
 	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
+	ccldf "github.com/smartcontractkit/chainlink-ccv/build/devenv/cldf"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/evm"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/load"
@@ -193,7 +194,7 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 	// subtracting 1 gives us the nonce we own exclusively for this send.
 	currentNonce := atomic.AddUint64(noncePtr, 1) - 1
 
-	b := ccv.NewDefaultCLDFBundle(m.e)
+	b := ccldf.NewDefaultCLDFBundle(m.e)
 	m.e.OperationsBundle = b
 
 	c, ok := m.impl[srcSelector]

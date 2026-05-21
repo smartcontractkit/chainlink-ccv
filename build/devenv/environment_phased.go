@@ -7,13 +7,13 @@ import (
 	"os"
 	"strings"
 
-	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainreg"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	committeeverifier "github.com/smartcontractkit/chainlink-ccv/build/devenv/services/committeeverifier"
 	executorsvc "github.com/smartcontractkit/chainlink-ccv/build/devenv/services/executor"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/timing"
 	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
 	ccvchangesets "github.com/smartcontractkit/chainlink-ccv/deployment/changesets"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
@@ -46,44 +46,48 @@ func NewPhasedEnvironment() (in *Cfg, err error) {
 	if !ok {
 		return nil, fmt.Errorf("runtime did not return a *Cfg")
 	}
-	return cfg, nil
-}
 
-// PhasedSetup carries all state produced by the protocol_contracts Phase 3 component
-// so that runPhasedEnvironmentFinish (called from legacy Phase 4) can complete the
-// environment without re-deriving it.
-type PhasedSetup struct {
-	In                *Cfg
-	E                 *deployment.Environment
-	Topology          *ccvdeployment.EnvironmentTopology
-	SharedTLSCerts    *services.TLSCertPaths
-	BlockchainOutputs []*blockchain.Output
-	Selectors         []uint64
-	DS                datastore.MutableDataStore
-	Impls             []cciptestinterfaces.CCIP17Configuration
-	FakeOut           *services.FakeOutput
-	TimeTrack         *TimeTracker
+	// Collect indexer URLs from the "indexer" key published by the indexer
+	// Phase 4 component. This happens after all phases complete so the output
+	// is visible here even though Phase 4 siblings cannot see each other.
+	if indexers, ok := out["indexer"].([]*services.IndexerInput); ok {
+		externalURLs := make([]string, 0, len(indexers))
+		internalURLs := make([]string, 0, len(indexers))
+		for _, idxIn := range indexers {
+			if idxIn.Out != nil {
+				externalURLs = append(externalURLs, idxIn.Out.ExternalHTTPURL)
+				internalURLs = append(internalURLs, idxIn.Out.InternalHTTPURL)
+			}
+		}
+		cfg.IndexerEndpoints = externalURLs
+		cfg.IndexerInternalEndpoints = internalURLs
+	}
+
+	return cfg, Store(cfg)
 }
 
 // runPhasedEnvironmentFinish runs from executor job-spec generation through job
-// proposal acceptance. It expects each IndexerInput's Out field to be populated
-// by the indexer Phase 4 component (via services.NewIndexer), so URL collection
-// can proceed without re-launching containers.
-func runPhasedEnvironmentFinish(ctx context.Context, setup *PhasedSetup) (cfg *Cfg, effects []devenvruntime.Effect, err error) {
+// proposal acceptance.
+func runPhasedEnvironmentFinish(
+	ctx context.Context,
+	in *Cfg,
+	e *deployment.Environment,
+	topology *ccvdeployment.EnvironmentTopology,
+	sharedTLSCerts *services.TLSCertPaths,
+	blockchainOutputs []*blockchain.Output,
+	selectors []uint64,
+	ds datastore.MutableDataStore,
+	fakeOut *services.FakeOutput,
+	timeTrack *timing.TimeTracker,
+) (cfg *Cfg, effects []devenvruntime.Effect, err error) {
 	defer func() {
 		dxTracker := initDxTracker()
-		sendStartupMetrics(dxTracker, err, setup.TimeTrack.SinceStart().Seconds())
+		sendStartupMetrics(dxTracker, err, timeTrack.SinceStart().Seconds())
 	}()
 
-	in := setup.In
-	e := setup.E
-	topology := setup.Topology
-	sharedTLSCerts := setup.SharedTLSCerts
-	blockchainOutputs := setup.BlockchainOutputs
-	ds := setup.DS
-	fakeOut := setup.FakeOut
-
 	// Collect aggregator endpoints from Out fields populated by the CommitteeCCV Phase 4 component.
+	in.AggregatorEndpoints = make(map[string]string)
+	in.AggregatorCACertFiles = make(map[string]string)
 	for _, agg := range in.Aggregator {
 		if agg.Out != nil {
 			in.AggregatorEndpoints[agg.CommitteeName] = agg.Out.ExternalHTTPSUrl
@@ -92,18 +96,6 @@ func runPhasedEnvironmentFinish(ctx context.Context, setup *PhasedSetup) (cfg *C
 			}
 		}
 	}
-
-	// Collect indexer URLs from Out fields populated by the indexer Phase 4 component.
-	externalURLs := make([]string, 0, len(in.Indexer))
-	internalURLs := make([]string, 0, len(in.Indexer))
-	for _, idxIn := range in.Indexer {
-		if idxIn.Out != nil {
-			externalURLs = append(externalURLs, idxIn.Out.ExternalHTTPURL)
-			internalURLs = append(internalURLs, idxIn.Out.InternalHTTPURL)
-		}
-	}
-	in.IndexerEndpoints = externalURLs
-	in.IndexerInternalEndpoints = internalURLs
 
 	/////////////////////////////
 	// START: Launch executors //
@@ -221,7 +213,7 @@ func runPhasedEnvironmentFinish(ctx context.Context, setup *PhasedSetup) (cfg *C
 		cs := ccvchangesets.GenerateTokenVerifierConfig()
 		output, err := cs.Apply(*e, ccvchangesets.GenerateTokenVerifierConfigInput{
 			ServiceIdentifier: "TokenVerifier",
-			ChainSelectors:    setup.Selectors,
+			ChainSelectors:    selectors,
 			PyroscopeURL:      template.PyroscopeURL,
 			Monitoring: ccvdeployment.MonitoringConfig{
 				Enabled: template.Monitoring.Enabled,
@@ -286,10 +278,10 @@ func runPhasedEnvironmentFinish(ctx context.Context, setup *PhasedSetup) (cfg *C
 	}
 	in.CLDF.AddEnvMetadata(string(envMetadataJSON))
 
-	setup.TimeTrack.Print()
+	timeTrack.Print()
 	if err = PrintCLDFAddresses(in); err != nil {
 		return nil, nil, err
 	}
 
-	return in, effects, Store(in)
+	return in, effects, nil
 }

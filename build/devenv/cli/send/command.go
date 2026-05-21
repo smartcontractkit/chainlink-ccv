@@ -2,8 +2,11 @@ package send
 
 import (
 	"context"
+	"encoding/hex"
+	"errors"
 	"fmt"
 	"math/big"
+	"os"
 	"strings"
 
 	"github.com/Masterminds/semver/v3"
@@ -32,6 +35,7 @@ func Command() *cobra.Command {
 	var args sendArgs
 	var token string
 	var feeToken string
+	var data, dataFile, dataUTF8 string
 
 	cmd := &cobra.Command{
 		Use:     "send",
@@ -44,6 +48,10 @@ func Command() *cobra.Command {
 				return err
 			}
 			args.feeToken = feeToken
+			args.data, err = parseData(data, dataFile, dataUTF8)
+			if err != nil {
+				return err
+			}
 
 			return run(args)
 		},
@@ -54,6 +62,9 @@ func Command() *cobra.Command {
 	cmd.Flags().StringVar(&args.env, "env", "out", "Select environment file to use (e.g., 'staging' for env-staging.toml, defaults to 'out' for env-out.toml)")
 	cmd.Flags().StringVar(&token, "token", "", "Token amounts to send in the format <amount>:<tokenAddress>, e.g., 1000000000000000000:0xTokenAddress")
 	cmd.Flags().StringVar(&feeToken, "fee-token", "", "Fee token to pay in: empty/'native' (default), 'wrapped'/'weth' for wrapped native, 'link' for LINK, or a raw 0x... address on the source chain")
+	cmd.Flags().StringVar(&data, "data", "", "Hex-encoded data payload to include in the message (e.g. 0xdeadbeef). Mutually exclusive with --data-file and --data-utf8.")
+	cmd.Flags().StringVar(&dataFile, "data-file", "", "Read raw bytes from this file to use as the message data payload. Mutually exclusive with --data and --data-utf8.")
+	cmd.Flags().StringVar(&dataUTF8, "data-utf8", "", "Use this UTF-8 string as the message data payload (encoded as its raw UTF-8 bytes). Mutually exclusive with --data and --data-file.")
 	cmd.Flags().Uint64Var(&args.srcSel, "src", 0, "Source chain selector")
 	cmd.Flags().Uint64Var(&args.destSel, "dest", 0, "Destination chain selector")
 	cmd.Flags().Uint64Var(&args.finalitySel, "finality", 0, "Finality chain selector (optional, only for V3 messages)")
@@ -75,6 +86,7 @@ type sendArgs struct {
 
 	tokenAmount cciptestinterfaces.TokenAmount
 	feeToken    string
+	data        []byte
 
 	srcSel      uint64
 	destSel     uint64
@@ -137,7 +149,7 @@ func run(args sendArgs) error {
 
 	messageFields := cciptestinterfaces.MessageFields{
 		Receiver:    common.HexToAddress(args.receiverAddress).Bytes(),
-		Data:        []byte{},
+		Data:        args.data,
 		TokenAmount: args.tokenAmount,
 		FeeToken:    feeTokenAddr,
 	}
@@ -282,4 +294,40 @@ func parseTokenAmount(input string) (cciptestinterfaces.TokenAmount, error) {
 		Amount:       amount,
 		TokenAddress: tokenAddress.Bytes(),
 	}, nil
+}
+
+func parseData(hexStr, file, utf8 string) ([]byte, error) {
+	count := 0
+	if hexStr != "" {
+		count++
+	}
+	if file != "" {
+		count++
+	}
+	if utf8 != "" {
+		count++
+	}
+	if count > 1 {
+		return nil, errors.New("at most one of --data, --data-file, --data-utf8 may be set")
+	}
+	switch {
+	case hexStr != "":
+		s := strings.TrimPrefix(hexStr, "0x")
+		s = strings.TrimPrefix(s, "0X")
+		b, err := hex.DecodeString(s)
+		if err != nil {
+			return nil, fmt.Errorf("invalid --data: %w", err)
+		}
+		return b, nil
+	case file != "":
+		b, err := os.ReadFile(file)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read --data-file %q: %w", file, err)
+		}
+		return b, nil
+	case utf8 != "":
+		return []byte(utf8), nil
+	default:
+		return nil, nil
+	}
 }

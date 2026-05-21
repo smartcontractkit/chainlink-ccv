@@ -45,6 +45,18 @@ func NewEnvironmentWithRegistry(ctx context.Context, rawConfig map[string]any, r
 		return nil, err
 	}
 
+	// Inject the runtime logger into any component that opts in via LogSetter.
+	for _, comp := range specific {
+		if ls, ok := comp.(LogSetter); ok {
+			ls.SetLogger(logger)
+		}
+	}
+	if fallback != nil {
+		if ls, ok := fallback.(LogSetter); ok {
+			ls.SetLogger(logger)
+		}
+	}
+
 	// The fallback component receives all config keys not claimed by a specific
 	// registered component, rather than a single top-level key slice.
 	unclaimed := unclaimedKeys(rawConfig, r.factories)

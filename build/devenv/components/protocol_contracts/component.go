@@ -5,22 +5,25 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"strings"
+
+	"github.com/rs/zerolog"
+	zlog "github.com/rs/zerolog/log"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
-	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainreg"
+	ccldf "github.com/smartcontractkit/chainlink-ccv/build/devenv/cldf"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
+	ccdeploy "github.com/smartcontractkit/chainlink-ccv/build/devenv/deploy"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
 	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
-	committeeverifier "github.com/smartcontractkit/chainlink-ccv/build/devenv/services/committeeverifier"
-	executorsvc "github.com/smartcontractkit/chainlink-ccv/build/devenv/services/executor"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/committeeverifier"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/timing"
 	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
 	ccvchangesets "github.com/smartcontractkit/chainlink-ccv/deployment/changesets"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
-	ns "github.com/smartcontractkit/chainlink-testing-framework/framework/components/simple_node_set"
 )
 
 func init() {
@@ -30,10 +33,19 @@ func init() {
 }
 
 func factory(_ map[string]any) (devenvruntime.Component, error) {
-	return &component{}, nil
+	// Default logger; overridden by the runtime via SetLogger if available.
+	return &component{
+		lggr: zlog.Output(zerolog.ConsoleWriter{Out: os.Stderr}).Level(zerolog.DebugLevel).With().Str("component", "protocol_contracts").Logger(),
+	}, nil
 }
 
-type component struct{}
+type component struct {
+	lggr zerolog.Logger
+}
+
+func (p *component) SetLogger(lggr zerolog.Logger) {
+	p.lggr = lggr.With().Str("component", "protocol_contracts").Logger()
+}
 
 func (p *component) ValidateConfig(_ any) error { return nil }
 
@@ -51,91 +63,56 @@ func (p *component) RunPhase3(
 	_ any,
 	priorOutputs map[string]any,
 ) (map[string]any, []devenvruntime.Effect, error) {
-	configs := strings.Split(os.Getenv(ccv.EnvVarTestConfigs), ",")
-	if len(configs) > 1 {
-		ccv.L.Warn().Msg("Multiple configuration files detected, this feature may be unsupported in the future.")
-	}
-	in, err := ccv.Load[ccv.Cfg](configs)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to load configuration: %w", err)
-	}
-
-	bcs, ok := priorOutputs["blockchains"].([]*blockchain.Input)
+	blockchains, ok := priorOutputs["blockchains"].([]*blockchain.Input)
 	if !ok {
 		return nil, nil, fmt.Errorf("phase 1 did not produce []*blockchain.Input under \"blockchains\"")
 	}
-	in.Blockchains = bcs
-
-	if nss, ok := priorOutputs["nodesets"].([]*ns.Input); ok {
-		in.NodeSets = nss
+	cldf, ok := priorOutputs["_cldf"].(*ccldf.CLDF)
+	if !ok {
+		return nil, nil, fmt.Errorf("phase 2 did not produce *ccldf.CLDF under \"_cldf\"")
 	}
-
-	if jdInfra, ok := priorOutputs["jd"].(*jobs.JDInfrastructure); ok {
-		in.JDInfra = jdInfra
+	jdInfra, ok := priorOutputs["jd"].(*jobs.JDInfrastructure)
+	if !ok {
+		return nil, nil, fmt.Errorf("phase 2 did not produce *jobs.JDInfrastructure under \"jd\"")
 	}
-
-	if execs, ok := priorOutputs["executor"].([]*executorsvc.Input); ok {
-		in.Executor = execs
+	envTopology, ok := priorOutputs["_environment_topology"].(*ccvdeployment.EnvironmentTopology)
+	if !ok {
+		return nil, nil, fmt.Errorf("phase 2 did not produce *EnvironmentTopology under \"_environment_topology\"")
 	}
-
-	if fake, ok := priorOutputs["fake"].(*services.FakeInput); ok {
-		in.Fake = fake
-	}
-
-	if pricer, ok := priorOutputs["pricer"].(*services.PricerInput); ok {
-		in.Pricer = pricer
-	}
-
-	// expandForHA expands both aggregators and indexers. We call it first so
-	// indexers are correctly expanded, then replace in.Aggregator with the
-	// Phase 2 output that is already expanded and credentialed.
-	if err = in.ExpandForHA(); err != nil {
-		return nil, nil, fmt.Errorf("failed to expand HA configuration: %w", err)
-	}
-	if aggsWithCreds, ok := priorOutputs["_aggregators_with_creds"].([]*services.AggregatorInput); ok {
-		in.Aggregator = aggsWithCreds
-	}
-	if verifiers, ok := priorOutputs["verifiers"].([]*committeeverifier.Input); ok {
-		in.Verifier = verifiers
-	}
+	verifiers, _ := priorOutputs["verifiers"].([]*committeeverifier.Input)
+	useLegacyConfigureLane, _ := priorOutputs["_use_legacy_configure_lane"].(bool)
+	aggregators, _ := priorOutputs["_aggregators_with_creds"].([]*services.AggregatorInput)
 	sharedTLSCerts, _ := priorOutputs["shared_tls_certs"].(*services.TLSCertPaths)
 
-	timeTrack := ccv.NewTimeTracker(ccv.Plog)
-	ctx = ccv.L.WithContext(ctx)
+	timeTrack := timing.New(p.lggr)
+	ctx = p.lggr.WithContext(ctx)
 
-	var fakeOut *services.FakeOutput
-	if in.Fake != nil {
-		fakeOut = in.Fake.Out
-	}
-
-	impls := make([]cciptestinterfaces.CCIP17Configuration, len(in.Blockchains))
-	blockchainOutputs := make([]*blockchain.Output, len(in.Blockchains))
-	for i, bc := range in.Blockchains {
+	impls := make([]cciptestinterfaces.CCIP17Configuration, len(blockchains))
+	for i, bc := range blockchains {
 		if bc.Out == nil {
 			return nil, nil, fmt.Errorf("blockchain[%d] %q: phase 1 did not populate Out", i, bc.ContainerName)
 		}
-		impl, ierr := ccv.NewProductConfigurationFromNetwork(bc.Type)
+		impl, ierr := chainreg.NewProductConfigurationFromNetwork(bc.Type)
 		if ierr != nil {
 			return nil, nil, ierr
 		}
 		impls[i] = impl
-		blockchainOutputs[i] = bc.Out
 	}
 
-	in.CLDF.Init()
-	cldfCfg := ccv.CLDFEnvironmentConfig{
-		Blockchains:    in.Blockchains,
-		DataStore:      in.CLDF.DataStore,
-		OffchainClient: in.JDInfra.OffchainClient,
-		NodeIDs:        in.JDInfra.GetNodeIDs(),
+	cldf.Init()
+	cldfCfg := ccldf.CLDFEnvironmentConfig{
+		Blockchains:    blockchains,
+		DataStore:      cldf.DataStore,
+		OffchainClient: jdInfra.OffchainClient,
+		NodeIDs:        jdInfra.GetNodeIDs(),
 	}
-	selectors, e, err := ccv.NewCLDFOperationsEnvironmentWithOffchain(cldfCfg)
+	selectors, e, err := ccldf.NewCLDFOperationsEnvironmentWithOffchain(cldfCfg)
 	if err != nil {
 		return nil, nil, fmt.Errorf("creating CLDF operations environment: %w", err)
 	}
-	ccv.L.Info().Any("Selectors", selectors).Msg("Deploying for chain selectors")
+	p.lggr.Info().Any("Selectors", selectors).Msg("Deploying for chain selectors")
 
-	topology := ccv.BuildEnvironmentTopology(in, e)
+	topology := ccdeploy.BuildEnvironmentTopology(envTopology, verifiers, e)
 	if topology == nil {
 		return nil, nil, fmt.Errorf("failed to build environment topology")
 	}
@@ -144,7 +121,7 @@ func (p *component) RunPhase3(
 
 	capsBySelector := make(map[uint64][]devenvcommon.PoolCapability, len(impls))
 	for i, impl := range impls {
-		networkInfo, lookupErr := chainsel.GetChainDetailsByChainIDAndFamily(in.Blockchains[i].ChainID, impl.ChainFamily())
+		networkInfo, lookupErr := chainsel.GetChainDetailsByChainIDAndFamily(blockchains[i].ChainID, impl.ChainFamily())
 		if lookupErr != nil {
 			return nil, nil, lookupErr
 		}
@@ -158,11 +135,11 @@ func (p *component) RunPhase3(
 
 	ds := datastore.NewMemoryDataStore()
 	for i, impl := range impls {
-		networkInfo, nerr := chainsel.GetChainDetailsByChainIDAndFamily(in.Blockchains[i].ChainID, impl.ChainFamily())
+		networkInfo, nerr := chainsel.GetChainDetailsByChainIDAndFamily(blockchains[i].ChainID, impl.ChainFamily())
 		if nerr != nil {
 			return nil, nil, nerr
 		}
-		ccv.L.Info().Uint64("Selector", networkInfo.ChainSelector).Msg("Deploying chain selector")
+		p.lggr.Info().Uint64("Selector", networkInfo.ChainSelector).Msg("Deploying chain selector")
 		// Shift the deployer nonce intentionally so each chain gets different
 		// contract addresses, catching bugs that assume address uniformity.
 		if bumper, ok := impl.(cciptestinterfaces.DeployerNonceBumper); ok && i > 0 {
@@ -172,7 +149,7 @@ func (p *component) RunPhase3(
 		}
 		chainDS := datastore.NewMemoryDataStore()
 
-		dsi, derr := ccv.DeployContractsForSelector(ctx, e, impl, networkInfo.ChainSelector, topology)
+		dsi, derr := ccdeploy.DeployContractsForSelector(ctx, e, impl, networkInfo.ChainSelector, topology)
 		if derr != nil {
 			return nil, nil, derr
 		}
@@ -186,7 +163,7 @@ func (p *component) RunPhase3(
 
 		tokenDS := datastore.NewMemoryDataStore()
 		if tcp, ok := impl.(cciptestinterfaces.TokenConfigProvider); ok {
-			if err = ccv.DeployTokensAndPools(tcp, e, networkInfo.ChainSelector, combos, tokenDS); err != nil {
+			if err = ccdeploy.DeployTokensAndPools(tcp, e, networkInfo.ChainSelector, combos, tokenDS); err != nil {
 				return nil, nil, fmt.Errorf("deploy tokens and pools for selector %d: %w", networkInfo.ChainSelector, err)
 			}
 		}
@@ -208,19 +185,19 @@ func (p *component) RunPhase3(
 		if err != nil {
 			return nil, nil, err
 		}
-		in.CLDF.AddAddresses(string(a))
+		cldf.AddAddresses(string(a))
 	}
 	e.DataStore = ds.Seal()
 
-	if err = ccv.ConfigureAllTokenTransfers(impls, selectors, e, topology); err != nil {
+	if err = ccdeploy.ConfigureAllTokenTransfers(impls, selectors, e, topology); err != nil {
 		return nil, nil, fmt.Errorf("configure all token transfers: %w", err)
 	}
 
 	var connectErr error
-	if in.ProtocolContracts.UseLegacyConfigureLane {
-		connectErr = ccv.ConnectAllChainsLegacy(impls, in.Blockchains, selectors, e, topology)
+	if useLegacyConfigureLane {
+		connectErr = ccdeploy.ConnectAllChainsLegacy(impls, blockchains, selectors, e, topology)
 	} else {
-		connectErr = ccv.ConnectAllChainsCanonical(impls, in.Blockchains, selectors, e, topology)
+		connectErr = ccdeploy.ConnectAllChainsCanonical(impls, blockchains, selectors, e, topology)
 	}
 	if connectErr != nil {
 		return nil, nil, connectErr
@@ -228,10 +205,7 @@ func (p *component) RunPhase3(
 
 	timeTrack.Record("[contracts] deployed")
 
-	in.AggregatorEndpoints = make(map[string]string)
-	in.AggregatorCACertFiles = make(map[string]string)
-
-	for _, aggregatorInput := range in.Aggregator {
+	for _, aggregatorInput := range aggregators {
 		aggregatorInput.SharedTLSCerts = sharedTLSCerts
 
 		instanceName := aggregatorInput.InstanceName()
@@ -259,47 +233,13 @@ func (p *component) RunPhase3(
 		// which reads "aggregators" from the phase snapshot and calls services.NewAggregator.
 	}
 
-	if len(in.Aggregator) > 0 && len(in.Indexer) > 0 {
-		firstIdx := in.Indexer[0]
-		cs := ccvchangesets.GenerateIndexerConfig()
-		output, err := cs.Apply(*e, ccvchangesets.GenerateIndexerConfigInput{
-			ServiceIdentifier:                "indexer",
-			CommitteeVerifierNameToQualifier: firstIdx.CommitteeVerifierNameToQualifier,
-			CCTPVerifierNameToQualifier:      firstIdx.CCTPVerifierNameToQualifier,
-			LombardVerifierNameToQualifier:   firstIdx.LombardVerifierNameToQualifier,
-		})
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to generate indexer config: %w", err)
-		}
-
-		idxCfg, err := ccvdeployment.GetIndexerConfig(output.DataStore.Seal(), "indexer")
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to get indexer config from output: %w", err)
-		}
-		e.DataStore = output.DataStore.Seal()
-		for _, idxIn := range in.Indexer {
-			idxIn.GeneratedCfg = idxCfg
-		}
-	}
-
-	if len(in.Indexer) < 1 {
-		return nil, nil, fmt.Errorf("at least one indexer is required")
-	}
-
 	return map[string]any{
-		"aggregators":              in.Aggregator,
-		"_prepared_indexer_inputs": in.Indexer,
-		"_protocol_setup": &ccv.PhasedSetup{
-			In:                in,
-			E:                 e,
-			Topology:          topology,
-			SharedTLSCerts:    sharedTLSCerts,
-			BlockchainOutputs: blockchainOutputs,
-			Selectors:         selectors,
-			DS:                ds,
-			Impls:             impls,
-			FakeOut:           fakeOut,
-			TimeTrack:         timeTrack,
-		},
+		"aggregators": aggregators,
+		"_env":        e,
+		"_topology":   topology,
+		"_selectors":  selectors,
+		"_ds":         ds,
+		"_impls":      impls,
+		"_time_track": timeTrack,
 	}, nil, nil
 }
