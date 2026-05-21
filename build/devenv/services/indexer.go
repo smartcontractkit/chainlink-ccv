@@ -26,7 +26,7 @@ const (
 	FirstIndexerContainerName  = "indexer-1"
 	DefaultIndexerDBName       = "indexer-db"
 	IndexerDBContainerSuffix   = "-db"
-	DefaultIndexerImage        = "indexer:dev"
+	DefaultIndexerImage        = "indexer:latest"
 	DefaultIndexerHTTPPort     = 8102
 	DefaultIndexerInternalPort = 8100
 	DefaultIndexerDBPort       = 6432

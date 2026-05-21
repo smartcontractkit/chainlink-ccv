@@ -18,7 +18,6 @@ import (
 
 const (
 	// DefaultBinaryPath is the in-container path of the aggregator binary.
-	// In devenv the binary is built by air into /tmp/aggregator (see aggregator/air.toml).
 	DefaultBinaryPath = "/bin/aggregator"
 )
 

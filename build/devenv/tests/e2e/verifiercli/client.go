@@ -19,7 +19,7 @@ import (
 
 const (
 	// DefaultBinaryPath is the in-container path of the committee binary
-	// in the standard devenv image. Override with WithBinaryPath for
+	// in the standard production image. Override with WithBinaryPath for
 	// alternate layouts.
 	DefaultBinaryPath = "/bin/verifier"
 
