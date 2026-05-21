@@ -68,10 +68,7 @@ func (p *component) RunPhase3(
 	if !ok {
 		return nil, nil, fmt.Errorf("phase 1 did not produce []*blockchain.Input under \"blockchains\"")
 	}
-	cldf, ok := priorOutputs["_cldf"].(*ccldf.CLDF)
-	if !ok {
-		return nil, nil, fmt.Errorf("phase 2 did not produce *ccldf.CLDF under \"_cldf\"")
-	}
+	cldf := &ccldf.CLDF{}
 	jdInfra, ok := priorOutputs["jd"].(*jobs.JDInfrastructure)
 	if !ok {
 		return nil, nil, fmt.Errorf("phase 2 did not produce *jobs.JDInfrastructure under \"jd\"")
@@ -234,8 +231,23 @@ func (p *component) RunPhase3(
 		// which reads "aggregators" from the phase snapshot and calls services.NewAggregator.
 	}
 
+	// Finalize CLDF: snapshot env metadata and print deployed addresses.
+	envMetadata, err := e.DataStore.EnvMetadata().Get()
+	if err != nil && err != datastore.ErrEnvMetadataNotSet {
+		return nil, nil, fmt.Errorf("getting env metadata: %w", err)
+	}
+	envMetadataJSON, err := json.Marshal(envMetadata)
+	if err != nil {
+		return nil, nil, fmt.Errorf("marshaling env metadata: %w", err)
+	}
+	cldf.AddEnvMetadata(string(envMetadataJSON))
+	if err := cldf.PrintAddresses(); err != nil {
+		return nil, nil, err
+	}
+
 	return map[string]any{
 		"aggregators": aggregators,
+		"_cldf":       cldf,
 		"_env":        e,
 		"_topology":   topology,
 		"_selectors":  selectors,

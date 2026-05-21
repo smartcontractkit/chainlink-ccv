@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	ccldf "github.com/smartcontractkit/chainlink-ccv/build/devenv/cldf"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
 	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
@@ -143,7 +144,6 @@ func (l *legacyComponent) RunPhase2(
 		"_aggregators_with_creds":    in.Aggregator,
 		"shared_tls_certs":           sharedTLSCerts,
 		"_cfg":                       in,
-		"_cldf":                      &in.CLDF,
 		"_environment_topology":      in.EnvironmentTopology,
 		"_use_legacy_configure_lane": in.ProtocolContracts.UseLegacyConfigureLane,
 	}, nil, nil
@@ -198,6 +198,14 @@ func (l *legacyComponent) RunPhase4(
 	// propose job specs to the correct JD node IDs.
 	if execs, ok := priorOutputs["executor"].([]*executorsvc.Input); ok {
 		in.Executor = execs
+	}
+
+	// Sync the CLDF state (addresses + env metadata) from protocol_contracts
+	// Phase 3 back into Cfg so that Store() persists the full CLDF to disk.
+	// Fields copied individually to avoid copying the embedded sync.Mutex.
+	if cldf, ok := priorOutputs["_cldf"].(*ccldf.CLDF); ok && cldf != nil {
+		in.CLDF.Addresses = cldf.Addresses
+		in.CLDF.EnvMetadata = cldf.EnvMetadata
 	}
 
 	if err := launchGenericServices(ctx, in, e, blockchainOutputs); err != nil {

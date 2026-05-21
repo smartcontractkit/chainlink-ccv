@@ -6,8 +6,11 @@ package cldf
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"os"
 	"sync"
+	"text/tabwriter"
 
 	"go.uber.org/zap/zapcore"
 
@@ -51,6 +54,23 @@ func (c *CLDF) AddEnvMetadata(envMetadata string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.EnvMetadata = envMetadata
+}
+
+func (c *CLDF) PrintAddresses() error {
+	for _, addr := range c.Addresses {
+		var refs []datastore.AddressRef
+		if err := json.Unmarshal([]byte(addr), &refs); err != nil {
+			return fmt.Errorf("failed to unmarshal addresses: %w", err)
+		}
+		w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
+		defer w.Flush()
+		fmt.Fprintln(w, "Selector\tType\tAddress\tVersion\tQualifier")
+		fmt.Fprintln(w, "--------\t----\t-------\t-------\t---------")
+		for _, ref := range refs {
+			fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s\n", ref.ChainSelector, ref.Type, ref.Address, ref.Version, ref.Qualifier)
+		}
+	}
+	return nil
 }
 
 type CLDFEnvironmentConfig struct {
