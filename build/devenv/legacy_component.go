@@ -7,8 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
-	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainreg"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
 	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
@@ -16,11 +14,9 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/timing"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/util"
 	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
-	ccvshared "github.com/smartcontractkit/chainlink-ccv/deployment/shared"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
-	ns "github.com/smartcontractkit/chainlink-testing-framework/framework/components/simple_node_set"
 )
 
 // legacyCfgKey is the output map key under which the legacy fallback component
@@ -63,10 +59,6 @@ func (l *legacyComponent) RunPhase2(
 	}
 	in.Blockchains = bcs
 
-	if nss, ok := priorOutputs["nodesets"].([]*ns.Input); ok {
-		in.NodeSets = nss
-	}
-
 	if jdInfra, ok := priorOutputs["jd"].(*jobs.JDInfrastructure); ok {
 		in.JDInfra = jdInfra
 	}
@@ -87,23 +79,15 @@ func (l *legacyComponent) RunPhase2(
 		return nil, nil, fmt.Errorf("failed to expand HA configuration: %w", err)
 	}
 
-	// Build per-chain impls — needed by launchCLNodes.
-	impls := make([]cciptestinterfaces.CCIP17Configuration, len(in.Blockchains))
 	blockchainOutputs := make([]*blockchain.Output, len(in.Blockchains))
 	for i, bc := range in.Blockchains {
 		if bc.Out == nil {
 			return nil, nil, fmt.Errorf("blockchain[%d] %q: phase 1 did not populate Out", i, bc.ContainerName)
 		}
-		impl, ierr := chainreg.NewProductConfigurationFromNetwork(bc.Type)
-		if ierr != nil {
-			return nil, nil, ierr
-		}
-		impls[i] = impl
 		blockchainOutputs[i] = bc.Out
 	}
 
-	// Generate HMAC credentials for all aggregators before launching CL nodes,
-	// so the nodes can receive credentials via secrets.
+	// Generate HMAC credentials for all aggregators before launching them.
 	for _, agg := range in.Aggregator {
 		creds, cerr := agg.EnsureClientCredentials()
 		if cerr != nil {
@@ -122,46 +106,10 @@ func (l *legacyComponent) RunPhase2(
 		}
 	}
 
-	_, err = launchCLNodes(ctx, in, impls, in.Verifier, in.Aggregator)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to launch CL nodes: %w", err)
-	}
-
-	// Extract only CL-mode NOP aliases for JD/client operations.
-	// Standalone NOPs don't have CL nodes and don't need JD registration.
-	clModeNopAliases := make([]string, 0)
-	if in.EnvironmentTopology != nil && in.EnvironmentTopology.NOPTopology != nil {
-		for _, nop := range in.EnvironmentTopology.NOPTopology.NOPs {
-			if nop.GetMode() == ccvshared.NOPModeCL {
-				clModeNopAliases = append(clModeNopAliases, nop.Alias)
-			}
-		}
-	} else {
-		L.Warn().Msg("No environment topology defined, skipping NOP alias extraction")
-	}
-
-	clientLookup, err := jobs.NewNodeSetClientLookup(in.NodeSets, clModeNopAliases)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to create NodeSet client lookup: %w", err)
-	}
-
 	if in.JDInfra == nil {
 		return nil, nil, fmt.Errorf("JD infrastructure was not started by Phase 1 jd component")
 	}
 	jdInfra := in.JDInfra
-
-	if clientLookup != nil {
-		if err := jobs.RegisterNodesWithJD(ctx, jdInfra, clientLookup, clModeNopAliases); err != nil {
-			return nil, nil, fmt.Errorf("failed to register nodes with JD: %w", err)
-		}
-		chainIDs := make([]string, len(in.Blockchains))
-		for i, bc := range in.Blockchains {
-			chainIDs[i] = bc.ChainID
-		}
-		if err := jobs.ConnectNodesToJD(ctx, jdInfra, clientLookup, chainIDs); err != nil {
-			return nil, nil, fmt.Errorf("failed to connect nodes to JD: %w", err)
-		}
-	}
 
 	_, err = launchStandaloneVerifiers(in, blockchainOutputs, jdInfra)
 	if err != nil {
@@ -193,7 +141,6 @@ func (l *legacyComponent) RunPhase2(
 	return map[string]any{
 		"verifiers":                  in.Verifier,
 		"_aggregators_with_creds":    in.Aggregator,
-		"_cl_client_lookup":          clientLookup,
 		"shared_tls_certs":           sharedTLSCerts,
 		"_cfg":                       in,
 		"_cldf":                      &in.CLDF,
@@ -251,12 +198,6 @@ func (l *legacyComponent) RunPhase4(
 	// propose job specs to the correct JD node IDs.
 	if execs, ok := priorOutputs["executor"].([]*executorsvc.Input); ok {
 		in.Executor = execs
-	}
-
-	// Restore the CL client lookup from Phase 2 into the in-memory Cfg so that
-	// launchGenericServices and runPhasedEnvironmentFinish can reference CL nodes.
-	if clientLookup, ok := priorOutputs["_cl_client_lookup"].(*jobs.NodeSetClientLookup); ok {
-		in.ClientLookup = clientLookup
 	}
 
 	if err := launchGenericServices(ctx, in, e, blockchainOutputs); err != nil {

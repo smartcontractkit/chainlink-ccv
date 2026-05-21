@@ -105,11 +105,6 @@ func executeJobProposalEffects(ctx context.Context, effects []devenvruntime.JobP
 		}
 	}
 
-	if cfg, ok := accumulated[legacyCfgKey].(*Cfg); ok && cfg != nil && cfg.ClientLookup != nil {
-		if err := jobs.AcceptPendingJobs(ctx, cfg.ClientLookup); err != nil {
-			return fmt.Errorf("accepting pending jobs: %w", err)
-		}
-	}
 	if e, ok := accumulated["_env"].(*deployment.Environment); ok && e != nil {
 		if err := jobs.SyncAndVerifyJobProposals(e); err != nil {
 			return fmt.Errorf("syncing job proposals: %w", err)
