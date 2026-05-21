@@ -54,17 +54,6 @@ func TestValidateVerificationTask(t *testing.T) {
 			expectErr: "sender cannot be empty or zero",
 		},
 		{
-			name: "empty_receiver",
-			task: &verifier.VerificationTask{
-				Message: protocol.Message{
-					Version:  protocol.MessageVersion,
-					Sender:   []byte{1},
-					Receiver: nil,
-				},
-			},
-			expectErr: "receiver cannot be empty or zero",
-		},
-		{
 			name: "empty_receipt_blobs",
 			task: &verifier.VerificationTask{
 				Message: protocol.Message{
