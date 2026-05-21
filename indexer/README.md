@@ -1,4 +1,7 @@
 # Indexer Service
+
+For tracing a message through aggregator discovery and token verifier fetches, see [docs/debugging.md](docs/debugging.md).
+
 Build dev image (hot-reload)
 ```
 just build-dev

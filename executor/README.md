@@ -1,4 +1,7 @@
 # Executor Service
+
+For tracing a message from indexer discovery through on-chain execution, see [docs/debugging.md](docs/debugging.md).
+
 Build dev image (hot-reload)
 ```
 just build-dev

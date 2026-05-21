@@ -1,4 +1,7 @@
 # Aggregator Service
+
+For tracing a message through write → quorum → aggregated report, see [docs/debugging.md](docs/debugging.md).
+
 Build dev image (hot-reload)
 ```
 just build-dev

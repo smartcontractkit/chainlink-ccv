@@ -22,7 +22,18 @@ just tests
 ## Local Dev Environment
 Follow the [README](./build/devenv/README.md)
 
+## Debugging guides
 
+**Start here for a full message trace:** [End-to-end message debugging](./docs/end-to-end-debugging.md) — happy-path anchors per pipeline stage and what to search when each anchor is missing.
+
+Per-service references (grep patterns, log tables, DB queries):
+
+| Stage | Guide |
+|-------|--------|
+| Verifier | [verifier/docs/debugging.md](./verifier/docs/debugging.md) — Source discovery, verification, and storage-writer |
+| Aggregator | [aggregator/docs/debugging.md](./aggregator/docs/debugging.md) — Committee signatures, quorum, aggregated reports |
+| Indexer | [indexer/docs/debugging.md](./indexer/docs/debugging.md) — Aggregator discovery and token verifier fetches |
+| Executor | [executor/docs/debugging.md](./executor/docs/debugging.md) — Indexer CCV data and on-chain execution |
 
 ### Glossary
 - CCV: Cross chain verifier comprising two onchain Verifier components and an offchain Verifier component which exposes VerifierResults (usually containing some form of authentication, like signatures/zkps etc.) from its offchain component to be passed to its onchain component.
