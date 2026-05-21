@@ -28,7 +28,7 @@ import (
 const (
 	DefaultVerifierName    = "verifier"
 	DefaultVerifierDBName  = "verifier-db"
-	DefaultVerifierImage   = "verifier:dev"
+	DefaultVerifierImage   = "verifier:latest"
 	DefaultVerifierPort    = 8100
 	DefaultVerifierPortTCP = "8100/tcp"
 	DefaultVerifierDBPort  = 8432
