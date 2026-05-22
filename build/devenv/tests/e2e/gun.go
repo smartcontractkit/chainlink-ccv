@@ -41,7 +41,7 @@ type NonceKey struct {
 }
 
 // Compile time interface conformance check.
-var _ load.LoadGun = &EVMTXGun{}
+var _ load.LoadGun = (*EVMTXGun)(nil)
 
 type EVMTXGun struct {
 	cfg             *ccv.Cfg

@@ -39,15 +39,20 @@ func AssertMessagesAsync(vc VerificationContext, gun LoadGun, overallTimeout tim
 	go func() {
 		defer cancelVerify()
 
+		logTimeout := sync.OnceFunc(func() {
+			vc.T.Logf("Overall verification timeout reached, stopping new verifications")
+		})
+
 		for sentMsg := range gun.SentMessages() {
 			select {
 			case <-verifyCtx.Done():
-				vc.T.Logf("Overall verification timeout reached, stopping new verifications")
-				return
+				// Log once and keep draining to avoid blocking the gun's producer goroutine.
+				logTimeout()
+				continue
 			default:
 			}
 
-			msgIDHex := hex.EncodeToString(sentMsg.MessageID[:])
+			msgIDHex := "0x" + hex.EncodeToString(sentMsg.MessageID[:])
 			totalSent.Add(1)
 			sentMessages.Store(sentMsg.SeqNo, msgIDHex)
 
@@ -55,7 +60,7 @@ func AssertMessagesAsync(vc VerificationContext, gun LoadGun, overallTimeout tim
 			go func(msg SentMessage) {
 				defer wg.Done()
 
-				msgIDHex := hex.EncodeToString(msg.MessageID[:])
+				msgIDHex := "0x" + hex.EncodeToString(msg.MessageID[:])
 
 				if _, ok := vc.Impl[msg.ChainPair.Dest]; !ok {
 					vc.T.Logf("No implementation available to verify message %d", msg.SeqNo)
@@ -85,7 +90,9 @@ func AssertMessagesAsync(vc VerificationContext, gun LoadGun, overallTimeout tim
 				totalReceived.Add(1)
 				receivedMessages.Store(msg.SeqNo, msgIDHex)
 
-				metricsData.Store(msg.SeqNo, metrics.MessageMetrics{
+				// Keyed by messageID (globally unique) rather than seqNo (per-lane) to avoid
+				// collisions if the gun sends across multiple source→dest lanes.
+				metricsData.Store(msgIDHex, metrics.MessageMetrics{
 					SeqNo:           msg.SeqNo,
 					MessageID:       msgIDHex,
 					SourceChain:     msg.ChainPair.Src,
