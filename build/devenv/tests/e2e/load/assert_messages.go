@@ -148,8 +148,8 @@ func AssertMessagesAsync(vc VerificationContext, gun LoadGun, overallTimeout tim
 		}
 
 		notVerified := totals.Sent - totals.Received
-		vc.T.Logf("Verification complete - Sent: %d, ReachedVerifier: %d, Verified: %d, Aggregated: %d, Indexed: %d, ReachedExecutor: %d, SentToChain: %d, Received: %d, Not Received: %d",
-			totals.Sent, totals.ReachedVerifier, totals.Verified, totals.Aggregated, totals.Indexed, totals.ReachedExecutor, totals.SentToChainInExecutor, totals.Received, notVerified)
+		vc.T.Logf("Verification complete - Sent: %d, Received: %d, Not Received: %d",
+			totals.Sent, totals.Received, notVerified)
 
 		return datum, totals
 	}
