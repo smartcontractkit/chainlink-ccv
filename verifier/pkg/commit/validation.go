@@ -22,7 +22,7 @@ func ValidateVerificationTask(verificationTask *verifier.VerificationTask) error
 		return fmt.Errorf("sender cannot be empty or zero")
 	}
 
-	if len(message.Receiver) == 0 {
+	if message.Receiver.IsEmpty() {
 		return fmt.Errorf("receiver cannot be empty")
 	}
 
