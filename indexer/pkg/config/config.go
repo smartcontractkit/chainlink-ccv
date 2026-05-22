@@ -56,6 +56,10 @@ type SchedulerConfig struct {
 	BaseDelay int `toml:"BaseDelay"`
 	// MaxDelay defines the maximum number of milliseconds to wait before retrying the message.
 	MaxDelay int `toml:"MaxDelay"`
+	// MaxHeapSize is the maximum number of delayed tasks the scheduler heap may hold at once.
+	// Schedule blocks until a slot is free; TrySchedule returns ErrSchedulerFull immediately.
+	// 0 means unbounded.
+	MaxHeapSize int `toml:"MaxHeapSize"`
 }
 
 type PoolConfig struct {

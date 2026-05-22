@@ -443,7 +443,7 @@ func TestPool_HydratesProcessingTasksOnStart(t *testing.T) {
 	defer cancel()
 
 	// Collect tasks from Ready() concurrently — hydrateFromStorage blocks on each send
-	// to the scheduler's unbuffered-for-2 ready channel, so a consumer must be running.
+	// to the scheduler's ready channel (buffered 1), so a consumer must be running.
 	received := make(chan *Task, 2)
 	go func() {
 		for {

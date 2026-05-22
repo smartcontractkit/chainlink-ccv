@@ -99,8 +99,13 @@ func (p *Pool) hydrateFromStorage(ctx context.Context) error {
 
 		total += len(messages)
 		for _, msg := range messages {
+			msgID, err := msg.Message.MessageID()
+			if err != nil {
+				p.logger.Errorw("Failed to compute message ID for processing message, skipping", "error", err)
+				continue
+			}
 			vr := protocol.VerifierResult{
-				MessageID:           msg.Message.MustMessageID(),
+				MessageID:           msgID,
 				Message:             msg.Message,
 				MessageCCVAddresses: msg.MessageCCVAddresses,
 			}
