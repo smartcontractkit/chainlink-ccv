@@ -19,11 +19,8 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
 	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
-	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/committeeverifier"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/timing"
 	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
-	ccvadapters "github.com/smartcontractkit/chainlink-ccv/deployment/adapters"
-	ccvchangesets "github.com/smartcontractkit/chainlink-ccv/deployment/changesets"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
@@ -87,9 +84,7 @@ func (p *component) RunPhase3(
 			useLegacyConfigureLane = v
 		}
 	}
-	verifiers, _ := priorOutputs["verifiers"].([]*committeeverifier.Input)
 	aggregators, _ := priorOutputs["_aggregators_with_creds"].([]*services.AggregatorInput)
-	sharedTLSCerts, _ := priorOutputs["shared_tls_certs"].(*services.TLSCertPaths)
 
 	timeTrack := timing.New(p.lggr)
 	ctx = p.lggr.WithContext(ctx)
@@ -119,7 +114,7 @@ func (p *component) RunPhase3(
 	}
 	p.lggr.Info().Any("Selectors", selectors).Msg("Deploying for chain selectors")
 
-	topology := ccdeploy.BuildEnvironmentTopology(envTopology, verifiers, e)
+	topology := ccdeploy.BuildEnvironmentTopology(envTopology, nil, e)
 	if topology == nil {
 		return nil, nil, fmt.Errorf("failed to build environment topology")
 	}
@@ -212,33 +207,9 @@ func (p *component) RunPhase3(
 
 	timeTrack.Record("[contracts] deployed")
 
-	for _, aggregatorInput := range aggregators {
-		aggregatorInput.SharedTLSCerts = sharedTLSCerts
-
-		instanceName := aggregatorInput.InstanceName()
-		committee, ok := topology.NOPTopology.Committees[aggregatorInput.CommitteeName]
-		if !ok {
-			return nil, nil, fmt.Errorf("committee %q not found in topology", aggregatorInput.CommitteeName)
-		}
-		cs := ccvchangesets.GenerateAggregatorConfig(ccvadapters.GetRegistry())
-		output, err := cs.Apply(*e, ccvchangesets.GenerateAggregatorConfigInput{
-			ServiceIdentifier:  instanceName + "-aggregator",
-			CommitteeQualifier: aggregatorInput.CommitteeName,
-			ChainSelectors:     ccvchangesets.CommitteeChainSelectorsFromTopology(committee),
-		})
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to generate aggregator config for %s (committee %s): %w", instanceName, aggregatorInput.CommitteeName, err)
-		}
-
-		aggCfg, err := ccvdeployment.GetAggregatorConfig(output.DataStore.Seal(), instanceName+"-aggregator")
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to get aggregator config from output: %w", err)
-		}
-		aggregatorInput.GeneratedCommittee = aggCfg
-		e.DataStore = output.DataStore.Seal()
-		// Aggregator container launch is handled by the CommitteeCCV Phase 4 component,
-		// which reads "aggregators" from the phase snapshot and calls services.NewAggregator.
-	}
+	// Aggregator config generation (GenerateAggregatorConfig) and container launch are handled
+	// by the CommitteeCCV Phase 4 component, which also performs HMAC credential generation,
+	// verifier launch, and JD registration before starting aggregator containers.
 
 	// Finalize CLDF: snapshot env metadata and print deployed addresses.
 	envMetadata, err := e.DataStore.EnvMetadata().Get()

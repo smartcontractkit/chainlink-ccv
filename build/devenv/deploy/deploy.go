@@ -795,6 +795,14 @@ func enrichEnvironmentTopology(cfg *ccvdeployment.EnvironmentTopology, verifiers
 	}
 }
 
+// EnrichTopologyWithVerifiers enriches an existing topology in-place with signer addresses
+// derived from verifier bootstrap keys. Call this after verifiers are launched and their
+// Out.BootstrapKeys are populated. The topology pointer is mutated directly so that other
+// Phase 4 components reading the same pointer see the updated signer addresses.
+func EnrichTopologyWithVerifiers(topology *ccvdeployment.EnvironmentTopology, verifiers []*committeeverifier.Input) {
+	enrichEnvironmentTopology(topology, verifiers)
+}
+
 // BuildEnvironmentTopology creates a copy of the EnvironmentTopology, enriches it with signer
 // addresses and fee aggregator fallbacks, and returns it. This is the single source of truth
 // used by both executor and verifier changesets.
