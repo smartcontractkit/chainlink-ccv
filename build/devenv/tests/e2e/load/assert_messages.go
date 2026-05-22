@@ -44,6 +44,11 @@ func AssertMessagesAsync(vc VerificationContext, gun LoadGun, overallTimeout tim
 		})
 
 		for sentMsg := range gun.SentMessages() {
+			// Always record sent messages for accurate totals, even after timeout.
+			msgIDHex := "0x" + hex.EncodeToString(sentMsg.MessageID[:])
+			totalSent.Add(1)
+			sentMessages.Store(sentMsg.SeqNo, msgIDHex)
+
 			select {
 			case <-verifyCtx.Done():
 				// Log once and keep draining to avoid blocking the gun's producer goroutine.
@@ -51,10 +56,6 @@ func AssertMessagesAsync(vc VerificationContext, gun LoadGun, overallTimeout tim
 				continue
 			default:
 			}
-
-			msgIDHex := "0x" + hex.EncodeToString(sentMsg.MessageID[:])
-			totalSent.Add(1)
-			sentMessages.Store(sentMsg.SeqNo, msgIDHex)
 
 			wg.Add(1)
 			go func(msg SentMessage) {
@@ -90,9 +91,7 @@ func AssertMessagesAsync(vc VerificationContext, gun LoadGun, overallTimeout tim
 				totalReceived.Add(1)
 				receivedMessages.Store(msg.SeqNo, msgIDHex)
 
-				// Keyed by messageID (globally unique) rather than seqNo (per-lane) to avoid
-				// collisions if the gun sends across multiple source→dest lanes.
-				metricsData.Store(msgIDHex, metrics.MessageMetrics{
+				metricsData.Store(msg.SeqNo, metrics.MessageMetrics{
 					SeqNo:           msg.SeqNo,
 					MessageID:       msgIDHex,
 					SourceChain:     msg.ChainPair.Src,
