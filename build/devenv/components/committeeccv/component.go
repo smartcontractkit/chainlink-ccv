@@ -8,11 +8,8 @@ import (
 	ccvadapters "github.com/smartcontractkit/chainlink-ccv/deployment/adapters"
 	ccvchangesets "github.com/smartcontractkit/chainlink-ccv/deployment/changesets"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
-	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 
-	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainreg"
 	ccdeploy "github.com/smartcontractkit/chainlink-ccv/build/devenv/deploy"
-	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
 	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/committeeverifier"
@@ -34,21 +31,18 @@ type component struct{}
 
 func (c *component) ValidateConfig(_ any) error { return nil }
 
-// RunPhase4 performs all CommitteeCCV setup that depends on Phase 3 contract outputs:
-//  1. Generates HMAC credentials for each aggregator (sets a partial agg.Out so verifiers
-//     can obtain their credentials before the full aggregator container is started).
-//  2. Assigns shared TLS certificates to each aggregator.
-//  3. Launches standalone verifier containers.
-//  4. Registers standalone verifiers with JD.
-//  5. Enriches the shared topology pointer with signer keys from verifier bootstrap keys.
-//  6. Generates aggregator committee configuration via changeset (sets agg.GeneratedCommittee).
-//  7. Launches full aggregator containers (sets agg.Out on the shared pointer).
+// RunPhase4 performs CommitteeCCV setup that depends on Phase 3 contract outputs:
+//  1. Assigns shared TLS certificates to each aggregator.
+//  2. Enriches the shared topology pointer with signer keys from verifier bootstrap keys
+//     (verifiers were already launched and registered with JD in Legacy Phase 2).
+//  3. Generates aggregator committee configuration via changeset (sets agg.GeneratedCommittee).
+//  4. Launches full aggregator containers (sets agg.Out on the shared pointer).
 //
 // Because priorOutputs is a shallow clone of the Phase 3 snapshot, all mutations to
-// *AggregatorInput, *committeeverifier.Input, and *EnvironmentTopology are visible to
-// later Phase 4 components (e.g. Indexer) and to Legacy Phase 4 via _cfg.
+// *AggregatorInput and *EnvironmentTopology are visible to later Phase 4 components
+// (e.g. Indexer) and to Legacy Phase 4 via _cfg.
 func (c *component) RunPhase4(
-	ctx context.Context,
+	_ context.Context,
 	_ map[string]any,
 	_ any,
 	priorOutputs map[string]any,
@@ -60,10 +54,6 @@ func (c *component) RunPhase4(
 
 	verifiers, _ := priorOutputs["verifiers"].([]*committeeverifier.Input)
 	sharedTLSCerts, _ := priorOutputs["shared_tls_certs"].(*services.TLSCertPaths)
-	jdInfra, ok := priorOutputs["jd"].(*jobs.JDInfrastructure)
-	if !ok || jdInfra == nil {
-		return nil, nil, fmt.Errorf("committeeccv: jd not found in phase outputs")
-	}
 	e, ok := priorOutputs["_env"].(*deployment.Environment)
 	if !ok || e == nil {
 		return nil, nil, fmt.Errorf("committeeccv: _env not found in phase outputs")
@@ -72,46 +62,23 @@ func (c *component) RunPhase4(
 	if !ok || topology == nil {
 		return nil, nil, fmt.Errorf("committeeccv: _topology not found in phase outputs")
 	}
-	blockchainOutputs, ok := priorOutputs["blockchainOutputs"].([]*blockchain.Output)
-	if !ok {
-		return nil, nil, fmt.Errorf("committeeccv: blockchainOutputs not found in phase outputs")
-	}
 
-	// Step 1 + 2: Generate HMAC creds and assign TLS certs for each aggregator.
-	// Set a partial agg.Out so that verifiers can read credentials before the full
-	// aggregator container exists.
+	// Step 1: Assign shared TLS certificates to each aggregator.
 	for _, agg := range aggregators {
 		if agg == nil {
 			continue
 		}
-		creds, err := agg.EnsureClientCredentials()
-		if err != nil {
-			return nil, nil, fmt.Errorf("committeeccv: HMAC credentials for aggregator %q: %w", agg.CommitteeName, err)
-		}
-		if agg.Out == nil {
-			agg.Out = &services.AggregatorOutput{}
-		}
-		agg.Out.ClientCredentials = creds
 		agg.SharedTLSCerts = sharedTLSCerts
 	}
 
-	// Step 3: Launch standalone verifier containers.
+	// Step 2: Enrich topology with verifier signer keys.
+	// Verifiers were launched and registered with JD in Legacy Phase 2, so their
+	// Out.BootstrapKeys are already populated.
 	if len(verifiers) > 0 {
-		modifiers := chainreg.GetRegistry().GetVerifierModifiers()
-		if err := committeeverifier.LaunchStandaloneVerifiers(verifiers, aggregators, blockchainOutputs, jdInfra, modifiers); err != nil {
-			return nil, nil, fmt.Errorf("committeeccv: launch verifiers: %w", err)
-		}
-
-		// Step 4: Register verifiers with JD.
-		if err := committeeverifier.RegisterStandaloneVerifiersWithJD(ctx, verifiers, jdInfra.OffchainClient); err != nil {
-			return nil, nil, fmt.Errorf("committeeccv: register verifiers with JD: %w", err)
-		}
-
-		// Step 5: Enrich shared topology pointer with signer keys.
 		ccdeploy.EnrichTopologyWithVerifiers(topology, verifiers)
 	}
 
-	// Step 6: Generate aggregator committee configuration.
+	// Step 3: Generate aggregator committee configuration.
 	for _, agg := range aggregators {
 		if agg == nil {
 			continue
@@ -138,7 +105,7 @@ func (c *component) RunPhase4(
 		e.DataStore = output.DataStore.Seal()
 	}
 
-	// Step 7: Launch full aggregator containers.
+	// Step 4: Launch full aggregator containers.
 	for _, agg := range aggregators {
 		if agg == nil {
 			continue

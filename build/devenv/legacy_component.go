@@ -80,6 +80,46 @@ func (l *legacyComponent) RunPhase2(
 		return nil, nil, fmt.Errorf("failed to expand HA configuration: %w", err)
 	}
 
+	blockchainOutputs := make([]*blockchain.Output, len(in.Blockchains))
+	for i, bc := range in.Blockchains {
+		if bc.Out == nil {
+			return nil, nil, fmt.Errorf("blockchain[%d] %q: phase 1 did not populate Out", i, bc.ContainerName)
+		}
+		blockchainOutputs[i] = bc.Out
+	}
+
+	// Generate HMAC credentials for all aggregators before launching them.
+	for _, agg := range in.Aggregator {
+		creds, cerr := agg.EnsureClientCredentials()
+		if cerr != nil {
+			return nil, nil, fmt.Errorf("failed to ensure client credentials for aggregator %s: %w", agg.CommitteeName, cerr)
+		}
+		if agg.Out == nil {
+			agg.Out = &services.AggregatorOutput{}
+		}
+		agg.Out.ClientCredentials = creds
+		for clientID, c := range creds {
+			Plog.Debug().
+				Str("aggregator", agg.CommitteeName).
+				Str("clientID", clientID).
+				Str("apiKey", c.APIKey[:8]+"...").
+				Msg("Generated aggregator credentials")
+		}
+	}
+
+	if in.JDInfra == nil {
+		return nil, nil, fmt.Errorf("JD infrastructure was not started by Phase 1 jd component")
+	}
+	jdInfra := in.JDInfra
+
+	_, err = launchStandaloneVerifiers(in, blockchainOutputs, jdInfra)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to launch standalone verifiers: %w", err)
+	}
+	if err := registerStandaloneVerifiersWithJD(ctx, in.Verifier, jdInfra.OffchainClient); err != nil {
+		return nil, nil, err
+	}
+
 	// Generate shared TLS certificates from aggregator hostnames. This depends
 	// only on container naming — not on deployed contract addresses — so it
 	// belongs here alongside other credential infrastructure.

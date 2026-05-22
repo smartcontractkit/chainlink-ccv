@@ -47,10 +47,12 @@ func NewPhasedEnvironment() (in *Cfg, err error) {
 		return nil, fmt.Errorf("runtime did not return a *Cfg")
 	}
 
-	// Collect indexer URLs from the "indexer" key published by the indexer
-	// Phase 4 component. This happens after all phases complete so the output
-	// is visible here even though Phase 4 siblings cannot see each other.
+	// Collect indexer outputs from the "indexer" key published by the indexer
+	// Phase 4 component. The component decodes its own inputs from TOML (new
+	// pointers), so cfg.Indexer still has the unstarted Legacy Phase 2 copies.
+	// Replace cfg.Indexer here so Store() persists the launched Out fields.
 	if indexers, ok := out["indexer"].([]*services.IndexerInput); ok {
+		cfg.Indexer = indexers
 		externalURLs := make([]string, 0, len(indexers))
 		internalURLs := make([]string, 0, len(indexers))
 		for _, idxIn := range indexers {

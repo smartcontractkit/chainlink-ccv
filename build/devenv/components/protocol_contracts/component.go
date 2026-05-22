@@ -19,6 +19,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
 	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/committeeverifier"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/timing"
 	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
@@ -84,6 +85,7 @@ func (p *component) RunPhase3(
 			useLegacyConfigureLane = v
 		}
 	}
+	verifiers, _ := priorOutputs["verifiers"].([]*committeeverifier.Input)
 	aggregators, _ := priorOutputs["_aggregators_with_creds"].([]*services.AggregatorInput)
 
 	timeTrack := timing.New(p.lggr)
@@ -114,7 +116,7 @@ func (p *component) RunPhase3(
 	}
 	p.lggr.Info().Any("Selectors", selectors).Msg("Deploying for chain selectors")
 
-	topology := ccdeploy.BuildEnvironmentTopology(envTopology, nil, e)
+	topology := ccdeploy.BuildEnvironmentTopology(envTopology, verifiers, e)
 	if topology == nil {
 		return nil, nil, fmt.Errorf("failed to build environment topology")
 	}
