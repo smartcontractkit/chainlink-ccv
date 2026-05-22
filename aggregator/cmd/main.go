@@ -92,7 +92,7 @@ func main() {
 				}
 				messageDisablementRulesDB = db
 				sqlxDB := sqlx.NewDb(db, "postgres")
-				store := postgres.NewDatabaseStorage(sqlxDB, cfg.Storage.PageSize, cfg.Storage.QueryTimeout, sugaredLggr)
+				store := postgres.NewDatabaseStorage(sqlxDB, cfg.Storage.PageSize, time.Duration(cfg.Storage.QueryTimeout), sugaredLggr)
 				messageDisablementRulesDeps = messagedisablementcli.Deps{
 					Logger: lggr,
 					Store:  store,

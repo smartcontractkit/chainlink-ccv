@@ -2,9 +2,12 @@ package config
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/smartcontractkit/chainlink-ccv/common"
 )
 
 func TestValidateMaxResponseBytes(t *testing.T) {
@@ -239,6 +242,86 @@ func validPostgresConfig() *PostgresConfig {
 		MaxIdleConnections:     5,
 		IdleInTxSessionTimeout: 60,
 		LockTimeout:            30,
+	}
+}
+
+func TestPostgresConfigValidate_ConnMaxLifetime(t *testing.T) {
+	tests := []struct {
+		name            string
+		connMaxLifetime common.Duration
+		wantErr         string
+		wantDefault     common.Duration
+	}{
+		{
+			name:        "zero defaults to 30min",
+			wantDefault: common.Duration(30 * time.Minute),
+		},
+		{
+			name:            "positive value is accepted",
+			connMaxLifetime: common.Duration(time.Hour),
+		},
+		{
+			name:            "negative value is rejected",
+			connMaxLifetime: -1,
+			wantErr:         "postgres conn_max_lifetime must be non-negative, got -1",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := validPostgresConfig()
+			cfg.ConnMaxLifetime = tt.connMaxLifetime
+			err := cfg.Validate()
+			if tt.wantErr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			if tt.wantDefault != 0 {
+				assert.Equal(t, tt.wantDefault, cfg.ConnMaxLifetime)
+			}
+		})
+	}
+}
+
+func TestPostgresConfigValidate_ConnMaxIdleTime(t *testing.T) {
+	tests := []struct {
+		name            string
+		connMaxIdleTime common.Duration
+		wantErr         string
+		wantDefault     common.Duration
+	}{
+		{
+			name:        "zero defaults to 5min",
+			wantDefault: common.Duration(5 * time.Minute),
+		},
+		{
+			name:            "positive value is accepted",
+			connMaxIdleTime: common.Duration(time.Hour),
+		},
+		{
+			name:            "negative value is rejected",
+			connMaxIdleTime: -1,
+			wantErr:         "postgres conn_max_idle_time must be non-negative, got -1",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := validPostgresConfig()
+			cfg.ConnMaxIdleTime = tt.connMaxIdleTime
+			err := cfg.Validate()
+			if tt.wantErr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			if tt.wantDefault != 0 {
+				assert.Equal(t, tt.wantDefault, cfg.ConnMaxIdleTime)
+			}
+		})
 	}
 }
 
