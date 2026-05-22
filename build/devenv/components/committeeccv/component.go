@@ -3,6 +3,7 @@ package committeeccv
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 
 	"github.com/pelletier/go-toml/v2"
 
@@ -10,9 +11,11 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainreg"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	ccdeploy "github.com/smartcontractkit/chainlink-ccv/build/devenv/deploy"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
 	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/committeeverifier"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/util"
 	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
 	ccvadapters "github.com/smartcontractkit/chainlink-ccv/deployment/adapters"
 	ccvchangesets "github.com/smartcontractkit/chainlink-ccv/deployment/changesets"
@@ -39,29 +42,43 @@ type component struct{}
 
 func (c *component) ValidateConfig(_ any) error { return nil }
 
-// RunPhase4 performs CommitteeCCV setup that depends on Phase 3 contract outputs:
-//  1. Assigns shared TLS certificates to each aggregator.
-//  2. Enriches the shared topology pointer with signer keys from verifier bootstrap keys
-//     (verifiers were already launched and registered with JD in Legacy Phase 2).
-//  3. Generates aggregator committee configuration via changeset (sets agg.GeneratedCommittee).
-//  4. Launches full aggregator containers (sets agg.Out on the shared pointer).
+// RunPhase3 performs the full CommitteeCCV setup:
+//  1. Generates HMAC client credentials for each aggregator.
+//  2. Launches standalone verifier containers and registers them with JD.
+//  3. Generates shared TLS certificates from aggregator container names.
+//  4. Assigns TLS certificates to aggregators and enriches the topology with verifier keys.
+//  5. Generates aggregator committee configuration via changeset.
+//  6. Launches full aggregator containers.
+//  7. Generates verifier job specs and emits JobProposalEffect for each standalone verifier.
 //
-// Because priorOutputs is a shallow clone of the Phase 3 snapshot, all mutations to
-// *AggregatorInput and *EnvironmentTopology are visible to later Phase 4 components
-// (e.g. Indexer) and to Legacy Phase 4 via _cfg.
-func (c *component) RunPhase4(
-	_ context.Context,
-	_ map[string]any,
-	_ any,
+// Outputs "aggregators", "verifiers", and "shared_tls_certs" for Phase 4 (Indexer) consumption.
+func (c *component) RunPhase3(
+	ctx context.Context,
+	globalConfig map[string]any,
+	componentConfig any,
 	priorOutputs map[string]any,
 ) (map[string]any, []devenvruntime.Effect, error) {
-	aggregators, ok := priorOutputs["aggregators"].([]*services.AggregatorInput)
-	if !ok || len(aggregators) == 0 {
+	aggregators, err := decodeAggregators(componentConfig)
+	if err != nil {
+		return nil, nil, err
+	}
+	verifiers, err := decodeVerifiers(globalConfig["verifier"])
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if len(aggregators) == 0 && len(verifiers) == 0 {
 		return map[string]any{}, nil, nil
 	}
 
-	verifiers, _ := priorOutputs["verifiers"].([]*committeeverifier.Input)
-	sharedTLSCerts, _ := priorOutputs["shared_tls_certs"].(*services.TLSCertPaths)
+	jdInfra, ok := priorOutputs["jd"].(*jobs.JDInfrastructure)
+	if !ok || jdInfra == nil {
+		return nil, nil, fmt.Errorf("committeeccv: jd not found in phase outputs")
+	}
+	blockchainOutputs, ok := priorOutputs["blockchainOutputs"].([]*ctfblockchain.Output)
+	if !ok {
+		return nil, nil, fmt.Errorf("committeeccv: blockchainOutputs not found in phase outputs")
+	}
 	e, ok := priorOutputs["_env"].(*deployment.Environment)
 	if !ok || e == nil {
 		return nil, nil, fmt.Errorf("committeeccv: _env not found in phase outputs")
@@ -74,12 +91,54 @@ func (c *component) RunPhase4(
 	if !ok {
 		return nil, nil, fmt.Errorf("committeeccv: _ds not found in phase outputs")
 	}
-	blockchainOutputs, ok := priorOutputs["blockchainOutputs"].([]*ctfblockchain.Output)
-	if !ok {
-		return nil, nil, fmt.Errorf("committeeccv: blockchainOutputs not found in phase outputs")
+
+	// Step 1: Generate HMAC client credentials for all aggregators before launching verifiers.
+	for _, agg := range aggregators {
+		if agg == nil {
+			continue
+		}
+		creds, cerr := agg.EnsureClientCredentials()
+		if cerr != nil {
+			return nil, nil, fmt.Errorf("committeeccv: failed to ensure client credentials for aggregator %s: %w", agg.CommitteeName, cerr)
+		}
+		if agg.Out == nil {
+			agg.Out = &services.AggregatorOutput{}
+		}
+		agg.Out.ClientCredentials = creds
 	}
 
-	// Step 1: Assign shared TLS certificates to each aggregator.
+	// Step 2: Launch standalone verifier containers (reads HMAC creds from agg.Out).
+	if err := committeeverifier.LaunchStandaloneVerifiers(
+		verifiers, aggregators, blockchainOutputs, jdInfra,
+		chainreg.GetRegistry().GetVerifierModifiers(),
+	); err != nil {
+		return nil, nil, fmt.Errorf("committeeccv: failed to launch standalone verifiers: %w", err)
+	}
+	if err := committeeverifier.RegisterStandaloneVerifiersWithJD(ctx, verifiers, jdInfra.OffchainClient); err != nil {
+		return nil, nil, fmt.Errorf("committeeccv: failed to register standalone verifiers with JD: %w", err)
+	}
+
+	// Step 3: Generate shared TLS certificates from aggregator container names.
+	var sharedTLSCerts *services.TLSCertPaths
+	if len(aggregators) > 0 {
+		var allHostnames []string
+		for _, agg := range aggregators {
+			if agg == nil {
+				continue
+			}
+			nginxName := fmt.Sprintf("%s-%s", agg.InstanceName(), services.AggregatorNginxContainerNameSuffix)
+			aggName := fmt.Sprintf("%s-%s", agg.InstanceName(), services.AggregatorContainerNameSuffix)
+			allHostnames = append(allHostnames, nginxName, aggName)
+		}
+		allHostnames = append(allHostnames, "localhost")
+		tlsCertDir := filepath.Join(util.CCVConfigDir(), "tls-shared")
+		sharedTLSCerts, err = services.GenerateTLSCertificates(allHostnames, tlsCertDir)
+		if err != nil {
+			return nil, nil, fmt.Errorf("committeeccv: failed to generate shared TLS certificates: %w", err)
+		}
+	}
+
+	// Step 4: Assign shared TLS certificates to each aggregator.
 	for _, agg := range aggregators {
 		if agg == nil {
 			continue
@@ -87,14 +146,12 @@ func (c *component) RunPhase4(
 		agg.SharedTLSCerts = sharedTLSCerts
 	}
 
-	// Step 2: Enrich topology with verifier signer keys.
-	// Verifiers were launched and registered with JD in Legacy Phase 2, so their
-	// Out.BootstrapKeys are already populated.
+	// Step 5: Enrich topology with verifier signer keys.
 	if len(verifiers) > 0 {
 		ccdeploy.EnrichTopologyWithVerifiers(topology, verifiers)
 	}
 
-	// Step 3: Generate aggregator committee configuration.
+	// Step 6: Generate aggregator committee configuration.
 	for _, agg := range aggregators {
 		if agg == nil {
 			continue
@@ -121,7 +178,7 @@ func (c *component) RunPhase4(
 		e.DataStore = output.DataStore.Seal()
 	}
 
-	// Step 4: Launch full aggregator containers.
+	// Step 7: Launch full aggregator containers.
 	for _, agg := range aggregators {
 		if agg == nil {
 			continue
@@ -133,13 +190,17 @@ func (c *component) RunPhase4(
 		agg.Out = out
 	}
 
-	// Step 5: Generate verifier job specs and emit job proposal effects.
+	// Step 8: Generate verifier job specs and emit job proposal effects.
 	effects, err := buildVerifierJobSpecEffects(e, verifiers, topology, sharedTLSCerts, blockchainOutputs, ds)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	return map[string]any{}, effects, nil
+	return map[string]any{
+		"aggregators":      aggregators,
+		"verifiers":        verifiers,
+		"shared_tls_certs": sharedTLSCerts,
+	}, effects, nil
 }
 
 type verifierJobSpec struct {
@@ -362,4 +423,41 @@ func buildVerifierJobSpecEffects(
 	}
 
 	return effects, nil
+}
+
+// decodeAggregators round-trips the raw TOML []any into []*services.AggregatorInput.
+func decodeAggregators(raw any) ([]*services.AggregatorInput, error) {
+	b, err := toml.Marshal(struct {
+		V any `toml:"aggregator"`
+	}{V: raw})
+	if err != nil {
+		return nil, fmt.Errorf("re-encoding aggregator config: %w", err)
+	}
+	var wrapper struct {
+		V []*services.AggregatorInput `toml:"aggregator"`
+	}
+	if err := toml.Unmarshal(b, &wrapper); err != nil {
+		return nil, fmt.Errorf("decoding aggregator config: %w", err)
+	}
+	return wrapper.V, nil
+}
+
+// decodeVerifiers round-trips the raw TOML []any into []*committeeverifier.Input.
+func decodeVerifiers(raw any) ([]*committeeverifier.Input, error) {
+	if raw == nil {
+		return nil, nil
+	}
+	b, err := toml.Marshal(struct {
+		V any `toml:"verifier"`
+	}{V: raw})
+	if err != nil {
+		return nil, fmt.Errorf("re-encoding verifier config: %w", err)
+	}
+	var wrapper struct {
+		V []*committeeverifier.Input `toml:"verifier"`
+	}
+	if err := toml.Unmarshal(b, &wrapper); err != nil {
+		return nil, fmt.Errorf("decoding verifier config: %w", err)
+	}
+	return wrapper.V, nil
 }

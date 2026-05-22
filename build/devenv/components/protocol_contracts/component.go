@@ -18,8 +18,6 @@ import (
 	ccdeploy "github.com/smartcontractkit/chainlink-ccv/build/devenv/deploy"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
 	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
-	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
-	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/committeeverifier"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/timing"
 	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
@@ -49,15 +47,15 @@ func (p *component) SetLogger(lggr zerolog.Logger) {
 
 func (p *component) ValidateConfig(_ any) error { return nil }
 
-// RunPhase3 deploys contracts, configures lanes, and generates aggregator/indexer
-// configs. Infrastructure work (CL nodes, JD registration, verifier launch,
-// credential generation) was completed by legacy RunPhase2.
+// RunPhase2 deploys contracts and configures lanes. Infrastructure services
+// (verifier launch, JD registration, credential generation) are handled by the
+// CommitteeCCV Phase 3 component, which runs after this.
 //
 // NOTE: DeployContractsForSelector currently deploys CommitteeVerifier
 // proxy/resolver and MockReceivers when the topology includes committees.
 // Extracting CommitteeVerifier deployment into a standalone component (using the
 // DeployCommitteeVerifier changeset) is tracked as a follow-up.
-func (p *component) RunPhase3(
+func (p *component) RunPhase2(
 	ctx context.Context,
 	globalConfig map[string]any,
 	componentConfig any,
@@ -85,9 +83,6 @@ func (p *component) RunPhase3(
 			useLegacyConfigureLane = v
 		}
 	}
-	verifiers, _ := priorOutputs["verifiers"].([]*committeeverifier.Input)
-	aggregators, _ := priorOutputs["_aggregators_with_creds"].([]*services.AggregatorInput)
-
 	timeTrack := timing.New(p.lggr)
 	ctx = p.lggr.WithContext(ctx)
 
@@ -116,7 +111,7 @@ func (p *component) RunPhase3(
 	}
 	p.lggr.Info().Any("Selectors", selectors).Msg("Deploying for chain selectors")
 
-	topology := ccdeploy.BuildEnvironmentTopology(envTopology, verifiers, e)
+	topology := ccdeploy.BuildEnvironmentTopology(envTopology, nil, e)
 	if topology == nil {
 		return nil, nil, fmt.Errorf("failed to build environment topology")
 	}
@@ -228,7 +223,6 @@ func (p *component) RunPhase3(
 	}
 
 	return map[string]any{
-		"aggregators": aggregators,
 		"_cldf":       cldf,
 		"_env":        e,
 		"_topology":   topology,

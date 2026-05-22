@@ -6,18 +6,17 @@ import (
 	"os"
 	"strings"
 
+	ccldf "github.com/smartcontractkit/chainlink-ccv/build/devenv/cldf"
 	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/committeeverifier"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/timing"
-	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
-	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 )
 
 // NewPhasedEnvironment creates a new CCIP CCV environment using the phased
 // component runtime. It loads the raw TOML config, hands control to the
-// runtime, and extracts the resulting *Cfg produced by the legacy fallback
-// component (see legacy_component.go).
-func NewPhasedEnvironment() (in *Cfg, err error) {
+// runtime, then reconstructs *Cfg from the loaded TOML and the runtime outputs.
+func NewPhasedEnvironment() (cfg *Cfg, err error) {
 	ctx := L.WithContext(context.Background())
 
 	configs := strings.Split(os.Getenv(EnvVarTestConfigs), ",")
@@ -29,20 +28,56 @@ func NewPhasedEnvironment() (in *Cfg, err error) {
 		return nil, fmt.Errorf("failed to load configuration: %w", err)
 	}
 
-	out, err := devenvruntime.NewEnvironmentWithRegistry(ctx, rawConfig, devenvruntime.GlobalRegistry(), newDevenvEffectExecutor(), L)
+	// out is captured by the defer; its contents are available when the defer fires.
+	var out map[string]any
+	defer func() {
+		var elapsed float64
+		if timeTrack, ok := out["_time_track"].(*timing.TimeTracker); ok && timeTrack != nil {
+			timeTrack.Print()
+			elapsed = timeTrack.SinceStart().Seconds()
+		}
+		dxTracker := initDxTracker()
+		sendStartupMetrics(dxTracker, err, elapsed)
+	}()
+
+	out, err = devenvruntime.NewEnvironmentWithRegistry(ctx, rawConfig, devenvruntime.GlobalRegistry(), newDevenvEffectExecutor(), L)
 	if err != nil {
 		return nil, err
 	}
 
-	cfg, ok := out[legacyCfgKey].(*Cfg)
-	if !ok {
-		return nil, fmt.Errorf("runtime did not return a *Cfg")
+	cfg, err = Load[Cfg](configs)
+	if err != nil {
+		return nil, fmt.Errorf("loading config for output: %w", err)
 	}
 
-	// Collect indexer outputs from the "indexer" key published by the indexer
-	// Phase 4 component. The component decodes its own inputs from TOML (new
-	// pointers), so cfg.Indexer still has the unstarted Legacy Phase 2 copies.
-	// Replace cfg.Indexer here so Store() persists the launched Out fields.
+	// Sync CLDF state (addresses + env metadata) from protocol_contracts Phase 2.
+	if cldf, ok := out["_cldf"].(*ccldf.CLDF); ok && cldf != nil {
+		cfg.CLDF.Addresses = cldf.Addresses
+		cfg.CLDF.EnvMetadata = cldf.EnvMetadata
+	}
+
+	// Replace cfg.Aggregator with started inputs from the committeeccv component
+	// so Store() persists the launched Out fields and aggregator endpoint maps.
+	if aggregators, ok := out["aggregators"].([]*services.AggregatorInput); ok {
+		cfg.Aggregator = aggregators
+		cfg.AggregatorEndpoints = make(map[string]string)
+		cfg.AggregatorCACertFiles = make(map[string]string)
+		for _, agg := range aggregators {
+			if agg.Out != nil {
+				cfg.AggregatorEndpoints[agg.CommitteeName] = agg.Out.ExternalHTTPSUrl
+				if agg.Out.TLSCACertFile != "" {
+					cfg.AggregatorCACertFiles[agg.CommitteeName] = agg.Out.TLSCACertFile
+				}
+			}
+		}
+	}
+
+	// Replace cfg.Verifier with started inputs from the committeeccv component.
+	if verifiers, ok := out["verifiers"].([]*committeeverifier.Input); ok {
+		cfg.Verifier = verifiers
+	}
+
+	// Collect indexer outputs from the indexer Phase 4 component.
 	if indexers, ok := out["indexer"].([]*services.IndexerInput); ok {
 		cfg.Indexer = indexers
 		externalURLs := make([]string, 0, len(indexers))
@@ -57,42 +92,10 @@ func NewPhasedEnvironment() (in *Cfg, err error) {
 		cfg.IndexerInternalEndpoints = internalURLs
 	}
 
-	// Replace cfg.TokenVerifier with the started inputs from the tokenverifier
-	// component so Store() persists the launched Out fields.
+	// Replace cfg.TokenVerifier with started inputs from the tokenverifier component.
 	if tokenVerifiers, ok := out["token_verifier"].([]*services.TokenVerifierInput); ok {
 		cfg.TokenVerifier = tokenVerifiers
 	}
 
 	return cfg, Store(cfg)
-}
-
-// runPhasedEnvironmentFinish collects aggregator endpoints, seals the datastore,
-// and emits startup metrics. Job spec generation and proposal are now handled by
-// the executor and committeeccv Phase 4 components.
-func runPhasedEnvironmentFinish(
-	in *Cfg,
-	e *deployment.Environment,
-	ds datastore.MutableDataStore,
-	timeTrack *timing.TimeTracker,
-) (err error) {
-	defer func() {
-		dxTracker := initDxTracker()
-		sendStartupMetrics(dxTracker, err, timeTrack.SinceStart().Seconds())
-	}()
-
-	// Collect aggregator endpoints from Out fields populated by the CommitteeCCV Phase 4 component.
-	in.AggregatorEndpoints = make(map[string]string)
-	in.AggregatorCACertFiles = make(map[string]string)
-	for _, agg := range in.Aggregator {
-		if agg.Out != nil {
-			in.AggregatorEndpoints[agg.CommitteeName] = agg.Out.ExternalHTTPSUrl
-			if agg.Out.TLSCACertFile != "" {
-				in.AggregatorCACertFiles[agg.CommitteeName] = agg.Out.TLSCACertFile
-			}
-		}
-	}
-
-	e.DataStore = ds.Seal()
-	timeTrack.Print()
-	return nil
 }
