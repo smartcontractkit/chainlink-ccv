@@ -6,19 +6,11 @@ import (
 	"os"
 	"strings"
 
-	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainreg"
-	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
-	committeeverifier "github.com/smartcontractkit/chainlink-ccv/build/devenv/services/committeeverifier"
-	executorsvc "github.com/smartcontractkit/chainlink-ccv/build/devenv/services/executor"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/timing"
-	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
-	ccvadapters "github.com/smartcontractkit/chainlink-ccv/deployment/adapters"
-	ccvchangesets "github.com/smartcontractkit/chainlink-ccv/deployment/changesets"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
-	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
 
 // NewPhasedEnvironment creates a new CCIP CCV environment using the phased
@@ -65,23 +57,24 @@ func NewPhasedEnvironment() (in *Cfg, err error) {
 		cfg.IndexerInternalEndpoints = internalURLs
 	}
 
+	// Replace cfg.TokenVerifier with the started inputs from the tokenverifier
+	// component so Store() persists the launched Out fields.
+	if tokenVerifiers, ok := out["token_verifier"].([]*services.TokenVerifierInput); ok {
+		cfg.TokenVerifier = tokenVerifiers
+	}
+
 	return cfg, Store(cfg)
 }
 
-// runPhasedEnvironmentFinish runs from executor job-spec generation through job
-// proposal acceptance.
+// runPhasedEnvironmentFinish collects aggregator endpoints, seals the datastore,
+// and emits startup metrics. Job spec generation and proposal are now handled by
+// the executor and committeeccv Phase 4 components.
 func runPhasedEnvironmentFinish(
-	ctx context.Context,
 	in *Cfg,
 	e *deployment.Environment,
-	topology *ccvdeployment.EnvironmentTopology,
-	sharedTLSCerts *services.TLSCertPaths,
-	blockchainOutputs []*blockchain.Output,
-	selectors []uint64,
 	ds datastore.MutableDataStore,
-	fakeOut *services.FakeOutput,
 	timeTrack *timing.TimeTracker,
-) (cfg *Cfg, effects []devenvruntime.Effect, err error) {
+) (err error) {
 	defer func() {
 		dxTracker := initDxTracker()
 		sendStartupMetrics(dxTracker, err, timeTrack.SinceStart().Seconds())
@@ -99,177 +92,7 @@ func runPhasedEnvironmentFinish(
 		}
 	}
 
-	/////////////////////////////
-	// START: Launch executors //
-	/////////////////////////////
-
-	executorJobSpecs, err := generateExecutorJobSpecs(e, in, topology, ds)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	for _, exec := range in.Executor {
-		if exec == nil || exec.Mode != services.Standalone {
-			continue
-		}
-		if exec.Out == nil || exec.Out.JDNodeID == "" {
-			continue
-		}
-		reg, loaderErr := chainreg.GetRegistry().Get(exec.ChainFamily)
-		if loaderErr != nil {
-			return nil, nil, fmt.Errorf("chain registration for executor %s: %w", exec.ContainerName, loaderErr)
-		}
-		if reg.ChainConfigLoader == nil {
-			return nil, nil, fmt.Errorf("chain config loader for family %s not found", exec.ChainFamily)
-		}
-		blockchainInfos, loaderErr := reg.ChainConfigLoader(blockchainOutputs)
-		if loaderErr != nil {
-			return nil, nil, fmt.Errorf("loading chain config for executor %s: %w", exec.ContainerName, loaderErr)
-		}
-		baseSpec, ok := executorJobSpecs[exec.ContainerName]
-		if !ok {
-			return nil, nil, fmt.Errorf("no job spec found for executor %s", exec.ContainerName)
-		}
-		jobSpec, specErr := executorsvc.RebuildExecutorJobSpecWithBlockchainInfos(baseSpec, blockchainInfos)
-		if specErr != nil {
-			return nil, nil, fmt.Errorf("building job spec for executor %s: %w", exec.ContainerName, specErr)
-		}
-		effects = append(effects, devenvruntime.JobProposalEffect{
-			NOPAlias: exec.NOPAlias,
-			NodeID:   exec.Out.JDNodeID,
-			JobSpec:  jobSpec,
-		})
-	}
-
-	///////////////////////////
-	// END: Launch executors //
-	///////////////////////////
-
-	/////////////////////////////
-	// START: Launch verifiers //
-	/////////////////////////////
-
-	verifierJobSpecs, err := generateVerifierJobSpecs(e, in, topology, sharedTLSCerts, ds)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	for _, ver := range in.Verifier {
-		if ver.Mode != services.Standalone {
-			continue
-		}
-		if ver.Out == nil || ver.Out.JDNodeID == "" {
-			return nil, nil, fmt.Errorf("verifier %s not registered with JD (missing JDNodeID)", ver.NOPAlias)
-		}
-		specs := verifierJobSpecs[ver.NOPAlias]
-		if len(specs) == 0 {
-			continue
-		}
-		baseSpec := specs[ver.NodeIndex%len(specs)]
-		reg, loaderErr := chainreg.GetRegistry().Get(ver.ChainFamily)
-		if loaderErr != nil {
-			return nil, nil, fmt.Errorf("chain registration for verifier %s: %w", ver.NOPAlias, loaderErr)
-		}
-		if reg.ChainConfigLoader == nil {
-			return nil, nil, fmt.Errorf("chain config loader for family %s not found", ver.ChainFamily)
-		}
-		blockchainInfos, loaderErr := reg.ChainConfigLoader(blockchainOutputs)
-		if loaderErr != nil {
-			return nil, nil, fmt.Errorf("loading chain config for verifier %s: %w", ver.NOPAlias, loaderErr)
-		}
-		jobSpec, specErr := committeeverifier.RebuildVerifierJobSpecWithBlockchainInfos(baseSpec, blockchainInfos)
-		if specErr != nil {
-			return nil, nil, fmt.Errorf("building job spec for verifier %s: %w", ver.NOPAlias, specErr)
-		}
-		effects = append(effects, devenvruntime.JobProposalEffect{
-			NOPAlias: ver.NOPAlias,
-			NodeID:   ver.Out.JDNodeID,
-			JobSpec:  jobSpec,
-		})
-	}
-
-	/////////////////////////////
-	// END: Launch verifiers //
-	/////////////////////////////
-
-	///////////////////////////////////
-	// START: Launch token verifiers //
-	///////////////////////////////////
-
-	// Generate token verifier configs using changeset (on-chain state as source of truth)
-	for i, tokenVerifierInput := range in.TokenVerifier {
-		if tokenVerifierInput == nil {
-			continue
-		}
-
-		if fakeOut == nil {
-			return nil, nil, fmt.Errorf("fake data provider is required for token verifiers to provide attestation API endpoints, but it was not created successfully")
-		}
-
-		template, err := tokenVerifierInput.GenerateTemplateConfig()
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to generate template config for token verifier: %w", err)
-		}
-
-		// Use changeset to generate token verifier config from on-chain state
-		cs := ccvchangesets.GenerateTokenVerifierConfig(ccvadapters.GetRegistry())
-		output, err := cs.Apply(*e, ccvchangesets.GenerateTokenVerifierConfigInput{
-			ServiceIdentifier: "TokenVerifier",
-			ChainSelectors:    selectors,
-			PyroscopeURL:      template.PyroscopeURL,
-			Monitoring: ccvdeployment.MonitoringConfig{
-				Enabled: template.Monitoring.Enabled,
-				Type:    template.Monitoring.Type,
-				Beholder: ccvdeployment.BeholderConfig{
-					InsecureConnection:       template.Monitoring.Beholder.InsecureConnection,
-					CACertFile:               template.Monitoring.Beholder.CACertFile,
-					OtelExporterGRPCEndpoint: template.Monitoring.Beholder.OtelExporterGRPCEndpoint,
-					OtelExporterHTTPEndpoint: template.Monitoring.Beholder.OtelExporterHTTPEndpoint,
-					LogStreamingEnabled:      template.Monitoring.Beholder.LogStreamingEnabled,
-					MetricReaderInterval:     template.Monitoring.Beholder.MetricReaderInterval,
-					TraceSampleRatio:         template.Monitoring.Beholder.TraceSampleRatio,
-					TraceBatchTimeout:        template.Monitoring.Beholder.TraceBatchTimeout,
-				},
-			},
-			Lombard: ccvchangesets.LombardConfigInput{
-				VerifierID:     "LombardVerifier",
-				Qualifier:      devenvcommon.LombardContractsQualifier,
-				AttestationAPI: fakeOut.InternalHTTPURL + "/lombard",
-			},
-			CCTP: ccvchangesets.CCTPConfigInput{
-				VerifierID:     "CCTPVerifier",
-				AttestationAPI: fakeOut.InternalHTTPURL + "/cctp",
-			},
-		})
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to generate token verifier config: %w", err)
-		}
-
-		// Get generated config from output datastore
-		tokenVerifierCfg, err := ccvdeployment.GetTokenVerifierConfig(
-			output.DataStore.Seal(), "TokenVerifier",
-		)
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to get token verifier config from output: %w", err)
-		}
-		in.TokenVerifier[i].GeneratedConfig = tokenVerifierCfg
-		e.DataStore = output.DataStore.Seal()
-	}
-
-	if fakeOut != nil {
-		_, err = launchStandaloneTokenVerifiers(in, blockchainOutputs)
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to create standalone token verifiers: %w", err)
-		}
-	}
-
-	///////////////////////////////////
-	// END: Launch token verifiers //
-	///////////////////////////////////
-
 	e.DataStore = ds.Seal()
-
 	timeTrack.Print()
-
-	return in, effects, nil
+	return nil
 }

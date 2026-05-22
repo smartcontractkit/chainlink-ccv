@@ -14,7 +14,6 @@ import (
 	executorsvc "github.com/smartcontractkit/chainlink-ccv/build/devenv/services/executor"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/timing"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/util"
-	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
@@ -164,26 +163,13 @@ func (l *legacyComponent) RunPhase4(
 	if !ok {
 		return nil, nil, fmt.Errorf("phase 3 did not produce *deployment.Environment under \"_env\"")
 	}
-	topology, ok := priorOutputs["_topology"].(*ccvdeployment.EnvironmentTopology)
-	if !ok {
-		return nil, nil, fmt.Errorf("phase 3 did not produce *EnvironmentTopology under \"_topology\"")
-	}
-	sharedTLSCerts, _ := priorOutputs["shared_tls_certs"].(*services.TLSCertPaths) // optional: only present when TLS is configured
 	blockchainOutputs, ok := priorOutputs["blockchainOutputs"].([]*blockchain.Output)
 	if !ok {
 		return nil, nil, fmt.Errorf("phase 1 did not produce []*blockchain.Output under \"blockchainOutputs\"")
 	}
-	selectors, ok := priorOutputs["_selectors"].([]uint64)
-	if !ok {
-		return nil, nil, fmt.Errorf("phase 3 did not produce []uint64 under \"_selectors\"")
-	}
 	ds, ok := priorOutputs["_ds"].(datastore.MutableDataStore)
 	if !ok {
 		return nil, nil, fmt.Errorf("phase 3 did not produce MutableDataStore under \"_ds\"")
-	}
-	var fakeOut *services.FakeOutput
-	if fake, ok := priorOutputs["fake"].(*services.FakeInput); ok && fake != nil {
-		fakeOut = fake.Out
 	}
 	timeTrack, ok := priorOutputs["_time_track"].(*timing.TimeTracker)
 	if !ok {
@@ -210,9 +196,8 @@ func (l *legacyComponent) RunPhase4(
 		return nil, nil, fmt.Errorf("failed to launch generic services: %w", err)
 	}
 
-	cfg, phaseEffects, err := runPhasedEnvironmentFinish(ctx, in, e, topology, sharedTLSCerts, blockchainOutputs, selectors, ds, fakeOut, timeTrack)
-	if err != nil {
+	if err := runPhasedEnvironmentFinish(in, e, ds, timeTrack); err != nil {
 		return nil, nil, err
 	}
-	return map[string]any{legacyCfgKey: cfg}, phaseEffects, nil
+	return map[string]any{legacyCfgKey: in}, nil, nil
 }
