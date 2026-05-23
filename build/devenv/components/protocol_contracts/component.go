@@ -192,21 +192,11 @@ func (p *component) RunPhase2(
 		return nil, nil, fmt.Errorf("configure all token transfers: %w", err)
 	}
 
-	var connectErr error
-	if useLegacyConfigureLane {
-		connectErr = ccdeploy.ConnectAllChainsLegacy(impls, blockchains, selectors, e, topology)
-	} else {
-		connectErr = ccdeploy.ConnectAllChainsCanonical(impls, blockchains, selectors, e, topology)
-	}
-	if connectErr != nil {
-		return nil, nil, connectErr
-	}
-
 	timeTrack.Record("[contracts] deployed")
 
-	// Aggregator config generation (GenerateAggregatorConfig) and container launch are handled
-	// by the CommitteeCCV Phase 4 component, which also performs HMAC credential generation,
-	// verifier launch, and JD registration before starting aggregator containers.
+	// Lane configuration (ConnectAllChains) is deferred to CommitteeCCV Phase 3 because it
+	// calls ApplyVerifierConfig which fetches verifier signing keys from JD. Verifiers are not
+	// launched and registered until Phase 3, so this step cannot run here.
 
 	// Finalize CLDF: snapshot env metadata and print deployed addresses.
 	envMetadata, err := e.DataStore.EnvMetadata().Get()
@@ -223,13 +213,14 @@ func (p *component) RunPhase2(
 	}
 
 	return map[string]any{
-		"_cldf":       cldf,
-		"_env":        e,
-		"_topology":   topology,
-		"_selectors":  selectors,
-		"_ds":         ds,
-		"_impls":      impls,
-		"_time_track": timeTrack,
+		"_cldf":                      cldf,
+		"_env":                       e,
+		"_topology":                  topology,
+		"_selectors":                 selectors,
+		"_ds":                        ds,
+		"_impls":                     impls,
+		"_time_track":                timeTrack,
+		"_use_legacy_configure_lane": useLegacyConfigureLane,
 	}, nil, nil
 }
 

@@ -11,6 +11,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/committeeverifier"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/timing"
+	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
 
 // NewPhasedEnvironment creates a new CCIP CCV environment using the phased
@@ -45,9 +46,15 @@ func NewPhasedEnvironment() (cfg *Cfg, err error) {
 		return nil, err
 	}
 
+	// TODO: Remove this load and do not use "Cfg" as the return type.
 	cfg, err = Load[Cfg](configs)
 	if err != nil {
 		return nil, fmt.Errorf("loading config for output: %w", err)
+	}
+
+	// Sync blockchains from Phase 1 so Out fields (RPC URLs, etc.) are populated.
+	if blockchains, ok := out["blockchains"].([]*blockchain.Input); ok {
+		cfg.Blockchains = blockchains
 	}
 
 	// Sync CLDF state (addresses + env metadata) from protocol_contracts Phase 2.

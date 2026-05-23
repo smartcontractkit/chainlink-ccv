@@ -8,6 +8,7 @@ import (
 	"github.com/pelletier/go-toml/v2"
 
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainreg"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	ccdeploy "github.com/smartcontractkit/chainlink-ccv/build/devenv/deploy"
@@ -91,6 +92,9 @@ func (c *component) RunPhase3(
 	if !ok {
 		return nil, nil, fmt.Errorf("committeeccv: _ds not found in phase outputs")
 	}
+	impls, _ := priorOutputs["_impls"].([]cciptestinterfaces.CCIP17Configuration)
+	blockchains, _ := priorOutputs["blockchains"].([]*ctfblockchain.Input)
+	useLegacyConfigureLane, _ := priorOutputs["_use_legacy_configure_lane"].(bool)
 
 	// Step 1: Generate HMAC client credentials for all aggregators before launching verifiers.
 	for _, agg := range aggregators {
@@ -149,6 +153,21 @@ func (c *component) RunPhase3(
 	// Step 5: Enrich topology with verifier signer keys.
 	if len(verifiers) > 0 {
 		ccdeploy.EnrichTopologyWithVerifiers(topology, verifiers)
+	}
+
+	// Step 5b: Configure lanes. This requires verifiers to be registered in JD (done above)
+	// because ApplyVerifierConfig fetches verifier signing keys from JD by node ID.
+	if len(impls) > 0 && len(blockchains) > 0 {
+		selectors, _ := priorOutputs["_selectors"].([]uint64)
+		var connectErr error
+		if useLegacyConfigureLane {
+			connectErr = ccdeploy.ConnectAllChainsLegacy(impls, blockchains, selectors, e, topology)
+		} else {
+			connectErr = ccdeploy.ConnectAllChainsCanonical(impls, blockchains, selectors, e, topology)
+		}
+		if connectErr != nil {
+			return nil, nil, fmt.Errorf("committeeccv: configure lanes: %w", connectErr)
+		}
 	}
 
 	// Step 6: Generate aggregator committee configuration.
