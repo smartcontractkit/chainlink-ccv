@@ -10,6 +10,7 @@ import (
 	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/committeeverifier"
+	executorsvc "github.com/smartcontractkit/chainlink-ccv/build/devenv/services/executor"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/timing"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
@@ -55,6 +56,16 @@ func NewPhasedEnvironment() (cfg *Cfg, err error) {
 	// Sync blockchains from Phase 1 so Out fields (RPC URLs, etc.) are populated.
 	if blockchains, ok := out["blockchains"].([]*blockchain.Input); ok {
 		cfg.Blockchains = blockchains
+	}
+
+	// Sync executor inputs from Phase 3 so Out fields (container name, JD node ID, etc.) are populated.
+	if executors, ok := out["executor"].([]*executorsvc.Input); ok {
+		cfg.Executor = executors
+	}
+
+	// Sync fake input from Phase 1 so Out fields (external HTTP URL, etc.) are populated.
+	if fake, ok := out["fake"].(*services.FakeInput); ok && fake != nil {
+		cfg.Fake = fake
 	}
 
 	// Sync CLDF state (addresses + env metadata) from protocol_contracts Phase 2.
