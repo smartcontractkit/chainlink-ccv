@@ -302,8 +302,8 @@ func TestPostgresConfigValidate_ConnMaxIdleTime(t *testing.T) {
 		},
 		{
 			name:            "negative value is rejected",
-			connMaxIdleTime: -1,
-			wantErr:         "postgres conn_max_idle_time must be non-negative, got -1",
+			connMaxIdleTime: common.Duration(-1 * time.Second),
+			wantErr:         "postgres conn_max_idle_time must be non-negative, got -1s",
 		},
 	}
 
