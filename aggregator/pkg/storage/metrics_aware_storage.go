@@ -74,7 +74,7 @@ func WrapWithMetrics(inner CommitVerificationStorage, m common.AggregatorMonitor
 }
 
 func (s *MetricsAwareStorage) SaveCommitVerification(ctx context.Context, record *model.CommitVerificationRecord, aggregationKey model.AggregationKey) error {
-	return s.captureMetricsNoReturn(ctx, saveOp, func() error {
+	return captureMetricsNoReturn(ctx, s.metrics(ctx, saveOp), s.logger(ctx), s.slowQueryThreshold, saveOp, func() error {
 		return s.inner.SaveCommitVerification(ctx, record, aggregationKey)
 	})
 }
@@ -110,7 +110,7 @@ func (s *MetricsAwareStorage) GetBatchAggregatedReportByMessageIDs(ctx context.C
 }
 
 func (s *MetricsAwareStorage) SubmitAggregatedReport(ctx context.Context, report *model.CommitAggregatedReport) error {
-	return s.captureMetricsNoReturn(ctx, submitReportOp, func() error {
+	return captureMetricsNoReturn(ctx, s.metrics(ctx, submitReportOp), s.logger(ctx), s.slowQueryThreshold, submitReportOp, func() error {
 		return s.inner.SubmitAggregatedReport(ctx, report)
 	})
 }
@@ -134,7 +134,7 @@ func (s *MetricsAwareStorage) Get(ctx context.Context, id string) (*messagerules
 }
 
 func (s *MetricsAwareStorage) Delete(ctx context.Context, id string) error {
-	return s.captureMetricsNoReturn(ctx, deleteMessageDisablementRuleOp, func() error {
+	return captureMetricsNoReturn(ctx, s.metrics(ctx, deleteMessageDisablementRuleOp), s.logger(ctx), s.slowQueryThreshold, deleteMessageDisablementRuleOp, func() error {
 		return s.inner.Delete(ctx, id)
 	})
 }
@@ -200,8 +200,8 @@ func captureMetrics[T any](ctx context.Context, metrics common.AggregatorMetricL
 	return res, err
 }
 
-func (s *MetricsAwareStorage) captureMetricsNoReturn(ctx context.Context, operation string, fn func() error) error {
-	_, err := captureMetrics(ctx, s.metrics(ctx, operation), s.logger(ctx), s.slowQueryThreshold, operation, func() (struct{}, error) {
+func captureMetricsNoReturn(ctx context.Context, metrics common.AggregatorMetricLabeler, l logger.SugaredLogger, threshold time.Duration, operation string, fn func() error) error {
+	_, err := captureMetrics(ctx, metrics, l, threshold, operation, func() (struct{}, error) {
 		return struct{}{}, fn()
 	})
 	return err

@@ -29,17 +29,9 @@ func (n *NoopIndexerMetricLabeler) DecrementActiveRequestsCounter(ctx context.Co
 func (n *NoopIndexerMetricLabeler) RecordHTTPRequestDuration(ctx context.Context, duration time.Duration, path, method string, status int) {
 }
 func (n *NoopIndexerMetricLabeler) IncrementVerificationRecordsCounter(ctx context.Context) {}
-func (n *NoopIndexerMetricLabeler) RecordStorageQueryDuration(ctx context.Context, duration time.Duration, queryName string, errored bool) {
+func (n *NoopIndexerMetricLabeler) RecordStorageLatency(ctx context.Context, duration time.Duration) {
 }
-
-func (n *NoopIndexerMetricLabeler) RecordStorageWriteDuration(ctx context.Context, duration time.Duration) {
-}
-
-func (n *NoopIndexerMetricLabeler) RecordStorageInsertErrorsCounter(ctx context.Context, queryName string) {
-}
-
-func (n *NoopIndexerMetricLabeler) RecordVerificationRecordRequestDuration(ctx context.Context, duration time.Duration) {
-}
+func (n *NoopIndexerMetricLabeler) IncrementStorageError(ctx context.Context)             {}
 func (n *NoopIndexerMetricLabeler) RecordScannerPollingErrorsCounter(ctx context.Context) {}
 func (n *NoopIndexerMetricLabeler) RecordVerificationRecordChannelSizeGauge(ctx context.Context, size int64) {
 }
