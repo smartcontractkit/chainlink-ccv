@@ -17,7 +17,7 @@ type Duration time.Duration
 func (d *Duration) UnmarshalTOML(val any) error {
 	s, ok := val.(string)
 	if !ok {
-		return fmt.Errorf("duration must be a quoted string (e.g. \"30m\", \"5s\"), got %T, %s", val, val)
+		return fmt.Errorf("duration must be a quoted string (e.g. \"30m\", \"5s\"), got %T, %v", val, val)
 	}
 	dur, err := time.ParseDuration(s)
 	if err != nil {
