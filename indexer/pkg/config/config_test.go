@@ -262,8 +262,8 @@ func TestPostgresConfigValidate_ConnMaxLifetime(t *testing.T) {
 		},
 		{
 			name:            "negative value is rejected",
-			connMaxLifetime: -1,
-			wantErr:         "postgres conn_max_lifetime must be non-negative, got -1",
+			connMaxLifetime: common.Duration(-1 * time.Second),
+			wantErr:         "postgres conn_max_lifetime must be non-negative, got -1s",
 		},
 	}
 
