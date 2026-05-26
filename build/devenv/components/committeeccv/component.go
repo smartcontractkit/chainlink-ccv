@@ -271,31 +271,17 @@ func validateDisableFinalityCheckers(committeeName string, verifiers []*committe
 	return result, nil
 }
 
-func validateVerifierNodeIndices(committeeName string, verifiers []*committeeverifier.Input, numAggregators int) error {
+func validateVerifierNodeIndices(committeeName string, verifiers []*committeeverifier.Input) error {
 	seen := make(map[int]string, len(verifiers))
 	for _, ver := range verifiers {
-		if ver.NodeIndex >= numAggregators {
-			return fmt.Errorf(
-				"committee %q: verifier %q has node_index=%d but committee only has %d aggregator(s) — "+
-					"node_index must be in [0, %d)",
-				committeeName, ver.ContainerName, ver.NodeIndex, numAggregators, numAggregators,
-			)
-		}
 		if existing, dup := seen[ver.NodeIndex]; dup {
 			return fmt.Errorf(
 				"committee %q: verifiers %q and %q both have node_index=%d — "+
-					"each verifier must have a unique node_index so that every aggregator has exactly one writer",
+					"node_index must be unique within a committee",
 				committeeName, existing, ver.ContainerName, ver.NodeIndex,
 			)
 		}
 		seen[ver.NodeIndex] = ver.ContainerName
-	}
-	if len(verifiers) != numAggregators {
-		return fmt.Errorf(
-			"committee %q: %d standalone verifier(s) configured but %d aggregator(s) defined — "+
-				"the standalone model requires exactly one verifier per aggregator (1:1 mapping)",
-			committeeName, len(verifiers), numAggregators,
-		)
 	}
 	return nil
 }
@@ -369,7 +355,7 @@ func buildVerifierJobSpecEffects(
 			if len(aggNames) == 0 {
 				return nil, fmt.Errorf("committeeccv: committee %q has no aggregators in topology", committeeName)
 			}
-			if err := validateVerifierNodeIndices(committeeName, committeeVerifiers, len(aggNames)); err != nil {
+			if err := validateVerifierNodeIndices(committeeName, committeeVerifiers); err != nil {
 				return nil, err
 			}
 
