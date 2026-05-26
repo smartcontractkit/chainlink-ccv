@@ -63,12 +63,12 @@ func (c *CLDF) PrintAddresses() error {
 			return fmt.Errorf("failed to unmarshal addresses: %w", err)
 		}
 		w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
-		defer w.Flush()
 		fmt.Fprintln(w, "Selector\tType\tAddress\tVersion\tQualifier")
 		fmt.Fprintln(w, "--------\t----\t-------\t-------\t---------")
 		for _, ref := range refs {
 			fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s\n", ref.ChainSelector, ref.Type, ref.Address, ref.Version, ref.Qualifier)
 		}
+		w.Flush()
 	}
 	return nil
 }

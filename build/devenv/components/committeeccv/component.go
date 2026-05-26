@@ -366,10 +366,11 @@ func buildVerifierJobSpecEffects(
 			if err != nil {
 				return nil, err
 			}
-			if len(aggNames) > 1 {
-				if err := validateVerifierNodeIndices(committeeName, committeeVerifiers, len(aggNames)); err != nil {
-					return nil, err
-				}
+			if len(aggNames) == 0 {
+				return nil, fmt.Errorf("committeeccv: committee %q has no aggregators in topology", committeeName)
+			}
+			if err := validateVerifierNodeIndices(committeeName, committeeVerifiers, len(aggNames)); err != nil {
+				return nil, err
 			}
 
 			for _, ver := range committeeVerifiers {
