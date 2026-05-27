@@ -228,7 +228,7 @@ func TestE2ELoad(t *testing.T) {
 		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, chainImpls, srcChain, dstChain)
 		overallTimeout := testDuration + (2 * tc.Timeout)
 		vc := load.VerificationContext{Ctx: tc.Ctx, T: tc.T, Impl: tc.Impl}
-		waitForMetrics := load.AssertMessagesAsync(vc, gun, overallTimeout)
+		waitForMetrics := load.AssertMessagesAsync(vc, gun.SentMessages(), overallTimeout)
 
 		_, err = p.Run(true)
 		require.NoError(t, err)
@@ -268,7 +268,7 @@ func TestE2ELoad(t *testing.T) {
 		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, chainImpls, srcChain, dstChain)
 		overallTimeout := testDuration + timeoutDuration
 		vc := load.VerificationContext{Ctx: tc.Ctx, T: tc.T, Impl: tc.Impl}
-		waitForMetrics := load.AssertMessagesAsync(vc, gun, overallTimeout)
+		waitForMetrics := load.AssertMessagesAsync(vc, gun.SentMessages(), overallTimeout)
 
 		_, err = p.Run(true)
 		require.NoError(t, err)
@@ -302,7 +302,7 @@ func TestE2ELoad(t *testing.T) {
 		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, chainImpls, srcChain, dstChain)
 		overallTimeout := testDuration + tc.Timeout
 		vc := load.VerificationContext{Ctx: tc.Ctx, T: tc.T, Impl: tc.Impl}
-		waitForMetrics := load.AssertMessagesAsync(vc, gun, overallTimeout)
+		waitForMetrics := load.AssertMessagesAsync(vc, gun.SentMessages(), overallTimeout)
 
 		_, err = p.Run(false)
 		require.NoError(t, err)
@@ -380,7 +380,7 @@ func TestE2ELoad(t *testing.T) {
 		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, chainImpls, srcChain, dstChain)
 		overallTimeout := testDuration + (2 * tc.Timeout)
 		vc := load.VerificationContext{Ctx: tc.Ctx, T: tc.T, Impl: tc.Impl}
-		waitForMetrics := load.AssertMessagesAsync(vc, gun, overallTimeout)
+		waitForMetrics := load.AssertMessagesAsync(vc, gun.SentMessages(), overallTimeout)
 
 		_, err = p.Run(false)
 		require.NoError(t, err)
@@ -549,7 +549,7 @@ func TestE2ELoad(t *testing.T) {
 		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, chainImpls, srcChain, dstChain)
 		overallTimeout := testDuration + (2 * tc.Timeout)
 		vc := load.VerificationContext{Ctx: tc.Ctx, T: tc.T, Impl: tc.Impl}
-		waitForMetrics := load.AssertMessagesAsync(vc, gun, overallTimeout)
+		waitForMetrics := load.AssertMessagesAsync(vc, gun.SentMessages(), overallTimeout)
 
 		_, err = p.Run(false)
 		require.NoError(t, err)

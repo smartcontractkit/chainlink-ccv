@@ -23,10 +23,10 @@ type VerificationContext struct {
 }
 
 // AssertMessagesAsync starts a background verification pipeline that reads
-// sent messages from the gun's channel and confirms execution on dest chains.
+// sent messages from the provided channel and confirms execution on dest chains.
 // Returns a closure that blocks until verification completes and returns metrics.
-// The caller must call gun.CloseSentChannel() after the load run completes to unblock the pipeline.
-func AssertMessagesAsync(vc VerificationContext, gun LoadGun, overallTimeout time.Duration) func() ([]metrics.MessageMetrics, metrics.MessageTotals) {
+// The caller must close the msgs channel after sending completes to unblock the pipeline.
+func AssertMessagesAsync(vc VerificationContext, msgs <-chan SentMessage, overallTimeout time.Duration) func() ([]metrics.MessageMetrics, metrics.MessageTotals) {
 	var wg sync.WaitGroup
 	var totalSent, totalReceived atomic.Int32
 
@@ -43,7 +43,7 @@ func AssertMessagesAsync(vc VerificationContext, gun LoadGun, overallTimeout tim
 			vc.T.Logf("Overall verification timeout reached, stopping new verifications")
 		})
 
-		for sentMsg := range gun.SentMessages() {
+		for sentMsg := range msgs {
 			// Always record sent messages for accurate totals, even after timeout.
 			msgIDHex := "0x" + hex.EncodeToString(sentMsg.MessageID[:])
 			totalSent.Add(1)
@@ -51,7 +51,7 @@ func AssertMessagesAsync(vc VerificationContext, gun LoadGun, overallTimeout tim
 
 			select {
 			case <-verifyCtx.Done():
-				// Log once and keep draining to avoid blocking the gun's producer goroutine.
+				// Log once and keep draining to avoid blocking the producer goroutine.
 				logTimeout()
 				continue
 			default:
