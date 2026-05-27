@@ -35,23 +35,13 @@ const (
 	avgMsgDataSize               = 1000 // bytes
 )
 
-type SrcDest struct {
-	Src  uint64
-	Dest uint64
-}
-
 type NonceKey struct {
 	Selector uint64
 	Address  string
 }
 
-// SentMessage represents a message that was sent and needs verification.
-type SentMessage struct {
-	SeqNo     uint64
-	MessageID [32]byte
-	SentTime  time.Time
-	ChainPair SrcDest
-}
+// Compile time interface conformance check.
+var _ load.LoadGun = (*EVMTXGun)(nil)
 
 type EVMTXGun struct {
 	cfg             *ccv.Cfg
@@ -59,13 +49,13 @@ type EVMTXGun struct {
 	e               *deployment.Environment
 	selectors       []uint64
 	impl            map[uint64]cciptestinterfaces.CCIP17
-	sentMsgSet      map[SentMessage]struct{}
+	sentMsgSet      map[load.SentMessage]struct{}
 	srcSelectors    []uint64
 	destSelectors   []uint64
 	seqNosMu        sync.Mutex
-	sentMsgCh       chan SentMessage // Channel for real-time message notifications
-	closeOnce       sync.Once        // Ensure channel is closed only once
-	nonce           sync.Map         // map[NonceKey]*uint64
+	sentMsgCh       chan load.SentMessage // Channel for real-time message notifications
+	closeOnce       sync.Once             // Ensure channel is closed only once
+	nonce           sync.Map              // map[NonceKey]*uint64
 	messageProfiles []load.MessageProfileConfig
 	userSelector    map[uint64]func() *bind.TransactOpts
 }
@@ -75,6 +65,11 @@ func (m *EVMTXGun) CloseSentChannel() {
 	m.closeOnce.Do(func() {
 		close(m.sentMsgCh)
 	})
+}
+
+// SentMessages returns the sent message channel for the verification pipeline.
+func (m *EVMTXGun) SentMessages() <-chan load.SentMessage {
+	return m.sentMsgCh
 }
 
 func NewEVMTransactionGun(cfg *ccv.Cfg, e *deployment.Environment, selectors []uint64, impls map[uint64]cciptestinterfaces.CCIP17, srcSelectors, destSelectors []uint64) (*EVMTXGun, error) {
@@ -91,8 +86,8 @@ func NewEVMTransactionGun(cfg *ccv.Cfg, e *deployment.Environment, selectors []u
 		e:             e,
 		selectors:     selectors,
 		impl:          impls,
-		sentMsgSet:    make(map[SentMessage]struct{}),
-		sentMsgCh:     make(chan SentMessage, sentMessageChannelBufferSize),
+		sentMsgSet:    make(map[load.SentMessage]struct{}),
+		sentMsgCh:     make(chan load.SentMessage, sentMessageChannelBufferSize),
 		srcSelectors:  srcSelectors,
 		destSelectors: destSelectors,
 		userSelector:  userSelector,
@@ -127,8 +122,8 @@ func NewEVMTransactionGunFromTestConfig(cfg *ccv.Cfg, testProfile *load.TestProf
 		e:               e,
 		selectors:       selectors,
 		impl:            impls,
-		sentMsgSet:      make(map[SentMessage]struct{}),
-		sentMsgCh:       make(chan SentMessage, sentMessageChannelBufferSize),
+		sentMsgSet:      make(map[load.SentMessage]struct{}),
+		sentMsgCh:       make(chan load.SentMessage, sentMessageChannelBufferSize),
 		srcSelectors:    srcSelectors,
 		destSelectors:   destSelectors,
 		messageProfiles: messageProfiles,
@@ -228,11 +223,11 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 
 	// Record the actual sequence number from the sent event
 	m.seqNosMu.Lock()
-	m.sentMsgSet[SentMessage{SeqNo: uint64(sentEvent.Message.SequenceNumber), MessageID: sentEvent.MessageID, SentTime: sentTime, ChainPair: SrcDest{Src: srcSelector, Dest: destSelector}}] = struct{}{}
+	m.sentMsgSet[load.SentMessage{SeqNo: uint64(sentEvent.Message.SequenceNumber), MessageID: sentEvent.MessageID, SentTime: sentTime, ChainPair: load.SrcDest{Src: srcSelector, Dest: destSelector}}] = struct{}{}
 	m.seqNosMu.Unlock()
 
 	// Push to channel for verification
-	m.sentMsgCh <- SentMessage{SeqNo: uint64(sentEvent.Message.SequenceNumber), MessageID: sentEvent.MessageID, SentTime: sentTime, ChainPair: SrcDest{Src: srcSelector, Dest: destSelector}}
+	m.sentMsgCh <- load.SentMessage{SeqNo: uint64(sentEvent.Message.SequenceNumber), MessageID: sentEvent.MessageID, SentTime: sentTime, ChainPair: load.SrcDest{Src: srcSelector, Dest: destSelector}}
 
 	return &wasp.Response{Data: "ok"}
 }

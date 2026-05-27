@@ -2,13 +2,11 @@ package e2e
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"math/big"
 	"os"
 	"strconv"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -18,6 +16,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	chain_selectors "github.com/smartcontractkit/chain-selectors"
+
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_0_0/operations/weth"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_2_0/operations/router"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/load"
@@ -55,129 +54,6 @@ type GasTestCase struct {
 	name             string
 	chainURL         string
 	waitBetweenTests time.Duration
-}
-
-func assertMessagesAsync(tc TestingContext, gun *EVMTXGun, overallTimeout time.Duration) func() ([]metrics.MessageMetrics, metrics.MessageTotals) {
-	var wg sync.WaitGroup
-	var totalSent, totalReceived atomic.Int32
-
-	sentMessages := &sync.Map{}
-	receivedMessages := &sync.Map{}
-	metricsData := &sync.Map{}
-
-	verifyCtx, cancelVerify := context.WithTimeout(tc.Ctx, overallTimeout)
-
-	go func() {
-		defer cancelVerify()
-
-		for sentMsg := range gun.sentMsgCh {
-			select {
-			case <-verifyCtx.Done():
-				tc.T.Logf("Overall verification timeout reached, stopping new verifications")
-				return
-			default:
-			}
-
-			msgIDHex := common.BytesToHash(sentMsg.MessageID[:]).Hex()
-			totalSent.Add(1)
-			sentMessages.Store(sentMsg.SeqNo, msgIDHex)
-
-			wg.Add(1)
-			go func(msg SentMessage) {
-				defer wg.Done()
-
-				msgIDHex := common.BytesToHash(msg.MessageID[:]).Hex()
-
-				if _, ok := tc.Impl[msg.ChainPair.Dest]; !ok {
-					tc.T.Logf("No implementation available to verify message %d", msg.SeqNo)
-					return
-				}
-
-				execEvent, err := tc.Impl[msg.ChainPair.Dest].ConfirmExecOnDest(verifyCtx, msg.ChainPair.Src, cciptestinterfaces.MessageEventKey{SeqNum: msg.SeqNo}, 0)
-				if err != nil {
-					if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-						tc.T.Logf("Message %d verification cancelled or timed out", msg.SeqNo)
-					} else {
-						tc.T.Logf("Failed to get execution event for sequence number %d: %v", msg.SeqNo, err)
-					}
-					return
-				}
-
-				if execEvent.State != cciptestinterfaces.ExecutionStateSuccess {
-					tc.T.Logf("Message with sequence number %d was not successfully executed, state: %d", msg.SeqNo, execEvent.State)
-					return
-				}
-
-				executedTime := time.Now()
-				latency := executedTime.Sub(msg.SentTime)
-
-				tc.T.Logf("Message with sequence number %d successfully executed (latency: %v)", msg.SeqNo, latency)
-
-				totalReceived.Add(1)
-				receivedMessages.Store(msg.SeqNo, msgIDHex)
-
-				metricsData.Store(msg.SeqNo, metrics.MessageMetrics{
-					SeqNo:           msg.SeqNo,
-					MessageID:       msgIDHex,
-					SourceChain:     msg.ChainPair.Src,
-					DestChain:       msg.ChainPair.Dest,
-					SentTime:        msg.SentTime,
-					ExecutedTime:    executedTime,
-					LatencyDuration: latency,
-				})
-			}(sentMsg)
-		}
-
-		tc.T.Logf("All messages sent, waiting for verifications to complete")
-
-		done := make(chan struct{})
-		go func() {
-			wg.Wait()
-			close(done)
-		}()
-
-		select {
-		case <-done:
-			tc.T.Logf("All verification goroutines completed successfully")
-		case <-verifyCtx.Done():
-			tc.T.Logf("Verification timeout reached, %d messages may be unverified", totalSent.Load()-totalReceived.Load())
-		}
-	}()
-
-	return func() ([]metrics.MessageMetrics, metrics.MessageTotals) {
-		<-verifyCtx.Done()
-
-		datum := make([]metrics.MessageMetrics, 0, int(totalReceived.Load()))
-		metricsData.Range(func(key, value any) bool {
-			datum = append(datum, value.(metrics.MessageMetrics))
-			return true
-		})
-
-		sent := make(map[uint64]string)
-		sentMessages.Range(func(key, value any) bool {
-			sent[key.(uint64)] = value.(string)
-			return true
-		})
-
-		received := make(map[uint64]string)
-		receivedMessages.Range(func(key, value any) bool {
-			received[key.(uint64)] = value.(string)
-			return true
-		})
-
-		totals := metrics.MessageTotals{
-			Sent:             int(totalSent.Load()),
-			Received:         int(totalReceived.Load()),
-			SentMessages:     sent,
-			ReceivedMessages: received,
-		}
-
-		notVerified := totals.Sent - totals.Received
-		tc.T.Logf("Verification complete - Sent: %d, ReachedVerifier: %d, Verified: %d, Aggregated: %d, Indexed: %d, ReachedExecutor: %d, SentToChain: %d, Received: %d, Not Received: %d",
-			totals.Sent, totals.ReachedVerifier, totals.Verified, totals.Aggregated, totals.Indexed, totals.ReachedExecutor, totals.SentToChainInExecutor, totals.Received, notVerified)
-
-		return datum, totals
-	}
 }
 
 func ensureWETHBalanceAndApproval(ctx context.Context, t *testing.T, logger zerolog.Logger, e *deployment.Environment, chain cldfevm.Chain, requiredWETH *big.Int) {
@@ -351,7 +227,8 @@ func TestE2ELoad(t *testing.T) {
 
 		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, chainImpls, srcChain, dstChain)
 		overallTimeout := testDuration + (2 * tc.Timeout)
-		waitForMetrics := assertMessagesAsync(tc, gun, overallTimeout)
+		vc := load.VerificationContext{Ctx: tc.Ctx, T: tc.T, Impl: tc.Impl}
+		waitForMetrics := load.AssertMessagesAsync(vc, gun.SentMessages(), overallTimeout)
 
 		_, err = p.Run(true)
 		require.NoError(t, err)
@@ -390,7 +267,8 @@ func TestE2ELoad(t *testing.T) {
 
 		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, chainImpls, srcChain, dstChain)
 		overallTimeout := testDuration + timeoutDuration
-		waitForMetrics := assertMessagesAsync(tc, gun, overallTimeout)
+		vc := load.VerificationContext{Ctx: tc.Ctx, T: tc.T, Impl: tc.Impl}
+		waitForMetrics := load.AssertMessagesAsync(vc, gun.SentMessages(), overallTimeout)
 
 		_, err = p.Run(true)
 		require.NoError(t, err)
@@ -423,7 +301,8 @@ func TestE2ELoad(t *testing.T) {
 
 		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, chainImpls, srcChain, dstChain)
 		overallTimeout := testDuration + tc.Timeout
-		waitForMetrics := assertMessagesAsync(tc, gun, overallTimeout)
+		vc := load.VerificationContext{Ctx: tc.Ctx, T: tc.T, Impl: tc.Impl}
+		waitForMetrics := load.AssertMessagesAsync(vc, gun.SentMessages(), overallTimeout)
 
 		_, err = p.Run(false)
 		require.NoError(t, err)
@@ -500,7 +379,8 @@ func TestE2ELoad(t *testing.T) {
 
 		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, chainImpls, srcChain, dstChain)
 		overallTimeout := testDuration + (2 * tc.Timeout)
-		waitForMetrics := assertMessagesAsync(tc, gun, overallTimeout)
+		vc := load.VerificationContext{Ctx: tc.Ctx, T: tc.T, Impl: tc.Impl}
+		waitForMetrics := load.AssertMessagesAsync(vc, gun.SentMessages(), overallTimeout)
 
 		_, err = p.Run(false)
 		require.NoError(t, err)
@@ -668,7 +548,8 @@ func TestE2ELoad(t *testing.T) {
 
 		p, gun := createLoadProfile(in, rps, testDuration, e, selectors, chainImpls, srcChain, dstChain)
 		overallTimeout := testDuration + (2 * tc.Timeout)
-		waitForMetrics := assertMessagesAsync(tc, gun, overallTimeout)
+		vc := load.VerificationContext{Ctx: tc.Ctx, T: tc.T, Impl: tc.Impl}
+		waitForMetrics := load.AssertMessagesAsync(vc, gun.SentMessages(), overallTimeout)
 
 		_, err = p.Run(false)
 		require.NoError(t, err)
