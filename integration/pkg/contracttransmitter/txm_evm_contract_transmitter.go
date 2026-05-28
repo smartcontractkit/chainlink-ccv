@@ -20,10 +20,10 @@ import (
 )
 
 const (
-	// Numerator for EIP-150 compensation across two CALL boundaries: 64^2.
-	eip150ForwardingNumerator   = 64 * 64
-	// Denominator for EIP-150 compensation across two CALL boundaries: 63^2.
-	eip150ForwardingDenominator = 63 * 63
+	// Numerator for EIP-150 gas buffer across two CALL boundaries: 64^2 - 63^2.
+	eip150ForwardingBufferNumerator = 64*64 - 63*63
+	// Denominator for EIP-150 gas buffer across two CALL boundaries: 63^2.
+	eip150ForwardingBufferDenominator = 63 * 63
 )
 
 var (
@@ -77,7 +77,8 @@ func (ct *TXMEVMContractTransmitter) ConvertAndWriteMessageToChain(ctx context.C
 		return fmt.Errorf("skipping transmit, error getting round-robin from address: %w", err)
 	}
 	messageID, _ := report.Message.MessageID()
-	feeLimit := eip150ForwardingFeeLimit(report.Message.ExecutionGasLimit)
+	feeLimit := uint64(report.Message.ExecutionGasLimit) +
+		eip150ForwardingGasBuffer(report.Message.CcipReceiveGasLimit)
 
 	// we don't want to use an idempotency key based on messageid in case the CCV Data changes in between resubmissions
 	tx, err := ct.TxmClient.CreateTransaction(ctx, txmgr.TxRequest{
@@ -96,9 +97,10 @@ func (ct *TXMEVMContractTransmitter) ConvertAndWriteMessageToChain(ctx context.C
 	return nil
 }
 
-// eip150ForwardingFeeLimit compensates for EIP-150 gas attenuation across the
-// OffRamp -> Router -> Receiver call path so ccipReceive receives the intended
-// gas limit. It computes ceil(4096/3969 * L) using integer-ceiling arithmetic.
-func eip150ForwardingFeeLimit(executionGasLimit uint32) uint64 {
-	return (uint64(executionGasLimit)*eip150ForwardingNumerator + eip150ForwardingDenominator - 1) / eip150ForwardingDenominator
+// eip150ForwardingGasBuffer returns the extra gas needed to compensate for EIP-150
+// gas attenuation across the OffRamp -> Router -> Receiver call path.
+// It computes ceil(((64^2 - 63^2) / 63^2) * L), where L is the ccipReceive gas limit.
+func eip150ForwardingGasBuffer(ccipReceiveGasLimit uint32) uint64 {
+	return (uint64(ccipReceiveGasLimit)*eip150ForwardingBufferNumerator +
+		eip150ForwardingBufferDenominator - 1) / eip150ForwardingBufferDenominator
 }

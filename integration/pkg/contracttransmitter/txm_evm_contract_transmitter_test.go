@@ -64,7 +64,7 @@ func TestTXMEVMContractTransmitter_ConvertAndWriteMessageToChain(t *testing.T) {
 					[]byte("ccv_data_1"),
 					[]byte("ccv_data_2"),
 				},
-				Message: mustCreateMessage(t, 1, 2, 100, 1000000),
+				Message: mustCreateMessage(t, 1, 2, 100, 2000000, 1000000),
 			},
 			setupMocks: func(txm *mockTxManager, rr *mockRoundRobin) {
 				fromAddr := common.HexToAddress("0xabcdef1234567890abcdef1234567890abcdef12")
@@ -76,7 +76,8 @@ func TestTXMEVMContractTransmitter_ConvertAndWriteMessageToChain(t *testing.T) {
 
 				txm.On("CreateTransaction", mock.Anything, mock.MatchedBy(func(req txmgr.TxRequest) bool {
 					return req.FromAddress == fromAddr &&
-						req.FeeLimit == uint64(1000000) &&
+						req.FeeLimit == uint64(2000000)+
+							eip150ForwardingGasBuffer(1000000) &&
 						len(req.EncodedPayload) > 0
 				})).Return(expectedTx, nil)
 			},
@@ -103,7 +104,7 @@ func TestTXMEVMContractTransmitter_ConvertAndWriteMessageToChain(t *testing.T) {
 				CCVData: [][]byte{
 					[]byte("ccv_data_1"),
 				},
-				Message: mustCreateMessage(t, 1, 2, 100, 1000000),
+				Message: mustCreateMessage(t, 1, 2, 100, 1000000, 1000000),
 			},
 			setupMocks: func(txm *mockTxManager, rr *mockRoundRobin) {
 				rr.On("GetNextAddress", mock.Anything, mock.Anything).Return(common.Address{}, errors.New("no available keys"))
@@ -119,7 +120,7 @@ func TestTXMEVMContractTransmitter_ConvertAndWriteMessageToChain(t *testing.T) {
 				CCVData: [][]byte{
 					[]byte("ccv_data_1"),
 				},
-				Message: mustCreateMessage(t, 1, 2, 100, 1000000),
+				Message: mustCreateMessage(t, 1, 2, 100, 1000000, 1000000),
 			},
 			setupMocks: func(txm *mockTxManager, rr *mockRoundRobin) {
 				fromAddr := common.HexToAddress("0xabcdef1234567890abcdef1234567890abcdef12")
@@ -137,7 +138,7 @@ func TestTXMEVMContractTransmitter_ConvertAndWriteMessageToChain(t *testing.T) {
 			report: protocol.AbstractAggregatedReport{
 				CCVS:    []protocol.UnknownAddress{},
 				CCVData: [][]byte{},
-				Message: mustCreateMessage(t, 1, 2, 100, 1000000),
+				Message: mustCreateMessage(t, 1, 2, 100, 1000000, 1000000),
 			},
 			setupMocks: func(txm *mockTxManager, rr *mockRoundRobin) {
 				fromAddr := common.HexToAddress("0xabcdef1234567890abcdef1234567890abcdef12")
@@ -149,7 +150,7 @@ func TestTXMEVMContractTransmitter_ConvertAndWriteMessageToChain(t *testing.T) {
 
 				txm.On("CreateTransaction", mock.Anything, mock.MatchedBy(func(req txmgr.TxRequest) bool {
 					return req.FromAddress == fromAddr &&
-						req.FeeLimit == uint64(1000000) &&
+						req.FeeLimit == uint64(1000000)+eip150ForwardingGasBuffer(1000000) &&
 						len(req.EncodedPayload) > 0
 				})).Return(expectedTx, nil)
 			},
@@ -168,7 +169,7 @@ func TestTXMEVMContractTransmitter_ConvertAndWriteMessageToChain(t *testing.T) {
 					[]byte("ccv_data_2"),
 					[]byte("ccv_data_3"),
 				},
-				Message: mustCreateMessage(t, 1, 2, 100, 5000000),
+				Message: mustCreateMessage(t, 1, 2, 100, 5000000, 5000000),
 			},
 			setupMocks: func(txm *mockTxManager, rr *mockRoundRobin) {
 				fromAddr := common.HexToAddress("0xabcdef1234567890abcdef1234567890abcdef12")
@@ -180,7 +181,7 @@ func TestTXMEVMContractTransmitter_ConvertAndWriteMessageToChain(t *testing.T) {
 
 				txm.On("CreateTransaction", mock.Anything, mock.MatchedBy(func(req txmgr.TxRequest) bool {
 					return req.FromAddress == fromAddr &&
-						req.FeeLimit == uint64(5000000) &&
+						req.FeeLimit == uint64(5000000)+eip150ForwardingGasBuffer(5000000) &&
 						len(req.EncodedPayload) > 0
 				})).Return(expectedTx, nil)
 			},
@@ -313,7 +314,7 @@ func TestTXMEVMContractTransmitter_ABIEncoding(t *testing.T) {
 				CCVData: [][]byte{
 					[]byte("test_data"),
 				},
-				Message: mustCreateMessage(t, 1, 2, 100, 1000000),
+				Message: mustCreateMessage(t, 1, 2, 100, 1000000, 1000000),
 			},
 			validateError: func(t *testing.T, err error) {
 				assert.NoError(t, err)
@@ -378,7 +379,7 @@ func TestTXMEVMContractTransmitter_ABIEncoding(t *testing.T) {
 }
 
 // mustCreateMessage creates a test message or fails the test.
-func mustCreateMessage(t *testing.T, sourceChain, destChain, nonce uint64, gasLimit uint32) protocol.Message {
+func mustCreateMessage(t *testing.T, sourceChain, destChain, nonce uint64, executionGasLimit, ccipReceiveGasLimit uint32) protocol.Message {
 	msg, err := protocol.NewMessage(
 		protocol.ChainSelector(sourceChain),
 		protocol.ChainSelector(destChain),
@@ -386,8 +387,8 @@ func mustCreateMessage(t *testing.T, sourceChain, destChain, nonce uint64, gasLi
 		protocol.UnknownAddress(common.HexToAddress("0x1111111111111111111111111111111111111111").Bytes()),
 		protocol.UnknownAddress(common.HexToAddress("0x2222222222222222222222222222222222222222").Bytes()),
 		1,
-		gasLimit,
-		gasLimit,           // ccipReceiveGasLimit
+		executionGasLimit,
+		ccipReceiveGasLimit,
 		protocol.Bytes32{}, // ccvAndExecutorHash
 		protocol.UnknownAddress(common.HexToAddress("0x3333333333333333333333333333333333333333").Bytes()),
 		protocol.UnknownAddress(common.HexToAddress("0x4444444444444444444444444444444444444444").Bytes()),
