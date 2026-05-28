@@ -179,6 +179,15 @@ func AllTokenCombinations() []TokenCombination {
 			expectedReceiptIssuers:  4, // default CCV, token pool, executor, network fee
 			expectedVerifierResults: 1, // default CCV
 		},
+		{ // 1.6.1 release <-> 2.0.0 burn
+			localPoolType:           LockReleaseTokenPoolType,
+			localPoolVersion:        "1.6.1",
+			remotePoolType:          BurnMintTokenPoolType,
+			remotePoolVersion:       "2.0.0",
+			remotePoolCCVQualifiers: []string{DefaultCommitteeVerifierQualifier},
+			expectedReceiptIssuers:  4, // default CCV, token pool, executor, network fee
+			expectedVerifierResults: 1, // default CCV
+		},
 		{ // 2.0.0 lock <-> 2.0.0 burn
 			localPoolType:           LockReleaseTokenPoolType,
 			localPoolVersion:        "2.0.0",
