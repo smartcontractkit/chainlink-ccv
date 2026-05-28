@@ -1193,10 +1193,7 @@ func (m *CCIP17EVMConfig) GetTokenExpansionConfigs(
 
 	// Build a set of supported pool capabilities so we can skip combos where
 	// EVM is the "local" side but doesn't actually support that pool.
-	supported := make(map[string]bool)
-	for _, cap := range m.GetSupportedPools() {
-		supported[cap.PoolType+"\x00"+cap.PoolVersion.String()] = true
-	}
+	supported := devenvcommon.BuildSupportedPoolsMap(m.GetSupportedPools())
 
 	seen := make(map[string]bool)
 	var configs []tokenscore.TokenExpansionInputPerChain
@@ -1211,11 +1208,11 @@ func (m *CCIP17EVMConfig) GetTokenExpansionConfigs(
 		// ComputeTokenCombinations generates combos in both directions, so we
 		// may receive combos where another chain (e.g. Solana) is meant to be
 		// the local side.
-		if !supported[string(poolRef.Type)+"\x00"+poolRef.Version.String()] {
+		if !devenvcommon.IsPoolSupported(supported, poolRef) {
 			continue
 		}
 
-		key := string(poolRef.Type) + "\x00" + poolRef.Version.String() + "\x00" + poolRef.Qualifier
+		key := devenvcommon.AddressRefFullKey(poolRef)
 		if seen[key] {
 			continue
 		}
