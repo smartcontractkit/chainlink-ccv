@@ -1195,31 +1195,33 @@ func (m *CCIP17EVMConfig) GetTokenExpansionConfigs(
 	var configs []tokenscore.TokenExpansionInputPerChain
 
 	for _, combo := range combos {
-		for _, poolRef := range []datastore.AddressRef{combo.LocalPoolAddressRef(), combo.RemotePoolAddressRef()} {
-			key := string(poolRef.Type) + "\x00" + poolRef.Version.String() + "\x00" + poolRef.Qualifier
-			if seen[key] {
-				continue
-			}
-			seen[key] = true
-
-			configs = append(configs, tokenscore.TokenExpansionInputPerChain{
-				TokenPoolVersion:      poolRef.Version,
-				SkipOwnershipTransfer: true,
-				DeployTokenInput: &tokenscore.DeployTokenInput{
-					Symbol:        poolRef.Qualifier,
-					Name:          poolRef.Qualifier,
-					Decimals:      DefaultDecimals,
-					Type:          bnm_drip_v1_0.ContractType,
-					ExternalAdmin: chain.DeployerKey.From.Hex(),
-					CCIPAdmin:     chain.DeployerKey.From.Hex(),
-					PreMint:       &preMintTokens,
-				},
-				DeployTokenPoolInput: &tokenscore.DeployTokenPoolInput{
-					PoolType:           string(poolRef.Type),
-					TokenPoolQualifier: poolRef.Qualifier,
-				},
-			})
+		// Only deploy the local pool ref. The remote pool ref belongs to the
+		// counterpart chain and must not be deployed here — deploying it would
+		// attempt to fund a lockbox for an unsupported pool version and fail.
+		poolRef := combo.LocalPoolAddressRef()
+		key := string(poolRef.Type) + "\x00" + poolRef.Version.String() + "\x00" + poolRef.Qualifier
+		if seen[key] {
+			continue
 		}
+		seen[key] = true
+
+		configs = append(configs, tokenscore.TokenExpansionInputPerChain{
+			TokenPoolVersion:      poolRef.Version,
+			SkipOwnershipTransfer: true,
+			DeployTokenInput: &tokenscore.DeployTokenInput{
+				Symbol:        poolRef.Qualifier,
+				Name:          poolRef.Qualifier,
+				Decimals:      DefaultDecimals,
+				Type:          bnm_drip_v1_0.ContractType,
+				ExternalAdmin: chain.DeployerKey.From.Hex(),
+				CCIPAdmin:     chain.DeployerKey.From.Hex(),
+				PreMint:       &preMintTokens,
+			},
+			DeployTokenPoolInput: &tokenscore.DeployTokenPoolInput{
+				PoolType:           string(poolRef.Type),
+				TokenPoolQualifier: poolRef.Qualifier,
+			},
+		})
 	}
 
 	return configs, nil
