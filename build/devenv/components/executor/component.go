@@ -15,6 +15,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainreg"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	blockchainscomp "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/blockchains"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/components/observability"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
 	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
@@ -144,12 +145,16 @@ func (c *component) RunPhase3(
 	if !ok || topology == nil {
 		return nil, nil, fmt.Errorf("executor: environment_topology not found in phase outputs")
 	}
+	obs, ok := priorOutputs["observability"].(*observability.Observability)
+	if !ok || obs == nil {
+		return nil, nil, fmt.Errorf("executor: observability not found in phase outputs")
+	}
 	ds, ok := priorOutputs["_ds"].(datastore.MutableDataStore)
 	if !ok {
 		return nil, nil, fmt.Errorf("executor: _ds not found in phase outputs")
 	}
 
-	jobSpecs, err := buildExecutorJobSpecs(e, executors, topology, ds)
+	jobSpecs, err := buildExecutorJobSpecs(e, executors, topology, obs, ds)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -252,6 +257,7 @@ func buildExecutorJobSpecs(
 	e *deployment.Environment,
 	executors []*executorsvc.Input,
 	topology *ccvdeployment.EnvironmentTopology,
+	obs *observability.Observability,
 	ds datastore.MutableDataStore,
 ) (map[string]bootstrap.JobSpec, error) {
 	result := make(map[string]bootstrap.JobSpec)
@@ -283,8 +289,8 @@ func buildExecutorJobSpecs(
 			NOPs:              ccvchangesets.NOPInputsFromTopology(topology),
 			Pool:              ccvchangesets.ExecutorPoolInputFromTopology(pool),
 			IndexerAddress:    topology.IndexerAddress,
-			PyroscopeURL:      topology.PyroscopeURL,
-			Monitoring:        topology.Monitoring,
+			PyroscopeURL:      obs.PyroscopeURL,
+			Monitoring:        obs.Monitoring,
 			TargetNOPs:        ccvshared.ConvertStringToNopAliases(execNOPAliases),
 		})
 		if err != nil {
