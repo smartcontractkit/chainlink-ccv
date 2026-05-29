@@ -77,12 +77,6 @@ func (p *component) RunPhase2(
 	if envTopology == nil {
 		return nil, nil, fmt.Errorf("environment_topology is required but not found in config")
 	}
-	var useLegacyConfigureLane bool
-	if m, ok := componentConfig.(map[string]any); ok {
-		if v, ok := m["use_legacy_configure_lane"].(bool); ok {
-			useLegacyConfigureLane = v
-		}
-	}
 	timeTrack := timing.New(p.lggr)
 	ctx = p.lggr.WithContext(ctx)
 
@@ -213,14 +207,13 @@ func (p *component) RunPhase2(
 	}
 
 	return map[string]any{
-		"_cldf":                      cldf,
-		"_env":                       e,
-		"_topology":                  topology,
-		"_selectors":                 selectors,
-		"_ds":                        ds,
-		"_impls":                     impls,
-		"_time_track":                timeTrack,
-		"_use_legacy_configure_lane": useLegacyConfigureLane,
+		"_cldf":       cldf,
+		"_env":        e,
+		"_topology":   topology,
+		"_selectors":  selectors,
+		"_ds":         ds,
+		"_impls":      impls,
+		"_time_track": timeTrack,
 	}, nil, nil
 }
 
