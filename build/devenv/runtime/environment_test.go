@@ -232,3 +232,41 @@ func TestPhase1_OverwriteDetection(t *testing.T) {
 	require.Contains(t, err.Error(), `"B"`)
 	require.Contains(t, err.Error(), `"shared"`)
 }
+
+// TestVersionKeyConsumed verifies the runtime consumes the top-level "version"
+// schema marker instead of treating it as an unclaimed key or dispatching it to
+// a component. The runtime strips it from the config it is handed.
+func TestVersionKeyConsumed(t *testing.T) {
+	a := newP1Comp(t, map[string]any{"out": 1})
+
+	r := devenvruntime.NewRegistry()
+	require.NoError(t, r.Register("A", compFactory(a)))
+
+	rawConfig := map[string]any{"version": int64(1), "A": nil}
+	_, err := runEnv(t, r, rawConfig)
+	require.NoError(t, err)
+
+	_, present := rawConfig["version"]
+	require.False(t, present, "version should be consumed (stripped) by the runtime")
+}
+
+// TestVersionKeyRejectsBelowOne verifies the runtime errors on a version < 1.
+func TestVersionKeyRejectsBelowOne(t *testing.T) {
+	r := devenvruntime.NewRegistry()
+
+	_, err := runEnv(t, r, map[string]any{"version": int64(0)})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "version")
+	require.Contains(t, err.Error(), ">= 1")
+}
+
+// TestVersionKeyRejectsNonInteger verifies the runtime errors when version is
+// not an integer.
+func TestVersionKeyRejectsNonInteger(t *testing.T) {
+	r := devenvruntime.NewRegistry()
+
+	_, err := runEnv(t, r, map[string]any{"version": "1"})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "version")
+	require.Contains(t, err.Error(), "integer")
+}
