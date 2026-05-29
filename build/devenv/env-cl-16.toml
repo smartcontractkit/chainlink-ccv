@@ -2,15 +2,15 @@ cl_nodes_funding_eth = 50
 cl_nodes_funding_link = 50
 
 ## Environment configuration define the topology.
-[environment_topology]
+[protocol_contracts.environment_topology]
 indexer_address = ["http://indexer-1:8100"]
 pyroscope_url = "http://host.docker.internal:4040"
 
-[environment_topology.monitoring]
+[protocol_contracts.environment_topology.monitoring]
 Enabled = true
 Type = "beholder"
 
-[environment_topology.monitoring.Beholder]
+[protocol_contracts.environment_topology.monitoring.Beholder]
 InsecureConnection = true
 OtelExporterHTTPEndpoint = "host.docker.internal:4318"
 LogStreamingEnabled = false
@@ -18,134 +18,134 @@ MetricReaderInterval = 5
 TraceSampleRatio = 1.0
 TraceBatchTimeout = 10
 
-[[environment_topology.nop_topology.nops]]
+[[protocol_contracts.environment_topology.nop_topology.nops]]
 alias = "node-0"
 name = "node-0"
 
-[[environment_topology.nop_topology.nops]]
+[[protocol_contracts.environment_topology.nop_topology.nops]]
 alias = "node-1"
 name = "node-1"
 
-[[environment_topology.nop_topology.nops]]
+[[protocol_contracts.environment_topology.nop_topology.nops]]
 alias = "node-2"
 name = "node-2"
 
-[[environment_topology.nop_topology.nops]]
+[[protocol_contracts.environment_topology.nop_topology.nops]]
 alias = "node-3"
 name = "node-3"
 
-[[environment_topology.nop_topology.nops]]
+[[protocol_contracts.environment_topology.nop_topology.nops]]
 alias = "node-4"
 name = "node-4"
 
-[[environment_topology.nop_topology.nops]]
+[[protocol_contracts.environment_topology.nop_topology.nops]]
 alias = "node-5"
 name = "node-5"
 
-[[environment_topology.nop_topology.nops]]
+[[protocol_contracts.environment_topology.nop_topology.nops]]
 alias = "node-6"
 name = "node-6"
 
-[[environment_topology.nop_topology.nops]]
+[[protocol_contracts.environment_topology.nop_topology.nops]]
 alias = "node-7"
 name = "node-7"
 
-[[environment_topology.nop_topology.nops]]
+[[protocol_contracts.environment_topology.nop_topology.nops]]
 alias = "node-8"
 name = "node-8"
 
-[[environment_topology.nop_topology.nops]]
+[[protocol_contracts.environment_topology.nop_topology.nops]]
 alias = "node-9"
 name = "node-9"
 
-[[environment_topology.nop_topology.nops]]
+[[protocol_contracts.environment_topology.nop_topology.nops]]
 alias = "node-10"
 name = "node-10"
 
-[[environment_topology.nop_topology.nops]]
+[[protocol_contracts.environment_topology.nop_topology.nops]]
 alias = "node-11"
 name = "node-11"
 
-[[environment_topology.nop_topology.nops]]
+[[protocol_contracts.environment_topology.nop_topology.nops]]
 alias = "node-12"
 name = "node-12"
 
-[[environment_topology.nop_topology.nops]]
+[[protocol_contracts.environment_topology.nop_topology.nops]]
 alias = "node-13"
 name = "node-13"
 
-[[environment_topology.nop_topology.nops]]
+[[protocol_contracts.environment_topology.nop_topology.nops]]
 alias = "node-14"
 name = "node-14"
 
-[[environment_topology.nop_topology.nops]]
+[[protocol_contracts.environment_topology.nop_topology.nops]]
 alias = "node-15"
 name = "node-15"
 
-[environment_topology.nop_topology.committees.default]
+[protocol_contracts.environment_topology.nop_topology.committees.default]
 qualifier = "default"
 verifier_version = "2.0.0"
 
-[[environment_topology.nop_topology.committees.default.aggregators]]
+[[protocol_contracts.environment_topology.nop_topology.committees.default.aggregators]]
 name = "default"
 address = "default-aggregator:50051"
 insecure_connection = true
 
-[environment_topology.nop_topology.committees.default.chain_configs.3379446385462418246]
+[protocol_contracts.environment_topology.nop_topology.committees.default.chain_configs.3379446385462418246]
 nop_aliases = ["node-0", "node-1", "node-2", "node-3", "node-4", "node-5", "node-6", "node-7", "node-8", "node-9", "node-10", "node-11", "node-12", "node-13", "node-14", "node-15"]
 threshold = 16
 
-[environment_topology.nop_topology.committees.default.chain_configs.12922642891491394802]
+[protocol_contracts.environment_topology.nop_topology.committees.default.chain_configs.12922642891491394802]
 nop_aliases = ["node-0", "node-1", "node-2", "node-3", "node-4", "node-5", "node-6", "node-7", "node-8", "node-9", "node-10", "node-11", "node-12", "node-13", "node-14", "node-15"]
 threshold = 16
 
-[environment_topology.nop_topology.committees.default.chain_configs.4793464827907405086]
+[protocol_contracts.environment_topology.nop_topology.committees.default.chain_configs.4793464827907405086]
 nop_aliases = ["node-0", "node-1", "node-2", "node-3", "node-4", "node-5", "node-6", "node-7", "node-8", "node-9", "node-10", "node-11", "node-12", "node-13", "node-14", "node-15"]
 threshold = 16
 
-[environment_topology.nop_topology.committees.secondary]
+[protocol_contracts.environment_topology.nop_topology.committees.secondary]
 qualifier = "secondary"
 verifier_version = "2.0.0"
 
-[[environment_topology.nop_topology.committees.secondary.aggregators]]
+[[protocol_contracts.environment_topology.nop_topology.committees.secondary.aggregators]]
 name = "default"
 address = "secondary-aggregator:50051"
 insecure_connection = true
 
-[environment_topology.nop_topology.committees.secondary.chain_configs.3379446385462418246]
+[protocol_contracts.environment_topology.nop_topology.committees.secondary.chain_configs.3379446385462418246]
 nop_aliases = ["node-0", "node-1"]
 threshold = 2
 
-[environment_topology.nop_topology.committees.secondary.chain_configs.12922642891491394802]
+[protocol_contracts.environment_topology.nop_topology.committees.secondary.chain_configs.12922642891491394802]
 nop_aliases = ["node-0", "node-1"]
 threshold = 2
 
-[environment_topology.nop_topology.committees.secondary.chain_configs.4793464827907405086]
+[protocol_contracts.environment_topology.nop_topology.committees.secondary.chain_configs.4793464827907405086]
 nop_aliases = ["node-0", "node-1"]
 threshold = 2
 
-[environment_topology.nop_topology.committees.tertiary]
+[protocol_contracts.environment_topology.nop_topology.committees.tertiary]
 qualifier = "tertiary"
 verifier_version = "2.0.0"
 
-[[environment_topology.nop_topology.committees.tertiary.aggregators]]
+[[protocol_contracts.environment_topology.nop_topology.committees.tertiary.aggregators]]
 name = "default"
 address = "tertiary-aggregator:50051"
 insecure_connection = true
 
-[environment_topology.nop_topology.committees.tertiary.chain_configs.3379446385462418246]
+[protocol_contracts.environment_topology.nop_topology.committees.tertiary.chain_configs.3379446385462418246]
 nop_aliases = ["node-0", "node-1"]
 threshold = 2
 
-[environment_topology.nop_topology.committees.tertiary.chain_configs.12922642891491394802]
+[protocol_contracts.environment_topology.nop_topology.committees.tertiary.chain_configs.12922642891491394802]
 nop_aliases = ["node-0", "node-1"]
 threshold = 2
 
-[environment_topology.nop_topology.committees.tertiary.chain_configs.4793464827907405086]
+[protocol_contracts.environment_topology.nop_topology.committees.tertiary.chain_configs.4793464827907405086]
 nop_aliases = ["node-0", "node-1"]
 threshold = 2
 
-[environment_topology.executor_pools.default]
+[protocol_contracts.environment_topology.executor_pools.default]
 indexer_query_limit = 100
 backoff_duration = 15_000_000_000
 lookback_window = 3_600_000_000_000
@@ -154,19 +154,19 @@ max_retry_duration = 28_800_000_000_000
 worker_count = 100
 ntp_server = "time.google.com"
 
-[environment_topology.executor_pools.default.chain_configs."3379446385462418246"]
+[protocol_contracts.environment_topology.executor_pools.default.chain_configs."3379446385462418246"]
 nop_aliases = ["node-0", "node-1", "node-2", "node-3", "node-4", "node-5", "node-6", "node-7", "node-8", "node-9", "node-10", "node-11", "node-12", "node-13", "node-14", "node-15"]
 execution_interval = 15_000_000_000
 
-[environment_topology.executor_pools.default.chain_configs."12922642891491394802"]
+[protocol_contracts.environment_topology.executor_pools.default.chain_configs."12922642891491394802"]
 nop_aliases = ["node-0", "node-1", "node-2", "node-3", "node-4", "node-5", "node-6", "node-7", "node-8", "node-9", "node-10", "node-11", "node-12", "node-13", "node-14", "node-15"]
 execution_interval = 15_000_000_000
 
-[environment_topology.executor_pools.default.chain_configs."4793464827907405086"]
+[protocol_contracts.environment_topology.executor_pools.default.chain_configs."4793464827907405086"]
 nop_aliases = ["node-0", "node-1", "node-2", "node-3", "node-4", "node-5", "node-6", "node-7", "node-8", "node-9", "node-10", "node-11", "node-12", "node-13", "node-14", "node-15"]
 execution_interval = 15_000_000_000
 
-[environment_topology.executor_pools.custom]
+[protocol_contracts.environment_topology.executor_pools.custom]
 indexer_query_limit = 100
 backoff_duration = 15_000_000_000
 lookback_window = 3_600_000_000_000
@@ -175,15 +175,15 @@ max_retry_duration = 28_800_000_000_000
 worker_count = 100
 ntp_server = "time.google.com"
 
-[environment_topology.executor_pools.custom.chain_configs."3379446385462418246"]
+[protocol_contracts.environment_topology.executor_pools.custom.chain_configs."3379446385462418246"]
 nop_aliases = ["node-0"]
 execution_interval = 15_000_000_000
 
-[environment_topology.executor_pools.custom.chain_configs."12922642891491394802"]
+[protocol_contracts.environment_topology.executor_pools.custom.chain_configs."12922642891491394802"]
 nop_aliases = ["node-0"]
 execution_interval = 15_000_000_000
 
-[environment_topology.executor_pools.custom.chain_configs."4793464827907405086"]
+[protocol_contracts.environment_topology.executor_pools.custom.chain_configs."4793464827907405086"]
 nop_aliases = ["node-0"]
 execution_interval = 15_000_000_000
 
@@ -412,7 +412,7 @@ execution_interval = 15_000_000_000
       CL_EVM_CMD=""
 
 ## Default Verifier Setup (16 nodes)
-[[verifier]]
+[[committeeccv.verifier]]
   mode = "cl"
   image = "verifier:latest"
   container_name = "default-verifier-1"
@@ -424,13 +424,13 @@ execution_interval = 15_000_000_000
   committee_name = "default"
   node_index = 0
   insecure_aggregator_connection = true
-  [verifier.db]
+  [committeeccv.verifier.db]
     image = "postgres:16-alpine"
     name = "default-verifier-1-db"
     port = 8432
   
 
-[[verifier]]
+[[committeeccv.verifier]]
   mode = "cl"
   image = "verifier:latest"
   container_name = "default-verifier-2"
@@ -441,13 +441,13 @@ execution_interval = 15_000_000_000
   committee_name = "default"
   node_index = 1
   insecure_aggregator_connection = true
-  [verifier.db]
+  [committeeccv.verifier.db]
     image = "postgres:16-alpine"
     name = "default-verifier-2-db"
     port = 8433
   
 
-[[verifier]]
+[[committeeccv.verifier]]
   mode = "cl"
   image = "verifier:latest"
   container_name = "default-verifier-3"
@@ -458,13 +458,13 @@ execution_interval = 15_000_000_000
   committee_name = "default"
   node_index = 2
   insecure_aggregator_connection = true
-  [verifier.db]
+  [committeeccv.verifier.db]
     image = "postgres:16-alpine"
     name = "default-verifier-3-db"
     port = 8434
   
 
-[[verifier]]
+[[committeeccv.verifier]]
   mode = "cl"
   image = "verifier:latest"
   container_name = "default-verifier-4"
@@ -475,13 +475,13 @@ execution_interval = 15_000_000_000
   committee_name = "default"
   node_index = 3
   insecure_aggregator_connection = true
-  [verifier.db]
+  [committeeccv.verifier.db]
     image = "postgres:16-alpine"
     name = "default-verifier-4-db"
     port = 8435
   
 
-[[verifier]]
+[[committeeccv.verifier]]
   mode = "cl"
   image = "verifier:latest"
   container_name = "default-verifier-5"
@@ -492,13 +492,13 @@ execution_interval = 15_000_000_000
   committee_name = "default"
   node_index = 4
   insecure_aggregator_connection = true
-  [verifier.db]
+  [committeeccv.verifier.db]
     image = "postgres:16-alpine"
     name = "default-verifier-5-db"
     port = 8436
   
 
-[[verifier]]
+[[committeeccv.verifier]]
   mode = "cl"
   image = "verifier:latest"
   container_name = "default-verifier-6"
@@ -509,13 +509,13 @@ execution_interval = 15_000_000_000
   committee_name = "default"
   node_index = 5
   insecure_aggregator_connection = true
-  [verifier.db]
+  [committeeccv.verifier.db]
     image = "postgres:16-alpine"
     name = "default-verifier-6-db"
     port = 8437
   
 
-[[verifier]]
+[[committeeccv.verifier]]
   mode = "cl"
   image = "verifier:latest"
   container_name = "default-verifier-7"
@@ -526,13 +526,13 @@ execution_interval = 15_000_000_000
   committee_name = "default"
   node_index = 6
   insecure_aggregator_connection = true
-  [verifier.db]
+  [committeeccv.verifier.db]
     image = "postgres:16-alpine"
     name = "default-verifier-7-db"
     port = 8438
   
 
-[[verifier]]
+[[committeeccv.verifier]]
   mode = "cl"
   image = "verifier:latest"
   container_name = "default-verifier-8"
@@ -543,13 +543,13 @@ execution_interval = 15_000_000_000
   committee_name = "default"
   node_index = 7
   insecure_aggregator_connection = true
-  [verifier.db]
+  [committeeccv.verifier.db]
     image = "postgres:16-alpine"
     name = "default-verifier-8-db"
     port = 8439
   
 
-[[verifier]]
+[[committeeccv.verifier]]
   mode = "cl"
   image = "verifier:latest"
   container_name = "default-verifier-9"
@@ -560,13 +560,13 @@ execution_interval = 15_000_000_000
   committee_name = "default"
   node_index = 8
   insecure_aggregator_connection = true
-  [verifier.db]
+  [committeeccv.verifier.db]
     image = "postgres:16-alpine"
     name = "default-verifier-9-db"
     port = 8440
   
 
-[[verifier]]
+[[committeeccv.verifier]]
   mode = "cl"
   image = "verifier:latest"
   container_name = "default-verifier-10"
@@ -577,13 +577,13 @@ execution_interval = 15_000_000_000
   committee_name = "default"
   node_index = 9
   insecure_aggregator_connection = true
-  [verifier.db]
+  [committeeccv.verifier.db]
     image = "postgres:16-alpine"
     name = "default-verifier-10-db"
     port = 8441
   
 
-[[verifier]]
+[[committeeccv.verifier]]
   mode = "cl"
   image = "verifier:latest"
   container_name = "default-verifier-11"
@@ -594,13 +594,13 @@ execution_interval = 15_000_000_000
   committee_name = "default"
   node_index = 10
   insecure_aggregator_connection = true
-  [verifier.db]
+  [committeeccv.verifier.db]
     image = "postgres:16-alpine"
     name = "default-verifier-11-db"
     port = 8442
   
 
-[[verifier]]
+[[committeeccv.verifier]]
   mode = "cl"
   image = "verifier:latest"
   container_name = "default-verifier-12"
@@ -611,13 +611,13 @@ execution_interval = 15_000_000_000
   committee_name = "default"
   node_index = 11
   insecure_aggregator_connection = true
-  [verifier.db]
+  [committeeccv.verifier.db]
     image = "postgres:16-alpine"
     name = "default-verifier-12-db"
     port = 8443
   
 
-[[verifier]]
+[[committeeccv.verifier]]
   mode = "cl"
   image = "verifier:latest"
   container_name = "default-verifier-13"
@@ -628,13 +628,13 @@ execution_interval = 15_000_000_000
   committee_name = "default"
   node_index = 12
   insecure_aggregator_connection = true
-  [verifier.db]
+  [committeeccv.verifier.db]
     image = "postgres:16-alpine"
     name = "default-verifier-13-db"
     port = 8444
   
 
-[[verifier]]
+[[committeeccv.verifier]]
   mode = "cl"
   image = "verifier:latest"
   container_name = "default-verifier-14"
@@ -645,13 +645,13 @@ execution_interval = 15_000_000_000
   committee_name = "default"
   node_index = 13
   insecure_aggregator_connection = true
-  [verifier.db]
+  [committeeccv.verifier.db]
     image = "postgres:16-alpine"
     name = "default-verifier-14-db"
     port = 8445
   
 
-[[verifier]]
+[[committeeccv.verifier]]
   mode = "cl"
   image = "verifier:latest"
   container_name = "default-verifier-15"
@@ -662,13 +662,13 @@ execution_interval = 15_000_000_000
   committee_name = "default"
   node_index = 14
   insecure_aggregator_connection = true
-  [verifier.db]
+  [committeeccv.verifier.db]
     image = "postgres:16-alpine"
     name = "default-verifier-15-db"
     port = 8446
   
 
-[[verifier]]
+[[committeeccv.verifier]]
   mode = "cl"
   image = "verifier:latest"
   container_name = "default-verifier-16"
@@ -679,14 +679,14 @@ execution_interval = 15_000_000_000
   committee_name = "default"
   node_index = 15
   insecure_aggregator_connection = true
-  [verifier.db]
+  [committeeccv.verifier.db]
     image = "postgres:16-alpine"
     name = "default-verifier-16-db"
     port = 8447
   
 
 # Secondary Verifier Setup
-[[verifier]]
+[[committeeccv.verifier]]
   mode = "cl"
   image = "verifier:latest"
   container_name = "secondary-verifier-1"
@@ -697,13 +697,13 @@ execution_interval = 15_000_000_000
   committee_name = "secondary"
   node_index = 0
   insecure_aggregator_connection = true
-  [verifier.db]
+  [committeeccv.verifier.db]
     image = "postgres:16-alpine"
     name = "secondary-verifier-1-db"
     port = 8448
   
 
-[[verifier]]
+[[committeeccv.verifier]]
   mode = "cl"
   image = "verifier:latest"
   container_name = "secondary-verifier-2"
@@ -714,14 +714,14 @@ execution_interval = 15_000_000_000
   committee_name = "secondary"
   node_index = 1
   insecure_aggregator_connection = true
-  [verifier.db]
+  [committeeccv.verifier.db]
     image = "postgres:16-alpine"
     name = "secondary-verifier-2-db"
     port = 8449
   
 
 # Tertiary Verifier Setup
-[[verifier]]
+[[committeeccv.verifier]]
   mode = "cl"
   image = "verifier:latest"
   container_name = "tertiary-verifier-1"
@@ -732,13 +732,13 @@ execution_interval = 15_000_000_000
   committee_name = "tertiary"
   node_index = 0
   insecure_aggregator_connection = true
-  [verifier.db]
+  [committeeccv.verifier.db]
     image = "postgres:16-alpine"
     name = "tertiary-verifier-1-db"
     port = 8450
   
 
-[[verifier]]
+[[committeeccv.verifier]]
   mode = "cl"
   image = "verifier:latest"
   container_name = "tertiary-verifier-2"
@@ -749,7 +749,7 @@ execution_interval = 15_000_000_000
   committee_name = "tertiary"
   node_index = 1
   insecure_aggregator_connection = true
-  [verifier.db]
+  [committeeccv.verifier.db]
     image = "postgres:16-alpine"
     name = "tertiary-verifier-2-db"
     port = 8451
@@ -1051,223 +1051,223 @@ LockTimeout = 30
 "CommiteeVerifier (Secondary)" = "secondary"
 "CommiteeVerifier (Tertiary)" = "tertiary"
 
-[[aggregator]]
+[[committeeccv.aggregator]]
   committee_name = "default"
   image = "aggregator:latest"
   host_port = 50051
   source_code_path = "../aggregator"
   root_path = "../../"
 
-  [aggregator.db]
+  [committeeccv.aggregator.db]
     image = "postgres:16-alpine"
     host_port  = 7432
   
-  [aggregator.redis]
+  [committeeccv.aggregator.redis]
     image = "redis:7-alpine"
     host_port  = 6379
 
-  [[aggregator.api_clients]]
+  [[committeeccv.aggregator.api_clients]]
   client_id = "default-verifier-1"
   description = "Development default verifier 1"
   enabled = true
   groups = ["verifiers"]
 
-  [[aggregator.api_clients]]
+  [[committeeccv.aggregator.api_clients]]
   client_id = "default-verifier-2"
   description = "Development default verifier 2"
   enabled = true
   groups = ["verifiers"]
 
-  [[aggregator.api_clients]]
+  [[committeeccv.aggregator.api_clients]]
   client_id = "default-verifier-3"
   description = "Development default verifier 3"
   enabled = true
   groups = ["verifiers"]
 
-  [[aggregator.api_clients]]
+  [[committeeccv.aggregator.api_clients]]
   client_id = "default-verifier-4"
   description = "Development default verifier 4"
   enabled = true
   groups = ["verifiers"]
 
-  [[aggregator.api_clients]]
+  [[committeeccv.aggregator.api_clients]]
   client_id = "default-verifier-5"
   description = "Development default verifier 5"
   enabled = true
   groups = ["verifiers"]
 
-  [[aggregator.api_clients]]
+  [[committeeccv.aggregator.api_clients]]
   client_id = "default-verifier-6"
   description = "Development default verifier 6"
   enabled = true
   groups = ["verifiers"]
 
-  [[aggregator.api_clients]]
+  [[committeeccv.aggregator.api_clients]]
   client_id = "default-verifier-7"
   description = "Development default verifier 7"
   enabled = true
   groups = ["verifiers"]
 
-  [[aggregator.api_clients]]
+  [[committeeccv.aggregator.api_clients]]
   client_id = "default-verifier-8"
   description = "Development default verifier 8"
   enabled = true
   groups = ["verifiers"]
 
-  [[aggregator.api_clients]]
+  [[committeeccv.aggregator.api_clients]]
   client_id = "default-verifier-9"
   description = "Development default verifier 9"
   enabled = true
   groups = ["verifiers"]
 
-  [[aggregator.api_clients]]
+  [[committeeccv.aggregator.api_clients]]
   client_id = "default-verifier-10"
   description = "Development default verifier 10"
   enabled = true
   groups = ["verifiers"]
 
-  [[aggregator.api_clients]]
+  [[committeeccv.aggregator.api_clients]]
   client_id = "default-verifier-11"
   description = "Development default verifier 11"
   enabled = true
   groups = ["verifiers"]
 
-  [[aggregator.api_clients]]
+  [[committeeccv.aggregator.api_clients]]
   client_id = "default-verifier-12"
   description = "Development default verifier 12"
   enabled = true
   groups = ["verifiers"]
 
-  [[aggregator.api_clients]]
+  [[committeeccv.aggregator.api_clients]]
   client_id = "default-verifier-13"
   description = "Development default verifier 13"
   enabled = true
   groups = ["verifiers"]
 
-  [[aggregator.api_clients]]
+  [[committeeccv.aggregator.api_clients]]
   client_id = "default-verifier-14"
   description = "Development default verifier 14"
   enabled = true
   groups = ["verifiers"]
 
-  [[aggregator.api_clients]]
+  [[committeeccv.aggregator.api_clients]]
   client_id = "default-verifier-15"
   description = "Development default verifier 15"
   enabled = true
   groups = ["verifiers"]
 
-  [[aggregator.api_clients]]
+  [[committeeccv.aggregator.api_clients]]
   client_id = "default-verifier-16"
   description = "Development default verifier 16"
   enabled = true
   groups = ["verifiers"]
 
-  [[aggregator.api_clients]]
+  [[committeeccv.aggregator.api_clients]]
   client_id = "monitoring"
   description = "Monitoring and infrastructure client"
   enabled = true
   groups = ["monitoring"]
 
-  [[aggregator.api_clients]]
+  [[committeeccv.aggregator.api_clients]]
   client_id = "indexer"
   description = "Development Indexer"
   enabled = true
   groups = ["indexer"]
 
   # Environment variables for sensitive configuration
-  [aggregator.env]
+  [committeeccv.aggregator.env]
     storage_connection_url = "postgresql://aggregator:aggregator@default-aggregator-db:5432/aggregator?sslmode=disable"
     redis_address = "default-aggregator-redis:6379"
     redis_password = ""
     redis_db = "0"
 
-[[aggregator]]
+[[committeeccv.aggregator]]
   committee_name = "secondary"
   image = "aggregator:latest"
   host_port = 50052
   source_code_path = "../aggregator"
   root_path = "../../"
 
-  [aggregator.db]
+  [committeeccv.aggregator.db]
     image = "postgres:16-alpine"
     host_port  = 7433
   
-  [aggregator.redis]
+  [committeeccv.aggregator.redis]
     image = "redis:7-alpine"
     host_port  = 6380
 
-  [[aggregator.api_clients]]
+  [[committeeccv.aggregator.api_clients]]
   client_id = "secondary-verifier-1"
   description = "Development secondary verifier 1"
   enabled = true
   groups = ["verifiers"]
 
-  [[aggregator.api_clients]]
+  [[committeeccv.aggregator.api_clients]]
   client_id = "secondary-verifier-2"
   description = "Development secondary verifier 2"
   enabled = true
   groups = ["verifiers"]
 
-  [[aggregator.api_clients]]
+  [[committeeccv.aggregator.api_clients]]
   client_id = "monitoring"
   description = "Monitoring and infrastructure client"
   enabled = true
   groups = ["monitoring"]
 
-  [[aggregator.api_clients]]
+  [[committeeccv.aggregator.api_clients]]
   client_id = "indexer"
   description = "Development Indexer"
   enabled = true
   groups = ["indexer"]
 
   # Environment variables for sensitive configuration
-  [aggregator.env]
+  [committeeccv.aggregator.env]
     storage_connection_url = "postgresql://aggregator:aggregator@secondary-aggregator-db:5432/aggregator?sslmode=disable"
     redis_address = "secondary-aggregator-redis:6379"
     redis_password = ""
     redis_db = "0"
 
-[[aggregator]]
+[[committeeccv.aggregator]]
   committee_name = "tertiary"
   image = "aggregator:latest"
   host_port = 50053
   source_code_path = "../aggregator"
   root_path = "../../"
 
-  [aggregator.db]
+  [committeeccv.aggregator.db]
     image = "postgres:16-alpine"
     host_port  = 7434
   
-  [aggregator.redis]
+  [committeeccv.aggregator.redis]
     image = "redis:7-alpine"
     host_port  = 6381
 
-  [[aggregator.api_clients]]
+  [[committeeccv.aggregator.api_clients]]
   client_id = "tertiary-verifier-1"
   description = "Development tertiary verifier 1"
   enabled = true
   groups = ["verifiers"]
 
-  [[aggregator.api_clients]]
+  [[committeeccv.aggregator.api_clients]]
   client_id = "tertiary-verifier-2"
   description = "Development tertiary verifier 2"
   enabled = true
   groups = ["verifiers"]
 
-  [[aggregator.api_clients]]
+  [[committeeccv.aggregator.api_clients]]
   client_id = "monitoring"
   description = "Monitoring and infrastructure client"
   enabled = true
   groups = ["monitoring"]
 
-  [[aggregator.api_clients]]
+  [[committeeccv.aggregator.api_clients]]
   client_id = "indexer"
   description = "Development Indexer"
   enabled = true
   groups = ["indexer"]
 
   # Environment variables for sensitive configuration
-  [aggregator.env]
+  [committeeccv.aggregator.env]
     storage_connection_url = "postgresql://aggregator:aggregator@tertiary-aggregator-db:5432/aggregator?sslmode=disable"
     redis_address = "tertiary-aggregator-redis:6379"
     redis_password = ""

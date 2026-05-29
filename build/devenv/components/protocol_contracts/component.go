@@ -70,7 +70,10 @@ func (p *component) RunPhase2(
 	if !ok {
 		return nil, nil, fmt.Errorf("phase 2 did not produce *jobs.JDInfrastructure under \"jd\"")
 	}
-	envTopology, err := decodeTopology(globalConfig["environment_topology"])
+	// Topology lives under [protocol_contracts.environment_topology]; read it from
+	// this component's own config rather than the top-level raw config.
+	pcCfg, _ := componentConfig.(map[string]any)
+	envTopology, err := decodeTopology(pcCfg["environment_topology"])
 	if err != nil {
 		return nil, nil, fmt.Errorf("decoding environment_topology: %w", err)
 	}

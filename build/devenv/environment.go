@@ -97,11 +97,26 @@ const (
 `
 )
 
-// ProtocolContractsCfg holds config for the protocol_contracts Phase 3 component.
+// ProtocolContractsCfg holds config for the protocol_contracts component. It is
+// embedded in Cfg under the [protocol_contracts] TOML section; its fields are
+// promoted, so callers access them directly (e.g. cfg.EnvironmentTopology).
 type ProtocolContractsCfg struct {
 	// UseLegacyConfigureLane selects the legacy lanes.ConnectChains path
 	// instead of the canonical ConfigureChainsForLanesFromTopology changeset.
 	UseLegacyConfigureLane bool `toml:"use_legacy_configure_lane"`
+	// EnvironmentTopology is the shared environment configuration for NOPs,
+	// committees, and executor pools. The protocol_contracts component is its
+	// sole raw reader and the builder of the runtime _topology output.
+	EnvironmentTopology *ccvdeployment.EnvironmentTopology `toml:"environment_topology"`
+}
+
+// CommitteeCCVCfg holds config for the committeeccv component: the aggregator
+// and standalone verifier inputs for the committee verification stack. It is
+// embedded in Cfg under the [committeeccv] TOML section; its fields are
+// promoted, so callers access them directly (e.g. cfg.Aggregator, cfg.Verifier).
+type CommitteeCCVCfg struct {
+	Verifier   []*committeeverifier.Input  `toml:"verifier"`
+	Aggregator []*services.AggregatorInput `toml:"aggregator"`
 }
 
 type Cfg struct {
@@ -112,11 +127,9 @@ type Cfg struct {
 	CLDF               ccldf.CLDF                     `toml:"cldf"                  validate:"required"`
 	Pricer             *services.PricerInput          `toml:"pricer"                validate:"required"`
 	Fake               *services.FakeInput            `toml:"fake"                  validate:"required"`
-	Verifier           []*committeeverifier.Input     `toml:"verifier"              validate:"required"`
 	TokenVerifier      []*services.TokenVerifierInput `toml:"token_verifier"`
 	Executor           []*executorsvc.Input           `toml:"executor"              validate:"required"`
 	Indexer            []*services.IndexerInput       `toml:"indexer"               validate:"required"`
-	Aggregator         []*services.AggregatorInput    `toml:"aggregator"            validate:"required"`
 	JD                 *jd.Input                      `toml:"jd"                    validate:"required"`
 	Blockchains        []*blockchain.Input            `toml:"blockchains"           validate:"required"`
 	NodeSets           []*ns.Input                    `toml:"nodesets"              validate:"omitempty"`
@@ -125,8 +138,13 @@ type Cfg struct {
 	// HighAvailability enables devenv-level service redundancy. When true,
 	// ExpandForHA() clones AggregatorInput / IndexerInput entries according
 	// to their per-service redundancy counts and updates the topology.
-	HighAvailability  bool                 `toml:"high_availability"`
-	ProtocolContracts ProtocolContractsCfg `toml:"protocol_contracts"`
+	HighAvailability bool `toml:"high_availability"`
+	// CommitteeCCVCfg is nested under [committeeccv]; its fields (Aggregator,
+	// Verifier) are promoted for direct access on Cfg.
+	CommitteeCCVCfg `toml:"committeeccv"`
+	// ProtocolContractsCfg is nested under [protocol_contracts]; its fields
+	// (EnvironmentTopology, UseLegacyConfigureLane) are promoted for direct access.
+	ProtocolContractsCfg `toml:"protocol_contracts"`
 	// AggregatorEndpoints map the verifier qualifier to the aggregator URL for that verifier.
 	AggregatorEndpoints map[string]string `toml:"aggregator_endpoints"`
 	// AggregatorCACertFiles map the verifier qualifier to the CA cert file path for TLS verification.
@@ -135,8 +153,6 @@ type Cfg struct {
 	IndexerEndpoints []string `toml:"indexer_endpoints"`
 	// IndexerInternalEndpoints holds internal Docker network URLs for all indexers.
 	IndexerInternalEndpoints []string `toml:"indexer_internal_endpoints"`
-	// EnvironmentTopology is the shared environment configuration for NOPs, committees, and executor pools.
-	EnvironmentTopology *ccvdeployment.EnvironmentTopology `toml:"environment_topology" validate:"required"`
 	// JDInfra holds the runtime JD infrastructure (not from config, populated at runtime).
 	JDInfra *jobs.JDInfrastructure `toml:"-"`
 	// ClientLookup provides ChainlinkClient lookup by NOP alias (populated at runtime).

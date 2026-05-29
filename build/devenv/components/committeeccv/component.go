@@ -27,7 +27,7 @@ import (
 	ctfblockchain "github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
 
-const configKey = "aggregator"
+const configKey = "committeeccv"
 
 func init() {
 	if err := devenvruntime.Register(configKey, factory); err != nil {
@@ -59,11 +59,14 @@ func (c *component) RunPhase3(
 	componentConfig any,
 	priorOutputs map[string]any,
 ) (map[string]any, []devenvruntime.Effect, error) {
-	aggregators, err := decodeAggregators(componentConfig)
+	// The committeeccv config is a single [committeeccv] section holding the
+	// aggregator and verifier inputs (see Cfg.CommitteeCCVCfg).
+	committeeCfg, _ := componentConfig.(map[string]any)
+	aggregators, err := decodeAggregators(committeeCfg["aggregator"])
 	if err != nil {
 		return nil, nil, err
 	}
-	verifiers, err := decodeVerifiers(globalConfig["verifier"])
+	verifiers, err := decodeVerifiers(committeeCfg["verifier"])
 	if err != nil {
 		return nil, nil, err
 	}

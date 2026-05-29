@@ -400,7 +400,7 @@ func NewEnvironment() (in *Cfg, err error) {
 	}
 
 	var connectErr error
-	if in.ProtocolContracts.UseLegacyConfigureLane {
+	if in.UseLegacyConfigureLane {
 		connectErr = ccdeploy.ConnectAllChainsLegacy(impls, in.Blockchains, selectors, e, topology)
 	} else {
 		connectErr = ccdeploy.ConnectAllChainsCanonical(impls, in.Blockchains, selectors, e, topology)
