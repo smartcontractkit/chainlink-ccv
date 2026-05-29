@@ -44,6 +44,9 @@ type ReqModifier func(
 ) (testcontainers.ContainerRequest, error)
 
 type Input struct {
+	// Version is the component config schema version (see the executor
+	// component's Version constant).
+	Version        int           `toml:"version"`
 	Mode           services.Mode `toml:"mode"`
 	Out            *Output       `toml:"out"`
 	Image          string        `toml:"image"`

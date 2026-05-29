@@ -20,6 +20,10 @@ const (
 	privateKeyEnvVar = "PRIVATE_KEY"
 )
 
+// Version is the blockchains component config schema version. Exactly this
+// version is supported; configs declaring any other version are rejected.
+const Version = 1
+
 // simChainIDs are the well-known simulated chain IDs used by Anvil/Geth in devenv.
 var simChainIDs = []string{"1337", "2337", "3337"}
 
@@ -132,6 +136,15 @@ func networkPrivateKey() string {
 // re-encoding through go-toml. The runtime hands components their config as the
 // untyped value parsed by loadRaw, so we re-encode and decode into the typed
 // struct that the framework expects.
+// blockchainConfig embeds the third-party blockchain.Input (which we cannot add
+// fields to) and adds the component config version. The embedded Input is
+// inlined by go-toml, so each [[blockchains]] entry's fields decode normally
+// alongside its version.
+type blockchainConfig struct {
+	Version int `toml:"version"`
+	blockchain.Input
+}
+
 func decode(raw any) ([]*blockchain.Input, error) {
 	b, err := toml.Marshal(struct {
 		V any `toml:"blockchains"`
@@ -140,10 +153,17 @@ func decode(raw any) ([]*blockchain.Input, error) {
 		return nil, fmt.Errorf("re-encoding blockchains config: %w", err)
 	}
 	var wrapper struct {
-		V []*blockchain.Input `toml:"blockchains"`
+		V []blockchainConfig `toml:"blockchains"`
 	}
 	if err := toml.Unmarshal(b, &wrapper); err != nil {
 		return nil, fmt.Errorf("decoding blockchains config: %w", err)
 	}
-	return wrapper.V, nil
+	bcs := make([]*blockchain.Input, len(wrapper.V))
+	for i := range wrapper.V {
+		if err := devenvruntime.CheckConfigVersion(wrapper.V[i].Version, Version); err != nil {
+			return nil, fmt.Errorf("blockchains entry %d: %w", i, err)
+		}
+		bcs[i] = &wrapper.V[i].Input
+	}
+	return bcs, nil
 }

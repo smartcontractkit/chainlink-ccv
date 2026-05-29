@@ -31,6 +31,10 @@ import (
 
 const configKey = "executor"
 
+// Version is the executor component config schema version. Exactly this version
+// is supported; configs declaring any other version are rejected.
+const Version = 1
+
 func init() {
 	if err := devenvruntime.Register(configKey, factory); err != nil {
 		panic(fmt.Sprintf("executor component: %v", err))
@@ -319,6 +323,11 @@ func decode(raw any) ([]*executorsvc.Input, error) {
 	}
 	if err := toml.Unmarshal(b, &wrapper); err != nil {
 		return nil, fmt.Errorf("decoding executor config: %w", err)
+	}
+	for i, in := range wrapper.V {
+		if err := devenvruntime.CheckConfigVersion(in.Version, Version); err != nil {
+			return nil, fmt.Errorf("executor entry %d: %w", i, err)
+		}
 	}
 	return wrapper.V, nil
 }

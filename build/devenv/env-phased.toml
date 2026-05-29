@@ -8,6 +8,7 @@
 version = 1
 
 [protocol_contracts]
+version = 1
 use_legacy_configure_lane = false
 
 ## Environment configuration define the topology. Eventually the topology should be the only config that is needed.
@@ -160,10 +161,12 @@ nop_aliases = ["custom-executor-1"]
 execution_interval = 15_000_000_000
 
 [jd]
+  version = 1
   csa_encryption_key = "d1093c0060d50a3c89c189b2e485da5a3ce57f3dcb38ab7e2c0d5f0bb2314a44" # any random 32 byte hex string
   image = "job-distributor:local"
 
 [[blockchains]]
+  version = 1
   container_name = "blockchain-src"
   chain_id = "1337"
   docker_cmd_params = ["-b", "1", "--mixed-mining", "--slots-in-an-epoch", "1"]
@@ -172,6 +175,7 @@ execution_interval = 15_000_000_000
   type = "anvil"
 
 [[blockchains]]
+  version = 1
   container_name = "blockchain-dst"
   chain_id = "2337"
   docker_cmd_params = ["-b", "1", "--mixed-mining", "--slots-in-an-epoch", "1"]
@@ -180,6 +184,7 @@ execution_interval = 15_000_000_000
   type = "anvil"
 
 [[blockchains]]
+  version = 1
   container_name = "blockchain-3rd"
   chain_id = "3337"
   docker_cmd_params = ["-b", "1", "--mixed-mining", "--slots-in-an-epoch", "1"]
@@ -188,12 +193,16 @@ execution_interval = 15_000_000_000
   type = "anvil"
 
 [fake]
+  version = 1
   image = "ccv-fakes:latest"
   port = 9111
   source_code_path = "../build/devenv/fakes"
   root_path = "../../"
 
 ## Default Verifier Setup
+[committeeccv]
+  version = 1
+
 [[committeeccv.verifier]]
   image = "verifier:latest"
   container_name = "default-verifier-1"
@@ -288,6 +297,7 @@ execution_interval = 15_000_000_000
 
 
 [[token_verifier]]
+  version = 1
   mode = "standalone"
   image = "token-verifier:latest"
   container_name = "token-verifier-1"
@@ -301,6 +311,7 @@ execution_interval = 15_000_000_000
 
 
 [[executor]]
+  version = 1
   image = "executor:latest"
   source_code_path = "../executor"
   root_path = "../../"
@@ -312,6 +323,7 @@ execution_interval = 15_000_000_000
     name = "default-executor-1-db"
 
 [[executor]]
+  version = 1
   image = "executor:latest"
   source_code_path = "../executor"
   root_path = "../../"
@@ -323,6 +335,7 @@ execution_interval = 15_000_000_000
     name = "default-executor-2-db"
 
 [[executor]]
+  version = 1
   image = "executor:latest"
   source_code_path = "../executor"
   root_path = "../../"
@@ -334,6 +347,7 @@ execution_interval = 15_000_000_000
     name = "custom-executor-1-db"
 
 [[indexer]]
+  version = 1
   image = "indexer:latest"
   port = 8104
   # will spawn additional indexers IF high_availability is set to true

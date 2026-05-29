@@ -102,22 +102,6 @@ type ProtocolContractsCfg struct {
 	// UseLegacyConfigureLane selects the legacy lanes.ConnectChains path
 	// instead of the canonical ConfigureChainsForLanesFromTopology changeset.
 	UseLegacyConfigureLane bool `toml:"use_legacy_configure_lane"`
-	// EnvironmentTopology is the committee/NOP/executor-pool topology. ONLY the
-	// phased devenv (env-phased.toml) nests it here under
-	// [protocol_contracts.environment_topology]; the non-phased configs keep it
-	// at the top level (Cfg.EnvironmentTopology). Optional so both layouts load.
-	// NewPhasedEnvironment lifts this into Cfg.EnvironmentTopology after loading.
-	EnvironmentTopology *ccvdeployment.EnvironmentTopology `toml:"environment_topology"`
-}
-
-// CommitteeCCVCfg holds the aggregator + verifier inputs for the committeeccv
-// component. ONLY the phased devenv (env-phased.toml) nests them here under
-// [committeeccv]; the non-phased configs keep [[aggregator]] / [[verifier]] at
-// the top level (Cfg.Aggregator / Cfg.Verifier). NewPhasedEnvironment lifts
-// these into the top-level Cfg fields after loading.
-type CommitteeCCVCfg struct {
-	Verifier   []*committeeverifier.Input  `toml:"verifier"`
-	Aggregator []*services.AggregatorInput `toml:"aggregator"`
 }
 
 type Cfg struct {
@@ -143,10 +127,6 @@ type Cfg struct {
 	// to their per-service redundancy counts and updates the topology.
 	HighAvailability  bool                 `toml:"high_availability"`
 	ProtocolContracts ProtocolContractsCfg `toml:"protocol_contracts"`
-	// CommitteeCCV is the phased-devenv [committeeccv] section (aggregator +
-	// verifier). Non-phased configs leave it empty and use the top-level
-	// Aggregator / Verifier fields instead.
-	CommitteeCCV CommitteeCCVCfg `toml:"committeeccv"`
 	// AggregatorEndpoints map the verifier qualifier to the aggregator URL for that verifier.
 	AggregatorEndpoints map[string]string `toml:"aggregator_endpoints"`
 	// AggregatorCACertFiles map the verifier qualifier to the CA cert file path for TLS verification.

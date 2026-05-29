@@ -30,6 +30,10 @@ import (
 
 const configKey = "committeeccv"
 
+// Version is the committeeccv component config schema version. Exactly this
+// version is supported; configs declaring any other version are rejected.
+const Version = 1
+
 func init() {
 	if err := devenvruntime.Register(configKey, factory); err != nil {
 		panic(fmt.Sprintf("committeeccv component: %v", err))
@@ -42,7 +46,10 @@ func factory(_ map[string]any) (devenvruntime.Component, error) {
 
 type component struct{}
 
-func (c *component) ValidateConfig(_ any) error { return nil }
+func (c *component) ValidateConfig(componentConfig any) error {
+	_, err := decodeConfig(componentConfig)
+	return err
+}
 
 // RunPhase3 performs the full CommitteeCCV setup:
 //  1. Generates HMAC client credentials for each aggregator.
@@ -438,13 +445,15 @@ func buildVerifierJobSpecEffects(
 // verifier inputs for the committee verification stack. It mirrors the phased
 // devenv's [committeeccv] TOML section (Cfg.CommitteeCCVCfg in package ccv).
 type Config struct {
+	Version    int                         `toml:"version"`
 	Aggregator []*services.AggregatorInput `toml:"aggregator"`
 	Verifier   []*committeeverifier.Input  `toml:"verifier"`
 }
 
-// decodeConfig round-trips the raw TOML component config into a typed Config.
-// The runtime hands components their config as opaque decoded TOML
-// (map[string]any), so re-encode it and decode into the typed struct.
+// decodeConfig round-trips the raw TOML component config into a typed Config and
+// verifies its declared version. The runtime hands components their config as
+// opaque decoded TOML (map[string]any), so re-encode it and decode into the
+// typed struct.
 func decodeConfig(raw any) (Config, error) {
 	b, err := toml.Marshal(raw)
 	if err != nil {
@@ -453,6 +462,9 @@ func decodeConfig(raw any) (Config, error) {
 	var cfg Config
 	if err := toml.Unmarshal(b, &cfg); err != nil {
 		return Config{}, fmt.Errorf("decoding committeeccv config: %w", err)
+	}
+	if err := devenvruntime.CheckConfigVersion(cfg.Version, Version); err != nil {
+		return Config{}, err
 	}
 	return cfg, nil
 }

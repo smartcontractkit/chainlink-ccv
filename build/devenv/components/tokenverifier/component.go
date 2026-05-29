@@ -19,6 +19,10 @@ import (
 
 const configKey = "token_verifier"
 
+// Version is the token_verifier component config schema version. Exactly this
+// version is supported; configs declaring any other version are rejected.
+const Version = 1
+
 func init() {
 	if err := devenvruntime.Register(configKey, factory); err != nil {
 		panic(fmt.Sprintf("tokenverifier component: %v", err))
@@ -31,7 +35,10 @@ func factory(_ map[string]any) (devenvruntime.Component, error) {
 
 type component struct{}
 
-func (c *component) ValidateConfig(_ any) error { return nil }
+func (c *component) ValidateConfig(componentConfig any) error {
+	_, err := decode(componentConfig)
+	return err
+}
 
 // RunPhase4 decodes [[token_verifier]] config, generates token verifier
 // configuration from on-chain state via changeset, and launches standalone
@@ -152,6 +159,11 @@ func decode(raw any) ([]*services.TokenVerifierInput, error) {
 	}
 	if err := toml.Unmarshal(b, &wrapper); err != nil {
 		return nil, fmt.Errorf("decoding token_verifier config: %w", err)
+	}
+	for i, in := range wrapper.V {
+		if err := devenvruntime.CheckConfigVersion(in.Version, Version); err != nil {
+			return nil, fmt.Errorf("token_verifier entry %d: %w", i, err)
+		}
 	}
 	return wrapper.V, nil
 }
