@@ -270,3 +270,15 @@ func TestVersionKeyRejectsNonInteger(t *testing.T) {
 	require.Contains(t, err.Error(), "version")
 	require.Contains(t, err.Error(), "integer")
 }
+
+// TestUnclaimedKeyFailsFast verifies a top-level config key that no registered
+// component claims (e.g. a typo or stale key) is a hard error naming the key.
+// The check runs before any phase executes, so no component need be registered.
+func TestUnclaimedKeyFailsFast(t *testing.T) {
+	r := devenvruntime.NewRegistry()
+
+	_, err := runEnv(t, r, map[string]any{"typoo": nil})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "unclaimed config keys")
+	require.Contains(t, err.Error(), "typoo")
+}
