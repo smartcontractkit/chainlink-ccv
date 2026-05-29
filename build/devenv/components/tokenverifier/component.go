@@ -7,6 +7,7 @@ import (
 	"github.com/pelletier/go-toml/v2"
 
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
+	blockchainscomp "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/blockchains"
 	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
@@ -58,10 +59,11 @@ func (c *component) RunPhase4(
 	if !ok {
 		return nil, nil, fmt.Errorf("tokenverifier: _selectors not found in phase outputs")
 	}
-	blockchainOutputs, ok := priorOutputs["blockchainOutputs"].([]*blockchain.Output)
+	blockchains, ok := priorOutputs["blockchains"].([]*blockchain.Input)
 	if !ok {
-		return nil, nil, fmt.Errorf("tokenverifier: blockchainOutputs not found in phase outputs")
+		return nil, nil, fmt.Errorf("tokenverifier: blockchains not found in phase outputs")
 	}
+	blockchainOutputs := blockchainscomp.Outputs(blockchains)
 
 	var fakeOut *services.FakeOutput
 	if fake, ok := priorOutputs["fake"].(*services.FakeInput); ok && fake != nil {

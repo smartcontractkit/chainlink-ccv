@@ -14,6 +14,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainreg"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
+	blockchainscomp "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/blockchains"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
 	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
@@ -64,12 +65,11 @@ func (c *component) RunPhase3(
 		return map[string]any{configKey: executors}, nil, nil
 	}
 
-	blockchainOutputs, ok := priorOutputs["blockchainOutputs"].([]*ctfblockchain.Output)
+	blockchains, ok := priorOutputs["blockchains"].([]*ctfblockchain.Input)
 	if !ok {
-		return nil, nil, fmt.Errorf("phase 1 did not produce []*blockchain.Output under \"blockchainOutputs\"")
+		return nil, nil, fmt.Errorf("phase 1 did not produce []*blockchain.Input under \"blockchains\"")
 	}
-
-	blockchains, _ := priorOutputs["blockchains"].([]*ctfblockchain.Input)
+	blockchainOutputs := blockchainscomp.Outputs(blockchains)
 
 	jdInfra, ok := priorOutputs["jd"].(*jobs.JDInfrastructure)
 	if !ok || jdInfra == nil {

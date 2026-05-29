@@ -53,6 +53,24 @@ func NewPhasedEnvironment() (cfg *Cfg, err error) {
 		return nil, fmt.Errorf("loading config for output: %w", err)
 	}
 
+	// env-phased.toml nests committeeccv (aggregator + verifier) and the topology
+	// under [committeeccv] / [protocol_contracts.environment_topology]. The rest
+	// of the devenv (Store output + downstream non-phased test consumers) expects
+	// the flat top-level Cfg fields, so lift the nested values up and clear the
+	// nested copies to keep the output file in the canonical flat shape. The
+	// aggregator/verifier fields are overwritten with started inputs below.
+	if cfg.EnvironmentTopology == nil {
+		cfg.EnvironmentTopology = cfg.ProtocolContracts.EnvironmentTopology
+	}
+	if len(cfg.Aggregator) == 0 {
+		cfg.Aggregator = cfg.CommitteeCCV.Aggregator
+	}
+	if len(cfg.Verifier) == 0 {
+		cfg.Verifier = cfg.CommitteeCCV.Verifier
+	}
+	cfg.ProtocolContracts.EnvironmentTopology = nil
+	cfg.CommitteeCCV = CommitteeCCVCfg{}
+
 	// Sync blockchains from Phase 1 so Out fields (RPC URLs, etc.) are populated.
 	if blockchains, ok := out["blockchains"].([]*blockchain.Input); ok {
 		cfg.Blockchains = blockchains

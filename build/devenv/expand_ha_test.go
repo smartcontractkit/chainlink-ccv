@@ -26,15 +26,13 @@ func TestExpandForHA(t *testing.T) {
 			name: "HA disabled is a no-op",
 			cfg: &Cfg{
 				HighAvailability: false,
-				CommitteeCCVCfg: CommitteeCCVCfg{
-					Aggregator: []*services.AggregatorInput{
-						{
-							CommitteeName:        "default",
-							HostPort:             50051,
-							RedundantAggregators: 2,
-							DB:                   &services.AggregatorDBInput{HostPort: 7432},
-							Redis:                &services.AggregatorRedisInput{HostPort: 6379},
-						},
+				Aggregator: []*services.AggregatorInput{
+					{
+						CommitteeName:        "default",
+						HostPort:             50051,
+						RedundantAggregators: 2,
+						DB:                   &services.AggregatorDBInput{HostPort: 7432},
+						Redis:                &services.AggregatorRedisInput{HostPort: 6379},
 					},
 				},
 				Indexer: []*services.IndexerInput{
@@ -276,10 +274,8 @@ func TestExpandForHA(t *testing.T) {
 			name: "nil topology is safe for aggregator expansion",
 			cfg: &Cfg{
 				HighAvailability: true,
-				CommitteeCCVCfg: CommitteeCCVCfg{
-					Aggregator: []*services.AggregatorInput{
-						{CommitteeName: "default", RedundantAggregators: 1},
-					},
+				Aggregator: []*services.AggregatorInput{
+					{CommitteeName: "default", RedundantAggregators: 1},
 				},
 				Indexer: []*services.IndexerInput{
 					{Port: 8104, DB: &services.DBInput{HostPort: 6432}},
@@ -391,14 +387,12 @@ type cfgOption func(*Cfg)
 func buildCfgPtr(opts ...cfgOption) *Cfg {
 	c := &Cfg{
 		HighAvailability: true,
-		ProtocolContractsCfg: ProtocolContractsCfg{
-			EnvironmentTopology: &ccvdeployment.EnvironmentTopology{
-				NOPTopology: &ccvdeployment.NOPTopology{
-					NOPs: []ccvdeployment.NOPConfig{
-						{Alias: "nop-1", Name: "nop-1"},
-					},
-					Committees: make(map[string]ccvdeployment.CommitteeConfig),
+		EnvironmentTopology: &ccvdeployment.EnvironmentTopology{
+			NOPTopology: &ccvdeployment.NOPTopology{
+				NOPs: []ccvdeployment.NOPConfig{
+					{Alias: "nop-1", Name: "nop-1"},
 				},
+				Committees: make(map[string]ccvdeployment.CommitteeConfig),
 			},
 		},
 	}
