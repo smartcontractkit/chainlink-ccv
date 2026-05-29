@@ -60,7 +60,7 @@ func (c *component) ValidateConfig(componentConfig any) error {
 //  6. Launches full aggregator containers.
 //  7. Generates verifier job specs and emits JobProposalEffect for each standalone verifier.
 //
-// Outputs "aggregators", "verifiers", and "shared_tls_certs" for Phase 4 (Indexer) consumption.
+// Outputs "aggregators", "verifiers", and "_shared_tls_certs" for Phase 4 (Indexer) consumption.
 func (c *component) RunPhase3(
 	ctx context.Context,
 	globalConfig map[string]any,
@@ -92,9 +92,9 @@ func (c *component) RunPhase3(
 	if !ok || e == nil {
 		return nil, nil, fmt.Errorf("committeeccv: _env not found in phase outputs")
 	}
-	topology, ok := priorOutputs["_topology"].(*ccvdeployment.EnvironmentTopology)
+	topology, ok := priorOutputs["environment_topology"].(*ccvdeployment.EnvironmentTopology)
 	if !ok || topology == nil {
-		return nil, nil, fmt.Errorf("committeeccv: _topology not found in phase outputs")
+		return nil, nil, fmt.Errorf("committeeccv: environment_topology not found in phase outputs")
 	}
 	ds, ok := priorOutputs["_ds"].(datastore.MutableDataStore)
 	if !ok {
@@ -226,9 +226,13 @@ func (c *component) RunPhase3(
 	}
 
 	return map[string]any{
-		"aggregators":      aggregators,
-		"verifiers":        verifiers,
-		"shared_tls_certs": sharedTLSCerts,
+		// aggregators and verifiers are public (serialized; the phased loader
+		// reads them and derives endpoint maps). The shared TLS certs are
+		// runtime-only plumbing, so they use a "_"-prefixed key and are stripped
+		// from the serialized output.
+		"aggregators":       aggregators,
+		"verifiers":         verifiers,
+		"_shared_tls_certs": sharedTLSCerts,
 	}, effects, nil
 }
 
