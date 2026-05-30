@@ -12,6 +12,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainreg"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	blockchainscomp "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/blockchains"
+	clnodecomp "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/clnode"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/components/observability"
 	ccdeploy "github.com/smartcontractkit/chainlink-ccv/build/devenv/deploy"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
@@ -124,6 +125,18 @@ func (c *component) RunPhase3(
 			agg.Out = &services.AggregatorOutput{}
 		}
 		agg.Out.ClientCredentials = creds
+	}
+
+	// Step 1b: Launch CL node sets (issue 16). The clnode component (Phase 1)
+	// publishes its decoded config under clnodecomp.OutputKey; committeeccv drives
+	// the launch because CL node secrets are boot-only and the aggregator HMAC
+	// creds (generated in Step 1) must be baked in before launch. CL nodes must be
+	// up + registered with JD before the lane/committee config below fetches their
+	// signing keys from JD. Secret injection + JD registration land in later steps.
+	if clnodeCfg, ok := priorOutputs[clnodecomp.OutputKey].(*clnodecomp.Config); ok && clnodeCfg != nil {
+		if err := clnodecomp.LaunchNodeSets(ctx, clnodeCfg, blockchains); err != nil {
+			return nil, nil, fmt.Errorf("committeeccv: launching CL node sets: %w", err)
+		}
 	}
 
 	// Step 2: Launch standalone verifier containers (reads HMAC creds from agg.Out).

@@ -1,14 +1,15 @@
 // Package clnode is the phased-devenv component for Chainlink-node ("CL node")
 // support (issue 16).
 //
-// NOTE: This is a STEP-1 THROWAWAY PROTOTYPE. It launches + funds CL nodes
-// directly in Phase 2 purely to prove that nodeset launch works inside the
-// phased runtime. The agreed final design is different: clnode becomes a
-// config-vehicle component that only decodes its config and publishes it as
-// the "_clnode" output key, and the committeeccv component performs the
-// secrets-baked launch (CL node secrets are boot-only, so the aggregator HMAC
-// creds must be injected before launch, which only committeeccv has). Do not
-// build on the launch logic here without revisiting that plan.
+// The component itself is a config vehicle: it claims the top-level [clnode]
+// config key, decodes the versioned config, and publishes it as the
+// runtime-only output key "_clnode". It does NOT launch anything.
+//
+// The committeeccv component (Phase 3) consumes "_clnode" and drives the
+// actual launch via LaunchNodeSets, because CL node secrets are boot-only and
+// the aggregator HMAC credentials that must be baked into the node spec before
+// launch are owned by committeeccv. Keeping the launch helper here keeps the
+// node-launch code beside its config while letting committeeccv sequence it.
 package clnode
 
 import (
@@ -28,14 +29,18 @@ import (
 
 const configKey = "clnode"
 
+// OutputKey is the runtime-only output key under which the decoded clnode
+// config is published for committeeccv to consume.
+const OutputKey = "_clnode"
+
 // Version is the clnode component config schema version. Exactly this version
 // is supported; configs declaring any other version are rejected.
 const Version = 1
 
-// commonCLNodesConfig is a prototype-local copy of ccv.CommonCLNodesConfig.
-// The ccv package blank-imports every component, so a component cannot import
-// it back without a cycle; duplication is acceptable for the throwaway.
-const commonCLNodesConfig = `
+// CommonCLNodesConfig is the base TOML config applied to every CL node. It is a
+// copy of ccv.CommonCLNodesConfig; the ccv package blank-imports every
+// component, so a component cannot import it back without a cycle.
+const CommonCLNodesConfig = `
 [Log]
 JSONConsole = true
 Level = 'info'
@@ -115,43 +120,50 @@ func (c *component) ValidateConfig(componentConfig any) error {
 	return err
 }
 
-// RunPhase2 (THROWAWAY) launches and funds the configured CL node sets. It runs
-// in Phase 2 because it needs the Phase-1 "blockchains" output for chain config
-// and funding. It produces no outputs and emits no effects yet.
-func (c *component) RunPhase2(
-	ctx context.Context,
+// RunPhase1 decodes the clnode config and publishes it under OutputKey for
+// committeeccv (Phase 3) to consume. It launches nothing.
+func (c *component) RunPhase1(
+	_ context.Context,
 	_ map[string]any,
 	componentConfig any,
-	priorOutputs map[string]any,
 ) (map[string]any, []devenvruntime.Effect, error) {
 	cfg, err := decodeConfig(componentConfig)
 	if err != nil {
 		return nil, nil, err
 	}
-	if len(cfg.NodeSets) == 0 {
-		return map[string]any{}, nil, nil
-	}
+	out := cfg
+	return map[string]any{OutputKey: &out}, nil, nil
+}
 
-	blockchains, ok := priorOutputs["blockchains"].([]*ctfblockchain.Input)
-	if !ok || len(blockchains) == 0 {
-		return nil, nil, fmt.Errorf("clnode: blockchains not found in phase outputs")
+// LaunchNodeSets configures, launches, and funds the CL node sets in cfg using
+// the chains in blockchains. It is called by committeeccv during Phase 3.
+//
+// NOTE: secret injection (TestSecretsOverrides) must happen on the node specs
+// before this is called, because CL node secrets are boot-only. Step 1 launches
+// without secrets; committeeccv will bake them in a later step.
+func LaunchNodeSets(ctx context.Context, cfg *Config, blockchains []*ctfblockchain.Input) error {
+	if cfg == nil || len(cfg.NodeSets) == 0 {
+		return nil
+	}
+	if len(blockchains) == 0 {
+		return fmt.Errorf("clnode: no blockchains available to configure CL nodes")
 	}
 
 	impls := make([]cciptestinterfaces.CCIP17Configuration, 0, len(blockchains))
 	for _, bc := range blockchains {
 		impl, ierr := chainreg.NewProductConfigurationFromNetwork(bc.Type)
 		if ierr != nil {
-			return nil, nil, fmt.Errorf("clnode: impl for %q: %w", bc.Type, ierr)
+			return fmt.Errorf("clnode: impl for %q: %w", bc.Type, ierr)
 		}
 		impls = append(impls, impl)
 	}
 
 	// Assemble the CL node chain-config overrides from each chain impl.
-	chainConfigs := []string{commonCLNodesConfig}
+	chainConfigs := []string{CommonCLNodesConfig}
 	for i, impl := range impls {
 		cc, cerr := impl.ConfigureNodes(ctx, blockchains[i])
 		if cerr != nil {
-			return nil, nil, fmt.Errorf("clnode: ConfigureNodes for %q: %w", blockchains[i].Type, cerr)
+			return fmt.Errorf("clnode: ConfigureNodes for %q: %w", blockchains[i].Type, cerr)
 		}
 		chainConfigs = append(chainConfigs, cc)
 	}
@@ -165,7 +177,7 @@ func (c *component) RunPhase2(
 	// Launch each node set (shared DB per set).
 	for _, nodeSet := range cfg.NodeSets {
 		if _, nerr := ns.NewSharedDBNodeSet(nodeSet, nil); nerr != nil {
-			return nil, nil, fmt.Errorf("clnode: NewSharedDBNodeSet %q: %w", nodeSet.Name, nerr)
+			return fmt.Errorf("clnode: NewSharedDBNodeSet %q: %w", nodeSet.Name, nerr)
 		}
 	}
 
@@ -174,11 +186,10 @@ func (c *component) RunPhase2(
 	native := toBigUnits(cfg.CLNodesFundingETH, 5)
 	for i, impl := range impls {
 		if ferr := impl.FundNodes(ctx, cfg.NodeSets, blockchains[i], link, native); ferr != nil {
-			return nil, nil, fmt.Errorf("clnode: FundNodes on %q: %w", blockchains[i].Type, ferr)
+			return fmt.Errorf("clnode: FundNodes on %q: %w", blockchains[i].Type, ferr)
 		}
 	}
-
-	return map[string]any{}, nil, nil
+	return nil
 }
 
 // toBigUnits converts a whole-unit funding amount to *big.Int, falling back to
