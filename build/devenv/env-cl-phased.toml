@@ -1,0 +1,41 @@
+# Phased-runtime CL-node overlay (issue 16).
+#
+# Layer this on top of env-phased.toml:
+#   ccv --env-mode phased up env-phased.toml,env-cl-phased.toml
+#
+# It is a phased-shaped copy of env-cl.toml's CL bits. STEP 1 scope: only the
+# [clnode] section, which the clnode component claims (so the issue-03
+# unclaimed-key check passes) and, in the throwaway prototype, uses to launch +
+# fund the node sets. CL-mode verifier/executor and topology overrides come in
+# later steps.
+
+[clnode]
+version = 1
+cl_nodes_funding_eth = 50
+cl_nodes_funding_link = 50
+
+[[clnode.node_sets]]
+  name = "don"
+  nodes = 2
+  override_mode = "each"
+
+  [clnode.node_sets.db]
+    image = "postgres:15.0"
+
+  [[clnode.node_sets.node_specs]]
+
+    [clnode.node_sets.node_specs.node]
+      docker_ctx = "../../../chainlink"
+      docker_file = "plugins/chainlink.Dockerfile"
+
+    [clnode.node_sets.node_specs.node.env_vars]
+      CL_EVM_CMD = ""
+
+  [[clnode.node_sets.node_specs]]
+
+    [clnode.node_sets.node_specs.node]
+      docker_ctx = "../../../chainlink"
+      docker_file = "plugins/chainlink.Dockerfile"
+
+    [clnode.node_sets.node_specs.node.env_vars]
+      CL_EVM_CMD = ""
