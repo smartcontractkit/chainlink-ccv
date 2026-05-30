@@ -94,6 +94,10 @@ func (c *component) RunPhase3(
 	if !ok || e == nil {
 		return nil, nil, fmt.Errorf("committeeccv: _env not found in phase outputs")
 	}
+	// Work on a copy of the environment: the shared _env is a Phase-2 output and
+	// must be treated as immutable. CL-node NodeIDs and per-step DataStore updates
+	// are applied to this local copy only. (Mirrors the tokenverifier component.)
+	localEnv := *e
 	topology, ok := priorOutputs["environment_topology"].(*ccvdeployment.EnvironmentTopology)
 	if !ok || topology == nil {
 		return nil, nil, fmt.Errorf("committeeccv: environment_topology not found in phase outputs")
@@ -127,18 +131,44 @@ func (c *component) RunPhase3(
 		agg.Out.ClientCredentials = creds
 	}
 
-	// Step 1b: Launch CL node sets (issue 16). The clnode component (Phase 1)
-	// publishes its decoded config under clnodecomp.OutputKey; committeeccv drives
-	// the launch because CL node secrets are boot-only and the aggregator HMAC
-	// creds (generated in Step 1) must be baked in before launch. CL nodes must be
-	// up + registered with JD before the lane/committee config below fetches their
-	// signing keys from JD. Secret injection + JD registration land in later steps.
-	if clnodeCfg, ok := priorOutputs[clnodecomp.OutputKey].(*clnodecomp.Config); ok && clnodeCfg != nil {
+	// Step 1b: Launch CL node sets and register them with JD (issue 16). The
+	// clnode component (Phase 1) publishes its decoded config under
+	// clnodecomp.OutputKey; committeeccv drives the launch because CL node secrets
+	// are boot-only and the aggregator HMAC creds (generated in Step 1) must be
+	// baked in before launch. CL nodes must be launched + registered + connected to
+	// JD before the lane/committee config below, because ApplyVerifierConfig fetches
+	// CL-mode signing keys from JD. (Secret injection lands in a later step.)
+	var clNodeClients *jobs.NodeSetClientLookup
+	if clnodeCfg, ok := priorOutputs[clnodecomp.OutputKey].(*clnodecomp.Config); ok && clnodeCfg != nil && len(clnodeCfg.NodeSets) > 0 {
 		if err := clnodecomp.LaunchNodeSets(ctx, clnodeCfg, blockchains); err != nil {
 			return nil, nil, fmt.Errorf("committeeccv: launching CL node sets: %w", err)
 		}
-	}
 
+		clNopAliases := clModeNOPAliases(topology)
+		if len(clNopAliases) > 0 {
+			clNodeClients, err = jobs.NewNodeSetClientLookup(clnodeCfg.NodeSets, clNopAliases)
+			if err != nil {
+				return nil, nil, fmt.Errorf("committeeccv: building CL node client lookup: %w", err)
+			}
+			if clNodeClients != nil {
+				if err := jobs.RegisterNodesWithJD(ctx, jdInfra, clNodeClients, clNopAliases); err != nil {
+					return nil, nil, fmt.Errorf("committeeccv: registering CL nodes with JD: %w", err)
+				}
+				chainIDs := make([]string, len(blockchains))
+				for i, bc := range blockchains {
+					chainIDs[i] = bc.ChainID
+				}
+				if err := jobs.ConnectNodesToJD(ctx, jdInfra, clNodeClients, chainIDs); err != nil {
+					return nil, nil, fmt.Errorf("committeeccv: connecting CL nodes to JD: %w", err)
+				}
+				// The deployment environment was built in Phase 2 (protocol_contracts)
+				// before these CL nodes registered, so its NodeIDs are empty. Populate
+				// the local copy so the lane/committee config below can fetch CL-mode
+				// signing keys from JD (FetchNOPSigningKeys requires NodeIDs).
+				localEnv.NodeIDs = jdInfra.GetNodeIDs()
+			}
+		}
+	}
 	// Step 2: Launch standalone verifier containers (reads HMAC creds from agg.Out).
 	if err := committeeverifier.LaunchStandaloneVerifiers(
 		verifiers, aggregators, blockchainOutputs, jdInfra,
@@ -189,9 +219,9 @@ func (c *component) RunPhase3(
 		selectors, _ := priorOutputs["_selectors"].([]uint64)
 		var connectErr error
 		if useLegacyConfigureLane {
-			connectErr = ccdeploy.ConnectAllChainsLegacy(impls, blockchains, selectors, e, topology)
+			connectErr = ccdeploy.ConnectAllChainsLegacy(impls, blockchains, selectors, &localEnv, topology)
 		} else {
-			connectErr = ccdeploy.ConnectAllChainsCanonical(impls, blockchains, selectors, e, topology)
+			connectErr = ccdeploy.ConnectAllChainsCanonical(impls, blockchains, selectors, &localEnv, topology)
 		}
 		if connectErr != nil {
 			return nil, nil, fmt.Errorf("committeeccv: configure lanes: %w", connectErr)
@@ -209,7 +239,7 @@ func (c *component) RunPhase3(
 			return nil, nil, fmt.Errorf("committeeccv: committee %q not found in topology", agg.CommitteeName)
 		}
 		cs := ccvchangesets.GenerateAggregatorConfig(ccvadapters.GetRegistry())
-		output, err := cs.Apply(*e, ccvchangesets.GenerateAggregatorConfigInput{
+		output, err := cs.Apply(localEnv, ccvchangesets.GenerateAggregatorConfigInput{
 			ServiceIdentifier:  instanceName + "-aggregator",
 			CommitteeQualifier: agg.CommitteeName,
 			ChainSelectors:     ccvchangesets.CommitteeChainSelectorsFromTopology(committee),
@@ -222,7 +252,7 @@ func (c *component) RunPhase3(
 			return nil, nil, fmt.Errorf("committeeccv: get aggregator config for %q: %w", instanceName, err)
 		}
 		agg.GeneratedCommittee = aggCfg
-		e.DataStore = output.DataStore.Seal()
+		localEnv.DataStore = output.DataStore.Seal()
 	}
 
 	// Step 7: Launch full aggregator containers.
@@ -238,7 +268,7 @@ func (c *component) RunPhase3(
 	}
 
 	// Step 8: Generate verifier job specs and emit job proposal effects.
-	effects, err := buildVerifierJobSpecEffects(e, verifiers, topology, obs, sharedTLSCerts, blockchainOutputs, ds)
+	effects, err := buildVerifierJobSpecEffects(&localEnv, verifiers, topology, obs, sharedTLSCerts, blockchainOutputs, ds)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -251,7 +281,26 @@ func (c *component) RunPhase3(
 		"aggregators":       aggregators,
 		"verifiers":         verifiers,
 		"_shared_tls_certs": sharedTLSCerts,
+		// Runtime-only CL node client lookup (nil in standalone runs); consumed by
+		// CL-mode job proposal + AcceptPendingJobs in a later step.
+		"_clnode_clients": clNodeClients,
 	}, effects, nil
+}
+
+// clModeNOPAliases returns, in topology order, the aliases of NOPs running in
+// CL mode (hosted on a Chainlink node). The order matches the CL node ordering
+// used by jobs.NewNodeSetClientLookup.
+func clModeNOPAliases(topology *ccvdeployment.EnvironmentTopology) []string {
+	if topology == nil || topology.NOPTopology == nil {
+		return nil
+	}
+	var aliases []string
+	for _, nop := range topology.NOPTopology.NOPs {
+		if nop.GetMode() == ccvshared.NOPModeCL {
+			aliases = append(aliases, nop.Alias)
+		}
+	}
+	return aliases
 }
 
 type verifierJobSpec struct {
