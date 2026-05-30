@@ -200,3 +200,30 @@ func toBigUnits(v float64, def int64) *big.Int {
 	}
 	return big.NewInt(int64(v))
 }
+
+// Secrets, CCVSecrets, and AggregatorSecret mirror the identically-named types
+// in the ccv package (environment.go). Duplicated here to avoid an import cycle
+// (ccv blank-imports every component). A later cleanup can extract them to a
+// shared package.
+
+type Secrets struct {
+	CCV CCVSecrets `toml:",omitempty"`
+}
+
+func (s *Secrets) TomlString() (string, error) {
+	data, err := toml.Marshal(s)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal CCV secrets to TOML: %w", err)
+	}
+	return string(data), nil
+}
+
+type CCVSecrets struct {
+	AggregatorSecrets []AggregatorSecret `toml:",omitempty"`
+}
+
+type AggregatorSecret struct {
+	VerifierID string `toml:",omitempty"`
+	APIKey     string `toml:",omitempty"`
+	APISecret  string `toml:",omitempty"`
+}

@@ -137,37 +137,14 @@ func (c *component) RunPhase3(
 	// are boot-only and the aggregator HMAC creds (generated in Step 1) must be
 	// baked in before launch. CL nodes must be launched + registered + connected to
 	// JD before the lane/committee config below, because ApplyVerifierConfig fetches
-	// CL-mode signing keys from JD. (Secret injection lands in a later step.)
-	var clNodeClients *jobs.NodeSetClientLookup
-	if clnodeCfg, ok := priorOutputs[clnodecomp.OutputKey].(*clnodecomp.Config); ok && clnodeCfg != nil && len(clnodeCfg.NodeSets) > 0 {
-		if err := clnodecomp.LaunchNodeSets(ctx, clnodeCfg, blockchains); err != nil {
-			return nil, nil, fmt.Errorf("committeeccv: launching CL node sets: %w", err)
-		}
-
-		clNopAliases := clModeNOPAliases(topology)
-		if len(clNopAliases) > 0 {
-			clNodeClients, err = jobs.NewNodeSetClientLookup(clnodeCfg.NodeSets, clNopAliases)
-			if err != nil {
-				return nil, nil, fmt.Errorf("committeeccv: building CL node client lookup: %w", err)
-			}
-			if clNodeClients != nil {
-				if err := jobs.RegisterNodesWithJD(ctx, jdInfra, clNodeClients, clNopAliases); err != nil {
-					return nil, nil, fmt.Errorf("committeeccv: registering CL nodes with JD: %w", err)
-				}
-				chainIDs := make([]string, len(blockchains))
-				for i, bc := range blockchains {
-					chainIDs[i] = bc.ChainID
-				}
-				if err := jobs.ConnectNodesToJD(ctx, jdInfra, clNodeClients, chainIDs); err != nil {
-					return nil, nil, fmt.Errorf("committeeccv: connecting CL nodes to JD: %w", err)
-				}
-				// The deployment environment was built in Phase 2 (protocol_contracts)
-				// before these CL nodes registered, so its NodeIDs are empty. Populate
-				// the local copy so the lane/committee config below can fetch CL-mode
-				// signing keys from JD (FetchNOPSigningKeys requires NodeIDs).
-				localEnv.NodeIDs = jdInfra.GetNodeIDs()
-			}
-		}
+	// CL-mode signing keys from JD.
+	clnodeCfg, _ := priorOutputs[clnodecomp.OutputKey].(*clnodecomp.Config)
+	clNodeClients, nodeIDs, err := launchCLNodes(ctx, clnodeCfg, verifiers, aggregators, topology, blockchains, jdInfra)
+	if err != nil {
+		return nil, nil, fmt.Errorf("committeeccv: %w", err)
+	}
+	if len(nodeIDs) > 0 {
+		localEnv.NodeIDs = nodeIDs
 	}
 	// Step 2: Launch standalone verifier containers (reads HMAC creds from agg.Out).
 	if err := committeeverifier.LaunchStandaloneVerifiers(
@@ -285,6 +262,180 @@ func (c *component) RunPhase3(
 		// CL-mode job proposal + AcceptPendingJobs in a later step.
 		"_clnode_clients": clNodeClients,
 	}, effects, nil
+}
+
+// launchCLNodes bakes secrets into node specs, launches the CL node sets, then
+// registers and connects each node to JD. Returns a NodeSetClientLookup and the
+// JD node IDs for the launched nodes; both are nil/empty when no CL node config
+// is present.
+func launchCLNodes(
+	ctx context.Context,
+	clnodeCfg *clnodecomp.Config,
+	verifiers []*committeeverifier.Input,
+	aggregators []*services.AggregatorInput,
+	topology *ccvdeployment.EnvironmentTopology,
+	blockchains []*ctfblockchain.Input,
+	jdInfra *jobs.JDInfrastructure,
+) (*jobs.NodeSetClientLookup, []string, error) {
+	if clnodeCfg == nil || len(clnodeCfg.NodeSets) == 0 {
+		return nil, nil, nil
+	}
+	if err := bakeNodeSecrets(clnodeCfg, verifiers, aggregators, topology); err != nil {
+		return nil, nil, fmt.Errorf("baking node secrets: %w", err)
+	}
+	if err := clnodecomp.LaunchNodeSets(ctx, clnodeCfg, blockchains); err != nil {
+		return nil, nil, fmt.Errorf("launching CL node sets: %w", err)
+	}
+	clNopAliases := clModeNOPAliases(topology)
+	if len(clNopAliases) == 0 {
+		return nil, nil, nil
+	}
+	clientLookup, err := jobs.NewNodeSetClientLookup(clnodeCfg.NodeSets, clNopAliases)
+	if err != nil {
+		return nil, nil, fmt.Errorf("building CL node client lookup: %w", err)
+	}
+	if clientLookup == nil {
+		return nil, nil, nil
+	}
+	if err := jobs.RegisterNodesWithJD(ctx, jdInfra, clientLookup, clNopAliases); err != nil {
+		return nil, nil, fmt.Errorf("registering CL nodes with JD: %w", err)
+	}
+	chainIDs := make([]string, len(blockchains))
+	for i, bc := range blockchains {
+		chainIDs[i] = bc.ChainID
+	}
+	if err := jobs.ConnectNodesToJD(ctx, jdInfra, clientLookup, chainIDs); err != nil {
+		return nil, nil, fmt.Errorf("connecting CL nodes to JD: %w", err)
+	}
+	// The deployment environment was built in Phase 2 (protocol_contracts) before
+	// these CL nodes registered, so its NodeIDs are empty. Return the JD node IDs
+	// so the caller can populate its local env copy (FetchNOPSigningKeys needs them).
+	return clientLookup, jdInfra.GetNodeIDs(), nil
+}
+
+// bakeNodeSecrets sets TestSecretsOverrides on each CL node spec before launch.
+// Must be called after aggregator HMAC credentials are generated (Step 1) and
+// before LaunchNodeSets, because CL node secrets are boot-only.
+//
+// For each CL-mode verifier the function finds its NOP index (= its node spec
+// slot in the flat clnodeCfg.NodeSets list), then builds one AggregatorSecret
+// entry per aggregator in the same committee. The VerifierID uses the topology
+// aggregator name, matching how the changeset builds VerifierIDs.
+func bakeNodeSecrets(
+	clnodeCfg *clnodecomp.Config,
+	verifiers []*committeeverifier.Input,
+	aggregators []*services.AggregatorInput,
+	topology *ccvdeployment.EnvironmentTopology,
+) error {
+	// Build topology aggregator names per committee (matches changeset ordering).
+	topoAggNames := make(map[string][]string)
+	if topology.NOPTopology != nil {
+		for name, committee := range topology.NOPTopology.Committees {
+			names := make([]string, len(committee.Aggregators))
+			for i, a := range committee.Aggregators {
+				names[i] = a.Name
+			}
+			topoAggNames[name] = names
+		}
+	}
+
+	// Index aggregators by committee.
+	aggsByCommittee := make(map[string][]*services.AggregatorInput)
+	for _, agg := range aggregators {
+		if agg != nil {
+			aggsByCommittee[agg.CommitteeName] = append(aggsByCommittee[agg.CommitteeName], agg)
+		}
+	}
+
+	// Flatten node specs in node-set order; order must match NOP index ordering.
+	type nodeSpecEntry struct {
+		nodeSetIdx int
+		specIdx    int
+	}
+	var nodeSpecOrder []nodeSpecEntry
+	for i, nodeSet := range clnodeCfg.NodeSets {
+		for j := range nodeSet.NodeSpecs {
+			nodeSpecOrder = append(nodeSpecOrder, nodeSpecEntry{i, j})
+		}
+	}
+
+	// Collect aggregator secrets per flat node index.
+	aggSecretsPerNode := make(map[int][]clnodecomp.AggregatorSecret)
+	for _, ver := range verifiers {
+		if ver == nil || ver.Mode != services.CL {
+			continue
+		}
+		index, ok := topology.NOPTopology.GetNOPIndex(ver.NOPAlias)
+		if !ok {
+			return fmt.Errorf("NOP alias %q not found in topology for verifier %s", ver.NOPAlias, ver.ContainerName)
+		}
+		if index >= len(nodeSpecOrder) {
+			return fmt.Errorf("node index %d for NOPAlias %s exceeds available CL nodes (%d)",
+				index, ver.NOPAlias, len(nodeSpecOrder))
+		}
+		committeeAggs := aggsByCommittee[ver.CommitteeName]
+		if len(committeeAggs) == 0 {
+			return fmt.Errorf("no aggregators found for committee %q (verifier %s)", ver.CommitteeName, ver.ContainerName)
+		}
+		committeeTopoNames := topoAggNames[ver.CommitteeName]
+
+		for aggIdx, agg := range committeeAggs {
+			aggName := agg.InstanceName()
+			if aggIdx < len(committeeTopoNames) {
+				aggName = committeeTopoNames[aggIdx]
+			}
+			apiKeys, err := agg.GetAPIKeys()
+			if err != nil {
+				return fmt.Errorf("getting API keys for aggregator %s: %w", agg.InstanceName(), err)
+			}
+			var found bool
+			for _, apiClient := range apiKeys {
+				if apiClient.ClientID != ver.ContainerName {
+					continue
+				}
+				if len(apiClient.APIKeyPairs) == 0 {
+					return fmt.Errorf("no API key pairs for client %s on aggregator %s",
+						apiClient.ClientID, agg.InstanceName())
+				}
+				pair := apiClient.APIKeyPairs[0]
+				verifierID := ccvshared.NewVerifierJobID(
+					ccvshared.NOPAlias(ver.NOPAlias),
+					aggName,
+					ccvshared.VerifierJobScope{CommitteeQualifier: ver.CommitteeName},
+				).GetVerifierID()
+				aggSecretsPerNode[index] = append(aggSecretsPerNode[index], clnodecomp.AggregatorSecret{
+					VerifierID: verifierID,
+					APIKey:     pair.APIKey,
+					APISecret:  pair.Secret,
+				})
+				found = true
+				break
+			}
+			if !found {
+				return fmt.Errorf("API client %q not found on aggregator %s",
+					ver.ContainerName, agg.InstanceName())
+			}
+		}
+	}
+
+	// Write secrets onto each node spec.
+	for flatIdx, entry := range nodeSpecOrder {
+		if len(aggSecretsPerNode[flatIdx]) == 0 {
+			continue
+		}
+		nodeSpec := clnodeCfg.NodeSets[entry.nodeSetIdx].NodeSpecs[entry.specIdx]
+		secrets := clnodecomp.Secrets{
+			CCV: clnodecomp.CCVSecrets{
+				AggregatorSecrets: aggSecretsPerNode[flatIdx],
+			},
+		}
+		secretsToml, err := secrets.TomlString()
+		if err != nil {
+			return fmt.Errorf("marshaling secrets for node %d: %w", flatIdx, err)
+		}
+		nodeSpec.Node.TestSecretsOverrides = secretsToml
+	}
+	return nil
 }
 
 // clModeNOPAliases returns, in topology order, the aliases of NOPs running in
