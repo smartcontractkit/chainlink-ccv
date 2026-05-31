@@ -78,7 +78,7 @@ jobs:
             config: env.toml,env-src-auto-mine.toml
             timeout: 10m
             working-directory: build/devenv/tests/e2e
-          - name: TestE2ESmoke_Basic_Phased
+          - name: Phased TestE2ESmoke_Basic
             run_cmd: TestE2ESmoke_Basic
             config: env-phased.toml
             flags: --env-mode phased

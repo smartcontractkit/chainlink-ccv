@@ -79,9 +79,9 @@ jobs:
             run_cmd: TestHA_CrossComponentDown
             config: "env.toml,env-HA.toml,env-cl.toml,env-cl-ci.toml"
             timeout: 10m
-          - name: TestE2ESmoke_Basic
+          - name: Phased TestE2ESmoke_Basic
             run_cmd: TestE2ESmoke_Basic_Phased
-            config: "env-phased.toml,env-phased-cl.toml,env-cl-ci.toml"
+            config: "env-phased.toml,env-cl-phased.toml,env-cl-ci-phased.toml"
             flags: --env-mode phased
             smoke_test_config: ../../env-phased-out.toml
             timeout: 15m

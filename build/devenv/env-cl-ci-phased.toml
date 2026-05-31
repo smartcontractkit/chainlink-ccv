@@ -1,0 +1,29 @@
+## CI-specific override: use pre-built local images instead of building from Dockerfile
+[clnode]
+version = 1
+cl_nodes_funding_eth = 50
+cl_nodes_funding_link = 50
+
+[[clnode.node_sets]]
+  name = "don"
+  nodes = 2
+  override_mode = "each"
+
+  [clnode.node_sets.db]
+    image = "postgres:15.0"
+
+  [[clnode.node_sets.node_specs]]
+
+    [clnode.node_sets.node_specs.node]
+      image = "docker.io/library/local:latest"
+
+    [clnode.node_sets.node_specs.node.env_vars]
+      CL_EVM_CMD=""
+
+  [[clnode.node_sets.node_specs]]
+
+    [clnode.node_sets.node_specs.node]
+      image = "docker.io/library/local:latest"
+
+    [clnode.node_sets.node_specs.node.env_vars]
+      CL_EVM_CMD=""
