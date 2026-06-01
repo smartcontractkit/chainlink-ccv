@@ -80,7 +80,7 @@ jobs:
             profile: standard.ha.clnode.ci.profile
             timeout: 10m
           - name: Phased TestE2ESmoke_Basic
-            run_cmd: TestE2ESmoke_Basic_Phased
+            run_cmd: TestE2ESmoke_Basic
             profile: phased.clnode.ci.profile
             timeout: 15m
           # We need to configure HeadTracker for the CL tests to have finality depth. Otherwise, it does instant finality.

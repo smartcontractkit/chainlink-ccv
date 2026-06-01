@@ -13,6 +13,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/google/uuid"
 	"github.com/moby/moby/client"
 	"github.com/rs/zerolog"
 	"github.com/spf13/cobra"
@@ -511,6 +512,104 @@ var testCmd = &cobra.Command{
 	},
 }
 
+var runCmd = &cobra.Command{
+	Use:   "run",
+	Short: "Build images, start environment, and run a named test end-to-end",
+	Long: `run is a one-shot command that drives all three stages of a local
+integration test:
+
+  1. Build service Docker images (just build-docker-dev).
+  2. Start the environment using the given profile.
+  3. Execute the named Go test pattern in tests/e2e.
+
+The environment output is written to a run-specific file
+(test-<id>-out.toml) so multiple runs do not collide.
+
+Example:
+  ccv run --profile standard --test TestE2ESmoke_Basic
+  ccv run --profile phased   --test '(TestChaos_A|TestChaos_B)'`,
+	RunE: func(cmd *cobra.Command, args []string) error {
+		profileName, _ := cmd.Flags().GetString("profile")
+		testPattern, _ := cmd.Flags().GetString("test")
+		timeout, _ := cmd.Flags().GetDuration("timeout")
+		build, _ := cmd.Flags().GetBool("build")
+
+		if profileName == "" {
+			return fmt.Errorf("--profile is required")
+		}
+		if testPattern == "" {
+			return fmt.Errorf("--test is required")
+		}
+
+		// Accept profile names with or without the .profile extension.
+		if !strings.HasSuffix(profileName, ".profile") {
+			profileName += ".profile"
+		}
+
+		// Stage 1: build service images.
+		if build {
+			ccv.Plog.Info().Msg("Building service Docker images (just build-docker-dev)")
+			buildCmd := exec.Command("just", "build-docker-dev")
+			buildCmd.Stdout = os.Stdout
+			buildCmd.Stderr = os.Stderr
+			if err := buildCmd.Run(); err != nil {
+				return fmt.Errorf("just build-docker-dev failed: %w", err)
+			}
+		}
+
+		// Stage 2: start environment.
+		runID := generateRunID()
+		outputFile := fmt.Sprintf("test-%s-out.toml", runID)
+		ccv.Plog.Info().Str("profile", profileName).Str("output", outputFile).Msg("Starting environment")
+
+		if err := applyProfile(profileName); err != nil {
+			return err
+		}
+		_ = os.Setenv("CTF_OUTPUT", outputFile)
+		_ = os.Setenv("TESTCONTAINERS_RYUK_DISABLED", "true")
+		if err := newEnvFn(); err != nil {
+			return fmt.Errorf("environment startup failed: %w", err)
+		}
+
+		// Stage 3: run the test.
+		// SMOKE_TEST_CONFIG is relative to the test directory (tests/e2e/).
+		smokeTestConfig := fmt.Sprintf("../../%s", outputFile)
+		ccv.Plog.Info().Str("test", testPattern).Str("config", smokeTestConfig).Msg("Running test")
+
+		goTestArgs := []string{
+			"test", "-v", "-count=1",
+			"-run", testPattern,
+			fmt.Sprintf("-timeout=%s", timeout),
+		}
+		goTestCmd := exec.Command("go", goTestArgs...)
+		goTestCmd.Dir = "tests/e2e"
+		goTestCmd.Stdout = os.Stdout
+		goTestCmd.Stderr = os.Stderr
+		goTestCmd.Env = append(os.Environ(), fmt.Sprintf("SMOKE_TEST_CONFIG=%s", smokeTestConfig))
+
+		if err := goTestCmd.Run(); err != nil {
+			if exitErr, ok := err.(*exec.ExitError); ok {
+				if status, ok := exitErr.Sys().(syscall.WaitStatus); ok {
+					os.Exit(status.ExitStatus())
+				}
+				os.Exit(1)
+			}
+			return fmt.Errorf("test run failed: %w", err)
+		}
+		return nil
+	},
+}
+
+// generateRunID returns a short random ID for naming per-run output files.
+func generateRunID() string {
+	id, err := uuid.NewRandom()
+	if err != nil {
+		// Fallback to timestamp if crypto/rand is unavailable.
+		return fmt.Sprintf("%d", time.Now().UnixMilli())
+	}
+	return id.String()[:8]
+}
+
 var indexerDBShellCmd = &cobra.Command{
 	Use:     "db-shell",
 	Aliases: []string{"db"},
@@ -777,6 +876,11 @@ func init() {
 
 	// utility
 	rootCmd.AddCommand(testCmd)
+	runCmd.Flags().StringP("profile", "p", "", "Profile name or file (e.g. standard or standard.profile)")
+	runCmd.Flags().StringP("test", "t", "", "Go test pattern to run (passed to -run)")
+	runCmd.Flags().Duration("timeout", 15*time.Minute, "Test timeout")
+	runCmd.Flags().Bool("build", true, "Build service Docker images before starting (just build-docker-dev)")
+	rootCmd.AddCommand(runCmd)
 	rootCmd.AddCommand(indexerDBShellCmd)
 	rootCmd.AddCommand(printAddressesCmd)
 
