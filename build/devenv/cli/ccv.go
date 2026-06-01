@@ -146,15 +146,19 @@ func applyEnvConfig(cmd *cobra.Command, args []string) error {
 		profilePath = "standard.profile"
 	}
 
-	// --profile is mutually exclusive with --env-mode (when explicitly set) and --output.
+	// --profile is mutually exclusive with --env-mode (when explicitly set).
+	// --output is allowed: it overrides the output path derived from the profile.
 	if cmd.Flags().Changed("env-mode") {
 		return fmt.Errorf("cannot combine --profile with --env-mode; set environment in the profile file instead")
 	}
-	if outputFlag != "" {
-		return fmt.Errorf("cannot combine --profile with --output; set output in the profile file instead")
-	}
 
-	return applyProfile(profilePath)
+	if err := applyProfile(profilePath); err != nil {
+		return err
+	}
+	if outputFlag != "" {
+		_ = os.Setenv("CTF_OUTPUT", outputFlag)
+	}
+	return nil
 }
 
 func applyProfile(profilePath string) error {

@@ -61,33 +61,31 @@ jobs:
         test:
           - name: TestE2ESmoke_Basic
             run_cmd: TestE2ESmoke_Basic
-            config: "env.toml,env-cl.toml,env-cl-ci.toml"
+            profile: standard.clnode.ci.profile
             timeout: 15m
           - name: TestE2ESmoke_Basic_OneExecPerChain
             run_cmd: TestE2ESmoke_Basic
-            config: "env.toml,env-cl.toml,env-cl-ci.toml,env-one-exec-per-chain-cl.toml"
+            profile: standard.clnode.ci.one-exec-per-chain.profile
             timeout: 15m
           - name: TestE2ESmoke_TokenVerification
             run_cmd: TestE2ESmoke_TokenVerification
-            config: "env.toml,env-cl.toml,env-cl-ci.toml"
+            profile: standard.clnode.ci.profile
             timeout: 15m
           - name: TestE2ESmoke_ExtraArgsV2
             run_cmd: TestE2ESmoke_ExtraArgsV2
-            config: "env.toml,env-cl.toml,env-cl-ci.toml"
+            profile: standard.clnode.ci.profile
             timeout: 10m
           - name: TestHA_CrossComponentDown
             run_cmd: TestHA_CrossComponentDown
-            config: "env.toml,env-HA.toml,env-cl.toml,env-cl-ci.toml"
+            profile: standard.ha.clnode.ci.profile
             timeout: 10m
           - name: Phased TestE2ESmoke_Basic
             run_cmd: TestE2ESmoke_Basic_Phased
-            config: "env-phased.toml,env-cl-phased.toml,env-cl-ci-phased.toml"
-            flags: --env-mode phased
-            smoke_test_config: ../../env-phased-out.toml
+            profile: phased.clnode.ci.profile
             timeout: 15m
           # We need to configure HeadTracker for the CL tests to have finality depth. Otherwise, it does instant finality.
           # - name: TestE2EReorg
-          #   config: "env.toml,env-src-auto-mine.toml,env-cl.toml,env-cl-ci.toml"
+          #   profile: standard.src-auto-mine.clnode.ci.profile
           #   timeout: 5m
       fail-fast: false
     steps:
@@ -168,15 +166,13 @@ jobs:
         env:
           JD_IMAGE: ${{ secrets.JD_IMAGE }}
         run: |
-          ccv ${{ matrix.test.flags || '' }} u ${{ matrix.test.config }}
+          ccv u --profile ${{ matrix.test.profile }} --output env-out.toml
 
       - name: Run Smoke Test
         id: test_run
         working-directory: build/devenv/tests/e2e
         env:
           LOKI_URL: http://localhost:3030/loki/api/v1/push
-          # When unset, the test falls back to ../../env-out.toml (see GetSmokeTestConfig).
-          SMOKE_TEST_CONFIG: ${{ matrix.test.smoke_test_config || '' }}
         run: |
           set -o pipefail
           go test -v -timeout ${{ matrix.test.timeout }} -count=1 -run ${{ matrix.test.run_cmd }}
