@@ -20,10 +20,9 @@ import (
 )
 
 const (
-	// Numerator for EIP-150 gas buffer across two CALL boundaries: 64^2 - 63^2.
-	eip150ForwardingBufferNumerator = 64*64 - 63*63
-	// Denominator for EIP-150 gas buffer across two CALL boundaries: 63^2.
-	eip150ForwardingBufferDenominator = 63 * 63
+	// Numerator and Denominator to compensate for EIP-150 forwarding.
+	eip150ForwardingNumerator   = 64
+	eip150ForwardingDenominator = 63
 )
 
 var (
@@ -99,8 +98,15 @@ func (ct *TXMEVMContractTransmitter) ConvertAndWriteMessageToChain(ctx context.C
 
 // eip150ForwardingGasBuffer returns the extra gas needed to compensate for EIP-150
 // gas attenuation across the OffRamp -> Router -> Receiver call path.
-// It computes ceil(((64^2 - 63^2) / 63^2) * L), where L is the ccipReceive gas limit.
+// It computes ceil(64/63 * ceil(64/63 * L)) - L, where L is the ccipReceive gas limit.
 func eip150ForwardingGasBuffer(ccipReceiveGasLimit uint32) uint64 {
-	return (uint64(ccipReceiveGasLimit)*eip150ForwardingBufferNumerator +
-		eip150ForwardingBufferDenominator - 1) / eip150ForwardingBufferDenominator
+	gasLimit := uint64(ccipReceiveGasLimit)
+	// Gas required at Router for Receiver to get L: ceil(64/63 * L)
+	atRouter := (eip150ForwardingNumerator*gasLimit +
+		eip150ForwardingDenominator - 1) / eip150ForwardingDenominator
+	// Gas required at OffRamp for Router to get atRouter: ceil(64/63 * atRouter)
+	atOffRamp := (eip150ForwardingNumerator*atRouter +
+		eip150ForwardingDenominator - 1) / eip150ForwardingDenominator
+	// Buffer is the extra gas on top of L
+	return atOffRamp - gasLimit
 }
