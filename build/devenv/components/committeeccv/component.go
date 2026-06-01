@@ -12,7 +12,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainreg"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	blockchainscomp "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/blockchains"
-	clnodecomp "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/clnode"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/components/observability"
 	ccdeploy "github.com/smartcontractkit/chainlink-ccv/build/devenv/deploy"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
@@ -69,91 +68,123 @@ func (c *component) RunPhase3(
 	componentConfig any,
 	priorOutputs map[string]any,
 ) (map[string]any, []devenvruntime.Effect, error) {
-	// The committeeccv config is a single [committeeccv] section holding the
-	// aggregator and verifier inputs.
 	cfg, err := decodeConfig(componentConfig)
 	if err != nil {
 		return nil, nil, err
 	}
 	aggregators, verifiers := cfg.Aggregator, cfg.Verifier
-
 	if len(aggregators) == 0 && len(verifiers) == 0 {
 		return map[string]any{}, nil, nil
 	}
+	inputs, err := parsePhase3Inputs(priorOutputs, globalConfig)
+	if err != nil {
+		return nil, nil, err
+	}
+	// Work on a copy of the shared Phase-2 environment.
+	localEnv := *inputs.env
+	if err := ensureAggregatorCredentials(aggregators); err != nil {
+		return nil, nil, err
+	}
+	return runPhase3Core(ctx, inputs, aggregators, verifiers, &localEnv)
+}
 
+// phase3Inputs holds the decoded prior-phase outputs consumed by both the
+// standalone and CL-node CommitteeCCV components.
+type phase3Inputs struct {
+	jdInfra                *jobs.JDInfrastructure
+	blockchains            []*ctfblockchain.Input
+	blockchainOutputs      []*ctfblockchain.Output
+	env                    *deployment.Environment
+	topology               *ccvdeployment.EnvironmentTopology
+	obs                    *observability.Observability
+	ds                     datastore.MutableDataStore
+	impls                  []cciptestinterfaces.CCIP17Configuration
+	selectors              []uint64
+	useLegacyConfigureLane bool
+}
+
+func parsePhase3Inputs(priorOutputs, globalConfig map[string]any) (phase3Inputs, error) {
 	jdInfra, ok := priorOutputs["jd"].(*jobs.JDInfrastructure)
 	if !ok || jdInfra == nil {
-		return nil, nil, fmt.Errorf("committeeccv: jd not found in phase outputs")
+		return phase3Inputs{}, fmt.Errorf("committeeccv: jd not found in phase outputs")
 	}
 	blockchains, ok := priorOutputs["blockchains"].([]*ctfblockchain.Input)
 	if !ok {
-		return nil, nil, fmt.Errorf("committeeccv: blockchains not found in phase outputs")
+		return phase3Inputs{}, fmt.Errorf("committeeccv: blockchains not found in phase outputs")
 	}
 	blockchainOutputs := blockchainscomp.Outputs(blockchains)
 	e, ok := priorOutputs["_env"].(*deployment.Environment)
 	if !ok || e == nil {
-		return nil, nil, fmt.Errorf("committeeccv: _env not found in phase outputs")
+		return phase3Inputs{}, fmt.Errorf("committeeccv: _env not found in phase outputs")
 	}
-	// Work on a copy of the environment: the shared _env is a Phase-2 output and
-	// must be treated as immutable. CL-node NodeIDs and per-step DataStore updates
-	// are applied to this local copy only. (Mirrors the tokenverifier component.)
-	localEnv := *e
 	topology, ok := priorOutputs["environment_topology"].(*ccvdeployment.EnvironmentTopology)
 	if !ok || topology == nil {
-		return nil, nil, fmt.Errorf("committeeccv: environment_topology not found in phase outputs")
+		return phase3Inputs{}, fmt.Errorf("committeeccv: environment_topology not found in phase outputs")
 	}
 	obs, ok := priorOutputs["observability"].(*observability.Observability)
 	if !ok || obs == nil {
-		return nil, nil, fmt.Errorf("committeeccv: observability not found in phase outputs")
+		return phase3Inputs{}, fmt.Errorf("committeeccv: observability not found in phase outputs")
 	}
 	ds, ok := priorOutputs["_ds"].(datastore.MutableDataStore)
 	if !ok {
-		return nil, nil, fmt.Errorf("committeeccv: _ds not found in phase outputs")
+		return phase3Inputs{}, fmt.Errorf("committeeccv: _ds not found in phase outputs")
 	}
 	impls, _ := priorOutputs["_impls"].([]cciptestinterfaces.CCIP17Configuration)
-	var useLegacyConfigureLane bool
+	selectors, _ := priorOutputs["_selectors"].([]uint64)
+	var useLegacy bool
 	if pcMap, ok := globalConfig["protocol_contracts"].(map[string]any); ok {
-		useLegacyConfigureLane, _ = pcMap["use_legacy_configure_lane"].(bool)
+		useLegacy, _ = pcMap["use_legacy_configure_lane"].(bool)
 	}
+	return phase3Inputs{
+		jdInfra:                jdInfra,
+		blockchains:            blockchains,
+		blockchainOutputs:      blockchainOutputs,
+		env:                    e,
+		topology:               topology,
+		obs:                    obs,
+		ds:                     ds,
+		impls:                  impls,
+		selectors:              selectors,
+		useLegacyConfigureLane: useLegacy,
+	}, nil
+}
 
-	// Step 1: Generate HMAC client credentials for all aggregators before launching verifiers.
+func ensureAggregatorCredentials(aggregators []*services.AggregatorInput) error {
 	for _, agg := range aggregators {
 		if agg == nil {
 			continue
 		}
 		creds, cerr := agg.EnsureClientCredentials()
 		if cerr != nil {
-			return nil, nil, fmt.Errorf("committeeccv: failed to ensure client credentials for aggregator %s: %w", agg.CommitteeName, cerr)
+			return fmt.Errorf("committeeccv: failed to ensure client credentials for aggregator %s: %w", agg.CommitteeName, cerr)
 		}
 		if agg.Out == nil {
 			agg.Out = &services.AggregatorOutput{}
 		}
 		agg.Out.ClientCredentials = creds
 	}
+	return nil
+}
 
-	// Step 1b: Launch CL node sets and register them with JD (issue 16). The
-	// clnode component (Phase 1) publishes its decoded config under
-	// clnodecomp.OutputKey; committeeccv drives the launch because CL node secrets
-	// are boot-only and the aggregator HMAC creds (generated in Step 1) must be
-	// baked in before launch. CL nodes must be launched + registered + connected to
-	// JD before the lane/committee config below, because ApplyVerifierConfig fetches
-	// CL-mode signing keys from JD.
-	clnodeCfg, _ := priorOutputs[clnodecomp.OutputKey].(*clnodecomp.Config)
-	clNodeClients, nodeIDs, err := launchCLNodes(ctx, clnodeCfg, verifiers, aggregators, topology, blockchains, jdInfra)
-	if err != nil {
-		return nil, nil, fmt.Errorf("committeeccv: %w", err)
-	}
-	if len(nodeIDs) > 0 {
-		localEnv.NodeIDs = nodeIDs
-	}
+// runPhase3Core runs the shared CommitteeCCV Phase 3 steps (steps 2–8) against
+// a local copy of the deployment environment. It is called by both the standalone
+// and CL-node components; the CL-node component performs its own step 1b
+// (node launch + NodeIDs population) before calling this function.
+func runPhase3Core(
+	ctx context.Context,
+	inputs phase3Inputs,
+	aggregators []*services.AggregatorInput,
+	verifiers []*committeeverifier.Input,
+	localEnv *deployment.Environment,
+) (map[string]any, []devenvruntime.Effect, error) {
 	// Step 2: Launch standalone verifier containers (reads HMAC creds from agg.Out).
 	if err := committeeverifier.LaunchStandaloneVerifiers(
-		verifiers, aggregators, blockchainOutputs, jdInfra,
+		verifiers, aggregators, inputs.blockchainOutputs, inputs.jdInfra,
 		chainreg.GetRegistry().GetVerifierModifiers(),
 	); err != nil {
 		return nil, nil, fmt.Errorf("committeeccv: failed to launch standalone verifiers: %w", err)
 	}
-	if err := committeeverifier.RegisterStandaloneVerifiersWithJD(ctx, verifiers, jdInfra.OffchainClient); err != nil {
+	if err := committeeverifier.RegisterStandaloneVerifiersWithJD(ctx, verifiers, inputs.jdInfra.OffchainClient); err != nil {
 		return nil, nil, fmt.Errorf("committeeccv: failed to register standalone verifiers with JD: %w", err)
 	}
 
@@ -171,6 +202,7 @@ func (c *component) RunPhase3(
 		}
 		allHostnames = append(allHostnames, "localhost")
 		tlsCertDir := filepath.Join(util.CCVConfigDir(), "tls-shared")
+		var err error
 		sharedTLSCerts, err = services.GenerateTLSCertificates(allHostnames, tlsCertDir)
 		if err != nil {
 			return nil, nil, fmt.Errorf("committeeccv: failed to generate shared TLS certificates: %w", err)
@@ -187,18 +219,17 @@ func (c *component) RunPhase3(
 
 	// Step 5: Enrich topology with verifier signer keys.
 	if len(verifiers) > 0 {
-		ccdeploy.EnrichTopologyWithVerifiers(topology, verifiers)
+		ccdeploy.EnrichTopologyWithVerifiers(inputs.topology, verifiers)
 	}
 
 	// Step 5b: Configure lanes. This requires verifiers to be registered in JD (done above)
 	// because ApplyVerifierConfig fetches verifier signing keys from JD by node ID.
-	if len(impls) > 0 && len(blockchains) > 0 {
-		selectors, _ := priorOutputs["_selectors"].([]uint64)
+	if len(inputs.impls) > 0 && len(inputs.blockchains) > 0 {
 		var connectErr error
-		if useLegacyConfigureLane {
-			connectErr = ccdeploy.ConnectAllChainsLegacy(impls, blockchains, selectors, &localEnv, topology)
+		if inputs.useLegacyConfigureLane {
+			connectErr = ccdeploy.ConnectAllChainsLegacy(inputs.impls, inputs.blockchains, inputs.selectors, localEnv, inputs.topology)
 		} else {
-			connectErr = ccdeploy.ConnectAllChainsCanonical(impls, blockchains, selectors, &localEnv, topology)
+			connectErr = ccdeploy.ConnectAllChainsCanonical(inputs.impls, inputs.blockchains, inputs.selectors, localEnv, inputs.topology)
 		}
 		if connectErr != nil {
 			return nil, nil, fmt.Errorf("committeeccv: configure lanes: %w", connectErr)
@@ -211,12 +242,12 @@ func (c *component) RunPhase3(
 			continue
 		}
 		instanceName := agg.InstanceName()
-		committee, ok := topology.NOPTopology.Committees[agg.CommitteeName]
+		committee, ok := inputs.topology.NOPTopology.Committees[agg.CommitteeName]
 		if !ok {
 			return nil, nil, fmt.Errorf("committeeccv: committee %q not found in topology", agg.CommitteeName)
 		}
 		cs := ccvchangesets.GenerateAggregatorConfig(ccvadapters.GetRegistry())
-		output, err := cs.Apply(localEnv, ccvchangesets.GenerateAggregatorConfigInput{
+		output, err := cs.Apply(*localEnv, ccvchangesets.GenerateAggregatorConfigInput{
 			ServiceIdentifier:  instanceName + "-aggregator",
 			CommitteeQualifier: agg.CommitteeName,
 			ChainSelectors:     ccvchangesets.CommitteeChainSelectorsFromTopology(committee),
@@ -245,213 +276,16 @@ func (c *component) RunPhase3(
 	}
 
 	// Step 8: Generate verifier job specs and emit job proposal effects.
-	effects, err := buildVerifierJobSpecEffects(&localEnv, verifiers, topology, obs, sharedTLSCerts, blockchainOutputs, ds)
+	effects, err := buildVerifierJobSpecEffects(localEnv, verifiers, inputs.topology, inputs.obs, sharedTLSCerts, inputs.blockchainOutputs, inputs.ds)
 	if err != nil {
 		return nil, nil, err
 	}
 
 	return map[string]any{
-		// aggregators and verifiers are public (serialized; the phased loader
-		// reads them and derives endpoint maps). The shared TLS certs are
-		// runtime-only plumbing, so they use a "_"-prefixed key and are stripped
-		// from the serialized output.
 		"aggregators":       aggregators,
 		"verifiers":         verifiers,
 		"_shared_tls_certs": sharedTLSCerts,
-		// Runtime-only CL node client lookup (nil in standalone runs); consumed by
-		// CL-mode job proposal + AcceptPendingJobs in a later step.
-		"_clnode_clients": clNodeClients,
 	}, effects, nil
-}
-
-// launchCLNodes bakes secrets into node specs, launches the CL node sets, then
-// registers and connects each node to JD. Returns a NodeSetClientLookup and the
-// JD node IDs for the launched nodes; both are nil/empty when no CL node config
-// is present.
-func launchCLNodes(
-	ctx context.Context,
-	clnodeCfg *clnodecomp.Config,
-	verifiers []*committeeverifier.Input,
-	aggregators []*services.AggregatorInput,
-	topology *ccvdeployment.EnvironmentTopology,
-	blockchains []*ctfblockchain.Input,
-	jdInfra *jobs.JDInfrastructure,
-) (*jobs.NodeSetClientLookup, []string, error) {
-	if clnodeCfg == nil || len(clnodeCfg.NodeSets) == 0 {
-		return nil, nil, nil
-	}
-	if err := bakeNodeSecrets(clnodeCfg, verifiers, aggregators, topology); err != nil {
-		return nil, nil, fmt.Errorf("baking node secrets: %w", err)
-	}
-	if err := clnodecomp.LaunchNodeSets(ctx, clnodeCfg, blockchains); err != nil {
-		return nil, nil, fmt.Errorf("launching CL node sets: %w", err)
-	}
-	clNopAliases := clModeNOPAliases(topology)
-	if len(clNopAliases) == 0 {
-		return nil, nil, nil
-	}
-	clientLookup, err := jobs.NewNodeSetClientLookup(clnodeCfg.NodeSets, clNopAliases)
-	if err != nil {
-		return nil, nil, fmt.Errorf("building CL node client lookup: %w", err)
-	}
-	if clientLookup == nil {
-		return nil, nil, nil
-	}
-	if err := jobs.RegisterNodesWithJD(ctx, jdInfra, clientLookup, clNopAliases); err != nil {
-		return nil, nil, fmt.Errorf("registering CL nodes with JD: %w", err)
-	}
-	chainIDs := make([]string, len(blockchains))
-	for i, bc := range blockchains {
-		chainIDs[i] = bc.ChainID
-	}
-	if err := jobs.ConnectNodesToJD(ctx, jdInfra, clientLookup, chainIDs); err != nil {
-		return nil, nil, fmt.Errorf("connecting CL nodes to JD: %w", err)
-	}
-	// The deployment environment was built in Phase 2 (protocol_contracts) before
-	// these CL nodes registered, so its NodeIDs are empty. Return the JD node IDs
-	// so the caller can populate its local env copy (FetchNOPSigningKeys needs them).
-	return clientLookup, jdInfra.GetNodeIDs(), nil
-}
-
-// bakeNodeSecrets sets TestSecretsOverrides on each CL node spec before launch.
-// Must be called after aggregator HMAC credentials are generated (Step 1) and
-// before LaunchNodeSets, because CL node secrets are boot-only.
-//
-// For each CL-mode verifier the function finds its NOP index (= its node spec
-// slot in the flat clnodeCfg.NodeSets list), then builds one AggregatorSecret
-// entry per aggregator in the same committee. The VerifierID uses the topology
-// aggregator name, matching how the changeset builds VerifierIDs.
-func bakeNodeSecrets(
-	clnodeCfg *clnodecomp.Config,
-	verifiers []*committeeverifier.Input,
-	aggregators []*services.AggregatorInput,
-	topology *ccvdeployment.EnvironmentTopology,
-) error {
-	// Build topology aggregator names per committee (matches changeset ordering).
-	topoAggNames := make(map[string][]string)
-	if topology.NOPTopology != nil {
-		for name, committee := range topology.NOPTopology.Committees {
-			names := make([]string, len(committee.Aggregators))
-			for i, a := range committee.Aggregators {
-				names[i] = a.Name
-			}
-			topoAggNames[name] = names
-		}
-	}
-
-	// Index aggregators by committee.
-	aggsByCommittee := make(map[string][]*services.AggregatorInput)
-	for _, agg := range aggregators {
-		if agg != nil {
-			aggsByCommittee[agg.CommitteeName] = append(aggsByCommittee[agg.CommitteeName], agg)
-		}
-	}
-
-	// Flatten node specs in node-set order; order must match NOP index ordering.
-	type nodeSpecEntry struct {
-		nodeSetIdx int
-		specIdx    int
-	}
-	var nodeSpecOrder []nodeSpecEntry
-	for i, nodeSet := range clnodeCfg.NodeSets {
-		for j := range nodeSet.NodeSpecs {
-			nodeSpecOrder = append(nodeSpecOrder, nodeSpecEntry{i, j})
-		}
-	}
-
-	// Collect aggregator secrets per flat node index.
-	aggSecretsPerNode := make(map[int][]clnodecomp.AggregatorSecret)
-	for _, ver := range verifiers {
-		if ver == nil || ver.Mode != services.CL {
-			continue
-		}
-		index, ok := topology.NOPTopology.GetNOPIndex(ver.NOPAlias)
-		if !ok {
-			return fmt.Errorf("NOP alias %q not found in topology for verifier %s", ver.NOPAlias, ver.ContainerName)
-		}
-		if index >= len(nodeSpecOrder) {
-			return fmt.Errorf("node index %d for NOPAlias %s exceeds available CL nodes (%d)",
-				index, ver.NOPAlias, len(nodeSpecOrder))
-		}
-		committeeAggs := aggsByCommittee[ver.CommitteeName]
-		if len(committeeAggs) == 0 {
-			return fmt.Errorf("no aggregators found for committee %q (verifier %s)", ver.CommitteeName, ver.ContainerName)
-		}
-		committeeTopoNames := topoAggNames[ver.CommitteeName]
-
-		for aggIdx, agg := range committeeAggs {
-			aggName := agg.InstanceName()
-			if aggIdx < len(committeeTopoNames) {
-				aggName = committeeTopoNames[aggIdx]
-			}
-			apiKeys, err := agg.GetAPIKeys()
-			if err != nil {
-				return fmt.Errorf("getting API keys for aggregator %s: %w", agg.InstanceName(), err)
-			}
-			var found bool
-			for _, apiClient := range apiKeys {
-				if apiClient.ClientID != ver.ContainerName {
-					continue
-				}
-				if len(apiClient.APIKeyPairs) == 0 {
-					return fmt.Errorf("no API key pairs for client %s on aggregator %s",
-						apiClient.ClientID, agg.InstanceName())
-				}
-				pair := apiClient.APIKeyPairs[0]
-				verifierID := ccvshared.NewVerifierJobID(
-					ccvshared.NOPAlias(ver.NOPAlias),
-					aggName,
-					ccvshared.VerifierJobScope{CommitteeQualifier: ver.CommitteeName},
-				).GetVerifierID()
-				aggSecretsPerNode[index] = append(aggSecretsPerNode[index], clnodecomp.AggregatorSecret{
-					VerifierID: verifierID,
-					APIKey:     pair.APIKey,
-					APISecret:  pair.Secret,
-				})
-				found = true
-				break
-			}
-			if !found {
-				return fmt.Errorf("API client %q not found on aggregator %s",
-					ver.ContainerName, agg.InstanceName())
-			}
-		}
-	}
-
-	// Write secrets onto each node spec.
-	for flatIdx, entry := range nodeSpecOrder {
-		if len(aggSecretsPerNode[flatIdx]) == 0 {
-			continue
-		}
-		nodeSpec := clnodeCfg.NodeSets[entry.nodeSetIdx].NodeSpecs[entry.specIdx]
-		secrets := clnodecomp.Secrets{
-			CCV: clnodecomp.CCVSecrets{
-				AggregatorSecrets: aggSecretsPerNode[flatIdx],
-			},
-		}
-		secretsToml, err := secrets.TomlString()
-		if err != nil {
-			return fmt.Errorf("marshaling secrets for node %d: %w", flatIdx, err)
-		}
-		nodeSpec.Node.TestSecretsOverrides = secretsToml
-	}
-	return nil
-}
-
-// clModeNOPAliases returns, in topology order, the aliases of NOPs running in
-// CL mode (hosted on a Chainlink node). The order matches the CL node ordering
-// used by jobs.NewNodeSetClientLookup.
-func clModeNOPAliases(topology *ccvdeployment.EnvironmentTopology) []string {
-	if topology == nil || topology.NOPTopology == nil {
-		return nil
-	}
-	var aliases []string
-	for _, nop := range topology.NOPTopology.NOPs {
-		if nop.GetMode() == ccvshared.NOPModeCL {
-			aliases = append(aliases, nop.Alias)
-		}
-	}
-	return aliases
 }
 
 type verifierJobSpec struct {
