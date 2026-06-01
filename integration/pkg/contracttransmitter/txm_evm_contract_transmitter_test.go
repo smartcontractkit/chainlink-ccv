@@ -399,11 +399,11 @@ func TestEIP150ForwardingGasBuffer(t *testing.T) {
 			gasLimit := uint64(tc.ccipReceiveGasLimit)
 			buffer := eip150ForwardingGasBuffer(tc.ccipReceiveGasLimit)
 
-			// Min gas received after an EIP-150 CALL boundary
-			eip150MinCallGas := func(gas uint64) uint64 { return gas - gas/64 }
+			// Gas received after an EIP-150 CALL boundary
+			eip150ForwardedGas := func(gas uint64) uint64 { return gas - gas/64 }
 
-			assert.GreaterOrEqual(t, eip150MinCallGas(eip150MinCallGas(gasLimit+buffer)), gasLimit, "buffer too small")
-			assert.LessOrEqual(t, eip150MinCallGas(eip150MinCallGas(gasLimit+buffer)), gasLimit+2, "buffer larger than necessary")
+			assert.GreaterOrEqual(t, eip150ForwardedGas(eip150ForwardedGas(gasLimit+buffer)), gasLimit, "buffer too small")
+			assert.LessOrEqual(t, eip150ForwardedGas(eip150ForwardedGas(gasLimit+buffer)), gasLimit+2, "buffer larger than necessary")
 		})
 	}
 }
