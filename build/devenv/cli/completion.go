@@ -103,15 +103,12 @@ func getSubCommands(parent string) []prompt.Suggest {
 	case "r":
 		fallthrough
 	case "restart":
-		return []prompt.Suggest{
-			{Text: "env-single-node.toml", Description: "Spin up Anvil <> Anvil local chains, 1 CL node"},
-			{Text: "env.toml,env-single-node.toml,env-single-node-rebuild.toml", Description: "(Rebuild local CL Docker image) Spin up Anvil <> Anvil local chains, all services, 1 CL nodes"},
-			{Text: "env.toml", Description: "Spin up Anvil <> Anvil local chains, all services, 4 CL nodes"},
-			{Text: "env.toml,env-cl.toml", Description: "(Rebuild local CL Docker image) Spin up Anvil <> Anvil local chains, all services, 2 CL nodes"},
-			{Text: "env.toml,env-cl.toml,env-cl-5.toml", Description: "(Rebuild local CL Docker image) Spin up 1.6 compatible environment with 5 CL nodes"},
-			{Text: "env.toml,env-geth.toml", Description: "Spin up Geth <> Geth local chains (clique), all services, 4 CL nodes"},
-			{Text: "env.toml,env-fuji-fantom.toml", Description: "Spin up testnets: Fuji <> Fantom, all services, 4 CL nodes"},
+		profiles := ScanProfiles(".")
+		suggestions := make([]prompt.Suggest, 0, len(profiles))
+		for _, p := range profiles {
+			suggestions = append(suggestions, prompt.Suggest{Text: p.Name, Description: p.Description})
 		}
+		return suggestions
 	default:
 		return []prompt.Suggest{}
 	}

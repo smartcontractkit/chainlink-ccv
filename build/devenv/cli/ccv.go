@@ -84,15 +84,9 @@ var restartCmd = &cobra.Command{
 	Args:    cobra.RangeArgs(0, 1),
 	Short:   "Restart development environment, remove apps and apply default configuration again",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		var configFile string
-		if len(args) > 0 {
-			configFile = args[0]
-		} else {
-			configFile = "env.toml"
+		if err := applyEnvConfig(cmd, args); err != nil {
+			return err
 		}
-		framework.L.Info().Str("Config", configFile).Msg("Reconfiguring development environment")
-		_ = os.Setenv("CTF_CONFIGS", configFile)
-		_ = os.Setenv("TESTCONTAINERS_RYUK_DISABLED", "true")
 		framework.L.Info().Msg("Tearing down the development environment")
 		if err := framework.RemoveTestContainers(); err != nil {
 			return fmt.Errorf("failed to clean Docker resources: %w", err)
@@ -107,17 +101,87 @@ var upCmd = &cobra.Command{
 	Short:   "Spin up the development environment",
 	Args:    cobra.RangeArgs(0, 1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		var configFile string
-		if len(args) > 0 {
-			configFile = args[0]
-		} else {
-			configFile = "env.toml"
+		if err := applyEnvConfig(cmd, args); err != nil {
+			return err
 		}
-		framework.L.Info().Str("Config", configFile).Msg("Creating development environment")
-		_ = os.Setenv("CTF_CONFIGS", configFile)
-		_ = os.Setenv("TESTCONTAINERS_RYUK_DISABLED", "true")
 		return newEnvFn()
 	},
+}
+
+// applyEnvConfig resolves the environment configuration from flags/args and
+// sets CTF_CONFIGS (and optionally CTF_OUTPUT) before the environment
+// constructor runs. It handles three input paths:
+//
+//  1. --profile <file> or a positional *.profile arg → profile mode
+//  2. positional *.toml arg → legacy raw-file mode (existing behavior)
+//  3. no args → defaults to standard.profile
+//
+// When a profile is active it also overrides newEnvFn to match the profile's
+// declared environment type, so --env-mode is ignored.
+func applyEnvConfig(cmd *cobra.Command, args []string) error {
+	profileFlag, _ := cmd.Flags().GetString("profile")
+	outputFlag, _ := cmd.Flags().GetString("output")
+
+	_ = os.Setenv("TESTCONTAINERS_RYUK_DISABLED", "true")
+
+	// Positional TOML config file — existing behavior, no profile involved.
+	if len(args) > 0 && !strings.HasSuffix(args[0], ".profile") {
+		framework.L.Info().Str("Config", args[0]).Msg("Creating development environment")
+		_ = os.Setenv("CTF_CONFIGS", args[0])
+		if outputFlag != "" {
+			_ = os.Setenv("CTF_OUTPUT", outputFlag)
+		}
+		return nil
+	}
+
+	// Resolve profile path: positional *.profile > --profile flag > default.
+	profilePath := profileFlag
+	if len(args) > 0 {
+		if profileFlag != "" {
+			return fmt.Errorf("cannot combine --profile flag with a positional .profile argument")
+		}
+		profilePath = args[0]
+	}
+	if profilePath == "" {
+		profilePath = "standard.profile"
+	}
+
+	// --profile is mutually exclusive with --env-mode (when explicitly set) and --output.
+	if cmd.Flags().Changed("env-mode") {
+		return fmt.Errorf("cannot combine --profile with --env-mode; set environment in the profile file instead")
+	}
+	if outputFlag != "" {
+		return fmt.Errorf("cannot combine --profile with --output; set output in the profile file instead")
+	}
+
+	return applyProfile(profilePath)
+}
+
+func applyProfile(profilePath string) error {
+	p, err := LoadProfile(profilePath)
+	if err != nil {
+		return err
+	}
+
+	framework.L.Info().Str("Profile", profilePath).Strs("Configs", p.Configs).Msg("Loading profile")
+	_ = os.Setenv("CTF_CONFIGS", strings.Join(p.Configs, ","))
+	if p.Output != "" {
+		_ = os.Setenv("CTF_OUTPUT", p.Output)
+	}
+
+	switch p.Environment {
+	case "legacy":
+		newEnvFn = func() error {
+			_, err := ccv.NewEnvironment()
+			return err
+		}
+	case "phased":
+		newEnvFn = func() error {
+			_, err := ccv.NewPhasedEnvironment()
+			return err
+		}
+	}
+	return nil
 }
 
 var downCmd = &cobra.Command{
@@ -699,6 +763,10 @@ func init() {
 	rootCmd.AddCommand(obsCmd)
 
 	// main env commands
+	upCmd.Flags().StringP("profile", "p", "", "Profile file (*.profile) encoding the environment, config files, and output path")
+	upCmd.Flags().StringP("output", "o", "", "Output file path (overrides the default derived from the first config file)")
+	restartCmd.Flags().StringP("profile", "p", "", "Profile file (*.profile) encoding the environment, config files, and output path")
+	restartCmd.Flags().StringP("output", "o", "", "Output file path (overrides the default derived from the first config file)")
 	rootCmd.AddCommand(upCmd)
 	rootCmd.AddCommand(restartCmd)
 	rootCmd.AddCommand(downCmd)
@@ -754,9 +822,15 @@ func checkDockerIsRunning() {
 // RunCLI is the entrypoint for the devenv CLI.
 func RunCLI() {
 	checkDockerIsRunning()
-	if len(os.Args) == 2 && (os.Args[1] == "shell" || os.Args[1] == "sh") {
-		_ = os.Setenv("CTF_CONFIGS", "env.toml") // Set default config for shell
-
+	if len(os.Args) >= 2 && (os.Args[1] == "shell" || os.Args[1] == "sh") {
+		profilePath := shellProfileArg(os.Args[2:])
+		if err := applyProfile(profilePath); err != nil {
+			ccv.Plog.Err(err).Str("profile", profilePath).Msg("Failed to load shell profile")
+			os.Exit(1)
+		}
+		// Prime the active config so that bare "up" / "restart" in the shell
+		// reuses the same profile without the user having to type it again.
+		saveActiveConfig(profilePath)
 		StartShell()
 		return
 	}
@@ -764,6 +838,24 @@ func RunCLI() {
 		ccv.Plog.Err(err).Send()
 		os.Exit(1)
 	}
+}
+
+// shellProfileArg extracts the --profile / -p value from raw shell args,
+// defaulting to "standard.profile" when not provided.
+func shellProfileArg(args []string) string {
+	for i, arg := range args {
+		switch {
+		case arg == "--profile" || arg == "-p":
+			if i+1 < len(args) {
+				return args[i+1]
+			}
+		case strings.HasPrefix(arg, "--profile="):
+			return strings.TrimPrefix(arg, "--profile=")
+		case strings.HasPrefix(arg, "-p="):
+			return strings.TrimPrefix(arg, "-p=")
+		}
+	}
+	return "standard.profile"
 }
 
 func isServiceLoadTest(testPattern string) bool {
