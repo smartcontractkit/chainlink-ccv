@@ -13,7 +13,8 @@ import (
 )
 
 func TestApplyVerifierConfig_Validation_RequiresCommitteeQualifier(t *testing.T) {
-	cs := ApplyVerifierConfig(newEVMRegistry(&stubOnchainAdapter{}))
+	registerEVMOnchain(&stubOnchainAdapter{})
+	cs := ApplyVerifierConfig()
 	err := cs.VerifyPreconditions(deployment.Environment{}, ApplyVerifierConfigInput{
 		DefaultExecutorQualifier: "default-executor",
 		NOPs:                     []NOPInput{{Alias: "nop1"}},
@@ -23,7 +24,8 @@ func TestApplyVerifierConfig_Validation_RequiresCommitteeQualifier(t *testing.T)
 }
 
 func TestApplyVerifierConfig_Validation_RequiresExecutorQualifier(t *testing.T) {
-	cs := ApplyVerifierConfig(newEVMRegistry(&stubOnchainAdapter{}))
+	registerEVMOnchain(&stubOnchainAdapter{})
+	cs := ApplyVerifierConfig()
 	err := cs.VerifyPreconditions(deployment.Environment{}, ApplyVerifierConfigInput{
 		CommitteeQualifier: "default",
 		NOPs:               []NOPInput{{Alias: "nop1"}},
@@ -33,7 +35,8 @@ func TestApplyVerifierConfig_Validation_RequiresExecutorQualifier(t *testing.T) 
 }
 
 func TestApplyVerifierConfig_Validation_RequiresNOPs(t *testing.T) {
-	cs := ApplyVerifierConfig(newEVMRegistry(&stubOnchainAdapter{}))
+	registerEVMOnchain(&stubOnchainAdapter{})
+	cs := ApplyVerifierConfig()
 	err := cs.VerifyPreconditions(deployment.Environment{}, ApplyVerifierConfigInput{
 		CommitteeQualifier:       "default",
 		DefaultExecutorQualifier: "default-executor",
@@ -44,7 +47,8 @@ func TestApplyVerifierConfig_Validation_RequiresNOPs(t *testing.T) {
 }
 
 func TestApplyVerifierConfig_Validation_RequiresAggregator(t *testing.T) {
-	cs := ApplyVerifierConfig(newEVMRegistry(&stubOnchainAdapter{}))
+	registerEVMOnchain(&stubOnchainAdapter{})
+	cs := ApplyVerifierConfig()
 	err := cs.VerifyPreconditions(deployment.Environment{}, ApplyVerifierConfigInput{
 		CommitteeQualifier:       "default",
 		DefaultExecutorQualifier: "default-executor",
@@ -55,7 +59,8 @@ func TestApplyVerifierConfig_Validation_RequiresAggregator(t *testing.T) {
 }
 
 func TestApplyVerifierConfig_Validation_DuplicateNOPAliasRejected(t *testing.T) {
-	cs := ApplyVerifierConfig(newEVMRegistry(&stubOnchainAdapter{}))
+	registerEVMOnchain(&stubOnchainAdapter{})
+	cs := ApplyVerifierConfig()
 	err := cs.VerifyPreconditions(deployment.Environment{}, ApplyVerifierConfigInput{
 		CommitteeQualifier:       "default",
 		DefaultExecutorQualifier: "default-executor",
@@ -67,7 +72,8 @@ func TestApplyVerifierConfig_Validation_DuplicateNOPAliasRejected(t *testing.T) 
 }
 
 func TestApplyVerifierConfig_Validation_QualifierMismatchRejected(t *testing.T) {
-	cs := ApplyVerifierConfig(newEVMRegistry(&stubOnchainAdapter{}))
+	registerEVMOnchain(&stubOnchainAdapter{})
+	cs := ApplyVerifierConfig()
 	err := cs.VerifyPreconditions(deployment.Environment{}, ApplyVerifierConfigInput{
 		CommitteeQualifier:       "primary",
 		DefaultExecutorQualifier: "default-executor",
@@ -83,7 +89,8 @@ func TestApplyVerifierConfig_Validation_QualifierMismatchRejected(t *testing.T) 
 
 func TestApplyVerifierConfig_Validation_TargetNOPMustExist(t *testing.T) {
 	sel1 := chainsel.TEST_90000001.Selector
-	cs := ApplyVerifierConfig(newEVMRegistry(&stubOnchainAdapter{}))
+	registerEVMOnchain(&stubOnchainAdapter{})
+	cs := ApplyVerifierConfig()
 	err := cs.VerifyPreconditions(deployment.Environment{}, ApplyVerifierConfigInput{
 		CommitteeQualifier:       "default",
 		DefaultExecutorQualifier: "default-executor",
@@ -102,7 +109,8 @@ func TestApplyVerifierConfig_Validation_TargetNOPMustExist(t *testing.T) {
 
 func TestApplyVerifierConfig_Validation_ChainReferencesUnknownNOPRejected(t *testing.T) {
 	sel1 := chainsel.TEST_90000001.Selector
-	cs := ApplyVerifierConfig(newEVMRegistry(&stubOnchainAdapter{}))
+	registerEVMOnchain(&stubOnchainAdapter{})
+	cs := ApplyVerifierConfig()
 	err := cs.VerifyPreconditions(deployment.Environment{}, ApplyVerifierConfigInput{
 		CommitteeQualifier:       "default",
 		DefaultExecutorQualifier: "default-executor",
@@ -120,7 +128,8 @@ func TestApplyVerifierConfig_Validation_ChainReferencesUnknownNOPRejected(t *tes
 
 func TestApplyVerifierConfig_Validation_ProductionRejectsPyroscope(t *testing.T) {
 	sel1 := chainsel.TEST_90000001.Selector
-	cs := ApplyVerifierConfig(newEVMRegistry(&stubOnchainAdapter{}))
+	registerEVMOnchain(&stubOnchainAdapter{})
+	cs := ApplyVerifierConfig()
 	err := cs.VerifyPreconditions(deployment.Environment{Name: "mainnet"}, ApplyVerifierConfigInput{
 		CommitteeQualifier:       "default",
 		DefaultExecutorQualifier: "default-executor",
@@ -139,7 +148,8 @@ func TestApplyVerifierConfig_Validation_ProductionRejectsPyroscope(t *testing.T)
 
 func TestApplyVerifierConfig_Validation_AcceptsValidImperativeInput(t *testing.T) {
 	sel1 := chainsel.TEST_90000001.Selector
-	cs := ApplyVerifierConfig(newEVMRegistry(&stubOnchainAdapter{}))
+	registerEVMOnchain(&stubOnchainAdapter{})
+	cs := ApplyVerifierConfig()
 	err := cs.VerifyPreconditions(deployment.Environment{}, ApplyVerifierConfigInput{
 		CommitteeQualifier:       "default",
 		DefaultExecutorQualifier: "default-executor",

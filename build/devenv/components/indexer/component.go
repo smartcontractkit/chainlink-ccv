@@ -11,7 +11,6 @@ import (
 	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
-	ccvadapters "github.com/smartcontractkit/chainlink-ccv/deployment/adapters"
 	ccvchangesets "github.com/smartcontractkit/chainlink-ccv/deployment/changesets"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
@@ -60,7 +59,7 @@ func (c *component) RunPhase4(
 	}
 
 	firstIdx := inputs[0]
-	cs := ccvchangesets.GenerateIndexerConfig(ccvadapters.GetRegistry())
+	cs := ccvchangesets.GenerateIndexerConfig()
 	localEnv := *e
 	output, err := cs.Apply(localEnv, ccvchangesets.GenerateIndexerConfigInput{
 		ServiceIdentifier:                "indexer",

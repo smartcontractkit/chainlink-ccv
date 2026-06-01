@@ -222,7 +222,7 @@ type OnChainCommittees struct {
 // express only the values they want to override; nil/zero means "use adapter default".
 type ChainLaneProfile struct {
 	BaseExecutionGasCost     *uint32
-	FeeQuoterDestChainConfig ccipChangesets.FeeQuoterDestChainConfigOverrides
+	FeeQuoterDestChainConfig adapters.FeeQuoterDestChainConfigOverrides
 	ExecutorDestChainConfig  *adapters.ExecutorDestChainConfig
 	DefaultExecutorQualifier string
 	DefaultInboundCCVs       []datastore.AddressRef

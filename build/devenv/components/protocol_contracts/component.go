@@ -21,7 +21,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/committeeverifier"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/timing"
 	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
-	ccvadapters "github.com/smartcontractkit/chainlink-ccv/deployment/adapters"
 	ccvchangesets "github.com/smartcontractkit/chainlink-ccv/deployment/changesets"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
@@ -214,7 +213,7 @@ func (p *component) RunPhase3(
 		if !ok {
 			return nil, nil, fmt.Errorf("committee %q not found in topology", aggregatorInput.CommitteeName)
 		}
-		cs := ccvchangesets.GenerateAggregatorConfig(ccvadapters.GetRegistry())
+		cs := ccvchangesets.GenerateAggregatorConfig()
 		output, err := cs.Apply(*e, ccvchangesets.GenerateAggregatorConfigInput{
 			ServiceIdentifier:  instanceName + "-aggregator",
 			CommitteeQualifier: aggregatorInput.CommitteeName,

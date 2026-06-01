@@ -1438,7 +1438,7 @@ func evmFeeQuoterDestChainConfigOverride(selector uint64) *lanes.FeeQuoterDestCh
 
 func (m *CCIP17EVMConfig) GetChainLaneProfile(_ *deployment.Environment, selector uint64) (cciptestinterfaces.ChainLaneProfile, error) {
 	return cciptestinterfaces.ChainLaneProfile{
-		FeeQuoterDestChainConfig: ccipChangesets.FeeQuoterDestChainConfigOverrides{
+		FeeQuoterDestChainConfig: adapters.FeeQuoterDestChainConfigOverrides{
 			USDPerUnitGas: big.NewInt(1e6),
 		},
 	}, nil
