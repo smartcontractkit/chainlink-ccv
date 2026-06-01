@@ -74,18 +74,21 @@ func TestBuildTokenTransferBatchesAsymmetricPoolsSplitByLocalPoolInstance(t *tes
 		testTokenTransferConfig(lock3, burn1, burn2),
 	})
 	require.NoError(t, err)
-	require.Len(t, batches, 2)
-
-	for _, batch := range batches {
-		require.Len(t, batch, 3)
-		requireNoDuplicateTokenTransferSelectors(t, batch)
-		qualifier := batch[0].TokenPoolRef.Qualifier
-		for _, cfg := range batch {
-			require.Equal(t, qualifier, cfg.TokenPoolRef.Qualifier)
-			require.Len(t, cfg.RemoteChains, 2)
-			requireBatchContainsRemoteSelectors(t, batch, cfg)
-		}
-	}
+	require.Len(t, batches, 4)
+	requireTokenTransferBatchNodeKeys(t, batches[0],
+		"1/TokenPool+1.0.0+TEST (burn, lock)::burn",
+		"2/TokenPool+1.0.0+TEST (burn, lock)::lock",
+	)
+	requireTokenTransferBatchNodeKeys(t, batches[1],
+		"1/TokenPool+1.0.0+TEST (burn, lock)::lock",
+		"2/TokenPool+1.0.0+TEST (burn, lock)::burn",
+	)
+	requireTokenTransferBatchNodeKeys(t, batches[2],
+		"3/TokenPool+1.0.0+TEST (burn, lock)::burn",
+	)
+	requireTokenTransferBatchNodeKeys(t, batches[3],
+		"3/TokenPool+1.0.0+TEST (burn, lock)::lock",
+	)
 }
 
 // TestBuildTokenTransferBatchesCrossTypePools verifies that an EVM
@@ -240,13 +243,14 @@ func TestBuildTokenTransferBatchesSameTypeVersionsSplitByLocalVersion(t *testing
 
 // TestBuildTokenTransferBatchesAsymmetricChainSupport verifies correct batching
 // when one chain (e.g. EVM) supports only Burn 2.0.0 while other chains (e.g. Solana)
-// support both Lock 1.6.1 and Burn 2.0.0. The splitter must produce symmetric
-// sub-batches where each config's RemoteChains are reciprocated.
+// support both Lock 1.6.1 and Burn 2.0.0. The splitter must avoid batching a
+// config with a same-selector pool that is not the exact RemotePool it targets.
 //
 // Expected split:
 //
-//	Batch 0: chain1-Burn(→chain2,chain3) + chain2-Lock(→chain1,chain3) + chain3-Lock(→chain1,chain2) — symmetric
-//	Batch 1: chain2-Burn(→chain3) + chain3-Burn(→chain2) — symmetric (no chain1: it lacks Lock)
+	//	Batch 0: chain1-Burn + chain2-Lock
+	//	Batch 1: chain2-Burn + chain3-Lock
+	//	Batch 2: chain3-Burn
 func TestBuildTokenTransferBatchesAsymmetricChainSupport(t *testing.T) {
 	const pairQualifier = "TEST (BurnMintTokenPool 2.0.0 [default], LockReleaseTokenPool 1.6.1 [])"
 
@@ -297,33 +301,23 @@ func TestBuildTokenTransferBatchesAsymmetricChainSupport(t *testing.T) {
 		testTokenTransferConfig(chain3Burn, chain2Lock),
 	})
 	require.NoError(t, err)
-	require.Len(t, batches, 2, "expected 2 sub-batches for asymmetric chain support")
+	require.Len(t, batches, 3, "expected 3 sub-batches for asymmetric chain support")
 
-	// Verify each batch is symmetric and has no duplicate selectors.
-	for i, batch := range batches {
+	for _, batch := range batches {
 		requireNoDuplicateTokenTransferSelectors(t, batch)
-		for _, cfg := range batch {
-			requireBatchContainsRemoteSelectors(t, batch, cfg)
-		}
-		// Also verify bidirectional symmetry: for every remote chain ref, the
-		// counterpart in the batch must reference back.
-		bySelector := make(map[uint64]tokenscore.TokenTransferConfig, len(batch))
-		for _, cfg := range batch {
-			bySelector[cfg.ChainSelector] = cfg
-		}
-		for _, cfg := range batch {
-			for remoteSelector := range cfg.RemoteChains {
-				counterpart, ok := bySelector[remoteSelector]
-				require.True(t, ok, "batch %d: missing counterpart for selector %d", i, remoteSelector)
-				_, hasBack := counterpart.RemoteChains[cfg.ChainSelector]
-				require.True(t, hasBack, "batch %d: counterpart selector %d does not reference back to %d", i, remoteSelector, cfg.ChainSelector)
-			}
-		}
 	}
 
-	// Verify batch sizes: one batch with 3 configs (chain1+chain2+chain3), one with 2 (chain2+chain3).
-	sizes := []int{len(batches[0]), len(batches[1])}
-	require.ElementsMatch(t, []int{3, 2}, sizes)
+	requireTokenTransferBatchNodeKeys(t, batches[0],
+		"1/BurnMintTokenPool+2.0.0+TEST (BurnMintTokenPool 2.0.0 [default], LockReleaseTokenPool 1.6.1 [])::BurnMintTokenPool 2.0.0 [default]",
+		"2/LockReleaseTokenPool+1.6.1+TEST (BurnMintTokenPool 2.0.0 [default], LockReleaseTokenPool 1.6.1 [])::LockReleaseTokenPool 1.6.1 []",
+	)
+	requireTokenTransferBatchNodeKeys(t, batches[1],
+		"2/BurnMintTokenPool+2.0.0+TEST (BurnMintTokenPool 2.0.0 [default], LockReleaseTokenPool 1.6.1 [])::BurnMintTokenPool 2.0.0 [default]",
+		"3/LockReleaseTokenPool+1.6.1+TEST (BurnMintTokenPool 2.0.0 [default], LockReleaseTokenPool 1.6.1 [])::LockReleaseTokenPool 1.6.1 []",
+	)
+	requireTokenTransferBatchNodeKeys(t, batches[2],
+		"3/BurnMintTokenPool+2.0.0+TEST (BurnMintTokenPool 2.0.0 [default], LockReleaseTokenPool 1.6.1 [])::BurnMintTokenPool 2.0.0 [default]",
+	)
 }
 
 func testTokenPoolRef(selector uint64, qualifier string) datastore.AddressRef {
@@ -357,6 +351,16 @@ func requireNoDuplicateTokenTransferSelectors(t *testing.T, batch []tokenscore.T
 		require.False(t, seen[cfg.ChainSelector], "duplicate selector %d in token transfer batch", cfg.ChainSelector)
 		seen[cfg.ChainSelector] = true
 	}
+}
+
+func requireTokenTransferBatchNodeKeys(t *testing.T, batch []tokenscore.TokenTransferConfig, expected ...string) {
+	t.Helper()
+
+	actual := make([]string, 0, len(batch))
+	for _, cfg := range batch {
+		actual = append(actual, tokenTransferConfigNodeKey(cfg).String())
+	}
+	require.Equal(t, expected, actual)
 }
 
 func requireReciprocalTokenTransferBatch(t *testing.T, batch []tokenscore.TokenTransferConfig) {

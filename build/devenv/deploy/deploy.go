@@ -676,6 +676,28 @@ func tokenTransferRemoteNodeKey(chainSelector uint64, ref datastore.AddressRef) 
 	}
 }
 
+func tokenTransferRemoteNodeKeyFromConfig(
+	cfg tokenscore.TokenTransferConfig,
+	remoteSelector uint64,
+) (tokenTransferNodeKey, bool) {
+	remoteCfg, ok := cfg.RemoteChains[remoteSelector]
+	if !ok || remoteCfg.RemotePool == nil {
+		return tokenTransferNodeKey{}, false
+	}
+	return tokenTransferRemoteNodeKey(remoteSelector, *remoteCfg.RemotePool), true
+}
+
+func tokenTransferConfigsAreReciprocal(
+	from tokenscore.TokenTransferConfig,
+	to tokenscore.TokenTransferConfig,
+) bool {
+	expectedRemote, ok := tokenTransferRemoteNodeKeyFromConfig(from, to.ChainSelector)
+	if !ok {
+		return false
+	}
+	return expectedRemote == tokenTransferConfigNodeKey(to)
+}
+
 func (k tokenTransferNodeKey) String() string {
 	return fmt.Sprintf("%d/%s", k.chainSelector, k.poolKey)
 }
@@ -735,43 +757,29 @@ func buildTokenTransferBatches(configs []tokenscore.TokenTransferConfig) ([][]to
 }
 
 func splitTokenTransferBatchBySelector(configs []tokenscore.TokenTransferConfig) [][]tokenscore.TokenTransferConfig {
-	// Build a lookup of all configs by (selector, poolRefKey) so we can check
-	// bidirectional symmetry during placement.
-	type nodeID struct {
-		selector uint64
-		poolKey  string
-	}
-	configByNode := make(map[nodeID]tokenscore.TokenTransferConfig, len(configs))
-	for _, cfg := range configs {
-		configByNode[nodeID{cfg.ChainSelector, tokenTransferRefKey(cfg.TokenPoolRef)}] = cfg
-	}
-
 	// isBidirectionallyCompatible checks whether placing cfg into batch would
-	// maintain symmetry: for every remote chain already in the batch, the
-	// counterpart config must reference cfg's chain back and vice-versa.
+	// maintain symmetry at pool level: whenever cfg and a batch member reference
+	// one another, the referenced local pool must be the exact counterpart being
+	// batched, not just any config on the same selector.
 	isBidirectionallyCompatible := func(batch []tokenscore.TokenTransferConfig, cfg tokenscore.TokenTransferConfig) bool {
-		batchBySelector := make(map[uint64]tokenscore.TokenTransferConfig, len(batch))
 		for _, b := range batch {
-			batchBySelector[b.ChainSelector] = b
-		}
+			candidateRefsBatchMember, candidateHasRemote := tokenTransferRemoteNodeKeyFromConfig(cfg, b.ChainSelector)
+			batchMemberRefsCandidate, batchMemberHasRemote := tokenTransferRemoteNodeKeyFromConfig(b, cfg.ChainSelector)
 
-		// Check: for each remote chain in cfg that is already in the batch,
-		// the batch member must reference cfg's chain back.
-		for remoteSelector := range cfg.RemoteChains {
-			counterpart, inBatch := batchBySelector[remoteSelector]
-			if !inBatch {
-				continue
+			if candidateHasRemote {
+				if candidateRefsBatchMember != tokenTransferConfigNodeKey(b) {
+					return false
+				}
+				if !tokenTransferConfigsAreReciprocal(b, cfg) {
+					return false
+				}
 			}
-			if _, ok := counterpart.RemoteChains[cfg.ChainSelector]; !ok {
-				return false
-			}
-		}
 
-		// Check: for each batch member that references cfg's chain as a remote,
-		// cfg must reference that member's chain back.
-		for _, b := range batch {
-			if _, refsMe := b.RemoteChains[cfg.ChainSelector]; refsMe {
-				if _, ok := cfg.RemoteChains[b.ChainSelector]; !ok {
+			if batchMemberHasRemote {
+				if batchMemberRefsCandidate != tokenTransferConfigNodeKey(cfg) {
+					return false
+				}
+				if !tokenTransferConfigsAreReciprocal(cfg, b) {
 					return false
 				}
 			}
