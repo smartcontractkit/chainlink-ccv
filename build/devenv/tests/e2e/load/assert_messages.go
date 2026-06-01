@@ -11,6 +11,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/metrics"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
 // VerificationContext holds the minimal dependencies needed by AssertMessagesAsync.
@@ -20,6 +21,15 @@ type VerificationContext struct {
 	Ctx  context.Context
 	T    testing.TB
 	Impl map[uint64]cciptestinterfaces.CCIP17
+}
+
+// messageEventKey builds the lookup key used by ConfirmExecOnDest.
+// Prefer MessageID when it is available; fall back to SeqNo for flows that do not populate MessageID.
+func messageEventKey(msg SentMessage) cciptestinterfaces.MessageEventKey {
+	if msg.MessageID != ([32]byte{}) {
+		return cciptestinterfaces.MessageEventKey{MessageID: protocol.Bytes32(msg.MessageID)}
+	}
+	return cciptestinterfaces.MessageEventKey{SeqNum: msg.SeqNo}
 }
 
 // AssertMessagesAsync starts a background verification pipeline that reads
@@ -68,7 +78,7 @@ func AssertMessagesAsync(vc VerificationContext, msgs <-chan SentMessage, overal
 					return
 				}
 
-				execEvent, err := vc.Impl[msg.ChainPair.Dest].ConfirmExecOnDest(verifyCtx, msg.ChainPair.Src, cciptestinterfaces.MessageEventKey{SeqNum: msg.SeqNo}, 0)
+				execEvent, err := vc.Impl[msg.ChainPair.Dest].ConfirmExecOnDest(verifyCtx, msg.ChainPair.Src, messageEventKey(msg), 0)
 				if err != nil {
 					if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 						vc.T.Logf("Message %d verification cancelled or timed out", msg.SeqNo)
