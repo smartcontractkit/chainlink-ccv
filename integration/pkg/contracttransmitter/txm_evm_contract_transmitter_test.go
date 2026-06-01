@@ -3,6 +3,7 @@ package contracttransmitter
 import (
 	"context"
 	"errors"
+	"math"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -374,6 +375,35 @@ func TestTXMEVMContractTransmitter_ABIEncoding(t *testing.T) {
 				// Compare the payloads for byte-level equality
 				assert.Equal(t, expectedPayload, capturedPayload)
 			}
+		})
+	}
+}
+
+func TestEIP150ForwardingGasBuffer(t *testing.T) {
+	testCases := []struct {
+		name                string
+		ccipReceiveGasLimit uint32
+	}{
+		{name: "zero", ccipReceiveGasLimit: 0},
+		{name: "one", ccipReceiveGasLimit: 1},
+		{name: "one below denominator boundary", ccipReceiveGasLimit: eip150ForwardingDenominator - 1},
+		{name: "exact denominator boundary", ccipReceiveGasLimit: eip150ForwardingDenominator},
+		{name: "exact numerator boundary", ccipReceiveGasLimit: eip150ForwardingNumerator},
+		{name: "typical gas limit", ccipReceiveGasLimit: 200000},
+		{name: "large gas limit", ccipReceiveGasLimit: 5000000},
+		{name: "max uint32", ccipReceiveGasLimit: math.MaxUint32},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			gasLimit := uint64(tc.ccipReceiveGasLimit)
+			buffer := eip150ForwardingGasBuffer(tc.ccipReceiveGasLimit)
+
+			// Min gas received after an EIP-150 CALL boundary
+			eip150MinCallGas := func(gas uint64) uint64 { return gas - gas/64 }
+
+			assert.GreaterOrEqual(t, eip150MinCallGas(eip150MinCallGas(gasLimit+buffer)), gasLimit, "buffer too small")
+			assert.LessOrEqual(t, eip150MinCallGas(eip150MinCallGas(gasLimit+buffer)), gasLimit+2, "buffer larger than necessary")
 		})
 	}
 }
