@@ -245,8 +245,8 @@ func TestBuildTokenTransferBatchesSameTypeVersionsSplitByLocalVersion(t *testing
 //
 // Expected split:
 //
-	//	Batch 0: chain1-Burn(→chain2,chain3) + chain2-Lock(→chain1,chain3) + chain3-Lock(→chain1,chain2) — symmetric
-	//	Batch 1: chain2-Burn(→chain3) + chain3-Burn(→chain2) — symmetric (no chain1: it lacks Lock)
+//	Batch 0: chain1-Burn(->chain2,chain3) + chain2-Lock(->chain1,chain3) + chain3-Lock(->chain1,chain2) - symmetric
+//	Batch 1: chain2-Burn(->chain3) + chain3-Burn(->chain2) - symmetric (no chain1: it lacks Lock)
 func TestBuildTokenTransferBatchesAsymmetricChainSupport(t *testing.T) {
 	const pairQualifier = "TEST (BurnMintTokenPool 2.0.0 [default], LockReleaseTokenPool 1.6.1 [])"
 
