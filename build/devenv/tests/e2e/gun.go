@@ -214,9 +214,8 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 	}
 
 	sentEvent, _, err := chainAsSource.SendChainMessage(ctx, destSelector, srcMessage, evm.SendOptions{
-		Nonce:                        &currentNonce,
-		Sender:                       sender,
-		DisableTokenAmountValidation: true,
+		Nonce:  &currentNonce,
+		Sender: sender,
 	})
 	if err != nil {
 		return &wasp.Response{Error: fmt.Errorf("failed to send message: %w", err).Error(), Failed: true}
