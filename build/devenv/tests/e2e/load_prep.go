@@ -74,12 +74,15 @@ func ensureUserWETHBalanceAndApproval(
 ) {
 	t.Helper()
 
+	oldValue := user.Value
+	defer func() { user.Value = oldValue }()
+
 	logger.Info().Str("user", user.From.String()).Msg("User address")
 	balance, err := chain.Client.BalanceAt(ctx, user.From, nil)
 	require.NoErrorf(t, err, "failed to read native balance for user %s on chain %d", user.From.String(), chain.Selector)
 	logger.Info().Str("balance", balance.String()).Msg("User native balance before deposit")
 
-	wethBalance, err := wethInstance.BalanceOf(nil, user.From)
+	wethBalance, err := wethInstance.BalanceOf(&bind.CallOpts{Context: ctx}, user.From)
 	require.NoErrorf(t, err, "failed to read WETH balance for user %s on chain %d", user.From.String(), chain.Selector)
 	logger.Info().
 		Str("wethBalance", wethBalance.String()).
@@ -88,18 +91,16 @@ func ensureUserWETHBalanceAndApproval(
 
 	if wethBalance.Cmp(requiredWETH) < 0 {
 		depositAmount := new(big.Int).Sub(requiredWETH, wethBalance)
-		oldValue := user.Value
 		user.Value = depositAmount
-		// defer: restore if Deposit/Confirm fails; success path resets before Approve below.
-		defer func() { user.Value = oldValue }()
 		tx1, err := wethInstance.Deposit(user)
 		require.NoErrorf(t, err, "failed to deposit WETH for user %s on chain %d", user.From.String(), chain.Selector)
 		_, err = chain.Confirm(tx1)
 		require.NoErrorf(t, err, "failed to confirm WETH deposit tx %s for user %s on chain %d", tx1.Hash().Hex(), user.From.String(), chain.Selector)
-		user.Value = oldValue // Approve is non-payable: must not keep deposit msg.Value.
 		logger.Info().Str("depositAmount", depositAmount.String()).Msg("Deposited WETH")
 	}
 
+	// Approve is non-payable; shared TransactOpts may carry stale msg.Value.
+	user.Value = nil
 	tx, err := wethInstance.Approve(user, routerAddr, requiredWETH)
 	require.NoErrorf(t, err, "failed to approve router %s for user %s on chain %d", routerAddr.Hex(), user.From.String(), chain.Selector)
 	_, err = chain.Confirm(tx)
