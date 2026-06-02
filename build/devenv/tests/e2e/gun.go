@@ -202,9 +202,10 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 		return &wasp.Response{Error: "impl is not ChainAsSource", Failed: true}
 	}
 
-	extraArgs, err := evm.SerializeEVMExtraArgs(3, opts)
+	// EVM→EVM lanes use EVM extra-args encoding; other V3 destinations use BuildV3ExtraArgs.
+	extraArgs, err := m.buildExtraArgs(srcSelector, destSelector, opts)
 	if err != nil {
-		return &wasp.Response{Error: fmt.Errorf("failed to serialize extra args: %w", err).Error(), Failed: true}
+		return &wasp.Response{Error: fmt.Errorf("failed to build extra args: %w", err).Error(), Failed: true}
 	}
 
 	srcMessage, err := chainAsSource.BuildChainMessage(ctx, fields, extraArgs)
@@ -256,15 +257,74 @@ func (m *EVMTXGun) SelectDestSelector(excludeSelector uint64) (uint64, error) {
 	return load.GetSelectorByRatio(choices)
 }
 
-func (m *EVMTXGun) selectMessageProfile(srcSelector, destSelector uint64) (cciptestinterfaces.MessageFields, cciptestinterfaces.MessageOptions, error) {
+// hasMockReceiverOnDest distinguishes EVM destinations (mock_receiver in CLDF datastore)
+// from chains that only expose an EOA receiver via the chain impl.
+func (m *EVMTXGun) hasMockReceiverOnDest(destSelector uint64) bool {
+	_, err := m.e.DataStore.Addresses().Get(
+		datastore.NewAddressRefKey(
+			destSelector,
+			datastore.ContractType(mock_receiver_v2.ContractType),
+			semver.MustParse(mock_receiver_v2.Deploy.Version()),
+			devenvcommon.DefaultReceiverQualifier))
+	return err == nil
+}
+
+// resolveReceiver prefers the deployed mock receiver on EVM dests; otherwise uses the
+// destination chain impl so cross-family load tests do not need a separate EVM gun.
+func (m *EVMTXGun) resolveReceiver(destSelector uint64) (protocol.UnknownAddress, error) {
 	mockReceiverRef, err := m.e.DataStore.Addresses().Get(
 		datastore.NewAddressRefKey(
 			destSelector,
 			datastore.ContractType(mock_receiver_v2.ContractType),
 			semver.MustParse(mock_receiver_v2.Deploy.Version()),
 			devenvcommon.DefaultReceiverQualifier))
+	if err == nil {
+		return protocol.UnknownAddress(common.HexToAddress(mockReceiverRef.Address).Bytes()), nil
+	}
+
+	destImpl, ok := m.impl[destSelector]
+	if !ok {
+		return nil, fmt.Errorf("destination chain %d not found in impls", destSelector)
+	}
+	receiver, err := destImpl.GetEOAReceiverAddress()
 	if err != nil {
-		return cciptestinterfaces.MessageFields{}, cciptestinterfaces.MessageOptions{}, fmt.Errorf("could not find mock receiver address in datastore: %w", err)
+		return nil, fmt.Errorf("could not get EOA receiver for dest %d: %w", destSelector, err)
+	}
+	return receiver, nil
+}
+
+// buildExtraArgs picks encoding based on destination shape.
+// V3 destinations without mock_receiver use BuildV3ExtraArgs; execution limits come
+// from the destination via V3DestinationLoadDefaults when the profile leaves them unset.
+func (m *EVMTXGun) buildExtraArgs(srcSelector, destSelector uint64, opts cciptestinterfaces.MessageOptions) (cciptestinterfaces.GenericExtraArgs, error) {
+	if m.hasMockReceiverOnDest(destSelector) {
+		return evm.SerializeEVMExtraArgs(3, opts)
+	}
+
+	v3Src, ok := m.impl[srcSelector].(cciptestinterfaces.MessageV3Source)
+	if !ok {
+		return nil, fmt.Errorf("source chain %d does not implement MessageV3Source", srcSelector)
+	}
+	v3Dest, ok := m.impl[destSelector].(cciptestinterfaces.MessageV3Destination)
+	if !ok {
+		return nil, fmt.Errorf("destination chain %d does not implement MessageV3Destination", destSelector)
+	}
+
+	v3Opts := opts
+	if v3Opts.ExecutionGasLimit == 0 {
+		if def, ok := m.impl[destSelector].(cciptestinterfaces.V3DestinationLoadDefaults); ok {
+			v3Opts.ExecutionGasLimit = def.V3LoadMessageOptions().ExecutionGasLimit
+		}
+	}
+	// Receiver is in MessageFields; token params nil for data-only load (matches evm2solana arb e2e).
+	return v3Src.BuildV3ExtraArgs(v3Opts, v3Dest, nil, nil, nil)
+}
+
+// selectMessageProfile builds message fields/options for load sends and applies sane defaults when no profile is configured.
+func (m *EVMTXGun) selectMessageProfile(srcSelector, destSelector uint64) (cciptestinterfaces.MessageFields, cciptestinterfaces.MessageOptions, error) {
+	receiver, err := m.resolveReceiver(destSelector)
+	if err != nil {
+		return cciptestinterfaces.MessageFields{}, cciptestinterfaces.MessageOptions{}, err
 	}
 
 	wethContract, err := m.e.DataStore.Addresses().Get(
@@ -294,7 +354,7 @@ func (m *EVMTXGun) selectMessageProfile(srcSelector, destSelector uint64) (ccipt
 	}
 	if m.testConfig == nil || m.testConfig.Messages == nil {
 		return cciptestinterfaces.MessageFields{
-				Receiver: protocol.UnknownAddress(common.HexToAddress(mockReceiverRef.Address).Bytes()),
+				Receiver: receiver,
 				Data:     []byte{},
 				FeeToken: protocol.UnknownAddress(common.HexToAddress(wethContract.Address).Bytes()),
 			}, cciptestinterfaces.MessageOptions{
@@ -314,7 +374,7 @@ func (m *EVMTXGun) selectMessageProfile(srcSelector, destSelector uint64) (ccipt
 		return cciptestinterfaces.MessageFields{}, cciptestinterfaces.MessageOptions{}, fmt.Errorf("failed to get message profile: %w", err)
 	}
 	fields := cciptestinterfaces.MessageFields{
-		Receiver: protocol.UnknownAddress(common.HexToAddress(mockReceiverRef.Address).Bytes()),
+		Receiver: receiver,
 		Data:     []byte{},
 		FeeToken: protocol.UnknownAddress(common.HexToAddress(wethContract.Address).Bytes()),
 	}
