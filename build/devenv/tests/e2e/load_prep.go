@@ -90,12 +90,13 @@ func ensureUserWETHBalanceAndApproval(
 		depositAmount := new(big.Int).Sub(requiredWETH, wethBalance)
 		oldValue := user.Value
 		user.Value = depositAmount
-		// WETH deposit sends native ETH via msg.Value; restore so later txs do not inherit it.
+		// defer: restore if Deposit/Confirm fails; success path resets before Approve below.
 		defer func() { user.Value = oldValue }()
 		tx1, err := wethInstance.Deposit(user)
 		require.NoErrorf(t, err, "failed to deposit WETH for user %s on chain %d", user.From.String(), chain.Selector)
 		_, err = chain.Confirm(tx1)
 		require.NoErrorf(t, err, "failed to confirm WETH deposit tx %s for user %s on chain %d", tx1.Hash().Hex(), user.From.String(), chain.Selector)
+		user.Value = oldValue // Approve is non-payable: must not keep deposit msg.Value.
 		logger.Info().Str("depositAmount", depositAmount.String()).Msg("Deposited WETH")
 	}
 
