@@ -12,6 +12,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainreg"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	blockchainscomp "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/blockchains"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/components/observability"
 	ccdeploy "github.com/smartcontractkit/chainlink-ccv/build/devenv/deploy"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
 	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
@@ -95,6 +96,10 @@ func (c *component) RunPhase3(
 	topology, ok := priorOutputs["environment_topology"].(*ccvdeployment.EnvironmentTopology)
 	if !ok || topology == nil {
 		return nil, nil, fmt.Errorf("committeeccv: environment_topology not found in phase outputs")
+	}
+	obs, ok := priorOutputs["observability"].(*observability.Observability)
+	if !ok || obs == nil {
+		return nil, nil, fmt.Errorf("committeeccv: observability not found in phase outputs")
 	}
 	ds, ok := priorOutputs["_ds"].(datastore.MutableDataStore)
 	if !ok {
@@ -220,7 +225,7 @@ func (c *component) RunPhase3(
 	}
 
 	// Step 8: Generate verifier job specs and emit job proposal effects.
-	effects, err := buildVerifierJobSpecEffects(e, verifiers, topology, sharedTLSCerts, blockchainOutputs, ds)
+	effects, err := buildVerifierJobSpecEffects(e, verifiers, topology, obs, sharedTLSCerts, blockchainOutputs, ds)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -307,6 +312,7 @@ func buildVerifierJobSpecEffects(
 	e *deployment.Environment,
 	verifiers []*committeeverifier.Input,
 	topology *ccvdeployment.EnvironmentTopology,
+	obs *observability.Observability,
 	sharedTLSCerts *services.TLSCertPaths,
 	blockchainOutputs []*ctfblockchain.Output,
 	ds datastore.MutableDataStore,
@@ -350,8 +356,8 @@ func buildVerifierJobSpecEffects(
 				DefaultExecutorQualifier: devenvcommon.DefaultExecutorQualifier,
 				NOPs:                     ccvchangesets.NOPInputsFromTopology(topology),
 				Committee:                ccvchangesets.CommitteeInputFromTopologyPerFamily(committee, family),
-				PyroscopeURL:             topology.PyroscopeURL,
-				Monitoring:               topology.Monitoring,
+				PyroscopeURL:             obs.PyroscopeURL,
+				Monitoring:               obs.Monitoring,
 				TargetNOPs:               verNOPAliases,
 				DisableFinalityCheckers:  disableFinalityCheckersPerFamily[family],
 			})

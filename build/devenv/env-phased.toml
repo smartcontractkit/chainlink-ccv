@@ -7,6 +7,27 @@
 # below in sync with env.toml until the two configs are formally split.
 version = 1
 
+## Cross-cutting observability settings (beholder monitoring + pyroscope),
+## owned by the phased observability component (Phase 1) and consumed by the
+## committeeccv and executor components. These are intentionally NOT part of the
+## topology; the legacy monolith still carries the equivalent keys under
+## [environment_topology] in env.toml.
+[observability]
+version = 1
+pyroscope_url = "http://host.docker.internal:4040"
+
+[observability.monitoring]
+Enabled = true
+Type = "beholder"
+
+[observability.monitoring.Beholder]
+InsecureConnection = true
+OtelExporterHTTPEndpoint = "host.docker.internal:4318"
+LogStreamingEnabled = false
+MetricReaderInterval = 5
+TraceSampleRatio = 1.0
+TraceBatchTimeout = 10
+
 [protocol_contracts]
 version = 1
 use_legacy_configure_lane = false
@@ -14,19 +35,6 @@ use_legacy_configure_lane = false
 ## Environment configuration define the topology. Eventually the topology should be the only config that is needed.
 [protocol_contracts.environment_topology]
 indexer_address = ["http://indexer-1:8100"]
-pyroscope_url = "http://host.docker.internal:4040"
-
-[protocol_contracts.environment_topology.monitoring]
-Enabled = true
-Type = "beholder"
-
-[protocol_contracts.environment_topology.monitoring.Beholder]
-InsecureConnection = true
-OtelExporterHTTPEndpoint = "host.docker.internal:4318"
-LogStreamingEnabled = false
-MetricReaderInterval = 5
-TraceSampleRatio = 1.0
-TraceBatchTimeout = 10
 
 [[protocol_contracts.environment_topology.nop_topology.nops]]
 alias = "default-verifier-1"

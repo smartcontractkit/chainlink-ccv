@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"slices"
 	"sort"
 
 	"github.com/rs/zerolog"
@@ -69,12 +70,8 @@ func NewEnvironmentWithRegistry(ctx context.Context, rawConfig map[string]any, r
 
 	unclaimed := unclaimedKeys(rawConfig, r.factories)
 	if len(unclaimed) > 0 {
-		keys := make([]string, 0, len(unclaimed))
-		for k := range unclaimed {
-			keys = append(keys, k)
-		}
-		// TODO: Make this an error.
-		logger.Warn().Strs("keys", keys).Msg("unclaimed config keys")
+		keys := slices.Sorted(maps.Keys(unclaimed))
+		return nil, fmt.Errorf("unclaimed config keys: %v", keys)
 	}
 	accumulated := map[string]any{}
 
