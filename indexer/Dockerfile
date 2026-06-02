@@ -14,9 +14,14 @@ RUN --mount=type=cache,target=/root/.cache/go-build,id=ccv-go-build \
     cd indexer && CGO_ENABLED=0 go build -ldflags='-s -w' -o /bin/indexer cmd/main.go && \
     CGO_ENABLED=0 go build -ldflags='-s -w' -o /bin/indexer-replay cmd/replay/main.go
 
-FROM alpine:latest
+FROM alpine:3.23
 RUN apk --no-cache add ca-certificates
-COPY --from=builder /bin/indexer /bin/
-COPY --from=builder /bin/indexer-replay /bin/
-COPY --from=builder /app/indexer/migrations ./migrations
+
+# Create a non-root user and group for running the application
+RUN addgroup -S indexer && adduser -S indexer -G indexer
+
+COPY --chown=indexer:indexer --from=builder /bin/indexer /bin/
+COPY --chown=indexer:indexer --from=builder /bin/indexer-replay /bin/
+COPY --chown=indexer:indexer --from=builder /app/indexer/migrations ./migrations
+USER indexer:indexer
 CMD ["/bin/indexer"]
