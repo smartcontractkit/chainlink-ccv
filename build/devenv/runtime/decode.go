@@ -21,8 +21,13 @@ type tomlWrapper[T any] struct {
 // represents a table or an array-of-tables.
 //
 // componentName appears in error messages only.
+// If raw is nil (the config section is absent from the environment file),
+// the zero value of T is returned without error.
 func DecodeConfig[T any](raw any, componentName string) (T, error) {
 	var zero T
+	if raw == nil {
+		return zero, nil
+	}
 	b, err := toml.Marshal(tomlWrapper[any]{V: raw})
 	if err != nil {
 		return zero, fmt.Errorf("re-encoding %s config: %w", componentName, err)
