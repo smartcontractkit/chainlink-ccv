@@ -55,18 +55,21 @@ func NewEnvironmentWithRegistry(ctx context.Context, rawConfig map[string]any, r
 
 	// version is a schema-version marker for the env file, not a component.
 	// Consume it here so it is never dispatched to a component or reported as
-	// an unclaimed key.
-	if v, ok := rawConfig["version"]; ok {
-		version, ok := v.(int64)
-		if !ok {
-			return nil, fmt.Errorf("config key %q must be an integer, got %T", "version", v)
-		}
-		if version < 1 {
-			return nil, fmt.Errorf("config key %q must be >= 1, got %d", "version", version)
-		}
-		logger.Info().Int64("version", version).Msg("phased environment config schema version")
-		delete(rawConfig, "version")
+	// an unclaimed key. The supported version is exactly 1; any other value
+	// (including absent) is rejected so stale or mismatched env files fail fast.
+	v, ok := rawConfig["version"]
+	if !ok {
+		return nil, fmt.Errorf("config key %q is required but missing", "version")
 	}
+	version, ok := v.(int64)
+	if !ok {
+		return nil, fmt.Errorf("config key %q must be an integer, got %T", "version", v)
+	}
+	if err := CheckConfigVersion(int(version), 1); err != nil {
+		return nil, fmt.Errorf("config key %q: %w", "version", err)
+	}
+	logger.Info().Int64("version", version).Msg("phased environment config schema version")
+	delete(rawConfig, "version")
 
 	unclaimed := unclaimedKeys(rawConfig, r.factories)
 	if len(unclaimed) > 0 {
