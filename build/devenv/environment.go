@@ -120,7 +120,7 @@ type Cfg struct {
 	Aggregator         []*services.AggregatorInput    `toml:"aggregator"            validate:"required"`
 	JD                 *jd.Input                      `toml:"jd"                    validate:"required"`
 	Blockchains        []*blockchain.Input            `toml:"blockchains"           validate:"required"`
-	NodeSets           []*ns.Input                    `toml:"nodesets"              validate:"omitempty"`
+	NodeSets           []*ns.Input                    `toml:"nodesets,omitempty"`
 	CLNodesFundingETH  float64                        `toml:"cl_nodes_funding_eth"`
 	CLNodesFundingLink float64                        `toml:"cl_nodes_funding_link"`
 	// HighAvailability enables devenv-level service redundancy. When true,

@@ -18,14 +18,14 @@ func NewEnvironment(ctx context.Context, rawConfig map[string]any, logger zerolo
 // NewEnvironmentWithRegistry runs the environment startup using the provided registry.
 // This variant is used by tests that need an explicit registry.
 //
-// Within a phase, every component (registered specifics and the fallback) sees
-// a priorOutputs map cloned from the same phase-start snapshot. The snapshot
-// is captured once before the phase begins, and each component receives its
-// own clone so component-side mutation cannot leak to siblings. A component's
-// own outputs are merged into the accumulated map *after* its callback
-// returns, so they only become visible to components in later phases. This
-// makes intra-phase ordering irrelevant from a data-visibility standpoint and
-// forbids accidental sibling dependencies.
+// Within a phase, every registered component sees a priorOutputs map cloned
+// from the same phase-start snapshot. The snapshot is captured once before the
+// phase begins, and each component receives its own clone so component-side
+// mutation cannot leak to siblings. A component's own outputs are merged into
+// the accumulated map *after* its callback returns, so they only become
+// visible to components in later phases. This makes intra-phase ordering
+// irrelevant from a data-visibility standpoint and forbids accidental sibling
+// dependencies.
 //
 // Merging uses mergeNoOverwrite: a component that writes an output key already
 // set (by a prior phase or by an earlier component in the same phase) causes
