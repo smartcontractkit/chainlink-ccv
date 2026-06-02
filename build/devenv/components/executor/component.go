@@ -14,6 +14,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainreg"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
+	blockchainscomp "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/blockchains"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
 	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
@@ -29,6 +30,10 @@ import (
 )
 
 const configKey = "executor"
+
+// Version is the executor component config schema version. Exactly this version
+// is supported; configs declaring any other version are rejected.
+const Version = 1
 
 func init() {
 	if err := devenvruntime.Register(configKey, factory); err != nil {
@@ -64,12 +69,11 @@ func (c *component) RunPhase3(
 		return map[string]any{configKey: executors}, nil, nil
 	}
 
-	blockchainOutputs, ok := priorOutputs["blockchainOutputs"].([]*ctfblockchain.Output)
+	blockchains, ok := priorOutputs["blockchains"].([]*ctfblockchain.Input)
 	if !ok {
-		return nil, nil, fmt.Errorf("phase 1 did not produce []*blockchain.Output under \"blockchainOutputs\"")
+		return nil, nil, fmt.Errorf("phase 1 did not produce []*blockchain.Input under \"blockchains\"")
 	}
-
-	blockchains, _ := priorOutputs["blockchains"].([]*ctfblockchain.Input)
+	blockchainOutputs := blockchainscomp.Outputs(blockchains)
 
 	jdInfra, ok := priorOutputs["jd"].(*jobs.JDInfrastructure)
 	if !ok || jdInfra == nil {
@@ -319,6 +323,11 @@ func decode(raw any) ([]*executorsvc.Input, error) {
 	}
 	if err := toml.Unmarshal(b, &wrapper); err != nil {
 		return nil, fmt.Errorf("decoding executor config: %w", err)
+	}
+	for i, in := range wrapper.V {
+		if err := devenvruntime.CheckConfigVersion(in.Version, Version); err != nil {
+			return nil, fmt.Errorf("executor entry %d: %w", i, err)
+		}
 	}
 	return wrapper.V, nil
 }

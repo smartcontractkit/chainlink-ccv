@@ -29,6 +29,8 @@ type KeystoreCfg struct {
 }
 
 type PricerInput struct {
+	// Version is the component config schema version (see pricer.Version).
+	Version        int           `toml:"version"`
 	Image          string        `toml:"image"`
 	SourceCodePath string        `toml:"source_code_path"`
 	RootPath       string        `toml:"root_path"`

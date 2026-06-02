@@ -12,6 +12,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/committeeverifier"
 	executorsvc "github.com/smartcontractkit/chainlink-ccv/build/devenv/services/executor"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/timing"
+	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
 
@@ -47,10 +48,16 @@ func NewPhasedEnvironment() (cfg *Cfg, err error) {
 		return nil, err
 	}
 
-	// TODO: Remove this load and do not use "Cfg" as the return type.
-	cfg, err = Load[Cfg](configs)
-	if err != nil {
-		return nil, fmt.Errorf("loading config for output: %w", err)
+	// Cfg is a transitional output/return shape that will be removed in a future
+	// task (the phased runtime works off the raw config + component outputs). We
+	// do NOT decode env-phased.toml into Cfg — it carries per-component nesting
+	// and version markers the components own. Instead, start from an empty Cfg
+	// and populate it from the runtime outputs below.
+	cfg = &Cfg{}
+
+	// Topology is built by the protocol_contracts component (Phase 2).
+	if topo, ok := out["_topology"].(*ccvdeployment.EnvironmentTopology); ok && topo != nil {
+		cfg.EnvironmentTopology = topo
 	}
 
 	// Sync blockchains from Phase 1 so Out fields (RPC URLs, etc.) are populated.

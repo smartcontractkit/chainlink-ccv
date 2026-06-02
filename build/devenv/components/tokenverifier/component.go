@@ -7,6 +7,7 @@ import (
 	"github.com/pelletier/go-toml/v2"
 
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
+	blockchainscomp "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/blockchains"
 	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
@@ -17,6 +18,10 @@ import (
 )
 
 const configKey = "token_verifier"
+
+// Version is the token_verifier component config schema version. Exactly this
+// version is supported; configs declaring any other version are rejected.
+const Version = 1
 
 func init() {
 	if err := devenvruntime.Register(configKey, factory); err != nil {
@@ -30,7 +35,10 @@ func factory(_ map[string]any) (devenvruntime.Component, error) {
 
 type component struct{}
 
-func (c *component) ValidateConfig(_ any) error { return nil }
+func (c *component) ValidateConfig(componentConfig any) error {
+	_, err := decode(componentConfig)
+	return err
+}
 
 // RunPhase4 decodes [[token_verifier]] config, generates token verifier
 // configuration from on-chain state via changeset, and launches standalone
@@ -58,10 +66,11 @@ func (c *component) RunPhase4(
 	if !ok {
 		return nil, nil, fmt.Errorf("tokenverifier: _selectors not found in phase outputs")
 	}
-	blockchainOutputs, ok := priorOutputs["blockchainOutputs"].([]*blockchain.Output)
+	blockchains, ok := priorOutputs["blockchains"].([]*blockchain.Input)
 	if !ok {
-		return nil, nil, fmt.Errorf("tokenverifier: blockchainOutputs not found in phase outputs")
+		return nil, nil, fmt.Errorf("tokenverifier: blockchains not found in phase outputs")
 	}
+	blockchainOutputs := blockchainscomp.Outputs(blockchains)
 
 	var fakeOut *services.FakeOutput
 	if fake, ok := priorOutputs["fake"].(*services.FakeInput); ok && fake != nil {
@@ -150,6 +159,11 @@ func decode(raw any) ([]*services.TokenVerifierInput, error) {
 	}
 	if err := toml.Unmarshal(b, &wrapper); err != nil {
 		return nil, fmt.Errorf("decoding token_verifier config: %w", err)
+	}
+	for i, in := range wrapper.V {
+		if err := devenvruntime.CheckConfigVersion(in.Version, Version); err != nil {
+			return nil, fmt.Errorf("token_verifier entry %d: %w", i, err)
+		}
 	}
 	return wrapper.V, nil
 }

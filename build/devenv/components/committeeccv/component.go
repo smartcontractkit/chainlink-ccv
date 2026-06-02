@@ -11,6 +11,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainreg"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
+	blockchainscomp "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/blockchains"
 	ccdeploy "github.com/smartcontractkit/chainlink-ccv/build/devenv/deploy"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
 	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
@@ -27,7 +28,11 @@ import (
 	ctfblockchain "github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
 
-const configKey = "aggregator"
+const configKey = "committeeccv"
+
+// Version is the committeeccv component config schema version. Exactly this
+// version is supported; configs declaring any other version are rejected.
+const Version = 1
 
 func init() {
 	if err := devenvruntime.Register(configKey, factory); err != nil {
@@ -41,7 +46,10 @@ func factory(_ map[string]any) (devenvruntime.Component, error) {
 
 type component struct{}
 
-func (c *component) ValidateConfig(_ any) error { return nil }
+func (c *component) ValidateConfig(componentConfig any) error {
+	_, err := decodeConfig(componentConfig)
+	return err
+}
 
 // RunPhase3 performs the full CommitteeCCV setup:
 //  1. Generates HMAC client credentials for each aggregator.
@@ -59,14 +67,13 @@ func (c *component) RunPhase3(
 	componentConfig any,
 	priorOutputs map[string]any,
 ) (map[string]any, []devenvruntime.Effect, error) {
-	aggregators, err := decodeAggregators(componentConfig)
+	// The committeeccv config is a single [committeeccv] section holding the
+	// aggregator and verifier inputs.
+	cfg, err := decodeConfig(componentConfig)
 	if err != nil {
 		return nil, nil, err
 	}
-	verifiers, err := decodeVerifiers(globalConfig["verifier"])
-	if err != nil {
-		return nil, nil, err
-	}
+	aggregators, verifiers := cfg.Aggregator, cfg.Verifier
 
 	if len(aggregators) == 0 && len(verifiers) == 0 {
 		return map[string]any{}, nil, nil
@@ -76,10 +83,11 @@ func (c *component) RunPhase3(
 	if !ok || jdInfra == nil {
 		return nil, nil, fmt.Errorf("committeeccv: jd not found in phase outputs")
 	}
-	blockchainOutputs, ok := priorOutputs["blockchainOutputs"].([]*ctfblockchain.Output)
+	blockchains, ok := priorOutputs["blockchains"].([]*ctfblockchain.Input)
 	if !ok {
-		return nil, nil, fmt.Errorf("committeeccv: blockchainOutputs not found in phase outputs")
+		return nil, nil, fmt.Errorf("committeeccv: blockchains not found in phase outputs")
 	}
+	blockchainOutputs := blockchainscomp.Outputs(blockchains)
 	e, ok := priorOutputs["_env"].(*deployment.Environment)
 	if !ok || e == nil {
 		return nil, nil, fmt.Errorf("committeeccv: _env not found in phase outputs")
@@ -93,7 +101,6 @@ func (c *component) RunPhase3(
 		return nil, nil, fmt.Errorf("committeeccv: _ds not found in phase outputs")
 	}
 	impls, _ := priorOutputs["_impls"].([]cciptestinterfaces.CCIP17Configuration)
-	blockchains, _ := priorOutputs["blockchains"].([]*ctfblockchain.Input)
 	var useLegacyConfigureLane bool
 	if pcMap, ok := globalConfig["protocol_contracts"].(map[string]any); ok {
 		useLegacyConfigureLane, _ = pcMap["use_legacy_configure_lane"].(bool)
@@ -434,39 +441,30 @@ func buildVerifierJobSpecEffects(
 	return effects, nil
 }
 
-// decodeAggregators round-trips the raw TOML []any into []*services.AggregatorInput.
-func decodeAggregators(raw any) ([]*services.AggregatorInput, error) {
-	b, err := toml.Marshal(struct {
-		V any `toml:"aggregator"`
-	}{V: raw})
-	if err != nil {
-		return nil, fmt.Errorf("re-encoding aggregator config: %w", err)
-	}
-	var wrapper struct {
-		V []*services.AggregatorInput `toml:"aggregator"`
-	}
-	if err := toml.Unmarshal(b, &wrapper); err != nil {
-		return nil, fmt.Errorf("decoding aggregator config: %w", err)
-	}
-	return wrapper.V, nil
+// Config is the [committeeccv] component config: the aggregator and standalone
+// verifier inputs for the committee verification stack. It mirrors the phased
+// devenv's [committeeccv] TOML section (Cfg.CommitteeCCVCfg in package ccv).
+type Config struct {
+	Version    int                         `toml:"version"`
+	Aggregator []*services.AggregatorInput `toml:"aggregator"`
+	Verifier   []*committeeverifier.Input  `toml:"verifier"`
 }
 
-// decodeVerifiers round-trips the raw TOML []any into []*committeeverifier.Input.
-func decodeVerifiers(raw any) ([]*committeeverifier.Input, error) {
-	if raw == nil {
-		return nil, nil
-	}
-	b, err := toml.Marshal(struct {
-		V any `toml:"verifier"`
-	}{V: raw})
+// decodeConfig round-trips the raw TOML component config into a typed Config and
+// verifies its declared version. The runtime hands components their config as
+// opaque decoded TOML (map[string]any), so re-encode it and decode into the
+// typed struct.
+func decodeConfig(raw any) (Config, error) {
+	b, err := toml.Marshal(raw)
 	if err != nil {
-		return nil, fmt.Errorf("re-encoding verifier config: %w", err)
+		return Config{}, fmt.Errorf("re-encoding committeeccv config: %w", err)
 	}
-	var wrapper struct {
-		V []*committeeverifier.Input `toml:"verifier"`
+	var cfg Config
+	if err := toml.Unmarshal(b, &cfg); err != nil {
+		return Config{}, fmt.Errorf("decoding committeeccv config: %w", err)
 	}
-	if err := toml.Unmarshal(b, &wrapper); err != nil {
-		return nil, fmt.Errorf("decoding verifier config: %w", err)
+	if err := devenvruntime.CheckConfigVersion(cfg.Version, Version); err != nil {
+		return Config{}, err
 	}
-	return wrapper.V, nil
+	return cfg, nil
 }

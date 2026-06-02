@@ -80,8 +80,11 @@ jobs:
             working-directory: build/devenv/tests/e2e
           - name: TestE2ESmoke_Basic_Phased
             run_cmd: TestE2ESmoke_Basic
-            config: env.toml
+            config: env-phased.toml
             flags: --env-mode phased
+            # env-phased.toml is the base config, so `ccv u` writes env-phased-out.toml.
+            # Override the test's default (../../env-out.toml) to read the phased output.
+            smoke_test_config: ../../env-phased-out.toml
             timeout: 15m
             working-directory: build/devenv/tests/e2e
     steps:
@@ -153,6 +156,9 @@ jobs:
       - name: Run Test ${{ matrix.test.name }}
         id: test_run
         working-directory: ${{ matrix.test.working-directory }}
+        env:
+          # When unset, the test falls back to ../../env-out.toml (see GetSmokeTestConfig).
+          SMOKE_TEST_CONFIG: ${{ matrix.test.smoke_test_config || '' }}
         run: |
           set -o pipefail
           go test -v -timeout ${{ matrix.test.timeout }} -count=1 -run '${{ matrix.test.run_cmd }}'
