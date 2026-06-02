@@ -581,30 +581,28 @@ func TestStaging(t *testing.T) {
 		err = verifyTestConfig(e, testConfig)
 		require.NoError(t, err)
 
-		var wg sync.WaitGroup
+		// require must run on the test goroutine: fund each source chain once before wasp workers start.
+		fundedSourceChains := make(map[uint64]struct{})
 		for _, testProfile := range testConfig.TestProfiles {
 			if !testProfile.Enabled {
 				continue
 			}
 			for _, chainInfo := range testProfile.ChainsAsSource {
-				wg.Add(1)
-				go func(chainInfo load.ChainProfileConfig) {
-					defer wg.Done()
-					chainSelector, err := strconv.ParseUint(chainInfo.Selector, 10, 64)
-					if err != nil {
-						t.Logf("failed to parse chain selector: %v", err)
-						return
-					}
-					chain := e.BlockChains.EVMChains()[chainSelector]
-					EnsureWETHBalanceAndApproval(ctx, t, *l, e, chain)
-				}(chainInfo)
+				chainSelector, err := strconv.ParseUint(chainInfo.Selector, 10, 64)
+				require.NoError(t, err)
+				if _, done := fundedSourceChains[chainSelector]; done {
+					continue
+				}
+				fundedSourceChains[chainSelector] = struct{}{}
+				chain := e.BlockChains.EVMChains()[chainSelector]
+				EnsureWETHBalanceAndApproval(ctx, t, *l, e, chain)
 			}
 		}
-		wg.Wait()
 
 		// Wait for old txns and nonces to settled before we start the load test
 		time.Sleep(30 * time.Second)
 
+		var wg sync.WaitGroup
 		for idx, testProfile := range testConfig.TestProfiles {
 			if !testProfile.Enabled {
 				continue

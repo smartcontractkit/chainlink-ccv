@@ -168,7 +168,12 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 		return &wasp.Response{Error: fmt.Errorf("failed to select dest selector: %w", err).Error(), Failed: true}
 	}
 
-	fields, opts, err := m.selectMessageProfile(srcSelector, destSelector)
+	dest, err := m.resolveDestLoadInfo(destSelector)
+	if err != nil {
+		return &wasp.Response{Error: fmt.Errorf("failed to resolve destination: %w", err).Error(), Failed: true}
+	}
+
+	fields, opts, err := m.selectMessageProfile(srcSelector, dest)
 	if err != nil {
 		return &wasp.Response{Error: fmt.Errorf("failed to select message profile: %w", err).Error(), Failed: true}
 	}
@@ -202,8 +207,8 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 		return &wasp.Response{Error: "impl is not ChainAsSource", Failed: true}
 	}
 
-	// EVM→EVM lanes use EVM extra-args encoding; other V3 destinations use BuildV3ExtraArgs.
-	extraArgs, err := m.buildExtraArgs(srcSelector, destSelector, opts)
+	// encoding is decided based on dest
+	extraArgs, err := m.buildExtraArgs(srcSelector, dest, opts)
 	if err != nil {
 		return &wasp.Response{Error: fmt.Errorf("failed to build extra args: %w", err).Error(), Failed: true}
 	}
@@ -213,7 +218,7 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 		return &wasp.Response{Error: fmt.Errorf("failed to build message: %w", err).Error(), Failed: true}
 	}
 
-	// WETH load fees need validation on msgValue=0. Skipping it with DisableTokenAmountValidation reverts with InvalidMsgValue.
+	// WETH fees need msgValue=0; DisableTokenAmountValidation sets msgValue=fee and reverts.
 	sentEvent, _, err := chainAsSource.SendChainMessage(ctx, destSelector, srcMessage, evm.SendOptions{
 		Nonce:  &currentNonce,
 		Sender: sender,
@@ -257,21 +262,15 @@ func (m *EVMTXGun) SelectDestSelector(excludeSelector uint64) (uint64, error) {
 	return load.GetSelectorByRatio(choices)
 }
 
-// hasMockReceiverOnDest distinguishes EVM destinations (mock_receiver in CLDF datastore)
-// from chains that only expose an EOA receiver via the chain impl.
-func (m *EVMTXGun) hasMockReceiverOnDest(destSelector uint64) bool {
-	_, err := m.e.DataStore.Addresses().Get(
-		datastore.NewAddressRefKey(
-			destSelector,
-			datastore.ContractType(mock_receiver_v2.ContractType),
-			semver.MustParse(mock_receiver_v2.Deploy.Version()),
-			devenvcommon.DefaultReceiverQualifier))
-	return err == nil
+// destLoadInfo determines destination routing: receiver and whether to use EVM or AltVM extra-args.
+type destLoadInfo struct {
+	selector        uint64
+	receiver        protocol.UnknownAddress
+	hasMockReceiver bool
 }
 
-// resolveReceiver prefers the deployed mock receiver on EVM dests; otherwise uses the
-// destination chain impl so cross-family load tests do not need a separate EVM gun.
-func (m *EVMTXGun) resolveReceiver(destSelector uint64) (protocol.UnknownAddress, error) {
+// resolveDestLoadInfo resolves receiver + encoding shape.
+func (m *EVMTXGun) resolveDestLoadInfo(destSelector uint64) (destLoadInfo, error) {
 	mockReceiverRef, err := m.e.DataStore.Addresses().Get(
 		datastore.NewAddressRefKey(
 			destSelector,
@@ -279,25 +278,33 @@ func (m *EVMTXGun) resolveReceiver(destSelector uint64) (protocol.UnknownAddress
 			semver.MustParse(mock_receiver_v2.Deploy.Version()),
 			devenvcommon.DefaultReceiverQualifier))
 	if err == nil {
-		return protocol.UnknownAddress(common.HexToAddress(mockReceiverRef.Address).Bytes()), nil
+		return destLoadInfo{
+			selector:        destSelector,
+			receiver:        protocol.UnknownAddress(common.HexToAddress(mockReceiverRef.Address).Bytes()),
+			hasMockReceiver: true,
+		}, nil
 	}
 
 	destImpl, ok := m.impl[destSelector]
 	if !ok {
-		return nil, fmt.Errorf("destination chain %d not found in impls", destSelector)
+		return destLoadInfo{}, fmt.Errorf("destination chain %d not found in impls", destSelector)
 	}
 	receiver, err := destImpl.GetEOAReceiverAddress()
 	if err != nil {
-		return nil, fmt.Errorf("could not get EOA receiver for dest %d: %w", destSelector, err)
+		return destLoadInfo{}, fmt.Errorf("could not get EOA receiver for dest %d: %w", destSelector, err)
 	}
-	return receiver, nil
+	return destLoadInfo{
+		selector:        destSelector,
+		receiver:        receiver,
+		hasMockReceiver: false,
+	}, nil
 }
 
 // buildExtraArgs picks encoding based on destination shape.
 // V3 destinations without mock_receiver use BuildV3ExtraArgs; execution limits come
 // from the destination via V3DestinationLoadDefaults when the profile leaves them unset.
-func (m *EVMTXGun) buildExtraArgs(srcSelector, destSelector uint64, opts cciptestinterfaces.MessageOptions) (cciptestinterfaces.GenericExtraArgs, error) {
-	if m.hasMockReceiverOnDest(destSelector) {
+func (m *EVMTXGun) buildExtraArgs(srcSelector uint64, dest destLoadInfo, opts cciptestinterfaces.MessageOptions) (cciptestinterfaces.GenericExtraArgs, error) {
+	if dest.hasMockReceiver {
 		return evm.SerializeEVMExtraArgs(3, opts)
 	}
 
@@ -305,14 +312,14 @@ func (m *EVMTXGun) buildExtraArgs(srcSelector, destSelector uint64, opts cciptes
 	if !ok {
 		return nil, fmt.Errorf("source chain %d does not implement MessageV3Source", srcSelector)
 	}
-	v3Dest, ok := m.impl[destSelector].(cciptestinterfaces.MessageV3Destination)
+	v3Dest, ok := m.impl[dest.selector].(cciptestinterfaces.MessageV3Destination)
 	if !ok {
-		return nil, fmt.Errorf("destination chain %d does not implement MessageV3Destination", destSelector)
+		return nil, fmt.Errorf("destination chain %d does not implement MessageV3Destination", dest.selector)
 	}
 
 	v3Opts := opts
 	if v3Opts.ExecutionGasLimit == 0 {
-		if def, ok := m.impl[destSelector].(cciptestinterfaces.V3DestinationLoadDefaults); ok {
+		if def, ok := m.impl[dest.selector].(cciptestinterfaces.V3DestinationLoadDefaults); ok {
 			v3Opts.ExecutionGasLimit = def.V3LoadMessageOptions().ExecutionGasLimit
 		}
 	}
@@ -322,11 +329,8 @@ func (m *EVMTXGun) buildExtraArgs(srcSelector, destSelector uint64, opts cciptes
 }
 
 // selectMessageProfile builds message options for load sends and applies defaults when no profile is configured.
-func (m *EVMTXGun) selectMessageProfile(srcSelector, destSelector uint64) (cciptestinterfaces.MessageFields, cciptestinterfaces.MessageOptions, error) {
-	receiver, err := m.resolveReceiver(destSelector)
-	if err != nil {
-		return cciptestinterfaces.MessageFields{}, cciptestinterfaces.MessageOptions{}, err
-	}
+func (m *EVMTXGun) selectMessageProfile(srcSelector uint64, dest destLoadInfo) (cciptestinterfaces.MessageFields, cciptestinterfaces.MessageOptions, error) {
+	receiver := dest.receiver
 
 	wethContract, err := m.e.DataStore.Addresses().Get(
 		datastore.NewAddressRefKey(

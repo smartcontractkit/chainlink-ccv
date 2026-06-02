@@ -22,7 +22,7 @@ import (
 
 const requiredWETHBalanceForLoad = 1e18
 
-// EnsureWETHBalanceAndApproval prepares WETH balance and router approval for load senders.
+// EnsureWETHBalanceAndApproval prepares WETH and router approval for CCIP load senders on chain.Users.
 func EnsureWETHBalanceAndApproval(ctx context.Context, t *testing.T, logger zerolog.Logger, e *deployment.Environment, chain cldfevm.Chain) {
 	t.Helper()
 
@@ -55,7 +55,7 @@ func EnsureWETHBalanceAndApproval(ctx context.Context, t *testing.T, logger zero
 		funded[user.From] = struct{}{}
 	}
 
-	// Token pre-check still keys off DeployerKey, not the round-robin sender.
+	// SendChainMessage pre-checks DeployerKey, not the round-robin sender.
 	if _, ok := funded[chain.DeployerKey.From]; !ok {
 		ensureUserWETHBalanceAndApproval(ctx, t, logger, chain, wethInstance, routerAddr, chain.DeployerKey, requiredWETH)
 	}
@@ -90,11 +90,12 @@ func ensureUserWETHBalanceAndApproval(
 		depositAmount := new(big.Int).Sub(requiredWETH, wethBalance)
 		oldValue := user.Value
 		user.Value = depositAmount
+		// WETH deposit sends native ETH via msg.Value; restore so later txs do not inherit it.
+		defer func() { user.Value = oldValue }()
 		tx1, err := wethInstance.Deposit(user)
 		require.NoErrorf(t, err, "failed to deposit WETH for user %s on chain %d", user.From.String(), chain.Selector)
 		_, err = chain.Confirm(tx1)
 		require.NoErrorf(t, err, "failed to confirm WETH deposit tx %s for user %s on chain %d", tx1.Hash().Hex(), user.From.String(), chain.Selector)
-		user.Value = oldValue
 		logger.Info().Str("depositAmount", depositAmount.String()).Msg("Deposited WETH")
 	}
 
