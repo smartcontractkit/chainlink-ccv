@@ -316,24 +316,15 @@ func buildExecutorJobSpecs(
 	return result, nil
 }
 
-// decode round-trips the raw TOML []any into []*executorsvc.Input.
 func decode(raw any) ([]*executorsvc.Input, error) {
-	b, err := toml.Marshal(struct {
-		V any `toml:"executor"`
-	}{V: raw})
+	inputs, err := devenvruntime.DecodeConfig[[]*executorsvc.Input](raw, "executor")
 	if err != nil {
-		return nil, fmt.Errorf("re-encoding executor config: %w", err)
+		return nil, err
 	}
-	var wrapper struct {
-		V []*executorsvc.Input `toml:"executor"`
-	}
-	if err := toml.Unmarshal(b, &wrapper); err != nil {
-		return nil, fmt.Errorf("decoding executor config: %w", err)
-	}
-	for i, in := range wrapper.V {
+	for i, in := range inputs {
 		if err := devenvruntime.CheckConfigVersion(in.Version, Version); err != nil {
 			return nil, fmt.Errorf("executor entry %d: %w", i, err)
 		}
 	}
-	return wrapper.V, nil
+	return inputs, nil
 }

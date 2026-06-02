@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"math/big"
 
-	"github.com/pelletier/go-toml/v2"
-
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
@@ -89,24 +87,15 @@ func (c *component) RunPhase3(
 	return map[string]any{configKey: input}, effects, nil
 }
 
-// decode round-trips the raw TOML map[string]any into *services.PricerInput.
 func decode(raw any) (*services.PricerInput, error) {
-	b, err := toml.Marshal(struct {
-		V any `toml:"pricer"`
-	}{V: raw})
+	input, err := devenvruntime.DecodeConfig[*services.PricerInput](raw, "pricer")
 	if err != nil {
-		return nil, fmt.Errorf("re-encoding pricer config: %w", err)
+		return nil, err
 	}
-	var wrapper struct {
-		V *services.PricerInput `toml:"pricer"`
-	}
-	if err := toml.Unmarshal(b, &wrapper); err != nil {
-		return nil, fmt.Errorf("decoding pricer config: %w", err)
-	}
-	if wrapper.V != nil {
-		if err := devenvruntime.CheckConfigVersion(wrapper.V.Version, Version); err != nil {
+	if input != nil {
+		if err := devenvruntime.CheckConfigVersion(input.Version, Version); err != nil {
 			return nil, err
 		}
 	}
-	return wrapper.V, nil
+	return input, nil
 }

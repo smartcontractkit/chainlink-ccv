@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/pelletier/go-toml/v2"
-
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	blockchainscomp "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/blockchains"
 	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
@@ -146,24 +144,15 @@ func (c *component) RunPhase4(
 	return map[string]any{configKey: inputs}, nil, nil
 }
 
-// decode round-trips the raw TOML []any into []*services.TokenVerifierInput.
 func decode(raw any) ([]*services.TokenVerifierInput, error) {
-	b, err := toml.Marshal(struct {
-		V any `toml:"token_verifier"`
-	}{V: raw})
+	inputs, err := devenvruntime.DecodeConfig[[]*services.TokenVerifierInput](raw, "token_verifier")
 	if err != nil {
-		return nil, fmt.Errorf("re-encoding token_verifier config: %w", err)
+		return nil, err
 	}
-	var wrapper struct {
-		V []*services.TokenVerifierInput `toml:"token_verifier"`
-	}
-	if err := toml.Unmarshal(b, &wrapper); err != nil {
-		return nil, fmt.Errorf("decoding token_verifier config: %w", err)
-	}
-	for i, in := range wrapper.V {
+	for i, in := range inputs {
 		if err := devenvruntime.CheckConfigVersion(in.Version, Version); err != nil {
 			return nil, fmt.Errorf("token_verifier entry %d: %w", i, err)
 		}
 	}
-	return wrapper.V, nil
+	return inputs, nil
 }

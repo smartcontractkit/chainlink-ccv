@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"slices"
 
 	"github.com/pelletier/go-toml/v2"
 
@@ -306,18 +307,6 @@ func (vjs verifierJobSpec) toBootstrapJobSpec() bootstrap.JobSpec {
 	}
 }
 
-func stringSlicesEqual(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
-}
-
 func validateDisableFinalityCheckers(committeeName string, verifiers []*committeeverifier.Input) (map[string][]string, error) {
 	if len(verifiers) == 0 {
 		return nil, nil
@@ -325,7 +314,7 @@ func validateDisableFinalityCheckers(committeeName string, verifiers []*committe
 	result := make(map[string][]string)
 	for _, ver := range verifiers {
 		if existing, ok := result[ver.ChainFamily]; ok {
-			if !stringSlicesEqual(existing, ver.DisableFinalityCheckers) {
+			if !slices.Equal(existing, ver.DisableFinalityCheckers) {
 				return nil, fmt.Errorf(
 					"verifiers in committee %q within the same chain family %s have inconsistent disable_finality_checkers settings",
 					committeeName, ver.ChainFamily,
@@ -507,18 +496,10 @@ type Config struct {
 	Verifier   []*committeeverifier.Input  `toml:"verifier"`
 }
 
-// decodeConfig round-trips the raw TOML component config into a typed Config and
-// verifies its declared version. The runtime hands components their config as
-// opaque decoded TOML (map[string]any), so re-encode it and decode into the
-// typed struct.
 func decodeConfig(raw any) (Config, error) {
-	b, err := toml.Marshal(raw)
+	cfg, err := devenvruntime.DecodeConfig[Config](raw, "committeeccv")
 	if err != nil {
-		return Config{}, fmt.Errorf("re-encoding committeeccv config: %w", err)
-	}
-	var cfg Config
-	if err := toml.Unmarshal(b, &cfg); err != nil {
-		return Config{}, fmt.Errorf("decoding committeeccv config: %w", err)
+		return Config{}, err
 	}
 	if err := devenvruntime.CheckConfigVersion(cfg.Version, Version); err != nil {
 		return Config{}, err

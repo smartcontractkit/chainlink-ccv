@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/pelletier/go-toml/v2"
-
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
 	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
 	ctf_jd "github.com/smartcontractkit/chainlink-testing-framework/framework/components/jd"
@@ -67,20 +65,12 @@ type jdConfig struct {
 }
 
 func decode(raw any) (*ctf_jd.Input, error) {
-	b, err := toml.Marshal(struct {
-		V any `toml:"jd"`
-	}{V: raw})
+	cfg, err := devenvruntime.DecodeConfig[jdConfig](raw, "jd")
 	if err != nil {
-		return nil, fmt.Errorf("re-encoding jd config: %w", err)
-	}
-	var wrapper struct {
-		V jdConfig `toml:"jd"`
-	}
-	if err := toml.Unmarshal(b, &wrapper); err != nil {
-		return nil, fmt.Errorf("decoding jd config: %w", err)
-	}
-	if err := devenvruntime.CheckConfigVersion(wrapper.V.Version, Version); err != nil {
 		return nil, err
 	}
-	return &wrapper.V.Input, nil
+	if err := devenvruntime.CheckConfigVersion(cfg.Version, Version); err != nil {
+		return nil, err
+	}
+	return &cfg.Input, nil
 }

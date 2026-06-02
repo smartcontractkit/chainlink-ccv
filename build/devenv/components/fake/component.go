@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/pelletier/go-toml/v2"
-
 	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 )
@@ -56,24 +54,15 @@ func (c *component) RunPhase1(
 	return map[string]any{configKey: input}, nil, nil
 }
 
-// decode round-trips the raw TOML map[string]any into *services.FakeInput.
 func decode(raw any) (*services.FakeInput, error) {
-	b, err := toml.Marshal(struct {
-		V any `toml:"fake"`
-	}{V: raw})
+	input, err := devenvruntime.DecodeConfig[*services.FakeInput](raw, "fake")
 	if err != nil {
-		return nil, fmt.Errorf("re-encoding fake config: %w", err)
+		return nil, err
 	}
-	var wrapper struct {
-		V *services.FakeInput `toml:"fake"`
-	}
-	if err := toml.Unmarshal(b, &wrapper); err != nil {
-		return nil, fmt.Errorf("decoding fake config: %w", err)
-	}
-	if wrapper.V != nil {
-		if err := devenvruntime.CheckConfigVersion(wrapper.V.Version, Version); err != nil {
+	if input != nil {
+		if err := devenvruntime.CheckConfigVersion(input.Version, Version); err != nil {
 			return nil, err
 		}
 	}
-	return wrapper.V, nil
+	return input, nil
 }

@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/pelletier/go-toml/v2"
 	"github.com/rs/zerolog"
 	zlog "github.com/rs/zerolog/log"
 
@@ -239,16 +238,10 @@ type config struct {
 	EnvironmentTopology    *ccvdeployment.EnvironmentTopology `toml:"environment_topology"`
 }
 
-// decodeConfig round-trips the raw TOML component config into a typed config and
-// verifies its declared version.
 func decodeConfig(raw any) (config, error) {
-	b, err := toml.Marshal(raw)
+	cfg, err := devenvruntime.DecodeConfig[config](raw, "protocol_contracts")
 	if err != nil {
-		return config{}, fmt.Errorf("re-encoding protocol_contracts config: %w", err)
-	}
-	var cfg config
-	if err := toml.Unmarshal(b, &cfg); err != nil {
-		return config{}, fmt.Errorf("decoding protocol_contracts config: %w", err)
+		return config{}, err
 	}
 	if err := devenvruntime.CheckConfigVersion(cfg.Version, Version); err != nil {
 		return config{}, err

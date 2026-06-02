@@ -7,8 +7,6 @@ import (
 	"os"
 	"slices"
 
-	"github.com/pelletier/go-toml/v2"
-
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
@@ -146,24 +144,16 @@ type blockchainConfig struct {
 }
 
 func decode(raw any) ([]*blockchain.Input, error) {
-	b, err := toml.Marshal(struct {
-		V any `toml:"blockchains"`
-	}{V: raw})
+	cfgs, err := devenvruntime.DecodeConfig[[]blockchainConfig](raw, "blockchains")
 	if err != nil {
-		return nil, fmt.Errorf("re-encoding blockchains config: %w", err)
+		return nil, err
 	}
-	var wrapper struct {
-		V []blockchainConfig `toml:"blockchains"`
-	}
-	if err := toml.Unmarshal(b, &wrapper); err != nil {
-		return nil, fmt.Errorf("decoding blockchains config: %w", err)
-	}
-	bcs := make([]*blockchain.Input, len(wrapper.V))
-	for i := range wrapper.V {
-		if err := devenvruntime.CheckConfigVersion(wrapper.V[i].Version, Version); err != nil {
+	bcs := make([]*blockchain.Input, len(cfgs))
+	for i := range cfgs {
+		if err := devenvruntime.CheckConfigVersion(cfgs[i].Version, Version); err != nil {
 			return nil, fmt.Errorf("blockchains entry %d: %w", i, err)
 		}
-		bcs[i] = &wrapper.V[i].Input
+		bcs[i] = &cfgs[i].Input
 	}
 	return bcs, nil
 }

@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/pelletier/go-toml/v2"
-
 	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
 	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
 )
@@ -72,26 +70,16 @@ type config struct {
 	Monitoring   ccvdeployment.MonitoringConfig `toml:"monitoring"`
 }
 
-// decode round-trips the raw TOML map[string]any into *Observability, verifying
-// the declared component version.
 func decode(raw any) (*Observability, error) {
-	b, err := toml.Marshal(struct {
-		V any `toml:"observability"`
-	}{V: raw})
+	cfg, err := devenvruntime.DecodeConfig[config](raw, "observability")
 	if err != nil {
-		return nil, fmt.Errorf("re-encoding observability config: %w", err)
+		return nil, err
 	}
-	var wrapper struct {
-		V config `toml:"observability"`
-	}
-	if err := toml.Unmarshal(b, &wrapper); err != nil {
-		return nil, fmt.Errorf("decoding observability config: %w", err)
-	}
-	if err := devenvruntime.CheckConfigVersion(wrapper.V.Version, Version); err != nil {
+	if err := devenvruntime.CheckConfigVersion(cfg.Version, Version); err != nil {
 		return nil, err
 	}
 	return &Observability{
-		PyroscopeURL: wrapper.V.PyroscopeURL,
-		Monitoring:   wrapper.V.Monitoring,
+		PyroscopeURL: cfg.PyroscopeURL,
+		Monitoring:   cfg.Monitoring,
 	}, nil
 }
