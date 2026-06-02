@@ -9,14 +9,14 @@ import (
 	ctf_jd "github.com/smartcontractkit/chainlink-testing-framework/framework/components/jd"
 )
 
-const configKey = "jd"
+const Key = "jd"
 
 // Version is the jd component config schema version. Exactly this version is
 // supported; configs declaring any other version are rejected.
 const Version = 1
 
 func init() {
-	if err := devenvruntime.Register(configKey, factory); err != nil {
+	if err := devenvruntime.Register(Key, factory); err != nil {
 		panic(fmt.Sprintf("jd component: %v", err))
 	}
 }
@@ -52,7 +52,7 @@ func (c *component) RunPhase1(
 		return nil, nil, fmt.Errorf("starting JD infrastructure: %w", err)
 	}
 
-	return map[string]any{configKey: infra}, nil, nil
+	return map[string]any{Key: infra}, nil, nil
 }
 
 // decode round-trips the raw TOML map[string]any into *ctf_jd.Input.
@@ -65,7 +65,7 @@ type jdConfig struct {
 }
 
 func decode(raw any) (*ctf_jd.Input, error) {
-	cfg, err := devenvruntime.DecodeConfig[jdConfig](raw, "jd")
+	cfg, err := devenvruntime.DecodeConfig[jdConfig](raw, Key)
 	if err != nil {
 		return nil, err
 	}

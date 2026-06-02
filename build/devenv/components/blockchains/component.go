@@ -14,7 +14,7 @@ import (
 )
 
 const (
-	configKey        = "blockchains"
+	Key              = "blockchains"
 	privateKeyEnvVar = "PRIVATE_KEY"
 )
 
@@ -26,7 +26,7 @@ const Version = 1
 var simChainIDs = []string{"1337", "2337", "3337"}
 
 func init() {
-	if err := devenvruntime.Register(configKey, factory); err != nil {
+	if err := devenvruntime.Register(Key, factory); err != nil {
 		panic(fmt.Sprintf("blockchains component: %v", err))
 	}
 }
@@ -82,7 +82,7 @@ func (c *component) RunPhase1(_ context.Context, _ map[string]any, componentConf
 	}
 
 	return map[string]any{
-		configKey: bcs,
+		Key: bcs,
 	}, nil, nil
 }
 
@@ -144,7 +144,7 @@ type blockchainConfig struct {
 }
 
 func decode(raw any) ([]*blockchain.Input, error) {
-	cfgs, err := devenvruntime.DecodeConfig[[]blockchainConfig](raw, "blockchains")
+	cfgs, err := devenvruntime.DecodeConfig[[]blockchainConfig](raw, Key)
 	if err != nil {
 		return nil, err
 	}

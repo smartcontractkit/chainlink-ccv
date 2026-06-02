@@ -7,6 +7,8 @@ import (
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainreg"
+	blockchainscomp "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/blockchains"
+	jdcomp "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/jd"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
 	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -47,7 +49,7 @@ func executeFundingEffects(ctx context.Context, effects []devenvruntime.FundingE
 	if len(effects) == 0 {
 		return nil
 	}
-	blockchains, _ := accumulated["blockchains"].([]*ctfblockchain.Input)
+	blockchains, _ := accumulated[blockchainscomp.Key].([]*ctfblockchain.Input)
 	if len(blockchains) == 0 {
 		return nil
 	}
@@ -89,7 +91,7 @@ func executeJobProposalEffects(ctx context.Context, effects []devenvruntime.JobP
 	if len(effects) == 0 {
 		return nil
 	}
-	jdInfra, _ := accumulated["jd"].(*jobs.JDInfrastructure)
+	jdInfra, _ := accumulated[jdcomp.Key].(*jobs.JDInfrastructure)
 	if jdInfra == nil || jdInfra.OffchainClient == nil {
 		return nil
 	}

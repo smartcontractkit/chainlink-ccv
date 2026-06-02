@@ -8,14 +8,14 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 )
 
-const configKey = "fake"
+const Key = "fake"
 
 // Version is the fake component config schema version. Exactly this version is
 // supported; configs declaring any other version are rejected.
 const Version = 1
 
 func init() {
-	if err := devenvruntime.Register(configKey, factory); err != nil {
+	if err := devenvruntime.Register(Key, factory); err != nil {
 		panic(fmt.Sprintf("fake component: %v", err))
 	}
 }
@@ -51,11 +51,11 @@ func (c *component) RunPhase1(
 		input.Out = out
 	}
 
-	return map[string]any{configKey: input}, nil, nil
+	return map[string]any{Key: input}, nil, nil
 }
 
 func decode(raw any) (*services.FakeInput, error) {
-	input, err := devenvruntime.DecodeConfig[*services.FakeInput](raw, "fake")
+	input, err := devenvruntime.DecodeConfig[*services.FakeInput](raw, Key)
 	if err != nil {
 		return nil, err
 	}

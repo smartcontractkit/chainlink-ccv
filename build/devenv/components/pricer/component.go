@@ -6,20 +6,21 @@ import (
 	"math/big"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
+	blockchainscomp "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/blockchains"
 	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	ctfblockchain "github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
 
-const configKey = "pricer"
+const Key = "pricer"
 
 // Version is the pricer component config schema version. Exactly this version is
 // supported; configs declaring any other version are rejected.
 const Version = 1
 
 func init() {
-	if err := devenvruntime.Register(configKey, factory); err != nil {
+	if err := devenvruntime.Register(Key, factory); err != nil {
 		panic(fmt.Sprintf("pricer component: %v", err))
 	}
 }
@@ -48,7 +49,7 @@ func (c *component) RunPhase3(
 		return nil, nil, err
 	}
 	if input == nil {
-		return map[string]any{configKey: input}, nil, nil
+		return map[string]any{Key: input}, nil, nil
 	}
 
 	services.ApplyPricerDefaults(input)
@@ -57,7 +58,7 @@ func (c *component) RunPhase3(
 		return nil, nil, fmt.Errorf("starting pricer: %w", err)
 	}
 
-	blockchains, _ := priorOutputs["blockchains"].([]*ctfblockchain.Input)
+	blockchains, _ := priorOutputs[blockchainscomp.Key].([]*ctfblockchain.Input)
 
 	addr, err := protocol.NewUnknownAddressFromHex(input.Keystore.Address)
 	if err != nil {
@@ -84,11 +85,11 @@ func (c *component) RunPhase3(
 		})
 	}
 
-	return map[string]any{configKey: input}, effects, nil
+	return map[string]any{Key: input}, effects, nil
 }
 
 func decode(raw any) (*services.PricerInput, error) {
-	input, err := devenvruntime.DecodeConfig[*services.PricerInput](raw, "pricer")
+	input, err := devenvruntime.DecodeConfig[*services.PricerInput](raw, Key)
 	if err != nil {
 		return nil, err
 	}

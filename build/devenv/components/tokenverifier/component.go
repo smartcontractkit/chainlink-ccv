@@ -6,6 +6,7 @@ import (
 
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	blockchainscomp "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/blockchains"
+	fakecomp "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/fake"
 	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
@@ -15,14 +16,14 @@ import (
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
 
-const configKey = "token_verifier"
+const Key = "token_verifier"
 
 // Version is the token_verifier component config schema version. Exactly this
 // version is supported; configs declaring any other version are rejected.
 const Version = 1
 
 func init() {
-	if err := devenvruntime.Register(configKey, factory); err != nil {
+	if err := devenvruntime.Register(Key, factory); err != nil {
 		panic(fmt.Sprintf("tokenverifier component: %v", err))
 	}
 }
@@ -64,14 +65,14 @@ func (c *component) RunPhase4(
 	if !ok {
 		return nil, nil, fmt.Errorf("tokenverifier: _selectors not found in phase outputs")
 	}
-	blockchains, ok := priorOutputs["blockchains"].([]*blockchain.Input)
+	blockchains, ok := priorOutputs[blockchainscomp.Key].([]*blockchain.Input)
 	if !ok {
 		return nil, nil, fmt.Errorf("tokenverifier: blockchains not found in phase outputs")
 	}
 	blockchainOutputs := blockchainscomp.Outputs(blockchains)
 
 	var fakeOut *services.FakeOutput
-	if fake, ok := priorOutputs["fake"].(*services.FakeInput); ok && fake != nil {
+	if fake, ok := priorOutputs[fakecomp.Key].(*services.FakeInput); ok && fake != nil {
 		fakeOut = fake.Out
 	}
 	if fakeOut == nil {
@@ -141,11 +142,11 @@ func (c *component) RunPhase4(
 		tvIn.Out = out
 	}
 
-	return map[string]any{configKey: inputs}, nil, nil
+	return map[string]any{Key: inputs}, nil, nil
 }
 
 func decode(raw any) ([]*services.TokenVerifierInput, error) {
-	inputs, err := devenvruntime.DecodeConfig[[]*services.TokenVerifierInput](raw, "token_verifier")
+	inputs, err := devenvruntime.DecodeConfig[[]*services.TokenVerifierInput](raw, Key)
 	if err != nil {
 		return nil, err
 	}

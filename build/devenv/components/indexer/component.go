@@ -15,14 +15,14 @@ import (
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 )
 
-const configKey = "indexer"
+const Key = "indexer"
 
 // Version is the indexer component config schema version. Exactly this version
 // is supported; configs declaring any other version are rejected.
 const Version = 1
 
 func init() {
-	if err := devenvruntime.Register(configKey, factory); err != nil {
+	if err := devenvruntime.Register(Key, factory); err != nil {
 		panic(fmt.Sprintf("indexer component: %v", err))
 	}
 }
@@ -200,11 +200,11 @@ func (c *component) RunPhase4(
 		idxIn.Out = out
 	}
 
-	return map[string]any{configKey: inputs}, nil, nil
+	return map[string]any{Key: inputs}, nil, nil
 }
 
 func decode(raw any) ([]*services.IndexerInput, error) {
-	inputs, err := devenvruntime.DecodeConfig[[]*services.IndexerInput](raw, "indexer")
+	inputs, err := devenvruntime.DecodeConfig[[]*services.IndexerInput](raw, Key)
 	if err != nil {
 		return nil, err
 	}

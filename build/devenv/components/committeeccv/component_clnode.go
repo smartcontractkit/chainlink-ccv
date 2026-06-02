@@ -27,12 +27,12 @@ import (
 )
 
 const (
-	clNodeConfigKey = "committeeccv_clnode"
-	clNodeVersion   = 1
+	CLNodeKey     = "committeeccv_clnode"
+	clNodeVersion = 1
 )
 
 func init() {
-	if err := devenvruntime.Register(clNodeConfigKey, clnodeFactory); err != nil {
+	if err := devenvruntime.Register(CLNodeKey, clnodeFactory); err != nil {
 		panic(fmt.Sprintf("committeeccv_clnode component: %v", err))
 	}
 }
@@ -113,7 +113,7 @@ type CLNodeConfig struct {
 }
 
 func decodeCLNodeConfig(raw any) (CLNodeConfig, error) {
-	cfg, err := devenvruntime.DecodeConfig[CLNodeConfig](raw, "committeeccv_clnode")
+	cfg, err := devenvruntime.DecodeConfig[CLNodeConfig](raw, CLNodeKey)
 	if err != nil {
 		return CLNodeConfig{}, err
 	}

@@ -15,6 +15,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainreg"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	blockchainscomp "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/blockchains"
+	jdcomp "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/jd"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/components/observability"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
 	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
@@ -30,14 +31,14 @@ import (
 	ctfblockchain "github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
 
-const configKey = "executor"
+const Key = "executor"
 
 // Version is the executor component config schema version. Exactly this version
 // is supported; configs declaring any other version are rejected.
 const Version = 1
 
 func init() {
-	if err := devenvruntime.Register(configKey, factory); err != nil {
+	if err := devenvruntime.Register(Key, factory); err != nil {
 		panic(fmt.Sprintf("executor component: %v", err))
 	}
 }
@@ -67,18 +68,18 @@ func (c *component) RunPhase3(
 		return nil, nil, err
 	}
 	if len(executors) == 0 {
-		return map[string]any{configKey: executors}, nil, nil
+		return map[string]any{Key: executors}, nil, nil
 	}
 
-	blockchains, ok := priorOutputs["blockchains"].([]*ctfblockchain.Input)
+	blockchains, ok := priorOutputs[blockchainscomp.Key].([]*ctfblockchain.Input)
 	if !ok {
-		return nil, nil, fmt.Errorf("phase 1 did not produce []*blockchain.Input under \"blockchains\"")
+		return nil, nil, fmt.Errorf("phase 1 did not produce []*blockchain.Input under %q", blockchainscomp.Key)
 	}
 	blockchainOutputs := blockchainscomp.Outputs(blockchains)
 
-	jdInfra, ok := priorOutputs["jd"].(*jobs.JDInfrastructure)
+	jdInfra, ok := priorOutputs[jdcomp.Key].(*jobs.JDInfrastructure)
 	if !ok || jdInfra == nil {
-		return nil, nil, fmt.Errorf("phase 2 did not produce *jobs.JDInfrastructure under \"jd\"")
+		return nil, nil, fmt.Errorf("phase 2 did not produce *jobs.JDInfrastructure under %q", jdcomp.Key)
 	}
 
 	for _, exec := range executors {
@@ -145,7 +146,7 @@ func (c *component) RunPhase3(
 	if !ok || topology == nil {
 		return nil, nil, fmt.Errorf("executor: environment_topology not found in phase outputs")
 	}
-	obs, ok := priorOutputs["observability"].(*observability.Observability)
+	obs, ok := priorOutputs[observability.Key].(*observability.Observability)
 	if !ok || obs == nil {
 		return nil, nil, fmt.Errorf("executor: observability not found in phase outputs")
 	}
@@ -192,7 +193,7 @@ func (c *component) RunPhase3(
 		})
 	}
 
-	return map[string]any{configKey: executors}, effects, nil
+	return map[string]any{Key: executors}, effects, nil
 }
 
 // registerWithJD registers all standalone executors with JD and waits for their
@@ -317,7 +318,7 @@ func buildExecutorJobSpecs(
 }
 
 func decode(raw any) ([]*executorsvc.Input, error) {
-	inputs, err := devenvruntime.DecodeConfig[[]*executorsvc.Input](raw, "executor")
+	inputs, err := devenvruntime.DecodeConfig[[]*executorsvc.Input](raw, Key)
 	if err != nil {
 		return nil, err
 	}

@@ -8,7 +8,7 @@ import (
 	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
 )
 
-const configKey = "observability"
+const Key = "observability"
 
 // Version is the observability component config schema version. Exactly this
 // version is supported; configs declaring any other version are rejected.
@@ -26,7 +26,7 @@ type Observability struct {
 }
 
 func init() {
-	if err := devenvruntime.Register(configKey, factory); err != nil {
+	if err := devenvruntime.Register(Key, factory); err != nil {
 		panic(fmt.Sprintf("observability component: %v", err))
 	}
 }
@@ -59,7 +59,7 @@ func (c *component) RunPhase1(
 	if err != nil {
 		return nil, nil, err
 	}
-	return map[string]any{configKey: obs}, nil, nil
+	return map[string]any{Key: obs}, nil, nil
 }
 
 // config is the [observability] component config. Version is the component
@@ -71,7 +71,7 @@ type config struct {
 }
 
 func decode(raw any) (*Observability, error) {
-	cfg, err := devenvruntime.DecodeConfig[config](raw, "observability")
+	cfg, err := devenvruntime.DecodeConfig[config](raw, Key)
 	if err != nil {
 		return nil, err
 	}
