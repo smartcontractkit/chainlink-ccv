@@ -14,7 +14,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -169,9 +168,28 @@ func loadRaw(paths []string) (map[string]any, error) {
 		if err := toml.Unmarshal(data, &fileMap); err != nil {
 			return nil, fmt.Errorf("failed to decode config %s: %w", path, err)
 		}
-		maps.Copy(result, fileMap)
+		deepMergeMaps(result, fileMap)
 	}
 	return result, nil
+}
+
+// deepMergeMaps merges src into dst recursively. Nested maps are merged
+// key-by-key; all other values (scalars, slices) are replaced wholesale.
+// This preserves keys in dst that are absent from src, which is required
+// for overlay configs that only specify a sub-section of a nested table
+// (e.g. environment_topology.executor_pools without touching nop_topology).
+func deepMergeMaps(dst, src map[string]any) {
+	for k, srcVal := range src {
+		if dstVal, ok := dst[k]; ok {
+			if dstMap, ok := dstVal.(map[string]any); ok {
+				if srcMap, ok := srcVal.(map[string]any); ok {
+					deepMergeMaps(dstMap, srcMap)
+					continue
+				}
+			}
+		}
+		dst[k] = srcVal
+	}
 }
 
 func getNetworkPrivateKey() string {

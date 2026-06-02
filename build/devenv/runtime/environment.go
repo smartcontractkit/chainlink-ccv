@@ -65,7 +65,9 @@ func NewEnvironmentWithRegistry(ctx context.Context, rawConfig map[string]any, r
 		for k := range unclaimed {
 			keys = append(keys, k)
 		}
-		logger.Error().Strs("keys", keys).Msg("unclaimed config keys with no fallback component registered")
+		// TODO: Make this an error.
+		// logger.Error().Strs("keys", keys).Msg("unclaimed config keys with no fallback component registered")
+		logger.Warn().Strs("keys", keys).Msg("unclaimed config keys with no fallback component registered")
 	}
 	accumulated := map[string]any{}
 

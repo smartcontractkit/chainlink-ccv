@@ -34,6 +34,7 @@ import (
 	_ "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/jd"
 	_ "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/pricer"
 	_ "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/protocol_contracts"
+	_ "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/tokenverifier"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/committeeverifier"
