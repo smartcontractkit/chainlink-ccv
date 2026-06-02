@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/Masterminds/semver/v3"
+	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
@@ -21,7 +22,7 @@ import (
 
 const requiredWETHBalanceForLoad = 1e18
 
-// EnsureWETHBalanceAndApproval funds deployer keys and approves the CCIP router for load tests.
+// EnsureWETHBalanceAndApproval prepares WETH balance and router approval for load senders.
 func EnsureWETHBalanceAndApproval(ctx context.Context, t *testing.T, logger zerolog.Logger, e *deployment.Environment, chain cldfevm.Chain) {
 	t.Helper()
 
@@ -46,32 +47,60 @@ func EnsureWETHBalanceAndApproval(ctx context.Context, t *testing.T, logger zero
 		""))
 	require.NoErrorf(t, err, "failed to resolve router contract for chain %d", chain.Selector)
 
+	routerAddr := common.HexToAddress(routerInstance.Address)
+	funded := make(map[common.Address]struct{}, len(chain.Users)+1)
+
 	for _, user := range chain.Users {
-		logger.Info().Str("user address", user.From.String()).Msg("User address")
-		balance, err := chain.Client.BalanceAt(ctx, user.From, nil)
-		require.NoErrorf(t, err, "failed to read native balance for user %s on chain %d", user.From.String(), chain.Selector)
-		logger.Info().Str("balance", balance.String()).Msg("Deployer balance before deposit")
-
-		wethBalance, err := wethInstance.BalanceOf(nil, user.From)
-		require.NoErrorf(t, err, "failed to read WETH balance for user %s on chain %d", user.From.String(), chain.Selector)
-		logger.Info().Str("wethBalance", wethBalance.String()).Str("requiredWETH", requiredWETH.String()).Msg("Deployer WETH balance before deposit")
-
-		if wethBalance.Cmp(requiredWETH) < 0 {
-			depositAmount := new(big.Int).Sub(requiredWETH, wethBalance)
-			oldValue := user.Value
-			user.Value = depositAmount
-			tx1, err := wethInstance.Deposit(user)
-			require.NoErrorf(t, err, "failed to deposit WETH for user %s on chain %d", user.From.String(), chain.Selector)
-			_, err = chain.Confirm(tx1)
-			require.NoErrorf(t, err, "failed to confirm WETH deposit tx %s for user %s on chain %d", tx1.Hash().Hex(), user.From.String(), chain.Selector)
-			user.Value = oldValue
-			logger.Info().Str("depositAmount", depositAmount.String()).Msg("Deposited WETH")
-		}
-
-		tx, err := wethInstance.Approve(user, common.HexToAddress(routerInstance.Address), requiredWETH)
-		require.NoErrorf(t, err, "failed to approve router %s for user %s on chain %d", routerInstance.Address, user.From.String(), chain.Selector)
-		_, err = chain.Confirm(tx)
-		require.NoErrorf(t, err, "failed to confirm approve tx %s for user %s on chain %d", tx.Hash().Hex(), user.From.String(), chain.Selector)
-		logger.Info().Str("approvedAmount", requiredWETH.String()).Msg("Approved WETH for router")
+		ensureUserWETHBalanceAndApproval(ctx, t, logger, chain, wethInstance, routerAddr, user, requiredWETH)
+		funded[user.From] = struct{}{}
 	}
+
+	// Token pre-check still keys off DeployerKey, not the round-robin sender.
+	if _, ok := funded[chain.DeployerKey.From]; !ok {
+		ensureUserWETHBalanceAndApproval(ctx, t, logger, chain, wethInstance, routerAddr, chain.DeployerKey, requiredWETH)
+	}
+}
+
+// ensureUserWETHBalanceAndApproval makes one signing key ready to pay CCIP load fees in WETH.
+func ensureUserWETHBalanceAndApproval(
+	ctx context.Context,
+	t *testing.T,
+	logger zerolog.Logger,
+	chain cldfevm.Chain,
+	wethInstance *weth9.WETH9,
+	routerAddr common.Address,
+	user *bind.TransactOpts,
+	requiredWETH *big.Int,
+) {
+	t.Helper()
+
+	logger.Info().Str("user", user.From.String()).Msg("User address")
+	balance, err := chain.Client.BalanceAt(ctx, user.From, nil)
+	require.NoErrorf(t, err, "failed to read native balance for user %s on chain %d", user.From.String(), chain.Selector)
+	logger.Info().Str("balance", balance.String()).Msg("User native balance before deposit")
+
+	wethBalance, err := wethInstance.BalanceOf(nil, user.From)
+	require.NoErrorf(t, err, "failed to read WETH balance for user %s on chain %d", user.From.String(), chain.Selector)
+	logger.Info().
+		Str("wethBalance", wethBalance.String()).
+		Str("requiredWETH", requiredWETH.String()).
+		Msg("User WETH balance before deposit")
+
+	if wethBalance.Cmp(requiredWETH) < 0 {
+		depositAmount := new(big.Int).Sub(requiredWETH, wethBalance)
+		oldValue := user.Value
+		user.Value = depositAmount
+		tx1, err := wethInstance.Deposit(user)
+		require.NoErrorf(t, err, "failed to deposit WETH for user %s on chain %d", user.From.String(), chain.Selector)
+		_, err = chain.Confirm(tx1)
+		require.NoErrorf(t, err, "failed to confirm WETH deposit tx %s for user %s on chain %d", tx1.Hash().Hex(), user.From.String(), chain.Selector)
+		user.Value = oldValue
+		logger.Info().Str("depositAmount", depositAmount.String()).Msg("Deposited WETH")
+	}
+
+	tx, err := wethInstance.Approve(user, routerAddr, requiredWETH)
+	require.NoErrorf(t, err, "failed to approve router %s for user %s on chain %d", routerAddr.Hex(), user.From.String(), chain.Selector)
+	_, err = chain.Confirm(tx)
+	require.NoErrorf(t, err, "failed to confirm approve tx %s for user %s on chain %d", tx.Hash().Hex(), user.From.String(), chain.Selector)
+	logger.Info().Str("approvedAmount", requiredWETH.String()).Msg("Approved WETH for router")
 }

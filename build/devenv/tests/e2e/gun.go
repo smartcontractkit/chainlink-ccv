@@ -213,6 +213,7 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 		return &wasp.Response{Error: fmt.Errorf("failed to build message: %w", err).Error(), Failed: true}
 	}
 
+	// WETH load fees need validation on msgValue=0. Skipping it with DisableTokenAmountValidation reverts with InvalidMsgValue.
 	sentEvent, _, err := chainAsSource.SendChainMessage(ctx, destSelector, srcMessage, evm.SendOptions{
 		Nonce:  &currentNonce,
 		Sender: sender,
