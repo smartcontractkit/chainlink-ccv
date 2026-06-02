@@ -76,9 +76,9 @@ foo = 'bar'
 	require.Len(t, cfg.Blockchains, 1)
 }
 
-// TestStorePhasedOutputStripsPrivateKeys verifies "_"-prefixed runtime keys are
-// dropped from the serialized output and version is re-emitted as public.
-func TestStorePhasedOutputStripsPrivateKeys(t *testing.T) {
+// TestStripPrivateKeys verifies that stripPrivateKeys drops "_"-prefixed keys
+// and preserves all others, including the version marker.
+func TestStripPrivateKeys(t *testing.T) {
 	out := map[string]any{
 		"version":              1,
 		"blockchains":          []*blockchain.Input{{Type: "anvil"}},
@@ -87,13 +87,7 @@ func TestStorePhasedOutputStripsPrivateKeys(t *testing.T) {
 		"environment_topology": map[string]any{"x": 1},
 	}
 
-	public := make(map[string]any, len(out))
-	for k, v := range out {
-		if k[0] == '_' {
-			continue
-		}
-		public[k] = v
-	}
+	public := stripPrivateKeys(out)
 
 	_, hasEnv := public["_env"]
 	_, hasTLS := public["_shared_tls_certs"]
