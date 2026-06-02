@@ -18,6 +18,11 @@ RUN --mount=type=cache,target=/root/.cache/go-build,id=ccv-go-build \
     CGO_ENABLED=0 go build -ldflags='-s -w' -o /bin/verifier main.go
 
 FROM alpine:latest
-RUN apk --no-cache add ca-certificates
+RUN apk --no-cache add ca-certificates tini
 COPY --from=builder /bin/verifier /bin/
-CMD ["/bin/verifier"]
+# tini is needed here because the verifier would otherwise run as PID 1
+# and we wouldn't be able to pause it with pkill -STOP.
+# Sometimes that is required because we have to run a CLI command to
+# set the finalized height in order to replay messages that were dropped
+# under a curse.
+ENTRYPOINT ["/sbin/tini", "--", "/bin/verifier"]

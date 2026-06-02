@@ -51,6 +51,11 @@ func (a UnknownAddress) IsZeroOrEmpty() bool {
 	return true
 }
 
+// IsEmpty returns true if the address is nil or empty (but not all zero bytes).
+func (a UnknownAddress) IsEmpty() bool {
+	return len(a) == 0
+}
+
 // NewUnknownAddressFromHex creates an UnknownAddress from a hex string.
 func NewUnknownAddressFromHex(s string) (UnknownAddress, error) {
 	if s == "" {

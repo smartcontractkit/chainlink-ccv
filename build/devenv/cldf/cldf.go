@@ -1,13 +1,17 @@
-package ccv
+// Package cldf provides CLDF (Chainlink Deployments Framework) environment
+// helpers for the devenv. It is intentionally isolated from the root ccv
+// package so that components can import it without pulling in the full devenv
+// dependency graph. Callers import this package directly.
+package cldf
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"sync"
+	"text/tabwriter"
 
-	"github.com/rs/zerolog"
-	"github.com/rs/zerolog/log"
 	"go.uber.org/zap/zapcore"
 
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainreg"
@@ -22,8 +26,6 @@ import (
 	cldf_chain "github.com/smartcontractkit/chainlink-deployments-framework/chain"
 	cldf_evm_provider "github.com/smartcontractkit/chainlink-deployments-framework/chain/evm/provider"
 )
-
-var Plog = log.Output(zerolog.ConsoleWriter{Out: os.Stderr}).Level(zerolog.DebugLevel).With().Fields(map[string]any{"component": "ccv"}).Logger()
 
 type CLDF struct {
 	mu sync.Mutex `toml:"-"`
@@ -52,6 +54,23 @@ func (c *CLDF) AddEnvMetadata(envMetadata string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.EnvMetadata = envMetadata
+}
+
+func (c *CLDF) PrintAddresses() error {
+	for _, addr := range c.Addresses {
+		var refs []datastore.AddressRef
+		if err := json.Unmarshal([]byte(addr), &refs); err != nil {
+			return fmt.Errorf("failed to unmarshal addresses: %w", err)
+		}
+		w := tabwriter.NewWriter(os.Stdout, 0, 0, 3, ' ', 0)
+		fmt.Fprintln(w, "Selector\tType\tAddress\tVersion\tQualifier")
+		fmt.Fprintln(w, "--------\t----\t-------\t-------\t---------")
+		for _, ref := range refs {
+			fmt.Fprintf(w, "%d\t%s\t%s\t%s\t%s\n", ref.ChainSelector, ref.Type, ref.Address, ref.Version, ref.Qualifier)
+		}
+		w.Flush()
+	}
+	return nil
 }
 
 type CLDFEnvironmentConfig struct {

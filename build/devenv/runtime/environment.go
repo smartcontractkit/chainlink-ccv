@@ -37,23 +37,29 @@ func NewEnvironmentWithRegistry(ctx context.Context, rawConfig map[string]any, r
 	if effectExecutor == nil {
 		effectExecutor = noopEffectExecutor{}
 	}
-	specific, fallback, err := r.instantiate(nil)
+	specific, err := r.instantiate(nil)
 	if err != nil {
 		return nil, err
 	}
-	if err := r.validate(rawConfig, specific, fallback); err != nil {
+	if err := r.validate(rawConfig, specific); err != nil {
 		return nil, err
 	}
 
-	// The fallback component receives all config keys not claimed by a specific
-	// registered component, rather than a single top-level key slice.
+	// Inject the runtime logger into any component that opts in via LogSetter.
+	for _, comp := range specific {
+		if ls, ok := comp.(LogSetter); ok {
+			ls.SetLogger(logger)
+		}
+	}
+
 	unclaimed := unclaimedKeys(rawConfig, r.factories)
-	if len(unclaimed) > 0 && fallback == nil {
+	if len(unclaimed) > 0 {
 		keys := make([]string, 0, len(unclaimed))
 		for k := range unclaimed {
 			keys = append(keys, k)
 		}
-		logger.Error().Strs("keys", keys).Msg("unclaimed config keys with no fallback component registered")
+		// TODO: Make this an error.
+		logger.Warn().Strs("keys", keys).Msg("unclaimed config keys")
 	}
 	accumulated := map[string]any{}
 
@@ -76,16 +82,6 @@ func NewEnvironmentWithRegistry(ctx context.Context, rawConfig map[string]any, r
 				}
 				phaseEffects = append(phaseEffects, effects...)
 			}
-		}
-		if p1, ok := fallback.(Phase1Component); ok {
-			out, effects, err := p1.RunPhase1(ctx, rawConfig, unclaimed)
-			if err != nil {
-				return nil, fmt.Errorf("phase1 fallback: %w", err)
-			}
-			if err := mergeNoOverwrite(accumulated, out, phase, fallbackOwner); err != nil {
-				return nil, err
-			}
-			phaseEffects = append(phaseEffects, effects...)
 		}
 		if err := effectExecutor.Execute(ctx, phaseEffects, accumulated); err != nil {
 			return nil, fmt.Errorf("phase1 effects: %w", err)
@@ -113,16 +109,6 @@ func NewEnvironmentWithRegistry(ctx context.Context, rawConfig map[string]any, r
 				phaseEffects = append(phaseEffects, effects...)
 			}
 		}
-		if p2, ok := fallback.(Phase2Component); ok {
-			out, effects, err := p2.RunPhase2(ctx, rawConfig, unclaimed, maps.Clone(phaseSnapshot))
-			if err != nil {
-				return nil, fmt.Errorf("phase2 fallback: %w", err)
-			}
-			if err := mergeNoOverwrite(accumulated, out, phase, fallbackOwner); err != nil {
-				return nil, err
-			}
-			phaseEffects = append(phaseEffects, effects...)
-		}
 		if err := effectExecutor.Execute(ctx, phaseEffects, accumulated); err != nil {
 			return nil, fmt.Errorf("phase2 effects: %w", err)
 		}
@@ -148,16 +134,6 @@ func NewEnvironmentWithRegistry(ctx context.Context, rawConfig map[string]any, r
 				}
 				phaseEffects = append(phaseEffects, effects...)
 			}
-		}
-		if p3, ok := fallback.(Phase3Component); ok {
-			out, effects, err := p3.RunPhase3(ctx, rawConfig, unclaimed, maps.Clone(phaseSnapshot))
-			if err != nil {
-				return nil, fmt.Errorf("phase3 fallback: %w", err)
-			}
-			if err := mergeNoOverwrite(accumulated, out, phase, fallbackOwner); err != nil {
-				return nil, err
-			}
-			phaseEffects = append(phaseEffects, effects...)
 		}
 		if err := effectExecutor.Execute(ctx, phaseEffects, accumulated); err != nil {
 			return nil, fmt.Errorf("phase3 effects: %w", err)
@@ -185,16 +161,6 @@ func NewEnvironmentWithRegistry(ctx context.Context, rawConfig map[string]any, r
 				phaseEffects = append(phaseEffects, effects...)
 			}
 		}
-		if p4, ok := fallback.(Phase4Component); ok {
-			out, effects, err := p4.RunPhase4(ctx, rawConfig, unclaimed, maps.Clone(phaseSnapshot))
-			if err != nil {
-				return nil, fmt.Errorf("phase4 fallback: %w", err)
-			}
-			if err := mergeNoOverwrite(accumulated, out, phase, fallbackOwner); err != nil {
-				return nil, err
-			}
-			phaseEffects = append(phaseEffects, effects...)
-		}
 		if err := effectExecutor.Execute(ctx, phaseEffects, accumulated); err != nil {
 			return nil, fmt.Errorf("phase4 effects: %w", err)
 		}
@@ -202,8 +168,6 @@ func NewEnvironmentWithRegistry(ctx context.Context, rawConfig map[string]any, r
 
 	return accumulated, nil
 }
-
-const fallbackOwner = "<fallback>"
 
 // mergeNoOverwrite copies src into dst, returning an error if any key in src
 // already exists in dst. The phase number and owner identify the offending

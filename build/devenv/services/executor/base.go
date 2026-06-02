@@ -28,7 +28,7 @@ import (
 
 const (
 	DefaultExecutorName    = "executor"
-	DefaultExecutorImage   = "executor:dev"
+	DefaultExecutorImage   = "executor:latest"
 	DefaultExecutorPort    = 8101
 	DefaultExecutorPortTCP = "8101/tcp"
 	DefaultExecutorMode    = services.Standalone

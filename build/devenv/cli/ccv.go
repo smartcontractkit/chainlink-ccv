@@ -28,6 +28,8 @@ import (
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 
 	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainreg"
+	ccldf "github.com/smartcontractkit/chainlink-ccv/build/devenv/cldf"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cli/send"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/evm"
 )
@@ -246,7 +248,7 @@ var deployCommitVerifierCmd = &cobra.Command{
 			addresses = append(addresses, common.HexToAddress(addr))
 		}
 
-		selectors, e, err := ccv.NewCLDFOperationsEnvironment(in.Blockchains, in.CLDF.DataStore)
+		selectors, e, err := ccldf.NewCLDFOperationsEnvironment(in.Blockchains, in.CLDF.DataStore)
 		if err != nil {
 			return fmt.Errorf("creating CLDF operations environment: %w", err)
 		}
@@ -318,7 +320,7 @@ var deployReceiverCmd = &cobra.Command{
 			Threshold: uint8(optionalThreshold),
 		}
 
-		_, e, err := ccv.NewCLDFOperationsEnvironment(in.Blockchains, in.CLDF.DataStore)
+		_, e, err := ccldf.NewCLDFOperationsEnvironment(in.Blockchains, in.CLDF.DataStore)
 		if err != nil {
 			return fmt.Errorf("creating CLDF operations environment: %w", err)
 		}
@@ -562,7 +564,7 @@ var fundAddressesCmd = &cobra.Command{
 			return fmt.Errorf("blockchain with chain ID %s not found, please update the env file or use a different chain-selector", chainIDStr)
 		}
 
-		impl, err := ccv.NewProductConfigurationFromNetwork(input.Type)
+		impl, err := chainreg.NewProductConfigurationFromNetwork(input.Type)
 		if err != nil {
 			return fmt.Errorf("failed to create product configuration: %w", err)
 		}

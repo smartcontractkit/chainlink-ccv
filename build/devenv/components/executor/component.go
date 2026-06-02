@@ -11,12 +11,20 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
+	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainreg"
+	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
 	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	executorsvc "github.com/smartcontractkit/chainlink-ccv/build/devenv/services/executor"
+	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
+	ccvadapters "github.com/smartcontractkit/chainlink-ccv/deployment/adapters"
+	ccvchangesets "github.com/smartcontractkit/chainlink-ccv/deployment/changesets"
+	ccvshared "github.com/smartcontractkit/chainlink-ccv/deployment/shared"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
+	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	ctfblockchain "github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
 
@@ -40,9 +48,8 @@ func (c *component) ValidateConfig(componentConfig any) error {
 }
 
 // RunPhase3 launches standalone executor containers, registers them with JD,
-// and emits FundingEffect requests for transmitter addresses. Job spec
-// generation and proposal are deferred to Phase 4 because they require
-// deployed contract addresses.
+// emits FundingEffect requests for transmitter addresses, generates job specs,
+// and emits JobProposalEffect for each standalone executor.
 func (c *component) RunPhase3(
 	ctx context.Context,
 	_ map[string]any,
@@ -125,6 +132,57 @@ func (c *component) RunPhase3(
 		}
 	}
 
+	e, ok := priorOutputs["_env"].(*deployment.Environment)
+	if !ok || e == nil {
+		return nil, nil, fmt.Errorf("executor: _env not found in phase outputs")
+	}
+	topology, ok := priorOutputs["_topology"].(*ccvdeployment.EnvironmentTopology)
+	if !ok || topology == nil {
+		return nil, nil, fmt.Errorf("executor: _topology not found in phase outputs")
+	}
+	ds, ok := priorOutputs["_ds"].(datastore.MutableDataStore)
+	if !ok {
+		return nil, nil, fmt.Errorf("executor: _ds not found in phase outputs")
+	}
+
+	jobSpecs, err := buildExecutorJobSpecs(e, executors, topology, ds)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	for _, exec := range executors {
+		if exec == nil || exec.Mode != services.Standalone {
+			continue
+		}
+		if exec.Out == nil || exec.Out.JDNodeID == "" {
+			continue
+		}
+		reg, loaderErr := chainreg.GetRegistry().Get(exec.ChainFamily)
+		if loaderErr != nil {
+			return nil, nil, fmt.Errorf("executor: chain registration for %s: %w", exec.ContainerName, loaderErr)
+		}
+		if reg.ChainConfigLoader == nil {
+			return nil, nil, fmt.Errorf("executor: chain config loader for family %s not found", exec.ChainFamily)
+		}
+		blockchainInfos, loaderErr := reg.ChainConfigLoader(blockchainOutputs)
+		if loaderErr != nil {
+			return nil, nil, fmt.Errorf("executor: loading chain config for %s: %w", exec.ContainerName, loaderErr)
+		}
+		baseSpec, ok := jobSpecs[exec.ContainerName]
+		if !ok {
+			return nil, nil, fmt.Errorf("executor: no job spec found for %s", exec.ContainerName)
+		}
+		jobSpec, specErr := executorsvc.RebuildExecutorJobSpecWithBlockchainInfos(baseSpec, blockchainInfos)
+		if specErr != nil {
+			return nil, nil, fmt.Errorf("executor: building job spec for %s: %w", exec.ContainerName, specErr)
+		}
+		effects = append(effects, devenvruntime.JobProposalEffect{
+			NOPAlias: exec.NOPAlias,
+			NodeID:   exec.Out.JDNodeID,
+			JobSpec:  jobSpec,
+		})
+	}
+
 	return map[string]any{configKey: executors}, effects, nil
 }
 
@@ -166,6 +224,86 @@ func registerWithJD(ctx context.Context, executors []*executorsvc.Input, jdInfra
 		})
 	}
 	return g.Wait()
+}
+
+type executorJobSpec struct {
+	Name           string `toml:"name"`
+	ExternalJobID  string `toml:"externalJobID"`
+	SchemaVersion  int    `toml:"schemaVersion"`
+	Type           string `toml:"type"`
+	ExecutorConfig string `toml:"executorConfig"`
+}
+
+func (ejs executorJobSpec) toBootstrapJobSpec() bootstrap.JobSpec {
+	return bootstrap.JobSpec{
+		Name:          ejs.Name,
+		ExternalJobID: ejs.ExternalJobID,
+		SchemaVersion: ejs.SchemaVersion,
+		Type:          ejs.Type,
+		AppConfig:     ejs.ExecutorConfig,
+	}
+}
+
+func buildExecutorJobSpecs(
+	e *deployment.Environment,
+	executors []*executorsvc.Input,
+	topology *ccvdeployment.EnvironmentTopology,
+	ds datastore.MutableDataStore,
+) (map[string]bootstrap.JobSpec, error) {
+	result := make(map[string]bootstrap.JobSpec)
+	if len(executors) == 0 {
+		return result, nil
+	}
+
+	executorsByQualifier := make(map[string][]*executorsvc.Input)
+	for _, exec := range executors {
+		qualifier := exec.ExecutorQualifier
+		if qualifier == "" {
+			qualifier = devenvcommon.DefaultExecutorQualifier
+		}
+		executorsByQualifier[qualifier] = append(executorsByQualifier[qualifier], exec)
+	}
+
+	for qualifier, qualifierExecutors := range executorsByQualifier {
+		execNOPAliases := make([]string, 0, len(qualifierExecutors))
+		for _, exec := range qualifierExecutors {
+			execNOPAliases = append(execNOPAliases, exec.NOPAlias)
+		}
+		pool, ok := topology.ExecutorPools[qualifier]
+		if !ok {
+			return nil, fmt.Errorf("executor: pool %q not found in topology", qualifier)
+		}
+		cs := ccvchangesets.ApplyExecutorConfig(ccvadapters.GetRegistry())
+		output, err := cs.Apply(*e, ccvchangesets.ApplyExecutorConfigInput{
+			ExecutorQualifier: qualifier,
+			NOPs:              ccvchangesets.NOPInputsFromTopology(topology),
+			Pool:              ccvchangesets.ExecutorPoolInputFromTopology(pool),
+			IndexerAddress:    topology.IndexerAddress,
+			PyroscopeURL:      topology.PyroscopeURL,
+			Monitoring:        topology.Monitoring,
+			TargetNOPs:        ccvshared.ConvertStringToNopAliases(execNOPAliases),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("executor: generating configs for qualifier %s: %w", qualifier, err)
+		}
+		if err := ds.Merge(output.DataStore.Seal()); err != nil {
+			return nil, fmt.Errorf("executor: merging datastore for qualifier %s: %w", qualifier, err)
+		}
+		for _, exec := range qualifierExecutors {
+			jobSpecID := ccvshared.NewExecutorJobID(ccvshared.NOPAlias(exec.NOPAlias), ccvshared.ExecutorJobScope{ExecutorQualifier: qualifier})
+			job, err := ccvdeployment.GetJob(output.DataStore.Seal(), ccvshared.NOPAlias(exec.NOPAlias), jobSpecID.ToJobID())
+			if err != nil {
+				return nil, fmt.Errorf("executor: getting job spec for %s: %w", exec.ContainerName, err)
+			}
+			var spec executorJobSpec
+			if err := toml.Unmarshal([]byte(job.Spec), &spec); err != nil {
+				return nil, fmt.Errorf("executor: decoding job spec for %s: %w", exec.ContainerName, err)
+			}
+			result[exec.ContainerName] = spec.toBootstrapJobSpec()
+		}
+	}
+
+	return result, nil
 }
 
 // decode round-trips the raw TOML []any into []*executorsvc.Input.

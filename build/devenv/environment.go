@@ -7,14 +7,15 @@ import (
 	"fmt"
 	"maps"
 	"math/big"
+	"os"
 	"slices"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/BurntSushi/toml"
 	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 	"golang.org/x/sync/errgroup"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
@@ -23,6 +24,7 @@ import (
 	_ "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/adapters"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainreg"
+	ccldf "github.com/smartcontractkit/chainlink-ccv/build/devenv/cldf"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	_ "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/blockchains"
 	_ "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/committeeccv"
@@ -31,6 +33,8 @@ import (
 	_ "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/indexer"
 	_ "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/jd"
 	_ "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/pricer"
+	_ "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/protocol_contracts"
+	_ "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/tokenverifier"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/committeeverifier"
@@ -52,6 +56,8 @@ import (
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/jd"
 	ns "github.com/smartcontractkit/chainlink-testing-framework/framework/components/simple_node_set"
 )
+
+var Plog = log.Output(zerolog.ConsoleWriter{Out: os.Stderr}).Level(zerolog.DebugLevel).With().Fields(map[string]any{"component": "ccv"}).Logger()
 
 const (
 	CommonCLNodesConfig = `
@@ -91,8 +97,19 @@ const (
 `
 )
 
+// ProtocolContractsCfg holds config for the protocol_contracts Phase 3 component.
+type ProtocolContractsCfg struct {
+	// UseLegacyConfigureLane selects the legacy lanes.ConnectChains path
+	// instead of the canonical ConfigureChainsForLanesFromTopology changeset.
+	UseLegacyConfigureLane bool `toml:"use_legacy_configure_lane"`
+}
+
 type Cfg struct {
-	CLDF               CLDF                           `toml:"cldf"                  validate:"required"`
+	// Version is incremented on breaking config schema changes so downstream
+	// consumers can detect incompatible configs. Version 0 (implicit/absent)
+	// predates the [protocol_contracts] section.
+	Version            int                            `toml:"version"`
+	CLDF               ccldf.CLDF                     `toml:"cldf"                  validate:"required"`
 	Pricer             *services.PricerInput          `toml:"pricer"                validate:"required"`
 	Fake               *services.FakeInput            `toml:"fake"                  validate:"required"`
 	Verifier           []*committeeverifier.Input     `toml:"verifier"              validate:"required"`
@@ -102,16 +119,14 @@ type Cfg struct {
 	Aggregator         []*services.AggregatorInput    `toml:"aggregator"            validate:"required"`
 	JD                 *jd.Input                      `toml:"jd"                    validate:"required"`
 	Blockchains        []*blockchain.Input            `toml:"blockchains"           validate:"required"`
-	NodeSets           []*ns.Input                    `toml:"nodesets"              validate:"required"`
+	NodeSets           []*ns.Input                    `toml:"nodesets"              validate:"omitempty"`
 	CLNodesFundingETH  float64                        `toml:"cl_nodes_funding_eth"`
 	CLNodesFundingLink float64                        `toml:"cl_nodes_funding_link"`
 	// HighAvailability enables devenv-level service redundancy. When true,
-	// expandForHA() clones AggregatorInput / IndexerInput entries according
+	// ExpandForHA() clones AggregatorInput / IndexerInput entries according
 	// to their per-service redundancy counts and updates the topology.
-	HighAvailability bool `toml:"high_availability"`
-	// UseLegacyConfigureLane selects the legacy lanes.ConnectChains path
-	// instead of the canonical ConfigureChainsForLanesFromTopology changeset.
-	UseLegacyConfigureLane bool `toml:"use_legacy_configure_lane"`
+	HighAvailability  bool                 `toml:"high_availability"`
+	ProtocolContracts ProtocolContractsCfg `toml:"protocol_contracts"`
 	// AggregatorEndpoints map the verifier qualifier to the aggregator URL for that verifier.
 	AggregatorEndpoints map[string]string `toml:"aggregator_endpoints"`
 	// AggregatorCACertFiles map the verifier qualifier to the CA cert file path for TLS verification.
@@ -131,11 +146,11 @@ type Cfg struct {
 	GenericServices map[uint64]*GenericServiceDefinition `toml:"generic_services" validate:"required"`
 }
 
-// expandForHA clones AggregatorInput / IndexerInput entries based on their
+// ExpandForHA clones AggregatorInput / IndexerInput entries based on their
 // per-service redundancy counts and updates the EnvironmentTopology so that
 // downstream changesets and service launches see the expanded set.
 // When HighAvailability is false this is a no-op.
-func (c *Cfg) expandForHA() error {
+func (c *Cfg) ExpandForHA() error {
 	if !c.HighAvailability {
 		return nil
 	}
@@ -434,107 +449,6 @@ func checkKeys(in *Cfg) error {
 	}
 
 	return nil
-}
-
-func NewProductConfigurationFromNetwork(typ string) (cciptestinterfaces.CCIP17Configuration, error) {
-	resolved, err := blockchain.TypeToFamily(typ)
-	if err != nil {
-		// typ might already be a family name — try the factory directly before giving up.
-		if reg, regErr := chainreg.GetRegistry().Get(typ); regErr == nil && reg.ImplFactory != nil {
-			return reg.ImplFactory.NewEmpty(), nil
-		}
-		return nil, fmt.Errorf("unknown blockchain type %q (not a recognized type or family): %w", typ, err)
-	}
-	family := string(resolved)
-	reg, err := chainreg.GetRegistry().Get(family)
-	if err != nil {
-		return nil, fmt.Errorf("could not find chain registration for chain type %s (family %s): %w", typ, family, err)
-	}
-	if reg.ImplFactory == nil {
-		return nil, fmt.Errorf("implementation factory for family %s not found", family)
-	}
-	return reg.ImplFactory.NewEmpty(), nil
-}
-
-// enrichEnvironmentTopology injects SignerAddress values from verifier inputs into the EnvironmentTopology.
-// This is needed because signer addresses are only known after key generation or CL node launch.
-// Each verifier's NOPAlias identifies which NOP in the topology it belongs to.
-// Only the first verifier for each NOP sets the signer address (subsequent verifiers with the
-// same NOPAlias are ignored to avoid overwriting with wrong keys due to round-robin wrap-around).
-//
-// Signer key selection is delegated to each registered ImplFactory via DefaultSignerKey,
-// so adding a new chain family requires no changes here.
-func enrichEnvironmentTopology(cfg *ccvdeployment.EnvironmentTopology, verifiers []*committeeverifier.Input) {
-	factories := chainreg.GetRegistry().GetAllImplFactories()
-
-	seenAliases := make(map[string]struct{})
-	for _, ver := range verifiers {
-		if _, seen := seenAliases[ver.NOPAlias]; seen {
-			continue
-		}
-		nop, ok := cfg.NOPTopology.GetNOP(ver.NOPAlias)
-		if !ok || nop.GetMode() == ccvshared.NOPModeCL {
-			continue
-		}
-
-		for family, factory := range factories {
-			if nop.SignerAddressByFamily[family] != "" {
-				continue
-			}
-			signerKey := factory.DefaultSignerKey(ver.Out.BootstrapKeys)
-			if signerKey != "" {
-				cfg.NOPTopology.SetNOPSignerAddress(ver.NOPAlias, family, signerKey)
-			}
-		}
-
-		seenAliases[ver.NOPAlias] = struct{}{}
-	}
-}
-
-// buildEnvironmentTopology creates a copy of the EnvironmentTopology from the Cfg,
-// enriches it with signer addresses, and returns it. This is used by both executor
-// and verifier changesets as the single source of truth.
-// For each chain_config entry that lacks a FeeAggregator, the corresponding
-// chain's deployer key is used as a fallback via the registered ImplFactory.
-func buildEnvironmentTopology(in *Cfg, e *deployment.Environment) *ccvdeployment.EnvironmentTopology {
-	if in.EnvironmentTopology == nil {
-		return nil
-	}
-	envCfg := *in.EnvironmentTopology
-	enrichEnvironmentTopology(&envCfg, in.Verifier)
-
-	if envCfg.NOPTopology == nil {
-		return &envCfg
-	}
-
-	for name, committee := range envCfg.NOPTopology.Committees {
-		if committee.ChainConfigs == nil {
-			continue
-		}
-		for chainSel, chainCfg := range committee.ChainConfigs {
-			if chainCfg.FeeAggregator == "" {
-				sel, err := strconv.ParseUint(chainSel, 10, 64)
-				if err != nil {
-					continue
-				}
-				family, err := chainsel.GetSelectorFamily(sel)
-				if err != nil {
-					continue
-				}
-				reg, err := chainreg.GetRegistry().Get(family)
-				if err != nil || reg.ImplFactory == nil {
-					continue
-				}
-				if addr := reg.ImplFactory.DefaultFeeAggregator(e, sel); addr != "" {
-					chainCfg.FeeAggregator = addr
-					committee.ChainConfigs[chainSel] = chainCfg
-				}
-			}
-		}
-		envCfg.NOPTopology.Committees[name] = committee
-	}
-
-	return &envCfg
 }
 
 // generateExecutorJobSpecs generates job specs for all executors using the changeset.

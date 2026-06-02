@@ -2,6 +2,8 @@ package devenvruntime
 
 import (
 	"context"
+
+	"github.com/rs/zerolog"
 )
 
 // Component is the base interface all components must implement.
@@ -31,4 +33,10 @@ type Phase3Component interface {
 // Phase4Component runs during Phase 4 (final configuration).
 type Phase4Component interface {
 	RunPhase4(ctx context.Context, globalConfig map[string]any, componentConfig any, priorOutputs map[string]any) (map[string]any, []Effect, error)
+}
+
+// LogSetter is an optional interface components may implement to receive the
+// runtime logger before any phase method is called.
+type LogSetter interface {
+	SetLogger(lggr zerolog.Logger)
 }

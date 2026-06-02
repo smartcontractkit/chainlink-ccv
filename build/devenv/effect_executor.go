@@ -10,6 +10,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
 	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	jobv1 "github.com/smartcontractkit/chainlink-protos/job-distributor/v1/job"
 	ctfblockchain "github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
@@ -58,7 +59,7 @@ func executeFundingEffects(ctx context.Context, effects []devenvruntime.FundingE
 	}
 
 	for _, bc := range blockchains {
-		impl, err := NewProductConfigurationFromNetwork(bc.Type)
+		impl, err := chainreg.NewProductConfigurationFromNetwork(bc.Type)
 		if err != nil {
 			return fmt.Errorf("creating impl for blockchain %q: %w", bc.ContainerName, err)
 		}
@@ -104,13 +105,8 @@ func executeJobProposalEffects(ctx context.Context, effects []devenvruntime.JobP
 		}
 	}
 
-	if cfg, ok := accumulated[legacyCfgKey].(*Cfg); ok && cfg != nil && cfg.ClientLookup != nil {
-		if err := jobs.AcceptPendingJobs(ctx, cfg.ClientLookup); err != nil {
-			return fmt.Errorf("accepting pending jobs: %w", err)
-		}
-	}
-	if setup, ok := accumulated[legacySetupKey].(*phasedSetup); ok && setup != nil && setup.E != nil {
-		if err := jobs.SyncAndVerifyJobProposals(setup.E); err != nil {
+	if e, ok := accumulated["_env"].(*deployment.Environment); ok && e != nil {
+		if err := jobs.SyncAndVerifyJobProposals(e); err != nil {
 			return fmt.Errorf("syncing job proposals: %w", err)
 		}
 	}

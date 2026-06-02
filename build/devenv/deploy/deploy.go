@@ -1,12 +1,19 @@
-package ccv
+// Package deploy contains on-chain contract deployment and lane configuration
+// logic for the devenv. It is intentionally isolated from the root ccv package
+// so that components can import it without pulling in the full devenv dependency
+// graph. Callers import this package directly.
+package deploy
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"maps"
 	"sort"
+	"strconv"
 	"strings"
 
+	"github.com/BurntSushi/toml"
 	"github.com/Masterminds/semver/v3"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
@@ -17,18 +24,38 @@ import (
 	devenvmcms "github.com/smartcontractkit/chainlink-ccip/deployment/utils/mcms"
 	ccipAdapters "github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/adapters"
 	ccipChangesets "github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/changesets"
+	ccipOffchain "github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/offchain"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainreg"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/committeeverifier"
 	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
+	ccvshared "github.com/smartcontractkit/chainlink-ccv/deployment/shared"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
 
-// ---------------------------------------------------------------------------
-// Chain-agnostic contract deployment (matches the 1.6 pattern)
-// ---------------------------------------------------------------------------
+// convertTopologyToCCIP converts ccvdeployment.EnvironmentTopology to the
+// ccipOffchain.EnvironmentTopology required by onchain changesets in chainlink-ccip
+// that have not yet migrated to the ccv deployment package. Phase 2 bridge shim.
+// TODO: consolidate the two EnvironmentTopology types into one, or remove the
+// topology field from the upstream changesets entirely, and delete this function.
+func convertTopologyToCCIP(src *ccvdeployment.EnvironmentTopology) *ccipOffchain.EnvironmentTopology {
+	if src == nil {
+		return nil
+	}
+	var buf bytes.Buffer
+	if err := toml.NewEncoder(&buf).Encode(src); err != nil {
+		panic(fmt.Sprintf("convertTopologyToCCIP encode: %v", err))
+	}
+	var dst ccipOffchain.EnvironmentTopology
+	if _, err := toml.Decode(buf.String(), &dst); err != nil {
+		panic(fmt.Sprintf("convertTopologyToCCIP decode: %v", err))
+	}
+	return &dst
+}
 
 // mergeIntoSealed creates a new DataStore by merging all provided stores in
 // order and returns the sealed result.
@@ -135,11 +162,11 @@ type chainProfile struct {
 	profile cciptestinterfaces.ChainLaneProfile
 }
 
-// connectAllChains configures lanes incrementally: each iteration adds one
-// chain to the mesh, mirroring how production environments grow. The
-// underlying ConfigureChainForLanes sequence is fully idempotent, so
-// re-running for already-configured contracts is a no-op.
-func connectAllChainsCanonical(
+// ConnectAllChainsCanonical configures lanes incrementally: each iteration adds
+// one chain to the mesh, mirroring how production environments grow. The
+// underlying ConfigureChainForLanes sequence is fully idempotent, so re-running
+// for already-configured contracts is a no-op.
+func ConnectAllChainsCanonical(
 	impls []cciptestinterfaces.CCIP17Configuration,
 	blockchains []*blockchain.Input,
 	selectors []uint64,
@@ -304,7 +331,7 @@ type chainEntry struct {
 	cvConfig        lanes.CommitteeVerifierRemoteChainInput
 }
 
-func connectAllChainsLegacy(
+func ConnectAllChainsLegacy(
 	impls []cciptestinterfaces.CCIP17Configuration,
 	blockchains []*blockchain.Input,
 	selectors []uint64,
@@ -312,10 +339,10 @@ func connectAllChainsLegacy(
 	topology *ccvdeployment.EnvironmentTopology,
 ) error {
 	if len(blockchains) != len(impls) {
-		return fmt.Errorf("connectAllChainsLegacy: mismatched lengths: %d impls and %d blockchains", len(impls), len(blockchains))
+		return fmt.Errorf("ConnectAllChainsLegacy: mismatched lengths: %d impls and %d blockchains", len(impls), len(blockchains))
 	}
 	if len(selectors) == 0 {
-		return fmt.Errorf("connectAllChainsLegacy: selectors must be non-empty")
+		return fmt.Errorf("ConnectAllChainsLegacy: selectors must be non-empty")
 	}
 
 	entries := make(map[uint64]chainEntry, len(impls))
@@ -728,4 +755,94 @@ func splitTokenTransferBatchBySelector(configs []tokenscore.TokenTransferConfig)
 		seenSelectors = append(seenSelectors, map[uint64]bool{cfg.ChainSelector: true})
 	}
 	return batches
+}
+
+// enrichEnvironmentTopology injects SignerAddress values from verifier inputs into the EnvironmentTopology.
+// This is needed because signer addresses are only known after key generation or CL node launch.
+// Each verifier's NOPAlias identifies which NOP in the topology it belongs to.
+// Only the first verifier for each NOP sets the signer address (subsequent verifiers with the
+// same NOPAlias are ignored to avoid overwriting with wrong keys due to round-robin wrap-around).
+//
+// Signer key selection is delegated to each registered ImplFactory via DefaultSignerKey,
+// so adding a new chain family requires no changes here.
+func enrichEnvironmentTopology(cfg *ccvdeployment.EnvironmentTopology, verifiers []*committeeverifier.Input) {
+	if cfg.NOPTopology == nil {
+		return
+	}
+	factories := chainreg.GetRegistry().GetAllImplFactories()
+
+	seenAliases := make(map[string]struct{})
+	for _, ver := range verifiers {
+		if _, seen := seenAliases[ver.NOPAlias]; seen {
+			continue
+		}
+		nop, ok := cfg.NOPTopology.GetNOP(ver.NOPAlias)
+		if !ok || nop.GetMode() == ccvshared.NOPModeCL {
+			continue
+		}
+
+		for family, factory := range factories {
+			if nop.SignerAddressByFamily[family] != "" {
+				continue
+			}
+			signerKey := factory.DefaultSignerKey(ver.Out.BootstrapKeys)
+			if signerKey != "" {
+				cfg.NOPTopology.SetNOPSignerAddress(ver.NOPAlias, family, signerKey)
+			}
+		}
+
+		seenAliases[ver.NOPAlias] = struct{}{}
+	}
+}
+
+// EnrichTopologyWithVerifiers enriches an existing topology in-place with signer addresses
+// derived from verifier bootstrap keys. Call this after verifiers are launched and their
+// Out.BootstrapKeys are populated. The topology pointer is mutated directly so that other
+// Phase 4 components reading the same pointer see the updated signer addresses.
+func EnrichTopologyWithVerifiers(topology *ccvdeployment.EnvironmentTopology, verifiers []*committeeverifier.Input) {
+	enrichEnvironmentTopology(topology, verifiers)
+}
+
+// BuildEnvironmentTopology creates a copy of the EnvironmentTopology, enriches it with signer
+// addresses and fee aggregator fallbacks, and returns it. This is the single source of truth
+// used by both executor and verifier changesets.
+func BuildEnvironmentTopology(topology *ccvdeployment.EnvironmentTopology, verifiers []*committeeverifier.Input, e *deployment.Environment) *ccvdeployment.EnvironmentTopology {
+	if topology == nil {
+		return nil
+	}
+	envCfg := *topology
+	enrichEnvironmentTopology(&envCfg, verifiers)
+
+	if envCfg.NOPTopology == nil {
+		return &envCfg
+	}
+
+	for name, committee := range envCfg.NOPTopology.Committees {
+		if committee.ChainConfigs == nil {
+			continue
+		}
+		for chainSel, chainCfg := range committee.ChainConfigs {
+			if chainCfg.FeeAggregator == "" {
+				sel, err := strconv.ParseUint(chainSel, 10, 64)
+				if err != nil {
+					continue
+				}
+				family, err := chainsel.GetSelectorFamily(sel)
+				if err != nil {
+					continue
+				}
+				reg, err := chainreg.GetRegistry().Get(family)
+				if err != nil || reg.ImplFactory == nil {
+					continue
+				}
+				if addr := reg.ImplFactory.DefaultFeeAggregator(e, sel); addr != "" {
+					chainCfg.FeeAggregator = addr
+					committee.ChainConfigs[chainSel] = chainCfg
+				}
+			}
+		}
+		envCfg.NOPTopology.Committees[name] = committee
+	}
+
+	return &envCfg
 }

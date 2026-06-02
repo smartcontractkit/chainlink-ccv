@@ -232,37 +232,3 @@ func TestPhase1_OverwriteDetection(t *testing.T) {
 	require.Contains(t, err.Error(), `"B"`)
 	require.Contains(t, err.Error(), `"shared"`)
 }
-
-func TestFallbackHonorsSnapshot(t *testing.T) {
-	specific := newP2Comp(t, map[string]any{"from-specific": 1}, nil)
-
-	var fallbackPrior map[string]any
-	fb := newP2Comp(t, map[string]any{"from-fallback": 2}, func(p map[string]any) { fallbackPrior = p })
-
-	r := devenvruntime.NewRegistry()
-	require.NoError(t, r.Register("Specific", compFactory(specific)))
-	r.SetFallback(compFactory(fb))
-
-	out, err := runEnv(t, r, map[string]any{"Specific": nil, "Other": nil})
-	require.NoError(t, err)
-
-	require.NotContains(t, fallbackPrior, "from-specific",
-		"fallback must see the phase-start snapshot, not the post-Specific state")
-	require.Equal(t, 1, out["from-specific"])
-	require.Equal(t, 2, out["from-fallback"])
-}
-
-func TestFallbackOverwriteDetection(t *testing.T) {
-	specific := newP2Comp(t, map[string]any{"shared": "specific"}, nil)
-	fb := newP2Comp(t, map[string]any{"shared": "fallback"}, nil)
-
-	r := devenvruntime.NewRegistry()
-	require.NoError(t, r.Register("Specific", compFactory(specific)))
-	r.SetFallback(compFactory(fb))
-
-	_, err := runEnv(t, r, map[string]any{"Specific": nil})
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "phase 2")
-	require.Contains(t, err.Error(), `"<fallback>"`)
-	require.Contains(t, err.Error(), `"shared"`)
-}

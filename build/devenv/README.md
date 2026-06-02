@@ -28,11 +28,13 @@ All build command are run using [Justfile](https://github.com/casey/just?tab=rea
 ```
 brew install just # click the link above if you are not on OS X
 cd build/devenv
-just clean-docker-dev # needed in case you have old JD image
-just build-docker-dev
+just clean-docker # needed in case you have old JD image
+just build-docker
 just setup-gh
 just cli
 ```
+
+> **Note:** By default, the environment runs production images (`:latest`). If you need hot-reloading for a specific service, change its tag in your configuration (e.g. `env.toml`) to `:dev` and run `just ../../<service>/build-dev` (or simply run `just build-docker-dev` to build all dev images).
 
 Enter `ccv` shell and follow auto-completion hints
 ```

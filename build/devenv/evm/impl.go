@@ -1191,35 +1191,50 @@ func (m *CCIP17EVMConfig) GetTokenExpansionConfigs(
 	divisor := new(big.Int).Exp(big.NewInt(10), big.NewInt(DefaultDecimals), nil)
 	preMintTokens := new(big.Int).Div(deployerBalance, divisor).Uint64()
 
+	// Build a set of supported pool capabilities so we can skip combos where
+	// EVM is the "local" side but doesn't actually support that pool.
+	supported := devenvcommon.BuildSupportedPoolsMap(m.GetSupportedPools())
+
 	seen := make(map[string]bool)
 	var configs []tokenscore.TokenExpansionInputPerChain
 
 	for _, combo := range combos {
-		for _, poolRef := range []datastore.AddressRef{combo.LocalPoolAddressRef(), combo.RemotePoolAddressRef()} {
-			key := string(poolRef.Type) + "\x00" + poolRef.Version.String() + "\x00" + poolRef.Qualifier
-			if seen[key] {
-				continue
-			}
-			seen[key] = true
+		// Only deploy the local pool ref. The remote pool ref belongs to the
+		// counterpart chain and must not be deployed here — deploying it would
+		// attempt to fund a lockbox for an unsupported pool version and fail.
+		poolRef := combo.LocalPoolAddressRef()
 
-			configs = append(configs, tokenscore.TokenExpansionInputPerChain{
-				TokenPoolVersion:      poolRef.Version,
-				SkipOwnershipTransfer: true,
-				DeployTokenInput: &tokenscore.DeployTokenInput{
-					Symbol:        poolRef.Qualifier,
-					Name:          poolRef.Qualifier,
-					Decimals:      DefaultDecimals,
-					Type:          bnm_drip_v1_0.ContractType,
-					ExternalAdmin: chain.DeployerKey.From.Hex(),
-					CCIPAdmin:     chain.DeployerKey.From.Hex(),
-					PreMint:       &preMintTokens,
-				},
-				DeployTokenPoolInput: &tokenscore.DeployTokenPoolInput{
-					PoolType:           string(poolRef.Type),
-					TokenPoolQualifier: poolRef.Qualifier,
-				},
-			})
+		// Skip combos where EVM doesn't support the local pool type/version.
+		// ComputeTokenCombinations generates combos in both directions, so we
+		// may receive combos where another chain (e.g. Solana) is meant to be
+		// the local side.
+		if !devenvcommon.IsPoolSupported(supported, poolRef) {
+			continue
 		}
+
+		key := devenvcommon.AddressRefFullKey(poolRef)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+
+		configs = append(configs, tokenscore.TokenExpansionInputPerChain{
+			TokenPoolVersion:      poolRef.Version,
+			SkipOwnershipTransfer: true,
+			DeployTokenInput: &tokenscore.DeployTokenInput{
+				Symbol:        poolRef.Qualifier,
+				Name:          poolRef.Qualifier,
+				Decimals:      DefaultDecimals,
+				Type:          bnm_drip_v1_0.ContractType,
+				ExternalAdmin: chain.DeployerKey.From.Hex(),
+				CCIPAdmin:     chain.DeployerKey.From.Hex(),
+				PreMint:       &preMintTokens,
+			},
+			DeployTokenPoolInput: &tokenscore.DeployTokenPoolInput{
+				PoolType:           string(poolRef.Type),
+				TokenPoolQualifier: poolRef.Qualifier,
+			},
+		})
 	}
 
 	return configs, nil

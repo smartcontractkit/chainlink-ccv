@@ -14,9 +14,9 @@ RUN --mount=type=cache,target=/root/.cache/go-build,id=ccv-go-build \
     cd aggregator && CGO_ENABLED=0 go build -ldflags='-s -w' -o /bin/aggregator cmd/main.go
 
 FROM alpine:latest
-WORKDIR /app
 RUN apk --no-cache add ca-certificates
-COPY --from=builder /bin/aggregator bin/
+COPY --from=builder /bin/aggregator /bin/
 COPY --from=builder /app/aggregator/migrations /migrations
+WORKDIR /app
 RUN ln -s /migrations /app/migrations || true
-CMD ["/app/bin/aggregator"]
+CMD ["/bin/aggregator"]
