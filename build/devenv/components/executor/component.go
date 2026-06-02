@@ -140,9 +140,9 @@ func (c *component) RunPhase3(
 	if !ok || e == nil {
 		return nil, nil, fmt.Errorf("executor: _env not found in phase outputs")
 	}
-	topology, ok := priorOutputs["_topology"].(*ccvdeployment.EnvironmentTopology)
+	topology, ok := priorOutputs["environment_topology"].(*ccvdeployment.EnvironmentTopology)
 	if !ok || topology == nil {
-		return nil, nil, fmt.Errorf("executor: _topology not found in phase outputs")
+		return nil, nil, fmt.Errorf("executor: environment_topology not found in phase outputs")
 	}
 	ds, ok := priorOutputs["_ds"].(datastore.MutableDataStore)
 	if !ok {

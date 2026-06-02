@@ -217,13 +217,16 @@ func (p *component) RunPhase2(
 	}
 
 	return map[string]any{
-		"_cldf":       cldf,
-		"_env":        e,
-		"_topology":   topology,
-		"_selectors":  selectors,
-		"_ds":         ds,
-		"_impls":      impls,
-		"_time_track": timeTrack,
+		// Public keys (serialized to the output file): cldf carries the deployed
+		// addresses + env metadata; environment_topology is read by tests. The
+		// remaining "_"-prefixed keys are runtime-only and stripped on serialize.
+		"cldf":                 cldf,
+		"environment_topology": topology,
+		"_env":                 e,
+		"_selectors":           selectors,
+		"_ds":                  ds,
+		"_impls":               impls,
+		"_time_track":          timeTrack,
 	}, nil, nil
 }
 

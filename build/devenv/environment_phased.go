@@ -6,20 +6,16 @@ import (
 	"os"
 	"strings"
 
-	ccldf "github.com/smartcontractkit/chainlink-ccv/build/devenv/cldf"
 	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
-	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
-	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/committeeverifier"
-	executorsvc "github.com/smartcontractkit/chainlink-ccv/build/devenv/services/executor"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/timing"
-	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
-	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
 
 // NewPhasedEnvironment creates a new CCIP CCV environment using the phased
 // component runtime. It loads the raw TOML config, hands control to the
-// runtime, then reconstructs *Cfg from the loaded TOML and the runtime outputs.
-func NewPhasedEnvironment() (cfg *Cfg, err error) {
+// runtime, then serializes the raw accumulated output map (minus runtime-only
+// "_"-prefixed keys) to the env-out.toml file consumed by downstream tests. It
+// returns the full accumulated output map.
+func NewPhasedEnvironment() (out map[string]any, err error) {
 	ctx := L.WithContext(context.Background())
 
 	configs := strings.Split(os.Getenv(EnvVarTestConfigs), ",")
@@ -31,8 +27,14 @@ func NewPhasedEnvironment() (cfg *Cfg, err error) {
 		return nil, fmt.Errorf("failed to load configuration: %w", err)
 	}
 
+	// Capture the schema version before the runtime consumes and deletes the
+	// "version" key from rawConfig, so it can be re-emitted to the output file.
+	var version int
+	if v, ok := rawConfig["version"].(int64); ok {
+		version = int(v)
+	}
+
 	// out is captured by the defer; its contents are available when the defer fires.
-	var out map[string]any
 	defer func() {
 		var elapsed float64
 		if timeTrack, ok := out["_time_track"].(*timing.TimeTracker); ok && timeTrack != nil {
@@ -48,79 +50,26 @@ func NewPhasedEnvironment() (cfg *Cfg, err error) {
 		return nil, err
 	}
 
-	// Cfg is a transitional output/return shape that will be removed in a future
-	// task (the phased runtime works off the raw config + component outputs). We
-	// do NOT decode env-phased.toml into Cfg — it carries per-component nesting
-	// and version markers the components own. Instead, start from an empty Cfg
-	// and populate it from the runtime outputs below.
-	cfg = &Cfg{}
+	// Re-publish the schema version (the runtime consumed it) as a public output
+	// key so the serialized file begins with version = N and LoadOutput can route
+	// it to the phased decoder.
+	out["version"] = version
 
-	// Topology is built by the protocol_contracts component (Phase 2).
-	if topo, ok := out["_topology"].(*ccvdeployment.EnvironmentTopology); ok && topo != nil {
-		cfg.EnvironmentTopology = topo
+	if err := storePhasedOutput(out); err != nil {
+		return out, err
 	}
+	return out, nil
+}
 
-	// Sync blockchains from Phase 1 so Out fields (RPC URLs, etc.) are populated.
-	if blockchains, ok := out["blockchains"].([]*blockchain.Input); ok {
-		cfg.Blockchains = blockchains
-	}
-
-	// Sync executor inputs from Phase 3 so Out fields (container name, JD node ID, etc.) are populated.
-	if executors, ok := out["executor"].([]*executorsvc.Input); ok {
-		cfg.Executor = executors
-	}
-
-	// Sync fake input from Phase 1 so Out fields (external HTTP URL, etc.) are populated.
-	if fake, ok := out["fake"].(*services.FakeInput); ok && fake != nil {
-		cfg.Fake = fake
-	}
-
-	// Sync CLDF state (addresses + env metadata) from protocol_contracts Phase 2.
-	if cldf, ok := out["_cldf"].(*ccldf.CLDF); ok && cldf != nil {
-		cfg.CLDF.Addresses = cldf.Addresses
-		cfg.CLDF.EnvMetadata = cldf.EnvMetadata
-	}
-
-	// Replace cfg.Aggregator with started inputs from the committeeccv component
-	// so Store() persists the launched Out fields and aggregator endpoint maps.
-	if aggregators, ok := out["aggregators"].([]*services.AggregatorInput); ok {
-		cfg.Aggregator = aggregators
-		cfg.AggregatorEndpoints = make(map[string]string)
-		cfg.AggregatorCACertFiles = make(map[string]string)
-		for _, agg := range aggregators {
-			if agg.Out != nil {
-				cfg.AggregatorEndpoints[agg.CommitteeName] = agg.Out.ExternalHTTPSUrl
-				if agg.Out.TLSCACertFile != "" {
-					cfg.AggregatorCACertFiles[agg.CommitteeName] = agg.Out.TLSCACertFile
-				}
-			}
+// storePhasedOutput serializes the accumulated runtime output map to the
+// env-out.toml file, stripping runtime-only keys (those prefixed with "_").
+func storePhasedOutput(out map[string]any) error {
+	public := make(map[string]any, len(out))
+	for k, v := range out {
+		if strings.HasPrefix(k, "_") {
+			continue
 		}
+		public[k] = v
 	}
-
-	// Replace cfg.Verifier with started inputs from the committeeccv component.
-	if verifiers, ok := out["verifiers"].([]*committeeverifier.Input); ok {
-		cfg.Verifier = verifiers
-	}
-
-	// Collect indexer outputs from the indexer Phase 4 component.
-	if indexers, ok := out["indexer"].([]*services.IndexerInput); ok {
-		cfg.Indexer = indexers
-		externalURLs := make([]string, 0, len(indexers))
-		internalURLs := make([]string, 0, len(indexers))
-		for _, idxIn := range indexers {
-			if idxIn.Out != nil {
-				externalURLs = append(externalURLs, idxIn.Out.ExternalHTTPURL)
-				internalURLs = append(internalURLs, idxIn.Out.InternalHTTPURL)
-			}
-		}
-		cfg.IndexerEndpoints = externalURLs
-		cfg.IndexerInternalEndpoints = internalURLs
-	}
-
-	// Replace cfg.TokenVerifier with started inputs from the tokenverifier component.
-	if tokenVerifiers, ok := out["token_verifier"].([]*services.TokenVerifierInput); ok {
-		cfg.TokenVerifier = tokenVerifiers
-	}
-
-	return cfg, Store(cfg)
+	return Store(&public)
 }

@@ -86,7 +86,7 @@ func (c *component) RunPhase4(
 	aggregators, _ := priorOutputs["aggregators"].([]*services.AggregatorInput)
 
 	var tlsCerts *services.TLSCertPaths
-	if v, ok := priorOutputs["shared_tls_certs"].(*services.TLSCertPaths); ok {
+	if v, ok := priorOutputs["_shared_tls_certs"].(*services.TLSCertPaths); ok {
 		tlsCerts = v
 	}
 
