@@ -315,11 +315,12 @@ func (m *EVMTXGun) buildExtraArgs(srcSelector, destSelector uint64, opts cciptes
 			v3Opts.ExecutionGasLimit = def.V3LoadMessageOptions().ExecutionGasLimit
 		}
 	}
-	// Receiver is in MessageFields; token params nil for data-only load (matches evm2solana arb e2e).
+
+	// Receiver is in MessageFields; token params nil for data only load
 	return v3Src.BuildV3ExtraArgs(v3Opts, v3Dest, nil, nil, nil)
 }
 
-// selectMessageProfile builds message fields/options for load sends and applies sane defaults when no profile is configured.
+// selectMessageProfile builds message options for load sends and applies defaults when no profile is configured.
 func (m *EVMTXGun) selectMessageProfile(srcSelector, destSelector uint64) (cciptestinterfaces.MessageFields, cciptestinterfaces.MessageOptions, error) {
 	receiver, err := m.resolveReceiver(destSelector)
 	if err != nil {
