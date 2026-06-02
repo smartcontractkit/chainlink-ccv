@@ -8,7 +8,6 @@ import (
 // Registry maps top-level config keys to component factories.
 type Registry struct {
 	factories map[string]ComponentFactory
-	fallback  ComponentFactory
 }
 
 // NewRegistry creates an empty Registry.
@@ -26,53 +25,30 @@ func (r *Registry) Register(configKey string, fac ComponentFactory) error {
 	return nil
 }
 
-// SetFallback registers a catch-all factory for config keys not claimed by any registered component.
-// The fallback component receives only unclaimed keys as its componentConfig.
-func (r *Registry) SetFallback(fac ComponentFactory) {
-	r.fallback = fac
-}
-
 // instantiate creates all components for the given raw config.
-// Returns specific components (keyed by config key) and the fallback component (nil if none registered).
-func (r *Registry) instantiate(previousOutput map[string]any) (map[string]Component, Component, error) {
+func (r *Registry) instantiate(previousOutput map[string]any) (map[string]Component, error) {
 	specific := make(map[string]Component, len(r.factories))
 	for key, fac := range r.factories {
 		comp, err := fac(previousOutput)
 		if err != nil {
-			return nil, nil, fmt.Errorf("creating component %q: %w", key, err)
+			return nil, fmt.Errorf("creating component %q: %w", key, err)
 		}
 		specific[key] = comp
 	}
-
-	var fallbackComp Component
-	if r.fallback != nil {
-		comp, err := r.fallback(previousOutput)
-		if err != nil {
-			return nil, nil, fmt.Errorf("creating fallback component: %w", err)
-		}
-		fallbackComp = comp
-	}
-
-	return specific, fallbackComp, nil
+	return specific, nil
 }
 
 // validate calls ValidateConfig on all instantiated components whose
 // top-level config key is present in rawConfig. Components whose key is
 // unset are dormant — neither validated nor phase-executed — so registered
 // components can sit out runs that don't configure them.
-func (r *Registry) validate(rawConfig map[string]any, specific map[string]Component, fallback Component) error {
+func (r *Registry) validate(rawConfig map[string]any, specific map[string]Component) error {
 	for key, comp := range specific {
 		if _, ok := rawConfig[key]; !ok {
 			continue
 		}
 		if err := comp.ValidateConfig(rawConfig[key]); err != nil {
 			return fmt.Errorf("component %q config invalid: %w", key, err)
-		}
-	}
-	if fallback != nil {
-		unclaimed := unclaimedKeys(rawConfig, r.factories)
-		if err := fallback.ValidateConfig(unclaimed); err != nil {
-			return fmt.Errorf("fallback component config invalid: %w", err)
 		}
 	}
 	return nil
@@ -93,11 +69,6 @@ var global = NewRegistry()
 // Register adds a component to the global registry.
 func Register(configKey string, fac ComponentFactory) error {
 	return global.Register(configKey, fac)
-}
-
-// SetFallback sets the fallback component on the global registry.
-func SetFallback(fac ComponentFactory) {
-	global.SetFallback(fac)
 }
 
 // GlobalRegistry returns the package-level registry populated by component init() calls.

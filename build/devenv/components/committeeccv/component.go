@@ -94,7 +94,10 @@ func (c *component) RunPhase3(
 	}
 	impls, _ := priorOutputs["_impls"].([]cciptestinterfaces.CCIP17Configuration)
 	blockchains, _ := priorOutputs["blockchains"].([]*ctfblockchain.Input)
-	useLegacyConfigureLane, _ := priorOutputs["_use_legacy_configure_lane"].(bool)
+	var useLegacyConfigureLane bool
+	if pcMap, ok := globalConfig["protocol_contracts"].(map[string]any); ok {
+		useLegacyConfigureLane, _ = pcMap["use_legacy_configure_lane"].(bool)
+	}
 
 	// Step 1: Generate HMAC client credentials for all aggregators before launching verifiers.
 	for _, agg := range aggregators {
