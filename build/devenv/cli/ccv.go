@@ -552,6 +552,9 @@ Examples:
 			if err != nil {
 				return fmt.Errorf("failed to resolve output path: %w", err)
 			}
+			progress("tearing down any existing environment...")
+			_ = framework.RemoveTestContainers()
+
 			progress(fmt.Sprintf("starting environment (profile: %s, output: %s)...", profileName, absOutput))
 			if err := applyProfile(profileName); err != nil {
 				return err
@@ -561,7 +564,10 @@ Examples:
 			if err := newEnvFn(); err != nil {
 				return fmt.Errorf("environment startup failed: %w", err)
 			}
-			extraEnv = []string{fmt.Sprintf("SMOKE_TEST_CONFIG=%s", absOutput)}
+			extraEnv = []string{
+				fmt.Sprintf("SMOKE_TEST_CONFIG=%s", absOutput),
+				fmt.Sprintf("HA_TEST_CONFIG=%s", absOutput),
+			}
 		}
 
 		// Stage 3: run the test.
