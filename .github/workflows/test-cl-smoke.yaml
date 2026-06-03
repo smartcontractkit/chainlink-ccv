@@ -1,4 +1,4 @@
-name: Test Chainlink Node Integration
+name: E2E Smoke Test (CL-Node)
 
 on:
   merge_group:
@@ -51,6 +51,7 @@ jobs:
 
 
   e2e-smoke-cl-mode:
+    name: ${{ matrix.test.name }}
     needs: build-cl-image
     permissions:
       id-token: write
