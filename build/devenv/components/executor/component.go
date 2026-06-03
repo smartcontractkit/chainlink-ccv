@@ -14,6 +14,8 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainreg"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
+	blockchainscomp "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/blockchains"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/components/observability"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
 	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
@@ -29,6 +31,10 @@ import (
 )
 
 const configKey = "executor"
+
+// Version is the executor component config schema version. Exactly this version
+// is supported; configs declaring any other version are rejected.
+const Version = 1
 
 func init() {
 	if err := devenvruntime.Register(configKey, factory); err != nil {
@@ -64,12 +70,11 @@ func (c *component) RunPhase3(
 		return map[string]any{configKey: executors}, nil, nil
 	}
 
-	blockchainOutputs, ok := priorOutputs["blockchainOutputs"].([]*ctfblockchain.Output)
+	blockchains, ok := priorOutputs["blockchains"].([]*ctfblockchain.Input)
 	if !ok {
-		return nil, nil, fmt.Errorf("phase 1 did not produce []*blockchain.Output under \"blockchainOutputs\"")
+		return nil, nil, fmt.Errorf("phase 1 did not produce []*blockchain.Input under \"blockchains\"")
 	}
-
-	blockchains, _ := priorOutputs["blockchains"].([]*ctfblockchain.Input)
+	blockchainOutputs := blockchainscomp.Outputs(blockchains)
 
 	jdInfra, ok := priorOutputs["jd"].(*jobs.JDInfrastructure)
 	if !ok || jdInfra == nil {
@@ -136,16 +141,20 @@ func (c *component) RunPhase3(
 	if !ok || e == nil {
 		return nil, nil, fmt.Errorf("executor: _env not found in phase outputs")
 	}
-	topology, ok := priorOutputs["_topology"].(*ccvdeployment.EnvironmentTopology)
+	topology, ok := priorOutputs["environment_topology"].(*ccvdeployment.EnvironmentTopology)
 	if !ok || topology == nil {
-		return nil, nil, fmt.Errorf("executor: _topology not found in phase outputs")
+		return nil, nil, fmt.Errorf("executor: environment_topology not found in phase outputs")
+	}
+	obs, ok := priorOutputs["observability"].(*observability.Observability)
+	if !ok || obs == nil {
+		return nil, nil, fmt.Errorf("executor: observability not found in phase outputs")
 	}
 	ds, ok := priorOutputs["_ds"].(datastore.MutableDataStore)
 	if !ok {
 		return nil, nil, fmt.Errorf("executor: _ds not found in phase outputs")
 	}
 
-	jobSpecs, err := buildExecutorJobSpecs(e, executors, topology, ds)
+	jobSpecs, err := buildExecutorJobSpecs(e, executors, topology, obs, ds)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -248,6 +257,7 @@ func buildExecutorJobSpecs(
 	e *deployment.Environment,
 	executors []*executorsvc.Input,
 	topology *ccvdeployment.EnvironmentTopology,
+	obs *observability.Observability,
 	ds datastore.MutableDataStore,
 ) (map[string]bootstrap.JobSpec, error) {
 	result := make(map[string]bootstrap.JobSpec)
@@ -279,8 +289,8 @@ func buildExecutorJobSpecs(
 			NOPs:              ccvchangesets.NOPInputsFromTopology(topology),
 			Pool:              ccvchangesets.ExecutorPoolInputFromTopology(pool),
 			IndexerAddress:    topology.IndexerAddress,
-			PyroscopeURL:      topology.PyroscopeURL,
-			Monitoring:        topology.Monitoring,
+			PyroscopeURL:      obs.PyroscopeURL,
+			Monitoring:        obs.Monitoring,
 			TargetNOPs:        ccvshared.ConvertStringToNopAliases(execNOPAliases),
 		})
 		if err != nil {
@@ -319,6 +329,11 @@ func decode(raw any) ([]*executorsvc.Input, error) {
 	}
 	if err := toml.Unmarshal(b, &wrapper); err != nil {
 		return nil, fmt.Errorf("decoding executor config: %w", err)
+	}
+	for i, in := range wrapper.V {
+		if err := devenvruntime.CheckConfigVersion(in.Version, Version); err != nil {
+			return nil, fmt.Errorf("executor entry %d: %w", i, err)
+		}
 	}
 	return wrapper.V, nil
 }

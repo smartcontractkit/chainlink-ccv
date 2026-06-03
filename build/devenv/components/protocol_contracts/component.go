@@ -24,6 +24,10 @@ import (
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
 
+// Version is the protocol_contracts component config schema version. Exactly
+// this version is supported; configs declaring any other version are rejected.
+const Version = 1
+
 func init() {
 	if err := devenvruntime.Register("protocol_contracts", factory); err != nil {
 		panic(fmt.Sprintf("protocol_contracts component: %v", err))
@@ -45,7 +49,10 @@ func (p *component) SetLogger(lggr zerolog.Logger) {
 	p.lggr = lggr.With().Str("component", "protocol_contracts").Logger()
 }
 
-func (p *component) ValidateConfig(_ any) error { return nil }
+func (p *component) ValidateConfig(componentConfig any) error {
+	_, err := decodeConfig(componentConfig)
+	return err
+}
 
 // RunPhase2 deploys contracts and configures lanes. Infrastructure services
 // (verifier launch, JD registration, credential generation) are handled by the
@@ -70,10 +77,13 @@ func (p *component) RunPhase2(
 	if !ok {
 		return nil, nil, fmt.Errorf("phase 2 did not produce *jobs.JDInfrastructure under \"jd\"")
 	}
-	envTopology, err := decodeTopology(globalConfig["environment_topology"])
+	// Topology lives under [protocol_contracts.environment_topology]; read it from
+	// this component's own config rather than the top-level raw config.
+	cfg, err := decodeConfig(componentConfig)
 	if err != nil {
-		return nil, nil, fmt.Errorf("decoding environment_topology: %w", err)
+		return nil, nil, err
 	}
+	envTopology := cfg.EnvironmentTopology
 	if envTopology == nil {
 		return nil, nil, fmt.Errorf("environment_topology is required but not found in config")
 	}
@@ -207,28 +217,41 @@ func (p *component) RunPhase2(
 	}
 
 	return map[string]any{
-		"_cldf":       cldf,
-		"_env":        e,
-		"_topology":   topology,
-		"_selectors":  selectors,
-		"_ds":         ds,
-		"_impls":      impls,
-		"_time_track": timeTrack,
+		// Public keys (serialized to the output file): cldf carries the deployed
+		// addresses + env metadata; environment_topology is read by tests. The
+		// remaining "_"-prefixed keys are runtime-only and stripped on serialize.
+		"cldf":                 cldf,
+		"environment_topology": topology,
+		"_env":                 e,
+		"_selectors":           selectors,
+		"_ds":                  ds,
+		"_impls":               impls,
+		"_time_track":          timeTrack,
 	}, nil, nil
 }
 
-func decodeTopology(raw any) (*ccvdeployment.EnvironmentTopology, error) {
-	b, err := toml.Marshal(struct {
-		V any `toml:"environment_topology"`
-	}{V: raw})
+// config is the [protocol_contracts] component config.
+type config struct {
+	Version int `toml:"version"`
+	// UseLegacyConfigureLane is consumed by the committeeccv component via the
+	// global config; it is decoded here so the strict round-trip accepts it.
+	UseLegacyConfigureLane bool                               `toml:"use_legacy_configure_lane"`
+	EnvironmentTopology    *ccvdeployment.EnvironmentTopology `toml:"environment_topology"`
+}
+
+// decodeConfig round-trips the raw TOML component config into a typed config and
+// verifies its declared version.
+func decodeConfig(raw any) (config, error) {
+	b, err := toml.Marshal(raw)
 	if err != nil {
-		return nil, fmt.Errorf("re-encoding environment_topology: %w", err)
+		return config{}, fmt.Errorf("re-encoding protocol_contracts config: %w", err)
 	}
-	var wrapper struct {
-		V *ccvdeployment.EnvironmentTopology `toml:"environment_topology"`
+	var cfg config
+	if err := toml.Unmarshal(b, &cfg); err != nil {
+		return config{}, fmt.Errorf("decoding protocol_contracts config: %w", err)
 	}
-	if err := toml.Unmarshal(b, &wrapper); err != nil {
-		return nil, fmt.Errorf("decoding environment_topology: %w", err)
+	if err := devenvruntime.CheckConfigVersion(cfg.Version, Version); err != nil {
+		return config{}, err
 	}
-	return wrapper.V, nil
+	return cfg, nil
 }

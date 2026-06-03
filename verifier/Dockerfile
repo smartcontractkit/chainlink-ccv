@@ -17,9 +17,15 @@ RUN --mount=type=cache,target=/root/.cache/go-build,id=ccv-go-build \
     --mount=type=cache,target=/go/pkg/mod,id=ccv-go-mod \
     CGO_ENABLED=0 go build -ldflags='-s -w' -o /bin/verifier main.go
 
-FROM alpine:latest
+FROM alpine:3.23
 RUN apk --no-cache add ca-certificates tini
-COPY --from=builder /bin/verifier /bin/
+
+# Create a non-root user and group for running the application
+RUN addgroup -S verifier && adduser -S verifier -G verifier
+
+COPY --chown=verifier:verifier --from=builder /bin/verifier /bin/
+USER verifier:verifier
+
 # tini is needed here because the verifier would otherwise run as PID 1
 # and we wouldn't be able to pause it with pkill -STOP.
 # Sometimes that is required because we have to run a CLI command to
