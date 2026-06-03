@@ -4,12 +4,6 @@ go 1.26.2
 
 replace github.com/fbsobreira/gotron-sdk => github.com/smartcontractkit/chainlink-tron/relayer/gotron-sdk v0.0.5-0.20251014124537-af6b1684fe15
 
-replace (
-	github.com/gogo/protobuf => github.com/regen-network/protobuf v1.3.3-alpha.regen.1
-	github.com/prometheus/common => github.com/prometheus/common v0.66.1
-	github.com/smartcontractkit/chainlink-testing-framework/lib => github.com/smartcontractkit/chainlink-testing-framework/lib v1.54.4
-)
-
 require (
 	github.com/BurntSushi/toml v1.5.0
 	github.com/beevik/ntp v1.5.0

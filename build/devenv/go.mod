@@ -513,11 +513,7 @@ require (
 // https://www.mend.io/vulnerability-database/CVE-2025-30204?utm_source=JetBrains
 exclude github.com/golang-jwt/jwt/v4 v4.5.1
 
-replace github.com/ebitengine/purego v0.8.2 => github.com/ebitengine/purego v0.8.4
-
 replace github.com/fbsobreira/gotron-sdk => github.com/smartcontractkit/chainlink-tron/relayer/gotron-sdk v0.0.5-0.20251014124537-af6b1684fe15
-
-replace github.com/gogo/protobuf => github.com/regen-network/protobuf v1.3.3-alpha.regen.1
 
 // Repeat replaces from chainlink-canton
 replace github.com/digital-asset/dazl-client/v8 => github.com/noders-team/dazl-client/v8 v8.7.1-2
