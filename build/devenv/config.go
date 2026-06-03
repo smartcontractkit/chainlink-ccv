@@ -113,7 +113,11 @@ func Store[T any](cfg *T) error {
 // Either way it rebuilds the CLDF datastore from the deployed addresses. The
 // generic T is retained for the existing call sites; only *Cfg is supported.
 func LoadOutput[T any](outputPath string) (*T, error) {
-	data, err := os.ReadFile(filepath.Join(DefaultConfigDir, outputPath))
+	resolved := outputPath
+	if !filepath.IsAbs(outputPath) {
+		resolved = filepath.Join(DefaultConfigDir, outputPath)
+	}
+	data, err := os.ReadFile(resolved)
 	if err != nil {
 		return nil, fmt.Errorf("error reading config file %s: %w", outputPath, err)
 	}

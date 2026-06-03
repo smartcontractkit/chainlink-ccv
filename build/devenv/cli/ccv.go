@@ -6,6 +6,7 @@ import (
 	"math/big"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -470,6 +471,7 @@ Examples:
 		profileName, _ := cmd.Flags().GetString("profile")
 		timeout, _ := cmd.Flags().GetDuration("timeout")
 		build, _ := cmd.Flags().GetBool("build")
+		logPath, _ := cmd.Flags().GetString("log")
 
 		if len(args) > 0 && patternFlag != "" {
 			return fmt.Errorf("cannot combine a suite name with --pattern")
@@ -494,9 +496,43 @@ Examples:
 			}
 		}
 
+		// Set up log file: redirect ALL output (build, env startup, test) to a
+		// file so the terminal only shows concise progress lines. We redirect at
+		// the OS fd level (dup2) so that subprocesses, zerolog, and fmt.Print*
+		// calls all land in the log regardless of how they open stdout/stderr.
+		progress := func(msg string) { fmt.Fprintln(os.Stderr, msg) }
+		if logPath != "" {
+			lf, err := os.Create(logPath)
+			if err != nil {
+				return fmt.Errorf("failed to create log file %s: %w", logPath, err)
+			}
+			defer lf.Close()
+
+			// Save the real terminal fds so progress messages can still reach it.
+			realStdoutFd, _ := syscall.Dup(int(os.Stdout.Fd()))
+			realStderrFd, _ := syscall.Dup(int(os.Stderr.Fd()))
+			realTerm := os.NewFile(uintptr(realStderrFd), "real_stderr")
+			defer func() {
+				// Restore terminal fds on exit.
+				_ = syscall.Dup2(realStdoutFd, int(os.Stdout.Fd()))
+				_ = syscall.Dup2(realStderrFd, int(os.Stderr.Fd()))
+				_ = syscall.Close(realStdoutFd)
+				// realStderrFd is owned by realTerm; closing realTerm closes it.
+				_ = realTerm.Close()
+			}()
+
+			// Redirect stdout and stderr to the log file.
+			_ = syscall.Dup2(int(lf.Fd()), int(os.Stdout.Fd()))
+			_ = syscall.Dup2(int(lf.Fd()), int(os.Stderr.Fd()))
+
+			progress = func(msg string) {
+				fmt.Fprintf(realTerm, "[ccv test] %s\n", msg)
+			}
+		}
+
 		// Stage 1: optional image build.
 		if build {
-			ccv.Plog.Info().Msg("Building service Docker images (just build-docker-dev)")
+			progress("building images...")
 			buildCmd := exec.Command("just", "build-docker-dev")
 			buildCmd.Stdout = os.Stdout
 			buildCmd.Stderr = os.Stderr
@@ -512,7 +548,11 @@ Examples:
 				profileName += ".profile"
 			}
 			outputFile := fmt.Sprintf("test-%s-out.toml", generateRunID())
-			ccv.Plog.Info().Str("profile", profileName).Str("output", outputFile).Msg("Starting environment")
+			absOutput, err := filepath.Abs(outputFile)
+			if err != nil {
+				return fmt.Errorf("failed to resolve output path: %w", err)
+			}
+			progress(fmt.Sprintf("starting environment (profile: %s, output: %s)...", profileName, absOutput))
 			if err := applyProfile(profileName); err != nil {
 				return err
 			}
@@ -521,7 +561,7 @@ Examples:
 			if err := newEnvFn(); err != nil {
 				return fmt.Errorf("environment startup failed: %w", err)
 			}
-			extraEnv = []string{fmt.Sprintf("SMOKE_TEST_CONFIG=../../%s", outputFile)}
+			extraEnv = []string{fmt.Sprintf("SMOKE_TEST_CONFIG=%s", absOutput)}
 		}
 
 		// Stage 3: run the test.
@@ -534,7 +574,7 @@ Examples:
 			"-run", testPattern,
 			fmt.Sprintf("-timeout=%s", timeoutStr),
 		}
-		ccv.Plog.Info().Str("test", testPattern).Str("dir", testDir).Msg("Running test")
+		progress(fmt.Sprintf("running test %s...", testPattern))
 		goTestCmd := exec.Command("go", goTestArgs...)
 		goTestCmd.Dir = testDir
 		goTestCmd.Stdout = os.Stdout
@@ -546,12 +586,18 @@ Examples:
 
 		if err := goTestCmd.Run(); err != nil {
 			if exitErr, ok := err.(*exec.ExitError); ok {
+				if logPath != "" {
+					progress(fmt.Sprintf("FAILED (log: %s)", logPath))
+				}
 				if status, ok := exitErr.Sys().(syscall.WaitStatus); ok {
 					os.Exit(status.ExitStatus())
 				}
 				os.Exit(1)
 			}
 			return fmt.Errorf("test run failed: %w", err)
+		}
+		if logPath != "" {
+			progress(fmt.Sprintf("PASSED (log: %s)", logPath))
 		}
 		return nil
 	},
@@ -862,7 +908,8 @@ func init() {
 	testCmd.Flags().StringP("profile", "p", "", "Profile to start before running tests (also sets per-run output file)")
 	testCmd.Flags().StringP("pattern", "r", "", "Raw Go test pattern (alternative to a named suite positional arg)")
 	testCmd.Flags().Duration("timeout", 0, "Test timeout (0 = unlimited)")
-	testCmd.Flags().Bool("build", false, "Build service Docker images before starting (requires --profile)")
+	testCmd.Flags().Bool("build", true, "Build service Docker images before starting; pass --build=false to skip (requires --profile)")
+	testCmd.Flags().String("log", "", "Write verbose output (build, env, test) to this file; only progress lines appear on the terminal")
 	rootCmd.AddCommand(testCmd)
 	rootCmd.AddCommand(indexerDBShellCmd)
 	rootCmd.AddCommand(printAddressesCmd)
@@ -948,4 +995,3 @@ func shellProfileArg(args []string) string {
 	}
 	return "standard.profile"
 }
-

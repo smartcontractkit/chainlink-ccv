@@ -57,37 +57,37 @@ jobs:
       contents: read
     runs-on: runs-on=${{ github.run_id }}-${{ strategy.job-index }}/family=c6i/cpu=32+48/ram=64+96/spot=false/image=ubuntu24-full-x64/extras=s3-cache+tmpfs
     strategy:
+      fail-fast: false
       matrix:
         test:
           - name: TestE2ESmoke_Basic
-            run_cmd: TestE2ESmoke_Basic
+            pattern: TestE2ESmoke_Basic
             profile: standard.clnode.ci.profile
             timeout: 15m
           - name: TestE2ESmoke_Basic_OneExecPerChain
-            run_cmd: TestE2ESmoke_Basic
+            pattern: TestE2ESmoke_Basic
             profile: standard.clnode.ci.one-exec-per-chain.profile
             timeout: 15m
           - name: TestE2ESmoke_TokenVerification
-            run_cmd: TestE2ESmoke_TokenVerification
+            pattern: TestE2ESmoke_TokenVerification
             profile: standard.clnode.ci.profile
             timeout: 15m
           - name: TestE2ESmoke_ExtraArgsV2
-            run_cmd: TestE2ESmoke_ExtraArgsV2
+            pattern: TestE2ESmoke_ExtraArgsV2
             profile: standard.clnode.ci.profile
             timeout: 10m
           - name: TestHA_CrossComponentDown
-            run_cmd: TestHA_CrossComponentDown
+            pattern: TestHA_CrossComponentDown
             profile: standard.ha.clnode.ci.profile
             timeout: 10m
           - name: Phased TestE2ESmoke_Basic
-            run_cmd: TestE2ESmoke_Basic
+            pattern: TestE2ESmoke_Basic
             profile: phased.clnode.ci.profile
             timeout: 15m
           # We need to configure HeadTracker for the CL tests to have finality depth. Otherwise, it does instant finality.
           # - name: TestE2EReorg
           #   profile: standard.src-auto-mine.clnode.ci.profile
           #   timeout: 5m
-      fail-fast: false
     steps:
       - name: Enable S3 Cache for Self-Hosted Runners
         uses: runs-on/action@cd2b598b0515d39d78c38a02d529db87d2196d1e # v2.0.3
@@ -149,34 +149,26 @@ jobs:
             build/devenv/go.sum
 
       - name: Download Go dependencies
-        run: |
-          go mod download
+        run: go mod download
 
       - name: Build Docker Images
         run: just build-docker-ci
         env:
           DOCKER_BUILDKIT: 1
 
-      - name: Run Observability Stack
-        run: |
-          cd cmd/ccv && go install . && cd -
-          ccv obs u -m loki
+      - name: Install ccv CLI
+        run: go install ./cmd/ccv
 
-      - name: Run CCV environment with config
+      - name: Run Observability Stack
+        run: ccv obs up -m loki
+
+      - name: Run Test ${{ matrix.test.name }}
+        id: test_run
+        run: ccv test --profile ${{ matrix.test.profile }} --pattern '${{ matrix.test.pattern }}' --timeout ${{ matrix.test.timeout }} --build=false
+        continue-on-error: true
         env:
           JD_IMAGE: ${{ secrets.JD_IMAGE }}
-        run: |
-          ccv u --profile ${{ matrix.test.profile }} --output env-out.toml
-
-      - name: Run Smoke Test
-        id: test_run
-        working-directory: build/devenv/tests/e2e
-        env:
           LOKI_URL: http://localhost:3030/loki/api/v1/push
-        run: |
-          set -o pipefail
-          go test -v -timeout ${{ matrix.test.timeout }} -count=1 -run ${{ matrix.test.run_cmd }}
-        continue-on-error: true
 
       - name: Dump logs if they're not already dumped
         if: always()

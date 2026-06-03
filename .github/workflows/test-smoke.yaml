@@ -24,65 +24,53 @@ jobs:
       matrix:
         test:
           - name: TestE2ESmoke_Basic
-            run_cmd: TestE2ESmoke_Basic
+            pattern: TestE2ESmoke_Basic
             profile: standard.profile
             timeout: 15m
-            working-directory: build/devenv/tests/e2e
           - name: TestE2ESmoke_Basic_OneExecPerChain
-            run_cmd: TestE2ESmoke_Basic
+            pattern: TestE2ESmoke_Basic
             profile: standard.one-exec-per-chain.profile
             timeout: 15m
-            working-directory: build/devenv/tests/e2e
           - name: TestE2ESmoke_TokenVerification
-            run_cmd: TestE2ESmoke_TokenVerification
+            pattern: TestE2ESmoke_TokenVerification
             profile: standard.profile
             timeout: 15m
-            working-directory: build/devenv/tests/e2e
           - name: TestE2ESmoke_ExtraArgsV2
-            run_cmd: TestE2ESmoke_ExtraArgsV2
+            pattern: TestE2ESmoke_ExtraArgsV2
             profile: standard.profile
             timeout: 10m
-            working-directory: build/devenv/tests/e2e
           - name: TestE2ESmoke_ChainStatus
-            run_cmd: TestE2ESmoke_ChainStatus
+            pattern: TestE2ESmoke_ChainStatus
             profile: standard.profile
             timeout: 10m
-            working-directory: build/devenv/tests/e2e
           - name: TestE2ESmoke_JobQueue
-            run_cmd: TestE2ESmoke_JobQueue
+            pattern: TestE2ESmoke_JobQueue
             profile: standard.profile
             timeout: 10m
-            working-directory: build/devenv/tests/e2e
           - name: TestE2ESmoke_Replay
-            run_cmd: TestE2ESmoke_Replay
+            pattern: TestE2ESmoke_Replay
             profile: standard.profile
             timeout: 10m
-            working-directory: build/devenv/tests/e2e
           - name: TestE2EReorg
-            run_cmd: TestE2EReorg
+            pattern: TestE2EReorg
             profile: standard.src-auto-mine.profile
             timeout: 5m
-            working-directory: build/devenv/tests/e2e
           - name: TestChaos_AggregatorOutageRecovery
-            run_cmd: TestChaos_AggregatorOutageRecovery
+            pattern: TestChaos_AggregatorOutageRecovery
             profile: standard.profile
             timeout: 5m
-            working-directory: build/devenv/tests/e2e
           - name: (TestChaos_VerifierFaultToleranceThresholdViolated|TestChaos_AllExecutorsDown|TestChaos_IndexerDown)
-            run_cmd: (TestChaos_VerifierFaultToleranceThresholdViolated|TestChaos_AllExecutorsDown|TestChaos_IndexerDown)
+            pattern: (TestChaos_VerifierFaultToleranceThresholdViolated|TestChaos_AllExecutorsDown|TestChaos_IndexerDown)
             profile: standard.profile
             timeout: 5m
-            working-directory: build/devenv/tests/e2e
           - name: TestE2ESmoke_AggregatorMessageDisablementRules
-            run_cmd: TestE2ESmoke_Aggregator(MessageDisablementRulesCLI|LaneDisablementRule|ChainDisablementRule)
+            pattern: TestE2ESmoke_Aggregator(MessageDisablementRulesCLI|LaneDisablementRule|ChainDisablementRule)
             profile: standard.src-auto-mine.profile
             timeout: 10m
-            working-directory: build/devenv/tests/e2e
           - name: Phased TestE2ESmoke_Basic
-            run_cmd: TestE2ESmoke_Basic
+            pattern: TestE2ESmoke_Basic
             profile: phased.profile
             timeout: 15m
-            working-directory: build/devenv/tests/e2e
     steps:
       - name: Enable S3 Cache for Self-Hosted Runners
         uses: runs-on/action@cd2b598b0515d39d78c38a02d529db87d2196d1e # v2.0.3
@@ -134,32 +122,29 @@ jobs:
           cache-dependency-path: build/devenv/go.sum
 
       - name: Download Go dependencies
-        run: |
-          go mod download
+        run: go mod download
 
       - name: Build Docker Images
         run: just build-docker-ci
         env:
           DOCKER_BUILDKIT: 1
 
-      - name: Run CCV environment
-        env:
-          JD_IMAGE: ${{ secrets.JD_IMAGE }}
-        run: |
-          cd cmd/ccv && go install . && cd -
-          ccv u --profile ${{ matrix.test.profile }} --output env-out.toml && ccv obs up -m loki
+      - name: Install ccv CLI
+        run: go install ./cmd/ccv
+
+      - name: Run Observability Stack
+        run: ccv obs up -m loki
 
       - name: Run Test ${{ matrix.test.name }}
         id: test_run
-        working-directory: ${{ matrix.test.working-directory }}
-        run: |
-          set -o pipefail
-          go test -v -timeout ${{ matrix.test.timeout }} -count=1 -run '${{ matrix.test.run_cmd }}'
+        run: ccv test --profile ${{ matrix.test.profile }} --pattern '${{ matrix.test.pattern }}' --timeout ${{ matrix.test.timeout }} --build=false
         continue-on-error: true
+        env:
+          JD_IMAGE: ${{ secrets.JD_IMAGE }}
 
       - name: Dump logs if they're not already dumped
         if: always()
-        working-directory: ${{ matrix.test.working-directory }}
+        working-directory: build/devenv/tests/e2e
         run: |
           if [ ! -d "logs" ] || [ -z "$(ls -A logs)" ]; then
             echo "Logs not found or empty. Dumping logs manually..."
@@ -181,7 +166,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: container-logs-standalone-${{ steps.sanitize_name.outputs.name }}
-          path: ${{ matrix.test.working-directory }}/logs
+          path: build/devenv/tests/e2e/logs
           retention-days: 1
 
       - name: Check test results
