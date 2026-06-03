@@ -36,6 +36,63 @@ type TestCase interface {
 	HavePrerequisites(ctx context.Context) bool
 }
 
+// DefaultV3ExecutionGasLimit is the execution gas limit used when SendConfig and MessageOptions omit it.
+const DefaultV3ExecutionGasLimit uint32 = 200_000
+
+// SendConfig holds pair-level settings for building and sending V3 CCIP messages in tcapi tests.
+type SendConfig struct {
+	ExecutionGasLimit   uint32 // 0: use opts if set, else DefaultV3ExecutionGasLimit
+	ExtraArgsParams     any    // passed to dest MessageV3Destination.GetExecutorArgs
+	TokenArgsParams     any    // passed to dest GetTokenArgs
+	TokenReceiverParams any    // passed to dest GetTokenReceiver
+	SendOption          cciptestinterfaces.ChainSendOption
+}
+
+// SendV3Message builds and sends a V3 message using BuildV3ExtraArgs, BuildChainMessage, and SendChainMessage.
+func SendV3Message(
+	ctx context.Context,
+	src, dst cciptestinterfaces.CCIP17,
+	destSelector uint64,
+	fields cciptestinterfaces.MessageFields,
+	opts cciptestinterfaces.MessageOptions,
+	cfg SendConfig,
+) (cciptestinterfaces.MessageSentEvent, error) {
+	chainAsSource, ok := src.(cciptestinterfaces.ChainAsSource)
+	if !ok {
+		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("source chain does not implement ChainAsSource")
+	}
+	v3Source, ok := src.(cciptestinterfaces.MessageV3Source)
+	if !ok {
+		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("source chain does not support V3 message")
+	}
+	v3Dest, ok := dst.(cciptestinterfaces.MessageV3Destination)
+	if !ok {
+		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("dest chain does not support V3 message")
+	}
+
+	if cfg.ExecutionGasLimit != 0 {
+		opts.ExecutionGasLimit = cfg.ExecutionGasLimit
+	} else if opts.ExecutionGasLimit == 0 {
+		opts.ExecutionGasLimit = DefaultV3ExecutionGasLimit
+	}
+
+	extraArgs, err := v3Source.BuildV3ExtraArgs(opts, v3Dest, cfg.ExtraArgsParams, cfg.TokenReceiverParams, cfg.TokenArgsParams)
+	if err != nil {
+		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("failed to encode V3 extra args: %w", err)
+	}
+
+	msg, err := chainAsSource.BuildChainMessage(ctx, fields, extraArgs)
+	if err != nil {
+		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("failed to build chain message: %w", err)
+	}
+
+	sent, _, err := chainAsSource.SendChainMessage(ctx, destSelector, msg, cfg.SendOption)
+	if err != nil {
+		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("failed to send chain message: %w", err)
+	}
+	return sent, nil
+}
+
 type TestingContext struct {
 	Ctx              context.Context
 	Impl             map[uint64]cciptestinterfaces.CCIP17

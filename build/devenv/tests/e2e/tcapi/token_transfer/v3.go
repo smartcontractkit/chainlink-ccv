@@ -35,6 +35,7 @@ type tokenTransferV3TestCaseBase struct {
 	useEOAReceiver  bool
 	numExpectedRecv int
 	numExpectedVer  int
+	sendConfig      tcapi.SendConfig
 }
 
 type tokenTransferV3TestCase struct {
@@ -83,8 +84,7 @@ func (tc *tokenTransferV3TestCase) Run(ctx context.Context) error {
 	}
 	l.Info().Uint64("SeqNo", seqNo).Str("Token", tc.combo.LocalPoolAddressRef().Qualifier).Msg("expecting sequence number")
 
-	sendRes, err := src.SendMessage(
-		ctx, tc.dst,
+	sendRes, err := tcapi.SendV3Message(ctx, src, dst, tc.dst,
 		cciptestinterfaces.MessageFields{
 			Receiver: tc.receiver,
 			TokenAmount: cciptestinterfaces.TokenAmount{
@@ -93,11 +93,10 @@ func (tc *tokenTransferV3TestCase) Run(ctx context.Context) error {
 			},
 		},
 		cciptestinterfaces.MessageOptions{
-			ExecutionGasLimit: 200_000,
-			FinalityConfig:    tc.finalityConfig,
-			Executor:          tc.executor,
+			FinalityConfig: tc.finalityConfig,
+			Executor:       tc.executor,
 		},
-		3,
+		tc.sendConfig,
 	)
 	if err != nil {
 		return fmt.Errorf("send message: %w", err)
@@ -182,11 +181,11 @@ func getTokenAddress(ds datastore.DataStore, chainSelector uint64, qualifier str
 }
 
 // TokenTransfer returns a single token transfer test case for the given combo, finality, receiver type, and name.
-func TokenTransfer(lib ccv.Lib, src, dest uint64, combo common.TokenCombination, finalityConfig protocol.Finality, useEOAReceiver bool, name string) tcapi.TestCase {
-	return tokenTransferCase(lib, src, dest, combo, finalityConfig, useEOAReceiver, name)
+func TokenTransfer(lib ccv.Lib, src, dest uint64, combo common.TokenCombination, finalityConfig protocol.Finality, useEOAReceiver bool, name string, cfg tcapi.SendConfig) tcapi.TestCase {
+	return tokenTransferCase(lib, src, dest, combo, finalityConfig, useEOAReceiver, name, cfg)
 }
 
-func tokenTransferCase(lib ccv.Lib, src, dest uint64, combo common.TokenCombination, finalityConfig protocol.Finality, useEOAReceiver bool, name string) *tokenTransferV3TestCase {
+func tokenTransferCase(lib ccv.Lib, src, dest uint64, combo common.TokenCombination, finalityConfig protocol.Finality, useEOAReceiver bool, name string, cfg tcapi.SendConfig) *tokenTransferV3TestCase {
 	return &tokenTransferV3TestCase{
 		tokenTransferV3TestCaseBase: tokenTransferV3TestCaseBase{
 			name:            name,
@@ -198,6 +197,7 @@ func tokenTransferCase(lib ccv.Lib, src, dest uint64, combo common.TokenCombinat
 			useEOAReceiver:  useEOAReceiver,
 			numExpectedRecv: combo.ExpectedReceiptIssuers(),
 			numExpectedVer:  combo.ExpectedVerifierResults(),
+			sendConfig:      cfg,
 		},
 		hydrate: func(ctx context.Context, tc *tokenTransferV3TestCase) bool {
 			ds, err := tc.lib.DataStore()
@@ -249,17 +249,17 @@ func tokenTransferCase(lib ccv.Lib, src, dest uint64, combo common.TokenCombinat
 }
 
 // All returns test cases for the given token combinations with EOA receiver and combo finality.
-func All(lib ccv.Lib, src, dest uint64, combos []common.TokenCombination) []tcapi.TestCase {
+func All(lib ccv.Lib, src, dest uint64, combos []common.TokenCombination, cfg tcapi.SendConfig) []tcapi.TestCase {
 	out := make([]tcapi.TestCase, 0, len(combos))
 	for _, combo := range combos {
 		name := fmt.Sprintf("token transfer EOA (%s)", combo.LocalPoolAddressRef().Qualifier)
-		out = append(out, tokenTransferCase(lib, src, dest, combo, combo.FinalityConfig(), true, name))
+		out = append(out, tokenTransferCase(lib, src, dest, combo, combo.FinalityConfig(), true, name, cfg))
 	}
 	return out
 }
 
 // All17 returns test cases for 2.0.0-only token combinations: EOA and mock receiver with default finality (0).
-func All17(lib ccv.Lib, src, dest uint64, combos []common.TokenCombination) []tcapi.TestCase {
+func All17(lib ccv.Lib, src, dest uint64, combos []common.TokenCombination, cfg tcapi.SendConfig) []tcapi.TestCase {
 	var filtered []common.TokenCombination
 	for _, tc := range combos {
 		if common.Is17Combination(tc) {
@@ -270,8 +270,8 @@ func All17(lib ccv.Lib, src, dest uint64, combos []common.TokenCombination) []tc
 	for _, combo := range filtered {
 		qual := combo.LocalPoolAddressRef().Qualifier
 		out = append(out,
-			tokenTransferCase(lib, src, dest, combo, 0, true, fmt.Sprintf("token transfer 1.7.0 EOA default finality (%s)", qual)),
-			tokenTransferCase(lib, src, dest, combo, 0, false, fmt.Sprintf("token transfer 1.7.0 mock receiver default finality (%s)", qual)),
+			tokenTransferCase(lib, src, dest, combo, 0, true, fmt.Sprintf("token transfer 1.7.0 EOA default finality (%s)", qual), cfg),
+			tokenTransferCase(lib, src, dest, combo, 0, false, fmt.Sprintf("token transfer 1.7.0 mock receiver default finality (%s)", qual), cfg),
 		)
 	}
 	return out
