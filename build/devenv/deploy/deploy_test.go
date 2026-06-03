@@ -238,6 +238,93 @@ func TestBuildTokenTransferBatchesSameTypeVersionsSplitByLocalVersion(t *testing
 	}
 }
 
+// TestBuildTokenTransferBatchesAsymmetricChainSupport verifies correct batching
+// when one chain (e.g. EVM) supports only Burn 2.0.0 while other chains (e.g. Solana)
+// support both Lock 1.6.1 and Burn 2.0.0. The splitter must produce symmetric
+// sub-batches where each config's RemoteChains are reciprocated.
+//
+// Expected split:
+//
+//	Batch 0: chain1-Burn(->chain2,chain3) + chain2-Lock(->chain1,chain3) + chain3-Lock(->chain1,chain2) - symmetric
+//	Batch 1: chain2-Burn(->chain3) + chain3-Burn(->chain2) - symmetric (no chain1: it lacks Lock)
+func TestBuildTokenTransferBatchesAsymmetricChainSupport(t *testing.T) {
+	const pairQualifier = "TEST (BurnMintTokenPool 2.0.0 [default], LockReleaseTokenPool 1.6.1 [])"
+
+	// chain1 (EVM-like): only Burn 2.0.0 (no Lock 1.6.1)
+	chain1Burn := datastore.AddressRef{
+		ChainSelector: 1,
+		Type:          datastore.ContractType("BurnMintTokenPool"),
+		Version:       semver.MustParse("2.0.0"),
+		Qualifier:     pairQualifier + "::BurnMintTokenPool 2.0.0 [default]",
+	}
+	// chain2 (Solana-like): both Lock 1.6.1 and Burn 2.0.0
+	chain2Lock := datastore.AddressRef{
+		ChainSelector: 2,
+		Type:          datastore.ContractType("LockReleaseTokenPool"),
+		Version:       semver.MustParse("1.6.1"),
+		Qualifier:     pairQualifier + "::LockReleaseTokenPool 1.6.1 []",
+	}
+	chain2Burn := datastore.AddressRef{
+		ChainSelector: 2,
+		Type:          datastore.ContractType("BurnMintTokenPool"),
+		Version:       semver.MustParse("2.0.0"),
+		Qualifier:     pairQualifier + "::BurnMintTokenPool 2.0.0 [default]",
+	}
+	// chain3 (Solana-like): both Lock 1.6.1 and Burn 2.0.0
+	chain3Lock := datastore.AddressRef{
+		ChainSelector: 3,
+		Type:          datastore.ContractType("LockReleaseTokenPool"),
+		Version:       semver.MustParse("1.6.1"),
+		Qualifier:     pairQualifier + "::LockReleaseTokenPool 1.6.1 []",
+	}
+	chain3Burn := datastore.AddressRef{
+		ChainSelector: 3,
+		Type:          datastore.ContractType("BurnMintTokenPool"),
+		Version:       semver.MustParse("2.0.0"),
+		Qualifier:     pairQualifier + "::BurnMintTokenPool 2.0.0 [default]",
+	}
+
+	batches, err := buildTokenTransferBatches([]tokenscore.TokenTransferConfig{
+		// chain1 (EVM): Burn local → references chain2-Lock and chain3-Lock
+		testTokenTransferConfig(chain1Burn, chain2Lock, chain3Lock),
+		// chain2 (Solana): Lock local → references chain1-Burn and chain3-Burn
+		testTokenTransferConfig(chain2Lock, chain1Burn, chain3Burn),
+		// chain2 (Solana): Burn local → references chain3-Lock only (chain1 lacks Lock)
+		testTokenTransferConfig(chain2Burn, chain3Lock),
+		// chain3 (Solana): Lock local → references chain1-Burn and chain2-Burn
+		testTokenTransferConfig(chain3Lock, chain1Burn, chain2Burn),
+		// chain3 (Solana): Burn local → references chain2-Lock only (chain1 lacks Lock)
+		testTokenTransferConfig(chain3Burn, chain2Lock),
+	})
+	require.NoError(t, err)
+	require.Len(t, batches, 2, "expected 2 sub-batches for asymmetric chain support")
+
+	for i, batch := range batches {
+		requireNoDuplicateTokenTransferSelectors(t, batch)
+		for _, cfg := range batch {
+			requireBatchContainsRemoteSelectors(t, batch, cfg)
+		}
+		// Also verify bidirectional symmetry: for every remote chain ref, the
+		// counterpart in the batch must reference back.
+		bySelector := make(map[uint64]tokenscore.TokenTransferConfig, len(batch))
+		for _, cfg := range batch {
+			bySelector[cfg.ChainSelector] = cfg
+		}
+		for _, cfg := range batch {
+			for remoteSelector := range cfg.RemoteChains {
+				counterpart, ok := bySelector[remoteSelector]
+				require.True(t, ok, "batch %d: missing counterpart for selector %d", i, remoteSelector)
+				_, hasBack := counterpart.RemoteChains[cfg.ChainSelector]
+				require.True(t, hasBack, "batch %d: counterpart selector %d does not reference back to %d", i, remoteSelector, cfg.ChainSelector)
+			}
+		}
+	}
+
+	// Verify batch sizes: one batch with 3 configs (chain1+chain2+chain3), one with 2 (chain2+chain3).
+	sizes := []int{len(batches[0]), len(batches[1])}
+	require.ElementsMatch(t, []int{3, 2}, sizes)
+}
+
 func testTokenPoolRef(selector uint64, qualifier string) datastore.AddressRef {
 	return datastore.AddressRef{
 		ChainSelector: selector,
