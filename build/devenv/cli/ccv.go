@@ -564,10 +564,7 @@ Examples:
 			if err := newEnvFn(); err != nil {
 				return fmt.Errorf("environment startup failed: %w", err)
 			}
-			extraEnv = []string{
-				fmt.Sprintf("SMOKE_TEST_CONFIG=%s", absOutput),
-				fmt.Sprintf("HA_TEST_CONFIG=%s", absOutput),
-			}
+			extraEnv = []string{fmt.Sprintf("SMOKE_TEST_CONFIG=%s", absOutput)}
 		}
 
 		// Stage 3: run the test.
