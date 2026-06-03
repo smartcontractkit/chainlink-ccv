@@ -36,7 +36,7 @@ func TestE2ESmoke_Basic(t *testing.T) {
 
 	src, dest := chains[0].CCIP17, chains[1].CCIP17
 
-	sendCfg := tcapi.SendConfig{}
+	sendCfg := tcapi.SendArgs{}
 	t.Run("extra args v3 messaging", func(t *testing.T) {
 		for _, tc := range basic.All(lib, src.ChainSelector(), dest.ChainSelector(), sendCfg) {
 			if tc.HavePrerequisites(ctx) {

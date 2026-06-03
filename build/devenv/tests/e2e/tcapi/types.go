@@ -39,8 +39,8 @@ type TestCase interface {
 // DefaultV3ExecutionGasLimit is the execution gas limit used when SendConfig and MessageOptions omit it.
 const DefaultV3ExecutionGasLimit uint32 = 200_000
 
-// SendConfig holds pair-level settings for building and sending V3 CCIP messages in tcapi tests.
-type SendConfig struct {
+// SendArgs holds pair-level settings for building and sending ExtraArgsV3 CCIP messages in tcapi tests.
+type SendArgs struct {
 	ExecutionGasLimit   uint32 // 0: use opts if set, else DefaultV3ExecutionGasLimit
 	ExtraArgsParams     any    // passed to dest MessageV3Destination.GetExecutorArgs
 	TokenArgsParams     any    // passed to dest GetTokenArgs
@@ -55,7 +55,7 @@ func SendV3Message(
 	destSelector uint64,
 	fields cciptestinterfaces.MessageFields,
 	opts cciptestinterfaces.MessageOptions,
-	cfg SendConfig,
+	sendArgs SendArgs,
 ) (cciptestinterfaces.MessageSentEvent, error) {
 	chainAsSource, ok := src.(cciptestinterfaces.ChainAsSource)
 	if !ok {
@@ -70,13 +70,13 @@ func SendV3Message(
 		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("dest chain does not support V3 message")
 	}
 
-	if cfg.ExecutionGasLimit != 0 {
-		opts.ExecutionGasLimit = cfg.ExecutionGasLimit
+	if sendArgs.ExecutionGasLimit != 0 {
+		opts.ExecutionGasLimit = sendArgs.ExecutionGasLimit
 	} else if opts.ExecutionGasLimit == 0 {
 		opts.ExecutionGasLimit = DefaultV3ExecutionGasLimit
 	}
 
-	extraArgs, err := v3Source.BuildV3ExtraArgs(opts, v3Dest, cfg.ExtraArgsParams, cfg.TokenReceiverParams, cfg.TokenArgsParams)
+	extraArgs, err := v3Source.BuildV3ExtraArgs(opts, v3Dest, sendArgs.ExtraArgsParams, sendArgs.TokenReceiverParams, sendArgs.TokenArgsParams)
 	if err != nil {
 		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("failed to encode V3 extra args: %w", err)
 	}
@@ -86,7 +86,7 @@ func SendV3Message(
 		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("failed to build chain message: %w", err)
 	}
 
-	sent, _, err := chainAsSource.SendChainMessage(ctx, destSelector, msg, cfg.SendOption)
+	sent, _, err := chainAsSource.SendChainMessage(ctx, destSelector, msg, sendArgs.SendOption)
 	if err != nil {
 		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("failed to send chain message: %w", err)
 	}

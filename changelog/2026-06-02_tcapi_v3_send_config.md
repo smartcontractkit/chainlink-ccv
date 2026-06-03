@@ -6,6 +6,7 @@
 - Introduces `tcapi.SendConfig` so callers supply pair-level execution gas, destination-shaped extra-args parameters (`any`), and optional `ChainSendOption` without importing chain-family types into generic test code.
 - Affects `build/devenv/tests/e2e/tcapi`, `tcapi/basic`, `tcapi/token_transfer`, and in-repo smoke tests that call `basic.All` / `token_transfer.All` / `All17`.
 - Breaking: `basic.All`, all exported `basic.*` case constructors, `token_transfer.All`, `token_transfer.All17`, and `token_transfer.TokenTransfer` gain a final `tcapi.SendConfig` parameter. `tcapi.TestCase` (`Run` / `HavePrerequisites`) is unchanged.
+- Behavior: TCAPI `Run` no longer calls `GetExpectedNextSequenceNumber`; `ConfirmSendOnSource` / `ConfirmExecOnDest` use `MessageEventKey{MessageID: ...}` from `SendV3Message` (aligns with `MessageV3TestScenario`).
 
 ## AI Adapter Index
 
@@ -37,6 +38,7 @@ The expected consumer of this changelog is an AI adapting a downstream repo. Thi
 | `tcapi.SendV3Message` | added | `\btcapi\.SendV3Message\(` | `build/devenv/tests/e2e/tcapi/types.go:52` | [#sendconfig-and-sendv3message](#sendconfig-and-sendv3message) |
 | `tcapi.TestCase.Run` | unchanged | — | `build/devenv/tests/e2e/tcapi/types.go:29` | — |
 | `tcapi.TestCase.HavePrerequisites` | unchanged | — | `build/devenv/tests/e2e/tcapi/types.go:36` | — |
+| TCAPI `Run` confirm path (`GetExpectedNextSequenceNumber` removed) | behavior-changed | `GetExpectedNextSequenceNumber` in `tcapi/` | `build/devenv/tests/e2e/tcapi/basic/v3.go:52` | [#tcapi-confirm-by-message-id](#tcapi-confirm-by-message-id) |
 
 ## Breaking Changes
 
@@ -68,6 +70,14 @@ The expected consumer of this changelog is an AI adapting a downstream repo. Thi
 - **After:** Both call `tcapi.SendV3Message`, which type-asserts `MessageV3Source` / `MessageV3Destination` / `ChainAsSource` and runs `BuildV3ExtraArgs` → `BuildChainMessage` → `SendChainMessage`.
 - **Why:** Aligns importable tests with composable chain interfaces and removes dependence on deprecated `SendMessage` for the tcapi packages.
 - **Who is affected:** Consumers relying on side effects of `SendMessage` inside TCAPI cases only; external callers of `TestCase.Run` see the same success/failure semantics for EVM→EVM with empty `SendConfig`.
+
+### TCAPI confirm by message ID
+
+- **What changed:** `v3TestCase.Run` and `tokenTransferV3TestCase.Run` no longer call `GetExpectedNextSequenceNumber` before send. After `tcapi.SendV3Message`, both `ConfirmSendOnSource` and `ConfirmExecOnDest` use `cciptestinterfaces.MessageEventKey{MessageID: sendResult.MessageID}` (same pattern as `messaging.MessageV3TestScenario`).
+- **Before:** Pre-read expected sequence number; confirm send/exec with `MessageEventKey{SeqNum: seqNo}`; take `messageID` from `ConfirmSendOnSource` for aggregator asserts.
+- **After:** `messageID` comes from `SendV3Message` / `SendChainMessage`; confirms key off that ID. Optional seq logging uses `sendResult.Message.SequenceNumber` when present.
+- **Why:** Reduces required chain API surface for importable tests (`GetExpectedNextSequenceNumber` is on full `CCIP17` / `Chain`, not `ChainAsSource`). Avoids seq races when another message lands on the lane between pre-read and send. Matches composable messaging tests.
+- **Who is affected:** Downstream code that assumed TCAPI cases depended on `GetExpectedNextSequenceNumber` (they no longer do). Other e2e tests outside `tcapi/basic` and `tcapi/token_transfer` are unchanged.
 
 ## Migration Guide
 
@@ -125,6 +135,12 @@ The expected consumer of this changelog is an AI adapting a downstream repo. Thi
 - **`tcapi.SendV3Message`** — shared helper: assert composable interfaces, merge gas from `SendConfig` / `MessageOptions`, `BuildV3ExtraArgs`, `BuildChainMessage`, `SendChainMessage`. See `build/devenv/tests/e2e/tcapi/types.go:52`.
   - Usage: optional direct use in custom test drivers; TCAPI `basic` and `token_transfer` already call it from `Run`.
 
+## Compatibility & Requirements
+
+- **Non-zero `MessageID` on send:** `MessageEventKey` requires either a non-zero `MessageID` or non-zero `SeqNum` (`cciptestinterfaces` validation in `ConfirmSendOnSource` / `ConfirmExecOnDest`). Every `ChainAsSource.SendChainMessage` implementation used with TCAPI must populate `MessageSentEvent.MessageID` on success. TCAPI `Run` returns an error if send succeeds but `MessageID` is zero. EVM does this from the tx receipt; verify Solana/Canton (and any new source) before running cross-family TCAPI suites.
+- **`GetExpectedNextSequenceNumber`:** Still exists on `cciptestinterfaces.Chain` / `CCIP17` for other e2e tests; TCAPI importable cases no longer call it.
+- **Confirm after send:** TCAPI still calls `ConfirmSendOnSource` after `SendV3Message` so log polling can observe the on-chain sent event (same as `MessageV3TestScenario`), even when the send path already returns `MessageID`.
+
 ## Examples
 
 ```go
@@ -146,4 +162,4 @@ require.NoError(t, tc.Run(ctx))
 ## References
 
 - Prior changelog entries: `changelog/2026-04-27_extra_args_data_provider.md`, `changelog/2026-05-18_simplify_tcapi.md`
-- Composable send reference: `build/devenv/tests/composable/messaging/agnostic_chain_test.go` (`MessageV3TestScenario`)
+- Composable send/confirm reference: `build/devenv/tests/composable/messaging/agnostic_chain_test.go` (`MessageV3TestScenario` uses `MessageEventKey{MessageID: sentEvent.MessageID}`)
