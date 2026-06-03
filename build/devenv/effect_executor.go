@@ -105,8 +105,22 @@ func executeJobProposalEffects(ctx context.Context, effects []devenvruntime.JobP
 		}
 	}
 
+	// Accept pending job proposals on CL nodes before verifying. Mirrors the
+	// monolith order (AcceptPendingJobs then SyncAndVerifyJobProposals).
+	clNodeClients, _ := accumulated["_clnode_clients"].(*jobs.NodeSetClientLookup)
+	if err := jobs.AcceptPendingJobs(ctx, clNodeClients); err != nil {
+		return fmt.Errorf("accepting pending CL node jobs: %w", err)
+	}
+
 	if e, ok := accumulated["_env"].(*deployment.Environment); ok && e != nil {
-		if err := jobs.SyncAndVerifyJobProposals(e); err != nil {
+		// The Phase-2 _env has empty NodeIDs (CL nodes registered in Phase 3).
+		// Build a local copy with NodeIDs populated from JD so SyncJobProposals
+		// can map NOP aliases to JD node IDs.
+		syncEnv := *e
+		if nodeIDs := jdInfra.GetNodeIDs(); len(nodeIDs) > 0 {
+			syncEnv.NodeIDs = nodeIDs
+		}
+		if err := jobs.SyncAndVerifyJobProposals(&syncEnv); err != nil {
 			return fmt.Errorf("syncing job proposals: %w", err)
 		}
 	}
