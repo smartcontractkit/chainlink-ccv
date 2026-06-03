@@ -446,107 +446,55 @@ var obsRestartCmd = &cobra.Command{
 }
 
 var testCmd = &cobra.Command{
-	Use:     "test",
+	Use:     "test [suite]",
 	Aliases: []string{"t"},
-	Short:   "Run the tests",
+	Short:   "Run a named test suite or raw pattern against the devenv",
+	Long: `test runs a Go test suite against the devenv.
+
+Named suites (positional argument):
+  smoke, smoke-v2, smoke-v3, load, rpc-latency, gas-spikes, reorg, chaos,
+  indexer-load, multi_chain_load
+
+Without --profile the environment must already be running. With --profile
+the environment is started first (written to a per-run output file so
+concurrent runs do not collide).
+
+Examples:
+  ccv test smoke                                   # against running env
+  ccv test smoke --profile standard                # start env, then run
+  ccv test --pattern TestE2ESmoke/foo --profile p  # raw pattern, start env
+  ccv test smoke --profile standard --build        # build images first`,
+	Args: cobra.RangeArgs(0, 1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		if len(args) != 1 {
-			return fmt.Errorf("specify the test suite: smoke or load")
-		}
-		var testPattern string
-		switch args[0] {
-		case "smoke":
-			testPattern = "TestE2ESmoke"
-		case "smoke-v2":
-			testPattern = "TestE2ESmoke/test_extra_args_v2_messages"
-		case "smoke-v3":
-			testPattern = "TestE2ESmoke/test_extra_args_v3_messages"
-		case "load":
-			testPattern = "TestE2ELoad/clean"
-		case "rpc-latency":
-			testPattern = "TestE2ELoad/rpc_latency"
-		case "gas-spikes":
-			testPattern = "TestE2ELoad/gas"
-		case "reorg":
-			testPattern = "TestE2ELoad/reorg"
-		case "chaos":
-			testPattern = "TestE2ELoad/chaos"
-		case "indexer-load":
-			testPattern = "TestIndexerLoad"
-		case "multi_chain_load":
-			testPattern = "TestStaging/multi_chain_load"
-		default:
-			return fmt.Errorf("test suite %s is unknown, choose between smoke or load", args[0])
-		}
-		originalDir, err := os.Getwd()
-		if err != nil {
-			return fmt.Errorf("failed to get current directory: %w", err)
-		}
-		defer os.Chdir(originalDir)
-
-		if isServiceLoadTest(testPattern) {
-			if err := os.Chdir("tests/services/load"); err != nil {
-				return fmt.Errorf("failed to change to tests/services/load directory: %w", err)
-			}
-		} else {
-			if err := os.Chdir("tests/e2e"); err != nil {
-				return fmt.Errorf("failed to change to tests/e2e directory: %w", err)
-			}
-		}
-
-		testCmd := exec.Command("go", "test", "-v", "-run", testPattern, "-timeout=0")
-		testCmd.Stdout = os.Stdout
-		testCmd.Stderr = os.Stderr
-		testCmd.Stdin = os.Stdin
-
-		if err := testCmd.Run(); err != nil {
-			if exitError, ok := err.(*exec.ExitError); ok {
-				if status, ok := exitError.Sys().(syscall.WaitStatus); ok {
-					os.Exit(status.ExitStatus())
-				}
-				os.Exit(1)
-			}
-			return fmt.Errorf("failed to run test command: %w", err)
-		}
-		return nil
-	},
-}
-
-var runCmd = &cobra.Command{
-	Use:   "run",
-	Short: "Build images, start environment, and run a named test end-to-end",
-	Long: `run is a one-shot command that drives all three stages of a local
-integration test:
-
-  1. Build service Docker images (just build-docker-dev).
-  2. Start the environment using the given profile.
-  3. Execute the named Go test pattern in tests/e2e.
-
-The environment output is written to a run-specific file
-(test-<id>-out.toml) so multiple runs do not collide.
-
-Example:
-  ccv run --profile standard --test TestE2ESmoke_Basic
-  ccv run --profile phased   --test '(TestChaos_A|TestChaos_B)'`,
-	RunE: func(cmd *cobra.Command, args []string) error {
+		patternFlag, _ := cmd.Flags().GetString("pattern")
 		profileName, _ := cmd.Flags().GetString("profile")
-		testPattern, _ := cmd.Flags().GetString("test")
 		timeout, _ := cmd.Flags().GetDuration("timeout")
 		build, _ := cmd.Flags().GetBool("build")
 
-		if profileName == "" {
-			return fmt.Errorf("--profile is required")
+		if len(args) > 0 && patternFlag != "" {
+			return fmt.Errorf("cannot combine a suite name with --pattern")
 		}
-		if testPattern == "" {
-			return fmt.Errorf("--test is required")
-		}
-
-		// Accept profile names with or without the .profile extension.
-		if !strings.HasSuffix(profileName, ".profile") {
-			profileName += ".profile"
+		if build && profileName == "" {
+			return fmt.Errorf("--build requires --profile")
 		}
 
-		// Stage 1: build service images.
+		// Resolve the Go test pattern and target directory.
+		var testPattern, testDir string
+		if patternFlag != "" {
+			testPattern = patternFlag
+			testDir = "tests/e2e"
+		} else {
+			if len(args) == 0 {
+				return fmt.Errorf("specify a suite name or --pattern")
+			}
+			var err error
+			testPattern, testDir, err = resolveTestSuite(args[0])
+			if err != nil {
+				return err
+			}
+		}
+
+		// Stage 1: optional image build.
 		if build {
 			ccv.Plog.Info().Msg("Building service Docker images (just build-docker-dev)")
 			buildCmd := exec.Command("just", "build-docker-dev")
@@ -557,35 +505,44 @@ Example:
 			}
 		}
 
-		// Stage 2: start environment.
-		runID := generateRunID()
-		outputFile := fmt.Sprintf("test-%s-out.toml", runID)
-		ccv.Plog.Info().Str("profile", profileName).Str("output", outputFile).Msg("Starting environment")
-
-		if err := applyProfile(profileName); err != nil {
-			return err
-		}
-		_ = os.Setenv("CTF_OUTPUT", outputFile)
-		_ = os.Setenv("TESTCONTAINERS_RYUK_DISABLED", "true")
-		if err := newEnvFn(); err != nil {
-			return fmt.Errorf("environment startup failed: %w", err)
+		// Stage 2: optional environment start.
+		var extraEnv []string
+		if profileName != "" {
+			if !strings.HasSuffix(profileName, ".profile") {
+				profileName += ".profile"
+			}
+			outputFile := fmt.Sprintf("test-%s-out.toml", generateRunID())
+			ccv.Plog.Info().Str("profile", profileName).Str("output", outputFile).Msg("Starting environment")
+			if err := applyProfile(profileName); err != nil {
+				return err
+			}
+			_ = os.Setenv("CTF_OUTPUT", outputFile)
+			_ = os.Setenv("TESTCONTAINERS_RYUK_DISABLED", "true")
+			if err := newEnvFn(); err != nil {
+				return fmt.Errorf("environment startup failed: %w", err)
+			}
+			extraEnv = []string{fmt.Sprintf("SMOKE_TEST_CONFIG=../../%s", outputFile)}
 		}
 
 		// Stage 3: run the test.
-		// SMOKE_TEST_CONFIG is relative to the test directory (tests/e2e/).
-		smokeTestConfig := fmt.Sprintf("../../%s", outputFile)
-		ccv.Plog.Info().Str("test", testPattern).Str("config", smokeTestConfig).Msg("Running test")
-
+		timeoutStr := "0"
+		if timeout > 0 {
+			timeoutStr = timeout.String()
+		}
 		goTestArgs := []string{
 			"test", "-v", "-count=1",
 			"-run", testPattern,
-			fmt.Sprintf("-timeout=%s", timeout),
+			fmt.Sprintf("-timeout=%s", timeoutStr),
 		}
+		ccv.Plog.Info().Str("test", testPattern).Str("dir", testDir).Msg("Running test")
 		goTestCmd := exec.Command("go", goTestArgs...)
-		goTestCmd.Dir = "tests/e2e"
+		goTestCmd.Dir = testDir
 		goTestCmd.Stdout = os.Stdout
 		goTestCmd.Stderr = os.Stderr
-		goTestCmd.Env = append(os.Environ(), fmt.Sprintf("SMOKE_TEST_CONFIG=%s", smokeTestConfig))
+		goTestCmd.Stdin = os.Stdin
+		if len(extraEnv) > 0 {
+			goTestCmd.Env = append(os.Environ(), extraEnv...)
+		}
 
 		if err := goTestCmd.Run(); err != nil {
 			if exitErr, ok := err.(*exec.ExitError); ok {
@@ -598,6 +555,33 @@ Example:
 		}
 		return nil
 	},
+}
+
+func resolveTestSuite(suite string) (pattern, dir string, err error) {
+	switch suite {
+	case "smoke":
+		return "TestE2ESmoke", "tests/e2e", nil
+	case "smoke-v2":
+		return "TestE2ESmoke/test_extra_args_v2_messages", "tests/e2e", nil
+	case "smoke-v3":
+		return "TestE2ESmoke/test_extra_args_v3_messages", "tests/e2e", nil
+	case "load":
+		return "TestE2ELoad/clean", "tests/e2e", nil
+	case "rpc-latency":
+		return "TestE2ELoad/rpc_latency", "tests/e2e", nil
+	case "gas-spikes":
+		return "TestE2ELoad/gas", "tests/e2e", nil
+	case "reorg":
+		return "TestE2ELoad/reorg", "tests/e2e", nil
+	case "chaos":
+		return "TestE2ELoad/chaos", "tests/e2e", nil
+	case "indexer-load":
+		return "TestIndexerLoad", "tests/services/load", nil
+	case "multi_chain_load":
+		return "TestStaging/multi_chain_load", "tests/e2e", nil
+	default:
+		return "", "", fmt.Errorf("unknown suite %q; valid: smoke, smoke-v2, smoke-v3, load, rpc-latency, gas-spikes, reorg, chaos, indexer-load, multi_chain_load", suite)
+	}
 }
 
 // generateRunID returns a short random ID for naming per-run output files.
@@ -875,12 +859,11 @@ func init() {
 	rootCmd.AddCommand(downCmd)
 
 	// utility
+	testCmd.Flags().StringP("profile", "p", "", "Profile to start before running tests (also sets per-run output file)")
+	testCmd.Flags().StringP("pattern", "r", "", "Raw Go test pattern (alternative to a named suite positional arg)")
+	testCmd.Flags().Duration("timeout", 0, "Test timeout (0 = unlimited)")
+	testCmd.Flags().Bool("build", false, "Build service Docker images before starting (requires --profile)")
 	rootCmd.AddCommand(testCmd)
-	runCmd.Flags().StringP("profile", "p", "", "Profile name or file (e.g. standard or standard.profile)")
-	runCmd.Flags().StringP("test", "t", "", "Go test pattern to run (passed to -run)")
-	runCmd.Flags().Duration("timeout", 15*time.Minute, "Test timeout")
-	runCmd.Flags().Bool("build", true, "Build service Docker images before starting (just build-docker-dev)")
-	rootCmd.AddCommand(runCmd)
 	rootCmd.AddCommand(indexerDBShellCmd)
 	rootCmd.AddCommand(printAddressesCmd)
 
@@ -966,6 +949,3 @@ func shellProfileArg(args []string) string {
 	return "standard.profile"
 }
 
-func isServiceLoadTest(testPattern string) bool {
-	return testPattern == "TestIndexerLoad"
-}

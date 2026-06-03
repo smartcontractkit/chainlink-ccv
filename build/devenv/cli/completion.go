@@ -59,13 +59,15 @@ func getSubCommands(parent string) []prompt.Suggest {
 		return []prompt.Suggest{
 			{Text: "smoke", Description: "Send all the example messages between 1337 <> 2337"},
 			{Text: "smoke-v2", Description: "Send an example ArgsV2 message between 1337 <> 2337 local Anvil chains (EVM)"},
-			{Text: "smoke-v3", Description: "Send an example ArgsV2 message between 1337 <> 2337 local Anvil chains (EVM)"},
+			{Text: "smoke-v3", Description: "Send an example ArgsV3 message between 1337 <> 2337 local Anvil chains (EVM)"},
 			{Text: "load", Description: "Run the default load test (1msg/s) 1337 -> 2337 local Anvil chain (EVM)"},
 			{Text: "rpc-latency", Description: "Default load test + 400ms RPC latency (all chains)"},
 			{Text: "gas-spikes", Description: "Default load test + slow and fast gas spikes"},
-			{Text: "reorgs", Description: "Default load test + reorgs (Requires 'up env.toml,env-geth.toml' environment"},
+			{Text: "reorg", Description: "Default load test + reorgs (Requires 'up env.toml,env-geth.toml' environment"},
 			{Text: "chaos", Description: "Default load test + chaos (restarts, latency, data loss between services)"},
 			{Text: "indexer-load", Description: "Indexer Load Test (50msg/s)"},
+			{Text: "--profile standard", Description: "Start env from standard.profile, then run the suite"},
+			{Text: "--pattern", Description: "Raw Go test pattern (e.g. --pattern TestE2ESmoke/foo)"},
 		}
 	case "addresses":
 		return []prompt.Suggest{
