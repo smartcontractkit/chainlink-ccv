@@ -32,7 +32,7 @@ type tokenTransferV3TestCaseBase struct {
 	useEOAReceiver  bool
 	numExpectedRecv int
 	numExpectedVer  int
-	sendConfig      tcapi.SendArgs
+	args Args
 }
 
 type tokenTransferV3TestCase struct {
@@ -93,11 +93,28 @@ func (tc *tokenTransferV3TestCase) Run(ctx context.Context) error {
 	}
 	l.Info().Str("Sender", tc.sender.String()).Uint64("SrcStartBalance", srcStartBal.Uint64()).Str("Token", tc.combo.LocalPoolAddressRef().Qualifier).Msg("sender start balance")
 
+	transferAmount := big.NewInt(tokenTransferAmount)
+	if tc.args.TransferAmount != nil {
+		transferAmount = tc.args.TransferAmount
+	}
+	destIncrease := transferAmount
+	if tc.args.DestBalanceIncrease != nil {
+		destIncrease = tc.args.DestBalanceIncrease
+	}
+	execTimeout := tokenTransferExecTimeout
+	if tc.args.ConfirmExecTimeout != 0 {
+		execTimeout = tc.args.ConfirmExecTimeout
+	}
+	msgReceiver := tc.receiver
+	if tc.args.Send.TokenReceiverParams != nil {
+		msgReceiver = make([]byte, len(tc.receiver))
+	}
+
 	sendRes, err := tcapi.SendV3Message(ctx, src, dst, tc.dst,
 		cciptestinterfaces.MessageFields{
-			Receiver: tc.receiver,
+			Receiver: msgReceiver,
 			TokenAmount: cciptestinterfaces.TokenAmount{
-				Amount:       big.NewInt(tokenTransferAmount),
+				Amount:       transferAmount,
 				TokenAddress: tc.srcToken,
 			},
 		},
@@ -105,7 +122,7 @@ func (tc *tokenTransferV3TestCase) Run(ctx context.Context) error {
 			FinalityConfig: tc.finalityConfig,
 			Executor:       tc.executor,
 		},
-		tc.sendConfig,
+		tc.args.Send,
 	)
 	if err != nil {
 		return fmt.Errorf("send message: %w", err)
@@ -140,7 +157,7 @@ func (tc *tokenTransferV3TestCase) Run(ctx context.Context) error {
 
 	res, err := testCtx.AssertMessage(msgID, tcapi.AssertMessageOptions{
 		TickInterval:            1 * time.Second,
-		Timeout:                 tokenTransferExecTimeout,
+		Timeout:                 execTimeout,
 		ExpectedVerifierResults: tc.numExpectedVer,
 		AssertVerifierLogs:      false,
 		AssertExecutorLogs:      false,
@@ -152,7 +169,7 @@ func (tc *tokenTransferV3TestCase) Run(ctx context.Context) error {
 		return fmt.Errorf("aggregated result is nil")
 	}
 
-	execEvt, err := dst.ConfirmExecOnDest(ctx, tc.src, messageKey, tokenTransferExecTimeout)
+	execEvt, err := dst.ConfirmExecOnDest(ctx, tc.src, messageKey, execTimeout)
 	if err != nil {
 		return fmt.Errorf("wait for exec event: %w", err)
 	}
@@ -164,7 +181,7 @@ func (tc *tokenTransferV3TestCase) Run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("get receiver end balance: %w", err)
 	}
-	expectedEndBal := new(big.Int).Add(new(big.Int).Set(startBal), big.NewInt(tokenTransferAmount))
+	expectedEndBal := new(big.Int).Add(new(big.Int).Set(startBal), destIncrease)
 	if endBal.Cmp(expectedEndBal) != 0 {
 		return fmt.Errorf("receiver end balance: expected %s, got %s", expectedEndBal.String(), endBal.String())
 	}
@@ -174,7 +191,7 @@ func (tc *tokenTransferV3TestCase) Run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("get sender end balance: %w", err)
 	}
-	expectedSrcEndBal := new(big.Int).Sub(new(big.Int).Set(srcStartBal), big.NewInt(tokenTransferAmount))
+	expectedSrcEndBal := new(big.Int).Sub(new(big.Int).Set(srcStartBal), transferAmount)
 	if srcEndBal.Cmp(expectedSrcEndBal) != 0 {
 		return fmt.Errorf("sender end balance: expected %s, got %s", expectedSrcEndBal.String(), srcEndBal.String())
 	}
@@ -188,11 +205,11 @@ func (tc *tokenTransferV3TestCase) HavePrerequisites(ctx context.Context) bool {
 }
 
 // TokenTransfer returns a single token transfer test case for the given combo, finality, receiver type, and name.
-func TokenTransfer(lib ccv.Lib, src, dest uint64, combo common.TokenCombination, finalityConfig protocol.Finality, useEOAReceiver bool, name string, cfg tcapi.SendArgs) tcapi.TestCase {
-	return tokenTransferCase(lib, src, dest, combo, finalityConfig, useEOAReceiver, name, cfg)
+func TokenTransfer(lib ccv.Lib, src, dest uint64, combo common.TokenCombination, finalityConfig protocol.Finality, useEOAReceiver bool, name string, args Args) tcapi.TestCase {
+	return tokenTransferCase(lib, src, dest, combo, finalityConfig, useEOAReceiver, name, args)
 }
 
-func tokenTransferCase(lib ccv.Lib, src, dest uint64, combo common.TokenCombination, finalityConfig protocol.Finality, useEOAReceiver bool, name string, cfg tcapi.SendArgs) *tokenTransferV3TestCase {
+func tokenTransferCase(lib ccv.Lib, src, dest uint64, combo common.TokenCombination, finalityConfig protocol.Finality, useEOAReceiver bool, name string, args Args) *tokenTransferV3TestCase {
 	return &tokenTransferV3TestCase{
 		tokenTransferV3TestCaseBase: tokenTransferV3TestCaseBase{
 			name:            name,
@@ -204,7 +221,7 @@ func tokenTransferCase(lib ccv.Lib, src, dest uint64, combo common.TokenCombinat
 			useEOAReceiver:  useEOAReceiver,
 			numExpectedRecv: combo.ExpectedReceiptIssuers(),
 			numExpectedVer:  combo.ExpectedVerifierResults(),
-			sendConfig:      cfg,
+			args:            args,
 		},
 		hydrate: func(ctx context.Context, tc *tokenTransferV3TestCase) bool {
 			srcFamily, err := chain_selectors.GetSelectorFamily(tc.src)
@@ -275,17 +292,17 @@ func tokenTransferCase(lib ccv.Lib, src, dest uint64, combo common.TokenCombinat
 }
 
 // All returns test cases for the given token combinations with EOA receiver and combo finality.
-func All(lib ccv.Lib, src, dest uint64, combos []common.TokenCombination, cfg tcapi.SendArgs) []tcapi.TestCase {
+func All(lib ccv.Lib, src, dest uint64, combos []common.TokenCombination, args Args) []tcapi.TestCase {
 	out := make([]tcapi.TestCase, 0, len(combos))
 	for _, combo := range combos {
 		name := fmt.Sprintf("token transfer EOA (%s)", combo.LocalPoolAddressRef().Qualifier)
-		out = append(out, tokenTransferCase(lib, src, dest, combo, combo.FinalityConfig(), true, name, cfg))
+		out = append(out, tokenTransferCase(lib, src, dest, combo, combo.FinalityConfig(), true, name, args))
 	}
 	return out
 }
 
 // All17 returns test cases for 2.0.0-only token combinations: EOA and mock receiver with default finality (0).
-func All17(lib ccv.Lib, src, dest uint64, combos []common.TokenCombination, cfg tcapi.SendArgs) []tcapi.TestCase {
+func All17(lib ccv.Lib, src, dest uint64, combos []common.TokenCombination, args Args) []tcapi.TestCase {
 	var filtered []common.TokenCombination
 	for _, tc := range combos {
 		if common.Is17Combination(tc) {
@@ -296,8 +313,8 @@ func All17(lib ccv.Lib, src, dest uint64, combos []common.TokenCombination, cfg 
 	for _, combo := range filtered {
 		qual := combo.LocalPoolAddressRef().Qualifier
 		out = append(out,
-			tokenTransferCase(lib, src, dest, combo, 0, true, fmt.Sprintf("token transfer 1.7.0 EOA default finality (%s)", qual), cfg),
-			tokenTransferCase(lib, src, dest, combo, 0, false, fmt.Sprintf("token transfer 1.7.0 mock receiver default finality (%s)", qual), cfg),
+			tokenTransferCase(lib, src, dest, combo, 0, true, fmt.Sprintf("token transfer 1.7.0 EOA default finality (%s)", qual), args),
+			tokenTransferCase(lib, src, dest, combo, 0, false, fmt.Sprintf("token transfer 1.7.0 mock receiver default finality (%s)", qual), args),
 		)
 	}
 	return out

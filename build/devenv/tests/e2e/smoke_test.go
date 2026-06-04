@@ -52,7 +52,7 @@ func TestE2ESmoke_Basic(t *testing.T) {
 
 	t.Run("extra args v3 token transfer", func(t *testing.T) {
 		combos := common.AllTokenCombinations()
-		for _, tc := range token_transfer.All(lib, src.ChainSelector(), dest.ChainSelector(), combos, sendCfg) {
+		for _, tc := range token_transfer.All(lib, src.ChainSelector(), dest.ChainSelector(), combos, token_transfer.Args{Send: sendCfg}) {
 			if tc.HavePrerequisites(ctx) {
 				t.Run(tc.Name(), func(t *testing.T) {
 					subtestCtx := ccv.Plog.WithContext(t.Context())
@@ -62,7 +62,7 @@ func TestE2ESmoke_Basic(t *testing.T) {
 				t.Logf("Skipping %s because current environment does not have the prerequisites", tc.Name())
 			}
 		}
-		for _, tc := range token_transfer.All17(lib, src.ChainSelector(), dest.ChainSelector(), combos, sendCfg) {
+		for _, tc := range token_transfer.All17(lib, src.ChainSelector(), dest.ChainSelector(), combos, token_transfer.Args{Send: sendCfg}) {
 			if tc.HavePrerequisites(ctx) {
 				t.Run(tc.Name(), func(t *testing.T) {
 					subtestCtx := ccv.Plog.WithContext(t.Context())
