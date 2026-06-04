@@ -464,19 +464,22 @@ Examples:
   ccv test smoke                                   # against running env
   ccv test smoke --profile standard                # start env, then run
   ccv test --pattern TestE2ESmoke/foo --profile p  # raw pattern, start env
-  ccv test smoke --profile standard --build        # build images first`,
+  ccv test smoke --profile standard                        # build with build-docker (default)
+  ccv test smoke --profile standard --build=build-docker-ci # build with build-docker-ci (CI)
+  ccv test smoke --profile standard --build=false            # skip image build`,
 	Args: cobra.RangeArgs(0, 1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		patternFlag, _ := cmd.Flags().GetString("pattern")
 		profileName, _ := cmd.Flags().GetString("profile")
 		timeout, _ := cmd.Flags().GetDuration("timeout")
-		build, _ := cmd.Flags().GetBool("build")
+		buildTarget, _ := cmd.Flags().GetString("build")
 		logPath, _ := cmd.Flags().GetString("log")
 
 		if len(args) > 0 && patternFlag != "" {
 			return fmt.Errorf("cannot combine a suite name with --pattern")
 		}
-		if build && profileName == "" {
+		buildEnabled := buildTarget != "" && buildTarget != "false"
+		if buildEnabled && profileName == "" {
 			return fmt.Errorf("--build requires --profile")
 		}
 
@@ -531,13 +534,13 @@ Examples:
 		}
 
 		// Stage 1: optional image build.
-		if build {
-			progress("building images...")
-			buildCmd := exec.Command("just", "build-docker-dev")
+		if buildEnabled {
+			progress(fmt.Sprintf("building images (just %s)...", buildTarget))
+			buildCmd := exec.Command("just", buildTarget)
 			buildCmd.Stdout = os.Stdout
 			buildCmd.Stderr = os.Stderr
 			if err := buildCmd.Run(); err != nil {
-				return fmt.Errorf("just build-docker-dev failed: %w", err)
+				return fmt.Errorf("just %s failed: %w", buildTarget, err)
 			}
 		}
 
@@ -911,7 +914,7 @@ func init() {
 	testCmd.Flags().StringP("profile", "p", "", "Profile to start before running tests (also sets per-run output file)")
 	testCmd.Flags().StringP("pattern", "r", "", "Raw Go test pattern (alternative to a named suite positional arg)")
 	testCmd.Flags().Duration("timeout", 0, "Test timeout (0 = unlimited)")
-	testCmd.Flags().Bool("build", true, "Build service Docker images before starting; pass --build=false to skip (requires --profile)")
+	testCmd.Flags().String("build", "build-docker", "Just target to build Docker images before starting (e.g. build-docker, build-docker-ci); pass 'false' to skip (requires --profile)")
 	testCmd.Flags().String("log", "", "Write verbose output (build, env, test) to this file; only progress lines appear on the terminal")
 	rootCmd.AddCommand(testCmd)
 	rootCmd.AddCommand(indexerDBShellCmd)
