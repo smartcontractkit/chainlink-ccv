@@ -84,6 +84,9 @@ func mergeRegistration(existing, incoming Registration) Registration {
 			}
 		}
 	}
+	if existing.AddressResolver == nil {
+		existing.AddressResolver = incoming.AddressResolver
+	}
 	return existing
 }
 
