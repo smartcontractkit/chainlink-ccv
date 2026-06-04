@@ -53,6 +53,8 @@ type DBInput struct {
 }
 
 type IndexerInput struct {
+	// Version is the component config schema version (see indexer.Version).
+	Version        int      `toml:"version"`
 	Image          string   `toml:"image"`
 	Port           int      `toml:"port"`
 	SourceCodePath string   `toml:"source_code_path"`

@@ -16,6 +16,10 @@ import (
 
 const configKey = "pricer"
 
+// Version is the pricer component config schema version. Exactly this version is
+// supported; configs declaring any other version are rejected.
+const Version = 1
+
 func init() {
 	if err := devenvruntime.Register(configKey, factory); err != nil {
 		panic(fmt.Sprintf("pricer component: %v", err))
@@ -98,6 +102,11 @@ func decode(raw any) (*services.PricerInput, error) {
 	}
 	if err := toml.Unmarshal(b, &wrapper); err != nil {
 		return nil, fmt.Errorf("decoding pricer config: %w", err)
+	}
+	if wrapper.V != nil {
+		if err := devenvruntime.CheckConfigVersion(wrapper.V.Version, Version); err != nil {
+			return nil, err
+		}
 	}
 	return wrapper.V, nil
 }

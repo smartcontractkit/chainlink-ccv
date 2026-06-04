@@ -17,9 +17,12 @@ import (
 
 const (
 	configKey        = "blockchains"
-	outputsKey       = "blockchainOutputs"
 	privateKeyEnvVar = "PRIVATE_KEY"
 )
+
+// Version is the blockchains component config schema version. Exactly this
+// version is supported; configs declaring any other version are rejected.
+const Version = 1
 
 // simChainIDs are the well-known simulated chain IDs used by Anvil/Geth in devenv.
 var simChainIDs = []string{"1337", "2337", "3337"}
@@ -52,12 +55,10 @@ func (c *component) ValidateConfig(componentConfig any) error {
 }
 
 // RunPhase1 brings up each declared blockchain network via
-// blockchain.NewBlockchainNetwork (which populates each Input's Out field)
-// and emits two outputs:
-//   - "blockchains" — []*blockchain.Input with Out populated, for downstream
-//     components that need both the input parameters and deploy result.
-//   - "blockchainOutputs" — []*blockchain.Output, for downstream components
-//     that only need the deploy result.
+// blockchain.NewBlockchainNetwork (which populates each Input's Out field) and
+// emits a single output:
+//   - "blockchains" — []*blockchain.Input with Out populated. Downstream
+//     components that only need the deploy result derive it via Outputs().
 //
 // All static validation (decode, key compatibility, non-empty list) happens
 // in ValidateConfig; this method assumes it has already passed.
@@ -71,7 +72,6 @@ func (c *component) RunPhase1(_ context.Context, _ map[string]any, componentConf
 		return nil, nil, fmt.Errorf("setting up default docker network: %w", err)
 	}
 
-	blockchainOutputs := make([]*blockchain.Output, len(bcs))
 	for i, bc := range bcs {
 		out, err := blockchain.NewBlockchainNetwork(bc)
 		if err != nil {
@@ -81,13 +81,25 @@ func (c *component) RunPhase1(_ context.Context, _ map[string]any, componentConf
 			return nil, nil, fmt.Errorf("blockchain[%d] %q: NewBlockchainNetwork returned nil output", i, bc.ContainerName)
 		}
 		bc.Out = out
-		blockchainOutputs[i] = out
 	}
 
 	return map[string]any{
-		configKey:  bcs,
-		outputsKey: blockchainOutputs,
+		configKey: bcs,
 	}, nil, nil
+}
+
+// Outputs extracts the deploy result (Out) from each blockchain input. The
+// blockchains component publishes only []*blockchain.Input (with Out populated);
+// downstream components that need []*blockchain.Output derive it through here
+// instead of relying on a separate published key.
+func Outputs(bcs []*blockchain.Input) []*blockchain.Output {
+	outs := make([]*blockchain.Output, len(bcs))
+	for i, bc := range bcs {
+		if bc != nil {
+			outs[i] = bc.Out
+		}
+	}
+	return outs
 }
 
 // checkBlockchainKeys validates that the active private key is compatible with
@@ -124,6 +136,15 @@ func networkPrivateKey() string {
 // re-encoding through go-toml. The runtime hands components their config as the
 // untyped value parsed by loadRaw, so we re-encode and decode into the typed
 // struct that the framework expects.
+// blockchainConfig embeds the third-party blockchain.Input (which we cannot add
+// fields to) and adds the component config version. The embedded Input is
+// inlined by go-toml, so each [[blockchains]] entry's fields decode normally
+// alongside its version.
+type blockchainConfig struct {
+	Version int `toml:"version"`
+	blockchain.Input
+}
+
 func decode(raw any) ([]*blockchain.Input, error) {
 	b, err := toml.Marshal(struct {
 		V any `toml:"blockchains"`
@@ -132,10 +153,17 @@ func decode(raw any) ([]*blockchain.Input, error) {
 		return nil, fmt.Errorf("re-encoding blockchains config: %w", err)
 	}
 	var wrapper struct {
-		V []*blockchain.Input `toml:"blockchains"`
+		V []blockchainConfig `toml:"blockchains"`
 	}
 	if err := toml.Unmarshal(b, &wrapper); err != nil {
 		return nil, fmt.Errorf("decoding blockchains config: %w", err)
 	}
-	return wrapper.V, nil
+	bcs := make([]*blockchain.Input, len(wrapper.V))
+	for i := range wrapper.V {
+		if err := devenvruntime.CheckConfigVersion(wrapper.V[i].Version, Version); err != nil {
+			return nil, fmt.Errorf("blockchains entry %d: %w", i, err)
+		}
+		bcs[i] = &wrapper.V[i].Input
+	}
+	return bcs, nil
 }

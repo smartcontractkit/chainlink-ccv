@@ -40,7 +40,7 @@ const (
 )
 
 // newEnvFn is set by PersistentPreRunE based on the --env-mode flag.
-var newEnvFn func() (*ccv.Cfg, error)
+var newEnvFn func() error
 
 var rootCmd = &cobra.Command{
 	Use:   "ccv",
@@ -60,9 +60,17 @@ var rootCmd = &cobra.Command{
 		}
 		switch mode {
 		case "legacy":
-			newEnvFn = ccv.NewEnvironment
+			// Both env constructors return a value that the up/restart commands
+			// discard, so adapt them to the error-only fn.
+			newEnvFn = func() error {
+				_, err := ccv.NewEnvironment()
+				return err
+			}
 		case "phased":
-			newEnvFn = ccv.NewPhasedEnvironment
+			newEnvFn = func() error {
+				_, err := ccv.NewPhasedEnvironment()
+				return err
+			}
 		default:
 			panic(fmt.Sprintf("unknown --env-mode %q", mode))
 		}
@@ -89,8 +97,7 @@ var restartCmd = &cobra.Command{
 		if err := framework.RemoveTestContainers(); err != nil {
 			return fmt.Errorf("failed to clean Docker resources: %w", err)
 		}
-		_, err := newEnvFn()
-		return err
+		return newEnvFn()
 	},
 }
 
@@ -109,8 +116,7 @@ var upCmd = &cobra.Command{
 		framework.L.Info().Str("Config", configFile).Msg("Creating development environment")
 		_ = os.Setenv("CTF_CONFIGS", configFile)
 		_ = os.Setenv("TESTCONTAINERS_RYUK_DISABLED", "true")
-		_, err := newEnvFn()
-		return err
+		return newEnvFn()
 	},
 }
 

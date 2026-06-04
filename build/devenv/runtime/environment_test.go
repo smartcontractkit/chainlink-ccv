@@ -233,36 +233,52 @@ func TestPhase1_OverwriteDetection(t *testing.T) {
 	require.Contains(t, err.Error(), `"shared"`)
 }
 
-func TestFallbackHonorsSnapshot(t *testing.T) {
-	specific := newP2Comp(t, map[string]any{"from-specific": 1}, nil)
-
-	var fallbackPrior map[string]any
-	fb := newP2Comp(t, map[string]any{"from-fallback": 2}, func(p map[string]any) { fallbackPrior = p })
+// TestVersionKeyConsumed verifies the runtime consumes the top-level "version"
+// schema marker instead of treating it as an unclaimed key or dispatching it to
+// a component. The runtime strips it from the config it is handed.
+func TestVersionKeyConsumed(t *testing.T) {
+	a := newP1Comp(t, map[string]any{"out": 1})
 
 	r := devenvruntime.NewRegistry()
-	require.NoError(t, r.Register("Specific", compFactory(specific)))
-	r.SetFallback(compFactory(fb))
+	require.NoError(t, r.Register("A", compFactory(a)))
 
-	out, err := runEnv(t, r, map[string]any{"Specific": nil, "Other": nil})
+	rawConfig := map[string]any{"version": int64(1), "A": nil}
+	_, err := runEnv(t, r, rawConfig)
 	require.NoError(t, err)
 
-	require.NotContains(t, fallbackPrior, "from-specific",
-		"fallback must see the phase-start snapshot, not the post-Specific state")
-	require.Equal(t, 1, out["from-specific"])
-	require.Equal(t, 2, out["from-fallback"])
+	_, present := rawConfig["version"]
+	require.False(t, present, "version should be consumed (stripped) by the runtime")
 }
 
-func TestFallbackOverwriteDetection(t *testing.T) {
-	specific := newP2Comp(t, map[string]any{"shared": "specific"}, nil)
-	fb := newP2Comp(t, map[string]any{"shared": "fallback"}, nil)
-
+// TestVersionKeyRejectsBelowOne verifies the runtime errors on a version < 1.
+func TestVersionKeyRejectsBelowOne(t *testing.T) {
 	r := devenvruntime.NewRegistry()
-	require.NoError(t, r.Register("Specific", compFactory(specific)))
-	r.SetFallback(compFactory(fb))
 
-	_, err := runEnv(t, r, map[string]any{"Specific": nil})
+	_, err := runEnv(t, r, map[string]any{"version": int64(0)})
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "phase 2")
-	require.Contains(t, err.Error(), `"<fallback>"`)
-	require.Contains(t, err.Error(), `"shared"`)
+	require.Contains(t, err.Error(), "version")
+	require.Contains(t, err.Error(), ">= 1")
+}
+
+// TestVersionKeyRejectsNonInteger verifies the runtime errors when version is
+// not an integer.
+func TestVersionKeyRejectsNonInteger(t *testing.T) {
+	r := devenvruntime.NewRegistry()
+
+	_, err := runEnv(t, r, map[string]any{"version": "1"})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "version")
+	require.Contains(t, err.Error(), "integer")
+}
+
+// TestUnclaimedKeyFailsFast verifies a top-level config key that no registered
+// component claims (e.g. a typo or stale key) is a hard error naming the key.
+// The check runs before any phase executes, so no component need be registered.
+func TestUnclaimedKeyFailsFast(t *testing.T) {
+	r := devenvruntime.NewRegistry()
+
+	_, err := runEnv(t, r, map[string]any{"typoo": nil})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "unclaimed config keys")
+	require.Contains(t, err.Error(), "typoo")
 }

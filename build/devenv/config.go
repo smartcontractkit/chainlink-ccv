@@ -26,6 +26,8 @@ import (
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/committeeverifier"
 )
 
 const (
@@ -93,23 +95,47 @@ func Store[T any](cfg *T) error {
 	return os.WriteFile(filepath.Join(DefaultConfigDir, outCacheName), d, 0o600)
 }
 
-// LoadOutput loads config output file from path.
-// TODO: why is this generic?
+// LoadOutput loads a devenv output file and returns a populated *Cfg. It
+// supports two output formats, distinguished by the top-level "version" key:
+//
+//   - version 0 / absent — the legacy monolith output, a strict Cfg dump.
+//   - version 1 — the phased output, a raw component-output map; the required
+//     components are decoded out of it and the endpoint maps are derived.
+//
+// Either way it rebuilds the CLDF datastore from the deployed addresses. The
+// generic T is retained for the existing call sites; only *Cfg is supported.
 func LoadOutput[T any](outputPath string) (*T, error) {
-	config, err := Load[T]([]string{outputPath})
+	data, err := os.ReadFile(filepath.Join(DefaultConfigDir, outputPath))
+	if err != nil {
+		return nil, fmt.Errorf("error reading config file %s: %w", outputPath, err)
+	}
+
+	// Peek the schema version to choose the decoder.
+	var probe struct {
+		Version int `toml:"version"`
+	}
+	if err := toml.Unmarshal(data, &probe); err != nil {
+		return nil, fmt.Errorf("failed to read config version from %s: %w", outputPath, err)
+	}
+
+	var c *Cfg
+	switch probe.Version {
+	case 0:
+		c, err = loadLegacyCfg(data)
+	case 1:
+		c, err = loadPhasedCfg(data)
+	default:
+		return nil, fmt.Errorf("unsupported output version %d; supported version is 1", probe.Version)
+	}
 	if err != nil {
 		return nil, err
 	}
 
-	// Load addresses into the datastore so that tests can query them appropriately.
-	c, ok := any(config).(*Cfg)
-	if !ok {
-		return nil, fmt.Errorf("config is not a *Cfg")
-	}
 	if len(c.CLDF.Addresses) <= 0 {
 		return nil, fmt.Errorf("no addresses found in config")
 	}
 
+	// Load addresses into the datastore so that tests can query them appropriately.
 	ds := datastore.NewMemoryDataStore()
 	for _, addrRefJSON := range c.CLDF.Addresses {
 		var addrs []datastore.AddressRef
@@ -130,14 +156,81 @@ func LoadOutput[T any](outputPath string) (*T, error) {
 			return nil, fmt.Errorf("failed to unmarshal env metadata from config: %w", err)
 		}
 	}
-	err = ds.EnvMetadata().Set(dsMetaData)
-	if err != nil {
+	if err := ds.EnvMetadata().Set(dsMetaData); err != nil {
 		return nil, fmt.Errorf("failed to set env metadata in datastore: %w", err)
 	}
 
 	c.CLDF.DataStore = ds.Seal()
 
-	return config, nil
+	out, ok := any(c).(*T)
+	if !ok {
+		return nil, fmt.Errorf("config is not a *Cfg")
+	}
+	return out, nil
+}
+
+// loadLegacyCfg strict-decodes the monolith output into a Cfg, rejecting
+// unknown keys (matching Load's behavior).
+func loadLegacyCfg(data []byte) (*Cfg, error) {
+	var cfg Cfg
+	decoder := toml.NewDecoder(strings.NewReader(string(data)))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&cfg); err != nil {
+		var details *toml.StrictMissingError
+		if errors.As(err, &details) {
+			fmt.Println(details.String())
+		}
+		return nil, fmt.Errorf("failed to decode TOML config, strict mode: %s", err)
+	}
+	return &cfg, nil
+}
+
+// loadPhasedCfg builds a Cfg from a phased (version 1) output file. The file is
+// a raw component-output dump, so it is decoded leniently (it carries keys Cfg
+// does not model, e.g. the aggregators/verifiers plurals owned by the
+// committeeccv component). Those plurals are decoded explicitly and the
+// aggregator/indexer endpoint maps are derived from each launched service's Out.
+func loadPhasedCfg(data []byte) (*Cfg, error) {
+	var cfg Cfg
+	if err := toml.Unmarshal(data, &cfg); err != nil {
+		return nil, fmt.Errorf("failed to decode phased output: %w", err)
+	}
+
+	var extra struct {
+		Aggregators []*services.AggregatorInput `toml:"aggregators"`
+		Verifiers   []*committeeverifier.Input  `toml:"verifiers"`
+	}
+	if err := toml.Unmarshal(data, &extra); err != nil {
+		return nil, fmt.Errorf("failed to decode phased aggregators/verifiers: %w", err)
+	}
+	cfg.Aggregator = extra.Aggregators
+	cfg.Verifier = extra.Verifiers
+
+	cfg.AggregatorEndpoints = make(map[string]string)
+	cfg.AggregatorCACertFiles = make(map[string]string)
+	for _, agg := range cfg.Aggregator {
+		if agg.Out == nil {
+			continue
+		}
+		cfg.AggregatorEndpoints[agg.CommitteeName] = agg.Out.ExternalHTTPSUrl
+		if agg.Out.TLSCACertFile != "" {
+			cfg.AggregatorCACertFiles[agg.CommitteeName] = agg.Out.TLSCACertFile
+		}
+	}
+
+	externalURLs := make([]string, 0, len(cfg.Indexer))
+	internalURLs := make([]string, 0, len(cfg.Indexer))
+	for _, idxIn := range cfg.Indexer {
+		if idxIn.Out == nil {
+			continue
+		}
+		externalURLs = append(externalURLs, idxIn.Out.ExternalHTTPURL)
+		internalURLs = append(internalURLs, idxIn.Out.InternalHTTPURL)
+	}
+	cfg.IndexerEndpoints = externalURLs
+	cfg.IndexerInternalEndpoints = internalURLs
+
+	return &cfg, nil
 }
 
 // BaseConfigPath returns base config path, ex. env.toml,overrides.toml -> env.toml.

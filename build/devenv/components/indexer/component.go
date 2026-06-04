@@ -19,6 +19,10 @@ import (
 
 const configKey = "indexer"
 
+// Version is the indexer component config schema version. Exactly this version
+// is supported; configs declaring any other version are rejected.
+const Version = 1
+
 func init() {
 	if err := devenvruntime.Register(configKey, factory); err != nil {
 		panic(fmt.Sprintf("indexer component: %v", err))
@@ -82,7 +86,7 @@ func (c *component) RunPhase4(
 	aggregators, _ := priorOutputs["aggregators"].([]*services.AggregatorInput)
 
 	var tlsCerts *services.TLSCertPaths
-	if v, ok := priorOutputs["shared_tls_certs"].(*services.TLSCertPaths); ok {
+	if v, ok := priorOutputs["_shared_tls_certs"].(*services.TLSCertPaths); ok {
 		tlsCerts = v
 	}
 
@@ -214,6 +218,11 @@ func decode(raw any) ([]*services.IndexerInput, error) {
 	}
 	if err := toml.Unmarshal(b, &wrapper); err != nil {
 		return nil, fmt.Errorf("decoding indexer config: %w", err)
+	}
+	for i, in := range wrapper.V {
+		if err := devenvruntime.CheckConfigVersion(in.Version, Version); err != nil {
+			return nil, fmt.Errorf("indexer entry %d: %w", i, err)
+		}
 	}
 	return wrapper.V, nil
 }
