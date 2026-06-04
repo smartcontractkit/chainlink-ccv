@@ -1436,14 +1436,6 @@ func evmFeeQuoterDestChainConfigOverride(selector uint64) *lanes.FeeQuoterDestCh
 	return &override
 }
 
-func (m *CCIP17EVMConfig) GetChainLaneProfile(_ *deployment.Environment, selector uint64) (cciptestinterfaces.ChainLaneProfile, error) {
-	return cciptestinterfaces.ChainLaneProfile{
-		FeeQuoterDestChainConfig: ccipChangesets.FeeQuoterDestChainConfigOverrides{
-			USDPerUnitGas: big.NewInt(1e6),
-		},
-	}, nil
-}
-
 func (m *CCIP17EVMConfig) PostConnect(e *deployment.Environment, selector uint64, remoteSelectors []uint64) error {
 	if err := m.ConfigureUSDCAndLombardForTransfer(e, selector, remoteSelectors); err != nil {
 		return fmt.Errorf("configure USDC/Lombard for transfer: %w", err)
