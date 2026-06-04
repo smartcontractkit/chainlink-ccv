@@ -30,6 +30,7 @@ type v3TestCaseBase struct {
 	numExpectedReceipts      int
 	numExpectedVerifications int
 	aggregatorQualifier      string
+	sendConfig               tcapi.SendArgs
 }
 
 // v3TestCase is for tests that use ExtraArgsV3.
@@ -77,32 +78,36 @@ func (tc *v3TestCase) Run(ctx context.Context) error {
 		return fmt.Errorf("destination chain not found: %d", tc.dst)
 	}
 	l := zerolog.Ctx(ctx)
-	seqNo, err := src.GetExpectedNextSequenceNumber(ctx, tc.dst)
-	if err != nil {
-		return fmt.Errorf("failed to get expected next sequence number: %w", err)
-	}
-	l.Info().Uint64("SeqNo", seqNo).Msg("Expecting sequence number")
-	sendMessageResult, err := src.SendMessage(
-		ctx, tc.dst, cciptestinterfaces.MessageFields{
+	sendMessageResult, err := tcapi.SendV3Message(ctx, src, dst, tc.dst,
+		cciptestinterfaces.MessageFields{
 			Receiver: tc.receiver,
 			Data:     tc.msgData,
-		}, cciptestinterfaces.MessageOptions{
-			ExecutionGasLimit: 200_000,
-			FinalityConfig:    tc.finality,
-			Executor:          tc.executor,
-			CCVs:              tc.ccvs,
-		}, 3)
+		},
+		cciptestinterfaces.MessageOptions{
+			FinalityConfig: tc.finality,
+			Executor:       tc.executor,
+			CCVs:           tc.ccvs,
+		},
+		tc.sendConfig,
+	)
 	if err != nil {
 		return fmt.Errorf("failed to send message: %w", err)
 	}
 	if len(sendMessageResult.ReceiptIssuers) != tc.numExpectedReceipts {
 		return fmt.Errorf("expected %d receipt issuers, got %d", tc.numExpectedReceipts, len(sendMessageResult.ReceiptIssuers))
 	}
-	sentEvent, err := src.ConfirmSendOnSource(ctx, tc.dst, cciptestinterfaces.MessageEventKey{SeqNum: seqNo}, tcapi.DefaultSentTimeout)
+	if sendMessageResult.MessageID == (protocol.Bytes32{}) {
+		return fmt.Errorf("send returned zero message ID")
+	}
+	messageKey := cciptestinterfaces.MessageEventKey{MessageID: sendMessageResult.MessageID}
+	if sendMessageResult.Message != nil {
+		l.Info().Uint64("SeqNo", uint64(sendMessageResult.Message.SequenceNumber)).Msg("Sent message")
+	}
+	_, err = src.ConfirmSendOnSource(ctx, tc.dst, messageKey, tcapi.DefaultSentTimeout)
 	if err != nil {
 		return fmt.Errorf("failed to wait for sent event: %w", err)
 	}
-	messageID := sentEvent.MessageID
+	messageID := sendMessageResult.MessageID
 
 	aggregatorClients, err := tc.lib.AllAggregators()
 	if err != nil {
@@ -138,7 +143,7 @@ func (tc *v3TestCase) Run(ctx context.Context) error {
 		return fmt.Errorf("expected %d indexed verifications, got %d", tc.numExpectedVerifications, len(result.IndexedVerifications.Results))
 	}
 
-	e, err := dst.ConfirmExecOnDest(ctx, tc.src, cciptestinterfaces.MessageEventKey{SeqNum: seqNo}, tcapi.DefaultExecTimeout)
+	e, err := dst.ConfirmExecOnDest(ctx, tc.src, messageKey, tcapi.DefaultExecTimeout)
 	if err != nil {
 		return fmt.Errorf("failed to wait for exec event: %w", err)
 	}
@@ -221,11 +226,11 @@ func loadV3Env(ctx context.Context, lib ccv.Lib, src, dst uint64) (v3Env, bool) 
 }
 
 // CustomExecutor returns a test case that uses the custom executor.
-func CustomExecutor(lib ccv.Lib, src, dest uint64) tcapi.TestCase {
-	return customExecutor(lib, src, dest)
+func CustomExecutor(lib ccv.Lib, src, dest uint64, cfg tcapi.SendArgs) tcapi.TestCase {
+	return customExecutor(lib, src, dest, cfg)
 }
 
-func customExecutor(lib ccv.Lib, src, dest uint64) *v3TestCase {
+func customExecutor(lib ccv.Lib, src, dest uint64, cfg tcapi.SendArgs) *v3TestCase {
 	return &v3TestCase{
 		v3TestCaseBase: v3TestCaseBase{
 			name:                     "custom executor",
@@ -237,6 +242,7 @@ func customExecutor(lib ccv.Lib, src, dest uint64) *v3TestCase {
 			numExpectedReceipts:      3,
 			expectFail:               false,
 			numExpectedVerifications: 1,
+			sendConfig:               cfg,
 		},
 		hydrate: func(ctx context.Context, tc *v3TestCase) bool {
 			env, ok := loadV3Env(ctx, tc.lib, tc.src, tc.dst)
@@ -267,11 +273,11 @@ func customExecutor(lib ccv.Lib, src, dest uint64) *v3TestCase {
 }
 
 // EOAReceiverDefaultVerifier returns a test case: EOA receiver and default committee verifier.
-func EOAReceiverDefaultVerifier(lib ccv.Lib, src, dest uint64) tcapi.TestCase {
-	return eoaReceiverDefaultVerifier(lib, src, dest)
+func EOAReceiverDefaultVerifier(lib ccv.Lib, src, dest uint64, cfg tcapi.SendArgs) tcapi.TestCase {
+	return eoaReceiverDefaultVerifier(lib, src, dest, cfg)
 }
 
-func eoaReceiverDefaultVerifier(lib ccv.Lib, src, dest uint64) *v3TestCase {
+func eoaReceiverDefaultVerifier(lib ccv.Lib, src, dest uint64, cfg tcapi.SendArgs) *v3TestCase {
 	return &v3TestCase{
 		v3TestCaseBase: v3TestCaseBase{
 			name:                     "EOA receiver and default committee verifier",
@@ -282,6 +288,7 @@ func eoaReceiverDefaultVerifier(lib ccv.Lib, src, dest uint64) *v3TestCase {
 			msgData:                  []byte("multi-verifier test"),
 			numExpectedReceipts:      3,
 			numExpectedVerifications: 1,
+			sendConfig:               cfg,
 		},
 		hydrate: func(ctx context.Context, tc *v3TestCase) bool {
 			env, ok := loadV3Env(ctx, tc.lib, tc.src, tc.dst)
@@ -311,11 +318,11 @@ func eoaReceiverDefaultVerifier(lib ccv.Lib, src, dest uint64) *v3TestCase {
 }
 
 // EOAReceiverSecondaryVerifier returns a test case: EOA receiver and secondary committee verifier.
-func EOAReceiverSecondaryVerifier(lib ccv.Lib, src, dest uint64) tcapi.TestCase {
-	return eoaReceiverSecondaryVerifier(lib, src, dest)
+func EOAReceiverSecondaryVerifier(lib ccv.Lib, src, dest uint64, cfg tcapi.SendArgs) tcapi.TestCase {
+	return eoaReceiverSecondaryVerifier(lib, src, dest, cfg)
 }
 
-func eoaReceiverSecondaryVerifier(lib ccv.Lib, src, dest uint64) *v3TestCase {
+func eoaReceiverSecondaryVerifier(lib ccv.Lib, src, dest uint64, cfg tcapi.SendArgs) *v3TestCase {
 	return &v3TestCase{
 		v3TestCaseBase: v3TestCaseBase{
 			name:                     "EOA receiver and secondary committee verifier",
@@ -326,6 +333,7 @@ func eoaReceiverSecondaryVerifier(lib ccv.Lib, src, dest uint64) *v3TestCase {
 			msgData:                  []byte("multi-verifier test"),
 			numExpectedReceipts:      4,
 			numExpectedVerifications: 2,
+			sendConfig:               cfg,
 		},
 		hydrate: func(ctx context.Context, tc *v3TestCase) bool {
 			env, ok := loadV3Env(ctx, tc.lib, tc.src, tc.dst)
@@ -359,11 +367,11 @@ func eoaReceiverSecondaryVerifier(lib ccv.Lib, src, dest uint64) *v3TestCase {
 }
 
 // ReceiverSecondaryVerifierRequired returns a test case: receiver with secondary verifier required.
-func ReceiverSecondaryVerifierRequired(lib ccv.Lib, src, dest uint64) tcapi.TestCase {
-	return receiverSecondaryVerifierRequired(lib, src, dest)
+func ReceiverSecondaryVerifierRequired(lib ccv.Lib, src, dest uint64, cfg tcapi.SendArgs) tcapi.TestCase {
+	return receiverSecondaryVerifierRequired(lib, src, dest, cfg)
 }
 
-func receiverSecondaryVerifierRequired(lib ccv.Lib, src, dest uint64) *v3TestCase {
+func receiverSecondaryVerifierRequired(lib ccv.Lib, src, dest uint64, cfg tcapi.SendArgs) *v3TestCase {
 	return &v3TestCase{
 		v3TestCaseBase: v3TestCaseBase{
 			name:                     "receiver w/ secondary verifier required",
@@ -375,6 +383,7 @@ func receiverSecondaryVerifierRequired(lib ccv.Lib, src, dest uint64) *v3TestCas
 			numExpectedReceipts:      3,
 			numExpectedVerifications: 1,
 			aggregatorQualifier:      common.SecondaryCommitteeVerifierQualifier,
+			sendConfig:               cfg,
 		},
 		hydrate: func(ctx context.Context, tc *v3TestCase) bool {
 			env, ok := loadV3Env(ctx, tc.lib, tc.src, tc.dst)
@@ -405,11 +414,11 @@ func receiverSecondaryVerifierRequired(lib ccv.Lib, src, dest uint64) *v3TestCas
 }
 
 // ReceiverSecondaryRequiredTertiaryOptionalThreshold1 returns a test case: receiver w/ secondary required and tertiary optional threshold=1.
-func ReceiverSecondaryRequiredTertiaryOptionalThreshold1(lib ccv.Lib, src, dest uint64) tcapi.TestCase {
-	return receiverSecondaryRequiredTertiaryOptionalThreshold1(lib, src, dest)
+func ReceiverSecondaryRequiredTertiaryOptionalThreshold1(lib ccv.Lib, src, dest uint64, cfg tcapi.SendArgs) tcapi.TestCase {
+	return receiverSecondaryRequiredTertiaryOptionalThreshold1(lib, src, dest, cfg)
 }
 
-func receiverSecondaryRequiredTertiaryOptionalThreshold1(lib ccv.Lib, src, dest uint64) *v3TestCase {
+func receiverSecondaryRequiredTertiaryOptionalThreshold1(lib ccv.Lib, src, dest uint64, cfg tcapi.SendArgs) *v3TestCase {
 	return &v3TestCase{
 		v3TestCaseBase: v3TestCaseBase{
 			name:                     "receiver w/ secondary required and tertiary optional threshold=1",
@@ -421,6 +430,7 @@ func receiverSecondaryRequiredTertiaryOptionalThreshold1(lib ccv.Lib, src, dest 
 			numExpectedReceipts:      4,
 			numExpectedVerifications: 2,
 			aggregatorQualifier:      common.SecondaryCommitteeVerifierQualifier,
+			sendConfig:               cfg,
 		},
 		hydrate: func(ctx context.Context, tc *v3TestCase) bool {
 			env, ok := loadV3Env(ctx, tc.lib, tc.src, tc.dst)
@@ -456,11 +466,11 @@ func receiverSecondaryRequiredTertiaryOptionalThreshold1(lib ccv.Lib, src, dest 
 }
 
 // ReceiverQuaternaryAllThreeVerifiers returns a test case: receiver w/ default required, secondary and tertiary optional, message specifies all three.
-func ReceiverQuaternaryAllThreeVerifiers(lib ccv.Lib, src, dest uint64) tcapi.TestCase {
-	return receiverQuaternaryAllThreeVerifiers(lib, src, dest)
+func ReceiverQuaternaryAllThreeVerifiers(lib ccv.Lib, src, dest uint64, cfg tcapi.SendArgs) tcapi.TestCase {
+	return receiverQuaternaryAllThreeVerifiers(lib, src, dest, cfg)
 }
 
-func receiverQuaternaryAllThreeVerifiers(lib ccv.Lib, src, dest uint64) *v3TestCase {
+func receiverQuaternaryAllThreeVerifiers(lib ccv.Lib, src, dest uint64, cfg tcapi.SendArgs) *v3TestCase {
 	return &v3TestCase{
 		v3TestCaseBase: v3TestCaseBase{
 			name:                     "receiver w/ default required, secondary and tertiary optional, threshold=1, message specifies all three",
@@ -471,6 +481,7 @@ func receiverQuaternaryAllThreeVerifiers(lib ccv.Lib, src, dest uint64) *v3TestC
 			msgData:                  []byte("multi-verifier test"),
 			numExpectedReceipts:      5,
 			numExpectedVerifications: 3,
+			sendConfig:               cfg,
 		},
 		hydrate: func(ctx context.Context, tc *v3TestCase) bool {
 			env, ok := loadV3Env(ctx, tc.lib, tc.src, tc.dst)
@@ -506,11 +517,11 @@ func receiverQuaternaryAllThreeVerifiers(lib ccv.Lib, src, dest uint64) *v3TestC
 }
 
 // ReceiverQuaternaryDefaultAndSecondary returns a test case: receiver w/ default and secondary verifiers.
-func ReceiverQuaternaryDefaultAndSecondary(lib ccv.Lib, src, dest uint64) tcapi.TestCase {
-	return receiverQuaternaryDefaultAndSecondary(lib, src, dest)
+func ReceiverQuaternaryDefaultAndSecondary(lib ccv.Lib, src, dest uint64, cfg tcapi.SendArgs) tcapi.TestCase {
+	return receiverQuaternaryDefaultAndSecondary(lib, src, dest, cfg)
 }
 
-func receiverQuaternaryDefaultAndSecondary(lib ccv.Lib, src, dest uint64) *v3TestCase {
+func receiverQuaternaryDefaultAndSecondary(lib ccv.Lib, src, dest uint64, cfg tcapi.SendArgs) *v3TestCase {
 	return &v3TestCase{
 		v3TestCaseBase: v3TestCaseBase{
 			name:                     "receiver w/ default required, secondary and tertiary optional, threshold=1, message specifies default and secondary",
@@ -521,6 +532,7 @@ func receiverQuaternaryDefaultAndSecondary(lib ccv.Lib, src, dest uint64) *v3Tes
 			msgData:                  []byte("multi-verifier test"),
 			numExpectedReceipts:      4,
 			numExpectedVerifications: 2,
+			sendConfig:               cfg,
 		},
 		hydrate: func(ctx context.Context, tc *v3TestCase) bool {
 			env, ok := loadV3Env(ctx, tc.lib, tc.src, tc.dst)
@@ -556,11 +568,11 @@ func receiverQuaternaryDefaultAndSecondary(lib ccv.Lib, src, dest uint64) *v3Tes
 }
 
 // ReceiverQuaternaryDefaultAndTertiary returns a test case: receiver w/ default and tertiary verifiers.
-func ReceiverQuaternaryDefaultAndTertiary(lib ccv.Lib, src, dest uint64) tcapi.TestCase {
-	return receiverQuaternaryDefaultAndTertiary(lib, src, dest)
+func ReceiverQuaternaryDefaultAndTertiary(lib ccv.Lib, src, dest uint64, cfg tcapi.SendArgs) tcapi.TestCase {
+	return receiverQuaternaryDefaultAndTertiary(lib, src, dest, cfg)
 }
 
-func receiverQuaternaryDefaultAndTertiary(lib ccv.Lib, src, dest uint64) *v3TestCase {
+func receiverQuaternaryDefaultAndTertiary(lib ccv.Lib, src, dest uint64, cfg tcapi.SendArgs) *v3TestCase {
 	return &v3TestCase{
 		v3TestCaseBase: v3TestCaseBase{
 			name:                     "receiver w/ default required, secondary and tertiary optional, threshold=1, message specifies default and tertiary",
@@ -571,6 +583,7 @@ func receiverQuaternaryDefaultAndTertiary(lib ccv.Lib, src, dest uint64) *v3Test
 			msgData:                  []byte("multi-verifier test"),
 			numExpectedReceipts:      4,
 			numExpectedVerifications: 2,
+			sendConfig:               cfg,
 		},
 		hydrate: func(ctx context.Context, tc *v3TestCase) bool {
 			env, ok := loadV3Env(ctx, tc.lib, tc.src, tc.dst)
@@ -604,11 +617,11 @@ func receiverQuaternaryDefaultAndTertiary(lib ccv.Lib, src, dest uint64) *v3Test
 }
 
 // MaxDataSize returns a test case that sends the maximum allowed data size.
-func MaxDataSize(lib ccv.Lib, src, dest uint64) tcapi.TestCase {
-	return maxDataSize(lib, src, dest)
+func MaxDataSize(lib ccv.Lib, src, dest uint64, cfg tcapi.SendArgs) tcapi.TestCase {
+	return maxDataSize(lib, src, dest, cfg)
 }
 
-func maxDataSize(lib ccv.Lib, src, dest uint64) *v3TestCase {
+func maxDataSize(lib ccv.Lib, src, dest uint64, cfg tcapi.SendArgs) *v3TestCase {
 	return &v3TestCase{
 		v3TestCaseBase: v3TestCaseBase{
 			name:                     "max data size",
@@ -619,6 +632,7 @@ func maxDataSize(lib ccv.Lib, src, dest uint64) *v3TestCase {
 			numExpectedReceipts:      3,
 			expectFail:               false,
 			numExpectedVerifications: 1,
+			sendConfig:               cfg,
 		},
 		hydrate: func(ctx context.Context, tc *v3TestCase) bool {
 			env, ok := loadV3Env(ctx, tc.lib, tc.src, tc.dst)
@@ -656,11 +670,11 @@ func maxDataSize(lib ccv.Lib, src, dest uint64) *v3TestCase {
 // EOAReceiverDefaultVerifier_SafeTag returns a test case identical to EOAReceiverDefaultVerifier
 // but with the finality field set to FinalityWaitForSafe (0x00010000), exercising the Ethereum
 // `safe` head fast-confirmation path end-to-end.
-func EOAReceiverDefaultVerifier_SafeTag(lib ccv.Lib, src, dest uint64) tcapi.TestCase {
-	return eoaReceiverDefaultVerifierSafeTag(lib, src, dest)
+func EOAReceiverDefaultVerifier_SafeTag(lib ccv.Lib, src, dest uint64, cfg tcapi.SendArgs) tcapi.TestCase {
+	return eoaReceiverDefaultVerifierSafeTag(lib, src, dest, cfg)
 }
 
-func eoaReceiverDefaultVerifierSafeTag(lib ccv.Lib, src, dest uint64) *v3TestCase {
+func eoaReceiverDefaultVerifierSafeTag(lib ccv.Lib, src, dest uint64, cfg tcapi.SendArgs) *v3TestCase {
 	return &v3TestCase{
 		v3TestCaseBase: v3TestCaseBase{
 			name:                     "EOA receiver, default committee verifier, safe-tag finality",
@@ -671,6 +685,7 @@ func eoaReceiverDefaultVerifierSafeTag(lib ccv.Lib, src, dest uint64) *v3TestCas
 			msgData:                  []byte("safe-tag finality test"),
 			numExpectedReceipts:      3,
 			numExpectedVerifications: 1,
+			sendConfig:               cfg,
 		},
 		hydrate: func(ctx context.Context, tc *v3TestCase) bool {
 			env, ok := loadV3Env(ctx, tc.lib, tc.src, tc.dst)
@@ -701,17 +716,17 @@ func eoaReceiverDefaultVerifierSafeTag(lib ccv.Lib, src, dest uint64) *v3TestCas
 }
 
 // All returns all basic v3 messaging test cases (custom executor, multi-verifier, max data size).
-func All(lib ccv.Lib, src, dest uint64) []tcapi.TestCase {
+func All(lib ccv.Lib, src, dest uint64, cfg tcapi.SendArgs) []tcapi.TestCase {
 	return []tcapi.TestCase{
-		customExecutor(lib, src, dest),
-		eoaReceiverDefaultVerifier(lib, src, dest),
-		eoaReceiverDefaultVerifierSafeTag(lib, src, dest),
-		eoaReceiverSecondaryVerifier(lib, src, dest),
-		receiverSecondaryVerifierRequired(lib, src, dest),
-		receiverSecondaryRequiredTertiaryOptionalThreshold1(lib, src, dest),
-		receiverQuaternaryAllThreeVerifiers(lib, src, dest),
-		receiverQuaternaryDefaultAndSecondary(lib, src, dest),
-		receiverQuaternaryDefaultAndTertiary(lib, src, dest),
-		maxDataSize(lib, src, dest),
+		customExecutor(lib, src, dest, cfg),
+		eoaReceiverDefaultVerifier(lib, src, dest, cfg),
+		eoaReceiverDefaultVerifierSafeTag(lib, src, dest, cfg),
+		eoaReceiverSecondaryVerifier(lib, src, dest, cfg),
+		receiverSecondaryVerifierRequired(lib, src, dest, cfg),
+		receiverSecondaryRequiredTertiaryOptionalThreshold1(lib, src, dest, cfg),
+		receiverQuaternaryAllThreeVerifiers(lib, src, dest, cfg),
+		receiverQuaternaryDefaultAndSecondary(lib, src, dest, cfg),
+		receiverQuaternaryDefaultAndTertiary(lib, src, dest, cfg),
+		maxDataSize(lib, src, dest, cfg),
 	}
 }
