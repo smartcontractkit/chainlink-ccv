@@ -22,7 +22,7 @@ func getActiveConfig() string {
 }
 
 func saveActiveConfig(activeConfig string) {
-	if !strings.Contains(activeConfig, "toml") {
+	if !strings.Contains(activeConfig, "toml") && !strings.HasSuffix(strings.TrimSpace(activeConfig), ".profile") {
 		return // no new active config to update
 	}
 	err := os.WriteFile(activeConfigPath(), []byte(activeConfig), 0o644)
