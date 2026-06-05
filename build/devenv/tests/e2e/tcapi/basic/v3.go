@@ -103,14 +103,8 @@ func (tc *v3TestCase) Run(ctx context.Context) error {
 	if sendMessageResult.Message != nil {
 		l.Info().Uint64("SeqNo", uint64(sendMessageResult.Message.SequenceNumber)).Msg("Sent message")
 	}
-	sentTimeout := tcapi.DefaultSentTimeout
-	if tc.args.ConfirmSentTimeout != 0 {
-		sentTimeout = tc.args.ConfirmSentTimeout
-	}
-	execTimeout := tcapi.DefaultExecTimeout
-	if tc.args.ConfirmExecTimeout != 0 {
-		execTimeout = tc.args.ConfirmExecTimeout
-	}
+	sentTimeout := tc.args.Run.SentTimeout(tcapi.DefaultSentTimeout)
+	execTimeout := tc.args.Run.ExecTimeout(tcapi.DefaultExecTimeout)
 	_, err = src.ConfirmSendOnSource(ctx, tc.dst, messageKey, sentTimeout)
 	if err != nil {
 		return fmt.Errorf("failed to wait for sent event: %w", err)

@@ -17,10 +17,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
-const (
-	tokenTransferAmount      = 1000
-	tokenTransferExecTimeout = 45 * time.Second
-)
+const tokenTransferAmount = 1000
 
 type tokenTransferV3TestCaseBase struct {
 	lib             ccv.Lib
@@ -101,10 +98,8 @@ func (tc *tokenTransferV3TestCase) Run(ctx context.Context) error {
 	if tc.args.DestBalanceIncrease != nil {
 		destIncrease = tc.args.DestBalanceIncrease
 	}
-	execTimeout := tokenTransferExecTimeout
-	if tc.args.ConfirmExecTimeout != 0 {
-		execTimeout = tc.args.ConfirmExecTimeout
-	}
+	sentTimeout := tc.args.Run.SentTimeout(tcapi.DefaultSentTimeout)
+	execTimeout := tc.args.Run.ExecTimeout(tcapi.DefaultExecTimeout)
 	msgReceiver := tc.receiver
 	if tc.args.Send.TokenReceiverParams != nil {
 		msgReceiver = make([]byte, len(tc.receiver))
@@ -137,7 +132,7 @@ func (tc *tokenTransferV3TestCase) Run(ctx context.Context) error {
 	if sendRes.Message != nil {
 		l.Info().Uint64("SeqNo", uint64(sendRes.Message.SequenceNumber)).Str("Token", tc.combo.LocalPoolAddressRef().Qualifier).Msg("sent message")
 	}
-	_, err = src.ConfirmSendOnSource(ctx, tc.dst, messageKey, tcapi.DefaultSentTimeout)
+	_, err = src.ConfirmSendOnSource(ctx, tc.dst, messageKey, sentTimeout)
 	if err != nil {
 		return fmt.Errorf("wait for sent event: %w", err)
 	}

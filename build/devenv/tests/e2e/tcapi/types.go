@@ -49,6 +49,31 @@ type TestCase interface {
 // DefaultV3ExecutionGasLimit is the execution gas limit used when SendConfig and MessageOptions omit it.
 const DefaultV3ExecutionGasLimit uint32 = 200_000
 
+// RunConfig holds optional overrides for wait/confirm timeouts in TCAPI Run methods.
+// Zero values use the fallback passed to SentTimeout or ExecTimeout.
+type RunConfig struct {
+	// ConfirmSentTimeout overrides ConfirmSendOnSource when non-zero.
+	ConfirmSentTimeout time.Duration
+	// ConfirmExecTimeout overrides AssertMessage and ConfirmExecOnDest when non-zero.
+	ConfirmExecTimeout time.Duration
+}
+
+// SentTimeout returns ConfirmSentTimeout when set, otherwise fallback.
+func (r RunConfig) SentTimeout(fallback time.Duration) time.Duration {
+	if r.ConfirmSentTimeout != 0 {
+		return r.ConfirmSentTimeout
+	}
+	return fallback
+}
+
+// ExecTimeout returns ConfirmExecTimeout when set, otherwise fallback.
+func (r RunConfig) ExecTimeout(fallback time.Duration) time.Duration {
+	if r.ConfirmExecTimeout != 0 {
+		return r.ConfirmExecTimeout
+	}
+	return fallback
+}
+
 // SendArgs holds pair-level settings for building and sending ExtraArgsV3 CCIP messages in tcapi tests.
 type SendArgs struct {
 	ExecutionGasLimit   uint32 // 0: use opts if set, else DefaultV3ExecutionGasLimit
