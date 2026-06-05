@@ -1,0 +1,57 @@
+name: Build devenv Docker images
+description: Build CCV service images via just build-docker-ci
+
+inputs:
+  ccv-iam-role:
+    description: 'AWS IAM role for CCV'
+    required: true
+  jd-registry:
+    description: 'JD registry ID'
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+
+    - name: Install Just
+      uses: extractions/setup-just@e33e0265a09d6d736e2ee1e0eb685ef1de4669ff # v3
+      with:
+        just-version: '1.40.0'
+
+    - name: Authenticate to AWS ECR
+      uses: ./.github/actions/aws-ecr-auth
+      with:
+        role-to-assume: ${{ inputs.ccv-iam-role }}
+        aws-region: us-east-1
+        registry-type: public
+
+    - name: Authenticate to AWS ECR (JD)
+      uses: ./.github/actions/aws-ecr-auth
+      with:
+        role-to-assume: ${{ inputs.ccv-iam-role }}
+        aws-region: us-west-2
+        registry-type: private
+        registries: ${{ inputs.jd-registry }}
+
+    - name: Set up Go
+      uses: actions/setup-go@v6
+      env:
+        GOPRIVATE: github.com/smartcontractkit/*
+      with:
+        cache: true
+        go-version-file: build/devenv/go.mod
+        cache-dependency-path: build/devenv/go.sum
+
+    - name: Download Go dependencies
+      shell: bash
+      working-directory: build/devenv
+      run: go mod download
+
+    - name: Build Docker Images
+      shell: bash
+      working-directory: build/devenv
+      run: just build-docker-ci
+      env:
+        DOCKER_BUILDKIT: 1
