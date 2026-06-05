@@ -114,7 +114,7 @@ var upCmd = &cobra.Command{
 // name.toml or name.profile by checking which file exists on disk. If both
 // exist the call is ambiguous and an error is returned. If neither exists the
 // original name is returned unchanged and the caller produces the error.
-// Names that already carry a recognised extension (.toml or .profile) pass
+// Names that already carry a recognized extension (.toml or .profile) pass
 // through unmodified.
 func resolveConfigArg(name string) (string, error) {
 	if strings.HasSuffix(name, ".toml") || strings.HasSuffix(name, ".profile") {
