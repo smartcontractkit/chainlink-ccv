@@ -3,7 +3,6 @@ package messagedisablement
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -15,7 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/urfave/cli"
 
-	rules "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/messagedisablement"
+	rules "github.com/smartcontractkit/chainlink-ccv/common/messagerules"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -27,27 +26,24 @@ func newMemStore() *memStore {
 	return &memStore{rows: make(map[string]rules.Rule)}
 }
 
-func (m *memStore) Create(_ context.Context, ruleType rules.RuleType, data json.RawMessage) (rules.Rule, error) {
-	parsed, err := rules.ParseRuleType(string(ruleType))
-	if err != nil {
-		return rules.Rule{}, err
-	}
-	normalized, err := rules.NormalizeRuleData(parsed, data)
+func (m *memStore) Create(_ context.Context, data rules.RuleData) (rules.Rule, error) {
+	ruleType, encoded, err := rules.EncodeRuleData(data)
 	if err != nil {
 		return rules.Rule{}, err
 	}
 	for _, row := range m.rows {
-		if row.Type == parsed && bytes.Equal(row.Data, normalized) {
+		rowType, rowData, err := rules.EncodeRuleData(row.Data)
+		if err != nil {
+			return rules.Rule{}, err
+		}
+		if rowType == ruleType && bytes.Equal(rowData, encoded) {
 			return rules.Rule{}, fmt.Errorf("duplicate rule")
 		}
 	}
 	now := time.Now().UTC()
-	row := rules.Rule{
-		ID:        rules.NewRuleID(),
-		Type:      parsed,
-		Data:      normalized,
-		CreatedAt: now,
-		UpdatedAt: now,
+	row, err := rules.NewRule(rules.NewRuleID(), data, now, now)
+	if err != nil {
+		return rules.Rule{}, err
 	}
 	m.rows[row.ID] = row
 	return row, nil

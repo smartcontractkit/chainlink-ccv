@@ -31,9 +31,6 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccip/deployment/finality"
 
-	adapters_1_6_1 "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_1/adapters"
-	rmn_remote_binding "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/v1_6_0/rmn_remote"
-
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/create2_factory"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/erc20_lock_box"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/executor"
@@ -52,15 +49,11 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/offramp"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/onramp"
 	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm/operations/contract"
+	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm/provider/rpcclient"
 
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_0/operations/rmn_remote"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/adapters"
 	ccipChangesets "github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/changesets"
-	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
-	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
-	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
-	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/lombard"
 	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
@@ -71,10 +64,15 @@ import (
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/simple_node_set"
 
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
+	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
+	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/lombard"
+
 	chainsel "github.com/smartcontractkit/chain-selectors"
 
 	routeroperations "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_2_0/operations/router"
-	evmadapters "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/adapters"
 	offrampoperations "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/offramp"
 	onrampoperations "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/onramp"
 	feequoterwrapper "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/fee_quoter"
@@ -92,45 +90,7 @@ const (
 	DefaultDecimals      = 18
 )
 
-var (
-	ccipMessageSentTopic = onramp.OnRampCCIPMessageSent{}.Topic()
-
-	tokenPoolVersions = []string{
-		"1.6.1",
-		"2.0.0",
-	}
-)
-
-// init registers evm token adapters for pool versions 1.6.1 and 2.0.0 so that ConfigureTokensForTransfers
-// (called from environment.go) can process token configs that reference these pool versions.
-func init() {
-	tokenAdapterRegistry := tokenscore.GetTokenAdapterRegistry()
-	for _, poolVersion := range tokenPoolVersions {
-		var tokenAdapter tokenscore.TokenAdapter
-		tokenAdapter = &evmadapters.TokenAdapter{}
-		if poolVersion == "1.6.1" {
-			tokenAdapter = &adapters_1_6_1.TokenAdapter{}
-		}
-		_, ok := tokenAdapterRegistry.GetTokenAdapter("evm", semver.MustParse(poolVersion))
-		if !ok {
-			tokenAdapterRegistry.RegisterTokenAdapter("evm", semver.MustParse(poolVersion), tokenAdapter)
-		}
-	}
-
-	cciptestinterfaces.RegisterExtraArgsSerializer(cciptestinterfaces.ExtraArgsSerializerEntry{Family: chainsel.FamilyEVM, Version: 3}, SerializeMessageV3ExtraArgs)
-	cciptestinterfaces.RegisterExtraArgsSerializer(cciptestinterfaces.ExtraArgsSerializerEntry{Family: chainsel.FamilyEVM, Version: 2}, BuildEVMExtraArgsV2)
-	cciptestinterfaces.RegisterExtraArgsSerializer(cciptestinterfaces.ExtraArgsSerializerEntry{Family: chainsel.FamilyEVM, Version: 1}, BuildEVMExtraArgsV1)
-	// Canton shares EVM's extra args serialization. Canton's product repo can
-	// register its own serializer if the formats ever diverge; until then, this
-	// provides backward compatibility with the previous FamilyEVM/FamilyCanton
-	// combined switch case.
-
-	cciptestinterfaces.RegisterExtraArgsSerializer(cciptestinterfaces.ExtraArgsSerializerEntry{Family: chainsel.FamilyCanton, Version: 3}, SerializeMessageV3ExtraArgs)
-	cciptestinterfaces.RegisterExtraArgsSerializer(cciptestinterfaces.ExtraArgsSerializerEntry{Family: chainsel.FamilyCanton, Version: 2}, BuildEVMExtraArgsV2)
-	cciptestinterfaces.RegisterExtraArgsSerializer(cciptestinterfaces.ExtraArgsSerializerEntry{Family: chainsel.FamilyCanton, Version: 1}, BuildEVMExtraArgsV1)
-
-	cciptestinterfaces.RegisterExtraArgsSerializer(cciptestinterfaces.ExtraArgsSerializerEntry{Family: chainsel.FamilySolana, Version: 1}, BuildSVMExtraArgsV1)
-}
+var ccipMessageSentTopic = onramp.OnRampCCIPMessageSent{}.Topic()
 
 type CCIP17EVMConfig struct {
 	logger zerolog.Logger
@@ -162,29 +122,39 @@ func NewEmptyCCIP17EVM() *CCIP17EVMConfig {
 	}
 }
 
-// NewCCIP17EVM creates new smart-contracts wrappers with utility functions for CCIP17EVM implementation.
-func NewCCIP17EVM(ctx context.Context, logger zerolog.Logger, e *deployment.Environment, chainID, wsURL string) (*CCIP17EVM, error) {
-	gas := &GasSettings{
-		FeeCapMultiplier: 2,
-		TipCapMultiplier: 2,
+func extractEthClientFromBackend(client any) (*ethclient.Client, error) {
+	switch c := client.(type) {
+	case *ethclient.Client:
+		return c, nil
+	case *rpcclient.MultiClient:
+		return c.Client, nil
+	default:
+		return nil, fmt.Errorf("unsupported EVM on-chain client type %T", client)
 	}
+}
+
+// NewCCIP17EVM creates new smart-contracts wrappers with utility functions for CCIP17EVM implementation.
+func NewCCIP17EVM(ctx context.Context, logger zerolog.Logger, e *deployment.Environment, chainSelector uint64) (*CCIP17EVM, error) {
 	var (
-		chainDetails chainsel.ChainDetails
-		ethClient    *ethclient.Client
 		onRamp       *onramp.OnRamp
 		offRamp      *offramp.OffRamp
 		onRampPoller eventPoller[cciptestinterfaces.MessageSentEvent]
 	)
-	chainDetails, err := chainsel.GetChainDetailsByChainIDAndFamily(chainID, chainsel.FamilyEVM)
+	chainDetails, err := chainsel.GetChainDetails(chainSelector)
 	if err != nil {
-		return nil, fmt.Errorf("get chain details for chain %s: %w", chainID, err)
+		return nil, fmt.Errorf("get chain details for selector %d: %w", chainSelector, err)
 	}
 
-	client, _, _, err := ETHClient(ctx, wsURL, gas)
-	if err != nil {
-		return nil, fmt.Errorf("create eth client for chain %s: %w", chainID, err)
+	evmChains := e.BlockChains.EVMChains()
+	cldfChain, ok := evmChains[chainSelector]
+	if !ok {
+		return nil, fmt.Errorf("evm chain %d not found in environment", chainSelector)
 	}
-	ethClient = client
+
+	ethClient, err := extractEthClientFromBackend(cldfChain.Client)
+	if err != nil {
+		return nil, fmt.Errorf("extract eth client for chain %d: %w", chainSelector, err)
+	}
 
 	onRampAddressRef, err := e.DataStore.Addresses().Get(datastore.NewAddressRefKey(
 		chainDetails.ChainSelector,
@@ -193,7 +163,7 @@ func NewCCIP17EVM(ctx context.Context, logger zerolog.Logger, e *deployment.Envi
 		"",
 	))
 	if err != nil {
-		return nil, fmt.Errorf("get on ramp address for chain %d (id %s) from datastore: %w", chainDetails.ChainSelector, chainID, err)
+		return nil, fmt.Errorf("get on ramp address for chain %d from datastore: %w", chainDetails.ChainSelector, err)
 	}
 	offRampAddressRef, err := e.DataStore.Addresses().Get(datastore.NewAddressRefKey(
 		chainDetails.ChainSelector,
@@ -202,21 +172,21 @@ func NewCCIP17EVM(ctx context.Context, logger zerolog.Logger, e *deployment.Envi
 		"",
 	))
 	if err != nil {
-		return nil, fmt.Errorf("get off ramp address for chain %d (id %s) from datastore: %w", chainDetails.ChainSelector, chainID, err)
+		return nil, fmt.Errorf("get off ramp address for chain %d from datastore: %w", chainDetails.ChainSelector, err)
 	}
-	onRamp, err = onramp.NewOnRamp(common.HexToAddress(onRampAddressRef.Address), client)
+	onRamp, err = onramp.NewOnRamp(common.HexToAddress(onRampAddressRef.Address), ethClient)
 	if err != nil {
-		return nil, fmt.Errorf("create on ramp wrapper for chain %d (id %s): %w", chainDetails.ChainSelector, chainID, err)
+		return nil, fmt.Errorf("create on ramp wrapper for chain %d: %w", chainDetails.ChainSelector, err)
 	}
-	offRamp, err = offramp.NewOffRamp(common.HexToAddress(offRampAddressRef.Address), client)
+	offRamp, err = offramp.NewOffRamp(common.HexToAddress(offRampAddressRef.Address), ethClient)
 	if err != nil {
-		return nil, fmt.Errorf("create off ramp wrapper for chain %d (id %s): %w", chainDetails.ChainSelector, chainID, err)
+		return nil, fmt.Errorf("create off ramp wrapper for chain %d: %w", chainDetails.ChainSelector, err)
 	}
 
 	return &CCIP17EVM{
 		e:            e,
 		ds:           e.DataStore,
-		chain:        e.BlockChains.EVMChains()[chainDetails.ChainSelector],
+		chain:        cldfChain,
 		logger:       logger,
 		chainDetails: chainDetails,
 		ethClient:    ethClient,
@@ -796,6 +766,7 @@ func SerializeMessageV3ExtraArgs(provider cciptestinterfaces.ExtraArgsDataProvid
 		opts.ExecutionGasLimit,
 		opts.Executor.String(),
 		opts.ExecutorArgs,
+		opts.TokenReceiver,
 		opts.TokenArgs,
 		opts.CCVs,
 	)
@@ -1220,35 +1191,50 @@ func (m *CCIP17EVMConfig) GetTokenExpansionConfigs(
 	divisor := new(big.Int).Exp(big.NewInt(10), big.NewInt(DefaultDecimals), nil)
 	preMintTokens := new(big.Int).Div(deployerBalance, divisor).Uint64()
 
+	// Build a set of supported pool capabilities so we can skip combos where
+	// EVM is the "local" side but doesn't actually support that pool.
+	supported := devenvcommon.BuildSupportedPoolsMap(m.GetSupportedPools())
+
 	seen := make(map[string]bool)
 	var configs []tokenscore.TokenExpansionInputPerChain
 
 	for _, combo := range combos {
-		for _, poolRef := range []datastore.AddressRef{combo.LocalPoolAddressRef(), combo.RemotePoolAddressRef()} {
-			key := string(poolRef.Type) + "\x00" + poolRef.Version.String() + "\x00" + poolRef.Qualifier
-			if seen[key] {
-				continue
-			}
-			seen[key] = true
+		// Only deploy the local pool ref. The remote pool ref belongs to the
+		// counterpart chain and must not be deployed here — deploying it would
+		// attempt to fund a lockbox for an unsupported pool version and fail.
+		poolRef := combo.LocalPoolAddressRef()
 
-			configs = append(configs, tokenscore.TokenExpansionInputPerChain{
-				TokenPoolVersion:      poolRef.Version,
-				SkipOwnershipTransfer: true,
-				DeployTokenInput: &tokenscore.DeployTokenInput{
-					Symbol:        poolRef.Qualifier,
-					Name:          poolRef.Qualifier,
-					Decimals:      DefaultDecimals,
-					Type:          bnm_drip_v1_0.ContractType,
-					ExternalAdmin: chain.DeployerKey.From.Hex(),
-					CCIPAdmin:     chain.DeployerKey.From.Hex(),
-					PreMint:       &preMintTokens,
-				},
-				DeployTokenPoolInput: &tokenscore.DeployTokenPoolInput{
-					PoolType:           string(poolRef.Type),
-					TokenPoolQualifier: poolRef.Qualifier,
-				},
-			})
+		// Skip combos where EVM doesn't support the local pool type/version.
+		// ComputeTokenCombinations generates combos in both directions, so we
+		// may receive combos where another chain (e.g. Solana) is meant to be
+		// the local side.
+		if !devenvcommon.IsPoolSupported(supported, poolRef) {
+			continue
 		}
+
+		key := devenvcommon.AddressRefFullKey(poolRef)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+
+		configs = append(configs, tokenscore.TokenExpansionInputPerChain{
+			TokenPoolVersion:      poolRef.Version,
+			SkipOwnershipTransfer: true,
+			DeployTokenInput: &tokenscore.DeployTokenInput{
+				Symbol:        poolRef.Qualifier,
+				Name:          poolRef.Qualifier,
+				Decimals:      DefaultDecimals,
+				Type:          bnm_drip_v1_0.ContractType,
+				ExternalAdmin: chain.DeployerKey.From.Hex(),
+				CCIPAdmin:     chain.DeployerKey.From.Hex(),
+				PreMint:       &preMintTokens,
+			},
+			DeployTokenPoolInput: &tokenscore.DeployTokenPoolInput{
+				PoolType:           string(poolRef.Type),
+				TokenPoolQualifier: poolRef.Qualifier,
+			},
+		})
 	}
 
 	return configs, nil
@@ -1352,14 +1338,15 @@ func (m *CCIP17EVMConfig) buildEVMTokenTransferConfig(
 		}
 	}
 
+	tokenRef, err := TokenRefForPool(localRef)
+	if err != nil {
+		panic(fmt.Sprintf("buildEVMTokenTransferConfig: %v", err))
+	}
+
 	return tokenscore.TokenTransferConfig{
 		ChainSelector: selector,
 		TokenPoolRef:  localRef,
-		TokenRef: datastore.AddressRef{
-			Type:      datastore.ContractType(bnm_drip_v1_0.ContractType),
-			Version:   semver.MustParse(bnm_drip_v1_0.Deploy.Version()),
-			Qualifier: localRef.Qualifier,
-		},
+		TokenRef:      tokenRef,
 		RegistryRef: datastore.AddressRef{
 			Type:    datastore.ContractType(token_admin_registry.ContractType),
 			Version: semver.MustParse(token_admin_registry.Deploy.Version()),
@@ -1752,114 +1739,6 @@ func (m *CCIP17EVM) ManuallyExecuteMessage(
 	return event, nil
 }
 
-// ============================================================================
-// RMN Curse Operations
-// ============================================================================
-
-// getRMNRemoteAddress returns the RMN Remote contract address for a given chain.
-func (m *CCIP17EVM) getRMNRemoteAddress() (common.Address, error) {
-	rmnRemoteRef, err := m.e.DataStore.Addresses().Get(
-		datastore.NewAddressRefKey(
-			m.chainDetails.ChainSelector,
-			datastore.ContractType(rmn_remote.ContractType),
-			rmn_remote.Version,
-			"",
-		),
-	)
-	if err != nil {
-		return common.Address{}, fmt.Errorf("failed to get RMN Remote address for chain %d: %w", m.chainDetails.ChainSelector, err)
-	}
-	return common.HexToAddress(rmnRemoteRef.Address), nil
-}
-
-func (m *CCIP17EVM) getRMNRemote() (*rmn_remote_binding.RMNRemote, error) {
-	rmnRemoteAddr, err := m.getRMNRemoteAddress()
-	if err != nil {
-		return nil, err
-	}
-
-	rmnRemote, err := rmn_remote_binding.NewRMNRemote(rmnRemoteAddr, m.ethClient)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create RMN Remote contract binding: %w", err)
-	}
-	return rmnRemote, nil
-}
-
-// Curse applies curses to the RMN Remote contract on a given chain.
-// The subjects parameter contains the curse subjects (either chain selectors or global curse).
-func (m *CCIP17EVM) Curse(ctx context.Context, subjects [][16]byte) error {
-	rmnRemote, err := m.getRMNRemote()
-	if err != nil {
-		return err
-	}
-
-	// Get deployer key for transaction signing
-	txOpts := m.e.BlockChains.EVMChains()[m.chainDetails.ChainSelector].DeployerKey
-	if txOpts == nil {
-		return fmt.Errorf("deployer key not found for chain %d", m.chainDetails.ChainSelector)
-	}
-
-	// Call Curse method
-	tx, err := rmnRemote.Curse0(txOpts, subjects)
-	if err != nil {
-		return fmt.Errorf("failed to call Curse on RMN Remote: %w", err)
-	}
-
-	// Wait for transaction receipt
-	receipt, err := bind.WaitMined(ctx, m.ethClient, tx.Hash())
-	if err != nil {
-		return fmt.Errorf("failed to wait for curse transaction: %w", err)
-	}
-	if receipt.Status != types.ReceiptStatusSuccessful {
-		return fmt.Errorf("curse transaction failed")
-	}
-
-	m.logger.Info().
-		Uint64("chain", m.chainDetails.ChainSelector).
-		Str("tx", tx.Hash().Hex()).
-		Int("numSubjects", len(subjects)).
-		Msg("Cursed subjects on chain")
-
-	return nil
-}
-
-// Uncurse removes curses from the RMN Remote contract on a given chain.
-// The subjects parameter contains the curse subjects to remove (either chain selectors or global curse).
-func (m *CCIP17EVM) Uncurse(ctx context.Context, subjects [][16]byte) error {
-	rmnRemote, err := m.getRMNRemote()
-	if err != nil {
-		return err
-	}
-
-	// Get deployer key for transaction signing
-	txOpts := m.e.BlockChains.EVMChains()[m.chainDetails.ChainSelector].DeployerKey
-	if txOpts == nil {
-		return fmt.Errorf("deployer key not found for chain %d", m.chainDetails.ChainSelector)
-	}
-
-	tx, err := rmnRemote.Uncurse0(txOpts, subjects)
-	if err != nil {
-		return fmt.Errorf("failed to call Uncurse on RMN Remote: %w", err)
-	}
-
-	// Wait for transaction receipt
-	receipt, err := bind.WaitMined(ctx, m.ethClient, tx.Hash())
-	if err != nil {
-		return fmt.Errorf("failed to wait for uncurse transaction: %w", err)
-	}
-	if receipt.Status != types.ReceiptStatusSuccessful {
-		return fmt.Errorf("uncurse transaction failed")
-	}
-
-	m.logger.Info().
-		Uint64("chain", m.chainDetails.ChainSelector).
-		Str("tx", tx.Hash().Hex()).
-		Int("numSubjects", len(subjects)).
-		Msg("Applied uncurse on chain")
-
-	return nil
-}
-
 func (m *CCIP17EVM) GetRoundRobinUser() func() *bind.TransactOpts {
 	if len(m.chain.Users) == 0 {
 		return func() *bind.TransactOpts {
@@ -2192,11 +2071,16 @@ func (m *CCIP17EVM) BuildV3ExtraArgs(
 	opts cciptestinterfaces.MessageOptions,
 	destChain cciptestinterfaces.MessageV3Destination,
 	executorArgsParams any,
+	tokenReceiverParams any,
 	tokenArgsParams any,
-) ([]byte, error) {
+) (cciptestinterfaces.GenericExtraArgs, error) {
 	execArgs, err := destChain.GetExecutorArgs(executorArgsParams)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get executor args: %w", err)
+	}
+	tokenReceiver, err := destChain.GetTokenReceiver(tokenReceiverParams)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get token receiver: %w", err)
 	}
 	tokenArgs, err := destChain.GetTokenArgs(tokenArgsParams)
 	if err != nil {
@@ -2207,16 +2091,21 @@ func (m *CCIP17EVM) BuildV3ExtraArgs(
 		ExecutionGasLimit:   opts.ExecutionGasLimit,
 		Executor:            opts.Executor,
 		ExecutorArgs:        execArgs,
+		TokenReceiver:       tokenReceiver,
 		TokenArgs:           tokenArgs,
 		CCVs:                opts.CCVs,
 		OutOfOrderExecution: opts.OutOfOrderExecution,
 	})
 }
 
-func (m *CCIP17EVM) GetExecutorArgs(opts any) ([]byte, error) {
+func (m *CCIP17EVM) GetExecutorArgs(_ any) (cciptestinterfaces.MessageV3ExecutorArgs, error) {
 	return nil, nil
 }
 
-func (m *CCIP17EVM) GetTokenArgs(opts any) ([]byte, error) {
+func (m *CCIP17EVM) GetTokenArgs(_ any) (cciptestinterfaces.MessageV3TokenArgs, error) {
+	return nil, nil
+}
+
+func (m *CCIP17EVM) GetTokenReceiver(_ any) (cciptestinterfaces.MessageV3TokenReceiver, error) {
 	return nil, nil
 }

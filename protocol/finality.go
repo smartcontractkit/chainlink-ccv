@@ -51,6 +51,7 @@ func (f Finality) WithBlockDepth(n uint16) Finality {
 
 // ToBytes returns the wire-format [4]byte representation (big-endian, mirrors bytes4 in Solidity).
 func (f Finality) ToBytes() [4]byte {
+	//nolint:gosec // G115: byte truncation is the intended big-endian encoding
 	return [4]byte{byte(f >> 24), byte(f >> 16), byte(f >> 8), byte(f)}
 }
 

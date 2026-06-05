@@ -787,7 +787,7 @@ func ComputeCCVAndExecutorHash(ccvAddresses []UnknownAddress, executorAddress Un
 	encoded := make([]byte, encodedLength)
 
 	// First byte is the address length
-	encoded[0] = byte(addressLength)
+	encoded[0] = byte(addressLength) //nolint:gosec // G115: addressLength validated to be a 20-byte EVM address
 
 	// Copy CCV addresses
 	offset := 1

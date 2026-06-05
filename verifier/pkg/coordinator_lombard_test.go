@@ -321,6 +321,7 @@ func createLombardCoordinatorWithRetryConfig(
 		noopMonitoring,
 		ts.chainStatusManager,
 		heartbeatclient.NewNoopHeartbeatClient(),
+		nil,
 		ts.db,
 	)
 }

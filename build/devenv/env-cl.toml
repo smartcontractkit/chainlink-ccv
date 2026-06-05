@@ -157,7 +157,7 @@ execution_interval = 15_000_000_000
 ## Default Verifier Setup (2 nodes)
 [[verifier]]
   mode = "cl"
-  image = "verifier:dev"
+  image = "verifier:latest"
   container_name = "default-verifier-1"
   nop_alias = "node-0"
   port = 8100
@@ -173,7 +173,7 @@ execution_interval = 15_000_000_000
 
 [[verifier]]
   mode = "cl"
-  image = "verifier:dev"
+  image = "verifier:latest"
   container_name = "default-verifier-2"
   nop_alias = "node-1"
   port = 8200
@@ -190,7 +190,7 @@ execution_interval = 15_000_000_000
 # Secondary Verifier Setup (shares same 2 nodes)
 [[verifier]]
   mode = "cl"
-  image = "verifier:dev"
+  image = "verifier:latest"
   container_name = "secondary-verifier-1"
   nop_alias = "node-0"
   port = 8300
@@ -206,7 +206,7 @@ execution_interval = 15_000_000_000
 
 [[verifier]]
   mode = "cl"
-  image = "verifier:dev"
+  image = "verifier:latest"
   container_name = "secondary-verifier-2"
   nop_alias = "node-1"
   port = 8400
@@ -223,7 +223,7 @@ execution_interval = 15_000_000_000
 # Tertiary Verifier Setup (shares same 2 nodes)
 [[verifier]]
   mode = "cl"
-  image = "verifier:dev"
+  image = "verifier:latest"
   container_name = "tertiary-verifier-1"
   nop_alias = "node-0"
   port = 8500
@@ -239,7 +239,7 @@ execution_interval = 15_000_000_000
 
 [[verifier]]
   mode = "cl"
-  image = "verifier:dev"
+  image = "verifier:latest"
   container_name = "tertiary-verifier-2"
   nop_alias = "node-1"
   port = 8600
@@ -255,7 +255,7 @@ execution_interval = 15_000_000_000
 
 [[executor]]
   mode = "cl"
-  image = "executor:dev"
+  image = "executor:latest"
   source_code_path = "../executor"
   root_path = "../../"
   container_name = "default-executor-1"
@@ -267,7 +267,7 @@ execution_interval = 15_000_000_000
 
 [[executor]]
   mode = "cl"
-  image = "executor:dev"
+  image = "executor:latest"
   source_code_path = "../executor"
   root_path = "../../"
   container_name = "default-executor-2"
@@ -279,7 +279,7 @@ execution_interval = 15_000_000_000
 
 [[executor]]
   mode = "cl"
-  image = "executor:dev"
+  image = "executor:latest"
   source_code_path = "../executor"
   root_path = "../../"
   container_name = "custom-executor-1"

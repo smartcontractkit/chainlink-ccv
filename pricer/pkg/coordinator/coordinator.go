@@ -125,7 +125,7 @@ func NewPricerFromConfig(ctx context.Context, cfg Config, keystoreData []byte, k
 	if err := cfg.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid config: %w", err)
 	}
-	lggr, err := logger.NewWith(logging.DevelopmentConfig(cfg.LogLevel))
+	lggr, err := logger.NewWith(logging.ProductionConfig(cfg.LogLevel))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create logger: %w", err)
 	}

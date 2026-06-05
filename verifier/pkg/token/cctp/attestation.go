@@ -47,7 +47,7 @@ func (a *Attestation) ToVerifierFormat() (protocol.ByteSlice, error) {
 		return nil, fmt.Errorf("failed to decode CCTP message: %w", err)
 	}
 
-	var output protocol.ByteSlice
+	output := make(protocol.ByteSlice, 0, len(a.verifierVersion)+len(encodedCCTPMessage)+len(attestation))
 	output = append(output, a.verifierVersion...)
 	output = append(output, encodedCCTPMessage...)
 	output = append(output, attestation...)
@@ -155,7 +155,7 @@ func cctpMatchesMessage(
 	}
 
 	// <4 byte verifier version><32 byte msg ID>
-	var expectedHookData protocol.ByteSlice
+	expectedHookData := make(protocol.ByteSlice, 0, len(verifierVersion)+len(messageID))
 	expectedHookData = append(expectedHookData, verifierVersion...)
 	expectedHookData = append(expectedHookData, messageID[:]...)
 	if actualHookData.String() != expectedHookData.String() {

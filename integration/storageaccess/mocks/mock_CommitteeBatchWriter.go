@@ -5,9 +5,8 @@ package mocks
 import (
 	context "context"
 
-	grpc "google.golang.org/grpc"
-
 	mock "github.com/stretchr/testify/mock"
+	grpc "google.golang.org/grpc"
 
 	v1 "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/committee-verifier/v1"
 )

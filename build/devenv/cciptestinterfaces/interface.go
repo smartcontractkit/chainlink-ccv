@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
-	"sync"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -154,10 +153,6 @@ type Chain interface {
 	GetMaxDataBytes(ctx context.Context, remoteChainSelector uint64) (uint32, error)
 	// ManuallyExecuteMessage manually executes a message on this chain and returns an error if the execution fails.
 	ManuallyExecuteMessage(ctx context.Context, message protocol.Message, gasLimit uint64, ccvs []protocol.UnknownAddress, verifierResults [][]byte) (ExecutionStateChangedEvent, error)
-	// Curse curses a list of chains on this chain.
-	Curse(ctx context.Context, subjects [][16]byte) error
-	// Uncurse uncurses a list of chains on this chain.
-	Uncurse(ctx context.Context, subjects [][16]byte) error
 	// ChainSelector gets the selector for this chain.
 	ChainSelector() uint64
 	// NativeBalance returns the native token balance of the given address on this chain.
@@ -315,39 +310,8 @@ type OnChainConfigurable interface {
 }
 
 // ExtraArgsSerializer serializes message extra args for a destination chain family.
-// Product repos register their implementation via RegisterExtraArgsSerializer.
+// Product repos register serializers via chainreg.Registration.ExtraArgsSerializers.
 type ExtraArgsSerializer func(provider ExtraArgsDataProvider) (GenericExtraArgs, error)
-
-var (
-	extraArgsSerializers   = make(map[ExtraArgsSerializerEntry]ExtraArgsSerializer)
-	extraArgsSerializersMu sync.RWMutex
-)
-
-type ExtraArgsSerializerEntry struct {
-	Version uint8
-	Family  string
-}
-
-// RegisterExtraArgsSerializer registers an ExtraArgsSerializer for a chain family.
-// If the family is already registered, the call is a no-op to match the pattern
-// used by other registries in this repo (e.g. CLDFProviderRegistry, ImplFactory).
-// Product repos call this in their init() alongside other registrations.
-func RegisterExtraArgsSerializer(entry ExtraArgsSerializerEntry, serializer ExtraArgsSerializer) {
-	extraArgsSerializersMu.Lock()
-	defer extraArgsSerializersMu.Unlock()
-	if _, ok := extraArgsSerializers[entry]; ok {
-		return
-	}
-	extraArgsSerializers[entry] = serializer
-}
-
-// GetExtraArgsSerializer returns the registered serializer for the given chain family.
-func GetExtraArgsSerializer(entry ExtraArgsSerializerEntry) (ExtraArgsSerializer, bool) {
-	extraArgsSerializersMu.RLock()
-	defer extraArgsSerializersMu.RUnlock()
-	s, ok := extraArgsSerializers[entry]
-	return s, ok
-}
 
 // DeployerNonceBumper is an optional interface. When implemented, devenv calls it before
 // DeployContractsForSelector so that contract addresses differ across chains (e.g. by sending

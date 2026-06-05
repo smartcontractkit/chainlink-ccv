@@ -5,13 +5,9 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	chain_selectors "github.com/smartcontractkit/chain-selectors"
-
 	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/evm"
-	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e"
-	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/tcapi"
 )
 
 var (
@@ -24,20 +20,12 @@ const (
 )
 
 func TestEVM2EVMV3(t *testing.T) {
-	cfg, err := ccv.LoadOutput[ccv.Cfg](composableTestPath)
-	require.NoError(t, err)
-
 	ctx := ccv.Plog.WithContext(t.Context())
 
-	harness, err := tcapi.NewTestHarness(
-		ctx,
-		e2e.GetSmokeTestConfig(),
-		cfg,
-		chain_selectors.FamilyEVM,
-	)
+	lib, err := ccv.NewLibFromCCVEnv(&ccv.Plog, composableTestPath)
 	require.NoError(t, err)
 
-	chains, err := harness.Lib.Chains(ctx)
+	chains, err := lib.Chains(ctx)
 	require.NoError(t, err)
 	require.GreaterOrEqual(t, len(chains), 2, "expected at least 2 chains for this test in the environment")
 
@@ -66,25 +54,18 @@ func TestEVM2EVMV3(t *testing.T) {
 			nil,
 			nil,
 			nil,
+			nil,
 		),
 	)
 }
 
 func TestEVM2EVMV2(t *testing.T) {
-	cfg, err := ccv.LoadOutput[ccv.Cfg](composableTestPath)
-	require.NoError(t, err)
-
 	ctx := ccv.Plog.WithContext(t.Context())
 
-	harness, err := tcapi.NewTestHarness(
-		ctx,
-		e2e.GetSmokeTestConfig(),
-		cfg,
-		chain_selectors.FamilyEVM,
-	)
+	lib, err := ccv.NewLibFromCCVEnv(&ccv.Plog, composableTestPath)
 	require.NoError(t, err)
 
-	chains, err := harness.Lib.Chains(ctx)
+	chains, err := lib.Chains(ctx)
 	require.NoError(t, err)
 	require.GreaterOrEqual(t, len(chains), 2, "expected at least 2 chains for this test in the environment")
 

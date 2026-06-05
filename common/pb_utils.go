@@ -32,8 +32,8 @@ func MapProtoMessageToProtocolMessage(m *verifierpb.Message) (*protocol.Message,
 		Receiver:             m.Receiver,
 		DestBlobLength:       uint16(m.DestBlobLength), //nolint:gosec // G115: Protocol-defined conversion
 		DestBlob:             m.DestBlob,
-		TokenTransferLength:  uint16(m.TokenTransferLength),
-		DataLength:           uint16(m.DataLength), //nolint:gosec // G115: Protocol-defined conversion
+		TokenTransferLength:  uint16(m.TokenTransferLength), //nolint:gosec // G115: Protocol-defined conversion
+		DataLength:           uint16(m.DataLength),          //nolint:gosec // G115: Protocol-defined conversion
 		Data:                 m.Data,
 	}
 

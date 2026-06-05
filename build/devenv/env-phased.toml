@@ -1,0 +1,611 @@
+# Phased-runtime environment config.
+#
+# This is the standalone config for `--env-mode phased`. It mirrors env.toml but
+# omits the monolith-only top-level keys (cl_nodes_funding_eth, cl_nodes_funding_link,
+# high_availability, [cldf]) that the phased component runtime does not consume.
+# Monolith mode continues to use env.toml (+ env-cl.toml). Keep the shared sections
+# below in sync with env.toml until the two configs are formally split.
+version = 1
+
+## Cross-cutting observability settings (beholder monitoring + pyroscope),
+## owned by the phased observability component (Phase 1) and consumed by the
+## committeeccv and executor components. These are intentionally NOT part of the
+## topology; the legacy monolith still carries the equivalent keys under
+## [environment_topology] in env.toml.
+[observability]
+version = 1
+pyroscope_url = "http://host.docker.internal:4040"
+
+[observability.monitoring]
+Enabled = true
+Type = "beholder"
+
+[observability.monitoring.Beholder]
+InsecureConnection = true
+OtelExporterHTTPEndpoint = "host.docker.internal:4318"
+LogStreamingEnabled = false
+MetricReaderInterval = 5
+TraceSampleRatio = 1.0
+TraceBatchTimeout = 10
+
+[protocol_contracts]
+version = 1
+use_legacy_configure_lane = false
+
+## Environment configuration define the topology. Eventually the topology should be the only config that is needed.
+[protocol_contracts.environment_topology]
+indexer_address = ["http://indexer-1:8100"]
+
+[[protocol_contracts.environment_topology.nop_topology.nops]]
+alias = "default-verifier-1"
+name = "default-verifier-1"
+mode = "standalone"
+
+[[protocol_contracts.environment_topology.nop_topology.nops]]
+alias = "default-verifier-2"
+name = "default-verifier-2"
+mode = "standalone"
+
+[[protocol_contracts.environment_topology.nop_topology.nops]]
+alias = "secondary-verifier-1"
+name = "secondary-verifier-1"
+mode = "standalone"
+
+[[protocol_contracts.environment_topology.nop_topology.nops]]
+alias = "secondary-verifier-2"
+name = "secondary-verifier-2"
+mode = "standalone"
+
+[[protocol_contracts.environment_topology.nop_topology.nops]]
+alias = "tertiary-verifier-1"
+name = "tertiary-verifier-1"
+mode = "standalone"
+
+[[protocol_contracts.environment_topology.nop_topology.nops]]
+alias = "tertiary-verifier-2"
+name = "tertiary-verifier-2"
+mode = "standalone"
+
+[[protocol_contracts.environment_topology.nop_topology.nops]]
+alias = "default-executor-1"
+name = "default-executor-1"
+mode = "standalone"
+
+[[protocol_contracts.environment_topology.nop_topology.nops]]
+alias = "default-executor-2"
+name = "default-executor-2"
+mode = "standalone"
+
+[[protocol_contracts.environment_topology.nop_topology.nops]]
+alias = "custom-executor-1"
+name = "custom-executor-1"
+mode = "standalone"
+
+[protocol_contracts.environment_topology.nop_topology.committees.default]
+qualifier = "default"
+verifier_version = "2.0.0"
+
+[[protocol_contracts.environment_topology.nop_topology.committees.default.aggregators]]
+name = "default"
+address = "default-aggregator:50051"
+insecure_connection = true
+
+[protocol_contracts.environment_topology.nop_topology.committees.default.chain_configs.3379446385462418246]
+nop_aliases = ["default-verifier-1", "default-verifier-2"]
+threshold = 2
+
+[protocol_contracts.environment_topology.nop_topology.committees.default.chain_configs.12922642891491394802]
+nop_aliases = ["default-verifier-1", "default-verifier-2"]
+threshold = 2
+
+[protocol_contracts.environment_topology.nop_topology.committees.default.chain_configs.4793464827907405086]
+nop_aliases = ["default-verifier-1", "default-verifier-2"]
+threshold = 2
+
+[protocol_contracts.environment_topology.nop_topology.committees.secondary]
+qualifier = "secondary"
+verifier_version = "2.0.0"
+
+[[protocol_contracts.environment_topology.nop_topology.committees.secondary.aggregators]]
+name = "default"
+address = "secondary-aggregator:50051"
+insecure_connection = true
+
+[protocol_contracts.environment_topology.nop_topology.committees.secondary.chain_configs.3379446385462418246]
+nop_aliases = ["secondary-verifier-1", "secondary-verifier-2"]
+threshold = 2
+
+[protocol_contracts.environment_topology.nop_topology.committees.secondary.chain_configs.12922642891491394802]
+nop_aliases = ["secondary-verifier-1", "secondary-verifier-2"]
+threshold = 2
+
+[protocol_contracts.environment_topology.nop_topology.committees.secondary.chain_configs.4793464827907405086]
+nop_aliases = ["secondary-verifier-1", "secondary-verifier-2"]
+threshold = 2
+
+[protocol_contracts.environment_topology.nop_topology.committees.tertiary]
+qualifier = "tertiary"
+verifier_version = "2.0.0"
+
+[[protocol_contracts.environment_topology.nop_topology.committees.tertiary.aggregators]]
+name = "default"
+address = "tertiary-aggregator:50051"
+insecure_connection = true
+
+[protocol_contracts.environment_topology.nop_topology.committees.tertiary.chain_configs.3379446385462418246]
+nop_aliases = ["tertiary-verifier-1", "tertiary-verifier-2"]
+threshold = 2
+
+[protocol_contracts.environment_topology.nop_topology.committees.tertiary.chain_configs.12922642891491394802]
+nop_aliases = ["tertiary-verifier-1", "tertiary-verifier-2"]
+threshold = 2
+
+[protocol_contracts.environment_topology.nop_topology.committees.tertiary.chain_configs.4793464827907405086]
+nop_aliases = ["tertiary-verifier-1", "tertiary-verifier-2"]
+threshold = 2
+
+[protocol_contracts.environment_topology.executor_pools.default.chain_configs."3379446385462418246"]
+nop_aliases = ["default-executor-1"]
+execution_interval = 15_000_000_000
+
+[protocol_contracts.environment_topology.executor_pools.default.chain_configs."12922642891491394802"]
+nop_aliases = ["default-executor-1", "default-executor-2"]
+execution_interval = 15_000_000_000
+
+[protocol_contracts.environment_topology.executor_pools.default.chain_configs."4793464827907405086"]
+nop_aliases = ["default-executor-2"]
+execution_interval = 15_000_000_000
+
+[protocol_contracts.environment_topology.executor_pools.custom.chain_configs."3379446385462418246"]
+nop_aliases = ["custom-executor-1"]
+execution_interval = 15_000_000_000
+
+[protocol_contracts.environment_topology.executor_pools.custom.chain_configs."12922642891491394802"]
+nop_aliases = ["custom-executor-1"]
+execution_interval = 15_000_000_000
+
+[protocol_contracts.environment_topology.executor_pools.custom.chain_configs."4793464827907405086"]
+nop_aliases = ["custom-executor-1"]
+execution_interval = 15_000_000_000
+
+[jd]
+  version = 1
+  csa_encryption_key = "d1093c0060d50a3c89c189b2e485da5a3ce57f3dcb38ab7e2c0d5f0bb2314a44" # any random 32 byte hex string
+  image = "job-distributor:local"
+
+[[blockchains]]
+  version = 1
+  container_name = "blockchain-src"
+  chain_id = "1337"
+  docker_cmd_params = ["-b", "1", "--mixed-mining", "--slots-in-an-epoch", "1"]
+  image = "ghcr.io/foundry-rs/foundry:latest"
+  port = "8545"
+  type = "anvil"
+
+[[blockchains]]
+  version = 1
+  container_name = "blockchain-dst"
+  chain_id = "2337"
+  docker_cmd_params = ["-b", "1", "--mixed-mining", "--slots-in-an-epoch", "1"]
+  image = "ghcr.io/foundry-rs/foundry:latest"
+  port = "8555"
+  type = "anvil"
+
+[[blockchains]]
+  version = 1
+  container_name = "blockchain-3rd"
+  chain_id = "3337"
+  docker_cmd_params = ["-b", "1", "--mixed-mining", "--slots-in-an-epoch", "1"]
+  image = "ghcr.io/foundry-rs/foundry:latest"
+  port = "8565"
+  type = "anvil"
+
+[fake]
+  version = 1
+  image = "ccv-fakes:latest"
+  port = 9111
+  source_code_path = "../build/devenv/fakes"
+  root_path = "../../"
+
+## Default Verifier Setup
+[committeeccv]
+  version = 1
+
+[[committeeccv.verifier]]
+  image = "verifier:latest"
+  container_name = "default-verifier-1"
+  nop_alias = "default-verifier-1"
+  port = 8100
+  # path is relative from "devenv" dir
+  source_code_path = "../verifier"
+  root_path = "../../"
+  committee_name = "default"
+  node_index = 0
+  [committeeccv.verifier.db]
+    image = "postgres:16-alpine"
+    name = "default-verifier-1-db"
+    port = 8432
+
+
+[[committeeccv.verifier]]
+  image = "verifier:latest"
+  container_name = "default-verifier-2"
+  nop_alias = "default-verifier-2"
+  port = 8200
+  source_code_path = "../verifier"
+  root_path = "../../"
+  committee_name = "default"
+  node_index = 1
+  [committeeccv.verifier.db]
+    image = "postgres:16-alpine"
+    name = "default-verifier-2-db"
+    port = 8433
+
+
+# Secondary Verifier Setup
+[[committeeccv.verifier]]
+  image = "verifier:latest"
+  container_name = "secondary-verifier-1"
+  nop_alias = "secondary-verifier-1"
+  port = 8300
+  source_code_path = "../verifier"
+  root_path = "../../"
+  committee_name = "secondary"
+  node_index = 0
+  [committeeccv.verifier.db]
+    image = "postgres:16-alpine"
+    name = "secondary-verifier-1-db"
+    port = 8434
+
+
+[[committeeccv.verifier]]
+  image = "verifier:latest"
+  container_name = "secondary-verifier-2"
+  nop_alias = "secondary-verifier-2"
+  port = 8400
+  source_code_path = "../verifier"
+  root_path = "../../"
+  committee_name = "secondary"
+  node_index = 1
+  [committeeccv.verifier.db]
+    image = "postgres:16-alpine"
+    name = "secondary-verifier-2-db"
+    port = 8435
+
+
+# Tertiary Verifier Setup
+[[committeeccv.verifier]]
+  image = "verifier:latest"
+  container_name = "tertiary-verifier-1"
+  nop_alias = "tertiary-verifier-1"
+  port = 8500
+  source_code_path = "../verifier"
+  root_path = "../../"
+  committee_name = "tertiary"
+  node_index = 0
+  [committeeccv.verifier.db]
+    image = "postgres:16-alpine"
+    name = "tertiary-verifier-1-db"
+    port = 8436
+
+
+[[committeeccv.verifier]]
+  image = "verifier:latest"
+  container_name = "tertiary-verifier-2"
+  nop_alias = "tertiary-verifier-2"
+  port = 8600
+  source_code_path = "../verifier"
+  root_path = "../../"
+  committee_name = "tertiary"
+  node_index = 1
+  [committeeccv.verifier.db]
+    image = "postgres:16-alpine"
+    name = "tertiary-verifier-2-db"
+    port = 8437
+
+
+[[token_verifier]]
+  version = 1
+  mode = "standalone"
+  image = "token-verifier:latest"
+  container_name = "token-verifier-1"
+  port = 8700
+  source_code_path = "../verifier"
+  root_path = "../../"
+  [token_verifier.db]
+    image = "postgres:16-alpine"
+    name = "token-verifier-1-db"
+    port = 8450
+
+
+[[executor]]
+  version = 1
+  image = "executor:latest"
+  source_code_path = "../executor"
+  root_path = "../../"
+  container_name = "default-executor-1"
+  nop_alias = "default-executor-1"
+  executor_qualifier = "default"
+  [executor.db]
+    image = "postgres:16-alpine"
+    name = "default-executor-1-db"
+
+[[executor]]
+  version = 1
+  image = "executor:latest"
+  source_code_path = "../executor"
+  root_path = "../../"
+  container_name = "default-executor-2"
+  nop_alias = "default-executor-2"
+  executor_qualifier = "default"
+  [executor.db]
+    image = "postgres:16-alpine"
+    name = "default-executor-2-db"
+
+[[executor]]
+  version = 1
+  image = "executor:latest"
+  source_code_path = "../executor"
+  root_path = "../../"
+  container_name = "custom-executor-1"
+  nop_alias = "custom-executor-1"
+  executor_qualifier = "custom"
+  [executor.db]
+    image = "postgres:16-alpine"
+    name = "custom-executor-1-db"
+
+[[indexer]]
+  version = 1
+  image = "indexer:latest"
+  port = 8104
+  # will spawn additional indexers IF high_availability is set to true
+  redundant_indexers = 1
+  source_code_path = "../indexer"
+  root_path = "../../"
+  storage_connection_url = "postgresql://indexer:indexer@indexer-db:5432/indexer?sslmode=disable"
+  [indexer.db]
+    image = "postgres:16-alpine"
+  # Optional: full DB connection string (container-to-container). When set, used for storage config and output.
+
+[indexer.indexer_config]
+LogLevel = 'info'
+
+[indexer.indexer_config.Monitoring]
+Enabled = true
+Type = 'beholder'
+
+[indexer.indexer_config.Monitoring.Beholder]
+InsecureConnection = true
+CACertFile = ''
+OtelExporterGRPCEndpoint = ''
+OtelExporterHTTPEndpoint = 'otel-collector:4318'
+LogStreamingEnabled = true
+MetricReaderInterval = 5
+TraceSampleRatio = 1.0
+TraceBatchTimeout = 10
+
+[[indexer.indexer_config.Discoveries]]
+Address = "default-aggregator:50051"
+Since = 0
+PollInterval = 500
+Timeout = 5000
+NtpServer = "time.google.com"
+
+[[indexer.indexer_config.Discoveries]]
+Address = "secondary-aggregator:50051"
+Since = 0
+PollInterval = 500
+Timeout = 5000
+NtpServer = "time.google.com"
+
+[indexer.indexer_config.Scheduler]
+TickerInterval = 50
+VerificationVisibilityWindow = 28800
+BaseDelay = 100
+MaxDelay = 30_000
+
+[indexer.indexer_config.Pool]
+ConcurrentWorkers = 1000
+WorkerTimeout = 300
+
+[[indexer.indexer_config.Verifier]]
+Type = "aggregator"
+Name = "CommiteeVerifier (Primary)"
+Address = "default-aggregator:50051"
+InsecureConnection = true
+BatchSize = 100
+MaxBatchWaitTime = 50
+Since = 0
+
+[[indexer.indexer_config.Verifier]]
+Type = "aggregator"
+Name = "CommiteeVerifier (Secondary)"
+Address = "secondary-aggregator:50051"
+InsecureConnection = true
+BatchSize = 100
+MaxBatchWaitTime = 50
+Since = 0
+
+[[indexer.indexer_config.Verifier]]
+Type = "aggregator"
+Name = "CommiteeVerifier (Tertiary)"
+Address = "tertiary-aggregator:50051"
+InsecureConnection = true
+BatchSize = 100
+MaxBatchWaitTime = 50
+Since = 0
+
+[[indexer.indexer_config.Verifier]]
+Type = "rest"
+Name = "Token Verifier (Primary)"
+BaseURL = "http://token-verifier-1:8100/v1"
+BatchSize = 10
+MaxBatchWaitTime = 100
+Since = 0
+
+[indexer.committee_verifier_name_to_qualifier]
+"CommiteeVerifier (Primary)" = "default"
+"CommiteeVerifier (Secondary)" = "secondary"
+"CommiteeVerifier (Tertiary)" = "tertiary"
+
+[indexer.cctp_verifier_name_to_qualifier]
+"Token Verifier (Primary)" = ""
+
+[indexer.lombard_verifier_name_to_qualifier]
+"Token Verifier (Primary)" = "Lombard"
+
+[indexer.indexer_config.Storage]
+Strategy = "single"
+
+[indexer.indexer_config.Storage.Single]
+Type = "postgres"
+
+[indexer.indexer_config.Storage.Single.Postgres]
+MaxOpenConnections = 20
+MaxIdleConnections = 5
+IdleInTxSessionTimeout = 60
+LockTimeout = 30
+
+[indexer.secrets.Storage.Single.Postgres]
+# Host must be the DB container name (indexer-db), not the indexer service (indexer).
+URI = "postgresql://indexer:indexer@indexer-db:5432/indexer?sslmode=disable"
+
+[[committeeccv.aggregator]]
+  committee_name = "default"
+  image = "aggregator:latest"
+  host_port = 50051
+  ## will spawn additional Aggregators IF high_availability is true
+  redundant_aggregators = 1
+  source_code_path = "../aggregator"
+  root_path = "../../"
+
+  [committeeccv.aggregator.db]
+    image = "postgres:16-alpine"
+    host_port  = 7432
+
+  [committeeccv.aggregator.redis]
+    image = "redis:7-alpine"
+    host_port  = 6379
+
+  [[committeeccv.aggregator.api_clients]]
+  client_id = "default-verifier-1"
+  description = "Development default verifier 1"
+  enabled = true
+  groups = ["verifiers"]
+
+  [[committeeccv.aggregator.api_clients]]
+  client_id = "default-verifier-2"
+  description = "Development default verifier 2"
+  enabled = true
+  groups = ["verifiers"]
+
+  [[committeeccv.aggregator.api_clients]]
+  client_id = "monitoring"
+  description = "Monitoring and infrastructure client"
+  enabled = true
+  groups = ["monitoring"]
+
+  [[committeeccv.aggregator.api_clients]]
+  client_id = "indexer"
+  description = "Development Indexer"
+  enabled = true
+  groups = ["indexer"]
+
+  # Environment variables for sensitive configuration
+  [committeeccv.aggregator.env]
+    storage_connection_url = "postgresql://aggregator:aggregator@default-aggregator-db:5432/aggregator?sslmode=disable"
+    redis_address = "default-aggregator-redis:6379"
+    redis_password = ""
+    redis_db = "0"
+
+[[committeeccv.aggregator]]
+  committee_name = "secondary"
+  image = "aggregator:latest"
+  host_port = 50052
+  redundant_aggregators = 0
+  source_code_path = "../aggregator"
+  root_path = "../../"
+
+  [committeeccv.aggregator.db]
+    image = "postgres:16-alpine"
+    host_port  = 7433
+
+  [committeeccv.aggregator.redis]
+    image = "redis:7-alpine"
+    host_port  = 6380
+
+  [[committeeccv.aggregator.api_clients]]
+  client_id = "secondary-verifier-1"
+  description = "Development secondary verifier 1"
+  enabled = true
+  groups = ["verifiers"]
+
+  [[committeeccv.aggregator.api_clients]]
+  client_id = "secondary-verifier-2"
+  description = "Development secondary verifier 2"
+  enabled = true
+  groups = ["verifiers"]
+
+  [[committeeccv.aggregator.api_clients]]
+  client_id = "monitoring"
+  description = "Monitoring and infrastructure client"
+  enabled = true
+  groups = ["monitoring"]
+
+  [[committeeccv.aggregator.api_clients]]
+  client_id = "indexer"
+  description = "Development Indexer"
+  enabled = true
+  groups = ["indexer"]
+
+  [committeeccv.aggregator.env]
+    storage_connection_url = "postgresql://aggregator:aggregator@secondary-aggregator-db:5432/aggregator?sslmode=disable"
+    redis_address = "secondary-aggregator-redis:6379"
+    redis_password = ""
+    redis_db = "0"
+
+[[committeeccv.aggregator]]
+  committee_name = "tertiary"
+  image = "aggregator:latest"
+  host_port = 50053
+  redundant_aggregators = 0
+  source_code_path = "../aggregator"
+  root_path = "../../"
+
+  [committeeccv.aggregator.db]
+    image = "postgres:16-alpine"
+    host_port  = 7434
+
+  [committeeccv.aggregator.redis]
+    image = "redis:7-alpine"
+    host_port  = 6381
+
+  [[committeeccv.aggregator.api_clients]]
+  client_id = "tertiary-verifier-1"
+  description = "Development tertiary verifier 1"
+  enabled = true
+  groups = ["verifiers"]
+
+  [[committeeccv.aggregator.api_clients]]
+  client_id = "tertiary-verifier-2"
+  description = "Development tertiary verifier 2"
+  enabled = true
+  groups = ["verifiers"]
+
+  [[committeeccv.aggregator.api_clients]]
+  client_id = "monitoring"
+  description = "Monitoring and infrastructure client"
+  enabled = true
+  groups = ["monitoring"]
+
+  [[committeeccv.aggregator.api_clients]]
+  client_id = "indexer"
+  description = "Development Indexer"
+  enabled = true
+  groups = ["indexer"]
+  # Environment variables for sensitive configuration
+  [committeeccv.aggregator.env]
+    storage_connection_url = "postgresql://aggregator:aggregator@tertiary-aggregator-db:5432/aggregator?sslmode=disable"
+    redis_address = "tertiary-aggregator-redis:6379"
+    redis_password = ""
+    redis_db = "0"

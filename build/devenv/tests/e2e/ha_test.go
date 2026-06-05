@@ -2,7 +2,6 @@ package e2e
 
 import (
 	"fmt"
-	"os"
 	"os/exec"
 	"testing"
 	"time"
@@ -17,19 +16,6 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 )
-
-// DefaultHATestConfig is the path to the HA environment output config.
-// When launched via `ccv up env.toml,env-HA.toml`, the output is named
-// after the base config (env.toml) → env-out.toml.
-// Override via HA_TEST_CONFIG env var.
-const DefaultHATestConfig = "../../env-out.toml"
-
-func getHATestConfig() string {
-	if cfg := os.Getenv("HA_TEST_CONFIG"); cfg != "" {
-		return cfg
-	}
-	return DefaultHATestConfig
-}
 
 // haTestSetup holds everything needed to run an HA regression test.
 type haTestSetup struct {
@@ -325,13 +311,13 @@ func setupHATest(t *testing.T) *haTestSetup {
 		require.NoError(t, err)
 	})
 
-	envOutPath := getHATestConfig()
+	envOutPath := GetSmokeTestConfig()
 	in, err := ccv.LoadOutput[ccv.Cfg](envOutPath)
 	require.NoError(t, err)
 	ctx := ccv.Plog.WithContext(t.Context())
 	l := zerolog.Ctx(ctx)
 
-	lib, err := ccv.NewLib(l, envOutPath, chain_selectors.FamilyEVM)
+	lib, err := ccv.NewLibFromCCVEnv(l, envOutPath, chain_selectors.FamilyEVM)
 	require.NoError(t, err)
 	chains, err := lib.Chains(ctx)
 	require.NoError(t, err)

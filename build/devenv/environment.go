@@ -3,22 +3,19 @@ package ccv
 import (
 	"context"
 	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
 	"math/big"
 	"os"
-	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/BurntSushi/toml"
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 	"golang.org/x/sync/errgroup"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
@@ -26,13 +23,23 @@ import (
 
 	_ "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/adapters"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainreg"
+	ccldf "github.com/smartcontractkit/chainlink-ccv/build/devenv/cldf"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
+	_ "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/blockchains"
+	_ "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/committeeccv"
+	_ "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/executor"
+	_ "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/fake"
+	_ "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/indexer"
+	_ "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/jd"
+	_ "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/observability"
+	_ "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/pricer"
+	_ "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/protocol_contracts"
+	_ "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/tokenverifier"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
-	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/chainconfig"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/committeeverifier"
 	executorsvc "github.com/smartcontractkit/chainlink-ccv/build/devenv/services/executor"
-	"github.com/smartcontractkit/chainlink-ccv/build/devenv/util"
 	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
 	ccvadapters "github.com/smartcontractkit/chainlink-ccv/deployment/adapters"
 	ccvchangesets "github.com/smartcontractkit/chainlink-ccv/deployment/changesets"
@@ -44,13 +51,14 @@ import (
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/offchain"
 	jobv1 "github.com/smartcontractkit/chainlink-protos/job-distributor/v1/job"
-	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/clclient"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/clnode"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/jd"
 	ns "github.com/smartcontractkit/chainlink-testing-framework/framework/components/simple_node_set"
 )
+
+var Plog = log.Output(zerolog.ConsoleWriter{Out: os.Stderr}).Level(zerolog.DebugLevel).With().Fields(map[string]any{"component": "ccv"}).Logger()
 
 const (
 	CommonCLNodesConfig = `
@@ -90,8 +98,19 @@ const (
 `
 )
 
+// ProtocolContractsCfg holds config for the protocol_contracts Phase 3 component.
+type ProtocolContractsCfg struct {
+	// UseLegacyConfigureLane selects the legacy lanes.ConnectChains path
+	// instead of the canonical ConfigureChainsForLanesFromTopology changeset.
+	UseLegacyConfigureLane bool `toml:"use_legacy_configure_lane"`
+}
+
 type Cfg struct {
-	CLDF               CLDF                           `toml:"cldf"                  validate:"required"`
+	// Version is incremented on breaking config schema changes so downstream
+	// consumers can detect incompatible configs. Version 0 (implicit/absent)
+	// predates the [protocol_contracts] section.
+	Version            int                            `toml:"version"`
+	CLDF               ccldf.CLDF                     `toml:"cldf"                  validate:"required"`
 	Pricer             *services.PricerInput          `toml:"pricer"                validate:"required"`
 	Fake               *services.FakeInput            `toml:"fake"                  validate:"required"`
 	Verifier           []*committeeverifier.Input     `toml:"verifier"              validate:"required"`
@@ -101,16 +120,14 @@ type Cfg struct {
 	Aggregator         []*services.AggregatorInput    `toml:"aggregator"            validate:"required"`
 	JD                 *jd.Input                      `toml:"jd"                    validate:"required"`
 	Blockchains        []*blockchain.Input            `toml:"blockchains"           validate:"required"`
-	NodeSets           []*ns.Input                    `toml:"nodesets"              validate:"required"`
+	NodeSets           []*ns.Input                    `toml:"nodesets"              validate:"omitempty"`
 	CLNodesFundingETH  float64                        `toml:"cl_nodes_funding_eth"`
 	CLNodesFundingLink float64                        `toml:"cl_nodes_funding_link"`
 	// HighAvailability enables devenv-level service redundancy. When true,
-	// expandForHA() clones AggregatorInput / IndexerInput entries according
+	// ExpandForHA() clones AggregatorInput / IndexerInput entries according
 	// to their per-service redundancy counts and updates the topology.
-	HighAvailability bool `toml:"high_availability"`
-	// UseLegacyConfigureLane selects the legacy lanes.ConnectChains path
-	// instead of the canonical ConfigureChainsForLanesFromTopology changeset.
-	UseLegacyConfigureLane bool `toml:"use_legacy_configure_lane"`
+	HighAvailability  bool                 `toml:"high_availability"`
+	ProtocolContracts ProtocolContractsCfg `toml:"protocol_contracts"`
 	// AggregatorEndpoints map the verifier qualifier to the aggregator URL for that verifier.
 	AggregatorEndpoints map[string]string `toml:"aggregator_endpoints"`
 	// AggregatorCACertFiles map the verifier qualifier to the CA cert file path for TLS verification.
@@ -130,11 +147,11 @@ type Cfg struct {
 	GenericServices map[uint64]*GenericServiceDefinition `toml:"generic_services" validate:"required"`
 }
 
-// expandForHA clones AggregatorInput / IndexerInput entries based on their
+// ExpandForHA clones AggregatorInput / IndexerInput entries based on their
 // per-service redundancy counts and updates the EnvironmentTopology so that
 // downstream changesets and service launches see the expanded set.
 // When HighAvailability is false this is a no-op.
-func (c *Cfg) expandForHA() error {
+func (c *Cfg) ExpandForHA() error {
 	if !c.HighAvailability {
 		return nil
 	}
@@ -424,113 +441,15 @@ func checkKeys(in *Cfg) error {
 		}
 	}
 	for _, bc := range evmBlockchains {
-		if getNetworkPrivateKey() != DefaultAnvilKey && slices.Contains(evmSimChainIDs, bc.ChainID) {
+		if getNetworkPrivateKey() != devenvcommon.DefaultAnvilKey && slices.Contains(evmSimChainIDs, bc.ChainID) {
 			return errors.New("you are trying to run simulated chains with a key that do not belong to Anvil, please run 'unset PRIVATE_KEY'")
 		}
-		if getNetworkPrivateKey() == DefaultAnvilKey && !slices.Contains(evmSimChainIDs, bc.ChainID) {
+		if getNetworkPrivateKey() == devenvcommon.DefaultAnvilKey && !slices.Contains(evmSimChainIDs, bc.ChainID) {
 			return errors.New("you are trying to run on real networks but is not using the Anvil private key, export your private key 'export PRIVATE_KEY=...'")
 		}
 	}
 
 	return nil
-}
-
-func NewProductConfigurationFromNetwork(typ string) (cciptestinterfaces.CCIP17Configuration, error) {
-	resolved, err := blockchain.TypeToFamily(typ)
-	if err != nil {
-		// typ might already be a family name — try the factory directly before giving up.
-		if fac, facErr := GetImplFactory(typ); facErr == nil {
-			return fac.NewEmpty(), nil
-		}
-		return nil, fmt.Errorf("unknown blockchain type %q (not a recognized type or family): %w", typ, err)
-	}
-	family := string(resolved)
-	fac, err := GetImplFactory(family)
-	if err != nil {
-		return nil, fmt.Errorf("could not find impl factory for chain type %s (family %s): %w", typ, family, err)
-	}
-	return fac.NewEmpty(), nil
-}
-
-// enrichEnvironmentTopology injects SignerAddress values from verifier inputs into the EnvironmentTopology.
-// This is needed because signer addresses are only known after key generation or CL node launch.
-// Each verifier's NOPAlias identifies which NOP in the topology it belongs to.
-// Only the first verifier for each NOP sets the signer address (subsequent verifiers with the
-// same NOPAlias are ignored to avoid overwriting with wrong keys due to round-robin wrap-around).
-//
-// Signer key selection is delegated to each registered ImplFactory via DefaultSignerKey,
-// so adding a new chain family requires no changes here.
-func enrichEnvironmentTopology(cfg *ccvdeployment.EnvironmentTopology, verifiers []*committeeverifier.Input) {
-	factories := GetAllImplFactories()
-
-	seenAliases := make(map[string]struct{})
-	for _, ver := range verifiers {
-		if _, seen := seenAliases[ver.NOPAlias]; seen {
-			continue
-		}
-		nop, ok := cfg.NOPTopology.GetNOP(ver.NOPAlias)
-		if !ok || nop.GetMode() == ccvshared.NOPModeCL {
-			continue
-		}
-
-		for family, factory := range factories {
-			if nop.SignerAddressByFamily[family] != "" {
-				continue
-			}
-			signerKey := factory.DefaultSignerKey(ver.Out.BootstrapKeys)
-			if signerKey != "" {
-				cfg.NOPTopology.SetNOPSignerAddress(ver.NOPAlias, family, signerKey)
-			}
-		}
-
-		seenAliases[ver.NOPAlias] = struct{}{}
-	}
-}
-
-// buildEnvironmentTopology creates a copy of the EnvironmentTopology from the Cfg,
-// enriches it with signer addresses, and returns it. This is used by both executor
-// and verifier changesets as the single source of truth.
-// For each chain_config entry that lacks a FeeAggregator, the corresponding
-// chain's deployer key is used as a fallback via the registered ImplFactory.
-func buildEnvironmentTopology(in *Cfg, e *deployment.Environment) *ccvdeployment.EnvironmentTopology {
-	if in.EnvironmentTopology == nil {
-		return nil
-	}
-	envCfg := *in.EnvironmentTopology
-	enrichEnvironmentTopology(&envCfg, in.Verifier)
-
-	if envCfg.NOPTopology == nil {
-		return &envCfg
-	}
-
-	for name, committee := range envCfg.NOPTopology.Committees {
-		if committee.ChainConfigs == nil {
-			continue
-		}
-		for chainSel, chainCfg := range committee.ChainConfigs {
-			if chainCfg.FeeAggregator == "" {
-				sel, err := strconv.ParseUint(chainSel, 10, 64)
-				if err != nil {
-					continue
-				}
-				family, err := chainsel.GetSelectorFamily(sel)
-				if err != nil {
-					continue
-				}
-				fac, err := GetImplFactory(family)
-				if err != nil {
-					continue
-				}
-				if addr := fac.DefaultFeeAggregator(e, sel); addr != "" {
-					chainCfg.FeeAggregator = addr
-					committee.ChainConfigs[chainSel] = chainCfg
-				}
-			}
-		}
-		envCfg.NOPTopology.Committees[name] = committee
-	}
-
-	return &envCfg
 }
 
 // generateExecutorJobSpecs generates job specs for all executors using the changeset.
@@ -539,7 +458,6 @@ func buildEnvironmentTopology(in *Cfg, e *deployment.Environment) *ccvdeployment
 func generateExecutorJobSpecs(
 	e *deployment.Environment,
 	in *Cfg,
-	selectors []uint64,
 	topology *ccvdeployment.EnvironmentTopology,
 	ds datastore.MutableDataStore,
 ) (map[string]bootstrap.JobSpec, error) {
@@ -566,10 +484,18 @@ func generateExecutorJobSpecs(
 			execNOPAliases = append(execNOPAliases, exec.NOPAlias)
 		}
 
+		pool, ok := topology.ExecutorPools[qualifier]
+		if !ok {
+			return nil, fmt.Errorf("executor pool %q not found in topology", qualifier)
+		}
 		cs := ccvchangesets.ApplyExecutorConfig(ccvadapters.GetRegistry())
 		output, err := cs.Apply(*e, ccvchangesets.ApplyExecutorConfigInput{
-			Topology:          topology,
 			ExecutorQualifier: qualifier,
+			NOPs:              ccvchangesets.NOPInputsFromTopology(topology),
+			Pool:              ccvchangesets.ExecutorPoolInputFromTopology(pool),
+			IndexerAddress:    topology.IndexerAddress,
+			PyroscopeURL:      topology.PyroscopeURL,
+			Monitoring:        topology.Monitoring,
 			TargetNOPs:        ccvshared.ConvertStringToNopAliases(execNOPAliases),
 		})
 		if err != nil {
@@ -617,7 +543,6 @@ func generateExecutorJobSpecs(
 func generateVerifierJobSpecs(
 	e *deployment.Environment,
 	in *Cfg,
-	selectors []uint64,
 	topology *ccvdeployment.EnvironmentTopology,
 	sharedTLSCerts *services.TLSCertPaths,
 	ds datastore.MutableDataStore,
@@ -657,11 +582,18 @@ func generateVerifierJobSpecs(
 			}
 
 			disableFinalityCheckers := disableFinalityCheckersPerFamily[family]
+			committee, ok := topology.NOPTopology.Committees[committeeName]
+			if !ok {
+				return nil, fmt.Errorf("committee %q not found in topology", committeeName)
+			}
 			cs := ccvchangesets.ApplyVerifierConfig(ccvadapters.GetRegistry())
 			output, err := cs.Apply(*e, ccvchangesets.ApplyVerifierConfigInput{
-				Topology:                 topology,
 				CommitteeQualifier:       committeeName,
 				DefaultExecutorQualifier: devenvcommon.DefaultExecutorQualifier,
+				NOPs:                     ccvchangesets.NOPInputsFromTopology(topology),
+				Committee:                ccvchangesets.CommitteeInputFromTopologyPerFamily(committee, family),
+				PyroscopeURL:             topology.PyroscopeURL,
+				Monitoring:               topology.Monitoring,
 				TargetNOPs:               verNOPAliases,
 				DisableFinalityCheckers:  disableFinalityCheckers,
 			})
@@ -749,764 +681,6 @@ func generateVerifierJobSpecs(
 	}
 
 	return verifierJobSpecs, nil
-}
-
-// NewEnvironment creates a new CCIP CCV environment locally in Docker.
-func NewEnvironment() (in *Cfg, err error) {
-	ctx := context.Background()
-	timeTrack := NewTimeTracker(Plog)
-
-	// track environment startup result and time using getDX app
-	defer func() {
-		dxTracker := initDxTracker()
-		sendStartupMetrics(dxTracker, err, timeTrack.SinceStart().Seconds())
-	}()
-
-	ctx = L.WithContext(ctx)
-	if err = framework.DefaultNetwork(nil); err != nil {
-		return nil, err
-	}
-
-	/////////////////////////////
-	// START: Read Config toml //
-	/////////////////////////////
-
-	configs := strings.Split(os.Getenv(EnvVarTestConfigs), ",")
-	if len(configs) > 1 {
-		L.Warn().Msg("Multiple configuration files detected, this feature may be unsupported in the future.")
-	}
-	in, err = Load[Cfg](configs)
-	if err != nil {
-		return nil, fmt.Errorf("failed to load configuration: %w", err)
-	}
-
-	if err = in.expandForHA(); err != nil {
-		return nil, fmt.Errorf("failed to expand HA configuration: %w", err)
-	}
-
-	// Executor config...
-	if in.Executor != nil {
-		for _, exec := range in.Executor {
-			executorsvc.ApplyDefaults(exec)
-		}
-	}
-
-	/////////////////////////////
-	// END: Read Config toml //
-	/////////////////////////////
-
-	// Start fake data provider. Used for USDC verifier.
-	fakeOut, err := services.NewFake(in.Fake)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create fake data provider: %w", err)
-	}
-
-	///////////////////////////////
-	// START: Deploy blockchains //
-	// The services crash if the RPC is not available.
-	///////////////////////////////
-	if err = checkKeys(in); err != nil {
-		return nil, err
-	}
-
-	impls := make([]cciptestinterfaces.CCIP17Configuration, 0)
-	for _, bc := range in.Blockchains {
-		var impl cciptestinterfaces.CCIP17Configuration
-		impl, err = NewProductConfigurationFromNetwork(bc.Type)
-		if err != nil {
-			return nil, err
-		}
-		impls = append(impls, impl)
-	}
-
-	blockchainOutputs := make([]*blockchain.Output, len(impls))
-	for i, impl := range impls {
-		out, err := impl.DeployLocalNetwork(ctx, in.Blockchains[i])
-		if err != nil {
-			return nil, fmt.Errorf("failed to deploy local networks: %w", err)
-		}
-
-		blockchainOutputs[i] = out
-	}
-
-	/////////////////////////////
-	// END: Deploy blockchains //
-	/////////////////////////////
-
-	//////////////////////////////////////////////////
-	// START: Generate Aggregator Credentials       //
-	//////////////////////////////////////////////////
-
-	// Generate HMAC credentials for all aggregator clients before launching
-	// CL nodes, so they can receive the credentials via secrets.
-	for _, agg := range in.Aggregator {
-		creds, err := agg.EnsureClientCredentials()
-		if err != nil {
-			return nil, fmt.Errorf("failed to ensure client credentials for aggregator %s: %w", agg.CommitteeName, err)
-		}
-
-		// Set the aggregator output client credentials so that the verifier has access to it.
-		if agg.Out == nil {
-			agg.Out = &services.AggregatorOutput{}
-		}
-		agg.Out.ClientCredentials = creds
-
-		for clientID, c := range creds {
-			Plog.Debug().
-				Str("aggregator", agg.CommitteeName).
-				Str("clientID", clientID).
-				Str("apiKey", c.APIKey[:8]+"...").
-				Msg("Generated aggregator credentials")
-		}
-	}
-	//////////////////////////////////////////
-	// END: Generate Aggregator Credentials //
-	//////////////////////////////////////////
-
-	//////////////////////////////////
-	// START: Deploy Pricer service //
-	//////////////////////////////////
-	if _, err := services.NewPricer(in.Pricer); err != nil {
-		return nil, fmt.Errorf("failed to setup pricer service: %w", err)
-	}
-
-	if in.Pricer != nil {
-		for i, impl := range impls {
-			Plog.Info().Int("ImplIndex", i).Msg("Funding pricer key")
-			err = impl.FundAddresses(
-				ctx,
-				in.Blockchains[i],
-				[]protocol.UnknownAddress{common.HexToAddress(in.Pricer.Keystore.Address).Bytes()},
-				big.NewInt(5),
-			)
-			if err != nil {
-				return nil, fmt.Errorf("failed to fund pricer address: %w", err)
-			}
-			Plog.Info().Int("ImplIndex", i).Msg("Funded pricer address")
-		}
-	}
-
-	////////////////////////////////
-	// END: Deploy Pricer service //
-	////////////////////////////////
-
-	////////////////////////////
-	// START: Launch CL Nodes //
-	////////////////////////////
-
-	// We launch the CL nodes first because they don't require any configuration from
-	// the rest of the system to be up and running.
-	// In addition, if we need to launch the nodes (i.e if some services are not standalone),
-	// we need to launch the nodes first to get the onchain public keys which will then
-	// be used to configure the rest of the system (aggregator, onchain committees, etc.).
-	timeTrack.Record("[infra] deploying CL nodes")
-	_, err = launchCLNodes(ctx, in, impls, in.Verifier, in.Aggregator)
-	if err != nil {
-		return nil, fmt.Errorf("failed to launch CL nodes: %w", err)
-	}
-	timeTrack.Record("[infra] deployed CL nodes")
-
-	//////////////////////////
-	// END: Launch CL Nodes //
-	//////////////////////////
-
-	//////////////////////////////////////
-	// START: Start JD Infrastructure   //
-	//////////////////////////////////////
-
-	timeTrack.Record("[infra] starting JD infrastructure")
-
-	// Extract only CL-mode NOP aliases for JD/client operations
-	// Standalone NOPs don't have CL nodes and don't need JD registration
-	clModeNopAliases := make([]string, 0)
-	if in.EnvironmentTopology != nil && in.EnvironmentTopology.NOPTopology != nil {
-		for _, nop := range in.EnvironmentTopology.NOPTopology.NOPs {
-			if nop.GetMode() == ccvshared.NOPModeCL {
-				clModeNopAliases = append(clModeNopAliases, nop.Alias)
-			}
-		}
-	} else {
-		L.Warn().Msg("No environment topology defined, skipping NOP alias extraction")
-	}
-
-	// Create client lookup only for CL-mode NOPs (returns nil if no CL nodes)
-	clientLookup, err := jobs.NewNodeSetClientLookup(in.NodeSets, clModeNopAliases)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create NodeSet client lookup: %w", err)
-	}
-	in.ClientLookup = clientLookup
-
-	jdInfra, err := jobs.StartJDInfrastructure(ctx, jobs.JDInfrastructureConfig{
-		JDInput:  in.JD,
-		NodeSets: in.NodeSets,
-	})
-	if err != nil {
-		L.Error().Msg("Unable to start JD infrastructure." +
-			"Make sure the container has been built with 'just build-jd-docker'.")
-		return nil, fmt.Errorf("failed to start JD infrastructure: %w", err)
-	}
-	in.JDInfra = jdInfra
-
-	// Only register and connect CL-mode NOPs with JD
-	if jdInfra != nil && clientLookup != nil {
-		if err := jobs.RegisterNodesWithJD(ctx, jdInfra, clientLookup, clModeNopAliases); err != nil {
-			return nil, fmt.Errorf("failed to register nodes with JD: %w", err)
-		}
-
-		chainIDs := make([]string, len(in.Blockchains))
-		for i, bc := range in.Blockchains {
-			chainIDs[i] = bc.ChainID
-		}
-
-		if err := jobs.ConnectNodesToJD(ctx, jdInfra, clientLookup, chainIDs); err != nil {
-			return nil, fmt.Errorf("failed to connect nodes to JD: %w", err)
-		}
-	}
-	timeTrack.Record("[infra] started JD infrastructure")
-
-	/////////////////////////////////////
-	// END: Start JD Infrastructure   //
-	/////////////////////////////////////
-
-	/////////////////////////////////////////////
-	// START: Launch verifiers early //
-	// Verifiers generate their own keys on startup, so we need to start them
-	// early and query /info to discover signing addresses before contract deployment.
-	// Aggregator HMAC credentials are already available (generated above),
-	// even though aggregator containers haven't started yet.
-	/////////////////////////////////////////////
-
-	_, err = launchStandaloneVerifiers(in, blockchainOutputs, jdInfra)
-	if err != nil {
-		return nil, fmt.Errorf("failed to launch standalone verifiers: %w", err)
-	}
-
-	// Register standalone verifiers with JD so they can receive job proposals.
-	if jdInfra != nil && jdInfra.OffchainClient != nil {
-		if err := registerStandaloneVerifiersWithJD(ctx, in.Verifier, jdInfra.OffchainClient); err != nil {
-			return nil, err
-		}
-	}
-
-	/////////////////////////////////////////////
-	// END: Launch verifiers early            //
-	/////////////////////////////////////////////
-
-	/////////////////////////////
-	// START: Deploy contracts //
-	/////////////////////////////
-
-	var selectors []uint64
-	var e *deployment.Environment
-	// the CLDF datastore is not initialized at this point because contracts are not deployed yet.
-	// it will get populated in the loop below.
-	in.CLDF.Init()
-
-	cldfCfg := CLDFEnvironmentConfig{
-		Blockchains: in.Blockchains,
-		DataStore:   in.CLDF.DataStore,
-	}
-	if in.JDInfra != nil && in.JDInfra.OffchainClient != nil {
-		cldfCfg.OffchainClient = in.JDInfra.OffchainClient
-		cldfCfg.NodeIDs = in.JDInfra.GetNodeIDs()
-	}
-	selectors, e, err = NewCLDFOperationsEnvironmentWithOffchain(cldfCfg)
-	if err != nil {
-		return nil, fmt.Errorf("creating CLDF operations environment: %w", err)
-	}
-	L.Info().Any("Selectors", selectors).Msg("Deploying for chain selectors")
-
-	topology := buildEnvironmentTopology(in, e)
-	if topology == nil {
-		return nil, fmt.Errorf("failed to build environment topology")
-	}
-
-	timeTrack.Record("[infra] deploying blockchains")
-	// Collect pool capabilities from all impls and compute valid cross-chain combinations.
-	capsBySelector := make(map[uint64][]devenvcommon.PoolCapability, len(impls))
-	for i, impl := range impls {
-		networkInfo, lookupErr := chainsel.GetChainDetailsByChainIDAndFamily(in.Blockchains[i].ChainID, impl.ChainFamily())
-		if lookupErr != nil {
-			return nil, lookupErr
-		}
-		if tcp, ok := impl.(cciptestinterfaces.TokenConfigProvider); ok {
-			capsBySelector[networkInfo.ChainSelector] = tcp.GetSupportedPools()
-		} else {
-			capsBySelector[networkInfo.ChainSelector] = nil
-		}
-	}
-	combos := devenvcommon.ComputeTokenCombinations(capsBySelector, topology)
-
-	ds := datastore.NewMemoryDataStore()
-	for i, impl := range impls {
-		var networkInfo chainsel.ChainDetails
-		networkInfo, err = chainsel.GetChainDetailsByChainIDAndFamily(in.Blockchains[i].ChainID, impl.ChainFamily())
-		if err != nil {
-			return nil, err
-		}
-		L.Info().Uint64("Selector", networkInfo.ChainSelector).Msg("Deployed chain selector")
-		// The goal here is to shift the nonce for the deployer to intentionally create different contract addresses on each chain.
-		// This helps catch a class of bugs that occur if we assume all chains have the same contract addresses.
-		// In practice we want to use CREATE2 and share the same contract addresses across chains. However not all chains support CREATE2.
-		if bumper, ok := impl.(cciptestinterfaces.DeployerNonceBumper); ok && i > 0 {
-			if err := bumper.BumpDeployerNonce(ctx, e, networkInfo.ChainSelector, i); err != nil {
-				return nil, fmt.Errorf("failed to bump deployer nonce for chain %d: %w", networkInfo.ChainSelector, err)
-			}
-		}
-		// Per-chain accumulator so we can report all addresses deployed in
-		// this iteration (core contracts + tokens) to in.CLDF.
-		chainDS := datastore.NewMemoryDataStore()
-
-		var dsi datastore.DataStore
-		dsi, err = DeployContractsForSelector(ctx, e, impl, networkInfo.ChainSelector, topology)
-		if err != nil {
-			return nil, err
-		}
-		if err = ds.Merge(dsi); err != nil {
-			return nil, err
-		}
-		if err = chainDS.Merge(dsi); err != nil {
-			return nil, err
-		}
-		e.DataStore = ds.Seal()
-
-		// Deploy generic tokens and pools via the chain-agnostic path.
-		// USDC and Lombard stay inside DeployContractsForSelector.
-		tokenDS := datastore.NewMemoryDataStore()
-		if tcp, ok := impl.(cciptestinterfaces.TokenConfigProvider); ok {
-			if err = DeployTokensAndPools(tcp, e, networkInfo.ChainSelector, combos, tokenDS); err != nil {
-				return nil, fmt.Errorf("deploy tokens and pools for selector %d: %w", networkInfo.ChainSelector, err)
-			}
-		}
-		if err = ds.Merge(tokenDS.Seal()); err != nil {
-			return nil, err
-		}
-		if err = chainDS.Merge(tokenDS.Seal()); err != nil {
-			return nil, err
-		}
-		e.DataStore = ds.Seal()
-
-		var addresses []datastore.AddressRef
-		addresses, err = chainDS.Seal().Addresses().Fetch()
-		if err != nil {
-			return nil, err
-		}
-		var a []byte
-		a, err = json.Marshal(addresses)
-		if err != nil {
-			return nil, err
-		}
-		in.CLDF.AddAddresses(string(a))
-	}
-	e.DataStore = ds.Seal()
-	///////////////////////////
-	// END: Deploy contracts //
-	///////////////////////////
-
-	/////////////////////////////////////////
-	// START: Connect chains to each other //
-	/////////////////////////////////////////
-
-	// Configure cross-chain token transfers: each chain impl builds its own
-	// TokenTransferConfigs using chain-specific registry and CCV refs.
-	if err = ConfigureAllTokenTransfers(impls, selectors, e, topology); err != nil {
-		return nil, fmt.Errorf("configure all token transfers: %w", err)
-	}
-
-	var connectErr error
-	if in.UseLegacyConfigureLane {
-		connectErr = connectAllChainsLegacy(impls, in.Blockchains, selectors, e, topology)
-	} else {
-		connectErr = connectAllChainsCanonical(impls, in.Blockchains, selectors, e, topology)
-	}
-	if connectErr != nil {
-		return nil, connectErr
-	}
-
-	/////////////////////////////////////////
-	// END: Connect chains to each other //
-	/////////////////////////////////////////
-
-	/////////////////////////////////////////
-	// START: Launch generic services //
-	/////////////////////////////////////////
-
-	if err := launchGenericServices(ctx, in, e, blockchainOutputs); err != nil {
-		return nil, fmt.Errorf("failed to launch generic services: %w", err)
-	}
-
-	/////////////////////////////////////////
-	// END: Launch generic services //
-	/////////////////////////////////////////
-
-	///////////////////////////////
-	// START: Launch aggregators //
-	///////////////////////////////
-
-	in.AggregatorEndpoints = make(map[string]string)
-	in.AggregatorCACertFiles = make(map[string]string)
-
-	// Generate shared TLS certificates for all aggregators
-	var sharedTLSCerts *services.TLSCertPaths
-	if len(in.Aggregator) > 0 {
-		var allHostnames []string
-		for _, agg := range in.Aggregator {
-			nginxName := fmt.Sprintf("%s-%s", agg.InstanceName(), services.AggregatorNginxContainerNameSuffix)
-			aggName := fmt.Sprintf("%s-%s", agg.InstanceName(), services.AggregatorContainerNameSuffix)
-			allHostnames = append(allHostnames, nginxName, aggName)
-		}
-		allHostnames = append(allHostnames, "localhost")
-
-		tlsCertDir := filepath.Join(util.CCVConfigDir(), "tls-shared")
-		var err error
-		sharedTLSCerts, err = services.GenerateTLSCertificates(allHostnames, tlsCertDir)
-		if err != nil {
-			return nil, fmt.Errorf("failed to generate shared TLS certificates: %w", err)
-		}
-	}
-
-	// Generate aggregator configs using changesets (on-chain state as source of truth)
-	for _, aggregatorInput := range in.Aggregator {
-		aggregatorInput.SharedTLSCerts = sharedTLSCerts
-
-		// Use changeset to generate committee config from on-chain state
-		instanceName := aggregatorInput.InstanceName()
-		cs := ccvchangesets.GenerateAggregatorConfig(ccvadapters.GetRegistry())
-		output, err := cs.Apply(*e, ccvchangesets.GenerateAggregatorConfigInput{
-			Topology:           topology,
-			ServiceIdentifier:  instanceName + "-aggregator",
-			CommitteeQualifier: aggregatorInput.CommitteeName,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("failed to generate aggregator config for %s (committee %s): %w", instanceName, aggregatorInput.CommitteeName, err)
-		}
-
-		// Get generated config from output datastore
-		aggCfg, err := ccvdeployment.GetAggregatorConfig(output.DataStore.Seal(), instanceName+"-aggregator")
-		if err != nil {
-			return nil, fmt.Errorf("failed to get aggregator config from output: %w", err)
-		}
-		aggregatorInput.GeneratedCommittee = aggCfg
-
-		out, err := services.NewAggregator(aggregatorInput)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create aggregator service for committee %s: %w", aggregatorInput.CommitteeName, err)
-		}
-		in.AggregatorEndpoints[aggregatorInput.CommitteeName] = out.ExternalHTTPSUrl
-		if out.TLSCACertFile != "" {
-			in.AggregatorCACertFiles[aggregatorInput.CommitteeName] = out.TLSCACertFile
-		}
-		e.DataStore = output.DataStore.Seal()
-	}
-
-	///////////////////////////////
-	// START: Launch aggregators //
-	///////////////////////////////
-
-	///////////////////////////
-	// START: Launch indexer(s) //
-	// start up the indexer(s) after the aggregators are up to avoid spamming of errors
-	// in the logs when they start before the aggregators are up.
-	///////////////////////////
-	// Generate indexer config using changeset (on-chain state as source of truth).
-	// One shared config is generated; all indexers use the same config and duplicated secrets/auth.
-	if len(in.Aggregator) > 0 && len(in.Indexer) > 0 {
-		firstIdx := in.Indexer[0]
-		cs := ccvchangesets.GenerateIndexerConfig(ccvadapters.GetRegistry())
-		output, err := cs.Apply(*e, ccvchangesets.GenerateIndexerConfigInput{
-			ServiceIdentifier:                "indexer",
-			CommitteeVerifierNameToQualifier: firstIdx.CommitteeVerifierNameToQualifier,
-			CCTPVerifierNameToQualifier:      firstIdx.CCTPVerifierNameToQualifier,
-			LombardVerifierNameToQualifier:   firstIdx.LombardVerifierNameToQualifier,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("failed to generate indexer config: %w", err)
-		}
-
-		idxCfg, err := ccvdeployment.GetIndexerConfig(output.DataStore.Seal(), "indexer")
-		if err != nil {
-			return nil, fmt.Errorf("failed to get indexer config from output: %w", err)
-		}
-		e.DataStore = output.DataStore.Seal()
-		for _, idxIn := range in.Indexer {
-			idxIn.GeneratedCfg = idxCfg
-		}
-	}
-
-	if len(in.Indexer) < 1 {
-		return nil, fmt.Errorf("at least one indexer is required")
-	}
-
-	// Ensure unique container names and DB host ports; always use indexer-1, indexer-2, ... for consistency.
-	for i := range in.Indexer {
-		if in.Indexer[i].ContainerName == "" {
-			in.Indexer[i].ContainerName = fmt.Sprintf("indexer-%d", i+1)
-		}
-		if in.Indexer[i].DB != nil && in.Indexer[i].DB.HostPort == 0 && len(in.Indexer) > 1 {
-			in.Indexer[i].DB.HostPort = services.DefaultIndexerDBPort + i
-		}
-		// Ensure StorageConnectionURL matches the DB container we create (indexer-1-db, indexer-2-db, ...).
-		// Env.toml may have single-instance URLs; overwrite so migrations and storage use the correct host/credentials.
-		idx := in.Indexer[i]
-		dbName := idx.ContainerName
-		if idx.DB != nil && idx.DB.Database != "" {
-			dbName = idx.DB.Database
-		}
-		dbUser := idx.ContainerName
-		if idx.DB != nil && idx.DB.Username != "" {
-			dbUser = idx.DB.Username
-		}
-		dbPass := idx.ContainerName
-		if idx.DB != nil && idx.DB.Password != "" {
-			dbPass = idx.DB.Password
-		}
-		dbHost := idx.ContainerName + "-db"
-		in.Indexer[i].StorageConnectionURL = fmt.Sprintf("postgresql://%s:%s@%s:5432/%s?sslmode=disable", dbUser, dbPass, dbHost, dbName)
-	}
-
-	if sharedTLSCerts == nil {
-		return nil, fmt.Errorf("shared TLS certificates are required for indexer")
-	}
-
-	// Build discovery secrets from aggregators (same creds used for all indexers).
-	// Ensure every discovery index 0..n-1 has an entry so the written secrets file has Discoveries.0, .1, ...;
-	// otherwise the indexer can panic in CI with "discovery index 0 not found in secrets" when merging.
-	discoverySecrets := make(map[string]config.DiscoverySecrets)
-	verifierSecrets := make(map[string]config.VerifierSecrets)
-	for idx, agg := range in.Aggregator {
-		key := strconv.Itoa(idx)
-		var disc config.DiscoverySecrets
-		var ver config.VerifierSecrets
-		if agg.Out != nil {
-			if creds, ok := agg.Out.GetCredentialsForClient("indexer"); ok {
-				disc = config.DiscoverySecrets{APIKey: creds.APIKey, Secret: creds.Secret}
-				ver = config.VerifierSecrets{APIKey: creds.APIKey, Secret: creds.Secret}
-			}
-		}
-		discoverySecrets[key] = disc
-		verifierSecrets[key] = ver
-	}
-
-	externalURLs := make([]string, 0, len(in.Indexer))
-	internalURLs := make([]string, 0, len(in.Indexer))
-
-	for idxPos, idxIn := range in.Indexer {
-		idxIn.TLSCACertFile = sharedTLSCerts.CACertFile
-
-		idxIn.IndexerConfig.Discoveries = make([]config.DiscoveryConfig, len(in.Aggregator))
-		for i, agg := range in.Aggregator {
-			if agg.Out != nil {
-				idxIn.IndexerConfig.Discoveries[i].Address = agg.Out.Address
-				if creds, ok := agg.Out.GetCredentialsForClient("indexer"); ok {
-					idxIn.IndexerConfig.Discoveries[i].APIKey = creds.APIKey
-					idxIn.IndexerConfig.Discoveries[i].Secret = creds.Secret
-				}
-			}
-			if idxIn.IndexerConfig.Discoveries[i].PollInterval == 0 {
-				idxIn.IndexerConfig.Discoveries[i].PollInterval = 500
-			}
-			if idxIn.IndexerConfig.Discoveries[i].Timeout == 0 {
-				idxIn.IndexerConfig.Discoveries[i].Timeout = 5000
-			}
-			if idxIn.IndexerConfig.Discoveries[i].NtpServer == "" {
-				idxIn.IndexerConfig.Discoveries[i].NtpServer = "time.google.com"
-			}
-		}
-
-		// Duplicate same secrets/auth for this indexer (Verifier push to indexer uses same creds).
-		if idxIn.Secrets == nil {
-			idxIn.Secrets = &config.SecretsConfig{
-				Discoveries: make(map[string]config.DiscoverySecrets),
-				Verifier:    make(map[string]config.VerifierSecrets),
-			}
-		}
-		if idxIn.Secrets.Discoveries == nil {
-			idxIn.Secrets.Discoveries = make(map[string]config.DiscoverySecrets)
-		}
-		if idxIn.Secrets.Verifier == nil {
-			idxIn.Secrets.Verifier = make(map[string]config.VerifierSecrets)
-		}
-		maps.Copy(idxIn.Secrets.Discoveries, discoverySecrets)
-		maps.Copy(idxIn.Secrets.Verifier, verifierSecrets)
-		// Ensure storage secrets use the same DB URL we set on StorageConnectionURL (indexer loads secrets and overwrites config URI).
-		idxIn.Secrets.Storage.Single.Postgres.URI = idxIn.StorageConnectionURL
-
-		indexerOut, err := services.NewIndexer(idxIn)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create indexer service (index %d): %w", idxPos, err)
-		}
-		externalURLs = append(externalURLs, indexerOut.ExternalHTTPURL)
-		internalURLs = append(internalURLs, indexerOut.InternalHTTPURL)
-	}
-
-	in.IndexerEndpoints = externalURLs
-	in.IndexerInternalEndpoints = internalURLs
-
-	/////////////////////////
-	// END: Launch indexer(s) //
-	/////////////////////////
-
-	/////////////////////////////
-	// START: Launch executors //
-	/////////////////////////////
-
-	executorJobSpecs, err := generateExecutorJobSpecs(e, in, selectors, topology, ds)
-	if err != nil {
-		return nil, err
-	}
-
-	_, err = launchExecutors(in.Executor, blockchainOutputs, jdInfra)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create executors: %w", err)
-	}
-
-	if err := fundExecutorTransmitters(ctx, in.Executor, in.Blockchains, impls); err != nil {
-		return nil, fmt.Errorf("failed to fund executor transmitters: %w", err)
-	}
-
-	if jdInfra != nil && jdInfra.OffchainClient != nil {
-		if err := registerExecutorsWithJD(ctx, in.Executor, jdInfra.OffchainClient); err != nil {
-			return nil, err
-		}
-		if err := proposeJobsToExecutors(ctx, in.Executor, executorJobSpecs, blockchainOutputs, jdInfra.OffchainClient); err != nil {
-			return nil, err
-		}
-	}
-
-	///////////////////////////
-	// END: Launch executors //
-	///////////////////////////
-
-	/////////////////////////////
-	// START: Launch verifiers //
-	/////////////////////////////
-
-	verifierJobSpecs, err := generateVerifierJobSpecs(e, in, selectors, topology, sharedTLSCerts, ds)
-	if err != nil {
-		return nil, err
-	}
-
-	// Each verifier owns one aggregator (NodeIndex % numAggs). Select the
-	// corresponding job spec so proposeJobsToStandaloneVerifiers gets a
-	// single spec per container.
-	ownedJobSpecs := make(map[string]bootstrap.JobSpec, len(verifierJobSpecs))
-	for _, ver := range in.Verifier {
-		specs := verifierJobSpecs[ver.NOPAlias]
-		if len(specs) > 0 {
-			ownedJobSpecs[ver.NOPAlias] = specs[ver.NodeIndex%len(specs)]
-		}
-	}
-
-	// Propose jobs to standalone verifiers via JD
-	if jdInfra != nil && jdInfra.OffchainClient != nil {
-		if err := proposeJobsToStandaloneVerifiers(ctx, in.Verifier, ownedJobSpecs, blockchainOutputs, jdInfra.OffchainClient); err != nil {
-			return nil, err
-		}
-	}
-
-	/////////////////////////////
-	// END: Launch verifiers //
-	/////////////////////////////
-
-	///////////////////////////////////
-	// START: Launch token verifiers //
-	///////////////////////////////////
-
-	// Generate token verifier configs using changeset (on-chain state as source of truth)
-	for i, tokenVerifierInput := range in.TokenVerifier {
-		if tokenVerifierInput == nil {
-			continue
-		}
-
-		if fakeOut == nil {
-			return nil, fmt.Errorf("fake data provider is required for token verifiers to provide attestation API endpoints, but it was not created successfully")
-		}
-
-		template, err := tokenVerifierInput.GenerateTemplateConfig()
-		if err != nil {
-			return nil, fmt.Errorf("failed to generate template config for token verifier: %w", err)
-		}
-
-		// Use changeset to generate token verifier config from on-chain state
-		cs := ccvchangesets.GenerateTokenVerifierConfig(ccvadapters.GetRegistry())
-		output, err := cs.Apply(*e, ccvchangesets.GenerateTokenVerifierConfigInput{
-			ServiceIdentifier: "TokenVerifier",
-			ChainSelectors:    selectors,
-			PyroscopeURL:      template.PyroscopeURL,
-			Monitoring: ccvdeployment.MonitoringConfig{
-				Enabled: template.Monitoring.Enabled,
-				Type:    template.Monitoring.Type,
-				Beholder: ccvdeployment.BeholderConfig{
-					InsecureConnection:       template.Monitoring.Beholder.InsecureConnection,
-					CACertFile:               template.Monitoring.Beholder.CACertFile,
-					OtelExporterGRPCEndpoint: template.Monitoring.Beholder.OtelExporterGRPCEndpoint,
-					OtelExporterHTTPEndpoint: template.Monitoring.Beholder.OtelExporterHTTPEndpoint,
-					LogStreamingEnabled:      template.Monitoring.Beholder.LogStreamingEnabled,
-					MetricReaderInterval:     template.Monitoring.Beholder.MetricReaderInterval,
-					TraceSampleRatio:         template.Monitoring.Beholder.TraceSampleRatio,
-					TraceBatchTimeout:        template.Monitoring.Beholder.TraceBatchTimeout,
-				},
-			},
-			Lombard: ccvchangesets.LombardConfigInput{
-				VerifierID:     "LombardVerifier",
-				Qualifier:      devenvcommon.LombardContractsQualifier,
-				AttestationAPI: fakeOut.InternalHTTPURL + "/lombard",
-			},
-			CCTP: ccvchangesets.CCTPConfigInput{
-				VerifierID:     "CCTPVerifier",
-				AttestationAPI: fakeOut.InternalHTTPURL + "/cctp",
-			},
-		})
-		if err != nil {
-			return nil, fmt.Errorf("failed to generate token verifier config: %w", err)
-		}
-
-		// Get generated config from output datastore
-		tokenVerifierCfg, err := ccvdeployment.GetTokenVerifierConfig(
-			output.DataStore.Seal(), "TokenVerifier",
-		)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get token verifier config from output: %w", err)
-		}
-		in.TokenVerifier[i].GeneratedConfig = tokenVerifierCfg
-		e.DataStore = output.DataStore.Seal()
-	}
-
-	if fakeOut != nil {
-		_, err = launchStandaloneTokenVerifiers(in, blockchainOutputs)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create standalone token verifiers: %w", err)
-		}
-	}
-
-	///////////////////////////////////
-	// END: Launch token verifiers //
-	///////////////////////////////////
-
-	////////////////////////////////////////////////////
-	// Jobs are now proposed via JD during changeset execution.
-	// AcceptPendingJobs should be called after all changesets complete
-	// to accept the proposed jobs on CL nodes.
-	////////////////////////////////////////////////////
-
-	e.DataStore = ds.Seal()
-
-	if in.JDInfra != nil {
-		if err := jobs.AcceptPendingJobs(ctx, in.ClientLookup); err != nil {
-			return nil, fmt.Errorf("failed to accept pending jobs: %w", err)
-		}
-
-		if err := jobs.SyncAndVerifyJobProposals(e); err != nil {
-			return nil, fmt.Errorf("failed to sync/verify job proposals: %w", err)
-		}
-	}
-
-	timeTrack.Print()
-	if err = PrintCLDFAddresses(in); err != nil {
-		return nil, err
-	}
-
-	return in, Store(in)
 }
 
 // launchCLNodes encapsulates the logic required to launch the core node. It may be better to wrap this in a service.
@@ -1766,8 +940,8 @@ func fundExecutorTransmitters(
 		if famErr != nil {
 			continue
 		}
-		fac, facErr := GetImplFactory(string(family))
-		if facErr != nil || !fac.SupportsFunding() {
+		reg, facErr := chainreg.GetRegistry().Get(string(family))
+		if facErr != nil || reg.ImplFactory == nil || !reg.ImplFactory.SupportsFunding() {
 			continue
 		}
 		addresses := addressesByFamily[string(family)]
@@ -1784,27 +958,36 @@ func fundExecutorTransmitters(
 }
 
 // launchExecutors starts executor containers for all Standalone-mode inputs.
+// Executors that were already launched by the executor component (Out != nil)
+// are skipped — they are collected into the output slice but not re-launched.
 func launchExecutors(in []*executorsvc.Input, blockchainOutputs []*blockchain.Output, jdInfra *jobs.JDInfrastructure) ([]*executorsvc.Output, error) {
 	var outs []*executorsvc.Output
 	for _, exec := range in {
-		if exec != nil && exec.Mode == services.Standalone {
-			out, err := executorsvc.New(exec, blockchainOutputs, jdInfra)
-			if err != nil {
-				return nil, fmt.Errorf("failed to create executor %s: %w", exec.ContainerName, err)
-			}
-			exec.Out = out
-			outs = append(outs, out)
+		if exec == nil || exec.Mode != services.Standalone {
+			continue
 		}
+		if exec.Out != nil {
+			outs = append(outs, exec.Out)
+			continue
+		}
+		out, err := executorsvc.New(exec, blockchainOutputs, jdInfra, chainreg.GetRegistry().GetExecutorModifiers())
+		if err != nil {
+			return nil, fmt.Errorf("failed to create executor %s: %w", exec.ContainerName, err)
+		}
+		exec.Out = out
+		outs = append(outs, out)
 	}
 	return outs, nil
 }
 
 // registerExecutorsWithJD registers executors with the Job Distributor
-// and waits for them to establish their WSRPC connections.
+// and waits for them to establish their WSRPC connections. Executors that
+// were already registered by the executor component (JDNodeID != "") are
+// skipped — their JDNodeID is already populated and the connection is live.
 func registerExecutorsWithJD(ctx context.Context, executors []*executorsvc.Input, jdClient offchain.Client) error {
 	var standalone []*executorsvc.Input
 	for _, exec := range executors {
-		if exec.Mode == services.Standalone {
+		if exec.Mode == services.Standalone && (exec.Out == nil || exec.Out.JDNodeID == "") {
 			standalone = append(standalone, exec)
 		}
 	}
@@ -1874,12 +1057,14 @@ func proposeJobsToExecutors(
 			}
 			nodeID := exec.Out.JDNodeID
 
-			loader, err := chainconfig.GetChainConfigLoader(exec.ChainFamily)
+			reg, err := chainreg.GetRegistry().Get(exec.ChainFamily)
 			if err != nil {
-				return fmt.Errorf("failed to get chain config loader for family %s: %w", exec.ChainFamily, err)
+				return fmt.Errorf("failed to get chain registration for family %s: %w", exec.ChainFamily, err)
 			}
-
-			blockchainInfos, err := loader(blockchainOutputs)
+			if reg.ChainConfigLoader == nil {
+				return fmt.Errorf("chain config loader for family %s not found", exec.ChainFamily)
+			}
+			blockchainInfos, err := reg.ChainConfigLoader(blockchainOutputs)
 			if err != nil {
 				return fmt.Errorf("failed to load chain config for family %s: %w", exec.ChainFamily, err)
 			}
@@ -1949,7 +1134,7 @@ func launchStandaloneVerifiers(in *Cfg, blockchainOutputs []*blockchain.Output, 
 		}
 		aggIdx := ver.NodeIndex % len(aggOuts)
 		ver.AggregatorOutput = aggOuts[aggIdx]
-		out, err := committeeverifier.New(ver, blockchainOutputs, jdInfra)
+		out, err := committeeverifier.New(ver, blockchainOutputs, jdInfra, chainreg.GetRegistry().GetVerifierModifiers())
 		if err != nil {
 			return nil, fmt.Errorf("failed to create verifier service: %w", err)
 		}
@@ -2203,12 +1388,14 @@ func proposeJobsToStandaloneVerifiers(
 			}
 			nodeID := ver.Out.JDNodeID
 
-			loader, err := chainconfig.GetChainConfigLoader(ver.ChainFamily)
+			reg, err := chainreg.GetRegistry().Get(ver.ChainFamily)
 			if err != nil {
-				return fmt.Errorf("failed to get chain config loader for family %s: %w", ver.ChainFamily, err)
+				return fmt.Errorf("failed to get chain registration for family %s: %w", ver.ChainFamily, err)
 			}
-
-			blockchainInfos, err := loader(blockchainOutputs)
+			if reg.ChainConfigLoader == nil {
+				return fmt.Errorf("chain config loader for family %s not found", ver.ChainFamily)
+			}
+			blockchainInfos, err := reg.ChainConfigLoader(blockchainOutputs)
 			if err != nil {
 				return fmt.Errorf("failed to load chain config for family %s: %w", ver.ChainFamily, err)
 			}

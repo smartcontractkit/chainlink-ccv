@@ -9,6 +9,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/jmoiron/sqlx"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
@@ -16,9 +17,12 @@ import (
 
 	_ "github.com/lib/pq"
 
-	"github.com/smartcontractkit/chainlink-ccv/bootstrap/db"
 	"github.com/smartcontractkit/chainlink-common/keystore"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+
+	"github.com/smartcontractkit/chainlink-ccv/bootstrap/db"
+	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
 // setupBootstrapTestDB starts a postgres container and returns the connection URL
@@ -249,14 +253,86 @@ count = 42`
 
 	t.Run("propagates stop error", func(t *testing.T) {
 		t.Parallel()
+		wantErr := errors.New("stop failed")
 		fac := &spyServiceFactory{
-			stopFn: func(context.Context) error {
-				return errors.New("stop failed")
-			},
+			stopFn: func(context.Context) error { return wantErr },
 		}
 		r := &runner{fac: fac, deps: deps}
-		require.EqualError(t, r.StopJob(ctx), "stop failed")
+		got := r.StopJob(ctx)
+		require.ErrorIs(t, got, wantErr)
 	})
+
+	t.Run("StopJob closes accessors after factory.Stop", func(t *testing.T) {
+		t.Parallel()
+		var calls []string
+		acc := mocks.NewMockAccessor(t)
+		acc.EXPECT().Close().Run(func() {
+			calls = append(calls, "accessor.Close")
+		}).Return(nil).Once()
+
+		inner := mocks.NewMockAccessorFactory(t)
+		inner.EXPECT().GetAccessor(mock.Anything, mock.Anything).Return(acc, nil).Once()
+		accessors := NewAccessorCloserRegistry(logger.Test(t), inner)
+		_, err := accessors.GetAccessor(ctx, protocol.ChainSelector(1))
+		require.NoError(t, err)
+
+		fac := &spyServiceFactory{
+			stopFn: func(context.Context) error {
+				calls = append(calls, "factory.Stop")
+				return nil
+			},
+		}
+		r := &runner{fac: fac, deps: ServiceDeps{Logger: logger.Test(t)}, accCloser: accessors}
+
+		require.NoError(t, r.StopJob(ctx))
+		require.Equal(t, []string{"factory.Stop", "accessor.Close"}, calls,
+			"factory.Stop must complete before accessor.Close")
+	})
+
+	t.Run("StartJob partial failure closes accessors", func(t *testing.T) {
+		t.Parallel()
+		wantErr := errors.New("start failed")
+		acc := mocks.NewMockAccessor(t)
+		acc.EXPECT().Close().Return(nil).Once()
+		fac := &spyServiceFactory{
+			startFn: func(_ context.Context, _ any, d ServiceDeps) error {
+				// Simulate a factory that obtains an accessor then fails.
+				inner := d.Registry.(*AccessorCloserRegistry)
+				inner.mu.Lock()
+				inner.accessors = append(inner.accessors, acc)
+				inner.mu.Unlock()
+				return wantErr
+			},
+		}
+		r := &runner{fac: fac, deps: ServiceDeps{Logger: logger.Test(t)}}
+		require.ErrorIs(t, r.StartJob(ctx, ""), wantErr)
+	})
+}
+
+func TestBootstrapper_Stop_StaticConfig_ClosesAccessors(t *testing.T) {
+	t.Parallel()
+	acc := mocks.NewMockAccessor(t)
+	acc.EXPECT().Close().Return(nil).Once()
+	fac := &spyServiceFactory{
+		startFn: func(_ context.Context, _ any, d ServiceDeps) error {
+			// Simulate factory obtaining an accessor during Start.
+			accessors := d.Registry.(*AccessorCloserRegistry)
+			accessors.mu.Lock()
+			accessors.accessors = append(accessors.accessors, acc)
+			accessors.mu.Unlock()
+			return nil
+		},
+	}
+	f, err := os.CreateTemp(t.TempDir(), "*.toml")
+	require.NoError(t, err)
+	require.NoError(t, f.Close())
+	b, err := NewBootstrapper("t", logger.Test(t), fac, WithTOMLAppConfig(f.Name()))
+	require.NoError(t, err)
+	require.NoError(t, b.Start(t.Context()))
+	require.NotNil(t, b.accCloser)
+
+	require.NoError(t, b.Stop(t.Context()))
+	require.Nil(t, b.accCloser, "accCloser must be cleared after Stop")
 }
 
 // --- test helpers ---

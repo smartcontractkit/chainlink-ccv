@@ -110,7 +110,7 @@ func TestChaos_VerifierFaultToleranceThresholdViolated(t *testing.T) {
 	containerRe2 := fmt.Sprintf("(%s)", strings.Join(func() []string {
 		names := make([]string, 0, len(toStop))
 		for _, verifier := range toStop {
-			names = append(names, verifier.Out.ContainerName)
+			names = append(names, fmt.Sprintf("^%s$", verifier.Out.ContainerName))
 		}
 		return names
 	}(), "|"))
@@ -164,7 +164,7 @@ func TestChaos_AllExecutorsDown(t *testing.T) {
 	var defaultExecutorContainerNames []string
 	for _, executor := range setup.in.Executor {
 		if executor.ExecutorQualifier == devenvcommon.DefaultExecutorQualifier {
-			defaultExecutorContainerNames = append(defaultExecutorContainerNames, executor.Out.ContainerName)
+			defaultExecutorContainerNames = append(defaultExecutorContainerNames, fmt.Sprintf("^%s$", executor.Out.ContainerName))
 		}
 	}
 	require.NotEmpty(t, defaultExecutorContainerNames, "default executor container names not found")
@@ -211,7 +211,7 @@ func TestChaos_IndexerDown(t *testing.T) {
 	indexerContainerName := setup.in.Indexer[0].Out.ContainerName
 	require.NotEmpty(t, indexerContainerName, "indexer container name not found")
 
-	pumbaCmd := fmt.Sprintf("stop --duration=%s --restart re2:%s", 30*time.Second, indexerContainerName)
+	pumbaCmd := fmt.Sprintf("stop --duration=%s --restart re2:%s", 30*time.Second, fmt.Sprintf("^%s$", indexerContainerName))
 	setup.l.Info().Str("pumbaCmd", pumbaCmd).Msg("Stopping the indexer prior to sending the message to simulate an outage")
 	pumbaClose, err := chaos.ExecPumba(
 		pumbaCmd,
@@ -266,7 +266,7 @@ func setupChaos(t *testing.T, envOutPath string) *chaosSetup {
 	l := zerolog.Ctx(ctx)
 
 	// Only load EVM chains for now, as more chains become supported we can add them.
-	lib, err := ccv.NewLib(l, envOutPath, chain_selectors.FamilyEVM)
+	lib, err := ccv.NewLibFromCCVEnv(l, envOutPath, chain_selectors.FamilyEVM)
 	require.NoError(t, err)
 	chains, err := lib.Chains(ctx)
 	require.NoError(t, err)

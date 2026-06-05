@@ -28,7 +28,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/handlers"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/health"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/heartbeat"
-	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/messagedisablement"
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/messagerules"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/middlewares"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/quorum"
@@ -38,6 +38,7 @@ import (
 	committeepb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/committee-verifier/v1"
 	heartbeatpb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/heartbeat/v1"
 	msgdiscoverypb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/message-discovery/v1"
+	messagerulespb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/message-rules/v1"
 	verifierpb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/verifier/v1"
 )
 
@@ -51,18 +52,20 @@ type Server struct {
 	committeepb.UnimplementedCommitteeVerifierServer
 	verifierpb.UnimplementedVerifierServer
 	msgdiscoverypb.UnimplementedMessageDiscoveryServer
+	messagerulespb.UnimplementedMessageRulesServer
 	heartbeatpb.UnimplementedHeartbeatServiceServer
 
 	l                                         logger.SugaredLogger
 	config                                    *model.AggregatorConfig
 	store                                     common.CommitVerificationStore
-	messageDisablementRegistry                *messagedisablement.Registry
+	messageRulesRegistry                      *messagerules.Registry
 	aggregator                                *aggregation.CommitReportAggregator
 	recoverer                                 *OrphanRecoverer
 	readCommitVerifierNodeResultHandler       *handlers.ReadCommitVerifierNodeResultHandler
 	writeCommitVerifierNodeResultHandler      *handlers.WriteCommitVerifierNodeResultHandler
 	getMessagesSinceHandler                   *handlers.GetMessagesSinceHandler
 	getVerifierResultsForMessageHandler       *handlers.GetVerifierResultsForMessageHandler
+	listMessageRulesHandler                   *handlers.ListMessageRulesHandler
 	heartbeatHandler                          *handlers.HeartbeatHandler
 	grpcServer                                *grpc.Server
 	batchWriteCommitVerifierNodeResultHandler *handlers.BatchWriteCommitVerifierNodeResultHandler
@@ -94,6 +97,14 @@ func (s *Server) GetVerifierResultsForMessage(ctx context.Context, req *verifier
 
 func (s *Server) GetMessagesSince(ctx context.Context, req *msgdiscoverypb.GetMessagesSinceRequest) (*msgdiscoverypb.GetMessagesSinceResponse, error) {
 	return s.getMessagesSinceHandler.Handle(ctx, req)
+}
+
+func (s *Server) ListMessageRules(ctx context.Context, req *messagerulespb.ListMessageRulesRequest) (*messagerulespb.ListMessageRulesResponse, error) {
+	return s.listMessageRulesHandler.Handle(ctx, req)
+}
+
+func (s *Server) RefreshMessageDisablementRules(ctx context.Context) error {
+	return s.messageRulesRegistry.Refresh(ctx)
 }
 
 func (s *Server) SendHeartbeat(ctx context.Context, req *heartbeatpb.HeartbeatRequest) (*heartbeatpb.HeartbeatResponse, error) {
@@ -169,7 +180,7 @@ func (s *Server) Start(lis net.Listener) error {
 	// Periodically refresh the message-disablement registry from the database.
 	messageDisablementCtx, messageDisablementCancel := context.WithCancel(context.Background())
 	g.Add(func() error {
-		s.messageDisablementRegistry.StartPeriodicRefresh(messageDisablementCtx, s.config.MessageDisablementRules.RefreshInterval)
+		s.messageRulesRegistry.StartPeriodicRefresh(messageDisablementCtx, s.config.MessageDisablementRules.RefreshInterval)
 		<-messageDisablementCtx.Done()
 		return nil
 	}, func(error) {
@@ -319,16 +330,10 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig, aggMonito
 	}
 
 	// Build the message-disablement registry from the raw store before metrics wrapping.
-	// DatabaseStorage implements messagedisablement.Store; the metrics wrapper does not need to.
-	messageDisablementStore, ok := rawStore.(messagedisablement.Store)
-	if !ok {
-		l.Fatalf("Storage does not implement messagedisablement.Store")
-		return nil
-	}
-	messageDisablementRegistry := messagedisablement.NewRegistry(
-		messageDisablementStore,
+	messageDisablementRegistry := messagerules.NewRegistry(
+		rawStore,
 		l,
-		messagedisablement.WithMetrics(aggMonitoring.Metrics()),
+		messagerules.WithMetrics(aggMonitoring.Metrics()),
 	)
 	if err := messageDisablementRegistry.Refresh(context.Background()); err != nil {
 		l.Warnw("Failed initial message-disablement registry refresh", "error", err)
@@ -343,6 +348,7 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig, aggMonito
 	readCommitVerifierNodeResultHandler := handlers.NewReadCommitVerifierNodeResultHandler(store, l)
 	getMessagesSinceHandler := handlers.NewGetMessagesSinceHandler(store, config.Committee, l, aggMonitoring)
 	getVerifierResultsForMessageHandler := handlers.NewGetVerifierResultsForMessageHandler(store, config.Committee, config.MaxMessageIDsPerBatch, l)
+	listMessageRulesHandler := handlers.NewListMessageRulesHandler(messageDisablementRegistry, l)
 	batchWriteCommitVerifierNodeResultHandler := handlers.NewBatchWriteCommitVerifierNodeResultHandler(writeCommitVerifierNodeResultHandler, config.MaxCommitVerifierNodeResultRequestsPerBatch)
 
 	// Create in-memory heartbeat storage and handler
@@ -438,12 +444,13 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig, aggMonito
 		l:                                    l,
 		config:                               config,
 		store:                                store,
-		messageDisablementRegistry:           messageDisablementRegistry,
+		messageRulesRegistry:                 messageDisablementRegistry,
 		aggregator:                           agg,
 		readCommitVerifierNodeResultHandler:  readCommitVerifierNodeResultHandler,
 		writeCommitVerifierNodeResultHandler: writeCommitVerifierNodeResultHandler,
 		getMessagesSinceHandler:              getMessagesSinceHandler,
 		getVerifierResultsForMessageHandler:  getVerifierResultsForMessageHandler,
+		listMessageRulesHandler:              listMessageRulesHandler,
 		batchWriteCommitVerifierNodeResultHandler: batchWriteCommitVerifierNodeResultHandler,
 		heartbeatHandler: heartbeatHandler,
 		httpHealthServer: httpHealthServer,
@@ -455,6 +462,7 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig, aggMonito
 	}
 	verifierpb.RegisterVerifierServer(grpcServer, server)
 	msgdiscoverypb.RegisterMessageDiscoveryServer(grpcServer, server)
+	messagerulespb.RegisterMessageRulesServer(grpcServer, server)
 	committeepb.RegisterCommitteeVerifierServer(grpcServer, server)
 	heartbeatpb.RegisterHeartbeatServiceServer(grpcServer, server)
 

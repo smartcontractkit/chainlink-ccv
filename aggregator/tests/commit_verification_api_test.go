@@ -16,6 +16,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/testutil"
 	"github.com/smartcontractkit/chainlink-ccv/common/committee"
+	"github.com/smartcontractkit/chainlink-ccv/common/messagerules"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 
 	committeepb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/committee-verifier/v1"
@@ -66,6 +67,44 @@ func TestAggregationHappyPath(t *testing.T) {
 			testFunc(t)
 		})
 	}
+}
+
+func TestWriteCommitteeVerifierNodeResult_MessageDisablementRule(t *testing.T) {
+	t.Parallel()
+
+	sourceVerifierAddress, destVerifierAddress := testutil.GenerateVerifierAddresses(t)
+	signer := testutil.NewSignerFixture(t, "node1")
+	committee := testutil.NewCommitteeFixture(sourceVerifierAddress, destVerifierAddress, signer.Signer)
+	aggregatorClient, ccvDataClient, _, messageRules, cleanup, err := CreateServerAndClientWithMessageRulesControl(t, WithCommitteeConfig(committee))
+	t.Cleanup(cleanup)
+	require.NoError(t, err, "failed to create server and client")
+
+	laneData, err := messagerules.NewLaneRuleData(1, 2)
+	require.NoError(t, err)
+
+	rule, err := messageRules.Create(t.Context(), laneData)
+	require.NoError(t, err)
+	require.NoError(t, messageRules.Refresh(t.Context()))
+
+	blockedMessage := testutil.NewProtocolMessage(t, testutil.WithSequenceNumber(1))
+	blockedNodeData, blockedMessageID := testutil.NewMessageWithCCVNodeData(t, blockedMessage, sourceVerifierAddress, testutil.WithSignatureFrom(t, signer))
+
+	resp, err := aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), testutil.NewWriteCommitteeVerifierNodeResultRequest(blockedNodeData))
+	require.Error(t, err)
+	require.Equal(t, codes.FailedPrecondition, status.Code(err))
+	require.Nil(t, resp)
+	assertCCVDataNotFound(t, t.Context(), ccvDataClient, blockedMessageID)
+
+	require.NoError(t, messageRules.Delete(t.Context(), rule.ID))
+	require.NoError(t, messageRules.Refresh(t.Context()))
+
+	allowedMessage := testutil.NewProtocolMessage(t, testutil.WithSequenceNumber(2))
+	allowedNodeData, allowedMessageID := testutil.NewMessageWithCCVNodeData(t, allowedMessage, sourceVerifierAddress, testutil.WithSignatureFrom(t, signer))
+
+	resp, err = aggregatorClient.WriteCommitteeVerifierNodeResult(t.Context(), testutil.NewWriteCommitteeVerifierNodeResultRequest(allowedNodeData))
+	require.NoError(t, err)
+	require.Equal(t, committeepb.WriteStatus_SUCCESS, resp.Status)
+	assertCCVDataFound(t, t.Context(), ccvDataClient, allowedMessageID, allowedNodeData.GetMessage(), sourceVerifierAddress, destVerifierAddress, WithValidSignatureFrom(signer))
 }
 
 func TestAggregationHappyPath_NoQuorumWhenBlobDataIsDifferent(t *testing.T) {

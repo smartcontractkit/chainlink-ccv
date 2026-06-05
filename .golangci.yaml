@@ -155,6 +155,12 @@ linters:
         # Depends on analyze-types below.
         - pattern: ^spew\.(ConfigState\.)?Dump$
 
+    # https://golangci-lint.run/usage/linters/#goconst
+    goconst:
+      min-len: 6
+      min-occurrences: 12
+      ignore-tests: true
+
     # https://golangci-lint.run/usage/linters/#gocritic
     gocritic:
       disabled-checks: []

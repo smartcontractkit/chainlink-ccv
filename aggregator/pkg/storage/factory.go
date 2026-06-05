@@ -11,6 +11,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/storage/postgres"
 	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
+	"github.com/smartcontractkit/chainlink-ccv/common/messagerules"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
 	_ "github.com/lib/pq" // PostgreSQL driver
@@ -29,6 +30,7 @@ type CommitVerificationStorage interface {
 	common.CommitVerificationStore
 	common.CommitVerificationAggregatedStore
 	common.Sink
+	messagerules.Store
 }
 
 // Factory creates storage instances based on configuration.

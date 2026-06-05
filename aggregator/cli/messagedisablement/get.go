@@ -6,7 +6,7 @@ import (
 
 	"github.com/urfave/cli"
 
-	rules "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/messagedisablement"
+	rules "github.com/smartcontractkit/chainlink-ccv/common/messagerules"
 )
 
 func getCommand(getDeps func() Deps) cli.Command {

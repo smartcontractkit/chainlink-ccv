@@ -4,6 +4,10 @@ dir: ./internal/mocks
 outpkg: mocks
 
 packages:
+  github.com/smartcontractkit/chainlink-ccv/integration/pkg/messagerules:
+    interfaces:
+      Client:
+
   github.com/smartcontractkit/chainlink-ccv/common/jd/client:
     interfaces:
       ClientInterface:
@@ -25,17 +29,13 @@ packages:
       ContractTransmitter:
       RMNCurseReader:
 
-  github.com/digital-asset/dazl-client/v8/go/api/com/daml/ledger/api/v2:
-    interfaces:
-      StateServiceClient:
-      UpdateServiceClient:
-
   github.com/smartcontractkit/chainlink-ccv/common:
     interfaces:
       CurseChecker:
       CurseCheckerService:
       TimeProvider:
       CurseCheckerMetrics:
+      MessageRulesCheckerMetrics:
 
   github.com/smartcontractkit/chainlink-ccv/protocol:
     interfaces:
@@ -114,3 +114,10 @@ packages:
       CommitteeBatchWriter:
         configs:
           - dir: ./integration/storageaccess/mocks
+
+  github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes:
+    interfaces:
+      MetricLabeler:
+        configs:
+          - dir: ./verifier/internal/mocks
+            outpkg: mocks

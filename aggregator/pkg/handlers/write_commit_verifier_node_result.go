@@ -10,9 +10,9 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/auth"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
-	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/messagedisablement"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/scope"
+	messagerules "github.com/smartcontractkit/chainlink-ccv/common/messagerules"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
 	committeepb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/committee-verifier/v1"
@@ -39,7 +39,7 @@ type WriteCommitVerifierNodeResultHandler struct {
 	l                       logger.SugaredLogger
 	signatureValidator      SignatureValidator
 	checkAggregationTimeout time.Duration
-	disablementChecker      messagedisablement.Checker
+	disablementChecker      messagerules.Checker
 }
 
 func (h *WriteCommitVerifierNodeResultHandler) logger(ctx context.Context) logger.SugaredLogger {
@@ -139,9 +139,9 @@ func (h *WriteCommitVerifierNodeResultHandler) Handle(ctx context.Context, req *
 }
 
 // NewWriteCommitCCVNodeDataHandler creates a new instance of WriteCommitCCVNodeDataHandler.
-func NewWriteCommitCCVNodeDataHandler(store common.CommitVerificationStore, aggregator AggregationTriggerer, m common.AggregatorMonitoring, l logger.SugaredLogger, signatureValidator SignatureValidator, checkAggregationTimeout time.Duration, disablementChecker messagedisablement.Checker) *WriteCommitVerifierNodeResultHandler {
+func NewWriteCommitCCVNodeDataHandler(store common.CommitVerificationStore, aggregator AggregationTriggerer, m common.AggregatorMonitoring, l logger.SugaredLogger, signatureValidator SignatureValidator, checkAggregationTimeout time.Duration, disablementChecker messagerules.Checker) *WriteCommitVerifierNodeResultHandler {
 	if disablementChecker == nil {
-		disablementChecker = messagedisablement.NoopChecker{}
+		disablementChecker = messagerules.NoopChecker{}
 	}
 	return &WriteCommitVerifierNodeResultHandler{
 		storage:                 store,

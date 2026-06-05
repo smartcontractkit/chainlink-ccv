@@ -230,8 +230,8 @@ func TestParseVerifierResultsParams(t *testing.T) {
 			want: &iclient.VerifierResultsParams{
 				SourceChainSelectors: &[]protocol.ChainSelector{1, 2},
 				DestChainSelectors:   &[]protocol.ChainSelector{3},
-				Start:                ptrString("100"),
-				End:                  ptrString("200"),
+				Start:                new("100"),
+				End:                  new("200"),
 				Limit:                ptrUint64(10),
 				Offset:               ptrUint64(5),
 			},
@@ -270,8 +270,8 @@ func TestParseMessagesParams(t *testing.T) {
 			want: &iclient.MessagesParams{
 				SourceChainSelectors: &[]protocol.ChainSelector{4},
 				DestChainSelectors:   &[]protocol.ChainSelector{5, 6},
-				Start:                ptrString("1000"),
-				End:                  ptrString("2000"),
+				Start:                new("1000"),
+				End:                  new("2000"),
 				Limit:                ptrUint64(20),
 				Offset:               ptrUint64(2),
 			},
@@ -430,9 +430,4 @@ func setupMockAndCall(mockCli *mocksiclient.MockClientInterface, ic *IndexerClie
 	}
 }
 
-// helper ptr functions.
-func ptrUint64(v uint64) *uint64 { return &v }
-
-func ptrString(s string) *string {
-	return &s
-}
+func ptrUint64(v uint64) *uint64 { return new(v) }

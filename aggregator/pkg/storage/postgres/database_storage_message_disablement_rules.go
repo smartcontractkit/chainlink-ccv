@@ -8,10 +8,10 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/messagedisablement"
+	messagerules "github.com/smartcontractkit/chainlink-ccv/common/messagerules"
 )
 
-var _ messagedisablement.Store = (*DatabaseStorage)(nil)
+var _ messagerules.Store = (*DatabaseStorage)(nil)
 
 type messageDisablementRuleRow struct {
 	ID        string          `db:"id"`
@@ -21,27 +21,25 @@ type messageDisablementRuleRow struct {
 	UpdatedAt time.Time       `db:"updated_at"`
 }
 
-func rowToMessageDisablementRule(r messageDisablementRuleRow) messagedisablement.Rule {
-	return messagedisablement.Rule{
-		ID:        r.ID,
-		Type:      messagedisablement.RuleType(r.Type),
-		Data:      r.Data,
-		CreatedAt: r.CreatedAt,
-		UpdatedAt: r.UpdatedAt,
+func rowToMessageDisablementRule(r messageDisablementRuleRow) (messagerules.Rule, error) {
+	ruleType, err := messagerules.ParseRuleType(r.Type)
+	if err != nil {
+		return messagerules.Rule{}, err
 	}
+	data, err := messagerules.DecodeRuleData(ruleType, r.Data)
+	if err != nil {
+		return messagerules.Rule{}, err
+	}
+	return messagerules.NewRule(r.ID, data, r.CreatedAt, r.UpdatedAt)
 }
 
-func (d *DatabaseStorage) Create(ctx context.Context, ruleType messagedisablement.RuleType, data json.RawMessage) (messagedisablement.Rule, error) {
+func (d *DatabaseStorage) Create(ctx context.Context, data messagerules.RuleData) (messagerules.Rule, error) {
 	ctx, cancel := d.withTimeout(ctx)
 	defer cancel()
 
-	parsedType, err := messagedisablement.ParseRuleType(string(ruleType))
+	ruleType, encoded, err := messagerules.EncodeRuleData(data)
 	if err != nil {
-		return messagedisablement.Rule{}, err
-	}
-	normalized, err := messagedisablement.NormalizeRuleData(parsedType, data)
-	if err != nil {
-		return messagedisablement.Rule{}, err
+		return messagerules.Rule{}, err
 	}
 
 	stmt := `INSERT INTO message_disablement_rules (id, type, data)
@@ -49,14 +47,18 @@ func (d *DatabaseStorage) Create(ctx context.Context, ruleType messagedisablemen
 	         RETURNING id::text, type, data, created_at, updated_at`
 
 	var row messageDisablementRuleRow
-	if err := d.ds.GetContext(ctx, &row, stmt, messagedisablement.NewRuleID(), string(parsedType), normalized); err != nil {
-		return messagedisablement.Rule{}, fmt.Errorf("failed to create message disablement rule: %w", err)
+	if err := d.ds.GetContext(ctx, &row, stmt, messagerules.NewRuleID(), string(ruleType), encoded); err != nil {
+		return messagerules.Rule{}, fmt.Errorf("failed to create message disablement rule: %w", err)
 	}
 
-	return rowToMessageDisablementRule(row), nil
+	rule, err := rowToMessageDisablementRule(row)
+	if err != nil {
+		return messagerules.Rule{}, fmt.Errorf("failed to decode created message disablement rule: %w", err)
+	}
+	return rule, nil
 }
 
-func (d *DatabaseStorage) List(ctx context.Context, ruleType *messagedisablement.RuleType) ([]messagedisablement.Rule, error) {
+func (d *DatabaseStorage) List(ctx context.Context, ruleType *messagerules.RuleType) ([]messagerules.Rule, error) {
 	ctx, cancel := d.withTimeout(ctx)
 	defer cancel()
 
@@ -64,7 +66,7 @@ func (d *DatabaseStorage) List(ctx context.Context, ruleType *messagedisablement
 	         FROM message_disablement_rules`
 	args := []any{}
 	if ruleType != nil {
-		parsed, err := messagedisablement.ParseRuleType(string(*ruleType))
+		parsed, err := messagerules.ParseRuleType(string(*ruleType))
 		if err != nil {
 			return nil, err
 		}
@@ -78,18 +80,22 @@ func (d *DatabaseStorage) List(ctx context.Context, ruleType *messagedisablement
 		return nil, fmt.Errorf("failed to list message disablement rules: %w", err)
 	}
 
-	rules := make([]messagedisablement.Rule, len(rows))
+	rules := make([]messagerules.Rule, len(rows))
 	for i, row := range rows {
-		rules[i] = rowToMessageDisablementRule(row)
+		rule, err := rowToMessageDisablementRule(row)
+		if err != nil {
+			return nil, fmt.Errorf("failed to decode message disablement rule %s: %w", row.ID, err)
+		}
+		rules[i] = rule
 	}
 	return rules, nil
 }
 
-func (d *DatabaseStorage) Get(ctx context.Context, id string) (*messagedisablement.Rule, error) {
+func (d *DatabaseStorage) Get(ctx context.Context, id string) (*messagerules.Rule, error) {
 	ctx, cancel := d.withTimeout(ctx)
 	defer cancel()
 
-	if err := messagedisablement.ValidateRuleID(id); err != nil {
+	if err := messagerules.ValidateRuleID(id); err != nil {
 		return nil, err
 	}
 
@@ -105,7 +111,10 @@ func (d *DatabaseStorage) Get(ctx context.Context, id string) (*messagedisableme
 		return nil, fmt.Errorf("failed to get message disablement rule %s: %w", id, err)
 	}
 
-	rule := rowToMessageDisablementRule(row)
+	rule, err := rowToMessageDisablementRule(row)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode message disablement rule %s: %w", id, err)
+	}
 	return &rule, nil
 }
 
@@ -113,7 +122,7 @@ func (d *DatabaseStorage) Delete(ctx context.Context, id string) error {
 	ctx, cancel := d.withTimeout(ctx)
 	defer cancel()
 
-	if err := messagedisablement.ValidateRuleID(id); err != nil {
+	if err := messagerules.ValidateRuleID(id); err != nil {
 		return err
 	}
 

@@ -9,8 +9,8 @@ import (
 	"strconv"
 
 	"github.com/BurntSushi/toml"
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/go-connections/nat"
+	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/api/types/network"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 
@@ -26,7 +26,7 @@ const (
 	FirstIndexerContainerName  = "indexer-1"
 	DefaultIndexerDBName       = "indexer-db"
 	IndexerDBContainerSuffix   = "-db"
-	DefaultIndexerImage        = "indexer:dev"
+	DefaultIndexerImage        = "indexer:latest"
 	DefaultIndexerHTTPPort     = 8102
 	DefaultIndexerInternalPort = 8100
 	DefaultIndexerDBPort       = 6432
@@ -53,6 +53,8 @@ type DBInput struct {
 }
 
 type IndexerInput struct {
+	// Version is the component config schema version (see indexer.Version).
+	Version        int      `toml:"version"`
 	Image          string   `toml:"image"`
 	Port           int      `toml:"port"`
 	SourceCodePath string   `toml:"source_code_path"`
@@ -222,8 +224,8 @@ func NewIndexer(in *IndexerInput) (*IndexerOutput, error) {
 		testcontainers.WithName(dbContainerName),
 		testcontainers.WithExposedPorts("5432/tcp"),
 		testcontainers.WithHostConfigModifier(func(h *container.HostConfig) {
-			h.PortBindings = nat.PortMap{
-				"5432/tcp": []nat.PortBinding{
+			h.PortBindings = network.PortMap{
+				network.MustParsePort("5432/tcp"): []network.PortBinding{
 					{HostPort: strconv.Itoa(in.DB.HostPort)},
 				},
 			}
@@ -267,8 +269,8 @@ func NewIndexer(in *IndexerInput) (*IndexerOutput, error) {
 		},
 		ExposedPorts: []string{internalPortStr + "/tcp"},
 		HostConfigModifier: func(h *container.HostConfig) {
-			h.PortBindings = nat.PortMap{
-				nat.Port(internalPortStr + "/tcp"): []nat.PortBinding{
+			h.PortBindings = network.PortMap{
+				network.MustParsePort(internalPortStr + "/tcp"): []network.PortBinding{
 					{HostPort: strconv.Itoa(in.Port)},
 				},
 			}

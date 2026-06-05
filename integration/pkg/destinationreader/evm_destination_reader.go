@@ -10,8 +10,8 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/offramp"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/rmn_remote"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/offramp"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/v1_6_0/rmn_remote"
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/executionchecker"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/rmnremotereader"
@@ -114,7 +114,7 @@ func NewEvmDestinationReader(params Params) (*EvmDestinationReader, error) {
 func (dr *EvmDestinationReader) Start(ctx context.Context) error {
 	return dr.StartOnce(EvmDestinationReaderServiceName, func() error {
 		dr.lggr.Info("Starting EVM Destination Reader")
-		runCtx, cancel := context.WithCancel(ctx)
+		runCtx, cancel := context.WithCancel(ctx) //nolint:gosec // G118: cancel stored on dr and invoked in Close
 		dr.cancelFunc = cancel
 		err := dr.executionAttemptPoller.Start(runCtx)
 		if err != nil {

@@ -1,0 +1,169 @@
+package blockchains
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"slices"
+
+	"github.com/pelletier/go-toml/v2"
+
+	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
+	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
+	"github.com/smartcontractkit/chainlink-testing-framework/framework"
+	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
+)
+
+const (
+	configKey        = "blockchains"
+	privateKeyEnvVar = "PRIVATE_KEY"
+)
+
+// Version is the blockchains component config schema version. Exactly this
+// version is supported; configs declaring any other version are rejected.
+const Version = 1
+
+// simChainIDs are the well-known simulated chain IDs used by Anvil/Geth in devenv.
+var simChainIDs = []string{"1337", "2337", "3337"}
+
+func init() {
+	if err := devenvruntime.Register(configKey, factory); err != nil {
+		panic(fmt.Sprintf("blockchains component: %v", err))
+	}
+}
+
+func factory(_ map[string]any) (devenvruntime.Component, error) {
+	return &component{}, nil
+}
+
+type component struct{}
+
+// ValidateConfig decodes the raw [[blockchains]] config and runs all static
+// validation: that at least one chain is declared, that each declared Type
+// resolves to a known family, and that the active PRIVATE_KEY is compatible
+// with the declared chains (Anvil key for sim chain IDs, real key otherwise).
+func (c *component) ValidateConfig(componentConfig any) error {
+	bcs, err := decode(componentConfig)
+	if err != nil {
+		return err
+	}
+	if len(bcs) == 0 {
+		return errors.New("no [[blockchains]] entries declared in config")
+	}
+	return checkBlockchainKeys(bcs)
+}
+
+// RunPhase1 brings up each declared blockchain network via
+// blockchain.NewBlockchainNetwork (which populates each Input's Out field) and
+// emits a single output:
+//   - "blockchains" — []*blockchain.Input with Out populated. Downstream
+//     components that only need the deploy result derive it via Outputs().
+//
+// All static validation (decode, key compatibility, non-empty list) happens
+// in ValidateConfig; this method assumes it has already passed.
+func (c *component) RunPhase1(_ context.Context, _ map[string]any, componentConfig any) (map[string]any, []devenvruntime.Effect, error) {
+	bcs, err := decode(componentConfig)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if err := framework.DefaultNetwork(nil); err != nil {
+		return nil, nil, fmt.Errorf("setting up default docker network: %w", err)
+	}
+
+	for i, bc := range bcs {
+		out, err := blockchain.NewBlockchainNetwork(bc)
+		if err != nil {
+			return nil, nil, fmt.Errorf("blockchain[%d] %q: %w", i, bc.ContainerName, err)
+		}
+		if out == nil {
+			return nil, nil, fmt.Errorf("blockchain[%d] %q: NewBlockchainNetwork returned nil output", i, bc.ContainerName)
+		}
+		bc.Out = out
+	}
+
+	return map[string]any{
+		configKey: bcs,
+	}, nil, nil
+}
+
+// Outputs extracts the deploy result (Out) from each blockchain input. The
+// blockchains component publishes only []*blockchain.Input (with Out populated);
+// downstream components that need []*blockchain.Output derive it through here
+// instead of relying on a separate published key.
+func Outputs(bcs []*blockchain.Input) []*blockchain.Output {
+	outs := make([]*blockchain.Output, len(bcs))
+	for i, bc := range bcs {
+		if bc != nil {
+			outs[i] = bc.Out
+		}
+	}
+	return outs
+}
+
+// checkBlockchainKeys validates that the active private key is compatible with
+// the declared blockchain types: simulated EVM chains require the default Anvil
+// key, real EVM chains require a user-supplied PRIVATE_KEY.
+func checkBlockchainKeys(bcs []*blockchain.Input) error {
+	pk := networkPrivateKey()
+	for _, bc := range bcs {
+		family, err := blockchain.TypeToFamily(bc.Type)
+		if err != nil {
+			return fmt.Errorf("resolving blockchain family for type %q: %w", bc.Type, err)
+		}
+		if string(family) != blockchain.FamilyEVM {
+			continue
+		}
+		if pk != devenvcommon.DefaultAnvilKey && slices.Contains(simChainIDs, bc.ChainID) {
+			return errors.New("simulated chain configured with a non-Anvil private key; run 'unset PRIVATE_KEY'")
+		}
+		if pk == devenvcommon.DefaultAnvilKey && !slices.Contains(simChainIDs, bc.ChainID) {
+			return errors.New("real chain configured without a private key; export PRIVATE_KEY before running")
+		}
+	}
+	return nil
+}
+
+func networkPrivateKey() string {
+	if pk := os.Getenv(privateKeyEnvVar); pk != "" {
+		return pk
+	}
+	return devenvcommon.DefaultAnvilKey
+}
+
+// decode round-trips the raw TOML map[string]any into []*blockchain.Input by
+// re-encoding through go-toml. The runtime hands components their config as the
+// untyped value parsed by loadRaw, so we re-encode and decode into the typed
+// struct that the framework expects.
+// blockchainConfig embeds the third-party blockchain.Input (which we cannot add
+// fields to) and adds the component config version. The embedded Input is
+// inlined by go-toml, so each [[blockchains]] entry's fields decode normally
+// alongside its version.
+type blockchainConfig struct {
+	Version int `toml:"version"`
+	blockchain.Input
+}
+
+func decode(raw any) ([]*blockchain.Input, error) {
+	b, err := toml.Marshal(struct {
+		V any `toml:"blockchains"`
+	}{V: raw})
+	if err != nil {
+		return nil, fmt.Errorf("re-encoding blockchains config: %w", err)
+	}
+	var wrapper struct {
+		V []blockchainConfig `toml:"blockchains"`
+	}
+	if err := toml.Unmarshal(b, &wrapper); err != nil {
+		return nil, fmt.Errorf("decoding blockchains config: %w", err)
+	}
+	bcs := make([]*blockchain.Input, len(wrapper.V))
+	for i := range wrapper.V {
+		if err := devenvruntime.CheckConfigVersion(wrapper.V[i].Version, Version); err != nil {
+			return nil, fmt.Errorf("blockchains entry %d: %w", i, err)
+		}
+		bcs[i] = &wrapper.V[i].Input
+	}
+	return bcs, nil
+}

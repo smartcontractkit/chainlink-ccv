@@ -58,6 +58,7 @@ type FinalityCheckerMetrics interface {
 type MetricLabeler interface {
 	FinalityCheckerMetrics
 	common.CurseCheckerMetrics
+	common.MessageRulesCheckerMetrics
 
 	// With returns a new metrics labeler with the given key-value pairs.
 	With(keyValues ...string) MetricLabeler

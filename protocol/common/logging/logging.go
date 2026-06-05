@@ -1,6 +1,8 @@
 package logging
 
 import (
+	"os"
+
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
@@ -11,7 +13,7 @@ import (
 func DevelopmentConfig(level zapcore.Level) func(*zap.Config) {
 	return func(config *zap.Config) {
 		config.Level = zap.NewAtomicLevelAt(level)
-		// Capture stack traces at WARN level or higher.
+		// Development enable panic behavior, so we disable it in all cases.
 		config.Development = true
 		// Always show caller information in the logs w/ file name and line number.
 		config.DisableCaller = false
@@ -26,4 +28,30 @@ func DevelopmentConfig(level zapcore.Level) func(*zap.Config) {
 		// Encode duration using the default Go stringer.
 		config.EncoderConfig.EncodeDuration = zapcore.StringDurationEncoder
 	}
+}
+
+// ProductionConfig returns a logging configuration with reasonable defaults for
+// production.
+// Time is encoded in ISO8601 format and level is encoded in capital letters.
+func ProductionConfig(level zapcore.Level) func(*zap.Config) {
+	return func(config *zap.Config) {
+		config.Level = zap.NewAtomicLevelAt(level)
+		// Development enable panic behavior, so we disable it in all cases.
+		config.Development = false
+		// Use JSON encoding for production.
+		config.Encoding = "json"
+		// Encode level as capital letters for readability.
+		config.EncoderConfig.EncodeLevel = zapcore.CapitalLevelEncoder
+		// Encode time as ISO8601 for readability vs. scientific notation or just unix timestamps.
+		config.EncoderConfig.EncodeTime = zapcore.ISO8601TimeEncoder
+		// Encode duration using the default Go stringer.
+		config.EncoderConfig.EncodeDuration = zapcore.StringDurationEncoder
+	}
+}
+
+func GetLogProfile(level zapcore.Level) func(*zap.Config) {
+	if os.Getenv("DEVELOPMENT_LOG_PROFILE") == "true" {
+		return DevelopmentConfig(level)
+	}
+	return ProductionConfig(level)
 }

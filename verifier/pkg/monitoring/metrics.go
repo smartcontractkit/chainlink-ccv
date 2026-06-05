@@ -57,6 +57,8 @@ type VerifierMetrics struct {
 	remoteChainCursed              metric.Int64Gauge
 	localChainGlobalCursed         metric.Int64Gauge
 
+	messageDisablementRulesRefreshFailure metric.Int64Gauge
+
 	// Reorg/Finality  Tracking
 	reorgTrackedSeqNumsGauge metric.Int64Gauge
 
@@ -260,6 +262,15 @@ func InitMetrics() (*VerifierMetrics, error) {
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to register remote chain cursed gauge: %w", err)
+	}
+
+	vm.messageDisablementRulesRefreshFailure, err = beholder.GetMeter().Int64Gauge(
+		"verifier_message_disablement_rules_refresh_failure",
+		metric.WithDescription("Whether the latest message disablement rules refresh failed (1) or succeeded (0)"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register message disablement rules refresh failure gauge: %w", err)
 	}
 
 	// Reorg Tracking
@@ -542,6 +553,11 @@ func (v *VerifierMetricLabeler) SetLocalChainGlobalCursed(ctx context.Context, l
 		cursedInt = 1
 	}
 	v.vm.localChainGlobalCursed.Record(ctx, cursedInt, metric.WithAttributes(otelLabels...))
+}
+
+func (v *VerifierMetricLabeler) SetMessageDisablementRulesRefreshFailure(ctx context.Context, failed int64) {
+	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
+	v.vm.messageDisablementRulesRefreshFailure.Record(ctx, failed, metric.WithAttributes(otelLabels...))
 }
 
 func (v *VerifierMetricLabeler) IncrementActiveRequestsCounter(ctx context.Context) {

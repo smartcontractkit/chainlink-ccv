@@ -11,9 +11,9 @@ import (
 	"time"
 
 	_ "github.com/lib/pq"
+	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 
-	chain_selectors "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/proxy"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/sequences"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/versioned_verifier_resolver"
@@ -187,10 +187,10 @@ func TestE2ESmoke_ReplayForceOverwrite(t *testing.T) {
 
 	ctx := ccv.Plog.WithContext(t.Context())
 
-	harness, err := tcapi.NewTestHarness(ctx, smokeTestConfig, in, chain_selectors.FamilyEVM)
+	lib, err := ccv.NewLibFromCCVEnv(&ccv.Plog, smokeTestConfig)
 	require.NoError(t, err)
 
-	chains, err := harness.Lib.Chains(ctx)
+	chains, err := lib.Chains(ctx)
 	require.NoError(t, err)
 	require.GreaterOrEqual(t, len(chains), 2, "expected at least 2 chains")
 
@@ -209,10 +209,23 @@ func TestE2ESmoke_ReplayForceOverwrite(t *testing.T) {
 		"committee verifier proxy")
 	receiver := mustGetEOAReceiverAddress(t, dest)
 
-	aggregatorClient := harness.AggregatorClients[devenvcommon.DefaultCommitteeVerifierQualifier]
-	chainMap, err := harness.Lib.ChainsMap(ctx)
+	aggregatorClients, err := lib.AllAggregators()
 	require.NoError(t, err)
-	testCtx, cleanupFn := tcapi.NewTestingContext(ctx, chainMap, aggregatorClient, harness.IndexerMonitor)
+	aggregatorClient := aggregatorClients[devenvcommon.DefaultCommitteeVerifierQualifier]
+	require.NotNil(t, aggregatorClient, "aggregator client must be available")
+
+	indexerClient, err := lib.Indexer()
+	require.NoError(t, err)
+	require.NotNil(t, indexerClient, "indexer client must be available")
+
+	indexerMonitor, err := ccv.NewIndexerMonitor(zerolog.Ctx(ctx).With().Str("component", "indexer-client").Logger(), indexerClient)
+	require.NoError(t, err)
+	require.NotNil(t, indexerMonitor, "indexer monitor must be available")
+
+	chainMap, err := lib.ChainsMap(ctx)
+	require.NoError(t, err)
+	testCtx, cleanupFn := tcapi.NewTestingContext(ctx, chainMap, aggregatorClient, indexerMonitor)
+	require.NotNil(t, testCtx, "test context must be available")
 	defer cleanupFn()
 
 	t.Cleanup(func() {
@@ -305,7 +318,7 @@ func TestE2ESmoke_ReplayForceOverwrite(t *testing.T) {
 		{"msg1", msgID1},
 		{"msg2", msgID2},
 	} {
-		verifs, err := harness.IndexerMonitor.GetVerificationsForMessageID(ctx, tc.msgID)
+		verifs, err := indexerMonitor.GetVerificationsForMessageID(ctx, tc.msgID)
 		require.NoError(t, err, "%s: failed to read verifications after all replays", tc.name)
 		require.GreaterOrEqual(t, len(verifs.Results), 1,
 			"%s: verifications must still be present after all replays", tc.name)

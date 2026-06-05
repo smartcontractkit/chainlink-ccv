@@ -239,7 +239,7 @@ func (a *AggregatorWriter) sendBatch(ctx context.Context, batch []requestWithSiz
 			continue
 		}
 
-		item := batch[i]
+		item := batch[i] //nolint:gosec // G602: index bounds checked above
 		idx := item.origIdx
 		slot := &results[idx]
 		if finalizedNonRetryableFailure(*slot) {

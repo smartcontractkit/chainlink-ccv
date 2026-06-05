@@ -1,0 +1,362 @@
+# Phased-runtime CL-mode overlay (issue 16).
+#
+# Layer this on top of env-phased.toml:
+#   ccv --env-mode phased up env-phased.toml,env-cl-phased.toml
+#
+# CL mode is a property of the verifier (mode = "cl"): instead of running as
+# standalone containers, verifier jobs run on shared Chainlink nodes.
+# SCOPE: only the verifiers run in CL mode here. The executors stay standalone.
+#
+# Config merge (deepMergeMaps) merges nested *maps* key-by-key but replaces
+# *arrays* wholesale. This overlay:
+#   1. Clears [committeeccv] (empty aggregator/verifier arrays → no-op early
+#      return in the standalone component, letting committeeccv_clnode take over).
+#   2. Adds [committeeccv_clnode] with the full self-contained CL-node config
+#      (node sets + aggregators mirrored from env-phased.toml + CL-mode verifiers).
+#   3. Replaces the NOP and committee topology with the two shared CL nodes.
+# The executor section, executor_pools, blockchains, observability, jd, and
+# indexer sections are all inherited from env-phased.toml.
+
+#############################
+# Disable the standalone committeeccv component so it is a no-op when this
+# overlay is applied. The committeeccv_clnode component below takes over.
+#############################
+[committeeccv]
+version = 1
+aggregator = []
+verifier = []
+
+#############################
+# CL-node variant of CommitteeCCV (committeeccv_clnode component).
+# Contains: CL node sets, aggregators (mirrored from env-phased.toml), and
+# CL-mode verifiers. Delete this section (and component_clnode.go) when CL
+# nodes leave the devenv.
+#############################
+[committeeccv_clnode]
+version = 1
+cl_nodes_funding_eth = 50
+cl_nodes_funding_link = 50
+
+[[committeeccv_clnode.node_sets]]
+  name = "don"
+  nodes = 2
+  override_mode = "each"
+
+  [committeeccv_clnode.node_sets.db]
+    image = "postgres:15.0"
+
+  [[committeeccv_clnode.node_sets.node_specs]]
+    [committeeccv_clnode.node_sets.node_specs.node]
+      docker_ctx = "../../../chainlink"
+      docker_file = "plugins/chainlink.Dockerfile"
+    [committeeccv_clnode.node_sets.node_specs.node.env_vars]
+      CL_EVM_CMD = ""
+
+  [[committeeccv_clnode.node_sets.node_specs]]
+    [committeeccv_clnode.node_sets.node_specs.node]
+      docker_ctx = "../../../chainlink"
+      docker_file = "plugins/chainlink.Dockerfile"
+    [committeeccv_clnode.node_sets.node_specs.node.env_vars]
+      CL_EVM_CMD = ""
+
+# Aggregators: mirrors [[committeeccv.aggregator]] in env-phased.toml.
+# Aggregator config is identical between standalone and CL-node modes; the
+# only change is the component key.
+[[committeeccv_clnode.aggregator]]
+  committee_name = "default"
+  image = "aggregator:latest"
+  host_port = 50051
+  redundant_aggregators = 1
+  source_code_path = "../aggregator"
+  root_path = "../../"
+
+  [committeeccv_clnode.aggregator.db]
+    image = "postgres:16-alpine"
+    host_port = 7432
+
+  [committeeccv_clnode.aggregator.redis]
+    image = "redis:7-alpine"
+    host_port = 6379
+
+  [[committeeccv_clnode.aggregator.api_clients]]
+  client_id = "default-verifier-1"
+  description = "Development default verifier 1"
+  enabled = true
+  groups = ["verifiers"]
+
+  [[committeeccv_clnode.aggregator.api_clients]]
+  client_id = "default-verifier-2"
+  description = "Development default verifier 2"
+  enabled = true
+  groups = ["verifiers"]
+
+  [[committeeccv_clnode.aggregator.api_clients]]
+  client_id = "monitoring"
+  description = "Monitoring and infrastructure client"
+  enabled = true
+  groups = ["monitoring"]
+
+  [[committeeccv_clnode.aggregator.api_clients]]
+  client_id = "indexer"
+  description = "Development Indexer"
+  enabled = true
+  groups = ["indexer"]
+
+  [committeeccv_clnode.aggregator.env]
+    storage_connection_url = "postgresql://aggregator:aggregator@default-aggregator-db:5432/aggregator?sslmode=disable"
+    redis_address = "default-aggregator-redis:6379"
+    redis_password = ""
+    redis_db = "0"
+
+[[committeeccv_clnode.aggregator]]
+  committee_name = "secondary"
+  image = "aggregator:latest"
+  host_port = 50052
+  redundant_aggregators = 0
+  source_code_path = "../aggregator"
+  root_path = "../../"
+
+  [committeeccv_clnode.aggregator.db]
+    image = "postgres:16-alpine"
+    host_port = 7433
+
+  [committeeccv_clnode.aggregator.redis]
+    image = "redis:7-alpine"
+    host_port = 6380
+
+  [[committeeccv_clnode.aggregator.api_clients]]
+  client_id = "secondary-verifier-1"
+  description = "Development secondary verifier 1"
+  enabled = true
+  groups = ["verifiers"]
+
+  [[committeeccv_clnode.aggregator.api_clients]]
+  client_id = "secondary-verifier-2"
+  description = "Development secondary verifier 2"
+  enabled = true
+  groups = ["verifiers"]
+
+  [[committeeccv_clnode.aggregator.api_clients]]
+  client_id = "monitoring"
+  description = "Monitoring and infrastructure client"
+  enabled = true
+  groups = ["monitoring"]
+
+  [[committeeccv_clnode.aggregator.api_clients]]
+  client_id = "indexer"
+  description = "Development Indexer"
+  enabled = true
+  groups = ["indexer"]
+
+  [committeeccv_clnode.aggregator.env]
+    storage_connection_url = "postgresql://aggregator:aggregator@secondary-aggregator-db:5432/aggregator?sslmode=disable"
+    redis_address = "secondary-aggregator-redis:6379"
+    redis_password = ""
+    redis_db = "0"
+
+[[committeeccv_clnode.aggregator]]
+  committee_name = "tertiary"
+  image = "aggregator:latest"
+  host_port = 50053
+  redundant_aggregators = 0
+  source_code_path = "../aggregator"
+  root_path = "../../"
+
+  [committeeccv_clnode.aggregator.db]
+    image = "postgres:16-alpine"
+    host_port = 7434
+
+  [committeeccv_clnode.aggregator.redis]
+    image = "redis:7-alpine"
+    host_port = 6381
+
+  [[committeeccv_clnode.aggregator.api_clients]]
+  client_id = "tertiary-verifier-1"
+  description = "Development tertiary verifier 1"
+  enabled = true
+  groups = ["verifiers"]
+
+  [[committeeccv_clnode.aggregator.api_clients]]
+  client_id = "tertiary-verifier-2"
+  description = "Development tertiary verifier 2"
+  enabled = true
+  groups = ["verifiers"]
+
+  [[committeeccv_clnode.aggregator.api_clients]]
+  client_id = "monitoring"
+  description = "Monitoring and infrastructure client"
+  enabled = true
+  groups = ["monitoring"]
+
+  [[committeeccv_clnode.aggregator.api_clients]]
+  client_id = "indexer"
+  description = "Development Indexer"
+  enabled = true
+  groups = ["indexer"]
+
+  [committeeccv_clnode.aggregator.env]
+    storage_connection_url = "postgresql://aggregator:aggregator@tertiary-aggregator-db:5432/aggregator?sslmode=disable"
+    redis_address = "tertiary-aggregator-redis:6379"
+    redis_password = ""
+    redis_db = "0"
+
+# Verifiers: CL mode, mapped onto the two nodes. Replaces the standalone
+# verifier list from env-phased.toml wholesale.
+[[committeeccv_clnode.verifier]]
+  mode = "cl"
+  image = "verifier:latest"
+  container_name = "default-verifier-1"
+  nop_alias = "node-0"
+  port = 8100
+  source_code_path = "../verifier"
+  root_path = "../../"
+  committee_name = "default"
+  node_index = 0
+  insecure_aggregator_connection = true
+  [committeeccv_clnode.verifier.db]
+    image = "postgres:16-alpine"
+    name = "default-verifier-1-db"
+    port = 8432
+
+[[committeeccv_clnode.verifier]]
+  mode = "cl"
+  image = "verifier:latest"
+  container_name = "default-verifier-2"
+  nop_alias = "node-1"
+  port = 8200
+  source_code_path = "../verifier"
+  root_path = "../../"
+  committee_name = "default"
+  node_index = 1
+  insecure_aggregator_connection = true
+  [committeeccv_clnode.verifier.db]
+    image = "postgres:16-alpine"
+    name = "default-verifier-2-db"
+    port = 8433
+
+[[committeeccv_clnode.verifier]]
+  mode = "cl"
+  image = "verifier:latest"
+  container_name = "secondary-verifier-1"
+  nop_alias = "node-0"
+  port = 8300
+  source_code_path = "../verifier"
+  root_path = "../../"
+  committee_name = "secondary"
+  node_index = 0
+  insecure_aggregator_connection = true
+  [committeeccv_clnode.verifier.db]
+    image = "postgres:16-alpine"
+    name = "secondary-verifier-1-db"
+    port = 8434
+
+[[committeeccv_clnode.verifier]]
+  mode = "cl"
+  image = "verifier:latest"
+  container_name = "secondary-verifier-2"
+  nop_alias = "node-1"
+  port = 8400
+  source_code_path = "../verifier"
+  root_path = "../../"
+  committee_name = "secondary"
+  node_index = 1
+  insecure_aggregator_connection = true
+  [committeeccv_clnode.verifier.db]
+    image = "postgres:16-alpine"
+    name = "secondary-verifier-2-db"
+    port = 8435
+
+[[committeeccv_clnode.verifier]]
+  mode = "cl"
+  image = "verifier:latest"
+  container_name = "tertiary-verifier-1"
+  nop_alias = "node-0"
+  port = 8500
+  source_code_path = "../verifier"
+  root_path = "../../"
+  committee_name = "tertiary"
+  node_index = 0
+  insecure_aggregator_connection = true
+  [committeeccv_clnode.verifier.db]
+    image = "postgres:16-alpine"
+    name = "tertiary-verifier-1-db"
+    port = 8436
+
+[[committeeccv_clnode.verifier]]
+  mode = "cl"
+  image = "verifier:latest"
+  container_name = "tertiary-verifier-2"
+  nop_alias = "node-1"
+  port = 8600
+  source_code_path = "../verifier"
+  root_path = "../../"
+  committee_name = "tertiary"
+  node_index = 1
+  insecure_aggregator_connection = true
+  [committeeccv_clnode.verifier.db]
+    image = "postgres:16-alpine"
+    name = "tertiary-verifier-2-db"
+    port = 8437
+
+#############################
+# Topology NOPs: replace the six standalone verifier NOPs with two shared CL
+# node NOPs (node-0, node-1; default NOP mode is CL). The three standalone
+# executor NOPs are kept unchanged so the executors (still standalone) and their
+# executor_pools continue to resolve.
+#############################
+[[protocol_contracts.environment_topology.nop_topology.nops]]
+alias = "node-0"
+name = "node-0"
+
+[[protocol_contracts.environment_topology.nop_topology.nops]]
+alias = "node-1"
+name = "node-1"
+
+[[protocol_contracts.environment_topology.nop_topology.nops]]
+alias = "default-executor-1"
+name = "default-executor-1"
+mode = "standalone"
+
+[[protocol_contracts.environment_topology.nop_topology.nops]]
+alias = "default-executor-2"
+name = "default-executor-2"
+mode = "standalone"
+
+[[protocol_contracts.environment_topology.nop_topology.nops]]
+alias = "custom-executor-1"
+name = "custom-executor-1"
+mode = "standalone"
+
+#############################
+# Committees: repoint membership from the standalone verifier NOPs to the two
+# shared CL nodes. (Aggregators, qualifier, verifier_version are inherited.)
+#############################
+[protocol_contracts.environment_topology.nop_topology.committees.default.chain_configs.3379446385462418246]
+nop_aliases = ["node-0", "node-1"]
+threshold = 2
+[protocol_contracts.environment_topology.nop_topology.committees.default.chain_configs.12922642891491394802]
+nop_aliases = ["node-0", "node-1"]
+threshold = 2
+[protocol_contracts.environment_topology.nop_topology.committees.default.chain_configs.4793464827907405086]
+nop_aliases = ["node-0", "node-1"]
+threshold = 2
+
+[protocol_contracts.environment_topology.nop_topology.committees.secondary.chain_configs.3379446385462418246]
+nop_aliases = ["node-0", "node-1"]
+threshold = 2
+[protocol_contracts.environment_topology.nop_topology.committees.secondary.chain_configs.12922642891491394802]
+nop_aliases = ["node-0", "node-1"]
+threshold = 2
+[protocol_contracts.environment_topology.nop_topology.committees.secondary.chain_configs.4793464827907405086]
+nop_aliases = ["node-0", "node-1"]
+threshold = 2
+
+[protocol_contracts.environment_topology.nop_topology.committees.tertiary.chain_configs.3379446385462418246]
+nop_aliases = ["node-0", "node-1"]
+threshold = 2
+[protocol_contracts.environment_topology.nop_topology.committees.tertiary.chain_configs.12922642891491394802]
+nop_aliases = ["node-0", "node-1"]
+threshold = 2
+[protocol_contracts.environment_topology.nop_topology.committees.tertiary.chain_configs.4793464827907405086]
+nop_aliases = ["node-0", "node-1"]
+threshold = 2

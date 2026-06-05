@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/go-connections/nat"
+	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/api/types/network"
 	"github.com/testcontainers/testcontainers-go"
 
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
@@ -14,11 +14,13 @@ import (
 
 const (
 	DefaultFakeName  = "fake"
-	DefaultFakeImage = "ccv-fakes:dev"
+	DefaultFakeImage = "ccv-fakes:latest"
 	DefaultFakePort  = 9111
 )
 
 type FakeInput struct {
+	// Version is the component config schema version (see fake.Version).
+	Version        int         `toml:"version"`
 	Image          string      `toml:"image"`
 	Port           int         `toml:"port"`
 	SourceCodePath string      `toml:"source_code_path"`
@@ -70,8 +72,8 @@ func NewFake(in *FakeInput) (*FakeOutput, error) {
 		},
 		ExposedPorts: []string{"9111/tcp"},
 		HostConfigModifier: func(h *container.HostConfig) {
-			h.PortBindings = nat.PortMap{
-				"9111/tcp": []nat.PortBinding{
+			h.PortBindings = network.PortMap{
+				network.MustParsePort("9111/tcp"): []network.PortBinding{
 					{HostPort: strconv.Itoa(in.Port)},
 				},
 			}

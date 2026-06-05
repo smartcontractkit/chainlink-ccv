@@ -7,6 +7,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/scope"
+	"github.com/smartcontractkit/chainlink-ccv/common/messagerules"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -22,6 +23,11 @@ const (
 	submitReportOp           = "SubmitReport"
 	ListOrphanedKeysOp       = "ListOrphanedKeys"
 	orphanedKeyStatsOp       = "OrphanedKeyStats"
+
+	createMessageDisablementRuleOp = "CreateMessageDisablementRule"
+	listMessageDisablementRulesOp  = "ListMessageDisablementRules"
+	getMessageDisablementRuleOp    = "GetMessageDisablementRule"
+	deleteMessageDisablementRuleOp = "DeleteMessageDisablementRule"
 
 	defaultSlowQueryThreshold = 500 * time.Millisecond
 )
@@ -106,6 +112,30 @@ func (s *MetricsAwareStorage) GetBatchAggregatedReportByMessageIDs(ctx context.C
 func (s *MetricsAwareStorage) SubmitAggregatedReport(ctx context.Context, report *model.CommitAggregatedReport) error {
 	return s.captureMetricsNoReturn(ctx, submitReportOp, func() error {
 		return s.inner.SubmitAggregatedReport(ctx, report)
+	})
+}
+
+func (s *MetricsAwareStorage) Create(ctx context.Context, data messagerules.RuleData) (messagerules.Rule, error) {
+	return captureMetrics(ctx, s.metrics(ctx, createMessageDisablementRuleOp), s.logger(ctx), s.slowQueryThreshold, createMessageDisablementRuleOp, func() (messagerules.Rule, error) {
+		return s.inner.Create(ctx, data)
+	})
+}
+
+func (s *MetricsAwareStorage) List(ctx context.Context, ruleType *messagerules.RuleType) ([]messagerules.Rule, error) {
+	return captureMetrics(ctx, s.metrics(ctx, listMessageDisablementRulesOp), s.logger(ctx), s.slowQueryThreshold, listMessageDisablementRulesOp, func() ([]messagerules.Rule, error) {
+		return s.inner.List(ctx, ruleType)
+	})
+}
+
+func (s *MetricsAwareStorage) Get(ctx context.Context, id string) (*messagerules.Rule, error) {
+	return captureMetrics(ctx, s.metrics(ctx, getMessageDisablementRuleOp), s.logger(ctx), s.slowQueryThreshold, getMessageDisablementRuleOp, func() (*messagerules.Rule, error) {
+		return s.inner.Get(ctx, id)
+	})
+}
+
+func (s *MetricsAwareStorage) Delete(ctx context.Context, id string) error {
+	return s.captureMetricsNoReturn(ctx, deleteMessageDisablementRuleOp, func() error {
+		return s.inner.Delete(ctx, id)
 	})
 }
 

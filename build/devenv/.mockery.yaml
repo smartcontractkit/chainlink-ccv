@@ -1,0 +1,13 @@
+with-expecter: true
+
+dir: ./internal/mocks
+outpkg: mocks
+
+packages:
+  github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime:
+    interfaces:
+      Component:
+      Phase1Component:
+      Phase2Component:
+      Phase3Component:
+      Phase4Component:

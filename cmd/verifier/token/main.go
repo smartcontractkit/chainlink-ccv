@@ -108,7 +108,7 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, spec bootstrap.JobSp
 			zapLevel = zapcore.InfoLevel
 		}
 		var err error
-		tvf.lggr, err = logger.NewWith(logging.DevelopmentConfig(zapLevel))
+		tvf.lggr, err = logger.NewWith(logging.GetLogProfile(zapLevel))
 		if err != nil {
 			return fmt.Errorf("failed to create logger: %v", err)
 		}
@@ -300,6 +300,7 @@ func createCCTPCoordinator(
 		verifierMonitoring,
 		chainStatusManager,
 		heartbeatclient.NewNoopHeartbeatClient(),
+		nil,
 		db,
 	)
 	if err != nil {
@@ -354,6 +355,7 @@ func createLombardCoordinator(
 		verifierMonitoring,
 		chainStatusManager,
 		heartbeatclient.NewNoopHeartbeatClient(),
+		nil,
 		db,
 	)
 	if err != nil {

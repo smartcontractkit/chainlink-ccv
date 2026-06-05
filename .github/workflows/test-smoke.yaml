@@ -1,4 +1,4 @@
-name: End-to-end CCV Test
+name: E2E Smoke Test
 
 on:
   merge_group:
@@ -13,71 +13,11 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  e2e-smoke:
+  build-docker-images:
     permissions:
       id-token: write
       contents: read
-      pull-requests: write
-    runs-on: runs-on=${{ github.run_id }}-${{ strategy.job-index }}/family=c6i/cpu=32+48/ram=64+96/spot=false/image=ubuntu24-full-x64/extras=s3-cache+tmpfs
-    strategy:
-      fail-fast: false
-      matrix:
-        test:
-          - name: TestE2ESmoke_Basic
-            run_cmd: TestE2ESmoke_Basic
-            config: env.toml
-            timeout: 15m
-            working-directory: build/devenv/tests/e2e
-          - name: TestE2ESmoke_Basic_OneExecPerChain
-            run_cmd: TestE2ESmoke_Basic
-            config: env.toml,env-one-exec-per-chain-standalone.toml
-            timeout: 15m
-            working-directory: build/devenv/tests/e2e
-          - name: TestE2ESmoke_TokenVerification
-            run_cmd: TestE2ESmoke_TokenVerification
-            config: env.toml
-            timeout: 15m
-            working-directory: build/devenv/tests/e2e
-          - name: TestE2ESmoke_ExtraArgsV2
-            run_cmd: TestE2ESmoke_ExtraArgsV2
-            config: env.toml
-            timeout: 10m
-            working-directory: build/devenv/tests/e2e
-          - name: TestE2ESmoke_ChainStatus
-            run_cmd: TestE2ESmoke_ChainStatus
-            config: env.toml
-            timeout: 10m
-            working-directory: build/devenv/tests/e2e
-          - name: TestE2ESmoke_JobQueue
-            run_cmd: TestE2ESmoke_JobQueue
-            config: env.toml
-            timeout: 10m
-            working-directory: build/devenv/tests/e2e
-          - name: TestE2ESmoke_Replay
-            run_cmd: TestE2ESmoke_Replay
-            config: env.toml
-            timeout: 10m
-            working-directory: build/devenv/tests/e2e
-          - name: TestE2EReorg
-            run_cmd: TestE2EReorg
-            config: env.toml,env-src-auto-mine.toml
-            timeout: 5m
-            working-directory: build/devenv/tests/e2e
-          - name: TestChaos_AggregatorOutageRecovery
-            run_cmd: TestChaos_AggregatorOutageRecovery
-            config: env.toml
-            timeout: 5m
-            working-directory: build/devenv/tests/e2e
-          - name: (TestChaos_VerifierFaultToleranceThresholdViolated|TestChaos_AllExecutorsDown|TestChaos_IndexerDown)
-            run_cmd: (TestChaos_VerifierFaultToleranceThresholdViolated|TestChaos_AllExecutorsDown|TestChaos_IndexerDown)
-            config: env.toml
-            timeout: 5m
-            working-directory: build/devenv/tests/e2e
-          - name: TestE2ESmoke_AggregatorMessageDisablementRules
-            run_cmd: TestE2ESmoke_Aggregator(MessageDisablementRulesCLI|LaneDisablementRule|ChainDisablementRule)
-            config: env.toml
-            timeout: 10m
-            working-directory: build/devenv/tests/e2e
+    runs-on: runs-on=${{ github.run_id }}/family=c6i/cpu=32+48/ram=64+96/spot=false/image=ubuntu24-full-x64/extras=s3-cache+tmpfs
     steps:
       - name: Enable S3 Cache for Self-Hosted Runners
         uses: runs-on/action@cd2b598b0515d39d78c38a02d529db87d2196d1e # v2.0.3
@@ -96,11 +36,125 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Build devenv Docker images
+        uses: ./.github/actions/build-devenv-docker
+        with:
+          ccv-iam-role: ${{ secrets.CCV_IAM_ROLE }}
+          jd-registry: ${{ secrets.JD_REGISTRY }}
+
+      - name: Save Docker Images
+        run: |
+          docker save \
+            ccv-fakes:latest \
+            pricer:latest \
+            verifier:latest \
+            token-verifier:latest \
+            executor:latest \
+            indexer:latest \
+            aggregator:latest \
+            -o /tmp/ccv-docker-images.tar
+
+      - name: Upload Docker Images
+        uses: actions/upload-artifact@v4
+        with:
+          name: ccv-docker-images
+          path: /tmp/ccv-docker-images.tar
+          retention-days: 1
+
+  e2e-smoke:
+    name: ${{ matrix.test.name }}
+    needs: build-docker-images
+    permissions:
+      id-token: write
+      contents: read
+      pull-requests: write
+    runs-on: runs-on=${{ github.run_id }}-${{ strategy.job-index }}/family=c6i/cpu=32+48/ram=64+96/spot=false/image=ubuntu24-full-x64/extras=s3-cache+tmpfs
+    strategy:
+      fail-fast: false
+      matrix:
+        test:
+          - name: TestE2ESmoke_Basic
+            pattern: TestE2ESmoke_Basic
+            profile: standard.profile
+            timeout: 15m
+          - name: TestE2ESmoke_Basic_OneExecPerChain
+            pattern: TestE2ESmoke_Basic
+            profile: standard.one-exec-per-chain.profile
+            timeout: 15m
+          - name: TestE2ESmoke_TokenVerification
+            pattern: TestE2ESmoke_TokenVerification
+            profile: standard.profile
+            timeout: 15m
+          - name: TestE2ESmoke_ExtraArgsV2
+            pattern: TestE2ESmoke_ExtraArgsV2
+            profile: standard.profile
+            timeout: 10m
+          - name: TestE2ESmoke_ChainStatus
+            pattern: TestE2ESmoke_ChainStatus
+            profile: standard.profile
+            timeout: 10m
+          - name: TestE2ESmoke_JobQueue
+            pattern: TestE2ESmoke_JobQueue
+            profile: standard.profile
+            timeout: 10m
+          - name: TestE2ESmoke_Replay
+            pattern: TestE2ESmoke_Replay
+            profile: standard.profile
+            timeout: 10m
+          - name: TestE2EReorg
+            pattern: TestE2EReorg
+            profile: standard.src-auto-mine.profile
+            timeout: 5m
+          - name: TestChaos_AggregatorOutageRecovery
+            pattern: TestChaos_AggregatorOutageRecovery
+            profile: standard.profile
+            timeout: 5m
+          - name: (TestChaos_VerifierFaultToleranceThresholdViolated|TestChaos_AllExecutorsDown|TestChaos_IndexerDown)
+            pattern: (TestChaos_VerifierFaultToleranceThresholdViolated|TestChaos_AllExecutorsDown|TestChaos_IndexerDown)
+            profile: standard.profile
+            timeout: 5m
+          - name: TestE2ESmoke_AggregatorMessageDisablementRules
+            pattern: TestE2ESmoke_Aggregator(MessageDisablementRulesCLI|LaneDisablementRule|ChainDisablementRule)
+            profile: standard.src-auto-mine.profile
+            timeout: 10m
+          - name: Phased TestE2ESmoke_Basic
+            pattern: TestE2ESmoke_Basic
+            profile: phased.profile
+            timeout: 15m
+    steps:
+      - name: Enable S3 Cache for Self-Hosted Runners
+        uses: runs-on/action@cd2b598b0515d39d78c38a02d529db87d2196d1e # v2.0.3
+
+      - name: Setup GitHub Token
+        id: setup-github-token
+        uses: smartcontractkit/.github/actions/setup-github-token@ef78fa97bf3c77de6563db1175422703e9e6674f # setup-github-token@0.2.1
+        with:
+          aws-role-arn: ${{ secrets.GATI_AWS_ROLE_ARN_CHAINLINK_READ_ONLY }}
+          aws-lambda-url: ${{ secrets.GATI_LAMBDA_URL_RELENG }}
+          aws-region: ${{ secrets.GATI_AWS_REGION }}
+          set-git-config: true
+
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Download devenv Docker Images
+        uses: actions/download-artifact@v4
+        with:
+          name: ccv-docker-images
+          path: /tmp
+
+      - name: Load devenv Docker Images
+        run: docker load -i /tmp/ccv-docker-images.tar
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
 
       - name: Install Just
         uses: extractions/setup-just@e33e0265a09d6d736e2ee1e0eb685ef1de4669ff # v3
+        with:
+          just-version: '1.40.0'
 
       - name: Authenticate to AWS ECR
         uses: ./.github/actions/aws-ecr-auth
@@ -127,32 +181,24 @@ jobs:
           cache-dependency-path: build/devenv/go.sum
 
       - name: Download Go dependencies
-        run: |
-          go mod download
+        run: go mod download
 
-      - name: Build Docker Images
-        run: just build-docker-dev-ci
-        env:
-          DOCKER_BUILDKIT: 1
+      - name: Install ccv CLI
+        run: go install ./cmd/ccv
 
-      - name: Run CCV environment
-        env:
-          JD_IMAGE: ${{ secrets.JD_IMAGE }}
-        run: |
-          cd cmd/ccv && go install . && cd -
-          ccv u ${{ matrix.test.config }} && ccv obs up -m loki
+      - name: Run Observability Stack
+        run: ccv obs up -m loki
 
       - name: Run Test ${{ matrix.test.name }}
         id: test_run
-        working-directory: ${{ matrix.test.working-directory }}
-        run: |
-          set -o pipefail
-          go test -v -timeout ${{ matrix.test.timeout }} -count=1 -run '${{ matrix.test.run_cmd }}'
+        run: ccv test --profile ${{ matrix.test.profile }} --pattern '${{ matrix.test.pattern }}' --timeout ${{ matrix.test.timeout }} --build=false
         continue-on-error: true
+        env:
+          JD_IMAGE: ${{ secrets.JD_IMAGE }}
 
       - name: Dump logs if they're not already dumped
         if: always()
-        working-directory: ${{ matrix.test.working-directory }}
+        working-directory: build/devenv/tests/e2e
         run: |
           if [ ! -d "logs" ] || [ -z "$(ls -A logs)" ]; then
             echo "Logs not found or empty. Dumping logs manually..."
@@ -174,7 +220,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: container-logs-standalone-${{ steps.sanitize_name.outputs.name }}
-          path: ${{ matrix.test.working-directory }}/logs
+          path: build/devenv/tests/e2e/logs
           retention-days: 1
 
       - name: Check test results

@@ -19,6 +19,7 @@ import (
 
 	committeepb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/committee-verifier/v1"
 	msgdiscoverypb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/message-discovery/v1"
+	messagerulespb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/message-rules/v1"
 	verifierpb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/verifier/v1"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
@@ -57,7 +58,7 @@ func TestServiceAggregator(t *testing.T) {
 
 	out, err := services.NewAggregator(&services.AggregatorInput{
 		CommitteeName:  committeeName,
-		Image:          "aggregator:dev",
+		Image:          "aggregator:latest",
 		HostPort:       8103,
 		SourceCodePath: "../../../aggregator",
 		RootPath:       "../../../../",
@@ -124,7 +125,7 @@ func TestServiceAggregatorAuthentication(t *testing.T) {
 
 	out, err := services.NewAggregator(&services.AggregatorInput{
 		CommitteeName:   committeeName,
-		Image:           "aggregator:dev",
+		Image:           "aggregator:latest",
 		HostPort:        8104,
 		ExposedHostPort: grpcHostPort,
 		SourceCodePath:  "../../../aggregator",
@@ -188,6 +189,7 @@ func TestServiceAggregatorAuthentication(t *testing.T) {
 	verifierClient := verifierpb.NewVerifierClient(conn)
 	committeeClient := committeepb.NewCommitteeVerifierClient(conn)
 	msgDiscoveryClient := msgdiscoverypb.NewMessageDiscoveryClient(conn)
+	messageRulesClient := messagerulespb.NewMessageRulesClient(conn)
 
 	// Test anonymous authentication for GetVerifierResultsForMessage
 	t.Run("GetVerifierResultsForMessage supports anonymous authentication", func(t *testing.T) {
@@ -239,6 +241,17 @@ func TestServiceAggregatorAuthentication(t *testing.T) {
 		req := &msgdiscoverypb.GetMessagesSinceRequest{}
 
 		_, err := msgDiscoveryClient.GetMessagesSince(ctx, req)
+		require.Error(t, err, "unauthenticated request should fail")
+
+		st, ok := status.FromError(err)
+		require.True(t, ok, "error should be a gRPC status error")
+		require.Equal(t, codes.Unauthenticated, st.Code(), "should return Unauthenticated error")
+	})
+
+	t.Run("ListMessageRules requires authentication", func(t *testing.T) {
+		req := &messagerulespb.ListMessageRulesRequest{}
+
+		_, err := messageRulesClient.ListMessageRules(ctx, req)
 		require.Error(t, err, "unauthenticated request should fail")
 
 		st, ok := status.FromError(err)
@@ -431,7 +444,7 @@ func setupAggregatorTestFixture(t *testing.T) *aggregatorTestFixture {
 	sourceChainSelStr := fmt.Sprintf("%d", sourceChainSel)
 	out, err := services.NewAggregator(&services.AggregatorInput{
 		CommitteeName:                committeeName,
-		Image:                        "aggregator:dev",
+		Image:                        "aggregator:latest",
 		HostPort:                     8110,
 		ExposedHostPort:              grpcHostPort, // Expose gRPC port directly for test
 		SourceCodePath:               "../../../aggregator",

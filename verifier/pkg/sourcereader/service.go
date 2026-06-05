@@ -43,6 +43,7 @@ type Service struct {
 	sourceReader    chainaccess.SourceReader
 	chainSelector   protocol.ChainSelector
 	curseDetector   common.CurseCheckerService
+	messageRules    common.MessageRulesChecker
 	finalityChecker protocol.FinalityViolationChecker
 	pollInterval    time.Duration
 	pollTimeout     time.Duration
@@ -78,6 +79,7 @@ func NewService(
 	filter chainaccess.MessageFilter,
 	metrics verifier.MetricLabeler,
 	taskQueue jobqueue.JobQueue[verifier.VerificationTask],
+	messageRules common.MessageRulesChecker,
 ) (*Service, error) {
 	if sourceReader == nil {
 		return nil, fmt.Errorf("sourceReader cannot be nil")
@@ -96,6 +98,9 @@ func NewService(
 	}
 	if taskQueue == nil {
 		return nil, fmt.Errorf("taskQueue cannot be nil")
+	}
+	if messageRules == nil {
+		return nil, fmt.Errorf("messageRules cannot be nil")
 	}
 
 	var finalityChecker protocol.FinalityViolationChecker
@@ -137,6 +142,7 @@ func NewService(
 		chainSelector:      chainSelector,
 		chainStatusManager: chainStatusManager,
 		curseDetector:      curseDetector,
+		messageRules:       messageRules,
 		finalityChecker:    finalityChecker,
 		pollInterval:       interval,
 		pollTimeout:        pollTimeout,
@@ -515,7 +521,7 @@ func (r *Service) sendReadyMessages(ctx context.Context, latest, safe, finalized
 	advanceCheckpointTo := func() uint64 {
 		r.mu.Lock()
 		defer r.mu.Unlock()
-		hasCurseUnknown := false
+		hasBlockingUnknown := false
 
 		if r.disabled.Load() {
 			return 0
@@ -540,12 +546,31 @@ func (r *Service) sendReadyMessages(ctx context.Context, latest, safe, finalized
 						"sourceChain", task.Message.SourceChainSelector,
 						"destChain", task.Message.DestChainSelector,
 						"error", curseErr)
-					hasCurseUnknown = true
+					hasBlockingUnknown = true
 					// In this particular case we can't make a decision, so we'll just skip the task
 					// Curse err should be transient so the next poll is likely to have the information
 					continue
 				}
 				r.logger.Warnw("Dropping task - lane is cursed",
+					"messageID", msgID,
+					"sourceChain", task.Message.SourceChainSelector,
+					"destChain", task.Message.DestChainSelector)
+				toBeDeleted = append(toBeDeleted, msgID)
+				continue
+			}
+
+			disabled, disablementErr := r.messageRules.IsMessageDisabled(ctx, task.Message)
+			if disablementErr != nil {
+				r.logger.Warnw("Blocking message - message rules state unknown",
+					"messageID", msgID,
+					"sourceChain", task.Message.SourceChainSelector,
+					"destChain", task.Message.DestChainSelector,
+					"error", disablementErr)
+				hasBlockingUnknown = true
+				continue
+			}
+			if disabled {
+				r.logger.Warnw("Dropping task - message matched a disablement rule",
 					"messageID", msgID,
 					"sourceChain", task.Message.SourceChainSelector,
 					"destChain", task.Message.DestChainSelector)
@@ -561,7 +586,7 @@ func (r *Service) sendReadyMessages(ctx context.Context, latest, safe, finalized
 			}
 		}
 
-		// Delete cursed tasks immediately (these are being dropped, not queued)
+		// Delete dropped tasks immediately (these are not queued)
 		for _, msgID := range toBeDeleted {
 			delete(r.pendingTasks, msgID)
 		}
@@ -575,9 +600,9 @@ func (r *Service) sendReadyMessages(ctx context.Context, latest, safe, finalized
 			safeCheckpoint = lp.Uint64()
 		}
 
-		if hasCurseUnknown {
-			// When curse state is unknown we need to keep the checkpoint unchanged to avoid skipping messages
-			r.logger.Warnw("Curse state unknown, keeping checkpoint unchanged to avoid skipped messages")
+		if hasBlockingUnknown {
+			// When drop/block rules are unknown we need to keep the checkpoint unchanged to avoid skipping messages.
+			r.logger.Warnw("Curse or message rules state unknown, keeping checkpoint unchanged to avoid skipped messages")
 			safeCheckpoint = 0
 		}
 

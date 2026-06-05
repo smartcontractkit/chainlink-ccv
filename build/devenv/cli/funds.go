@@ -125,7 +125,7 @@ func parseFundsArgs(cmd *cobra.Command) (
 	// Build the library early: this constructs all chain clients (via NewCLDFOperationsEnvironment)
 	// and makes them available through the Chain interface. Only EVM chains are loaded since native
 	// token transfers are an EVM-specific concept.
-	lib, err := ccv.NewLib(&ccv.Plog, fmt.Sprintf("env-%s.toml", envName), chainsel.FamilyEVM)
+	lib, err := ccv.NewLibFromCCVEnv(&ccv.Plog, fmt.Sprintf("env-%s.toml", envName), chainsel.FamilyEVM)
 	if err != nil {
 		return nil, nil, nil, nil, fmt.Errorf("failed to initialise environment: %w", err)
 	}

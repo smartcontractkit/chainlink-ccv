@@ -68,7 +68,7 @@ func SetupAggregatorClients(
 func SetupIndexerMonitor(
 	t *testing.T,
 	ctx context.Context,
-	lib *ccv.Lib,
+	lib ccv.Lib,
 ) *ccv.IndexerMonitor {
 	for _, indexer := range SetupAllIndexerMonitors(t, ctx, lib) {
 		return indexer
@@ -79,7 +79,7 @@ func SetupIndexerMonitor(
 func SetupAllIndexerMonitors(
 	t *testing.T,
 	ctx context.Context,
-	lib *ccv.Lib,
+	lib ccv.Lib,
 ) map[string]*ccv.IndexerMonitor {
 	indexerClients, err := lib.AllIndexers()
 	if err != nil {

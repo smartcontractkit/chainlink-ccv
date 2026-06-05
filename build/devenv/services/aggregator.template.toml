@@ -46,6 +46,7 @@ key_prefix = "ratelimit"
 "/chainlink_ccv.message_discovery.v1.MessageDiscovery/GetMessagesSince" = { limit_per_second = 20 }
 "/chainlink_ccv.verifier.v1.Verifier/GetVerifierResultsForMessage" = { limit_per_second = 100 }
 "/chainlink_ccv.heartbeat.v1.HeartbeatService/SendHeartbeat" = { limit_per_second = 100 }
+"/chainlink_ccv.message_rules.v1.MessageRules/ListMessageRules" = { limit_per_second = 20 }
 
 # Limit shared across all anonymous callers
 [rateLimiting.globalAnonymousLimits]
@@ -56,6 +57,7 @@ key_prefix = "ratelimit"
 [rateLimiting.groupLimits.verifiers]
 "/chainlink_ccv.committee_verifier.v1.CommitteeVerifier/BatchWriteCommitteeVerifierNodeResult" = { limit_per_second = 3 }
 "/chainlink_ccv.heartbeat.v1.HeartbeatService/SendHeartbeat" = { limit_per_second = 100 }
+"/chainlink_ccv.message_rules.v1.MessageRules/ListMessageRules" = { limit_per_second = 20 }
 
 # Higher rate limit group for service tests-1 (honest verifiers should never be rate-limited in tests)
 [rateLimiting.groupLimits.service-tests-1]

@@ -22,8 +22,8 @@ func ValidateVerificationTask(verificationTask *verifier.VerificationTask) error
 		return fmt.Errorf("sender cannot be empty or zero")
 	}
 
-	if message.Receiver.IsZeroOrEmpty() {
-		return fmt.Errorf("receiver cannot be empty or zero")
+	if message.Receiver.IsEmpty() {
+		return fmt.Errorf("receiver cannot be empty")
 	}
 
 	if len(verificationTask.ReceiptBlobs) == 0 {

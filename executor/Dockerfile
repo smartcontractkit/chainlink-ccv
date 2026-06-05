@@ -1,5 +1,5 @@
 # syntax=docker/dockerfile:1.7
-FROM golang:1.25.7-alpine AS builder
+FROM golang:1.26.2-alpine AS builder
 WORKDIR /
 
 # Copy module files first to maximize cache reuse across apps
@@ -14,7 +14,12 @@ RUN --mount=type=cache,target=/root/.cache/go-build,id=ccv-go-build \
     --mount=type=cache,target=/go/pkg/mod,id=ccv-go-mod \
     CGO_ENABLED=0 go build -ldflags='-s -w' -o /bin/executor main.go
 
-FROM alpine:latest
+FROM alpine:3.23
 RUN apk --no-cache add ca-certificates
-COPY --from=builder /bin/executor /bin/
+
+# Create a non-root user and group for running the application
+RUN addgroup -S executor && adduser -S executor -G executor
+
+COPY --chown=executor:executor --from=builder /bin/executor /bin/
+USER executor:executor
 CMD ["/bin/executor"]

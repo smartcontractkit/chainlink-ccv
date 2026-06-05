@@ -9,8 +9,8 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
-	"github.com/docker/docker/api/types/container"
-	"github.com/docker/go-connections/nat"
+	"github.com/moby/moby/api/types/container"
+	"github.com/moby/moby/api/types/network"
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
@@ -23,12 +23,12 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
-	ctfblockchain "github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
+	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
 
 const (
 	DefaultExecutorName    = "executor"
-	DefaultExecutorImage   = "executor:dev"
+	DefaultExecutorImage   = "executor:latest"
 	DefaultExecutorPort    = 8101
 	DefaultExecutorPortTCP = "8101/tcp"
 	DefaultExecutorMode    = services.Standalone
@@ -36,7 +36,17 @@ const (
 	DefaultExecutorDBImage = "postgres:16-alpine"
 )
 
+// ReqModifier modifies an executor testcontainers.ContainerRequest.
+type ReqModifier func(
+	req testcontainers.ContainerRequest,
+	executorInput *Input,
+	outputs []*blockchain.Output,
+) (testcontainers.ContainerRequest, error)
+
 type Input struct {
+	// Version is the component config schema version (see the executor
+	// component's Version constant).
+	Version        int           `toml:"version"`
 	Mode           services.Mode `toml:"mode"`
 	Out            *Output       `toml:"out"`
 	Image          string        `toml:"image"`
@@ -145,7 +155,7 @@ func ApplyDefaults(in *Input) {
 }
 
 // New creates an executor managed by JD via bootstrap.Run.
-func New(in *Input, outputs []*ctfblockchain.Output, jdInfra *jobs.JDInfrastructure) (*Output, error) {
+func New(in *Input, outputs []*blockchain.Output, jdInfra *jobs.JDInfrastructure, modifiers map[string]ReqModifier) (*Output, error) {
 	if in == nil {
 		return nil, nil
 	}
@@ -158,7 +168,7 @@ func New(in *Input, outputs []*ctfblockchain.Output, jdInfra *jobs.JDInfrastruct
 		return nil, fmt.Errorf("JD infrastructure is not set")
 	}
 
-	out, err := launchExecutor(ctx, in, outputs, jdInfra)
+	out, err := launchExecutor(ctx, in, outputs, jdInfra, modifiers)
 	if err != nil {
 		return nil, fmt.Errorf("failed to launch executor: %w", err)
 	}
@@ -166,7 +176,7 @@ func New(in *Input, outputs []*ctfblockchain.Output, jdInfra *jobs.JDInfrastruct
 	return out, nil
 }
 
-func launchExecutor(ctx context.Context, in *Input, outputs []*ctfblockchain.Output, jdInfra *jobs.JDInfrastructure) (*Output, error) {
+func launchExecutor(ctx context.Context, in *Input, outputs []*blockchain.Output, jdInfra *jobs.JDInfrastructure, modifiers map[string]ReqModifier) (*Output, error) {
 	jdCSAKey, err := jobs.GetJDCSAPublicKey(ctx, jdInfra.OffchainClient)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get JD server CSA public key: %w", err)
@@ -199,7 +209,7 @@ func launchExecutor(ctx context.Context, in *Input, outputs []*ctfblockchain.Out
 		return nil, fmt.Errorf("failed to create base image request: %w", err)
 	}
 
-	modifier, ok := modifierPerFamily[in.ChainFamily]
+	modifier, ok := modifiers[in.ChainFamily]
 	if !ok {
 		return nil, fmt.Errorf("no modifier found for chain family %s", in.ChainFamily)
 	}
@@ -312,11 +322,11 @@ func baseImageRequest(in *Input, bootstrapConfigFilePath string) (testcontainers
 		},
 		ExposedPorts: []string{DefaultExecutorPortTCP, services.DefaultBootstrapListenPortTCP},
 		HostConfigModifier: func(h *container.HostConfig) {
-			h.PortBindings = nat.PortMap{
-				DefaultExecutorPortTCP: []nat.PortBinding{
+			h.PortBindings = network.PortMap{
+				network.MustParsePort(DefaultExecutorPortTCP): []network.PortBinding{
 					{HostPort: ""},
 				},
-				services.DefaultBootstrapListenPortTCP: []nat.PortBinding{
+				network.MustParsePort(services.DefaultBootstrapListenPortTCP): []network.PortBinding{
 					{HostPort: ""},
 				},
 			}
@@ -378,8 +388,8 @@ func createDBContainer(ctx context.Context, in *Input, chainFamily string) (*pos
 				},
 				Labels: framework.DefaultTCLabels(),
 				HostConfigModifier: func(h *container.HostConfig) {
-					h.PortBindings = nat.PortMap{
-						"5432/tcp": []nat.PortBinding{
+					h.PortBindings = network.PortMap{
+						network.MustParsePort("5432/tcp"): []network.PortBinding{
 							{HostPort: ""},
 						},
 					}

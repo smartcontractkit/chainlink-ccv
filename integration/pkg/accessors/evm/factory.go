@@ -9,7 +9,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
-	"github.com/smartcontractkit/chainlink-ccip/ccv/chains/evm/gobindings/generated/latest/onramp"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/onramp"
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/contracttransmitter"
@@ -248,3 +248,8 @@ func (a *accessor) ContractTransmitter() (chainaccess.ContractTransmitter, error
 	}
 	return a.contractTransmitter, nil
 }
+
+// Close releases any resources owned by the EVM accessor. The current EVM
+// implementation builds stateless readers and a keystore-backed transmitter
+// that the keystore itself owns, so there is nothing to release here.
+func (a *accessor) Close() error { return nil }

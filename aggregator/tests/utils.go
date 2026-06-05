@@ -2,6 +2,7 @@ package tests
 
 import (
 	"context"
+	"fmt"
 	"net"
 	"os"
 	"testing"
@@ -13,11 +14,12 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 	"go.uber.org/zap/zapcore"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/test/bufconn"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/monitoring"
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/storage"
+	"github.com/smartcontractkit/chainlink-ccv/common/messagerules"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
@@ -25,6 +27,7 @@ import (
 	hmacutil "github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
 	committeepb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/committee-verifier/v1"
 	msgdiscoverypb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/message-discovery/v1"
+	messagerulespb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/message-rules/v1"
 	verifierpb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/verifier/v1"
 )
 
@@ -40,6 +43,23 @@ type ClientConfig struct {
 }
 
 type ConfigOption = func(*model.AggregatorConfig, *ClientConfig) (*model.AggregatorConfig, *ClientConfig)
+
+type MessageRulesControl struct {
+	store   messagerules.Store
+	refresh func(context.Context) error
+}
+
+func (c *MessageRulesControl) Create(ctx context.Context, data messagerules.RuleData) (messagerules.Rule, error) {
+	return c.store.Create(ctx, data)
+}
+
+func (c *MessageRulesControl) Delete(ctx context.Context, id string) error {
+	return c.store.Delete(ctx, id)
+}
+
+func (c *MessageRulesControl) Refresh(ctx context.Context) error {
+	return c.refresh(ctx)
+}
 
 func WithCommitteeConfig(committeeConfig *model.Committee) ConfigOption {
 	return func(cfg *model.AggregatorConfig, clientCfg *ClientConfig) (*model.AggregatorConfig, *ClientConfig) {
@@ -107,8 +127,33 @@ func CreateServerAndClient(t *testing.T, options ...ConfigOption) (committeepb.C
 	return aggregatorClient, ccvDataClient, messageDiscoveryClient, cleanup, nil
 }
 
+func CreateServerAndClientWithMessageRulesControl(t *testing.T, options ...ConfigOption) (committeepb.CommitteeVerifierClient, verifierpb.VerifierClient, msgdiscoverypb.MessageDiscoveryClient, *MessageRulesControl, func(), error) {
+	listener, control, serverCleanup, err := CreateServerOnlyWithMessageRulesControl(t, options...)
+	if err != nil {
+		return nil, nil, nil, nil, nil, err
+	}
+
+	aggregatorClient, ccvDataClient, messageDiscoveryClient, clientCleanup := CreateAuthenticatedClient(
+		t,
+		listener,
+		options...,
+	)
+
+	cleanup := func() {
+		clientCleanup()
+		serverCleanup()
+	}
+
+	return aggregatorClient, ccvDataClient, messageDiscoveryClient, control, cleanup, nil
+}
+
 // CreateServerOnly creates and starts a test gRPC server using bufconn for in-memory communication.
 func CreateServerOnly(t *testing.T, options ...ConfigOption) (*bufconn.Listener, func(), error) {
+	listener, _, cleanup, err := CreateServerOnlyWithMessageRulesControl(t, options...)
+	return listener, cleanup, err
+}
+
+func CreateServerOnlyWithMessageRulesControl(t *testing.T, options ...ConfigOption) (*bufconn.Listener, *MessageRulesControl, func(), error) {
 	buf := bufconn.Listen(bufSize)
 	lggr, err := logger.NewWith(logging.DevelopmentConfig(zapcore.DebugLevel))
 	require.NoError(t, err)
@@ -152,6 +197,7 @@ func CreateServerOnly(t *testing.T, options ...ConfigOption) (*bufconn.Listener,
 			DefaultLimits: map[string]model.RateLimitConfig{
 				// Generous defaults for tests - 10000 requests per second
 				msgdiscoverypb.MessageDiscovery_GetMessagesSince_FullMethodName:                    {LimitPerSecond: 10000},
+				messagerulespb.MessageRules_ListMessageRules_FullMethodName:                        {LimitPerSecond: 10000},
 				verifierpb.Verifier_GetVerifierResultsForMessage_FullMethodName:                    {LimitPerSecond: 10000},
 				committeepb.CommitteeVerifier_WriteCommitteeVerifierNodeResult_FullMethodName:      {LimitPerSecond: 10000},
 				committeepb.CommitteeVerifier_BatchWriteCommitteeVerifierNodeResult_FullMethodName: {LimitPerSecond: 10000},
@@ -175,9 +221,20 @@ func CreateServerOnly(t *testing.T, options ...ConfigOption) (*bufconn.Listener,
 	// Setup PostgreSQL storage
 	storageConfig, cleanupStorage, err := setupPostgresStorage(t, config.Storage)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	config.Storage = storageConfig
+
+	rawRuleStore, err := storage.NewStorageFactory(sugaredLggr).CreateStorage(config.Storage, &monitoring.NoopAggregatorMonitoring{})
+	if err != nil {
+		cleanupStorage()
+		return nil, nil, nil, err
+	}
+	messageRulesStore, ok := rawRuleStore.(messagerules.Store)
+	if !ok {
+		cleanupStorage()
+		return nil, nil, nil, fmt.Errorf("test storage does not implement message rules store")
+	}
 
 	s := agg.NewServer(sugaredLggr, config, &monitoring.NoopAggregatorMonitoring{})
 	err = s.Start(buf)
@@ -185,11 +242,18 @@ func CreateServerOnly(t *testing.T, options ...ConfigOption) (*bufconn.Listener,
 		t.Fatalf("failed to start server: %v", err)
 	}
 
+	control := &MessageRulesControl{
+		store: messageRulesStore,
+		refresh: func(ctx context.Context) error {
+			return s.RefreshMessageDisablementRules(ctx)
+		},
+	}
+
 	cleanup := func() {
 		cleanupStorage()
 	}
 
-	return buf, cleanup, nil
+	return buf, control, cleanup, nil
 }
 
 // CreateAuthenticatedClient creates a gRPC client with optional HMAC authentication.
@@ -207,6 +271,10 @@ func CreateAuthenticatedClient(t *testing.T, listener *bufconn.Listener, options
 		_, clientConfig = option(dummyConfig, clientConfig)
 	}
 
+	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(ctx, time.Second)
+	defer cancel()
+
 	var clientOptions []grpc.DialOption
 	if !clientConfig.SkipAuth {
 		hmacConfig := &hmacutil.ClientConfig{
@@ -218,17 +286,17 @@ func CreateAuthenticatedClient(t *testing.T, listener *bufconn.Listener, options
 		}
 	}
 
-	aggregatorClient, aggregatorConn, err := createAggregatorClient(listener, clientOptions...)
+	aggregatorClient, aggregatorConn, err := createAggregatorClient(ctx, listener, clientOptions...)
 	if err != nil {
 		t.Fatalf("failed to create aggregator client: %v", err)
 	}
 
-	ccvDataClient, ccvDataConn, err := createCCVDataClient(listener, clientOptions...)
+	ccvDataClient, ccvDataConn, err := createCCVDataClient(ctx, listener, clientOptions...)
 	if err != nil {
 		t.Fatalf("failed to create CCV data client: %v", err)
 	}
 
-	messageDiscoveryClient, messageDiscoveryConn, err := createMessageDiscoveryClient(listener, clientOptions...)
+	messageDiscoveryClient, messageDiscoveryConn, err := createMessageDiscoveryClient(ctx, listener, clientOptions...)
 	if err != nil {
 		_ = aggregatorConn.Close()
 		_ = ccvDataConn.Close()
@@ -294,20 +362,22 @@ func setupPostgresStorage(t *testing.T, existingConfig *model.StorageConfig) (*m
 	return storageConfig, cleanup, nil
 }
 
-func createCCVDataClient(ccvDataBuf *bufconn.Listener, opts ...grpc.DialOption) (verifierpb.VerifierClient, *grpc.ClientConn, error) {
+func createCCVDataClient(ctx context.Context, ccvDataBuf *bufconn.Listener, opts ...grpc.DialOption) (verifierpb.VerifierClient, *grpc.ClientConn, error) {
 	bufDialer := func(context.Context, string) (net.Conn, error) {
 		return ccvDataBuf.Dial()
 	}
 
+	//nolint:prealloc,staticcheck // small fixed defaults; grpc.WithInsecure is deprecated but needed for test setup
 	defaultOpts := []grpc.DialOption{
 		grpc.WithContextDialer(bufDialer),
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithInsecure(),
 	}
 
 	// Append custom options (like interceptors)
 	allOpts := append(defaultOpts, opts...)
 
-	ccvDataConn, err := grpc.NewClient("passthrough:///bufnet", allOpts...)
+	//nolint:staticcheck // grpc.DialContext is deprecated but needed for bufconn test setup
+	ccvDataConn, err := grpc.DialContext(ctx, "bufnet", allOpts...)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -316,20 +386,22 @@ func createCCVDataClient(ccvDataBuf *bufconn.Listener, opts ...grpc.DialOption) 
 	return client, ccvDataConn, nil
 }
 
-func createAggregatorClient(aggregatorBuf *bufconn.Listener, opts ...grpc.DialOption) (committeepb.CommitteeVerifierClient, *grpc.ClientConn, error) {
+func createAggregatorClient(ctx context.Context, aggregatorBuf *bufconn.Listener, opts ...grpc.DialOption) (committeepb.CommitteeVerifierClient, *grpc.ClientConn, error) {
 	bufDialer := func(context.Context, string) (net.Conn, error) {
 		return aggregatorBuf.Dial()
 	}
 
+	//nolint:prealloc,staticcheck // small fixed defaults; grpc.WithInsecure is deprecated but needed for test setup
 	defaultOpts := []grpc.DialOption{
 		grpc.WithContextDialer(bufDialer),
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithInsecure(),
 	}
 
 	// Append custom options (like interceptors)
 	allOpts := append(defaultOpts, opts...)
 
-	aggregatorConn, err := grpc.NewClient("passthrough:///bufnet", allOpts...)
+	//nolint:staticcheck // grpc.DialContext is deprecated but needed for bufconn test setup
+	aggregatorConn, err := grpc.DialContext(ctx, "bufnet", allOpts...)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -338,20 +410,22 @@ func createAggregatorClient(aggregatorBuf *bufconn.Listener, opts ...grpc.DialOp
 	return client, aggregatorConn, nil
 }
 
-func createMessageDiscoveryClient(messageDiscoveryBuf *bufconn.Listener, opts ...grpc.DialOption) (msgdiscoverypb.MessageDiscoveryClient, *grpc.ClientConn, error) {
+func createMessageDiscoveryClient(ctx context.Context, messageDiscoveryBuf *bufconn.Listener, opts ...grpc.DialOption) (msgdiscoverypb.MessageDiscoveryClient, *grpc.ClientConn, error) {
 	bufDialer := func(context.Context, string) (net.Conn, error) {
 		return messageDiscoveryBuf.Dial()
 	}
 
+	//nolint:prealloc,staticcheck // small fixed defaults; grpc.WithInsecure is deprecated but needed for test setup
 	defaultOpts := []grpc.DialOption{
 		grpc.WithContextDialer(bufDialer),
-		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		grpc.WithInsecure(),
 	}
 
 	// Append custom options (like interceptors)
 	allOpts := append(defaultOpts, opts...)
 
-	messageDiscoveryConn, err := grpc.NewClient("passthrough:///bufnet", allOpts...)
+	//nolint:staticcheck // grpc.DialContext is deprecated but needed for bufconn test setup
+	messageDiscoveryConn, err := grpc.DialContext(ctx, "bufnet", allOpts...)
 	if err != nil {
 		return nil, nil, err
 	}

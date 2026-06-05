@@ -428,35 +428,27 @@ func (r *VerifierResultMessage) ToMessage() (protocol.Message, error) {
 	}
 
 	return protocol.Message{
-		//nolint:gosec // data length verified at this stage
-		Version:             uint8(r.Version),
-		SourceChainSelector: protocol.ChainSelector(r.SourceChainSelector),
-		DestChainSelector:   protocol.ChainSelector(r.DestChainSelector),
-		SequenceNumber:      protocol.SequenceNumber(r.SequenceNumber),
-		OnRampAddress:       r.OnRampAddress,
-		OffRampAddress:      r.OffRampAddress,
-		ExecutionGasLimit:   r.ExecutionGasLimit,
-		CcipReceiveGasLimit: r.CcipReceiveGasLimit,
-		CcvAndExecutorHash:  ccvAndExecutorHash,
-		Sender:              r.Sender,
-		Receiver:            r.Receiver,
-		DestBlob:            r.DestBlob,
-		TokenTransfer:       tokenTransfer,
-		Data:                r.Data,
-		//nolint:gosec // data length verified at this stage
-		OnRampAddressLength: uint8(r.OnRampAddressLength),
-		//nolint:gosec // data length verified at this stage
+		Version:              uint8(r.Version),
+		SourceChainSelector:  protocol.ChainSelector(r.SourceChainSelector),
+		DestChainSelector:    protocol.ChainSelector(r.DestChainSelector),
+		SequenceNumber:       protocol.SequenceNumber(r.SequenceNumber),
+		OnRampAddress:        r.OnRampAddress,
+		OffRampAddress:       r.OffRampAddress,
+		ExecutionGasLimit:    r.ExecutionGasLimit,
+		CcipReceiveGasLimit:  r.CcipReceiveGasLimit,
+		CcvAndExecutorHash:   ccvAndExecutorHash,
+		Sender:               r.Sender,
+		Receiver:             r.Receiver,
+		DestBlob:             r.DestBlob,
+		TokenTransfer:        tokenTransfer,
+		Data:                 r.Data,
+		OnRampAddressLength:  uint8(r.OnRampAddressLength),
 		OffRampAddressLength: uint8(r.OffRampAddressLength),
 		Finality:             protocol.Finality(r.Finality),
-		//nolint:gosec // data length verified at this stage
-		SenderLength: uint8(r.SenderLength),
-		//nolint:gosec // data length verified at this stage
-		ReceiverLength: uint8(r.ReceiverLength),
-		//nolint:gosec // data length verified at this stage
-		DestBlobLength: uint16(r.DestBlobLength),
-		//nolint:gosec // data length verified at this stage
-		TokenTransferLength: uint16(r.TokenTransferLength),
-		//nolint:gosec // data length verified at this stage
-		DataLength: uint16(r.DataLength),
+		SenderLength:         uint8(r.SenderLength),
+		ReceiverLength:       uint8(r.ReceiverLength),
+		DestBlobLength:       uint16(r.DestBlobLength),
+		TokenTransferLength:  uint16(r.TokenTransferLength),
+		DataLength:           uint16(r.DataLength),
 	}, nil
 }

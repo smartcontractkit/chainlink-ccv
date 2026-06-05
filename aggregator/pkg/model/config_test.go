@@ -833,7 +833,7 @@ func TestGetEffectiveLimit(t *testing.T) {
 			},
 			callerID:      "caller1",
 			method:        "method1",
-			expectedLimit: intPtr(100),
+			expectedLimit: new(100),
 		},
 		{
 			name: "returns group limit when no caller limit",
@@ -845,7 +845,7 @@ func TestGetEffectiveLimit(t *testing.T) {
 			callerID:      "caller1",
 			method:        "method1",
 			clientGroups:  []string{"group1"},
-			expectedLimit: intPtr(50),
+			expectedLimit: new(50),
 		},
 		{
 			name: "returns most restrictive group limit",
@@ -858,7 +858,7 @@ func TestGetEffectiveLimit(t *testing.T) {
 			callerID:      "caller1",
 			method:        "method1",
 			clientGroups:  []string{"group1", "group2"},
-			expectedLimit: intPtr(50),
+			expectedLimit: new(50),
 		},
 		{
 			name: "returns default limit when no caller or group limit",
@@ -869,7 +869,7 @@ func TestGetEffectiveLimit(t *testing.T) {
 			},
 			callerID:      "caller1",
 			method:        "method1",
-			expectedLimit: intPtr(25),
+			expectedLimit: new(25),
 		},
 		{
 			name:           "returns nil when no limit configured",
@@ -891,7 +891,7 @@ func TestGetEffectiveLimit(t *testing.T) {
 			callerID:      "caller1",
 			method:        "method1",
 			clientGroups:  []string{"group1"},
-			expectedLimit: intPtr(200),
+			expectedLimit: new(200),
 		},
 	}
 
@@ -923,10 +923,6 @@ type mockClientConfig struct {
 func (m *mockClientConfig) GetClientID() string { return m.clientID }
 func (m *mockClientConfig) GetGroups() []string { return m.groups }
 func (m *mockClientConfig) IsEnabled() bool     { return m.enabled }
-
-func intPtr(i int) *int {
-	return &i
-}
 
 func TestGetClientByAPIKey(t *testing.T) {
 	creds, _ := hmacutil.GenerateCredentials()
