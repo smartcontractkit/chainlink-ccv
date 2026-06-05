@@ -614,9 +614,9 @@ func resolveTestSuite(suite string) (pattern, dir string, err error) {
 	case "smoke":
 		return "TestE2ESmoke", "tests/e2e", nil
 	case "smoke-v2":
-		return "TestE2ESmoke/test_extra_args_v2_messages", "tests/e2e", nil
+		return "TestE2ESmoke_ExtraArgsV2", "tests/e2e", nil
 	case "smoke-v3":
-		return "TestE2ESmoke/test_extra_args_v3_messages", "tests/e2e", nil
+		return "TestE2ESmoke_Basic/extra_args_v3_messaging", "tests/e2e", nil
 	case "load":
 		return "TestE2ELoad/clean", "tests/e2e", nil
 	case "rpc-latency":
