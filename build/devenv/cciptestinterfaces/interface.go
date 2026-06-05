@@ -9,17 +9,15 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 
-	"github.com/smartcontractkit/chainlink-ccip/deployment/finality"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/lanes"
 	tokensapi "github.com/smartcontractkit/chainlink-ccip/deployment/tokens"
-	"github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/adapters"
-	ccipChangesets "github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/changesets"
-	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
-	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
-	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
+
+	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
+	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 
 	nodeset "github.com/smartcontractkit/chainlink-testing-framework/framework/components/simple_node_set"
 )
@@ -212,26 +210,6 @@ type OnChainCommittees struct {
 	Threshold          uint8
 }
 
-// ChainLaneProfile holds everything an impl needs to provide so that
-// connectAllChains can assemble PartialChainConfig entries for the
-// canonical ConfigureChainsForLanesFromTopology changeset.
-// Contract addresses (Router, OnRamp, FeeQuoter, OffRamp, Executor) are
-// resolved from the datastore by the changeset itself.
-//
-// Fields use the changeset's override/pointer types directly so family impls
-// express only the values they want to override; nil/zero means "use adapter default".
-type ChainLaneProfile struct {
-	BaseExecutionGasCost     *uint32
-	FeeQuoterDestChainConfig ccipChangesets.FeeQuoterDestChainConfigOverrides
-	ExecutorDestChainConfig  *adapters.ExecutorDestChainConfig
-	DefaultExecutorQualifier string
-	DefaultInboundCCVs       []datastore.AddressRef
-	DefaultOutboundCCVs      []datastore.AddressRef
-	TokenReceiverAllowed     *bool
-	GasForVerification       *uint32
-	AllowedFinalityConfig    *finality.Config
-}
-
 // TokenConfigProvider abstracts the chain-specific decisions that feed into
 // TokenExpansion (token type, decimals, admin addresses, pre-mint amounts)
 // and any post-deployment work (e.g. funding lock-release pools on EVM).
@@ -286,10 +264,6 @@ type OnChainConfigurable interface {
 	// The returned DataStore is merged into env.DataStore before
 	// GetDeployChainContractsCfg is called.
 	PreDeployContractsForSelector(ctx context.Context, env *deployment.Environment, selector uint64, topology *ccvdeployment.EnvironmentTopology) (datastore.DataStore, error)
-	// GetDeployChainContractsCfg returns the per-chain configuration for the
-	// common DeployChainContracts changeset. Called after Pre, so env.DataStore
-	// includes pre-deployed addresses (e.g. CREATE2 factory).
-	GetDeployChainContractsCfg(env *deployment.Environment, selector uint64, topology *ccvdeployment.EnvironmentTopology) (ccipChangesets.DeployChainContractsPerChainCfg, error)
 	// PostDeployContractsForSelector runs chain-specific setup after the common
 	// DeployChainContracts call (e.g. deploying USDC/Lombard token pools on EVM).
 	// The returned DataStore is merged into the final result.
@@ -299,11 +273,6 @@ type OnChainConfigurable interface {
 	// each remote chain. The environment uses profiles from all chains to
 	// assemble the full cross-chain connection config.
 	GetConnectionProfile(env *deployment.Environment, selector uint64) (lanes.ChainDefinition, lanes.CommitteeVerifierRemoteChainInput, error)
-	// GetChainLaneProfile returns the lane profile for this chain, containing
-	// local contract refs, destination characteristics, and default per-remote
-	// settings. The environment uses profiles from all chains to assemble the
-	// full cross-chain connection config.
-	GetChainLaneProfile(env *deployment.Environment, selector uint64) (ChainLaneProfile, error)
 	// PostConnect runs chain-specific setup after all chains have been connected
 	// (e.g. USDC/Lombard token config, custom executor wiring).
 	PostConnect(env *deployment.Environment, selector uint64, remoteSelectors []uint64) error
