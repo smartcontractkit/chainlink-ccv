@@ -1338,14 +1338,15 @@ func (m *CCIP17EVMConfig) buildEVMTokenTransferConfig(
 		}
 	}
 
+	tokenRef, err := TokenRefForPool(localRef)
+	if err != nil {
+		panic(fmt.Sprintf("buildEVMTokenTransferConfig: %v", err))
+	}
+
 	return tokenscore.TokenTransferConfig{
 		ChainSelector: selector,
 		TokenPoolRef:  localRef,
-		TokenRef: datastore.AddressRef{
-			Type:      datastore.ContractType(bnm_drip_v1_0.ContractType),
-			Version:   semver.MustParse(bnm_drip_v1_0.Deploy.Version()),
-			Qualifier: localRef.Qualifier,
-		},
+		TokenRef:      tokenRef,
 		RegistryRef: datastore.AddressRef{
 			Type:    datastore.ContractType(token_admin_registry.ContractType),
 			Version: semver.MustParse(token_admin_registry.Deploy.Version()),

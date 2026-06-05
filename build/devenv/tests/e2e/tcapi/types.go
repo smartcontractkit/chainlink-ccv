@@ -16,28 +16,63 @@ import (
 	verifierpb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/verifier/v1"
 )
 
-// DefaultLokiURL is the default Loki WebSocket URL for log streaming in tests.
-const DefaultLokiURL = "ws://localhost:3030"
+const (
+	// DefaultLokiURL is the default Loki WebSocket URL for log streaming in tests.
+	DefaultLokiURL     = "ws://localhost:3030"
+	DefaultExecTimeout = 40 * time.Second
+	DefaultSentTimeout = 10 * time.Second
+)
 
 // TestCase represents a test case that can be run in a variety of environments.
+// Implementations may resolve environment-specific configuration (e.g. contract
+// addresses) during HavePrerequisites or Run.
 type TestCase interface {
 	// Name returns the name of the test case.
 	Name() string
 
 	// Run runs the test case.
 	// The context is typically derived from the *testing.T's Context() method.
+	// Implementations hydrate any required configuration before executing; callers
+	// do not need to call HavePrerequisites first. Returns an error if prerequisites
+	// are not met.
 	Run(ctx context.Context) error
 
-	// HavePrerequisites checks if the test case has all the prerequisites to run.
+	// HavePrerequisites reports whether this test case can run in the current
+	// environment (e.g. required contracts deployed, services running).
 	// The context is typically derived from the *testing.T's Context() method.
-	// This typically checks things like e.g. whether the environment has a specific contract
-	// deployed, or a specific service is running.
-	// Returns true if the test case has all the prerequisites to run, false otherwise.
+	// Implementations typically perform the same hydration as Run; when it succeeds,
+	// subsequent Run calls reuse that state. Returns false to skip the test without
+	// treating it as a failure.
 	HavePrerequisites(ctx context.Context) bool
 }
 
 // DefaultV3ExecutionGasLimit is the execution gas limit used when SendConfig and MessageOptions omit it.
 const DefaultV3ExecutionGasLimit uint32 = 200_000
+
+// RunConfig holds optional overrides for wait/confirm timeouts in TCAPI Run methods.
+// Zero values use the fallback passed to SentTimeout or ExecTimeout.
+type RunConfig struct {
+	// ConfirmSentTimeout overrides ConfirmSendOnSource when non-zero.
+	ConfirmSentTimeout time.Duration
+	// ConfirmExecTimeout overrides AssertMessage and ConfirmExecOnDest when non-zero.
+	ConfirmExecTimeout time.Duration
+}
+
+// SentTimeout returns ConfirmSentTimeout when set, otherwise fallback.
+func (r RunConfig) SentTimeout(fallback time.Duration) time.Duration {
+	if r.ConfirmSentTimeout != 0 {
+		return r.ConfirmSentTimeout
+	}
+	return fallback
+}
+
+// ExecTimeout returns ConfirmExecTimeout when set, otherwise fallback.
+func (r RunConfig) ExecTimeout(fallback time.Duration) time.Duration {
+	if r.ConfirmExecTimeout != 0 {
+		return r.ConfirmExecTimeout
+	}
+	return fallback
+}
 
 // SendArgs holds pair-level settings for building and sending ExtraArgsV3 CCIP messages in tcapi tests.
 type SendArgs struct {

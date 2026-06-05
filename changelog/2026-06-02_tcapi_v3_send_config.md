@@ -57,11 +57,12 @@ The expected consumer of this changelog is an AI adapting a downstream repo. Thi
   ```go
   basic.All(lib, srcSelector, destSelector, cfg)
   basic.EOAReceiverDefaultVerifier(lib, srcSelector, destSelector, cfg)
-  token_transfer.All(lib, srcSelector, destSelector, combos, cfg)
-  token_transfer.All17(lib, srcSelector, destSelector, combos, cfg)
-  token_transfer.TokenTransfer(lib, src, dest, combo, finality, useEOA, name, cfg)
+  token_transfer.All(lib, srcSelector, destSelector, combos, token_transfer.Args{Send: sendCfg})
+  token_transfer.All17(lib, srcSelector, destSelector, combos, token_transfer.Args{Send: sendCfg})
+  token_transfer.TokenTransfer(lib, src, dest, combo, finality, useEOA, name, args)
   ```
-- **Why:** Pair-specific V3 extra-args construction (gas limit, destination `GetExecutorArgs` / `GetTokenArgs` / `GetTokenReceiver` inputs) must be supplied by the test driver without embedding chain-family types inside generic TCAPI `Run` logic. `SendConfig` is threaded from `All()` or single-case constructors into each test case struct and consumed at send time after `hydrate` fills `MessageOptions` (executor, CCVs, etc.).
+  where `sendCfg` is `tcapi.SendArgs` (extra-args / send only) and `args` is `token_transfer.Args` (`Send`, optional `Run` (`tcapi.RunConfig`), plus optional `TransferAmount`, `DestBalanceIncrease` for cross-family balance checks).
+- **Why:** Pair-specific V3 extra-args construction (gas limit, destination `GetExecutorArgs` / `GetTokenArgs` / `GetTokenReceiver` inputs) must be supplied by the test driver without embedding chain-family types inside generic TCAPI `Run` logic. `tcapi.SendArgs` is threaded into `basic` cases and into `token_transfer.Args.Send`; token-only run settings stay on `token_transfer.Args`.
 - **Who is affected:** Any downstream repo that imports `github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/tcapi/basic` or `.../token_transfer` and calls the listed constructors. In-repo smoke tests updated at `build/devenv/tests/e2e/smoke_test.go`.
 
 ### TCAPI case send implementation (behavior, not public API)
@@ -69,7 +70,7 @@ The expected consumer of this changelog is an AI adapting a downstream repo. Thi
 - **What changed:** `v3TestCase.Run` and `tokenTransferV3TestCase.Run` no longer call `src.SendMessage(..., messageVersion 3)`.
 - **After:** Both call `tcapi.SendV3Message`, which type-asserts `MessageV3Source` / `MessageV3Destination` / `ChainAsSource` and runs `BuildV3ExtraArgs` → `BuildChainMessage` → `SendChainMessage`.
 - **Why:** Aligns importable tests with composable chain interfaces and removes dependence on deprecated `SendMessage` for the tcapi packages.
-- **Who is affected:** Consumers relying on side effects of `SendMessage` inside TCAPI cases only; external callers of `TestCase.Run` see the same success/failure semantics for EVM→EVM with empty `SendConfig`.
+- **Who is affected:** Consumers relying on side effects of `SendMessage` inside TCAPI cases only; external callers of `TestCase.Run` see the same success/failure semantics for EVM→EVM with empty `tcapi.SendArgs` / `token_transfer.Args{Send: {}}`.
 
 ### TCAPI confirm by message ID
 
@@ -128,12 +129,15 @@ The expected consumer of this changelog is an AI adapting a downstream repo. Thi
 
 ## New Features / Additions
 
-### `SendConfig` and `SendV3Message`
+### `SendArgs`, `token_transfer.Args`, and `SendV3Message`
 
-- **`tcapi.SendConfig`** — pair-level settings for V3 sends in TCAPI tests. Fields: `ExecutionGasLimit` (0 → use `MessageOptions` if set, else `DefaultV3ExecutionGasLimit`), `ExtraArgsParams`, `TokenArgsParams`, `TokenReceiverParams` (passed through to `MessageV3Source.BuildV3ExtraArgs` and destination `Get*` methods), `SendOption` (`cciptestinterfaces.ChainSendOption` for `SendChainMessage`). See `build/devenv/tests/e2e/tcapi/types.go:44`.
-- **`tcapi.DefaultV3ExecutionGasLimit`** — `200_000`; matches prior hardcoded gas in TCAPI `Run` methods. See `build/devenv/tests/e2e/tcapi/types.go:40`.
-- **`tcapi.SendV3Message`** — shared helper: assert composable interfaces, merge gas from `SendConfig` / `MessageOptions`, `BuildV3ExtraArgs`, `BuildChainMessage`, `SendChainMessage`. See `build/devenv/tests/e2e/tcapi/types.go:52`.
-  - Usage: optional direct use in custom test drivers; TCAPI `basic` and `token_transfer` already call it from `Run`.
+- **`tcapi.SendArgs`** — pair-level settings for building and sending ExtraArgsV3 messages. Fields: `ExecutionGasLimit`, `ExtraArgsParams`, `TokenArgsParams`, `TokenReceiverParams`, `SendOption`. See `build/devenv/tests/e2e/tcapi/types.go:53`.
+- **`tcapi.RunConfig`** — optional `ConfirmSentTimeout` / `ConfirmExecTimeout` overrides for TCAPI `Run` methods. Use `SentTimeout(fallback)` and `ExecTimeout(fallback)`; zero fields fall back to `tcapi.DefaultSentTimeout` / `tcapi.DefaultExecTimeout`. See `build/devenv/tests/e2e/tcapi/types.go`.
+- **`basic.Args`** — `Send` (`tcapi.SendArgs`) plus optional `Run` (`tcapi.RunConfig`). See `build/devenv/tests/e2e/tcapi/basic/args.go`.
+- **`token_transfer.Args`** — `Send`, optional `Run`, plus optional `TransferAmount`, `DestBalanceIncrease` for cross-family balance checks. See `build/devenv/tests/e2e/tcapi/token_transfer/args.go`.
+- **`tcapi.DefaultV3ExecutionGasLimit`** — `200_000`; matches prior hardcoded gas in TCAPI `Run` methods. See `build/devenv/tests/e2e/tcapi/types.go:50`.
+- **`tcapi.SendV3Message`** — shared helper: assert composable interfaces, merge gas from `SendArgs` / `MessageOptions`, `BuildV3ExtraArgs`, `BuildChainMessage`, `SendChainMessage`. See `build/devenv/tests/e2e/tcapi/types.go:61`.
+  - Usage: optional direct use in custom test drivers; TCAPI `basic` and `token_transfer` already call it from `Run` via `SendArgs` / `Args.Send`.
 
 ## Compatibility & Requirements
 
@@ -145,7 +149,7 @@ The expected consumer of this changelog is an AI adapting a downstream repo. Thi
 
 ```go
 // EVM→EVM smoke (behavior-neutral vs prior SendMessage path)
-sendCfg := tcapi.SendConfig{}
+sendCfg := tcapi.SendArgs{}
 for _, tc := range basic.All(lib, src.ChainSelector(), dest.ChainSelector(), sendCfg) {
     if tc.HavePrerequisites(ctx) {
         require.NoError(t, tc.Run(ctx))
@@ -155,7 +159,7 @@ for _, tc := range basic.All(lib, src.ChainSelector(), dest.ChainSelector(), sen
 
 ```go
 // Single imported case with default pair config
-tc := basic.EOAReceiverDefaultVerifier(lib, srcSel, destSel, tcapi.SendConfig{})
+tc := basic.EOAReceiverDefaultVerifier(lib, srcSel, destSel, tcapi.SendArgs{})
 require.NoError(t, tc.Run(ctx))
 ```
 
