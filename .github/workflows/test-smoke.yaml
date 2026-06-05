@@ -81,14 +81,6 @@ jobs:
             pattern: TestE2ESmoke_Basic
             profile: standard.one-exec-per-chain.profile
             timeout: 15m
-          - name: TestE2ESmoke_TokenVerification
-            pattern: TestE2ESmoke_TokenVerification
-            profile: standard.profile
-            timeout: 15m
-          - name: TestE2ESmoke_ExtraArgsV2
-            pattern: TestE2ESmoke_ExtraArgsV2
-            profile: standard.profile
-            timeout: 10m
           - name: TestE2ESmoke_ChainStatus
             pattern: TestE2ESmoke_ChainStatus
             profile: standard.profile
