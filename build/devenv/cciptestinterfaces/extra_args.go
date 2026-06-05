@@ -38,6 +38,13 @@ type MessageV3TokenArgs []byte
 // MessageV3TokenReceiver is a type to indicate how to use the MessageV3Destination interface.
 type MessageV3TokenReceiver []byte
 
+// V3DestinationLoadDefaults supplies dest chains load test MessageOptions
+// so source side guns avoid family specific details.
+type V3DestinationLoadDefaults interface {
+	MessageV3Destination
+	V3LoadMessageOptions() MessageOptions
+}
+
 // MessageV3Destination is an interface for any chain that can receive a V3 message.
 // We use an interface rather than a struct because the V3 message structure is chain agnostic.
 type MessageV3Destination interface {

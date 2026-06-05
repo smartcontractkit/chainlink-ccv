@@ -10,21 +10,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Masterminds/semver/v3"
-	"github.com/ethereum/go-ethereum/common"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 
 	chain_selectors "github.com/smartcontractkit/chain-selectors"
 
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_0_0/operations/weth"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_2_0/operations/router"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/load"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/metrics"
 	cldfevm "github.com/smartcontractkit/chainlink-deployments-framework/chain/evm"
-	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
-	"github.com/smartcontractkit/chainlink-evm/gethwrappers/shared/generated/initial/weth9"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/chaos"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/rpc"
@@ -38,7 +32,6 @@ import (
 
 const (
 	postTestVerificationDelay = 30 * time.Second
-	requiredWETHBalance       = 1e18
 )
 
 type ChaosTestCase struct {
@@ -54,56 +47,6 @@ type GasTestCase struct {
 	name             string
 	chainURL         string
 	waitBetweenTests time.Duration
-}
-
-func ensureWETHBalanceAndApproval(ctx context.Context, t *testing.T, logger zerolog.Logger, e *deployment.Environment, chain cldfevm.Chain, requiredWETH *big.Int) {
-	logger.Info().Str("chain", strconv.FormatUint(chain.Selector, 10)).Msg("Ensuring WETH balance and approval")
-	wethContract, err := e.DataStore.Addresses().Get(
-		datastore.NewAddressRefKey(
-			chain.Selector,
-			datastore.ContractType(weth.ContractType),
-			semver.MustParse(weth.Deploy.Version()),
-			""))
-	require.NoError(t, err)
-
-	wethInstance, err := weth9.NewWETH9(common.HexToAddress(wethContract.Address), chain.Client)
-	require.NoError(t, err)
-
-	routerInstance, err := e.DataStore.Addresses().Get(datastore.NewAddressRefKey(
-		chain.Selector,
-		datastore.ContractType(router.ContractType),
-		semver.MustParse(router.Deploy.Version()),
-		""))
-	require.NoError(t, err)
-
-	for _, user := range chain.Users {
-		logger.Info().Str("user address", user.From.String()).Msg("User address")
-		balance, err := chain.Client.BalanceAt(ctx, user.From, nil)
-		require.NoError(t, err)
-		logger.Info().Str("balance", balance.String()).Msg("Deployer balance before deposit")
-
-		wethBalance, err := wethInstance.BalanceOf(nil, user.From)
-		require.NoError(t, err)
-		logger.Info().Str("wethBalance", wethBalance.String()).Str("requiredWETH", requiredWETH.String()).Msg("Deployer WETH balance before deposit")
-
-		if wethBalance.Cmp(requiredWETH) < 0 {
-			depositAmount := new(big.Int).Sub(requiredWETH, wethBalance)
-			oldValue := user.Value
-			user.Value = depositAmount
-			tx1, err := wethInstance.Deposit(user)
-			require.NoError(t, err)
-			_, err = chain.Confirm(tx1)
-			require.NoError(t, err)
-			user.Value = oldValue
-			logger.Info().Str("depositAmount", depositAmount.String()).Msg("Deposited WETH")
-		}
-
-		tx, err := wethInstance.Approve(user, common.HexToAddress(routerInstance.Address), requiredWETH)
-		require.NoError(t, err)
-		_, err = chain.Confirm(tx)
-		require.NoError(t, err)
-		logger.Info().Str("approvedAmount", requiredWETH.String()).Msg("Approved WETH for router")
-	}
 }
 
 func gasControlFunc(t *testing.T, r *rpc.RPCClient, blockPace time.Duration) {
@@ -210,7 +153,7 @@ func TestE2ELoad(t *testing.T) {
 	}
 
 	// Ensure we have at least 1 WETH and approve router to spend it
-	ensureWETHBalanceAndApproval(ctx, t, *l, e, srcChain, big.NewInt(requiredWETHBalance))
+	EnsureWETHBalanceAndApproval(ctx, t, *l, e, srcChain)
 
 	t.Run("clean", func(t *testing.T) {
 		// just a clean load test to measure performance
@@ -638,30 +581,28 @@ func TestStaging(t *testing.T) {
 		err = verifyTestConfig(e, testConfig)
 		require.NoError(t, err)
 
-		var wg sync.WaitGroup
+		// require must run on the test goroutine: fund each source chain once before wasp workers start.
+		fundedSourceChains := make(map[uint64]struct{})
 		for _, testProfile := range testConfig.TestProfiles {
 			if !testProfile.Enabled {
 				continue
 			}
 			for _, chainInfo := range testProfile.ChainsAsSource {
-				wg.Add(1)
-				go func(chainInfo load.ChainProfileConfig) {
-					defer wg.Done()
-					chainSelector, err := strconv.ParseUint(chainInfo.Selector, 10, 64)
-					if err != nil {
-						t.Logf("failed to parse chain selector: %v", err)
-						return
-					}
-					chain := e.BlockChains.EVMChains()[chainSelector]
-					ensureWETHBalanceAndApproval(ctx, t, *l, e, chain, big.NewInt(requiredWETHBalance))
-				}(chainInfo)
+				chainSelector, err := strconv.ParseUint(chainInfo.Selector, 10, 64)
+				require.NoError(t, err)
+				if _, done := fundedSourceChains[chainSelector]; done {
+					continue
+				}
+				fundedSourceChains[chainSelector] = struct{}{}
+				chain := e.BlockChains.EVMChains()[chainSelector]
+				EnsureWETHBalanceAndApproval(ctx, t, *l, e, chain)
 			}
 		}
-		wg.Wait()
 
 		// Wait for old txns and nonces to settled before we start the load test
 		time.Sleep(30 * time.Second)
 
+		var wg sync.WaitGroup
 		for idx, testProfile := range testConfig.TestProfiles {
 			if !testProfile.Enabled {
 				continue
