@@ -74,7 +74,7 @@ jobs:
       matrix:
         test:
           - name: TestE2ESmoke_Basic
-            pattern: TestE2ESmoke_Basic
+            pattern: (TestE2ESmoke_Basic|TestE2ESmoke_TokenVerification|TestE2ESmoke_ExtraArgsV2)
             profile: standard.profile
             timeout: 15m
           - name: TestE2ESmoke_Basic_OneExecPerChain

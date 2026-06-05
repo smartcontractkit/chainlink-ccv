@@ -110,21 +110,13 @@ jobs:
       matrix:
         test:
           - name: TestE2ESmoke_Basic
-            pattern: TestE2ESmoke_Basic
+            pattern: (TestE2ESmoke_Basic|TestE2ESmoke_TokenVerification|TestE2ESmoke_ExtraArgsV2)
             profile: standard.clnode.ci.profile
             timeout: 15m
           - name: TestE2ESmoke_Basic_OneExecPerChain
             pattern: TestE2ESmoke_Basic
             profile: standard.clnode.ci.one-exec-per-chain.profile
             timeout: 15m
-          - name: TestE2ESmoke_TokenVerification
-            pattern: TestE2ESmoke_TokenVerification
-            profile: standard.clnode.ci.profile
-            timeout: 15m
-          - name: TestE2ESmoke_ExtraArgsV2
-            pattern: TestE2ESmoke_ExtraArgsV2
-            profile: standard.clnode.ci.profile
-            timeout: 10m
           - name: TestHA_CrossComponentDown
             pattern: TestHA_CrossComponentDown
             profile: standard.ha.clnode.ci.profile
