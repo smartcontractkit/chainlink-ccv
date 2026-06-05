@@ -97,14 +97,10 @@ jobs:
             pattern: TestE2EReorg
             profile: standard.src-auto-mine.profile
             timeout: 5m
-          - name: TestChaos_AggregatorOutageRecovery
-            pattern: TestChaos_AggregatorOutageRecovery
+          - name: TestChaos
+            pattern: TestChaos_(AggregatorOutageRecovery|VerifierFaultToleranceThresholdViolated|AllExecutorsDown|IndexerDown)
             profile: standard.profile
-            timeout: 5m
-          - name: (TestChaos_VerifierFaultToleranceThresholdViolated|TestChaos_AllExecutorsDown|TestChaos_IndexerDown)
-            pattern: (TestChaos_VerifierFaultToleranceThresholdViolated|TestChaos_AllExecutorsDown|TestChaos_IndexerDown)
-            profile: standard.profile
-            timeout: 5m
+            timeout: 15m
           - name: TestE2ESmoke_AggregatorMessageDisablementRules
             pattern: TestE2ESmoke_Aggregator(MessageDisablementRulesCLI|LaneDisablementRule|ChainDisablementRule)
             profile: standard.src-auto-mine.profile
