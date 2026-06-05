@@ -29,7 +29,7 @@ type tokenTransferV3TestCaseBase struct {
 	useEOAReceiver  bool
 	numExpectedRecv int
 	numExpectedVer  int
-	args Args
+	args            Args
 }
 
 type tokenTransferV3TestCase struct {

@@ -141,7 +141,16 @@ func (s TokenCombination) FinalityConfig() protocol.Finality {
 	return 0 // Otherwise use default finality
 }
 
-// AllTokenCombinations returns all possible token combinations.
+// AllTokenCombinations returns a hand-curated catalog of token transfer test scenarios
+// (CCV qualifier mixes, expected receipt/verification counts, etc.).
+//
+// This is NOT the same set that devenv deploys. Deployment uses ComputeTokenCombinations,
+// which derives combos from per-chain pool capabilities and ccvQualifierPermutations
+// (e.g. [], [default], [secondary], [tertiary], [default secondary tertiary] — but not
+// arbitrary subsets like [default secondary]). AllTokenCombinations also includes pool
+// pairings that no chain in the current env supports (e.g. LockRelease 1.6.1 on EVM-only
+// devenv). Smoke/TCAPI tests that iterate this list will skip cases whose pool refs are
+// absent from the datastore; align the two sources in a follow-up.
 func AllTokenCombinations() []TokenCombination {
 	return []TokenCombination{
 		{ // 1.6.1 burn <-> 1.6.1 burn

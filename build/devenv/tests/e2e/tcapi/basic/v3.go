@@ -30,7 +30,7 @@ type v3TestCaseBase struct {
 	numExpectedReceipts      int
 	numExpectedVerifications int
 	aggregatorQualifier      string
-	args Args
+	args                     Args
 }
 
 // v3TestCase is for tests that use ExtraArgsV3.
