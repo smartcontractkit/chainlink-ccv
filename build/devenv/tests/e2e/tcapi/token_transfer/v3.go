@@ -269,13 +269,11 @@ func tokenTransferCase(lib ccv.Lib, src, dest uint64, combo common.TokenCombinat
 				return false
 			}
 
-			srcPoolRef := tc.combo.LocalPoolAddressRef()
-			tc.srcToken, err = srcReg.AddressResolver.GetTokenPool(ds, tc.src, srcPoolRef.Type, srcPoolRef.Version, srcPoolRef.Qualifier)
+			tc.srcToken, err = srcReg.AddressResolver.GetToken(ds, tc.src, tc.combo.LocalPoolAddressRef())
 			if err != nil {
 				return false
 			}
-			destPoolRef := tc.combo.RemotePoolAddressRef()
-			tc.destToken, err = dstReg.AddressResolver.GetTokenPool(ds, tc.dst, destPoolRef.Type, destPoolRef.Version, destPoolRef.Qualifier)
+			tc.destToken, err = dstReg.AddressResolver.GetToken(ds, tc.dst, tc.combo.RemotePoolAddressRef())
 			if err != nil {
 				return false
 			}

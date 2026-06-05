@@ -291,7 +291,11 @@ func (AddressResolver) GetCommitteeCCV(ds datastore.DataStore, chainSelector uin
 	)
 }
 
-// GetTokenPool implements [chainreg.AddressResolver].
-func (AddressResolver) GetTokenPool(ds datastore.DataStore, chainSelector uint64, contractType datastore.ContractType, version *semver.Version, qualifier string) (protocol.UnknownAddress, error) {
-	return getContractAddress(ds, chainSelector, contractType, version.String(), qualifier, "token pool")
+// GetToken implements [chainreg.AddressResolver].
+func (AddressResolver) GetToken(ds datastore.DataStore, chainSelector uint64, poolRef datastore.AddressRef) (protocol.UnknownAddress, error) {
+	tokenRef, err := TokenRefForPool(poolRef)
+	if err != nil {
+		return protocol.UnknownAddress{}, err
+	}
+	return getContractAddress(ds, chainSelector, tokenRef.Type, tokenRef.Version.String(), tokenRef.Qualifier, "token")
 }
