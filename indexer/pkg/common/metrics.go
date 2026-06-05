@@ -29,9 +29,9 @@ type IndexerMetricLabeler interface {
 	// IncrementVerificationRecordsCounter increments the verification records counter.
 	IncrementVerificationRecordsCounter(ctx context.Context)
 	// RecordStorageLatency records storage operation latency.
-	RecordStorageLatency(ctx context.Context, duration time.Duration)
+	RecordStorageLatency(ctx context.Context, operation string, duration time.Duration, errored bool)
 	// IncrementStorageError increments the storage error counter.
-	IncrementStorageError(ctx context.Context)
+	IncrementStorageError(ctx context.Context, operation string)
 	// RecordScannerPollingErrorsCounter records the scanner polling errors counter.
 	RecordScannerPollingErrorsCounter(ctx context.Context)
 	// RecordVerificationRecordChannelSizeGauge records the verification record channel size gauge.

@@ -229,14 +229,19 @@ func (c *IndexerMetricLabeler) IncrementVerificationRecordsCounter(ctx context.C
 	c.im.verificationRecordsCounter.Add(ctx, 1, metric.WithAttributes(otelLabels...))
 }
 
-func (c *IndexerMetricLabeler) RecordStorageLatency(ctx context.Context, duration time.Duration) {
+func (c *IndexerMetricLabeler) RecordStorageLatency(ctx context.Context, operation string, duration time.Duration, errored bool) {
 	otelLabels := beholder.OtelAttributes(c.Labels).AsStringAttributes()
-	c.im.storageDurationSeconds.Record(ctx, duration.Seconds(), metric.WithAttributes(otelLabels...))
+	c.im.storageDurationSeconds.Record(ctx, duration.Seconds(), metric.WithAttributes([]attribute.KeyValue{
+		attribute.String("operation", operation),
+		attribute.Bool("errored", errored),
+	}...), metric.WithAttributes(otelLabels...))
 }
 
-func (c *IndexerMetricLabeler) IncrementStorageError(ctx context.Context) {
+func (c *IndexerMetricLabeler) IncrementStorageError(ctx context.Context, operation string) {
 	otelLabels := beholder.OtelAttributes(c.Labels).AsStringAttributes()
-	c.im.storageErrorsCounter.Add(ctx, 1, metric.WithAttributes(otelLabels...))
+	c.im.storageErrorsCounter.Add(ctx, 1, metric.WithAttributes([]attribute.KeyValue{
+		attribute.String("operation", operation),
+	}...), metric.WithAttributes(otelLabels...))
 }
 
 func (c *IndexerMetricLabeler) RecordScannerPollingErrorsCounter(ctx context.Context) {

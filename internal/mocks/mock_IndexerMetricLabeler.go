@@ -124,9 +124,9 @@ func (_c *MockIndexerMetricLabeler_IncrementGRPCErrors_Call) RunAndReturn(run fu
 	return _c
 }
 
-// IncrementStorageError provides a mock function with given fields: ctx
-func (_m *MockIndexerMetricLabeler) IncrementStorageError(ctx context.Context) {
-	_m.Called(ctx)
+// IncrementStorageError provides a mock function with given fields: ctx, operation
+func (_m *MockIndexerMetricLabeler) IncrementStorageError(ctx context.Context, operation string) {
+	_m.Called(ctx, operation)
 }
 
 // MockIndexerMetricLabeler_IncrementStorageError_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'IncrementStorageError'
@@ -136,13 +136,14 @@ type MockIndexerMetricLabeler_IncrementStorageError_Call struct {
 
 // IncrementStorageError is a helper method to define mock.On call
 //   - ctx context.Context
-func (_e *MockIndexerMetricLabeler_Expecter) IncrementStorageError(ctx interface{}) *MockIndexerMetricLabeler_IncrementStorageError_Call {
-	return &MockIndexerMetricLabeler_IncrementStorageError_Call{Call: _e.mock.On("IncrementStorageError", ctx)}
+//   - operation string
+func (_e *MockIndexerMetricLabeler_Expecter) IncrementStorageError(ctx interface{}, operation interface{}) *MockIndexerMetricLabeler_IncrementStorageError_Call {
+	return &MockIndexerMetricLabeler_IncrementStorageError_Call{Call: _e.mock.On("IncrementStorageError", ctx, operation)}
 }
 
-func (_c *MockIndexerMetricLabeler_IncrementStorageError_Call) Run(run func(ctx context.Context)) *MockIndexerMetricLabeler_IncrementStorageError_Call {
+func (_c *MockIndexerMetricLabeler_IncrementStorageError_Call) Run(run func(ctx context.Context, operation string)) *MockIndexerMetricLabeler_IncrementStorageError_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context))
+		run(args[0].(context.Context), args[1].(string))
 	})
 	return _c
 }
@@ -152,7 +153,7 @@ func (_c *MockIndexerMetricLabeler_IncrementStorageError_Call) Return() *MockInd
 	return _c
 }
 
-func (_c *MockIndexerMetricLabeler_IncrementStorageError_Call) RunAndReturn(run func(context.Context)) *MockIndexerMetricLabeler_IncrementStorageError_Call {
+func (_c *MockIndexerMetricLabeler_IncrementStorageError_Call) RunAndReturn(run func(context.Context, string)) *MockIndexerMetricLabeler_IncrementStorageError_Call {
 	_c.Run(run)
 	return _c
 }
@@ -398,9 +399,9 @@ func (_c *MockIndexerMetricLabeler_RecordScannerPollingErrorsCounter_Call) RunAn
 	return _c
 }
 
-// RecordStorageLatency provides a mock function with given fields: ctx, duration
-func (_m *MockIndexerMetricLabeler) RecordStorageLatency(ctx context.Context, duration time.Duration) {
-	_m.Called(ctx, duration)
+// RecordStorageLatency provides a mock function with given fields: ctx, operation, duration, errored
+func (_m *MockIndexerMetricLabeler) RecordStorageLatency(ctx context.Context, operation string, duration time.Duration, errored bool) {
+	_m.Called(ctx, operation, duration, errored)
 }
 
 // MockIndexerMetricLabeler_RecordStorageLatency_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RecordStorageLatency'
@@ -410,14 +411,16 @@ type MockIndexerMetricLabeler_RecordStorageLatency_Call struct {
 
 // RecordStorageLatency is a helper method to define mock.On call
 //   - ctx context.Context
+//   - operation string
 //   - duration time.Duration
-func (_e *MockIndexerMetricLabeler_Expecter) RecordStorageLatency(ctx interface{}, duration interface{}) *MockIndexerMetricLabeler_RecordStorageLatency_Call {
-	return &MockIndexerMetricLabeler_RecordStorageLatency_Call{Call: _e.mock.On("RecordStorageLatency", ctx, duration)}
+//   - errored bool
+func (_e *MockIndexerMetricLabeler_Expecter) RecordStorageLatency(ctx interface{}, operation interface{}, duration interface{}, errored interface{}) *MockIndexerMetricLabeler_RecordStorageLatency_Call {
+	return &MockIndexerMetricLabeler_RecordStorageLatency_Call{Call: _e.mock.On("RecordStorageLatency", ctx, operation, duration, errored)}
 }
 
-func (_c *MockIndexerMetricLabeler_RecordStorageLatency_Call) Run(run func(ctx context.Context, duration time.Duration)) *MockIndexerMetricLabeler_RecordStorageLatency_Call {
+func (_c *MockIndexerMetricLabeler_RecordStorageLatency_Call) Run(run func(ctx context.Context, operation string, duration time.Duration, errored bool)) *MockIndexerMetricLabeler_RecordStorageLatency_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(time.Duration))
+		run(args[0].(context.Context), args[1].(string), args[2].(time.Duration), args[3].(bool))
 	})
 	return _c
 }
@@ -427,7 +430,7 @@ func (_c *MockIndexerMetricLabeler_RecordStorageLatency_Call) Return() *MockInde
 	return _c
 }
 
-func (_c *MockIndexerMetricLabeler_RecordStorageLatency_Call) RunAndReturn(run func(context.Context, time.Duration)) *MockIndexerMetricLabeler_RecordStorageLatency_Call {
+func (_c *MockIndexerMetricLabeler_RecordStorageLatency_Call) RunAndReturn(run func(context.Context, string, time.Duration, bool)) *MockIndexerMetricLabeler_RecordStorageLatency_Call {
 	_c.Run(run)
 	return _c
 }
