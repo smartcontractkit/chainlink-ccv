@@ -79,7 +79,7 @@ func (c *component) RunPhase3(
 
 	jdInfra, ok := priorOutputs[jdcomp.Key].(*jobs.JDInfrastructure)
 	if !ok || jdInfra == nil {
-		return nil, nil, fmt.Errorf("phase 2 did not produce *jobs.JDInfrastructure under %q", jdcomp.Key)
+		return nil, nil, fmt.Errorf("phase 1 did not produce *jobs.JDInfrastructure under %q", jdcomp.Key)
 	}
 
 	for _, exec := range executors {

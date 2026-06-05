@@ -124,6 +124,12 @@ func resolveConfigArg(name string) (string, error) {
 	profileName := name + ".profile"
 	_, tomlErr := os.Stat(tomlName)
 	_, profileErr := os.Stat(profileName)
+	if tomlErr != nil && !os.IsNotExist(tomlErr) {
+		return "", fmt.Errorf("stat %s: %w", tomlName, tomlErr)
+	}
+	if profileErr != nil && !os.IsNotExist(profileErr) {
+		return "", fmt.Errorf("stat %s: %w", profileName, profileErr)
+	}
 	hasToml := tomlErr == nil
 	hasProfile := profileErr == nil
 	if hasToml && hasProfile {
@@ -171,6 +177,9 @@ func applyEnvConfig(cmd *cobra.Command, args []string) error {
 		resolved, err := resolveConfigArg(profileFlag)
 		if err != nil {
 			return err
+		}
+		if strings.HasSuffix(resolved, ".toml") {
+			return fmt.Errorf("--profile %q resolved to a TOML config file; use the full filename or omit --profile to run in TOML mode", profileFlag)
 		}
 		profileFlag = resolved
 	}

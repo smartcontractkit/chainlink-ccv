@@ -79,7 +79,7 @@ func (p *component) RunPhase2(
 	cldf := &ccldf.CLDF{}
 	jdInfra, ok := priorOutputs[jdcomp.Key].(*jobs.JDInfrastructure)
 	if !ok {
-		return nil, nil, fmt.Errorf("phase 2 did not produce *jobs.JDInfrastructure under %q", jdcomp.Key)
+		return nil, nil, fmt.Errorf("phase 1 did not produce *jobs.JDInfrastructure under %q", jdcomp.Key)
 	}
 	// Topology lives under [protocol_contracts.environment_topology]; read it from
 	// this component's own config rather than the top-level raw config.

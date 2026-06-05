@@ -11,7 +11,7 @@ version = 1
 ## owned by the phased observability component (Phase 1) and consumed by the
 ## committeeccv and executor components. These are intentionally NOT part of the
 ## topology; the legacy monolith still carries the equivalent keys under
-## [protocol_contracts.environment_topology] in env.toml.
+## the top-level [environment_topology] section in env.toml.
 [observability]
 version = 1
 pyroscope_url = "http://host.docker.internal:4040"
