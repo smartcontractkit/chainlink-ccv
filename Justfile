@@ -42,6 +42,7 @@ mock: ensure-mockery
 
 tidy: ensure-go
     gomods tidy
+    ./tools/bin/modgraph.sh > go.md
 
 # Format all go files
 fmt: ensure-golangci-lint

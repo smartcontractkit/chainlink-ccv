@@ -35,8 +35,11 @@ const (
 	DefaultConfigDir = "."
 	// EnvVarTestConfigs is the environment variable name to read config paths from, ex.: CTF_CONFIGS=env.toml,overrides.toml.
 	EnvVarTestConfigs = "CTF_CONFIGS"
-	DefaultLokiURL    = "http://localhost:3030/loki/api/v1/push"
-	DefaultTempoURL   = "http://localhost:4318/v1/traces"
+	// EnvVarTestOutput overrides the output file path written by Store. When unset
+	// the path is derived from the first entry in CTF_CONFIGS.
+	EnvVarTestOutput = "CTF_OUTPUT"
+	DefaultLokiURL   = "http://localhost:3030/loki/api/v1/push"
+	DefaultTempoURL  = "http://localhost:4318/v1/traces"
 )
 
 var L = log.Output(zerolog.ConsoleWriter{Out: os.Stderr}).Level(zerolog.InfoLevel)
@@ -73,19 +76,24 @@ func Load[T any](paths []string) (*T, error) {
 	return &config, nil
 }
 
-// Store writes config to a file, adds -cache.toml suffix if it's an initial configuration.
+// Store writes config to a file, adds -out.toml suffix if it's an initial configuration.
+// The output path may be overridden via the CTF_OUTPUT environment variable.
 func Store[T any](cfg *T) error {
-	baseConfigPath, err := BaseConfigPath()
-	if err != nil {
-		return err
-	}
-	newCacheName := strings.ReplaceAll(baseConfigPath, ".toml", "")
 	var outCacheName string
-	if strings.Contains(newCacheName, "cache") {
-		L.Info().Str("Cache", baseConfigPath).Msg("Cache file already exists, overriding")
-		outCacheName = baseConfigPath
+	if override := os.Getenv(EnvVarTestOutput); override != "" {
+		outCacheName = override
 	} else {
-		outCacheName = fmt.Sprintf("%s-out.toml", strings.ReplaceAll(baseConfigPath, ".toml", ""))
+		baseConfigPath, err := BaseConfigPath()
+		if err != nil {
+			return err
+		}
+		newCacheName := strings.ReplaceAll(baseConfigPath, ".toml", "")
+		if strings.Contains(newCacheName, "cache") {
+			L.Info().Str("Cache", baseConfigPath).Msg("Cache file already exists, overriding")
+			outCacheName = baseConfigPath
+		} else {
+			outCacheName = fmt.Sprintf("%s-out.toml", strings.ReplaceAll(baseConfigPath, ".toml", ""))
+		}
 	}
 	L.Info().Str("OutputFile", outCacheName).Msg("Storing configuration output")
 	d, err := toml.Marshal(cfg)
@@ -105,7 +113,11 @@ func Store[T any](cfg *T) error {
 // Either way it rebuilds the CLDF datastore from the deployed addresses. The
 // generic T is retained for the existing call sites; only *Cfg is supported.
 func LoadOutput[T any](outputPath string) (*T, error) {
-	data, err := os.ReadFile(filepath.Join(DefaultConfigDir, outputPath))
+	resolved := outputPath
+	if !filepath.IsAbs(outputPath) {
+		resolved = filepath.Join(DefaultConfigDir, outputPath)
+	}
+	data, err := os.ReadFile(resolved)
 	if err != nil {
 		return nil, fmt.Errorf("error reading config file %s: %w", outputPath, err)
 	}
