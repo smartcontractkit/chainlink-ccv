@@ -519,7 +519,9 @@ func ConfigureAllTokenTransfers(
 				poolID:        tokenTransferRefKey(cfg.TokenPoolRef),
 			}
 			if existing, ok := byPool[pk]; ok {
-				maps.Copy(existing.RemoteChains, cfg.RemoteChains)
+				for remoteSelector, remoteCfg := range cfg.RemoteChains {
+					existing.RemoteChains[remoteSelector] = remoteCfg
+				}
 				byPool[pk] = existing
 			} else {
 				byPool[pk] = cfg

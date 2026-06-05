@@ -37,8 +37,9 @@ const (
 	CCTPPrimaryReceiverQualifier   = "cctp-primary"
 	CCTPSecondaryReceiverQualifier = "cctp-secondary"
 
-	LombardContractsQualifier       = "Lombard"
-	LombardPrimaryReceiverQualifier = "lombard-primary"
+	LombardContractsQualifier        = "Lombard"
+	LombardVerifierResolverQualifier = "LombardVerifierResolver"
+	LombardPrimaryReceiverQualifier  = "lombard-primary"
 
 	// Pool type identifiers used across all chain families. These are logical
 	// identifiers stored in the datastore; each chain's adapter maps them to

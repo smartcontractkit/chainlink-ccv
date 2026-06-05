@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"maps"
 	"math"
 	"math/big"
 	"os"
@@ -1162,7 +1161,9 @@ func (m *CCIP17EVMConfig) GetTokenTransferConfigs(
 		cfg := m.buildEVMTokenTransferConfig(selector, eligibleRemoteSelectors, combo.LocalPoolAddressRef(), combo.RemotePoolAddressRef(), combo.LocalPoolCCVQualifiers())
 		key := string(cfg.TokenPoolRef.Type) + "\x00" + cfg.TokenPoolRef.Version.String() + "\x00" + cfg.TokenPoolRef.Qualifier
 		if existing, ok := merged[key]; ok {
-			maps.Copy(existing.RemoteChains, cfg.RemoteChains)
+			for remoteSelector, remoteCfg := range cfg.RemoteChains {
+				existing.RemoteChains[remoteSelector] = remoteCfg
+			}
 			merged[key] = existing
 		} else {
 			merged[key] = cfg

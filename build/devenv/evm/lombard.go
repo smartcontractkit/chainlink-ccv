@@ -18,13 +18,14 @@ import (
 	changesetscore "github.com/smartcontractkit/chainlink-ccip/deployment/utils/changesets"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/adapters"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/changesets"
-	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
-	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm"
 	evm_contract "github.com/smartcontractkit/chainlink-deployments-framework/chain/evm/operations/contract"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	cldf_ops "github.com/smartcontractkit/chainlink-deployments-framework/operations"
+
+	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
 var (
@@ -290,7 +291,7 @@ func (m *CCIP17EVMConfig) deployLombardMockReceiver(
 		selector,
 		datastore.ContractType(versioned_verifier_resolver.LombardVerifierResolverType),
 		semver.MustParse(lombard_verifier.Deploy.Version()),
-		devenvcommon.LombardContractsQualifier,
+		devenvcommon.LombardVerifierResolverQualifier,
 	))
 	if err != nil {
 		return fmt.Errorf("failed to find Lombard verifier for chain %d: %w", selector, err)
