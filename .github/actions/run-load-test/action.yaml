@@ -25,8 +25,10 @@ inputs:
     description: 'Environment name for CCV'
     required: false
     default: 'env-cl-16-out.toml'
-
-
+  skip-build-cl:
+    description: 'Skip building the Chainlink node image (expects local:latest to already be loaded)'
+    required: false
+    default: 'false'
 
 runs:
   using: composite
@@ -77,6 +79,7 @@ runs:
       run: go mod download
 
     - name: Build Chainlink image
+      if: inputs.skip-build-cl != 'true'
       uses: ./.github/actions/build-cl
 
     - name: Build Docker Images
