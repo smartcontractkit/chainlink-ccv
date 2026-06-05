@@ -4,6 +4,7 @@ package chainreg
 import (
 	"context"
 
+	"github.com/Masterminds/semver/v3"
 	"github.com/rs/zerolog"
 
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
@@ -100,8 +101,8 @@ type AddressResolver interface {
 	// For EVM, this is typically the committee verifier resolver proxy address.
 	GetCommitteeCCV(ds datastore.DataStore, chainSelector uint64, qualifier string) (protocol.UnknownAddress, error)
 
-	// GetTokenPool returns the token pool address for the given chain selector and qualifier.
-	GetTokenPool(ds datastore.DataStore, chainSelector uint64, qualifier string) (protocol.UnknownAddress, error)
+	// GetTokenPool returns the token pool address for the given chain selector, contract type, version, and qualifier.
+	GetTokenPool(ds datastore.DataStore, chainSelector uint64, contractType datastore.ContractType, version *semver.Version, qualifier string) (protocol.UnknownAddress, error)
 }
 
 // Registration groups every devenv extension for one chain family.

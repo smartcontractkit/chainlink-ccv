@@ -186,7 +186,7 @@ func GetContractAddress(ds datastore.DataStore, chainSelector uint64, contractTy
     - `GetContractReceiver` → `mock_receiver_v2` (`mock_receiver_v2.Deploy.Version()`)
     - `GetExecutor` → executor proxy (`executorops.Deploy.Version()`)
     - `GetCommitteeCCV` → committee verifier resolver proxy (`versioned_verifier_resolver.Version`)
-    - `GetTokenPool` → burn-mint ERC677 (`burn_mint_erc20_with_drip.Deploy.Version()`)
+    - `GetTokenPool` → pool address from `TokenCombination` address refs (`Type`, `Version`, `Qualifier`); no hardcoded contract type or version
 
 - **TCAPI v3 `loadV3Env` helper** — loads datastore, destination chain, and source/destination resolvers for basic v3 hydration. See `build/devenv/tests/e2e/tcapi/basic/v3.go:177`.
   - Usage: internal to `basic/v3`; downstream repos should mirror the pattern (family lookup → resolver → method call) rather than importing unexported helpers.
@@ -255,7 +255,7 @@ func (CantonAddressResolver) GetCommitteeCCV(ds datastore.DataStore, chainSelect
     return protocol.UnknownAddress{}, nil
 }
 
-func (CantonAddressResolver) GetTokenPool(ds datastore.DataStore, chainSelector uint64, qualifier string) (protocol.UnknownAddress, error) {
+func (CantonAddressResolver) GetTokenPool(ds datastore.DataStore, chainSelector uint64, contractType datastore.ContractType, version *semver.Version, qualifier string) (protocol.UnknownAddress, error) {
     return protocol.UnknownAddress{}, nil
 }
 ```

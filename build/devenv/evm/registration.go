@@ -19,7 +19,6 @@ import (
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_5_0/operations/burn_mint_erc20_with_drip"
 	adapters_1_6_1 "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_1/adapters"
 	evmadapters "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/adapters"
 	executorops "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/executor"
@@ -293,11 +292,6 @@ func (AddressResolver) GetCommitteeCCV(ds datastore.DataStore, chainSelector uin
 }
 
 // GetTokenPool implements [chainreg.AddressResolver].
-func (AddressResolver) GetTokenPool(ds datastore.DataStore, chainSelector uint64, qualifier string) (protocol.UnknownAddress, error) {
-	return getContractAddress(ds, chainSelector,
-		datastore.ContractType(burn_mint_erc20_with_drip.ContractType),
-		burn_mint_erc20_with_drip.Deploy.Version(),
-		qualifier,
-		"burn mint erc677",
-	)
+func (AddressResolver) GetTokenPool(ds datastore.DataStore, chainSelector uint64, contractType datastore.ContractType, version *semver.Version, qualifier string) (protocol.UnknownAddress, error) {
+	return getContractAddress(ds, chainSelector, contractType, version.String(), qualifier, "token pool")
 }
