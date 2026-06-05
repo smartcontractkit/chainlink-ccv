@@ -113,6 +113,11 @@ func DeployContractsForSelector(
 		Cfg: ccipChangesets.DeployChainContractsCfg{
 			Topology:       ccipTopology,
 			ChainSelectors: []uint64{selector},
+			ChainOverrides: map[uint64]ccipChangesets.DeployChainContractsPerChainCfg{
+				selector: {
+					DeployerKeyOwned: true,
+				},
+			},
 		},
 	})
 	if err != nil {

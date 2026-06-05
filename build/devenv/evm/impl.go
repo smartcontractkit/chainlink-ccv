@@ -35,7 +35,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/erc20_lock_box"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/executor"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/lock_release_token_pool"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/mock_receiver_v2"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/proxy"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/sequences"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/versioned_verifier_resolver"
@@ -941,74 +940,6 @@ func (m *CCIP17EVMConfig) ConfigureNodes(ctx context.Context, bc *blockchain.Inp
 		bc.Out.Nodes[0].InternalWSUrl,
 		bc.Out.Nodes[0].InternalHTTPUrl,
 	), nil
-}
-
-// buildMockReceivers constructs MockReceiverParams dynamically from the topology.
-// For each committee qualifier in the topology, a receiver requiring that committee's
-// verifier is created. Multi-committee receivers (requiring one committee with optional
-// verifiers from others) are only created when all referenced committees exist.
-func buildMockReceivers(topology *ccvdeployment.EnvironmentTopology, selector uint64) []adapters.MockReceiverDeployParams {
-	has := func(q string) bool {
-		_, ok := topology.NOPTopology.Committees[q]
-		return ok
-	}
-
-	verifierRef := func(qualifier string) datastore.AddressRef {
-		return datastore.AddressRef{
-			Type:          datastore.ContractType(versioned_verifier_resolver.CommitteeVerifierResolverType),
-			Version:       versioned_verifier_resolver.Version,
-			ChainSelector: selector,
-			Qualifier:     qualifier,
-		}
-	}
-
-	receiverVersion := semver.MustParse(mock_receiver_v2.Deploy.Version())
-	var receivers []adapters.MockReceiverDeployParams
-
-	if has(devenvcommon.DefaultCommitteeVerifierQualifier) {
-		receivers = append(receivers, adapters.MockReceiverDeployParams{
-			Version:               receiverVersion,
-			AllowedFinalityConfig: finality.Config{BlockDepth: 1, WaitForSafe: true},
-			RequiredVerifiers:     []datastore.AddressRef{verifierRef(devenvcommon.DefaultCommitteeVerifierQualifier)},
-			Qualifier:             devenvcommon.DefaultReceiverQualifier,
-		})
-	}
-	if has(devenvcommon.SecondaryCommitteeVerifierQualifier) {
-		receivers = append(receivers, adapters.MockReceiverDeployParams{
-			Version:               receiverVersion,
-			AllowedFinalityConfig: finality.Config{BlockDepth: 1, WaitForSafe: true},
-			RequiredVerifiers:     []datastore.AddressRef{verifierRef(devenvcommon.SecondaryCommitteeVerifierQualifier)},
-			Qualifier:             devenvcommon.SecondaryReceiverQualifier,
-		})
-	}
-
-	if has(devenvcommon.SecondaryCommitteeVerifierQualifier) && has(devenvcommon.TertiaryCommitteeVerifierQualifier) {
-		receivers = append(receivers, adapters.MockReceiverDeployParams{
-			Version:               receiverVersion,
-			AllowedFinalityConfig: finality.Config{BlockDepth: 1, WaitForSafe: true},
-			RequiredVerifiers:     []datastore.AddressRef{verifierRef(devenvcommon.SecondaryCommitteeVerifierQualifier)},
-			OptionalVerifiers:     []datastore.AddressRef{verifierRef(devenvcommon.TertiaryCommitteeVerifierQualifier)},
-			OptionalThreshold:     1,
-			Qualifier:             devenvcommon.TertiaryReceiverQualifier,
-		})
-	}
-	if has(devenvcommon.DefaultCommitteeVerifierQualifier) &&
-		has(devenvcommon.SecondaryCommitteeVerifierQualifier) &&
-		has(devenvcommon.TertiaryCommitteeVerifierQualifier) {
-		receivers = append(receivers, adapters.MockReceiverDeployParams{
-			Version:               receiverVersion,
-			AllowedFinalityConfig: finality.Config{BlockDepth: 1, WaitForSafe: true},
-			RequiredVerifiers:     []datastore.AddressRef{verifierRef(devenvcommon.DefaultCommitteeVerifierQualifier)},
-			OptionalVerifiers: []datastore.AddressRef{
-				verifierRef(devenvcommon.SecondaryCommitteeVerifierQualifier),
-				verifierRef(devenvcommon.TertiaryCommitteeVerifierQualifier),
-			},
-			OptionalThreshold: 1,
-			Qualifier:         devenvcommon.QuaternaryReceiverQualifier,
-		})
-	}
-
-	return receivers
 }
 
 func (m *CCIP17EVMConfig) PreDeployContractsForSelector(_ context.Context, env *deployment.Environment, selector uint64, _ *ccvdeployment.EnvironmentTopology) (datastore.DataStore, error) {
