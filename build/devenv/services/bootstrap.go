@@ -101,6 +101,9 @@ type BootstrapKeys struct {
 	// EVMTransmitterAddress is the Ethereum address derived from the executor's EVM transmitter key.
 	// Only populated for executor nodes.
 	EVMTransmitterAddress string `toml:"evm_transmitter_address,omitempty"`
+	// SolanaTransmitterAddress is the hex-encoded 32-byte Ed25519 public key of the executor's
+	// Solana transmitter key. Only populated for Solana-family executor nodes.
+	SolanaTransmitterAddress string `toml:"solana_transmitter_address,omitempty"`
 }
 
 // FetchBootstrapKeys queries the bootstrap HTTP info server for public key material by name.
@@ -170,6 +173,10 @@ func FetchBootstrapKeys(bootstrapURL string, keyNames ...string) (BootstrapKeys,
 			return BootstrapKeys{}, fmt.Errorf("failed to unmarshal EVM transmitter public key: %w", err)
 		}
 		result.EVMTransmitterAddress = hex.EncodeToString(crypto.PubkeyToAddress(*evmPublicKey).Bytes())
+	}
+
+	if solKeyResp, ok := keyMap[executor.DefaultSolanaTransmitterKeyName]; ok {
+		result.SolanaTransmitterAddress = hex.EncodeToString(solKeyResp.KeyInfo.PublicKey)
 	}
 
 	return result, nil

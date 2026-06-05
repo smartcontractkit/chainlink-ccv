@@ -244,10 +244,16 @@ func launchExecutor(ctx context.Context, in *Input, outputs []*blockchain.Output
 	}
 	bootstrapURL := fmt.Sprintf("http://%s:%s", host, bootstrapMapped.Port())
 
-	// Fetches the CSA key and EVM transmitter key from the bootstrap server.
-	// The CSA key is used for JD registration; the EVM transmitter key is used to derive the
+	// Fetches the CSA key and family-specific transmitter key from the bootstrap server.
+	// The CSA key is used for JD registration; the transmitter key is used to derive the
 	// on-chain address that must be funded before the executor can submit transactions.
-	bootstrapKeys, err := services.FetchBootstrapKeys(bootstrapURL, bootstrap.DefaultCSAKeyName, executor.DefaultEVMTransmitterKeyName)
+	keyNames := []string{bootstrap.DefaultCSAKeyName}
+	if in.ChainFamily == chainsel.FamilySolana {
+		keyNames = append(keyNames, executor.DefaultSolanaTransmitterKeyName)
+	} else {
+		keyNames = append(keyNames, executor.DefaultEVMTransmitterKeyName)
+	}
+	bootstrapKeys, err := services.FetchBootstrapKeys(bootstrapURL, keyNames...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get bootstrap keys: %w", err)
 	}

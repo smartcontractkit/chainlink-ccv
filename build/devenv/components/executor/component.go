@@ -105,17 +105,23 @@ func (c *component) RunPhase3(
 		if exec == nil || exec.Mode != services.Standalone || exec.Out == nil {
 			continue
 		}
-		addrStr := exec.Out.BootstrapKeys.EVMTransmitterAddress
+		family := exec.ChainFamily
+		if family == "" {
+			family = chainsel.FamilyEVM
+		}
+		var addrStr string
+		switch family {
+		case chainsel.FamilySolana:
+			addrStr = exec.Out.BootstrapKeys.SolanaTransmitterAddress
+		default:
+			addrStr = exec.Out.BootstrapKeys.EVMTransmitterAddress
+		}
 		if addrStr == "" {
 			continue
 		}
 		addr, addrErr := protocol.NewUnknownAddressFromHex(addrStr)
 		if addrErr != nil {
 			return nil, nil, fmt.Errorf("executor %s invalid transmitter address: %w", exec.ContainerName, addrErr)
-		}
-		family := exec.ChainFamily
-		if family == "" {
-			family = chainsel.FamilyEVM
 		}
 		for _, bc := range blockchains {
 			if bc == nil {

@@ -905,8 +905,8 @@ func launchCLNodes(
 	return onchainPublicKeys, nil
 }
 
-// fundExecutorTransmitters funds the EVM transmitter addresses of all executors after launch.
-// Addresses are derived from the keystore key exposed by the bootstrap HTTP server.
+// fundExecutorTransmitters funds executor transmitter addresses after launch.
+// Addresses are derived from the keystore keys exposed by the bootstrap HTTP server.
 func fundExecutorTransmitters(
 	ctx context.Context,
 	executors []*executorsvc.Input,
@@ -915,19 +915,28 @@ func fundExecutorTransmitters(
 ) error {
 	addressesByFamily := make(map[string][]protocol.UnknownAddress)
 	for _, exec := range executors {
-		if exec == nil {
-			continue
-		}
-		if exec.Out == nil || exec.Out.BootstrapKeys.EVMTransmitterAddress == "" {
+		if exec == nil || exec.Out == nil {
 			continue
 		}
 		family := exec.ChainFamily
 		if family == "" {
 			family = chainsel.FamilyEVM
 		}
-		addrBytes, err := hex.DecodeString(exec.Out.BootstrapKeys.EVMTransmitterAddress)
+
+		var addrHex string
+		switch family {
+		case chainsel.FamilySolana:
+			addrHex = exec.Out.BootstrapKeys.SolanaTransmitterAddress
+		default:
+			addrHex = exec.Out.BootstrapKeys.EVMTransmitterAddress
+		}
+		if addrHex == "" {
+			continue
+		}
+
+		addrBytes, err := hex.DecodeString(addrHex)
 		if err != nil {
-			return fmt.Errorf("invalid EVM transmitter address for executor %s: %w", exec.ContainerName, err)
+			return fmt.Errorf("invalid transmitter address for executor %s (family %s): %w", exec.ContainerName, family, err)
 		}
 		addressesByFamily[family] = append(addressesByFamily[family], protocol.UnknownAddress(addrBytes))
 	}
