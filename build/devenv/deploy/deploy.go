@@ -232,14 +232,10 @@ func ConnectAllChainsCanonical(
 				return fmt.Errorf("get chain lane profile for chain %d: %w", sel, err)
 			}
 			pairs[key(sel, remote)] = ccipChangesets.CrossFamilyLanePair{
-				ChainA: sel,
-				ChainB: remote,
-				ChainAOverrides: &ccipChangesets.ChainOverrides{
-					RemoteChainCfg: cfg,
-				},
-				ChainBOverrides: &ccipChangesets.ChainOverrides{
-					RemoteChainCfg: cfg,
-				},
+				ChainA:          sel,
+				ChainB:          remote,
+				ChainAOverrides: &cfg,
+				ChainBOverrides: &cfg,
 			}
 		}
 	}

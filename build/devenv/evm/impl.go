@@ -1427,10 +1427,13 @@ func evmFeeQuoterDestChainConfigOverride(selector uint64) *lanes.FeeQuoterDestCh
 	return &override
 }
 
-func (m *CCIP17EVMConfig) GetChainLaneProfile(_ *deployment.Environment, selector uint64) (ccipChangesets.PartialRemoteChainConfig, error) {
-	return ccipChangesets.PartialRemoteChainConfig{
-		FeeQuoterDestChainConfig: adapters.FeeQuoterDestChainConfigOverrides{
-			USDPerUnitGas: big.NewInt(1e6),
+func (m *CCIP17EVMConfig) GetChainLaneProfile(_ *deployment.Environment, selector uint64) (ccipChangesets.ChainOverrides, error) {
+	return ccipChangesets.ChainOverrides{
+		CommitteeVerifierFinalityConfig: &finality.Config{BlockDepth: 1, WaitForSafe: true},
+		RemoteChainCfg: ccipChangesets.PartialRemoteChainConfig{
+			FeeQuoterDestChainConfig: adapters.FeeQuoterDestChainConfigOverrides{
+				USDPerUnitGas: big.NewInt(1e6),
+			},
 		},
 	}, nil
 }

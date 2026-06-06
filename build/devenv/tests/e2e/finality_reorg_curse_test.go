@@ -786,6 +786,12 @@ func curseSelector(t *testing.T, env *deployment.Environment, adapter fastcurse.
 				Version:              semver.MustParse("1.6.0"),
 				IsGlobalCurse:        globalCurse,
 			},
+			{
+				ChainSelector:        subjectChainSelector,
+				SubjectChainSelector: chainSelector,
+				Version:              semver.MustParse("1.6.0"),
+				IsGlobalCurse:        globalCurse,
+			},
 		},
 	})
 	require.NoError(t, err)
