@@ -278,6 +278,11 @@ type OnChainConfigurable interface {
 	// each remote chain. The environment uses profiles from all chains to
 	// assemble the full cross-chain connection config.
 	GetConnectionProfile(env *deployment.Environment, selector uint64) (lanes.ChainDefinition, lanes.CommitteeVerifierRemoteChainInput, error)
+	// GetChainLaneProfile returns the lane profile for this chain, containing
+	// local contract refs, destination characteristics, and default per-remote
+	// settings. The environment uses profiles from all chains to assemble the
+	// full cross-chain connection config.
+	GetChainLaneProfile(env *deployment.Environment, selector uint64) (ccipChangesets.PartialRemoteChainConfig, error)
 	// PostConnect runs chain-specific setup after all chains have been connected
 	// (e.g. USDC/Lombard token config, custom executor wiring).
 	PostConnect(env *deployment.Environment, selector uint64, remoteSelectors []uint64) error

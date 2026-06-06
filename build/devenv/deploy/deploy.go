@@ -227,9 +227,19 @@ func ConnectAllChainsCanonical(
 			if isKeyPresent(remote, sel) {
 				continue
 			}
+			cfg, err := profile.impl.GetChainLaneProfile(e, sel)
+			if err != nil {
+				return fmt.Errorf("get chain lane profile for chain %d: %w", sel, err)
+			}
 			pairs[key(sel, remote)] = ccipChangesets.CrossFamilyLanePair{
 				ChainA: sel,
 				ChainB: remote,
+				ChainAOverrides: &ccipChangesets.ChainOverrides{
+					RemoteChainCfg: cfg,
+				},
+				ChainBOverrides: &ccipChangesets.ChainOverrides{
+					RemoteChainCfg: cfg,
+				},
 			}
 		}
 	}
