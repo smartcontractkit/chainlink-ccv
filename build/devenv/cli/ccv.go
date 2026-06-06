@@ -478,10 +478,7 @@ Examples:
 		if len(args) > 0 && patternFlag != "" {
 			return fmt.Errorf("cannot combine a suite name with --pattern")
 		}
-		buildEnabled := buildTarget != "" && buildTarget != "false"
-		if buildEnabled && profileName == "" {
-			return fmt.Errorf("--build requires --profile")
-		}
+		buildEnabled := buildTarget != "" && buildTarget != "false" && profileName != ""
 
 		// Resolve the Go test pattern and target directory.
 		var testPattern, testDir string
@@ -914,7 +911,7 @@ func init() {
 	testCmd.Flags().StringP("profile", "p", "", "Profile to start before running tests (also sets per-run output file)")
 	testCmd.Flags().StringP("pattern", "r", "", "Raw Go test pattern (alternative to a named suite positional arg)")
 	testCmd.Flags().Duration("timeout", 0, "Test timeout (0 = unlimited)")
-	testCmd.Flags().String("build", "build-docker", "Just target to build Docker images before starting (e.g. build-docker, build-docker-ci); pass 'false' to skip (requires --profile)")
+	testCmd.Flags().String("build", "build-docker", "Just target to build Docker images before starting (e.g. build-docker, build-docker-ci); pass 'false' to skip; silently ignored when --profile is absent")
 	testCmd.Flags().String("log", "", "Write verbose output (build, env, test) to this file; only progress lines appear on the terminal")
 	rootCmd.AddCommand(testCmd)
 	rootCmd.AddCommand(indexerDBShellCmd)

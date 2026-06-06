@@ -117,7 +117,7 @@ Named suite aliases (positional arg): `smoke`, `smoke-v2`, `smoke-v3`, `load`,
 |------|---------|-------|
 | `--profile` / `-p` | — | Profile to start before running; sets per-run output file |
 | `--pattern` / `-r` | — | Raw Go `-run` pattern; mutually exclusive with suite name |
-| `--build` | `true` | Build Docker images first (requires `--profile`); pass `--build=false` to skip |
+| `--build` | `build-docker` | Build Docker images first; silently ignored when `--profile` is absent; pass `--build=false` to skip |
 | `--timeout` | `0` (unlimited) | Passed to `go test -timeout` |
 | `--log <path>` | — | Write all output to file; terminal shows only progress lines |
 
