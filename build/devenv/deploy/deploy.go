@@ -106,6 +106,12 @@ func DeployContractsForSelector(
 		env.DataStore = merged
 	}
 
+	// 2. Get chain-specific config (reads pre-deployed addresses from env.DataStore).
+	cfg, err := impl.GetDeployChainContractsCfg(env, selector, topology)
+	if err != nil {
+		return nil, fmt.Errorf("get deploy config for selector %d: %w", selector, err)
+	}
+
 	// 3. Call the tooling API changeset.
 	ccipTopology := convertTopologyToCCIP(topology)
 	registry := ccipAdapters.GetDeployChainContractsRegistry()
@@ -114,9 +120,7 @@ func DeployContractsForSelector(
 			Topology:       ccipTopology,
 			ChainSelectors: []uint64{selector},
 			ChainOverrides: map[uint64]ccipChangesets.DeployChainContractsPerChainCfg{
-				selector: {
-					DeployerKeyOwned: true,
-				},
+				selector: cfg,
 			},
 		},
 	})

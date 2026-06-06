@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	ccipChangesets "github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/changesets"
 
 	"github.com/smartcontractkit/chainlink-ccip/deployment/lanes"
 	tokensapi "github.com/smartcontractkit/chainlink-ccip/deployment/tokens"
@@ -264,6 +265,10 @@ type OnChainConfigurable interface {
 	// The returned DataStore is merged into env.DataStore before
 	// GetDeployChainContractsCfg is called.
 	PreDeployContractsForSelector(ctx context.Context, env *deployment.Environment, selector uint64, topology *ccvdeployment.EnvironmentTopology) (datastore.DataStore, error)
+	// GetDeployChainContractsCfg returns the per-chain configuration for the
+	// common DeployChainContracts changeset. Called after Pre, so env.DataStore
+	// includes pre-deployed addresses (e.g. CREATE2 factory).
+	GetDeployChainContractsCfg(env *deployment.Environment, selector uint64, topology *ccvdeployment.EnvironmentTopology) (ccipChangesets.DeployChainContractsPerChainCfg, error)
 	// PostDeployContractsForSelector runs chain-specific setup after the common
 	// DeployChainContracts call (e.g. deploying USDC/Lombard token pools on EVM).
 	// The returned DataStore is merged into the final result.

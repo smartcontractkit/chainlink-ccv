@@ -27,6 +27,9 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/mock_receiver_v2"
+	ccipChangesets "github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/changesets"
+	"github.com/smartcontractkit/chainlink-testing-framework/lib/utils/ptr"
 
 	"github.com/smartcontractkit/chainlink-ccip/deployment/finality"
 
@@ -941,6 +944,74 @@ func (m *CCIP17EVMConfig) ConfigureNodes(ctx context.Context, bc *blockchain.Inp
 	), nil
 }
 
+// buildMockReceivers constructs MockReceiverParams dynamically from the topology.
+// For each committee qualifier in the topology, a receiver requiring that committee's
+// verifier is created. Multi-committee receivers (requiring one committee with optional
+// verifiers from others) are only created when all referenced committees exist.
+func buildMockReceivers(topology *ccvdeployment.EnvironmentTopology, selector uint64) []adapters.MockReceiverDeployParams {
+	has := func(q string) bool {
+		_, ok := topology.NOPTopology.Committees[q]
+		return ok
+	}
+
+	verifierRef := func(qualifier string) datastore.AddressRef {
+		return datastore.AddressRef{
+			Type:          datastore.ContractType(versioned_verifier_resolver.CommitteeVerifierResolverType),
+			Version:       versioned_verifier_resolver.Version,
+			ChainSelector: selector,
+			Qualifier:     qualifier,
+		}
+	}
+
+	receiverVersion := semver.MustParse(mock_receiver_v2.Deploy.Version())
+	var receivers []adapters.MockReceiverDeployParams
+
+	if has(devenvcommon.DefaultCommitteeVerifierQualifier) {
+		receivers = append(receivers, adapters.MockReceiverDeployParams{
+			Version:               receiverVersion,
+			AllowedFinalityConfig: finality.Config{BlockDepth: 1, WaitForSafe: true},
+			RequiredVerifiers:     []datastore.AddressRef{verifierRef(devenvcommon.DefaultCommitteeVerifierQualifier)},
+			Qualifier:             devenvcommon.DefaultReceiverQualifier,
+		})
+	}
+	if has(devenvcommon.SecondaryCommitteeVerifierQualifier) {
+		receivers = append(receivers, adapters.MockReceiverDeployParams{
+			Version:               receiverVersion,
+			AllowedFinalityConfig: finality.Config{BlockDepth: 1, WaitForSafe: true},
+			RequiredVerifiers:     []datastore.AddressRef{verifierRef(devenvcommon.SecondaryCommitteeVerifierQualifier)},
+			Qualifier:             devenvcommon.SecondaryReceiverQualifier,
+		})
+	}
+
+	if has(devenvcommon.SecondaryCommitteeVerifierQualifier) && has(devenvcommon.TertiaryCommitteeVerifierQualifier) {
+		receivers = append(receivers, adapters.MockReceiverDeployParams{
+			Version:               receiverVersion,
+			AllowedFinalityConfig: finality.Config{BlockDepth: 1, WaitForSafe: true},
+			RequiredVerifiers:     []datastore.AddressRef{verifierRef(devenvcommon.SecondaryCommitteeVerifierQualifier)},
+			OptionalVerifiers:     []datastore.AddressRef{verifierRef(devenvcommon.TertiaryCommitteeVerifierQualifier)},
+			OptionalThreshold:     1,
+			Qualifier:             devenvcommon.TertiaryReceiverQualifier,
+		})
+	}
+	if has(devenvcommon.DefaultCommitteeVerifierQualifier) &&
+		has(devenvcommon.SecondaryCommitteeVerifierQualifier) &&
+		has(devenvcommon.TertiaryCommitteeVerifierQualifier) {
+		receivers = append(receivers, adapters.MockReceiverDeployParams{
+			Version:               receiverVersion,
+			AllowedFinalityConfig: finality.Config{BlockDepth: 1, WaitForSafe: true},
+			RequiredVerifiers:     []datastore.AddressRef{verifierRef(devenvcommon.DefaultCommitteeVerifierQualifier)},
+			OptionalVerifiers: []datastore.AddressRef{
+				verifierRef(devenvcommon.SecondaryCommitteeVerifierQualifier),
+				verifierRef(devenvcommon.TertiaryCommitteeVerifierQualifier),
+			},
+			OptionalThreshold: 1,
+			Qualifier:         devenvcommon.QuaternaryReceiverQualifier,
+		})
+	}
+
+	return receivers
+}
+
 func (m *CCIP17EVMConfig) PreDeployContractsForSelector(_ context.Context, env *deployment.Environment, selector uint64, _ *ccvdeployment.EnvironmentTopology) (datastore.DataStore, error) {
 	m.logger.Info().Uint64("Selector", selector).Msg("EVM pre-deploy: deploying CREATE2 factory")
 
@@ -961,6 +1032,62 @@ func (m *CCIP17EVMConfig) PreDeployContractsForSelector(_ context.Context, env *
 		return nil, fmt.Errorf("failed to add CREATE2 factory to datastore: %w", err)
 	}
 	return ds.Seal(), nil
+}
+
+func (m *CCIP17EVMConfig) GetDeployChainContractsCfg(env *deployment.Environment, selector uint64, topology *ccvdeployment.EnvironmentTopology) (ccipChangesets.DeployChainContractsPerChainCfg, error) {
+	create2Ref, err := env.DataStore.Addresses().Get(
+		datastore.NewAddressRefKey(selector, datastore.ContractType(create2_factory.ContractType), create2_factory.Version, ""),
+	)
+	if err != nil {
+		return ccipChangesets.DeployChainContractsPerChainCfg{}, fmt.Errorf("CREATE2 factory not found in datastore for chain %d: %w", selector, err)
+	}
+
+	usdPerLink, ok := new(big.Int).SetString("15000000000000000000", 10) // $15
+	if !ok {
+		return ccipChangesets.DeployChainContractsPerChainCfg{}, errors.New("failed to parse USDPerLINK")
+	}
+	usdPerWeth, ok := new(big.Int).SetString("2000000000000000000000", 10) // $2000
+	if !ok {
+		return ccipChangesets.DeployChainContractsPerChainCfg{}, errors.New("failed to parse USDPerWETH")
+	}
+
+	return ccipChangesets.DeployChainContractsPerChainCfg{
+		DeployerContract: ptr.Ptr(create2Ref.Address),
+		DeployerKeyOwned: true,
+		ContractParams: &adapters.DeployContractParamsOverrides{
+			Executors: ptr.Ptr([]adapters.ExecutorDeployParams{
+				{
+					Version:       semver.MustParse(proxy.Deploy.Version()),
+					MaxCCVsPerMsg: 10,
+					DynamicConfig: adapters.ExecutorDynamicDeployConfig{
+						FeeAggregator:         "0x0000000000000000000000000000000000000001",
+						AllowedFinalityConfig: finality.Config{BlockDepth: 1, WaitForSafe: true},
+						CcvAllowlistEnabled:   false,
+					},
+					Qualifier: devenvcommon.DefaultExecutorQualifier,
+				},
+				{
+					Version:       semver.MustParse(proxy.Deploy.Version()),
+					MaxCCVsPerMsg: 10,
+					DynamicConfig: adapters.ExecutorDynamicDeployConfig{
+						FeeAggregator:         "0x0000000000000000000000000000000000000001",
+						AllowedFinalityConfig: finality.Config{BlockDepth: 1, WaitForSafe: true},
+						CcvAllowlistEnabled:   false,
+					},
+					Qualifier: devenvcommon.CustomExecutorQualifier,
+				},
+			}),
+			FeeQuoter: ptr.Ptr(adapters.FeeQuoterDeployParamsOverrides{
+				Version:                        semver.MustParse(fee_quoter.Deploy.Version()),
+				MaxFeeJuelsPerMsg:              big.NewInt(2e18),
+				LINKPremiumMultiplierWeiPerEth: ptr.Ptr(uint64(9e17)),
+				WETHPremiumMultiplierWeiPerEth: ptr.Ptr(uint64(1e18)),
+				USDPerLINK:                     usdPerLink,
+				USDPerWETH:                     usdPerWeth,
+			}),
+			MockReceivers: ptr.Ptr(buildMockReceivers(topology, selector)),
+		},
+	}, nil
 }
 
 func (m *CCIP17EVMConfig) PostDeployContractsForSelector(_ context.Context, env *deployment.Environment, selector uint64, _ *ccvdeployment.EnvironmentTopology) (datastore.DataStore, error) {
