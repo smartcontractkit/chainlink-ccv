@@ -300,7 +300,6 @@ flowchart LR
 	chainlink-deployments-framework --> chainlink-ccip/deployment
 	chainlink-deployments-framework --> chainlink-protos/job-distributor
 	chainlink-deployments-framework --> chainlink-protos/op-catalog
-	chainlink-deployments-framework --> chainlink-testing-framework/seth
 	chainlink-deployments-framework --> chainlink-ton/deployment
 	chainlink-deployments-framework --> mcms
 	click chainlink-deployments-framework href "https://github.com/smartcontractkit/chainlink-deployments-framework"
@@ -375,7 +374,8 @@ flowchart LR
 	click chainlink-testing-framework/framework href "https://github.com/smartcontractkit/chainlink-testing-framework"
 	chainlink-testing-framework/framework/components/fake --> chainlink-testing-framework/framework
 	click chainlink-testing-framework/framework/components/fake href "https://github.com/smartcontractkit/chainlink-testing-framework"
-	chainlink-testing-framework/lib
+	chainlink-testing-framework/lib --> chainlink-testing-framework/parrot
+	chainlink-testing-framework/lib --> chainlink-testing-framework/seth
 	click chainlink-testing-framework/lib href "https://github.com/smartcontractkit/chainlink-testing-framework"
 	chainlink-testing-framework/lib/grafana
 	click chainlink-testing-framework/lib/grafana href "https://github.com/smartcontractkit/chainlink-testing-framework"
@@ -401,7 +401,6 @@ flowchart LR
 	chainlink/deployment --> chainlink-evm/contracts/cre/gobindings
 	chainlink/deployment --> chainlink-protos/chainlink-ccv/committee-verifier
 	chainlink/deployment --> chainlink-sui/deployment
-	chainlink/deployment --> chainlink-testing-framework/parrot
 	chainlink/deployment --> chainlink/v2
 	click chainlink/deployment href "https://github.com/smartcontractkit/chainlink"
 	chainlink/v2 --> chainlink-automation
