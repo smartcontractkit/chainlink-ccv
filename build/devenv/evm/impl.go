@@ -1061,7 +1061,7 @@ func (m *CCIP17EVMConfig) GetDeployChainContractsCfg(env *deployment.Environment
 					MaxCCVsPerMsg: 10,
 					DynamicConfig: adapters.ExecutorDynamicDeployConfig{
 						FeeAggregator:         "0x0000000000000000000000000000000000000001",
-						AllowedFinalityConfig: finality.Config{BlockDepth: 1, WaitForSafe: true},
+						AllowedFinalityConfig: finality.Config{BlockDepth: 1},
 						CcvAllowlistEnabled:   false,
 					},
 					Qualifier: devenvcommon.DefaultExecutorQualifier,
@@ -1071,7 +1071,7 @@ func (m *CCIP17EVMConfig) GetDeployChainContractsCfg(env *deployment.Environment
 					MaxCCVsPerMsg: 10,
 					DynamicConfig: adapters.ExecutorDynamicDeployConfig{
 						FeeAggregator:         "0x0000000000000000000000000000000000000001",
-						AllowedFinalityConfig: finality.Config{BlockDepth: 1, WaitForSafe: true},
+						AllowedFinalityConfig: finality.Config{BlockDepth: 1},
 						CcvAllowlistEnabled:   false,
 					},
 					Qualifier: devenvcommon.CustomExecutorQualifier,

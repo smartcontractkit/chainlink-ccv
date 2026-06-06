@@ -20,6 +20,12 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/versioned_verifier_resolver"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/fastcurse"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/utils/changesets"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
+	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
+	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
+	"github.com/smartcontractkit/chainlink-testing-framework/framework"
+
 	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
@@ -28,11 +34,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/chainstatus"
-	"github.com/smartcontractkit/chainlink-common/pkg/logger"
-	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
-	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
-	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
-	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 )
 
 // TestE2EReorg tests that messages sent in different orders
@@ -783,12 +784,6 @@ func curseSelector(t *testing.T, env *deployment.Environment, adapter fastcurse.
 			{
 				ChainSelector:        chainSelector,
 				SubjectChainSelector: subjectChainSelector,
-				Version:              semver.MustParse("1.6.0"),
-				IsGlobalCurse:        globalCurse,
-			},
-			{
-				ChainSelector:        subjectChainSelector,
-				SubjectChainSelector: chainSelector,
 				Version:              semver.MustParse("1.6.0"),
 				IsGlobalCurse:        globalCurse,
 			},
