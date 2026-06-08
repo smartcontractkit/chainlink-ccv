@@ -6,7 +6,6 @@ import (
 	"github.com/gin-gonic/gin"
 
 	v1 "github.com/smartcontractkit/chainlink-ccv/indexer/pkg/api/handlers/v1"
-	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/api/middleware"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
 	sharedmiddleware "github.com/smartcontractkit/chainlink-ccv/integration/pkg/api/middleware"
@@ -24,7 +23,6 @@ func NewV1API(lggr logger.Logger, cfg *config.Config, storage common.IndexerStor
 	// Add the active requests middleware to all routes
 	router.Use(sharedmiddleware.ActiveRequestsMiddleware(
 		monitoring.Metrics(),
-		middleware.RemoveMessageIDFromPath,
 		lggr,
 	))
 	rateLimitCfg := sharedmiddleware.RateLimitConfig{

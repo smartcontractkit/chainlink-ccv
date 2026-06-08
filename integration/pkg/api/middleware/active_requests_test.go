@@ -92,7 +92,7 @@ func TestActiveRequestsMiddleware_SkipsTrackingWhenNormalizerReturnsFalse(t *tes
 	}
 
 	r := gin.New()
-	r.Use(ActiveRequestsMiddleware(metrics, normalizer, lggr))
+	r.Use(ActiveRequestsMiddleware(metrics, lggr))
 	r.GET("/health", func(c *gin.Context) {
 		c.Status(200)
 	})
