@@ -100,7 +100,7 @@ func (p *Pool) run(ctx context.Context) {
 			}
 
 			workerCtx, cancel := context.WithTimeout(ctx, time.Duration(p.config.WorkerTimeout)*time.Second)
-			p.logger.Infof("Starting Worker for %s", task.messageID.String())
+			p.logger.Debugf("Starting Worker for %s", task.messageID.String())
 
 			p.pool.Go(func() {
 				defer cancel()

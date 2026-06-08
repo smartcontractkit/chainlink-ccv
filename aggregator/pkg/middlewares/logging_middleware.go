@@ -19,7 +19,7 @@ func (m *LoggingMiddleware) Intercept(ctx context.Context, req any, info *grpc.U
 	startTime := time.Now()
 	reqLogger := scope.AugmentLogger(ctx, m.l)
 
-	reqLogger.Infof("Request received")
+	reqLogger.Debugf("Request received")
 	reqLogger.Debugw("Request payload received", "payload", req)
 
 	resp, err = handler(ctx, req)
@@ -30,7 +30,7 @@ func (m *LoggingMiddleware) Intercept(ctx context.Context, req any, info *grpc.U
 	if err != nil {
 		reqLogger.Errorw("Request failed", "duration_ms", duration.Milliseconds(), "status", statusCode.String())
 	} else {
-		reqLogger.Infow("Request completed", "duration_ms", duration.Milliseconds(), "status", statusCode.String())
+		reqLogger.Debugw("Request completed", "duration_ms", duration.Milliseconds(), "status", statusCode.String())
 	}
 	reqLogger.Debugw("Response sent", "payload", resp)
 

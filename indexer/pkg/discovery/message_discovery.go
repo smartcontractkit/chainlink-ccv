@@ -269,7 +269,7 @@ func (a *AggregatorMessageDiscovery) consumeReader(ctx context.Context) {
 
 	for {
 		if ctx.Err() != nil {
-			a.logger.Infof("Aggregator timed out, cancelling consumeReader")
+			a.logger.Debugf("Aggregator timed out, cancelling consumeReader")
 			return
 		}
 		found, err := a.callReader(ctx)

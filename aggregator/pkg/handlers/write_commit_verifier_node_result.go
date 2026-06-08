@@ -87,7 +87,7 @@ func (h *WriteCommitVerifierNodeResultHandler) Handle(ctx context.Context, req *
 		}, status.Error(codes.InvalidArgument, "signature validation failed")
 	}
 
-	reqLogger.Infof("Signature validated successfully")
+	reqLogger.Debugf("Signature validated successfully")
 
 	aggregationKey, err := h.signatureValidator.DeriveAggregationKey(ctx, record)
 	if err != nil {
@@ -109,7 +109,7 @@ func (h *WriteCommitVerifierNodeResultHandler) Handle(ctx context.Context, req *
 			Status: committeepb.WriteStatus_FAILED,
 		}, status.Error(codes.Internal, "failed to save verification record")
 	}
-	h.logger(signerCtx).Infof("Successfully saved commit verification record")
+	h.logger(signerCtx).Debugf("Successfully saved commit verification record")
 
 	metrics := h.m.Metrics().With(
 		"caller_id", identity.CallerID,
@@ -131,7 +131,7 @@ func (h *WriteCommitVerifierNodeResultHandler) Handle(ctx context.Context, req *
 			Status: committeepb.WriteStatus_FAILED,
 		}, status.Error(codes.Internal, "failed to trigger aggregation")
 	}
-	reqLogger.Infof("Triggered aggregation check")
+	reqLogger.Debugf("Triggered aggregation check")
 
 	return &committeepb.WriteCommitteeVerifierNodeResultResponse{
 		Status: committeepb.WriteStatus_SUCCESS,

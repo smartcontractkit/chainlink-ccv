@@ -51,7 +51,7 @@ func (o *OrphanRecoverer) Start(ctx context.Context) error {
 
 	for {
 		now := time.Now()
-		o.logger.Info("Initiating orphan recovery scan")
+		o.logger.Debug("Initiating orphan recovery scan")
 
 		err := func() (err error) {
 			defer func() {
@@ -75,12 +75,10 @@ func (o *OrphanRecoverer) Start(ctx context.Context) error {
 
 		duration := time.Since(now)
 		o.metrics(ctx).RecordOrphanRecoveryDuration(ctx, duration)
-		o.logger.Infow("Orphan recovery scan finished",
+		o.logger.Debugw("Orphan recovery scan finished",
 			"duration", duration)
 		if duration < orphanRecoveryConfig.Interval {
 			sleepDuration := orphanRecoveryConfig.Interval - duration
-			o.logger.Infow("Sleeping until next orphan recovery scan",
-				"sleepDuration", sleepDuration)
 			select {
 			case <-time.After(sleepDuration):
 			case <-ctx.Done():
@@ -111,7 +109,7 @@ func (o *OrphanRecoverer) RecoverOrphans(ctx context.Context) error {
 	} else {
 		o.metrics(ctx).SetOrphanBacklog(ctx, stats.NonExpiredCount)
 		o.metrics(ctx).SetOrphanExpiredBacklog(ctx, stats.ExpiredCount)
-		o.logger.Infow("Orphan stats",
+		o.logger.Debugw("Orphan stats",
 			"nonExpired", stats.NonExpiredCount,
 			"expired", stats.ExpiredCount,
 			"total", stats.TotalCount)
@@ -126,7 +124,7 @@ func (o *OrphanRecoverer) RecoverOrphans(ctx context.Context) error {
 		select {
 		case orphanRecord, ok := <-orphansChan:
 			if !ok {
-				o.logger.Infow("Orphan recovery completed",
+				o.logger.Debugw("Orphan recovery completed",
 					"processed", processedCount,
 					"errors", errorCount)
 				return nil
@@ -156,7 +154,7 @@ func (o *OrphanRecoverer) RecoverOrphans(ctx context.Context) error {
 
 		case err, ok := <-errorChan:
 			if !ok {
-				o.logger.Infow("Orphan recovery completed",
+				o.logger.Debugw("Orphan recovery completed",
 					"processed", processedCount,
 					"errors", errorCount)
 				return nil
