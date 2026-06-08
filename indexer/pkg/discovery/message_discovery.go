@@ -330,7 +330,7 @@ func (a *AggregatorMessageDiscovery) callReader(ctx context.Context) (bool, erro
 
 	ingestionTimestamp := a.timeProvider.GetTime()
 	for _, response := range queryResponse {
-		a.logger.Infow("Found Message", "messageID", response.Data.MessageID, "verifierSourceAddress", response.Data.VerifierSourceAddress)
+		a.logger.Debugw("Found Message", "messageID", response.Data.MessageID, "verifierSourceAddress", response.Data.VerifierSourceAddress)
 	}
 	messages, persistedVerifications, allVerifications := common.ConvertDiscoveryResponses(queryResponse, ingestionTimestamp, a.registry)
 

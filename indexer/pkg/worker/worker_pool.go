@@ -141,7 +141,7 @@ func (p *Pool) enqueueMessages(ctx context.Context) {
 				p.logger.Error("Discovery channel closed; exiting enqueueMessages")
 				return
 			}
-			p.logger.Infow("Enqueueing new Message", "messageID", message.VerifierResult.MessageID.String())
+			p.logger.Infow("Enqueueing verification", "messageID", message.VerifierResult.MessageID.String(), "verifierSourceAddress", message.VerifierResult.VerifierSourceAddress)
 			task, err := NewTask(p.logger, message.VerifierResult, p.registry, p.storage, p.scheduler.VerificationVisibilityWindow())
 			// This shouldn't happen, it can only be caused by an invalid hex conversion.
 			// We're unable to retry the message or send it to the DLQ.
