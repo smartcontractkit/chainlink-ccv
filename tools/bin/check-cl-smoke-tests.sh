@@ -59,12 +59,12 @@ fi
 # 2. Get all changed files
 # In CI, we use EVENT_NAME to decide. Locally, we use BASE_REF provided by args or default.
 if [[ "${EVENT_NAME:-}" == "pull_request" && -n "${BASE_REF_CI:-}" ]]; then
-  CHANGED_FILES=$(git diff --name-only origin/${BASE_REF_CI}...HEAD || true)
+  CHANGED_FILES=$(git diff --name-only "origin/${BASE_REF_CI}...HEAD" || true)
 elif [[ "${EVENT_NAME:-}" == "push" ]]; then
   CHANGED_FILES=$(git diff --name-only HEAD~1...HEAD || true)
 else
   # Local fallback
-  CHANGED_FILES=$(git diff --name-only ${BASE_REF}...HEAD || true)
+  CHANGED_FILES=$(git diff --name-only "${BASE_REF}...HEAD" || true)
 fi
 
 echo "Changed files:"
@@ -104,7 +104,7 @@ fi
 
 go mod download
 
-if ! ALL_DEPS=$(go list -deps $DIRECT_IMPORTS 2>/dev/null); then
+if ! ALL_DEPS=$(echo "$DIRECT_IMPORTS" | xargs go list -deps 2>/dev/null); then
   echo "go list failed, running tests to be safe."
   output_result "true"
 fi
@@ -135,7 +135,7 @@ for file in $CHANGED_FILES; do
   if [[ "$file" == "go.mod" ]]; then
      DIFF_TARGET=$(get_diff_target)
      # Extract any modules that were added or bumped/downgraded in go.mod
-     CHANGED_MODULES=$(git diff $DIFF_TARGET -- go.mod | grep -E '^[+-]\s+[a-zA-Z0-9_.-]+' | awk '{print $2}' | sort -u || true)
+     CHANGED_MODULES=$(git diff "$DIFF_TARGET" -- go.mod | grep -E '^[+-]\s+[a-zA-Z0-9_.-]+' | awk '{print $2}' | sort -u || true)
      
      if [ -n "$CHANGED_MODULES" ]; then
        for mod in $CHANGED_MODULES; do
