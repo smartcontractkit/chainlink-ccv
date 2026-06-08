@@ -13,7 +13,40 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  check-changes:
+    name: Check if changes affect Chainlink
+    runs-on: ubuntu-latest
+    outputs:
+      run_tests: ${{ steps.check.outputs.run_tests }}
+    steps:
+      - name: Checkout chainlink-ccv
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Checkout chainlink
+        uses: actions/checkout@v4
+        with:
+          repository: smartcontractkit/chainlink
+          path: chainlink-repo
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+          cache: true
+
+      - name: Determine if tests should run
+        id: check
+        env:
+          HAS_RUN_CL_SMOKE_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'run-cl-smoke') }}
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_REF_CI: ${{ github.base_ref }}
+        run: ./tools/bin/check-cl-smoke-tests.sh --chainlink-repo chainlink-repo
+
   build-cl-image:
+    needs: [check-changes]
+    if: needs.check-changes.outputs.run_tests == 'true'
     permissions:
       id-token: write
       contents: read
@@ -50,6 +83,8 @@ jobs:
           retention-days: 1
 
   build-docker-images:
+    needs: [check-changes]
+    if: needs.check-changes.outputs.run_tests == 'true'
     permissions:
       id-token: write
       contents: read
