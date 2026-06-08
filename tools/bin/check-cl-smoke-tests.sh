@@ -40,6 +40,27 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# Returns 0 if the run-cl-smoke label override is active.
+has_run_cl_smoke_label() {
+  if [[ "$FORCE_RUN" == "true" ]]; then
+    return 0
+  fi
+
+  if [[ "${EVENT_ACTION:-}" == "labeled" && "${LABELED_NAME:-}" == "run-cl-smoke" ]]; then
+    return 0
+  fi
+
+  if [[ -n "${PR_NUMBER:-}" && -n "${GITHUB_REPOSITORY:-}" ]]; then
+    if command -v gh >/dev/null 2>&1 && [[ -n "${GH_TOKEN:-${GITHUB_TOKEN:-}}" ]]; then
+      if gh api "repos/${GITHUB_REPOSITORY}/issues/${PR_NUMBER}/labels" --jq '.[].name' 2>/dev/null | grep -Fxq 'run-cl-smoke'; then
+        return 0
+      fi
+    fi
+  fi
+
+  return 1
+}
+
 # Helper function to output the result
 output_result() {
   local run_tests=$1
@@ -51,7 +72,7 @@ output_result() {
 }
 
 # 1. Check for manual override
-if [[ "$FORCE_RUN" == "true" ]] || [[ "${HAS_RUN_CL_SMOKE_LABEL:-false}" == "true" ]]; then
+if has_run_cl_smoke_label; then
   echo "Manual override requested. Running tests."
   output_result "true"
 fi

@@ -3,6 +3,7 @@ name: E2E Smoke Test (CL-Node)
 on:
   merge_group:
   pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
 
 defaults:
   run:
@@ -16,6 +17,9 @@ jobs:
   check-changes:
     name: Check if changes affect Chainlink
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
     outputs:
       run_tests: ${{ steps.check.outputs.run_tests }}
     steps:
@@ -40,8 +44,11 @@ jobs:
         id: check
         working-directory: .
         env:
-          HAS_RUN_CL_SMOKE_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'run-cl-smoke') }}
+          GH_TOKEN: ${{ github.token }}
           EVENT_NAME: ${{ github.event_name }}
+          EVENT_ACTION: ${{ github.event.action }}
+          LABELED_NAME: ${{ github.event.label.name }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
           BASE_REF_CI: ${{ github.base_ref }}
         run: ./tools/bin/check-cl-smoke-tests.sh --chainlink-repo chainlink-repo
 

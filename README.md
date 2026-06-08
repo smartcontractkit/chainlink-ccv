@@ -43,9 +43,7 @@ The check uses the **full PR diff**, not individual commits. If any change in th
 
 ### Manual override
 
-To force the CL node tests on a PR that would otherwise skip them, add the **`run-cl-smoke`** label.
-
-The label is checked when the workflow runs; adding it alone does not start a new run. After adding the label, push a commit or use **Re-run all jobs** in the Actions tab. While the label remains on the PR, subsequent pushes will also run the full workflow.
+To force the CL node tests on a PR that would otherwise skip them, add the **`run-cl-smoke`** label. Adding the label triggers the workflow immediately. While the label remains on the PR, subsequent pushes will also run the full workflow.
 
 ### Running the check locally
 
