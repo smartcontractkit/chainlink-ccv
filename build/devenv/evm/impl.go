@@ -29,7 +29,6 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/mock_receiver_v2"
 	ccipChangesets "github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/changesets"
-	"github.com/smartcontractkit/chainlink-testing-framework/lib/utils/ptr"
 
 	"github.com/smartcontractkit/chainlink-ccip/deployment/finality"
 
@@ -1052,16 +1051,16 @@ func (m *CCIP17EVMConfig) GetDeployChainContractsCfg(env *deployment.Environment
 	}
 
 	return ccipChangesets.DeployChainContractsPerChainCfg{
-		DeployerContract: ptr.Ptr(create2Ref.Address),
+		DeployerContract: new(create2Ref.Address),
 		DeployerKeyOwned: true,
 		ContractParams: &adapters.DeployContractParamsOverrides{
-			Executors: ptr.Ptr([]adapters.ExecutorDeployParams{
+			Executors: new([]adapters.ExecutorDeployParams{
 				{
 					Version:       semver.MustParse(proxy.Deploy.Version()),
 					MaxCCVsPerMsg: 10,
 					DynamicConfig: adapters.ExecutorDynamicDeployConfig{
 						FeeAggregator:         "0x0000000000000000000000000000000000000001",
-						AllowedFinalityConfig: finality.Config{BlockDepth: 1},
+						AllowedFinalityConfig: finality.Config{BlockDepth: 1, WaitForSafe: true},
 						CcvAllowlistEnabled:   false,
 					},
 					Qualifier: devenvcommon.DefaultExecutorQualifier,
@@ -1071,21 +1070,21 @@ func (m *CCIP17EVMConfig) GetDeployChainContractsCfg(env *deployment.Environment
 					MaxCCVsPerMsg: 10,
 					DynamicConfig: adapters.ExecutorDynamicDeployConfig{
 						FeeAggregator:         "0x0000000000000000000000000000000000000001",
-						AllowedFinalityConfig: finality.Config{BlockDepth: 1},
+						AllowedFinalityConfig: finality.Config{BlockDepth: 1, WaitForSafe: true},
 						CcvAllowlistEnabled:   false,
 					},
 					Qualifier: devenvcommon.CustomExecutorQualifier,
 				},
 			}),
-			FeeQuoter: ptr.Ptr(adapters.FeeQuoterDeployParamsOverrides{
+			FeeQuoter: new(adapters.FeeQuoterDeployParamsOverrides{
 				Version:                        semver.MustParse(fee_quoter.Deploy.Version()),
 				MaxFeeJuelsPerMsg:              big.NewInt(2e18),
-				LINKPremiumMultiplierWeiPerEth: ptr.Ptr(uint64(9e17)),
-				WETHPremiumMultiplierWeiPerEth: ptr.Ptr(uint64(1e18)),
+				LINKPremiumMultiplierWeiPerEth: new(uint64(9e17)),
+				WETHPremiumMultiplierWeiPerEth: new(uint64(1e18)),
 				USDPerLINK:                     usdPerLink,
 				USDPerWETH:                     usdPerWeth,
 			}),
-			MockReceivers: ptr.Ptr(buildMockReceivers(topology, selector)),
+			MockReceivers: new(buildMockReceivers(topology, selector)),
 		},
 	}, nil
 }
