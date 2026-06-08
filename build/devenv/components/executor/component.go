@@ -89,7 +89,8 @@ func (c *component) RunPhase3(
 		if exec.Mode != services.Standalone {
 			continue
 		}
-		out, err := executorsvc.New(exec, blockchainOutputs, jdInfra, chainreg.GetRegistry().GetExecutorModifiers())
+		transmitterKeyName := chainreg.GetRegistry().GetExecutorTransmitterKeyName(exec.ChainFamily)
+		out, err := executorsvc.New(exec, blockchainOutputs, jdInfra, chainreg.GetRegistry().GetExecutorModifiers(), transmitterKeyName)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to launch executor %s: %w", exec.ContainerName, err)
 		}
@@ -109,13 +110,11 @@ func (c *component) RunPhase3(
 		if family == "" {
 			family = chainsel.FamilyEVM
 		}
-		var addrStr string
-		switch family {
-		case chainsel.FamilySolana:
-			addrStr = exec.Out.BootstrapKeys.SolanaTransmitterAddress
-		default:
-			addrStr = exec.Out.BootstrapKeys.EVMTransmitterAddress
+		reg, regErr := chainreg.GetRegistry().Get(family)
+		if regErr != nil || reg.ImplFactory == nil {
+			continue
 		}
+		addrStr := reg.ImplFactory.ExecutorTransmitterAddress(exec.Out.BootstrapKeys)
 		if addrStr == "" {
 			continue
 		}

@@ -923,13 +923,11 @@ func fundExecutorTransmitters(
 			family = chainsel.FamilyEVM
 		}
 
-		var addrHex string
-		switch family {
-		case chainsel.FamilySolana:
-			addrHex = exec.Out.BootstrapKeys.SolanaTransmitterAddress
-		default:
-			addrHex = exec.Out.BootstrapKeys.EVMTransmitterAddress
+		reg, regErr := chainreg.GetRegistry().Get(family)
+		if regErr != nil || reg.ImplFactory == nil {
+			continue
 		}
+		addrHex := reg.ImplFactory.ExecutorTransmitterAddress(exec.Out.BootstrapKeys)
 		if addrHex == "" {
 			continue
 		}
@@ -979,7 +977,8 @@ func launchExecutors(in []*executorsvc.Input, blockchainOutputs []*blockchain.Ou
 			outs = append(outs, exec.Out)
 			continue
 		}
-		out, err := executorsvc.New(exec, blockchainOutputs, jdInfra, chainreg.GetRegistry().GetExecutorModifiers())
+		transmitterKeyName := chainreg.GetRegistry().GetExecutorTransmitterKeyName(exec.ChainFamily)
+		out, err := executorsvc.New(exec, blockchainOutputs, jdInfra, chainreg.GetRegistry().GetExecutorModifiers(), transmitterKeyName)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create executor %s: %w", exec.ContainerName, err)
 		}

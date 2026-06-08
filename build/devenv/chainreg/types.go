@@ -51,6 +51,19 @@ type ImplFactory interface {
 	// funding of executor addresses. Families that lack on-chain transfer
 	// primitives in devenv (e.g. Canton) return false.
 	SupportsFunding() bool
+
+	// ExecutorTransmitterKeyName returns the keystore key name that the executor
+	// for this chain family declares (via bootstrap.WithKey) and that devenv must
+	// fetch from the bootstrap server to learn the on-chain transmitter address.
+	// Return "" if the family has no bootstrap-managed transmitter key.
+	ExecutorTransmitterKeyName() string
+
+	// ExecutorTransmitterAddress returns the executor's on-chain transmitter
+	// address (hex-encoded) for this chain family, extracted from the bootstrap
+	// keys. Each family selects the appropriate field (e.g. EVM uses
+	// EVMTransmitterAddress, Solana uses SolanaTransmitterAddress).
+	// Return "" if no transmitter address is available.
+	ExecutorTransmitterAddress(keys services.BootstrapKeys) string
 }
 
 // CLDFProviderFactory creates an initialized CLDF BlockChain provider from CTF blockchain input.

@@ -31,6 +31,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/committeeverifier"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/executor"
+	ccvexecutor "github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
@@ -123,6 +124,14 @@ func (f *ImplFactory) DefaultFeeAggregator(env *deployment.Environment, chainSel
 
 func (f *ImplFactory) SupportsFunding() bool {
 	return true
+}
+
+func (f *ImplFactory) ExecutorTransmitterKeyName() string {
+	return ccvexecutor.DefaultEVMTransmitterKeyName
+}
+
+func (f *ImplFactory) ExecutorTransmitterAddress(keys services.BootstrapKeys) string {
+	return keys.EVMTransmitterAddress
 }
 
 // registerTokenAdapters registers EVM token adapters so ConfigureTokensForTransfers
