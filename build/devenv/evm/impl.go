@@ -29,13 +29,15 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/mock_receiver_v2"
+	ccipChangesets "github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/changesets"
+
 	"github.com/smartcontractkit/chainlink-ccip/deployment/finality"
 
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/create2_factory"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/erc20_lock_box"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/executor"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/lock_release_token_pool"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/mock_receiver_v2"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/proxy"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/sequences"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/versioned_verifier_resolver"
@@ -51,9 +53,7 @@ import (
 	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm/operations/contract"
 	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm/provider/rpcclient"
 
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_0/operations/rmn_remote"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/adapters"
-	ccipChangesets "github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/changesets"
 	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
@@ -1053,52 +1053,41 @@ func (m *CCIP17EVMConfig) GetDeployChainContractsCfg(env *deployment.Environment
 	}
 
 	return ccipChangesets.DeployChainContractsPerChainCfg{
-		DeployerContract: create2Ref.Address,
+		DeployerContract: new(create2Ref.Address),
 		DeployerKeyOwned: true,
-		RMNRemote: adapters.RMNRemoteDeployParams{
-			Version: semver.MustParse(rmn_remote.Deploy.Version()),
-		},
-		OffRamp: adapters.OffRampDeployParams{
-			Version:                   semver.MustParse(offrampoperations.Deploy.Version()),
-			GasForCallExactCheck:      5_000,
-			MaxGasBufferToUpdateState: 12_000,
-		},
-		OnRamp: adapters.OnRampDeployParams{
-			Version:               semver.MustParse(onrampoperations.Deploy.Version()),
-			FeeAggregator:         "0x0000000000000000000000000000000000000001",
-			MaxUSDCentsPerMessage: 100_00,
-		},
-		Executors: []adapters.ExecutorDeployParams{
-			{
-				Version:       semver.MustParse(proxy.Deploy.Version()),
-				MaxCCVsPerMsg: 10,
-				DynamicConfig: adapters.ExecutorDynamicDeployConfig{
-					FeeAggregator:         "0x0000000000000000000000000000000000000001",
-					AllowedFinalityConfig: finality.Config{BlockDepth: 1, WaitForSafe: true},
-					CcvAllowlistEnabled:   false,
+		ContractParams: &adapters.DeployContractParamsOverrides{
+			Executors: new([]adapters.ExecutorDeployParams{
+				{
+					Version:       semver.MustParse(proxy.Deploy.Version()),
+					MaxCCVsPerMsg: 10,
+					DynamicConfig: adapters.ExecutorDynamicDeployConfig{
+						FeeAggregator:         "0x0000000000000000000000000000000000000001",
+						AllowedFinalityConfig: finality.Config{BlockDepth: 1, WaitForSafe: true},
+						CcvAllowlistEnabled:   false,
+					},
+					Qualifier: devenvcommon.DefaultExecutorQualifier,
 				},
-				Qualifier: devenvcommon.DefaultExecutorQualifier,
-			},
-			{
-				Version:       semver.MustParse(proxy.Deploy.Version()),
-				MaxCCVsPerMsg: 10,
-				DynamicConfig: adapters.ExecutorDynamicDeployConfig{
-					FeeAggregator:         "0x0000000000000000000000000000000000000001",
-					AllowedFinalityConfig: finality.Config{BlockDepth: 1, WaitForSafe: true},
-					CcvAllowlistEnabled:   false,
+				{
+					Version:       semver.MustParse(proxy.Deploy.Version()),
+					MaxCCVsPerMsg: 10,
+					DynamicConfig: adapters.ExecutorDynamicDeployConfig{
+						FeeAggregator:         "0x0000000000000000000000000000000000000001",
+						AllowedFinalityConfig: finality.Config{BlockDepth: 1, WaitForSafe: true},
+						CcvAllowlistEnabled:   false,
+					},
+					Qualifier: devenvcommon.CustomExecutorQualifier,
 				},
-				Qualifier: devenvcommon.CustomExecutorQualifier,
-			},
+			}),
+			FeeQuoter: new(adapters.FeeQuoterDeployParamsOverrides{
+				Version:                        semver.MustParse(fee_quoter.Deploy.Version()),
+				MaxFeeJuelsPerMsg:              big.NewInt(2e18),
+				LINKPremiumMultiplierWeiPerEth: new(uint64(9e17)),
+				WETHPremiumMultiplierWeiPerEth: new(uint64(1e18)),
+				USDPerLINK:                     usdPerLink,
+				USDPerWETH:                     usdPerWeth,
+			}),
+			MockReceivers: new(buildMockReceivers(topology, selector)),
 		},
-		FeeQuoter: adapters.FeeQuoterDeployParams{
-			Version:                        semver.MustParse(fee_quoter.Deploy.Version()),
-			MaxFeeJuelsPerMsg:              big.NewInt(2e18),
-			LINKPremiumMultiplierWeiPerEth: 9e17,
-			WETHPremiumMultiplierWeiPerEth: 1e18,
-			USDPerLINK:                     usdPerLink,
-			USDPerWETH:                     usdPerWeth,
-		},
-		MockReceivers: buildMockReceivers(topology, selector),
 	}, nil
 }
 
@@ -1437,10 +1426,13 @@ func evmFeeQuoterDestChainConfigOverride(selector uint64) *lanes.FeeQuoterDestCh
 	return &override
 }
 
-func (m *CCIP17EVMConfig) GetChainLaneProfile(_ *deployment.Environment, selector uint64) (cciptestinterfaces.ChainLaneProfile, error) {
-	return cciptestinterfaces.ChainLaneProfile{
-		FeeQuoterDestChainConfig: ccipChangesets.FeeQuoterDestChainConfigOverrides{
-			USDPerUnitGas: big.NewInt(1e6),
+func (m *CCIP17EVMConfig) GetChainLaneProfile(_ *deployment.Environment, selector uint64) (ccipChangesets.ChainOverrides, error) {
+	return ccipChangesets.ChainOverrides{
+		CommitteeVerifierFinalityConfig: &finality.Config{BlockDepth: 1, WaitForSafe: true},
+		RemoteChainCfg: ccipChangesets.PartialRemoteChainConfig{
+			FeeQuoterDestChainConfig: adapters.FeeQuoterDestChainConfigOverrides{
+				USDPerUnitGas: big.NewInt(1e6),
+			},
 		},
 	}, nil
 }
