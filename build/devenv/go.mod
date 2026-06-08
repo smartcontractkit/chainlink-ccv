@@ -25,8 +25,8 @@ require (
 	github.com/rs/zerolog v1.34.0
 	github.com/sethvargo/go-retry v0.3.0
 	github.com/smartcontractkit/chain-selectors v1.0.98
-	github.com/smartcontractkit/chainlink-ccip/chains/evm v0.0.0-20260606020241-23e3e5c93314
-	github.com/smartcontractkit/chainlink-ccip/deployment v0.0.0-20260606020241-23e3e5c93314
+	github.com/smartcontractkit/chainlink-ccip/chains/evm v0.0.0-20260608172136-6579d1541de9
+	github.com/smartcontractkit/chainlink-ccip/deployment v0.0.0-20260608172136-6579d1541de9
 	github.com/smartcontractkit/chainlink-ccv v0.0.2-0.20260501160109-2b5b8d344776
 	github.com/smartcontractkit/chainlink-ccv/deployment v0.0.2-0.20260518113836-b4e2fcbb6799
 	github.com/smartcontractkit/chainlink-common v0.11.2-0.20260417081611-8bdbd9f45629
@@ -39,7 +39,6 @@ require (
 	github.com/smartcontractkit/chainlink-protos/chainlink-ccv/verifier v0.0.0-20251211142334-5c3421fe2c8d
 	github.com/smartcontractkit/chainlink-protos/job-distributor v0.18.0
 	github.com/smartcontractkit/chainlink-testing-framework/framework v0.16.1
-	github.com/smartcontractkit/chainlink-testing-framework/lib v1.54.5
 	github.com/smartcontractkit/chainlink-testing-framework/wasp v1.51.2
 	github.com/smartcontractkit/chainlink/deployment v0.0.0-20260126202327-6be9a05f0caf
 	github.com/spf13/cobra v1.10.2
