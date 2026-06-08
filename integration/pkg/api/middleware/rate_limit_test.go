@@ -10,8 +10,48 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
+
+// TestRateLimit_HandlerEnabledAndDisabled checks that the RateLimit middleware
+// behaves as a no-op when disabled and allows requests when enabled (under the limit).
+func TestRateLimit_HandlerEnabledAndDisabled(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	lggr := logger.Test(t)
+
+	// Disabled case: middleware should be no-op and allow request through
+	cfgOff := &config.Config{API: config.APIConfig{RateLimit: config.RateLimitConfig{Enabled: false}}}
+	r := gin.New()
+	rateLimitCfgOff := RateLimitConfig{
+		Enabled: cfgOff.API.RateLimit.Enabled,
+		Period:  0, // Will use defaults
+		Limit:   0, // Will use defaults
+	}
+	r.Use(RateLimit(lggr, rateLimitCfgOff))
+	r.GET("/", func(c *gin.Context) { c.String(200, "ok") })
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest("GET", "/", nil)
+	r.ServeHTTP(rec, req)
+	require.Equal(t, 200, rec.Code)
+
+	// Enabled case: should also allow a request under rate limit
+	cfgOn := &config.Config{API: config.APIConfig{RateLimit: config.RateLimitConfig{Enabled: true}}}
+	r2 := gin.New()
+	rateLimitCfgOn := RateLimitConfig{
+		Enabled: cfgOn.API.RateLimit.Enabled,
+		Period:  0, // Will use defaults
+		Limit:   0, // Will use defaults
+	}
+	r2.Use(RateLimit(lggr, rateLimitCfgOn))
+	r2.GET("/", func(c *gin.Context) { c.String(200, "ok") })
+
+	rec2 := httptest.NewRecorder()
+	req2 := httptest.NewRequest("GET", "/", nil)
+	r2.ServeHTTP(rec2, req2)
+	require.Equal(t, 200, rec2.Code)
+}
 
 func TestRateLimit_Disabled(t *testing.T) {
 	gin.SetMode(gin.TestMode)
