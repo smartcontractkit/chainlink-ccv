@@ -9,7 +9,7 @@ import (
 )
 
 // ActiveRequestsMiddleware creates a gin middleware that tracks active requests.
-// It uses the provided HTTPMetrics to record metrics about HTTP requests and
+// It uses the provided HTTPMetrics to record metrics about HTTP requests and.
 func ActiveRequestsMiddleware(metrics HTTPMetrics, lggr logger.Logger) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		// Increment active requests counter

@@ -50,16 +50,8 @@ func TestActiveRequestsMiddleware_WithPathNormalizer(t *testing.T) {
 	lggr := logger.Test(t)
 	metrics := &mockHTTPMetrics{}
 
-	// Custom path normalizer that replaces IDs with placeholders
-	normalizer := func(path string) (string, bool) {
-		if path == "/users/123" {
-			return "/users/:id", true
-		}
-		return path, true
-	}
-
 	r := gin.New()
-	r.Use(ActiveRequestsMiddleware(metrics, normalizer, lggr))
+	r.Use(ActiveRequestsMiddleware(metrics, lggr))
 	r.GET("/users/:id", func(c *gin.Context) {
 		c.Status(200)
 	})
@@ -76,39 +68,28 @@ func TestActiveRequestsMiddleware_WithPathNormalizer(t *testing.T) {
 	require.Equal(t, 200, metrics.requestDurationRecords[0].status)
 }
 
-// TestActiveRequestsMiddleware_SkipsTrackingWhenNormalizerReturnsFalse verifies
-// that duration metrics are not recorded when the path normalizer returns false.
-func TestActiveRequestsMiddleware_SkipsTrackingWhenNormalizerReturnsFalse(t *testing.T) {
+// TestActiveRequestsMiddleware_SkipsTrackingUnknownPath verifies
+// that duration metrics are not recorded when the path is not resolved.
+func TestActiveRequestsMiddleware_SkipsTrackingUnknownPath(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	lggr := logger.Test(t)
 	metrics := &mockHTTPMetrics{}
 
-	// Custom path normalizer that returns false for certain paths
-	normalizer := func(path string) (string, bool) {
-		if path == "/health" || path == "/ready" {
-			return path, false // Don't track health/ready endpoints
-		}
-		return path, true
-	}
-
 	r := gin.New()
 	r.Use(ActiveRequestsMiddleware(metrics, lggr))
-	r.GET("/health", func(c *gin.Context) {
-		c.Status(200)
-	})
 	r.GET("/api/users", func(c *gin.Context) {
 		c.Status(200)
 	})
 
 	// Test health endpoint - should not be tracked
 	rec1 := httptest.NewRecorder()
-	req1 := httptest.NewRequest("GET", "/health", nil)
+	req1 := httptest.NewRequest("GET", "/unknown", nil)
 	r.ServeHTTP(rec1, req1)
 
-	require.Equal(t, 200, rec1.Code)
+	require.Equal(t, 404, rec1.Code)
 	require.Equal(t, 1, metrics.activeRequestsInc)
 	require.Equal(t, 1, metrics.activeRequestsDec)
-	require.Len(t, metrics.requestDurationRecords, 0, "health endpoint should not be tracked")
+	require.Len(t, metrics.requestDurationRecords, 0, "unknown endpoint should not be tracked")
 
 	// Test regular endpoint - should be tracked
 	rec2 := httptest.NewRecorder()
