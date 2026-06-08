@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"maps"
 	"slices"
 	"sort"
 	"strconv"
@@ -15,7 +16,6 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/Masterminds/semver/v3"
-	"golang.org/x/exp/maps"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 
@@ -529,9 +529,7 @@ func ConfigureAllTokenTransfers(
 				poolID:        tokenTransferRefKey(cfg.TokenPoolRef),
 			}
 			if existing, ok := byPool[pk]; ok {
-				for remoteSelector, remoteCfg := range cfg.RemoteChains {
-					existing.RemoteChains[remoteSelector] = remoteCfg
-				}
+				maps.Copy(existing.RemoteChains, cfg.RemoteChains)
 				byPool[pk] = existing
 			} else {
 				byPool[pk] = cfg

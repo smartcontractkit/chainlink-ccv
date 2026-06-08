@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"math"
 	"math/big"
 	"os"
@@ -27,6 +28,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
+
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/mock_receiver_v2"
 	ccipChangesets "github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/changesets"
 
@@ -1287,9 +1289,7 @@ func (m *CCIP17EVMConfig) GetTokenTransferConfigs(
 		cfg := m.buildEVMTokenTransferConfig(selector, eligibleRemoteSelectors, combo.LocalPoolAddressRef(), combo.RemotePoolAddressRef(), combo.LocalPoolCCVQualifiers())
 		key := string(cfg.TokenPoolRef.Type) + "\x00" + cfg.TokenPoolRef.Version.String() + "\x00" + cfg.TokenPoolRef.Qualifier
 		if existing, ok := merged[key]; ok {
-			for remoteSelector, remoteCfg := range cfg.RemoteChains {
-				existing.RemoteChains[remoteSelector] = remoteCfg
-			}
+			maps.Copy(existing.RemoteChains, cfg.RemoteChains)
 			merged[key] = existing
 		} else {
 			merged[key] = cfg
