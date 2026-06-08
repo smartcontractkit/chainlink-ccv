@@ -804,7 +804,7 @@ func curseSelector(t *testing.T, env *deployment.Environment, adapter fastcurse.
 		require.NoError(t, err)
 		require.True(t, isCursed, "subject should be cursed on chain")
 
-		isCursed, err = adapter.IsSubjectCursedOnChain(*env, chainSelector, fastcurse.GenericSelectorToSubject(chainSelector))
+		isCursed, err = adapter.IsSubjectCursedOnChain(*env, subjectChainSelector, fastcurse.GenericSelectorToSubject(chainSelector))
 		require.NoError(t, err)
 		require.True(t, isCursed, "subject should be cursed on chain")
 	}
