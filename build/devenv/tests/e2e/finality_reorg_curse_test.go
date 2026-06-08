@@ -777,23 +777,24 @@ func curseSelector(t *testing.T, env *deployment.Environment, adapter fastcurse.
 	// re-set the bundle so it doesn't cache previous curses.
 	bundle := operations.NewBundle(env.GetContext, env.Logger, operations.NewMemoryReporter())
 	env.OperationsBundle = bundle
-
+	crInput := []fastcurse.CurseActionInput{
+		{
+			ChainSelector:        chainSelector,
+			SubjectChainSelector: subjectChainSelector,
+			Version:              semver.MustParse("1.6.0"),
+			IsGlobalCurse:        globalCurse,
+		},
+	}
+	if !globalCurse {
+		crInput = append(crInput, fastcurse.CurseActionInput{
+			ChainSelector:        subjectChainSelector,
+			SubjectChainSelector: chainSelector,
+			Version:              semver.MustParse("1.6.0"),
+		})
+	}
 	curseCS := fastcurse.CurseChangeset(fastcurse.GetCurseRegistry(), changesets.GetRegistry())
 	_, err := curseCS.Apply(*env, fastcurse.RMNCurseConfig{
-		CurseActions: []fastcurse.CurseActionInput{
-			{
-				ChainSelector:        chainSelector,
-				SubjectChainSelector: subjectChainSelector,
-				Version:              semver.MustParse("1.6.0"),
-				IsGlobalCurse:        globalCurse,
-			},
-			{
-				ChainSelector:        subjectChainSelector,
-				SubjectChainSelector: chainSelector,
-				IsGlobalCurse:        globalCurse,
-				Version:              semver.MustParse("1.6.0"),
-			},
-		},
+		CurseActions: crInput,
 	})
 	require.NoError(t, err)
 
@@ -822,23 +823,24 @@ func uncurseSelector(t *testing.T, env *deployment.Environment, adapter fastcurs
 	// re-set the bundle so it doesn't cache previous uncurses.
 	bundle := operations.NewBundle(env.GetContext, env.Logger, operations.NewMemoryReporter())
 	env.OperationsBundle = bundle
-
+	crInput := []fastcurse.CurseActionInput{
+		{
+			ChainSelector:        chainSelector,
+			SubjectChainSelector: subjectChainSelector,
+			Version:              semver.MustParse("1.6.0"),
+			IsGlobalCurse:        globalCurse,
+		},
+	}
+	if !globalCurse {
+		crInput = append(crInput, fastcurse.CurseActionInput{
+			ChainSelector:        subjectChainSelector,
+			SubjectChainSelector: chainSelector,
+			Version:              semver.MustParse("1.6.0"),
+		})
+	}
 	uncurseCS := fastcurse.UncurseChangeset(fastcurse.GetCurseRegistry(), changesets.GetRegistry())
 	_, err := uncurseCS.Apply(*env, fastcurse.RMNCurseConfig{
-		CurseActions: []fastcurse.CurseActionInput{
-			{
-				ChainSelector:        chainSelector,
-				SubjectChainSelector: subjectChainSelector,
-				Version:              semver.MustParse("1.6.0"),
-				IsGlobalCurse:        globalCurse,
-			},
-			{
-				ChainSelector:        subjectChainSelector,
-				SubjectChainSelector: chainSelector,
-				IsGlobalCurse:        globalCurse,
-				Version:              semver.MustParse("1.6.0"),
-			},
-		},
+		CurseActions: crInput,
 	})
 	require.NoError(t, err)
 
