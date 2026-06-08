@@ -787,13 +787,23 @@ func curseSelector(t *testing.T, env *deployment.Environment, adapter fastcurse.
 				Version:              semver.MustParse("1.6.0"),
 				IsGlobalCurse:        globalCurse,
 			},
+			{
+				ChainSelector:        subjectChainSelector,
+				SubjectChainSelector: chainSelector,
+				IsGlobalCurse:        globalCurse,
+				Version:              semver.MustParse("1.6.0"),
+			},
 		},
 	})
 	require.NoError(t, err)
 
 	// Verify the curse is applied
 	if subjectChainSelector != 0 {
-		isCursed, err := adapter.IsSubjectCursedOnChain(*env, chainSelector, fastcurse.GenericSelectorToSubject(subjectChainSelector))
+		isCursed, err := adapter.IsSubjectCursedOnChain(*env, chainSelector, fastcurse.GenericSelectorToSubject(chainSelector))
+		require.NoError(t, err)
+		require.True(t, isCursed, "subject should be cursed on chain")
+
+		isCursed, err = adapter.IsSubjectCursedOnChain(*env, chainSelector, fastcurse.GenericSelectorToSubject(chainSelector))
 		require.NoError(t, err)
 		require.True(t, isCursed, "subject should be cursed on chain")
 	}
@@ -822,6 +832,12 @@ func uncurseSelector(t *testing.T, env *deployment.Environment, adapter fastcurs
 				Version:              semver.MustParse("1.6.0"),
 				IsGlobalCurse:        globalCurse,
 			},
+			{
+				ChainSelector:        subjectChainSelector,
+				SubjectChainSelector: chainSelector,
+				IsGlobalCurse:        globalCurse,
+				Version:              semver.MustParse("1.6.0"),
+			},
 		},
 	})
 	require.NoError(t, err)
@@ -829,6 +845,10 @@ func uncurseSelector(t *testing.T, env *deployment.Environment, adapter fastcurs
 	// Verify the curse is lifted
 	if subjectChainSelector != 0 {
 		isCursed, err := adapter.IsSubjectCursedOnChain(*env, chainSelector, fastcurse.GenericSelectorToSubject(subjectChainSelector))
+		require.NoError(t, err)
+		require.False(t, isCursed, "subject should not be cursed on chain")
+
+		isCursed, err = adapter.IsSubjectCursedOnChain(*env, subjectChainSelector, fastcurse.GenericSelectorToSubject(chainSelector))
 		require.NoError(t, err)
 		require.False(t, isCursed, "subject should not be cursed on chain")
 	}
