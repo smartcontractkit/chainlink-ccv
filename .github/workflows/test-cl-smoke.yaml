@@ -38,6 +38,7 @@ jobs:
 
       - name: Determine if tests should run
         id: check
+        working-directory: .
         env:
           HAS_RUN_CL_SMOKE_LABEL: ${{ contains(github.event.pull_request.labels.*.name, 'run-cl-smoke') }}
           EVENT_NAME: ${{ github.event_name }}
