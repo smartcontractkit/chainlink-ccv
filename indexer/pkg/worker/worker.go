@@ -20,31 +20,31 @@ func Execute(ctx context.Context, task *Task) (*TaskResult, error) {
 		return nil, err
 	}
 
-	task.logger.Infof("Attempting to retrieve %d verifications for the message. Total Verifiers: %d", len(missing), len(totalVerifiers))
-
 	// Load all missing verifier readers from the registry
 	//
 	// Verifiers the indexer does not have context of are returned in unknownCCVs
 	// These can then be handled by discovery hooks to acquire the readers
 	// for further tasks. However for this task they will be excluded.
 	verifierReaders, attemptingToRetrieve, unknownCCVs := task.loadVerifierReaders(missing)
-	if len(unknownCCVs) != 0 {
-		task.logger.Infof("Detected %d unknown verifiers within the message, ignoring them for this run.", len(unknownCCVs))
-	}
-
-	// Log out useful information about this run
-	task.logger.Infof("Source Specified CCVs %s", totalVerifiers)
-	task.logger.Infof("Exisiting Verifications %s", existingVerifiers)
-	task.logger.Infof("Attempting to Retrieve %s", attemptingToRetrieve)
-	task.logger.Infof("Unknown CCVs %s", unknownCCVs)
 
 	// Process all verifier calls concurrently and collect successful results.
 	// Each verifier reader returns a channel that will emit one result when ready.
 	//
 	// Collects the results from the channels and returns any successful verifications.
 	results := task.collectVerifierResults(ctx, verifierReaders)
+
+	// One structured line per attempt summarizing the whole run.
+	task.logger.Infow("Processed verification attempt",
+		"messageID", task.messageID.String(),
+		"total", len(totalVerifiers),
+		"existing", len(existingVerifiers),
+		"missing", len(missing),
+		"attempting", len(attemptingToRetrieve),
+		"unknown", len(unknownCCVs),
+		"collected", len(results),
+	)
+
 	if len(results) > 0 {
-		task.logger.Infof("Collected %d new verifications for the message", len(results))
 		err = task.storage.InsertVerifierResults(ctx, results)
 		if err != nil {
 			return nil, err
