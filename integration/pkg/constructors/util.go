@@ -23,3 +23,7 @@ func mapAddresses(addresses map[string]string) (map[protocol.ChainSelector]proto
 	}
 	return mapped, nil
 }
+
+func RandFuncAddition() {
+	fmt.Println("randFuncAddition")
+}
