@@ -11,6 +11,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/registry"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -110,6 +111,12 @@ func (p *Pool) run(ctx context.Context) {
 				if err == nil && result != nil && result.UnavailableCCVs == 0 {
 					if err := task.SetMessageStatus(ctx, common.MessageSuccessful, ""); err != nil {
 						p.logger.Errorf("Unable to update Message Status for MessageID %s", task.messageID.String())
+					} else if result.SuccessfulVerifications > 0 {
+						// PER-MESSAGE SUCCESS LOG: this attempt collected the final missing
+						// verification(s) and the message is now fully verified. Gated on
+						// SuccessfulVerifications so the no-op tasks that merely observe an
+						// already-complete message stay silent (one success line per message).
+						p.logger.Infow("Message fully verified", protocol.LogTypeKey, protocol.LogTypeMessageSuccess, "messageID", task.messageID.String())
 					}
 				}
 
@@ -141,7 +148,9 @@ func (p *Pool) enqueueMessages(ctx context.Context) {
 				p.logger.Error("Discovery channel closed; exiting enqueueMessages")
 				return
 			}
-			p.logger.Infow("Enqueueing verification", "messageID", message.VerifierResult.MessageID.String(), "verifierSourceAddress", message.VerifierResult.VerifierSourceAddress)
+			// MAIN STATUS LOG: a discovered verification is entering the worker pool;
+			// emitted once per verification (keyed per verification, not per message).
+			p.logger.Infow("Enqueueing verification", protocol.LogTypeKey, protocol.LogTypeMessageStatus, "messageID", message.VerifierResult.MessageID.String(), "verifierSourceAddress", message.VerifierResult.VerifierSourceAddress)
 			task, err := NewTask(p.logger, message.VerifierResult, p.registry, p.storage, p.scheduler.VerificationVisibilityWindow())
 			// This shouldn't happen, it can only be caused by an invalid hex conversion.
 			// We're unable to retry the message or send it to the DLQ.

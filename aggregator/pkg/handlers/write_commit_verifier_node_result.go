@@ -13,6 +13,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/scope"
 	messagerules "github.com/smartcontractkit/chainlink-ccv/common/messagerules"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
 	committeepb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/committee-verifier/v1"
@@ -109,7 +110,9 @@ func (h *WriteCommitVerifierNodeResultHandler) Handle(ctx context.Context, req *
 			Status: committeepb.WriteStatus_FAILED,
 		}, status.Error(codes.Internal, "failed to save verification record")
 	}
-	h.logger(signerCtx).Infow("Verification received", "callerID", identity.CallerID)
+	// MAIN STATUS LOG: a verification was received and persisted; emitted once per
+	// verifier node per message (not a success log — quorum may not yet be met).
+	h.logger(signerCtx).Infow("Verification received", protocol.LogTypeKey, protocol.LogTypeMessageStatus, "callerID", identity.CallerID)
 
 	metrics := h.m.Metrics().With(
 		"caller_id", identity.CallerID,

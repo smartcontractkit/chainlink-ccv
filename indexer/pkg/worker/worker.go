@@ -1,6 +1,10 @@
 package worker
 
-import "context"
+import (
+	"context"
+
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
+)
 
 // Execute processes a task by finding missing verifiers, loading verifier readers,
 // enqueueing verifier calls, and storing the results.
@@ -33,8 +37,10 @@ func Execute(ctx context.Context, task *Task) (*TaskResult, error) {
 	// Collects the results from the channels and returns any successful verifications.
 	results := task.collectVerifierResults(ctx, verifierReaders)
 
-	// One structured line per attempt summarizing the whole run.
+	// MAIN STATUS LOG: one structured line per processing attempt summarizing the
+	// run; emitted per task execution pass (re-fires on each retry).
 	task.logger.Infow("Processed verification attempt",
+		protocol.LogTypeKey, protocol.LogTypeMessageStatus,
 		"messageID", task.messageID.String(),
 		"total", len(totalVerifiers),
 		"existing", len(existingVerifiers),
