@@ -69,6 +69,7 @@ fi
 
 echo "Changed files:"
 echo "$CHANGED_FILES"
+echo ""
 
 if [[ -z "$CHANGED_FILES" ]]; then
   echo "No changed files found."
@@ -87,6 +88,7 @@ DIRECT_IMPORTS=$(grep -R "github.com/smartcontractkit/chainlink-ccv" --include="
 
 echo "Direct CCV imports in Chainlink:"
 echo "$DIRECT_IMPORTS"
+echo ""
 
 if [ -z "$DIRECT_IMPORTS" ]; then
   echo "No direct imports found. Skipping tests."
@@ -109,13 +111,12 @@ fi
 
 # filter only CCV packages
 ALL_DEPS=$(echo "$ALL_DEPS" | grep 'github.com/smartcontractkit/chainlink-ccv' || true)
-echo "All affected CCV packages:"
-echo "$ALL_DEPS"
+DEPS_COUNT=$(echo "$ALL_DEPS" | wc -l | tr -d ' ')
+echo "Chainlink depends on $DEPS_COUNT transitive CCV packages. If any of these were modified, tests will run."
+echo ""
 
 # 5. Convert packages to directories
 AFFECTED_DIRS=$(echo "$ALL_DEPS" | sed -e 's|^github.com/smartcontractkit/chainlink-ccv/||' -e 's|^github.com/smartcontractkit/chainlink-ccv$|.|' | sort -u)
-echo "Affected CCV directories:"
-echo "$AFFECTED_DIRS"
 
 # 6. Check if any changed file is in the affected directories
 RUN_TESTS="false"
