@@ -59,13 +59,15 @@ func getSubCommands(parent string) []prompt.Suggest {
 		return []prompt.Suggest{
 			{Text: "smoke", Description: "Send all the example messages between 1337 <> 2337"},
 			{Text: "smoke-v2", Description: "Send an example ArgsV2 message between 1337 <> 2337 local Anvil chains (EVM)"},
-			{Text: "smoke-v3", Description: "Send an example ArgsV2 message between 1337 <> 2337 local Anvil chains (EVM)"},
+			{Text: "smoke-v3", Description: "Send an example ArgsV3 message between 1337 <> 2337 local Anvil chains (EVM)"},
 			{Text: "load", Description: "Run the default load test (1msg/s) 1337 -> 2337 local Anvil chain (EVM)"},
 			{Text: "rpc-latency", Description: "Default load test + 400ms RPC latency (all chains)"},
 			{Text: "gas-spikes", Description: "Default load test + slow and fast gas spikes"},
-			{Text: "reorgs", Description: "Default load test + reorgs (Requires 'up env.toml,env-geth.toml' environment"},
+			{Text: "reorg", Description: "Default load test + reorgs (Requires 'up env.toml,env-geth.toml' environment"},
 			{Text: "chaos", Description: "Default load test + chaos (restarts, latency, data loss between services)"},
 			{Text: "indexer-load", Description: "Indexer Load Test (50msg/s)"},
+			{Text: "--profile standard", Description: "Start env from standard.profile, then run the suite"},
+			{Text: "--pattern", Description: "Raw Go test pattern (e.g. --pattern TestE2ESmoke/foo)"},
 		}
 	case "addresses":
 		return []prompt.Suggest{
@@ -103,15 +105,12 @@ func getSubCommands(parent string) []prompt.Suggest {
 	case "r":
 		fallthrough
 	case "restart":
-		return []prompt.Suggest{
-			{Text: "env-single-node.toml", Description: "Spin up Anvil <> Anvil local chains, 1 CL node"},
-			{Text: "env.toml,env-single-node.toml,env-single-node-rebuild.toml", Description: "(Rebuild local CL Docker image) Spin up Anvil <> Anvil local chains, all services, 1 CL nodes"},
-			{Text: "env.toml", Description: "Spin up Anvil <> Anvil local chains, all services, 4 CL nodes"},
-			{Text: "env.toml,env-cl.toml", Description: "(Rebuild local CL Docker image) Spin up Anvil <> Anvil local chains, all services, 2 CL nodes"},
-			{Text: "env.toml,env-cl.toml,env-cl-5.toml", Description: "(Rebuild local CL Docker image) Spin up 1.6 compatible environment with 5 CL nodes"},
-			{Text: "env.toml,env-geth.toml", Description: "Spin up Geth <> Geth local chains (clique), all services, 4 CL nodes"},
-			{Text: "env.toml,env-fuji-fantom.toml", Description: "Spin up testnets: Fuji <> Fantom, all services, 4 CL nodes"},
+		profiles := ScanProfiles(".")
+		suggestions := make([]prompt.Suggest, 0, len(profiles))
+		for _, p := range profiles {
+			suggestions = append(suggestions, prompt.Suggest{Text: p.Name, Description: p.Description})
 		}
+		return suggestions
 	default:
 		return []prompt.Suggest{}
 	}

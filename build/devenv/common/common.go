@@ -141,7 +141,16 @@ func (s TokenCombination) FinalityConfig() protocol.Finality {
 	return 0 // Otherwise use default finality
 }
 
-// AllTokenCombinations returns all possible token combinations.
+// AllTokenCombinations returns a hand-curated catalog of token transfer test scenarios
+// (CCV qualifier mixes, expected receipt/verification counts, etc.).
+//
+// This is NOT the same set that devenv deploys. Deployment uses ComputeTokenCombinations,
+// which derives combos from per-chain pool capabilities and ccvQualifierPermutations
+// (e.g. [], [default], [secondary], [tertiary], [default secondary tertiary] — but not
+// arbitrary subsets like [default secondary]). AllTokenCombinations also includes pool
+// pairings that no chain in the current env supports (e.g. LockRelease 1.6.1 on EVM-only
+// devenv). Smoke/TCAPI tests that iterate this list will skip cases whose pool refs are
+// absent from the datastore; align the two sources in a follow-up.
 func AllTokenCombinations() []TokenCombination {
 	return []TokenCombination{
 		{ // 1.6.1 burn <-> 1.6.1 burn
@@ -167,6 +176,24 @@ func AllTokenCombinations() []TokenCombination {
 			localPoolCCVQualifiers:  []string{DefaultCommitteeVerifierQualifier},
 			remotePoolType:          BurnMintTokenPoolType,
 			remotePoolVersion:       "1.6.1",
+			expectedReceiptIssuers:  4, // default CCV, token pool, executor, network fee
+			expectedVerifierResults: 1, // default CCV
+		},
+		{ // 2.0.0 burn <-> 1.6.1 release
+			localPoolType:           BurnMintTokenPoolType,
+			localPoolVersion:        "2.0.0",
+			localPoolCCVQualifiers:  []string{DefaultCommitteeVerifierQualifier},
+			remotePoolType:          LockReleaseTokenPoolType,
+			remotePoolVersion:       "1.6.1",
+			expectedReceiptIssuers:  4, // default CCV, token pool, executor, network fee
+			expectedVerifierResults: 1, // default CCV
+		},
+		{ // 1.6.1 release <-> 2.0.0 burn
+			localPoolType:           LockReleaseTokenPoolType,
+			localPoolVersion:        "1.6.1",
+			remotePoolType:          BurnMintTokenPoolType,
+			remotePoolVersion:       "2.0.0",
+			remotePoolCCVQualifiers: []string{DefaultCommitteeVerifierQualifier},
 			expectedReceiptIssuers:  4, // default CCV, token pool, executor, network fee
 			expectedVerifierResults: 1, // default CCV
 		},
@@ -464,4 +491,36 @@ func dataStoreHasAddressRef(ds datastore.DataStore, chainSelector uint64, ref da
 		ref.Qualifier,
 	))
 	return err == nil
+}
+
+// PoolCapabilityKey returns a unique key for a pool capability using "::" as separator.
+// Used for building lookup maps of supported pools.
+func PoolCapabilityKey(cap PoolCapability) string {
+	return cap.PoolType + "::" + cap.PoolVersion.String()
+}
+
+// AddressRefPoolKey returns a key for an address ref's pool type and version (without qualifier).
+// Used for checking if a pool type/version is supported.
+func AddressRefPoolKey(ref datastore.AddressRef) string {
+	return string(ref.Type) + "::" + ref.Version.String()
+}
+
+// AddressRefFullKey returns a full key including type, version, and qualifier.
+// Used for de-duplicating pool deployments.
+func AddressRefFullKey(ref datastore.AddressRef) string {
+	return string(ref.Type) + "::" + ref.Version.String() + "::" + ref.Qualifier
+}
+
+// BuildSupportedPoolsMap creates a map of supported pool keys from capabilities.
+func BuildSupportedPoolsMap(caps []PoolCapability) map[string]bool {
+	supported := make(map[string]bool, len(caps))
+	for _, cap := range caps {
+		supported[PoolCapabilityKey(cap)] = true
+	}
+	return supported
+}
+
+// IsPoolSupported checks if an address ref's pool type/version is in the supported map.
+func IsPoolSupported(supported map[string]bool, ref datastore.AddressRef) bool {
+	return supported[AddressRefPoolKey(ref)]
 }

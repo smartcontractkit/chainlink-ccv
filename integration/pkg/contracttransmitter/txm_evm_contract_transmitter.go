@@ -19,6 +19,12 @@ import (
 	txmgrcommon "github.com/smartcontractkit/chainlink-framework/chains/txmgr"
 )
 
+const (
+	// Numerator and Denominator to compensate for EIP-150 forwarding.
+	eip150ForwardingNumerator   = 64
+	eip150ForwardingDenominator = 63
+)
+
 var (
 	_          chainaccess.ContractTransmitter = &TXMEVMContractTransmitter{}
 	offrampABI                                 = evmtypes.MustGetABI(offramp.OffRampABI)
@@ -70,13 +76,15 @@ func (ct *TXMEVMContractTransmitter) ConvertAndWriteMessageToChain(ctx context.C
 		return fmt.Errorf("skipping transmit, error getting round-robin from address: %w", err)
 	}
 	messageID, _ := report.Message.MessageID()
+	feeLimit := uint64(report.Message.ExecutionGasLimit) +
+		eip150ForwardingGasBuffer(report.Message.CcipReceiveGasLimit)
 
 	// we don't want to use an idempotency key based on messageid in case the CCV Data changes in between resubmissions
 	tx, err := ct.TxmClient.CreateTransaction(ctx, txmgr.TxRequest{
 		FromAddress:    roundRobinFromAddress,
 		ToAddress:      ct.OffRampAddress,
 		EncodedPayload: payload,
-		FeeLimit:       uint64(report.Message.ExecutionGasLimit),
+		FeeLimit:       feeLimit,
 		Strategy:       txmgrcommon.NewSendEveryStrategy(),
 	})
 	if err != nil {
@@ -86,4 +94,19 @@ func (ct *TXMEVMContractTransmitter) ConvertAndWriteMessageToChain(ctx context.C
 
 	ct.lggr.Infow("submitted tx to txm", "messageID", messageID, "txm key", tx.IdempotencyKey)
 	return nil
+}
+
+// eip150ForwardingGasBuffer returns the extra gas needed to compensate for EIP-150
+// gas attenuation across the OffRamp -> Router -> Receiver call path.
+// It computes ceil(64/63 * ceil(64/63 * L)) - L, where L is the ccipReceive gas limit.
+func eip150ForwardingGasBuffer(ccipReceiveGasLimit uint32) uint64 {
+	gasLimit := uint64(ccipReceiveGasLimit)
+	// Gas required at Router for Receiver to get L: ceil(64/63 * L)
+	atRouter := (eip150ForwardingNumerator*gasLimit +
+		eip150ForwardingDenominator - 1) / eip150ForwardingDenominator
+	// Gas required at OffRamp for Router to get atRouter: ceil(64/63 * atRouter)
+	atOffRamp := (eip150ForwardingNumerator*atRouter +
+		eip150ForwardingDenominator - 1) / eip150ForwardingDenominator
+	// Buffer is the extra gas on top of L
+	return atOffRamp - gasLimit
 }

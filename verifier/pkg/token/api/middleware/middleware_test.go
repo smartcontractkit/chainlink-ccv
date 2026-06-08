@@ -94,7 +94,7 @@ func TestActiveRequestsMiddleware_RecordsMetrics(t *testing.T) {
 	mock := &mockHTTPMetrics{}
 
 	r := gin.New()
-	r.Use(sharedmiddleware.ActiveRequestsMiddleware(mock, VerificationsPathNormalizer, lggr))
+	r.Use(sharedmiddleware.ActiveRequestsMiddleware(mock, lggr))
 	r.GET("/v1/verifications", func(c *gin.Context) {
 		c.Status(200)
 	})
@@ -120,7 +120,7 @@ func TestActiveRequestsMiddleware_MultipleRequests(t *testing.T) {
 	mock := &mockHTTPMetrics{}
 
 	r := gin.New()
-	r.Use(sharedmiddleware.ActiveRequestsMiddleware(mock, VerificationsPathNormalizer, lggr))
+	r.Use(sharedmiddleware.ActiveRequestsMiddleware(mock, lggr))
 	r.GET("/v1/verifications", func(c *gin.Context) {
 		c.Status(200)
 	})

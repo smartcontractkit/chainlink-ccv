@@ -735,12 +735,45 @@ func buildTokenTransferBatches(configs []tokenscore.TokenTransferConfig) ([][]to
 }
 
 func splitTokenTransferBatchBySelector(configs []tokenscore.TokenTransferConfig) [][]tokenscore.TokenTransferConfig {
+	// isBidirectionallyCompatible checks whether placing cfg into batch would
+	// maintain symmetry: for every remote chain already in the batch, the
+	// counterpart config must reference cfg's chain back and vice-versa.
+	isBidirectionallyCompatible := func(batch []tokenscore.TokenTransferConfig, cfg tokenscore.TokenTransferConfig) bool {
+		batchBySelector := make(map[uint64]tokenscore.TokenTransferConfig, len(batch))
+		for _, b := range batch {
+			batchBySelector[b.ChainSelector] = b
+		}
+
+		for remoteSelector := range cfg.RemoteChains {
+			counterpart, inBatch := batchBySelector[remoteSelector]
+			if !inBatch {
+				continue
+			}
+			if _, ok := counterpart.RemoteChains[cfg.ChainSelector]; !ok {
+				return false
+			}
+		}
+
+		for _, b := range batch {
+			if _, refsMe := b.RemoteChains[cfg.ChainSelector]; refsMe {
+				if _, ok := cfg.RemoteChains[b.ChainSelector]; !ok {
+					return false
+				}
+			}
+		}
+
+		return true
+	}
+
 	batches := make([][]tokenscore.TokenTransferConfig, 0, 1)
 	seenSelectors := make([]map[uint64]bool, 0, 1)
 	for _, cfg := range configs {
 		placed := false
 		for i := range batches {
 			if seenSelectors[i][cfg.ChainSelector] {
+				continue
+			}
+			if !isBidirectionallyCompatible(batches[i], cfg) {
 				continue
 			}
 			batches[i] = append(batches[i], cfg)
@@ -793,6 +826,14 @@ func enrichEnvironmentTopology(cfg *ccvdeployment.EnvironmentTopology, verifiers
 
 		seenAliases[ver.NOPAlias] = struct{}{}
 	}
+}
+
+// EnrichTopologyWithVerifiers enriches an existing topology in-place with signer addresses
+// derived from verifier bootstrap keys. Call this after verifiers are launched and their
+// Out.BootstrapKeys are populated. The topology pointer is mutated directly so that other
+// Phase 4 components reading the same pointer see the updated signer addresses.
+func EnrichTopologyWithVerifiers(topology *ccvdeployment.EnvironmentTopology, verifiers []*committeeverifier.Input) {
+	enrichEnvironmentTopology(topology, verifiers)
 }
 
 // BuildEnvironmentTopology creates a copy of the EnvironmentTopology, enriches it with signer
