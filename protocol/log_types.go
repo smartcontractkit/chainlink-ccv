@@ -14,6 +14,12 @@ const (
 	// There is at most one of these per message on the happy path.
 	LogTypeMessageSuccess LogType = "message_success"
 
+	// LogTypeMessageFailure marks the terminal per-message failure event: a message
+	// could not be completed (e.g. it timed out and entered the dead-letter queue).
+	// Like LogTypeMessageSuccess, it is a terminal outcome — a message ends as one or
+	// the other.
+	LogTypeMessageFailure LogType = "message_failure"
+
 	// LogTypeMessageStatus marks a non-terminal per-message progress event, such as a
 	// verification being received, a message pending quorum, or a processing attempt.
 	// These can fire multiple times per message as it advances.

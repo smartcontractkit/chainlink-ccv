@@ -110,8 +110,7 @@ func (h *WriteCommitVerifierNodeResultHandler) Handle(ctx context.Context, req *
 			Status: committeepb.WriteStatus_FAILED,
 		}, status.Error(codes.Internal, "failed to save verification record")
 	}
-	// MAIN STATUS LOG: a verification was received and persisted; emitted once per
-	// verifier node per message (not a success log — quorum may not yet be met).
+	// PER-MESSAGE LOG (status): one per verifier node; quorum may not be met yet.
 	h.logger(signerCtx).Infow("Verification received", protocol.LogTypeKey, protocol.LogTypeMessageStatus, "callerID", identity.CallerID)
 
 	metrics := h.m.Metrics().With(

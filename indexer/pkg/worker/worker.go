@@ -37,11 +37,16 @@ func Execute(ctx context.Context, task *Task) (*TaskResult, error) {
 	// Collects the results from the channels and returns any successful verifications.
 	results := task.collectVerifierResults(ctx, verifierReaders)
 
-	// MAIN STATUS LOG: one structured line per processing attempt summarizing the
-	// run; emitted per task execution pass (re-fires on each retry).
-	task.logger.Infow("Processed verification attempt",
+	// PER-MESSAGE LOG (status): Info on the first attempt, Debug on retries to keep
+	// per-message Info volume bounded; terminal outcome is logged separately.
+	logAttempt := task.logger.Infow
+	if task.attempt > 1 {
+		logAttempt = task.logger.Debugw
+	}
+	logAttempt("Processed verification attempt",
 		protocol.LogTypeKey, protocol.LogTypeMessageStatus,
 		"messageID", task.messageID.String(),
+		"attempt", task.attempt,
 		"total", len(totalVerifiers),
 		"existing", len(existingVerifiers),
 		"missing", len(missing),

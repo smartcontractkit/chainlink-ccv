@@ -130,8 +130,7 @@ func (o *OrphanRecoverer) RecoverOrphans(ctx context.Context) error {
 				return nil
 			}
 
-			// MAIN STATUS LOG: a message is still awaiting quorum; emitted per
-			// orphan-recovery scan interval (timer-based), not per verification.
+			// PER-MESSAGE LOG (status): timer-based, emitted per orphan scan while pending.
 			o.logger.Infow("Message pending quorum",
 				protocol.LogTypeKey, protocol.LogTypeMessageStatus,
 				"messageID", fmt.Sprintf("%x", orphanRecord.MessageID),

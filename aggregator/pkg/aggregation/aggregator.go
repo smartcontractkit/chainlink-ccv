@@ -171,8 +171,7 @@ func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(ctx context.C
 			return err
 		}
 		timeToAggregation := aggregatedReport.CalculateTimeToAggregation(time.Now())
-		// PER-MESSAGE SUCCESS LOG: the one Info line emitted when a message reaches
-		// quorum and its aggregated report is submitted.
+		// PER-MESSAGE LOG (success): one line per message, on quorum.
 		lggr.Infow("Report submitted successfully", protocol.LogTypeKey, protocol.LogTypeMessageSuccess, "verifications", len(verifications), "timeToAggregation", timeToAggregation)
 		c.metrics(ctx).IncrementCompletedAggregations(ctx)
 		c.metrics(ctx).RecordTimeToAggregation(ctx, timeToAggregation)

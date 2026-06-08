@@ -112,11 +112,13 @@ func (p *Pool) run(ctx context.Context) {
 					if err := task.SetMessageStatus(ctx, common.MessageSuccessful, ""); err != nil {
 						p.logger.Errorf("Unable to update Message Status for MessageID %s", task.messageID.String())
 					} else if result.SuccessfulVerifications > 0 {
-						// PER-MESSAGE SUCCESS LOG: this attempt collected the final missing
-						// verification(s) and the message is now fully verified. Gated on
-						// SuccessfulVerifications so the no-op tasks that merely observe an
-						// already-complete message stay silent (one success line per message).
-						p.logger.Infow("Message fully verified", protocol.LogTypeKey, protocol.LogTypeMessageSuccess, "messageID", task.messageID.String())
+						// PER-MESSAGE LOG (success): gated on SuccessfulVerifications so it
+						// fires once per message; shares its message string with the DLQ path.
+						p.logger.Infow("Message processing finished",
+							protocol.LogTypeKey, protocol.LogTypeMessageSuccess,
+							"messageID", task.messageID.String(),
+							"status", "verified",
+						)
 					}
 				}
 
@@ -148,8 +150,7 @@ func (p *Pool) enqueueMessages(ctx context.Context) {
 				p.logger.Error("Discovery channel closed; exiting enqueueMessages")
 				return
 			}
-			// MAIN STATUS LOG: a discovered verification is entering the worker pool;
-			// emitted once per verification (keyed per verification, not per message).
+			// PER-MESSAGE LOG (status): once per verification (not per message).
 			p.logger.Infow("Enqueueing verification", protocol.LogTypeKey, protocol.LogTypeMessageStatus, "messageID", message.VerifierResult.MessageID.String(), "verifierSourceAddress", message.VerifierResult.VerifierSourceAddress)
 			task, err := NewTask(p.logger, message.VerifierResult, p.registry, p.storage, p.scheduler.VerificationVisibilityWindow())
 			// This shouldn't happen, it can only be caused by an invalid hex conversion.
@@ -190,7 +191,14 @@ func (p *Pool) handleDLQ(ctx context.Context) {
 				p.logger.Errorf("Unable to update message status to timeout for message %s", task.messageID.String())
 			}
 
-			p.logger.Warnf("Message %s entered DLQ. Partial verifications may have been received", task.messageID.String())
+			// PER-MESSAGE LOG (failure): timed out into the DLQ; shares its message
+			// string with the success path (distinguish by status / log_type).
+			p.logger.Warnw("Message processing finished",
+				protocol.LogTypeKey, protocol.LogTypeMessageFailure,
+				"messageID", task.messageID.String(),
+				"status", "timeout",
+				"error", lastErrStr,
+			)
 		}
 	}
 }
