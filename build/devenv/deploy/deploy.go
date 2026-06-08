@@ -16,6 +16,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/Masterminds/semver/v3"
+	expmaps "golang.org/x/exp/maps"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 
@@ -219,8 +220,8 @@ func ConnectAllChainsCanonical(
 	}
 
 	isKeyPresent := func(chainA, chainB uint64) bool {
-		return slices.Contains(maps.Keys(pairs), key(chainA, chainB)) ||
-			slices.Contains(maps.Keys(pairs), key(chainB, chainA))
+		return slices.Contains(expmaps.Keys(pairs), key(chainA, chainB)) ||
+			slices.Contains(expmaps.Keys(pairs), key(chainB, chainA))
 	}
 	for sel, profile := range profiles {
 		for _, remote := range profile.remotes {
@@ -243,14 +244,14 @@ func ConnectAllChainsCanonical(
 	cfg := ccipChangesets.ConfigureChainsForLanesFromTopologyConfig{
 		Topology: convertTopologyToCCIP(topology),
 		BuildLanesCrossFamilyConfig: ccipChangesets.BuildLanesCrossFamilyConfig{
-			Lanes: maps.Values(pairs),
+			Lanes: expmaps.Values(pairs),
 		},
 	}
 	if err := cs.VerifyPreconditions(*e, cfg); err != nil {
-		return fmt.Errorf("(adding chains %v): precondition check failed: %w", maps.Values(pairs), err)
+		return fmt.Errorf("(adding chains %v): precondition check failed: %w", expmaps.Values(pairs), err)
 	}
 	if _, err := cs.Apply(*e, cfg); err != nil {
-		return fmt.Errorf("(adding chains %v):  configure chains for lanes: %w", maps.Values(pairs), err)
+		return fmt.Errorf("(adding chains %v):  configure chains for lanes: %w", expmaps.Values(pairs), err)
 	}
 
 	for _, sel := range orderedSelectors {
