@@ -130,6 +130,10 @@ func (o *OrphanRecoverer) RecoverOrphans(ctx context.Context) error {
 				return nil
 			}
 
+			o.logger.Infow("Message pending quorum",
+				"messageID", fmt.Sprintf("%x", orphanRecord.MessageID),
+				"aggregationKey", orphanRecord.AggregationKey)
+
 			err := o.processOrphanedRecord(ctx, orphanRecord)
 			if err != nil {
 				o.logger.Errorw("Failed to process orphaned record",

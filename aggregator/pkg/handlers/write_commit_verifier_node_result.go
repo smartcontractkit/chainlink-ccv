@@ -109,7 +109,7 @@ func (h *WriteCommitVerifierNodeResultHandler) Handle(ctx context.Context, req *
 			Status: committeepb.WriteStatus_FAILED,
 		}, status.Error(codes.Internal, "failed to save verification record")
 	}
-	h.logger(signerCtx).Debugf("Successfully saved commit verification record")
+	h.logger(signerCtx).Infow("Verification received", "callerID", identity.CallerID)
 
 	metrics := h.m.Metrics().With(
 		"caller_id", identity.CallerID,
