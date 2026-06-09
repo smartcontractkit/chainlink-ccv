@@ -226,7 +226,7 @@ func TestBatchWriteCommitCCVNodeDataHandler_CancelledContextReturnsImmediately(t
 	blockDuration := 5 * time.Second
 
 	// Use a nop logger: worker goroutines that are still running when the context
-	// is cancelled may log after this test's *testing.T is torn down, which
+	// is canceled may log after this test's *testing.T is torn down, which
 	// panics in Go. A nop logger avoids that without changing the handler.
 	lggr := logger.Sugared(logger.Nop())
 	store := mocks.NewMockCommitVerificationStore(t)
