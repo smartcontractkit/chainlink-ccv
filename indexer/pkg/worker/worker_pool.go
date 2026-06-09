@@ -11,6 +11,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/registry"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -100,7 +101,7 @@ func (p *Pool) run(ctx context.Context) {
 			}
 
 			workerCtx, cancel := context.WithTimeout(ctx, time.Duration(p.config.WorkerTimeout)*time.Second)
-			p.logger.Infof("Starting Worker for %s", task.messageID.String())
+			p.logger.Debugf("Starting Worker for %s", task.messageID.String())
 
 			p.pool.Go(func() {
 				defer cancel()
@@ -110,6 +111,14 @@ func (p *Pool) run(ctx context.Context) {
 				if err == nil && result != nil && result.UnavailableCCVs == 0 {
 					if err := task.SetMessageStatus(ctx, common.MessageSuccessful, ""); err != nil {
 						p.logger.Errorf("Unable to update Message Status for MessageID %s", task.messageID.String())
+					} else if result.SuccessfulVerifications > 0 {
+						// PER-MESSAGE LOG (success): gated on SuccessfulVerifications so it
+						// fires once per message; shares its message string with the DLQ path.
+						p.logger.Infow("Message processing finished",
+							protocol.LogTypeKey, protocol.LogTypeMessageSuccess,
+							"messageID", task.messageID.String(),
+							"status", "verified",
+						)
 					}
 				}
 
@@ -141,7 +150,8 @@ func (p *Pool) enqueueMessages(ctx context.Context) {
 				p.logger.Error("Discovery channel closed; exiting enqueueMessages")
 				return
 			}
-			p.logger.Infow("Enqueueing new Message", "messageID", message.VerifierResult.MessageID.String())
+			// PER-MESSAGE LOG (status): once per verification (not per message).
+			p.logger.Infow("Enqueueing verification", protocol.LogTypeKey, protocol.LogTypeMessageStatus, "messageID", message.VerifierResult.MessageID.String(), "verifierSourceAddress", message.VerifierResult.VerifierSourceAddress)
 			task, err := NewTask(p.logger, message.VerifierResult, p.registry, p.storage, p.scheduler.VerificationVisibilityWindow())
 			// This shouldn't happen, it can only be caused by an invalid hex conversion.
 			// We're unable to retry the message or send it to the DLQ.
@@ -181,7 +191,14 @@ func (p *Pool) handleDLQ(ctx context.Context) {
 				p.logger.Errorf("Unable to update message status to timeout for message %s", task.messageID.String())
 			}
 
-			p.logger.Warnf("Message %s entered DLQ. Partial verifications may have been received", task.messageID.String())
+			// PER-MESSAGE LOG (failure): timed out into the DLQ; shares its message
+			// string with the success path (distinguish by status / log_type).
+			p.logger.Warnw("Message processing finished",
+				protocol.LogTypeKey, protocol.LogTypeMessageFailure,
+				"messageID", task.messageID.String(),
+				"status", "timeout",
+				"error", lastErrStr,
+			)
 		}
 	}
 }

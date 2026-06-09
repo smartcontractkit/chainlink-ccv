@@ -269,7 +269,7 @@ func (a *AggregatorMessageDiscovery) consumeReader(ctx context.Context) {
 
 	for {
 		if ctx.Err() != nil {
-			a.logger.Infof("Aggregator timed out, cancelling consumeReader")
+			a.logger.Debugf("Aggregator timed out, cancelling consumeReader")
 			return
 		}
 		found, err := a.callReader(ctx)
@@ -330,7 +330,7 @@ func (a *AggregatorMessageDiscovery) callReader(ctx context.Context) (bool, erro
 
 	ingestionTimestamp := a.timeProvider.GetTime()
 	for _, response := range queryResponse {
-		a.logger.Infow("Found Message", "messageID", response.Data.MessageID, "verifierSourceAddress", response.Data.VerifierSourceAddress)
+		a.logger.Debugw("Found Message", "messageID", response.Data.MessageID, "verifierSourceAddress", response.Data.VerifierSourceAddress)
 	}
 	messages, persistedVerifications, allVerifications := common.ConvertDiscoveryResponses(queryResponse, ingestionTimestamp, a.registry)
 

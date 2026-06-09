@@ -110,11 +110,11 @@ func (c *CommitReportAggregator) shouldSkipAggregationDueToExistingQuorum(ctx co
 	}
 
 	if quorumMet {
-		lggr.Infow("Skipping aggregation: existing report already meets quorum", "verificationCount", len(existingReport.Verifications))
+		lggr.Debugw("Skipping aggregation: existing report already meets quorum", "verificationCount", len(existingReport.Verifications))
 		return true
 	}
 
-	lggr.Infow("Existing report no longer meets quorum, proceeding with new aggregation", "verificationCount", len(existingReport.Verifications))
+	lggr.Debugw("Existing report no longer meets quorum, proceeding with new aggregation", "verificationCount", len(existingReport.Verifications))
 	return false
 }
 
@@ -126,7 +126,7 @@ func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(ctx context.C
 	}
 
 	lggr := c.logger(ctx)
-	lggr.Info("Checking aggregation for message")
+	lggr.Debug("Checking aggregation for message")
 
 	shouldSkip := c.shouldSkipAggregationDueToExistingQuorum(ctx, request.MessageID, request.AggregationKey)
 	if shouldSkip {
@@ -171,11 +171,12 @@ func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(ctx context.C
 			return err
 		}
 		timeToAggregation := aggregatedReport.CalculateTimeToAggregation(time.Now())
-		lggr.Infow("Report submitted successfully", "verifications", len(verifications), "timeToAggregation", timeToAggregation)
+		// PER-MESSAGE LOG (success): one line per message, on quorum.
+		lggr.Infow("Report submitted successfully", protocol.LogTypeKey, protocol.LogTypeMessageSuccess, "verifications", len(verifications), "timeToAggregation", timeToAggregation)
 		c.metrics(ctx).IncrementCompletedAggregations(ctx)
 		c.metrics(ctx).RecordTimeToAggregation(ctx, timeToAggregation)
 	} else {
-		lggr.Infow("Quorum not met, not submitting report", "verifications", len(verifications))
+		lggr.Debugw("Quorum not met, not submitting report", "verifications", len(verifications))
 	}
 
 	return nil

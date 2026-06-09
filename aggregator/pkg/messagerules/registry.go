@@ -92,7 +92,7 @@ func (r *Registry) Refresh(ctx context.Context) error {
 
 	r.metrics.SetMessageDisablementRulesRefreshFailure(ctx, 0)
 	r.emitActiveRuleMetrics(ctx, previousMetricLabels, metricLabels)
-	r.lggr.Infow("Refreshed message disablement rules registry",
+	r.lggr.Debugw("Refreshed message disablement rules registry",
 		"rule_count", compiled.ActiveRuleCount(),
 	)
 
