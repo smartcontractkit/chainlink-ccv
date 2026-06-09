@@ -56,7 +56,7 @@ func NewPhasedEnvironment() (out map[string]any, err error) {
 
 	// Re-publish the schema version (the runtime consumed it) as a public output
 	// key so the serialized file begins with version = N and LoadOutput can route
-	// it to the phased decoder.
+	// it to the correct decoder.
 	out["version"] = version
 
 	if err := storePhasedOutput(out); err != nil {
@@ -65,9 +65,8 @@ func NewPhasedEnvironment() (out map[string]any, err error) {
 	return out, nil
 }
 
-// storePhasedOutput serializes the accumulated runtime output map to the
-// env-out.toml file, stripping runtime-only keys (those prefixed with "_").
-func storePhasedOutput(out map[string]any) error {
+// stripPrivateKeys returns a copy of out with all "_"-prefixed keys removed.
+func stripPrivateKeys(out map[string]any) map[string]any {
 	public := make(map[string]any, len(out))
 	for k, v := range out {
 		if strings.HasPrefix(k, "_") {
@@ -75,5 +74,12 @@ func storePhasedOutput(out map[string]any) error {
 		}
 		public[k] = v
 	}
+	return public
+}
+
+// storePhasedOutput serializes the accumulated runtime output map to the
+// env-out.toml file, stripping runtime-only keys (those prefixed with "_").
+func storePhasedOutput(out map[string]any) error {
+	public := stripPrivateKeys(out)
 	return Store(&public)
 }

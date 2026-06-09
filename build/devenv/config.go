@@ -137,7 +137,7 @@ func LoadOutput[T any](outputPath string) (*T, error) {
 	case 1:
 		c, err = loadPhasedCfg(data)
 	default:
-		return nil, fmt.Errorf("unsupported output version %d; supported version is 1", probe.Version)
+		return nil, fmt.Errorf("unsupported output version %d; supported versions are 0 (legacy) and 1 (phased)", probe.Version)
 	}
 	if err != nil {
 		return nil, err
