@@ -36,6 +36,8 @@ type TokenVerifierDBInput struct {
 }
 
 type TokenVerifierInput struct {
+	// Version is the component config schema version (see tokenverifier.Version).
+	Version        int                   `toml:"version"`
 	Mode           Mode                  `toml:"mode"`
 	DB             *TokenVerifierDBInput `toml:"db"`
 	Out            *TokenVerifierOutput  `toml:"-"`

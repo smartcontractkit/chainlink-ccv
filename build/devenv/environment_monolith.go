@@ -16,10 +16,14 @@ import (
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainreg"
+	ccldf "github.com/smartcontractkit/chainlink-ccv/build/devenv/cldf"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
+	ccdeploy "github.com/smartcontractkit/chainlink-ccv/build/devenv/deploy"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	executorsvc "github.com/smartcontractkit/chainlink-ccv/build/devenv/services/executor"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/timing"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/util"
 	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
 	ccvadapters "github.com/smartcontractkit/chainlink-ccv/deployment/adapters"
@@ -36,7 +40,7 @@ import (
 // NewEnvironment creates a new CCIP CCV environment locally in Docker.
 func NewEnvironment() (in *Cfg, err error) {
 	ctx := context.Background()
-	timeTrack := NewTimeTracker(Plog)
+	timeTrack := timing.New(Plog)
 
 	// track environment startup result and time using getDX app
 	defer func() {
@@ -62,7 +66,7 @@ func NewEnvironment() (in *Cfg, err error) {
 		return nil, fmt.Errorf("failed to load configuration: %w", err)
 	}
 
-	if err = in.expandForHA(); err != nil {
+	if err = in.ExpandForHA(); err != nil {
 		return nil, fmt.Errorf("failed to expand HA configuration: %w", err)
 	}
 
@@ -94,7 +98,7 @@ func NewEnvironment() (in *Cfg, err error) {
 	impls := make([]cciptestinterfaces.CCIP17Configuration, 0)
 	for _, bc := range in.Blockchains {
 		var impl cciptestinterfaces.CCIP17Configuration
-		impl, err = NewProductConfigurationFromNetwork(bc.Type)
+		impl, err = chainreg.NewProductConfigurationFromNetwork(bc.Type)
 		if err != nil {
 			return nil, err
 		}
@@ -284,7 +288,7 @@ func NewEnvironment() (in *Cfg, err error) {
 	// it will get populated in the loop below.
 	in.CLDF.Init()
 
-	cldfCfg := CLDFEnvironmentConfig{
+	cldfCfg := ccldf.CLDFEnvironmentConfig{
 		Blockchains: in.Blockchains,
 		DataStore:   in.CLDF.DataStore,
 	}
@@ -292,13 +296,13 @@ func NewEnvironment() (in *Cfg, err error) {
 		cldfCfg.OffchainClient = in.JDInfra.OffchainClient
 		cldfCfg.NodeIDs = in.JDInfra.GetNodeIDs()
 	}
-	selectors, e, err = NewCLDFOperationsEnvironmentWithOffchain(cldfCfg)
+	selectors, e, err = ccldf.NewCLDFOperationsEnvironmentWithOffchain(cldfCfg)
 	if err != nil {
 		return nil, fmt.Errorf("creating CLDF operations environment: %w", err)
 	}
 	L.Info().Any("Selectors", selectors).Msg("Deploying for chain selectors")
 
-	topology := buildEnvironmentTopology(in, e)
+	topology := ccdeploy.BuildEnvironmentTopology(in.EnvironmentTopology, in.Verifier, e)
 	if topology == nil {
 		return nil, fmt.Errorf("failed to build environment topology")
 	}
@@ -340,7 +344,7 @@ func NewEnvironment() (in *Cfg, err error) {
 		chainDS := datastore.NewMemoryDataStore()
 
 		var dsi datastore.DataStore
-		dsi, err = DeployContractsForSelector(ctx, e, impl, networkInfo.ChainSelector, topology)
+		dsi, err = ccdeploy.DeployContractsForSelector(ctx, e, impl, networkInfo.ChainSelector, topology)
 		if err != nil {
 			return nil, err
 		}
@@ -356,7 +360,7 @@ func NewEnvironment() (in *Cfg, err error) {
 		// USDC and Lombard stay inside DeployContractsForSelector.
 		tokenDS := datastore.NewMemoryDataStore()
 		if tcp, ok := impl.(cciptestinterfaces.TokenConfigProvider); ok {
-			if err = DeployTokensAndPools(tcp, e, networkInfo.ChainSelector, combos, tokenDS); err != nil {
+			if err = ccdeploy.DeployTokensAndPools(tcp, e, networkInfo.ChainSelector, combos, tokenDS); err != nil {
 				return nil, fmt.Errorf("deploy tokens and pools for selector %d: %w", networkInfo.ChainSelector, err)
 			}
 		}
@@ -391,15 +395,15 @@ func NewEnvironment() (in *Cfg, err error) {
 
 	// Configure cross-chain token transfers: each chain impl builds its own
 	// TokenTransferConfigs using chain-specific registry and CCV refs.
-	if err = ConfigureAllTokenTransfers(impls, selectors, e, topology); err != nil {
+	if err = ccdeploy.ConfigureAllTokenTransfers(impls, selectors, e, topology); err != nil {
 		return nil, fmt.Errorf("configure all token transfers: %w", err)
 	}
 
 	var connectErr error
-	if in.UseLegacyConfigureLane {
-		connectErr = connectAllChainsLegacy(impls, in.Blockchains, selectors, e, topology)
+	if in.ProtocolContracts.UseLegacyConfigureLane {
+		connectErr = ccdeploy.ConnectAllChainsLegacy(impls, in.Blockchains, selectors, e, topology)
 	} else {
-		connectErr = connectAllChainsCanonical(impls, in.Blockchains, selectors, e, topology)
+		connectErr = ccdeploy.ConnectAllChainsCanonical(impls, in.Blockchains, selectors, e, topology)
 	}
 	if connectErr != nil {
 		return nil, connectErr
@@ -735,7 +739,7 @@ func NewEnvironment() (in *Cfg, err error) {
 			},
 			Lombard: ccvchangesets.LombardConfigInput{
 				VerifierID:     "LombardVerifier",
-				Qualifier:      devenvcommon.LombardContractsQualifier,
+				Qualifier:      devenvcommon.LombardVerifierResolverQualifier,
 				AttestationAPI: fakeOut.InternalHTTPURL + "/lombard",
 			},
 			CCTP: ccvchangesets.CCTPConfigInput{

@@ -11,7 +11,8 @@ import (
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
-	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainimpl"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainreg"
+	ccldf "github.com/smartcontractkit/chainlink-ccv/build/devenv/cldf"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/client"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
@@ -52,9 +53,17 @@ type Lib interface {
 	// or an error if no indexer clients are available.
 	Indexer() (*client.IndexerClient, error)
 
+	// IndexerMonitor returns a new [IndexerMonitor] for the indexer client,
+	// or an error if no indexer client is available.
+	IndexerMonitor() (*IndexerMonitor, error)
+
 	// AllIndexers returns all indexer clients available.
 	// or an error if no indexer clients are available.
 	AllIndexers() ([]*client.IndexerClient, error)
+
+	// AllAggregators returns a mapping of qualifier name to the client of the aggregator for that qualifier.
+	// or an error if no aggregator clients are available.
+	AllAggregators() (map[string]*AggregatorClient, error)
 }
 
 type libFromCCV struct {
@@ -64,11 +73,9 @@ type libFromCCV struct {
 	l          zerolog.Logger
 }
 
-// NewLibFromCCVEnv creates Lib given a logger and envOutFile.
+// NewLibFromCCVEnv creates a new [Lib] from a CCV environment output file.
 // If familiesToLoad is provided, only chains with the given families will be loaded.
 // If familiesToLoad is not provided, all chains will be loaded.
-// The instance uses the global chain family registry which can be extended
-// via RegisterChainFamilyAdapter() before calling NewLibFromCCVEnv.
 func NewLibFromCCVEnv(logger *zerolog.Logger, envOutFile string, familiesToLoad ...string) (Lib, error) {
 	cfg, err := LoadOutput[Cfg](envOutFile)
 	if err != nil {
@@ -76,7 +83,7 @@ func NewLibFromCCVEnv(logger *zerolog.Logger, envOutFile string, familiesToLoad 
 	}
 
 	// Load CLDF env
-	_, env, err := NewCLDFOperationsEnvironment(cfg.Blockchains, cfg.CLDF.DataStore)
+	_, env, err := ccldf.NewCLDFOperationsEnvironment(cfg.Blockchains, cfg.CLDF.DataStore)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create CLDF operations environment: %w", err)
 	}
@@ -125,6 +132,28 @@ func (l *libFromCCV) verify() error {
 	return nil
 }
 
+// AllAggregators implements [Lib].
+func (l *libFromCCV) AllAggregators() (map[string]*AggregatorClient, error) {
+	if err := l.verify(); err != nil {
+		return nil, fmt.Errorf("failed to initialize aggregator clients: %w", err)
+	}
+
+	if len(l.cfg.AggregatorEndpoints) == 0 {
+		return nil, fmt.Errorf("no aggregator endpoints configured")
+	}
+
+	aggregators := make(map[string]*AggregatorClient, len(l.cfg.AggregatorEndpoints))
+	for qualifier, endpoint := range l.cfg.AggregatorEndpoints {
+		ac, err := NewAggregatorClient(l.l, endpoint, l.cfg.AggregatorCACertFiles[qualifier])
+		if err != nil {
+			return nil, fmt.Errorf("failed to create aggregator client for qualifier %s: %w", qualifier, err)
+		}
+		aggregators[qualifier] = ac
+	}
+
+	return aggregators, nil
+}
+
 // CLDFEnvironment implements [Lib].
 func (l *libFromCCV) CLDFEnvironment() (*deployment.Environment, error) {
 	if err := l.verify(); err != nil {
@@ -148,6 +177,15 @@ func (l *libFromCCV) Indexer() (*client.IndexerClient, error) {
 		return nil, fmt.Errorf("no indexer clients found")
 	}
 	return allIndexers[0], nil
+}
+
+// IndexerMonitor implements [Lib].
+func (l *libFromCCV) IndexerMonitor() (*IndexerMonitor, error) {
+	indexerClient, err := l.Indexer()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get indexer client: %w", err)
+	}
+	return NewIndexerMonitor(l.l, indexerClient)
 }
 
 // AllIndexers implements [Lib].
@@ -234,11 +272,14 @@ func (l *libFromCLDF) ChainsMap(ctx context.Context) (map[uint64]cciptestinterfa
 			continue
 		}
 
-		implFactory, err := chainimpl.GetImplFactory(family)
+		reg, err := chainreg.GetRegistry().Get(family)
 		if err != nil {
-			return nil, fmt.Errorf("failed to get implementation factory for family %s: %w", family, err)
+			return nil, fmt.Errorf("failed to get chain registration for family %s: %w", family, err)
 		}
-		impl, err := implFactory.New(ctx, l.l, l.env, selector)
+		if reg.ImplFactory == nil {
+			return nil, fmt.Errorf("implementation factory for family %s not found", family)
+		}
+		impl, err := reg.ImplFactory.New(ctx, l.l, l.env, selector)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create implementation for chain %d: %w", selector, err)
 		}
@@ -259,6 +300,19 @@ func (l *libFromCLDF) Indexer() (*client.IndexerClient, error) {
 	return nil, fmt.Errorf("no indexer clients available in CLDF environment")
 }
 
+// IndexerMonitor implements [Lib].
+func (l *libFromCLDF) IndexerMonitor() (*IndexerMonitor, error) {
+	return nil, fmt.Errorf("no indexer monitor available in CLDF environment")
+}
+
+// AllAggregators implements [Lib].
+func (l *libFromCLDF) AllAggregators() (map[string]*AggregatorClient, error) {
+	return nil, fmt.Errorf("no aggregator clients available in CLDF environment")
+}
+
+// NewLibFromCLDFEnv creates a new [Lib] from a [deployment.Environment].
+// If familiesToLoad is provided, only chains with the given families will be loaded.
+// If familiesToLoad is not provided, all chains will be loaded.
 func NewLibFromCLDFEnv(logger *zerolog.Logger, env *deployment.Environment, familiesToLoad ...string) (Lib, error) {
 	lib := &libFromCLDF{
 		env:            env,

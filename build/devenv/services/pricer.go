@@ -15,7 +15,7 @@ import (
 
 const (
 	DefaultPricerName  = "pricer"
-	DefaultPricerImage = "pricer:dev"
+	DefaultPricerImage = "pricer:latest"
 	// default vars for a local devenv src chain: 1337.
 	DefaultKeystoreAddress      = "0x9221E2E83903C731C2927CCd84e5fa02B22Bb1E2"
 	DefaultKeystoreFilePath     = "../pricer/keystore.json"
@@ -29,6 +29,8 @@ type KeystoreCfg struct {
 }
 
 type PricerInput struct {
+	// Version is the component config schema version (see pricer.Version).
+	Version        int           `toml:"version"`
 	Image          string        `toml:"image"`
 	SourceCodePath string        `toml:"source_code_path"`
 	RootPath       string        `toml:"root_path"`

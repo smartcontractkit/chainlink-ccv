@@ -6,6 +6,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap/zapcore"
+	"go.uber.org/zap/zaptest/observer"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/auth"
 	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
@@ -104,15 +106,26 @@ func TestAPINameFromContext(t *testing.T) {
 }
 
 func TestAugmentLogger(t *testing.T) {
-	lggr := logger.Sugared(logger.Test(t))
-
 	t.Run("adds values from context to logger", func(t *testing.T) {
 		ctx := context.Background()
 		ctx = WithAPIName(ctx, "/Test/Method")
 		ctx = WithRequestID(ctx)
+		ctx = WithMessageID(ctx, []byte{0x01, 0x02})
+		ctx = WithAddress(ctx, []byte{0xaa, 0xbb})
+		ctx = WithAggregationKey(ctx, "test-aggregation-key")
 
+		requestID, ok := RequestIDFromContext(ctx)
+		require.True(t, ok)
+
+		lggr, hook := logger.TestObservedSugared(t, zapcore.InfoLevel)
 		augmented := AugmentLogger(ctx, lggr)
-		assert.NotNil(t, augmented)
+		fields := logFields(t, hook, augmented)
+
+		assert.Equal(t, "/Test/Method", fields["apiName"])
+		assert.Equal(t, requestID, fields["requestID"])
+		assert.Equal(t, "0x0102", fields["messageID"])
+		assert.Equal(t, "0xaabb", fields["address"])
+		assert.Equal(t, "test-aggregation-key", fields["aggregationKey"])
 	})
 
 	t.Run("adds caller identity to logger when present", func(t *testing.T) {
@@ -120,13 +133,24 @@ func TestAugmentLogger(t *testing.T) {
 		identity := auth.CreateCallerIdentity("test-caller", false)
 		ctx = auth.ToContext(ctx, identity)
 
+		lggr, hook := logger.TestObservedSugared(t, zapcore.InfoLevel)
 		augmented := AugmentLogger(ctx, lggr)
-		assert.NotNil(t, augmented)
+		fields := logFields(t, hook, augmented)
+
+		assert.Equal(t, "test-caller", fields["caller_id"])
 	})
 
 	t.Run("handles empty context gracefully", func(t *testing.T) {
+		lggr, hook := logger.TestObservedSugared(t, zapcore.InfoLevel)
 		augmented := AugmentLogger(context.Background(), lggr)
-		assert.NotNil(t, augmented)
+		fields := logFields(t, hook, augmented)
+
+		for _, key := range loggerContextKeys {
+			_, ok := fields[string(key)]
+			assert.False(t, ok, "unexpected field %q", key)
+		}
+		_, ok := fields["caller_id"]
+		assert.False(t, ok)
 	})
 }
 
@@ -159,26 +183,78 @@ func TestAugmentMetrics(t *testing.T) {
 }
 
 func TestAugmentLoggerIfOk(t *testing.T) {
-	lggr := logger.Sugared(logger.Test(t))
-
-	t.Run("adds value when present in context", func(t *testing.T) {
+	t.Run("adds string value when present in context", func(t *testing.T) {
 		ctx := context.WithValue(context.Background(), requestIDKey, "test-id")
 
-		result := augmentLoggerIfOk(ctx, lggr, requestIDKey)
-		assert.NotNil(t, result)
+		lggr, hook := logger.TestObservedSugared(t, zapcore.InfoLevel)
+		augmented := augmentLoggerIfOk(ctx, lggr, requestIDKey)
+		fields := logFields(t, hook, augmented)
+
+		assert.Equal(t, "test-id", fields["requestID"])
+	})
+
+	t.Run("adds messageID from ByteSlice context value", func(t *testing.T) {
+		ctx := WithMessageID(context.Background(), []byte{0x01, 0x02, 0x03, 0x04})
+
+		lggr, hook := logger.TestObservedSugared(t, zapcore.InfoLevel)
+		augmented := augmentLoggerIfOk(ctx, lggr, messageIDKey)
+		fields := logFields(t, hook, augmented)
+
+		assert.Equal(t, "0x01020304", fields["messageID"])
+	})
+
+	t.Run("adds address from ByteSlice context value", func(t *testing.T) {
+		ctx := WithAddress(context.Background(), []byte{0xaa, 0xbb, 0xcc, 0xdd})
+
+		lggr, hook := logger.TestObservedSugared(t, zapcore.InfoLevel)
+		augmented := augmentLoggerIfOk(ctx, lggr, addressKey)
+		fields := logFields(t, hook, augmented)
+
+		assert.Equal(t, "0xaabbccdd", fields["address"])
+	})
+
+	t.Run("returns original logger when ByteSlice value is empty", func(t *testing.T) {
+		ctx := WithMessageID(context.Background(), nil)
+
+		lggr, hook := logger.TestObservedSugared(t, zapcore.InfoLevel)
+		augmented := augmentLoggerIfOk(ctx, lggr, messageIDKey)
+		require.Equal(t, lggr, augmented)
+
+		fields := logFields(t, hook, augmented)
+		_, ok := fields["messageID"]
+		assert.False(t, ok)
 	})
 
 	t.Run("returns original logger when value not present", func(t *testing.T) {
-		result := augmentLoggerIfOk(context.Background(), lggr, requestIDKey)
-		assert.Equal(t, lggr, result)
+		lggr, hook := logger.TestObservedSugared(t, zapcore.InfoLevel)
+		augmented := augmentLoggerIfOk(context.Background(), lggr, requestIDKey)
+		require.Equal(t, lggr, augmented)
+
+		fields := logFields(t, hook, augmented)
+		_, ok := fields["requestID"]
+		assert.False(t, ok)
 	})
 
 	t.Run("returns original logger when value is wrong type", func(t *testing.T) {
 		ctx := context.WithValue(context.Background(), requestIDKey, 123)
 
-		result := augmentLoggerIfOk(ctx, lggr, requestIDKey)
-		assert.Equal(t, lggr, result)
+		lggr, hook := logger.TestObservedSugared(t, zapcore.InfoLevel)
+		augmented := augmentLoggerIfOk(ctx, lggr, requestIDKey)
+		require.Equal(t, lggr, augmented)
+
+		fields := logFields(t, hook, augmented)
+		_, ok := fields["requestID"]
+		assert.False(t, ok)
 	})
+}
+
+func logFields(t *testing.T, hook *observer.ObservedLogs, lggr logger.SugaredLogger) map[string]any {
+	t.Helper()
+
+	lggr.Infow("test")
+	require.Equal(t, 1, hook.Len())
+
+	return hook.All()[0].ContextMap()
 }
 
 func TestContextKeysExportedAsExpected(t *testing.T) {

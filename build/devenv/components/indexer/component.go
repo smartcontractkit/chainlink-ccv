@@ -6,15 +6,22 @@ import (
 	"maps"
 	"strconv"
 
+	"github.com/pelletier/go-toml/v2"
+
 	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
+	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
+	ccvadapters "github.com/smartcontractkit/chainlink-ccv/deployment/adapters"
+	ccvchangesets "github.com/smartcontractkit/chainlink-ccv/deployment/changesets"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
+	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 )
 
 const configKey = "indexer"
 
-// preparedIndexerInputsKey must match the constant in legacy_component.go.
-const preparedIndexerInputsKey = "_prepared_indexer_inputs"
+// Version is the indexer component config schema version. Exactly this version
+// is supported; configs declaring any other version are rejected.
+const Version = 1
 
 func init() {
 	if err := devenvruntime.Register(configKey, factory); err != nil {
@@ -28,28 +35,58 @@ func factory(_ map[string]any) (devenvruntime.Component, error) {
 
 type component struct{}
 
-func (c *component) ValidateConfig(_ any) error { return nil }
+func (c *component) ValidateConfig(componentConfig any) error {
+	_, err := decode(componentConfig)
+	return err
+}
 
-// RunPhase4 takes the *services.IndexerInput pointers published by the legacy
-// Phase 3 component, wires TLS, aggregator discovery config, and secrets, then
-// calls services.NewIndexer. Mutations on the shared pointers are visible to
-// runPhasedEnvironmentFinish, which reads idxIn.Out for URL collection.
+// RunPhase4 decodes the [[indexer]] TOML config, generates indexer configuration
+// from deployed contracts, wires TLS, aggregator discovery config, and secrets,
+// then calls services.NewIndexer. It publishes the populated inputs under
+// "indexer" so NewPhasedEnvironment can collect URLs after all phases complete.
 func (c *component) RunPhase4(
 	_ context.Context,
 	_ map[string]any,
-	_ any,
+	componentConfig any,
 	priorOutputs map[string]any,
 ) (map[string]any, []devenvruntime.Effect, error) {
-	inputs, ok := priorOutputs[preparedIndexerInputsKey].([]*services.IndexerInput)
-	if !ok {
-		// No indexer inputs — env.toml omits [[indexer]].
+	inputs, err := decode(componentConfig)
+	if err != nil {
+		return nil, nil, err
+	}
+	if len(inputs) == 0 {
 		return map[string]any{}, nil, nil
+	}
+
+	e, ok := priorOutputs["_env"].(*deployment.Environment)
+	if !ok {
+		return nil, nil, fmt.Errorf("phase 3 did not produce *deployment.Environment under \"_env\"")
+	}
+
+	firstIdx := inputs[0]
+	cs := ccvchangesets.GenerateIndexerConfig(ccvadapters.GetRegistry())
+	localEnv := *e
+	output, err := cs.Apply(localEnv, ccvchangesets.GenerateIndexerConfigInput{
+		ServiceIdentifier:                "indexer",
+		CommitteeVerifierNameToQualifier: firstIdx.CommitteeVerifierNameToQualifier,
+		CCTPVerifierNameToQualifier:      firstIdx.CCTPVerifierNameToQualifier,
+		LombardVerifierNameToQualifier:   firstIdx.LombardVerifierNameToQualifier,
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("generating indexer config: %w", err)
+	}
+	idxCfg, err := ccvdeployment.GetIndexerConfig(output.DataStore.Seal(), "indexer")
+	if err != nil {
+		return nil, nil, fmt.Errorf("getting indexer config: %w", err)
+	}
+	for _, idxIn := range inputs {
+		idxIn.GeneratedCfg = idxCfg
 	}
 
 	aggregators, _ := priorOutputs["aggregators"].([]*services.AggregatorInput)
 
 	var tlsCerts *services.TLSCertPaths
-	if v, ok := priorOutputs["shared_tls_certs"].(*services.TLSCertPaths); ok {
+	if v, ok := priorOutputs["_shared_tls_certs"].(*services.TLSCertPaths); ok {
 		tlsCerts = v
 	}
 
@@ -165,5 +202,27 @@ func (c *component) RunPhase4(
 		idxIn.Out = out
 	}
 
-	return map[string]any{}, nil, nil
+	return map[string]any{configKey: inputs}, nil, nil
+}
+
+// decode round-trips the raw TOML []any into []*services.IndexerInput.
+func decode(raw any) ([]*services.IndexerInput, error) {
+	b, err := toml.Marshal(struct {
+		V any `toml:"indexer"`
+	}{V: raw})
+	if err != nil {
+		return nil, fmt.Errorf("re-encoding indexer config: %w", err)
+	}
+	var wrapper struct {
+		V []*services.IndexerInput `toml:"indexer"`
+	}
+	if err := toml.Unmarshal(b, &wrapper); err != nil {
+		return nil, fmt.Errorf("decoding indexer config: %w", err)
+	}
+	for i, in := range wrapper.V {
+		if err := devenvruntime.CheckConfigVersion(in.Version, Version); err != nil {
+			return nil, fmt.Errorf("indexer entry %d: %w", i, err)
+		}
+	}
+	return wrapper.V, nil
 }

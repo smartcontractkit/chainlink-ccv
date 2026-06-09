@@ -28,9 +28,12 @@ import (
 )
 
 type JDInfrastructure struct {
-	JDOutput       *ctf_jd.Output
-	OffchainClient offchain.Client
-	NodeIDMap      map[string]string // alias -> JD node ID (needed for JD operations)
+	JDOutput *ctf_jd.Output `toml:"jd_output"`
+	// OffchainClient is a live gRPC client, not serializable state; it is
+	// reconstructable from JDOutput's gRPC URL, so it is excluded from the
+	// serialized phased output (where JDInfrastructure is published publicly).
+	OffchainClient offchain.Client   `toml:"-"`
+	NodeIDMap      map[string]string `toml:"node_id_map"` // alias -> JD node ID (needed for JD operations)
 }
 
 func (j *JDInfrastructure) GetNodeIDs() []string {

@@ -5,12 +5,10 @@
 </div>
 
 - [Components](#components)
-- [Install and Run](#install)
-- [Rebuilding Local Chainlink Node](#rebuilding-local-chainlink-node-image)
+- [Install](#install)
+- [Running Tests](#running-tests)
 - [Testnets](#run-the-environment-testnets)
 - [Creating components](#creating-components)
-- [Tests](#smoke-e2e-test)
-
 
 ## Components
 
@@ -24,132 +22,171 @@
 - [Executor](../../executor/README.md)
 
 ## Install
-All build command are run using [Justfile](https://github.com/casey/just?tab=readme-ov-file#cross-platform), start with installing it
-```
-brew install just # click the link above if you are not on OS X
+
+All build commands use [just](https://github.com/casey/just).
+
+```bash
 cd build/devenv
-just clean-docker-dev # needed in case you have old JD image
-just build-docker-dev
-just setup-gh
-just cli
+just build-docker-dev   # build all service images
+just cli                # install the ccv CLI binary
 ```
 
-Enter `ccv` shell and follow auto-completion hints
+> **Production images**: By default the env runs production images (`:latest`). To hot-reload a specific service, change its tag to `:dev` in `env.toml` and run `just build-docker-dev`.
+
+## Running Tests
+
+`ccv test` handles image build, env startup, and test execution in one command. Run from `build/devenv`.
+
+### Quick start
+
+```bash
+# Full cycle — build images, start env, run test, log to file:
+ccv test --profile standard.profile --pattern TestE2ESmoke_Basic --log /tmp/test.log
+
+# With Chainlink nodes:
+ccv test --profile standard.clnode.profile --pattern TestE2ESmoke_Basic --log /tmp/test.log
+
+# Named suite aliases (smoke, load, chaos, etc.):
+ccv test smoke --profile standard.profile --log /tmp/test.log
+
+# Skip rebuild if images are already current:
+ccv test smoke --profile standard.profile --build=false --log /tmp/test.log
 ```
-ccv sh
+
+The `--log <path>` flag redirects all verbose output (docker build, env startup, go test) to a file so only progress lines appear on the terminal.
+
+### Profiles
+
+A `.profile` file encodes the full environment configuration — mode, config files, and output path. Built-in profiles in `build/devenv/`:
+
+| Profile | Use |
+|---------|-----|
+| `standard.profile` | Default standalone env |
+| `phased.profile` | Phased runtime standalone |
+| `standard.clnode.profile` | Standalone + local Chainlink nodes |
+| `standard.src-auto-mine.profile` | Standalone + auto-mine source chain |
+| `standard.one-exec-per-chain.profile` | Standalone + one executor per chain |
+| `standard.ha.clnode.profile` | High-availability + Chainlink nodes |
+| `phased.clnode.profile` | Phased runtime + Chainlink nodes |
+
+> **CI profiles** (`*.ci.profile`) reference CI-specific image tags and paths. Do not use them locally.
+
+### `ccv test` flags
+
+| Flag | Default | Notes |
+|------|---------|-------|
+| `--profile` / `-p` | — | Profile to start; writes per-run output file |
+| `--pattern` / `-r` | — | Raw Go `-run` pattern; mutually exclusive with suite name |
+| `--build` | `true` | Build Docker images; pass `--build=false` to skip |
+| `--timeout` | unlimited | Passed to `go test -timeout` |
+| `--log <path>` | — | Write all output to file; terminal shows only progress |
+
+### Manual steps (env already running)
+
+Start the environment separately:
+
+```bash
+ccv up --profile standard.profile
+ccv up --profile standard.clnode.profile   # with Chainlink nodes
+ccv down                                    # tear down
+```
+
+Then run tests directly:
+
+```bash
+cd tests/e2e
+go test -v -timeout 15m -count=1 -run TestE2ESmoke_Basic
+```
+
+### Interactive shell
+
+```bash
+ccv shell --profile standard.profile   # starts shell with auto-completion
+ccv sh                                  # uses standard.profile by default
+```
+
+### Load and chaos tests
+
+Start the observability stack first, then use `ccv test`:
+
+```bash
+ccv obs up -m loki
+ccv test load --profile standard.profile --log /tmp/load.log
+ccv test chaos --profile standard.profile --log /tmp/chaos.log
+```
+
+Or run directly:
+```bash
+export LOKI_URL=http://localhost:3030/loki/api/v1/push
+cd tests/e2e
+go test -v -run TestE2ELoad/clean
+go test -v -run TestE2ELoad/rpc_latency
+go test -v -run TestE2ELoad/gas
 ```
 
 ## Rebuilding Local Chainlink Node Image
-You can build a local image of CL node, please specify your `chainlink` repository path in `docker_ctx`
 
-Checkout the `chainlink` repsitory and update `chainlink-ccv` version
-```
+Checkout the `chainlink` repository (sibling of `chainlink-ccv`) and update the `chainlink-ccv` version:
+
+```bash
 # In the chainlink repo
 go get github.com/smartcontractkit/chainlink-ccv@latest && make gomodtidy
 ```
 
-Then run the environment, Docker container will be rebuilt automatically
-```
-up env.toml,env-cl.toml
+Then run with the CL node profile — Docker will rebuild automatically:
+
+```bash
+ccv test --profile standard.clnode.profile --pattern TestE2ESmoke_Basic --log /tmp/test.log
 ```
 
 ## Run the environment (testnets)
-Test key address is `0xE1395cc1ECc9f7B0B19FeECE841E3eC6805186A5`, the private key can be found in 1Password `Eng Shared Vault -> CCIPv1.7 Test Environments`
 
-Create `.envrc` and put the key there `export PRIVATE_KEY="..."` and select the network config
+Test key address is `0xE1395cc1ECc9f7B0B19FeECE841E3eC6805186A5`, private key in 1Password `Eng Shared Vault -> CCIPv1.7 Test Environments`.
+
+Create `.envrc`:
+```bash
+export PRIVATE_KEY="..."
 ```
-up env.toml,env-fuji-fantom.toml
+
+Then start with a testnet config:
+```bash
+ccv up env.toml,env-fuji-fantom.toml
 ```
 
 ### Developing the environment
-We are using [Justfile](https://github.com/casey/just) for devs task
+
 ```bash
 just fmt && just lint
 ```
 
 ### Creating Components
-See the [guide](services/README.md)
 
-### Running tests
-Devenv include 2 types of tests: end-to-end system-level tests and services tests
-
-#### Service Tests
-Go to `tests/services` directory and run
-```bash
-go test -v -run TestService
-```
-
-#### Smoke E2E Test
-Go to `tests/e2e` directory and run
-```bash
-go test -v -run TestE2ESmoke
-```
-
-#### Load/Chaos Tests
-Spin up the observability stack first
-```bash
-export LOKI_URL=http://localhost:3030/loki/api/v1/push
-ccv obs u
-```
-
-Go to `tests/e2e` directory and run
-
-Clean load test
-```bash
-go test -v -run TestE2ELoad/clean
-```
-
-RPC latency test
-```bash
-go test -v -run TestE2ELoad/rpc_latency
-```
-
-Gas spikes
-```bash
-go test -v -run TestE2ELoad/gas
-```
-
-Reorgs (you need an env with Geth configured, `up env.toml,env-geth.toml`)
-```bash
-go test -v -run TestE2ELoad/reorgs
-```
-
-Services chaos
-```bash
-go test -v -run TestE2ELoad/services_chaos
-```
+See the [guide](services/README.md).
 
 ### On-Chain Monitoring
-Implement any on-chain transformations in [CollectAndObserveEvents](monitoring.go) + define `promauto`
 
-Then upload all the metrics to a local `Prometheus` or `Loki`
-```
+Implement on-chain transformations in [CollectAndObserveEvents](monitoring.go) and expose metrics via `promauto`, then upload:
+
+```bash
 upload-on-chain-metrics
 ```
-Go to [dashboards](dashboards) and render your metrics, default `Loki` stream is `{job="on-chain"}`
+
+Go to [dashboards](dashboards) and render metrics. Default Loki stream: `{job="on-chain"}`.
 
 ## Docker Desktop on Linux
 
-Some special considerations are needed in order to use Docker Desktop on Linux
-with the ccv command because the socket location is moved to the users home
-directory.
+If the Docker socket is in a non-standard location, either symlink it:
 
-This can be fixed by creating a symlink in the standard location.
-**Warning**: do not run this command if you also need to use docker engine.
-Additional details are in the official documentation [http://docs.docker.com](https://docs.docker.com/desktop/setup/install/linux/)
 ```bash
 sudo ln -s $HOME/.docker/run/docker.sock /var/run/docker.sock
 ```
 
-Or by exporting the `DOCKER_HOST` variable:
+Or export `DOCKER_HOST`:
+
 ```bash
 export DOCKER_HOST unix://$HOME/.docker/desktop/docker.sock
 ```
 
 ## getDX tracking
 
-getDX is used for tracking:
-- success/failure rate of environment startup with:
-    - configuration files used
-    - truncated error message
-- startup time
+getDX tracks environment startup success/failure rate, config files used, truncated error messages, and startup time.
