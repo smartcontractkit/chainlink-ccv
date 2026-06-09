@@ -1,6 +1,10 @@
 package worker
 
-import "context"
+import (
+	"context"
+
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
+)
 
 // Execute processes a task by finding missing verifiers, loading verifier readers,
 // enqueueing verifier calls, and storing the results.
@@ -28,25 +32,32 @@ func Execute(ctx context.Context, task *Task) (*TaskResult, error) {
 	// These can then be handled by discovery hooks to acquire the readers
 	// for further tasks. However for this task they will be excluded.
 	verifierReaders, attemptingToRetrieve, unknownCCVs := task.loadVerifierReaders(missing)
-	if len(unknownCCVs) != 0 {
-		task.logger.Infof("Detected %d unknown verifiers within the message, ignoring them for this run.", len(unknownCCVs))
-	}
-
-	// Log out useful information about this run
-	task.logger.Infow("Task verifier summary",
-		"sourceCCVs", totalVerifiers,
-		"existingVerifications", existingVerifiers,
-		"attemptingToRetrieve", attemptingToRetrieve,
-		"unknownCCVs", unknownCCVs,
-	)
 
 	// Process all verifier calls concurrently and collect successful results.
 	// Each verifier reader returns a channel that will emit one result when ready.
 	//
 	// Collects the results from the channels and returns any successful verifications.
 	results := task.collectVerifierResults(ctx, verifierReaders)
+
+	// PER-MESSAGE LOG (status): Info on the first attempt, Debug on retries to keep
+	// per-message Info volume bounded; terminal outcome is logged separately.
+	logAttempt := task.logger.Infow
+	if task.attempt > 1 {
+		logAttempt = task.logger.Debugw
+	}
+	logAttempt("Processed verification attempt",
+		protocol.LogTypeKey, protocol.LogTypeMessageStatus,
+		"messageID", task.messageID.String(),
+		"attempt", task.attempt,
+		"total", len(totalVerifiers),
+		"existing", len(existingVerifiers),
+		"missing", len(missing),
+		"attempting", len(attemptingToRetrieve),
+		"unknown", len(unknownCCVs),
+		"collected", len(results),
+	)
+
 	if len(results) > 0 {
-		task.logger.Infof("Collected %d new verifications for the message", len(results))
 		err = task.storage.InsertVerifierResults(ctx, results)
 		if err != nil {
 			return nil, err

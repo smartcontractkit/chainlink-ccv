@@ -71,7 +71,9 @@ func (m *Manager) StartPeriodicHealthLogging(ctx context.Context, l logger.Sugar
 				componentStatus[svc.Name] = status
 			}
 
+			// SERVICE LOG (status): periodic health summary; only steady-state Info line.
 			l.Infow("Service health summary",
+				protocol.LogTypeKey, protocol.LogTypeServiceStatus,
 				"overall_status", response.Status,
 				"components", componentStatus,
 			)
