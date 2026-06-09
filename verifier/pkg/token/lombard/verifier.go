@@ -80,7 +80,7 @@ func (v *Verifier) VerifyMessages(
 	// 2. Process each task, iterate and match from response
 	results := make([]verifier.VerificationResult, 0, len(tasks))
 	for _, task := range tasks {
-		lggr := logger.With(v.lggr, "messageID", task.MessageID, "txHash", task.TxHash)
+		lggr := logger.With(v.lggr, protocol.LogKeyMessageID, task.MessageID, "txHash", task.TxHash)
 		lggr.Debugw("Verifying Lombard task")
 
 		attestation, exists := attestations[task.MessageID]

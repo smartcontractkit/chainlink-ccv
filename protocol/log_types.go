@@ -29,3 +29,21 @@ const (
 	// specific message, such as a periodic health summary.
 	LogTypeServiceStatus LogType = "service_status"
 )
+
+// Canonical structured-log field keys. Prefer these constants over string literals
+// when logging these fields, so a field's key name stays identical across every
+// service and cannot drift via typo (e.g. messageID vs message_id vs messageId).
+const (
+	// LogKeyMessageID is the field key for a CCIP message ID.
+	LogKeyMessageID = "messageID"
+	// LogKeySourceChain is the field key for a source chain selector.
+	LogKeySourceChain = "sourceChain"
+	// LogKeyDestChain is the field key for a destination chain selector.
+	LogKeyDestChain = "destChain"
+	// LogKeyChainSel is the field key for a generic (single) chain selector.
+	LogKeyChainSel = "chainSel"
+	// LogKeyNonce is the field key for a message sequence number / nonce.
+	LogKeyNonce = "nonce"
+	// LogKeyJobID is the field key for a job-queue job ID.
+	LogKeyJobID = "jobID"
+)

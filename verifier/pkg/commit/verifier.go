@@ -130,10 +130,10 @@ func (cv *Verifier) verifyMessage(_ context.Context, verificationTask verifier.V
 		return nil, fmt.Errorf("failed to convert messageID to Bytes32: %w", err)
 	}
 	cv.lggr.Debugw("Starting message verification",
-		"messageID", msgIDStr,
-		"nonce", message.SequenceNumber,
-		"sourceChain", message.SourceChainSelector,
-		"destChain", message.DestChainSelector,
+		protocol.LogKeyMessageID, msgIDStr,
+		protocol.LogKeyNonce, message.SequenceNumber,
+		protocol.LogKeySourceChain, message.SourceChainSelector,
+		protocol.LogKeyDestChain, message.DestChainSelector,
 	)
 
 	// 1. Validate that the message comes from a configured source chain
@@ -154,7 +154,7 @@ func (cv *Verifier) verifyMessage(_ context.Context, verificationTask verifier.V
 	}
 
 	cv.lggr.Debugw("Message validation passed",
-		"messageID", messageID,
+		protocol.LogKeyMessageID, messageID,
 		"verifierAddress", sourceConfig.VerifierAddress,
 		"defaultExecutorAddress", sourceConfig.DefaultExecutorAddress,
 	)
@@ -190,7 +190,7 @@ func (cv *Verifier) verifyMessage(_ context.Context, verificationTask verifier.V
 
 		// Fall back to the message discovery version if the default executor is found.
 		verifierBlob = protocol.MessageDiscoveryVersion
-		cv.lggr.Debugw("Using message discovery version for message", "messageID", messageID, "version", hexutil.Encode(verifierBlob))
+		cv.lggr.Debugw("Using message discovery version for message", protocol.LogKeyMessageID, messageID, "version", hexutil.Encode(verifierBlob))
 	}
 	hash, err := committee.NewSignableHash(messageID, verifierBlob)
 	if err != nil {
@@ -203,7 +203,7 @@ func (cv *Verifier) verifyMessage(_ context.Context, verificationTask verifier.V
 	}
 
 	cv.lggr.Debugw("Message signed successfully",
-		"messageID", msgIDStr,
+		protocol.LogKeyMessageID, msgIDStr,
 		"signer", cv.signerAddress,
 		"signatureLength", len(encodedSignature),
 	)
@@ -217,10 +217,10 @@ func (cv *Verifier) verifyMessage(_ context.Context, verificationTask verifier.V
 	// PER-MESSAGE LOG (status): signing complete; storage write is the terminal success.
 	cv.lggr.Infow("Message verification completed successfully",
 		protocol.LogTypeKey, protocol.LogTypeMessageStatus,
-		"messageID", msgIDStr,
-		"nonce", message.SequenceNumber,
-		"sourceChain", message.SourceChainSelector,
-		"destChain", message.DestChainSelector,
+		protocol.LogKeyMessageID, msgIDStr,
+		protocol.LogKeyNonce, message.SequenceNumber,
+		protocol.LogKeySourceChain, message.SourceChainSelector,
+		protocol.LogKeyDestChain, message.DestChainSelector,
 	)
 
 	return ccvNodeData, nil

@@ -65,7 +65,7 @@ func (v *Verifier) VerifyMessages(
 	//  may lead to performance bottlenecks. Consider using a worker pool or goroutines with a semaphore to limit
 	//  concurrency.
 	for _, task := range tasks {
-		lggr := logger.With(v.lggr, "messageID", task.MessageID, "txHash", task.TxHash)
+		lggr := logger.With(v.lggr, protocol.LogKeyMessageID, task.MessageID, "txHash", task.TxHash)
 		lggr.Debugw("Verifying CCTP task")
 
 		// 1. Fetch attestation

@@ -322,8 +322,8 @@ func (r *Service) processEventCycle(ctx context.Context, latest, finalized *prot
 	for _, event := range events {
 		if r.filter != nil && !r.filter.Filter(event) {
 			r.logger.Debugw("Message filtered out by filter",
-				"messageID", event.MessageID.String(),
-				"destChain", event.Message.DestChainSelector,
+				protocol.LogKeyMessageID, event.MessageID.String(),
+				protocol.LogKeyDestChain, event.Message.DestChainSelector,
 			)
 			continue
 		}
@@ -433,10 +433,10 @@ func (r *Service) addToPendingQueueHandleReorg(tasks []verifier.VerificationTask
 		if existingBlock.Cmp(fromBlock) >= 0 && (toBlock == nil || existingBlock.Cmp(toBlock) <= 0) {
 			if _, exists := tasksMap[msgID]; !exists {
 				r.logger.Warnw("Removing task from pending queue due to reorg",
-					"messageID", msgID,
+					protocol.LogKeyMessageID, msgID,
 					"blockNumber", existing.BlockNumber,
 					"seqNum", existing.Message.SequenceNumber,
-					"destChain", existing.Message.DestChainSelector,
+					protocol.LogKeyDestChain, existing.Message.DestChainSelector,
 					"fromBlock", fromBlock.String(),
 				)
 				r.reorgTracker.Track(existing.Message.DestChainSelector, existing.Message.SequenceNumber)
@@ -450,9 +450,9 @@ func (r *Service) addToPendingQueueHandleReorg(tasks []verifier.VerificationTask
 		if taskBlock.Cmp(fromBlock) >= 0 && (toBlock == nil || taskBlock.Cmp(toBlock) <= 0) {
 			if _, exists := tasksMap[msgID]; !exists {
 				r.logger.Warnw("Removing task from sentTasks due to reorg",
-					"messageID", msgID,
+					protocol.LogKeyMessageID, msgID,
 					"seqNum", task.Message.SequenceNumber,
-					"destChain", task.Message.DestChainSelector,
+					protocol.LogKeyDestChain, task.Message.DestChainSelector,
 				)
 				r.reorgTracker.Track(task.Message.DestChainSelector, task.Message.SequenceNumber)
 				delete(r.sentTasks, msgID)
@@ -466,13 +466,13 @@ func (r *Service) addToPendingQueueHandleReorg(tasks []verifier.VerificationTask
 		}
 		if _, alreadySent := r.sentTasks[task.MessageID]; alreadySent {
 			r.logger.Debugw("Skipping already-sent message",
-				"messageID", task.MessageID,
+				protocol.LogKeyMessageID, task.MessageID,
 				"blockNumber", task.BlockNumber)
 			continue
 		}
 		r.pendingTasks[task.MessageID] = task
 		r.logger.Debugw("Added message to pending queue",
-			"messageID", task.MessageID,
+			protocol.LogKeyMessageID, task.MessageID,
 			"blockNumber", task.BlockNumber,
 			"seqNum", task.Message.SequenceNumber,
 			"pendingCount", len(r.pendingTasks))
@@ -542,9 +542,9 @@ func (r *Service) sendReadyMessages(ctx context.Context, latest, safe, finalized
 			if cursed {
 				if curseErr != nil {
 					r.logger.Warnw("Blocking lane - curse state unknown",
-						"messageID", msgID,
-						"sourceChain", task.Message.SourceChainSelector,
-						"destChain", task.Message.DestChainSelector,
+						protocol.LogKeyMessageID, msgID,
+						protocol.LogKeySourceChain, task.Message.SourceChainSelector,
+						protocol.LogKeyDestChain, task.Message.DestChainSelector,
 						"error", curseErr)
 					hasBlockingUnknown = true
 					// In this particular case we can't make a decision, so we'll just skip the task
@@ -552,9 +552,9 @@ func (r *Service) sendReadyMessages(ctx context.Context, latest, safe, finalized
 					continue
 				}
 				r.logger.Warnw("Dropping task - lane is cursed",
-					"messageID", msgID,
-					"sourceChain", task.Message.SourceChainSelector,
-					"destChain", task.Message.DestChainSelector)
+					protocol.LogKeyMessageID, msgID,
+					protocol.LogKeySourceChain, task.Message.SourceChainSelector,
+					protocol.LogKeyDestChain, task.Message.DestChainSelector)
 				toBeDeleted = append(toBeDeleted, msgID)
 				continue
 			}
@@ -562,18 +562,18 @@ func (r *Service) sendReadyMessages(ctx context.Context, latest, safe, finalized
 			disabled, disablementErr := r.messageRules.IsMessageDisabled(ctx, task.Message)
 			if disablementErr != nil {
 				r.logger.Warnw("Blocking message - message rules state unknown",
-					"messageID", msgID,
-					"sourceChain", task.Message.SourceChainSelector,
-					"destChain", task.Message.DestChainSelector,
+					protocol.LogKeyMessageID, msgID,
+					protocol.LogKeySourceChain, task.Message.SourceChainSelector,
+					protocol.LogKeyDestChain, task.Message.DestChainSelector,
 					"error", disablementErr)
 				hasBlockingUnknown = true
 				continue
 			}
 			if disabled {
 				r.logger.Warnw("Dropping task - message matched a disablement rule",
-					"messageID", msgID,
-					"sourceChain", task.Message.SourceChainSelector,
-					"destChain", task.Message.DestChainSelector)
+					protocol.LogKeyMessageID, msgID,
+					protocol.LogKeySourceChain, task.Message.SourceChainSelector,
+					protocol.LogKeyDestChain, task.Message.DestChainSelector)
 				toBeDeleted = append(toBeDeleted, msgID)
 				continue
 			}
@@ -685,9 +685,9 @@ func (r *Service) isMessageReadyForVerification(
 	if r.reorgTracker.RequiresFinalization(destChain, seqNum) {
 		ready := msgBlock.Cmp(latestFinalizedBlock) <= 0
 		r.logger.Debugw("Reorg-affected message finality check",
-			"messageID", task.MessageID,
+			protocol.LogKeyMessageID, task.MessageID,
 			"seqNum", seqNum,
-			"destChain", destChain,
+			protocol.LogKeyDestChain, destChain,
 			"messageBlock", task.BlockNumber,
 			"finalizedBlock", latestFinalizedBlock.String(),
 			"meetsRequirement", ready,
@@ -698,7 +698,7 @@ func (r *Service) isMessageReadyForVerification(
 	ready, err := task.Message.Finality.IsMessageReady(msgBlock, latestBlock, latestSafeBlock, latestFinalizedBlock)
 	if err != nil {
 		r.logger.Errorw("Finality check failed due to nil block argument",
-			"messageID", task.MessageID,
+			protocol.LogKeyMessageID, task.MessageID,
 			"error", err,
 		)
 		return false
@@ -708,7 +708,7 @@ func (r *Service) isMessageReadyForVerification(
 		safeBlockString = latestSafeBlock.String()
 	}
 	r.logger.Debugw("Finality check",
-		"messageID", task.MessageID,
+		protocol.LogKeyMessageID, task.MessageID,
 		"finality", task.Message.Finality,
 		"messageBlock", task.BlockNumber,
 		"latestBlock", latestBlock.String(),

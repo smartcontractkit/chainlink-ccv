@@ -211,22 +211,22 @@ func (s *Processor) processBatch(ctx context.Context) error {
 			successfulJobs = append(successfulJobs, jobID)
 			successfulResults = append(successfulResults, writeResult.Input)
 			// PER-MESSAGE LOG (success): terminal; verification result persisted to storage.
-			s.lggr.Infow("Write succeeded for message", protocol.LogTypeKey, protocol.LogTypeMessageSuccess, "messageID", messageID, "jobID", jobID)
+			s.lggr.Infow("Write succeeded for message", protocol.LogTypeKey, protocol.LogTypeMessageSuccess, protocol.LogKeyMessageID, messageID, protocol.LogKeyJobID, jobID)
 		} else {
 			if writeResult.Retryable {
 				retriableFailedJobs = append(retriableFailedJobs, jobID)
 				failedErrorMap[jobID] = writeResult.Error
 				s.lggr.Errorw("Write failed for message (retryable)",
-					"messageID", messageID,
-					"jobID", jobID,
+					protocol.LogKeyMessageID, messageID,
+					protocol.LogKeyJobID, jobID,
 					"error", writeResult.Error,
 				)
 			} else {
 				nonRetriableFailedJobs = append(nonRetriableFailedJobs, jobID)
 				failedErrorMap[jobID] = writeResult.Error
 				s.lggr.Errorw("Write failed for message (non-retryable)",
-					"messageID", messageID,
-					"jobID", jobID,
+					protocol.LogKeyMessageID, messageID,
+					protocol.LogKeyJobID, jobID,
 					"error", writeResult.Error,
 				)
 			}

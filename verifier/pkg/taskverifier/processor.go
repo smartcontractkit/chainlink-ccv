@@ -219,7 +219,7 @@ func (p *Processor) handleVerificationResults(
 
 		jobID, exists := jobIDMap[messageID]
 		if !exists {
-			p.lggr.Errorw("Job ID not found for message", "messageID", messageID)
+			p.lggr.Errorw("Job ID not found for message", protocol.LogKeyMessageID, messageID)
 			continue
 		}
 
@@ -372,10 +372,10 @@ func (p *Processor) handleVerificationError(
 	p.lggr.Errorw("Message verification failed",
 		protocol.LogTypeKey, protocol.LogTypeMessageFailure,
 		"error", verificationError.Error,
-		"messageID", verificationError.Task.MessageID,
-		"nonce", message.SequenceNumber,
-		"sourceChain", message.SourceChainSelector,
-		"destChain", message.DestChainSelector,
+		protocol.LogKeyMessageID, verificationError.Task.MessageID,
+		protocol.LogKeyNonce, message.SequenceNumber,
+		protocol.LogKeySourceChain, message.SourceChainSelector,
+		protocol.LogKeyDestChain, message.DestChainSelector,
 		"retryable", verificationError.Retryable,
 	)
 
