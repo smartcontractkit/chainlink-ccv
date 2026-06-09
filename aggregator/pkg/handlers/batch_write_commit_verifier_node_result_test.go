@@ -64,7 +64,7 @@ func TestBatchWriteCommitCCVNodeDataHandler_BatchSizeValidation(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			lggr := logger.TestSugared(t)
+			lggr := logger.Sugared(logger.Nop())
 			store := mocks.NewMockCommitVerificationStore(t)
 			agg := mocks.NewMockAggregationTriggerer(t)
 			sig := mocks.NewMockSignatureValidator(t)
@@ -119,7 +119,7 @@ func TestBatchWriteCommitCCVNodeDataHandler_MixedSuccessAndInvalidArgument(t *te
 	const testCallerID = "test-caller"
 	const testChannelKey model.ChannelKey = "test-caller"
 
-	lggr := logger.TestSugared(t)
+	lggr := logger.Sugared(logger.Nop())
 	store := mocks.NewMockCommitVerificationStore(t)
 	agg := mocks.NewMockAggregationTriggerer(t)
 
@@ -174,7 +174,7 @@ func TestBatchWriteCommitCCVNodeDataHandler_NilRequestAtIndexReturnsInvalidArgum
 	const testCallerID = "test-caller"
 	const testChannelKey model.ChannelKey = "test-caller"
 
-	lggr := logger.TestSugared(t)
+	lggr := logger.Sugared(logger.Nop())
 	store := mocks.NewMockCommitVerificationStore(t)
 	agg := mocks.NewMockAggregationTriggerer(t)
 	sig := mocks.NewMockSignatureValidator(t)
