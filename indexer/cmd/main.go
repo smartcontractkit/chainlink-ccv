@@ -294,5 +294,5 @@ func createPostgresStorage(ctx context.Context, lggr logger.Logger, cfg *config.
 		lggr.Fatalf("Failed to create postgres storage: %v", err)
 	}
 
-	return dbStore
+	return storage.WrapWithMetrics(dbStore, indexerMonitoring, lggr)
 }

@@ -21,14 +21,6 @@ import (
 var _ common.IndexerStorage = (*PostgresStorage)(nil)
 
 const (
-	opGetCCVData            = "GetCCVData"
-	opQueryCCVData          = "QueryCCVData"
-	opBatchInsertCCVData    = "BatchInsertCCVData"
-	opQueryMessages         = "QueryMessages"
-	opUpdateMessageStatus   = "UpdateMessageStatus"
-	opCreateDiscoveryState  = "CreateDiscoveryState"
-	opPersistDiscoveryBatch = "PersistDiscoveryBatch"
-
 	// maxBatchSizeCCVData is the maximum number of CCV data rows that can be inserted in a single query
 	// to avoid Postgres bind parameter overflow (65535 limit). With 11 parameters per row, 5000 rows = 55000 parameters.
 	maxBatchSizeCCVData = 5000
@@ -92,12 +84,6 @@ func NewPostgresStorage(ctx context.Context, lggr logger.Logger, monitoring comm
 
 // GetCCVData performs a lookup by messageID in the database.
 func (d *PostgresStorage) GetCCVData(ctx context.Context, messageID protocol.Bytes32) ([]common.VerifierResultWithMetadata, error) {
-	startQueryMetric := time.Now()
-	var err error
-	defer func() {
-		d.monitoring.Metrics().RecordStorageQueryDuration(ctx, time.Since(startQueryMetric), opGetCCVData, err != nil)
-	}()
-
 	query := `
 		SELECT 
 			message_id,
@@ -153,12 +139,6 @@ func (d *PostgresStorage) QueryCCVData(
 	sourceChainSelectors, destChainSelectors []protocol.ChainSelector,
 	limit, offset uint64,
 ) (map[string][]common.VerifierResultWithMetadata, error) {
-	startQueryMetric := time.Now()
-	var err error
-	defer func() {
-		d.monitoring.Metrics().RecordStorageQueryDuration(ctx, time.Since(startQueryMetric), opQueryCCVData, err != nil)
-	}()
-
 	// Build dynamic query with filters
 	query := `
 		SELECT 
@@ -305,19 +285,14 @@ func (d *PostgresStorage) InsertVerifierResults(ctx context.Context, verifierRes
 		return nil
 	}
 
-	startInsertMetric := time.Now()
-
 	query, args, err := buildBatchInsertCCVDataQuery(verifierResults)
 	if err != nil {
-		d.monitoring.Metrics().RecordStorageInsertErrorsCounter(ctx, opBatchInsertCCVData)
 		return err
 	}
 
 	result, err := d.execContext(ctx, query, args...)
 	if err != nil {
 		d.lggr.Errorw("Failed to batch insert CCV data", "error", err, "count", len(verifierResults))
-		d.monitoring.Metrics().RecordStorageInsertErrorsCounter(ctx, opBatchInsertCCVData)
-		d.monitoring.Metrics().RecordStorageWriteDuration(ctx, time.Since(startInsertMetric))
 		return fmt.Errorf("failed to batch insert CCV data: %w", err)
 	}
 
@@ -332,7 +307,6 @@ func (d *PostgresStorage) InsertVerifierResults(ctx context.Context, verifierRes
 		d.monitoring.Metrics().IncrementVerificationRecordsCounter(ctx)
 	}
 
-	d.monitoring.Metrics().RecordStorageWriteDuration(ctx, time.Since(startInsertMetric))
 	return nil
 }
 
@@ -491,12 +465,6 @@ func (d *PostgresStorage) QueryMessages(
 	sourceChainSelectors, destChainSelectors []protocol.ChainSelector,
 	limit, offset uint64,
 ) ([]common.MessageWithMetadata, error) {
-	startQueryMetric := time.Now()
-	var err error
-	defer func() {
-		d.monitoring.Metrics().RecordStorageQueryDuration(ctx, time.Since(startQueryMetric), opQueryMessages, err != nil)
-	}()
-
 	query := `
 		SELECT 
 			message_id,
@@ -557,8 +525,6 @@ func (d *PostgresStorage) QueryMessages(
 
 // UpdateMessageStatus implements common.IndexerStorage.
 func (d *PostgresStorage) UpdateMessageStatus(ctx context.Context, messageID protocol.Bytes32, status common.MessageStatus, lastErr string) error {
-	startUpdateMetric := time.Now()
-
 	query := `
 		UPDATE indexer.messages
 		SET status = $1, lastErr = $2
@@ -568,30 +534,23 @@ func (d *PostgresStorage) UpdateMessageStatus(ctx context.Context, messageID pro
 	result, err := d.execContext(ctx, query, status.String(), lastErr, messageID.String())
 	if err != nil {
 		d.lggr.Errorw("Failed to update message status", "error", err, "messageID", messageID.String())
-		d.monitoring.Metrics().RecordStorageInsertErrorsCounter(ctx, opUpdateMessageStatus)
-		d.monitoring.Metrics().RecordStorageWriteDuration(ctx, time.Since(startUpdateMetric))
 		return fmt.Errorf("failed to update message status: %w", err)
 	}
 
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
 		d.lggr.Warnw("Failed to get rows affected", "error", err)
-		d.monitoring.Metrics().RecordStorageWriteDuration(ctx, time.Since(startUpdateMetric))
 		return fmt.Errorf("failed to get rows affected: %w", err)
 	}
 
 	if rowsAffected == 0 {
-		d.monitoring.Metrics().RecordStorageWriteDuration(ctx, time.Since(startUpdateMetric))
 		return fmt.Errorf("message not found: %s", messageID.String())
 	}
 
-	d.monitoring.Metrics().RecordStorageWriteDuration(ctx, time.Since(startUpdateMetric))
 	return nil
 }
 
 func (d *PostgresStorage) CreateDiscoveryState(ctx context.Context, discoveryLocation string, startingSequenceNumber int) error {
-	startInsertMetric := time.Now()
-
 	query := `
     INSERT INTO indexer.discovery_state (
       discovery_location,
@@ -606,15 +565,12 @@ func (d *PostgresStorage) CreateDiscoveryState(ctx context.Context, discoveryLoc
 	)
 	if err != nil {
 		d.lggr.Errorw("Failed to create discovery state record", "error", err, "discoveryLocation", discoveryLocation, "sequenceNumber", startingSequenceNumber)
-		d.monitoring.Metrics().RecordStorageInsertErrorsCounter(ctx, opCreateDiscoveryState)
-		d.monitoring.Metrics().RecordStorageWriteDuration(ctx, time.Since(startInsertMetric))
 		return fmt.Errorf("failed to create discovery state: %w", err)
 	}
 
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
 		d.lggr.Warnw("Failed to get rows affected", "error", err)
-		d.monitoring.Metrics().RecordStorageWriteDuration(ctx, time.Since(startInsertMetric))
 		return fmt.Errorf("failed to get rows affected: %w", err)
 	}
 
@@ -623,7 +579,6 @@ func (d *PostgresStorage) CreateDiscoveryState(ctx context.Context, discoveryLoc
 		return nil
 	}
 
-	d.monitoring.Metrics().RecordStorageWriteDuration(ctx, time.Since(startInsertMetric))
 	return nil
 }
 
@@ -631,8 +586,6 @@ func (d *PostgresStorage) PersistDiscoveryBatch(ctx context.Context, batch commo
 	if len(batch.Messages) == 0 && len(batch.Verifications) == 0 {
 		return nil
 	}
-
-	startMetric := time.Now()
 
 	var verificationsInserted int64
 
@@ -694,8 +647,6 @@ func (d *PostgresStorage) PersistDiscoveryBatch(ctx context.Context, batch commo
 	})
 	if err != nil {
 		d.lggr.Errorw("Failed to persist discovery batch", "error", err)
-		d.monitoring.Metrics().RecordStorageInsertErrorsCounter(ctx, opPersistDiscoveryBatch)
-		d.monitoring.Metrics().RecordStorageWriteDuration(ctx, time.Since(startMetric))
 		return err
 	}
 
@@ -710,7 +661,6 @@ func (d *PostgresStorage) PersistDiscoveryBatch(ctx context.Context, batch commo
 		"verifications", len(batch.Verifications),
 		"sequenceNumber", batch.SequenceNumber,
 	)
-	d.monitoring.Metrics().RecordStorageWriteDuration(ctx, time.Since(startMetric))
 	return nil
 }
 

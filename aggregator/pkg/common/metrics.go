@@ -39,9 +39,9 @@ type AggregatorMetricLabeler interface {
 	// DecrementPendingAggregationsChannelBuffer decrements the pending aggregations channel buffer counter.
 	DecrementPendingAggregationsChannelBuffer(ctx context.Context, count int)
 	// RecordStorageLatency records storage operation latency in milliseconds.
-	RecordStorageLatency(ctx context.Context, duration time.Duration)
+	RecordStorageLatency(ctx context.Context, operation string, duration time.Duration, errored bool)
 	// IncrementStorageError increments the storage error counter.
-	IncrementStorageError(ctx context.Context)
+	IncrementStorageError(ctx context.Context, operation string)
 	// RecordTimeToAggregation records the time taken to complete an aggregation.
 	RecordTimeToAggregation(ctx context.Context, duration time.Duration)
 	// SetOrphanBacklog sets the gauge for non-expired orphan records (recovery queue).
