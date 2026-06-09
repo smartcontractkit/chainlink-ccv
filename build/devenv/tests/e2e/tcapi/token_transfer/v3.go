@@ -2,6 +2,7 @@ package token_transfer
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/big"
 	"time"
@@ -39,31 +40,42 @@ type tokenTransferV3TestCase struct {
 	srcToken  protocol.UnknownAddress
 	destToken protocol.UnknownAddress
 	executor  protocol.UnknownAddress
-	hydrate   func(ctx context.Context, tc *tokenTransferV3TestCase) bool
-	hydrated  bool
+	hydrate  func(ctx context.Context, tc *tokenTransferV3TestCase) ([]tcapi.MissingPrerequisite, error)
+	hydrated bool
 }
 
 func (tc *tokenTransferV3TestCase) Name() string {
 	return tc.name
 }
 
-func (tc *tokenTransferV3TestCase) ensureHydrated(ctx context.Context) error {
+func (tc *tokenTransferV3TestCase) ensureHydrated(ctx context.Context) ([]tcapi.MissingPrerequisite, error) {
 	if tc.hydrated {
-		return nil
+		return nil, nil
 	}
 	if tc.hydrate == nil {
-		return fmt.Errorf("%s: missing hydrate func", tc.name)
+		return nil, fmt.Errorf("%s: missing hydrate func", tc.name)
 	}
-	if !tc.hydrate(ctx, tc) {
-		return fmt.Errorf("%s: prerequisites not met", tc.name)
+	missing, err := tc.hydrate(ctx, tc)
+	if err != nil {
+		return nil, err
 	}
-	tc.hydrated = true
-	return nil
+	if len(missing) == 0 {
+		tc.hydrated = true
+	}
+	return missing, nil
 }
 
 func (tc *tokenTransferV3TestCase) Run(ctx context.Context) error {
-	if err := tc.ensureHydrated(ctx); err != nil {
+	missing, err := tc.ensureHydrated(ctx)
+	if err != nil {
 		return err
+	}
+	if len(missing) > 0 {
+		errs := make([]error, len(missing))
+		for i, m := range missing {
+			errs[i] = m
+		}
+		return errors.Join(errs...)
 	}
 	l := zerolog.Ctx(ctx)
 	chainMap, err := tc.lib.ChainsMap(ctx)
@@ -195,8 +207,8 @@ func (tc *tokenTransferV3TestCase) Run(ctx context.Context) error {
 	return nil
 }
 
-func (tc *tokenTransferV3TestCase) HavePrerequisites(ctx context.Context) bool {
-	return tc.ensureHydrated(ctx) == nil
+func (tc *tokenTransferV3TestCase) CheckPrerequisites(ctx context.Context) ([]tcapi.MissingPrerequisite, error) {
+	return tc.ensureHydrated(ctx)
 }
 
 // TokenTransfer returns a single token transfer test case for the given combo, finality, receiver type, and name.
@@ -218,68 +230,88 @@ func tokenTransferCase(lib ccv.Lib, src, dest uint64, combo common.TokenCombinat
 			numExpectedVer:  combo.ExpectedVerifierResults(),
 			args:            args,
 		},
-		hydrate: func(ctx context.Context, tc *tokenTransferV3TestCase) bool {
+		hydrate: func(ctx context.Context, tc *tokenTransferV3TestCase) ([]tcapi.MissingPrerequisite, error) {
 			srcFamily, err := chain_selectors.GetSelectorFamily(tc.src)
 			if err != nil {
-				return false
+				return nil, fmt.Errorf("source chain family: %w", err)
 			}
 			srcReg, err := chainreg.GetRegistry().Get(srcFamily)
 			if err != nil {
-				return false
+				return nil, fmt.Errorf("source chain registry: %w", err)
 			}
 			dstFamily, err := chain_selectors.GetSelectorFamily(tc.dst)
 			if err != nil {
-				return false
+				return nil, fmt.Errorf("dest chain family: %w", err)
 			}
 			dstReg, err := chainreg.GetRegistry().Get(dstFamily)
 			if err != nil {
-				return false
+				return nil, fmt.Errorf("dest chain registry: %w", err)
 			}
 			if srcReg.AddressResolver == nil || dstReg.AddressResolver == nil {
-				return false
+				return nil, fmt.Errorf("missing address resolver")
 			}
 			ds, err := tc.lib.DataStore()
 			if err != nil {
-				return false
+				return nil, fmt.Errorf("data store: %w", err)
 			}
 			chainMap, err := tc.lib.ChainsMap(ctx)
 			if err != nil {
-				return false
+				return nil, fmt.Errorf("chains map: %w", err)
 			}
 			src, ok := chainMap[tc.src]
 			if !ok {
-				return false
+				return nil, fmt.Errorf("chain %d not found in chains map", tc.src)
 			}
 			dst, ok := chainMap[tc.dst]
 			if !ok {
-				return false
+				return nil, fmt.Errorf("chain %d not found in chains map", tc.dst)
 			}
 			sender, err := src.GetSenderAddress()
 			if err != nil {
-				return false
+				return nil, fmt.Errorf("sender address: %w", err)
 			}
 			tc.sender = sender
 
+			var missing []tcapi.MissingPrerequisite
+
 			if tc.useEOAReceiver {
-				tc.receiver, err = dst.GetEOAReceiverAddress()
+				receiver, err := dst.GetEOAReceiverAddress()
+				if err != nil {
+					missing = append(missing, tcapi.MissingPrerequisite{Name: "EOA receiver address", Err: err})
+				} else {
+					tc.receiver = receiver
+				}
 			} else {
-				tc.receiver, err = dstReg.AddressResolver.GetContractReceiver(ds, tc.dst, common.DefaultReceiverQualifier)
-			}
-			if err != nil {
-				return false
-			}
-
-			tc.srcToken, err = srcReg.AddressResolver.GetToken(ds, tc.src, tc.combo.LocalPoolAddressRef())
-			if err != nil {
-				return false
-			}
-			tc.destToken, err = dstReg.AddressResolver.GetToken(ds, tc.dst, tc.combo.RemotePoolAddressRef())
-			if err != nil {
-				return false
+				receiver, err := dstReg.AddressResolver.GetContractReceiver(ds, tc.dst, common.DefaultReceiverQualifier)
+				if err != nil {
+					missing = append(missing, tcapi.MissingPrerequisite{Name: "contract receiver (default)", Err: err})
+				} else {
+					tc.receiver = receiver
+				}
 			}
 
-			tc.executor, err = srcReg.AddressResolver.GetExecutor(ds, tc.src, common.DefaultExecutorQualifier)
-			return err == nil
+			srcToken, err := srcReg.AddressResolver.GetToken(ds, tc.src, tc.combo.LocalPoolAddressRef())
+			if err != nil {
+				missing = append(missing, tcapi.MissingPrerequisite{Name: fmt.Sprintf("source token (%s)", tc.combo.LocalPoolAddressRef().Qualifier), Err: err})
+			} else {
+				tc.srcToken = srcToken
+			}
+
+			destToken, err := dstReg.AddressResolver.GetToken(ds, tc.dst, tc.combo.RemotePoolAddressRef())
+			if err != nil {
+				missing = append(missing, tcapi.MissingPrerequisite{Name: fmt.Sprintf("dest token (%s)", tc.combo.RemotePoolAddressRef().Qualifier), Err: err})
+			} else {
+				tc.destToken = destToken
+			}
+
+			executor, err := srcReg.AddressResolver.GetExecutor(ds, tc.src, common.DefaultExecutorQualifier)
+			if err != nil {
+				missing = append(missing, tcapi.MissingPrerequisite{Name: "executor (default)", Err: err})
+			} else {
+				tc.executor = executor
+			}
+
+			return missing, nil
 		},
 	}
 }

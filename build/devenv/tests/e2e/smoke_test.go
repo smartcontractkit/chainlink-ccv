@@ -40,13 +40,15 @@ func TestE2ESmoke_Basic(t *testing.T) {
 	basicArgs := basic.Args{Send: sendCfg}
 	t.Run("extra args v3 messaging", func(t *testing.T) {
 		for _, tc := range basic.All(lib, src.ChainSelector(), dest.ChainSelector(), basicArgs) {
-			if tc.HavePrerequisites(ctx) {
+			if missing, err := tc.CheckPrerequisites(ctx); err != nil {
+				t.Fatalf("prerequisite check failed for %s: %v", tc.Name(), err)
+			} else if len(missing) > 0 {
+				t.Logf("Skipping %s: missing prerequisites: %v", tc.Name(), missing)
+			} else {
 				t.Run(tc.Name(), func(t *testing.T) {
 					subtestCtx := ccv.Plog.WithContext(t.Context())
 					require.NoError(t, tc.Run(subtestCtx))
 				})
-			} else {
-				t.Logf("Skipping %s because current environment does not have the prerequisites", tc.Name())
 			}
 		}
 	})
@@ -54,23 +56,27 @@ func TestE2ESmoke_Basic(t *testing.T) {
 	t.Run("extra args v3 token transfer", func(t *testing.T) {
 		combos := common.AllTokenCombinations()
 		for _, tc := range token_transfer.All(lib, src.ChainSelector(), dest.ChainSelector(), combos, token_transfer.Args{Send: sendCfg}) {
-			if tc.HavePrerequisites(ctx) {
+			if missing, err := tc.CheckPrerequisites(ctx); err != nil {
+				t.Fatalf("prerequisite check failed for %s: %v", tc.Name(), err)
+			} else if len(missing) > 0 {
+				t.Logf("Skipping %s: missing prerequisites: %v", tc.Name(), missing)
+			} else {
 				t.Run(tc.Name(), func(t *testing.T) {
 					subtestCtx := ccv.Plog.WithContext(t.Context())
 					require.NoError(t, tc.Run(subtestCtx))
 				})
-			} else {
-				t.Logf("Skipping %s because current environment does not have the prerequisites", tc.Name())
 			}
 		}
 		for _, tc := range token_transfer.All17(lib, src.ChainSelector(), dest.ChainSelector(), combos, token_transfer.Args{Send: sendCfg}) {
-			if tc.HavePrerequisites(ctx) {
+			if missing, err := tc.CheckPrerequisites(ctx); err != nil {
+				t.Fatalf("prerequisite check failed for %s: %v", tc.Name(), err)
+			} else if len(missing) > 0 {
+				t.Logf("Skipping %s: missing prerequisites: %v", tc.Name(), missing)
+			} else {
 				t.Run(tc.Name(), func(t *testing.T) {
 					subtestCtx := ccv.Plog.WithContext(t.Context())
 					require.NoError(t, tc.Run(subtestCtx))
 				})
-			} else {
-				t.Logf("Skipping %s because current environment does not have the prerequisites", tc.Name())
 			}
 		}
 	})
