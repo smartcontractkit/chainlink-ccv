@@ -14,7 +14,7 @@ import (
 
 func NewV1API(lggr logger.Logger, cfg *config.Config, storage common.IndexerStorage, monitoring common.IndexerMonitoring) *gin.Engine {
 	router := gin.New()
-	router.Use(gin.Logger())
+	router.Use(sharedmiddleware.GinLogger(lggr))
 	err := router.SetTrustedProxies(cfg.API.TrustedProxies)
 	if err != nil {
 		lggr.Fatalf("Unable to set Trusted Proxies", "error", err, "trustedProxies", cfg.API.TrustedProxies)
