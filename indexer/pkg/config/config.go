@@ -4,9 +4,11 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/BurntSushi/toml"
 
+	"github.com/smartcontractkit/chainlink-ccv/common"
 	hmacutil "github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
 )
 
@@ -110,6 +112,10 @@ type PostgresConfig struct {
 	MaxOpenConnections int `toml:"MaxOpenConnections"`
 	// MaxIdleConnections is the maximum number of idle connections to the database.
 	MaxIdleConnections int `toml:"MaxIdleConnections"`
+	// ConnMaxLifetime is the maximum lifetime of a connection. 0 defaults to 30 minutes.
+	ConnMaxLifetime common.Duration `toml:"ConnMaxLifetime"`
+	// ConnMaxIdleTime is the maximum idle time of a connection. 0 defaults to 5 minutes.
+	ConnMaxIdleTime common.Duration `toml:"ConnMaxIdleTime"`
 	// IdleInTxSessionTimeout is the idle_in_transaction_session_timeout in seconds.
 	IdleInTxSessionTimeout int64 `toml:"IdleInTxSessionTimeout"`
 	// LockTimeout is the lock_timeout in seconds.
@@ -457,6 +463,20 @@ func (p *PostgresConfig) Validate() error {
 
 	if p.MaxIdleConnections > p.MaxOpenConnections {
 		return fmt.Errorf("postgres max_idle_connections (%d) cannot be greater than max_open_connections (%d)", p.MaxIdleConnections, p.MaxOpenConnections)
+	}
+
+	if p.ConnMaxLifetime < 0 {
+		return fmt.Errorf("postgres conn_max_lifetime must be non-negative, got %s", p.ConnMaxLifetime)
+	}
+	if p.ConnMaxLifetime == 0 {
+		p.ConnMaxLifetime = common.Duration(30 * time.Minute)
+	}
+
+	if p.ConnMaxIdleTime < 0 {
+		return fmt.Errorf("postgres conn_max_idle_time must be non-negative, got %s", p.ConnMaxIdleTime)
+	}
+	if p.ConnMaxIdleTime == 0 {
+		p.ConnMaxIdleTime = common.Duration(5 * time.Minute)
 	}
 
 	if p.IdleInTxSessionTimeout < 0 {

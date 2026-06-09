@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/auth"
+	"github.com/smartcontractkit/chainlink-ccv/common"
 	hmacutil "github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
 )
 
@@ -71,8 +72,8 @@ func TestSetDefaults(t *testing.T) {
 		assert.Equal(t, 100, cfg.Storage.PageSize)
 		assert.Equal(t, 25, cfg.Storage.MaxOpenConns)
 		assert.Equal(t, 5, cfg.Storage.MaxIdleConns)
-		assert.Equal(t, time.Hour, cfg.Storage.ConnMaxLifetime)
-		assert.Equal(t, 5*time.Minute, cfg.Storage.ConnMaxIdleTime)
+		assert.Equal(t, common.Duration(time.Hour), cfg.Storage.ConnMaxLifetime)
+		assert.Equal(t, common.Duration(5*time.Minute), cfg.Storage.ConnMaxIdleTime)
 		assert.Equal(t, 5*time.Minute, cfg.OrphanRecovery.Interval)
 		assert.Equal(t, 168*time.Hour, cfg.OrphanRecovery.MaxAge)
 		assert.Equal(t, "8080", cfg.HealthCheck.Port)
@@ -80,7 +81,7 @@ func TestSetDefaults(t *testing.T) {
 		assert.Equal(t, 5*time.Second, cfg.Aggregation.CheckAggregationTimeout)
 		assert.Equal(t, 10*time.Second, cfg.Aggregation.DrainTimeout)
 		assert.Equal(t, 5*time.Second, cfg.OrphanRecovery.CheckAggregationTimeout)
-		assert.Equal(t, 10*time.Second, cfg.Storage.QueryTimeout)
+		assert.Equal(t, common.Duration(10*time.Second), cfg.Storage.QueryTimeout)
 		assert.Equal(t, uint(3), cfg.OrphanRecovery.MaxConsecutiveErrors)
 		assert.Equal(t, 4*time.Minute, cfg.OrphanRecovery.ScanTimeout)
 		assert.Equal(t, 10000, cfg.OrphanRecovery.MaxOrphansPerScan)
@@ -394,19 +395,19 @@ func TestValidateStorageConfig(t *testing.T) {
 		},
 		{
 			name:        "negative conn max lifetime fails",
-			config:      &StorageConfig{PageSize: 100, MaxOpenConns: 25, MaxIdleConns: 5, ConnMaxLifetime: -1 * time.Second},
+			config:      &StorageConfig{PageSize: 100, MaxOpenConns: 25, MaxIdleConns: 5, ConnMaxLifetime: common.Duration(-1 * time.Second)},
 			expectError: true,
 			errorMsg:    "connMaxLifetime cannot be negative",
 		},
 		{
 			name:        "negative conn max idle time fails",
-			config:      &StorageConfig{PageSize: 100, MaxOpenConns: 25, MaxIdleConns: 5, ConnMaxIdleTime: -1 * time.Second},
+			config:      &StorageConfig{PageSize: 100, MaxOpenConns: 25, MaxIdleConns: 5, ConnMaxIdleTime: common.Duration(-1 * time.Second)},
 			expectError: true,
 			errorMsg:    "connMaxIdleTime cannot be negative",
 		},
 		{
 			name:        "negative query timeout fails",
-			config:      &StorageConfig{PageSize: 100, MaxOpenConns: 25, MaxIdleConns: 5, QueryTimeout: -1 * time.Second},
+			config:      &StorageConfig{PageSize: 100, MaxOpenConns: 25, MaxIdleConns: 5, QueryTimeout: common.Duration(-1 * time.Second)},
 			expectError: true,
 			errorMsg:    "queryTimeout cannot be negative",
 		},
