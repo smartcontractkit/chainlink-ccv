@@ -6,8 +6,11 @@ import (
 	"maps"
 	"slices"
 	"sort"
+	"time"
 
 	"github.com/rs/zerolog"
+
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/timing"
 )
 
 // NewEnvironment runs the environment startup using the global registry.
@@ -74,6 +77,7 @@ func NewEnvironmentWithRegistry(ctx context.Context, rawConfig map[string]any, r
 		return nil, fmt.Errorf("unclaimed config keys: %v", keys)
 	}
 	accumulated := map[string]any{}
+	compTimings := timing.NewComponentTimeTracker()
 
 	// Phase 1 (no priorOutputs by interface; merge rules still apply).
 	{
@@ -85,7 +89,9 @@ func NewEnvironmentWithRegistry(ctx context.Context, rawConfig map[string]any, r
 			}
 			comp := specific[key]
 			if p1, ok := comp.(Phase1Component); ok {
+				start := time.Now()
 				out, effects, err := p1.RunPhase1(ctx, rawConfig, rawConfig[key])
+				compTimings.Record(phase, key, start, time.Now())
 				if err != nil {
 					return nil, fmt.Errorf("phase1 %s: %w", key, err)
 				}
@@ -111,7 +117,9 @@ func NewEnvironmentWithRegistry(ctx context.Context, rawConfig map[string]any, r
 			}
 			comp := specific[key]
 			if p2, ok := comp.(Phase2Component); ok {
+				start := time.Now()
 				out, effects, err := p2.RunPhase2(ctx, rawConfig, rawConfig[key], maps.Clone(phaseSnapshot))
+				compTimings.Record(phase, key, start, time.Now())
 				if err != nil {
 					return nil, fmt.Errorf("phase2 %s: %w", key, err)
 				}
@@ -137,7 +145,9 @@ func NewEnvironmentWithRegistry(ctx context.Context, rawConfig map[string]any, r
 			}
 			comp := specific[key]
 			if p3, ok := comp.(Phase3Component); ok {
+				start := time.Now()
 				out, effects, err := p3.RunPhase3(ctx, rawConfig, rawConfig[key], maps.Clone(phaseSnapshot))
+				compTimings.Record(phase, key, start, time.Now())
 				if err != nil {
 					return nil, fmt.Errorf("phase3 %s: %w", key, err)
 				}
@@ -163,7 +173,9 @@ func NewEnvironmentWithRegistry(ctx context.Context, rawConfig map[string]any, r
 			}
 			comp := specific[key]
 			if p4, ok := comp.(Phase4Component); ok {
+				start := time.Now()
 				out, effects, err := p4.RunPhase4(ctx, rawConfig, rawConfig[key], maps.Clone(phaseSnapshot))
+				compTimings.Record(phase, key, start, time.Now())
 				if err != nil {
 					return nil, fmt.Errorf("phase4 %s: %w", key, err)
 				}
@@ -178,6 +190,8 @@ func NewEnvironmentWithRegistry(ctx context.Context, rawConfig map[string]any, r
 		}
 	}
 
+	// TODO: add per-phase effect executor timing
+	accumulated["_component_timings"] = compTimings
 	return accumulated, nil
 }
 

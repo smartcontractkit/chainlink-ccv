@@ -36,6 +36,10 @@ func NewPhasedEnvironment() (out map[string]any, err error) {
 
 	// out is captured by the defer; its contents are available when the defer fires.
 	defer func() {
+		if ct, ok := out["_component_timings"].(*timing.ComponentTimeTracker); ok && ct != nil {
+			// TODO: report component timings via DX tracker
+			ct.Print(L)
+		}
 		var elapsed float64
 		if timeTrack, ok := out["_time_track"].(*timing.TimeTracker); ok && timeTrack != nil {
 			timeTrack.Print()
