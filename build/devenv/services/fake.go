@@ -14,11 +14,13 @@ import (
 
 const (
 	DefaultFakeName  = "fake"
-	DefaultFakeImage = "ccv-fakes:dev"
+	DefaultFakeImage = "ccv-fakes:latest"
 	DefaultFakePort  = 9111
 )
 
 type FakeInput struct {
+	// Version is the component config schema version (see fake.Version).
+	Version        int         `toml:"version"`
 	Image          string      `toml:"image"`
 	Port           int         `toml:"port"`
 	SourceCodePath string      `toml:"source_code_path"`

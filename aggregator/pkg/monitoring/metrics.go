@@ -380,14 +380,19 @@ func (c *AggregatorMetricLabeler) DecrementPendingAggregationsChannelBuffer(ctx 
 	c.am.pendingAggregationsChannelBuffer.Add(ctx, -int64(count), metric.WithAttributes(otelLabels...))
 }
 
-func (c *AggregatorMetricLabeler) RecordStorageLatency(ctx context.Context, duration time.Duration) {
+func (c *AggregatorMetricLabeler) RecordStorageLatency(ctx context.Context, operation string, duration time.Duration, errored bool) {
 	otelLabels := beholder.OtelAttributes(c.Labels).AsStringAttributes()
-	c.am.storageLatency.Record(ctx, duration.Seconds(), metric.WithAttributes(otelLabels...))
+	c.am.storageLatency.Record(ctx, duration.Seconds(), metric.WithAttributes([]attribute.KeyValue{
+		attribute.String("operation", operation),
+		attribute.Bool("errored", errored),
+	}...), metric.WithAttributes(otelLabels...))
 }
 
-func (c *AggregatorMetricLabeler) IncrementStorageError(ctx context.Context) {
+func (c *AggregatorMetricLabeler) IncrementStorageError(ctx context.Context, operation string) {
 	otelLabels := beholder.OtelAttributes(c.Labels).AsStringAttributes()
-	c.am.storageError.Add(ctx, 1, metric.WithAttributes(otelLabels...))
+	c.am.storageError.Add(ctx, 1, metric.WithAttributes([]attribute.KeyValue{
+		attribute.String("operation", operation),
+	}...), metric.WithAttributes(otelLabels...))
 }
 
 func (c *AggregatorMetricLabeler) RecordTimeToAggregation(ctx context.Context, duration time.Duration) {

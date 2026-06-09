@@ -26,7 +26,7 @@ const (
 	FirstIndexerContainerName  = "indexer-1"
 	DefaultIndexerDBName       = "indexer-db"
 	IndexerDBContainerSuffix   = "-db"
-	DefaultIndexerImage        = "indexer:dev"
+	DefaultIndexerImage        = "indexer:latest"
 	DefaultIndexerHTTPPort     = 8102
 	DefaultIndexerInternalPort = 8100
 	DefaultIndexerDBPort       = 6432
@@ -53,6 +53,8 @@ type DBInput struct {
 }
 
 type IndexerInput struct {
+	// Version is the component config schema version (see indexer.Version).
+	Version        int      `toml:"version"`
 	Image          string   `toml:"image"`
 	Port           int      `toml:"port"`
 	SourceCodePath string   `toml:"source_code_path"`

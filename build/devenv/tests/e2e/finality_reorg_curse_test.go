@@ -20,6 +20,12 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/versioned_verifier_resolver"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/fastcurse"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/utils/changesets"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
+	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
+	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
+	"github.com/smartcontractkit/chainlink-testing-framework/framework"
+
 	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
@@ -28,11 +34,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/chainstatus"
-	"github.com/smartcontractkit/chainlink-common/pkg/logger"
-	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
-	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
-	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
-	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 )
 
 // TestE2EReorg tests that messages sent in different orders
@@ -776,23 +777,34 @@ func curseSelector(t *testing.T, env *deployment.Environment, adapter fastcurse.
 	// re-set the bundle so it doesn't cache previous curses.
 	bundle := operations.NewBundle(env.GetContext, env.Logger, operations.NewMemoryReporter())
 	env.OperationsBundle = bundle
-
+	crInput := []fastcurse.CurseActionInput{
+		{
+			ChainSelector:        chainSelector,
+			SubjectChainSelector: subjectChainSelector,
+			Version:              semver.MustParse("1.6.0"),
+			IsGlobalCurse:        globalCurse,
+		},
+	}
+	if !globalCurse {
+		crInput = append(crInput, fastcurse.CurseActionInput{
+			ChainSelector:        subjectChainSelector,
+			SubjectChainSelector: chainSelector,
+			Version:              semver.MustParse("1.6.0"),
+		})
+	}
 	curseCS := fastcurse.CurseChangeset(fastcurse.GetCurseRegistry(), changesets.GetRegistry())
 	_, err := curseCS.Apply(*env, fastcurse.RMNCurseConfig{
-		CurseActions: []fastcurse.CurseActionInput{
-			{
-				ChainSelector:        chainSelector,
-				SubjectChainSelector: subjectChainSelector,
-				Version:              semver.MustParse("1.6.0"),
-				IsGlobalCurse:        globalCurse,
-			},
-		},
+		CurseActions: crInput,
 	})
 	require.NoError(t, err)
 
 	// Verify the curse is applied
 	if subjectChainSelector != 0 {
 		isCursed, err := adapter.IsSubjectCursedOnChain(*env, chainSelector, fastcurse.GenericSelectorToSubject(subjectChainSelector))
+		require.NoError(t, err)
+		require.True(t, isCursed, "subject should be cursed on chain")
+
+		isCursed, err = adapter.IsSubjectCursedOnChain(*env, subjectChainSelector, fastcurse.GenericSelectorToSubject(chainSelector))
 		require.NoError(t, err)
 		require.True(t, isCursed, "subject should be cursed on chain")
 	}
@@ -811,23 +823,34 @@ func uncurseSelector(t *testing.T, env *deployment.Environment, adapter fastcurs
 	// re-set the bundle so it doesn't cache previous uncurses.
 	bundle := operations.NewBundle(env.GetContext, env.Logger, operations.NewMemoryReporter())
 	env.OperationsBundle = bundle
-
+	crInput := []fastcurse.CurseActionInput{
+		{
+			ChainSelector:        chainSelector,
+			SubjectChainSelector: subjectChainSelector,
+			Version:              semver.MustParse("1.6.0"),
+			IsGlobalCurse:        globalCurse,
+		},
+	}
+	if !globalCurse {
+		crInput = append(crInput, fastcurse.CurseActionInput{
+			ChainSelector:        subjectChainSelector,
+			SubjectChainSelector: chainSelector,
+			Version:              semver.MustParse("1.6.0"),
+		})
+	}
 	uncurseCS := fastcurse.UncurseChangeset(fastcurse.GetCurseRegistry(), changesets.GetRegistry())
 	_, err := uncurseCS.Apply(*env, fastcurse.RMNCurseConfig{
-		CurseActions: []fastcurse.CurseActionInput{
-			{
-				ChainSelector:        chainSelector,
-				SubjectChainSelector: subjectChainSelector,
-				Version:              semver.MustParse("1.6.0"),
-				IsGlobalCurse:        globalCurse,
-			},
-		},
+		CurseActions: crInput,
 	})
 	require.NoError(t, err)
 
 	// Verify the curse is lifted
 	if subjectChainSelector != 0 {
 		isCursed, err := adapter.IsSubjectCursedOnChain(*env, chainSelector, fastcurse.GenericSelectorToSubject(subjectChainSelector))
+		require.NoError(t, err)
+		require.False(t, isCursed, "subject should not be cursed on chain")
+
+		isCursed, err = adapter.IsSubjectCursedOnChain(*env, subjectChainSelector, fastcurse.GenericSelectorToSubject(chainSelector))
 		require.NoError(t, err)
 		require.False(t, isCursed, "subject should not be cursed on chain")
 	}

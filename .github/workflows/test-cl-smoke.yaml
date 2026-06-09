@@ -1,8 +1,9 @@
-name: Test Chainlink Node Integration
+name: E2E Smoke Test (CL-Node)
 
 on:
   merge_group:
   pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
 
 defaults:
   run:
@@ -13,7 +14,47 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  check-changes:
+    name: Check if changes affect Chainlink
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      run_tests: ${{ steps.check.outputs.run_tests }}
+    steps:
+      - name: Checkout chainlink-ccv
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Checkout chainlink
+        uses: actions/checkout@v4
+        with:
+          repository: smartcontractkit/chainlink
+          path: chainlink-repo
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+          cache: true
+
+      - name: Determine if tests should run
+        id: check
+        working-directory: .
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_ACTION: ${{ github.event.action }}
+          LABELED_NAME: ${{ github.event.label.name }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          BASE_REF_CI: ${{ github.base_ref }}
+        run: ./tools/bin/check-cl-smoke-tests.sh --chainlink-repo chainlink-repo
+
   build-cl-image:
+    needs: [check-changes]
+    if: needs.check-changes.outputs.run_tests == 'true'
     permissions:
       id-token: write
       contents: read
@@ -49,41 +90,96 @@ jobs:
           path: /tmp/cl-image.tar
           retention-days: 1
 
+  build-docker-images:
+    needs: [check-changes]
+    if: needs.check-changes.outputs.run_tests == 'true'
+    permissions:
+      id-token: write
+      contents: read
+    runs-on: runs-on=${{ github.run_id }}/family=c6i/cpu=32+48/ram=64+96/spot=false/image=ubuntu24-full-x64/extras=s3-cache+tmpfs
+    steps:
+      - name: Enable S3 Cache for Self-Hosted Runners
+        uses: runs-on/action@cd2b598b0515d39d78c38a02d529db87d2196d1e # v2.0.3
+
+      - name: Setup GitHub Token
+        id: setup-github-token
+        uses: smartcontractkit/.github/actions/setup-github-token@ef78fa97bf3c77de6563db1175422703e9e6674f # setup-github-token@0.2.1
+        with:
+          aws-role-arn: ${{ secrets.GATI_AWS_ROLE_ARN_CHAINLINK_READ_ONLY }}
+          aws-lambda-url: ${{ secrets.GATI_LAMBDA_URL_RELENG }}
+          aws-region: ${{ secrets.GATI_AWS_REGION }}
+          set-git-config: true
+
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Build devenv Docker images
+        uses: ./.github/actions/build-devenv-docker
+        with:
+          ccv-iam-role: ${{ secrets.CCV_IAM_ROLE }}
+          jd-registry: ${{ secrets.JD_REGISTRY }}
+
+      - name: Save Docker Images
+        run: |
+          docker save \
+            ccv-fakes:latest \
+            pricer:latest \
+            verifier:latest \
+            token-verifier:latest \
+            executor:latest \
+            indexer:latest \
+            aggregator:latest \
+            -o /tmp/ccv-docker-images.tar
+
+      - name: Upload Docker Images
+        uses: actions/upload-artifact@v4
+        with:
+          name: ccv-docker-images
+          path: /tmp/ccv-docker-images.tar
+          retention-days: 1
+
 
   e2e-smoke-cl-mode:
-    needs: build-cl-image
+    name: ${{ matrix.test.name }}
+    needs: [build-cl-image, build-docker-images]
     permissions:
       id-token: write
       contents: read
     runs-on: runs-on=${{ github.run_id }}-${{ strategy.job-index }}/family=c6i/cpu=32+48/ram=64+96/spot=false/image=ubuntu24-full-x64/extras=s3-cache+tmpfs
     strategy:
+      fail-fast: false
       matrix:
         test:
           - name: TestE2ESmoke_Basic
-            run_cmd: TestE2ESmoke_Basic
-            config: "env.toml,env-cl.toml,env-cl-ci.toml"
+            pattern: TestE2ESmoke_Basic
+            profile: standard.clnode.ci.profile
             timeout: 15m
           - name: TestE2ESmoke_Basic_OneExecPerChain
-            run_cmd: TestE2ESmoke_Basic
-            config: "env.toml,env-cl.toml,env-cl-ci.toml,env-one-exec-per-chain-cl.toml"
+            pattern: TestE2ESmoke_Basic
+            profile: standard.clnode.ci.one-exec-per-chain.profile
             timeout: 15m
           - name: TestE2ESmoke_TokenVerification
-            run_cmd: TestE2ESmoke_TokenVerification
-            config: "env.toml,env-cl.toml,env-cl-ci.toml"
+            pattern: TestE2ESmoke_TokenVerification
+            profile: standard.clnode.ci.profile
             timeout: 15m
           - name: TestE2ESmoke_ExtraArgsV2
-            run_cmd: TestE2ESmoke_ExtraArgsV2
-            config: "env.toml,env-cl.toml,env-cl-ci.toml"
+            pattern: TestE2ESmoke_ExtraArgsV2
+            profile: standard.clnode.ci.profile
             timeout: 10m
           - name: TestHA_CrossComponentDown
-            run_cmd: TestHA_CrossComponentDown
-            config: "env.toml,env-HA.toml,env-cl.toml,env-cl-ci.toml"
+            pattern: TestHA_CrossComponentDown
+            profile: standard.ha.clnode.ci.profile
             timeout: 10m
+          - name: Phased TestE2ESmoke_Basic
+            pattern: TestE2ESmoke_Basic
+            profile: phased.clnode.ci.profile
+            timeout: 15m
           # We need to configure HeadTracker for the CL tests to have finality depth. Otherwise, it does instant finality.
           # - name: TestE2EReorg
-          #   config: "env.toml,env-src-auto-mine.toml,env-cl.toml,env-cl-ci.toml"
+          #   profile: standard.src-auto-mine.clnode.ci.profile
           #   timeout: 5m
-      fail-fast: false
     steps:
       - name: Enable S3 Cache for Self-Hosted Runners
         uses: runs-on/action@cd2b598b0515d39d78c38a02d529db87d2196d1e # v2.0.3
@@ -111,6 +207,15 @@ jobs:
       - name: Load Docker Image
         run: docker load -i /tmp/cl-image.tar
 
+      - name: Download devenv Docker Images
+        uses: actions/download-artifact@v4
+        with:
+          name: ccv-docker-images
+          path: /tmp
+
+      - name: Load devenv Docker Images
+        run: docker load -i /tmp/ccv-docker-images.tar
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
 
@@ -125,7 +230,7 @@ jobs:
           role-to-assume: ${{ secrets.CCV_IAM_ROLE }}
           aws-region: us-east-1
           registry-type: public
-      
+
       - name: Authenticate to AWS ECR (JD)
         uses: ./.github/actions/aws-ecr-auth
         with:
@@ -145,35 +250,22 @@ jobs:
             build/devenv/go.sum
 
       - name: Download Go dependencies
-        run: |
-          go mod download
+        run: go mod download
 
-      - name: Build Docker Images
-        run: just build-docker-dev-ci
-        env:
-          DOCKER_BUILDKIT: 1
+      - name: Install ccv CLI
+        run: go install ./cmd/ccv
 
       - name: Run Observability Stack
-        run: |
-          cd cmd/ccv && go install . && cd -
-          ccv obs u -m loki
-
-      - name: Run CCV environment with config
-        env:
-          JD_IMAGE: ${{ secrets.JD_IMAGE }}
-        run: |
-          ccv u ${{ matrix.test.config }}
+        run: ccv obs up -m loki
 
       - name: Run Smoke Test
         id: test_run
-        working-directory: build/devenv/tests/e2e
-        env:
-          LOKI_URL: http://localhost:3030/loki/api/v1/push
-        run: |
-          set -o pipefail
-          go test -v -timeout ${{ matrix.test.timeout }} -count=1 -run ${{ matrix.test.run_cmd }}
+        run: ccv test --profile ${{ matrix.test.profile }} --pattern '${{ matrix.test.pattern }}' --timeout ${{ matrix.test.timeout }} --build=false
         continue-on-error: true
-      
+        env:
+          JD_IMAGE: ${{ secrets.JD_IMAGE }}
+          LOKI_URL: http://localhost:3030/loki/api/v1/push
+
       - name: Dump logs if they're not already dumped
         if: always()
         working-directory: build/devenv/tests/e2e
@@ -184,7 +276,7 @@ jobs:
           else
             echo "Logs already exist. Skipping manual dump."
           fi
-      
+
       - name: Sanitize test name for log artifact name
         if: always()
         id: sanitize_name
@@ -200,9 +292,69 @@ jobs:
           name: container-logs-cl-${{ steps.sanitize_name.outputs.name }}
           path: build/devenv/tests/e2e/logs
           retention-days: 1
-      
+
       - name: Check test results
         if: always() && steps.test_run.outcome == 'failure'
         run: |
           echo "${{ matrix.test.name }} tests failed."
           exit 1
+
+  e2e-load-pr:
+    needs: [build-cl-image, build-docker-images]
+    permissions:
+      id-token: write
+      contents: read
+      pull-requests: write
+    runs-on: runs-on=${{ github.run_id }}/family=c6i/cpu=32+48/ram=64+96/spot=false/image=ubuntu24-full-x64/extras=s3-cache+tmpfs
+    strategy:
+      fail-fast: false
+      matrix:
+        test:
+          - subtest: clean
+            timeout: 4m
+    steps:
+      - name: Enable S3 Cache for Self-Hosted Runners
+        uses: runs-on/action@cd2b598b0515d39d78c38a02d529db87d2196d1e # v2.0.3
+
+      - name: Setup GitHub Token
+        id: setup-github-token
+        uses: smartcontractkit/.github/actions/setup-github-token@ef78fa97bf3c77de6563db1175422703e9e6674f # setup-github-token@0.2.1
+        with:
+          aws-role-arn: ${{ secrets.GATI_AWS_ROLE_ARN_CHAINLINK_READ_ONLY }}
+          aws-lambda-url: ${{ secrets.GATI_LAMBDA_URL_RELENG }}
+          aws-region: ${{ secrets.GATI_AWS_REGION }}
+          set-git-config: true
+
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Download Docker Image
+        uses: actions/download-artifact@v4
+        with:
+          name: cl-image
+          path: /tmp
+
+      - name: Load Docker Image
+        run: docker load -i /tmp/cl-image.tar
+
+      - name: Download devenv Docker Images
+        uses: actions/download-artifact@v4
+        with:
+          name: ccv-docker-images
+          path: /tmp
+
+      - name: Load devenv Docker Images
+        run: docker load -i /tmp/ccv-docker-images.tar
+
+      - name: Run load test
+        uses: ./.github/actions/run-load-test
+        with:
+          subtest: ${{ matrix.test.subtest }}
+          timeout: ${{ matrix.test.timeout }}
+          ccv-iam-role: ${{ secrets.CCV_IAM_ROLE }}
+          jd-registry: ${{ secrets.JD_REGISTRY }}
+          jd-image: ${{ secrets.JD_IMAGE }}
+          skip-build-cl: 'true'
+          skip-build-docker: 'true'

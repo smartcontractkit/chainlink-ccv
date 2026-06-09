@@ -8,6 +8,7 @@ import (
 
 func anvilEntry(chainID string) map[string]any {
 	return map[string]any{
+		"version":        int64(1),
 		"type":           "anvil",
 		"chain_id":       chainID,
 		"container_name": "anvil-" + chainID,
@@ -34,7 +35,7 @@ func TestValidateConfig_RejectsUnknownType(t *testing.T) {
 	t.Setenv(privateKeyEnvVar, "")
 	c := &component{}
 	err := c.ValidateConfig([]map[string]any{
-		{"type": "not-a-real-type", "chain_id": "1337", "container_name": "x"},
+		{"version": int64(1), "type": "not-a-real-type", "chain_id": "1337", "container_name": "x"},
 	})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "blockchain family")

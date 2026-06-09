@@ -58,7 +58,7 @@ func TestServiceAggregator(t *testing.T) {
 
 	out, err := services.NewAggregator(&services.AggregatorInput{
 		CommitteeName:  committeeName,
-		Image:          "aggregator:dev",
+		Image:          "aggregator:latest",
 		HostPort:       8103,
 		SourceCodePath: "../../../aggregator",
 		RootPath:       "../../../../",
@@ -125,7 +125,7 @@ func TestServiceAggregatorAuthentication(t *testing.T) {
 
 	out, err := services.NewAggregator(&services.AggregatorInput{
 		CommitteeName:   committeeName,
-		Image:           "aggregator:dev",
+		Image:           "aggregator:latest",
 		HostPort:        8104,
 		ExposedHostPort: grpcHostPort,
 		SourceCodePath:  "../../../aggregator",
@@ -444,7 +444,7 @@ func setupAggregatorTestFixture(t *testing.T) *aggregatorTestFixture {
 	sourceChainSelStr := fmt.Sprintf("%d", sourceChainSel)
 	out, err := services.NewAggregator(&services.AggregatorInput{
 		CommitteeName:                committeeName,
-		Image:                        "aggregator:dev",
+		Image:                        "aggregator:latest",
 		HostPort:                     8110,
 		ExposedHostPort:              grpcHostPort, // Expose gRPC port directly for test
 		SourceCodePath:               "../../../aggregator",

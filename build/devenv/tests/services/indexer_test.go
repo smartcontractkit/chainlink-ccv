@@ -11,6 +11,7 @@ import (
 
 func TestServiceIndexer(t *testing.T) {
 	out, err := services.NewIndexer(&services.IndexerInput{
+		Image:          "indexer:latest",
 		SourceCodePath: "../../../indexer",
 		RootPath:       "../../../../",
 		IndexerConfig: &config.Config{

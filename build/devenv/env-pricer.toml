@@ -1,5 +1,5 @@
 [pricer]
-  image = "pricer:dev"
+  image = "pricer:latest"
   source_code_path = "../pricer"
   root_path = "../../"
   [pricer.keystore]

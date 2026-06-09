@@ -3,6 +3,7 @@ package contracttransmitter
 import (
 	"context"
 	"errors"
+	"math"
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -64,7 +65,7 @@ func TestTXMEVMContractTransmitter_ConvertAndWriteMessageToChain(t *testing.T) {
 					[]byte("ccv_data_1"),
 					[]byte("ccv_data_2"),
 				},
-				Message: mustCreateMessage(t, 1, 2, 100, 1000000),
+				Message: mustCreateMessage(t, 1, 2, 100, 2000000, 1000000),
 			},
 			setupMocks: func(txm *mockTxManager, rr *mockRoundRobin) {
 				fromAddr := common.HexToAddress("0xabcdef1234567890abcdef1234567890abcdef12")
@@ -76,7 +77,8 @@ func TestTXMEVMContractTransmitter_ConvertAndWriteMessageToChain(t *testing.T) {
 
 				txm.On("CreateTransaction", mock.Anything, mock.MatchedBy(func(req txmgr.TxRequest) bool {
 					return req.FromAddress == fromAddr &&
-						req.FeeLimit == uint64(1000000) &&
+						req.FeeLimit == uint64(2000000)+
+							eip150ForwardingGasBuffer(1000000) &&
 						len(req.EncodedPayload) > 0
 				})).Return(expectedTx, nil)
 			},
@@ -103,7 +105,7 @@ func TestTXMEVMContractTransmitter_ConvertAndWriteMessageToChain(t *testing.T) {
 				CCVData: [][]byte{
 					[]byte("ccv_data_1"),
 				},
-				Message: mustCreateMessage(t, 1, 2, 100, 1000000),
+				Message: mustCreateMessage(t, 1, 2, 100, 1000000, 1000000),
 			},
 			setupMocks: func(txm *mockTxManager, rr *mockRoundRobin) {
 				rr.On("GetNextAddress", mock.Anything, mock.Anything).Return(common.Address{}, errors.New("no available keys"))
@@ -119,7 +121,7 @@ func TestTXMEVMContractTransmitter_ConvertAndWriteMessageToChain(t *testing.T) {
 				CCVData: [][]byte{
 					[]byte("ccv_data_1"),
 				},
-				Message: mustCreateMessage(t, 1, 2, 100, 1000000),
+				Message: mustCreateMessage(t, 1, 2, 100, 1000000, 1000000),
 			},
 			setupMocks: func(txm *mockTxManager, rr *mockRoundRobin) {
 				fromAddr := common.HexToAddress("0xabcdef1234567890abcdef1234567890abcdef12")
@@ -137,7 +139,7 @@ func TestTXMEVMContractTransmitter_ConvertAndWriteMessageToChain(t *testing.T) {
 			report: protocol.AbstractAggregatedReport{
 				CCVS:    []protocol.UnknownAddress{},
 				CCVData: [][]byte{},
-				Message: mustCreateMessage(t, 1, 2, 100, 1000000),
+				Message: mustCreateMessage(t, 1, 2, 100, 1000000, 1000000),
 			},
 			setupMocks: func(txm *mockTxManager, rr *mockRoundRobin) {
 				fromAddr := common.HexToAddress("0xabcdef1234567890abcdef1234567890abcdef12")
@@ -149,7 +151,7 @@ func TestTXMEVMContractTransmitter_ConvertAndWriteMessageToChain(t *testing.T) {
 
 				txm.On("CreateTransaction", mock.Anything, mock.MatchedBy(func(req txmgr.TxRequest) bool {
 					return req.FromAddress == fromAddr &&
-						req.FeeLimit == uint64(1000000) &&
+						req.FeeLimit == uint64(1000000)+eip150ForwardingGasBuffer(1000000) &&
 						len(req.EncodedPayload) > 0
 				})).Return(expectedTx, nil)
 			},
@@ -168,7 +170,7 @@ func TestTXMEVMContractTransmitter_ConvertAndWriteMessageToChain(t *testing.T) {
 					[]byte("ccv_data_2"),
 					[]byte("ccv_data_3"),
 				},
-				Message: mustCreateMessage(t, 1, 2, 100, 5000000),
+				Message: mustCreateMessage(t, 1, 2, 100, 5000000, 5000000),
 			},
 			setupMocks: func(txm *mockTxManager, rr *mockRoundRobin) {
 				fromAddr := common.HexToAddress("0xabcdef1234567890abcdef1234567890abcdef12")
@@ -180,7 +182,7 @@ func TestTXMEVMContractTransmitter_ConvertAndWriteMessageToChain(t *testing.T) {
 
 				txm.On("CreateTransaction", mock.Anything, mock.MatchedBy(func(req txmgr.TxRequest) bool {
 					return req.FromAddress == fromAddr &&
-						req.FeeLimit == uint64(5000000) &&
+						req.FeeLimit == uint64(5000000)+eip150ForwardingGasBuffer(5000000) &&
 						len(req.EncodedPayload) > 0
 				})).Return(expectedTx, nil)
 			},
@@ -313,7 +315,7 @@ func TestTXMEVMContractTransmitter_ABIEncoding(t *testing.T) {
 				CCVData: [][]byte{
 					[]byte("test_data"),
 				},
-				Message: mustCreateMessage(t, 1, 2, 100, 1000000),
+				Message: mustCreateMessage(t, 1, 2, 100, 1000000, 1000000),
 			},
 			validateError: func(t *testing.T, err error) {
 				assert.NoError(t, err)
@@ -377,8 +379,37 @@ func TestTXMEVMContractTransmitter_ABIEncoding(t *testing.T) {
 	}
 }
 
+func TestEIP150ForwardingGasBuffer(t *testing.T) {
+	testCases := []struct {
+		name                string
+		ccipReceiveGasLimit uint32
+	}{
+		{name: "zero", ccipReceiveGasLimit: 0},
+		{name: "one", ccipReceiveGasLimit: 1},
+		{name: "one below denominator boundary", ccipReceiveGasLimit: eip150ForwardingDenominator - 1},
+		{name: "exact denominator boundary", ccipReceiveGasLimit: eip150ForwardingDenominator},
+		{name: "exact numerator boundary", ccipReceiveGasLimit: eip150ForwardingNumerator},
+		{name: "typical gas limit", ccipReceiveGasLimit: 200000},
+		{name: "large gas limit", ccipReceiveGasLimit: 5000000},
+		{name: "max uint32", ccipReceiveGasLimit: math.MaxUint32},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			gasLimit := uint64(tc.ccipReceiveGasLimit)
+			buffer := eip150ForwardingGasBuffer(tc.ccipReceiveGasLimit)
+
+			// Gas received after an EIP-150 CALL boundary
+			eip150ForwardedGas := func(gas uint64) uint64 { return gas - gas/64 }
+
+			assert.GreaterOrEqual(t, eip150ForwardedGas(eip150ForwardedGas(gasLimit+buffer)), gasLimit, "buffer too small")
+			assert.LessOrEqual(t, eip150ForwardedGas(eip150ForwardedGas(gasLimit+buffer)), gasLimit+2, "buffer larger than necessary")
+		})
+	}
+}
+
 // mustCreateMessage creates a test message or fails the test.
-func mustCreateMessage(t *testing.T, sourceChain, destChain, nonce uint64, gasLimit uint32) protocol.Message {
+func mustCreateMessage(t *testing.T, sourceChain, destChain, nonce uint64, executionGasLimit, ccipReceiveGasLimit uint32) protocol.Message {
 	msg, err := protocol.NewMessage(
 		protocol.ChainSelector(sourceChain),
 		protocol.ChainSelector(destChain),
@@ -386,8 +417,8 @@ func mustCreateMessage(t *testing.T, sourceChain, destChain, nonce uint64, gasLi
 		protocol.UnknownAddress(common.HexToAddress("0x1111111111111111111111111111111111111111").Bytes()),
 		protocol.UnknownAddress(common.HexToAddress("0x2222222222222222222222222222222222222222").Bytes()),
 		1,
-		gasLimit,
-		gasLimit,           // ccipReceiveGasLimit
+		executionGasLimit,
+		ccipReceiveGasLimit,
 		protocol.Bytes32{}, // ccvAndExecutorHash
 		protocol.UnknownAddress(common.HexToAddress("0x3333333333333333333333333333333333333333").Bytes()),
 		protocol.UnknownAddress(common.HexToAddress("0x4444444444444444444444444444444444444444").Bytes()),

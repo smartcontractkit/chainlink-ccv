@@ -16,118 +16,116 @@ import (
 	verifierpb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/verifier/v1"
 )
 
-// DefaultLokiURL is the default Loki WebSocket URL for log streaming in tests.
-const DefaultLokiURL = "ws://localhost:3030"
+const (
+	// DefaultLokiURL is the default Loki WebSocket URL for log streaming in tests.
+	DefaultLokiURL     = "ws://localhost:3030"
+	DefaultExecTimeout = 40 * time.Second
+	DefaultSentTimeout = 10 * time.Second
+)
 
 // TestCase represents a test case that can be run in a variety of environments.
+// Implementations may resolve environment-specific configuration (e.g. contract
+// addresses) during HavePrerequisites or Run.
 type TestCase interface {
 	// Name returns the name of the test case.
 	Name() string
 
 	// Run runs the test case.
 	// The context is typically derived from the *testing.T's Context() method.
-	// The harness is created separately.
-	// The cfg is the configuration of the environment that the test case is running in.
-	Run(ctx context.Context, harness TestHarness, cfg *ccv.Cfg) error
+	// Implementations hydrate any required configuration before executing; callers
+	// do not need to call HavePrerequisites first. Returns an error if prerequisites
+	// are not met.
+	Run(ctx context.Context) error
 
-	// HavePrerequisites checks if the test case has all the prerequisites to run.
+	// HavePrerequisites reports whether this test case can run in the current
+	// environment (e.g. required contracts deployed, services running).
 	// The context is typically derived from the *testing.T's Context() method.
-	// The cfg is the configuration of the environment that the test case is running in.
-	// This typically checks things like e.g. whether the environment has a specific contract
-	// deployed, or a specific service is running.
-	HavePrerequisites(ctx context.Context, cfg *ccv.Cfg) bool
+	// Implementations typically perform the same hydration as Run; when it succeeds,
+	// subsequent Run calls reuse that state. Returns false to skip the test without
+	// treating it as a failure.
+	HavePrerequisites(ctx context.Context) bool
 }
 
-// TestHarness is a harness that can be used by test cases to
-// assert various things.
-type TestHarness struct {
-	// AggregatorClients is a map of aggregator clients by qualifier.
-	AggregatorClients map[string]*ccv.AggregatorClient
-	// IndexerMonitor is the indexer monitor.
-	IndexerMonitor *ccv.IndexerMonitor
-	Lib            ccv.Lib
+// DefaultV3ExecutionGasLimit is the execution gas limit used when SendConfig and MessageOptions omit it.
+const DefaultV3ExecutionGasLimit uint32 = 200_000
+
+// RunConfig holds optional overrides for wait/confirm timeouts in TCAPI Run methods.
+// Zero values use the fallback passed to SentTimeout or ExecTimeout.
+type RunConfig struct {
+	// ConfirmSentTimeout overrides ConfirmSendOnSource when non-zero.
+	ConfirmSentTimeout time.Duration
+	// ConfirmExecTimeout overrides AssertMessage and ConfirmExecOnDest when non-zero.
+	ConfirmExecTimeout time.Duration
 }
 
-func NewTestHarness(ctx context.Context, envOutPath string, cfg *ccv.Cfg, familiesToLoad ...string) (TestHarness, error) {
-	l := zerolog.Ctx(ctx)
-	lib, err := ccv.NewLibFromCCVEnv(l, envOutPath, familiesToLoad...)
-	if err != nil {
-		return TestHarness{}, err
+// SentTimeout returns ConfirmSentTimeout when set, otherwise fallback.
+func (r RunConfig) SentTimeout(fallback time.Duration) time.Duration {
+	if r.ConfirmSentTimeout != 0 {
+		return r.ConfirmSentTimeout
 	}
-	aggregatorClients, err := SetupAggregatorClients(ctx, cfg)
-	if err != nil {
-		return TestHarness{}, err
-	}
-	indexerMonitor, err := SetupIndexerMonitor(ctx, lib)
-	if err != nil {
-		return TestHarness{}, err
-	}
-	return TestHarness{
-		AggregatorClients: aggregatorClients,
-		IndexerMonitor:    indexerMonitor,
-		Lib:               lib,
-	}, nil
+	return fallback
 }
 
-// SetupAggregatorClients creates and registers aggregator clients for all endpoints
-// in the configuration. Returns a map of clients by qualifier.
-// Cleanup handlers are automatically registered with the test.
-func SetupAggregatorClients(
+// ExecTimeout returns ConfirmExecTimeout when set, otherwise fallback.
+func (r RunConfig) ExecTimeout(fallback time.Duration) time.Duration {
+	if r.ConfirmExecTimeout != 0 {
+		return r.ConfirmExecTimeout
+	}
+	return fallback
+}
+
+// SendArgs holds pair-level settings for building and sending ExtraArgsV3 CCIP messages in tcapi tests.
+type SendArgs struct {
+	ExecutionGasLimit   uint32 // 0: use opts if set, else DefaultV3ExecutionGasLimit
+	ExtraArgsParams     any    // passed to dest MessageV3Destination.GetExecutorArgs
+	TokenArgsParams     any    // passed to dest GetTokenArgs
+	TokenReceiverParams any    // passed to dest GetTokenReceiver
+	SendOption          cciptestinterfaces.ChainSendOption
+}
+
+// SendV3Message builds and sends a V3 message using BuildV3ExtraArgs, BuildChainMessage, and SendChainMessage.
+func SendV3Message(
 	ctx context.Context,
-	in *ccv.Cfg,
-) (map[string]*ccv.AggregatorClient, error) {
-	aggregatorClients := make(map[string]*ccv.AggregatorClient)
-	for qualifier := range in.AggregatorEndpoints {
-		client, err := in.NewAggregatorClientForCommittee(zerolog.Ctx(ctx).With().Str("component", fmt.Sprintf("aggregator-client-%s", qualifier)).Logger(), qualifier)
-		if err != nil {
-			return nil, err
-		}
-		if client == nil {
-			return nil, fmt.Errorf("aggregator client is nil for qualifier %s", qualifier)
-		}
-		aggregatorClients[qualifier] = client
+	src, dst cciptestinterfaces.CCIP17,
+	destSelector uint64,
+	fields cciptestinterfaces.MessageFields,
+	opts cciptestinterfaces.MessageOptions,
+	sendArgs SendArgs,
+) (cciptestinterfaces.MessageSentEvent, error) {
+	chainAsSource, ok := src.(cciptestinterfaces.ChainAsSource)
+	if !ok {
+		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("source chain does not implement ChainAsSource")
 	}
-	return aggregatorClients, nil
-}
+	v3Source, ok := src.(cciptestinterfaces.MessageV3Source)
+	if !ok {
+		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("source chain does not support V3 message")
+	}
+	v3Dest, ok := dst.(cciptestinterfaces.MessageV3Destination)
+	if !ok {
+		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("dest chain does not support V3 message")
+	}
 
-// SetupIndexerMonitor creates and returns an indexer monitor if the indexer is available.
-// Returns nil if the indexer is not available (no error is raised).
-func SetupIndexerMonitor(
-	ctx context.Context,
-	lib ccv.Lib,
-) (*ccv.IndexerMonitor, error) {
-	monitors, err := SetupAllIndexerMonitors(ctx, lib)
-	if err != nil {
-		return nil, err
+	if sendArgs.ExecutionGasLimit != 0 {
+		opts.ExecutionGasLimit = sendArgs.ExecutionGasLimit
+	} else if opts.ExecutionGasLimit == 0 {
+		opts.ExecutionGasLimit = DefaultV3ExecutionGasLimit
 	}
-	for _, monitor := range monitors {
-		return monitor, nil
-	}
-	return nil, fmt.Errorf("no indexer monitors found")
-}
 
-func SetupAllIndexerMonitors(
-	ctx context.Context,
-	lib ccv.Lib,
-) (map[string]*ccv.IndexerMonitor, error) {
-	indexerClients, err := lib.AllIndexers()
+	extraArgs, err := v3Source.BuildV3ExtraArgs(opts, v3Dest, sendArgs.ExtraArgsParams, sendArgs.TokenReceiverParams, sendArgs.TokenArgsParams)
 	if err != nil {
-		return nil, err
+		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("failed to encode V3 extra args: %w", err)
 	}
-	indexers := make(map[string]*ccv.IndexerMonitor)
-	for _, indexer := range indexerClients {
-		indexerMonitor, err := ccv.NewIndexerMonitor(
-			zerolog.Ctx(ctx).With().Str("component", fmt.Sprintf("indexer-client-%s", indexer.URI())).Logger(),
-			indexer)
-		if err != nil {
-			return nil, err
-		}
-		if indexerMonitor == nil {
-			return nil, fmt.Errorf("indexer monitor is nil for indexer %s", indexer.URI())
-		}
-		indexers[indexer.URI()] = indexerMonitor
+
+	msg, err := chainAsSource.BuildChainMessage(ctx, fields, extraArgs)
+	if err != nil {
+		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("failed to build chain message: %w", err)
 	}
-	return indexers, nil
+
+	sent, _, err := chainAsSource.SendChainMessage(ctx, destSelector, msg, sendArgs.SendOption)
+	if err != nil {
+		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("failed to send chain message: %w", err)
+	}
+	return sent, nil
 }
 
 type TestingContext struct {

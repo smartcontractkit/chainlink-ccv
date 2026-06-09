@@ -5,24 +5,22 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
-	"sync"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 
-	"github.com/smartcontractkit/chainlink-ccip/deployment/finality"
+	ccipChangesets "github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/changesets"
+
 	"github.com/smartcontractkit/chainlink-ccip/deployment/lanes"
 	tokensapi "github.com/smartcontractkit/chainlink-ccip/deployment/tokens"
-	"github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/adapters"
-	ccipChangesets "github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/changesets"
-	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
-	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
-	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
-
 	nodeset "github.com/smartcontractkit/chainlink-testing-framework/framework/components/simple_node_set"
+
+	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
+	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
 /*
@@ -213,26 +211,6 @@ type OnChainCommittees struct {
 	Threshold          uint8
 }
 
-// ChainLaneProfile holds everything an impl needs to provide so that
-// connectAllChains can assemble PartialChainConfig entries for the
-// canonical ConfigureChainsForLanesFromTopology changeset.
-// Contract addresses (Router, OnRamp, FeeQuoter, OffRamp, Executor) are
-// resolved from the datastore by the changeset itself.
-//
-// Fields use the changeset's override/pointer types directly so family impls
-// express only the values they want to override; nil/zero means "use adapter default".
-type ChainLaneProfile struct {
-	BaseExecutionGasCost     *uint32
-	FeeQuoterDestChainConfig ccipChangesets.FeeQuoterDestChainConfigOverrides
-	ExecutorDestChainConfig  *adapters.ExecutorDestChainConfig
-	DefaultExecutorQualifier string
-	DefaultInboundCCVs       []datastore.AddressRef
-	DefaultOutboundCCVs      []datastore.AddressRef
-	TokenReceiverAllowed     *bool
-	GasForVerification       *uint32
-	AllowedFinalityConfig    *finality.Config
-}
-
 // TokenConfigProvider abstracts the chain-specific decisions that feed into
 // TokenExpansion (token type, decimals, admin addresses, pre-mint amounts)
 // and any post-deployment work (e.g. funding lock-release pools on EVM).
@@ -304,46 +282,15 @@ type OnChainConfigurable interface {
 	// local contract refs, destination characteristics, and default per-remote
 	// settings. The environment uses profiles from all chains to assemble the
 	// full cross-chain connection config.
-	GetChainLaneProfile(env *deployment.Environment, selector uint64) (ChainLaneProfile, error)
+	GetChainLaneProfile(env *deployment.Environment, selector uint64) (ccipChangesets.ChainOverrides, error)
 	// PostConnect runs chain-specific setup after all chains have been connected
 	// (e.g. USDC/Lombard token config, custom executor wiring).
 	PostConnect(env *deployment.Environment, selector uint64, remoteSelectors []uint64) error
 }
 
 // ExtraArgsSerializer serializes message extra args for a destination chain family.
-// Product repos register their implementation via RegisterExtraArgsSerializer.
+// Product repos register serializers via chainreg.Registration.ExtraArgsSerializers.
 type ExtraArgsSerializer func(provider ExtraArgsDataProvider) (GenericExtraArgs, error)
-
-var (
-	extraArgsSerializers   = make(map[ExtraArgsSerializerEntry]ExtraArgsSerializer)
-	extraArgsSerializersMu sync.RWMutex
-)
-
-type ExtraArgsSerializerEntry struct {
-	Version uint8
-	Family  string
-}
-
-// RegisterExtraArgsSerializer registers an ExtraArgsSerializer for a chain family.
-// If the family is already registered, the call is a no-op to match the pattern
-// used by other registries in this repo (e.g. CLDFProviderRegistry, ImplFactory).
-// Product repos call this in their init() alongside other registrations.
-func RegisterExtraArgsSerializer(entry ExtraArgsSerializerEntry, serializer ExtraArgsSerializer) {
-	extraArgsSerializersMu.Lock()
-	defer extraArgsSerializersMu.Unlock()
-	if _, ok := extraArgsSerializers[entry]; ok {
-		return
-	}
-	extraArgsSerializers[entry] = serializer
-}
-
-// GetExtraArgsSerializer returns the registered serializer for the given chain family.
-func GetExtraArgsSerializer(entry ExtraArgsSerializerEntry) (ExtraArgsSerializer, bool) {
-	extraArgsSerializersMu.RLock()
-	defer extraArgsSerializersMu.RUnlock()
-	s, ok := extraArgsSerializers[entry]
-	return s, ok
-}
 
 // DeployerNonceBumper is an optional interface. When implemented, devenv calls it before
 // DeployContractsForSelector so that contract addresses differ across chains (e.g. by sending
