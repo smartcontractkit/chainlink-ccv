@@ -81,7 +81,7 @@ func (v *Verifier) VerifyMessages(
 	results := make([]verifier.VerificationResult, 0, len(tasks))
 	for _, task := range tasks {
 		lggr := logger.With(v.lggr, "messageID", task.MessageID, "txHash", task.TxHash)
-		lggr.Infow("Verifying Lombard task")
+		lggr.Debugw("Verifying Lombard task")
 
 		attestation, exists := attestations[task.MessageID]
 		if !exists {
@@ -112,7 +112,7 @@ func (v *Verifier) VerifyMessages(
 			continue
 		}
 
-		lggr.Infow("Attestation fetched and decoded successfully",
+		lggr.Debugw("Attestation fetched and decoded successfully",
 			"status", attestation.status,
 			"attestation", attestation.attestation,
 			"verifierFormat", verifierFormat,
@@ -131,7 +131,8 @@ func (v *Verifier) VerifyMessages(
 		}
 
 		// 2.1 Return successful result
-		lggr.Infow("VerifierResults: Successfully verified message", "signature", result.Signature)
+		// PER-MESSAGE LOG (status): signing complete; storage write is the terminal success.
+		lggr.Infow("VerifierResults: Successfully verified message", protocol.LogTypeKey, protocol.LogTypeMessageStatus, "signature", result.Signature)
 		results = append(results, verifier.VerificationResult{Result: result})
 	}
 

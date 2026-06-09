@@ -368,7 +368,9 @@ func (p *Processor) handleVerificationError(
 		).
 		IncrementMessagesVerificationFailed(ctx)
 
+	// PER-MESSAGE LOG (failure): verification failed; retryable indicates whether it is terminal.
 	p.lggr.Errorw("Message verification failed",
+		protocol.LogTypeKey, protocol.LogTypeMessageFailure,
 		"error", verificationError.Error,
 		"messageID", verificationError.Task.MessageID,
 		"nonce", message.SequenceNumber,

@@ -143,7 +143,7 @@ func (d *ObservabilityDecorator[T]) logQueueSize(ctx context.Context) {
 		return
 	}
 
-	d.lggr.Infow("JobQueue size",
+	d.lggr.Debugw("JobQueue size",
 		"queue", d.queue.Name(),
 		"size", size,
 	)

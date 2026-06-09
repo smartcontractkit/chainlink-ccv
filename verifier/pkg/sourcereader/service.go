@@ -301,7 +301,7 @@ func (r *Service) loadEvents(ctx context.Context, fromBlock *big.Int, latest *pr
 }
 
 func (r *Service) processEventCycle(ctx context.Context, latest, finalized *protocol.BlockHeader) {
-	r.logger.Infow("processEventCycle starting",
+	r.logger.Debugw("processEventCycle starting",
 		"latestBlock", latest.Number,
 		"finalizedBlock", finalized.Number)
 
@@ -310,7 +310,7 @@ func (r *Service) processEventCycle(ctx context.Context, latest, finalized *prot
 
 	fromBlock := r.lastProcessedFinalizedBlock.Load()
 
-	r.logger.Infow("Querying from block", "fromBlock", fromBlock.String())
+	r.logger.Debugw("Querying from block", "fromBlock", fromBlock.String())
 	events, lastQueriedBlock, err := r.loadEvents(logsCtx, fromBlock, latest)
 	if err != nil {
 		r.logger.Warnw("Error when querying logs", "error", err,
@@ -321,7 +321,7 @@ func (r *Service) processEventCycle(ctx context.Context, latest, finalized *prot
 	tasks := make([]verifier.VerificationTask, 0, len(events))
 	for _, event := range events {
 		if r.filter != nil && !r.filter.Filter(event) {
-			r.logger.Infow("Message filtered out by filter",
+			r.logger.Debugw("Message filtered out by filter",
 				"messageID", event.MessageID.String(),
 				"destChain", event.Message.DestChainSelector,
 			)
@@ -471,7 +471,7 @@ func (r *Service) addToPendingQueueHandleReorg(tasks []verifier.VerificationTask
 			continue
 		}
 		r.pendingTasks[task.MessageID] = task
-		r.logger.Infow("Added message to pending queue",
+		r.logger.Debugw("Added message to pending queue",
 			"messageID", task.MessageID,
 			"blockNumber", task.BlockNumber,
 			"seqNum", task.Message.SequenceNumber,
@@ -486,7 +486,7 @@ func (r *Service) sendReadyMessages(ctx context.Context, latest, safe, finalized
 		stringSafeBlock = strconv.FormatUint(safe.Number, 10)
 	}
 
-	r.logger.Infow("Checking for ready messages to send",
+	r.logger.Debugw("Checking for ready messages to send",
 		"latestBlock", latest.Number,
 		"safeBlock", stringSafeBlock,
 		"finalizedBlock", finalized.Number)
@@ -612,7 +612,7 @@ func (r *Service) sendReadyMessages(ctx context.Context, latest, safe, finalized
 			return safeCheckpoint
 		}
 
-		r.logger.Infow("Publishing ready tasks to job queue",
+		r.logger.Debugw("Publishing ready tasks to job queue",
 			"ready", len(ready),
 			"pending", len(r.pendingTasks),
 			"sentTasks", len(r.sentTasks))
@@ -642,7 +642,7 @@ func (r *Service) sendReadyMessages(ctx context.Context, latest, safe, finalized
 			r.reorgTracker.Remove(task.Message.DestChainSelector, task.Message.SequenceNumber)
 		}
 
-		r.logger.Infow("Successfully published and tracked tasks",
+		r.logger.Debugw("Successfully published and tracked tasks",
 			"published", len(ready),
 			"remainingPending", len(r.pendingTasks),
 			"totalSent", len(r.sentTasks))
@@ -665,7 +665,7 @@ func (r *Service) writeCheckpoint(ctx context.Context, finalizedBlock uint64) {
 	}}); err != nil {
 		r.logger.Errorw("Failed to write checkpoint", "error", err, "finalizedBlock", finalizedBlock)
 	} else {
-		r.logger.Infow("Checkpoint advanced", "finalizedBlock", finalizedBlock)
+		r.logger.Debugw("Checkpoint advanced", "finalizedBlock", finalizedBlock)
 	}
 }
 
@@ -684,7 +684,7 @@ func (r *Service) isMessageReadyForVerification(
 
 	if r.reorgTracker.RequiresFinalization(destChain, seqNum) {
 		ready := msgBlock.Cmp(latestFinalizedBlock) <= 0
-		r.logger.Infow("Reorg-affected message finality check",
+		r.logger.Debugw("Reorg-affected message finality check",
 			"messageID", task.MessageID,
 			"seqNum", seqNum,
 			"destChain", destChain,
@@ -707,7 +707,7 @@ func (r *Service) isMessageReadyForVerification(
 	if latestSafeBlock != nil {
 		safeBlockString = latestSafeBlock.String()
 	}
-	r.logger.Infow("Finality check",
+	r.logger.Debugw("Finality check",
 		"messageID", task.MessageID,
 		"finality", task.Message.Finality,
 		"messageBlock", task.BlockNumber,

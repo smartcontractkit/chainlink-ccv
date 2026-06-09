@@ -70,7 +70,7 @@ func (cv *Verifier) VerifyMessages(ctx context.Context, tasks []verifier.Verific
 		return nil
 	}
 
-	cv.lggr.Infow("Starting batch verification", "batchSize", len(tasks))
+	cv.lggr.Debugw("Starting batch verification", "batchSize", len(tasks))
 
 	// Collect results from concurrent verification
 	results := make([]verifier.VerificationResult, len(tasks))
@@ -111,7 +111,7 @@ func (cv *Verifier) VerifyMessages(ctx context.Context, tasks []verifier.Verific
 		}
 	}
 
-	cv.lggr.Infow("Batch verification completed",
+	cv.lggr.Debugw("Batch verification completed",
 		"batchSize", len(tasks),
 		"successCount", successCount,
 		"errorCount", errorCount)
@@ -129,7 +129,7 @@ func (cv *Verifier) verifyMessage(_ context.Context, verificationTask verifier.V
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert messageID to Bytes32: %w", err)
 	}
-	cv.lggr.Infow("Starting message verification",
+	cv.lggr.Debugw("Starting message verification",
 		"messageID", msgIDStr,
 		"nonce", message.SequenceNumber,
 		"sourceChain", message.SourceChainSelector,
@@ -153,7 +153,7 @@ func (cv *Verifier) verifyMessage(_ context.Context, verificationTask verifier.V
 		)
 	}
 
-	cv.lggr.Infow("Message validation passed",
+	cv.lggr.Debugw("Message validation passed",
 		"messageID", messageID,
 		"verifierAddress", sourceConfig.VerifierAddress,
 		"defaultExecutorAddress", sourceConfig.DefaultExecutorAddress,
@@ -190,7 +190,7 @@ func (cv *Verifier) verifyMessage(_ context.Context, verificationTask verifier.V
 
 		// Fall back to the message discovery version if the default executor is found.
 		verifierBlob = protocol.MessageDiscoveryVersion
-		cv.lggr.Infow("Using message discovery version for message", "messageID", messageID, "version", hexutil.Encode(verifierBlob))
+		cv.lggr.Debugw("Using message discovery version for message", "messageID", messageID, "version", hexutil.Encode(verifierBlob))
 	}
 	hash, err := committee.NewSignableHash(messageID, verifierBlob)
 	if err != nil {
@@ -202,7 +202,7 @@ func (cv *Verifier) verifyMessage(_ context.Context, verificationTask verifier.V
 		return nil, fmt.Errorf("failed to sign message %s: %w", msgIDStr, err)
 	}
 
-	cv.lggr.Infow("Message signed successfully",
+	cv.lggr.Debugw("Message signed successfully",
 		"messageID", msgIDStr,
 		"signer", cv.signerAddress,
 		"signatureLength", len(encodedSignature),
@@ -214,7 +214,9 @@ func (cv *Verifier) verifyMessage(_ context.Context, verificationTask verifier.V
 		return nil, fmt.Errorf("failed to create CCV node data for message %s: %w", msgIDStr, err)
 	}
 
+	// PER-MESSAGE LOG (status): signing complete; storage write is the terminal success.
 	cv.lggr.Infow("Message verification completed successfully",
+		protocol.LogTypeKey, protocol.LogTypeMessageStatus,
 		"messageID", msgIDStr,
 		"nonce", message.SequenceNumber,
 		"sourceChain", message.SourceChainSelector,
