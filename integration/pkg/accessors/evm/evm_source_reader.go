@@ -152,7 +152,7 @@ func (r *SourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock, to
 
 	// Process found events
 	for _, log := range logs {
-		r.lggr.Infow("Found CCIPMessageSent event!",
+		r.lggr.Debugw("Found CCIPMessageSent event",
 			"chainSelector", r.chainSelector,
 			"blockNumber", log.BlockNumber,
 			"txHash", log.TxHash.Hex(),
@@ -178,7 +178,7 @@ func (r *SourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock, to
 		sender = common.BytesToAddress(log.Topics[2][12:])              // Last 20 bytes for address
 		copy(messageID[:], log.Topics[3][:])                            // Full 32 bytes
 
-		r.lggr.Infow("Event details",
+		r.lggr.Debugw("Event details",
 			"sourceChainSelector", r.chainSelector,
 			"destChainSelector", destChainSelector,
 			"sender", sender,
@@ -195,8 +195,7 @@ func (r *SourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock, to
 			r.lggr.Errorw("Failed to unpack CCIPMessageSent event payload", "error", err)
 			continue // to next message
 		}
-		// Log the event structure using the fixed bindings
-		r.lggr.Infow("OnRamp Event Structure",
+		r.lggr.Debugw("OnRamp Event Structure",
 			"destChainSelector", event.DestChainSelector,
 			"sender", event.Sender,
 			protocol.LogKeyMessageID, protocol.Bytes32(event.MessageId).String(),
@@ -213,7 +212,7 @@ func (r *SourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock, to
 		}
 
 		for i, vr := range event.Receipts {
-			r.lggr.Infow("Receipt",
+			r.lggr.Debugw("Receipt",
 				"index", i,
 				"issuer", vr.Issuer.Hex(),
 				"destGasLimit", vr.DestGasLimit,
@@ -224,14 +223,14 @@ func (r *SourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock, to
 
 		// Log executor receipt
 		executorReceipt := event.Receipts[len(event.Receipts)-2]
-		r.lggr.Infow("Executor Receipt",
+		r.lggr.Debugw("Executor Receipt",
 			"issuer", executorReceipt.Issuer.Hex(),
 			"destGasLimit", executorReceipt.DestGasLimit,
 			"destBytesOverhead", executorReceipt.DestBytesOverhead,
 			"feeTokenAmount", executorReceipt.FeeTokenAmount.String(),
 			"extraArgs", common.Bytes2Hex(executorReceipt.ExtraArgs))
 
-		r.lggr.Infow("Decoding encoded message",
+		r.lggr.Debugw("Decoding encoded message",
 			"encodedMessageLength", len(event.EncodedMessage),
 			protocol.LogKeyMessageID, protocol.Bytes32(event.MessageId).String())
 		decodedMsg, err := protocol.DecodeMessage(event.EncodedMessage)
@@ -240,7 +239,7 @@ func (r *SourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock, to
 			r.lggr.Errorw("Failed to decode message", "error", err, "rawMessage", event.EncodedMessage)
 			continue // to next message
 		}
-		r.lggr.Infow("Decoded message",
+		r.lggr.Debugw("Decoded message",
 			"message", decodedMsg)
 
 		// Validate that ccvAndExecutorHash is not zero - it's required
