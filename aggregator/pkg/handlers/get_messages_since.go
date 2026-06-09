@@ -41,7 +41,7 @@ func (h *GetMessagesSinceHandler) Handle(ctx context.Context, req *msgdiscoveryp
 
 	records := make([]*msgdiscoverypb.VerifierResultWithSequence, 0, len(batch.Reports))
 	for _, report := range batch.Reports {
-		h.logger(ctx).Tracef("Report MessageID: %x, Sequence: %d, Verifications: %d", protocol.ByteSlice(report.MessageID), report.Sequence, len(report.Verifications))
+		h.logger(ctx).Tracef("Report MessageID: %s, Sequence: %d, Verifications: %d", protocol.ByteSlice(report.MessageID), report.Sequence, len(report.Verifications))
 		verifierResult, err := model.MapAggregatedReportToVerifierResultProto(report, h.committee)
 		if err != nil {
 			h.logger(ctx).Errorw("failed to map aggregated report to proto", "messageID", protocol.ByteSlice(report.MessageID), "error", err)
@@ -51,7 +51,7 @@ func (h *GetMessagesSinceHandler) Handle(ctx context.Context, req *msgdiscoveryp
 		// If source verifier is not in ccvAddresses, nil out metadata addresses
 		quorumConfig, ok := h.committee.GetQuorumConfig(report.GetSourceChainSelector())
 		if !ok {
-			h.logger(ctx).Errorw("missing quorum config for source chain selector", "sourceChainSelector", report.GetSourceChainSelector(), "messageID", report.MessageID)
+			h.logger(ctx).Errorw("missing quorum config for source chain selector", "sourceChainSelector", report.GetSourceChainSelector(), "messageID", protocol.ByteSlice(report.MessageID))
 			verifierResult.Metadata.VerifierSourceAddress = nil
 			verifierResult.Metadata.VerifierDestAddress = nil
 		} else if !model.IsSourceVerifierInCCVAddresses(quorumConfig.GetSourceVerifierAddress(), report.GetMessageCCVAddresses()) {
