@@ -171,16 +171,16 @@ func (ec *Coordinator) runStorageStream(ctx context.Context) {
 			id := msg.MustMessageID()
 
 			if ec.delayedMessageHeap.Has(id) {
-				ec.lggr.Infow("message already in delayed heap, skipping", "messageID", id)
+				ec.lggr.Debugw("message already in delayed heap, skipping", "messageID", id)
 				continue
 			}
 			if ec.inFlightHas(id) {
-				ec.lggr.Infow("message already in flight, skipping", "messageID", id)
+				ec.lggr.Debugw("message already in flight, skipping", "messageID", id)
 				continue
 			}
 
 			if !ec.leaderElector.IsExecutorForChain(msg.DestChainSelector) {
-				ec.lggr.Infow("skipping message, executor not in pool for destination chain",
+				ec.lggr.Debugw("skipping message, executor not in pool for destination chain",
 					"messageID", id, "chainSel", msg.DestChainSelector)
 				continue
 			}
@@ -200,7 +200,7 @@ func (ec *Coordinator) runStorageStream(ctx context.Context) {
 				continue
 			}
 
-			ec.lggr.Infow("pushing message to delayed heap",
+			ec.lggr.Debugw("pushing message to delayed heap",
 				"messageID", id,
 				"ingestionTimestamp", streamResult.Metadata.IngestionTimestamp,
 				"readyTimestamp", readyTimestamp,
@@ -213,7 +213,7 @@ func (ec *Coordinator) runStorageStream(ctx context.Context) {
 				RetryInterval: retryDelay,
 				MessageID:     id,
 			}) {
-				ec.lggr.Infow("duplicate message rejected by heap", "messageID", id)
+				ec.lggr.Debugw("duplicate message rejected by heap", "messageID", id)
 			}
 		}
 	}
@@ -273,18 +273,20 @@ func (ec *Coordinator) processPayload(ctx context.Context, payload message_heap.
 	defer ec.inFlightRemove(payload.MessageID)
 	currentTime := ec.timeProvider.GetTime()
 	if currentTime.After(payload.ExpiryTime) {
-		ec.lggr.Infow("message has expired", "messageID", payload.MessageID)
+		// PER-MESSAGE LOG (failure): terminal; message exceeded its expiry without execution.
+		ec.lggr.Infow("message has expired", protocol.LogTypeKey, protocol.LogTypeMessageFailure, "messageID", payload.MessageID)
 		ec.monitoring.Metrics().IncrementExpiredMessages(ctx)
 		return
 	}
 
 	message, id := *payload.Message, payload.MessageID
 
-	ec.lggr.Infow("processing message with ID", "messageID", id)
+	// PER-MESSAGE LOG (status): one per message picked up for an execution attempt.
+	ec.lggr.Infow("processing message with ID", protocol.LogTypeKey, protocol.LogTypeMessageStatus, "messageID", id)
 
 	shouldRetry, err := ec.executor.HandleMessage(ctx, message)
 	if shouldRetry {
-		ec.lggr.Infow("message should be retried, putting back in heap", "messageID", id)
+		ec.lggr.Debugw("message should be retried, putting back in heap", "messageID", id)
 		if !ec.delayedMessageHeap.Push(message_heap.MessageWithTimestamps{
 			Message:       &message,
 			ReadyTime:     payload.ReadyTime.Add(payload.RetryInterval),
