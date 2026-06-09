@@ -40,8 +40,8 @@ type tokenTransferV3TestCase struct {
 	srcToken  protocol.UnknownAddress
 	destToken protocol.UnknownAddress
 	executor  protocol.UnknownAddress
-	hydrate  func(ctx context.Context, tc *tokenTransferV3TestCase) ([]tcapi.MissingPrerequisite, error)
-	hydrated bool
+	hydrate   func(ctx context.Context, tc *tokenTransferV3TestCase) ([]tcapi.MissingPrerequisite, error)
+	hydrated  bool
 }
 
 func (tc *tokenTransferV3TestCase) Name() string {
@@ -274,20 +274,20 @@ func tokenTransferCase(lib ccv.Lib, src, dest uint64, combo common.TokenCombinat
 
 			var missing []tcapi.MissingPrerequisite
 
+			var receiverName string
+			var receiver protocol.UnknownAddress
+			var receiverErr error
 			if tc.useEOAReceiver {
-				receiver, err := dst.GetEOAReceiverAddress()
-				if err != nil {
-					missing = append(missing, tcapi.MissingPrerequisite{Name: "EOA receiver address", Err: err})
-				} else {
-					tc.receiver = receiver
-				}
+				receiver, receiverErr = dst.GetEOAReceiverAddress()
+				receiverName = "EOA receiver address"
 			} else {
-				receiver, err := dstReg.AddressResolver.GetContractReceiver(ds, tc.dst, common.DefaultReceiverQualifier)
-				if err != nil {
-					missing = append(missing, tcapi.MissingPrerequisite{Name: "contract receiver (default)", Err: err})
-				} else {
-					tc.receiver = receiver
-				}
+				receiver, receiverErr = dstReg.AddressResolver.GetContractReceiver(ds, tc.dst, common.DefaultReceiverQualifier)
+				receiverName = "contract receiver (default)"
+			}
+			if receiverErr != nil {
+				missing = append(missing, tcapi.MissingPrerequisite{Name: receiverName, Err: receiverErr})
+			} else {
+				tc.receiver = receiver
 			}
 
 			srcToken, err := srcReg.AddressResolver.GetToken(ds, tc.src, tc.combo.LocalPoolAddressRef())
