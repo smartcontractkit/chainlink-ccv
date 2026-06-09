@@ -3,6 +3,7 @@ package basic
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -39,7 +40,7 @@ type v3TestCase struct {
 	receiver protocol.UnknownAddress
 	ccvs     []protocol.CCV
 	executor protocol.UnknownAddress
-	hydrate  func(ctx context.Context, tc *v3TestCase) bool
+	hydrate  func(ctx context.Context, tc *v3TestCase) ([]tcapi.MissingPrerequisite, error)
 	hydrated bool
 }
 
@@ -47,23 +48,34 @@ func (tc *v3TestCase) Name() string {
 	return tc.name
 }
 
-func (tc *v3TestCase) ensureHydrated(ctx context.Context) error {
+func (tc *v3TestCase) ensureHydrated(ctx context.Context) ([]tcapi.MissingPrerequisite, error) {
 	if tc.hydrated {
-		return nil
+		return nil, nil
 	}
 	if tc.hydrate == nil {
-		return fmt.Errorf("%s: missing hydrate func", tc.name)
+		return nil, fmt.Errorf("%s: missing hydrate func", tc.name)
 	}
-	if !tc.hydrate(ctx, tc) {
-		return fmt.Errorf("%s: prerequisites not met", tc.name)
+	missing, err := tc.hydrate(ctx, tc)
+	if err != nil {
+		return nil, err
 	}
-	tc.hydrated = true
-	return nil
+	if len(missing) == 0 {
+		tc.hydrated = true
+	}
+	return missing, nil
 }
 
 func (tc *v3TestCase) Run(ctx context.Context) error {
-	if err := tc.ensureHydrated(ctx); err != nil {
+	missing, err := tc.ensureHydrated(ctx)
+	if err != nil {
 		return err
+	}
+	if len(missing) > 0 {
+		errs := make([]error, len(missing))
+		for i, m := range missing {
+			errs[i] = m
+		}
+		return errors.Join(errs...)
 	}
 	chainMap, err := tc.lib.ChainsMap(ctx)
 	if err != nil {
@@ -157,8 +169,8 @@ func (tc *v3TestCase) Run(ctx context.Context) error {
 	return nil
 }
 
-func (tc *v3TestCase) HavePrerequisites(ctx context.Context) bool {
-	return tc.ensureHydrated(ctx) == nil
+func (tc *v3TestCase) CheckPrerequisites(ctx context.Context) ([]tcapi.MissingPrerequisite, error) {
+	return tc.ensureHydrated(ctx)
 }
 
 func getCommitteeCCV(resolver chainreg.AddressResolver, ds datastore.DataStore, srcChainSelector uint64, qualifier string) (protocol.CCV, error) {
@@ -181,50 +193,53 @@ type v3Env struct {
 	DstResolver chainreg.AddressResolver
 }
 
-func loadV3Env(ctx context.Context, lib ccv.Lib, src, dst uint64) (v3Env, bool) {
+func loadV3Env(ctx context.Context, lib ccv.Lib, src, dst uint64) (v3Env, error) {
 	var env v3Env
 
 	ds, err := lib.DataStore()
 	if err != nil {
-		return env, false
+		return env, fmt.Errorf("data store: %w", err)
 	}
 	env.DS = ds
 
 	chainMap, err := lib.ChainsMap(ctx)
 	if err != nil {
-		return env, false
+		return env, fmt.Errorf("chains map: %w", err)
 	}
 
 	dstChain, ok := chainMap[dst]
 	if !ok {
-		return env, false
+		return env, fmt.Errorf("chain %d not found in chains map", dst)
 	}
 	env.Dst = dstChain
 
 	srcFamily, err := chain_selectors.GetSelectorFamily(src)
 	if err != nil {
-		return env, false
+		return env, fmt.Errorf("source chain family: %w", err)
 	}
 	dstFamily, err := chain_selectors.GetSelectorFamily(dst)
 	if err != nil {
-		return env, false
+		return env, fmt.Errorf("dest chain family: %w", err)
 	}
 
 	srcReg, err := chainreg.GetRegistry().Get(srcFamily)
 	if err != nil {
-		return env, false
+		return env, fmt.Errorf("source chain registry: %w", err)
 	}
 	dstReg, err := chainreg.GetRegistry().Get(dstFamily)
 	if err != nil {
-		return env, false
+		return env, fmt.Errorf("dest chain registry: %w", err)
 	}
-	if srcReg.AddressResolver == nil || dstReg.AddressResolver == nil {
-		return env, false
+	if srcReg.AddressResolver == nil {
+		return env, fmt.Errorf("source chain registry has no address resolver")
+	}
+	if dstReg.AddressResolver == nil {
+		return env, fmt.Errorf("dest chain registry has no address resolver")
 	}
 	env.SrcResolver = srcReg.AddressResolver
 	env.DstResolver = dstReg.AddressResolver
 
-	return env, true
+	return env, nil
 }
 
 // CustomExecutor returns a test case that uses the custom executor.
@@ -246,30 +261,36 @@ func customExecutor(lib ccv.Lib, src, dest uint64, args Args) *v3TestCase {
 			numExpectedVerifications: 1,
 			args:                     args,
 		},
-		hydrate: func(ctx context.Context, tc *v3TestCase) bool {
-			env, ok := loadV3Env(ctx, tc.lib, tc.src, tc.dst)
-			if !ok {
-				return false
+		hydrate: func(ctx context.Context, tc *v3TestCase) ([]tcapi.MissingPrerequisite, error) {
+			env, err := loadV3Env(ctx, tc.lib, tc.src, tc.dst)
+			if err != nil {
+				return nil, err
 			}
+
+			var missing []tcapi.MissingPrerequisite
 
 			receiver, err := env.DstResolver.GetContractReceiver(env.DS, tc.dst, common.DefaultReceiverQualifier)
 			if err != nil {
-				return false
+				missing = append(missing, tcapi.MissingPrerequisite{Name: "contract receiver (default)", Err: err})
+			} else {
+				tc.receiver = receiver
 			}
-			tc.receiver = receiver
 
 			ccv, err := getCommitteeCCV(env.SrcResolver, env.DS, tc.src, common.DefaultCommitteeVerifierQualifier)
 			if err != nil {
-				return false
+				missing = append(missing, tcapi.MissingPrerequisite{Name: "committee CCV (default)", Err: err})
+			} else {
+				tc.ccvs = []protocol.CCV{ccv}
 			}
-			tc.ccvs = []protocol.CCV{ccv}
 
 			executorAddr, err := env.SrcResolver.GetExecutor(env.DS, tc.src, common.CustomExecutorQualifier)
 			if err != nil {
-				return false
+				missing = append(missing, tcapi.MissingPrerequisite{Name: "custom executor", Err: err})
+			} else {
+				tc.executor = executorAddr
 			}
-			tc.executor = executorAddr
-			return true
+
+			return missing, nil
 		},
 	}
 }
@@ -292,29 +313,36 @@ func eoaReceiverDefaultVerifier(lib ccv.Lib, src, dest uint64, args Args) *v3Tes
 			numExpectedVerifications: 1,
 			args:                     args,
 		},
-		hydrate: func(ctx context.Context, tc *v3TestCase) bool {
-			env, ok := loadV3Env(ctx, tc.lib, tc.src, tc.dst)
-			if !ok {
-				return false
+		hydrate: func(ctx context.Context, tc *v3TestCase) ([]tcapi.MissingPrerequisite, error) {
+			env, err := loadV3Env(ctx, tc.lib, tc.src, tc.dst)
+			if err != nil {
+				return nil, err
 			}
+
+			var missing []tcapi.MissingPrerequisite
+
 			receiver, err := env.Dst.GetEOAReceiverAddress()
 			if err != nil {
-				return false
+				missing = append(missing, tcapi.MissingPrerequisite{Name: "EOA receiver address", Err: err})
+			} else {
+				tc.receiver = receiver
 			}
-			tc.receiver = receiver
+
 			ccv, err := getCommitteeCCV(env.SrcResolver, env.DS, tc.src, common.DefaultCommitteeVerifierQualifier)
 			if err != nil {
-				return false
+				missing = append(missing, tcapi.MissingPrerequisite{Name: "committee CCV (default)", Err: err})
+			} else {
+				tc.ccvs = []protocol.CCV{ccv}
 			}
-			tc.ccvs = []protocol.CCV{ccv}
 
 			executorAddr, err := env.SrcResolver.GetExecutor(env.DS, tc.src, common.DefaultExecutorQualifier)
 			if err != nil {
-				return false
+				missing = append(missing, tcapi.MissingPrerequisite{Name: "executor (default)", Err: err})
+			} else {
+				tc.executor = executorAddr
 			}
-			tc.executor = executorAddr
 
-			return true
+			return missing, nil
 		},
 	}
 }
@@ -337,33 +365,41 @@ func eoaReceiverSecondaryVerifier(lib ccv.Lib, src, dest uint64, args Args) *v3T
 			numExpectedVerifications: 2,
 			args:                     args,
 		},
-		hydrate: func(ctx context.Context, tc *v3TestCase) bool {
-			env, ok := loadV3Env(ctx, tc.lib, tc.src, tc.dst)
-			if !ok {
-				return false
+		hydrate: func(ctx context.Context, tc *v3TestCase) ([]tcapi.MissingPrerequisite, error) {
+			env, err := loadV3Env(ctx, tc.lib, tc.src, tc.dst)
+			if err != nil {
+				return nil, err
 			}
+
+			var missing []tcapi.MissingPrerequisite
+
 			receiver, err := env.Dst.GetEOAReceiverAddress()
 			if err != nil {
-				return false
+				missing = append(missing, tcapi.MissingPrerequisite{Name: "EOA receiver address", Err: err})
+			} else {
+				tc.receiver = receiver
 			}
-			tc.receiver = receiver
 
 			sec, err := getCommitteeCCV(env.SrcResolver, env.DS, tc.src, common.SecondaryCommitteeVerifierQualifier)
 			if err != nil {
-				return false
+				missing = append(missing, tcapi.MissingPrerequisite{Name: "committee CCV (secondary)", Err: err})
 			}
 			def, err := getCommitteeCCV(env.SrcResolver, env.DS, tc.src, common.DefaultCommitteeVerifierQualifier)
 			if err != nil {
-				return false
+				missing = append(missing, tcapi.MissingPrerequisite{Name: "committee CCV (default)", Err: err})
 			}
-			tc.ccvs = []protocol.CCV{sec, def}
+			if len(missing) == 0 {
+				tc.ccvs = []protocol.CCV{sec, def}
+			}
 
 			executorAddr, err := env.SrcResolver.GetExecutor(env.DS, tc.src, common.DefaultExecutorQualifier)
 			if err != nil {
-				return false
+				missing = append(missing, tcapi.MissingPrerequisite{Name: "executor (default)", Err: err})
+			} else {
+				tc.executor = executorAddr
 			}
-			tc.executor = executorAddr
-			return true
+
+			return missing, nil
 		},
 	}
 }
@@ -387,30 +423,36 @@ func receiverSecondaryVerifierRequired(lib ccv.Lib, src, dest uint64, args Args)
 			aggregatorQualifier:      common.SecondaryCommitteeVerifierQualifier,
 			args:                     args,
 		},
-		hydrate: func(ctx context.Context, tc *v3TestCase) bool {
-			env, ok := loadV3Env(ctx, tc.lib, tc.src, tc.dst)
-			if !ok {
-				return false
+		hydrate: func(ctx context.Context, tc *v3TestCase) ([]tcapi.MissingPrerequisite, error) {
+			env, err := loadV3Env(ctx, tc.lib, tc.src, tc.dst)
+			if err != nil {
+				return nil, err
 			}
+
+			var missing []tcapi.MissingPrerequisite
 
 			receiver, err := env.DstResolver.GetContractReceiver(env.DS, tc.dst, common.SecondaryReceiverQualifier)
 			if err != nil {
-				return false
+				missing = append(missing, tcapi.MissingPrerequisite{Name: "contract receiver (secondary)", Err: err})
+			} else {
+				tc.receiver = receiver
 			}
-			tc.receiver = receiver
 
 			ccv, err := getCommitteeCCV(env.SrcResolver, env.DS, tc.src, common.SecondaryCommitteeVerifierQualifier)
 			if err != nil {
-				return false
+				missing = append(missing, tcapi.MissingPrerequisite{Name: "committee CCV (secondary)", Err: err})
+			} else {
+				tc.ccvs = []protocol.CCV{ccv}
 			}
-			tc.ccvs = []protocol.CCV{ccv}
 
 			executorAddr, err := env.SrcResolver.GetExecutor(env.DS, tc.src, common.DefaultExecutorQualifier)
 			if err != nil {
-				return false
+				missing = append(missing, tcapi.MissingPrerequisite{Name: "executor (default)", Err: err})
+			} else {
+				tc.executor = executorAddr
 			}
-			tc.executor = executorAddr
-			return true
+
+			return missing, nil
 		},
 	}
 }
@@ -434,35 +476,41 @@ func receiverSecondaryRequiredTertiaryOptionalThreshold1(lib ccv.Lib, src, dest 
 			aggregatorQualifier:      common.SecondaryCommitteeVerifierQualifier,
 			args:                     args,
 		},
-		hydrate: func(ctx context.Context, tc *v3TestCase) bool {
-			env, ok := loadV3Env(ctx, tc.lib, tc.src, tc.dst)
-			if !ok {
-				return false
+		hydrate: func(ctx context.Context, tc *v3TestCase) ([]tcapi.MissingPrerequisite, error) {
+			env, err := loadV3Env(ctx, tc.lib, tc.src, tc.dst)
+			if err != nil {
+				return nil, err
 			}
+
+			var missing []tcapi.MissingPrerequisite
 
 			receiver, err := env.DstResolver.GetContractReceiver(env.DS, tc.dst, common.SecondaryReceiverQualifier)
 			if err != nil {
-				return false
+				missing = append(missing, tcapi.MissingPrerequisite{Name: "contract receiver (secondary)", Err: err})
+			} else {
+				tc.receiver = receiver
 			}
-			tc.receiver = receiver
 
 			sec, err := getCommitteeCCV(env.SrcResolver, env.DS, tc.src, common.SecondaryCommitteeVerifierQualifier)
 			if err != nil {
-				return false
+				missing = append(missing, tcapi.MissingPrerequisite{Name: "committee CCV (secondary)", Err: err})
 			}
 			ter, err := getCommitteeCCV(env.SrcResolver, env.DS, tc.src, common.TertiaryCommitteeVerifierQualifier)
 			if err != nil {
-				return false
+				missing = append(missing, tcapi.MissingPrerequisite{Name: "committee CCV (tertiary)", Err: err})
 			}
-			tc.ccvs = []protocol.CCV{sec, ter}
+			if len(missing) == 0 {
+				tc.ccvs = []protocol.CCV{sec, ter}
+			}
 
 			executorAddr, err := env.SrcResolver.GetExecutor(env.DS, tc.src, common.DefaultExecutorQualifier)
 			if err != nil {
-				return false
+				missing = append(missing, tcapi.MissingPrerequisite{Name: "executor (default)", Err: err})
+			} else {
+				tc.executor = executorAddr
 			}
-			tc.executor = executorAddr
 
-			return true
+			return missing, nil
 		},
 	}
 }
@@ -485,35 +533,45 @@ func receiverQuaternaryAllThreeVerifiers(lib ccv.Lib, src, dest uint64, args Arg
 			numExpectedVerifications: 3,
 			args:                     args,
 		},
-		hydrate: func(ctx context.Context, tc *v3TestCase) bool {
-			env, ok := loadV3Env(ctx, tc.lib, tc.src, tc.dst)
-			if !ok {
-				return false
+		hydrate: func(ctx context.Context, tc *v3TestCase) ([]tcapi.MissingPrerequisite, error) {
+			env, err := loadV3Env(ctx, tc.lib, tc.src, tc.dst)
+			if err != nil {
+				return nil, err
 			}
+
+			var missing []tcapi.MissingPrerequisite
+
 			receiver, err := env.DstResolver.GetContractReceiver(env.DS, tc.dst, common.QuaternaryReceiverQualifier)
 			if err != nil {
-				return false
+				missing = append(missing, tcapi.MissingPrerequisite{Name: "contract receiver (quaternary)", Err: err})
+			} else {
+				tc.receiver = receiver
 			}
-			tc.receiver = receiver
+
 			def, err := getCommitteeCCV(env.SrcResolver, env.DS, tc.src, common.DefaultCommitteeVerifierQualifier)
 			if err != nil {
-				return false
+				missing = append(missing, tcapi.MissingPrerequisite{Name: "committee CCV (default)", Err: err})
 			}
 			sec, err := getCommitteeCCV(env.SrcResolver, env.DS, tc.src, common.SecondaryCommitteeVerifierQualifier)
 			if err != nil {
-				return false
+				missing = append(missing, tcapi.MissingPrerequisite{Name: "committee CCV (secondary)", Err: err})
 			}
 			ter, err := getCommitteeCCV(env.SrcResolver, env.DS, tc.src, common.TertiaryCommitteeVerifierQualifier)
 			if err != nil {
-				return false
+				missing = append(missing, tcapi.MissingPrerequisite{Name: "committee CCV (tertiary)", Err: err})
 			}
-			tc.ccvs = []protocol.CCV{def, sec, ter}
+			if len(missing) == 0 {
+				tc.ccvs = []protocol.CCV{def, sec, ter}
+			}
+
 			executorAddr, err := env.SrcResolver.GetExecutor(env.DS, tc.src, common.DefaultExecutorQualifier)
 			if err != nil {
-				return false
+				missing = append(missing, tcapi.MissingPrerequisite{Name: "executor (default)", Err: err})
+			} else {
+				tc.executor = executorAddr
 			}
-			tc.executor = executorAddr
-			return true
+
+			return missing, nil
 		},
 	}
 }
@@ -536,35 +594,41 @@ func receiverQuaternaryDefaultAndSecondary(lib ccv.Lib, src, dest uint64, args A
 			numExpectedVerifications: 2,
 			args:                     args,
 		},
-		hydrate: func(ctx context.Context, tc *v3TestCase) bool {
-			env, ok := loadV3Env(ctx, tc.lib, tc.src, tc.dst)
-			if !ok {
-				return false
+		hydrate: func(ctx context.Context, tc *v3TestCase) ([]tcapi.MissingPrerequisite, error) {
+			env, err := loadV3Env(ctx, tc.lib, tc.src, tc.dst)
+			if err != nil {
+				return nil, err
 			}
+
+			var missing []tcapi.MissingPrerequisite
 
 			receiver, err := env.DstResolver.GetContractReceiver(env.DS, tc.dst, common.QuaternaryReceiverQualifier)
 			if err != nil {
-				return false
+				missing = append(missing, tcapi.MissingPrerequisite{Name: "contract receiver (quaternary)", Err: err})
+			} else {
+				tc.receiver = receiver
 			}
-			tc.receiver = receiver
 
 			def, err := getCommitteeCCV(env.SrcResolver, env.DS, tc.src, common.DefaultCommitteeVerifierQualifier)
 			if err != nil {
-				return false
+				missing = append(missing, tcapi.MissingPrerequisite{Name: "committee CCV (default)", Err: err})
 			}
 			sec, err := getCommitteeCCV(env.SrcResolver, env.DS, tc.src, common.SecondaryCommitteeVerifierQualifier)
 			if err != nil {
-				return false
+				missing = append(missing, tcapi.MissingPrerequisite{Name: "committee CCV (secondary)", Err: err})
 			}
-			tc.ccvs = []protocol.CCV{def, sec}
+			if len(missing) == 0 {
+				tc.ccvs = []protocol.CCV{def, sec}
+			}
 
 			executorAddr, err := env.SrcResolver.GetExecutor(env.DS, tc.src, common.DefaultExecutorQualifier)
 			if err != nil {
-				return false
+				missing = append(missing, tcapi.MissingPrerequisite{Name: "executor (default)", Err: err})
+			} else {
+				tc.executor = executorAddr
 			}
-			tc.executor = executorAddr
 
-			return true
+			return missing, nil
 		},
 	}
 }
@@ -587,33 +651,41 @@ func receiverQuaternaryDefaultAndTertiary(lib ccv.Lib, src, dest uint64, args Ar
 			numExpectedVerifications: 2,
 			args:                     args,
 		},
-		hydrate: func(ctx context.Context, tc *v3TestCase) bool {
-			env, ok := loadV3Env(ctx, tc.lib, tc.src, tc.dst)
-			if !ok {
-				return false
+		hydrate: func(ctx context.Context, tc *v3TestCase) ([]tcapi.MissingPrerequisite, error) {
+			env, err := loadV3Env(ctx, tc.lib, tc.src, tc.dst)
+			if err != nil {
+				return nil, err
 			}
+
+			var missing []tcapi.MissingPrerequisite
 
 			receiver, err := env.DstResolver.GetContractReceiver(env.DS, tc.dst, common.QuaternaryReceiverQualifier)
 			if err != nil {
-				return false
+				missing = append(missing, tcapi.MissingPrerequisite{Name: "contract receiver (quaternary)", Err: err})
+			} else {
+				tc.receiver = receiver
 			}
-			tc.receiver = receiver
+
 			def, err := getCommitteeCCV(env.SrcResolver, env.DS, tc.src, common.DefaultCommitteeVerifierQualifier)
 			if err != nil {
-				return false
+				missing = append(missing, tcapi.MissingPrerequisite{Name: "committee CCV (default)", Err: err})
 			}
 			ter, err := getCommitteeCCV(env.SrcResolver, env.DS, tc.src, common.TertiaryCommitteeVerifierQualifier)
 			if err != nil {
-				return false
+				missing = append(missing, tcapi.MissingPrerequisite{Name: "committee CCV (tertiary)", Err: err})
 			}
-			tc.ccvs = []protocol.CCV{def, ter}
+			if len(missing) == 0 {
+				tc.ccvs = []protocol.CCV{def, ter}
+			}
 
 			executorAddr, err := env.SrcResolver.GetExecutor(env.DS, tc.src, common.DefaultExecutorQualifier)
 			if err != nil {
-				return false
+				missing = append(missing, tcapi.MissingPrerequisite{Name: "executor (default)", Err: err})
+			} else {
+				tc.executor = executorAddr
 			}
-			tc.executor = executorAddr
-			return true
+
+			return missing, nil
 		},
 	}
 }
@@ -636,35 +708,42 @@ func maxDataSize(lib ccv.Lib, src, dest uint64, args Args) *v3TestCase {
 			numExpectedVerifications: 1,
 			args:                     args,
 		},
-		hydrate: func(ctx context.Context, tc *v3TestCase) bool {
-			env, ok := loadV3Env(ctx, tc.lib, tc.src, tc.dst)
-			if !ok {
-				return false
+		hydrate: func(ctx context.Context, tc *v3TestCase) ([]tcapi.MissingPrerequisite, error) {
+			env, err := loadV3Env(ctx, tc.lib, tc.src, tc.dst)
+			if err != nil {
+				return nil, err
 			}
+
 			maxDataBytes, err := env.Dst.GetMaxDataBytes(ctx, tc.dst)
 			if err != nil {
-				return false
+				return nil, fmt.Errorf("get max data bytes: %w", err)
 			}
 			tc.msgData = bytes.Repeat([]byte("a"), int(maxDataBytes))
 
+			var missing []tcapi.MissingPrerequisite
+
 			receiver, err := env.DstResolver.GetContractReceiver(env.DS, tc.dst, common.DefaultReceiverQualifier)
 			if err != nil {
-				return false
+				missing = append(missing, tcapi.MissingPrerequisite{Name: "contract receiver (default)", Err: err})
+			} else {
+				tc.receiver = receiver
 			}
-			tc.receiver = receiver
 
 			ccv, err := getCommitteeCCV(env.SrcResolver, env.DS, tc.src, common.DefaultCommitteeVerifierQualifier)
 			if err != nil {
-				return false
+				missing = append(missing, tcapi.MissingPrerequisite{Name: "committee CCV (default)", Err: err})
+			} else {
+				tc.ccvs = []protocol.CCV{ccv}
 			}
-			tc.ccvs = []protocol.CCV{ccv}
 
 			executorAddr, err := env.SrcResolver.GetExecutor(env.DS, tc.src, common.DefaultExecutorQualifier)
 			if err != nil {
-				return false
+				missing = append(missing, tcapi.MissingPrerequisite{Name: "executor (default)", Err: err})
+			} else {
+				tc.executor = executorAddr
 			}
-			tc.executor = executorAddr
-			return true
+
+			return missing, nil
 		},
 	}
 }
@@ -689,30 +768,36 @@ func eoaReceiverDefaultVerifierSafeTag(lib ccv.Lib, src, dest uint64, args Args)
 			numExpectedVerifications: 1,
 			args:                     args,
 		},
-		hydrate: func(ctx context.Context, tc *v3TestCase) bool {
-			env, ok := loadV3Env(ctx, tc.lib, tc.src, tc.dst)
-			if !ok {
-				return false
+		hydrate: func(ctx context.Context, tc *v3TestCase) ([]tcapi.MissingPrerequisite, error) {
+			env, err := loadV3Env(ctx, tc.lib, tc.src, tc.dst)
+			if err != nil {
+				return nil, err
 			}
+
+			var missing []tcapi.MissingPrerequisite
+
 			receiver, err := env.Dst.GetEOAReceiverAddress()
 			if err != nil {
-				return false
+				missing = append(missing, tcapi.MissingPrerequisite{Name: "EOA receiver address", Err: err})
+			} else {
+				tc.receiver = receiver
 			}
-			tc.receiver = receiver
 
 			ccv, err := getCommitteeCCV(env.SrcResolver, env.DS, tc.src, common.DefaultCommitteeVerifierQualifier)
 			if err != nil {
-				return false
+				missing = append(missing, tcapi.MissingPrerequisite{Name: "committee CCV (default)", Err: err})
+			} else {
+				tc.ccvs = []protocol.CCV{ccv}
 			}
-			tc.ccvs = []protocol.CCV{ccv}
 
 			executorAddr, err := env.SrcResolver.GetExecutor(env.DS, tc.src, common.DefaultExecutorQualifier)
 			if err != nil {
-				return false
+				missing = append(missing, tcapi.MissingPrerequisite{Name: "executor (default)", Err: err})
+			} else {
+				tc.executor = executorAddr
 			}
-			tc.executor = executorAddr
 
-			return true
+			return missing, nil
 		},
 	}
 }
