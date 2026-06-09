@@ -32,6 +32,7 @@ import (
 	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainreg"
 	ccldf "github.com/smartcontractkit/chainlink-ccv/build/devenv/cldf"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cli/log"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cli/send"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/evm"
 )
@@ -976,6 +977,7 @@ func init() {
 	rootCmd.AddCommand(printAddressesCmd)
 
 	rootCmd.AddCommand(send.Command())
+	rootCmd.AddCommand(log.Command())
 
 	// on-chain monitoring
 	rootCmd.AddCommand(monitorContractsCmd)
