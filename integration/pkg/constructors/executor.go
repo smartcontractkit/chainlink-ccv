@@ -20,6 +20,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/destinationreader"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-evm/pkg/chains/legacyevm"
 	"github.com/smartcontractkit/chainlink-evm/pkg/keys"
@@ -48,6 +49,8 @@ func NewExecutorCoordinator(
 	keys map[protocol.ChainSelector]keys.RoundRobin,
 	fromAddresses map[protocol.ChainSelector][]common.Address,
 ) (*executor.Coordinator, error) {
+	lggr = logging.WithService(lggr, "executor")
+
 	if err := cfg.Validate(); err != nil {
 		lggr.Errorw("Invalid executor configuration.", "error", err)
 		return nil, fmt.Errorf("invalid executor configuration: %w", err)

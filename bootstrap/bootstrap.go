@@ -478,6 +478,7 @@ func Run(
 		return fmt.Errorf("failed to create logger: %w", err)
 	}
 	lggr = logger.Sugared(logger.Named(lggr, "Bootstrapper"))
+	lggr = logging.WithService(lggr, name)
 
 	bootstrapper, err := NewBootstrapper(name, lggr, fac, opts...)
 	if err != nil {

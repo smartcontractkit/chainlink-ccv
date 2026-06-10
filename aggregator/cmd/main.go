@@ -46,6 +46,7 @@ func main() {
 		panic(fmt.Sprintf("Failed to create logger: %v", err))
 	}
 	lggr = logger.Named(lggr, "aggregator")
+	lggr = logging.WithService(lggr, "aggregator")
 	sugaredLggr := logger.Sugared(lggr)
 
 	var (

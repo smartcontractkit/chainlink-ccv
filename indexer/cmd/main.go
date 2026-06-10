@@ -48,6 +48,7 @@ func main() {
 	}
 
 	lggr = logger.Named(lggr, "indexer")
+	lggr = logging.WithService(lggr, "indexer")
 	// Use SugaredLogger for better API
 	lggr = logger.Sugared(lggr)
 
