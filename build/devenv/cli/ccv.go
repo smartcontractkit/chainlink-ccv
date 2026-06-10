@@ -57,6 +57,9 @@ var rootCmd = &cobra.Command{
 			framework.L.Info().Msg("Debug mode enabled, setting CTF_CLNODE_DLV=true")
 			os.Setenv("CTF_CLNODE_DLV", "true")
 		}
+		if lvl, _ := cmd.Flags().GetString("log-level"); lvl != "" {
+			_ = os.Setenv("LOG_LEVEL", lvl)
+		}
 		mode, err := cmd.Flags().GetString("env-mode")
 		if err != nil {
 			return err
@@ -929,6 +932,7 @@ var txInfoCmd = &cobra.Command{
 func init() {
 	rootCmd.PersistentFlags().BoolP("debug", "d", false, "Enable running services with dlv to allow remote debugging.")
 	rootCmd.PersistentFlags().String("env-mode", "legacy", "Environment startup mode: legacy (default) or phased.")
+	rootCmd.PersistentFlags().String("log-level", "", "Log level for services that support it (e.g. debug, info, warn)")
 
 	// Fund addresses
 	rootCmd.AddCommand(fundAddressesCmd)
