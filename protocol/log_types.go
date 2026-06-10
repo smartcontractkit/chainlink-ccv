@@ -20,6 +20,11 @@ const (
 	// the other.
 	LogTypeMessageFailure LogType = "message_failure"
 
+	// LogTypeRetryableMessageFailure marks a non-terminal per-message failure event:
+	// a processing attempt failed but will be retried. Unlike LogTypeMessageFailure,
+	// this is not a terminal outcome — the message may yet succeed.
+	LogTypeRetryableMessageFailure LogType = "retryable_message_failure"
+
 	// LogTypeMessageStatus marks a non-terminal per-message progress event, such as a
 	// verification being received, a message pending quorum, or a processing attempt.
 	// These can fire multiple times per message as it advances.

@@ -248,15 +248,6 @@ func (cle *ChainlinkExecutor) HandleMessage(ctx context.Context, message protoco
 		CCVData: orderedverifierResults,
 		Message: message,
 	}
-	// PER-MESSAGE LOG (success): one per message, when this executor transmits to chain.
-	cle.lggr.Infow("transmitting aggregated report to chain",
-		protocol.LogTypeKey, protocol.LogTypeMessageSuccess,
-		protocol.LogKeyMessageID, messageID,
-		"destinationChain", destinationChain,
-		"latestCCVTimestamp", latestCCVTimestamp,
-		"verifierQuorum", verifierQuorum,
-		"verifierResultsLen", len(verifierResults),
-	)
 	// Full report dumped at Debug to keep the per-message success line small.
 	cle.lggr.Debugw("aggregated report", protocol.LogKeyMessageID, messageID, "aggregatedReport", aggregatedReport)
 	err = cle.contractTransmitters[destinationChain].ConvertAndWriteMessageToChain(ctx, aggregatedReport)
@@ -269,6 +260,16 @@ func (cle *ChainlinkExecutor) HandleMessage(ctx context.Context, message protoco
 		cle.lggr.Warnw("will retry execution due to failed ConvertAndWriteMessageToChain", protocol.LogKeyMessageID, messageID)
 		return true, err
 	}
+
+	// PER-MESSAGE LOG (success): one per message, when this executor transmits to chain.
+	cle.lggr.Infow("transmitting aggregated report to chain",
+		protocol.LogTypeKey, protocol.LogTypeMessageSuccess,
+		protocol.LogKeyMessageID, messageID,
+		"destinationChain", destinationChain,
+		"latestCCVTimestamp", latestCCVTimestamp,
+		"verifierQuorum", verifierQuorum,
+		"verifierResultsLen", len(verifierResults),
+	)
 
 	// Record the message execution latency.
 	cle.monitoring.Metrics().RecordMessageExecutionLatency(ctx, time.Since(start), destinationChain)

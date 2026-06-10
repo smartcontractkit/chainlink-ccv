@@ -23,9 +23,8 @@ func Command() *cobra.Command {
 		Use:     "logs",
 		Aliases: []string{"l"},
 		Short:   "Dump logs from all service containers",
-		Long: `Dump logs from all running service containers (verifier, aggregator,
-executor, indexer). Infrastructure containers (db, nginx, redis, etc.) are
-excluded automatically.
+		Long: `Dump logs from all running containers except known infrastructure
+(db, nginx, redis, blockchain, jd, portainer, fake).
 
 Without --sort, logs are grouped by container. With --sort, all log lines are
 merged and sorted by their JSON "ts" timestamp field, with the container name
@@ -134,9 +133,8 @@ type logLine struct {
 	ts        time.Time
 }
 
-// isServiceContainer returns true for service containers (verifier, aggregator,
-// executor, indexer) and false for infrastructure containers (db, nginx, redis,
-// blockchain, portainer, jd, fake).
+// isServiceContainer returns true for any container that is not known infrastructure
+// (db, nginx, redis, blockchain, jd, portainer, fake).
 func isServiceContainer(name string) bool {
 	for _, suffix := range []string{"-db", "-nginx", "-redis"} {
 		if strings.HasSuffix(name, suffix) {

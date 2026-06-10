@@ -368,9 +368,13 @@ func (p *Processor) handleVerificationError(
 		).
 		IncrementMessagesVerificationFailed(ctx)
 
-	// PER-MESSAGE LOG (failure): verification failed; retryable indicates whether it is terminal.
+	// PER-MESSAGE LOG (failure/retryable): one per failed attempt; terminal only when !retryable.
+	logType := protocol.LogTypeMessageFailure
+	if verificationError.Retryable {
+		logType = protocol.LogTypeRetryableMessageFailure
+	}
 	p.lggr.Errorw("Message verification failed",
-		protocol.LogTypeKey, protocol.LogTypeMessageFailure,
+		protocol.LogTypeKey, logType,
 		"error", verificationError.Error,
 		protocol.LogKeyMessageID, verificationError.Task.MessageID,
 		protocol.LogKeyNonce, message.SequenceNumber,
