@@ -254,6 +254,8 @@ func (cle *ChainlinkExecutor) HandleMessage(ctx context.Context, message protoco
 		protocol.LogKeyMessageID, messageID,
 		"destinationChain", destinationChain,
 		"latestCCVTimestamp", latestCCVTimestamp,
+		"verifierQuorum", verifierQuorum,
+		"verifierResultsLen", len(verifierResults),
 	)
 	// Full report dumped at Debug to keep the per-message success line small.
 	cle.lggr.Debugw("aggregated report", protocol.LogKeyMessageID, messageID, "aggregatedReport", aggregatedReport)

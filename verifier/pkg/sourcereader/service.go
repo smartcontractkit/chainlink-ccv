@@ -435,7 +435,7 @@ func (r *Service) addToPendingQueueHandleReorg(tasks []verifier.VerificationTask
 				r.logger.Warnw("Removing task from pending queue due to reorg",
 					protocol.LogKeyMessageID, msgID,
 					"blockNumber", existing.BlockNumber,
-					"seqNum", existing.Message.SequenceNumber,
+					protocol.LogKeySeqNum, existing.Message.SequenceNumber,
 					protocol.LogKeyDestChain, existing.Message.DestChainSelector,
 					"fromBlock", fromBlock.String(),
 				)
@@ -451,7 +451,7 @@ func (r *Service) addToPendingQueueHandleReorg(tasks []verifier.VerificationTask
 			if _, exists := tasksMap[msgID]; !exists {
 				r.logger.Warnw("Removing task from sentTasks due to reorg",
 					protocol.LogKeyMessageID, msgID,
-					"seqNum", task.Message.SequenceNumber,
+					protocol.LogKeySeqNum, task.Message.SequenceNumber,
 					protocol.LogKeyDestChain, task.Message.DestChainSelector,
 				)
 				r.reorgTracker.Track(task.Message.DestChainSelector, task.Message.SequenceNumber)
@@ -474,7 +474,7 @@ func (r *Service) addToPendingQueueHandleReorg(tasks []verifier.VerificationTask
 		r.logger.Debugw("Added message to pending queue",
 			protocol.LogKeyMessageID, task.MessageID,
 			"blockNumber", task.BlockNumber,
-			"seqNum", task.Message.SequenceNumber,
+			protocol.LogKeySeqNum, task.Message.SequenceNumber,
 			"pendingCount", len(r.pendingTasks))
 	}
 }
@@ -686,7 +686,7 @@ func (r *Service) isMessageReadyForVerification(
 		ready := msgBlock.Cmp(latestFinalizedBlock) <= 0
 		r.logger.Debugw("Reorg-affected message finality check",
 			protocol.LogKeyMessageID, task.MessageID,
-			"seqNum", seqNum,
+			protocol.LogKeySeqNum, seqNum,
 			protocol.LogKeyDestChain, destChain,
 			"messageBlock", task.BlockNumber,
 			"finalizedBlock", latestFinalizedBlock.String(),

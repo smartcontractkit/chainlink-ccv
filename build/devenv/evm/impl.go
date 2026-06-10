@@ -222,7 +222,7 @@ func (m *CCIP17EVM) getOrCreateOnRampPoller() (*eventPoller[cciptestinterfaces.M
 
 			message, err := protocol.DecodeMessage(event.EncodedMessage)
 			if err != nil {
-				m.logger.Warn().Err(err).Str("messageID", protocol.ByteSlice(event.MessageId[:]).String()).Msg("Failed to decode message, skipping")
+				m.logger.Warn().Err(err).Str(protocol.LogKeyMessageID, protocol.ByteSlice(event.MessageId[:]).String()).Msg("Failed to decode message, skipping")
 				continue
 			}
 			key := eventKey{chainSelector: event.DestChainSelector, msgNum: uint64(message.SequenceNumber), messageID: event.MessageId}

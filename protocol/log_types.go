@@ -46,4 +46,6 @@ const (
 	LogKeyNonce = "nonce"
 	// LogKeyJobID is the field key for a job-queue job ID.
 	LogKeyJobID = "jobID"
+	// LogKeySeqNum is the field key for a message sequence number.
+	LogKeySeqNum = "seqNum"
 )
