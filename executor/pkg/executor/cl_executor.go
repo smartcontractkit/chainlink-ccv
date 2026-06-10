@@ -199,7 +199,7 @@ func (cle *ChainlinkExecutor) HandleMessage(ctx context.Context, message protoco
 	// Order the Verifier Results to match the order expected by the receiver contract.
 	cle.lggr.Debugw("got ccv info and verifier results",
 		protocol.LogKeyMessageID, messageID,
-		"destinationChain", destinationChain,
+		protocol.LogKeyDestChain, destinationChain,
 		"verifierQuorum", verifierQuorum,
 		"verifierResultsLen", len(verifierResults),
 		"verifierResultsDestVerifiers", ccvDataDestVerifiers(verifierResults),
@@ -265,7 +265,7 @@ func (cle *ChainlinkExecutor) HandleMessage(ctx context.Context, message protoco
 	cle.lggr.Infow("transmitting aggregated report to chain",
 		protocol.LogTypeKey, protocol.LogTypeMessageSuccess,
 		protocol.LogKeyMessageID, messageID,
-		"destinationChain", destinationChain,
+		protocol.LogKeyDestChain, destinationChain,
 		"latestCCVTimestamp", latestCCVTimestamp,
 		"verifierQuorum", verifierQuorum,
 		"verifierResultsLen", len(verifierResults),
