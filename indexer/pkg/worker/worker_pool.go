@@ -151,7 +151,7 @@ func (p *Pool) enqueueMessages(ctx context.Context) {
 				return
 			}
 			// PER-MESSAGE LOG (status): once per verification (not per message).
-			p.logger.Infow("Enqueueing verification", protocol.LogTypeKey, protocol.LogTypeMessageStatus, "messageID", message.VerifierResult.MessageID.String(), "verifierSourceAddress", message.VerifierResult.VerifierSourceAddress)
+			p.logger.Infow("Enqueueing verification", protocol.LogTypeKey, protocol.LogTypeMessageStatus, protocol.LogKeyMessageID, message.VerifierResult.MessageID.String(), "verifierSourceAddress", message.VerifierResult.VerifierSourceAddress)
 			task, err := NewTask(p.logger, message.VerifierResult, p.registry, p.storage, p.scheduler.VerificationVisibilityWindow())
 			// This shouldn't happen, it can only be caused by an invalid hex conversion.
 			// We're unable to retry the message or send it to the DLQ.

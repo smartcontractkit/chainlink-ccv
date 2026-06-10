@@ -32,6 +32,7 @@ import (
 	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainreg"
 	ccldf "github.com/smartcontractkit/chainlink-ccv/build/devenv/cldf"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cli/log"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cli/send"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/evm"
 )
@@ -55,6 +56,9 @@ var rootCmd = &cobra.Command{
 		if debug {
 			framework.L.Info().Msg("Debug mode enabled, setting CTF_CLNODE_DLV=true")
 			os.Setenv("CTF_CLNODE_DLV", "true")
+		}
+		if lvl, _ := cmd.Flags().GetString("log-level"); lvl != "" {
+			_ = os.Setenv("LOG_LEVEL", lvl)
 		}
 		mode, err := cmd.Flags().GetString("env-mode")
 		if err != nil {
@@ -928,6 +932,7 @@ var txInfoCmd = &cobra.Command{
 func init() {
 	rootCmd.PersistentFlags().BoolP("debug", "d", false, "Enable running services with dlv to allow remote debugging.")
 	rootCmd.PersistentFlags().String("env-mode", "legacy", "Environment startup mode: legacy (default) or phased.")
+	rootCmd.PersistentFlags().String("log-level", "", "Log level for services that support it (e.g. debug, info, warn)")
 
 	// Fund addresses
 	rootCmd.AddCommand(fundAddressesCmd)
@@ -976,6 +981,7 @@ func init() {
 	rootCmd.AddCommand(printAddressesCmd)
 
 	rootCmd.AddCommand(send.Command())
+	rootCmd.AddCommand(log.Command())
 
 	// on-chain monitoring
 	rootCmd.AddCommand(monitorContractsCmd)

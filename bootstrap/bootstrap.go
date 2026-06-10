@@ -392,6 +392,23 @@ func WithLogLevel(logLevel zapcore.Level) Option {
 	}
 }
 
+// WithLogLevelFromEnv sets the log level from the LOG_LEVEL environment variable,
+// falling back to defaultLevel if the variable is unset or invalid.
+func WithLogLevelFromEnv(defaultLevel zapcore.Level) Option {
+	return func(b *Bootstrapper) error {
+		b.logLevel = defaultLevel
+		if lvlStr := os.Getenv("LOG_LEVEL"); lvlStr != "" {
+			var lvl zapcore.Level
+			if err := lvl.UnmarshalText([]byte(lvlStr)); err != nil {
+				_, _ = fmt.Fprintf(os.Stderr, "Invalid LOG_LEVEL '%s', defaulting to '%s'\n", lvlStr, defaultLevel)
+			} else {
+				b.logLevel = lvl
+			}
+		}
+		return nil
+	}
+}
+
 type keyToInit struct {
 	name    string
 	purpose string

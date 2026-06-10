@@ -133,20 +133,20 @@ func (o *OrphanRecoverer) RecoverOrphans(ctx context.Context) error {
 			// PER-MESSAGE LOG (status): timer-based, emitted per orphan scan while pending.
 			o.logger.Infow("Message pending quorum",
 				protocol.LogTypeKey, protocol.LogTypeMessageStatus,
-				"messageID", fmt.Sprintf("%x", orphanRecord.MessageID),
+				protocol.LogKeyMessageID, protocol.ByteSlice(orphanRecord.MessageID).String(),
 				"aggregationKey", orphanRecord.AggregationKey)
 
 			err := o.processOrphanedRecord(ctx, orphanRecord)
 			if err != nil {
 				o.logger.Errorw("Failed to process orphaned record",
-					"messageID", fmt.Sprintf("%x", orphanRecord.MessageID),
+					protocol.LogKeyMessageID, protocol.ByteSlice(orphanRecord.MessageID).String(),
 					"aggregationKey", orphanRecord.AggregationKey,
 					"error", err)
 				errorCount++
 				o.metrics(ctx).IncrementOrphanRecoveryErrors(ctx)
 			} else {
 				o.logger.Debugw("Successfully processed orphaned record",
-					"messageID", fmt.Sprintf("%x", orphanRecord.MessageID),
+					protocol.LogKeyMessageID, protocol.ByteSlice(orphanRecord.MessageID).String(),
 					"aggregationKey", orphanRecord.AggregationKey)
 				processedCount++
 			}
@@ -187,7 +187,7 @@ func (o *OrphanRecoverer) processOrphanedRecord(ctx context.Context, record mode
 	}
 
 	o.logger.Debugw("Successfully triggered re-aggregation check",
-		"messageID", fmt.Sprintf("%x", record.MessageID),
+		protocol.LogKeyMessageID, protocol.ByteSlice(record.MessageID).String(),
 		"aggregationKey", record.AggregationKey)
 
 	return nil

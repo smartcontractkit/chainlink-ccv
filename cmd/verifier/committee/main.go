@@ -23,7 +23,7 @@ func main() {
 	if err := bootstrap.Run(
 		"EVMCommitteeVerifier",
 		cmd.NewCommitteeVerifierServiceFactory(),
-		bootstrap.WithLogLevel(zapcore.InfoLevel),
+		bootstrap.WithLogLevelFromEnv(zapcore.InfoLevel),
 		bootstrap.WithKey(commit.DefaultECDSASigningKeyName, "signing", keystore.ECDSA_S256), // ECDSA key for signing verification results
 	); err != nil {
 		panic(fmt.Sprintf("failed to run EVM committee verifier: %s", err.Error()))

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/commit"
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -64,8 +65,8 @@ func (v *Verifier) VerifyMessages(
 	//  may lead to performance bottlenecks. Consider using a worker pool or goroutines with a semaphore to limit
 	//  concurrency.
 	for _, task := range tasks {
-		lggr := logger.With(v.lggr, "messageID", task.MessageID, "txHash", task.TxHash)
-		lggr.Infow("Verifying CCTP task")
+		lggr := logger.With(v.lggr, protocol.LogKeyMessageID, task.MessageID, "txHash", task.TxHash)
+		lggr.Debugw("Verifying CCTP task")
 
 		// 1. Fetch attestation
 		attestation, err := v.attestationService.Fetch(ctx, task.TxHash, task.Message)
@@ -94,7 +95,7 @@ func (v *Verifier) VerifyMessages(
 			continue
 		}
 
-		lggr.Infow("Attestation fetched and decoded successfully",
+		lggr.Debugw("Attestation fetched and decoded successfully",
 			"status", attestation.status,
 			"attestation", attestation.attestation,
 			"encodedCCTPMessage", attestation.encodedCCTPMessage,
@@ -115,7 +116,8 @@ func (v *Verifier) VerifyMessages(
 		}
 
 		// 3. Return successful result
-		lggr.Infow("VerifierResults: Successfully verified message", "signature", result.Signature)
+		// PER-MESSAGE LOG (status): signing complete; storage write is the terminal success.
+		lggr.Infow("VerifierResults: Successfully verified message", protocol.LogTypeKey, protocol.LogTypeMessageStatus, "signature", result.Signature)
 		results = append(results, verifier.VerificationResult{Result: result})
 	}
 

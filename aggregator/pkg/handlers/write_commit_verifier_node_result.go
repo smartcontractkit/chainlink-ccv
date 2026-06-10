@@ -111,7 +111,7 @@ func (h *WriteCommitVerifierNodeResultHandler) Handle(ctx context.Context, req *
 		}, status.Error(codes.Internal, "failed to save verification record")
 	}
 	// PER-MESSAGE LOG (status): one per verifier node; quorum may not be met yet.
-	h.logger(signerCtx).Infow("Verification received", protocol.LogTypeKey, protocol.LogTypeMessageStatus, "callerID", identity.CallerID)
+	h.logger(signerCtx).Infow("Verification received", protocol.LogTypeKey, protocol.LogTypeMessageStatus, protocol.LogKeyMessageID, protocol.ByteSlice(record.MessageID).String(), "callerID", identity.CallerID)
 
 	metrics := h.m.Metrics().With(
 		"caller_id", identity.CallerID,

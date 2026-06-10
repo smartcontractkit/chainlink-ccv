@@ -191,7 +191,7 @@ jobs:
 
       - name: Run Test ${{ matrix.test.name }}
         id: test_run
-        run: ccv test --profile ${{ matrix.test.profile }} --pattern '${{ matrix.test.pattern }}' --timeout ${{ matrix.test.timeout }} --build=false
+        run: ccv --log-level debug test --profile ${{ matrix.test.profile }} --pattern '${{ matrix.test.pattern }}' --timeout ${{ matrix.test.timeout }} --build=false
         continue-on-error: true
         env:
           JD_IMAGE: ${{ secrets.JD_IMAGE }}

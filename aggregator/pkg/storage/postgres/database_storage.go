@@ -291,7 +291,7 @@ func (d *DatabaseStorage) QueryAggregatedReports(ctx context.Context, sinceSeque
 		if !exists {
 			msgID, parseErr := protocol.NewByteSliceFromHex(messageIDReport)
 			if parseErr != nil {
-				d.logger(ctx).Errorw("failed to parse message_id hex in aggregated report, skipping", "error", parseErr, "message_id", messageIDReport)
+				d.logger(ctx).Errorw("failed to parse message_id hex in aggregated report, skipping", "error", parseErr, protocol.LogKeyMessageID, messageIDReport)
 				continue
 			}
 			reportsMap[reportKey] = &model.CommitAggregatedReport{
@@ -535,7 +535,7 @@ func (d *DatabaseStorage) GetBatchAggregatedReportByMessageIDs(ctx context.Conte
 		if !exists {
 			messageIDBytes, parseErr := protocol.NewByteSliceFromHex(messageIDReport)
 			if parseErr != nil {
-				d.logger(ctx).Errorw("failed to parse message_id hex in batch report, skipping", "error", parseErr, "message_id", messageIDReport)
+				d.logger(ctx).Errorw("failed to parse message_id hex in batch report, skipping", "error", parseErr, protocol.LogKeyMessageID, messageIDReport)
 				continue
 			}
 			reports[messageIDReport] = &model.CommitAggregatedReport{
@@ -559,7 +559,7 @@ func (d *DatabaseStorage) GetBatchAggregatedReportByMessageIDs(ctx context.Conte
 		for _, verRow := range verRows {
 			verification, err := rowToCommitVerificationRecord(verRow)
 			if err != nil {
-				d.logger(ctx).Errorw("corrupted verification row in batch report, excluding entire report", "error", err, "message_id", messageID, "verification_id", verRow.ID)
+				d.logger(ctx).Errorw("corrupted verification row in batch report, excluding entire report", "error", err, protocol.LogKeyMessageID, messageID, "verification_id", verRow.ID)
 				delete(reports, messageID)
 				break
 			}

@@ -130,6 +130,9 @@ func NewTokenVerifier(in *TokenVerifierInput, blockchainOutputs []*blockchain.Ou
 	internalDBConnectionString := fmt.Sprintf("postgresql://%s:%s@%s:5432/%s?sslmode=disable",
 		in.ContainerName, in.ContainerName, in.DB.Name, in.ContainerName)
 	envVars["CL_DATABASE_URL"] = internalDBConnectionString
+	if lvl := os.Getenv("LOG_LEVEL"); lvl != "" {
+		envVars["LOG_LEVEL"] = lvl
+	}
 
 	/* Service */
 	req := testcontainers.ContainerRequest{

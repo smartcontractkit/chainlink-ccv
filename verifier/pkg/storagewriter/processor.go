@@ -210,22 +210,23 @@ func (s *Processor) processBatch(ctx context.Context) error {
 		if writeResult.Status == protocol.WriteSuccess {
 			successfulJobs = append(successfulJobs, jobID)
 			successfulResults = append(successfulResults, writeResult.Input)
-			s.lggr.Debugw("Write succeeded for message", "messageID", messageID, "jobID", jobID)
+			// PER-MESSAGE LOG (success): terminal; verification result persisted to storage.
+			s.lggr.Infow("Write succeeded for message", protocol.LogTypeKey, protocol.LogTypeMessageSuccess, protocol.LogKeyMessageID, messageID, protocol.LogKeyJobID, jobID)
 		} else {
 			if writeResult.Retryable {
 				retriableFailedJobs = append(retriableFailedJobs, jobID)
 				failedErrorMap[jobID] = writeResult.Error
 				s.lggr.Errorw("Write failed for message (retryable)",
-					"messageID", messageID,
-					"jobID", jobID,
+					protocol.LogKeyMessageID, messageID,
+					protocol.LogKeyJobID, jobID,
 					"error", writeResult.Error,
 				)
 			} else {
 				nonRetriableFailedJobs = append(nonRetriableFailedJobs, jobID)
 				failedErrorMap[jobID] = writeResult.Error
 				s.lggr.Errorw("Write failed for message (non-retryable)",
-					"messageID", messageID,
-					"jobID", jobID,
+					protocol.LogKeyMessageID, messageID,
+					protocol.LogKeyJobID, jobID,
 					"error", writeResult.Error,
 				)
 			}
@@ -233,7 +234,7 @@ func (s *Processor) processBatch(ctx context.Context) error {
 	}
 
 	// Log summary
-	s.lggr.Infow("CCV data batch write completed",
+	s.lggr.Debugw("CCV data batch write completed",
 		"totalRequests", len(jobs),
 		"successful", len(successfulJobs),
 		"retriableFailed", len(retriableFailedJobs),
