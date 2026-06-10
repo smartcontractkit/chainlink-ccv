@@ -51,7 +51,12 @@ type ImplFactory interface {
 	// funding of executor addresses. Families that lack on-chain transfer
 	// primitives in devenv (e.g. Canton) return false.
 	SupportsFunding() bool
+}
 
+// ExecutorInfo provides executor bootstrap key metadata for a chain family.
+// Families that support bootstrap-managed executor transmitter keys implement
+// this optionally alongside ImplFactory.
+type ExecutorInfo interface {
 	// ExecutorTransmitterKeyName returns the keystore key name that the executor
 	// for this chain family declares (via bootstrap.WithKey) and that devenv must
 	// fetch from the bootstrap server to learn the on-chain transmitter address.
@@ -59,10 +64,9 @@ type ImplFactory interface {
 	ExecutorTransmitterKeyName() string
 
 	// ExecutorTransmitterAddress returns the executor's on-chain transmitter
-	// address (hex-encoded) for this chain family, extracted from the bootstrap
-	// keys. Each family selects the appropriate field (e.g. EVM uses
-	// EVMTransmitterAddress, Solana uses SolanaTransmitterAddress).
-	// Return "" if no transmitter address is available.
+	// address (hex-encoded) for this chain family, derived from the bootstrap
+	// keys. Each family selects and decodes the appropriate key from
+	// BootstrapKeys.PublicKeys. Return "" if no transmitter address is available.
 	ExecutorTransmitterAddress(keys services.BootstrapKeys) string
 }
 

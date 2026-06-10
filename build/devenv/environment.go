@@ -923,11 +923,7 @@ func fundExecutorTransmitters(
 			family = chainsel.FamilyEVM
 		}
 
-		reg, regErr := chainreg.GetRegistry().Get(family)
-		if regErr != nil || reg.ImplFactory == nil {
-			continue
-		}
-		addrHex := reg.ImplFactory.ExecutorTransmitterAddress(exec.Out.BootstrapKeys)
+		addrHex := chainreg.GetRegistry().GetExecutorTransmitterAddress(family, exec.Out.BootstrapKeys)
 		if addrHex == "" {
 			continue
 		}

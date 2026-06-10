@@ -2,10 +2,13 @@ package evm
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"strconv"
 	"time"
+
+	"github.com/ethereum/go-ethereum/crypto"
 
 	"github.com/Masterminds/semver/v3"
 	"github.com/rs/zerolog"
@@ -131,7 +134,19 @@ func (f *ImplFactory) ExecutorTransmitterKeyName() string {
 }
 
 func (f *ImplFactory) ExecutorTransmitterAddress(keys services.BootstrapKeys) string {
-	return keys.EVMTransmitterAddress
+	rawHex := keys.PublicKeyHex(ccvexecutor.DefaultEVMTransmitterKeyName)
+	if rawHex == "" {
+		return ""
+	}
+	raw, err := hex.DecodeString(rawHex)
+	if err != nil {
+		return ""
+	}
+	pubKey, err := crypto.UnmarshalPubkey(raw)
+	if err != nil {
+		return ""
+	}
+	return hex.EncodeToString(crypto.PubkeyToAddress(*pubKey).Bytes())
 }
 
 // registerTokenAdapters registers EVM token adapters so ConfigureTokensForTransfers

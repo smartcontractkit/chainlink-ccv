@@ -110,11 +110,7 @@ func (c *component) RunPhase3(
 		if family == "" {
 			family = chainsel.FamilyEVM
 		}
-		reg, regErr := chainreg.GetRegistry().Get(family)
-		if regErr != nil || reg.ImplFactory == nil {
-			continue
-		}
-		addrStr := reg.ImplFactory.ExecutorTransmitterAddress(exec.Out.BootstrapKeys)
+		addrStr := chainreg.GetRegistry().GetExecutorTransmitterAddress(family, exec.Out.BootstrapKeys)
 		if addrStr == "" {
 			continue
 		}

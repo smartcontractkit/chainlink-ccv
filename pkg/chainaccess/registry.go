@@ -155,9 +155,10 @@ type DestinationChainConfig struct {
 	OffRampAddress string `toml:"off_ramp_address"`
 	// RmnAddress is the address of the RMN Remote contract on the destination chain.
 	RmnAddress string `toml:"rmn_address"`
-	// TransmitterKeyName is the name of the ECDSA key in the keystore used to sign and submit
-	// transactions to the OffRamp on this chain. If empty, the EVM accessor defaults to
-	// executor.DefaultEVMTransmitterKeyName.
+	// TransmitterKeyName is the family-specific keystore key name used to sign and submit
+	// transactions to the OffRamp on this chain. If empty, accessors use their family
+	// default, e.g. executor.DefaultEVMTransmitterKeyName for EVM or
+	// executor.DefaultSolanaTransmitterKeyName for Solana.
 	TransmitterKeyName string `toml:"transmitter_key_name"`
 }
 
