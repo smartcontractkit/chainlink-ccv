@@ -523,6 +523,52 @@ func (d *PostgresStorage) QueryMessages(
 	return results, nil
 }
 
+// GetProcessingMessages returns a page of messages with PROCESSING status whose
+// ingestion_timestamp is after createdAfter.
+func (d *PostgresStorage) GetProcessingMessages(ctx context.Context, createdAfter time.Time, limit, offset uint64) ([]common.MessageWithMetadata, error) {
+	query := `
+		SELECT
+			message_id,
+			message,
+			status,
+			lastErr,
+			source_chain_selector,
+			dest_chain_selector,
+			ingestion_timestamp,
+			message_ccv_addresses
+		FROM indexer.messages
+		WHERE status = $1
+		  AND ingestion_timestamp > $2
+		ORDER BY ingestion_timestamp ASC
+		LIMIT $3 OFFSET $4
+	`
+
+	rows, err := d.queryContext(ctx, query, common.MessageProcessingString, createdAfter, limit, offset)
+	if err != nil {
+		d.lggr.Errorw("Failed to query processing messages", "error", err)
+		return nil, fmt.Errorf("failed to query processing messages: %w", err)
+	}
+	defer func() {
+		if cerr := rows.Close(); cerr != nil {
+			d.lggr.Errorw("Failed to close rows", "error", cerr)
+		}
+	}()
+
+	var results []common.MessageWithMetadata
+	for rows.Next() {
+		message, err := d.scanMessage(rows)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan message: %w", err)
+		}
+		results = append(results, message)
+	}
+
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating over rows: %w", err)
+	}
+	return results, nil
+}
+
 // UpdateMessageStatus implements common.IndexerStorage.
 func (d *PostgresStorage) UpdateMessageStatus(ctx context.Context, messageID protocol.Bytes32, status common.MessageStatus, lastErr string) error {
 	query := `

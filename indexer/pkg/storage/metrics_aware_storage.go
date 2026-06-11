@@ -15,6 +15,7 @@ const (
 	opInsertVerifierResults = "InsertVerifierResults"
 	opGetMessage            = "GetMessage"
 	opQueryMessages         = "QueryMessages"
+	opGetProcessingMessages = "GetProcessingMessages"
 	opUpdateMessageStatus   = "UpdateMessageStatus"
 	opCreateDiscoveryState  = "CreateDiscoveryState"
 	opGetDiscoverySequence  = "GetDiscoverySequenceNumber"
@@ -82,6 +83,12 @@ func (s *MetricsAwareStorage) GetMessage(ctx context.Context, messageID protocol
 func (s *MetricsAwareStorage) QueryMessages(ctx context.Context, start, end int64, sourceChainSelectors, destChainSelectors []protocol.ChainSelector, limit, offset uint64) ([]common.MessageWithMetadata, error) {
 	return captureMetrics(ctx, s.m.Metrics(), s.l, s.slowQueryThreshold, opQueryMessages, func() ([]common.MessageWithMetadata, error) {
 		return s.inner.QueryMessages(ctx, start, end, sourceChainSelectors, destChainSelectors, limit, offset)
+	})
+}
+
+func (s *MetricsAwareStorage) GetProcessingMessages(ctx context.Context, createdAfter time.Time, limit, offset uint64) ([]common.MessageWithMetadata, error) {
+	return captureMetrics(ctx, s.m.Metrics(), s.l, s.slowQueryThreshold, opGetProcessingMessages, func() ([]common.MessageWithMetadata, error) {
+		return s.inner.GetProcessingMessages(ctx, createdAfter, limit, offset)
 	})
 }
 

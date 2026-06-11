@@ -24,6 +24,8 @@ func Execute(ctx context.Context, task *Task) (*TaskResult, error) {
 		return nil, err
 	}
 
+	task.logger.Infof("Attempting to retrieve %d verifications for the message. Total Verifiers: %d", len(missing), len(totalVerifiers))
+
 	// Load all missing verifier readers from the registry
 	//
 	// Verifiers the indexer does not have context of are returned in unknownCCVs

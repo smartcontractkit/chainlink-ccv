@@ -68,6 +68,67 @@ func (p *Pool) Start(ctx context.Context) {
 	go p.run(childCtx)
 	go p.enqueueMessages(childCtx)
 	go p.handleDLQ(childCtx)
+
+	if err := p.hydrateFromStorage(childCtx); err != nil {
+		p.logger.Errorw("Failed to hydrate pending tasks from storage on startup", "error", err)
+	}
+}
+
+// hydrateFromStorage loads PROCESSING messages from storage in pages and enqueues them as tasks.
+func (p *Pool) hydrateFromStorage(ctx context.Context) error {
+	batchSize := p.config.HydrationBatchSize
+	if batchSize == 0 {
+		batchSize = 100
+	}
+
+	// Only resume messages that are still within the visibility window.
+	createdAfter := time.Now().Add(-p.scheduler.VerificationVisibilityWindow())
+
+	var (
+		offset uint64
+		total  int
+	)
+	for {
+		messages, err := p.storage.GetProcessingMessages(ctx, createdAfter, batchSize, offset)
+		if err != nil {
+			return fmt.Errorf("failed to get processing messages: %w", err)
+		}
+		if len(messages) == 0 {
+			break
+		}
+
+		total += len(messages)
+		for _, msg := range messages {
+			msgID, err := msg.Message.MessageID()
+			if err != nil {
+				p.logger.Errorw("Failed to compute message ID for processing message, skipping", "error", err)
+				continue
+			}
+			vr := protocol.VerifierResult{
+				MessageID:           msgID,
+				Message:             msg.Message,
+				MessageCCVAddresses: msg.MessageCCVAddresses,
+			}
+			task, err := NewTask(p.logger, vr, p.registry, p.storage, msg.Metadata.IngestionTimestamp.Add(p.scheduler.VerificationVisibilityWindow()))
+			if err != nil {
+				p.logger.Errorw("Failed to create task for processing message", "error", err)
+				continue
+			}
+			if err := p.scheduler.Enqueue(ctx, task); err != nil {
+				p.logger.Errorw("Failed to enqueue hydrated task", "error", err)
+			}
+		}
+
+		if uint64(len(messages)) < batchSize {
+			break
+		}
+		offset += batchSize
+	}
+
+	if total > 0 {
+		p.logger.Infow("Resumed pending tasks from storage", "count", total)
+	}
+	return nil
 }
 
 func (p *Pool) Stop() {
@@ -152,7 +213,7 @@ func (p *Pool) enqueueMessages(ctx context.Context) {
 			}
 			// PER-MESSAGE LOG (status): once per verification (not per message).
 			p.logger.Infow("Enqueueing verification", protocol.LogTypeKey, protocol.LogTypeMessageStatus, protocol.LogKeyMessageID, message.VerifierResult.MessageID.String(), "verifierSourceAddress", message.VerifierResult.VerifierSourceAddress)
-			task, err := NewTask(p.logger, message.VerifierResult, p.registry, p.storage, p.scheduler.VerificationVisibilityWindow())
+			task, err := NewTask(p.logger, message.VerifierResult, p.registry, p.storage, message.Metadata.IngestionTimestamp.Add(p.scheduler.VerificationVisibilityWindow()))
 			// This shouldn't happen, it can only be caused by an invalid hex conversion.
 			// We're unable to retry the message or send it to the DLQ.
 			if err != nil {

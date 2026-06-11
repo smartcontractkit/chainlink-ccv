@@ -4,6 +4,7 @@ package mocks
 
 import (
 	context "context"
+	time "time"
 
 	common "github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
 	protocol "github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -240,6 +241,67 @@ func (_c *MockIndexerStorage_GetMessage_Call) Return(_a0 common.MessageWithMetad
 }
 
 func (_c *MockIndexerStorage_GetMessage_Call) RunAndReturn(run func(context.Context, protocol.Bytes32) (common.MessageWithMetadata, error)) *MockIndexerStorage_GetMessage_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetProcessingMessages provides a mock function with given fields: ctx, createdAfter, limit, offset
+func (_m *MockIndexerStorage) GetProcessingMessages(ctx context.Context, createdAfter time.Time, limit uint64, offset uint64) ([]common.MessageWithMetadata, error) {
+	ret := _m.Called(ctx, createdAfter, limit, offset)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetProcessingMessages")
+	}
+
+	var r0 []common.MessageWithMetadata
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, time.Time, uint64, uint64) ([]common.MessageWithMetadata, error)); ok {
+		return rf(ctx, createdAfter, limit, offset)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, time.Time, uint64, uint64) []common.MessageWithMetadata); ok {
+		r0 = rf(ctx, createdAfter, limit, offset)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]common.MessageWithMetadata)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, time.Time, uint64, uint64) error); ok {
+		r1 = rf(ctx, createdAfter, limit, offset)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockIndexerStorage_GetProcessingMessages_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetProcessingMessages'
+type MockIndexerStorage_GetProcessingMessages_Call struct {
+	*mock.Call
+}
+
+// GetProcessingMessages is a helper method to define mock.On call
+//   - ctx context.Context
+//   - createdAfter time.Time
+//   - limit uint64
+//   - offset uint64
+func (_e *MockIndexerStorage_Expecter) GetProcessingMessages(ctx interface{}, createdAfter interface{}, limit interface{}, offset interface{}) *MockIndexerStorage_GetProcessingMessages_Call {
+	return &MockIndexerStorage_GetProcessingMessages_Call{Call: _e.mock.On("GetProcessingMessages", ctx, createdAfter, limit, offset)}
+}
+
+func (_c *MockIndexerStorage_GetProcessingMessages_Call) Run(run func(ctx context.Context, createdAfter time.Time, limit uint64, offset uint64)) *MockIndexerStorage_GetProcessingMessages_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(time.Time), args[2].(uint64), args[3].(uint64))
+	})
+	return _c
+}
+
+func (_c *MockIndexerStorage_GetProcessingMessages_Call) Return(_a0 []common.MessageWithMetadata, _a1 error) *MockIndexerStorage_GetProcessingMessages_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockIndexerStorage_GetProcessingMessages_Call) RunAndReturn(run func(context.Context, time.Time, uint64, uint64) ([]common.MessageWithMetadata, error)) *MockIndexerStorage_GetProcessingMessages_Call {
 	_c.Call.Return(run)
 	return _c
 }
