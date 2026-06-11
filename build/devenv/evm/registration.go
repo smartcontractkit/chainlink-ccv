@@ -34,8 +34,8 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/committeeverifier"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/executor"
-	ccvexecutor "github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/contracttransmitter"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
@@ -48,8 +48,10 @@ func init() {
 	registerTokenAdapters()
 
 	// Register EVM with chainreg
+	evmFactory := &ImplFactory{}
 	if err := chainreg.Register(chainsel.FamilyEVM, chainreg.Registration{
-		ImplFactory:       &ImplFactory{},
+		ImplFactory:       evmFactory,
+		ExecutorInfo:      evmFactory,
 		CLDFProvider:      NewCLDFProviderFactory(),
 		ChainConfigLoader: ChainConfigLoader,
 		VerifierModifier:  VerifierModifier,
@@ -130,11 +132,11 @@ func (f *ImplFactory) SupportsFunding() bool {
 }
 
 func (f *ImplFactory) ExecutorTransmitterKeyName() string {
-	return ccvexecutor.DefaultEVMTransmitterKeyName
+	return contracttransmitter.DefaultKeyName
 }
 
 func (f *ImplFactory) ExecutorTransmitterAddress(keys services.BootstrapKeys) string {
-	rawHex := keys.PublicKeyHex(ccvexecutor.DefaultEVMTransmitterKeyName)
+	rawHex := keys.PublicKeyHex(contracttransmitter.DefaultKeyName)
 	if rawHex == "" {
 		return ""
 	}

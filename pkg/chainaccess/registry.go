@@ -156,9 +156,8 @@ type DestinationChainConfig struct {
 	// RmnAddress is the address of the RMN Remote contract on the destination chain.
 	RmnAddress string `toml:"rmn_address"`
 	// TransmitterKeyName is the family-specific keystore key name used to sign and submit
-	// transactions to the OffRamp on this chain. If empty, accessors use their family
-	// default, e.g. executor.DefaultEVMTransmitterKeyName for EVM or
-	// executor.DefaultSolanaTransmitterKeyName for Solana.
+	// transactions to the OffRamp on this chain. If empty, accessors fall back to their
+	// family's default transmitter key (defined by each family's transmitter package).
 	TransmitterKeyName string `toml:"transmitter_key_name"`
 }
 

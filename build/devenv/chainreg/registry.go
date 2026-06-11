@@ -61,6 +61,9 @@ func mergeRegistration(existing, incoming Registration) Registration {
 	if existing.ImplFactory == nil {
 		existing.ImplFactory = incoming.ImplFactory
 	}
+	if existing.ExecutorInfo == nil {
+		existing.ExecutorInfo = incoming.ExecutorInfo
+	}
 	if existing.CLDFProvider == nil {
 		existing.CLDFProvider = incoming.CLDFProvider
 	}
@@ -171,8 +174,8 @@ func (r *Registry) GetExecutorModifiers() map[string]ExecutorModifier {
 
 // GetExecutorTransmitterKeyName returns the executor transmitter keystore key name
 // for the given chain family, or "" if the family is unregistered, has no
-// ImplFactory, does not implement ExecutorInfo, or declares no bootstrap-managed
-// transmitter key. An empty family defaults to EVM.
+// ExecutorInfo, or declares no bootstrap-managed transmitter key. An empty family
+// defaults to EVM.
 func (r *Registry) GetExecutorTransmitterKeyName(family string) string {
 	if family == "" {
 		family = chainsel.FamilyEVM
@@ -181,19 +184,15 @@ func (r *Registry) GetExecutorTransmitterKeyName(family string) string {
 	defer r.mu.RUnlock()
 
 	reg, ok := r.registrations[family]
-	if !ok || reg.ImplFactory == nil {
+	if !ok || reg.ExecutorInfo == nil {
 		return ""
 	}
-	ei, ok := reg.ImplFactory.(ExecutorInfo)
-	if !ok {
-		return ""
-	}
-	return ei.ExecutorTransmitterKeyName()
+	return reg.ExecutorInfo.ExecutorTransmitterKeyName()
 }
 
 // GetExecutorTransmitterAddress returns the executor's on-chain transmitter
-// address for the given chain family, or "" if the family is unregistered, has
-// no ImplFactory, or does not implement ExecutorInfo.
+// address for the given chain family, or "" if the family is unregistered or has
+// no ExecutorInfo.
 func (r *Registry) GetExecutorTransmitterAddress(family string, keys services.BootstrapKeys) string {
 	if family == "" {
 		family = chainsel.FamilyEVM
@@ -202,14 +201,10 @@ func (r *Registry) GetExecutorTransmitterAddress(family string, keys services.Bo
 	defer r.mu.RUnlock()
 
 	reg, ok := r.registrations[family]
-	if !ok || reg.ImplFactory == nil {
+	if !ok || reg.ExecutorInfo == nil {
 		return ""
 	}
-	ei, ok := reg.ImplFactory.(ExecutorInfo)
-	if !ok {
-		return ""
-	}
-	return ei.ExecutorTransmitterAddress(keys)
+	return reg.ExecutorInfo.ExecutorTransmitterAddress(keys)
 }
 
 // NewProductConfigurationFromNetwork returns the CCIP17Configuration for the given

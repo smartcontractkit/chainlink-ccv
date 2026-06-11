@@ -54,8 +54,8 @@ type ImplFactory interface {
 }
 
 // ExecutorInfo provides executor bootstrap key metadata for a chain family.
-// Families that support bootstrap-managed executor transmitter keys implement
-// this optionally alongside ImplFactory.
+// Families that support bootstrap-managed executor transmitter keys register
+// an implementation via Registration.ExecutorInfo.
 type ExecutorInfo interface {
 	// ExecutorTransmitterKeyName returns the keystore key name that the executor
 	// for this chain family declares (via bootstrap.WithKey) and that devenv must
@@ -131,6 +131,7 @@ type Registration struct {
 	ChainConfigLoader    ChainConfigLoader
 	Launcher             Launcher
 	VerifierModifier     VerifierModifier
+	ExecutorInfo         ExecutorInfo
 	ExecutorModifier     ExecutorModifier
 	ExtraArgsSerializers map[uint8]ExtraArgsSerializer
 	AddressResolver      AddressResolver
