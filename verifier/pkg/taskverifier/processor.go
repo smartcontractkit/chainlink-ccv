@@ -219,7 +219,7 @@ func (p *Processor) handleVerificationResults(
 
 		jobID, exists := jobIDMap[messageID]
 		if !exists {
-			p.lggr.Errorw("Job ID not found for message", "messageID", messageID)
+			p.lggr.Errorw("Job ID not found for message", protocol.LogKeyMessageID, messageID)
 			continue
 		}
 
@@ -368,12 +368,18 @@ func (p *Processor) handleVerificationError(
 		).
 		IncrementMessagesVerificationFailed(ctx)
 
+	// PER-MESSAGE LOG (failure/retryable): one per failed attempt; terminal only when !retryable.
+	logType := protocol.LogTypeMessageFailure
+	if verificationError.Retryable {
+		logType = protocol.LogTypeRetryableMessageFailure
+	}
 	p.lggr.Errorw("Message verification failed",
+		protocol.LogTypeKey, logType,
 		"error", verificationError.Error,
-		"messageID", verificationError.Task.MessageID,
-		"nonce", message.SequenceNumber,
-		"sourceChain", message.SourceChainSelector,
-		"destChain", message.DestChainSelector,
+		protocol.LogKeyMessageID, verificationError.Task.MessageID,
+		protocol.LogKeyNonce, message.SequenceNumber,
+		protocol.LogKeySourceChain, message.SourceChainSelector,
+		protocol.LogKeyDestChain, message.DestChainSelector,
 		"retryable", verificationError.Retryable,
 	)
 

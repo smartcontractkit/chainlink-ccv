@@ -4,13 +4,11 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/pelletier/go-toml/v2"
-
 	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
 	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
 )
 
-const configKey = "observability"
+const Key = "observability"
 
 // Version is the observability component config schema version. Exactly this
 // version is supported; configs declaring any other version are rejected.
@@ -28,7 +26,7 @@ type Observability struct {
 }
 
 func init() {
-	if err := devenvruntime.Register(configKey, factory); err != nil {
+	if err := devenvruntime.Register(Key, factory); err != nil {
 		panic(fmt.Sprintf("observability component: %v", err))
 	}
 }
@@ -61,7 +59,7 @@ func (c *component) RunPhase1(
 	if err != nil {
 		return nil, nil, err
 	}
-	return map[string]any{configKey: obs}, nil, nil
+	return map[string]any{Key: obs}, nil, nil
 }
 
 // config is the [observability] component config. Version is the component
@@ -72,26 +70,16 @@ type config struct {
 	Monitoring   ccvdeployment.MonitoringConfig `toml:"monitoring"`
 }
 
-// decode round-trips the raw TOML map[string]any into *Observability, verifying
-// the declared component version.
 func decode(raw any) (*Observability, error) {
-	b, err := toml.Marshal(struct {
-		V any `toml:"observability"`
-	}{V: raw})
+	cfg, err := devenvruntime.DecodeConfig[config](raw, Key)
 	if err != nil {
-		return nil, fmt.Errorf("re-encoding observability config: %w", err)
+		return nil, err
 	}
-	var wrapper struct {
-		V config `toml:"observability"`
-	}
-	if err := toml.Unmarshal(b, &wrapper); err != nil {
-		return nil, fmt.Errorf("decoding observability config: %w", err)
-	}
-	if err := devenvruntime.CheckConfigVersion(wrapper.V.Version, Version); err != nil {
+	if err := devenvruntime.CheckConfigVersion(cfg.Version, Version); err != nil {
 		return nil, err
 	}
 	return &Observability{
-		PyroscopeURL: wrapper.V.PyroscopeURL,
-		Monitoring:   wrapper.V.Monitoring,
+		PyroscopeURL: cfg.PyroscopeURL,
+		Monitoring:   cfg.Monitoring,
 	}, nil
 }

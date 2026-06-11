@@ -154,7 +154,7 @@ func (q *EVMQuorumValidator) ValidateSignature(ctx context.Context, record *mode
 		candidateSignerAddress := common.HexToAddress(candidateSigner.Address)
 
 		if candidateSignerAddress == recoveredAddress {
-			q.logger(ctx).Infow("Recovered address from signature", "address", recoveredAddress.Hex())
+			q.logger(ctx).Debugw("Recovered address from signature", "address", recoveredAddress.Hex())
 			return &model.SignatureValidationResult{
 				Signer: &model.SignerIdentifier{
 					Identifier: candidateSignerAddress.Bytes(),

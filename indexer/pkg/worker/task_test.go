@@ -34,25 +34,25 @@ func TestNewTask_NilValidations(t *testing.T) {
 	ms := mocks.NewMockIndexerStorage(t)
 
 	t.Run("nil logger", func(t *testing.T) {
-		_, err := NewTask(nil, msg, reg, ms, time.Second)
+		_, err := NewTask(nil, msg, reg, ms, time.Now().Add(time.Second))
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "logger is required")
 	})
 
 	t.Run("nil registry", func(t *testing.T) {
-		_, err := NewTask(lggr, msg, nil, ms, time.Second)
+		_, err := NewTask(lggr, msg, nil, ms, time.Now().Add(time.Second))
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "registry is required")
 	})
 
 	t.Run("nil storage", func(t *testing.T) {
-		_, err := NewTask(lggr, msg, reg, nil, time.Second)
+		_, err := NewTask(lggr, msg, reg, nil, time.Now().Add(time.Second))
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "storage is required")
 	})
 
 	t.Run("all valid", func(t *testing.T) {
-		task, err := NewTask(lggr, msg, reg, ms, time.Second)
+		task, err := NewTask(lggr, msg, reg, ms, time.Now().Add(time.Second))
 		require.NoError(t, err)
 		require.NotNil(t, task)
 	})
@@ -231,7 +231,7 @@ func TestCollectVerifierResults(t *testing.T) {
 	lggr := logger.Test(t)
 	msg := protocol.VerifierResult{}
 	ms := mocks.NewMockIndexerStorage(t)
-	task, err := NewTask(lggr, msg, registry.NewVerifierRegistry(), ms, time.Second)
+	task, err := NewTask(lggr, msg, registry.NewVerifierRegistry(), ms, time.Now().Add(time.Second))
 	require.NoError(t, err)
 
 	mid := task.messageID
@@ -257,7 +257,7 @@ func TestCollectVerifierResults(t *testing.T) {
 		require.NoError(t, reg.AddVerifier(addr, "test-verifier", r))
 
 		// create task with our registry
-		task2, err := NewTask(lggr, msg, reg, mocks.NewMockIndexerStorage(t), time.Second)
+		task2, err := NewTask(lggr, msg, reg, mocks.NewMockIndexerStorage(t), time.Now().Add(time.Second))
 		require.NoError(t, err)
 
 		res := task2.collectVerifierResults(context.Background(), []*readers.VerifierReader{r})
@@ -284,7 +284,7 @@ func TestCollectVerifierResults(t *testing.T) {
 		require.NoError(t, aerr)
 		require.NoError(t, reg.AddVerifier(addr2, "verifier-2", r1))
 
-		task3, err := NewTask(lggr, msg, reg, mocks.NewMockIndexerStorage(t), time.Second)
+		task3, err := NewTask(lggr, msg, reg, mocks.NewMockIndexerStorage(t), time.Now().Add(time.Second))
 		require.NoError(t, err)
 
 		res := task3.collectVerifierResults(context.Background(), []*readers.VerifierReader{r1, r2})

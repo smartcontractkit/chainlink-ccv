@@ -27,12 +27,12 @@ import (
 )
 
 const (
-	clNodeConfigKey = "committeeccv_clnode"
-	clNodeVersion   = 1
+	CLNodeKey     = "committeeccv_clnode"
+	clNodeVersion = 1
 )
 
 func init() {
-	if err := devenvruntime.Register(clNodeConfigKey, clnodeFactory); err != nil {
+	if err := devenvruntime.Register(CLNodeKey, clnodeFactory); err != nil {
 		panic(fmt.Sprintf("committeeccv_clnode component: %v", err))
 	}
 }
@@ -113,13 +113,9 @@ type CLNodeConfig struct {
 }
 
 func decodeCLNodeConfig(raw any) (CLNodeConfig, error) {
-	b, err := toml.Marshal(raw)
+	cfg, err := devenvruntime.DecodeConfig[CLNodeConfig](raw, CLNodeKey)
 	if err != nil {
-		return CLNodeConfig{}, fmt.Errorf("re-encoding committeeccv_clnode config: %w", err)
-	}
-	var cfg CLNodeConfig
-	if err := toml.Unmarshal(b, &cfg); err != nil {
-		return CLNodeConfig{}, fmt.Errorf("decoding committeeccv_clnode config: %w", err)
+		return CLNodeConfig{}, err
 	}
 	if err := devenvruntime.CheckConfigVersion(cfg.Version, clNodeVersion); err != nil {
 		return CLNodeConfig{}, err

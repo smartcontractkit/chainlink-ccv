@@ -4,10 +4,9 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/pelletier/go-toml/v2"
-
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	blockchainscomp "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/blockchains"
+	fakecomp "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/fake"
 	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
@@ -17,14 +16,14 @@ import (
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
 
-const configKey = "token_verifier"
+const Key = "token_verifier"
 
 // Version is the token_verifier component config schema version. Exactly this
 // version is supported; configs declaring any other version are rejected.
 const Version = 1
 
 func init() {
-	if err := devenvruntime.Register(configKey, factory); err != nil {
+	if err := devenvruntime.Register(Key, factory); err != nil {
 		panic(fmt.Sprintf("tokenverifier component: %v", err))
 	}
 }
@@ -66,14 +65,14 @@ func (c *component) RunPhase4(
 	if !ok {
 		return nil, nil, fmt.Errorf("tokenverifier: _selectors not found in phase outputs")
 	}
-	blockchains, ok := priorOutputs["blockchains"].([]*blockchain.Input)
+	blockchains, ok := priorOutputs[blockchainscomp.Key].([]*blockchain.Input)
 	if !ok {
 		return nil, nil, fmt.Errorf("tokenverifier: blockchains not found in phase outputs")
 	}
 	blockchainOutputs := blockchainscomp.Outputs(blockchains)
 
 	var fakeOut *services.FakeOutput
-	if fake, ok := priorOutputs["fake"].(*services.FakeInput); ok && fake != nil {
+	if fake, ok := priorOutputs[fakecomp.Key].(*services.FakeInput); ok && fake != nil {
 		fakeOut = fake.Out
 	}
 	if fakeOut == nil {
@@ -112,7 +111,7 @@ func (c *component) RunPhase4(
 			},
 			Lombard: ccvchangesets.LombardConfigInput{
 				VerifierID:     "LombardVerifier",
-				Qualifier:      devenvcommon.LombardContractsQualifier,
+				Qualifier:      devenvcommon.LombardVerifierResolverQualifier,
 				AttestationAPI: fakeOut.InternalHTTPURL + "/lombard",
 			},
 			CCTP: ccvchangesets.CCTPConfigInput{
@@ -143,27 +142,18 @@ func (c *component) RunPhase4(
 		tvIn.Out = out
 	}
 
-	return map[string]any{configKey: inputs}, nil, nil
+	return map[string]any{Key: inputs}, nil, nil
 }
 
-// decode round-trips the raw TOML []any into []*services.TokenVerifierInput.
 func decode(raw any) ([]*services.TokenVerifierInput, error) {
-	b, err := toml.Marshal(struct {
-		V any `toml:"token_verifier"`
-	}{V: raw})
+	inputs, err := devenvruntime.DecodeConfig[[]*services.TokenVerifierInput](raw, Key)
 	if err != nil {
-		return nil, fmt.Errorf("re-encoding token_verifier config: %w", err)
+		return nil, err
 	}
-	var wrapper struct {
-		V []*services.TokenVerifierInput `toml:"token_verifier"`
-	}
-	if err := toml.Unmarshal(b, &wrapper); err != nil {
-		return nil, fmt.Errorf("decoding token_verifier config: %w", err)
-	}
-	for i, in := range wrapper.V {
+	for i, in := range inputs {
 		if err := devenvruntime.CheckConfigVersion(in.Version, Version); err != nil {
 			return nil, fmt.Errorf("token_verifier entry %d: %w", i, err)
 		}
 	}
-	return wrapper.V, nil
+	return inputs, nil
 }

@@ -44,8 +44,8 @@ func (t *ReorgTracker) Track(destChain protocol.ChainSelector, seqNum protocol.S
 	count := len(t.reorgedSeqNums[destChain])
 
 	t.logger.Infow("Tracking reorged sequence number",
-		"destChain", destChain,
-		"seqNum", seqNum,
+		protocol.LogKeyDestChain, destChain,
+		protocol.LogKeySeqNum, seqNum,
 		"trackedCount", count,
 	)
 
@@ -84,8 +84,8 @@ func (t *ReorgTracker) Remove(destChain protocol.ChainSelector, seqNum protocol.
 	}
 
 	t.logger.Infow("Removed reorged sequence number from tracking",
-		"destChain", destChain,
-		"seqNum", seqNum,
+		protocol.LogKeyDestChain, destChain,
+		protocol.LogKeySeqNum, seqNum,
 		"trackedCount", newCount,
 	)
 

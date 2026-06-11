@@ -6,8 +6,6 @@ import (
 	"maps"
 	"strconv"
 
-	"github.com/pelletier/go-toml/v2"
-
 	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
@@ -17,14 +15,14 @@ import (
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 )
 
-const configKey = "indexer"
+const Key = "indexer"
 
 // Version is the indexer component config schema version. Exactly this version
 // is supported; configs declaring any other version are rejected.
 const Version = 1
 
 func init() {
-	if err := devenvruntime.Register(configKey, factory); err != nil {
+	if err := devenvruntime.Register(Key, factory); err != nil {
 		panic(fmt.Sprintf("indexer component: %v", err))
 	}
 }
@@ -202,27 +200,18 @@ func (c *component) RunPhase4(
 		idxIn.Out = out
 	}
 
-	return map[string]any{configKey: inputs}, nil, nil
+	return map[string]any{Key: inputs}, nil, nil
 }
 
-// decode round-trips the raw TOML []any into []*services.IndexerInput.
 func decode(raw any) ([]*services.IndexerInput, error) {
-	b, err := toml.Marshal(struct {
-		V any `toml:"indexer"`
-	}{V: raw})
+	inputs, err := devenvruntime.DecodeConfig[[]*services.IndexerInput](raw, Key)
 	if err != nil {
-		return nil, fmt.Errorf("re-encoding indexer config: %w", err)
+		return nil, err
 	}
-	var wrapper struct {
-		V []*services.IndexerInput `toml:"indexer"`
-	}
-	if err := toml.Unmarshal(b, &wrapper); err != nil {
-		return nil, fmt.Errorf("decoding indexer config: %w", err)
-	}
-	for i, in := range wrapper.V {
+	for i, in := range inputs {
 		if err := devenvruntime.CheckConfigVersion(in.Version, Version); err != nil {
 			return nil, fmt.Errorf("indexer entry %d: %w", i, err)
 		}
 	}
-	return wrapper.V, nil
+	return inputs, nil
 }

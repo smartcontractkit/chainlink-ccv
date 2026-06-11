@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/auth"
+	"github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	hmacutil "github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
@@ -108,14 +109,14 @@ const (
 
 // StorageConfig represents the configuration for the storage backend.
 type StorageConfig struct {
-	StorageType     StorageType   `toml:"type"`
-	ConnectionURL   string        `toml:"-"`
-	PageSize        int           `toml:"pageSize"`
-	MaxOpenConns    int           `toml:"maxOpenConns"`
-	MaxIdleConns    int           `toml:"maxIdleConns"`
-	ConnMaxLifetime time.Duration `toml:"connMaxLifetime"`
-	ConnMaxIdleTime time.Duration `toml:"connMaxIdleTime"`
-	QueryTimeout    time.Duration `toml:"queryTimeout"`
+	StorageType     StorageType     `toml:"type"`
+	ConnectionURL   string          `toml:"-"`
+	PageSize        int             `toml:"pageSize"`
+	MaxOpenConns    int             `toml:"maxOpenConns"`
+	MaxIdleConns    int             `toml:"maxIdleConns"`
+	ConnMaxLifetime common.Duration `toml:"connMaxLifetime"`
+	ConnMaxIdleTime common.Duration `toml:"connMaxIdleTime"`
+	QueryTimeout    common.Duration `toml:"queryTimeout"`
 }
 
 // ServerConfig represents the configuration for the server.
@@ -534,14 +535,14 @@ func (c *AggregatorConfig) SetDefaults() {
 		c.Storage.MaxIdleConns = 5
 	}
 	if c.Storage.ConnMaxLifetime == 0 {
-		c.Storage.ConnMaxLifetime = time.Hour
+		c.Storage.ConnMaxLifetime = common.Duration(time.Hour)
 	}
 	if c.Storage.ConnMaxIdleTime == 0 {
-		c.Storage.ConnMaxIdleTime = 5 * time.Minute
+		c.Storage.ConnMaxIdleTime = common.Duration(5 * time.Minute)
 	}
 	// Default query timeout: 10 seconds
 	if c.Storage.QueryTimeout == 0 {
-		c.Storage.QueryTimeout = 10 * time.Second
+		c.Storage.QueryTimeout = common.Duration(10 * time.Second)
 	}
 
 	// Default message-disablement registry refresh: 30 seconds

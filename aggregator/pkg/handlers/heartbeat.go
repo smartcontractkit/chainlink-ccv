@@ -38,7 +38,7 @@ func (h *HeartbeatHandler) Handle(ctx context.Context, req *heartbeatpb.Heartbea
 	}
 
 	callerID := identity.CallerID
-	h.logger(ctx).Infof("Received HeartbeatRequest from caller: %s", callerID)
+	h.logger(ctx).Debugf("Received HeartbeatRequest from caller: %s", callerID)
 
 	// get Allowed chains from committee config
 	allowedChains := make([]uint64, 0, len(h.committee.QuorumConfigs))
@@ -80,7 +80,7 @@ func (h *HeartbeatHandler) Handle(ctx context.Context, req *heartbeatpb.Heartbea
 	}
 
 	maxBlockHeights, err := h.storage.GetMaxBlockHeights(ctx, chainSelectors)
-	h.logger(ctx).Infof("Max block heights across all callers: %+v", maxBlockHeights)
+	h.logger(ctx).Debugf("Max block heights across all callers: %+v", maxBlockHeights)
 	if err != nil {
 		h.logger(ctx).Errorf("Failed to get max block heights: %v", err)
 		maxBlockHeights = make(map[uint64]uint64)

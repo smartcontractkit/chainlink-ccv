@@ -461,7 +461,7 @@ func (q *PostgresJobQueue[T]) Retry(ctx context.Context, delay time.Duration, er
 			}
 
 			affected, _ := result.RowsAffected()
-			q.logger.Infow("Archived jobs that exceeded retry deadline",
+			q.logger.Debugw("Archived jobs that exceeded retry deadline",
 				"queue", q.config.Name,
 				"count", affected)
 		}
@@ -472,7 +472,7 @@ func (q *PostgresJobQueue[T]) Retry(ctx context.Context, delay time.Duration, er
 		return err
 	}
 
-	q.logger.Infow("Retried jobs",
+	q.logger.Debugw("Retried jobs",
 		"queue", q.config.Name,
 		"retried", len(retried),
 		"failed", len(failed),
@@ -536,7 +536,7 @@ func (q *PostgresJobQueue[T]) Fail(ctx context.Context, errors map[string]error,
 	}
 
 	affected, _ := result.RowsAffected()
-	q.logger.Infow("Failed and archived jobs",
+	q.logger.Debugw("Failed and archived jobs",
 		"queue", q.config.Name,
 		"count", affected,
 	)

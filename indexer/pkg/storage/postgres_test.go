@@ -70,7 +70,7 @@ func TestNewPostgresStorage_Errors(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			_, err := NewPostgresStorage(context.Background(), tc.lggr, tc.monitoring, tc.uri, tc.driverName, pg.DBConfig{})
+			_, err := NewPostgresStorage(context.Background(), tc.lggr, tc.monitoring, tc.uri, tc.driverName, pg.DBConfig{}, 0, 0)
 			require.Error(t, err)
 			require.Contains(t, err.Error(), tc.wantErrSubstr)
 		})

@@ -41,8 +41,8 @@ func TestRunPhase1_PublishesObservability(t *testing.T) {
 	require.NoError(t, err)
 	require.Nil(t, effects)
 
-	obs, ok := out[configKey].(*Observability)
-	require.True(t, ok, "output %q should be *Observability", configKey)
+	obs, ok := out[Key].(*Observability)
+	require.True(t, ok, "output %q should be *Observability", Key)
 	require.Equal(t, "http://host.docker.internal:4040", obs.PyroscopeURL)
 	require.True(t, obs.Monitoring.Enabled)
 	require.Equal(t, "host.docker.internal:4318", obs.Monitoring.Beholder.OtelExporterHTTPEndpoint)

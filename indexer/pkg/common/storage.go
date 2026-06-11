@@ -2,6 +2,7 @@ package common
 
 import (
 	"context"
+	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
@@ -47,6 +48,10 @@ type MessageStorageReader interface {
 	GetMessage(ctx context.Context, messageID protocol.Bytes32) (MessageWithMetadata, error)
 	// QueryMessages retrieves all messages that matches the filter set
 	QueryMessages(ctx context.Context, start, end int64, sourceChainSelectors, destChainSelectors []protocol.ChainSelector, limit, offset uint64) ([]MessageWithMetadata, error)
+	// GetProcessingMessages returns a page of messages currently in PROCESSING status
+	// whose ingestion_timestamp is after createdAfter (i.e. still within the visibility window).
+	// Used at startup to resume tasks that were interrupted before completion.
+	GetProcessingMessages(ctx context.Context, createdAfter time.Time, limit, offset uint64) ([]MessageWithMetadata, error)
 }
 
 // MessageStorageWriter provides the interface to update message state in storage.

@@ -64,7 +64,7 @@ func TestBatchWriteCommitCCVNodeDataHandler_BatchSizeValidation(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			lggr := logger.TestSugared(t)
+			lggr := logger.Sugared(logger.Nop())
 			store := mocks.NewMockCommitVerificationStore(t)
 			agg := mocks.NewMockAggregationTriggerer(t)
 			sig := mocks.NewMockSignatureValidator(t)
@@ -119,7 +119,7 @@ func TestBatchWriteCommitCCVNodeDataHandler_MixedSuccessAndInvalidArgument(t *te
 	const testCallerID = "test-caller"
 	const testChannelKey model.ChannelKey = "test-caller"
 
-	lggr := logger.TestSugared(t)
+	lggr := logger.Sugared(logger.Nop())
 	store := mocks.NewMockCommitVerificationStore(t)
 	agg := mocks.NewMockAggregationTriggerer(t)
 
@@ -174,7 +174,7 @@ func TestBatchWriteCommitCCVNodeDataHandler_NilRequestAtIndexReturnsInvalidArgum
 	const testCallerID = "test-caller"
 	const testChannelKey model.ChannelKey = "test-caller"
 
-	lggr := logger.TestSugared(t)
+	lggr := logger.Sugared(logger.Nop())
 	store := mocks.NewMockCommitVerificationStore(t)
 	agg := mocks.NewMockAggregationTriggerer(t)
 	sig := mocks.NewMockSignatureValidator(t)
@@ -225,7 +225,10 @@ func TestBatchWriteCommitCCVNodeDataHandler_CancelledContextReturnsImmediately(t
 	const testChannelKey model.ChannelKey = "test-caller"
 	blockDuration := 5 * time.Second
 
-	lggr := logger.TestSugared(t)
+	// Use a nop logger: worker goroutines that are still running when the context
+	// is canceled may log after this test's *testing.T is torn down, which
+	// panics in Go. A nop logger avoids that without changing the handler.
+	lggr := logger.Sugared(logger.Nop())
 	store := mocks.NewMockCommitVerificationStore(t)
 	agg := mocks.NewMockAggregationTriggerer(t)
 	sig := mocks.NewMockSignatureValidator(t)

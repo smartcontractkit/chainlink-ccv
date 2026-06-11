@@ -6,7 +6,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/api/middleware"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/api/health"
-	apimiddleware "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/api/middleware"
 	v1 "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/api/v1"
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -19,7 +18,7 @@ func NewHTTPAPI(
 	monitoring verifier.Monitoring,
 ) *gin.Engine {
 	router := gin.New()
-	router.Use(gin.Logger())
+	router.Use(middleware.GinLogger(lggr))
 	router.Use(middleware.SecureRecovery(lggr))
 
 	healthHandler := health.NewHealthStatus(healthReporters)
@@ -29,11 +28,7 @@ func NewHTTPAPI(
 
 	v1Group := router.Group("/v1")
 	// Apply metrics middleware only to v1 endpoints
-	v1Group.Use(middleware.ActiveRequestsMiddleware(
-		monitoring.Metrics(),
-		apimiddleware.VerificationsPathNormalizer,
-		lggr,
-	))
+	v1Group.Use(middleware.ActiveRequestsMiddleware(monitoring.Metrics(), lggr))
 	// Apply rate limiting with defaults (10 req/s per IP)
 	v1Group.Use(middleware.RateLimit(lggr, middleware.RateLimitConfig{
 		Enabled: true,
