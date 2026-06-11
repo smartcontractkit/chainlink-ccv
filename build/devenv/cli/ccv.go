@@ -32,6 +32,7 @@ import (
 	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainreg"
 	ccldf "github.com/smartcontractkit/chainlink-ccv/build/devenv/cldf"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cli/log"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cli/send"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/evm"
 )
@@ -55,6 +56,9 @@ var rootCmd = &cobra.Command{
 		if debug {
 			framework.L.Info().Msg("Debug mode enabled, setting CTF_CLNODE_DLV=true")
 			os.Setenv("CTF_CLNODE_DLV", "true")
+		}
+		if lvl, _ := cmd.Flags().GetString("log-level"); lvl != "" {
+			_ = os.Setenv("LOG_LEVEL", lvl)
 		}
 		mode, err := cmd.Flags().GetString("env-mode")
 		if err != nil {
@@ -110,6 +114,40 @@ var upCmd = &cobra.Command{
 	},
 }
 
+// resolveConfigArg resolves a bare config name (no extension) to either
+// name.toml or name.profile by checking which file exists on disk. If both
+// exist the call is ambiguous and an error is returned. If neither exists the
+// original name is returned unchanged and the caller produces the error.
+// Names that already carry a recognized extension (.toml or .profile) pass
+// through unmodified.
+func resolveConfigArg(name string) (string, error) {
+	if strings.HasSuffix(name, ".toml") || strings.HasSuffix(name, ".profile") {
+		return name, nil
+	}
+	tomlName := name + ".toml"
+	profileName := name + ".profile"
+	_, tomlErr := os.Stat(tomlName)
+	_, profileErr := os.Stat(profileName)
+	if tomlErr != nil && !os.IsNotExist(tomlErr) {
+		return "", fmt.Errorf("stat %s: %w", tomlName, tomlErr)
+	}
+	if profileErr != nil && !os.IsNotExist(profileErr) {
+		return "", fmt.Errorf("stat %s: %w", profileName, profileErr)
+	}
+	hasToml := tomlErr == nil
+	hasProfile := profileErr == nil
+	if hasToml && hasProfile {
+		return "", fmt.Errorf("ambiguous config name %q: both %s and %s exist; use the full filename", name, tomlName, profileName)
+	}
+	if hasToml {
+		return tomlName, nil
+	}
+	if hasProfile {
+		return profileName, nil
+	}
+	return name, nil
+}
+
 // applyEnvConfig resolves the environment configuration from flags/args and
 // sets CTF_CONFIGS (and optionally CTF_OUTPUT) before the environment
 // constructor runs. It handles three input paths:
@@ -117,6 +155,10 @@ var upCmd = &cobra.Command{
 //  1. --profile <file> or a positional *.profile arg → profile mode
 //  2. positional *.toml arg → legacy raw-file mode (existing behavior)
 //  3. no args → defaults to standard.profile
+//
+// Bare names without an extension (e.g. "env" or "standard") are resolved to
+// the matching .toml or .profile file on disk; an error is returned when both
+// exist.
 //
 // When a profile is active it also overrides newEnvFn to match the profile's
 // declared environment type, so --env-mode is ignored.
@@ -126,10 +168,30 @@ func applyEnvConfig(cmd *cobra.Command, args []string) error {
 
 	_ = os.Setenv("TESTCONTAINERS_RYUK_DISABLED", "true")
 
+	// Resolve positional arg and --profile flag to their actual file types.
+	var positional string
+	if len(args) > 0 {
+		resolved, err := resolveConfigArg(args[0])
+		if err != nil {
+			return err
+		}
+		positional = resolved
+	}
+	if profileFlag != "" {
+		resolved, err := resolveConfigArg(profileFlag)
+		if err != nil {
+			return err
+		}
+		if strings.HasSuffix(resolved, ".toml") {
+			return fmt.Errorf("--profile %q resolved to a TOML config file; use the full filename or omit --profile to run in TOML mode", profileFlag)
+		}
+		profileFlag = resolved
+	}
+
 	// Positional TOML config file — existing behavior, no profile involved.
-	if len(args) > 0 && !strings.HasSuffix(args[0], ".profile") {
-		framework.L.Info().Str("Config", args[0]).Msg("Creating development environment")
-		_ = os.Setenv("CTF_CONFIGS", args[0])
+	if positional != "" && !strings.HasSuffix(positional, ".profile") {
+		framework.L.Info().Str("Config", positional).Msg("Creating development environment")
+		_ = os.Setenv("CTF_CONFIGS", positional)
 		if outputFlag != "" {
 			_ = os.Setenv("CTF_OUTPUT", outputFlag)
 		}
@@ -138,11 +200,11 @@ func applyEnvConfig(cmd *cobra.Command, args []string) error {
 
 	// Resolve profile path: positional *.profile > --profile flag > default.
 	profilePath := profileFlag
-	if len(args) > 0 {
+	if positional != "" {
 		if profileFlag != "" {
-			return fmt.Errorf("cannot combine --profile flag with a positional .profile argument")
+			return fmt.Errorf("cannot combine --profile flag with a positional config argument")
 		}
-		profilePath = args[0]
+		profilePath = positional
 	}
 	if profilePath == "" {
 		profilePath = "standard.profile"
@@ -870,6 +932,7 @@ var txInfoCmd = &cobra.Command{
 func init() {
 	rootCmd.PersistentFlags().BoolP("debug", "d", false, "Enable running services with dlv to allow remote debugging.")
 	rootCmd.PersistentFlags().String("env-mode", "legacy", "Environment startup mode: legacy (default) or phased.")
+	rootCmd.PersistentFlags().String("log-level", "", "Log level for services that support it (e.g. debug, info, warn)")
 
 	// Fund addresses
 	rootCmd.AddCommand(fundAddressesCmd)
@@ -918,6 +981,7 @@ func init() {
 	rootCmd.AddCommand(printAddressesCmd)
 
 	rootCmd.AddCommand(send.Command())
+	rootCmd.AddCommand(log.Command())
 
 	// on-chain monitoring
 	rootCmd.AddCommand(monitorContractsCmd)
@@ -964,7 +1028,14 @@ func checkDockerIsRunning() {
 func RunCLI() {
 	checkDockerIsRunning()
 	if len(os.Args) >= 2 && (os.Args[1] == "shell" || os.Args[1] == "sh") {
-		profilePath := shellProfileArg(os.Args[2:])
+		profilePath, err := func() (string, error) {
+			p := shellProfileArg(os.Args[2:])
+			return resolveConfigArg(p)
+		}()
+		if err != nil {
+			ccv.Plog.Err(err).Msg("Failed to resolve shell profile")
+			os.Exit(1)
+		}
 		if err := applyProfile(profilePath); err != nil {
 			ccv.Plog.Err(err).Str("profile", profilePath).Msg("Failed to load shell profile")
 			os.Exit(1)

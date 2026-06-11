@@ -172,7 +172,7 @@ func (c *CommitReportAggregator) checkAggregationAndSubmitComplete(ctx context.C
 		}
 		timeToAggregation := aggregatedReport.CalculateTimeToAggregation(time.Now())
 		// PER-MESSAGE LOG (success): one line per message, on quorum.
-		lggr.Infow("Report submitted successfully", protocol.LogTypeKey, protocol.LogTypeMessageSuccess, "verifications", len(verifications), "timeToAggregation", timeToAggregation)
+		lggr.Infow("Report submitted successfully", protocol.LogTypeKey, protocol.LogTypeMessageSuccess, protocol.LogKeyMessageID, protocol.ByteSlice(request.MessageID).String(), "verifications", len(verifications), "timeToAggregation", timeToAggregation)
 		c.metrics(ctx).IncrementCompletedAggregations(ctx)
 		c.metrics(ctx).RecordTimeToAggregation(ctx, timeToAggregation)
 	} else {

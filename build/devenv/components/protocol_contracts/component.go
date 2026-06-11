@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/pelletier/go-toml/v2"
 	"github.com/rs/zerolog"
 	zlog "github.com/rs/zerolog/log"
 
@@ -15,6 +14,8 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainreg"
 	ccldf "github.com/smartcontractkit/chainlink-ccv/build/devenv/cldf"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
+	blockchainscomp "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/blockchains"
+	jdcomp "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/jd"
 	ccdeploy "github.com/smartcontractkit/chainlink-ccv/build/devenv/deploy"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
 	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
@@ -24,12 +25,15 @@ import (
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
 
+// Key is the TOML key used to register this component with the runtime.
+const Key = "protocol_contracts"
+
 // Version is the protocol_contracts component config schema version. Exactly
 // this version is supported; configs declaring any other version are rejected.
 const Version = 1
 
 func init() {
-	if err := devenvruntime.Register("protocol_contracts", factory); err != nil {
+	if err := devenvruntime.Register(Key, factory); err != nil {
 		panic(fmt.Sprintf("protocol_contracts component: %v", err))
 	}
 }
@@ -68,14 +72,14 @@ func (p *component) RunPhase2(
 	componentConfig any,
 	priorOutputs map[string]any,
 ) (map[string]any, []devenvruntime.Effect, error) {
-	blockchains, ok := priorOutputs["blockchains"].([]*blockchain.Input)
+	blockchains, ok := priorOutputs[blockchainscomp.Key].([]*blockchain.Input)
 	if !ok {
-		return nil, nil, fmt.Errorf("phase 1 did not produce []*blockchain.Input under \"blockchains\"")
+		return nil, nil, fmt.Errorf("phase 1 did not produce []*blockchain.Input under %q", blockchainscomp.Key)
 	}
 	cldf := &ccldf.CLDF{}
-	jdInfra, ok := priorOutputs["jd"].(*jobs.JDInfrastructure)
+	jdInfra, ok := priorOutputs[jdcomp.Key].(*jobs.JDInfrastructure)
 	if !ok {
-		return nil, nil, fmt.Errorf("phase 2 did not produce *jobs.JDInfrastructure under \"jd\"")
+		return nil, nil, fmt.Errorf("phase 1 did not produce *jobs.JDInfrastructure under %q", jdcomp.Key)
 	}
 	// Topology lives under [protocol_contracts.environment_topology]; read it from
 	// this component's own config rather than the top-level raw config.
@@ -239,16 +243,10 @@ type config struct {
 	EnvironmentTopology    *ccvdeployment.EnvironmentTopology `toml:"environment_topology"`
 }
 
-// decodeConfig round-trips the raw TOML component config into a typed config and
-// verifies its declared version.
 func decodeConfig(raw any) (config, error) {
-	b, err := toml.Marshal(raw)
+	cfg, err := devenvruntime.DecodeConfig[config](raw, Key)
 	if err != nil {
-		return config{}, fmt.Errorf("re-encoding protocol_contracts config: %w", err)
-	}
-	var cfg config
-	if err := toml.Unmarshal(b, &cfg); err != nil {
-		return config{}, fmt.Errorf("decoding protocol_contracts config: %w", err)
+		return config{}, err
 	}
 	if err := devenvruntime.CheckConfigVersion(cfg.Version, Version); err != nil {
 		return config{}, err

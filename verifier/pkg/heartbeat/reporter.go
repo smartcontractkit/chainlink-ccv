@@ -160,7 +160,7 @@ func (hr *Reporter) sendHeartbeat(ctx context.Context) {
 		return
 	}
 
-	hr.logger.Infow("Heartbeat sent successfully",
+	hr.logger.Debugw("Heartbeat sent successfully",
 		"verifierId", hr.verifierID,
 		"aggregatorId", resp.AggregatorID,
 		"chainCount", len(blockHeightsByChain),

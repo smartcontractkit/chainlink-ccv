@@ -18,7 +18,7 @@ func NewHTTPAPI(
 	monitoring verifier.Monitoring,
 ) *gin.Engine {
 	router := gin.New()
-	router.Use(gin.Logger())
+	router.Use(middleware.GinLogger(lggr))
 	router.Use(middleware.SecureRecovery(lggr))
 
 	healthHandler := health.NewHealthStatus(healthReporters)

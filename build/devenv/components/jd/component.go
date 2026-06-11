@@ -4,21 +4,19 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/pelletier/go-toml/v2"
-
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
 	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
 	ctf_jd "github.com/smartcontractkit/chainlink-testing-framework/framework/components/jd"
 )
 
-const configKey = "jd"
+const Key = "jd"
 
 // Version is the jd component config schema version. Exactly this version is
 // supported; configs declaring any other version are rejected.
 const Version = 1
 
 func init() {
-	if err := devenvruntime.Register(configKey, factory); err != nil {
+	if err := devenvruntime.Register(Key, factory); err != nil {
 		panic(fmt.Sprintf("jd component: %v", err))
 	}
 }
@@ -54,7 +52,7 @@ func (c *component) RunPhase1(
 		return nil, nil, fmt.Errorf("starting JD infrastructure: %w", err)
 	}
 
-	return map[string]any{configKey: infra}, nil, nil
+	return map[string]any{Key: infra}, nil, nil
 }
 
 // decode round-trips the raw TOML map[string]any into *ctf_jd.Input.
@@ -67,20 +65,12 @@ type jdConfig struct {
 }
 
 func decode(raw any) (*ctf_jd.Input, error) {
-	b, err := toml.Marshal(struct {
-		V any `toml:"jd"`
-	}{V: raw})
+	cfg, err := devenvruntime.DecodeConfig[jdConfig](raw, Key)
 	if err != nil {
-		return nil, fmt.Errorf("re-encoding jd config: %w", err)
-	}
-	var wrapper struct {
-		V jdConfig `toml:"jd"`
-	}
-	if err := toml.Unmarshal(b, &wrapper); err != nil {
-		return nil, fmt.Errorf("decoding jd config: %w", err)
-	}
-	if err := devenvruntime.CheckConfigVersion(wrapper.V.Version, Version); err != nil {
 		return nil, err
 	}
-	return &wrapper.V.Input, nil
+	if err := devenvruntime.CheckConfigVersion(cfg.Version, Version); err != nil {
+		return nil, err
+	}
+	return &cfg.Input, nil
 }

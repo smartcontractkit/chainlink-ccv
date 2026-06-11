@@ -20,6 +20,11 @@ const (
 	// the other.
 	LogTypeMessageFailure LogType = "message_failure"
 
+	// LogTypeRetryableMessageFailure marks a non-terminal per-message failure event:
+	// a processing attempt failed but will be retried. Unlike LogTypeMessageFailure,
+	// this is not a terminal outcome — the message may yet succeed.
+	LogTypeRetryableMessageFailure LogType = "retryable_message_failure"
+
 	// LogTypeMessageStatus marks a non-terminal per-message progress event, such as a
 	// verification being received, a message pending quorum, or a processing attempt.
 	// These can fire multiple times per message as it advances.
@@ -28,4 +33,24 @@ const (
 	// LogTypeServiceStatus marks a service-level status event that is not tied to a
 	// specific message, such as a periodic health summary.
 	LogTypeServiceStatus LogType = "service_status"
+)
+
+// Canonical structured-log field keys. Prefer these constants over string literals
+// when logging these fields, so a field's key name stays identical across every
+// service and cannot drift via typo (e.g. messageID vs message_id vs messageId).
+const (
+	// LogKeyMessageID is the field key for a CCIP message ID.
+	LogKeyMessageID = "messageID"
+	// LogKeySourceChain is the field key for a source chain selector.
+	LogKeySourceChain = "sourceChain"
+	// LogKeyDestChain is the field key for a destination chain selector.
+	LogKeyDestChain = "destChain"
+	// LogKeyChainSel is the field key for a generic (single) chain selector.
+	LogKeyChainSel = "chainSel"
+	// LogKeyNonce is the field key for a message sequence number / nonce.
+	LogKeyNonce = "nonce"
+	// LogKeyJobID is the field key for a job-queue job ID.
+	LogKeyJobID = "jobID"
+	// LogKeySeqNum is the field key for a message sequence number.
+	LogKeySeqNum = "seqNum"
 )

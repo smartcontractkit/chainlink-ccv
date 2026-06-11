@@ -11,7 +11,7 @@ version = 1
 ## owned by the phased observability component (Phase 1) and consumed by the
 ## committeeccv and executor components. These are intentionally NOT part of the
 ## topology; the legacy monolith still carries the equivalent keys under
-## [environment_topology] in env.toml.
+## the top-level [environment_topology] section in env.toml.
 [observability]
 version = 1
 pyroscope_url = "http://host.docker.internal:4040"
@@ -32,7 +32,7 @@ TraceBatchTimeout = 10
 version = 1
 use_legacy_configure_lane = false
 
-## Environment configuration define the topology. Eventually the topology should be the only config that is needed.
+## Environment configuration defines the topology. Eventually the topology should be the only config that is needed.
 [protocol_contracts.environment_topology]
 indexer_address = ["http://indexer-1:8100"]
 
