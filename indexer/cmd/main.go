@@ -24,7 +24,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/backofftimeprovider"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
-	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
+	zaplog "github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
 	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil/pg"
@@ -42,12 +42,13 @@ func main() {
 		panic(err)
 	}
 
-	lggr, err := logger.NewWith(logging.GetLogProfile(logLevel))
+	lggr, err := logger.NewWith(zaplog.GetLogProfile(logLevel))
 	if err != nil {
 		panic(fmt.Sprintf("Failed to create logger: %v", err))
 	}
 
 	lggr = logger.Named(lggr, "indexer")
+	lggr = ccvcommon.WithService(lggr, "indexer")
 	// Use SugaredLogger for better API
 	lggr = logger.Sugared(lggr)
 
