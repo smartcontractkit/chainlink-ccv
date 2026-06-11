@@ -16,6 +16,7 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
+
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
@@ -159,8 +160,7 @@ func ApplyDefaults(in *Input) {
 // transmitterKeyName is the bootstrap keystore key name whose on-chain address
 // must be fetched and funded for this chain family. It is resolved by the caller
 // from the chain registry (chainreg) so that this service package does not import
-// chainreg (which would create an import cycle). Pass "" for families that have no
-// bootstrap-managed transmitter key.
+// chainreg (cycle). Pass "" for families that have no bootstrap-managed transmitter key.
 func New(in *Input, outputs []*blockchain.Output, jdInfra *jobs.JDInfrastructure, modifiers map[string]ReqModifier, transmitterKeyName string) (*Output, error) {
 	if in == nil {
 		return nil, nil
@@ -252,7 +252,7 @@ func launchExecutor(ctx context.Context, in *Input, outputs []*blockchain.Output
 
 	// Fetches the CSA key and the family-specific transmitter key (resolved by the
 	// caller from chainreg) from the bootstrap server. The CSA key is used for JD
-	// registration; the transmitter key is used to derive the on-chain address that
+	// registration, the transmitter key is used to derive the on-chain address that
 	// must be funded before the executor can submit transactions.
 	keyNames := []string{bootstrap.DefaultCSAKeyName}
 	if transmitterKeyName != "" {
