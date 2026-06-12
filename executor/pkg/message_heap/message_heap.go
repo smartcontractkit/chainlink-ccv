@@ -200,7 +200,7 @@ func (es *ExpirableMessageSet) PushUnlessExists(msg protocol.Bytes32, initTime t
 	defer es.mu.Unlock()
 
 	if storedTime, exists := es.dataMap[msg]; exists {
-		if storedTime.Equal(initTime) {
+		if !initTime.After(storedTime) {
 			return false
 		}
 		es.heap.remove(msg)
