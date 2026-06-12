@@ -3,6 +3,8 @@ package main
 import (
 	"log"
 
+	"github.com/smartcontractkit/devenv/ccip17/fakes/pkg/viz"
+
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/fake"
 
 	"github.com/smartcontractkit/devenv/ccip17/fakes/pkg/cctp"
@@ -35,6 +37,12 @@ func main() {
 		panic(err)
 	}
 	log.Printf("Fake Lombard Attestation API running on port %d", fake.DefaultFakeServicePort)
+
+	jaegerViz := viz.NewJaegerAPI()
+	if err = jaegerViz.Register(); err != nil {
+		panic(err)
+	}
+	log.Printf("Fake Jaeger Viz API running on port %d", fake.DefaultFakeServicePort)
 
 	// Keep the server running
 	select {}

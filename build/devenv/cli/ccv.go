@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"math/big"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -20,6 +21,7 @@ import (
 	"github.com/spf13/cobra"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
+
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/committee_verifier"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/mock_receiver_v2"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
@@ -38,8 +40,9 @@ import (
 )
 
 const (
-	LocalWASPLoadDashboard = "http://localhost:3000/d/WASPLoadTests/wasp-load-test?orgId=1&from=now-5m&to=now&refresh=5s"
-	LocalCCVDashboard      = "http://localhost:3000/d/f8a04cef-653f-46d3-86df-87c532300672/ccv-services?orgId=1&refresh=5s"
+	LocalWASPLoadDashboard     = "http://localhost:3000/d/WASPLoadTests/wasp-load-test?orgId=1&from=now-5m&to=now&refresh=5s"
+	LocalCCVDashboard          = "http://localhost:3000/d/f8a04cef-653f-46d3-86df-87c532300672/ccv-services?orgId=1&refresh=5s"
+	LocalJaegerAPIPoCDashboard = "http://localhost:3000/d/gckp5w/jaeger-viz-api-poc?orgId=1&from=2026-06-11T14:31:28.533Z&to=2026-06-13T14:31:28.533Z&timezone=browser"
 )
 
 // newEnvFn is set by PersistentPreRunE based on the --env-mode flag.
@@ -333,6 +336,34 @@ var obsCmd = &cobra.Command{
 	Long:  "Spin up or down the observability stack with subcommands 'up' and 'down'",
 }
 
+func injectJaegerDatasource() error {
+	const payload = `{"uid":"efoxj9h6z1vcwe","name":"Jaeger","type":"jaeger","access":"proxy","url":"http://jaeger-viz:9111/viz","isDefault":false,"editable":true}`
+	var lastErr error
+	for range 20 {
+		req, err := http.NewRequest(http.MethodPost, "http://localhost:3000/api/datasources", strings.NewReader(payload))
+		if err != nil {
+			return err
+		}
+		req.SetBasicAuth("admin", "admin")
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			lastErr = err
+			time.Sleep(2 * time.Second)
+			continue
+		}
+		resp.Body.Close()
+		if resp.StatusCode == http.StatusConflict {
+			return nil // already exists
+		}
+		if resp.StatusCode != http.StatusOK {
+			return fmt.Errorf("grafana API returned %d", resp.StatusCode)
+		}
+		return nil
+	}
+	return fmt.Errorf("grafana not ready after 40s: %w", lastErr)
+}
+
 var obsUpCmd = &cobra.Command{
 	Use:     "up",
 	Aliases: []string{"u"},
@@ -351,8 +382,12 @@ var obsUpCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("observability up failed: %w", err)
 		}
+		if err := injectJaegerDatasource(); err != nil {
+			ccv.Plog.Warn().Err(err).Msg("Failed to inject Jaeger datasource")
+		}
 		ccv.Plog.Info().Msgf("CCV Dashboard: %s", LocalCCVDashboard)
 		ccv.Plog.Info().Msgf("CCV Load Test Dashboard: %s", LocalWASPLoadDashboard)
+		ccv.Plog.Info().Msgf("CCV Jaeger API Visualization PoC Dashboard: %s", LocalJaegerAPIPoCDashboard)
 		return nil
 	},
 }
@@ -502,8 +537,12 @@ var obsRestartCmd = &cobra.Command{
 		if err != nil {
 			return fmt.Errorf("observability up failed: %w", err)
 		}
+		if err := injectJaegerDatasource(); err != nil {
+			ccv.Plog.Warn().Err(err).Msg("Failed to inject Jaeger datasource")
+		}
 		ccv.Plog.Info().Msgf("CCV Dashboard: %s", LocalCCVDashboard)
 		ccv.Plog.Info().Msgf("CCV Load Test Dashboard: %s", LocalWASPLoadDashboard)
+		ccv.Plog.Info().Msgf("CCV Jaeger API Visualization PoC Dashboard: %s", LocalJaegerAPIPoCDashboard)
 		return nil
 	},
 }

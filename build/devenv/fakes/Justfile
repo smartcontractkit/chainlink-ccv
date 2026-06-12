@@ -1,5 +1,8 @@
+run:
+    docker run --rm -it -v $(pwd):/app -p 9111:9111 --network ctf --name jaeger-viz ccv-fakes
+
 run-dev:
-    docker run --rm -it -v $(pwd):/app -p 9111:9111 ccv-fakes:dev
+    docker run --rm -it -v $(pwd):/app -p 9111:9111 --network ctf --name jaeger-viz ccv-fakes:dev
 
 build-dev:
     cd ../../.. && docker build -f build/devenv/fakes/Dockerfile.dev -t ccv-fakes:dev .
