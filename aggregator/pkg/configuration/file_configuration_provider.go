@@ -8,6 +8,7 @@ import (
 	"github.com/BurntSushi/toml"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
+	"github.com/smartcontractkit/chainlink-ccv/common/configvalidate"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -34,6 +35,41 @@ func LoadConfig(filePath string, lggr logger.SugaredLogger) (*model.AggregatorCo
 	}
 
 	return &config, nil
+}
+
+// ValidateConfigFile strictly decodes the aggregator config at filePath the same
+// way the service loads it at startup — decoding the main config and, when
+// GeneratedConfigPath is set, the generated config resolved relative to filePath
+// — and fails if either document fails to decode (e.g. a type mismatch) or
+// contains keys not present in the config struct (drift). Unlike LoadConfig it
+// reads no secrets or environment, so it is safe to run in CI against a rendered
+// config to catch drift before deploy.
+func ValidateConfigFile(filePath string) error {
+	var config model.AggregatorConfig
+	undecoded, decodeErr := configvalidate.DecodeFileStrict(filePath, &config)
+	results := []configvalidate.Result{{
+		Name:      filepath.Base(filePath),
+		Undecoded: undecoded,
+		Err:       decodeErr,
+	}}
+
+	// Validate the generated config exactly as LoadConfig merges it, but only when
+	// the main config decoded far enough to give us a path.
+	if decodeErr == nil && config.GeneratedConfigPath != "" {
+		generatedPath := config.GeneratedConfigPath
+		if !filepath.IsAbs(generatedPath) {
+			generatedPath = filepath.Join(filepath.Dir(filePath), generatedPath)
+		}
+		var generated model.GeneratedConfig
+		genUndecoded, genErr := configvalidate.DecodeFileStrict(generatedPath, &generated)
+		results = append(results, configvalidate.Result{
+			Name:      filepath.Base(generatedPath),
+			Undecoded: genUndecoded,
+			Err:       genErr,
+		})
+	}
+
+	return configvalidate.Report(results...)
 }
 
 // LoadConfigString loads the aggregator configuration from a string.
