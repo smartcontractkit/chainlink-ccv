@@ -79,11 +79,18 @@ func TestRegistryGetExecutorTransmitterInfo(t *testing.T) {
 		t.Fatalf("Add() error = %v", err)
 	}
 
-	if got := r.GetExecutorTransmitterKeyName("evm"); got != "transmitter-key" {
-		t.Fatalf("GetExecutorTransmitterKeyName() = %q, want transmitter-key", got)
+	reg, err := r.Get("evm")
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
 	}
-	if got := r.GetExecutorTransmitterAddress("evm", services.BootstrapKeys{}); got != "transmitter-addr" {
-		t.Fatalf("GetExecutorTransmitterAddress() = %q, want transmitter-addr", got)
+	if reg.ExecutorInfo == nil {
+		t.Fatal("ExecutorInfo is nil")
+	}
+	if got := reg.ExecutorInfo.ExecutorTransmitterKeyName(); got != "transmitter-key" {
+		t.Fatalf("ExecutorTransmitterKeyName() = %q, want transmitter-key", got)
+	}
+	if got := reg.ExecutorInfo.ExecutorTransmitterAddress(services.BootstrapKeys{}); got != "transmitter-addr" {
+		t.Fatalf("ExecutorTransmitterAddress() = %q, want transmitter-addr", got)
 	}
 }
 

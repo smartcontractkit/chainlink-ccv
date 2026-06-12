@@ -6,8 +6,8 @@ import (
 	"sync"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
+
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
-	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	ctfblockchain "github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
 
@@ -100,6 +100,10 @@ func (r *Registry) Get(family string) (Registration, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
+	if family == "" {
+		family = chainsel.FamilyEVM
+	}
+
 	reg, ok := r.registrations[family]
 	if !ok {
 		return Registration{}, fmt.Errorf("chain registration for family %s not found", family)
@@ -170,41 +174,6 @@ func (r *Registry) GetExecutorModifiers() map[string]ExecutorModifier {
 		}
 	}
 	return modifiers
-}
-
-// GetExecutorTransmitterKeyName returns the executor transmitter keystore key name
-// for the given chain family, or "" if the family is unregistered, has no
-// ExecutorInfo, or declares no bootstrap-managed transmitter key. An empty family
-// defaults to EVM.
-func (r *Registry) GetExecutorTransmitterKeyName(family string) string {
-	if family == "" {
-		family = chainsel.FamilyEVM
-	}
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	reg, ok := r.registrations[family]
-	if !ok || reg.ExecutorInfo == nil {
-		return ""
-	}
-	return reg.ExecutorInfo.ExecutorTransmitterKeyName()
-}
-
-// GetExecutorTransmitterAddress returns the executor's on-chain transmitter
-// address for the given chain family, or "" if the family is unregistered or has
-// no ExecutorInfo.
-func (r *Registry) GetExecutorTransmitterAddress(family string, keys services.BootstrapKeys) string {
-	if family == "" {
-		family = chainsel.FamilyEVM
-	}
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-
-	reg, ok := r.registrations[family]
-	if !ok || reg.ExecutorInfo == nil {
-		return ""
-	}
-	return reg.ExecutorInfo.ExecutorTransmitterAddress(keys)
 }
 
 // NewProductConfigurationFromNetwork returns the CCIP17Configuration for the given

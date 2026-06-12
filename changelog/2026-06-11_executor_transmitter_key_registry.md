@@ -22,7 +22,7 @@ The expected consumer of this changelog is an AI adapting a downstream repo. Thi
 | `services.BootstrapKeys.EVMTransmitterAddress` | removed | `\.EVMTransmitterAddress\b|evm_transmitter_address` | — | [#bootstrapkeys-evmtransmitteraddress-removed](#bootstrapkeys-evmtransmitteraddress-removed) |
 | `executor.DefaultEVMTransmitterKeyName → contracttransmitter.DefaultKeyName` | removed | `executor\.DefaultEVMTransmitterKeyName\b` | `integration/pkg/contracttransmitter/keystore_evm_contract_transmitter.go:33` | [#defaultevmtransmitterkeyname-removed](#defaultevmtransmitterkeyname-removed) |
 | `executorsvc.New` | signature-changed | `executor\.New\(|executorsvc\.New\(` | `build/devenv/services/executor/base.go:164` | [#executor-new-signature](#executor-new-signature) |
-| `services.FetchBootstrapKeys` | behavior-changed | `FetchBootstrapKeys\(` | `build/devenv/services/bootstrap.go:120` | [#fetchbootstrapkeys-behavior](#fetchbootstrapkeys-behavior) |
+| `services.FetchBootstrapKeys` | behavior-changed | `FetchBootstrapKeys\(` | `build/devenv/services/bootstrap.go:115` | [#fetchbootstrapkeys-behavior](#fetchbootstrapkeys-behavior) |
 | `chainaccess.DestinationChainConfig.TransmitterKeyName` | behavior-changed | `TransmitterKeyName\b|transmitter_key_name` | `pkg/chainaccess/registry.go:161` | [#destinationchainconfig-transmitterkeyname](#destinationchainconfig-transmitterkeyname) |
 | `services.BootstrapKeys.PublicKeys` | added | `\.PublicKeys\b|public_keys` | `build/devenv/services/bootstrap.go:102` | [#bootstrapkeys-publickeys](#bootstrapkeys-publickeys) |
 | `services.BootstrapKeys.PublicKeyHex` | added | `\.PublicKeyHex\(` | `build/devenv/services/bootstrap.go:106` | [#bootstrapkeys-publickeyhex](#bootstrapkeys-publickeyhex) |
@@ -30,9 +30,7 @@ The expected consumer of this changelog is an AI adapting a downstream repo. Thi
 | `chainreg.ExecutorInfo` | added | `chainreg\.ExecutorInfo\b` | `build/devenv/chainreg/types.go:59` | [#chainreg-executorinfo](#chainreg-executorinfo) |
 | `chainreg.ExecutorInfo.ExecutorTransmitterKeyName` | added | `ExecutorTransmitterKeyName\(` | `build/devenv/chainreg/types.go:64` | [#chainreg-executorinfo](#chainreg-executorinfo) |
 | `chainreg.ExecutorInfo.ExecutorTransmitterAddress` | added | `ExecutorTransmitterAddress\(` | `build/devenv/chainreg/types.go:70` | [#chainreg-executorinfo](#chainreg-executorinfo) |
-| `chainreg.Registration.ExecutorInfo` | added | `Registration\{[^}]*ExecutorInfo|\.ExecutorInfo\b` | `build/devenv/chainreg/types.go:130` | [#registration-executorinfo-field](#registration-executorinfo-field) |
-| `chainreg.Registry.GetExecutorTransmitterKeyName` | added | `\.GetExecutorTransmitterKeyName\(` | `build/devenv/chainreg/registry.go:179` | [#registry-executor-transmitter-getters](#registry-executor-transmitter-getters) |
-| `chainreg.Registry.GetExecutorTransmitterAddress` | added | `\.GetExecutorTransmitterAddress\(` | `build/devenv/chainreg/registry.go:196` | [#registry-executor-transmitter-getters](#registry-executor-transmitter-getters) |
+| `chainreg.Registration.ExecutorInfo` | added | `Registration\{[^}]*ExecutorInfo|\.ExecutorInfo\b` | `build/devenv/chainreg/types.go:134` | [#registration-executorinfo-field](#registration-executorinfo-field) |
 
 ## Breaking Changes
 
@@ -47,8 +45,12 @@ The expected consumer of this changelog is an AI adapting a downstream repo. Thi
   ```go
   // Raw public key hex for any requested key name:
   rawHex := keys.PublicKeyHex(contracttransmitter.DefaultKeyName)
-  // EVM callers derive the address themselves, or use the registry:
-  addr := chainreg.GetRegistry().GetExecutorTransmitterAddress(family, keys)
+  // EVM callers derive the address themselves, or use the family's ExecutorInfo:
+  reg, err := chainreg.GetRegistry().Get(family)
+  if err != nil || reg.ExecutorInfo == nil {
+      // handle missing registration / ExecutorInfo per your context
+  }
+  addr := reg.ExecutorInfo.ExecutorTransmitterAddress(keys)
   ```
 - **Why:** one named field per chain family meant every new family had to extend `BootstrapKeys` and the devenv funding code. A generic map plus per-family `ExecutorInfo` removes that coupling.
 - **Who is affected:** any consumer reading `BootstrapKeys.EVMTransmitterAddress` or parsing the `evm_transmitter_address` TOML key.
@@ -81,7 +83,7 @@ The expected consumer of this changelog is an AI adapting a downstream repo. Thi
   func New(in *Input, outputs []*blockchain.Output, jdInfra *jobs.JDInfrastructure, modifiers map[string]ReqModifier, transmitterKeyName string) (*Output, error)
   ```
 - **Why:** the executor service must not import `chainreg` (import cycle), so the caller resolves the family's transmitter key name from the registry and passes it in. The service fetches/funds only the keys it is told about; pass `""` for families with no bootstrap-managed transmitter key.
-- **Who is affected:** any code constructing executor services directly via `services/executor.New`. The in-repo caller (`build/devenv/components/executor/component.go`) already resolves the name via `chainreg.GetRegistry().GetExecutorTransmitterKeyName(exec.ChainFamily)`.
+- **Who is affected:** any code constructing executor services directly via `services/executor.New`. The in-repo caller (`build/devenv/components/executor/component.go`) already resolves the name via `chainreg.GetRegistry().Get(family)` and `reg.ExecutorInfo.ExecutorTransmitterKeyName()`.
 
 ## Migration Guide
 
@@ -104,7 +106,11 @@ keyName := contracttransmitter.DefaultKeyName
 addr := keys.EVMTransmitterAddress
 
 // After (registry path — recommended; family-aware)
-addr := chainreg.GetRegistry().GetExecutorTransmitterAddress(family, keys)
+reg, err := chainreg.GetRegistry().Get(family)
+if err != nil || reg.ExecutorInfo == nil {
+    // handle missing registration / ExecutorInfo per your context
+}
+addr := reg.ExecutorInfo.ExecutorTransmitterAddress(keys)
 
 // After (manual EVM derivation)
 rawHex := keys.PublicKeyHex(contracttransmitter.DefaultKeyName)
@@ -120,7 +126,14 @@ addr := hex.EncodeToString(crypto.PubkeyToAddress(*pubKey).Bytes())
 out, err := executorsvc.New(exec, blockchainOutputs, jdInfra, chainreg.GetRegistry().GetExecutorModifiers())
 
 // After
-transmitterKeyName := chainreg.GetRegistry().GetExecutorTransmitterKeyName(exec.ChainFamily)
+family := exec.ChainFamily
+if family == "" {
+    family = chainsel.FamilyEVM
+}
+var transmitterKeyName string
+if reg, err := chainreg.GetRegistry().Get(family); err == nil && reg.ExecutorInfo != nil {
+    transmitterKeyName = reg.ExecutorInfo.ExecutorTransmitterKeyName()
+}
 out, err := executorsvc.New(exec, blockchainOutputs, jdInfra, chainreg.GetRegistry().GetExecutorModifiers(), transmitterKeyName)
 ```
 
@@ -168,8 +181,7 @@ go build ./...
   - Usage: register via `Registration.ExecutorInfo` so devenv learns which bootstrap key to fetch and how to turn it into a fundable on-chain address — without shared devenv code knowing about the family.
 
 - **`chainreg.Registration.ExecutorInfo`** — optional field carrying the family's `ExecutorInfo`; merged by `Registry.Add` (existing value wins). See `build/devenv/chainreg/types.go:130`.
-
-- **`chainreg.Registry.GetExecutorTransmitterKeyName(family)` / `GetExecutorTransmitterAddress(family, keys)`** — registry lookups that delegate to the family's `ExecutorInfo`, returning `""` when the family is unregistered or has no `ExecutorInfo`. An empty `family` defaults to EVM. See `build/devenv/chainreg/registry.go:179` and `:196`.
+  - Usage: callers resolve transmitter key names and on-chain addresses via `chainreg.GetRegistry().Get(family)` and then `reg.ExecutorInfo` (see `build/devenv/components/executor/component.go` and `build/devenv/environment.go`). In-repo callers rely on `executorsvc.ApplyDefaults` (`build/devenv/services/executor/base.go:140`) normalizing an empty `ChainFamily` to EVM before the lookup; downstream callers that don't run `ApplyDefaults` should default an empty `family` to EVM at the call site (see Migration step 3).
 
 ## Behavior Changes
 

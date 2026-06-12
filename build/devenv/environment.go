@@ -18,7 +18,6 @@ import (
 	"github.com/rs/zerolog/log"
 	"golang.org/x/sync/errgroup"
 
-	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
 
 	_ "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/adapters"
@@ -918,21 +917,21 @@ func fundExecutorTransmitters(
 		if exec == nil || exec.Out == nil {
 			continue
 		}
-		family := exec.ChainFamily
-		if family == "" {
-			family = chainsel.FamilyEVM
-		}
 
-		addrHex := chainreg.GetRegistry().GetExecutorTransmitterAddress(family, exec.Out.BootstrapKeys)
+		reg, regErr := chainreg.GetRegistry().Get(exec.ChainFamily)
+		if regErr != nil || reg.ExecutorInfo == nil {
+			continue
+		}
+		addrHex := reg.ExecutorInfo.ExecutorTransmitterAddress(exec.Out.BootstrapKeys)
 		if addrHex == "" {
 			continue
 		}
 
 		addrBytes, err := hex.DecodeString(addrHex)
 		if err != nil {
-			return fmt.Errorf("invalid transmitter address for executor %s (family %s): %w", exec.ContainerName, family, err)
+			return fmt.Errorf("invalid transmitter address for executor %s (family %s): %w", exec.ContainerName, exec.ChainFamily, err)
 		}
-		addressesByFamily[family] = append(addressesByFamily[family], protocol.UnknownAddress(addrBytes))
+		addressesByFamily[exec.ChainFamily] = append(addressesByFamily[exec.ChainFamily], protocol.UnknownAddress(addrBytes))
 	}
 
 	for i, impl := range impls {
@@ -973,7 +972,10 @@ func launchExecutors(in []*executorsvc.Input, blockchainOutputs []*blockchain.Ou
 			outs = append(outs, exec.Out)
 			continue
 		}
-		transmitterKeyName := chainreg.GetRegistry().GetExecutorTransmitterKeyName(exec.ChainFamily)
+		var transmitterKeyName string
+		if reg, regErr := chainreg.GetRegistry().Get(exec.ChainFamily); regErr == nil && reg.ExecutorInfo != nil {
+			transmitterKeyName = reg.ExecutorInfo.ExecutorTransmitterKeyName()
+		}
 		out, err := executorsvc.New(exec, blockchainOutputs, jdInfra, chainreg.GetRegistry().GetExecutorModifiers(), transmitterKeyName)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create executor %s: %w", exec.ContainerName, err)

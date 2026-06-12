@@ -11,6 +11,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
+
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainreg"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
@@ -90,7 +91,10 @@ func (c *component) RunPhase3(
 		if exec.Mode != services.Standalone {
 			continue
 		}
-		transmitterKeyName := chainreg.GetRegistry().GetExecutorTransmitterKeyName(exec.ChainFamily)
+		var transmitterKeyName string
+		if reg, regErr := chainreg.GetRegistry().Get(exec.ChainFamily); regErr == nil && reg.ExecutorInfo != nil {
+			transmitterKeyName = reg.ExecutorInfo.ExecutorTransmitterKeyName()
+		}
 		out, err := executorsvc.New(exec, blockchainOutputs, jdInfra, chainreg.GetRegistry().GetExecutorModifiers(), transmitterKeyName)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to launch executor %s: %w", exec.ContainerName, err)
@@ -107,11 +111,11 @@ func (c *component) RunPhase3(
 		if exec == nil || exec.Mode != services.Standalone || exec.Out == nil {
 			continue
 		}
-		family := exec.ChainFamily
-		if family == "" {
-			family = chainsel.FamilyEVM
+		reg, regErr := chainreg.GetRegistry().Get(exec.ChainFamily)
+		if regErr != nil || reg.ExecutorInfo == nil {
+			continue
 		}
-		addrStr := chainreg.GetRegistry().GetExecutorTransmitterAddress(family, exec.Out.BootstrapKeys)
+		addrStr := reg.ExecutorInfo.ExecutorTransmitterAddress(exec.Out.BootstrapKeys)
 		if addrStr == "" {
 			continue
 		}
@@ -124,10 +128,10 @@ func (c *component) RunPhase3(
 				continue
 			}
 			bcFamily, ferr := ctfblockchain.TypeToFamily(bc.Type)
-			if ferr != nil || string(bcFamily) != family {
+			if ferr != nil || string(bcFamily) != exec.ChainFamily {
 				continue
 			}
-			sel, serr := chainsel.GetChainDetailsByChainIDAndFamily(bc.ChainID, family)
+			sel, serr := chainsel.GetChainDetailsByChainIDAndFamily(bc.ChainID, exec.ChainFamily)
 			if serr != nil {
 				continue
 			}
