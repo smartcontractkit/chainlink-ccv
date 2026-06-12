@@ -1,0 +1,84 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": 0,
+  "links": [],
+  "panels": [
+    {
+      "datasource": {
+        "type": "jaeger",
+        "uid": "efoxj9h6z1vcwe"
+      },
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 20,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "options": {
+        "spanFilters": {
+          "criticalPathOnly": false,
+          "matchesOnly": false,
+          "serviceNameOperator": "=",
+          "spanNameOperator": "=",
+          "tags": [
+            {
+              "id": "92776e6d-23b",
+              "operator": "="
+            }
+          ]
+        }
+      },
+      "pluginVersion": "12.3.1",
+      "targets": [
+        {
+          "datasource": {
+            "type": "jaeger",
+            "uid": "efoxj9h6z1vcwe"
+          },
+          "query": "0x1fedb7ff3a17716f4f3beb2c8e2f3558a76fba88f69fc5f9de5578f5f434a1f2",
+          "refId": "A"
+        }
+      ],
+      "title": "New panel",
+      "type": "traces"
+    }
+  ],
+  "preload": false,
+  "schemaVersion": 42,
+  "tags": [],
+  "templating": {
+    "list": []
+  },
+  "time": {
+    "from": "2026-06-11T14:31:28.533Z",
+    "to": "2026-06-13T14:31:28.533Z"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Jaeger Viz API PoC",
+  "uid": "gckp5w",
+  "version": 3
+}
