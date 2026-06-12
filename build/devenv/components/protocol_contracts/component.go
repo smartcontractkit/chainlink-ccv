@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strconv"
 
+	"github.com/Masterminds/semver/v3"
 	"github.com/rs/zerolog"
 	zlog "github.com/rs/zerolog/log"
 
@@ -118,6 +120,15 @@ func (p *component) RunPhase2(
 		return nil, nil, fmt.Errorf("creating CLDF operations environment: %w", err)
 	}
 	p.lggr.Info().Any("Selectors", selectors).Msg("Deploying for chain selectors")
+
+	// Synthesize committee topology from committeeccv config when none is provided.
+	if envTopology.NOPTopology == nil || len(envTopology.NOPTopology.Committees) == 0 {
+		synthesized, synthErr := synthesizeCommittees(globalConfig, selectors)
+		if synthErr != nil {
+			return nil, nil, fmt.Errorf("synthesizing committees from committeeccv config: %w", synthErr)
+		}
+		envTopology = injectCommittees(envTopology, synthesized)
+	}
 
 	topology := ccdeploy.BuildEnvironmentTopology(envTopology, nil, e)
 	if topology == nil {
@@ -252,4 +263,116 @@ func decodeConfig(raw any) (config, error) {
 		return config{}, err
 	}
 	return cfg, nil
+}
+
+// committeeDeploySpec mirrors committeeccv.CommitteeDeployConfig without importing that package.
+type committeeDeploySpec struct {
+	Qualifier                    string `toml:"qualifier"`
+	VerifierVersion              string `toml:"verifier_version"`
+	Threshold                    uint8  `toml:"threshold"`
+	InsecureAggregatorConnection bool   `toml:"insecure_aggregator_connection"`
+}
+
+// committeeVerifierSpec is a partial mirror of committeeverifier.Input.
+type committeeVerifierSpec struct {
+	NOPAlias      string `toml:"nop_alias"`
+	CommitteeName string `toml:"committee_name"`
+}
+
+// committeeAggregatorSpec is a partial mirror of services.AggregatorInput.
+type committeeAggregatorSpec struct {
+	Name          string `toml:"name"`
+	CommitteeName string `toml:"committee_name"`
+}
+
+// committeeccvPartial decodes only the fields needed for committee synthesis.
+type committeeccvPartial struct {
+	Committees  []committeeDeploySpec     `toml:"committee"`
+	Verifiers   []committeeVerifierSpec   `toml:"verifier"`
+	Aggregators []committeeAggregatorSpec `toml:"aggregator"`
+}
+
+// synthesizeCommittees builds a CommitteeConfig map from committeeccv config entries,
+// using the given chain selectors to populate per-chain configs. It returns nil when no
+// [[committeeccv.committee]] entries are present, signaling that synthesis is not needed.
+func synthesizeCommittees(globalConfig map[string]any, selectors []uint64) (map[string]ccvdeployment.CommitteeConfig, error) {
+	partial, err := devenvruntime.DecodeConfig[committeeccvPartial](globalConfig["committeeccv"], "committeeccv")
+	if err != nil {
+		return nil, fmt.Errorf("decoding committeeccv config for synthesis: %w", err)
+	}
+	if len(partial.Committees) == 0 {
+		return nil, nil
+	}
+
+	// Index verifier NOPAliases per committee qualifier.
+	nopsByCommittee := make(map[string][]string)
+	for _, v := range partial.Verifiers {
+		nopsByCommittee[v.CommitteeName] = append(nopsByCommittee[v.CommitteeName], v.NOPAlias)
+	}
+
+	// Index aggregator container address per committee qualifier.
+	aggAddrByCommittee := make(map[string]string)
+	for _, a := range partial.Aggregators {
+		instanceName := a.Name
+		if instanceName == "" {
+			instanceName = a.CommitteeName
+		}
+		aggAddrByCommittee[a.CommitteeName] = fmt.Sprintf("%s-aggregator:50051", instanceName)
+	}
+
+	committees := make(map[string]ccvdeployment.CommitteeConfig, len(partial.Committees))
+	for _, spec := range partial.Committees {
+		if spec.Qualifier == "" {
+			return nil, fmt.Errorf("committeeccv.committee entry missing qualifier")
+		}
+		ver, verErr := semver.NewVersion(spec.VerifierVersion)
+		if verErr != nil {
+			return nil, fmt.Errorf("committee %q: invalid verifier_version %q: %w", spec.Qualifier, spec.VerifierVersion, verErr)
+		}
+		nopAliases := nopsByCommittee[spec.Qualifier]
+		if len(nopAliases) == 0 {
+			return nil, fmt.Errorf("committee %q: no verifiers found in committeeccv config for synthesis", spec.Qualifier)
+		}
+		aggAddr, ok := aggAddrByCommittee[spec.Qualifier]
+		if !ok {
+			return nil, fmt.Errorf("committee %q: no aggregator found in committeeccv config for synthesis", spec.Qualifier)
+		}
+		chainCfgs := make(map[string]ccvdeployment.ChainCommitteeConfig, len(selectors))
+		for _, sel := range selectors {
+			chainCfgs[strconv.FormatUint(sel, 10)] = ccvdeployment.ChainCommitteeConfig{
+				NOPAliases: nopAliases,
+				Threshold:  spec.Threshold,
+			}
+		}
+		committees[spec.Qualifier] = ccvdeployment.CommitteeConfig{
+			Qualifier:       spec.Qualifier,
+			VerifierVersion: ver,
+			ChainConfigs:    chainCfgs,
+			Aggregators: []ccvdeployment.AggregatorConfig{
+				{
+					Name:                         spec.Qualifier,
+					Address:                      aggAddr,
+					InsecureAggregatorConnection: spec.InsecureAggregatorConnection,
+				},
+			},
+		}
+	}
+	return committees, nil
+}
+
+// injectCommittees returns a shallow copy of envTopology with the supplied committees
+// set on the NOPTopology. Returns the original pointer unchanged when committees is empty.
+func injectCommittees(envTopology *ccvdeployment.EnvironmentTopology, committees map[string]ccvdeployment.CommitteeConfig) *ccvdeployment.EnvironmentTopology {
+	if len(committees) == 0 {
+		return envTopology
+	}
+	topoWithCommittees := *envTopology
+	if topoWithCommittees.NOPTopology == nil {
+		topoWithCommittees.NOPTopology = &ccvdeployment.NOPTopology{}
+	} else {
+		nopCopy := *topoWithCommittees.NOPTopology
+		topoWithCommittees.NOPTopology = &nopCopy
+	}
+	topoWithCommittees.NOPTopology.Committees = committees
+	return &topoWithCommittees
 }
