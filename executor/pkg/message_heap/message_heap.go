@@ -73,6 +73,15 @@ func (h *readyTimestampHeap) peek() (*MessageHeapEntry, error) {
 	return &(*h)[0], nil
 }
 
+func (h *readyTimestampHeap) remove(id protocol.Bytes32) {
+	for i, entry := range *h {
+		if entry.MessageID == id {
+			heap.Remove(h, i)
+			return
+		}
+	}
+}
+
 // MessageHeap is the struct used to maintain the priority queue for timing messages in the coordinator.
 // Internally, it uses a heap for timing, and a separate map for the data of the message.
 // This is to reduce the amount of data and locking overhead when pushing and popping messages and fixing the heap.
@@ -168,7 +177,7 @@ func (mh *MessageHeap) Len() int {
 // It's used in the indexer storage streamer to deduplicate messages, but only hold for 24 hours.
 type ExpirableMessageSet struct {
 	heap           readyTimestampHeap
-	dataMap        map[protocol.Bytes32]struct{}
+	dataMap        map[protocol.Bytes32]time.Time
 	expiryDuration time.Duration
 	mu             *sync.RWMutex
 }
@@ -178,7 +187,7 @@ func NewExpirableSet(expiryDuration time.Duration) *ExpirableMessageSet {
 	heap.Init(h)
 	msgHeap := ExpirableMessageSet{
 		heap:           *h,
-		dataMap:        make(map[protocol.Bytes32]struct{}),
+		dataMap:        make(map[protocol.Bytes32]time.Time),
 		mu:             &sync.RWMutex{},
 		expiryDuration: expiryDuration,
 	}
@@ -190,16 +199,18 @@ func (es *ExpirableMessageSet) PushUnlessExists(msg protocol.Bytes32, initTime t
 	es.mu.Lock()
 	defer es.mu.Unlock()
 
-	_, exists := es.dataMap[msg]
-	if exists {
-		return false
+	if storedTime, exists := es.dataMap[msg]; exists {
+		if !initTime.After(storedTime) {
+			return false
+		}
+		es.heap.remove(msg)
 	}
 	heap.Push(&es.heap, MessageHeapEntry{
 		ReadyTime: initTime.Add(es.expiryDuration),
 		MessageID: msg,
 	})
 
-	es.dataMap[msg] = struct{}{}
+	es.dataMap[msg] = initTime
 	return true
 }
 
@@ -234,6 +245,83 @@ func (es *ExpirableMessageSet) CleanExpired(timestamp time.Time) int {
 		}
 		delete(es.dataMap, msg.MessageID)
 		expiredCount++
+	}
+	return expiredCount
+}
+
+// ExpirableMessageSets holds one ExpirableMessageSet per indexer source index.
+type ExpirableMessageSets struct {
+	sets           map[int]*ExpirableMessageSet
+	expiryDuration time.Duration
+	mu             sync.RWMutex
+}
+
+func NewExpirableSets(expiryDuration time.Duration) *ExpirableMessageSets {
+	return &ExpirableMessageSets{
+		sets:           make(map[int]*ExpirableMessageSet),
+		expiryDuration: expiryDuration,
+	}
+}
+
+func (ess *ExpirableMessageSets) setFor(sourceIdx int) *ExpirableMessageSet {
+	ess.mu.Lock()
+	defer ess.mu.Unlock()
+
+	s, ok := ess.sets[sourceIdx]
+	if !ok {
+		s = NewExpirableSet(ess.expiryDuration)
+		ess.sets[sourceIdx] = s
+	}
+	return s
+}
+
+func (ess *ExpirableMessageSets) PushUnlessExists(sourceIdx int, msg protocol.Bytes32, initTime time.Time) bool {
+	return ess.setFor(sourceIdx).PushUnlessExists(msg, initTime)
+}
+
+func (ess *ExpirableMessageSets) Has(sourceIdx int, msg protocol.Bytes32) bool {
+	ess.mu.RLock()
+	defer ess.mu.RUnlock()
+
+	s, ok := ess.sets[sourceIdx]
+	if !ok {
+		return false
+	}
+	return s.Has(msg)
+}
+
+func (ess *ExpirableMessageSets) Len() int {
+	ess.mu.RLock()
+	defer ess.mu.RUnlock()
+	return len(ess.sets)
+}
+
+// LenFor returns the number of messages tracked for a single indexer source.
+func (ess *ExpirableMessageSets) LenFor(sourceIdx int) int {
+	ess.mu.RLock()
+	defer ess.mu.RUnlock()
+	s, ok := ess.sets[sourceIdx]
+	if !ok {
+		return 0
+	}
+	return s.Len()
+}
+
+func (ess *ExpirableMessageSets) snapshotSets() []*ExpirableMessageSet {
+	ess.mu.RLock()
+	defer ess.mu.RUnlock()
+
+	sets := make([]*ExpirableMessageSet, 0, len(ess.sets))
+	for _, s := range ess.sets {
+		sets = append(sets, s)
+	}
+	return sets
+}
+
+func (ess *ExpirableMessageSets) CleanExpired(timestamp time.Time) int {
+	expiredCount := 0
+	for _, s := range ess.snapshotSets() {
+		expiredCount += s.CleanExpired(timestamp)
 	}
 	return expiredCount
 }

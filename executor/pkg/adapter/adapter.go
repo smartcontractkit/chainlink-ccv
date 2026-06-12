@@ -10,7 +10,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 	v1 "github.com/smartcontractkit/chainlink-ccv/indexer/pkg/api/handlers/v1"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/client"
-	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
@@ -226,7 +225,7 @@ func (ira *IndexerReaderAdapter) GetVerifierResults(ctx context.Context, message
 	return verifierResults, nil
 }
 
-func (ira *IndexerReaderAdapter) ReadMessages(ctx context.Context, queryData v1.MessagesInput) (map[string]common.MessageWithMetadata, error) {
+func (ira *IndexerReaderAdapter) ReadMessages(ctx context.Context, queryData v1.MessagesInput) (executor.MessageReadResult, error) {
 	// We don't expect the Indexer to return a 404 for this route.
 	selectedIdx, _, resp, err := queryWithFailover(
 		ctx,
@@ -238,8 +237,11 @@ func (ira *IndexerReaderAdapter) ReadMessages(ctx context.Context, queryData v1.
 	)
 
 	if err := ira.handleQueryResult(ctx, selectedIdx, err); err != nil {
-		return nil, err
+		return executor.MessageReadResult{}, err
 	}
 
-	return resp.Messages, nil
+	return executor.MessageReadResult{
+		SourceIndexerIdx: selectedIdx,
+		Messages:         resp.Messages,
+	}, nil
 }

@@ -69,14 +69,18 @@ func (e *Engine) gatherAllVerifications(ctx context.Context, job *Job, msgID pro
 		return nil
 	}
 
-	if len(msg.MessageCCVAddresses) == 0 {
+	if len(msg.MessageCCVAddresses) > 0 {
+		if err := e.queryVerifiers(ctx, job, msgID, msg.MessageCCVAddresses); err != nil {
+			return err
+		}
+	} else {
 		e.lggr.Warnw("No CCV addresses stored for message, skipping verifier gathering",
 			"messageID", msgID,
 		)
-		return nil
 	}
 
-	return e.queryVerifiers(ctx, job, msgID, msg.MessageCCVAddresses)
+	msg.Metadata.IngestionTimestamp = time.Now()
+	return e.storage.UpsertMessages(ctx, []common.MessageWithMetadata{msg}, job.ForceOverwrite)
 }
 
 // queryVerifiers fans out to all configured verifier readers for the given
