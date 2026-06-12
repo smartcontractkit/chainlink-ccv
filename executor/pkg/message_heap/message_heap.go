@@ -73,6 +73,15 @@ func (h *readyTimestampHeap) peek() (*MessageHeapEntry, error) {
 	return &(*h)[0], nil
 }
 
+func (h *readyTimestampHeap) remove(id protocol.Bytes32) {
+	for i, entry := range *h {
+		if entry.MessageID == id {
+			heap.Remove(h, i)
+			return
+		}
+	}
+}
+
 // MessageHeap is the struct used to maintain the priority queue for timing messages in the coordinator.
 // Internally, it uses a heap for timing, and a separate map for the data of the message.
 // This is to reduce the amount of data and locking overhead when pushing and popping messages and fixing the heap.
@@ -190,9 +199,11 @@ func (es *ExpirableMessageSet) PushUnlessExists(msg protocol.Bytes32, initTime t
 	es.mu.Lock()
 	defer es.mu.Unlock()
 
-	_, exists := es.dataMap[msg]
-	if exists {
-		return false
+	if storedTime, exists := es.dataMap[msg]; exists {
+		if storedTime.Equal(initTime) {
+			return false
+		}
+		es.heap.remove(msg)
 	}
 	heap.Push(&es.heap, MessageHeapEntry{
 		ReadyTime: initTime.Add(es.expiryDuration),
