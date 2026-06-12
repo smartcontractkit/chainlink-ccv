@@ -168,7 +168,7 @@ func (mh *MessageHeap) Len() int {
 // It's used in the indexer storage streamer to deduplicate messages, but only hold for 24 hours.
 type ExpirableMessageSet struct {
 	heap           readyTimestampHeap
-	dataMap        map[protocol.Bytes32]struct{}
+	dataMap        map[protocol.Bytes32]time.Time
 	expiryDuration time.Duration
 	mu             *sync.RWMutex
 }
@@ -178,7 +178,7 @@ func NewExpirableSet(expiryDuration time.Duration) *ExpirableMessageSet {
 	heap.Init(h)
 	msgHeap := ExpirableMessageSet{
 		heap:           *h,
-		dataMap:        make(map[protocol.Bytes32]struct{}),
+		dataMap:        make(map[protocol.Bytes32]time.Time),
 		mu:             &sync.RWMutex{},
 		expiryDuration: expiryDuration,
 	}
@@ -199,7 +199,7 @@ func (es *ExpirableMessageSet) PushUnlessExists(msg protocol.Bytes32, initTime t
 		MessageID: msg,
 	})
 
-	es.dataMap[msg] = struct{}{}
+	es.dataMap[msg] = initTime
 	return true
 }
 
