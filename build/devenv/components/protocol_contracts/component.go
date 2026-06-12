@@ -121,7 +121,12 @@ func (p *component) RunPhase2(
 	}
 	p.lggr.Info().Any("Selectors", selectors).Msg("Deploying for chain selectors")
 
-	// Synthesize committee topology from committeeccv config when none is provided.
+	// TODO: remove after changeset decoupling.
+	// Temporary bridge — DeployChainContracts (chainlink-ccip) hard-requires
+	// NOPTopology.Committees to be non-empty and derives FeeAggregator for OnRamp/Executor
+	// contracts from the first committee entry. Once the changeset is updated to make
+	// committees optional (will/decouple-committee-contracts in chainlink-ccip), remove
+	// this synthesis block and the helpers below.
 	if envTopology.NOPTopology == nil || len(envTopology.NOPTopology.Committees) == 0 {
 		synthesized, synthErr := synthesizeCommittees(globalConfig, selectors)
 		if synthErr != nil {
@@ -295,6 +300,7 @@ type committeeccvPartial struct {
 // synthesizeCommittees builds a CommitteeConfig map from committeeccv config entries,
 // using the given chain selectors to populate per-chain configs. It returns nil when no
 // [[committeeccv.committee]] entries are present, signaling that synthesis is not needed.
+// TODO: Remove after changeset decoupling.
 func synthesizeCommittees(globalConfig map[string]any, selectors []uint64) (map[string]ccvdeployment.CommitteeConfig, error) {
 	partial, err := devenvruntime.DecodeConfig[committeeccvPartial](globalConfig["committeeccv"], "committeeccv")
 	if err != nil {
