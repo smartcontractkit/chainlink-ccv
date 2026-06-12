@@ -249,7 +249,7 @@ func (es *ExpirableMessageSet) CleanExpired(timestamp time.Time) int {
 	return expiredCount
 }
 
-// ExpirableMessageSets holds one ExpirableMessageSet per indexer source index
+// ExpirableMessageSets holds one ExpirableMessageSet per indexer source index.
 type ExpirableMessageSets struct {
 	sets           map[int]*ExpirableMessageSet
 	expiryDuration time.Duration
