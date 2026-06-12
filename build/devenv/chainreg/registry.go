@@ -5,6 +5,8 @@ import (
 	"maps"
 	"sync"
 
+	chainsel "github.com/smartcontractkit/chain-selectors"
+
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	ctfblockchain "github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
@@ -59,6 +61,9 @@ func mergeRegistration(existing, incoming Registration) Registration {
 	if existing.ImplFactory == nil {
 		existing.ImplFactory = incoming.ImplFactory
 	}
+	if existing.ExecutorInfo == nil {
+		existing.ExecutorInfo = incoming.ExecutorInfo
+	}
 	if existing.CLDFProvider == nil {
 		existing.CLDFProvider = incoming.CLDFProvider
 	}
@@ -94,6 +99,10 @@ func mergeRegistration(existing, incoming Registration) Registration {
 func (r *Registry) Get(family string) (Registration, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+
+	if family == "" {
+		family = chainsel.FamilyEVM
+	}
 
 	reg, ok := r.registrations[family]
 	if !ok {

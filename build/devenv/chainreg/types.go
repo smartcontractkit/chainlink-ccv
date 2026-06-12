@@ -53,6 +53,23 @@ type ImplFactory interface {
 	SupportsFunding() bool
 }
 
+// ExecutorInfo provides executor bootstrap key metadata for a chain family.
+// Families that support bootstrap-managed executor transmitter keys register
+// an implementation via Registration.ExecutorInfo.
+type ExecutorInfo interface {
+	// ExecutorTransmitterKeyName returns the keystore key name that the executor
+	// for this chain family declares (via bootstrap.WithKey) and that devenv must
+	// fetch from the bootstrap server to learn the on-chain transmitter address.
+	// Return "" if the family has no bootstrap-managed transmitter key.
+	ExecutorTransmitterKeyName() string
+
+	// ExecutorTransmitterAddress returns the executor's on-chain transmitter
+	// address (hex-encoded) for this chain family, derived from the bootstrap
+	// keys. Each family selects and decodes the appropriate key from
+	// BootstrapKeys.PublicKeys. Return "" if no transmitter address is available.
+	ExecutorTransmitterAddress(keys services.BootstrapKeys) string
+}
+
 // CLDFProviderFactory creates an initialized CLDF BlockChain provider from CTF blockchain input.
 type CLDFProviderFactory func(ctx context.Context, b *ctfblockchain.Input) (cldf_chain.BlockChain, uint64, error)
 
@@ -114,6 +131,7 @@ type Registration struct {
 	ChainConfigLoader    ChainConfigLoader
 	Launcher             Launcher
 	VerifierModifier     VerifierModifier
+	ExecutorInfo         ExecutorInfo
 	ExecutorModifier     ExecutorModifier
 	ExtraArgsSerializers map[uint8]ExtraArgsSerializer
 	AddressResolver      AddressResolver

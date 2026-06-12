@@ -22,6 +22,16 @@ import (
 	chainselectors "github.com/smartcontractkit/chain-selectors"
 )
 
+// DefaultKeyName is the full keystore path of the ECDSA key the executor uses to
+// sign and submit OffRamp transactions on EVM chains. The evm/tx/ prefix follows the
+// evmkeys convention so that TxKey can use it directly with WithNoPrefix(). The
+// bootstrap framework creates or loads it on startup, devenv uses it to look up the
+// funded on-chain address after the container is running.
+//
+// Accessors default to this key name unless a per-chain transmitter_key_name override
+// is configured.
+const DefaultKeyName = "evm/tx/executor_evm_transmitter_key"
+
 var _ chainaccess.ContractTransmitter = &KeystoreEVMContractTransmitter{}
 
 // KeystoreEVMContractTransmitter submits OffRamp execute transactions using a
@@ -44,7 +54,7 @@ type KeystoreEVMContractTransmitter struct {
 
 // NewEVMContractTransmitterFromKeystore constructs a [KeystoreEVMContractTransmitter].
 //
-// keyName must be the full keystore path (e.g. executor.DefaultEVMTransmitterKeyName
+// keyName must be the full keystore path (e.g. [DefaultKeyName]
 // which is "evm/tx/executor_evm_transmitter_key"). [evmkeys.GetTxKeys] is called with
 // [evmkeys.WithNoPrefix] so the name is used as-is without an additional evm/tx/ prefix.
 func NewEVMContractTransmitterFromKeystore(
