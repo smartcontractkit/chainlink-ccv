@@ -248,3 +248,80 @@ func (es *ExpirableMessageSet) CleanExpired(timestamp time.Time) int {
 	}
 	return expiredCount
 }
+
+// ExpirableMessageSets holds one ExpirableMessageSet per indexer source index
+type ExpirableMessageSets struct {
+	sets           map[int]*ExpirableMessageSet
+	expiryDuration time.Duration
+	mu             sync.RWMutex
+}
+
+func NewExpirableSets(expiryDuration time.Duration) *ExpirableMessageSets {
+	return &ExpirableMessageSets{
+		sets:           make(map[int]*ExpirableMessageSet),
+		expiryDuration: expiryDuration,
+	}
+}
+
+func (ess *ExpirableMessageSets) setFor(sourceIdx int) *ExpirableMessageSet {
+	ess.mu.Lock()
+	defer ess.mu.Unlock()
+
+	s, ok := ess.sets[sourceIdx]
+	if !ok {
+		s = NewExpirableSet(ess.expiryDuration)
+		ess.sets[sourceIdx] = s
+	}
+	return s
+}
+
+func (ess *ExpirableMessageSets) PushUnlessExists(sourceIdx int, msg protocol.Bytes32, initTime time.Time) bool {
+	return ess.setFor(sourceIdx).PushUnlessExists(msg, initTime)
+}
+
+func (ess *ExpirableMessageSets) Has(sourceIdx int, msg protocol.Bytes32) bool {
+	ess.mu.RLock()
+	defer ess.mu.RUnlock()
+
+	s, ok := ess.sets[sourceIdx]
+	if !ok {
+		return false
+	}
+	return s.Has(msg)
+}
+
+func (ess *ExpirableMessageSets) Len() int {
+	ess.mu.RLock()
+	defer ess.mu.RUnlock()
+	return len(ess.sets)
+}
+
+// LenFor returns the number of messages tracked for a single indexer source.
+func (ess *ExpirableMessageSets) LenFor(sourceIdx int) int {
+	ess.mu.RLock()
+	defer ess.mu.RUnlock()
+	s, ok := ess.sets[sourceIdx]
+	if !ok {
+		return 0
+	}
+	return s.Len()
+}
+
+func (ess *ExpirableMessageSets) snapshotSets() []*ExpirableMessageSet {
+	ess.mu.RLock()
+	defer ess.mu.RUnlock()
+
+	sets := make([]*ExpirableMessageSet, 0, len(ess.sets))
+	for _, s := range ess.sets {
+		sets = append(sets, s)
+	}
+	return sets
+}
+
+func (ess *ExpirableMessageSets) CleanExpired(timestamp time.Time) int {
+	expiredCount := 0
+	for _, s := range ess.snapshotSets() {
+		expiredCount += s.CleanExpired(timestamp)
+	}
+	return expiredCount
+}

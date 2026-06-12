@@ -41,7 +41,7 @@ func NewIndexerStorageStreamer(
 	lggr logger.Logger,
 	indexerConfig IndexerStorageConfig,
 ) *IndexerStorageStreamer {
-	expirableSet := message_heap.NewExpirableSet(indexerConfig.ExpiryDuration)
+	expirableSets := message_heap.NewExpirableSets(indexerConfig.ExpiryDuration)
 	return &IndexerStorageStreamer{
 		reader:            indexerConfig.IndexerClient,
 		lggr:              lggr,
@@ -49,7 +49,7 @@ func NewIndexerStorageStreamer(
 		lastQueryTime:     indexerConfig.InitialQueryTime,
 		pollingInterval:   indexerConfig.PollingInterval,
 		backoff:           indexerConfig.Backoff,
-		expirableSet:      expirableSet,
+		expirableSets:     expirableSets,
 		cleanInterval:     indexerConfig.CleanInterval,
 		timeProvider:      indexerConfig.TimeProvider,
 		enabledDestChains: indexerConfig.EnabledDestChains,
@@ -67,7 +67,7 @@ type IndexerStorageStreamer struct {
 	offset            uint64
 	mu                sync.RWMutex
 	running           bool
-	expirableSet      *message_heap.ExpirableMessageSet
+	expirableSets     *message_heap.ExpirableMessageSets
 	cleanInterval     time.Duration
 	timeProvider      common.TimeProvider
 	enabledDestChains []protocol.ChainSelector
@@ -117,7 +117,7 @@ func (oss *IndexerStorageStreamer) Start(
 				// Context canceled, stop loop.
 				return
 			case <-ticker.C:
-				oss.expirableSet.CleanExpired(oss.timeProvider.GetTime())
+				oss.expirableSets.CleanExpired(oss.timeProvider.GetTime())
 			case <-nextQueryTimer.C:
 				queryCtx, cancel := context.WithTimeout(ctx, readMessagesTimeout)
 				readMessageResult, err := oss.reader.ReadMessages(queryCtx, v1.MessagesInput{
@@ -139,7 +139,7 @@ func (oss *IndexerStorageStreamer) Start(
 						oss.lggr.Errorw("dropping message with invalid ID", "error", err)
 						continue
 					}
-					netNewMessage := oss.expirableSet.PushUnlessExists(msgID, msgWithMetadata.Metadata.IngestionTimestamp)
+					netNewMessage := oss.expirableSets.PushUnlessExists(readMessageResult.SourceIndexerIdx, msgID, msgWithMetadata.Metadata.IngestionTimestamp)
 					if netNewMessage {
 						oss.lggr.Infow("Found net new message from Indexer", "indexerIdx", readMessageResult.SourceIndexerIdx, "messageID", msgID, "msgWithMetadata", msgWithMetadata)
 						results <- msgWithMetadata
