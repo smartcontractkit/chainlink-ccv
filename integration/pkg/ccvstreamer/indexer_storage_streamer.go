@@ -120,7 +120,7 @@ func (oss *IndexerStorageStreamer) Start(
 				oss.expirableSet.CleanExpired(oss.timeProvider.GetTime())
 			case <-nextQueryTimer.C:
 				queryCtx, cancel := context.WithTimeout(ctx, readMessagesTimeout)
-				responses, err := oss.reader.ReadMessages(queryCtx, v1.MessagesInput{
+				readMessageResult, err := oss.reader.ReadMessages(queryCtx, v1.MessagesInput{
 					Limit:                oss.queryLimit,
 					Start:                oss.lastQueryTime.Format(time.RFC3339),
 					Offset:               oss.offset,
@@ -128,9 +128,9 @@ func (oss *IndexerStorageStreamer) Start(
 					DestChainSelectors:   oss.enabledDestChains,
 				})
 				cancel()
-				oss.lggr.Debugw("IndexerStorageStreamer query results", "start", oss.lastQueryTime, "count", len(responses), "error", err)
+				oss.lggr.Debugw("IndexerStorageStreamer query results", "start", oss.lastQueryTime, "indexerIdx", readMessageResult.SourceIndexerIdx, "count", len(readMessageResult.Messages), "error", err)
 
-				for _, msgWithMetadata := range responses {
+				for _, msgWithMetadata := range readMessageResult.Messages {
 					if msgWithMetadata.Metadata.IngestionTimestamp.After(oss.lastQueryTime) {
 						oss.latestSeenTime = msgWithMetadata.Metadata.IngestionTimestamp
 					}
@@ -141,7 +141,7 @@ func (oss *IndexerStorageStreamer) Start(
 					}
 					netNewMessage := oss.expirableSet.PushUnlessExists(msgID, msgWithMetadata.Metadata.IngestionTimestamp)
 					if netNewMessage {
-						oss.lggr.Infow("Found net new message from Indexer", "messageID", msgID, "msgWithMetadata", msgWithMetadata)
+						oss.lggr.Infow("Found net new message from Indexer", "indexerIdx", readMessageResult.SourceIndexerIdx, "messageID", msgID, "msgWithMetadata", msgWithMetadata)
 						results <- msgWithMetadata
 					}
 				}
@@ -153,10 +153,10 @@ func (oss *IndexerStorageStreamer) Start(
 					oss.lggr.Errorw("IndexerStorageStreamer read error", "error", err)
 					nextQueryTimer.Reset(oss.backoff)
 					errors <- fmt.Errorf("IndexerStorageStreamer read error: %w", err)
-				case uint64(len(responses)) == oss.queryLimit:
+				case uint64(len(readMessageResult.Messages)) == oss.queryLimit:
 					// Hit query limit: query again immediately with same time range but incremented offset
 					oss.lggr.Infow("IndexerStorageStreamer hit query limit, there may be more results to read", "limit", oss.queryLimit)
-					oss.offset += uint64(len(responses))
+					oss.offset += uint64(len(readMessageResult.Messages))
 					nextQueryTimer.Reset(0)
 				default:
 					// Complete result set received: update query window and reset for next polling cycle

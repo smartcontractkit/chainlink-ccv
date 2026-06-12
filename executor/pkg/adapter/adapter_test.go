@@ -346,11 +346,12 @@ func TestReadMessages_ActiveClientSuccess(t *testing.T) {
 	adapter := newTestAdapter(t, []client.IndexerClientInterface{client0, client1})
 
 	// Execute
-	results, err := adapter.ReadMessages(ctx, queryData)
+	result, err := adapter.ReadMessages(ctx, queryData)
 
 	// Assert
 	require.NoError(t, err)
-	assert.Len(t, results, 2)
+	assert.Equal(t, 0, result.SourceIndexerIdx)
+	assert.Len(t, result.Messages, 2)
 }
 
 func TestReadMessages_ActiveUnhealthyFailover(t *testing.T) {
@@ -377,11 +378,12 @@ func TestReadMessages_ActiveUnhealthyFailover(t *testing.T) {
 	adapter := newTestAdapter(t, []client.IndexerClientInterface{client0, client1})
 
 	// Execute
-	results, err := adapter.ReadMessages(ctx, queryData)
+	result, err := adapter.ReadMessages(ctx, queryData)
 
 	// Assert
 	require.NoError(t, err)
-	assert.Len(t, results, 1)
+	assert.Equal(t, 1, result.SourceIndexerIdx)
+	assert.Len(t, result.Messages, 1)
 	assert.Equal(t, 1, adapter.getActiveClientIdx(), "Should have failed over to client 1")
 }
 
@@ -407,11 +409,12 @@ func TestReadMessages_ActiveOnClient1(t *testing.T) {
 	client1.On("Messages", ctx, queryData).Return(200, activeResp, nil)
 
 	// Execute
-	results, err := adapter.ReadMessages(ctx, queryData)
+	result, err := adapter.ReadMessages(ctx, queryData)
 
 	// Assert
 	require.NoError(t, err)
-	assert.Len(t, results, 2)
+	assert.Equal(t, 1, result.SourceIndexerIdx)
+	assert.Len(t, result.Messages, 2)
 	assert.Equal(t, 1, adapter.getActiveClientIdx(), "Should stay on client 1")
 }
 
