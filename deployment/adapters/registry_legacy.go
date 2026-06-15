@@ -58,30 +58,44 @@ func GetRegistry() *Registry {
 // nil fields leave the existing value unchanged. This allows separate packages
 // (e.g. ccip for onchain adapters, ccv/evm for offchain adapters) to each
 // register their piece independently without conflicting.
+//
+// It also fans each non-nil adapter out into the corresponding per-type
+// FamilyRegistry (registry.go), which is what the changesets actually read.
+// chainlink-ccip main still registers via this bundled API; the fan-out is the
+// bridge that keeps the per-type registries populated until #2084 lands and
+// chainlink-ccip registers into them directly (at which point this file is
+// deleted — see the package note above).
 func (r *Registry) Register(family string, a ChainAdapters) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	existing := r.adapters[family]
 	if a.Aggregator != nil {
 		existing.Aggregator = a.Aggregator
+		GetAggregatorRegistry().Register(family, a.Aggregator)
 	}
 	if a.Executor != nil {
 		existing.Executor = a.Executor
+		GetExecutorRegistry().Register(family, a.Executor)
 	}
 	if a.Verifier != nil {
 		existing.Verifier = a.Verifier
+		GetVerifierRegistry().Register(family, a.Verifier)
 	}
 	if a.Indexer != nil {
 		existing.Indexer = a.Indexer
+		GetIndexerRegistry().Register(family, a.Indexer)
 	}
 	if a.TokenVerifier != nil {
 		existing.TokenVerifier = a.TokenVerifier
+		GetTokenVerifierRegistry().Register(family, a.TokenVerifier)
 	}
 	if a.CommitteeVerifierOnchain != nil {
 		existing.CommitteeVerifierOnchain = a.CommitteeVerifierOnchain
+		GetCommitteeVerifierOnchainRegistry().Register(family, a.CommitteeVerifierOnchain)
 	}
 	if a.CommitteeVerifierDeploy != nil {
 		existing.CommitteeVerifierDeploy = a.CommitteeVerifierDeploy
+		GetCommitteeVerifierDeployRegistry().Register(family, a.CommitteeVerifierDeploy)
 	}
 	r.adapters[family] = existing
 }
