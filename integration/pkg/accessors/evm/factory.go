@@ -10,7 +10,6 @@ import (
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/onramp"
-	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/contracttransmitter"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/destinationreader"
@@ -157,7 +156,7 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 			evmDestReader = dr
 		}
 	}
-	keyName := executor.DefaultEVMTransmitterKeyName
+	keyName := contracttransmitter.DefaultKeyName
 	if destCfg.TransmitterKeyName != "" {
 		keyName = destCfg.TransmitterKeyName
 	}

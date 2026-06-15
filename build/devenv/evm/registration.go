@@ -2,10 +2,13 @@ package evm
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"strconv"
 	"time"
+
+	"github.com/ethereum/go-ethereum/crypto"
 
 	"github.com/Masterminds/semver/v3"
 	"github.com/rs/zerolog"
@@ -32,6 +35,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/committeeverifier"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/executor"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/contracttransmitter"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
@@ -44,8 +48,10 @@ func init() {
 	registerTokenAdapters()
 
 	// Register EVM with chainreg
+	evmFactory := &ImplFactory{}
 	if err := chainreg.Register(chainsel.FamilyEVM, chainreg.Registration{
-		ImplFactory:       &ImplFactory{},
+		ImplFactory:       evmFactory,
+		ExecutorInfo:      evmFactory,
 		CLDFProvider:      NewCLDFProviderFactory(),
 		ChainConfigLoader: ChainConfigLoader,
 		VerifierModifier:  VerifierModifier,
@@ -123,6 +129,26 @@ func (f *ImplFactory) DefaultFeeAggregator(env *deployment.Environment, chainSel
 
 func (f *ImplFactory) SupportsFunding() bool {
 	return true
+}
+
+func (f *ImplFactory) ExecutorTransmitterKeyName() string {
+	return contracttransmitter.DefaultKeyName
+}
+
+func (f *ImplFactory) ExecutorTransmitterAddress(keys services.BootstrapKeys) string {
+	rawHex := keys.PublicKeyHex(contracttransmitter.DefaultKeyName)
+	if rawHex == "" {
+		return ""
+	}
+	raw, err := hex.DecodeString(rawHex)
+	if err != nil {
+		return ""
+	}
+	pubKey, err := crypto.UnmarshalPubkey(raw)
+	if err != nil {
+		return ""
+	}
+	return hex.EncodeToString(crypto.PubkeyToAddress(*pubKey).Bytes())
 }
 
 // registerTokenAdapters registers EVM token adapters so ConfigureTokensForTransfers

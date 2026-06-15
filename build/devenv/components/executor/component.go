@@ -11,6 +11,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
+
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainreg"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
@@ -90,7 +91,11 @@ func (c *component) RunPhase3(
 		if exec.Mode != services.Standalone {
 			continue
 		}
-		out, err := executorsvc.New(exec, blockchainOutputs, jdInfra, chainreg.GetRegistry().GetExecutorModifiers())
+		var transmitterKeyName string
+		if reg, regErr := chainreg.GetRegistry().Get(exec.ChainFamily); regErr == nil && reg.ExecutorInfo != nil {
+			transmitterKeyName = reg.ExecutorInfo.ExecutorTransmitterKeyName()
+		}
+		out, err := executorsvc.New(exec, blockchainOutputs, jdInfra, chainreg.GetRegistry().GetExecutorModifiers(), transmitterKeyName)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to launch executor %s: %w", exec.ContainerName, err)
 		}
@@ -106,7 +111,11 @@ func (c *component) RunPhase3(
 		if exec == nil || exec.Mode != services.Standalone || exec.Out == nil {
 			continue
 		}
-		addrStr := exec.Out.BootstrapKeys.EVMTransmitterAddress
+		reg, regErr := chainreg.GetRegistry().Get(exec.ChainFamily)
+		if regErr != nil || reg.ExecutorInfo == nil {
+			continue
+		}
+		addrStr := reg.ExecutorInfo.ExecutorTransmitterAddress(exec.Out.BootstrapKeys)
 		if addrStr == "" {
 			continue
 		}
@@ -114,19 +123,15 @@ func (c *component) RunPhase3(
 		if addrErr != nil {
 			return nil, nil, fmt.Errorf("executor %s invalid transmitter address: %w", exec.ContainerName, addrErr)
 		}
-		family := exec.ChainFamily
-		if family == "" {
-			family = chainsel.FamilyEVM
-		}
 		for _, bc := range blockchains {
 			if bc == nil {
 				continue
 			}
 			bcFamily, ferr := ctfblockchain.TypeToFamily(bc.Type)
-			if ferr != nil || string(bcFamily) != family {
+			if ferr != nil || string(bcFamily) != exec.ChainFamily {
 				continue
 			}
-			sel, serr := chainsel.GetChainDetailsByChainIDAndFamily(bc.ChainID, family)
+			sel, serr := chainsel.GetChainDetailsByChainIDAndFamily(bc.ChainID, exec.ChainFamily)
 			if serr != nil {
 				continue
 			}
