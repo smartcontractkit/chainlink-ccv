@@ -220,8 +220,9 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 
 	// WETH fees need msgValue=0; DisableTokenAmountValidation sets msgValue=fee and reverts.
 	sentEvent, _, err := chainAsSource.SendChainMessage(ctx, destSelector, srcMessage, evm.SendOptions{
-		Nonce:  &currentNonce,
-		Sender: sender,
+		Nonce:         &currentNonce,
+		Sender:        sender,
+		UseTestRouter: true,
 	})
 	if err != nil {
 		return &wasp.Response{Error: fmt.Errorf("failed to send message: %w", err).Error(), Failed: true}
@@ -332,32 +333,29 @@ func (m *EVMTXGun) buildExtraArgs(srcSelector uint64, dest destLoadInfo, opts cc
 func (m *EVMTXGun) selectMessageProfile(srcSelector uint64, dest destLoadInfo) (cciptestinterfaces.MessageFields, cciptestinterfaces.MessageOptions, error) {
 	receiver := dest.receiver
 
-	wethContract, err := m.e.DataStore.Addresses().Get(
-		datastore.NewAddressRefKey(
-			srcSelector,
-			datastore.ContractType(weth.ContractType),
-			semver.MustParse(weth.Deploy.Version()),
-			""))
-	if err != nil {
-		return cciptestinterfaces.MessageFields{}, cciptestinterfaces.MessageOptions{}, fmt.Errorf("could not find WETH address in datastore: %w", err)
-	}
-
-	committeeVerifierProxyRef, err := m.e.DataStore.Addresses().Get(
-		datastore.NewAddressRefKey(
-			srcSelector,
-			datastore.ContractType(versioned_verifier_resolver.CommitteeVerifierResolverType),
-			versioned_verifier_resolver.Version,
-			devenvcommon.DefaultCommitteeVerifierQualifier))
-	if err != nil {
-		return cciptestinterfaces.MessageFields{}, cciptestinterfaces.MessageOptions{}, fmt.Errorf("could not find committee verifier proxy address in datastore: %w", err)
-	}
-
-	// generate a random finality between 0 (chain default finality) and 1 (custom finality)
-	finality, err := rand.Int(rand.Reader, big.NewInt(2))
-	if err != nil {
-		return cciptestinterfaces.MessageFields{}, cciptestinterfaces.MessageOptions{}, fmt.Errorf("failed to generate finality: %w", err)
-	}
 	if m.testConfig == nil || m.testConfig.Messages == nil {
+		wethContract, err := m.e.DataStore.Addresses().Get(
+			datastore.NewAddressRefKey(
+				srcSelector,
+				datastore.ContractType(weth.ContractType),
+				semver.MustParse(weth.Deploy.Version()),
+				""))
+		if err != nil {
+			return cciptestinterfaces.MessageFields{}, cciptestinterfaces.MessageOptions{}, fmt.Errorf("could not find WETH address in datastore: %w", err)
+		}
+		committeeVerifierProxyRef, err := m.e.DataStore.Addresses().Get(
+			datastore.NewAddressRefKey(
+				srcSelector,
+				datastore.ContractType(versioned_verifier_resolver.CommitteeVerifierResolverType),
+				versioned_verifier_resolver.Version,
+				devenvcommon.DefaultCommitteeVerifierQualifier))
+		if err != nil {
+			return cciptestinterfaces.MessageFields{}, cciptestinterfaces.MessageOptions{}, fmt.Errorf("could not find committee verifier proxy address in datastore: %w", err)
+		}
+		finality, err := rand.Int(rand.Reader, big.NewInt(2))
+		if err != nil {
+			return cciptestinterfaces.MessageFields{}, cciptestinterfaces.MessageOptions{}, fmt.Errorf("failed to generate finality: %w", err)
+		}
 		return cciptestinterfaces.MessageFields{
 				Receiver: receiver,
 				Data:     []byte{},
@@ -374,14 +372,32 @@ func (m *EVMTXGun) selectMessageProfile(srcSelector uint64, dest destLoadInfo) (
 			},
 			nil
 	}
+
 	messageProfile, err := load.GetMessageByRatio(m.testConfig.Messages, m.messageProfiles)
 	if err != nil {
 		return cciptestinterfaces.MessageFields{}, cciptestinterfaces.MessageOptions{}, fmt.Errorf("failed to get message profile: %w", err)
 	}
+
+	var feeToken protocol.UnknownAddress
+	if messageProfile.FeeToken == "native" {
+		feeToken = make([]byte, 20)
+	} else { // "weth" or empty → WETH
+		wethContract, err := m.e.DataStore.Addresses().Get(
+			datastore.NewAddressRefKey(
+				srcSelector,
+				datastore.ContractType(weth.ContractType),
+				semver.MustParse(weth.Deploy.Version()),
+				""))
+		if err != nil {
+			return cciptestinterfaces.MessageFields{}, cciptestinterfaces.MessageOptions{}, fmt.Errorf("could not find WETH address in datastore: %w", err)
+		}
+		feeToken = common.HexToAddress(wethContract.Address).Bytes()
+	}
+
 	fields := cciptestinterfaces.MessageFields{
 		Receiver: receiver,
 		Data:     []byte{},
-		FeeToken: protocol.UnknownAddress(common.HexToAddress(wethContract.Address).Bytes()),
+		FeeToken: feeToken,
 	}
 	opts := cciptestinterfaces.MessageOptions{
 		FinalityConfig: protocol.Finality(messageProfile.Finality),

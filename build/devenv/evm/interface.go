@@ -24,6 +24,7 @@ type SendOptions struct {
 	Sender                       *bind.TransactOpts
 	UseTestRouter                bool
 	DisableTokenAmountValidation bool
+	NoWaitConfirm                bool // submit tx to mempool and return immediately without waiting for inclusion
 }
 
 // SendOptionsAccessor is the evm side of the ChainSendOption interface.

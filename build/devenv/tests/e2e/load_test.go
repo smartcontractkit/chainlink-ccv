@@ -522,6 +522,161 @@ func TestE2ELoad(t *testing.T) {
 	})
 }
 
+func TestProdMainnet(t *testing.T) {
+	outfile := os.Getenv("LOAD_TEST_OUT_FILE")
+	if outfile == "" {
+		outfile = "../../env-prod-mainnet.toml"
+	}
+	in, err := ccv.LoadOutput[ccv.Cfg](outfile)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, err := framework.SaveContainerLogs(fmt.Sprintf("%s-%s", framework.DefaultCTFLogsDir, t.Name()))
+		require.NoError(t, err)
+	})
+
+	_, e, err := ccldf.NewCLDFOperationsEnvironment(in.Blockchains, in.CLDF.DataStore)
+	require.NoError(t, err)
+	chains := e.BlockChains.EVMChains()
+	require.NotNil(t, chains)
+	b := ccldf.NewDefaultCLDFBundle(e)
+	e.OperationsBundle = b
+
+	ctx := ccv.Plog.WithContext(context.Background())
+	l := zerolog.Ctx(ctx)
+	lib, err := ccv.NewLibFromCCVEnv(l, outfile, chain_selectors.FamilyEVM)
+	require.NoError(t, err)
+	chainImpls, err := lib.ChainsMap(ctx)
+	require.NoError(t, err)
+
+	var defaultAggregatorClient *ccv.AggregatorClient
+	if _, ok := in.AggregatorEndpoints[devenvcommon.DefaultCommitteeVerifierQualifier]; ok {
+		defaultAggregatorClient, err = in.NewAggregatorClientForCommittee(
+			zerolog.Ctx(ctx).With().Str("component", "aggregator-client").Logger(),
+			devenvcommon.DefaultCommitteeVerifierQualifier)
+		require.NoError(t, err)
+		require.NotNil(t, defaultAggregatorClient)
+		t.Cleanup(func() {
+			defaultAggregatorClient.Close()
+		})
+	}
+
+	testconfigFile := os.Getenv("LOAD_CONFIG_FILE")
+	if testconfigFile == "" {
+		testconfigFile = "../../prod-load.toml"
+	}
+	testConfig, err := load.LoadTestConfigFromTomlFile(testconfigFile)
+	require.NoError(t, err)
+	err = verifyTestConfig(e, testConfig)
+	require.NoError(t, err)
+
+	// fees paid in native token — no WETH approval needed
+	time.Sleep(30 * time.Second)
+
+	t.Run("steady", func(t *testing.T) {
+		t.Skip()
+		// both directions driven by test_profiles[0] in prod-load.toml
+		steadyProfile := testConfig.TestProfiles[0]
+		messageRate, rateLimitUnit := load.ParseMessageRate(steadyProfile.MessageRate)
+		overallTimeout := steadyProfile.LoadDuration + postTestVerificationDelay + 5*time.Minute
+
+		gun := NewEVMTransactionGunFromTestConfig(in, &steadyProfile, testConfig.MessageProfiles, e, chainImpls)
+		p := wasp.NewProfile().Add(wasp.NewGenerator(&wasp.Config{
+			LoadType:              wasp.RPS,
+			GenName:               "prod-steady",
+			Schedule:              wasp.Plain(messageRate, steadyProfile.LoadDuration),
+			RateLimitUnitDuration: rateLimitUnit,
+			Gun:                   gun,
+			Labels:                map[string]string{"go_test_name": "prod-steady"},
+			LokiConfig:            nil,
+		}))
+		vc := load.VerificationContext{Ctx: ctx, T: t, Impl: chainImpls}
+		waitForMetrics := load.AssertMessagesAsync(vc, gun.SentMessages(), overallTimeout)
+
+		_, err := p.Run(true)
+		require.NoError(t, err)
+		p.Wait()
+		time.Sleep(postTestVerificationDelay)
+		gun.CloseSentChannel()
+
+		metricsDatum, totals := waitForMetrics()
+		summary := metrics.CalculateMetricsSummary(metricsDatum, totals)
+		metrics.PrintMetricsSummary(t, summary)
+		require.Equal(t, summary.TotalSent, summary.TotalReceived)
+	})
+
+	t.Run("surge", func(t *testing.T) {
+		t.Skip()
+		// 0G→Plume only driven by test_profiles[1] in prod-load.toml
+		// RateLimitUnitDuration=10s: Plain(1,5m)=1/10s steady, Plain(100,3m)=10/s burst, Plain(1,2m)=1/10s cooldown
+		surgeProfile := testConfig.TestProfiles[1]
+		overallTimeout := surgeProfile.LoadDuration + postTestVerificationDelay + 5*time.Minute
+
+		gun := NewEVMTransactionGunFromTestConfig(in, &surgeProfile, testConfig.MessageProfiles, e, chainImpls)
+		p := wasp.NewProfile().
+			Add(wasp.NewGenerator(&wasp.Config{
+				LoadType: wasp.RPS,
+				GenName:  "prod-surge-burst",
+				Schedule: wasp.Combine(
+					wasp.Plain(1, 5*time.Minute),
+					wasp.Plain(100, 3*time.Minute),
+					wasp.Plain(1, 2*time.Minute),
+				),
+				RateLimitUnitDuration: 10 * time.Second,
+				Gun:                   gun,
+				Labels:                map[string]string{"go_test_name": "prod-surge"},
+				LokiConfig:            nil,
+			}))
+		vc := load.VerificationContext{Ctx: ctx, T: t, Impl: chainImpls}
+		waitForMetrics := load.AssertMessagesAsync(vc, gun.SentMessages(), overallTimeout)
+
+		_, err := p.Run(true)
+		require.NoError(t, err)
+		p.Wait()
+		time.Sleep(postTestVerificationDelay)
+		gun.CloseSentChannel()
+
+		metricsDatum, totals := waitForMetrics()
+		summary := metrics.CalculateMetricsSummary(metricsDatum, totals)
+		metrics.PrintMetricsSummary(t, summary)
+		require.Equal(t, summary.TotalSent, summary.TotalReceived)
+	})
+
+	t.Run("threshold", func(t *testing.T) {
+		// t.Skip()
+		// fire-and-forget: blast 1000 messages as fast as possible (0G→Plume)
+		// driven by test_profiles[2] in prod-load.toml
+		const (
+			totalMessages = 2000
+			rps           = 100
+		)
+		thresholdProfile := testConfig.TestProfiles[2]
+		overallTimeout := 15 * time.Minute
+
+		gun := NewEVMTransactionGunFromTestConfig(in, &thresholdProfile, testConfig.MessageProfiles, e, chainImpls)
+		p := wasp.NewProfile().Add(wasp.NewGenerator(&wasp.Config{
+			LoadType:   wasp.RPS,
+			GenName:    "prod-threshold",
+			Schedule:   wasp.Plain(rps, totalMessages/rps*time.Second),
+			Gun:        gun,
+			Labels:     map[string]string{"go_test_name": "prod-threshold"},
+			LokiConfig: nil,
+		}))
+		vc := load.VerificationContext{Ctx: ctx, T: t, Impl: chainImpls}
+		waitForMetrics := load.AssertMessagesAsync(vc, gun.SentMessages(), overallTimeout)
+
+		_, err := p.Run(true)
+		require.NoError(t, err)
+		p.Wait()
+		time.Sleep(postTestVerificationDelay)
+		gun.CloseSentChannel()
+
+		metricsDatum, totals := waitForMetrics()
+		summary := metrics.CalculateMetricsSummary(metricsDatum, totals)
+		metrics.PrintMetricsSummary(t, summary)
+		require.Equal(t, summary.TotalSent, summary.TotalReceived)
+	})
+}
+
 func TestStaging(t *testing.T) {
 	outfile := os.Getenv("LOAD_TEST_OUT_FILE")
 	if outfile == "" {
