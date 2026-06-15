@@ -59,7 +59,7 @@ func TestApplyDefaults(t *testing.T) {
 func TestNew_NilJDInfra(t *testing.T) {
 	in := &Input{ContainerName: "e"}
 	ApplyDefaults(in)
-	_, err := New(in, nil, nil, nil)
+	_, err := New(in, nil, nil, nil, "")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "JD infrastructure")
 }

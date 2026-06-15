@@ -4,9 +4,13 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"slices"
 	"sort"
+	"time"
 
 	"github.com/rs/zerolog"
+
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/timing"
 )
 
 // NewEnvironment runs the environment startup using the global registry.
@@ -17,14 +21,14 @@ func NewEnvironment(ctx context.Context, rawConfig map[string]any, logger zerolo
 // NewEnvironmentWithRegistry runs the environment startup using the provided registry.
 // This variant is used by tests that need an explicit registry.
 //
-// Within a phase, every component (registered specifics and the fallback) sees
-// a priorOutputs map cloned from the same phase-start snapshot. The snapshot
-// is captured once before the phase begins, and each component receives its
-// own clone so component-side mutation cannot leak to siblings. A component's
-// own outputs are merged into the accumulated map *after* its callback
-// returns, so they only become visible to components in later phases. This
-// makes intra-phase ordering irrelevant from a data-visibility standpoint and
-// forbids accidental sibling dependencies.
+// Within a phase, every registered component sees a priorOutputs map cloned
+// from the same phase-start snapshot. The snapshot is captured once before the
+// phase begins, and each component receives its own clone so component-side
+// mutation cannot leak to siblings. A component's own outputs are merged into
+// the accumulated map *after* its callback returns, so they only become
+// visible to components in later phases. This makes intra-phase ordering
+// irrelevant from a data-visibility standpoint and forbids accidental sibling
+// dependencies.
 //
 // Merging uses mergeNoOverwrite: a component that writes an output key already
 // set (by a prior phase or by an earlier component in the same phase) causes
@@ -37,11 +41,11 @@ func NewEnvironmentWithRegistry(ctx context.Context, rawConfig map[string]any, r
 	if effectExecutor == nil {
 		effectExecutor = noopEffectExecutor{}
 	}
-	specific, fallback, err := r.instantiate(nil)
+	specific, err := r.instantiate(nil)
 	if err != nil {
 		return nil, err
 	}
-	if err := r.validate(rawConfig, specific, fallback); err != nil {
+	if err := r.validate(rawConfig, specific); err != nil {
 		return nil, err
 	}
 
@@ -51,23 +55,32 @@ func NewEnvironmentWithRegistry(ctx context.Context, rawConfig map[string]any, r
 			ls.SetLogger(logger)
 		}
 	}
-	if fallback != nil {
-		if ls, ok := fallback.(LogSetter); ok {
-			ls.SetLogger(logger)
-		}
-	}
 
-	// The fallback component receives all config keys not claimed by a specific
-	// registered component, rather than a single top-level key slice.
+	// version is a schema-version marker for the env file, not a component.
+	// Consume it here so it is never dispatched to a component or reported as
+	// an unclaimed key. The supported version is exactly 1; any other value
+	// (including absent) is rejected so stale or mismatched env files fail fast.
+	v, ok := rawConfig["version"]
+	if !ok {
+		return nil, fmt.Errorf("config key %q is required but missing", "version")
+	}
+	version, ok := v.(int64)
+	if !ok {
+		return nil, fmt.Errorf("config key %q must be an integer, got %T", "version", v)
+	}
+	if err := CheckConfigVersion(int(version), 1); err != nil {
+		return nil, fmt.Errorf("config key %q: %w", "version", err)
+	}
+	logger.Info().Int64("version", version).Msg("phased environment config schema version")
+	delete(rawConfig, "version")
+
 	unclaimed := unclaimedKeys(rawConfig, r.factories)
-	if len(unclaimed) > 0 && fallback == nil {
-		keys := make([]string, 0, len(unclaimed))
-		for k := range unclaimed {
-			keys = append(keys, k)
-		}
-		logger.Error().Strs("keys", keys).Msg("unclaimed config keys with no fallback component registered")
+	if len(unclaimed) > 0 {
+		keys := slices.Sorted(maps.Keys(unclaimed))
+		return nil, fmt.Errorf("unclaimed config keys: %v", keys)
 	}
 	accumulated := map[string]any{}
+	compTimings := timing.NewComponentTimeTracker()
 
 	// Phase 1 (no priorOutputs by interface; merge rules still apply).
 	{
@@ -79,7 +92,9 @@ func NewEnvironmentWithRegistry(ctx context.Context, rawConfig map[string]any, r
 			}
 			comp := specific[key]
 			if p1, ok := comp.(Phase1Component); ok {
+				start := time.Now()
 				out, effects, err := p1.RunPhase1(ctx, rawConfig, rawConfig[key])
+				compTimings.Record(phase, key, start, time.Now())
 				if err != nil {
 					return nil, fmt.Errorf("phase1 %s: %w", key, err)
 				}
@@ -88,16 +103,6 @@ func NewEnvironmentWithRegistry(ctx context.Context, rawConfig map[string]any, r
 				}
 				phaseEffects = append(phaseEffects, effects...)
 			}
-		}
-		if p1, ok := fallback.(Phase1Component); ok {
-			out, effects, err := p1.RunPhase1(ctx, rawConfig, unclaimed)
-			if err != nil {
-				return nil, fmt.Errorf("phase1 fallback: %w", err)
-			}
-			if err := mergeNoOverwrite(accumulated, out, phase, fallbackOwner); err != nil {
-				return nil, err
-			}
-			phaseEffects = append(phaseEffects, effects...)
 		}
 		if err := effectExecutor.Execute(ctx, phaseEffects, accumulated); err != nil {
 			return nil, fmt.Errorf("phase1 effects: %w", err)
@@ -115,7 +120,9 @@ func NewEnvironmentWithRegistry(ctx context.Context, rawConfig map[string]any, r
 			}
 			comp := specific[key]
 			if p2, ok := comp.(Phase2Component); ok {
+				start := time.Now()
 				out, effects, err := p2.RunPhase2(ctx, rawConfig, rawConfig[key], maps.Clone(phaseSnapshot))
+				compTimings.Record(phase, key, start, time.Now())
 				if err != nil {
 					return nil, fmt.Errorf("phase2 %s: %w", key, err)
 				}
@@ -124,16 +131,6 @@ func NewEnvironmentWithRegistry(ctx context.Context, rawConfig map[string]any, r
 				}
 				phaseEffects = append(phaseEffects, effects...)
 			}
-		}
-		if p2, ok := fallback.(Phase2Component); ok {
-			out, effects, err := p2.RunPhase2(ctx, rawConfig, unclaimed, maps.Clone(phaseSnapshot))
-			if err != nil {
-				return nil, fmt.Errorf("phase2 fallback: %w", err)
-			}
-			if err := mergeNoOverwrite(accumulated, out, phase, fallbackOwner); err != nil {
-				return nil, err
-			}
-			phaseEffects = append(phaseEffects, effects...)
 		}
 		if err := effectExecutor.Execute(ctx, phaseEffects, accumulated); err != nil {
 			return nil, fmt.Errorf("phase2 effects: %w", err)
@@ -151,7 +148,9 @@ func NewEnvironmentWithRegistry(ctx context.Context, rawConfig map[string]any, r
 			}
 			comp := specific[key]
 			if p3, ok := comp.(Phase3Component); ok {
+				start := time.Now()
 				out, effects, err := p3.RunPhase3(ctx, rawConfig, rawConfig[key], maps.Clone(phaseSnapshot))
+				compTimings.Record(phase, key, start, time.Now())
 				if err != nil {
 					return nil, fmt.Errorf("phase3 %s: %w", key, err)
 				}
@@ -160,16 +159,6 @@ func NewEnvironmentWithRegistry(ctx context.Context, rawConfig map[string]any, r
 				}
 				phaseEffects = append(phaseEffects, effects...)
 			}
-		}
-		if p3, ok := fallback.(Phase3Component); ok {
-			out, effects, err := p3.RunPhase3(ctx, rawConfig, unclaimed, maps.Clone(phaseSnapshot))
-			if err != nil {
-				return nil, fmt.Errorf("phase3 fallback: %w", err)
-			}
-			if err := mergeNoOverwrite(accumulated, out, phase, fallbackOwner); err != nil {
-				return nil, err
-			}
-			phaseEffects = append(phaseEffects, effects...)
 		}
 		if err := effectExecutor.Execute(ctx, phaseEffects, accumulated); err != nil {
 			return nil, fmt.Errorf("phase3 effects: %w", err)
@@ -187,7 +176,9 @@ func NewEnvironmentWithRegistry(ctx context.Context, rawConfig map[string]any, r
 			}
 			comp := specific[key]
 			if p4, ok := comp.(Phase4Component); ok {
+				start := time.Now()
 				out, effects, err := p4.RunPhase4(ctx, rawConfig, rawConfig[key], maps.Clone(phaseSnapshot))
+				compTimings.Record(phase, key, start, time.Now())
 				if err != nil {
 					return nil, fmt.Errorf("phase4 %s: %w", key, err)
 				}
@@ -197,25 +188,15 @@ func NewEnvironmentWithRegistry(ctx context.Context, rawConfig map[string]any, r
 				phaseEffects = append(phaseEffects, effects...)
 			}
 		}
-		if p4, ok := fallback.(Phase4Component); ok {
-			out, effects, err := p4.RunPhase4(ctx, rawConfig, unclaimed, maps.Clone(phaseSnapshot))
-			if err != nil {
-				return nil, fmt.Errorf("phase4 fallback: %w", err)
-			}
-			if err := mergeNoOverwrite(accumulated, out, phase, fallbackOwner); err != nil {
-				return nil, err
-			}
-			phaseEffects = append(phaseEffects, effects...)
-		}
 		if err := effectExecutor.Execute(ctx, phaseEffects, accumulated); err != nil {
 			return nil, fmt.Errorf("phase4 effects: %w", err)
 		}
 	}
 
+	// TODO: add per-phase effect executor timing
+	accumulated["_component_timings"] = compTimings
 	return accumulated, nil
 }
-
-const fallbackOwner = "<fallback>"
 
 // mergeNoOverwrite copies src into dst, returning an error if any key in src
 // already exists in dst. The phase number and owner identify the offending

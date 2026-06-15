@@ -35,23 +35,13 @@ const (
 	avgMsgDataSize               = 1000 // bytes
 )
 
-type SrcDest struct {
-	Src  uint64
-	Dest uint64
-}
-
 type NonceKey struct {
 	Selector uint64
 	Address  string
 }
 
-// SentMessage represents a message that was sent and needs verification.
-type SentMessage struct {
-	SeqNo     uint64
-	MessageID [32]byte
-	SentTime  time.Time
-	ChainPair SrcDest
-}
+// Compile time interface conformance check.
+var _ load.LoadGun = (*EVMTXGun)(nil)
 
 type EVMTXGun struct {
 	cfg             *ccv.Cfg
@@ -59,13 +49,13 @@ type EVMTXGun struct {
 	e               *deployment.Environment
 	selectors       []uint64
 	impl            map[uint64]cciptestinterfaces.CCIP17
-	sentMsgSet      map[SentMessage]struct{}
+	sentMsgSet      map[load.SentMessage]struct{}
 	srcSelectors    []uint64
 	destSelectors   []uint64
 	seqNosMu        sync.Mutex
-	sentMsgCh       chan SentMessage // Channel for real-time message notifications
-	closeOnce       sync.Once        // Ensure channel is closed only once
-	nonce           sync.Map         // map[NonceKey]*uint64
+	sentMsgCh       chan load.SentMessage // Channel for real-time message notifications
+	closeOnce       sync.Once             // Ensure channel is closed only once
+	nonce           sync.Map              // map[NonceKey]*uint64
 	messageProfiles []load.MessageProfileConfig
 	userSelector    map[uint64]func() *bind.TransactOpts
 }
@@ -75,6 +65,11 @@ func (m *EVMTXGun) CloseSentChannel() {
 	m.closeOnce.Do(func() {
 		close(m.sentMsgCh)
 	})
+}
+
+// SentMessages returns the sent message channel for the verification pipeline.
+func (m *EVMTXGun) SentMessages() <-chan load.SentMessage {
+	return m.sentMsgCh
 }
 
 func NewEVMTransactionGun(cfg *ccv.Cfg, e *deployment.Environment, selectors []uint64, impls map[uint64]cciptestinterfaces.CCIP17, srcSelectors, destSelectors []uint64) (*EVMTXGun, error) {
@@ -91,8 +86,8 @@ func NewEVMTransactionGun(cfg *ccv.Cfg, e *deployment.Environment, selectors []u
 		e:             e,
 		selectors:     selectors,
 		impl:          impls,
-		sentMsgSet:    make(map[SentMessage]struct{}),
-		sentMsgCh:     make(chan SentMessage, sentMessageChannelBufferSize),
+		sentMsgSet:    make(map[load.SentMessage]struct{}),
+		sentMsgCh:     make(chan load.SentMessage, sentMessageChannelBufferSize),
 		srcSelectors:  srcSelectors,
 		destSelectors: destSelectors,
 		userSelector:  userSelector,
@@ -127,8 +122,8 @@ func NewEVMTransactionGunFromTestConfig(cfg *ccv.Cfg, testProfile *load.TestProf
 		e:               e,
 		selectors:       selectors,
 		impl:            impls,
-		sentMsgSet:      make(map[SentMessage]struct{}),
-		sentMsgCh:       make(chan SentMessage, sentMessageChannelBufferSize),
+		sentMsgSet:      make(map[load.SentMessage]struct{}),
+		sentMsgCh:       make(chan load.SentMessage, sentMessageChannelBufferSize),
 		srcSelectors:    srcSelectors,
 		destSelectors:   destSelectors,
 		messageProfiles: messageProfiles,
@@ -173,7 +168,12 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 		return &wasp.Response{Error: fmt.Errorf("failed to select dest selector: %w", err).Error(), Failed: true}
 	}
 
-	fields, opts, err := m.selectMessageProfile(srcSelector, destSelector)
+	dest, err := m.resolveDestLoadInfo(destSelector)
+	if err != nil {
+		return &wasp.Response{Error: fmt.Errorf("failed to resolve destination: %w", err).Error(), Failed: true}
+	}
+
+	fields, opts, err := m.selectMessageProfile(srcSelector, dest)
 	if err != nil {
 		return &wasp.Response{Error: fmt.Errorf("failed to select message profile: %w", err).Error(), Failed: true}
 	}
@@ -207,9 +207,10 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 		return &wasp.Response{Error: "impl is not ChainAsSource", Failed: true}
 	}
 
-	extraArgs, err := evm.SerializeEVMExtraArgs(3, opts)
+	// encoding is decided based on dest
+	extraArgs, err := m.buildExtraArgs(srcSelector, dest, opts)
 	if err != nil {
-		return &wasp.Response{Error: fmt.Errorf("failed to serialize extra args: %w", err).Error(), Failed: true}
+		return &wasp.Response{Error: fmt.Errorf("failed to build extra args: %w", err).Error(), Failed: true}
 	}
 
 	srcMessage, err := chainAsSource.BuildChainMessage(ctx, fields, extraArgs)
@@ -217,10 +218,10 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 		return &wasp.Response{Error: fmt.Errorf("failed to build message: %w", err).Error(), Failed: true}
 	}
 
+	// WETH fees need msgValue=0; DisableTokenAmountValidation sets msgValue=fee and reverts.
 	sentEvent, _, err := chainAsSource.SendChainMessage(ctx, destSelector, srcMessage, evm.SendOptions{
-		Nonce:                        &currentNonce,
-		Sender:                       sender,
-		DisableTokenAmountValidation: true,
+		Nonce:  &currentNonce,
+		Sender: sender,
 	})
 	if err != nil {
 		return &wasp.Response{Error: fmt.Errorf("failed to send message: %w", err).Error(), Failed: true}
@@ -228,11 +229,11 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 
 	// Record the actual sequence number from the sent event
 	m.seqNosMu.Lock()
-	m.sentMsgSet[SentMessage{SeqNo: uint64(sentEvent.Message.SequenceNumber), MessageID: sentEvent.MessageID, SentTime: sentTime, ChainPair: SrcDest{Src: srcSelector, Dest: destSelector}}] = struct{}{}
+	m.sentMsgSet[load.SentMessage{SeqNo: uint64(sentEvent.Message.SequenceNumber), MessageID: sentEvent.MessageID, SentTime: sentTime, ChainPair: load.SrcDest{Src: srcSelector, Dest: destSelector}}] = struct{}{}
 	m.seqNosMu.Unlock()
 
 	// Push to channel for verification
-	m.sentMsgCh <- SentMessage{SeqNo: uint64(sentEvent.Message.SequenceNumber), MessageID: sentEvent.MessageID, SentTime: sentTime, ChainPair: SrcDest{Src: srcSelector, Dest: destSelector}}
+	m.sentMsgCh <- load.SentMessage{SeqNo: uint64(sentEvent.Message.SequenceNumber), MessageID: sentEvent.MessageID, SentTime: sentTime, ChainPair: load.SrcDest{Src: srcSelector, Dest: destSelector}}
 
 	return &wasp.Response{Data: "ok"}
 }
@@ -261,16 +262,75 @@ func (m *EVMTXGun) SelectDestSelector(excludeSelector uint64) (uint64, error) {
 	return load.GetSelectorByRatio(choices)
 }
 
-func (m *EVMTXGun) selectMessageProfile(srcSelector, destSelector uint64) (cciptestinterfaces.MessageFields, cciptestinterfaces.MessageOptions, error) {
+// destLoadInfo determines destination routing: receiver and whether to use EVM or AltVM extra-args.
+type destLoadInfo struct {
+	selector        uint64
+	receiver        protocol.UnknownAddress
+	hasMockReceiver bool
+}
+
+// resolveDestLoadInfo resolves receiver + encoding shape.
+func (m *EVMTXGun) resolveDestLoadInfo(destSelector uint64) (destLoadInfo, error) {
 	mockReceiverRef, err := m.e.DataStore.Addresses().Get(
 		datastore.NewAddressRefKey(
 			destSelector,
 			datastore.ContractType(mock_receiver_v2.ContractType),
 			semver.MustParse(mock_receiver_v2.Deploy.Version()),
 			devenvcommon.DefaultReceiverQualifier))
-	if err != nil {
-		return cciptestinterfaces.MessageFields{}, cciptestinterfaces.MessageOptions{}, fmt.Errorf("could not find mock receiver address in datastore: %w", err)
+	if err == nil {
+		return destLoadInfo{
+			selector:        destSelector,
+			receiver:        protocol.UnknownAddress(common.HexToAddress(mockReceiverRef.Address).Bytes()),
+			hasMockReceiver: true,
+		}, nil
 	}
+
+	destImpl, ok := m.impl[destSelector]
+	if !ok {
+		return destLoadInfo{}, fmt.Errorf("destination chain %d not found in impls", destSelector)
+	}
+	receiver, err := destImpl.GetEOAReceiverAddress()
+	if err != nil {
+		return destLoadInfo{}, fmt.Errorf("could not get EOA receiver for dest %d: %w", destSelector, err)
+	}
+	return destLoadInfo{
+		selector:        destSelector,
+		receiver:        receiver,
+		hasMockReceiver: false,
+	}, nil
+}
+
+// buildExtraArgs picks encoding based on destination shape.
+// V3 destinations without mock_receiver use BuildV3ExtraArgs; execution limits come
+// from the destination via V3DestinationLoadDefaults when the profile leaves them unset.
+func (m *EVMTXGun) buildExtraArgs(srcSelector uint64, dest destLoadInfo, opts cciptestinterfaces.MessageOptions) (cciptestinterfaces.GenericExtraArgs, error) {
+	if dest.hasMockReceiver {
+		return evm.SerializeEVMExtraArgs(3, opts)
+	}
+
+	v3Src, ok := m.impl[srcSelector].(cciptestinterfaces.MessageV3Source)
+	if !ok {
+		return nil, fmt.Errorf("source chain %d does not implement MessageV3Source", srcSelector)
+	}
+	v3Dest, ok := m.impl[dest.selector].(cciptestinterfaces.MessageV3Destination)
+	if !ok {
+		return nil, fmt.Errorf("destination chain %d does not implement MessageV3Destination", dest.selector)
+	}
+
+	v3Opts := opts
+	if v3Opts.ExecutionGasLimit == 0 {
+		if def, ok := m.impl[dest.selector].(cciptestinterfaces.V3DestinationLoadDefaults); ok {
+			v3Opts.ExecutionGasLimit = def.V3LoadMessageOptions().ExecutionGasLimit
+		}
+	}
+
+	// Receiver is in MessageFields; token params nil for data only load
+	return v3Src.BuildV3ExtraArgs(v3Opts, v3Dest, nil, nil, nil)
+}
+
+// selectMessageProfile builds message options for load sends and applies defaults when no profile is configured.
+func (m *EVMTXGun) selectMessageProfile(srcSelector uint64, dest destLoadInfo) (cciptestinterfaces.MessageFields, cciptestinterfaces.MessageOptions, error) {
+	receiver := dest.receiver
 
 	wethContract, err := m.e.DataStore.Addresses().Get(
 		datastore.NewAddressRefKey(
@@ -299,7 +359,7 @@ func (m *EVMTXGun) selectMessageProfile(srcSelector, destSelector uint64) (ccipt
 	}
 	if m.testConfig == nil || m.testConfig.Messages == nil {
 		return cciptestinterfaces.MessageFields{
-				Receiver: protocol.UnknownAddress(common.HexToAddress(mockReceiverRef.Address).Bytes()),
+				Receiver: receiver,
 				Data:     []byte{},
 				FeeToken: protocol.UnknownAddress(common.HexToAddress(wethContract.Address).Bytes()),
 			}, cciptestinterfaces.MessageOptions{
@@ -319,7 +379,7 @@ func (m *EVMTXGun) selectMessageProfile(srcSelector, destSelector uint64) (ccipt
 		return cciptestinterfaces.MessageFields{}, cciptestinterfaces.MessageOptions{}, fmt.Errorf("failed to get message profile: %w", err)
 	}
 	fields := cciptestinterfaces.MessageFields{
-		Receiver: protocol.UnknownAddress(common.HexToAddress(mockReceiverRef.Address).Bytes()),
+		Receiver: receiver,
 		Data:     []byte{},
 		FeeToken: protocol.UnknownAddress(common.HexToAddress(wethContract.Address).Bytes()),
 	}
@@ -328,7 +388,7 @@ func (m *EVMTXGun) selectMessageProfile(srcSelector, destSelector uint64) (ccipt
 	}
 
 	if messageProfile.HasData {
-		data := make([]byte, avgMsgDataSize)
+		data := make([]byte, load.MessageDataSizeBytes(messageProfile, avgMsgDataSize))
 		_, err2 := rand.Read(data)
 		if err2 != nil {
 			return cciptestinterfaces.MessageFields{}, cciptestinterfaces.MessageOptions{}, fmt.Errorf("failed to generate data: %w", err2)

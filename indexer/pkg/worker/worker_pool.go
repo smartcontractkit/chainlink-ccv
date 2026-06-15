@@ -11,6 +11,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/registry"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -67,6 +68,67 @@ func (p *Pool) Start(ctx context.Context) {
 	go p.run(childCtx)
 	go p.enqueueMessages(childCtx)
 	go p.handleDLQ(childCtx)
+
+	if err := p.hydrateFromStorage(childCtx); err != nil {
+		p.logger.Errorw("Failed to hydrate pending tasks from storage on startup", "error", err)
+	}
+}
+
+// hydrateFromStorage loads PROCESSING messages from storage in pages and enqueues them as tasks.
+func (p *Pool) hydrateFromStorage(ctx context.Context) error {
+	batchSize := p.config.HydrationBatchSize
+	if batchSize == 0 {
+		batchSize = 100
+	}
+
+	// Only resume messages that are still within the visibility window.
+	createdAfter := time.Now().Add(-p.scheduler.VerificationVisibilityWindow())
+
+	var (
+		offset uint64
+		total  int
+	)
+	for {
+		messages, err := p.storage.GetProcessingMessages(ctx, createdAfter, batchSize, offset)
+		if err != nil {
+			return fmt.Errorf("failed to get processing messages: %w", err)
+		}
+		if len(messages) == 0 {
+			break
+		}
+
+		total += len(messages)
+		for _, msg := range messages {
+			msgID, err := msg.Message.MessageID()
+			if err != nil {
+				p.logger.Errorw("Failed to compute message ID for processing message, skipping", "error", err)
+				continue
+			}
+			vr := protocol.VerifierResult{
+				MessageID:           msgID,
+				Message:             msg.Message,
+				MessageCCVAddresses: msg.MessageCCVAddresses,
+			}
+			task, err := NewTask(p.logger, vr, p.registry, p.storage, msg.Metadata.IngestionTimestamp.Add(p.scheduler.VerificationVisibilityWindow()))
+			if err != nil {
+				p.logger.Errorw("Failed to create task for processing message", "error", err)
+				continue
+			}
+			if err := p.scheduler.Enqueue(ctx, task); err != nil {
+				p.logger.Errorw("Failed to enqueue hydrated task", "error", err)
+			}
+		}
+
+		if uint64(len(messages)) < batchSize {
+			break
+		}
+		offset += batchSize
+	}
+
+	if total > 0 {
+		p.logger.Infow("Resumed pending tasks from storage", "count", total)
+	}
+	return nil
 }
 
 func (p *Pool) Stop() {
@@ -100,7 +162,7 @@ func (p *Pool) run(ctx context.Context) {
 			}
 
 			workerCtx, cancel := context.WithTimeout(ctx, time.Duration(p.config.WorkerTimeout)*time.Second)
-			p.logger.Infof("Starting Worker for %s", task.messageID.String())
+			p.logger.Debugf("Starting Worker for %s", task.messageID.String())
 
 			p.pool.Go(func() {
 				defer cancel()
@@ -110,6 +172,14 @@ func (p *Pool) run(ctx context.Context) {
 				if err == nil && result != nil && result.UnavailableCCVs == 0 {
 					if err := task.SetMessageStatus(ctx, common.MessageSuccessful, ""); err != nil {
 						p.logger.Errorf("Unable to update Message Status for MessageID %s", task.messageID.String())
+					} else if result.SuccessfulVerifications > 0 {
+						// PER-MESSAGE LOG (success): gated on SuccessfulVerifications so it
+						// fires once per message; shares its message string with the DLQ path.
+						p.logger.Infow("Message processing finished",
+							protocol.LogTypeKey, protocol.LogTypeMessageSuccess,
+							"messageID", task.messageID.String(),
+							"status", "verified",
+						)
 					}
 				}
 
@@ -141,8 +211,9 @@ func (p *Pool) enqueueMessages(ctx context.Context) {
 				p.logger.Error("Discovery channel closed; exiting enqueueMessages")
 				return
 			}
-			p.logger.Infow("Enqueueing new Message", "messageID", message.VerifierResult.MessageID.String())
-			task, err := NewTask(p.logger, message.VerifierResult, p.registry, p.storage, p.scheduler.VerificationVisibilityWindow())
+			// PER-MESSAGE LOG (status): once per verification (not per message).
+			p.logger.Infow("Enqueueing verification", protocol.LogTypeKey, protocol.LogTypeMessageStatus, protocol.LogKeyMessageID, message.VerifierResult.MessageID.String(), "verifierSourceAddress", message.VerifierResult.VerifierSourceAddress)
+			task, err := NewTask(p.logger, message.VerifierResult, p.registry, p.storage, message.Metadata.IngestionTimestamp.Add(p.scheduler.VerificationVisibilityWindow()))
 			// This shouldn't happen, it can only be caused by an invalid hex conversion.
 			// We're unable to retry the message or send it to the DLQ.
 			if err != nil {
@@ -181,7 +252,14 @@ func (p *Pool) handleDLQ(ctx context.Context) {
 				p.logger.Errorf("Unable to update message status to timeout for message %s", task.messageID.String())
 			}
 
-			p.logger.Warnf("Message %s entered DLQ. Partial verifications may have been received", task.messageID.String())
+			// PER-MESSAGE LOG (failure): timed out into the DLQ; shares its message
+			// string with the success path (distinguish by status / log_type).
+			p.logger.Warnw("Message processing finished",
+				protocol.LogTypeKey, protocol.LogTypeMessageFailure,
+				"messageID", task.messageID.String(),
+				"status", "timeout",
+				"error", lastErrStr,
+			)
 		}
 	}
 }

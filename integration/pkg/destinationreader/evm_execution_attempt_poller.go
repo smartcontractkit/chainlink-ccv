@@ -470,7 +470,7 @@ func (p *EvmExecutionAttemptPoller) run(ctx context.Context) {
 			if err := p.processExecutionStateChanged(ctx, execStateChanged); err != nil {
 				p.lggr.Warnw("Failed to process execution state changed event, this may be due to invalid callData",
 					"error", err,
-					"messageID", execStateChanged.MessageId,
+					protocol.LogKeyMessageID, protocol.Bytes32(execStateChanged.MessageId).String(),
 					"txHash", execStateChanged.Raw.TxHash)
 			}
 
@@ -659,7 +659,7 @@ func (p *EvmExecutionAttemptPoller) pollForEvents(ctx context.Context) error {
 			if err := p.processExecutionStateChanged(ctx, event); err != nil {
 				p.lggr.Warnw("Failed to process execution state changed event from polling",
 					"error", err,
-					"messageID", event.MessageId,
+					protocol.LogKeyMessageID, protocol.Bytes32(event.MessageId).String(),
 					"txHash", event.Raw.TxHash,
 					"blockNumber", event.Raw.BlockNumber)
 				// Continue processing other events even if one fails
@@ -732,7 +732,7 @@ func (p *EvmExecutionAttemptPoller) processExecutionStateChanged(ctx context.Con
 	// Invairant check: assert that computed messageID matches on-chain event emission.
 	attemptMsgID := executionAttempt.Report.Message.MustMessageID()
 	if !bytes.Equal(msgID[:], attemptMsgID[:]) {
-		p.lggr.Errorw("MessageID from event does not match the computed messageID. This should never happen.", "messageID", msgID, "computedMessageID", attemptMsgID)
+		p.lggr.Errorw("MessageID from event does not match the computed messageID. This should never happen.", protocol.LogKeyMessageID, protocol.Bytes32(msgID).String(), "computedMessageID", attemptMsgID.String())
 		return fmt.Errorf("computed message id does not match event message id")
 	}
 

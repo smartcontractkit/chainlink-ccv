@@ -29,13 +29,15 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/mock_receiver_v2"
+	ccipChangesets "github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/changesets"
+
 	"github.com/smartcontractkit/chainlink-ccip/deployment/finality"
 
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/create2_factory"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/erc20_lock_box"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/executor"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/lock_release_token_pool"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/mock_receiver_v2"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/proxy"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/sequences"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/versioned_verifier_resolver"
@@ -51,9 +53,7 @@ import (
 	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm/operations/contract"
 	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm/provider/rpcclient"
 
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_0/operations/rmn_remote"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/adapters"
-	ccipChangesets "github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/changesets"
 	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
@@ -222,7 +222,7 @@ func (m *CCIP17EVM) getOrCreateOnRampPoller() (*eventPoller[cciptestinterfaces.M
 
 			message, err := protocol.DecodeMessage(event.EncodedMessage)
 			if err != nil {
-				m.logger.Warn().Err(err).Str("msgId", common.Bytes2Hex(event.MessageId[:])).Msg("Failed to decode message, skipping")
+				m.logger.Warn().Err(err).Str(protocol.LogKeyMessageID, protocol.ByteSlice(event.MessageId[:]).String()).Msg("Failed to decode message, skipping")
 				continue
 			}
 			key := eventKey{chainSelector: event.DestChainSelector, msgNum: uint64(message.SequenceNumber), messageID: event.MessageId}
@@ -1053,52 +1053,41 @@ func (m *CCIP17EVMConfig) GetDeployChainContractsCfg(env *deployment.Environment
 	}
 
 	return ccipChangesets.DeployChainContractsPerChainCfg{
-		DeployerContract: create2Ref.Address,
+		DeployerContract: new(create2Ref.Address),
 		DeployerKeyOwned: true,
-		RMNRemote: adapters.RMNRemoteDeployParams{
-			Version: semver.MustParse(rmn_remote.Deploy.Version()),
-		},
-		OffRamp: adapters.OffRampDeployParams{
-			Version:                   semver.MustParse(offrampoperations.Deploy.Version()),
-			GasForCallExactCheck:      5_000,
-			MaxGasBufferToUpdateState: 12_000,
-		},
-		OnRamp: adapters.OnRampDeployParams{
-			Version:               semver.MustParse(onrampoperations.Deploy.Version()),
-			FeeAggregator:         "0x0000000000000000000000000000000000000001",
-			MaxUSDCentsPerMessage: 100_00,
-		},
-		Executors: []adapters.ExecutorDeployParams{
-			{
-				Version:       semver.MustParse(proxy.Deploy.Version()),
-				MaxCCVsPerMsg: 10,
-				DynamicConfig: adapters.ExecutorDynamicDeployConfig{
-					FeeAggregator:         "0x0000000000000000000000000000000000000001",
-					AllowedFinalityConfig: finality.Config{BlockDepth: 1, WaitForSafe: true},
-					CcvAllowlistEnabled:   false,
+		ContractParams: &adapters.DeployContractParamsOverrides{
+			Executors: new([]adapters.ExecutorDeployParams{
+				{
+					Version:       semver.MustParse(proxy.Deploy.Version()),
+					MaxCCVsPerMsg: 10,
+					DynamicConfig: adapters.ExecutorDynamicDeployConfig{
+						FeeAggregator:         "0x0000000000000000000000000000000000000001",
+						AllowedFinalityConfig: finality.Config{BlockDepth: 1, WaitForSafe: true},
+						CcvAllowlistEnabled:   false,
+					},
+					Qualifier: devenvcommon.DefaultExecutorQualifier,
 				},
-				Qualifier: devenvcommon.DefaultExecutorQualifier,
-			},
-			{
-				Version:       semver.MustParse(proxy.Deploy.Version()),
-				MaxCCVsPerMsg: 10,
-				DynamicConfig: adapters.ExecutorDynamicDeployConfig{
-					FeeAggregator:         "0x0000000000000000000000000000000000000001",
-					AllowedFinalityConfig: finality.Config{BlockDepth: 1, WaitForSafe: true},
-					CcvAllowlistEnabled:   false,
+				{
+					Version:       semver.MustParse(proxy.Deploy.Version()),
+					MaxCCVsPerMsg: 10,
+					DynamicConfig: adapters.ExecutorDynamicDeployConfig{
+						FeeAggregator:         "0x0000000000000000000000000000000000000001",
+						AllowedFinalityConfig: finality.Config{BlockDepth: 1, WaitForSafe: true},
+						CcvAllowlistEnabled:   false,
+					},
+					Qualifier: devenvcommon.CustomExecutorQualifier,
 				},
-				Qualifier: devenvcommon.CustomExecutorQualifier,
-			},
+			}),
+			FeeQuoter: new(adapters.FeeQuoterDeployParamsOverrides{
+				Version:                        semver.MustParse(fee_quoter.Deploy.Version()),
+				MaxFeeJuelsPerMsg:              big.NewInt(2e18),
+				LINKPremiumMultiplierWeiPerEth: new(uint64(9e17)),
+				WETHPremiumMultiplierWeiPerEth: new(uint64(1e18)),
+				USDPerLINK:                     usdPerLink,
+				USDPerWETH:                     usdPerWeth,
+			}),
+			MockReceivers: new(buildMockReceivers(topology, selector)),
 		},
-		FeeQuoter: adapters.FeeQuoterDeployParams{
-			Version:                        semver.MustParse(fee_quoter.Deploy.Version()),
-			MaxFeeJuelsPerMsg:              big.NewInt(2e18),
-			LINKPremiumMultiplierWeiPerEth: 9e17,
-			WETHPremiumMultiplierWeiPerEth: 1e18,
-			USDPerLINK:                     usdPerLink,
-			USDPerWETH:                     usdPerWeth,
-		},
-		MockReceivers: buildMockReceivers(topology, selector),
 	}, nil
 }
 
@@ -1191,35 +1180,50 @@ func (m *CCIP17EVMConfig) GetTokenExpansionConfigs(
 	divisor := new(big.Int).Exp(big.NewInt(10), big.NewInt(DefaultDecimals), nil)
 	preMintTokens := new(big.Int).Div(deployerBalance, divisor).Uint64()
 
+	// Build a set of supported pool capabilities so we can skip combos where
+	// EVM is the "local" side but doesn't actually support that pool.
+	supported := devenvcommon.BuildSupportedPoolsMap(m.GetSupportedPools())
+
 	seen := make(map[string]bool)
 	var configs []tokenscore.TokenExpansionInputPerChain
 
 	for _, combo := range combos {
-		for _, poolRef := range []datastore.AddressRef{combo.LocalPoolAddressRef(), combo.RemotePoolAddressRef()} {
-			key := string(poolRef.Type) + "\x00" + poolRef.Version.String() + "\x00" + poolRef.Qualifier
-			if seen[key] {
-				continue
-			}
-			seen[key] = true
+		// Only deploy the local pool ref. The remote pool ref belongs to the
+		// counterpart chain and must not be deployed here — deploying it would
+		// attempt to fund a lockbox for an unsupported pool version and fail.
+		poolRef := combo.LocalPoolAddressRef()
 
-			configs = append(configs, tokenscore.TokenExpansionInputPerChain{
-				TokenPoolVersion:      poolRef.Version,
-				SkipOwnershipTransfer: true,
-				DeployTokenInput: &tokenscore.DeployTokenInput{
-					Symbol:        poolRef.Qualifier,
-					Name:          poolRef.Qualifier,
-					Decimals:      DefaultDecimals,
-					Type:          bnm_drip_v1_0.ContractType,
-					ExternalAdmin: chain.DeployerKey.From.Hex(),
-					CCIPAdmin:     chain.DeployerKey.From.Hex(),
-					PreMint:       &preMintTokens,
-				},
-				DeployTokenPoolInput: &tokenscore.DeployTokenPoolInput{
-					PoolType:           string(poolRef.Type),
-					TokenPoolQualifier: poolRef.Qualifier,
-				},
-			})
+		// Skip combos where EVM doesn't support the local pool type/version.
+		// ComputeTokenCombinations generates combos in both directions, so we
+		// may receive combos where another chain (e.g. Solana) is meant to be
+		// the local side.
+		if !devenvcommon.IsPoolSupported(supported, poolRef) {
+			continue
 		}
+
+		key := devenvcommon.AddressRefFullKey(poolRef)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+
+		configs = append(configs, tokenscore.TokenExpansionInputPerChain{
+			TokenPoolVersion:      poolRef.Version,
+			SkipOwnershipTransfer: true,
+			DeployTokenInput: &tokenscore.DeployTokenInput{
+				Symbol:        poolRef.Qualifier,
+				Name:          poolRef.Qualifier,
+				Decimals:      DefaultDecimals,
+				Type:          bnm_drip_v1_0.ContractType,
+				ExternalAdmin: chain.DeployerKey.From.Hex(),
+				CCIPAdmin:     chain.DeployerKey.From.Hex(),
+				PreMint:       &preMintTokens,
+			},
+			DeployTokenPoolInput: &tokenscore.DeployTokenPoolInput{
+				PoolType:           string(poolRef.Type),
+				TokenPoolQualifier: poolRef.Qualifier,
+			},
+		})
 	}
 
 	return configs, nil
@@ -1323,14 +1327,15 @@ func (m *CCIP17EVMConfig) buildEVMTokenTransferConfig(
 		}
 	}
 
+	tokenRef, err := TokenRefForPool(localRef)
+	if err != nil {
+		panic(fmt.Sprintf("buildEVMTokenTransferConfig: %v", err))
+	}
+
 	return tokenscore.TokenTransferConfig{
 		ChainSelector: selector,
 		TokenPoolRef:  localRef,
-		TokenRef: datastore.AddressRef{
-			Type:      datastore.ContractType(bnm_drip_v1_0.ContractType),
-			Version:   semver.MustParse(bnm_drip_v1_0.Deploy.Version()),
-			Qualifier: localRef.Qualifier,
-		},
+		TokenRef:      tokenRef,
 		RegistryRef: datastore.AddressRef{
 			Type:    datastore.ContractType(token_admin_registry.ContractType),
 			Version: semver.MustParse(token_admin_registry.Deploy.Version()),
@@ -1421,10 +1426,13 @@ func evmFeeQuoterDestChainConfigOverride(selector uint64) *lanes.FeeQuoterDestCh
 	return &override
 }
 
-func (m *CCIP17EVMConfig) GetChainLaneProfile(_ *deployment.Environment, selector uint64) (cciptestinterfaces.ChainLaneProfile, error) {
-	return cciptestinterfaces.ChainLaneProfile{
-		FeeQuoterDestChainConfig: adapters.FeeQuoterDestChainConfigOverrides{
-			USDPerUnitGas: big.NewInt(1e6),
+func (m *CCIP17EVMConfig) GetChainLaneProfile(_ *deployment.Environment, selector uint64) (ccipChangesets.ChainOverrides, error) {
+	return ccipChangesets.ChainOverrides{
+		CommitteeVerifierFinalityConfig: &finality.Config{BlockDepth: 1, WaitForSafe: true},
+		RemoteChainCfg: ccipChangesets.PartialRemoteChainConfig{
+			FeeQuoterDestChainConfig: adapters.FeeQuoterDestChainConfigOverrides{
+				USDPerUnitGas: big.NewInt(1e6),
+			},
 		},
 	}, nil
 }

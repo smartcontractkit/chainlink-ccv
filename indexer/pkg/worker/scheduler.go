@@ -12,6 +12,9 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
+// ErrSchedulerFull is returned by TrySchedule when the heap has reached MaxHeapSize.
+var ErrSchedulerFull = errors.New("scheduler heap is full")
+
 type Scheduler struct {
 	lggr      logger.Logger
 	config    config.SchedulerConfig
@@ -20,6 +23,9 @@ type Scheduler struct {
 	delayHeap *DelayHeap
 	ready     chan *Task
 	dlq       chan *Task
+	// slots is a counting semaphore that bounds the heap size.
+	// nil means unbounded (MaxHeapSize == 0).
+	slots     chan struct{}
 	wg        sync.WaitGroup
 	startOnce sync.Once
 	stopOnce  sync.Once
@@ -35,6 +41,11 @@ func NewScheduler(lggr logger.Logger, config config.SchedulerConfig) (*Scheduler
 	delayHeap := &DelayHeap{}
 	heap.Init(delayHeap)
 
+	var slots chan struct{}
+	if config.MaxHeapSize > 0 {
+		slots = make(chan struct{}, config.MaxHeapSize)
+	}
+
 	return &Scheduler{
 		lggr:      lggr,
 		config:    config,
@@ -43,6 +54,7 @@ func NewScheduler(lggr logger.Logger, config config.SchedulerConfig) (*Scheduler
 		stopCh:    make(chan struct{}),
 		ready:     make(chan *Task, 1),
 		dlq:       make(chan *Task, 1),
+		slots:     slots,
 	}, nil
 }
 
@@ -80,6 +92,11 @@ func (s *Scheduler) run(ctx context.Context) {
 			tasks := s.delayHeap.PopAllReady()
 			s.mu.Unlock()
 			for _, task := range tasks {
+				// Release the heap slot before blocking on the ready channel so
+				// that new tasks can be scheduled while we wait for a worker.
+				if s.slots != nil {
+					<-s.slots
+				}
 				select {
 				case s.ready <- task:
 				case <-s.stopCh:
@@ -137,6 +154,8 @@ func (s *Scheduler) DLQ() <-chan *Task {
 	return s.dlq
 }
 
+// Enqueue enqueues t for execution. If the heap is at capacity (MaxHeapSize > 0)
+// it blocks until a slot becomes available or ctx is canceled.
 func (s *Scheduler) Enqueue(ctx context.Context, t *Task) error {
 	if t == nil {
 		return errors.New("cannot enqueue nil task")
@@ -144,23 +163,67 @@ func (s *Scheduler) Enqueue(ctx context.Context, t *Task) error {
 	shouldEnqueue, delay := s.shouldEnqueue(t)
 	if !shouldEnqueue {
 		s.dlq <- t
-		return errors.New("unable to enqueue, max attempts reached. sending to dlq")
+		return errors.New("task TTL expired, sent to DLQ")
 	}
 
 	t.attempt++
 	t.runAt = time.Now().Add(delay)
 
-	// If there is no delay, the task is ready immediately and should be sent to the ready channel.
 	if delay == 0 {
 		select {
 		case s.ready <- t:
 			return nil
 		case <-ctx.Done():
-			return errors.New("unable to enqueue, context deadline exceeded")
+			return fmt.Errorf("enqueue cancelled: %w", ctx.Err())
 		}
 	}
 
-	// Otherwise schedule for future execution on the delay heap
+	if s.slots != nil {
+		select {
+		case s.slots <- struct{}{}:
+		case <-ctx.Done():
+			return fmt.Errorf("enqueue cancelled waiting for heap slot: %w", ctx.Err())
+		}
+	}
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	heap.Push(s.delayHeap, t)
+	return nil
+}
+
+// TryEnqueue enqueues t for execution. If the heap is at capacity it returns
+// ErrSchedulerFull immediately without blocking.
+func (s *Scheduler) TryEnqueue(t *Task) error {
+	if t == nil {
+		return errors.New("cannot enqueue nil task")
+	}
+	shouldEnqueue, delay := s.shouldEnqueue(t)
+	if !shouldEnqueue {
+		s.dlq <- t
+		return errors.New("task TTL expired, sent to DLQ")
+	}
+
+	t.attempt++
+	t.runAt = time.Now().Add(delay)
+
+	if delay == 0 {
+		select {
+		case s.ready <- t:
+			return nil
+		default:
+			return ErrSchedulerFull
+		}
+	}
+
+	if s.slots != nil {
+		select {
+		case s.slots <- struct{}{}:
+		default:
+			return ErrSchedulerFull
+		}
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	heap.Push(s.delayHeap, t)

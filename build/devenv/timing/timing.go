@@ -1,7 +1,6 @@
-// Package timing provides a simple wall-clock interval tracker used to
-// profile devenv startup phases. It is isolated from the root ccv package
-// so that components can import it without pulling in the full devenv
-// dependency graph.
+// Package timing provides wall-clock trackers used to profile devenv startup.
+// It is isolated from the root ccv package so that components can import it
+// without pulling in the full devenv dependency graph.
 package timing
 
 import (
@@ -61,4 +60,45 @@ func (t *TimeTracker) Print() {
 
 func (t *TimeTracker) SinceStart() time.Duration {
 	return time.Since(t.start)
+}
+
+// ComponentTiming records the wall-clock span of a single component's phase run.
+type ComponentTiming struct {
+	Phase int
+	Key   string
+	Start time.Time
+	End   time.Time
+}
+
+// ComponentTimeTracker collects per-component timing entries for the phased runtime.
+//
+// TODO: consider merging ComponentTimeTracker with TimeTracker.
+type ComponentTimeTracker struct {
+	entries []ComponentTiming
+}
+
+// NewComponentTimeTracker creates an empty ComponentTimeTracker.
+func NewComponentTimeTracker() *ComponentTimeTracker {
+	return &ComponentTimeTracker{}
+}
+
+// Record appends a timing entry for the given phase and component key.
+func (t *ComponentTimeTracker) Record(phase int, key string, start, end time.Time) {
+	t.entries = append(t.entries, ComponentTiming{
+		Phase: phase,
+		Key:   key,
+		Start: start,
+		End:   end,
+	})
+}
+
+// Print logs one Info line per recorded component showing phase, key, and duration.
+func (t *ComponentTimeTracker) Print(logger zerolog.Logger) {
+	for _, e := range t.entries {
+		logger.Info().
+			Int("phase", e.Phase).
+			Str("component", e.Key).
+			Str("duration", e.End.Sub(e.Start).String()).
+			Msg("component timing")
+	}
 }

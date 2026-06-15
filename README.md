@@ -22,9 +22,40 @@ just tests
 ## Local Dev Environment
 Follow the [README](./build/devenv/README.md)
 
+## Chainlink Node CI Tests
 
+The [`E2E Smoke Test (CL-Node)`](./.github/workflows/test-cl-smoke.yaml) workflow validates that `chainlink-ccv` changes do not break Chainlink node integration. It builds a Chainlink node image with the PR's `chainlink-ccv` commit and runs e2e smoke/load tests against it.
 
-### Glossary
+This workflow is expensive — the `build-cl-image` step alone adds roughly 7–12 minutes — so it does not always run on every PR push. Instead, a lightweight `check-changes` job decides whether the downstream jobs should run.
+
+### When do CL node tests run?
+
+On each `pull_request` or `merge_group` event, [`tools/bin/check-cl-smoke-tests.sh`](./tools/bin/check-cl-smoke-tests.sh):
+
+1. Finds all direct `github.com/smartcontractkit/chainlink-ccv/...` imports in the Chainlink repo.
+2. Resolves their transitive dependencies within `chainlink-ccv` via `go list -deps`.
+3. Compares the PR's changed files (net diff against `main`) against those affected package directories.
+4. Runs the CL node tests if any matching package was modified.
+
+For `go.mod` changes, tests run only when a changed dependency is actually used by that Chainlink-relevant dependency graph — not for unrelated dependency bumps elsewhere in the repo.
+
+The check uses the **full PR diff**, not individual commits. If any change in the PR touches Chainlink-relevant code, the tests run. Merge queue runs evaluate the same net diff before the change lands on `main`.
+
+### Manual override
+
+To force the CL node tests on a PR that would otherwise skip them, add the **`run-cl-smoke`** label. Adding the label triggers the workflow immediately. While the label remains on the PR, subsequent pushes will also run the full workflow.
+
+### Running the check locally
+
+From the repo root:
+
+```bash
+./tools/bin/check-cl-smoke-tests.sh --chainlink-repo /path/to/chainlink
+```
+
+Use `--base-ref origin/main` to compare against a different base branch, or `--force-run` to simulate the label override.
+
+## Glossary
 - CCV: Cross chain verifier comprising two onchain Verifier components and an offchain Verifier component which exposes VerifierResults (usually containing some form of authentication, like signatures/zkps etc.) from its offchain component to be passed to its onchain component.
     - CCV naming schema: operator | type | component
     - Operators:
@@ -50,7 +81,7 @@ Follow the [README](./build/devenv/README.md)
 - CCVNodeData: In the context of a committee-based CCV with multiple nodes, CCVNodeData is a given member nodes contribution to the final VerifierResult.
 
 
-### System Diagram
+## System Diagram
 ```mermaid
 graph LR 
    subgraph "Source Chain"

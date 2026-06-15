@@ -117,7 +117,7 @@ func TestPhaseSnapshot_SiblingsCannotSeeEachOther(t *testing.T) {
 	require.NoError(t, r.Register("Alpha", compFactory(alpha)))
 	require.NoError(t, r.Register("Beta", compFactory(beta)))
 
-	out, err := runEnv(t, r, map[string]any{"Alpha": nil, "Beta": nil})
+	out, err := runEnv(t, r, map[string]any{"version": int64(1), "Alpha": nil, "Beta": nil})
 	require.NoError(t, err)
 
 	require.NotContains(t, alphaPrior, "from-beta", "alpha must not see beta's output")
@@ -146,7 +146,7 @@ func TestPhaseSnapshot_MutationByOneSiblingDoesNotLeak(t *testing.T) {
 	require.NoError(t, r.Register("Mutator", compFactory(mutator)))
 	require.NoError(t, r.Register("Observer", compFactory(observer)))
 
-	_, err := runEnv(t, r, map[string]any{"Producer": nil, "Mutator": nil, "Observer": nil})
+	_, err := runEnv(t, r, map[string]any{"version": int64(1), "Producer": nil, "Mutator": nil, "Observer": nil})
 	require.NoError(t, err)
 
 	require.Equal(t, "original", observerPrior["p1-out"],
@@ -165,7 +165,7 @@ func TestPhaseSnapshot_NextPhaseSeesPriorPhaseOutputs(t *testing.T) {
 	require.NoError(t, r.Register("Producer", compFactory(producer)))
 	require.NoError(t, r.Register("Consumer", compFactory(consumer)))
 
-	_, err := runEnv(t, r, map[string]any{"Producer": nil, "Consumer": nil})
+	_, err := runEnv(t, r, map[string]any{"version": int64(1), "Producer": nil, "Consumer": nil})
 	require.NoError(t, err)
 
 	require.Equal(t, "hello", p2Prior["p1-out"])
@@ -181,7 +181,7 @@ func TestMergeNoOverwrite_SamePhaseCollision(t *testing.T) {
 	require.NoError(t, r.Register("Alpha", compFactory(alpha)))
 	require.NoError(t, r.Register("Beta", compFactory(beta)))
 
-	_, err := runEnv(t, r, map[string]any{"Alpha": nil, "Beta": nil})
+	_, err := runEnv(t, r, map[string]any{"version": int64(1), "Alpha": nil, "Beta": nil})
 	require.Error(t, err)
 	// Beta runs second under sortedKeys, so it's the one that detects the collision.
 	require.Contains(t, err.Error(), "phase 2")
@@ -197,7 +197,7 @@ func TestMergeNoOverwrite_PriorPhaseCollision(t *testing.T) {
 	require.NoError(t, r.Register("Overwriter", compFactory(overwriter)))
 	require.NoError(t, r.Register("Producer", compFactory(producer)))
 
-	_, err := runEnv(t, r, map[string]any{"Overwriter": nil, "Producer": nil})
+	_, err := runEnv(t, r, map[string]any{"version": int64(1), "Overwriter": nil, "Producer": nil})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "phase 2")
 	require.Contains(t, err.Error(), `"Overwriter"`)
@@ -212,7 +212,7 @@ func TestMergeNoOverwrite_DistinctKeysSucceed(t *testing.T) {
 	require.NoError(t, r.Register("A", compFactory(a)))
 	require.NoError(t, r.Register("B", compFactory(b)))
 
-	out, err := runEnv(t, r, map[string]any{"A": nil, "B": nil})
+	out, err := runEnv(t, r, map[string]any{"version": int64(1), "A": nil, "B": nil})
 	require.NoError(t, err)
 	require.Equal(t, "a-val", out["a-key"])
 	require.Equal(t, "b-val", out["b-key"])
@@ -226,43 +226,71 @@ func TestPhase1_OverwriteDetection(t *testing.T) {
 	require.NoError(t, r.Register("A", compFactory(a)))
 	require.NoError(t, r.Register("B", compFactory(b)))
 
-	_, err := runEnv(t, r, map[string]any{"A": nil, "B": nil})
+	_, err := runEnv(t, r, map[string]any{"version": int64(1), "A": nil, "B": nil})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "phase 1")
 	require.Contains(t, err.Error(), `"B"`)
 	require.Contains(t, err.Error(), `"shared"`)
 }
 
-func TestFallbackHonorsSnapshot(t *testing.T) {
-	specific := newP2Comp(t, map[string]any{"from-specific": 1}, nil)
-
-	var fallbackPrior map[string]any
-	fb := newP2Comp(t, map[string]any{"from-fallback": 2}, func(p map[string]any) { fallbackPrior = p })
+// TestVersionKeyConsumed verifies the runtime consumes the top-level "version"
+// schema marker instead of treating it as an unclaimed key or dispatching it to
+// a component. The runtime strips it from the config it is handed.
+func TestVersionKeyConsumed(t *testing.T) {
+	a := newP1Comp(t, map[string]any{"out": 1})
 
 	r := devenvruntime.NewRegistry()
-	require.NoError(t, r.Register("Specific", compFactory(specific)))
-	r.SetFallback(compFactory(fb))
+	require.NoError(t, r.Register("A", compFactory(a)))
 
-	out, err := runEnv(t, r, map[string]any{"Specific": nil, "Other": nil})
+	rawConfig := map[string]any{"version": int64(1), "A": nil}
+	_, err := runEnv(t, r, rawConfig)
 	require.NoError(t, err)
 
-	require.NotContains(t, fallbackPrior, "from-specific",
-		"fallback must see the phase-start snapshot, not the post-Specific state")
-	require.Equal(t, 1, out["from-specific"])
-	require.Equal(t, 2, out["from-fallback"])
+	_, present := rawConfig["version"]
+	require.False(t, present, "version should be consumed (stripped) by the runtime")
 }
 
-func TestFallbackOverwriteDetection(t *testing.T) {
-	specific := newP2Comp(t, map[string]any{"shared": "specific"}, nil)
-	fb := newP2Comp(t, map[string]any{"shared": "fallback"}, nil)
-
+// TestVersionKeyRejectsWrongVersion verifies the runtime errors on any version
+// other than the supported version (currently 1).
+func TestVersionKeyRejectsWrongVersion(t *testing.T) {
 	r := devenvruntime.NewRegistry()
-	require.NoError(t, r.Register("Specific", compFactory(specific)))
-	r.SetFallback(compFactory(fb))
 
-	_, err := runEnv(t, r, map[string]any{"Specific": nil})
+	for _, bad := range []int64{0, 2, 99} {
+		_, err := runEnv(t, r, map[string]any{"version": bad})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "version")
+	}
+}
+
+// TestVersionKeyRequiredWhenAbsent verifies the runtime errors when the
+// top-level "version" key is absent from the env config.
+func TestVersionKeyRequiredWhenAbsent(t *testing.T) {
+	r := devenvruntime.NewRegistry()
+
+	_, err := runEnv(t, r, map[string]any{})
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "phase 2")
-	require.Contains(t, err.Error(), `"<fallback>"`)
-	require.Contains(t, err.Error(), `"shared"`)
+	require.Contains(t, err.Error(), "version")
+}
+
+// TestVersionKeyRejectsNonInteger verifies the runtime errors when version is
+// not an integer.
+func TestVersionKeyRejectsNonInteger(t *testing.T) {
+	r := devenvruntime.NewRegistry()
+
+	_, err := runEnv(t, r, map[string]any{"version": "1"})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "version")
+	require.Contains(t, err.Error(), "integer")
+}
+
+// TestUnclaimedKeyFailsFast verifies a top-level config key that no registered
+// component claims (e.g. a typo or stale key) is a hard error naming the key.
+// The check runs before any phase executes, so no component need be registered.
+func TestUnclaimedKeyFailsFast(t *testing.T) {
+	r := devenvruntime.NewRegistry()
+
+	_, err := runEnv(t, r, map[string]any{"version": int64(1), "typoo": nil})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "unclaimed config keys")
+	require.Contains(t, err.Error(), "typoo")
 }

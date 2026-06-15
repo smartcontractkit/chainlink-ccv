@@ -15,7 +15,12 @@ RUN --mount=type=cache,target=/root/.cache/go-build,id=ccv-go-build \
     CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -ldflags='-s -w' -o /bin/pricer main.go
 
 # Release on alpine to keep size small
-FROM alpine:latest
+FROM alpine:3.23
 RUN apk --no-cache add ca-certificates
-COPY --from=builder /bin/pricer /bin/
+
+# Create a non-root user and group for running the application
+RUN addgroup -S pricer && adduser -S pricer -G pricer
+
+COPY --chown=pricer:pricer --from=builder /bin/pricer /bin/
+USER pricer:pricer
 ENTRYPOINT ["/bin/pricer"]

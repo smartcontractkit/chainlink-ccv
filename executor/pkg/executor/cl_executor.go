@@ -167,9 +167,9 @@ func (cle *ChainlinkExecutor) HandleMessage(ctx context.Context, message protoco
 	cursed, curseErr := cle.curseChecker.IsRemoteChainCursed(ctx, message.DestChainSelector, message.SourceChainSelector)
 	if cursed {
 		if curseErr != nil {
-			cle.lggr.Warnw("delaying execution - curse state unknown", "messageID", messageID, "error", curseErr)
+			cle.lggr.Warnw("delaying execution - curse state unknown", protocol.LogKeyMessageID, messageID, "error", curseErr)
 		} else {
-			cle.lggr.Infow("delaying execution due to curse", "messageID", messageID)
+			cle.lggr.Debugw("delaying execution due to curse", protocol.LogKeyMessageID, messageID)
 		}
 		return true, nil
 	}
@@ -178,18 +178,18 @@ func (cle *ChainlinkExecutor) HandleMessage(ctx context.Context, message protoco
 	if err != nil {
 		// If we can't get execution state, don't execute, but put back in heap to retry later.
 		// this usually only happens due to rpc issues, other nodes will try and this node will expect to see status SUCCESS later.
-		cle.lggr.Warnw("delaying execution due to failed check GetMessageExecutionState", "messageID", messageID)
+		cle.lggr.Warnw("delaying execution due to failed check GetMessageExecutionState", protocol.LogKeyMessageID, messageID)
 		return true, err
 	}
 	if executionSuccess {
-		cle.lggr.Infow("skipping execution due to already being successfully executed", "messageID", messageID)
+		cle.lggr.Debugw("skipping execution due to already being successfully executed", protocol.LogKeyMessageID, messageID)
 		cle.monitoring.Metrics().IncrementAlreadyExecutedMessages(ctx)
 		return false, nil
 	}
 
 	verifierResults, verifierQuorum, err := cle.getVerifierResultsAndQuorum(ctx, message, messageID)
 	if err != nil {
-		cle.lggr.Warnw("delaying execution due to failed request for verifier results and quorum", "messageID", messageID)
+		cle.lggr.Warnw("delaying execution due to failed request for verifier results and quorum", protocol.LogKeyMessageID, messageID)
 		return true, err
 	}
 	if len(verifierResults) == 0 {
@@ -197,9 +197,9 @@ func (cle *ChainlinkExecutor) HandleMessage(ctx context.Context, message protoco
 	}
 
 	// Order the Verifier Results to match the order expected by the receiver contract.
-	cle.lggr.Infow("got ccv info and verifier results",
-		"messageID", messageID,
-		"destinationChain", destinationChain,
+	cle.lggr.Debugw("got ccv info and verifier results",
+		protocol.LogKeyMessageID, messageID,
+		protocol.LogKeyDestChain, destinationChain,
 		"verifierQuorum", verifierQuorum,
 		"verifierResultsLen", len(verifierResults),
 		"verifierResultsDestVerifiers", ccvDataDestVerifiers(verifierResults),
@@ -209,20 +209,21 @@ func (cle *ChainlinkExecutor) HandleMessage(ctx context.Context, message protoco
 	// if a receiver expects more CCVs than the source message defined, we will never be able to execute.
 	// we've validated that VerifierResults are consistent in their ccv address fields, so we only need to check the first result for this check.
 	if len(verifierQuorum.RequiredCCVs)+int(verifierQuorum.OptionalThreshold) > len(verifierResults[0].MessageCCVAddresses) {
-		cle.lggr.Infow("skipping execution and not retrying due to impossible receiver verifier quorum", "messageID", messageID)
+		// PER-MESSAGE LOG (failure): terminal; receiver quorum can never be satisfied, no retry.
+		cle.lggr.Infow("skipping execution and not retrying due to impossible receiver verifier quorum", protocol.LogTypeKey, protocol.LogTypeMessageFailure, protocol.LogKeyMessageID, messageID)
 		cle.monitoring.Metrics().IncrementUnrecoverableMessageFailure(ctx)
 		return false, nil
 	}
 
 	orderedverifierResults, orderedCCVOfframps, latestCCVTimestamp, err := orderCCVData(verifierResults, verifierQuorum)
 	if err != nil {
-		cle.lggr.Warnw("message did not meet verifier quorum, will retry", "messageID", messageID)
+		cle.lggr.Warnw("message did not meet verifier quorum, will retry", protocol.LogKeyMessageID, messageID)
 		return true, err
 	}
 
 	if !cle.destinationReaders[destinationChain].IsReady(destinationChain) {
-		cle.lggr.Infow("execution attempt poller not ready, will retry",
-			"messageID", messageID)
+		cle.lggr.Debugw("execution attempt poller not ready, will retry",
+			protocol.LogKeyMessageID, messageID)
 		return true, nil
 	}
 
@@ -230,14 +231,14 @@ func (cle *ChainlinkExecutor) HandleMessage(ctx context.Context, message protoco
 	// If they haven't we can execute it.
 	honestAttempt, err := cle.destinationReaders[destinationChain].HasHonestAttempt(ctx, message, verifierResults, verifierQuorum)
 	if err != nil {
-		cle.lggr.Errorw("unable to call execution checker, will retry message", "error", err, "messageID", messageID)
+		cle.lggr.Errorw("unable to call execution checker, will retry message", "error", err, protocol.LogKeyMessageID, messageID)
 		return true, err
 	}
 
 	// If someone else has already tried to execute this message with the data
 	// that we would execute the message with or deem valid. We won't execute.
 	if honestAttempt {
-		cle.lggr.Infow("skipping execution due to existing honest attempt", "messageID", messageID)
+		cle.lggr.Debugw("skipping execution due to existing honest attempt", protocol.LogKeyMessageID, messageID)
 		return false, nil
 	}
 
@@ -247,22 +248,28 @@ func (cle *ChainlinkExecutor) HandleMessage(ctx context.Context, message protoco
 		CCVData: orderedverifierResults,
 		Message: message,
 	}
-	cle.lggr.Infow("transmitting aggregated report to chain",
-		"messageID", messageID,
-		"destinationChain", destinationChain,
-		"latestCCVTimestamp", latestCCVTimestamp,
-		"aggregatedReport", aggregatedReport,
-	)
+	// Full report dumped at Debug to keep the per-message success line small.
+	cle.lggr.Debugw("aggregated report", protocol.LogKeyMessageID, messageID, "aggregatedReport", aggregatedReport)
 	err = cle.contractTransmitters[destinationChain].ConvertAndWriteMessageToChain(ctx, aggregatedReport)
 	if err != nil {
 		if errors.Is(err, executor.ErrMessageEncoding) {
 			cle.monitoring.Metrics().IncrementUnrecoverableMessageFailure(ctx)
-			cle.lggr.Warnw("skipping retry due to message encoding error", "messageID", messageID, "error", err)
+			cle.lggr.Warnw("skipping retry due to message encoding error", protocol.LogKeyMessageID, messageID, "error", err)
 			return false, err
 		}
-		cle.lggr.Warnw("will retry execution due to failed ConvertAndWriteMessageToChain", "messageID", messageID)
+		cle.lggr.Warnw("will retry execution due to failed ConvertAndWriteMessageToChain", protocol.LogKeyMessageID, messageID)
 		return true, err
 	}
+
+	// PER-MESSAGE LOG (success): one per message, when this executor transmits to chain.
+	cle.lggr.Infow("transmitting aggregated report to chain",
+		protocol.LogTypeKey, protocol.LogTypeMessageSuccess,
+		protocol.LogKeyMessageID, messageID,
+		protocol.LogKeyDestChain, destinationChain,
+		"latestCCVTimestamp", latestCCVTimestamp,
+		"verifierQuorum", verifierQuorum,
+		"verifierResultsLen", len(verifierResults),
+	)
 
 	// Record the message execution latency.
 	cle.monitoring.Metrics().RecordMessageExecutionLatency(ctx, time.Since(start), destinationChain)

@@ -73,12 +73,10 @@ func (c *NoopAggregatorMetricLabeler) DecrementPendingAggregationsChannelBuffer(
 	// No-op
 }
 
-func (c *NoopAggregatorMetricLabeler) RecordStorageLatency(ctx context.Context, duration time.Duration) {
-	// No-op
+func (c *NoopAggregatorMetricLabeler) RecordStorageLatency(_ context.Context, _ string, _ time.Duration, _ bool) {
 }
 
-func (c *NoopAggregatorMetricLabeler) IncrementStorageError(ctx context.Context) {
-	// No-op
+func (c *NoopAggregatorMetricLabeler) IncrementStorageError(_ context.Context, _ string) {
 }
 
 func (c *NoopAggregatorMetricLabeler) RecordTimeToAggregation(ctx context.Context, duration time.Duration) {

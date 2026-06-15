@@ -16,6 +16,7 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
+
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
@@ -44,6 +45,9 @@ type ReqModifier func(
 ) (testcontainers.ContainerRequest, error)
 
 type Input struct {
+	// Version is the component config schema version (see the executor
+	// component's Version constant).
+	Version        int           `toml:"version"`
 	Mode           services.Mode `toml:"mode"`
 	Out            *Output       `toml:"out"`
 	Image          string        `toml:"image"`
@@ -152,7 +156,12 @@ func ApplyDefaults(in *Input) {
 }
 
 // New creates an executor managed by JD via bootstrap.Run.
-func New(in *Input, outputs []*blockchain.Output, jdInfra *jobs.JDInfrastructure, modifiers map[string]ReqModifier) (*Output, error) {
+//
+// transmitterKeyName is the bootstrap keystore key name whose on-chain address
+// must be fetched and funded for this chain family. It is resolved by the caller
+// from the chain registry (chainreg) so that this service package does not import
+// chainreg (cycle). Pass "" for families that have no bootstrap-managed transmitter key.
+func New(in *Input, outputs []*blockchain.Output, jdInfra *jobs.JDInfrastructure, modifiers map[string]ReqModifier, transmitterKeyName string) (*Output, error) {
 	if in == nil {
 		return nil, nil
 	}
@@ -165,7 +174,7 @@ func New(in *Input, outputs []*blockchain.Output, jdInfra *jobs.JDInfrastructure
 		return nil, fmt.Errorf("JD infrastructure is not set")
 	}
 
-	out, err := launchExecutor(ctx, in, outputs, jdInfra, modifiers)
+	out, err := launchExecutor(ctx, in, outputs, jdInfra, modifiers, transmitterKeyName)
 	if err != nil {
 		return nil, fmt.Errorf("failed to launch executor: %w", err)
 	}
@@ -173,7 +182,7 @@ func New(in *Input, outputs []*blockchain.Output, jdInfra *jobs.JDInfrastructure
 	return out, nil
 }
 
-func launchExecutor(ctx context.Context, in *Input, outputs []*blockchain.Output, jdInfra *jobs.JDInfrastructure, modifiers map[string]ReqModifier) (*Output, error) {
+func launchExecutor(ctx context.Context, in *Input, outputs []*blockchain.Output, jdInfra *jobs.JDInfrastructure, modifiers map[string]ReqModifier, transmitterKeyName string) (*Output, error) {
 	jdCSAKey, err := jobs.GetJDCSAPublicKey(ctx, jdInfra.OffchainClient)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get JD server CSA public key: %w", err)
@@ -241,10 +250,15 @@ func launchExecutor(ctx context.Context, in *Input, outputs []*blockchain.Output
 	}
 	bootstrapURL := fmt.Sprintf("http://%s:%s", host, bootstrapMapped.Port())
 
-	// Fetches the CSA key and EVM transmitter key from the bootstrap server.
-	// The CSA key is used for JD registration; the EVM transmitter key is used to derive the
-	// on-chain address that must be funded before the executor can submit transactions.
-	bootstrapKeys, err := services.FetchBootstrapKeys(bootstrapURL, bootstrap.DefaultCSAKeyName, executor.DefaultEVMTransmitterKeyName)
+	// Fetches the CSA key and the family-specific transmitter key (resolved by the
+	// caller from chainreg) from the bootstrap server. The CSA key is used for JD
+	// registration, the transmitter key is used to derive the on-chain address that
+	// must be funded before the executor can submit transactions.
+	keyNames := []string{bootstrap.DefaultCSAKeyName}
+	if transmitterKeyName != "" {
+		keyNames = append(keyNames, transmitterKeyName)
+	}
+	bootstrapKeys, err := services.FetchBootstrapKeys(bootstrapURL, keyNames...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get bootstrap keys: %w", err)
 	}

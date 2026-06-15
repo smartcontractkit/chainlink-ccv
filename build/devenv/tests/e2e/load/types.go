@@ -12,10 +12,23 @@ import (
 
 // MessageProfileConfig corresponds to a message profile in the TOML config.
 type MessageProfileConfig struct {
-	Finality int    `toml:"finality"`  // e.g., 1
-	Name     string `toml:"name"`      // e.g., "data only"
-	HasData  bool   `toml:"has_data"`  // e.g., true
-	HasToken bool   `toml:"has_token"` // e.g., true
+	Finality      int    `toml:"finality"`        // e.g., 1
+	Name          string `toml:"name"`            // e.g., "data only"
+	HasData       bool   `toml:"has_data"`        // e.g., true
+	DataSizeBytes int    `toml:"data_size_bytes"` // payload size when has_data is true; 0 uses default
+	HasToken      bool   `toml:"has_token"`       // e.g., true
+}
+
+// MessageDataSizeBytes returns the arbitrary-message payload size for a profile.
+// When HasData is false, returns 0. When DataSizeBytes is unset (0), returns defaultSize.
+func MessageDataSizeBytes(profile MessageProfileConfig, defaultSize int) int {
+	if !profile.HasData {
+		return 0
+	}
+	if profile.DataSizeBytes > 0 {
+		return profile.DataSizeBytes
+	}
+	return defaultSize
 }
 
 // ChainProfileConfig represents an chain in the test profile config.

@@ -18,7 +18,6 @@ import (
 	"github.com/rs/zerolog/log"
 	"golang.org/x/sync/errgroup"
 
-	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
 
 	_ "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/adapters"
@@ -32,8 +31,10 @@ import (
 	_ "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/fake"
 	_ "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/indexer"
 	_ "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/jd"
+	_ "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/observability"
 	_ "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/pricer"
 	_ "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/protocol_contracts"
+	_ "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/tokenverifier"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/committeeverifier"
@@ -117,7 +118,7 @@ type Cfg struct {
 	Aggregator         []*services.AggregatorInput    `toml:"aggregator"            validate:"required"`
 	JD                 *jd.Input                      `toml:"jd"                    validate:"required"`
 	Blockchains        []*blockchain.Input            `toml:"blockchains"           validate:"required"`
-	NodeSets           []*ns.Input                    `toml:"nodesets"              validate:"required"`
+	NodeSets           []*ns.Input                    `toml:"nodesets,omitempty"`
 	CLNodesFundingETH  float64                        `toml:"cl_nodes_funding_eth"`
 	CLNodesFundingLink float64                        `toml:"cl_nodes_funding_link"`
 	// HighAvailability enables devenv-level service redundancy. When true,
@@ -902,8 +903,8 @@ func launchCLNodes(
 	return onchainPublicKeys, nil
 }
 
-// fundExecutorTransmitters funds the EVM transmitter addresses of all executors after launch.
-// Addresses are derived from the keystore key exposed by the bootstrap HTTP server.
+// fundExecutorTransmitters funds executor transmitter addresses after launch.
+// Addresses are derived from the keystore keys exposed by the bootstrap HTTP server.
 func fundExecutorTransmitters(
 	ctx context.Context,
 	executors []*executorsvc.Input,
@@ -912,21 +913,24 @@ func fundExecutorTransmitters(
 ) error {
 	addressesByFamily := make(map[string][]protocol.UnknownAddress)
 	for _, exec := range executors {
-		if exec == nil {
+		if exec == nil || exec.Out == nil {
 			continue
 		}
-		if exec.Out == nil || exec.Out.BootstrapKeys.EVMTransmitterAddress == "" {
+
+		reg, regErr := chainreg.GetRegistry().Get(exec.ChainFamily)
+		if regErr != nil || reg.ExecutorInfo == nil {
 			continue
 		}
-		family := exec.ChainFamily
-		if family == "" {
-			family = chainsel.FamilyEVM
+		addrHex := reg.ExecutorInfo.ExecutorTransmitterAddress(exec.Out.BootstrapKeys)
+		if addrHex == "" {
+			continue
 		}
-		addrBytes, err := hex.DecodeString(exec.Out.BootstrapKeys.EVMTransmitterAddress)
+
+		addrBytes, err := hex.DecodeString(addrHex)
 		if err != nil {
-			return fmt.Errorf("invalid EVM transmitter address for executor %s: %w", exec.ContainerName, err)
+			return fmt.Errorf("invalid transmitter address for executor %s (family %s): %w", exec.ContainerName, exec.ChainFamily, err)
 		}
-		addressesByFamily[family] = append(addressesByFamily[family], protocol.UnknownAddress(addrBytes))
+		addressesByFamily[exec.ChainFamily] = append(addressesByFamily[exec.ChainFamily], protocol.UnknownAddress(addrBytes))
 	}
 
 	for i, impl := range impls {
@@ -967,7 +971,11 @@ func launchExecutors(in []*executorsvc.Input, blockchainOutputs []*blockchain.Ou
 			outs = append(outs, exec.Out)
 			continue
 		}
-		out, err := executorsvc.New(exec, blockchainOutputs, jdInfra, chainreg.GetRegistry().GetExecutorModifiers())
+		var transmitterKeyName string
+		if reg, regErr := chainreg.GetRegistry().Get(exec.ChainFamily); regErr == nil && reg.ExecutorInfo != nil {
+			transmitterKeyName = reg.ExecutorInfo.ExecutorTransmitterKeyName()
+		}
+		out, err := executorsvc.New(exec, blockchainOutputs, jdInfra, chainreg.GetRegistry().GetExecutorModifiers(), transmitterKeyName)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create executor %s: %w", exec.ContainerName, err)
 		}

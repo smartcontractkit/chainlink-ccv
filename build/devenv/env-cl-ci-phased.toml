@@ -1,0 +1,32 @@
+## CI-specific override: use pre-built local images instead of building from
+## Dockerfile. Layer on top of env-phased.toml,env-cl-phased.toml in CI.
+## Replaces the [[committeeccv_clnode.node_sets]] array with specs that pull
+## the pre-built local:latest image (uploaded by the build-cl-image job).
+[committeeccv_clnode]
+version = 1
+cl_nodes_funding_eth = 50
+cl_nodes_funding_link = 50
+
+[[committeeccv_clnode.node_sets]]
+  name = "don"
+  nodes = 2
+  override_mode = "each"
+
+  [committeeccv_clnode.node_sets.db]
+    image = "postgres:15.0"
+
+  [[committeeccv_clnode.node_sets.node_specs]]
+
+    [committeeccv_clnode.node_sets.node_specs.node]
+      image = "docker.io/library/local:latest"
+
+    [committeeccv_clnode.node_sets.node_specs.node.env_vars]
+      CL_EVM_CMD=""
+
+  [[committeeccv_clnode.node_sets.node_specs]]
+
+    [committeeccv_clnode.node_sets.node_specs.node]
+      image = "docker.io/library/local:latest"
+
+    [committeeccv_clnode.node_sets.node_specs.node.env_vars]
+      CL_EVM_CMD=""

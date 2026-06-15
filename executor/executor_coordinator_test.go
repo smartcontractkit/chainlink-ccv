@@ -343,7 +343,7 @@ func TestMessageExpiration(t *testing.T) {
 	for _, tc := range testcases {
 		t.Run(tc.name, func(t *testing.T) {
 			// Create a new observed logger for each test case
-			lggr, hook := logger.TestObserved(t, zapcore.InfoLevel)
+			lggr, hook := logger.TestObserved(t, zapcore.DebugLevel)
 
 			currentTime := time.Now().UTC()
 			mockTimeProvider := mocks.NewMockTimeProvider(t)
@@ -443,7 +443,7 @@ func TestMessageExpiration(t *testing.T) {
 }
 
 func TestDuplicateMessageIDFromStreamWhileInFlight_IsSkippedAndHandleMessageCalledOnce(t *testing.T) {
-	lggr, hook := logger.TestObserved(t, zapcore.InfoLevel)
+	lggr, hook := logger.TestObserved(t, zapcore.DebugLevel)
 	currentTime := time.Now().UTC()
 	mockTimeProvider := mocks.NewMockTimeProvider(t)
 	mockTimeProvider.EXPECT().GetTime().Return(currentTime).Maybe()

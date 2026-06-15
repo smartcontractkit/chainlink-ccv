@@ -35,7 +35,7 @@ type TaskResult struct {
 	UnavailableCCVs         int
 }
 
-func NewTask(lggr logger.Logger, message protocol.VerifierResult, registry *registry.VerifierRegistry, storage common.IndexerStorage, verificationVisabilityWindow time.Duration) (*Task, error) {
+func NewTask(lggr logger.Logger, message protocol.VerifierResult, registry *registry.VerifierRegistry, storage common.IndexerStorage, ttl time.Time) (*Task, error) {
 	if lggr == nil {
 		return nil, fmt.Errorf("logger is required")
 	}
@@ -53,7 +53,7 @@ func NewTask(lggr logger.Logger, message protocol.VerifierResult, registry *regi
 		storage:   storage,
 		attempt:   0,
 		lastErr:   nil,
-		ttl:       time.Now().Add(verificationVisabilityWindow),
+		ttl:       ttl,
 	}, nil
 }
 

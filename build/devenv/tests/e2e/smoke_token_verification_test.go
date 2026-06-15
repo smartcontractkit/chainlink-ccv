@@ -368,7 +368,7 @@ func runLombardTestCase(
 		sourceSelector,
 		datastore.ContractType(versioned_verifier_resolver.LombardVerifierResolverType),
 		lombard_verifier.Deploy.Version(),
-		common.LombardContractsQualifier,
+		common.LombardVerifierResolverQualifier,
 		"",
 	)
 

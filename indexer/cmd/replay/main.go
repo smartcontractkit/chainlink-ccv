@@ -327,12 +327,12 @@ func mustBuildEngine(ctx context.Context, needsDiscoveryReader bool) (*replay.En
 		lggr.Warnf("Error closing migration database connection: %v", err)
 	}
 
-	replayStore, err := replay.NewStoreFromConfig(ctx, lggr, pgCfg.URI, dbConfig)
+	replayStore, err := replay.NewStoreFromConfig(ctx, lggr, pgCfg.URI, dbConfig, time.Duration(pgCfg.ConnMaxLifetime), time.Duration(pgCfg.ConnMaxIdleTime))
 	if err != nil {
 		lggr.Fatalf("Failed to create replay store: %v", err)
 	}
 
-	indexerStorage, err := storage.NewPostgresStorage(ctx, lggr, indexerMonitoring, pgCfg.URI, pg.DriverPostgres, dbConfig)
+	indexerStorage, err := storage.NewPostgresStorage(ctx, lggr, indexerMonitoring, pgCfg.URI, pg.DriverPostgres, dbConfig, time.Duration(pgCfg.ConnMaxLifetime), time.Duration(pgCfg.ConnMaxIdleTime))
 	if err != nil {
 		lggr.Fatalf("Failed to create indexer storage: %v", err)
 	}
@@ -391,7 +391,7 @@ func mustBuildStore(ctx context.Context) *replay.Store {
 		LockTimeout:            time.Duration(pgCfg.LockTimeout) * time.Second,
 	}
 
-	store, err := replay.NewStoreFromConfig(ctx, lggr, pgCfg.URI, dbConfig)
+	store, err := replay.NewStoreFromConfig(ctx, lggr, pgCfg.URI, dbConfig, time.Duration(pgCfg.ConnMaxLifetime), time.Duration(pgCfg.ConnMaxIdleTime))
 	if err != nil {
 		lggr.Fatalf("Failed to create store: %v", err)
 	}

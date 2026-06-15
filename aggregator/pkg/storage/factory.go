@@ -77,13 +77,13 @@ func (f *Factory) createPostgreSQLStorage(config *model.StorageConfig) (CommitVe
 	}
 	db.SetMaxIdleConns(maxIdleConns)
 
-	connMaxLifetime := config.ConnMaxLifetime
+	connMaxLifetime := time.Duration(config.ConnMaxLifetime)
 	if connMaxLifetime <= 0 {
 		connMaxLifetime = defaultConnMaxLifetime
 	}
 	db.SetConnMaxLifetime(connMaxLifetime)
 
-	connMaxIdleTime := config.ConnMaxIdleTime
+	connMaxIdleTime := time.Duration(config.ConnMaxIdleTime)
 	if connMaxIdleTime <= 0 {
 		connMaxIdleTime = defaultConnMaxIdleTime
 	}
@@ -109,5 +109,5 @@ func (f *Factory) createPostgreSQLStorage(config *model.StorageConfig) (CommitVe
 		return nil, fmt.Errorf("failed to run PostgreSQL migrations: %w", err)
 	}
 
-	return postgres.NewDatabaseStorage(sqlxDB, config.PageSize, config.QueryTimeout, f.logger), nil
+	return postgres.NewDatabaseStorage(sqlxDB, config.PageSize, time.Duration(config.QueryTimeout), f.logger), nil
 }

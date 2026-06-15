@@ -738,7 +738,7 @@ func NewEnvironment() (in *Cfg, err error) {
 			},
 			Lombard: ccvchangesets.LombardConfigInput{
 				VerifierID:     "LombardVerifier",
-				Qualifier:      devenvcommon.LombardContractsQualifier,
+				Qualifier:      devenvcommon.LombardVerifierResolverQualifier,
 				AttestationAPI: fakeOut.InternalHTTPURL + "/lombard",
 			},
 			CCTP: ccvchangesets.CCTPConfigInput{

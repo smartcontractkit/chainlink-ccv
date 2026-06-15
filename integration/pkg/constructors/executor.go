@@ -8,6 +8,7 @@ import (
 
 	"github.com/ethereum/go-ethereum/common"
 
+	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 	adapter "github.com/smartcontractkit/chainlink-ccv/executor/pkg/adapter"
 	x "github.com/smartcontractkit/chainlink-ccv/executor/pkg/executor"
@@ -48,6 +49,8 @@ func NewExecutorCoordinator(
 	keys map[protocol.ChainSelector]keys.RoundRobin,
 	fromAddresses map[protocol.ChainSelector][]common.Address,
 ) (*executor.Coordinator, error) {
+	lggr = ccvcommon.WithService(lggr, "executor")
+
 	if err := cfg.Validate(); err != nil {
 		lggr.Errorw("Invalid executor configuration.", "error", err)
 		return nil, fmt.Errorf("invalid executor configuration: %w", err)

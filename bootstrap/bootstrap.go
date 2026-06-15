@@ -17,11 +17,12 @@ import (
 
 	dbpkg "github.com/smartcontractkit/chainlink-ccv/bootstrap/db"
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap/keys"
+	"github.com/smartcontractkit/chainlink-ccv/common"
 	jdclient "github.com/smartcontractkit/chainlink-ccv/common/jd/client"
 	"github.com/smartcontractkit/chainlink-ccv/common/jd/lifecycle"
 	jobstore "github.com/smartcontractkit/chainlink-ccv/common/jd/store"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
-	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
+	zaplog "github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
 	"github.com/smartcontractkit/chainlink-common/keystore"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
@@ -343,7 +344,7 @@ func connectToDB(ctx context.Context, connStr string) (*sqlx.DB, error) {
 }
 
 func newServiceDeps(keyStore keystore.Keystore, logLevel zapcore.Level, name string) (ServiceDeps, error) {
-	lggr, err := logger.NewWith(logging.GetLogProfile(logLevel))
+	lggr, err := logger.NewWith(zaplog.GetLogProfile(logLevel))
 	if err != nil {
 		return ServiceDeps{}, fmt.Errorf("failed to create logger: %w", err)
 	}
@@ -388,6 +389,23 @@ type Option func(*Bootstrapper) error
 func WithLogLevel(logLevel zapcore.Level) Option {
 	return func(b *Bootstrapper) error {
 		b.logLevel = logLevel
+		return nil
+	}
+}
+
+// WithLogLevelFromEnv sets the log level from the LOG_LEVEL environment variable,
+// falling back to defaultLevel if the variable is unset or invalid.
+func WithLogLevelFromEnv(defaultLevel zapcore.Level) Option {
+	return func(b *Bootstrapper) error {
+		b.logLevel = defaultLevel
+		if lvlStr := os.Getenv("LOG_LEVEL"); lvlStr != "" {
+			var lvl zapcore.Level
+			if err := lvl.UnmarshalText([]byte(lvlStr)); err != nil {
+				_, _ = fmt.Fprintf(os.Stderr, "Invalid LOG_LEVEL '%s', defaulting to '%s'\n", lvlStr, defaultLevel)
+			} else {
+				b.logLevel = lvl
+			}
+		}
 		return nil
 	}
 }
@@ -456,11 +474,12 @@ func Run(
 	fac ServiceFactory,
 	opts ...Option,
 ) error {
-	lggr, err := logger.NewWith(logging.GetLogProfile(zapcore.InfoLevel))
+	lggr, err := logger.NewWith(zaplog.GetLogProfile(zapcore.InfoLevel))
 	if err != nil {
 		return fmt.Errorf("failed to create logger: %w", err)
 	}
 	lggr = logger.Sugared(logger.Named(lggr, "Bootstrapper"))
+	lggr = common.WithService(lggr, name)
 
 	bootstrapper, err := NewBootstrapper(name, lggr, fac, opts...)
 	if err != nil {

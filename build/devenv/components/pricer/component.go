@@ -5,19 +5,22 @@ import (
 	"fmt"
 	"math/big"
 
-	"github.com/pelletier/go-toml/v2"
-
 	chainsel "github.com/smartcontractkit/chain-selectors"
+	blockchainscomp "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/blockchains"
 	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	ctfblockchain "github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
 
-const configKey = "pricer"
+const Key = "pricer"
+
+// Version is the pricer component config schema version. Exactly this version is
+// supported; configs declaring any other version are rejected.
+const Version = 1
 
 func init() {
-	if err := devenvruntime.Register(configKey, factory); err != nil {
+	if err := devenvruntime.Register(Key, factory); err != nil {
 		panic(fmt.Sprintf("pricer component: %v", err))
 	}
 }
@@ -46,7 +49,7 @@ func (c *component) RunPhase3(
 		return nil, nil, err
 	}
 	if input == nil {
-		return map[string]any{configKey: input}, nil, nil
+		return map[string]any{Key: input}, nil, nil
 	}
 
 	services.ApplyPricerDefaults(input)
@@ -55,7 +58,7 @@ func (c *component) RunPhase3(
 		return nil, nil, fmt.Errorf("starting pricer: %w", err)
 	}
 
-	blockchains, _ := priorOutputs["blockchains"].([]*ctfblockchain.Input)
+	blockchains, _ := priorOutputs[blockchainscomp.Key].([]*ctfblockchain.Input)
 
 	addr, err := protocol.NewUnknownAddressFromHex(input.Keystore.Address)
 	if err != nil {
@@ -82,22 +85,18 @@ func (c *component) RunPhase3(
 		})
 	}
 
-	return map[string]any{configKey: input}, effects, nil
+	return map[string]any{Key: input}, effects, nil
 }
 
-// decode round-trips the raw TOML map[string]any into *services.PricerInput.
 func decode(raw any) (*services.PricerInput, error) {
-	b, err := toml.Marshal(struct {
-		V any `toml:"pricer"`
-	}{V: raw})
+	input, err := devenvruntime.DecodeConfig[*services.PricerInput](raw, Key)
 	if err != nil {
-		return nil, fmt.Errorf("re-encoding pricer config: %w", err)
+		return nil, err
 	}
-	var wrapper struct {
-		V *services.PricerInput `toml:"pricer"`
+	if input != nil {
+		if err := devenvruntime.CheckConfigVersion(input.Version, Version); err != nil {
+			return nil, err
+		}
 	}
-	if err := toml.Unmarshal(b, &wrapper); err != nil {
-		return nil, fmt.Errorf("decoding pricer config: %w", err)
-	}
-	return wrapper.V, nil
+	return input, nil
 }

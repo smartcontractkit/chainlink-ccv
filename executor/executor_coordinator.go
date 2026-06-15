@@ -171,17 +171,17 @@ func (ec *Coordinator) runStorageStream(ctx context.Context) {
 			id := msg.MustMessageID()
 
 			if ec.delayedMessageHeap.Has(id) {
-				ec.lggr.Infow("message already in delayed heap, skipping", "messageID", id)
+				ec.lggr.Debugw("message already in delayed heap, skipping", protocol.LogKeyMessageID, id)
 				continue
 			}
 			if ec.inFlightHas(id) {
-				ec.lggr.Infow("message already in flight, skipping", "messageID", id)
+				ec.lggr.Debugw("message already in flight, skipping", protocol.LogKeyMessageID, id)
 				continue
 			}
 
 			if !ec.leaderElector.IsExecutorForChain(msg.DestChainSelector) {
-				ec.lggr.Infow("skipping message, executor not in pool for destination chain",
-					"messageID", id, "chainSel", msg.DestChainSelector)
+				ec.lggr.Debugw("skipping message, executor not in pool for destination chain",
+					protocol.LogKeyMessageID, id, protocol.LogKeyChainSel, msg.DestChainSelector)
 				continue
 			}
 
@@ -190,18 +190,18 @@ func (ec *Coordinator) runStorageStream(ctx context.Context) {
 				msg.DestChainSelector,
 				streamResult.Metadata.IngestionTimestamp)
 			if err != nil {
-				ec.lggr.Errorw("leader elector failed for message, skipping", "messageID", id, "chainSel", msg.DestChainSelector, "error", err)
+				ec.lggr.Errorw("leader elector failed for message, skipping", protocol.LogKeyMessageID, id, protocol.LogKeyChainSel, msg.DestChainSelector, "error", err)
 				continue
 			}
 
 			retryDelay, err := ec.leaderElector.GetRetryDelay(msg.DestChainSelector)
 			if err != nil {
-				ec.lggr.Errorw("leader elector retry delay failed for message, skipping", "messageID", id, "chainSel", msg.DestChainSelector, "error", err)
+				ec.lggr.Errorw("leader elector retry delay failed for message, skipping", protocol.LogKeyMessageID, id, protocol.LogKeyChainSel, msg.DestChainSelector, "error", err)
 				continue
 			}
 
-			ec.lggr.Infow("pushing message to delayed heap",
-				"messageID", id,
+			ec.lggr.Debugw("pushing message to delayed heap",
+				protocol.LogKeyMessageID, id,
 				"ingestionTimestamp", streamResult.Metadata.IngestionTimestamp,
 				"readyTimestamp", readyTimestamp,
 			)
@@ -213,7 +213,7 @@ func (ec *Coordinator) runStorageStream(ctx context.Context) {
 				RetryInterval: retryDelay,
 				MessageID:     id,
 			}) {
-				ec.lggr.Infow("duplicate message rejected by heap", "messageID", id)
+				ec.lggr.Debugw("duplicate message rejected by heap", protocol.LogKeyMessageID, id)
 			}
 		}
 	}
@@ -273,18 +273,20 @@ func (ec *Coordinator) processPayload(ctx context.Context, payload message_heap.
 	defer ec.inFlightRemove(payload.MessageID)
 	currentTime := ec.timeProvider.GetTime()
 	if currentTime.After(payload.ExpiryTime) {
-		ec.lggr.Infow("message has expired", "messageID", payload.MessageID)
+		// PER-MESSAGE LOG (failure): terminal; message exceeded its expiry without execution.
+		ec.lggr.Infow("message has expired", protocol.LogTypeKey, protocol.LogTypeMessageFailure, protocol.LogKeyMessageID, payload.MessageID)
 		ec.monitoring.Metrics().IncrementExpiredMessages(ctx)
 		return
 	}
 
 	message, id := *payload.Message, payload.MessageID
 
-	ec.lggr.Infow("processing message with ID", "messageID", id)
+	// PER-MESSAGE LOG (status): one per message picked up for an execution attempt.
+	ec.lggr.Infow("processing message with ID", protocol.LogTypeKey, protocol.LogTypeMessageStatus, protocol.LogKeyMessageID, id)
 
 	shouldRetry, err := ec.executor.HandleMessage(ctx, message)
 	if shouldRetry {
-		ec.lggr.Infow("message should be retried, putting back in heap", "messageID", id)
+		ec.lggr.Debugw("message should be retried, putting back in heap", protocol.LogKeyMessageID, id)
 		if !ec.delayedMessageHeap.Push(message_heap.MessageWithTimestamps{
 			Message:       &message,
 			ReadyTime:     payload.ReadyTime.Add(payload.RetryInterval),
@@ -292,12 +294,12 @@ func (ec *Coordinator) processPayload(ctx context.Context, payload message_heap.
 			RetryInterval: payload.RetryInterval,
 			MessageID:     id,
 		}) {
-			ec.lggr.Warnw("retry push rejected, message already in heap", "messageID", id)
+			ec.lggr.Warnw("retry push rejected, message already in heap", protocol.LogKeyMessageID, id)
 		}
 	}
 	ec.monitoring.Metrics().IncrementMessagesProcessing(ctx)
 	if err != nil {
-		ec.lggr.Errorw("failed to handle message", "messageID", id, "error", err, "shouldRetry", shouldRetry)
+		ec.lggr.Errorw("failed to handle message", protocol.LogKeyMessageID, id, "error", err, "shouldRetry", shouldRetry)
 		ec.monitoring.Metrics().IncrementMessagesProcessingError(ctx, shouldRetry)
 	}
 }

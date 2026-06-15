@@ -2,10 +2,13 @@ package evm
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"strconv"
 	"time"
+
+	"github.com/ethereum/go-ethereum/crypto"
 
 	"github.com/Masterminds/semver/v3"
 	"github.com/rs/zerolog"
@@ -15,11 +18,16 @@ import (
 	cldf_chain "github.com/smartcontractkit/chainlink-deployments-framework/chain"
 	cldf_evm_provider "github.com/smartcontractkit/chainlink-deployments-framework/chain/evm/provider"
 	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm/provider/rpcclient"
+	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 
 	adapters_1_6_1 "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_1/adapters"
 	evmadapters "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/adapters"
+	executorops "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/executor"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/mock_receiver_v2"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/sequences"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/versioned_verifier_resolver"
 	tokenscore "github.com/smartcontractkit/chainlink-ccip/deployment/tokens"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainreg"
@@ -27,6 +35,8 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/committeeverifier"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/executor"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/contracttransmitter"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
 var tokenPoolVersions = []string{
@@ -38,8 +48,10 @@ func init() {
 	registerTokenAdapters()
 
 	// Register EVM with chainreg
+	evmFactory := &ImplFactory{}
 	if err := chainreg.Register(chainsel.FamilyEVM, chainreg.Registration{
-		ImplFactory:       &ImplFactory{},
+		ImplFactory:       evmFactory,
+		ExecutorInfo:      evmFactory,
 		CLDFProvider:      NewCLDFProviderFactory(),
 		ChainConfigLoader: ChainConfigLoader,
 		VerifierModifier:  VerifierModifier,
@@ -49,6 +61,7 @@ func init() {
 			2: BuildEVMExtraArgsV2,
 			3: SerializeMessageV3ExtraArgs,
 		},
+		AddressResolver: &AddressResolver{},
 	}); err != nil {
 		panic("evm chainreg: " + err.Error())
 	}
@@ -116,6 +129,26 @@ func (f *ImplFactory) DefaultFeeAggregator(env *deployment.Environment, chainSel
 
 func (f *ImplFactory) SupportsFunding() bool {
 	return true
+}
+
+func (f *ImplFactory) ExecutorTransmitterKeyName() string {
+	return contracttransmitter.DefaultKeyName
+}
+
+func (f *ImplFactory) ExecutorTransmitterAddress(keys services.BootstrapKeys) string {
+	rawHex := keys.PublicKeyHex(contracttransmitter.DefaultKeyName)
+	if rawHex == "" {
+		return ""
+	}
+	raw, err := hex.DecodeString(rawHex)
+	if err != nil {
+		return ""
+	}
+	pubKey, err := crypto.UnmarshalPubkey(raw)
+	if err != nil {
+		return ""
+	}
+	return hex.EncodeToString(crypto.PubkeyToAddress(*pubKey).Bytes())
 }
 
 // registerTokenAdapters registers EVM token adapters so ConfigureTokensForTransfers
@@ -238,4 +271,57 @@ func ChainConfigLoader(outputs []*blockchain.Output) (map[string]any, error) {
 	}
 
 	return infos, nil
+}
+
+func getContractAddress(ds datastore.DataStore, chainSelector uint64, contractType datastore.ContractType, version, qualifier, contractName string) (protocol.UnknownAddress, error) {
+	ref, err := ds.Addresses().Get(
+		datastore.NewAddressRefKey(chainSelector, contractType, semver.MustParse(version), qualifier),
+	)
+	if err != nil {
+		return protocol.UnknownAddress{}, fmt.Errorf("failed to get %s address for chain selector %d, ContractType: %s, ContractVersion: %s: %w",
+			contractName, chainSelector, contractType, version, err)
+	}
+	return protocol.NewUnknownAddressFromHex(ref.Address)
+}
+
+// AddressResolver implements [chainreg.AddressResolver] for EVM chains using v2.0.0 devenv deployments.
+type AddressResolver struct{}
+
+// GetContractReceiver implements [chainreg.AddressResolver].
+func (AddressResolver) GetContractReceiver(ds datastore.DataStore, chainSelector uint64, qualifier string) (protocol.UnknownAddress, error) {
+	return getContractAddress(ds, chainSelector,
+		datastore.ContractType(mock_receiver_v2.ContractType),
+		mock_receiver_v2.Deploy.Version(),
+		qualifier,
+		"mock receiver",
+	)
+}
+
+// GetExecutor implements [chainreg.AddressResolver].
+func (AddressResolver) GetExecutor(ds datastore.DataStore, chainSelector uint64, qualifier string) (protocol.UnknownAddress, error) {
+	return getContractAddress(ds, chainSelector,
+		datastore.ContractType(sequences.ExecutorProxyType),
+		executorops.Deploy.Version(),
+		qualifier,
+		"executor",
+	)
+}
+
+// GetCommitteeCCV implements [chainreg.AddressResolver].
+func (AddressResolver) GetCommitteeCCV(ds datastore.DataStore, chainSelector uint64, qualifier string) (protocol.UnknownAddress, error) {
+	return getContractAddress(ds, chainSelector,
+		datastore.ContractType(versioned_verifier_resolver.CommitteeVerifierResolverType),
+		versioned_verifier_resolver.Version.String(),
+		qualifier,
+		"committee verifier proxy",
+	)
+}
+
+// GetToken implements [chainreg.AddressResolver].
+func (AddressResolver) GetToken(ds datastore.DataStore, chainSelector uint64, poolRef datastore.AddressRef) (protocol.UnknownAddress, error) {
+	tokenRef, err := TokenRefForPool(poolRef)
+	if err != nil {
+		return protocol.UnknownAddress{}, err
+	}
+	return getContractAddress(ds, chainSelector, tokenRef.Type, tokenRef.Version.String(), tokenRef.Qualifier, "token")
 }

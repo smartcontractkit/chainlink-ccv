@@ -14,20 +14,26 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainreg"
 	ccldf "github.com/smartcontractkit/chainlink-ccv/build/devenv/cldf"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
+	blockchainscomp "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/blockchains"
+	jdcomp "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/jd"
 	ccdeploy "github.com/smartcontractkit/chainlink-ccv/build/devenv/deploy"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
 	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
-	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
-	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/committeeverifier"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/timing"
 	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
-	ccvchangesets "github.com/smartcontractkit/chainlink-ccv/deployment/changesets"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
 
+// Key is the TOML key used to register this component with the runtime.
+const Key = "protocol_contracts"
+
+// Version is the protocol_contracts component config schema version. Exactly
+// this version is supported; configs declaring any other version are rejected.
+const Version = 1
+
 func init() {
-	if err := devenvruntime.Register("protocol_contracts", factory); err != nil {
+	if err := devenvruntime.Register(Key, factory); err != nil {
 		panic(fmt.Sprintf("protocol_contracts component: %v", err))
 	}
 }
@@ -47,43 +53,44 @@ func (p *component) SetLogger(lggr zerolog.Logger) {
 	p.lggr = lggr.With().Str("component", "protocol_contracts").Logger()
 }
 
-func (p *component) ValidateConfig(_ any) error { return nil }
+func (p *component) ValidateConfig(componentConfig any) error {
+	_, err := decodeConfig(componentConfig)
+	return err
+}
 
-// RunPhase3 deploys contracts, configures lanes, and generates aggregator/indexer
-// configs. Infrastructure work (CL nodes, JD registration, verifier launch,
-// credential generation) was completed by legacy RunPhase2.
+// RunPhase2 deploys contracts and configures lanes. Infrastructure services
+// (verifier launch, JD registration, credential generation) are handled by the
+// CommitteeCCV Phase 3 component, which runs after this.
 //
 // NOTE: DeployContractsForSelector currently deploys CommitteeVerifier
 // proxy/resolver and MockReceivers when the topology includes committees.
 // Extracting CommitteeVerifier deployment into a standalone component (using the
 // DeployCommitteeVerifier changeset) is tracked as a follow-up.
-func (p *component) RunPhase3(
+func (p *component) RunPhase2(
 	ctx context.Context,
-	_ map[string]any,
-	_ any,
+	globalConfig map[string]any,
+	componentConfig any,
 	priorOutputs map[string]any,
 ) (map[string]any, []devenvruntime.Effect, error) {
-	blockchains, ok := priorOutputs["blockchains"].([]*blockchain.Input)
+	blockchains, ok := priorOutputs[blockchainscomp.Key].([]*blockchain.Input)
 	if !ok {
-		return nil, nil, fmt.Errorf("phase 1 did not produce []*blockchain.Input under \"blockchains\"")
+		return nil, nil, fmt.Errorf("phase 1 did not produce []*blockchain.Input under %q", blockchainscomp.Key)
 	}
-	cldf, ok := priorOutputs["_cldf"].(*ccldf.CLDF)
+	cldf := &ccldf.CLDF{}
+	jdInfra, ok := priorOutputs[jdcomp.Key].(*jobs.JDInfrastructure)
 	if !ok {
-		return nil, nil, fmt.Errorf("phase 2 did not produce *ccldf.CLDF under \"_cldf\"")
+		return nil, nil, fmt.Errorf("phase 1 did not produce *jobs.JDInfrastructure under %q", jdcomp.Key)
 	}
-	jdInfra, ok := priorOutputs["jd"].(*jobs.JDInfrastructure)
-	if !ok {
-		return nil, nil, fmt.Errorf("phase 2 did not produce *jobs.JDInfrastructure under \"jd\"")
+	// Topology lives under [protocol_contracts.environment_topology]; read it from
+	// this component's own config rather than the top-level raw config.
+	cfg, err := decodeConfig(componentConfig)
+	if err != nil {
+		return nil, nil, err
 	}
-	envTopology, ok := priorOutputs["_environment_topology"].(*ccvdeployment.EnvironmentTopology)
-	if !ok {
-		return nil, nil, fmt.Errorf("phase 2 did not produce *EnvironmentTopology under \"_environment_topology\"")
+	envTopology := cfg.EnvironmentTopology
+	if envTopology == nil {
+		return nil, nil, fmt.Errorf("environment_topology is required but not found in config")
 	}
-	verifiers, _ := priorOutputs["verifiers"].([]*committeeverifier.Input)
-	useLegacyConfigureLane, _ := priorOutputs["_use_legacy_configure_lane"].(bool)
-	aggregators, _ := priorOutputs["_aggregators_with_creds"].([]*services.AggregatorInput)
-	sharedTLSCerts, _ := priorOutputs["shared_tls_certs"].(*services.TLSCertPaths)
-
 	timeTrack := timing.New(p.lggr)
 	ctx = p.lggr.WithContext(ctx)
 
@@ -112,7 +119,7 @@ func (p *component) RunPhase3(
 	}
 	p.lggr.Info().Any("Selectors", selectors).Msg("Deploying for chain selectors")
 
-	topology := ccdeploy.BuildEnvironmentTopology(envTopology, verifiers, e)
+	topology := ccdeploy.BuildEnvironmentTopology(envTopology, nil, e)
 	if topology == nil {
 		return nil, nil, fmt.Errorf("failed to build environment topology")
 	}
@@ -193,53 +200,56 @@ func (p *component) RunPhase3(
 		return nil, nil, fmt.Errorf("configure all token transfers: %w", err)
 	}
 
-	var connectErr error
-	if useLegacyConfigureLane {
-		connectErr = ccdeploy.ConnectAllChainsLegacy(impls, blockchains, selectors, e, topology)
-	} else {
-		connectErr = ccdeploy.ConnectAllChainsCanonical(impls, blockchains, selectors, e, topology)
-	}
-	if connectErr != nil {
-		return nil, nil, connectErr
-	}
-
 	timeTrack.Record("[contracts] deployed")
 
-	for _, aggregatorInput := range aggregators {
-		aggregatorInput.SharedTLSCerts = sharedTLSCerts
+	// Lane configuration (ConnectAllChains) is deferred to CommitteeCCV Phase 3 because it
+	// calls ApplyVerifierConfig which fetches verifier signing keys from JD. Verifiers are not
+	// launched and registered until Phase 3, so this step cannot run here.
 
-		instanceName := aggregatorInput.InstanceName()
-		committee, ok := topology.NOPTopology.Committees[aggregatorInput.CommitteeName]
-		if !ok {
-			return nil, nil, fmt.Errorf("committee %q not found in topology", aggregatorInput.CommitteeName)
-		}
-		cs := ccvchangesets.GenerateAggregatorConfig()
-		output, err := cs.Apply(*e, ccvchangesets.GenerateAggregatorConfigInput{
-			ServiceIdentifier:  instanceName + "-aggregator",
-			CommitteeQualifier: aggregatorInput.CommitteeName,
-			ChainSelectors:     ccvchangesets.CommitteeChainSelectorsFromTopology(committee),
-		})
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to generate aggregator config for %s (committee %s): %w", instanceName, aggregatorInput.CommitteeName, err)
-		}
-
-		aggCfg, err := ccvdeployment.GetAggregatorConfig(output.DataStore.Seal(), instanceName+"-aggregator")
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to get aggregator config from output: %w", err)
-		}
-		aggregatorInput.GeneratedCommittee = aggCfg
-		e.DataStore = output.DataStore.Seal()
-		// Aggregator container launch is handled by the CommitteeCCV Phase 4 component,
-		// which reads "aggregators" from the phase snapshot and calls services.NewAggregator.
+	// Finalize CLDF: snapshot env metadata and print deployed addresses.
+	envMetadata, err := e.DataStore.EnvMetadata().Get()
+	if err != nil && err != datastore.ErrEnvMetadataNotSet {
+		return nil, nil, fmt.Errorf("getting env metadata: %w", err)
+	}
+	envMetadataJSON, err := json.Marshal(envMetadata)
+	if err != nil {
+		return nil, nil, fmt.Errorf("marshaling env metadata: %w", err)
+	}
+	cldf.AddEnvMetadata(string(envMetadataJSON))
+	if err := cldf.PrintAddresses(); err != nil {
+		return nil, nil, err
 	}
 
 	return map[string]any{
-		"aggregators": aggregators,
-		"_env":        e,
-		"_topology":   topology,
-		"_selectors":  selectors,
-		"_ds":         ds,
-		"_impls":      impls,
-		"_time_track": timeTrack,
+		// Public keys (serialized to the output file): cldf carries the deployed
+		// addresses + env metadata; environment_topology is read by tests. The
+		// remaining "_"-prefixed keys are runtime-only and stripped on serialize.
+		"cldf":                 cldf,
+		"environment_topology": topology,
+		"_env":                 e,
+		"_selectors":           selectors,
+		"_ds":                  ds,
+		"_impls":               impls,
+		"_time_track":          timeTrack,
 	}, nil, nil
+}
+
+// config is the [protocol_contracts] component config.
+type config struct {
+	Version int `toml:"version"`
+	// UseLegacyConfigureLane is consumed by the committeeccv component via the
+	// global config; it is decoded here so the strict round-trip accepts it.
+	UseLegacyConfigureLane bool                               `toml:"use_legacy_configure_lane"`
+	EnvironmentTopology    *ccvdeployment.EnvironmentTopology `toml:"environment_topology"`
+}
+
+func decodeConfig(raw any) (config, error) {
+	cfg, err := devenvruntime.DecodeConfig[config](raw, Key)
+	if err != nil {
+		return config{}, err
+	}
+	if err := devenvruntime.CheckConfigVersion(cfg.Version, Version); err != nil {
+		return config{}, err
+	}
+	return cfg, nil
 }
