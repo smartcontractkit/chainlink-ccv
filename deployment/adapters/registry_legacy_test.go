@@ -3,9 +3,10 @@ package adapters
 import (
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
-	"github.com/stretchr/testify/require"
 )
 
 type fakeAggregatorAdapter struct{}
@@ -13,6 +14,7 @@ type fakeAggregatorAdapter struct{}
 func (fakeAggregatorAdapter) ResolveSourceVerifierAddress(datastore.DataStore, uint64, string) (string, error) {
 	return "", nil
 }
+
 func (fakeAggregatorAdapter) ResolveDestinationVerifierAddress(datastore.DataStore, uint64, string) (string, error) {
 	return "", nil
 }
