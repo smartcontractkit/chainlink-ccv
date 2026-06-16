@@ -64,11 +64,9 @@ func (m *CCIP17EVMConfig) deployUSDCTokenAndPool(
 		return fmt.Errorf("failed to deploy CCTP chain on chain %d: %w", selector, err)
 	}
 
-	err = m.deployCCTPMockReceivers(env, ds, selector)
-	if err != nil {
-		return fmt.Errorf("failed to deploy CCTPMockReceivers on chain %d: %w", selector, err)
-	}
-
+	// CCTP mock receivers depend on the committee-verifier resolver, which is
+	// deployed in Phase 3 (committeeccv); they are deployed there via
+	// DeployMockReceivers.
 	return nil
 }
 
@@ -326,6 +324,19 @@ func (m *CCIP17EVMConfig) deployCCTPMockReceivers(
 		}
 	}
 	return nil
+}
+
+// hasCCTPDeployment reports whether the CCTP verifier resolver exists on the chain,
+// indicating the USDC/CCTP pools were deployed (Phase 2) and CCTP mock receivers
+// can be deployed.
+func (m *CCIP17EVMConfig) hasCCTPDeployment(ds datastore.DataStore, selector uint64) bool {
+	_, err := ds.Addresses().Get(datastore.NewAddressRefKey(
+		selector,
+		datastore.ContractType(versioned_verifier_resolver.CCTPVerifierResolverType),
+		versioned_verifier_resolver.Version,
+		"",
+	))
+	return err == nil
 }
 
 func (m *CCIP17EVMConfig) deployCircleContracts(

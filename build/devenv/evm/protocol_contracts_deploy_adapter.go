@@ -165,12 +165,18 @@ func toEVMProtocolDeployInput(in ccvdeploymentadapters.ProtocolContractsDeployIn
 }
 
 // resolveEVMExtras reads optional overrides from FamilyExtras, applying defaults
-// for any unset field.
+// for any unset field. The value under EVMProtocolDeployExtrasKey may be either a
+// typed EVMProtocolDeployExtras (programmatic callers) or a map[string]any
+// (TOML-sourced config), with keys: executor_fee_aggregator, max_ccvs_per_msg,
+// ccv_allowlist_enabled, block_depth, wait_for_safe.
 func resolveEVMExtras(familyExtras map[string]any) EVMProtocolDeployExtras {
 	extras := EVMProtocolDeployExtras{}
 	if familyExtras != nil {
-		if v, ok := familyExtras[EVMProtocolDeployExtrasKey].(EVMProtocolDeployExtras); ok {
+		switch v := familyExtras[EVMProtocolDeployExtrasKey].(type) {
+		case EVMProtocolDeployExtras:
 			extras = v
+		case map[string]any:
+			extras = parseEVMExtrasMap(v)
 		}
 	}
 	if extras.MaxCCVsPerMsg == 0 {
@@ -180,6 +186,45 @@ func resolveEVMExtras(familyExtras map[string]any) EVMProtocolDeployExtras {
 		extras.AllowedFinality = finality.Config{BlockDepth: 1}.Raw()
 	}
 	return extras
+}
+
+// parseEVMExtrasMap decodes a TOML-sourced map into EVMProtocolDeployExtras.
+// Unknown keys are ignored; missing keys leave zero values (resolved to defaults
+// by resolveEVMExtras).
+func parseEVMExtrasMap(m map[string]any) EVMProtocolDeployExtras {
+	var extras EVMProtocolDeployExtras
+	if s, ok := m["executor_fee_aggregator"].(string); ok && common.IsHexAddress(s) {
+		extras.ExecutorFeeAggregator = common.HexToAddress(s)
+	}
+	if n, ok := asInt64(m["max_ccvs_per_msg"]); ok {
+		extras.MaxCCVsPerMsg = uint8(n)
+	}
+	if b, ok := m["ccv_allowlist_enabled"].(bool); ok {
+		extras.CcvAllowlistEnabled = b
+	}
+	blockDepth, hasBlockDepth := asInt64(m["block_depth"])
+	waitForSafe, _ := m["wait_for_safe"].(bool)
+	if hasBlockDepth || waitForSafe {
+		extras.AllowedFinality = finality.Config{
+			BlockDepth:  uint16(blockDepth),
+			WaitForSafe: waitForSafe,
+		}.Raw()
+	}
+	return extras
+}
+
+// asInt64 coerces the common numeric types produced by TOML/JSON decoders.
+func asInt64(v any) (int64, bool) {
+	switch n := v.(type) {
+	case int64:
+		return n, true
+	case int:
+		return int64(n), true
+	case float64:
+		return int64(n), true
+	default:
+		return 0, false
+	}
 }
 
 // buildExecutorParams maps the chain-agnostic executor params (Qualifier +
