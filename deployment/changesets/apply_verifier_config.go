@@ -60,7 +60,7 @@ type ApplyVerifierConfigInput struct {
 //
 // The input is imperative — callers pass the committee description and the
 // participating NOPs directly, with no *EnvironmentTopology.
-func ApplyVerifierConfig(registry *adapters.Registry) deployment.ChangeSetV2[ApplyVerifierConfigInput] {
+func ApplyVerifierConfig() deployment.ChangeSetV2[ApplyVerifierConfigInput] {
 	validate := func(e deployment.Environment, cfg ApplyVerifierConfigInput) error {
 		if cfg.CommitteeQualifier == "" {
 			return fmt.Errorf("committee qualifier is required")
@@ -137,7 +137,7 @@ func ApplyVerifierConfig(registry *adapters.Registry) deployment.ChangeSetV2[App
 			)
 		}
 
-		signerFamily, err := getSignerFamilyFromRegistry(registry, selectors)
+		signerFamily, err := getSignerFamilyFromRegistry(selectors)
 		if err != nil {
 			return deployment.ChangesetOutput{}, fmt.Errorf("failed to determine signer address family: %w", err)
 		}
@@ -158,7 +158,7 @@ func ApplyVerifierConfig(registry *adapters.Registry) deployment.ChangeSetV2[App
 			return deployment.ChangesetOutput{}, err
 		}
 
-		contractAddresses, err := buildVerifierContractConfigs(registry, e, selectors, cfg.CommitteeQualifier, cfg.DefaultExecutorQualifier)
+		contractAddresses, err := buildVerifierContractConfigs(e, selectors, cfg.CommitteeQualifier, cfg.DefaultExecutorQualifier)
 		if err != nil {
 			return deployment.ChangesetOutput{}, err
 		}
@@ -230,7 +230,7 @@ func ApplyVerifierConfig(registry *adapters.Registry) deployment.ChangeSetV2[App
 // getSignerFamilyFromRegistry returns the signing key family implied by the selected
 // chains. If a verifier adapter is registered for a selector, it must agree with the
 // family derived from that selector.
-func getSignerFamilyFromRegistry(registry *adapters.Registry, selectors []uint64) (string, error) {
+func getSignerFamilyFromRegistry(selectors []uint64) (string, error) {
 	if len(selectors) == 0 {
 		return "", fmt.Errorf("at least one committee chain selector is required")
 	}
@@ -250,11 +250,11 @@ func getSignerFamilyFromRegistry(registry *adapters.Registry, selectors []uint64
 			)
 		}
 
-		a, err := registry.GetByChain(sel)
-		if err != nil || a.Verifier == nil {
+		verifier, err := adapters.GetVerifierRegistry().Get(sel)
+		if err != nil {
 			continue
 		}
-		if adapterFamily := a.Verifier.GetSignerAddressFamily(); adapterFamily != signerFamily {
+		if adapterFamily := verifier.GetSignerAddressFamily(); adapterFamily != signerFamily {
 			return "", fmt.Errorf(
 				"chain %d: verifier adapter signer family %q does not match chain family %q",
 				sel, adapterFamily, signerFamily,
@@ -265,7 +265,6 @@ func getSignerFamilyFromRegistry(registry *adapters.Registry, selectors []uint64
 }
 
 func buildVerifierContractConfigs(
-	registry *adapters.Registry,
 	e deployment.Environment,
 	selectors []uint64,
 	committeeQualifier string,
@@ -273,14 +272,11 @@ func buildVerifierContractConfigs(
 ) (map[string]*adapters.VerifierContractAddresses, error) {
 	configs := make(map[string]*adapters.VerifierContractAddresses, len(selectors))
 	for _, sel := range selectors {
-		a, err := registry.GetByChain(sel)
+		verifier, err := adapters.GetVerifierRegistry().Get(sel)
 		if err != nil {
-			return nil, fmt.Errorf("no adapter for chain %d: %w", sel, err)
+			return nil, fmt.Errorf("no verifier config adapter registered for chain %d: %w", sel, err)
 		}
-		if a.Verifier == nil {
-			return nil, fmt.Errorf("no verifier config adapter registered for chain %d", sel)
-		}
-		addrs, err := a.Verifier.ResolveVerifierContractAddresses(e.DataStore, sel, committeeQualifier, executorQualifier)
+		addrs, err := verifier.ResolveVerifierContractAddresses(e.DataStore, sel, committeeQualifier, executorQualifier)
 		if err != nil {
 			return nil, fmt.Errorf("failed to resolve contract addresses for chain %d: %w", sel, err)
 		}

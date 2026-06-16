@@ -23,7 +23,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/committeeverifier"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/util"
 	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
-	ccvadapters "github.com/smartcontractkit/chainlink-ccv/deployment/adapters"
 	ccvchangesets "github.com/smartcontractkit/chainlink-ccv/deployment/changesets"
 	ccvshared "github.com/smartcontractkit/chainlink-ccv/deployment/shared"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/commit"
@@ -249,7 +248,7 @@ func runPhase3Core(
 		if !ok {
 			return nil, nil, fmt.Errorf("committeeccv: committee %q not found in topology", agg.CommitteeName)
 		}
-		cs := ccvchangesets.GenerateAggregatorConfig(ccvadapters.GetRegistry())
+		cs := ccvchangesets.GenerateAggregatorConfig()
 		output, err := cs.Apply(*localEnv, ccvchangesets.GenerateAggregatorConfigInput{
 			ServiceIdentifier:  instanceName + "-aggregator",
 			CommitteeQualifier: agg.CommitteeName,
@@ -388,7 +387,7 @@ func buildVerifierJobSpecEffects(
 			if !ok {
 				return nil, fmt.Errorf("committeeccv: committee %q not found in topology", committeeName)
 			}
-			cs := ccvchangesets.ApplyVerifierConfig(ccvadapters.GetRegistry())
+			cs := ccvchangesets.ApplyVerifierConfig()
 			output, err := cs.Apply(*e, ccvchangesets.ApplyVerifierConfigInput{
 				CommitteeQualifier:       committeeName,
 				DefaultExecutorQualifier: devenvcommon.DefaultExecutorQualifier,

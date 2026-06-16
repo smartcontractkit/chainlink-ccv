@@ -10,7 +10,6 @@ import (
 	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
-	ccvadapters "github.com/smartcontractkit/chainlink-ccv/deployment/adapters"
 	ccvchangesets "github.com/smartcontractkit/chainlink-ccv/deployment/changesets"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
@@ -90,7 +89,7 @@ func (c *component) RunPhase4(
 			return nil, nil, fmt.Errorf("tokenverifier: generating template config: %w", tmplErr)
 		}
 
-		cs := ccvchangesets.GenerateTokenVerifierConfig(ccvadapters.GetRegistry())
+		cs := ccvchangesets.GenerateTokenVerifierConfig()
 		output, csErr := cs.Apply(localEnv, ccvchangesets.GenerateTokenVerifierConfigInput{
 			ServiceIdentifier: "TokenVerifier",
 			ChainSelectors:    selectors,

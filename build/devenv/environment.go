@@ -40,7 +40,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/committeeverifier"
 	executorsvc "github.com/smartcontractkit/chainlink-ccv/build/devenv/services/executor"
 	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
-	ccvadapters "github.com/smartcontractkit/chainlink-ccv/deployment/adapters"
 	ccvchangesets "github.com/smartcontractkit/chainlink-ccv/deployment/changesets"
 	ccvshared "github.com/smartcontractkit/chainlink-ccv/deployment/shared"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
@@ -487,7 +486,7 @@ func generateExecutorJobSpecs(
 		if !ok {
 			return nil, fmt.Errorf("executor pool %q not found in topology", qualifier)
 		}
-		cs := ccvchangesets.ApplyExecutorConfig(ccvadapters.GetRegistry())
+		cs := ccvchangesets.ApplyExecutorConfig()
 		output, err := cs.Apply(*e, ccvchangesets.ApplyExecutorConfigInput{
 			ExecutorQualifier: qualifier,
 			NOPs:              ccvchangesets.NOPInputsFromTopology(topology),
@@ -585,7 +584,7 @@ func generateVerifierJobSpecs(
 			if !ok {
 				return nil, fmt.Errorf("committee %q not found in topology", committeeName)
 			}
-			cs := ccvchangesets.ApplyVerifierConfig(ccvadapters.GetRegistry())
+			cs := ccvchangesets.ApplyVerifierConfig()
 			output, err := cs.Apply(*e, ccvchangesets.ApplyVerifierConfigInput{
 				CommitteeQualifier:       committeeName,
 				DefaultExecutorQualifier: devenvcommon.DefaultExecutorQualifier,

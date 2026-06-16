@@ -23,7 +23,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	executorsvc "github.com/smartcontractkit/chainlink-ccv/build/devenv/services/executor"
 	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
-	ccvadapters "github.com/smartcontractkit/chainlink-ccv/deployment/adapters"
 	ccvchangesets "github.com/smartcontractkit/chainlink-ccv/deployment/changesets"
 	ccvshared "github.com/smartcontractkit/chainlink-ccv/deployment/shared"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -289,7 +288,7 @@ func buildExecutorJobSpecs(
 		if !ok {
 			return nil, fmt.Errorf("executor: pool %q not found in topology", qualifier)
 		}
-		cs := ccvchangesets.ApplyExecutorConfig(ccvadapters.GetRegistry())
+		cs := ccvchangesets.ApplyExecutorConfig()
 		output, err := cs.Apply(*e, ccvchangesets.ApplyExecutorConfigInput{
 			ExecutorQualifier: qualifier,
 			NOPs:              ccvchangesets.NOPInputsFromTopology(topology),
