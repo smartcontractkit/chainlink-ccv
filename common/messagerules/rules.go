@@ -3,7 +3,6 @@ package messagerules
 import (
 	"fmt"
 	"slices"
-	"strings"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
@@ -113,5 +112,5 @@ func matchesTokenRule(rule TokenRuleData, selector uint64, token protocol.ByteSl
 	if len(token) == 0 {
 		return false
 	}
-	return strings.EqualFold(token.String(), rule.TokenAddress)
+	return tokenAddressBytesEqual(rule.TokenAddress, token)
 }

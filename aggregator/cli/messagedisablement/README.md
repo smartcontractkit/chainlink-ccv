@@ -72,6 +72,11 @@ chain/token pair on the same side of the message. Matching is strict:
 source selector is checked only against source token, and destination selector
 is checked only against destination token.
 
+Token addresses may be configured in minimal hex form (for example `0x7a9e...`).
+Matching treats two encodings as equal when one is the other with only leading
+zero bytes prepended, which covers variable-length CCIP wire encodings across
+chain families.
+
 ```sh
 aggregator message-disablement-rules create token --token 3379446385462418246,0xabc123
 ```
