@@ -28,6 +28,7 @@ type pollerResult[T any] struct {
 type eventPoller[T any] struct {
 	ethClient          *ethclient.Client
 	logger             zerolog.Logger
+	chainName          string
 	eventName          string
 	lastScannedBlock   uint64
 	waitersBySeqNum    map[eventKey]chan pollerResult[T]
@@ -43,6 +44,7 @@ type eventPoller[T any] struct {
 func newEventPoller[T any](
 	ethClient *ethclient.Client,
 	logger zerolog.Logger,
+	chainName string,
 	eventName string,
 	pollFn func(start, end uint64) (map[eventKey]T, error),
 ) *eventPoller[T] {
@@ -68,7 +70,8 @@ func (p *eventPoller[T]) registerByMessageID(ctx context.Context, key eventKey) 
 		resultCh := make(chan pollerResult[T], 1)
 		p.logger.Debug().
 			Uint64("chainSelector", key.chainSelector).
-			Bytes("messageID", key.messageID[:]).
+			Str("messageID", key.messageID.String()).
+			Str("chain", p.chainName).
 			Str("event", p.eventName).
 			Msg("Cache hit")
 		resultCh <- cachedResult
@@ -179,7 +182,7 @@ func (p *eventPoller[T]) poll() {
 
 	events, err := p.pollFn(lastScanned+1, latestBlock)
 	if err != nil {
-		p.logger.Warn().Err(err).Str("event", p.eventName).Msg("Failed to poll events")
+		p.logger.Warn().Err(err).Str("event", p.eventName).Str("chain", p.chainName).Msg("Failed to poll events")
 		return
 	}
 
@@ -208,7 +211,7 @@ func (p *eventPoller[T]) poll() {
 				delete(p.waitersByMessageID, msgIDKey)
 				p.logger.Info().
 					Uint64("chainSelector", key.chainSelector).
-					Bytes("messageID", key.messageID[:]).
+					Str("messageID", key.messageID.String()).
 					Str("event", p.eventName).
 					Msg("Event received")
 				ch <- result

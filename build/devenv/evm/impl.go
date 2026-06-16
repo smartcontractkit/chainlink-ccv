@@ -246,7 +246,7 @@ func (m *CCIP17EVM) getOrCreateOnRampPoller() (*eventPoller[cciptestinterfaces.M
 		return events, nil
 	}
 
-	poller := newEventPoller(ethClient, m.logger, "CCIPMessageSent", pollFn)
+	poller := newEventPoller(ethClient, m.logger, m.chain.Name(), "CCIPMessageSent", pollFn)
 	m.onRampPoller = poller
 	return poller, nil
 }
@@ -294,7 +294,7 @@ func (m *CCIP17EVM) getOrCreateOffRampPoller() (*eventPoller[cciptestinterfaces.
 		return events, nil
 	}
 
-	poller := newEventPoller(ethClient, m.logger, "ExecutionStateChanged", pollFn)
+	poller := newEventPoller(ethClient, m.logger, m.chain.Name(), "ExecutionStateChanged", pollFn)
 	m.offRampPoller = poller
 	return poller, nil
 }
@@ -404,7 +404,7 @@ func (m *CCIP17EVM) ConfirmSendOnSource(ctx context.Context, to uint64, key ccip
 	pollerKey := eventKey{chainSelector: to, msgNum: key.SeqNum, messageID: key.MessageID}
 	var resultCh <-chan pollerResult[cciptestinterfaces.MessageSentEvent]
 	if key.MessageID != (protocol.Bytes32{}) {
-		l.Info().Uint64("from", m.chainDetails.ChainSelector).Uint64("to", to).Bytes("messageID", key.MessageID[:]).Msg("Awaiting CCIPMessageSent event")
+		l.Info().Uint64("from", m.chainDetails.ChainSelector).Uint64("to", to).Str("messageID", key.MessageID.String()).Msg("Awaiting CCIPMessageSent event")
 		resultCh = poller.registerByMessageID(ctx, pollerKey)
 	} else {
 		l.Info().Uint64("from", m.chainDetails.ChainSelector).Uint64("to", to).Uint64("seq", key.SeqNum).Msg("Awaiting CCIPMessageSent event")
@@ -442,7 +442,7 @@ func (m *CCIP17EVM) ConfirmExecOnDest(ctx context.Context, from uint64, key ccip
 	pollerKey := eventKey{chainSelector: from, msgNum: key.SeqNum, messageID: key.MessageID}
 	var resultCh <-chan pollerResult[cciptestinterfaces.ExecutionStateChangedEvent]
 	if key.MessageID != (protocol.Bytes32{}) {
-		l.Info().Uint64("from", from).Bytes("messageID", key.MessageID[:]).Msg("Awaiting ExecutionStateChanged event")
+		l.Info().Uint64("from", from).Str("messageID", key.MessageID.String()).Msg("Awaiting ExecutionStateChanged event")
 		resultCh = poller.registerByMessageID(ctx, pollerKey)
 	} else {
 		l.Info().Uint64("from", from).Uint64("to", m.chainDetails.ChainSelector).Uint64("seq", key.SeqNum).Msg("Awaiting ExecutionStateChanged event")
@@ -599,6 +599,7 @@ func (m *CCIP17EVM) validateTokenBalances(
 	}
 
 	if !haveEnoughFeeTokens {
+		l.Error().Str("chain", srcChain.Name()).Str("sender", srcChain.DeployerKey.From.Hex()).Msg("lol")
 		return nil, fmt.Errorf("not enough tokens to send message, feeToken: %s, fee: %s, msgValue: %s", feeToken.Hex(), fee.String(), msgValue.String())
 	}
 
@@ -1987,6 +1988,7 @@ func (m *CCIP17EVM) SendChainMessage(ctx context.Context, destChain uint64, msg 
 
 	tx, err := rout.CcipSend(senderKeyCopy, destChain, message)
 	if err != nil {
+		l.Info().Uint64("dest_chain", destChain).Str("src_chain", srcChain.Name()).Str("router", rout.Address().Hex()).Msg("lol")
 		return cciptestinterfaces.MessageSentEvent{}, protocol.ByteSlice{}, fmt.Errorf("failed to send CCIP message: %w", err)
 	}
 	txHash := tx.Hash()

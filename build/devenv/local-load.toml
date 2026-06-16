@@ -1,0 +1,61 @@
+message_profiles=[
+    {name="data only", hasData=true, data_size_bytes=32, fee_token="native"},
+    {name="PTT", hasData=true, hasToken=true, fee_token="native"},
+    {name="token only", hasToken=true, fee_token="native"},
+]
+
+# steady: 1msg/10s for 10min, both directions
+[[test_profiles]]
+    enabled=true
+    chains_as_source=[
+        {selector="3379446385462418246", ratio=1},  # 0G mainnet
+        {selector="4793464827907405086", ratio=1}, # plume mainnet
+    ]
+    chains_as_dest=[
+        {selector="3379446385462418246", ratio=1},  # 0G mainnet
+        {selector="4793464827907405086", ratio=1}, # plume mainnet
+    ]
+    messages=[
+        {ratio=1, message_profile="PTT"},
+    ]
+    test_duration = "10m"
+    # Should be "integer/duration" like "1/1s" or "10/5m"
+    message_rate = "1/10s"
+    load_duration = "10m"
+
+
+# surge: 1/10s for 5min, 10/s burst for 3min, 1/10s cooldown for 2min — 0G→Plume only
+# schedule is built in code (wasp.Combine); this profile is reference only
+[[test_profiles]]
+    enabled=false
+    chains_as_source=[
+        {selector="3379446385462418246", ratio=1},  # 0G mainnet
+    ]
+    chains_as_dest=[
+        {selector="4793464827907405086", ratio=1}, # plume mainnet
+    ]
+    messages=[
+        {ratio=1, message_profile="PTT"},
+    ]
+    test_duration = "10m"
+    # Should be "integer/duration" like "1/1s" or "10/5m"
+    message_rate = "1/10s"
+    load_duration = "10m"
+
+
+# threshold: 1000 msgs fire-and-forget — 0G→Plume only
+[[test_profiles]]
+    enabled=false
+    chains_as_source=[
+        {selector="3379446385462418246", ratio=1},  # 0G mainnet
+    ]
+    chains_as_dest=[
+        {selector="4793464827907405086", ratio=1}, # plume mainnet
+    ]
+    messages=[
+        {ratio=1, message_profile="PTT"},
+    ]
+    test_duration = "5m"
+    # Should be "integer/duration" like "1/1s" or "10/5m"
+    message_rate = "10/1s"
+    load_duration = "5m"

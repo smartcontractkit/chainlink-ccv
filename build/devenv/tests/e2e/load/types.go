@@ -17,6 +17,7 @@ type MessageProfileConfig struct {
 	HasData       bool   `toml:"has_data"`        // e.g., true
 	DataSizeBytes int    `toml:"data_size_bytes"` // payload size when has_data is true; 0 uses default
 	HasToken      bool   `toml:"has_token"`       // e.g., true
+	FeeToken      string `toml:"fee_token"`       // "native" for native gas token, "weth" or empty for WETH
 }
 
 // MessageDataSizeBytes returns the arbitrary-message payload size for a profile.
