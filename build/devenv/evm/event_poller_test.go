@@ -171,9 +171,8 @@ func TestEventPollerByMessageID(t *testing.T) {
 		messageID := protocol.Bytes32{3, 4, 5, 6}
 		key := eventKey{chainSelector: 5, messageID: messageID}
 
-		ctx := context.Background()
-		ch1 := poller.registerByMessageID(ctx, key)
-		ch2 := poller.registerByMessageID(ctx, key)
+		ch1 := poller.registerByMessageID(t.Context(), key)
+		ch2 := poller.registerByMessageID(t.Context(), key)
 		require.Equal(t, ch1, ch2, "registerByMessageID should return same channel for duplicate key registration")
 	})
 
