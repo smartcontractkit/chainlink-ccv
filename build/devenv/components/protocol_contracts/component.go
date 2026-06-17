@@ -196,6 +196,10 @@ func (p *component) RunPhase2(
 		if err != nil {
 			return nil, nil, err
 		}
+		// TODO: migrate this to an address-registration effect so deployed
+		// addresses are registered to the datastore deterministically instead of
+		// by mutating the shared CLDF accumulator
+		// (see .scratch/phased-devenv-cleanup/issues/24).
 		cldf.AddAddresses(string(a))
 	}
 	e.DataStore = ds.Seal()

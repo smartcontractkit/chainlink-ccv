@@ -2,6 +2,7 @@ package committeeccv
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"slices"
@@ -15,6 +16,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainreg"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
+	ccldf "github.com/smartcontractkit/chainlink-ccv/build/devenv/cldf"
 	blockchainscomp "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/blockchains"
 	jdcomp "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/jd"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/components/observability"
@@ -108,6 +110,10 @@ type phase3Inputs struct {
 	impls                  []cciptestinterfaces.CCIP17Configuration
 	selectors              []uint64
 	useLegacyConfigureLane bool
+	// cldf is the Phase-2 CLDF accumulator, carried forward so Phase-3 deploys
+	// (committee verifiers, mock receivers) can append their addresses to the
+	// serialized output. Nil when the prior phase did not publish it.
+	cldf *ccldf.CLDF
 }
 
 func parsePhase3Inputs(priorOutputs, globalConfig map[string]any) (phase3Inputs, error) {
@@ -138,6 +144,10 @@ func parsePhase3Inputs(priorOutputs, globalConfig map[string]any) (phase3Inputs,
 	}
 	impls, _ := priorOutputs["_impls"].([]cciptestinterfaces.CCIP17Configuration)
 	selectors, _ := priorOutputs["_selectors"].([]uint64)
+	// cldf is published by protocol_contracts (Phase 2) under the public "cldf"
+	// key; absent in some test paths, in which case Phase-3 address persistence
+	// is skipped.
+	cldf, _ := priorOutputs["cldf"].(*ccldf.CLDF)
 	var useLegacy bool
 	if pcMap, ok := globalConfig[pccomp.Key].(map[string]any); ok {
 		useLegacy, _ = pcMap["use_legacy_configure_lane"].(bool)
@@ -153,6 +163,7 @@ func parsePhase3Inputs(priorOutputs, globalConfig map[string]any) (phase3Inputs,
 		impls:                  impls,
 		selectors:              selectors,
 		useLegacyConfigureLane: useLegacy,
+		cldf:                   cldf,
 	}, nil
 }
 
@@ -341,6 +352,12 @@ func deployCommitteeVerifiersAndReceivers(inputs phase3Inputs, localEnv *deploym
 		implBySelector[networkInfo.ChainSelector] = impl
 	}
 
+	// Accumulate the addresses deployed in this phase so they can be appended to
+	// the serialized CLDF output. Without this, committee verifiers and mock
+	// receivers deploy on-chain but never reach env-out.toml (only the merged,
+	// "_"-prefixed datastore carries them, which storePhasedOutput strips).
+	var deployedRefs []datastore.AddressRef
+
 	for _, sel := range inputs.selectors {
 		impl, ok := implBySelector[sel]
 		if !ok {
@@ -375,8 +392,12 @@ func deployCommitteeVerifiersAndReceivers(inputs phase3Inputs, localEnv *deploym
 		if err != nil {
 			return fmt.Errorf("committeeccv: deploy committee verifiers for chain %d: %w", sel, err)
 		}
-		if err := mergePhase3DataStore(inputs.ds, localEnv, out.DataStore.Seal()); err != nil {
+		committeeVerifierDS := out.DataStore.Seal()
+		if err := mergePhase3DataStore(inputs.ds, localEnv, committeeVerifierDS); err != nil {
 			return fmt.Errorf("committeeccv: merge committee verifier datastore for chain %d: %w", sel, err)
+		}
+		if deployedRefs, err = appendDataStoreRefs(deployedRefs, committeeVerifierDS); err != nil {
+			return fmt.Errorf("committeeccv: collect committee verifier addresses for chain %d: %w", sel, err)
 		}
 
 		// TODO: move mock-receiver deployment to a dedicated receivers component.
@@ -390,11 +411,36 @@ func deployCommitteeVerifiersAndReceivers(inputs phase3Inputs, localEnv *deploym
 				if err := mergePhase3DataStore(inputs.ds, localEnv, receiverDS); err != nil {
 					return fmt.Errorf("committeeccv: merge mock receiver datastore for chain %d: %w", sel, err)
 				}
+				if deployedRefs, err = appendDataStoreRefs(deployedRefs, receiverDS); err != nil {
+					return fmt.Errorf("committeeccv: collect mock receiver addresses for chain %d: %w", sel, err)
+				}
 			}
 		}
 	}
 
+	// Append the Phase-3 addresses to the CLDF accumulator so they are serialized
+	// to env-out.toml alongside the Phase-2 protocol contracts.
+	// TODO: migrate this to an address-registration effect so deployed addresses
+	// are registered to the datastore deterministically instead of by mutating the
+	// shared CLDF accumulator (see .scratch/phased-devenv-cleanup/issues/24).
+	if inputs.cldf != nil && len(deployedRefs) > 0 {
+		encoded, err := json.Marshal(deployedRefs)
+		if err != nil {
+			return fmt.Errorf("committeeccv: marshal phase-3 addresses: %w", err)
+		}
+		inputs.cldf.AddAddresses(string(encoded))
+	}
+
 	return nil
+}
+
+// appendDataStoreRefs fetches every address ref from ds and appends them to dst.
+func appendDataStoreRefs(dst []datastore.AddressRef, ds datastore.DataStore) ([]datastore.AddressRef, error) {
+	refs, err := ds.Addresses().Fetch()
+	if err != nil {
+		return dst, err
+	}
+	return append(dst, refs...), nil
 }
 
 // buildCommitteeVerifierParams extracts committee verifier deploy params from the
