@@ -15,8 +15,8 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainreg"
-	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	ccldf "github.com/smartcontractkit/chainlink-ccv/build/devenv/cldf"
+	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	blockchainscomp "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/blockchains"
 	jdcomp "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/jd"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/components/observability"
@@ -402,6 +402,7 @@ func deployCommitteeVerifiersAndReceivers(inputs phase3Inputs, localEnv *deploym
 
 		// TODO: move mock-receiver deployment to a dedicated receivers component.
 		// Mock receivers depend on the committee-verifier resolver just deployed.
+		//nolint:nestif // Reasonable complexity
 		if d, ok := impl.(cciptestinterfaces.MockReceiverDeployer); ok {
 			receiverDS, derr := d.DeployMockReceivers(localEnv, sel, inputs.topology)
 			if derr != nil {
