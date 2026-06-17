@@ -47,11 +47,10 @@ qualifier = "custom"
 version = "2.0.0"
 
 ## EVM-specific overrides consumed by the EVM ProtocolContractsDeployAdapter.
-[protocol_contracts.deploy.family_extras.evm]
-executor_fee_aggregator = "0x0000000000000000000000000000000000000001"
-max_ccvs_per_msg = 10
-block_depth = 1
-wait_for_safe = true
+## Only feeAggregator is read; it is applied to the OnRamp and executor proxies.
+## Other params (max CCVs per msg, finality) use the adapter's defaults.
+[protocol_contracts.deploy.family_extras]
+feeAggregator = "0x0000000000000000000000000000000000000001"
 
 ## Environment configuration defines the topology. Eventually the topology should be the only config that is needed.
 [protocol_contracts.environment_topology]

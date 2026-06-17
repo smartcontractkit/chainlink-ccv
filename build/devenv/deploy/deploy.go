@@ -116,7 +116,7 @@ func DeployContractsForSelector(
 	// 3. Call the tooling API changeset.
 	ccipTopology := convertTopologyToCCIP(topology)
 	registry := ccipAdapters.GetDeployChainContractsRegistry()
-	out, err := ccipChangesets.DeployChainContracts(registry).Apply(*env, changesetscore.WithMCMS[ccipChangesets.DeployChainContractsCfg]{
+	out, err := ccipChangesets.DeployChainContracts(registry, ccipAdapters.GetChainFamilyRegistry()).Apply(*env, changesetscore.WithMCMS[ccipChangesets.DeployChainContractsCfg]{
 		Cfg: ccipChangesets.DeployChainContractsCfg{
 			Topology:       ccipTopology,
 			ChainSelectors: []uint64{selector},
