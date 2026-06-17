@@ -200,15 +200,13 @@ func (p *component) RunPhase2(
 	}
 	e.DataStore = ds.Seal()
 
-	if err = ccdeploy.ConfigureAllTokenTransfers(impls, selectors, e, topology); err != nil {
-		return nil, nil, fmt.Errorf("configure all token transfers: %w", err)
-	}
-
 	timeTrack.Record("[contracts] deployed")
 
-	// Lane configuration (ConnectAllChains) is deferred to CommitteeCCV Phase 3 because it
-	// calls ApplyVerifierConfig which fetches verifier signing keys from JD. Verifiers are not
-	// launched and registered until Phase 3, so this step cannot run here.
+	// Token transfer configuration (ConfigureAllTokenTransfers) and lane configuration
+	// (ConnectAllChains) are both deferred to CommitteeCCV Phase 3: each wires token pools /
+	// lanes to the CommitteeVerifier resolver, which is now deployed in Phase 3. (Lane config
+	// additionally calls ApplyVerifierConfig, which needs verifier signing keys from JD —
+	// available only after verifiers launch in Phase 3.)
 
 	// Finalize CLDF: snapshot env metadata and print deployed addresses.
 	envMetadata, err := e.DataStore.EnvMetadata().Get()
@@ -300,6 +298,7 @@ func deployProtocolContractsForSelector(
 		operations.NewMemoryReporter(),
 	)
 
+	// TODO: move pre-deploy contract logic to a dedicated component.
 	// 1. Pre-hook (e.g. EVM deploys CREATE2 factory here).
 	preDS, err := impl.PreDeployContractsForSelector(ctx, env, selector, topology)
 	if err != nil {
@@ -357,6 +356,7 @@ func deployProtocolContractsForSelector(
 	}
 	env.DataStore = merged
 
+	// TODO: move post-deploy contract logic to a dedicated component.
 	// 4. Post-hook (e.g. EVM deploys USDC/Lombard pools here).
 	postDS, err := impl.PostDeployContractsForSelector(ctx, env, selector, topology)
 	if err != nil {

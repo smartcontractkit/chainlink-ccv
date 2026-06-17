@@ -192,6 +192,15 @@ func runPhase3Core(
 		return nil, nil, err
 	}
 
+	// Step 1d: Configure token-pool transfers now that committee verifiers exist. Moved from
+	// Phase 2, where the CommitteeVerifier resolver was not yet deployed, so token pools could
+	// not be wired to it. Runs before lane config (Step 5b), matching the original ordering.
+	if len(inputs.impls) > 0 {
+		if err := ccdeploy.ConfigureAllTokenTransfers(inputs.impls, inputs.selectors, localEnv, inputs.topology); err != nil {
+			return nil, nil, fmt.Errorf("committeeccv: configure all token transfers: %w", err)
+		}
+	}
+
 	// Step 2: Launch standalone verifier containers (reads HMAC creds from agg.Out).
 	if err := committeeverifier.LaunchStandaloneVerifiers(
 		verifiers, aggregators, inputs.blockchainOutputs, inputs.jdInfra,
@@ -370,6 +379,7 @@ func deployCommitteeVerifiersAndReceivers(inputs phase3Inputs, localEnv *deploym
 			return fmt.Errorf("committeeccv: merge committee verifier datastore for chain %d: %w", sel, err)
 		}
 
+		// TODO: move mock-receiver deployment to a dedicated receivers component.
 		// Mock receivers depend on the committee-verifier resolver just deployed.
 		if d, ok := impl.(cciptestinterfaces.MockReceiverDeployer); ok {
 			receiverDS, derr := d.DeployMockReceivers(localEnv, sel, inputs.topology)
