@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"slices"
 
 	"github.com/pelletier/go-toml/v2"
 
@@ -12,7 +13,9 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainreg"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	blockchainscomp "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/blockchains"
+	jdcomp "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/jd"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/components/observability"
+	pccomp "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/protocol_contracts"
 	ccdeploy "github.com/smartcontractkit/chainlink-ccv/build/devenv/deploy"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
 	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
@@ -20,7 +23,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/committeeverifier"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/util"
 	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
-	ccvadapters "github.com/smartcontractkit/chainlink-ccv/deployment/adapters"
 	ccvchangesets "github.com/smartcontractkit/chainlink-ccv/deployment/changesets"
 	ccvshared "github.com/smartcontractkit/chainlink-ccv/deployment/shared"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/commit"
@@ -29,14 +31,14 @@ import (
 	ctfblockchain "github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
 
-const configKey = "committeeccv"
+const Key = "committeeccv"
 
 // Version is the committeeccv component config schema version. Exactly this
 // version is supported; configs declaring any other version are rejected.
 const Version = 1
 
 func init() {
-	if err := devenvruntime.Register(configKey, factory); err != nil {
+	if err := devenvruntime.Register(Key, factory); err != nil {
 		panic(fmt.Sprintf("committeeccv component: %v", err))
 	}
 }
@@ -104,11 +106,11 @@ type phase3Inputs struct {
 }
 
 func parsePhase3Inputs(priorOutputs, globalConfig map[string]any) (phase3Inputs, error) {
-	jdInfra, ok := priorOutputs["jd"].(*jobs.JDInfrastructure)
+	jdInfra, ok := priorOutputs[jdcomp.Key].(*jobs.JDInfrastructure)
 	if !ok || jdInfra == nil {
 		return phase3Inputs{}, fmt.Errorf("committeeccv: jd not found in phase outputs")
 	}
-	blockchains, ok := priorOutputs["blockchains"].([]*ctfblockchain.Input)
+	blockchains, ok := priorOutputs[blockchainscomp.Key].([]*ctfblockchain.Input)
 	if !ok {
 		return phase3Inputs{}, fmt.Errorf("committeeccv: blockchains not found in phase outputs")
 	}
@@ -121,7 +123,7 @@ func parsePhase3Inputs(priorOutputs, globalConfig map[string]any) (phase3Inputs,
 	if !ok || topology == nil {
 		return phase3Inputs{}, fmt.Errorf("committeeccv: environment_topology not found in phase outputs")
 	}
-	obs, ok := priorOutputs["observability"].(*observability.Observability)
+	obs, ok := priorOutputs[observability.Key].(*observability.Observability)
 	if !ok || obs == nil {
 		return phase3Inputs{}, fmt.Errorf("committeeccv: observability not found in phase outputs")
 	}
@@ -132,7 +134,7 @@ func parsePhase3Inputs(priorOutputs, globalConfig map[string]any) (phase3Inputs,
 	impls, _ := priorOutputs["_impls"].([]cciptestinterfaces.CCIP17Configuration)
 	selectors, _ := priorOutputs["_selectors"].([]uint64)
 	var useLegacy bool
-	if pcMap, ok := globalConfig["protocol_contracts"].(map[string]any); ok {
+	if pcMap, ok := globalConfig[pccomp.Key].(map[string]any); ok {
 		useLegacy, _ = pcMap["use_legacy_configure_lane"].(bool)
 	}
 	return phase3Inputs{
@@ -246,7 +248,7 @@ func runPhase3Core(
 		if !ok {
 			return nil, nil, fmt.Errorf("committeeccv: committee %q not found in topology", agg.CommitteeName)
 		}
-		cs := ccvchangesets.GenerateAggregatorConfig(ccvadapters.GetRegistry())
+		cs := ccvchangesets.GenerateAggregatorConfig()
 		output, err := cs.Apply(*localEnv, ccvchangesets.GenerateAggregatorConfigInput{
 			ServiceIdentifier:  instanceName + "-aggregator",
 			CommitteeQualifier: agg.CommitteeName,
@@ -306,18 +308,6 @@ func (vjs verifierJobSpec) toBootstrapJobSpec() bootstrap.JobSpec {
 	}
 }
 
-func stringSlicesEqual(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
-}
-
 func validateDisableFinalityCheckers(committeeName string, verifiers []*committeeverifier.Input) (map[string][]string, error) {
 	if len(verifiers) == 0 {
 		return nil, nil
@@ -325,7 +315,7 @@ func validateDisableFinalityCheckers(committeeName string, verifiers []*committe
 	result := make(map[string][]string)
 	for _, ver := range verifiers {
 		if existing, ok := result[ver.ChainFamily]; ok {
-			if !stringSlicesEqual(existing, ver.DisableFinalityCheckers) {
+			if !slices.Equal(existing, ver.DisableFinalityCheckers) {
 				return nil, fmt.Errorf(
 					"verifiers in committee %q within the same chain family %s have inconsistent disable_finality_checkers settings",
 					committeeName, ver.ChainFamily,
@@ -397,7 +387,7 @@ func buildVerifierJobSpecEffects(
 			if !ok {
 				return nil, fmt.Errorf("committeeccv: committee %q not found in topology", committeeName)
 			}
-			cs := ccvchangesets.ApplyVerifierConfig(ccvadapters.GetRegistry())
+			cs := ccvchangesets.ApplyVerifierConfig()
 			output, err := cs.Apply(*e, ccvchangesets.ApplyVerifierConfigInput{
 				CommitteeQualifier:       committeeName,
 				DefaultExecutorQualifier: devenvcommon.DefaultExecutorQualifier,
@@ -507,18 +497,10 @@ type Config struct {
 	Verifier   []*committeeverifier.Input  `toml:"verifier"`
 }
 
-// decodeConfig round-trips the raw TOML component config into a typed Config and
-// verifies its declared version. The runtime hands components their config as
-// opaque decoded TOML (map[string]any), so re-encode it and decode into the
-// typed struct.
 func decodeConfig(raw any) (Config, error) {
-	b, err := toml.Marshal(raw)
+	cfg, err := devenvruntime.DecodeConfig[Config](raw, Key)
 	if err != nil {
-		return Config{}, fmt.Errorf("re-encoding committeeccv config: %w", err)
-	}
-	var cfg Config
-	if err := toml.Unmarshal(b, &cfg); err != nil {
-		return Config{}, fmt.Errorf("decoding committeeccv config: %w", err)
+		return Config{}, err
 	}
 	if err := devenvruntime.CheckConfigVersion(cfg.Version, Version); err != nil {
 		return Config{}, err

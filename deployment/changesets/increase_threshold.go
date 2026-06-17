@@ -49,7 +49,7 @@ type IncreaseThresholdInput struct {
 // until the onchain change catches up. Submitting the onchain change first would cause
 // verifiers to accept bundles with fewer signers than the new offchain config requires,
 // producing under-signed messages from the aggregator's perspective.
-func IncreaseThresholdOffchain(registry *adapters.Registry) deployment.ChangeSetV2[IncreaseThresholdOffchainInput] {
+func IncreaseThresholdOffchain() deployment.ChangeSetV2[IncreaseThresholdOffchainInput] {
 	validate := func(e deployment.Environment, cfg IncreaseThresholdOffchainInput) error {
 		if cfg.CommitteeQualifier == "" {
 			return fmt.Errorf("committee qualifier is required")
@@ -64,20 +64,16 @@ func IncreaseThresholdOffchain(registry *adapters.Registry) deployment.ChangeSet
 			return fmt.Errorf("at least one service identifier is required")
 		}
 		for _, sel := range cfg.ChainSelectors {
-			a, err := registry.GetByChain(sel)
-			if err != nil {
+			if _, err := adapters.GetCommitteeVerifierOnchainRegistry().Get(sel); err != nil {
 				return fmt.Errorf("chain %d: %w", sel, err)
 			}
-			if a.CommitteeVerifierOnchain == nil {
-				return fmt.Errorf("chain %d: no CommitteeVerifierOnchain adapter registered", sel)
-			}
-			if a.Aggregator == nil {
-				return fmt.Errorf("chain %d: no Aggregator adapter registered", sel)
+			if _, err := adapters.GetAggregatorRegistry().Get(sel); err != nil {
+				return fmt.Errorf("chain %d: %w", sel, err)
 			}
 		}
 
 		ctx := context.Background()
-		committeeStates, err := scanCommitteeStatesForChains(ctx, e, registry, cfg.CommitteeQualifier, cfg.ChainSelectors)
+		committeeStates, err := scanCommitteeStatesForChains(ctx, e, cfg.CommitteeQualifier, cfg.ChainSelectors)
 		if err != nil {
 			return err
 		}
@@ -85,7 +81,7 @@ func IncreaseThresholdOffchain(registry *adapters.Registry) deployment.ChangeSet
 	}
 
 	apply := func(e deployment.Environment, cfg IncreaseThresholdOffchainInput) (deployment.ChangesetOutput, error) {
-		committee, err := buildAggregatorCommittee(e, registry, cfg.CommitteeQualifier, cfg.ChainSelectors, &cfg.NewThreshold)
+		committee, err := buildAggregatorCommittee(e, cfg.CommitteeQualifier, cfg.ChainSelectors, &cfg.NewThreshold)
 		if err != nil {
 			return deployment.ChangesetOutput{}, fmt.Errorf("failed to build aggregator config: %w", err)
 		}
@@ -125,7 +121,7 @@ func IncreaseThresholdOffchain(registry *adapters.Registry) deployment.ChangeSet
 //
 // In deployer-key mode the transaction is submitted directly inside Apply.
 // MCMS-mode support is deferred to Phase 0 (CLD post-proposal hook prerequisite).
-func IncreaseThreshold(registry *adapters.Registry) deployment.ChangeSetV2[IncreaseThresholdInput] {
+func IncreaseThreshold() deployment.ChangeSetV2[IncreaseThresholdInput] {
 	validate := func(e deployment.Environment, cfg IncreaseThresholdInput) error {
 		if cfg.CommitteeQualifier == "" {
 			return fmt.Errorf("committee qualifier is required")
@@ -140,12 +136,8 @@ func IncreaseThreshold(registry *adapters.Registry) deployment.ChangeSetV2[Incre
 			return fmt.Errorf("at least one service identifier is required")
 		}
 		for _, sel := range cfg.ChainSelectors {
-			a, err := registry.GetByChain(sel)
-			if err != nil {
+			if _, err := adapters.GetCommitteeVerifierOnchainRegistry().Get(sel); err != nil {
 				return fmt.Errorf("chain %d: %w", sel, err)
-			}
-			if a.CommitteeVerifierOnchain == nil {
-				return fmt.Errorf("chain %d: no CommitteeVerifierOnchain adapter registered", sel)
 			}
 		}
 
@@ -174,7 +166,7 @@ func IncreaseThreshold(registry *adapters.Registry) deployment.ChangeSetV2[Incre
 		// Safety backstop 2: assert the onchain threshold has not yet been raised to
 		// NewThreshold. Catches double-fires and out-of-order manual invocations.
 		ctx := context.Background()
-		committeeStates, err := scanCommitteeStatesForChains(ctx, e, registry, cfg.CommitteeQualifier, cfg.ChainSelectors)
+		committeeStates, err := scanCommitteeStatesForChains(ctx, e, cfg.CommitteeQualifier, cfg.ChainSelectors)
 		if err != nil {
 			return err
 		}
@@ -184,7 +176,7 @@ func IncreaseThreshold(registry *adapters.Registry) deployment.ChangeSetV2[Incre
 	apply := func(e deployment.Environment, cfg IncreaseThresholdInput) (deployment.ChangesetOutput, error) {
 		ctx := context.Background()
 
-		committeeStates, err := scanCommitteeStatesForChains(ctx, e, registry, cfg.CommitteeQualifier, cfg.ChainSelectors)
+		committeeStates, err := scanCommitteeStatesForChains(ctx, e, cfg.CommitteeQualifier, cfg.ChainSelectors)
 		if err != nil {
 			return deployment.ChangesetOutput{}, err
 		}
@@ -195,8 +187,11 @@ func IncreaseThreshold(registry *adapters.Registry) deployment.ChangeSetV2[Incre
 				return deployment.ChangesetOutput{}, fmt.Errorf("chain %d: failed to build signature config change: %w", sel, err)
 			}
 
-			a, _ := registry.GetByChain(sel)
-			if err := a.CommitteeVerifierOnchain.ApplySignatureConfigs(ctx, e, sel, cfg.CommitteeQualifier, change); err != nil {
+			onchain, err := adapters.GetCommitteeVerifierOnchainRegistry().Get(sel)
+			if err != nil {
+				return deployment.ChangesetOutput{}, fmt.Errorf("chain %d: %w", sel, err)
+			}
+			if err := onchain.ApplySignatureConfigs(ctx, e, sel, cfg.CommitteeQualifier, change); err != nil {
 				return deployment.ChangesetOutput{}, fmt.Errorf("chain %d: ApplySignatureConfigs failed: %w", sel, err)
 			}
 		}
@@ -213,17 +208,16 @@ func IncreaseThreshold(registry *adapters.Registry) deployment.ChangeSetV2[Incre
 func scanCommitteeStatesForChains(
 	ctx context.Context,
 	e deployment.Environment,
-	registry *adapters.Registry,
 	qualifier string,
 	chainSelectors []uint64,
 ) (map[uint64]*adapters.CommitteeState, error) {
 	result := make(map[uint64]*adapters.CommitteeState, len(chainSelectors))
 	for _, sel := range chainSelectors {
-		a, err := registry.GetByChain(sel)
+		onchain, err := adapters.GetCommitteeVerifierOnchainRegistry().Get(sel)
 		if err != nil {
 			return nil, fmt.Errorf("chain %d: %w", sel, err)
 		}
-		states, err := a.CommitteeVerifierOnchain.ScanCommitteeStates(ctx, e, sel)
+		states, err := onchain.ScanCommitteeStates(ctx, e, sel)
 		if err != nil {
 			return nil, fmt.Errorf("chain %d: ScanCommitteeStates failed: %w", sel, err)
 		}

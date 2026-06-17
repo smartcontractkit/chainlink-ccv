@@ -36,6 +36,10 @@ func NewPhasedEnvironment() (out map[string]any, err error) {
 
 	// out is captured by the defer; its contents are available when the defer fires.
 	defer func() {
+		if ct, ok := out["_component_timings"].(*timing.ComponentTimeTracker); ok && ct != nil {
+			// TODO: report component timings via DX tracker
+			ct.Print(L)
+		}
 		var elapsed float64
 		if timeTrack, ok := out["_time_track"].(*timing.TimeTracker); ok && timeTrack != nil {
 			timeTrack.Print()
@@ -52,7 +56,7 @@ func NewPhasedEnvironment() (out map[string]any, err error) {
 
 	// Re-publish the schema version (the runtime consumed it) as a public output
 	// key so the serialized file begins with version = N and LoadOutput can route
-	// it to the phased decoder.
+	// it to the correct decoder.
 	out["version"] = version
 
 	if err := storePhasedOutput(out); err != nil {
@@ -61,9 +65,8 @@ func NewPhasedEnvironment() (out map[string]any, err error) {
 	return out, nil
 }
 
-// storePhasedOutput serializes the accumulated runtime output map to the
-// env-out.toml file, stripping runtime-only keys (those prefixed with "_").
-func storePhasedOutput(out map[string]any) error {
+// stripPrivateKeys returns a copy of out with all "_"-prefixed keys removed.
+func stripPrivateKeys(out map[string]any) map[string]any {
 	public := make(map[string]any, len(out))
 	for k, v := range out {
 		if strings.HasPrefix(k, "_") {
@@ -71,5 +74,12 @@ func storePhasedOutput(out map[string]any) error {
 		}
 		public[k] = v
 	}
+	return public
+}
+
+// storePhasedOutput serializes the accumulated runtime output map to the
+// env-out.toml file, stripping runtime-only keys (those prefixed with "_").
+func storePhasedOutput(out map[string]any) error {
+	public := stripPrivateKeys(out)
 	return Store(&public)
 }

@@ -23,8 +23,9 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/configuration"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/storage/postgres"
+	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
+	zaplog "github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
 	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
@@ -41,11 +42,12 @@ func main() {
 		fmt.Fprintf(os.Stderr, "Invalid LOG_LEVEL '%s', defaulting to 'info'\n", logLevelStr)
 		zapLevel = zapcore.InfoLevel
 	}
-	lggr, err := logger.NewWith(logging.GetLogProfile(zapLevel))
+	lggr, err := logger.NewWith(zaplog.GetLogProfile(zapLevel))
 	if err != nil {
 		panic(fmt.Sprintf("Failed to create logger: %v", err))
 	}
 	lggr = logger.Named(lggr, "aggregator")
+	lggr = ccvcommon.WithService(lggr, "aggregator")
 	sugaredLggr := logger.Sugared(lggr)
 
 	var (
@@ -92,7 +94,7 @@ func main() {
 				}
 				messageDisablementRulesDB = db
 				sqlxDB := sqlx.NewDb(db, "postgres")
-				store := postgres.NewDatabaseStorage(sqlxDB, cfg.Storage.PageSize, cfg.Storage.QueryTimeout, sugaredLggr)
+				store := postgres.NewDatabaseStorage(sqlxDB, cfg.Storage.PageSize, time.Duration(cfg.Storage.QueryTimeout), sugaredLggr)
 				messageDisablementRulesDeps = messagedisablementcli.Deps{
 					Logger: lggr,
 					Store:  store,

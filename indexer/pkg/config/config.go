@@ -4,9 +4,11 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/BurntSushi/toml"
 
+	"github.com/smartcontractkit/chainlink-ccv/common"
 	hmacutil "github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
 )
 
@@ -56,6 +58,10 @@ type SchedulerConfig struct {
 	BaseDelay int `toml:"BaseDelay"`
 	// MaxDelay defines the maximum number of milliseconds to wait before retrying the message.
 	MaxDelay int `toml:"MaxDelay"`
+	// MaxHeapSize is the maximum number of delayed tasks the scheduler heap may hold at once.
+	// Schedule blocks until a slot is free; TrySchedule returns ErrSchedulerFull immediately.
+	// 0 means unbounded.
+	MaxHeapSize int `toml:"MaxHeapSize"`
 }
 
 type PoolConfig struct {
@@ -64,6 +70,8 @@ type PoolConfig struct {
 	// WorkerTimeout is the number of seconds a worker can attempt to retrieve verifications for
 	// Note: This value should always be higher then the maximum timeout on the slowest configured verifier.
 	WorkerTimeout int `toml:"WorkerTimeout"`
+	// HydrationBatchSize controls how many PROCESSING messages are loaded from storage per page during startup hydration.
+	HydrationBatchSize uint64 `toml:"HydrationBatchSize"`
 }
 
 // APIConfig provides all configuration for the API inside the indexer.
@@ -110,6 +118,10 @@ type PostgresConfig struct {
 	MaxOpenConnections int `toml:"MaxOpenConnections"`
 	// MaxIdleConnections is the maximum number of idle connections to the database.
 	MaxIdleConnections int `toml:"MaxIdleConnections"`
+	// ConnMaxLifetime is the maximum lifetime of a connection. 0 defaults to 30 minutes.
+	ConnMaxLifetime common.Duration `toml:"ConnMaxLifetime"`
+	// ConnMaxIdleTime is the maximum idle time of a connection. 0 defaults to 5 minutes.
+	ConnMaxIdleTime common.Duration `toml:"ConnMaxIdleTime"`
 	// IdleInTxSessionTimeout is the idle_in_transaction_session_timeout in seconds.
 	IdleInTxSessionTimeout int64 `toml:"IdleInTxSessionTimeout"`
 	// LockTimeout is the lock_timeout in seconds.
@@ -457,6 +469,20 @@ func (p *PostgresConfig) Validate() error {
 
 	if p.MaxIdleConnections > p.MaxOpenConnections {
 		return fmt.Errorf("postgres max_idle_connections (%d) cannot be greater than max_open_connections (%d)", p.MaxIdleConnections, p.MaxOpenConnections)
+	}
+
+	if p.ConnMaxLifetime < 0 {
+		return fmt.Errorf("postgres conn_max_lifetime must be non-negative, got %s", p.ConnMaxLifetime)
+	}
+	if p.ConnMaxLifetime == 0 {
+		p.ConnMaxLifetime = common.Duration(30 * time.Minute)
+	}
+
+	if p.ConnMaxIdleTime < 0 {
+		return fmt.Errorf("postgres conn_max_idle_time must be non-negative, got %s", p.ConnMaxIdleTime)
+	}
+	if p.ConnMaxIdleTime == 0 {
+		p.ConnMaxIdleTime = common.Duration(5 * time.Minute)
 	}
 
 	if p.IdleInTxSessionTimeout < 0 {

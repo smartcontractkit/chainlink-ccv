@@ -11,17 +11,18 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
+
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainreg"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	blockchainscomp "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/blockchains"
+	jdcomp "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/jd"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/components/observability"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
 	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	executorsvc "github.com/smartcontractkit/chainlink-ccv/build/devenv/services/executor"
 	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
-	ccvadapters "github.com/smartcontractkit/chainlink-ccv/deployment/adapters"
 	ccvchangesets "github.com/smartcontractkit/chainlink-ccv/deployment/changesets"
 	ccvshared "github.com/smartcontractkit/chainlink-ccv/deployment/shared"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -30,14 +31,14 @@ import (
 	ctfblockchain "github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
 
-const configKey = "executor"
+const Key = "executor"
 
 // Version is the executor component config schema version. Exactly this version
 // is supported; configs declaring any other version are rejected.
 const Version = 1
 
 func init() {
-	if err := devenvruntime.Register(configKey, factory); err != nil {
+	if err := devenvruntime.Register(Key, factory); err != nil {
 		panic(fmt.Sprintf("executor component: %v", err))
 	}
 }
@@ -67,18 +68,18 @@ func (c *component) RunPhase3(
 		return nil, nil, err
 	}
 	if len(executors) == 0 {
-		return map[string]any{configKey: executors}, nil, nil
+		return map[string]any{Key: executors}, nil, nil
 	}
 
-	blockchains, ok := priorOutputs["blockchains"].([]*ctfblockchain.Input)
+	blockchains, ok := priorOutputs[blockchainscomp.Key].([]*ctfblockchain.Input)
 	if !ok {
-		return nil, nil, fmt.Errorf("phase 1 did not produce []*blockchain.Input under \"blockchains\"")
+		return nil, nil, fmt.Errorf("phase 1 did not produce []*blockchain.Input under %q", blockchainscomp.Key)
 	}
 	blockchainOutputs := blockchainscomp.Outputs(blockchains)
 
-	jdInfra, ok := priorOutputs["jd"].(*jobs.JDInfrastructure)
+	jdInfra, ok := priorOutputs[jdcomp.Key].(*jobs.JDInfrastructure)
 	if !ok || jdInfra == nil {
-		return nil, nil, fmt.Errorf("phase 2 did not produce *jobs.JDInfrastructure under \"jd\"")
+		return nil, nil, fmt.Errorf("phase 1 did not produce *jobs.JDInfrastructure under %q", jdcomp.Key)
 	}
 
 	for _, exec := range executors {
@@ -89,7 +90,11 @@ func (c *component) RunPhase3(
 		if exec.Mode != services.Standalone {
 			continue
 		}
-		out, err := executorsvc.New(exec, blockchainOutputs, jdInfra, chainreg.GetRegistry().GetExecutorModifiers())
+		var transmitterKeyName string
+		if reg, regErr := chainreg.GetRegistry().Get(exec.ChainFamily); regErr == nil && reg.ExecutorInfo != nil {
+			transmitterKeyName = reg.ExecutorInfo.ExecutorTransmitterKeyName()
+		}
+		out, err := executorsvc.New(exec, blockchainOutputs, jdInfra, chainreg.GetRegistry().GetExecutorModifiers(), transmitterKeyName)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to launch executor %s: %w", exec.ContainerName, err)
 		}
@@ -105,7 +110,11 @@ func (c *component) RunPhase3(
 		if exec == nil || exec.Mode != services.Standalone || exec.Out == nil {
 			continue
 		}
-		addrStr := exec.Out.BootstrapKeys.EVMTransmitterAddress
+		reg, regErr := chainreg.GetRegistry().Get(exec.ChainFamily)
+		if regErr != nil || reg.ExecutorInfo == nil {
+			continue
+		}
+		addrStr := reg.ExecutorInfo.ExecutorTransmitterAddress(exec.Out.BootstrapKeys)
 		if addrStr == "" {
 			continue
 		}
@@ -113,19 +122,15 @@ func (c *component) RunPhase3(
 		if addrErr != nil {
 			return nil, nil, fmt.Errorf("executor %s invalid transmitter address: %w", exec.ContainerName, addrErr)
 		}
-		family := exec.ChainFamily
-		if family == "" {
-			family = chainsel.FamilyEVM
-		}
 		for _, bc := range blockchains {
 			if bc == nil {
 				continue
 			}
 			bcFamily, ferr := ctfblockchain.TypeToFamily(bc.Type)
-			if ferr != nil || string(bcFamily) != family {
+			if ferr != nil || string(bcFamily) != exec.ChainFamily {
 				continue
 			}
-			sel, serr := chainsel.GetChainDetailsByChainIDAndFamily(bc.ChainID, family)
+			sel, serr := chainsel.GetChainDetailsByChainIDAndFamily(bc.ChainID, exec.ChainFamily)
 			if serr != nil {
 				continue
 			}
@@ -145,7 +150,7 @@ func (c *component) RunPhase3(
 	if !ok || topology == nil {
 		return nil, nil, fmt.Errorf("executor: environment_topology not found in phase outputs")
 	}
-	obs, ok := priorOutputs["observability"].(*observability.Observability)
+	obs, ok := priorOutputs[observability.Key].(*observability.Observability)
 	if !ok || obs == nil {
 		return nil, nil, fmt.Errorf("executor: observability not found in phase outputs")
 	}
@@ -192,7 +197,7 @@ func (c *component) RunPhase3(
 		})
 	}
 
-	return map[string]any{configKey: executors}, effects, nil
+	return map[string]any{Key: executors}, effects, nil
 }
 
 // registerWithJD registers all standalone executors with JD and waits for their
@@ -283,7 +288,7 @@ func buildExecutorJobSpecs(
 		if !ok {
 			return nil, fmt.Errorf("executor: pool %q not found in topology", qualifier)
 		}
-		cs := ccvchangesets.ApplyExecutorConfig(ccvadapters.GetRegistry())
+		cs := ccvchangesets.ApplyExecutorConfig()
 		output, err := cs.Apply(*e, ccvchangesets.ApplyExecutorConfigInput{
 			ExecutorQualifier: qualifier,
 			NOPs:              ccvchangesets.NOPInputsFromTopology(topology),
@@ -316,24 +321,15 @@ func buildExecutorJobSpecs(
 	return result, nil
 }
 
-// decode round-trips the raw TOML []any into []*executorsvc.Input.
 func decode(raw any) ([]*executorsvc.Input, error) {
-	b, err := toml.Marshal(struct {
-		V any `toml:"executor"`
-	}{V: raw})
+	inputs, err := devenvruntime.DecodeConfig[[]*executorsvc.Input](raw, Key)
 	if err != nil {
-		return nil, fmt.Errorf("re-encoding executor config: %w", err)
+		return nil, err
 	}
-	var wrapper struct {
-		V []*executorsvc.Input `toml:"executor"`
-	}
-	if err := toml.Unmarshal(b, &wrapper); err != nil {
-		return nil, fmt.Errorf("decoding executor config: %w", err)
-	}
-	for i, in := range wrapper.V {
+	for i, in := range inputs {
 		if err := devenvruntime.CheckConfigVersion(in.Version, Version); err != nil {
 			return nil, fmt.Errorf("executor entry %d: %w", i, err)
 		}
 	}
-	return wrapper.V, nil
+	return inputs, nil
 }

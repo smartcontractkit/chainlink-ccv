@@ -87,9 +87,19 @@ func AugmentMetrics(ctx context.Context, metrics common.AggregatorMetricLabeler)
 }
 
 func augmentLoggerIfOk(ctx context.Context, logger logger.SugaredLogger, key contextKey) logger.SugaredLogger {
-	value, ok := ctx.Value(key).(string)
-	if !ok {
+	value := ctx.Value(key)
+	if value == nil {
 		return logger
 	}
-	return logger.With(string(key), value)
+
+	switch v := value.(type) {
+	case string:
+		return logger.With(string(key), v)
+	case protocol.ByteSlice:
+		if s := v.String(); s != "" {
+			return logger.With(string(key), s)
+		}
+	}
+
+	return logger
 }
