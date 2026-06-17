@@ -81,68 +81,6 @@ alias = "custom-executor-1"
 name = "custom-executor-1"
 mode = "standalone"
 
-[protocol_contracts.environment_topology.nop_topology.committees.default]
-qualifier = "default"
-verifier_version = "2.0.0"
-
-[[protocol_contracts.environment_topology.nop_topology.committees.default.aggregators]]
-name = "default"
-address = "default-aggregator:50051"
-insecure_connection = true
-
-[protocol_contracts.environment_topology.nop_topology.committees.default.chain_configs.3379446385462418246]
-nop_aliases = ["default-verifier-1", "default-verifier-2"]
-threshold = 2
-
-[protocol_contracts.environment_topology.nop_topology.committees.default.chain_configs.12922642891491394802]
-nop_aliases = ["default-verifier-1", "default-verifier-2"]
-threshold = 2
-
-[protocol_contracts.environment_topology.nop_topology.committees.default.chain_configs.4793464827907405086]
-nop_aliases = ["default-verifier-1", "default-verifier-2"]
-threshold = 2
-
-[protocol_contracts.environment_topology.nop_topology.committees.secondary]
-qualifier = "secondary"
-verifier_version = "2.0.0"
-
-[[protocol_contracts.environment_topology.nop_topology.committees.secondary.aggregators]]
-name = "default"
-address = "secondary-aggregator:50051"
-insecure_connection = true
-
-[protocol_contracts.environment_topology.nop_topology.committees.secondary.chain_configs.3379446385462418246]
-nop_aliases = ["secondary-verifier-1", "secondary-verifier-2"]
-threshold = 2
-
-[protocol_contracts.environment_topology.nop_topology.committees.secondary.chain_configs.12922642891491394802]
-nop_aliases = ["secondary-verifier-1", "secondary-verifier-2"]
-threshold = 2
-
-[protocol_contracts.environment_topology.nop_topology.committees.secondary.chain_configs.4793464827907405086]
-nop_aliases = ["secondary-verifier-1", "secondary-verifier-2"]
-threshold = 2
-
-[protocol_contracts.environment_topology.nop_topology.committees.tertiary]
-qualifier = "tertiary"
-verifier_version = "2.0.0"
-
-[[protocol_contracts.environment_topology.nop_topology.committees.tertiary.aggregators]]
-name = "default"
-address = "tertiary-aggregator:50051"
-insecure_connection = true
-
-[protocol_contracts.environment_topology.nop_topology.committees.tertiary.chain_configs.3379446385462418246]
-nop_aliases = ["tertiary-verifier-1", "tertiary-verifier-2"]
-threshold = 2
-
-[protocol_contracts.environment_topology.nop_topology.committees.tertiary.chain_configs.12922642891491394802]
-nop_aliases = ["tertiary-verifier-1", "tertiary-verifier-2"]
-threshold = 2
-
-[protocol_contracts.environment_topology.nop_topology.committees.tertiary.chain_configs.4793464827907405086]
-nop_aliases = ["tertiary-verifier-1", "tertiary-verifier-2"]
-threshold = 2
 
 [protocol_contracts.environment_topology.executor_pools.default.chain_configs."3379446385462418246"]
 nop_aliases = ["default-executor-1"]
@@ -302,6 +240,24 @@ execution_interval = 15_000_000_000
     image = "postgres:16-alpine"
     name = "tertiary-verifier-2-db"
     port = 8437
+
+[[committeeccv.committee]]
+qualifier = "default"
+verifier_version = "2.0.0"
+threshold = 2
+insecure_aggregator_connection = true
+
+[[committeeccv.committee]]
+qualifier = "secondary"
+verifier_version = "2.0.0"
+threshold = 2
+insecure_aggregator_connection = true
+
+[[committeeccv.committee]]
+qualifier = "tertiary"
+verifier_version = "2.0.0"
+threshold = 2
+insecure_aggregator_connection = true
 
 
 [[token_verifier]]

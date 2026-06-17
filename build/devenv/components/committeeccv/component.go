@@ -238,6 +238,13 @@ func runPhase3Core(
 		}
 	}
 
+	// Step 5c: Deploy CommitteeVerifier contracts (idempotent; a no-op when Phase 2 already deployed them).
+	if len(inputs.impls) > 0 {
+		if err := runDeployCommitteeVerifiers(localEnv, inputs.impls, inputs.selectors, inputs.topology); err != nil {
+			return nil, nil, fmt.Errorf("committeeccv: %w", err)
+		}
+	}
+
 	// Step 6: Generate aggregator committee configuration.
 	for _, agg := range aggregators {
 		if agg == nil {
@@ -488,6 +495,15 @@ func buildVerifierJobSpecEffects(
 	return effects, nil
 }
 
+// CommitteeDeployConfig carries the minimal per-committee parameters needed
+// for topology synthesis in the protocol_contracts Phase 2 component.
+type CommitteeDeployConfig struct {
+	Qualifier                    string `toml:"qualifier"`
+	VerifierVersion              string `toml:"verifier_version"`
+	Threshold                    uint8  `toml:"threshold"`
+	InsecureAggregatorConnection bool   `toml:"insecure_aggregator_connection"`
+}
+
 // Config is the [committeeccv] component config: the aggregator and standalone
 // verifier inputs for the committee verification stack. It mirrors the phased
 // devenv's [committeeccv] TOML section (Cfg.CommitteeCCVCfg in package ccv).
@@ -495,6 +511,7 @@ type Config struct {
 	Version    int                         `toml:"version"`
 	Aggregator []*services.AggregatorInput `toml:"aggregator"`
 	Verifier   []*committeeverifier.Input  `toml:"verifier"`
+	Committees []CommitteeDeployConfig     `toml:"committee"`
 }
 
 func decodeConfig(raw any) (Config, error) {
@@ -506,4 +523,82 @@ func decodeConfig(raw any) (Config, error) {
 		return Config{}, err
 	}
 	return cfg, nil
+}
+
+// runDeployCommitteeVerifiers deploys CommitteeVerifier contracts for all committees
+// in the topology. It is idempotent: when Phase 2 has already deployed via
+// DeployChainContracts, the adapter detects existing addresses and skips re-deployment.
+func runDeployCommitteeVerifiers(
+	localEnv *deployment.Environment,
+	impls []cciptestinterfaces.CCIP17Configuration,
+	selectors []uint64,
+	topology *ccvdeployment.EnvironmentTopology,
+) error {
+	if topology == nil || topology.NOPTopology == nil || len(topology.NOPTopology.Committees) == 0 {
+		return nil
+	}
+
+	// Build per-chain deployer contracts using each chain's impl.
+	chainCfgs := make(map[uint64]ccvchangesets.DeployCommitteeVerifierPerChainCfg, len(selectors))
+	for i, impl := range impls {
+		if i >= len(selectors) {
+			break
+		}
+		sel := selectors[i]
+		ccCfg, err := impl.GetDeployChainContractsCfg(localEnv, sel, topology)
+		if err != nil {
+			return fmt.Errorf("chain %d: get chain contracts config: %w", sel, err)
+		}
+		if ccCfg.DeployerContract == nil {
+			return fmt.Errorf("chain %d: nil DeployerContract in chain contracts config", sel)
+		}
+		chainCfgs[sel] = ccvchangesets.DeployCommitteeVerifierPerChainCfg{
+			DeployerContract: *ccCfg.DeployerContract,
+		}
+	}
+
+	// Build per-committee deploy params from the enriched topology.
+	committees := make([]ccvadapters.CommitteeVerifierDeployParams, 0, len(topology.NOPTopology.Committees))
+	for qualifier, committee := range topology.NOPTopology.Committees {
+		if committee.VerifierVersion == nil {
+			return fmt.Errorf("committee %q: VerifierVersion is nil in topology", qualifier)
+		}
+		var feeAgg string
+		for _, chainCfg := range committee.ChainConfigs {
+			if chainCfg.FeeAggregator != "" {
+				feeAgg = chainCfg.FeeAggregator
+				break
+			}
+		}
+		if feeAgg == "" {
+			return fmt.Errorf("committee %q: no FeeAggregator found in topology chain configs", qualifier)
+		}
+		committees = append(committees, ccvadapters.CommitteeVerifierDeployParams{
+			Qualifier:     qualifier,
+			Version:       committee.VerifierVersion,
+			FeeAggregator: feeAgg,
+		})
+	}
+
+	cs := ccvchangesets.DeployCommitteeVerifier(ccvadapters.GetRegistry())
+	output, err := cs.Apply(*localEnv, ccvchangesets.DeployCommitteeVerifierInput{
+		ChainSelectors: selectors,
+		Committees:     committees,
+		ChainCfgs:      chainCfgs,
+	})
+	if err != nil {
+		return fmt.Errorf("deploy committee verifiers: %w", err)
+	}
+
+	// Merge newly deployed addresses into the environment's DataStore without
+	// discarding the existing Phase 2 entries.
+	mergedDS := datastore.NewMemoryDataStore()
+	if err := mergedDS.Merge(localEnv.DataStore); err != nil {
+		return fmt.Errorf("merge existing datastore: %w", err)
+	}
+	if err := mergedDS.Merge(output.DataStore.Seal()); err != nil {
+		return fmt.Errorf("merge deployed verifier addresses: %w", err)
+	}
+	localEnv.DataStore = mergedDS.Seal()
+	return nil
 }
