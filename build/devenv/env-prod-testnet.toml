@@ -12,10 +12,7 @@ out.chain_id = "16602"
 out.family = "evm"
 out.container_name = "0g-testnet-galileo"
 out.nodes = [
-  { http_url = "https://zerog-galileo.g.alchemy.com/v2/sobe5hk1168JsG8FzAvjh", internal_http_url = "https://zerog-galileo.g.alchemy.com/v2/sobe5hk1168JsG8FzAvjh", internal_ws_url = "wss://zerog-galileo.g.alchemy.com/v2/sobe5hk1168JsG8FzAvjh", ws_url = "wss://zerog-galileo.g.alchemy.com/v2/sobe5hk1168JsG8FzAvjh" },
-  { http_url = "https://lb.drpc.live/ogrpc?network=0g-galileo-testnet&dkey=AuNcoSFTv0kXtni3qWOy79zjKJiuOeoR8K3DbrRhIxXF", internal_http_url = "https://lb.drpc.live/ogrpc?network=0g-galileo-testnet&dkey=AuNcoSFTv0kXtni3qWOy79zjKJiuOeoR8K3DbrRhIxXF", internal_ws_url = "wss://lb.drpc.live/ogws?network=0g-galileo-testnet&dkey=AuNcoSFTv0kXtni3qWOy79zjKJiuOeoR8K3DbrRhIxXF", ws_url = "wss://lb.drpc.live/ogws?network=0g-galileo-testnet&dkey=AuNcoSFTv0kXtni3qWOy79zjKJiuOeoR8K3DbrRhIxXF" },
-  { http_url = "https://rpcs.cldev.sh/zerog/galileo/quicknode1", internal_http_url = "https://rpcs.cldev.sh/zerog/galileo/quicknode1", internal_ws_url = "wss://rpcs.cldev.sh/zerog/galileo/quicknode1", ws_url = "wss://rpcs.cldev.sh/zerog/galileo/quicknode1" },
-  { http_url = "https://rpcs.cldev.sh/zerog/galileo/drpc1", internal_http_url = "https://rpcs.cldev.sh/zerog/galileo/drpc1", internal_ws_url = "wss://rpcs.cldev.sh/zerog/galileo/drpc1", ws_url = "wss://rpcs.cldev.sh/zerog/galileo/drpc1" },
+  { http_url = "https://rpcs.cldev.sh/6892437333620424805", internal_http_url = "https://rpcs.cldev.sh/6892437333620424805", internal_ws_url = "wss://rpcs.cldev.sh/6892437333620424805", ws_url = "wss://rpcs.cldev.sh/6892437333620424805" },
 ]
 
 # plume-testnet-sepolia (evm:98867), chain_selector: 13874588925447303949
@@ -30,10 +27,6 @@ out.chain_id = "98867"
 out.family = "evm"
 out.container_name = "plume-testnet-sepolia"
 out.nodes = [
-  { http_url = "https://testnet-rpc.plume.org", internal_http_url = "https://testnet-rpc.plume.org", internal_ws_url = "wss://testnet-rpc.plume.org", ws_url = "wss://testnet-rpc.plume.org" },
-  { http_url = "https://nd-276-260-280.p2pify.com/8b73507ee0080496cdf43efa504ba9ec", internal_http_url = "https://nd-276-260-280.p2pify.com/8b73507ee0080496cdf43efa504ba9ec", internal_ws_url = "wss://ws-nd-276-260-280.p2pify.com/8b73507ee0080496cdf43efa504ba9ec", ws_url = "wss://ws-nd-276-260-280.p2pify.com/8b73507ee0080496cdf43efa504ba9ec" },
-  { http_url = "https://plume-testnet.g.alchemy.com/v2/zOxlPndmrZhBugUs8KjIA", internal_http_url = "https://plume-testnet.g.alchemy.com/v2/zOxlPndmrZhBugUs8KjIA", internal_ws_url = "wss://plume-testnet.g.alchemy.com/v2/zOxlPndmrZhBugUs8KjIA", ws_url = "wss://plume-testnet.g.alchemy.com/v2/zOxlPndmrZhBugUs8KjIA" },
-  { http_url = "https://plume-testnet-cll.public.linkpool.io/5oGTrPVhOpxfT1he3PnhGggXKkx3Q6W5", internal_http_url = "https://plume-testnet-cll.public.linkpool.io/5oGTrPVhOpxfT1he3PnhGggXKkx3Q6W5", internal_ws_url = "wss://plume-testnet-cll.public.linkpool.io/ws/5oGTrPVhOpxfT1he3PnhGggXKkx3Q6W5", ws_url = "wss://plume-testnet-cll.public.linkpool.io/ws/5oGTrPVhOpxfT1he3PnhGggXKkx3Q6W5" },
   { http_url = "https://rpcs.cldev.sh/13874588925447303949", internal_http_url = "https://rpcs.cldev.sh/13874588925447303949", internal_ws_url = "wss://rpcs.cldev.sh/13874588925447303949", ws_url = "wss://rpcs.cldev.sh/13874588925447303949" },
 ]
 
@@ -49,9 +42,6 @@ out.chain_id = "11155111"
 out.family = "evm"
 out.container_name = "ethereum-testnet-sepolia"
 out.nodes = [
-  { http_url = "https://eth-sepolia-cll.public.linkpool.io/1/cECCLCwZD49G96QyAd2w7ZfrzJr6r9wa", internal_http_url = "https://eth-sepolia-cll.public.linkpool.io/1/cECCLCwZD49G96QyAd2w7ZfrzJr6r9wa", internal_ws_url = "wss://eth-sepolia-cll.public.linkpool.io/0/ws/cECCLCwZD49G96QyAd2w7ZfrzJr6r9wa", ws_url = "wss://eth-sepolia-cll.public.linkpool.io/0/ws/cECCLCwZD49G96QyAd2w7ZfrzJr6r9wa" },
-  { http_url = "https://eth-sepolia.g.alchemy.com/v2/gNR3N-2VvPqgjSNrAEs8oQ3cLMQueEEO", internal_http_url = "https://eth-sepolia.g.alchemy.com/v2/gNR3N-2VvPqgjSNrAEs8oQ3cLMQueEEO", internal_ws_url = "wss://eth-sepolia.g.alchemy.com/v2/gNR3N-2VvPqgjSNrAEs8oQ3cLMQueEEO", ws_url = "wss://eth-sepolia.g.alchemy.com/v2/gNR3N-2VvPqgjSNrAEs8oQ3cLMQueEEO" },
-  { http_url = "https://lb.drpc.live/sepolia/AuNcoSFTv0kXtni3qWOy79zIvGfW94YR8JZkvsZj1RAX", internal_http_url = "https://lb.drpc.live/sepolia/AuNcoSFTv0kXtni3qWOy79zIvGfW94YR8JZkvsZj1RAX", internal_ws_url = "wss://lb.drpc.live/sepolia/AuNcoSFTv0kXtni3qWOy79zIvGfW94YR8JZkvsZj1RAX", ws_url = "wss://lb.drpc.live/sepolia/AuNcoSFTv0kXtni3qWOy79zIvGfW94YR8JZkvsZj1RAX" },
   { http_url = "https://rpcs.cldev.sh/16015286601757825753", internal_http_url = "https://rpcs.cldev.sh/16015286601757825753", internal_ws_url = "wss://rpcs.cldev.sh/16015286601757825753", ws_url = "wss://rpcs.cldev.sh/16015286601757825753" },
 ]
 
@@ -67,8 +57,6 @@ out.chain_id = "763373"
 out.family = "evm"
 out.container_name = "ink-testnet-sepolia"
 out.nodes = [
-  { http_url = "https://ink-sepolia-cll.public.linkpool.io/L6Q5ICJPtepYwBIbYjsm9cx9BvcqSjGR", internal_http_url = "https://ink-sepolia-cll.public.linkpool.io/L6Q5ICJPtepYwBIbYjsm9cx9BvcqSjGR", internal_ws_url = "wss://ink-sepolia-cll.public.linkpool.io/ws/L6Q5ICJPtepYwBIbYjsm9cx9BvcqSjGR", ws_url = "wss://ink-sepolia-cll.public.linkpool.io/ws/L6Q5ICJPtepYwBIbYjsm9cx9BvcqSjGR" },
-  { http_url = "https://ink-sepolia.g.alchemy.com/v2/1D6QAuQIvjrDxUtY6S85DpjKFmZwP6NC", internal_http_url = "https://ink-sepolia.g.alchemy.com/v2/1D6QAuQIvjrDxUtY6S85DpjKFmZwP6NC", internal_ws_url = "wss://ink-sepolia.g.alchemy.com/v2/1D6QAuQIvjrDxUtY6S85DpjKFmZwP6NC", ws_url = "wss://ink-sepolia.g.alchemy.com/v2/1D6QAuQIvjrDxUtY6S85DpjKFmZwP6NC" },
   { http_url = "https://rpcs.cldev.sh/9763904284804119144", internal_http_url = "https://rpcs.cldev.sh/9763904284804119144", internal_ws_url = "wss://rpcs.cldev.sh/9763904284804119144", ws_url = "wss://rpcs.cldev.sh/9763904284804119144" },
 ]
 
@@ -84,9 +72,6 @@ out.chain_id = "5003"
 out.family = "evm"
 out.container_name = "ethereum-testnet-sepolia-mantle-1"
 out.nodes = [
-  { http_url = "https://lb.drpc.org/ogrpc?network=mantle-sepolia&dkey=AuNcoSFTv0kXtni3qWOy79wtJ5Z9QLAR8JscuuQ63qxe", internal_http_url = "https://lb.drpc.org/ogrpc?network=mantle-sepolia&dkey=AuNcoSFTv0kXtni3qWOy79wtJ5Z9QLAR8JscuuQ63qxe", internal_ws_url = "wss://lb.drpc.org/ogws?network=mantle-sepolia&dkey=AuNcoSFTv0kXtni3qWOy79wtJ5Z9QLAR8JscuuQ63qxe", ws_url = "wss://lb.drpc.org/ogws?network=mantle-sepolia&dkey=AuNcoSFTv0kXtni3qWOy79wtJ5Z9QLAR8JscuuQ63qxe" },
-  { http_url = "https://mantle-sepolia.g.alchemy.com/v2/8LE_qs3WnoOA1Mq1JQ1gT", internal_http_url = "https://mantle-sepolia.g.alchemy.com/v2/8LE_qs3WnoOA1Mq1JQ1gT", internal_ws_url = "wss://mantle-sepolia.g.alchemy.com/v2/8LE_qs3WnoOA1Mq1JQ1gT", ws_url = "wss://mantle-sepolia.g.alchemy.com/v2/8LE_qs3WnoOA1Mq1JQ1gT" },
-  { http_url = "https://mantle-sepolia-cll.public.linkpool.io/7yTE74BnXJ8kPaNLK1lglcNOzFloqGbR", internal_http_url = "https://mantle-sepolia-cll.public.linkpool.io/7yTE74BnXJ8kPaNLK1lglcNOzFloqGbR", internal_ws_url = "wss://mantle-sepolia-cll.public.linkpool.io/ws/7yTE74BnXJ8kPaNLK1lglcNOzFloqGbR", ws_url = "wss://mantle-sepolia-cll.public.linkpool.io/ws/7yTE74BnXJ8kPaNLK1lglcNOzFloqGbR" },
   { http_url = "https://rpcs.cldev.sh/8236463271206331221", internal_http_url = "https://rpcs.cldev.sh/8236463271206331221", internal_ws_url = "wss://rpcs.cldev.sh/8236463271206331221", ws_url = "wss://rpcs.cldev.sh/8236463271206331221" },
 ]
 
