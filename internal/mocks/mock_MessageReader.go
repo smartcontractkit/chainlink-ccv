@@ -5,7 +5,8 @@ package mocks
 import (
 	context "context"
 
-	executor "github.com/smartcontractkit/chainlink-ccv/executor"
+	common "github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
+
 	v1 "github.com/smartcontractkit/chainlink-ccv/indexer/pkg/api/handlers/v1"
 	mock "github.com/stretchr/testify/mock"
 )
@@ -24,22 +25,24 @@ func (_m *MockMessageReader) EXPECT() *MockMessageReader_Expecter {
 }
 
 // ReadMessages provides a mock function with given fields: ctx, queryData
-func (_m *MockMessageReader) ReadMessages(ctx context.Context, queryData v1.VerifierResultsInput) (executor.MessageReadResult, error) {
+func (_m *MockMessageReader) ReadMessages(ctx context.Context, queryData v1.VerifierResultsInput) (map[string]common.MessageWithMetadata, error) {
 	ret := _m.Called(ctx, queryData)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ReadMessages")
 	}
 
-	var r0 executor.MessageReadResult
+	var r0 map[string]common.MessageWithMetadata
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, v1.VerifierResultsInput) (executor.MessageReadResult, error)); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, v1.VerifierResultsInput) (map[string]common.MessageWithMetadata, error)); ok {
 		return rf(ctx, queryData)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, v1.VerifierResultsInput) executor.MessageReadResult); ok {
+	if rf, ok := ret.Get(0).(func(context.Context, v1.VerifierResultsInput) map[string]common.MessageWithMetadata); ok {
 		r0 = rf(ctx, queryData)
 	} else {
-		r0 = ret.Get(0).(executor.MessageReadResult)
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(map[string]common.MessageWithMetadata)
+		}
 	}
 
 	if rf, ok := ret.Get(1).(func(context.Context, v1.VerifierResultsInput) error); ok {
@@ -70,12 +73,12 @@ func (_c *MockMessageReader_ReadMessages_Call) Run(run func(ctx context.Context,
 	return _c
 }
 
-func (_c *MockMessageReader_ReadMessages_Call) Return(_a0 executor.MessageReadResult, _a1 error) *MockMessageReader_ReadMessages_Call {
+func (_c *MockMessageReader_ReadMessages_Call) Return(_a0 map[string]common.MessageWithMetadata, _a1 error) *MockMessageReader_ReadMessages_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockMessageReader_ReadMessages_Call) RunAndReturn(run func(context.Context, v1.VerifierResultsInput) (executor.MessageReadResult, error)) *MockMessageReader_ReadMessages_Call {
+func (_c *MockMessageReader_ReadMessages_Call) RunAndReturn(run func(context.Context, v1.VerifierResultsInput) (map[string]common.MessageWithMetadata, error)) *MockMessageReader_ReadMessages_Call {
 	_c.Call.Return(run)
 	return _c
 }

@@ -541,67 +541,17 @@ func TestExpirableMessageSet_RePushDoesNotDuplicate(t *testing.T) {
 	now := time.Now()
 	id := protocol.Bytes32{9, 9, 9}
 
-	if !es.PushUnlessExists(id, now) {
-		t.Fatal("expected first push to succeed")
-	}
-	if es.PushUnlessExists(id, now) {
-		t.Fatal("expected duplicate push with same ingestion timestamp to be rejected")
-	}
+	es.PushUnlessExists(id, now)
+	es.PushUnlessExists(id, now.Add(-2*time.Minute)) // Re-push same id, different time (should not duplicate entry)
 
 	if es.Len() != 1 {
-		t.Errorf("Duplicate Push of same id and timestamp should not increase Len; got %d", es.Len())
+		t.Errorf("Duplicate Push of same id should not increase Len; got %d", es.Len())
 	}
 	// Expire entries far in future (ensures only one expiry occurs)
 	expired := es.CleanExpired(now.Add(10 * time.Minute))
 	// Since two pushes, but same id, only one expired
 	if expired != 1 {
 		t.Errorf("Expected only one expired even for duplicate pushes, got %d", expired)
-	}
-}
-
-func TestExpirableMessageSet_RePushNewTimestamp(t *testing.T) {
-	expiryDuration := 1 * time.Minute
-	es := NewExpirableSet(expiryDuration)
-	now := time.Now()
-	id := protocol.Bytes32{9, 9, 9}
-
-	if !es.PushUnlessExists(id, now) {
-		t.Fatal("expected first push to succeed")
-	}
-	if es.PushUnlessExists(id, now) {
-		t.Fatal("expected duplicate push with same ingestion timestamp to be rejected")
-	}
-	if !es.PushUnlessExists(id, now.Add(time.Second)) {
-		t.Fatal("expected push with new ingestion timestamp to succeed")
-	}
-
-	if es.Len() != 1 {
-		t.Errorf("Re-push with new ingestion timestamp should replace existing entry; got Len=%d", es.Len())
-	}
-	// Old expiry should not drop the entry; new deadline is based on the updated ingestion time.
-	if expired := es.CleanExpired(now.Add(30 * time.Second)); expired != 0 {
-		t.Errorf("Expected no expiry before new deadline, got %d", expired)
-	}
-	if !es.Has(id) {
-		t.Fatal("expected entry to remain after old expiry window")
-	}
-}
-
-func TestExpirableMessageSet_RePushOlderTimestamp(t *testing.T) {
-	expiryDuration := 1 * time.Minute
-	es := NewExpirableSet(expiryDuration)
-	now := time.Now()
-	id := protocol.Bytes32{9, 9, 9}
-
-	if !es.PushUnlessExists(id, now) {
-		t.Fatal("expected first push to succeed")
-	}
-	if es.PushUnlessExists(id, now.Add(-time.Second)) {
-		t.Fatal("expected push with older ingestion timestamp to be rejected")
-	}
-
-	if es.Len() != 1 {
-		t.Errorf("Older timestamp push should not replace existing entry; got Len=%d", es.Len())
 	}
 }
 
@@ -621,79 +571,5 @@ func TestExpirableMessageSet_EmptyBehavior(t *testing.T) {
 	var id protocol.Bytes32
 	if es.Has(id) {
 		t.Error("Should not find id in empty set")
-	}
-}
-
-func TestExpirableMessageSets_SameMessageDifferentSource(t *testing.T) {
-	expiryDuration := 1 * time.Minute
-	ess := NewExpirableSets(expiryDuration)
-	now := time.Now()
-	id := protocol.Bytes32{9, 9, 9}
-
-	if !ess.PushUnlessExists(0, id, now) {
-		t.Fatal("expected first push on source 0 to succeed")
-	}
-	if !ess.PushUnlessExists(1, id, now) {
-		t.Fatal("expected push of same id on source 1 to succeed")
-	}
-	if ess.PushUnlessExists(0, id, now) {
-		t.Fatal("expected duplicate push on source 0 to be rejected")
-	}
-
-	if ess.Len() != 2 {
-		t.Errorf("Expected one set per source; got Len=%d", ess.Len())
-	}
-	if ess.LenFor(0) != 1 || ess.LenFor(1) != 1 {
-		t.Errorf("Expected one message per source; got LenFor(0)=%d LenFor(1)=%d", ess.LenFor(0), ess.LenFor(1))
-	}
-	if !ess.Has(0, id) || !ess.Has(1, id) {
-		t.Fatal("expected message to be present for both sources")
-	}
-}
-
-func TestExpirableMessageSets_RePushNewTimestamp(t *testing.T) {
-	expiryDuration := 1 * time.Minute
-	ess := NewExpirableSets(expiryDuration)
-	now := time.Now()
-	id := protocol.Bytes32{9, 9, 9}
-	const sourceIdx = 2
-
-	if !ess.PushUnlessExists(sourceIdx, id, now) {
-		t.Fatal("expected first push to succeed")
-	}
-	if ess.PushUnlessExists(sourceIdx, id, now) {
-		t.Fatal("expected duplicate push with same ingestion timestamp to be rejected")
-	}
-	if !ess.PushUnlessExists(sourceIdx, id, now.Add(time.Second)) {
-		t.Fatal("expected push with new ingestion timestamp to succeed")
-	}
-
-	if ess.LenFor(sourceIdx) != 1 {
-		t.Errorf("Re-push with new ingestion timestamp should replace existing entry; got LenFor=%d", ess.LenFor(sourceIdx))
-	}
-	if expired := ess.CleanExpired(now.Add(30 * time.Second)); expired != 0 {
-		t.Errorf("Expected no expiry before new deadline, got %d", expired)
-	}
-	if !ess.Has(sourceIdx, id) {
-		t.Fatal("expected entry to remain after old expiry window")
-	}
-}
-
-func TestExpirableMessageSets_EmptyBehavior(t *testing.T) {
-	// Should not panic or crash on empty sets
-	expiryDuration := 1 * time.Minute
-	ess := NewExpirableSets(expiryDuration)
-	now := time.Now()
-
-	if n := ess.Len(); n != 0 {
-		t.Errorf("Expected empty sets length 0, got %d", n)
-	}
-	expired := ess.CleanExpired(now)
-	if expired != 0 {
-		t.Errorf("No items to expire, but got expired=%d", expired)
-	}
-	var id protocol.Bytes32
-	if ess.Has(0, id) {
-		t.Error("Should not find id in empty sets")
 	}
 }

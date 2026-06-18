@@ -30,19 +30,10 @@ type MessageSubscriber interface {
 	IsRunning() bool
 }
 
-// MessageReadResult is the response from MessageReader.ReadMessages.
-type MessageReadResult struct {
-	// SourceIndexerIdx is the index of the indexer client that served this response,
-	// matching the order of configured indexer URIs.
-	SourceIndexerIdx int
-	// Messages is a map of messageID to the contents of the message and its metadata.
-	Messages map[string]common.MessageWithMetadata
-}
-
 // MessageReader reads messages from a storage backend based on query parameters. It is implemented by the IndexerAPI.
 type MessageReader interface {
-	// ReadMessages reads all messages that match the provided query parameters.
-	ReadMessages(ctx context.Context, queryData v1.MessagesInput) (MessageReadResult, error)
+	// ReadMessages reads all messages that matches the provided query parameters. Returns a map of messageID to the contents of the message and its metadata.
+	ReadMessages(ctx context.Context, queryData v1.MessagesInput) (map[string]common.MessageWithMetadata, error)
 }
 
 // VerifierResultReader reads verifier results from a storage backend based on messageID. It is implemented by the IndexerAPI.

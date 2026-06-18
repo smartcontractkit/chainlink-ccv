@@ -41,7 +41,7 @@ func NewIndexerStorageStreamer(
 	lggr logger.Logger,
 	indexerConfig IndexerStorageConfig,
 ) *IndexerStorageStreamer {
-	expirableSets := message_heap.NewExpirableSets(indexerConfig.ExpiryDuration)
+	expirableSet := message_heap.NewExpirableSet(indexerConfig.ExpiryDuration)
 	return &IndexerStorageStreamer{
 		reader:            indexerConfig.IndexerClient,
 		lggr:              lggr,
@@ -49,7 +49,7 @@ func NewIndexerStorageStreamer(
 		lastQueryTime:     indexerConfig.InitialQueryTime,
 		pollingInterval:   indexerConfig.PollingInterval,
 		backoff:           indexerConfig.Backoff,
-		expirableSets:     expirableSets,
+		expirableSet:      expirableSet,
 		cleanInterval:     indexerConfig.CleanInterval,
 		timeProvider:      indexerConfig.TimeProvider,
 		enabledDestChains: indexerConfig.EnabledDestChains,
@@ -67,7 +67,7 @@ type IndexerStorageStreamer struct {
 	offset            uint64
 	mu                sync.RWMutex
 	running           bool
-	expirableSets     *message_heap.ExpirableMessageSets
+	expirableSet      *message_heap.ExpirableMessageSet
 	cleanInterval     time.Duration
 	timeProvider      common.TimeProvider
 	enabledDestChains []protocol.ChainSelector
@@ -117,10 +117,10 @@ func (oss *IndexerStorageStreamer) Start(
 				// Context canceled, stop loop.
 				return
 			case <-ticker.C:
-				oss.expirableSets.CleanExpired(oss.timeProvider.GetTime())
+				oss.expirableSet.CleanExpired(oss.timeProvider.GetTime())
 			case <-nextQueryTimer.C:
 				queryCtx, cancel := context.WithTimeout(ctx, readMessagesTimeout)
-				readMessageResult, err := oss.reader.ReadMessages(queryCtx, v1.MessagesInput{
+				responses, err := oss.reader.ReadMessages(queryCtx, v1.MessagesInput{
 					Limit:                oss.queryLimit,
 					Start:                oss.lastQueryTime.Format(time.RFC3339),
 					Offset:               oss.offset,
@@ -128,9 +128,9 @@ func (oss *IndexerStorageStreamer) Start(
 					DestChainSelectors:   oss.enabledDestChains,
 				})
 				cancel()
-				oss.lggr.Debugw("IndexerStorageStreamer query results", "start", oss.lastQueryTime, "indexerIdx", readMessageResult.SourceIndexerIdx, "count", len(readMessageResult.Messages), "error", err)
+				oss.lggr.Debugw("IndexerStorageStreamer query results", "start", oss.lastQueryTime, "count", len(responses), "error", err)
 
-				for _, msgWithMetadata := range readMessageResult.Messages {
+				for _, msgWithMetadata := range responses {
 					if msgWithMetadata.Metadata.IngestionTimestamp.After(oss.lastQueryTime) {
 						oss.latestSeenTime = msgWithMetadata.Metadata.IngestionTimestamp
 					}
@@ -139,9 +139,9 @@ func (oss *IndexerStorageStreamer) Start(
 						oss.lggr.Errorw("dropping message with invalid ID", "error", err)
 						continue
 					}
-					netNewMessage := oss.expirableSets.PushUnlessExists(readMessageResult.SourceIndexerIdx, msgID, msgWithMetadata.Metadata.IngestionTimestamp)
+					netNewMessage := oss.expirableSet.PushUnlessExists(msgID, msgWithMetadata.Metadata.IngestionTimestamp)
 					if netNewMessage {
-						oss.lggr.Infow("Found net new message from Indexer", "indexerIdx", readMessageResult.SourceIndexerIdx, "messageID", msgID, "msgWithMetadata", msgWithMetadata)
+						oss.lggr.Infow("Found net new message from Indexer", "messageID", msgID, "msgWithMetadata", msgWithMetadata)
 						results <- msgWithMetadata
 					}
 				}
@@ -153,10 +153,10 @@ func (oss *IndexerStorageStreamer) Start(
 					oss.lggr.Errorw("IndexerStorageStreamer read error", "error", err)
 					nextQueryTimer.Reset(oss.backoff)
 					errors <- fmt.Errorf("IndexerStorageStreamer read error: %w", err)
-				case uint64(len(readMessageResult.Messages)) == oss.queryLimit:
+				case uint64(len(responses)) == oss.queryLimit:
 					// Hit query limit: query again immediately with same time range but incremented offset
 					oss.lggr.Infow("IndexerStorageStreamer hit query limit, there may be more results to read", "limit", oss.queryLimit)
-					oss.offset += uint64(len(readMessageResult.Messages))
+					oss.offset += uint64(len(responses))
 					nextQueryTimer.Reset(0)
 				default:
 					// Complete result set received: update query window and reset for next polling cycle
