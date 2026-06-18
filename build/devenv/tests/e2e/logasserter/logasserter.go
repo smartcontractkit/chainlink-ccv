@@ -100,21 +100,20 @@ func (la *LogAsserter) processStreamedLogs() {
 	}
 }
 
-// WaitForStage waits for a log stage for messageID. Pass notBefore to ignore earlier
-// occurrences (for example, to detect a second admission after replay).
+// WaitForStage waits for the nth occurrence of stage for messageID (default nth=1).
 func (la *LogAsserter) WaitForStage(
 	ctx context.Context,
 	messageID protocol.Bytes32,
 	stage LogStage,
-	notBefore ...time.Time,
+	nth ...int,
 ) (time.Time, error) {
 	if la.stream == nil {
 		return time.Time{}, fmt.Errorf("streaming not started, call StartStreaming() first")
 	}
 
-	var after time.Time
-	if len(notBefore) > 0 {
-		after = notBefore[0]
+	n := 1
+	if len(nth) > 0 && nth[0] >= 1 {
+		n = nth[0]
 	}
 
 	ticker := time.NewTicker(la.pollInterval)
@@ -123,12 +122,12 @@ func (la *LogAsserter) WaitForStage(
 	for {
 		select {
 		case <-ctx.Done():
-			if after.IsZero() {
+			if n == 1 {
 				return time.Time{}, fmt.Errorf("timeout waiting for stage %s for message %s", stage.Name, messageID.String())
 			}
 			return time.Time{}, fmt.Errorf(
-				"timeout waiting for stage %s for message %s after %s",
-				stage.Name, messageID.String(), after.Format(time.RFC3339Nano),
+				"timeout waiting for occurrence %d of stage %s for message %s",
+				n, stage.Name, messageID.String(),
 			)
 		case <-ticker.C:
 			if logsInterface, ok := la.logCache.Load(messageID.String()); ok {
@@ -137,10 +136,8 @@ func (la *LogAsserter) WaitForStage(
 				instances := msgLogs.instances[stage.Name]
 				msgLogs.mu.RUnlock()
 
-				for _, instance := range instances {
-					if after.IsZero() || !instance.Timestamp.Before(after) {
-						return instance.Timestamp, nil
-					}
+				if len(instances) >= n {
+					return instances[n-1].Timestamp, nil
 				}
 			}
 		}

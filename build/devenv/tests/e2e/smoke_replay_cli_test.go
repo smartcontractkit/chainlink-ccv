@@ -278,7 +278,6 @@ func TestE2ESmoke_ReplayForceOverwrite(t *testing.T) {
 
 	// ── Step 2: replay msg1 only with --force via --ids ─────────────────────
 	t.Log("Step 2: replaying msg1 with messages --ids --force...")
-	replayStart := time.Now()
 	out, err := execInContainer(ctx, containerName,
 		replayCLIArgs("messages", "--ids", msgHex1, "--force")...)
 	require.NoError(t, err, "messages replay failed; output: %s", out)
@@ -305,7 +304,7 @@ func TestE2ESmoke_ReplayForceOverwrite(t *testing.T) {
 		"msg2 messages ingestion_timestamp must be unchanged after replaying only msg1")
 
 	replayNetNewCtx, replayNetNewCancel := context.WithTimeout(ctx, tcapi.DefaultExecTimeout)
-	_, err = logAssert.WaitForStage(replayNetNewCtx, msgID1, logasserter.NewMessageInExecutor(), replayStart)
+	_, err = logAssert.WaitForStage(replayNetNewCtx, msgID1, logasserter.NewMessageInExecutor(), 2)
 	replayNetNewCancel()
 	require.NoError(t, err, "executor streamer must re-admit msg1 after force replay")
 
