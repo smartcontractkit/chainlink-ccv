@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/BurntSushi/toml"
 	"github.com/grafana/pyroscope-go"
 
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
@@ -29,6 +30,11 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
+const (
+	MonitoringConfigPathEnv     = "MONITORING_CONFIG_PATH"
+	DefaultMonitoringConfigPath = "/etc/monitoring.toml"
+)
+
 // factory is a ServiceFactory implementation that creates a committee verifier service.
 type factory struct {
 	lggr             logger.Logger
@@ -43,6 +49,22 @@ type factory struct {
 // NewCommitteeVerifierServiceFactory creates a new ServiceFactory for the committee verifier service.
 func NewCommitteeVerifierServiceFactory() bootstrap.ServiceFactory {
 	return &factory{}
+}
+
+func loadMonitoringConfig() (verifier.MonitoringConfig, error) {
+	configPath, ok := os.LookupEnv(MonitoringConfigPathEnv)
+	if !ok {
+		configPath = DefaultMonitoringConfigPath
+	}
+	var cfg verifier.MonitoringConfig
+	md, err := toml.DecodeFile(configPath, &cfg)
+	if err != nil {
+		return verifier.MonitoringConfig{}, fmt.Errorf("failed to load monitoring config: %w", err)
+	}
+	if len(md.Undecoded()) > 0 {
+		return verifier.MonitoringConfig{}, fmt.Errorf("unknown fields in monitoring config: %v", md.Undecoded())
+	}
+	return cfg, nil
 }
 
 // Start implements [bootstrap.ServiceFactory].
@@ -64,6 +86,14 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 		return fmt.Errorf("failed to get app config: %w", err)
 	}
 	lggr.Infow("Using blockchain information from config", "info", genericConfig.ChainConfig)
+
+	// load and use the monitoring config from the file referenced by the env var.
+	monitoringConfig, err := loadMonitoringConfig()
+	if err != nil {
+		// don't hard-fail, its not critical.
+		lggr.Errorw("Failed to load monitoring config, is a valid file mounted?", "error", err)
+	}
+	config.Monitoring = monitoringConfig
 
 	// TODO: this should be passed in via the config maybe?
 	apiKey := os.Getenv("VERIFIER_AGGREGATOR_API_KEY")
