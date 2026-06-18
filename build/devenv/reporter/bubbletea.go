@@ -3,6 +3,7 @@ package reporter
 import (
 	"fmt"
 	"io"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -64,11 +65,12 @@ type activeComp struct {
 }
 
 type tuiModel struct {
-	log         []string             // completed / stage lines
+	log         []string // completed / stage lines
 	active      map[string]*activeComp
-	activeOrder []string             // insertion-ordered keys for stable display
+	activeOrder []string // insertion-ordered keys for stable display
 	frame       int
 	done        bool
+	cancelled   bool
 	finalErr    error
 	width       int
 }
@@ -94,6 +96,12 @@ func tickEvery(d time.Duration) tea.Cmd {
 
 func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+
+	case tea.KeyMsg:
+		if msg.Type == tea.KeyCtrlC {
+			m.cancelled = true
+			return m, tea.Quit
+		}
 
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
@@ -281,6 +289,9 @@ func (r *bubbletearReporter) Run(fn func() error) error {
 		return err
 	}
 	if tm, ok := m.(tuiModel); ok {
+		if tm.cancelled {
+			os.Exit(130)
+		}
 		r.finalErr = tm.finalErr
 	}
 	return r.finalErr
