@@ -25,8 +25,8 @@ require (
 	github.com/rs/zerolog v1.34.0
 	github.com/sethvargo/go-retry v0.3.0
 	github.com/smartcontractkit/chain-selectors v1.0.98
-	github.com/smartcontractkit/chainlink-ccip/chains/evm v0.0.0-20260617182539-c9b0aed326d3
-	github.com/smartcontractkit/chainlink-ccip/deployment v0.0.0-20260617182539-c9b0aed326d3
+	github.com/smartcontractkit/chainlink-ccip/chains/evm v0.0.0-20260618130227-aa7cdfb3e671
+	github.com/smartcontractkit/chainlink-ccip/deployment v0.0.0-20260618130227-aa7cdfb3e671
 	github.com/smartcontractkit/chainlink-ccv v0.0.2-0.20260501160109-2b5b8d344776
 	github.com/smartcontractkit/chainlink-ccv/deployment v0.0.2-0.20260616151800-9a3a31c4e194
 	github.com/smartcontractkit/chainlink-common v0.11.2-0.20260417081611-8bdbd9f45629

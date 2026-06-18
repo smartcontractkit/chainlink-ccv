@@ -46,11 +46,16 @@ version = "2.0.0"
 qualifier = "custom"
 version = "2.0.0"
 
-## EVM-specific overrides consumed by the EVM ProtocolContractsDeployAdapter.
-## Only feeAggregator is read; it is applied to the OnRamp and executor proxies.
-## Other params (max CCVs per msg, finality) use the adapter's defaults.
+## EVM-specific overrides consumed by the EVM ProtocolContractsDeployAdapter
+## (flat keys). feeAggregator is applied to the OnRamp and executor proxies. The
+## executor finality is set at deploy time because executors validate requested
+## finality in getFee and are never reconfigured by the lane-config changesets;
+## wait-for-safe is needed for the safe-tag finality smoke tests. Other params
+## (max CCVs per msg, fee-quoter prices, gas limits) use the adapter's defaults.
 [protocol_contracts.deploy.family_extras]
-feeAggregator = "0x0000000000000000000000000000000000000001"
+feeAggregator       = "0x0000000000000000000000000000000000000001"
+executorBlockDepth  = 1
+executorWaitForSafe = true
 
 ## Environment configuration defines the topology. Eventually the topology should be the only config that is needed.
 [protocol_contracts.environment_topology]
