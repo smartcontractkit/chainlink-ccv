@@ -113,6 +113,9 @@ type phase3Inputs struct {
 	// cldf is the Phase-2 CLDF accumulator, carried forward so Phase-3 deploys
 	// (committee verifiers, mock receivers) can append their addresses to the
 	// serialized output. Nil when the prior phase did not publish it.
+	// TODO: migrate this to an address-registration effect so deployed addresses
+	// are registered to the datastore deterministically instead of by mutating the
+	// shared CLDF accumulator.
 	cldf *ccldf.CLDF
 }
 
@@ -147,6 +150,9 @@ func parsePhase3Inputs(priorOutputs, globalConfig map[string]any) (phase3Inputs,
 	// cldf is published by protocol_contracts (Phase 2) under the public "cldf"
 	// key; absent in some test paths, in which case Phase-3 address persistence
 	// is skipped.
+	// TODO: migrate this to an address-registration effect so deployed addresses
+	// are registered to the datastore deterministically instead of by mutating the
+	// shared CLDF accumulator.
 	cldf, _ := priorOutputs["cldf"].(*ccldf.CLDF)
 	var useLegacy bool
 	if pcMap, ok := globalConfig[pccomp.Key].(map[string]any); ok {
@@ -423,7 +429,7 @@ func deployCommitteeVerifiersAndReceivers(inputs phase3Inputs, localEnv *deploym
 	// to env-out.toml alongside the Phase-2 protocol contracts.
 	// TODO: migrate this to an address-registration effect so deployed addresses
 	// are registered to the datastore deterministically instead of by mutating the
-	// shared CLDF accumulator (see .scratch/phased-devenv-cleanup/issues/24).
+	// shared CLDF accumulator.
 	if inputs.cldf != nil && len(deployedRefs) > 0 {
 		encoded, err := json.Marshal(deployedRefs)
 		if err != nil {
