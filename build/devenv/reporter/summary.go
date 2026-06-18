@@ -95,11 +95,11 @@ func summarizeAggregators(out io.Writer, raw map[string]any) {
 		}
 		o := subMap(m, "out")
 		name := strField(m, "committee_name")
-		ext := strField(o, "external_https_url")
-		if ext == "" {
-			ext = strField(o, "external_http_url")
+		url := strField(o, "external_https_url")
+		if url == "" {
+			url = strField(o, "external_http_url")
 		}
-		fmt.Fprintf(out, "  %s  %s\n", name, ext)
+		fmt.Fprintf(out, "  %-20s  grpc: %s\n", name, url)
 	}
 }
 
@@ -122,9 +122,10 @@ func summarizeIndexers(out io.Writer, raw map[string]any) {
 		if !ok {
 			continue
 		}
+		name := strField(m, "container_name")
 		o := subMap(m, "out")
 		url := strField(o, "http_url")
-		fmt.Fprintf(out, "  %s\n", url)
+		fmt.Fprintf(out, "  %-20s  url: %s\n", name, url)
 	}
 }
 

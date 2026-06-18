@@ -45,12 +45,13 @@ type doneMsg struct{ err error }
 // ── styles ───────────────────────────────────────────────────────────────────
 
 var (
-	styleOK     = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))   // green
-	styleFail   = lipgloss.NewStyle().Foreground(lipgloss.Color("1"))   // red
-	styleStage  = lipgloss.NewStyle().Foreground(lipgloss.Color("4"))   // blue
-	styleSep    = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))   // dark gray
-	styleFooter = lipgloss.NewStyle().Foreground(lipgloss.Color("11"))  // yellow
-	styleDim    = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))   // dark gray
+	styleOK     = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))  // green
+	styleFail   = lipgloss.NewStyle().Foreground(lipgloss.Color("1"))  // red
+	styleStage  = lipgloss.NewStyle().Foreground(lipgloss.Color("4"))  // blue
+	styleSep    = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))  // dark gray
+	styleFooter = lipgloss.NewStyle().Foreground(lipgloss.Color("11")) // yellow
+	styleDim    = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))  // dark gray
+	styleActive = lipgloss.NewStyle().Foreground(lipgloss.Color("10")) // bright green — in-progress
 )
 
 var spinnerFrames = []string{"|", "/", "-", "\\"}
@@ -193,12 +194,15 @@ func (m tuiModel) View() string {
 			continue
 		}
 		elapsed := time.Since(cs.start).Round(time.Second)
-		line := fmt.Sprintf("%s %-28s %4s", spin, cs.name, elapsed)
-		if cs.status != "" {
-			line += styleFooter.Render(" | "+cs.status)
-		}
-		sb.WriteString(styleDim.Render(line))
+		// Line 1: spinner + phase + name + duration — same column layout as completed lines.
+		line1 := fmt.Sprintf("%s [%d] %-28s %6s", spin, cs.phase, cs.name, elapsed)
+		sb.WriteString(styleActive.Render(line1))
 		sb.WriteString("\n")
+		// Line 2: status indented under the first char of the component name.
+		if cs.status != "" {
+			sb.WriteString(styleDim.Render("      └── " + cs.status))
+			sb.WriteString("\n")
+		}
 	}
 
 	return sb.String()
