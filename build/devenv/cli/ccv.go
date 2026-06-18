@@ -233,7 +233,11 @@ func applyEnvConfig(cmd *cobra.Command, args []string) error {
 		profilePath = positional
 	}
 	if profilePath == "" {
-		profilePath = "standard.profile"
+		if saved := getActiveConfig(); strings.HasSuffix(strings.TrimSpace(saved), ".profile") {
+			profilePath = strings.TrimSpace(saved)
+		} else {
+			profilePath = "standard.profile"
+		}
 	}
 
 	// --profile is mutually exclusive with --env-mode (when explicitly set).
@@ -245,6 +249,7 @@ func applyEnvConfig(cmd *cobra.Command, args []string) error {
 	if err := applyProfile(profilePath); err != nil {
 		return err
 	}
+	saveActiveConfig(profilePath)
 	if outputFlag != "" {
 		_ = os.Setenv("CTF_OUTPUT", outputFlag)
 	}
@@ -630,6 +635,7 @@ Examples:
 				if err := applyProfile(profileName); err != nil {
 					return err
 				}
+				saveActiveConfig(profileName)
 				_ = os.Setenv("CTF_OUTPUT", outputFile)
 				_ = os.Setenv("TESTCONTAINERS_RYUK_DISABLED", "true")
 				if err := newEnvFn(r); err != nil {
