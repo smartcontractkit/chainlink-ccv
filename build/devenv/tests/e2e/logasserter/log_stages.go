@@ -40,6 +40,14 @@ func ProcessingInExecutor() LogStage {
 	}
 }
 
+func NewMessageInExecutor() LogStage {
+	return LogStage{
+		Name:       "NewMessageInExecutor",
+		Service:    "executor",
+		LogPattern: "Found net new message from Indexer",
+	}
+}
+
 func FinalityViolationDetected() LogStage {
 	return LogStage{
 		Name:       "FinalityViolationDetected",
