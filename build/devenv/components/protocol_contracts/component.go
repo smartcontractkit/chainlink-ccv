@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strconv"
 
 	"github.com/rs/zerolog"
 	zlog "github.com/rs/zerolog/log"
@@ -36,7 +37,7 @@ const Key = "protocol_contracts"
 
 // Version is the protocol_contracts component config schema version. Exactly
 // this version is supported; configs declaring any other version are rejected.
-const Version = 1
+const Version = 2
 
 func init() {
 	if err := devenvruntime.Register(Key, factory); err != nil {
@@ -205,12 +206,6 @@ func (p *component) RunPhase2(
 
 	timeTrack.Record("[contracts] deployed")
 
-	// Token transfer configuration (ConfigureAllTokenTransfers) and lane configuration
-	// (ConnectAllChains) are both deferred to CommitteeCCV Phase 3: each wires token pools /
-	// lanes to the CommitteeVerifier resolver, which is now deployed in Phase 3. (Lane config
-	// additionally calls ApplyVerifierConfig, which needs verifier signing keys from JD —
-	// available only after verifiers launch in Phase 3.)
-
 	// Finalize CLDF: snapshot env metadata and print deployed addresses.
 	envMetadata, err := e.DataStore.EnvMetadata().Get()
 	if err != nil && err != datastore.ErrEnvMetadataNotSet {
@@ -252,13 +247,15 @@ type config struct {
 }
 
 // deployCfg holds the protocol-contract deploy tunables sourced from
-// [protocol_contracts.deploy]. FamilyExtras passes chain-family-specific
-// overrides straight through to the changeset (e.g. the "evm" sub-map is read by
-// the EVM ProtocolContractsDeployAdapter).
+// [protocol_contracts.deploy]. FamilyExtras supports two key forms: a chain
+// selector (decimal string, e.g. "5009297550715157269") for per-chain
+// overrides, and a chain family name (e.g. "evm") for family-wide defaults.
+// deployProtocolContractsForSelector checks the selector key first and falls
+// back to the family key, so per-chain values take precedence.
 type deployCfg struct {
-	DeployTestRouter bool           `toml:"deploy_test_router"`
-	Executors        []executorCfg  `toml:"executors"`
-	FamilyExtras     map[string]any `toml:"family_extras"`
+	DeployTestRouter bool                      `toml:"deploy_test_router"`
+	Executors        []executorCfg             `toml:"executors"`
+	FamilyExtras     map[string]map[string]any `toml:"family_extras"`
 }
 
 // executorCfg is a single executor instance to deploy.
@@ -276,6 +273,17 @@ func decodeConfig(raw any) (config, error) {
 		return config{}, err
 	}
 	return cfg, nil
+}
+
+// familyExtras resolves the chain-specific extras map from the outer
+// FamilyExtras config. A chain-selector key (decimal string) takes precedence
+// over a chain-family key (e.g. "evm"), allowing per-chain overrides on top of
+// family-wide defaults.
+func familyExtras(extras map[string]map[string]any, selector uint64, family string) map[string]any {
+	if v, ok := extras[strconv.FormatUint(selector, 10)]; ok {
+		return v
+	}
+	return extras[family]
 }
 
 // deployProtocolContractsForSelector deploys the core protocol contracts on a
@@ -343,7 +351,7 @@ func deployProtocolContractsForSelector(
 				DeployTestRouter: deploy.DeployTestRouter,
 				DeployerKeyOwned: true,
 				Executors:        executors,
-				FamilyExtras:     deploy.FamilyExtras,
+				FamilyExtras:     familyExtras(deploy.FamilyExtras, selector, impl.ChainFamily()),
 			},
 		},
 	})

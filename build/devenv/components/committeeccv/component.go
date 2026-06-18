@@ -212,6 +212,7 @@ func runPhase3Core(
 	// Step 1d: Configure token-pool transfers now that committee verifiers exist. Moved from
 	// Phase 2, where the CommitteeVerifier resolver was not yet deployed, so token pools could
 	// not be wired to it. Runs before lane config (Step 5b), matching the original ordering.
+	// TODO: move to a dedicated token-transfer Phase 3 component.
 	if len(inputs.impls) > 0 {
 		if err := ccdeploy.ConfigureAllTokenTransfers(inputs.impls, inputs.selectors, localEnv, inputs.topology); err != nil {
 			return nil, nil, fmt.Errorf("committeeccv: configure all token transfers: %w", err)
