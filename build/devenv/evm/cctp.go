@@ -52,13 +52,6 @@ func (m *CCIP17EVMConfig) deployUSDCTokenAndPool(
 		return fmt.Errorf("failed to configure Circle-owned contracts on chain %d: %w", selector, err)
 	}
 
-	remoteSelectors := make([]uint64, 0)
-	for _, s := range env.BlockChains.All() {
-		if s.ChainSelector() != selector {
-			remoteSelectors = append(remoteSelectors, s.ChainSelector())
-		}
-	}
-
 	err = m.deployCCTPChain(env, registry, ds, create2Factory, selector, messenger, usdc)
 	if err != nil {
 		return fmt.Errorf("failed to deploy CCTP chain on chain %d: %w", selector, err)
