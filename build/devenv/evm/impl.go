@@ -1180,7 +1180,11 @@ func (m *CCIP17EVMConfig) GetDeployChainContractsCfg(env *deployment.Environment
 				USDPerLINK:                     usdPerLink,
 				USDPerWETH:                     usdPerWeth,
 			}),
-			MockReceivers: new(buildMockReceivers(topology, selector)),
+			// Mock receivers (committee + CCTP/Lombard) are deployed separately
+			// via DeployMockReceivers, after the committee verifiers and token
+			// pools exist. Deploy none inline here so both the monolith and
+			// phased paths use the single DeployMockReceivers entry point.
+			MockReceivers: new([]adapters.MockReceiverDeployParams{}),
 		},
 	}, nil
 }

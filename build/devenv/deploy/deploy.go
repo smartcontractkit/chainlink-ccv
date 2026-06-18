@@ -153,6 +153,27 @@ func DeployContractsForSelector(
 		env.DataStore = merged
 	}
 
+	// 5. Mock receivers (committee + CCTP/Lombard) via the unified
+	//    MockReceiverDeployer hook, now that the committee verifiers (step 3)
+	//    and CCTP/Lombard token pools (step 4) are in env.DataStore. This
+	//    mirrors the phased committeeccv path, which calls the same method.
+	if d, ok := impl.(cciptestinterfaces.MockReceiverDeployer); ok { //nolint:nestif // Reasonable complexity
+		receiverDS, derr := d.DeployMockReceivers(env, selector, topology)
+		if derr != nil {
+			return nil, fmt.Errorf("deploy mock receivers for selector %d: %w", selector, derr)
+		}
+		if receiverDS != nil {
+			if err := runningDS.Merge(receiverDS); err != nil {
+				return nil, fmt.Errorf("merge mock receiver DS: %w", err)
+			}
+			merged, err := mergeIntoSealed(env.DataStore, receiverDS)
+			if err != nil {
+				return nil, fmt.Errorf("update env DS with mock receivers: %w", err)
+			}
+			env.DataStore = merged
+		}
+	}
+
 	return runningDS.Seal(), nil
 }
 
