@@ -36,6 +36,9 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cli/log"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cli/send"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/evm"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/reporter"
+	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/util"
 )
 
 const (
@@ -43,8 +46,10 @@ const (
 	LocalCCVDashboard      = "http://localhost:3000/d/f8a04cef-653f-46d3-86df-87c532300672/ccv-services?orgId=1&refresh=5s"
 )
 
-// newEnvFn is set by PersistentPreRunE based on the --env-mode flag.
-var newEnvFn func() error
+// newEnvFn is set by PersistentPreRunE (or applyProfile) based on the
+// --env-mode flag. The Reporter receives component-level events in phased
+// mode; legacy mode wraps the monolith with stage-level events only.
+var newEnvFn func(r devenvruntime.Reporter) error
 
 var rootCmd = &cobra.Command{
 	Use:   "ccv",
@@ -67,15 +72,15 @@ var rootCmd = &cobra.Command{
 		}
 		switch mode {
 		case "legacy":
-			// Both env constructors return a value that the up/restart commands
-			// discard, so adapt them to the error-only fn.
-			newEnvFn = func() error {
+			newEnvFn = func(r devenvruntime.Reporter) error {
+				r.OnStageStart("env")
 				_, err := ccv.NewEnvironment()
+				r.OnStageFinish("env", err)
 				return err
 			}
 		case "phased":
-			newEnvFn = func() error {
-				_, err := ccv.NewPhasedEnvironment()
+			newEnvFn = func(r devenvruntime.Reporter) error {
+				_, err := ccv.NewPhasedEnvironmentWithReporter(r)
 				return err
 			}
 		default:
@@ -98,7 +103,17 @@ var restartCmd = &cobra.Command{
 		if err := framework.RemoveTestContainers(); err != nil {
 			return fmt.Errorf("failed to clean Docker resources: %w", err)
 		}
-		return newEnvFn()
+		verbose, _ := cmd.Flags().GetBool("verbose")
+		term, cleanup, err := redirectToLogFile(verbose, "ccv-restart")
+		if err != nil {
+			return err
+		}
+		defer cleanup()
+		r := reporter.New(verbose, term)
+		outToml := resolveOutToml()
+		runErr := r.Run(func() error { return newEnvFn(r) })
+		r.PrintSummary(outToml)
+		return runErr
 	},
 }
 
@@ -111,7 +126,17 @@ var upCmd = &cobra.Command{
 		if err := applyEnvConfig(cmd, args); err != nil {
 			return err
 		}
-		return newEnvFn()
+		verbose, _ := cmd.Flags().GetBool("verbose")
+		term, cleanup, err := redirectToLogFile(verbose, "ccv-up")
+		if err != nil {
+			return err
+		}
+		defer cleanup()
+		r := reporter.New(verbose, term)
+		outToml := resolveOutToml()
+		runErr := r.Run(func() error { return newEnvFn(r) })
+		r.PrintSummary(outToml)
+		return runErr
 	},
 }
 
@@ -240,13 +265,15 @@ func applyProfile(profilePath string) error {
 
 	switch p.Environment {
 	case "legacy":
-		newEnvFn = func() error {
+		newEnvFn = func(r devenvruntime.Reporter) error {
+			r.OnStageStart("env")
 			_, err := ccv.NewEnvironment()
+			r.OnStageFinish("env", err)
 			return err
 		}
 	case "phased":
-		newEnvFn = func() error {
-			_, err := ccv.NewPhasedEnvironment()
+		newEnvFn = func(r devenvruntime.Reporter) error {
+			_, err := ccv.NewPhasedEnvironmentWithReporter(r)
 			return err
 		}
 	}
@@ -536,7 +563,7 @@ Examples:
 		profileName, _ := cmd.Flags().GetString("profile")
 		timeout, _ := cmd.Flags().GetDuration("timeout")
 		buildTarget, _ := cmd.Flags().GetString("build")
-		logPath, _ := cmd.Flags().GetString("log")
+		verbose, _ := cmd.Flags().GetBool("verbose")
 
 		if len(args) > 0 && patternFlag != "" {
 			return fmt.Errorf("cannot combine a suite name with --pattern")
@@ -563,107 +590,90 @@ Examples:
 		// file so the terminal only shows concise progress lines. We redirect at
 		// the OS fd level (dup2) so that subprocesses, zerolog, and fmt.Print*
 		// calls all land in the log regardless of how they open stdout/stderr.
-		progress := func(msg string) { fmt.Fprintln(os.Stderr, msg) }
-		if logPath != "" {
-			lf, err := os.Create(logPath)
-			if err != nil {
-				return fmt.Errorf("failed to create log file %s: %w", logPath, err)
-			}
-			defer lf.Close()
-
-			// Save the real terminal fds so progress messages can still reach it.
-			realStdoutFd, _ := syscall.Dup(int(os.Stdout.Fd()))
-			realStderrFd, _ := syscall.Dup(int(os.Stderr.Fd()))
-			realTerm := os.NewFile(uintptr(realStderrFd), "real_stderr")
-			defer func() {
-				// Restore terminal fds on exit.
-				_ = syscall.Dup2(realStdoutFd, int(os.Stdout.Fd()))
-				_ = syscall.Dup2(realStderrFd, int(os.Stderr.Fd()))
-				_ = syscall.Close(realStdoutFd)
-				// realStderrFd is owned by realTerm; closing realTerm closes it.
-				_ = realTerm.Close()
-			}()
-
-			// Redirect stdout and stderr to the log file.
-			_ = syscall.Dup2(int(lf.Fd()), int(os.Stdout.Fd()))
-			_ = syscall.Dup2(int(lf.Fd()), int(os.Stderr.Fd()))
-
-			progress = func(msg string) {
-				fmt.Fprintf(realTerm, "[ccv test] %s\n", msg)
-			}
+		// In verbose mode no redirect happens; the caller gets raw zerolog output.
+		term, cleanup, err := redirectToLogFile(verbose, "ccv-test")
+		if err != nil {
+			return err
 		}
+		defer cleanup()
 
-		// Stage 1: optional image build.
-		if buildEnabled {
-			progress(fmt.Sprintf("building images (just %s)...", buildTarget))
-			buildCmd := exec.Command("just", buildTarget)
-			buildCmd.Stdout = os.Stdout
-			buildCmd.Stderr = os.Stderr
-			if err := buildCmd.Run(); err != nil {
-				return fmt.Errorf("just %s failed: %w", buildTarget, err)
-			}
-		}
+		r := reporter.New(verbose, term)
 
-		// Stage 2: optional environment start.
-		var extraEnv []string
-		if profileName != "" {
-			if !strings.HasSuffix(profileName, ".profile") {
-				profileName += ".profile"
-			}
-			outputFile := fmt.Sprintf("test-%s-out.toml", generateRunID())
-			absOutput, err := filepath.Abs(outputFile)
-			if err != nil {
-				return fmt.Errorf("failed to resolve output path: %w", err)
-			}
-			progress("tearing down any existing environment...")
-			_ = framework.RemoveTestContainers()
-
-			progress(fmt.Sprintf("starting environment (profile: %s, output: %s)...", profileName, absOutput))
-			if err := applyProfile(profileName); err != nil {
-				return err
-			}
-			_ = os.Setenv("CTF_OUTPUT", outputFile)
-			_ = os.Setenv("TESTCONTAINERS_RYUK_DISABLED", "true")
-			if err := newEnvFn(); err != nil {
-				return fmt.Errorf("environment startup failed: %w", err)
-			}
-			extraEnv = []string{fmt.Sprintf("SMOKE_TEST_CONFIG=%s", absOutput)}
-		}
-
-		// Stage 3: run the test.
-		timeoutStr := "0"
-		if timeout > 0 {
-			timeoutStr = timeout.String()
-		}
-		goTestArgs := []string{
-			"test", "-v", "-count=1",
-			"-run", testPattern,
-			fmt.Sprintf("-timeout=%s", timeoutStr),
-		}
-		progress(fmt.Sprintf("running test %s...", testPattern))
-		goTestCmd := exec.Command("go", goTestArgs...)
-		goTestCmd.Dir = testDir
-		goTestCmd.Stdout = os.Stdout
-		goTestCmd.Stderr = os.Stderr
-		goTestCmd.Stdin = os.Stdin
-		if len(extraEnv) > 0 {
-			goTestCmd.Env = append(os.Environ(), extraEnv...)
-		}
-
-		if err := goTestCmd.Run(); err != nil {
-			if exitErr, ok := err.(*exec.ExitError); ok {
-				if logPath != "" {
-					progress(fmt.Sprintf("FAILED (log: %s)", logPath))
+		var testErr error
+		runErr := r.Run(func() error {
+			// Stage 1: optional image build.
+			if buildEnabled {
+				r.OnStageStart("build")
+				buildCmd := exec.Command("just", buildTarget)
+				buildCmd.Stdout = os.Stdout
+				buildCmd.Stderr = os.Stderr
+				buildErr := buildCmd.Run()
+				r.OnStageFinish("build", buildErr)
+				if buildErr != nil {
+					return fmt.Errorf("just %s failed: %w", buildTarget, buildErr)
 				}
+			}
+
+			// Stage 2: optional environment start.
+			var extraEnv []string
+			if profileName != "" {
+				if !strings.HasSuffix(profileName, ".profile") {
+					profileName += ".profile"
+				}
+				outputFile := fmt.Sprintf("test-%s-out.toml", generateRunID())
+				absOutput, err := filepath.Abs(outputFile)
+				if err != nil {
+					return fmt.Errorf("failed to resolve output path: %w", err)
+				}
+				_ = framework.RemoveTestContainers()
+
+				if err := applyProfile(profileName); err != nil {
+					return err
+				}
+				_ = os.Setenv("CTF_OUTPUT", outputFile)
+				_ = os.Setenv("TESTCONTAINERS_RYUK_DISABLED", "true")
+				if err := newEnvFn(r); err != nil {
+					return fmt.Errorf("environment startup failed: %w", err)
+				}
+				extraEnv = []string{fmt.Sprintf("SMOKE_TEST_CONFIG=%s", absOutput)}
+			}
+
+			// Stage 3: run the test.
+			timeoutStr := "0"
+			if timeout > 0 {
+				timeoutStr = timeout.String()
+			}
+			goTestArgs := []string{
+				"test", "-v", "-count=1",
+				"-run", testPattern,
+				fmt.Sprintf("-timeout=%s", timeoutStr),
+			}
+			r.OnStageStart("test")
+			goTestCmd := exec.Command("go", goTestArgs...)
+			goTestCmd.Dir = testDir
+			goTestCmd.Stdout = os.Stdout
+			goTestCmd.Stderr = os.Stderr
+			goTestCmd.Stdin = os.Stdin
+			if len(extraEnv) > 0 {
+				goTestCmd.Env = append(os.Environ(), extraEnv...)
+			}
+			testErr = goTestCmd.Run()
+			r.OnStageFinish("test", testErr)
+			return testErr
+		})
+
+		if runErr == nil {
+			runErr = testErr
+		}
+
+		if runErr != nil {
+			if exitErr, ok := runErr.(*exec.ExitError); ok {
 				if status, ok := exitErr.Sys().(syscall.WaitStatus); ok {
 					os.Exit(status.ExitStatus())
 				}
 				os.Exit(1)
 			}
-			return fmt.Errorf("test run failed: %w", err)
-		}
-		if logPath != "" {
-			progress(fmt.Sprintf("PASSED (log: %s)", logPath))
+			return fmt.Errorf("test run failed: %w", runErr)
 		}
 		return nil
 	},
@@ -704,6 +714,55 @@ func generateRunID() string {
 		return fmt.Sprintf("%d", time.Now().UnixMilli())
 	}
 	return id.String()[:8]
+}
+
+// redirectToLogFile redirects os.Stdout and os.Stderr to an auto-created log
+// file in CCVConfigDir() unless verbose is true. It returns the writer that
+// the fancy reporter should render to (the saved real-terminal fd), and a
+// cleanup func that restores the original fds. In verbose mode nothing is
+// redirected and the returned writer is os.Stderr.
+func redirectToLogFile(verbose bool, prefix string) (term *os.File, cleanup func(), err error) {
+	noop := func() {}
+	if verbose {
+		return os.Stderr, noop, nil
+	}
+
+	logPath := filepath.Join(util.CCVConfigDir(), fmt.Sprintf("%s-%d.log", prefix, time.Now().UnixMilli()))
+	lf, err := os.Create(logPath)
+	if err != nil {
+		return nil, noop, fmt.Errorf("failed to create log file %s: %w", logPath, err)
+	}
+
+	realStdoutFd, _ := syscall.Dup(int(os.Stdout.Fd()))
+	realStderrFd, _ := syscall.Dup(int(os.Stderr.Fd()))
+	realTerm := os.NewFile(uintptr(realStderrFd), "real_stderr")
+
+	fmt.Fprintf(realTerm, "log: %s\n", logPath)
+
+	_ = syscall.Dup2(int(lf.Fd()), int(os.Stdout.Fd()))
+	_ = syscall.Dup2(int(lf.Fd()), int(os.Stderr.Fd()))
+
+	cleanupFn := func() {
+		_ = syscall.Dup2(realStdoutFd, int(os.Stdout.Fd()))
+		_ = syscall.Dup2(realStderrFd, int(os.Stderr.Fd()))
+		_ = syscall.Close(realStdoutFd)
+		_ = realTerm.Close()
+		_ = lf.Close()
+	}
+	return realTerm, cleanupFn, nil
+}
+
+// resolveOutToml returns the path to the env-out.toml that Store() will have
+// written. It mirrors the logic in config.go:Store without re-running it.
+func resolveOutToml() string {
+	if override := os.Getenv(ccv.EnvVarTestOutput); override != "" {
+		return override
+	}
+	base, err := ccv.BaseConfigPath()
+	if err != nil {
+		return ""
+	}
+	return fmt.Sprintf("%s-out.toml", strings.ReplaceAll(base, ".toml", ""))
 }
 
 var indexerDBShellCmd = &cobra.Command{
@@ -934,6 +993,7 @@ func init() {
 	rootCmd.PersistentFlags().BoolP("debug", "d", false, "Enable running services with dlv to allow remote debugging.")
 	rootCmd.PersistentFlags().String("env-mode", "legacy", "Environment startup mode: legacy (default) or phased.")
 	rootCmd.PersistentFlags().String("log-level", "", "Log level for services that support it (e.g. debug, info, warn)")
+	rootCmd.PersistentFlags().Bool("verbose", false, "Show raw log output instead of the fancy progress UI")
 
 	// Fund addresses
 	rootCmd.AddCommand(fundAddressesCmd)
@@ -976,7 +1036,6 @@ func init() {
 	testCmd.Flags().StringP("pattern", "r", "", "Raw Go test pattern (alternative to a named suite positional arg)")
 	testCmd.Flags().Duration("timeout", 0, "Test timeout (0 = unlimited)")
 	testCmd.Flags().String("build", "build-docker", "Just target to build Docker images before starting (e.g. build-docker, build-docker-ci); pass 'false' to skip; silently ignored when --profile is absent")
-	testCmd.Flags().String("log", "", "Write verbose output (build, env, test) to this file; only progress lines appear on the terminal")
 	rootCmd.AddCommand(testCmd)
 	rootCmd.AddCommand(indexerDBShellCmd)
 	rootCmd.AddCommand(printAddressesCmd)
