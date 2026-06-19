@@ -45,13 +45,13 @@ func (r *simpleReporter) OnFinish(phase int, name string, err error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	k := r.key(phase, name)
-	cs, ok := r.starts[k]
-	if !ok {
-		cs = componentStart{phase: phase, name: name, start: time.Now()}
+	start := time.Now()
+	if cs, ok := r.starts[k]; ok {
+		start = cs.start
 	}
 	delete(r.starts, k)
 
-	dur := time.Since(cs.start).Round(time.Millisecond)
+	dur := time.Since(start).Round(time.Millisecond)
 	if err != nil {
 		fmt.Fprintf(r.out, "✗ [%d] %-28s %6s  error: %v\n", phase, name, dur, err)
 	} else {

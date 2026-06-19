@@ -65,7 +65,7 @@ func (p *component) setStatus(s string) {
 	p.mu.Unlock()
 }
 
-// Status implements the devenvruntime.Statuser optional interface so the TUI
+// Status implements the devenvruntime.StatusGetter optional interface so the TUI
 // reporter can poll for fine-grained progress during the long deploy loop.
 func (p *component) Status() string {
 	p.mu.Lock()

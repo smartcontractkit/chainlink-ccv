@@ -35,11 +35,13 @@ type statusUpdateMsg struct {
 	status string
 }
 
-type stageStartedMsg struct{ name string }
-type stageFinishedMsg struct {
-	name string
-	err  error
-}
+type (
+	stageStartedMsg  struct{ name string }
+	stageFinishedMsg struct {
+		name string
+		err  error
+	}
+)
 type doneMsg struct{ err error }
 
 // ── styles ───────────────────────────────────────────────────────────────────
@@ -70,6 +72,12 @@ func newStyles(out io.Writer) tuiStyles {
 }
 
 var spinnerFrames = []string{"|", "/", "-", "\\"}
+
+// fmtDur formats a duration to 1 decimal place (e.g. 1m1.6s) for stable
+// fixed-width display. Rounds to the nearest 100ms.
+func fmtDur(d time.Duration) string {
+	return d.Round(100 * time.Millisecond).String()
+}
 
 // ── model ────────────────────────────────────────────────────────────────────
 
@@ -157,7 +165,7 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if ok {
 			start = cs.start
 		}
-		dur := finishedAt.Sub(start).Round(time.Millisecond)
+		dur := fmtDur(finishedAt.Sub(start))
 		delete(m.active, key)
 		// Remove from ordered list.
 		for i, k := range m.activeOrder {
@@ -168,13 +176,13 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		if msg.err != nil {
 			m.log = append(m.log, m.styles.fail.Render(
-				fmt.Sprintf("✗ [%d] %-28s %6s  error: %v", msg.phase, msg.name, dur, msg.err)))
+				fmt.Sprintf("✗ [%d] %-28s %7s  error: %v", msg.phase, msg.name, dur, msg.err)))
 		} else {
 			// Green checkmark and name; phase and duration in default color.
 			m.log = append(m.log, m.styles.ok.Render("✓")+
 				fmt.Sprintf(" [%d] ", msg.phase)+
 				m.styles.ok.Render(fmt.Sprintf("%-28s", msg.name))+
-				fmt.Sprintf(" %6s", dur))
+				fmt.Sprintf(" %7s", dur))
 		}
 		// Append accumulated status lines with per-entry durations.
 		if ok {
@@ -190,7 +198,7 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				if i == n-1 {
 					prefix = "      └── "
 				}
-				m.log = append(m.log, m.styles.dim.Render(fmt.Sprintf("%s%-48s %6s", prefix, entry.text, entryDur.Round(time.Millisecond))))
+				m.log = append(m.log, m.styles.dim.Render(fmt.Sprintf("%s%7s  %s", prefix, fmtDur(entryDur), entry.text)))
 			}
 		}
 		if m.done && len(m.active) == 0 {
@@ -238,11 +246,11 @@ func (m tuiModel) View() string {
 		if !ok {
 			continue
 		}
-		elapsed := time.Since(cs.start).Round(time.Second)
+		elapsed := time.Since(cs.start)
 		// Line 1: spinner+phase in default, name in bold green, duration in default.
-		sb.WriteString(fmt.Sprintf("%s [%d] ", spin, cs.phase))
+		fmt.Fprintf(&sb, "%s [%d] ", spin, cs.phase)
 		sb.WriteString(m.styles.active.Render(fmt.Sprintf("%-28s", cs.name)))
-		sb.WriteString(fmt.Sprintf(" %6s", elapsed))
+		fmt.Fprintf(&sb, " %7s", fmtDur(elapsed))
 		sb.WriteString("\n")
 		// Status lines use tree connectors: ├── for middle entries, └── for last.
 		for i, entry := range cs.statuses {
@@ -256,20 +264,13 @@ func (m tuiModel) View() string {
 			if i == len(cs.statuses)-1 {
 				prefix = "      └── "
 			}
-			line := fmt.Sprintf("%s%-48s %6s", prefix, entry.text, entryDur.Round(time.Millisecond))
+			line := fmt.Sprintf("%s%7s  %s", prefix, fmtDur(entryDur), entry.text)
 			sb.WriteString(m.styles.dim.Render(line))
 			sb.WriteString("\n")
 		}
 	}
 
 	return sb.String()
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }
 
 // ── reporter ─────────────────────────────────────────────────────────────────
@@ -293,7 +294,7 @@ func newBubbletearReporter(out io.Writer) *bubbletearReporter {
 func (r *bubbletearReporter) OnStart(phase int, name string, comp devenvruntime.Component) {
 	r.program.Send(componentStartedMsg{phase: phase, name: name})
 
-	s, ok := comp.(devenvruntime.Statuser)
+	s, ok := comp.(devenvruntime.StatusGetter)
 	if !ok {
 		return
 	}

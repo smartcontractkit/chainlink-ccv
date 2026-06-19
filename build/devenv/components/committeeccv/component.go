@@ -65,7 +65,7 @@ func (c *component) setStatus(s string) {
 	c.mu.Unlock()
 }
 
-// Status implements the devenvruntime.Statuser optional interface so the TUI
+// Status implements the devenvruntime.StatusGetter optional interface so the TUI
 // reporter can poll for fine-grained progress during the long Phase 3 setup.
 func (c *component) Status() string {
 	c.mu.Lock()

@@ -27,9 +27,9 @@ type Reporter interface {
 // in legacy/monolith mode where component-level events are unavailable.
 type NoopReporter struct{}
 
-func (NoopReporter) OnStart(int, string, Component)    {}
-func (NoopReporter) OnFinish(int, string, error)       {}
-func (NoopReporter) OnStageStart(string)               {}
-func (NoopReporter) OnStageFinish(string, error)       {}
-func (NoopReporter) Run(fn func() error) error         { return fn() }
-func (NoopReporter) PrintSummary(string, string)       {}
+func (NoopReporter) OnStart(int, string, Component) {}
+func (NoopReporter) OnFinish(int, string, error)    {}
+func (NoopReporter) OnStageStart(string)            {}
+func (NoopReporter) OnStageFinish(string, error)    {}
+func (NoopReporter) Run(fn func() error) error      { return fn() }
+func (NoopReporter) PrintSummary(string, string)    {}

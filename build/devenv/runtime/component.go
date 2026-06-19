@@ -41,9 +41,10 @@ type LogSetter interface {
 	SetLogger(lggr zerolog.Logger)
 }
 
-// Statuser is an optional interface components may implement to report
-// finer-grained internal status during execution. The runtime polls this
-// asynchronously and surfaces the result in the live display footer.
-type Statuser interface {
+// StatusGetter is an optional interface components may implement to report
+// finer-grained internal status during execution. The reporter polls Status()
+// at ~200ms intervals; statuses that change and revert within a single poll
+// window will be missed.
+type StatusGetter interface {
 	Status() string
 }
