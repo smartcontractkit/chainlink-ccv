@@ -51,6 +51,13 @@ type ApplyVerifierConfigInput struct {
 	DisableFinalityCheckers []string
 	// RevokeOrphanedJobs when true revokes and cleans up orphaned jobs; default false.
 	RevokeOrphanedJobs bool
+	// ConsolidateAggregators when true emits a single verifier job per NOP that writes to ALL of
+	// the committee's aggregators (using the aggregators list in the verifier config), instead of
+	// one job per aggregator. Default false preserves the legacy one-job-per-aggregator output
+	// byte-for-byte. Flipping it to true changes the verifier_id (the consolidated job omits the
+	// aggregator name) and orphans the old per-aggregator jobs; pair it with RevokeOrphanedJobs to
+	// clean those up.
+	ConsolidateAggregators bool
 }
 
 // ApplyVerifierConfig is the offchain-only single-entry product for §5.9 / §5.10:
@@ -182,6 +189,7 @@ func ApplyVerifierConfig() deployment.ChangeSetV2[ApplyVerifierConfigInput] {
 			cfg.Monitoring,
 			cfg.DisableFinalityCheckers,
 			signerFamily,
+			cfg.ConsolidateAggregators,
 		)
 		if err != nil {
 			return deployment.ChangesetOutput{}, err
@@ -314,6 +322,7 @@ func buildVerifierJobSpecs(
 	monitoring ccvdeployment.MonitoringConfig,
 	disableFinalityCheckers []string,
 	signerFamily string,
+	consolidateAggregators bool,
 ) (shared.NOPJobSpecs, shared.VerifierJobScope, error) {
 	scope := shared.VerifierJobScope{
 		CommitteeQualifier: committee.Qualifier,
@@ -355,36 +364,33 @@ func buildVerifierJobSpecs(
 			continue
 		}
 
-		for _, agg := range committee.Aggregators {
-			verifierJobID := shared.NewVerifierJobID(nopAlias, agg.Name, scope)
+		signerAddress := nop.SignerAddressByFamily[signerFamily]
+		if signerAddress == "" {
+			return nil, scope, fmt.Errorf("NOP %q missing signer address for family %s", nop.Alias, signerFamily)
+		}
 
-			signerAddress := nop.SignerAddressByFamily[signerFamily]
-			if signerAddress == "" {
-				return nil, scope, fmt.Errorf("NOP %q missing signer address for family %s", nop.Alias, signerFamily)
-			}
+		sortedFinalityCheckers := slices.Clone(disableFinalityCheckers)
+		slices.Sort(sortedFinalityCheckers)
 
-			sortedFinalityCheckers := slices.Clone(disableFinalityCheckers)
-			slices.Sort(sortedFinalityCheckers)
+		// baseCfg holds the per-NOP fields shared by both topologies. The aggregator wiring
+		// (legacy AggregatorAddress vs. Aggregators list) and VerifierID are filled in per job.
+		baseCfg := commit.Config{
+			SignerAddress:                  signerAddress,
+			PyroscopeURL:                   pyroscopeURL,
+			CommitteeVerifierAddresses:     filterAddressesByChains(committeeVerifierAddrs, nopChains),
+			DefaultExecutorOnRampAddresses: filterAddressesByChains(executorOnRampAddrs, nopChains),
+			DisableFinalityCheckers:        sortedFinalityCheckers,
+			Monitoring:                     monitoring,
+			CommitteeConfig: chainaccess.CommitteeConfig{
+				OnRampAddresses:    filterAddressesByChains(onRampAddrs, nopChains),
+				RMNRemoteAddresses: filterAddressesByChains(rmnRemoteAddrs, nopChains),
+			},
+		}
 
-			verifierCfg := commit.Config{
-				VerifierID:                     verifierJobID.GetVerifierID(),
-				AggregatorAddress:              agg.Address,
-				InsecureAggregatorConnection:   agg.InsecureAggregatorConnection,
-				SignerAddress:                  signerAddress,
-				PyroscopeURL:                   pyroscopeURL,
-				CommitteeVerifierAddresses:     filterAddressesByChains(committeeVerifierAddrs, nopChains),
-				DefaultExecutorOnRampAddresses: filterAddressesByChains(executorOnRampAddrs, nopChains),
-				DisableFinalityCheckers:        sortedFinalityCheckers,
-				Monitoring:                     monitoring,
-				CommitteeConfig: chainaccess.CommitteeConfig{
-					OnRampAddresses:    filterAddressesByChains(onRampAddrs, nopChains),
-					RMNRemoteAddresses: filterAddressesByChains(rmnRemoteAddrs, nopChains),
-				},
-			}
-
+		emitJob := func(verifierJobID shared.VerifierJobID, verifierCfg commit.Config, label string) error {
 			configBytes, err := toml.Marshal(verifierCfg)
 			if err != nil {
-				return nil, scope, fmt.Errorf("failed to marshal verifier config for NOP %q aggregator %q: %w", nopAlias, agg.Name, err)
+				return fmt.Errorf("failed to marshal verifier config for NOP %q (%s): %w", nopAlias, label, err)
 			}
 
 			jobID := verifierJobID.ToJobID()
@@ -400,6 +406,39 @@ committeeVerifierConfig = '''
 				jobSpecs[nopAlias] = make(map[shared.JobID]string)
 			}
 			jobSpecs[nopAlias][jobID] = jobSpec
+			return nil
+		}
+
+		if consolidateAggregators {
+			// One consolidated job per NOP writing to all aggregators via the Aggregators list.
+			verifierJobID := shared.NewConsolidatedVerifierJobID(nopAlias, scope)
+			aggregators := make([]commit.AggregatorConnection, len(committee.Aggregators))
+			for i, agg := range committee.Aggregators {
+				aggregators[i] = commit.AggregatorConnection{
+					Name:               agg.Name,
+					Address:            agg.Address,
+					InsecureConnection: agg.InsecureAggregatorConnection,
+				}
+			}
+			verifierCfg := baseCfg
+			verifierCfg.VerifierID = verifierJobID.GetVerifierID()
+			verifierCfg.Aggregators = aggregators
+			if err := emitJob(verifierJobID, verifierCfg, "consolidated"); err != nil {
+				return nil, scope, err
+			}
+			continue
+		}
+
+		// Legacy topology: one job per aggregator, each carrying a single AggregatorAddress.
+		for _, agg := range committee.Aggregators {
+			verifierJobID := shared.NewVerifierJobID(nopAlias, agg.Name, scope)
+			verifierCfg := baseCfg
+			verifierCfg.VerifierID = verifierJobID.GetVerifierID()
+			verifierCfg.AggregatorAddress = agg.Address
+			verifierCfg.InsecureAggregatorConnection = agg.InsecureAggregatorConnection
+			if err := emitJob(verifierJobID, verifierCfg, agg.Name); err != nil {
+				return nil, scope, err
+			}
 		}
 	}
 
