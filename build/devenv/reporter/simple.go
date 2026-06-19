@@ -18,9 +18,10 @@ type componentStart struct {
 // simpleReporter writes one line per component completion to out.
 // No cursor movement — safe for pipes, CI, and log capture.
 type simpleReporter struct {
-	mu     sync.Mutex
-	out    io.Writer
-	starts map[string]componentStart // key: "phase:name"
+	mu      sync.Mutex
+	out     io.Writer
+	starts  map[string]componentStart // key: "phase:name"
+	elapsed time.Duration
 }
 
 func newSimpleReporter(out io.Writer) *simpleReporter {
@@ -69,9 +70,12 @@ func (r *simpleReporter) OnStageFinish(name string, err error) {
 }
 
 func (r *simpleReporter) Run(fn func() error) error {
-	return fn()
+	start := time.Now()
+	err := fn()
+	r.elapsed = time.Since(start)
+	return err
 }
 
 func (r *simpleReporter) PrintSummary(outTomlPath string) {
-	printSummary(r.out, outTomlPath)
+	printSummary(r.out, outTomlPath, r.elapsed)
 }

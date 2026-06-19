@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/BurntSushi/toml"
 )
@@ -12,7 +13,7 @@ import (
 // printSummary writes a human-readable summary of the environment to out.
 // outTomlPath is the path to the env-out.toml produced by Store(); an empty
 // string or a non-existent file is handled gracefully.
-func printSummary(out io.Writer, outTomlPath string) {
+func printSummary(out io.Writer, outTomlPath string, elapsed time.Duration) {
 	if outTomlPath == "" {
 		return
 	}
@@ -29,16 +30,20 @@ func printSummary(out io.Writer, outTomlPath string) {
 		return
 	}
 
+	sep := newSepStyle(out)
 	fmt.Fprintln(out)
+	fmt.Fprintln(out, sep.Render(strings.Repeat("─", 60)))
 	fmt.Fprintf(out, "env output: %s\n", abs)
-	fmt.Fprintln(out, strings.Repeat("─", 60))
 
 	summarizeBlockchains(out, raw)
 	summarizeAggregators(out, raw)
 	summarizeVerifiers(out, raw)
 	summarizeIndexers(out, raw)
 	summarizeExecutors(out, raw)
-	summarizeFake(out, raw)
+
+	if elapsed > 0 {
+		fmt.Fprintf(out, "total: %s\n", elapsed.Round(time.Second))
+	}
 }
 
 func resolveTomlPath(path string) (string, error) {
@@ -144,18 +149,6 @@ func summarizeExecutors(out io.Writer, raw map[string]any) {
 		o := subMap(m, "out")
 		url := strField(o, "http_url")
 		fmt.Fprintf(out, "  %s  %s\n", name, url)
-	}
-}
-
-func summarizeFake(out io.Writer, raw map[string]any) {
-	f, ok := raw["fake"].(map[string]any)
-	if !ok {
-		return
-	}
-	o := subMap(f, "out")
-	url := strField(o, "http_url")
-	if url != "" {
-		fmt.Fprintf(out, "fake: %s\n", url)
 	}
 }
 

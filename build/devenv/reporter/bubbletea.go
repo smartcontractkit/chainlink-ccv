@@ -44,15 +44,30 @@ type doneMsg struct{ err error }
 
 // ── styles ───────────────────────────────────────────────────────────────────
 
-var (
-	styleOK     = lipgloss.NewStyle().Foreground(lipgloss.Color("2"))  // green
-	styleFail   = lipgloss.NewStyle().Foreground(lipgloss.Color("1"))  // red
-	styleStage  = lipgloss.NewStyle().Foreground(lipgloss.Color("4"))  // blue
-	styleSep    = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))  // dark gray
-	styleFooter = lipgloss.NewStyle().Foreground(lipgloss.Color("11")) // yellow
-	styleDim    = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))  // dark gray
-	styleActive = lipgloss.NewStyle().Foreground(lipgloss.Color("10")) // bright green — in-progress
-)
+type tuiStyles struct {
+	ok     lipgloss.Style
+	fail   lipgloss.Style
+	stage  lipgloss.Style
+	sep    lipgloss.Style
+	dim    lipgloss.Style
+	active lipgloss.Style
+}
+
+func newSepStyle(out io.Writer) lipgloss.Style {
+	return lipgloss.NewRenderer(out).NewStyle().Foreground(lipgloss.Color("8"))
+}
+
+func newStyles(out io.Writer) tuiStyles {
+	r := lipgloss.NewRenderer(out)
+	return tuiStyles{
+		ok:     r.NewStyle().Foreground(lipgloss.Color("2")),            // green
+		fail:   r.NewStyle().Foreground(lipgloss.Color("1")),            // red
+		stage:  r.NewStyle().Foreground(lipgloss.Color("4")),            // blue
+		sep:    newSepStyle(out),                                        // dark gray
+		dim:    r.NewStyle().Foreground(lipgloss.Color("8")),            // dark gray
+		active: r.NewStyle().Foreground(lipgloss.Color("2")).Bold(true), // bold green — in-progress
+	}
+}
 
 var spinnerFrames = []string{"|", "/", "-", "\\"}
 
@@ -66,6 +81,7 @@ type activeComp struct {
 }
 
 type tuiModel struct {
+	styles      tuiStyles
 	log         []string // completed / stage lines
 	active      map[string]*activeComp
 	activeOrder []string // insertion-ordered keys for stable display
@@ -76,8 +92,9 @@ type tuiModel struct {
 	width       int
 }
 
-func newModel() tuiModel {
+func newModel(out io.Writer) tuiModel {
 	return tuiModel{
+		styles: newStyles(out),
 		active: make(map[string]*activeComp),
 		width:  80,
 	}
@@ -115,11 +132,11 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tickEvery(100 * time.Millisecond)
 
 	case stageStartedMsg:
-		m.log = append(m.log, styleStage.Render("── "+msg.name))
+		m.log = append(m.log, m.styles.stage.Render("── "+msg.name))
 
 	case stageFinishedMsg:
 		if msg.err != nil {
-			m.log = append(m.log, styleFail.Render(fmt.Sprintf("✗ %s failed: %v", msg.name, msg.err)))
+			m.log = append(m.log, m.styles.fail.Render(fmt.Sprintf("✗ %s failed: %v", msg.name, msg.err)))
 		}
 
 	case componentStartedMsg:
@@ -144,11 +161,14 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		if msg.err != nil {
-			m.log = append(m.log, styleFail.Render(
+			m.log = append(m.log, m.styles.fail.Render(
 				fmt.Sprintf("✗ [%d] %-28s %6s  error: %v", msg.phase, msg.name, dur, msg.err)))
 		} else {
-			m.log = append(m.log, styleOK.Render(
-				fmt.Sprintf("✓ [%d] %-28s %6s", msg.phase, msg.name, dur)))
+			// Green checkmark and name; phase and duration in default color.
+			m.log = append(m.log, m.styles.ok.Render("✓")+
+				fmt.Sprintf(" [%d] ", msg.phase)+
+				m.styles.ok.Render(fmt.Sprintf("%-28s", msg.name))+
+				fmt.Sprintf(" %6s", dur))
 		}
 		if m.done && len(m.active) == 0 {
 			return m, tea.Quit
@@ -184,7 +204,7 @@ func (m tuiModel) View() string {
 	}
 
 	sep := strings.Repeat("─", min(m.width, 60))
-	sb.WriteString(styleSep.Render(sep))
+	sb.WriteString(m.styles.sep.Render(sep))
 	sb.WriteString("\n")
 
 	spin := spinnerFrames[m.frame%len(spinnerFrames)]
@@ -194,13 +214,14 @@ func (m tuiModel) View() string {
 			continue
 		}
 		elapsed := time.Since(cs.start).Round(time.Second)
-		// Line 1: spinner + phase + name + duration — same column layout as completed lines.
-		line1 := fmt.Sprintf("%s [%d] %-28s %6s", spin, cs.phase, cs.name, elapsed)
-		sb.WriteString(styleActive.Render(line1))
+		// Line 1: spinner+phase in default, name in bold green, duration in default.
+		sb.WriteString(fmt.Sprintf("%s [%d] ", spin, cs.phase))
+		sb.WriteString(m.styles.active.Render(fmt.Sprintf("%-28s", cs.name)))
+		sb.WriteString(fmt.Sprintf(" %6s", elapsed))
 		sb.WriteString("\n")
 		// Line 2: status indented under the first char of the component name.
 		if cs.status != "" {
-			sb.WriteString(styleDim.Render("      └── " + cs.status))
+			sb.WriteString(m.styles.dim.Render("      └── " + cs.status))
 			sb.WriteString("\n")
 		}
 	}
@@ -221,6 +242,7 @@ type bubbletearReporter struct {
 	mu          sync.Mutex
 	program     *tea.Program
 	finalErr    error
+	elapsed     time.Duration
 	out         io.Writer
 	stopPollers map[string]func()
 }
@@ -280,15 +302,17 @@ func (r *bubbletearReporter) OnStageFinish(name string, err error) {
 }
 
 func (r *bubbletearReporter) Run(fn func() error) error {
-	prog := tea.NewProgram(newModel(), tea.WithOutput(r.out))
+	prog := tea.NewProgram(newModel(r.out), tea.WithOutput(r.out))
 	r.program = prog
 
+	start := time.Now()
 	go func() {
 		err := fn()
 		prog.Send(doneMsg{err: err})
 	}()
 
 	m, err := prog.Run()
+	r.elapsed = time.Since(start)
 	if err != nil {
 		return err
 	}
@@ -302,5 +326,5 @@ func (r *bubbletearReporter) Run(fn func() error) error {
 }
 
 func (r *bubbletearReporter) PrintSummary(outTomlPath string) {
-	printSummary(r.out, outTomlPath)
+	printSummary(r.out, outTomlPath, r.elapsed)
 }
