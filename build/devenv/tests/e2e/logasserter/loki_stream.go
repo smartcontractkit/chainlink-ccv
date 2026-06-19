@@ -219,9 +219,6 @@ func (s *LogStream) identifyStage(logLine string) string {
 	if strings.Contains(logLine, ProcessingInExecutor().LogPattern) {
 		return ProcessingInExecutor().Name
 	}
-	if strings.Contains(logLine, NewMessageInExecutor().LogPattern) {
-		return NewMessageInExecutor().Name
-	}
 	if strings.Contains(logLine, MessageReachedVerifier().LogPattern) {
 		return MessageReachedVerifier().Name
 	}

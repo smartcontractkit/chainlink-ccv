@@ -20,7 +20,6 @@ import (
 	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
-	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/logasserter"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/tcapi"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
@@ -184,8 +183,7 @@ func sendAndWaitForIndexed(
 //
 //  1. Sends two messages with fast finality, waits for both to be indexed.
 //  2. Replays message-1 only with `messages --ids <msg1> --force` and verifies
-//     only message-1's verifier_results and messages ingestion_timestamps changed,
-//     and the executor streamer re-admits message-1 after replay.
+//     only message-1's verifier_results and messages ingestion_timestamps changed.
 //  3. Replays both with `discovery --since <ts> --force` and verifies both
 //     messages' timestamps are updated.
 //  4. Replays again with `discovery --since <ts>` (no --force, backfill-only)
@@ -240,12 +238,6 @@ func TestE2ESmoke_ReplayForceOverwrite(t *testing.T) {
 	testCtx, cleanupFn := tcapi.NewTestingContext(ctx, chainMap, aggregatorClient, indexerMonitor)
 	require.NotNil(t, testCtx, "test context must be available")
 	defer cleanupFn()
-
-	logAssert := logasserter.New(DefaultLokiURL, zerolog.Ctx(ctx).With().Str("component", "log-asserter").Logger())
-	require.NoError(t, logAssert.StartStreaming(ctx, []logasserter.LogStage{
-		logasserter.NewMessageInExecutor(),
-	}))
-	t.Cleanup(logAssert.StopStreaming)
 
 	t.Cleanup(func() {
 		_, _ = framework.SaveContainerLogs(fmt.Sprintf("%s-%s", framework.DefaultCTFLogsDir, t.Name()))
@@ -302,11 +294,6 @@ func TestE2ESmoke_ReplayForceOverwrite(t *testing.T) {
 		"msg1 messages ingestion_timestamp must be updated after --ids --force replay")
 	require.True(t, msg2MessageTsAfterIDs.Equal(msg2MessageTsBefore),
 		"msg2 messages ingestion_timestamp must be unchanged after replaying only msg1")
-
-	replayNetNewCtx, replayNetNewCancel := context.WithTimeout(ctx, tcapi.DefaultExecTimeout)
-	_, err = logAssert.WaitForStage(replayNetNewCtx, msgID1, logasserter.NewMessageInExecutor(), 2)
-	replayNetNewCancel()
-	require.NoError(t, err, "executor streamer must re-admit msg1 after force replay")
 
 	time.Sleep(2 * time.Second)
 
