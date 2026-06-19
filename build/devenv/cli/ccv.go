@@ -104,7 +104,7 @@ var restartCmd = &cobra.Command{
 			return fmt.Errorf("failed to clean Docker resources: %w", err)
 		}
 		verbose, _ := cmd.Flags().GetBool("verbose")
-		term, cleanup, err := redirectToLogFile(verbose, "ccv-restart")
+		term, cleanup, logPath, err := redirectToLogFile(verbose, "ccv-restart")
 		if err != nil {
 			return err
 		}
@@ -112,7 +112,7 @@ var restartCmd = &cobra.Command{
 		r := reporter.New(verbose, term)
 		outToml := resolveOutToml()
 		runErr := r.Run(func() error { return newEnvFn(r) })
-		r.PrintSummary(outToml)
+		r.PrintSummary(outToml, logPath)
 		return runErr
 	},
 }
@@ -127,7 +127,7 @@ var upCmd = &cobra.Command{
 			return err
 		}
 		verbose, _ := cmd.Flags().GetBool("verbose")
-		term, cleanup, err := redirectToLogFile(verbose, "ccv-up")
+		term, cleanup, logPath, err := redirectToLogFile(verbose, "ccv-up")
 		if err != nil {
 			return err
 		}
@@ -135,7 +135,7 @@ var upCmd = &cobra.Command{
 		r := reporter.New(verbose, term)
 		outToml := resolveOutToml()
 		runErr := r.Run(func() error { return newEnvFn(r) })
-		r.PrintSummary(outToml)
+		r.PrintSummary(outToml, logPath)
 		return runErr
 	},
 }
@@ -596,7 +596,7 @@ Examples:
 		// the OS fd level (dup2) so that subprocesses, zerolog, and fmt.Print*
 		// calls all land in the log regardless of how they open stdout/stderr.
 		// In verbose mode no redirect happens; the caller gets raw zerolog output.
-		term, cleanup, err := redirectToLogFile(verbose, "ccv-test")
+		term, cleanup, _, err := redirectToLogFile(verbose, "ccv-test")
 		if err != nil {
 			return err
 		}
@@ -727,23 +727,21 @@ func generateRunID() string {
 // the fancy reporter should render to (the saved real-terminal fd), and a
 // cleanup func that restores the original fds. In verbose mode nothing is
 // redirected and the returned writer is os.Stderr.
-func redirectToLogFile(verbose bool, prefix string) (term *os.File, cleanup func(), err error) {
+func redirectToLogFile(verbose bool, prefix string) (term *os.File, cleanup func(), logPath string, err error) {
 	noop := func() {}
 	if verbose {
-		return os.Stderr, noop, nil
+		return os.Stderr, noop, "", nil
 	}
 
-	logPath := filepath.Join(util.CCVConfigDir(), fmt.Sprintf("%s-%d.log", prefix, time.Now().UnixMilli()))
+	logPath = filepath.Join(util.CCVConfigDir(), fmt.Sprintf("%s-%d.log", prefix, time.Now().UnixMilli()))
 	lf, err := os.Create(logPath)
 	if err != nil {
-		return nil, noop, fmt.Errorf("failed to create log file %s: %w", logPath, err)
+		return nil, noop, "", fmt.Errorf("failed to create log file %s: %w", logPath, err)
 	}
 
 	realStdoutFd, _ := syscall.Dup(int(os.Stdout.Fd()))
 	realStderrFd, _ := syscall.Dup(int(os.Stderr.Fd()))
 	realTerm := os.NewFile(uintptr(realStderrFd), "real_stderr")
-
-	fmt.Fprintf(realTerm, "log: %s\n", logPath)
 
 	_ = syscall.Dup2(int(lf.Fd()), int(os.Stdout.Fd()))
 	_ = syscall.Dup2(int(lf.Fd()), int(os.Stderr.Fd()))
@@ -755,7 +753,7 @@ func redirectToLogFile(verbose bool, prefix string) (term *os.File, cleanup func
 		_ = realTerm.Close()
 		_ = lf.Close()
 	}
-	return realTerm, cleanupFn, nil
+	return realTerm, cleanupFn, logPath, nil
 }
 
 // resolveOutToml returns the path to the env-out.toml that Store() will have

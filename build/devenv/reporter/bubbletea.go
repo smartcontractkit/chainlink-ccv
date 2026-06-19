@@ -73,11 +73,16 @@ var spinnerFrames = []string{"|", "/", "-", "\\"}
 
 // ── model ────────────────────────────────────────────────────────────────────
 
+type statusEntry struct {
+	text string
+	at   time.Time
+}
+
 type activeComp struct {
-	phase  int
-	name   string
-	start  time.Time
-	status string
+	phase    int
+	name     string
+	start    time.Time
+	statuses []statusEntry
 }
 
 type tuiModel struct {
@@ -147,11 +152,12 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case componentFinishedMsg:
 		key := compKey(msg.phase, msg.name)
 		cs, ok := m.active[key]
-		start := time.Now()
+		finishedAt := time.Now()
+		start := finishedAt
 		if ok {
 			start = cs.start
 		}
-		dur := time.Since(start).Round(time.Millisecond)
+		dur := finishedAt.Sub(start).Round(time.Millisecond)
 		delete(m.active, key)
 		// Remove from ordered list.
 		for i, k := range m.activeOrder {
@@ -170,14 +176,33 @@ func (m tuiModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.styles.ok.Render(fmt.Sprintf("%-28s", msg.name))+
 				fmt.Sprintf(" %6s", dur))
 		}
+		// Append accumulated status lines with per-entry durations.
+		if ok {
+			n := len(cs.statuses)
+			for i, entry := range cs.statuses {
+				var entryDur time.Duration
+				if i < n-1 {
+					entryDur = cs.statuses[i+1].at.Sub(entry.at)
+				} else {
+					entryDur = finishedAt.Sub(entry.at)
+				}
+				prefix := "      ├── "
+				if i == n-1 {
+					prefix = "      └── "
+				}
+				m.log = append(m.log, m.styles.dim.Render(fmt.Sprintf("%s%-48s %6s", prefix, entry.text, entryDur.Round(time.Millisecond))))
+			}
+		}
 		if m.done && len(m.active) == 0 {
 			return m, tea.Quit
 		}
 
 	case statusUpdateMsg:
 		key := compKey(msg.phase, msg.name)
-		if cs, ok := m.active[key]; ok {
-			cs.status = msg.status
+		if cs, ok := m.active[key]; ok && msg.status != "" {
+			if n := len(cs.statuses); n == 0 || cs.statuses[n-1].text != msg.status {
+				cs.statuses = append(cs.statuses, statusEntry{text: msg.status, at: time.Now()})
+			}
 		}
 
 	case doneMsg:
@@ -219,9 +244,20 @@ func (m tuiModel) View() string {
 		sb.WriteString(m.styles.active.Render(fmt.Sprintf("%-28s", cs.name)))
 		sb.WriteString(fmt.Sprintf(" %6s", elapsed))
 		sb.WriteString("\n")
-		// Line 2: status indented under the first char of the component name.
-		if cs.status != "" {
-			sb.WriteString(m.styles.dim.Render("      └── " + cs.status))
+		// Status lines use tree connectors: ├── for middle entries, └── for last.
+		for i, entry := range cs.statuses {
+			var entryDur time.Duration
+			if i < len(cs.statuses)-1 {
+				entryDur = cs.statuses[i+1].at.Sub(entry.at)
+			} else {
+				entryDur = time.Since(entry.at)
+			}
+			prefix := "      ├── "
+			if i == len(cs.statuses)-1 {
+				prefix = "      └── "
+			}
+			line := fmt.Sprintf("%s%-48s %6s", prefix, entry.text, entryDur.Round(time.Millisecond))
+			sb.WriteString(m.styles.dim.Render(line))
 			sb.WriteString("\n")
 		}
 	}
@@ -325,6 +361,6 @@ func (r *bubbletearReporter) Run(fn func() error) error {
 	return r.finalErr
 }
 
-func (r *bubbletearReporter) PrintSummary(outTomlPath string) {
-	printSummary(r.out, outTomlPath, r.elapsed)
+func (r *bubbletearReporter) PrintSummary(outTomlPath, logFilePath string) {
+	printSummary(r.out, outTomlPath, logFilePath, r.elapsed)
 }

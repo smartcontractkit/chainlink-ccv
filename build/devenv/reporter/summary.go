@@ -13,7 +13,7 @@ import (
 // printSummary writes a human-readable summary of the environment to out.
 // outTomlPath is the path to the env-out.toml produced by Store(); an empty
 // string or a non-existent file is handled gracefully.
-func printSummary(out io.Writer, outTomlPath string, elapsed time.Duration) {
+func printSummary(out io.Writer, outTomlPath, logFilePath string, elapsed time.Duration) {
 	if outTomlPath == "" {
 		return
 	}
@@ -43,6 +43,9 @@ func printSummary(out io.Writer, outTomlPath string, elapsed time.Duration) {
 
 	if elapsed > 0 {
 		fmt.Fprintf(out, "total: %s\n", elapsed.Round(time.Second))
+	}
+	if logFilePath != "" {
+		fmt.Fprintf(out, "log: %s\n", logFilePath)
 	}
 }
 

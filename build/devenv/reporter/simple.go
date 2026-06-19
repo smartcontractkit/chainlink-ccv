@@ -76,6 +76,6 @@ func (r *simpleReporter) Run(fn func() error) error {
 	return err
 }
 
-func (r *simpleReporter) PrintSummary(outTomlPath string) {
-	printSummary(r.out, outTomlPath, r.elapsed)
+func (r *simpleReporter) PrintSummary(outTomlPath, logFilePath string) {
+	printSummary(r.out, outTomlPath, logFilePath, r.elapsed)
 }
