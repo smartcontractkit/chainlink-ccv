@@ -136,6 +136,9 @@ type VerifierJobID struct {
 	NOPAlias           NOPAlias
 	CommitteeQualifier string
 	AggregatorName     string
+	// Consolidated marks a single verifier job that writes to all of a committee's aggregators
+	// (rather than one job per aggregator). Such a job's identity omits the aggregator name.
+	Consolidated bool
 }
 
 func NewVerifierJobID(nopAlias NOPAlias, aggregatorName string, scope VerifierJobScope) VerifierJobID {
@@ -146,11 +149,28 @@ func NewVerifierJobID(nopAlias NOPAlias, aggregatorName string, scope VerifierJo
 	}
 }
 
+// NewConsolidatedVerifierJobID builds the identity for a consolidated verifier job (one job per
+// NOP writing to every aggregator). The identity omits the aggregator name; its job ID still ends
+// in "-{committeeQualifier}-verifier" so scope matching (and orphaned-job cleanup) keeps working.
+func NewConsolidatedVerifierJobID(nopAlias NOPAlias, scope VerifierJobScope) VerifierJobID {
+	return VerifierJobID{
+		NOPAlias:           nopAlias,
+		CommitteeQualifier: scope.CommitteeQualifier,
+		Consolidated:       true,
+	}
+}
+
 func (id VerifierJobID) GetVerifierID() string {
+	if id.Consolidated {
+		return fmt.Sprintf("%s-verifier", id.CommitteeQualifier)
+	}
 	return fmt.Sprintf("%s-%s-verifier", id.AggregatorName, id.CommitteeQualifier)
 }
 
 func (id VerifierJobID) ToJobID() JobID {
+	if id.Consolidated {
+		return JobID(fmt.Sprintf("%s-%s-verifier", string(id.NOPAlias), id.CommitteeQualifier))
+	}
 	return JobID(fmt.Sprintf("%s-%s-%s-verifier", string(id.NOPAlias), id.AggregatorName, id.CommitteeQualifier))
 }
 

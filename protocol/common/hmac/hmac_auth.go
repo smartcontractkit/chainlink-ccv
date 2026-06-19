@@ -13,6 +13,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"strconv"
 	"time"
@@ -80,7 +81,8 @@ func GenerateCredentials() (Credentials, error) {
 // ValidateAPIKey validates that the API key is a valid UUID.
 func ValidateAPIKey(apiKey string) error {
 	if _, err := uuid.Parse(apiKey); err != nil {
-		return fmt.Errorf("API key must be a valid UUID, got %q", apiKey)
+		// Do not echo the key value: it is a credential and callers log this error.
+		return errors.New("API key must be a valid UUID")
 	}
 	return nil
 }
