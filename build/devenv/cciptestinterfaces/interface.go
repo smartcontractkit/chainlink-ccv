@@ -288,6 +288,16 @@ type OnChainConfigurable interface {
 	PostConnect(env *deployment.Environment, selector uint64, remoteSelectors []uint64) error
 }
 
+// MockReceiverDeployer is an optional interface. When implemented, devenv calls it
+// during Phase 3 (committeeccv), after committee verifiers and their resolvers have
+// been deployed, to deploy the mock receiver contracts that reference those resolvers.
+// Mock receivers can no longer be deployed in Phase 2 because they depend on the
+// committee-verifier resolver. The returned DataStore holds only the newly deployed
+// receiver addresses; families that do not implement this interface deploy no receivers.
+type MockReceiverDeployer interface {
+	DeployMockReceivers(env *deployment.Environment, selector uint64, topology *ccvdeployment.EnvironmentTopology) (datastore.DataStore, error)
+}
+
 // ExtraArgsSerializer serializes message extra args for a destination chain family.
 // Product repos register serializers via chainreg.Registration.ExtraArgsSerializers.
 type ExtraArgsSerializer func(provider ExtraArgsDataProvider) (GenericExtraArgs, error)

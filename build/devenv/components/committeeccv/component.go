@@ -2,15 +2,20 @@ package committeeccv
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"slices"
+	"sort"
+	"strconv"
 
 	"github.com/pelletier/go-toml/v2"
 
+	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainreg"
+	ccldf "github.com/smartcontractkit/chainlink-ccv/build/devenv/cldf"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	blockchainscomp "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/blockchains"
 	jdcomp "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/jd"
@@ -23,11 +28,13 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/committeeverifier"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/util"
 	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
+	ccvadapters "github.com/smartcontractkit/chainlink-ccv/deployment/adapters"
 	ccvchangesets "github.com/smartcontractkit/chainlink-ccv/deployment/changesets"
 	ccvshared "github.com/smartcontractkit/chainlink-ccv/deployment/shared"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/commit"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
+	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
 	ctfblockchain "github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
 
@@ -103,6 +110,13 @@ type phase3Inputs struct {
 	impls                  []cciptestinterfaces.CCIP17Configuration
 	selectors              []uint64
 	useLegacyConfigureLane bool
+	// cldf is the Phase-2 CLDF accumulator, carried forward so Phase-3 deploys
+	// (committee verifiers, mock receivers) can append their addresses to the
+	// serialized output. Nil when the prior phase did not publish it.
+	// TODO: migrate this to an address-registration effect so deployed addresses
+	// are registered to the datastore deterministically instead of by mutating the
+	// shared CLDF accumulator.
+	cldf *ccldf.CLDF
 }
 
 func parsePhase3Inputs(priorOutputs, globalConfig map[string]any) (phase3Inputs, error) {
@@ -133,6 +147,13 @@ func parsePhase3Inputs(priorOutputs, globalConfig map[string]any) (phase3Inputs,
 	}
 	impls, _ := priorOutputs["_impls"].([]cciptestinterfaces.CCIP17Configuration)
 	selectors, _ := priorOutputs["_selectors"].([]uint64)
+	// cldf is published by protocol_contracts (Phase 2) under the public "cldf"
+	// key; absent in some test paths, in which case Phase-3 address persistence
+	// is skipped.
+	// TODO: migrate this to an address-registration effect so deployed addresses
+	// are registered to the datastore deterministically instead of by mutating the
+	// shared CLDF accumulator.
+	cldf, _ := priorOutputs["cldf"].(*ccldf.CLDF)
 	var useLegacy bool
 	if pcMap, ok := globalConfig[pccomp.Key].(map[string]any); ok {
 		useLegacy, _ = pcMap["use_legacy_configure_lane"].(bool)
@@ -148,6 +169,7 @@ func parsePhase3Inputs(priorOutputs, globalConfig map[string]any) (phase3Inputs,
 		impls:                  impls,
 		selectors:              selectors,
 		useLegacyConfigureLane: useLegacy,
+		cldf:                   cldf,
 	}, nil
 }
 
@@ -179,6 +201,24 @@ func runPhase3Core(
 	verifiers []*committeeverifier.Input,
 	localEnv *deployment.Environment,
 ) (map[string]any, []devenvruntime.Effect, error) {
+	// Step 1c: Deploy committee verifiers (+ resolvers) and mock receivers on chain.
+	// These were previously deployed by the Phase-2 kitchen-sink changeset; the split
+	// moves them here so Phase 2 deploys only protocol contracts. Must run before lane
+	// configuration (Step 5b), which wires the committee verifiers into the lanes.
+	if err := deployCommitteeVerifiersAndReceivers(inputs, localEnv); err != nil {
+		return nil, nil, err
+	}
+
+	// Step 1d: Configure token-pool transfers now that committee verifiers exist. Moved from
+	// Phase 2, where the CommitteeVerifier resolver was not yet deployed, so token pools could
+	// not be wired to it. Runs before lane config (Step 5b), matching the original ordering.
+	// TODO: move to a dedicated token-transfer Phase 3 component.
+	if len(inputs.impls) > 0 {
+		if err := ccdeploy.ConfigureAllTokenTransfers(inputs.impls, inputs.selectors, localEnv, inputs.topology); err != nil {
+			return nil, nil, fmt.Errorf("committeeccv: configure all token transfers: %w", err)
+		}
+	}
+
 	// Step 2: Launch standalone verifier containers (reads HMAC creds from agg.Out).
 	if err := committeeverifier.LaunchStandaloneVerifiers(
 		verifiers, aggregators, inputs.blockchainOutputs, inputs.jdInfra,
@@ -288,6 +328,187 @@ func runPhase3Core(
 		"verifiers":         verifiers,
 		"_shared_tls_certs": sharedTLSCerts,
 	}, effects, nil
+}
+
+// deployCommitteeVerifiersAndReceivers deploys, per chain, the committee
+// verifiers (and their resolvers) via the chain-agnostic DeployCommitteeVerifier
+// changeset, then deploys the mock receivers that reference those resolvers via
+// the optional MockReceiverDeployer hook. Deployed addresses are merged into both
+// the shared datastore (inputs.ds) and the working environment (localEnv.DataStore).
+func deployCommitteeVerifiersAndReceivers(inputs phase3Inputs, localEnv *deployment.Environment) error {
+	if len(inputs.impls) == 0 || len(inputs.blockchains) == 0 {
+		return nil
+	}
+
+	localEnv.OperationsBundle = operations.NewBundle(
+		func() context.Context { return context.Background() },
+		localEnv.Logger,
+		operations.NewMemoryReporter(),
+	)
+
+	// Map chain selector -> impl.
+	implBySelector := make(map[uint64]cciptestinterfaces.CCIP17Configuration, len(inputs.impls))
+	for i, impl := range inputs.impls {
+		if i >= len(inputs.blockchains) {
+			break
+		}
+		networkInfo, err := chainsel.GetChainDetailsByChainIDAndFamily(inputs.blockchains[i].ChainID, impl.ChainFamily())
+		if err != nil {
+			return fmt.Errorf("committeeccv: chain details for impl %d: %w", i, err)
+		}
+		implBySelector[networkInfo.ChainSelector] = impl
+	}
+
+	// Accumulate the addresses deployed in this phase so they can be appended to
+	// the serialized CLDF output. Without this, committee verifiers and mock
+	// receivers deploy on-chain but never reach env-out.toml (only the merged,
+	// "_"-prefixed datastore carries them, which storePhasedOutput strips).
+	var deployedRefs []datastore.AddressRef
+
+	for _, sel := range inputs.selectors {
+		impl, ok := implBySelector[sel]
+		if !ok {
+			continue
+		}
+
+		// Reuse the chain impl's deploy config solely to resolve the deployer
+		// contract (e.g. CREATE2 factory) deployed during Phase 2.
+		chainCfg, err := impl.GetDeployChainContractsCfg(localEnv, sel, inputs.topology)
+		if err != nil {
+			return fmt.Errorf("committeeccv: get deploy config for chain %d: %w", sel, err)
+		}
+		if chainCfg.DeployerContract == nil || *chainCfg.DeployerContract == "" {
+			return fmt.Errorf("committeeccv: deployer contract not resolved for chain %d", sel)
+		}
+
+		committees, err := buildCommitteeVerifierParams(inputs.topology, sel)
+		if err != nil {
+			return fmt.Errorf("committeeccv: build committee verifier params for chain %d: %w", sel, err)
+		}
+		if len(committees) == 0 {
+			continue
+		}
+
+		out, err := ccvchangesets.DeployCommitteeVerifier().Apply(*localEnv, ccvchangesets.DeployCommitteeVerifierInput{
+			ChainSelectors: []uint64{sel},
+			Committees:     committees,
+			DefaultCfg: ccvchangesets.DeployCommitteeVerifierPerChainCfg{
+				DeployerContract: *chainCfg.DeployerContract,
+			},
+		})
+		if err != nil {
+			return fmt.Errorf("committeeccv: deploy committee verifiers for chain %d: %w", sel, err)
+		}
+		committeeVerifierDS := out.DataStore.Seal()
+		if err := mergePhase3DataStore(inputs.ds, localEnv, committeeVerifierDS); err != nil {
+			return fmt.Errorf("committeeccv: merge committee verifier datastore for chain %d: %w", sel, err)
+		}
+		if deployedRefs, err = appendDataStoreRefs(deployedRefs, committeeVerifierDS); err != nil {
+			return fmt.Errorf("committeeccv: collect committee verifier addresses for chain %d: %w", sel, err)
+		}
+
+		// TODO: move mock-receiver deployment to a dedicated receivers component.
+		// Mock receivers depend on the committee-verifier resolver just deployed.
+		//nolint:nestif // Reasonable complexity
+		if d, ok := impl.(cciptestinterfaces.MockReceiverDeployer); ok {
+			receiverDS, derr := d.DeployMockReceivers(localEnv, sel, inputs.topology)
+			if derr != nil {
+				return fmt.Errorf("committeeccv: deploy mock receivers for chain %d: %w", sel, derr)
+			}
+			if receiverDS != nil {
+				if err := mergePhase3DataStore(inputs.ds, localEnv, receiverDS); err != nil {
+					return fmt.Errorf("committeeccv: merge mock receiver datastore for chain %d: %w", sel, err)
+				}
+				if deployedRefs, err = appendDataStoreRefs(deployedRefs, receiverDS); err != nil {
+					return fmt.Errorf("committeeccv: collect mock receiver addresses for chain %d: %w", sel, err)
+				}
+			}
+		}
+	}
+
+	// Append the Phase-3 addresses to the CLDF accumulator so they are serialized
+	// to env-out.toml alongside the Phase-2 protocol contracts.
+	// TODO: migrate this to an address-registration effect so deployed addresses
+	// are registered to the datastore deterministically instead of by mutating the
+	// shared CLDF accumulator.
+	if inputs.cldf != nil && len(deployedRefs) > 0 {
+		encoded, err := json.Marshal(deployedRefs)
+		if err != nil {
+			return fmt.Errorf("committeeccv: marshal phase-3 addresses: %w", err)
+		}
+		inputs.cldf.AddAddresses(string(encoded))
+	}
+
+	return nil
+}
+
+// appendDataStoreRefs fetches every address ref from ds and appends them to dst.
+func appendDataStoreRefs(dst []datastore.AddressRef, ds datastore.DataStore) ([]datastore.AddressRef, error) {
+	refs, err := ds.Addresses().Fetch()
+	if err != nil {
+		return dst, err
+	}
+	return append(dst, refs...), nil
+}
+
+// buildCommitteeVerifierParams extracts committee verifier deploy params from the
+// topology for one chain. Committees without a chain_config for the selector are
+// skipped. Ported from chainlink-ccip's BuildCommitteeVerifierParams; address
+// validation is deferred to the chain-family adapter.
+func buildCommitteeVerifierParams(
+	topology *ccvdeployment.EnvironmentTopology,
+	chainSelector uint64,
+) ([]ccvadapters.CommitteeVerifierDeployParams, error) {
+	if topology == nil || topology.NOPTopology == nil {
+		return nil, nil
+	}
+
+	chainKey := strconv.FormatUint(chainSelector, 10)
+
+	qualifiers := make([]string, 0, len(topology.NOPTopology.Committees))
+	for q := range topology.NOPTopology.Committees {
+		qualifiers = append(qualifiers, q)
+	}
+	sort.Strings(qualifiers)
+
+	params := make([]ccvadapters.CommitteeVerifierDeployParams, 0, len(qualifiers))
+	for _, qualifier := range qualifiers {
+		committee := topology.NOPTopology.Committees[qualifier]
+		chainCfg, ok := committee.ChainConfigs[chainKey]
+		if !ok {
+			continue
+		}
+		if committee.VerifierVersion == nil {
+			return nil, fmt.Errorf("committee %q has nil VerifierVersion", qualifier)
+		}
+		params = append(params, ccvadapters.CommitteeVerifierDeployParams{
+			Version:          committee.VerifierVersion,
+			FeeAggregator:    chainCfg.FeeAggregator,
+			AllowlistAdmin:   chainCfg.AllowlistAdmin,
+			StorageLocations: committee.StorageLocations,
+			Qualifier:        qualifier,
+		})
+	}
+
+	return params, nil
+}
+
+// mergePhase3DataStore merges newDS into the shared mutable datastore and refreshes
+// localEnv.DataStore with the combined sealed state so subsequent deploys can
+// resolve previously deployed contracts.
+func mergePhase3DataStore(ds datastore.MutableDataStore, localEnv *deployment.Environment, newDS datastore.DataStore) error {
+	if err := ds.Merge(newDS); err != nil {
+		return err
+	}
+	merged := datastore.NewMemoryDataStore()
+	if err := merged.Merge(localEnv.DataStore); err != nil {
+		return err
+	}
+	if err := merged.Merge(newDS); err != nil {
+		return err
+	}
+	localEnv.DataStore = merged.Seal()
+	return nil
 }
 
 type verifierJobSpec struct {

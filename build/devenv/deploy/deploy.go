@@ -116,7 +116,7 @@ func DeployContractsForSelector(
 	// 3. Call the tooling API changeset.
 	ccipTopology := convertTopologyToCCIP(topology)
 	registry := ccipAdapters.GetDeployChainContractsRegistry()
-	out, err := ccipChangesets.DeployChainContracts(registry).Apply(*env, changesetscore.WithMCMS[ccipChangesets.DeployChainContractsCfg]{
+	out, err := ccipChangesets.DeployChainContracts(registry, ccipAdapters.GetChainFamilyRegistry()).Apply(*env, changesetscore.WithMCMS[ccipChangesets.DeployChainContractsCfg]{
 		Cfg: ccipChangesets.DeployChainContractsCfg{
 			Topology:       ccipTopology,
 			ChainSelectors: []uint64{selector},
@@ -151,6 +151,27 @@ func DeployContractsForSelector(
 			return nil, fmt.Errorf("update env DS with post-deploy: %w", err)
 		}
 		env.DataStore = merged
+	}
+
+	// 5. Mock receivers (committee + CCTP/Lombard) via the unified
+	//    MockReceiverDeployer hook, now that the committee verifiers (step 3)
+	//    and CCTP/Lombard token pools (step 4) are in env.DataStore. This
+	//    mirrors the phased committeeccv path, which calls the same method.
+	if d, ok := impl.(cciptestinterfaces.MockReceiverDeployer); ok { //nolint:nestif // Reasonable complexity
+		receiverDS, derr := d.DeployMockReceivers(env, selector, topology)
+		if derr != nil {
+			return nil, fmt.Errorf("deploy mock receivers for selector %d: %w", selector, derr)
+		}
+		if receiverDS != nil {
+			if err := runningDS.Merge(receiverDS); err != nil {
+				return nil, fmt.Errorf("merge mock receiver DS: %w", err)
+			}
+			merged, err := mergeIntoSealed(env.DataStore, receiverDS)
+			if err != nil {
+				return nil, fmt.Errorf("update env DS with mock receivers: %w", err)
+			}
+			env.DataStore = merged
+		}
 	}
 
 	return runningDS.Seal(), nil
