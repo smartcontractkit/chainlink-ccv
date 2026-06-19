@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"os"
 	"slices"
 	"strconv"
 	"time"
@@ -65,30 +64,6 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 	}
 	lggr.Infow("Using blockchain information from config", "info", genericConfig.ChainConfig)
 
-	// TODO: this should be passed in via the config maybe?
-	apiKey := os.Getenv("VERIFIER_AGGREGATOR_API_KEY")
-	if apiKey == "" {
-		lggr.Errorw("VERIFIER_AGGREGATOR_API_KEY environment variable is required")
-		return fmt.Errorf("VERIFIER_AGGREGATOR_API_KEY environment variable is required")
-	}
-	if err := hmac.ValidateAPIKey(apiKey); err != nil {
-		lggr.Errorw("Invalid VERIFIER_AGGREGATOR_API_KEY", "error", err)
-		return fmt.Errorf("invalid VERIFIER_AGGREGATOR_API_KEY: %w", err)
-	}
-	lggr.Infow("Loaded VERIFIER_AGGREGATOR_API_KEY from environment")
-
-	// TODO: this should be passed in via the config maybe?
-	secretKey := os.Getenv("VERIFIER_AGGREGATOR_SECRET_KEY")
-	if secretKey == "" {
-		lggr.Errorw("VERIFIER_AGGREGATOR_SECRET_KEY environment variable is required")
-		return fmt.Errorf("VERIFIER_AGGREGATOR_SECRET_KEY environment variable is required")
-	}
-	if err := hmac.ValidateSecret(secretKey); err != nil {
-		lggr.Errorw("Invalid VERIFIER_AGGREGATOR_SECRET_KEY", "error", err)
-		return fmt.Errorf("invalid VERIFIER_AGGREGATOR_SECRET_KEY: %w", err)
-	}
-	lggr.Infow("Loaded VERIFIER_AGGREGATOR_SECRET_KEY from environment")
-
 	profiler, err := StartPyroscope(lggr, config.PyroscopeURL, "verifier")
 	if err != nil {
 		lggr.Errorw("Failed to start pyroscope", "error", err)
@@ -118,11 +93,6 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 		defaultExecutorAddresses[selector] = addr
 	}
 
-	hmacConfig := &hmac.ClientConfig{
-		APIKey: apiKey,
-		Secret: secretKey,
-	}
-
 	// Resolve the aggregators this job writes to, heartbeats, and reads disablement rules from.
 	// Backwards compatible: a legacy single aggregator_address resolves to a one-element list.
 	resolvedAggregators, err := config.ResolvedAggregators()
@@ -132,20 +102,34 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 	}
 	lggr.Infow("Resolved aggregators", "count", len(resolvedAggregators))
 
+	// Each aggregator authenticates the verifier with its own HMAC credential, read from
+	// per-aggregator environment variables (VERIFIER_AGGREGATOR_<NAME>_API_KEY/SECRET_KEY).
+	aggregatorHMACs := make([]*hmac.ClientConfig, len(resolvedAggregators))
+	for i, a := range resolvedAggregators {
+		hmacConfig, hErr := a.ResolveHMACConfig()
+		if hErr != nil {
+			lggr.Errorw("Failed to resolve aggregator credentials", "error", hErr, "aggregator", a.Label())
+			return fmt.Errorf("failed to resolve aggregator credentials: %w", hErr)
+		}
+		aggregatorHMACs[i] = hmacConfig
+	}
+
 	writeTargets := make([]storageaccess.AggregatorTarget, len(resolvedAggregators))
 	heartbeatTargets := make([]heartbeatclient.AggregatorTarget, len(resolvedAggregators))
 	for i, a := range resolvedAggregators {
 		writeTargets[i] = storageaccess.AggregatorTarget{
-			Label:               a.Name,
+			Label:               a.Label(),
 			Address:             a.Address,
 			Insecure:            a.InsecureConnection,
+			HMACConfig:          aggregatorHMACs[i],
 			MaxSendMsgSizeBytes: a.MaxSendMsgSizeBytes,
 			MaxRecvMsgSizeBytes: a.MaxRecvMsgSizeBytes,
 		}
 		heartbeatTargets[i] = heartbeatclient.AggregatorTarget{
-			Label:    a.Name,
-			Address:  a.Address,
-			Insecure: a.InsecureConnection,
+			Label:      a.Label(),
+			Address:    a.Address,
+			Insecure:   a.InsecureConnection,
+			HMACConfig: aggregatorHMACs[i],
 		}
 	}
 
@@ -231,7 +215,6 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 		writeTargets,
 		config.VerifierID,
 		lggr,
-		hmacConfig,
 		verifierMonitoring,
 	)
 	if err != nil {
@@ -253,7 +236,6 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 		heartbeatTargets,
 		config.VerifierID,
 		lggr,
-		hmacConfig,
 		heartbeat.NewHeartbeatMonitoringAdapter(verifierMonitoring),
 	)
 	if err != nil {
@@ -274,18 +256,18 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 	// Message-rules union: one poller per aggregator; a message is disabled if any aggregator
 	// disables it (fail-safe union), and verification is blocked while any source is unknown.
 	namedPollers := make([]messagerules.NamedPoller, 0, len(resolvedAggregators))
-	for _, a := range resolvedAggregators {
-		aggLggr := logger.With(lggr, "component", "MessageRulesPoller", "aggregator", a.Name)
+	for i, a := range resolvedAggregators {
+		aggLggr := logger.With(lggr, "component", "MessageRulesPoller", "aggregator", a.Label())
 		messageRulesClient, rErr := messagerules.NewGRPCClient(
 			a.Address,
 			aggLggr,
-			hmacConfig,
+			aggregatorHMACs[i],
 			a.InsecureConnection,
 			a.MaxRecvMsgSizeBytes,
 		)
 		if rErr != nil {
-			lggr.Errorw("Failed to create message rules gRPC client", "error", rErr, "aggregator", a.Name)
-			return fmt.Errorf("failed to create message rules client for %q: %w", a.Name, rErr)
+			lggr.Errorw("Failed to create message rules gRPC client", "error", rErr, "aggregator", a.Label())
+			return fmt.Errorf("failed to create message rules client for %q: %w", a.Label(), rErr)
 		}
 
 		poller, rErr := messagerules.NewPollerService(
@@ -293,13 +275,13 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 			messageRulesPollInterval,
 			messageRulesClientTimeout,
 			aggLggr,
-			verifierMonitoring.Metrics().With("aggregator", a.Name),
+			verifierMonitoring.Metrics().With("aggregator", a.Label()),
 		)
 		if rErr != nil {
-			lggr.Errorw("Failed to create message rules poller", "error", rErr, "aggregator", a.Name)
-			return fmt.Errorf("failed to create message rules poller for %q: %w", a.Name, rErr)
+			lggr.Errorw("Failed to create message rules poller", "error", rErr, "aggregator", a.Label())
+			return fmt.Errorf("failed to create message rules poller for %q: %w", a.Label(), rErr)
 		}
-		namedPollers = append(namedPollers, messagerules.NewNamedPoller(a.Name, poller))
+		namedPollers = append(namedPollers, messagerules.NewNamedPoller(a.Label(), poller))
 	}
 
 	messageRulesPoller, err := messagerules.NewUnionPollerService(

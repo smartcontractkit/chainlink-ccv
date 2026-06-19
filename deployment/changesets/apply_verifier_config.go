@@ -414,8 +414,13 @@ committeeVerifierConfig = '''
 			verifierJobID := shared.NewConsolidatedVerifierJobID(nopAlias, scope)
 			aggregators := make([]commit.AggregatorConnection, len(committee.Aggregators))
 			for i, agg := range committee.Aggregators {
+				// SecretName is the per-aggregator credential lookup key. We reuse the legacy
+				// per-aggregator verifier_id so operators' existing secrets (keyed by that id)
+				// keep working without re-provisioning when a NOP moves to a consolidated job.
+				secretName := shared.NewVerifierJobID(nopAlias, agg.Name, scope).GetVerifierID()
 				aggregators[i] = commit.AggregatorConnection{
 					Name:               agg.Name,
+					SecretName:         secretName,
 					Address:            agg.Address,
 					InsecureConnection: agg.InsecureAggregatorConnection,
 				}

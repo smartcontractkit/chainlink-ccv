@@ -20,6 +20,8 @@ type AggregatorTarget struct {
 	Address string
 	// Insecure disables TLS for this aggregator's connection.
 	Insecure bool
+	// HMACConfig holds this aggregator's HMAC credentials (per-aggregator, not shared).
+	HMACConfig *hmac.ClientConfig
 }
 
 type labeledSender struct {
@@ -44,7 +46,6 @@ func NewFanOutHeartbeatSender(
 	targets []AggregatorTarget,
 	verifierID string,
 	lggr logger.Logger,
-	hmacConfig *hmac.ClientConfig,
 	monitoring Monitoring,
 ) (*FanOutHeartbeatSender, error) {
 	if len(targets) == 0 {
@@ -58,7 +59,7 @@ func NewFanOutHeartbeatSender(
 
 	for _, t := range targets {
 		aggLggr := logger.With(lggr, "aggregator", t.Label)
-		client, err := NewHeartbeatClient(t.Address, aggLggr, hmacConfig, t.Insecure)
+		client, err := NewHeartbeatClient(t.Address, aggLggr, t.HMACConfig, t.Insecure)
 		if err != nil {
 			_ = f.Close()
 			return nil, fmt.Errorf("failed to create heartbeat client for %q: %w", t.Label, err)

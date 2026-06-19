@@ -28,9 +28,14 @@ import (
 	"github.com/smartcontractkit/chainlink-evm/pkg/chains/legacyevm"
 )
 
-// NewVerificationCoordinator starts the Committee Verifier with evm chains.
-// Signing is passed in because it's managed differently in the CL node vs standalone modes.
-// The DataSource is passed in from CL node, or created by standalone mode.
+// NewVerificationCoordinator builds a verifier coordinator. aggregatorSecret is the HMAC
+// credential used for every configured aggregator.
+//
+// TODO(CCIP-11776 follow-up): for a consolidated job each aggregator authenticates with its own
+// credential, so this should take a per-aggregator map keyed by AggregatorConnection.SecretName.
+// That is a breaking change to the Chainlink-node caller (ccvcommitteeverifier/delegate.go) and
+// lands together with that migration; until then this constructor applies one credential to all
+// aggregators, which is correct for the single-aggregator (legacy) configs in use today.
 func NewVerificationCoordinator(
 	lggr logger.Logger,
 	cfg commit.Config,
@@ -150,20 +155,23 @@ func NewVerificationCoordinator(
 		return nil, fmt.Errorf("invalid aggregator configuration: %w", err)
 	}
 
+	// The single provided credential is applied to every aggregator (see the constructor's TODO).
 	writeTargets := make([]storageaccess.AggregatorTarget, len(resolvedAggregators))
 	heartbeatTargets := make([]heartbeatclient.AggregatorTarget, len(resolvedAggregators))
 	for i, a := range resolvedAggregators {
 		writeTargets[i] = storageaccess.AggregatorTarget{
-			Label:               a.Name,
+			Label:               a.Label(),
 			Address:             a.Address,
 			Insecure:            a.InsecureConnection,
+			HMACConfig:          aggregatorSecret,
 			MaxSendMsgSizeBytes: a.MaxSendMsgSizeBytes,
 			MaxRecvMsgSizeBytes: a.MaxRecvMsgSizeBytes,
 		}
 		heartbeatTargets[i] = heartbeatclient.AggregatorTarget{
-			Label:    a.Name,
-			Address:  a.Address,
-			Insecure: a.InsecureConnection,
+			Label:      a.Label(),
+			Address:    a.Address,
+			Insecure:   a.InsecureConnection,
+			HMACConfig: aggregatorSecret,
 		}
 	}
 
@@ -173,7 +181,6 @@ func NewVerificationCoordinator(
 		writeTargets,
 		cfg.VerifierID,
 		lggr,
-		aggregatorSecret,
 		verifierMonitoring,
 	)
 	if err != nil {
@@ -212,7 +219,6 @@ func NewVerificationCoordinator(
 		heartbeatTargets,
 		cfg.VerifierID,
 		lggr,
-		aggregatorSecret,
 		heartbeat.NewHeartbeatMonitoringAdapter(verifierMonitoring),
 	)
 	if err != nil {
@@ -231,7 +237,7 @@ func NewVerificationCoordinator(
 
 	namedPollers := make([]messagerules.NamedPoller, 0, len(resolvedAggregators))
 	for _, a := range resolvedAggregators {
-		aggLggr := logger.With(lggr, "component", "MessageRulesPoller", "aggregator", a.Name)
+		aggLggr := logger.With(lggr, "component", "MessageRulesPoller", "aggregator", a.Label())
 		messageRulesClient, rErr := messagerules.NewGRPCClient(
 			a.Address,
 			aggLggr,
@@ -240,8 +246,8 @@ func NewVerificationCoordinator(
 			a.MaxRecvMsgSizeBytes,
 		)
 		if rErr != nil {
-			lggr.Errorw("Failed to create message rules gRPC client", "error", rErr, "aggregator", a.Name)
-			return nil, fmt.Errorf("failed to create message rules client for %q: %w", a.Name, rErr)
+			lggr.Errorw("Failed to create message rules gRPC client", "error", rErr, "aggregator", a.Label())
+			return nil, fmt.Errorf("failed to create message rules client for %q: %w", a.Label(), rErr)
 		}
 
 		poller, rErr := messagerules.NewPollerService(
@@ -249,13 +255,13 @@ func NewVerificationCoordinator(
 			messageRulesPollInterval,
 			messageRulesClientTimeout,
 			aggLggr,
-			verifierMonitoring.Metrics().With("aggregator", a.Name),
+			verifierMonitoring.Metrics().With("aggregator", a.Label()),
 		)
 		if rErr != nil {
-			lggr.Errorw("Failed to create message rules poller", "error", rErr, "aggregator", a.Name)
-			return nil, fmt.Errorf("failed to create message rules poller for %q: %w", a.Name, rErr)
+			lggr.Errorw("Failed to create message rules poller", "error", rErr, "aggregator", a.Label())
+			return nil, fmt.Errorf("failed to create message rules poller for %q: %w", a.Label(), rErr)
 		}
-		namedPollers = append(namedPollers, messagerules.NewNamedPoller(a.Name, poller))
+		namedPollers = append(namedPollers, messagerules.NewNamedPoller(a.Label(), poller))
 	}
 
 	messageRulesPoller, err := messagerules.NewUnionPollerService(

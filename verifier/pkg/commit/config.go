@@ -2,10 +2,12 @@ package commit
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
+	"github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
 )
 
@@ -19,6 +21,15 @@ type AggregatorConnection struct {
 	// Name is an optional human-readable label used in logs and metric labels.
 	// When empty it defaults to Address.
 	Name string `toml:"name"`
+	// SecretName is the credential lookup key for this aggregator — the one join key used in both
+	// deployment modes to resolve the aggregator's HMAC credential (kept distinct from Name so the
+	// display label can change without re-wiring secrets):
+	//   - standalone: the env var pair VERIFIER_AGGREGATOR_<SECRETNAME>_API_KEY / _SECRET_KEY;
+	//   - Chainlink node: the secrets.toml entry whose VerifierID equals this value, which also
+	//     becomes the key in the per-aggregator credential map passed to the coordinator.
+	// Empty (the legacy single-aggregator path) falls back to the default un-suffixed credential
+	// variables. Secrets themselves never live in config — only this reference does.
+	SecretName string `toml:"secret_name"`
 	// Address is the aggregator gRPC endpoint (host:port). Required.
 	Address string `toml:"address"`
 	// InsecureConnection disables TLS for this aggregator's gRPC connection.
@@ -40,6 +51,81 @@ func (a AggregatorConnection) Label() string {
 		return a.Name
 	}
 	return a.Address
+}
+
+const (
+	// DefaultAggregatorAPIKeyEnvVar and DefaultAggregatorSecretKeyEnvVar are the environment
+	// variables a verifier reads for its aggregator HMAC credentials in the legacy
+	// single-aggregator configuration (AggregatorConnection with no Name). These are env var
+	// names, not secret values.
+	DefaultAggregatorAPIKeyEnvVar    = "VERIFIER_AGGREGATOR_API_KEY"    //nolint:gosec // G101: env var name, not a credential
+	DefaultAggregatorSecretKeyEnvVar = "VERIFIER_AGGREGATOR_SECRET_KEY" //nolint:gosec // G101: env var name, not a credential
+)
+
+// AggregatorCredentialEnvVars returns the names of the environment variables that hold this
+// aggregator's HMAC credentials (standalone mode), derived from its SecretName:
+//
+//	VERIFIER_AGGREGATOR_<SECRETNAME>_API_KEY
+//	VERIFIER_AGGREGATOR_<SECRETNAME>_SECRET_KEY
+//
+// where <SECRETNAME> is SecretName upper-cased with every non-alphanumeric rune replaced by '_'.
+// A connection without a SecretName (the legacy single-aggregator path synthesized from
+// aggregator_address) falls back to the un-suffixed DefaultAggregator* variables, preserving the
+// existing single-aggregator deployment contract. Config generators (changeset, devenv) and the
+// deploy layer use the same convention to set the matching environment variables.
+func (a AggregatorConnection) AggregatorCredentialEnvVars() (apiKeyVar, secretKeyVar string) {
+	return AggregatorCredentialEnvVars(a.SecretName)
+}
+
+// AggregatorCredentialEnvVars returns the credential environment variable names for an aggregator
+// with the given secret name. An empty secret name yields the default (legacy) un-suffixed variables.
+func AggregatorCredentialEnvVars(secretName string) (apiKeyVar, secretKeyVar string) {
+	if strings.TrimSpace(secretName) == "" {
+		return DefaultAggregatorAPIKeyEnvVar, DefaultAggregatorSecretKeyEnvVar
+	}
+	seg := sanitizeEnvVarSegment(secretName)
+	return "VERIFIER_AGGREGATOR_" + seg + "_API_KEY", "VERIFIER_AGGREGATOR_" + seg + "_SECRET_KEY"
+}
+
+// ResolveHMACConfig reads and validates this aggregator's HMAC credentials from the environment
+// variables named by AggregatorCredentialEnvVars. Each aggregator authenticates the verifier with
+// its own credential, so a consolidated verifier resolves one config per aggregator.
+func (a AggregatorConnection) ResolveHMACConfig() (*hmac.ClientConfig, error) {
+	apiKeyVar, secretKeyVar := a.AggregatorCredentialEnvVars()
+
+	apiKey := os.Getenv(apiKeyVar)
+	if apiKey == "" {
+		return nil, fmt.Errorf("missing %s for aggregator %q", apiKeyVar, a.Label())
+	}
+	if err := hmac.ValidateAPIKey(apiKey); err != nil {
+		return nil, fmt.Errorf("invalid %s for aggregator %q: %w", apiKeyVar, a.Label(), err)
+	}
+
+	secret := os.Getenv(secretKeyVar)
+	if secret == "" {
+		return nil, fmt.Errorf("missing %s for aggregator %q", secretKeyVar, a.Label())
+	}
+	if err := hmac.ValidateSecret(secret); err != nil {
+		return nil, fmt.Errorf("invalid %s for aggregator %q: %w", secretKeyVar, a.Label(), err)
+	}
+
+	return &hmac.ClientConfig{APIKey: apiKey, Secret: secret}, nil
+}
+
+// sanitizeEnvVarSegment upper-cases s and replaces every non-alphanumeric rune with '_' so it is
+// a valid environment-variable name segment.
+func sanitizeEnvVarSegment(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range strings.ToUpper(s) {
+		switch {
+		case r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+		default:
+			b.WriteByte('_')
+		}
+	}
+	return b.String()
 }
 
 type Config struct {
@@ -158,17 +244,34 @@ func (c *Config) ResolvedAggregators() ([]AggregatorConnection, error) {
 		}}
 	}
 
-	seen := make(map[string]struct{}, len(resolved))
+	// With multiple aggregators each must carry a unique secret_name: it is the credential lookup
+	// key (the per-aggregator HMAC env vars / secret map key are derived from it, see
+	// AggregatorCredentialEnvVars). A single aggregator may omit it and falls back to the default
+	// (legacy) credential variables.
+	multi := len(resolved) > 1
+	seenAddr := make(map[string]struct{}, len(resolved))
+	seenSecret := make(map[string]struct{}, len(resolved))
 	for i := range resolved {
 		addr := strings.TrimSpace(resolved[i].Address)
 		if addr == "" {
 			return nil, fmt.Errorf("invalid verifier configuration: aggregator at index %d has an empty address", i)
 		}
-		if _, dup := seen[addr]; dup {
+		if _, dup := seenAddr[addr]; dup {
 			return nil, fmt.Errorf("invalid verifier configuration: duplicate aggregator address %q", addr)
 		}
-		seen[addr] = struct{}{}
-		resolved[i].Name = resolved[i].Label()
+		seenAddr[addr] = struct{}{}
+
+		if !multi {
+			continue
+		}
+		secretName := strings.TrimSpace(resolved[i].SecretName)
+		if secretName == "" {
+			return nil, fmt.Errorf("invalid verifier configuration: aggregator at index %d (%s) must have a secret_name when multiple aggregators are configured (it is the credential lookup key)", i, addr)
+		}
+		if _, dup := seenSecret[secretName]; dup {
+			return nil, fmt.Errorf("invalid verifier configuration: duplicate aggregator secret_name %q", secretName)
+		}
+		seenSecret[secretName] = struct{}{}
 	}
 
 	return resolved, nil

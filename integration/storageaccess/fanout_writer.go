@@ -22,6 +22,9 @@ type AggregatorTarget struct {
 	Address string
 	// Insecure disables TLS for this aggregator's connection.
 	Insecure bool
+	// HMACConfig holds this aggregator's HMAC credentials. Each aggregator authenticates the
+	// verifier with its own credential, so this is per-target rather than shared.
+	HMACConfig *hmac.ClientConfig
 	// MaxSendMsgSizeBytes / MaxRecvMsgSizeBytes set per-aggregator gRPC message-size limits
 	// (0 -> DefaultMaxMessageSize).
 	MaxSendMsgSizeBytes int
@@ -55,7 +58,6 @@ func NewFanOutAggregatorWriter(
 	targets []AggregatorTarget,
 	verifierID string,
 	lggr logger.Logger,
-	hmacConfig *hmac.ClientConfig,
 	monitoring verifier.Monitoring,
 ) (*FanOutWriter, error) {
 	if len(targets) == 0 {
@@ -72,7 +74,7 @@ func NewFanOutAggregatorWriter(
 		aggWriter, err := NewAggregatorWriter(
 			t.Address,
 			logger.With(lggr, "aggregator", t.Label),
-			hmacConfig,
+			t.HMACConfig,
 			t.Insecure,
 			t.MaxSendMsgSizeBytes,
 			t.MaxRecvMsgSizeBytes,

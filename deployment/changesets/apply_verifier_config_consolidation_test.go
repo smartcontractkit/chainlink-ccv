@@ -108,6 +108,11 @@ func TestBuildVerifierJobSpecs_ConsolidatedEmitsOneJobWithAllAggregators(t *test
 	assert.Equal(t, "agg-b:50051", cfg.Aggregators[1].Address)
 	assert.False(t, cfg.Aggregators[1].InsecureConnection)
 
+	// SecretName reuses the legacy per-aggregator verifier_id so existing operator secrets keep
+	// working without re-provisioning.
+	assert.Equal(t, "agg-a-default-verifier", cfg.Aggregators[0].SecretName)
+	assert.Equal(t, "agg-b-default-verifier", cfg.Aggregators[1].SecretName)
+
 	// Verifier ID omits the aggregator name.
 	assert.Equal(t, "default-verifier", cfg.VerifierID)
 }
