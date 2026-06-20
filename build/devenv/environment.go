@@ -594,6 +594,8 @@ func generateVerifierJobSpecs(
 				Monitoring:               topology.Monitoring,
 				TargetNOPs:               verNOPAliases,
 				DisableFinalityCheckers:  disableFinalityCheckers,
+				// Consolidated topology: one verifier job per NOP writing to every aggregator.
+				ConsolidateAggregators: true,
 			})
 			if err != nil {
 				return nil, fmt.Errorf("failed to generate verifier configs for committee %s: %w", committeeName, err)
@@ -607,14 +609,14 @@ func generateVerifierJobSpecs(
 			if err != nil {
 				return nil, err
 			}
+			if len(aggNames) == 0 {
+				return nil, fmt.Errorf("committee %q has no aggregators in topology", committeeName)
+			}
 
-			// In HA topologies (multiple aggregators per committee) enforce a strict
-			// 1:1 verifier-to-aggregator mapping. For single-aggregator committees
-			// this constraint doesn't apply — all verifiers share the one aggregator.
-			if len(aggNames) > 1 {
-				if err := validateStandaloneVerifierNodeIndices(committeeName, committeeVerifiers, len(aggNames)); err != nil {
-					return nil, err
-				}
+			// node_index is now only a per-container identity (the consolidated job writes to all
+			// aggregators), so it just needs to be unique within the committee.
+			if err := validateStandaloneVerifierNodeIndices(committeeName, committeeVerifiers); err != nil {
+				return nil, err
 			}
 
 			for _, ver := range committeeVerifiers {
@@ -622,40 +624,33 @@ func generateVerifierJobSpecs(
 					continue
 				}
 
-				allJobSpecs := make([]bootstrap.JobSpec, 0, len(aggNames))
-				for _, aggName := range aggNames {
-					jobSpecID := ccvshared.NewVerifierJobID(ccvshared.NOPAlias(ver.NOPAlias), aggName, ccvshared.VerifierJobScope{CommitteeQualifier: committeeName})
-					job, err := ccvdeployment.GetJob(output.DataStore.Seal(), ccvshared.NOPAlias(ver.NOPAlias), jobSpecID.ToJobID())
-					if err != nil {
-						return nil, fmt.Errorf("failed to get verifier job spec for %s aggregator %s: %w", ver.ContainerName, aggName, err)
-					}
-
-					// TODO: Use bootstrap.JobSpec in CLD to avoid this conversion here
-					var verifierJobSpec VerifierJobSpec
-					md, err := toml.Decode(job.Spec, &verifierJobSpec)
-					if err != nil {
-						return nil, fmt.Errorf("failed to decode verifier job spec for %s: %w", ver.ContainerName, err)
-					}
-					if len(md.Undecoded()) > 0 {
-						L.Warn().
-							Str("spec", job.Spec).
-							Str("undecoded fields", fmt.Sprintf("%v", md.Undecoded())).
-							Msg("Undecoded fields in executor job spec")
-						return nil, fmt.Errorf("unknown fields in verifier job spec for %s aggregator: %v", ver.ContainerName, md.Undecoded())
-					}
-
-					allJobSpecs = append(allJobSpecs, verifierJobSpec.ToBootstrapJobSpec())
+				// Consolidated topology: a single verifier job per NOP writing to all aggregators.
+				jobSpecID := ccvshared.NewConsolidatedVerifierJobID(ccvshared.NOPAlias(ver.NOPAlias), ccvshared.VerifierJobScope{CommitteeQualifier: committeeName})
+				job, err := ccvdeployment.GetJob(output.DataStore.Seal(), ccvshared.NOPAlias(ver.NOPAlias), jobSpecID.ToJobID())
+				if err != nil {
+					return nil, fmt.Errorf("failed to get consolidated verifier job spec for %s: %w", ver.ContainerName, err)
 				}
 
-				verifierJobSpecs[ver.NOPAlias] = allJobSpecs
-				ver.GeneratedJobSpecs = allJobSpecs
+				// TODO: Use bootstrap.JobSpec in CLD to avoid this conversion here
+				var verifierJobSpec VerifierJobSpec
+				md, err := toml.Decode(job.Spec, &verifierJobSpec)
+				if err != nil {
+					return nil, fmt.Errorf("failed to decode verifier job spec for %s: %w", ver.ContainerName, err)
+				}
+				if len(md.Undecoded()) > 0 {
+					L.Warn().
+						Str("spec", job.Spec).
+						Str("undecoded fields", fmt.Sprintf("%v", md.Undecoded())).
+						Msg("Undecoded fields in verifier job spec")
+					return nil, fmt.Errorf("unknown fields in verifier job spec for %s: %v", ver.ContainerName, md.Undecoded())
+				}
 
-				// NodeIndex selects which aggregator this verifier targets. For
-				// single-aggregator committees the modulo collapses to 0, so all
-				// verifiers share the one aggregator — matching the non-HA model.
-				ownedAggIdx := ver.NodeIndex % len(aggNames)
+				bootSpec := verifierJobSpec.ToBootstrapJobSpec()
+				verifierJobSpecs[ver.NOPAlias] = []bootstrap.JobSpec{bootSpec}
+				ver.GeneratedJobSpecs = []bootstrap.JobSpec{bootSpec}
+
 				var verCfg commit.Config
-				if err := toml.Unmarshal([]byte(allJobSpecs[ownedAggIdx].AppConfig), &verCfg); err != nil {
+				if err := toml.Unmarshal([]byte(bootSpec.AppConfig), &verCfg); err != nil {
 					return nil, fmt.Errorf("failed to parse verifier config from job spec: %w", err)
 				}
 
@@ -1107,15 +1102,16 @@ func proposeJobsToExecutors(
 }
 
 func launchStandaloneVerifiers(in *Cfg, blockchainOutputs []*blockchain.Output, jdInfra *jobs.JDInfrastructure) ([]*committeeverifier.Output, error) {
-	// Collect aggregator outputs per committee in insertion order so that NodeIndex maps
-	// each verifier to the correct aggregator. A map[string]*Output would lose duplicates
-	// since HA committees have multiple aggregators under the same committee name.
+	// Collect aggregator outputs per committee in insertion order. The order matches
+	// committee.Aggregators (TOML order plus expansion clones), so it aligns by index with the
+	// topology aggregator names below — used to key each verifier's per-aggregator credentials.
 	aggregatorsByCommittee := make(map[string][]*services.AggregatorOutput)
 	for _, agg := range in.Aggregator {
 		if agg.Out != nil {
 			aggregatorsByCommittee[agg.CommitteeName] = append(aggregatorsByCommittee[agg.CommitteeName], agg.Out)
 		}
 	}
+	topoAggNames := committeeverifier.CommitteeAggregatorNames(in.EnvironmentTopology)
 
 	// Apply defaults to verifiers so that we can use them in the standalone mode.
 	for i := range in.Verifier {
@@ -1137,8 +1133,12 @@ func launchStandaloneVerifiers(in *Cfg, blockchainOutputs []*blockchain.Output, 
 				ver.ContainerName, ver.CommitteeName,
 			)
 		}
-		aggIdx := ver.NodeIndex % len(aggOuts)
-		ver.AggregatorOutput = aggOuts[aggIdx]
+		creds, err := committeeverifier.AggregatorCredentialsForVerifier(ver.ContainerName, aggOuts, topoAggNames[ver.CommitteeName])
+		if err != nil {
+			return nil, err
+		}
+		ver.AggregatorCredentials = creds
+		ver.AggregatorOutput = aggOuts[ver.NodeIndex%len(aggOuts)]
 		out, err := committeeverifier.New(ver, blockchainOutputs, jdInfra, chainreg.GetRegistry().GetVerifierModifiers())
 		if err != nil {
 			return nil, fmt.Errorf("failed to create verifier service: %w", err)
@@ -1263,36 +1263,22 @@ func extractAndValidateDisableFinalityCheckers(committeeName string, verifiers [
 	return disableFinalityCheckersPerFamily, nil
 }
 
-// validateStandaloneVerifierNodeIndices validates that the node_index assignments for
-// standalone verifiers in a single committee are consistent with the number of aggregators.
-func validateStandaloneVerifierNodeIndices(committeeName string, verifiers []*committeeverifier.Input, numAggregators int) error {
+// validateStandaloneVerifierNodeIndices ensures each verifier in a committee has a unique
+// node_index. In the consolidated topology node_index is purely a per-container identity (used for
+// container/config naming) and no longer maps to an aggregator — every verifier writes to all
+// aggregators — so it is decoupled from the aggregator count.
+func validateStandaloneVerifierNodeIndices(committeeName string, verifiers []*committeeverifier.Input) error {
 	seen := make(map[int]string, len(verifiers)) // node_index → container_name
 
 	for _, ver := range verifiers {
-		if ver.NodeIndex >= numAggregators {
-			return fmt.Errorf(
-				"committee %q: verifier %q has node_index=%d but committee only has %d aggregator(s) — "+
-					"node_index must be in [0, %d)",
-				committeeName, ver.ContainerName, ver.NodeIndex, numAggregators, numAggregators,
-			)
-		}
-
 		if existing, dup := seen[ver.NodeIndex]; dup {
 			return fmt.Errorf(
 				"committee %q: verifiers %q and %q both have node_index=%d — "+
-					"each verifier must have a unique node_index so that every aggregator has exactly one writer",
+					"node_index must be unique within a committee",
 				committeeName, existing, ver.ContainerName, ver.NodeIndex,
 			)
 		}
 		seen[ver.NodeIndex] = ver.ContainerName
-	}
-
-	if len(verifiers) != numAggregators {
-		return fmt.Errorf(
-			"committee %q: %d standalone verifier(s) configured but %d aggregator(s) defined — "+
-				"the standalone model requires exactly one verifier per aggregator (1:1 mapping)",
-			committeeName, len(verifiers), numAggregators,
-		)
 	}
 
 	return nil

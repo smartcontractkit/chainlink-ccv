@@ -20,6 +20,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/util"
+	hmacutil "github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/commit"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
@@ -96,6 +97,13 @@ type Input struct {
 
 	// AggregatorOutput is optionally set to automatically obtain credentials.
 	AggregatorOutput *services.AggregatorOutput `toml:"-"`
+
+	// AggregatorCredentials maps aggregator topology name -> this verifier's HMAC credentials at
+	// that aggregator. In the consolidated topology the verifier writes to every aggregator, each
+	// with its own credential; the launch code populates this from each aggregator's output. The
+	// runtime reads each via VERIFIER_AGGREGATOR_<SECRETNAME>_API_KEY/SECRET_KEY, where SECRETNAME
+	// is the aggregator's secret_name in the generated config.
+	AggregatorCredentials map[string]hmacutil.Credentials `toml:"-"`
 
 	// GeneratedJobSpecs contains all job specs for this verifier, one per aggregator in the committee.
 	GeneratedJobSpecs []bootstrap.JobSpec `toml:"-"`
@@ -434,8 +442,34 @@ func baseImageRequest(in *Input, envVars map[string]string, bootstrapConfigFileP
 
 func getAggregatorSecrets(in *Input) (map[string]string, error) {
 	envVars := make(map[string]string)
-	var apiKey, secretKey string
 
+	// Per-aggregator credentials (consolidated topology): the verifier writes to every aggregator
+	// in its committee, each with its own credential exposed via VERIFIER_AGGREGATOR_<SECRETNAME>_*.
+	// Credentials are keyed by aggregator topology name; the env var name is derived from the
+	// aggregator's secret_name in the generated config.
+	if len(in.AggregatorCredentials) > 0 {
+		var cfg commit.Config
+		if err := toml.Unmarshal([]byte(in.GeneratedConfig), &cfg); err != nil {
+			return nil, fmt.Errorf("verifier %s: parsing generated config for credentials: %w", in.ContainerName, err)
+		}
+		aggregators, err := cfg.ResolvedAggregators()
+		if err != nil {
+			return nil, fmt.Errorf("verifier %s: resolving aggregators for credentials: %w", in.ContainerName, err)
+		}
+		for _, agg := range aggregators {
+			creds, ok := in.AggregatorCredentials[agg.Name]
+			if !ok {
+				return nil, fmt.Errorf("verifier %s: no HMAC credentials for aggregator %q", in.ContainerName, agg.Name)
+			}
+			apiKeyVar, secretKeyVar := commit.AggregatorCredentialEnvVars(agg.SecretName)
+			envVars[apiKeyVar] = creds.APIKey
+			envVars[secretKeyVar] = creds.Secret
+		}
+		return envVars, nil
+	}
+
+	// Fallback: a single credential under the default (legacy) variables.
+	var apiKey, secretKey string
 	if in.Env != nil && in.Env.AggregatorAPIKey != "" && in.Env.AggregatorSecretKey != "" {
 		apiKey = in.Env.AggregatorAPIKey
 		secretKey = in.Env.AggregatorSecretKey
@@ -448,11 +482,11 @@ func getAggregatorSecrets(in *Input) (map[string]string, error) {
 	}
 
 	if apiKey == "" || secretKey == "" {
-		return nil, fmt.Errorf("failed to get HMAC credentials for verifier %s: no credentials provided via Env or AggregatorOutput", in.ContainerName)
+		return nil, fmt.Errorf("failed to get HMAC credentials for verifier %s: no credentials provided via AggregatorCredentials, Env, or AggregatorOutput", in.ContainerName)
 	}
 
-	envVars["VERIFIER_AGGREGATOR_API_KEY"] = apiKey
-	envVars["VERIFIER_AGGREGATOR_SECRET_KEY"] = secretKey
+	envVars[commit.DefaultAggregatorAPIKeyEnvVar] = apiKey
+	envVars[commit.DefaultAggregatorSecretKeyEnvVar] = secretKey
 
 	return envVars, nil
 }

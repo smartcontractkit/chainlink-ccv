@@ -675,14 +675,13 @@ func NewEnvironment() (in *Cfg, err error) {
 		return nil, err
 	}
 
-	// Each verifier owns one aggregator (NodeIndex % numAggs). Select the
-	// corresponding job spec so proposeJobsToStandaloneVerifiers gets a
-	// single spec per container.
+	// Consolidated topology: generateVerifierJobSpecs produces a single job spec per NOP
+	// (writing to all aggregators), so proposeJobsToStandaloneVerifiers gets that one spec.
 	ownedJobSpecs := make(map[string]bootstrap.JobSpec, len(verifierJobSpecs))
 	for _, ver := range in.Verifier {
 		specs := verifierJobSpecs[ver.NOPAlias]
 		if len(specs) > 0 {
-			ownedJobSpecs[ver.NOPAlias] = specs[ver.NodeIndex%len(specs)]
+			ownedJobSpecs[ver.NOPAlias] = specs[0]
 		}
 	}
 
