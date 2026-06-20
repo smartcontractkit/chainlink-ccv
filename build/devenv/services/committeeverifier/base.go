@@ -98,11 +98,11 @@ type Input struct {
 	// AggregatorOutput is optionally set to automatically obtain credentials.
 	AggregatorOutput *services.AggregatorOutput `toml:"-"`
 
-	// AggregatorCredentials maps aggregator topology name -> this verifier's HMAC credentials at
-	// that aggregator. In the consolidated topology the verifier writes to every aggregator, each
-	// with its own credential; the launch code populates this from each aggregator's output. The
-	// runtime reads each via VERIFIER_AGGREGATOR_<SECRETNAME>_API_KEY/SECRET_KEY, where SECRETNAME
-	// is the aggregator's secret_name in the generated config.
+	// AggregatorCredentials maps each aggregator's SecretName -> this verifier's HMAC credentials
+	// at that aggregator. In the consolidated topology the verifier writes to every aggregator,
+	// each with its own credential; the launch code populates this from each aggregator's output.
+	// Keyed by SecretName so base.go can emit VERIFIER_AGGREGATOR_<SECRETNAME>_API_KEY/SECRET_KEY
+	// directly, matching what the runtime reads — no dependency on the generated config.
 	AggregatorCredentials map[string]hmacutil.Credentials `toml:"-"`
 
 	// GeneratedJobSpecs contains all job specs for this verifier, one per aggregator in the committee.
@@ -445,23 +445,12 @@ func getAggregatorSecrets(in *Input) (map[string]string, error) {
 
 	// Per-aggregator credentials (consolidated topology): the verifier writes to every aggregator
 	// in its committee, each with its own credential exposed via VERIFIER_AGGREGATOR_<SECRETNAME>_*.
-	// Credentials are keyed by aggregator topology name; the env var name is derived from the
-	// aggregator's secret_name in the generated config.
+	// AggregatorCredentials is keyed by SecretName, so the env var name is derived directly from
+	// the key — matching what the runtime reads. No dependency on the generated config (which is
+	// produced after the container launches).
 	if len(in.AggregatorCredentials) > 0 {
-		var cfg commit.Config
-		if err := toml.Unmarshal([]byte(in.GeneratedConfig), &cfg); err != nil {
-			return nil, fmt.Errorf("verifier %s: parsing generated config for credentials: %w", in.ContainerName, err)
-		}
-		aggregators, err := cfg.ResolvedAggregators()
-		if err != nil {
-			return nil, fmt.Errorf("verifier %s: resolving aggregators for credentials: %w", in.ContainerName, err)
-		}
-		for _, agg := range aggregators {
-			creds, ok := in.AggregatorCredentials[agg.Name]
-			if !ok {
-				return nil, fmt.Errorf("verifier %s: no HMAC credentials for aggregator %q", in.ContainerName, agg.Name)
-			}
-			apiKeyVar, secretKeyVar := commit.AggregatorCredentialEnvVars(agg.SecretName)
+		for secretName, creds := range in.AggregatorCredentials {
+			apiKeyVar, secretKeyVar := commit.AggregatorCredentialEnvVars(secretName)
 			envVars[apiKeyVar] = creds.APIKey
 			envVars[secretKeyVar] = creds.Secret
 		}

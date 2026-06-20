@@ -13,6 +13,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
+	ccvshared "github.com/smartcontractkit/chainlink-ccv/deployment/shared"
 	hmacutil "github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
@@ -37,24 +38,29 @@ func CommitteeAggregatorNames(topology *ccvdeployment.EnvironmentTopology) map[s
 }
 
 // AggregatorCredentialsForVerifier builds the verifier's per-aggregator HMAC credentials, keyed by
-// aggregator topology name. aggOuts and aggNames must be index-aligned (committee aggregator
-// order). Each aggregator issues its own credential for the verifier, so a consolidated verifier
-// (writing to all of them) needs one credential per aggregator.
-func AggregatorCredentialsForVerifier(containerName string, aggOuts []*services.AggregatorOutput, aggNames []string) (map[string]hmacutil.Credentials, error) {
+// each aggregator's SecretName. aggOuts and aggNames (topology aggregator names) must be
+// index-aligned (committee aggregator order). The SecretName is computed the same way the
+// changeset bakes it into the verifier config — NewVerifierJobID(nop, aggName, scope).GetVerifierID()
+// — so the keys match the VERIFIER_AGGREGATOR_<SECRETNAME>_* env vars the runtime reads. Computing
+// it here (rather than parsing the generated config) avoids depending on config generation, which
+// happens after the container is launched.
+func AggregatorCredentialsForVerifier(ver *Input, aggOuts []*services.AggregatorOutput, aggNames []string) (map[string]hmacutil.Credentials, error) {
 	if len(aggNames) != len(aggOuts) {
-		return nil, fmt.Errorf("verifier %q: %d aggregator outputs but %d topology names — cannot map credentials", containerName, len(aggOuts), len(aggNames))
+		return nil, fmt.Errorf("verifier %q: %d aggregator outputs but %d topology names — cannot map credentials", ver.ContainerName, len(aggOuts), len(aggNames))
 	}
+	scope := ccvshared.VerifierJobScope{CommitteeQualifier: ver.CommitteeName}
 	creds := make(map[string]hmacutil.Credentials, len(aggOuts))
 	for i, out := range aggOuts {
-		name := aggNames[i]
-		if name == "" {
-			return nil, fmt.Errorf("verifier %q: aggregator at index %d has no topology name", containerName, i)
+		aggName := aggNames[i]
+		if aggName == "" {
+			return nil, fmt.Errorf("verifier %q: aggregator at index %d has no topology name", ver.ContainerName, i)
 		}
-		c, ok := out.GetCredentialsForClient(containerName)
+		secretName := ccvshared.NewVerifierJobID(ccvshared.NOPAlias(ver.NOPAlias), aggName, scope).GetVerifierID()
+		c, ok := out.GetCredentialsForClient(ver.ContainerName)
 		if !ok {
-			return nil, fmt.Errorf("verifier %q: no HMAC credentials issued by aggregator %q", containerName, name)
+			return nil, fmt.Errorf("verifier %q: no HMAC credentials issued by aggregator %q", ver.ContainerName, aggName)
 		}
-		creds[name] = c
+		creds[secretName] = c
 	}
 	return creds, nil
 }
@@ -93,7 +99,7 @@ func LaunchStandaloneVerifiers(
 		if len(aggOuts) == 0 {
 			return fmt.Errorf("verifier %q (committee %q): no aggregator outputs found", ver.ContainerName, ver.CommitteeName)
 		}
-		creds, err := AggregatorCredentialsForVerifier(ver.ContainerName, aggOuts, committeeAggNames[ver.CommitteeName])
+		creds, err := AggregatorCredentialsForVerifier(ver, aggOuts, committeeAggNames[ver.CommitteeName])
 		if err != nil {
 			return err
 		}

@@ -1133,7 +1133,7 @@ func launchStandaloneVerifiers(in *Cfg, blockchainOutputs []*blockchain.Output, 
 				ver.ContainerName, ver.CommitteeName,
 			)
 		}
-		creds, err := committeeverifier.AggregatorCredentialsForVerifier(ver.ContainerName, aggOuts, topoAggNames[ver.CommitteeName])
+		creds, err := committeeverifier.AggregatorCredentialsForVerifier(ver, aggOuts, topoAggNames[ver.CommitteeName])
 		if err != nil {
 			return nil, err
 		}
