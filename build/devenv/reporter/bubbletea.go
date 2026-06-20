@@ -73,10 +73,20 @@ func newStyles(out io.Writer) tuiStyles {
 
 var spinnerFrames = []string{"|", "/", "-", "\\"}
 
-// fmtDur formats a duration to 1 decimal place (e.g. 1m1.6s) for stable
-// fixed-width display. Rounds to the nearest 100ms.
+// fmtDur formats a duration for stable fixed-width display: always in seconds
+// (never ms), one decimal place, seconds zero-padded within minutes so the
+// string length is stable (e.g. "1m09.3s" not "1m9.3s").
 func fmtDur(d time.Duration) string {
-	return d.Round(100 * time.Millisecond).String()
+	if d < 0 {
+		d = 0
+	}
+	d = d.Round(100 * time.Millisecond)
+	if d < time.Minute {
+		return fmt.Sprintf("%.1fs", d.Seconds())
+	}
+	mins := int(d.Minutes())
+	secs := d.Seconds() - float64(mins)*60
+	return fmt.Sprintf("%dm%04.1fs", mins, secs)
 }
 
 // ── model ────────────────────────────────────────────────────────────────────
@@ -98,6 +108,7 @@ type tuiModel struct {
 	log         []string // completed / stage lines
 	active      map[string]*activeComp
 	activeOrder []string // insertion-ordered keys for stable display
+	runStart    time.Time
 	frame       int
 	done        bool
 	cancelled   bool
@@ -107,9 +118,10 @@ type tuiModel struct {
 
 func newModel(out io.Writer) tuiModel {
 	return tuiModel{
-		styles: newStyles(out),
-		active: make(map[string]*activeComp),
-		width:  80,
+		styles:   newStyles(out),
+		active:   make(map[string]*activeComp),
+		runStart: time.Now(),
+		width:    80,
 	}
 }
 
@@ -247,10 +259,12 @@ func (m tuiModel) View() string {
 			continue
 		}
 		elapsed := time.Since(cs.start)
+		cumulative := time.Since(m.runStart)
 		// Line 1: spinner+phase in default, name in bold green, duration in default.
 		fmt.Fprintf(&sb, "%s [%d] ", spin, cs.phase)
 		sb.WriteString(m.styles.active.Render(fmt.Sprintf("%-28s", cs.name)))
 		fmt.Fprintf(&sb, " %7s", fmtDur(elapsed))
+		sb.WriteString("  " + m.styles.dim.Render(fmt.Sprintf("(%s)", fmtDur(cumulative))))
 		sb.WriteString("\n")
 		// Status lines use tree connectors: ├── for middle entries, └── for last.
 		for i, entry := range cs.statuses {
