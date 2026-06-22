@@ -45,12 +45,12 @@ type AggregatorConnection struct {
 }
 
 // Label returns the value used to identify this aggregator in logs and metrics:
-// Name when set, otherwise Address.
-func (a AggregatorConnection) Label() string {
+// Name when set, otherwise fallbackName.
+func (a AggregatorConnection) Label(fallbackName string) string {
 	if strings.TrimSpace(a.Name) != "" {
 		return a.Name
 	}
-	return a.Address
+	return fallbackName
 }
 
 const (
@@ -95,18 +95,18 @@ func (a AggregatorConnection) ResolveHMACConfig() (*hmac.ClientConfig, error) {
 
 	apiKey := os.Getenv(apiKeyVar)
 	if apiKey == "" {
-		return nil, fmt.Errorf("missing %s for aggregator %q", apiKeyVar, a.Label())
+		return nil, fmt.Errorf("missing %s for aggregator (name:%q,address:%q)", apiKeyVar, a.Name, a.Address)
 	}
 	if err := hmac.ValidateAPIKey(apiKey); err != nil {
-		return nil, fmt.Errorf("invalid %s for aggregator %q: %w", apiKeyVar, a.Label(), err)
+		return nil, fmt.Errorf("invalid %s for aggregator (name:%q,address:%q): %w", apiKeyVar, a.Name, a.Address, err)
 	}
 
 	secret := os.Getenv(secretKeyVar)
 	if secret == "" {
-		return nil, fmt.Errorf("missing %s for aggregator %q", secretKeyVar, a.Label())
+		return nil, fmt.Errorf("missing %s for aggregator (name:%q,address:%q)", secretKeyVar, a.Name, a.Address)
 	}
 	if err := hmac.ValidateSecret(secret); err != nil {
-		return nil, fmt.Errorf("invalid %s for aggregator %q: %w", secretKeyVar, a.Label(), err)
+		return nil, fmt.Errorf("invalid %s for aggregator (name:%q,address:%q): %w", secretKeyVar, a.Name, a.Address, err)
 	}
 
 	return &hmac.ClientConfig{APIKey: apiKey, Secret: secret}, nil

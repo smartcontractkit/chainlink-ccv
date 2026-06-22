@@ -108,7 +108,7 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 	for i, a := range resolvedAggregators {
 		hmacConfig, hErr := a.ResolveHMACConfig()
 		if hErr != nil {
-			lggr.Errorw("Failed to resolve aggregator credentials", "error", hErr, "aggregator", a.Label())
+			lggr.Errorw("Failed to resolve aggregator credentials", "error", hErr, "aggregator", a.Label(config.VerifierID))
 			return fmt.Errorf("failed to resolve aggregator credentials: %w", hErr)
 		}
 		aggregatorHMACs[i] = hmacConfig
@@ -118,7 +118,7 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 	heartbeatTargets := make([]heartbeatclient.AggregatorTarget, len(resolvedAggregators))
 	for i, a := range resolvedAggregators {
 		writeTargets[i] = storageaccess.AggregatorTarget{
-			Label:               a.Label(),
+			Label:               a.Label(config.VerifierID),
 			Address:             a.Address,
 			Insecure:            a.InsecureConnection,
 			HMACConfig:          aggregatorHMACs[i],
@@ -126,7 +126,7 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 			MaxRecvMsgSizeBytes: a.MaxRecvMsgSizeBytes,
 		}
 		heartbeatTargets[i] = heartbeatclient.AggregatorTarget{
-			Label:      a.Label(),
+			Label:      a.Label(config.VerifierID),
 			Address:    a.Address,
 			Insecure:   a.InsecureConnection,
 			HMACConfig: aggregatorHMACs[i],
@@ -257,7 +257,7 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 	// disables it (fail-safe union), and verification is blocked while any source is unknown.
 	namedPollers := make([]messagerules.NamedPoller, 0, len(resolvedAggregators))
 	for i, a := range resolvedAggregators {
-		aggLggr := logger.With(lggr, "component", "MessageRulesPoller", "aggregator", a.Label())
+		aggLggr := logger.With(lggr, "component", "MessageRulesPoller", "aggregator", a.Label(config.VerifierID))
 		messageRulesClient, rErr := messagerules.NewGRPCClient(
 			a.Address,
 			aggLggr,
@@ -266,8 +266,8 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 			a.MaxRecvMsgSizeBytes,
 		)
 		if rErr != nil {
-			lggr.Errorw("Failed to create message rules gRPC client", "error", rErr, "aggregator", a.Label())
-			return fmt.Errorf("failed to create message rules client for %q: %w", a.Label(), rErr)
+			lggr.Errorw("Failed to create message rules gRPC client", "error", rErr, "aggregator", a.Label(config.VerifierID))
+			return fmt.Errorf("failed to create message rules client for %q: %w", a.Label(config.VerifierID), rErr)
 		}
 
 		poller, rErr := messagerules.NewPollerService(
@@ -275,13 +275,13 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 			messageRulesPollInterval,
 			messageRulesClientTimeout,
 			aggLggr,
-			verifierMonitoring.Metrics().With("aggregator", a.Label()),
+			verifierMonitoring.Metrics().With("aggregator", a.Label(config.VerifierID)),
 		)
 		if rErr != nil {
-			lggr.Errorw("Failed to create message rules poller", "error", rErr, "aggregator", a.Label())
-			return fmt.Errorf("failed to create message rules poller for %q: %w", a.Label(), rErr)
+			lggr.Errorw("Failed to create message rules poller", "error", rErr, "aggregator", a.Label(config.VerifierID))
+			return fmt.Errorf("failed to create message rules poller for %q: %w", a.Label(config.VerifierID), rErr)
 		}
-		namedPollers = append(namedPollers, messagerules.NewNamedPoller(a.Label(), poller))
+		namedPollers = append(namedPollers, messagerules.NewNamedPoller(a.Label(config.VerifierID), poller))
 	}
 
 	messageRulesPoller, err := messagerules.NewUnionPollerService(

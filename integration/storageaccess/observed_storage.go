@@ -61,9 +61,9 @@ func NewObservedAggregatorWriter(
 func (o *observedStorageWriter) metrics() verifier.MetricLabeler {
 	m := o.monitoring.Metrics().With("verifier_id", o.verifierID)
 	if o.aggregatorLabel != "" {
-		m = m.With("aggregator", o.aggregatorLabel)
+		m = m.With("aggregator_name", o.aggregatorLabel)
 	} else {
-		m = m.With("aggregator", o.verifierID)
+		m = m.With("aggregator_name", o.verifierID)
 	}
 	return m
 }

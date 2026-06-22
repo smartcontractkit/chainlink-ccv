@@ -160,7 +160,7 @@ func NewVerificationCoordinator(
 	heartbeatTargets := make([]heartbeatclient.AggregatorTarget, len(resolvedAggregators))
 	for i, a := range resolvedAggregators {
 		writeTargets[i] = storageaccess.AggregatorTarget{
-			Label:               a.Label(),
+			Label:               a.Label(cfg.VerifierID),
 			Address:             a.Address,
 			Insecure:            a.InsecureConnection,
 			HMACConfig:          aggregatorSecret,
@@ -168,7 +168,7 @@ func NewVerificationCoordinator(
 			MaxRecvMsgSizeBytes: a.MaxRecvMsgSizeBytes,
 		}
 		heartbeatTargets[i] = heartbeatclient.AggregatorTarget{
-			Label:      a.Label(),
+			Label:      a.Label(cfg.VerifierID),
 			Address:    a.Address,
 			Insecure:   a.InsecureConnection,
 			HMACConfig: aggregatorSecret,
@@ -237,7 +237,7 @@ func NewVerificationCoordinator(
 
 	namedPollers := make([]messagerules.NamedPoller, 0, len(resolvedAggregators))
 	for _, a := range resolvedAggregators {
-		aggLggr := logger.With(lggr, "component", "MessageRulesPoller", "aggregator", a.Label())
+		aggLggr := logger.With(lggr, "component", "MessageRulesPoller", "aggregator", a.Label(cfg.VerifierID))
 		messageRulesClient, rErr := messagerules.NewGRPCClient(
 			a.Address,
 			aggLggr,
@@ -246,8 +246,8 @@ func NewVerificationCoordinator(
 			a.MaxRecvMsgSizeBytes,
 		)
 		if rErr != nil {
-			lggr.Errorw("Failed to create message rules gRPC client", "error", rErr, "aggregator", a.Label())
-			return nil, fmt.Errorf("failed to create message rules client for %q: %w", a.Label(), rErr)
+			lggr.Errorw("Failed to create message rules gRPC client", "error", rErr, "aggregator", a.Label(cfg.VerifierID))
+			return nil, fmt.Errorf("failed to create message rules client for %q: %w", a.Label(cfg.VerifierID), rErr)
 		}
 
 		poller, rErr := messagerules.NewPollerService(
@@ -255,13 +255,13 @@ func NewVerificationCoordinator(
 			messageRulesPollInterval,
 			messageRulesClientTimeout,
 			aggLggr,
-			verifierMonitoring.Metrics().With("aggregator", a.Label()),
+			verifierMonitoring.Metrics().With("aggregator", a.Label(cfg.VerifierID)),
 		)
 		if rErr != nil {
-			lggr.Errorw("Failed to create message rules poller", "error", rErr, "aggregator", a.Label())
-			return nil, fmt.Errorf("failed to create message rules poller for %q: %w", a.Label(), rErr)
+			lggr.Errorw("Failed to create message rules poller", "error", rErr, "aggregator", a.Label(cfg.VerifierID))
+			return nil, fmt.Errorf("failed to create message rules poller for %q: %w", a.Label(cfg.VerifierID), rErr)
 		}
-		namedPollers = append(namedPollers, messagerules.NewNamedPoller(a.Label(), poller))
+		namedPollers = append(namedPollers, messagerules.NewNamedPoller(a.Label(cfg.VerifierID), poller))
 	}
 
 	messageRulesPoller, err := messagerules.NewUnionPollerService(
