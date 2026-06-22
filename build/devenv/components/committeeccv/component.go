@@ -221,7 +221,8 @@ func runPhase3Core(
 
 	// Step 2: Launch standalone verifier containers (reads HMAC creds from agg.Out).
 	if err := committeeverifier.LaunchStandaloneVerifiers(
-		verifiers, aggregators, inputs.blockchainOutputs, inputs.jdInfra,
+		verifiers, aggregators, committeeverifier.CommitteeAggregatorNames(inputs.topology),
+		inputs.blockchainOutputs, inputs.jdInfra,
 		chainreg.GetRegistry().GetVerifierModifiers(),
 	); err != nil {
 		return nil, nil, fmt.Errorf("committeeccv: failed to launch standalone verifiers: %w", err)
@@ -618,6 +619,8 @@ func buildVerifierJobSpecEffects(
 				Monitoring:               obs.Monitoring,
 				TargetNOPs:               verNOPAliases,
 				DisableFinalityCheckers:  disableFinalityCheckersPerFamily[family],
+				// Consolidated topology: one verifier job per NOP writing to every aggregator.
+				ConsolidateAggregators: true,
 			})
 			if err != nil {
 				return nil, fmt.Errorf("committeeccv: generating verifier configs for committee %s: %w", committeeName, err)
@@ -642,25 +645,23 @@ func buildVerifierJobSpecEffects(
 					continue
 				}
 
-				allJobSpecs := make([]bootstrap.JobSpec, 0, len(aggNames))
-				for _, aggName := range aggNames {
-					jobSpecID := ccvshared.NewVerifierJobID(ccvshared.NOPAlias(ver.NOPAlias), aggName, ccvshared.VerifierJobScope{CommitteeQualifier: committeeName})
-					job, err := ccvdeployment.GetJob(output.DataStore.Seal(), ccvshared.NOPAlias(ver.NOPAlias), jobSpecID.ToJobID())
-					if err != nil {
-						return nil, fmt.Errorf("committeeccv: getting verifier job spec for %s agg %s: %w", ver.ContainerName, aggName, err)
-					}
-					var spec verifierJobSpec
-					if err := toml.Unmarshal([]byte(job.Spec), &spec); err != nil {
-						return nil, fmt.Errorf("committeeccv: decoding verifier job spec for %s: %w", ver.ContainerName, err)
-					}
-					allJobSpecs = append(allJobSpecs, spec.toBootstrapJobSpec())
+				// Consolidated topology: a single verifier job per NOP writing to all aggregators.
+				jobSpecID := ccvshared.NewConsolidatedVerifierJobID(ccvshared.NOPAlias(ver.NOPAlias), ccvshared.VerifierJobScope{CommitteeQualifier: committeeName})
+				job, err := ccvdeployment.GetJob(output.DataStore.Seal(), ccvshared.NOPAlias(ver.NOPAlias), jobSpecID.ToJobID())
+				if err != nil {
+					return nil, fmt.Errorf("committeeccv: getting consolidated verifier job spec for %s: %w", ver.ContainerName, err)
 				}
+				var spec verifierJobSpec
+				if err := toml.Unmarshal([]byte(job.Spec), &spec); err != nil {
+					return nil, fmt.Errorf("committeeccv: decoding verifier job spec for %s: %w", ver.ContainerName, err)
+				}
+				bootSpec := spec.toBootstrapJobSpec()
+				allJobSpecs := []bootstrap.JobSpec{bootSpec}
 
 				ver.GeneratedJobSpecs = allJobSpecs
 
-				ownedAggIdx := ver.NodeIndex % len(aggNames)
 				var verCfg commit.Config
-				if err := toml.Unmarshal([]byte(allJobSpecs[ownedAggIdx].AppConfig), &verCfg); err != nil {
+				if err := toml.Unmarshal([]byte(bootSpec.AppConfig), &verCfg); err != nil {
 					return nil, fmt.Errorf("committeeccv: parsing verifier config from job spec: %w", err)
 				}
 				configBytes, err := toml.Marshal(verCfg)
@@ -692,7 +693,7 @@ func buildVerifierJobSpecEffects(
 				if loaderErr != nil {
 					return nil, fmt.Errorf("committeeccv: loading chain config for verifier %s: %w", ver.NOPAlias, loaderErr)
 				}
-				baseSpec := allJobSpecs[ver.NodeIndex%len(allJobSpecs)]
+				baseSpec := allJobSpecs[0]
 				jobSpec, specErr := committeeverifier.RebuildVerifierJobSpecWithBlockchainInfos(baseSpec, blockchainInfos)
 				if specErr != nil {
 					return nil, fmt.Errorf("committeeccv: building job spec for verifier %s: %w", ver.NOPAlias, specErr)

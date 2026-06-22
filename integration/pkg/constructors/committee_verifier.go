@@ -28,18 +28,16 @@ import (
 	"github.com/smartcontractkit/chainlink-evm/pkg/chains/legacyevm"
 )
 
-// NewVerificationCoordinator builds a verifier coordinator. aggregatorSecret is the HMAC
-// credential used for every configured aggregator.
-//
-// TODO(CCIP-11776 follow-up): for a consolidated job each aggregator authenticates with its own
-// credential, so this should take a per-aggregator map keyed by AggregatorConnection.SecretName.
-// That is a breaking change to the Chainlink-node caller (ccvcommitteeverifier/delegate.go) and
-// lands together with that migration; until then this constructor applies one credential to all
-// aggregators, which is correct for the single-aggregator (legacy) configs in use today.
+// NewVerificationCoordinator builds a verifier coordinator. aggregatorSecrets maps each
+// aggregator's SecretName (AggregatorConnection.SecretName) to its HMAC credential — a consolidated
+// verifier writes to every aggregator, each of which authenticates it with its own credential.
+// Keying by SecretName (rather than position) avoids any ordering contract with
+// cfg.ResolvedAggregators(); the legacy single-aggregator config has an empty SecretName, so its
+// credential is keyed by "".
 func NewVerificationCoordinator(
 	lggr logger.Logger,
 	cfg commit.Config,
-	aggregatorSecret *hmac.ClientConfig,
+	aggregatorSecrets map[string]*hmac.ClientConfig,
 	signingAddress protocol.UnknownAddress,
 	signer verifier.MessageSigner,
 	relayers map[protocol.ChainSelector]legacyevm.Chain,
@@ -155,7 +153,17 @@ func NewVerificationCoordinator(
 		return nil, fmt.Errorf("invalid aggregator configuration: %w", err)
 	}
 
-	// The single provided credential is applied to every aggregator (see the constructor's TODO).
+	// Each aggregator authenticates with its own credential, looked up by SecretName.
+	// resolvedSecrets is index-aligned with resolvedAggregators for the wiring below.
+	resolvedSecrets := make([]*hmac.ClientConfig, len(resolvedAggregators))
+	for i, a := range resolvedAggregators {
+		sec, ok := aggregatorSecrets[a.SecretName]
+		if !ok {
+			return nil, fmt.Errorf("missing aggregator secret for %q (secret_name %q)", a.Label(), a.SecretName)
+		}
+		resolvedSecrets[i] = sec
+	}
+
 	writeTargets := make([]storageaccess.AggregatorTarget, len(resolvedAggregators))
 	heartbeatTargets := make([]heartbeatclient.AggregatorTarget, len(resolvedAggregators))
 	for i, a := range resolvedAggregators {
@@ -163,7 +171,7 @@ func NewVerificationCoordinator(
 			Label:               a.Label(),
 			Address:             a.Address,
 			Insecure:            a.InsecureConnection,
-			HMACConfig:          aggregatorSecret,
+			HMACConfig:          resolvedSecrets[i],
 			MaxSendMsgSizeBytes: a.MaxSendMsgSizeBytes,
 			MaxRecvMsgSizeBytes: a.MaxRecvMsgSizeBytes,
 		}
@@ -171,7 +179,7 @@ func NewVerificationCoordinator(
 			Label:      a.Label(),
 			Address:    a.Address,
 			Insecure:   a.InsecureConnection,
-			HMACConfig: aggregatorSecret,
+			HMACConfig: resolvedSecrets[i],
 		}
 	}
 
@@ -236,12 +244,12 @@ func NewVerificationCoordinator(
 	}
 
 	namedPollers := make([]messagerules.NamedPoller, 0, len(resolvedAggregators))
-	for _, a := range resolvedAggregators {
+	for i, a := range resolvedAggregators {
 		aggLggr := logger.With(lggr, "component", "MessageRulesPoller", "aggregator", a.Label())
 		messageRulesClient, rErr := messagerules.NewGRPCClient(
 			a.Address,
 			aggLggr,
-			aggregatorSecret,
+			resolvedSecrets[i],
 			a.InsecureConnection,
 			a.MaxRecvMsgSizeBytes,
 		)
