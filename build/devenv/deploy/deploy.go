@@ -249,15 +249,30 @@ func ConnectAllChainsCanonical(
 			if isKeyPresent(remote, sel) {
 				continue
 			}
-			cfg, err := profile.impl.GetChainLaneProfile(e, sel)
+			// ChainAOverrides configure chain A's leg toward chain B; ChainBOverrides
+			// configure chain B's leg toward chain A. Each leg must use ITS OWN chain's
+			// lane profile. Using chainA's profile for both legs is order-dependent
+			// (profiles is a map) and lets a remote chain's profile leak onto the local
+			// leg — e.g. Solana's DefaultInboundCCVs (bare CommitteeVerifier) overwriting
+			// the EVM offramp's resolver, producing an intermittent CCV mismatch that the
+			// executor reports as "insufficient verifiers".
+			chainACfg, err := profile.impl.GetChainLaneProfile(e, sel)
 			if err != nil {
 				return fmt.Errorf("get chain lane profile for chain %d: %w", sel, err)
+			}
+			remoteProfile, ok := profiles[remote]
+			if !ok {
+				return fmt.Errorf("missing chain profile for remote selector %d (referenced from chain %d)", remote, sel)
+			}
+			chainBCfg, err := remoteProfile.impl.GetChainLaneProfile(e, remote)
+			if err != nil {
+				return fmt.Errorf("get chain lane profile for remote chain %d: %w", remote, err)
 			}
 			pairs[key(sel, remote)] = ccipChangesets.CrossFamilyLanePair{
 				ChainA:          sel,
 				ChainB:          remote,
-				ChainAOverrides: &cfg,
-				ChainBOverrides: &cfg,
+				ChainAOverrides: &chainACfg,
+				ChainBOverrides: &chainBCfg,
 			}
 		}
 	}
