@@ -16,8 +16,8 @@ type observedStorageWriter struct {
 
 	verifierID string
 	// aggregatorLabel, when non-empty, scopes this observer to a single aggregator and is
-	// emitted as the "aggregator" label on metrics/logs. Empty means the observer covers the
-	// aggregate (fan-out-wide) outcome.
+	// emitted as the "aggregator" label on metrics/logs.
+	// Empty means the observer will set the "aggregator" label to the verifier_id.
 	aggregatorLabel string
 	lggr            logger.Logger
 	monitoring      verifier.Monitoring
@@ -62,6 +62,8 @@ func (o *observedStorageWriter) metrics() verifier.MetricLabeler {
 	m := o.monitoring.Metrics().With("verifier_id", o.verifierID)
 	if o.aggregatorLabel != "" {
 		m = m.With("aggregator", o.aggregatorLabel)
+	} else {
+		m = m.With("aggregator", o.verifierID)
 	}
 	return m
 }
