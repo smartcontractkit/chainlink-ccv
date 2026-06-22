@@ -249,13 +249,9 @@ func ConnectAllChainsCanonical(
 			if isKeyPresent(remote, sel) {
 				continue
 			}
-			// ChainAOverrides configure chain A's leg toward chain B; ChainBOverrides
-			// configure chain B's leg toward chain A. Each leg must use ITS OWN chain's
-			// lane profile. Using chainA's profile for both legs is order-dependent
-			// (profiles is a map) and lets a remote chain's profile leak onto the local
-			// leg — e.g. Solana's DefaultInboundCCVs (bare CommitteeVerifier) overwriting
-			// the EVM offramp's resolver, producing an intermittent CCV mismatch that the
-			// executor reports as "insufficient verifiers".
+
+			// Get and set chain- and remote-specific overrides to avoid leaking a remote
+			// chain's profile to the local chain
 			chainACfg, err := profile.impl.GetChainLaneProfile(e, sel)
 			if err != nil {
 				return fmt.Errorf("get chain lane profile for chain %d: %w", sel, err)
