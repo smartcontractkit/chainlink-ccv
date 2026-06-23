@@ -267,10 +267,8 @@ func NewEnvironment() (in *Cfg, err error) {
 	}
 
 	// Register standalone verifiers with JD so they can receive job proposals.
-	if jdInfra != nil && jdInfra.OffchainClient != nil {
-		if err := registerStandaloneVerifiersWithJD(ctx, in.Verifier, jdInfra.OffchainClient); err != nil {
-			return nil, err
-		}
+	if err := registerStandaloneVerifiersWithJD(ctx, in.Verifier, jdInfra); err != nil {
+		return nil, err
 	}
 
 	/////////////////////////////////////////////
@@ -639,11 +637,6 @@ func NewEnvironment() (in *Cfg, err error) {
 	// START: Launch executors //
 	/////////////////////////////
 
-	executorJobSpecs, err := generateExecutorJobSpecs(e, in, topology, ds)
-	if err != nil {
-		return nil, err
-	}
-
 	_, err = launchExecutors(in.Executor, blockchainOutputs, jdInfra)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create executors: %w", err)
@@ -653,10 +646,16 @@ func NewEnvironment() (in *Cfg, err error) {
 		return nil, fmt.Errorf("failed to fund executor transmitters: %w", err)
 	}
 
+	if err := registerExecutorsWithJD(ctx, in.Executor, jdInfra); err != nil {
+		return nil, err
+	}
+
+	executorJobSpecs, err := generateExecutorJobSpecs(e, in, topology, ds)
+	if err != nil {
+		return nil, err
+	}
+
 	if jdInfra != nil && jdInfra.OffchainClient != nil {
-		if err := registerExecutorsWithJD(ctx, in.Executor, jdInfra.OffchainClient); err != nil {
-			return nil, err
-		}
 		if err := proposeJobsToExecutors(ctx, in.Executor, executorJobSpecs, blockchainOutputs, jdInfra.OffchainClient); err != nil {
 			return nil, err
 		}
