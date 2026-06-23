@@ -130,7 +130,8 @@ func ApplyExecutorConfig() deployment.ChangeSetV2[ApplyExecutorConfigInput] {
 			nopsToValidate = executorPoolNOPAliases(cfg.Pool)
 		}
 
-		if err := validateExecutorChainSupport(e, cfg.Pool, nopsToValidate, selectors); err != nil {
+		clNOPs := filterCLModeNOPs(nopsToValidate, cfg.NOPs)
+		if err := validateExecutorChainSupport(e, cfg.Pool, clNOPs, selectors); err != nil {
 			return deployment.ChangesetOutput{}, err
 		}
 
