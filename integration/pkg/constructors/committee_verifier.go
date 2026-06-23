@@ -183,8 +183,6 @@ func NewVerificationCoordinator(
 		}
 	}
 
-	// Checkpoint manager
-	// TODO: these are secrets, probably shouldn't be in config.
 	fanOutWriter, err := storageaccess.NewFanOutAggregatorWriter(
 		writeTargets,
 		cfg.VerifierID,
