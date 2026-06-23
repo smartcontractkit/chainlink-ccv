@@ -5,8 +5,7 @@
 A committee verifier can now write to **multiple aggregators** from a single job
 (fan-out), instead of requiring one job per aggregator. This is fully additive and
 **opt-in**: existing single-`aggregator_address` configs and the existing changeset
-output are unchanged until a caller explicitly enables the new path. See
-`docs/adr/0001-multi-aggregator-committee-verifier.md` for the design and trade-offs.
+output are unchanged until a caller explicitly enables the new path.
 
 No breaking changes in this PR. One breaking change (`NewVerificationCoordinator`) is
 deliberately deferred to a coordinated follow-up — see *Heads-up* below.
