@@ -96,7 +96,7 @@ func TestReport(t *testing.T) {
 		assert.Contains(t, msg, "main.toml: unknown keys")
 		assert.Contains(t, msg, "  - foo")
 		assert.Contains(t, msg, "  - bar.baz")
-		assert.Contains(t, msg, "generated.toml: decode error: boom")
+		assert.Contains(t, msg, "generated.toml: boom")
 	})
 }
 

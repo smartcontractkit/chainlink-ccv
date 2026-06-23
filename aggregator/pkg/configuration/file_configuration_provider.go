@@ -41,32 +41,47 @@ func LoadConfig(filePath string, lggr logger.SugaredLogger) (*model.AggregatorCo
 // way the service loads it at startup — decoding the main config and, when
 // GeneratedConfigPath is set, the generated config resolved relative to filePath
 // — and fails if either document fails to decode (e.g. a type mismatch) or
-// contains keys not present in the config struct (drift). Unlike LoadConfig it
-// reads no secrets or environment, so it is safe to run in CI against a rendered
-// config to catch drift before deploy.
+// contains keys not present in the config struct (drift). When both decode
+// cleanly it also runs the merged config through AggregatorConfig's
+// secret-independent validation (ranges, committee structure, address parsing).
+// Unlike LoadConfig it reads no secrets or environment, so it is safe to run in
+// CI against a rendered config to catch drift and misconfiguration before deploy.
 func ValidateConfigFile(filePath string) error {
 	var config model.AggregatorConfig
-	undecoded, decodeErr := configvalidate.DecodeFileStrict(filePath, &config)
+	mainUndecoded, mainErr := configvalidate.DecodeFileStrict(filePath, &config)
 	results := []configvalidate.Result{{
 		Name:      filepath.Base(filePath),
-		Undecoded: undecoded,
-		Err:       decodeErr,
+		Undecoded: mainUndecoded,
+		Err:       mainErr,
 	}}
 
 	// Validate the generated config exactly as LoadConfig merges it, but only when
 	// the main config decoded far enough to give us a path.
-	if decodeErr == nil && config.GeneratedConfigPath != "" {
+	var generated model.GeneratedConfig
+	genErr := error(nil)
+	if mainErr == nil && config.GeneratedConfigPath != "" {
 		generatedPath := config.GeneratedConfigPath
 		if !filepath.IsAbs(generatedPath) {
 			generatedPath = filepath.Join(filepath.Dir(filePath), generatedPath)
 		}
-		var generated model.GeneratedConfig
-		genUndecoded, genErr := configvalidate.DecodeFileStrict(generatedPath, &generated)
+		var genUndecoded []string
+		genUndecoded, genErr = configvalidate.DecodeFileStrict(generatedPath, &generated)
 		results = append(results, configvalidate.Result{
 			Name:      filepath.Base(generatedPath),
 			Undecoded: genUndecoded,
 			Err:       genErr,
 		})
+	}
+
+	// Once both documents decode cleanly, merge the generated config and run the
+	// service's own secret-independent validation (the merge populates the
+	// committee, which lives in the generated config). Skipped on any decode
+	// error, since the struct would be incomplete.
+	if mainErr == nil && genErr == nil {
+		config.MergeGeneratedConfig(&generated)
+		if err := config.ValidateWithoutSecrets(); err != nil {
+			results = append(results, configvalidate.Result{Name: "validation", Err: err})
+		}
 	}
 
 	return configvalidate.Report(results...)

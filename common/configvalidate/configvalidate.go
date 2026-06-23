@@ -54,7 +54,7 @@ type Result struct {
 	Name string
 	// Undecoded lists keys present in the document but absent from the struct.
 	Undecoded []string
-	// Err is a decode or parse failure, if any.
+	// Err is a decode, parse, or validation failure, if any.
 	Err error
 }
 
@@ -66,7 +66,7 @@ func Report(results ...Result) error {
 	for _, r := range results {
 		switch {
 		case r.Err != nil:
-			fmt.Fprintf(&b, "%s: decode error: %v\n", r.Name, r.Err)
+			fmt.Fprintf(&b, "%s: %v\n", r.Name, r.Err)
 		case len(r.Undecoded) > 0:
 			fmt.Fprintf(&b, "%s: unknown keys not present in the config struct (drift):\n", r.Name)
 			for _, k := range r.Undecoded {
