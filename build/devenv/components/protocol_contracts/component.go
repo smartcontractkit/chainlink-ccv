@@ -5,9 +5,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strconv"
 
 	"github.com/rs/zerolog"
 	zlog "github.com/rs/zerolog/log"
+
+	"github.com/Masterminds/semver/v3"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
@@ -21,7 +24,11 @@ import (
 	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/timing"
 	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
+	ccvadapters "github.com/smartcontractkit/chainlink-ccv/deployment/adapters"
+	ccvchangesets "github.com/smartcontractkit/chainlink-ccv/deployment/changesets"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
+	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
+	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
 
@@ -30,7 +37,7 @@ const Key = "protocol_contracts"
 
 // Version is the protocol_contracts component config schema version. Exactly
 // this version is supported; configs declaring any other version are rejected.
-const Version = 1
+const Version = 2
 
 func init() {
 	if err := devenvruntime.Register(Key, factory); err != nil {
@@ -58,14 +65,12 @@ func (p *component) ValidateConfig(componentConfig any) error {
 	return err
 }
 
-// RunPhase2 deploys contracts and configures lanes. Infrastructure services
-// (verifier launch, JD registration, credential generation) are handled by the
-// CommitteeCCV Phase 3 component, which runs after this.
-//
-// NOTE: DeployContractsForSelector currently deploys CommitteeVerifier
-// proxy/resolver and MockReceivers when the topology includes committees.
-// Extracting CommitteeVerifier deployment into a standalone component (using the
-// DeployCommitteeVerifier changeset) is tracked as a follow-up.
+// RunPhase2 deploys the core protocol contracts (via the DeployProtocolContracts
+// changeset) and the per-chain tokens/pools. Committee verifiers, their resolvers,
+// and mock receivers are deployed in Phase 3 (committeeccv) because they are not
+// part of the protocol-contract set. Infrastructure services (verifier launch, JD
+// registration, credential generation) are also handled by the CommitteeCCV Phase 3
+// component, which runs after this.
 func (p *component) RunPhase2(
 	ctx context.Context,
 	globalConfig map[string]any,
@@ -156,7 +161,7 @@ func (p *component) RunPhase2(
 		}
 		chainDS := datastore.NewMemoryDataStore()
 
-		dsi, derr := ccdeploy.DeployContractsForSelector(ctx, e, impl, networkInfo.ChainSelector, topology)
+		dsi, derr := deployProtocolContractsForSelector(ctx, e, impl, networkInfo.ChainSelector, topology, cfg.Deploy)
 		if derr != nil {
 			return nil, nil, derr
 		}
@@ -192,19 +197,14 @@ func (p *component) RunPhase2(
 		if err != nil {
 			return nil, nil, err
 		}
+		// TODO: migrate this to an address-registration effect so deployed
+		// addresses are registered to the datastore deterministically instead of
+		// by mutating the shared CLDF accumulator.
 		cldf.AddAddresses(string(a))
 	}
 	e.DataStore = ds.Seal()
 
-	if err = ccdeploy.ConfigureAllTokenTransfers(impls, selectors, e, topology); err != nil {
-		return nil, nil, fmt.Errorf("configure all token transfers: %w", err)
-	}
-
 	timeTrack.Record("[contracts] deployed")
-
-	// Lane configuration (ConnectAllChains) is deferred to CommitteeCCV Phase 3 because it
-	// calls ApplyVerifierConfig which fetches verifier signing keys from JD. Verifiers are not
-	// launched and registered until Phase 3, so this step cannot run here.
 
 	// Finalize CLDF: snapshot env metadata and print deployed addresses.
 	envMetadata, err := e.DataStore.EnvMetadata().Get()
@@ -241,6 +241,27 @@ type config struct {
 	// global config; it is decoded here so the strict round-trip accepts it.
 	UseLegacyConfigureLane bool                               `toml:"use_legacy_configure_lane"`
 	EnvironmentTopology    *ccvdeployment.EnvironmentTopology `toml:"environment_topology"`
+	// Deploy carries the per-chain protocol-contract deploy parameters fed to the
+	// chain-agnostic DeployProtocolContracts changeset.
+	Deploy deployCfg `toml:"deploy"`
+}
+
+// deployCfg holds the protocol-contract deploy tunables sourced from
+// [protocol_contracts.deploy]. FamilyExtras supports two key forms: a chain
+// selector (decimal string, e.g. "5009297550715157269") for per-chain
+// overrides, and a chain family name (e.g. "evm") for family-wide defaults.
+// deployProtocolContractsForSelector checks the selector key first and falls
+// back to the family key, so per-chain values take precedence.
+type deployCfg struct {
+	DeployTestRouter bool                      `toml:"deploy_test_router"`
+	Executors        []executorCfg             `toml:"executors"`
+	FamilyExtras     map[string]map[string]any `toml:"family_extras"`
+}
+
+// executorCfg is a single executor instance to deploy.
+type executorCfg struct {
+	Qualifier string `toml:"qualifier"`
+	Version   string `toml:"version"`
 }
 
 func decodeConfig(raw any) (config, error) {
@@ -252,4 +273,152 @@ func decodeConfig(raw any) (config, error) {
 		return config{}, err
 	}
 	return cfg, nil
+}
+
+// familyExtras resolves the chain-specific extras map from the outer
+// FamilyExtras config. A chain-selector key (decimal string) takes precedence
+// over a chain-family key (e.g. "evm"), allowing per-chain overrides on top of
+// family-wide defaults.
+func familyExtras(extras map[string]map[string]any, selector uint64, family string) map[string]any {
+	if v, ok := extras[strconv.FormatUint(selector, 10)]; ok {
+		return v
+	}
+	return extras[family]
+}
+
+// deployProtocolContractsForSelector deploys the core protocol contracts on a
+// single chain via the chain-agnostic DeployProtocolContracts changeset. It is a
+// near-copy of deploy.DeployContractsForSelector with the kitchen-sink
+// DeployChainContracts call replaced — committee verifiers and mock receivers are
+// no longer deployed here (committeeccv handles them in Phase 3). The chain impl
+// still provides the pre-hook (e.g. CREATE2 factory) and post-hook (e.g.
+// USDC/Lombard pools); deploy tunables come from the component config.
+func deployProtocolContractsForSelector(
+	ctx context.Context,
+	env *deployment.Environment,
+	impl cciptestinterfaces.OnChainConfigurable,
+	selector uint64,
+	topology *ccvdeployment.EnvironmentTopology,
+	deploy deployCfg,
+) (datastore.DataStore, error) {
+	runningDS := datastore.NewMemoryDataStore()
+
+	env.OperationsBundle = operations.NewBundle(
+		func() context.Context { return context.Background() },
+		env.Logger,
+		operations.NewMemoryReporter(),
+	)
+
+	// TODO: move pre-deploy contract logic to a dedicated component.
+	// 1. Pre-hook (e.g. EVM deploys CREATE2 factory here).
+	preDS, err := impl.PreDeployContractsForSelector(ctx, env, selector, topology)
+	if err != nil {
+		return nil, fmt.Errorf("pre-deploy for selector %d: %w", selector, err)
+	}
+	if preDS != nil {
+		if err := runningDS.Merge(preDS); err != nil {
+			return nil, fmt.Errorf("merge pre-deploy DS: %w", err)
+		}
+		merged, err := mergeIntoSealed(env.DataStore, preDS)
+		if err != nil {
+			return nil, fmt.Errorf("update env DS with pre-deploy: %w", err)
+		}
+		env.DataStore = merged
+	}
+
+	// 2. Resolve the deployer contract (e.g. CREATE2 factory) from the chain impl.
+	// Only DeployerContract is used; the remaining ccip-shaped fields are ignored
+	// because deploy params now come from the component config.
+	chainCfg, err := impl.GetDeployChainContractsCfg(env, selector, topology)
+	if err != nil {
+		return nil, fmt.Errorf("get deploy config for selector %d: %w", selector, err)
+	}
+	if chainCfg.DeployerContract == nil || *chainCfg.DeployerContract == "" {
+		return nil, fmt.Errorf("deployer contract not resolved for selector %d", selector)
+	}
+
+	executors, err := toCCVExecutors(deploy.Executors)
+	if err != nil {
+		return nil, fmt.Errorf("selector %d: %w", selector, err)
+	}
+
+	// 3. Deploy protocol contracts via the chain-agnostic ccv changeset.
+	out, err := ccvchangesets.DeployProtocolContracts().Apply(*env, ccvchangesets.DeployProtocolContractsInput{
+		ChainSelectors: []uint64{selector},
+		ChainCfgs: map[uint64]ccvchangesets.DeployProtocolContractsPerChainCfg{
+			selector: {
+				DeployerContract: *chainCfg.DeployerContract,
+				DeployTestRouter: deploy.DeployTestRouter,
+				DeployerKeyOwned: true,
+				Executors:        executors,
+				FamilyExtras:     familyExtras(deploy.FamilyExtras, selector, impl.ChainFamily()),
+			},
+		},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("deploy protocol contracts for selector %d: %w", selector, err)
+	}
+	if err := runningDS.Merge(out.DataStore.Seal()); err != nil {
+		return nil, fmt.Errorf("merge deploy output DS: %w", err)
+	}
+	merged, err := mergeIntoSealed(env.DataStore, out.DataStore.Seal())
+	if err != nil {
+		return nil, fmt.Errorf("update env DS with deploy output: %w", err)
+	}
+	env.DataStore = merged
+
+	// TODO: move post-deploy contract logic to a dedicated component.
+	// 4. Post-hook (e.g. EVM deploys USDC/Lombard pools here).
+	postDS, err := impl.PostDeployContractsForSelector(ctx, env, selector, topology)
+	if err != nil {
+		return nil, fmt.Errorf("post-deploy for selector %d: %w", selector, err)
+	}
+	if postDS != nil {
+		if err := runningDS.Merge(postDS); err != nil {
+			return nil, fmt.Errorf("merge post-deploy DS: %w", err)
+		}
+		merged, err := mergeIntoSealed(env.DataStore, postDS)
+		if err != nil {
+			return nil, fmt.Errorf("update env DS with post-deploy: %w", err)
+		}
+		env.DataStore = merged
+	}
+
+	return runningDS.Seal(), nil
+}
+
+// toCCVExecutors converts the component's executor config into the chain-agnostic
+// executor deploy params. When no executors are configured it falls back to the
+// default + custom executor qualifiers at version 2.0.0.
+func toCCVExecutors(execs []executorCfg) ([]ccvadapters.ExecutorDeployParams, error) {
+	if len(execs) == 0 {
+		execs = []executorCfg{
+			{Qualifier: devenvcommon.DefaultExecutorQualifier, Version: "2.0.0"},
+			{Qualifier: devenvcommon.CustomExecutorQualifier, Version: "2.0.0"},
+		}
+	}
+	result := make([]ccvadapters.ExecutorDeployParams, 0, len(execs))
+	for _, e := range execs {
+		v, err := semver.NewVersion(e.Version)
+		if err != nil {
+			return nil, fmt.Errorf("executor %q: invalid version %q: %w", e.Qualifier, e.Version, err)
+		}
+		result = append(result, ccvadapters.ExecutorDeployParams{
+			Qualifier: e.Qualifier,
+			Version:   v,
+		})
+	}
+	return result, nil
+}
+
+// mergeIntoSealed creates a new DataStore by merging all provided stores in order
+// and returns the sealed result. Local copy of the unexported deploy.mergeIntoSealed.
+func mergeIntoSealed(stores ...datastore.DataStore) (datastore.DataStore, error) {
+	tmp := datastore.NewMemoryDataStore()
+	for _, s := range stores {
+		if err := tmp.Merge(s); err != nil {
+			return nil, err
+		}
+	}
+	return tmp.Seal(), nil
 }

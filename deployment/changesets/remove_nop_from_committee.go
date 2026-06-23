@@ -60,17 +60,17 @@ type RemoveNOPOffchainInput struct {
 // Onchain-first ordering is required because removing a signer from the contract immediately
 // stops that signer's votes from being counted, while the aggregator still collects from
 // them harmlessly until step-2 updates the offchain config.
-func RemoveNOPFromCommittee(registry *adapters.Registry) deployment.ChangeSetV2[RemoveNOPFromCommitteeInput] {
+func RemoveNOPFromCommittee() deployment.ChangeSetV2[RemoveNOPFromCommitteeInput] {
 	validate := func(e deployment.Environment, cfg RemoveNOPFromCommitteeInput) error {
-		return validateStep1NOP(e, cfg.CommitteeQualifier, cfg.NOPAlias, cfg.SourceChainSelectors, registry)
+		return validateStep1NOP(e, cfg.CommitteeQualifier, cfg.NOPAlias, cfg.SourceChainSelectors)
 	}
 
 	apply := func(e deployment.Environment, cfg RemoveNOPFromCommitteeInput) (deployment.ChangesetOutput, error) {
-		signerFamily, err := getSignerFamilyFromRegistry(registry, cfg.SourceChainSelectors)
+		signerFamily, err := getSignerFamilyFromRegistry(cfg.SourceChainSelectors)
 		if err != nil {
 			return deployment.ChangesetOutput{}, err
 		}
-		if err := applySignerChangesOnchain(e, registry, cfg.CommitteeQualifier, cfg.NOPAlias, signerFamily,
+		if err := applySignerChangesOnchain(e, cfg.CommitteeQualifier, cfg.NOPAlias, signerFamily,
 			cfg.SourceChainSelectors, cfg.NewThreshold, buildRemoveSignerChange); err != nil {
 			return deployment.ChangesetOutput{}, err
 		}
@@ -92,7 +92,7 @@ func RemoveNOPFromCommittee(registry *adapters.Registry) deployment.ChangeSetV2[
 //
 // When NOPAlias is set, all verifier jobs scoped to this committee for that NOP are revoked
 // from JD and removed from the DataStore in the same run.
-func RemoveNOPOffchain(registry *adapters.Registry) deployment.ChangeSetV2[RemoveNOPOffchainInput] {
+func RemoveNOPOffchain() deployment.ChangeSetV2[RemoveNOPOffchainInput] {
 	validate := func(e deployment.Environment, cfg RemoveNOPOffchainInput) error {
 		if cfg.CommitteeQualifier == "" {
 			return fmt.Errorf("committee qualifier is required")
@@ -107,27 +107,23 @@ func RemoveNOPOffchain(registry *adapters.Registry) deployment.ChangeSetV2[Remov
 			return fmt.Errorf("NOP alias is required for job revocation")
 		}
 
-		committeeChains := registry.AllDeployedCommitteeVerifierChains(e.DataStore, cfg.CommitteeQualifier)
+		committeeChains := adapters.AllDeployedCommitteeVerifierChains(e.DataStore, cfg.CommitteeQualifier)
 		if len(committeeChains) == 0 {
 			return fmt.Errorf("no dest chains found for committee %q — step-1 may not have been applied or adapters are not registered", cfg.CommitteeQualifier)
 		}
 		for _, sel := range committeeChains {
-			a, err := registry.GetByChain(sel)
-			if err != nil {
+			if _, err := adapters.GetCommitteeVerifierOnchainRegistry().Get(sel); err != nil {
 				return fmt.Errorf("dest chain %d: %w", sel, err)
 			}
-			if a.CommitteeVerifierOnchain == nil {
-				return fmt.Errorf("dest chain %d: no CommitteeVerifierOnchain adapter registered", sel)
-			}
-			if a.Aggregator == nil {
-				return fmt.Errorf("dest chain %d: no Aggregator adapter registered", sel)
+			if _, err := adapters.GetAggregatorRegistry().Get(sel); err != nil {
+				return fmt.Errorf("dest chain %d: %w", sel, err)
 			}
 		}
 
 		// Safety backstop: assert the removed signer is absent onchain on every dest chain for
 		// every source chain. Catches hook misfires and out-of-order manual invocations.
 		if cfg.RemovedSignerAddress != "" {
-			committeeStates, err := scanCommitteeStatesForChains(e.GetContext(), e, registry, cfg.CommitteeQualifier, committeeChains)
+			committeeStates, err := scanCommitteeStatesForChains(e.GetContext(), e, cfg.CommitteeQualifier, committeeChains)
 			if err != nil {
 				return err
 			}
@@ -156,12 +152,12 @@ func RemoveNOPOffchain(registry *adapters.Registry) deployment.ChangeSetV2[Remov
 	}
 
 	apply := func(e deployment.Environment, cfg RemoveNOPOffchainInput) (deployment.ChangesetOutput, error) {
-		committeeChains := registry.AllDeployedCommitteeVerifierChains(e.DataStore, cfg.CommitteeQualifier)
+		committeeChains := adapters.AllDeployedCommitteeVerifierChains(e.DataStore, cfg.CommitteeQualifier)
 		if len(committeeChains) == 0 {
 			return deployment.ChangesetOutput{}, fmt.Errorf("no dest chains found for committee %q", cfg.CommitteeQualifier)
 		}
 
-		committee, err := buildAggregatorCommittee(e, registry, cfg.CommitteeQualifier, committeeChains, nil)
+		committee, err := buildAggregatorCommittee(e, cfg.CommitteeQualifier, committeeChains, nil)
 		if err != nil {
 			return deployment.ChangesetOutput{}, fmt.Errorf("failed to build aggregator config: %w", err)
 		}

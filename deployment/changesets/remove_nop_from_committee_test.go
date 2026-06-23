@@ -154,7 +154,8 @@ func TestBuildRemoveSignerChange_ReturnsEmptyWhenNoSourceChainsMatch(t *testing.
 // ---- RemoveNOPFromCommittee validation ----
 
 func TestRemoveNOPFromCommittee_Validation_MissingQualifier(t *testing.T) {
-	cs := RemoveNOPFromCommittee(newEVMRegistry(&stubOnchainAdapter{}))
+	registerEVMOnchain(&stubOnchainAdapter{})
+	cs := RemoveNOPFromCommittee()
 	err := cs.VerifyPreconditions(newTestEnvironmentWithOffchain(), RemoveNOPFromCommitteeInput{
 		SourceChainSelectors: []uint64{chainsel.TEST_90000001.Selector},
 		NOPAlias:             testNOPAlias,
@@ -164,7 +165,8 @@ func TestRemoveNOPFromCommittee_Validation_MissingQualifier(t *testing.T) {
 }
 
 func TestRemoveNOPFromCommittee_Validation_MissingSourceChainSelectors(t *testing.T) {
-	cs := RemoveNOPFromCommittee(newEVMRegistry(&stubOnchainAdapter{}))
+	registerEVMOnchain(&stubOnchainAdapter{})
+	cs := RemoveNOPFromCommittee()
 	err := cs.VerifyPreconditions(newTestEnvironmentWithOffchain(), RemoveNOPFromCommitteeInput{
 		CommitteeQualifier: testQualifier,
 		NOPAlias:           testNOPAlias,
@@ -174,7 +176,8 @@ func TestRemoveNOPFromCommittee_Validation_MissingSourceChainSelectors(t *testin
 }
 
 func TestRemoveNOPFromCommittee_Validation_MissingNOPAlias(t *testing.T) {
-	cs := RemoveNOPFromCommittee(newEVMRegistry(&stubOnchainAdapter{}))
+	registerEVMOnchain(&stubOnchainAdapter{})
+	cs := RemoveNOPFromCommittee()
 	err := cs.VerifyPreconditions(newTestEnvironmentWithOffchain(), RemoveNOPFromCommitteeInput{
 		CommitteeQualifier:   testQualifier,
 		SourceChainSelectors: []uint64{chainsel.TEST_90000001.Selector},
@@ -184,7 +187,8 @@ func TestRemoveNOPFromCommittee_Validation_MissingNOPAlias(t *testing.T) {
 }
 
 func TestRemoveNOPFromCommittee_Validation_RequiresOffchainClient(t *testing.T) {
-	cs := RemoveNOPFromCommittee(newEVMRegistry(&stubOnchainAdapter{}))
+	registerEVMOnchain(&stubOnchainAdapter{})
+	cs := RemoveNOPFromCommittee()
 	err := cs.VerifyPreconditions(deployment.Environment{}, RemoveNOPFromCommitteeInput{
 		CommitteeQualifier:   testQualifier,
 		SourceChainSelectors: []uint64{chainsel.TEST_90000001.Selector},
@@ -197,7 +201,8 @@ func TestRemoveNOPFromCommittee_Validation_RequiresOffchainClient(t *testing.T) 
 // ---- RemoveNOPOffchain validation ----
 
 func TestRemoveNOPOffchain_Validation_MissingQualifier(t *testing.T) {
-	cs := RemoveNOPOffchain(newFullEVMRegistry(&stubFullAdapter{}))
+	registerFullEVMAdapters(&stubFullAdapter{})
+	cs := RemoveNOPOffchain()
 	err := cs.VerifyPreconditions(deployment.Environment{}, RemoveNOPOffchainInput{
 		SourceChainSelectors: []uint64{chainsel.TEST_90000001.Selector},
 		ServiceIdentifiers:   []string{"svc1"},
@@ -207,7 +212,8 @@ func TestRemoveNOPOffchain_Validation_MissingQualifier(t *testing.T) {
 }
 
 func TestRemoveNOPOffchain_Validation_MissingSourceChainSelectors(t *testing.T) {
-	cs := RemoveNOPOffchain(newFullEVMRegistry(&stubFullAdapter{}))
+	registerFullEVMAdapters(&stubFullAdapter{})
+	cs := RemoveNOPOffchain()
 	err := cs.VerifyPreconditions(deployment.Environment{}, RemoveNOPOffchainInput{
 		CommitteeQualifier: testQualifier,
 		ServiceIdentifiers: []string{"svc1"},
@@ -217,7 +223,8 @@ func TestRemoveNOPOffchain_Validation_MissingSourceChainSelectors(t *testing.T) 
 }
 
 func TestRemoveNOPOffchain_Validation_MissingServiceIdentifiers(t *testing.T) {
-	cs := RemoveNOPOffchain(newFullEVMRegistry(&stubFullAdapter{}))
+	registerFullEVMAdapters(&stubFullAdapter{})
+	cs := RemoveNOPOffchain()
 	err := cs.VerifyPreconditions(deployment.Environment{}, RemoveNOPOffchainInput{
 		CommitteeQualifier:   testQualifier,
 		SourceChainSelectors: []uint64{chainsel.TEST_90000001.Selector},
@@ -227,7 +234,8 @@ func TestRemoveNOPOffchain_Validation_MissingServiceIdentifiers(t *testing.T) {
 }
 
 func TestRemoveNOPOffchain_Validation_MissingNOPAlias(t *testing.T) {
-	cs := RemoveNOPOffchain(newFullEVMRegistry(&stubFullAdapter{}))
+	registerFullEVMAdapters(&stubFullAdapter{})
+	cs := RemoveNOPOffchain()
 	err := cs.VerifyPreconditions(deployment.Environment{}, RemoveNOPOffchainInput{
 		CommitteeQualifier:   testQualifier,
 		SourceChainSelectors: []uint64{chainsel.TEST_90000001.Selector},
@@ -258,7 +266,8 @@ func TestRemoveNOPOffchain_Validation_BackstopPassesWhenSignerAbsent(t *testing.
 		verifierAddrs: map[uint64]string{sel1: "0x1111"},
 	}
 
-	cs := RemoveNOPOffchain(newFullEVMRegistry(adapter))
+	registerFullEVMAdapters(adapter)
+	cs := RemoveNOPOffchain()
 	env := deployment.Environment{
 		BlockChains: newTestBlockChains([]uint64{sel1}),
 		DataStore:   datastore.NewMemoryDataStore().Seal(),
@@ -294,7 +303,8 @@ func TestRemoveNOPOffchain_Validation_BackstopFailsWhenSignerStillPresent(t *tes
 		verifierAddrs: map[uint64]string{sel1: "0x1111"},
 	}
 
-	cs := RemoveNOPOffchain(newFullEVMRegistry(adapter))
+	registerFullEVMAdapters(adapter)
+	cs := RemoveNOPOffchain()
 	env := deployment.Environment{
 		BlockChains: newTestBlockChains([]uint64{sel1}),
 		DataStore:   datastore.NewMemoryDataStore().Seal(),
@@ -334,7 +344,8 @@ func TestRemoveNOPOffchain_Apply_WritesUpdatedAggregatorConfig(t *testing.T) {
 		verifierAddrs: map[uint64]string{sel1: verifierAddr},
 	}
 
-	cs := RemoveNOPOffchain(newFullEVMRegistry(adapter))
+	registerFullEVMAdapters(adapter)
+	cs := RemoveNOPOffchain()
 	env := deployment.Environment{
 		Logger:      logger.Test(t),
 		BlockChains: newTestBlockChains([]uint64{sel1}),
@@ -385,7 +396,8 @@ func TestRemoveNOPOffchain_Apply_UsesAllDiscoveredDestChains(t *testing.T) {
 		verifierAddrs: map[uint64]string{sel1: addr1, sel2: addr2},
 	}
 
-	cs := RemoveNOPOffchain(newFullEVMRegistry(adapter))
+	registerFullEVMAdapters(adapter)
+	cs := RemoveNOPOffchain()
 	env := deployment.Environment{
 		Logger:      logger.Test(t),
 		BlockChains: newTestBlockChains([]uint64{sel1, sel2}),
@@ -415,7 +427,8 @@ func TestRemoveNOPOffchain_Apply_ScanError(t *testing.T) {
 		states:  map[uint64][]*adapters.CommitteeState{sel1: nil},
 		scanErr: fmt.Errorf("node unreachable"),
 	}
-	cs := RemoveNOPOffchain(newFullEVMRegistry(adapter))
+	registerFullEVMAdapters(adapter)
+	cs := RemoveNOPOffchain()
 	env := deployment.Environment{
 		BlockChains: newTestBlockChains([]uint64{sel1}),
 	}
@@ -448,7 +461,8 @@ func TestRemoveNOPOffchain_Apply_MultipleServiceIdentifiers(t *testing.T) {
 		verifierAddrs: map[uint64]string{sel1: verifierAddr},
 	}
 
-	cs := RemoveNOPOffchain(newFullEVMRegistry(adapter))
+	registerFullEVMAdapters(adapter)
+	cs := RemoveNOPOffchain()
 	env := deployment.Environment{
 		Logger:      logger.Test(t),
 		BlockChains: newTestBlockChains([]uint64{sel1}),

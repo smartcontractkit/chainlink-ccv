@@ -334,6 +334,42 @@ func TestGatherAllVerifications_CCVAddressesFromMessagesTable(t *testing.T) {
 	assert.Len(t, store.capturedVerifications(), 0)
 }
 
+func TestGatherAllVerifications_UpsertsMessage(t *testing.T) {
+	lggr := logger.Test(t)
+	store := newMockReplayStorage()
+	reg := registry.NewVerifierRegistry()
+
+	vr := testVerifierResult(1)
+	store.getMessageFunc = func(_ context.Context, _ protocol.Bytes32) (common.MessageWithMetadata, error) {
+		return common.MessageWithMetadata{
+			Message: vr.VerifierResult.Message,
+			Metadata: common.MessageMetadata{
+				Status:             common.MessageProcessing,
+				IngestionTimestamp: time.Now().Add(-time.Hour),
+			},
+		}, nil
+	}
+
+	engine := &Engine{
+		storage:  store,
+		registry: reg,
+		lggr:     lggr,
+	}
+
+	job := &Job{
+		ID:             "test-upserts-message",
+		Type:           TypeMessages,
+		Status:         StatusRunning,
+		ForceOverwrite: true,
+	}
+
+	err := engine.gatherAllVerifications(context.Background(), job, vr.VerifierResult.MessageID)
+	require.NoError(t, err)
+	require.Len(t, store.capturedMessages(), 1)
+	assert.True(t, store.capturedMessages()[0].Metadata.IngestionTimestamp.After(time.Now().Add(-time.Minute)))
+	assert.True(t, store.forceUsed, "force flag should be passed to storage")
+}
+
 func TestRunDiscoveryReplay_MissingSinceSequenceNumber(t *testing.T) {
 	lggr := logger.Test(t)
 

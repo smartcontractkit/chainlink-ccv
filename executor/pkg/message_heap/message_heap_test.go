@@ -535,23 +535,54 @@ func TestExpirableMessageSet_ExpiredInsertionOrder(t *testing.T) {
 	}
 }
 
-func TestExpirableMessageSet_RePushDoesNotDuplicate(t *testing.T) {
+func TestExpirableMessageSet_RePushIngestionTimestamp(t *testing.T) {
 	expiryDuration := 1 * time.Minute
 	es := NewExpirableSet(expiryDuration)
 	now := time.Now()
 	id := protocol.Bytes32{9, 9, 9}
 
-	es.PushUnlessExists(id, now)
-	es.PushUnlessExists(id, now.Add(-2*time.Minute)) // Re-push same id, different time (should not duplicate entry)
-
-	if es.Len() != 1 {
-		t.Errorf("Duplicate Push of same id should not increase Len; got %d", es.Len())
+	// Push id at now
+	if !es.PushUnlessExists(id, now) {
+		t.Fatal("expected first push to succeed")
 	}
-	// Expire entries far in future (ensures only one expiry occurs)
-	expired := es.CleanExpired(now.Add(10 * time.Minute))
-	// Since two pushes, but same id, only one expired
-	if expired != 1 {
-		t.Errorf("Expected only one expired even for duplicate pushes, got %d", expired)
+	if es.Len() != 1 {
+		t.Errorf("expected Len=1 after first push, got %d", es.Len())
+	}
+
+	// Push id at now again
+	if es.PushUnlessExists(id, now) {
+		t.Fatal("expected duplicate push with same ingestion timestamp to be rejected")
+	}
+	if es.Len() != 1 {
+		t.Errorf("duplicate push should not increase Len; got %d", es.Len())
+	}
+
+	// Push id at updatedTime (now+1s)
+	updatedTime := now.Add(time.Second)
+	if !es.PushUnlessExists(id, updatedTime) {
+		t.Fatal("expected push with new ingestion timestamp to succeed")
+	}
+	if es.Len() != 1 {
+		t.Errorf("re-push with new ingestion timestamp should replace existing entry; got Len=%d", es.Len())
+	}
+
+	// Push id at now < updatedTime
+	if es.PushUnlessExists(id, now) {
+		t.Fatal("expected push with older ingestion timestamp to be rejected")
+	}
+	if es.Len() != 1 {
+		t.Errorf("older timestamp push should not replace existing entry; got Len=%d", es.Len())
+	}
+
+	// Original deadline was now+1m; replacement moved it to updatedTime+1m.
+	if expired := es.CleanExpired(now.Add(60*time.Second + 500*time.Millisecond)); expired != 0 {
+		t.Errorf("expected no expiry before updated deadline, got %d", expired)
+	}
+	if !es.Has(id) {
+		t.Fatal("expected entry to remain after old expiry window")
+	}
+	if expired := es.CleanExpired(updatedTime.Add(expiryDuration + time.Second)); expired != 1 {
+		t.Errorf("expected one expired entry after updated deadline, got %d", expired)
 	}
 }
 

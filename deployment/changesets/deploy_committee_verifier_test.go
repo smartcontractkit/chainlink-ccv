@@ -35,16 +35,8 @@ func (s *stubDeployAdapter) DeployCommitteeVerifier() *operations.Sequence[adapt
 	return stubDeploySequence
 }
 
-// newDeployTestRegistry registers the stub deploy adapter for the EVM family
-// in the singleton registry. Other test files may already have registered
-// fields for the same family; Register only overwrites non-nil fields, so
-// adding CommitteeVerifierDeploy here does not disturb them.
-func newDeployTestRegistry() *adapters.Registry {
-	r := adapters.GetRegistry()
-	r.Register(chainsel.FamilyEVM, adapters.ChainAdapters{
-		CommitteeVerifierDeploy: &stubDeployAdapter{},
-	})
-	return r
+func registerDeployAdapter() {
+	adapters.GetCommitteeVerifierDeployRegistry().Register(chainsel.FamilyEVM, &stubDeployAdapter{})
 }
 
 func newDeployTestEnv(selectors []uint64) deployment.Environment {
@@ -73,7 +65,8 @@ func validInput(selectors []uint64) DeployCommitteeVerifierInput {
 }
 
 func TestDeployCommitteeVerifier_Validation_NoChainSelectors(t *testing.T) {
-	cs := DeployCommitteeVerifier(newDeployTestRegistry())
+	registerDeployAdapter()
+	cs := DeployCommitteeVerifier()
 	err := cs.VerifyPreconditions(newDeployTestEnv(nil), DeployCommitteeVerifierInput{
 		Committees: []adapters.CommitteeVerifierDeployParams{validCommittee()},
 	})
@@ -82,7 +75,8 @@ func TestDeployCommitteeVerifier_Validation_NoChainSelectors(t *testing.T) {
 
 func TestDeployCommitteeVerifier_Validation_NoCommittees(t *testing.T) {
 	sel := chainsel.TEST_90000001.Selector
-	cs := DeployCommitteeVerifier(newDeployTestRegistry())
+	registerDeployAdapter()
+	cs := DeployCommitteeVerifier()
 	err := cs.VerifyPreconditions(newDeployTestEnv([]uint64{sel}), DeployCommitteeVerifierInput{
 		ChainSelectors: []uint64{sel},
 		DefaultCfg: DeployCommitteeVerifierPerChainCfg{
@@ -94,7 +88,8 @@ func TestDeployCommitteeVerifier_Validation_NoCommittees(t *testing.T) {
 
 func TestDeployCommitteeVerifier_Validation_DuplicateChainSelectors(t *testing.T) {
 	sel := chainsel.TEST_90000001.Selector
-	cs := DeployCommitteeVerifier(newDeployTestRegistry())
+	registerDeployAdapter()
+	cs := DeployCommitteeVerifier()
 	err := cs.VerifyPreconditions(newDeployTestEnv([]uint64{sel}), validInput([]uint64{sel, sel}))
 	require.ErrorContains(t, err, "duplicate chain selector")
 }
@@ -102,14 +97,16 @@ func TestDeployCommitteeVerifier_Validation_DuplicateChainSelectors(t *testing.T
 func TestDeployCommitteeVerifier_Validation_ChainNotInEnvironment(t *testing.T) {
 	envSel := chainsel.TEST_90000001.Selector
 	otherSel := chainsel.TEST_90000002.Selector
-	cs := DeployCommitteeVerifier(newDeployTestRegistry())
+	registerDeployAdapter()
+	cs := DeployCommitteeVerifier()
 	err := cs.VerifyPreconditions(newDeployTestEnv([]uint64{envSel}), validInput([]uint64{otherSel}))
 	require.ErrorContains(t, err, "is not available in environment")
 }
 
 func TestDeployCommitteeVerifier_Validation_MissingDeployerContract(t *testing.T) {
 	sel := chainsel.TEST_90000001.Selector
-	cs := DeployCommitteeVerifier(newDeployTestRegistry())
+	registerDeployAdapter()
+	cs := DeployCommitteeVerifier()
 	input := validInput([]uint64{sel})
 	input.DefaultCfg.DeployerContract = ""
 	err := cs.VerifyPreconditions(newDeployTestEnv([]uint64{sel}), input)
@@ -118,7 +115,8 @@ func TestDeployCommitteeVerifier_Validation_MissingDeployerContract(t *testing.T
 
 func TestDeployCommitteeVerifier_Validation_DeployerContractFromPerChainOverride(t *testing.T) {
 	sel := chainsel.TEST_90000001.Selector
-	cs := DeployCommitteeVerifier(newDeployTestRegistry())
+	registerDeployAdapter()
+	cs := DeployCommitteeVerifier()
 	input := validInput([]uint64{sel})
 	// Default is empty — would normally fail — but per-chain override supplies the value.
 	input.DefaultCfg.DeployerContract = ""
@@ -131,7 +129,8 @@ func TestDeployCommitteeVerifier_Validation_DeployerContractFromPerChainOverride
 func TestDeployCommitteeVerifier_Validation_ChainCfgsSelectorNotInChainSelectors(t *testing.T) {
 	sel := chainsel.TEST_90000001.Selector
 	otherSel := chainsel.TEST_90000002.Selector
-	cs := DeployCommitteeVerifier(newDeployTestRegistry())
+	registerDeployAdapter()
+	cs := DeployCommitteeVerifier()
 	input := validInput([]uint64{sel})
 	input.ChainCfgs = map[uint64]DeployCommitteeVerifierPerChainCfg{
 		otherSel: {DeployerContract: "0x0000000000000000000000000000000000000FAC"},
@@ -142,7 +141,8 @@ func TestDeployCommitteeVerifier_Validation_ChainCfgsSelectorNotInChainSelectors
 
 func TestDeployCommitteeVerifier_Validation_MissingCommitteeQualifier(t *testing.T) {
 	sel := chainsel.TEST_90000001.Selector
-	cs := DeployCommitteeVerifier(newDeployTestRegistry())
+	registerDeployAdapter()
+	cs := DeployCommitteeVerifier()
 	input := validInput([]uint64{sel})
 	input.Committees[0].Qualifier = ""
 	err := cs.VerifyPreconditions(newDeployTestEnv([]uint64{sel}), input)
@@ -151,7 +151,8 @@ func TestDeployCommitteeVerifier_Validation_MissingCommitteeQualifier(t *testing
 
 func TestDeployCommitteeVerifier_Validation_DuplicateCommitteeQualifier(t *testing.T) {
 	sel := chainsel.TEST_90000001.Selector
-	cs := DeployCommitteeVerifier(newDeployTestRegistry())
+	registerDeployAdapter()
+	cs := DeployCommitteeVerifier()
 	input := validInput([]uint64{sel})
 	input.Committees = append(input.Committees, validCommittee())
 	err := cs.VerifyPreconditions(newDeployTestEnv([]uint64{sel}), input)
@@ -160,7 +161,8 @@ func TestDeployCommitteeVerifier_Validation_DuplicateCommitteeQualifier(t *testi
 
 func TestDeployCommitteeVerifier_Validation_MissingCommitteeVersion(t *testing.T) {
 	sel := chainsel.TEST_90000001.Selector
-	cs := DeployCommitteeVerifier(newDeployTestRegistry())
+	registerDeployAdapter()
+	cs := DeployCommitteeVerifier()
 	input := validInput([]uint64{sel})
 	input.Committees[0].Version = nil
 	err := cs.VerifyPreconditions(newDeployTestEnv([]uint64{sel}), input)
@@ -169,7 +171,8 @@ func TestDeployCommitteeVerifier_Validation_MissingCommitteeVersion(t *testing.T
 
 func TestDeployCommitteeVerifier_Validation_MissingFeeAggregator(t *testing.T) {
 	sel := chainsel.TEST_90000001.Selector
-	cs := DeployCommitteeVerifier(newDeployTestRegistry())
+	registerDeployAdapter()
+	cs := DeployCommitteeVerifier()
 	input := validInput([]uint64{sel})
 	input.Committees[0].FeeAggregator = ""
 	err := cs.VerifyPreconditions(newDeployTestEnv([]uint64{sel}), input)
@@ -178,6 +181,7 @@ func TestDeployCommitteeVerifier_Validation_MissingFeeAggregator(t *testing.T) {
 
 func TestDeployCommitteeVerifier_Validation_HappyPath(t *testing.T) {
 	sel := chainsel.TEST_90000001.Selector
-	cs := DeployCommitteeVerifier(newDeployTestRegistry())
+	registerDeployAdapter()
+	cs := DeployCommitteeVerifier()
 	require.NoError(t, cs.VerifyPreconditions(newDeployTestEnv([]uint64{sel}), validInput([]uint64{sel})))
 }

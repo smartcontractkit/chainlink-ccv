@@ -208,7 +208,7 @@ func (p *eventPoller[T]) poll() {
 				delete(p.waitersByMessageID, msgIDKey)
 				p.logger.Info().
 					Uint64("chainSelector", key.chainSelector).
-					Bytes("messageID", key.messageID[:]).
+					Str("messageID", key.messageID.String()).
 					Str("event", p.eventName).
 					Msg("Event received")
 				ch <- result

@@ -388,7 +388,7 @@ func (m *EVMTXGun) selectMessageProfile(srcSelector uint64, dest destLoadInfo) (
 	}
 
 	if messageProfile.HasData {
-		data := make([]byte, avgMsgDataSize)
+		data := make([]byte, load.MessageDataSizeBytes(messageProfile, avgMsgDataSize))
 		_, err2 := rand.Read(data)
 		if err2 != nil {
 			return cciptestinterfaces.MessageFields{}, cciptestinterfaces.MessageOptions{}, fmt.Errorf("failed to generate data: %w", err2)

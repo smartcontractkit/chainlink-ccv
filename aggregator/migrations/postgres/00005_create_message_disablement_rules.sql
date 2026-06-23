@@ -1,5 +1,5 @@
 -- +goose Up
-CREATE TABLE message_disablement_rules (
+CREATE TABLE IF NOT EXISTS message_disablement_rules (
     id UUID PRIMARY KEY,
     type TEXT NOT NULL CHECK (type IN ('Chain', 'Lane', 'Token')),
     data JSONB NOT NULL,

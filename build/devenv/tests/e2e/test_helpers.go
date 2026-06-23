@@ -37,6 +37,7 @@ func GetSmokeTestConfig() string {
 	if smokeTestConfig == "" {
 		smokeTestConfig = DefaultSmokeTestConfig
 	}
+	fmt.Fprintf(os.Stderr, "[test] loading env config: %s\n", smokeTestConfig)
 	return smokeTestConfig
 }
 

@@ -51,6 +51,13 @@ type ApplyVerifierConfigInput struct {
 	DisableFinalityCheckers []string
 	// RevokeOrphanedJobs when true revokes and cleans up orphaned jobs; default false.
 	RevokeOrphanedJobs bool
+	// ConsolidateAggregators when true emits a single verifier job per NOP that writes to ALL of
+	// the committee's aggregators (using the aggregators list in the verifier config), instead of
+	// one job per aggregator. Default false preserves the legacy one-job-per-aggregator output
+	// byte-for-byte. Flipping it to true changes the verifier_id (the consolidated job omits the
+	// aggregator name) and orphans the old per-aggregator jobs; pair it with RevokeOrphanedJobs to
+	// clean those up.
+	ConsolidateAggregators bool
 }
 
 // ApplyVerifierConfig is the offchain-only single-entry product for §5.9 / §5.10:
@@ -60,7 +67,7 @@ type ApplyVerifierConfigInput struct {
 //
 // The input is imperative — callers pass the committee description and the
 // participating NOPs directly, with no *EnvironmentTopology.
-func ApplyVerifierConfig(registry *adapters.Registry) deployment.ChangeSetV2[ApplyVerifierConfigInput] {
+func ApplyVerifierConfig() deployment.ChangeSetV2[ApplyVerifierConfigInput] {
 	validate := func(e deployment.Environment, cfg ApplyVerifierConfigInput) error {
 		if cfg.CommitteeQualifier == "" {
 			return fmt.Errorf("committee qualifier is required")
@@ -137,7 +144,7 @@ func ApplyVerifierConfig(registry *adapters.Registry) deployment.ChangeSetV2[App
 			)
 		}
 
-		signerFamily, err := getSignerFamilyFromRegistry(registry, selectors)
+		signerFamily, err := getSignerFamilyFromRegistry(selectors)
 		if err != nil {
 			return deployment.ChangesetOutput{}, fmt.Errorf("failed to determine signer address family: %w", err)
 		}
@@ -158,7 +165,7 @@ func ApplyVerifierConfig(registry *adapters.Registry) deployment.ChangeSetV2[App
 			return deployment.ChangesetOutput{}, err
 		}
 
-		contractAddresses, err := buildVerifierContractConfigs(registry, e, selectors, cfg.CommitteeQualifier, cfg.DefaultExecutorQualifier)
+		contractAddresses, err := buildVerifierContractConfigs(e, selectors, cfg.CommitteeQualifier, cfg.DefaultExecutorQualifier)
 		if err != nil {
 			return deployment.ChangesetOutput{}, err
 		}
@@ -182,6 +189,7 @@ func ApplyVerifierConfig(registry *adapters.Registry) deployment.ChangeSetV2[App
 			cfg.Monitoring,
 			cfg.DisableFinalityCheckers,
 			signerFamily,
+			cfg.ConsolidateAggregators,
 		)
 		if err != nil {
 			return deployment.ChangesetOutput{}, err
@@ -230,7 +238,7 @@ func ApplyVerifierConfig(registry *adapters.Registry) deployment.ChangeSetV2[App
 // getSignerFamilyFromRegistry returns the signing key family implied by the selected
 // chains. If a verifier adapter is registered for a selector, it must agree with the
 // family derived from that selector.
-func getSignerFamilyFromRegistry(registry *adapters.Registry, selectors []uint64) (string, error) {
+func getSignerFamilyFromRegistry(selectors []uint64) (string, error) {
 	if len(selectors) == 0 {
 		return "", fmt.Errorf("at least one committee chain selector is required")
 	}
@@ -250,11 +258,11 @@ func getSignerFamilyFromRegistry(registry *adapters.Registry, selectors []uint64
 			)
 		}
 
-		a, err := registry.GetByChain(sel)
-		if err != nil || a.Verifier == nil {
+		verifier, err := adapters.GetVerifierRegistry().Get(sel)
+		if err != nil {
 			continue
 		}
-		if adapterFamily := a.Verifier.GetSignerAddressFamily(); adapterFamily != signerFamily {
+		if adapterFamily := verifier.GetSignerAddressFamily(); adapterFamily != signerFamily {
 			return "", fmt.Errorf(
 				"chain %d: verifier adapter signer family %q does not match chain family %q",
 				sel, adapterFamily, signerFamily,
@@ -265,7 +273,6 @@ func getSignerFamilyFromRegistry(registry *adapters.Registry, selectors []uint64
 }
 
 func buildVerifierContractConfigs(
-	registry *adapters.Registry,
 	e deployment.Environment,
 	selectors []uint64,
 	committeeQualifier string,
@@ -273,14 +280,11 @@ func buildVerifierContractConfigs(
 ) (map[string]*adapters.VerifierContractAddresses, error) {
 	configs := make(map[string]*adapters.VerifierContractAddresses, len(selectors))
 	for _, sel := range selectors {
-		a, err := registry.GetByChain(sel)
+		verifier, err := adapters.GetVerifierRegistry().Get(sel)
 		if err != nil {
-			return nil, fmt.Errorf("no adapter for chain %d: %w", sel, err)
+			return nil, fmt.Errorf("no verifier config adapter registered for chain %d: %w", sel, err)
 		}
-		if a.Verifier == nil {
-			return nil, fmt.Errorf("no verifier config adapter registered for chain %d", sel)
-		}
-		addrs, err := a.Verifier.ResolveVerifierContractAddresses(e.DataStore, sel, committeeQualifier, executorQualifier)
+		addrs, err := verifier.ResolveVerifierContractAddresses(e.DataStore, sel, committeeQualifier, executorQualifier)
 		if err != nil {
 			return nil, fmt.Errorf("failed to resolve contract addresses for chain %d: %w", sel, err)
 		}
@@ -318,6 +322,7 @@ func buildVerifierJobSpecs(
 	monitoring ccvdeployment.MonitoringConfig,
 	disableFinalityCheckers []string,
 	signerFamily string,
+	consolidateAggregators bool,
 ) (shared.NOPJobSpecs, shared.VerifierJobScope, error) {
 	scope := shared.VerifierJobScope{
 		CommitteeQualifier: committee.Qualifier,
@@ -359,36 +364,33 @@ func buildVerifierJobSpecs(
 			continue
 		}
 
-		for _, agg := range committee.Aggregators {
-			verifierJobID := shared.NewVerifierJobID(nopAlias, agg.Name, scope)
+		signerAddress := nop.SignerAddressByFamily[signerFamily]
+		if signerAddress == "" {
+			return nil, scope, fmt.Errorf("NOP %q missing signer address for family %s", nop.Alias, signerFamily)
+		}
 
-			signerAddress := nop.SignerAddressByFamily[signerFamily]
-			if signerAddress == "" {
-				return nil, scope, fmt.Errorf("NOP %q missing signer address for family %s", nop.Alias, signerFamily)
-			}
+		sortedFinalityCheckers := slices.Clone(disableFinalityCheckers)
+		slices.Sort(sortedFinalityCheckers)
 
-			sortedFinalityCheckers := slices.Clone(disableFinalityCheckers)
-			slices.Sort(sortedFinalityCheckers)
+		// baseCfg holds the per-NOP fields shared by both topologies. The aggregator wiring
+		// (legacy AggregatorAddress vs. Aggregators list) and VerifierID are filled in per job.
+		baseCfg := commit.Config{
+			SignerAddress:                  signerAddress,
+			PyroscopeURL:                   pyroscopeURL,
+			CommitteeVerifierAddresses:     filterAddressesByChains(committeeVerifierAddrs, nopChains),
+			DefaultExecutorOnRampAddresses: filterAddressesByChains(executorOnRampAddrs, nopChains),
+			DisableFinalityCheckers:        sortedFinalityCheckers,
+			Monitoring:                     monitoring,
+			CommitteeConfig: chainaccess.CommitteeConfig{
+				OnRampAddresses:    filterAddressesByChains(onRampAddrs, nopChains),
+				RMNRemoteAddresses: filterAddressesByChains(rmnRemoteAddrs, nopChains),
+			},
+		}
 
-			verifierCfg := commit.Config{
-				VerifierID:                     verifierJobID.GetVerifierID(),
-				AggregatorAddress:              agg.Address,
-				InsecureAggregatorConnection:   agg.InsecureAggregatorConnection,
-				SignerAddress:                  signerAddress,
-				PyroscopeURL:                   pyroscopeURL,
-				CommitteeVerifierAddresses:     filterAddressesByChains(committeeVerifierAddrs, nopChains),
-				DefaultExecutorOnRampAddresses: filterAddressesByChains(executorOnRampAddrs, nopChains),
-				DisableFinalityCheckers:        sortedFinalityCheckers,
-				Monitoring:                     monitoring,
-				CommitteeConfig: chainaccess.CommitteeConfig{
-					OnRampAddresses:    filterAddressesByChains(onRampAddrs, nopChains),
-					RMNRemoteAddresses: filterAddressesByChains(rmnRemoteAddrs, nopChains),
-				},
-			}
-
+		emitJob := func(verifierJobID shared.VerifierJobID, verifierCfg commit.Config, label string) error {
 			configBytes, err := toml.Marshal(verifierCfg)
 			if err != nil {
-				return nil, scope, fmt.Errorf("failed to marshal verifier config for NOP %q aggregator %q: %w", nopAlias, agg.Name, err)
+				return fmt.Errorf("failed to marshal verifier config for NOP %q (%s): %w", nopAlias, label, err)
 			}
 
 			jobID := verifierJobID.ToJobID()
@@ -404,6 +406,44 @@ committeeVerifierConfig = '''
 				jobSpecs[nopAlias] = make(map[shared.JobID]string)
 			}
 			jobSpecs[nopAlias][jobID] = jobSpec
+			return nil
+		}
+
+		if consolidateAggregators {
+			// One consolidated job per NOP writing to all aggregators via the Aggregators list.
+			verifierJobID := shared.NewConsolidatedVerifierJobID(nopAlias, scope)
+			aggregators := make([]commit.AggregatorConnection, len(committee.Aggregators))
+			for i, agg := range committee.Aggregators {
+				// SecretName is the per-aggregator credential lookup key. We reuse the legacy
+				// per-aggregator verifier_id so operators' existing secrets (keyed by that id)
+				// keep working without re-provisioning when a NOP moves to a consolidated job.
+				secretName := shared.NewVerifierJobID(nopAlias, agg.Name, scope).GetVerifierID()
+				aggregators[i] = commit.AggregatorConnection{
+					Name:               agg.Name,
+					SecretName:         secretName,
+					Address:            agg.Address,
+					InsecureConnection: agg.InsecureAggregatorConnection,
+				}
+			}
+			verifierCfg := baseCfg
+			verifierCfg.VerifierID = verifierJobID.GetVerifierID()
+			verifierCfg.Aggregators = aggregators
+			if err := emitJob(verifierJobID, verifierCfg, "consolidated"); err != nil {
+				return nil, scope, err
+			}
+			continue
+		}
+
+		// Legacy topology: one job per aggregator, each carrying a single AggregatorAddress.
+		for _, agg := range committee.Aggregators {
+			verifierJobID := shared.NewVerifierJobID(nopAlias, agg.Name, scope)
+			verifierCfg := baseCfg
+			verifierCfg.VerifierID = verifierJobID.GetVerifierID()
+			verifierCfg.AggregatorAddress = agg.Address
+			verifierCfg.InsecureAggregatorConnection = agg.InsecureAggregatorConnection
+			if err := emitJob(verifierJobID, verifierCfg, agg.Name); err != nil {
+				return nil, scope, err
+			}
 		}
 	}
 
