@@ -160,8 +160,7 @@ func ApplyVerifierConfig() deployment.ChangeSetV2[ApplyVerifierConfigInput] {
 			return deployment.ChangesetOutput{}, fmt.Errorf("failed to fetch signing keys: %w", err)
 		}
 
-		clNOPs := filterCLModeNOPs(nopsToValidate, cfg.NOPs)
-		if err := validateVerifierChainSupport(e, clNOPs, cfg.Committee); err != nil {
+		if err := validateVerifierChainSupport(e, nopsToValidate, cfg.Committee); err != nil {
 			return deployment.ChangesetOutput{}, err
 		}
 

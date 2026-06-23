@@ -83,20 +83,6 @@ func buildNOPModes(nops []NOPInput) map[shared.NOPAlias]shared.NOPMode {
 	return modes
 }
 
-// filterCLModeNOPs keeps only the aliases whose NOPInput has Mode == NOPModeCL.
-// CL-mode NOPs are the ones whose chain support is validated against JD; standalone
-// NOPs are skipped because the operator runs the node out-of-band.
-func filterCLModeNOPs(aliases []shared.NOPAlias, nops []NOPInput) []shared.NOPAlias {
-	modeByAlias := buildNOPModes(nops)
-	filtered := make([]shared.NOPAlias, 0, len(aliases))
-	for _, alias := range aliases {
-		if mode, ok := modeByAlias[alias]; ok && mode == shared.NOPModeCL {
-			filtered = append(filtered, alias)
-		}
-	}
-	return filtered
-}
-
 // allNOPAliases returns every alias declared in nops, preserving input order.
 func allNOPAliases(nops []NOPInput) []shared.NOPAlias {
 	out := make([]shared.NOPAlias, len(nops))

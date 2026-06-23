@@ -22,27 +22,6 @@ func TestBuildNOPModes_FillsDefaults(t *testing.T) {
 	assert.Equal(t, shared.NOPModeStandalone, got["nop2"])
 }
 
-func TestFilterCLModeNOPs_SkipsStandalone(t *testing.T) {
-	got := filterCLModeNOPs(
-		[]shared.NOPAlias{"nop1", "nop2", "nop3"},
-		[]NOPInput{
-			{Alias: "nop1", Mode: shared.NOPModeCL},
-			{Alias: "nop2", Mode: shared.NOPModeStandalone},
-			{Alias: "nop3", Mode: shared.NOPModeCL},
-		},
-	)
-	assert.Equal(t, []shared.NOPAlias{"nop1", "nop3"}, got)
-}
-
-func TestFilterCLModeNOPs_TreatsMissingAsNotCL(t *testing.T) {
-	// nopGhost is not in the NOP slice → mode lookup returns "" → not CL → excluded.
-	got := filterCLModeNOPs(
-		[]shared.NOPAlias{"nop1", "nopGhost"},
-		[]NOPInput{{Alias: "nop1", Mode: shared.NOPModeCL}},
-	)
-	assert.Equal(t, []shared.NOPAlias{"nop1"}, got)
-}
-
 func TestAllNOPAliases_PreservesInputOrder(t *testing.T) {
 	got := allNOPAliases([]NOPInput{{Alias: "z"}, {Alias: "a"}, {Alias: "m"}})
 	assert.Equal(t, []shared.NOPAlias{"z", "a", "m"}, got)
