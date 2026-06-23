@@ -230,6 +230,13 @@ func runPhase3Core(
 	if err := committeeverifier.RegisterStandaloneVerifiersWithJD(ctx, verifiers, inputs.jdInfra.OffchainClient); err != nil {
 		return nil, nil, fmt.Errorf("committeeccv: failed to register standalone verifiers with JD: %w", err)
 	}
+	for _, ver := range verifiers {
+		if ver != nil && ver.Out != nil && ver.Out.JDNodeID != "" {
+			inputs.jdInfra.RegisterNodeAlias(ver.NOPAlias, ver.Out.JDNodeID)
+		}
+	}
+
+	jobs.SyncEnvNodeIDs(inputs.jdInfra, localEnv)
 
 	// Step 3: Generate shared TLS certificates from aggregator container names.
 	var sharedTLSCerts *services.TLSCertPaths

@@ -47,6 +47,27 @@ func (j *JDInfrastructure) GetNodeIDs() []string {
 	return nodeIDs
 }
 
+// RegisterNodeAlias records a NOP alias → JD node ID mapping.
+func (j *JDInfrastructure) RegisterNodeAlias(alias, nodeID string) {
+	if j == nil || alias == "" || nodeID == "" {
+		return
+	}
+	if j.NodeIDMap == nil {
+		j.NodeIDMap = make(map[string]string)
+	}
+	j.NodeIDMap[alias] = nodeID
+}
+
+// SyncEnvNodeIDs copies registered JD node IDs onto the deployment environment.
+func SyncEnvNodeIDs(jdInfra *JDInfrastructure, e *deployment.Environment) {
+	if jdInfra == nil || e == nil {
+		return
+	}
+	if nodeIDs := jdInfra.GetNodeIDs(); len(nodeIDs) > 0 {
+		e.NodeIDs = nodeIDs
+	}
+}
+
 type JDInfrastructureConfig struct {
 	JDInput  *ctf_jd.Input
 	NodeSets []*ns.Input
