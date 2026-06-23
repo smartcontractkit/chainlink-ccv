@@ -2,8 +2,10 @@ package cli
 
 import (
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -20,28 +22,18 @@ import (
 
 // pushMockTraceCmd pushes a synthetic CCIP message trace to an OTLP collector.
 //
-// Each phase re-sends ALL spans visible at that cutoff, with content trimmed to that point.
-// Span IDs are stable across phases — VictoriaTraces merges successive versions of each span.
-// A new random messageId (= traceId) is generated each run so pushes don't collide.
+// Each span is sent exactly ONCE, in its fully completed final form, when its end time
+// falls within the current phase window (prevCutoff, currentCutoff]. No span is ever
+// re-sent or mutated. A new random traceId (messageId) is generated each run.
 //
-// Span timeline (ms from t0):
+// Span end times (ms from t0) — which phase delivers each span:
 //
-//	root:       0 – 13100   finalization: 0 – 4000
-//	verification: 4000 – 7800
-//	nop-1: 4050–5250  nop-2: 4100–5700  nop-3: 4250–6100
-//	nop-4: 4300–9200  nop-5/aggregator: 4000–6100
-//	token-verifier: 4400–7800
-//	indexer.poll_agg: 6000–6300  indexer.ingest: 6000–8000  indexer.poll_tv: 7100–8000
-//	execution: 8000–13100  executor-1: 8000–15000  executor-2: 13000–13100
+//	phase 3 (+4500ms):  finalization(4000)
+//	phase 4 (+6500ms):  nop-1(5250) nop-2(5700) nop-3/5/aggregator(6100) indexer.poll_agg(6300)
+//	phase 5 (+9300ms):  verification/token-verifier(7800) indexer.poll_tv/ingest(8000) nop-4(9200)
+//	phase 6 (+15000ms): root/execution/executor-2(13100) executor-1(15000)
 //
-// Phases (cutoffs in ms from t0):
-//
-//	  0 ms — root OPEN, finalization OPEN
-//	3750 ms — root OPEN, finalization OPEN (+context log)
-//	4500 ms — root OPEN, finalization CLOSED; verification+all nops+aggregator+tv OPEN
-//	6500 ms — +nop-1/2/3/5/aggregator/indexer.poll_agg CLOSED; nop-4/tv/ingest OPEN
-//	9300 ms — +verification/tv/indexer all CLOSED, nop-4 CLOSED; execution+executor-1 OPEN
-//	15000 ms — everything CLOSED (executor-2 appears, executor-1 closed)
+// Phases 1 (+0ms) and 2 (+3750ms) have no completed spans — interval still fires.
 var pushMockTraceCmd = &cobra.Command{
 	Use:   "push-mock-trace",
 	Short: "Incrementally push a synthetic CCIP trace to OTLP (tests VictoriaTraces dedup/merge)",
@@ -52,11 +44,12 @@ func init() {
 	pushMockTraceCmd.Flags().String("endpoint", "localhost:4317", "OTLP gRPC endpoint")
 	pushMockTraceCmd.Flags().Duration("interval", 30*time.Second, "Interval between phase pushes")
 	pushMockTraceCmd.Flags().Bool("dump", false, "Print each OTLP request as JSON before sending")
-	pushMockTraceCmd.Flags().Bool("full", false, "Send only the final complete trace in one shot")
+	pushMockTraceCmd.Flags().Bool("full", false, "Send all spans in one shot")
+	pushMockTraceCmd.Flags().String("t0", "", "Trace start time in RFC3339 format (default: now)")
 }
 
-// phaseCutoffsMs are the wall-clock offsets (ms from t0) used as snapshot cutoffs.
-// Each push sends all spans that have started by the cutoff, trimmed to that moment.
+// phaseCutoffsMs are the upper bounds (ms from t0) for each incremental push window.
+// A span is delivered in the first phase where currentCutoff >= span.endMs.
 var phaseCutoffsMs = []int64{0, 3750, 4500, 6500, 9300, 15000}
 
 func runPushMockTrace(cmd *cobra.Command, _ []string) error {
@@ -64,11 +57,26 @@ func runPushMockTrace(cmd *cobra.Command, _ []string) error {
 	interval, _ := cmd.Flags().GetDuration("interval")
 	dump, _ := cmd.Flags().GetBool("dump")
 	full, _ := cmd.Flags().GetBool("full")
+	t0Str, _ := cmd.Flags().GetString("t0")
 
 	ctx := cmd.Context()
 
 	messageID := randomMessageID()
+
+	var newT0 time.Time
+	if t0Str != "" {
+		parsed, err := time.Parse(time.RFC3339, t0Str)
+		if err != nil {
+			return fmt.Errorf("invalid --t0 %q: %w", t0Str, err)
+		}
+		newT0 = parsed
+	} else {
+		newT0 = time.Now()
+	}
+
 	fmt.Printf("trace messageId: %s\n", messageID)
+	fmt.Printf("trace traceId:   0x%s\n", messageID[2:34])
+	fmt.Printf("trace t0:        %s\n", newT0.UTC().Format(time.RFC3339))
 
 	client := otlptracegrpc.NewClient(
 		otlptracegrpc.WithInsecure(),
@@ -79,8 +87,11 @@ func runPushMockTrace(cmd *cobra.Command, _ []string) error {
 	}
 	defer func() { _ = client.Stop(ctx) }()
 
-	t0micros := viz.MustMicros("2026-06-01T15:48:29Z")
-	trace := replaceMessageID(viz.BuildTrace(), messageID)
+	hardcodedT0 := viz.MustMicros("2026-06-01T15:48:29Z")
+	t0micros := newT0.UnixMicro()
+	delta := t0micros - hardcodedT0
+
+	trace := shiftTraceTime(replaceMessageID(viz.BuildTrace(), messageID), delta)
 
 	cutoffs := phaseCutoffsMs
 	if full {
@@ -88,9 +99,11 @@ func runPushMockTrace(cmd *cobra.Command, _ []string) error {
 	}
 
 	marshaler := protojson.MarshalOptions{Multiline: true}
+	prevCutoffMs := int64(-1)
 
 	for i, cutoffMs := range cutoffs {
-		resourceSpans := buildMutablePhaseSpans(trace, t0micros, cutoffMs, messageID)
+		resourceSpans := buildIncrementalPhaseSpans(trace, t0micros, prevCutoffMs, cutoffMs, messageID)
+		prevCutoffMs = cutoffMs
 
 		totalSpans := 0
 		for _, rs := range resourceSpans {
@@ -99,23 +112,25 @@ func runPushMockTrace(cmd *cobra.Command, _ []string) error {
 			}
 		}
 
-		if dump {
-			fmt.Printf("=== phase %d/%d (+%dms, %d spans) ===\n",
-				i+1, len(cutoffs), cutoffMs, totalSpans)
-			for _, rs := range resourceSpans {
-				b, err := marshaler.Marshal(proto.Message(rs))
-				if err == nil {
-					fmt.Println(string(b))
+		if totalSpans == 0 {
+			fmt.Printf("phase %d/%d — +%dms: nothing completed yet\n", i+1, len(cutoffs), cutoffMs)
+		} else {
+			if dump {
+				fmt.Printf("=== phase %d/%d (+%dms, %d spans) ===\n", i+1, len(cutoffs), cutoffMs, totalSpans)
+				for _, rs := range resourceSpans {
+					b, err := marshaler.Marshal(proto.Message(rs))
+					if err == nil {
+						fmt.Println(bytesFieldsToHex(string(b)))
+					}
 				}
+				fmt.Println()
 			}
-			fmt.Println()
-		}
 
-		if err := client.UploadTraces(ctx, resourceSpans); err != nil {
-			return fmt.Errorf("phase %d/%d upload failed: %w", i+1, len(cutoffs), err)
+			if err := client.UploadTraces(ctx, resourceSpans); err != nil {
+				return fmt.Errorf("phase %d/%d upload failed: %w", i+1, len(cutoffs), err)
+			}
+			fmt.Printf("phase %d/%d pushed — +%dms, %d spans\n", i+1, len(cutoffs), cutoffMs, totalSpans)
 		}
-
-		fmt.Printf("phase %d/%d pushed — +%dms, %d spans\n", i+1, len(cutoffs), cutoffMs, totalSpans)
 
 		if i < len(cutoffs)-1 {
 			select {
@@ -130,17 +145,18 @@ func runPushMockTrace(cmd *cobra.Command, _ []string) error {
 	return nil
 }
 
-// buildMutablePhaseSpans returns all spans that have started by cutoffMs.
-// Each span's end time is 0 (open) if still running at the cutoff, or its final end time if done.
-// Events after the cutoff are excluded.
-func buildMutablePhaseSpans(trace viz.Trace, t0micros, cutoffMs int64, messageID string) []*tracepb.ResourceSpans {
+// buildIncrementalPhaseSpans returns spans whose end time falls in (prevCutoffMs, cutoffMs].
+// Each span is sent in final complete form with all events — it will never be re-sent.
+func buildIncrementalPhaseSpans(trace viz.Trace, t0micros, prevCutoffMs, cutoffMs int64, messageID string) []*tracepb.ResourceSpans {
 	msToMicros := int64(time.Millisecond / time.Microsecond)
-	cutoffMicros := t0micros + cutoffMs*msToMicros
-	traceIDBytes := mustDecodeHex(messageID[2:34]) // first 16 bytes
+	prevEndMicros := t0micros + prevCutoffMs*msToMicros
+	endMicros := t0micros + cutoffMs*msToMicros
+	traceIDBytes := mustDecodeHex(messageID[2:34]) // first 16 bytes of messageId as traceId
 
 	byProcess := map[string][]viz.Span{}
 	for _, s := range trace.Spans {
-		if s.StartTime <= cutoffMicros {
+		spanEndMicros := s.StartTime + s.Duration
+		if spanEndMicros > prevEndMicros && spanEndMicros <= endMicros {
 			byProcess[s.ProcessID] = append(byProcess[s.ProcessID], s)
 		}
 	}
@@ -151,14 +167,6 @@ func buildMutablePhaseSpans(trace viz.Trace, t0micros, cutoffMs int64, messageID
 
 		otlpSpans := make([]*tracepb.Span, 0, len(spans))
 		for _, s := range spans {
-			finalEndMicros := s.StartTime + s.Duration
-			open := finalEndMicros > cutoffMicros
-
-			var endTimeNano uint64
-			if !open {
-				endTimeNano = uint64(finalEndMicros) * 1000
-			}
-
 			otlpSpans = append(otlpSpans, &tracepb.Span{
 				TraceId:           traceIDBytes,
 				SpanId:            mustDecodeHex(s.SpanID),
@@ -166,10 +174,10 @@ func buildMutablePhaseSpans(trace viz.Trace, t0micros, cutoffMs int64, messageID
 				Name:              s.OperationName,
 				Kind:              spanKindFromTags(s.Tags),
 				StartTimeUnixNano: uint64(s.StartTime) * 1000,
-				EndTimeUnixNano:   endTimeNano,
+				EndTimeUnixNano:   uint64(s.StartTime+s.Duration) * 1000,
 				Attributes:        tagsToAttrs(s.Tags),
-				Events:            eventsUpTo(s.Logs, cutoffMicros),
-				Status:            spanStatus(s.Tags, open),
+				Events:            allEvents(s.Logs),
+				Status:            spanStatus(s.Tags, false),
 			})
 		}
 
@@ -186,13 +194,10 @@ func buildMutablePhaseSpans(trace viz.Trace, t0micros, cutoffMs int64, messageID
 	return resourceSpans
 }
 
-// eventsUpTo returns only events whose timestamp is <= cutoffMicros.
-func eventsUpTo(logs []viz.SpanLog, cutoffMicros int64) []*tracepb.Span_Event {
-	var events []*tracepb.Span_Event
+// allEvents converts all span logs to OTLP events with no time filtering.
+func allEvents(logs []viz.SpanLog) []*tracepb.Span_Event {
+	events := make([]*tracepb.Span_Event, 0, len(logs))
 	for _, l := range logs {
-		if l.Timestamp > cutoffMicros {
-			break
-		}
 		name := ""
 		attrs := make([]*commonpb.KeyValue, 0, len(l.Fields))
 		for _, f := range l.Fields {
@@ -211,6 +216,18 @@ func eventsUpTo(logs []viz.SpanLog, cutoffMicros int64) []*tracepb.Span_Event {
 		})
 	}
 	return events
+}
+
+// shiftTraceTime adds deltaUs microseconds to every span StartTime and log Timestamp.
+func shiftTraceTime(trace viz.Trace, deltaUs int64) viz.Trace {
+	for i := range trace.Spans {
+		s := &trace.Spans[i]
+		s.StartTime += deltaUs
+		for j := range s.Logs {
+			s.Logs[j].Timestamp += deltaUs
+		}
+	}
+	return trace
 }
 
 // replaceMessageID substitutes the hardcoded viz.MessageID with a dynamic one
@@ -240,8 +257,7 @@ func replaceMessageID(trace viz.Trace, newID string) viz.Trace {
 	return trace
 }
 
-// randomMessageID returns a random 32-byte value as an 0x-prefixed hex string,
-// matching the CCIP messageId format.
+// randomMessageID returns a random 32-byte value as a 0x-prefixed hex string.
 func randomMessageID() string {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
@@ -347,6 +363,24 @@ func strAttrOTLP(k, v string) *commonpb.KeyValue {
 		Key:   k,
 		Value: &commonpb.AnyValue{Value: &commonpb.AnyValue_StringValue{StringValue: v}},
 	}
+}
+
+// bytesFieldsToHex converts base64-encoded byte fields in protojson output to hex strings.
+// Covers traceId, spanId, and parentSpanId.
+var reBase64Bytes = regexp.MustCompile(`"(traceId|spanId|parentSpanId)":\s*"([A-Za-z0-9+/]+=*)"`)
+
+func bytesFieldsToHex(j string) string {
+	return reBase64Bytes.ReplaceAllStringFunc(j, func(match string) string {
+		sub := reBase64Bytes.FindStringSubmatch(match)
+		if len(sub) < 3 {
+			return match
+		}
+		raw, err := base64.StdEncoding.DecodeString(sub[2])
+		if err != nil {
+			return match
+		}
+		return fmt.Sprintf(`"%s":  "0x%s"`, sub[1], hex.EncodeToString(raw))
+	})
 }
 
 func mustDecodeHex(s string) []byte {
