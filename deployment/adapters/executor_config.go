@@ -19,15 +19,13 @@ type ExecutorConfigAdapter interface {
 
 // ExecutorNodeChainJDSupport is an optional extension of ExecutorConfigAdapter.
 // Implement it to opt out of JD node chain support validation in ApplyExecutorConfig.
-//
-// RequiresNodeChainSupportInJD reports whether ApplyExecutorConfig must verify that
-// target NOPs have this chain registered in JD (ListNodeChainConfigs) before proposing
-// ccvexecutor job specs. EVM chains require JD registration; families such as Canton
-// that push destination blocks onto existing EVM executor jobs may return false until
-// JD node chain configs exist for that family.
-//
 // Adapters that do not implement ExecutorNodeChainJDSupport default to true (require JD).
 type ExecutorNodeChainJDSupport interface {
+	// RequiresNodeChainSupportInJD reports whether ApplyExecutorConfig must verify that
+	// target NOPs have this chain registered in JD (ListNodeChainConfigs) before proposing
+	// ccvexecutor job specs. EVM chains require JD registration; families such as Canton
+	// that push destination blocks onto existing EVM executor jobs may return false until
+	// JD node chain configs exist for that family.
 	RequiresNodeChainSupportInJD() bool
 }
 
