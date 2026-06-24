@@ -75,10 +75,10 @@ func MergeAggregatorConfig(ds datastore.MutableDataStore, serviceIdentifier stri
 	return persistCCVEnvMetadata(ds, ccvMeta)
 }
 
-// mergeCommittees returns a new committee with incoming's quorum configs and
-// destination verifiers upserted over existing's. Keys present only in existing
-// are preserved; keys present in both take incoming's value. Either argument may
-// be nil. The inputs are not mutated.
+// mergeCommittees upserts incoming's quorum configs and destination verifiers over
+// existing's, returning the combined committee. Keys present only in existing are
+// preserved; keys present in both take incoming's value. The inputs are not
+// mutated. If either argument is nil, the other is returned as-is.
 func mergeCommittees(existing, incoming *model.Committee) *model.Committee {
 	if existing == nil {
 		return incoming
@@ -164,9 +164,10 @@ func MergeIndexerConfig(ds datastore.MutableDataStore, serviceIdentifier string,
 	return persistCCVEnvMetadata(ds, ccvMeta)
 }
 
-// mergeIndexerConfigs returns a new config with incoming's verifiers upserted over
-// existing's, keyed by Name. Existing order is preserved; new names are appended.
-// Either argument may be nil. The inputs are not mutated.
+// mergeIndexerConfigs upserts incoming's verifiers over existing's, keyed by Name,
+// returning the combined config. Existing order is preserved; new names are
+// appended. The inputs are not mutated. If either argument is nil, the other is
+// returned as-is.
 func mergeIndexerConfigs(existing, incoming *indexerconfig.GeneratedConfig) *indexerconfig.GeneratedConfig {
 	if existing == nil {
 		return incoming
@@ -266,8 +267,9 @@ func MergeTokenVerifierConfig(ds datastore.MutableDataStore, serviceIdentifier s
 	return persistCCVEnvMetadata(ds, ccvMeta)
 }
 
-// mergeTokenConfigs returns a new token config with incoming's per-chain data
-// upserted over existing's. Either argument may be nil. The inputs are not mutated.
+// mergeTokenConfigs upserts incoming's per-chain data over existing's, returning
+// the combined config. The inputs are not mutated. If either argument is nil, the
+// other is returned as-is.
 func mergeTokenConfigs(existing, incoming *token.Config) *token.Config {
 	if existing == nil {
 		return incoming
