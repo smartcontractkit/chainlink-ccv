@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/BurntSushi/toml"
@@ -139,12 +140,22 @@ const (
 // DiscoveryConfig allows you to change the discovery system used by the indexer.
 type DiscoveryConfig struct {
 	AggregatorReaderConfig
+	Name         string `toml:"Name"`
 	PollInterval int    `toml:"PollInterval"`
 	Timeout      int    `toml:"Timeout"`
 	NtpServer    string `toml:"NtpServer"`
 	// MaxResponseBytes is the maximum response size in bytes the client will accept.
 	// 0 uses DefaultMaxResponseBytes (4MB).
 	MaxResponseBytes int `toml:"MaxResponseBytes"`
+}
+
+// Label returns the value used to identify this discovery component in logs and metrics:
+// Name when set, otherwise Address.
+func (d DiscoveryConfig) Label() string {
+	if strings.TrimSpace(d.Name) != "" {
+		return d.Name
+	}
+	return d.Address
 }
 
 type VerifierConfig struct {
@@ -160,6 +171,22 @@ type VerifierConfig struct {
 	MaxResponseBytes int `toml:"MaxResponseBytes"`
 	AggregatorReaderConfig
 	RestReaderConfig
+}
+
+// Label returns the value used to identify this discovery component in logs and metrics:
+// Name when set, otherwise Address.
+func (v VerifierConfig) Label() string {
+	if strings.TrimSpace(v.Name) != "" {
+		return v.Name
+	}
+	switch v.Type {
+	case ReaderTypeAggregator:
+		return v.Address
+	case ReaderTypeRest:
+		return v.BaseURL
+	}
+	// unreachable
+	return ""
 }
 
 // ReaderType is the type of reader to use (aggregator).

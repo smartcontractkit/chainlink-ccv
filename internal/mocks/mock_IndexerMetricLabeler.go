@@ -89,9 +89,9 @@ func (_c *MockIndexerMetricLabeler_IncrementActiveRequestsCounter_Call) RunAndRe
 	return _c
 }
 
-// IncrementGRPCErrors provides a mock function with given fields: ctx, code, method
-func (_m *MockIndexerMetricLabeler) IncrementGRPCErrors(ctx context.Context, code string, method string) {
-	_m.Called(ctx, code, method)
+// IncrementGRPCErrors provides a mock function with given fields: ctx, target, code, method
+func (_m *MockIndexerMetricLabeler) IncrementGRPCErrors(ctx context.Context, target string, code string, method string) {
+	_m.Called(ctx, target, code, method)
 }
 
 // MockIndexerMetricLabeler_IncrementGRPCErrors_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'IncrementGRPCErrors'
@@ -101,15 +101,16 @@ type MockIndexerMetricLabeler_IncrementGRPCErrors_Call struct {
 
 // IncrementGRPCErrors is a helper method to define mock.On call
 //   - ctx context.Context
+//   - target string
 //   - code string
 //   - method string
-func (_e *MockIndexerMetricLabeler_Expecter) IncrementGRPCErrors(ctx interface{}, code interface{}, method interface{}) *MockIndexerMetricLabeler_IncrementGRPCErrors_Call {
-	return &MockIndexerMetricLabeler_IncrementGRPCErrors_Call{Call: _e.mock.On("IncrementGRPCErrors", ctx, code, method)}
+func (_e *MockIndexerMetricLabeler_Expecter) IncrementGRPCErrors(ctx interface{}, target interface{}, code interface{}, method interface{}) *MockIndexerMetricLabeler_IncrementGRPCErrors_Call {
+	return &MockIndexerMetricLabeler_IncrementGRPCErrors_Call{Call: _e.mock.On("IncrementGRPCErrors", ctx, target, code, method)}
 }
 
-func (_c *MockIndexerMetricLabeler_IncrementGRPCErrors_Call) Run(run func(ctx context.Context, code string, method string)) *MockIndexerMetricLabeler_IncrementGRPCErrors_Call {
+func (_c *MockIndexerMetricLabeler_IncrementGRPCErrors_Call) Run(run func(ctx context.Context, target string, code string, method string)) *MockIndexerMetricLabeler_IncrementGRPCErrors_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(string))
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string))
 	})
 	return _c
 }
@@ -119,7 +120,7 @@ func (_c *MockIndexerMetricLabeler_IncrementGRPCErrors_Call) Return() *MockIndex
 	return _c
 }
 
-func (_c *MockIndexerMetricLabeler_IncrementGRPCErrors_Call) RunAndReturn(run func(context.Context, string, string)) *MockIndexerMetricLabeler_IncrementGRPCErrors_Call {
+func (_c *MockIndexerMetricLabeler_IncrementGRPCErrors_Call) RunAndReturn(run func(context.Context, string, string, string)) *MockIndexerMetricLabeler_IncrementGRPCErrors_Call {
 	_c.Run(run)
 	return _c
 }
@@ -259,9 +260,9 @@ func (_c *MockIndexerMetricLabeler_RecordCircuitBreakerStatus_Call) RunAndReturn
 	return _c
 }
 
-// RecordGRPCPayloadSize provides a mock function with given fields: ctx, method, direction, sizeBytes
-func (_m *MockIndexerMetricLabeler) RecordGRPCPayloadSize(ctx context.Context, method string, direction string, sizeBytes int) {
-	_m.Called(ctx, method, direction, sizeBytes)
+// RecordGRPCPayloadSize provides a mock function with given fields: ctx, target, method, direction, sizeBytes
+func (_m *MockIndexerMetricLabeler) RecordGRPCPayloadSize(ctx context.Context, target string, method string, direction string, sizeBytes int) {
+	_m.Called(ctx, target, method, direction, sizeBytes)
 }
 
 // MockIndexerMetricLabeler_RecordGRPCPayloadSize_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RecordGRPCPayloadSize'
@@ -271,16 +272,17 @@ type MockIndexerMetricLabeler_RecordGRPCPayloadSize_Call struct {
 
 // RecordGRPCPayloadSize is a helper method to define mock.On call
 //   - ctx context.Context
+//   - target string
 //   - method string
 //   - direction string
 //   - sizeBytes int
-func (_e *MockIndexerMetricLabeler_Expecter) RecordGRPCPayloadSize(ctx interface{}, method interface{}, direction interface{}, sizeBytes interface{}) *MockIndexerMetricLabeler_RecordGRPCPayloadSize_Call {
-	return &MockIndexerMetricLabeler_RecordGRPCPayloadSize_Call{Call: _e.mock.On("RecordGRPCPayloadSize", ctx, method, direction, sizeBytes)}
+func (_e *MockIndexerMetricLabeler_Expecter) RecordGRPCPayloadSize(ctx interface{}, target interface{}, method interface{}, direction interface{}, sizeBytes interface{}) *MockIndexerMetricLabeler_RecordGRPCPayloadSize_Call {
+	return &MockIndexerMetricLabeler_RecordGRPCPayloadSize_Call{Call: _e.mock.On("RecordGRPCPayloadSize", ctx, target, method, direction, sizeBytes)}
 }
 
-func (_c *MockIndexerMetricLabeler_RecordGRPCPayloadSize_Call) Run(run func(ctx context.Context, method string, direction string, sizeBytes int)) *MockIndexerMetricLabeler_RecordGRPCPayloadSize_Call {
+func (_c *MockIndexerMetricLabeler_RecordGRPCPayloadSize_Call) Run(run func(ctx context.Context, target string, method string, direction string, sizeBytes int)) *MockIndexerMetricLabeler_RecordGRPCPayloadSize_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(int))
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string), args[4].(int))
 	})
 	return _c
 }
@@ -290,7 +292,7 @@ func (_c *MockIndexerMetricLabeler_RecordGRPCPayloadSize_Call) Return() *MockInd
 	return _c
 }
 
-func (_c *MockIndexerMetricLabeler_RecordGRPCPayloadSize_Call) RunAndReturn(run func(context.Context, string, string, int)) *MockIndexerMetricLabeler_RecordGRPCPayloadSize_Call {
+func (_c *MockIndexerMetricLabeler_RecordGRPCPayloadSize_Call) RunAndReturn(run func(context.Context, string, string, string, int)) *MockIndexerMetricLabeler_RecordGRPCPayloadSize_Call {
 	_c.Run(run)
 	return _c
 }

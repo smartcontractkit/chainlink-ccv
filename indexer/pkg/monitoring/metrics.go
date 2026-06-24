@@ -282,17 +282,19 @@ func (c *IndexerMetricLabeler) RecordCircuitBreakerStatus(ctx context.Context, s
 	c.im.circuitBreakerStatus.Record(ctx, gaugeValue, metric.WithAttributes(otelLabels...))
 }
 
-func (c *IndexerMetricLabeler) RecordGRPCPayloadSize(ctx context.Context, method, direction string, sizeBytes int) {
+func (c *IndexerMetricLabeler) RecordGRPCPayloadSize(ctx context.Context, target, method, direction string, sizeBytes int) {
 	otelLabels := beholder.OtelAttributes(c.Labels).AsStringAttributes()
 	c.im.grpcPayloadSizeBytes.Record(ctx, int64(sizeBytes), metric.WithAttributes([]attribute.KeyValue{
+		attribute.String("target", target),
 		attribute.String("method", method),
 		attribute.String("direction", direction),
 	}...), metric.WithAttributes(otelLabels...))
 }
 
-func (c *IndexerMetricLabeler) IncrementGRPCErrors(ctx context.Context, code, method string) {
+func (c *IndexerMetricLabeler) IncrementGRPCErrors(ctx context.Context, target, code, method string) {
 	otelLabels := beholder.OtelAttributes(c.Labels).AsStringAttributes()
 	c.im.grpcErrorsTotal.Add(ctx, 1, metric.WithAttributes([]attribute.KeyValue{
+		attribute.String("target", target),
 		attribute.String("code", code),
 		attribute.String("method", method),
 	}...), metric.WithAttributes(otelLabels...))
