@@ -42,7 +42,7 @@ var pushMockTraceCmd = &cobra.Command{
 
 func init() {
 	pushMockTraceCmd.Flags().String("endpoint", "localhost:4317", "OTLP gRPC endpoint")
-	pushMockTraceCmd.Flags().Duration("interval", 30*time.Second, "Interval between phase pushes")
+	pushMockTraceCmd.Flags().Duration("interval", 0, "Interval between phase pushes")
 	pushMockTraceCmd.Flags().Bool("dump", false, "Print each OTLP request as JSON before sending")
 	pushMockTraceCmd.Flags().Bool("full", false, "Send all spans in one shot")
 	pushMockTraceCmd.Flags().String("t0", "", "Trace start time in RFC3339 format (default: now)")
@@ -51,6 +51,8 @@ func init() {
 // phaseCutoffsMs are the upper bounds (ms from t0) for each incremental push window.
 // A span is delivered in the first phase where currentCutoff >= span.endMs.
 var phaseCutoffsMs = []int64{0, 3750, 4500, 6500, 9300, 15000}
+
+const DASHBOARD_URL = "http://localhost:3000/d/cfq49j4bs3k00c/ccip-message-flow-viz?&var-message_id=%s&var-trace_id=%s"
 
 func runPushMockTrace(cmd *cobra.Command, _ []string) error {
 	endpoint, _ := cmd.Flags().GetString("endpoint")
@@ -74,9 +76,10 @@ func runPushMockTrace(cmd *cobra.Command, _ []string) error {
 		newT0 = time.Now()
 	}
 
-	fmt.Printf("trace messageId: %s\n", messageID)
-	fmt.Printf("trace traceId:   0x%s\n", messageID[2:34])
-	fmt.Printf("trace t0:        %s\n", newT0.UTC().Format(time.RFC3339))
+	fmt.Printf("messageId: %s\n", messageID)
+	fmt.Printf("traceId:   %s\n", messageID[2:34])
+	fmt.Printf("trace t0:                  %s\n", newT0.UTC().Format(time.RFC3339))
+	fmt.Printf("Dashboard (check in ~30s): %s\n", fmt.Sprintf(DASHBOARD_URL, messageID, messageID[2:34]))
 
 	client := otlptracegrpc.NewClient(
 		otlptracegrpc.WithInsecure(),
@@ -114,23 +117,23 @@ func runPushMockTrace(cmd *cobra.Command, _ []string) error {
 
 		if totalSpans == 0 {
 			fmt.Printf("phase %d/%d — +%dms: nothing completed yet\n", i+1, len(cutoffs), cutoffMs)
-		} else {
-			if dump {
-				fmt.Printf("=== phase %d/%d (+%dms, %d spans) ===\n", i+1, len(cutoffs), cutoffMs, totalSpans)
-				for _, rs := range resourceSpans {
-					b, err := marshaler.Marshal(proto.Message(rs))
-					if err == nil {
-						fmt.Println(bytesFieldsToHex(string(b)))
-					}
-				}
-				fmt.Println()
-			}
-
-			if err := client.UploadTraces(ctx, resourceSpans); err != nil {
-				return fmt.Errorf("phase %d/%d upload failed: %w", i+1, len(cutoffs), err)
-			}
-			fmt.Printf("phase %d/%d pushed — +%dms, %d spans\n", i+1, len(cutoffs), cutoffMs, totalSpans)
+			continue
 		}
+		if dump {
+			fmt.Printf("=== phase %d/%d (+%dms, %d spans) ===\n", i+1, len(cutoffs), cutoffMs, totalSpans)
+			for _, rs := range resourceSpans {
+				b, err := marshaler.Marshal(proto.Message(rs))
+				if err == nil {
+					fmt.Println(bytesFieldsToHex(string(b)))
+				}
+			}
+			fmt.Println()
+		}
+
+		if err := client.UploadTraces(ctx, resourceSpans); err != nil {
+			return fmt.Errorf("phase %d/%d upload failed: %w", i+1, len(cutoffs), err)
+		}
+		fmt.Printf("phase %d/%d pushed — +%dms, %d spans\n", i+1, len(cutoffs), cutoffMs, totalSpans)
 
 		if i < len(cutoffs)-1 {
 			select {
@@ -161,7 +164,7 @@ func buildIncrementalPhaseSpans(trace viz.Trace, t0micros, prevCutoffMs, cutoffM
 		}
 	}
 
-	var resourceSpans []*tracepb.ResourceSpans
+	resourceSpans := make([]*tracepb.ResourceSpans, 0, len(byProcess))
 	for pid, spans := range byProcess {
 		proc := trace.Processes[pid]
 
