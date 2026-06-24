@@ -18,6 +18,13 @@ type GenerateIndexerConfigInput struct {
 	CommitteeVerifierNameToQualifier map[string]string
 	CCTPVerifierNameToQualifier      map[string]string
 	LombardVerifierNameToQualifier   map[string]string
+	// ReplaceExisting controls how the result is written to env metadata. By
+	// default (false) the changeset is modular: the verifiers produced by this run
+	// are upserted (by Name) into the indexer config already persisted for
+	// ServiceIdentifier, so verifiers not produced by this run are preserved and
+	// runs accumulate into one config. Set true to replace the stored config
+	// instead, which also removes stale verifiers.
+	ReplaceExisting bool
 }
 
 func GenerateIndexerConfig() deployment.ChangeSetV2[GenerateIndexerConfigInput] {
@@ -48,7 +55,13 @@ func GenerateIndexerConfig() deployment.ChangeSetV2[GenerateIndexerConfigInput] 
 			}
 		}
 
-		if err := ccvdeployment.SaveIndexerConfig(outputDS, cfg.ServiceIdentifier, idxCfg); err != nil {
+		// Modular by default: upsert this run's verifiers into the stored config.
+		// ReplaceExisting forces a full replace (removing verifiers no longer produced).
+		save := ccvdeployment.MergeIndexerConfig
+		if cfg.ReplaceExisting {
+			save = ccvdeployment.SaveIndexerConfig
+		}
+		if err := save(outputDS, cfg.ServiceIdentifier, idxCfg); err != nil {
 			return deployment.ChangesetOutput{}, fmt.Errorf("failed to save indexer config: %w", err)
 		}
 

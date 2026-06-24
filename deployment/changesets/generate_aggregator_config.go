@@ -33,6 +33,14 @@ type GenerateAggregatorConfigInput struct {
 	// state. Used by offchain-first coupled products to publish the post-change
 	// threshold ahead of the onchain mutation.
 	ThresholdOverride *uint8
+	// ReplaceExisting controls how the result is written to env metadata. By
+	// default (false) the changeset is modular: the chains scanned in this run are
+	// upserted into the aggregator config already persisted for ServiceIdentifier,
+	// so quorum configs and destination verifiers for chains not in ChainSelectors
+	// are preserved and per-chain runs accumulate into one committee. Set true to
+	// replace the stored config from a full scan of ChainSelectors instead, which
+	// also removes stale chains.
+	ReplaceExisting bool
 }
 
 // GenerateAggregatorConfig is the offchain-only single-entry product that
@@ -82,7 +90,13 @@ func GenerateAggregatorConfig() deployment.ChangeSetV2[GenerateAggregatorConfigI
 			}
 		}
 
-		if err := ccvdeployment.SaveAggregatorConfig(outputDS, cfg.ServiceIdentifier, committee); err != nil {
+		// Modular by default: upsert this run's chains into the stored committee.
+		// ReplaceExisting forces a full replace (removing chains no longer scanned).
+		save := ccvdeployment.MergeAggregatorConfig
+		if cfg.ReplaceExisting {
+			save = ccvdeployment.SaveAggregatorConfig
+		}
+		if err := save(outputDS, cfg.ServiceIdentifier, committee); err != nil {
 			return deployment.ChangesetOutput{}, fmt.Errorf("failed to save aggregator config: %w", err)
 		}
 
