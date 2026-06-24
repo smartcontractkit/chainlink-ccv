@@ -15,7 +15,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/commit"
 
-	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
 	"github.com/smartcontractkit/chainlink-ccv/deployment/adapters"
 	"github.com/smartcontractkit/chainlink-ccv/deployment/operations/fetch_signing_keys"
 	"github.com/smartcontractkit/chainlink-ccv/deployment/sequences"
@@ -24,8 +23,8 @@ import (
 
 // ApplyVerifierConfigInput is the imperative input for the ApplyVerifierConfig
 // changeset. It replaces the prior topology-driven input — callers describe the
-// committee, the participating NOPs, and any monitoring/profiling settings
-// directly, without supplying a *EnvironmentTopology.
+// committee, the participating NOPs, and any profiling settings directly,
+// without supplying a *EnvironmentTopology.
 type ApplyVerifierConfigInput struct {
 	// CommitteeQualifier identifies the committee being published.
 	CommitteeQualifier string
@@ -41,8 +40,6 @@ type ApplyVerifierConfigInput struct {
 	// PyroscopeURL is forwarded into the verifier job spec for profiling. Must be
 	// empty in production environments (validated below).
 	PyroscopeURL string
-	// Monitoring is forwarded into the verifier job spec.
-	Monitoring ccvdeployment.MonitoringConfig
 	// TargetNOPs filters the publish set. Empty means "all NOPs in the committee".
 	TargetNOPs []shared.NOPAlias
 	// DisableFinalityCheckers lists chain-selector strings whose finality checks
@@ -186,7 +183,6 @@ func ApplyVerifierConfig() deployment.ChangeSetV2[ApplyVerifierConfigInput] {
 			nopInputs,
 			committeeInternal,
 			cfg.PyroscopeURL,
-			cfg.Monitoring,
 			cfg.DisableFinalityCheckers,
 			signerFamily,
 			cfg.ConsolidateAggregators,
@@ -319,7 +315,6 @@ func buildVerifierJobSpecs(
 	environmentNOPs []verifierNOPInput,
 	committee verifierCommitteeInput,
 	pyroscopeURL string,
-	monitoring ccvdeployment.MonitoringConfig,
 	disableFinalityCheckers []string,
 	signerFamily string,
 	consolidateAggregators bool,
@@ -380,7 +375,8 @@ func buildVerifierJobSpecs(
 			CommitteeVerifierAddresses:     filterAddressesByChains(committeeVerifierAddrs, nopChains),
 			DefaultExecutorOnRampAddresses: filterAddressesByChains(executorOnRampAddrs, nopChains),
 			DisableFinalityCheckers:        sortedFinalityCheckers,
-			Monitoring:                     monitoring,
+			// Monitoring is intentionally not set here: monitoring config is operator-provided via the
+			// bootstrap config, not the JD-shipped app config. See bootstrap.Config.Monitoring.
 			CommitteeConfig: chainaccess.CommitteeConfig{
 				OnRampAddresses:    filterAddressesByChains(onRampAddrs, nopChains),
 				RMNRemoteAddresses: filterAddressesByChains(rmnRemoteAddrs, nopChains),

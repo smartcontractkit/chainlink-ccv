@@ -14,7 +14,6 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 
-	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
 	"github.com/smartcontractkit/chainlink-ccv/deployment/adapters"
 	"github.com/smartcontractkit/chainlink-ccv/deployment/operations/fetch_node_chain_support"
 	"github.com/smartcontractkit/chainlink-ccv/deployment/sequences"
@@ -23,8 +22,8 @@ import (
 
 // ApplyExecutorConfigInput is the imperative input for the ApplyExecutorConfig
 // changeset. It replaces the prior topology-driven input — callers describe the
-// executor pool, the participating NOPs, and the indexer / monitoring settings
-// directly, without supplying a *EnvironmentTopology.
+// executor pool, the participating NOPs, and the indexer settings directly,
+// without supplying a *EnvironmentTopology.
 type ApplyExecutorConfigInput struct {
 	// ExecutorQualifier identifies the executor pool being published.
 	ExecutorQualifier string
@@ -39,8 +38,6 @@ type ApplyExecutorConfigInput struct {
 	// PyroscopeURL is forwarded into the executor job spec for profiling. Must be
 	// empty in production environments (validated below).
 	PyroscopeURL string
-	// Monitoring is forwarded into the executor job spec.
-	Monitoring ccvdeployment.MonitoringConfig
 	// TargetNOPs filters the publish set. Empty means "all NOPs in the pool".
 	TargetNOPs []shared.NOPAlias
 	// RevokeOrphanedJobs when true revokes and cleans up orphaned jobs; default false.
@@ -149,7 +146,6 @@ func ApplyExecutorConfig() deployment.ChangeSetV2[ApplyExecutorConfigInput] {
 			cfg.Pool,
 			cfg.IndexerAddress,
 			cfg.PyroscopeURL,
-			cfg.Monitoring,
 		)
 		if err != nil {
 			return deployment.ChangesetOutput{}, err
@@ -309,7 +305,6 @@ func buildExecutorJobSpecs(
 	pool ExecutorPoolInput,
 	indexerAddress []string,
 	pyroscopeURL string,
-	monitoring ccvdeployment.MonitoringConfig,
 ) (shared.NOPJobSpecs, shared.ExecutorJobScope, error) {
 	scope := shared.ExecutorJobScope{
 		ExecutorQualifier: executorQualifier,
@@ -351,17 +346,18 @@ func buildExecutorJobSpecs(
 		jobSpecID := shared.NewExecutorJobID(nopAlias, scope)
 
 		executorCfg := executor.Configuration{
-			IndexerAddress:     indexerAddress,
-			ExecutorID:         jobSpecID.GetExecutorID(),
-			PyroscopeURL:       pyroscopeURL,
-			NtpServer:          pool.NtpServer,
-			IndexerQueryLimit:  pool.IndexerQueryLimit,
-			BackoffDuration:    pool.BackoffDuration,
-			LookbackWindow:     pool.LookbackWindow,
-			ReaderCacheExpiry:  pool.ReaderCacheExpiry,
-			MaxRetryDuration:   pool.MaxRetryDuration,
-			WorkerCount:        pool.WorkerCount,
-			Monitoring:         monitoring,
+			IndexerAddress:    indexerAddress,
+			ExecutorID:        jobSpecID.GetExecutorID(),
+			PyroscopeURL:      pyroscopeURL,
+			NtpServer:         pool.NtpServer,
+			IndexerQueryLimit: pool.IndexerQueryLimit,
+			BackoffDuration:   pool.BackoffDuration,
+			LookbackWindow:    pool.LookbackWindow,
+			ReaderCacheExpiry: pool.ReaderCacheExpiry,
+			MaxRetryDuration:  pool.MaxRetryDuration,
+			WorkerCount:       pool.WorkerCount,
+			// Monitoring is intentionally not set here: monitoring config is operator-provided via the
+			// bootstrap config, not the JD-shipped app config. See bootstrap.Config.Monitoring.
 			ChainConfiguration: chainCfgs,
 		}
 
