@@ -117,3 +117,13 @@ func TestGRPCClientDialOptions(t *testing.T) {
 	opts := grpcClientDialOptions("", m)
 	assert.Len(t, opts, 1)
 }
+
+func TestGRPCClientStatsHandler_TargetThreadedThrough(t *testing.T) {
+	const target = "my-aggregator"
+	m := mocks.NewMockIndexerMetricLabeler(t)
+	m.EXPECT().RecordGRPCPayloadSize(mock.Anything, target, testMethod, "send", 100).Once()
+
+	h := newGRPCClientStatsHandler(target, m)
+	ctx := h.TagRPC(context.Background(), &stats.RPCTagInfo{FullMethodName: testMethod})
+	h.HandleRPC(ctx, &stats.OutPayload{WireLength: 100})
+}

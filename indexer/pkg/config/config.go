@@ -152,8 +152,8 @@ type DiscoveryConfig struct {
 // Label returns the value used to identify this discovery component in logs and metrics:
 // Name when set, otherwise Address.
 func (d DiscoveryConfig) Label() string {
-	if strings.TrimSpace(d.Name) != "" {
-		return d.Name
+	if name := strings.TrimSpace(d.Name); name != "" {
+		return name
 	}
 	return d.Address
 }
@@ -173,11 +173,11 @@ type VerifierConfig struct {
 	RestReaderConfig
 }
 
-// Label returns the value used to identify this discovery component in logs and metrics:
-// Name when set, otherwise Address.
+// Label returns the value used to identify this verifier component in logs and metrics:
+// Name when set, otherwise Address (aggregator) or BaseURL (rest).
 func (v VerifierConfig) Label() string {
-	if strings.TrimSpace(v.Name) != "" {
-		return v.Name
+	if name := strings.TrimSpace(v.Name); name != "" {
+		return name
 	}
 	switch v.Type {
 	case ReaderTypeAggregator:
