@@ -37,7 +37,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
+        "uid": "victoriametrics"
       },
       "description": "",
       "fieldConfig": {
@@ -88,7 +88,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
+            "uid": "victoriametrics"
           },
           "editorMode": "code",
           "exemplar": false,
@@ -105,7 +105,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
+        "uid": "victoriametrics"
       },
       "fieldConfig": {
         "defaults": {
@@ -158,7 +158,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
+            "uid": "victoriametrics"
           },
           "editorMode": "code",
           "expr": "max (verifier_ccv_data_channel_size)",
@@ -174,7 +174,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
+        "uid": "victoriametrics"
       },
       "description": "",
       "fieldConfig": {
@@ -225,7 +225,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
+            "uid": "victoriametrics"
           },
           "editorMode": "code",
           "exemplar": false,
@@ -255,7 +255,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
+        "uid": "victoriametrics"
       },
       "description": "Source event discovery (finalized) timestamp to offchain storage write timestamp",
       "fieldConfig": {
@@ -310,7 +310,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
+            "uid": "victoriametrics"
           },
           "editorMode": "code",
           "expr": "sort(histogram_quantile(\n  0.90,\n  sum by (le) (\n    rate(verifier_message_e2e_latency_seconds_bucket[$__range])\n  )\n))",
@@ -323,7 +323,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
+            "uid": "victoriametrics"
           },
           "editorMode": "code",
           "expr": "sort(histogram_quantile(\n  0.95,\n  sum by (le) (\n    rate(verifier_message_e2e_latency_seconds_bucket[$__range])\n  )\n))",
@@ -335,7 +335,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
+            "uid": "victoriametrics"
           },
           "editorMode": "code",
           "expr": "sort(histogram_quantile(\n  0.99,\n  sum by (le) (\n    rate(verifier_message_e2e_latency_seconds_bucket[$__range])\n  )\n))",
@@ -352,7 +352,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
+        "uid": "victoriametrics"
       },
       "description": "",
       "fieldConfig": {
@@ -407,7 +407,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
+            "uid": "victoriametrics"
           },
           "editorMode": "code",
           "exemplar": false,
@@ -424,7 +424,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
+        "uid": "victoriametrics"
       },
       "description": "",
       "fieldConfig": {
@@ -479,7 +479,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
+            "uid": "victoriametrics"
           },
           "editorMode": "code",
           "exemplar": false,
@@ -496,7 +496,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
+        "uid": "victoriametrics"
       },
       "description": "Source event discovery (finalized) timestamp to offchain storage write timestamp",
       "fieldConfig": {
@@ -551,7 +551,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
+            "uid": "victoriametrics"
           },
           "editorMode": "code",
           "expr": "sort(histogram_quantile(\n  0.90,\n  sum by (le) (\n    rate(executor_message_execution_duration_seconds_bucket[$__range])\n  )\n))",
@@ -564,7 +564,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
+            "uid": "victoriametrics"
           },
           "editorMode": "code",
           "expr": "sort(histogram_quantile(\n  0.95,\n  sum by (le) (\n    rate(executor_message_execution_duration_seconds_bucket[$__range])\n  )\n))",
@@ -576,7 +576,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
+            "uid": "victoriametrics"
           },
           "editorMode": "code",
           "expr": "sort(histogram_quantile(\n  0.99,\n  sum by (le) (\n    rate(executor_message_execution_duration_seconds_bucket[$__range])\n  )\n))",
@@ -593,7 +593,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
+        "uid": "victoriametrics"
       },
       "description": "Time to sign the message and schedule for offchain storage write",
       "fieldConfig": {
@@ -648,7 +648,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
+            "uid": "victoriametrics"
           },
           "editorMode": "code",
           "expr": "sort(histogram_quantile(\n  0.90,\n  sum by (le) (\n    rate(verifier_message_verification_duration_seconds_bucket[$__range])\n  )\n))",
@@ -661,7 +661,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
+            "uid": "victoriametrics"
           },
           "editorMode": "code",
           "expr": "sort(histogram_quantile(\n  0.95,\n  sum by (le) (\n    rate(verifier_message_verification_duration_seconds_bucket[$__range])\n  )\n))",
@@ -673,7 +673,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
+            "uid": "victoriametrics"
           },
           "editorMode": "code",
           "expr": "sort(histogram_quantile(\n  0.99,\n  sum by (le) (\n    rate(verifier_message_verification_duration_seconds_bucket[$__range])\n  )\n))",
@@ -690,7 +690,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
+        "uid": "victoriametrics"
       },
       "description": "",
       "fieldConfig": {
@@ -745,7 +745,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
+            "uid": "victoriametrics"
           },
           "editorMode": "code",
           "exemplar": false,
@@ -762,7 +762,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
+        "uid": "victoriametrics"
       },
       "fieldConfig": {
         "defaults": {
@@ -816,7 +816,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
+            "uid": "victoriametrics"
           },
           "editorMode": "code",
           "expr": "sort(histogram_quantile(\n  0.90,\n  sum by (le) (\n    rate(verifier_storage_write_duration_seconds_bucket[$__range])\n  )\n))",
@@ -829,7 +829,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
+            "uid": "victoriametrics"
           },
           "editorMode": "code",
           "expr": "sort(histogram_quantile(\n  0.95,\n  sum by (le) (\n    rate(verifier_storage_write_duration_seconds_bucket[$__range])\n  )\n))",
@@ -841,7 +841,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
+            "uid": "victoriametrics"
           },
           "editorMode": "code",
           "expr": "sort(histogram_quantile(\n  0.99,\n  sum by (le) (\n    rate(verifier_storage_write_duration_seconds_bucket[$__range])\n  )\n))",
@@ -858,7 +858,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
+        "uid": "victoriametrics"
       },
       "description": "",
       "fieldConfig": {
@@ -913,7 +913,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
+            "uid": "victoriametrics"
           },
           "editorMode": "code",
           "exemplar": false,
@@ -943,7 +943,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
+        "uid": "victoriametrics"
       },
       "description": "",
       "fieldConfig": {
@@ -994,7 +994,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
+            "uid": "victoriametrics"
           },
           "editorMode": "code",
           "exemplar": false,
@@ -1011,7 +1011,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
+        "uid": "victoriametrics"
       },
       "description": "",
       "fieldConfig": {
@@ -1092,7 +1092,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
+            "uid": "victoriametrics"
           },
           "editorMode": "code",
           "exemplar": false,
@@ -1109,7 +1109,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
+        "uid": "victoriametrics"
       },
       "fieldConfig": {
         "defaults": {
@@ -1161,7 +1161,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
+            "uid": "victoriametrics"
           },
           "editorMode": "code",
           "exemplar": false,
@@ -1176,7 +1176,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
+            "uid": "victoriametrics"
           },
           "editorMode": "code",
           "exemplar": false,
@@ -1191,7 +1191,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
+            "uid": "victoriametrics"
           },
           "editorMode": "code",
           "exemplar": false,
@@ -1257,7 +1257,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
+        "uid": "victoriametrics"
       },
       "fieldConfig": {
         "defaults": {
@@ -1309,7 +1309,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
+            "uid": "victoriametrics"
           },
           "editorMode": "code",
           "exemplar": false,
@@ -1388,7 +1388,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
+        "uid": "victoriametrics"
       },
       "description": "",
       "fieldConfig": {
@@ -1439,7 +1439,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
+            "uid": "victoriametrics"
           },
           "editorMode": "code",
           "exemplar": false,
@@ -1456,7 +1456,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
+        "uid": "victoriametrics"
       },
       "description": "",
       "fieldConfig": {
@@ -1537,7 +1537,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
+            "uid": "victoriametrics"
           },
           "editorMode": "code",
           "exemplar": false,
@@ -1595,7 +1595,7 @@
         },
         "datasource": {
           "type": "prometheus",
-          "uid": "PBFA97CFB590B2093"
+          "uid": "victoriametrics"
         },
         "definition": "label_values(version{env=\"$env\", node_id=~\".*ccv.*\"},node_id)",
         "hide": 2,
