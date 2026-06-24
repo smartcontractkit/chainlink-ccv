@@ -131,7 +131,7 @@ func ApplyExecutorConfig() deployment.ChangeSetV2[ApplyExecutorConfigInput] {
 		}
 
 		clNOPs := filterCLModeNOPs(nopsToValidate, cfg.NOPs)
-		if err := validateExecutorChainSupport(e, cfg.Pool, clNOPs, selectors); err != nil {
+		if err := validateExecutorChainSupport(e, cfg.Pool, clNOPs); err != nil {
 			return deployment.ChangesetOutput{}, err
 		}
 
@@ -234,7 +234,6 @@ func validateExecutorChainSupport(
 	e deployment.Environment,
 	pool ExecutorPoolInput,
 	nopsToValidate []shared.NOPAlias,
-	deployedChains []uint64,
 ) error {
 	if e.Offchain == nil {
 		e.Logger.Debugw("Offchain client not available, skipping chain support validation")
@@ -254,9 +253,16 @@ func validateExecutorChainSupport(
 	var validationResults []shared.ChainValidationResult
 	for _, nopAlias := range nopsToValidate {
 		requiredChains := requiredChainsForExecutorNOP(nopAlias, pool)
+		jdRequiredChains, err := filterChainsRequiringJDSupport(requiredChains)
+		if err != nil {
+			return err
+		}
+		if len(jdRequiredChains) == 0 {
+			continue
+		}
 		result := shared.ValidateNOPChainSupport(
 			string(nopAlias),
-			requiredChains,
+			jdRequiredChains,
 			supportedChains[string(nopAlias)],
 		)
 		if result != nil {
@@ -265,6 +271,20 @@ func validateExecutorChainSupport(
 	}
 
 	return shared.FormatChainValidationError(validationResults)
+}
+
+func filterChainsRequiringJDSupport(chains []uint64) ([]uint64, error) {
+	filtered := make([]uint64, 0, len(chains))
+	for _, sel := range chains {
+		adapter, err := adapters.GetExecutorRegistry().Get(sel)
+		if err != nil {
+			return nil, err
+		}
+		if adapter.RequiresNodeChainSupportInJD() {
+			filtered = append(filtered, sel)
+		}
+	}
+	return filtered, nil
 }
 
 func requiredChainsForExecutorNOP(nopAlias shared.NOPAlias, pool ExecutorPoolInput) []uint64 {

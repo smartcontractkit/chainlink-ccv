@@ -15,4 +15,10 @@ type ExecutorConfigAdapter interface {
 	// BuildChainConfig builds the executor chain configuration for the given chain selector
 	// and qualifier from addresses recorded in the datastore.
 	BuildChainConfig(ds datastore.DataStore, chainSelector uint64, qualifier string) (executor.ChainConfiguration, error)
+	// RequiresNodeChainSupportInJD reports whether ApplyExecutorConfig must verify that
+	// target NOPs have this chain registered in JD (ListNodeChainConfigs) before proposing
+	// ccvexecutor job specs. EVM chains require JD registration; families such as Canton
+	// that push destination blocks onto existing EVM executor jobs may return false until
+	// JD node chain configs exist for that family.
+	RequiresNodeChainSupportInJD() bool
 }
