@@ -8,6 +8,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/grafana/pyroscope-go"
 	"github.com/jmoiron/sqlx"
 	"go.uber.org/zap/zapcore"
 
@@ -79,6 +80,23 @@ func main() {
 	} else {
 		lggr.Infow("Monitoring disabled, using noop implementation")
 		indexerMonitoring = monitoring.NewNoopIndexerMonitoring()
+	}
+
+	if config.PyroscopeURL != "" {
+		if _, err := pyroscope.Start(pyroscope.Config{
+			ApplicationName: "indexer",
+			ServerAddress:   config.PyroscopeURL,
+			ProfileTypes: []pyroscope.ProfileType{
+				pyroscope.ProfileCPU,
+				pyroscope.ProfileAllocObjects,
+				pyroscope.ProfileAllocSpace,
+				pyroscope.ProfileGoroutines,
+				pyroscope.ProfileBlockDuration,
+				pyroscope.ProfileMutexDuration,
+			},
+		}); err != nil {
+			lggr.Fatalf("Failed to initialize pyroscope client: %v", err)
+		}
 	}
 
 	protocol.InitChainSelectorCache()
