@@ -85,13 +85,18 @@ func NewFanOutAggregatorWriter(
 			return nil, fmt.Errorf("failed to create aggregator writer for %q: %w", t.Label, err)
 		}
 
-		observed := NewObservedAggregatorWriter(
+		observed, err := NewObservedAggregatorWriter(
 			NewDefaultResilientStorageWriter(aggWriter, logger.With(lggr, "aggregator", t.Label)),
 			verifierID,
 			t.Label,
 			lggr,
 			monitoring,
 		)
+		if err != nil {
+			// Best-effort close anything created so far before returning.
+			_ = f.Close()
+			return nil, fmt.Errorf("failed to create observed aggregator writer for %q: %w", t.Label, err)
+		}
 
 		f.writers = append(f.writers, namedWriter{label: t.Label, writer: observed})
 		f.closers = append(f.closers, aggWriter)

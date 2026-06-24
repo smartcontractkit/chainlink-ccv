@@ -2,6 +2,7 @@ package storageaccess
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -15,9 +16,8 @@ type observedStorageWriter struct {
 	protocol.CCVNodeDataWriter
 
 	verifierID string
-	// aggregatorLabel, when non-empty, scopes this observer to a single aggregator and is
-	// emitted as the "aggregator" label on metrics/logs. Empty means the observer covers the
-	// aggregate (fan-out-wide) outcome.
+	// aggregatorLabel scopes this observer to a single aggregator and is
+	// emitted as the "aggregator_name" label on metrics/logs.
 	aggregatorLabel string
 	lggr            logger.Logger
 	monitoring      verifier.Monitoring
@@ -46,24 +46,27 @@ func NewObservedAggregatorWriter(
 	aggregatorLabel string,
 	lggr logger.Logger,
 	monitoring verifier.Monitoring,
-) protocol.CCVNodeDataWriter {
+) (protocol.CCVNodeDataWriter, error) {
+	if aggregatorLabel == "" {
+		return nil, errors.New("aggregator label is required")
+	}
+
 	return &observedStorageWriter{
 		CCVNodeDataWriter: delegate,
 		verifierID:        verifierID,
 		aggregatorLabel:   aggregatorLabel,
 		lggr:              logger.With(lggr, "aggregator", aggregatorLabel),
 		monitoring:        monitoring,
-	}
+	}, nil
 }
 
 // metrics returns the metric labeler scoped to this observer's verifier_id and (when set)
 // aggregator label.
 func (o *observedStorageWriter) metrics() verifier.MetricLabeler {
-	m := o.monitoring.Metrics().With("verifier_id", o.verifierID)
-	if o.aggregatorLabel != "" {
-		m = m.With("aggregator", o.aggregatorLabel)
-	}
-	return m
+	return o.monitoring.
+		Metrics().
+		With("verifier_id", o.verifierID).
+		With("aggregator_name", o.aggregatorLabel)
 }
 
 func (o *observedStorageWriter) WriteCCVNodeData(ctx context.Context, ccvDataList []protocol.VerifierNodeResult) ([]protocol.WriteResult, error) {

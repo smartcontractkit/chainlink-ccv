@@ -146,5 +146,5 @@ type aggregatorLabeledMonitoring struct {
 }
 
 func (m aggregatorLabeledMonitoring) Metrics() MetricLabeler {
-	return m.inner.Metrics().With("aggregator", m.label)
+	return m.inner.Metrics().With("aggregator_name", m.label)
 }
