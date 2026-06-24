@@ -5,9 +5,10 @@ import (
 
 	"github.com/Masterminds/semver/v3"
 	"github.com/ethereum/go-ethereum/common"
-	cldf_chain "github.com/smartcontractkit/chainlink-deployments-framework/chain"
+
+	cldfchain "github.com/smartcontractkit/chainlink-deployments-framework/chain"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
-	cldf_ops "github.com/smartcontractkit/chainlink-deployments-framework/operations"
+	cldfops "github.com/smartcontractkit/chainlink-deployments-framework/operations"
 
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_0_0/operations/rmn_proxy"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/sequences"
@@ -25,11 +26,11 @@ type EVMCommitteeVerifierDeployAdapter struct{}
 
 var _ ccvdeploymentadapters.CommitteeVerifierDeployAdapter = (*EVMCommitteeVerifierDeployAdapter)(nil)
 
-var evmDeployCommitteeVerifier = cldf_ops.NewSequence(
+var evmDeployCommitteeVerifier = cldfops.NewSequence(
 	"evm-deploy-committee-verifier",
 	semver.MustParse("2.0.0"),
 	"Chain-agnostic wrapper around the EVM DeployCommitteeVerifier sequence",
-	func(b cldf_ops.Bundle, chains cldf_chain.BlockChains, input ccvdeploymentadapters.DeployCommitteeVerifierInput) (ccvdeploymentadapters.DeployCommitteeVerifierOutput, error) {
+	func(b cldfops.Bundle, chains cldfchain.BlockChains, input ccvdeploymentadapters.DeployCommitteeVerifierInput) (ccvdeploymentadapters.DeployCommitteeVerifierOutput, error) {
 		evmChains := chains.EVMChains()
 		evmChain, ok := evmChains[input.ChainSelector]
 		if !ok {
@@ -80,7 +81,7 @@ var evmDeployCommitteeVerifier = cldf_ops.NewSequence(
 			},
 		}
 
-		report, err := cldf_ops.ExecuteSequence(b, sequences.DeployCommitteeVerifier, evmChain, evmInput)
+		report, err := cldfops.ExecuteSequence(b, sequences.DeployCommitteeVerifier, evmChain, evmInput)
 		if err != nil {
 			return ccvdeploymentadapters.DeployCommitteeVerifierOutput{},
 				fmt.Errorf("EVM DeployCommitteeVerifier failed: %w", err)
@@ -93,7 +94,7 @@ var evmDeployCommitteeVerifier = cldf_ops.NewSequence(
 	},
 )
 
-func (a *EVMCommitteeVerifierDeployAdapter) DeployCommitteeVerifier() *cldf_ops.Sequence[ccvdeploymentadapters.DeployCommitteeVerifierInput, ccvdeploymentadapters.DeployCommitteeVerifierOutput, cldf_chain.BlockChains] {
+func (a *EVMCommitteeVerifierDeployAdapter) DeployCommitteeVerifier() *cldfops.Sequence[ccvdeploymentadapters.DeployCommitteeVerifierInput, ccvdeploymentadapters.DeployCommitteeVerifierOutput, cldfchain.BlockChains] {
 	return evmDeployCommitteeVerifier
 }
 

@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/ethereum/go-ethereum/common"
+
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	nodev1 "github.com/smartcontractkit/chainlink-protos/job-distributor/v1/node"
 
@@ -13,7 +14,6 @@ import (
 )
 
 func init() {
-
 	// EVM chain-type and address registration for the ccv deployment layer.
 	shared.RegisterChainTypeFamily(nodev1.ChainType_CHAIN_TYPE_EVM, chainsel.FamilyEVM)
 	shared.RegisterAddressNormalizer(chainsel.FamilyEVM, func(addr string) string {
@@ -24,7 +24,7 @@ func init() {
 		return lower
 	})
 
-	//Register all EVM ccv adapter implementations into the ccv singleton registries.
+	// Register all EVM ccv adapter implementations into the ccv singleton registries.
 	ccvdeploymentadapters.GetAggregatorRegistry().Register(chainsel.FamilyEVM, &EVMCCVAggregatorConfigAdapter{})
 	ccvdeploymentadapters.GetExecutorRegistry().Register(chainsel.FamilyEVM, &EVMCCVExecutorConfigAdapter{})
 	ccvdeploymentadapters.GetVerifierRegistry().Register(chainsel.FamilyEVM, &EVMCCVVerifierConfigAdapter{})

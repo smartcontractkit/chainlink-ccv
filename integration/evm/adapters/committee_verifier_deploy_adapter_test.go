@@ -11,12 +11,12 @@ import (
 	"github.com/smartcontractkit/chainlink-deployments-framework/engine/test/environment"
 	cldf_ops "github.com/smartcontractkit/chainlink-deployments-framework/operations"
 
-	contract_utils "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/utils/operations/contract"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_0_0/operations/rmn_proxy"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/adapters"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/create2_factory"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/committee_verifier"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/versioned_verifier_resolver"
+	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm/operations/contract"
 
 	ccvdeploymentadapters "github.com/smartcontractkit/chainlink-ccv/deployment/adapters"
 )
@@ -156,9 +156,9 @@ func TestEVMCommitteeVerifierDeployAdapter_HappyPath(t *testing.T) {
 
 	evmChain := e.BlockChains.EVMChains()[testChainSelector]
 
-	create2FactoryRef, err := contract_utils.MaybeDeployContract(
+	create2FactoryRef, err := contract.MaybeDeployContract(
 		e.OperationsBundle, create2_factory.Deploy, evmChain,
-		contract_utils.DeployInput[create2_factory.ConstructorArgs]{
+		contract.DeployInput[create2_factory.ConstructorArgs]{
 			TypeAndVersion: deployment.NewTypeAndVersion(create2_factory.ContractType, *create2_factory.Version),
 			ChainSelector:  testChainSelector,
 			Args: create2_factory.ConstructorArgs{
@@ -218,9 +218,9 @@ func TestEVMCommitteeVerifierDeployAdapter_AllowlistAdminOptional(t *testing.T) 
 	e.DataStore = datastore.NewMemoryDataStore().Seal()
 
 	evmChain := e.BlockChains.EVMChains()[testChainSelector]
-	create2FactoryRef, err := contract_utils.MaybeDeployContract(
+	create2FactoryRef, err := contract.MaybeDeployContract(
 		e.OperationsBundle, create2_factory.Deploy, evmChain,
-		contract_utils.DeployInput[create2_factory.ConstructorArgs]{
+		contract.DeployInput[create2_factory.ConstructorArgs]{
 			TypeAndVersion: deployment.NewTypeAndVersion(create2_factory.ContractType, *create2_factory.Version),
 			ChainSelector:  testChainSelector,
 			Args:           create2_factory.ConstructorArgs{AllowList: []common.Address{evmChain.DeployerKey.From}},

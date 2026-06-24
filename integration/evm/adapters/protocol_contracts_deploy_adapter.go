@@ -7,10 +7,11 @@ import (
 
 	"github.com/Masterminds/semver/v3"
 	"github.com/ethereum/go-ethereum/common"
+
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/executor"
 
-	cldf_chain "github.com/smartcontractkit/chainlink-deployments-framework/chain"
-	cldf_ops "github.com/smartcontractkit/chainlink-deployments-framework/operations"
+	cldfchain "github.com/smartcontractkit/chainlink-deployments-framework/chain"
+	cldfops "github.com/smartcontractkit/chainlink-deployments-framework/operations"
 
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/sequences"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/finality"
@@ -80,11 +81,11 @@ type EVMProtocolContractsDeployAdapter struct{}
 
 var _ ccvdeploymentadapters.ProtocolContractsDeployAdapter = (*EVMProtocolContractsDeployAdapter)(nil)
 
-var evmDeployProtocolContracts = cldf_ops.NewSequence(
+var evmDeployProtocolContracts = cldfops.NewSequence(
 	"evm-deploy-protocol-contracts",
 	semver.MustParse("2.0.0"),
 	"Chain-agnostic wrapper around the EVM DeployChainContracts sequence that deploys protocol contracts only (no committee verifiers)",
-	func(b cldf_ops.Bundle, chains cldf_chain.BlockChains, input ccvdeploymentadapters.ProtocolContractsDeployInput) (ccvdeploymentadapters.ProtocolContractsDeployOutput, error) {
+	func(b cldfops.Bundle, chains cldfchain.BlockChains, input ccvdeploymentadapters.ProtocolContractsDeployInput) (ccvdeploymentadapters.ProtocolContractsDeployOutput, error) {
 		evmChains := chains.EVMChains()
 		evmChain, ok := evmChains[input.ChainSelector]
 		if !ok {
@@ -98,7 +99,7 @@ var evmDeployProtocolContracts = cldf_ops.NewSequence(
 				fmt.Errorf("failed to convert protocol contracts deploy input to EVM types: %w", err)
 		}
 
-		report, err := cldf_ops.ExecuteSequence(b, sequences.DeployChainContracts, evmChain, evmInput)
+		report, err := cldfops.ExecuteSequence(b, sequences.DeployChainContracts, evmChain, evmInput)
 		if err != nil {
 			return ccvdeploymentadapters.ProtocolContractsDeployOutput{},
 				fmt.Errorf("EVM DeployChainContracts (protocol-only) failed: %w", err)
@@ -112,7 +113,7 @@ var evmDeployProtocolContracts = cldf_ops.NewSequence(
 	},
 )
 
-func (a *EVMProtocolContractsDeployAdapter) DeployProtocolContracts() *cldf_ops.Sequence[ccvdeploymentadapters.ProtocolContractsDeployInput, ccvdeploymentadapters.ProtocolContractsDeployOutput, cldf_chain.BlockChains] {
+func (a *EVMProtocolContractsDeployAdapter) DeployProtocolContracts() *cldfops.Sequence[ccvdeploymentadapters.ProtocolContractsDeployInput, ccvdeploymentadapters.ProtocolContractsDeployOutput, cldfchain.BlockChains] {
 	return evmDeployProtocolContracts
 }
 
@@ -221,11 +222,10 @@ func protocolContractsExecutorOverrides(extras map[string]any) (executorDeployOv
 	}
 	overrides.allowedFinality = allowedFinality
 
-	if v, ok, err := extraBoundedInt(extras, ProtocolContractsExecutorMaxCCVsPerMsgExtra, math.MaxUint8); err != nil {
+	if v, ok, err := extraBoundedUint[uint8](extras, ProtocolContractsExecutorMaxCCVsPerMsgExtra, math.MaxUint8); err != nil {
 		return overrides, err
 	} else if ok {
-		maxCCVs := uint8(v)
-		overrides.maxCCVsPerMsg = &maxCCVs
+		overrides.maxCCVsPerMsg = &v
 	}
 
 	if enabled, ok, err := extraBool(extras, ProtocolContractsExecutorCcvAllowlistEnabledExtra); err != nil {
@@ -242,7 +242,7 @@ func protocolContractsExecutorOverrides(extras map[string]any) (executorDeployOv
 // default applies). When either key is present it builds the finality.Config
 // from ExecutorBlockDepth (integer, 0-65535) and ExecutorWaitForSafe (bool).
 func protocolContractsExecutorFinality(extras map[string]any) (*finality.Config, error) {
-	depth, hasDepth, err := extraBoundedInt(extras, ProtocolContractsExecutorBlockDepthExtra, math.MaxUint16)
+	depth, hasDepth, err := extraBoundedUint[uint16](extras, ProtocolContractsExecutorBlockDepthExtra, math.MaxUint16)
 	if err != nil {
 		return nil, err
 	}
@@ -254,7 +254,7 @@ func protocolContractsExecutorFinality(extras map[string]any) (*finality.Config,
 		return nil, nil
 	}
 	return &finality.Config{
-		BlockDepth:  uint16(depth),
+		BlockDepth:  depth,
 		WaitForSafe: safe,
 	}, nil
 }
@@ -269,34 +269,34 @@ func applyProtocolContractParamOverrides(params *ccvadapters.DeployContractParam
 		params.RMNRemote.LegacyRMN = v
 	}
 
-	if v, ok, err := extraBoundedInt(extras, ProtocolContractsOffRampGasForCallExactCheckExtra, math.MaxUint16); err != nil {
+	if v, ok, err := extraBoundedUint[uint16](extras, ProtocolContractsOffRampGasForCallExactCheckExtra, math.MaxUint16); err != nil {
 		return err
 	} else if ok {
-		params.OffRamp.GasForCallExactCheck = uint16(v)
+		params.OffRamp.GasForCallExactCheck = v
 	}
 
-	if v, ok, err := extraBoundedInt(extras, ProtocolContractsOffRampMaxGasBufferToUpdateStateExtra, math.MaxUint32); err != nil {
+	if v, ok, err := extraBoundedUint[uint32](extras, ProtocolContractsOffRampMaxGasBufferToUpdateStateExtra, math.MaxUint32); err != nil {
 		return err
 	} else if ok {
-		params.OffRamp.MaxGasBufferToUpdateState = uint32(v)
+		params.OffRamp.MaxGasBufferToUpdateState = v
 	}
 
-	if v, ok, err := extraBoundedInt(extras, ProtocolContractsOnRampMaxUSDCentsPerMessageExtra, math.MaxUint32); err != nil {
+	if v, ok, err := extraBoundedUint[uint32](extras, ProtocolContractsOnRampMaxUSDCentsPerMessageExtra, math.MaxUint32); err != nil {
 		return err
 	} else if ok {
-		params.OnRamp.MaxUSDCentsPerMessage = uint32(v)
+		params.OnRamp.MaxUSDCentsPerMessage = v
 	}
 
-	if v, ok, err := extraBoundedInt(extras, ProtocolContractsFeeQuoterLINKPremiumMultiplierWeiPerEthExtra, math.MaxInt64); err != nil {
+	if v, ok, err := extraBoundedUint[uint64](extras, ProtocolContractsFeeQuoterLINKPremiumMultiplierWeiPerEthExtra, math.MaxInt64); err != nil {
 		return err
 	} else if ok {
-		params.FeeQuoter.LINKPremiumMultiplierWeiPerEth = uint64(v)
+		params.FeeQuoter.LINKPremiumMultiplierWeiPerEth = v
 	}
 
-	if v, ok, err := extraBoundedInt(extras, ProtocolContractsFeeQuoterWETHPremiumMultiplierWeiPerEthExtra, math.MaxInt64); err != nil {
+	if v, ok, err := extraBoundedUint[uint64](extras, ProtocolContractsFeeQuoterWETHPremiumMultiplierWeiPerEthExtra, math.MaxInt64); err != nil {
 		return err
 	} else if ok {
-		params.FeeQuoter.WETHPremiumMultiplierWeiPerEth = uint64(v)
+		params.FeeQuoter.WETHPremiumMultiplierWeiPerEth = v
 	}
 
 	if v, ok, err := extraBigInt(extras, ProtocolContractsFeeQuoterMaxFeeJuelsPerMsgExtra); err != nil {
@@ -321,8 +321,8 @@ func applyProtocolContractParamOverrides(params *ccvadapters.DeployContractParam
 }
 
 // extraBoundedInt reads an optional integer FamilyExtras value, validating it is
-// within [0, max]. The bool return is false when the key is absent.
-func extraBoundedInt(extras map[string]any, key string, max int64) (int64, bool, error) {
+// within [0, upperBound]. The bool return is false when the key is absent.
+func extraBoundedInt(extras map[string]any, key string, upperBound int64) (int64, bool, error) {
 	raw, present := extras[key]
 	if !present {
 		return 0, false, nil
@@ -331,10 +331,20 @@ func extraBoundedInt(extras map[string]any, key string, max int64) (int64, bool,
 	if !ok {
 		return 0, false, fmt.Errorf("FamilyExtras[%q] must be an integer, got %T", key, raw)
 	}
-	if n < 0 || n > max {
-		return 0, false, fmt.Errorf("FamilyExtras[%q] must be in [0, %d], got %d", key, max, n)
+	if n < 0 || n > upperBound {
+		return 0, false, fmt.Errorf("FamilyExtras[%q] must be in [0, %d], got %d", key, upperBound, n)
 	}
 	return n, true, nil
+}
+
+// extraBoundedUint reads an optional integer FamilyExtras value, validates it
+// is within [0, upperBound], and returns it as the requested unsigned type.
+func extraBoundedUint[T ~uint8 | ~uint16 | ~uint32 | ~uint64](extras map[string]any, key string, upperBound int64) (T, bool, error) {
+	v, ok, err := extraBoundedInt(extras, key, upperBound)
+	if err != nil || !ok {
+		return 0, ok, err
+	}
+	return T(v), true, nil
 }
 
 // extraBigInt reads an optional base-10 integer string FamilyExtras value into a
@@ -373,7 +383,7 @@ func extraString(extras map[string]any, key string) (string, bool, error) {
 
 // extraBool reads an optional bool FamilyExtras value. The bool ok return is
 // false when the key is absent.
-func extraBool(extras map[string]any, key string) (value bool, ok bool, err error) {
+func extraBool(extras map[string]any, key string) (value, ok bool, err error) {
 	raw, present := extras[key]
 	if !present {
 		return false, false, nil

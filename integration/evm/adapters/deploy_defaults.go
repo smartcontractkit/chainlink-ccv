@@ -60,7 +60,8 @@ func defaultFinalityConfig() finality.Config {
 
 func defaultExecutorParams(feeAggr string) []ccvadapters.ExecutorDeployParams {
 	return []ccvadapters.ExecutorDeployParams{
-		{Version: executor.Version,
+		{
+			Version:       executor.Version,
 			MaxCCVsPerMsg: 10,
 			DynamicConfig: ccvadapters.ExecutorDynamicDeployConfig{
 				FeeAggregator:         feeAggr,

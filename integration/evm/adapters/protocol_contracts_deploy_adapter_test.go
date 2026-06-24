@@ -13,7 +13,6 @@ import (
 	"github.com/smartcontractkit/chainlink-deployments-framework/engine/test/environment"
 	cldf_ops "github.com/smartcontractkit/chainlink-deployments-framework/operations"
 
-	contract_utils "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/utils/operations/contract"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_2_0/operations/router"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/adapters"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/create2_factory"
@@ -23,6 +22,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/offramp"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/onramp"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/finality"
+	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm/operations/contract"
 
 	ccvdeploymentadapters "github.com/smartcontractkit/chainlink-ccv/deployment/adapters"
 )
@@ -176,9 +176,9 @@ func TestEVMProtocolContractsDeployAdapter_HappyPath(t *testing.T) {
 
 	evmChain := e.BlockChains.EVMChains()[testChainSelector]
 
-	create2FactoryRef, err := contract_utils.MaybeDeployContract(
+	create2FactoryRef, err := contract.MaybeDeployContract(
 		e.OperationsBundle, create2_factory.Deploy, evmChain,
-		contract_utils.DeployInput[create2_factory.ConstructorArgs]{
+		contract.DeployInput[create2_factory.ConstructorArgs]{
 			TypeAndVersion: deployment.NewTypeAndVersion(create2_factory.ContractType, *create2_factory.Version),
 			ChainSelector:  testChainSelector,
 			Args: create2_factory.ConstructorArgs{
@@ -275,9 +275,9 @@ func TestEVMProtocolContractsDeployAdapter_ExecutorOverrides(t *testing.T) {
 
 			evmChain := e.BlockChains.EVMChains()[testChainSelector]
 
-			create2FactoryRef, err := contract_utils.MaybeDeployContract(
+			create2FactoryRef, err := contract.MaybeDeployContract(
 				e.OperationsBundle, create2_factory.Deploy, evmChain,
-				contract_utils.DeployInput[create2_factory.ConstructorArgs]{
+				contract.DeployInput[create2_factory.ConstructorArgs]{
 					TypeAndVersion: deployment.NewTypeAndVersion(create2_factory.ContractType, *create2_factory.Version),
 					ChainSelector:  testChainSelector,
 					Args: create2_factory.ConstructorArgs{
@@ -315,7 +315,7 @@ func TestEVMProtocolContractsDeployAdapter_ExecutorOverrides(t *testing.T) {
 
 			finalityCfg, err := cldf_ops.ExecuteOperation(
 				e.OperationsBundle, executor.GetAllowedFinalityConfig, evmChain,
-				contract_utils.FunctionInput[struct{}]{
+				contract.FunctionInput[struct{}]{
 					ChainSelector: evmChain.Selector,
 					Address:       common.HexToAddress(executorAddr),
 				},
@@ -325,7 +325,7 @@ func TestEVMProtocolContractsDeployAdapter_ExecutorOverrides(t *testing.T) {
 
 			dynamicCfg, err := cldf_ops.ExecuteOperation(
 				e.OperationsBundle, executor.GetDynamicConfig, evmChain,
-				contract_utils.FunctionInput[struct{}]{
+				contract.FunctionInput[struct{}]{
 					ChainSelector: evmChain.Selector,
 					Address:       common.HexToAddress(executorAddr),
 				},
@@ -335,7 +335,7 @@ func TestEVMProtocolContractsDeployAdapter_ExecutorOverrides(t *testing.T) {
 
 			maxCCVs, err := cldf_ops.ExecuteOperation(
 				e.OperationsBundle, executor.GetMaxCCVsPerMessage, evmChain,
-				contract_utils.FunctionInput[struct{}]{
+				contract.FunctionInput[struct{}]{
 					ChainSelector: evmChain.Selector,
 					Address:       common.HexToAddress(executorAddr),
 				},
@@ -361,9 +361,9 @@ func TestEVMProtocolContractsDeployAdapter_ContractParamOverrides(t *testing.T) 
 
 	evmChain := e.BlockChains.EVMChains()[testChainSelector]
 
-	create2FactoryRef, err := contract_utils.MaybeDeployContract(
+	create2FactoryRef, err := contract.MaybeDeployContract(
 		e.OperationsBundle, create2_factory.Deploy, evmChain,
-		contract_utils.DeployInput[create2_factory.ConstructorArgs]{
+		contract.DeployInput[create2_factory.ConstructorArgs]{
 			TypeAndVersion: deployment.NewTypeAndVersion(create2_factory.ContractType, *create2_factory.Version),
 			ChainSelector:  testChainSelector,
 			Args: create2_factory.ConstructorArgs{
@@ -411,7 +411,7 @@ func TestEVMProtocolContractsDeployAdapter_ContractParamOverrides(t *testing.T) 
 
 	offRampStatic, err := cldf_ops.ExecuteOperation(
 		e.OperationsBundle, offramp.GetStaticConfig, evmChain,
-		contract_utils.FunctionInput[struct{}]{
+		contract.FunctionInput[struct{}]{
 			ChainSelector: evmChain.Selector,
 			Address:       common.HexToAddress(addrByType[datastore.ContractType(offramp.ContractType)]),
 		},
@@ -422,7 +422,7 @@ func TestEVMProtocolContractsDeployAdapter_ContractParamOverrides(t *testing.T) 
 
 	onRampStatic, err := cldf_ops.ExecuteOperation(
 		e.OperationsBundle, onramp.GetStaticConfig, evmChain,
-		contract_utils.FunctionInput[struct{}]{
+		contract.FunctionInput[struct{}]{
 			ChainSelector: evmChain.Selector,
 			Address:       common.HexToAddress(addrByType[datastore.ContractType(onramp.ContractType)]),
 		},
@@ -432,7 +432,7 @@ func TestEVMProtocolContractsDeployAdapter_ContractParamOverrides(t *testing.T) 
 
 	feeQuoterStatic, err := cldf_ops.ExecuteOperation(
 		e.OperationsBundle, fee_quoter.GetStaticConfig, evmChain,
-		contract_utils.FunctionInput[struct{}]{
+		contract.FunctionInput[struct{}]{
 			ChainSelector: evmChain.Selector,
 			Address:       common.HexToAddress(addrByType[datastore.ContractType(fee_quoter.ContractType)]),
 		},
