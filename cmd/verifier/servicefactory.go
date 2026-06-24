@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"os"
 	"slices"
 	"strconv"
 	"time"
@@ -35,8 +34,8 @@ type factory struct {
 	server           *http.Server
 	coordinator      *verifier.Coordinator
 	profiler         *pyroscope.Profiler
-	aggregatorWriter *storageaccess.AggregatorWriter
-	heartbeatClient  *heartbeatclient.HeartbeatClient
+	aggregatorWriter *storageaccess.FanOutWriter
+	heartbeatClient  heartbeatclient.HeartbeatSender
 	chainStatusDB    sqlutil.DataSource
 }
 
@@ -65,36 +64,14 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 	}
 	lggr.Infow("Using blockchain information from config", "info", genericConfig.ChainConfig)
 
-	// TODO: this should be passed in via the config maybe?
-	apiKey := os.Getenv("VERIFIER_AGGREGATOR_API_KEY")
-	if apiKey == "" {
-		lggr.Errorw("VERIFIER_AGGREGATOR_API_KEY environment variable is required")
-		return fmt.Errorf("VERIFIER_AGGREGATOR_API_KEY environment variable is required")
+	if config.PyroscopeURL != "" {
+		profiler, err := StartPyroscope(lggr, config.PyroscopeURL, "verifier")
+		if err != nil {
+			lggr.Errorw("Failed to start pyroscope", "error", err)
+			return fmt.Errorf("failed to start pyroscope: %w", err)
+		}
+		f.profiler = profiler
 	}
-	if err := hmac.ValidateAPIKey(apiKey); err != nil {
-		lggr.Errorw("Invalid VERIFIER_AGGREGATOR_API_KEY", "error", err)
-		return fmt.Errorf("invalid VERIFIER_AGGREGATOR_API_KEY: %w", err)
-	}
-	lggr.Infow("Loaded VERIFIER_AGGREGATOR_API_KEY from environment")
-
-	// TODO: this should be passed in via the config maybe?
-	secretKey := os.Getenv("VERIFIER_AGGREGATOR_SECRET_KEY")
-	if secretKey == "" {
-		lggr.Errorw("VERIFIER_AGGREGATOR_SECRET_KEY environment variable is required")
-		return fmt.Errorf("VERIFIER_AGGREGATOR_SECRET_KEY environment variable is required")
-	}
-	if err := hmac.ValidateSecret(secretKey); err != nil {
-		lggr.Errorw("Invalid VERIFIER_AGGREGATOR_SECRET_KEY", "error", err)
-		return fmt.Errorf("invalid VERIFIER_AGGREGATOR_SECRET_KEY: %w", err)
-	}
-	lggr.Infow("Loaded VERIFIER_AGGREGATOR_SECRET_KEY from environment")
-
-	profiler, err := StartPyroscope(lggr, config.PyroscopeURL, "verifier")
-	if err != nil {
-		lggr.Errorw("Failed to start pyroscope", "error", err)
-		return fmt.Errorf("failed to start pyroscope: %w", err)
-	}
-	f.profiler = profiler
 
 	chainSelectors := genericConfig.ChainConfig.GetAllChainSelectors()
 
@@ -118,25 +95,45 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 		defaultExecutorAddresses[selector] = addr
 	}
 
-	hmacConfig := &hmac.ClientConfig{
-		APIKey: apiKey,
-		Secret: secretKey,
-	}
-
-	aggregatorWriter, err := storageaccess.NewAggregatorWriter(
-		config.AggregatorAddress,
-		lggr,
-		hmacConfig,
-		config.InsecureAggregatorConnection,
-		config.AggregatorMaxSendMsgSizeBytes,
-		config.AggregatorMaxRecvMsgSizeBytes,
-	)
+	// Resolve the aggregators this job writes to, heartbeats, and reads disablement rules from.
+	// Backwards compatible: a legacy single aggregator_address resolves to a one-element list.
+	resolvedAggregators, err := config.ResolvedAggregators()
 	if err != nil {
-		lggr.Errorw("Failed to create aggregator writer", "error", err)
-		return fmt.Errorf("failed to create aggregator writer: %w", err)
+		lggr.Errorw("Invalid aggregator configuration", "error", err)
+		return fmt.Errorf("invalid aggregator configuration: %w", err)
+	}
+	lggr.Infow("Resolved aggregators", "count", len(resolvedAggregators))
+
+	// Each aggregator authenticates the verifier with its own HMAC credential, read from
+	// per-aggregator environment variables (VERIFIER_AGGREGATOR_<NAME>_API_KEY/SECRET_KEY).
+	aggregatorHMACs := make([]*hmac.ClientConfig, len(resolvedAggregators))
+	for i, a := range resolvedAggregators {
+		hmacConfig, hErr := a.ResolveHMACConfig()
+		if hErr != nil {
+			lggr.Errorw("Failed to resolve aggregator credentials", "error", hErr, "aggregator", a.Label())
+			return fmt.Errorf("failed to resolve aggregator credentials: %w", hErr)
+		}
+		aggregatorHMACs[i] = hmacConfig
 	}
 
-	f.aggregatorWriter = aggregatorWriter
+	writeTargets := make([]storageaccess.AggregatorTarget, len(resolvedAggregators))
+	heartbeatTargets := make([]heartbeatclient.AggregatorTarget, len(resolvedAggregators))
+	for i, a := range resolvedAggregators {
+		writeTargets[i] = storageaccess.AggregatorTarget{
+			Label:               a.Label(),
+			Address:             a.Address,
+			Insecure:            a.InsecureConnection,
+			HMACConfig:          aggregatorHMACs[i],
+			MaxSendMsgSizeBytes: a.MaxSendMsgSizeBytes,
+			MaxRecvMsgSizeBytes: a.MaxRecvMsgSizeBytes,
+		}
+		heartbeatTargets[i] = heartbeatclient.AggregatorTarget{
+			Label:      a.Label(),
+			Address:    a.Address,
+			Insecure:   a.InsecureConnection,
+			HMACConfig: aggregatorHMACs[i],
+		}
+	}
 
 	sourceReaders := make(map[protocol.ChainSelector]chainaccess.SourceReader)
 	for _, selector := range chainSelectors {
@@ -214,47 +211,40 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 		return fmt.Errorf("failed to create commit verifier: %w", err)
 	}
 
+	// Write fan-out: one resilient + observed stack per aggregator, all writes fan out to every
+	// aggregator (all-must-ack). The top-level observed writer records the aggregate outcome.
+	fanOutWriter, err := storageaccess.NewFanOutAggregatorWriter(
+		writeTargets,
+		config.VerifierID,
+		lggr,
+		verifierMonitoring,
+	)
+	if err != nil {
+		lggr.Errorw("Failed to create fan-out aggregator writer", "error", err)
+		return fmt.Errorf("failed to create fan-out aggregator writer: %w", err)
+	}
+	f.aggregatorWriter = fanOutWriter
+
 	observedStorageWriter := storageaccess.NewObservedStorageWriter(
-		storageaccess.NewDefaultResilientStorageWriter(
-			aggregatorWriter,
-			lggr,
-		),
+		fanOutWriter,
 		config.VerifierID,
 		lggr,
 		verifierMonitoring,
 	)
 
-	heartbeatClient, err := heartbeatclient.NewHeartbeatClient(
-		config.AggregatorAddress,
-		lggr,
-		hmacConfig,
-		config.InsecureAggregatorConnection,
-	)
-	if err != nil {
-		lggr.Errorw("Failed to create heartbeat client", "error", err)
-		return fmt.Errorf("failed to create heartbeat client: %w", err)
-	}
-
-	f.heartbeatClient = heartbeatClient
-
-	observedHeartbeatClient := heartbeatclient.NewObservedHeartbeatClient(
-		heartbeatClient,
+	// Heartbeat fan-out: send liveness to every aggregator; per-aggregator metrics are recorded
+	// inside each wrapped observed client. A failure to one aggregator is non-blocking.
+	heartbeatSender, err := heartbeatclient.NewFanOutHeartbeatSender(
+		heartbeatTargets,
 		config.VerifierID,
 		lggr,
 		heartbeat.NewHeartbeatMonitoringAdapter(verifierMonitoring),
 	)
-
-	messageRulesClient, err := messagerules.NewGRPCClient(
-		config.AggregatorAddress,
-		lggr,
-		hmacConfig,
-		config.InsecureAggregatorConnection,
-		config.AggregatorMaxRecvMsgSizeBytes,
-	)
 	if err != nil {
-		lggr.Errorw("Failed to create message rules gRPC client", "error", err)
-		return fmt.Errorf("failed to create message rules client: %w", err)
+		lggr.Errorw("Failed to create fan-out heartbeat sender", "error", err)
+		return fmt.Errorf("failed to create fan-out heartbeat sender: %w", err)
 	}
+	f.heartbeatClient = heartbeatSender
 
 	messageRulesPollInterval, err := config.MessageDisablementRulesPollIntervalDuration()
 	if err != nil {
@@ -265,16 +255,44 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 		return fmt.Errorf("message disablement rules client timeout: %w", err)
 	}
 
-	messageRulesPoller, err := messagerules.NewPollerService(
-		messageRulesClient,
-		messageRulesPollInterval,
-		messageRulesClientTimeout,
-		logger.With(lggr, "component", "MessageRulesPoller"),
-		verifierMonitoring.Metrics(),
+	// Message-rules union: one poller per aggregator; a message is disabled if any aggregator
+	// disables it (fail-safe union), and verification is blocked while any source is unknown.
+	namedPollers := make([]messagerules.NamedPoller, 0, len(resolvedAggregators))
+	for i, a := range resolvedAggregators {
+		aggLggr := logger.With(lggr, "component", "MessageRulesPoller", "aggregator", a.Label())
+		messageRulesClient, rErr := messagerules.NewGRPCClient(
+			a.Address,
+			aggLggr,
+			aggregatorHMACs[i],
+			a.InsecureConnection,
+			a.MaxRecvMsgSizeBytes,
+		)
+		if rErr != nil {
+			lggr.Errorw("Failed to create message rules gRPC client", "error", rErr, "aggregator", a.Label())
+			return fmt.Errorf("failed to create message rules client for %q: %w", a.Label(), rErr)
+		}
+
+		poller, rErr := messagerules.NewPollerService(
+			messageRulesClient,
+			messageRulesPollInterval,
+			messageRulesClientTimeout,
+			aggLggr,
+			verifierMonitoring.Metrics().With("aggregator", a.Label()),
+		)
+		if rErr != nil {
+			lggr.Errorw("Failed to create message rules poller", "error", rErr, "aggregator", a.Label())
+			return fmt.Errorf("failed to create message rules poller for %q: %w", a.Label(), rErr)
+		}
+		namedPollers = append(namedPollers, messagerules.NewNamedPoller(a.Label(), poller))
+	}
+
+	messageRulesPoller, err := messagerules.NewUnionPollerService(
+		logger.With(lggr, "component", "UnionMessageRulesPoller"),
+		namedPollers...,
 	)
 	if err != nil {
-		lggr.Errorw("Failed to create message rules poller", "error", err)
-		return fmt.Errorf("failed to create message rules poller: %w", err)
+		lggr.Errorw("Failed to create union message rules poller", "error", err)
+		return fmt.Errorf("failed to create union message rules poller: %w", err)
 	}
 
 	messageTracker := monitoring.NewMessageLatencyTracker(
@@ -292,7 +310,7 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 		messageTracker,
 		verifierMonitoring,
 		chainStatusManager,
-		observedHeartbeatClient,
+		heartbeatSender,
 		messageRulesPoller,
 		chainStatusDB,
 	)
@@ -336,7 +354,7 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 	})
 
 	mux.HandleFunc("/stats", func(w http.ResponseWriter, r *http.Request) {
-		stats := aggregatorWriter.GetStats()
+		stats := fanOutWriter.GetStats()
 		lggr.Infow("Storage Statistics:\n")
 		for key, value := range stats {
 			lggr.Infow("%s: %v\n", key, value)

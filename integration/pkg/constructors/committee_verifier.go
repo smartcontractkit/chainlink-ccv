@@ -28,13 +28,16 @@ import (
 	"github.com/smartcontractkit/chainlink-evm/pkg/chains/legacyevm"
 )
 
-// NewVerificationCoordinator starts the Committee Verifier with evm chains.
-// Signing is passed in because it's managed differently in the CL node vs standalone modes.
-// The DataSource is passed in from CL node, or created by standalone mode.
+// NewVerificationCoordinator builds a verifier coordinator. aggregatorSecrets maps each
+// aggregator's SecretName (AggregatorConnection.SecretName) to its HMAC credential — a consolidated
+// verifier writes to every aggregator, each of which authenticates it with its own credential.
+// Keying by SecretName (rather than position) avoids any ordering contract with
+// cfg.ResolvedAggregators(); the legacy single-aggregator config has an empty SecretName, so its
+// credential is keyed by "".
 func NewVerificationCoordinator(
 	lggr logger.Logger,
 	cfg commit.Config,
-	aggregatorSecret *hmac.ClientConfig,
+	aggregatorSecrets map[string]*hmac.ClientConfig,
 	signingAddress protocol.UnknownAddress,
 	signer verifier.MessageSigner,
 	relayers map[protocol.ChainSelector]legacyevm.Chain,
@@ -142,26 +145,57 @@ func NewVerificationCoordinator(
 
 	// Initialize other required services and configs.
 
-	// Checkpoint manager
-	// TODO: these are secrets, probably shouldn't be in config.
-	aggregatorWriter, err := storageaccess.NewAggregatorWriter(
-		cfg.AggregatorAddress,
+	// Resolve the aggregators this verifier writes to, heartbeats, and reads disablement rules
+	// from. Backwards compatible: a legacy single aggregator_address resolves to a one-element list.
+	resolvedAggregators, err := cfg.ResolvedAggregators()
+	if err != nil {
+		lggr.Errorw("Invalid aggregator configuration", "error", err)
+		return nil, fmt.Errorf("invalid aggregator configuration: %w", err)
+	}
+
+	// Each aggregator authenticates with its own credential, looked up by SecretName.
+	// resolvedSecrets is index-aligned with resolvedAggregators for the wiring below.
+	resolvedSecrets := make([]*hmac.ClientConfig, len(resolvedAggregators))
+	for i, a := range resolvedAggregators {
+		sec, ok := aggregatorSecrets[a.SecretName]
+		if !ok {
+			return nil, fmt.Errorf("missing aggregator secret for %q (secret_name %q)", a.Label(), a.SecretName)
+		}
+		resolvedSecrets[i] = sec
+	}
+
+	writeTargets := make([]storageaccess.AggregatorTarget, len(resolvedAggregators))
+	heartbeatTargets := make([]heartbeatclient.AggregatorTarget, len(resolvedAggregators))
+	for i, a := range resolvedAggregators {
+		writeTargets[i] = storageaccess.AggregatorTarget{
+			Label:               a.Label(),
+			Address:             a.Address,
+			Insecure:            a.InsecureConnection,
+			HMACConfig:          resolvedSecrets[i],
+			MaxSendMsgSizeBytes: a.MaxSendMsgSizeBytes,
+			MaxRecvMsgSizeBytes: a.MaxRecvMsgSizeBytes,
+		}
+		heartbeatTargets[i] = heartbeatclient.AggregatorTarget{
+			Label:      a.Label(),
+			Address:    a.Address,
+			Insecure:   a.InsecureConnection,
+			HMACConfig: resolvedSecrets[i],
+		}
+	}
+
+	fanOutWriter, err := storageaccess.NewFanOutAggregatorWriter(
+		writeTargets,
+		cfg.VerifierID,
 		lggr,
-		aggregatorSecret,
-		cfg.InsecureAggregatorConnection,
-		cfg.AggregatorMaxSendMsgSizeBytes,
-		cfg.AggregatorMaxRecvMsgSizeBytes,
+		verifierMonitoring,
 	)
 	if err != nil {
-		lggr.Errorw("Failed to create aggregator writer", "error", err)
-		return nil, fmt.Errorf("failed to create aggregator writer: %w", err)
+		lggr.Errorw("Failed to create fan-out aggregator writer", "error", err)
+		return nil, fmt.Errorf("failed to create fan-out aggregator writer: %w", err)
 	}
 
 	observedStorageWriter := storageaccess.NewObservedStorageWriter(
-		storageaccess.NewDefaultResilientStorageWriter(
-			aggregatorWriter,
-			lggr,
-		),
+		fanOutWriter,
 		cfg.VerifierID,
 		lggr,
 		verifierMonitoring,
@@ -187,34 +221,15 @@ func NewVerificationCoordinator(
 		return nil, fmt.Errorf("failed to create commit verifier: %w", err)
 	}
 
-	heartbeatClient, err := heartbeatclient.NewHeartbeatClient(
-		cfg.AggregatorAddress,
-		lggr,
-		aggregatorSecret,
-		cfg.InsecureAggregatorConnection,
-	)
-	if err != nil {
-		lggr.Errorw("Failed to create heartbeat client", "error", err)
-		return nil, fmt.Errorf("failed to create heartbeat client: %w", err)
-	}
-
-	observedHeartbeatClient := heartbeatclient.NewObservedHeartbeatClient(
-		heartbeatClient,
+	heartbeatSender, err := heartbeatclient.NewFanOutHeartbeatSender(
+		heartbeatTargets,
 		cfg.VerifierID,
 		lggr,
 		heartbeat.NewHeartbeatMonitoringAdapter(verifierMonitoring),
 	)
-
-	messageRulesClient, err := messagerules.NewGRPCClient(
-		cfg.AggregatorAddress,
-		lggr,
-		aggregatorSecret,
-		cfg.InsecureAggregatorConnection,
-		cfg.AggregatorMaxRecvMsgSizeBytes,
-	)
 	if err != nil {
-		lggr.Errorw("Failed to create message rules gRPC client", "error", err)
-		return nil, fmt.Errorf("failed to create message rules client: %w", err)
+		lggr.Errorw("Failed to create fan-out heartbeat sender", "error", err)
+		return nil, fmt.Errorf("failed to create fan-out heartbeat sender: %w", err)
 	}
 
 	messageRulesPollInterval, err := cfg.MessageDisablementRulesPollIntervalDuration()
@@ -226,16 +241,42 @@ func NewVerificationCoordinator(
 		return nil, fmt.Errorf("message disablement rules client timeout: %w", err)
 	}
 
-	messageRulesPoller, err := messagerules.NewPollerService(
-		messageRulesClient,
-		messageRulesPollInterval,
-		messageRulesClientTimeout,
-		logger.With(lggr, "component", "MessageRulesPoller"),
-		verifierMonitoring.Metrics(),
+	namedPollers := make([]messagerules.NamedPoller, 0, len(resolvedAggregators))
+	for i, a := range resolvedAggregators {
+		aggLggr := logger.With(lggr, "component", "MessageRulesPoller", "aggregator", a.Label())
+		messageRulesClient, rErr := messagerules.NewGRPCClient(
+			a.Address,
+			aggLggr,
+			resolvedSecrets[i],
+			a.InsecureConnection,
+			a.MaxRecvMsgSizeBytes,
+		)
+		if rErr != nil {
+			lggr.Errorw("Failed to create message rules gRPC client", "error", rErr, "aggregator", a.Label())
+			return nil, fmt.Errorf("failed to create message rules client for %q: %w", a.Label(), rErr)
+		}
+
+		poller, rErr := messagerules.NewPollerService(
+			messageRulesClient,
+			messageRulesPollInterval,
+			messageRulesClientTimeout,
+			aggLggr,
+			verifierMonitoring.Metrics().With("aggregator", a.Label()),
+		)
+		if rErr != nil {
+			lggr.Errorw("Failed to create message rules poller", "error", rErr, "aggregator", a.Label())
+			return nil, fmt.Errorf("failed to create message rules poller for %q: %w", a.Label(), rErr)
+		}
+		namedPollers = append(namedPollers, messagerules.NewNamedPoller(a.Label(), poller))
+	}
+
+	messageRulesPoller, err := messagerules.NewUnionPollerService(
+		logger.With(lggr, "component", "UnionMessageRulesPoller"),
+		namedPollers...,
 	)
 	if err != nil {
-		lggr.Errorw("Failed to create message rules poller", "error", err)
-		return nil, fmt.Errorf("failed to create message rules poller: %w", err)
+		lggr.Errorw("Failed to create union message rules poller", "error", err)
+		return nil, fmt.Errorf("failed to create union message rules poller: %w", err)
 	}
 
 	messageTracker := monitoring.NewMessageLatencyTracker(
@@ -253,7 +294,7 @@ func NewVerificationCoordinator(
 		messageTracker,
 		verifierMonitoring,
 		chainStatusManager,
-		observedHeartbeatClient,
+		heartbeatSender,
 		messageRulesPoller,
 		ds,
 	)

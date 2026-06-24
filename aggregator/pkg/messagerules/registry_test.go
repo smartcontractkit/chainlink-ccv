@@ -204,6 +204,23 @@ func TestRegistry_TokenRule_DisablesSourceOrDestinationTokenTouch(t *testing.T) 
 	}))
 }
 
+func TestRegistry_TokenRule_DisablesLeftZeroPaddedSourceTokenAddress(t *testing.T) {
+	t.Parallel()
+
+	sourceData, err := shared.NewTokenRuleData(10, "0xAA")
+	require.NoError(t, err)
+	registry := newRegistry(t, []shared.Rule{makeRule(t, sourceData)})
+
+	paddedSourceToken := make([]byte, 32)
+	paddedSourceToken[31] = 0xaa
+
+	assert.True(t, registry.IsDisabled(report{
+		source: 10,
+		dest:   20,
+		token:  &protocol.TokenTransfer{SourceTokenAddress: paddedSourceToken},
+	}))
+}
+
 func TestRegistry_TokenRule_DoesNotDisableNonTokenMessage(t *testing.T) {
 	t.Parallel()
 

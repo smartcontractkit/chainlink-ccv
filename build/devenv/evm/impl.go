@@ -404,7 +404,7 @@ func (m *CCIP17EVM) ConfirmSendOnSource(ctx context.Context, to uint64, key ccip
 	pollerKey := eventKey{chainSelector: to, msgNum: key.SeqNum, messageID: key.MessageID}
 	var resultCh <-chan pollerResult[cciptestinterfaces.MessageSentEvent]
 	if key.MessageID != (protocol.Bytes32{}) {
-		l.Info().Uint64("from", m.chainDetails.ChainSelector).Uint64("to", to).Bytes("messageID", key.MessageID[:]).Msg("Awaiting CCIPMessageSent event")
+		l.Info().Uint64("from", m.chainDetails.ChainSelector).Uint64("to", to).Str("messageID", key.MessageID.String()).Msg("Awaiting CCIPMessageSent event")
 		resultCh = poller.registerByMessageID(ctx, pollerKey)
 	} else {
 		l.Info().Uint64("from", m.chainDetails.ChainSelector).Uint64("to", to).Uint64("seq", key.SeqNum).Msg("Awaiting CCIPMessageSent event")
@@ -442,7 +442,7 @@ func (m *CCIP17EVM) ConfirmExecOnDest(ctx context.Context, from uint64, key ccip
 	pollerKey := eventKey{chainSelector: from, msgNum: key.SeqNum, messageID: key.MessageID}
 	var resultCh <-chan pollerResult[cciptestinterfaces.ExecutionStateChangedEvent]
 	if key.MessageID != (protocol.Bytes32{}) {
-		l.Info().Uint64("from", from).Bytes("messageID", key.MessageID[:]).Msg("Awaiting ExecutionStateChanged event")
+		l.Info().Uint64("from", from).Str("messageID", key.MessageID.String()).Msg("Awaiting ExecutionStateChanged event")
 		resultCh = poller.registerByMessageID(ctx, pollerKey)
 	} else {
 		l.Info().Uint64("from", from).Uint64("to", m.chainDetails.ChainSelector).Uint64("seq", key.SeqNum).Msg("Awaiting ExecutionStateChanged event")
@@ -1013,6 +1013,100 @@ func buildMockReceivers(topology *ccvdeployment.EnvironmentTopology, selector ui
 	return receivers
 }
 
+// DeployMockReceivers implements cciptestinterfaces.MockReceiverDeployer. It is
+// called in Phase 3 after committee verifiers and their resolvers exist, so the
+// mock receivers' required/optional verifier references can be resolved from the
+// environment datastore. It returns a sealed DataStore with only the newly
+// deployed receiver addresses.
+func (m *CCIP17EVMConfig) DeployMockReceivers(env *deployment.Environment, selector uint64, topology *ccvdeployment.EnvironmentTopology) (datastore.DataStore, error) {
+	chain, ok := env.BlockChains.EVMChains()[selector]
+	if !ok {
+		return nil, fmt.Errorf("no EVM chain found for selector %d", selector)
+	}
+
+	// Seed a working datastore from the environment so the committee/CCTP/Lombard
+	// receiver deploys can resolve verifier resolver addresses; return only the
+	// newly deployed receiver addresses at the end.
+	workingDS := datastore.NewMemoryDataStore()
+	if err := workingDS.Merge(env.DataStore); err != nil {
+		return nil, fmt.Errorf("seed working datastore for chain %d: %w", selector, err)
+	}
+
+	// Committee mock receivers (topology-driven).
+	for _, r := range buildMockReceivers(topology, selector) {
+		required, err := resolveVerifierAddresses(env.DataStore, r.RequiredVerifiers)
+		if err != nil {
+			return nil, fmt.Errorf("mock receiver %q: required verifiers: %w", r.Qualifier, err)
+		}
+		optional, err := resolveVerifierAddresses(env.DataStore, r.OptionalVerifiers)
+		if err != nil {
+			return nil, fmt.Errorf("mock receiver %q: optional verifiers: %w", r.Qualifier, err)
+		}
+
+		qualifier := r.Qualifier
+		report, err := operations.ExecuteOperation(env.OperationsBundle, mock_receiver_v2.Deploy, chain,
+			contract.DeployInput[mock_receiver_v2.ConstructorArgs]{
+				TypeAndVersion: deployment.NewTypeAndVersion(mock_receiver_v2.ContractType, *mock_receiver_v2.Version),
+				ChainSelector:  selector,
+				Args: mock_receiver_v2.ConstructorArgs{
+					Required:  required,
+					Optional:  optional,
+					Threshold: r.OptionalThreshold,
+				},
+				Qualifier: &qualifier,
+			})
+		if err != nil {
+			return nil, fmt.Errorf("deploy mock receiver %q on chain %d: %w", r.Qualifier, selector, err)
+		}
+
+		if _, err := operations.ExecuteOperation(env.OperationsBundle, mock_receiver_v2.SetAllowedFinalityConfig, chain,
+			contract.FunctionInput[[4]byte]{
+				Address:       common.HexToAddress(report.Output.Address),
+				ChainSelector: selector,
+				Args:          r.AllowedFinalityConfig.Raw(),
+			}); err != nil {
+			return nil, fmt.Errorf("set finality config for mock receiver %q on chain %d: %w", r.Qualifier, selector, err)
+		}
+
+		if err := workingDS.Addresses().Add(report.Output); err != nil {
+			return nil, fmt.Errorf("add mock receiver %q to datastore: %w", r.Qualifier, err)
+		}
+	}
+
+	// CCTP/Lombard mock receivers depend on their token pools (deployed in Phase 2)
+	// and the committee-verifier resolver (just deployed in Phase 3). Only attempt
+	// them when the corresponding pools were deployed on this chain.
+	if m.hasCCTPDeployment(env.DataStore, selector) {
+		if err := m.deployCCTPMockReceivers(env, workingDS, selector); err != nil {
+			return nil, fmt.Errorf("deploy CCTP mock receivers on chain %d: %w", selector, err)
+		}
+	}
+	if m.hasLombardDeployment(env.DataStore, selector) {
+		if err := m.deployLombardMockReceiver(env, workingDS, selector); err != nil {
+			return nil, fmt.Errorf("deploy Lombard mock receiver on chain %d: %w", selector, err)
+		}
+	}
+
+	return onlyNewAddresses(workingDS, env.DataStore)
+}
+
+// resolveVerifierAddresses resolves committee-verifier resolver references to
+// concrete EVM addresses from the datastore.
+func resolveVerifierAddresses(ds datastore.DataStore, refs []datastore.AddressRef) ([]common.Address, error) {
+	addrs := make([]common.Address, 0, len(refs))
+	for _, ref := range refs {
+		got, err := ds.Addresses().Get(
+			datastore.NewAddressRefKey(ref.ChainSelector, ref.Type, ref.Version, ref.Qualifier),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("resolve verifier ref %s %s %q on chain %d: %w",
+				ref.Type, ref.Version, ref.Qualifier, ref.ChainSelector, err)
+		}
+		addrs = append(addrs, common.HexToAddress(got.Address))
+	}
+	return addrs, nil
+}
+
 func (m *CCIP17EVMConfig) PreDeployContractsForSelector(_ context.Context, env *deployment.Environment, selector uint64, _ *ccvdeployment.EnvironmentTopology) (datastore.DataStore, error) {
 	m.logger.Info().Uint64("Selector", selector).Msg("EVM pre-deploy: deploying CREATE2 factory")
 
@@ -1086,7 +1180,11 @@ func (m *CCIP17EVMConfig) GetDeployChainContractsCfg(env *deployment.Environment
 				USDPerLINK:                     usdPerLink,
 				USDPerWETH:                     usdPerWeth,
 			}),
-			MockReceivers: new(buildMockReceivers(topology, selector)),
+			// Mock receivers (committee + CCTP/Lombard) are deployed separately
+			// via DeployMockReceivers, after the committee verifiers and token
+			// pools exist. Deploy none inline here so both the monolith and
+			// phased paths use the single DeployMockReceivers entry point.
+			MockReceivers: new([]adapters.MockReceiverDeployParams{}),
 		},
 	}, nil
 }

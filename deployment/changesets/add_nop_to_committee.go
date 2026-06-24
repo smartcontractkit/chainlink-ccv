@@ -91,6 +91,10 @@ type AddNOPOffchainInput struct {
 	DisableFinalityCheckers []string
 	// Monitoring holds monitoring configuration included in the job spec.
 	Monitoring ccvdeployment.MonitoringConfig
+	// ConsolidateAggregators when true emits a single consolidated verifier job (writing to all of
+	// the committee's aggregators) for the added NOP, matching the consolidated topology. Default
+	// false preserves the legacy one-job-per-aggregator output.
+	ConsolidateAggregators bool
 }
 
 // AddNOPToCommittee is step-1 of a coupled onchain-first two-entry product.
@@ -372,6 +376,7 @@ func provisionVerifierJobForNOP(
 		cfg.Monitoring,
 		cfg.DisableFinalityCheckers,
 		signerFamily,
+		cfg.ConsolidateAggregators,
 	)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to build verifier job specs: %w", err)

@@ -12,9 +12,7 @@ out.chain_id = "16661"
 out.family = "evm"
 out.container_name = "0g-mainnet"
 out.nodes = [
-  { http_url = "https://ogchain-mainnet-cll-sec.public.linkpool.io/HxaXHzkfrvect87GnJGzGZI3SVfL44hD", internal_http_url = "https://ogchain-mainnet-cll-sec.public.linkpool.io/HxaXHzkfrvect87GnJGzGZI3SVfL44hD", internal_ws_url = "wss://ogchain-mainnet-cll-sec.public.linkpool.io/ws/HxaXHzkfrvect87GnJGzGZI3SVfL44hD", ws_url = "wss://ogchain-mainnet-cll-sec.public.linkpool.io/ws/HxaXHzkfrvect87GnJGzGZI3SVfL44hD" },
-  { http_url = "https://ogchain-mainnet-cll.public.linkpool.io/HxaXHzkfrvect87GnJGzGZI3SVfL44hD", internal_http_url = "https://ogchain-mainnet-cll.public.linkpool.io/HxaXHzkfrvect87GnJGzGZI3SVfL44hD", internal_ws_url = "wss://ogchain-mainnet-cll.public.linkpool.io/ws/HxaXHzkfrvect87GnJGzGZI3SVfL44hD", ws_url = "wss://ogchain-mainnet-cll.public.linkpool.io/ws/HxaXHzkfrvect87GnJGzGZI3SVfL44hD" },
-  { http_url = "https://rpcs.cldev.sh/zerog/mainnet", internal_http_url = "https://rpcs.cldev.sh/zerog/mainnet", internal_ws_url = "wss://rpcs.cldev.sh/zerog/mainnet", ws_url = "wss://rpcs.cldev.sh/zerog/mainnet" },
+  { http_url = "https://rpcs.cldev.sh/4426351306075016396", internal_http_url = "https://rpcs.cldev.sh/4426351306075016396", internal_ws_url = "wss://rpcs.cldev.sh/4426351306075016396", ws_url = "wss://rpcs.cldev.sh/4426351306075016396" },
 ]
 
 # plume-mainnet (evm:98866), chain_selector: 17912061998839310979
@@ -29,14 +27,6 @@ out.chain_id = "98866"
 out.family = "evm"
 out.container_name = "plume-mainnet"
 out.nodes = [
-  { http_url = "https://spectrum-cl-02.simplystaking.xyz/Y2hhaW5saW5rLTAyLWVhNDQ2OTRlLWNoYWlubGluaw/TmH0l6uLUmf8WQ/plume/mainnet/", internal_http_url = "https://spectrum-cl-02.simplystaking.xyz/Y2hhaW5saW5rLTAyLWVhNDQ2OTRlLWNoYWlubGluaw/TmH0l6uLUmf8WQ/plume/mainnet/", internal_ws_url = "wss://spectrum-cl-02.simplystaking.xyz/Y2hhaW5saW5rLTAyLWVhNDQ2OTRlLWNoYWlubGluaw/6HDlgzRTAK0xBg/plume/mainnet/", ws_url = "wss://spectrum-cl-02.simplystaking.xyz/Y2hhaW5saW5rLTAyLWVhNDQ2OTRlLWNoYWlubGluaw/6HDlgzRTAK0xBg/plume/mainnet/" },
-  { http_url = "https://plume-mainnet-cll.public.linkpool.io/0/3MEVodcpxuMeCmqas7Fh3Fs73oF78EN5", internal_http_url = "https://plume-mainnet-cll.public.linkpool.io/0/3MEVodcpxuMeCmqas7Fh3Fs73oF78EN5", internal_ws_url = "wss://plume-mainnet-cll.public.linkpool.io/0/ws/3MEVodcpxuMeCmqas7Fh3Fs73oF78EN5", ws_url = "wss://plume-mainnet-cll.public.linkpool.io/0/ws/3MEVodcpxuMeCmqas7Fh3Fs73oF78EN5" },
-  { http_url = "https://plume-mainnet-cll.public.linkpool.io/1/3MEVodcpxuMeCmqas7Fh3Fs73oF78EN5", internal_http_url = "https://plume-mainnet-cll.public.linkpool.io/1/3MEVodcpxuMeCmqas7Fh3Fs73oF78EN5", internal_ws_url = "wss://plume-mainnet-cll.public.linkpool.io/1/ws/3MEVodcpxuMeCmqas7Fh3Fs73oF78EN5", ws_url = "wss://plume-mainnet-cll.public.linkpool.io/1/ws/3MEVodcpxuMeCmqas7Fh3Fs73oF78EN5" },
-  { http_url = "https://nd-620-061-642.p2pify.com/e870a5761991354172f11f1bcfa67ba2", internal_http_url = "https://nd-620-061-642.p2pify.com/e870a5761991354172f11f1bcfa67ba2", internal_ws_url = "wss://ws-nd-620-061-642.p2pify.com/e870a5761991354172f11f1bcfa67ba2", ws_url = "wss://ws-nd-620-061-642.p2pify.com/e870a5761991354172f11f1bcfa67ba2" },
-  { http_url = "https://plume-mainnet-1.simplystaking.xyz/57AWCC3K157W/rpc", internal_http_url = "https://plume-mainnet-1.simplystaking.xyz/57AWCC3K157W/rpc", internal_ws_url = "wss://plume-mainnet-1.simplystaking.xyz/57AWCC3K157W/ws", ws_url = "wss://plume-mainnet-1.simplystaking.xyz/57AWCC3K157W/ws" },
-  { http_url = "https://mainnet.plume.private.validationcloud.io:8547/?api-key=Lp7FKOSJrY2WQT2VyT8Ytv5R5eaeD0ipMm86hGIfc5YS", internal_http_url = "https://mainnet.plume.private.validationcloud.io:8547/?api-key=Lp7FKOSJrY2WQT2VyT8Ytv5R5eaeD0ipMm86hGIfc5YS", internal_ws_url = "wss://mainnet.plume.private.validationcloud.io:8548/?api-key=Lp7FKOSJrY2WQT2VyT8Ytv5R5eaeD0ipMm86hGIfc5YS", ws_url = "wss://mainnet.plume.private.validationcloud.io:8548/?api-key=Lp7FKOSJrY2WQT2VyT8Ytv5R5eaeD0ipMm86hGIfc5YS" },
-  { http_url = "https://plume-mainnet-cll-extra.public.linkpool.io/kanEQFaGZaRGK62qpimiM9cCZhgWMTq6", internal_http_url = "https://plume-mainnet-cll-extra.public.linkpool.io/kanEQFaGZaRGK62qpimiM9cCZhgWMTq6", internal_ws_url = "wss://plume-mainnet-cll-extra.public.linkpool.io/ws/kanEQFaGZaRGK62qpimiM9cCZhgWMTq6", ws_url = "wss://plume-mainnet-cll-extra.public.linkpool.io/ws/kanEQFaGZaRGK62qpimiM9cCZhgWMTq6" },
-  { http_url = "https://nd-620-061-642.p2pify.com/7afa04341fed9c432081c2fd953337f9", internal_http_url = "https://nd-620-061-642.p2pify.com/7afa04341fed9c432081c2fd953337f9", internal_ws_url = "wss://ws-nd-620-061-642.p2pify.com/7afa04341fed9c432081c2fd953337f9", ws_url = "wss://ws-nd-620-061-642.p2pify.com/7afa04341fed9c432081c2fd953337f9" },
   { http_url = "https://rpcs.cldev.sh/17912061998839310979", internal_http_url = "https://rpcs.cldev.sh/17912061998839310979", internal_ws_url = "wss://rpcs.cldev.sh/17912061998839310979", ws_url = "wss://rpcs.cldev.sh/17912061998839310979" },
 ]
 

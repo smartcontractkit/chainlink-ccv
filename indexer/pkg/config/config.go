@@ -31,7 +31,8 @@ type Config struct {
 	GeneratedConfigPath string `toml:"GeneratedConfigPath"`
 	LogLevel            string `toml:"LogLevel"`
 	// Monitoring is the configuration for the monitoring system inside the indexer.
-	Monitoring MonitoringConfig `toml:"Monitoring"`
+	Monitoring   MonitoringConfig `toml:"Monitoring"`
+	PyroscopeURL string           `toml:"pyroscope_url"`
 	// Discoveries is the list of discovery configs (aggregators) for message discovery.
 	Discoveries []DiscoveryConfig `toml:"Discoveries"`
 	// MergeBufferSize is the capacity of the channel that merges messages from multiple discovery sources.

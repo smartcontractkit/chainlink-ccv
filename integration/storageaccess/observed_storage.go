@@ -2,6 +2,7 @@ package storageaccess
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -15,8 +16,11 @@ type observedStorageWriter struct {
 	protocol.CCVNodeDataWriter
 
 	verifierID string
-	lggr       logger.Logger
-	monitoring verifier.Monitoring
+	// aggregatorLabel scopes this observer to a single aggregator and is
+	// emitted as the "aggregator_name" label on metrics/logs.
+	aggregatorLabel string
+	lggr            logger.Logger
+	monitoring      verifier.Monitoring
 }
 
 func NewObservedStorageWriter(
@@ -31,6 +35,38 @@ func NewObservedStorageWriter(
 		lggr:              lggr,
 		monitoring:        monitoring,
 	}
+}
+
+// NewObservedAggregatorWriter wraps a single aggregator's writer, tagging its metrics and logs
+// with an "aggregator" label so per-aggregator write health is observable independently of the
+// fan-out aggregate.
+func NewObservedAggregatorWriter(
+	delegate protocol.CCVNodeDataWriter,
+	verifierID string,
+	aggregatorLabel string,
+	lggr logger.Logger,
+	monitoring verifier.Monitoring,
+) (protocol.CCVNodeDataWriter, error) {
+	if aggregatorLabel == "" {
+		return nil, errors.New("aggregator label is required")
+	}
+
+	return &observedStorageWriter{
+		CCVNodeDataWriter: delegate,
+		verifierID:        verifierID,
+		aggregatorLabel:   aggregatorLabel,
+		lggr:              logger.With(lggr, "aggregator", aggregatorLabel),
+		monitoring:        monitoring,
+	}, nil
+}
+
+// metrics returns the metric labeler scoped to this observer's verifier_id and (when set)
+// aggregator label.
+func (o *observedStorageWriter) metrics() verifier.MetricLabeler {
+	return o.monitoring.
+		Metrics().
+		With("verifier_id", o.verifierID).
+		With("aggregator_name", o.aggregatorLabel)
 }
 
 func (o *observedStorageWriter) WriteCCVNodeData(ctx context.Context, ccvDataList []protocol.VerifierNodeResult) ([]protocol.WriteResult, error) {
@@ -54,8 +90,9 @@ func (o *observedStorageWriter) WriteCCVNodeData(ctx context.Context, ccvDataLis
 		}
 	}
 
+	metrics := o.metrics()
 	if failureCount > 0 {
-		o.monitoring.Metrics().IncrementStorageWriteErrors(ctx)
+		metrics.IncrementStorageWriteErrors(ctx)
 		o.lggr.Errorw("Error storing CCV data batch",
 			"verifier_id", o.verifierID,
 			"error", err,
@@ -64,9 +101,7 @@ func (o *observedStorageWriter) WriteCCVNodeData(ctx context.Context, ccvDataLis
 		)
 	}
 
-	o.monitoring.Metrics().
-		With("verifier_id", o.verifierID).
-		RecordStorageWriteDuration(ctx, time.Since(start))
+	metrics.RecordStorageWriteDuration(ctx, time.Since(start))
 
 	return results, err
 }

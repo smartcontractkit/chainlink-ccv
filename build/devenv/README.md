@@ -98,6 +98,32 @@ cd tests/e2e
 go test -v -timeout 15m -count=1 -run TestE2ESmoke_Basic
 ```
 
+#### Pointing tests at the right env (`SMOKE_TEST_CONFIG`)
+
+The smoke tests read the running environment from a config file. The path defaults
+to `../../env-out.toml` and is overridden by the `SMOKE_TEST_CONFIG` environment
+variable. Set it to the output file written by the `ccv up` you ran.
+
+The output filename is derived from the base config file by inserting `-out` before
+`.toml` (unless overridden with `ccv up --output <path>`):
+
+| Startup command | Output file | `SMOKE_TEST_CONFIG` |
+|-----------------|-------------|---------------------|
+| `ccv up env.toml` / `ccv up --profile standard.profile` | `env-out.toml` | unset (default) |
+| `ccv up --env-mode phased env-phased.toml` / `ccv up --profile phased.profile` | `env-phased-out.toml` | `../../env-phased-out.toml` |
+| `ccv up --output <path> …` | `<path>` | `../../<path>` (or an absolute path) |
+
+So to run the smoke suite against a phased environment:
+
+```bash
+cd tests/e2e
+SMOKE_TEST_CONFIG=../../env-phased-out.toml go test -v -timeout 15m -count=1 -run TestE2ESmoke_Basic
+```
+
+> `ccv test` sets this automatically from the profile's per-run output file, so you
+> only need `SMOKE_TEST_CONFIG` when running `go test` by hand against a manually
+> started env.
+
 ### Interactive shell
 
 ```bash

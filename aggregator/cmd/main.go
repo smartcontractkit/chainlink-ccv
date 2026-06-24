@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/grafana/pyroscope-go"
 	"github.com/jmoiron/sqlx"
 	_ "github.com/lib/pq"
 	"github.com/urfave/cli"
@@ -113,6 +114,18 @@ func main() {
 			},
 			Subcommands: messagedisablementcli.InitMessageDisablementRulesCommandsWithFactory(getMessageDisablementRulesDepsFn),
 		},
+		{
+			Name:  "validate-config",
+			Usage: "Strictly decode the config file into the config struct and exit. Fails on type mismatches or unknown/drifted keys. Reads no secrets or environment, so it is safe to run in CI.",
+			Action: func(c *cli.Context) error {
+				configPath := c.GlobalString("config")
+				if err := configuration.ValidateConfigFile(configPath); err != nil {
+					return fmt.Errorf("config validation failed for %s:\n%w", configPath, err)
+				}
+				_, _ = fmt.Fprintf(os.Stdout, "config %s is valid\n", configPath)
+				return nil
+			},
+		},
 	}
 
 	if err := app.Run(os.Args); err != nil {
@@ -152,6 +165,24 @@ func runServer(configPath string, lggr logger.Logger, sugaredLggr logger.Sugared
 		}
 		aggMonitoring = m
 		lggr.Info("Monitoring enabled")
+	}
+
+	if config.PyroscopeURL != "" {
+		if _, err := pyroscope.Start(pyroscope.Config{
+			ApplicationName: "aggregator",
+			ServerAddress:   config.PyroscopeURL,
+			Logger:          nil, // Disable pyroscope logging - so noisy
+			ProfileTypes: []pyroscope.ProfileType{
+				pyroscope.ProfileCPU,
+				pyroscope.ProfileAllocObjects,
+				pyroscope.ProfileAllocSpace,
+				pyroscope.ProfileGoroutines,
+				pyroscope.ProfileBlockDuration,
+				pyroscope.ProfileMutexDuration,
+			},
+		}); err != nil {
+			sugaredLggr.Fatalf("Failed to initialize pyroscope client: %v", err)
+		}
 	}
 
 	protocol.InitChainSelectorCache()

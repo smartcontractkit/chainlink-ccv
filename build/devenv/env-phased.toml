@@ -29,8 +29,33 @@ TraceSampleRatio = 1.0
 TraceBatchTimeout = 10
 
 [protocol_contracts]
-version = 1
+version = 2
 use_legacy_configure_lane = false
+
+## Per-chain protocol-contract deploy parameters fed to the DeployProtocolContracts
+## changeset. Committee verifiers and mock receivers are deployed separately in
+## Phase 3 (committeeccv).
+[protocol_contracts.deploy]
+deploy_test_router = false
+
+[[protocol_contracts.deploy.executors]]
+qualifier = "default"
+version = "2.0.0"
+
+[[protocol_contracts.deploy.executors]]
+qualifier = "custom"
+version = "2.0.0"
+
+## EVM-specific overrides consumed by the EVM ProtocolContractsDeployAdapter.
+## feeAggregator is applied to the OnRamp and executor proxies. The executor
+## finality is set at deploy time because executors validate requested finality
+## in getFee and are never reconfigured by the lane-config changesets;
+## wait-for-safe is needed for the safe-tag finality smoke tests. Other params
+## (max CCVs per msg, fee-quoter prices, gas limits) use the adapter's defaults.
+[protocol_contracts.deploy.family_extras.evm]
+feeAggregator       = "0x0000000000000000000000000000000000000001"
+executorBlockDepth  = 1
+executorWaitForSafe = true
 
 ## Environment configuration defines the topology. Eventually the topology should be the only config that is needed.
 [protocol_contracts.environment_topology]
@@ -378,7 +403,7 @@ Type = 'beholder'
 InsecureConnection = true
 CACertFile = ''
 OtelExporterGRPCEndpoint = ''
-OtelExporterHTTPEndpoint = 'otel-collector:4318'
+OtelExporterHTTPEndpoint = 'host.docker.internal:4318'
 LogStreamingEnabled = true
 MetricReaderInterval = 5
 TraceSampleRatio = 1.0

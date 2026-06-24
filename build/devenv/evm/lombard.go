@@ -60,11 +60,8 @@ func (m *CCIP17EVMConfig) deployLombardTokenAndPool(
 		return fmt.Errorf("failed to deploy lombard chain for chain %s: %w", chain, err)
 	}
 
-	err = m.deployLombardMockReceiver(env, ds, selector)
-	if err != nil {
-		return fmt.Errorf("failed to deploy lombard mock receiver for chain %s: %w", chain, err)
-	}
-
+	// The Lombard mock receiver depends on the committee-verifier resolver, which is
+	// deployed in Phase 3 (committeeccv); it is deployed there via DeployMockReceivers.
 	return nil
 }
 
@@ -345,6 +342,19 @@ func (m *CCIP17EVMConfig) deployLombardMockReceiver(
 		return fmt.Errorf("failed to register mock receiver on chain %d in datastore: %w", selector, err1)
 	}
 	return nil
+}
+
+// hasLombardDeployment reports whether the Lombard verifier resolver exists on the
+// chain, indicating the Lombard pools were deployed (Phase 2) and the Lombard mock
+// receiver can be deployed.
+func (m *CCIP17EVMConfig) hasLombardDeployment(ds datastore.DataStore, selector uint64) bool {
+	_, err := ds.Addresses().Get(datastore.NewAddressRefKey(
+		selector,
+		datastore.ContractType(versioned_verifier_resolver.LombardVerifierResolverType),
+		semver.MustParse(lombard_verifier.Deploy.Version()),
+		devenvcommon.LombardVerifierResolverQualifier,
+	))
+	return err == nil
 }
 
 func toBytes32LeftPad(b []byte) ([32]byte, error) {

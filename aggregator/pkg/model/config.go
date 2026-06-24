@@ -845,8 +845,18 @@ func (c *AggregatorConfig) ValidateCommitteeConfig() error {
 	return nil
 }
 
-// Validate validates the aggregator configuration for integrity and correctness.
-func (c *AggregatorConfig) Validate() error {
+// ValidateWithoutSecrets runs the subset of Validate() that needs no runtime
+// secrets or environment variables: it sets defaults and validates the server,
+// committee, batch, aggregation, storage, and orphan recovery configuration.
+//
+// It intentionally skips the secret/environment-dependent validations that the
+// full Validate() also runs: client API-key/secret validation
+// (ValidateClientConfig reads and verifies secret env vars) and rate-limiting
+// validation (its redis address is populated from the environment). This makes
+// it safe for static, pre-deploy validation of a rendered config in CI, where
+// those secrets are not present. The service itself always runs the full
+// Validate() at startup.
+func (c *AggregatorConfig) ValidateWithoutSecrets() error {
 	// Set defaults first
 	c.SetDefaults()
 
@@ -858,11 +868,6 @@ func (c *AggregatorConfig) Validate() error {
 	// Validate committee configuration
 	if err := c.ValidateCommitteeConfig(); err != nil {
 		return fmt.Errorf("committee configuration error: %w", err)
-	}
-
-	// Validate client configuration
-	if err := c.ValidateClientConfig(); err != nil {
-		return fmt.Errorf("client configuration error: %w", err)
 	}
 
 	// Validate batch configuration
@@ -885,7 +890,22 @@ func (c *AggregatorConfig) Validate() error {
 		return fmt.Errorf("orphan recovery configuration error: %w", err)
 	}
 
-	// Validate rate limiting configuration
+	return nil
+}
+
+// Validate validates the aggregator configuration for integrity and correctness.
+func (c *AggregatorConfig) Validate() error {
+	// Secret/environment-independent validation (also sets defaults).
+	if err := c.ValidateWithoutSecrets(); err != nil {
+		return err
+	}
+
+	// Validate client configuration (reads and verifies secret env vars)
+	if err := c.ValidateClientConfig(); err != nil {
+		return fmt.Errorf("client configuration error: %w", err)
+	}
+
+	// Validate rate limiting configuration (redis address comes from env)
 	if err := c.ValidateRateLimitingConfig(); err != nil {
 		return fmt.Errorf("rate limiting configuration error: %w", err)
 	}
