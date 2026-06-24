@@ -17,18 +17,12 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 )
 
-type jdMockExecutorAdapter struct {
-	requiresJD bool
-}
+type jdMockExecutorAdapter struct{}
 
 var _ ccvadapters.ExecutorConfigAdapter = (*jdMockExecutorAdapter)(nil)
 
 func (m *jdMockExecutorAdapter) GetDeployedChains(_ datastore.DataStore, _ string) []uint64 {
 	return nil
-}
-
-func (m *jdMockExecutorAdapter) RequiresNodeChainSupportInJD() bool {
-	return m.requiresJD
 }
 
 func (m *jdMockExecutorAdapter) BuildChainConfig(_ datastore.DataStore, _ uint64, _ string) (executor.ChainConfiguration, error) {
@@ -41,21 +35,32 @@ func (m *jdMockExecutorAdapter) BuildChainConfig(_ datastore.DataStore, _ uint64
 	}, nil
 }
 
+type jdMockExecutorAdapterSkipJD struct {
+	jdMockExecutorAdapter
+}
+
+var _ ccvadapters.ExecutorNodeChainJDSupport = (*jdMockExecutorAdapterSkipJD)(nil)
+
+func (m *jdMockExecutorAdapterSkipJD) RequiresNodeChainSupportInJD() bool {
+	return false
+}
+
 func TestFilterChainsRequiringJDSupport_FiltersPerAdapter(t *testing.T) {
 	evmSel := chainsel.TEST_90000001.Selector
-	aptosSel := chainsel.TEST_90000002.Selector
+	// TEST_90000002 is also EVM; use a different family to exercise per-adapter filtering.
+	nonJDSel := chainsel.SOLANA_DEVNET.Selector
 
-	ccvadapters.GetExecutorRegistry().Register(chainsel.FamilyEVM, &jdMockExecutorAdapter{requiresJD: true})
-	ccvadapters.GetExecutorRegistry().Register(chainsel.FamilyAptos, &jdMockExecutorAdapter{requiresJD: false})
+	ccvadapters.GetExecutorRegistry().Register(chainsel.FamilyEVM, &jdMockExecutorAdapter{})
+	ccvadapters.GetExecutorRegistry().Register(chainsel.FamilySolana, &jdMockExecutorAdapterSkipJD{})
 
-	filtered, err := filterChainsRequiringJDSupport([]uint64{evmSel, aptosSel})
+	filtered, err := filterChainsRequiringJDSupport([]uint64{evmSel, nonJDSel})
 	require.NoError(t, err)
 	assert.Equal(t, []uint64{evmSel}, filtered)
 }
 
 func TestValidateExecutorChainSupport_SkipsJDWhenOffchainNil(t *testing.T) {
 	evmSel := chainsel.TEST_90000001.Selector
-	aptosSel := chainsel.TEST_90000002.Selector
+	nonJDSel := chainsel.SOLANA_DEVNET.Selector
 
 	pool := ExecutorPoolInput{
 		ChainConfigs: map[uint64]ChainExecutorPoolMembership{
@@ -63,7 +68,7 @@ func TestValidateExecutorChainSupport_SkipsJDWhenOffchainNil(t *testing.T) {
 				NOPAliases:        []shared.NOPAlias{"nop1"},
 				ExecutionInterval: 5 * time.Second,
 			},
-			aptosSel: {
+			nonJDSel: {
 				NOPAliases:        []shared.NOPAlias{"nop1"},
 				ExecutionInterval: 5 * time.Second,
 			},

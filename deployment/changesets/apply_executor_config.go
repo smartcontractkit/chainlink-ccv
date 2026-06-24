@@ -236,7 +236,9 @@ func validateExecutorChainSupport(
 	nopsToValidate []shared.NOPAlias,
 ) error {
 	if e.Offchain == nil {
-		e.Logger.Debugw("Offchain client not available, skipping chain support validation")
+		if e.Logger != nil {
+			e.Logger.Debugw("Offchain client not available, skipping chain support validation")
+		}
 		return nil
 	}
 
@@ -280,7 +282,7 @@ func filterChainsRequiringJDSupport(chains []uint64) ([]uint64, error) {
 		if err != nil {
 			return nil, err
 		}
-		if adapter.RequiresNodeChainSupportInJD() {
+		if adapters.ExecutorRequiresNodeChainSupportInJD(adapter) {
 			filtered = append(filtered, sel)
 		}
 	}
