@@ -4,10 +4,26 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
+	"github.com/smartcontractkit/chainlink-ccv/pkg/monitoring"
 )
 
 // validEd25519PublicKeyHex is 32 bytes (64 hex chars) for use in JD config tests.
 const validEd25519PublicKeyHex = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
+// validBeholderMonitoring returns a fully-populated, enabled beholder monitoring config
+// whose Validate() passes, for use in Config validation tests.
+func validBeholderMonitoring() *monitoring.Config {
+	return &monitoring.Config{
+		Enabled: true,
+		Type:    "beholder",
+		Beholder: monitoring.BeholderConfig{
+			MetricReaderInterval: 10,
+			TraceSampleRatio:     1.0,
+			TraceBatchTimeout:    5,
+		},
+	}
+}
 
 func TestJDConfig_validate(t *testing.T) {
 	tests := []struct {
@@ -241,6 +257,70 @@ func TestConfig_validate(t *testing.T) {
 			},
 			wantErr:     true,
 			errContains: []string{"failed to validate 'server' section", "listen_port"},
+		},
+		{
+			// Monitoring is optional: a nil pointer means the operator did not configure
+			// monitoring in the bootstrap config, and validate() must skip it.
+			name: "valid with monitoring unset (nil allowed)",
+			config: &Config{
+				JD: validJD, Keystore: validKeystore, DB: validDB, Server: validServer,
+				Monitoring: nil,
+			},
+			wantErr: false,
+		},
+		{
+			// Present-but-disabled is honored: monitoring.Config.Validate() is a no-op when
+			// Enabled is false, so an explicit "off" passes (and any Beholder values are ignored).
+			name: "valid with monitoring present but disabled",
+			config: &Config{
+				JD: validJD, Keystore: validKeystore, DB: validDB, Server: validServer,
+				Monitoring: &monitoring.Config{Enabled: false},
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid with monitoring enabled (beholder)",
+			config: &Config{
+				JD: validJD, Keystore: validKeystore, DB: validDB, Server: validServer,
+				Monitoring: validBeholderMonitoring(),
+			},
+			wantErr: false,
+		},
+		{
+			name: "invalid monitoring: enabled without type",
+			config: &Config{
+				JD: validJD, Keystore: validKeystore, DB: validDB, Server: validServer,
+				Monitoring: &monitoring.Config{Enabled: true},
+			},
+			wantErr:     true,
+			errContains: []string{"failed to validate 'monitoring' section", "monitoring type is required"},
+		},
+		{
+			name: "invalid monitoring: enabled beholder with non-positive metric interval",
+			config: &Config{
+				JD: validJD, Keystore: validKeystore, DB: validDB, Server: validServer,
+				Monitoring: &monitoring.Config{
+					Enabled: true,
+					Type:    "beholder",
+					Beholder: monitoring.BeholderConfig{
+						MetricReaderInterval: 0,
+						TraceSampleRatio:     0.5,
+						TraceBatchTimeout:    5,
+					},
+				},
+			},
+			wantErr:     true,
+			errContains: []string{"failed to validate 'monitoring' section", "metric_reader_interval"},
+		},
+		{
+			// validate() uses errors.Join, so a bad section and bad monitoring both surface.
+			name: "aggregates errors across db and monitoring sections",
+			config: &Config{
+				JD: validJD, Keystore: validKeystore, DB: DBConfig{URL: ""}, Server: validServer,
+				Monitoring: &monitoring.Config{Enabled: true},
+			},
+			wantErr:     true,
+			errContains: []string{"failed to validate 'db' section", "failed to validate 'monitoring' section"},
 		},
 	}
 	for _, tt := range tests {

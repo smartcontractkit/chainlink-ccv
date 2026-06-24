@@ -22,6 +22,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/common/jd/lifecycle"
 	jobstore "github.com/smartcontractkit/chainlink-ccv/common/jd/store"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
+	"github.com/smartcontractkit/chainlink-ccv/pkg/monitoring"
 	zaplog "github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
 	"github.com/smartcontractkit/chainlink-common/keystore"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -45,6 +46,12 @@ type ServiceDeps struct {
 
 	// Registry for chainaccess.Accessor objects.
 	Registry chainaccess.Registry
+
+	// Monitoring is the operator-provided monitoring config from the bootstrap config (Config.Monitoring).
+	// It is nil when the operator did not configure monitoring in the bootstrap config, or when the
+	// bootstrapper runs in static-TOML mode (which loads no bootstrap config). Services prefer this value
+	// and fall back to their own app-config monitoring field when it is nil.
+	Monitoring *monitoring.Config
 }
 
 // ServiceFactory is an interface implemented by the application that seeks to be bootstrapped.
@@ -260,6 +267,9 @@ func (b *Bootstrapper) startWithJDLifecycle(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to create service deps: %w", err)
 	}
+	// Surface the operator-provided monitoring config to the service. Only the JD path populates this;
+	// static-TOML mode (startWithAppConfig) loads no bootstrap config and leaves it nil.
+	deps.Monitoring = b.config.Monitoring
 
 	jobRunner := &runner{fac: b.fac, deps: deps}
 	lifecycleManager, err := lifecycle.NewManager(lifecycle.Config{
