@@ -50,7 +50,7 @@ func StartPyroscope(lggr logger.Logger, pyroscopeAddress, serviceName string) (*
 	profiler, err := pyroscope.Start(pyroscope.Config{
 		ApplicationName: serviceName,
 		ServerAddress:   pyroscopeAddress,
-		Logger:          nil,
+		Logger:          nil, // Disable pyroscope logging - so noisy
 		ProfileTypes: []pyroscope.ProfileType{
 			pyroscope.ProfileCPU,
 			pyroscope.ProfileAllocObjects,

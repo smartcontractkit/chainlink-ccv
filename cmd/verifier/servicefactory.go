@@ -64,12 +64,14 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 	}
 	lggr.Infow("Using blockchain information from config", "info", genericConfig.ChainConfig)
 
-	profiler, err := StartPyroscope(lggr, config.PyroscopeURL, "verifier")
-	if err != nil {
-		lggr.Errorw("Failed to start pyroscope", "error", err)
-		return fmt.Errorf("failed to start pyroscope: %w", err)
+	if config.PyroscopeURL != "" {
+		profiler, err := StartPyroscope(lggr, config.PyroscopeURL, "verifier")
+		if err != nil {
+			lggr.Errorw("Failed to start pyroscope", "error", err)
+			return fmt.Errorf("failed to start pyroscope: %w", err)
+		}
+		f.profiler = profiler
 	}
-	f.profiler = profiler
 
 	chainSelectors := genericConfig.ChainConfig.GetAllChainSelectors()
 

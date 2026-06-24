@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/grafana/pyroscope-go"
-
 	commonmetrics "github.com/smartcontractkit/chainlink-ccv/common/metrics"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
 	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
@@ -42,21 +40,6 @@ func InitMonitoring(config beholder.Config) (common.IndexerMonitoring, error) {
 	serviceMetrics, err := commonmetrics.NewServiceMetrics(metrics.NewLabeler(), "indexer")
 	if err != nil {
 		return nil, fmt.Errorf("failed to create service metrics: %w", err)
-	}
-
-	if _, err := pyroscope.Start(pyroscope.Config{
-		ApplicationName: "indexer",
-		ServerAddress:   "http://pyroscope:4040",
-		ProfileTypes: []pyroscope.ProfileType{
-			pyroscope.ProfileCPU,
-			pyroscope.ProfileAllocObjects,
-			pyroscope.ProfileAllocSpace,
-			pyroscope.ProfileGoroutines,
-			pyroscope.ProfileBlockDuration,
-			pyroscope.ProfileMutexDuration,
-		},
-	}); err != nil {
-		return nil, fmt.Errorf("failed to initialize pyroscope client: %w", err)
 	}
 
 	return &IndexerBeholderMonitoring{
