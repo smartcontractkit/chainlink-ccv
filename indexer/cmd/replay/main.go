@@ -361,7 +361,7 @@ func mustBuildEngine(ctx context.Context, needsDiscoveryReader bool) (*replay.En
 	if needsDiscoveryReader && len(cfg.Discoveries) > 0 {
 		disc := cfg.Discoveries[0]
 		aggFactory = func(since int64) (*readers.ResilientReader, error) {
-			return readers.NewAggregatorReader(disc.Address, lggr, since, hmac.ClientConfig{
+			return readers.NewAggregatorReader(disc.Label(), disc.Address, lggr, since, hmac.ClientConfig{
 				APIKey: disc.APIKey,
 				Secret: disc.Secret,
 			}, disc.InsecureConnection, config.EffectiveMaxResponseBytes(disc.MaxResponseBytes), indexerMonitoring)
@@ -426,7 +426,7 @@ func createVerifierReader(ctx context.Context, lggr logger.Logger, vc *config.Ve
 
 	switch vc.Type {
 	case config.ReaderTypeAggregator:
-		resilientReader, err = readers.NewAggregatorReader(vc.Address, lggr, vc.Since, hmac.ClientConfig{
+		resilientReader, err = readers.NewAggregatorReader(vc.Label(), vc.Address, lggr, vc.Since, hmac.ClientConfig{
 			APIKey: vc.APIKey,
 			Secret: vc.Secret,
 		}, vc.InsecureConnection, config.EffectiveMaxResponseBytes(vc.MaxResponseBytes), mon)
