@@ -32,20 +32,20 @@ type resilientAggregatorWriter struct {
 	writeTimeout   timeout.Timeout[any]
 }
 
-// NewDefaultResilientStorageWriter creates a new resilient aggregator writer with sensible defaults.
-func NewDefaultResilientStorageWriter(
+// NewDefaultResilientOffchainWriter creates a new resilient aggregator writer with sensible defaults.
+func NewDefaultResilientOffchainWriter(
 	writer protocol.CCVNodeDataWriter,
 	lggr logger.Logger,
 ) protocol.CCVNodeDataWriter {
-	return NewResilientStorageWriter(
+	return NewResilientOffchainWriter(
 		writer,
 		lggr,
 		defaultAggregatorResilienceConfig(),
 	)
 }
 
-// NewResilientStorageWriter creates a new resilient aggregator writer with custom configuration.
-func NewResilientStorageWriter(
+// NewResilientOffchainWriter creates a new resilient aggregator writer with custom configuration.
+func NewResilientOffchainWriter(
 	writer protocol.CCVNodeDataWriter,
 	lggr logger.Logger,
 	config aggregatorResilienceConfig,

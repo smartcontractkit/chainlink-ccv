@@ -225,7 +225,7 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 	}
 	f.aggregatorWriter = fanOutWriter
 
-	observedStorageWriter := storageaccess.NewObservedStorageWriter(
+	observedOffchainWriter := storageaccess.NewObservedOffchainWriter(
 		fanOutWriter,
 		config.VerifierID,
 		lggr,
@@ -305,7 +305,7 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 		lggr,
 		commitVerifier,
 		sourceReaders,
-		observedStorageWriter,
+		observedOffchainWriter,
 		coordinatorConfig,
 		messageTracker,
 		verifierMonitoring,
