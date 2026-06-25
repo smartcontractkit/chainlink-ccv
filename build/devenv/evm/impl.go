@@ -543,6 +543,16 @@ func (m *CCIP17EVM) haveEnoughTransferTokens(ctx context.Context, chain evm.Chai
 }
 
 func (m *CCIP17EVM) haveEnoughFeeTokens(ctx context.Context, chain evm.Chain, auth *bind.TransactOpts, routerAddress, feeToken common.Address, amount *big.Int) (hasEnough bool, msgValue *big.Int, err error) {
+	if feeToken == (common.Address{}) {
+		// if no fee token is specified, pure native token is used, so this is just a BalanceAt check.
+		balance, err := chain.Client.BalanceAt(ctx, chain.DeployerKey.From, nil)
+		if err != nil {
+			return false, nil, fmt.Errorf("failed to get balance: %w", err)
+		}
+		// msg.Value is equal to amount in the native token case
+		return balance.Cmp(amount) >= 0, amount, nil
+	}
+
 	wrappedNativeRef, err := m.ds.Addresses().Get(datastore.NewAddressRefKey(chain.Selector, datastore.ContractType(weth.ContractType), semver.MustParse(weth.Deploy.Version()), ""))
 	if err != nil {
 		return false, nil, fmt.Errorf("failed to get wrapped native address: %w", err)
@@ -552,18 +562,10 @@ func (m *CCIP17EVM) haveEnoughFeeTokens(ctx context.Context, chain evm.Chain, au
 		return false, nil, fmt.Errorf("failed to get link address: %w", err)
 	}
 	wrappedNative := common.HexToAddress(wrappedNativeRef.Address)
-	link := common.HexToAddress(linkRef.Address)
-	// TODO: should check if fee token is enabled somehow? Check feeQuoter contract?
+	linkToken := common.HexToAddress(linkRef.Address)
+
 	switch feeToken {
-	case common.Address{}:
-		// if no fee token is specified, pure native token is used, so this is just a BalanceAt check.
-		balance, err := chain.Client.BalanceAt(ctx, chain.DeployerKey.From, nil)
-		if err != nil {
-			return false, nil, fmt.Errorf("failed to get balance: %w", err)
-		}
-		// msg.Value is equal to amount in the native token case
-		return balance.Cmp(amount) >= 0, amount, nil
-	case wrappedNative, link:
+	case wrappedNative, linkToken:
 		ok, err := m.ensureERC20HasBalanceAndAllowance(ctx, chain, auth, feeToken, chain.DeployerKey.From, routerAddress, amount)
 		if err != nil {
 			return false, nil, err
@@ -573,7 +575,14 @@ func (m *CCIP17EVM) haveEnoughFeeTokens(ctx context.Context, chain evm.Chain, au
 		}
 		return true, big.NewInt(0), nil
 	default:
-		return false, nil, fmt.Errorf("unsupported fee token: %s", feeToken.String())
+		ok, err := m.ensureERC20HasBalanceAndAllowance(ctx, chain, auth, feeToken, chain.DeployerKey.From, routerAddress, amount)
+		if err != nil {
+			return false, nil, fmt.Errorf("failed to check fee token balance or allowance for %s: %w", feeToken.Hex(), err)
+		}
+		if !ok {
+			return false, nil, fmt.Errorf("insufficient fee token balance or allowance for %s", feeToken.Hex())
+		}
+		return true, big.NewInt(0), nil
 	}
 }
 

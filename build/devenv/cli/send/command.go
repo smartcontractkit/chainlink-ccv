@@ -31,6 +31,9 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/evm"
 )
 
+// v2DefaultExecutionGasLimit is used for V2 sends when --gas-limit is not set.
+const v2DefaultExecutionGasLimit uint32 = 200_000
+
 func Command() *cobra.Command {
 	var args sendArgs
 	var token string
@@ -52,6 +55,7 @@ func Command() *cobra.Command {
 			if err != nil {
 				return err
 			}
+			args.gasLimitSet = cmd.Flags().Changed("gas-limit")
 
 			return run(args)
 		},
@@ -70,6 +74,7 @@ func Command() *cobra.Command {
 	cmd.Flags().Uint64Var(&args.finalitySel, "finality", 0, "Finality chain selector (optional, only for V3 messages)")
 	cmd.Flags().BoolVar(&args.omitCommittee, "omit-committee", false, "Omit committee verifier from CCVs (e.g. for CCTP-only sends)")
 	cmd.Flags().BoolVar(&args.useTestRouter, "use-test-router", false, "Look up TestRouter contract from datastore instead of regular Router")
+	cmd.Flags().Uint32Var(&args.gasLimit, "gas-limit", 0, "Execution gas limit for destination chain delivery (V2 default 200000 when unset; V3 default 0 when unset)")
 
 	_ = cmd.MarkFlagRequired("src")
 	_ = cmd.MarkFlagRequired("dest")
@@ -91,6 +96,8 @@ type sendArgs struct {
 	srcSel      uint64
 	destSel     uint64
 	finalitySel uint64
+	gasLimit    uint32
+	gasLimitSet bool
 }
 
 func run(args sendArgs) error {
@@ -180,16 +187,21 @@ func run(args sendArgs) error {
 		return fmt.Errorf("failed to send message: %w", err)
 	}
 
-	ccv.Plog.Info().Msgf("Message ID: %s", hexutil.Encode(result.MessageID[:]))
+	msgID := hexutil.Encode(result.MessageID[:])
+	ccv.Plog.Info().Msgf("Message ID: %s", msgID)
+	ccv.Plog.Info().Msgf("CCIP Explorer: https://ccip.chain.link/msg/%s", msgID)
 	ccv.Plog.Info().Msgf("Receipt issuers: %s", result.ReceiptIssuers)
 	return nil
 }
 
 func getMessageOptions(args sendArgs, addrs datastore.AddressRefStore) (cciptestinterfaces.MessageOptions, uint8, error) {
-	if args.finalitySel == 0 {
+	isV2 := args.finalitySel == 0
+	executionGasLimit := resolveExecutionGasLimit(args.gasLimit, args.gasLimitSet, isV2)
+
+	if isV2 {
 		// V2 format - use the dedicated V2 function
 		return cciptestinterfaces.MessageOptions{
-			ExecutionGasLimit:   200_000,
+			ExecutionGasLimit:   executionGasLimit,
 			OutOfOrderExecution: true,
 		}, 2, nil
 	}
@@ -205,10 +217,11 @@ func getMessageOptions(args sendArgs, addrs datastore.AddressRefStore) (cciptest
 		return cciptestinterfaces.MessageOptions{}, 0, fmt.Errorf("failed to get executor address: %w", err)
 	}
 	opts := cciptestinterfaces.MessageOptions{
-		FinalityConfig: protocol.Finality(args.finalitySel),
-		Executor:       common.HexToAddress(executorRef.Address).Bytes(),
-		ExecutorArgs:   nil,
-		TokenArgs:      nil,
+		FinalityConfig:    protocol.Finality(args.finalitySel),
+		ExecutionGasLimit: executionGasLimit,
+		Executor:          common.HexToAddress(executorRef.Address).Bytes(),
+		ExecutorArgs:      nil,
+		TokenArgs:         nil,
 	}
 	if args.omitCommittee {
 		opts.CCVs = nil
@@ -231,6 +244,16 @@ func getMessageOptions(args sendArgs, addrs datastore.AddressRefStore) (cciptest
 		},
 	}
 	return opts, 3, nil
+}
+
+func resolveExecutionGasLimit(gasLimit uint32, gasLimitSet bool, isV2 bool) uint32 {
+	if gasLimitSet {
+		return gasLimit
+	}
+	if isV2 {
+		return v2DefaultExecutionGasLimit
+	}
+	return 0
 }
 
 // resolveFeeToken converts the --fee-token CLI value into an on-chain address.
