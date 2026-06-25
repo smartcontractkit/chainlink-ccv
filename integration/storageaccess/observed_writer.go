@@ -61,7 +61,7 @@ func NewObservedAggregatorWriter(
 }
 
 // metrics returns the metric labeler scoped to this observer's verifier_id and (when set)
-// aggregator label.
+// target label.
 func (o *observedOffchainWriter) metrics() verifier.MetricLabeler {
 	return o.monitoring.
 		Metrics().
