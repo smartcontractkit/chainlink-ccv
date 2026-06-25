@@ -73,7 +73,7 @@ func NewFanOutAggregatorWriter(
 	for _, t := range targets {
 		aggWriter, err := NewAggregatorWriter(
 			t.Address,
-			logger.With(lggr, "aggregator", t.Label),
+			logger.With(lggr, "target", t.Label),
 			t.HMACConfig,
 			t.Insecure,
 			t.MaxSendMsgSizeBytes,
@@ -86,7 +86,7 @@ func NewFanOutAggregatorWriter(
 		}
 
 		observed, err := NewObservedAggregatorWriter(
-			NewDefaultResilientStorageWriter(aggWriter, logger.With(lggr, "aggregator", t.Label)),
+			NewDefaultResilientOffchainWriter(aggWriter, logger.With(lggr, "target", t.Label)),
 			verifierID,
 			t.Label,
 			lggr,
