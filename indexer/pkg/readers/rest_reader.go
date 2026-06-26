@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
@@ -29,12 +30,13 @@ var (
 )
 
 type RestReaderConfig struct {
-	BaseURL          string        // Base URL for the REST API
-	Since            int64         // Starting timestamp
-	RequestTimeout   time.Duration // Timeout for HTTP requests (default: 10s)
-	MaxResponseBytes int           // Maximum response body size in bytes (0 = use default)
-	HTTPClient       *http.Client  // Custom HTTP client (optional)
-	Logger           logger.Logger // Logger instance (required)
+	BaseURL          string                      // Base URL for the REST API
+	Since            int64                       // Starting timestamp
+	RequestTimeout   time.Duration               // Timeout for HTTP requests (default: 10s)
+	MaxResponseBytes int                         // Maximum response body size in bytes (0 = use default)
+	HTTPClient       *http.Client                // Custom HTTP client (optional)
+	Logger           logger.Logger               // Logger instance (required)
+	Metrics          common.IndexerMetricLabeler // Metrics instance (required)
 }
 
 type restReader struct {
@@ -43,6 +45,7 @@ type restReader struct {
 	maxResponseBytes int
 	httpClient       *http.Client
 	lggr             logger.Logger
+	m                common.IndexerMetricLabeler
 }
 
 // NewRestReader creates a new REST-based reader with resilience policies.
@@ -62,9 +65,10 @@ func NewRestReader(config RestReaderConfig) *ResilientReader {
 		maxResponseBytes: config.MaxResponseBytes,
 		httpClient:       httpClient,
 		lggr:             config.Logger,
+		m:                config.Metrics,
 	}
 
-	return NewResilientReader(underlying, config.Logger, DefaultResilienceConfig())
+	return NewResilientReader(NewObservedReader(underlying, config.Metrics), config.Logger, DefaultResilienceConfig())
 }
 
 func (r *restReader) GetVerifications(ctx context.Context, messageIDs []protocol.Bytes32) (map[protocol.Bytes32]protocol.VerifierResult, error) {
