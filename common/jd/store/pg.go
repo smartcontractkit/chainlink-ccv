@@ -65,14 +65,19 @@ func (s *PostgresStore) SavePendingJob(ctx context.Context, proposalID string, v
 	return nil
 }
 
-// AcceptPendingJob promotes the pending record to approved, atomically replacing any old
-// approved record. Returns true if a pending record was promoted, false if none existed.
+// AcceptPendingJob promotes the pending record to approved, replacing any old approved record.
+// Returns true if a pending record was promoted, false if none existed.
+// Two separate statements are required: PostgreSQL data-modifying CTEs use the same snapshot
+// for both the CTE and the main query, so a combined DELETE+UPDATE CTE would violate the
+// UNIQUE(status) constraint even though the net result would be valid.
 func (s *PostgresStore) AcceptPendingJob(ctx context.Context) (bool, error) {
+	_, err := s.ds.ExecContext(ctx, `DELETE FROM job_store WHERE status = 'approved'`)
+	if err != nil {
+		return false, fmt.Errorf("failed to remove old approved job: %w", err)
+	}
+
 	result, err := s.ds.ExecContext(ctx,
-		`WITH deleted AS (
-		     DELETE FROM job_store WHERE status = 'approved'
-		 )
-		 UPDATE job_store SET status = 'approved', updated_at = NOW() WHERE status = 'pending'`,
+		`UPDATE job_store SET status = 'approved', updated_at = NOW() WHERE status = 'pending'`,
 	)
 	if err != nil {
 		return false, fmt.Errorf("failed to accept pending job: %w", err)
