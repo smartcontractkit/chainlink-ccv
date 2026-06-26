@@ -58,6 +58,10 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 		return fmt.Errorf("failed to get app config: %w", err)
 	}
 
+	if err := config.Validate(); err != nil {
+		return err
+	}
+
 	if config.PyroscopeURL != "" {
 		profiler, err := StartPyroscope(lggr, config.PyroscopeURL, "verifier")
 		if err != nil {
