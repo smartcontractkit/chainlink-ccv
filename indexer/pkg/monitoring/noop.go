@@ -50,3 +50,7 @@ func (n *NoopIndexerMetricLabeler) RecordGRPCPayloadSize(ctx context.Context, me
 
 func (n *NoopIndexerMetricLabeler) IncrementGRPCErrors(ctx context.Context, code, method string) {
 }
+
+func (n *NoopIndexerMetricLabeler) IncrementOffchainReadError(_ context.Context) {}
+func (n *NoopIndexerMetricLabeler) RecordOffchainReadLatency(_ context.Context, _ time.Duration, _ bool) {
+}

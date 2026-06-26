@@ -68,7 +68,7 @@ func NewRestReader(config RestReaderConfig) *ResilientReader {
 		m:                config.Metrics,
 	}
 
-	return NewResilientReader(NewObservedReader(underlying, config.Metrics), config.Logger, DefaultResilienceConfig())
+	return NewResilientReader(NewObservedReader(underlying, nil, config.Metrics), config.Logger, DefaultResilienceConfig())
 }
 
 func (r *restReader) GetVerifications(ctx context.Context, messageIDs []protocol.Bytes32) (map[protocol.Bytes32]protocol.VerifierResult, error) {

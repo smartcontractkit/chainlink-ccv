@@ -677,6 +677,8 @@ func resolveTestSuite(suite string) (pattern, dir string, err error) {
 		return "TestE2ESmoke_ExtraArgsV2", "tests/e2e", nil
 	case "smoke-v3":
 		return "TestE2ESmoke_Basic/extra_args_v3_messaging", "tests/e2e", nil
+	case "smoke-usdc-lbtc-v3":
+		return "TestE2ESmoke_TokenVerification", "tests/e2e", nil
 	case "load":
 		return "TestE2ELoad/clean", "tests/e2e", nil
 	case "rpc-latency":

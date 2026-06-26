@@ -124,6 +124,39 @@ func (_c *MockIndexerMetricLabeler_IncrementGRPCErrors_Call) RunAndReturn(run fu
 	return _c
 }
 
+// IncrementOffchainReadError provides a mock function with given fields: ctx
+func (_m *MockIndexerMetricLabeler) IncrementOffchainReadError(ctx context.Context) {
+	_m.Called(ctx)
+}
+
+// MockIndexerMetricLabeler_IncrementOffchainReadError_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'IncrementOffchainReadError'
+type MockIndexerMetricLabeler_IncrementOffchainReadError_Call struct {
+	*mock.Call
+}
+
+// IncrementOffchainReadError is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *MockIndexerMetricLabeler_Expecter) IncrementOffchainReadError(ctx interface{}) *MockIndexerMetricLabeler_IncrementOffchainReadError_Call {
+	return &MockIndexerMetricLabeler_IncrementOffchainReadError_Call{Call: _e.mock.On("IncrementOffchainReadError", ctx)}
+}
+
+func (_c *MockIndexerMetricLabeler_IncrementOffchainReadError_Call) Run(run func(ctx context.Context)) *MockIndexerMetricLabeler_IncrementOffchainReadError_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context))
+	})
+	return _c
+}
+
+func (_c *MockIndexerMetricLabeler_IncrementOffchainReadError_Call) Return() *MockIndexerMetricLabeler_IncrementOffchainReadError_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockIndexerMetricLabeler_IncrementOffchainReadError_Call) RunAndReturn(run func(context.Context)) *MockIndexerMetricLabeler_IncrementOffchainReadError_Call {
+	_c.Run(run)
+	return _c
+}
+
 // IncrementStorageError provides a mock function with given fields: ctx, operation
 func (_m *MockIndexerMetricLabeler) IncrementStorageError(ctx context.Context, operation string) {
 	_m.Called(ctx, operation)
@@ -362,6 +395,41 @@ func (_c *MockIndexerMetricLabeler_RecordIndexerMessageDiscoveryLatency_Call) Re
 }
 
 func (_c *MockIndexerMetricLabeler_RecordIndexerMessageDiscoveryLatency_Call) RunAndReturn(run func(context.Context, time.Duration)) *MockIndexerMetricLabeler_RecordIndexerMessageDiscoveryLatency_Call {
+	_c.Run(run)
+	return _c
+}
+
+// RecordOffchainReadLatency provides a mock function with given fields: ctx, duration, errored
+func (_m *MockIndexerMetricLabeler) RecordOffchainReadLatency(ctx context.Context, duration time.Duration, errored bool) {
+	_m.Called(ctx, duration, errored)
+}
+
+// MockIndexerMetricLabeler_RecordOffchainReadLatency_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RecordOffchainReadLatency'
+type MockIndexerMetricLabeler_RecordOffchainReadLatency_Call struct {
+	*mock.Call
+}
+
+// RecordOffchainReadLatency is a helper method to define mock.On call
+//   - ctx context.Context
+//   - duration time.Duration
+//   - errored bool
+func (_e *MockIndexerMetricLabeler_Expecter) RecordOffchainReadLatency(ctx interface{}, duration interface{}, errored interface{}) *MockIndexerMetricLabeler_RecordOffchainReadLatency_Call {
+	return &MockIndexerMetricLabeler_RecordOffchainReadLatency_Call{Call: _e.mock.On("RecordOffchainReadLatency", ctx, duration, errored)}
+}
+
+func (_c *MockIndexerMetricLabeler_RecordOffchainReadLatency_Call) Run(run func(ctx context.Context, duration time.Duration, errored bool)) *MockIndexerMetricLabeler_RecordOffchainReadLatency_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(time.Duration), args[2].(bool))
+	})
+	return _c
+}
+
+func (_c *MockIndexerMetricLabeler_RecordOffchainReadLatency_Call) Return() *MockIndexerMetricLabeler_RecordOffchainReadLatency_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockIndexerMetricLabeler_RecordOffchainReadLatency_Call) RunAndReturn(run func(context.Context, time.Duration, bool)) *MockIndexerMetricLabeler_RecordOffchainReadLatency_Call {
 	_c.Run(run)
 	return _c
 }

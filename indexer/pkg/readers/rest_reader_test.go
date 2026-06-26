@@ -14,6 +14,7 @@ import (
 
 	"github.com/failsafe-go/failsafe-go/circuitbreaker"
 
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
@@ -114,6 +115,7 @@ func TestRestReader_GetVerifications_404_ReturnsEmptyMapAndNoError(t *testing.T)
 		MaxResponseBytes: 1024,
 		HTTPClient:       server.Client(),
 		Logger:           lggr,
+		Metrics:          monitoring.NewNoopIndexerMetricLabeler(),
 	})
 
 	result, err := rr.GetVerifications(context.Background(), []protocol.Bytes32{messageID})
@@ -137,6 +139,7 @@ func TestRestReader_GetVerifications_404_MalformedBody_ReturnsEmptyMapAndNoError
 		MaxResponseBytes: 1024,
 		HTTPClient:       server.Client(),
 		Logger:           lggr,
+		Metrics:          monitoring.NewNoopIndexerMetricLabeler(),
 	})
 
 	messageID := protocol.Bytes32{1, 2, 3}
@@ -165,6 +168,7 @@ func TestRestReader_GetVerifications_404_DoesNotOpenCircuitBreaker(t *testing.T)
 		MaxResponseBytes: 1024,
 		HTTPClient:       server.Client(),
 		Logger:           lggr,
+		Metrics:          monitoring.NewNoopIndexerMetricLabeler(),
 	})
 
 	ctx := context.Background()

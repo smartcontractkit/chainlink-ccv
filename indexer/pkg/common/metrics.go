@@ -52,4 +52,8 @@ type IndexerMetricLabeler interface {
 	// target identifies the remote gRPC server (DiscoveryConfig.Label() or VerifierConfig.Label()).
 	// code should be the gRPC status code string (e.g. "ResourceExhausted", "Internal").
 	IncrementGRPCErrors(ctx context.Context, code, method string)
+	// IncrementOffchainReadError increments the counter for offchain read errors.
+	IncrementOffchainReadError(ctx context.Context)
+	// RecordOffchainReadLatency records the latency of an offchain read operation.
+	RecordOffchainReadLatency(ctx context.Context, duration time.Duration, errored bool)
 }

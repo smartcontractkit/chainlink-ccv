@@ -16,7 +16,7 @@ func NewAggregatorReader(address string, lggr logger.Logger, since int64, hmacCo
 	if err != nil {
 		return nil, fmt.Errorf("failed to create aggregator reader: %w", err)
 	}
-	observed := NewObservedReader(reader, m)
+	observed := NewObservedReader(reader, reader, m)
 
 	config := DefaultResilienceConfig()
 	config.DiscoveryRetryPolicyErrorHandler = aggregatorRetryPolicyErrorHandler
