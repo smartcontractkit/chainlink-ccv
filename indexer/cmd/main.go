@@ -10,7 +10,6 @@ import (
 
 	"github.com/grafana/pyroscope-go"
 	"github.com/jmoiron/sqlx"
-	"go.uber.org/zap/zapcore"
 
 	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/api"
@@ -25,8 +24,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/backofftimeprovider"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
-	zaplog "github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
-	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil/pg"
 )
@@ -38,48 +35,19 @@ func main() {
 		panic(err)
 	}
 
-	logLevel, err := zapcore.ParseLevel(config.LogLevel)
-	if err != nil {
-		panic(err)
-	}
-
-	lggr, err := logger.NewWith(zaplog.GetLogProfile(logLevel))
-	if err != nil {
-		panic(fmt.Sprintf("Failed to create logger: %v", err))
-	}
-
-	lggr = logger.Named(lggr, "indexer")
-	lggr = ccvcommon.WithService(lggr, "indexer")
-	// Use SugaredLogger for better API
-	lggr = logger.Sugared(lggr)
-
-	for _, name := range unmatchedVerifierNames {
-		lggr.Warnw("Generated config verifier has no matching verifier in main config",
-			"name", name)
-	}
-
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
 
 	// Setup OTEL Monitoring (via beholder)
-	var indexerMonitoring common.IndexerMonitoring
-	if config.Monitoring.Enabled {
-		indexerMonitoring, err = monitoring.InitMonitoring(beholder.Config{
-			InsecureConnection:       config.Monitoring.Beholder.InsecureConnection,
-			CACertFile:               config.Monitoring.Beholder.CACertFile,
-			OtelExporterHTTPEndpoint: config.Monitoring.Beholder.OtelExporterHTTPEndpoint,
-			OtelExporterGRPCEndpoint: config.Monitoring.Beholder.OtelExporterGRPCEndpoint,
-			LogStreamingEnabled:      config.Monitoring.Beholder.LogStreamingEnabled,
-			MetricReaderInterval:     time.Second * time.Duration(config.Monitoring.Beholder.MetricReaderInterval),
-			TraceSampleRatio:         config.Monitoring.Beholder.TraceSampleRatio,
-			TraceBatchTimeout:        time.Second * time.Duration(config.Monitoring.Beholder.TraceBatchTimeout),
-		})
-		if err != nil {
-			lggr.Fatalf("Failed to initialize indexer monitoring: %v", err)
-		}
-	} else {
-		lggr.Infow("Monitoring disabled, using noop implementation")
-		indexerMonitoring = monitoring.NewNoopIndexerMonitoring()
+	m, err := monitoring.InitMonitoring(config)
+	if err != nil {
+		panic(fmt.Sprintf("Failed to initialize indexer monitoring: %v", err))
+	}
+	lggr := m.Logger()
+
+	for _, name := range unmatchedVerifierNames {
+		lggr.Warnw("Generated config verifier has no matching verifier in main config",
+			"name", name)
 	}
 
 	if config.PyroscopeURL != "" {
@@ -102,14 +70,14 @@ func main() {
 	protocol.InitChainSelectorCache()
 
 	// Initialize the indexer storage
-	indexerStorage := createStorage(ctx, lggr, config, indexerMonitoring)
+	indexerStorage := createStorage(ctx, lggr, config, m)
 	verifierRegistry := createRegistry()
-	err = createAllVerifierReaders(ctx, lggr, verifierRegistry, config, indexerMonitoring)
+	err = createAllVerifierReaders(ctx, lggr, verifierRegistry, config, m)
 	if err != nil {
 		lggr.Fatalf("Failed to initalize verifier readers: %v", err)
 	}
 
-	messageDiscovery, err := createDiscovery(ctx, lggr, config, indexerStorage, indexerMonitoring, verifierRegistry)
+	messageDiscovery, err := createDiscovery(ctx, lggr, config, indexerStorage, m, verifierRegistry)
 	if err != nil {
 		lggr.Fatalf("Failed to initialize message discovery: %v", err)
 	}
@@ -127,13 +95,13 @@ func main() {
 	}
 	pool.Start(ctx)
 
-	v1 := api.NewV1API(lggr, config, indexerStorage, indexerMonitoring)
+	v1 := api.NewV1API(lggr, config, indexerStorage, m)
 	listenPort := config.API.ListenPort
 	if listenPort == 0 {
 		listenPort = 8100
 	}
 
-	indexerMonitoring.RecordServiceStarted(ctx)
+	m.RecordServiceStarted(ctx)
 
 	api.Serve(v1, listenPort)
 }
