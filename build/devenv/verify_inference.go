@@ -3,7 +3,6 @@ package ccv
 import (
 	"context"
 	"fmt"
-	"os"
 	"sort"
 	"strings"
 
@@ -14,122 +13,79 @@ import (
 	ccvshared "github.com/smartcontractkit/chainlink-ccv/deployment/shared"
 )
 
-// State-inference verification (CCV_VERIFY_STATE_INFERENCE).
+// State-inference verification is a permanent, unconditional part of devenv
+// bring-up — the e2e gate for the topology-free refactor.
 //
-// This is the devenv e2e gate for the topology-free refactor: right after each
-// topology-driven ApplyVerifierConfig / ApplyExecutorConfig, we reconstruct the
-// same changeset input from live state (on-chain committee scans + JD for
-// verifiers; persisted job specs for executors) and diff it against the
-// topology-derived input that was just applied. When they match, the state
-// resolvers are proven correct against a real environment before we rely on them
-// in a live env (where there is no topology to fall back on).
+// Right after each topology-driven ApplyVerifierConfig / ApplyExecutorConfig, we
+// reconstruct the same changeset input from live state (on-chain committee scans +
+// JD for verifiers; persisted job specs for executors) and require it to equal the
+// topology-derived input that was just applied. A mismatch — or any failure to
+// reconstruct — fails the bring-up. This proves the state resolvers are correct
+// against a real environment, so a live env (which has no topology to fall back on)
+// can be driven entirely from inferred inputs.
 //
-// Modes (env var CCV_VERIFY_STATE_INFERENCE):
-//   - unset / "off": no verification (default)
-//   - "warn" / "1" / "true" / "on": log mismatches, never fail the run
-//   - "strict": return an error on any mismatch, failing `ccv up`
-const verifyStateInferenceEnv = "CCV_VERIFY_STATE_INFERENCE"
-
-type verifyMode int
-
-const (
-	verifyOff verifyMode = iota
-	verifyWarn
-	verifyStrict
-)
-
-func stateVerifyMode() verifyMode {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv(verifyStateInferenceEnv))) {
-	case "strict":
-		return verifyStrict
-	case "warn", "1", "true", "on":
-		return verifyWarn
-	default:
-		return verifyOff
-	}
-}
-
-// logMismatch emits the diff at warn level (or error level in strict mode).
-func logMismatch(mode verifyMode, kind, name, family string, diffs []string) {
-	e := L.Warn()
-	if mode == verifyStrict {
-		e = L.Error()
-	}
-	e.Str("kind", kind).Str("name", name).Str("family", family).
-		Strs("mismatches", diffs).
-		Msg("state inference mismatch vs topology-derived input")
-}
+// The only non-fatal outcome is genuinely-empty state: no JD client to map signers
+// to NOPs, or nothing deployed/published yet. That is "nothing to compare," not a
+// toggle — it is logged so it stays visible in run output.
 
 // verifyCommitteeInference reconstructs a committee's per-chain membership from
-// live on-chain state + JD and diffs it against the topology-derived CommitteeInput
-// that was just applied. The committee verifier must already be deployed and its
-// signature configs set on-chain; when no on-chain config is found yet (e.g. this
-// runs before the configure step) the check is skipped with a warning.
+// live on-chain state + JD and requires it to match the topology-derived
+// CommitteeInput just applied. The committee verifier is deployed and its
+// signature configs are set on-chain (ConfigureChainsForLanesFromTopology) before
+// verifier job-spec generation runs, so on-chain state is present here.
 func verifyCommitteeInference(
 	e *deployment.Environment,
 	committeeQualifier, family string,
 	topo ccvchangesets.CommitteeInput,
 ) error {
-	mode := stateVerifyMode()
-	if mode == verifyOff {
-		return nil
-	}
-
 	if e.Offchain == nil || len(e.NodeIDs) == 0 {
 		L.Warn().Str("committee", committeeQualifier).Str("family", family).
-			Msg("state inference: no JD client / node IDs on environment; skipping committee check")
+			Msg("state inference: no JD client / node IDs on environment; cannot map on-chain signers to NOPs, skipping committee check")
 		return nil
 	}
 
 	ctx := context.Background()
 	ids, err := ccvchangesets.LoadNOPIdentities(ctx, *e)
 	if err != nil {
-		return failOrWarn(mode, fmt.Errorf("committee %q (family %q): load NOP identities: %w", committeeQualifier, family, err))
+		return fmt.Errorf("committee %q (family %q): load NOP identities from JD: %w", committeeQualifier, family, err)
 	}
 
 	state, err := ccvchangesets.CommitteeInputFromState(ctx, *e, ids, committeeQualifier, family)
 	if err != nil {
-		return failOrWarn(mode, fmt.Errorf("committee %q (family %q): reconstruct from state: %w", committeeQualifier, family, err))
+		return fmt.Errorf("committee %q (family %q): reconstruct from state: %w", committeeQualifier, family, err)
 	}
 
 	if len(state.ChainConfigs) == 0 {
 		L.Warn().Str("committee", committeeQualifier).Str("family", family).
-			Msg("state inference: no on-chain committee config found yet; skipping committee check")
+			Msg("state inference: no on-chain committee config found; skipping committee check")
 		return nil
 	}
 
-	diffs := diffCommitteeMembership(topo, state)
-	if len(diffs) == 0 {
-		L.Info().Str("committee", committeeQualifier).Str("family", family).
-			Int("chains", len(state.ChainConfigs)).
-			Msg("state inference OK: committee membership reconstructs from on-chain state")
-		return nil
-	}
-
-	logMismatch(mode, "committee", committeeQualifier, family, diffs)
-	if mode == verifyStrict {
+	if diffs := diffCommitteeMembership(topo, state); len(diffs) > 0 {
+		L.Error().Str("committee", committeeQualifier).Str("family", family).
+			Strs("mismatches", diffs).
+			Msg("state inference mismatch vs topology-derived committee input")
 		return fmt.Errorf("committee %q (family %q) state inference mismatch: %s", committeeQualifier, family, strings.Join(diffs, "; "))
 	}
+
+	L.Info().Str("committee", committeeQualifier).Str("family", family).
+		Int("chains", len(state.ChainConfigs)).
+		Msg("state inference OK: committee membership reconstructs from on-chain state")
 	return nil
 }
 
 // verifyExecutorInference reconstructs an executor pool from the job specs just
 // persisted by ApplyExecutorConfig (appliedDS is that changeset's output store)
-// and diffs it against the topology-derived ExecutorPoolInput. This is a pure
+// and requires it to match the topology-derived ExecutorPoolInput. This is a pure
 // round-trip over the datastore, so it has no on-chain ordering dependency.
 func verifyExecutorInference(
 	qualifier string,
 	topo ccvchangesets.ExecutorPoolInput,
 	appliedDS datastore.DataStore,
 ) error {
-	mode := stateVerifyMode()
-	if mode == verifyOff {
-		return nil
-	}
-
 	state, _, err := ccvchangesets.ExecutorPoolInputFromState(appliedDS, qualifier)
 	if err != nil {
-		return failOrWarn(mode, fmt.Errorf("executor pool %q: reconstruct from state: %w", qualifier, err))
+		return fmt.Errorf("executor pool %q: reconstruct from state: %w", qualifier, err)
 	}
 
 	if len(state.ChainConfigs) == 0 {
@@ -138,25 +94,14 @@ func verifyExecutorInference(
 		return nil
 	}
 
-	diffs := diffExecutorPool(topo, state)
-	if len(diffs) == 0 {
-		L.Info().Str("executor", qualifier).Int("chains", len(state.ChainConfigs)).
-			Msg("state inference OK: executor pool reconstructs from persisted job specs")
-		return nil
-	}
-
-	logMismatch(mode, "executor", qualifier, "", diffs)
-	if mode == verifyStrict {
+	if diffs := diffExecutorPool(topo, state); len(diffs) > 0 {
+		L.Error().Str("executor", qualifier).Strs("mismatches", diffs).
+			Msg("state inference mismatch vs topology-derived executor input")
 		return fmt.Errorf("executor pool %q state inference mismatch: %s", qualifier, strings.Join(diffs, "; "))
 	}
-	return nil
-}
 
-func failOrWarn(mode verifyMode, err error) error {
-	if mode == verifyStrict {
-		return err
-	}
-	L.Warn().Err(err).Msg("state inference check could not run (non-strict: continuing)")
+	L.Info().Str("executor", qualifier).Int("chains", len(state.ChainConfigs)).
+		Msg("state inference OK: executor pool reconstructs from persisted job specs")
 	return nil
 }
 

@@ -503,8 +503,8 @@ func generateExecutorJobSpecs(
 			return nil, fmt.Errorf("failed to generate executor configs for qualifier %s: %w", qualifier, err)
 		}
 
-		// e2e gate: reconstruct the pool from the just-persisted job specs and diff
-		// it against the topology-derived input (CCV_VERIFY_STATE_INFERENCE).
+		// e2e gate: reconstruct the pool from the just-persisted job specs and require
+		// it to match the topology-derived input. Mismatch fails the bring-up.
 		if err := verifyExecutorInference(qualifier, execInput.Pool, output.DataStore.Seal()); err != nil {
 			return nil, err
 		}
@@ -614,7 +614,7 @@ func generateVerifierJobSpecs(
 			}
 
 			// e2e gate: reconstruct committee membership from live on-chain state + JD
-			// and diff it against the topology-derived input (CCV_VERIFY_STATE_INFERENCE).
+			// and require it to match the topology-derived input. Mismatch fails the bring-up.
 			if err := verifyCommitteeInference(e, committeeName, family, verInput.Committee); err != nil {
 				return nil, err
 			}

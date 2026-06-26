@@ -3,6 +3,7 @@ package changesets
 import (
 	"context"
 	"fmt"
+	"maps"
 	"sort"
 
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
@@ -107,9 +108,7 @@ func (ids *NOPIdentities) NOPInputs() []NOPInput {
 	out := make([]NOPInput, 0, len(ids.signingKeys))
 	for alias, byFamily := range ids.signingKeys {
 		signers := make(map[string]string, len(byFamily))
-		for family, addr := range byFamily {
-			signers[family] = addr
-		}
+		maps.Copy(signers, byFamily)
 		out = append(out, NOPInput{
 			Alias:                 shared.NOPAlias(alias),
 			SignerAddressByFamily: signers,

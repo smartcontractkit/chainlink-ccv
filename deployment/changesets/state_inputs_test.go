@@ -2,6 +2,7 @@ package changesets
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
 
@@ -51,17 +52,8 @@ type stubJDIdentities struct {
 func (s *stubJDIdentities) ListNodes(_ context.Context, in *nodev1.ListNodesRequest, _ ...grpc.CallOption) (*nodev1.ListNodesResponse, error) {
 	out := make([]*nodev1.Node, 0, len(s.names))
 	for id, name := range s.names {
-		if in.Filter != nil && len(in.Filter.Ids) > 0 {
-			found := false
-			for _, want := range in.Filter.Ids {
-				if want == id {
-					found = true
-					break
-				}
-			}
-			if !found {
-				continue
-			}
+		if in.Filter != nil && len(in.Filter.Ids) > 0 && !slices.Contains(in.Filter.Ids, id) {
+			continue
 		}
 		out = append(out, &nodev1.Node{Id: id, Name: name})
 	}
@@ -71,17 +63,8 @@ func (s *stubJDIdentities) ListNodes(_ context.Context, in *nodev1.ListNodesRequ
 func (s *stubJDIdentities) ListNodeChainConfigs(_ context.Context, in *nodev1.ListNodeChainConfigsRequest, _ ...grpc.CallOption) (*nodev1.ListNodeChainConfigsResponse, error) {
 	var cfgs []*nodev1.ChainConfig
 	for id, signer := range s.signers {
-		if in.Filter != nil && len(in.Filter.NodeIds) > 0 {
-			found := false
-			for _, want := range in.Filter.NodeIds {
-				if want == id {
-					found = true
-					break
-				}
-			}
-			if !found {
-				continue
-			}
+		if in.Filter != nil && len(in.Filter.NodeIds) > 0 && !slices.Contains(in.Filter.NodeIds, id) {
+			continue
 		}
 		cfgs = append(cfgs, &nodev1.ChainConfig{
 			NodeId: id,
