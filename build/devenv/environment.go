@@ -43,7 +43,7 @@ import (
 	ccvchangesets "github.com/smartcontractkit/chainlink-ccv/deployment/changesets"
 	ccvshared "github.com/smartcontractkit/chainlink-ccv/deployment/shared"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
-	_ "github.com/smartcontractkit/chainlink-ccv/integration/evm/adapters" // register EVM ccv adapters (aggregator/indexer/token-verifier/executor/verifier/committee) into the ccv registries
+	_ "github.com/smartcontractkit/chainlink-ccv/integration/evm/adapters"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/commit"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
