@@ -8,11 +8,15 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 )
 
+// Ensure PostgresStore implements StoreInterface.
+var _ StoreInterface = (*PostgresStore)(nil)
+
 // jobRow is the database row structure for job_store.
 type jobRow struct {
 	ProposalID string    `db:"proposal_id"`
 	Version    int64     `db:"version"`
 	Spec       string    `db:"spec"`
+	Status     string    `db:"status"`
 	CreatedAt  time.Time `db:"created_at"`
 	UpdatedAt  time.Time `db:"updated_at"`
 }
@@ -30,6 +34,7 @@ type PostgresStore struct {
 		proposal_id TEXT NOT NULL,
 		version BIGINT NOT NULL,
 		spec TEXT NOT NULL,
+		status TEXT NOT NULL DEFAULT 'approved' CHECK (status IN ('pending', 'approved')),
 		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 		updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 	);
@@ -38,7 +43,7 @@ func NewPostgresStore(ds sqlutil.DataSource) *PostgresStore {
 	return &PostgresStore{ds: ds}
 }
 
-// SaveJob persists a job spec, replacing any existing job.
+// SaveJob persists a job spec as pending, replacing any existing job.
 // Only one job should be active at a time.
 func (s *PostgresStore) SaveJob(ctx context.Context, proposalID string, version int64, spec string) error {
 	// Delete any existing jobs first (we only keep one)
@@ -47,9 +52,9 @@ func (s *PostgresStore) SaveJob(ctx context.Context, proposalID string, version 
 		return fmt.Errorf("failed to clear existing jobs: %w", err)
 	}
 
-	// Insert the new job
 	_, err = s.ds.ExecContext(ctx,
-		`INSERT INTO job_store (proposal_id, version, spec, created_at, updated_at) VALUES ($1, $2, $3, NOW(), NOW())`,
+		`INSERT INTO job_store (proposal_id, version, spec, status, created_at, updated_at)
+		 VALUES ($1, $2, $3, 'pending', NOW(), NOW())`,
 		proposalID, version, spec,
 	)
 	if err != nil {
@@ -59,12 +64,24 @@ func (s *PostgresStore) SaveJob(ctx context.Context, proposalID string, version 
 	return nil
 }
 
+// MarkJobApproved transitions the stored job's status from pending to approved.
+func (s *PostgresStore) MarkJobApproved(ctx context.Context) error {
+	_, err := s.ds.ExecContext(ctx,
+		`UPDATE job_store SET status = 'approved', updated_at = NOW()`,
+	)
+	if err != nil {
+		return fmt.Errorf("failed to mark job approved: %w", err)
+	}
+	return nil
+}
+
 // LoadJob retrieves the current job spec from the store.
 // Returns ErrNoJob if no job is found.
 func (s *PostgresStore) LoadJob(ctx context.Context) (*Job, error) {
 	var rows []jobRow
 	err := s.ds.SelectContext(ctx, &rows,
-		`SELECT proposal_id, version, spec, created_at, updated_at FROM job_store ORDER BY id DESC LIMIT 1`,
+		`SELECT proposal_id, version, spec, status, created_at, updated_at
+		 FROM job_store ORDER BY id DESC LIMIT 1`,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load job: %w", err)
@@ -75,10 +92,15 @@ func (s *PostgresStore) LoadJob(ctx context.Context) (*Job, error) {
 	}
 
 	row := rows[0]
+	status := JobStatus(row.Status)
+	if status == "" {
+		status = JobStatusApproved
+	}
 	return &Job{
 		ProposalID: row.ProposalID,
 		Version:    row.Version,
 		Spec:       row.Spec,
+		Status:     status,
 	}, nil
 }
 

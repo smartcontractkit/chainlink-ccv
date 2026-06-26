@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS job_store (
 	proposal_id TEXT NOT NULL,
 	version BIGINT NOT NULL,
 	spec TEXT NOT NULL,
+	status TEXT NOT NULL DEFAULT 'approved' CHECK (status IN ('pending', 'approved')),
 	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 	updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -127,6 +128,25 @@ func TestPostgresStore_SaveAndLoadJob(t *testing.T) {
 	assert.Equal(t, "proposal-1", job.ProposalID)
 	assert.Equal(t, int64(1), job.Version)
 	assert.Equal(t, `{"type":"ccv"}`, job.Spec)
+	assert.Equal(t, JobStatusPending, job.Status)
+}
+
+func TestPostgresStore_MarkJobApproved(t *testing.T) {
+	s, _, cleanup := setupPostgresStore(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	require.NoError(t, s.SaveJob(ctx, "proposal-1", 1, `{"type":"ccv"}`))
+
+	job, err := s.LoadJob(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, JobStatusPending, job.Status)
+
+	require.NoError(t, s.MarkJobApproved(ctx))
+
+	job, err = s.LoadJob(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, JobStatusApproved, job.Status)
 }
 
 func TestPostgresStore_SaveReplacesExistingJob(t *testing.T) {
