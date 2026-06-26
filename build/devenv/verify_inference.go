@@ -37,20 +37,31 @@ func verifyCommitteeInference(
 	e *deployment.Environment,
 	committeeQualifier, family string,
 	topo ccvchangesets.CommitteeInput,
+	appliedDS datastore.DataStore,
 ) error {
-	if e.Offchain == nil || len(e.NodeIDs) == 0 {
-		L.Warn().Str("committee", committeeQualifier).Str("family", family).
-			Msg("state inference: no JD client / node IDs on environment; cannot map on-chain signers to NOPs, skipping committee check")
-		return nil
+	// The signer↔alias index this committee just persisted lives in appliedDS (the
+	// changeset output), which e.DataStore may not yet reflect. Merge them so the
+	// resolver sees both the deployed verifier addresses (e.DataStore) and the
+	// freshly written index (appliedDS).
+	merged := datastore.NewMemoryDataStore()
+	if err := merged.Merge(e.DataStore); err != nil {
+		return fmt.Errorf("committee %q (family %q): merge env datastore: %w", committeeQualifier, family, err)
 	}
+	if appliedDS != nil {
+		if err := merged.Merge(appliedDS); err != nil {
+			return fmt.Errorf("committee %q (family %q): merge applied datastore: %w", committeeQualifier, family, err)
+		}
+	}
+	envForCheck := *e
+	envForCheck.DataStore = merged.Seal()
 
 	ctx := context.Background()
-	ids, err := ccvchangesets.LoadNOPIdentities(ctx, *e)
+	ids, err := ccvchangesets.LoadNOPIdentities(ctx, envForCheck)
 	if err != nil {
-		return fmt.Errorf("committee %q (family %q): load NOP identities from JD: %w", committeeQualifier, family, err)
+		return fmt.Errorf("committee %q (family %q): load NOP identities: %w", committeeQualifier, family, err)
 	}
 
-	state, err := ccvchangesets.CommitteeInputFromState(ctx, *e, ids, committeeQualifier, family)
+	state, err := ccvchangesets.CommitteeInputFromState(ctx, envForCheck, ids, committeeQualifier, family)
 	if err != nil {
 		return fmt.Errorf("committee %q (family %q): reconstruct from state: %w", committeeQualifier, family, err)
 	}

@@ -613,9 +613,10 @@ func generateVerifierJobSpecs(
 				return nil, fmt.Errorf("failed to generate verifier configs for committee %s: %w", committeeName, err)
 			}
 
-			// e2e gate: reconstruct committee membership from live on-chain state + JD
-			// and require it to match the topology-derived input. Mismatch fails the bring-up.
-			if err := verifyCommitteeInference(e, committeeName, family, verInput.Committee); err != nil {
+			// e2e gate: reconstruct committee membership from live on-chain state +
+			// JD + the just-persisted signer index, and require it to match the
+			// topology-derived input. Mismatch fails the bring-up.
+			if err := verifyCommitteeInference(e, committeeName, family, verInput.Committee, output.DataStore.Seal()); err != nil {
 				return nil, err
 			}
 

@@ -10,6 +10,7 @@ import (
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
 	nodev1 "github.com/smartcontractkit/chainlink-protos/job-distributor/v1/node"
 
+	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
 	"github.com/smartcontractkit/chainlink-ccv/deployment/operations/fetch_signing_keys"
 	"github.com/smartcontractkit/chainlink-ccv/deployment/shared"
 )
@@ -31,42 +32,64 @@ type NOPIdentities struct {
 	aliasBySigner map[string]map[string]shared.NOPAlias
 }
 
-// LoadNOPIdentities enumerates every NOP registered with the Job Distributor
-// (via env.NodeIDs) and fetches its per-family signer addresses, building both
-// the forward (alias->signer) and inverse (signer->alias) maps.
+// LoadNOPIdentities builds the alias↔signer maps from two complementary sources:
 //
-// It requires a Job Distributor client (env.Offchain) and a non-empty
-// env.NodeIDs — like the rest of the deployment layer it refuses to fetch all
-// nodes implicitly. Returns an error when the offchain client is unavailable so
-// callers don't silently resolve against an empty identity set.
+//   - the Job Distributor (env.Offchain): OCR on-chain signing addresses for the
+//     CL-mode NOPs JD manages — fetched when a JD client and node IDs are present.
+//   - the persisted signer index (env.DataStore): the alias→signer mapping written
+//     by ApplyVerifierConfig, which covers NOPs JD does not manage — notably
+//     standalone verifiers, whose signing address never reaches JD.
+//
+// JD (live) takes precedence on overlap; the persisted index fills in the rest.
+// Neither source is mandatory — with both empty the identity set is empty, and any
+// unmappable on-chain signer surfaces later as an explicit error.
 func LoadNOPIdentities(ctx context.Context, env deployment.Environment) (*NOPIdentities, error) {
-	if env.Offchain == nil {
-		return nil, fmt.Errorf("offchain (JD) client is required to resolve NOP identities from state")
-	}
-	if len(env.NodeIDs) == 0 {
-		return nil, fmt.Errorf("env.NodeIDs is empty: refusing to resolve identities for all nodes")
+	signers := make(fetch_signing_keys.SigningKeysByNOP)
+
+	// CL-mode NOPs from JD.
+	if env.Offchain != nil && len(env.NodeIDs) > 0 {
+		aliases, err := listNOPAliases(ctx, env)
+		if err != nil {
+			return nil, err
+		}
+		report, err := operations.ExecuteOperation(
+			env.OperationsBundle,
+			fetch_signing_keys.FetchNOPSigningKeys,
+			fetch_signing_keys.FetchSigningKeysDeps{
+				JDClient: env.Offchain,
+				Logger:   env.Logger,
+				NodeIDs:  env.NodeIDs,
+			},
+			fetch_signing_keys.FetchSigningKeysInput{NOPAliases: aliases},
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to fetch NOP signing keys from JD: %w", err)
+		}
+		for alias, byFamily := range report.Output.SigningKeysByNOP {
+			signers[alias] = maps.Clone(byFamily)
+		}
 	}
 
-	aliases, err := listNOPAliases(ctx, env)
-	if err != nil {
-		return nil, err
+	// Standalone (and any other non-JD) NOPs from the persisted index. JD wins on
+	// overlap, so only fill (alias, family) pairs JD didn't provide.
+	if env.DataStore != nil {
+		index, err := ccvdeployment.GetNOPSigners(env.DataStore)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read persisted NOP signer index: %w", err)
+		}
+		for alias, byFamily := range index {
+			if signers[alias] == nil {
+				signers[alias] = make(map[string]string, len(byFamily))
+			}
+			for family, addr := range byFamily {
+				if _, ok := signers[alias][family]; !ok {
+					signers[alias][family] = addr
+				}
+			}
+		}
 	}
 
-	report, err := operations.ExecuteOperation(
-		env.OperationsBundle,
-		fetch_signing_keys.FetchNOPSigningKeys,
-		fetch_signing_keys.FetchSigningKeysDeps{
-			JDClient: env.Offchain,
-			Logger:   env.Logger,
-			NodeIDs:  env.NodeIDs,
-		},
-		fetch_signing_keys.FetchSigningKeysInput{NOPAliases: aliases},
-	)
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch NOP signing keys from JD: %w", err)
-	}
-
-	return newNOPIdentities(report.Output.SigningKeysByNOP), nil
+	return newNOPIdentities(signers), nil
 }
 
 // newNOPIdentities builds the inverse index from a forward signing-keys map.

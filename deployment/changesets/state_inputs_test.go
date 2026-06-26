@@ -20,6 +20,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 
+	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
 	"github.com/smartcontractkit/chainlink-ccv/deployment/adapters"
 	"github.com/smartcontractkit/chainlink-ccv/deployment/shared"
 )
@@ -227,6 +228,54 @@ func TestCommitteeInputFromState_UnionsOnCrossSourceDrift(t *testing.T) {
 	require.NoError(t, err)
 	// Union of both source memberships.
 	assert.Equal(t, []shared.NOPAlias{"nop1", "nop2"}, committee.ChainConfigs[sel].NOPAliases)
+}
+
+// Reproduces the standalone-NOP case that JD cannot resolve (the signer is not in
+// JD's OCR chain configs): committee membership is reconstructed purely from the
+// persisted signer↔alias index written by ApplyVerifierConfig. No JD client.
+func TestCommitteeInputFromState_ResolvesStandaloneViaPersistedIndex(t *testing.T) {
+	registerEVMChainTypeForIdentities()
+	sel := chainsel.TEST_90000001.Selector
+	standaloneSigner := "0x8b4b3Fa294DC32ED098b1CFbCa87243aa9A74531" // mixed-case, as on-chain
+
+	ds := datastore.NewMemoryDataStore()
+	require.NoError(t, ccvdeployment.SaveNOPSigners(ds, map[string]map[string]string{
+		"default-verifier-1": {chainsel.FamilyEVM: standaloneSigner},
+	}))
+	sealed := ds.Seal()
+
+	adapter := &stubFullAdapter{
+		states: map[uint64][]*adapters.CommitteeState{
+			sel: {{
+				Qualifier:     testQualifier,
+				ChainSelector: sel,
+				SignatureConfigs: []adapters.SignatureConfig{
+					{SourceChainSelector: sel, Signers: []string{standaloneSigner}, Threshold: 1},
+				},
+			}},
+		},
+		verifierAddrs: map[uint64]string{sel: testVerifierAddr},
+	}
+	registerFullEVMAdapters(adapter)
+
+	// No JD client — identities come purely from the persisted index.
+	env := deployment.Environment{
+		Logger:      logger.Test(t),
+		BlockChains: newTestBlockChains([]uint64{sel}),
+		DataStore:   sealed,
+		GetContext:  func() context.Context { return context.Background() },
+	}
+
+	ids, err := LoadNOPIdentities(context.Background(), env)
+	require.NoError(t, err)
+	alias, ok := ids.AliasForSigner(chainsel.FamilyEVM, standaloneSigner)
+	require.True(t, ok)
+	assert.Equal(t, shared.NOPAlias("default-verifier-1"), alias)
+
+	committee, err := CommitteeInputFromState(context.Background(), env, ids, testQualifier, "")
+	require.NoError(t, err)
+	require.Contains(t, committee.ChainConfigs, sel)
+	assert.Equal(t, []shared.NOPAlias{"default-verifier-1"}, committee.ChainConfigs[sel].NOPAliases)
 }
 
 func TestCommitteeChainSelectorsFromState(t *testing.T) {
