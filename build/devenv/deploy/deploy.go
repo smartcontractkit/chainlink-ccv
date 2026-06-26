@@ -766,14 +766,25 @@ func splitTokenTransferBatchBySelector(configs []tokenscore.TokenTransferConfig)
 	return batches
 }
 
+// familiesSupportingJDKeySync are chain families for which the bootstrapper
+// syncs the node's signing key to JD via UpdateNode on connect. For these
+// families the verifier changeset falls back to JD when SignerAddressByFamily
+// is empty, so manual enrichment from BootstrapKeys is not needed.
+var familiesSupportingJDKeySync = map[string]struct{}{
+	chainsel.FamilyEVM:    {},
+	chainsel.FamilySolana: {},
+	chainsel.FamilyAptos:  {},
+}
+
 // enrichEnvironmentTopology injects SignerAddress values from verifier inputs into the EnvironmentTopology.
 // This is needed because signer addresses are only known after key generation or CL node launch.
 // Each verifier's NOPAlias identifies which NOP in the topology it belongs to.
 // Only the first verifier for each NOP sets the signer address (subsequent verifiers with the
 // same NOPAlias are ignored to avoid overwriting with wrong keys due to round-robin wrap-around).
 //
-// Signer key selection is delegated to each registered ImplFactory via DefaultSignerKey,
-// so adding a new chain family requires no changes here.
+// Verifiers whose chain family is in familiesSupportingJDKeySync are skipped here: those
+// bootstrappers push signing keys to JD via UpdateNode on connect, so the verifier changeset
+// retrieves the address from JD directly via ListNodeChainConfigs.
 func enrichEnvironmentTopology(cfg *ccvdeployment.EnvironmentTopology, verifiers []*committeeverifier.Input) {
 	if cfg.NOPTopology == nil {
 		return
@@ -787,6 +798,9 @@ func enrichEnvironmentTopology(cfg *ccvdeployment.EnvironmentTopology, verifiers
 		}
 		nop, ok := cfg.NOPTopology.GetNOP(ver.NOPAlias)
 		if !ok || nop.GetMode() == ccvshared.NOPModeCL {
+			continue
+		}
+		if _, supported := familiesSupportingJDKeySync[ver.ChainFamily]; supported {
 			continue
 		}
 

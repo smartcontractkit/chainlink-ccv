@@ -32,6 +32,10 @@ type BootstrapInput struct {
 	// They get populated while the environment is being spun up.
 	DB *bootstrap.DBConfig `toml:"-"`
 	JD *bootstrap.JDConfig `toml:"-"`
+	// Chains declares the chains on which this node has a signing identity.
+	// Populated at launch time from the blockchain outputs so the bootstrapper
+	// syncs the node's signing key to JD on connect.
+	Chains []bootstrap.ChainRegistration `toml:"-"`
 }
 
 func ApplyBootstrapDefaults(in BootstrapInput) BootstrapInput {
@@ -85,6 +89,7 @@ func GenerateBootstrapConfig(in BootstrapInput) ([]byte, error) {
 		DB:       *in.DB,
 		JD:       *in.JD,
 		Server:   *in.Server,
+		Chains:   in.Chains,
 	}
 	return toml.Marshal(config)
 }
