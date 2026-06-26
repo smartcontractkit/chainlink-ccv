@@ -262,8 +262,8 @@ func (m *Manager) handleProposal(proposal *pb.ProposeJobRequest) error {
 
 	// Persist the proposal as pending BEFORE attempting StartJob. This ensures
 	// that a crash between here and MarkJobApproved leaves a recoverable record.
-	// SaveJob only removes the previous pending row; any approved (old) row is preserved.
-	if err := m.jobStore.SaveJob(ctx, proposal.Id, proposal.Version, proposal.Spec); err != nil {
+	// SavePendingJob only removes the previous pending row; any approved (old) row is preserved.
+	if err := m.jobStore.SavePendingJob(ctx, proposal.Id, proposal.Version, proposal.Spec); err != nil {
 		// The job will need to be re-proposed after fixing the error (whatever it may be).
 		m.lggr.Warnw("Failed to persist pending proposal", "error", err)
 	} else {
@@ -305,10 +305,12 @@ func (m *Manager) handleProposal(proposal *pb.ProposeJobRequest) error {
 	}
 
 	// StartJob succeeded - promote the pending record to approved.
-	if err := m.jobStore.MarkJobApproved(ctx); err != nil {
-		m.lggr.Warnw("Failed to mark job as approved in store", "error", err)
+	if promoted, err := m.jobStore.AcceptPendingJob(ctx); err != nil {
+		m.lggr.Warnw("Failed to accept pending job in store", "error", err)
 		// Continue anyway - the job is running. The store record stays 'pending', so the
 		// next restart will retry via the pending recovery path.
+	} else if !promoted {
+		m.lggr.Warnw("AcceptPendingJob reported no pending row — store may be inconsistent")
 	}
 
 	// Update in-memory state
@@ -373,8 +375,10 @@ func (m *Manager) retryPendingJob(job *store.Job) error {
 		return fmt.Errorf("failed to start pending job: %w", err)
 	}
 
-	if err := m.jobStore.MarkJobApproved(ctx); err != nil {
-		m.lggr.Warnw("Failed to mark pending job as approved in store", "error", err)
+	if promoted, err := m.jobStore.AcceptPendingJob(ctx); err != nil {
+		m.lggr.Warnw("Failed to accept pending job in store", "error", err)
+	} else if !promoted {
+		m.lggr.Warnw("AcceptPendingJob reported no pending row — store may be inconsistent")
 	}
 
 	m.mu.Lock()
@@ -420,7 +424,7 @@ func (m *Manager) handleDelete(req *pb.DeleteJobRequest) error {
 			m.mu.Lock()
 			m.pendingJob = nil
 			m.mu.Unlock()
-			if err := m.jobStore.DeleteJob(ctx); err != nil {
+			if err := m.jobStore.DeleteAllJobs(ctx); err != nil {
 				m.lggr.Warnw("Failed to clear pending job", "error", err)
 			}
 			return nil
@@ -444,7 +448,7 @@ func (m *Manager) handleDelete(req *pb.DeleteJobRequest) error {
 	}
 
 	// Clear persisted job
-	if err := m.jobStore.DeleteJob(ctx); err != nil {
+	if err := m.jobStore.DeleteAllJobs(ctx); err != nil {
 		m.lggr.Warnw("Failed to clear persisted job", "error", err)
 		// Continue anyway
 	}

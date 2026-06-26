@@ -30,15 +30,18 @@ type Job struct {
 //
 //revive:disable-next-line:exported
 type StoreInterface interface {
-	// SaveJob persists a new proposal as pending, replacing any existing record.
-	SaveJob(ctx context.Context, proposalID string, version int64, spec string) error
-	// MarkJobApproved transitions the stored record from pending to approved.
-	MarkJobApproved(ctx context.Context) error
+	// SavePendingJob persists a new proposal as pending.
+	// Any existing pending row is replaced; any existing approved row is preserved.
+	SavePendingJob(ctx context.Context, proposalID string, version int64, spec string) error
+	// AcceptPendingJob promotes the pending record to approved, replacing any old approved record.
+	// Returns true if a pending record was found and promoted, false if there was nothing to promote.
+	AcceptPendingJob(ctx context.Context) (bool, error)
 	// LoadJob returns the current job record, or ErrNoJob if none exists.
+	// When both an approved and a pending row exist, the approved row is returned.
 	LoadJob(ctx context.Context) (*Job, error)
-	// DeleteJob removes all persisted records.
-	DeleteJob(ctx context.Context) error
+	// DeleteAllJobs removes all persisted records.
+	DeleteAllJobs(ctx context.Context) error
 	// DeletePendingJob removes only the pending record, leaving any approved record intact.
-	// Used to rollback a failed replacement proposal so the old approved job can be restarted.
+	// Used to rollback a failed replacement proposal.
 	DeletePendingJob(ctx context.Context) error
 }

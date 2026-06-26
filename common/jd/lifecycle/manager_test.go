@@ -362,7 +362,7 @@ func TestManager_Start_PendingCachedJob_RetriedOnJDConnect(t *testing.T) {
 	}
 	jobStore := mocks.NewMockStoreInterface(t)
 	jobStore.EXPECT().LoadJob(mock.Anything).Return(pendingJob, nil)
-	jobStore.EXPECT().MarkJobApproved(mock.Anything).Return(nil).Maybe()
+	jobStore.EXPECT().AcceptPendingJob(mock.Anything).Return(true, nil).Maybe()
 
 	runner := mocks.NewMockJobRunner(t)
 	runner.EXPECT().StartJob(mock.Anything, pendingJob.Spec).Return(nil).Maybe()
@@ -437,8 +437,8 @@ func TestManager_EventLoop_Proposal_StartsJobAndApproves(t *testing.T) {
 
 	jobStore := mocks.NewMockStoreInterface(t)
 	jobStore.EXPECT().LoadJob(mock.Anything).Return(nil, store.ErrNoJob)
-	jobStore.EXPECT().SaveJob(mock.Anything, "proposal-1", int64(2), `{"spec":"new"}`).Return(nil).Maybe()
-	jobStore.EXPECT().MarkJobApproved(mock.Anything).Return(nil).Maybe()
+	jobStore.EXPECT().SavePendingJob(mock.Anything, "proposal-1", int64(2), `{"spec":"new"}`).Return(nil).Maybe()
+	jobStore.EXPECT().AcceptPendingJob(mock.Anything).Return(true, nil).Maybe()
 
 	runner := mocks.NewMockJobRunner(t)
 	runner.EXPECT().StartJob(mock.Anything, `{"spec":"new"}`).Return(nil).Maybe()
@@ -479,9 +479,9 @@ func TestManager_EventLoop_Delete_StopsJobAndClearsState(t *testing.T) {
 
 	jobStore := mocks.NewMockStoreInterface(t)
 	jobStore.EXPECT().LoadJob(mock.Anything).Return(nil, store.ErrNoJob)
-	jobStore.EXPECT().SaveJob(mock.Anything, "proposal-1", int64(1), `{"spec":"job1"}`).Return(nil).Maybe()
-	jobStore.EXPECT().MarkJobApproved(mock.Anything).Return(nil).Maybe()
-	jobStore.EXPECT().DeleteJob(mock.Anything).Return(nil).Maybe()
+	jobStore.EXPECT().SavePendingJob(mock.Anything, "proposal-1", int64(1), `{"spec":"job1"}`).Return(nil).Maybe()
+	jobStore.EXPECT().AcceptPendingJob(mock.Anything).Return(true, nil).Maybe()
+	jobStore.EXPECT().DeleteAllJobs(mock.Anything).Return(nil).Maybe()
 
 	runner := mocks.NewMockJobRunner(t)
 	runner.EXPECT().StartJob(mock.Anything, `{"spec":"job1"}`).Return(nil).Maybe()
@@ -524,8 +524,8 @@ func TestManager_EventLoop_Delete_DifferentJob_Ignored(t *testing.T) {
 
 	jobStore := mocks.NewMockStoreInterface(t)
 	jobStore.EXPECT().LoadJob(mock.Anything).Return(nil, store.ErrNoJob)
-	jobStore.EXPECT().SaveJob(mock.Anything, "proposal-1", int64(1), `{"spec":"job1"}`).Return(nil).Maybe()
-	jobStore.EXPECT().MarkJobApproved(mock.Anything).Return(nil).Maybe()
+	jobStore.EXPECT().SavePendingJob(mock.Anything, "proposal-1", int64(1), `{"spec":"job1"}`).Return(nil).Maybe()
+	jobStore.EXPECT().AcceptPendingJob(mock.Anything).Return(true, nil).Maybe()
 	// DeleteJob should not be called (delete was for different id)
 
 	runner := mocks.NewMockJobRunner(t)
@@ -578,7 +578,7 @@ func TestManager_EventLoop_Proposal_Replacement_StartFails_FallsBackToOldJob(t *
 	}
 	jobStore := mocks.NewMockStoreInterface(t)
 	jobStore.EXPECT().LoadJob(mock.Anything).Return(cachedJob, nil)
-	jobStore.EXPECT().SaveJob(mock.Anything, "new-id", int64(2), `{"spec":"new"}`).Return(nil).Maybe()
+	jobStore.EXPECT().SavePendingJob(mock.Anything, "new-id", int64(2), `{"spec":"new"}`).Return(nil).Maybe()
 	jobStore.EXPECT().DeletePendingJob(mock.Anything).Return(nil).Maybe()
 
 	runner := mocks.NewMockJobRunner(t)
@@ -630,7 +630,7 @@ func TestManager_EventLoop_Proposal_Replacement_StartFails_OldJobRestartAlsoFail
 	}
 	jobStore := mocks.NewMockStoreInterface(t)
 	jobStore.EXPECT().LoadJob(mock.Anything).Return(cachedJob, nil)
-	jobStore.EXPECT().SaveJob(mock.Anything, "new-id", int64(2), `{"spec":"new"}`).Return(nil).Maybe()
+	jobStore.EXPECT().SavePendingJob(mock.Anything, "new-id", int64(2), `{"spec":"new"}`).Return(nil).Maybe()
 	jobStore.EXPECT().DeletePendingJob(mock.Anything).Return(nil).Maybe()
 
 	runner := mocks.NewMockJobRunner(t)

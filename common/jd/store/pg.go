@@ -44,47 +44,44 @@ func NewPostgresStore(ds sqlutil.DataSource) *PostgresStore {
 	return &PostgresStore{ds: ds}
 }
 
-// SaveJob persists a new proposal as pending.
-// Any existing pending row is replaced; any existing approved row is preserved so that
-// a failed replacement can fall back to the old job on restart.
-func (s *PostgresStore) SaveJob(ctx context.Context, proposalID string, version int64, spec string) error {
-	// Only remove a previous pending row — the approved row (old job) must survive
-	// until the new job is confirmed running via MarkJobApproved.
-	_, err := s.ds.ExecContext(ctx, `DELETE FROM job_store WHERE status = 'pending'`)
-	if err != nil {
-		return fmt.Errorf("failed to clear pending job: %w", err)
-	}
-
-	_, err = s.ds.ExecContext(ctx,
+// SavePendingJob persists a new proposal as pending.
+// Any existing pending row is replaced via ON CONFLICT; any existing approved row is preserved
+// so that a failed replacement can fall back to the old job on restart.
+func (s *PostgresStore) SavePendingJob(ctx context.Context, proposalID string, version int64, spec string) error {
+	_, err := s.ds.ExecContext(ctx,
 		`INSERT INTO job_store (proposal_id, version, spec, status, created_at, updated_at)
-		 VALUES ($1, $2, $3, 'pending', NOW(), NOW())`,
+		 VALUES ($1, $2, $3, 'pending', NOW(), NOW())
+		 ON CONFLICT (status) DO UPDATE SET
+		     proposal_id = EXCLUDED.proposal_id,
+		     version     = EXCLUDED.version,
+		     spec        = EXCLUDED.spec,
+		     updated_at  = NOW()
+		 WHERE job_store.status = 'pending'`,
 		proposalID, version, spec,
 	)
 	if err != nil {
-		return fmt.Errorf("failed to save job: %w", err)
+		return fmt.Errorf("failed to save pending job: %w", err)
 	}
-
 	return nil
 }
 
-// MarkJobApproved promotes the pending record to approved, atomically replacing the old
-// approved record (if any). Called after StartJob succeeds during a replacement.
-func (s *PostgresStore) MarkJobApproved(ctx context.Context) error {
-	// Remove the old approved row first so the unique(status) constraint allows the update.
-	// A crash between the two statements leaves only a pending row → pending recovery path on restart.
-	_, err := s.ds.ExecContext(ctx, `DELETE FROM job_store WHERE status = 'approved'`)
-	if err != nil {
-		return fmt.Errorf("failed to remove old approved job: %w", err)
-	}
-
-	_, err = s.ds.ExecContext(ctx,
-		`UPDATE job_store SET status = 'approved', updated_at = NOW() WHERE status = 'pending'`,
+// AcceptPendingJob promotes the pending record to approved, atomically replacing any old
+// approved record. Returns true if a pending record was promoted, false if none existed.
+func (s *PostgresStore) AcceptPendingJob(ctx context.Context) (bool, error) {
+	result, err := s.ds.ExecContext(ctx,
+		`WITH deleted AS (
+		     DELETE FROM job_store WHERE status = 'approved'
+		 )
+		 UPDATE job_store SET status = 'approved', updated_at = NOW() WHERE status = 'pending'`,
 	)
 	if err != nil {
-		return fmt.Errorf("failed to mark job approved: %w", err)
+		return false, fmt.Errorf("failed to accept pending job: %w", err)
 	}
-
-	return nil
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("failed to get rows affected: %w", err)
+	}
+	return rows > 0, nil
 }
 
 // LoadJob retrieves the active job from the store.
@@ -96,7 +93,7 @@ func (s *PostgresStore) LoadJob(ctx context.Context) (*Job, error) {
 	err := s.ds.SelectContext(ctx, &rows,
 		`SELECT proposal_id, version, spec, status, created_at, updated_at
 		 FROM job_store
-		 ORDER BY CASE WHEN status = 'approved' THEN 0 ELSE 1 END, id DESC
+		 ORDER BY (status = 'approved') DESC, id DESC
 		 LIMIT 1`,
 	)
 	if err != nil {
@@ -133,12 +130,12 @@ func (s *PostgresStore) HasJob(ctx context.Context) (bool, error) {
 	return counts[0] > 0, nil
 }
 
-// DeleteJob removes all persisted job records.
+// DeleteAllJobs removes all persisted job records.
 // Called when JD sends a delete request.
-func (s *PostgresStore) DeleteJob(ctx context.Context) error {
+func (s *PostgresStore) DeleteAllJobs(ctx context.Context) error {
 	_, err := s.ds.ExecContext(ctx, `DELETE FROM job_store`)
 	if err != nil {
-		return fmt.Errorf("failed to delete job: %w", err)
+		return fmt.Errorf("failed to delete jobs: %w", err)
 	}
 	return nil
 }

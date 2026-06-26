@@ -120,7 +120,7 @@ func TestPostgresStore_SaveAndLoadJob(t *testing.T) {
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrNoJob)
 
-	err = s.SaveJob(ctx, "proposal-1", 1, `{"type":"ccv"}`)
+	err = s.SavePendingJob(ctx, "proposal-1", 1, `{"type":"ccv"}`)
 	require.NoError(t, err)
 
 	job, err := s.LoadJob(ctx)
@@ -132,18 +132,19 @@ func TestPostgresStore_SaveAndLoadJob(t *testing.T) {
 	assert.Equal(t, JobStatusPending, job.Status)
 }
 
-func TestPostgresStore_MarkJobApproved(t *testing.T) {
+func TestPostgresStore_AcceptPendingJob(t *testing.T) {
 	s, _, cleanup := setupPostgresStore(t)
 	defer cleanup()
 	ctx := context.Background()
 
-	require.NoError(t, s.SaveJob(ctx, "proposal-1", 1, `{"type":"ccv"}`))
+	require.NoError(t, s.SavePendingJob(ctx, "proposal-1", 1, `{"type":"ccv"}`))
 
 	job, err := s.LoadJob(ctx)
 	require.NoError(t, err)
 	assert.Equal(t, JobStatusPending, job.Status)
 
-	require.NoError(t, s.MarkJobApproved(ctx))
+	_, err = s.AcceptPendingJob(ctx)
+	require.NoError(t, err)
 
 	job, err = s.LoadJob(ctx)
 	require.NoError(t, err)
@@ -155,8 +156,8 @@ func TestPostgresStore_SaveReplacesExistingJob(t *testing.T) {
 	defer cleanup()
 	ctx := context.Background()
 
-	require.NoError(t, s.SaveJob(ctx, "proposal-1", 1, `{"v":1}`))
-	require.NoError(t, s.SaveJob(ctx, "proposal-2", 2, `{"v":2}`))
+	require.NoError(t, s.SavePendingJob(ctx, "proposal-1", 1, `{"v":1}`))
+	require.NoError(t, s.SavePendingJob(ctx, "proposal-2", 2, `{"v":2}`))
 
 	job, err := s.LoadJob(ctx)
 	require.NoError(t, err)
@@ -175,38 +176,38 @@ func TestPostgresStore_HasJob(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, has)
 
-	require.NoError(t, s.SaveJob(ctx, "p1", 1, "spec"))
+	require.NoError(t, s.SavePendingJob(ctx, "p1", 1, "spec"))
 	has, err = s.HasJob(ctx)
 	require.NoError(t, err)
 	assert.True(t, has)
 
-	require.NoError(t, s.DeleteJob(ctx))
+	require.NoError(t, s.DeleteAllJobs(ctx))
 	has, err = s.HasJob(ctx)
 	require.NoError(t, err)
 	assert.False(t, has)
 }
 
-func TestPostgresStore_DeleteJob(t *testing.T) {
+func TestPostgresStore_DeleteAllJobs(t *testing.T) {
 	s, _, cleanup := setupPostgresStore(t)
 	defer cleanup()
 	ctx := context.Background()
 
-	require.NoError(t, s.SaveJob(ctx, "proposal-1", 1, `{}`))
-	require.NoError(t, s.DeleteJob(ctx))
+	require.NoError(t, s.SavePendingJob(ctx, "proposal-1", 1, `{}`))
+	require.NoError(t, s.DeleteAllJobs(ctx))
 
 	_, err := s.LoadJob(ctx)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrNoJob)
 
-	require.NoError(t, s.DeleteJob(ctx))
+	require.NoError(t, s.DeleteAllJobs(ctx))
 }
 
-func TestPostgresStore_DeleteJob_WhenEmpty(t *testing.T) {
+func TestPostgresStore_DeleteAllJobs_WhenEmpty(t *testing.T) {
 	s, _, cleanup := setupPostgresStore(t)
 	defer cleanup()
 	ctx := context.Background()
 
-	require.NoError(t, s.DeleteJob(ctx))
+	require.NoError(t, s.DeleteAllJobs(ctx))
 }
 
 func TestPostgresStore_NewPostgresStore(t *testing.T) {
@@ -224,11 +225,12 @@ func TestPostgresStore_SavePreservesApprovedRow(t *testing.T) {
 	defer cleanup()
 	ctx := context.Background()
 
-	require.NoError(t, s.SaveJob(ctx, "proposal-1", 1, `{"v":1}`))
-	require.NoError(t, s.MarkJobApproved(ctx))
+	require.NoError(t, s.SavePendingJob(ctx, "proposal-1", 1, `{"v":1}`))
+	_, err := s.AcceptPendingJob(ctx)
+	require.NoError(t, err)
 
 	// Save a replacement proposal — approved row must survive.
-	require.NoError(t, s.SaveJob(ctx, "proposal-2", 2, `{"v":2}`))
+	require.NoError(t, s.SavePendingJob(ctx, "proposal-2", 2, `{"v":2}`))
 
 	// LoadJob should return the approved (old) row.
 	job, err := s.LoadJob(ctx)
@@ -260,9 +262,9 @@ func TestPostgresStore_LoadJob_PrefersApproved(t *testing.T) {
 	assert.Equal(t, JobStatusApproved, job.Status)
 }
 
-// TestPostgresStore_MarkJobApproved_WithTwoRows verifies that MarkJobApproved correctly
+// TestPostgresStore_AcceptPendingJob_WithTwoRows verifies that AcceptPendingJob correctly
 // deletes the old approved row and promotes the pending row when both exist.
-func TestPostgresStore_MarkJobApproved_WithTwoRows(t *testing.T) {
+func TestPostgresStore_AcceptPendingJob_WithTwoRows(t *testing.T) {
 	s, ds, cleanup := setupPostgresStore(t)
 	defer cleanup()
 	ctx := context.Background()
@@ -276,7 +278,8 @@ func TestPostgresStore_MarkJobApproved_WithTwoRows(t *testing.T) {
 		 VALUES ('new-job', 2, '{"v":2}', 'pending', NOW(), NOW())`)
 	require.NoError(t, err)
 
-	require.NoError(t, s.MarkJobApproved(ctx))
+	_, err = s.AcceptPendingJob(ctx)
+	require.NoError(t, err)
 
 	job, err := s.LoadJob(ctx)
 	require.NoError(t, err)
@@ -294,7 +297,7 @@ func TestPostgresStore_DeletePendingJob_OnlyPendingRow(t *testing.T) {
 	defer cleanup()
 	ctx := context.Background()
 
-	require.NoError(t, s.SaveJob(ctx, "proposal-1", 1, `{}`))
+	require.NoError(t, s.SavePendingJob(ctx, "proposal-1", 1, `{}`))
 	require.NoError(t, s.DeletePendingJob(ctx))
 
 	_, err := s.LoadJob(ctx)
