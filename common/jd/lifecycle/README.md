@@ -89,6 +89,31 @@ sequenceDiagram
     Note over M: state = Running
 ```
 
+### Delete
+
+```mermaid
+sequenceDiagram
+    participant JD
+    participant M as Manager
+    participant S as JobStore
+    participant R as JobRunner
+
+    JD->>M: DeleteJob(id)
+    alt id matches current job
+        M->>R: StopJob()
+        M->>S: DeleteJob()
+        Note over M: state = WaitingForJob
+    else id does not match (or no job running)
+        Note over M: ignored
+    end
+```
+
+### Revoke
+
+Revoke requests are received but ignored. The manager auto-approves every
+proposal immediately, so by the time a revoke could arrive the job is already
+running. No state change occurs.
+
 ## Implementing JobRunner
 
 Your service must implement `JobRunner`:
