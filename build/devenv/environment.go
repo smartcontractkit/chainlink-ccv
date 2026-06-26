@@ -489,7 +489,7 @@ func generateExecutorJobSpecs(
 			return nil, fmt.Errorf("executor pool %q not found in topology", qualifier)
 		}
 		cs := ccvchangesets.ApplyExecutorConfig()
-		output, err := cs.Apply(*e, ccvchangesets.ApplyExecutorConfigInput{
+		execInput := ccvchangesets.ApplyExecutorConfigInput{
 			ExecutorQualifier: qualifier,
 			NOPs:              ccvchangesets.NOPInputsFromTopology(topology),
 			Pool:              ccvchangesets.ExecutorPoolInputFromTopology(pool),
@@ -497,9 +497,16 @@ func generateExecutorJobSpecs(
 			PyroscopeURL:      topology.PyroscopeURL,
 			Monitoring:        topology.Monitoring,
 			TargetNOPs:        ccvshared.ConvertStringToNopAliases(execNOPAliases),
-		})
+		}
+		output, err := cs.Apply(*e, execInput)
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate executor configs for qualifier %s: %w", qualifier, err)
+		}
+
+		// e2e gate: reconstruct the pool from the just-persisted job specs and diff
+		// it against the topology-derived input (CCV_VERIFY_STATE_INFERENCE).
+		if err := verifyExecutorInference(qualifier, execInput.Pool, output.DataStore.Seal()); err != nil {
+			return nil, err
 		}
 
 		if err := ds.Merge(output.DataStore.Seal()); err != nil {
@@ -589,7 +596,7 @@ func generateVerifierJobSpecs(
 				return nil, fmt.Errorf("committee %q not found in topology", committeeName)
 			}
 			cs := ccvchangesets.ApplyVerifierConfig()
-			output, err := cs.Apply(*e, ccvchangesets.ApplyVerifierConfigInput{
+			verInput := ccvchangesets.ApplyVerifierConfigInput{
 				CommitteeQualifier:       committeeName,
 				DefaultExecutorQualifier: devenvcommon.DefaultExecutorQualifier,
 				NOPs:                     ccvchangesets.NOPInputsFromTopology(topology),
@@ -600,9 +607,16 @@ func generateVerifierJobSpecs(
 				DisableFinalityCheckers:  disableFinalityCheckers,
 				// Consolidated topology: one verifier job per NOP writing to every aggregator.
 				ConsolidateAggregators: true,
-			})
+			}
+			output, err := cs.Apply(*e, verInput)
 			if err != nil {
 				return nil, fmt.Errorf("failed to generate verifier configs for committee %s: %w", committeeName, err)
+			}
+
+			// e2e gate: reconstruct committee membership from live on-chain state + JD
+			// and diff it against the topology-derived input (CCV_VERIFY_STATE_INFERENCE).
+			if err := verifyCommitteeInference(e, committeeName, family, verInput.Committee); err != nil {
+				return nil, err
 			}
 
 			if err := ds.Merge(output.DataStore.Seal()); err != nil {
