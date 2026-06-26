@@ -36,20 +36,23 @@ type PostgresStore struct {
 		spec TEXT NOT NULL,
 		status TEXT NOT NULL DEFAULT 'approved' CHECK (status IN ('pending', 'approved')),
 		created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-		updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+		CONSTRAINT job_store_unique_status UNIQUE (status)
 	);
 */
 func NewPostgresStore(ds sqlutil.DataSource) *PostgresStore {
 	return &PostgresStore{ds: ds}
 }
 
-// SaveJob persists a job spec as pending, replacing any existing job.
-// Only one job should be active at a time.
+// SaveJob persists a new proposal as pending.
+// Any existing pending row is replaced; any existing approved row is preserved so that
+// a failed replacement can fall back to the old job on restart.
 func (s *PostgresStore) SaveJob(ctx context.Context, proposalID string, version int64, spec string) error {
-	// Delete any existing jobs first (we only keep one)
-	_, err := s.ds.ExecContext(ctx, `DELETE FROM job_store`)
+	// Only remove a previous pending row — the approved row (old job) must survive
+	// until the new job is confirmed running via MarkJobApproved.
+	_, err := s.ds.ExecContext(ctx, `DELETE FROM job_store WHERE status = 'pending'`)
 	if err != nil {
-		return fmt.Errorf("failed to clear existing jobs: %w", err)
+		return fmt.Errorf("failed to clear pending job: %w", err)
 	}
 
 	_, err = s.ds.ExecContext(ctx,
@@ -64,24 +67,37 @@ func (s *PostgresStore) SaveJob(ctx context.Context, proposalID string, version 
 	return nil
 }
 
-// MarkJobApproved transitions the stored job's status from pending to approved.
+// MarkJobApproved promotes the pending record to approved, atomically replacing the old
+// approved record (if any). Called after StartJob succeeds during a replacement.
 func (s *PostgresStore) MarkJobApproved(ctx context.Context) error {
-	_, err := s.ds.ExecContext(ctx,
-		`UPDATE job_store SET status = 'approved', updated_at = NOW()`,
+	// Remove the old approved row first so the unique(status) constraint allows the update.
+	// A crash between the two statements leaves only a pending row → pending recovery path on restart.
+	_, err := s.ds.ExecContext(ctx, `DELETE FROM job_store WHERE status = 'approved'`)
+	if err != nil {
+		return fmt.Errorf("failed to remove old approved job: %w", err)
+	}
+
+	_, err = s.ds.ExecContext(ctx,
+		`UPDATE job_store SET status = 'approved', updated_at = NOW() WHERE status = 'pending'`,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to mark job approved: %w", err)
 	}
+
 	return nil
 }
 
-// LoadJob retrieves the current job spec from the store.
+// LoadJob retrieves the active job from the store.
+// When both an approved and a pending row exist (failed replacement), the approved row
+// is returned so the known-good job starts on restart.
 // Returns ErrNoJob if no job is found.
 func (s *PostgresStore) LoadJob(ctx context.Context) (*Job, error) {
 	var rows []jobRow
 	err := s.ds.SelectContext(ctx, &rows,
 		`SELECT proposal_id, version, spec, status, created_at, updated_at
-		 FROM job_store ORDER BY id DESC LIMIT 1`,
+		 FROM job_store
+		 ORDER BY CASE WHEN status = 'approved' THEN 0 ELSE 1 END, id DESC
+		 LIMIT 1`,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load job: %w", err)
@@ -117,12 +133,22 @@ func (s *PostgresStore) HasJob(ctx context.Context) (bool, error) {
 	return counts[0] > 0, nil
 }
 
-// DeleteJob removes the persisted job from the store.
-// This is called when JD sends a delete request.
+// DeleteJob removes all persisted job records.
+// Called when JD sends a delete request.
 func (s *PostgresStore) DeleteJob(ctx context.Context) error {
 	_, err := s.ds.ExecContext(ctx, `DELETE FROM job_store`)
 	if err != nil {
 		return fmt.Errorf("failed to delete job: %w", err)
+	}
+	return nil
+}
+
+// DeletePendingJob removes only the pending record, leaving any approved record intact.
+// Called to rollback a failed replacement proposal.
+func (s *PostgresStore) DeletePendingJob(ctx context.Context) error {
+	_, err := s.ds.ExecContext(ctx, `DELETE FROM job_store WHERE status = 'pending'`)
+	if err != nil {
+		return fmt.Errorf("failed to delete pending job: %w", err)
 	}
 	return nil
 }

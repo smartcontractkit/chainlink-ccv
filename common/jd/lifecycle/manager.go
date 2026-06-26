@@ -246,8 +246,10 @@ func (m *Manager) eventLoop() {
 
 // handleProposal processes a new job proposal from JD.
 // Order: persist pending → stop old job → start new job → mark approved → approve with JD.
-// If StartJob fails, the pending record in the store survives and drives a retry on next
-// restart + JD reconnect.
+//
+// On StartJob failure with no prior job: the pending store record survives for restart recovery.
+// On StartJob failure during a replacement: the pending record is deleted and the old job is
+// restarted from the in-memory snapshot so the job keeps running.
 func (m *Manager) handleProposal(proposal *pb.ProposeJobRequest) error {
 	m.lggr.Infow("Handling job proposal",
 		"proposalID", proposal.Id,
@@ -260,6 +262,7 @@ func (m *Manager) handleProposal(proposal *pb.ProposeJobRequest) error {
 
 	// Persist the proposal as pending BEFORE attempting StartJob. This ensures
 	// that a crash between here and MarkJobApproved leaves a recoverable record.
+	// SaveJob only removes the previous pending row; any approved (old) row is preserved.
 	if err := m.jobStore.SaveJob(ctx, proposal.Id, proposal.Version, proposal.Spec); err != nil {
 		// The job will need to be re-proposed after fixing the error (whatever it may be).
 		m.lggr.Warnw("Failed to persist pending proposal", "error", err)
@@ -269,6 +272,7 @@ func (m *Manager) handleProposal(proposal *pb.ProposeJobRequest) error {
 
 	m.mu.Lock()
 	wasRunning := m.state == StateRunning
+	currentJob := m.currentJob // snapshot for fallback; non-nil when wasRunning
 	m.mu.Unlock()
 
 	// If we have a running job, stop it first
@@ -281,6 +285,10 @@ func (m *Manager) handleProposal(proposal *pb.ProposeJobRequest) error {
 
 	// Start the new job
 	if err := m.runner.StartJob(ctx, proposal.Spec); err != nil {
+		if wasRunning {
+			return m.rollbackReplacement(ctx, proposal.Id, err, currentJob)
+		}
+		// No old job to fall back to: leave pending record for restart recovery.
 		m.mu.Lock()
 		m.state = StateWaitingForJob
 		m.currentJob = nil
@@ -327,6 +335,26 @@ func (m *Manager) handleProposal(proposal *pb.ProposeJobRequest) error {
 	)
 
 	return nil
+}
+
+// rollbackReplacement is called when StartJob fails during a proposal replacement.
+// It removes the pending store record and restarts the old job to keep the job running.
+func (m *Manager) rollbackReplacement(ctx context.Context, newProposalID string, startErr error, oldJob *store.Job) error {
+	if delErr := m.jobStore.DeletePendingJob(ctx); delErr != nil {
+		m.lggr.Warnw("Failed to remove pending record during rollback", "error", delErr)
+	}
+	m.lggr.Infow("Restarting previous job after replacement failure",
+		"newProposalID", newProposalID,
+		"fallbackProposalID", oldJob.ProposalID,
+	)
+	if restartErr := m.runner.StartJob(ctx, oldJob.Spec); restartErr != nil {
+		m.lggr.Errorw("Failed to restart previous job after replacement failure", "error", restartErr)
+		m.mu.Lock()
+		m.state = StateWaitingForJob
+		m.currentJob = nil
+		m.mu.Unlock()
+	}
+	return fmt.Errorf("failed to start replacement job: %w", startErr)
 }
 
 // retryPendingJob attempts to start the pending job after JD has reconnected.

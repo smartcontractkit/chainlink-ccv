@@ -36,6 +36,9 @@ type StoreInterface interface {
 	MarkJobApproved(ctx context.Context) error
 	// LoadJob returns the current job record, or ErrNoJob if none exists.
 	LoadJob(ctx context.Context) (*Job, error)
-	// DeleteJob removes the persisted record.
+	// DeleteJob removes all persisted records.
 	DeleteJob(ctx context.Context) error
+	// DeletePendingJob removes only the pending record, leaving any approved record intact.
+	// Used to rollback a failed replacement proposal so the old approved job can be restarted.
+	DeletePendingJob(ctx context.Context) error
 }
