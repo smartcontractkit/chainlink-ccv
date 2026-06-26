@@ -6,6 +6,7 @@ import (
 	context "context"
 
 	common "github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
+	logger "github.com/smartcontractkit/chainlink-common/pkg/logger"
 	mock "github.com/stretchr/testify/mock"
 )
 
@@ -20,6 +21,53 @@ type MockIndexerMonitoring_Expecter struct {
 
 func (_m *MockIndexerMonitoring) EXPECT() *MockIndexerMonitoring_Expecter {
 	return &MockIndexerMonitoring_Expecter{mock: &_m.Mock}
+}
+
+// Logger provides a mock function with no fields
+func (_m *MockIndexerMonitoring) Logger() logger.Logger {
+	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for Logger")
+	}
+
+	var r0 logger.Logger
+	if rf, ok := ret.Get(0).(func() logger.Logger); ok {
+		r0 = rf()
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(logger.Logger)
+		}
+	}
+
+	return r0
+}
+
+// MockIndexerMonitoring_Logger_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Logger'
+type MockIndexerMonitoring_Logger_Call struct {
+	*mock.Call
+}
+
+// Logger is a helper method to define mock.On call
+func (_e *MockIndexerMonitoring_Expecter) Logger() *MockIndexerMonitoring_Logger_Call {
+	return &MockIndexerMonitoring_Logger_Call{Call: _e.mock.On("Logger")}
+}
+
+func (_c *MockIndexerMonitoring_Logger_Call) Run(run func()) *MockIndexerMonitoring_Logger_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run()
+	})
+	return _c
+}
+
+func (_c *MockIndexerMonitoring_Logger_Call) Return(_a0 logger.Logger) *MockIndexerMonitoring_Logger_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockIndexerMonitoring_Logger_Call) RunAndReturn(run func() logger.Logger) *MockIndexerMonitoring_Logger_Call {
+	_c.Call.Return(run)
+	return _c
 }
 
 // Metrics provides a mock function with no fields
