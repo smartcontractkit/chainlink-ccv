@@ -396,14 +396,8 @@ func NewEnvironment() (in *Cfg, err error) {
 		return nil, fmt.Errorf("configure all token transfers: %w", err)
 	}
 
-	var connectErr error
-	if in.ProtocolContracts.UseLegacyConfigureLane {
-		connectErr = ccdeploy.ConnectAllChainsLegacy(impls, in.Blockchains, selectors, e, topology)
-	} else {
-		connectErr = ccdeploy.ConnectAllChainsCanonical(impls, in.Blockchains, selectors, e, topology)
-	}
-	if connectErr != nil {
-		return nil, connectErr
+	if err = ccdeploy.ConnectAllChainsCanonical(impls, in.Blockchains, selectors, e, topology); err != nil {
+		return nil, err
 	}
 
 	/////////////////////////////////////////

@@ -97,11 +97,7 @@ const (
 )
 
 // ProtocolContractsCfg holds config for the protocol_contracts Phase 3 component.
-type ProtocolContractsCfg struct {
-	// UseLegacyConfigureLane selects the legacy lanes.ConnectChains path
-	// instead of the canonical ConfigureChainsForLanesFromTopology changeset.
-	UseLegacyConfigureLane bool `toml:"use_legacy_configure_lane"`
-}
+type ProtocolContractsCfg struct{}
 
 type Cfg struct {
 	// Version is incremented on breaking config schema changes so downstream

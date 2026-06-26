@@ -20,7 +20,6 @@ import (
 	blockchainscomp "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/blockchains"
 	jdcomp "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/jd"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/components/observability"
-	pccomp "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/protocol_contracts"
 	ccdeploy "github.com/smartcontractkit/chainlink-ccv/build/devenv/deploy"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
 	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
@@ -109,7 +108,6 @@ type phase3Inputs struct {
 	ds                     datastore.MutableDataStore
 	impls                  []cciptestinterfaces.CCIP17Configuration
 	selectors              []uint64
-	useLegacyConfigureLane bool
 	// cldf is the Phase-2 CLDF accumulator, carried forward so Phase-3 deploys
 	// (committee verifiers, mock receivers) can append their addresses to the
 	// serialized output. Nil when the prior phase did not publish it.
@@ -154,10 +152,6 @@ func parsePhase3Inputs(priorOutputs, globalConfig map[string]any) (phase3Inputs,
 	// are registered to the datastore deterministically instead of by mutating the
 	// shared CLDF accumulator.
 	cldf, _ := priorOutputs["cldf"].(*ccldf.CLDF)
-	var useLegacy bool
-	if pcMap, ok := globalConfig[pccomp.Key].(map[string]any); ok {
-		useLegacy, _ = pcMap["use_legacy_configure_lane"].(bool)
-	}
 	return phase3Inputs{
 		jdInfra:                jdInfra,
 		blockchains:            blockchains,
@@ -168,7 +162,6 @@ func parsePhase3Inputs(priorOutputs, globalConfig map[string]any) (phase3Inputs,
 		ds:                     ds,
 		impls:                  impls,
 		selectors:              selectors,
-		useLegacyConfigureLane: useLegacy,
 		cldf:                   cldf,
 	}, nil
 }
@@ -275,14 +268,8 @@ func runPhase3Core(
 	// Step 5b: Configure lanes. This requires verifiers to be registered in JD (done above)
 	// because ApplyVerifierConfig fetches verifier signing keys from JD by node ID.
 	if len(inputs.impls) > 0 && len(inputs.blockchains) > 0 {
-		var connectErr error
-		if inputs.useLegacyConfigureLane {
-			connectErr = ccdeploy.ConnectAllChainsLegacy(inputs.impls, inputs.blockchains, inputs.selectors, localEnv, inputs.topology)
-		} else {
-			connectErr = ccdeploy.ConnectAllChainsCanonical(inputs.impls, inputs.blockchains, inputs.selectors, localEnv, inputs.topology)
-		}
-		if connectErr != nil {
-			return nil, nil, fmt.Errorf("committeeccv: configure lanes: %w", connectErr)
+		if err := ccdeploy.ConnectAllChainsCanonical(inputs.impls, inputs.blockchains, inputs.selectors, localEnv, inputs.topology); err != nil {
+			return nil, nil, fmt.Errorf("committeeccv: configure lanes: %w", err)
 		}
 	}
 
