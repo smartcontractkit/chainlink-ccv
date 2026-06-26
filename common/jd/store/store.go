@@ -27,6 +27,8 @@ type Job struct {
 }
 
 // StoreInterface defines the persistence contract for job proposals.
+//
+//revive:disable-next-line:exported
 type StoreInterface interface {
 	// SaveJob persists a new proposal as pending, replacing any existing record.
 	SaveJob(ctx context.Context, proposalID string, version int64, spec string) error
