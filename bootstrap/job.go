@@ -35,6 +35,8 @@ func (js JobSpec) GetAppConfig(cfg any) error {
 		return fmt.Errorf("error decoding app config: %w", err)
 	}
 
+	// Deprecated: blockchain_infos should be dropped from appConfig, blockchain info will come from local config for standalone mode
+	// or node config for cl-mode. Remove this filter once chain family repos stopped using blockchain_infos in appConfig.
 	// Filter out undecoded fields under blockchain_infos.
 	var undecoded []string
 	for _, key := range md.Undecoded() {

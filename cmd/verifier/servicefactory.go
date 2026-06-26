@@ -53,16 +53,10 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 
 	protocol.InitChainSelectorCache()
 
-	genericConfig, err := spec.GetGenericConfig()
-	if err != nil {
-		return fmt.Errorf("failed to get generic config: %w", err)
-	}
-
 	var config commit.Config
 	if err := spec.GetAppConfig(&config); err != nil {
 		return fmt.Errorf("failed to get app config: %w", err)
 	}
-	lggr.Infow("Using blockchain information from config", "info", genericConfig.ChainConfig)
 
 	if config.PyroscopeURL != "" {
 		profiler, err := StartPyroscope(lggr, config.PyroscopeURL, "verifier")
@@ -72,8 +66,6 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 		}
 		f.profiler = profiler
 	}
-
-	chainSelectors := genericConfig.ChainConfig.GetAllChainSelectors()
 
 	// Create verifier addresses before source readers setup
 	verifierAddresses := make(map[string]protocol.UnknownAddress)
@@ -135,6 +127,7 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 		}
 	}
 
+	chainSelectors := chainaccess.Infos[string](config.OnRampAddresses).GetAllChainSelectors()
 	sourceReaders := make(map[protocol.ChainSelector]chainaccess.SourceReader)
 	for _, selector := range chainSelectors {
 		accessor, err := deps.Registry.GetAccessor(ctx, selector)
