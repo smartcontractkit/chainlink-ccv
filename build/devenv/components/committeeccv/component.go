@@ -99,15 +99,15 @@ func (c *component) RunPhase3(
 // phase3Inputs holds the decoded prior-phase outputs consumed by both the
 // standalone and CL-node CommitteeCCV components.
 type phase3Inputs struct {
-	jdInfra                *jobs.JDInfrastructure
-	blockchains            []*ctfblockchain.Input
-	blockchainOutputs      []*ctfblockchain.Output
-	env                    *deployment.Environment
-	topology               *ccvdeployment.EnvironmentTopology
-	obs                    *observability.Observability
-	ds                     datastore.MutableDataStore
-	impls                  []cciptestinterfaces.CCIP17Configuration
-	selectors              []uint64
+	jdInfra           *jobs.JDInfrastructure
+	blockchains       []*ctfblockchain.Input
+	blockchainOutputs []*ctfblockchain.Output
+	env               *deployment.Environment
+	topology          *ccvdeployment.EnvironmentTopology
+	obs               *observability.Observability
+	ds                datastore.MutableDataStore
+	impls             []cciptestinterfaces.CCIP17Configuration
+	selectors         []uint64
 	// cldf is the Phase-2 CLDF accumulator, carried forward so Phase-3 deploys
 	// (committee verifiers, mock receivers) can append their addresses to the
 	// serialized output. Nil when the prior phase did not publish it.
@@ -153,16 +153,16 @@ func parsePhase3Inputs(priorOutputs, globalConfig map[string]any) (phase3Inputs,
 	// shared CLDF accumulator.
 	cldf, _ := priorOutputs["cldf"].(*ccldf.CLDF)
 	return phase3Inputs{
-		jdInfra:                jdInfra,
-		blockchains:            blockchains,
-		blockchainOutputs:      blockchainOutputs,
-		env:                    e,
-		topology:               topology,
-		obs:                    obs,
-		ds:                     ds,
-		impls:                  impls,
-		selectors:              selectors,
-		cldf:                   cldf,
+		jdInfra:           jdInfra,
+		blockchains:       blockchains,
+		blockchainOutputs: blockchainOutputs,
+		env:               e,
+		topology:          topology,
+		obs:               obs,
+		ds:                ds,
+		impls:             impls,
+		selectors:         selectors,
+		cldf:              cldf,
 	}, nil
 }
 

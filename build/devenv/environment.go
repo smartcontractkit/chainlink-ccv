@@ -21,6 +21,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
 
 	_ "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/adapters"
+	_ "github.com/smartcontractkit/chainlink-ccv/integration/evm/adapters" // register EVM ccv adapters (aggregator/indexer/token-verifier/executor/verifier/committee) into the ccv registries
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainreg"
 	ccldf "github.com/smartcontractkit/chainlink-ccv/build/devenv/cldf"
