@@ -35,36 +35,44 @@ sequenceDiagram
     participant R as JobRunner
 
     JD->>M: ProposeJob(newId, newSpec)
-    M->>S: SaveJob(pending)       note: approved row preserved
+    M->>S: SavePendingJob()      note: approved row preserved
     M->>R: StopJob()
     M->>R: StartJob(newSpec)
     R-->>M: error
-    M->>S: DeletePendingJob()     note: restore single approved row
-    M->>R: StartJob(oldSpec)      note: restart known-good job
+    M->>S: DeletePendingJob()    note: restore single approved row
+    M->>R: StartJob(oldSpec)     note: restart known-good job
     Note over M: state stays Running (if restart succeeds)
 ```
 
 ---
 
-## New: `StoreInterface.DeletePendingJob`
+## New and renamed `StoreInterface` methods
 
-A new method is added to `StoreInterface` (and `PostgresStore`):
+Three methods are added or renamed. Any custom implementation of `StoreInterface`
+must be updated.
+
+| Old name | New name | Notes |
+|---|---|---|
+| `SaveJob` | `SavePendingJob` | Only replaces the pending row; approved row preserved |
+| `MarkJobApproved` | `AcceptPendingJob` | Returns `(bool, error)`; `bool` is true if a pending row was promoted |
+| `DeleteJob` | `DeleteAllJobs` | Makes "clears everything" semantics explicit |
+| *(new)* | `DeletePendingJob` | Removes only the pending row; used to rollback a failed replacement |
 
 ```go
-// DeletePendingJob removes only the pending record, leaving any approved
-// record intact. Used to rollback a failed replacement proposal.
+SavePendingJob(ctx context.Context, proposalID string, version int64, spec string) error
+AcceptPendingJob(ctx context.Context) (bool, error)
+DeleteAllJobs(ctx context.Context) error
 DeletePendingJob(ctx context.Context) error
 ```
 
-Any custom implementation of `StoreInterface` must add this method.
-
 ---
 
-## Behaviour change: `SaveJob` no longer deletes the approved row
+## Behaviour change: `SavePendingJob` no longer deletes the approved row
 
 Previously `SaveJob` deleted all rows before inserting the new pending row.
-It now only deletes the `pending` row, preserving any existing `approved` row.
-This is required so a failed replacement can fall back to the old job.
+`SavePendingJob` now only replaces the pending row (via `ON CONFLICT (status) DO UPDATE`),
+preserving any existing `approved` row. This is required so a failed replacement
+can fall back to the old job.
 
 The `LoadJob` tiebreaker — when both rows exist, the `approved` row is returned
 — means a process restart after a failed replacement boots the old job, not the
