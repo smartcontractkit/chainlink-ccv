@@ -126,6 +126,52 @@ func (_c *MockStoreInterface_LoadJob_Call) RunAndReturn(run func(context.Context
 	return _c
 }
 
+// MarkJobApproved provides a mock function with given fields: ctx
+func (_m *MockStoreInterface) MarkJobApproved(ctx context.Context) error {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for MarkJobApproved")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context) error); ok {
+		r0 = rf(ctx)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockStoreInterface_MarkJobApproved_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'MarkJobApproved'
+type MockStoreInterface_MarkJobApproved_Call struct {
+	*mock.Call
+}
+
+// MarkJobApproved is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *MockStoreInterface_Expecter) MarkJobApproved(ctx interface{}) *MockStoreInterface_MarkJobApproved_Call {
+	return &MockStoreInterface_MarkJobApproved_Call{Call: _e.mock.On("MarkJobApproved", ctx)}
+}
+
+func (_c *MockStoreInterface_MarkJobApproved_Call) Run(run func(ctx context.Context)) *MockStoreInterface_MarkJobApproved_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context))
+	})
+	return _c
+}
+
+func (_c *MockStoreInterface_MarkJobApproved_Call) Return(_a0 error) *MockStoreInterface_MarkJobApproved_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockStoreInterface_MarkJobApproved_Call) RunAndReturn(run func(context.Context) error) *MockStoreInterface_MarkJobApproved_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // SaveJob provides a mock function with given fields: ctx, proposalID, version, spec
 func (_m *MockStoreInterface) SaveJob(ctx context.Context, proposalID string, version int64, spec string) error {
 	ret := _m.Called(ctx, proposalID, version, spec)
