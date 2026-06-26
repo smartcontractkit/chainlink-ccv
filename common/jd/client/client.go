@@ -31,6 +31,9 @@ type ClientInterface interface {
 	Close() error
 	// ApproveJob sends a job approval to the Job Distributor.
 	ApproveJob(ctx context.Context, id string, version int64) error
+	// UpdateNode pushes the node's chain configs (including signing keys) to the Job Distributor.
+	// JD replaces the full set of chain configs for this node on each call — send the complete list.
+	UpdateNode(ctx context.Context, req *pb.UpdateNodeRequest) error
 	// JobProposalCh returns the channel on which job proposals are received.
 	JobProposalCh() <-chan *pb.ProposeJobRequest
 	// DeleteJobCh returns the channel on which job deletion requests are received.
@@ -188,6 +191,23 @@ func (c *Client) CancelJob(ctx context.Context, id string, version int64) error 
 	}
 
 	c.lggr.Infow("Job cancelled", "id", id)
+	return nil
+}
+
+// UpdateNode pushes the node's chain configs to the Job Distributor.
+func (c *Client) UpdateNode(ctx context.Context, req *pb.UpdateNodeRequest) error {
+	c.mu.Lock()
+	fm := c.feedsManager
+	c.mu.Unlock()
+
+	if fm == nil {
+		return fmt.Errorf("not connected to JD")
+	}
+
+	_, err := fm.UpdateNode(ctx, req)
+	if err != nil {
+		return fmt.Errorf("failed to update node: %w", err)
+	}
 	return nil
 }
 
