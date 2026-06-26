@@ -67,26 +67,32 @@ func (s *PostgresStore) SavePendingJob(ctx context.Context, proposalID string, v
 
 // AcceptPendingJob promotes the pending record to approved, replacing any old approved record.
 // Returns true if a pending record was promoted, false if none existed.
-// Two separate statements are required: PostgreSQL data-modifying CTEs use the same snapshot
-// for both the CTE and the main query, so a combined DELETE+UPDATE CTE would violate the
-// UNIQUE(status) constraint even though the net result would be valid.
+// The DELETE and UPDATE run in a transaction so that a failure on the UPDATE rolls back the
+// DELETE — preventing the approved row from being silently lost.
+// A data-modifying CTE cannot be used instead because PostgreSQL CTEs share the same snapshot,
+// causing the UPDATE to see the approved row as still present and violate UNIQUE(status).
 func (s *PostgresStore) AcceptPendingJob(ctx context.Context) (bool, error) {
-	_, err := s.ds.ExecContext(ctx, `DELETE FROM job_store WHERE status = 'approved'`)
-	if err != nil {
-		return false, fmt.Errorf("failed to remove old approved job: %w", err)
-	}
+	var promoted bool
+	err := sqlutil.TransactDataSource(ctx, s.ds, nil, func(tx sqlutil.DataSource) error {
+		_, err := tx.ExecContext(ctx, `DELETE FROM job_store WHERE status = 'approved'`)
+		if err != nil {
+			return fmt.Errorf("failed to remove old approved job: %w", err)
+		}
 
-	result, err := s.ds.ExecContext(ctx,
-		`UPDATE job_store SET status = 'approved', updated_at = NOW() WHERE status = 'pending'`,
-	)
-	if err != nil {
-		return false, fmt.Errorf("failed to accept pending job: %w", err)
-	}
-	rows, err := result.RowsAffected()
-	if err != nil {
-		return false, fmt.Errorf("failed to get rows affected: %w", err)
-	}
-	return rows > 0, nil
+		result, err := tx.ExecContext(ctx,
+			`UPDATE job_store SET status = 'approved', updated_at = NOW() WHERE status = 'pending'`,
+		)
+		if err != nil {
+			return fmt.Errorf("failed to accept pending job: %w", err)
+		}
+		rows, err := result.RowsAffected()
+		if err != nil {
+			return fmt.Errorf("failed to get rows affected: %w", err)
+		}
+		promoted = rows > 0
+		return nil
+	})
+	return promoted, err
 }
 
 // LoadJob retrieves the active job from the store.
