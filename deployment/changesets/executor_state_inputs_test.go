@@ -105,6 +105,41 @@ func TestExecutorPoolInputFromState_RoundTrip(t *testing.T) {
 	assert.Equal(t, []string{"http://indexer:1"}, extras.IndexerAddress)
 }
 
+func TestExecutorPoolInputFromState_ErrorsOnJobDrift(t *testing.T) {
+	sel := chainsel.TEST_90000001.Selector
+
+	adapterCfgs := map[string]executor.ChainConfiguration{
+		strconv.FormatUint(sel, 10): {
+			DestinationChainConfig: chainaccess.DestinationChainConfig{OffRampAddress: "0xofframp", RmnAddress: "0xrmn"},
+			DefaultExecutorAddress: "0xexec",
+		},
+	}
+	poolA := samplePool(sel) // execution interval 30s
+	poolB := samplePool(sel)
+	poolB.ChainConfigs[sel] = ChainExecutorPoolMembership{
+		NOPAliases:        []shared.NOPAlias{"nop1", "nop2"},
+		ExecutionInterval: 60 * time.Second, // drift
+	}
+
+	specsA, _, err := buildExecutorJobSpecs(adapterCfgs, testExecutorQualifier, nil, poolA, []string{"http://i"}, "", ccvdeployment.MonitoringConfig{})
+	require.NoError(t, err)
+	specsB, _, err := buildExecutorJobSpecs(adapterCfgs, testExecutorQualifier, nil, poolB, []string{"http://i"}, "", ccvdeployment.MonitoringConfig{})
+	require.NoError(t, err)
+
+	ds := datastore.NewMemoryDataStore()
+	save := func(alias shared.NOPAlias, specs shared.NOPJobSpecs) {
+		for jobID, spec := range specs[alias] {
+			require.NoError(t, ccvdeployment.SaveJob(ds, shared.JobInfo{JobID: jobID, NOPAlias: alias, Spec: spec}))
+		}
+	}
+	save("nop1", specsA) // 30s
+	save("nop2", specsB) // 60s — diverges
+
+	_, _, err = ExecutorPoolInputFromState(ds.Seal(), testExecutorQualifier)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "diverges")
+}
+
 func TestExecutorPoolInputFromState_BootstrapEmpty(t *testing.T) {
 	pool, extras, err := ExecutorPoolInputFromState(datastore.NewMemoryDataStore().Seal(), testExecutorQualifier)
 	require.NoError(t, err)

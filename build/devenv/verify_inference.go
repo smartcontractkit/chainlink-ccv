@@ -116,9 +116,9 @@ func verifyExecutorInference(
 	return nil
 }
 
-// diffCommitteeMembership compares per-chain NOP membership. Only the chains the
-// topology-derived input declares for this family are compared (state may surface
-// additional chains from other families when family filtering is loose).
+// diffCommitteeMembership compares per-chain NOP membership in both directions:
+// chains the topology declares (reporting any missing on-chain or with differing
+// members) and chains present on-chain but absent from the topology-derived input.
 func diffCommitteeMembership(topo, state ccvchangesets.CommitteeInput) []string {
 	var diffs []string
 	for sel, topoMembers := range topo.ChainConfigs {

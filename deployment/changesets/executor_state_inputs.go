@@ -3,7 +3,9 @@ package changesets
 import (
 	"errors"
 	"fmt"
+	"sort"
 	"strconv"
+	"strings"
 
 	"github.com/BurntSushi/toml"
 
@@ -14,6 +16,10 @@ import (
 	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
 	"github.com/smartcontractkit/chainlink-ccv/deployment/shared"
 )
+
+// executorJobType is the job spec type emitted for executor jobs (see
+// buildExecutorJobSpecs); parsed specs are validated against it.
+const executorJobType = "ccvexecutor"
 
 // ExecutorConnExtras carries the executor connection settings recovered alongside
 // the pool from persisted job specs: these are not part of ExecutorPoolInput but
@@ -54,47 +60,117 @@ func ExecutorPoolInputFromState(ds datastore.DataStore, qualifier string) (Execu
 	}
 
 	scope := shared.ExecutorJobScope{ExecutorQualifier: qualifier}
-	poolWideSet := false
+
+	// All of a pool's jobs carry identical pool-wide tuning and the full per-chain
+	// config, so the reconstructed pool is taken from a single job. To keep that
+	// deterministic regardless of datastore iteration order, every other in-scope
+	// job must agree — divergence is drift and is reported as an error rather than
+	// silently resolved to whichever job happened to be visited first.
+	var first *executor.Configuration
+	var firstJobID shared.JobID
 
 	for _, byJobID := range allJobs {
 		for jobID, info := range byJobID {
 			if !scope.IsJobInScope(jobID) {
 				continue
 			}
-
 			cfg, err := parseExecutorConfigFromSpec(info.Spec)
 			if err != nil {
 				return pool, extras, fmt.Errorf("executor pool %q: job %q: %w", qualifier, jobID, err)
 			}
-
-			if !poolWideSet {
-				pool.IndexerQueryLimit = cfg.IndexerQueryLimit
-				pool.BackoffDuration = cfg.BackoffDuration
-				pool.LookbackWindow = cfg.LookbackWindow
-				pool.ReaderCacheExpiry = cfg.ReaderCacheExpiry
-				pool.MaxRetryDuration = cfg.MaxRetryDuration
-				pool.WorkerCount = cfg.WorkerCount
-				pool.NtpServer = cfg.NtpServer
-				extras.IndexerAddress = cfg.IndexerAddress
-				extras.PyroscopeURL = cfg.PyroscopeURL
-				extras.Monitoring = cfg.Monitoring
-				poolWideSet = true
+			if first == nil {
+				c := cfg
+				first = &c
+				firstJobID = jobID
+				continue
 			}
-
-			for selStr, cc := range cfg.ChainConfiguration {
-				sel, perr := strconv.ParseUint(selStr, 10, 64)
-				if perr != nil {
-					return pool, extras, fmt.Errorf("executor pool %q: job %q: invalid chain selector key %q: %w", qualifier, jobID, selStr, perr)
-				}
-				pool.ChainConfigs[sel] = ChainExecutorPoolMembership{
-					NOPAliases:        shared.ConvertStringToNopAliases(cc.ExecutorPool),
-					ExecutionInterval: cc.ExecutionInterval,
-				}
+			if d := executorConfigDrift(*first, cfg); d != "" {
+				return pool, extras, fmt.Errorf(
+					"executor pool %q: job %q diverges from job %q: %s", qualifier, jobID, firstJobID, d)
 			}
 		}
 	}
 
+	if first == nil {
+		return pool, extras, nil // bootstrap: no jobs in scope
+	}
+
+	pool.IndexerQueryLimit = first.IndexerQueryLimit
+	pool.BackoffDuration = first.BackoffDuration
+	pool.LookbackWindow = first.LookbackWindow
+	pool.ReaderCacheExpiry = first.ReaderCacheExpiry
+	pool.MaxRetryDuration = first.MaxRetryDuration
+	pool.WorkerCount = first.WorkerCount
+	pool.NtpServer = first.NtpServer
+	extras.IndexerAddress = first.IndexerAddress
+	extras.PyroscopeURL = first.PyroscopeURL
+	extras.Monitoring = first.Monitoring
+
+	for selStr, cc := range first.ChainConfiguration {
+		sel, perr := strconv.ParseUint(selStr, 10, 64)
+		if perr != nil {
+			return pool, extras, fmt.Errorf("executor pool %q: invalid chain selector key %q: %w", qualifier, selStr, perr)
+		}
+		pool.ChainConfigs[sel] = ChainExecutorPoolMembership{
+			NOPAliases:        shared.ConvertStringToNopAliases(cc.ExecutorPool),
+			ExecutionInterval: cc.ExecutionInterval,
+		}
+	}
+
 	return pool, extras, nil
+}
+
+// executorConfigDrift returns a non-empty description when two in-scope executor
+// job configs disagree on any field the pool is reconstructed from (pool-wide
+// tuning, connection settings, or per-chain membership/interval). Empty means the
+// two are consistent.
+func executorConfigDrift(a, b executor.Configuration) string {
+	switch {
+	case a.IndexerQueryLimit != b.IndexerQueryLimit:
+		return fmt.Sprintf("indexerQueryLimit %d != %d", a.IndexerQueryLimit, b.IndexerQueryLimit)
+	case a.BackoffDuration != b.BackoffDuration:
+		return fmt.Sprintf("backoffDuration %s != %s", a.BackoffDuration, b.BackoffDuration)
+	case a.LookbackWindow != b.LookbackWindow:
+		return fmt.Sprintf("lookbackWindow %s != %s", a.LookbackWindow, b.LookbackWindow)
+	case a.ReaderCacheExpiry != b.ReaderCacheExpiry:
+		return fmt.Sprintf("readerCacheExpiry %s != %s", a.ReaderCacheExpiry, b.ReaderCacheExpiry)
+	case a.MaxRetryDuration != b.MaxRetryDuration:
+		return fmt.Sprintf("maxRetryDuration %s != %s", a.MaxRetryDuration, b.MaxRetryDuration)
+	case a.WorkerCount != b.WorkerCount:
+		return fmt.Sprintf("workerCount %d != %d", a.WorkerCount, b.WorkerCount)
+	case a.NtpServer != b.NtpServer:
+		return fmt.Sprintf("ntpServer %q != %q", a.NtpServer, b.NtpServer)
+	case a.PyroscopeURL != b.PyroscopeURL:
+		return fmt.Sprintf("pyroscopeURL %q != %q", a.PyroscopeURL, b.PyroscopeURL)
+	case strings.Join(a.IndexerAddress, ",") != strings.Join(b.IndexerAddress, ","):
+		return fmt.Sprintf("indexerAddress [%s] != [%s]", strings.Join(a.IndexerAddress, ","), strings.Join(b.IndexerAddress, ","))
+	}
+	return chainConfigurationDrift(a.ChainConfiguration, b.ChainConfiguration)
+}
+
+func chainConfigurationDrift(a, b map[string]executor.ChainConfiguration) string {
+	if len(a) != len(b) {
+		return fmt.Sprintf("chain config count %d != %d", len(a), len(b))
+	}
+	for sel, ca := range a {
+		cb, ok := b[sel]
+		if !ok {
+			return fmt.Sprintf("chain %s present in one job but not the other", sel)
+		}
+		if pa, pb := sortedStrings(ca.ExecutorPool), sortedStrings(cb.ExecutorPool); strings.Join(pa, ",") != strings.Join(pb, ",") {
+			return fmt.Sprintf("chain %s pool [%s] != [%s]", sel, strings.Join(pa, ","), strings.Join(pb, ","))
+		}
+		if ca.ExecutionInterval != cb.ExecutionInterval {
+			return fmt.Sprintf("chain %s executionInterval %s != %s", sel, ca.ExecutionInterval, cb.ExecutionInterval)
+		}
+	}
+	return ""
+}
+
+func sortedStrings(in []string) []string {
+	out := append([]string(nil), in...)
+	sort.Strings(out)
+	return out
 }
 
 // parseExecutorConfigFromSpec extracts the embedded executor.Configuration from a
@@ -108,6 +184,9 @@ func parseExecutorConfigFromSpec(spec string) (executor.Configuration, error) {
 	}
 	if _, err := toml.Decode(spec, &wrapper); err != nil {
 		return executor.Configuration{}, fmt.Errorf("failed to parse job spec wrapper: %w", err)
+	}
+	if wrapper.Type != executorJobType {
+		return executor.Configuration{}, fmt.Errorf("unexpected job spec type %q (want %q)", wrapper.Type, executorJobType)
 	}
 	if wrapper.ExecutorConfig == "" {
 		return executor.Configuration{}, fmt.Errorf("job spec has no executorConfig block")

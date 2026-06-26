@@ -74,7 +74,10 @@ func CommitteeInputFromState(
 			return CommitteeInput{}, fmt.Errorf("committee %q: scan chain %d: %w", qualifier, sel, err)
 		}
 
-		state := findCommitteeState(states, qualifier)
+		state, err := findCommitteeState(states, qualifier, sel)
+		if err != nil {
+			return CommitteeInput{}, err
+		}
 		if state == nil {
 			// Committee not deployed on this chain (or scanned empty) — skip.
 			continue
@@ -92,14 +95,23 @@ func CommitteeInputFromState(
 	return CommitteeInput{Qualifier: qualifier, ChainConfigs: chainConfigs}, nil
 }
 
-// findCommitteeState returns the scanned state matching the qualifier, or nil.
-func findCommitteeState(states []*adapters.CommitteeState, qualifier string) *adapters.CommitteeState {
+// findCommitteeState returns the scanned state matching the qualifier on the given
+// chain, or nil when none match. More than one match is an error: duplicate
+// verifier states for a qualifier on one chain cannot be disambiguated and would
+// hide drift (mirrors how GenerateAggregatorConfig treats duplicates).
+func findCommitteeState(states []*adapters.CommitteeState, qualifier string, chainSelector uint64) (*adapters.CommitteeState, error) {
+	var found *adapters.CommitteeState
 	for _, s := range states {
 		if s != nil && s.Qualifier == qualifier {
-			return s
+			if found != nil {
+				return nil, fmt.Errorf(
+					"committee %q: multiple committee verifier states found on chain %d; cannot disambiguate membership",
+					qualifier, chainSelector)
+			}
+			found = s
 		}
 	}
-	return nil
+	return found, nil
 }
 
 // membershipFromState collapses a verifier's per-source signer sets into the
