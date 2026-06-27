@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"syscall"
 	"time"
 
@@ -29,8 +28,8 @@ import (
 )
 
 const (
-	ConfigPathEnv     = "BOOTSTRAPPER_CONFIG_PATH"
-	DefaultConfigPath = "/etc/config.toml"
+	// ConfigPathEnv is the env var holding the app config file path.
+	ConfigPathEnv = "CONFIG_PATH"
 
 	defaultStartupTimeout  = 10 * time.Second
 	defaultShutdownTimeout = 10 * time.Second
@@ -140,106 +139,34 @@ func (r *runner) StopJob(ctx context.Context) error {
 
 // A Bootstrapper manages the lifecycle of a CCIP standalone application.
 type Bootstrapper struct {
-	lggr logger.Logger
+	lggr   logger.Logger
+	config Config
 
-	// bootstrapper component configs
-	configPath       string
-	config           *Config
 	lifecycleManager *lifecycle.Manager
 	infoServer       *infoServer
-	keys             []keyToInit
 
 	// application
-	appCfg *string
-	fac    ServiceFactory
-	name   string
+	fac  ServiceFactory
+	name string
 
 	// accCloser is set by startWithAppConfig; JD mode uses runner.accCloser instead.
 	accCloser *AccessorCloserRegistry
-
-	logLevel zapcore.Level
 }
 
-// NewBootstrapper creates a new [Bootstrapper] with the given config and service factory.
-func NewBootstrapper(
-	name string,
-	lggr logger.Logger,
-	fac ServiceFactory,
-	opts ...Option,
-) (*Bootstrapper, error) {
-	b := &Bootstrapper{
-		lggr:     lggr,
-		fac:      fac,
-		name:     name,
-		logLevel: zapcore.InfoLevel,
+// NewBootstrapper creates a new [Bootstrapper] from a fully-resolved [Config]. It does not load any
+// files or environment variables — use ResolveConfig (which Run does) to produce cfg.
+func NewBootstrapper(name string, lggr logger.Logger, fac ServiceFactory, opts []Option) (*Bootstrapper, error) {
+	config, err := ResolveConfig(opts...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to resolve bootstrap config: %w", err)
 	}
-	for _, opt := range opts {
-		if err := opt(b); err != nil {
-			return nil, fmt.Errorf("failed to apply option: %w", err)
-		}
-	}
-
-	// Backwards compatibility: if no keys are declared, initialize the original default set.
-	// Deprecated: we should remove these once all apps and integrations define required keys.
-	if len(b.keys) == 0 {
-		b.keys = []keyToInit{
-			{DefaultCSAKeyName, "csa", keystore.Ed25519},
-			{defaultECDSASigningKeyName, "signing", keystore.ECDSA_S256},
-			{defaultEdDSASigningKeyName, "signing", keystore.Ed25519},
-		}
-	}
-
-	// If no configuration is provided, default to JD lifecycle manager with config loaded from the default path.
-	if b.appCfg == nil && b.config == nil {
-		b.config = &Config{}
-	}
-
-	// JD mode requires a CSA key for node authentication. Inject the default if the caller
-	// did not explicitly declare one, so callers only need to list their application keys.
-	if b.config != nil {
-		hasCSA := false
-		for _, k := range b.keys {
-			if k.purpose == "csa" {
-				hasCSA = true
-				break
-			}
-		}
-		if !hasCSA {
-			b.keys = append([]keyToInit{{DefaultCSAKeyName, "csa", keystore.Ed25519}}, b.keys...)
-		}
-	}
-
-	if b.config != nil {
-		// Use provided config path if set by an option.
-		if b.configPath == "" {
-			// If no config path is provided by an option, check the environment variable.
-			b.configPath = os.Getenv(ConfigPathEnv)
-			if b.configPath == "" {
-				// If the environment variable is not set, use the default config path.
-				b.configPath = DefaultConfigPath
-			}
-		}
-
-		err := LoadAndValidateConfig(b.configPath, b.config)
-		if err != nil {
-			return nil, fmt.Errorf("failed to load bootstrap config (%s): %w", b.configPath, err)
-		}
-
-		// not logging config because it contains secrets.
-		lggr.Infow("loaded bootstrap config")
-	}
-
-	return b, nil
+	return &Bootstrapper{name: name, lggr: lggr, fac: fac, config: config}, nil
 }
 
 // startWithAppConfig is a passthrough to the application's Start function.
 func (b *Bootstrapper) startWithAppConfig(ctx context.Context) (startErr error) {
-	if b.appCfg == nil {
-		return fmt.Errorf("bootstrapper has no app config")
-	}
-
 	b.lggr.Infow("Calling NewRegistry with app config")
-	reg, err := chainaccess.NewRegistry(b.lggr, *b.appCfg)
+	reg, err := chainaccess.NewRegistry(b.lggr, *b.config.AppConfig)
 	if err != nil {
 		return fmt.Errorf("failed to create registry: %w", err)
 	}
@@ -259,20 +186,25 @@ func (b *Bootstrapper) startWithAppConfig(ctx context.Context) (startErr error) 
 		ExternalJobID: "",
 		SchemaVersion: 0,
 		Type:          "",
-		AppConfig:     *b.appCfg,
+		AppConfig:     *b.config.AppConfig,
 	}
 
 	return b.fac.Start(ctx, js, ServiceDeps{Registry: b.accCloser})
 }
 
 // startWithJDLifecycle initializes all components required for the JD lifecycle manager and starts it.
-func (b *Bootstrapper) startWithJDLifecycle(ctx context.Context) error {
+func (b *Bootstrapper) startWithJDLifecycle(ctx context.Context) (retErr error) {
 	db, err := connectToDB(ctx, b.config.DB.URL)
 	if err != nil {
 		return fmt.Errorf("failed to connect to bootstrapper database: %w", err)
 	}
+	defer func() {
+		if retErr != nil {
+			_ = db.Close()
+		}
+	}()
 
-	keyStore, csaSigner, err := initializeKeystore(ctx, b.lggr, db, b.config.Keystore.Password, b.keys)
+	keyStore, csaSigner, err := initializeKeystore(ctx, b.lggr, db, b.config.Keystore)
 	if err != nil {
 		return fmt.Errorf("failed to initialize keystore: %w", err)
 	}
@@ -282,8 +214,13 @@ func (b *Bootstrapper) startWithJDLifecycle(ctx context.Context) error {
 		return fmt.Errorf("failed to get JD public key: %w", err)
 	}
 	jdClient := jdclient.New(csaSigner, jdPublicKey, b.config.JD.ServerWSRPCURL, b.lggr)
+	defer func() {
+		if retErr != nil {
+			_ = jdClient.Close()
+		}
+	}()
 
-	deps, err := newServiceDeps(keyStore, b.logLevel, b.name)
+	deps, err := newServiceDeps(keyStore, b.config.zapLevel(), b.name)
 	if err != nil {
 		return fmt.Errorf("failed to create service deps: %w", err)
 	}
@@ -318,23 +255,19 @@ func (b *Bootstrapper) startWithJDLifecycle(ctx context.Context) error {
 
 // Start initializes the keystore, connects to JD, and starts the lifecycle manager.
 func (b *Bootstrapper) Start(ctx context.Context) error {
-	if b.config != nil {
-		return b.startWithJDLifecycle(ctx)
-	}
-	if b.appCfg != nil {
+	if b.config.AppConfig != nil {
 		return b.startWithAppConfig(ctx)
 	}
-
-	return fmt.Errorf("no configuration provided: either JD config or app config must be provided")
+	return b.startWithJDLifecycle(ctx)
 }
 
 // Stop shuts down all active components.
 //
 // The two startup modes own mutually exclusive sets of objects, so stopping every
 // non-nil field is sufficient to cover both without double-stopping anything:
-//   - JD mode (lifecycleManager/infoServer set, appCfg nil): the lifecycle manager and info server are stopped.
+//   - JD mode (lifecycleManager/infoServer set, appConfig nil): the lifecycle manager and info server are stopped.
 //     Accessor cleanup is owned by runner.StopJob, invoked by the lifecycle manager.
-//   - Static-config mode (appCfg set, lifecycleManager/infoServer nil): factory.Stop runs first, then accCloser.CloseAll
+//   - Static-config mode (appConfig set, lifecycleManager/infoServer nil): factory.Stop runs first, then accCloser.CloseAll
 func (b *Bootstrapper) Stop(ctx context.Context) error {
 	if b.lifecycleManager != nil {
 		if err := b.lifecycleManager.Stop(); err != nil {
@@ -346,7 +279,7 @@ func (b *Bootstrapper) Stop(ctx context.Context) error {
 			return fmt.Errorf("failed to stop info server: %w", err)
 		}
 	}
-	if b.appCfg != nil {
+	if b.config.AppConfig != nil {
 		var errs []error
 		if err := b.fac.Stop(ctx); err != nil {
 			errs = append(errs, fmt.Errorf("failed to stop service factory: %w", err))
@@ -368,6 +301,7 @@ func connectToDB(ctx context.Context, connStr string) (*sqlx.DB, error) {
 		return nil, fmt.Errorf("failed to connect to bootstrapper database: %w", err)
 	}
 	if err := dbpkg.RunMigrations(db); err != nil {
+		_ = db.Close()
 		return nil, fmt.Errorf("failed to run bootstrapper database migrations: %w", err)
 	}
 	return db, nil
@@ -385,14 +319,14 @@ func newServiceDeps(keyStore keystore.Keystore, logLevel zapcore.Level, name str
 	}, nil
 }
 
-func initializeKeystore(ctx context.Context, lggr logger.Logger, db *sqlx.DB, ksPassword string, requiredKeys []keyToInit) (keystore.Keystore, crypto.Signer, error) {
-	ks, err := keystore.LoadKeystore(ctx, keys.NewPGStorage(db, "default"), ksPassword)
+func initializeKeystore(ctx context.Context, lggr logger.Logger, db *sqlx.DB, config KeystoreConfig) (keystore.Keystore, crypto.Signer, error) {
+	ks, err := keystore.LoadKeystore(ctx, keys.NewPGStorage(db, "default"), config.Password)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to load keystore: %w", err)
 	}
 
 	var csaKeyName string
-	for _, k := range requiredKeys {
+	for _, k := range config.keys {
 		if err := keys.EnsureKey(ctx, lggr, ks, k.name, k.purpose, k.keyType); err != nil {
 			return nil, nil, fmt.Errorf("failed to ensure key %q (purpose=%q, type=%v): %w", k.name, k.purpose, k.keyType, err)
 		}
@@ -412,92 +346,7 @@ func initializeKeystore(ctx context.Context, lggr logger.Logger, db *sqlx.DB, ks
 	return ks, csaSigner, nil
 }
 
-// Option configures a [Bootstrapper].
-type Option func(*Bootstrapper) error
-
-// WithLogLevel sets the log level for the logger passed to the application.
-func WithLogLevel(logLevel zapcore.Level) Option {
-	return func(b *Bootstrapper) error {
-		b.logLevel = logLevel
-		return nil
-	}
-}
-
-// WithLogLevelFromEnv sets the log level from the LOG_LEVEL environment variable,
-// falling back to defaultLevel if the variable is unset or invalid.
-func WithLogLevelFromEnv(defaultLevel zapcore.Level) Option {
-	return func(b *Bootstrapper) error {
-		b.logLevel = defaultLevel
-		if lvlStr := os.Getenv("LOG_LEVEL"); lvlStr != "" {
-			var lvl zapcore.Level
-			if err := lvl.UnmarshalText([]byte(lvlStr)); err != nil {
-				_, _ = fmt.Fprintf(os.Stderr, "Invalid LOG_LEVEL '%s', defaulting to '%s'\n", lvlStr, defaultLevel)
-			} else {
-				b.logLevel = lvl
-			}
-		}
-		return nil
-	}
-}
-
-type keyToInit struct {
-	name    string
-	purpose string
-	keyType keystore.KeyType
-}
-
-// WithKey declares a key that the bootstrapper must ensure exists, creating it if absent.
-// When no WithKey options are provided, the bootstrapper applies a deprecated default set of
-// three keys (CSA, ECDSA signing, EdDSA signing). Passing one or more WithKey options suppresses
-// those defaults entirely; the caller is responsible for declaring every key it requires.
-func WithKey(name, purpose string, keyType keystore.KeyType) Option {
-	return func(b *Bootstrapper) error {
-		b.keys = append(b.keys, keyToInit{
-			name:    name,
-			purpose: purpose,
-			keyType: keyType,
-		})
-		return nil
-	}
-}
-
-// WithJD tells the bootstrapper to load config from JD and start the JD lifecycle manager.
-// This is the default option if no AppConfig is provided.
-// JD mode requires a keystore and a CSA key for node authentication. The bootstrapper
-// automatically provisions bootstrap.DefaultCSAKeyName unless a key with purpose "csa" is
-// already declared via WithKey.
-func WithJD() Option {
-	return func(b *Bootstrapper) error {
-		b.config = &Config{}
-		return nil
-	}
-}
-
-// WithBootstrapperConfigPath sets the bootstrapper config file path. If not set, the bootstrapper will look
-// for the config path in the BOOTSTRAPPER_CONFIG_PATH environment variable, and if that is not
-// set, it will default to DefaultConfigPath.
-func WithBootstrapperConfigPath(path string) Option {
-	return func(b *Bootstrapper) error {
-		b.configPath = path
-		return nil
-	}
-}
-
-// WithTOMLAppConfig tells bootstrap to load the application config from a given filepath instead of JD.
-func WithTOMLAppConfig(configFilePath string) Option {
-	return func(b *Bootstrapper) error {
-		configFilePath = filepath.Clean(configFilePath)
-		cfg, err := os.ReadFile(configFilePath)
-		if err != nil {
-			return err
-		}
-		cfgs := string(cfg)
-		b.appCfg = &cfgs
-		return nil
-	}
-}
-
-// Run is a convenience function that loads config, creates a bootstrapper,
+// Run resolves the config from options (deciding static vs JD mode), creates a bootstrapper,
 // starts it, and blocks until SIGINT or SIGTERM is received.
 func Run(
 	name string,
@@ -511,7 +360,7 @@ func Run(
 	lggr = logger.Sugared(logger.Named(lggr, "Bootstrapper"))
 	lggr = common.WithService(lggr, name)
 
-	bootstrapper, err := NewBootstrapper(name, lggr, fac, opts...)
+	bootstrapper, err := NewBootstrapper(name, lggr, fac, opts)
 	if err != nil {
 		return fmt.Errorf("failed to create bootstrapper: %w", err)
 	}

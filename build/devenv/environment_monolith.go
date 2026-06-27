@@ -14,6 +14,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
+
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainreg"
@@ -763,7 +764,6 @@ func NewEnvironment() (in *Cfg, err error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate token verifier config: %w", err)
 		}
-
 		// Get generated config from output datastore
 		tokenVerifierCfg, err := ccvdeployment.GetTokenVerifierConfig(
 			output.DataStore.Seal(), "TokenVerifier",
@@ -771,6 +771,7 @@ func NewEnvironment() (in *Cfg, err error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to get token verifier config from output: %w", err)
 		}
+
 		in.TokenVerifier[i].GeneratedConfig = tokenVerifierCfg
 		e.DataStore = output.DataStore.Seal()
 	}

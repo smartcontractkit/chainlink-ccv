@@ -313,14 +313,24 @@ func TestConfig_validate(t *testing.T) {
 			errContains: []string{"failed to validate 'monitoring' section", "metric_reader_interval"},
 		},
 		{
-			// validate() uses errors.Join, so a bad section and bad monitoring both surface.
-			name: "aggregates errors across db and monitoring sections",
+			// Monitoring is validated first and short-circuits, so a bad monitoring section surfaces
+			// before any JD-mode section error.
+			name: "monitoring validated before JD sections",
 			config: &Config{
 				JD: validJD, Keystore: validKeystore, DB: DBConfig{URL: ""}, Server: validServer,
 				Monitoring: &monitoring.Config{Enabled: true},
 			},
 			wantErr:     true,
-			errContains: []string{"failed to validate 'db' section", "failed to validate 'monitoring' section"},
+			errContains: []string{"failed to validate 'monitoring' section"},
+		},
+		{
+			// validate() uses errors.Join across JD-mode sections, so multiple bad sections surface.
+			name: "aggregates errors across db and server sections",
+			config: &Config{
+				JD: validJD, Keystore: validKeystore, DB: DBConfig{URL: ""}, Server: ServerConfig{ListenPort: 0},
+			},
+			wantErr:     true,
+			errContains: []string{"failed to validate 'db' section", "failed to validate 'server' section"},
 		},
 	}
 	for _, tt := range tests {

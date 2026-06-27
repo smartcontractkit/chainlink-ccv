@@ -16,6 +16,7 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
+
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
@@ -192,11 +193,9 @@ func ApplyDefaults(in Input) Input {
 		in.ChainFamily = chainsel.FamilyEVM
 	}
 	if in.Bootstrap == nil {
-		def := services.ApplyBootstrapDefaults(services.BootstrapInput{})
-		in.Bootstrap = &def
+		in.Bootstrap = new(services.ApplyBootstrapDefaults(services.BootstrapInput{}))
 	} else {
-		def := services.ApplyBootstrapDefaults(*in.Bootstrap)
-		in.Bootstrap = &def
+		in.Bootstrap = new(services.ApplyBootstrapDefaults(*in.Bootstrap))
 	}
 	return in
 }
@@ -425,8 +424,9 @@ func baseImageRequest(in *Input, envVars map[string]string, bootstrapConfigFileP
 	req.Mounts = testcontainers.Mounts()
 	req.Mounts = append(req.Mounts, testcontainers.BindMount(
 		bootstrapConfigFilePath,
-		bootstrap.DefaultConfigPath,
+		services.DefaultConfigPath,
 	))
+	req.Env[bootstrap.ConfigPathEnv] = services.DefaultConfigPath
 
 	// Note: identical code to aggregator.go/executor.go -- will indexer be identical as well?
 	if in.SourceCodePath != "" {

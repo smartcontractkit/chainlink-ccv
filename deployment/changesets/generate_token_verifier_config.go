@@ -7,10 +7,10 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 
-	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/cctp"
@@ -137,13 +137,13 @@ func GenerateTokenVerifierConfig() deployment.ChangeSetV2[GenerateTokenVerifierC
 		}
 
 		tvConfig := &token.Config{
-			PyroscopeURL: cfg.PyroscopeURL,
 			CommitteeConfig: chainaccess.CommitteeConfig{
 				OnRampAddresses:    onRampAddresses,
 				RMNRemoteAddresses: rmnRemoteAddresses,
 			},
 			TokenVerifiers: []token.VerifierConfig{},
 			Monitoring:     cfg.Monitoring,
+			PyroscopeURL: cfg.PyroscopeURL,
 		}
 
 		if len(cctpVerifierAddresses) > 0 {

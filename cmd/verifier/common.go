@@ -77,6 +77,7 @@ func SetupMonitoring(lggr logger.Logger, config verifier.MonitoringConfig, verif
 func ConnectToPostgresDB(lggr logger.Logger) (sqlutil.DataSource, error) {
 	dbURL := os.Getenv(DatabaseURLEnvVar)
 	if dbURL == "" {
+		lggr.Infow("Database url is empty, skipping...")
 		return nil, nil
 	}
 

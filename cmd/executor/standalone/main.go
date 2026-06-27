@@ -15,6 +15,7 @@ func main() {
 	err := bootstrap.Run(
 		"Executor",
 		cmdexecutor.NewFactory(),
+		bootstrap.WithBootstrapConfigPathEnv(bootstrap.ConfigPathEnv),
 		bootstrap.WithKey(contracttransmitter.DefaultKeyName, "transmitting", keystore.ECDSA_S256), // EVM signing key for OffRamp transaction submission
 	)
 	if err != nil {

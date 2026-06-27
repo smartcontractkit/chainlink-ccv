@@ -36,15 +36,10 @@ func main() {
 		cmd.RunCCVCLI(os.Args[1:])
 		return
 	}
-	configPath := os.Getenv("TOKEN_VERIFIER_CONFIG_PATH")
-	if configPath == "" {
-		configPath = "/etc/config.toml"
-	}
-
 	err := bootstrap.Run(
 		"TokenVerifier",
 		&tokenVerifierFactory{},
-		bootstrap.WithTOMLAppConfig(configPath),
+		bootstrap.WithAppConfigPathEnv(bootstrap.ConfigPathEnv),
 	)
 	if err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "Failed to run token verifier: %v\n", err)

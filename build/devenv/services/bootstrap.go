@@ -21,6 +21,7 @@ const (
 	DefaultBootstrapDBName        = "bootstrap_db"
 	DefaultBootstrapListenPort    = 9988
 	DefaultBootstrapListenPortTCP = "9988/tcp"
+	DefaultConfigPath             = "/etc/config.toml"
 )
 
 var CreateBootstrapDBInitScript = fmt.Sprintf(`CREATE DATABASE "%s";`, DefaultBootstrapDBName)

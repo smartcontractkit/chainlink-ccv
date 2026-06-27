@@ -4,9 +4,9 @@ import (
 	"fmt"
 
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
+	"github.com/smartcontractkit/chainlink-ccv/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/cctp"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/lombard"
-	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
 )
 
 type ConfigWithBlockchainInfos struct {
@@ -15,22 +15,15 @@ type ConfigWithBlockchainInfos struct {
 }
 
 type Config struct {
-	PyroscopeURL string `json:"pyroscope_url" toml:"pyroscope_url"`
 	// TokenVerifiers is a list of token verifier configurations. Each entry defines a token verifier instance with its own type, version and configuration.
 	TokenVerifiers []VerifierConfig `json:"token_verifiers" toml:"token_verifiers"`
-	// Monitoring contains the monitoring configuration for the token verifier, including Beholder settings.
-	//
-	// Unlike the commit (committee) verifier and the executor — which now source monitoring from the
-	// operator-provided bootstrap config (bootstrap.Config.Monitoring) rather than their JD-shipped app
-	// config — the token verifier intentionally keeps monitoring here, in its app config. It runs in
-	// static-TOML mode (bootstrap.WithTOMLAppConfig) with no JD/DB/keystore and therefore loads no
-	// bootstrap.Config; its config file is already operator-provided (mounted, not JD-shipped), so this
-	// field already satisfies the rule that monitoring must be operator-provided and never delivered via a
-	// JD-shipped app config.
-	Monitoring verifier.MonitoringConfig `json:"monitoring" toml:"monitoring"`
-
 	// CommitteeConfig is the generic config needed for SourceReader.
 	chainaccess.CommitteeConfig
+	Monitoring monitoring.Config `toml:"monitoring,omitempty"`
+	// PyroscopeURL is a pyroscope url
+	PyroscopeURL string `json:"pyroscope_url" toml:"pyroscope_url"`
+	// LogLevel is the service logger level (e.g. "info", "debug"). Empty defaults to "info".
+	LogLevel string `toml:"log_level,omitempty"`
 }
 
 // VerifierConfig is the base struct for token verifiers. Every token data verifier

@@ -16,7 +16,7 @@ import (
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
 
-	aggregator "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg"
+	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/util"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm"
 	ccvblockchain "github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
@@ -163,8 +163,9 @@ func NewTokenVerifier(in *TokenVerifierInput, blockchainOutputs []*blockchain.Ou
 	req.Mounts = testcontainers.Mounts()
 	req.Mounts = append(req.Mounts, testcontainers.BindMount(
 		configFilePath,
-		aggregator.DefaultConfigFile, // TODO: switch to token verifier path, not aggregator path.
+		DefaultConfigPath,
 	))
+	req.Env[bootstrap.ConfigPathEnv] = DefaultConfigPath
 
 	// Note: identical code to aggregator.go/executor.go -- will indexer be identical as well?
 	if in.SourceCodePath != "" {

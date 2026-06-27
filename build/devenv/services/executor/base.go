@@ -147,11 +147,9 @@ func ApplyDefaults(in *Input) {
 		}
 	}
 	if in.Bootstrap == nil {
-		def := services.ApplyBootstrapDefaults(services.BootstrapInput{})
-		in.Bootstrap = &def
+		in.Bootstrap = new(services.ApplyBootstrapDefaults(services.BootstrapInput{}))
 	} else {
-		def := services.ApplyBootstrapDefaults(*in.Bootstrap)
-		in.Bootstrap = &def
+		in.Bootstrap = new(services.ApplyBootstrapDefaults(*in.Bootstrap))
 	}
 }
 
@@ -209,8 +207,10 @@ func launchExecutor(ctx context.Context, in *Input, outputs []*blockchain.Output
 	if err := os.WriteFile(bootstrapConfigFilePath, bootstrapConfig, 0o644); err != nil {
 		return nil, fmt.Errorf("failed to write bootstrap config to file: %w", err)
 	}
+	envVars := make(map[string]string)
+	envVars[bootstrap.ConfigPathEnv] = services.DefaultConfigPath
 
-	req, err := baseImageRequest(in, bootstrapConfigFilePath)
+	req, err := baseImageRequest(in, envVars, bootstrapConfigFilePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create base image request: %w", err)
 	}
@@ -322,10 +322,11 @@ func startContainer(ctx context.Context, req testcontainers.ContainerRequest) (t
 	return nil, fmt.Errorf("failed to start container after %d attempts: %w", maxAttempts, lastErr)
 }
 
-func baseImageRequest(in *Input, bootstrapConfigFilePath string) (testcontainers.ContainerRequest, error) {
+func baseImageRequest(in *Input, envVars map[string]string, bootstrapConfigFilePath string) (testcontainers.ContainerRequest, error) {
 	req := testcontainers.ContainerRequest{
 		Image:    in.Image,
 		Name:     in.ContainerName,
+		Env:      envVars,
 		Labels:   framework.DefaultTCLabels(),
 		Networks: []string{framework.DefaultNetworkName},
 		NetworkAliases: map[string][]string{
@@ -357,8 +358,9 @@ func baseImageRequest(in *Input, bootstrapConfigFilePath string) (testcontainers
 	req.Mounts = testcontainers.Mounts()
 	req.Mounts = append(req.Mounts, testcontainers.BindMount(
 		bootstrapConfigFilePath,
-		bootstrap.DefaultConfigPath,
+		services.DefaultConfigPath,
 	))
+	req.Env[bootstrap.ConfigPathEnv] = services.DefaultConfigPath
 
 	if in.SourceCodePath != "" {
 		req.Mounts = append(req.Mounts, services.GoSourcePathMounts(in.RootPath, services.AppPathInsideContainer)...)
