@@ -195,11 +195,14 @@ func TestCommitteeInputFromState_ErrorsOnUnknownSigner(t *testing.T) {
 	assert.Contains(t, err.Error(), "no JD-known NOP")
 }
 
-func TestCommitteeInputFromState_UnionsOnCrossSourceDrift(t *testing.T) {
+func TestCommitteeInputFromState_KeysEachSourceSeparately(t *testing.T) {
 	registerEVMChainTypeForIdentities()
 	sel := chainsel.TEST_90000001.Selector
 	src2 := chainsel.TEST_90000002.Selector
 
+	// One verifier carrying two source-keyed signer sets with different membership.
+	// Membership is attributed to each SourceChainSelector independently — not unioned
+	// onto the verifier chain — so the two sources yield two distinct chain configs.
 	adapter := &stubFullAdapter{
 		states: map[uint64][]*adapters.CommitteeState{
 			sel: {{
@@ -207,7 +210,6 @@ func TestCommitteeInputFromState_UnionsOnCrossSourceDrift(t *testing.T) {
 				ChainSelector: sel,
 				SignatureConfigs: []adapters.SignatureConfig{
 					{SourceChainSelector: sel, Signers: []string{"0xAAA1", "0xBBB2"}, Threshold: 2},
-					// nop2 missing on the second source — divergence is unioned (and warned).
 					{SourceChainSelector: src2, Signers: []string{"0xAAA1"}, Threshold: 1},
 				},
 			}},
@@ -226,8 +228,58 @@ func TestCommitteeInputFromState_UnionsOnCrossSourceDrift(t *testing.T) {
 
 	committee, err := CommitteeInputFromState(context.Background(), env, ids, testQualifier, "")
 	require.NoError(t, err)
-	// Union of both source memberships.
 	assert.Equal(t, []shared.NOPAlias{"nop1", "nop2"}, committee.ChainConfigs[sel].NOPAliases)
+	assert.Equal(t, []shared.NOPAlias{"nop1"}, committee.ChainConfigs[src2].NOPAliases)
+}
+
+// TestCommitteeInputFromState_KeysMembershipBySourceChain is the regression test for
+// the cross-chain committee inference bug: a committee verifier on chain V stores its
+// *counterparties'* signers (keyed by SourceChainSelector), so membership must be
+// attributed to the source chain — not to the verifier chain that physically holds it.
+// Before the fix, V's signers were mislabeled as V's own members, producing a spurious
+// "state inference mismatch" for committees whose membership differs per chain (e.g. a
+// single committee spanning an EVM and a Canton chain).
+func TestCommitteeInputFromState_KeysMembershipBySourceChain(t *testing.T) {
+	registerEVMChainTypeForIdentities()
+	chainA := chainsel.TEST_90000001.Selector
+	chainB := chainsel.TEST_90000002.Selector
+
+	// chainA's verifier attests messages from chainB -> it holds chainB's committee
+	// members. chainB's verifier holds chainA's. Members differ per chain.
+	adapter := &stubFullAdapter{
+		states: map[uint64][]*adapters.CommitteeState{
+			chainA: {{
+				Qualifier:     testQualifier,
+				ChainSelector: chainA,
+				SignatureConfigs: []adapters.SignatureConfig{
+					{SourceChainSelector: chainB, Signers: []string{"0xBBB1", "0xBBB2"}, Threshold: 2},
+				},
+			}},
+			chainB: {{
+				Qualifier:     testQualifier,
+				ChainSelector: chainB,
+				SignatureConfigs: []adapters.SignatureConfig{
+					{SourceChainSelector: chainA, Signers: []string{"0xAAA1", "0xAAA2"}, Threshold: 2},
+				},
+			}},
+		},
+		verifierAddrs: map[uint64]string{chainA: testVerifierAddr, chainB: testVerifierAddr},
+	}
+	registerFullEVMAdapters(adapter)
+
+	env := newIdentitiesEnv(t,
+		map[string]string{"node-a1": "a1", "node-a2": "a2", "node-b1": "b1", "node-b2": "b2"},
+		map[string]string{"node-a1": "0xAAA1", "node-a2": "0xAAA2", "node-b1": "0xBBB1", "node-b2": "0xBBB2"},
+		[]uint64{chainA, chainB},
+	)
+	ids, err := LoadNOPIdentities(context.Background(), env)
+	require.NoError(t, err)
+
+	committee, err := CommitteeInputFromState(context.Background(), env, ids, testQualifier, "")
+	require.NoError(t, err)
+	// Membership is attributed to the source chain, not the verifier chain holding it.
+	assert.Equal(t, []shared.NOPAlias{"a1", "a2"}, committee.ChainConfigs[chainA].NOPAliases)
+	assert.Equal(t, []shared.NOPAlias{"b1", "b2"}, committee.ChainConfigs[chainB].NOPAliases)
 }
 
 // Reproduces the standalone-NOP case that JD cannot resolve (the signer is not in
