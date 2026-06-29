@@ -1358,7 +1358,10 @@ func registerStandaloneVerifiersWithJD(ctx context.Context, verifiers []*committ
 			}
 
 			reg := &jobs.BootstrapJDRegistration{
-				Name:         ver.ContainerName,
+				// Register under the NOP alias: it is globally unique (ContainerName is
+				// only unique within a committee/chain family) and is the key the
+				// job-proposal node lookup searches by (propose_jobs FindByName(nopAlias)).
+				Name:         ver.NOPAlias,
 				CSAPublicKey: ver.Out.BootstrapKeys.CSAPublicKey,
 			}
 			if err := jobs.RegisterBootstrapWithJD(gCtx, jdClient, reg); err != nil {
