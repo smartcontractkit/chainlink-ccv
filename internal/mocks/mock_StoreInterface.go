@@ -22,12 +22,68 @@ func (_m *MockStoreInterface) EXPECT() *MockStoreInterface_Expecter {
 	return &MockStoreInterface_Expecter{mock: &_m.Mock}
 }
 
-// DeleteJob provides a mock function with given fields: ctx
-func (_m *MockStoreInterface) DeleteJob(ctx context.Context) error {
+// AcceptPendingJob provides a mock function with given fields: ctx
+func (_m *MockStoreInterface) AcceptPendingJob(ctx context.Context) (bool, error) {
 	ret := _m.Called(ctx)
 
 	if len(ret) == 0 {
-		panic("no return value specified for DeleteJob")
+		panic("no return value specified for AcceptPendingJob")
+	}
+
+	var r0 bool
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context) (bool, error)); ok {
+		return rf(ctx)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context) bool); ok {
+		r0 = rf(ctx)
+	} else {
+		r0 = ret.Get(0).(bool)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
+		r1 = rf(ctx)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockStoreInterface_AcceptPendingJob_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'AcceptPendingJob'
+type MockStoreInterface_AcceptPendingJob_Call struct {
+	*mock.Call
+}
+
+// AcceptPendingJob is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *MockStoreInterface_Expecter) AcceptPendingJob(ctx interface{}) *MockStoreInterface_AcceptPendingJob_Call {
+	return &MockStoreInterface_AcceptPendingJob_Call{Call: _e.mock.On("AcceptPendingJob", ctx)}
+}
+
+func (_c *MockStoreInterface_AcceptPendingJob_Call) Run(run func(ctx context.Context)) *MockStoreInterface_AcceptPendingJob_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context))
+	})
+	return _c
+}
+
+func (_c *MockStoreInterface_AcceptPendingJob_Call) Return(_a0 bool, _a1 error) *MockStoreInterface_AcceptPendingJob_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockStoreInterface_AcceptPendingJob_Call) RunAndReturn(run func(context.Context) (bool, error)) *MockStoreInterface_AcceptPendingJob_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// DeleteAllJobs provides a mock function with given fields: ctx
+func (_m *MockStoreInterface) DeleteAllJobs(ctx context.Context) error {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DeleteAllJobs")
 	}
 
 	var r0 error
@@ -40,30 +96,76 @@ func (_m *MockStoreInterface) DeleteJob(ctx context.Context) error {
 	return r0
 }
 
-// MockStoreInterface_DeleteJob_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DeleteJob'
-type MockStoreInterface_DeleteJob_Call struct {
+// MockStoreInterface_DeleteAllJobs_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DeleteAllJobs'
+type MockStoreInterface_DeleteAllJobs_Call struct {
 	*mock.Call
 }
 
-// DeleteJob is a helper method to define mock.On call
+// DeleteAllJobs is a helper method to define mock.On call
 //   - ctx context.Context
-func (_e *MockStoreInterface_Expecter) DeleteJob(ctx interface{}) *MockStoreInterface_DeleteJob_Call {
-	return &MockStoreInterface_DeleteJob_Call{Call: _e.mock.On("DeleteJob", ctx)}
+func (_e *MockStoreInterface_Expecter) DeleteAllJobs(ctx interface{}) *MockStoreInterface_DeleteAllJobs_Call {
+	return &MockStoreInterface_DeleteAllJobs_Call{Call: _e.mock.On("DeleteAllJobs", ctx)}
 }
 
-func (_c *MockStoreInterface_DeleteJob_Call) Run(run func(ctx context.Context)) *MockStoreInterface_DeleteJob_Call {
+func (_c *MockStoreInterface_DeleteAllJobs_Call) Run(run func(ctx context.Context)) *MockStoreInterface_DeleteAllJobs_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context))
 	})
 	return _c
 }
 
-func (_c *MockStoreInterface_DeleteJob_Call) Return(_a0 error) *MockStoreInterface_DeleteJob_Call {
+func (_c *MockStoreInterface_DeleteAllJobs_Call) Return(_a0 error) *MockStoreInterface_DeleteAllJobs_Call {
 	_c.Call.Return(_a0)
 	return _c
 }
 
-func (_c *MockStoreInterface_DeleteJob_Call) RunAndReturn(run func(context.Context) error) *MockStoreInterface_DeleteJob_Call {
+func (_c *MockStoreInterface_DeleteAllJobs_Call) RunAndReturn(run func(context.Context) error) *MockStoreInterface_DeleteAllJobs_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// DeletePendingJob provides a mock function with given fields: ctx
+func (_m *MockStoreInterface) DeletePendingJob(ctx context.Context) error {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DeletePendingJob")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context) error); ok {
+		r0 = rf(ctx)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockStoreInterface_DeletePendingJob_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DeletePendingJob'
+type MockStoreInterface_DeletePendingJob_Call struct {
+	*mock.Call
+}
+
+// DeletePendingJob is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *MockStoreInterface_Expecter) DeletePendingJob(ctx interface{}) *MockStoreInterface_DeletePendingJob_Call {
+	return &MockStoreInterface_DeletePendingJob_Call{Call: _e.mock.On("DeletePendingJob", ctx)}
+}
+
+func (_c *MockStoreInterface_DeletePendingJob_Call) Run(run func(ctx context.Context)) *MockStoreInterface_DeletePendingJob_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context))
+	})
+	return _c
+}
+
+func (_c *MockStoreInterface_DeletePendingJob_Call) Return(_a0 error) *MockStoreInterface_DeletePendingJob_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockStoreInterface_DeletePendingJob_Call) RunAndReturn(run func(context.Context) error) *MockStoreInterface_DeletePendingJob_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -126,12 +228,12 @@ func (_c *MockStoreInterface_LoadJob_Call) RunAndReturn(run func(context.Context
 	return _c
 }
 
-// SaveJob provides a mock function with given fields: ctx, proposalID, version, spec
-func (_m *MockStoreInterface) SaveJob(ctx context.Context, proposalID string, version int64, spec string) error {
+// SavePendingJob provides a mock function with given fields: ctx, proposalID, version, spec
+func (_m *MockStoreInterface) SavePendingJob(ctx context.Context, proposalID string, version int64, spec string) error {
 	ret := _m.Called(ctx, proposalID, version, spec)
 
 	if len(ret) == 0 {
-		panic("no return value specified for SaveJob")
+		panic("no return value specified for SavePendingJob")
 	}
 
 	var r0 error
@@ -144,33 +246,33 @@ func (_m *MockStoreInterface) SaveJob(ctx context.Context, proposalID string, ve
 	return r0
 }
 
-// MockStoreInterface_SaveJob_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SaveJob'
-type MockStoreInterface_SaveJob_Call struct {
+// MockStoreInterface_SavePendingJob_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SavePendingJob'
+type MockStoreInterface_SavePendingJob_Call struct {
 	*mock.Call
 }
 
-// SaveJob is a helper method to define mock.On call
+// SavePendingJob is a helper method to define mock.On call
 //   - ctx context.Context
 //   - proposalID string
 //   - version int64
 //   - spec string
-func (_e *MockStoreInterface_Expecter) SaveJob(ctx interface{}, proposalID interface{}, version interface{}, spec interface{}) *MockStoreInterface_SaveJob_Call {
-	return &MockStoreInterface_SaveJob_Call{Call: _e.mock.On("SaveJob", ctx, proposalID, version, spec)}
+func (_e *MockStoreInterface_Expecter) SavePendingJob(ctx interface{}, proposalID interface{}, version interface{}, spec interface{}) *MockStoreInterface_SavePendingJob_Call {
+	return &MockStoreInterface_SavePendingJob_Call{Call: _e.mock.On("SavePendingJob", ctx, proposalID, version, spec)}
 }
 
-func (_c *MockStoreInterface_SaveJob_Call) Run(run func(ctx context.Context, proposalID string, version int64, spec string)) *MockStoreInterface_SaveJob_Call {
+func (_c *MockStoreInterface_SavePendingJob_Call) Run(run func(ctx context.Context, proposalID string, version int64, spec string)) *MockStoreInterface_SavePendingJob_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].(string), args[2].(int64), args[3].(string))
 	})
 	return _c
 }
 
-func (_c *MockStoreInterface_SaveJob_Call) Return(_a0 error) *MockStoreInterface_SaveJob_Call {
+func (_c *MockStoreInterface_SavePendingJob_Call) Return(_a0 error) *MockStoreInterface_SavePendingJob_Call {
 	_c.Call.Return(_a0)
 	return _c
 }
 
-func (_c *MockStoreInterface_SaveJob_Call) RunAndReturn(run func(context.Context, string, int64, string) error) *MockStoreInterface_SaveJob_Call {
+func (_c *MockStoreInterface_SavePendingJob_Call) RunAndReturn(run func(context.Context, string, int64, string) error) *MockStoreInterface_SavePendingJob_Call {
 	_c.Call.Return(run)
 	return _c
 }

@@ -16,7 +16,7 @@
       {
         "datasource": {
           "type": "loki",
-          "uid": "P8E80F9AEF21F6940"
+          "uid": "victorialogs"
         },
         "enable": true,
         "iconColor": "red",
@@ -47,7 +47,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
+        "uid": "victoriametrics"
       },
       "fieldConfig": {
         "defaults": {
@@ -94,7 +94,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
+            "uid": "victoriametrics"
           },
           "editorMode": "code",
           "exemplar": false,
@@ -111,7 +111,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
+        "uid": "victoriametrics"
       },
       "fieldConfig": {
         "defaults": {
@@ -187,7 +187,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
+            "uid": "victoriametrics"
           },
           "editorMode": "code",
           "exemplar": false,
@@ -204,7 +204,7 @@
     {
       "datasource": {
         "type": "loki",
-        "uid": "P8E80F9AEF21F6940"
+        "uid": "victorialogs"
       },
       "gridPos": {
         "h": 5,
@@ -229,7 +229,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
+        "uid": "victoriametrics"
       },
       "fieldConfig": {
         "defaults": {
@@ -287,7 +287,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
+            "uid": "victoriametrics"
           },
           "editorMode": "code",
           "exemplar": false,
@@ -304,7 +304,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
+        "uid": "victoriametrics"
       },
       "fieldConfig": {
         "defaults": {
@@ -388,7 +388,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
+            "uid": "victoriametrics"
           },
           "editorMode": "code",
           "expr": "round(\n  clamp_max(\n    (rate(aggregator_heartbeat_verifier_heartbeats_total[$__range]) / 0.1) * 100,\n    100\n  )\n)",
@@ -400,7 +400,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
+            "uid": "victoriametrics"
           },
           "editorMode": "code",
           "expr": "aggregator_heartbeat_verifier_heartbeats_total",
@@ -430,7 +430,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
+        "uid": "victoriametrics"
       },
       "fieldConfig": {
         "defaults": {
@@ -484,7 +484,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
+            "uid": "victoriametrics"
           },
           "editorMode": "code",
           "expr": "time() - max by(caller_id) (aggregator_heartbeat_verifier_heartbeat_timestamp{caller_id=~\"$verifier\"})",
@@ -499,7 +499,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
+        "uid": "victoriametrics"
       },
       "fieldConfig": {
         "defaults": {
@@ -578,7 +578,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
+            "uid": "victoriametrics"
           },
           "editorMode": "code",
           "expr": "time() - max by(caller_id) (aggregator_heartbeat_verifier_heartbeat_timestamp{})",
@@ -606,7 +606,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
+        "uid": "victoriametrics"
       },
       "fieldConfig": {
         "defaults": {
@@ -661,7 +661,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
+            "uid": "victoriametrics"
           },
           "editorMode": "code",
           "exemplar": false,
@@ -698,7 +698,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
+        "uid": "victoriametrics"
       },
       "fieldConfig": {
         "defaults": {
@@ -753,7 +753,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
+            "uid": "victoriametrics"
           },
           "editorMode": "code",
           "exemplar": false,
@@ -790,7 +790,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
+        "uid": "victoriametrics"
       },
       "fieldConfig": {
         "defaults": {
@@ -845,7 +845,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
+            "uid": "victoriametrics"
           },
           "editorMode": "code",
           "exemplar": false,
@@ -882,7 +882,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
+        "uid": "victoriametrics"
       },
       "fieldConfig": {
         "defaults": {
@@ -960,7 +960,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
+            "uid": "victoriametrics"
           },
           "editorMode": "code",
           "expr": "aggregator_heartbeat_verifier_score{}",
@@ -975,7 +975,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
+        "uid": "victoriametrics"
       },
       "fieldConfig": {
         "defaults": {
@@ -1030,7 +1030,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
+            "uid": "victoriametrics"
           },
           "editorMode": "code",
           "expr": "aggregator_heartbeat_verifier_score{}",
@@ -1103,7 +1103,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
+        "uid": "victoriametrics"
       },
       "fieldConfig": {
         "defaults": {
@@ -1181,7 +1181,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
+            "uid": "victoriametrics"
           },
           "editorMode": "code",
           "expr": "aggregator_heartbeat_verifier_reported_chain_heads",
@@ -1196,7 +1196,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
+        "uid": "victoriametrics"
       },
       "fieldConfig": {
         "defaults": {
@@ -1252,7 +1252,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
+            "uid": "victoriametrics"
           },
           "editorMode": "code",
           "exemplar": false,
@@ -1324,7 +1324,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
+        "uid": "victoriametrics"
       },
       "fieldConfig": {
         "defaults": {
@@ -1402,7 +1402,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
+            "uid": "victoriametrics"
           },
           "editorMode": "code",
           "expr": "max by (chain_selector, caller_id) (aggregator_heartbeat_verifier_reported_chain_heads)\n- on(chain_selector) group_left()\nmax by (chain_selector) (aggregator_heartbeat_verifier_current_max_chain_head)",
@@ -1417,7 +1417,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
+        "uid": "victoriametrics"
       },
       "fieldConfig": {
         "defaults": {
@@ -1473,7 +1473,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
+            "uid": "victoriametrics"
           },
           "editorMode": "code",
           "exemplar": false,
@@ -1561,7 +1561,7 @@
         },
         "datasource": {
           "type": "prometheus",
-          "uid": "PBFA97CFB590B2093"
+          "uid": "victoriametrics"
         },
         "definition": "label_values(aggregator_heartbeat_verifier_heartbeats_total,caller_id)",
         "hide": 0,

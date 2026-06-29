@@ -465,6 +465,8 @@ func generateExecutorJobSpecs(
 		return executorJobSpecs, nil
 	}
 
+	jobs.SyncEnvNodeIDs(in.JDInfra, e)
+
 	// Group executors by qualifier
 	executorsByQualifier := make(map[string][]*executorsvc.Input)
 	for _, exec := range in.Executor {
@@ -549,6 +551,8 @@ func generateVerifierJobSpecs(
 	if len(in.Verifier) == 0 {
 		return verifierJobSpecs, nil
 	}
+
+	jobs.SyncEnvNodeIDs(in.JDInfra, e)
 
 	// Group verifiers by committee for batch generation
 	verifiersByCommittee := make(map[string][]*committeeverifier.Input)
@@ -982,7 +986,11 @@ func launchExecutors(in []*executorsvc.Input, blockchainOutputs []*blockchain.Ou
 // and waits for them to establish their WSRPC connections. Executors that
 // were already registered by the executor component (JDNodeID != "") are
 // skipped — their JDNodeID is already populated and the connection is live.
-func registerExecutorsWithJD(ctx context.Context, executors []*executorsvc.Input, jdClient offchain.Client) error {
+func registerExecutorsWithJD(ctx context.Context, executors []*executorsvc.Input, jdInfra *jobs.JDInfrastructure) error {
+	if jdInfra == nil || jdInfra.OffchainClient == nil {
+		return nil
+	}
+	jdClient := jdInfra.OffchainClient
 	var standalone []*executorsvc.Input
 	for _, exec := range executors {
 		if exec.Mode == services.Standalone && (exec.Out == nil || exec.Out.JDNodeID == "") {
@@ -1013,6 +1021,7 @@ func registerExecutorsWithJD(ctx context.Context, executors []*executorsvc.Input
 
 			mu.Lock()
 			exec.Out.JDNodeID = reg.NodeID
+			jdInfra.RegisterNodeAlias(exec.NOPAlias, reg.NodeID)
 			mu.Unlock()
 
 			if err := jobs.WaitForBootstrapConnection(gCtx, jdClient, reg.NodeID, 60*time.Second); err != nil {
@@ -1306,7 +1315,11 @@ func slicesEqual(a, b []string) bool {
 // registerStandaloneVerifiersWithJD registers standalone verifiers with JD in parallel
 // and waits for them to establish their WSRPC connections.
 // TODO: this is common for all bootstrapped apps, make more general?
-func registerStandaloneVerifiersWithJD(ctx context.Context, verifiers []*committeeverifier.Input, jdClient offchain.Client) error {
+func registerStandaloneVerifiersWithJD(ctx context.Context, verifiers []*committeeverifier.Input, jdInfra *jobs.JDInfrastructure) error {
+	if jdInfra == nil || jdInfra.OffchainClient == nil {
+		return nil
+	}
+	jdClient := jdInfra.OffchainClient
 	// Filter to standalone verifiers only
 	var standaloneVerifiers []*committeeverifier.Input
 	for _, ver := range verifiers {
@@ -1339,6 +1352,7 @@ func registerStandaloneVerifiersWithJD(ctx context.Context, verifiers []*committ
 
 			mu.Lock()
 			ver.Out.JDNodeID = reg.NodeID
+			jdInfra.RegisterNodeAlias(ver.NOPAlias, reg.NodeID)
 			mu.Unlock()
 
 			// Wait for bootstrap to connect to JD

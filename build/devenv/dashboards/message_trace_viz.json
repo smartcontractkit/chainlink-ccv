@@ -1,0 +1,109 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": 4,
+  "links": [],
+  "panels": [
+    {
+      "datasource": {
+        "type": "jaeger",
+        "uid": "victoriatraces"
+      },
+      "description": "${message_id:regex:^0x(.{32}).*$}",
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 25,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "options": {},
+      "pluginVersion": "11.3.1",
+      "targets": [
+        {
+          "datasource": {
+            "type": "jaeger",
+            "uid": "victoriatraces"
+          },
+          "query": "$trace_id",
+          "refId": "A"
+        }
+      ],
+      "title": "",
+      "type": "traces"
+    }
+  ],
+  "preload": false,
+  "schemaVersion": 40,
+  "tags": [],
+  "templating": {
+    "list": [
+      {
+        "current": {
+          "text": "",
+          "value": ""
+        },
+        "description": "0x...",
+        "label": "message_id",
+        "name": "message_id",
+        "options": [
+          {
+            "selected": true,
+            "text": "",
+            "value": ""
+          }
+        ],
+        "query": "",
+        "type": "textbox"
+      },
+      {
+        "current": {
+          "text": "",
+          "value": ""
+        },
+        "definition": "query_result(label_replace(vector(1),\"message_id\",\"${message_id}\",\"__name__\", \".*\"))",
+        "name": "trace_id",
+        "options": [],
+        "query": {
+          "qryType": 3,
+          "query": "query_result(label_replace(vector(1),\"message_id\",\"${message_id}\",\"__name__\", \".*\"))",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 1,
+        "regex": "/message_id=\"0x(?<value>.{32}).*\"/",
+        "type": "query"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-15m",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "CCIP Message Flow Viz",
+  "uid": "cfq49j4bs3k00c",
+  "version": 1,
+  "weekStart": ""
+}

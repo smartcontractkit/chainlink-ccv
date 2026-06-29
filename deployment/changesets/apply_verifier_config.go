@@ -590,7 +590,9 @@ func validateVerifierChainSupport(
 	committee CommitteeInput,
 ) error {
 	if e.Offchain == nil {
-		e.Logger.Debugw("Offchain client not available, skipping chain support validation")
+		if e.Logger != nil {
+			e.Logger.Debugw("Offchain client not available, skipping chain support validation")
+		}
 		return nil
 	}
 

@@ -27,8 +27,10 @@ CREATE TABLE IF NOT EXISTS job_store (
 	proposal_id TEXT NOT NULL,
 	version BIGINT NOT NULL,
 	spec TEXT NOT NULL,
+	status TEXT NOT NULL DEFAULT 'approved' CHECK (status IN ('pending', 'approved')),
 	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-	updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+	updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+	CONSTRAINT job_store_unique_status UNIQUE (status)
 );
 `
 
@@ -118,7 +120,7 @@ func TestPostgresStore_SaveAndLoadJob(t *testing.T) {
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrNoJob)
 
-	err = s.SaveJob(ctx, "proposal-1", 1, `{"type":"ccv"}`)
+	err = s.SavePendingJob(ctx, "proposal-1", 1, `{"type":"ccv"}`)
 	require.NoError(t, err)
 
 	job, err := s.LoadJob(ctx)
@@ -127,6 +129,26 @@ func TestPostgresStore_SaveAndLoadJob(t *testing.T) {
 	assert.Equal(t, "proposal-1", job.ProposalID)
 	assert.Equal(t, int64(1), job.Version)
 	assert.Equal(t, `{"type":"ccv"}`, job.Spec)
+	assert.Equal(t, JobStatusPending, job.Status)
+}
+
+func TestPostgresStore_AcceptPendingJob(t *testing.T) {
+	s, _, cleanup := setupPostgresStore(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	require.NoError(t, s.SavePendingJob(ctx, "proposal-1", 1, `{"type":"ccv"}`))
+
+	job, err := s.LoadJob(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, JobStatusPending, job.Status)
+
+	_, err = s.AcceptPendingJob(ctx)
+	require.NoError(t, err)
+
+	job, err = s.LoadJob(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, JobStatusApproved, job.Status)
 }
 
 func TestPostgresStore_SaveReplacesExistingJob(t *testing.T) {
@@ -134,8 +156,8 @@ func TestPostgresStore_SaveReplacesExistingJob(t *testing.T) {
 	defer cleanup()
 	ctx := context.Background()
 
-	require.NoError(t, s.SaveJob(ctx, "proposal-1", 1, `{"v":1}`))
-	require.NoError(t, s.SaveJob(ctx, "proposal-2", 2, `{"v":2}`))
+	require.NoError(t, s.SavePendingJob(ctx, "proposal-1", 1, `{"v":1}`))
+	require.NoError(t, s.SavePendingJob(ctx, "proposal-2", 2, `{"v":2}`))
 
 	job, err := s.LoadJob(ctx)
 	require.NoError(t, err)
@@ -154,38 +176,38 @@ func TestPostgresStore_HasJob(t *testing.T) {
 	require.NoError(t, err)
 	assert.False(t, has)
 
-	require.NoError(t, s.SaveJob(ctx, "p1", 1, "spec"))
+	require.NoError(t, s.SavePendingJob(ctx, "p1", 1, "spec"))
 	has, err = s.HasJob(ctx)
 	require.NoError(t, err)
 	assert.True(t, has)
 
-	require.NoError(t, s.DeleteJob(ctx))
+	require.NoError(t, s.DeleteAllJobs(ctx))
 	has, err = s.HasJob(ctx)
 	require.NoError(t, err)
 	assert.False(t, has)
 }
 
-func TestPostgresStore_DeleteJob(t *testing.T) {
+func TestPostgresStore_DeleteAllJobs(t *testing.T) {
 	s, _, cleanup := setupPostgresStore(t)
 	defer cleanup()
 	ctx := context.Background()
 
-	require.NoError(t, s.SaveJob(ctx, "proposal-1", 1, `{}`))
-	require.NoError(t, s.DeleteJob(ctx))
+	require.NoError(t, s.SavePendingJob(ctx, "proposal-1", 1, `{}`))
+	require.NoError(t, s.DeleteAllJobs(ctx))
 
 	_, err := s.LoadJob(ctx)
 	require.Error(t, err)
 	assert.ErrorIs(t, err, ErrNoJob)
 
-	require.NoError(t, s.DeleteJob(ctx))
+	require.NoError(t, s.DeleteAllJobs(ctx))
 }
 
-func TestPostgresStore_DeleteJob_WhenEmpty(t *testing.T) {
+func TestPostgresStore_DeleteAllJobs_WhenEmpty(t *testing.T) {
 	s, _, cleanup := setupPostgresStore(t)
 	defer cleanup()
 	ctx := context.Background()
 
-	require.NoError(t, s.DeleteJob(ctx))
+	require.NoError(t, s.DeleteAllJobs(ctx))
 }
 
 func TestPostgresStore_NewPostgresStore(t *testing.T) {
@@ -194,4 +216,194 @@ func TestPostgresStore_NewPostgresStore(t *testing.T) {
 
 	store := NewPostgresStore(ds)
 	require.NotNil(t, store)
+}
+
+// TestPostgresStore_SavePreservesApprovedRow verifies that saving a new pending proposal
+// does not delete an existing approved row (needed for replacement fallback).
+func TestPostgresStore_SavePreservesApprovedRow(t *testing.T) {
+	s, _, cleanup := setupPostgresStore(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	require.NoError(t, s.SavePendingJob(ctx, "proposal-1", 1, `{"v":1}`))
+	_, err := s.AcceptPendingJob(ctx)
+	require.NoError(t, err)
+
+	// Save a replacement proposal — approved row must survive.
+	require.NoError(t, s.SavePendingJob(ctx, "proposal-2", 2, `{"v":2}`))
+
+	// LoadJob should return the approved (old) row.
+	job, err := s.LoadJob(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, "proposal-1", job.ProposalID)
+	assert.Equal(t, JobStatusApproved, job.Status)
+}
+
+// TestPostgresStore_LoadJob_PrefersApproved verifies that when both rows exist,
+// the approved row is returned (drives restart to the known-good job).
+func TestPostgresStore_LoadJob_PrefersApproved(t *testing.T) {
+	s, ds, cleanup := setupPostgresStore(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	// Insert both rows directly to set up the two-row state.
+	_, err := ds.ExecContext(ctx,
+		`INSERT INTO job_store (proposal_id, version, spec, status, created_at, updated_at)
+		 VALUES ('approved-job', 1, '{"v":1}', 'approved', NOW(), NOW())`)
+	require.NoError(t, err)
+	_, err = ds.ExecContext(ctx,
+		`INSERT INTO job_store (proposal_id, version, spec, status, created_at, updated_at)
+		 VALUES ('pending-job', 2, '{"v":2}', 'pending', NOW(), NOW())`)
+	require.NoError(t, err)
+
+	job, err := s.LoadJob(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, "approved-job", job.ProposalID)
+	assert.Equal(t, JobStatusApproved, job.Status)
+}
+
+// TestPostgresStore_AcceptPendingJob_WithTwoRows verifies that AcceptPendingJob correctly
+// deletes the old approved row and promotes the pending row when both exist.
+func TestPostgresStore_AcceptPendingJob_WithTwoRows(t *testing.T) {
+	s, ds, cleanup := setupPostgresStore(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	_, err := ds.ExecContext(ctx,
+		`INSERT INTO job_store (proposal_id, version, spec, status, created_at, updated_at)
+		 VALUES ('old-job', 1, '{"v":1}', 'approved', NOW(), NOW())`)
+	require.NoError(t, err)
+	_, err = ds.ExecContext(ctx,
+		`INSERT INTO job_store (proposal_id, version, spec, status, created_at, updated_at)
+		 VALUES ('new-job', 2, '{"v":2}', 'pending', NOW(), NOW())`)
+	require.NoError(t, err)
+
+	_, err = s.AcceptPendingJob(ctx)
+	require.NoError(t, err)
+
+	job, err := s.LoadJob(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, "new-job", job.ProposalID)
+	assert.Equal(t, JobStatusApproved, job.Status)
+
+	// Only one row should remain.
+	var counts []int
+	require.NoError(t, ds.SelectContext(ctx, &counts, `SELECT COUNT(*) FROM job_store`))
+	assert.Equal(t, 1, counts[0])
+}
+
+// TestPostgresStore_AcceptPendingJob_WhenEmpty verifies that AcceptPendingJob is a no-op
+// when there are no rows, returning false without error.
+func TestPostgresStore_AcceptPendingJob_WhenEmpty(t *testing.T) {
+	s, _, cleanup := setupPostgresStore(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	promoted, err := s.AcceptPendingJob(ctx)
+	require.NoError(t, err)
+	assert.False(t, promoted)
+}
+
+// TestPostgresStore_AcceptPendingJob_OnlyApprovedRow documents that calling AcceptPendingJob
+// when only an approved row exists deletes it and returns false — the job is lost.
+// This cannot happen via normal manager flow but is a footgun callers should be aware of.
+func TestPostgresStore_AcceptPendingJob_OnlyApprovedRow(t *testing.T) {
+	s, _, cleanup := setupPostgresStore(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	require.NoError(t, s.SavePendingJob(ctx, "proposal-1", 1, `{}`))
+	_, err := s.AcceptPendingJob(ctx)
+	require.NoError(t, err)
+
+	// Now only an approved row remains — call AcceptPendingJob again with no pending row.
+	promoted, err := s.AcceptPendingJob(ctx)
+	require.NoError(t, err)
+	assert.False(t, promoted)
+
+	// The approved row has been deleted — store is now empty.
+	_, err = s.LoadJob(ctx)
+	assert.ErrorIs(t, err, ErrNoJob)
+}
+
+// TestPostgresStore_SavePendingJob_WithBothRows verifies that SavePendingJob updates the
+// existing pending row in-place when both rows exist, leaving the approved row untouched.
+func TestPostgresStore_SavePendingJob_WithBothRows(t *testing.T) {
+	s, ds, cleanup := setupPostgresStore(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	_, err := ds.ExecContext(ctx,
+		`INSERT INTO job_store (proposal_id, version, spec, status, created_at, updated_at)
+		 VALUES ('approved-job', 1, '{"v":1}', 'approved', NOW(), NOW())`)
+	require.NoError(t, err)
+	_, err = ds.ExecContext(ctx,
+		`INSERT INTO job_store (proposal_id, version, spec, status, created_at, updated_at)
+		 VALUES ('old-pending', 2, '{"v":2}', 'pending', NOW(), NOW())`)
+	require.NoError(t, err)
+
+	// SavePendingJob should update the pending row, not insert a third row.
+	require.NoError(t, s.SavePendingJob(ctx, "new-pending", 3, `{"v":3}`))
+
+	// Approved row is untouched.
+	job, err := s.LoadJob(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, "approved-job", job.ProposalID)
+	assert.Equal(t, JobStatusApproved, job.Status)
+
+	// Exactly two rows in total (no third row inserted).
+	var counts []int
+	require.NoError(t, ds.SelectContext(ctx, &counts, `SELECT COUNT(*) FROM job_store`))
+	assert.Equal(t, 2, counts[0])
+
+	// Pending row reflects the new values.
+	var pending []jobRow
+	require.NoError(t, ds.SelectContext(ctx, &pending,
+		`SELECT proposal_id, version, spec, status, created_at, updated_at
+		 FROM job_store WHERE status = 'pending'`))
+	require.Len(t, pending, 1)
+	assert.Equal(t, "new-pending", pending[0].ProposalID)
+	assert.Equal(t, int64(3), pending[0].Version)
+}
+
+func TestPostgresStore_DeletePendingJob_OnlyPendingRow(t *testing.T) {
+	s, _, cleanup := setupPostgresStore(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	require.NoError(t, s.SavePendingJob(ctx, "proposal-1", 1, `{}`))
+	require.NoError(t, s.DeletePendingJob(ctx))
+
+	_, err := s.LoadJob(ctx)
+	assert.ErrorIs(t, err, ErrNoJob)
+}
+
+func TestPostgresStore_DeletePendingJob_WithBothRows(t *testing.T) {
+	s, ds, cleanup := setupPostgresStore(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	_, err := ds.ExecContext(ctx,
+		`INSERT INTO job_store (proposal_id, version, spec, status, created_at, updated_at)
+		 VALUES ('approved-job', 1, '{"v":1}', 'approved', NOW(), NOW())`)
+	require.NoError(t, err)
+	_, err = ds.ExecContext(ctx,
+		`INSERT INTO job_store (proposal_id, version, spec, status, created_at, updated_at)
+		 VALUES ('pending-job', 2, '{"v":2}', 'pending', NOW(), NOW())`)
+	require.NoError(t, err)
+
+	require.NoError(t, s.DeletePendingJob(ctx))
+
+	job, err := s.LoadJob(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, "approved-job", job.ProposalID)
+	assert.Equal(t, JobStatusApproved, job.Status)
+}
+
+func TestPostgresStore_DeletePendingJob_WhenEmpty(t *testing.T) {
+	s, _, cleanup := setupPostgresStore(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	require.NoError(t, s.DeletePendingJob(ctx))
 }

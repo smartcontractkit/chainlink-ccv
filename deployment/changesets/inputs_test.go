@@ -35,7 +35,6 @@ func TestFilterCLModeNOPs_SkipsStandalone(t *testing.T) {
 }
 
 func TestFilterCLModeNOPs_TreatsMissingAsNotCL(t *testing.T) {
-	// nopGhost is not in the NOP slice → mode lookup returns "" → not CL → excluded.
 	got := filterCLModeNOPs(
 		[]shared.NOPAlias{"nop1", "nopGhost"},
 		[]NOPInput{{Alias: "nop1", Mode: shared.NOPModeCL}},

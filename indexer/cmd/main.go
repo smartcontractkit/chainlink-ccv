@@ -8,6 +8,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/grafana/pyroscope-go"
 	"github.com/jmoiron/sqlx"
 	"go.uber.org/zap/zapcore"
 
@@ -79,6 +80,23 @@ func main() {
 	} else {
 		lggr.Infow("Monitoring disabled, using noop implementation")
 		indexerMonitoring = monitoring.NewNoopIndexerMonitoring()
+	}
+
+	if config.PyroscopeURL != "" {
+		if _, err := pyroscope.Start(pyroscope.Config{
+			ApplicationName: "indexer",
+			ServerAddress:   config.PyroscopeURL,
+			ProfileTypes: []pyroscope.ProfileType{
+				pyroscope.ProfileCPU,
+				pyroscope.ProfileAllocObjects,
+				pyroscope.ProfileAllocSpace,
+				pyroscope.ProfileGoroutines,
+				pyroscope.ProfileBlockDuration,
+				pyroscope.ProfileMutexDuration,
+			},
+		}); err != nil {
+			lggr.Fatalf("Failed to initialize pyroscope client: %v", err)
+		}
 	}
 
 	protocol.InitChainSelectorCache()
@@ -165,7 +183,7 @@ func createReadersForVerifier(ctx context.Context, lggr logger.Logger, verifierR
 func createReader(lggr logger.Logger, cfg *config.VerifierConfig, indexerMonitoring common.IndexerMonitoring) (*readers.ResilientReader, error) {
 	switch cfg.Type {
 	case config.ReaderTypeAggregator:
-		return readers.NewAggregatorReader(cfg.Address, lggr, cfg.Since, hmac.ClientConfig{
+		return readers.NewAggregatorReader(cfg.Label(), cfg.Address, lggr, cfg.Since, hmac.ClientConfig{
 			APIKey: cfg.APIKey,
 			Secret: cfg.Secret,
 		}, cfg.InsecureConnection, config.EffectiveMaxResponseBytes(cfg.MaxResponseBytes), indexerMonitoring)
@@ -210,7 +228,7 @@ func createDiscovery(ctx context.Context, lggr logger.Logger, cfg *config.Config
 			persistedSinceValue = int(discCfg.Since)
 		}
 
-		aggregator, err := readers.NewAggregatorReader(discCfg.Address, lggr, int64(persistedSinceValue), hmac.ClientConfig{
+		aggregator, err := readers.NewAggregatorReader(discCfg.Label(), discCfg.Address, lggr, int64(persistedSinceValue), hmac.ClientConfig{
 			APIKey: discCfg.APIKey,
 			Secret: discCfg.Secret,
 		}, discCfg.InsecureConnection, config.EffectiveMaxResponseBytes(discCfg.MaxResponseBytes), monitoring)

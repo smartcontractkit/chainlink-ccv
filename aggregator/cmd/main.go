@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/grafana/pyroscope-go"
 	"github.com/jmoiron/sqlx"
 	_ "github.com/lib/pq"
 	"github.com/urfave/cli"
@@ -164,6 +165,24 @@ func runServer(configPath string, lggr logger.Logger, sugaredLggr logger.Sugared
 		}
 		aggMonitoring = m
 		lggr.Info("Monitoring enabled")
+	}
+
+	if config.PyroscopeURL != "" {
+		if _, err := pyroscope.Start(pyroscope.Config{
+			ApplicationName: "aggregator",
+			ServerAddress:   config.PyroscopeURL,
+			Logger:          nil, // Disable pyroscope logging - so noisy
+			ProfileTypes: []pyroscope.ProfileType{
+				pyroscope.ProfileCPU,
+				pyroscope.ProfileAllocObjects,
+				pyroscope.ProfileAllocSpace,
+				pyroscope.ProfileGoroutines,
+				pyroscope.ProfileBlockDuration,
+				pyroscope.ProfileMutexDuration,
+			},
+		}); err != nil {
+			sugaredLggr.Fatalf("Failed to initialize pyroscope client: %v", err)
+		}
 	}
 
 	protocol.InitChainSelectorCache()

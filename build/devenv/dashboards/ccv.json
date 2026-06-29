@@ -37,7 +37,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
+        "uid": "victoriametrics"
       },
       "description": "Sent Events Total",
       "fieldConfig": {
@@ -88,7 +88,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
+            "uid": "victoriametrics"
           },
           "editorMode": "code",
           "expr": "sum(msg_sent_total)",
@@ -104,7 +104,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
+        "uid": "victoriametrics"
       },
       "description": "Message Total Latencies from Source to Destination chain",
       "fieldConfig": {
@@ -183,7 +183,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
+            "uid": "victoriametrics"
           },
           "editorMode": "code",
           "expr": "histogram_quantile(0.50, \n  rate(msg_src_dst_duration_seconds_bucket[5m])\n)",
@@ -194,7 +194,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
+            "uid": "victoriametrics"
           },
           "editorMode": "code",
           "expr": "histogram_quantile(0.95, \n  rate(msg_src_dst_duration_seconds_bucket[5m])\n)",
@@ -206,7 +206,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
+            "uid": "victoriametrics"
           },
           "editorMode": "code",
           "expr": "histogram_quantile(0.99, \n  rate(msg_src_dst_duration_seconds_bucket[5m])\n)",
@@ -223,7 +223,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
+        "uid": "victoriametrics"
       },
       "description": "Exec Events Total",
       "fieldConfig": {
@@ -274,7 +274,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
+            "uid": "victoriametrics"
           },
           "editorMode": "code",
           "expr": "sum(msg_exec_total)",
@@ -290,7 +290,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
+        "uid": "victoriametrics"
       },
       "description": "${FromSelector:pipe}->${ToSelector:pipe} Sent",
       "fieldConfig": {
@@ -341,7 +341,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
+            "uid": "victoriametrics"
           },
           "editorMode": "code",
           "expr": "msg_sent_total{from=~\"${FromSelector:pipe}\", to=~\"${ToSelector:pipe}\"}",
@@ -357,7 +357,7 @@
     {
       "datasource": {
         "type": "loki",
-        "uid": "P8E80F9AEF21F6940"
+        "uid": "victorialogs"
       },
       "description": "CCIPMessageSent Logs",
       "gridPos": {
@@ -382,7 +382,7 @@
         {
           "datasource": {
             "type": "loki",
-            "uid": "P8E80F9AEF21F6940"
+            "uid": "victorialogs"
           },
           "editorMode": "code",
           "expr": "{job=\"on-chain-sent\", from=~\"${FromSelector:pipe}\", to=~\"${ToSelector:pipe}\"}",
@@ -397,7 +397,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "PBFA97CFB590B2093"
+        "uid": "victoriametrics"
       },
       "description": "${FromSelector:pipe}->${ToSelector:pipe} Exec",
       "fieldConfig": {
@@ -448,7 +448,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
+            "uid": "victoriametrics"
           },
           "editorMode": "code",
           "expr": "msg_exec_total{from=~\"${FromSelector:pipe}\", to=~\"${ToSelector:pipe}\"}",
@@ -464,7 +464,7 @@
     {
       "datasource": {
         "type": "loki",
-        "uid": "P8E80F9AEF21F6940"
+        "uid": "victorialogs"
       },
       "description": "ExecutionStateChange Logs",
       "gridPos": {
@@ -489,7 +489,7 @@
         {
           "datasource": {
             "type": "loki",
-            "uid": "P8E80F9AEF21F6940"
+            "uid": "victorialogs"
           },
           "editorMode": "code",
           "expr": "{job=\"on-chain-exec\", from=~\"${FromSelector:pipe}\", to=~\"${ToSelector:pipe}\"}",
@@ -504,7 +504,7 @@
     {
       "datasource": {
         "type": "loki",
-        "uid": "P8E80F9AEF21F6940"
+        "uid": "victorialogs"
       },
       "description": "Search all by message ID",
       "gridPos": {
@@ -528,7 +528,7 @@
         {
           "datasource": {
             "type": "loki",
-            "uid": "P8E80F9AEF21F6940"
+            "uid": "victorialogs"
           },
           "editorMode": "code",
           "expr": "{job=~\"on-chain-.*\"} |= `\"${MsgIDHex}\"`",
@@ -539,7 +539,7 @@
         {
           "datasource": {
             "type": "loki",
-            "uid": "P8E80F9AEF21F6940"
+            "uid": "victorialogs"
           },
           "editorMode": "code",
           "expr": "{job=\"ctf\"} |= `\"${MsgIDHex}\"`",
@@ -565,7 +565,7 @@
         {
           "datasource": {
             "type": "loki",
-            "uid": "P8E80F9AEF21F6940"
+            "uid": "victorialogs"
           },
           "description": "All Logs",
           "gridPos": {
@@ -589,7 +589,7 @@
             {
               "datasource": {
                 "type": "loki",
-                "uid": "P8E80F9AEF21F6940"
+                "uid": "victorialogs"
               },
               "editorMode": "code",
               "expr": "{job=\"ctf\", container=\"indexer\"}",
@@ -618,7 +618,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
+            "uid": "victoriametrics"
           },
           "description": "Time to aggregation since first verification",
           "fieldConfig": {
@@ -670,7 +670,7 @@
             {
               "datasource": {
                 "type": "prometheus",
-                "uid": "PBFA97CFB590B2093"
+                "uid": "victoriametrics"
               },
               "editorMode": "code",
               "expr": "max by (le) (delta(aggregator_time_to_aggregation_seconds_bucket[$__range]))",
@@ -686,7 +686,7 @@
         {
           "datasource": {
             "type": "loki",
-            "uid": "P8E80F9AEF21F6940"
+            "uid": "victorialogs"
           },
           "description": "All Logs",
           "gridPos": {
@@ -710,7 +710,7 @@
             {
               "datasource": {
                 "type": "loki",
-                "uid": "P8E80F9AEF21F6940"
+                "uid": "victorialogs"
               },
               "editorMode": "code",
               "expr": "{job=\"ctf\", container=\"aggregator\"}",
@@ -739,7 +739,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
+            "uid": "victoriametrics"
           },
           "description": "Time to verification since task creation time",
           "fieldConfig": {
@@ -791,7 +791,7 @@
             {
               "datasource": {
                 "type": "prometheus",
-                "uid": "PBFA97CFB590B2093"
+                "uid": "victoriametrics"
               },
               "editorMode": "code",
               "expr": "max by (le) (delta(verifier_message_e2e_latency_seconds_bucket[$__range])) > 0",
@@ -807,7 +807,7 @@
         {
           "datasource": {
             "type": "loki",
-            "uid": "P8E80F9AEF21F6940"
+            "uid": "victorialogs"
           },
           "description": "All Logs",
           "gridPos": {
@@ -831,7 +831,7 @@
             {
               "datasource": {
                 "type": "loki",
-                "uid": "P8E80F9AEF21F6940"
+                "uid": "victorialogs"
               },
               "editorMode": "code",
               "expr": "{job=\"ctf\", container=\"verifier\"}",
@@ -860,7 +860,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
+            "uid": "victoriametrics"
           },
           "description": "Time to execution since aggregation time",
           "fieldConfig": {
@@ -912,7 +912,7 @@
             {
               "datasource": {
                 "type": "prometheus",
-                "uid": "PBFA97CFB590B2093"
+                "uid": "victoriametrics"
               },
               "editorMode": "code",
               "expr": "max by (le) (delta(executor_message_execution_duration_seconds_bucket[$__range]))",
@@ -928,7 +928,7 @@
         {
           "datasource": {
             "type": "loki",
-            "uid": "P8E80F9AEF21F6940"
+            "uid": "victorialogs"
           },
           "description": "All Logs",
           "gridPos": {
@@ -952,7 +952,7 @@
             {
               "datasource": {
                 "type": "loki",
-                "uid": "P8E80F9AEF21F6940"
+                "uid": "victorialogs"
               },
               "editorMode": "code",
               "expr": "{job=\"ctf\", container=\"executor\"}",
@@ -981,7 +981,7 @@
         {
           "datasource": {
             "type": "loki",
-            "uid": "P8E80F9AEF21F6940"
+            "uid": "victorialogs"
           },
           "description": "CL Node Logs",
           "gridPos": {
@@ -1005,7 +1005,7 @@
             {
               "datasource": {
                 "type": "loki",
-                "uid": "P8E80F9AEF21F6940"
+                "uid": "victorialogs"
               },
               "editorMode": "code",
               "expr": "{job=\"ctf\", container=~\".*don-node.*\"}",
@@ -1020,7 +1020,7 @@
         {
           "datasource": {
             "type": "loki",
-            "uid": "P8E80F9AEF21F6940"
+            "uid": "victorialogs"
           },
           "description": "P2P Discovery Report",
           "gridPos": {
@@ -1044,7 +1044,7 @@
             {
               "datasource": {
                 "type": "loki",
-                "uid": "P8E80F9AEF21F6940"
+                "uid": "victorialogs"
               },
               "editorMode": "code",
               "expr": "{job=\"ctf\"} |= \"DiscoveryProtocol: Status report\"",
@@ -1073,7 +1073,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
+            "uid": "victoriametrics"
           },
           "fieldConfig": {
             "defaults": {
@@ -1155,7 +1155,7 @@
             {
               "datasource": {
                 "type": "prometheus",
-                "uid": "PBFA97CFB590B2093"
+                "uid": "victoriametrics"
               },
               "editorMode": "code",
               "expr": "sum(rate(container_cpu_usage_seconds_total{name=~\".*don.*|.*fake.*\"}[5m])) by (name) *100",
@@ -1173,7 +1173,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
+            "uid": "victoriametrics"
           },
           "fieldConfig": {
             "defaults": {
@@ -1255,7 +1255,7 @@
             {
               "datasource": {
                 "type": "prometheus",
-                "uid": "PBFA97CFB590B2093"
+                "uid": "victoriametrics"
               },
               "editorMode": "code",
               "expr": "sum(rate(container_network_receive_bytes_total{name=~\".*don.*|.*fake.*\"}[5m])) by (name)",
@@ -1273,7 +1273,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
+            "uid": "victoriametrics"
           },
           "fieldConfig": {
             "defaults": {
@@ -1355,7 +1355,7 @@
             {
               "datasource": {
                 "type": "prometheus",
-                "uid": "PBFA97CFB590B2093"
+                "uid": "victoriametrics"
               },
               "editorMode": "code",
               "expr": "sum(container_memory_rss{name=~\".*don.*|.*fake.*\"}) by (name)",
@@ -1373,7 +1373,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "PBFA97CFB590B2093"
+            "uid": "victoriametrics"
           },
           "fieldConfig": {
             "defaults": {
@@ -1455,7 +1455,7 @@
             {
               "datasource": {
                 "type": "prometheus",
-                "uid": "PBFA97CFB590B2093"
+                "uid": "victoriametrics"
               },
               "editorMode": "code",
               "expr": "sum(rate(container_network_transmit_bytes_total{name=~\".*don.*|.*fake.*\"}[5m])) by (name)",
@@ -1486,7 +1486,7 @@
         {
           "datasource": {
             "type": "loki",
-            "uid": "P8E80F9AEF21F6940"
+            "uid": "victorialogs"
           },
           "gridPos": {
             "h": 4,
@@ -1725,64 +1725,54 @@
     "list": [
       {
         "current": {
-          "isNone": true,
-          "selected": false,
-          "text": "None",
+          "text": "",
           "value": ""
         },
         "datasource": {
           "type": "loki",
-          "uid": "P8E80F9AEF21F6940"
+          "uid": "victorialogs"
         },
         "definition": "",
         "description": "FromSelector",
-        "hide": 0,
         "includeAll": false,
         "label": "FromSelector",
-        "multi": false,
         "name": "FromSelector",
         "options": [],
         "query": {
-          "label": "from",
-          "refId": "LokiVariableQueryEditor-VariableQuery",
-          "stream": "",
-          "type": 1
+          "field": "from",
+          "limit": 25,
+          "query": "",
+          "refId": "VictoriaLogsVariableQueryEditor-VariableQuery",
+          "type": "fieldValue"
         },
         "refresh": 1,
         "regex": "",
-        "skipUrlSync": false,
-        "sort": 0,
         "type": "query"
       },
       {
         "current": {
-          "isNone": true,
-          "selected": false,
-          "text": "None",
+          "text": "",
           "value": ""
         },
         "datasource": {
           "type": "loki",
-          "uid": "P8E80F9AEF21F6940"
+          "uid": "victorialogs"
         },
         "definition": "",
         "description": "ToSelector",
-        "hide": 0,
         "includeAll": false,
         "label": "ToSelector",
-        "multi": false,
         "name": "ToSelector",
         "options": [],
         "query": {
-          "label": "to",
-          "refId": "LokiVariableQueryEditor-VariableQuery",
-          "stream": "",
-          "type": 1
+          "field": "to",
+          "limit": 25,
+          "query": "",
+          "refId": "VictoriaLogsVariableQueryEditor-VariableQuery",
+          "type": "fieldValue"
         },
         "refresh": 1,
         "regex": "",
-        "skipUrlSync": false,
-        "sort": 0,
         "type": "query"
       },
       {

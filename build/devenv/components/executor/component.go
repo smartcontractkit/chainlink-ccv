@@ -169,7 +169,10 @@ func (c *component) RunPhase3(
 		return nil, nil, fmt.Errorf("executor: _ds not found in phase outputs")
 	}
 
-	jobSpecs, err := buildExecutorJobSpecs(e, executors, topology, obs, ds)
+	localEnv := *e
+	jobs.SyncEnvNodeIDs(jdInfra, &localEnv)
+
+	jobSpecs, err := buildExecutorJobSpecs(&localEnv, executors, topology, obs, ds)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -240,6 +243,7 @@ func registerWithJD(ctx context.Context, executors []*executorsvc.Input, jdInfra
 			}
 			mu.Lock()
 			exec.Out.JDNodeID = reg.NodeID
+			jdInfra.RegisterNodeAlias(exec.NOPAlias, reg.NodeID)
 			mu.Unlock()
 			if err := jobs.WaitForBootstrapConnection(gCtx, jdInfra.OffchainClient, reg.NodeID, 60*time.Second); err != nil {
 				return fmt.Errorf("executor %s failed to connect to JD: %w", exec.ContainerName, err)

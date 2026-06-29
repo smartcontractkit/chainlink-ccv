@@ -11,8 +11,8 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-func NewAggregatorReader(address string, lggr logger.Logger, since int64, hmacConfig hmac.ClientConfig, insecure bool, maxRecvMsgSizeBytes int, m common.IndexerMonitoring) (*ResilientReader, error) {
-	reader, err := storageaccess.NewAggregatorReader(address, lggr, since, &hmacConfig, insecure, maxRecvMsgSizeBytes, grpcClientDialOptions(m.Metrics())...)
+func NewAggregatorReader(name, address string, lggr logger.Logger, since int64, hmacConfig hmac.ClientConfig, insecure bool, maxRecvMsgSizeBytes int, m common.IndexerMonitoring) (*ResilientReader, error) {
+	reader, err := storageaccess.NewAggregatorReader(address, lggr, since, &hmacConfig, insecure, maxRecvMsgSizeBytes, grpcClientDialOptions(name, m.Metrics())...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create aggregator reader: %w", err)
 	}

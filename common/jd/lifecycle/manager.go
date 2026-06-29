@@ -86,6 +86,7 @@ type Manager struct {
 	mu            sync.Mutex
 	state         State
 	currentJob    *store.Job
+	pendingJob    *store.Job // set when a proposal was saved but StartJob has not succeeded yet
 	shutdownCh    chan struct{}
 	wg            sync.WaitGroup
 	jdConnectedCh chan struct{}      // buffered 1; sent when async Connect succeeds
@@ -121,9 +122,10 @@ func NewManager(cfg Config) (*Manager, error) {
 // Start starts the lifecycle manager.
 // It performs the following:
 // 1. Loads any cached job from the database
-// 2. If a cached job exists, starts it immediately
-// 3. Connects to JD (even if there's a cached job, to receive updates)
-// 4. Kicks off the event loop in a goroutine to handle proposals, deletions, and shutdown.
+// 2. If a cached approved job exists, starts it immediately
+// 3. If a cached pending job exists, defers start until JD reconnects
+// 4. Connects to JD (even if there's a cached job, to receive updates)
+// 5. Kicks off the event loop in a goroutine to handle proposals, deletions, and shutdown.
 func (m *Manager) Start(ctx context.Context) error {
 	return m.StartOnce("lifecycle.Manager", func() error {
 		m.lggr.Infow("Starting job lifecycle manager")
@@ -134,26 +136,40 @@ func (m *Manager) Start(ctx context.Context) error {
 			return fmt.Errorf("failed to load cached job: %w", err)
 		}
 
-		// 2. If cached job exists, start it
+		// 2/3. Handle cached job based on its status
 		if cachedJob != nil {
-			m.lggr.Infow("Found cached job, starting immediately",
-				"proposalID", cachedJob.ProposalID,
-				"version", cachedJob.Version,
-			)
+			switch cachedJob.Status {
+			case store.JobStatusApproved, "": // empty = pre-status file, treat as approved
+				m.lggr.Infow("Found approved cached job, starting immediately",
+					"proposalID", cachedJob.ProposalID,
+					"version", cachedJob.Version,
+				)
 
-			if err := m.runner.StartJob(ctx, cachedJob.Spec); err != nil {
-				return fmt.Errorf("failed to start cached job: %w", err)
+				if err := m.runner.StartJob(ctx, cachedJob.Spec); err != nil {
+					return fmt.Errorf("failed to start cached job: %w", err)
+				}
+
+				m.mu.Lock()
+				m.state = StateRunning
+				m.currentJob = cachedJob
+				m.mu.Unlock()
+
+				m.lggr.Infow("Cached job started successfully")
+
+			case store.JobStatusPending:
+				// A previous run saved the proposal but crashed before StartJob succeeded.
+				// Defer the start until JD reconnects so we can call ApproveJob afterward.
+				m.lggr.Infow("Found pending cached job, will retry after JD connects",
+					"proposalID", cachedJob.ProposalID,
+					"version", cachedJob.Version,
+				)
+				m.mu.Lock()
+				m.pendingJob = cachedJob
+				m.mu.Unlock()
 			}
-
-			m.mu.Lock()
-			m.state = StateRunning
-			m.currentJob = cachedJob
-			m.mu.Unlock()
-
-			m.lggr.Infow("Cached job started successfully")
 		}
 
-		// 3. Connect to JD asynchronously (context only canceled when Manager is Stopped)
+		// 4. Connect to JD asynchronously (context only canceled when Manager is Stopped)
 		m.lggr.Infow("Connecting to Job Distributor (async)")
 		connectCtx, connectCancel := context.WithCancel(context.Background())
 		m.mu.Lock()
@@ -174,7 +190,7 @@ func (m *Manager) Start(ctx context.Context) error {
 			}
 		})
 
-		// 4. Event loop
+		// 5. Event loop
 		m.wg.Go(func() {
 			m.eventLoop()
 		})
@@ -191,6 +207,15 @@ func (m *Manager) eventLoop() {
 		select {
 		case <-m.jdConnectedCh:
 			m.lggr.Infow("Connected to Job Distributor")
+			m.mu.Lock()
+			pending := m.pendingJob
+			m.mu.Unlock()
+			if pending != nil {
+				if err := m.retryPendingJob(pending); err != nil {
+					m.lggr.Errorw("Failed to retry pending job after JD connect", "error", err,
+						"proposalID", pending.ProposalID)
+				}
+			}
 
 		case proposal := <-m.jdClient.JobProposalCh():
 			if err := m.handleProposal(proposal); err != nil {
@@ -220,6 +245,11 @@ func (m *Manager) eventLoop() {
 }
 
 // handleProposal processes a new job proposal from JD.
+// Order: persist pending → stop old job → start new job → mark approved → approve with JD.
+//
+// On StartJob failure with no prior job: the pending store record survives for restart recovery.
+// On StartJob failure during a replacement: the pending record is deleted and the old job is
+// restarted from the in-memory snapshot so the job keeps running.
 func (m *Manager) handleProposal(proposal *pb.ProposeJobRequest) error {
 	m.lggr.Infow("Handling job proposal",
 		"proposalID", proposal.Id,
@@ -227,11 +257,22 @@ func (m *Manager) handleProposal(proposal *pb.ProposeJobRequest) error {
 		"currentState", m.GetState().String(),
 	)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), handleTimeout)
 	defer cancel()
+
+	// Persist the proposal as pending BEFORE attempting StartJob. This ensures
+	// that a crash between here and MarkJobApproved leaves a recoverable record.
+	// SavePendingJob only removes the previous pending row; any approved (old) row is preserved.
+	if err := m.jobStore.SavePendingJob(ctx, proposal.Id, proposal.Version, proposal.Spec); err != nil {
+		// The job will need to be re-proposed after fixing the error (whatever it may be).
+		m.lggr.Warnw("Failed to persist pending proposal", "error", err)
+	} else {
+		m.lggr.Infow("Proposal persisted as pending", "proposalID", proposal.Id)
+	}
 
 	m.mu.Lock()
 	wasRunning := m.state == StateRunning
+	currentJob := m.currentJob // snapshot for fallback; non-nil when wasRunning
 	m.mu.Unlock()
 
 	// If we have a running job, stop it first
@@ -244,42 +285,119 @@ func (m *Manager) handleProposal(proposal *pb.ProposeJobRequest) error {
 
 	// Start the new job
 	if err := m.runner.StartJob(ctx, proposal.Spec); err != nil {
-		// TODO: whats the best way to recover from this? Will JD have to re-propose the job?
+		if wasRunning {
+			return m.rollbackReplacement(ctx, proposal.Id, err, currentJob)
+		}
+		// No old job to fall back to: leave pending record for restart recovery.
 		m.mu.Lock()
 		m.state = StateWaitingForJob
 		m.currentJob = nil
+		// Keep pendingJob set so the retry fires on the next JD reconnect
+		// within this same process run (if JD reconnects).
+		m.pendingJob = &store.Job{
+			ProposalID: proposal.Id,
+			Version:    proposal.Version,
+			Spec:       proposal.Spec,
+			Status:     store.JobStatusPending,
+		}
 		m.mu.Unlock()
 		return fmt.Errorf("failed to start new job: %w", err)
 	}
 
-	// Persist the job
-	if err := m.jobStore.SaveJob(ctx, proposal.Id, proposal.Version, proposal.Spec); err != nil {
-		m.lggr.Warnw("Failed to persist job", "error", err)
-		// Continue anyway - job is running in memory.
-		// Will have to re-propose to this operator if the app crashes / restarts.
-	} else {
-		m.lggr.Infow("Job persisted for restart recovery", "proposalID", proposal.Id)
+	// StartJob succeeded - promote the pending record to approved.
+	if promoted, err := m.jobStore.AcceptPendingJob(ctx); err != nil {
+		m.lggr.Warnw("Failed to accept pending job in store", "error", err)
+		// Continue anyway - the job is running. The store record stays 'pending', so the
+		// next restart will retry via the pending recovery path.
+	} else if !promoted {
+		m.lggr.Warnw("AcceptPendingJob reported no pending row — store may be inconsistent")
 	}
 
-	// Update state
+	// Update in-memory state
 	m.mu.Lock()
 	m.state = StateRunning
 	m.currentJob = &store.Job{
 		ProposalID: proposal.Id,
 		Version:    proposal.Version,
 		Spec:       proposal.Spec,
+		Status:     store.JobStatusApproved,
 	}
+	m.pendingJob = nil
 	m.mu.Unlock()
 
 	// Approve the job with JD
 	if err := m.jdClient.ApproveJob(ctx, proposal.Id, proposal.Version); err != nil {
 		m.lggr.Warnw("Failed to approve job with JD", "error", err)
 		// Continue anyway - job is running.
-		// TODO: how will this look like on the JD side?
 	}
 
 	m.lggr.Infow("Job proposal handled successfully",
 		"proposalID", proposal.Id,
+		"newState", m.GetState().String(),
+	)
+
+	return nil
+}
+
+// rollbackReplacement is called when StartJob fails during a proposal replacement.
+// It removes the pending store record and restarts the old job to keep the job running.
+func (m *Manager) rollbackReplacement(ctx context.Context, newProposalID string, startErr error, oldJob *store.Job) error {
+	if delErr := m.jobStore.DeletePendingJob(ctx); delErr != nil {
+		m.lggr.Warnw("Failed to remove pending record during rollback", "error", delErr)
+	}
+	m.lggr.Infow("Restarting previous job after replacement failure",
+		"newProposalID", newProposalID,
+		"fallbackProposalID", oldJob.ProposalID,
+	)
+	if restartErr := m.runner.StartJob(ctx, oldJob.Spec); restartErr != nil {
+		m.lggr.Errorw("Failed to restart previous job after replacement failure", "error", restartErr)
+		m.mu.Lock()
+		m.state = StateWaitingForJob
+		m.currentJob = nil
+		m.mu.Unlock()
+	}
+	return fmt.Errorf("failed to start replacement job: %w", startErr)
+}
+
+// retryPendingJob attempts to start the pending job after JD has reconnected.
+// On success it marks the store record approved, updates in-memory state, and calls ApproveJob.
+// On failure the pending record in the store is preserved for the next restart.
+func (m *Manager) retryPendingJob(job *store.Job) error {
+	m.lggr.Infow("Retrying pending job after JD connect",
+		"proposalID", job.ProposalID,
+		"version", job.Version,
+	)
+
+	ctx, cancel := context.WithTimeout(context.Background(), handleTimeout)
+	defer cancel()
+
+	if err := m.runner.StartJob(ctx, job.Spec); err != nil {
+		return fmt.Errorf("failed to start pending job: %w", err)
+	}
+
+	if promoted, err := m.jobStore.AcceptPendingJob(ctx); err != nil {
+		m.lggr.Warnw("Failed to accept pending job in store", "error", err)
+	} else if !promoted {
+		m.lggr.Warnw("AcceptPendingJob reported no pending row — store may be inconsistent")
+	}
+
+	m.mu.Lock()
+	m.state = StateRunning
+	m.currentJob = &store.Job{
+		ProposalID: job.ProposalID,
+		Version:    job.Version,
+		Spec:       job.Spec,
+		Status:     store.JobStatusApproved,
+	}
+	m.pendingJob = nil
+	m.mu.Unlock()
+
+	if err := m.jdClient.ApproveJob(ctx, job.ProposalID, job.Version); err != nil {
+		m.lggr.Warnw("Failed to approve pending job with JD", "error", err)
+	}
+
+	m.lggr.Infow("Pending job started successfully",
+		"proposalID", job.ProposalID,
 		"newState", m.GetState().String(),
 	)
 
@@ -296,15 +414,26 @@ func (m *Manager) handleDelete(req *pb.DeleteJobRequest) error {
 	m.mu.Lock()
 	wasRunning := m.state == StateRunning
 	currentJob := m.currentJob
+	pendingJob := m.pendingJob
 	m.mu.Unlock()
 
-	// Only process if we have a running job
+	// Handle deletion of a pending (not yet running) job
 	if !wasRunning {
+		if pendingJob != nil && pendingJob.ProposalID == req.Id {
+			m.lggr.Infow("Deleting pending job", "id", req.Id)
+			m.mu.Lock()
+			m.pendingJob = nil
+			m.mu.Unlock()
+			if err := m.jobStore.DeleteAllJobs(ctx); err != nil {
+				m.lggr.Warnw("Failed to clear pending job", "error", err)
+			}
+			return nil
+		}
 		m.lggr.Infow("No job running, ignoring delete request")
 		return nil
 	}
 
-	// Check if the delete is for our current job
+	// Check if the delete is for our current running job
 	if currentJob != nil && currentJob.ProposalID != req.Id {
 		m.lggr.Infow("Delete request is for different job, ignoring",
 			"requestID", req.Id,
@@ -319,7 +448,7 @@ func (m *Manager) handleDelete(req *pb.DeleteJobRequest) error {
 	}
 
 	// Clear persisted job
-	if err := m.jobStore.DeleteJob(ctx); err != nil {
+	if err := m.jobStore.DeleteAllJobs(ctx); err != nil {
 		m.lggr.Warnw("Failed to clear persisted job", "error", err)
 		// Continue anyway
 	}

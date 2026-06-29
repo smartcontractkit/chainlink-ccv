@@ -79,9 +79,11 @@ func (f *Factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 	}
 	f.lggr = logger.Sugared(logger.Named(f.lggr, "executor"))
 
-	f.profiler, err = StartPyroscope(f.lggr, executorConfig.PyroscopeURL, "executor")
-	if err != nil {
-		f.lggr.Errorw("Failed to start pyroscope", "error", err)
+	if executorConfig.PyroscopeURL != "" {
+		f.profiler, err = StartPyroscope(f.lggr, executorConfig.PyroscopeURL, "executor")
+		if err != nil {
+			f.lggr.Errorw("Failed to start pyroscope", "error", err)
+		}
 	}
 
 	protocol.InitChainSelectorCache()

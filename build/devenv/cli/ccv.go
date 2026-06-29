@@ -20,6 +20,7 @@ import (
 	"github.com/spf13/cobra"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
+
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/committee_verifier"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/mock_receiver_v2"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
@@ -342,11 +343,11 @@ var obsUpCmd = &cobra.Command{
 		var err error
 		switch mode {
 		case "full":
-			err = framework.ObservabilityUpFull()
+			err = framework.ObservabilityVictoriaMetricsUp()
 		case "loki":
 			err = framework.ObservabilityUpOnlyLoki()
 		default:
-			err = framework.ObservabilityUp()
+			err = framework.ObservabilityVictoriaMetricsUp()
 		}
 		if err != nil {
 			return fmt.Errorf("observability up failed: %w", err)
@@ -477,7 +478,7 @@ var obsDownCmd = &cobra.Command{
 	Aliases: []string{"d"},
 	Short:   "Spin down the observability stack",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		return framework.ObservabilityDown()
+		return framework.ObservabilityVictoriaDown()
 	},
 }
 
@@ -486,18 +487,18 @@ var obsRestartCmd = &cobra.Command{
 	Aliases: []string{"r"},
 	Short:   "Restart the observability stack (data wipe)",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		if err := framework.ObservabilityDown(); err != nil {
+		if err := framework.ObservabilityVictoriaDown(); err != nil {
 			return fmt.Errorf("observability down failed: %w", err)
 		}
 		mode, _ := cmd.Flags().GetString("mode")
 		var err error
 		switch mode {
 		case "full":
-			err = framework.ObservabilityUpFull()
+			err = framework.ObservabilityVictoriaMetricsUp()
 		case "loki":
 			err = framework.ObservabilityUpOnlyLoki()
 		default:
-			err = framework.ObservabilityUp()
+			err = framework.ObservabilityVictoriaMetricsUp()
 		}
 		if err != nil {
 			return fmt.Errorf("observability up failed: %w", err)
@@ -986,6 +987,9 @@ func init() {
 	// on-chain monitoring
 	rootCmd.AddCommand(monitorContractsCmd)
 	rootCmd.AddCommand(txInfoCmd)
+
+	// viz / tracing
+	rootCmd.AddCommand(pushMockTraceCmd)
 	txInfoCmd.Flags().String("env", "env-out.toml", "Select environment file to use (defaults to env-out.toml)")
 
 	// contract management

@@ -70,6 +70,14 @@ type GenerateTokenVerifierConfigInput struct {
 	Monitoring        ccvdeployment.MonitoringConfig
 	Lombard           LombardConfigInput
 	CCTP              CCTPConfigInput
+	// ReplaceExisting controls how the result is written to env metadata. By
+	// default (false) the changeset is modular: the chains scanned in this run are
+	// upserted into the token-verifier config already persisted for
+	// ServiceIdentifier — the per-chain on-ramp / RMN-remote maps and each
+	// verifier's per-chain address maps accumulate, and entries for chains not in
+	// ChainSelectors are preserved. Set true to replace the stored config from a
+	// full scan instead, which also removes stale chains.
+	ReplaceExisting bool
 }
 
 func GenerateTokenVerifierConfig() deployment.ChangeSetV2[GenerateTokenVerifierConfigInput] {
@@ -186,7 +194,13 @@ func GenerateTokenVerifierConfig() deployment.ChangeSetV2[GenerateTokenVerifierC
 			}
 		}
 
-		if err := ccvdeployment.SaveTokenVerifierConfig(outputDS, cfg.ServiceIdentifier, tvConfig); err != nil {
+		// Modular by default: upsert this run's chains into the stored config.
+		// ReplaceExisting forces a full replace (removing chains no longer scanned).
+		save := ccvdeployment.MergeTokenVerifierConfig
+		if cfg.ReplaceExisting {
+			save = ccvdeployment.SaveTokenVerifierConfig
+		}
+		if err := save(outputDS, cfg.ServiceIdentifier, tvConfig); err != nil {
 			return deployment.ChangesetOutput{}, fmt.Errorf("failed to save token verifier config: %w", err)
 		}
 

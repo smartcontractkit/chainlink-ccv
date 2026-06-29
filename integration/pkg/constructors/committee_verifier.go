@@ -183,8 +183,6 @@ func NewVerificationCoordinator(
 		}
 	}
 
-	// Checkpoint manager
-	// TODO: these are secrets, probably shouldn't be in config.
 	fanOutWriter, err := storageaccess.NewFanOutAggregatorWriter(
 		writeTargets,
 		cfg.VerifierID,
@@ -196,7 +194,7 @@ func NewVerificationCoordinator(
 		return nil, fmt.Errorf("failed to create fan-out aggregator writer: %w", err)
 	}
 
-	observedStorageWriter := storageaccess.NewObservedStorageWriter(
+	observedOffchainWriter := storageaccess.NewObservedOffchainWriter(
 		fanOutWriter,
 		cfg.VerifierID,
 		lggr,
@@ -291,7 +289,7 @@ func NewVerificationCoordinator(
 		lggr,
 		commitVerifier,
 		sourceReaders,
-		observedStorageWriter,
+		observedOffchainWriter,
 		coordinatorConfig,
 		messageTracker,
 		verifierMonitoring,

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/BurntSushi/toml"
@@ -31,7 +32,8 @@ type Config struct {
 	GeneratedConfigPath string `toml:"GeneratedConfigPath"`
 	LogLevel            string `toml:"LogLevel"`
 	// Monitoring is the configuration for the monitoring system inside the indexer.
-	Monitoring MonitoringConfig `toml:"Monitoring"`
+	Monitoring   MonitoringConfig `toml:"Monitoring"`
+	PyroscopeURL string           `toml:"pyroscope_url"`
 	// Discoveries is the list of discovery configs (aggregators) for message discovery.
 	Discoveries []DiscoveryConfig `toml:"Discoveries"`
 	// MergeBufferSize is the capacity of the channel that merges messages from multiple discovery sources.
@@ -138,12 +140,22 @@ const (
 // DiscoveryConfig allows you to change the discovery system used by the indexer.
 type DiscoveryConfig struct {
 	AggregatorReaderConfig
+	Name         string `toml:"Name"`
 	PollInterval int    `toml:"PollInterval"`
 	Timeout      int    `toml:"Timeout"`
 	NtpServer    string `toml:"NtpServer"`
 	// MaxResponseBytes is the maximum response size in bytes the client will accept.
 	// 0 uses DefaultMaxResponseBytes (4MB).
 	MaxResponseBytes int `toml:"MaxResponseBytes"`
+}
+
+// Label returns the value used to identify this discovery component in logs and metrics:
+// Name when set, otherwise Address.
+func (d DiscoveryConfig) Label() string {
+	if name := strings.TrimSpace(d.Name); name != "" {
+		return name
+	}
+	return d.Address
 }
 
 type VerifierConfig struct {
@@ -159,6 +171,22 @@ type VerifierConfig struct {
 	MaxResponseBytes int `toml:"MaxResponseBytes"`
 	AggregatorReaderConfig
 	RestReaderConfig
+}
+
+// Label returns the value used to identify this verifier component in logs and metrics:
+// Name when set, otherwise Address (aggregator) or BaseURL (rest).
+func (v VerifierConfig) Label() string {
+	if name := strings.TrimSpace(v.Name); name != "" {
+		return name
+	}
+	switch v.Type {
+	case ReaderTypeAggregator:
+		return v.Address
+	case ReaderTypeRest:
+		return v.BaseURL
+	}
+	// unreachable
+	return ""
 }
 
 // ReaderType is the type of reader to use (aggregator).
