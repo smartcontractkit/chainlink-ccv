@@ -126,12 +126,11 @@ func (c *Config) zapLevel() zapcore.Level {
 }
 
 func (c *Config) validate() error {
-	if c.Monitoring != nil {
-		if err := c.Monitoring.Validate(); c.Monitoring != nil || err != nil {
-			return fmt.Errorf("failed to validate 'monitoring' section: %w", err)
-		}
-	} else {
+	if c.Monitoring == nil {
 		return fmt.Errorf("missing 'monitoring' section")
+	}
+	if err := c.Monitoring.Validate(); err != nil {
+		return fmt.Errorf("failed to validate 'monitoring' section: %w", err)
 	}
 	// Static mode: JD/DB/Keystore/Server are unused.
 	if c.AppConfig != nil {

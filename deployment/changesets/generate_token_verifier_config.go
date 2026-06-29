@@ -143,7 +143,7 @@ func GenerateTokenVerifierConfig() deployment.ChangeSetV2[GenerateTokenVerifierC
 			},
 			TokenVerifiers: []token.VerifierConfig{},
 			Monitoring:     cfg.Monitoring,
-			PyroscopeURL: cfg.PyroscopeURL,
+			PyroscopeURL:   cfg.PyroscopeURL,
 		}
 
 		if len(cctpVerifierAddresses) > 0 {

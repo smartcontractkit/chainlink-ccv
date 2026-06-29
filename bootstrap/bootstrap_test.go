@@ -142,17 +142,6 @@ var _ ServiceFactory = (*spyServiceFactoryDummy)(nil)
 
 // --- WithKey / NewBootstrapper key tests ---
 
-// newBootstrapperFromOpts is a test helper that mirrors what Run does: resolve the config from
-// options (deciding mode), then pass the resulting Config to NewBootstrapper.
-func newBootstrapperFromOpts(t *testing.T, name string, lggr logger.Logger, fac ServiceFactory, opts ...Option) (*Bootstrapper, error) {
-	t.Helper()
-	cfg, err := ResolveConfig(opts...)
-	if err != nil {
-		return nil, err
-	}
-	return NewBootstrapper(name, lggr, fac, cfg), nil
-}
-
 // validJDBootstrapConfig returns a JD-mode bootstrap config that passes validation, for exercising
 // key resolution (keys are only provisioned in JD mode).
 func validJDBootstrapConfig() Config {
@@ -416,7 +405,7 @@ func TestBootstrapper_Stop_StaticConfig_ClosesAccessors(t *testing.T) {
 			return nil
 		},
 	}
-	b, err := newBootstrapperFromOpts(t, "t", logger.Test(t), fac, WithBootstrapConfig(Config{}), WithAppConfig(""))
+	b, err := NewBootstrapper("t", logger.Test(t), fac, WithBootstrapConfig(Config{}), WithAppConfig(""))
 	require.NoError(t, err)
 	require.NoError(t, b.Start(t.Context()))
 	require.NotNil(t, b.accCloser)

@@ -155,7 +155,7 @@ type Bootstrapper struct {
 
 // NewBootstrapper creates a new [Bootstrapper] from a fully-resolved [Config]. It does not load any
 // files or environment variables — use ResolveConfig (which Run does) to produce cfg.
-func NewBootstrapper(name string, lggr logger.Logger, fac ServiceFactory, opts []Option) (*Bootstrapper, error) {
+func NewBootstrapper(name string, lggr logger.Logger, fac ServiceFactory, opts ...Option) (*Bootstrapper, error) {
 	config, err := ResolveConfig(opts...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to resolve bootstrap config: %w", err)
@@ -360,7 +360,7 @@ func Run(
 	lggr = logger.Sugared(logger.Named(lggr, "Bootstrapper"))
 	lggr = common.WithService(lggr, name)
 
-	bootstrapper, err := NewBootstrapper(name, lggr, fac, opts)
+	bootstrapper, err := NewBootstrapper(name, lggr, fac, opts...)
 	if err != nil {
 		return fmt.Errorf("failed to create bootstrapper: %w", err)
 	}
