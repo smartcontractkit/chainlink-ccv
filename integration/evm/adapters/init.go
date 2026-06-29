@@ -33,6 +33,7 @@ func init() {
 	ccvdeploymentadapters.GetCommitteeVerifierOnchainRegistry().Register(chainsel.FamilyEVM, &EVMCCVCommitteeVerifierOnchainAdapter{})
 	ccvdeploymentadapters.GetCommitteeVerifierDeployRegistry().Register(chainsel.FamilyEVM, &EVMCommitteeVerifierDeployAdapter{})
 	ccvdeploymentadapters.GetProtocolContractsDeployRegistry().Register(chainsel.FamilyEVM, &EVMProtocolContractsDeployAdapter{})
+	ccvdeploymentadapters.GetLaneConfigRegistry().Register(chainsel.FamilyEVM, &EVMLaneConfigAdapter{})
 }
 
 func parseHexAddress(hex, field string) (common.Address, error) {
