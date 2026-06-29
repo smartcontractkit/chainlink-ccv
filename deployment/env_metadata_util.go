@@ -21,6 +21,11 @@ type OffchainConfigs struct {
 	Indexers       map[string]*indexerconfig.GeneratedConfig `json:"indexers,omitempty"`
 	TokenVerifiers map[string]*token.Config                  `json:"tokenVerifiers,omitempty"`
 	NOPJobs        shared.NOPJobs                            `json:"nopJobs,omitempty"`
+	// NOPSigners maps NOP alias -> chain family -> signer address. It is the
+	// persisted signer↔alias index that lets committee membership be reconstructed
+	// from state for NOPs the Job Distributor does not manage (notably standalone
+	// verifiers, which register only a CSA bootstrap key with JD).
+	NOPSigners map[string]map[string]string `json:"nopSigners,omitempty"`
 }
 
 type CCVEnvMetadata struct {
@@ -483,6 +488,7 @@ func mergeOffchainConfigs(existingMeta map[string]any, oc *OffchainConfigs) (map
 		{"indexers", oc.Indexers, "indexers"},
 		{"tokenVerifiers", oc.TokenVerifiers, "token verifiers"},
 		{"nopJobs", oc.NOPJobs, "NOP jobs"},
+		{"nopSigners", oc.NOPSigners, "NOP signers"},
 	}
 
 	for _, e := range entries {
@@ -525,6 +531,59 @@ func marshalToAny(v any) (any, error) {
 		return nil, fmt.Errorf("failed to unmarshal value: %w", err)
 	}
 	return result, nil
+}
+
+// SaveNOPSigners merges the given NOP alias -> chain family -> signer address
+// index into the datastore. Existing entries are preserved; incoming non-empty
+// addresses overwrite per (alias, family). Persisting the signer↔alias mapping is
+// what allows committee membership to be reconstructed from state for NOPs the Job
+// Distributor does not manage (e.g. standalone verifiers).
+func SaveNOPSigners(ds datastore.MutableDataStore, signers map[string]map[string]string) error {
+	if len(signers) == 0 {
+		return nil
+	}
+
+	ccvMeta, err := loadOrCreateCCVEnvMetadata(ds)
+	if err != nil {
+		return err
+	}
+
+	if ccvMeta.OffchainConfigs == nil {
+		ccvMeta.OffchainConfigs = &OffchainConfigs{}
+	}
+	if ccvMeta.OffchainConfigs.NOPSigners == nil {
+		ccvMeta.OffchainConfigs.NOPSigners = make(map[string]map[string]string)
+	}
+
+	for alias, byFamily := range signers {
+		if ccvMeta.OffchainConfigs.NOPSigners[alias] == nil {
+			ccvMeta.OffchainConfigs.NOPSigners[alias] = make(map[string]string)
+		}
+		for family, addr := range byFamily {
+			if addr == "" {
+				continue
+			}
+			ccvMeta.OffchainConfigs.NOPSigners[alias][family] = addr
+		}
+	}
+
+	return persistCCVEnvMetadata(ds, ccvMeta)
+}
+
+// GetNOPSigners returns the persisted NOP alias -> chain family -> signer address
+// index. Returns an empty map (not an error) when no metadata or index exists yet.
+func GetNOPSigners(ds datastore.DataStore) (map[string]map[string]string, error) {
+	ccvMeta, err := loadCCVEnvMetadata(ds)
+	if err != nil {
+		if errors.Is(err, datastore.ErrEnvMetadataNotSet) {
+			return make(map[string]map[string]string), nil
+		}
+		return nil, err
+	}
+	if ccvMeta.OffchainConfigs == nil || ccvMeta.OffchainConfigs.NOPSigners == nil {
+		return make(map[string]map[string]string), nil
+	}
+	return ccvMeta.OffchainConfigs.NOPSigners, nil
 }
 
 func SaveJob(ds datastore.MutableDataStore, job shared.JobInfo) error {

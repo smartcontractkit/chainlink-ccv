@@ -218,6 +218,15 @@ func ApplyVerifierConfig() deployment.ChangeSetV2[ApplyVerifierConfigInput] {
 			}, fmt.Errorf("failed to manage job proposals: %w", err)
 		}
 
+		// Persist the resolved signer↔alias index so committee membership can later be
+		// reconstructed from state — including for standalone NOPs, whose signing
+		// addresses the Job Distributor does not hold.
+		if err := ccvdeployment.SaveNOPSigners(manageReport.Output.DataStore, nopSignersFromInputs(nopInputs)); err != nil {
+			return deployment.ChangesetOutput{
+				Reports: manageReport.ExecutionReports,
+			}, fmt.Errorf("failed to persist NOP signer index: %w", err)
+		}
+
 		e.Logger.Infow("Verifier config applied",
 			"jobsCount", len(manageReport.Output.Jobs),
 			"revokedCount", len(manageReport.Output.RevokedJobs))
@@ -485,6 +494,27 @@ func fetchSigningKeysForNOPInputs(
 	}
 
 	return report.Output.SigningKeysByNOP, nil
+}
+
+// nopSignersFromInputs extracts the alias -> chain family -> signer address index
+// from the resolved verifier NOP inputs, for persistence via SaveNOPSigners.
+func nopSignersFromInputs(nops []verifierNOPInput) map[string]map[string]string {
+	out := make(map[string]map[string]string, len(nops))
+	for _, n := range nops {
+		if len(n.SignerAddressByFamily) == 0 {
+			continue
+		}
+		byFamily := make(map[string]string, len(n.SignerAddressByFamily))
+		for family, addr := range n.SignerAddressByFamily {
+			if addr != "" {
+				byFamily[family] = addr
+			}
+		}
+		if len(byFamily) > 0 {
+			out[string(n.Alias)] = byFamily
+		}
+	}
+	return out
 }
 
 // mergeSigningKeysIntoNOPInputs converts public NOPInput slices into the internal

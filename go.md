@@ -267,7 +267,7 @@ flowchart LR
 	chainlink-ccv --> chainlink-solana
 	chainlink-ccv --> chainlink-testing-framework/framework
 	click chainlink-ccv href "https://github.com/smartcontractkit/chainlink-ccv"
-	chainlink-ccv/build/devenv --> chainlink-ccv/deployment
+	chainlink-ccv/build/devenv --> chainlink-ccv/integration/evm
 	chainlink-ccv/build/devenv --> chainlink/deployment
 	click chainlink-ccv/build/devenv href "https://github.com/smartcontractkit/chainlink-ccv"
 	chainlink-ccv/deployment
