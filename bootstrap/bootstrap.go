@@ -264,20 +264,18 @@ func chainTypeFromString(s string) (pb.ChainType, error) {
 }
 
 // signingAddressFromPublicKey derives the onchain signing address for the given chain type
-// from a raw keystore ECDSA_S256 public key (uncompressed secp256k1, 65 bytes).
+// from a raw public key returned by the keystore.
 //
 // Format per family:
 //   - EVM:    EIP-55 checksummed address, 0x-prefixed  (e.g. "0xAbCd…")
 //   - Solana: lowercase 20-byte Ethereum address, no 0x (e.g. "abcd…") — matches CL node prior art
 //   - Aptos:  full uncompressed public key, lowercase hex, no prefix    (e.g. "04abcd…")
 //
-// TODO(#010): add CHAIN_TYPE_STELLAR once JD proto includes it.
+// TODO: add CHAIN_TYPE_STELLAR once JD proto includes it.
+// Format: full uncompressed public key, lowercase hex, no prefix (same as Aptos).
 //
-//	Format: full uncompressed public key, lowercase hex, no prefix (same as Aptos).
-//
-// TODO(#011): add CHAIN_TYPE_CANTON once JD proto includes it.
-//
-//	Format: full uncompressed public key, lowercase hex, no prefix (same as Aptos).
+// TODO: add CHAIN_TYPE_CANTON once JD proto includes it.
+// Format: full uncompressed public key, lowercase hex, no prefix (same as Aptos).
 func signingAddressFromPublicKey(chainType pb.ChainType, pubKeyBytes []byte) (string, error) {
 	switch chainType {
 	case pb.ChainType_CHAIN_TYPE_EVM:
@@ -293,7 +291,7 @@ func signingAddressFromPublicKey(chainType pb.ChainType, pubKeyBytes []byte) (st
 }
 
 // buildUpdateNodeRequest constructs the UpdateNodeRequest to send to JD on connect.
-// It reads the public key for each ECDSA_S256 key in signingKeyNames and builds one ChainConfig
+// It reads the public key for each key in signingKeyNames and builds one ChainConfig
 // entry per chain in chains, with the signing address shoehorned into OCR2Config.OcrKeyBundle.
 // Returns nil if there are no signing keys or no chains declared.
 func buildUpdateNodeRequest(
@@ -313,7 +311,6 @@ func buildUpdateNodeRequest(
 	if len(resp.Keys) == 0 {
 		return nil, fmt.Errorf("no signing keys found in keystore for names %v", signingKeyNames)
 	}
-	// The committee verifier uses exactly one ECDSA_S256 signing key.
 	signingKey := resp.Keys[0]
 
 	chainConfigs := make([]*pb.ChainConfig, 0, len(chains))
@@ -365,6 +362,7 @@ func (b *Bootstrapper) startWithJDLifecycle(ctx context.Context) error {
 
 	jobRunner := &runner{fac: b.fac, deps: deps}
 
+	// b.keys is populated by WithKey options; collect names of signing keys to publish.
 	var signingKeyNames []string
 	for _, k := range b.keys {
 		if k.keyType == keystore.ECDSA_S256 {
