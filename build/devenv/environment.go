@@ -1123,14 +1123,17 @@ func launchStandaloneVerifiers(in *Cfg, blockchainOutputs []*blockchain.Output, 
 	// Apply defaults to verifiers so that we can use them in the standalone mode.
 	// Route the central monitoring config into each verifier's bootstrap input (after
 	// defaults make Bootstrap non-nil) so it ends up in the generated bootstrap config.
-	// Shared pointer is fine: it is read-only.
+	// This intentionally sets monitoring on ALL verifiers, not just the standalone ones
+	// launched below: every verifier's generated bootstrap config must carry monitoring.
+	// Each verifier gets its own copy so a future per-service override can't alias others.
 	monitoring := in.EnvironmentTopology.Monitoring
 	for i := range in.Verifier {
 		ver := committeeverifier.ApplyDefaults(*in.Verifier[i])
 		if ver.Bootstrap == nil {
 			ver.Bootstrap = &services.BootstrapInput{}
 		}
-		ver.Bootstrap.Monitoring = &monitoring
+		m := monitoring
+		ver.Bootstrap.Monitoring = &m
 		in.Verifier[i] = &ver
 	}
 

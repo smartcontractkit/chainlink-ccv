@@ -639,7 +639,8 @@ func NewEnvironment() (in *Cfg, err error) {
 
 	// Route the central monitoring config into each executor's bootstrap input so it ends up
 	// in the generated bootstrap config. Defaults were applied earlier, so Bootstrap is
-	// non-nil; launch happens immediately below. Shared pointer is fine: it is read-only.
+	// non-nil; launch happens immediately below. Each executor gets its own copy so a future
+	// per-service override can't alias others.
 	monitoring := topology.Monitoring
 	for _, exec := range in.Executor {
 		if exec == nil {
@@ -648,7 +649,8 @@ func NewEnvironment() (in *Cfg, err error) {
 		if exec.Bootstrap == nil {
 			exec.Bootstrap = &services.BootstrapInput{}
 		}
-		exec.Bootstrap.Monitoring = &monitoring
+		m := monitoring
+		exec.Bootstrap.Monitoring = &m
 	}
 
 	_, err = launchExecutors(in.Executor, blockchainOutputs, jdInfra)

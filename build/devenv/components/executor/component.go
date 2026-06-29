@@ -87,7 +87,8 @@ func (c *component) RunPhase3(
 		return nil, nil, fmt.Errorf("executor: observability not found in phase outputs")
 	}
 	// Central monitoring config routed into each executor's bootstrap input below so it
-	// ends up in the generated bootstrap config. Shared pointer is fine: it is read-only.
+	// ends up in the generated bootstrap config. Each executor gets its own copy so a future
+	// per-service override can't alias others.
 	monitoring := obs.Monitoring
 
 	for _, exec := range executors {
@@ -100,7 +101,8 @@ func (c *component) RunPhase3(
 		if exec.Bootstrap == nil {
 			exec.Bootstrap = &services.BootstrapInput{}
 		}
-		exec.Bootstrap.Monitoring = &monitoring
+		m := monitoring
+		exec.Bootstrap.Monitoring = &m
 		if exec.Mode != services.Standalone {
 			continue
 		}

@@ -223,7 +223,7 @@ func runPhase3Core(
 	// Route the central monitoring config into each verifier's bootstrap input so it ends up
 	// in the generated bootstrap config. LaunchStandaloneVerifiers re-applies bootstrap
 	// defaults internally (ApplyBootstrapDefaults preserves Monitoring), so setting it here
-	// survives.
+	// survives. Each verifier gets its own copy so a future per-service override can't alias others.
 	monitoring := inputs.obs.Monitoring
 	for _, ver := range verifiers {
 		if ver == nil {
@@ -232,7 +232,8 @@ func runPhase3Core(
 		if ver.Bootstrap == nil {
 			ver.Bootstrap = &services.BootstrapInput{}
 		}
-		ver.Bootstrap.Monitoring = &monitoring
+		m := monitoring
+		ver.Bootstrap.Monitoring = &m
 	}
 	if err := committeeverifier.LaunchStandaloneVerifiers(
 		verifiers, aggregators, committeeverifier.CommitteeAggregatorNames(inputs.topology),

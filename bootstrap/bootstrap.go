@@ -54,6 +54,26 @@ type ServiceDeps struct {
 	Monitoring *monitoring.Config
 }
 
+// ResolveMonitoring returns the effective monitoring config for a service, preferring the
+// operator-provided bootstrap config (fromBootstrap) over the deprecated app-config fallback.
+//
+// fromBootstrap is nil when the operator did not configure monitoring in the bootstrap config; in
+// that case the (deprecated) app-config value is used. Presence (non-nil), not Enabled, is the
+// discriminator: an operator who sets [monitoring] with Enabled=false is honored (monitoring off),
+// not silently overridden by the app-config fallback. It logs which source won so operators can
+// diagnose monitoring during the migration window in which both sources may be present.
+//
+// TODO(cleanup): remove once all deployments source monitoring from the bootstrap config; callers
+// then read *deps.Monitoring directly.
+func ResolveMonitoring(lggr logger.Logger, fromBootstrap *monitoring.Config, appConfigFallback monitoring.Config) monitoring.Config {
+	if fromBootstrap != nil {
+		lggr.Infow("Using monitoring config from bootstrap config")
+		return *fromBootstrap
+	}
+	lggr.Infow("Using monitoring config from deprecated app config (no monitoring section in bootstrap config)")
+	return appConfigFallback
+}
+
 // ServiceFactory is an interface implemented by the application that seeks to be bootstrapped.
 type ServiceFactory interface {
 	// Start starts the service with the parsed config received from JD.
