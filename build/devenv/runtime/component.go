@@ -40,3 +40,11 @@ type Phase4Component interface {
 type LogSetter interface {
 	SetLogger(lggr zerolog.Logger)
 }
+
+// StatusGetter is an optional interface components may implement to report
+// finer-grained internal status during execution. The reporter polls Status()
+// at ~200ms intervals; statuses that change and revert within a single poll
+// window will be missed.
+type StatusGetter interface {
+	Status() string
+}

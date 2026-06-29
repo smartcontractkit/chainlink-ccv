@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"math/big"
 	"strings"
+	"sync"
 
 	"github.com/pelletier/go-toml/v2"
 
@@ -41,7 +42,24 @@ func clnodeFactory(_ map[string]any) (devenvruntime.Component, error) {
 	return &clnodeComponent{}, nil
 }
 
-type clnodeComponent struct{}
+type clnodeComponent struct {
+	mu     sync.Mutex
+	status string
+}
+
+func (c *clnodeComponent) setStatus(s string) {
+	c.mu.Lock()
+	c.status = s
+	c.mu.Unlock()
+}
+
+// Status implements the devenvruntime.StatusGetter optional interface so the TUI
+// reporter can poll for fine-grained progress during the long Phase 3 setup.
+func (c *clnodeComponent) Status() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.status
+}
 
 func (c *clnodeComponent) ValidateConfig(componentConfig any) error {
 	_, err := decodeCLNodeConfig(componentConfig)
@@ -76,6 +94,7 @@ func (c *clnodeComponent) RunPhase3(
 	localEnv := *inputs.env
 
 	// Step 1: Generate HMAC credentials (must precede bakeNodeSecrets).
+	c.setStatus("ensuring aggregator credentials")
 	if err := ensureAggregatorCredentials(aggregators); err != nil {
 		return nil, nil, err
 	}
@@ -83,6 +102,7 @@ func (c *clnodeComponent) RunPhase3(
 	// Step 1b: Bake secrets into node specs, then launch and register CL nodes.
 	// Must run before step 2 (verifier launch) so JD has the node IDs needed
 	// by ApplyVerifierConfig when fetching CL-mode signing keys.
+	c.setStatus("launching CL nodes")
 	clNodeClients, nodeIDs, err := launchCLNodes(ctx, &cfg, verifiers, aggregators, inputs.topology, inputs.blockchains, inputs.jdInfra)
 	if err != nil {
 		return nil, nil, fmt.Errorf("committeeccv_clnode: %w", err)
@@ -91,7 +111,7 @@ func (c *clnodeComponent) RunPhase3(
 		localEnv.NodeIDs = nodeIDs
 	}
 
-	outputs, effects, err := runPhase3Core(ctx, inputs, aggregators, verifiers, &localEnv)
+	outputs, effects, err := runPhase3Core(ctx, inputs, aggregators, verifiers, &localEnv, c.setStatus)
 	if err != nil {
 		return nil, nil, err
 	}

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"sync"
 
 	"github.com/rs/zerolog"
 	zlog "github.com/rs/zerolog/log"
@@ -53,7 +54,23 @@ func factory(_ map[string]any) (devenvruntime.Component, error) {
 }
 
 type component struct {
-	lggr zerolog.Logger
+	mu     sync.Mutex
+	status string
+	lggr   zerolog.Logger
+}
+
+func (p *component) setStatus(s string) {
+	p.mu.Lock()
+	p.status = s
+	p.mu.Unlock()
+}
+
+// Status implements the devenvruntime.StatusGetter optional interface so the TUI
+// reporter can poll for fine-grained progress during the long deploy loop.
+func (p *component) Status() string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.status
 }
 
 func (p *component) SetLogger(lggr zerolog.Logger) {
@@ -151,6 +168,7 @@ func (p *component) RunPhase2(
 		if nerr != nil {
 			return nil, nil, nerr
 		}
+		p.setStatus(fmt.Sprintf("deploying chain %s (%d of %d)", blockchains[i].ChainID, i+1, len(impls)))
 		p.lggr.Info().Uint64("Selector", networkInfo.ChainSelector).Msg("Deploying chain selector")
 		// Shift the deployer nonce intentionally so each chain gets different
 		// contract addresses, catching bugs that assume address uniformity.
@@ -204,6 +222,7 @@ func (p *component) RunPhase2(
 	}
 	e.DataStore = ds.Seal()
 
+	p.setStatus("finalizing")
 	timeTrack.Record("[contracts] deployed")
 
 	// Finalize CLDF: snapshot env metadata and print deployed addresses.

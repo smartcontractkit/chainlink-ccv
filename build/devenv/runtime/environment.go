@@ -15,7 +15,7 @@ import (
 
 // NewEnvironment runs the environment startup using the global registry.
 func NewEnvironment(ctx context.Context, rawConfig map[string]any, logger zerolog.Logger) (map[string]any, error) {
-	return NewEnvironmentWithRegistry(ctx, rawConfig, global, noopEffectExecutor{}, logger)
+	return NewEnvironmentWithRegistry(ctx, rawConfig, global, noopEffectExecutor{}, logger, NoopReporter{})
 }
 
 // NewEnvironmentWithRegistry runs the environment startup using the provided registry.
@@ -37,7 +37,7 @@ func NewEnvironment(ctx context.Context, rawConfig map[string]any, logger zerolo
 // After all components in a phase run, the runtime collects their Effect
 // requests and executes them in a fixed order (CLNodeConfigEffect →
 // FundingEffect → JobProposalEffect) before advancing to the next phase.
-func NewEnvironmentWithRegistry(ctx context.Context, rawConfig map[string]any, r *Registry, effectExecutor EffectExecutor, logger zerolog.Logger) (map[string]any, error) {
+func NewEnvironmentWithRegistry(ctx context.Context, rawConfig map[string]any, r *Registry, effectExecutor EffectExecutor, logger zerolog.Logger, reporter Reporter) (map[string]any, error) {
 	if effectExecutor == nil {
 		effectExecutor = noopEffectExecutor{}
 	}
@@ -92,11 +92,13 @@ func NewEnvironmentWithRegistry(ctx context.Context, rawConfig map[string]any, r
 			}
 			comp := specific[key]
 			if p1, ok := comp.(Phase1Component); ok {
+				reporter.OnStart(phase, key, comp)
 				start := time.Now()
-				out, effects, err := p1.RunPhase1(ctx, rawConfig, rawConfig[key])
+				out, effects, runErr := p1.RunPhase1(ctx, rawConfig, rawConfig[key])
 				compTimings.Record(phase, key, start, time.Now())
-				if err != nil {
-					return nil, fmt.Errorf("phase1 %s: %w", key, err)
+				reporter.OnFinish(phase, key, runErr)
+				if runErr != nil {
+					return nil, fmt.Errorf("phase1 %s: %w", key, runErr)
 				}
 				if err := mergeNoOverwrite(accumulated, out, phase, key); err != nil {
 					return nil, err
@@ -120,11 +122,13 @@ func NewEnvironmentWithRegistry(ctx context.Context, rawConfig map[string]any, r
 			}
 			comp := specific[key]
 			if p2, ok := comp.(Phase2Component); ok {
+				reporter.OnStart(phase, key, comp)
 				start := time.Now()
-				out, effects, err := p2.RunPhase2(ctx, rawConfig, rawConfig[key], maps.Clone(phaseSnapshot))
+				out, effects, runErr := p2.RunPhase2(ctx, rawConfig, rawConfig[key], maps.Clone(phaseSnapshot))
 				compTimings.Record(phase, key, start, time.Now())
-				if err != nil {
-					return nil, fmt.Errorf("phase2 %s: %w", key, err)
+				reporter.OnFinish(phase, key, runErr)
+				if runErr != nil {
+					return nil, fmt.Errorf("phase2 %s: %w", key, runErr)
 				}
 				if err := mergeNoOverwrite(accumulated, out, phase, key); err != nil {
 					return nil, err
@@ -148,11 +152,13 @@ func NewEnvironmentWithRegistry(ctx context.Context, rawConfig map[string]any, r
 			}
 			comp := specific[key]
 			if p3, ok := comp.(Phase3Component); ok {
+				reporter.OnStart(phase, key, comp)
 				start := time.Now()
-				out, effects, err := p3.RunPhase3(ctx, rawConfig, rawConfig[key], maps.Clone(phaseSnapshot))
+				out, effects, runErr := p3.RunPhase3(ctx, rawConfig, rawConfig[key], maps.Clone(phaseSnapshot))
 				compTimings.Record(phase, key, start, time.Now())
-				if err != nil {
-					return nil, fmt.Errorf("phase3 %s: %w", key, err)
+				reporter.OnFinish(phase, key, runErr)
+				if runErr != nil {
+					return nil, fmt.Errorf("phase3 %s: %w", key, runErr)
 				}
 				if err := mergeNoOverwrite(accumulated, out, phase, key); err != nil {
 					return nil, err
@@ -176,11 +182,13 @@ func NewEnvironmentWithRegistry(ctx context.Context, rawConfig map[string]any, r
 			}
 			comp := specific[key]
 			if p4, ok := comp.(Phase4Component); ok {
+				reporter.OnStart(phase, key, comp)
 				start := time.Now()
-				out, effects, err := p4.RunPhase4(ctx, rawConfig, rawConfig[key], maps.Clone(phaseSnapshot))
+				out, effects, runErr := p4.RunPhase4(ctx, rawConfig, rawConfig[key], maps.Clone(phaseSnapshot))
 				compTimings.Record(phase, key, start, time.Now())
-				if err != nil {
-					return nil, fmt.Errorf("phase4 %s: %w", key, err)
+				reporter.OnFinish(phase, key, runErr)
+				if runErr != nil {
+					return nil, fmt.Errorf("phase4 %s: %w", key, runErr)
 				}
 				if err := mergeNoOverwrite(accumulated, out, phase, key); err != nil {
 					return nil, err

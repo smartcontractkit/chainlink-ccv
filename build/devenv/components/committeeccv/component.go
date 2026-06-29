@@ -8,6 +8,7 @@ import (
 	"slices"
 	"sort"
 	"strconv"
+	"sync"
 
 	"github.com/pelletier/go-toml/v2"
 
@@ -53,7 +54,24 @@ func factory(_ map[string]any) (devenvruntime.Component, error) {
 	return &component{}, nil
 }
 
-type component struct{}
+type component struct {
+	mu     sync.Mutex
+	status string
+}
+
+func (c *component) setStatus(s string) {
+	c.mu.Lock()
+	c.status = s
+	c.mu.Unlock()
+}
+
+// Status implements the devenvruntime.StatusGetter optional interface so the TUI
+// reporter can poll for fine-grained progress during the long Phase 3 setup.
+func (c *component) Status() string {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.status
+}
 
 func (c *component) ValidateConfig(componentConfig any) error {
 	_, err := decodeConfig(componentConfig)
@@ -90,10 +108,11 @@ func (c *component) RunPhase3(
 	}
 	// Work on a copy of the shared Phase-2 environment.
 	localEnv := *inputs.env
+	c.setStatus("ensuring aggregator credentials")
 	if err := ensureAggregatorCredentials(aggregators); err != nil {
 		return nil, nil, err
 	}
-	return runPhase3Core(ctx, inputs, aggregators, verifiers, &localEnv)
+	return runPhase3Core(ctx, inputs, aggregators, verifiers, &localEnv, c.setStatus)
 }
 
 // phase3Inputs holds the decoded prior-phase outputs consumed by both the
@@ -193,11 +212,13 @@ func runPhase3Core(
 	aggregators []*services.AggregatorInput,
 	verifiers []*committeeverifier.Input,
 	localEnv *deployment.Environment,
+	setStatus func(string),
 ) (map[string]any, []devenvruntime.Effect, error) {
 	// Step 1c: Deploy committee verifiers (+ resolvers) and mock receivers on chain.
 	// These were previously deployed by the Phase-2 kitchen-sink changeset; the split
 	// moves them here so Phase 2 deploys only protocol contracts. Must run before lane
 	// configuration (Step 5b), which wires the committee verifiers into the lanes.
+	setStatus("deploying committee verifiers")
 	if err := deployCommitteeVerifiersAndReceivers(inputs, localEnv); err != nil {
 		return nil, nil, err
 	}
@@ -206,6 +227,7 @@ func runPhase3Core(
 	// Phase 2, where the CommitteeVerifier resolver was not yet deployed, so token pools could
 	// not be wired to it. Runs before lane config (Step 5b), matching the original ordering.
 	// TODO: move to a dedicated token-transfer Phase 3 component.
+	setStatus("configuring token transfers")
 	if len(inputs.impls) > 0 {
 		if err := ccdeploy.ConfigureAllTokenTransfers(inputs.impls, inputs.selectors, localEnv, inputs.topology); err != nil {
 			return nil, nil, fmt.Errorf("committeeccv: configure all token transfers: %w", err)
@@ -213,6 +235,7 @@ func runPhase3Core(
 	}
 
 	// Step 2: Launch standalone verifier containers (reads HMAC creds from agg.Out).
+	setStatus("launching verifier containers")
 	if err := committeeverifier.LaunchStandaloneVerifiers(
 		verifiers, aggregators, committeeverifier.CommitteeAggregatorNames(inputs.topology),
 		inputs.blockchainOutputs, inputs.jdInfra,
@@ -220,6 +243,7 @@ func runPhase3Core(
 	); err != nil {
 		return nil, nil, fmt.Errorf("committeeccv: failed to launch standalone verifiers: %w", err)
 	}
+	setStatus("registering verifiers with JD")
 	if err := committeeverifier.RegisterStandaloneVerifiersWithJD(ctx, verifiers, inputs.jdInfra.OffchainClient); err != nil {
 		return nil, nil, fmt.Errorf("committeeccv: failed to register standalone verifiers with JD: %w", err)
 	}
@@ -232,6 +256,7 @@ func runPhase3Core(
 	jobs.SyncEnvNodeIDs(inputs.jdInfra, localEnv)
 
 	// Step 3: Generate shared TLS certificates from aggregator container names.
+	setStatus("generating TLS certificates")
 	var sharedTLSCerts *services.TLSCertPaths
 	if len(aggregators) > 0 {
 		var allHostnames []string
@@ -267,6 +292,7 @@ func runPhase3Core(
 
 	// Step 5b: Configure lanes. This requires verifiers to be registered in JD (done above)
 	// because ApplyVerifierConfig fetches verifier signing keys from JD by node ID.
+	setStatus("configuring lanes")
 	if len(inputs.impls) > 0 && len(inputs.blockchains) > 0 {
 		if err := ccdeploy.ConnectAllChainsCanonical(inputs.impls, inputs.blockchains, inputs.selectors, localEnv, inputs.topology); err != nil {
 			return nil, nil, fmt.Errorf("committeeccv: configure lanes: %w", err)
@@ -274,6 +300,7 @@ func runPhase3Core(
 	}
 
 	// Step 6: Generate aggregator committee configuration.
+	setStatus("generating aggregator configs")
 	for _, agg := range aggregators {
 		if agg == nil {
 			continue
@@ -301,6 +328,7 @@ func runPhase3Core(
 	}
 
 	// Step 7: Launch full aggregator containers.
+	setStatus("launching aggregators")
 	for _, agg := range aggregators {
 		if agg == nil {
 			continue
@@ -313,6 +341,7 @@ func runPhase3Core(
 	}
 
 	// Step 8: Generate verifier job specs and emit job proposal effects.
+	setStatus("generating verifier job specs")
 	effects, err := buildVerifierJobSpecEffects(localEnv, verifiers, inputs.topology, inputs.obs, sharedTLSCerts, inputs.blockchainOutputs, inputs.ds)
 	if err != nil {
 		return nil, nil, err

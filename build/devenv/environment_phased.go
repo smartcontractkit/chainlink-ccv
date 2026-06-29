@@ -10,12 +10,15 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/timing"
 )
 
-// NewPhasedEnvironment creates a new CCIP CCV environment using the phased
-// component runtime. It loads the raw TOML config, hands control to the
-// runtime, then serializes the raw accumulated output map (minus runtime-only
-// "_"-prefixed keys) to the env-out.toml file consumed by downstream tests. It
-// returns the full accumulated output map.
-func NewPhasedEnvironment() (out map[string]any, err error) {
+// NewPhasedEnvironment creates the environment using the phased runtime with a
+// no-op reporter. Use NewPhasedEnvironmentWithReporter to supply a live reporter.
+func NewPhasedEnvironment() (map[string]any, error) {
+	return NewPhasedEnvironmentWithReporter(devenvruntime.NoopReporter{})
+}
+
+// NewPhasedEnvironmentWithReporter creates a new CCIP CCV environment using the
+// phased component runtime, reporting lifecycle events to the provided reporter.
+func NewPhasedEnvironmentWithReporter(reporter devenvruntime.Reporter) (out map[string]any, err error) {
 	ctx := L.WithContext(context.Background())
 
 	configs := strings.Split(os.Getenv(EnvVarTestConfigs), ",")
@@ -49,7 +52,7 @@ func NewPhasedEnvironment() (out map[string]any, err error) {
 		sendStartupMetrics(dxTracker, err, elapsed)
 	}()
 
-	out, err = devenvruntime.NewEnvironmentWithRegistry(ctx, rawConfig, devenvruntime.GlobalRegistry(), newDevenvEffectExecutor(), L)
+	out, err = devenvruntime.NewEnvironmentWithRegistry(ctx, rawConfig, devenvruntime.GlobalRegistry(), newDevenvEffectExecutor(), L, reporter)
 	if err != nil {
 		return nil, err
 	}
