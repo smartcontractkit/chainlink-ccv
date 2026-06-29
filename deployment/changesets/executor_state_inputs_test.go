@@ -44,7 +44,6 @@ func seedExecutorJobs(t *testing.T, sel uint64, pool ExecutorPoolInput, indexer 
 		pool,
 		indexer,
 		"", // pyroscope
-		ccvdeployment.MonitoringConfig{},
 	)
 	require.NoError(t, err)
 
@@ -121,9 +120,9 @@ func TestExecutorPoolInputFromState_ErrorsOnJobDrift(t *testing.T) {
 		ExecutionInterval: 60 * time.Second, // drift
 	}
 
-	specsA, _, err := buildExecutorJobSpecs(adapterCfgs, testExecutorQualifier, nil, poolA, []string{"http://i"}, "", ccvdeployment.MonitoringConfig{})
+	specsA, _, err := buildExecutorJobSpecs(adapterCfgs, testExecutorQualifier, nil, poolA, []string{"http://i"}, "")
 	require.NoError(t, err)
-	specsB, _, err := buildExecutorJobSpecs(adapterCfgs, testExecutorQualifier, nil, poolB, []string{"http://i"}, "", ccvdeployment.MonitoringConfig{})
+	specsB, _, err := buildExecutorJobSpecs(adapterCfgs, testExecutorQualifier, nil, poolB, []string{"http://i"}, "")
 	require.NoError(t, err)
 
 	ds := datastore.NewMemoryDataStore()

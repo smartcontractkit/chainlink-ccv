@@ -492,7 +492,6 @@ func generateExecutorJobSpecs(
 			Pool:              ccvchangesets.ExecutorPoolInputFromTopology(pool),
 			IndexerAddress:    topology.IndexerAddress,
 			PyroscopeURL:      topology.PyroscopeURL,
-			Monitoring:        topology.Monitoring,
 			TargetNOPs:        ccvshared.ConvertStringToNopAliases(execNOPAliases),
 		}
 		output, err := cs.Apply(*e, execInput)
@@ -599,7 +598,6 @@ func generateVerifierJobSpecs(
 				NOPs:                     ccvchangesets.NOPInputsFromTopology(topology),
 				Committee:                ccvchangesets.CommitteeInputFromTopologyPerFamily(committee, family),
 				PyroscopeURL:             topology.PyroscopeURL,
-				Monitoring:               topology.Monitoring,
 				TargetNOPs:               verNOPAliases,
 				DisableFinalityCheckers:  disableFinalityCheckers,
 				// Consolidated topology: one verifier job per NOP writing to every aggregator.
@@ -1135,8 +1133,19 @@ func launchStandaloneVerifiers(in *Cfg, blockchainOutputs []*blockchain.Output, 
 	topoAggNames := committeeverifier.CommitteeAggregatorNames(in.EnvironmentTopology)
 
 	// Apply defaults to verifiers so that we can use them in the standalone mode.
+	// Route the central monitoring config into each verifier's bootstrap input (after
+	// defaults make Bootstrap non-nil) so it ends up in the generated bootstrap config.
+	// This intentionally sets monitoring on ALL verifiers, not just the standalone ones
+	// launched below: every verifier's generated bootstrap config must carry monitoring.
+	// Each verifier gets its own copy so a future per-service override can't alias others.
+	monitoring := in.EnvironmentTopology.Monitoring
 	for i := range in.Verifier {
 		ver := committeeverifier.ApplyDefaults(*in.Verifier[i])
+		if ver.Bootstrap == nil {
+			ver.Bootstrap = &services.BootstrapInput{}
+		}
+		m := monitoring
+		ver.Bootstrap.Monitoring = &m
 		in.Verifier[i] = &ver
 	}
 

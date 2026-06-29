@@ -90,7 +90,10 @@ func (f *Factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 
 	f.lggr.Infow("Executor configuration", "config", executorConfig)
 
-	executorMonitoring := SetupMonitoring(f.lggr, executorConfig.Monitoring)
+	// Monitoring config is operator-provided via the bootstrap config (deps.Monitoring), falling back to
+	// the deprecated app-config Monitoring field when unset. See bootstrap.ResolveMonitoring.
+	monitoringConfig := bootstrap.ResolveMonitoring(f.lggr, deps.Monitoring, executorConfig.Monitoring)
+	executorMonitoring := SetupMonitoring(f.lggr, monitoringConfig)
 
 	contractTransmitters := make(map[protocol.ChainSelector]chainaccess.ContractTransmitter)
 	destReaders := make(map[protocol.ChainSelector]chainaccess.DestinationReader)

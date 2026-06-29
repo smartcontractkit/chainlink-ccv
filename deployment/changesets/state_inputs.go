@@ -11,7 +11,6 @@ import (
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 
-	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
 	"github.com/smartcontractkit/chainlink-ccv/deployment/adapters"
 	"github.com/smartcontractkit/chainlink-ccv/deployment/shared"
 )
@@ -219,8 +218,8 @@ type VerifierConfigFromStateOptions struct {
 	Aggregators []AggregatorRef
 	// DefaultExecutorQualifier resolves the executor proxy baked into job specs.
 	DefaultExecutorQualifier string
-	// Monitoring / PyroscopeURL are forwarded into the verifier job spec.
-	Monitoring   ccvdeployment.MonitoringConfig
+	// PyroscopeURL is forwarded into the verifier job spec. Monitoring is intentionally not here:
+	// it is operator-provided via the bootstrap config, not the JD-shipped app config.
 	PyroscopeURL string
 	// ModeByNOP overrides the per-NOP mode (defaults to CL when absent).
 	ModeByNOP map[shared.NOPAlias]shared.NOPMode
@@ -276,7 +275,6 @@ func ApplyVerifierConfigInputFromState(
 		NOPs:                     nops,
 		Committee:                committee,
 		PyroscopeURL:             opts.PyroscopeURL,
-		Monitoring:               opts.Monitoring,
 		TargetNOPs:               opts.TargetNOPs,
 		DisableFinalityCheckers:  opts.DisableFinalityCheckers,
 		RevokeOrphanedJobs:       opts.RevokeOrphanedJobs,

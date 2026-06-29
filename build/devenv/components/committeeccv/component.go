@@ -213,6 +213,21 @@ func runPhase3Core(
 	}
 
 	// Step 2: Launch standalone verifier containers (reads HMAC creds from agg.Out).
+	// Route the central monitoring config into each verifier's bootstrap input so it ends up
+	// in the generated bootstrap config. LaunchStandaloneVerifiers re-applies bootstrap
+	// defaults internally (ApplyBootstrapDefaults preserves Monitoring), so setting it here
+	// survives. Each verifier gets its own copy so a future per-service override can't alias others.
+	monitoring := inputs.obs.Monitoring
+	for _, ver := range verifiers {
+		if ver == nil {
+			continue
+		}
+		if ver.Bootstrap == nil {
+			ver.Bootstrap = &services.BootstrapInput{}
+		}
+		m := monitoring
+		ver.Bootstrap.Monitoring = &m
+	}
 	if err := committeeverifier.LaunchStandaloneVerifiers(
 		verifiers, aggregators, committeeverifier.CommitteeAggregatorNames(inputs.topology),
 		inputs.blockchainOutputs, inputs.jdInfra,
@@ -610,7 +625,6 @@ func buildVerifierJobSpecEffects(
 				NOPs:                     ccvchangesets.NOPInputsFromTopology(topology),
 				Committee:                ccvchangesets.CommitteeInputFromTopologyPerFamily(committee, family),
 				PyroscopeURL:             obs.PyroscopeURL,
-				Monitoring:               obs.Monitoring,
 				TargetNOPs:               verNOPAliases,
 				DisableFinalityCheckers:  disableFinalityCheckersPerFamily[family],
 				// Consolidated topology: one verifier job per NOP writing to every aggregator.
