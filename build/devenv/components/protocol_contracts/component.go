@@ -236,11 +236,8 @@ func (p *component) RunPhase2(
 
 // config is the [protocol_contracts] component config.
 type config struct {
-	Version int `toml:"version"`
-	// UseLegacyConfigureLane is consumed by the committeeccv component via the
-	// global config; it is decoded here so the strict round-trip accepts it.
-	UseLegacyConfigureLane bool                               `toml:"use_legacy_configure_lane"`
-	EnvironmentTopology    *ccvdeployment.EnvironmentTopology `toml:"environment_topology"`
+	Version             int                                `toml:"version"`
+	EnvironmentTopology *ccvdeployment.EnvironmentTopology `toml:"environment_topology"`
 	// Deploy carries the per-chain protocol-contract deploy parameters fed to the
 	// chain-agnostic DeployProtocolContracts changeset.
 	Deploy deployCfg `toml:"deploy"`
