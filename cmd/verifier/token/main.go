@@ -39,7 +39,7 @@ func main() {
 	err := bootstrap.Run(
 		"TokenVerifier",
 		&tokenVerifierFactory{},
-		bootstrap.WithAppConfigPathEnv(bootstrap.ConfigPathEnv),
+		bootstrap.WithAppConfigPath(os.Getenv(bootstrap.ConfigPathEnv)),
 	)
 	if err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "Failed to run token verifier: %v\n", err)

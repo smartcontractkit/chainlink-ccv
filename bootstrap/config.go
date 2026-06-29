@@ -164,9 +164,9 @@ type keyToInit struct {
 // resolver holds the inputs gathered from Options before they are resolved into a final Config.
 type resolver struct {
 	bootstrapConfig     *Config       // bootstrap config declared via WithBootstrapConfig
-	bootstrapConfigPath string        // bootstrap config path declared via WithBootstrapConfigPathEnv
+	bootstrapConfigPath string        // bootstrap config path declared via WithBootstrapConfigPath
 	appConfig           *string       // app config declared via WithAppConfig
-	appConfigPath       string        // app config declared via WithAppConfigPathEnv
+	appConfigPath       string        // app config declared via WithAppConfigPath
 	keys                []keyToInit   // keys declared via WithKey
 	logLevel            zapcore.Level // log level declared via WithLogLevel or WithLogLevelFromEnv
 }
@@ -222,10 +222,9 @@ func WithBootstrapConfig(cfg Config) Option {
 	}
 }
 
-// WithBootstrapConfigPathEnv todo.
-func WithBootstrapConfigPathEnv(env string) Option {
+// WithBootstrapConfigPath todo.
+func WithBootstrapConfigPath(path string) Option {
 	return func(r *resolver) error {
-		path := os.Getenv(env)
 		if path == "" {
 			return fmt.Errorf("bootstrap config path cannot be empty")
 		}
@@ -243,14 +242,13 @@ func WithAppConfig(raw string) Option {
 	}
 }
 
-// WithAppConfigPathEnv todo.
-func WithAppConfigPathEnv(env string) Option {
+// WithAppConfigPath todo.
+func WithAppConfigPath(path string) Option {
 	return func(r *resolver) error {
-		path := os.Getenv(env)
 		if path == "" {
 			return fmt.Errorf("app config path cannot be empty")
 		}
-		r.appConfigPath = path
+		r.appConfigPath = tespath
 		return nil
 	}
 }

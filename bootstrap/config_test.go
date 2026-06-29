@@ -25,6 +25,10 @@ func validBeholderMonitoring() *monitoring.Config {
 	}
 }
 
+func disabledMonitoring() *monitoring.Config {
+	return &monitoring.Config{Enabled: false}
+}
+
 func TestJDConfig_validate(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -211,16 +215,17 @@ func TestConfig_validate(t *testing.T) {
 	}{
 		{
 			name:    "valid",
-			config:  &Config{JD: validJD, Keystore: validKeystore, DB: validDB, Server: validServer},
+			config:  &Config{JD: validJD, Keystore: validKeystore, DB: validDB, Server: validServer, Monitoring: disabledMonitoring()},
 			wantErr: false,
 		},
 		{
 			name: "invalid JD section",
 			config: &Config{
-				JD:       JDConfig{ServerWSRPCURL: "", ServerCSAPublicKey: validEd25519PublicKeyHex},
-				Keystore: validKeystore,
-				DB:       validDB,
-				Server:   validServer,
+				JD:         JDConfig{ServerWSRPCURL: "", ServerCSAPublicKey: validEd25519PublicKeyHex},
+				Keystore:   validKeystore,
+				DB:         validDB,
+				Server:     validServer,
+				Monitoring: disabledMonitoring(),
 			},
 			wantErr:     true,
 			errContains: []string{"failed to validate 'jd' section", "ServerWSRPCURL"},
@@ -228,10 +233,11 @@ func TestConfig_validate(t *testing.T) {
 		{
 			name: "invalid keystore section",
 			config: &Config{
-				JD:       validJD,
-				Keystore: KeystoreConfig{Password: ""},
-				DB:       validDB,
-				Server:   validServer,
+				JD:         validJD,
+				Keystore:   KeystoreConfig{Password: ""},
+				DB:         validDB,
+				Server:     validServer,
+				Monitoring: disabledMonitoring(),
 			},
 			wantErr:     true,
 			errContains: []string{"failed to validate 'keystore' section", "password"},
@@ -239,10 +245,11 @@ func TestConfig_validate(t *testing.T) {
 		{
 			name: "invalid db section",
 			config: &Config{
-				JD:       validJD,
-				Keystore: validKeystore,
-				DB:       DBConfig{URL: ""},
-				Server:   validServer,
+				JD:         validJD,
+				Keystore:   validKeystore,
+				DB:         DBConfig{URL: ""},
+				Server:     validServer,
+				Monitoring: disabledMonitoring(),
 			},
 			wantErr:     true,
 			errContains: []string{"failed to validate 'db' section", "url"},
@@ -250,23 +257,23 @@ func TestConfig_validate(t *testing.T) {
 		{
 			name: "invalid server section",
 			config: &Config{
-				JD:       validJD,
-				Keystore: validKeystore,
-				DB:       validDB,
-				Server:   ServerConfig{ListenPort: 0},
+				JD:         validJD,
+				Keystore:   validKeystore,
+				DB:         validDB,
+				Server:     ServerConfig{ListenPort: 0},
+				Monitoring: disabledMonitoring(),
 			},
 			wantErr:     true,
 			errContains: []string{"failed to validate 'server' section", "listen_port"},
 		},
 		{
-			// Monitoring is optional: a nil pointer means the operator did not configure
-			// monitoring in the bootstrap config, and validate() must skip it.
-			name: "valid with monitoring unset (nil allowed)",
+			name: "invalid with monitoring unset",
 			config: &Config{
 				JD: validJD, Keystore: validKeystore, DB: validDB, Server: validServer,
 				Monitoring: nil,
 			},
-			wantErr: false,
+			wantErr:     true,
+			errContains: []string{"missing 'monitoring' section"},
 		},
 		{
 			// Present-but-disabled is honored: monitoring.Config.Validate() is a no-op when
@@ -328,6 +335,7 @@ func TestConfig_validate(t *testing.T) {
 			name: "aggregates errors across db and server sections",
 			config: &Config{
 				JD: validJD, Keystore: validKeystore, DB: DBConfig{URL: ""}, Server: ServerConfig{ListenPort: 0},
+				Monitoring: disabledMonitoring(),
 			},
 			wantErr:     true,
 			errContains: []string{"failed to validate 'db' section", "failed to validate 'server' section"},

@@ -22,7 +22,7 @@ func main() {
 	if err := bootstrap.Run(
 		"EVMCommitteeVerifier",
 		cmd.NewCommitteeVerifierServiceFactory(),
-		bootstrap.WithBootstrapConfigPathEnv(bootstrap.ConfigPathEnv),
+		bootstrap.WithBootstrapConfigPath(os.Getenv(bootstrap.ConfigPathEnv)),
 		bootstrap.WithLogLevelFromEnv(zapcore.InfoLevel),
 		bootstrap.WithKey(commit.DefaultECDSASigningKeyName, "signing", keystore.ECDSA_S256), // ECDSA key for signing verification results
 	); err != nil {

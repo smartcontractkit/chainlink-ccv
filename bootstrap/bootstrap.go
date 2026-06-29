@@ -46,10 +46,7 @@ type ServiceDeps struct {
 	// Registry for chainaccess.Accessor objects.
 	Registry chainaccess.Registry
 
-	// Monitoring is the operator-provided monitoring config from the bootstrap config (Config.Monitoring).
-	// It is nil when the operator did not configure monitoring in the bootstrap config, or when the
-	// bootstrapper runs in static-TOML mode (which loads no bootstrap config). Services prefer this value
-	// and fall back to their own app-config monitoring field when it is nil.
+	// Monitoring is the validated monitoring config resolved by the bootstrapper.
 	Monitoring *monitoring.Config
 }
 
@@ -189,7 +186,7 @@ func (b *Bootstrapper) startWithAppConfig(ctx context.Context) (startErr error) 
 		AppConfig:     *b.config.AppConfig,
 	}
 
-	return b.fac.Start(ctx, js, ServiceDeps{Registry: b.accCloser})
+	return b.fac.Start(ctx, js, ServiceDeps{Registry: b.accCloser, Monitoring: b.config.Monitoring})
 }
 
 // startWithJDLifecycle initializes all components required for the JD lifecycle manager and starts it.
@@ -224,8 +221,6 @@ func (b *Bootstrapper) startWithJDLifecycle(ctx context.Context) (retErr error) 
 	if err != nil {
 		return fmt.Errorf("failed to create service deps: %w", err)
 	}
-	// Surface the operator-provided monitoring config to the service. Only the JD path populates this;
-	// static-TOML mode (startWithAppConfig) loads no bootstrap config and leaves it nil.
 	deps.Monitoring = b.config.Monitoring
 
 	jobRunner := &runner{fac: b.fac, deps: deps}

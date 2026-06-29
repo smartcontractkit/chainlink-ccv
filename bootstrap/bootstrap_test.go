@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -142,125 +141,44 @@ var _ ServiceFactory = (*spyServiceFactoryDummy)(nil)
 
 // --- WithKey / NewBootstrapper key tests ---
 
-// validJDBootstrapConfig returns a JD-mode bootstrap config that passes validation, for exercising
-// key resolution (keys are only provisioned in JD mode).
-func validJDBootstrapConfig() Config {
-	return Config{
-		JD:       JDConfig{ServerWSRPCURL: "ws://localhost:8080/ws", ServerCSAPublicKey: validEd25519PublicKeyHex},
-		Keystore: KeystoreConfig{Password: "secret"},
-		DB:       DBConfig{URL: "postgres://localhost:5432/mydb"},
-		Server:   ServerConfig{ListenPort: 9988},
-	}
-}
-
-func TestResolveConfig_Keys_Defaults(t *testing.T) {
+func TestNewBootstrapper_WithKey_Defaults(t *testing.T) {
 	t.Parallel()
+	lggr := logger.Test(t)
 
-	// JD mode, no WithKey options → the three deprecated defaults must be applied.
-	cfg, err := ResolveConfig(WithBootstrapConfig(validJDBootstrapConfig()))
+	// Create an empty temp TOML file so WithTOMLAppConfig succeeds without hitting JD config.
+	f, err := os.CreateTemp(t.TempDir(), "*.toml")
 	require.NoError(t, err)
-	require.Len(t, cfg.Keystore.keys, 3)
-	require.Equal(t, DefaultCSAKeyName, cfg.Keystore.keys[0].name)
-	require.Equal(t, defaultECDSASigningKeyName, cfg.Keystore.keys[1].name)
-	require.Equal(t, defaultEdDSASigningKeyName, cfg.Keystore.keys[2].name)
+	require.NoError(t, f.Close())
+
+	b, err := NewBootstrapper("test", lggr, &mockServiceFactory{}, WithAppConfig(f.Name()))
+	require.NoError(t, err)
+
+	// No WithKey options → the three original defaults must be applied.
+	require.Len(t, b.config.Keystore.keys, 3)
+	require.Equal(t, DefaultCSAKeyName, b.config.Keystore.keys[0].name)
+	require.Equal(t, defaultECDSASigningKeyName, b.config.Keystore.keys[1].name)
+	require.Equal(t, defaultEdDSASigningKeyName, b.config.Keystore.keys[2].name)
 }
 
-func TestResolveConfig_Keys_Explicit_NoInjectionWhenCSADeclared(t *testing.T) {
+func TestNewBootstrapper_WithKey_Explicit(t *testing.T) {
 	t.Parallel()
+	lggr := logger.Test(t)
 
-	cfg, err := ResolveConfig(
-		WithBootstrapConfig(validJDBootstrapConfig()),
+	f, err := os.CreateTemp(t.TempDir(), "*.toml")
+	require.NoError(t, err)
+	require.NoError(t, f.Close())
+
+	b, err := NewBootstrapper("test", lggr, &mockServiceFactory{},
+		WithAppConfigPath(f.Name()),
 		WithKey("my_csa", "csa", keystore.Ed25519),
 		WithKey("my_signing", "signing", keystore.ECDSA_S256),
 	)
 	require.NoError(t, err)
 
-	// Explicit WithKey options suppress defaults; declared CSA → no injection; order preserved.
-	require.Len(t, cfg.Keystore.keys, 2)
-	require.Equal(t, "my_csa", cfg.Keystore.keys[0].name)
-	require.Equal(t, "my_signing", cfg.Keystore.keys[1].name)
-}
-
-func TestResolveConfig_Keys_CSAInjectedWhenMissing(t *testing.T) {
-	t.Parallel()
-
-	cfg, err := ResolveConfig(
-		WithBootstrapConfig(validJDBootstrapConfig()),
-		WithKey("my_signing", "signing", keystore.ECDSA_S256),
-	)
-	require.NoError(t, err)
-
-	// No CSA declared → default CSA key is prepended for JD authentication.
-	require.Len(t, cfg.Keystore.keys, 2)
-	require.Equal(t, DefaultCSAKeyName, cfg.Keystore.keys[0].name)
-	require.Equal(t, "my_signing", cfg.Keystore.keys[1].name)
-}
-
-func TestResolveConfig_AppConfigPrecedence(t *testing.T) {
-	// Not parallel: the file source is supplied via APP_CONFIG_PATH using t.Setenv.
-	dir := t.TempDir()
-	appCfg := filepath.Join(dir, "app.toml")
-	require.NoError(t, os.WriteFile(appCfg, []byte("from = \"file\"\n"), 0o600))
-	t.Setenv(ConfigPathEnv, appCfg)
-
-	embedded := "from = \"embedded\""
-
-	t.Run("inline beats embedded and file", func(t *testing.T) {
-		base := Config{AppConfig: &embedded}
-		cfg, err := ResolveConfig(WithBootstrapConfig(base), WithAppConfig("from = \"inline\""))
-		require.NoError(t, err)
-		require.NotNil(t, cfg.AppConfig)
-		require.Equal(t, "from = \"inline\"", *cfg.AppConfig)
-	})
-
-	t.Run("embedded beats file", func(t *testing.T) {
-		base := Config{AppConfig: &embedded}
-		cfg, err := ResolveConfig(WithBootstrapConfig(base))
-		require.NoError(t, err)
-		require.NotNil(t, cfg.AppConfig)
-		require.Equal(t, "from = \"embedded\"", *cfg.AppConfig)
-	})
-
-	t.Run("file used when no higher source", func(t *testing.T) {
-		cfg, err := ResolveConfig()
-		require.NoError(t, err)
-		require.NotNil(t, cfg.AppConfig)
-		require.Equal(t, "from = \"file\"\n", *cfg.AppConfig)
-	})
-}
-
-// jdBootstrapTOML is a valid JD-mode bootstrap config file (no app config) for file-load tests.
-const jdBootstrapTOML = `
-log_level = "warn"
-
-[jd]
-server_wsrpc_url = "ws://localhost:8080/ws"
-server_csa_public_key = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-
-[keystore]
-password = "secret"
-
-[db]
-url = "postgres://localhost:5432/mydb"
-
-[server]
-listen_port = 9988
-`
-
-func TestResolveConfig_LoadsBootstrapFileInJDMode(t *testing.T) {
-	// Not parallel: the bootstrap file path is supplied via BOOTSTRAPPER_CONFIG_PATH using t.Setenv.
-	dir := t.TempDir()
-	p := filepath.Join(dir, "bootstrap.toml")
-	require.NoError(t, os.WriteFile(p, []byte(jdBootstrapTOML), 0o600))
-	t.Setenv(ConfigPathEnv, p)
-
-	cfg, err := ResolveConfig()
-	require.NoError(t, err)
-	require.Nil(t, cfg.AppConfig, "no app config source → JD mode")
-	require.Equal(t, "ws://localhost:8080/ws", cfg.JD.ServerWSRPCURL)
-	require.Equal(t, "warn", cfg.LogLevel)
-	// No WithKey → deprecated defaults applied (JD mode).
-	require.Len(t, cfg.Keystore.keys, 3)
+	// Explicit WithKey options must suppress defaults and preserve order.
+	require.Len(t, b.config.Keystore.keys, 2)
+	require.Equal(t, "my_csa", b.config.Keystore.keys[0].name)
+	require.Equal(t, "my_signing", b.config.Keystore.keys[1].name)
 }
 
 // --- runner tests ---
@@ -405,7 +323,10 @@ func TestBootstrapper_Stop_StaticConfig_ClosesAccessors(t *testing.T) {
 			return nil
 		},
 	}
-	b, err := NewBootstrapper("t", logger.Test(t), fac, WithBootstrapConfig(Config{}), WithAppConfig(""))
+	f, err := os.CreateTemp(t.TempDir(), "*.toml")
+	require.NoError(t, err)
+	require.NoError(t, f.Close())
+	b, err := NewBootstrapper("t", logger.Test(t), fac, WithAppConfigPath(f.Name()))
 	require.NoError(t, err)
 	require.NoError(t, b.Start(t.Context()))
 	require.NotNil(t, b.accCloser)
