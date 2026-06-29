@@ -369,6 +369,9 @@ func (b *Bootstrapper) startWithJDLifecycle(ctx context.Context) error {
 			signingKeyNames = append(signingKeyNames, k.name)
 		}
 	}
+	if len(signingKeyNames) > 1 {
+		return fmt.Errorf("expected at most one ECDSA_S256 signing key, got %d: %v", len(signingKeyNames), signingKeyNames)
+	}
 
 	var onConnectHook func(ctx context.Context) error
 	if len(signingKeyNames) > 0 && len(b.config.Chains) > 0 {

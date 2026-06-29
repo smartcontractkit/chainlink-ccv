@@ -80,9 +80,10 @@ type ChainRegistration struct {
 	ID string `toml:"id"`
 }
 
-// knownChainTypes is the set of accepted chain type strings (upper-cased).
+// knownChainTypes is the set of chain type strings (upper-cased) for which signing address
+// derivation is implemented. Extend this together with signingAddressFromPublicKey in bootstrap.go.
 var knownChainTypes = map[string]struct{}{
-	"EVM": {}, "SOLANA": {}, "STARKNET": {}, "APTOS": {}, "TRON": {}, "TON": {}, "SUI": {},
+	"EVM": {}, "SOLANA": {}, "APTOS": {},
 }
 
 func (c ChainRegistration) validate() error {
@@ -93,7 +94,7 @@ func (c ChainRegistration) validate() error {
 		return fmt.Errorf("field 'id' is required")
 	}
 	if _, ok := knownChainTypes[strings.ToUpper(c.Type)]; !ok {
-		return fmt.Errorf("unknown chain type %q: must be one of EVM, SOLANA, STARKNET, APTOS, TRON, TON, SUI", c.Type)
+		return fmt.Errorf("unknown chain type %q: must be one of EVM, SOLANA, APTOS", c.Type)
 	}
 	return nil
 }
