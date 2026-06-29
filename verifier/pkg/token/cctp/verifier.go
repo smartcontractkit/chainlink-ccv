@@ -16,6 +16,8 @@ import (
 const (
 	attestationNotReadyRetry = 30 * time.Second
 	anyErrorRetry            = 5 * time.Second
+	// Max number of concurrent workers to fetch attestations to verify.
+	maxAttestationFetchers = 10
 )
 
 // Verifier is responsible for verifying CCTP messages by fetching their attestations
@@ -27,6 +29,7 @@ type Verifier struct {
 
 	attestationNotReadyRetry time.Duration
 	anyErrorRetry            time.Duration
+	maxAttestationFetchers   int
 }
 
 func NewVerifier(
@@ -38,6 +41,7 @@ func NewVerifier(
 		attestationService,
 		attestationNotReadyRetry,
 		anyErrorRetry,
+		maxAttestationFetchers,
 	)
 }
 
@@ -46,12 +50,14 @@ func NewVerifierWithConfig(
 	attestationService AttestationService,
 	attestationNotReadyRetry time.Duration,
 	anyErrorRetry time.Duration,
+	maxAttestationFetchers int,
 ) verifier.Verifier {
 	return &Verifier{
 		lggr:                     lggr,
 		attestationService:       attestationService,
 		attestationNotReadyRetry: attestationNotReadyRetry,
 		anyErrorRetry:            anyErrorRetry,
+		maxAttestationFetchers:   maxAttestationFetchers,
 	}
 }
 
@@ -59,69 +65,83 @@ func (v *Verifier) VerifyMessages(
 	ctx context.Context,
 	tasks []verifier.VerificationTask,
 ) []verifier.VerificationResult {
-	results := make([]verifier.VerificationResult, 0, len(tasks))
+	jobResults := make(chan verifier.VerificationResult, len(tasks))
+	jobs := make(chan verifier.VerificationTask, len(tasks))
 
-	// TODO: `attestationService.Fetch` is an IO-bound operation and can be parallelized. Large number of tasks
-	//  may lead to performance bottlenecks. Consider using a worker pool or goroutines with a semaphore to limit
-	//  concurrency.
 	for _, task := range tasks {
-		lggr := logger.With(v.lggr, protocol.LogKeyMessageID, task.MessageID, "txHash", task.TxHash)
-		lggr.Debugw("Verifying CCTP task")
+		jobs <- task
+	}
+	defer close(jobs)
 
-		// 1. Fetch attestation
-		attestation, err := v.attestationService.Fetch(ctx, task.TxHash, task.Message)
-		if err != nil {
-			lggr.Warnw("Failed to fetch attestation", "err", err)
-			verificationError := v.errorRetry(err, task)
-			results = append(results, verifier.VerificationResult{Error: &verificationError})
-			continue
-		}
+	workers := min(len(tasks), v.maxAttestationFetchers)
+	for range workers {
+		go func() {
+			for job := range jobs {
+				jobResults <- v.processVerificationTask(ctx, job)
+			}
+		}()
+	}
 
-		if !attestation.IsReady() {
-			lggr.Debugw("Attestation not ready for message")
-			verificationError := v.attestationErrorRetry(
-				fmt.Errorf("attestation not ready for message ID: %s", task.MessageID),
-				task,
-			)
-			results = append(results, verifier.VerificationResult{Error: &verificationError})
-			continue
-		}
-
-		verifierFormat, err := attestation.ToVerifierFormat()
-		if err != nil {
-			lggr.Errorw("Failed to decode attestation data", "err", err)
-			verificationError := v.errorRetry(err, task)
-			results = append(results, verifier.VerificationResult{Error: &verificationError})
-			continue
-		}
-
-		lggr.Debugw("Attestation fetched and decoded successfully",
-			"status", attestation.status,
-			"attestation", attestation.attestation,
-			"encodedCCTPMessage", attestation.encodedCCTPMessage,
-			"verifierFormat", verifierFormat,
-		)
-
-		// 2. Create VerifierNodeResult
-		result, err := commit.CreateVerifierNodeResult(
-			&task,
-			verifierFormat,
-			attestation.verifierVersion,
-		)
-		if err != nil {
-			lggr.Errorw("CreateVerifierNodeResult: Failed to create VerifierNodeResult", "err", err)
-			verificationError := v.errorRetry(err, task)
-			results = append(results, verifier.VerificationResult{Error: &verificationError})
-			continue
-		}
-
-		// 3. Return successful result
-		// PER-MESSAGE LOG (status): signing complete; storage write is the terminal success.
-		lggr.Infow("VerifierResults: Successfully verified message", protocol.LogTypeKey, protocol.LogTypeMessageStatus, "signature", result.Signature)
-		results = append(results, verifier.VerificationResult{Result: result})
+	results := make([]verifier.VerificationResult, 0, len(tasks))
+	for range tasks {
+		results = append(results, <-jobResults)
 	}
 
 	return results
+}
+
+func (v *Verifier) processVerificationTask(ctx context.Context, task verifier.VerificationTask) verifier.VerificationResult {
+	lggr := logger.With(v.lggr, protocol.LogKeyMessageID, task.MessageID, "txHash", task.TxHash)
+	lggr.Debugw("Verifying CCTP task")
+
+	// 1. Fetch attestation
+	attestation, err := v.attestationService.Fetch(ctx, task.TxHash, task.Message)
+	if err != nil {
+		lggr.Warnw("Failed to fetch attestation", "err", err)
+		verificationError := v.errorRetry(err, task)
+		return verifier.VerificationResult{Error: &verificationError}
+	}
+
+	if !attestation.IsReady() {
+		lggr.Debugw("Attestation not ready for message")
+		verificationError := v.attestationErrorRetry(
+			fmt.Errorf("attestation not ready for message ID: %s", task.MessageID),
+			task,
+		)
+		return verifier.VerificationResult{Error: &verificationError}
+	}
+
+	verifierFormat, err := attestation.ToVerifierFormat()
+	if err != nil {
+		lggr.Errorw("Failed to decode attestation data", "err", err)
+		verificationError := v.errorRetry(err, task)
+		return verifier.VerificationResult{Error: &verificationError}
+	}
+
+	lggr.Debugw(
+		"Attestation fetched and decoded successfully",
+		"status", attestation.status,
+		"attestation", attestation.attestation,
+		"encodedCCTPMessage", attestation.encodedCCTPMessage,
+		"verifierFormat", verifierFormat,
+	)
+
+	// 2. Create VerifierNodeResult
+	result, err := commit.CreateVerifierNodeResult(
+		&task,
+		verifierFormat,
+		attestation.verifierVersion,
+	)
+	if err != nil {
+		lggr.Errorw("CreateVerifierNodeResult: Failed to create VerifierNodeResult", "err", err)
+		verificationError := v.errorRetry(err, task)
+		return verifier.VerificationResult{Error: &verificationError}
+	}
+
+	// 3. Return successful result
+	// PER-MESSAGE LOG (status): signing complete; storage write is the terminal success.
+	lggr.Infow("VerifierResults: Successfully verified message", protocol.LogTypeKey, protocol.LogTypeMessageStatus, "signature", result.Signature)
+	return verifier.VerificationResult{Result: result}
 }
 
 func (v *Verifier) attestationErrorRetry(err error, task verifier.VerificationTask) verifier.VerificationError {

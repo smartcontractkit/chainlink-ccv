@@ -3,7 +3,9 @@ package cctp_test
 import (
 	"context"
 	"errors"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -161,22 +163,76 @@ func TestVerifier_VerifyMessages_MultipleTasksWithMixedResults(t *testing.T) {
 
 	require.Len(t, results, 3, "Expected three results")
 
+	// Results are produced concurrently, so they may arrive in any order.
+	// Index them by message ID rather than relying on input position.
+	successByID := make(map[string]verifier.VerificationResult)
+	errorByID := make(map[string]verifier.VerificationResult)
+	for _, result := range results {
+		switch {
+		case result.Result != nil:
+			successByID[result.Result.MessageID.String()] = result
+		case result.Error != nil:
+			errorByID[result.Error.Task.MessageID] = result
+		default:
+			t.Fatalf("result has neither Result nor Error: %+v", result)
+		}
+	}
+
 	// task1 should succeed
-	assert.Nil(t, results[0].Error, "Expected no error for task1")
-	assert.NotNil(t, results[0].Result, "Expected successful result for task1")
-	assert.Equal(t, task1.MessageID, results[0].Result.MessageID.String())
+	require.Contains(t, successByID, task1.MessageID, "Expected successful result for task1")
+	assert.Nil(t, successByID[task1.MessageID].Error, "Expected no error for task1")
 
 	// task2 should fail
-	assert.Nil(t, results[1].Result, "Expected no result for task2")
-	assert.NotNil(t, results[1].Error, "Expected error for task2")
-	assert.Equal(t, expectedErr, results[1].Error.Error)
-	assert.Equal(t, task2.MessageID, results[1].Error.Task.MessageID)
+	require.Contains(t, errorByID, task2.MessageID, "Expected error for task2")
+	assert.Nil(t, errorByID[task2.MessageID].Result, "Expected no result for task2")
+	assert.Equal(t, expectedErr, errorByID[task2.MessageID].Error.Error)
 
 	// task3 should succeed
-	assert.Nil(t, results[2].Error, "Expected no error for task3")
-	assert.NotNil(t, results[2].Result, "Expected successful result for task3")
-	assert.Equal(t, task3.MessageID, results[2].Result.MessageID.String())
+	require.Contains(t, successByID, task3.MessageID, "Expected successful result for task3")
+	assert.Nil(t, successByID[task3.MessageID].Error, "Expected no error for task3")
 
+	mockAttestationService.AssertExpectations(t)
+}
+
+func TestVerifier_VerifyMessages_RespectsMaxConcurrentFetchers(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+
+	lggr := logger.Test(t)
+	mockAttestationService := mocks.NewCCTPAttestationService(t)
+
+	const maxFetchers = 2
+	const numTasks = 12
+
+	var inFlight, maxObserved int64
+	mockAttestationService.EXPECT().
+		Fetch(mock.Anything, mock.Anything, mock.Anything).
+		Run(func(_ context.Context, _ protocol.ByteSlice, _ protocol.Message) {
+			cur := atomic.AddInt64(&inFlight, 1)
+			for {
+				prev := atomic.LoadInt64(&maxObserved)
+				if cur <= prev || atomic.CompareAndSwapInt64(&maxObserved, prev, cur) {
+					break
+				}
+			}
+			// Hold the fetch open so concurrent workers actually overlap.
+			time.Sleep(20 * time.Millisecond)
+			atomic.AddInt64(&inFlight, -1)
+		}).
+		Return(createTestAttestation(), nil).
+		Times(numTasks)
+
+	tasks := make([]verifier.VerificationTask, 0, numTasks)
+	for i := range numTasks {
+		tasks = append(tasks, internal.CreateTestVerificationTask(i+1))
+	}
+
+	v := cctp.NewVerifierWithConfig(lggr, mockAttestationService, 30*time.Second, 5*time.Second, maxFetchers)
+	results := v.VerifyMessages(ctx, tasks)
+
+	require.Len(t, results, numTasks, "Expected one result per task")
+	assert.LessOrEqual(t, atomic.LoadInt64(&maxObserved), int64(maxFetchers),
+		"Concurrent Fetch calls must not exceed the configured maxFetchers")
 	mockAttestationService.AssertExpectations(t)
 }
 
