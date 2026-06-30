@@ -84,7 +84,7 @@ type ChainRegistration struct {
 // knownChainTypes is the set of chain type strings (upper-cased) for which signing address
 // derivation is implemented. Extend this together with signingAddressFromPublicKey in bootstrap.go.
 var knownChainTypes = map[string]struct{}{
-	"EVM": {}, "SOLANA": {}, "APTOS": {},
+	"EVM": {}, "SOLANA": {}, "APTOS": {}, "STELLAR": {}, "CANTON": {},
 }
 
 func (c ChainRegistration) validate() error {

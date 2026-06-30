@@ -634,9 +634,11 @@ func splitTokenTransferBatchBySelector(configs []tokenscore.TokenTransferConfig)
 // families the verifier changeset falls back to JD when SignerAddressByFamily
 // is empty, so manual enrichment from BootstrapKeys is not needed.
 var familiesSupportingJDKeySync = map[string]struct{}{
-	chainsel.FamilyEVM:    {},
-	chainsel.FamilySolana: {},
-	chainsel.FamilyAptos:  {},
+	chainsel.FamilyEVM:     {},
+	chainsel.FamilySolana:  {},
+	chainsel.FamilyAptos:   {},
+	chainsel.FamilyStellar: {},
+	chainsel.FamilyCanton:  {},
 }
 
 // enrichEnvironmentTopology injects SignerAddress values from verifier inputs into the EnvironmentTopology.

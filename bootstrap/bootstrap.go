@@ -285,6 +285,10 @@ func chainTypeFromString(s string) (pb.ChainType, error) {
 		return pb.ChainType_CHAIN_TYPE_TON, nil
 	case "SUI":
 		return pb.ChainType_CHAIN_TYPE_SUI, nil
+	case "STELLAR":
+		return pb.ChainType_CHAIN_TYPE_STELLAR, nil
+	case "CANTON":
+		return pb.ChainType_CHAIN_TYPE_CANTON, nil
 	default:
 		return pb.ChainType_CHAIN_TYPE_UNSPECIFIED, fmt.Errorf("unknown chain type %q", s)
 	}
@@ -294,15 +298,11 @@ func chainTypeFromString(s string) (pb.ChainType, error) {
 // from a raw public key returned by the keystore.
 //
 // Format per family:
-//   - EVM:    EIP-55 checksummed address, 0x-prefixed  (e.g. "0xAbCd…")
-//   - Solana: lowercase 20-byte Ethereum address, no 0x (e.g. "abcd…") — matches CL node prior art
-//   - Aptos:  full uncompressed public key, lowercase hex, no prefix    (e.g. "04abcd…")
-//
-// TODO: add CHAIN_TYPE_STELLAR once JD proto includes it.
-// Format: full uncompressed public key, lowercase hex, no prefix (same as Aptos).
-//
-// TODO: add CHAIN_TYPE_CANTON once JD proto includes it.
-// Format: full uncompressed public key, lowercase hex, no prefix (same as Aptos).
+//   - EVM:     EIP-55 checksummed address, 0x-prefixed  (e.g. "0xAbCd…")
+//   - Solana:  lowercase 20-byte Ethereum address, no 0x (e.g. "abcd…") — matches CL node prior art
+//   - Aptos:   full uncompressed public key, lowercase hex, no prefix    (e.g. "04abcd…")
+//   - Stellar: full uncompressed public key, lowercase hex, no prefix    (e.g. "04abcd…")
+//   - Canton:  full uncompressed public key, lowercase hex, no prefix    (e.g. "04abcd…")
 func signingAddressFromPublicKey(chainType pb.ChainType, pubKeyBytes []byte) (string, error) {
 	switch chainType {
 	case pb.ChainType_CHAIN_TYPE_EVM:
@@ -310,7 +310,9 @@ func signingAddressFromPublicKey(chainType pb.ChainType, pubKeyBytes []byte) (st
 		return addr, err
 	case pb.ChainType_CHAIN_TYPE_SOLANA:
 		return keys.SolanaAddressFromPublicKey(pubKeyBytes)
-	case pb.ChainType_CHAIN_TYPE_APTOS:
+	case pb.ChainType_CHAIN_TYPE_APTOS,
+		pb.ChainType_CHAIN_TYPE_STELLAR,
+		pb.ChainType_CHAIN_TYPE_CANTON:
 		return keys.RawPubKeyHex(pubKeyBytes), nil
 	default:
 		return "", fmt.Errorf("signing address derivation not implemented for chain type %v", chainType)
