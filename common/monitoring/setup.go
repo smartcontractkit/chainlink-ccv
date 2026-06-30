@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.uber.org/zap/zapcore"
 
@@ -33,8 +34,19 @@ func SetupBeholder(config Config, metricViews []sdkmetric.View) error {
 		MetricReaderInterval:     time.Second * time.Duration(config.Beholder.MetricReaderInterval),
 		TraceSampleRatio:         config.Beholder.TraceSampleRatio,
 		TraceBatchTimeout:        time.Second * time.Duration(config.Beholder.TraceBatchTimeout),
+	}
+
+	if len(config.Beholder.TelemetryAttributes) > 0 {
+		attrs := make([]attribute.KeyValue, 0, len(config.Beholder.TelemetryAttributes))
+		for k, v := range config.Beholder.TelemetryAttributes {
+			attrs = append(attrs, attribute.String(k, v))
+		}
+		beholderConfig.ResourceAttributes = attrs
+	}
+
+	if len(metricViews) > 0 {
 		// Note: due to OTEL spec, all histogram buckets must be defined when the beholder client is created.
-		MetricViews: metricViews,
+		beholderConfig.MetricViews = metricViews
 	}
 
 	// Create the beholder client

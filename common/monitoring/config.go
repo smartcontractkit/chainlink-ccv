@@ -32,6 +32,8 @@ type BeholderConfig struct {
 	TraceSampleRatio float64 `json:"trace_sample_ratio" toml:"TraceSampleRatio"`
 	// TraceBatchTimeout is the timeout for a batch of traces.
 	TraceBatchTimeout int64 `json:"trace_batch_timeout" toml:"TraceBatchTimeout"`
+	// TelemetryAttributes are additional labels that assigned during OTel transmission
+	TelemetryAttributes map[string]string `json:"telemetry_attributes" toml:"TelemetryAttributes"`
 }
 
 // Validate performs validation on the monitoring configuration.

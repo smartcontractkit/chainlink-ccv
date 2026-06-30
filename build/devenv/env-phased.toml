@@ -27,6 +27,8 @@ LogStreamingEnabled = true
 MetricReaderInterval = 5
 TraceSampleRatio = 1.0
 TraceBatchTimeout = 10
+[observability.monitoring.Beholder.TelemetryAttributes]
+ccip_env = "devenv"
 
 [protocol_contracts]
 version = 2
