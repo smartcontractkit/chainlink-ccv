@@ -8,14 +8,14 @@ import (
 	"time"
 
 	"github.com/grafana/pyroscope-go"
-	"go.uber.org/zap/zapcore"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
-	"github.com/smartcontractkit/chainlink-ccv/common"
 	executorsvc "github.com/smartcontractkit/chainlink-ccv/executor"
 	adapter "github.com/smartcontractkit/chainlink-ccv/executor/pkg/adapter"
 	x "github.com/smartcontractkit/chainlink-ccv/executor/pkg/executor"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/leaderelector"
+	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/backofftimeprovider"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/ccvstreamer"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/cursechecker"
@@ -73,20 +73,12 @@ func (f *Factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 		return fmt.Errorf("failed to normalize executor config: %w", err)
 	}
 
-	// Monitoring config is operator-provided via the bootstrap config (deps.Monitoring), falling back to
-	// the deprecated app-config Monitoring field when unset. See bootstrap.ResolveMonitoring.
-	// TODO move to bootstrap
-	if deps.Monitoring != nil {
-		executorConfig.Monitoring = *deps.Monitoring
-	}
-	executorMonitoring := SetupMonitoring(executorConfig.Monitoring)
-
-	// TODO: use deps.Logger after making bootstrap config required
-	lggr, err := common.InitLogger("executor", zapcore.InfoLevel, executorConfig.Monitoring.Beholder)
+	executorMonitoring, err := monitoring.InitMonitoring()
 	if err != nil {
-		return fmt.Errorf("failed to init logger: %w", err)
+		return fmt.Errorf("failed to initialize monitoring: %w", err)
 	}
-	f.lggr = lggr
+
+	f.lggr = deps.Logger
 
 	if executorConfig.PyroscopeURL != "" {
 		f.profiler, err = StartPyroscope(f.lggr, executorConfig.PyroscopeURL, "executor")
@@ -221,4 +213,8 @@ func (f *Factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 	}
 
 	return nil
+}
+
+func (f *Factory) MetricViews() []sdkmetric.View {
+	return monitoring.MetricViews()
 }

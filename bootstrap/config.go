@@ -8,7 +8,7 @@ import (
 	"github.com/BurntSushi/toml"
 
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap/keys"
-	"github.com/smartcontractkit/chainlink-ccv/pkg/monitoring"
+	"github.com/smartcontractkit/chainlink-ccv/common/monitoring"
 )
 
 // JDConfig is the configuration for the Job Distributor.

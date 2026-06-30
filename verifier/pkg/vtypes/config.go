@@ -1,6 +1,6 @@
 package vtypes
 
-import "github.com/smartcontractkit/chainlink-ccv/pkg/monitoring"
+import "github.com/smartcontractkit/chainlink-ccv/common/monitoring"
 
 // Type aliases — canonical definitions live in pkg/monitoring.
 type (

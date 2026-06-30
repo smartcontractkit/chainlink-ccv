@@ -13,16 +13,17 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/jmoiron/sqlx"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.uber.org/zap/zapcore"
 
 	dbpkg "github.com/smartcontractkit/chainlink-ccv/bootstrap/db"
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap/keys"
-	"github.com/smartcontractkit/chainlink-ccv/common"
 	jdclient "github.com/smartcontractkit/chainlink-ccv/common/jd/client"
 	"github.com/smartcontractkit/chainlink-ccv/common/jd/lifecycle"
 	jobstore "github.com/smartcontractkit/chainlink-ccv/common/jd/store"
+	"github.com/smartcontractkit/chainlink-ccv/common/monitoring"
+	"github.com/smartcontractkit/chainlink-ccv/common/monitoring/logging"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
-	"github.com/smartcontractkit/chainlink-ccv/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-common/keystore"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
@@ -37,17 +38,14 @@ const (
 
 // ServiceDeps are the dependencies passed to the services started by the bootstrapper.
 type ServiceDeps struct {
+	// Logger is a logger that can be used by the service.
+	Logger logger.Logger
+
 	// Keystore is an initialized keystore that can be used by the service.
 	Keystore keystore.Keystore
 
 	// Registry for chainaccess.Accessor objects.
 	Registry chainaccess.Registry
-
-	// Monitoring is the operator-provided monitoring config from the bootstrap config (Config.Monitoring).
-	// It is nil when the operator did not configure monitoring in the bootstrap config, or when the
-	// bootstrapper runs in static-TOML mode (which loads no bootstrap config). Services prefer this value
-	// and fall back to their own app-config monitoring field when it is nil.
-	Monitoring *monitoring.Config
 }
 
 // ServiceFactory is an interface implemented by the application that seeks to be bootstrapped.
@@ -56,6 +54,8 @@ type ServiceFactory interface {
 	Start(ctx context.Context, spec JobSpec, deps ServiceDeps) error
 	// Stop stops the service.
 	Stop(ctx context.Context) error
+	// MetricViews are a OTel histopgram views
+	MetricViews() []sdkmetric.View
 }
 
 // A runner adapts a [ServiceFactory] to the [lifecycle.JobRunner] interface.
@@ -201,16 +201,18 @@ func NewBootstrapper(
 		}
 	}
 
-	// do not fallback to it in bootstrapper
-	mon := monitoring.BeholderConfig{}
+	// do not fall back b.config to it
+	mon := monitoring.Config{}
 	if b.config != nil && b.config.Monitoring != nil {
-		mon = b.config.Monitoring.Beholder
+		mon = *b.config.Monitoring
 	}
-	lggr, err := common.InitLogger(b.name, b.logLevel, mon)
+	monitoring.SetupBeholder(mon, fac.MetricViews())
+	lggr, err := logging.InitLogger(b.name, b.logLevel, mon.Beholder)
 	if err != nil {
 		return nil, fmt.Errorf("failed to init logger: %w", err)
 	}
 	b.lggr = lggr
+	lggr.Infow("Monitoring initialized", "config", mon)
 
 	return b, nil
 }
@@ -245,7 +247,7 @@ func (b *Bootstrapper) startWithAppConfig(ctx context.Context) (startErr error) 
 		AppConfig:     *b.appCfg,
 	}
 
-	return b.fac.Start(ctx, js, ServiceDeps{Registry: b.accCloser})
+	return b.fac.Start(ctx, js, ServiceDeps{Logger: b.lggr, Registry: b.accCloser})
 }
 
 // startWithJDLifecycle initializes all components required for the JD lifecycle manager and starts it.
@@ -269,8 +271,8 @@ func (b *Bootstrapper) startWithJDLifecycle(ctx context.Context) error {
 	// Surface the operator-provided monitoring config to the service. Only the JD path populates this;
 	// static-TOML mode (startWithAppConfig) loads no bootstrap config and leaves it nil.
 	deps := ServiceDeps{
-		Keystore:   keyStore,
-		Monitoring: b.config.Monitoring,
+		Logger:   b.lggr,
+		Keystore: keyStore,
 	}
 
 	jobRunner := &runner{lggr: b.lggr, fac: b.fac, deps: deps}

@@ -13,6 +13,7 @@ import (
 	"go.uber.org/zap/zapcore"
 
 	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
+	"github.com/smartcontractkit/chainlink-ccv/common/monitoring/logging"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/api"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
@@ -49,7 +50,7 @@ func main() {
 	}
 
 	lggr = logger.Named(lggr, "indexer")
-	lggr = ccvcommon.WithService(lggr, "indexer")
+	lggr = logging.WithService(lggr, "indexer")
 	// Use SugaredLogger for better API
 	lggr = logger.Sugared(lggr)
 

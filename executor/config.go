@@ -5,8 +5,8 @@ import (
 	"net/url"
 	"time"
 
+	"github.com/smartcontractkit/chainlink-ccv/common/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
-	"github.com/smartcontractkit/chainlink-ccv/pkg/monitoring"
 )
 
 const (

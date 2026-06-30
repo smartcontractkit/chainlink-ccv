@@ -10,9 +10,8 @@ import (
 	"time"
 
 	"github.com/grafana/pyroscope-go"
-	"go.uber.org/zap/zapcore"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 
-	"github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
@@ -60,21 +59,11 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 		return fmt.Errorf("failed to get app config: %w", err)
 	}
 
-	// Monitoring config is operator-provided via the bootstrap config (deps.Monitoring), falling back to
-	// the deprecated app-config Monitoring field when unset
-	// TODO move to bootstrap
-	if deps.Monitoring != nil {
-		config.Monitoring = *deps.Monitoring
-	}
-	verifierMonitoring := SetupMonitoring(config.Monitoring, "committee_verifier")
-
-	// TODO: use deps.Logger after making bootstrap config required
-	f.lggr, err = common.InitLogger("verifier", zapcore.InfoLevel, config.Monitoring.Beholder)
+	lggr := deps.Logger
+	verifierMonitoring, err := monitoring.InitMonitoring("committee_verifier")
 	if err != nil {
-		return fmt.Errorf("failed to init logger: %w", err)
+		return fmt.Errorf("failed to init monitoring: %w", err)
 	}
-	lggr := f.lggr
-	lggr.Infow("Monitoring initialized", "monitoring", config.Monitoring)
 
 	if config.PyroscopeURL != "" {
 		profiler, err := StartPyroscope(lggr, config.PyroscopeURL, "verifier")
@@ -393,6 +382,10 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 	lggr.Infow("🎯 Verifier service fully started and ready!")
 
 	return nil
+}
+
+func (f *factory) MetricViews() []sdkmetric.View {
+	return monitoring.MetricViews()
 }
 
 // Stop implements [bootstrap.ServiceFactory].

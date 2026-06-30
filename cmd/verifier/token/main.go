@@ -9,9 +9,8 @@ import (
 	"strconv"
 	"time"
 
-	"go.uber.org/zap/zapcore"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 
-	"github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
@@ -96,29 +95,11 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, spec bootstrap.JobSp
 		return errors.Join(errs...)
 	}
 
-	var err error
-	// Monitoring config is operator-provided via the bootstrap config (deps.Monitoring), falling back to
-	// the deprecated app-config Monitoring field when unset
-	// TODO move to bootstrap
-	if deps.Monitoring != nil {
-		appConfig.Monitoring = *deps.Monitoring
-	}
-	verifierMonitoring := cmd.SetupMonitoring(appConfig.Monitoring, "token_verifier")
-
-	// todo use deps.Logger after making bootstrap config required
-	logLevelStr := os.Getenv("LOG_LEVEL")
-	if logLevelStr == "" {
-		logLevelStr = "info"
-	}
-	logLevel, err := zapcore.ParseLevel(logLevelStr)
+	tvf.lggr = deps.Logger
+	verifierMonitoring, err := monitoring.InitMonitoring("token_verifier")
 	if err != nil {
-		return fmt.Errorf("failed to parse log level: %w", err)
+		return fmt.Errorf("failed to init monitoring: %w", err)
 	}
-	tvf.lggr, err = common.InitLogger("verifier", logLevel, appConfig.Monitoring.Beholder)
-	if err != nil {
-		return fmt.Errorf("failed to init logger: %w", err)
-	}
-	tvf.lggr.Infow("Monitoring initialized", "monitoring", appConfig.Monitoring)
 
 	if appConfig.PyroscopeURL != "" {
 		_, err = cmd.StartPyroscope(tvf.lggr, appConfig.PyroscopeURL, "tokenVerifier")
@@ -260,6 +241,10 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, spec bootstrap.JobSp
 	tvf.lggr.Infow("🎯 Verifier service fully started and ready!")
 
 	return nil
+}
+
+func (tvf *tokenVerifierFactory) MetricViews() []sdkmetric.View {
+	return monitoring.MetricViews()
 }
 
 func createCCTPCoordinator(

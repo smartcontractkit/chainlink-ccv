@@ -11,8 +11,8 @@ import (
 	"github.com/BurntSushi/toml"
 	"github.com/Masterminds/semver/v3"
 
+	"github.com/smartcontractkit/chainlink-ccv/common/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/deployment/shared"
-	"github.com/smartcontractkit/chainlink-ccv/pkg/monitoring"
 )
 
 // EnvironmentTopology holds all environment-specific configuration that cannot be inferred

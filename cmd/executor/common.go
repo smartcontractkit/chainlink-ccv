@@ -26,8 +26,6 @@ func SetupMonitoring(config executor.MonitoringConfig) executor.Monitoring {
 		OtelExporterGRPCEndpoint: config.Beholder.OtelExporterGRPCEndpoint,
 		LogStreamingEnabled:      config.Beholder.LogStreamingEnabled,
 		LogLevel:                 zapcore.InfoLevel,
-		LogBatchProcessor:        false,
-		LogExportInterval:        time.Second * 10,
 		MetricReaderInterval:     time.Second * time.Duration(config.Beholder.MetricReaderInterval),
 		TraceSampleRatio:         config.Beholder.TraceSampleRatio,
 		TraceBatchTimeout:        time.Second * time.Duration(config.Beholder.TraceBatchTimeout),
