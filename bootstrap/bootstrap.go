@@ -269,29 +269,14 @@ func (b *Bootstrapper) startWithAppConfig(ctx context.Context) (startErr error) 
 }
 
 // chainTypeFromString maps a config chain type string to the proto ChainType enum.
+// It uses the proto-generated ChainType_value map so new enum values are supported
+// automatically without any code change here.
 func chainTypeFromString(s string) (pb.ChainType, error) {
-	switch strings.ToUpper(s) {
-	case "EVM":
-		return pb.ChainType_CHAIN_TYPE_EVM, nil
-	case "SOLANA":
-		return pb.ChainType_CHAIN_TYPE_SOLANA, nil
-	case "STARKNET":
-		return pb.ChainType_CHAIN_TYPE_STARKNET, nil
-	case "APTOS":
-		return pb.ChainType_CHAIN_TYPE_APTOS, nil
-	case "TRON":
-		return pb.ChainType_CHAIN_TYPE_TRON, nil
-	case "TON":
-		return pb.ChainType_CHAIN_TYPE_TON, nil
-	case "SUI":
-		return pb.ChainType_CHAIN_TYPE_SUI, nil
-	case "STELLAR":
-		return pb.ChainType_CHAIN_TYPE_STELLAR, nil
-	case "CANTON":
-		return pb.ChainType_CHAIN_TYPE_CANTON, nil
-	default:
-		return pb.ChainType_CHAIN_TYPE_UNSPECIFIED, fmt.Errorf("unknown chain type %q", s)
+	key := "CHAIN_TYPE_" + strings.ToUpper(s)
+	if v, ok := pb.ChainType_value[key]; ok {
+		return pb.ChainType(v), nil
 	}
+	return pb.ChainType_CHAIN_TYPE_UNSPECIFIED, fmt.Errorf("unknown chain type %q", s)
 }
 
 // signingAddressFromPublicKey derives the onchain signing address for the given chain type

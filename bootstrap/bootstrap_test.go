@@ -438,3 +438,40 @@ func TestBuildUpdateNodeRequest(t *testing.T) {
 		require.Contains(t, err.Error(), "not implemented")
 	})
 }
+
+func TestChainTypeFromString(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		input    string
+		wantErr  bool
+		wantType string // proto enum name suffix, e.g. "EVM"
+	}{
+		{"EVM", false, "CHAIN_TYPE_EVM"},
+		{"evm", false, "CHAIN_TYPE_EVM"},
+		{"Evm", false, "CHAIN_TYPE_EVM"},
+		{"SOLANA", false, "CHAIN_TYPE_SOLANA"},
+		{"solana", false, "CHAIN_TYPE_SOLANA"},
+		{"APTOS", false, "CHAIN_TYPE_APTOS"},
+		{"STELLAR", false, "CHAIN_TYPE_STELLAR"},
+		{"stellar", false, "CHAIN_TYPE_STELLAR"},
+		{"CANTON", false, "CHAIN_TYPE_CANTON"},
+		{"canton", false, "CHAIN_TYPE_CANTON"},
+		{"STARKNET", false, "CHAIN_TYPE_STARKNET"},
+		{"SUI", false, "CHAIN_TYPE_SUI"},
+		{"BITCOIN", true, ""},
+		{"", true, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			t.Parallel()
+			got, err := chainTypeFromString(tt.input)
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.wantType, got.String())
+		})
+	}
+}
