@@ -30,7 +30,6 @@ TraceBatchTimeout = 10
 
 [protocol_contracts]
 version = 2
-use_legacy_configure_lane = false
 
 ## Per-chain protocol-contract deploy parameters fed to the DeployProtocolContracts
 ## changeset. Committee verifiers and mock receivers are deployed separately in

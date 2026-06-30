@@ -25,6 +25,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/common/jd/lifecycle"
 	jobstore "github.com/smartcontractkit/chainlink-ccv/common/jd/store"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
+	"github.com/smartcontractkit/chainlink-ccv/pkg/monitoring"
 	zaplog "github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
 	"github.com/smartcontractkit/chainlink-common/keystore"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -48,6 +49,32 @@ type ServiceDeps struct {
 
 	// Registry for chainaccess.Accessor objects.
 	Registry chainaccess.Registry
+
+	// Monitoring is the operator-provided monitoring config from the bootstrap config (Config.Monitoring).
+	// It is nil when the operator did not configure monitoring in the bootstrap config, or when the
+	// bootstrapper runs in static-TOML mode (which loads no bootstrap config). Services prefer this value
+	// and fall back to their own app-config monitoring field when it is nil.
+	Monitoring *monitoring.Config
+}
+
+// ResolveMonitoring returns the effective monitoring config for a service, preferring the
+// operator-provided bootstrap config (fromBootstrap) over the deprecated app-config fallback.
+//
+// fromBootstrap is nil when the operator did not configure monitoring in the bootstrap config; in
+// that case the (deprecated) app-config value is used. Presence (non-nil), not Enabled, is the
+// discriminator: an operator who sets [monitoring] with Enabled=false is honored (monitoring off),
+// not silently overridden by the app-config fallback. It logs which source won so operators can
+// diagnose monitoring during the migration window in which both sources may be present.
+//
+// TODO(cleanup): remove once all deployments source monitoring from the bootstrap config; callers
+// then read *deps.Monitoring directly.
+func ResolveMonitoring(lggr logger.Logger, fromBootstrap *monitoring.Config, appConfigFallback monitoring.Config) monitoring.Config {
+	if fromBootstrap != nil {
+		lggr.Infow("Using monitoring config from bootstrap config")
+		return *fromBootstrap
+	}
+	lggr.Infow("Using monitoring config from deprecated app config (no monitoring section in bootstrap config)")
+	return appConfigFallback
 }
 
 // ServiceFactory is an interface implemented by the application that seeks to be bootstrapped.
@@ -359,6 +386,9 @@ func (b *Bootstrapper) startWithJDLifecycle(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to create service deps: %w", err)
 	}
+	// Surface the operator-provided monitoring config to the service. Only the JD path populates this;
+	// static-TOML mode (startWithAppConfig) loads no bootstrap config and leaves it nil.
+	deps.Monitoring = b.config.Monitoring
 
 	jobRunner := &runner{fac: b.fac, deps: deps}
 

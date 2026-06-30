@@ -12,6 +12,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
+	"github.com/smartcontractkit/chainlink-ccv/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/commit"
 	"github.com/smartcontractkit/chainlink-common/keystore"
 )
@@ -26,8 +27,9 @@ var CreateBootstrapDBInitScript = fmt.Sprintf(`CREATE DATABASE "%s";`, DefaultBo
 
 // BootstrapInput describes the input to the app bootstrapper.
 type BootstrapInput struct {
-	Keystore *bootstrap.KeystoreConfig `toml:"keystore"`
-	Server   *bootstrap.ServerConfig   `toml:"server"`
+	Keystore   *bootstrap.KeystoreConfig `toml:"keystore"`
+	Server     *bootstrap.ServerConfig   `toml:"server"`
+	Monitoring *monitoring.Config        `toml:"monitoring"`
 	// These fields can't be specified in the env.toml without actually spinning up the environment.
 	// They get populated while the environment is being spun up.
 	DB *bootstrap.DBConfig `toml:"-"`
@@ -85,11 +87,12 @@ func CreateBootstrapDBInitScriptFile() (path string, err error) {
 // GenerateBootstrapConfig marshals the bootstrap configuration to TOML.
 func GenerateBootstrapConfig(in BootstrapInput) ([]byte, error) {
 	config := bootstrap.Config{
-		Keystore: *in.Keystore,
-		DB:       *in.DB,
-		JD:       *in.JD,
-		Server:   *in.Server,
-		Chains:   in.Chains,
+		Keystore:   *in.Keystore,
+		DB:         *in.DB,
+		JD:         *in.JD,
+		Server:     *in.Server,
+		Chains:     in.Chains,
+		Monitoring: in.Monitoring,
 	}
 	return toml.Marshal(config)
 }

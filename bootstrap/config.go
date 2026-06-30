@@ -9,6 +9,7 @@ import (
 	"github.com/BurntSushi/toml"
 
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap/keys"
+	"github.com/smartcontractkit/chainlink-ccv/pkg/monitoring"
 )
 
 // JDConfig is the configuration for the Job Distributor.
@@ -128,6 +129,18 @@ type Config struct {
 	// Each entry causes the bootstrapper to register the node's signing key for that chain in JD.
 	// Optional: if empty, no signing key sync is performed.
 	Chains []ChainRegistration `toml:"chains"`
+
+	// Monitoring is the operator-provided monitoring configuration.
+	// These are operator- and environment-specific (the OTel exporter endpoints point
+	// at a collector deployed alongside the app, typically a k8s sidecar), so they belong in the
+	// operator-provided bootstrap config rather than the JD-shipped app config.
+	//
+	// It is a pointer to distinguish "operator did not configure monitoring here" (nil) from "operator
+	// explicitly configured it, possibly with Enabled=false" (non-nil). The apps that consume it (commit
+	// verifier, executor) prefer this value and fall back to their deprecated app-config Monitoring field
+	// only when it is nil. The token verifier is the exception: it loads no bootstrap config and keeps
+	// monitoring in its (already operator-provided) mounted app config.
+	Monitoring *monitoring.Config
 }
 
 func (c *Config) validate() error {
@@ -147,6 +160,12 @@ func (c *Config) validate() error {
 	for i, chain := range c.Chains {
 		if err := chain.validate(); err != nil {
 			errs = append(errs, fmt.Errorf("invalid chain at index %d: %w", i, err))
+		}
+	}
+	// Monitoring is optional; validate it only when the operator configured it.
+	if c.Monitoring != nil {
+		if err := c.Monitoring.Validate(); err != nil {
+			errs = append(errs, fmt.Errorf("failed to validate 'monitoring' section: %w", err))
 		}
 	}
 	return errors.Join(errs...)

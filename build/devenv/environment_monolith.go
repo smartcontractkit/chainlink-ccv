@@ -396,14 +396,8 @@ func NewEnvironment() (in *Cfg, err error) {
 		return nil, fmt.Errorf("configure all token transfers: %w", err)
 	}
 
-	var connectErr error
-	if in.ProtocolContracts.UseLegacyConfigureLane {
-		connectErr = ccdeploy.ConnectAllChainsLegacy(impls, in.Blockchains, selectors, e, topology)
-	} else {
-		connectErr = ccdeploy.ConnectAllChainsCanonical(impls, in.Blockchains, selectors, e, topology)
-	}
-	if connectErr != nil {
-		return nil, connectErr
+	if err = ccdeploy.ConnectAllChainsCanonical(impls, in.Blockchains, selectors, e, topology); err != nil {
+		return nil, err
 	}
 
 	/////////////////////////////////////////
@@ -636,6 +630,22 @@ func NewEnvironment() (in *Cfg, err error) {
 	/////////////////////////////
 	// START: Launch executors //
 	/////////////////////////////
+
+	// Route the central monitoring config into each executor's bootstrap input so it ends up
+	// in the generated bootstrap config. Defaults were applied earlier, so Bootstrap is
+	// non-nil; launch happens immediately below. Each executor gets its own copy so a future
+	// per-service override can't alias others.
+	monitoring := topology.Monitoring
+	for _, exec := range in.Executor {
+		if exec == nil {
+			continue
+		}
+		if exec.Bootstrap == nil {
+			exec.Bootstrap = &services.BootstrapInput{}
+		}
+		m := monitoring
+		exec.Bootstrap.Monitoring = &m
+	}
 
 	_, err = launchExecutors(in.Executor, blockchainOutputs, jdInfra)
 	if err != nil {

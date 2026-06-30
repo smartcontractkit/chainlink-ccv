@@ -3,13 +3,9 @@ name: Deployment Module Tests
 on:
   merge_group:
   pull_request:
-    paths:
-      - "deployment/**"
   push:
     branches:
       - main
-    paths:
-      - "deployment/**"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -17,12 +13,43 @@ concurrency:
 
 jobs:
   test:
+    name: deployment-module-tests
     runs-on: ubuntu-latest
     permissions:
       id-token: write
       contents: read
     steps:
+      - name: Checkout code
+        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
+        with:
+          # Full history so the change-detection step can diff against the PR base.
+          fetch-depth: 0
+
+      # This job intentionally has no `paths:` filter so it runs (and reports a status) on every
+      # PR — a required check with a paths filter deadlocks PRs that don't touch the filtered
+      # paths. Only the expensive steps below are gated on deployment/** actually changing.
+      - name: Detect deployment changes
+        id: changes
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          set -euo pipefail
+          # merge_group (the merge-queue gate) and push to main always run the full suite.
+          if [[ "$EVENT_NAME" != "pull_request" ]]; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if git diff --name-only "${BASE_SHA}...HEAD" | grep -qE '^deployment/'; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No deployment/** changes; skipping deployment module tests."
+          fi
+
       - name: Setup GitHub Token
+        if: steps.changes.outputs.changed == 'true'
         id: setup-github-token
         uses: smartcontractkit/.github/actions/setup-github-token@ef78fa97bf3c77de6563db1175422703e9e6674f # setup-github-token@0.2.1
         with:
@@ -31,10 +58,8 @@ jobs:
           aws-region: ${{ secrets.GATI_AWS_REGION }}
           set-git-config: true
 
-      - name: Checkout code
-        uses: actions/checkout@08c6903cd8c0fde910a37f88322edcfb5dd907a8 # v5.0.0
-
       - name: Set up Go
+        if: steps.changes.outputs.changed == 'true'
         uses: actions/setup-go@v6
         env:
           GOPRIVATE: github.com/smartcontractkit/*
@@ -44,5 +69,6 @@ jobs:
           cache-dependency-path: deployment/go.sum
 
       - name: Run tests
+        if: steps.changes.outputs.changed == 'true'
         working-directory: deployment
         run: go test ./...

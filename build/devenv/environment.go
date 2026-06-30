@@ -43,6 +43,7 @@ import (
 	ccvchangesets "github.com/smartcontractkit/chainlink-ccv/deployment/changesets"
 	ccvshared "github.com/smartcontractkit/chainlink-ccv/deployment/shared"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
+	_ "github.com/smartcontractkit/chainlink-ccv/integration/evm/adapters"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/commit"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
@@ -97,11 +98,7 @@ const (
 )
 
 // ProtocolContractsCfg holds config for the protocol_contracts Phase 3 component.
-type ProtocolContractsCfg struct {
-	// UseLegacyConfigureLane selects the legacy lanes.ConnectChains path
-	// instead of the canonical ConfigureChainsForLanesFromTopology changeset.
-	UseLegacyConfigureLane bool `toml:"use_legacy_configure_lane"`
-}
+type ProtocolContractsCfg struct{}
 
 type Cfg struct {
 	// Version is incremented on breaking config schema changes so downstream
@@ -489,17 +486,23 @@ func generateExecutorJobSpecs(
 			return nil, fmt.Errorf("executor pool %q not found in topology", qualifier)
 		}
 		cs := ccvchangesets.ApplyExecutorConfig()
-		output, err := cs.Apply(*e, ccvchangesets.ApplyExecutorConfigInput{
+		execInput := ccvchangesets.ApplyExecutorConfigInput{
 			ExecutorQualifier: qualifier,
 			NOPs:              ccvchangesets.NOPInputsFromTopology(topology),
 			Pool:              ccvchangesets.ExecutorPoolInputFromTopology(pool),
 			IndexerAddress:    topology.IndexerAddress,
 			PyroscopeURL:      topology.PyroscopeURL,
-			Monitoring:        topology.Monitoring,
 			TargetNOPs:        ccvshared.ConvertStringToNopAliases(execNOPAliases),
-		})
+		}
+		output, err := cs.Apply(*e, execInput)
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate executor configs for qualifier %s: %w", qualifier, err)
+		}
+
+		// e2e gate: reconstruct the pool from the just-persisted job specs and require
+		// it to match the topology-derived input. Mismatch fails the bring-up.
+		if err := verifyExecutorInference(qualifier, execInput.Pool, output.DataStore.Seal()); err != nil {
+			return nil, err
 		}
 
 		if err := ds.Merge(output.DataStore.Seal()); err != nil {
@@ -589,20 +592,27 @@ func generateVerifierJobSpecs(
 				return nil, fmt.Errorf("committee %q not found in topology", committeeName)
 			}
 			cs := ccvchangesets.ApplyVerifierConfig()
-			output, err := cs.Apply(*e, ccvchangesets.ApplyVerifierConfigInput{
+			verInput := ccvchangesets.ApplyVerifierConfigInput{
 				CommitteeQualifier:       committeeName,
 				DefaultExecutorQualifier: devenvcommon.DefaultExecutorQualifier,
 				NOPs:                     ccvchangesets.NOPInputsFromTopology(topology),
 				Committee:                ccvchangesets.CommitteeInputFromTopologyPerFamily(committee, family),
 				PyroscopeURL:             topology.PyroscopeURL,
-				Monitoring:               topology.Monitoring,
 				TargetNOPs:               verNOPAliases,
 				DisableFinalityCheckers:  disableFinalityCheckers,
 				// Consolidated topology: one verifier job per NOP writing to every aggregator.
 				ConsolidateAggregators: true,
-			})
+			}
+			output, err := cs.Apply(*e, verInput)
 			if err != nil {
 				return nil, fmt.Errorf("failed to generate verifier configs for committee %s: %w", committeeName, err)
+			}
+
+			// e2e gate: reconstruct committee membership from live on-chain state +
+			// JD + the just-persisted signer index, and require it to match the
+			// topology-derived input. Mismatch fails the bring-up.
+			if err := verifyCommitteeInference(e, committeeName, family, verInput.Committee, output.DataStore.Seal()); err != nil {
+				return nil, err
 			}
 
 			if err := ds.Merge(output.DataStore.Seal()); err != nil {
@@ -1123,8 +1133,19 @@ func launchStandaloneVerifiers(in *Cfg, blockchainOutputs []*blockchain.Output, 
 	topoAggNames := committeeverifier.CommitteeAggregatorNames(in.EnvironmentTopology)
 
 	// Apply defaults to verifiers so that we can use them in the standalone mode.
+	// Route the central monitoring config into each verifier's bootstrap input (after
+	// defaults make Bootstrap non-nil) so it ends up in the generated bootstrap config.
+	// This intentionally sets monitoring on ALL verifiers, not just the standalone ones
+	// launched below: every verifier's generated bootstrap config must carry monitoring.
+	// Each verifier gets its own copy so a future per-service override can't alias others.
+	monitoring := in.EnvironmentTopology.Monitoring
 	for i := range in.Verifier {
 		ver := committeeverifier.ApplyDefaults(*in.Verifier[i])
+		if ver.Bootstrap == nil {
+			ver.Bootstrap = &services.BootstrapInput{}
+		}
+		m := monitoring
+		ver.Bootstrap.Monitoring = &m
 		in.Verifier[i] = &ver
 	}
 
@@ -1337,7 +1358,10 @@ func registerStandaloneVerifiersWithJD(ctx context.Context, verifiers []*committ
 			}
 
 			reg := &jobs.BootstrapJDRegistration{
-				Name:         ver.ContainerName,
+				// Register under the NOP alias: it is globally unique (ContainerName is
+				// only unique within a committee/chain family) and is the key the
+				// job-proposal node lookup searches by (propose_jobs FindByName(nopAlias)).
+				Name:         ver.NOPAlias,
 				CSAPublicKey: ver.Out.BootstrapKeys.CSAPublicKey,
 			}
 			if err := jobs.RegisterBootstrapWithJD(gCtx, jdClient, reg); err != nil {
