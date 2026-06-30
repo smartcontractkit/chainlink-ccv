@@ -16,7 +16,7 @@ import (
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
 
-	aggregator "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg"
+	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/util"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm"
 	ccvblockchain "github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
@@ -113,16 +113,29 @@ func NewTokenVerifier(in *TokenVerifierInput, blockchainOutputs []*blockchain.Ou
 		return nil, fmt.Errorf("failed to create database: %w", err)
 	}
 
-	// Generate and store config file.
-	config, err := in.GenerateConfigWithBlockchainInfos(blockchainInfos)
+	// Generate and write the app config.
+	appConfig, err := in.GenerateConfigWithBlockchainInfos(blockchainInfos)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate verifier config for token verifier %w", err)
 	}
 
 	confDir := util.CCVConfigDir()
-	configFilePath := filepath.Join(confDir, "verifier-config.toml")
-	if err := os.WriteFile(configFilePath, config, 0o644); err != nil {
-		return nil, fmt.Errorf("failed to write aggregator config to file: %w", err)
+	appConfigFilePath := filepath.Join(confDir, "token-verifier-app-config.toml")
+	if err := os.WriteFile(appConfigFilePath, appConfig, 0o644); err != nil {
+		return nil, fmt.Errorf("failed to write token verifier app config to file: %w", err)
+	}
+
+	// Generate and write the bootstrap (operator) config, carrying monitoring from the generated config.
+	// Only the monitoring section is set; the infra sections (jd/db/keystore/server) are zero-valued
+	// and omitted from the TOML output via omitempty, so validation correctly skips infra checks.
+	monitoringCfg := in.GeneratedConfig.Monitoring
+	bootstrapConfig, err := toml.Marshal(bootstrap.Config{Monitoring: &monitoringCfg})
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate bootstrap config for token verifier: %w", err)
+	}
+	bootstrapConfigFilePath := filepath.Join(confDir, "token-verifier-bootstrap-config.toml")
+	if err := os.WriteFile(bootstrapConfigFilePath, bootstrapConfig, 0o644); err != nil {
+		return nil, fmt.Errorf("failed to write token verifier bootstrap config to file: %w", err)
 	}
 
 	envVars := make(map[string]string)
@@ -130,6 +143,8 @@ func NewTokenVerifier(in *TokenVerifierInput, blockchainOutputs []*blockchain.Ou
 	internalDBConnectionString := fmt.Sprintf("postgresql://%s:%s@%s:5432/%s?sslmode=disable",
 		in.ContainerName, in.ContainerName, in.DB.Name, in.ContainerName)
 	envVars["CL_DATABASE_URL"] = internalDBConnectionString
+	envVars["TOKEN_VERIFIER_CONFIG_PATH"] = "/etc/token-verifier-app-config.toml"
+	envVars["BOOTSTRAPPER_CONFIG_PATH"] = bootstrap.DefaultConfigPath
 	if lvl := os.Getenv("LOG_LEVEL"); lvl != "" {
 		envVars["LOG_LEVEL"] = lvl
 	}
@@ -161,10 +176,10 @@ func NewTokenVerifier(in *TokenVerifierInput, blockchainOutputs []*blockchain.Ou
 	}
 
 	req.Mounts = testcontainers.Mounts()
-	req.Mounts = append(req.Mounts, testcontainers.BindMount(
-		configFilePath,
-		aggregator.DefaultConfigFile, // TODO: switch to token verifier path, not aggregator path.
-	))
+	req.Mounts = append(req.Mounts,
+		testcontainers.BindMount(appConfigFilePath, "/etc/token-verifier-app-config.toml"),
+		testcontainers.BindMount(bootstrapConfigFilePath, bootstrap.DefaultConfigPath),
+	)
 
 	// Note: identical code to aggregator.go/executor.go -- will indexer be identical as well?
 	if in.SourceCodePath != "" {

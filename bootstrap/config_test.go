@@ -3,6 +3,7 @@ package bootstrap
 import (
 	"testing"
 
+	"github.com/BurntSushi/toml"
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/pkg/monitoring"
@@ -10,6 +11,26 @@ import (
 
 // validEd25519PublicKeyHex is 32 bytes (64 hex chars) for use in JD config tests.
 const validEd25519PublicKeyHex = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+
+// infraMeta returns a toml.MetaData indicating all four infra sections (jd, db, keystore, server)
+// are present, for use in validate() calls that must exercise infra bundle validation.
+func infraMeta(t *testing.T) toml.MetaData {
+	t.Helper()
+	var dummy Config
+	md, err := toml.Decode(`
+[jd]
+server_wsrpc_url = ""
+server_csa_public_key = ""
+[db]
+url = ""
+[keystore]
+password = ""
+[server]
+listen_port = 0
+`, &dummy)
+	require.NoError(t, err)
+	return md
+}
 
 // validBeholderMonitoring returns a fully-populated, enabled beholder monitoring config
 // whose Validate() passes, for use in Config validation tests.
@@ -323,9 +344,11 @@ func TestConfig_validate(t *testing.T) {
 			errContains: []string{"failed to validate 'db' section", "failed to validate 'monitoring' section"},
 		},
 	}
+	// All table cases above have infra sections configured; pass infraMeta so the infra bundle is validated.
+	infraMD := infraMeta(t)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := tt.config.validate()
+			err := tt.config.validate(infraMD)
 			if tt.wantErr {
 				require.Error(t, err)
 				for _, sub := range tt.errContains {
@@ -336,6 +359,12 @@ func TestConfig_validate(t *testing.T) {
 			}
 		})
 	}
+
+	// A monitoring-only config (no infra sections in TOML) must pass validation.
+	t.Run("monitoring-only config (no infra) is valid", func(t *testing.T) {
+		cfg := &Config{Monitoring: validBeholderMonitoring()}
+		require.NoError(t, cfg.validate(toml.MetaData{}))
+	})
 }
 
 func TestChainRegistration_validate(t *testing.T) {
@@ -376,10 +405,12 @@ func TestConfig_validate_Chains(t *testing.T) {
 	validDB := DBConfig{URL: "postgres://localhost/test"}
 	validServer := ServerConfig{ListenPort: 9988}
 
+	infraMD := infraMeta(t)
+
 	t.Run("no chains is valid", func(t *testing.T) {
 		t.Parallel()
 		cfg := &Config{JD: validJD, Keystore: validKeystore, DB: validDB, Server: validServer}
-		require.NoError(t, cfg.validate())
+		require.NoError(t, cfg.validate(infraMD))
 	})
 
 	t.Run("valid chains", func(t *testing.T) {
@@ -388,7 +419,7 @@ func TestConfig_validate_Chains(t *testing.T) {
 			JD: validJD, Keystore: validKeystore, DB: validDB, Server: validServer,
 			Chains: []ChainRegistration{{Type: "EVM", ID: "1"}, {Type: "EVM", ID: "137"}},
 		}
-		require.NoError(t, cfg.validate())
+		require.NoError(t, cfg.validate(infraMD))
 	})
 
 	t.Run("invalid chain entry fails validation", func(t *testing.T) {
@@ -397,7 +428,7 @@ func TestConfig_validate_Chains(t *testing.T) {
 			JD: validJD, Keystore: validKeystore, DB: validDB, Server: validServer,
 			Chains: []ChainRegistration{{Type: "NOTACHAIN", ID: "1"}},
 		}
-		err := cfg.validate()
+		err := cfg.validate(infraMD)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "invalid chain at index 0")
 	})

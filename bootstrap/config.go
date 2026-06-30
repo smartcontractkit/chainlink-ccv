@@ -121,10 +121,10 @@ func (c ChainRegistration) validate() error {
 	id = "1"
 */
 type Config struct {
-	JD       JDConfig
-	Keystore KeystoreConfig
-	DB       DBConfig
-	Server   ServerConfig
+	JD       JDConfig       `toml:"jd,omitempty"`
+	Keystore KeystoreConfig `toml:"keystore,omitempty"`
+	DB       DBConfig       `toml:"db,omitempty"`
+	Server   ServerConfig   `toml:"server,omitempty"`
 	// Chains declares the chains on which this node has a signing identity.
 	// Each entry causes the bootstrapper to register the node's signing key for that chain in JD.
 	// Optional: if empty, no signing key sync is performed.
@@ -143,26 +143,45 @@ type Config struct {
 	Monitoring *monitoring.Config
 }
 
-func (c *Config) validate() error {
+// validate checks the config for correctness. md is the TOML metadata from decoding, used to
+// detect which top-level sections were actually present in the file (as opposed to zero-valued
+// from an absent section). The infra bundle (jd/db/keystore/server) is validated only when any
+// infra key appears in md — so a monitoring-only bootstrap file is valid. Monitoring is always
+// validated independently when non-nil.
+func (c *Config) validate(md toml.MetaData) error {
 	var errs []error
-	if err := c.JD.validate(); err != nil {
-		errs = append(errs, fmt.Errorf("failed to validate 'jd' section: %w", err))
-	}
-	if err := c.Keystore.validate(); err != nil {
-		errs = append(errs, fmt.Errorf("failed to validate 'keystore' section: %w", err))
-	}
-	if err := c.DB.validate(); err != nil {
-		errs = append(errs, fmt.Errorf("failed to validate 'db' section: %w", err))
-	}
-	if err := c.Server.validate(); err != nil {
-		errs = append(errs, fmt.Errorf("failed to validate 'server' section: %w", err))
-	}
-	for i, chain := range c.Chains {
-		if err := chain.validate(); err != nil {
-			errs = append(errs, fmt.Errorf("invalid chain at index %d: %w", i, err))
+
+	infraPresent := false
+	for _, key := range md.Keys() {
+		switch key[0] {
+		case "jd", "db", "keystore", "server":
+			infraPresent = true
+		}
+		if infraPresent {
+			break
 		}
 	}
-	// Monitoring is optional; validate it only when the operator configured it.
+
+	if infraPresent {
+		if err := c.JD.validate(); err != nil {
+			errs = append(errs, fmt.Errorf("failed to validate 'jd' section: %w", err))
+		}
+		if err := c.Keystore.validate(); err != nil {
+			errs = append(errs, fmt.Errorf("failed to validate 'keystore' section: %w", err))
+		}
+		if err := c.DB.validate(); err != nil {
+			errs = append(errs, fmt.Errorf("failed to validate 'db' section: %w", err))
+		}
+		if err := c.Server.validate(); err != nil {
+			errs = append(errs, fmt.Errorf("failed to validate 'server' section: %w", err))
+		}
+		for i, chain := range c.Chains {
+			if err := chain.validate(); err != nil {
+				errs = append(errs, fmt.Errorf("invalid chain at index %d: %w", i, err))
+			}
+		}
+	}
+
 	if c.Monitoring != nil {
 		if err := c.Monitoring.Validate(); err != nil {
 			errs = append(errs, fmt.Errorf("failed to validate 'monitoring' section: %w", err))
@@ -178,24 +197,24 @@ func LoadAndValidateConfig(path string, cfg *Config) error {
 		return fmt.Errorf("failed to read config file: %w", err)
 	}
 
-	err = parseTOMLStrict(string(tomlBytes), cfg)
+	md, err := parseTOMLStrict(string(tomlBytes), cfg)
 	if err != nil {
 		return fmt.Errorf("failed to parse config: %w", err)
 	}
 
-	if err := cfg.validate(); err != nil {
+	if err := cfg.validate(md); err != nil {
 		return fmt.Errorf("config validation failed: %w", err)
 	}
 	return nil
 }
 
-func parseTOMLStrict[T any](tomlString string, out T) error {
+func parseTOMLStrict[T any](tomlString string, out T) (toml.MetaData, error) {
 	md, err := toml.Decode(tomlString, out)
 	if err != nil {
-		return fmt.Errorf("failed to decode toml: %w", err)
+		return toml.MetaData{}, fmt.Errorf("failed to decode toml: %w", err)
 	}
 	if len(md.Undecoded()) > 0 {
-		return fmt.Errorf("strict decode failed, found undecoded fields: %+v", md.Undecoded())
+		return toml.MetaData{}, fmt.Errorf("strict decode failed, found undecoded fields: %+v", md.Undecoded())
 	}
-	return nil
+	return md, nil
 }

@@ -51,9 +51,8 @@ type ServiceDeps struct {
 	Registry chainaccess.Registry
 
 	// Monitoring is the operator-provided monitoring config from the bootstrap config (Config.Monitoring).
-	// It is nil when the operator did not configure monitoring in the bootstrap config, or when the
-	// bootstrapper runs in static-TOML mode (which loads no bootstrap config). Services prefer this value
-	// and fall back to their own app-config monitoring field when it is nil.
+	// It is nil when the operator did not configure monitoring in the bootstrap config. Services prefer
+	// this value and fall back to their own app-config monitoring field when it is nil.
 	Monitoring *monitoring.Config
 }
 
@@ -152,6 +151,12 @@ type Bootstrapper struct {
 	infoServer       *infoServer
 	keys             []keyToInit
 
+	// jdMode is true when the bootstrapper runs in JD lifecycle mode (WithJD or default).
+	// false means static-TOML mode (WithTOMLAppConfig). Routing in Start() uses this flag
+	// rather than checking b.config != nil, because b.config may now be set in both modes
+	// (operator config is optionally loaded in static-TOML mode too).
+	jdMode bool
+
 	// application
 	appCfg *string
 	fac    ServiceFactory
@@ -192,14 +197,19 @@ func NewBootstrapper(
 		}
 	}
 
-	// If no configuration is provided, default to JD lifecycle manager with config loaded from the default path.
-	if b.appCfg == nil && b.config == nil {
-		b.config = &Config{}
+	// WithJD and WithTOMLAppConfig are mutually exclusive.
+	if b.jdMode && b.appCfg != nil {
+		return nil, fmt.Errorf("WithJD and WithTOMLAppConfig are mutually exclusive")
 	}
 
-	// JD mode requires a CSA key for node authentication. Inject the default if the caller
-	// did not explicitly declare one, so callers only need to list their application keys.
-	if b.config != nil {
+	// If neither mode was explicitly selected, default to JD lifecycle mode.
+	if !b.jdMode && b.appCfg == nil {
+		b.jdMode = true
+	}
+
+	if b.jdMode {
+		// JD mode requires a CSA key for node authentication. Inject the default if the caller
+		// did not explicitly declare one, so callers only need to list their application keys.
 		hasCSA := false
 		for _, k := range b.keys {
 			if k.purpose == "csa" {
@@ -210,9 +220,7 @@ func NewBootstrapper(
 		if !hasCSA {
 			b.keys = append([]keyToInit{{DefaultCSAKeyName, "csa", keystore.Ed25519}}, b.keys...)
 		}
-	}
 
-	if b.config != nil {
 		// Use provided config path if set by an option.
 		if b.configPath == "" {
 			// If no config path is provided by an option, check the environment variable.
@@ -223,13 +231,25 @@ func NewBootstrapper(
 			}
 		}
 
-		err := LoadAndValidateConfig(b.configPath, b.config)
-		if err != nil {
+		b.config = &Config{}
+		if err := LoadAndValidateConfig(b.configPath, b.config); err != nil {
 			return nil, fmt.Errorf("failed to load bootstrap config (%s): %w", b.configPath, err)
 		}
 
 		// not logging config because it contains secrets.
 		lggr.Infow("loaded bootstrap config")
+	} else {
+		// Static-TOML mode: optionally load operator config when BOOTSTRAPPER_CONFIG_PATH is
+		// explicitly set. The default fallback to DefaultConfigPath is intentionally suppressed
+		// here: TOKEN_VERIFIER_CONFIG_PATH and BOOTSTRAPPER_CONFIG_PATH both default to
+		// /etc/config.toml, so applying the default would decode the wrong file. See issue #013.
+		if path := os.Getenv(ConfigPathEnv); path != "" {
+			b.config = &Config{}
+			if err := LoadAndValidateConfig(path, b.config); err != nil {
+				return nil, fmt.Errorf("failed to load operator config (%s): %w", path, err)
+			}
+			lggr.Infow("loaded operator config for static-TOML mode")
+		}
 	}
 
 	return b, nil
@@ -239,6 +259,11 @@ func NewBootstrapper(
 func (b *Bootstrapper) startWithAppConfig(ctx context.Context) (startErr error) {
 	if b.appCfg == nil {
 		return fmt.Errorf("bootstrapper has no app config")
+	}
+
+	lggr, err := newLogger(b.logLevel, b.name)
+	if err != nil {
+		return fmt.Errorf("failed to create logger: %w", err)
 	}
 
 	b.lggr.Infow("Calling NewRegistry with app config")
@@ -265,7 +290,15 @@ func (b *Bootstrapper) startWithAppConfig(ctx context.Context) (startErr error) 
 		AppConfig:     *b.appCfg,
 	}
 
-	return b.fac.Start(ctx, js, ServiceDeps{Registry: b.accCloser})
+	deps := ServiceDeps{
+		Logger:   lggr,
+		Registry: b.accCloser,
+	}
+	if b.config != nil {
+		deps.Monitoring = b.config.Monitoring
+	}
+
+	return b.fac.Start(ctx, js, deps)
 }
 
 // chainTypeFromString maps a config chain type string to the proto ChainType enum.
@@ -373,8 +406,6 @@ func (b *Bootstrapper) startWithJDLifecycle(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to create service deps: %w", err)
 	}
-	// Surface the operator-provided monitoring config to the service. Only the JD path populates this;
-	// static-TOML mode (startWithAppConfig) loads no bootstrap config and leaves it nil.
 	deps.Monitoring = b.config.Monitoring
 
 	jobRunner := &runner{fac: b.fac, deps: deps}
@@ -434,14 +465,10 @@ func (b *Bootstrapper) startWithJDLifecycle(ctx context.Context) error {
 
 // Start initializes the keystore, connects to JD, and starts the lifecycle manager.
 func (b *Bootstrapper) Start(ctx context.Context) error {
-	if b.config != nil {
+	if b.jdMode {
 		return b.startWithJDLifecycle(ctx)
 	}
-	if b.appCfg != nil {
-		return b.startWithAppConfig(ctx)
-	}
-
-	return fmt.Errorf("no configuration provided: either JD config or app config must be provided")
+	return b.startWithAppConfig(ctx)
 }
 
 // Stop shuts down all active components.
@@ -489,12 +516,19 @@ func connectToDB(ctx context.Context, connStr string) (*sqlx.DB, error) {
 	return db, nil
 }
 
-func newServiceDeps(keyStore keystore.Keystore, logLevel zapcore.Level, name string) (ServiceDeps, error) {
+func newLogger(logLevel zapcore.Level, name string) (logger.Logger, error) {
 	lggr, err := logger.NewWith(zaplog.GetLogProfile(logLevel))
 	if err != nil {
-		return ServiceDeps{}, fmt.Errorf("failed to create logger: %w", err)
+		return nil, fmt.Errorf("failed to create logger: %w", err)
 	}
-	lggr = logger.Sugared(logger.Named(lggr, name))
+	return logger.Sugared(logger.Named(lggr, name)), nil
+}
+
+func newServiceDeps(keyStore keystore.Keystore, logLevel zapcore.Level, name string) (ServiceDeps, error) {
+	lggr, err := newLogger(logLevel, name)
+	if err != nil {
+		return ServiceDeps{}, err
+	}
 	return ServiceDeps{
 		Logger:   lggr,
 		Keystore: keyStore,
@@ -584,7 +618,7 @@ func WithKey(name, purpose string, keyType keystore.KeyType) Option {
 // already declared via WithKey.
 func WithJD() Option {
 	return func(b *Bootstrapper) error {
-		b.config = &Config{}
+		b.jdMode = true
 		return nil
 	}
 }
