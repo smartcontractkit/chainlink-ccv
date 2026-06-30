@@ -337,3 +337,68 @@ func TestConfig_validate(t *testing.T) {
 		})
 	}
 }
+
+func TestChainRegistration_validate(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name        string
+		chain       ChainRegistration
+		wantErr     bool
+		errContains string
+	}{
+		{"valid EVM", ChainRegistration{Type: "EVM", ID: "1"}, false, ""},
+		{"valid lowercase evm", ChainRegistration{Type: "evm", ID: "137"}, false, ""},
+		{"valid SOLANA", ChainRegistration{Type: "SOLANA", ID: "mainnet"}, false, ""},
+		{"missing type", ChainRegistration{Type: "", ID: "1"}, true, "type"},
+		{"missing id", ChainRegistration{Type: "EVM", ID: ""}, true, "id"},
+		{"unknown type", ChainRegistration{Type: "BITCOIN", ID: "1"}, true, "unknown chain type"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			err := tt.chain.validate()
+			if tt.wantErr {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), tt.errContains)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestConfig_validate_Chains(t *testing.T) {
+	t.Parallel()
+
+	validJD := JDConfig{ServerWSRPCURL: "ws://localhost:8080/ws", ServerCSAPublicKey: validEd25519PublicKeyHex}
+	validKeystore := KeystoreConfig{Password: "password"}
+	validDB := DBConfig{URL: "postgres://localhost/test"}
+	validServer := ServerConfig{ListenPort: 9988}
+
+	t.Run("no chains is valid", func(t *testing.T) {
+		t.Parallel()
+		cfg := &Config{JD: validJD, Keystore: validKeystore, DB: validDB, Server: validServer}
+		require.NoError(t, cfg.validate())
+	})
+
+	t.Run("valid chains", func(t *testing.T) {
+		t.Parallel()
+		cfg := &Config{
+			JD: validJD, Keystore: validKeystore, DB: validDB, Server: validServer,
+			Chains: []ChainRegistration{{Type: "EVM", ID: "1"}, {Type: "EVM", ID: "137"}},
+		}
+		require.NoError(t, cfg.validate())
+	})
+
+	t.Run("invalid chain entry fails validation", func(t *testing.T) {
+		t.Parallel()
+		cfg := &Config{
+			JD: validJD, Keystore: validKeystore, DB: validDB, Server: validServer,
+			Chains: []ChainRegistration{{Type: "NOTACHAIN", ID: "1"}},
+		}
+		err := cfg.validate()
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "invalid chain at index 0")
+	})
+}

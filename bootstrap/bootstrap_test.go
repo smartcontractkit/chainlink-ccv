@@ -367,3 +367,111 @@ func (s *spyServiceFactory) Stop(ctx context.Context) error {
 	}
 	return nil
 }
+
+func TestBuildUpdateNodeRequest(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+
+	t.Run("returns nil when no signing keys", func(t *testing.T) {
+		t.Parallel()
+		ks, err := keystore.LoadKeystore(ctx, keystore.NewMemoryStorage(), "test", keystore.WithScryptParams(keystore.FastScryptParams))
+		require.NoError(t, err)
+		req, err := buildUpdateNodeRequest(ctx, ks, nil, []ChainRegistration{{Type: "EVM", ID: "1"}})
+		require.NoError(t, err)
+		require.Nil(t, req)
+	})
+
+	t.Run("returns nil when no chains", func(t *testing.T) {
+		t.Parallel()
+		ks, err := keystore.LoadKeystore(ctx, keystore.NewMemoryStorage(), "test", keystore.WithScryptParams(keystore.FastScryptParams))
+		require.NoError(t, err)
+		req, err := buildUpdateNodeRequest(ctx, ks, []string{"signing-key"}, nil)
+		require.NoError(t, err)
+		require.Nil(t, req)
+	})
+
+	t.Run("builds request with EVM signing address", func(t *testing.T) {
+		t.Parallel()
+		ks, err := keystore.LoadKeystore(ctx, keystore.NewMemoryStorage(), "test", keystore.WithScryptParams(keystore.FastScryptParams))
+		require.NoError(t, err)
+		resp, err := ks.CreateKeys(ctx, keystore.CreateKeysRequest{
+			Keys: []keystore.CreateKeyRequest{{KeyName: "signing-key", KeyType: keystore.ECDSA_S256}},
+		})
+		require.NoError(t, err)
+		require.Len(t, resp.Keys, 1)
+
+		chains := []ChainRegistration{{Type: "EVM", ID: "1"}, {Type: "EVM", ID: "137"}}
+		req, err := buildUpdateNodeRequest(ctx, ks, []string{"signing-key"}, chains)
+		require.NoError(t, err)
+		require.NotNil(t, req)
+		require.Len(t, req.ChainConfigs, 2)
+
+		for i, cc := range req.ChainConfigs {
+			require.NotNil(t, cc.Ocr2Config)
+			require.NotNil(t, cc.Ocr2Config.OcrKeyBundle)
+			require.True(t, cc.Ocr2Config.Enabled)
+			require.Equal(t, chains[i].ID, cc.Chain.Id)
+			require.NotEmpty(t, cc.Ocr2Config.OcrKeyBundle.OnchainSigningAddress)
+			// EVM addresses are 42 chars (0x + 40 hex)
+			require.Len(t, cc.Ocr2Config.OcrKeyBundle.OnchainSigningAddress, 42)
+		}
+
+		// Both chains must have the same address (same signing key)
+		addr0 := req.ChainConfigs[0].Ocr2Config.OcrKeyBundle.OnchainSigningAddress
+		addr1 := req.ChainConfigs[1].Ocr2Config.OcrKeyBundle.OnchainSigningAddress
+		require.Equal(t, addr0, addr1)
+	})
+
+	t.Run("unsupported chain type returns error", func(t *testing.T) {
+		t.Parallel()
+		ks, err := keystore.LoadKeystore(ctx, keystore.NewMemoryStorage(), "test", keystore.WithScryptParams(keystore.FastScryptParams))
+		require.NoError(t, err)
+		_, err = ks.CreateKeys(ctx, keystore.CreateKeysRequest{
+			Keys: []keystore.CreateKeyRequest{{KeyName: "signing-key", KeyType: keystore.ECDSA_S256}},
+		})
+		require.NoError(t, err)
+
+		// STARKNET has no signing address derivation implemented yet.
+		_, err = buildUpdateNodeRequest(ctx, ks, []string{"signing-key"}, []ChainRegistration{{Type: "STARKNET", ID: "mainnet"}})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "not implemented")
+	})
+}
+
+func TestChainTypeFromString(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		input    string
+		wantErr  bool
+		wantType string // proto enum name suffix, e.g. "EVM"
+	}{
+		{"EVM", false, "CHAIN_TYPE_EVM"},
+		{"evm", false, "CHAIN_TYPE_EVM"},
+		{"Evm", false, "CHAIN_TYPE_EVM"},
+		{"SOLANA", false, "CHAIN_TYPE_SOLANA"},
+		{"solana", false, "CHAIN_TYPE_SOLANA"},
+		{"APTOS", false, "CHAIN_TYPE_APTOS"},
+		{"STELLAR", false, "CHAIN_TYPE_STELLAR"},
+		{"stellar", false, "CHAIN_TYPE_STELLAR"},
+		{"CANTON", false, "CHAIN_TYPE_CANTON"},
+		{"canton", false, "CHAIN_TYPE_CANTON"},
+		{"STARKNET", false, "CHAIN_TYPE_STARKNET"},
+		{"SUI", false, "CHAIN_TYPE_SUI"},
+		{"BITCOIN", true, ""},
+		{"", true, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			t.Parallel()
+			got, err := chainTypeFromString(tt.input)
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.wantType, got.String())
+		})
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/BurntSushi/toml"
 
@@ -71,6 +72,34 @@ func (c *ServerConfig) validate() error {
 	return nil
 }
 
+// ChainRegistration declares a chain for which the node has a signing identity.
+// The bootstrapper uses these entries to publish the node's signing key to JD on connect.
+type ChainRegistration struct {
+	// Type is the chain family, e.g. "EVM", "SOLANA". Case-insensitive.
+	Type string `toml:"type"`
+	// ID is the chain identifier, e.g. "1" for Ethereum mainnet.
+	ID string `toml:"id"`
+}
+
+// knownChainTypes is the set of chain type strings (upper-cased) for which signing address
+// derivation is implemented. Extend this together with signingAddressFromPublicKey in bootstrap.go.
+var knownChainTypes = map[string]struct{}{
+	"EVM": {}, "SOLANA": {}, "APTOS": {}, "STELLAR": {}, "CANTON": {},
+}
+
+func (c ChainRegistration) validate() error {
+	if c.Type == "" {
+		return fmt.Errorf("field 'type' is required")
+	}
+	if c.ID == "" {
+		return fmt.Errorf("field 'id' is required")
+	}
+	if _, ok := knownChainTypes[strings.ToUpper(c.Type)]; !ok {
+		return fmt.Errorf("unknown chain type %q: must be one of EVM, SOLANA, APTOS", c.Type)
+	}
+	return nil
+}
+
 // Config is the configuration for the bootstrapper.
 // Example config:
 /*
@@ -86,12 +115,20 @@ func (c *ServerConfig) validate() error {
 
 	[server]
 	listen_port = 9988
+
+	[[chains]]
+	type = "EVM"
+	id = "1"
 */
 type Config struct {
 	JD       JDConfig
 	Keystore KeystoreConfig
 	DB       DBConfig
 	Server   ServerConfig
+	// Chains declares the chains on which this node has a signing identity.
+	// Each entry causes the bootstrapper to register the node's signing key for that chain in JD.
+	// Optional: if empty, no signing key sync is performed.
+	Chains []ChainRegistration `toml:"chains"`
 
 	// Monitoring is the operator-provided monitoring configuration.
 	// These are operator- and environment-specific (the OTel exporter endpoints point
@@ -119,6 +156,11 @@ func (c *Config) validate() error {
 	}
 	if err := c.Server.validate(); err != nil {
 		errs = append(errs, fmt.Errorf("failed to validate 'server' section: %w", err))
+	}
+	for i, chain := range c.Chains {
+		if err := chain.validate(); err != nil {
+			errs = append(errs, fmt.Errorf("invalid chain at index %d: %w", i, err))
+		}
 	}
 	// Monitoring is optional; validate it only when the operator configured it.
 	if c.Monitoring != nil {
