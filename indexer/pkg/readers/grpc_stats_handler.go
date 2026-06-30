@@ -19,12 +19,11 @@ type grpcMethodKey struct{}
 // End events capture gRPC status codes including transport-level errors such as ResourceExhausted
 // when an aggregator response exceeds the client's configured MaxRecvMsgSize.
 type grpcClientStatsHandler struct {
-	target string
-	m      common.IndexerMetricLabeler
+	m common.IndexerMetricLabeler
 }
 
-func newGRPCClientStatsHandler(target string, m common.IndexerMetricLabeler) *grpcClientStatsHandler {
-	return &grpcClientStatsHandler{target: target, m: m}
+func newGRPCClientStatsHandler(m common.IndexerMetricLabeler) *grpcClientStatsHandler {
+	return &grpcClientStatsHandler{m: m}
 }
 
 func (h *grpcClientStatsHandler) TagRPC(ctx context.Context, info *stats.RPCTagInfo) context.Context {
@@ -39,14 +38,14 @@ func (h *grpcClientStatsHandler) HandleRPC(ctx context.Context, s stats.RPCStats
 
 	switch st := s.(type) {
 	case *stats.OutPayload:
-		h.m.RecordGRPCPayloadSize(ctx, h.target, method, "send", st.WireLength)
+		h.m.RecordGRPCPayloadSize(ctx, method, "send", st.WireLength)
 	case *stats.InPayload:
-		h.m.RecordGRPCPayloadSize(ctx, h.target, method, "recv", st.WireLength)
+		h.m.RecordGRPCPayloadSize(ctx, method, "recv", st.WireLength)
 	case *stats.End:
 		if st.Error != nil {
 			code := status.Code(st.Error)
 			if code != codes.OK {
-				h.m.IncrementGRPCErrors(ctx, h.target, code.String(), method)
+				h.m.IncrementGRPCErrors(ctx, code.String(), method)
 			}
 		}
 	}
@@ -59,8 +58,8 @@ func (h *grpcClientStatsHandler) TagConn(ctx context.Context, _ *stats.ConnTagIn
 func (h *grpcClientStatsHandler) HandleConn(_ context.Context, _ stats.ConnStats) {}
 
 // grpcClientDialOptions returns the gRPC dial options for monitoring payload sizes and error counts.
-func grpcClientDialOptions(target string, m common.IndexerMetricLabeler) []grpc.DialOption {
+func grpcClientDialOptions(m common.IndexerMetricLabeler) []grpc.DialOption {
 	return []grpc.DialOption{
-		grpc.WithStatsHandler(newGRPCClientStatsHandler(target, m)),
+		grpc.WithStatsHandler(newGRPCClientStatsHandler(m)),
 	}
 }

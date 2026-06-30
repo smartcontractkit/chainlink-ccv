@@ -89,8 +89,6 @@ type AddNOPOffchainInput struct {
 	ExecutorQualifier string
 	// DisableFinalityCheckers is a list of chain selectors for which finality checks are disabled.
 	DisableFinalityCheckers []string
-	// Monitoring holds monitoring configuration included in the job spec.
-	Monitoring ccvdeployment.MonitoringConfig
 	// ConsolidateAggregators when true emits a single consolidated verifier job (writing to all of
 	// the committee's aggregators) for the added NOP, matching the consolidated topology. Default
 	// false preserves the legacy one-job-per-aggregator output.
@@ -373,7 +371,6 @@ func provisionVerifierJobForNOP(
 		nopInputs,
 		committeeInput,
 		"",
-		cfg.Monitoring,
 		cfg.DisableFinalityCheckers,
 		signerFamily,
 		cfg.ConsolidateAggregators,

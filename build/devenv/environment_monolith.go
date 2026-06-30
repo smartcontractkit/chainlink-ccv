@@ -631,6 +631,22 @@ func NewEnvironment() (in *Cfg, err error) {
 	// START: Launch executors //
 	/////////////////////////////
 
+	// Route the central monitoring config into each executor's bootstrap input so it ends up
+	// in the generated bootstrap config. Defaults were applied earlier, so Bootstrap is
+	// non-nil; launch happens immediately below. Each executor gets its own copy so a future
+	// per-service override can't alias others.
+	monitoring := topology.Monitoring
+	for _, exec := range in.Executor {
+		if exec == nil {
+			continue
+		}
+		if exec.Bootstrap == nil {
+			exec.Bootstrap = &services.BootstrapInput{}
+		}
+		m := monitoring
+		exec.Bootstrap.Monitoring = &m
+	}
+
 	_, err = launchExecutors(in.Executor, blockchainOutputs, jdInfra)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create executors: %w", err)

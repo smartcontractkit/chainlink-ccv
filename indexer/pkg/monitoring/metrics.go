@@ -37,6 +37,10 @@ type IndexerMetrics struct {
 	// gRPC client transport metrics
 	grpcPayloadSizeBytes metric.Int64Histogram
 	grpcErrorsTotal      metric.Int64Counter
+
+	// Offchain read metrics
+	offchainReadErrorsTotal     metric.Int64Counter
+	offchainReadDurationSeconds metric.Float64Histogram
 }
 
 func InitMetrics() (im *IndexerMetrics, err error) {
@@ -139,6 +143,23 @@ func InitMetrics() (im *IndexerMetrics, err error) {
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to register grpc errors total counter: %w", err)
+	}
+
+	im.offchainReadErrorsTotal, err = beholder.GetMeter().Int64Counter(
+		"indexer_offchain_read_errors",
+		metric.WithDescription("Total number of offchain read errors"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register offchain read errors counter: %w", err)
+	}
+
+	im.offchainReadDurationSeconds, err = beholder.GetMeter().Float64Histogram(
+		"indexer_offchain_read_duration",
+		metric.WithDescription("Duration of offchain read operations"),
+		metric.WithUnit("seconds"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register offchain read duration histogram: %w", err)
 	}
 
 	return im, nil
@@ -282,20 +303,30 @@ func (c *IndexerMetricLabeler) RecordCircuitBreakerStatus(ctx context.Context, s
 	c.im.circuitBreakerStatus.Record(ctx, gaugeValue, metric.WithAttributes(otelLabels...))
 }
 
-func (c *IndexerMetricLabeler) RecordGRPCPayloadSize(ctx context.Context, target, method, direction string, sizeBytes int) {
+func (c *IndexerMetricLabeler) RecordGRPCPayloadSize(ctx context.Context, method, direction string, sizeBytes int) {
 	otelLabels := beholder.OtelAttributes(c.Labels).AsStringAttributes()
 	c.im.grpcPayloadSizeBytes.Record(ctx, int64(sizeBytes), metric.WithAttributes([]attribute.KeyValue{
-		attribute.String("target", target),
 		attribute.String("method", method),
 		attribute.String("direction", direction),
 	}...), metric.WithAttributes(otelLabels...))
 }
 
-func (c *IndexerMetricLabeler) IncrementGRPCErrors(ctx context.Context, target, code, method string) {
+func (c *IndexerMetricLabeler) IncrementGRPCErrors(ctx context.Context, code, method string) {
 	otelLabels := beholder.OtelAttributes(c.Labels).AsStringAttributes()
 	c.im.grpcErrorsTotal.Add(ctx, 1, metric.WithAttributes([]attribute.KeyValue{
-		attribute.String("target", target),
 		attribute.String("code", code),
 		attribute.String("method", method),
+	}...), metric.WithAttributes(otelLabels...))
+}
+
+func (c *IndexerMetricLabeler) IncrementOffchainReadError(ctx context.Context) {
+	otelLabels := beholder.OtelAttributes(c.Labels).AsStringAttributes()
+	c.im.offchainReadErrorsTotal.Add(ctx, 1, metric.WithAttributes(otelLabels...))
+}
+
+func (c *IndexerMetricLabeler) RecordOffchainReadLatency(ctx context.Context, duration time.Duration, errored bool) {
+	otelLabels := beholder.OtelAttributes(c.Labels).AsStringAttributes()
+	c.im.offchainReadDurationSeconds.Record(ctx, duration.Seconds(), metric.WithAttributes([]attribute.KeyValue{
+		attribute.Bool("errored", errored),
 	}...), metric.WithAttributes(otelLabels...))
 }

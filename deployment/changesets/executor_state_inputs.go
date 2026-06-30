@@ -27,7 +27,6 @@ const executorJobType = "ccvexecutor"
 type ExecutorConnExtras struct {
 	IndexerAddress []string
 	PyroscopeURL   string
-	Monitoring     ccvdeployment.MonitoringConfig
 }
 
 // ExecutorPoolInputFromState reconstructs the executor pool input from the
@@ -38,8 +37,8 @@ type ExecutorConnExtras struct {
 // meaningful on-chain footprint: its membership, per-chain execution interval,
 // and all pool-wide tuning live in the published job config. Those specs are the
 // source of truth, so everything is recovered from them and nothing needs to be
-// re-supplied. The connection settings (indexer addresses, pyroscope URL,
-// monitoring) are returned separately via ExecutorConnExtras.
+// re-supplied. The connection settings (indexer addresses, pyroscope URL) are
+// returned separately via ExecutorConnExtras.
 //
 // Pool-wide tuning and connection settings are taken from the first job in scope
 // (they are identical across a pool's NOPs); per-chain membership and interval are
@@ -104,7 +103,6 @@ func ExecutorPoolInputFromState(ds datastore.DataStore, qualifier string) (Execu
 	pool.NtpServer = first.NtpServer
 	extras.IndexerAddress = first.IndexerAddress
 	extras.PyroscopeURL = first.PyroscopeURL
-	extras.Monitoring = first.Monitoring
 
 	for selStr, cc := range first.ChainConfiguration {
 		sel, perr := strconv.ParseUint(selStr, 10, 64)
@@ -251,7 +249,6 @@ func ApplyExecutorConfigInputFromState(
 		Pool:               pool,
 		IndexerAddress:     indexer,
 		PyroscopeURL:       extras.PyroscopeURL,
-		Monitoring:         extras.Monitoring,
 		TargetNOPs:         opts.TargetNOPs,
 		RevokeOrphanedJobs: opts.RevokeOrphanedJobs,
 	}, nil

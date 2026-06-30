@@ -47,9 +47,13 @@ type IndexerMetricLabeler interface {
 	// RecordGRPCPayloadSize records the gRPC wire-level payload size in bytes.
 	// target identifies the remote gRPC server (DiscoveryConfig.Label() or VerifierConfig.Label()).
 	// direction is "recv" for received payloads, "send" for sent payloads.
-	RecordGRPCPayloadSize(ctx context.Context, target, method, direction string, sizeBytes int)
+	RecordGRPCPayloadSize(ctx context.Context, method, direction string, sizeBytes int)
 	// IncrementGRPCErrors increments the counter for gRPC errors by status code.
 	// target identifies the remote gRPC server (DiscoveryConfig.Label() or VerifierConfig.Label()).
 	// code should be the gRPC status code string (e.g. "ResourceExhausted", "Internal").
-	IncrementGRPCErrors(ctx context.Context, target, code, method string)
+	IncrementGRPCErrors(ctx context.Context, code, method string)
+	// IncrementOffchainReadError increments the counter for offchain read errors.
+	IncrementOffchainReadError(ctx context.Context)
+	// RecordOffchainReadLatency records the latency of an offchain read operation.
+	RecordOffchainReadLatency(ctx context.Context, duration time.Duration, errored bool)
 }

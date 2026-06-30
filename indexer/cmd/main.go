@@ -153,8 +153,9 @@ func createAllVerifierReaders(ctx context.Context, lggr logger.Logger, verifierR
 	return nil
 }
 
-func createReadersForVerifier(ctx context.Context, lggr logger.Logger, verifierRegistry *registry.VerifierRegistry, verifierConfig *config.VerifierConfig, indexerMonitoring common.IndexerMonitoring) error {
-	reader, err := createReader(lggr, verifierConfig, indexerMonitoring)
+func createReadersForVerifier(ctx context.Context, lggr logger.Logger, verifierRegistry *registry.VerifierRegistry, verifierConfig *config.VerifierConfig, monitoring common.IndexerMonitoring) error {
+	metrics := monitoring.Metrics().With("target", verifierConfig.Name)
+	reader, err := createReader(lggr, verifierConfig, metrics)
 	if err != nil {
 		return err
 	}
@@ -180,19 +181,20 @@ func createReadersForVerifier(ctx context.Context, lggr logger.Logger, verifierR
 	return nil
 }
 
-func createReader(lggr logger.Logger, cfg *config.VerifierConfig, indexerMonitoring common.IndexerMonitoring) (*readers.ResilientReader, error) {
+func createReader(lggr logger.Logger, cfg *config.VerifierConfig, m common.IndexerMetricLabeler) (*readers.ResilientReader, error) {
 	switch cfg.Type {
 	case config.ReaderTypeAggregator:
-		return readers.NewAggregatorReader(cfg.Label(), cfg.Address, lggr, cfg.Since, hmac.ClientConfig{
+		return readers.NewAggregatorReader(cfg.Address, lggr, cfg.Since, hmac.ClientConfig{
 			APIKey: cfg.APIKey,
 			Secret: cfg.Secret,
-		}, cfg.InsecureConnection, config.EffectiveMaxResponseBytes(cfg.MaxResponseBytes), indexerMonitoring)
+		}, cfg.InsecureConnection, config.EffectiveMaxResponseBytes(cfg.MaxResponseBytes), m)
 	case config.ReaderTypeRest:
 		return readers.NewRestReader(readers.RestReaderConfig{
 			BaseURL:          cfg.BaseURL,
 			RequestTimeout:   time.Duration(cfg.RequestTimeout),
 			MaxResponseBytes: config.EffectiveMaxResponseBytes(cfg.MaxResponseBytes),
 			Logger:           lggr,
+			Metrics:          m,
 		}), nil
 	default:
 		return nil, errors.New("unknown verifier type")
@@ -228,10 +230,11 @@ func createDiscovery(ctx context.Context, lggr logger.Logger, cfg *config.Config
 			persistedSinceValue = int(discCfg.Since)
 		}
 
-		aggregator, err := readers.NewAggregatorReader(discCfg.Label(), discCfg.Address, lggr, int64(persistedSinceValue), hmac.ClientConfig{
+		metrics := monitoring.Metrics().With("target", discCfg.Label())
+		aggregator, err := readers.NewAggregatorReader(discCfg.Address, lggr, int64(persistedSinceValue), hmac.ClientConfig{
 			APIKey: discCfg.APIKey,
 			Secret: discCfg.Secret,
-		}, discCfg.InsecureConnection, config.EffectiveMaxResponseBytes(discCfg.MaxResponseBytes), monitoring)
+		}, discCfg.InsecureConnection, config.EffectiveMaxResponseBytes(discCfg.MaxResponseBytes), metrics)
 		if err != nil {
 			cleanupOnError()
 			return nil, err
@@ -249,7 +252,7 @@ func createDiscovery(ctx context.Context, lggr logger.Logger, cfg *config.Config
 			discovery.WithStorage(storage),
 			discovery.WithRegistry(registry),
 			discovery.WithTimeProvider(timeProvider),
-			discovery.WithMonitoring(monitoring),
+			discovery.WithMetrics(metrics),
 			discovery.WithLogger(lggr),
 			discovery.WithConfig(discCfg),
 			discovery.WithDiscoveryPriority(i),

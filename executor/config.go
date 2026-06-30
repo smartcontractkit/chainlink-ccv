@@ -45,7 +45,11 @@ type Configuration struct {
 	PyroscopeURL string `toml:"pyroscope_url"`
 	// ExecutorID is the ID of this executor. This executorID should be present in the executor pool.
 	ExecutorID string `toml:"executor_id"`
-	// Monitoring is the configuration for how Executor emits metrics.
+	// Monitoring is DEPRECATED. Monitoring config is operator-provided and now sourced from the bootstrap
+	// config (bootstrap.Config.Monitoring), not the JD-shipped app config. This field is retained only so
+	// that pre-existing JD job specs still carrying a [Monitoring] section continue to decode (app config
+	// decoding is strict); the executor reads it only as a fallback when the bootstrap config does not
+	// configure monitoring. Remove once all deployments source monitoring from the bootstrap config.
 	Monitoring MonitoringConfig `toml:"Monitoring"`
 	// ReaderCacheExpiry is the duration for the curse checker cache (RMN cursed state per chain).
 	// Defaults to 5 minutes.

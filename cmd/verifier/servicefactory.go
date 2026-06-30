@@ -194,7 +194,10 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 	}
 	lggr.Infow("Using signer address", "address", signerAddress)
 
-	verifierMonitoring := SetupMonitoring(lggr, config.Monitoring, "committee_verifier")
+	// Monitoring config is operator-provided via the bootstrap config (deps.Monitoring), falling back to
+	// the deprecated app-config Monitoring field when unset. See bootstrap.ResolveMonitoring.
+	monitoringConfig := bootstrap.ResolveMonitoring(lggr, deps.Monitoring, config.Monitoring)
+	verifierMonitoring := SetupMonitoring(lggr, monitoringConfig, "committee_verifier")
 
 	// Create chain status manager (PostgreSQL storage) with monitoring decorator
 	chainStatusManager, chainStatusDB, err := createChainStatusManager(lggr, config.VerifierID, verifierMonitoring)

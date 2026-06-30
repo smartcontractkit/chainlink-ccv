@@ -61,7 +61,7 @@ type AggregatorMessageDiscovery struct {
 	aggregatorReader  *readers.ResilientReader
 	registry          *registry.VerifierRegistry
 	storageSink       common.IndexerStorage
-	monitoring        common.IndexerMonitoring
+	metrics           common.IndexerMetricLabeler
 	timeProvider      ccvcommon.TimeProvider
 	messageCh         chan common.VerifierResultWithMetadata
 	doneCh            chan struct{}
@@ -94,9 +94,9 @@ func WithRegistry(registry *registry.VerifierRegistry) Option {
 	}
 }
 
-func WithMonitoring(monitoring common.IndexerMonitoring) Option {
+func WithMetrics(metrics common.IndexerMetricLabeler) Option {
 	return func(a *AggregatorMessageDiscovery) {
-		a.monitoring = monitoring
+		a.metrics = metrics
 	}
 }
 
@@ -190,8 +190,8 @@ func (a *AggregatorMessageDiscovery) validate() error {
 		return errors.New("logger must be specified")
 	}
 
-	if a.monitoring == nil {
-		return errors.New("monitoring must be specified")
+	if a.metrics == nil {
+		return errors.New("metrics must be specified")
 	}
 
 	if a.storageSink == nil {
@@ -247,7 +247,7 @@ func (a *AggregatorMessageDiscovery) run(ctx context.Context) {
 			return
 		case <-sampleTicker.C:
 			// Use background or provided ctx; keep it tied to lifecycle so metrics shutdown works with parent.
-			a.monitoring.Metrics().RecordVerificationRecordChannelSizeGauge(ctx, int64(len(a.messageCh)))
+			a.metrics.RecordVerificationRecordChannelSizeGauge(ctx, int64(len(a.messageCh)))
 
 		case <-ticker.C:
 			// Stagger timeouts across discovery instances so they don't all time out
@@ -316,15 +316,15 @@ func (a *AggregatorMessageDiscovery) callReader(ctx context.Context) (bool, erro
 	queryResponse, err := a.aggregatorReader.ReadCCVData(ctx)
 	if err != nil {
 		if a.isCircuitBreakerOpen() {
-			a.monitoring.Metrics().RecordCircuitBreakerStatus(ctx, true)
+			a.metrics.RecordCircuitBreakerStatus(ctx, true)
 			a.logger.Errorw("Circuit breaker is open, skipping MessageDiscovery this tick")
 			return false, nil
 		}
-		a.monitoring.Metrics().RecordScannerPollingErrorsCounter(ctx)
+		a.metrics.RecordScannerPollingErrorsCounter(ctx)
 		a.logger.Errorw("Error reading VerificationResult from aggregator", "error", err)
 		return false, err
 	}
-	a.monitoring.Metrics().RecordIndexerMessageDiscoveryLatency(ctx, time.Since(discoveryStartTime))
+	a.metrics.RecordIndexerMessageDiscoveryLatency(ctx, time.Since(discoveryStartTime))
 
 	a.logger.Debug("Called Aggregator")
 
@@ -362,8 +362,8 @@ func (a *AggregatorMessageDiscovery) callReader(ctx context.Context) (bool, erro
 		case a.messageCh <- verifierResultWithMetadata:
 		}
 		// Record the channel size after send so the metric reflects the current backlog.
-		a.monitoring.Metrics().RecordVerificationRecordChannelSizeGauge(ctx, int64(len(a.messageCh)))
-		a.monitoring.Metrics().RecordTimeToIndex(ctx, time.Since(verifierResultWithMetadata.Metadata.AttestationTimestamp), "aggregator")
+		a.metrics.RecordVerificationRecordChannelSizeGauge(ctx, int64(len(a.messageCh)))
+		a.metrics.RecordTimeToIndex(ctx, time.Since(verifierResultWithMetadata.Metadata.AttestationTimestamp), "aggregator")
 	}
 
 	// Return true if we processed any data, false if the slice was empty
