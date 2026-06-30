@@ -301,7 +301,7 @@ func renderJobList(jobs []replay.Job) error {
 func mustBuildEngine(ctx context.Context, needsDiscoveryReader bool) (*replay.Engine, func()) {
 	cfg := mustLoadConfig()
 	lggr := mustCreateLogger(cfg)
-	indexerMonitoring := monitoring.NewNoopIndexerMonitoring()
+	monitoring := monitoring.NewNoopIndexerMonitoring()
 
 	protocol.InitChainSelectorCache()
 
@@ -332,7 +332,7 @@ func mustBuildEngine(ctx context.Context, needsDiscoveryReader bool) (*replay.En
 		lggr.Fatalf("Failed to create replay store: %v", err)
 	}
 
-	indexerStorage, err := storage.NewPostgresStorage(ctx, lggr, indexerMonitoring, pgCfg.URI, pg.DriverPostgres, dbConfig, time.Duration(pgCfg.ConnMaxLifetime), time.Duration(pgCfg.ConnMaxIdleTime))
+	indexerStorage, err := storage.NewPostgresStorage(ctx, lggr, monitoring, pgCfg.URI, pg.DriverPostgres, dbConfig, time.Duration(pgCfg.ConnMaxLifetime), time.Duration(pgCfg.ConnMaxIdleTime))
 	if err != nil {
 		lggr.Fatalf("Failed to create indexer storage: %v", err)
 	}
@@ -340,7 +340,7 @@ func mustBuildEngine(ctx context.Context, needsDiscoveryReader bool) (*replay.En
 	verifierRegistry := registry.NewVerifierRegistry()
 	verifierCleanups := make([]func(), 0, len(cfg.Verifiers))
 	for _, vc := range cfg.Verifiers {
-		vr, cleanup, err := createVerifierReader(ctx, lggr, &vc, indexerMonitoring)
+		vr, cleanup, err := createVerifierReader(ctx, lggr, &vc, monitoring)
 		if err != nil {
 			lggr.Fatalf("Failed to create verifier reader: %v", err)
 		}
@@ -361,10 +361,11 @@ func mustBuildEngine(ctx context.Context, needsDiscoveryReader bool) (*replay.En
 	if needsDiscoveryReader && len(cfg.Discoveries) > 0 {
 		disc := cfg.Discoveries[0]
 		aggFactory = func(since int64) (*readers.ResilientReader, error) {
-			return readers.NewAggregatorReader(disc.Label(), disc.Address, lggr, since, hmac.ClientConfig{
+			metrics := monitoring.Metrics().With("target", disc.Label())
+			return readers.NewAggregatorReader(disc.Address, lggr, since, hmac.ClientConfig{
 				APIKey: disc.APIKey,
 				Secret: disc.Secret,
-			}, disc.InsecureConnection, config.EffectiveMaxResponseBytes(disc.MaxResponseBytes), indexerMonitoring)
+			}, disc.InsecureConnection, config.EffectiveMaxResponseBytes(disc.MaxResponseBytes), metrics)
 		}
 	}
 
@@ -424,18 +425,20 @@ func createVerifierReader(ctx context.Context, lggr logger.Logger, vc *config.Ve
 	var resilientReader *readers.ResilientReader
 	var err error
 
+	metrics := mon.Metrics().With("target", vc.Label())
 	switch vc.Type {
 	case config.ReaderTypeAggregator:
-		resilientReader, err = readers.NewAggregatorReader(vc.Label(), vc.Address, lggr, vc.Since, hmac.ClientConfig{
+		resilientReader, err = readers.NewAggregatorReader(vc.Address, lggr, vc.Since, hmac.ClientConfig{
 			APIKey: vc.APIKey,
 			Secret: vc.Secret,
-		}, vc.InsecureConnection, config.EffectiveMaxResponseBytes(vc.MaxResponseBytes), mon)
+		}, vc.InsecureConnection, config.EffectiveMaxResponseBytes(vc.MaxResponseBytes), metrics)
 	case config.ReaderTypeRest:
 		resilientReader = readers.NewRestReader(readers.RestReaderConfig{
 			BaseURL:          vc.BaseURL,
 			RequestTimeout:   time.Duration(vc.RequestTimeout),
 			MaxResponseBytes: config.EffectiveMaxResponseBytes(vc.MaxResponseBytes),
 			Logger:           lggr,
+			Metrics:          metrics,
 		})
 	default:
 		return nil, nil, errors.New("unknown verifier type: " + string(vc.Type))

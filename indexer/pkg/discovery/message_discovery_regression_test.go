@@ -32,7 +32,6 @@ func buildIsolatedDiscovery(
 	t.Helper()
 
 	lggr := logger.Test(t)
-	mon := monitoring.NewNoopIndexerMonitoring()
 	reg := registry.NewVerifierRegistry()
 
 	ts := &testSetup{capturedSeqNumbers: make(map[string]int)}
@@ -54,7 +53,7 @@ func buildIsolatedDiscovery(
 		WithLogger(lggr),
 		WithRegistry(reg),
 		WithTimeProvider(tp),
-		WithMonitoring(mon),
+		WithMetrics(monitoring.NewNoopIndexerMetricLabeler()),
 		WithStorage(store),
 		WithAggregator(resilientRdr),
 		WithConfig(defaultTestConfig()),
@@ -124,7 +123,6 @@ func TestCallReader_ContextAwareSendReturnsOnCancellation(t *testing.T) {
 	ctx, cancelCtx := context.WithCancel(context.Background())
 
 	lggr := logger.Test(t)
-	mon := monitoring.NewNoopIndexerMonitoring()
 	reg := registry.NewVerifierRegistry()
 
 	persistCalled := make(chan struct{}, 1)
@@ -151,7 +149,7 @@ func TestCallReader_ContextAwareSendReturnsOnCancellation(t *testing.T) {
 
 	disc, err := NewAggregatorMessageDiscovery(
 		WithLogger(lggr), WithRegistry(reg), WithTimeProvider(tp),
-		WithMonitoring(mon), WithStorage(store), WithAggregator(resilientRdr),
+		WithMetrics(monitoring.NewNoopIndexerMetricLabeler()), WithStorage(store), WithAggregator(resilientRdr),
 		WithConfig(defaultTestConfig()),
 	)
 	require.NoError(t, err)
@@ -302,7 +300,6 @@ func TestCallReader_PrimaryNotifiesAfterReadError(t *testing.T) {
 	notifier := NewPrimaryWriteNotifier()
 
 	lggr := logger.Test(t)
-	mon := monitoring.NewNoopIndexerMonitoring()
 	reg := registry.NewVerifierRegistry()
 	ts := &testSetup{capturedSeqNumbers: make(map[string]int)}
 	store := newMockStorage(t, ts)
@@ -319,7 +316,7 @@ func TestCallReader_PrimaryNotifiesAfterReadError(t *testing.T) {
 
 	disc, err := NewAggregatorMessageDiscovery(
 		WithLogger(lggr), WithRegistry(reg), WithTimeProvider(tp),
-		WithMonitoring(mon), WithStorage(store), WithAggregator(resilientRdr),
+		WithMetrics(monitoring.NewNoopIndexerMetricLabeler()), WithStorage(store), WithAggregator(resilientRdr),
 		WithConfig(defaultTestConfig()),
 		WithDiscoveryPriority(0),
 		WithPrimaryWriteNotifier(notifier),
@@ -358,7 +355,6 @@ func TestCallReader_PrimaryNotifiesAfterCircuitBreakerOpen(t *testing.T) {
 	notifier := NewPrimaryWriteNotifier()
 
 	lggr := logger.Test(t)
-	mon := monitoring.NewNoopIndexerMonitoring()
 	reg := registry.NewVerifierRegistry()
 	ts := &testSetup{capturedSeqNumbers: make(map[string]int)}
 	store := newMockStorage(t, ts)
@@ -379,7 +375,7 @@ func TestCallReader_PrimaryNotifiesAfterCircuitBreakerOpen(t *testing.T) {
 
 	disc, err := NewAggregatorMessageDiscovery(
 		WithLogger(lggr), WithRegistry(reg), WithTimeProvider(tp),
-		WithMonitoring(mon), WithStorage(store), WithAggregator(resilientRdr),
+		WithMetrics(monitoring.NewNoopIndexerMetricLabeler()), WithStorage(store), WithAggregator(resilientRdr),
 		WithConfig(defaultTestConfig()),
 		WithDiscoveryPriority(0),
 		WithPrimaryWriteNotifier(notifier),
