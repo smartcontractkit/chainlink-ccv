@@ -10,7 +10,9 @@ import (
 	"time"
 
 	"github.com/grafana/pyroscope-go"
+	"go.uber.org/zap/zapcore"
 
+	"github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
@@ -46,11 +48,6 @@ func NewCommitteeVerifierServiceFactory() bootstrap.ServiceFactory {
 
 // Start implements [bootstrap.ServiceFactory].
 func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootstrap.ServiceDeps) error {
-	lggr := logger.Sugared(logger.Named(deps.Logger, "CommitteeVerifier"))
-	f.lggr = lggr
-
-	lggr.Infow("Starting committee verifier service", "spec", spec)
-
 	protocol.InitChainSelectorCache()
 
 	genericConfig, err := spec.GetGenericConfig()
@@ -62,7 +59,22 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 	if err := spec.GetAppConfig(&config); err != nil {
 		return fmt.Errorf("failed to get app config: %w", err)
 	}
-	lggr.Infow("Using blockchain information from config", "info", genericConfig.ChainConfig)
+
+	// Monitoring config is operator-provided via the bootstrap config (deps.Monitoring), falling back to
+	// the deprecated app-config Monitoring field when unset
+	// TODO move to bootstrap
+	if deps.Monitoring != nil {
+		config.Monitoring = *deps.Monitoring
+	}
+	verifierMonitoring := SetupMonitoring(config.Monitoring, "committee_verifier")
+
+	// TODO: use deps.Logger after making bootstrap config required
+	f.lggr, err = common.InitLogger("verifier", zapcore.InfoLevel, config.Monitoring.Beholder)
+	if err != nil {
+		return fmt.Errorf("failed to init logger: %w", err)
+	}
+	lggr := f.lggr
+	lggr.Infow("Monitoring initialized", "monitoring", config.Monitoring)
 
 	if config.PyroscopeURL != "" {
 		profiler, err := StartPyroscope(lggr, config.PyroscopeURL, "verifier")
@@ -73,6 +85,7 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 		f.profiler = profiler
 	}
 
+	lggr.Infow("Using blockchain information from config", "info", genericConfig.ChainConfig)
 	chainSelectors := genericConfig.ChainConfig.GetAllChainSelectors()
 
 	// Create verifier addresses before source readers setup
@@ -193,11 +206,6 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 		return fmt.Errorf("failed to create signer: %w", err)
 	}
 	lggr.Infow("Using signer address", "address", signerAddress)
-
-	// Monitoring config is operator-provided via the bootstrap config (deps.Monitoring), falling back to
-	// the deprecated app-config Monitoring field when unset. See bootstrap.ResolveMonitoring.
-	monitoringConfig := bootstrap.ResolveMonitoring(lggr, deps.Monitoring, config.Monitoring)
-	verifierMonitoring := SetupMonitoring(lggr, monitoringConfig, "committee_verifier")
 
 	// Create chain status manager (PostgreSQL storage) with monitoring decorator
 	chainStatusManager, chainStatusDB, err := createChainStatusManager(lggr, config.VerifierID, verifierMonitoring)

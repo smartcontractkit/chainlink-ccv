@@ -11,6 +11,7 @@ import (
 	"go.uber.org/zap/zapcore"
 
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
+	"github.com/smartcontractkit/chainlink-ccv/common"
 	executorsvc "github.com/smartcontractkit/chainlink-ccv/executor"
 	adapter "github.com/smartcontractkit/chainlink-ccv/executor/pkg/adapter"
 	x "github.com/smartcontractkit/chainlink-ccv/executor/pkg/executor"
@@ -20,7 +21,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/cursechecker"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -73,11 +73,20 @@ func (f *Factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 		return fmt.Errorf("failed to normalize executor config: %w", err)
 	}
 
-	f.lggr, err = logger.NewWith(logging.GetLogProfile(zapcore.InfoLevel))
-	if err != nil {
-		return fmt.Errorf("failed to create logger: %w", err)
+	// Monitoring config is operator-provided via the bootstrap config (deps.Monitoring), falling back to
+	// the deprecated app-config Monitoring field when unset. See bootstrap.ResolveMonitoring.
+	// TODO move to bootstrap
+	if deps.Monitoring != nil {
+		executorConfig.Monitoring = *deps.Monitoring
 	}
-	f.lggr = logger.Sugared(logger.Named(f.lggr, "executor"))
+	executorMonitoring := SetupMonitoring(executorConfig.Monitoring)
+
+	// TODO: use deps.Logger after making bootstrap config required
+	lggr, err := common.InitLogger("executor", zapcore.InfoLevel, executorConfig.Monitoring.Beholder)
+	if err != nil {
+		return fmt.Errorf("failed to init logger: %w", err)
+	}
+	f.lggr = lggr
 
 	if executorConfig.PyroscopeURL != "" {
 		f.profiler, err = StartPyroscope(f.lggr, executorConfig.PyroscopeURL, "executor")
@@ -85,15 +94,11 @@ func (f *Factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 			f.lggr.Errorw("Failed to start pyroscope", "error", err)
 		}
 	}
+	f.lggr.Infow("Monitoring initialized", "monitoring", executorConfig.Monitoring)
 
 	protocol.InitChainSelectorCache()
 
 	f.lggr.Infow("Executor configuration", "config", executorConfig)
-
-	// Monitoring config is operator-provided via the bootstrap config (deps.Monitoring), falling back to
-	// the deprecated app-config Monitoring field when unset. See bootstrap.ResolveMonitoring.
-	monitoringConfig := bootstrap.ResolveMonitoring(f.lggr, deps.Monitoring, executorConfig.Monitoring)
-	executorMonitoring := SetupMonitoring(f.lggr, monitoringConfig)
 
 	contractTransmitters := make(map[protocol.ChainSelector]chainaccess.ContractTransmitter)
 	destReaders := make(map[protocol.ChainSelector]chainaccess.DestinationReader)

@@ -10,6 +10,7 @@ import (
 
 	"github.com/grafana/pyroscope-go"
 	"github.com/jmoiron/sqlx"
+	"go.uber.org/zap/zapcore"
 
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
@@ -38,7 +39,7 @@ const (
 	defaultConnMaxIdleTime = 60  // seconds
 )
 
-func SetupMonitoring(lggr logger.Logger, config verifier.MonitoringConfig, verifierServiceName string) verifier.Monitoring {
+func SetupMonitoring(config verifier.MonitoringConfig, verifierServiceName string) verifier.Monitoring {
 	// If monitoring is not enabled, return a fake monitoring implementation that does nothing.
 	if !config.Enabled {
 		verifierMonitoring := monitoring.NewFakeVerifierMonitoring()
@@ -51,6 +52,9 @@ func SetupMonitoring(lggr logger.Logger, config verifier.MonitoringConfig, verif
 		OtelExporterHTTPEndpoint: config.Beholder.OtelExporterHTTPEndpoint,
 		OtelExporterGRPCEndpoint: config.Beholder.OtelExporterGRPCEndpoint,
 		LogStreamingEnabled:      config.Beholder.LogStreamingEnabled,
+		LogLevel:                 zapcore.InfoLevel,
+		LogBatchProcessor:        false,
+		LogExportInterval:        time.Second * 10,
 		MetricReaderInterval:     time.Second * time.Duration(config.Beholder.MetricReaderInterval),
 		TraceSampleRatio:         config.Beholder.TraceSampleRatio,
 		TraceBatchTimeout:        time.Second * time.Duration(config.Beholder.TraceBatchTimeout),
@@ -61,7 +65,7 @@ func SetupMonitoring(lggr logger.Logger, config verifier.MonitoringConfig, verif
 	// Create the beholder client
 	beholderClient, err := beholder.NewClient(beholderConfig)
 	if err != nil {
-		lggr.Fatalf("failed to create beholder client: %w", err)
+		panic(fmt.Sprintf("failed to create beholder client: %v", err))
 	}
 
 	// Set the beholder client and global otel providers
@@ -69,7 +73,7 @@ func SetupMonitoring(lggr logger.Logger, config verifier.MonitoringConfig, verif
 	beholder.SetGlobalOtelProviders()
 	verifierMonitoring, err := monitoring.InitMonitoring(verifierServiceName)
 	if err != nil {
-		lggr.Fatalf("Failed to initialize verifier monitoring: %w", err)
+		panic(fmt.Sprintf("failed to initialize verifier monitoring: %v", err))
 	}
 	return verifierMonitoring
 }

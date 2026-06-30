@@ -143,14 +143,13 @@ var _ ServiceFactory = (*spyServiceFactoryDummy)(nil)
 
 func TestNewBootstrapper_WithKey_Defaults(t *testing.T) {
 	t.Parallel()
-	lggr := logger.Test(t)
 
 	// Create an empty temp TOML file so WithTOMLAppConfig succeeds without hitting JD config.
 	f, err := os.CreateTemp(t.TempDir(), "*.toml")
 	require.NoError(t, err)
 	require.NoError(t, f.Close())
 
-	b, err := NewBootstrapper("test", lggr, &mockServiceFactory{}, WithTOMLAppConfig(f.Name()))
+	b, err := NewBootstrapper("test", &mockServiceFactory{}, WithTOMLAppConfig(f.Name()))
 	require.NoError(t, err)
 
 	// No WithKey options → the three original defaults must be applied.
@@ -162,13 +161,12 @@ func TestNewBootstrapper_WithKey_Defaults(t *testing.T) {
 
 func TestNewBootstrapper_WithKey_Explicit(t *testing.T) {
 	t.Parallel()
-	lggr := logger.Test(t)
 
 	f, err := os.CreateTemp(t.TempDir(), "*.toml")
 	require.NoError(t, err)
 	require.NoError(t, f.Close())
 
-	b, err := NewBootstrapper("test", lggr, &mockServiceFactory{},
+	b, err := NewBootstrapper("test", &mockServiceFactory{},
 		WithTOMLAppConfig(f.Name()),
 		WithKey("my_csa", "csa", keystore.Ed25519),
 		WithKey("my_signing", "signing", keystore.ECDSA_S256),
@@ -186,9 +184,7 @@ func TestNewBootstrapper_WithKey_Explicit(t *testing.T) {
 func TestRunner(t *testing.T) {
 	t.Parallel()
 	ctx := t.Context()
-	deps := ServiceDeps{
-		Logger: logger.Test(t),
-	}
+	deps := ServiceDeps{}
 
 	t.Run("parses TOML into AppConfig", func(t *testing.T) {
 		t.Parallel()
@@ -199,7 +195,7 @@ func TestRunner(t *testing.T) {
 				return nil
 			},
 		}
-		r := &runner{fac: fac, deps: deps}
+		r := &runner{lggr: logger.Test(t), fac: fac, deps: deps}
 
 		cfg := `name = "test-name"
 count = 42`
@@ -282,7 +278,7 @@ count = 42`
 				return nil
 			},
 		}
-		r := &runner{fac: fac, deps: ServiceDeps{Logger: logger.Test(t)}, accCloser: accessors}
+		r := &runner{lggr: logger.Test(t), fac: fac, deps: deps, accCloser: accessors}
 
 		require.NoError(t, r.StopJob(ctx))
 		require.Equal(t, []string{"factory.Stop", "accessor.Close"}, calls,
@@ -304,7 +300,7 @@ count = 42`
 				return wantErr
 			},
 		}
-		r := &runner{fac: fac, deps: ServiceDeps{Logger: logger.Test(t)}}
+		r := &runner{lggr: logger.Test(t), fac: fac, deps: deps}
 		require.ErrorIs(t, r.StartJob(ctx, ""), wantErr)
 	})
 }
@@ -326,7 +322,7 @@ func TestBootstrapper_Stop_StaticConfig_ClosesAccessors(t *testing.T) {
 	f, err := os.CreateTemp(t.TempDir(), "*.toml")
 	require.NoError(t, err)
 	require.NoError(t, f.Close())
-	b, err := NewBootstrapper("t", logger.Test(t), fac, WithTOMLAppConfig(f.Name()))
+	b, err := NewBootstrapper("t", fac, WithTOMLAppConfig(f.Name()))
 	require.NoError(t, err)
 	require.NoError(t, b.Start(t.Context()))
 	require.NotNil(t, b.accCloser)

@@ -247,13 +247,11 @@ func TestStartPyroscope_EmptyAddress(t *testing.T) {
 }
 
 func TestSetupMonitoring_Disabled(t *testing.T) {
-	lggr := logger.Test(t)
-	m := SetupMonitoring(lggr, executorsvc.MonitoringConfig{Enabled: false})
+	m := SetupMonitoring(executorsvc.MonitoringConfig{Enabled: false})
 	require.NotNil(t, m)
 }
 
 func TestSetupMonitoring_EnabledButNotBeholder(t *testing.T) {
-	lggr := logger.Test(t)
-	m := SetupMonitoring(lggr, executorsvc.MonitoringConfig{Enabled: true, Type: "noop"})
+	m := SetupMonitoring(executorsvc.MonitoringConfig{Enabled: true, Type: "noop"})
 	require.NotNil(t, m)
 }

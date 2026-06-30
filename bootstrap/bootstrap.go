@@ -23,7 +23,6 @@ import (
 	jobstore "github.com/smartcontractkit/chainlink-ccv/common/jd/store"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/monitoring"
-	zaplog "github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
 	"github.com/smartcontractkit/chainlink-common/keystore"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
@@ -38,9 +37,6 @@ const (
 
 // ServiceDeps are the dependencies passed to the services started by the bootstrapper.
 type ServiceDeps struct {
-	// Logger is a logger that can be used by the service.
-	Logger logger.Logger
-
 	// Keystore is an initialized keystore that can be used by the service.
 	Keystore keystore.Keystore
 
@@ -54,26 +50,6 @@ type ServiceDeps struct {
 	Monitoring *monitoring.Config
 }
 
-// ResolveMonitoring returns the effective monitoring config for a service, preferring the
-// operator-provided bootstrap config (fromBootstrap) over the deprecated app-config fallback.
-//
-// fromBootstrap is nil when the operator did not configure monitoring in the bootstrap config; in
-// that case the (deprecated) app-config value is used. Presence (non-nil), not Enabled, is the
-// discriminator: an operator who sets [monitoring] with Enabled=false is honored (monitoring off),
-// not silently overridden by the app-config fallback. It logs which source won so operators can
-// diagnose monitoring during the migration window in which both sources may be present.
-//
-// TODO(cleanup): remove once all deployments source monitoring from the bootstrap config; callers
-// then read *deps.Monitoring directly.
-func ResolveMonitoring(lggr logger.Logger, fromBootstrap *monitoring.Config, appConfigFallback monitoring.Config) monitoring.Config {
-	if fromBootstrap != nil {
-		lggr.Infow("Using monitoring config from bootstrap config")
-		return *fromBootstrap
-	}
-	lggr.Infow("Using monitoring config from deprecated app config (no monitoring section in bootstrap config)")
-	return appConfigFallback
-}
-
 // ServiceFactory is an interface implemented by the application that seeks to be bootstrapped.
 type ServiceFactory interface {
 	// Start starts the service with the parsed config received from JD.
@@ -84,6 +60,7 @@ type ServiceFactory interface {
 
 // A runner adapts a [ServiceFactory] to the [lifecycle.JobRunner] interface.
 type runner struct {
+	lggr      logger.Logger
 	fac       ServiceFactory
 	deps      ServiceDeps
 	accCloser *AccessorCloserRegistry
@@ -94,7 +71,7 @@ var _ lifecycle.JobRunner = (*runner)(nil)
 // StartJob implements [lifecycle.JobRunner].
 // On Start failure, the deferred CloseAll is the only chance to release accessors.
 func (r *runner) StartJob(ctx context.Context, config string) (startErr error) {
-	r.deps.Logger.Infow("starting job")
+	r.lggr.Infow("starting job")
 
 	var spec JobSpec
 	if _, err := toml.Decode(config, &spec); err != nil {
@@ -104,18 +81,18 @@ func (r *runner) StartJob(ctx context.Context, config string) (startErr error) {
 	// Initialize registry, wrapping it so the keystore is injected into any
 	// Accessor that implements KeystoreSetter.
 	// Registry chain: NewRegistry > KeystoreRegistry (keystore injection) > AccessorCloserRegistry (accessor cleanup tracking).
-	reg, err := chainaccess.NewRegistry(r.deps.Logger, spec.AppConfig)
+	reg, err := chainaccess.NewRegistry(r.lggr, spec.AppConfig)
 	if err != nil {
 		return fmt.Errorf("failed to create registry: %w", err)
 	}
-	r.accCloser = NewAccessorCloserRegistry(r.deps.Logger, NewKeystoreRegistry(r.deps.Logger, reg, r.deps.Keystore))
+	r.accCloser = NewAccessorCloserRegistry(r.lggr, NewKeystoreRegistry(r.lggr, reg, r.deps.Keystore))
 	r.deps.Registry = r.accCloser
 
 	// safety net
 	defer func() {
 		if startErr != nil {
 			if cErr := r.accCloser.CloseAll(); cErr != nil {
-				r.deps.Logger.Warnw("close accessors after failed StartJob", "error", cErr)
+				r.lggr.Warnw("close accessors after failed StartJob", "error", cErr)
 			}
 		}
 	}()
@@ -163,12 +140,10 @@ type Bootstrapper struct {
 // NewBootstrapper creates a new [Bootstrapper] with the given config and service factory.
 func NewBootstrapper(
 	name string,
-	lggr logger.Logger,
 	fac ServiceFactory,
 	opts ...Option,
 ) (*Bootstrapper, error) {
 	b := &Bootstrapper{
-		lggr:     lggr,
 		fac:      fac,
 		name:     name,
 		logLevel: zapcore.InfoLevel,
@@ -224,10 +199,18 @@ func NewBootstrapper(
 		if err != nil {
 			return nil, fmt.Errorf("failed to load bootstrap config (%s): %w", b.configPath, err)
 		}
-
-		// not logging config because it contains secrets.
-		lggr.Infow("loaded bootstrap config")
 	}
+
+	// do not fallback to it in bootstrapper
+	mon := monitoring.BeholderConfig{}
+	if b.config != nil && b.config.Monitoring != nil {
+		mon = b.config.Monitoring.Beholder
+	}
+	lggr, err := common.InitLogger(b.name, b.logLevel, mon)
+	if err != nil {
+		return nil, fmt.Errorf("failed to init logger: %w", err)
+	}
+	b.lggr = lggr
 
 	return b, nil
 }
@@ -283,13 +266,12 @@ func (b *Bootstrapper) startWithJDLifecycle(ctx context.Context) error {
 	}
 	jdClient := jdclient.New(csaSigner, jdPublicKey, b.config.JD.ServerWSRPCURL, b.lggr)
 
-	deps, err := newServiceDeps(keyStore, b.logLevel, b.name)
-	if err != nil {
-		return fmt.Errorf("failed to create service deps: %w", err)
-	}
 	// Surface the operator-provided monitoring config to the service. Only the JD path populates this;
 	// static-TOML mode (startWithAppConfig) loads no bootstrap config and leaves it nil.
-	deps.Monitoring = b.config.Monitoring
+	deps := ServiceDeps{
+		Keystore:   keyStore,
+		Monitoring: b.config.Monitoring,
+	}
 
 	jobRunner := &runner{fac: b.fac, deps: deps}
 	lifecycleManager, err := lifecycle.NewManager(lifecycle.Config{
@@ -371,18 +353,6 @@ func connectToDB(ctx context.Context, connStr string) (*sqlx.DB, error) {
 		return nil, fmt.Errorf("failed to run bootstrapper database migrations: %w", err)
 	}
 	return db, nil
-}
-
-func newServiceDeps(keyStore keystore.Keystore, logLevel zapcore.Level, name string) (ServiceDeps, error) {
-	lggr, err := logger.NewWith(zaplog.GetLogProfile(logLevel))
-	if err != nil {
-		return ServiceDeps{}, fmt.Errorf("failed to create logger: %w", err)
-	}
-	lggr = logger.Sugared(logger.Named(lggr, name))
-	return ServiceDeps{
-		Logger:   lggr,
-		Keystore: keyStore,
-	}, nil
 }
 
 func initializeKeystore(ctx context.Context, lggr logger.Logger, db *sqlx.DB, ksPassword string, requiredKeys []keyToInit) (keystore.Keystore, crypto.Signer, error) {
@@ -504,14 +474,7 @@ func Run(
 	fac ServiceFactory,
 	opts ...Option,
 ) error {
-	lggr, err := logger.NewWith(zaplog.GetLogProfile(zapcore.InfoLevel))
-	if err != nil {
-		return fmt.Errorf("failed to create logger: %w", err)
-	}
-	lggr = logger.Sugared(logger.Named(lggr, "Bootstrapper"))
-	lggr = common.WithService(lggr, name)
-
-	bootstrapper, err := NewBootstrapper(name, lggr, fac, opts...)
+	bootstrapper, err := NewBootstrapper(name, fac, opts...)
 	if err != nil {
 		return fmt.Errorf("failed to create bootstrapper: %w", err)
 	}
@@ -527,7 +490,7 @@ func Run(
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
 	<-sigCh
-	lggr.Infow("Received shutdown signal, stopping bootstrapper...")
+	bootstrapper.lggr.Infow("Received shutdown signal, stopping bootstrapper...")
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), defaultShutdownTimeout)
 	defer shutdownCancel()

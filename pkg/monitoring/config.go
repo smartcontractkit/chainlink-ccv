@@ -24,6 +24,8 @@ type BeholderConfig struct {
 	OtelExporterHTTPEndpoint string `json:"otel_exporter_http_endpoint" toml:"OtelExporterHTTPEndpoint"`
 	// LogStreamingEnabled enables log streaming to the collector.
 	LogStreamingEnabled bool `json:"log_streaming_enabled" toml:"LogStreamingEnabled"`
+	// LogStreamingLevel specifies the  level above which logs are streamed to beholder
+	LogStreamingLevel string `json:"log_streaming_level" toml:"LogStreamingLevel"`
 	// MetricReaderInterval is the interval to scrape metrics (in seconds).
 	MetricReaderInterval int64 `json:"metric_reader_interval" toml:"MetricReaderInterval"`
 	// TraceSampleRatio is the ratio of traces to sample.

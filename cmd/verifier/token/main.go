@@ -11,6 +11,7 @@ import (
 
 	"go.uber.org/zap/zapcore"
 
+	"github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
@@ -19,7 +20,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/heartbeatclient"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/chainstatus"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
@@ -96,39 +96,43 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, spec bootstrap.JobSp
 		return errors.Join(errs...)
 	}
 
-	// TODO: Add "WithLogLevelFromEnv" option and use deps.lggr.
-	{
-		logLevelStr := os.Getenv("LOG_LEVEL")
-		if logLevelStr == "" {
-			logLevelStr = "info"
-		}
-		var zapLevel zapcore.Level
-		if err := zapLevel.UnmarshalText([]byte(logLevelStr)); err != nil {
-			_, _ = fmt.Fprintf(os.Stderr, "Invalid LOG_LEVEL '%s', defaulting to 'info'\n", logLevelStr)
-			zapLevel = zapcore.InfoLevel
-		}
-		var err error
-		tvf.lggr, err = logger.NewWith(logging.GetLogProfile(zapLevel))
-		if err != nil {
-			return fmt.Errorf("failed to create logger: %v", err)
-		}
-		tvf.lggr = logger.Named(tvf.lggr, "verifier")
+	var err error
+	// Monitoring config is operator-provided via the bootstrap config (deps.Monitoring), falling back to
+	// the deprecated app-config Monitoring field when unset
+	// TODO move to bootstrap
+	if deps.Monitoring != nil {
+		appConfig.Monitoring = *deps.Monitoring
 	}
+	verifierMonitoring := cmd.SetupMonitoring(appConfig.Monitoring, "token_verifier")
 
-	// Use SugaredLogger for better API
-	tvf.lggr = logger.Sugared(tvf.lggr)
+	// todo use deps.Logger after making bootstrap config required
+	logLevelStr := os.Getenv("LOG_LEVEL")
+	if logLevelStr == "" {
+		logLevelStr = "info"
+	}
+	logLevel, err := zapcore.ParseLevel(logLevelStr)
+	if err != nil {
+		return fmt.Errorf("failed to parse log level: %w", err)
+	}
+	tvf.lggr, err = common.InitLogger("verifier", logLevel, appConfig.Monitoring.Beholder)
+	if err != nil {
+		return fmt.Errorf("failed to init logger: %w", err)
+	}
+	tvf.lggr.Infow("Monitoring initialized", "monitoring", appConfig.Monitoring)
+
+	if appConfig.PyroscopeURL != "" {
+		_, err = cmd.StartPyroscope(tvf.lggr, appConfig.PyroscopeURL, "tokenVerifier")
+		if err != nil {
+			tvf.lggr.Errorw("Failed to start pyroscope", "error", err)
+			os.Exit(1)
+		}
+	}
 
 	protocol.InitChainSelectorCache()
 
 	// TODO: validate config?
 	cfg := appConfig.Config
 	blockchainInfos := appConfig.BlockchainInfos
-
-	_, err := cmd.StartPyroscope(tvf.lggr, cfg.PyroscopeURL, "tokenVerifier")
-	if err != nil {
-		tvf.lggr.Errorw("Failed to start pyroscope", "error", err)
-		os.Exit(1)
-	}
 
 	// Initialize source readers from factory.
 	blockchainHelper := cmd.LoadBlockchainInfo(ctx, tvf.lggr, blockchainInfos)
@@ -147,8 +151,6 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, spec bootstrap.JobSp
 		sourceReaders[selector] = reader
 		tvf.lggr.Infow("Created source reader for chain", "chainSelector", selector)
 	}
-
-	verifierMonitoring := cmd.SetupMonitoring(tvf.lggr, cfg.Monitoring, "token_verifier")
 
 	rmnRemoteAddresses := make(map[string]protocol.UnknownAddress)
 	for selector, address := range cfg.RMNRemoteAddresses {

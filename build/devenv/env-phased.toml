@@ -23,7 +23,7 @@ Type = "beholder"
 [observability.monitoring.Beholder]
 InsecureConnection = true
 OtelExporterHTTPEndpoint = "host.docker.internal:4318"
-LogStreamingEnabled = false
+LogStreamingEnabled = true
 MetricReaderInterval = 5
 TraceSampleRatio = 1.0
 TraceBatchTimeout = 10
