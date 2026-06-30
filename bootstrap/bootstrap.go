@@ -210,46 +210,27 @@ func NewBootstrapper(
 	if b.jdMode {
 		// JD mode requires a CSA key for node authentication. Inject the default if the caller
 		// did not explicitly declare one, so callers only need to list their application keys.
-		hasCSA := false
-		for _, k := range b.keys {
-			if k.purpose == "csa" {
-				hasCSA = true
-				break
-			}
-		}
-		if !hasCSA {
+		if !hasCSAKey(b.keys) {
 			b.keys = append([]keyToInit{{DefaultCSAKeyName, "csa", keystore.Ed25519}}, b.keys...)
 		}
 
-		// Use provided config path if set by an option.
-		if b.configPath == "" {
-			// If no config path is provided by an option, check the environment variable.
-			b.configPath = os.Getenv(ConfigPathEnv)
-			if b.configPath == "" {
-				// If the environment variable is not set, use the default config path.
-				b.configPath = DefaultConfigPath
-			}
-		}
-
+		b.configPath = resolveBootstrapConfigPath(b.configPath)
 		b.config = &Config{}
 		if err := LoadAndValidateConfig(b.configPath, b.config); err != nil {
 			return nil, fmt.Errorf("failed to load bootstrap config (%s): %w", b.configPath, err)
 		}
-
 		// not logging config because it contains secrets.
 		lggr.Infow("loaded bootstrap config")
-	} else {
+	} else if path := os.Getenv(ConfigPathEnv); path != "" {
 		// Static-TOML mode: optionally load operator config when BOOTSTRAPPER_CONFIG_PATH is
 		// explicitly set. The default fallback to DefaultConfigPath is intentionally suppressed
 		// here: TOKEN_VERIFIER_CONFIG_PATH and BOOTSTRAPPER_CONFIG_PATH both default to
 		// /etc/config.toml, so applying the default would decode the wrong file. See issue #013.
-		if path := os.Getenv(ConfigPathEnv); path != "" {
-			b.config = &Config{}
-			if err := LoadAndValidateConfig(path, b.config); err != nil {
-				return nil, fmt.Errorf("failed to load operator config (%s): %w", path, err)
-			}
-			lggr.Infow("loaded operator config for static-TOML mode")
+		b.config = &Config{}
+		if err := LoadAndValidateConfig(path, b.config); err != nil {
+			return nil, fmt.Errorf("failed to load operator config (%s): %w", path, err)
 		}
+		lggr.Infow("loaded operator config for static-TOML mode")
 	}
 
 	return b, nil
@@ -514,6 +495,27 @@ func connectToDB(ctx context.Context, connStr string) (*sqlx.DB, error) {
 		return nil, fmt.Errorf("failed to run bootstrapper database migrations: %w", err)
 	}
 	return db, nil
+}
+
+func hasCSAKey(keys []keyToInit) bool {
+	for _, k := range keys {
+		if k.purpose == "csa" {
+			return true
+		}
+	}
+	return false
+}
+
+// resolveBootstrapConfigPath returns the effective bootstrap config path: the explicitly-provided
+// path takes precedence, then BOOTSTRAPPER_CONFIG_PATH, then DefaultConfigPath.
+func resolveBootstrapConfigPath(explicit string) string {
+	if explicit != "" {
+		return explicit
+	}
+	if env := os.Getenv(ConfigPathEnv); env != "" {
+		return env
+	}
+	return DefaultConfigPath
 }
 
 func newLogger(logLevel zapcore.Level, name string) (logger.Logger, error) {

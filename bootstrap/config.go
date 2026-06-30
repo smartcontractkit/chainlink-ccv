@@ -143,6 +143,40 @@ type Config struct {
 	Monitoring *monitoring.Config
 }
 
+// hasInfraKeys reports whether any infra section (jd, db, keystore, server) appears in md.
+func hasInfraKeys(md toml.MetaData) bool {
+	for _, key := range md.Keys() {
+		switch key[0] {
+		case "jd", "db", "keystore", "server":
+			return true
+		}
+	}
+	return false
+}
+
+// validateInfra validates the coupled infra bundle (jd/db/keystore/server/chains).
+func (c *Config) validateInfra() []error {
+	var errs []error
+	if err := c.JD.validate(); err != nil {
+		errs = append(errs, fmt.Errorf("failed to validate 'jd' section: %w", err))
+	}
+	if err := c.Keystore.validate(); err != nil {
+		errs = append(errs, fmt.Errorf("failed to validate 'keystore' section: %w", err))
+	}
+	if err := c.DB.validate(); err != nil {
+		errs = append(errs, fmt.Errorf("failed to validate 'db' section: %w", err))
+	}
+	if err := c.Server.validate(); err != nil {
+		errs = append(errs, fmt.Errorf("failed to validate 'server' section: %w", err))
+	}
+	for i, chain := range c.Chains {
+		if err := chain.validate(); err != nil {
+			errs = append(errs, fmt.Errorf("invalid chain at index %d: %w", i, err))
+		}
+	}
+	return errs
+}
+
 // validate checks the config for correctness. md is the TOML metadata from decoding, used to
 // detect which top-level sections were actually present in the file (as opposed to zero-valued
 // from an absent section). The infra bundle (jd/db/keystore/server) is validated only when any
@@ -150,38 +184,9 @@ type Config struct {
 // validated independently when non-nil.
 func (c *Config) validate(md toml.MetaData) error {
 	var errs []error
-
-	infraPresent := false
-	for _, key := range md.Keys() {
-		switch key[0] {
-		case "jd", "db", "keystore", "server":
-			infraPresent = true
-		}
-		if infraPresent {
-			break
-		}
+	if hasInfraKeys(md) {
+		errs = append(errs, c.validateInfra()...)
 	}
-
-	if infraPresent {
-		if err := c.JD.validate(); err != nil {
-			errs = append(errs, fmt.Errorf("failed to validate 'jd' section: %w", err))
-		}
-		if err := c.Keystore.validate(); err != nil {
-			errs = append(errs, fmt.Errorf("failed to validate 'keystore' section: %w", err))
-		}
-		if err := c.DB.validate(); err != nil {
-			errs = append(errs, fmt.Errorf("failed to validate 'db' section: %w", err))
-		}
-		if err := c.Server.validate(); err != nil {
-			errs = append(errs, fmt.Errorf("failed to validate 'server' section: %w", err))
-		}
-		for i, chain := range c.Chains {
-			if err := chain.validate(); err != nil {
-				errs = append(errs, fmt.Errorf("invalid chain at index %d: %w", i, err))
-			}
-		}
-	}
-
 	if c.Monitoring != nil {
 		if err := c.Monitoring.Validate(); err != nil {
 			errs = append(errs, fmt.Errorf("failed to validate 'monitoring' section: %w", err))
