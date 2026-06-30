@@ -16,8 +16,11 @@ type LaneConfigInput struct {
 	ChainSelector uint64
 	// UseTestRouter selects the TestRouter instead of the production Router.
 	UseTestRouter bool
-	// ExistingAddresses are the deployed addresses on this chain, used by the
-	// adapter to resolve OnRamp, OffRamp, Router, FeeQuoter, etc.
+	// ExistingAddresses are the deployed addresses for the local chain AND every
+	// remote chain referenced in RemoteChains. The adapter resolves the local
+	// chain's contracts (OnRamp, OffRamp, Router, FeeQuoter, Executor, committee
+	// verifiers) and each remote chain's ramps (the remote OnRamp/OffRamp needed
+	// to cross-reference the lane) from this set, keyed by chain selector.
 	ExistingAddresses []datastore.AddressRef
 	// RemoteChains maps remote chain selector → lane config for that remote chain.
 	RemoteChains map[uint64]RemoteLaneConfig

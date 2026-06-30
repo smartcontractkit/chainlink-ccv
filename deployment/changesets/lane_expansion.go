@@ -159,9 +159,18 @@ func applyLaneConfig(
 			executorQualifier, inboundCCVQualifiers, outboundCCVQualifiers, side.overrides,
 		)
 
+		// Pass addresses for both the local chain and the remote chain. The
+		// adapter resolves local contracts (OnRamp/OffRamp/Router/FeeQuoter) and
+		// the remote chain's ramps — the remote OnRamp wires the local OffRamp's
+		// allowed source onramps, and the remote OffRamp wires the local OnRamp's
+		// destination. This mirrors the legacy topology changeset, which resolved
+		// remote ramps from the full datastore.
 		existingAddresses := e.DataStore.Addresses().Filter(
 			datastore.AddressRefByChainSelector(side.localSel),
 		)
+		existingAddresses = append(existingAddresses, e.DataStore.Addresses().Filter(
+			datastore.AddressRefByChainSelector(side.remoteSel),
+		)...)
 
 		input := adapters.LaneConfigInput{
 			ChainSelector:     side.localSel,
