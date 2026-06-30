@@ -34,9 +34,10 @@ var _ chainaccess.AccessorFactoryConstructor = CreateEVMAccessorFactory
 //
 // It will take all config values it needs from all available config. Note that it would be
 // very unusual for a config to have more than one of Committee/Token/Executor configs.
-func CreateEVMAccessorFactory(lggr logger.Logger, genericConfig chainaccess.GenericConfig) (chainaccess.AccessorFactory, error) {
+func CreateEVMAccessorFactory(lggr logger.Logger, genericConfig chainaccess.GenericConfig) (chainaccess.AccessorFactory, error) { //nolint:staticcheck // registry still decodes GenericConfig util local config supported
 	// Convert generic chain config -> Infos[evm.Info]
 	evmInfos := make(chainaccess.Infos[Info])
+	// TODO: To support standalone mode, need to support local config, GenericConfig will be deprecated as JD job will not have rpc info.
 	err := genericConfig.GetAllConcreteConfig(chainsel.FamilyEVM, &evmInfos)
 	if err != nil {
 		return nil, fmt.Errorf("error getting evm info: %w", err)
@@ -47,6 +48,8 @@ func CreateEVMAccessorFactory(lggr logger.Logger, genericConfig chainaccess.Gene
 
 // CreateAccessorFactory creates a factory that can build EVM chain accessors.
 // TODO: Defer geth client and head tracker creation until GetAccessor is called.
+//
+//nolint:staticcheck // generic param is chainaccess.GenericConfig until CCIP-11840.
 func CreateAccessorFactory(
 	ctx context.Context,
 	lggr logger.Logger,
