@@ -233,6 +233,26 @@ func TestToEVMConfigureChainForLanesInput_Errors(t *testing.T) {
 			}),
 			wantErrSub: "is not a valid hex address",
 		},
+		{
+			name: "zero inbound threshold with signers",
+			input: laneInput(laneRefs(), func(in *ccvdeploymentadapters.LaneConfigInput) {
+				rc := in.RemoteChains[laneRemoteSel]
+				rc.InboundSigners = []string{"0x00000000000000000000000000000000000000Cd"}
+				rc.InboundThreshold = 0
+				in.RemoteChains[laneRemoteSel] = rc
+			}),
+			wantErrSub: "InboundThreshold must be greater than 0",
+		},
+		{
+			name: "inbound threshold exceeds signer count",
+			input: laneInput(laneRefs(), func(in *ccvdeploymentadapters.LaneConfigInput) {
+				rc := in.RemoteChains[laneRemoteSel]
+				rc.InboundSigners = []string{"0x00000000000000000000000000000000000000Cd"}
+				rc.InboundThreshold = 2
+				in.RemoteChains[laneRemoteSel] = rc
+			}),
+			wantErrSub: "exceeds the number of InboundSigners",
+		},
 	}
 
 	for _, tc := range tests {

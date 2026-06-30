@@ -44,6 +44,17 @@ func TestSetAllowedFinalityConfig_Validation_SelectorNotInEnv(t *testing.T) {
 	require.ErrorContains(t, err, "is not available in environment")
 }
 
+func TestSetAllowedFinalityConfig_Validation_NoFinalityMode(t *testing.T) {
+	sel := chainsel.TEST_90000001.Selector
+	registerEVMOnchain(&stubOnchainAdapter{})
+	cs := SetAllowedFinalityConfig()
+	err := cs.VerifyPreconditions(newLaneTestEnv([]uint64{sel}), SetAllowedFinalityConfigInput{
+		CommitteeQualifier: "committee-a",
+		ChainSelectors:     []uint64{sel},
+	})
+	require.ErrorContains(t, err, "at least one finality mode must be set")
+}
+
 func TestSetAllowedFinalityConfig_Validation_HappyPath(t *testing.T) {
 	sel := chainsel.TEST_90000001.Selector
 	registerEVMOnchain(&stubOnchainAdapter{})

@@ -1,6 +1,7 @@
 package adapters
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 
@@ -133,7 +134,7 @@ func toEVMConfigureChainForLanesInput(
 		// Optional signature quorum for inbound traffic from this remote, set as
 		// part of lane expansion when the caller provides InboundSigners. Empty
 		// leaves signatures untouched (owned by the committee changesets).
-		if err := validateHexSigners(rlc.InboundSigners); err != nil {
+		if err := validateInboundSignatureQuorum(rlc.InboundSigners, rlc.InboundThreshold); err != nil {
 			return ccvadapters.ConfigureChainForLanesInput{}, fmt.Errorf("remote chain %d: %w", remoteSel, err)
 		}
 
@@ -258,12 +259,22 @@ func addCommitteeVerifierRemote(
 	return nil
 }
 
-// validateHexSigners rejects malformed signer addresses before they reach the
-// committee verifier signature config.
-func validateHexSigners(signers []string) error {
+// validateInboundSignatureQuorum rejects a malformed inbound signature quorum
+// before it reaches the committee verifier: signer addresses must be valid hex,
+// and when signers are supplied the threshold must be in [1, len(signers)].
+// An empty signer set leaves the quorum untouched, so the threshold is ignored.
+func validateInboundSignatureQuorum(signers []string, threshold uint8) error {
 	for _, s := range signers {
 		if !common.IsHexAddress(s) {
 			return fmt.Errorf("InboundSigners: %q is not a valid hex address", s)
+		}
+	}
+	if len(signers) > 0 {
+		if threshold == 0 {
+			return errors.New("InboundThreshold must be greater than 0 when InboundSigners is set")
+		}
+		if int(threshold) > len(signers) {
+			return fmt.Errorf("InboundThreshold %d exceeds the number of InboundSigners (%d)", threshold, len(signers))
 		}
 	}
 	return nil

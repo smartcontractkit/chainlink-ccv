@@ -34,13 +34,18 @@ type SetAllowedFinalityConfigInput struct {
 	// ChainSelectors are the chains where the committee verifier is deployed and
 	// whose allowed-finality config should be set.
 	ChainSelectors []uint64
-	// WaitForFinality requires full finality. It is the zero-value/default tag
-	// (encoded as all-zero on chain) and is mutually exclusive with the fields
-	// below in practice.
+	// The three fields below describe the *allowed* finality, which the adapter
+	// encodes as an OR combination — a verifier may accept more than one finality
+	// level at once. At least one of them must be set (enforced in validation).
+	//
+	// WaitForFinality allows full finality. It is the zero-value/default tag
+	// (encoded as all-zero on chain), so it is implicit whenever no other field
+	// is set; set it explicitly to allow full finality alongside WaitForSafe
+	// and/or BlockDepth.
 	WaitForFinality bool
-	// WaitForSafe requires the "safe" finality level.
+	// WaitForSafe allows the "safe" finality level.
 	WaitForSafe bool
-	// BlockDepth is the number of block confirmations required.
+	// BlockDepth allows waiting up to the given number of block confirmations.
 	BlockDepth uint16
 }
 
@@ -48,7 +53,16 @@ type SetAllowedFinalityConfigInput struct {
 // verifier across the specified chains (§5.11). Onchain-only, single-entry.
 func SetAllowedFinalityConfig() deployment.ChangeSetV2[SetAllowedFinalityConfigInput] {
 	validate := func(e deployment.Environment, cfg SetAllowedFinalityConfigInput) error {
-		return validateCommitteeOnchainTargets(e, cfg.CommitteeQualifier, cfg.ChainSelectors)
+		if err := validateCommitteeOnchainTargets(e, cfg.CommitteeQualifier, cfg.ChainSelectors); err != nil {
+			return err
+		}
+		// Reject an empty config: with no mode set the input encodes to all-zero,
+		// which silently means "wait for finality" — almost always an unintended
+		// no-op rather than a deliberate choice. Mirrors finality.Config.Validate.
+		if !cfg.WaitForFinality && !cfg.WaitForSafe && cfg.BlockDepth == 0 {
+			return errors.New("at least one finality mode must be set (waitForFinality, waitForSafe, or blockDepth)")
+		}
+		return nil
 	}
 
 	apply := func(e deployment.Environment, cfg SetAllowedFinalityConfigInput) (deployment.ChangesetOutput, error) {
