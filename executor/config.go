@@ -23,6 +23,7 @@ const (
 
 type ConfigWithBlockchainInfo[T any] struct {
 	Configuration
+	// Deprecated: BlockchainInfos is deprecated and will be removed
 	BlockchainInfos chainaccess.Infos[T] `toml:"blockchain_infos"`
 }
 

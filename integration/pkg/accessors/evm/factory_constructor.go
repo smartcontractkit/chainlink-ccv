@@ -37,6 +37,7 @@ var _ chainaccess.AccessorFactoryConstructor = CreateEVMAccessorFactory
 func CreateEVMAccessorFactory(lggr logger.Logger, genericConfig chainaccess.GenericConfig) (chainaccess.AccessorFactory, error) {
 	// Convert generic chain config -> Infos[evm.Info]
 	evmInfos := make(chainaccess.Infos[Info])
+	// TODO: To support standalone mode, need to support local config, GenericConfig will be deprecated as JD job will not have rpc info.
 	err := genericConfig.GetAllConcreteConfig(chainsel.FamilyEVM, &evmInfos)
 	if err != nil {
 		return nil, fmt.Errorf("error getting evm info: %w", err)
