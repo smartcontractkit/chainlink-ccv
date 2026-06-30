@@ -22,6 +22,10 @@ import (
 	"fmt"
 	"slices"
 
+	mcmstypes "github.com/smartcontractkit/mcms/types"
+
+	ccipchangesets "github.com/smartcontractkit/chainlink-ccip/deployment/utils/changesets"
+	mcmsutil "github.com/smartcontractkit/chainlink-ccip/deployment/utils/mcms"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
@@ -42,6 +46,13 @@ type LaneChainOverrides struct {
 	MessageNetworkFeeUSDCents *uint16
 	// TokenNetworkFeeUSDCents overrides the token network fee.
 	TokenNetworkFeeUSDCents *uint16
+	// InboundSigners optionally sets the committee verifier signature quorum for
+	// inbound traffic from the remote chain on this side of the lane (signer
+	// addresses in the chain family's native string form). Empty leaves signatures
+	// to the committee changesets (AddNOPToCommittee / threshold).
+	InboundSigners []string
+	// InboundThreshold is the signature threshold paired with InboundSigners.
+	InboundThreshold uint8
 	// FamilyExtras carries chain-family-specific overrides (e.g. FeeQuoter dest
 	// chain config, executor dest chain config) that the adapter interprets.
 	FamilyExtras map[string]any
@@ -70,6 +81,9 @@ type LaneExpansionInput struct {
 	SrcChainOverrides *LaneChainOverrides
 	// DestChainOverrides optionally overrides config for the destination chain side.
 	DestChainOverrides *LaneChainOverrides
+	// MCMS, when set, packages the onchain lane writes into an MCMS timelock
+	// proposal instead of returning them for deployer-key execution.
+	MCMS *mcmsutil.Input
 }
 
 // LaneExpansion is a single-entry, onchain-only changeset that wires a new
@@ -92,7 +106,7 @@ func LaneExpansion() deployment.ChangeSetV2[LaneExpansionInput] {
 		return applyLaneConfig(e, cfg.SrcChainSelector, cfg.DestChainSelector,
 			cfg.UseTestRouter, cfg.ExecutorQualifier,
 			cfg.InboundCCVQualifiers, cfg.OutboundCCVQualifiers,
-			cfg.SrcChainOverrides, cfg.DestChainOverrides)
+			cfg.SrcChainOverrides, cfg.DestChainOverrides, cfg.MCMS)
 	}
 
 	return deployment.CreateChangeSet(apply, validate)
@@ -140,9 +154,11 @@ func applyLaneConfig(
 	executorQualifier string,
 	inboundCCVQualifiers, outboundCCVQualifiers []string,
 	srcOverrides, destOverrides *LaneChainOverrides,
+	mcmsInput *mcmsutil.Input,
 ) (deployment.ChangesetOutput, error) {
 	outputDS := datastore.NewMemoryDataStore()
 	var allReports []operations.Report[any, any]
+	var batchOps []mcmstypes.BatchOperation
 
 	// Configure both sides: src chain with dest as remote, dest chain with src as remote.
 	sides := []struct {
@@ -159,18 +175,31 @@ func applyLaneConfig(
 			executorQualifier, inboundCCVQualifiers, outboundCCVQualifiers, side.overrides,
 		)
 
-		// Pass addresses for both the local chain and the remote chain. The
-		// adapter resolves local contracts (OnRamp/OffRamp/Router/FeeQuoter) and
-		// the remote chain's ramps — the remote OnRamp wires the local OffRamp's
-		// allowed source onramps, and the remote OffRamp wires the local OnRamp's
-		// destination. This mirrors the legacy topology changeset, which resolved
-		// remote ramps from the full datastore.
+		// Resolve the remote chain's ramps via the remote chain's own adapter, so
+		// they are encoded for the remote family — mirroring the legacy changeset's
+		// remoteAdapter.GetOnRampAddress / GetOffRampAddress. The local adapter then
+		// only needs the local chain's addresses.
+		remoteAdapter, err := adapters.GetLaneConfigRegistry().Get(side.remoteSel)
+		if err != nil {
+			return deployment.ChangesetOutput{Reports: allReports, DataStore: outputDS},
+				fmt.Errorf("remote chain %d: %w", side.remoteSel, err)
+		}
+		remoteOnRamp, err := remoteAdapter.GetOnRampAddress(e.DataStore, side.remoteSel)
+		if err != nil {
+			return deployment.ChangesetOutput{Reports: allReports, DataStore: outputDS},
+				fmt.Errorf("resolve remote OnRamp on chain %d: %w", side.remoteSel, err)
+		}
+		remoteOffRamp, err := remoteAdapter.GetOffRampAddress(e.DataStore, side.remoteSel)
+		if err != nil {
+			return deployment.ChangesetOutput{Reports: allReports, DataStore: outputDS},
+				fmt.Errorf("resolve remote OffRamp on chain %d: %w", side.remoteSel, err)
+		}
+		remoteLaneCfg.RemoteOnRamps = [][]byte{remoteOnRamp}
+		remoteLaneCfg.RemoteOffRamp = remoteOffRamp
+
 		existingAddresses := e.DataStore.Addresses().Filter(
 			datastore.AddressRefByChainSelector(side.localSel),
 		)
-		existingAddresses = append(existingAddresses, e.DataStore.Addresses().Filter(
-			datastore.AddressRefByChainSelector(side.remoteSel),
-		)...)
 
 		input := adapters.LaneConfigInput{
 			ChainSelector:     side.localSel,
@@ -199,6 +228,8 @@ func applyLaneConfig(
 				fmt.Errorf("chain %d: ConfigureLane failed: %w", side.localSel, err)
 		}
 
+		batchOps = append(batchOps, report.Output.BatchOps...)
+
 		for _, ref := range report.Output.Addresses {
 			if addErr := outputDS.Addresses().Add(ref); addErr != nil &&
 				!errors.Is(addErr, datastore.ErrAddressRefExists) {
@@ -215,10 +246,18 @@ func applyLaneConfig(
 		)
 	}
 
-	return deployment.ChangesetOutput{
-		Reports:   allReports,
-		DataStore: outputDS,
-	}, nil
+	// Package the onchain writes: with MCMS input into a timelock proposal, or for
+	// deployer-key execution otherwise. The OutputBuilder resolves per-chain
+	// timelock addresses via the registered MCMS readers when batch ops exist.
+	var mcmsCfg mcmsutil.Input
+	if mcmsInput != nil {
+		mcmsCfg = *mcmsInput
+	}
+	return ccipchangesets.NewOutputBuilder(e, ccipchangesets.GetRegistry()).
+		WithReports(allReports).
+		WithBatchOps(batchOps).
+		WithDataStore(outputDS).
+		Build(mcmsCfg)
 }
 
 // buildRemoteLaneConfig assembles a RemoteLaneConfig from the changeset input.
@@ -238,6 +277,8 @@ func buildRemoteLaneConfig(
 		cfg.TokenReceiverAllowed = overrides.TokenReceiverAllowed
 		cfg.MessageNetworkFeeUSDCents = overrides.MessageNetworkFeeUSDCents
 		cfg.TokenNetworkFeeUSDCents = overrides.TokenNetworkFeeUSDCents
+		cfg.InboundSigners = overrides.InboundSigners
+		cfg.InboundThreshold = overrides.InboundThreshold
 		cfg.FamilyExtras = overrides.FamilyExtras
 	}
 	return cfg

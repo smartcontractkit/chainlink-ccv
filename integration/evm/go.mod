@@ -5,6 +5,7 @@ go 1.26.2
 replace (
 	github.com/fbsobreira/gotron-sdk => github.com/smartcontractkit/chainlink-tron/relayer/gotron-sdk v0.0.4
 	github.com/smartcontractkit/chainlink-ccv => ../../
+	github.com/smartcontractkit/chainlink-ccv/deployment => ../../deployment
 )
 
 require (
@@ -16,7 +17,7 @@ require (
 	github.com/smartcontractkit/chainlink-ccv v0.0.2-0.20260608205628-b1fb1b311772
 	github.com/smartcontractkit/chainlink-ccv/deployment v0.0.2-0.20260616151800-9a3a31c4e194
 	github.com/smartcontractkit/chainlink-deployments-framework v0.114.2
-	github.com/smartcontractkit/chainlink-protos/job-distributor v0.19.0
+	github.com/smartcontractkit/chainlink-protos/job-distributor v0.20.0
 	github.com/stretchr/testify v1.11.1
 )
 

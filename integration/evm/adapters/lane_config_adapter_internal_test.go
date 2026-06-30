@@ -37,8 +37,9 @@ const (
 	laneRemoteOffRampAddr = "0x000000000000000000000000000000000000000A"
 )
 
-// laneRefs builds the full set of local-chain address refs the lane adapter needs
-// to resolve. Individual entries can be dropped to exercise the error branches.
+// laneRefs builds the local-chain address refs the adapter resolves. Remote ramps
+// are passed pre-resolved on the RemoteLaneConfig (resolved by the changeset via the
+// remote chain's adapter), so they are not in this set.
 func laneRefs() []datastore.AddressRef {
 	return []datastore.AddressRef{
 		{ChainSelector: laneLocalSel, Type: datastore.ContractType(router.ContractType), Version: router.Version, Address: laneRouterAddr},
@@ -49,9 +50,6 @@ func laneRefs() []datastore.AddressRef {
 		{ChainSelector: laneLocalSel, Type: datastore.ContractType(sequences.ExecutorProxyType), Version: executor.Version, Qualifier: DefaultQualifier, Address: laneExecutorAddr},
 		{ChainSelector: laneLocalSel, Type: datastore.ContractType(committee_verifier.ContractType), Version: committee_verifier.Version, Qualifier: DefaultQualifier, Address: laneVerifierAddr},
 		{ChainSelector: laneLocalSel, Type: datastore.ContractType(versioned_verifier_resolver.CommitteeVerifierResolverType), Version: versioned_verifier_resolver.Version, Qualifier: DefaultQualifier, Address: laneResolverAddr},
-		// Remote chain ramps — the adapter resolves these for cross-referencing the lane.
-		{ChainSelector: laneRemoteSel, Type: datastore.ContractType(onramp.ContractType), Version: onramp.Version, Address: laneRemoteOnRampAddr},
-		{ChainSelector: laneRemoteSel, Type: datastore.ContractType(offramp.ContractType), Version: offramp.Version, Address: laneRemoteOffRampAddr},
 	}
 }
 
@@ -64,6 +62,9 @@ func laneInput(refs []datastore.AddressRef, mutate func(*ccvdeploymentadapters.L
 				ExecutorQualifier:     DefaultQualifier,
 				InboundCCVQualifiers:  []string{DefaultQualifier},
 				OutboundCCVQualifiers: []string{DefaultQualifier},
+				// Remote ramps are supplied pre-resolved by the changeset.
+				RemoteOnRamps: [][]byte{common.HexToAddress(laneRemoteOnRampAddr).Bytes()},
+				RemoteOffRamp: common.HexToAddress(laneRemoteOffRampAddr).Bytes(),
 			},
 		},
 	}
@@ -76,8 +77,8 @@ func laneInput(refs []datastore.AddressRef, mutate func(*ccvdeploymentadapters.L
 // TestToEVMConfigureChainForLanesInput_HappyPath proves the topology-free
 // LaneConfigInput is resolved into the EVM ConfigureChainForLanesInput: local
 // contracts by chain, executor + committee-verifier (resolver) addresses by
-// qualifier, with defaults applied — and crucially with an empty SignatureConfig
-// so the sequence does not touch the committee verifier's signer quorum.
+// qualifier, the pre-resolved remote ramps threaded through — and an empty
+// SignatureConfig (signers omitted) so the sequence leaves the quorum untouched.
 func TestToEVMConfigureChainForLanesInput_HappyPath(t *testing.T) {
 	out, err := toEVMConfigureChainForLanesInput(laneInput(laneRefs(), nil))
 	require.NoError(t, err)
@@ -93,7 +94,7 @@ func TestToEVMConfigureChainForLanesInput_HappyPath(t *testing.T) {
 	require.Equal(t, laneExecutorAddr, rc.DefaultExecutor)
 	require.Equal(t, []string{laneResolverAddr}, rc.DefaultInboundCCVs)
 	require.Equal(t, []string{laneResolverAddr}, rc.DefaultOutboundCCVs)
-	// Remote ramps are resolved from the datastore (no FamilyExtras needed).
+	// Pre-resolved remote ramps are threaded through unchanged.
 	require.Equal(t, [][]byte{common.HexToAddress(laneRemoteOnRampAddr).Bytes()}, rc.OnRamps)
 	require.Equal(t, common.HexToAddress(laneRemoteOffRampAddr).Bytes(), rc.OffRamp)
 	require.Equal(t, laneChainFamily.GetChainFamilySelector(), rc.FeeQuoterDestChainConfig.ChainFamilySelector)
@@ -105,8 +106,8 @@ func TestToEVMConfigureChainForLanesInput_HappyPath(t *testing.T) {
 	require.Len(t, cv.CommitteeVerifier, 2) // [verifier, resolver]
 	cvRemote, ok := cv.RemoteChains[laneRemoteSel]
 	require.True(t, ok)
-	require.Empty(t, cvRemote.SignatureConfig.Signers, "lane config must not set signers")
-	require.Zero(t, cvRemote.SignatureConfig.Threshold, "lane config must not set threshold")
+	require.Empty(t, cvRemote.SignatureConfig.Signers, "no signers supplied → quorum untouched")
+	require.Zero(t, cvRemote.SignatureConfig.Threshold)
 }
 
 // TestToEVMConfigureChainForLanesInput_UseTestRouter proves the TestRouter is
@@ -137,36 +138,15 @@ func TestToEVMConfigureChainForLanesInput_Overrides(t *testing.T) {
 	require.Equal(t, gas, rc.BaseExecutionGasCost)
 }
 
-// TestToEVMConfigureChainForLanesInput_RemoteRampsFromExtras proves remote ramp
-// addresses supplied via FamilyExtras are threaded into the remote chain config.
-func TestToEVMConfigureChainForLanesInput_RemoteRampsFromExtras(t *testing.T) {
-	remoteOnRamp := "0x00000000000000000000000000000000000000aa"
-	remoteOffRamp := "0x00000000000000000000000000000000000000bb"
-	out, err := toEVMConfigureChainForLanesInput(laneInput(laneRefs(), func(in *ccvdeploymentadapters.LaneConfigInput) {
-		rc := in.RemoteChains[laneRemoteSel]
-		rc.FamilyExtras = map[string]any{
-			LaneRemoteOnRampExtra:  remoteOnRamp,
-			LaneRemoteOffRampExtra: remoteOffRamp,
-		}
-		in.RemoteChains[laneRemoteSel] = rc
-	}))
-	require.NoError(t, err)
-	rc := out.RemoteChains[laneRemoteSel]
-	require.Equal(t, [][]byte{common.HexToAddress(remoteOnRamp).Bytes()}, rc.OnRamps)
-	require.Equal(t, common.HexToAddress(remoteOffRamp).Bytes(), rc.OffRamp)
-}
-
-// TestToEVMConfigureChainForLanesInput_InboundSigners proves lane expansion sets
-// the committee verifier signature quorum when signers are supplied (replicating
+// TestToEVMConfigureChainForLanesInput_InboundSigners proves lane expansion sets the
+// committee verifier signature quorum when InboundSigners is supplied (replicating
 // the legacy inline behavior), and leaves it empty otherwise.
 func TestToEVMConfigureChainForLanesInput_InboundSigners(t *testing.T) {
 	signer := "0x00000000000000000000000000000000000000Cd"
 	out, err := toEVMConfigureChainForLanesInput(laneInput(laneRefs(), func(in *ccvdeploymentadapters.LaneConfigInput) {
 		rc := in.RemoteChains[laneRemoteSel]
-		rc.FamilyExtras = map[string]any{
-			LaneInboundSignersExtra:   []string{signer},
-			LaneInboundThresholdExtra: int64(1),
-		}
+		rc.InboundSigners = []string{signer}
+		rc.InboundThreshold = 1
 		in.RemoteChains[laneRemoteSel] = rc
 	}))
 	require.NoError(t, err)
@@ -181,8 +161,25 @@ func TestToEVMConfigureChainForLanesInput_InboundSigners(t *testing.T) {
 	require.Empty(t, def.CommitteeVerifiers[0].RemoteChains[laneRemoteSel].SignatureConfig.Signers)
 }
 
-// TestToEVMConfigureChainForLanesInput_Errors covers the resolution error
-// branches when required local addresses or qualifiers are absent.
+// TestToEVMConfigureChainForLanesInput_DefaultsCCVQualifiers proves that omitting
+// the CCV qualifiers auto-resolves the "default" committee verifier (matching the
+// legacy resolveDefaultCCVs), so operators need not supply them.
+func TestToEVMConfigureChainForLanesInput_DefaultsCCVQualifiers(t *testing.T) {
+	out, err := toEVMConfigureChainForLanesInput(laneInput(laneRefs(), func(in *ccvdeploymentadapters.LaneConfigInput) {
+		rc := in.RemoteChains[laneRemoteSel]
+		rc.InboundCCVQualifiers = nil
+		rc.OutboundCCVQualifiers = nil
+		in.RemoteChains[laneRemoteSel] = rc
+	}))
+	require.NoError(t, err)
+	rc := out.RemoteChains[laneRemoteSel]
+	require.Equal(t, []string{laneResolverAddr}, rc.DefaultInboundCCVs)
+	require.Equal(t, []string{laneResolverAddr}, rc.DefaultOutboundCCVs)
+	require.Len(t, out.CommitteeVerifiers, 1, "default committee verifier configured")
+}
+
+// TestToEVMConfigureChainForLanesInput_Errors covers the resolution / validation
+// error branches.
 func TestToEVMConfigureChainForLanesInput_Errors(t *testing.T) {
 	without := func(skip datastore.ContractType, qualifier string) []datastore.AddressRef {
 		out := make([]datastore.AddressRef, 0, len(laneRefs()))
@@ -228,10 +225,10 @@ func TestToEVMConfigureChainForLanesInput_Errors(t *testing.T) {
 			wantErrSub: "resolver for qualifier",
 		},
 		{
-			name: "invalid remote onramp extra",
+			name: "invalid inbound signer",
 			input: laneInput(laneRefs(), func(in *ccvdeploymentadapters.LaneConfigInput) {
 				rc := in.RemoteChains[laneRemoteSel]
-				rc.FamilyExtras = map[string]any{LaneRemoteOnRampExtra: "not-a-hex"}
+				rc.InboundSigners = []string{"not-a-hex"}
 				in.RemoteChains[laneRemoteSel] = rc
 			}),
 			wantErrSub: "is not a valid hex address",

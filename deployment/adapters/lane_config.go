@@ -16,11 +16,10 @@ type LaneConfigInput struct {
 	ChainSelector uint64
 	// UseTestRouter selects the TestRouter instead of the production Router.
 	UseTestRouter bool
-	// ExistingAddresses are the deployed addresses for the local chain AND every
-	// remote chain referenced in RemoteChains. The adapter resolves the local
-	// chain's contracts (OnRamp, OffRamp, Router, FeeQuoter, Executor, committee
-	// verifiers) and each remote chain's ramps (the remote OnRamp/OffRamp needed
-	// to cross-reference the lane) from this set, keyed by chain selector.
+	// ExistingAddresses are the deployed addresses on the local chain, used by the
+	// adapter to resolve OnRamp, OffRamp, Router, FeeQuoter, Executor and committee
+	// verifiers. Remote chain ramps are supplied pre-resolved per remote in
+	// RemoteLaneConfig (the changeset resolves them via the remote chain's adapter).
 	ExistingAddresses []datastore.AddressRef
 	// RemoteChains maps remote chain selector → lane config for that remote chain.
 	RemoteChains map[uint64]RemoteLaneConfig
@@ -41,6 +40,22 @@ type RemoteLaneConfig struct {
 	// OutboundCCVQualifiers are committee verifier qualifiers on the local chain
 	// used to verify outbound traffic to this remote chain.
 	OutboundCCVQualifiers []string
+	// RemoteOnRamps are the remote chain's OnRamp addresses, resolved by the
+	// changeset via the remote chain's adapter (GetOnRampAddress) and passed in
+	// pre-encoded for the remote family. They wire the local OffRamp's allowed
+	// source onramps. Empty leaves the current on-chain value untouched.
+	RemoteOnRamps [][]byte
+	// RemoteOffRamp is the remote chain's OffRamp address (resolved via the remote
+	// chain's adapter), wiring the local OnRamp's destination. Empty leaves the
+	// current on-chain value untouched.
+	RemoteOffRamp []byte
+	// InboundSigners optionally sets the committee verifier signature quorum for
+	// inbound traffic from this remote chain — signer addresses in the local
+	// chain family's native string form. Empty leaves signatures untouched, owned
+	// by the committee changesets (AddNOPToCommittee / Increase- / DecreaseThreshold).
+	InboundSigners []string
+	// InboundThreshold is the signature threshold paired with InboundSigners.
+	InboundThreshold uint8
 	// BaseExecutionGasCost overrides the default base execution gas cost.
 	BaseExecutionGasCost *uint32
 	// TokenReceiverAllowed overrides whether token receivers are allowed.
@@ -72,4 +87,14 @@ type LaneConfigAdapter interface {
 	// ConfigureLane returns the per-family sequence that configures lanes on a
 	// single chain for traffic to/from the specified remote chains.
 	ConfigureLane() *operations.Sequence[LaneConfigInput, LaneConfigOutput, chain.BlockChains]
+
+	// GetOnRampAddress resolves the OnRamp address for chainSelector from the
+	// datastore, in this chain family's native byte encoding. The lane changeset
+	// calls this on a remote chain's adapter to resolve that chain's ramps
+	// (family-correct) before configuring the local side of the lane.
+	GetOnRampAddress(ds datastore.DataStore, chainSelector uint64) ([]byte, error)
+
+	// GetOffRampAddress resolves the OffRamp address for chainSelector from the
+	// datastore, in this chain family's native byte encoding.
+	GetOffRampAddress(ds datastore.DataStore, chainSelector uint64) ([]byte, error)
 }

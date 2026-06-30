@@ -34,6 +34,14 @@ func (s *stubLaneConfigAdapter) ConfigureLane() *operations.Sequence[adapters.La
 	return stubLaneConfigSequence
 }
 
+func (s *stubLaneConfigAdapter) GetOnRampAddress(_ datastore.DataStore, _ uint64) ([]byte, error) {
+	return make([]byte, 20), nil
+}
+
+func (s *stubLaneConfigAdapter) GetOffRampAddress(_ datastore.DataStore, _ uint64) ([]byte, error) {
+	return make([]byte, 20), nil
+}
+
 func registerLaneConfigAdapter() {
 	adapters.GetLaneConfigRegistry().Register(chainsel.FamilyEVM, &stubLaneConfigAdapter{})
 }

@@ -18,47 +18,22 @@ import (
 	ccvdeploymentadapters "github.com/smartcontractkit/chainlink-ccv/deployment/adapters"
 )
 
-const (
-	// LaneRemoteOnRampExtra and LaneRemoteOffRampExtra are optional FamilyExtras
-	// keys (string hex addresses) carrying the remote chain's OnRamp and OffRamp
-	// addresses. The topology-free LaneConfigInput passes only the local chain's
-	// ExistingAddresses, so the remote ramps — which the OffRamp source config
-	// (allowed remote OnRamps) and the OnRamp dest config (remote OffRamp) cross-
-	// reference — are not otherwise available to this adapter. When absent, the
-	// underlying ConfigureChainForLanes sequence preserves whatever is already on
-	// chain (correct for router promotion and idempotent re-runs; for a brand-new
-	// lane these references stay unset until supplied).
-	LaneRemoteOnRampExtra  = "remoteOnRamp"
-	LaneRemoteOffRampExtra = "remoteOffRamp"
-
-	// LaneInboundSignersExtra ([]string of hex signer addresses) and
-	// LaneInboundThresholdExtra (integer 0-255) optionally set the committee
-	// verifier's signature quorum for inbound traffic from the remote chain as
-	// part of lane expansion. When present, the adapter populates the committee
-	// verifier SignatureConfig (the shared sequence then writes it). When absent,
-	// signatures are left untouched — owned by the AddNOPToCommittee / threshold
-	// changesets. This makes LaneExpansion able to fully replicate the legacy
-	// topology lane connection, which set signers inline, while keeping the
-	// incremental committee changesets for post-onboarding changes.
-	LaneInboundSignersExtra   = "inboundSigners"
-	LaneInboundThresholdExtra = "inboundThreshold"
-)
-
 // EVMLaneConfigAdapter implements ccvdeploymentadapters.LaneConfigAdapter for EVM
 // chains. It wires a single chain into one or more lanes by reusing the existing
 // EVM ConfigureChainForLanes sequence: it configures the local OnRamp, OffRamp,
 // FeeQuoter, Executor and Router for each remote chain, and references the chosen
 // committee verifiers (by qualifier) on the ramps and in the verifier resolver.
 //
-// It deliberately does NOT manage committee-verifier signature quorums (signers /
-// threshold). In the topology-free model those are owned by the dedicated
-// committee changesets (AddNOPToCommittee / Increase- / DecreaseThreshold via
-// CommitteeVerifierOnchainAdapter.ApplySignatureConfigs). Accordingly every
-// CommitteeVerifierRemoteChainConfig it emits carries an empty SignatureConfig,
-// which the ConfigureChainForLanes sequence treats as "do not touch signatures".
+// Committee-verifier signature quorums are set only when the caller supplies
+// InboundSigners on the RemoteLaneConfig (initial onboarding / full lane setup).
+// When omitted, signatures are left untouched — owned by the incremental committee
+// changesets (AddNOPToCommittee / Increase- / DecreaseThreshold). The shared
+// ConfigureChainForLanes sequence treats an empty SignatureConfig as "do not touch".
 //
-// The underlying sequence is idempotent: re-running reconciles drifted config
-// rather than duplicating it.
+// Remote chain ramps are supplied pre-resolved on the RemoteLaneConfig (the lane
+// changeset resolves them via the remote chain's own adapter). The underlying
+// sequence is idempotent: re-running reconciles drifted config rather than
+// duplicating it.
 type EVMLaneConfigAdapter struct{}
 
 var _ ccvdeploymentadapters.LaneConfigAdapter = (*EVMLaneConfigAdapter)(nil)
@@ -103,6 +78,20 @@ func (a *EVMLaneConfigAdapter) ConfigureLane() *cldfops.Sequence[ccvdeploymentad
 	return evmConfigureLane
 }
 
+// GetOnRampAddress resolves the EVM OnRamp address for chainSelector from the
+// datastore, as 20-byte EVM-encoded bytes. The lane changeset calls this on a
+// remote chain's adapter to resolve that chain's ramps before configuring the
+// local side of the lane.
+func (a *EVMLaneConfigAdapter) GetOnRampAddress(ds datastore.DataStore, chainSelector uint64) ([]byte, error) {
+	return laneChainFamily.GetOnRampAddress(ds, chainSelector)
+}
+
+// GetOffRampAddress resolves the EVM OffRamp address for chainSelector from the
+// datastore, as 20-byte EVM-encoded bytes.
+func (a *EVMLaneConfigAdapter) GetOffRampAddress(ds datastore.DataStore, chainSelector uint64) ([]byte, error) {
+	return laneChainFamily.GetOffRampAddress(ds, chainSelector)
+}
+
 // toEVMConfigureChainForLanesInput resolves the local chain's contract addresses
 // and per-remote lane settings from the topology-free input into the EVM
 // ConfigureChainForLanesInput expected by the underlying sequence.
@@ -142,17 +131,17 @@ func toEVMConfigureChainForLanesInput(
 		remoteChains[remoteSel] = remoteCfg
 
 		// Optional signature quorum for inbound traffic from this remote, set as
-		// part of lane expansion when the caller provides signers (see
-		// LaneInboundSignersExtra). Empty leaves signatures untouched.
-		signers, threshold, err := laneSignatureConfigFromExtras(rlc.FamilyExtras)
-		if err != nil {
+		// part of lane expansion when the caller provides InboundSigners. Empty
+		// leaves signatures untouched (owned by the committee changesets).
+		if err := validateHexSigners(rlc.InboundSigners); err != nil {
 			return ccvadapters.ConfigureChainForLanesInput{}, fmt.Errorf("remote chain %d: %w", remoteSel, err)
 		}
 
 		// Every committee verifier referenced inbound or outbound for this remote
-		// must be configured (resolver routing + remote chain settings).
-		for _, qualifier := range dedupeQualifiers(rlc.InboundCCVQualifiers, rlc.OutboundCCVQualifiers) {
-			if err := addCommitteeVerifierRemote(committeeVerifiers, ds, local, remoteSel, qualifier, signers, threshold); err != nil {
+		// must be configured (resolver routing + remote chain settings). Qualifiers
+		// default to "default" when omitted (see defaultedCCVQualifiers).
+		for _, qualifier := range dedupeQualifiers(defaultedCCVQualifiers(rlc.InboundCCVQualifiers), defaultedCCVQualifiers(rlc.OutboundCCVQualifiers)) {
+			if err := addCommitteeVerifierRemote(committeeVerifiers, ds, local, remoteSel, qualifier, rlc.InboundSigners, rlc.InboundThreshold); err != nil {
 				return ccvadapters.ConfigureChainForLanesInput{}, fmt.Errorf("remote chain %d: %w", remoteSel, err)
 			}
 		}
@@ -191,18 +180,13 @@ func resolveRemoteLaneConfig(
 		return ccvadapters.RemoteChainConfig[[]byte, string]{}, fmt.Errorf("resolve executor (qualifier %q): %w", executorQualifier, err)
 	}
 
-	inboundCCVs, err := resolveResolverAddresses(ds, local, rlc.InboundCCVQualifiers)
+	inboundCCVs, err := resolveResolverAddresses(ds, local, defaultedCCVQualifiers(rlc.InboundCCVQualifiers))
 	if err != nil {
 		return ccvadapters.RemoteChainConfig[[]byte, string]{}, fmt.Errorf("resolve inbound CCVs: %w", err)
 	}
-	outboundCCVs, err := resolveResolverAddresses(ds, local, rlc.OutboundCCVQualifiers)
+	outboundCCVs, err := resolveResolverAddresses(ds, local, defaultedCCVQualifiers(rlc.OutboundCCVQualifiers))
 	if err != nil {
 		return ccvadapters.RemoteChainConfig[[]byte, string]{}, fmt.Errorf("resolve outbound CCVs: %w", err)
-	}
-
-	remoteOnRamps, remoteOffRamp, err := resolveRemoteRamps(ds, remote, rlc.FamilyExtras)
-	if err != nil {
-		return ccvadapters.RemoteChainConfig[[]byte, string]{}, err
 	}
 
 	fqConfig := laneChainFamily.GetDefaultFeeQuoterDestChainConfig(local, remote, laneChainFamily.GetChainFamilySelector())
@@ -214,8 +198,8 @@ func resolveRemoteLaneConfig(
 
 	return ccvadapters.RemoteChainConfig[[]byte, string]{
 		AllowTrafficFrom:          &allowTrafficFrom,
-		OnRamps:                   remoteOnRamps,
-		OffRamp:                   remoteOffRamp,
+		OnRamps:                   rlc.RemoteOnRamps,
+		OffRamp:                   rlc.RemoteOffRamp,
 		DefaultExecutor:           executorAddr,
 		DefaultInboundCCVs:        inboundCCVs,
 		DefaultOutboundCCVs:       outboundCCVs,
@@ -274,38 +258,15 @@ func addCommitteeVerifierRemote(
 	return nil
 }
 
-// laneSignatureConfigFromExtras reads the optional inbound signature quorum
-// (signers + threshold) from FamilyExtras. Absent signers yield ok=false and an
-// empty config, leaving signatures untouched. See LaneInboundSignersExtra.
-func laneSignatureConfigFromExtras(extras map[string]any) (signers []string, threshold uint8, err error) {
-	raw, present := extras[LaneInboundSignersExtra]
-	if !present {
-		return nil, 0, nil
-	}
-	switch v := raw.(type) {
-	case []string:
-		signers = v
-	case []any:
-		for _, s := range v {
-			str, isStr := s.(string)
-			if !isStr {
-				return nil, 0, fmt.Errorf("FamilyExtras[%q] must be a list of hex address strings, got element %T", LaneInboundSignersExtra, s)
-			}
-			signers = append(signers, str)
-		}
-	default:
-		return nil, 0, fmt.Errorf("FamilyExtras[%q] must be a list of hex address strings, got %T", LaneInboundSignersExtra, raw)
-	}
+// validateHexSigners rejects malformed signer addresses before they reach the
+// committee verifier signature config.
+func validateHexSigners(signers []string) error {
 	for _, s := range signers {
 		if !common.IsHexAddress(s) {
-			return nil, 0, fmt.Errorf("FamilyExtras[%q]: %q is not a valid hex address", LaneInboundSignersExtra, s)
+			return fmt.Errorf("InboundSigners: %q is not a valid hex address", s)
 		}
 	}
-	th, _, terr := extraBoundedUint[uint8](extras, LaneInboundThresholdExtra, 255)
-	if terr != nil {
-		return nil, 0, terr
-	}
-	return signers, th, nil
+	return nil
 }
 
 // resolveResolverAddresses maps committee-verifier qualifiers to their verifier
@@ -347,62 +308,6 @@ func resolveLaneRouter(ds datastore.DataStore, chainSelector uint64, useTestRout
 	return addr, nil
 }
 
-// resolveRemoteRamps determines the remote chain's OnRamp/OffRamp addresses used to
-// cross-reference the lane (the remote OnRamp on the local OffRamp's allowed-source
-// set, and the remote OffRamp on the local OnRamp's dest config). Resolution order:
-//  1. An explicit FamilyExtras override (operator-supplied) wins.
-//  2. Otherwise resolve from the datastore — LaneConfigInput.ExistingAddresses now
-//     carries the remote chain's addresses, matching the legacy topology changeset.
-//  3. If neither is available, leave nil so the underlying sequence preserves the
-//     current on-chain references.
-func resolveRemoteRamps(ds datastore.DataStore, remote uint64, extras map[string]any) ([][]byte, []byte, error) {
-	extraOnRamps, extraOffRamp, err := laneRemoteRampsFromExtras(extras)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	onRamps := extraOnRamps
-	if len(onRamps) == 0 {
-		if addr, rerr := laneChainFamily.GetOnRampAddress(ds, remote); rerr == nil {
-			onRamps = [][]byte{addr}
-		}
-	}
-
-	offRamp := extraOffRamp
-	if len(offRamp) == 0 {
-		if addr, rerr := laneChainFamily.GetOffRampAddress(ds, remote); rerr == nil {
-			offRamp = addr
-		}
-	}
-
-	return onRamps, offRamp, nil
-}
-
-// laneRemoteRampsFromExtras reads the optional remote OnRamp/OffRamp addresses from
-// FamilyExtras. Absent keys yield nil. These act as an explicit override over
-// datastore resolution (see resolveRemoteRamps). See the LaneRemoteOnRampExtra doc.
-func laneRemoteRampsFromExtras(extras map[string]any) (onRamps [][]byte, offRamp []byte, err error) {
-	if onRampHex, ok, perr := extraString(extras, LaneRemoteOnRampExtra); perr != nil {
-		return nil, nil, perr
-	} else if ok {
-		addr, perr := parseRequiredNonZeroHexAddress(onRampHex, LaneRemoteOnRampExtra)
-		if perr != nil {
-			return nil, nil, perr
-		}
-		onRamps = [][]byte{addr.Bytes()}
-	}
-	if offRampHex, ok, perr := extraString(extras, LaneRemoteOffRampExtra); perr != nil {
-		return nil, nil, perr
-	} else if ok {
-		addr, perr := parseRequiredNonZeroHexAddress(offRampHex, LaneRemoteOffRampExtra)
-		if perr != nil {
-			return nil, nil, perr
-		}
-		offRamp = addr.Bytes()
-	}
-	return onRamps, offRamp, nil
-}
-
 // laneLocalDataStore reconstructs a sealed datastore from the local chain's
 // ExistingAddresses so the EVM chain-family resolvers (which take a DataStore) can
 // be reused as-is.
@@ -412,6 +317,17 @@ func laneLocalDataStore(refs []datastore.AddressRef) datastore.DataStore {
 		_ = ms.Addresses().Add(ref)
 	}
 	return ms.Seal()
+}
+
+// defaultedCCVQualifiers returns the given committee-verifier qualifiers, or the
+// single "default" qualifier when none are supplied. This lets operators omit CCV
+// qualifiers entirely and have the default committee verifier auto-resolved,
+// matching the legacy lane changeset's resolveDefaultCCVs behavior.
+func defaultedCCVQualifiers(qualifiers []string) []string {
+	if len(qualifiers) == 0 {
+		return []string{DefaultQualifier}
+	}
+	return qualifiers
 }
 
 // dedupeQualifiers returns the union of the given qualifier lists in stable
