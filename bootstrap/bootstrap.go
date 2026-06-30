@@ -273,7 +273,7 @@ func (b *Bootstrapper) startWithJDLifecycle(ctx context.Context) error {
 		Monitoring: b.config.Monitoring,
 	}
 
-	jobRunner := &runner{fac: b.fac, deps: deps}
+	jobRunner := &runner{lggr: b.lggr, fac: b.fac, deps: deps}
 	lifecycleManager, err := lifecycle.NewManager(lifecycle.Config{
 		JDClient: jdClient,
 		JobStore: jobstore.NewPostgresStore(db),

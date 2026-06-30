@@ -213,7 +213,7 @@ count = 42`
 				return nil
 			},
 		}
-		r := &runner{fac: fac, deps: deps}
+		r := &runner{lggr: logger.Test(t), fac: fac, deps: deps}
 
 		// runner parses spec as TOML into AppConfig, then calls fac.Start(ctx, appConfig, deps)
 		// use empty TOML so parseTomlStrict[any] succeeds (no undecoded fields)
@@ -230,7 +230,7 @@ count = 42`
 				return nil
 			},
 		}
-		r := &runner{fac: fac, deps: deps}
+		r := &runner{lggr: logger.Test(t), fac: fac, deps: deps}
 
 		require.NoError(t, r.StopJob(ctx))
 		require.True(t, stopped)
@@ -243,7 +243,7 @@ count = 42`
 				return errors.New("boom")
 			},
 		}
-		r := &runner{fac: fac, deps: deps}
+		r := &runner{lggr: logger.Test(t), fac: fac, deps: deps}
 		require.EqualError(t, r.StartJob(ctx, ""), "boom")
 	})
 
@@ -253,7 +253,7 @@ count = 42`
 		fac := &spyServiceFactory{
 			stopFn: func(context.Context) error { return wantErr },
 		}
-		r := &runner{fac: fac, deps: deps}
+		r := &runner{lggr: logger.Test(t), fac: fac, deps: deps}
 		got := r.StopJob(ctx)
 		require.ErrorIs(t, got, wantErr)
 	})
