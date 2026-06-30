@@ -32,6 +32,9 @@ const (
 	laneExecutorAddr   = "0x0000000000000000000000000000000000000006"
 	laneVerifierAddr   = "0x0000000000000000000000000000000000000007"
 	laneResolverAddr   = "0x0000000000000000000000000000000000000008"
+
+	laneRemoteOnRampAddr  = "0x0000000000000000000000000000000000000009"
+	laneRemoteOffRampAddr = "0x000000000000000000000000000000000000000A"
 )
 
 // laneRefs builds the full set of local-chain address refs the lane adapter needs
@@ -46,6 +49,9 @@ func laneRefs() []datastore.AddressRef {
 		{ChainSelector: laneLocalSel, Type: datastore.ContractType(sequences.ExecutorProxyType), Version: executor.Version, Qualifier: DefaultQualifier, Address: laneExecutorAddr},
 		{ChainSelector: laneLocalSel, Type: datastore.ContractType(committee_verifier.ContractType), Version: committee_verifier.Version, Qualifier: DefaultQualifier, Address: laneVerifierAddr},
 		{ChainSelector: laneLocalSel, Type: datastore.ContractType(versioned_verifier_resolver.CommitteeVerifierResolverType), Version: versioned_verifier_resolver.Version, Qualifier: DefaultQualifier, Address: laneResolverAddr},
+		// Remote chain ramps — the adapter resolves these for cross-referencing the lane.
+		{ChainSelector: laneRemoteSel, Type: datastore.ContractType(onramp.ContractType), Version: onramp.Version, Address: laneRemoteOnRampAddr},
+		{ChainSelector: laneRemoteSel, Type: datastore.ContractType(offramp.ContractType), Version: offramp.Version, Address: laneRemoteOffRampAddr},
 	}
 }
 
@@ -87,6 +93,9 @@ func TestToEVMConfigureChainForLanesInput_HappyPath(t *testing.T) {
 	require.Equal(t, laneExecutorAddr, rc.DefaultExecutor)
 	require.Equal(t, []string{laneResolverAddr}, rc.DefaultInboundCCVs)
 	require.Equal(t, []string{laneResolverAddr}, rc.DefaultOutboundCCVs)
+	// Remote ramps are resolved from the datastore (no FamilyExtras needed).
+	require.Equal(t, [][]byte{common.HexToAddress(laneRemoteOnRampAddr).Bytes()}, rc.OnRamps)
+	require.Equal(t, common.HexToAddress(laneRemoteOffRampAddr).Bytes(), rc.OffRamp)
 	require.Equal(t, laneChainFamily.GetChainFamilySelector(), rc.FeeQuoterDestChainConfig.ChainFamilySelector)
 	require.Equal(t, laneChainFamily.GetAddressBytesLength(), rc.AddressBytesLength)
 	require.NotNil(t, rc.AllowTrafficFrom)

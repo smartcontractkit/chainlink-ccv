@@ -179,7 +179,7 @@ func resolveRemoteLaneConfig(
 		return ccvadapters.RemoteChainConfig[[]byte, string]{}, fmt.Errorf("resolve outbound CCVs: %w", err)
 	}
 
-	remoteOnRamps, remoteOffRamp, err := laneRemoteRampsFromExtras(rlc.FamilyExtras)
+	remoteOnRamps, remoteOffRamp, err := resolveRemoteRamps(ds, remote, rlc.FamilyExtras)
 	if err != nil {
 		return ccvadapters.RemoteChainConfig[[]byte, string]{}, err
 	}
@@ -281,9 +281,40 @@ func resolveLaneRouter(ds datastore.DataStore, chainSelector uint64, useTestRout
 	return addr, nil
 }
 
+// resolveRemoteRamps determines the remote chain's OnRamp/OffRamp addresses used to
+// cross-reference the lane (the remote OnRamp on the local OffRamp's allowed-source
+// set, and the remote OffRamp on the local OnRamp's dest config). Resolution order:
+//  1. An explicit FamilyExtras override (operator-supplied) wins.
+//  2. Otherwise resolve from the datastore — LaneConfigInput.ExistingAddresses now
+//     carries the remote chain's addresses, matching the legacy topology changeset.
+//  3. If neither is available, leave nil so the underlying sequence preserves the
+//     current on-chain references.
+func resolveRemoteRamps(ds datastore.DataStore, remote uint64, extras map[string]any) ([][]byte, []byte, error) {
+	extraOnRamps, extraOffRamp, err := laneRemoteRampsFromExtras(extras)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	onRamps := extraOnRamps
+	if len(onRamps) == 0 {
+		if addr, rerr := laneChainFamily.GetOnRampAddress(ds, remote); rerr == nil {
+			onRamps = [][]byte{addr}
+		}
+	}
+
+	offRamp := extraOffRamp
+	if len(offRamp) == 0 {
+		if addr, rerr := laneChainFamily.GetOffRampAddress(ds, remote); rerr == nil {
+			offRamp = addr
+		}
+	}
+
+	return onRamps, offRamp, nil
+}
+
 // laneRemoteRampsFromExtras reads the optional remote OnRamp/OffRamp addresses from
-// FamilyExtras. Absent keys yield nil, leaving the underlying sequence to preserve
-// the current on-chain references. See the LaneRemoteOnRampExtra doc.
+// FamilyExtras. Absent keys yield nil. These act as an explicit override over
+// datastore resolution (see resolveRemoteRamps). See the LaneRemoteOnRampExtra doc.
 func laneRemoteRampsFromExtras(extras map[string]any) (onRamps [][]byte, offRamp []byte, err error) {
 	if onRampHex, ok, perr := extraString(extras, LaneRemoteOnRampExtra); perr != nil {
 		return nil, nil, perr

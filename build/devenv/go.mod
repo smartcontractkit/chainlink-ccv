@@ -26,8 +26,8 @@ require (
 	github.com/rs/zerolog v1.35.1
 	github.com/sethvargo/go-retry v0.3.0
 	github.com/smartcontractkit/chain-selectors v1.0.104
-	github.com/smartcontractkit/chainlink-ccip/chains/evm v0.0.0-20260626191803-b2c751b7f789
-	github.com/smartcontractkit/chainlink-ccip/deployment v0.0.0-20260626191803-b2c751b7f789
+	github.com/smartcontractkit/chainlink-ccip/chains/evm v0.0.0-20260630184409-79e0c5cd667f
+	github.com/smartcontractkit/chainlink-ccip/deployment v0.0.0-20260630184409-79e0c5cd667f
 	github.com/smartcontractkit/chainlink-ccv v0.0.2-0.20260608205628-b1fb1b311772
 	github.com/smartcontractkit/chainlink-ccv/deployment v0.0.2-0.20260616151800-9a3a31c4e194
 	github.com/smartcontractkit/chainlink-ccv/integration/evm v0.0.0-00010101000000-000000000000
@@ -491,7 +491,7 @@ require (
 	go4.org/netipx v0.0.0-20230125063823-8449b0a6169f // indirect
 	golang.org/x/arch v0.22.0 // indirect
 	golang.org/x/crypto v0.53.0 // indirect
-	golang.org/x/exp v0.0.0-20260218203240-3dfff04db8fa
+	golang.org/x/exp v0.0.0-20260218203240-3dfff04db8fa // indirect
 	golang.org/x/mod v0.36.0 // indirect
 	golang.org/x/net v0.55.0 // indirect
 	golang.org/x/oauth2 v0.36.0 // indirect

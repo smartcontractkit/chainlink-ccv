@@ -9,13 +9,11 @@ import (
 	"context"
 	"fmt"
 	"maps"
-	"slices"
 	"sort"
 	"strconv"
 	"strings"
 
 	"github.com/BurntSushi/toml"
-	expmaps "golang.org/x/exp/maps"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 
@@ -35,6 +33,7 @@ import (
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/committeeverifier"
 	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
+	ccvchangesets "github.com/smartcontractkit/chainlink-ccv/deployment/changesets"
 	ccvshared "github.com/smartcontractkit/chainlink-ccv/deployment/shared"
 )
 
@@ -228,60 +227,42 @@ func ConnectAllChainsCanonical(
 		operations.NewMemoryReporter(),
 	)
 
-	cs := ccipChangesets.ConfigureChainsForLanesFromTopology(
-		ccipAdapters.GetCommitteeVerifierContractRegistry(),
-		ccipAdapters.GetChainFamilyRegistry(),
-		changesetscore.GetRegistry(),
-	)
-	pairs := make(map[string]ccipChangesets.CrossFamilyLanePair)
+	// LaneExpansion is single-entry and configures BOTH directions of a pair in
+	// one apply, so we iterate unique unordered pairs. CCVs and the executor
+	// resolve from the "default" qualifier (matching the legacy auto-resolve), and
+	// per-chain lane settings fall back to the chain-family adapter defaults — the
+	// same defaults the legacy topology path used. Remote ramp addresses are
+	// resolved by the adapter from the datastore (both chains' addresses are passed
+	// through LaneConfigInput.ExistingAddresses).
+	cs := ccvchangesets.LaneExpansion()
+	seen := make(map[string]bool)
 	key := func(chainA, chainB uint64) string {
 		return fmt.Sprintf("%d_%d", chainA, chainB)
 	}
-
-	isKeyPresent := func(chainA, chainB uint64) bool {
-		return slices.Contains(expmaps.Keys(pairs), key(chainA, chainB)) ||
-			slices.Contains(expmaps.Keys(pairs), key(chainB, chainA))
+	isPresent := func(chainA, chainB uint64) bool {
+		return seen[key(chainA, chainB)] || seen[key(chainB, chainA)]
 	}
 	for sel, profile := range profiles {
 		for _, remote := range profile.remotes {
-			if isKeyPresent(remote, sel) {
+			if isPresent(sel, remote) {
 				continue
 			}
+			seen[key(sel, remote)] = true
 
-			// Get and set chain- and remote-specific overrides to avoid leaking a remote
-			// chain's profile to the local chain
-			chainACfg, err := profile.impl.GetChainLaneProfile(e, sel)
-			if err != nil {
-				return fmt.Errorf("get chain lane profile for chain %d: %w", sel, err)
+			input := ccvchangesets.LaneExpansionInput{
+				SrcChainSelector:      sel,
+				DestChainSelector:     remote,
+				ExecutorQualifier:     "default",
+				InboundCCVQualifiers:  []string{"default"},
+				OutboundCCVQualifiers: []string{"default"},
 			}
-			remoteProfile, ok := profiles[remote]
-			if !ok {
-				return fmt.Errorf("missing chain profile for remote selector %d (referenced from chain %d)", remote, sel)
+			if err := cs.VerifyPreconditions(*e, input); err != nil {
+				return fmt.Errorf("lane %d<->%d: precondition check failed: %w", sel, remote, err)
 			}
-			chainBCfg, err := remoteProfile.impl.GetChainLaneProfile(e, remote)
-			if err != nil {
-				return fmt.Errorf("get chain lane profile for remote chain %d: %w", remote, err)
-			}
-			pairs[key(sel, remote)] = ccipChangesets.CrossFamilyLanePair{
-				ChainA:          sel,
-				ChainB:          remote,
-				ChainAOverrides: &chainACfg,
-				ChainBOverrides: &chainBCfg,
+			if _, err := cs.Apply(*e, input); err != nil {
+				return fmt.Errorf("lane %d<->%d: configure lane: %w", sel, remote, err)
 			}
 		}
-	}
-
-	cfg := ccipChangesets.ConfigureChainsForLanesFromTopologyConfig{
-		Topology: convertTopologyToCCIP(topology),
-		BuildLanesCrossFamilyConfig: ccipChangesets.BuildLanesCrossFamilyConfig{
-			Lanes: expmaps.Values(pairs),
-		},
-	}
-	if err := cs.VerifyPreconditions(*e, cfg); err != nil {
-		return fmt.Errorf("(adding chains %v): precondition check failed: %w", expmaps.Values(pairs), err)
-	}
-	if _, err := cs.Apply(*e, cfg); err != nil {
-		return fmt.Errorf("(adding chains %v):  configure chains for lanes: %w", expmaps.Values(pairs), err)
 	}
 
 	for _, sel := range orderedSelectors {
