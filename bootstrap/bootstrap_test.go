@@ -139,7 +139,7 @@ func (s *spyServiceFactoryDummy) Stop(ctx context.Context) error {
 }
 
 func (s *spyServiceFactoryDummy) MetricViews() []sdkmetric.View {
-	return []sdkmetric.View{}
+	return nil
 }
 
 var _ ServiceFactory = (*spyServiceFactoryDummy)(nil)
@@ -349,7 +349,7 @@ func (m *mockServiceFactory) Stop(ctx context.Context) error {
 }
 
 func (s *mockServiceFactory) MetricViews() []sdkmetric.View {
-	return []sdkmetric.View{}
+	return nil
 }
 
 var _ ServiceFactory = (*mockServiceFactory)(nil)
@@ -374,7 +374,7 @@ func (s *spyServiceFactory) Stop(ctx context.Context) error {
 }
 
 func (s *spyServiceFactory) MetricViews() []sdkmetric.View {
-	return []sdkmetric.View{}
+	return nil
 }
 
 func TestBuildUpdateNodeRequest(t *testing.T) {

@@ -57,7 +57,7 @@ type ServiceFactory interface {
 	Start(ctx context.Context, spec JobSpec, deps ServiceDeps) error
 	// Stop stops the service.
 	Stop(ctx context.Context) error
-	// MetricViews are a OTel histopgram views
+	// MetricViews are OpenTelemetry histogram views used when initializing Beholder.
 	MetricViews() []sdkmetric.View
 }
 
@@ -213,7 +213,7 @@ func NewBootstrapper(
 	if err != nil {
 		return nil, fmt.Errorf("failed to setup beholder: %w", err)
 	}
-	lggr, err := logging.InitLogger(b.name, b.logLevel, mon.Beholder)
+	lggr, err := logging.InitLogger(b.name, b.logLevel, mon)
 	if err != nil {
 		return nil, fmt.Errorf("failed to init logger: %w", err)
 	}

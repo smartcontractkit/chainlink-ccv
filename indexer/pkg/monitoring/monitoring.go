@@ -52,7 +52,7 @@ func (i *IndexerBeholderMonitoring) Metrics() common.IndexerMetricLabeler {
 	return i.metrics
 }
 
-// noopServiceMetrics implements monitoring.ServiceMetrics with no-op behavior for noop monitoring.
+// noopServiceMetrics implements commonmetrics.ServiceMetrics with no-op behavior for noop monitoring.
 type noopServiceMetrics struct{}
 
 func (noopServiceMetrics) RecordServiceStarted(context.Context) {}

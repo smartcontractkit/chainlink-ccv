@@ -13,18 +13,18 @@ import (
 )
 
 // InitLogger creates a named logger with the base core and optional Beholder log streaming.
-func InitLogger(name string, baseLogLevel zapcore.Level, config monitoring.BeholderConfig) (logger.Logger, error) {
+func InitLogger(name string, baseLogLevel zapcore.Level, config monitoring.Config) (logger.Logger, error) {
 	loggerCores := make([]zapcore.Core, 0, 2)
 	baseCore, err := logger.NewCore(zaplog.GetLogProfile(baseLogLevel))
 	if err != nil {
 		return nil, fmt.Errorf("failed to initialize base core: %w", err)
 	}
 	loggerCores = append(loggerCores, baseCore)
-	if config.LogStreamingEnabled {
-		if config.LogStreamingLevel == "" {
-			config.LogStreamingLevel = "info"
+	if config.Enabled && config.Type == "beholder" && config.Beholder.LogStreamingEnabled {
+		if config.Beholder.LogStreamingLevel == "" {
+			config.Beholder.LogStreamingLevel = "info"
 		}
-		logStreamingLevel, err := zapcore.ParseLevel(config.LogStreamingLevel)
+		logStreamingLevel, err := zapcore.ParseLevel(config.Beholder.LogStreamingLevel)
 		if err != nil {
 			return nil, fmt.Errorf("error parsing streaming log level: %w", err)
 		}

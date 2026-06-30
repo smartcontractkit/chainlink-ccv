@@ -78,11 +78,11 @@
    }
    ```
 
-2. For factories with no service-specific views, return empty array.
+2. For factories with no service-specific views, return nil.
 
    ```go
    func (f *Factory) MetricViews() []sdkmetric.View {
-       return []sdkmetric.View{}
+       return nil
    }
    ```
 

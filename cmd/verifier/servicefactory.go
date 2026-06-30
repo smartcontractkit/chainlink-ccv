@@ -59,12 +59,13 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 		return fmt.Errorf("failed to get app config: %w", err)
 	}
 
-	lggr := deps.Logger
+	f.lggr = deps.Logger
 	verifierMonitoring, err := monitoring.InitMonitoring("committee_verifier")
 	if err != nil {
 		return fmt.Errorf("failed to init monitoring: %w", err)
 	}
 
+	lggr := f.lggr
 	if config.PyroscopeURL != "" {
 		profiler, err := StartPyroscope(lggr, config.PyroscopeURL, "verifier")
 		if err != nil {
