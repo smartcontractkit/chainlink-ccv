@@ -123,8 +123,7 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, spec bootstrap.JobSp
 	if appConfig.PyroscopeURL != "" {
 		_, err = cmd.StartPyroscope(tvf.lggr, appConfig.PyroscopeURL, "tokenVerifier")
 		if err != nil {
-			tvf.lggr.Errorw("Failed to start pyroscope", "error", err)
-			os.Exit(1)
+			return fmt.Errorf("failed to start pyroscope: %v", err)
 		}
 	}
 

@@ -44,7 +44,7 @@ func SetupMonitoring(config executor.MonitoringConfig) executor.Monitoring {
 
 	executorMonitoring, err := monitoring.InitMonitoring()
 	if err != nil {
-		panic(fmt.Sprintf("failed to initialize verifier monitoring: %v", err))
+		panic(fmt.Sprintf("failed to initialize executor monitoring: %v", err))
 	}
 	return executorMonitoring
 }

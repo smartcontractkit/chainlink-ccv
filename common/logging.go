@@ -21,6 +21,9 @@ func InitLogger(name string, baseLogLevel zapcore.Level, config monitoring.Behol
 	}
 	loggerCores = append(loggerCores, baseCore)
 	if config.LogStreamingEnabled {
+		if config.LogStreamingLevel == "" {
+			config.LogStreamingLevel = "info"
+		}
 		logStreamingLevel, err := zapcore.ParseLevel(config.LogStreamingLevel)
 		if err != nil {
 			return nil, fmt.Errorf("error parsing streaming log level: %w", err)
