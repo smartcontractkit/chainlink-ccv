@@ -126,11 +126,12 @@ rmn_address          = "0x0000000000000000000000000000000000000002"
 default_executor_address = "0x0000000000000000000000000000000000000003"
 executor_pool        = ["test-executor"]
 `
-	reg, err := chainaccess.NewRegistry(logger.Test(t), "")
+	lggr := logger.Test(t)
+	reg, err := chainaccess.NewRegistry(lggr, "")
 	require.NoError(t, err)
 
 	f := NewFactory()
-	err = f.Start(context.Background(), bootstrap.JobSpec{AppConfig: appConfig}, bootstrap.ServiceDeps{Registry: reg})
+	err = f.Start(context.Background(), bootstrap.JobSpec{AppConfig: appConfig}, bootstrap.ServiceDeps{Logger: lggr, Registry: reg})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to validate chainlink executor")
 }
@@ -149,11 +150,12 @@ rmn_address          = "0x0000000000000000000000000000000000000002"
 default_executor_address = "0x0000000000000000000000000000000000000003"
 executor_pool        = ["test-executor"]
 `
-	reg, err := chainaccess.NewRegistry(logger.Test(t), "")
+	lggr := logger.Test(t)
+	reg, err := chainaccess.NewRegistry(lggr, "")
 	require.NoError(t, err)
 
 	f := NewFactory()
-	err = f.Start(context.Background(), bootstrap.JobSpec{AppConfig: appConfig}, bootstrap.ServiceDeps{Registry: reg})
+	err = f.Start(context.Background(), bootstrap.JobSpec{AppConfig: appConfig}, bootstrap.ServiceDeps{Logger: lggr, Registry: reg})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to validate chainlink executor")
 }
@@ -173,11 +175,12 @@ rmn_address          = "0x0000000000000000000000000000000000000002"
 default_executor_address = "not-valid-hex"
 executor_pool        = ["test-executor"]
 `
-	reg, err := chainaccess.NewRegistry(logger.Test(t), "")
+	lggr := logger.Test(t)
+	reg, err := chainaccess.NewRegistry(lggr, "")
 	require.NoError(t, err)
 
 	f := NewFactory()
-	err = f.Start(context.Background(), bootstrap.JobSpec{AppConfig: appConfig}, bootstrap.ServiceDeps{Registry: reg})
+	err = f.Start(context.Background(), bootstrap.JobSpec{AppConfig: appConfig}, bootstrap.ServiceDeps{Logger: lggr, Registry: reg})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to validate chainlink executor")
 }
@@ -198,11 +201,12 @@ rmn_address          = "0x0000000000000000000000000000000000000002"
 default_executor_address = "0x0000000000000000000000000000000000000003"
 executor_pool        = ["test-executor", "test-executor"]
 `
-	reg, err := chainaccess.NewRegistry(logger.Test(t), "")
+	lggr := logger.Test(t)
+	reg, err := chainaccess.NewRegistry(lggr, "")
 	require.NoError(t, err)
 
 	f := NewFactory()
-	err = f.Start(context.Background(), bootstrap.JobSpec{AppConfig: appConfig}, bootstrap.ServiceDeps{Registry: reg})
+	err = f.Start(context.Background(), bootstrap.JobSpec{AppConfig: appConfig}, bootstrap.ServiceDeps{Logger: lggr, Registry: reg})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to create leader elector")
 }
@@ -223,11 +227,12 @@ default_executor_address = "0x0000000000000000000000000000000000000003"
 executor_pool        = ["test-executor"]
 execution_interval   = "1s"
 `
-	reg, err := chainaccess.NewRegistry(logger.Test(t), "")
+	lggr := logger.Test(t)
+	reg, err := chainaccess.NewRegistry(lggr, "")
 	require.NoError(t, err)
 
 	f := NewFactory()
-	err = f.Start(context.Background(), bootstrap.JobSpec{AppConfig: appConfig}, bootstrap.ServiceDeps{Registry: reg})
+	err = f.Start(context.Background(), bootstrap.JobSpec{AppConfig: appConfig}, bootstrap.ServiceDeps{Logger: lggr, Registry: reg})
 	require.NoError(t, err)
 	require.NoError(t, f.Stop(context.Background()))
 }

@@ -37,7 +37,7 @@ require (
 	github.com/smartcontractkit/chainlink-protos/chainlink-ccv/message-discovery v0.0.0-20251211142334-5c3421fe2c8d
 	github.com/smartcontractkit/chainlink-protos/chainlink-ccv/message-rules v0.0.0-20260505131349-78e491b80735
 	github.com/smartcontractkit/chainlink-protos/chainlink-ccv/verifier v0.0.0-20251211142334-5c3421fe2c8d
-	github.com/smartcontractkit/chainlink-protos/orchestrator v0.10.0
+	github.com/smartcontractkit/chainlink-protos/orchestrator v0.11.0
 	github.com/smartcontractkit/chainlink-solana v1.1.2-0.20260318003508-442c25062e9a
 	github.com/smartcontractkit/chainlink-testing-framework/framework v0.16.6-0.20260630120514-36abe27604df
 	github.com/smartcontractkit/wsrpc v0.8.5-0.20250502134807-c57d3d995945

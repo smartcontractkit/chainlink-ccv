@@ -302,6 +302,53 @@ func (_c *MockClientInterface_RevokeJobCh_Call) RunAndReturn(run func() <-chan *
 	return _c
 }
 
+// UpdateNode provides a mock function with given fields: ctx, req
+func (_m *MockClientInterface) UpdateNode(ctx context.Context, req *feedsmanager.UpdateNodeRequest) error {
+	ret := _m.Called(ctx, req)
+
+	if len(ret) == 0 {
+		panic("no return value specified for UpdateNode")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, *feedsmanager.UpdateNodeRequest) error); ok {
+		r0 = rf(ctx, req)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockClientInterface_UpdateNode_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'UpdateNode'
+type MockClientInterface_UpdateNode_Call struct {
+	*mock.Call
+}
+
+// UpdateNode is a helper method to define mock.On call
+//   - ctx context.Context
+//   - req *feedsmanager.UpdateNodeRequest
+func (_e *MockClientInterface_Expecter) UpdateNode(ctx interface{}, req interface{}) *MockClientInterface_UpdateNode_Call {
+	return &MockClientInterface_UpdateNode_Call{Call: _e.mock.On("UpdateNode", ctx, req)}
+}
+
+func (_c *MockClientInterface_UpdateNode_Call) Run(run func(ctx context.Context, req *feedsmanager.UpdateNodeRequest)) *MockClientInterface_UpdateNode_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(*feedsmanager.UpdateNodeRequest))
+	})
+	return _c
+}
+
+func (_c *MockClientInterface_UpdateNode_Call) Return(_a0 error) *MockClientInterface_UpdateNode_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockClientInterface_UpdateNode_Call) RunAndReturn(run func(context.Context, *feedsmanager.UpdateNodeRequest) error) *MockClientInterface_UpdateNode_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // NewMockClientInterface creates a new instance of MockClientInterface. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewMockClientInterface(t interface {

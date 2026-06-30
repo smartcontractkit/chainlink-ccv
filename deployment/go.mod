@@ -15,7 +15,7 @@ require (
 	github.com/smartcontractkit/chainlink-ccv v0.0.1
 	github.com/smartcontractkit/chainlink-common v0.11.2-0.20260417081611-8bdbd9f45629
 	github.com/smartcontractkit/chainlink-deployments-framework v0.94.1
-	github.com/smartcontractkit/chainlink-protos/job-distributor v0.18.0
+	github.com/smartcontractkit/chainlink-protos/job-distributor v0.20.0
 	github.com/smartcontractkit/mcms v0.40.1
 	github.com/stretchr/testify v1.11.1
 	google.golang.org/grpc v1.81.1

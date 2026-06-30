@@ -12,6 +12,7 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger/otelzap"
 )
 
+// InitLogger creates a named logger with the base core and optional Beholder log streaming.
 func InitLogger(name string, baseLogLevel zapcore.Level, config monitoring.BeholderConfig) (logger.Logger, error) {
 	loggerCores := make([]zapcore.Core, 0, 2)
 	baseCore, err := logger.NewCore(zaplog.GetLogProfile(baseLogLevel))

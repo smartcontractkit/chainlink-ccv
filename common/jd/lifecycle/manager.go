@@ -66,6 +66,9 @@ type Config struct {
 	Runner JobRunner
 	// Logger is the logger for the lifecycle manager.
 	Logger logger.Logger
+	// OnConnectHook is an optional function called each time the JD connection is established.
+	// A non-nil error is logged as a warning but does not prevent job processing.
+	OnConnectHook func(ctx context.Context) error
 }
 
 // Manager manages the job lifecycle for JD-connected services.
@@ -78,10 +81,11 @@ type Config struct {
 type Manager struct {
 	services.StateMachine
 
-	jdClient client.ClientInterface
-	jobStore store.StoreInterface
-	runner   JobRunner
-	lggr     logger.Logger
+	jdClient      client.ClientInterface
+	jobStore      store.StoreInterface
+	runner        JobRunner
+	lggr          logger.Logger
+	onConnectHook func(ctx context.Context) error
 
 	mu            sync.Mutex
 	state         State
@@ -113,6 +117,7 @@ func NewManager(cfg Config) (*Manager, error) {
 		jobStore:      cfg.JobStore,
 		runner:        cfg.Runner,
 		lggr:          logger.With(cfg.Logger, "component", "JobLifecycleManager"),
+		onConnectHook: cfg.OnConnectHook,
 		state:         StateWaitingForJob,
 		shutdownCh:    make(chan struct{}),
 		jdConnectedCh: make(chan struct{}, 1),
@@ -207,6 +212,13 @@ func (m *Manager) eventLoop() {
 		select {
 		case <-m.jdConnectedCh:
 			m.lggr.Infow("Connected to Job Distributor")
+			if m.onConnectHook != nil {
+				hookCtx, hookCancel := context.WithTimeout(context.Background(), handleTimeout)
+				if err := m.onConnectHook(hookCtx); err != nil {
+					m.lggr.Warnw("OnConnectHook failed", "error", err)
+				}
+				hookCancel()
+			}
 			m.mu.Lock()
 			pending := m.pendingJob
 			m.mu.Unlock()

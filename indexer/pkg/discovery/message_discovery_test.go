@@ -28,7 +28,7 @@ import (
 type testSetup struct {
 	Discovery  *AggregatorMessageDiscovery
 	Logger     logger.Logger
-	Monitor    common.IndexerMonitoring
+	Metrics    common.IndexerMetricLabeler
 	Storage    *mocks.MockIndexerStorage
 	Reader     *readers.ResilientReader
 	MockReader *internal.MockReader
@@ -114,11 +114,11 @@ func setupMessageDiscoveryTestWithTimeout(t *testing.T, config config.DiscoveryC
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 
 	lggr := logger.Test(t)
-	mon := monitoring.NewNoopIndexerMonitoring()
+	metrics := monitoring.NewNoopIndexerMetricLabeler()
 
 	ts := &testSetup{
 		Logger:             lggr,
-		Monitor:            mon,
+		Metrics:            metrics,
 		Context:            ctx,
 		Cancel:             cancel,
 		capturedSeqNumbers: make(map[string]int),
@@ -142,7 +142,7 @@ func setupMessageDiscoveryTestWithTimeout(t *testing.T, config config.DiscoveryC
 		WithLogger(lggr),
 		WithRegistry(registry),
 		WithTimeProvider(timeProvider),
-		WithMonitoring(mon),
+		WithMetrics(metrics),
 		WithStorage(store),
 		WithAggregator(resilientReader),
 		WithConfig(config),
@@ -162,11 +162,11 @@ func setupMessageDiscoveryTestNoTimeout(t *testing.T, config config.DiscoveryCon
 	ctx, cancel := context.WithCancel(context.Background())
 
 	lggr := logger.Test(t)
-	mon := monitoring.NewNoopIndexerMonitoring()
+	metrics := monitoring.NewNoopIndexerMetricLabeler()
 
 	ts := &testSetup{
 		Logger:             lggr,
-		Monitor:            mon,
+		Metrics:            metrics,
 		Context:            ctx,
 		Cancel:             cancel,
 		capturedSeqNumbers: make(map[string]int),
@@ -188,7 +188,7 @@ func setupMessageDiscoveryTestNoTimeout(t *testing.T, config config.DiscoveryCon
 		WithLogger(lggr),
 		WithRegistry(registry),
 		WithTimeProvider(timeProvider),
-		WithMonitoring(mon),
+		WithMetrics(metrics),
 		WithStorage(store),
 		WithAggregator(resilientReader),
 		WithConfig(config),
@@ -212,7 +212,7 @@ func defaultTestConfig() config.DiscoveryConfig {
 // TestNewAggregatorMessageDiscovery tests the constructor.
 func TestNewAggregatorMessageDiscovery(t *testing.T) {
 	lggr := logger.Test(t)
-	mon := monitoring.NewNoopIndexerMonitoring()
+	metrics := monitoring.NewNoopIndexerMetricLabeler()
 	ts := &testSetup{capturedSeqNumbers: make(map[string]int)}
 	store := newMockStorage(t, ts)
 	mockReader := internal.NewMockReader(internal.MockReaderConfig{})
@@ -222,7 +222,7 @@ func TestNewAggregatorMessageDiscovery(t *testing.T) {
 
 	discovery, _ := NewAggregatorMessageDiscovery(
 		WithLogger(lggr),
-		WithMonitoring(mon),
+		WithMetrics(metrics),
 		WithRegistry(registry),
 		WithTimeProvider(mocks.NewMockTimeProvider(t)),
 		WithStorage(store),
@@ -235,7 +235,7 @@ func TestNewAggregatorMessageDiscovery(t *testing.T) {
 
 	aggDiscovery := discovery.(*AggregatorMessageDiscovery)
 	assert.Equal(t, lggr, aggDiscovery.logger)
-	assert.Equal(t, mon, aggDiscovery.monitoring)
+	assert.Equal(t, metrics, aggDiscovery.metrics)
 	assert.Equal(t, store, aggDiscovery.storageSink)
 	assert.Equal(t, resilientReader, aggDiscovery.aggregatorReader)
 	assert.Equal(t, config, aggDiscovery.config)
@@ -921,7 +921,7 @@ func TestCallReader_PersistDiscoveryBatch(t *testing.T) {
 			defer cancel()
 
 			lggr := logger.Test(t)
-			mon := monitoring.NewNoopIndexerMonitoring()
+			m := monitoring.NewNoopIndexerMetricLabeler()
 
 			store := mocks.NewMockIndexerStorage(t)
 
@@ -958,7 +958,7 @@ func TestCallReader_PersistDiscoveryBatch(t *testing.T) {
 				WithLogger(lggr),
 				WithRegistry(reg),
 				WithTimeProvider(timeProvider),
-				WithMonitoring(mon),
+				WithMetrics(m),
 				WithStorage(store),
 				WithAggregator(resilientReader),
 				WithConfig(cfg),
@@ -1017,7 +1017,7 @@ func TestPersistBatch_FiltersNonEncodableMessages_OnlyEncodablePassedToStorageSi
 		WithLogger(lggr),
 		WithRegistry(registry.NewVerifierRegistry()),
 		WithTimeProvider(timeProvider),
-		WithMonitoring(monitoring.NewNoopIndexerMonitoring()),
+		WithMetrics(monitoring.NewNoopIndexerMetricLabeler()),
 		WithStorage(store),
 		WithAggregator(resilientReader),
 		WithConfig(config.DiscoveryConfig{

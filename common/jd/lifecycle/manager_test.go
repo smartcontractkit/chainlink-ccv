@@ -151,6 +151,80 @@ func TestManager_Start_NoCachedJob_ConnectFails(t *testing.T) {
 	require.NoError(t, err)
 }
 
+func TestManager_OnConnectHook_CalledAfterConnect(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	jdClient := newChanClient(t)
+	jdClient.EXPECT().Connect(mock.Anything).Return(nil)
+	jdClient.EXPECT().Close().Return(nil).Maybe()
+
+	jobStore := mocks.NewMockStoreInterface(t)
+	jobStore.EXPECT().LoadJob(mock.Anything).Return(nil, store.ErrNoJob)
+
+	runner := mocks.NewMockJobRunner(t)
+
+	hookCalled := make(chan struct{}, 1)
+	m, err := NewManager(Config{
+		JDClient: jdClient,
+		JobStore: jobStore,
+		Runner:   runner,
+		Logger:   logger.Test(t),
+		OnConnectHook: func(_ context.Context) error {
+			hookCalled <- struct{}{}
+			return nil
+		},
+	})
+	require.NoError(t, err)
+	require.NoError(t, m.Start(ctx))
+
+	select {
+	case <-hookCalled:
+	case <-time.After(2 * time.Second):
+		t.Fatal("OnConnectHook was not called after JD connect")
+	}
+
+	require.NoError(t, m.Stop())
+}
+
+func TestManager_OnConnectHook_ErrorIsLogged_NotFatal(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	jdClient := newChanClient(t)
+	jdClient.EXPECT().Connect(mock.Anything).Return(nil)
+	jdClient.EXPECT().Close().Return(nil).Maybe()
+
+	jobStore := mocks.NewMockStoreInterface(t)
+	jobStore.EXPECT().LoadJob(mock.Anything).Return(nil, store.ErrNoJob)
+
+	runner := mocks.NewMockJobRunner(t)
+
+	hookCalled := make(chan struct{}, 1)
+	m, err := NewManager(Config{
+		JDClient: jdClient,
+		JobStore: jobStore,
+		Runner:   runner,
+		Logger:   logger.Test(t),
+		OnConnectHook: func(_ context.Context) error {
+			hookCalled <- struct{}{}
+			return errors.New("hook failed")
+		},
+	})
+	require.NoError(t, err)
+	require.NoError(t, m.Start(ctx))
+
+	select {
+	case <-hookCalled:
+	case <-time.After(2 * time.Second):
+		t.Fatal("OnConnectHook was not called")
+	}
+
+	// Manager stays in WaitingForJob state — hook failure does not stop it
+	assert.Equal(t, StateWaitingForJob, m.GetState())
+	require.NoError(t, m.Stop())
+}
+
 func TestManager_Start_LoadJobError(t *testing.T) {
 	t.Parallel()
 

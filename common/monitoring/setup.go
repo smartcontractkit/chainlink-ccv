@@ -10,11 +10,19 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 )
 
-func SetupBeholder(config Config, metricViews []sdkmetric.View) {
+func SetupBeholder(config Config, metricViews []sdkmetric.View) error {
 	if !config.Enabled || config.Type != "beholder" {
-		return
+		return nil
 	}
-	logLevel, err := zapcore.ParseLevel(config.Beholder.LogStreamingLevel)
+
+	var err error
+	logLevel := zapcore.InfoLevel
+	if config.Beholder.LogStreamingLevel != "" {
+		logLevel, err = zapcore.ParseLevel(config.Beholder.LogStreamingLevel)
+		if err != nil {
+			return fmt.Errorf("failed to parse log level: %w", err)
+		}
+	}
 	beholderConfig := beholder.Config{
 		InsecureConnection:       config.Beholder.InsecureConnection,
 		CACertFile:               config.Beholder.CACertFile,
@@ -32,10 +40,12 @@ func SetupBeholder(config Config, metricViews []sdkmetric.View) {
 	// Create the beholder client
 	beholderClient, err := beholder.NewClient(beholderConfig)
 	if err != nil {
-		panic(fmt.Sprintf("failed to create beholder client: %v", err))
+		return fmt.Errorf("failed to create beholder client: %w", err)
 	}
 
 	// Set the beholder client and global otel providers
 	beholder.SetClient(beholderClient)
 	beholder.SetGlobalOtelProviders()
+
+	return nil
 }
