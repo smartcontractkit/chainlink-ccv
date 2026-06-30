@@ -989,6 +989,9 @@ func init() {
 	// on-chain monitoring
 	rootCmd.AddCommand(monitorContractsCmd)
 	rootCmd.AddCommand(txInfoCmd)
+
+	// viz / tracing
+	rootCmd.AddCommand(pushMockTraceCmd)
 	txInfoCmd.Flags().String("env", "env-out.toml", "Select environment file to use (defaults to env-out.toml)")
 
 	// contract management

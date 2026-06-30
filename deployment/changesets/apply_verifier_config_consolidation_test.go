@@ -8,7 +8,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
 	"github.com/smartcontractkit/chainlink-ccv/deployment/adapters"
 	"github.com/smartcontractkit/chainlink-ccv/deployment/shared"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/commit"
@@ -44,7 +43,6 @@ func buildVerifierSpecsForTest(t *testing.T, consolidate bool) shared.NOPJobSpec
 		nops,
 		committee,
 		"",
-		ccvdeployment.MonitoringConfig{},
 		nil,
 		"evm",
 		consolidate,

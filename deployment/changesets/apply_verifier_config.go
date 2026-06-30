@@ -24,8 +24,8 @@ import (
 
 // ApplyVerifierConfigInput is the imperative input for the ApplyVerifierConfig
 // changeset. It replaces the prior topology-driven input — callers describe the
-// committee, the participating NOPs, and any monitoring/profiling settings
-// directly, without supplying a *EnvironmentTopology.
+// committee, the participating NOPs, and any profiling settings directly,
+// without supplying a *EnvironmentTopology.
 type ApplyVerifierConfigInput struct {
 	// CommitteeQualifier identifies the committee being published.
 	CommitteeQualifier string
@@ -41,8 +41,6 @@ type ApplyVerifierConfigInput struct {
 	// PyroscopeURL is forwarded into the verifier job spec for profiling. Must be
 	// empty in production environments (validated below).
 	PyroscopeURL string
-	// Monitoring is forwarded into the verifier job spec.
-	Monitoring ccvdeployment.MonitoringConfig
 	// TargetNOPs filters the publish set. Empty means "all NOPs in the committee".
 	TargetNOPs []shared.NOPAlias
 	// DisableFinalityCheckers lists chain-selector strings whose finality checks
@@ -186,7 +184,6 @@ func ApplyVerifierConfig() deployment.ChangeSetV2[ApplyVerifierConfigInput] {
 			nopInputs,
 			committeeInternal,
 			cfg.PyroscopeURL,
-			cfg.Monitoring,
 			cfg.DisableFinalityCheckers,
 			signerFamily,
 			cfg.ConsolidateAggregators,
@@ -220,6 +217,15 @@ func ApplyVerifierConfig() deployment.ChangeSetV2[ApplyVerifierConfigInput] {
 			return deployment.ChangesetOutput{
 				Reports: manageReport.ExecutionReports,
 			}, fmt.Errorf("failed to manage job proposals: %w", err)
+		}
+
+		// Persist the resolved signer↔alias index so committee membership can later be
+		// reconstructed from state — including for standalone NOPs, whose signing
+		// addresses the Job Distributor does not hold.
+		if err := ccvdeployment.SaveNOPSigners(manageReport.Output.DataStore, nopSignersFromInputs(nopInputs)); err != nil {
+			return deployment.ChangesetOutput{
+				Reports: manageReport.ExecutionReports,
+			}, fmt.Errorf("failed to persist NOP signer index: %w", err)
 		}
 
 		e.Logger.Infow("Verifier config applied",
@@ -319,7 +325,6 @@ func buildVerifierJobSpecs(
 	environmentNOPs []verifierNOPInput,
 	committee verifierCommitteeInput,
 	pyroscopeURL string,
-	monitoring ccvdeployment.MonitoringConfig,
 	disableFinalityCheckers []string,
 	signerFamily string,
 	consolidateAggregators bool,
@@ -380,7 +385,8 @@ func buildVerifierJobSpecs(
 			CommitteeVerifierAddresses:     filterAddressesByChains(committeeVerifierAddrs, nopChains),
 			DefaultExecutorOnRampAddresses: filterAddressesByChains(executorOnRampAddrs, nopChains),
 			DisableFinalityCheckers:        sortedFinalityCheckers,
-			Monitoring:                     monitoring,
+			// Monitoring is intentionally not set here: monitoring config is operator-provided via the
+			// bootstrap config, not the JD-shipped app config. See bootstrap.Config.Monitoring.
 			CommitteeConfig: chainaccess.CommitteeConfig{
 				OnRampAddresses:    filterAddressesByChains(onRampAddrs, nopChains),
 				RMNRemoteAddresses: filterAddressesByChains(rmnRemoteAddrs, nopChains),
@@ -489,6 +495,27 @@ func fetchSigningKeysForNOPInputs(
 	}
 
 	return report.Output.SigningKeysByNOP, nil
+}
+
+// nopSignersFromInputs extracts the alias -> chain family -> signer address index
+// from the resolved verifier NOP inputs, for persistence via SaveNOPSigners.
+func nopSignersFromInputs(nops []verifierNOPInput) map[string]map[string]string {
+	out := make(map[string]map[string]string, len(nops))
+	for _, n := range nops {
+		if len(n.SignerAddressByFamily) == 0 {
+			continue
+		}
+		byFamily := make(map[string]string, len(n.SignerAddressByFamily))
+		for family, addr := range n.SignerAddressByFamily {
+			if addr != "" {
+				byFamily[family] = addr
+			}
+		}
+		if len(byFamily) > 0 {
+			out[string(n.Alias)] = byFamily
+		}
+	}
+	return out
 }
 
 // mergeSigningKeysIntoNOPInputs converts public NOPInput slices into the internal

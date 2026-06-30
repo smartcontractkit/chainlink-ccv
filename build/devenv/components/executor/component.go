@@ -82,11 +82,27 @@ func (c *component) RunPhase3(
 		return nil, nil, fmt.Errorf("phase 1 did not produce *jobs.JDInfrastructure under %q", jdcomp.Key)
 	}
 
+	obs, ok := priorOutputs[observability.Key].(*observability.Observability)
+	if !ok || obs == nil {
+		return nil, nil, fmt.Errorf("executor: observability not found in phase outputs")
+	}
+	// Central monitoring config routed into each executor's bootstrap input below so it
+	// ends up in the generated bootstrap config. Each executor gets its own copy so a future
+	// per-service override can't alias others.
+	monitoring := obs.Monitoring
+
 	for _, exec := range executors {
 		if exec == nil {
 			continue
 		}
 		executorsvc.ApplyDefaults(exec)
+		// Set after defaults so the non-nil Bootstrap (defaulted above) carries monitoring
+		// into GenerateBootstrapConfig during launch.
+		if exec.Bootstrap == nil {
+			exec.Bootstrap = &services.BootstrapInput{}
+		}
+		m := monitoring
+		exec.Bootstrap.Monitoring = &m
 		if exec.Mode != services.Standalone {
 			continue
 		}
@@ -149,10 +165,6 @@ func (c *component) RunPhase3(
 	topology, ok := priorOutputs["environment_topology"].(*ccvdeployment.EnvironmentTopology)
 	if !ok || topology == nil {
 		return nil, nil, fmt.Errorf("executor: environment_topology not found in phase outputs")
-	}
-	obs, ok := priorOutputs[observability.Key].(*observability.Observability)
-	if !ok || obs == nil {
-		return nil, nil, fmt.Errorf("executor: observability not found in phase outputs")
 	}
 	ds, ok := priorOutputs["_ds"].(datastore.MutableDataStore)
 	if !ok {
@@ -299,7 +311,6 @@ func buildExecutorJobSpecs(
 			Pool:              ccvchangesets.ExecutorPoolInputFromTopology(pool),
 			IndexerAddress:    topology.IndexerAddress,
 			PyroscopeURL:      obs.PyroscopeURL,
-			Monitoring:        obs.Monitoring,
 			TargetNOPs:        ccvshared.ConvertStringToNopAliases(execNOPAliases),
 		})
 		if err != nil {

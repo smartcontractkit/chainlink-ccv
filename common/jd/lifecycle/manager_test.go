@@ -362,7 +362,7 @@ func TestManager_Start_PendingCachedJob_RetriedOnJDConnect(t *testing.T) {
 	}
 	jobStore := mocks.NewMockStoreInterface(t)
 	jobStore.EXPECT().LoadJob(mock.Anything).Return(pendingJob, nil)
-	jobStore.EXPECT().MarkJobApproved(mock.Anything).Return(nil).Maybe()
+	jobStore.EXPECT().AcceptPendingJob(mock.Anything).Return(true, nil).Maybe()
 
 	runner := mocks.NewMockJobRunner(t)
 	runner.EXPECT().StartJob(mock.Anything, pendingJob.Spec).Return(nil).Maybe()
@@ -437,8 +437,8 @@ func TestManager_EventLoop_Proposal_StartsJobAndApproves(t *testing.T) {
 
 	jobStore := mocks.NewMockStoreInterface(t)
 	jobStore.EXPECT().LoadJob(mock.Anything).Return(nil, store.ErrNoJob)
-	jobStore.EXPECT().SaveJob(mock.Anything, "proposal-1", int64(2), `{"spec":"new"}`).Return(nil).Maybe()
-	jobStore.EXPECT().MarkJobApproved(mock.Anything).Return(nil).Maybe()
+	jobStore.EXPECT().SavePendingJob(mock.Anything, "proposal-1", int64(2), `{"spec":"new"}`).Return(nil).Maybe()
+	jobStore.EXPECT().AcceptPendingJob(mock.Anything).Return(true, nil).Maybe()
 
 	runner := mocks.NewMockJobRunner(t)
 	runner.EXPECT().StartJob(mock.Anything, `{"spec":"new"}`).Return(nil).Maybe()
@@ -479,9 +479,9 @@ func TestManager_EventLoop_Delete_StopsJobAndClearsState(t *testing.T) {
 
 	jobStore := mocks.NewMockStoreInterface(t)
 	jobStore.EXPECT().LoadJob(mock.Anything).Return(nil, store.ErrNoJob)
-	jobStore.EXPECT().SaveJob(mock.Anything, "proposal-1", int64(1), `{"spec":"job1"}`).Return(nil).Maybe()
-	jobStore.EXPECT().MarkJobApproved(mock.Anything).Return(nil).Maybe()
-	jobStore.EXPECT().DeleteJob(mock.Anything).Return(nil).Maybe()
+	jobStore.EXPECT().SavePendingJob(mock.Anything, "proposal-1", int64(1), `{"spec":"job1"}`).Return(nil).Maybe()
+	jobStore.EXPECT().AcceptPendingJob(mock.Anything).Return(true, nil).Maybe()
+	jobStore.EXPECT().DeleteAllJobs(mock.Anything).Return(nil).Maybe()
 
 	runner := mocks.NewMockJobRunner(t)
 	runner.EXPECT().StartJob(mock.Anything, `{"spec":"job1"}`).Return(nil).Maybe()
@@ -524,8 +524,8 @@ func TestManager_EventLoop_Delete_DifferentJob_Ignored(t *testing.T) {
 
 	jobStore := mocks.NewMockStoreInterface(t)
 	jobStore.EXPECT().LoadJob(mock.Anything).Return(nil, store.ErrNoJob)
-	jobStore.EXPECT().SaveJob(mock.Anything, "proposal-1", int64(1), `{"spec":"job1"}`).Return(nil).Maybe()
-	jobStore.EXPECT().MarkJobApproved(mock.Anything).Return(nil).Maybe()
+	jobStore.EXPECT().SavePendingJob(mock.Anything, "proposal-1", int64(1), `{"spec":"job1"}`).Return(nil).Maybe()
+	jobStore.EXPECT().AcceptPendingJob(mock.Anything).Return(true, nil).Maybe()
 	// DeleteJob should not be called (delete was for different id)
 
 	runner := mocks.NewMockJobRunner(t)
@@ -556,6 +556,108 @@ func TestManager_EventLoop_Delete_DifferentJob_Ignored(t *testing.T) {
 
 	err = m.Stop()
 	require.NoError(t, err)
+}
+
+// TestManager_EventLoop_Proposal_Replacement_StartFails_FallsBackToOldJob verifies that when a
+// replacement proposal's StartJob fails, the manager deletes the pending record, restarts the
+// old job, and remains in the Running state.
+func TestManager_EventLoop_Proposal_Replacement_StartFails_FallsBackToOldJob(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	jdClient := newChanClient(t)
+	jdClient.EXPECT().Connect(mock.Anything).Return(nil)
+	jdClient.EXPECT().Close().Return(nil).Maybe()
+	jdClient.EXPECT().ApproveJob(mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+
+	cachedJob := &store.Job{
+		ProposalID: "old-id",
+		Version:    1,
+		Spec:       `{"spec":"old"}`,
+		Status:     store.JobStatusApproved,
+	}
+	jobStore := mocks.NewMockStoreInterface(t)
+	jobStore.EXPECT().LoadJob(mock.Anything).Return(cachedJob, nil)
+	jobStore.EXPECT().SavePendingJob(mock.Anything, "new-id", int64(2), `{"spec":"new"}`).Return(nil).Maybe()
+	jobStore.EXPECT().DeletePendingJob(mock.Anything).Return(nil).Maybe()
+
+	runner := mocks.NewMockJobRunner(t)
+	// Initial start of cached job.
+	runner.EXPECT().StartJob(mock.Anything, `{"spec":"old"}`).Return(nil).Times(2) // initial + fallback restart
+	runner.EXPECT().StopJob(mock.Anything).Return(nil).Maybe()
+	// Replacement attempt fails.
+	runner.EXPECT().StartJob(mock.Anything, `{"spec":"new"}`).Return(errors.New("start failed")).Maybe()
+
+	m, err := NewManager(Config{
+		JDClient: jdClient,
+		JobStore: jobStore,
+		Runner:   runner,
+		Logger:   logger.Test(t),
+	})
+	require.NoError(t, err)
+	require.NoError(t, m.Start(ctx))
+	assert.Equal(t, StateRunning, m.GetState())
+
+	jdClient.proposalCh <- &pb.ProposeJobRequest{
+		Id:      "new-id",
+		Version: 2,
+		Spec:    `{"spec":"new"}`,
+	}
+
+	// Give event loop time to process the failed replacement and fallback.
+	time.Sleep(100 * time.Millisecond)
+	assert.Equal(t, StateRunning, m.GetState())
+
+	require.NoError(t, m.Stop())
+}
+
+// TestManager_EventLoop_Proposal_Replacement_StartFails_OldJobRestartAlsoFails verifies that
+// when both the replacement StartJob and the old-job restart fail, the manager transitions to
+// WaitingForJob.
+func TestManager_EventLoop_Proposal_Replacement_StartFails_OldJobRestartAlsoFails(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	jdClient := newChanClient(t)
+	jdClient.EXPECT().Connect(mock.Anything).Return(nil)
+	jdClient.EXPECT().Close().Return(nil).Maybe()
+
+	cachedJob := &store.Job{
+		ProposalID: "old-id",
+		Version:    1,
+		Spec:       `{"spec":"old"}`,
+		Status:     store.JobStatusApproved,
+	}
+	jobStore := mocks.NewMockStoreInterface(t)
+	jobStore.EXPECT().LoadJob(mock.Anything).Return(cachedJob, nil)
+	jobStore.EXPECT().SavePendingJob(mock.Anything, "new-id", int64(2), `{"spec":"new"}`).Return(nil).Maybe()
+	jobStore.EXPECT().DeletePendingJob(mock.Anything).Return(nil).Maybe()
+
+	runner := mocks.NewMockJobRunner(t)
+	runner.EXPECT().StartJob(mock.Anything, `{"spec":"old"}`).Return(nil).Once() // initial start
+	runner.EXPECT().StopJob(mock.Anything).Return(nil).Maybe()
+	runner.EXPECT().StartJob(mock.Anything, `{"spec":"new"}`).Return(errors.New("start failed")).Maybe()
+	runner.EXPECT().StartJob(mock.Anything, `{"spec":"old"}`).Return(errors.New("restart failed")).Maybe() // fallback fails
+
+	m, err := NewManager(Config{
+		JDClient: jdClient,
+		JobStore: jobStore,
+		Runner:   runner,
+		Logger:   logger.Test(t),
+	})
+	require.NoError(t, err)
+	require.NoError(t, m.Start(ctx))
+	assert.Equal(t, StateRunning, m.GetState())
+
+	jdClient.proposalCh <- &pb.ProposeJobRequest{
+		Id:      "new-id",
+		Version: 2,
+		Spec:    `{"spec":"new"}`,
+	}
+
+	require.Eventually(t, func() bool { return m.GetState() == StateWaitingForJob }, tests.WaitTimeout(t), 50*time.Millisecond)
+
+	require.NoError(t, m.Stop())
 }
 
 func TestManager_Stop_WithoutStart_ReturnsError(t *testing.T) {
