@@ -5,6 +5,7 @@ import (
 	"sort"
 
 	"github.com/Masterminds/semver/v3"
+	"github.com/ethereum/go-ethereum/common"
 
 	cldfchain "github.com/smartcontractkit/chainlink-deployments-framework/chain"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
@@ -29,6 +30,18 @@ const (
 	// lane these references stay unset until supplied).
 	LaneRemoteOnRampExtra  = "remoteOnRamp"
 	LaneRemoteOffRampExtra = "remoteOffRamp"
+
+	// LaneInboundSignersExtra ([]string of hex signer addresses) and
+	// LaneInboundThresholdExtra (integer 0-255) optionally set the committee
+	// verifier's signature quorum for inbound traffic from the remote chain as
+	// part of lane expansion. When present, the adapter populates the committee
+	// verifier SignatureConfig (the shared sequence then writes it). When absent,
+	// signatures are left untouched — owned by the AddNOPToCommittee / threshold
+	// changesets. This makes LaneExpansion able to fully replicate the legacy
+	// topology lane connection, which set signers inline, while keeping the
+	// incremental committee changesets for post-onboarding changes.
+	LaneInboundSignersExtra   = "inboundSigners"
+	LaneInboundThresholdExtra = "inboundThreshold"
 )
 
 // EVMLaneConfigAdapter implements ccvdeploymentadapters.LaneConfigAdapter for EVM
@@ -128,10 +141,18 @@ func toEVMConfigureChainForLanesInput(
 		}
 		remoteChains[remoteSel] = remoteCfg
 
+		// Optional signature quorum for inbound traffic from this remote, set as
+		// part of lane expansion when the caller provides signers (see
+		// LaneInboundSignersExtra). Empty leaves signatures untouched.
+		signers, threshold, err := laneSignatureConfigFromExtras(rlc.FamilyExtras)
+		if err != nil {
+			return ccvadapters.ConfigureChainForLanesInput{}, fmt.Errorf("remote chain %d: %w", remoteSel, err)
+		}
+
 		// Every committee verifier referenced inbound or outbound for this remote
 		// must be configured (resolver routing + remote chain settings).
 		for _, qualifier := range dedupeQualifiers(rlc.InboundCCVQualifiers, rlc.OutboundCCVQualifiers) {
-			if err := addCommitteeVerifierRemote(committeeVerifiers, ds, local, remoteSel, qualifier); err != nil {
+			if err := addCommitteeVerifierRemote(committeeVerifiers, ds, local, remoteSel, qualifier, signers, threshold); err != nil {
 				return ccvadapters.ConfigureChainForLanesInput{}, fmt.Errorf("remote chain %d: %w", remoteSel, err)
 			}
 		}
@@ -216,6 +237,8 @@ func addCommitteeVerifierRemote(
 	ds datastore.DataStore,
 	local, remote uint64,
 	qualifier string,
+	signers []string,
+	threshold uint8,
 ) error {
 	cfg, ok := committeeVerifiers[qualifier]
 	if !ok {
@@ -232,14 +255,57 @@ func addCommitteeVerifierRemote(
 	}
 
 	cvDefaults := laneChainFamily.GetDefaultCommitteeVerifierRemoteChainConfig()
-	cfg.RemoteChains[remote] = ccvadapters.CommitteeVerifierRemoteChainConfig{
+	remoteCfg := ccvadapters.CommitteeVerifierRemoteChainConfig{
 		AllowlistEnabled:   cvDefaults.AllowlistEnabled,
 		FeeUSDCents:        cvDefaults.FeeUSDCents,
 		GasForVerification: cvDefaults.GasForVerification,
 		PayloadSizeBytes:   cvDefaults.PayloadSizeBytes,
-		// SignatureConfig intentionally left empty — see EVMLaneConfigAdapter doc.
 	}
+	// Set the signature quorum only when the caller supplied signers. When empty,
+	// the shared sequence skips the signature write (signatures stay owned by the
+	// AddNOPToCommittee / threshold changesets).
+	if len(signers) > 0 {
+		remoteCfg.SignatureConfig = ccvadapters.CommitteeVerifierSignatureQuorumConfig{
+			Signers:   signers,
+			Threshold: threshold,
+		}
+	}
+	cfg.RemoteChains[remote] = remoteCfg
 	return nil
+}
+
+// laneSignatureConfigFromExtras reads the optional inbound signature quorum
+// (signers + threshold) from FamilyExtras. Absent signers yield ok=false and an
+// empty config, leaving signatures untouched. See LaneInboundSignersExtra.
+func laneSignatureConfigFromExtras(extras map[string]any) (signers []string, threshold uint8, err error) {
+	raw, present := extras[LaneInboundSignersExtra]
+	if !present {
+		return nil, 0, nil
+	}
+	switch v := raw.(type) {
+	case []string:
+		signers = v
+	case []any:
+		for _, s := range v {
+			str, isStr := s.(string)
+			if !isStr {
+				return nil, 0, fmt.Errorf("FamilyExtras[%q] must be a list of hex address strings, got element %T", LaneInboundSignersExtra, s)
+			}
+			signers = append(signers, str)
+		}
+	default:
+		return nil, 0, fmt.Errorf("FamilyExtras[%q] must be a list of hex address strings, got %T", LaneInboundSignersExtra, raw)
+	}
+	for _, s := range signers {
+		if !common.IsHexAddress(s) {
+			return nil, 0, fmt.Errorf("FamilyExtras[%q]: %q is not a valid hex address", LaneInboundSignersExtra, s)
+		}
+	}
+	th, _, terr := extraBoundedUint[uint8](extras, LaneInboundThresholdExtra, 255)
+	if terr != nil {
+		return nil, 0, terr
+	}
+	return signers, th, nil
 }
 
 // resolveResolverAddresses maps committee-verifier qualifiers to their verifier

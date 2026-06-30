@@ -156,6 +156,31 @@ func TestToEVMConfigureChainForLanesInput_RemoteRampsFromExtras(t *testing.T) {
 	require.Equal(t, common.HexToAddress(remoteOffRamp).Bytes(), rc.OffRamp)
 }
 
+// TestToEVMConfigureChainForLanesInput_InboundSigners proves lane expansion sets
+// the committee verifier signature quorum when signers are supplied (replicating
+// the legacy inline behavior), and leaves it empty otherwise.
+func TestToEVMConfigureChainForLanesInput_InboundSigners(t *testing.T) {
+	signer := "0x00000000000000000000000000000000000000Cd"
+	out, err := toEVMConfigureChainForLanesInput(laneInput(laneRefs(), func(in *ccvdeploymentadapters.LaneConfigInput) {
+		rc := in.RemoteChains[laneRemoteSel]
+		rc.FamilyExtras = map[string]any{
+			LaneInboundSignersExtra:   []string{signer},
+			LaneInboundThresholdExtra: int64(1),
+		}
+		in.RemoteChains[laneRemoteSel] = rc
+	}))
+	require.NoError(t, err)
+	require.Len(t, out.CommitteeVerifiers, 1)
+	sigCfg := out.CommitteeVerifiers[0].RemoteChains[laneRemoteSel].SignatureConfig
+	require.Equal(t, []string{signer}, sigCfg.Signers)
+	require.Equal(t, uint8(1), sigCfg.Threshold)
+
+	// Default happy path (no signers) leaves the quorum empty.
+	def, err := toEVMConfigureChainForLanesInput(laneInput(laneRefs(), nil))
+	require.NoError(t, err)
+	require.Empty(t, def.CommitteeVerifiers[0].RemoteChains[laneRemoteSel].SignatureConfig.Signers)
+}
+
 // TestToEVMConfigureChainForLanesInput_Errors covers the resolution error
 // branches when required local addresses or qualifiers are absent.
 func TestToEVMConfigureChainForLanesInput_Errors(t *testing.T) {
