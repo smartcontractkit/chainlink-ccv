@@ -391,9 +391,9 @@ func buildExecutorJobSpecs(
 		}
 
 		jobID := jobSpecID.ToJobID()
-		mode := nopModes[nopAlias]
-		if mode == "" {
-			mode = shared.NOPModeCL
+		mode, err := resolveNOPMode(nopModes[nopAlias], nopAlias)
+		if err != nil {
+			return nil, scope, err
 		}
 
 		var jobSpec string

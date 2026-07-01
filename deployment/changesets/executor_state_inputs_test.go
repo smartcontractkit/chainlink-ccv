@@ -44,7 +44,7 @@ func seedExecutorJobs(t *testing.T, sel uint64, pool ExecutorPoolInput, indexer 
 		pool,
 		indexer,
 		"",  // pyroscope
-		nil, // default CL envelope
+		nil, // default CL mode
 	)
 	require.NoError(t, err)
 

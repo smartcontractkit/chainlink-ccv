@@ -374,6 +374,11 @@ func buildVerifierJobSpecs(
 			return nil, scope, fmt.Errorf("NOP %q missing signer address for family %s", nop.Alias, signerFamily)
 		}
 
+		mode, err := resolveNOPMode(nop.Mode, nopAlias)
+		if err != nil {
+			return nil, scope, err
+		}
+
 		sortedFinalityCheckers := slices.Clone(disableFinalityCheckers)
 		slices.Sort(sortedFinalityCheckers)
 
@@ -401,7 +406,7 @@ func buildVerifierJobSpecs(
 
 			var jobSpec string
 			jobID := verifierJobID.ToJobID()
-			if nop.Mode == shared.NOPModeStandalone {
+			if mode == shared.NOPModeStandalone {
 				// standalone mode bootstrapper expects "appConfig" field
 				jobSpec = fmt.Sprintf(`schemaVersion = 1
 type = "ccvcommitteeverifier"
