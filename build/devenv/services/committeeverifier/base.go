@@ -258,10 +258,12 @@ func launchVerifier(ctx context.Context, in *Input, outputs []*blockchain.Output
 	// Register each blockchain output as a chain the node has a signing identity on.
 	// This causes the bootstrapper to sync the node's signing key to JD on connect,
 	// making it available to deployment changesets via ListNodeChainConfigs.
+	//
+	// FIXME: testing
 	for _, output := range outputs {
 		if output.ChainID != "" {
 			bootstrapInput.Chains = append(bootstrapInput.Chains, bootstrap.ChainRegistration{
-				Type: in.ChainFamily,
+				Type: output.Family,
 				ID:   output.ChainID,
 			})
 		}
