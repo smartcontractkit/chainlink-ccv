@@ -398,6 +398,7 @@ func buildExecutorJobSpecs(
 
 		var jobSpec string
 		if mode == shared.NOPModeStandalone {
+			// standalone mode bootstrapper expects "appConfig" field
 			jobSpec = fmt.Sprintf(`schemaVersion = 1
 type = "ccvexecutor"
 name = "%s"
@@ -406,6 +407,7 @@ appConfig = '''
 %s'''
 `, string(jobID), jobID.ToExternalJobID(), string(configBytes))
 		} else {
+			// cl-mode and default uses "executorConfig" field
 			jobSpec = fmt.Sprintf(`schemaVersion = 1
 type = "ccvexecutor"
 name = "%s"

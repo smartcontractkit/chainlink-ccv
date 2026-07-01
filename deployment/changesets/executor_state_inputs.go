@@ -172,7 +172,10 @@ func sortedStrings(in []string) []string {
 }
 
 // parseExecutorConfigFromSpec extracts the embedded executor.Configuration from a
-// ccvexecutor job spec. Standalone specs use appConfig; CL specs use executorConfig.
+// ccvexecutor job spec. The spec is a TOML wrapper whose executorConfig field
+// holds the inner config as a multi-line string (Standalone specs use appConfig;
+// CL specs use executorConfig); both are parsed with the same library buildExecutorJobSpecs
+// used to emit them, so the round-trip is lossless.
 func parseExecutorConfigFromSpec(spec string) (executor.Configuration, error) {
 	inner, err := executorInnerConfigFromSpec(spec)
 	if err != nil {
