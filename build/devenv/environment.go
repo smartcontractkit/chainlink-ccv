@@ -518,21 +518,11 @@ func generateExecutorJobSpecs(
 			}
 
 			// TODO: Use bootstrap.JobSpec in CLD to avoid this conversion here
-			var executorSpec ExecutorJobSpec
-			{
-				md, err := toml.Decode(job.Spec, &executorSpec)
-				if err != nil {
-					return nil, fmt.Errorf("failed to decode verifier job spec for %s: %w", exec.ContainerName, err)
-				}
-				if len(md.Undecoded()) > 0 {
-					L.Warn().
-						Str("spec", job.Spec).
-						Str("undecoded fields", fmt.Sprintf("%v", md.Undecoded())).
-						Msg("Undecoded fields in executor job spec")
-					return nil, fmt.Errorf("unknown fields in executor job spec for %s: %v", exec.ContainerName, md.Undecoded())
-				}
-				executorJobSpecs[exec.ContainerName] = executorSpec.ToBootstrapJobSpec()
+			bootSpec, err := jobspec.ParseExecutorBootstrapJobSpec(job.Spec)
+			if err != nil {
+				return nil, fmt.Errorf("failed to decode executor job spec for %s: %w", exec.ContainerName, err)
 			}
+			executorJobSpecs[exec.ContainerName] = bootSpec
 		}
 	}
 
@@ -1220,25 +1210,6 @@ type AggregatorSecret struct {
 type IndexerSecret struct {
 	APIKey    string `toml:",omitempty"`
 	APISecret string `toml:",omitempty"`
-}
-
-// ExecutorJobSpec represents the structure of an executor job spec TOML.
-type ExecutorJobSpec struct {
-	Name           string `toml:"name"`
-	ExternalJobID  string `toml:"externalJobID"`
-	SchemaVersion  int    `toml:"schemaVersion"`
-	Type           string `toml:"type"`
-	ExecutorConfig string `toml:"executorConfig"`
-}
-
-func (ejs ExecutorJobSpec) ToBootstrapJobSpec() bootstrap.JobSpec {
-	return bootstrap.JobSpec{
-		Name:          ejs.Name,
-		ExternalJobID: ejs.ExternalJobID,
-		SchemaVersion: ejs.SchemaVersion,
-		Type:          ejs.Type,
-		AppConfig:     ejs.ExecutorConfig,
-	}
 }
 
 // extractAndValidateDisableFinalityCheckers extracts DisableFinalityCheckers from verifiers

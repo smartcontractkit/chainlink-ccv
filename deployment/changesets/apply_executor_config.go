@@ -146,6 +146,7 @@ func ApplyExecutorConfig() deployment.ChangeSetV2[ApplyExecutorConfigInput] {
 			cfg.Pool,
 			cfg.IndexerAddress,
 			cfg.PyroscopeURL,
+			nopModes,
 		)
 		if err != nil {
 			return deployment.ChangesetOutput{}, err
@@ -327,6 +328,7 @@ func buildExecutorJobSpecs(
 	pool ExecutorPoolInput,
 	indexerAddress []string,
 	pyroscopeURL string,
+	nopModes map[shared.NOPAlias]shared.NOPMode,
 ) (shared.NOPJobSpecs, shared.ExecutorJobScope, error) {
 	scope := shared.ExecutorJobScope{
 		ExecutorQualifier: executorQualifier,
@@ -389,13 +391,29 @@ func buildExecutorJobSpecs(
 		}
 
 		jobID := jobSpecID.ToJobID()
-		jobSpec := fmt.Sprintf(`schemaVersion = 1
+		mode := nopModes[nopAlias]
+		if mode == "" {
+			mode = shared.NOPModeCL
+		}
+
+		var jobSpec string
+		if mode == shared.NOPModeStandalone {
+			jobSpec = fmt.Sprintf(`schemaVersion = 1
+type = "ccvexecutor"
+name = "%s"
+externalJobID = "%s"
+appConfig = '''
+%s'''
+`, string(jobID), jobID.ToExternalJobID(), string(configBytes))
+		} else {
+			jobSpec = fmt.Sprintf(`schemaVersion = 1
 type = "ccvexecutor"
 name = "%s"
 externalJobID = "%s"
 executorConfig = '''
 %s'''
 `, string(jobID), jobID.ToExternalJobID(), string(configBytes))
+		}
 
 		if jobSpecs[nopAlias] == nil {
 			jobSpecs[nopAlias] = make(map[shared.JobID]string)

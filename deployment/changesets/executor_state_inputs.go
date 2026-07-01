@@ -172,29 +172,39 @@ func sortedStrings(in []string) []string {
 }
 
 // parseExecutorConfigFromSpec extracts the embedded executor.Configuration from a
-// ccvexecutor job spec. The spec is a TOML wrapper whose executorConfig field
-// holds the inner config as a multi-line string; both are parsed with the same
-// library buildExecutorJobSpecs used to emit them, so the round-trip is lossless.
+// ccvexecutor job spec. Standalone specs use appConfig; CL specs use executorConfig.
 func parseExecutorConfigFromSpec(spec string) (executor.Configuration, error) {
-	var wrapper struct {
-		Type           string `toml:"type"`
-		ExecutorConfig string `toml:"executorConfig"`
-	}
-	if _, err := toml.Decode(spec, &wrapper); err != nil {
-		return executor.Configuration{}, fmt.Errorf("failed to parse job spec wrapper: %w", err)
-	}
-	if wrapper.Type != executorJobType {
-		return executor.Configuration{}, fmt.Errorf("unexpected job spec type %q (want %q)", wrapper.Type, executorJobType)
-	}
-	if wrapper.ExecutorConfig == "" {
-		return executor.Configuration{}, fmt.Errorf("job spec has no executorConfig block")
+	inner, err := executorInnerConfigFromSpec(spec)
+	if err != nil {
+		return executor.Configuration{}, err
 	}
 
 	var cfg executor.Configuration
-	if _, err := toml.Decode(wrapper.ExecutorConfig, &cfg); err != nil {
+	if _, err := toml.Decode(inner, &cfg); err != nil {
 		return executor.Configuration{}, fmt.Errorf("failed to parse executor config: %w", err)
 	}
 	return cfg, nil
+}
+
+func executorInnerConfigFromSpec(spec string) (string, error) {
+	var wrapper struct {
+		Type           string `toml:"type"`
+		AppConfig      string `toml:"appConfig"`
+		ExecutorConfig string `toml:"executorConfig"`
+	}
+	if _, err := toml.Decode(spec, &wrapper); err != nil {
+		return "", fmt.Errorf("failed to parse job spec wrapper: %w", err)
+	}
+	if wrapper.Type != executorJobType {
+		return "", fmt.Errorf("unexpected job spec type %q (want %q)", wrapper.Type, executorJobType)
+	}
+	if wrapper.AppConfig != "" {
+		return wrapper.AppConfig, nil
+	}
+	if wrapper.ExecutorConfig != "" {
+		return wrapper.ExecutorConfig, nil
+	}
+	return "", fmt.Errorf("job spec missing appConfig and executorConfig")
 }
 
 // ExecutorConfigFromStateOptions carries the few executor inputs that are not
