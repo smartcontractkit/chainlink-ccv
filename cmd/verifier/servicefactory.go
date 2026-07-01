@@ -49,14 +49,13 @@ func NewCommitteeVerifierServiceFactory() bootstrap.ServiceFactory {
 func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootstrap.ServiceDeps) error {
 	protocol.InitChainSelectorCache()
 
-	genericConfig, err := spec.GetGenericConfig()
-	if err != nil {
-		return fmt.Errorf("failed to get generic config: %w", err)
-	}
-
 	var config commit.Config
 	if err := spec.GetAppConfig(&config); err != nil {
 		return fmt.Errorf("failed to get app config: %w", err)
+	}
+
+	if err := config.Validate(); err != nil {
+		return err
 	}
 
 	f.lggr = deps.Logger
@@ -74,9 +73,6 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 		}
 		f.profiler = profiler
 	}
-
-	lggr.Infow("Using blockchain information from config", "info", genericConfig.ChainConfig)
-	chainSelectors := genericConfig.ChainConfig.GetAllChainSelectors()
 
 	// Create verifier addresses before source readers setup
 	verifierAddresses := make(map[string]protocol.UnknownAddress)
@@ -138,6 +134,7 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 		}
 	}
 
+	chainSelectors := chainaccess.Infos[string](config.OnRampAddresses).GetAllChainSelectors()
 	sourceReaders := make(map[protocol.ChainSelector]chainaccess.SourceReader)
 	for _, selector := range chainSelectors {
 		accessor, err := deps.Registry.GetAccessor(ctx, selector)

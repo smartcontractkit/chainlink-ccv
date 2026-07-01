@@ -129,6 +129,12 @@ type Bootstrapper struct {
 	infoServer       *infoServer
 	keys             []keyToInit
 
+	// jdMode is true when the bootstrapper runs in JD lifecycle mode (WithJD or default).
+	// false means static-TOML mode (WithTOMLAppConfig). Routing in Start() uses this flag
+	// rather than checking b.config != nil, because b.config may now be set in both modes
+	// (operator config is optionally loaded in static-TOML mode too).
+	jdMode bool
+
 	// application
 	appCfg *string
 	fac    ServiceFactory
@@ -167,41 +173,40 @@ func NewBootstrapper(
 		}
 	}
 
-	// If no configuration is provided, default to JD lifecycle manager with config loaded from the default path.
-	if b.appCfg == nil && b.config == nil {
-		b.config = &Config{}
+	// WithJD and WithTOMLAppConfig are mutually exclusive.
+	if b.jdMode && b.appCfg != nil {
+		return nil, fmt.Errorf("WithJD and WithTOMLAppConfig are mutually exclusive")
 	}
 
-	// JD mode requires a CSA key for node authentication. Inject the default if the caller
-	// did not explicitly declare one, so callers only need to list their application keys.
-	if b.config != nil {
-		hasCSA := false
-		for _, k := range b.keys {
-			if k.purpose == "csa" {
-				hasCSA = true
-				break
-			}
-		}
-		if !hasCSA {
+	// If neither mode was explicitly selected, default to JD lifecycle mode.
+	if !b.jdMode && b.appCfg == nil {
+		b.jdMode = true
+	}
+
+	if b.jdMode {
+		// JD mode requires a CSA key for node authentication. Inject the default if the caller
+		// did not explicitly declare one, so callers only need to list their application keys.
+		if !hasCSAKey(b.keys) {
 			b.keys = append([]keyToInit{{DefaultCSAKeyName, "csa", keystore.Ed25519}}, b.keys...)
 		}
-	}
 
-	if b.config != nil {
-		// Use provided config path if set by an option.
-		if b.configPath == "" {
-			// If no config path is provided by an option, check the environment variable.
-			b.configPath = os.Getenv(ConfigPathEnv)
-			if b.configPath == "" {
-				// If the environment variable is not set, use the default config path.
-				b.configPath = DefaultConfigPath
-			}
-		}
-
-		err := LoadAndValidateConfig(b.configPath, b.config)
-		if err != nil {
+		b.configPath = resolveBootstrapConfigPath(b.configPath)
+		b.config = &Config{}
+		if err := LoadAndValidateConfig(lggr, b.configPath, b.config, true); err != nil {
 			return nil, fmt.Errorf("failed to load bootstrap config (%s): %w", b.configPath, err)
 		}
+		// not logging config because it contains secrets.
+		lggr.Infow("loaded bootstrap config")
+	} else if path := os.Getenv(ConfigPathEnv); path != "" {
+		// Static-TOML mode: optionally load operator config when BOOTSTRAPPER_CONFIG_PATH is
+		// explicitly set. The default fallback to DefaultConfigPath is intentionally suppressed
+		// here: TOKEN_VERIFIER_CONFIG_PATH and BOOTSTRAPPER_CONFIG_PATH both default to
+		// /etc/config.toml, so applying the default would decode the wrong file. See issue #013.
+		b.config = &Config{}
+		if err := LoadAndValidateConfig(lggr, path, b.config, false); err != nil {
+			return nil, fmt.Errorf("failed to load operator config (%s): %w", path, err)
+		}
+		lggr.Infow("loaded operator config for static-TOML mode")
 	}
 
 	// do not fall back b.config to it
@@ -227,6 +232,11 @@ func NewBootstrapper(
 func (b *Bootstrapper) startWithAppConfig(ctx context.Context) (startErr error) {
 	if b.appCfg == nil {
 		return fmt.Errorf("bootstrapper has no app config")
+	}
+
+	lggr, err := newLogger(b.logLevel, b.name)
+	if err != nil {
+		return fmt.Errorf("failed to create logger: %w", err)
 	}
 
 	b.lggr.Infow("Calling NewRegistry with app config")
@@ -420,14 +430,10 @@ func (b *Bootstrapper) startWithJDLifecycle(ctx context.Context) error {
 
 // Start initializes the keystore, connects to JD, and starts the lifecycle manager.
 func (b *Bootstrapper) Start(ctx context.Context) error {
-	if b.config != nil {
+	if b.jdMode {
 		return b.startWithJDLifecycle(ctx)
 	}
-	if b.appCfg != nil {
-		return b.startWithAppConfig(ctx)
-	}
-
-	return fmt.Errorf("no configuration provided: either JD config or app config must be provided")
+	return b.startWithAppConfig(ctx)
 }
 
 // Stop shuts down all active components.
@@ -473,6 +479,35 @@ func connectToDB(ctx context.Context, connStr string) (*sqlx.DB, error) {
 		return nil, fmt.Errorf("failed to run bootstrapper database migrations: %w", err)
 	}
 	return db, nil
+}
+
+func hasCSAKey(keys []keyToInit) bool {
+	for _, k := range keys {
+		if k.purpose == "csa" {
+			return true
+		}
+	}
+	return false
+}
+
+// resolveBootstrapConfigPath returns the effective bootstrap config path: the explicitly-provided
+// path takes precedence, then BOOTSTRAPPER_CONFIG_PATH, then DefaultConfigPath.
+func resolveBootstrapConfigPath(explicit string) string {
+	if explicit != "" {
+		return explicit
+	}
+	if env := os.Getenv(ConfigPathEnv); env != "" {
+		return env
+	}
+	return DefaultConfigPath
+}
+
+func newLogger(logLevel zapcore.Level, name string) (logger.Logger, error) {
+	lggr, err := logger.NewWith(zaplog.GetLogProfile(logLevel))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create logger: %w", err)
+	}
+	return logger.Sugared(logger.Named(lggr, name)), nil
 }
 
 func initializeKeystore(ctx context.Context, lggr logger.Logger, db *sqlx.DB, ksPassword string, requiredKeys []keyToInit) (keystore.Keystore, crypto.Signer, error) {
@@ -558,7 +593,7 @@ func WithKey(name, purpose string, keyType keystore.KeyType) Option {
 // already declared via WithKey.
 func WithJD() Option {
 	return func(b *Bootstrapper) error {
-		b.config = &Config{}
+		b.jdMode = true
 		return nil
 	}
 }

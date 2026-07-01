@@ -44,6 +44,7 @@ func main() {
 		"TokenVerifier",
 		&tokenVerifierFactory{},
 		bootstrap.WithTOMLAppConfig(configPath),
+		bootstrap.WithLogLevelFromEnv(zapcore.InfoLevel),
 	)
 	if err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "Failed to run token verifier: %v\n", err)
@@ -270,7 +271,7 @@ func createCCTPCoordinator(
 
 	coordinator, err := verifier.NewCoordinator(
 		lggr,
-		cctp.NewVerifier(lggr, attestationService),
+		cctp.NewVerifier(lggr, attestationService, *cctpConfig),
 		sourceReaders,
 		ccvStorage,
 		verifier.CoordinatorConfig{

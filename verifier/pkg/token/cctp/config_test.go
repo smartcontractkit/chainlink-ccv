@@ -39,11 +39,14 @@ func Test_TryParsing(t *testing.T) {
 			t:    "cctp",
 			v:    "2.0",
 			data: map[string]any{
-				"attestation_api":          "https://iris-api.circle.com",
-				"attestation_api_timeout":  "5s",
-				"attestation_api_interval": "200ms",
-				"attestation_api_cooldown": "10m",
-				"verifier_version":         "12345678",
+				"attestation_api":                 "https://iris-api.circle.com",
+				"attestation_api_timeout":         "5s",
+				"attestation_api_interval":        "200ms",
+				"attestation_api_cooldown":        "10m",
+				"attestation_not_ready_retry":     "45s",
+				"attestation_generic_error_retry": "7s",
+				"attestation_concurrent_fetchers": 20,
+				"verifier_version":                "12345678",
 				"verifier_resolver_addresses": map[string]any{
 					"1": testAddr1Hex,
 					"2": testAddr2Hex,
@@ -54,11 +57,14 @@ func Test_TryParsing(t *testing.T) {
 				},
 			},
 			want: &CCTPConfig{
-				AttestationAPI:         "https://iris-api.circle.com",
-				AttestationAPITimeout:  5 * time.Second,
-				AttestationAPIInterval: 200 * time.Millisecond,
-				AttestationAPICooldown: 10 * time.Minute,
-				VerifierVersion:        protocol.ByteSlice{0x12, 0x34, 0x56, 0x78},
+				AttestationAPI:                "https://iris-api.circle.com",
+				AttestationAPITimeout:         5 * time.Second,
+				AttestationAPIInterval:        200 * time.Millisecond,
+				AttestationAPICooldown:        10 * time.Minute,
+				AttestationNotReadyRetry:      45 * time.Second,
+				AttestationGenericErrorRetry:  7 * time.Second,
+				AttestationConcurrentFetchers: 20,
+				VerifierVersion:               protocol.ByteSlice{0x12, 0x34, 0x56, 0x78},
 				ParsedVerifierResolvers: map[protocol.ChainSelector]protocol.UnknownAddress{
 					1: testAddr1,
 					2: testAddr2,
@@ -81,11 +87,14 @@ func Test_TryParsing(t *testing.T) {
 				},
 			},
 			want: &CCTPConfig{
-				AttestationAPI:         "https://iris-api.circle.com",
-				AttestationAPITimeout:  1 * time.Second,
-				AttestationAPIInterval: 100 * time.Millisecond,
-				AttestationAPICooldown: 5 * time.Minute,
-				VerifierVersion:        DefaultVerifierVersion,
+				AttestationAPI:                "https://iris-api.circle.com",
+				AttestationAPITimeout:         1 * time.Second,
+				AttestationAPIInterval:        100 * time.Millisecond,
+				AttestationAPICooldown:        5 * time.Minute,
+				AttestationNotReadyRetry:      30 * time.Second,
+				AttestationGenericErrorRetry:  5 * time.Second,
+				AttestationConcurrentFetchers: 10,
+				VerifierVersion:               DefaultVerifierVersion,
 				ParsedVerifierResolvers: map[protocol.ChainSelector]protocol.UnknownAddress{
 					1: testAddr1,
 				},
@@ -165,6 +174,66 @@ func Test_TryParsing(t *testing.T) {
 			errMsg:  "invalid attestation_api_cooldown",
 		},
 		{
+			name: "invalid attestation_not_ready_retry",
+			t:    "cctp",
+			v:    "2.0",
+			data: map[string]any{
+				"attestation_api":             "https://iris-api.circle.com",
+				"attestation_not_ready_retry": "invalid",
+			},
+			want:    nil,
+			wantErr: true,
+			errMsg:  "invalid attestation_not_ready_retry",
+		},
+		{
+			name: "invalid attestation_generic_error_retry",
+			t:    "cctp",
+			v:    "2.0",
+			data: map[string]any{
+				"attestation_api":                 "https://iris-api.circle.com",
+				"attestation_generic_error_retry": "invalid",
+			},
+			want:    nil,
+			wantErr: true,
+			errMsg:  "invalid attestation_generic_error_retry",
+		},
+		{
+			name: "invalid attestation_concurrent_fetchers",
+			t:    "cctp",
+			v:    "2.0",
+			data: map[string]any{
+				"attestation_api":                 "https://iris-api.circle.com",
+				"attestation_concurrent_fetchers": "not-an-int",
+			},
+			want:    nil,
+			wantErr: true,
+			errMsg:  "invalid attestation_concurrent_fetchers",
+		},
+		{
+			name: "zero attestation_concurrent_fetchers",
+			t:    "cctp",
+			v:    "2.0",
+			data: map[string]any{
+				"attestation_api":                 "https://iris-api.circle.com",
+				"attestation_concurrent_fetchers": 0,
+			},
+			want:    nil,
+			wantErr: true,
+			errMsg:  "attestation_concurrent_fetchers must be greater than 0",
+		},
+		{
+			name: "negative attestation_concurrent_fetchers",
+			t:    "cctp",
+			v:    "2.0",
+			data: map[string]any{
+				"attestation_api":                 "https://iris-api.circle.com",
+				"attestation_concurrent_fetchers": -1,
+			},
+			want:    nil,
+			wantErr: true,
+			errMsg:  "attestation_concurrent_fetchers must be greater than 0",
+		},
+		{
 			name: "invalid verifier_resolver_addresses",
 			t:    "cctp",
 			v:    "2.0",
@@ -207,6 +276,9 @@ func Test_TryParsing(t *testing.T) {
 				assert.Equal(t, tt.want.AttestationAPITimeout, got.AttestationAPITimeout)
 				assert.Equal(t, tt.want.AttestationAPIInterval, got.AttestationAPIInterval)
 				assert.Equal(t, tt.want.AttestationAPICooldown, got.AttestationAPICooldown)
+				assert.Equal(t, tt.want.AttestationNotReadyRetry, got.AttestationNotReadyRetry)
+				assert.Equal(t, tt.want.AttestationGenericErrorRetry, got.AttestationGenericErrorRetry)
+				assert.Equal(t, tt.want.AttestationConcurrentFetchers, got.AttestationConcurrentFetchers)
 				assert.Equal(t, tt.want.VerifierVersion, got.VerifierVersion)
 				assert.Equal(t, tt.want.ParsedVerifierResolvers, got.ParsedVerifierResolvers)
 				assert.Equal(t, tt.want.ParsedVerifiers, got.ParsedVerifiers)

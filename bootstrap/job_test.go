@@ -51,6 +51,7 @@ type testAppConfig struct {
 	Value int    `toml:"value"`
 }
 
+//nolint:staticcheck // exercises deprecated GetGenericConfig before it's fully removed
 func TestJobSpec_GetGenericConfig(t *testing.T) {
 	t.Run("decodes known GenericConfig fields", func(t *testing.T) {
 		js := JobSpec{
