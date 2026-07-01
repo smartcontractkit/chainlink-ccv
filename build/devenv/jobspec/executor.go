@@ -9,27 +9,18 @@ import (
 )
 
 // ParseExecutorBootstrapJobSpec decodes a ccvexecutor JD job spec into bootstrap.JobSpec.
-// Standalone specs use appConfig; CL specs use executorConfig.
 func ParseExecutorBootstrapJobSpec(spec string) (bootstrap.JobSpec, error) {
-	var bootSpec bootstrap.JobSpec
-	if _, err := toml.Decode(spec, &bootSpec); err != nil {
-		return bootstrap.JobSpec{}, fmt.Errorf("decode executor job spec: %w", err)
-	}
-	if bootSpec.AppConfig != "" {
-		// job spec from standalone mode, appConfig is already set
-		return bootSpec, nil
-	}
-
-	var clEnvelope struct {
+	var wrapper struct {
+		bootstrap.JobSpec
 		ExecutorConfig string `toml:"executorConfig"`
 	}
-	if _, err := toml.Decode(spec, &clEnvelope); err != nil {
-		return bootstrap.JobSpec{}, fmt.Errorf("decode executorConfig: %w", err)
+	if _, err := toml.Decode(spec, &wrapper); err != nil {
+		return bootstrap.JobSpec{}, fmt.Errorf("decode executor job spec: %w", err)
 	}
-	if clEnvelope.ExecutorConfig == "" {
-		return bootstrap.JobSpec{}, fmt.Errorf("executor job spec missing appConfig and executorConfig")
+	inner, err := bootstrap.InnerConfig(wrapper.AppConfig, wrapper.ExecutorConfig, "executorConfig")
+	if err != nil {
+		return bootstrap.JobSpec{}, err
 	}
-
-	bootSpec.AppConfig = clEnvelope.ExecutorConfig
-	return bootSpec, nil
+	wrapper.JobSpec.AppConfig = inner
+	return wrapper.JobSpec, nil
 }

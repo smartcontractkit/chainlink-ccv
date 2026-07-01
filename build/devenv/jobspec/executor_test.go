@@ -41,4 +41,17 @@ name = "job"
 `
 	_, err := ParseExecutorBootstrapJobSpec(spec)
 	require.Error(t, err)
+	require.Contains(t, err.Error(), "missing appConfig and executorConfig")
+}
+
+func TestParseExecutorBootstrapJobSpec_RejectsBothEnvelopes(t *testing.T) {
+	spec := `schemaVersion = 1
+type = "ccvexecutor"
+name = "job"
+appConfig = '''a'''
+executorConfig = '''b'''
+`
+	_, err := ParseExecutorBootstrapJobSpec(spec)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "exactly one of appConfig and executorConfig")
 }

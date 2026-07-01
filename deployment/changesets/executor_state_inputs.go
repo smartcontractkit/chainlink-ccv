@@ -201,6 +201,9 @@ func executorInnerConfigFromSpec(spec string) (string, error) {
 	if wrapper.Type != executorJobType {
 		return "", fmt.Errorf("unexpected job spec type %q (want %q)", wrapper.Type, executorJobType)
 	}
+	if wrapper.AppConfig != "" && wrapper.ExecutorConfig != "" {
+		return "", fmt.Errorf("job spec must set exactly one of appConfig and executorConfig")
+	}
 	if wrapper.AppConfig != "" {
 		return wrapper.AppConfig, nil
 	}

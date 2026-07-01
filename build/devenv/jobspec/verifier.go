@@ -1,4 +1,3 @@
-// Package jobspec parses JD job spec TOML into bootstrap.JobSpec for devenv.
 package jobspec
 
 import (
@@ -9,27 +8,19 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
 )
 
-// ParseVerifierBootstrapJobSpec decodes a ccvcommitteeverifier JD job spec into
-// bootstrap.JobSpec. Standalone specs use appConfig; CL specs use committeeVerifierConfig.
+// ParseVerifierBootstrapJobSpec decodes a ccvcommitteeverifier JD job spec into bootstrap.JobSpec.
 func ParseVerifierBootstrapJobSpec(spec string) (bootstrap.JobSpec, error) {
-	var bootSpec bootstrap.JobSpec
-	if _, err := toml.Decode(spec, &bootSpec); err != nil {
-		return bootstrap.JobSpec{}, fmt.Errorf("decode verifier job spec: %w", err)
-	}
-	if bootSpec.AppConfig != "" {
-		return bootSpec, nil
-	}
-
-	var clEnvelope struct {
+	var wrapper struct {
+		bootstrap.JobSpec
 		CommitteeVerifierConfig string `toml:"committeeVerifierConfig"`
 	}
-	if _, err := toml.Decode(spec, &clEnvelope); err != nil {
-		return bootstrap.JobSpec{}, fmt.Errorf("decode committeeVerifierConfig: %w", err)
+	if _, err := toml.Decode(spec, &wrapper); err != nil {
+		return bootstrap.JobSpec{}, fmt.Errorf("decode verifier job spec: %w", err)
 	}
-	if clEnvelope.CommitteeVerifierConfig == "" {
-		return bootstrap.JobSpec{}, fmt.Errorf("verifier job spec missing appConfig and committeeVerifierConfig")
+	inner, err := bootstrap.InnerConfig(wrapper.AppConfig, wrapper.CommitteeVerifierConfig, "committeeVerifierConfig")
+	if err != nil {
+		return bootstrap.JobSpec{}, err
 	}
-
-	bootSpec.AppConfig = clEnvelope.CommitteeVerifierConfig
-	return bootSpec, nil
+	wrapper.JobSpec.AppConfig = inner
+	return wrapper.JobSpec, nil
 }
