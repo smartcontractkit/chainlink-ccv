@@ -19,7 +19,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/heartbeatclient"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/chainstatus"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
@@ -45,6 +44,7 @@ func main() {
 		"TokenVerifier",
 		&tokenVerifierFactory{},
 		bootstrap.WithTOMLAppConfig(configPath),
+		bootstrap.WithLogLevelFromEnv(zapcore.InfoLevel),
 	)
 	if err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "Failed to run token verifier: %v\n", err)
@@ -96,27 +96,7 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, spec bootstrap.JobSp
 		return errors.Join(errs...)
 	}
 
-	// TODO: Add "WithLogLevelFromEnv" option and use deps.lggr.
-	{
-		logLevelStr := os.Getenv("LOG_LEVEL")
-		if logLevelStr == "" {
-			logLevelStr = "info"
-		}
-		var zapLevel zapcore.Level
-		if err := zapLevel.UnmarshalText([]byte(logLevelStr)); err != nil {
-			_, _ = fmt.Fprintf(os.Stderr, "Invalid LOG_LEVEL '%s', defaulting to 'info'\n", logLevelStr)
-			zapLevel = zapcore.InfoLevel
-		}
-		var err error
-		tvf.lggr, err = logger.NewWith(logging.GetLogProfile(zapLevel))
-		if err != nil {
-			return fmt.Errorf("failed to create logger: %v", err)
-		}
-		tvf.lggr = logger.Named(tvf.lggr, "verifier")
-	}
-
-	// Use SugaredLogger for better API
-	tvf.lggr = logger.Sugared(tvf.lggr)
+	tvf.lggr = deps.Logger
 
 	protocol.InitChainSelectorCache()
 
@@ -148,7 +128,8 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, spec bootstrap.JobSp
 		tvf.lggr.Infow("Created source reader for chain", "chainSelector", selector)
 	}
 
-	verifierMonitoring := cmd.SetupMonitoring(tvf.lggr, cfg.Monitoring, "token_verifier")
+	monitoringCfg := bootstrap.ResolveMonitoring(tvf.lggr, deps.Monitoring, cfg.Monitoring)
+	verifierMonitoring := cmd.SetupMonitoring(tvf.lggr, monitoringCfg, "token_verifier")
 
 	rmnRemoteAddresses := make(map[string]protocol.UnknownAddress)
 	for selector, address := range cfg.RMNRemoteAddresses {
