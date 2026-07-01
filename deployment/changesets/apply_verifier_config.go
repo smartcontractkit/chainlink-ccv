@@ -399,14 +399,27 @@ func buildVerifierJobSpecs(
 				return fmt.Errorf("failed to marshal verifier config for NOP %q (%s): %w", nopAlias, label, err)
 			}
 
+			var jobSpec string
 			jobID := verifierJobID.ToJobID()
-			jobSpec := fmt.Sprintf(`schemaVersion = 1
+			if nop.Mode == shared.NOPModeStandalone {
+				// standalone mode bootstrapper expects "appConfig" field
+				jobSpec = fmt.Sprintf(`schemaVersion = 1
+type = "ccvcommitteeverifier"
+name = "%s"
+externalJobID = "%s"
+appConfig = '''
+%s'''
+`, string(jobID), jobID.ToExternalJobID(), string(configBytes))
+			} else {
+				// cl-mode and default uses "committeeVerifierConfig" field
+				jobSpec = fmt.Sprintf(`schemaVersion = 1
 type = "ccvcommitteeverifier"
 name = "%s"
 externalJobID = "%s"
 committeeVerifierConfig = '''
 %s'''
 `, string(jobID), jobID.ToExternalJobID(), string(configBytes))
+			}
 
 			if jobSpecs[nopAlias] == nil {
 				jobSpecs[nopAlias] = make(map[shared.JobID]string)
