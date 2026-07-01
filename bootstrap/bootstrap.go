@@ -216,7 +216,7 @@ func NewBootstrapper(
 
 		b.configPath = resolveBootstrapConfigPath(b.configPath)
 		b.config = &Config{}
-		if err := LoadAndValidateConfig(b.configPath, b.config); err != nil {
+		if err := LoadAndValidateConfig(lggr, b.configPath, b.config, true); err != nil {
 			return nil, fmt.Errorf("failed to load bootstrap config (%s): %w", b.configPath, err)
 		}
 		// not logging config because it contains secrets.
@@ -227,7 +227,7 @@ func NewBootstrapper(
 		// here: TOKEN_VERIFIER_CONFIG_PATH and BOOTSTRAPPER_CONFIG_PATH both default to
 		// /etc/config.toml, so applying the default would decode the wrong file. See issue #013.
 		b.config = &Config{}
-		if err := LoadAndValidateConfig(path, b.config); err != nil {
+		if err := LoadAndValidateConfig(lggr, path, b.config, false); err != nil {
 			return nil, fmt.Errorf("failed to load operator config (%s): %w", path, err)
 		}
 		lggr.Infow("loaded operator config for static-TOML mode")

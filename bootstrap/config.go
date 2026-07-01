@@ -10,6 +10,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap/keys"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/monitoring"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
 // JDConfig is the configuration for the Job Distributor.
@@ -143,15 +144,22 @@ type Config struct {
 	Monitoring *monitoring.Config
 }
 
-// hasInfraKeys reports whether any infra section (jd, db, keystore, server) appears in md.
-func hasInfraKeys(md toml.MetaData) bool {
+// presentInfraSections returns the infra sections (jd, db, keystore, server) that appear in md,
+// in declaration order and de-duplicated. Used only to warn when infra is present in static-TOML
+// mode, where it is ignored; infra presence does not drive validation (see validate).
+func presentInfraSections(md toml.MetaData) []string {
+	seen := make(map[string]bool, 4)
+	var out []string
 	for _, key := range md.Keys() {
-		switch key[0] {
+		switch section := key[0]; section {
 		case "jd", "db", "keystore", "server":
-			return true
+			if !seen[section] {
+				seen[section] = true
+				out = append(out, section)
+			}
 		}
 	}
-	return false
+	return out
 }
 
 // validateInfra validates the coupled infra bundle (jd/db/keystore/server/chains).
@@ -177,15 +185,26 @@ func (c *Config) validateInfra() []error {
 	return errs
 }
 
-// validate checks the config for correctness. md is the TOML metadata from decoding, used to
-// detect which top-level sections were actually present in the file (as opposed to zero-valued
-// from an absent section). The infra bundle (jd/db/keystore/server) is validated only when any
-// infra key appears in md — so a monitoring-only bootstrap file is valid. Monitoring is always
-// validated independently when non-nil.
-func (c *Config) validate(md toml.MetaData) error {
+// validate checks the config for correctness. Validation is mode-driven, keyed on needsInfra —
+// which the caller derives from the bootstrapper's mode (true in JD mode, false in static-TOML
+// mode) — rather than inferred from which sections happen to be present in the file:
+//
+//   - needsInfra: the infra bundle (jd/db/keystore/server/chains) is required; a missing or
+//     invalid section is an error naming that section. This lets a JD-mode app with a malformed
+//     bootstrap file fail at load time with a precise message, instead of a downstream connection
+//     failure that a present-driven check would allow through.
+//   - !needsInfra: the infra bundle is ignored. Any infra section present in md is warned about
+//     (it does nothing in static-TOML mode) but is not an error.
+//
+// Monitoring is always validated when non-nil, in both modes. md is used only to name the
+// ignored sections in the static-mode warning.
+func (c *Config) validate(lggr logger.Logger, md toml.MetaData, needsInfra bool) error {
 	var errs []error
-	if hasInfraKeys(md) {
+	if needsInfra {
 		errs = append(errs, c.validateInfra()...)
+	} else if present := presentInfraSections(md); len(present) > 0 {
+		lggr.Warnw("ignoring infra sections present in static-TOML mode bootstrap config; "+
+			"these belong in a JD-mode bootstrap config", "sections", present)
 	}
 	if c.Monitoring != nil {
 		if err := c.Monitoring.Validate(); err != nil {
@@ -196,7 +215,9 @@ func (c *Config) validate(md toml.MetaData) error {
 }
 
 // LoadAndValidateConfig loads the configuration from a path to a TOML file, in strict mode.
-func LoadAndValidateConfig(path string, cfg *Config) error {
+// needsInfra selects mode-driven validation (see validate): pass true in JD mode, false in
+// static-TOML mode.
+func LoadAndValidateConfig(lggr logger.Logger, path string, cfg *Config, needsInfra bool) error {
 	tomlBytes, err := os.ReadFile(path) //nolint:gosec // G304: path is provided by trusted caller
 	if err != nil {
 		return fmt.Errorf("failed to read config file: %w", err)
@@ -207,7 +228,7 @@ func LoadAndValidateConfig(path string, cfg *Config) error {
 		return fmt.Errorf("failed to parse config: %w", err)
 	}
 
-	if err := cfg.validate(md); err != nil {
+	if err := cfg.validate(lggr, md, needsInfra); err != nil {
 		return fmt.Errorf("config validation failed: %w", err)
 	}
 	return nil

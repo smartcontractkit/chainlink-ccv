@@ -99,10 +99,12 @@ constructing their own logger.
 
 ## New: mode-aware bootstrap config validation {#config-validate-mode-aware}
 
-`bootstrap.Config.validate()` now detects whether the infra bundle (`[jd]`, `[db]`,
-`[keystore]`, `[server]`) was present in the decoded TOML using `toml.MetaData.Keys()`.
-Infra validation runs only when at least one infra key is present; monitoring is always
-validated independently. This makes a monitoring-only bootstrap TOML valid:
+`bootstrap.Config.validate()` is now **mode-driven**: it validates the infra bundle
+(`[jd]`, `[db]`, `[keystore]`, `[server]`) only when the bootstrapper runs in JD mode
+(the caller passes `needsInfra=true`, derived from the `jdMode` flag). In static-TOML
+mode (`needsInfra=false`) the infra bundle is ignored — any infra section present is
+logged as a warning, not an error. Monitoring is always validated independently, in both
+modes. This makes a monitoring-only bootstrap TOML valid:
 
 ```toml
 # Valid for token verifier — no infra sections required
@@ -118,9 +120,10 @@ TraceSampleRatio = 1.0
 TraceBatchTimeout = 5
 ```
 
-The infra struct fields (`JD`, `Keystore`, `DB`, `Server`) also gained `omitempty`
-TOML marshal tags so that marshaling a monitoring-only `bootstrap.Config` does not emit
-empty infra sections that would trigger infra validation on reload.
+The infra struct fields (`JD`, `Keystore`, `DB`, `Server`) also carry `omitempty` TOML
+marshal tags so that marshaling a monitoring-only `bootstrap.Config` does not emit empty
+infra sections — which, on reload in static-TOML mode, would otherwise be logged as
+"ignored infra section" warnings.
 
 ---
 
