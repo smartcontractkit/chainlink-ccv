@@ -55,3 +55,15 @@ executorConfig = '''b'''
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "exactly one of appConfig and executorConfig")
 }
+
+func TestParseExecutorBootstrapJobSpec_RejectsUnknownFields(t *testing.T) {
+	spec := `schemaVersion = 1
+type = "ccvexecutor"
+name = "job"
+unknownField = "x"
+executorConfig = '''a'''
+`
+	_, err := ParseExecutorBootstrapJobSpec(spec)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "unknown fields in executor job spec")
+}

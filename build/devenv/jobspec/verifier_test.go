@@ -55,3 +55,15 @@ committeeVerifierConfig = '''b'''
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "exactly one of appConfig and committeeVerifierConfig")
 }
+
+func TestParseVerifierBootstrapJobSpec_RejectsUnknownFields(t *testing.T) {
+	spec := `schemaVersion = 1
+type = "ccvcommitteeverifier"
+name = "job"
+unknownField = "x"
+committeeVerifierConfig = '''a'''
+`
+	_, err := ParseVerifierBootstrapJobSpec(spec)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "unknown fields in verifier job spec")
+}
