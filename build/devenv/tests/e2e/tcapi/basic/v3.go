@@ -114,20 +114,10 @@ func (tc *v3TestCase) Run(ctx context.Context) error {
 	var aggregatorClient *ccv.AggregatorClient
 	var indexerMonitor *ccv.IndexerMonitor
 	if !tc.args.Run.OnchainAssertionOnly {
-		aggregatorClients, aggErr := tc.lib.AllAggregators()
-		if aggErr != nil {
-			return fmt.Errorf("failed to get aggregator clients: %w", aggErr)
-		}
-		aggregatorClient = aggregatorClients[common.DefaultCommitteeVerifierQualifier]
-		if tc.aggregatorQualifier != "" && tc.aggregatorQualifier != common.DefaultCommitteeVerifierQualifier {
-			if client, ok := aggregatorClients[tc.aggregatorQualifier]; ok {
-				aggregatorClient = client
-			}
-		}
-		var monErr error
-		indexerMonitor, monErr = tc.lib.IndexerMonitor()
-		if monErr != nil {
-			return fmt.Errorf("failed to get indexer monitor: %w", monErr)
+		var setupErr error
+		aggregatorClient, indexerMonitor, setupErr = setupAggregatorAndIndexer(tc.lib, tc.aggregatorQualifier)
+		if setupErr != nil {
+			return setupErr
 		}
 	}
 	testCtx, cleanupFn := tcapi.NewTestingContext(ctx, chainMap, aggregatorClient, indexerMonitor)
@@ -166,6 +156,24 @@ func (tc *v3TestCase) Run(ctx context.Context) error {
 
 func (tc *v3TestCase) HavePrerequisites(ctx context.Context) bool {
 	return tc.ensureHydrated(ctx) == nil
+}
+
+func setupAggregatorAndIndexer(lib ccv.Lib, aggregatorQualifier string) (*ccv.AggregatorClient, *ccv.IndexerMonitor, error) {
+	aggregatorClients, err := lib.AllAggregators()
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get aggregator clients: %w", err)
+	}
+	aggregatorClient := aggregatorClients[common.DefaultCommitteeVerifierQualifier]
+	if aggregatorQualifier != "" && aggregatorQualifier != common.DefaultCommitteeVerifierQualifier {
+		if client, ok := aggregatorClients[aggregatorQualifier]; ok {
+			aggregatorClient = client
+		}
+	}
+	indexerMonitor, err := lib.IndexerMonitor()
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to get indexer monitor: %w", err)
+	}
+	return aggregatorClient, indexerMonitor, nil
 }
 
 func getCommitteeCCV(resolver chainreg.AddressResolver, ds datastore.DataStore, srcChainSelector uint64, qualifier string) (protocol.CCV, error) {
