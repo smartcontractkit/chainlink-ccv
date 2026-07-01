@@ -176,9 +176,8 @@ func CreateServerOnlyWithMessageRulesControl(t *testing.T, options ...ConfigOpti
 		Monitoring: model.MonitoringConfig{},
 		APIClients: []*model.ClientConfig{
 			{
-				ClientID:    "test-client",
-				Description: "Test client for integration tests",
-				Enabled:     true,
+				ClientID: "test-client",
+				Enabled:  true,
 				APIKeyPairs: []*model.APIKeyPairEnv{
 					{
 						APIKeyEnvVar: "TEST_API_KEY",

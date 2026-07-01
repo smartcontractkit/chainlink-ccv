@@ -274,7 +274,6 @@ func (a *AggregatorInput) GenerateConfigs(generatedConfigFileName string) (*Gene
 	for _, client := range a.APIClients {
 		config.APIClients = append(config.APIClients, &model.ClientConfig{
 			ClientID:    client.ClientID,
-			Description: client.Description,
 			Enabled:     client.Enabled,
 			Groups:      client.Groups,
 			APIKeyPairs: make([]*model.APIKeyPairEnv, 0, len(client.APIKeyPairs)),

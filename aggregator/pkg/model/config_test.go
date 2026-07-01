@@ -921,9 +921,10 @@ type mockClientConfig struct {
 	enabled  bool
 }
 
-func (m *mockClientConfig) GetClientID() string { return m.clientID }
-func (m *mockClientConfig) GetGroups() []string { return m.groups }
-func (m *mockClientConfig) IsEnabled() bool     { return m.enabled }
+func (m *mockClientConfig) GetClientID() string   { return m.clientID }
+func (m *mockClientConfig) GetClientName() string { return m.clientID }
+func (m *mockClientConfig) GetGroups() []string   { return m.groups }
+func (m *mockClientConfig) IsEnabled() bool       { return m.enabled }
 
 func TestGetClientByAPIKey(t *testing.T) {
 	creds, _ := hmacutil.GenerateCredentials()
