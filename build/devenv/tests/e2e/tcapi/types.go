@@ -49,13 +49,18 @@ type TestCase interface {
 // DefaultV3ExecutionGasLimit is the execution gas limit used when SendConfig and MessageOptions omit it.
 const DefaultV3ExecutionGasLimit uint32 = 200_000
 
-// RunConfig holds optional overrides for wait/confirm timeouts in TCAPI Run methods.
-// Zero values use the fallback passed to SentTimeout or ExecTimeout.
+// RunConfig holds optional overrides for wait/confirm timeouts and assertion scope
+// in TCAPI Run methods. Zero values use the fallback passed to SentTimeout or
+// ExecTimeout, and select the full local-devenv assertion behavior.
 type RunConfig struct {
 	// ConfirmSentTimeout overrides ConfirmSendOnSource when non-zero.
 	ConfirmSentTimeout time.Duration
 	// ConfirmExecTimeout overrides AssertMessage and ConfirmExecOnDest when non-zero.
 	ConfirmExecTimeout time.Duration
+	// OnchainAssertionOnly skips aggregator/indexer wiring and assertion, for
+	// environments where those offchain services aren't reachable (e.g. persistent
+	// env). Default false: wire clients and require offchain assert results.
+	OnchainAssertionOnly bool
 }
 
 // SentTimeout returns ConfirmSentTimeout when set, otherwise fallback.

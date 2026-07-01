@@ -111,19 +111,24 @@ func (tc *v3TestCase) Run(ctx context.Context) error {
 	}
 	messageID := sendMessageResult.MessageID
 
-	aggregatorClients, err := tc.lib.AllAggregators()
-	if err != nil {
-		return fmt.Errorf("failed to get aggregator clients: %w", err)
-	}
-	aggregatorClient := aggregatorClients[common.DefaultCommitteeVerifierQualifier]
-	if tc.aggregatorQualifier != "" && tc.aggregatorQualifier != common.DefaultCommitteeVerifierQualifier {
-		if client, ok := aggregatorClients[tc.aggregatorQualifier]; ok {
-			aggregatorClient = client
+	var aggregatorClient *ccv.AggregatorClient
+	var indexerMonitor *ccv.IndexerMonitor
+	if !tc.args.Run.OnchainAssertionOnly {
+		aggregatorClients, aggErr := tc.lib.AllAggregators()
+		if aggErr != nil {
+			return fmt.Errorf("failed to get aggregator clients: %w", aggErr)
 		}
-	}
-	indexerMonitor, err := tc.lib.IndexerMonitor()
-	if err != nil {
-		return fmt.Errorf("failed to get indexer monitor: %w", err)
+		aggregatorClient = aggregatorClients[common.DefaultCommitteeVerifierQualifier]
+		if tc.aggregatorQualifier != "" && tc.aggregatorQualifier != common.DefaultCommitteeVerifierQualifier {
+			if client, ok := aggregatorClients[tc.aggregatorQualifier]; ok {
+				aggregatorClient = client
+			}
+		}
+		var monErr error
+		indexerMonitor, monErr = tc.lib.IndexerMonitor()
+		if monErr != nil {
+			return fmt.Errorf("failed to get indexer monitor: %w", monErr)
+		}
 	}
 	testCtx, cleanupFn := tcapi.NewTestingContext(ctx, chainMap, aggregatorClient, indexerMonitor)
 	defer cleanupFn()
@@ -138,11 +143,13 @@ func (tc *v3TestCase) Run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to assert message: %w", err)
 	}
-	if result.AggregatedResult == nil {
-		return fmt.Errorf("aggregated result is nil")
-	}
-	if len(result.IndexedVerifications.Results) != tc.numExpectedVerifications {
-		return fmt.Errorf("expected %d indexed verifications, got %d", tc.numExpectedVerifications, len(result.IndexedVerifications.Results))
+	if !tc.args.Run.OnchainAssertionOnly {
+		if result.AggregatedResult == nil {
+			return fmt.Errorf("aggregated result is nil")
+		}
+		if len(result.IndexedVerifications.Results) != tc.numExpectedVerifications {
+			return fmt.Errorf("expected %d indexed verifications, got %d", tc.numExpectedVerifications, len(result.IndexedVerifications.Results))
+		}
 	}
 
 	e, err := dst.ConfirmExecOnDest(ctx, tc.src, messageKey, execTimeout)
