@@ -8,7 +8,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
 )
 
-// ParseExecutorBootstrapJobSpec decodes a executor JD job spec into bootstrap.JobSpec.
+// ParseExecutorBootstrapJobSpec decodes an executor JD job spec into bootstrap.JobSpec.
 func ParseExecutorBootstrapJobSpec(spec string) (bootstrap.JobSpec, error) {
 	var wrapper struct {
 		bootstrap.JobSpec

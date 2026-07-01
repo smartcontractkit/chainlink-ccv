@@ -114,3 +114,57 @@ func TestBuildVerifierJobSpecs_ConsolidatedEmitsOneJobWithAllAggregators(t *test
 	// Verifier ID omits the aggregator name.
 	assert.Equal(t, "default-verifier", cfg.VerifierID)
 }
+
+func TestBuildVerifierJobSpecs_StandaloneUsesAppConfig(t *testing.T) {
+	jobSpec := buildVerifierJobSpecWithMode(t, shared.NOPModeStandalone)
+	assert.Contains(t, jobSpec, "appConfig = '''")
+	assert.NotContains(t, jobSpec, "committeeVerifierConfig")
+}
+
+func TestBuildVerifierJobSpecs_CLUsesCommitteeVerifierConfig(t *testing.T) {
+	jobSpec := buildVerifierJobSpecWithMode(t, shared.NOPModeCL)
+	const open = "committeeVerifierConfig = '''\n"
+	require.GreaterOrEqual(t, strings.Index(jobSpec, open), 0)
+	assert.NotContains(t, jobSpec, "appConfig")
+}
+
+func buildVerifierJobSpecWithMode(t *testing.T, mode shared.NOPMode) string {
+	t.Helper()
+
+	contractAddresses := map[string]*adapters.VerifierContractAddresses{
+		"1": {
+			CommitteeVerifierAddress: "0xCommittee1",
+			OnRampAddress:            "0xOnRamp1",
+			ExecutorProxyAddress:     "0xExec1",
+			RMNRemoteAddress:         "0xRMN1",
+		},
+	}
+	specs, _, err := buildVerifierJobSpecs(
+		contractAddresses,
+		[]shared.NOPAlias{"nop1"},
+		[]verifierNOPInput{{
+			Alias:                 "nop1",
+			SignerAddressByFamily: map[string]string{"evm": "0xSIGNER"},
+			Mode:                  mode,
+		}},
+		verifierCommitteeInput{
+			Qualifier:   "default",
+			Aggregators: []AggregatorRef{{Name: "agg-a", Address: "agg-a:50051"}},
+			NOPAliases:  []shared.NOPAlias{"nop1"},
+		},
+		"",
+		nil,
+		"evm",
+		true, // consolidated: one job per NOP
+	)
+	require.NoError(t, err)
+	require.Len(t, specs["nop1"], 1)
+
+	var jobSpec string
+	for _, spec := range specs["nop1"] {
+		jobSpec = spec
+		break
+	}
+	require.NotEmpty(t, jobSpec)
+	return jobSpec
+}
