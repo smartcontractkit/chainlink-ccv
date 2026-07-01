@@ -192,21 +192,18 @@ func NewBootstrapper(
 
 		b.configPath = resolveBootstrapConfigPath(b.configPath)
 		b.config = &Config{}
-		if err := LoadAndValidateConfig(lggr, b.configPath, b.config, true); err != nil {
+		if err := LoadAndValidateConfig(b.configPath, b.config, true); err != nil {
 			return nil, fmt.Errorf("failed to load bootstrap config (%s): %w", b.configPath, err)
 		}
-		// not logging config because it contains secrets.
-		lggr.Infow("loaded bootstrap config")
 	} else if path := os.Getenv(ConfigPathEnv); path != "" {
 		// Static-TOML mode: optionally load operator config when BOOTSTRAPPER_CONFIG_PATH is
 		// explicitly set. The default fallback to DefaultConfigPath is intentionally suppressed
 		// here: TOKEN_VERIFIER_CONFIG_PATH and BOOTSTRAPPER_CONFIG_PATH both default to
 		// /etc/config.toml, so applying the default would decode the wrong file. See issue #013.
 		b.config = &Config{}
-		if err := LoadAndValidateConfig(lggr, path, b.config, false); err != nil {
+		if err := LoadAndValidateConfig(path, b.config, false); err != nil {
 			return nil, fmt.Errorf("failed to load operator config (%s): %w", path, err)
 		}
-		lggr.Infow("loaded operator config for static-TOML mode")
 	}
 
 	// do not fall back b.config to it
@@ -232,11 +229,6 @@ func NewBootstrapper(
 func (b *Bootstrapper) startWithAppConfig(ctx context.Context) (startErr error) {
 	if b.appCfg == nil {
 		return fmt.Errorf("bootstrapper has no app config")
-	}
-
-	lggr, err := newLogger(b.logLevel, b.name)
-	if err != nil {
-		return fmt.Errorf("failed to create logger: %w", err)
 	}
 
 	b.lggr.Infow("Calling NewRegistry with app config")
@@ -430,6 +422,9 @@ func (b *Bootstrapper) startWithJDLifecycle(ctx context.Context) error {
 
 // Start initializes the keystore, connects to JD, and starts the lifecycle manager.
 func (b *Bootstrapper) Start(ctx context.Context) error {
+	if b.lggr == nil {
+		return fmt.Errorf("bootstrapper has no logger")
+	}
 	if b.jdMode {
 		return b.startWithJDLifecycle(ctx)
 	}
@@ -500,14 +495,6 @@ func resolveBootstrapConfigPath(explicit string) string {
 		return env
 	}
 	return DefaultConfigPath
-}
-
-func newLogger(logLevel zapcore.Level, name string) (logger.Logger, error) {
-	lggr, err := logger.NewWith(zaplog.GetLogProfile(logLevel))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create logger: %w", err)
-	}
-	return logger.Sugared(logger.Named(lggr, name)), nil
 }
 
 func initializeKeystore(ctx context.Context, lggr logger.Logger, db *sqlx.DB, ksPassword string, requiredKeys []keyToInit) (keystore.Keystore, crypto.Signer, error) {

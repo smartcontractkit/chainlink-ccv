@@ -10,7 +10,6 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap/keys"
 	"github.com/smartcontractkit/chainlink-ccv/common/monitoring"
-	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
 // JDConfig is the configuration for the Job Distributor.
@@ -144,24 +143,6 @@ type Config struct {
 	Monitoring *monitoring.Config
 }
 
-// presentInfraSections returns the infra sections (jd, db, keystore, server) that appear in md,
-// in declaration order and de-duplicated. Used only to warn when infra is present in static-TOML
-// mode, where it is ignored; infra presence does not drive validation (see validate).
-func presentInfraSections(md toml.MetaData) []string {
-	seen := make(map[string]bool, 4)
-	var out []string
-	for _, key := range md.Keys() {
-		switch section := key[0]; section {
-		case "jd", "db", "keystore", "server":
-			if !seen[section] {
-				seen[section] = true
-				out = append(out, section)
-			}
-		}
-	}
-	return out
-}
-
 // validateInfra validates the coupled infra bundle (jd/db/keystore/server/chains).
 func (c *Config) validateInfra() []error {
 	var errs []error
@@ -198,13 +179,10 @@ func (c *Config) validateInfra() []error {
 //
 // Monitoring is always validated when non-nil, in both modes. md is used only to name the
 // ignored sections in the static-mode warning.
-func (c *Config) validate(lggr logger.Logger, md toml.MetaData, needsInfra bool) error {
+func (c *Config) validate(needsInfra bool) error {
 	var errs []error
 	if needsInfra {
 		errs = append(errs, c.validateInfra()...)
-	} else if present := presentInfraSections(md); len(present) > 0 {
-		lggr.Warnw("ignoring infra sections present in static-TOML mode bootstrap config; "+
-			"these belong in a JD-mode bootstrap config", "sections", present)
 	}
 	if c.Monitoring != nil {
 		if err := c.Monitoring.Validate(); err != nil {
@@ -217,30 +195,30 @@ func (c *Config) validate(lggr logger.Logger, md toml.MetaData, needsInfra bool)
 // LoadAndValidateConfig loads the configuration from a path to a TOML file, in strict mode.
 // needsInfra selects mode-driven validation (see validate): pass true in JD mode, false in
 // static-TOML mode.
-func LoadAndValidateConfig(lggr logger.Logger, path string, cfg *Config, needsInfra bool) error {
+func LoadAndValidateConfig(path string, cfg *Config, needsInfra bool) error {
 	tomlBytes, err := os.ReadFile(path) //nolint:gosec // G304: path is provided by trusted caller
 	if err != nil {
 		return fmt.Errorf("failed to read config file: %w", err)
 	}
 
-	md, err := parseTOMLStrict(string(tomlBytes), cfg)
+	err = parseTOMLStrict(string(tomlBytes), cfg)
 	if err != nil {
 		return fmt.Errorf("failed to parse config: %w", err)
 	}
 
-	if err := cfg.validate(lggr, md, needsInfra); err != nil {
+	if err := cfg.validate(needsInfra); err != nil {
 		return fmt.Errorf("config validation failed: %w", err)
 	}
 	return nil
 }
 
-func parseTOMLStrict[T any](tomlString string, out T) (toml.MetaData, error) {
+func parseTOMLStrict[T any](tomlString string, out T) error {
 	md, err := toml.Decode(tomlString, out)
 	if err != nil {
-		return toml.MetaData{}, fmt.Errorf("failed to decode toml: %w", err)
+		return fmt.Errorf("failed to decode toml: %w", err)
 	}
 	if len(md.Undecoded()) > 0 {
-		return toml.MetaData{}, fmt.Errorf("strict decode failed, found undecoded fields: %+v", md.Undecoded())
+		return fmt.Errorf("strict decode failed, found undecoded fields: %+v", md.Undecoded())
 	}
-	return md, nil
+	return nil
 }
