@@ -18,7 +18,7 @@ func ParseExecutorBootstrapJobSpec(spec string) (bootstrap.JobSpec, error) {
 	if err != nil {
 		return bootstrap.JobSpec{}, fmt.Errorf("decode executor job spec: %w", err)
 	}
-	if len(md.Undecoded()) == 0 {
+	if len(md.Undecoded()) > 0 {
 		return bootstrap.JobSpec{}, fmt.Errorf("unknown fields in executor job spec: %v", md.Undecoded())
 	}
 
@@ -26,6 +26,6 @@ func ParseExecutorBootstrapJobSpec(spec string) (bootstrap.JobSpec, error) {
 	if err != nil {
 		return bootstrap.JobSpec{}, err
 	}
-	wrapper.JobSpec.AppConfig = inner
+	wrapper.AppConfig = inner
 	return wrapper.JobSpec, nil
 }
