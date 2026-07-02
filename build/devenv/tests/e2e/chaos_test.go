@@ -15,42 +15,28 @@ import (
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/committeeverifier"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/chaos"
 	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
-	"github.com/smartcontractkit/chainlink-testing-framework/framework/chaos"
-)
-
-const (
-	// ExecPumba waits for this much before returning, since we don't want to wait
-	// we keep this at zero.
-	ctfPumbaTimeout = 0 * time.Second
-
-	outageDuration = 20 * time.Second
+	ctfchaos "github.com/smartcontractkit/chainlink-testing-framework/framework/chaos"
 )
 
 func TestChaos_AggregatorOutageRecovery(t *testing.T) {
 	setup := setupChaos(t, GetSmokeTestConfig())
 
-	var defaultAggregatorContainerName string
-	for _, agg := range setup.in.Aggregator {
-		if agg.CommitteeName == devenvcommon.DefaultCommitteeVerifierQualifier {
-			defaultAggregatorContainerName = agg.Out.NginxContainerName
-			break
-		}
-	}
-	require.NotEmpty(t, defaultAggregatorContainerName, "default aggregator container name not found")
+	aggregatorContainer, err := chaos.DefaultAggregatorNginx(setup.in, devenvcommon.DefaultCommitteeVerifierQualifier)
+	require.NoError(t, err)
 
 	fromSelector, toSelector := setup.chains[0].Details.ChainSelector, setup.chains[1].Details.ChainSelector
 
-	// Stop the aggregator prior to sending the message to simulate an outage.
-	pumbaCmd := fmt.Sprintf("stop --duration=%s --restart re2:%s", outageDuration.String(), defaultAggregatorContainerName)
-	setup.l.Info().Str("pumbaCmd", pumbaCmd).Msg("Stopping the aggregator prior to sending the message to simulate an outage")
-	pumbaClose, err := chaos.ExecPumba(
-		pumbaCmd,
-		ctfPumbaTimeout,
-	)
+	ctx := ccv.Plog.WithContext(t.Context())
+	cleanup, err := chaos.InjectOutage(ctx, chaos.OutageSpec{
+		Duration:      chaos.DefaultOutageDuration,
+		Targets:       []string{aggregatorContainer},
+		LiteralSingle: true,
+	})
 	require.NoError(t, err)
-	t.Cleanup(pumbaClose)
+	t.Cleanup(cleanup)
 
 	tc := v2TestCase{
 		name:                     "src->dst msg execution eoa receiver",
@@ -61,7 +47,6 @@ func TestChaos_AggregatorOutageRecovery(t *testing.T) {
 		numExpectedVerifications: 1,
 	}
 
-	ctx := ccv.Plog.WithContext(t.Context())
 	l := zerolog.Ctx(ctx)
 
 	runV2TestCase(t, ctx, l, tc, setup.chainMap, setup.defaultAggregatorClient, setup.indexerMonitor, AssertMessageOptions{
@@ -116,11 +101,11 @@ func TestChaos_VerifierFaultToleranceThresholdViolated(t *testing.T) {
 	}(), "|"))
 	// shut down enough verifiers so that the fault tolerance threshold is violated.
 	// when the verifier is back up its expected to sign the message.
-	pumbaCmd := fmt.Sprintf("stop --duration=%s --restart re2:%s", outageDuration.String(), containerRe2)
+	pumbaCmd := fmt.Sprintf("stop --duration=%s --restart re2:%s", chaos.DefaultOutageDuration, containerRe2)
 	setup.l.Info().Str("pumbaCmd", pumbaCmd).Msg("Stopping the verifier prior to sending the message to simulate an outage")
-	pumbaClose, err := chaos.ExecPumba(
+	pumbaClose, err := ctfchaos.ExecPumba(
 		pumbaCmd,
-		ctfPumbaTimeout,
+		chaos.ExecPumbaTimeout,
 	)
 	require.NoError(t, err)
 	t.Cleanup(pumbaClose)
@@ -170,11 +155,11 @@ func TestChaos_AllExecutorsDown(t *testing.T) {
 	require.NotEmpty(t, defaultExecutorContainerNames, "default executor container names not found")
 
 	containerRe2 := fmt.Sprintf("(%s)", strings.Join(defaultExecutorContainerNames, "|"))
-	pumbaCmd := fmt.Sprintf("stop --duration=%s --restart re2:%s", 30*time.Second, containerRe2)
+	pumbaCmd := fmt.Sprintf("stop --duration=%s --restart re2:%s", chaos.ExecutorOutageDuration, containerRe2)
 	setup.l.Info().Str("pumbaCmd", pumbaCmd).Msg("Stopping the executors prior to sending the message to simulate an outage")
-	pumbaClose, err := chaos.ExecPumba(
+	pumbaClose, err := ctfchaos.ExecPumba(
 		pumbaCmd,
-		ctfPumbaTimeout,
+		chaos.ExecPumbaTimeout,
 	)
 	require.NoError(t, err)
 	t.Cleanup(pumbaClose)
@@ -211,11 +196,11 @@ func TestChaos_IndexerDown(t *testing.T) {
 	indexerContainerName := setup.in.Indexer[0].Out.ContainerName
 	require.NotEmpty(t, indexerContainerName, "indexer container name not found")
 
-	pumbaCmd := fmt.Sprintf("stop --duration=%s --restart re2:%s", 30*time.Second, fmt.Sprintf("^%s$", indexerContainerName))
+	pumbaCmd := fmt.Sprintf("stop --duration=%s --restart re2:%s", chaos.ExecutorOutageDuration, fmt.Sprintf("^%s$", indexerContainerName))
 	setup.l.Info().Str("pumbaCmd", pumbaCmd).Msg("Stopping the indexer prior to sending the message to simulate an outage")
-	pumbaClose, err := chaos.ExecPumba(
+	pumbaClose, err := ctfchaos.ExecPumba(
 		pumbaCmd,
-		ctfPumbaTimeout,
+		chaos.ExecPumbaTimeout,
 	)
 	require.NoError(t, err)
 	t.Cleanup(pumbaClose)
