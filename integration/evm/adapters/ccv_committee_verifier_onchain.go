@@ -9,6 +9,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/committee_verifier"
 	cv "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/v2_0_0/committee_verifier"
+	"github.com/smartcontractkit/chainlink-ccip/deployment/finality"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 
@@ -136,4 +137,120 @@ func (a *EVMCCVCommitteeVerifierOnchainAdapter) ApplySignatureConfigs(
 	}
 
 	return nil
+}
+
+func (a *EVMCCVCommitteeVerifierOnchainAdapter) SetAllowedFinalityConfig(
+	ctx context.Context,
+	env deployment.Environment,
+	chainSelector uint64,
+	qualifier string,
+	waitForFinality bool,
+	waitForSafe bool,
+	blockDepth uint16,
+) error {
+	chain, ok := env.BlockChains.EVMChains()[chainSelector]
+	if !ok {
+		return fmt.Errorf("EVM chain %d not found in environment", chainSelector)
+	}
+	addr, err := committeeVerifierAddress(env, chainSelector, qualifier)
+	if err != nil {
+		return err
+	}
+	contract, err := cv.NewCommitteeVerifier(addr, chain.Client)
+	if err != nil {
+		return fmt.Errorf("failed to bind CommitteeVerifier %s on chain %d: %w", addr, chainSelector, err)
+	}
+
+	raw := finality.Config{
+		WaitForFinality: waitForFinality,
+		WaitForSafe:     waitForSafe,
+		BlockDepth:      blockDepth,
+	}.Raw()
+
+	tx, err := contract.SetAllowedFinalityConfig(chain.DeployerKey, raw)
+	if err != nil {
+		return fmt.Errorf("SetAllowedFinalityConfig tx failed on chain %d: %w", chainSelector, err)
+	}
+	if _, err := bind.WaitMined(ctx, chain.Client, tx); err != nil {
+		return fmt.Errorf("waiting for SetAllowedFinalityConfig tx on chain %d: %w", chainSelector, err)
+	}
+	return nil
+}
+
+func (a *EVMCCVCommitteeVerifierOnchainAdapter) ApplyAllowlistUpdates(
+	ctx context.Context,
+	env deployment.Environment,
+	chainSelector uint64,
+	qualifier string,
+	destChainSelector uint64,
+	allowlistEnabled bool,
+	addedSenders []string,
+	removedSenders []string,
+) error {
+	chain, ok := env.BlockChains.EVMChains()[chainSelector]
+	if !ok {
+		return fmt.Errorf("EVM chain %d not found in environment", chainSelector)
+	}
+	addr, err := committeeVerifierAddress(env, chainSelector, qualifier)
+	if err != nil {
+		return err
+	}
+	contract, err := cv.NewCommitteeVerifier(addr, chain.Client)
+	if err != nil {
+		return fmt.Errorf("failed to bind CommitteeVerifier %s on chain %d: %w", addr, chainSelector, err)
+	}
+
+	added, err := toEVMSenderAddresses(addedSenders, "added")
+	if err != nil {
+		return err
+	}
+	removed, err := toEVMSenderAddresses(removedSenders, "removed")
+	if err != nil {
+		return err
+	}
+
+	args := []cv.BaseVerifierAllowlistConfigArgs{{
+		DestChainSelector:         destChainSelector,
+		AllowlistEnabled:          allowlistEnabled,
+		AddedAllowlistedSenders:   added,
+		RemovedAllowlistedSenders: removed,
+	}}
+
+	tx, err := contract.ApplyAllowlistUpdates(chain.DeployerKey, args)
+	if err != nil {
+		return fmt.Errorf("ApplyAllowlistUpdates tx failed on chain %d: %w", chainSelector, err)
+	}
+	if _, err := bind.WaitMined(ctx, chain.Client, tx); err != nil {
+		return fmt.Errorf("waiting for ApplyAllowlistUpdates tx on chain %d: %w", chainSelector, err)
+	}
+	return nil
+}
+
+// committeeVerifierAddress resolves the single CommitteeVerifier contract address for
+// the given chain selector and committee qualifier from the datastore.
+func committeeVerifierAddress(env deployment.Environment, chainSelector uint64, qualifier string) (common.Address, error) {
+	refs := env.DataStore.Addresses().Filter(
+		datastore.AddressRefByType(datastore.ContractType(committee_verifier.ContractType)),
+		datastore.AddressRefByChainSelector(chainSelector),
+		datastore.AddressRefByQualifier(qualifier),
+	)
+	if len(refs) == 0 {
+		return common.Address{}, fmt.Errorf("no CommitteeVerifier found for chain %d qualifier %q", chainSelector, qualifier)
+	}
+	if len(refs) > 1 {
+		return common.Address{}, fmt.Errorf("multiple CommitteeVerifiers found for chain %d qualifier %q", chainSelector, qualifier)
+	}
+	return common.HexToAddress(refs[0].Address), nil
+}
+
+// toEVMSenderAddresses converts hex sender strings to EVM addresses, rejecting malformed input.
+func toEVMSenderAddresses(senders []string, label string) ([]common.Address, error) {
+	out := make([]common.Address, 0, len(senders))
+	for _, s := range senders {
+		if !common.IsHexAddress(s) {
+			return nil, fmt.Errorf("invalid %s allowlist sender address %q", label, s)
+		}
+		out = append(out, common.HexToAddress(s))
+	}
+	return out, nil
 }

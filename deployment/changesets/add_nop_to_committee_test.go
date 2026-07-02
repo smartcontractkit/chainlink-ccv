@@ -599,6 +599,11 @@ type stubOnchainAdapter struct {
 	scanErr  error
 	applyErr error
 	applied  []adapters.SignatureConfigChange
+	// onchainOpErr, when set, is returned by SetAllowedFinalityConfig and
+	// ApplyAllowlistUpdates to exercise their error paths.
+	onchainOpErr   error
+	finalityCalls  int
+	allowlistCalls int
 }
 
 // stubOffchainClient satisfies offchain.Client. Only the JDClient methods needed by our test
@@ -647,6 +652,22 @@ func (s *stubOnchainAdapter) ApplySignatureConfigs(_ context.Context, _ deployme
 		return s.applyErr
 	}
 	s.applied = append(s.applied, change)
+	return nil
+}
+
+func (s *stubOnchainAdapter) SetAllowedFinalityConfig(_ context.Context, _ deployment.Environment, _ uint64, _ string, _, _ bool, _ uint16) error {
+	if s.onchainOpErr != nil {
+		return s.onchainOpErr
+	}
+	s.finalityCalls++
+	return nil
+}
+
+func (s *stubOnchainAdapter) ApplyAllowlistUpdates(_ context.Context, _ deployment.Environment, _ uint64, _ string, _ uint64, _ bool, _, _ []string) error {
+	if s.onchainOpErr != nil {
+		return s.onchainOpErr
+	}
+	s.allowlistCalls++
 	return nil
 }
 
@@ -707,6 +728,14 @@ func (s *stubFullAdapter) ScanCommitteeStates(_ context.Context, _ deployment.En
 }
 
 func (s *stubFullAdapter) ApplySignatureConfigs(_ context.Context, _ deployment.Environment, _ uint64, _ string, _ adapters.SignatureConfigChange) error {
+	return nil
+}
+
+func (s *stubFullAdapter) SetAllowedFinalityConfig(_ context.Context, _ deployment.Environment, _ uint64, _ string, _, _ bool, _ uint16) error {
+	return nil
+}
+
+func (s *stubFullAdapter) ApplyAllowlistUpdates(_ context.Context, _ deployment.Environment, _ uint64, _ string, _ uint64, _ bool, _, _ []string) error {
 	return nil
 }
 
