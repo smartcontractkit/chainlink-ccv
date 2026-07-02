@@ -158,9 +158,35 @@ func (c *Config) validateInfra() []error {
 	if err := c.Server.validate(); err != nil {
 		errs = append(errs, fmt.Errorf("failed to validate 'server' section: %w", err))
 	}
-	for i, chain := range c.Chains {
+	errs = append(errs, validateChains(c.Chains)...)
+	return errs
+}
+
+// validateChains validates each chain entry and enforces that every entry declares the
+// same chain family. A committee verifier binary is built for exactly one chain family
+// (e.g. EVM XOR Solana, never both) and pushes one signing key for every declared chain
+// under the assumption that they're all the same family; mixing families here would
+// silently push a key formatted for the wrong chain type to JD, breaking signing key
+// sync for whichever family lost the race — this catches that misconfiguration at load
+// time instead.
+func validateChains(chains []ChainRegistration) []error {
+	var errs []error
+	var firstType string
+	var firstIndex int
+	for i, chain := range chains {
 		if err := chain.validate(); err != nil {
 			errs = append(errs, fmt.Errorf("invalid chain at index %d: %w", i, err))
+			continue
+		}
+		upperType := strings.ToUpper(chain.Type)
+		if firstType == "" {
+			firstType, firstIndex = upperType, i
+		} else if upperType != firstType {
+			errs = append(errs, fmt.Errorf(
+				"chain at index %d has type %q but chains must all declare the same family (found %q at index %d): "+
+					"a bootstrapper is built for exactly one chain family and pushes one signing key for all declared chains",
+				i, chain.Type, firstType, firstIndex,
+			))
 		}
 	}
 	return errs

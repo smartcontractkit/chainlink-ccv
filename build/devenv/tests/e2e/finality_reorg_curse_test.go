@@ -838,11 +838,16 @@ func uncurseSelector(t *testing.T, env *deployment.Environment, adapter fastcurs
 			Version:              semver.MustParse("1.6.0"),
 		})
 	}
+
 	uncurseCS := fastcurse.UncurseChangeset(fastcurse.GetCurseRegistry(), changesets.GetRegistry())
 	_, err := uncurseCS.Apply(*env, fastcurse.RMNCurseConfig{
 		CurseActions: crInput,
 	})
-	require.NoError(t, err)
+	if err != nil && err.Error() == "uncurse skipped all actions: no subjects are currently cursed on chain" {
+		return // no error, no subjects are cursed on chain
+	} else {
+		require.NoError(t, err)
+	}
 
 	// Verify the curse is lifted
 	if subjectChainSelector != 0 {
