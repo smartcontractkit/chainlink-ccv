@@ -12,9 +12,10 @@ require (
 	github.com/Masterminds/semver/v3 v3.4.0
 	github.com/google/uuid v1.6.0
 	github.com/smartcontractkit/chain-selectors v1.0.98
+	github.com/smartcontractkit/chainlink-ccip/deployment v0.0.0-20260630184409-79e0c5cd667f
 	github.com/smartcontractkit/chainlink-ccv v0.0.1
 	github.com/smartcontractkit/chainlink-common v0.11.2-0.20260417081611-8bdbd9f45629
-	github.com/smartcontractkit/chainlink-deployments-framework v0.94.1
+	github.com/smartcontractkit/chainlink-deployments-framework v0.96.0
 	github.com/smartcontractkit/chainlink-protos/job-distributor v0.20.0
 	github.com/smartcontractkit/mcms v0.40.1
 	github.com/stretchr/testify v1.11.1
@@ -151,7 +152,7 @@ require (
 	github.com/smartcontractkit/chainlink-protos/linking-service/go v0.0.0-20251002192024-d2ad9222409b // indirect
 	github.com/smartcontractkit/chainlink-protos/node-platform v0.0.0-20260211172625-dff40e83b3c9 // indirect
 	github.com/smartcontractkit/chainlink-sui v0.0.0-20260205175622-33e65031f9a9 // indirect
-	github.com/smartcontractkit/chainlink-ton v0.0.0-20260219201907-054376f21418 // indirect
+	github.com/smartcontractkit/chainlink-ton v0.0.0-20260415120434-cecc380f8d87 // indirect
 	github.com/smartcontractkit/chainlink-tron/relayer v0.0.11-0.20250908203554-5bd9d2fe9513 // indirect
 	github.com/smartcontractkit/freeport v0.1.3-0.20250828155247-add56fa28aad // indirect
 	github.com/smartcontractkit/grpc-proxy v0.0.0-20240830132753-a7e17fec5ab7 // indirect

@@ -1181,9 +1181,16 @@ func launchStandaloneVerifiers(in *Cfg, blockchainOutputs []*blockchain.Output, 
 
 func launchStandaloneTokenVerifiers(in *Cfg, blockchainOutputs []*blockchain.Output) ([]*services.TokenVerifierOutput, error) {
 	var outs []*services.TokenVerifierOutput
+	monitoring := in.EnvironmentTopology.Monitoring
 	for _, ver := range in.TokenVerifier {
 		if ver.Mode == services.Standalone {
-			out, err := services.NewTokenVerifier(ver, blockchainOutputs)
+			v := services.ApplyTokenVerifierDefaults(*ver)
+			if v.Bootstrap == nil {
+				v.Bootstrap = &services.BootstrapInput{}
+			}
+			m := monitoring
+			v.Bootstrap.Monitoring = &m
+			out, err := services.NewTokenVerifier(&v, blockchainOutputs)
 			if err != nil {
 				return nil, fmt.Errorf("failed to create token verifier service: %w", err)
 			}

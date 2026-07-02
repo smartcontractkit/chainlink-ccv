@@ -24,7 +24,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/configuration"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/storage/postgres"
-	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
+	"github.com/smartcontractkit/chainlink-ccv/common/monitoring/logging"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	zaplog "github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
 	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
@@ -48,7 +48,7 @@ func main() {
 		panic(fmt.Sprintf("Failed to create logger: %v", err))
 	}
 	lggr = logger.Named(lggr, "aggregator")
-	lggr = ccvcommon.WithService(lggr, "aggregator")
+	lggr = logging.WithService(lggr, "aggregator")
 	sugaredLggr := logger.Sugared(lggr)
 
 	var (

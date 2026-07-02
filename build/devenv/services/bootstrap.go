@@ -12,7 +12,7 @@ import (
 	"github.com/ethereum/go-ethereum/crypto"
 
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
-	"github.com/smartcontractkit/chainlink-ccv/pkg/monitoring"
+	"github.com/smartcontractkit/chainlink-ccv/common/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/commit"
 	"github.com/smartcontractkit/chainlink-common/keystore"
 )
