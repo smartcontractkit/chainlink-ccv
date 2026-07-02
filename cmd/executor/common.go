@@ -1,9 +1,11 @@
 package executor
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/grafana/pyroscope-go"
+	"go.uber.org/zap/zapcore"
 
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
@@ -12,9 +14,8 @@ import (
 )
 
 // SetupMonitoring configures executor monitoring via Beholder or returns a noop implementation.
-func SetupMonitoring(lggr logger.Logger, config executor.MonitoringConfig) executor.Monitoring {
+func SetupMonitoring(config executor.MonitoringConfig) executor.Monitoring {
 	if !config.Enabled || config.Type != "beholder" {
-		lggr.Infow("Using noop monitoring")
 		return monitoring.NewNoopExecutorMonitoring()
 	}
 
@@ -24,6 +25,7 @@ func SetupMonitoring(lggr logger.Logger, config executor.MonitoringConfig) execu
 		OtelExporterHTTPEndpoint: config.Beholder.OtelExporterHTTPEndpoint,
 		OtelExporterGRPCEndpoint: config.Beholder.OtelExporterGRPCEndpoint,
 		LogStreamingEnabled:      config.Beholder.LogStreamingEnabled,
+		LogLevel:                 zapcore.InfoLevel,
 		MetricReaderInterval:     time.Second * time.Duration(config.Beholder.MetricReaderInterval),
 		TraceSampleRatio:         config.Beholder.TraceSampleRatio,
 		TraceBatchTimeout:        time.Second * time.Duration(config.Beholder.TraceBatchTimeout),
@@ -32,7 +34,7 @@ func SetupMonitoring(lggr logger.Logger, config executor.MonitoringConfig) execu
 
 	beholderClient, err := beholder.NewClient(beholderConfig)
 	if err != nil {
-		lggr.Fatalf("Failed to create beholder client: %v", err)
+		panic(fmt.Sprintf("failed to create beholder client: %v", err))
 	}
 
 	beholder.SetClient(beholderClient)
@@ -40,7 +42,7 @@ func SetupMonitoring(lggr logger.Logger, config executor.MonitoringConfig) execu
 
 	executorMonitoring, err := monitoring.InitMonitoring()
 	if err != nil {
-		lggr.Fatalf("Failed to initialize executor monitoring: %v", err)
+		panic(fmt.Sprintf("failed to initialize executor monitoring: %v", err))
 	}
 	return executorMonitoring
 }

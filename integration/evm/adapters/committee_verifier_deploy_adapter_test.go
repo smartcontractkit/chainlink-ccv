@@ -12,13 +12,13 @@ import (
 	cldf_ops "github.com/smartcontractkit/chainlink-deployments-framework/operations"
 
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_0_0/operations/rmn_proxy"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/adapters"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/create2_factory"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/committee_verifier"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/versioned_verifier_resolver"
 	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm/operations/contract"
 
 	ccvdeploymentadapters "github.com/smartcontractkit/chainlink-ccv/deployment/adapters"
+	adapters "github.com/smartcontractkit/chainlink-ccv/integration/evm/adapters"
 )
 
 const (

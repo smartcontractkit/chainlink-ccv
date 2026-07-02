@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/grafana/pyroscope-go"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 
@@ -46,11 +47,6 @@ func NewCommitteeVerifierServiceFactory() bootstrap.ServiceFactory {
 
 // Start implements [bootstrap.ServiceFactory].
 func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootstrap.ServiceDeps) error {
-	lggr := logger.Sugared(logger.Named(deps.Logger, "CommitteeVerifier"))
-	f.lggr = lggr
-
-	lggr.Infow("Starting committee verifier service", "spec", spec)
-
 	protocol.InitChainSelectorCache()
 
 	var config commit.Config
@@ -62,6 +58,13 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 		return err
 	}
 
+	f.lggr = deps.Logger
+	verifierMonitoring, err := monitoring.InitMonitoring("committee_verifier")
+	if err != nil {
+		return fmt.Errorf("failed to init monitoring: %w", err)
+	}
+
+	lggr := f.lggr
 	if config.PyroscopeURL != "" {
 		profiler, err := StartPyroscope(lggr, config.PyroscopeURL, "verifier")
 		if err != nil {
@@ -190,11 +193,6 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 		return fmt.Errorf("failed to create signer: %w", err)
 	}
 	lggr.Infow("Using signer address", "address", signerAddress)
-
-	// Monitoring config is operator-provided via the bootstrap config (deps.Monitoring), falling back to
-	// the deprecated app-config Monitoring field when unset. See bootstrap.ResolveMonitoring.
-	monitoringConfig := bootstrap.ResolveMonitoring(lggr, deps.Monitoring, config.Monitoring)
-	verifierMonitoring := SetupMonitoring(lggr, monitoringConfig, "committee_verifier")
 
 	// Create chain status manager (PostgreSQL storage) with monitoring decorator
 	chainStatusManager, chainStatusDB, err := createChainStatusManager(lggr, config.VerifierID, verifierMonitoring)
@@ -382,6 +380,10 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 	lggr.Infow("🎯 Verifier service fully started and ready!")
 
 	return nil
+}
+
+func (f *factory) MetricViews() []sdkmetric.View {
+	return monitoring.MetricViews()
 }
 
 // Stop implements [bootstrap.ServiceFactory].

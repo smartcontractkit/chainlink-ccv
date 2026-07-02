@@ -5,7 +5,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/smartcontractkit/chainlink-ccv/pkg/monitoring"
+	"github.com/smartcontractkit/chainlink-ccv/common/monitoring"
 )
 
 // TestApplyBootstrapDefaults_PreservesMonitoring locks in the contract the devenv routing relies on:

@@ -5,18 +5,19 @@ go 1.26.2
 replace (
 	github.com/fbsobreira/gotron-sdk => github.com/smartcontractkit/chainlink-tron/relayer/gotron-sdk v0.0.4
 	github.com/smartcontractkit/chainlink-ccv => ../../
+	github.com/smartcontractkit/chainlink-ccv/deployment => ../../deployment
 )
 
 require (
 	github.com/Masterminds/semver/v3 v3.5.0
 	github.com/ethereum/go-ethereum v1.17.4
 	github.com/smartcontractkit/chain-selectors v1.0.104
-	github.com/smartcontractkit/chainlink-ccip/chains/evm v0.0.0-20260624154507-ea7ff77a0ddb
-	github.com/smartcontractkit/chainlink-ccip/deployment v0.0.0-20260624154507-ea7ff77a0ddb
+	github.com/smartcontractkit/chainlink-ccip/chains/evm v0.0.0-20260630184409-79e0c5cd667f
+	github.com/smartcontractkit/chainlink-ccip/deployment v0.0.0-20260630184409-79e0c5cd667f
 	github.com/smartcontractkit/chainlink-ccv v0.0.2-0.20260608205628-b1fb1b311772
 	github.com/smartcontractkit/chainlink-ccv/deployment v0.0.2-0.20260616151800-9a3a31c4e194
 	github.com/smartcontractkit/chainlink-deployments-framework v0.114.2
-	github.com/smartcontractkit/chainlink-protos/job-distributor v0.19.0
+	github.com/smartcontractkit/chainlink-protos/job-distributor v0.20.0
 	github.com/stretchr/testify v1.11.1
 )
 
@@ -258,7 +259,7 @@ require (
 	github.com/smartcontractkit/chainlink-protos/node-platform v0.0.0-20260211172625-dff40e83b3c9 // indirect
 	github.com/smartcontractkit/chainlink-protos/op-catalog v0.1.0 // indirect
 	github.com/smartcontractkit/chainlink-sui v0.0.0-20260610194843-349ea43d69ce // indirect
-	github.com/smartcontractkit/chainlink-testing-framework/framework v0.16.6-0.20260623160408-12abc7b173d8 // indirect
+	github.com/smartcontractkit/chainlink-testing-framework/framework v0.16.6-0.20260630120514-36abe27604df // indirect
 	github.com/smartcontractkit/chainlink-testing-framework/seth v1.51.5 // indirect
 	github.com/smartcontractkit/chainlink-ton v1.0.5-0.20260514223130-48bc90aca745 // indirect
 	github.com/smartcontractkit/chainlink-tron/relayer v0.0.11-0.20251014143056-a0c6328c91e9 // indirect

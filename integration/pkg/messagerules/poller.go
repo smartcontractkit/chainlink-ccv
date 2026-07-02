@@ -132,7 +132,7 @@ func (s *PollerService) poll(ctx context.Context) {
 	s.hasRules = true
 	s.mutex.Unlock()
 
-	s.lggr.Infow("Refreshed message rules", "ruleCount", compiled.ActiveRuleCount())
+	s.lggr.Debugw("Refreshed message rules", "ruleCount", compiled.ActiveRuleCount())
 	s.metrics.SetMessageDisablementRulesRefreshFailure(ctx, 0)
 }
 

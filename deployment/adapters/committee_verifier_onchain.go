@@ -33,4 +33,35 @@ type CommitteeVerifierOnchainAdapter interface {
 		qualifier string,
 		change SignatureConfigChange,
 	) error
+
+	// SetAllowedFinalityConfig sets the allowed-finality config on the CommitteeVerifier
+	// at chainSelector for the committee qualifier. Finality is passed as primitives
+	// (waitForFinality / waitForSafe / blockDepth) so this package stays free of
+	// chain-family finality encodings; the adapter encodes them for its family. In
+	// deployer-key mode it submits the transaction directly and blocks until mined.
+	SetAllowedFinalityConfig(
+		ctx context.Context,
+		env deployment.Environment,
+		chainSelector uint64,
+		qualifier string,
+		waitForFinality bool,
+		waitForSafe bool,
+		blockDepth uint16,
+	) error
+
+	// ApplyAllowlistUpdates updates the per-destination-chain sender allowlist on the
+	// CommitteeVerifier at chainSelector for the committee qualifier. The allowlist is
+	// keyed by destChainSelector; added/removed senders are hex address strings the
+	// adapter interprets for its family. In deployer-key mode it submits the
+	// transaction directly and blocks until mined.
+	ApplyAllowlistUpdates(
+		ctx context.Context,
+		env deployment.Environment,
+		chainSelector uint64,
+		qualifier string,
+		destChainSelector uint64,
+		allowlistEnabled bool,
+		addedSenders []string,
+		removedSenders []string,
+	) error
 }
