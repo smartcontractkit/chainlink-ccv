@@ -26,6 +26,15 @@ import (
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 )
 
+const (
+	DefaultTokenVerifierImage         = "token-verifier:latest"
+	DefaultTokenVerifierPort          = 8700
+	DefaultTokenVerifierContainerName = "token-verifier-1"
+	DefaultTokenVerifierDBImage       = "postgres:16-alpine"
+	DefaultTokenVerifierDBName        = "token-verifier-1-db"
+	DefaultTokenVerifierDBPort        = 8450
+)
+
 //go:embed tokenVerifier.template.toml
 var tokenVerifierConfigTemplate string
 
@@ -49,6 +58,9 @@ type TokenVerifierInput struct {
 
 	// GeneratedConfig stores the generated token verifier configuration from the changeset.
 	GeneratedConfig *token.Config `toml:"-"`
+
+	// Bootstrap is the bootstrap input for the token verifier.
+	Bootstrap *BootstrapInput `toml:"bootstrap"`
 }
 
 type TokenVerifierOutput struct {
@@ -57,6 +69,36 @@ type TokenVerifierOutput struct {
 	InternalHTTPURL    string `toml:"internal_http_url"`
 	UseCache           bool   `toml:"use_cache"`
 	DBConnectionString string `toml:"db_connection_string"`
+}
+
+func ApplyTokenVerifierDefaults(in TokenVerifierInput) TokenVerifierInput {
+	if in.Image == "" {
+		in.Image = DefaultTokenVerifierImage
+	}
+	if in.Port == 0 {
+		in.Port = DefaultTokenVerifierPort
+	}
+	if in.ContainerName == "" {
+		in.ContainerName = DefaultTokenVerifierContainerName
+	}
+	if in.DB == nil {
+		in.DB = &TokenVerifierDBInput{
+			Image: DefaultTokenVerifierDBImage,
+			Name:  DefaultTokenVerifierDBName,
+			Port:  DefaultTokenVerifierDBPort,
+		}
+	}
+	if in.Mode == "" {
+		in.Mode = Standalone
+	}
+	if in.Bootstrap == nil {
+		def := ApplyBootstrapDefaults(BootstrapInput{})
+		in.Bootstrap = &def
+	} else {
+		def := ApplyBootstrapDefaults(*in.Bootstrap)
+		in.Bootstrap = &def
+	}
+	return in
 }
 
 func NewTokenVerifier(in *TokenVerifierInput, blockchainOutputs []*blockchain.Output) (*TokenVerifierOutput, error) {
@@ -128,8 +170,7 @@ func NewTokenVerifier(in *TokenVerifierInput, blockchainOutputs []*blockchain.Ou
 	// Generate and write the bootstrap (operator) config, carrying monitoring from the generated config.
 	// Only the monitoring section is set; the infra sections (jd/db/keystore/server) are zero-valued
 	// and omitted from the TOML output via omitempty, so validation correctly skips infra checks.
-	monitoringCfg := in.GeneratedConfig.Monitoring
-	bootstrapConfig, err := toml.Marshal(bootstrap.Config{Monitoring: &monitoringCfg})
+	bootstrapConfig, err := toml.Marshal(bootstrap.Config{Monitoring: in.Bootstrap.Monitoring})
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate bootstrap config for token verifier: %w", err)
 	}

@@ -742,8 +742,8 @@ github.com/smartcontractkit/chainlink-protos/orchestrator v0.11.0 h1:NXKTdIESAiC
 github.com/smartcontractkit/chainlink-protos/orchestrator v0.11.0/go.mod h1:m/A3lqD7ms/RsQ9BT5P2uceYY0QX5mIt4KQxT2G6qEo=
 github.com/smartcontractkit/chainlink-sui v0.0.0-20260610194843-349ea43d69ce h1:Xglr7eM24+Y9eMOhgK//QjXLDjPuT1oUAtdvsGqY8P0=
 github.com/smartcontractkit/chainlink-sui v0.0.0-20260610194843-349ea43d69ce/go.mod h1:Y2kTVIsAUjqqSNGiEQomsaVH5XsBJzxov4j07MaDJOw=
-github.com/smartcontractkit/chainlink-testing-framework/framework v0.16.6-0.20260623160408-12abc7b173d8 h1:xTOTSILns1Pncpzyb9AiseIrrqjr3LAPlyiYrdZvo7A=
-github.com/smartcontractkit/chainlink-testing-framework/framework v0.16.6-0.20260623160408-12abc7b173d8/go.mod h1:nyOjn4ADJGqRMe3+4ZXSV+J/7nWb1H2Vx8Qk57eLRYA=
+github.com/smartcontractkit/chainlink-testing-framework/framework v0.16.6-0.20260630120514-36abe27604df h1:a5PvGrH0Wgk5GtXWSXxlBfNPlyZ8x6FKDQ4UbNa6/Qk=
+github.com/smartcontractkit/chainlink-testing-framework/framework v0.16.6-0.20260630120514-36abe27604df/go.mod h1:nyOjn4ADJGqRMe3+4ZXSV+J/7nWb1H2Vx8Qk57eLRYA=
 github.com/smartcontractkit/chainlink-testing-framework/seth v1.51.5 h1:RwZXxdIAOyjp6cwc9Quxgr38k8r7ACz+Lxh9o/A6oH0=
 github.com/smartcontractkit/chainlink-testing-framework/seth v1.51.5/go.mod h1:kHYJnZUqiPF7/xN5273prV+srrLJkS77GbBXHLKQpx0=
 github.com/smartcontractkit/chainlink-ton v1.0.5-0.20260514223130-48bc90aca745 h1:eieKLvYuzwBPh/FdbUS1gnIanI86zgWby1L10o90g4o=

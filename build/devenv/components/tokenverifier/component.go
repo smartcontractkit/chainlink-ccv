@@ -69,6 +69,11 @@ func (c *component) RunPhase4(
 		return nil, nil, fmt.Errorf("tokenverifier: blockchains not found in phase outputs")
 	}
 	blockchainOutputs := blockchainscomp.Outputs(blockchains)
+	topology, ok := priorOutputs["environment_topology"].(*ccvdeployment.EnvironmentTopology)
+	if !ok || topology == nil {
+		return nil, nil, fmt.Errorf("tokenverifier: environment_topology not found in phase outputs")
+	}
+	fmt.Printf("tokenverifier: environment_topology: %+v\n", topology)
 
 	var fakeOut *services.FakeOutput
 	if fake, ok := priorOutputs[fakecomp.Key].(*services.FakeInput); ok && fake != nil {
@@ -94,20 +99,6 @@ func (c *component) RunPhase4(
 			ServiceIdentifier: "TokenVerifier",
 			ChainSelectors:    selectors,
 			PyroscopeURL:      template.PyroscopeURL,
-			Monitoring: ccvdeployment.MonitoringConfig{
-				Enabled: template.Monitoring.Enabled,
-				Type:    template.Monitoring.Type,
-				Beholder: ccvdeployment.BeholderConfig{
-					InsecureConnection:       template.Monitoring.Beholder.InsecureConnection,
-					CACertFile:               template.Monitoring.Beholder.CACertFile,
-					OtelExporterGRPCEndpoint: template.Monitoring.Beholder.OtelExporterGRPCEndpoint,
-					OtelExporterHTTPEndpoint: template.Monitoring.Beholder.OtelExporterHTTPEndpoint,
-					LogStreamingEnabled:      template.Monitoring.Beholder.LogStreamingEnabled,
-					MetricReaderInterval:     template.Monitoring.Beholder.MetricReaderInterval,
-					TraceSampleRatio:         template.Monitoring.Beholder.TraceSampleRatio,
-					TraceBatchTimeout:        template.Monitoring.Beholder.TraceBatchTimeout,
-				},
-			},
 			Lombard: ccvchangesets.LombardConfigInput{
 				VerifierID:     "LombardVerifier",
 				Qualifier:      devenvcommon.LombardVerifierResolverQualifier,
@@ -134,7 +125,14 @@ func (c *component) RunPhase4(
 		if tvIn == nil || tvIn.Mode != services.Standalone {
 			continue
 		}
-		out, launchErr := services.NewTokenVerifier(tvIn, blockchainOutputs)
+		tvIn := services.ApplyTokenVerifierDefaults(*tvIn)
+		if tvIn.Bootstrap == nil {
+			tvIn.Bootstrap = &services.BootstrapInput{}
+		}
+		monitoring := topology.Monitoring
+		fmt.Printf("tokenverifier: monitoring: %+v\n", monitoring)
+		tvIn.Bootstrap.Monitoring = &monitoring
+		out, launchErr := services.NewTokenVerifier(&tvIn, blockchainOutputs)
 		if launchErr != nil {
 			return nil, nil, fmt.Errorf("tokenverifier: launching %q: %w", tvIn.ContainerName, launchErr)
 		}

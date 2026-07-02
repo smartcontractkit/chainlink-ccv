@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"time"
 
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.uber.org/zap/zapcore"
 
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
@@ -97,18 +98,23 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, spec bootstrap.JobSp
 	}
 
 	tvf.lggr = deps.Logger
+	verifierMonitoring, err := monitoring.InitMonitoring("token_verifier")
+	if err != nil {
+		return fmt.Errorf("failed to init monitoring: %w", err)
+	}
+
+	if appConfig.PyroscopeURL != "" {
+		_, err = cmd.StartPyroscope(tvf.lggr, appConfig.PyroscopeURL, "tokenVerifier")
+		if err != nil {
+			return fmt.Errorf("failed to start pyroscope: %v", err)
+		}
+	}
 
 	protocol.InitChainSelectorCache()
 
 	// TODO: validate config?
 	cfg := appConfig.Config
 	blockchainInfos := appConfig.BlockchainInfos
-
-	_, err := cmd.StartPyroscope(tvf.lggr, cfg.PyroscopeURL, "tokenVerifier")
-	if err != nil {
-		tvf.lggr.Errorw("Failed to start pyroscope", "error", err)
-		os.Exit(1)
-	}
 
 	// Initialize source readers from factory.
 	blockchainHelper := cmd.LoadBlockchainInfo(ctx, tvf.lggr, blockchainInfos)
@@ -127,9 +133,6 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, spec bootstrap.JobSp
 		sourceReaders[selector] = reader
 		tvf.lggr.Infow("Created source reader for chain", "chainSelector", selector)
 	}
-
-	monitoringCfg := bootstrap.ResolveMonitoring(tvf.lggr, deps.Monitoring, cfg.Monitoring)
-	verifierMonitoring := cmd.SetupMonitoring(tvf.lggr, monitoringCfg, "token_verifier")
 
 	rmnRemoteAddresses := make(map[string]protocol.UnknownAddress)
 	for selector, address := range cfg.RMNRemoteAddresses {
@@ -240,6 +243,10 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, spec bootstrap.JobSp
 	tvf.lggr.Infow("🎯 Verifier service fully started and ready!")
 
 	return nil
+}
+
+func (tvf *tokenVerifierFactory) MetricViews() []sdkmetric.View {
+	return monitoring.MetricViews()
 }
 
 func createCCTPCoordinator(
