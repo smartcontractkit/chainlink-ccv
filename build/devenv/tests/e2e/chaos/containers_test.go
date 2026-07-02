@@ -45,7 +45,7 @@ func TestDefaultAggregatorNginx(t *testing.T) {
 		Aggregator: []*services.AggregatorInput{
 			{
 				CommitteeName: "default",
-				Out: &services.AggregatorOutput{NginxContainerName: "/default-aggregator-nginx"},
+				Out:           &services.AggregatorOutput{NginxContainerName: "/default-aggregator-nginx"},
 			},
 		},
 	}
