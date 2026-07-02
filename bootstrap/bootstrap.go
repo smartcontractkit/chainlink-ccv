@@ -215,7 +215,7 @@ func NewBootstrapper(
 	if err != nil {
 		return nil, fmt.Errorf("failed to setup beholder: %w", err)
 	}
-	lggr, err := logging.InitLogger(b.name, b.logLevel, mon)
+	lggr, err := logging.InitLogger(b.name, mon.LogLevel, mon)
 	if err != nil {
 		return nil, fmt.Errorf("failed to init logger: %w", err)
 	}

@@ -1,19 +1,30 @@
 package monitoring
 
-import "fmt"
+import (
+	"fmt"
+)
 
 // Config provides monitoring configuration for CCV services.
 type Config struct {
-	// Enabled enables the monitoring system.
-	Enabled bool `json:"enabled" toml:"Enabled"`
-	// Type is the type of monitoring system to use (beholder, noop).
-	Type string `json:"type" toml:"Type"`
+	// LogLevel specifies the logging level for service logger
+	LogLevel string `json:"logLevel" toml:"LogLevel"`
+	// Pyroscope is the configuration for pyroscope performance monitoring tool
+	Pyroscope PyroscopeConfig `json:"pyroscope" toml:"Pyroscope"`
 	// Beholder is the configuration for the beholder client (Not required if type is noop).
 	Beholder BeholderConfig `json:"beholder" toml:"Beholder"`
 }
 
+type PyroscopeConfig struct {
+	// Enabled enables the pyroscope telemetry.
+	Enabled bool `json:"enabled" toml:"Enabled"`
+	// Url specifies the remote endpoint of pyroscope service
+	Url string `json:"url" toml:"Url"`
+}
+
 // BeholderConfig wraps OpenTelemetry configuration for the beholder client.
 type BeholderConfig struct {
+	// Enabled enables the beholder telemetry.
+	Enabled bool `json:"enabled" toml:"Enabled"`
 	// InsecureConnection disables TLS for the beholder client.
 	InsecureConnection bool `json:"insecure_connection" toml:"InsecureConnection"`
 	// CACertFile is the path to the CA certificate file for the beholder client.
@@ -38,14 +49,25 @@ type BeholderConfig struct {
 
 // Validate performs validation on the monitoring configuration.
 func (m *Config) Validate() error {
-	if m.Enabled && m.Type == "" {
-		return fmt.Errorf("monitoring type is required when monitoring is enabled")
+	if m.Pyroscope.Enabled {
+		if err := m.Pyroscope.Validate(); err != nil {
+			return fmt.Errorf("pyroscope config validation failed: %w", err)
+		}
 	}
 
-	if m.Enabled && m.Type == "beholder" {
+	if m.Beholder.Enabled {
 		if err := m.Beholder.Validate(); err != nil {
 			return fmt.Errorf("beholder config validation failed: %w", err)
 		}
+	}
+
+	return nil
+}
+
+// Validate performs validation on the beholder configuration.
+func (p *PyroscopeConfig) Validate() error {
+	if len(p.Url) == 0 {
+		return fmt.Errorf("url is missing")
 	}
 
 	return nil
