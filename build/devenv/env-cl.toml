@@ -14,6 +14,8 @@ LogStreamingEnabled = true
 MetricReaderInterval = 5
 TraceSampleRatio = 1.0
 TraceBatchTimeout = 10
+[environment_topology.monitoring.Beholder.TelemetryAttributes]
+ccip_env = "devenv"
 
 [[environment_topology.nop_topology.nops]]
 alias = "node-0"
