@@ -323,15 +323,8 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("storage config validation failed: %w", err)
 	}
 
-	if c.Monitoring.Enabled && c.Monitoring.Type == "" {
-		return fmt.Errorf("monitoring type is required when monitoring is enabled")
-	}
-
-	// Validate beholder config if monitoring is enabled and type is beholder
-	if c.Monitoring.Enabled && c.Monitoring.Type == "beholder" {
-		if err := c.Monitoring.Beholder.Validate(); err != nil {
-			return fmt.Errorf("beholder config validation failed: %w", err)
-		}
+	if err := c.Monitoring.Validate(); err != nil {
+		return fmt.Errorf("monitoring config validation failed: %w", err)
 	}
 
 	return nil

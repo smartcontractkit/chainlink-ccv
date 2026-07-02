@@ -64,7 +64,7 @@ func main() {
 
 	// Setup OTEL Monitoring (via beholder)
 	var indexerMonitoring common.IndexerMonitoring
-	if config.Monitoring.Enabled {
+	if config.Monitoring.Beholder.Enabled {
 		indexerMonitoring, err = monitoring.InitMonitoring(beholder.Config{
 			InsecureConnection:       config.Monitoring.Beholder.InsecureConnection,
 			CACertFile:               config.Monitoring.Beholder.CACertFile,

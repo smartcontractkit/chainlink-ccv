@@ -314,7 +314,7 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig, aggMonito
 
 	l.Infow("Server configuration loaded",
 		"storage_type", config.Storage.StorageType,
-		"monitoring_enabled", config.Monitoring.Enabled,
+		"monitoring_beholder_enabled", config.Monitoring.Beholder.Enabled,
 		"rate_limiting_enabled", config.RateLimiting.Enabled,
 		"health_check_enabled", config.HealthCheck.Enabled,
 		"orphan_recovery_enabled", config.OrphanRecovery.Enabled,

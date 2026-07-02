@@ -41,7 +41,7 @@ const (
 
 func SetupMonitoring(config verifier.MonitoringConfig, verifierServiceName string) verifier.Monitoring {
 	// If monitoring is not enabled, return a fake monitoring implementation that does nothing.
-	if !config.Enabled {
+	if !config.Beholder.Enabled {
 		verifierMonitoring := monitoring.NewFakeVerifierMonitoring()
 		return verifierMonitoring
 	}
