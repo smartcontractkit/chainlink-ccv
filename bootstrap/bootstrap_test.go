@@ -415,12 +415,19 @@ func TestBuildUpdateNodeRequest(t *testing.T) {
 			require.NotEmpty(t, cc.Ocr2Config.OcrKeyBundle.OnchainSigningAddress)
 			// EVM addresses are 42 chars (0x + 40 hex)
 			require.Len(t, cc.Ocr2Config.OcrKeyBundle.OnchainSigningAddress, 42)
+			require.NotEmpty(t, cc.Ocr2Config.OcrKeyBundle.OnchainSigningPubKey)
 		}
 
 		// Both chains must have the same address (same signing key)
 		addr0 := req.ChainConfigs[0].Ocr2Config.OcrKeyBundle.OnchainSigningAddress
 		addr1 := req.ChainConfigs[1].Ocr2Config.OcrKeyBundle.OnchainSigningAddress
 		require.Equal(t, addr0, addr1)
+
+		// The raw public key is identical across chains too: it's the same key, just
+		// rendered per-family in OnchainSigningAddress.
+		pubKey0 := req.ChainConfigs[0].Ocr2Config.OcrKeyBundle.OnchainSigningPubKey
+		pubKey1 := req.ChainConfigs[1].Ocr2Config.OcrKeyBundle.OnchainSigningPubKey
+		require.Equal(t, pubKey0, pubKey1)
 	})
 
 	t.Run("unsupported chain type returns error", func(t *testing.T) {
