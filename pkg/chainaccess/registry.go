@@ -55,6 +55,9 @@ type registry struct {
 // should be included here. Note that the Committee Configs are present, they must map to the same location
 // that they appear when parsing just the committee config file:
 //
+// Deprecated: blockchain_infos in JD config is deprecated. blockchain info should come from chain family
+// local config for standalone mode or node config for CL mode. Use getAppConfig for accessing verifier/executor config.
+//
 //	type ConfigWithBlockchainInfos struct {
 //	    Config
 //	    BlockchainInfos map[string]any `toml:"blockchain_infos"`
@@ -74,6 +77,9 @@ type registry struct {
 // TODO: Use protocol.Selector instead of string for all the map[string].
 type GenericConfig struct {
 	// ChainConfig is parsed by the concrete implementation.
+	//
+	// Deprecated: chain connection and tuning belong in local or node config, not
+	// blockchain_infos in the JD app config.
 	ChainConfig Infos[any] `toml:"blockchain_infos"`
 
 	CommitteeConfig

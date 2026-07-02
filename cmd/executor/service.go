@@ -8,19 +8,19 @@ import (
 	"time"
 
 	"github.com/grafana/pyroscope-go"
-	"go.uber.org/zap/zapcore"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
 	executorsvc "github.com/smartcontractkit/chainlink-ccv/executor"
 	adapter "github.com/smartcontractkit/chainlink-ccv/executor/pkg/adapter"
 	x "github.com/smartcontractkit/chainlink-ccv/executor/pkg/executor"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/leaderelector"
+	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/backofftimeprovider"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/ccvstreamer"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/cursechecker"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -73,11 +73,12 @@ func (f *Factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 		return fmt.Errorf("failed to normalize executor config: %w", err)
 	}
 
-	f.lggr, err = logger.NewWith(logging.GetLogProfile(zapcore.InfoLevel))
+	executorMonitoring, err := monitoring.InitMonitoring()
 	if err != nil {
-		return fmt.Errorf("failed to create logger: %w", err)
+		return fmt.Errorf("failed to initialize monitoring: %w", err)
 	}
-	f.lggr = logger.Sugared(logger.Named(f.lggr, "executor"))
+
+	f.lggr = deps.Logger
 
 	if executorConfig.PyroscopeURL != "" {
 		f.profiler, err = StartPyroscope(f.lggr, executorConfig.PyroscopeURL, "executor")
@@ -85,15 +86,11 @@ func (f *Factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 			f.lggr.Errorw("Failed to start pyroscope", "error", err)
 		}
 	}
+	f.lggr.Infow("Monitoring initialized", "monitoring", executorConfig.Monitoring)
 
 	protocol.InitChainSelectorCache()
 
 	f.lggr.Infow("Executor configuration", "config", executorConfig)
-
-	// Monitoring config is operator-provided via the bootstrap config (deps.Monitoring), falling back to
-	// the deprecated app-config Monitoring field when unset. See bootstrap.ResolveMonitoring.
-	monitoringConfig := bootstrap.ResolveMonitoring(f.lggr, deps.Monitoring, executorConfig.Monitoring)
-	executorMonitoring := SetupMonitoring(f.lggr, monitoringConfig)
 
 	contractTransmitters := make(map[protocol.ChainSelector]chainaccess.ContractTransmitter)
 	destReaders := make(map[protocol.ChainSelector]chainaccess.DestinationReader)
@@ -216,4 +213,8 @@ func (f *Factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 	}
 
 	return nil
+}
+
+func (f *Factory) MetricViews() []sdkmetric.View {
+	return monitoring.MetricViews()
 }

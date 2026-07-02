@@ -5,7 +5,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/smartcontractkit/chainlink-ccv/pkg/monitoring"
+	"github.com/smartcontractkit/chainlink-ccv/common/monitoring"
 )
 
 // validEd25519PublicKeyHex is 32 bytes (64 hex chars) for use in JD config tests.
@@ -323,9 +323,10 @@ func TestConfig_validate(t *testing.T) {
 			errContains: []string{"failed to validate 'db' section", "failed to validate 'monitoring' section"},
 		},
 	}
+	// All table cases above exercise JD mode (needsInfra=true) so the infra bundle is validated.
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := tt.config.validate()
+			err := tt.config.validate(true)
 			if tt.wantErr {
 				require.Error(t, err)
 				for _, sub := range tt.errContains {
@@ -336,6 +337,30 @@ func TestConfig_validate(t *testing.T) {
 			}
 		})
 	}
+
+	// A monitoring-only config in static-TOML mode (needsInfra=false) must pass validation.
+	t.Run("monitoring-only config (static mode) is valid", func(t *testing.T) {
+		cfg := &Config{Monitoring: validBeholderMonitoring()}
+		require.NoError(t, cfg.validate(false))
+	})
+
+	// Static-TOML mode ignores the infra bundle entirely: an empty/invalid infra config still
+	// passes because needsInfra=false, even when md reports infra sections present (they are only
+	// warned about, not validated). This is the mode-driven behavior that replaces presence-driven.
+	t.Run("static mode ignores present infra (no error)", func(t *testing.T) {
+		cfg := &Config{Monitoring: validBeholderMonitoring()}
+		require.NoError(t, cfg.validate(false))
+	})
+
+	// Symmetric guard: the same empty infra config in JD mode (needsInfra=true) DOES fail, naming
+	// the missing sections — the precise, load-time error that motivated mode-driven validation.
+	t.Run("JD mode requires infra (names missing sections)", func(t *testing.T) {
+		cfg := &Config{Monitoring: validBeholderMonitoring()}
+		err := cfg.validate(true)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "failed to validate 'jd' section")
+		require.Contains(t, err.Error(), "failed to validate 'db' section")
+	})
 }
 
 func TestChainRegistration_validate(t *testing.T) {
@@ -379,7 +404,7 @@ func TestConfig_validate_Chains(t *testing.T) {
 	t.Run("no chains is valid", func(t *testing.T) {
 		t.Parallel()
 		cfg := &Config{JD: validJD, Keystore: validKeystore, DB: validDB, Server: validServer}
-		require.NoError(t, cfg.validate())
+		require.NoError(t, cfg.validate(true))
 	})
 
 	t.Run("valid chains", func(t *testing.T) {
@@ -388,7 +413,7 @@ func TestConfig_validate_Chains(t *testing.T) {
 			JD: validJD, Keystore: validKeystore, DB: validDB, Server: validServer,
 			Chains: []ChainRegistration{{Type: "EVM", ID: "1"}, {Type: "EVM", ID: "137"}},
 		}
-		require.NoError(t, cfg.validate())
+		require.NoError(t, cfg.validate(true))
 	})
 
 	t.Run("invalid chain entry fails validation", func(t *testing.T) {
@@ -397,7 +422,7 @@ func TestConfig_validate_Chains(t *testing.T) {
 			JD: validJD, Keystore: validKeystore, DB: validDB, Server: validServer,
 			Chains: []ChainRegistration{{Type: "NOTACHAIN", ID: "1"}},
 		}
-		err := cfg.validate()
+		err := cfg.validate(true)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "invalid chain at index 0")
 	})

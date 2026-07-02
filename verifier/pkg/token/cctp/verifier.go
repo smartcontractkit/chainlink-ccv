@@ -11,15 +11,6 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-// There is a distinction for attestation not being ready and networking/any other errors.
-// Usually, if attestation is not ready on first attempt then it doesn't make sense to retry immediately.
-const (
-	attestationNotReadyRetry = 30 * time.Second
-	anyErrorRetry            = 5 * time.Second
-	// Max number of concurrent workers to fetch attestations to verify.
-	maxAttestationFetchers = 10
-)
-
 // Verifier is responsible for verifying CCTP messages by fetching their attestations
 // and preparing VerifierNodeResult for storage. Retries are handled by the upper-layer processor,
 // but Verifier indicates whether an error is retriable or not.
@@ -35,13 +26,14 @@ type Verifier struct {
 func NewVerifier(
 	lggr logger.Logger,
 	attestationService AttestationService,
+	cfg CCTPConfig,
 ) verifier.Verifier {
 	return NewVerifierWithConfig(
 		lggr,
 		attestationService,
-		attestationNotReadyRetry,
-		anyErrorRetry,
-		maxAttestationFetchers,
+		cfg.AttestationNotReadyRetry,
+		cfg.AttestationGenericErrorRetry,
+		cfg.AttestationConcurrentFetchers,
 	)
 }
 

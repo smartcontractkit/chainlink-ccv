@@ -36,7 +36,7 @@ func TestVerifier_VerifyMessages_Success(t *testing.T) {
 		Return(testAttestation, nil).
 		Once()
 
-	v := cctp.NewVerifier(lggr, mockAttestationService)
+	v := cctp.NewVerifier(lggr, mockAttestationService, testCCTPConfig())
 	results := v.VerifyMessages(ctx, tasks)
 
 	require.Len(t, results, 1, "Expected one result")
@@ -71,7 +71,7 @@ func TestVerifier_VerifyMessages_AttestationServiceFailure(t *testing.T) {
 		Return(cctp.Attestation{}, expectedErr).
 		Once()
 
-	v := cctp.NewVerifier(lggr, mockAttestationService)
+	v := cctp.NewVerifier(lggr, mockAttestationService, testCCTPConfig())
 	results := v.VerifyMessages(ctx, tasks)
 
 	t.Cleanup(func() {
@@ -104,7 +104,7 @@ func TestVerifier_VerifyMessages_AttestationNotReady(t *testing.T) {
 		Return(notReadyAttestation, nil).
 		Once()
 
-	v := cctp.NewVerifier(lggr, mockAttestationService)
+	v := cctp.NewVerifier(lggr, mockAttestationService, testCCTPConfig())
 	results := v.VerifyMessages(ctx, tasks)
 
 	t.Cleanup(func() {
@@ -154,7 +154,7 @@ func TestVerifier_VerifyMessages_MultipleTasksWithMixedResults(t *testing.T) {
 		Return(testAttestation, nil).
 		Once()
 
-	v := cctp.NewVerifier(lggr, mockAttestationService)
+	v := cctp.NewVerifier(lggr, mockAttestationService, testCCTPConfig())
 	results := v.VerifyMessages(ctx, tasks)
 
 	t.Cleanup(func() {
@@ -234,6 +234,17 @@ func TestVerifier_VerifyMessages_RespectsMaxConcurrentFetchers(t *testing.T) {
 	assert.LessOrEqual(t, atomic.LoadInt64(&maxObserved), int64(maxFetchers),
 		"Concurrent Fetch calls must not exceed the configured maxFetchers")
 	mockAttestationService.AssertExpectations(t)
+}
+
+// testCCTPConfig returns a config with sane non-zero values for verifier construction.
+// AttestationConcurrentFetchers must be > 0, otherwise VerifyMessages spawns zero
+// workers (min(len(tasks), 0)) and blocks forever waiting on results.
+func testCCTPConfig() cctp.CCTPConfig {
+	return cctp.CCTPConfig{
+		AttestationNotReadyRetry:      30 * time.Second,
+		AttestationGenericErrorRetry:  5 * time.Second,
+		AttestationConcurrentFetchers: 10,
+	}
 }
 
 func createTestAttestation() cctp.Attestation {

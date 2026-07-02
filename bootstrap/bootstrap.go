@@ -14,19 +14,19 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/jmoiron/sqlx"
+	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.uber.org/zap/zapcore"
 
 	pb "github.com/smartcontractkit/chainlink-protos/orchestrator/feedsmanager"
 
 	dbpkg "github.com/smartcontractkit/chainlink-ccv/bootstrap/db"
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap/keys"
-	"github.com/smartcontractkit/chainlink-ccv/common"
 	jdclient "github.com/smartcontractkit/chainlink-ccv/common/jd/client"
 	"github.com/smartcontractkit/chainlink-ccv/common/jd/lifecycle"
 	jobstore "github.com/smartcontractkit/chainlink-ccv/common/jd/store"
+	"github.com/smartcontractkit/chainlink-ccv/common/monitoring"
+	"github.com/smartcontractkit/chainlink-ccv/common/monitoring/logging"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
-	"github.com/smartcontractkit/chainlink-ccv/pkg/monitoring"
-	zaplog "github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
 	"github.com/smartcontractkit/chainlink-common/keystore"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
@@ -49,32 +49,6 @@ type ServiceDeps struct {
 
 	// Registry for chainaccess.Accessor objects.
 	Registry chainaccess.Registry
-
-	// Monitoring is the operator-provided monitoring config from the bootstrap config (Config.Monitoring).
-	// It is nil when the operator did not configure monitoring in the bootstrap config, or when the
-	// bootstrapper runs in static-TOML mode (which loads no bootstrap config). Services prefer this value
-	// and fall back to their own app-config monitoring field when it is nil.
-	Monitoring *monitoring.Config
-}
-
-// ResolveMonitoring returns the effective monitoring config for a service, preferring the
-// operator-provided bootstrap config (fromBootstrap) over the deprecated app-config fallback.
-//
-// fromBootstrap is nil when the operator did not configure monitoring in the bootstrap config; in
-// that case the (deprecated) app-config value is used. Presence (non-nil), not Enabled, is the
-// discriminator: an operator who sets [monitoring] with Enabled=false is honored (monitoring off),
-// not silently overridden by the app-config fallback. It logs which source won so operators can
-// diagnose monitoring during the migration window in which both sources may be present.
-//
-// TODO(cleanup): remove once all deployments source monitoring from the bootstrap config; callers
-// then read *deps.Monitoring directly.
-func ResolveMonitoring(lggr logger.Logger, fromBootstrap *monitoring.Config, appConfigFallback monitoring.Config) monitoring.Config {
-	if fromBootstrap != nil {
-		lggr.Infow("Using monitoring config from bootstrap config")
-		return *fromBootstrap
-	}
-	lggr.Infow("Using monitoring config from deprecated app config (no monitoring section in bootstrap config)")
-	return appConfigFallback
 }
 
 // ServiceFactory is an interface implemented by the application that seeks to be bootstrapped.
@@ -83,10 +57,13 @@ type ServiceFactory interface {
 	Start(ctx context.Context, spec JobSpec, deps ServiceDeps) error
 	// Stop stops the service.
 	Stop(ctx context.Context) error
+	// MetricViews are OpenTelemetry histogram views used when initializing Beholder.
+	MetricViews() []sdkmetric.View
 }
 
 // A runner adapts a [ServiceFactory] to the [lifecycle.JobRunner] interface.
 type runner struct {
+	lggr      logger.Logger
 	fac       ServiceFactory
 	deps      ServiceDeps
 	accCloser *AccessorCloserRegistry
@@ -97,7 +74,7 @@ var _ lifecycle.JobRunner = (*runner)(nil)
 // StartJob implements [lifecycle.JobRunner].
 // On Start failure, the deferred CloseAll is the only chance to release accessors.
 func (r *runner) StartJob(ctx context.Context, config string) (startErr error) {
-	r.deps.Logger.Infow("starting job")
+	r.lggr.Infow("starting job")
 
 	var spec JobSpec
 	if _, err := toml.Decode(config, &spec); err != nil {
@@ -107,18 +84,18 @@ func (r *runner) StartJob(ctx context.Context, config string) (startErr error) {
 	// Initialize registry, wrapping it so the keystore is injected into any
 	// Accessor that implements KeystoreSetter.
 	// Registry chain: NewRegistry > KeystoreRegistry (keystore injection) > AccessorCloserRegistry (accessor cleanup tracking).
-	reg, err := chainaccess.NewRegistry(r.deps.Logger, spec.AppConfig)
+	reg, err := chainaccess.NewRegistry(r.lggr, spec.AppConfig)
 	if err != nil {
 		return fmt.Errorf("failed to create registry: %w", err)
 	}
-	r.accCloser = NewAccessorCloserRegistry(r.deps.Logger, NewKeystoreRegistry(r.deps.Logger, reg, r.deps.Keystore))
+	r.accCloser = NewAccessorCloserRegistry(r.lggr, NewKeystoreRegistry(r.lggr, reg, r.deps.Keystore))
 	r.deps.Registry = r.accCloser
 
 	// safety net
 	defer func() {
 		if startErr != nil {
 			if cErr := r.accCloser.CloseAll(); cErr != nil {
-				r.deps.Logger.Warnw("close accessors after failed StartJob", "error", cErr)
+				r.lggr.Warnw("close accessors after failed StartJob", "error", cErr)
 			}
 		}
 	}()
@@ -152,6 +129,12 @@ type Bootstrapper struct {
 	infoServer       *infoServer
 	keys             []keyToInit
 
+	// jdMode is true when the bootstrapper runs in JD lifecycle mode (WithJD or default).
+	// false means static-TOML mode (WithTOMLAppConfig). Routing in Start() uses this flag
+	// rather than checking b.config != nil, because b.config may now be set in both modes
+	// (operator config is optionally loaded in static-TOML mode too).
+	jdMode bool
+
 	// application
 	appCfg *string
 	fac    ServiceFactory
@@ -166,12 +149,10 @@ type Bootstrapper struct {
 // NewBootstrapper creates a new [Bootstrapper] with the given config and service factory.
 func NewBootstrapper(
 	name string,
-	lggr logger.Logger,
 	fac ServiceFactory,
 	opts ...Option,
 ) (*Bootstrapper, error) {
 	b := &Bootstrapper{
-		lggr:     lggr,
 		fac:      fac,
 		name:     name,
 		logLevel: zapcore.InfoLevel,
@@ -192,45 +173,54 @@ func NewBootstrapper(
 		}
 	}
 
-	// If no configuration is provided, default to JD lifecycle manager with config loaded from the default path.
-	if b.appCfg == nil && b.config == nil {
-		b.config = &Config{}
+	// WithJD and WithTOMLAppConfig are mutually exclusive.
+	if b.jdMode && b.appCfg != nil {
+		return nil, fmt.Errorf("WithJD and WithTOMLAppConfig are mutually exclusive")
 	}
 
-	// JD mode requires a CSA key for node authentication. Inject the default if the caller
-	// did not explicitly declare one, so callers only need to list their application keys.
-	if b.config != nil {
-		hasCSA := false
-		for _, k := range b.keys {
-			if k.purpose == "csa" {
-				hasCSA = true
-				break
-			}
-		}
-		if !hasCSA {
+	// If neither mode was explicitly selected, default to JD lifecycle mode.
+	if !b.jdMode && b.appCfg == nil {
+		b.jdMode = true
+	}
+
+	if b.jdMode {
+		// JD mode requires a CSA key for node authentication. Inject the default if the caller
+		// did not explicitly declare one, so callers only need to list their application keys.
+		if !hasCSAKey(b.keys) {
 			b.keys = append([]keyToInit{{DefaultCSAKeyName, "csa", keystore.Ed25519}}, b.keys...)
 		}
-	}
 
-	if b.config != nil {
-		// Use provided config path if set by an option.
-		if b.configPath == "" {
-			// If no config path is provided by an option, check the environment variable.
-			b.configPath = os.Getenv(ConfigPathEnv)
-			if b.configPath == "" {
-				// If the environment variable is not set, use the default config path.
-				b.configPath = DefaultConfigPath
-			}
-		}
-
-		err := LoadAndValidateConfig(b.configPath, b.config)
-		if err != nil {
+		b.configPath = resolveBootstrapConfigPath(b.configPath)
+		b.config = &Config{}
+		if err := LoadAndValidateConfig(b.configPath, b.config, true); err != nil {
 			return nil, fmt.Errorf("failed to load bootstrap config (%s): %w", b.configPath, err)
 		}
-
-		// not logging config because it contains secrets.
-		lggr.Infow("loaded bootstrap config")
+	} else if path := os.Getenv(ConfigPathEnv); path != "" {
+		// Static-TOML mode: optionally load operator config when BOOTSTRAPPER_CONFIG_PATH is
+		// explicitly set. The default fallback to DefaultConfigPath is intentionally suppressed
+		// here: TOKEN_VERIFIER_CONFIG_PATH and BOOTSTRAPPER_CONFIG_PATH both default to
+		// /etc/config.toml, so applying the default would decode the wrong file. See issue #013.
+		b.config = &Config{}
+		if err := LoadAndValidateConfig(path, b.config, false); err != nil {
+			return nil, fmt.Errorf("failed to load operator config (%s): %w", path, err)
+		}
 	}
+
+	// do not fall back b.config to it
+	mon := monitoring.Config{}
+	if b.config != nil && b.config.Monitoring != nil {
+		mon = *b.config.Monitoring
+	}
+	err := monitoring.SetupBeholder(mon, fac.MetricViews())
+	if err != nil {
+		return nil, fmt.Errorf("failed to setup beholder: %w", err)
+	}
+	lggr, err := logging.InitLogger(b.name, b.logLevel, mon)
+	if err != nil {
+		return nil, fmt.Errorf("failed to init logger: %w", err)
+	}
+	b.lggr = lggr
+	lggr.Infow("Monitoring initialized", "config", mon)
 
 	return b, nil
 }
@@ -265,7 +255,7 @@ func (b *Bootstrapper) startWithAppConfig(ctx context.Context) (startErr error) 
 		AppConfig:     *b.appCfg,
 	}
 
-	return b.fac.Start(ctx, js, ServiceDeps{Registry: b.accCloser})
+	return b.fac.Start(ctx, js, ServiceDeps{Logger: b.lggr, Registry: b.accCloser})
 }
 
 // chainTypeFromString maps a config chain type string to the proto ChainType enum.
@@ -369,15 +359,14 @@ func (b *Bootstrapper) startWithJDLifecycle(ctx context.Context) error {
 	}
 	jdClient := jdclient.New(csaSigner, jdPublicKey, b.config.JD.ServerWSRPCURL, b.lggr)
 
-	deps, err := newServiceDeps(keyStore, b.logLevel, b.name)
-	if err != nil {
-		return fmt.Errorf("failed to create service deps: %w", err)
-	}
 	// Surface the operator-provided monitoring config to the service. Only the JD path populates this;
 	// static-TOML mode (startWithAppConfig) loads no bootstrap config and leaves it nil.
-	deps.Monitoring = b.config.Monitoring
+	deps := ServiceDeps{
+		Logger:   b.lggr,
+		Keystore: keyStore,
+	}
 
-	jobRunner := &runner{fac: b.fac, deps: deps}
+	jobRunner := &runner{lggr: b.lggr, fac: b.fac, deps: deps}
 
 	// b.keys is populated by WithKey options; collect names of signing keys to publish.
 	var signingKeyNames []string
@@ -406,7 +395,6 @@ func (b *Bootstrapper) startWithJDLifecycle(ctx context.Context) error {
 			return jdClient.UpdateNode(ctx, req)
 		}
 	}
-
 	lifecycleManager, err := lifecycle.NewManager(lifecycle.Config{
 		JDClient:      jdClient,
 		JobStore:      jobstore.NewPostgresStore(db),
@@ -434,14 +422,13 @@ func (b *Bootstrapper) startWithJDLifecycle(ctx context.Context) error {
 
 // Start initializes the keystore, connects to JD, and starts the lifecycle manager.
 func (b *Bootstrapper) Start(ctx context.Context) error {
-	if b.config != nil {
+	if b.lggr == nil {
+		return fmt.Errorf("bootstrapper has no logger")
+	}
+	if b.jdMode {
 		return b.startWithJDLifecycle(ctx)
 	}
-	if b.appCfg != nil {
-		return b.startWithAppConfig(ctx)
-	}
-
-	return fmt.Errorf("no configuration provided: either JD config or app config must be provided")
+	return b.startWithAppConfig(ctx)
 }
 
 // Stop shuts down all active components.
@@ -489,16 +476,25 @@ func connectToDB(ctx context.Context, connStr string) (*sqlx.DB, error) {
 	return db, nil
 }
 
-func newServiceDeps(keyStore keystore.Keystore, logLevel zapcore.Level, name string) (ServiceDeps, error) {
-	lggr, err := logger.NewWith(zaplog.GetLogProfile(logLevel))
-	if err != nil {
-		return ServiceDeps{}, fmt.Errorf("failed to create logger: %w", err)
+func hasCSAKey(keys []keyToInit) bool {
+	for _, k := range keys {
+		if k.purpose == "csa" {
+			return true
+		}
 	}
-	lggr = logger.Sugared(logger.Named(lggr, name))
-	return ServiceDeps{
-		Logger:   lggr,
-		Keystore: keyStore,
-	}, nil
+	return false
+}
+
+// resolveBootstrapConfigPath returns the effective bootstrap config path: the explicitly-provided
+// path takes precedence, then BOOTSTRAPPER_CONFIG_PATH, then DefaultConfigPath.
+func resolveBootstrapConfigPath(explicit string) string {
+	if explicit != "" {
+		return explicit
+	}
+	if env := os.Getenv(ConfigPathEnv); env != "" {
+		return env
+	}
+	return DefaultConfigPath
 }
 
 func initializeKeystore(ctx context.Context, lggr logger.Logger, db *sqlx.DB, ksPassword string, requiredKeys []keyToInit) (keystore.Keystore, crypto.Signer, error) {
@@ -584,7 +580,7 @@ func WithKey(name, purpose string, keyType keystore.KeyType) Option {
 // already declared via WithKey.
 func WithJD() Option {
 	return func(b *Bootstrapper) error {
-		b.config = &Config{}
+		b.jdMode = true
 		return nil
 	}
 }
@@ -620,14 +616,7 @@ func Run(
 	fac ServiceFactory,
 	opts ...Option,
 ) error {
-	lggr, err := logger.NewWith(zaplog.GetLogProfile(zapcore.InfoLevel))
-	if err != nil {
-		return fmt.Errorf("failed to create logger: %w", err)
-	}
-	lggr = logger.Sugared(logger.Named(lggr, "Bootstrapper"))
-	lggr = common.WithService(lggr, name)
-
-	bootstrapper, err := NewBootstrapper(name, lggr, fac, opts...)
+	bootstrapper, err := NewBootstrapper(name, fac, opts...)
 	if err != nil {
 		return fmt.Errorf("failed to create bootstrapper: %w", err)
 	}
@@ -643,7 +632,7 @@ func Run(
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
 	<-sigCh
-	lggr.Infow("Received shutdown signal, stopping bootstrapper...")
+	bootstrapper.lggr.Infow("Received shutdown signal, stopping bootstrapper...")
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), defaultShutdownTimeout)
 	defer shutdownCancel()

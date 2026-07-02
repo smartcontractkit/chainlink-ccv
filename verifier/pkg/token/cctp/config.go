@@ -19,6 +19,12 @@ type CCTPConfig struct {
 	// AttestationAPICooldown defines in what time it is allowed to make next call to API.
 	// Activates when plugin hits API's rate limits
 	AttestationAPICooldown time.Duration `json:"attestation_api_cooldown" toml:"attestation_api_cooldown"`
+	// Retry wait time for when attestation is not in a ready state.
+	AttestationNotReadyRetry time.Duration `json:"attestation_not_ready_retry" toml:"attestation_not_ready_retry"`
+	// Retry wait time for generic errors (all errors not due to attestation not being ready)
+	AttestationGenericErrorRetry time.Duration `json:"attestation_generic_error_retry" toml:"attestation_generic_error_retry"`
+	// Number of concurrent workers to be used to fetch and verify attestations.
+	AttestationConcurrentFetchers int `json:"attestation_concurrent_fetchers" toml:"attestation_concurrent_fetchers,omitzero"`
 	// VerifierVersion is the parsed verifier version of the CCTP verifier contract.
 	// Defaults to DefaultVerifierVersion if not specified.
 	VerifierVersion protocol.ByteSlice `json:"verifier_version" toml:"verifier_version"`
@@ -60,6 +66,25 @@ func TryParsing(t, v string, data map[string]any) (*CCTPConfig, error) {
 	c.AttestationAPICooldown, err = common.ParseDurationOrDefault(data["attestation_api_cooldown"], 5*time.Minute)
 	if err != nil {
 		return nil, fmt.Errorf("invalid attestation_api_cooldown: %w", err)
+	}
+
+	c.AttestationNotReadyRetry, err = common.ParseDurationOrDefault(data["attestation_not_ready_retry"], 30*time.Second)
+	if err != nil {
+		return nil, fmt.Errorf("invalid attestation_not_ready_retry: %w", err)
+	}
+
+	c.AttestationGenericErrorRetry, err = common.ParseDurationOrDefault(data["attestation_generic_error_retry"], 5*time.Second)
+	if err != nil {
+		return nil, fmt.Errorf("invalid attestation_generic_error_retry: %w", err)
+	}
+
+	c.AttestationConcurrentFetchers, err = common.ParseIntOrDefault(data["attestation_concurrent_fetchers"], 10)
+	if err != nil {
+		return nil, fmt.Errorf("invalid attestation_concurrent_fetchers: %w", err)
+	}
+	// Stops 0 fetchers being set which would block attestation fetching and verification.
+	if c.AttestationConcurrentFetchers <= 0 {
+		return nil, fmt.Errorf("attestation_concurrent_fetchers must be greater than 0, got %d", c.AttestationConcurrentFetchers)
 	}
 
 	c.ParsedVerifierResolvers, c.VerifierResolvers, err = common.ParseAddressesMap(data["verifier_resolver_addresses"])
