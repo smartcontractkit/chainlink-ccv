@@ -5,8 +5,9 @@ import (
 	"testing"
 
 	gethcrypto "github.com/ethereum/go-ethereum/crypto"
-	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/stretchr/testify/require"
+
+	chainsel "github.com/smartcontractkit/chain-selectors"
 
 	"github.com/smartcontractkit/chainlink-ccv/deployment/operations/fetch_signing_keys"
 )
