@@ -45,6 +45,10 @@ type NOPIdentities struct {
 // unmappable on-chain signer surfaces later as an explicit error.
 func LoadNOPIdentities(ctx context.Context, env deployment.Environment) (*NOPIdentities, error) {
 	signers := make(fetch_signing_keys.SigningKeysByNOP)
+	// rawPubKeys is alias -> raw secp256k1 public key, sourced only from JD (the persisted
+	// index below stores derived addresses, not keys). It lets newNOPIdentities derive a
+	// NOP's signer address for a family it never declared directly.
+	rawPubKeys := make(map[string]string)
 
 	// CL-mode NOPs from JD.
 	if env.Offchain != nil && len(env.NodeIDs) > 0 {
@@ -68,6 +72,7 @@ func LoadNOPIdentities(ctx context.Context, env deployment.Environment) (*NOPIde
 		for alias, byFamily := range report.Output.SigningKeysByNOP {
 			signers[alias] = maps.Clone(byFamily)
 		}
+		rawPubKeys = report.Output.RawPubKeyByNOP
 	}
 
 	// Standalone (and any other non-JD) NOPs from the persisted index. JD wins on
@@ -89,24 +94,56 @@ func LoadNOPIdentities(ctx context.Context, env deployment.Environment) (*NOPIde
 		}
 	}
 
-	return newNOPIdentities(signers), nil
+	return newNOPIdentities(signers, rawPubKeys), nil
 }
 
-// newNOPIdentities builds the inverse index from a forward signing-keys map.
-// Exposed (unexported) so tests can construct identities without a JD round-trip.
-func newNOPIdentities(signingKeys fetch_signing_keys.SigningKeysByNOP) *NOPIdentities {
+// newNOPIdentities builds the inverse index from a forward signing-keys map plus each
+// NOP's raw public key (where known). Exposed (unexported) so tests can construct
+// identities without a JD round-trip.
+//
+// The index is populated in two passes so that a signer recorded on-chain in a
+// counterparty verifier's family still resolves back to its NOP: pass 1 registers the
+// address each NOP declares directly per family; pass 2 fills every other translatable
+// family with the address derived from the NOP's known identities (see
+// signerAddressForFamily). Direct entries always win on collision.
+func newNOPIdentities(signingKeys fetch_signing_keys.SigningKeysByNOP, rawPubKeyByNOP map[string]string) *NOPIdentities {
 	inv := make(map[string]map[string]shared.NOPAlias)
+
+	// set records family -> normalized address -> alias, first writer wins so that direct
+	// (pass 1) entries are never overwritten by derived (pass 2) ones.
+	set := func(family, signer string, alias shared.NOPAlias) {
+		if signer == "" {
+			return
+		}
+		if inv[family] == nil {
+			inv[family] = make(map[string]shared.NOPAlias)
+		}
+		key := shared.NormalizeAddress(family, signer)
+		if _, taken := inv[family][key]; taken {
+			return
+		}
+		inv[family][key] = alias
+	}
+
+	// Pass 1: addresses each NOP declares directly.
 	for alias, byFamily := range signingKeys {
 		for family, signer := range byFamily {
-			if signer == "" {
-				continue
-			}
-			if inv[family] == nil {
-				inv[family] = make(map[string]shared.NOPAlias)
-			}
-			inv[family][shared.NormalizeAddress(family, signer)] = shared.NOPAlias(alias)
+			set(family, signer, shared.NOPAlias(alias))
 		}
 	}
+
+	// Pass 2: derive the NOP's address for every other translatable family.
+	for alias, byFamily := range signingKeys {
+		for _, family := range translatableSignerFamilies {
+			if byFamily[family] != "" {
+				continue
+			}
+			if derived, ok := signerAddressForFamily(byFamily, rawPubKeyByNOP[alias], family); ok {
+				set(family, derived, shared.NOPAlias(alias))
+			}
+		}
+	}
+
 	return &NOPIdentities{signingKeys: signingKeys, aliasBySigner: inv}
 }
 
