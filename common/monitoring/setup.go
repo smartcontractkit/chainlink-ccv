@@ -71,7 +71,7 @@ func SetupPyroscope(lggr logger.Logger, name string, config PyroscopeConfig) (*p
 	}
 	return pyroscope.Start(pyroscope.Config{
 		ApplicationName: name,
-		ServerAddress:   config.Url,
+		ServerAddress:   config.URL,
 		Logger:          lggr,
 		ProfileTypes: []pyroscope.ProfileType{
 			pyroscope.ProfileCPU,

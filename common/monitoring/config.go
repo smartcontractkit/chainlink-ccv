@@ -2,6 +2,8 @@ package monitoring
 
 import (
 	"fmt"
+
+	"go.uber.org/zap/zapcore"
 )
 
 // Config provides monitoring configuration for CCV services.
@@ -17,8 +19,8 @@ type Config struct {
 type PyroscopeConfig struct {
 	// Enabled enables the pyroscope telemetry.
 	Enabled bool `json:"enabled" toml:"Enabled"`
-	// Url specifies the remote endpoint of pyroscope service
-	Url string `json:"url" toml:"Url"`
+	// URL specifies the remote endpoint of pyroscope service
+	URL string `json:"url" toml:"URL"`
 }
 
 // BeholderConfig wraps OpenTelemetry configuration for the beholder client.
@@ -49,6 +51,13 @@ type BeholderConfig struct {
 
 // Validate performs validation on the monitoring configuration.
 func (m *Config) Validate() error {
+	if m.LogLevel != "" {
+		_, err := zapcore.ParseLevel(m.LogLevel)
+		if err != nil {
+			return fmt.Errorf("log_level is invalid: %w", err)
+		}
+	}
+
 	if m.Pyroscope.Enabled {
 		if err := m.Pyroscope.Validate(); err != nil {
 			return fmt.Errorf("pyroscope config validation failed: %w", err)
@@ -66,7 +75,7 @@ func (m *Config) Validate() error {
 
 // Validate performs validation on the beholder configuration.
 func (p *PyroscopeConfig) Validate() error {
-	if len(p.Url) == 0 {
+	if len(p.URL) == 0 {
 		return fmt.Errorf("url is missing")
 	}
 
@@ -75,6 +84,13 @@ func (p *PyroscopeConfig) Validate() error {
 
 // Validate performs validation on the beholder configuration.
 func (b *BeholderConfig) Validate() error {
+	if b.LogStreamingLevel != "" {
+		_, err := zapcore.ParseLevel(b.LogStreamingLevel)
+		if err != nil {
+			return fmt.Errorf("log_streaming_level is invalid: %w", err)
+		}
+	}
+
 	if b.MetricReaderInterval <= 0 {
 		return fmt.Errorf("metric_reader_interval must be positive, got %d", b.MetricReaderInterval)
 	}

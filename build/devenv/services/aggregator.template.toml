@@ -1,5 +1,3 @@
-pyroscope_url = "http://pyroscope:4040"
-
 [server]
 address = ":50051"
 requestTimeout = "5s"
@@ -79,9 +77,14 @@ key_prefix = "ratelimit"
 
 
 [Monitoring]
+LogLevel = 'info'
+
+[Monitoring.Pyroscope]
 Enabled = true
-Type = "beholder"
+URL = "http://pyroscope:4040"
+
 [Monitoring.Beholder]
+Enabled = true
 InsecureConnection = true
 CACertFile = ""
 OtelExporterGRPCEndpoint = ""
@@ -90,6 +93,7 @@ LogStreamingEnabled = true
 MetricReaderInterval = 5
 TraceSampleRatio = 1.0
 TraceBatchTimeout = 10
+
 [Monitoring.Beholder.TelemetryAttributes]
 ccip_env = "devenv"
 

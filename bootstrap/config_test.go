@@ -15,9 +15,8 @@ const validEd25519PublicKeyHex = "0123456789abcdef0123456789abcdef0123456789abcd
 // whose Validate() passes, for use in Config validation tests.
 func validBeholderMonitoring() *monitoring.Config {
 	return &monitoring.Config{
-		Enabled: true,
-		Type:    "beholder",
 		Beholder: monitoring.BeholderConfig{
+			Enabled:              true,
 			MetricReaderInterval: 10,
 			TraceSampleRatio:     1.0,
 			TraceBatchTimeout:    5,
@@ -274,7 +273,7 @@ func TestConfig_validate(t *testing.T) {
 			name: "valid with monitoring present but disabled",
 			config: &Config{
 				JD: validJD, Keystore: validKeystore, DB: validDB, Server: validServer,
-				Monitoring: &monitoring.Config{Enabled: false},
+				Monitoring: &monitoring.Config{},
 			},
 			wantErr: false,
 		},
@@ -287,22 +286,12 @@ func TestConfig_validate(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "invalid monitoring: enabled without type",
-			config: &Config{
-				JD: validJD, Keystore: validKeystore, DB: validDB, Server: validServer,
-				Monitoring: &monitoring.Config{Enabled: true},
-			},
-			wantErr:     true,
-			errContains: []string{"failed to validate 'monitoring' section", "monitoring type is required"},
-		},
-		{
 			name: "invalid monitoring: enabled beholder with non-positive metric interval",
 			config: &Config{
 				JD: validJD, Keystore: validKeystore, DB: validDB, Server: validServer,
 				Monitoring: &monitoring.Config{
-					Enabled: true,
-					Type:    "beholder",
 					Beholder: monitoring.BeholderConfig{
+						Enabled: true,
 						MetricReaderInterval: 0,
 						TraceSampleRatio:     0.5,
 						TraceBatchTimeout:    5,
@@ -317,7 +306,7 @@ func TestConfig_validate(t *testing.T) {
 			name: "aggregates errors across db and monitoring sections",
 			config: &Config{
 				JD: validJD, Keystore: validKeystore, DB: DBConfig{URL: ""}, Server: validServer,
-				Monitoring: &monitoring.Config{Enabled: true},
+				Monitoring: &monitoring.Config{LogLevel: "invalid"},
 			},
 			wantErr:     true,
 			errContains: []string{"failed to validate 'db' section", "failed to validate 'monitoring' section"},
