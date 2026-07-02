@@ -11,6 +11,12 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
+// fallbackLookbackBlocks bounds how far back the first eth_getLogs scan reaches on a
+// long-lived chain, so it neither scans from genesis nor exceeds the provider's
+// getLogs range limit — in blocks, not wall-clock, since the target event is always
+// recent. Mirrors verifier/pkg/sourcereader's DefaultMaxBlockRange.
+const fallbackLookbackBlocks uint64 = 1500
+
 type eventKey struct {
 	chainSelector uint64
 	msgNum        uint64
@@ -177,7 +183,19 @@ func (p *eventPoller[T]) poll() {
 		return
 	}
 
-	events, err := p.pollFn(lastScanned+1, latestBlock)
+	start := lastScanned + 1
+	if lastScanned == 0 {
+		if lookbackStart := fallbackStartBlock(latestBlock); lookbackStart > start {
+			start = lookbackStart
+			p.logger.Debug().
+				Uint64("fromBlock", start).
+				Uint64("toBlock", latestBlock).
+				Str("event", p.eventName).
+				Msg("Using fallback start block (bounded lookback)")
+		}
+	}
+
+	events, err := p.pollFn(start, latestBlock)
 	if err != nil {
 		p.logger.Warn().Err(err).Str("event", p.eventName).Msg("Failed to poll events")
 		return
@@ -218,6 +236,13 @@ func (p *eventPoller[T]) poll() {
 	}
 
 	p.lastScannedBlock = latestBlock
+}
+
+func fallbackStartBlock(latestBlock uint64) uint64 {
+	if latestBlock > fallbackLookbackBlocks {
+		return latestBlock - fallbackLookbackBlocks
+	}
+	return 0
 }
 
 func (p *eventPoller[T]) addToCache(key eventKey, result pollerResult[T]) {

@@ -136,9 +136,8 @@ func extractEthClientFromBackend(client any) (*ethclient.Client, error) {
 // NewCCIP17EVM creates new smart-contracts wrappers with utility functions for CCIP17EVM implementation.
 func NewCCIP17EVM(ctx context.Context, logger zerolog.Logger, e *deployment.Environment, chainSelector uint64) (*CCIP17EVM, error) {
 	var (
-		onRamp       *onramp.OnRamp
-		offRamp      *offramp.OffRamp
-		onRampPoller eventPoller[cciptestinterfaces.MessageSentEvent]
+		onRamp  *onramp.OnRamp
+		offRamp *offramp.OffRamp
 	)
 	chainDetails, err := chainsel.GetChainDetails(chainSelector)
 	if err != nil {
@@ -192,7 +191,6 @@ func NewCCIP17EVM(ctx context.Context, logger zerolog.Logger, e *deployment.Envi
 		ethClient:    ethClient,
 		onRamp:       onRamp,
 		offRamp:      offRamp,
-		onRampPoller: &onRampPoller,
 	}, nil
 }
 
@@ -203,6 +201,11 @@ func (m *CCIP17EVM) ChainSelector() uint64 {
 func (m *CCIP17EVM) getOrCreateOnRampPoller() (*eventPoller[cciptestinterfaces.MessageSentEvent], error) {
 	m.pollersMu.Lock()
 	defer m.pollersMu.Unlock()
+
+	if m.onRampPoller != nil {
+		return m.onRampPoller, nil
+	}
+
 	onRamp := m.onRamp
 	ethClient := m.ethClient
 
