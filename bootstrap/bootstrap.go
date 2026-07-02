@@ -333,6 +333,7 @@ func buildUpdateNodeRequest(
 				Enabled: true,
 				OcrKeyBundle: &pb.OCR2Config_OCRKeyBundle{
 					OnchainSigningAddress: addr,
+					OnchainSigningPubKey:  keys.RawPubKeyHex(signingKey.KeyInfo.PublicKey),
 				},
 			},
 		})
