@@ -1,6 +1,8 @@
 package changesets
 
 import (
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -9,6 +11,9 @@ import (
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
+
+	"github.com/smartcontractkit/chainlink-ccv/executor"
+	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 
 	"github.com/smartcontractkit/chainlink-ccv/deployment/shared"
 )
@@ -155,4 +160,70 @@ func TestRequiredChainsForExecutorNOP_ReturnsParticipatingChainsSorted(t *testin
 		},
 	})
 	assert.Equal(t, []uint64{1, 3}, got)
+}
+
+func TestBuildExecutorJobSpecs_StandaloneUsesAppConfig(t *testing.T) {
+	sel := chainsel.TEST_90000001.Selector
+	adapterCfgs := map[string]executor.ChainConfiguration{
+		strconv.FormatUint(sel, 10): {
+			DestinationChainConfig: chainaccess.DestinationChainConfig{
+				OffRampAddress: "0xofframp",
+				RmnAddress:     "0xrmn",
+			},
+			DefaultExecutorAddress: "0xexec",
+		},
+	}
+	specs, _, err := buildExecutorJobSpecs(
+		adapterCfgs,
+		"default-executor",
+		[]shared.NOPAlias{"nop1"},
+		sampleExecutorPool(sel, "nop1"),
+		[]string{"http://indexer:1"},
+		"",
+		map[shared.NOPAlias]shared.NOPMode{"nop1": shared.NOPModeStandalone},
+	)
+	require.NoError(t, err)
+	require.Len(t, specs["nop1"], 1)
+
+	var jobSpec string
+	for _, spec := range specs["nop1"] {
+		jobSpec = spec
+	}
+	assert.Contains(t, jobSpec, "appConfig = '''")
+	assert.NotContains(t, jobSpec, "executorConfig")
+
+	_, err = parseExecutorConfigFromSpec(jobSpec)
+	require.NoError(t, err)
+}
+
+func TestBuildExecutorJobSpecs_CLUsesExecutorConfig(t *testing.T) {
+	sel := chainsel.TEST_90000001.Selector
+	adapterCfgs := map[string]executor.ChainConfiguration{
+		strconv.FormatUint(sel, 10): {
+			DestinationChainConfig: chainaccess.DestinationChainConfig{
+				OffRampAddress: "0xofframp",
+				RmnAddress:     "0xrmn",
+			},
+			DefaultExecutorAddress: "0xexec",
+		},
+	}
+	specs, _, err := buildExecutorJobSpecs(
+		adapterCfgs,
+		"default-executor",
+		[]shared.NOPAlias{"nop1"},
+		sampleExecutorPool(sel, "nop1"),
+		[]string{"http://indexer:1"},
+		"",
+		nil,
+	)
+	require.NoError(t, err)
+
+	var jobSpec string
+	for _, spec := range specs["nop1"] {
+		jobSpec = spec
+	}
+	const open = "executorConfig = '''\n"
+	i := strings.Index(jobSpec, open)
+	require.GreaterOrEqual(t, i, 0, "job spec must contain executorConfig")
+	assert.NotContains(t, jobSpec, "appConfig")
 }

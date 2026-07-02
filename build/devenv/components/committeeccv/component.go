@@ -22,6 +22,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/components/observability"
 	ccdeploy "github.com/smartcontractkit/chainlink-ccv/build/devenv/deploy"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobspec"
 	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/committeeverifier"
@@ -521,24 +522,6 @@ func mergePhase3DataStore(ds datastore.MutableDataStore, localEnv *deployment.En
 	return nil
 }
 
-type verifierJobSpec struct {
-	Name                    string `toml:"name"`
-	ExternalJobID           string `toml:"externalJobID"`
-	SchemaVersion           int    `toml:"schemaVersion"`
-	Type                    string `toml:"type"`
-	CommitteeVerifierConfig string `toml:"committeeVerifierConfig"`
-}
-
-func (vjs verifierJobSpec) toBootstrapJobSpec() bootstrap.JobSpec {
-	return bootstrap.JobSpec{
-		Name:          vjs.Name,
-		ExternalJobID: vjs.ExternalJobID,
-		SchemaVersion: vjs.SchemaVersion,
-		Type:          vjs.Type,
-		AppConfig:     vjs.CommitteeVerifierConfig,
-	}
-}
-
 func validateDisableFinalityCheckers(committeeName string, verifiers []*committeeverifier.Input) (map[string][]string, error) {
 	if len(verifiers) == 0 {
 		return nil, nil
@@ -659,11 +642,10 @@ func buildVerifierJobSpecEffects(
 				if err != nil {
 					return nil, fmt.Errorf("committeeccv: getting consolidated verifier job spec for %s: %w", ver.ContainerName, err)
 				}
-				var spec verifierJobSpec
-				if err := toml.Unmarshal([]byte(job.Spec), &spec); err != nil {
+				bootSpec, err := jobspec.ParseVerifierBootstrapJobSpec(job.Spec)
+				if err != nil {
 					return nil, fmt.Errorf("committeeccv: decoding verifier job spec for %s: %w", ver.ContainerName, err)
 				}
-				bootSpec := spec.toBootstrapJobSpec()
 				allJobSpecs := []bootstrap.JobSpec{bootSpec}
 
 				ver.GeneratedJobSpecs = allJobSpecs

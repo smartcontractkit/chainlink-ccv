@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/deployment/shared"
 )
@@ -11,6 +12,20 @@ import (
 func TestNOPInput_GetMode_DefaultsToCL(t *testing.T) {
 	assert.Equal(t, shared.NOPModeCL, NOPInput{Alias: "nop1"}.GetMode())
 	assert.Equal(t, shared.NOPModeStandalone, NOPInput{Alias: "nop1", Mode: shared.NOPModeStandalone}.GetMode())
+}
+
+func TestResolveNOPMode(t *testing.T) {
+	mode, err := resolveNOPMode("", "nop1")
+	require.NoError(t, err)
+	assert.Equal(t, shared.NOPModeCL, mode)
+
+	mode, err = resolveNOPMode(shared.NOPModeStandalone, "nop1")
+	require.NoError(t, err)
+	assert.Equal(t, shared.NOPModeStandalone, mode)
+
+	_, err = resolveNOPMode("bogus", "nop1")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `unknown mode "bogus"`)
 }
 
 func TestBuildNOPModes_FillsDefaults(t *testing.T) {

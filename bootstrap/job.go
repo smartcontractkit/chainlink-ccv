@@ -57,3 +57,17 @@ func (js JobSpec) GetAppConfig(cfg any) error {
 
 	return nil
 }
+
+// InnerConfig extracts the embedded inner config from a job spec wrapper. Exactly one of appConfig and the CL-mode config field must be set.
+func InnerConfig(app, cl, clField string) (string, error) {
+	if app != "" && cl != "" {
+		return "", fmt.Errorf("job spec must set exactly one of appConfig and %s", clField)
+	}
+	if app != "" {
+		return app, nil
+	}
+	if cl != "" {
+		return cl, nil
+	}
+	return "", fmt.Errorf("job spec missing appConfig and %s", clField)
+}
