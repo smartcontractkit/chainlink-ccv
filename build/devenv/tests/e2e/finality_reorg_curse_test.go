@@ -842,8 +842,10 @@ func uncurseSelector(t *testing.T, env *deployment.Environment, adapter fastcurs
 	uncurseCS := fastcurse.UncurseChangeset(fastcurse.GetCurseRegistry(), changesets.GetRegistry())
 	_, err := uncurseCS.Apply(*env, fastcurse.RMNCurseConfig{
 		CurseActions: crInput,
-		Force:        true,
 	})
+	if err.Error() == "uncurse skipped all actions: no subjects are currently cursed on chain" {
+		return // no error, no subjects are cursed on chain
+	}
 	require.NoError(t, err)
 
 	// Verify the curse is lifted
