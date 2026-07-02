@@ -838,6 +838,22 @@ func uncurseSelector(t *testing.T, env *deployment.Environment, adapter fastcurs
 			Version:              semver.MustParse("1.6.0"),
 		})
 	}
+
+	// check if the subjects are cursed, if not, return early.
+	atLeastOneCursed := false
+	for _, input := range crInput {
+		isCursed, err := adapter.IsSubjectCursedOnChain(*env, input.ChainSelector, fastcurse.GenericSelectorToSubject(input.SubjectChainSelector))
+		require.NoError(t, err)
+		if isCursed {
+			atLeastOneCursed = true
+			break
+		}
+	}
+	if !atLeastOneCursed {
+		t.Logf("No subjects are cursed, skipping uncurse")
+		return
+	}
+
 	uncurseCS := fastcurse.UncurseChangeset(fastcurse.GetCurseRegistry(), changesets.GetRegistry())
 	_, err := uncurseCS.Apply(*env, fastcurse.RMNCurseConfig{
 		CurseActions: crInput,
