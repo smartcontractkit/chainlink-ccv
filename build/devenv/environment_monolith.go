@@ -742,6 +742,7 @@ func NewEnvironment() (in *Cfg, err error) {
 					MetricReaderInterval:     template.Monitoring.Beholder.MetricReaderInterval,
 					TraceSampleRatio:         template.Monitoring.Beholder.TraceSampleRatio,
 					TraceBatchTimeout:        template.Monitoring.Beholder.TraceBatchTimeout,
+					TelemetryAttributes:      template.Monitoring.Beholder.TelemetryAttributes,
 				},
 			},
 			Lombard: ccvchangesets.LombardConfigInput{
