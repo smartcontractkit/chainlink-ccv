@@ -459,7 +459,7 @@ func TestConfig_validate_Chains(t *testing.T) {
 			JD: validJD, Keystore: validKeystore, DB: validDB, Server: validServer,
 			Chains: []ChainRegistration{{Type: "EVM", ID: "1"}, {Type: "SOLANA", ID: "mainnet"}},
 		}
-		err := cfg.validate(logger.Test(t), infraMD, true)
+		err := cfg.validate(true)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), `chain at index 1 has type "SOLANA"`)
 		require.Contains(t, err.Error(), `same family (found "EVM" at index 0)`)
@@ -471,7 +471,7 @@ func TestConfig_validate_Chains(t *testing.T) {
 			JD: validJD, Keystore: validKeystore, DB: validDB, Server: validServer,
 			Chains: []ChainRegistration{{Type: "evm", ID: "1"}, {Type: "EVM", ID: "137"}},
 		}
-		require.NoError(t, cfg.validate(logger.Test(t), infraMD, true), "same family in different casing must not be flagged as mixed")
+		require.NoError(t, cfg.validate(true), "same family in different casing must not be flagged as mixed")
 	})
 
 	t.Run("an invalid entry does not mask the family the remaining valid entries share", func(t *testing.T) {
@@ -480,7 +480,7 @@ func TestConfig_validate_Chains(t *testing.T) {
 			JD: validJD, Keystore: validKeystore, DB: validDB, Server: validServer,
 			Chains: []ChainRegistration{{Type: "NOTACHAIN", ID: "1"}, {Type: "EVM", ID: "1"}, {Type: "SOLANA", ID: "mainnet"}},
 		}
-		err := cfg.validate(logger.Test(t), infraMD, true)
+		err := cfg.validate(true)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "invalid chain at index 0")
 		require.Contains(t, err.Error(), `chain at index 2 has type "SOLANA"`)
