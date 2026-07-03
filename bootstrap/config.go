@@ -226,8 +226,8 @@ func LoadAndValidateConfig(path string, cfg *Config, needsInfra bool) error {
 	if err != nil {
 		return fmt.Errorf("failed to read config file: %w", err)
 	}
-
-	err = parseTOMLStrict(string(tomlBytes), cfg)
+	// TODO switch to strict mode once config migration is over
+	err = parseTOML(string(tomlBytes), cfg, false)
 	if err != nil {
 		return fmt.Errorf("failed to parse config: %w", err)
 	}
@@ -238,12 +238,12 @@ func LoadAndValidateConfig(path string, cfg *Config, needsInfra bool) error {
 	return nil
 }
 
-func parseTOMLStrict[T any](tomlString string, out T) error {
+func parseTOML[T any](tomlString string, out *T, strict bool) error {
 	md, err := toml.Decode(tomlString, out)
 	if err != nil {
 		return fmt.Errorf("failed to decode toml: %w", err)
 	}
-	if len(md.Undecoded()) > 0 {
+	if strict && len(md.Undecoded()) > 0 {
 		return fmt.Errorf("strict decode failed, found undecoded fields: %+v", md.Undecoded())
 	}
 	return nil
