@@ -91,27 +91,97 @@ func TestJDConfig_validate(t *testing.T) {
 	}
 }
 
-func TestKeystoreConfig_validate(t *testing.T) {
+func TestKeystoreConfig_GetPassword(t *testing.T) {
 	tests := []struct {
-		name        string
-		config      *KeystoreConfig
-		wantErr     bool
-		errContains []string
+		name         string
+		config       *KeystoreConfig
+		envVars      map[string]string
+		wantPassword string
+		wantErr      bool
+		errContains  []string
 	}{
 		{
-			name:    "valid",
-			config:  &KeystoreConfig{Password: "secret"},
-			wantErr: false,
+			name:         "returns direct password",
+			config:       &KeystoreConfig{Password: "direct_secret"},
+			wantPassword: "direct_secret",
+			wantErr:      false,
 		},
 		{
-			name:        "missing password",
-			config:      &KeystoreConfig{Password: ""},
+			name:         "password precedence over env var",
+			config:       &KeystoreConfig{Password: "direct", PasswordEnvVar: "TEST_PASSWORD_ENV_VAR"},
+			envVars:      map[string]string{"TEST_PASSWORD_ENV_VAR": "from_env"},
+			wantPassword: "direct",
+			wantErr:      false,
+		},
+		{
+			name:         "returns env var when password empty",
+			config:       &KeystoreConfig{Password: "", PasswordEnvVar: "TEST_PASSWORD_ENV_VAR"},
+			envVars:      map[string]string{"TEST_PASSWORD_ENV_VAR": "env_secret"},
+			wantPassword: "env_secret",
+			wantErr:      false,
+		},
+		{
+			name:        "error when env var not set",
+			config:      &KeystoreConfig{Password: "", PasswordEnvVar: "MISSING_ENV_VAR"},
+			envVars:     map[string]string{},
+			wantErr:     true,
+			errContains: []string{"field 'password' is empty", "MISSING_ENV_VAR", "not set"},
+		},
+		{
+			name:        "error when neither source defined",
+			config:      &KeystoreConfig{Password: "", PasswordEnvVar: ""},
 			wantErr:     true,
 			errContains: []string{"field 'password' is required"},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			// Set up environment variables for this test
+			for key, value := range tt.envVars {
+				t.Setenv(key, value)
+			}
+
+			password, err := tt.config.GetPassword()
+			if tt.wantErr {
+				require.Error(t, err)
+				for _, sub := range tt.errContains {
+					require.Contains(t, err.Error(), sub)
+				}
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, tt.wantPassword, password)
+			}
+		})
+	}
+}
+
+func TestKeystoreConfig_validate(t *testing.T) {
+	tests := []struct {
+		name        string
+		config      *KeystoreConfig
+		envVars     map[string]string
+		wantErr     bool
+		errContains []string
+	}{
+		{
+			name:    "valid with password",
+			config:  &KeystoreConfig{Password: "secret"},
+			wantErr: false,
+		},
+		{
+			name:        "neither password nor env var defined",
+			config:      &KeystoreConfig{Password: "", PasswordEnvVar: ""},
+			wantErr:     true,
+			errContains: []string{"field 'password' is required"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Set up environment variables for this test
+			for key, value := range tt.envVars {
+				t.Setenv(key, value)
+			}
+
 			err := tt.config.validate()
 			if tt.wantErr {
 				require.Error(t, err)
@@ -125,10 +195,75 @@ func TestKeystoreConfig_validate(t *testing.T) {
 	}
 }
 
+func TestDBConfig_GetURL(t *testing.T) {
+	tests := []struct {
+		name       string
+		config     *DBConfig
+		envVars    map[string]string
+		wantURL    string
+		wantErr    bool
+		errContains []string
+	}{
+		{
+			name:    "returns direct url",
+			config:  &DBConfig{URL: "postgres://localhost:5432/mydb"},
+			wantURL: "postgres://localhost:5432/mydb",
+			wantErr: false,
+		},
+		{
+			name:    "url precedence over env var",
+			config:  &DBConfig{URL: "postgres://direct", URLEnvVar: "TEST_DATABASE_URL"},
+			envVars: map[string]string{"TEST_DATABASE_URL": "postgres://from_env"},
+			wantURL: "postgres://direct",
+			wantErr: false,
+		},
+		{
+			name:    "returns env var when url empty",
+			config:  &DBConfig{URL: "", URLEnvVar: "TEST_DATABASE_URL"},
+			envVars: map[string]string{"TEST_DATABASE_URL": "postgres://env_db"},
+			wantURL: "postgres://env_db",
+			wantErr: false,
+		},
+		{
+			name:        "error when env var not set",
+			config:      &DBConfig{URL: "", URLEnvVar: "MISSING_DB_URL"},
+			envVars:     map[string]string{},
+			wantErr:     true,
+			errContains: []string{"field 'url' is empty", "MISSING_DB_URL", "not set"},
+		},
+		{
+			name:        "error when neither source defined",
+			config:      &DBConfig{URL: "", URLEnvVar: ""},
+			wantErr:     true,
+			errContains: []string{"field 'url' is required"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Set up environment variables for this test
+			for key, value := range tt.envVars {
+				t.Setenv(key, value)
+			}
+
+			url, err := tt.config.GetURL()
+			if tt.wantErr {
+				require.Error(t, err)
+				for _, sub := range tt.errContains {
+					require.Contains(t, err.Error(), sub)
+				}
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, tt.wantURL, url)
+			}
+		})
+	}
+}
+
 func TestDBConfig_validate(t *testing.T) {
 	tests := []struct {
 		name        string
 		config      *DBConfig
+		envVars     map[string]string
 		wantErr     bool
 		errContains []string
 	}{
@@ -138,14 +273,19 @@ func TestDBConfig_validate(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name:        "missing url",
-			config:      &DBConfig{URL: ""},
+			name:        "neither url nor env var defined",
+			config:      &DBConfig{URL: "", URLEnvVar: ""},
 			wantErr:     true,
 			errContains: []string{"field 'url' is required"},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			// Set up environment variables for this test
+			for key, value := range tt.envVars {
+				t.Setenv(key, value)
+			}
+
 			err := tt.config.validate()
 			if tt.wantErr {
 				require.Error(t, err)

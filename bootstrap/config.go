@@ -35,28 +35,74 @@ func (c *JDConfig) validate() error {
 
 // KeystoreConfig is the configuration for the keystore.
 type KeystoreConfig struct {
-	// Password is the password to the keystore.
+	// Password is the password to the keystore. Has precedence over PasswordEnvVar.
 	Password string `toml:"password"`
+	// PasswordEnvVar is the name of an environment variable containing the keystore password.
+	// Only used if Password is not defined.
+	PasswordEnvVar string `toml:"password_env_var"`
+}
+
+// GetPassword returns the keystore password, following the precedence rule:
+// Password (direct config) takes precedence over PasswordEnvVar (environment variable).
+// Returns an error if neither source is defined or if PasswordEnvVar references a non-existent variable.
+func (c *KeystoreConfig) GetPassword() (string, error) {
+	// If Password is defined, use it (it has precedence)
+	if c.Password != "" {
+		return c.Password, nil
+	}
+
+	// If Password is not defined, try to load from PasswordEnvVar
+	if c.PasswordEnvVar != "" {
+		envPassword := os.Getenv(c.PasswordEnvVar)
+		if envPassword == "" {
+			return "", fmt.Errorf("field 'password' is empty and environment variable %q (from 'password_env_var') is not set", c.PasswordEnvVar)
+		}
+		return envPassword, nil
+	}
+
+	// Neither Password nor PasswordEnvVar is defined
+	return "", fmt.Errorf("field 'password' is required (either 'password' or 'password_env_var' must be defined)")
 }
 
 func (c *KeystoreConfig) validate() error {
-	if c.Password == "" {
-		return fmt.Errorf("field 'password' is required")
-	}
-	return nil
+	_, err := c.GetPassword()
+	return err
 }
 
 // DBConfig is the configuration for the bootstrap database.
 type DBConfig struct {
-	// URL is the URL to use for saving jobs and the keystore.
+	// URL is the database URL. Has precedence over URLEnvVar.
 	URL string `toml:"url"`
+	// URLEnvVar is the name of an environment variable containing the database URL.
+	// Only used if URL is not defined.
+	URLEnvVar string `toml:"url_env_var"`
+}
+
+// GetURL returns the database URL, following the precedence rule:
+// URL (direct config) takes precedence over URLEnvVar (environment variable).
+// Returns an error if neither source is defined or if URLEnvVar references a non-existent variable.
+func (c *DBConfig) GetURL() (string, error) {
+	// If URL is defined, use it (it has precedence)
+	if c.URL != "" {
+		return c.URL, nil
+	}
+
+	// If URL is not defined, try to load from URLEnvVar
+	if c.URLEnvVar != "" {
+		envURL := os.Getenv(c.URLEnvVar)
+		if envURL == "" {
+			return "", fmt.Errorf("field 'url' is empty and environment variable %q (from 'url_env_var') is not set", c.URLEnvVar)
+		}
+		return envURL, nil
+	}
+
+	// Neither URL nor URLEnvVar is defined
+	return "", fmt.Errorf("field 'url' is required (either 'url' or 'url_env_var' must be defined)")
 }
 
 func (c *DBConfig) validate() error {
-	if c.URL == "" {
-		return fmt.Errorf("field 'url' is required")
-	}
-	return nil
+	_, err := c.GetURL()
+	return err
 }
 
 // ServerConfig is the configuration for the HTTP info server.

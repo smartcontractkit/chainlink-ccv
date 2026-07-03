@@ -352,12 +352,22 @@ func buildUpdateNodeRequest(
 
 // startWithJDLifecycle initializes all components required for the JD lifecycle manager and starts it.
 func (b *Bootstrapper) startWithJDLifecycle(ctx context.Context) error {
-	db, err := connectToDB(ctx, b.config.DB.URL)
+	dbURL, err := b.config.DB.GetURL()
+	if err != nil {
+		return err
+	}
+
+	db, err := connectToDB(ctx, dbURL)
 	if err != nil {
 		return fmt.Errorf("failed to connect to bootstrapper database: %w", err)
 	}
 
-	keyStore, csaSigner, err := initializeKeystore(ctx, b.lggr, db, b.config.Keystore.Password, b.keys)
+	keyStorePass, err := b.config.Keystore.GetPassword()
+	if err != nil {
+		return err
+	}
+
+	keyStore, csaSigner, err := initializeKeystore(ctx, b.lggr, db, keyStorePass, b.keys)
 	if err != nil {
 		return fmt.Errorf("failed to initialize keystore: %w", err)
 	}
