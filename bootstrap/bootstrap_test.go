@@ -437,11 +437,32 @@ func TestBuildUpdateNodeRequest(t *testing.T) {
 		addr1 := req.ChainConfigs[1].Ocr2Config.OcrKeyBundle.OnchainSigningAddress
 		require.Equal(t, addr0, addr1)
 
-		// The raw public key is identical across chains too: it's the same key, just
-		// rendered per-family in OnchainSigningAddress.
+		// The raw public key is identical across chains too.
 		pubKey0 := req.ChainConfigs[0].Ocr2Config.OcrKeyBundle.OnchainSigningPubKey
 		pubKey1 := req.ChainConfigs[1].Ocr2Config.OcrKeyBundle.OnchainSigningPubKey
 		require.Equal(t, pubKey0, pubKey1)
+		require.NotEqual(t, addr0, pubKey0)
+	})
+
+	t.Run("builds request with Canton bundle variants", func(t *testing.T) {
+		t.Parallel()
+		ks, err := keystore.LoadKeystore(ctx, keystore.NewMemoryStorage(), "test", keystore.WithScryptParams(keystore.FastScryptParams))
+		require.NoError(t, err)
+		_, err = ks.CreateKeys(ctx, keystore.CreateKeysRequest{
+			Keys: []keystore.CreateKeyRequest{{KeyName: "signing-key", KeyType: keystore.ECDSA_S256}},
+		})
+		require.NoError(t, err)
+
+		req, err := buildUpdateNodeRequest(ctx, ks, []string{"signing-key"}, []ChainRegistration{{Type: "CANTON", ID: "LocalNet"}})
+		require.NoError(t, err)
+		require.NotNil(t, req)
+		require.Len(t, req.ChainConfigs, 1)
+
+		bundle := req.ChainConfigs[0].Ocr2Config.OcrKeyBundle
+		require.NotNil(t, bundle)
+		require.Len(t, bundle.OnchainSigningAddress, 42)
+		require.NotEmpty(t, bundle.OnchainSigningPubKey)
+		require.NotEqual(t, bundle.OnchainSigningAddress, bundle.OnchainSigningPubKey)
 	})
 
 	t.Run("unsupported chain type returns error", func(t *testing.T) {

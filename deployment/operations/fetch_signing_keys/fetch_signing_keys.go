@@ -6,6 +6,7 @@ import (
 
 	"github.com/Masterminds/semver/v3"
 
+	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
 	nodev1 "github.com/smartcontractkit/chainlink-protos/job-distributor/v1/node"
@@ -93,8 +94,8 @@ var FetchNOPSigningKeys = operations.NewOperation(
 				continue
 			}
 
-			signerAddress := chainConfig.Ocr2Config.OcrKeyBundle.OnchainSigningAddress
-			if signerAddress == "" {
+			bundle := chainConfig.Ocr2Config.OcrKeyBundle
+			if strings.TrimSpace(bundle.OnchainSigningAddress) == "" {
 				continue
 			}
 
@@ -108,11 +109,35 @@ var FetchNOPSigningKeys = operations.NewOperation(
 			if output.SigningKeysByNOP[nopAlias] == nil {
 				output.SigningKeysByNOP[nopAlias] = make(map[string]string)
 			}
-			addr := shared.NormalizeAddress(chainFamily, signerAddress)
-			if existing, ok := output.SigningKeysByNOP[nopAlias][chainFamily]; ok && existing != addr {
-				return output, fmt.Errorf("NOP %q has conflicting OCR key bundles for family %s: address %s vs %s — the job spec requires a single signing address (per-chain scoping not supported yet)", nopAlias, chainFamily, existing, addr)
+
+			setKey := func(family, identity string) error {
+				addr := shared.NormalizeAddress(family, identity)
+				if existing, ok := output.SigningKeysByNOP[nopAlias][family]; ok && existing != addr {
+					return fmt.Errorf(
+						"NOP %q has conflicting OCR key bundles for family %s: address %s vs %s — the job spec requires a single signing address (per-chain scoping not supported yet)",
+						nopAlias, family, existing, addr,
+					)
+				}
+				output.SigningKeysByNOP[nopAlias][family] = addr
+				return nil
 			}
-			output.SigningKeysByNOP[nopAlias][chainFamily] = addr
+
+			native, err := shared.SigningIdentityFromBundle(chainFamily, bundle)
+			if err != nil {
+				continue
+			}
+			if err := setKey(chainFamily, native); err != nil {
+				return output, err
+			}
+
+			if chainFamily != chainsel.FamilyEVM {
+				evmIdentity, err := shared.SigningIdentityFromBundle(chainsel.FamilyEVM, bundle)
+				if err == nil {
+					if err := setKey(chainsel.FamilyEVM, evmIdentity); err != nil {
+						return output, err
+					}
+				}
+			}
 
 			// Capture the raw public key too, so callers can bridge this NOP's identity
 			// into a family it never declared directly (see RawPubKeyByNOP).
@@ -128,7 +153,7 @@ var FetchNOPSigningKeys = operations.NewOperation(
 				"nopAlias", nopAlias,
 				"nodeId", chainConfig.NodeId,
 				"chainFamily", chainFamily,
-				"signerAddress", signerAddress)
+				"signerAddress", native)
 		}
 
 		return output, nil

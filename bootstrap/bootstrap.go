@@ -313,7 +313,9 @@ func signingAddressFromPublicKey(chainType pb.ChainType, pubKeyBytes []byte) (st
 
 // buildUpdateNodeRequest constructs the UpdateNodeRequest to send to JD on connect.
 // It reads the public key for each key in signingKeyNames and builds one ChainConfig
-// entry per chain in chains, with the signing address shoehorned into OCR2Config.OcrKeyBundle.
+// entry per chain in chains. Each OCRKeyBundle carries OnchainSigningPubKey (canonical
+// secp256k1 public key) and OnchainSigningAddress (EVM-derived address for secp256k1
+// chains, or the chain-native address format for Solana).
 // Returns nil if there are no signing keys or no chains declared.
 func buildUpdateNodeRequest(
 	ctx context.Context,
@@ -343,6 +345,12 @@ func buildUpdateNodeRequest(
 		addr, err := signingAddressFromPublicKey(chainType, signingKey.KeyInfo.PublicKey)
 		if err != nil {
 			return nil, fmt.Errorf("chain %s/%s: %w", chain.Type, chain.ID, err)
+		}
+		if chainType == pb.ChainType_CHAIN_TYPE_CANTON {
+			addr, _, err = keys.EVMAddressFromPublicKey(signingKey.KeyInfo.PublicKey)
+			if err != nil {
+				return nil, fmt.Errorf("chain %s/%s: %w", chain.Type, chain.ID, err)
+			}
 		}
 		chainConfigs = append(chainConfigs, &pb.ChainConfig{
 			Chain: &pb.Chain{Type: chainType, Id: chain.ID},
