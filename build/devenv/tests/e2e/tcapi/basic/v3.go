@@ -111,19 +111,9 @@ func (tc *v3TestCase) Run(ctx context.Context) error {
 	}
 	messageID := sendMessageResult.MessageID
 
-	aggregatorClients, err := tc.lib.AllAggregators()
+	aggregatorClient, indexerMonitor, err := tcapi.SetupOffchainClients(tc.lib, tc.aggregatorQualifier)
 	if err != nil {
-		return fmt.Errorf("failed to get aggregator clients: %w", err)
-	}
-	aggregatorClient := aggregatorClients[common.DefaultCommitteeVerifierQualifier]
-	if tc.aggregatorQualifier != "" && tc.aggregatorQualifier != common.DefaultCommitteeVerifierQualifier {
-		if client, ok := aggregatorClients[tc.aggregatorQualifier]; ok {
-			aggregatorClient = client
-		}
-	}
-	indexerMonitor, err := tc.lib.IndexerMonitor()
-	if err != nil {
-		return fmt.Errorf("failed to get indexer monitor: %w", err)
+		return err
 	}
 	testCtx, cleanupFn := tcapi.NewTestingContext(ctx, chainMap, aggregatorClient, indexerMonitor)
 	defer cleanupFn()
@@ -138,10 +128,10 @@ func (tc *v3TestCase) Run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to assert message: %w", err)
 	}
-	if result.AggregatedResult == nil {
+	if aggregatorClient != nil && result.AggregatedResult == nil {
 		return fmt.Errorf("aggregated result is nil")
 	}
-	if len(result.IndexedVerifications.Results) != tc.numExpectedVerifications {
+	if indexerMonitor != nil && len(result.IndexedVerifications.Results) != tc.numExpectedVerifications {
 		return fmt.Errorf("expected %d indexed verifications, got %d", tc.numExpectedVerifications, len(result.IndexedVerifications.Results))
 	}
 

@@ -197,3 +197,16 @@ func TestEventPollerByMessageID(t *testing.T) {
 		}
 	})
 }
+
+func TestFallbackStartBlock(t *testing.T) {
+	t.Parallel()
+
+	// Long-lived chain: the first scan reaches back exactly the lookback window,
+	// independent of block time.
+	const latest = uint64(10_000_000)
+	require.Equal(t, latest-fallbackLookbackBlocks, fallbackStartBlock(latest))
+
+	// Chain younger than (or exactly at) the lookback window scans from genesis.
+	require.Equal(t, uint64(0), fallbackStartBlock(fallbackLookbackBlocks))
+	require.Equal(t, uint64(0), fallbackStartBlock(100))
+}
