@@ -354,7 +354,7 @@ func buildUpdateNodeRequest(
 func (b *Bootstrapper) startWithJDLifecycle(ctx context.Context) error {
 	dbURL, err := b.config.DB.GetURL()
 	if err != nil {
-		return err
+		return fmt.Errorf("invalid db config: %w", err)
 	}
 
 	db, err := connectToDB(ctx, dbURL)
@@ -364,7 +364,7 @@ func (b *Bootstrapper) startWithJDLifecycle(ctx context.Context) error {
 
 	keyStorePass, err := b.config.Keystore.GetPassword()
 	if err != nil {
-		return err
+		return fmt.Errorf("invalid keystore config: %w", err)
 	}
 
 	keyStore, csaSigner, err := initializeKeystore(ctx, b.lggr, db, keyStorePass, b.keys)

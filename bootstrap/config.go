@@ -55,7 +55,7 @@ func (c *KeystoreConfig) GetPassword() (string, error) {
 	if c.PasswordEnvVar != "" {
 		envPassword := os.Getenv(c.PasswordEnvVar)
 		if envPassword == "" {
-			return "", fmt.Errorf("field 'password' is empty and environment variable %q (from 'password_env_var') is not set", c.PasswordEnvVar)
+			return "", fmt.Errorf("field 'password' is empty and environment variable %q (from 'password_env_var') is not set or is empty", c.PasswordEnvVar)
 		}
 		return envPassword, nil
 	}
@@ -91,7 +91,7 @@ func (c *DBConfig) GetURL() (string, error) {
 	if c.URLEnvVar != "" {
 		envURL := os.Getenv(c.URLEnvVar)
 		if envURL == "" {
-			return "", fmt.Errorf("field 'url' is empty and environment variable %q (from 'url_env_var') is not set", c.URLEnvVar)
+			return "", fmt.Errorf("field 'url' is empty and environment variable %q (from 'url_env_var') is not set or is empty", c.URLEnvVar)
 		}
 		return envURL, nil
 	}

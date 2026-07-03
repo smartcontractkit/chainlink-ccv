@@ -197,11 +197,11 @@ func TestKeystoreConfig_validate(t *testing.T) {
 
 func TestDBConfig_GetURL(t *testing.T) {
 	tests := []struct {
-		name       string
-		config     *DBConfig
-		envVars    map[string]string
-		wantURL    string
-		wantErr    bool
+		name        string
+		config      *DBConfig
+		envVars     map[string]string
+		wantURL     string
+		wantErr     bool
 		errContains []string
 	}{
 		{
