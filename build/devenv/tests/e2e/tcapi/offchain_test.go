@@ -37,9 +37,11 @@ func (s *stubLib) Indexer() (*client.IndexerClient, error)           { return ni
 func (s *stubLib) IndexerMonitor() (*ccv.IndexerMonitor, error) {
 	return s.indexerMonitor, s.indexerMonitorErr
 }
+
 func (s *stubLib) AllIndexers() ([]*client.IndexerClient, error) {
 	return s.indexers, s.allIndexersErr
 }
+
 func (s *stubLib) AllAggregators() (map[string]*ccv.AggregatorClient, error) {
 	return s.aggregators, s.aggregatorsErr
 }
