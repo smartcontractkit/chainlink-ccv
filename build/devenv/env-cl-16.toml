@@ -6,7 +6,7 @@ cl_nodes_funding_link = 50
 indexer_address = ["http://indexer-1:8100"]
 
 [environment_topology.Monitoring]
-LogLevel = 'info'
+LogLevel = 'debug'
 
 [environment_topology.Monitoring.Pyroscope]
 Enabled = true
@@ -974,7 +974,7 @@ execution_interval = 15_000_000_000
 
 [indexer.indexer_config]
 [indexer.indexer_config.Monitoring]
-LogLevel = 'info'
+LogLevel = 'debug'
 
 [indexer.indexer_config.Monitoring.Pyroscope]
 Enabled = false

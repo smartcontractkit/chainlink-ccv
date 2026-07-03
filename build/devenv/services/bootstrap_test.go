@@ -13,7 +13,7 @@ import (
 // Bootstrap.Monitoring before launch, after which ApplyBootstrapDefaults runs again internally; if a
 // future default clobbered Monitoring, those values would silently disappear from the bootstrap config.
 func TestApplyBootstrapDefaults_PreservesMonitoring(t *testing.T) {
-	mon := &monitoring.Config{Enabled: true, Type: "beholder"}
+	mon := &monitoring.Config{}
 
 	out := ApplyBootstrapDefaults(BootstrapInput{Monitoring: mon})
 

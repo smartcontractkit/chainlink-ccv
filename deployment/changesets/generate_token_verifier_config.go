@@ -66,7 +66,6 @@ type CCTPConfigInput struct {
 type GenerateTokenVerifierConfigInput struct {
 	ServiceIdentifier string
 	ChainSelectors    []uint64
-	Monitoring        ccvdeployment.MonitoringConfig
 	Lombard           LombardConfigInput
 	CCTP              CCTPConfigInput
 	// ReplaceExisting controls how the result is written to env metadata. By

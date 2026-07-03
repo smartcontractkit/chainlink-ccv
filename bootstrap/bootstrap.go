@@ -457,6 +457,12 @@ func (b *Bootstrapper) Stop(ctx context.Context) error {
 			return fmt.Errorf("failed to stop info server: %w", err)
 		}
 	}
+	if b.pyroscope != nil {
+		err := b.pyroscope.Stop()
+		if err != nil {
+			return fmt.Errorf("failed to stop pyroscope: %w", err)
+		}
+	}
 	if b.appCfg != nil {
 		var errs []error
 		if err := b.fac.Stop(ctx); err != nil {
@@ -469,12 +475,6 @@ func (b *Bootstrapper) Stop(ctx context.Context) error {
 			b.accCloser = nil
 		}
 		return errors.Join(errs...)
-	}
-	if b.pyroscope != nil {
-		err := b.pyroscope.Stop()
-		if err != nil {
-			return fmt.Errorf("failed to stop pyroscope: %w", err)
-		}
 	}
 	return nil
 }

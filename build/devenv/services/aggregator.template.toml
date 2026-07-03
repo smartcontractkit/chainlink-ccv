@@ -77,7 +77,7 @@ key_prefix = "ratelimit"
 
 
 [Monitoring]
-LogLevel = 'info'
+LogLevel = 'debug'
 
 [Monitoring.Pyroscope]
 Enabled = true

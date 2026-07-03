@@ -20,7 +20,7 @@ func InitLogger(name, baseLogLevel string, config monitoring.Config) (logger.Log
 	}
 	baseZapLogLevel, err := zapcore.ParseLevel(baseLogLevel)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("failed to parse log level: %w", err)
 	}
 	baseCore, err := logger.NewCore(zaplog.GetLogProfile(baseZapLogLevel))
 	if err != nil {

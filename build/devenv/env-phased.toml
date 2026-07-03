@@ -15,7 +15,7 @@ version = 1
 [observability]
 version = 1
 [observability.Monitoring]
-LogLevel = 'info'
+LogLevel = 'debug'
 
 [observability.Monitoring.Pyroscope]
 Enabled = false
@@ -396,10 +396,10 @@ execution_interval = 15_000_000_000
   # Optional: full DB connection string (container-to-container). When set, used for storage config and output.
 
 [indexer.indexer_config]
-LogLevel = 'info'
+LogLevel = 'debug'
 
 [indexer.indexer_config.Monitoring]
-LogLevel = 'info'
+LogLevel = 'debug'
 
 [indexer.indexer_config.Monitoring.Pyroscope]
 Enabled = false

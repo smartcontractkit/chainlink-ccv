@@ -310,7 +310,6 @@ func buildExecutorJobSpecs(
 			NOPs:              ccvchangesets.NOPInputsFromTopology(topology),
 			Pool:              ccvchangesets.ExecutorPoolInputFromTopology(pool),
 			IndexerAddress:    topology.IndexerAddress,
-			PyroscopeURL:      obs.PyroscopeURL,
 			TargetNOPs:        ccvshared.ConvertStringToNopAliases(execNOPAliases),
 		})
 		if err != nil {

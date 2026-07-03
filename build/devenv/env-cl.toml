@@ -3,7 +3,7 @@
 indexer_address = ["http://indexer-1:8100"]
 
 [environment_topology.Monitoring]
-LogLevel = 'info'
+LogLevel = 'debug'
 
 [environment_topology.Monitoring.Pyroscope]
 Enabled = true

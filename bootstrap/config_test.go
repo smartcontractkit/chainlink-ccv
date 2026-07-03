@@ -291,7 +291,7 @@ func TestConfig_validate(t *testing.T) {
 				JD: validJD, Keystore: validKeystore, DB: validDB, Server: validServer,
 				Monitoring: &monitoring.Config{
 					Beholder: monitoring.BeholderConfig{
-						Enabled: true,
+						Enabled:              true,
 						MetricReaderInterval: 0,
 						TraceSampleRatio:     0.5,
 						TraceBatchTimeout:    5,

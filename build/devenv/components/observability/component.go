@@ -78,7 +78,6 @@ func decode(raw any) (*Observability, error) {
 		return nil, err
 	}
 	return &Observability{
-		PyroscopeURL: cfg.PyroscopeURL,
-		Monitoring:   cfg.Monitoring,
+		Monitoring: cfg.Monitoring,
 	}, nil
 }

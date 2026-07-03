@@ -12,7 +12,7 @@ type Config struct {
 	LogLevel string `json:"logLevel" toml:"LogLevel"`
 	// Pyroscope is the configuration for pyroscope performance monitoring tool
 	Pyroscope PyroscopeConfig `json:"pyroscope" toml:"Pyroscope"`
-	// Beholder is the configuration for the beholder client (Not required if type is noop).
+	// Beholder is the configuration for the beholder client.
 	Beholder BeholderConfig `json:"beholder" toml:"Beholder"`
 }
 
@@ -54,7 +54,7 @@ func (m *Config) Validate() error {
 	if m.LogLevel != "" {
 		_, err := zapcore.ParseLevel(m.LogLevel)
 		if err != nil {
-			return fmt.Errorf("log_level is invalid: %w", err)
+			return fmt.Errorf("monitoring log_level is invalid: %w", err)
 		}
 	}
 
@@ -73,7 +73,7 @@ func (m *Config) Validate() error {
 	return nil
 }
 
-// Validate performs validation on the beholder configuration.
+// Validate performs validation on the pyroscope configuration.
 func (p *PyroscopeConfig) Validate() error {
 	if len(p.URL) == 0 {
 		return fmt.Errorf("url is missing")
@@ -87,7 +87,7 @@ func (b *BeholderConfig) Validate() error {
 	if b.LogStreamingLevel != "" {
 		_, err := zapcore.ParseLevel(b.LogStreamingLevel)
 		if err != nil {
-			return fmt.Errorf("log_streaming_level is invalid: %w", err)
+			return fmt.Errorf("beholder log_streaming_level is invalid: %w", err)
 		}
 	}
 

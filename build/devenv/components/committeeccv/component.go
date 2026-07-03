@@ -12,6 +12,7 @@ import (
 	"github.com/pelletier/go-toml/v2"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
+
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainreg"
@@ -624,7 +625,6 @@ func buildVerifierJobSpecEffects(
 				DefaultExecutorQualifier: devenvcommon.DefaultExecutorQualifier,
 				NOPs:                     ccvchangesets.NOPInputsFromTopology(topology),
 				Committee:                ccvchangesets.CommitteeInputFromTopologyPerFamily(committee, family),
-				PyroscopeURL:             obs.PyroscopeURL,
 				TargetNOPs:               verNOPAliases,
 				DisableFinalityCheckers:  disableFinalityCheckersPerFamily[family],
 				// Consolidated topology: one verifier job per NOP writing to every aggregator.
