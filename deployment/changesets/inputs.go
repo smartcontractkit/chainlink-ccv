@@ -1,6 +1,7 @@
 package changesets
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/deployment/shared"
@@ -26,6 +27,19 @@ func (n NOPInput) GetMode() shared.NOPMode {
 		return shared.NOPModeCL
 	}
 	return n.Mode
+}
+
+// resolveNOPMode applies GetMode's default and rejects unknown mode values.
+func resolveNOPMode(mode shared.NOPMode, alias shared.NOPAlias) (shared.NOPMode, error) {
+	if mode == "" {
+		mode = shared.NOPModeCL
+	}
+	switch mode {
+	case shared.NOPModeCL, shared.NOPModeStandalone:
+		return mode, nil
+	default:
+		return "", fmt.Errorf("NOP %q has unknown mode %q", alias, mode)
+	}
 }
 
 // CommitteeInput is the imperative per-committee input for ApplyVerifierConfig.

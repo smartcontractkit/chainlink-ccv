@@ -36,6 +36,7 @@ import (
 	_ "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/protocol_contracts"
 	_ "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/tokenverifier"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobspec"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/committeeverifier"
 	executorsvc "github.com/smartcontractkit/chainlink-ccv/build/devenv/services/executor"
@@ -517,21 +518,11 @@ func generateExecutorJobSpecs(
 			}
 
 			// TODO: Use bootstrap.JobSpec in CLD to avoid this conversion here
-			var executorSpec ExecutorJobSpec
-			{
-				md, err := toml.Decode(job.Spec, &executorSpec)
-				if err != nil {
-					return nil, fmt.Errorf("failed to decode verifier job spec for %s: %w", exec.ContainerName, err)
-				}
-				if len(md.Undecoded()) > 0 {
-					L.Warn().
-						Str("spec", job.Spec).
-						Str("undecoded fields", fmt.Sprintf("%v", md.Undecoded())).
-						Msg("Undecoded fields in executor job spec")
-					return nil, fmt.Errorf("unknown fields in executor job spec for %s: %v", exec.ContainerName, md.Undecoded())
-				}
-				executorJobSpecs[exec.ContainerName] = executorSpec.ToBootstrapJobSpec()
+			bootSpec, err := jobspec.ParseExecutorBootstrapJobSpec(job.Spec)
+			if err != nil {
+				return nil, fmt.Errorf("failed to decode executor job spec for %s: %w", exec.ContainerName, err)
 			}
+			executorJobSpecs[exec.ContainerName] = bootSpec
 		}
 	}
 
@@ -645,21 +636,11 @@ func generateVerifierJobSpecs(
 					return nil, fmt.Errorf("failed to get consolidated verifier job spec for %s: %w", ver.ContainerName, err)
 				}
 
-				// TODO: Use bootstrap.JobSpec in CLD to avoid this conversion here
-				var verifierJobSpec VerifierJobSpec
-				md, err := toml.Decode(job.Spec, &verifierJobSpec)
+				bootSpec, err := jobspec.ParseVerifierBootstrapJobSpec(job.Spec)
 				if err != nil {
 					return nil, fmt.Errorf("failed to decode verifier job spec for %s: %w", ver.ContainerName, err)
 				}
-				if len(md.Undecoded()) > 0 {
-					L.Warn().
-						Str("spec", job.Spec).
-						Str("undecoded fields", fmt.Sprintf("%v", md.Undecoded())).
-						Msg("Undecoded fields in verifier job spec")
-					return nil, fmt.Errorf("unknown fields in verifier job spec for %s: %v", ver.ContainerName, md.Undecoded())
-				}
 
-				bootSpec := verifierJobSpec.ToBootstrapJobSpec()
 				verifierJobSpecs[ver.NOPAlias] = []bootstrap.JobSpec{bootSpec}
 				ver.GeneratedJobSpecs = []bootstrap.JobSpec{bootSpec}
 
@@ -1236,44 +1217,6 @@ type AggregatorSecret struct {
 type IndexerSecret struct {
 	APIKey    string `toml:",omitempty"`
 	APISecret string `toml:",omitempty"`
-}
-
-// VerifierJobSpec represents the structure of a verifier job spec TOML.
-type VerifierJobSpec struct {
-	Name                    string `toml:"name"`
-	ExternalJobID           string `toml:"externalJobID"`
-	SchemaVersion           int    `toml:"schemaVersion"`
-	Type                    string `toml:"type"`
-	CommitteeVerifierConfig string `toml:"committeeVerifierConfig"`
-}
-
-func (vjs VerifierJobSpec) ToBootstrapJobSpec() bootstrap.JobSpec {
-	return bootstrap.JobSpec{
-		Name:          vjs.Name,
-		ExternalJobID: vjs.ExternalJobID,
-		SchemaVersion: vjs.SchemaVersion,
-		Type:          vjs.Type,
-		AppConfig:     vjs.CommitteeVerifierConfig,
-	}
-}
-
-// ExecutorJobSpec represents the structure of an executor job spec TOML.
-type ExecutorJobSpec struct {
-	Name           string `toml:"name"`
-	ExternalJobID  string `toml:"externalJobID"`
-	SchemaVersion  int    `toml:"schemaVersion"`
-	Type           string `toml:"type"`
-	ExecutorConfig string `toml:"executorConfig"`
-}
-
-func (ejs ExecutorJobSpec) ToBootstrapJobSpec() bootstrap.JobSpec {
-	return bootstrap.JobSpec{
-		Name:          ejs.Name,
-		ExternalJobID: ejs.ExternalJobID,
-		SchemaVersion: ejs.SchemaVersion,
-		Type:          ejs.Type,
-		AppConfig:     ejs.ExecutorConfig,
-	}
 }
 
 // extractAndValidateDisableFinalityCheckers extracts DisableFinalityCheckers from verifiers

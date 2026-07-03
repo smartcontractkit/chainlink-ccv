@@ -7,7 +7,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/pelletier/go-toml/v2"
 	"golang.org/x/sync/errgroup"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
@@ -19,6 +18,7 @@ import (
 	jdcomp "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/jd"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/components/observability"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobspec"
 	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	executorsvc "github.com/smartcontractkit/chainlink-ccv/build/devenv/services/executor"
@@ -256,24 +256,6 @@ func registerWithJD(ctx context.Context, executors []*executorsvc.Input, jdInfra
 	return g.Wait()
 }
 
-type executorJobSpec struct {
-	Name           string `toml:"name"`
-	ExternalJobID  string `toml:"externalJobID"`
-	SchemaVersion  int    `toml:"schemaVersion"`
-	Type           string `toml:"type"`
-	ExecutorConfig string `toml:"executorConfig"`
-}
-
-func (ejs executorJobSpec) toBootstrapJobSpec() bootstrap.JobSpec {
-	return bootstrap.JobSpec{
-		Name:          ejs.Name,
-		ExternalJobID: ejs.ExternalJobID,
-		SchemaVersion: ejs.SchemaVersion,
-		Type:          ejs.Type,
-		AppConfig:     ejs.ExecutorConfig,
-	}
-}
-
 func buildExecutorJobSpecs(
 	e *deployment.Environment,
 	executors []*executorsvc.Input,
@@ -325,11 +307,11 @@ func buildExecutorJobSpecs(
 			if err != nil {
 				return nil, fmt.Errorf("executor: getting job spec for %s: %w", exec.ContainerName, err)
 			}
-			var spec executorJobSpec
-			if err := toml.Unmarshal([]byte(job.Spec), &spec); err != nil {
+			bootSpec, err := jobspec.ParseExecutorBootstrapJobSpec(job.Spec)
+			if err != nil {
 				return nil, fmt.Errorf("executor: decoding job spec for %s: %w", exec.ContainerName, err)
 			}
-			result[exec.ContainerName] = spec.toBootstrapJobSpec()
+			result[exec.ContainerName] = bootSpec
 		}
 	}
 
