@@ -138,19 +138,9 @@ func (tc *tokenTransferV3TestCase) Run(ctx context.Context) error {
 	}
 	msgID := sendRes.MessageID
 
-	var aggregatorClient *ccv.AggregatorClient
-	var indexerMonitor *ccv.IndexerMonitor
-	if !tc.args.Run.OnchainAssertionOnly {
-		aggregatorClients, aggErr := tc.lib.AllAggregators()
-		if aggErr != nil {
-			return fmt.Errorf("failed to get aggregator clients: %w", aggErr)
-		}
-		aggregatorClient = aggregatorClients[common.DefaultCommitteeVerifierQualifier]
-		var monErr error
-		indexerMonitor, monErr = tc.lib.IndexerMonitor()
-		if monErr != nil {
-			return fmt.Errorf("failed to get indexer monitor: %w", monErr)
-		}
+	aggregatorClient, indexerMonitor, err := tcapi.SetupOffchainClients(tc.lib, "")
+	if err != nil {
+		return err
 	}
 	testCtx, cleanupFn := tcapi.NewTestingContext(ctx, chainMap, aggregatorClient, indexerMonitor)
 	defer cleanupFn()
@@ -165,10 +155,8 @@ func (tc *tokenTransferV3TestCase) Run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("assert message: %w", err)
 	}
-	if !tc.args.Run.OnchainAssertionOnly {
-		if res.AggregatedResult == nil {
-			return fmt.Errorf("aggregated result is nil")
-		}
+	if aggregatorClient != nil && res.AggregatedResult == nil {
+		return fmt.Errorf("aggregated result is nil")
 	}
 
 	execEvt, err := dst.ConfirmExecOnDest(ctx, tc.src, messageKey, execTimeout)

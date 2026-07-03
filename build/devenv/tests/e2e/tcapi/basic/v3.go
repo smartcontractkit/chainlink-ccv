@@ -111,14 +111,9 @@ func (tc *v3TestCase) Run(ctx context.Context) error {
 	}
 	messageID := sendMessageResult.MessageID
 
-	var aggregatorClient *ccv.AggregatorClient
-	var indexerMonitor *ccv.IndexerMonitor
-	if !tc.args.Run.OnchainAssertionOnly {
-		var setupErr error
-		aggregatorClient, indexerMonitor, setupErr = setupAggregatorAndIndexer(tc.lib, tc.aggregatorQualifier)
-		if setupErr != nil {
-			return setupErr
-		}
+	aggregatorClient, indexerMonitor, err := tcapi.SetupOffchainClients(tc.lib, tc.aggregatorQualifier)
+	if err != nil {
+		return err
 	}
 	testCtx, cleanupFn := tcapi.NewTestingContext(ctx, chainMap, aggregatorClient, indexerMonitor)
 	defer cleanupFn()
@@ -133,13 +128,11 @@ func (tc *v3TestCase) Run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to assert message: %w", err)
 	}
-	if !tc.args.Run.OnchainAssertionOnly {
-		if result.AggregatedResult == nil {
-			return fmt.Errorf("aggregated result is nil")
-		}
-		if len(result.IndexedVerifications.Results) != tc.numExpectedVerifications {
-			return fmt.Errorf("expected %d indexed verifications, got %d", tc.numExpectedVerifications, len(result.IndexedVerifications.Results))
-		}
+	if aggregatorClient != nil && result.AggregatedResult == nil {
+		return fmt.Errorf("aggregated result is nil")
+	}
+	if indexerMonitor != nil && len(result.IndexedVerifications.Results) != tc.numExpectedVerifications {
+		return fmt.Errorf("expected %d indexed verifications, got %d", tc.numExpectedVerifications, len(result.IndexedVerifications.Results))
 	}
 
 	e, err := dst.ConfirmExecOnDest(ctx, tc.src, messageKey, execTimeout)
@@ -156,24 +149,6 @@ func (tc *v3TestCase) Run(ctx context.Context) error {
 
 func (tc *v3TestCase) HavePrerequisites(ctx context.Context) bool {
 	return tc.ensureHydrated(ctx) == nil
-}
-
-func setupAggregatorAndIndexer(lib ccv.Lib, aggregatorQualifier string) (*ccv.AggregatorClient, *ccv.IndexerMonitor, error) {
-	aggregatorClients, err := lib.AllAggregators()
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get aggregator clients: %w", err)
-	}
-	aggregatorClient := aggregatorClients[common.DefaultCommitteeVerifierQualifier]
-	if aggregatorQualifier != "" && aggregatorQualifier != common.DefaultCommitteeVerifierQualifier {
-		if client, ok := aggregatorClients[aggregatorQualifier]; ok {
-			aggregatorClient = client
-		}
-	}
-	indexerMonitor, err := lib.IndexerMonitor()
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get indexer monitor: %w", err)
-	}
-	return aggregatorClient, indexerMonitor, nil
 }
 
 func getCommitteeCCV(resolver chainreg.AddressResolver, ds datastore.DataStore, srcChainSelector uint64, qualifier string) (protocol.CCV, error) {

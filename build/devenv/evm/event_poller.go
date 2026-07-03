@@ -13,8 +13,8 @@ import (
 
 // fallbackLookbackBlocks bounds how far back the first eth_getLogs scan reaches on a
 // long-lived chain, so it neither scans from genesis nor exceeds the provider's
-// getLogs range limit — in blocks, not wall-clock, since the target event is always
-// recent. Mirrors verifier/pkg/sourcereader's DefaultMaxBlockRange.
+// getLogs range limit. The bound is in blocks, not wall-clock, since the target event
+// is always recent. Mirrors verifier/pkg/sourcereader's DefaultMaxBlockRange.
 const fallbackLookbackBlocks uint64 = 1500
 
 type eventKey struct {
