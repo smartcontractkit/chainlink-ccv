@@ -229,13 +229,13 @@ func TestConfiguration_Validate(t *testing.T) {
 			wantErrContains: "execution_interval must not be negative",
 		},
 		{
-			name: "monitoring_enabled_without_type_fails",
+			name: "monitoring_enabled_invalid_log_level_fails",
 			config: func() Configuration {
 				c := validConfig()
-				c.Monitoring = MonitoringConfig{Enabled: true, Type: ""}
+				c.Monitoring = MonitoringConfig{LogLevel: "invalid"}
 				return c
 			}(),
-			wantErrContains: "monitoring type is required",
+			wantErrContains: "log_level is invalid",
 		},
 	}
 

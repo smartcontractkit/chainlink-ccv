@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
+	"github.com/grafana/pyroscope-go"
 	"github.com/jmoiron/sqlx"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.uber.org/zap/zapcore"
@@ -142,6 +143,8 @@ type Bootstrapper struct {
 
 	// accCloser is set by startWithAppConfig; JD mode uses runner.accCloser instead.
 	accCloser *AccessorCloserRegistry
+	// pyroscope is a saved reference to profiler to close it on stop
+	pyroscope *pyroscope.Profiler
 
 	logLevel zapcore.Level
 }
@@ -211,15 +214,20 @@ func NewBootstrapper(
 	if b.config != nil && b.config.Monitoring != nil {
 		mon = *b.config.Monitoring
 	}
-	err := monitoring.SetupBeholder(mon, fac.MetricViews())
+	err := monitoring.SetupBeholder(mon.Beholder, fac.MetricViews())
 	if err != nil {
 		return nil, fmt.Errorf("failed to setup beholder: %w", err)
 	}
-	lggr, err := logging.InitLogger(b.name, b.logLevel, mon)
+	lggr, err := logging.InitLogger(b.name, mon.LogLevel, mon)
 	if err != nil {
 		return nil, fmt.Errorf("failed to init logger: %w", err)
 	}
 	b.lggr = lggr
+	pyroscopeProfiler, err := monitoring.SetupPyroscope(lggr, b.name, mon.Pyroscope)
+	if err != nil {
+		return nil, fmt.Errorf("failed to setup pyroscope: %w", err)
+	}
+	b.pyroscope = pyroscopeProfiler
 	lggr.Infow("Monitoring initialized", "config", mon)
 
 	return b, nil
@@ -448,6 +456,12 @@ func (b *Bootstrapper) Stop(ctx context.Context) error {
 	if b.infoServer != nil {
 		if err := b.infoServer.Stop(ctx); err != nil {
 			return fmt.Errorf("failed to stop info server: %w", err)
+		}
+	}
+	if b.pyroscope != nil {
+		err := b.pyroscope.Stop()
+		if err != nil {
+			return fmt.Errorf("failed to stop pyroscope: %w", err)
 		}
 	}
 	if b.appCfg != nil {

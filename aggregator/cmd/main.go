@@ -148,8 +148,8 @@ func runServer(configPath string, lggr logger.Logger, sugaredLggr logger.Sugared
 	}
 	lggr.Infow("Successfully loaded configuration from environment variables")
 
-	var aggMonitoring common.AggregatorMonitoring = &monitoring.NoopAggregatorMonitoring{}
-	if config.Monitoring.Enabled && config.Monitoring.Type == "beholder" {
+	var aggMonitoring common.AggregatorMonitoring = monitoring.NewNoopAggregatorMonitoring()
+	if config.Monitoring.Beholder.Enabled {
 		m, err := monitoring.InitMonitoring(beholder.Config{
 			InsecureConnection:       config.Monitoring.Beholder.InsecureConnection,
 			CACertFile:               config.Monitoring.Beholder.CACertFile,

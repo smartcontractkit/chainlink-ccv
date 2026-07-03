@@ -14,20 +14,22 @@ version = 1
 ## the top-level [environment_topology] section in env.toml.
 [observability]
 version = 1
-pyroscope_url = "http://host.docker.internal:4040"
+[observability.Monitoring]
+LogLevel = 'debug'
 
-[observability.monitoring]
+[observability.Monitoring.Pyroscope]
+Enabled = false
+URL = ''
+
+[observability.Monitoring.Beholder]
 Enabled = true
-Type = "beholder"
-
-[observability.monitoring.Beholder]
 InsecureConnection = true
 OtelExporterHTTPEndpoint = "host.docker.internal:4318"
 LogStreamingEnabled = true
 MetricReaderInterval = 5
 TraceSampleRatio = 1.0
 TraceBatchTimeout = 10
-[observability.monitoring.Beholder.TelemetryAttributes]
+[observability.Monitoring.Beholder.TelemetryAttributes]
 ccip_env = "devenv"
 
 [protocol_contracts]
@@ -394,13 +396,17 @@ execution_interval = 15_000_000_000
   # Optional: full DB connection string (container-to-container). When set, used for storage config and output.
 
 [indexer.indexer_config]
-LogLevel = 'info'
+LogLevel = 'debug'
 
 [indexer.indexer_config.Monitoring]
-Enabled = true
-Type = 'beholder'
+LogLevel = 'debug'
+
+[indexer.indexer_config.Monitoring.Pyroscope]
+Enabled = false
+URL = ''
 
 [indexer.indexer_config.Monitoring.Beholder]
+Enabled = true
 InsecureConnection = true
 CACertFile = ''
 OtelExporterGRPCEndpoint = ''

@@ -14,6 +14,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
+
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainreg"
@@ -719,32 +720,11 @@ func NewEnvironment() (in *Cfg, err error) {
 			return nil, fmt.Errorf("fake data provider is required for token verifiers to provide attestation API endpoints, but it was not created successfully")
 		}
 
-		template, err := tokenVerifierInput.GenerateTemplateConfig()
-		if err != nil {
-			return nil, fmt.Errorf("failed to generate template config for token verifier: %w", err)
-		}
-
 		// Use changeset to generate token verifier config from on-chain state
 		cs := ccvchangesets.GenerateTokenVerifierConfig()
 		output, err := cs.Apply(*e, ccvchangesets.GenerateTokenVerifierConfigInput{
 			ServiceIdentifier: "TokenVerifier",
 			ChainSelectors:    selectors,
-			PyroscopeURL:      template.PyroscopeURL,
-			Monitoring: ccvdeployment.MonitoringConfig{
-				Enabled: template.Monitoring.Enabled,
-				Type:    template.Monitoring.Type,
-				Beholder: ccvdeployment.BeholderConfig{
-					InsecureConnection:       template.Monitoring.Beholder.InsecureConnection,
-					CACertFile:               template.Monitoring.Beholder.CACertFile,
-					OtelExporterGRPCEndpoint: template.Monitoring.Beholder.OtelExporterGRPCEndpoint,
-					OtelExporterHTTPEndpoint: template.Monitoring.Beholder.OtelExporterHTTPEndpoint,
-					LogStreamingEnabled:      template.Monitoring.Beholder.LogStreamingEnabled,
-					MetricReaderInterval:     template.Monitoring.Beholder.MetricReaderInterval,
-					TraceSampleRatio:         template.Monitoring.Beholder.TraceSampleRatio,
-					TraceBatchTimeout:        template.Monitoring.Beholder.TraceBatchTimeout,
-					TelemetryAttributes:      template.Monitoring.Beholder.TelemetryAttributes,
-				},
-			},
 			Lombard: ccvchangesets.LombardConfigInput{
 				VerifierID:     "LombardVerifier",
 				Qualifier:      devenvcommon.LombardVerifierResolverQualifier,

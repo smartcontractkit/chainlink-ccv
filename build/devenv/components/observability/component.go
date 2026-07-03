@@ -21,8 +21,7 @@ const Version = 1
 // and executor components to consume. The toml tags keep the serialized phased
 // output stable.
 type Observability struct {
-	PyroscopeURL string                         `toml:"pyroscope_url"`
-	Monitoring   ccvdeployment.MonitoringConfig `toml:"monitoring"`
+	Monitoring ccvdeployment.MonitoringConfig `toml:"monitoring"`
 }
 
 func init() {
@@ -79,7 +78,6 @@ func decode(raw any) (*Observability, error) {
 		return nil, err
 	}
 	return &Observability{
-		PyroscopeURL: cfg.PyroscopeURL,
-		Monitoring:   cfg.Monitoring,
+		Monitoring: cfg.Monitoring,
 	}, nil
 }

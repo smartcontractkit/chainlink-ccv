@@ -35,9 +35,6 @@ const (
 	DefaultTokenVerifierDBPort        = 8450
 )
 
-//go:embed tokenVerifier.template.toml
-var tokenVerifierConfigTemplate string
-
 type TokenVerifierDBInput struct {
 	Image string `toml:"image"`
 	Name  string `toml:"name"`
@@ -298,12 +295,4 @@ func (v *TokenVerifierInput) GenerateConfigWithBlockchainInfos(blockchainInfos c
 		return nil, fmt.Errorf("failed to marshal verifier config to TOML: %w", err)
 	}
 	return cfg, nil
-}
-
-func (v *TokenVerifierInput) GenerateTemplateConfig() (*token.Config, error) {
-	var config *token.Config
-	if _, err := toml.Decode(tokenVerifierConfigTemplate, &config); err != nil {
-		return nil, fmt.Errorf("failed to decode verifier config template: %w", err)
-	}
-	return config, nil
 }

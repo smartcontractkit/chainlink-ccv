@@ -15,7 +15,7 @@ import (
 
 // SetupMonitoring configures executor monitoring via Beholder or returns a noop implementation.
 func SetupMonitoring(config executor.MonitoringConfig) executor.Monitoring {
-	if !config.Enabled || config.Type != "beholder" {
+	if !config.Beholder.Enabled {
 		return monitoring.NewNoopExecutorMonitoring()
 	}
 
