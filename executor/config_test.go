@@ -255,35 +255,35 @@ func TestConfiguration_Validate(t *testing.T) {
 
 func TestConfiguration_GetNormalizedConfig(t *testing.T) {
 	cases := []struct {
-		name                    string
-		config                  Configuration
-		wantErr                 bool
-		wantErrContains         string
-		wantIndexerAddressCount int
-		wantBackoffDuration     time.Duration
-		wantLookbackWindow      time.Duration
-		wantReaderCacheExpiry   time.Duration
-		wantMaxRetryDuration         time.Duration
+		name                          string
+		config                        Configuration
+		wantErr                       bool
+		wantErrContains               string
+		wantIndexerAddressCount       int
+		wantBackoffDuration           time.Duration
+		wantLookbackWindow            time.Duration
+		wantReaderCacheExpiry         time.Duration
+		wantMaxRetryDuration          time.Duration
 		wantDataNotReadyRetryInterval time.Duration
-		wantExecutionInterval        time.Duration
-		wantNtpServer           string
-		wantWorkerCount         int
-		wantIndexerQueryLimit   uint64
+		wantExecutionInterval         time.Duration
+		wantNtpServer                 string
+		wantWorkerCount               int
+		wantIndexerQueryLimit         uint64
 	}{
 		{
-			name:                    "single_indexer_address_with_defaults",
-			config:                  validConfig(),
-			wantErr:                 false,
-			wantIndexerAddressCount: 1,
-			wantBackoffDuration:     backoffDurationDefault,
-			wantLookbackWindow:      lookbackWindowDefault,
-			wantReaderCacheExpiry:   readerCacheExpiryDefault,
+			name:                          "single_indexer_address_with_defaults",
+			config:                        validConfig(),
+			wantErr:                       false,
+			wantIndexerAddressCount:       1,
+			wantBackoffDuration:           backoffDurationDefault,
+			wantLookbackWindow:            lookbackWindowDefault,
+			wantReaderCacheExpiry:         readerCacheExpiryDefault,
 			wantMaxRetryDuration:          maxRetryDurationDefault,
 			wantDataNotReadyRetryInterval: dataNotReadyRetryIntervalDefault,
 			wantExecutionInterval:         executionIntervalDefault,
-			wantNtpServer:           ntpServerDefault,
-			wantWorkerCount:         workerCountDefault,
-			wantIndexerQueryLimit:   IndexerQueryLimitDefault,
+			wantNtpServer:                 ntpServerDefault,
+			wantWorkerCount:               workerCountDefault,
+			wantIndexerQueryLimit:         IndexerQueryLimitDefault,
 		},
 		{
 			name: "multiple_indexer_addresses",
@@ -292,17 +292,17 @@ func TestConfiguration_GetNormalizedConfig(t *testing.T) {
 				c.IndexerAddress = []string{"http://indexer1:8100", "http://indexer2:8100"}
 				return c
 			}(),
-			wantErr:                 false,
-			wantIndexerAddressCount: 2,
-			wantBackoffDuration:     backoffDurationDefault,
-			wantLookbackWindow:      lookbackWindowDefault,
-			wantReaderCacheExpiry:   readerCacheExpiryDefault,
+			wantErr:                       false,
+			wantIndexerAddressCount:       2,
+			wantBackoffDuration:           backoffDurationDefault,
+			wantLookbackWindow:            lookbackWindowDefault,
+			wantReaderCacheExpiry:         readerCacheExpiryDefault,
 			wantMaxRetryDuration:          maxRetryDurationDefault,
 			wantDataNotReadyRetryInterval: dataNotReadyRetryIntervalDefault,
 			wantExecutionInterval:         executionIntervalDefault,
-			wantNtpServer:           ntpServerDefault,
-			wantWorkerCount:         workerCountDefault,
-			wantIndexerQueryLimit:   IndexerQueryLimitDefault,
+			wantNtpServer:                 ntpServerDefault,
+			wantWorkerCount:               workerCountDefault,
+			wantIndexerQueryLimit:         IndexerQueryLimitDefault,
 		},
 		{
 			name: "custom_values_preserved",
@@ -323,11 +323,11 @@ func TestConfiguration_GetNormalizedConfig(t *testing.T) {
 				c.ChainConfiguration = map[string]ChainConfiguration{"1": cc}
 				return c
 			}(),
-			wantErr:                 false,
-			wantIndexerAddressCount: 1,
-			wantBackoffDuration:     30 * time.Second,
-			wantLookbackWindow:      2 * time.Hour,
-			wantReaderCacheExpiry:   10 * time.Minute,
+			wantErr:                       false,
+			wantIndexerAddressCount:       1,
+			wantBackoffDuration:           30 * time.Second,
+			wantLookbackWindow:            2 * time.Hour,
+			wantReaderCacheExpiry:         10 * time.Minute,
 			wantMaxRetryDuration:          12 * time.Hour,
 			wantDataNotReadyRetryInterval: 2 * time.Second,
 			wantExecutionInterval:         2 * time.Minute,

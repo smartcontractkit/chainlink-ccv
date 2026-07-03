@@ -10,16 +10,16 @@ import (
 )
 
 const (
-	backoffDurationDefault              = 15 * time.Second
-	lookbackWindowDefault               = 1 * time.Hour
-	readerCacheExpiryDefault            = 5 * time.Minute
-	maxRetryDurationDefault             = 8 * time.Hour
-	executionIntervalDefault            = 1 * time.Minute
-	dataNotReadyRetryIntervalDefault    = 1 * time.Second
-	ntpServerDefault                    = "time.google.com"
-	workerCountDefault                  = 100
-	IndexerQueryLimitDefault            = 100
-	IndexerQueryLimitMax                = 10000
+	backoffDurationDefault           = 15 * time.Second
+	lookbackWindowDefault            = 1 * time.Hour
+	readerCacheExpiryDefault         = 5 * time.Minute
+	maxRetryDurationDefault          = 8 * time.Hour
+	executionIntervalDefault         = 1 * time.Minute
+	dataNotReadyRetryIntervalDefault = 1 * time.Second
+	ntpServerDefault                 = "time.google.com"
+	workerCountDefault               = 100
+	IndexerQueryLimitDefault         = 100
+	IndexerQueryLimitMax             = 10000
 )
 
 type ConfigWithBlockchainInfo[T any] struct {

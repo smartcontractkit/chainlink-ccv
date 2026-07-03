@@ -20,18 +20,18 @@ import (
 // dispatching them to workers for execution, and retrying if necessary.
 type Coordinator struct {
 	services.StateMachine
-	wg                 sync.WaitGroup
-	executor           Executor
-	messageSubscriber  MessageSubscriber
-	leaderElector      LeaderElector
-	lggr               logger.Logger
-	monitoring         Monitoring
-	workerPoolTasks    chan message_heap.MessageWithTimestamps
-	cancel             context.CancelFunc
-	delayedMessageHeap message_heap.MessageHeap
-	inFlight           map[protocol.Bytes32]struct{}
-	inFlightMu         sync.RWMutex
-	running            atomic.Bool
+	wg                        sync.WaitGroup
+	executor                  Executor
+	messageSubscriber         MessageSubscriber
+	leaderElector             LeaderElector
+	lggr                      logger.Logger
+	monitoring                Monitoring
+	workerPoolTasks           chan message_heap.MessageWithTimestamps
+	cancel                    context.CancelFunc
+	delayedMessageHeap        message_heap.MessageHeap
+	inFlight                  map[protocol.Bytes32]struct{}
+	inFlightMu                sync.RWMutex
+	running                   atomic.Bool
 	expiryDuration            time.Duration
 	timeProvider              common.TimeProvider
 	workerCount               int

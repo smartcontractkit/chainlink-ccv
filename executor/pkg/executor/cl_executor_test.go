@@ -433,12 +433,12 @@ func Test_ChainlinkExecutor_HandleMessage_ConvertAndWrite(t *testing.T) {
 	assert.NoError(t, err)
 
 	testcases := []struct {
-		name                        string
-		convertAndWriteErr          error
-		expectedRetry               bool
-		expectedError               bool
-		expectedExecutionContended  bool
-		expectedReportCheck         func(*testing.T, protocol.AbstractAggregatedReport) bool
+		name                       string
+		convertAndWriteErr         error
+		expectedRetry              bool
+		expectedError              bool
+		expectedExecutionContended bool
+		expectedReportCheck        func(*testing.T, protocol.AbstractAggregatedReport) bool
 	}{
 		{
 			name:               "ConvertAndWriteMessageToChain succeeds - should complete",
