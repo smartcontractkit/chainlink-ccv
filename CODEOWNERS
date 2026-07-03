@@ -1,3 +1,4 @@
 * @smartcontractkit/ccip-protocol
 build/devenv @smartcontractkit/ccip-platform
 deployment @smartcontractkit/ccip-platform
+bootstrap @smartcontractkit/ccip-platform
