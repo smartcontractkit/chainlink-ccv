@@ -16,6 +16,7 @@ type ExpiryWithMessage struct {
 	Message       *protocol.Message
 	ExpiryTime    time.Time
 	RetryInterval time.Duration
+	Attempt       int
 }
 
 // MessageWithTimestamps is the aggregated struct that is used when inserting and retrieving from the heap.
@@ -25,6 +26,7 @@ type MessageWithTimestamps struct {
 	ReadyTime     time.Time
 	Message       *protocol.Message
 	ExpiryTime    time.Time
+	Attempt       int
 }
 
 // MessageHeapEntry is the minimal set of data needed to maintain the priority queue heap.
@@ -122,6 +124,7 @@ func (mh *MessageHeap) Push(msg MessageWithTimestamps) bool {
 		Message:       msg.Message,
 		ExpiryTime:    msg.ExpiryTime,
 		RetryInterval: msg.RetryInterval,
+		Attempt:       msg.Attempt,
 	}
 	return true
 }
@@ -154,6 +157,7 @@ func (mh *MessageHeap) PopAllReady(timestamp time.Time) []MessageWithTimestamps 
 			ReadyTime:     entry.ReadyTime,
 			Message:       data.Message,
 			ExpiryTime:    data.ExpiryTime,
+			Attempt:       data.Attempt,
 		})
 		delete(mh.dataMap, entry.MessageID)
 	}

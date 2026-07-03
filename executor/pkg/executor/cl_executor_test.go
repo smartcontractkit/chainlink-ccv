@@ -330,6 +330,7 @@ func Test_ChainlinkExecutor_HandleMessage_VerifierResults(t *testing.T) {
 				assert.Error(t, err)
 				if tc.expectedNoResultsErr {
 					assert.Contains(t, err.Error(), "no verifier results")
+					assert.False(t, errors.Is(err, coordinator.ErrExecutionContended))
 				}
 			} else {
 				assert.NoError(t, err)
@@ -432,11 +433,12 @@ func Test_ChainlinkExecutor_HandleMessage_ConvertAndWrite(t *testing.T) {
 	assert.NoError(t, err)
 
 	testcases := []struct {
-		name                string
-		convertAndWriteErr  error
-		expectedRetry       bool
-		expectedError       bool
-		expectedReportCheck func(*testing.T, protocol.AbstractAggregatedReport) bool
+		name                        string
+		convertAndWriteErr          error
+		expectedRetry               bool
+		expectedError               bool
+		expectedExecutionContended  bool
+		expectedReportCheck         func(*testing.T, protocol.AbstractAggregatedReport) bool
 	}{
 		{
 			name:               "ConvertAndWriteMessageToChain succeeds - should complete",
@@ -445,10 +447,11 @@ func Test_ChainlinkExecutor_HandleMessage_ConvertAndWrite(t *testing.T) {
 			expectedError:      false,
 		},
 		{
-			name:               "ConvertAndWriteMessageToChain fails - should retry",
-			convertAndWriteErr: errors.New("convert and write failed"),
-			expectedRetry:      true,
-			expectedError:      true,
+			name:                       "ConvertAndWriteMessageToChain fails - should retry",
+			convertAndWriteErr:         errors.New("convert and write failed"),
+			expectedRetry:              true,
+			expectedError:              true,
+			expectedExecutionContended: true,
 		},
 		{
 			name:               "ConvertAndWriteMessageToChain encoding error - should not retry",
@@ -510,6 +513,9 @@ func Test_ChainlinkExecutor_HandleMessage_ConvertAndWrite(t *testing.T) {
 			assert.Equal(t, tc.expectedRetry, shouldRetry)
 			if tc.expectedError {
 				assert.Error(t, err)
+				if tc.expectedExecutionContended {
+					assert.True(t, errors.Is(err, coordinator.ErrExecutionContended))
+				}
 			} else {
 				assert.NoError(t, err)
 			}

@@ -32,9 +32,10 @@ type Coordinator struct {
 	inFlight           map[protocol.Bytes32]struct{}
 	inFlightMu         sync.RWMutex
 	running            atomic.Bool
-	expiryDuration     time.Duration
-	timeProvider       common.TimeProvider
-	workerCount        int
+	expiryDuration            time.Duration
+	timeProvider              common.TimeProvider
+	workerCount               int
+	dataNotReadyRetryInterval time.Duration
 }
 
 // NewCoordinator creates a new executor coordinator.
@@ -47,7 +48,11 @@ func NewCoordinator(
 	expiryDuration time.Duration,
 	timeProvider common.TimeProvider,
 	workerCount int,
+	dataNotReadyRetryInterval time.Duration,
 ) (*Coordinator, error) {
+	if dataNotReadyRetryInterval <= 0 {
+		dataNotReadyRetryInterval = DefaultDataNotReadyRetryInterval
+	}
 	ec := &Coordinator{
 		lggr:              lggr,
 		executor:          executor,
@@ -57,9 +62,10 @@ func NewCoordinator(
 		workerPoolTasks:   make(chan message_heap.MessageWithTimestamps),
 		// cancel and delayedMessageHeap are initialized in Start()
 		// running, wg, and services.StateMachine default initialization is fine.
-		expiryDuration: expiryDuration,
-		timeProvider:   timeProvider,
-		workerCount:    workerCount,
+		expiryDuration:            expiryDuration,
+		timeProvider:              timeProvider,
+		workerCount:               workerCount,
+		dataNotReadyRetryInterval: dataNotReadyRetryInterval,
 	}
 
 	if err := ec.validate(); err != nil {
@@ -212,6 +218,7 @@ func (ec *Coordinator) runStorageStream(ctx context.Context) {
 				ExpiryTime:    readyTimestamp.Add(ec.expiryDuration),
 				RetryInterval: retryDelay,
 				MessageID:     id,
+				Attempt:       0,
 			}) {
 				ec.lggr.Debugw("duplicate message rejected by heap", protocol.LogKeyMessageID, id)
 			}
@@ -287,12 +294,24 @@ func (ec *Coordinator) processPayload(ctx context.Context, payload message_heap.
 	shouldRetry, err := ec.executor.HandleMessage(ctx, message)
 	if shouldRetry {
 		ec.lggr.Debugw("message should be retried, putting back in heap", protocol.LogKeyMessageID, id)
+		attempt := payload.Attempt
+		var delay time.Duration
+		if errors.Is(err, ErrExecutionContended) {
+			// Post-transmit: preserve anti-duplication stagger.
+			delay = payload.RetryInterval
+			attempt = 0
+		} else {
+			// Pre-transmit (data/state not ready): fast exponential backoff capped at the stagger.
+			attempt++
+			delay = ec.dataNotReadyBackoff(attempt, payload.RetryInterval)
+		}
 		if !ec.delayedMessageHeap.Push(message_heap.MessageWithTimestamps{
 			Message:       &message,
-			ReadyTime:     payload.ReadyTime.Add(payload.RetryInterval),
+			ReadyTime:     currentTime.Add(delay),
 			ExpiryTime:    payload.ExpiryTime,
 			RetryInterval: payload.RetryInterval,
 			MessageID:     id,
+			Attempt:       attempt,
 		}) {
 			ec.lggr.Warnw("retry push rejected, message already in heap", protocol.LogKeyMessageID, id)
 		}
@@ -321,6 +340,20 @@ func (ec *Coordinator) inFlightHas(id protocol.Bytes32) bool {
 	defer ec.inFlightMu.RUnlock()
 	_, ok := ec.inFlight[id]
 	return ok
+}
+
+func (ec *Coordinator) dataNotReadyBackoff(attempt int, capDuration time.Duration) time.Duration {
+	if attempt < 1 {
+		attempt = 1
+	}
+	if attempt > 30 {
+		attempt = 30
+	}
+	d := ec.dataNotReadyRetryInterval << (attempt - 1)
+	if d <= 0 || (capDuration > 0 && d > capDuration) {
+		return capDuration
+	}
+	return d
 }
 
 // validate checks that all required components are configured.

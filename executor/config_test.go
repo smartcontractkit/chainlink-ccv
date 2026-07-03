@@ -263,8 +263,9 @@ func TestConfiguration_GetNormalizedConfig(t *testing.T) {
 		wantBackoffDuration     time.Duration
 		wantLookbackWindow      time.Duration
 		wantReaderCacheExpiry   time.Duration
-		wantMaxRetryDuration    time.Duration
-		wantExecutionInterval   time.Duration
+		wantMaxRetryDuration         time.Duration
+		wantDataNotReadyRetryInterval time.Duration
+		wantExecutionInterval        time.Duration
 		wantNtpServer           string
 		wantWorkerCount         int
 		wantIndexerQueryLimit   uint64
@@ -277,8 +278,9 @@ func TestConfiguration_GetNormalizedConfig(t *testing.T) {
 			wantBackoffDuration:     backoffDurationDefault,
 			wantLookbackWindow:      lookbackWindowDefault,
 			wantReaderCacheExpiry:   readerCacheExpiryDefault,
-			wantMaxRetryDuration:    maxRetryDurationDefault,
-			wantExecutionInterval:   executionIntervalDefault,
+			wantMaxRetryDuration:          maxRetryDurationDefault,
+			wantDataNotReadyRetryInterval: dataNotReadyRetryIntervalDefault,
+			wantExecutionInterval:         executionIntervalDefault,
 			wantNtpServer:           ntpServerDefault,
 			wantWorkerCount:         workerCountDefault,
 			wantIndexerQueryLimit:   IndexerQueryLimitDefault,
@@ -295,8 +297,9 @@ func TestConfiguration_GetNormalizedConfig(t *testing.T) {
 			wantBackoffDuration:     backoffDurationDefault,
 			wantLookbackWindow:      lookbackWindowDefault,
 			wantReaderCacheExpiry:   readerCacheExpiryDefault,
-			wantMaxRetryDuration:    maxRetryDurationDefault,
-			wantExecutionInterval:   executionIntervalDefault,
+			wantMaxRetryDuration:          maxRetryDurationDefault,
+			wantDataNotReadyRetryInterval: dataNotReadyRetryIntervalDefault,
+			wantExecutionInterval:         executionIntervalDefault,
 			wantNtpServer:           ntpServerDefault,
 			wantWorkerCount:         workerCountDefault,
 			wantIndexerQueryLimit:   IndexerQueryLimitDefault,
@@ -310,6 +313,7 @@ func TestConfiguration_GetNormalizedConfig(t *testing.T) {
 				c.LookbackWindow = 2 * time.Hour
 				c.ReaderCacheExpiry = 10 * time.Minute
 				c.MaxRetryDuration = 12 * time.Hour
+				c.DataNotReadyRetryInterval = 2 * time.Second
 				c.NtpServer = "custom.ntp.com"
 				c.WorkerCount = 200
 				c.IndexerQueryLimit = 500
@@ -324,11 +328,12 @@ func TestConfiguration_GetNormalizedConfig(t *testing.T) {
 			wantBackoffDuration:     30 * time.Second,
 			wantLookbackWindow:      2 * time.Hour,
 			wantReaderCacheExpiry:   10 * time.Minute,
-			wantMaxRetryDuration:    12 * time.Hour,
-			wantExecutionInterval:   2 * time.Minute,
-			wantNtpServer:           "custom.ntp.com",
-			wantWorkerCount:         200,
-			wantIndexerQueryLimit:   500,
+			wantMaxRetryDuration:          12 * time.Hour,
+			wantDataNotReadyRetryInterval: 2 * time.Second,
+			wantExecutionInterval:         2 * time.Minute,
+			wantNtpServer:                 "custom.ntp.com",
+			wantWorkerCount:               200,
+			wantIndexerQueryLimit:         500,
 		},
 		{
 			name: "defaults_applied_when_zero",
@@ -339,16 +344,17 @@ func TestConfiguration_GetNormalizedConfig(t *testing.T) {
 				c.ChainConfiguration = map[string]ChainConfiguration{"1": cc}
 				return c
 			}(),
-			wantErr:                 false,
-			wantIndexerAddressCount: 1,
-			wantBackoffDuration:     backoffDurationDefault,
-			wantLookbackWindow:      lookbackWindowDefault,
-			wantReaderCacheExpiry:   readerCacheExpiryDefault,
-			wantMaxRetryDuration:    maxRetryDurationDefault,
-			wantExecutionInterval:   executionIntervalDefault,
-			wantNtpServer:           ntpServerDefault,
-			wantWorkerCount:         workerCountDefault,
-			wantIndexerQueryLimit:   IndexerQueryLimitDefault,
+			wantErr:                       false,
+			wantIndexerAddressCount:       1,
+			wantBackoffDuration:           backoffDurationDefault,
+			wantLookbackWindow:            lookbackWindowDefault,
+			wantReaderCacheExpiry:         readerCacheExpiryDefault,
+			wantMaxRetryDuration:          maxRetryDurationDefault,
+			wantDataNotReadyRetryInterval: dataNotReadyRetryIntervalDefault,
+			wantExecutionInterval:         executionIntervalDefault,
+			wantNtpServer:                 ntpServerDefault,
+			wantWorkerCount:               workerCountDefault,
+			wantIndexerQueryLimit:         IndexerQueryLimitDefault,
 		},
 		{
 			name: "validation_errors_propagated",
@@ -378,6 +384,7 @@ func TestConfiguration_GetNormalizedConfig(t *testing.T) {
 				require.Equal(t, tc.wantLookbackWindow, normalized.LookbackWindow)
 				require.Equal(t, tc.wantReaderCacheExpiry, normalized.ReaderCacheExpiry)
 				require.Equal(t, tc.wantMaxRetryDuration, normalized.MaxRetryDuration)
+				require.Equal(t, tc.wantDataNotReadyRetryInterval, normalized.DataNotReadyRetryInterval)
 				require.Equal(t, tc.wantNtpServer, normalized.NtpServer)
 				require.Equal(t, tc.wantWorkerCount, normalized.WorkerCount)
 				require.Equal(t, tc.wantIndexerQueryLimit, normalized.IndexerQueryLimit)
