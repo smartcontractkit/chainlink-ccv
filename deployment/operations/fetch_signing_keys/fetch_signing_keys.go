@@ -2,6 +2,7 @@ package fetch_signing_keys
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/Masterminds/semver/v3"
 
@@ -21,6 +22,12 @@ type FetchSigningKeysInput struct {
 
 type FetchSigningKeysOutput struct {
 	SigningKeysByNOP SigningKeysByNOP
+	// RawPubKeyByNOP maps NOP alias -> raw uncompressed secp256k1 public key (hex, no
+	// 0x prefix, lowercased). A standalone node registers one signing key across every
+	// chain it declares, so this lets callers derive a signer address for a family the
+	// NOP never declared directly (e.g. a Canton verifier's EVM address), rather than
+	// only translating between families it already has an OnchainSigningAddress for.
+	RawPubKeyByNOP map[string]string
 }
 
 type FetchSigningKeysDeps struct {
@@ -39,6 +46,7 @@ var FetchNOPSigningKeys = operations.NewOperation(
 
 		output := FetchSigningKeysOutput{
 			SigningKeysByNOP: make(SigningKeysByNOP),
+			RawPubKeyByNOP:   make(map[string]string),
 		}
 
 		if len(input.NOPAliases) == 0 {
@@ -105,6 +113,16 @@ var FetchNOPSigningKeys = operations.NewOperation(
 				return output, fmt.Errorf("NOP %q has conflicting OCR key bundles for family %s: address %s vs %s — the job spec requires a single signing address (per-chain scoping not supported yet)", nopAlias, chainFamily, existing, addr)
 			}
 			output.SigningKeysByNOP[nopAlias][chainFamily] = addr
+
+			// Capture the raw public key too, so callers can bridge this NOP's identity
+			// into a family it never declared directly (see RawPubKeyByNOP).
+			if rawPubKey := chainConfig.Ocr2Config.OcrKeyBundle.OnchainSigningPubKey; rawPubKey != "" {
+				normalized := strings.ToLower(strings.TrimPrefix(rawPubKey, "0x"))
+				if existing, ok := output.RawPubKeyByNOP[nopAlias]; ok && existing != normalized {
+					return output, fmt.Errorf("NOP %q has conflicting raw public keys across chain configs: %s vs %s — a standalone node registers one key for every chain it declares", nopAlias, existing, normalized)
+				}
+				output.RawPubKeyByNOP[nopAlias] = normalized
+			}
 
 			lggr.Debugw("Found signing address",
 				"nopAlias", nopAlias,
