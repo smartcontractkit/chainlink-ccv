@@ -74,7 +74,6 @@ type AggregatorAPIKeyPair struct {
 }
 type AggregatorClientConfig struct {
 	ClientID    string                  `toml:"client_id"`
-	Description string                  `toml:"description"`
 	Enabled     bool                    `toml:"enabled"`
 	Groups      []string                `toml:"groups"`
 	APIKeyPairs []*AggregatorAPIKeyPair `toml:"api_key_pairs"`
@@ -274,7 +273,6 @@ func (a *AggregatorInput) GenerateConfigs(generatedConfigFileName string) (*Gene
 	for _, client := range a.APIClients {
 		config.APIClients = append(config.APIClients, &model.ClientConfig{
 			ClientID:    client.ClientID,
-			Description: client.Description,
 			Enabled:     client.Enabled,
 			Groups:      client.Groups,
 			APIKeyPairs: make([]*model.APIKeyPairEnv, 0, len(client.APIKeyPairs)),

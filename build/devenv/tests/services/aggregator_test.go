@@ -81,10 +81,9 @@ func TestServiceAggregator(t *testing.T) {
 			RedisDB:       "0",
 		},
 		APIClients: []*services.AggregatorClientConfig{{
-			ClientID:    "test",
-			Description: "Test client",
-			Enabled:     true,
-			Groups:      []string{},
+			ClientID: "test",
+			Enabled:  true,
+			Groups:   []string{},
 			APIKeyPairs: []*services.AggregatorAPIKeyPair{{
 				APIKey: testCredentials.APIKey,
 				Secret: testCredentials.Secret,
@@ -150,10 +149,9 @@ func TestServiceAggregatorAuthentication(t *testing.T) {
 		},
 		APIClients: []*services.AggregatorClientConfig{
 			{
-				ClientID:    "test",
-				Description: "Test client",
-				Enabled:     true,
-				Groups:      []string{},
+				ClientID: "test",
+				Enabled:  true,
+				Groups:   []string{},
 				APIKeyPairs: []*services.AggregatorAPIKeyPair{{
 					APIKey: testCredentials.APIKey,
 					Secret: testCredentials.Secret,
@@ -471,30 +469,27 @@ func setupAggregatorTestFixture(t *testing.T) *aggregatorTestFixture {
 		},
 		APIClients: []*services.AggregatorClientConfig{
 			{
-				ClientID:    "honest-verifier-1",
-				Description: "Honest verifier 1 client",
-				Enabled:     true,
-				Groups:      []string{"service-tests-1"},
+				ClientID: "honest-verifier-1",
+				Enabled:  true,
+				Groups:   []string{"service-tests-1"},
 				APIKeyPairs: []*services.AggregatorAPIKeyPair{{
 					APIKey: honest1Credentials.APIKey,
 					Secret: honest1Credentials.Secret,
 				}},
 			},
 			{
-				ClientID:    "honest-verifier-2",
-				Description: "Honest verifier 2 client",
-				Enabled:     true,
-				Groups:      []string{"service-tests-1"},
+				ClientID: "honest-verifier-2",
+				Enabled:  true,
+				Groups:   []string{"service-tests-1"},
 				APIKeyPairs: []*services.AggregatorAPIKeyPair{{
 					APIKey: honest2Credentials.APIKey,
 					Secret: honest2Credentials.Secret,
 				}},
 			},
 			{
-				ClientID:    "malicious-verifier",
-				Description: "Malicious verifier client",
-				Enabled:     true,
-				Groups:      []string{"service-tests-2"}, // Low rate limit group for testing
+				ClientID: "malicious-verifier",
+				Enabled:  true,
+				Groups:   []string{"service-tests-2"}, // Low rate limit group for testing
 				APIKeyPairs: []*services.AggregatorAPIKeyPair{{
 					APIKey: maliciousCredentials.APIKey,
 					Secret: maliciousCredentials.Secret,
