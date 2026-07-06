@@ -24,7 +24,7 @@ type CommitteeVerifierDeployParams struct {
 	Qualifier string
 }
 
-// DeployCommitteeVerifierInput is the chain-agnostic input passed to a
+// CommitteeVerifierDeployInput is the chain-agnostic input passed to a
 // CommitteeVerifierDeployAdapter sequence. Per-family adapters are
 // responsible for interpreting DeployerContract (e.g. a CREATE2Factory hex
 // address on EVM) and for looking up family-specific dependencies (such as
@@ -33,17 +33,17 @@ type CommitteeVerifierDeployParams struct {
 // Deployed contracts remain owned by the deployer key. Transferring
 // ownership to a timelock/MCMS is composed by a separate changeset on top
 // (see CCIP-11432).
-type DeployCommitteeVerifierInput struct {
+type CommitteeVerifierDeployInput struct {
 	ChainSelector     uint64
 	DeployerContract  string
 	ExistingAddresses []datastore.AddressRef
 	Params            CommitteeVerifierDeployParams
 }
 
-// DeployCommitteeVerifierOutput is the chain-agnostic output of a
+// CommitteeVerifierDeployOutput is the chain-agnostic output of a
 // CommitteeVerifier deploy. Adapters return any newly deployed addresses
 // and MCMS batch operations produced by post-deploy configuration writes.
-type DeployCommitteeVerifierOutput struct {
+type CommitteeVerifierDeployOutput struct {
 	Addresses []datastore.AddressRef
 	BatchOps  []mcmstypes.BatchOperation
 }
@@ -63,5 +63,5 @@ type CommitteeVerifierDeployAdapter interface {
 	// is expected to be idempotent: re-running on a chain where the
 	// verifier already exists reconciles any drifted dynamic config rather
 	// than redeploying.
-	DeployCommitteeVerifier() *operations.Sequence[DeployCommitteeVerifierInput, DeployCommitteeVerifierOutput, chain.BlockChains]
+	DeployCommitteeVerifier() *operations.Sequence[CommitteeVerifierDeployInput, CommitteeVerifierDeployOutput, chain.BlockChains]
 }

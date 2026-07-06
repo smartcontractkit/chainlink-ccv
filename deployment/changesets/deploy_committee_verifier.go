@@ -14,9 +14,9 @@ import (
 // DeployCommitteeVerifierPerChainCfg carries the per-chain inputs for one
 // invocation of the chain-agnostic CommitteeVerifier deploy. DeployerContract
 // is interpreted by the chain-family adapter (e.g. CREATE2Factory hex on EVM).
+// Committee-specific parameters come from DeployCommitteeVerifierInput.Committees.
 type DeployCommitteeVerifierPerChainCfg struct {
 	DeployerContract string
-	Params           adapters.CommitteeVerifierDeployParams
 }
 
 // DeployCommitteeVerifierInput is the imperative input for the chain-agnostic

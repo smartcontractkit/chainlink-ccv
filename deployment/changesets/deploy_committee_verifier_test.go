@@ -26,12 +26,12 @@ var stubDeploySequence = operations.NewSequence(
 	"stub-deploy-committee-verifier",
 	semver.MustParse("1.0.0"),
 	"stub sequence used only by validation tests",
-	func(_ operations.Bundle, _ cldf_chain.BlockChains, _ adapters.DeployCommitteeVerifierInput) (adapters.DeployCommitteeVerifierOutput, error) {
-		return adapters.DeployCommitteeVerifierOutput{}, nil
+	func(_ operations.Bundle, _ cldf_chain.BlockChains, _ adapters.CommitteeVerifierDeployInput) (adapters.CommitteeVerifierDeployOutput, error) {
+		return adapters.CommitteeVerifierDeployOutput{}, nil
 	},
 )
 
-func (s *stubDeployAdapter) DeployCommitteeVerifier() *operations.Sequence[adapters.DeployCommitteeVerifierInput, adapters.DeployCommitteeVerifierOutput, cldf_chain.BlockChains] {
+func (s *stubDeployAdapter) DeployCommitteeVerifier() *operations.Sequence[adapters.CommitteeVerifierDeployInput, adapters.CommitteeVerifierDeployOutput, cldf_chain.BlockChains] {
 	return stubDeploySequence
 }
 

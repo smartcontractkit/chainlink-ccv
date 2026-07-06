@@ -183,7 +183,7 @@ func deployCommitteeVerifiersOnChains(
 		)
 
 		for _, committee := range cfg.Committees {
-			input := adapters.DeployCommitteeVerifierInput{
+			input := adapters.CommitteeVerifierDeployInput{
 				ChainSelector:     sel,
 				DeployerContract:  cfg.resolveChainCfg(sel).DeployerContract,
 				ExistingAddresses: existingAddresses,
