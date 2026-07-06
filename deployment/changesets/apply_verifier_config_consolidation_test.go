@@ -20,7 +20,7 @@ func buildVerifierSpecsForTest(t *testing.T, consolidate bool) shared.NOPJobSpec
 		"1": {
 			CommitteeVerifierAddress: "0xCommittee1",
 			OnRampAddress:            "0xOnRamp1",
-			ExecutorProxyAddress:     "0xExec1",
+			ExecutorAddress:          "0xExec1",
 			RMNRemoteAddress:         "0xRMN1",
 		},
 	}
@@ -135,7 +135,7 @@ func buildVerifierJobSpecWithMode(t *testing.T, mode shared.NOPMode) string {
 		"1": {
 			CommitteeVerifierAddress: "0xCommittee1",
 			OnRampAddress:            "0xOnRamp1",
-			ExecutorProxyAddress:     "0xExec1",
+			ExecutorAddress:          "0xExec1",
 			RMNRemoteAddress:         "0xRMN1",
 		},
 	}

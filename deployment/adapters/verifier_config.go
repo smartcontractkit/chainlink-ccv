@@ -7,7 +7,7 @@ import (
 type VerifierContractAddresses struct {
 	CommitteeVerifierAddress string
 	OnRampAddress            string
-	ExecutorProxyAddress     string
+	ExecutorAddress          string
 	RMNRemoteAddress         string
 }
 

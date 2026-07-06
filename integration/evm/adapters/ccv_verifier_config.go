@@ -73,7 +73,7 @@ func (a *EVMCCVVerifierConfigAdapter) ResolveVerifierContractAddresses(
 	return &ccvdeploymentadapters.VerifierContractAddresses{
 		CommitteeVerifierAddress: committeeVerifierAddr,
 		OnRampAddress:            onRampAddr,
-		ExecutorProxyAddress:     executorAddr,
+		ExecutorAddress:          executorAddr,
 		RMNRemoteAddress:         rmnRemoteAddr,
 	}, nil
 }

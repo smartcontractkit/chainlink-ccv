@@ -351,7 +351,7 @@ func buildVerifierJobSpecs(
 	for chainSel, addrs := range contractAddresses {
 		committeeVerifierAddrs[chainSel] = addrs.CommitteeVerifierAddress
 		onRampAddrs[chainSel] = addrs.OnRampAddress
-		executorOnRampAddrs[chainSel] = addrs.ExecutorProxyAddress
+		executorOnRampAddrs[chainSel] = addrs.ExecutorAddress
 		rmnRemoteAddrs[chainSel] = addrs.RMNRemoteAddress
 	}
 
