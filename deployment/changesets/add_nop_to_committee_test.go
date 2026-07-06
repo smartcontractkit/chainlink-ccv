@@ -25,6 +25,7 @@ import (
 	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
 	"github.com/smartcontractkit/chainlink-ccv/deployment/adapters"
 	"github.com/smartcontractkit/chainlink-ccv/deployment/shared"
+	"github.com/smartcontractkit/chainlink-ccv/executor"
 )
 
 const (
@@ -718,6 +719,7 @@ var (
 	_ adapters.CommitteeVerifierOnchainAdapter = (*stubFullAdapter)(nil)
 	_ adapters.AggregatorConfigAdapter         = (*stubFullAdapter)(nil)
 	_ adapters.VerifierConfigAdapter           = (*stubFullAdapter)(nil)
+	_ adapters.ExecutorConfigAdapter           = (*stubFullAdapter)(nil)
 )
 
 func (s *stubFullAdapter) ScanCommitteeStates(_ context.Context, _ deployment.Environment, chainSelector uint64) ([]*adapters.CommitteeState, error) {
@@ -747,6 +749,17 @@ func (s *stubFullAdapter) GetDeployedChains(_ datastore.DataStore, _ string) []u
 	return chains
 }
 
+// ResolveExecutorAddress implements [adapters.ExecutorConfigAdapter].
+func (s *stubFullAdapter) ResolveExecutorAddress(_ datastore.DataStore, _ uint64, _ string) (string, error) {
+	return "0x000000000000000000000000000000000000BBBB", nil
+}
+
+// BuildChainConfig implements [adapters.ExecutorConfigAdapter]. The offchain verifier tests
+// only exercise ResolveExecutorAddress, so this returns an empty configuration.
+func (s *stubFullAdapter) BuildChainConfig(_ datastore.DataStore, _ uint64, _ string) (executor.ChainConfiguration, error) {
+	return executor.ChainConfiguration{}, nil
+}
+
 // ResolveDestinationVerifierAddress implements [adapters.AggregatorConfigAdapter].
 func (s *stubFullAdapter) ResolveDestinationVerifierAddress(ds datastore.DataStore, chainSelector uint64, qualifier string) (string, error) {
 	return s.resolveVerifierAddress(ds, chainSelector, qualifier)
@@ -773,7 +786,6 @@ func (s *stubFullAdapter) ResolveVerifierContractAddresses(_ datastore.DataStore
 	return &adapters.VerifierContractAddresses{
 		CommitteeVerifierAddress: addr,
 		OnRampAddress:            "0x000000000000000000000000000000000000AAAA",
-		ExecutorAddress:          "0x000000000000000000000000000000000000BBBB",
 		RMNRemoteAddress:         "0x000000000000000000000000000000000000CCCC",
 	}, nil
 }
@@ -786,6 +798,7 @@ func registerFullEVMAdapters(a *stubFullAdapter) {
 	adapters.GetCommitteeVerifierOnchainRegistry().Register(chainsel.FamilyEVM, a)
 	adapters.GetAggregatorRegistry().Register(chainsel.FamilyEVM, a)
 	adapters.GetVerifierRegistry().Register(chainsel.FamilyEVM, a)
+	adapters.GetExecutorRegistry().Register(chainsel.FamilyEVM, a)
 }
 
 func newTestBlockChains(selectors []uint64) cldf_chain.BlockChains {

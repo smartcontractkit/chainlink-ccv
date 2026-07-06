@@ -20,10 +20,10 @@ func buildVerifierSpecsForTest(t *testing.T, consolidate bool) shared.NOPJobSpec
 		"1": {
 			CommitteeVerifierAddress: "0xCommittee1",
 			OnRampAddress:            "0xOnRamp1",
-			ExecutorAddress:          "0xExec1",
 			RMNRemoteAddress:         "0xRMN1",
 		},
 	}
+	executorOnRampAddrs := map[string]string{"1": "0xExec1"}
 	nops := []verifierNOPInput{{
 		Alias:                 "nop1",
 		SignerAddressByFamily: map[string]string{"evm": "0xSIGNER"},
@@ -39,6 +39,7 @@ func buildVerifierSpecsForTest(t *testing.T, consolidate bool) shared.NOPJobSpec
 
 	specs, _, err := buildVerifierJobSpecs(
 		contractAddresses,
+		executorOnRampAddrs,
 		nil,
 		nops,
 		committee,
@@ -135,12 +136,12 @@ func buildVerifierJobSpecWithMode(t *testing.T, mode shared.NOPMode) string {
 		"1": {
 			CommitteeVerifierAddress: "0xCommittee1",
 			OnRampAddress:            "0xOnRamp1",
-			ExecutorAddress:          "0xExec1",
 			RMNRemoteAddress:         "0xRMN1",
 		},
 	}
 	specs, _, err := buildVerifierJobSpecs(
 		contractAddresses,
+		map[string]string{"1": "0xExec1"},
 		[]shared.NOPAlias{"nop1"},
 		[]verifierNOPInput{{
 			Alias:                 "nop1",

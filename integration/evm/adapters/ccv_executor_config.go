@@ -45,6 +45,23 @@ func (a *EVMCCVExecutorConfigAdapter) GetDeployedChains(ds datastore.DataStore, 
 	return chains
 }
 
+// ResolveExecutorAddress resolves the EVM executor proxy address for the given chain and
+// qualifier. On EVM the executor is fronted by a proxy contract (sequences.ExecutorProxyType);
+// that datastore contract type is internal to this adapter and is not exposed by the ccv
+// adapter API.
+func (a *EVMCCVExecutorConfigAdapter) ResolveExecutorAddress(ds datastore.DataStore, chainSelector uint64, qualifier string) (string, error) {
+	toAddress := func(ref datastore.AddressRef) (string, error) { return ref.Address, nil }
+	executorAddr, err := dsutils.FindAndFormatRef(ds, datastore.AddressRef{
+		Type:      datastore.ContractType(sequences.ExecutorProxyType),
+		Qualifier: qualifier,
+		Version:   execop.Version,
+	}, chainSelector, toAddress)
+	if err != nil {
+		return "", fmt.Errorf("failed to get executor proxy address for chain %d: %w", chainSelector, err)
+	}
+	return executorAddr, nil
+}
+
 func (a *EVMCCVExecutorConfigAdapter) BuildChainConfig(ds datastore.DataStore, chainSelector uint64, qualifier string) (executor.ChainConfiguration, error) {
 	toAddress := func(ref datastore.AddressRef) (string, error) { return ref.Address, nil }
 
@@ -64,13 +81,9 @@ func (a *EVMCCVExecutorConfigAdapter) BuildChainConfig(ds datastore.DataStore, c
 		return executor.ChainConfiguration{}, fmt.Errorf("failed to get rmn remote address for chain %d: %w", chainSelector, err)
 	}
 
-	executorAddr, err := dsutils.FindAndFormatRef(ds, datastore.AddressRef{
-		Type:      datastore.ContractType(sequences.ExecutorProxyType),
-		Qualifier: qualifier,
-		Version:   execop.Version,
-	}, chainSelector, toAddress)
+	executorAddr, err := a.ResolveExecutorAddress(ds, chainSelector, qualifier)
 	if err != nil {
-		return executor.ChainConfiguration{}, fmt.Errorf("failed to get executor proxy address for chain %d: %w", chainSelector, err)
+		return executor.ChainConfiguration{}, err
 	}
 
 	return executor.ChainConfiguration{
