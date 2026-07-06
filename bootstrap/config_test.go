@@ -128,10 +128,17 @@ func TestKeystoreConfig_GetPassword(t *testing.T) {
 			errContains: []string{"field 'password' is empty", "MISSING_ENV_VAR", "not set"},
 		},
 		{
-			name:        "error when neither source defined",
+			name:         "falls back to default env var when neither password nor env var name set",
+			config:       &KeystoreConfig{Password: "", PasswordEnvVar: ""},
+			envVars:      map[string]string{DefaultKeystorePasswordEnvVar: "default_env_secret"},
+			wantPassword: "default_env_secret",
+			wantErr:      false,
+		},
+		{
+			name:        "error when neither source defined and default env var unset",
 			config:      &KeystoreConfig{Password: "", PasswordEnvVar: ""},
 			wantErr:     true,
-			errContains: []string{"field 'password' is required"},
+			errContains: []string{"field 'password' is empty", DefaultKeystorePasswordEnvVar, "not set"},
 		},
 	}
 	for _, tt := range tests {
@@ -169,10 +176,10 @@ func TestKeystoreConfig_validate(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name:        "neither password nor env var defined",
+			name:        "neither password nor env var defined and default env var unset",
 			config:      &KeystoreConfig{Password: "", PasswordEnvVar: ""},
 			wantErr:     true,
-			errContains: []string{"field 'password' is required"},
+			errContains: []string{"field 'password' is empty", DefaultKeystorePasswordEnvVar},
 		},
 	}
 	for _, tt := range tests {
@@ -232,10 +239,17 @@ func TestDBConfig_GetURL(t *testing.T) {
 			errContains: []string{"field 'url' is empty", "MISSING_DB_URL", "not set"},
 		},
 		{
-			name:        "error when neither source defined",
+			name:    "falls back to default env var when neither url nor env var name set",
+			config:  &DBConfig{URL: "", URLEnvVar: ""},
+			envVars: map[string]string{DefaultDBURLEnvVar: "postgres://default_env"},
+			wantURL: "postgres://default_env",
+			wantErr: false,
+		},
+		{
+			name:        "error when neither source defined and default env var unset",
 			config:      &DBConfig{URL: "", URLEnvVar: ""},
 			wantErr:     true,
-			errContains: []string{"field 'url' is required"},
+			errContains: []string{"field 'url' is empty", DefaultDBURLEnvVar, "not set"},
 		},
 	}
 	for _, tt := range tests {
@@ -273,10 +287,10 @@ func TestDBConfig_validate(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name:        "neither url nor env var defined",
+			name:        "neither url nor env var defined and default env var unset",
 			config:      &DBConfig{URL: "", URLEnvVar: ""},
 			wantErr:     true,
-			errContains: []string{"field 'url' is required"},
+			errContains: []string{"field 'url' is empty", DefaultDBURLEnvVar},
 		},
 	}
 	for _, tt := range tests {
