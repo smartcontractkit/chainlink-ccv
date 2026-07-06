@@ -519,25 +519,25 @@ URI = "postgresql://indexer:indexer@indexer-db:5432/indexer?sslmode=disable"
     image = "redis:7-alpine"
     host_port  = 6379
 
-  [[aggregator.api_clients]]
+  [[committeeccv.aggregator.api_clients]]
   # Development default verifier 1
   client_id = "default-verifier-1"
   enabled = true
   groups = ["verifiers"]
 
-  [[aggregator.api_clients]]
+  [[committeeccv.aggregator.api_clients]]
   # Development default verifier 2
   client_id = "default-verifier-2"
   enabled = true
   groups = ["verifiers"]
 
-  [[aggregator.api_clients]]
+  [[committeeccv.aggregator.api_clients]]
   # Monitoring and infrastructure client
   client_id = "monitoring"
   enabled = true
   groups = ["monitoring"]
 
-  [[aggregator.api_clients]]
+  [[committeeccv.aggregator.api_clients]]
   # Development Indexer
   client_id = "indexer"
   enabled = true

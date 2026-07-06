@@ -1179,6 +1179,18 @@ func TestClientConfig_Getters(t *testing.T) {
 	assert.True(t, cfg.IsEnabled())
 }
 
+func TestClientConfig_GetClientName(t *testing.T) {
+	t.Run("returns Name when set", func(t *testing.T) {
+		cfg := &ClientConfig{ClientID: "client-id", Name: "Human Readable Name"}
+		assert.Equal(t, "Human Readable Name", cfg.GetClientName())
+	})
+
+	t.Run("falls back to ClientID when Name is empty", func(t *testing.T) {
+		cfg := &ClientConfig{ClientID: "client-id"}
+		assert.Equal(t, "client-id", cfg.GetClientName())
+	})
+}
+
 func TestLoadFromEnvironment(t *testing.T) {
 	t.Run("loads postgres connection URL", func(t *testing.T) {
 		t.Setenv("AGGREGATOR_STORAGE_CONNECTION_URL", "postgres://localhost:5432/test")

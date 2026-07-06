@@ -438,7 +438,7 @@ func (c *APIKeyPairEnv) Validate() error {
 type ClientConfig struct {
 	APIKeyPairs []*APIKeyPairEnv `toml:"apiKeyPair"`
 	Groups      []string         `toml:"groups"`
-	Name        string           `toml:"name"`
+	Name        string           `toml:"name,omitempty"`
 	Enabled     bool             `toml:"enabled"`
 	ClientID    string           `toml:"clientId"`
 }

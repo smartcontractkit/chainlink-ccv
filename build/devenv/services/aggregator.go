@@ -74,7 +74,6 @@ type AggregatorAPIKeyPair struct {
 }
 type AggregatorClientConfig struct {
 	ClientID    string                  `toml:"client_id"`
-	Description string                  `toml:"description"`
 	Enabled     bool                    `toml:"enabled"`
 	Groups      []string                `toml:"groups"`
 	APIKeyPairs []*AggregatorAPIKeyPair `toml:"api_key_pairs"`
