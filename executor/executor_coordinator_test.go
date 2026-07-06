@@ -22,6 +22,24 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
 )
 
+func TestNewCoordinator_DefaultDataNotReadyRetryInterval(t *testing.T) {
+	t.Parallel()
+
+	ec, err := executor.NewCoordinator(
+		logger.Test(t),
+		mocks.NewMockExecutor(t),
+		mocks.NewMockMessageSubscriber(t),
+		mocks.NewMockLeaderElector(t),
+		monitoring.NewNoopExecutorMonitoring(),
+		time.Hour,
+		mocks.NewMockTimeProvider(t),
+		1,
+		0,
+	)
+	require.NoError(t, err)
+	require.NotNil(t, ec)
+}
+
 func TestConstructor(t *testing.T) {
 	lggr := logger.Test(t)
 
@@ -152,7 +170,7 @@ func TestConstructor(t *testing.T) {
 			if tc.args.timeProvider != nil {
 				tp = tc.args.timeProvider.(ccvcommon.TimeProvider)
 			}
-			_, err := executor.NewCoordinator(tc.args.lggr, tc.args.exec, tc.args.sub, tc.args.le, tc.args.mon, 8*time.Hour, tp, tc.args.workerCount)
+			_, err := executor.NewCoordinator(tc.args.lggr, tc.args.exec, tc.args.sub, tc.args.le, tc.args.mon, 8*time.Hour, tp, tc.args.workerCount, time.Second)
 
 			if tc.expectErr {
 				require.Error(t, err)
@@ -182,6 +200,7 @@ func TestLifecycle(t *testing.T) {
 		8*time.Hour,
 		mocks.NewMockTimeProvider(t),
 		100,
+		time.Second,
 	)
 	require.NoError(t, err)
 	require.NotNil(t, ec)
@@ -215,6 +234,7 @@ func TestSubscribeMessagesError(t *testing.T) {
 		8*time.Hour,
 		timeProvider,
 		100,
+		time.Second,
 	)
 	require.NoError(t, err)
 	require.NotNil(t, ec)
@@ -249,6 +269,7 @@ func TestStopNotRunning(t *testing.T) {
 		8*time.Hour,
 		mocks.NewMockTimeProvider(t),
 		100,
+		time.Second,
 	)
 	require.NoError(t, err)
 	require.NotNil(t, ec)
@@ -395,6 +416,7 @@ func TestMessageExpiration(t *testing.T) {
 				tc.expiryDuration,
 				mockTimeProvider,
 				100,
+				time.Second,
 			)
 			require.NoError(t, err)
 			require.NotNil(t, ec)
@@ -486,6 +508,7 @@ func TestDuplicateMessageIDFromStreamWhileInFlight_IsSkippedAndHandleMessageCall
 		8*time.Hour,
 		mockTimeProvider,
 		1,
+		time.Second,
 	)
 	require.NoError(t, err)
 	require.NotNil(t, ec)
@@ -542,6 +565,7 @@ func TestClose_StopsReportingTickerOnContextDone(t *testing.T) {
 		8*time.Hour,
 		mockTimeProvider,
 		1,
+		time.Second,
 	)
 	require.NoError(t, err)
 	require.NotNil(t, ec)
@@ -601,6 +625,7 @@ func TestDuplicateMessageIDFromStreamWhenAlreadyInHeap_IsSkippedByHeapAndHandleM
 		8*time.Hour,
 		mockTimeProvider,
 		1,
+		time.Second,
 	)
 	require.NoError(t, err)
 	require.NotNil(t, ec)
@@ -654,6 +679,7 @@ func TestCoordinator_MessageSkippedWhenNotExecutorForChain_DoesNotCallGetReadyTi
 		8*time.Hour,
 		mockTimeProvider,
 		1,
+		time.Second,
 	)
 	require.NoError(t, err)
 
@@ -723,6 +749,7 @@ func TestGracefulShutdown(t *testing.T) {
 		8*time.Hour,
 		mockTimeProvider,
 		1,
+		time.Second,
 	)
 	require.NoError(t, err)
 	require.NotNil(t, ec)
@@ -751,4 +778,80 @@ func TestGracefulShutdown(t *testing.T) {
 		return false
 	}
 	require.Eventuallyf(t, found, tests.WaitTimeout(t), 100*time.Millisecond, "dropped payload log never seen")
+}
+
+func TestRetry_DataNotReadyReattemptsBeforeStaggerInterval(t *testing.T) {
+	lggr := logger.Test(t)
+	currentTime := time.Now().UTC()
+	mockTimeProvider := mocks.NewMockTimeProvider(t)
+	mockTimeProvider.EXPECT().GetTime().RunAndReturn(func() time.Time {
+		return currentTime
+	}).Maybe()
+
+	testMessage := common.MessageWithMetadata{
+		Message: protocol.Message{
+			DestChainSelector:   1,
+			SourceChainSelector: 2,
+			SequenceNumber:      1,
+		},
+		Metadata: common.MessageMetadata{
+			IngestionTimestamp: currentTime,
+		},
+	}
+
+	results := make(chan common.MessageWithMetadata, 1)
+	messageSubscriber := mocks.NewMockMessageSubscriber(t)
+	messageSubscriber.EXPECT().Start(mock.Anything).Return(results, nil, nil)
+
+	handleCalls := make(chan struct{}, 2)
+	mockExecutor := mocks.NewMockExecutor(t)
+	mockExecutor.EXPECT().Start(mock.Anything).Return(nil)
+	mockExecutor.EXPECT().Close().Return(nil)
+	mockExecutor.EXPECT().CheckValidMessage(mock.Anything, mock.Anything).Return(nil).Maybe()
+	mockExecutor.EXPECT().HandleMessage(mock.Anything, mock.Anything).Run(func(context.Context, protocol.Message) {
+		handleCalls <- struct{}{}
+		currentTime = currentTime.Add(2 * time.Second)
+	}).Return(true, fmt.Errorf("not ready")).Once()
+	mockExecutor.EXPECT().HandleMessage(mock.Anything, mock.Anything).Run(func(context.Context, protocol.Message) {
+		handleCalls <- struct{}{}
+	}).Return(false, nil).Once()
+
+	staggerInterval := 30 * time.Second
+	leaderElector := mocks.NewMockLeaderElector(t)
+	leaderElector.EXPECT().IsExecutorForChain(mock.Anything).Return(true).Maybe()
+	leaderElector.EXPECT().GetReadyTimestamp(mock.Anything, mock.Anything, mock.Anything).Return(currentTime, nil).Maybe()
+	leaderElector.EXPECT().GetRetryDelay(mock.Anything).Return(staggerInterval, nil).Maybe()
+
+	ec, err := executor.NewCoordinator(
+		lggr,
+		mockExecutor,
+		messageSubscriber,
+		leaderElector,
+		monitoring.NewNoopExecutorMonitoring(),
+		8*time.Hour,
+		mockTimeProvider,
+		1,
+		time.Second,
+	)
+	require.NoError(t, err)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	require.NoError(t, ec.Start(ctx))
+
+	results <- testMessage
+
+	select {
+	case <-handleCalls:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for first HandleMessage call")
+	}
+
+	select {
+	case <-handleCalls:
+	case <-time.After(3 * time.Second):
+		t.Fatal("timed out waiting for data-not-ready retry before stagger interval")
+	}
+
+	require.NoError(t, ec.Close())
 }

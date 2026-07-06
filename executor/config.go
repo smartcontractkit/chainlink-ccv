@@ -10,15 +10,16 @@ import (
 )
 
 const (
-	backoffDurationDefault   = 15 * time.Second
-	lookbackWindowDefault    = 1 * time.Hour
-	readerCacheExpiryDefault = 5 * time.Minute
-	maxRetryDurationDefault  = 8 * time.Hour
-	executionIntervalDefault = 1 * time.Minute
-	ntpServerDefault         = "time.google.com"
-	workerCountDefault       = 100
-	IndexerQueryLimitDefault = 100
-	IndexerQueryLimitMax     = 10000
+	backoffDurationDefault           = 15 * time.Second
+	lookbackWindowDefault            = 1 * time.Hour
+	readerCacheExpiryDefault         = 5 * time.Minute
+	maxRetryDurationDefault          = 8 * time.Hour
+	executionIntervalDefault         = 1 * time.Minute
+	dataNotReadyRetryIntervalDefault = 1 * time.Second
+	ntpServerDefault                 = "time.google.com"
+	workerCountDefault               = 100
+	IndexerQueryLimitDefault         = 100
+	IndexerQueryLimitMax             = 10000
 )
 
 type ConfigWithBlockchainInfo[T any] struct {
@@ -58,6 +59,9 @@ type Configuration struct {
 	// MaxRetryDuration is the maximum duration the executor cluster will retry a message before giving up.
 	// Defaults to 8 hours.
 	MaxRetryDuration time.Duration `toml:"max_retry_duration"`
+	// DataNotReadyRetryInterval is the base delay between retries when verifier data is not yet available.
+	// Defaults to 1 second. Exponential backoff applies up to the executor stagger interval.
+	DataNotReadyRetryInterval time.Duration `toml:"data_not_ready_retry_interval"`
 	// NtpServer is the NTP server to use for time synchronization.
 	// Defaults to time.google.com
 	NtpServer string `toml:"ntp_server"`
@@ -124,6 +128,9 @@ func (c *Configuration) Validate() error {
 	if c.MaxRetryDuration < 0 {
 		return fmt.Errorf("max_retry_duration must not be negative")
 	}
+	if c.DataNotReadyRetryInterval < 0 {
+		return fmt.Errorf("data_not_ready_retry_interval must not be negative")
+	}
 	if c.IndexerQueryLimit > IndexerQueryLimitMax {
 		return fmt.Errorf("indexer_query_limit must not exceed %d, got %d", IndexerQueryLimitMax, c.IndexerQueryLimit)
 	}
@@ -180,6 +187,7 @@ func (c *Configuration) GetNormalizedConfig() (*Configuration, error) {
 	normalized.LookbackWindow = parseOrDefault(c.LookbackWindow, lookbackWindowDefault)
 	normalized.ReaderCacheExpiry = parseOrDefault(c.ReaderCacheExpiry, readerCacheExpiryDefault)
 	normalized.MaxRetryDuration = parseOrDefault(c.MaxRetryDuration, maxRetryDurationDefault)
+	normalized.DataNotReadyRetryInterval = parseOrDefault(c.DataNotReadyRetryInterval, dataNotReadyRetryIntervalDefault)
 	if c.IndexerQueryLimit == 0 {
 		normalized.IndexerQueryLimit = IndexerQueryLimitDefault
 	}

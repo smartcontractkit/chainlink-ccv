@@ -258,7 +258,7 @@ func (cle *ChainlinkExecutor) HandleMessage(ctx context.Context, message protoco
 			return false, err
 		}
 		cle.lggr.Warnw("will retry execution due to failed ConvertAndWriteMessageToChain", protocol.LogKeyMessageID, messageID)
-		return true, err
+		return true, fmt.Errorf("%w: %w", executor.ErrExecutionContended, err)
 	}
 
 	// PER-MESSAGE LOG (success): one per message, when this executor transmits to chain.

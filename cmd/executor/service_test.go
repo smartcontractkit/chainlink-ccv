@@ -85,6 +85,7 @@ func TestFactory_Stop_WithCoordinator(t *testing.T) {
 		8*time.Hour,
 		mocks.NewMockTimeProvider(t),
 		1,
+		time.Second,
 	)
 	require.NoError(t, err)
 

@@ -2,13 +2,17 @@ package executor
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
+const DefaultDataNotReadyRetryInterval = 1 * time.Second
+
 var (
 	ErrInsufficientVerifiers = fmt.Errorf("insufficient verifiers for message")
 	ErrMessageEncoding       = fmt.Errorf("message encoding failed")
+	ErrExecutionContended    = fmt.Errorf("execution attempted; retry must respect executor stagger")
 	NtpServer                = "time.google.com"
 )
 
