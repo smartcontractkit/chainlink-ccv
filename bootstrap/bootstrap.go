@@ -36,6 +36,12 @@ const (
 	ConfigPathEnv     = "BOOTSTRAPPER_CONFIG_PATH"
 	DefaultConfigPath = "/etc/config.toml"
 
+	// SecretsPathEnv names the env var pointing at the bootstrap secrets file, which carries the
+	// credential-bearing [db] and [keystore] sections. The default is namespaced
+	// under /etc/bootstrap/ to avoid the /etc/config.toml collision that DefaultConfigPath suffers.
+	SecretsPathEnv     = "BOOTSTRAPPER_SECRETS_PATH"
+	DefaultSecretsPath = "/etc/bootstrap/secrets.toml" //nolint:gosec // G101: this is a file path, not a credential
+
 	defaultStartupTimeout  = 10 * time.Second
 	defaultShutdownTimeout = 10 * time.Second
 )
@@ -125,6 +131,7 @@ type Bootstrapper struct {
 
 	// bootstrapper component configs
 	configPath       string
+	secretsPath      string
 	config           *Config
 	lifecycleManager *lifecycle.Manager
 	infoServer       *infoServer
@@ -193,18 +200,24 @@ func NewBootstrapper(
 			b.keys = append([]keyToInit{{DefaultCSAKeyName, "csa", keystore.Ed25519}}, b.keys...)
 		}
 
-		b.configPath = resolveBootstrapConfigPath(b.configPath)
 		b.config = &Config{}
-		if err := LoadAndValidateConfig(b.configPath, b.config, true); err != nil {
-			return nil, fmt.Errorf("failed to load bootstrap config (%s): %w", b.configPath, err)
+		// Non-secret config first, then overlay the secrets file (if present) so it wins for any
+		// section it defines. The secrets file is optional at the file level: a legacy monolithic
+		// config.toml carrying [db]/[keystore] resolves no secrets file, skips the overlay, and
+		// decodes exactly as before.
+		paths := bootstrapConfigPaths(b.configPath, b.secretsPath)
+		if err := LoadAndValidateConfig(paths, b.config, true); err != nil {
+			return nil, fmt.Errorf("failed to load bootstrap config (%v): %w", paths, err)
 		}
 	} else if path := os.Getenv(ConfigPathEnv); path != "" {
 		// Static-TOML mode: optionally load operator config when BOOTSTRAPPER_CONFIG_PATH is
 		// explicitly set. The default fallback to DefaultConfigPath is intentionally suppressed
 		// here: TOKEN_VERIFIER_CONFIG_PATH and BOOTSTRAPPER_CONFIG_PATH both default to
 		// /etc/config.toml, so applying the default would decode the wrong file. See issue #013.
+		// No secrets file is loaded in static-TOML mode: the token verifier has no [db]/[keystore]
+		// and those are exactly the sections static mode ignores.
 		b.config = &Config{}
-		if err := LoadAndValidateConfig(path, b.config, false); err != nil {
+		if err := LoadAndValidateConfig([]string{path}, b.config, false); err != nil {
 			return nil, fmt.Errorf("failed to load operator config (%s): %w", path, err)
 		}
 	}
@@ -512,6 +525,35 @@ func resolveBootstrapConfigPath(explicit string) string {
 	return DefaultConfigPath
 }
 
+// resolveBootstrapSecretsPath returns the effective bootstrap secrets path — the explicitly-provided
+// path, then BOOTSTRAPPER_SECRETS_PATH, then DefaultSecretsPath — but only if that path points at an
+// existing file. The secrets file is optional: absence returns "" so the caller skips the overlay,
+// which is what keeps a legacy monolithic config (with [db]/[keystore] inline) working.
+func resolveBootstrapSecretsPath(explicit string) string {
+	path := explicit
+	if path == "" {
+		path = os.Getenv(SecretsPathEnv)
+	}
+	if path == "" {
+		path = DefaultSecretsPath
+	}
+	if _, err := os.Stat(path); err != nil { //nolint:gosec // G703: path is a trusted operator-provided config path
+		return ""
+	}
+	return path
+}
+
+// bootstrapConfigPaths returns the ordered list of files to decode in JD mode: the non-secret config
+// file, followed by the secrets file only when one is present. Later files overlay earlier ones, so
+// the secrets file wins for any section it defines.
+func bootstrapConfigPaths(explicitConfig, explicitSecrets string) []string {
+	paths := []string{resolveBootstrapConfigPath(explicitConfig)}
+	if secretsPath := resolveBootstrapSecretsPath(explicitSecrets); secretsPath != "" {
+		paths = append(paths, secretsPath)
+	}
+	return paths
+}
+
 func initializeKeystore(ctx context.Context, lggr logger.Logger, db *sqlx.DB, ksPassword string, requiredKeys []keyToInit) (keystore.Keystore, crypto.Signer, error) {
 	ks, err := keystore.LoadKeystore(ctx, keys.NewPGStorage(db, "default"), ksPassword)
 	if err != nil {
@@ -606,6 +648,18 @@ func WithJD() Option {
 func WithBootstrapperConfigPath(path string) Option {
 	return func(b *Bootstrapper) error {
 		b.configPath = path
+		return nil
+	}
+}
+
+// WithBootstrapperSecretsPath sets the bootstrapper secrets file path. If not set, the bootstrapper
+// looks for the path in the BOOTSTRAPPER_SECRETS_PATH environment variable, and if that is not set,
+// it defaults to DefaultSecretsPath. The secrets file is optional: if the resolved path does not
+// exist, it is skipped (which is how a legacy monolithic config remains valid). Applies in JD mode
+// only.
+func WithBootstrapperSecretsPath(path string) Option {
+	return func(b *Bootstrapper) error {
+		b.secretsPath = path
 		return nil
 	}
 }

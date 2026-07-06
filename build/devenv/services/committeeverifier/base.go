@@ -272,14 +272,23 @@ func launchVerifier(ctx context.Context, in *Input, outputs []*blockchain.Output
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate bootstrap config: %w", err)
 	}
+	bootstrapSecrets, err := services.GenerateBootstrapSecrets(*bootstrapInput)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate bootstrap secrets: %w", err)
+	}
 	confDir := util.CCVConfigDir()
 	bootstrapConfigFilePath := filepath.Join(confDir,
 		fmt.Sprintf("bootstrap-%s-config-%d.toml", in.CommitteeName, in.NodeIndex+1))
 	if err := os.WriteFile(bootstrapConfigFilePath, bootstrapConfig, 0o644); err != nil {
 		return nil, fmt.Errorf("failed to write bootstrap config to file: %w", err)
 	}
+	bootstrapSecretsFilePath := filepath.Join(confDir,
+		fmt.Sprintf("bootstrap-%s-secrets-%d.toml", in.CommitteeName, in.NodeIndex+1))
+	if err := os.WriteFile(bootstrapSecretsFilePath, bootstrapSecrets, 0o644); err != nil {
+		return nil, fmt.Errorf("failed to write bootstrap secrets to file: %w", err)
+	}
 
-	req, err := baseImageRequest(in, envVars, bootstrapConfigFilePath)
+	req, err := baseImageRequest(in, envVars, bootstrapConfigFilePath, bootstrapSecretsFilePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create base image request: %w", err)
 	}
@@ -391,7 +400,7 @@ func startContainer(ctx context.Context, req testcontainers.ContainerRequest) (t
 	return nil, fmt.Errorf("failed to start container after %d attempts: %w", maxAttempts, lastErr)
 }
 
-func baseImageRequest(in *Input, envVars map[string]string, bootstrapConfigFilePath string) (testcontainers.ContainerRequest, error) {
+func baseImageRequest(in *Input, envVars map[string]string, bootstrapConfigFilePath, bootstrapSecretsFilePath string) (testcontainers.ContainerRequest, error) {
 	req := testcontainers.ContainerRequest{
 		Image:    in.Image,
 		Name:     in.ContainerName,
@@ -438,6 +447,12 @@ func baseImageRequest(in *Input, envVars map[string]string, bootstrapConfigFileP
 	req.Mounts = append(req.Mounts, testcontainers.BindMount(
 		bootstrapConfigFilePath,
 		bootstrap.DefaultConfigPath,
+	))
+	// Mount secrets at the default secrets path so the bootstrapper resolves it without an env var,
+	// exercising the split config/secrets load path.
+	req.Mounts = append(req.Mounts, testcontainers.BindMount(
+		bootstrapSecretsFilePath,
+		bootstrap.DefaultSecretsPath,
 	))
 
 	// Note: identical code to aggregator.go/executor.go -- will indexer be identical as well?
