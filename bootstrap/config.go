@@ -18,7 +18,7 @@ const (
 	DefaultDBURLEnvVar = "BOOTSTRAPPER_DATABASE_URL"
 	// DefaultKeystorePasswordEnvVar is the environment variable read for the keystore password when
 	// neither KeystoreConfig.Password nor KeystoreConfig.PasswordEnvVar is set.
-	DefaultKeystorePasswordEnvVar = "BOOTSTRAPPER_KEYSTORE_PASSWORD" //nolint:gosec // G101: env var name, not a credential
+	DefaultKeystorePasswordEnvVar = "BOOTSTRAPPER_KEYSTORE_PASSWORD"
 )
 
 // JDConfig is the configuration for the Job Distributor.
