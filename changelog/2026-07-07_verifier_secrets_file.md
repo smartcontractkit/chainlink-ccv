@@ -8,9 +8,8 @@ verifier, the per-aggregator HMAC credentials (`VERIFIER_AGGREGATOR_*`) — from
 verifier **secrets file** instead of environment variables. The env vars still
 work unchanged (the file is optional), and when a value is set in both the file
 and the environment, the **file wins**. This is the verifier's own secrets file,
-distinct from the bootstrap `secrets.toml` (ADR-0008): `CL_DATABASE_URL` is a
-different database than the bootstrap `[db]`. See
-`docs/adr/0009-verifier-secrets-file.md`.
+distinct from the bootstrap `secrets.toml`: `CL_DATABASE_URL` is a
+different database than the bootstrap `[db]`.
 
 ---
 
