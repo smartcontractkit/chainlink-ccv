@@ -348,7 +348,7 @@ func provisionVerifierJobForNOP(
 		signerAddress = addr
 	}
 
-	contractAddresses, err := buildVerifierContractConfigs(e, committeeChains, cfg.CommitteeQualifier, cfg.ExecutorQualifier)
+	contractAddresses, executorOnRampAddrs, err := buildVerifierContractConfigs(e, committeeChains, cfg.CommitteeQualifier, cfg.ExecutorQualifier)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to build verifier contract configs: %w", err)
 	}
@@ -367,6 +367,7 @@ func provisionVerifierJobForNOP(
 
 	jobSpecs, scope, err := buildVerifierJobSpecs(
 		contractAddresses,
+		executorOnRampAddrs,
 		[]shared.NOPAlias{cfg.NOPAlias},
 		nopInputs,
 		committeeInput,

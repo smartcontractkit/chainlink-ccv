@@ -25,6 +25,10 @@ func (m *jdMockExecutorAdapter) GetDeployedChains(_ datastore.DataStore, _ strin
 	return nil
 }
 
+func (m *jdMockExecutorAdapter) ResolveExecutorAddress(_ datastore.DataStore, _ uint64, _ string) (string, error) {
+	return "0xexec", nil
+}
+
 func (m *jdMockExecutorAdapter) BuildChainConfig(_ datastore.DataStore, _ uint64, _ string) (executor.ChainConfiguration, error) {
 	return executor.ChainConfiguration{
 		DestinationChainConfig: chainaccess.DestinationChainConfig{
