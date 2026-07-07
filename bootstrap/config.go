@@ -100,13 +100,10 @@ func (c ChainRegistration) validate() error {
 	return nil
 }
 
-// Config is the configuration for the bootstrapper.
-//
-// The bootstrap config is partitioned by sensitivity across two files: a
-// non-secret config file carries [jd], [server], [[chains]], and [monitoring]; a secrets file
-// carries the credential-bearing [db] and [keystore] sections. Both files decode into this single
-// struct over disjoint sections — the partition is whole-section, so no field is ever split across
-// files. A legacy monolithic file that carries all sections in one file remains supported.
+// NonSecretConfig is the non-secret half of the bootstrap config: the sections that carry no
+// credentials. It is embedded into Config, so its sections ([jd], [server], [[chains]],
+// [Monitoring]) decode and encode at the top level exactly as if declared on Config directly.
+// devenv marshals this type on its own to produce the non-secret config file.
 //
 // Example non-secret config file (config.toml):
 /*
@@ -121,18 +118,6 @@ func (c ChainRegistration) validate() error {
 	type = "EVM"
 	id = "1"
 */
-// Example secrets file (secrets.toml):
-/*
-	[keystore]
-	password = "password"
-
-	[db]
-	url = "postgres://localhost:5432/bootstrapper"
-*/
-// NonSecretConfig is the non-secret half of the bootstrap config: the sections that carry no
-// credentials. It is embedded into Config, so its sections ([jd], [server], [[chains]],
-// [Monitoring]) decode and encode at the top level exactly as if declared on Config directly.
-// devenv marshals this type on its own to produce the non-secret config file (see ADR-0008).
 type NonSecretConfig struct {
 	JD     JDConfig     `toml:"jd,omitempty"`
 	Server ServerConfig `toml:"server,omitempty"`
@@ -157,7 +142,16 @@ type NonSecretConfig struct {
 // Secrets is the secret half of the bootstrap config: the credential-bearing sections. It is
 // embedded into Config, so its sections ([keystore], [db]) decode and encode at the top level
 // exactly as if declared on Config directly. devenv marshals this type on its own to produce the
-// bootstrap secrets file loaded via BOOTSTRAPPER_SECRETS_PATH (see ADR-0008).
+// bootstrap secrets file loaded via BOOTSTRAPPER_SECRETS_PATH.
+//
+// Example secrets file (secrets.toml):
+/*
+	[keystore]
+	password = "password"
+
+	[db]
+	url = "postgres://localhost:5432/bootstrapper"
+*/
 type Secrets struct {
 	Keystore KeystoreConfig `toml:"keystore,omitempty"`
 	DB       DBConfig       `toml:"db,omitempty"`
