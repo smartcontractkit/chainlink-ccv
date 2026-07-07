@@ -2,6 +2,7 @@ package bootstrap
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/BurntSushi/toml"
 
@@ -46,7 +47,7 @@ func (js JobSpec) GetAppConfig(cfg any) error {
 	// Filter out undecoded fields under blockchain_infos.
 	var undecoded []string
 	for _, key := range md.Undecoded() {
-		if key[0] != "blockchain_infos" {
+		if key[0] != "blockchain_infos" && strings.ToLower(key[0]) != "monitoring" {
 			undecoded = append(undecoded, key.String())
 		}
 	}
