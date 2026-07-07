@@ -28,12 +28,22 @@ import (
 	tokenapi "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/api"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/cctp"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/lombard"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vsecrets"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
 func main() {
+	// Load the verifier secrets file once (only [db].url is used by the token verifier); an absent
+	// file is fine and falls back to CL_DATABASE_URL. Shared by both the CLI and the service.
+	secretsPath := vsecrets.ResolveSecretsPath(vsecrets.TokenVerifierSecretsPathEnv, vsecrets.DefaultTokenVerifierSecretsPath)
+	secrets, err := vsecrets.Load(secretsPath)
+	if err != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "Failed to load token verifier secrets: %v\n", err)
+		os.Exit(1)
+	}
+
 	if len(os.Args) >= 2 && os.Args[1] == "ccv" {
-		cmd.RunCCVCLI(os.Args[1:])
+		cmd.RunCCVCLI(os.Args[1:], secrets)
 		return
 	}
 	configPath := os.Getenv("TOKEN_VERIFIER_CONFIG_PATH")
@@ -41,9 +51,9 @@ func main() {
 		configPath = "/etc/config.toml"
 	}
 
-	err := bootstrap.Run(
+	err = bootstrap.Run(
 		"TokenVerifier",
-		&tokenVerifierFactory{},
+		&tokenVerifierFactory{secrets: secrets},
 		bootstrap.WithTOMLAppConfig(configPath),
 		bootstrap.WithLogLevelFromEnv(zapcore.InfoLevel),
 	)
@@ -59,6 +69,8 @@ type tokenVerifierFactory struct {
 	coordinators []*verifier.Coordinator
 	httpServer   *http.Server
 	lggr         logger.Logger
+	// secrets holds the verifier secrets (DB URL) loaded from the secrets file, with env fallback.
+	secrets *vsecrets.VerifierSecrets
 }
 
 // Stop tries to stop all services gracefully.
@@ -144,7 +156,7 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, spec bootstrap.JobSp
 		rmnRemoteAddresses[selector] = addr
 	}
 
-	db, err := cmd.ConnectToPostgresDB(tvf.lggr)
+	db, err := cmd.ConnectToPostgresDB(tvf.lggr, tvf.secrets)
 	if err != nil {
 		tvf.lggr.Errorw("Failed to connect to Postgres database", "error", err)
 		os.Exit(1)

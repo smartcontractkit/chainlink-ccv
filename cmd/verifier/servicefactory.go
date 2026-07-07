@@ -26,6 +26,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/commit"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/heartbeat"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vsecrets"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -38,11 +39,16 @@ type factory struct {
 	aggregatorWriter *storageaccess.FanOutWriter
 	heartbeatClient  heartbeatclient.HeartbeatSender
 	chainStatusDB    sqlutil.DataSource
+	// secrets holds the verifier secrets loaded from the secrets file (DB URL, aggregator HMAC
+	// credentials). Never nil; an empty value means resolution falls back to environment variables.
+	secrets *vsecrets.VerifierSecrets
 }
 
 // NewCommitteeVerifierServiceFactory creates a new ServiceFactory for the committee verifier service.
-func NewCommitteeVerifierServiceFactory() bootstrap.ServiceFactory {
-	return &factory{}
+// secrets carries the DB URL and aggregator HMAC credentials resolved from the verifier secrets file
+// (with env-var fallback); pass the result of LoadVerifierSecrets.
+func NewCommitteeVerifierServiceFactory(secrets *vsecrets.VerifierSecrets) bootstrap.ServiceFactory {
+	return &factory{secrets: secrets}
 }
 
 // Start implements [bootstrap.ServiceFactory].
@@ -103,11 +109,13 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 	}
 	lggr.Infow("Resolved aggregators", "count", len(resolvedAggregators))
 
-	// Each aggregator authenticates the verifier with its own HMAC credential, read from
-	// per-aggregator environment variables (VERIFIER_AGGREGATOR_<NAME>_API_KEY/SECRET_KEY).
+	// Each aggregator authenticates the verifier with its own HMAC credential, resolved from the
+	// verifier secrets file (keyed by secret_name) with fallback to the per-aggregator environment
+	// variables (VERIFIER_AGGREGATOR_<NAME>_API_KEY/SECRET_KEY).
+	aggregatorSecrets := f.secrets.AggregatorSecrets()
 	aggregatorHMACs := make([]*hmac.ClientConfig, len(resolvedAggregators))
 	for i, a := range resolvedAggregators {
-		hmacConfig, hErr := a.ResolveHMACConfig()
+		hmacConfig, hErr := a.ResolveHMACConfig(aggregatorSecrets)
 		if hErr != nil {
 			lggr.Errorw("Failed to resolve aggregator credentials", "error", hErr, "aggregator", a.Label())
 			return fmt.Errorf("failed to resolve aggregator credentials: %w", hErr)
@@ -195,7 +203,7 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 	lggr.Infow("Using signer address", "address", signerAddress)
 
 	// Create chain status manager (PostgreSQL storage) with monitoring decorator
-	chainStatusManager, chainStatusDB, err := createChainStatusManager(lggr, config.VerifierID, verifierMonitoring)
+	chainStatusManager, chainStatusDB, err := createChainStatusManager(lggr, config.VerifierID, verifierMonitoring, f.secrets)
 	if err != nil {
 		lggr.Errorw("Failed to create chain status manager", "error", err)
 		return fmt.Errorf("failed to create chain status manager: %w", err)
@@ -441,8 +449,8 @@ func (f *factory) Stop(ctx context.Context) error {
 	return allErrors
 }
 
-func createChainStatusManager(lggr logger.Logger, verifierID string, monitoring verifier.Monitoring) (protocol.ChainStatusManager, sqlutil.DataSource, error) {
-	sqlDB, err := ConnectToPostgresDB(lggr)
+func createChainStatusManager(lggr logger.Logger, verifierID string, monitoring verifier.Monitoring, secrets *vsecrets.VerifierSecrets) (protocol.ChainStatusManager, sqlutil.DataSource, error) {
+	sqlDB, err := ConnectToPostgresDB(lggr, secrets)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to connect to Postgres DB: %w", err)
 	}

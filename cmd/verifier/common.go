@@ -20,13 +20,14 @@ import (
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/db"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vsecrets"
 	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
 const (
-	// Database environment variables.
-	DatabaseURLEnvVar             = "CL_DATABASE_URL"
+	// Database environment variables. The URL is resolved via the verifier secrets package
+	// (vsecrets.DatabaseURLEnvVar); these tuning knobs remain plain env vars.
 	DatabaseMaxOpenConnsEnvVar    = "CL_DATABASE_MAX_OPEN_CONNS"
 	DatabaseMaxIdleConnsEnvVar    = "CL_DATABASE_MAX_IDLE_CONNS"
 	DatabaseConnMaxLifetimeEnvVar = "CL_DATABASE_CONN_MAX_LIFETIME"
@@ -78,8 +79,12 @@ func SetupMonitoring(config verifier.MonitoringConfig, verifierServiceName strin
 	return verifierMonitoring
 }
 
-func ConnectToPostgresDB(lggr logger.Logger) (sqlutil.DataSource, error) {
-	dbURL := os.Getenv(DatabaseURLEnvVar)
+// ConnectToPostgresDB opens the verifier's application storage database. The connection URL is
+// resolved from the verifier secrets file when present, otherwise from CL_DATABASE_URL (the file
+// wins). A nil secrets argument is the env-only path. An empty URL leaves the DB
+// unconfigured (returns a nil DataSource), preserving the existing "DB optional" behavior.
+func ConnectToPostgresDB(lggr logger.Logger, secrets *vsecrets.VerifierSecrets) (sqlutil.DataSource, error) {
+	dbURL := secrets.DatabaseURL()
 	if dbURL == "" {
 		return nil, nil
 	}

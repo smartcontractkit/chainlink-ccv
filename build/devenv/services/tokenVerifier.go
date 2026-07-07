@@ -21,6 +21,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm"
 	ccvblockchain "github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vsecrets"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
@@ -176,11 +177,21 @@ func NewTokenVerifier(in *TokenVerifierInput, blockchainOutputs []*blockchain.Ou
 		return nil, fmt.Errorf("failed to write token verifier bootstrap config to file: %w", err)
 	}
 
-	envVars := make(map[string]string)
-	// Database connection for chain status (internal docker network address)
+	// Database connection for chain status (internal docker network address). Delivered via the
+	// verifier secrets file, mounted at the default path, instead of CL_DATABASE_URL — so
+	// e2e exercises the file load path. The token verifier's secrets carry only [db].
 	internalDBConnectionString := fmt.Sprintf("postgresql://%s:%s@%s:5432/%s?sslmode=disable",
 		in.ContainerName, in.ContainerName, in.DB.Name, in.ContainerName)
-	envVars["CL_DATABASE_URL"] = internalDBConnectionString
+	verifierSecrets, err := GenerateVerifierSecrets(internalDBConnectionString, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate token verifier secrets: %w", err)
+	}
+	verifierSecretsFilePath := filepath.Join(confDir, "token-verifier-secrets.toml")
+	if err := os.WriteFile(verifierSecretsFilePath, verifierSecrets, 0o600); err != nil {
+		return nil, fmt.Errorf("failed to write token verifier secrets to file: %w", err)
+	}
+
+	envVars := make(map[string]string)
 	envVars["TOKEN_VERIFIER_CONFIG_PATH"] = "/etc/token-verifier-app-config.toml"
 	envVars["BOOTSTRAPPER_CONFIG_PATH"] = bootstrap.DefaultConfigPath
 	if lvl := os.Getenv("LOG_LEVEL"); lvl != "" {
@@ -217,6 +228,7 @@ func NewTokenVerifier(in *TokenVerifierInput, blockchainOutputs []*blockchain.Ou
 	req.Mounts = append(req.Mounts,
 		testcontainers.BindMount(appConfigFilePath, "/etc/token-verifier-app-config.toml"),
 		testcontainers.BindMount(bootstrapConfigFilePath, bootstrap.DefaultConfigPath),
+		testcontainers.BindMount(verifierSecretsFilePath, vsecrets.DefaultTokenVerifierSecretsPath),
 	)
 
 	// Note: identical code to aggregator.go/executor.go -- will indexer be identical as well?
