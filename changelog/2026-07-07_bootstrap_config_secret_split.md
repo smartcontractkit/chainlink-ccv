@@ -5,8 +5,7 @@
 The bootstrapper's operator config can now be split by sensitivity into a
 non-secret `config.toml` and a `secrets.toml` (credentials only), so the two
 halves can be deployed from separate sources (e.g. a k8s ConfigMap vs a Secret).
-The legacy monolithic single-file layout still works unchanged. See
-`docs/adr/0008-bootstrap-secret-config-split.md`.
+The legacy monolithic single-file layout still works unchanged.
 
 ---
 
