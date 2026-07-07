@@ -299,7 +299,9 @@ func launchVerifier(ctx context.Context, in *Input, outputs []*blockchain.Output
 	}
 	verifierSecretsFilePath := filepath.Join(confDir,
 		fmt.Sprintf("verifier-%s-secrets-%d.toml", in.CommitteeName, in.NodeIndex+1))
-	if err := os.WriteFile(verifierSecretsFilePath, verifierSecrets, 0o600); err != nil {
+	// 0o644 (world-readable) matches the bootstrap secrets file: the mounted file must be readable by
+	// the `ccv` CLI run via `docker exec`, which may run as a different UID than the bind-mount owner.
+	if err := os.WriteFile(verifierSecretsFilePath, verifierSecrets, 0o644); err != nil {
 		return nil, fmt.Errorf("failed to write verifier secrets to file: %w", err)
 	}
 

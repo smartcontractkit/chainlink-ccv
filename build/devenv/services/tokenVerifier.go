@@ -187,7 +187,9 @@ func NewTokenVerifier(in *TokenVerifierInput, blockchainOutputs []*blockchain.Ou
 		return nil, fmt.Errorf("failed to generate token verifier secrets: %w", err)
 	}
 	verifierSecretsFilePath := filepath.Join(confDir, "token-verifier-secrets.toml")
-	if err := os.WriteFile(verifierSecretsFilePath, verifierSecrets, 0o600); err != nil {
+	// 0o644 (world-readable) matches the bootstrap secrets file: the mounted file must be readable by
+	// the `ccv` CLI run via `docker exec`, which may run as a different UID than the bind-mount owner.
+	if err := os.WriteFile(verifierSecretsFilePath, verifierSecrets, 0o644); err != nil {
 		return nil, fmt.Errorf("failed to write token verifier secrets to file: %w", err)
 	}
 
