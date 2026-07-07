@@ -124,6 +124,10 @@ value = 42
 name    = "svc"
 value   = 7
 truck = "El Toro Loco"
+
+[Monitoring]
+Enabled = true
+Type = "beholder"
 ` + blockchainInfoFragment,
 		}
 		var cfg testAppConfig

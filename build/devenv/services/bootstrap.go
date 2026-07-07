@@ -84,17 +84,26 @@ func CreateBootstrapDBInitScriptFile() (path string, err error) {
 	return tempFile.Name(), nil
 }
 
-// GenerateBootstrapConfig marshals the bootstrap configuration to TOML.
+// GenerateBootstrapConfig marshals the non-secret bootstrap config ([jd], [server], [[chains]],
+// [Monitoring]) to TOML. Credentials go to a separate secrets file; see GenerateBootstrapSecrets.
+// It marshals bootstrap.NonSecretConfig directly so the partition stays defined in one place.
 func GenerateBootstrapConfig(in BootstrapInput) ([]byte, error) {
-	config := bootstrap.Config{
-		Keystore:   *in.Keystore,
-		DB:         *in.DB,
+	return toml.Marshal(bootstrap.NonSecretConfig{
 		JD:         *in.JD,
 		Server:     *in.Server,
 		Chains:     in.Chains,
 		Monitoring: in.Monitoring,
-	}
-	return toml.Marshal(config)
+	})
+}
+
+// GenerateBootstrapSecrets marshals the credential-bearing bootstrap sections ([keystore], [db]) to
+// TOML, for the bootstrap secrets file loaded via BOOTSTRAPPER_SECRETS_PATH. It marshals
+// bootstrap.Secrets directly so the partition stays defined in one place.
+func GenerateBootstrapSecrets(in BootstrapInput) ([]byte, error) {
+	return toml.Marshal(bootstrap.Secrets{
+		Keystore: *in.Keystore,
+		DB:       *in.DB,
+	})
 }
 
 // BootstrapKeys holds the public keys exposed by the bootstrap info-server.

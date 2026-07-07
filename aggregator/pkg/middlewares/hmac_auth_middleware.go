@@ -63,7 +63,7 @@ func (m *HMACAuthMiddleware) Intercept(ctx context.Context, req any, info *grpc.
 	}
 
 	if err := hmac.ValidateTimestamp(timestamp); err != nil {
-		m.logger.Warnf("Authentication failed for client %s: %v", client.GetClientID(), err)
+		m.logger.Warnf("Authentication failed for client %s: %v", client.GetClientName(), err)
 		return nil, status.Error(codes.Unauthenticated, "invalid or expired timestamp")
 	}
 
@@ -78,14 +78,14 @@ func (m *HMACAuthMiddleware) Intercept(ctx context.Context, req any, info *grpc.
 	stringToSign := hmac.GenerateStringToSign(hmac.HTTPMethodPost, info.FullMethod, bodyHash, apiKey, timestamp)
 
 	if !hmac.ValidateSignature(stringToSign, providedSignature, pair.GetSecret()) {
-		m.logger.Warnf("Authentication failed for client %s: invalid signature", client.GetClientID())
+		m.logger.Warnf("Authentication failed for client %s: invalid signature", client.GetClientName())
 		return nil, status.Error(codes.Unauthenticated, "invalid signature")
 	}
 
 	identity := auth.CreateCallerIdentity(client.GetClientID(), false)
 	ctx = auth.ToContext(ctx, identity)
 
-	m.logger.Debugf("Successfully authenticated client: %s", client.GetClientID())
+	m.logger.Debugf("Successfully authenticated client: %s", client.GetClientName())
 
 	return handler(ctx, req)
 }

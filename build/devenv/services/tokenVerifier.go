@@ -165,9 +165,9 @@ func NewTokenVerifier(in *TokenVerifierInput, blockchainOutputs []*blockchain.Ou
 	}
 
 	// Generate and write the bootstrap (operator) config, carrying monitoring from the generated config.
-	// Only the monitoring section is set; the infra sections (jd/db/keystore/server) are zero-valued
-	// and omitted from the TOML output via omitempty, so validation correctly skips infra checks.
-	bootstrapConfig, err := toml.Marshal(bootstrap.Config{Monitoring: in.Bootstrap.Monitoring})
+	// The token verifier runs in static-TOML mode with no infra, so only the non-secret monitoring
+	// section is written (no secrets file); validation correctly skips infra checks.
+	bootstrapConfig, err := toml.Marshal(bootstrap.NonSecretConfig{Monitoring: in.Bootstrap.Monitoring})
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate bootstrap config for token verifier: %w", err)
 	}

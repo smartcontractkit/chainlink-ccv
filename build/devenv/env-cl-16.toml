@@ -1078,110 +1078,110 @@ LockTimeout = 30
     host_port  = 6379
 
   [[aggregator.api_clients]]
+  # Development default verifier 1
   client_id = "default-verifier-1"
-  description = "Development default verifier 1"
   enabled = true
   groups = ["verifiers"]
 
   [[aggregator.api_clients]]
+  # Development default verifier 2
   client_id = "default-verifier-2"
-  description = "Development default verifier 2"
   enabled = true
   groups = ["verifiers"]
 
   [[aggregator.api_clients]]
+  # Development default verifier 3
   client_id = "default-verifier-3"
-  description = "Development default verifier 3"
   enabled = true
   groups = ["verifiers"]
 
   [[aggregator.api_clients]]
+  # Development default verifier 4
   client_id = "default-verifier-4"
-  description = "Development default verifier 4"
   enabled = true
   groups = ["verifiers"]
 
   [[aggregator.api_clients]]
+  # Development default verifier 5
   client_id = "default-verifier-5"
-  description = "Development default verifier 5"
   enabled = true
   groups = ["verifiers"]
 
   [[aggregator.api_clients]]
+  # Development default verifier 6
   client_id = "default-verifier-6"
-  description = "Development default verifier 6"
   enabled = true
   groups = ["verifiers"]
 
   [[aggregator.api_clients]]
+  # Development default verifier 7
   client_id = "default-verifier-7"
-  description = "Development default verifier 7"
   enabled = true
   groups = ["verifiers"]
 
   [[aggregator.api_clients]]
+  # Development default verifier 8
   client_id = "default-verifier-8"
-  description = "Development default verifier 8"
   enabled = true
   groups = ["verifiers"]
 
   [[aggregator.api_clients]]
+  # Development default verifier 9
   client_id = "default-verifier-9"
-  description = "Development default verifier 9"
   enabled = true
   groups = ["verifiers"]
 
   [[aggregator.api_clients]]
+  # Development default verifier 10
   client_id = "default-verifier-10"
-  description = "Development default verifier 10"
   enabled = true
   groups = ["verifiers"]
 
   [[aggregator.api_clients]]
+  # Development default verifier 11
   client_id = "default-verifier-11"
-  description = "Development default verifier 11"
   enabled = true
   groups = ["verifiers"]
 
   [[aggregator.api_clients]]
+  # Development default verifier 12
   client_id = "default-verifier-12"
-  description = "Development default verifier 12"
   enabled = true
   groups = ["verifiers"]
 
   [[aggregator.api_clients]]
+  # Development default verifier 13
   client_id = "default-verifier-13"
-  description = "Development default verifier 13"
   enabled = true
   groups = ["verifiers"]
 
   [[aggregator.api_clients]]
+  # Development default verifier 14
   client_id = "default-verifier-14"
-  description = "Development default verifier 14"
   enabled = true
   groups = ["verifiers"]
 
   [[aggregator.api_clients]]
+  # Development default verifier 15
   client_id = "default-verifier-15"
-  description = "Development default verifier 15"
   enabled = true
   groups = ["verifiers"]
 
   [[aggregator.api_clients]]
+  # Development default verifier 16
   client_id = "default-verifier-16"
-  description = "Development default verifier 16"
   enabled = true
   groups = ["verifiers"]
 
   [[aggregator.api_clients]]
+  # Monitoring and infrastructure client
   client_id = "monitoring"
-  description = "Monitoring and infrastructure client"
   enabled = true
   groups = ["monitoring"]
 
   [[aggregator.api_clients]]
+  # Development Indexer
   client_id = "indexer"
-  description = "Development Indexer"
   enabled = true
   groups = ["indexer"]
 
@@ -1208,26 +1208,26 @@ LockTimeout = 30
     host_port  = 6380
 
   [[aggregator.api_clients]]
+  # Development secondary verifier 1
   client_id = "secondary-verifier-1"
-  description = "Development secondary verifier 1"
   enabled = true
   groups = ["verifiers"]
 
   [[aggregator.api_clients]]
+  # Development secondary verifier 2
   client_id = "secondary-verifier-2"
-  description = "Development secondary verifier 2"
   enabled = true
   groups = ["verifiers"]
 
   [[aggregator.api_clients]]
+  # Monitoring and infrastructure client
   client_id = "monitoring"
-  description = "Monitoring and infrastructure client"
   enabled = true
   groups = ["monitoring"]
 
   [[aggregator.api_clients]]
+  # Development Indexer
   client_id = "indexer"
-  description = "Development Indexer"
   enabled = true
   groups = ["indexer"]
 
@@ -1254,26 +1254,26 @@ LockTimeout = 30
     host_port  = 6381
 
   [[aggregator.api_clients]]
+  # Development tertiary verifier 1
   client_id = "tertiary-verifier-1"
-  description = "Development tertiary verifier 1"
   enabled = true
   groups = ["verifiers"]
 
   [[aggregator.api_clients]]
+  # Development tertiary verifier 2
   client_id = "tertiary-verifier-2"
-  description = "Development tertiary verifier 2"
   enabled = true
   groups = ["verifiers"]
 
   [[aggregator.api_clients]]
+  # Monitoring and infrastructure client
   client_id = "monitoring"
-  description = "Monitoring and infrastructure client"
   enabled = true
   groups = ["monitoring"]
 
   [[aggregator.api_clients]]
+  # Development Indexer
   client_id = "indexer"
-  description = "Development Indexer"
   enabled = true
   groups = ["indexer"]
 

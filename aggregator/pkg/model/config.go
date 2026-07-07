@@ -438,12 +438,18 @@ func (c *APIKeyPairEnv) Validate() error {
 type ClientConfig struct {
 	APIKeyPairs []*APIKeyPairEnv `toml:"apiKeyPair"`
 	Groups      []string         `toml:"groups"`
-	Description string           `toml:"description"`
+	Name        string           `toml:"name,omitempty"`
 	Enabled     bool             `toml:"enabled"`
 	ClientID    string           `toml:"clientId"`
 }
 
 func (c *ClientConfig) GetClientID() string { return c.ClientID }
+func (c *ClientConfig) GetClientName() string {
+	if len(c.Name) > 0 {
+		return c.Name
+	}
+	return c.ClientID
+}
 func (c *ClientConfig) GetGroups() []string { return c.Groups }
 func (c *ClientConfig) IsEnabled() bool     { return c.Enabled }
 

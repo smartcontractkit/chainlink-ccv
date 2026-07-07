@@ -921,9 +921,10 @@ type mockClientConfig struct {
 	enabled  bool
 }
 
-func (m *mockClientConfig) GetClientID() string { return m.clientID }
-func (m *mockClientConfig) GetGroups() []string { return m.groups }
-func (m *mockClientConfig) IsEnabled() bool     { return m.enabled }
+func (m *mockClientConfig) GetClientID() string   { return m.clientID }
+func (m *mockClientConfig) GetClientName() string { return m.clientID }
+func (m *mockClientConfig) GetGroups() []string   { return m.groups }
+func (m *mockClientConfig) IsEnabled() bool       { return m.enabled }
 
 func TestGetClientByAPIKey(t *testing.T) {
 	creds, _ := hmacutil.GenerateCredentials()
@@ -1176,6 +1177,18 @@ func TestClientConfig_Getters(t *testing.T) {
 	assert.Equal(t, "test-client", cfg.GetClientID())
 	assert.Equal(t, []string{"group1", "group2"}, cfg.GetGroups())
 	assert.True(t, cfg.IsEnabled())
+}
+
+func TestClientConfig_GetClientName(t *testing.T) {
+	t.Run("returns Name when set", func(t *testing.T) {
+		cfg := &ClientConfig{ClientID: "client-id", Name: "Human Readable Name"}
+		assert.Equal(t, "Human Readable Name", cfg.GetClientName())
+	})
+
+	t.Run("falls back to ClientID when Name is empty", func(t *testing.T) {
+		cfg := &ClientConfig{ClientID: "client-id"}
+		assert.Equal(t, "client-id", cfg.GetClientName())
+	})
 }
 
 func TestLoadFromEnvironment(t *testing.T) {
