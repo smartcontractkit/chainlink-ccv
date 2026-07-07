@@ -13,6 +13,9 @@ import "context"
 
 type ctxKey struct{}
 
+// scopeKey carries the current parent step, so Stage nests new rows under it.
+type scopeKey struct{}
+
 // Step is a single checklist row. All methods are safe for concurrent use and
 // are cheap no-ops on the off-TTY path.
 type Step interface {
@@ -49,9 +52,26 @@ func ReporterOrNoOp(ctx context.Context) Reporter {
 	return noopReporter{}
 }
 
-// Stage is a convenience wrapper for ReporterOrNoOp(ctx).Stage(label).
+// Stage adds a checklist row and returns it. When ctx carries a parent scope
+// (set via Scope), the row nests as an indented child of that parent; otherwise
+// it is a top-level row. The deep code calling Stage need not know its depth —
+// nesting is decided entirely by whichever scope the caller threaded into ctx.
 func Stage(ctx context.Context, label string) Step {
+	if p, ok := ctx.Value(scopeKey{}).(*mpbStep); ok && p != nil {
+		return p.child(label)
+	}
 	return ReporterOrNoOp(ctx).Stage(label)
+}
+
+// Scope returns a context whose subsequent Stage calls nest under parent. Pass
+// it to a function whose internal Stage calls should render as children:
+//
+//	step := progress.Stage(ctx, "Launch verifiers (early)")
+//	launchStandaloneVerifiers(progress.Scope(ctx, step), ...)
+//
+// Off a TTY (parent is a no-op) this is inert and Stage stays a no-op.
+func Scope(ctx context.Context, parent Step) context.Context {
+	return context.WithValue(ctx, scopeKey{}, parent)
 }
 
 type noopReporter struct{}

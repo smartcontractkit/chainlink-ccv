@@ -285,16 +285,23 @@ func NewEnvironment() (in *Cfg, err error) {
 	// even though aggregator containers haven't started yet.
 	/////////////////////////////////////////////
 
-	progress.Stage(ctx, "Launch verifiers (early)")
-	_, err = launchStandaloneVerifiers(in, blockchainOutputs, jdInfra)
+	verEarlyStep := progress.Stage(ctx, "Launch verifiers (early)")
+	verEarlyCtx := progress.Scope(ctx, verEarlyStep)
+	_, err = launchStandaloneVerifiers(verEarlyCtx, in, blockchainOutputs, jdInfra)
 	if err != nil {
 		return nil, fmt.Errorf("failed to launch standalone verifiers: %w", err)
 	}
 
 	// Register standalone verifiers with JD so they can receive job proposals.
+	// This runs after the verifiers are up (registration + WSRPC connect), so it
+	// gets its own sub-row to account for the time between "verifiers up" and
+	// "verifiers reachable via JD".
+	jdConnectStep := progress.Stage(verEarlyCtx, "Connect verifiers to JD")
 	if err := registerStandaloneVerifiersWithJD(ctx, in.Verifier, jdInfra); err != nil {
+		jdConnectStep.Fail()
 		return nil, err
 	}
+	jdConnectStep.Done()
 
 	/////////////////////////////////////////////
 	// END: Launch verifiers early            //
@@ -450,7 +457,8 @@ func NewEnvironment() (in *Cfg, err error) {
 	// START: Launch aggregators //
 	///////////////////////////////
 
-	progress.Stage(ctx, "Launch aggregators")
+	aggStep := progress.Stage(ctx, "Launch aggregators")
+	aggCtx := progress.Scope(ctx, aggStep)
 	in.AggregatorEndpoints = make(map[string]string)
 	in.AggregatorCACertFiles = make(map[string]string)
 
@@ -473,42 +481,57 @@ func NewEnvironment() (in *Cfg, err error) {
 		}
 	}
 
-	// Generate aggregator configs using changesets (on-chain state as source of truth)
+	// Generate aggregator configs using changesets (on-chain state as source of truth).
+	// One nested sub-row per committee aggregator.
 	for _, aggregatorInput := range in.Aggregator {
-		aggregatorInput.SharedTLSCerts = sharedTLSCerts
+		if err := func() (err error) {
+			aggregatorInput.SharedTLSCerts = sharedTLSCerts
 
-		// Use changeset to generate committee config from on-chain state
-		instanceName := aggregatorInput.InstanceName()
-		committee, ok := topology.NOPTopology.Committees[aggregatorInput.CommitteeName]
-		if !ok {
-			return nil, fmt.Errorf("committee %q not found in topology", aggregatorInput.CommitteeName)
-		}
-		cs := ccvchangesets.GenerateAggregatorConfig()
-		output, err := cs.Apply(*e, ccvchangesets.GenerateAggregatorConfigInput{
-			ServiceIdentifier:  instanceName + "-aggregator",
-			CommitteeQualifier: aggregatorInput.CommitteeName,
-			ChainSelectors:     ccvchangesets.CommitteeChainSelectorsFromTopology(committee),
-		})
-		if err != nil {
-			return nil, fmt.Errorf("failed to generate aggregator config for %s (committee %s): %w", instanceName, aggregatorInput.CommitteeName, err)
-		}
+			// Use changeset to generate committee config from on-chain state
+			instanceName := aggregatorInput.InstanceName()
+			aggChild := progress.Stage(aggCtx, fmt.Sprintf("%s (%s)", instanceName, aggregatorInput.CommitteeName))
+			defer func() {
+				if err != nil {
+					aggChild.Fail()
+				} else {
+					aggChild.Done()
+				}
+			}()
+			committee, ok := topology.NOPTopology.Committees[aggregatorInput.CommitteeName]
+			if !ok {
+				return fmt.Errorf("committee %q not found in topology", aggregatorInput.CommitteeName)
+			}
+			cs := ccvchangesets.GenerateAggregatorConfig()
+			output, err := cs.Apply(*e, ccvchangesets.GenerateAggregatorConfigInput{
+				ServiceIdentifier:  instanceName + "-aggregator",
+				CommitteeQualifier: aggregatorInput.CommitteeName,
+				ChainSelectors:     ccvchangesets.CommitteeChainSelectorsFromTopology(committee),
+			})
+			if err != nil {
+				return fmt.Errorf("failed to generate aggregator config for %s (committee %s): %w", instanceName, aggregatorInput.CommitteeName, err)
+			}
 
-		// Get generated config from output datastore
-		aggCfg, err := ccvdeployment.GetAggregatorConfig(output.DataStore.Seal(), instanceName+"-aggregator")
-		if err != nil {
-			return nil, fmt.Errorf("failed to get aggregator config from output: %w", err)
-		}
-		aggregatorInput.GeneratedCommittee = aggCfg
+			// Get generated config from output datastore
+			aggCfg, err := ccvdeployment.GetAggregatorConfig(output.DataStore.Seal(), instanceName+"-aggregator")
+			if err != nil {
+				return fmt.Errorf("failed to get aggregator config from output: %w", err)
+			}
+			aggregatorInput.GeneratedCommittee = aggCfg
 
-		out, err := services.NewAggregator(aggregatorInput)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create aggregator service for committee %s: %w", aggregatorInput.CommitteeName, err)
+			out, err := services.NewAggregator(aggregatorInput)
+			if err != nil {
+				return fmt.Errorf("failed to create aggregator service for committee %s: %w", aggregatorInput.CommitteeName, err)
+			}
+			in.AggregatorEndpoints[aggregatorInput.CommitteeName] = out.ExternalHTTPSUrl
+			if out.TLSCACertFile != "" {
+				in.AggregatorCACertFiles[aggregatorInput.CommitteeName] = out.TLSCACertFile
+			}
+			e.DataStore = output.DataStore.Seal()
+
+			return nil
+		}(); err != nil {
+			return nil, fmt.Errorf("failed to launch aggregator for committee %s: %w", aggregatorInput.CommitteeName, err)
 		}
-		in.AggregatorEndpoints[aggregatorInput.CommitteeName] = out.ExternalHTTPSUrl
-		if out.TLSCACertFile != "" {
-			in.AggregatorCACertFiles[aggregatorInput.CommitteeName] = out.TLSCACertFile
-		}
-		e.DataStore = output.DataStore.Seal()
 	}
 
 	///////////////////////////////
@@ -667,7 +690,7 @@ func NewEnvironment() (in *Cfg, err error) {
 	// in the generated bootstrap config. Defaults were applied earlier, so Bootstrap is
 	// non-nil; launch happens immediately below. Each executor gets its own copy so a future
 	// per-service override can't alias others.
-	progress.Stage(ctx, "Launch executors")
+	execStep := progress.Stage(ctx, "Launch executors")
 	monitoring := topology.Monitoring
 	for _, exec := range in.Executor {
 		if exec == nil {
@@ -680,7 +703,7 @@ func NewEnvironment() (in *Cfg, err error) {
 		exec.Bootstrap.Monitoring = &m
 	}
 
-	_, err = launchExecutors(in.Executor, blockchainOutputs, jdInfra)
+	_, err = launchExecutors(progress.Scope(ctx, execStep), in.Executor, blockchainOutputs, jdInfra)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create executors: %w", err)
 	}

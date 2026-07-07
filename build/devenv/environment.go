@@ -37,6 +37,7 @@ import (
 	_ "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/tokenverifier"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobspec"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/progress"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/committeeverifier"
 	executorsvc "github.com/smartcontractkit/chainlink-ccv/build/devenv/services/executor"
@@ -951,7 +952,7 @@ func fundExecutorTransmitters(
 // launchExecutors starts executor containers for all Standalone-mode inputs.
 // Executors that were already launched by the executor component (Out != nil)
 // are skipped — they are collected into the output slice but not re-launched.
-func launchExecutors(in []*executorsvc.Input, blockchainOutputs []*blockchain.Output, jdInfra *jobs.JDInfrastructure) ([]*executorsvc.Output, error) {
+func launchExecutors(ctx context.Context, in []*executorsvc.Input, blockchainOutputs []*blockchain.Output, jdInfra *jobs.JDInfrastructure) ([]*executorsvc.Output, error) {
 	var outs []*executorsvc.Output
 	for _, exec := range in {
 		if exec == nil || exec.Mode != services.Standalone {
@@ -961,16 +962,20 @@ func launchExecutors(in []*executorsvc.Input, blockchainOutputs []*blockchain.Ou
 			outs = append(outs, exec.Out)
 			continue
 		}
+		// One nested sub-row per standalone executor we actually launch.
+		execChild := progress.Stage(ctx, fmt.Sprintf("%s (%s)", exec.ContainerName, exec.ChainFamily))
 		var transmitterKeyName string
 		if reg, regErr := chainreg.GetRegistry().Get(exec.ChainFamily); regErr == nil && reg.ExecutorInfo != nil {
 			transmitterKeyName = reg.ExecutorInfo.ExecutorTransmitterKeyName()
 		}
 		out, err := executorsvc.New(exec, blockchainOutputs, jdInfra, chainreg.GetRegistry().GetExecutorModifiers(), transmitterKeyName)
 		if err != nil {
+			execChild.Fail()
 			return nil, fmt.Errorf("failed to create executor %s: %w", exec.ContainerName, err)
 		}
 		exec.Out = out
 		outs = append(outs, out)
+		execChild.Done()
 	}
 	return outs, nil
 }
@@ -1101,7 +1106,7 @@ func proposeJobsToExecutors(
 	return g.Wait()
 }
 
-func launchStandaloneVerifiers(in *Cfg, blockchainOutputs []*blockchain.Output, jdInfra *jobs.JDInfrastructure) ([]*committeeverifier.Output, error) {
+func launchStandaloneVerifiers(ctx context.Context, in *Cfg, blockchainOutputs []*blockchain.Output, jdInfra *jobs.JDInfrastructure) ([]*committeeverifier.Output, error) {
 	// Collect aggregator outputs per committee in insertion order. The order matches
 	// committee.Aggregators (TOML order plus expansion clones), so it aligns by index with the
 	// topology aggregator names below — used to key each verifier's per-aggregator credentials.
@@ -1131,14 +1136,19 @@ func launchStandaloneVerifiers(in *Cfg, blockchainOutputs []*blockchain.Output, 
 	}
 
 	outs := make([]*committeeverifier.Output, 0, len(in.Verifier))
-	// Start standalone verifiers if in standalone mode.
+	// Start standalone verifiers if in standalone mode. Each standalone verifier
+	// gets its own progress sub-row; nesting is decided by whatever scope the
+	// caller threaded into ctx, so this loop is oblivious to its display depth.
 	for _, ver := range in.Verifier {
 		if ver.Mode != services.Standalone {
 			continue
 		}
 
+		vStep := progress.Stage(ctx, fmt.Sprintf("%s (%s)", ver.ContainerName, ver.CommitteeName))
+
 		aggOuts := aggregatorsByCommittee[ver.CommitteeName]
 		if len(aggOuts) == 0 {
+			vStep.Fail()
 			return nil, fmt.Errorf(
 				"verifier %q (committee %q): no aggregator outputs found — ensure the aggregator started successfully",
 				ver.ContainerName, ver.CommitteeName,
@@ -1146,16 +1156,19 @@ func launchStandaloneVerifiers(in *Cfg, blockchainOutputs []*blockchain.Output, 
 		}
 		creds, err := committeeverifier.AggregatorCredentialsForVerifier(ver, aggOuts, topoAggNames[ver.CommitteeName])
 		if err != nil {
+			vStep.Fail()
 			return nil, err
 		}
 		ver.AggregatorCredentials = creds
 		ver.AggregatorOutput = aggOuts[ver.NodeIndex%len(aggOuts)]
 		out, err := committeeverifier.New(ver, blockchainOutputs, jdInfra, chainreg.GetRegistry().GetVerifierModifiers())
 		if err != nil {
+			vStep.Fail()
 			return nil, fmt.Errorf("failed to create verifier service: %w", err)
 		}
 		ver.Out = out
 		outs = append(outs, out)
+		vStep.Done()
 	}
 	return outs, nil
 }
