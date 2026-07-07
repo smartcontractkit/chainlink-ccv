@@ -408,6 +408,47 @@ func TestEIP150ForwardingGasBuffer(t *testing.T) {
 	}
 }
 
+func TestTXMEVMContractTransmitter_SetsMessageIDMeta(t *testing.T) {
+	ctx := context.Background()
+	lggr := logger.Test(t)
+	testKey := "test-key"
+
+	msg := mustCreateMessage(t, 1, 2, 100, 1000000, 1000000)
+	expectedMessageID, err := msg.MessageID()
+	require.NoError(t, err)
+
+	report := protocol.AbstractAggregatedReport{
+		CCVS: []protocol.UnknownAddress{
+			protocol.UnknownAddress(common.HexToAddress("0x1111111111111111111111111111111111111111").Bytes()),
+		},
+		CCVData: [][]byte{[]byte("ccv_data_1")},
+		Message: msg,
+	}
+
+	mockTxm := new(mockTxManager)
+	mockRR := new(mockRoundRobin)
+	fromAddr := common.HexToAddress("0xabcdef1234567890abcdef1234567890abcdef12")
+	mockRR.On("GetNextAddress", mock.Anything, mock.Anything).Return(fromAddr, nil)
+	mockTxm.On("CreateTransaction", mock.Anything, mock.MatchedBy(func(req txmgr.TxRequest) bool {
+		return req.Meta != nil &&
+			len(req.Meta.MessageIDs) == 1 &&
+			req.Meta.MessageIDs[0] == expectedMessageID.String()
+	})).Return(txmgr.Tx{IdempotencyKey: &testKey}, nil)
+
+	transmitter := NewEVMContractTransmitterFromTxm(
+		lggr,
+		protocol.ChainSelector(1),
+		mockTxm,
+		common.HexToAddress("0x9999999999999999999999999999999999999999"),
+		mockRR,
+		[]common.Address{fromAddr},
+		monitoring.NewNoopExecutorMonitoring(),
+	)
+
+	require.NoError(t, transmitter.ConvertAndWriteMessageToChain(ctx, report))
+	mockTxm.AssertExpectations(t)
+}
+
 // mustCreateMessage creates a test message or fails the test.
 func mustCreateMessage(t *testing.T, sourceChain, destChain, nonce uint64, executionGasLimit, ccipReceiveGasLimit uint32) protocol.Message {
 	msg, err := protocol.NewMessage(
