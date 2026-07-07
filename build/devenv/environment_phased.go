@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/progress"
 	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/timing"
 )
@@ -17,6 +18,14 @@ import (
 // returns the full accumulated output map.
 func NewPhasedEnvironment() (out map[string]any, err error) {
 	ctx := L.WithContext(context.Background())
+
+	// v1: the phased runtime gets the same TTY-gated log capture as the monolith
+	// plus a single spinner. Per-component checklist rows are a fast-follow once
+	// the reporter is threaded through the runtime package (which runs components
+	// concurrently and already tracks per-component timings).
+	ctx, upProgress := progress.Begin(ctx, progress.Options{Title: "devenv (phased: " + os.Getenv(EnvVarTestConfigs) + ")"})
+	defer func() { upProgress.End(err) }()
+	phasedStage := progress.Stage(ctx, "Bringing up phased runtime")
 
 	configs := strings.Split(os.Getenv(EnvVarTestConfigs), ",")
 	if len(configs) > 1 {
@@ -53,6 +62,7 @@ func NewPhasedEnvironment() (out map[string]any, err error) {
 	if err != nil {
 		return nil, err
 	}
+	phasedStage.Done()
 
 	// Re-publish the schema version (the runtime consumed it) as a public output
 	// key so the serialized file begins with version = N and LoadOutput can route

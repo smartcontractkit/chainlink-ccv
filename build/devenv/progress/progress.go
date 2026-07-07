@@ -1,0 +1,67 @@
+// Package progress renders the devenv startup as a live checklist on a TTY,
+// while capturing the usual log firehose to a file. It is deliberately
+// self-contained and gated on the presence of a terminal: off a TTY every hook
+// resolves to a no-op and logs flow exactly as before.
+//
+// The reporter is carried in the context.Context (mirroring the existing
+// ctx = L.WithContext(ctx) pattern in the environment constructors), so any
+// code reachable from a bringup — however deep — can emit progress via
+// ReporterOrNoOp(ctx) without threading a new parameter through every layer.
+package progress
+
+import "context"
+
+type ctxKey struct{}
+
+// Step is a single checklist row. All methods are safe for concurrent use and
+// are cheap no-ops on the off-TTY path.
+type Step interface {
+	// SetTotal declares a countable sub-total (e.g. number of chains), turning
+	// the row's suffix into an "n/total" counter.
+	SetTotal(n int)
+	// Inc advances the countable sub-progress by one.
+	Inc()
+	// Msg sets a transient detail shown while the step is running.
+	Msg(format string, args ...any)
+	// Done marks the step complete.
+	Done()
+	// Fail marks the step failed.
+	Fail()
+}
+
+// Reporter creates checklist rows. Implementations must be goroutine-safe (the
+// phased runtime emits from multiple goroutines).
+type Reporter interface {
+	Stage(label string) Step
+}
+
+// WithReporter returns a context carrying r.
+func WithReporter(ctx context.Context, r Reporter) context.Context {
+	return context.WithValue(ctx, ctxKey{}, r)
+}
+
+// ReporterOrNoOp returns the reporter carried in ctx, or a no-op reporter when
+// none is present (the off-TTY path).
+func ReporterOrNoOp(ctx context.Context) Reporter {
+	if r, ok := ctx.Value(ctxKey{}).(Reporter); ok && r != nil {
+		return r
+	}
+	return noopReporter{}
+}
+
+// Stage is a convenience wrapper for ReporterOrNoOp(ctx).Stage(label).
+func Stage(ctx context.Context, label string) Step {
+	return ReporterOrNoOp(ctx).Stage(label)
+}
+
+type noopReporter struct{}
+
+func (noopReporter) Stage(string) Step { return noopStep{} }
+
+type noopStep struct{}
+
+func (noopStep) SetTotal(int)       {}
+func (noopStep) Inc()               {}
+func (noopStep) Msg(string, ...any) {}
+func (noopStep) Done()              {}
+func (noopStep) Fail()              {}

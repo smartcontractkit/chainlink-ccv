@@ -22,6 +22,7 @@ import (
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	ccdeploy "github.com/smartcontractkit/chainlink-ccv/build/devenv/deploy"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/progress"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	executorsvc "github.com/smartcontractkit/chainlink-ccv/build/devenv/services/executor"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/timing"
@@ -42,6 +43,21 @@ func NewEnvironment() (in *Cfg, err error) {
 	ctx := context.Background()
 	timeTrack := timing.New(Plog)
 
+	// Install the TTY-gated progress UI. On a terminal this captures the log
+	// firehose to a file and renders a live checklist; off a TTY it is a no-op
+	// and logs flow exactly as before. addrPath is populated later on the TTY
+	// path so the summary can point at the address table.
+	// Registered before the DX-tracker defer below so this runs LAST (LIFO):
+	// the DX metrics still land in the captured log, and fds are restored after.
+	ctx, upProgress := progress.Begin(ctx, progress.Options{Title: "devenv (" + os.Getenv(EnvVarTestConfigs) + ")"})
+	var addrPath string
+	defer func() {
+		upProgress.End(err)
+		if err == nil && upProgress.Active() {
+			printUpSummary(in, addrPath)
+		}
+	}()
+
 	// track environment startup result and time using getDX app
 	defer func() {
 		dxTracker := initDxTracker()
@@ -57,6 +73,7 @@ func NewEnvironment() (in *Cfg, err error) {
 	// START: Read Config toml //
 	/////////////////////////////
 
+	progress.Stage(ctx, "Read config")
 	configs := strings.Split(os.Getenv(EnvVarTestConfigs), ",")
 	if len(configs) > 1 {
 		L.Warn().Msg("Multiple configuration files detected, this feature may be unsupported in the future.")
@@ -95,6 +112,7 @@ func NewEnvironment() (in *Cfg, err error) {
 		return nil, err
 	}
 
+	bcStep := progress.Stage(ctx, "Deploy blockchains")
 	impls := make([]cciptestinterfaces.CCIP17Configuration, 0)
 	for _, bc := range in.Blockchains {
 		var impl cciptestinterfaces.CCIP17Configuration
@@ -105,6 +123,7 @@ func NewEnvironment() (in *Cfg, err error) {
 		impls = append(impls, impl)
 	}
 
+	bcStep.SetTotal(len(impls))
 	blockchainOutputs := make([]*blockchain.Output, len(impls))
 	for i, impl := range impls {
 		out, err := impl.DeployLocalNetwork(ctx, in.Blockchains[i])
@@ -113,6 +132,7 @@ func NewEnvironment() (in *Cfg, err error) {
 		}
 
 		blockchainOutputs[i] = out
+		bcStep.Inc()
 	}
 
 	/////////////////////////////
@@ -152,6 +172,7 @@ func NewEnvironment() (in *Cfg, err error) {
 	//////////////////////////////////
 	// START: Deploy Pricer service //
 	//////////////////////////////////
+	progress.Stage(ctx, "Deploy pricer")
 	if _, err := services.NewPricer(in.Pricer); err != nil {
 		return nil, fmt.Errorf("failed to setup pricer service: %w", err)
 	}
@@ -185,6 +206,7 @@ func NewEnvironment() (in *Cfg, err error) {
 	// In addition, if we need to launch the nodes (i.e if some services are not standalone),
 	// we need to launch the nodes first to get the onchain public keys which will then
 	// be used to configure the rest of the system (aggregator, onchain committees, etc.).
+	progress.Stage(ctx, "Launch CL nodes")
 	timeTrack.Record("[infra] deploying CL nodes")
 	_, err = launchCLNodes(ctx, in, impls, in.Verifier, in.Aggregator)
 	if err != nil {
@@ -200,6 +222,7 @@ func NewEnvironment() (in *Cfg, err error) {
 	// START: Start JD Infrastructure   //
 	//////////////////////////////////////
 
+	progress.Stage(ctx, "Start JD infrastructure")
 	timeTrack.Record("[infra] starting JD infrastructure")
 
 	// Extract only CL-mode NOP aliases for JD/client operations
@@ -262,6 +285,7 @@ func NewEnvironment() (in *Cfg, err error) {
 	// even though aggregator containers haven't started yet.
 	/////////////////////////////////////////////
 
+	progress.Stage(ctx, "Launch verifiers (early)")
 	_, err = launchStandaloneVerifiers(in, blockchainOutputs, jdInfra)
 	if err != nil {
 		return nil, fmt.Errorf("failed to launch standalone verifiers: %w", err)
@@ -280,6 +304,7 @@ func NewEnvironment() (in *Cfg, err error) {
 	// START: Deploy contracts //
 	/////////////////////////////
 
+	contractsStep := progress.Stage(ctx, "Deploy contracts")
 	var selectors []uint64
 	var e *deployment.Environment
 	// the CLDF datastore is not initialized at this point because contracts are not deployed yet.
@@ -321,6 +346,7 @@ func NewEnvironment() (in *Cfg, err error) {
 	}
 	combos := devenvcommon.ComputeTokenCombinations(capsBySelector, topology)
 
+	contractsStep.SetTotal(len(impls))
 	ds := datastore.NewMemoryDataStore()
 	for i, impl := range impls {
 		var networkInfo chainsel.ChainDetails
@@ -381,6 +407,7 @@ func NewEnvironment() (in *Cfg, err error) {
 			return nil, err
 		}
 		in.CLDF.AddAddresses(string(a))
+		contractsStep.Inc()
 	}
 	e.DataStore = ds.Seal()
 	///////////////////////////
@@ -393,6 +420,7 @@ func NewEnvironment() (in *Cfg, err error) {
 
 	// Configure cross-chain token transfers: each chain impl builds its own
 	// TokenTransferConfigs using chain-specific registry and CCV refs.
+	progress.Stage(ctx, "Connect chains")
 	if err = ccdeploy.ConfigureAllTokenTransfers(impls, selectors, e, topology); err != nil {
 		return nil, fmt.Errorf("configure all token transfers: %w", err)
 	}
@@ -409,6 +437,7 @@ func NewEnvironment() (in *Cfg, err error) {
 	// START: Launch generic services //
 	/////////////////////////////////////////
 
+	progress.Stage(ctx, "Launch generic services")
 	if err := launchGenericServices(ctx, in, e, blockchainOutputs); err != nil {
 		return nil, fmt.Errorf("failed to launch generic services: %w", err)
 	}
@@ -421,6 +450,7 @@ func NewEnvironment() (in *Cfg, err error) {
 	// START: Launch aggregators //
 	///////////////////////////////
 
+	progress.Stage(ctx, "Launch aggregators")
 	in.AggregatorEndpoints = make(map[string]string)
 	in.AggregatorCACertFiles = make(map[string]string)
 
@@ -490,6 +520,7 @@ func NewEnvironment() (in *Cfg, err error) {
 	// start up the indexer(s) after the aggregators are up to avoid spamming of errors
 	// in the logs when they start before the aggregators are up.
 	///////////////////////////
+	progress.Stage(ctx, "Launch indexers")
 	// Generate indexer config using changeset (on-chain state as source of truth).
 	// One shared config is generated; all indexers use the same config and duplicated secrets/auth.
 	if len(in.Aggregator) > 0 && len(in.Indexer) > 0 {
@@ -636,6 +667,7 @@ func NewEnvironment() (in *Cfg, err error) {
 	// in the generated bootstrap config. Defaults were applied earlier, so Bootstrap is
 	// non-nil; launch happens immediately below. Each executor gets its own copy so a future
 	// per-service override can't alias others.
+	progress.Stage(ctx, "Launch executors")
 	monitoring := topology.Monitoring
 	for _, exec := range in.Executor {
 		if exec == nil {
@@ -680,6 +712,7 @@ func NewEnvironment() (in *Cfg, err error) {
 	// START: Launch verifiers //
 	/////////////////////////////
 
+	progress.Stage(ctx, "Launch verifiers")
 	verifierJobSpecs, err := generateVerifierJobSpecs(e, in, topology, sharedTLSCerts, ds)
 	if err != nil {
 		return nil, err
@@ -710,6 +743,7 @@ func NewEnvironment() (in *Cfg, err error) {
 	// START: Launch token verifiers //
 	///////////////////////////////////
 
+	progress.Stage(ctx, "Launch token verifiers")
 	// Generate token verifier configs using changeset (on-chain state as source of truth)
 	for i, tokenVerifierInput := range in.TokenVerifier {
 		if tokenVerifierInput == nil {
@@ -781,6 +815,7 @@ func NewEnvironment() (in *Cfg, err error) {
 	in.CLDF.AddEnvMetadata(string(envMetadataJSON))
 
 	if in.JDInfra != nil {
+		progress.Stage(ctx, "Accept jobs")
 		if err := jobs.AcceptPendingJobs(ctx, in.ClientLookup); err != nil {
 			return nil, fmt.Errorf("failed to accept pending jobs: %w", err)
 		}
@@ -791,7 +826,15 @@ func NewEnvironment() (in *Cfg, err error) {
 	}
 
 	timeTrack.Print()
-	if err = PrintCLDFAddresses(in); err != nil {
+	// On the TTY path the full (large) address table goes to its own file and
+	// the terminal gets a short summary; off a TTY, preserve the old behavior of
+	// printing the table to stdout.
+	if upProgress.Active() {
+		addrPath = addressesFilePath()
+		if err = writeAddressesFile(addrPath, in); err != nil {
+			return nil, err
+		}
+	} else if err = PrintCLDFAddresses(in); err != nil {
 		return nil, err
 	}
 

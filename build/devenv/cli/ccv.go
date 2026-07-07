@@ -98,6 +98,7 @@ var restartCmd = &cobra.Command{
 		if err := framework.RemoveTestContainers(); err != nil {
 			return fmt.Errorf("failed to clean Docker resources: %w", err)
 		}
+		defaultUpLogPath()
 		return newEnvFn()
 	},
 }
@@ -111,8 +112,23 @@ var upCmd = &cobra.Command{
 		if err := applyEnvConfig(cmd, args); err != nil {
 			return err
 		}
+		defaultUpLogPath()
 		return newEnvFn()
 	},
+}
+
+// defaultUpLogPath pins CCV_UP_LOG to an absolute <cwd>/uplog.txt when unset, so
+// the progress UI's captured firehose lands at a stable, predictable path
+// regardless of any later working-directory changes. A user-set value wins.
+func defaultUpLogPath() {
+	if os.Getenv("CCV_UP_LOG") != "" {
+		return
+	}
+	wd, err := os.Getwd()
+	if err != nil {
+		return
+	}
+	_ = os.Setenv("CCV_UP_LOG", filepath.Join(wd, "uplog.txt"))
 }
 
 // resolveConfigArg resolves a bare config name (no extension) to either
