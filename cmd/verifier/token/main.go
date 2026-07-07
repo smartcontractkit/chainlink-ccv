@@ -33,17 +33,10 @@ import (
 )
 
 func main() {
-	// Load the verifier secrets file once (only [db].url is used by the token verifier); an absent
-	// file is fine and falls back to CL_DATABASE_URL. Shared by both the CLI and the service.
-	secretsPath := vsecrets.ResolveSecretsPath(vsecrets.TokenVerifierSecretsPathEnv, vsecrets.DefaultTokenVerifierSecretsPath)
-	secrets, err := vsecrets.Load(secretsPath)
-	if err != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "Failed to load token verifier secrets: %v\n", err)
-		os.Exit(1)
-	}
-
 	if len(os.Args) >= 2 && os.Args[1] == "ccv" {
-		cmd.RunCCVCLI(os.Args[1:], secrets)
+		// The CLI loads the verifier secrets itself from the token verifier's path (it runs before
+		// bootstrap.Run, so the service factory has not loaded them yet).
+		cmd.RunCCVCLI(os.Args[1:], vsecrets.TokenVerifierSecretsPathEnv, vsecrets.DefaultTokenVerifierSecretsPath)
 		return
 	}
 	configPath := os.Getenv("TOKEN_VERIFIER_CONFIG_PATH")
@@ -51,9 +44,9 @@ func main() {
 		configPath = "/etc/config.toml"
 	}
 
-	err = bootstrap.Run(
+	err := bootstrap.Run(
 		"TokenVerifier",
-		&tokenVerifierFactory{secrets: secrets},
+		&tokenVerifierFactory{},
 		bootstrap.WithTOMLAppConfig(configPath),
 		bootstrap.WithLogLevelFromEnv(zapcore.InfoLevel),
 	)
@@ -69,8 +62,6 @@ type tokenVerifierFactory struct {
 	coordinators []*verifier.Coordinator
 	httpServer   *http.Server
 	lggr         logger.Logger
-	// secrets holds the verifier secrets (DB URL) loaded from the secrets file, with env fallback.
-	secrets *vsecrets.VerifierSecrets
 }
 
 // Stop tries to stop all services gracefully.
@@ -156,7 +147,15 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, spec bootstrap.JobSp
 		rmnRemoteAddresses[selector] = addr
 	}
 
-	db, err := cmd.ConnectToPostgresDB(tvf.lggr, tvf.secrets)
+	// Load the verifier secrets file (only [db].url is used by the token verifier); an absent file
+	// is fine and falls back to CL_DATABASE_URL.
+	secrets, err := vsecrets.LoadFromEnv(vsecrets.TokenVerifierSecretsPathEnv, vsecrets.DefaultTokenVerifierSecretsPath)
+	if err != nil {
+		tvf.lggr.Errorw("Failed to load verifier secrets", "error", err)
+		os.Exit(1)
+	}
+
+	db, err := cmd.ConnectToPostgresDB(tvf.lggr, secrets)
 	if err != nil {
 		tvf.lggr.Errorw("Failed to connect to Postgres database", "error", err)
 		os.Exit(1)

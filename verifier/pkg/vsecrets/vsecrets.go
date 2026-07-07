@@ -107,6 +107,12 @@ func ResolveSecretsPath(envVar, defaultPath string) string {
 	return defaultPath
 }
 
+// LoadFromEnv resolves the secrets path from envVar (falling back to defaultPath) and loads it. This
+// is the convenience each verifier app uses so the env-var/default resolution lives in one place.
+func LoadFromEnv(envVar, defaultPath string) (*VerifierSecrets, error) {
+	return Load(ResolveSecretsPath(envVar, defaultPath))
+}
+
 // Load reads and validates the verifier secrets file at path.
 //
 // An absent file is never an error: it returns an empty *VerifierSecrets so callers uniformly fall

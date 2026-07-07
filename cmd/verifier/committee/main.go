@@ -16,22 +16,16 @@ import (
 )
 
 func main() {
-	// Load the verifier secrets file once (DB URL + aggregator HMAC credentials); an absent file is
-	// fine and falls back to environment variables. Shared by both the CLI and the service.
-	secretsPath := vsecrets.ResolveSecretsPath(vsecrets.CommitteeVerifierSecretsPathEnv, vsecrets.DefaultCommitteeVerifierSecretsPath)
-	secrets, err := vsecrets.Load(secretsPath)
-	if err != nil {
-		panic(fmt.Sprintf("failed to load committee verifier secrets: %s", err.Error()))
-	}
-
 	if len(os.Args) >= 2 && os.Args[1] == "ccv" {
-		cmd.RunCCVCLI(os.Args[1:], secrets)
+		// The CLI loads the verifier secrets itself from the committee verifier's path (it runs
+		// before bootstrap.Run, so the service factory has not loaded them yet).
+		cmd.RunCCVCLI(os.Args[1:], vsecrets.CommitteeVerifierSecretsPathEnv, vsecrets.DefaultCommitteeVerifierSecretsPath)
 		return
 	}
 
 	if err := bootstrap.Run(
 		"EVMCommitteeVerifier",
-		cmd.NewCommitteeVerifierServiceFactory(secrets),
+		cmd.NewCommitteeVerifierServiceFactory(),
 		bootstrap.WithLogLevelFromEnv(zapcore.InfoLevel),
 		bootstrap.WithKey(commit.DefaultECDSASigningKeyName, "signing", keystore.ECDSA_S256), // ECDSA key for signing verification results
 	); err != nil {

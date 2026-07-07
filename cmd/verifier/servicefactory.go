@@ -39,16 +39,13 @@ type factory struct {
 	aggregatorWriter *storageaccess.FanOutWriter
 	heartbeatClient  heartbeatclient.HeartbeatSender
 	chainStatusDB    sqlutil.DataSource
-	// secrets holds the verifier secrets loaded from the secrets file (DB URL, aggregator HMAC
-	// credentials). Never nil; an empty value means resolution falls back to environment variables.
-	secrets *vsecrets.VerifierSecrets
 }
 
 // NewCommitteeVerifierServiceFactory creates a new ServiceFactory for the committee verifier service.
-// secrets carries the DB URL and aggregator HMAC credentials resolved from the verifier secrets file
-// (with env-var fallback); pass the result of LoadVerifierSecrets.
-func NewCommitteeVerifierServiceFactory(secrets *vsecrets.VerifierSecrets) bootstrap.ServiceFactory {
-	return &factory{secrets: secrets}
+// The factory loads the verifier secrets file itself in Start, so each chain-family binary's main.go
+// stays free of secrets-loading boilerplate.
+func NewCommitteeVerifierServiceFactory() bootstrap.ServiceFactory {
+	return &factory{}
 }
 
 // Start implements [bootstrap.ServiceFactory].
@@ -71,6 +68,15 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 	}
 
 	lggr := f.lggr
+
+	// Load the verifier secrets file (DB URL + aggregator HMAC credentials). Owning this here keeps
+	// per-binary main.go free of boilerplate; an absent file falls back to environment variables.
+	secrets, err := vsecrets.LoadFromEnv(vsecrets.CommitteeVerifierSecretsPathEnv, vsecrets.DefaultCommitteeVerifierSecretsPath)
+	if err != nil {
+		lggr.Errorw("Failed to load verifier secrets", "error", err)
+		return fmt.Errorf("failed to load verifier secrets: %w", err)
+	}
+
 	if config.PyroscopeURL != "" {
 		profiler, err := StartPyroscope(lggr, config.PyroscopeURL, "verifier")
 		if err != nil {
@@ -112,7 +118,7 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 	// Each aggregator authenticates the verifier with its own HMAC credential, resolved from the
 	// verifier secrets file (keyed by secret_name) with fallback to the per-aggregator environment
 	// variables (VERIFIER_AGGREGATOR_<NAME>_API_KEY/SECRET_KEY).
-	aggregatorSecrets := f.secrets.AggregatorSecrets()
+	aggregatorSecrets := secrets.AggregatorSecrets()
 	aggregatorHMACs := make([]*hmac.ClientConfig, len(resolvedAggregators))
 	for i, a := range resolvedAggregators {
 		hmacConfig, hErr := a.ResolveHMACConfig(aggregatorSecrets)
@@ -203,7 +209,7 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 	lggr.Infow("Using signer address", "address", signerAddress)
 
 	// Create chain status manager (PostgreSQL storage) with monitoring decorator
-	chainStatusManager, chainStatusDB, err := createChainStatusManager(lggr, config.VerifierID, verifierMonitoring, f.secrets)
+	chainStatusManager, chainStatusDB, err := createChainStatusManager(lggr, config.VerifierID, verifierMonitoring, secrets)
 	if err != nil {
 		lggr.Errorw("Failed to create chain status manager", "error", err)
 		return fmt.Errorf("failed to create chain status manager: %w", err)

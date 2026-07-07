@@ -23,13 +23,23 @@ import (
 // operator who has cut over to the file need not re-export the env var to run the CLI.
 // Call this when os.Args[1] == "ccv"; pass os.Args[1:] so the app receives ["ccv", "chain-statuses", subcommand, ...].
 // urfave/cli treats args[0] as the program name, so we prepend app.Name so "ccv" is parsed as the first command.
-func RunCCVCLI(args []string, secrets *vsecrets.VerifierSecrets) {
+//
+// secretsEnvVar/defaultSecretsPath name the calling app's verifier secrets file; the CLI loads it
+// itself (it runs before the service factory) so an operator who has cut over to the file need not
+// re-export CL_DATABASE_URL to run the CLI.
+func RunCCVCLI(args []string, secretsEnvVar, defaultSecretsPath string) {
 	lggr, err := logger.NewWith(logging.GetLogProfile(zapcore.InfoLevel))
 	if err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "failed to create logger: %v\n", err)
 		os.Exit(1)
 	}
 	lggr = logger.Sugared(logger.Named(lggr, "ccv-cli"))
+
+	secrets, err := vsecrets.LoadFromEnv(secretsEnvVar, defaultSecretsPath)
+	if err != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "failed to load verifier secrets: %v\n", err)
+		os.Exit(1)
+	}
 
 	var chainStatusOnce sync.Once
 	var chainStatusDeps chainstatuses.Deps

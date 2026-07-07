@@ -16,8 +16,8 @@ different database than the bootstrap `[db]`.
 ## New: verifier secrets file via per-app `*_SECRETS_PATH`
 
 Each verifier app resolves its own path env var, falling back to a namespaced
-default; the file is loaded once at startup and shared by the service and the
-`ccv` admin CLI.
+default. The service factory loads the file at startup (so each chain-family
+binary's `main.go` stays boilerplate-free); the `ccv` admin CLI loads it too.
 
 | App | Env var | Default path |
 |-----|---------|--------------|
@@ -54,24 +54,22 @@ only deploy the binaries are unaffected — this is a Go API change.
 |--------|--------|-------|
 | `verifier.ConnectToPostgresDB` | `(lggr)` | `(lggr, *vsecrets.VerifierSecrets)` |
 | `commit.AggregatorConnection.ResolveHMACConfig` | `()` | `(vsecrets.AggregatorSecrets)` |
-| `verifier.RunCCVCLI` | `(args)` | `(args, *vsecrets.VerifierSecrets)` |
-| `verifier.NewCommitteeVerifierServiceFactory` | `()` | `(*vsecrets.VerifierSecrets)` |
+| `verifier.RunCCVCLI` | `(args)` | `(args, secretsEnvVar, defaultSecretsPath)` |
 
-Before:
-```go
-db, err := cmd.ConnectToPostgresDB(lggr)
-```
+`NewCommitteeVerifierServiceFactory()` is unchanged — the factory loads the
+secrets in `Start` itself. The env var name constant `DatabaseURLEnvVar` moved
+from `cmd/verifier` to the new leaf package `verifier/pkg/vsecrets`.
 
-After:
-```go
-secrets, err := vsecrets.Load(vsecrets.ResolveSecretsPath(
-    vsecrets.CommitteeVerifierSecretsPathEnv, vsecrets.DefaultCommitteeVerifierSecretsPath))
-// ...
-db, err := cmd.ConnectToPostgresDB(lggr, secrets)
-```
+---
 
-The env var name constant `DatabaseURLEnvVar` moved from `cmd/verifier` to the
-new leaf package `verifier/pkg/vsecrets`.
+## Breaking change: `CL_DATABASE_*` pool-tuning env vars removed
+
+`CL_DATABASE_MAX_OPEN_CONNS`, `CL_DATABASE_MAX_IDLE_CONNS`,
+`CL_DATABASE_CONN_MAX_LIFETIME`, and `CL_DATABASE_CONN_MAX_IDLE_TIME` are no
+longer read. They were set by no deployment and always fell back to defaults, so
+the defaults (`20` / `10` / `300s` / `60s`) are now fixed constants. Only the
+credential-bearing `CL_DATABASE_URL` moved to the secrets file. Pool tuning can
+be reintroduced via config if a deployment ever needs it.
 
 ---
 

@@ -4,8 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"os"
-	"strconv"
 	"time"
 
 	"github.com/grafana/pyroscope-go"
@@ -26,18 +24,13 @@ import (
 )
 
 const (
-	// Database environment variables. The URL is resolved via the verifier secrets package
-	// (vsecrets.DatabaseURLEnvVar); these tuning knobs remain plain env vars.
-	DatabaseMaxOpenConnsEnvVar    = "CL_DATABASE_MAX_OPEN_CONNS"
-	DatabaseMaxIdleConnsEnvVar    = "CL_DATABASE_MAX_IDLE_CONNS"
-	DatabaseConnMaxLifetimeEnvVar = "CL_DATABASE_CONN_MAX_LIFETIME"
-	DatabaseConnMaxIdleTimeEnvVar = "CL_DATABASE_CONN_MAX_IDLE_TIME"
-
-	// Database defaults.
+	// Database connection pool settings. Not operator-tunable: these were previously read from
+	// CL_DATABASE_* env vars that no deployment ever set, so they are fixed constants. Pull them back
+	// into config only when a deployment actually needs to override them.
 	defaultMaxOpenConns    = 20
 	defaultMaxIdleConns    = 10
-	defaultConnMaxLifetime = 300 // seconds
-	defaultConnMaxIdleTime = 60  // seconds
+	defaultConnMaxLifetime = 300 * time.Second
+	defaultConnMaxIdleTime = 60 * time.Second
 )
 
 func SetupMonitoring(config verifier.MonitoringConfig, verifierServiceName string) verifier.Monitoring {
@@ -89,20 +82,15 @@ func ConnectToPostgresDB(lggr logger.Logger, secrets *vsecrets.VerifierSecrets) 
 		return nil, nil
 	}
 
-	maxOpenConns := getEnvInt(DatabaseMaxOpenConnsEnvVar, defaultMaxOpenConns)
-	maxIdleConns := getEnvInt(DatabaseMaxIdleConnsEnvVar, defaultMaxIdleConns)
-	connMaxLifetime := getEnvInt(DatabaseConnMaxLifetimeEnvVar, defaultConnMaxLifetime)
-	connMaxIdleTime := getEnvInt(DatabaseConnMaxIdleTimeEnvVar, defaultConnMaxIdleTime)
-
 	dbx, err := sql.Open("postgres", dbURL)
 	if err != nil {
 		return nil, nil
 	}
 
-	dbx.SetMaxOpenConns(maxOpenConns)
-	dbx.SetMaxIdleConns(maxIdleConns)
-	dbx.SetConnMaxLifetime(time.Duration(connMaxLifetime) * time.Second)
-	dbx.SetConnMaxIdleTime(time.Duration(connMaxIdleTime) * time.Second)
+	dbx.SetMaxOpenConns(defaultMaxOpenConns)
+	dbx.SetMaxIdleConns(defaultMaxIdleConns)
+	dbx.SetConnMaxLifetime(defaultConnMaxLifetime)
+	dbx.SetConnMaxIdleTime(defaultConnMaxIdleTime)
 
 	if err := ccvcommon.EnsureDBConnection(lggr, dbx); err != nil {
 		_ = dbx.Close()
@@ -117,10 +105,10 @@ func ConnectToPostgresDB(lggr logger.Logger, secrets *vsecrets.VerifierSecrets) 
 	}
 
 	lggr.Infow("Using PostgreSQL chain status storage",
-		"maxOpenConns", maxOpenConns,
-		"maxIdleConns", maxIdleConns,
-		"connMaxLifetime", connMaxLifetime,
-		"connMaxIdleTime", connMaxIdleTime,
+		"maxOpenConns", defaultMaxOpenConns,
+		"maxIdleConns", defaultMaxIdleConns,
+		"connMaxLifetime", defaultConnMaxLifetime,
+		"connMaxIdleTime", defaultConnMaxIdleTime,
 	)
 
 	return sqlxDB, nil
@@ -177,16 +165,4 @@ func logChainInfo[T any](infos chainaccess.Infos[T], chainSelector protocol.Chai
 			"chainSelector", chainSelector,
 			"info", info)
 	}
-}
-
-func getEnvInt(key string, defaultValue int) int {
-	val := os.Getenv(key)
-	if val == "" {
-		return defaultValue
-	}
-	intVal, err := strconv.Atoi(val)
-	if err != nil {
-		return defaultValue
-	}
-	return intVal
 }
