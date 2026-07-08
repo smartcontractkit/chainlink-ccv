@@ -157,7 +157,7 @@ func TestServiceCommitteeVerifierLocalMode(t *testing.T) {
 	// 5. The verifier's own coordinator must come up healthy.
 	healthURL := out.ExternalHTTPURL + "/health"
 	require.Eventually(t, func() bool {
-		resp, err := http.Get(healthURL) //nolint:gosec // G107: test-only URL from the launched container
+		resp, err := http.Get(healthURL)
 		if err != nil {
 			return false
 		}
