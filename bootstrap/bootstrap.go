@@ -487,7 +487,7 @@ func (b *Bootstrapper) startLocal(ctx context.Context) (startErr error) {
 		return fmt.Errorf("failed to initialize monitoring: %w", err)
 	}
 
-	appCfg, err := os.ReadFile(b.localConfigPath) //nolint:gosec // G304: path is a trusted operator-provided config path
+	appCfg, err := os.ReadFile(b.localConfigPath)
 	if err != nil {
 		return fmt.Errorf("failed to read local app config %q: %w", b.localConfigPath, err)
 	}
@@ -498,7 +498,7 @@ func (b *Bootstrapper) startLocal(ctx context.Context) (startErr error) {
 	}
 	// Inject the keystore into accessors only when one exists; wrapping with a nil keystore would
 	// push nil into any KeystoreSetter accessor.
-	var inner chainaccess.Registry = reg
+	inner := reg
 	if keyStore != nil {
 		inner = NewKeystoreRegistry(b.lggr, reg, keyStore)
 	}
