@@ -14,12 +14,11 @@ import (
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.uber.org/zap/zapcore"
 
-	"github.com/smartcontractkit/chainlink-ccv/bootstrap/keys"
 	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-func SetupBeholder(config BeholderConfig, signer keys.CSASigner, metricViews []sdkmetric.View) error {
+func SetupBeholder(config BeholderConfig, signer crypto.Signer, metricViews []sdkmetric.View) error {
 	if !config.Enabled {
 		return nil
 	}
@@ -87,17 +86,14 @@ func SetupBeholder(config BeholderConfig, signer keys.CSASigner, metricViews []s
 var _ beholder.Signer = (*beholderSigner)(nil)
 
 type beholderSigner struct {
-	signer keys.CSASigner
+	signer crypto.Signer
 }
 
-func (b *beholderSigner) Sign(_ context.Context, keyID string, data []byte) ([]byte, error) {
-	if b.signer.Name() != keyID {
-		return nil, fmt.Errorf("signer name mismatch, expected %s, got %s", keyID, b.signer.Name())
-	}
+func (b *beholderSigner) Sign(_ context.Context, _ string, data []byte) ([]byte, error) {
 	return b.signer.Sign(rand.Reader, data, crypto.Hash(0))
 }
 
-func newBeholderSigner(signer keys.CSASigner) beholder.Signer {
+func newBeholderSigner(signer crypto.Signer) beholder.Signer {
 	return &beholderSigner{signer: signer}
 }
 

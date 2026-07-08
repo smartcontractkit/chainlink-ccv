@@ -2,6 +2,7 @@ package bootstrap
 
 import (
 	"context"
+	"crypto"
 	"errors"
 	"fmt"
 	"os"
@@ -231,7 +232,7 @@ func NewBootstrapper(
 	return b, nil
 }
 
-func (b *Bootstrapper) initMonitoring(signer keys.CSASigner) error {
+func (b *Bootstrapper) initMonitoring(signer crypto.Signer) error {
 	// do not fall back b.config to it
 	mon := monitoring.Config{}
 	if b.config != nil && b.config.Monitoring != nil {
@@ -577,7 +578,7 @@ func bootstrapConfigPaths(explicitConfig, explicitSecrets string) []string {
 	return paths
 }
 
-func initializeKeystore(ctx context.Context, lggr logger.Logger, db *sqlx.DB, ksPassword string, requiredKeys []keyToInit) (keystore.Keystore, keys.CSASigner, error) {
+func initializeKeystore(ctx context.Context, lggr logger.Logger, db *sqlx.DB, ksPassword string, requiredKeys []keyToInit) (keystore.Keystore, crypto.Signer, error) {
 	ks, err := keystore.LoadKeystore(ctx, keys.NewPGStorage(db, "default"), ksPassword)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to load keystore: %w", err)
