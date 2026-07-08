@@ -124,6 +124,17 @@ func newClientSecrets(entries []ClientSecret) (ClientSecrets, error) {
 	return result, nil
 }
 
+// decodeError turns a TOML decode failure into an error safe to log. BurntSushi's ParseError.Error()
+// (and its Message/input fields) can echo a snippet of the offending source line, which for a sensitive file
+// may be a credential value.
+func decodeError(path string, err error) error {
+	if pe, ok := errors.AsType[toml.ParseError](err); ok {
+		return fmt.Errorf("failed to decode aggregator secrets file %q: TOML parse error at line %d, column %d (last key %q)",
+			path, pe.Position.Line, pe.Position.Col, pe.LastKey)
+	}
+	return fmt.Errorf("failed to decode aggregator secrets file %q: malformed or invalid TOML (details omitted to avoid logging secret values)", path)
+}
+
 // ResolveSecretsPath returns the secrets file path from envVar, or defaultPath when unset.
 func ResolveSecretsPath(envVar, defaultPath string) string {
 	if p := os.Getenv(envVar); p != "" {
@@ -158,7 +169,7 @@ func Load(path string) (*Secrets, error) {
 	var file File
 	md, err := toml.Decode(string(tomlBytes), &file)
 	if err != nil {
-		return nil, fmt.Errorf("failed to decode aggregator secrets file %q: %w", path, err)
+		return nil, decodeError(path, err)
 	}
 	if undecoded := md.Undecoded(); len(undecoded) > 0 {
 		return nil, fmt.Errorf("aggregator secrets file %q has unknown keys: %+v", path, undecoded)

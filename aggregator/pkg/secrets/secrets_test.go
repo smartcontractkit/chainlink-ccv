@@ -143,6 +143,23 @@ func TestLoad_RejectsMalformedTOML(t *testing.T) {
 	require.Contains(t, err.Error(), "decode")
 }
 
+func TestLoad_MalformedTOMLDoesNotLeakValue(t *testing.T) {
+	// An unterminated string on the api_key line would normally make the TOML decoder echo the source
+	// line (and thus the secret) in its error. The decode error must surface only the position, never
+	// the value.
+	path := writeSecretsFile(t, `
+[[clients]]
+client_id = "verifier-1"
+api_key = "SUPERSECRETVALUE
+secret_key = "s"
+`)
+
+	_, err := Load(path)
+	require.Error(t, err)
+	require.NotContains(t, err.Error(), "SUPERSECRETVALUE")
+	require.Contains(t, err.Error(), "line")
+}
+
 func TestLoad_RejectsDuplicateAPIKeyWithoutLeakingValue(t *testing.T) {
 	path := writeSecretsFile(t, `
 [[clients]]
