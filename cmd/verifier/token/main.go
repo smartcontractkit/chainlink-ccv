@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
@@ -44,9 +45,14 @@ func main() {
 		configPath = "/etc/config.toml"
 	}
 
-	// The token verifier has no JD support and needs no keystore, so it defaults to local (non-JD)
-	// mode and reads its app config from the file above. BOOTSTRAPPER_MODE can still be read, but jd
-	// is not a valid target for this binary.
+	// The token verifier has no JD support and needs no keystore, so it only runs in local (non-JD)
+	// mode and reads its app config from the file above. Reject BOOTSTRAPPER_MODE=jd up front with a
+	// clear message instead of letting it fail later inside bootstrap config validation.
+	if mode := strings.ToLower(strings.TrimSpace(os.Getenv(bootstrap.ModeEnv))); mode == "jd" {
+		_, _ = fmt.Fprintf(os.Stderr, "%s=jd is not supported by the token verifier: it has no JD integration and runs only in local mode\n", bootstrap.ModeEnv)
+		os.Exit(1)
+	}
+
 	err := bootstrap.Run(
 		"TokenVerifier",
 		&tokenVerifierFactory{},

@@ -154,10 +154,12 @@ func TestServiceCommitteeVerifierLocalMode(t *testing.T) {
 	// bootstrap info server.
 	require.NotEmpty(t, out.BootstrapKeys.ECDSAAddress, "local mode must initialize the signing keystore")
 
-	// 5. The verifier's own coordinator must come up healthy.
+	// 5. The verifier's own coordinator must come up healthy. Use a per-request timeout so a single
+	//    stalled connection cannot block a poll longer than the Eventually interval.
 	healthURL := out.ExternalHTTPURL + "/health"
+	healthClient := &http.Client{Timeout: 3 * time.Second}
 	require.Eventually(t, func() bool {
-		resp, err := http.Get(healthURL)
+		resp, err := healthClient.Get(healthURL)
 		if err != nil {
 			return false
 		}

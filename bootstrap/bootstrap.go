@@ -472,15 +472,28 @@ func (b *Bootstrapper) startLocal(ctx context.Context) (startErr error) {
 	// Services that sign (committee verifier, executor) supply them; the token verifier does not.
 	var keyStore keystore.Keystore
 	var csaSigner crypto.Signer
-	if b.config != nil && b.config.DB.URL != "" && b.config.Keystore.Password != "" {
-		db, err := connectToDB(ctx, b.config.DB.URL)
+	var dbURL, ksPassword string
+	if b.config != nil {
+		dbURL = strings.TrimSpace(b.config.DB.URL)
+		ksPassword = strings.TrimSpace(b.config.Keystore.Password)
+	}
+	switch {
+	case dbURL != "" && ksPassword != "":
+		db, err := connectToDB(ctx, dbURL)
 		if err != nil {
 			return fmt.Errorf("failed to connect to bootstrapper database: %w", err)
 		}
-		keyStore, csaSigner, err = initializeKeystore(ctx, b.lggr, db, b.config.Keystore.Password, b.keys)
+		keyStore, csaSigner, err = initializeKeystore(ctx, b.lggr, db, ksPassword, b.keys)
 		if err != nil {
 			return fmt.Errorf("failed to initialize keystore: %w", err)
 		}
+	case dbURL != "" || ksPassword != "":
+		// Exactly one of [db]/[keystore] is set — almost certainly a misconfiguration. Warn loudly:
+		// running keystore-less here would surface later as a confusing nil-keystore failure in a
+		// signing service.
+		b.lggr.Warnw("local mode: bootstrap config sets only one of [db].url / [keystore].password; "+
+			"both are required to initialize the keystore, so the service will run keystore-less",
+			"hasDBURL", dbURL != "", "hasKeystorePassword", ksPassword != "")
 	}
 
 	if err := b.initMonitoring(csaSigner); err != nil {
