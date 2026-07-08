@@ -45,8 +45,8 @@ func TestE2ESmoke_RemoveRemotePool(t *testing.T) {
 	require.NoError(t, err)
 	require.GreaterOrEqual(t, len(chains), 2, "expected at least 2 chains for this test in the environment")
 
-	src := chains[0].CCIP17.ChainSelector()
-	dest := chains[1].CCIP17.ChainSelector()
+	src := chains[0].ChainSelector()
+	dest := chains[1].ChainSelector()
 
 	// Find a token combo whose src->dest transfer prerequisites are satisfied.
 	var combo common.TokenCombination
