@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -453,6 +454,174 @@ func TestBuildUpdateNodeRequest(t *testing.T) {
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "not implemented")
 	})
+}
+
+// --- mode resolution tests ---
+
+func TestResolveMode(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		in      string
+		want    mode
+		wantErr bool
+	}{
+		{"", modeJD, false},
+		{"jd", modeJD, false},
+		{"JD", modeJD, false},
+		{"local", modeLocal, false},
+		{"LOCAL", modeLocal, false},
+		{"  local  ", modeLocal, false},
+		{"garbage", modeJD, true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.in, func(t *testing.T) {
+			t.Parallel()
+			got, err := resolveMode(tt.in)
+			if tt.wantErr {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), ModeEnv)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestResolveJobSpecPath(t *testing.T) {
+	// Not parallel: uses t.Setenv.
+	t.Run("explicit wins over env and default", func(t *testing.T) {
+		t.Setenv(JobSpecPathEnv, "/from/env.toml")
+		require.Equal(t, "/explicit.toml", resolveJobSpecPath("/explicit.toml"))
+	})
+	t.Run("env used when no explicit", func(t *testing.T) {
+		t.Setenv(JobSpecPathEnv, "/from/env.toml")
+		require.Equal(t, "/from/env.toml", resolveJobSpecPath(""))
+	})
+	t.Run("default when neither set", func(t *testing.T) {
+		t.Setenv(JobSpecPathEnv, "")
+		require.Equal(t, DefaultJobSpecPath, resolveJobSpecPath(""))
+	})
+}
+
+// writeLocalBootstrapConfig writes a minimal local-mode bootstrap config ([db] + [keystore]) and
+// returns its path. It also points BOOTSTRAPPER_SECRETS_PATH at a nonexistent file so the optional
+// secrets overlay is skipped regardless of what exists on the host.
+func writeLocalBootstrapConfig(t *testing.T, dbURL string) string {
+	t.Helper()
+	dir := t.TempDir()
+	t.Setenv(SecretsPathEnv, filepath.Join(dir, "no-secrets.toml"))
+	path := filepath.Join(dir, "config.toml")
+	content := "[db]\nurl = \"" + dbURL + "\"\n\n[keystore]\npassword = \"testpassword\"\n"
+	require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
+	return path
+}
+
+func TestNewBootstrapper_ModeResolution(t *testing.T) {
+	// Not parallel: uses t.Setenv.
+
+	t.Run("BOOTSTRAPPER_MODE=local resolves to local mode", func(t *testing.T) {
+		t.Setenv(ModeEnv, "local")
+		// A non-connectable DB URL is fine: NewBootstrapper only validates presence; the connection
+		// happens in Start.
+		cfgPath := writeLocalBootstrapConfig(t, "postgres://localhost:5432/db")
+		b, err := NewBootstrapper("t", &mockServiceFactory{}, WithBootstrapperConfigPath(cfgPath))
+		require.NoError(t, err)
+		require.Equal(t, modeLocal, b.mode)
+		require.Equal(t, DefaultJobSpecPath, b.jobSpecPath)
+	})
+
+	t.Run("WithLocalJobSpecPath overrides the default job spec path", func(t *testing.T) {
+		t.Setenv(ModeEnv, "local")
+		cfgPath := writeLocalBootstrapConfig(t, "postgres://localhost:5432/db")
+		b, err := NewBootstrapper("t", &mockServiceFactory{},
+			WithBootstrapperConfigPath(cfgPath),
+			WithLocalJobSpecPath("/custom/job.toml"),
+		)
+		require.NoError(t, err)
+		require.Equal(t, modeLocal, b.mode)
+		require.Equal(t, "/custom/job.toml", b.jobSpecPath)
+	})
+
+	t.Run("WithTOMLAppConfig selects static mode regardless of env", func(t *testing.T) {
+		t.Setenv(ModeEnv, "local")
+		f, err := os.CreateTemp(t.TempDir(), "*.toml")
+		require.NoError(t, err)
+		require.NoError(t, f.Close())
+		b, err := NewBootstrapper("t", &mockServiceFactory{}, WithTOMLAppConfig(f.Name()))
+		require.NoError(t, err)
+		require.Equal(t, modeStatic, b.mode)
+	})
+
+	t.Run("invalid BOOTSTRAPPER_MODE errors", func(t *testing.T) {
+		t.Setenv(ModeEnv, "bogus")
+		_, err := NewBootstrapper("t", &mockServiceFactory{})
+		require.Error(t, err)
+		require.Contains(t, err.Error(), ModeEnv)
+	})
+
+	t.Run("WithJD and WithTOMLAppConfig are mutually exclusive", func(t *testing.T) {
+		f, err := os.CreateTemp(t.TempDir(), "*.toml")
+		require.NoError(t, err)
+		require.NoError(t, f.Close())
+		_, err = NewBootstrapper("t", &mockServiceFactory{}, WithJD(), WithTOMLAppConfig(f.Name()))
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "mutually exclusive")
+	})
+}
+
+// TestBootstrapper_LocalMode_StartStop drives the full local-mode lifecycle against a real Postgres
+// keystore: Start reads the local job-spec file and invokes the factory with a non-nil keystore, and
+// Stop tears the job down.
+func TestBootstrapper_LocalMode_StartStop(t *testing.T) {
+	dbURL, cleanup := setupBootstrapTestDB(t)
+	defer cleanup()
+
+	cfgPath := writeLocalBootstrapConfig(t, dbURL)
+	t.Setenv(ModeEnv, "local")
+
+	dir := t.TempDir()
+	jobPath := filepath.Join(dir, "job.toml")
+	jobSpec := "schemaVersion = 1\ntype = \"test\"\nname = \"local-job\"\nappConfig = '''\nname = \"hello\"\ncount = 7\n'''\n"
+	require.NoError(t, os.WriteFile(jobPath, []byte(jobSpec), 0o600))
+
+	var (
+		started     bool
+		stopped     bool
+		gotKeystore keystore.Keystore
+		gotCfg      dummyAppConfig
+	)
+	fac := &spyServiceFactoryDummy{
+		startFn: func(_ context.Context, cfg dummyAppConfig, deps ServiceDeps) error {
+			started = true
+			gotKeystore = deps.Keystore
+			gotCfg = cfg
+			return nil
+		},
+		stopFn: func(context.Context) error { stopped = true; return nil },
+	}
+
+	b, err := NewBootstrapper("local-test", fac,
+		WithBootstrapperConfigPath(cfgPath),
+		WithLocalJobSpecPath(jobPath),
+	)
+	require.NoError(t, err)
+	require.Equal(t, modeLocal, b.mode)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	require.NoError(t, b.Start(ctx))
+	require.True(t, started, "factory Start must be called in local mode")
+	require.NotNil(t, gotKeystore, "local mode must provide a keystore to the factory")
+	require.Equal(t, "hello", gotCfg.Name)
+	require.Equal(t, 7, gotCfg.Count)
+	require.NotNil(t, b.localRunner)
+
+	require.NoError(t, b.Stop(ctx))
+	require.True(t, stopped, "factory Stop must be called on Stop")
+	require.Nil(t, b.localRunner, "localRunner must be cleared after Stop")
 }
 
 func TestChainTypeFromString(t *testing.T) {

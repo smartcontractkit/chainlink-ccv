@@ -167,7 +167,7 @@ type Config struct {
 	Secrets
 }
 
-// validateInfra validates the coupled infra bundle (jd/db/keystore/server/chains).
+// validateInfra validates the coupled infra bundle required in JD mode (jd/db/keystore/server/chains).
 func (c *Config) validateInfra() []error {
 	var errs []error
 	if err := c.JD.validate(); err != nil {
@@ -181,6 +181,22 @@ func (c *Config) validateInfra() []error {
 	}
 	if err := c.Server.validate(); err != nil {
 		errs = append(errs, fmt.Errorf("failed to validate 'server' section: %w", err))
+	}
+	errs = append(errs, validateChains(c.Chains)...)
+	return errs
+}
+
+// validateLocalInfra validates the sections required in local mode: the keystore and database
+// (which together back the keystore that services sign with) plus any declared chains. The [jd]
+// section is not required — there is no JD to connect to — and [server] is optional because the
+// info server is only started when a port is configured. See the mode routing in bootstrap.go.
+func (c *Config) validateLocalInfra() []error {
+	var errs []error
+	if err := c.Keystore.validate(); err != nil {
+		errs = append(errs, fmt.Errorf("failed to validate 'keystore' section: %w", err))
+	}
+	if err := c.DB.validate(); err != nil {
+		errs = append(errs, fmt.Errorf("failed to validate 'db' section: %w", err))
 	}
 	errs = append(errs, validateChains(c.Chains)...)
 	return errs
@@ -216,23 +232,29 @@ func validateChains(chains []ChainRegistration) []error {
 	return errs
 }
 
-// validate checks the config for correctness. Validation is mode-driven, keyed on needsInfra —
-// which the caller derives from the bootstrapper's mode (true in JD mode, false in static-TOML
-// mode) — rather than inferred from which sections happen to be present in the file:
+// validate checks the config for correctness. Validation is mode-driven — keyed on the
+// bootstrapper's resolved mode rather than inferred from which sections happen to be present in the
+// file:
 //
-//   - needsInfra: the infra bundle (jd/db/keystore/server/chains) is required; a missing or
+//   - modeJD: the full infra bundle (jd/db/keystore/server/chains) is required; a missing or
 //     invalid section is an error naming that section. This lets a JD-mode app with a malformed
 //     bootstrap file fail at load time with a precise message, instead of a downstream connection
 //     failure that a present-driven check would allow through.
-//   - !needsInfra: the infra bundle is ignored. Any infra section present in md is warned about
-//     (it does nothing in static-TOML mode) but is not an error.
+//   - modeLocal: only the keystore/db bundle (+ chains) is required; [jd] and [server] are
+//     optional (there is no JD, and the info server is started only when a port is set).
+//   - modeStatic: the infra bundle is ignored entirely. Any infra section present does nothing in
+//     static-TOML mode and is not an error.
 //
-// Monitoring is always validated when non-nil, in both modes. md is used only to name the
-// ignored sections in the static-mode warning.
-func (c *Config) validate(needsInfra bool) error {
+// Monitoring is always validated when non-nil, in every mode.
+func (c *Config) validate(m mode) error {
 	var errs []error
-	if needsInfra {
+	switch m {
+	case modeJD:
 		errs = append(errs, c.validateInfra()...)
+	case modeLocal:
+		errs = append(errs, c.validateLocalInfra()...)
+	case modeStatic:
+		// infra bundle is ignored in static-TOML mode
 	}
 	if c.Monitoring != nil {
 		if err := c.Monitoring.Validate(); err != nil {
@@ -247,10 +269,9 @@ func (c *Config) validate(needsInfra bool) error {
 // it defines — so when both a non-secret config file and a secrets file are provided, the secrets
 // file wins for any section it declares. Validation runs once on the merged struct.
 //
-// needsInfra selects mode-driven validation (see validate): pass true in JD mode, false in
-// static-TOML mode. Because validation runs on the merged struct, "is [db] present and valid" is
-// independent of which file supplied it.
-func LoadAndValidateConfig(paths []string, cfg *Config, needsInfra bool) error {
+// m selects mode-driven validation (see validate). Because validation runs on the merged struct,
+// "is [db] present and valid" is independent of which file supplied it.
+func LoadAndValidateConfig(paths []string, cfg *Config, m mode) error {
 	for _, path := range paths {
 		tomlBytes, err := os.ReadFile(path) //nolint:gosec // G304: path is provided by trusted caller
 		if err != nil {
@@ -262,7 +283,7 @@ func LoadAndValidateConfig(paths []string, cfg *Config, needsInfra bool) error {
 		}
 	}
 
-	if err := cfg.validate(needsInfra); err != nil {
+	if err := cfg.validate(m); err != nil {
 		return fmt.Errorf("config validation failed: %w", err)
 	}
 	return nil

@@ -15,6 +15,37 @@ leaving each app free to focus on its domain logic:
 Apps plug in via the `ServiceFactory` interface. The bootstrapper calls `Start` when a job spec
 arrives from JD and `Stop` when the job is deleted or replaced.
 
+# Lifecycle modes
+
+The bootstrapper runs in one of three modes. Apps that pass no mode option (committee verifier,
+executor) select between JD and local at runtime via the `BOOTSTRAPPER_MODE` env var:
+
+- `jd` (default): load the app config from a Job Distributor over WSRPC and run the full job
+  lifecycle. Requires the `[jd]`, `[db]`, `[keystore]`, and `[server]` config sections.
+- `local`: JD mode minus the JD connection. The bootstrapper still initializes the Postgres-backed
+  keystore (so services can sign), but reads the app config from a local job-spec file instead of
+  receiving it from JD. Requires `[db]` and `[keystore]`; `[jd]` is not needed and `[server]` is
+  optional (the info server starts only when `listen_port` is set). This is the mode for the CCV
+  starter kit and local testing where JD is not available.
+
+The token verifier calls `WithTOMLAppConfig` explicitly, which selects a third `static` mode: it
+loads app config from a file and provides no keystore. That mode is not affected by
+`BOOTSTRAPPER_MODE`.
+
+In local mode, point `BOOTSTRAPPER_JOB_SPEC_PATH` (default `/etc/bootstrap/job.toml`) at a job-spec
+TOML file — the same shape JD would push. See `job.example.toml`:
+
+```toml
+schemaVersion = 1
+type = "ccvcommitteeverifier"
+name = "committee-verifier-local"
+externalJobID = "00000000-0000-0000-0000-000000000001"
+appConfig = '''
+verifier_id = "my-verifier"
+# ... the rest of the app (commit.Config) TOML ...
+'''
+```
+
 # Configuration
 
 The bootstrap config is a TOML file provided by the **node operator** and mounted into the

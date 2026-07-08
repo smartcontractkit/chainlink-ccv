@@ -42,8 +42,34 @@ const (
 	SecretsPathEnv     = "BOOTSTRAPPER_SECRETS_PATH"
 	DefaultSecretsPath = "/etc/bootstrap/secrets.toml" //nolint:gosec // G101: this is a file path, not a credential
 
+	// ModeEnv names the env var that toggles the bootstrapper lifecycle between JD and local-file
+	// mode: "jd" (default) or "local". It is consulted only when neither WithJD nor
+	// WithTOMLAppConfig was passed explicitly, so the committee verifier and executor pick it up
+	// for free while the token verifier stays in static-TOML mode.
+	ModeEnv = "BOOTSTRAPPER_MODE"
+
+	// JobSpecPathEnv names the env var pointing at the local job-spec file read in local mode. The
+	// file is a full job-spec TOML — the same shape JD would push — carrying an appConfig block.
+	JobSpecPathEnv     = "BOOTSTRAPPER_JOB_SPEC_PATH"
+	DefaultJobSpecPath = "/etc/bootstrap/job.toml"
+
 	defaultStartupTimeout  = 10 * time.Second
 	defaultShutdownTimeout = 10 * time.Second
+)
+
+// mode is the bootstrapper lifecycle mode. It is resolved once in NewBootstrapper and drives both
+// config validation (see Config.validate) and startup routing (see Start).
+type mode int
+
+const (
+	// modeJD loads the app config from JD and runs the full job lifecycle. Default.
+	modeJD mode = iota
+	// modeLocal is JD mode minus the JD connection: it initializes the keystore and reads the app
+	// config from a local job-spec file instead of receiving it from JD.
+	modeLocal
+	// modeStatic loads the app config from a local TOML file and provides no keystore
+	// (WithTOMLAppConfig). Used by the token verifier.
+	modeStatic
 )
 
 // ServiceDeps are the dependencies passed to the services started by the bootstrapper.
@@ -137,19 +163,26 @@ type Bootstrapper struct {
 	infoServer       *infoServer
 	keys             []keyToInit
 
-	// jdMode is true when the bootstrapper runs in JD lifecycle mode (WithJD or default).
-	// false means static-TOML mode (WithTOMLAppConfig). Routing in Start() uses this flag
-	// rather than checking b.config != nil, because b.config may now be set in both modes
-	// (operator config is optionally loaded in static-TOML mode too).
-	jdMode bool
+	// mode is the resolved lifecycle mode (jd/local/static). Routing in Start() switches on it
+	// rather than checking b.config != nil, because b.config may be set in more than one mode
+	// (operator config is loaded in JD, local, and optionally static-TOML mode).
+	mode mode
+
+	// jobSpecPath is the local job-spec file read in local mode. Resolved in NewBootstrapper.
+	jobSpecPath string
+
+	// explicitJD records that WithJD was passed, so mode resolution prefers it over the env toggle.
+	explicitJD bool
 
 	// application
 	appCfg *string
 	fac    ServiceFactory
 	name   string
 
-	// accCloser is set by startWithAppConfig; JD mode uses runner.accCloser instead.
+	// accCloser is set by startWithAppConfig; JD and local modes use runner.accCloser instead.
 	accCloser *AccessorCloserRegistry
+	// localRunner is set by startLocal so Stop can tear the job down (factory.Stop + accessor close).
+	localRunner *runner
 	// pyroscope is a saved reference to profiler to close it on stop
 	pyroscope *pyroscope.Profiler
 
@@ -183,19 +216,29 @@ func NewBootstrapper(
 		}
 	}
 
-	// WithJD and WithTOMLAppConfig are mutually exclusive.
-	if b.jdMode && b.appCfg != nil {
+	// Resolve the lifecycle mode. WithTOMLAppConfig (static) and WithJD are explicit selectors and
+	// are mutually exclusive; when neither is set, the BOOTSTRAPPER_MODE env var toggles between JD
+	// (default) and local mode.
+	if b.explicitJD && b.appCfg != nil {
 		return nil, fmt.Errorf("WithJD and WithTOMLAppConfig are mutually exclusive")
 	}
-
-	// If neither mode was explicitly selected, default to JD lifecycle mode.
-	if !b.jdMode && b.appCfg == nil {
-		b.jdMode = true
+	switch {
+	case b.appCfg != nil:
+		b.mode = modeStatic
+	case b.explicitJD:
+		b.mode = modeJD
+	default:
+		resolved, err := resolveMode(os.Getenv(ModeEnv))
+		if err != nil {
+			return nil, err
+		}
+		b.mode = resolved
 	}
 
-	if b.jdMode {
-		// JD mode requires a CSA key for node authentication. Inject the default if the caller
-		// did not explicitly declare one, so callers only need to list their application keys.
+	if b.mode == modeJD || b.mode == modeLocal {
+		// Both modes authenticate to Beholder and (in JD mode) to the node with a CSA key. Inject
+		// the default if the caller did not explicitly declare one, so callers only need to list
+		// their application keys.
 		if !hasCSAKey(b.keys) {
 			b.keys = append([]keyToInit{{DefaultCSAKeyName, "csa", keystore.Ed25519}}, b.keys...)
 		}
@@ -206,8 +249,12 @@ func NewBootstrapper(
 		// config.toml carrying [db]/[keystore] resolves no secrets file, skips the overlay, and
 		// decodes exactly as before.
 		paths := bootstrapConfigPaths(b.configPath, b.secretsPath)
-		if err := LoadAndValidateConfig(paths, b.config, true); err != nil {
+		if err := LoadAndValidateConfig(paths, b.config, b.mode); err != nil {
 			return nil, fmt.Errorf("failed to load bootstrap config (%v): %w", paths, err)
+		}
+
+		if b.mode == modeLocal {
+			b.jobSpecPath = resolveJobSpecPath(b.jobSpecPath)
 		}
 	} else if path := os.Getenv(ConfigPathEnv); path != "" {
 		// Static-TOML mode: optionally load operator config when BOOTSTRAPPER_CONFIG_PATH is
@@ -217,7 +264,7 @@ func NewBootstrapper(
 		// No secrets file is loaded in static-TOML mode: the token verifier has no [db]/[keystore]
 		// and those are exactly the sections static mode ignores.
 		b.config = &Config{}
-		if err := LoadAndValidateConfig([]string{path}, b.config, false); err != nil {
+		if err := LoadAndValidateConfig([]string{path}, b.config, modeStatic); err != nil {
 			return nil, fmt.Errorf("failed to load operator config (%s): %w", path, err)
 		}
 	}
@@ -466,29 +513,90 @@ func (b *Bootstrapper) startWithJDLifecycle(ctx context.Context) error {
 	return nil
 }
 
-// Start initializes the keystore, connects to JD, and starts the lifecycle manager.
+// startLocal runs the service without JD. It initializes the same keystore, monitoring, and info
+// server as JD mode, then reads the app config from a local job-spec file and drives the job runner
+// directly instead of waiting for a JD proposal. There is no JD client, no lifecycle manager, and
+// no signing-key sync to JD.
+func (b *Bootstrapper) startLocal(ctx context.Context) error {
+	db, err := connectToDB(ctx, b.config.DB.URL)
+	if err != nil {
+		return fmt.Errorf("failed to connect to bootstrapper database: %w", err)
+	}
+
+	keyStore, csaSigner, err := initializeKeystore(ctx, b.lggr, db, b.config.Keystore.Password, b.keys)
+	if err != nil {
+		return fmt.Errorf("failed to initialize keystore: %w", err)
+	}
+
+	if err := b.initMonitoring(csaSigner); err != nil {
+		return fmt.Errorf("failed to initialize monitoring: %w", err)
+	}
+
+	specBytes, err := os.ReadFile(b.jobSpecPath) //nolint:gosec // G304: path is a trusted operator-provided config path
+	if err != nil {
+		return fmt.Errorf("failed to read local job spec %q: %w", b.jobSpecPath, err)
+	}
+
+	// The runner parses the job-spec TOML, builds the keystore-injecting accessor registry, and
+	// calls the factory — the same path JD mode drives, minus the lifecycle manager.
+	jobRunner := &runner{
+		lggr: b.lggr,
+		fac:  b.fac,
+		deps: ServiceDeps{Logger: b.lggr, Keystore: keyStore},
+	}
+	if err := jobRunner.StartJob(ctx, string(specBytes)); err != nil {
+		return fmt.Errorf("failed to start local job from %q: %w", b.jobSpecPath, err)
+	}
+	b.localRunner = jobRunner
+
+	// The info server exposes health/key inspection. It is only useful with a configured port; in
+	// local mode [server] is optional, so start it only when set.
+	if b.config.Server.ListenPort != 0 {
+		infoServer := newInfoServer(b.lggr, keyStore, b.config.Server.ListenPort)
+		if err := infoServer.Start(ctx); err != nil {
+			return fmt.Errorf("failed to start info server: %w", err)
+		}
+		b.infoServer = infoServer
+	}
+
+	return nil
+}
+
+// Start routes to the mode-specific startup path resolved in NewBootstrapper.
 func (b *Bootstrapper) Start(ctx context.Context) error {
 	if b.lggr == nil {
 		return fmt.Errorf("bootstrapper has no logger")
 	}
-	if b.jdMode {
+	switch b.mode {
+	case modeJD:
 		return b.startWithJDLifecycle(ctx)
+	case modeLocal:
+		return b.startLocal(ctx)
+	default:
+		return b.startWithAppConfig(ctx)
 	}
-	return b.startWithAppConfig(ctx)
 }
 
 // Stop shuts down all active components.
 //
-// The two startup modes own mutually exclusive sets of objects, so stopping every
-// non-nil field is sufficient to cover both without double-stopping anything:
-//   - JD mode (lifecycleManager/infoServer set, appCfg nil): the lifecycle manager and info server are stopped.
+// The startup modes own mutually exclusive sets of objects, so stopping every non-nil field is
+// sufficient to cover all of them without double-stopping anything:
+//   - JD mode (lifecycleManager/infoServer set): the lifecycle manager and info server are stopped.
 //     Accessor cleanup is owned by runner.StopJob, invoked by the lifecycle manager.
-//   - Static-config mode (appCfg set, lifecycleManager/infoServer nil): factory.Stop runs first, then accCloser.CloseAll
+//   - Local mode (localRunner set, infoServer optional): localRunner.StopJob runs factory.Stop then
+//     closes accessors; the info server is stopped if it was started.
+//   - Static-config mode (appCfg set): factory.Stop runs first, then accCloser.CloseAll.
 func (b *Bootstrapper) Stop(ctx context.Context) error {
 	if b.lifecycleManager != nil {
 		if err := b.lifecycleManager.Stop(); err != nil {
 			return fmt.Errorf("failed to stop lifecycle manager: %w", err)
 		}
+	}
+	if b.localRunner != nil {
+		if err := b.localRunner.StopJob(ctx); err != nil {
+			return fmt.Errorf("failed to stop local job: %w", err)
+		}
+		b.localRunner = nil
 	}
 	if b.infoServer != nil {
 		if err := b.infoServer.Stop(ctx); err != nil {
@@ -565,6 +673,32 @@ func resolveBootstrapSecretsPath(explicit string) string {
 		return ""
 	}
 	return path
+}
+
+// resolveMode maps the BOOTSTRAPPER_MODE env value to a mode. An empty value defaults to JD for
+// backward compatibility; "local" selects local mode; any other value is an error so a typo fails
+// loudly at startup instead of silently falling back to JD.
+func resolveMode(envValue string) (mode, error) {
+	switch strings.ToLower(strings.TrimSpace(envValue)) {
+	case "", "jd":
+		return modeJD, nil
+	case "local":
+		return modeLocal, nil
+	default:
+		return modeJD, fmt.Errorf("invalid %s %q: must be \"jd\" or \"local\"", ModeEnv, envValue)
+	}
+}
+
+// resolveJobSpecPath returns the effective local job-spec path: the explicitly-provided path takes
+// precedence, then BOOTSTRAPPER_JOB_SPEC_PATH, then DefaultJobSpecPath.
+func resolveJobSpecPath(explicit string) string {
+	if explicit != "" {
+		return explicit
+	}
+	if env := os.Getenv(JobSpecPathEnv); env != "" {
+		return env
+	}
+	return DefaultJobSpecPath
 }
 
 // bootstrapConfigPaths returns the ordered list of files to decode in JD mode: the non-secret config
@@ -654,14 +788,25 @@ func WithKey(name, purpose string, keyType keystore.KeyType) Option {
 	}
 }
 
-// WithJD tells the bootstrapper to load config from JD and start the JD lifecycle manager.
-// This is the default option if no AppConfig is provided.
+// WithJD tells the bootstrapper to load config from JD and start the JD lifecycle manager,
+// overriding the BOOTSTRAPPER_MODE env toggle. This is the default when neither WithJD nor
+// WithTOMLAppConfig is passed and BOOTSTRAPPER_MODE is unset.
 // JD mode requires a keystore and a CSA key for node authentication. The bootstrapper
 // automatically provisions bootstrap.DefaultCSAKeyName unless a key with purpose "csa" is
 // already declared via WithKey.
 func WithJD() Option {
 	return func(b *Bootstrapper) error {
-		b.jdMode = true
+		b.explicitJD = true
+		return nil
+	}
+}
+
+// WithLocalJobSpecPath sets the local job-spec file path used in local mode. If not set, the
+// bootstrapper looks for BOOTSTRAPPER_JOB_SPEC_PATH and falls back to DefaultJobSpecPath. Applies
+// in local mode only.
+func WithLocalJobSpecPath(path string) Option {
+	return func(b *Bootstrapper) error {
+		b.jobSpecPath = path
 		return nil
 	}
 }

@@ -313,10 +313,10 @@ func TestConfig_validate(t *testing.T) {
 			errContains: []string{"failed to validate 'db' section", "failed to validate 'monitoring' section"},
 		},
 	}
-	// All table cases above exercise JD mode (needsInfra=true) so the infra bundle is validated.
+	// All table cases above exercise JD mode (modeJD) so the full infra bundle is validated.
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := tt.config.validate(true)
+			err := tt.config.validate(modeJD)
 			if tt.wantErr {
 				require.Error(t, err)
 				for _, sub := range tt.errContains {
@@ -328,28 +328,78 @@ func TestConfig_validate(t *testing.T) {
 		})
 	}
 
-	// A monitoring-only config in static-TOML mode (needsInfra=false) must pass validation.
+	// A monitoring-only config in static-TOML mode (modeStatic) must pass validation.
 	t.Run("monitoring-only config (static mode) is valid", func(t *testing.T) {
 		cfg := &Config{NonSecretConfig: NonSecretConfig{Monitoring: validBeholderMonitoring()}}
-		require.NoError(t, cfg.validate(false))
+		require.NoError(t, cfg.validate(modeStatic))
 	})
 
 	// Static-TOML mode ignores the infra bundle entirely: an empty/invalid infra config still
-	// passes because needsInfra=false, even when md reports infra sections present (they are only
-	// warned about, not validated). This is the mode-driven behavior that replaces presence-driven.
+	// passes because the mode is static, even when infra sections are present (they are ignored,
+	// not validated). This is the mode-driven behavior that replaces presence-driven.
 	t.Run("static mode ignores present infra (no error)", func(t *testing.T) {
 		cfg := &Config{NonSecretConfig: NonSecretConfig{Monitoring: validBeholderMonitoring()}}
-		require.NoError(t, cfg.validate(false))
+		require.NoError(t, cfg.validate(modeStatic))
 	})
 
-	// Symmetric guard: the same empty infra config in JD mode (needsInfra=true) DOES fail, naming
-	// the missing sections — the precise, load-time error that motivated mode-driven validation.
+	// Symmetric guard: the same empty infra config in JD mode DOES fail, naming the missing
+	// sections — the precise, load-time error that motivated mode-driven validation.
 	t.Run("JD mode requires infra (names missing sections)", func(t *testing.T) {
 		cfg := &Config{NonSecretConfig: NonSecretConfig{Monitoring: validBeholderMonitoring()}}
-		err := cfg.validate(true)
+		err := cfg.validate(modeJD)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "failed to validate 'jd' section")
 		require.Contains(t, err.Error(), "failed to validate 'db' section")
+	})
+}
+
+// TestConfig_validate_LocalMode covers the local-mode requirement set: keystore + db are required,
+// but [jd] and [server] are optional (there is no JD, and the info server is only started when a
+// port is configured).
+func TestConfig_validate_LocalMode(t *testing.T) {
+	t.Parallel()
+
+	validKeystore := KeystoreConfig{Password: "secret"}
+	validDB := DBConfig{URL: "postgres://localhost:5432/mydb"}
+
+	t.Run("keystore + db only is valid (no jd, no server)", func(t *testing.T) {
+		t.Parallel()
+		cfg := &Config{Secrets: Secrets{Keystore: validKeystore, DB: validDB}}
+		require.NoError(t, cfg.validate(modeLocal))
+	})
+
+	t.Run("missing keystore fails naming it", func(t *testing.T) {
+		t.Parallel()
+		cfg := &Config{Secrets: Secrets{DB: validDB}}
+		err := cfg.validate(modeLocal)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "failed to validate 'keystore' section")
+	})
+
+	t.Run("missing db fails naming it", func(t *testing.T) {
+		t.Parallel()
+		cfg := &Config{Secrets: Secrets{Keystore: validKeystore}}
+		err := cfg.validate(modeLocal)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "failed to validate 'db' section")
+	})
+
+	t.Run("absent jd and server are not required", func(t *testing.T) {
+		t.Parallel()
+		cfg := &Config{Secrets: Secrets{Keystore: validKeystore, DB: validDB}}
+		err := cfg.validate(modeLocal)
+		require.NoError(t, err, "local mode must not require [jd] or [server]")
+	})
+
+	t.Run("invalid chains still fail in local mode", func(t *testing.T) {
+		t.Parallel()
+		cfg := &Config{
+			NonSecretConfig: NonSecretConfig{Chains: []ChainRegistration{{Type: "NOTACHAIN", ID: "1"}}},
+			Secrets:         Secrets{Keystore: validKeystore, DB: validDB},
+		}
+		err := cfg.validate(modeLocal)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "invalid chain at index 0")
 	})
 }
 
@@ -400,7 +450,7 @@ url = "postgres://localhost:5432/bootstrapper"
 		path := writeFile(t, dir, "config.toml", monolithTOML)
 
 		cfg := &Config{}
-		require.NoError(t, LoadAndValidateConfig([]string{path}, cfg, true))
+		require.NoError(t, LoadAndValidateConfig([]string{path}, cfg, modeJD))
 		assertFullyPopulated(t, cfg)
 	})
 
@@ -410,7 +460,7 @@ url = "postgres://localhost:5432/bootstrapper"
 		secretsPath := writeFile(t, dir, "secrets.toml", secretsTOML)
 
 		cfg := &Config{}
-		require.NoError(t, LoadAndValidateConfig([]string{configPath, secretsPath}, cfg, true))
+		require.NoError(t, LoadAndValidateConfig([]string{configPath, secretsPath}, cfg, modeJD))
 		assertFullyPopulated(t, cfg)
 	})
 
@@ -422,7 +472,7 @@ url = "postgres://localhost:5432/bootstrapper"
 		secretsPath := writeFile(t, dir, "secrets.toml", secretsTOML)
 
 		cfg := &Config{}
-		require.NoError(t, LoadAndValidateConfig([]string{configPath, secretsPath}, cfg, true))
+		require.NoError(t, LoadAndValidateConfig([]string{configPath, secretsPath}, cfg, modeJD))
 		require.Equal(t, "postgres://localhost:5432/bootstrapper", cfg.DB.URL,
 			"the later (secrets) file must overlay and win for a section it defines")
 	})
@@ -433,7 +483,7 @@ url = "postgres://localhost:5432/bootstrapper"
 		configPath := writeFile(t, dir, "config.toml", nonSecretTOML)
 
 		cfg := &Config{}
-		err := LoadAndValidateConfig([]string{configPath}, cfg, true)
+		err := LoadAndValidateConfig([]string{configPath}, cfg, modeJD)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "failed to validate 'keystore' section")
 		require.Contains(t, err.Error(), "failed to validate 'db' section")
@@ -441,7 +491,7 @@ url = "postgres://localhost:5432/bootstrapper"
 
 	t.Run("read error names the offending path", func(t *testing.T) {
 		cfg := &Config{}
-		err := LoadAndValidateConfig([]string{filepath.Join(t.TempDir(), "does-not-exist.toml")}, cfg, true)
+		err := LoadAndValidateConfig([]string{filepath.Join(t.TempDir(), "does-not-exist.toml")}, cfg, modeJD)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "does-not-exist.toml")
 	})
@@ -496,19 +546,19 @@ func TestConfig_validate_Chains(t *testing.T) {
 	t.Run("no chains is valid", func(t *testing.T) {
 		t.Parallel()
 		cfg := withChains()
-		require.NoError(t, cfg.validate(true))
+		require.NoError(t, cfg.validate(modeJD))
 	})
 
 	t.Run("valid chains", func(t *testing.T) {
 		t.Parallel()
 		cfg := withChains(ChainRegistration{Type: "EVM", ID: "1"}, ChainRegistration{Type: "EVM", ID: "137"})
-		require.NoError(t, cfg.validate(true))
+		require.NoError(t, cfg.validate(modeJD))
 	})
 
 	t.Run("invalid chain entry fails validation", func(t *testing.T) {
 		t.Parallel()
 		cfg := withChains(ChainRegistration{Type: "NOTACHAIN", ID: "1"})
-		err := cfg.validate(true)
+		err := cfg.validate(modeJD)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "invalid chain at index 0")
 	})
@@ -516,7 +566,7 @@ func TestConfig_validate_Chains(t *testing.T) {
 	t.Run("mixed chain families fails validation", func(t *testing.T) {
 		t.Parallel()
 		cfg := withChains(ChainRegistration{Type: "EVM", ID: "1"}, ChainRegistration{Type: "SOLANA", ID: "mainnet"})
-		err := cfg.validate(true)
+		err := cfg.validate(modeJD)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), `chain at index 1 has type "SOLANA"`)
 		require.Contains(t, err.Error(), `same family (found "EVM" at index 0)`)
@@ -525,13 +575,13 @@ func TestConfig_validate_Chains(t *testing.T) {
 	t.Run("mixed chain families is case-insensitive", func(t *testing.T) {
 		t.Parallel()
 		cfg := withChains(ChainRegistration{Type: "evm", ID: "1"}, ChainRegistration{Type: "EVM", ID: "137"})
-		require.NoError(t, cfg.validate(true), "same family in different casing must not be flagged as mixed")
+		require.NoError(t, cfg.validate(modeJD), "same family in different casing must not be flagged as mixed")
 	})
 
 	t.Run("an invalid entry does not mask the family the remaining valid entries share", func(t *testing.T) {
 		t.Parallel()
 		cfg := withChains(ChainRegistration{Type: "NOTACHAIN", ID: "1"}, ChainRegistration{Type: "EVM", ID: "1"}, ChainRegistration{Type: "SOLANA", ID: "mainnet"})
-		err := cfg.validate(true)
+		err := cfg.validate(modeJD)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "invalid chain at index 0")
 		require.Contains(t, err.Error(), `chain at index 2 has type "SOLANA"`)
