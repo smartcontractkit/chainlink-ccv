@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/auth"
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/secrets"
 	"github.com/smartcontractkit/chainlink-ccv/common"
 	hmacutil "github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
 )
@@ -983,6 +984,81 @@ func TestGetClientByAPIKey(t *testing.T) {
 	})
 }
 
+// loadSecretsFromString writes contents to a temp secrets file and loads it.
+func loadSecretsFromString(t *testing.T, contents string) *secrets.Secrets {
+	t.Helper()
+	path := t.TempDir() + "/secrets.toml"
+	require.NoError(t, os.WriteFile(path, []byte(contents), 0o600))
+	s, err := secrets.Load(path)
+	require.NoError(t, err)
+	return s
+}
+
+func TestResolveSecrets_FileClientCredentialsReplacePerClient(t *testing.T) {
+	fileCreds, _ := hmacutil.GenerateCredentials()
+	envCreds, _ := hmacutil.GenerateCredentials()
+	otherCreds, _ := hmacutil.GenerateCredentials()
+
+	// client1's credentials come from the file; client2 has no file entry and stays on its env vars.
+	t.Setenv("CLIENT1_ENV_KEY", envCreds.APIKey)
+	t.Setenv("CLIENT1_ENV_SECRET", envCreds.Secret)
+	t.Setenv("CLIENT2_ENV_KEY", otherCreds.APIKey)
+	t.Setenv("CLIENT2_ENV_SECRET", otherCreds.Secret)
+
+	cfg := &AggregatorConfig{
+		Storage: &StorageConfig{},
+		APIClients: []*ClientConfig{
+			{
+				ClientID:    "client1",
+				Enabled:     true,
+				APIKeyPairs: []*APIKeyPairEnv{{APIKeyEnvVar: "CLIENT1_ENV_KEY", SecretEnvVar: "CLIENT1_ENV_SECRET"}},
+			},
+			{
+				ClientID:    "client2",
+				Enabled:     true,
+				APIKeyPairs: []*APIKeyPairEnv{{APIKeyEnvVar: "CLIENT2_ENV_KEY", SecretEnvVar: "CLIENT2_ENV_SECRET"}},
+			},
+		},
+	}
+
+	s := loadSecretsFromString(t, `
+[[clients]]
+client_id  = "client1"
+api_key    = "`+fileCreds.APIKey+`"
+secret_key = "`+fileCreds.Secret+`"
+`)
+	require.NoError(t, cfg.ResolveSecrets(s))
+
+	// client1: the file's credential wins and the env credential is no longer accepted (replace-per-client).
+	client, pair, found := cfg.GetClientByAPIKey(fileCreds.APIKey)
+	require.True(t, found)
+	assert.Equal(t, "client1", client.GetClientID())
+	assert.Equal(t, fileCreds.Secret, pair.GetSecret())
+
+	_, _, found = cfg.GetClientByAPIKey(envCreds.APIKey)
+	assert.False(t, found, "env credential must be replaced once the file supplies client1's pairs")
+
+	// client2: untouched by the file, still resolves from its env vars.
+	client2, _, found := cfg.GetClientByAPIKey(otherCreds.APIKey)
+	require.True(t, found)
+	assert.Equal(t, "client2", client2.GetClientID())
+
+	// Validation accepts the resolved (file-sourced) credentials.
+	require.NoError(t, cfg.ValidateClientConfig())
+}
+
+func TestResolveSecrets_FileWinsStorageURL(t *testing.T) {
+	t.Setenv(secrets.StorageURLEnvVar, "postgres://env-host/agg")
+	cfg := &AggregatorConfig{Storage: &StorageConfig{StorageType: StorageTypePostgreSQL}}
+
+	s := loadSecretsFromString(t, `
+[storage]
+url = "postgres://file-host/agg"
+`)
+	require.NoError(t, cfg.ResolveSecrets(s))
+	assert.Equal(t, "postgres://file-host/agg", cfg.Storage.ConnectionURL)
+}
+
 func TestGetClientByClientID(t *testing.T) {
 	t.Run("finds enabled client by ID", func(t *testing.T) {
 		cfg := &AggregatorConfig{
@@ -1191,14 +1267,14 @@ func TestClientConfig_GetClientName(t *testing.T) {
 	})
 }
 
-func TestLoadFromEnvironment(t *testing.T) {
+func TestResolveSecrets_FromEnvironment(t *testing.T) {
 	t.Run("loads postgres connection URL", func(t *testing.T) {
 		t.Setenv("AGGREGATOR_STORAGE_CONNECTION_URL", "postgres://localhost:5432/test")
 
 		cfg := &AggregatorConfig{
 			Storage: &StorageConfig{StorageType: StorageTypePostgreSQL},
 		}
-		err := cfg.LoadFromEnvironment()
+		err := cfg.ResolveSecrets(nil)
 		require.NoError(t, err)
 		assert.Equal(t, "postgres://localhost:5432/test", cfg.Storage.ConnectionURL)
 	})
@@ -1207,7 +1283,7 @@ func TestLoadFromEnvironment(t *testing.T) {
 		cfg := &AggregatorConfig{
 			Storage: &StorageConfig{StorageType: StorageTypePostgreSQL},
 		}
-		err := cfg.LoadFromEnvironment()
+		err := cfg.ResolveSecrets(nil)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "AGGREGATOR_STORAGE_CONNECTION_URL")
 	})
@@ -1224,7 +1300,7 @@ func TestLoadFromEnvironment(t *testing.T) {
 				Storage: RateLimiterStoreConfig{Type: RateLimiterStoreTypeRedis},
 			},
 		}
-		err := cfg.LoadFromEnvironment()
+		err := cfg.ResolveSecrets(nil)
 		require.NoError(t, err)
 		assert.Equal(t, "localhost:6379", cfg.RateLimiting.Storage.Redis.Address)
 		assert.Equal(t, "secret", cfg.RateLimiting.Storage.Redis.Password)
@@ -1239,7 +1315,7 @@ func TestLoadFromEnvironment(t *testing.T) {
 				Storage: RateLimiterStoreConfig{Type: RateLimiterStoreTypeRedis},
 			},
 		}
-		err := cfg.LoadFromEnvironment()
+		err := cfg.ResolveSecrets(nil)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "AGGREGATOR_REDIS_ADDRESS")
 	})
@@ -1255,7 +1331,7 @@ func TestLoadFromEnvironment(t *testing.T) {
 				Storage: RateLimiterStoreConfig{Type: RateLimiterStoreTypeRedis},
 			},
 		}
-		err := cfg.LoadFromEnvironment()
+		err := cfg.ResolveSecrets(nil)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "invalid AGGREGATOR_REDIS_DB value")
 	})

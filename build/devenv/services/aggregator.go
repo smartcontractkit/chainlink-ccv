@@ -18,6 +18,7 @@ import (
 	aggregator "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/configuration"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/secrets"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/util"
 	hmacutil "github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
@@ -235,6 +236,9 @@ func validateAggregatorInput(in *AggregatorInput) error {
 type GenerateConfigResult struct {
 	MainConfig      []byte
 	GeneratedConfig []byte
+	// SecretsConfig is the aggregator secrets file (ADR-0010): the storage URL, redis password, and
+	// per-client HMAC pairs. devenv dogfoods the file rather than the legacy env vars.
+	SecretsConfig []byte
 }
 
 // GenerateConfigs generates the aggregator service configuration using the inputs.
@@ -270,17 +274,25 @@ func (a *AggregatorInput) GenerateConfigs(generatedConfigFileName string) (*Gene
 		config.Aggregation.BackgroundWorkerCount = a.BackgroundWorkerCount
 	}
 
+	// Build the client list for the config (client_id/enabled/groups only) and, in parallel, the
+	// per-client HMAC credentials for the secrets file. devenv dogfoods the secrets file (ADR-0010),
+	// so the credentials live in secrets.toml rather than in config-declared env vars.
+	secretsFile := secrets.File{}
+	if a.Env != nil {
+		secretsFile.Storage = secrets.StorageSecrets{URL: a.Env.StorageConnectionURL}
+		secretsFile.Redis = secrets.RedisSecrets{Password: a.Env.RedisPassword}
+	}
 	for _, client := range a.APIClients {
 		config.APIClients = append(config.APIClients, &model.ClientConfig{
-			ClientID:    client.ClientID,
-			Enabled:     client.Enabled,
-			Groups:      client.Groups,
-			APIKeyPairs: make([]*model.APIKeyPairEnv, 0, len(client.APIKeyPairs)),
+			ClientID: client.ClientID,
+			Enabled:  client.Enabled,
+			Groups:   client.Groups,
 		})
-		for i := range client.APIKeyPairs {
-			config.APIClients[len(config.APIClients)-1].APIKeyPairs = append(config.APIClients[len(config.APIClients)-1].APIKeyPairs, &model.APIKeyPairEnv{
-				APIKeyEnvVar: fmt.Sprintf("AGGREGATOR_API_KEY_%s_%d", client.ClientID, i),
-				SecretEnvVar: fmt.Sprintf("AGGREGATOR_SECRET_%s_%d", client.ClientID, i),
+		for _, pair := range client.APIKeyPairs {
+			secretsFile.Clients = append(secretsFile.Clients, secrets.ClientSecret{
+				ClientID:  client.ClientID,
+				APIKey:    pair.APIKey,
+				SecretKey: pair.Secret,
 			})
 		}
 	}
@@ -300,9 +312,15 @@ func (a *AggregatorInput) GenerateConfigs(generatedConfigFileName string) (*Gene
 		return nil, fmt.Errorf("failed to marshal generated config to TOML: %w", err)
 	}
 
+	secretsBytes, err := toml.Marshal(secretsFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal aggregator secrets to TOML: %w", err)
+	}
+
 	return &GenerateConfigResult{
 		MainConfig:      mainCfg,
 		GeneratedConfig: genCfgBytes,
+		SecretsConfig:   secretsBytes,
 	}, nil
 }
 
@@ -353,6 +371,12 @@ func NewAggregator(in *AggregatorInput) (*AggregatorOutput, error) {
 	generatedConfigFilePath := filepath.Join(confDir, generatedConfigFileName)
 	if err := os.WriteFile(generatedConfigFilePath, configResult.GeneratedConfig, 0o644); err != nil {
 		return nil, fmt.Errorf("failed to write aggregator generated config to file: %w", err)
+	}
+
+	secretsFilePath := filepath.Join(confDir,
+		fmt.Sprintf("aggregator-%s-secrets.toml", instanceName))
+	if err := os.WriteFile(secretsFilePath, configResult.SecretsConfig, 0o644); err != nil {
+		return nil, fmt.Errorf("failed to write aggregator secrets to file: %w", err)
 	}
 
 	aggregatorContainerName := fmt.Sprintf("%s-%s", instanceName, AggregatorContainerNameSuffix)
@@ -450,25 +474,18 @@ func NewAggregator(in *AggregatorInput) (*AggregatorOutput, error) {
 	envVars := make(map[string]string)
 
 	if in.Env != nil {
-		// Use explicit configuration from env.toml
+		// Use explicit configuration from env.toml. The storage URL, redis password, and per-client
+		// HMAC pairs are now delivered via the mounted secrets file (ADR-0010), so they are no longer
+		// set as env vars here — devenv dogfoods the file path. The non-secret redis knobs (address,
+		// db) remain env vars until a follow-up relocates them into the main config TOML.
 		if in.Env.StorageConnectionURL == "" {
-			return nil, fmt.Errorf("AGGREGATOR_STORAGE_CONNECTION_URL is required in env config")
-		}
-		envVars["AGGREGATOR_STORAGE_CONNECTION_URL"] = in.Env.StorageConnectionURL
-
-		for _, client := range in.APIClients {
-			for i, apiKeyPair := range client.APIKeyPairs {
-				envVars[fmt.Sprintf("AGGREGATOR_API_KEY_%s_%d", client.ClientID, i)] = apiKeyPair.APIKey
-				envVars[fmt.Sprintf("AGGREGATOR_SECRET_%s_%d", client.ClientID, i)] = apiKeyPair.Secret
-			}
+			return nil, fmt.Errorf("aggregator storage connection URL is required in env config")
 		}
 
 		if in.Env.RedisAddress == "" {
 			return nil, fmt.Errorf("AGGREGATOR_REDIS_ADDRESS is required in env config")
 		}
 		envVars["AGGREGATOR_REDIS_ADDRESS"] = in.Env.RedisAddress
-
-		envVars["AGGREGATOR_REDIS_PASSWORD"] = in.Env.RedisPassword
 		envVars["AGGREGATOR_REDIS_DB"] = in.Env.RedisDB
 	}
 
@@ -510,6 +527,11 @@ func NewAggregator(in *AggregatorInput) (*AggregatorOutput, error) {
 		{
 			HostFilePath:      generatedConfigFilePath,
 			ContainerFilePath: filepath.Join(filepath.Dir(aggregator.DefaultConfigFile), generatedConfigFileName),
+			FileMode:          0o644,
+		},
+		{
+			HostFilePath:      secretsFilePath,
+			ContainerFilePath: secrets.DefaultSecretsPath,
 			FileMode:          0o644,
 		},
 	}
