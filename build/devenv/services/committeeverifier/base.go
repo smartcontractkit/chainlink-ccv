@@ -114,12 +114,11 @@ type Input struct {
 	// Used in standalone mode. Set by generateVerifierJobSpecs in environment.go.
 	GeneratedConfig string `toml:"-"`
 
-	// LocalJobSpec is the full job-spec TOML mounted into the container in local mode
-	// (services.Local). It is the same envelope JD would push (schemaVersion/type/name/appConfig,
-	// with blockchain_infos already injected). Callers build it with
-	// RebuildVerifierJobSpecWithBlockchainInfos; base.go cannot build it itself because that needs
-	// the chainreg registry, which imports this package.
-	LocalJobSpec string `toml:"-"`
+	// LocalAppConfig is the plain app-config TOML mounted into the container in local mode
+	// (services.Local) — the committee verifier's commit.Config with blockchain_infos included, the
+	// same content JD would ship in a job's appConfig, no envelope. Callers build it (base.go cannot
+	// build it itself because that needs the chainreg registry, which imports this package).
+	LocalAppConfig string `toml:"-"`
 }
 
 // RebuildVerifierJobSpecWithBlockchainInfos takes a job spec and rebuilds it with blockchain infos
@@ -323,21 +322,21 @@ func launchVerifier(ctx context.Context, in *Input, outputs []*blockchain.Output
 		return nil, fmt.Errorf("failed to write verifier secrets to file: %w", err)
 	}
 
-	// In local mode, write the job-spec file that the bootstrapper reads instead of receiving a JD
-	// proposal. The caller supplies the full envelope (with blockchain_infos already injected).
-	var jobSpecFilePath string
+	// In local mode, write the app-config file that the bootstrapper reads instead of receiving a JD
+	// proposal. The caller supplies the app config (with blockchain_infos already included).
+	var localConfigFilePath string
 	if local {
-		if in.LocalJobSpec == "" {
-			return nil, fmt.Errorf("local mode requires Input.LocalJobSpec (the job-spec TOML to mount)")
+		if in.LocalAppConfig == "" {
+			return nil, fmt.Errorf("local mode requires Input.LocalAppConfig (the app-config TOML to mount)")
 		}
-		jobSpecFilePath = filepath.Join(confDir,
-			fmt.Sprintf("verifier-%s-job-%d.toml", in.CommitteeName, in.NodeIndex+1))
-		if err := os.WriteFile(jobSpecFilePath, []byte(in.LocalJobSpec), 0o644); err != nil {
-			return nil, fmt.Errorf("failed to write local job spec to file: %w", err)
+		localConfigFilePath = filepath.Join(confDir,
+			fmt.Sprintf("verifier-%s-app-%d.toml", in.CommitteeName, in.NodeIndex+1))
+		if err := os.WriteFile(localConfigFilePath, []byte(in.LocalAppConfig), 0o644); err != nil {
+			return nil, fmt.Errorf("failed to write local app config to file: %w", err)
 		}
 	}
 
-	req, err := baseImageRequest(in, envVars, bootstrapConfigFilePath, bootstrapSecretsFilePath, verifierSecretsFilePath, jobSpecFilePath)
+	req, err := baseImageRequest(in, envVars, bootstrapConfigFilePath, bootstrapSecretsFilePath, verifierSecretsFilePath, localConfigFilePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create base image request: %w", err)
 	}
@@ -449,7 +448,7 @@ func startContainer(ctx context.Context, req testcontainers.ContainerRequest) (t
 	return nil, fmt.Errorf("failed to start container after %d attempts: %w", maxAttempts, lastErr)
 }
 
-func baseImageRequest(in *Input, envVars map[string]string, bootstrapConfigFilePath, bootstrapSecretsFilePath, verifierSecretsFilePath, jobSpecFilePath string) (testcontainers.ContainerRequest, error) {
+func baseImageRequest(in *Input, envVars map[string]string, bootstrapConfigFilePath, bootstrapSecretsFilePath, verifierSecretsFilePath, localConfigFilePath string) (testcontainers.ContainerRequest, error) {
 	req := testcontainers.ContainerRequest{
 		Image:    in.Image,
 		Name:     in.ContainerName,
@@ -509,12 +508,12 @@ func baseImageRequest(in *Input, envVars map[string]string, bootstrapConfigFileP
 		verifierSecretsFilePath,
 		vsecrets.DefaultCommitteeVerifierSecretsPath,
 	))
-	// Local mode: mount the job-spec file at the default path so the bootstrapper reads the app
+	// Local mode: mount the app-config file at the default path so the bootstrapper reads the app
 	// config from it instead of from a JD proposal.
-	if jobSpecFilePath != "" {
+	if localConfigFilePath != "" {
 		req.Mounts = append(req.Mounts, testcontainers.BindMount(
-			jobSpecFilePath,
-			bootstrap.DefaultJobSpecPath,
+			localConfigFilePath,
+			bootstrap.DefaultLocalConfigPath,
 		))
 	}
 

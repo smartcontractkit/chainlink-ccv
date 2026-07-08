@@ -14,7 +14,6 @@ import (
 	ctfblockchain "github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
-	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainreg"
 	_ "github.com/smartcontractkit/chainlink-ccv/build/devenv/evm" // registers the EVM chain config loader + verifier modifier
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
@@ -121,23 +120,16 @@ func TestServiceCommitteeVerifierLocalMode(t *testing.T) {
 	}
 	require.NoError(t, appCfg.Validate(), "hand-built verifier config must be valid")
 
-	appCfgTOML, err := toml.Marshal(appCfg)
-	require.NoError(t, err)
-
-	// Wrap into the job-spec envelope JD would push, then inject blockchain_infos (RPC URLs) for the
-	// launched chain — the same rebuild the JD path runs before proposing the job.
-	baseSpec := bootstrap.JobSpec{
-		SchemaVersion: 1,
-		Type:          "ccvcommitteeverifier",
-		Name:          "local-verifier-job",
-		ExternalJobID: "00000000-0000-0000-0000-000000000001",
-		AppConfig:     string(appCfgTOML),
-	}
+	// Add blockchain_infos (RPC URLs) for the launched chain, producing the plain app-config TOML the
+	// bootstrapper reads in local mode (the same content JD would ship as a job's appConfig).
 	reg, err := chainreg.GetRegistry().Get(chainsel.FamilyEVM)
 	require.NoError(t, err)
 	blockchainInfos, err := reg.ChainConfigLoader([]*ctfblockchain.Output{chainOut})
 	require.NoError(t, err)
-	jobSpecTOML, err := committeeverifier.RebuildVerifierJobSpecWithBlockchainInfos(baseSpec, blockchainInfos)
+	appCfgTOML, err := toml.Marshal(struct {
+		commit.Config
+		BlockchainInfos map[string]any `toml:"blockchain_infos"`
+	}{Config: appCfg, BlockchainInfos: blockchainInfos})
 	require.NoError(t, err)
 
 	// 4. Launch the verifier in local mode (no JD). New() blocks on the bootstrap /health wait, so a
@@ -151,7 +143,7 @@ func TestServiceCommitteeVerifierLocalMode(t *testing.T) {
 			AggregatorAPIKey:    verifierCreds.APIKey,
 			AggregatorSecretKey: verifierCreds.Secret,
 		},
-		LocalJobSpec: jobSpecTOML,
+		LocalAppConfig: string(appCfgTOML),
 	})
 
 	out, err := committeeverifier.New(&in, []*ctfblockchain.Output{chainOut}, nil, chainreg.GetRegistry().GetVerifierModifiers())

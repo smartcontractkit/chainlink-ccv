@@ -24,8 +24,8 @@ func main() {
 	}
 
 	// No mode option is passed, so the lifecycle is chosen at runtime by BOOTSTRAPPER_MODE:
-	// "jd" (default) runs against a Job Distributor; "local" reads the app config from a local
-	// job-spec file (BOOTSTRAPPER_JOB_SPEC_PATH) with no JD, for the CCV starter kit / local testing.
+	// "jd" (default) runs against a Job Distributor; "local" reads the app config from a local file
+	// (BOOTSTRAPPER_LOCAL_CONFIG_PATH) with no JD, for the CCV starter kit / local testing.
 	if err := bootstrap.Run(
 		"EVMCommitteeVerifier",
 		cmd.NewCommitteeVerifierServiceFactory(),

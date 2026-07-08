@@ -328,18 +328,18 @@ func TestConfig_validate(t *testing.T) {
 		})
 	}
 
-	// A monitoring-only config in static-TOML mode (modeStatic) must pass validation.
-	t.Run("monitoring-only config (static mode) is valid", func(t *testing.T) {
+	// A monitoring-only config in local mode must pass validation (the infra bundle is not required).
+	t.Run("monitoring-only config (local mode) is valid", func(t *testing.T) {
 		cfg := &Config{NonSecretConfig: NonSecretConfig{Monitoring: validBeholderMonitoring()}}
-		require.NoError(t, cfg.validate(modeStatic))
+		require.NoError(t, cfg.validate(modeLocal))
 	})
 
-	// Static-TOML mode ignores the infra bundle entirely: an empty/invalid infra config still
-	// passes because the mode is static, even when infra sections are present (they are ignored,
-	// not validated). This is the mode-driven behavior that replaces presence-driven.
-	t.Run("static mode ignores present infra (no error)", func(t *testing.T) {
+	// Local mode does not require the infra bundle: an empty/partial infra config still passes
+	// because the bootstrap operator config is optional there (the keystore is initialized only when
+	// [db]+[keystore] are present).
+	t.Run("local mode ignores missing infra (no error)", func(t *testing.T) {
 		cfg := &Config{NonSecretConfig: NonSecretConfig{Monitoring: validBeholderMonitoring()}}
-		require.NoError(t, cfg.validate(modeStatic))
+		require.NoError(t, cfg.validate(modeLocal))
 	})
 
 	// Symmetric guard: the same empty infra config in JD mode DOES fail, naming the missing
@@ -353,53 +353,39 @@ func TestConfig_validate(t *testing.T) {
 	})
 }
 
-// TestConfig_validate_LocalMode covers the local-mode requirement set: keystore + db are required,
-// but [jd] and [server] are optional (there is no JD, and the info server is only started when a
-// port is configured).
+// TestConfig_validate_LocalMode covers local-mode validation: the infra bundle (jd/db/keystore/
+// server/chains) is not required, because the bootstrap operator config is optional in local mode
+// (the keystore is initialized only when [db]+[keystore] are present). Only monitoring is validated.
 func TestConfig_validate_LocalMode(t *testing.T) {
 	t.Parallel()
 
 	validKeystore := KeystoreConfig{Password: "secret"}
 	validDB := DBConfig{URL: "postgres://localhost:5432/mydb"}
 
-	t.Run("keystore + db only is valid (no jd, no server)", func(t *testing.T) {
+	t.Run("keystore + db is valid (no jd, no server)", func(t *testing.T) {
 		t.Parallel()
 		cfg := &Config{Secrets: Secrets{Keystore: validKeystore, DB: validDB}}
 		require.NoError(t, cfg.validate(modeLocal))
 	})
 
-	t.Run("missing keystore fails naming it", func(t *testing.T) {
+	t.Run("empty config is valid (keystore-less service like the token verifier)", func(t *testing.T) {
+		t.Parallel()
+		cfg := &Config{}
+		require.NoError(t, cfg.validate(modeLocal), "local mode must not require any infra section")
+	})
+
+	t.Run("missing keystore is not an error in local mode", func(t *testing.T) {
 		t.Parallel()
 		cfg := &Config{Secrets: Secrets{DB: validDB}}
-		err := cfg.validate(modeLocal)
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "failed to validate 'keystore' section")
+		require.NoError(t, cfg.validate(modeLocal))
 	})
 
-	t.Run("missing db fails naming it", func(t *testing.T) {
+	t.Run("invalid monitoring still fails in local mode", func(t *testing.T) {
 		t.Parallel()
-		cfg := &Config{Secrets: Secrets{Keystore: validKeystore}}
+		cfg := &Config{NonSecretConfig: NonSecretConfig{Monitoring: &monitoring.Config{LogLevel: "invalid"}}}
 		err := cfg.validate(modeLocal)
 		require.Error(t, err)
-		require.Contains(t, err.Error(), "failed to validate 'db' section")
-	})
-
-	t.Run("absent jd and server are not required", func(t *testing.T) {
-		t.Parallel()
-		cfg := &Config{Secrets: Secrets{Keystore: validKeystore, DB: validDB}}
-		err := cfg.validate(modeLocal)
-		require.NoError(t, err, "local mode must not require [jd] or [server]")
-	})
-
-	t.Run("invalid chains still fail in local mode", func(t *testing.T) {
-		t.Parallel()
-		cfg := &Config{
-			NonSecretConfig: NonSecretConfig{Chains: []ChainRegistration{{Type: "NOTACHAIN", ID: "1"}}},
-			Secrets:         Secrets{Keystore: validKeystore, DB: validDB},
-		}
-		err := cfg.validate(modeLocal)
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "invalid chain at index 0")
+		require.Contains(t, err.Error(), "failed to validate 'monitoring' section")
 	})
 }
 

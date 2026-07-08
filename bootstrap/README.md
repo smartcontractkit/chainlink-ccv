@@ -17,33 +17,27 @@ arrives from JD and `Stop` when the job is deleted or replaced.
 
 # Lifecycle modes
 
-The bootstrapper runs in one of three modes. Apps that pass no mode option (committee verifier,
-executor) select between JD and local at runtime via the `BOOTSTRAPPER_MODE` env var:
+The bootstrapper runs in one of two modes, selected at runtime by the `BOOTSTRAPPER_MODE` env var:
 
-- `jd` (default): load the app config from a Job Distributor over WSRPC and run the full job
-  lifecycle. Requires the `[jd]`, `[db]`, `[keystore]`, and `[server]` config sections.
-- `local`: JD mode minus the JD connection. The bootstrapper still initializes the Postgres-backed
-  keystore (so services can sign), but reads the app config from a local job-spec file instead of
-  receiving it from JD. Requires `[db]` and `[keystore]`; `[jd]` is not needed and `[server]` is
-  optional (the info server starts only when `listen_port` is set). This is the mode for the CCV
-  starter kit and local testing where JD is not available.
+- `jd`: load the app config from a Job Distributor over WSRPC and run the full job lifecycle.
+  Requires the `[jd]`, `[db]`, `[keystore]`, and `[server]` config sections.
+- `local`: run without JD. The bootstrapper reads the app config from a local file
+  (`BOOTSTRAPPER_LOCAL_CONFIG_PATH`, default `/etc/bootstrap/app.toml`) instead of receiving it from
+  JD. If a bootstrap operator config with `[db]`+`[keystore]` is also provided, it initializes a
+  Postgres-backed keystore so the service can sign (and starts the info server when `[server]` is
+  set); a service that needs no keystore (the token verifier) supplies neither. This is the mode for
+  the CCV starter kit and local testing where JD is not available.
 
-The token verifier calls `WithTOMLAppConfig` explicitly, which selects a third `static` mode: it
-loads app config from a file and provides no keystore. That mode is not affected by
-`BOOTSTRAPPER_MODE`.
+The default when `BOOTSTRAPPER_MODE` is unset is per-service: services that support JD (committee
+verifier, executor) default to `jd`; the token verifier defaults to `local` (it has no JD support).
+The env var overrides the default either way.
 
-In local mode, point `BOOTSTRAPPER_JOB_SPEC_PATH` (default `/etc/bootstrap/job.toml`) at a job-spec
-TOML file — the same shape JD would push. See `job.example.toml`:
+The local app-config file is a plain app-config TOML — the same content JD would ship in a job's
+`appConfig`. See `app.example.toml`:
 
 ```toml
-schemaVersion = 1
-type = "ccvcommitteeverifier"
-name = "committee-verifier-local"
-externalJobID = "00000000-0000-0000-0000-000000000001"
-appConfig = '''
 verifier_id = "my-verifier"
-# ... the rest of the app (commit.Config) TOML ...
-'''
+# ... the rest of the app (e.g. commit.Config) TOML ...
 ```
 
 # Configuration

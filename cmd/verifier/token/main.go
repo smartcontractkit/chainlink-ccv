@@ -44,10 +44,14 @@ func main() {
 		configPath = "/etc/config.toml"
 	}
 
+	// The token verifier has no JD support and needs no keystore, so it defaults to local (non-JD)
+	// mode and reads its app config from the file above. BOOTSTRAPPER_MODE can still be read, but jd
+	// is not a valid target for this binary.
 	err := bootstrap.Run(
 		"TokenVerifier",
 		&tokenVerifierFactory{},
-		bootstrap.WithTOMLAppConfig(configPath),
+		bootstrap.WithLocalModeDefault(),
+		bootstrap.WithLocalConfigPath(configPath),
 		bootstrap.WithLogLevelFromEnv(zapcore.InfoLevel),
 	)
 	if err != nil {

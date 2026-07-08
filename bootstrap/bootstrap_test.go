@@ -150,12 +150,11 @@ var _ ServiceFactory = (*spyServiceFactoryDummy)(nil)
 func TestNewBootstrapper_WithKey_Defaults(t *testing.T) {
 	t.Parallel()
 
-	// Create an empty temp TOML file so WithTOMLAppConfig succeeds without hitting JD config.
-	f, err := os.CreateTemp(t.TempDir(), "*.toml")
-	require.NoError(t, err)
-	require.NoError(t, f.Close())
-
-	b, err := NewBootstrapper("test", &mockServiceFactory{}, WithTOMLAppConfig(f.Name()))
+	// Local mode with no bootstrap config file present avoids hitting JD config at construction.
+	b, err := NewBootstrapper("test", &mockServiceFactory{},
+		WithLocalModeDefault(),
+		WithLocalConfigPath("/nonexistent/app.toml"),
+	)
 	require.NoError(t, err)
 
 	// No WithKey options → the three original defaults must be applied.
@@ -168,12 +167,9 @@ func TestNewBootstrapper_WithKey_Defaults(t *testing.T) {
 func TestNewBootstrapper_WithKey_Explicit(t *testing.T) {
 	t.Parallel()
 
-	f, err := os.CreateTemp(t.TempDir(), "*.toml")
-	require.NoError(t, err)
-	require.NoError(t, f.Close())
-
 	b, err := NewBootstrapper("test", &mockServiceFactory{},
-		WithTOMLAppConfig(f.Name()),
+		WithLocalModeDefault(),
+		WithLocalConfigPath("/nonexistent/app.toml"),
 		WithKey("my_csa", "csa", keystore.Ed25519),
 		WithKey("my_signing", "signing", keystore.ECDSA_S256),
 	)
@@ -311,7 +307,7 @@ count = 42`
 	})
 }
 
-func TestBootstrapper_Stop_StaticConfig_ClosesAccessors(t *testing.T) {
+func TestBootstrapper_Stop_LocalKeystoreless_ClosesAccessors(t *testing.T) {
 	t.Parallel()
 	acc := mocks.NewMockAccessor(t)
 	acc.EXPECT().Close().Return(nil).Once()
@@ -325,10 +321,11 @@ func TestBootstrapper_Stop_StaticConfig_ClosesAccessors(t *testing.T) {
 			return nil
 		},
 	}
+	// Local mode with no [db]/[keystore] bootstrap config → keystore-less start (like the token verifier).
 	f, err := os.CreateTemp(t.TempDir(), "*.toml")
 	require.NoError(t, err)
 	require.NoError(t, f.Close())
-	b, err := NewBootstrapper("t", fac, WithTOMLAppConfig(f.Name()))
+	b, err := NewBootstrapper("t", fac, WithLocalModeDefault(), WithLocalConfigPath(f.Name()))
 	require.NoError(t, err)
 	require.NoError(t, b.Start(t.Context()))
 	require.NotNil(t, b.accCloser)
@@ -462,22 +459,25 @@ func TestResolveMode(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
-		in      string
-		want    mode
-		wantErr bool
+		in           string
+		defaultLocal bool
+		want         mode
+		wantErr      bool
 	}{
-		{"", modeJD, false},
-		{"jd", modeJD, false},
-		{"JD", modeJD, false},
-		{"local", modeLocal, false},
-		{"LOCAL", modeLocal, false},
-		{"  local  ", modeLocal, false},
-		{"garbage", modeJD, true},
+		{in: "", defaultLocal: false, want: modeJD},
+		{in: "", defaultLocal: true, want: modeLocal},
+		{in: "jd", want: modeJD},
+		{in: "JD", want: modeJD},
+		{in: "jd", defaultLocal: true, want: modeJD}, // env overrides the default
+		{in: "local", want: modeLocal},
+		{in: "LOCAL", want: modeLocal},
+		{in: "  local  ", want: modeLocal},
+		{in: "garbage", wantErr: true},
 	}
 	for _, tt := range tests {
-		t.Run(tt.in, func(t *testing.T) {
+		t.Run(tt.in+"/"+map[bool]string{true: "defaultLocal", false: "defaultJD"}[tt.defaultLocal], func(t *testing.T) {
 			t.Parallel()
-			got, err := resolveMode(tt.in)
+			got, err := resolveMode(tt.in, tt.defaultLocal)
 			if tt.wantErr {
 				require.Error(t, err)
 				require.Contains(t, err.Error(), ModeEnv)
@@ -489,19 +489,19 @@ func TestResolveMode(t *testing.T) {
 	}
 }
 
-func TestResolveJobSpecPath(t *testing.T) {
+func TestResolveLocalConfigPath(t *testing.T) {
 	// Not parallel: uses t.Setenv.
 	t.Run("explicit wins over env and default", func(t *testing.T) {
-		t.Setenv(JobSpecPathEnv, "/from/env.toml")
-		require.Equal(t, "/explicit.toml", resolveJobSpecPath("/explicit.toml"))
+		t.Setenv(LocalConfigPathEnv, "/from/env.toml")
+		require.Equal(t, "/explicit.toml", resolveLocalConfigPath("/explicit.toml"))
 	})
 	t.Run("env used when no explicit", func(t *testing.T) {
-		t.Setenv(JobSpecPathEnv, "/from/env.toml")
-		require.Equal(t, "/from/env.toml", resolveJobSpecPath(""))
+		t.Setenv(LocalConfigPathEnv, "/from/env.toml")
+		require.Equal(t, "/from/env.toml", resolveLocalConfigPath(""))
 	})
 	t.Run("default when neither set", func(t *testing.T) {
-		t.Setenv(JobSpecPathEnv, "")
-		require.Equal(t, DefaultJobSpecPath, resolveJobSpecPath(""))
+		t.Setenv(LocalConfigPathEnv, "")
+		require.Equal(t, DefaultLocalConfigPath, resolveLocalConfigPath(""))
 	})
 }
 
@@ -524,34 +524,36 @@ func TestNewBootstrapper_ModeResolution(t *testing.T) {
 	t.Run("BOOTSTRAPPER_MODE=local resolves to local mode", func(t *testing.T) {
 		t.Setenv(ModeEnv, "local")
 		// A non-connectable DB URL is fine: NewBootstrapper only validates presence; the connection
-		// happens in Start.
-		cfgPath := writeLocalBootstrapConfig(t, "postgres://localhost:5432/db")
-		b, err := NewBootstrapper("t", &mockServiceFactory{}, WithBootstrapperConfigPath(cfgPath))
-		require.NoError(t, err)
-		require.Equal(t, modeLocal, b.mode)
-		require.Equal(t, DefaultJobSpecPath, b.jobSpecPath)
-	})
-
-	t.Run("WithLocalJobSpecPath overrides the default job spec path", func(t *testing.T) {
-		t.Setenv(ModeEnv, "local")
+		// happens in Start. A distinct app-config path lets the bootstrap config be loaded.
 		cfgPath := writeLocalBootstrapConfig(t, "postgres://localhost:5432/db")
 		b, err := NewBootstrapper("t", &mockServiceFactory{},
 			WithBootstrapperConfigPath(cfgPath),
-			WithLocalJobSpecPath("/custom/job.toml"),
+			WithLocalConfigPath("/etc/bootstrap/app.toml"),
 		)
 		require.NoError(t, err)
 		require.Equal(t, modeLocal, b.mode)
-		require.Equal(t, "/custom/job.toml", b.jobSpecPath)
+		require.Equal(t, "/etc/bootstrap/app.toml", b.localConfigPath)
 	})
 
-	t.Run("WithTOMLAppConfig selects static mode regardless of env", func(t *testing.T) {
-		t.Setenv(ModeEnv, "local")
-		f, err := os.CreateTemp(t.TempDir(), "*.toml")
+	t.Run("WithLocalModeDefault defaults to local when env unset", func(t *testing.T) {
+		t.Setenv(ModeEnv, "")
+		b, err := NewBootstrapper("t", &mockServiceFactory{},
+			WithLocalModeDefault(),
+			WithLocalConfigPath("/nonexistent/app.toml"),
+		)
 		require.NoError(t, err)
-		require.NoError(t, f.Close())
-		b, err := NewBootstrapper("t", &mockServiceFactory{}, WithTOMLAppConfig(f.Name()))
-		require.NoError(t, err)
-		require.Equal(t, modeStatic, b.mode)
+		require.Equal(t, modeLocal, b.mode)
+	})
+
+	t.Run("defaults to JD when env unset and no WithLocalModeDefault", func(t *testing.T) {
+		t.Setenv(ModeEnv, "")
+		// JD mode requires a valid bootstrap config; point it at one so construction succeeds.
+		cfgPath := writeLocalBootstrapConfig(t, "postgres://localhost:5432/db")
+		_, err := NewBootstrapper("t", &mockServiceFactory{}, WithBootstrapperConfigPath(cfgPath))
+		// JD validation requires [jd]/[server] which the minimal config lacks — that's the point:
+		// the default resolved to JD (a local default would have loaded leniently and succeeded).
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "failed to validate 'jd' section")
 	})
 
 	t.Run("invalid BOOTSTRAPPER_MODE errors", func(t *testing.T) {
@@ -560,20 +562,11 @@ func TestNewBootstrapper_ModeResolution(t *testing.T) {
 		require.Error(t, err)
 		require.Contains(t, err.Error(), ModeEnv)
 	})
-
-	t.Run("WithJD and WithTOMLAppConfig are mutually exclusive", func(t *testing.T) {
-		f, err := os.CreateTemp(t.TempDir(), "*.toml")
-		require.NoError(t, err)
-		require.NoError(t, f.Close())
-		_, err = NewBootstrapper("t", &mockServiceFactory{}, WithJD(), WithTOMLAppConfig(f.Name()))
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "mutually exclusive")
-	})
 }
 
 // TestBootstrapper_LocalMode_StartStop drives the full local-mode lifecycle against a real Postgres
-// keystore: Start reads the local job-spec file and invokes the factory with a non-nil keystore, and
-// Stop tears the job down.
+// keystore: Start reads the local app-config file and invokes the factory with a non-nil keystore,
+// and Stop tears it down.
 func TestBootstrapper_LocalMode_StartStop(t *testing.T) {
 	dbURL, cleanup := setupBootstrapTestDB(t)
 	defer cleanup()
@@ -582,9 +575,8 @@ func TestBootstrapper_LocalMode_StartStop(t *testing.T) {
 	t.Setenv(ModeEnv, "local")
 
 	dir := t.TempDir()
-	jobPath := filepath.Join(dir, "job.toml")
-	jobSpec := "schemaVersion = 1\ntype = \"test\"\nname = \"local-job\"\nappConfig = '''\nname = \"hello\"\ncount = 7\n'''\n"
-	require.NoError(t, os.WriteFile(jobPath, []byte(jobSpec), 0o600))
+	appPath := filepath.Join(dir, "app.toml")
+	require.NoError(t, os.WriteFile(appPath, []byte("name = \"hello\"\ncount = 7\n"), 0o600))
 
 	var (
 		started     bool
@@ -604,7 +596,7 @@ func TestBootstrapper_LocalMode_StartStop(t *testing.T) {
 
 	b, err := NewBootstrapper("local-test", fac,
 		WithBootstrapperConfigPath(cfgPath),
-		WithLocalJobSpecPath(jobPath),
+		WithLocalConfigPath(appPath),
 	)
 	require.NoError(t, err)
 	require.Equal(t, modeLocal, b.mode)
@@ -614,14 +606,14 @@ func TestBootstrapper_LocalMode_StartStop(t *testing.T) {
 
 	require.NoError(t, b.Start(ctx))
 	require.True(t, started, "factory Start must be called in local mode")
-	require.NotNil(t, gotKeystore, "local mode must provide a keystore to the factory")
+	require.NotNil(t, gotKeystore, "local mode with [db]+[keystore] must provide a keystore to the factory")
 	require.Equal(t, "hello", gotCfg.Name)
 	require.Equal(t, 7, gotCfg.Count)
-	require.NotNil(t, b.localRunner)
+	require.NotNil(t, b.accCloser)
 
 	require.NoError(t, b.Stop(ctx))
 	require.True(t, stopped, "factory Stop must be called on Stop")
-	require.Nil(t, b.localRunner, "localRunner must be cleared after Stop")
+	require.Nil(t, b.accCloser, "accCloser must be cleared after Stop")
 }
 
 func TestChainTypeFromString(t *testing.T) {

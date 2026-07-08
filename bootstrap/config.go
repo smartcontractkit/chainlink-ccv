@@ -186,22 +186,6 @@ func (c *Config) validateInfra() []error {
 	return errs
 }
 
-// validateLocalInfra validates the sections required in local mode: the keystore and database
-// (which together back the keystore that services sign with) plus any declared chains. The [jd]
-// section is not required — there is no JD to connect to — and [server] is optional because the
-// info server is only started when a port is configured. See the mode routing in bootstrap.go.
-func (c *Config) validateLocalInfra() []error {
-	var errs []error
-	if err := c.Keystore.validate(); err != nil {
-		errs = append(errs, fmt.Errorf("failed to validate 'keystore' section: %w", err))
-	}
-	if err := c.DB.validate(); err != nil {
-		errs = append(errs, fmt.Errorf("failed to validate 'db' section: %w", err))
-	}
-	errs = append(errs, validateChains(c.Chains)...)
-	return errs
-}
-
 // validateChains validates each chain entry and enforces that every entry declares the
 // same chain family. A committee verifier binary is built for exactly one chain family
 // (e.g. EVM XOR Solana, never both) and pushes one signing key for every declared chain
@@ -240,21 +224,15 @@ func validateChains(chains []ChainRegistration) []error {
 //     invalid section is an error naming that section. This lets a JD-mode app with a malformed
 //     bootstrap file fail at load time with a precise message, instead of a downstream connection
 //     failure that a present-driven check would allow through.
-//   - modeLocal: only the keystore/db bundle (+ chains) is required; [jd] and [server] are
-//     optional (there is no JD, and the info server is started only when a port is set).
-//   - modeStatic: the infra bundle is ignored entirely. Any infra section present does nothing in
-//     static-TOML mode and is not an error.
+//   - modeLocal: the infra bundle is not required. The bootstrap operator config is optional in
+//     local mode (only services that sign supply [db]+[keystore], and the keystore is initialized
+//     only when both are present), so a missing or partial infra section is not an error.
 //
 // Monitoring is always validated when non-nil, in every mode.
 func (c *Config) validate(m mode) error {
 	var errs []error
-	switch m {
-	case modeJD:
+	if m == modeJD {
 		errs = append(errs, c.validateInfra()...)
-	case modeLocal:
-		errs = append(errs, c.validateLocalInfra()...)
-	case modeStatic:
-		// infra bundle is ignored in static-TOML mode
 	}
 	if c.Monitoring != nil {
 		if err := c.Monitoring.Validate(); err != nil {
