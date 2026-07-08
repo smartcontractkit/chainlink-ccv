@@ -236,7 +236,7 @@ func validateAggregatorInput(in *AggregatorInput) error {
 type GenerateConfigResult struct {
 	MainConfig      []byte
 	GeneratedConfig []byte
-	// SecretsConfig is the aggregator secrets file (ADR-0010): the storage URL, redis password, and
+	// SecretsConfig is the aggregator secrets file: the storage URL, redis password, and
 	// per-client HMAC pairs. devenv dogfoods the file rather than the legacy env vars.
 	SecretsConfig []byte
 }
@@ -275,7 +275,7 @@ func (a *AggregatorInput) GenerateConfigs(generatedConfigFileName string) (*Gene
 	}
 
 	// Build the client list for the config (client_id/enabled/groups only) and, in parallel, the
-	// per-client HMAC credentials for the secrets file. devenv dogfoods the secrets file (ADR-0010),
+	// per-client HMAC credentials for the secrets file. devenv dogfoods the secrets file,
 	// so the credentials live in secrets.toml rather than in config-declared env vars.
 	secretsFile := secrets.File{}
 	if a.Env != nil {
@@ -475,7 +475,7 @@ func NewAggregator(in *AggregatorInput) (*AggregatorOutput, error) {
 
 	if in.Env != nil {
 		// Use explicit configuration from env.toml. The storage URL, redis password, and per-client
-		// HMAC pairs are now delivered via the mounted secrets file (ADR-0010), so they are no longer
+		// HMAC pairs are now delivered via the mounted secrets file, so they are no longer
 		// set as env vars here — devenv dogfoods the file path. The non-secret redis knobs (address,
 		// db) remain env vars until a follow-up relocates them into the main config TOML.
 		if in.Env.StorageConnectionURL == "" {

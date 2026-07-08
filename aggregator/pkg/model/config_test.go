@@ -1029,7 +1029,7 @@ secret_key = "`+fileCreds.Secret+`"
 `)
 	require.NoError(t, cfg.ResolveSecrets(s))
 
-	// client1: the file's credential wins and the env credential is no longer accepted (replace-per-client).
+	// client1: the file's credential wins and the env credential is no longer accepted.
 	client, pair, found := cfg.GetClientByAPIKey(fileCreds.APIKey)
 	require.True(t, found)
 	assert.Equal(t, "client1", client.GetClientID())

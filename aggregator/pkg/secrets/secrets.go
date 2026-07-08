@@ -1,12 +1,10 @@
 // Package secrets defines the aggregator secrets file: an optional, operator-provided TOML file
 // carrying the aggregator's own credentials — the application storage DB URL, the redis password used
-// by rate limiting, and the per-client inbound HMAC api_key/secret_key pairs. It is a leaf package
-// (depending only on the TOML decoder) so the aggregator app and the devenv harness can share one
-// schema definition without pulling in heavier dependencies.
+// by rate limiting, and the per-client inbound HMAC api_key/secret_key pairs.
 //
 // Secrets resolve backwards-compatibly: an absent file is never an error and falls back entirely to
 // environment variables, and when a value is present in both the file and an env var the file wins.
-// For client credentials this is resolved per client (replace-per-client): if the file supplies any
+// For client credentials this is resolved per client: if the file supplies any
 // pairs for a client_id, that set is authoritative and the env-derived pairs for that client are
 // ignored.
 package secrets
@@ -40,9 +38,7 @@ const (
 )
 
 // File is the on-disk schema of the aggregator secrets file. It carries only credential-bearing
-// values: the application storage DB URL, the rate limiter's redis password, and the per-client
-// inbound HMAC pairs. Non-secret knobs (redis address/db) stay as environment variables and are
-// intentionally absent here.
+// values.
 type File struct {
 	Storage StorageSecrets `toml:"storage"`
 	Redis   RedisSecrets   `toml:"redis"`
@@ -50,21 +46,20 @@ type File struct {
 }
 
 // StorageSecrets holds the aggregator's application storage DB URL (formerly
-// AGGREGATOR_STORAGE_CONNECTION_URL). Named [storage] to match the aggregator's own config section.
+// AGGREGATOR_STORAGE_CONNECTION_URL).
 type StorageSecrets struct {
 	URL string `toml:"url"`
 }
 
 // RedisSecrets holds the redis password used by the rate limiter (formerly AGGREGATOR_REDIS_PASSWORD).
-// The non-secret redis knobs (address, db) are deliberately not here.
+// The non-secret redis configuration (address, db) are deliberately not here.
 type RedisSecrets struct {
 	Password string `toml:"password"`
 }
 
 // ClientSecret is one client's inbound HMAC credential as declared in the [[clients]] array of tables.
 // A client_id may appear more than once to declare multiple pairs (e.g. during key rotation); the
-// aggregator accepts any of a client's pairs. Unlike the verifier's [[aggregators]], there is no join
-// key: the pair is a pure credential and client_id is the only association it needs.
+// aggregator accepts any of a client's pairs.
 type ClientSecret struct {
 	ClientID  string `toml:"client_id"`
 	APIKey    string `toml:"api_key"`
@@ -82,8 +77,7 @@ type ClientCredential struct {
 type ClientSecrets map[string][]ClientCredential
 
 // Secrets is the parsed, validated aggregator secrets, ready to hand to the read sites. An absent file
-// yields a zero value whose accessors all fall back to environment variables (the backwards-compatible
-// path).
+// yields a zero value whose accessors all fall back to environment variables.
 type Secrets struct {
 	// storageURL is the DB URL from the file; empty when the file omits it (env is then used).
 	storageURL string
@@ -96,8 +90,8 @@ type Secrets struct {
 // newClientSecrets groups the given entries by client_id, enforcing that a present file is
 // well-formed: every entry must carry a non-empty client_id, api_key, and secret_key, and no api_key
 // may appear twice (an api_key is the auth lookup key, so a collision is genuinely ambiguous). A
-// repeated client_id is allowed — that is rotation. Returns a nil map (not an error) when entries is
-// empty. Error messages reference entry ordinals and client_id, never the credential value.
+// repeated client_id is allowed. Returns a nil map (not an error) when entries is
+// empty.
 func newClientSecrets(entries []ClientSecret) (ClientSecrets, error) {
 	if len(entries) == 0 {
 		return nil, nil
@@ -151,7 +145,7 @@ func LoadFromEnv(envVar, defaultPath string) (*Secrets, error) {
 // Load reads and validates the aggregator secrets file at path.
 //
 // An absent file is never an error: it returns an empty *Secrets so callers uniformly fall back to
-// environment variables (the backwards-compatible default). A present file is decoded strictly —
+// environment variables. A present file is decoded strictly —
 // malformed TOML, unknown/misspelled keys, a half-filled [[clients]] entry, or a duplicate api_key are
 // hard errors, so a real secrets file is never silently half-ignored. Credential-value validation
 // (api_key/secret_key format) and DB URL correctness are deferred to their use sites, so those errors
@@ -184,7 +178,7 @@ func Load(path string) (*Secrets, error) {
 }
 
 // StorageURL returns the application storage DB URL: the secrets file value when present, otherwise
-// the AGGREGATOR_STORAGE_CONNECTION_URL environment variable (backwards-compatible). The file wins. An
+// the AGGREGATOR_STORAGE_CONNECTION_URL environment variable. The file wins. An
 // empty result means no storage URL is configured.
 func (s *Secrets) StorageURL() string {
 	if s != nil && s.storageURL != "" {

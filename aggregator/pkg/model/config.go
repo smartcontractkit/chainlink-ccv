@@ -458,14 +458,14 @@ type ClientConfig struct {
 	Enabled     bool             `toml:"enabled"`
 	ClientID    string           `toml:"clientId"`
 	// resolvedPairs holds credentials supplied for this client by the aggregator secrets file. When
-	// non-nil it replaces the env-var (APIKeyPairs) source entirely for this client (replace-per-client
-	// file-wins). It is unexported so struct logging (e.g. the "Loaded configuration" log) can never
+	// non-nil it replaces the env-var (APIKeyPairs) source entirely for this client.
+	// It is unexported so struct logging (e.g. the "Loaded configuration" log) can never
 	// leak the plaintext credentials it carries. Populated by AggregatorConfig.ResolveSecrets.
 	resolvedPairs []resolvedAPIKeyPair
 }
 
 // effectivePairs returns the credentials in force for this client: the secrets-file-resolved pairs
-// when present (replace-per-client), otherwise the legacy env-var pairs. This is the single source
+// when present, otherwise the legacy env-var pairs. This is the single source
 // both authentication (GetClientByAPIKey) and validation read from, so behavior is identical
 // regardless of where the credential came from.
 func (c *ClientConfig) effectivePairs() []auth.APIKeyPair {
@@ -981,9 +981,8 @@ func (c *AggregatorConfig) Validate() error {
 // back to the legacy env vars otherwise.
 //
 // s may be nil (equivalent to "no secrets file"), in which case every value resolves purely from the
-// environment — the backwards-compatible path. Client credentials are resolved per client
-// (replace-per-client): a client for which the file supplies any pairs takes those and ignores its
-// env-var pairs entirely.
+// environment — the backwards-compatible path. Client credentials are resolved per client:
+// a client for which the file supplies any pairs takes those and ignores its env-var pairs entirely.
 func (c *AggregatorConfig) ResolveSecrets(s *secrets.Secrets) error {
 	if c.Storage.StorageType == StorageTypePostgreSQL {
 		storageURL := s.StorageURL()
@@ -1004,8 +1003,8 @@ func (c *AggregatorConfig) ResolveSecrets(s *secrets.Secrets) error {
 	return nil
 }
 
-// resolveClientSecrets applies the secrets file's per-client credentials to the config
-// (replace-per-client). Clients absent from fileClients keep their env-var pairs untouched.
+// resolveClientSecrets applies the secrets file's per-client credentials to the config.
+// Clients absent from fileClients keep their env-var pairs untouched.
 func (c *AggregatorConfig) resolveClientSecrets(fileClients secrets.ClientSecrets) {
 	if len(fileClients) == 0 {
 		return
