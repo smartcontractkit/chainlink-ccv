@@ -74,13 +74,13 @@ const (
 // aggregator_address) falls back to the un-suffixed DefaultAggregator* variables, preserving the
 // existing single-aggregator deployment contract. Config generators (changeset, devenv) and the
 // deploy layer use the same convention to set the matching environment variables.
-func (a AggregatorConnection) AggregatorCredentialEnvVars() (apiKeyVar, secretKeyVar string) {
+func (a AggregatorConnection) AggregatorCredentialEnvVars() (apiKeyEnvName, secretKeyEnvName string) {
 	return AggregatorCredentialEnvVars(a.SecretName)
 }
 
 // AggregatorCredentialEnvVars returns the credential environment variable names for an aggregator
 // with the given secret name. An empty secret name yields the default (legacy) un-suffixed variables.
-func AggregatorCredentialEnvVars(secretName string) (apiKeyVar, secretKeyVar string) {
+func AggregatorCredentialEnvVars(secretName string) (apiKeyEnvName, secretKeyEnvName string) {
 	if strings.TrimSpace(secretName) == "" {
 		return DefaultAggregatorAPIKeyEnvVar, DefaultAggregatorSecretKeyEnvVar
 	}
@@ -96,6 +96,9 @@ func AggregatorCredentialEnvVars(secretName string) (apiKeyVar, secretKeyVar str
 // used; otherwise resolution falls back to the environment variables named by
 // AggregatorCredentialEnvVars, preserving the backwards-compatible env-only deployment contract. A
 // nil secrets map (no file, or a file with no [[aggregators]]) is the env-only path.
+//
+// Errors intentionally name the source (env var name, or file field name), never the credential
+// value, so they are safe to log.
 func (a AggregatorConnection) ResolveHMACConfig(secrets vsecrets.AggregatorSecrets) (*hmac.ClientConfig, error) {
 	if secrets != nil {
 		if cred, ok := secrets[strings.TrimSpace(a.SecretName)]; ok {
@@ -103,8 +106,8 @@ func (a AggregatorConnection) ResolveHMACConfig(secrets vsecrets.AggregatorSecre
 		}
 	}
 
-	apiKeyVar, secretKeyVar := a.AggregatorCredentialEnvVars()
-	return buildHMACConfig(os.Getenv(apiKeyVar), os.Getenv(secretKeyVar), apiKeyVar, secretKeyVar, a.Label())
+	apiKeyEnvName, secretKeyEnvName := a.AggregatorCredentialEnvVars()
+	return buildHMACConfig(os.Getenv(apiKeyEnvName), os.Getenv(secretKeyEnvName), apiKeyEnvName, secretKeyEnvName, a.Label())
 }
 
 // buildHMACConfig validates an API key / secret pair and returns the client config. apiKeyLabel and

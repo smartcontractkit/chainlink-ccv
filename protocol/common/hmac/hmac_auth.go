@@ -91,7 +91,9 @@ func ValidateAPIKey(apiKey string) error {
 func ValidateSecret(secret string) error {
 	decoded, err := hex.DecodeString(secret)
 	if err != nil {
-		return fmt.Errorf("secret must be hex-encoded: %w", err)
+		// Do not wrap err: hex.InvalidByteError echoes an offending byte of the secret, and callers
+		// log this error. Report only the failure reason, never any fragment of the credential.
+		return errors.New("secret must be hex-encoded")
 	}
 	if len(decoded) < MinSecretBytes {
 		return fmt.Errorf("secret must be at least %d bytes (%d hex chars), got %d bytes",
