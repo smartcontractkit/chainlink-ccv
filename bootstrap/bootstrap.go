@@ -246,10 +246,8 @@ func (b *Bootstrapper) initMonitoring(signer keys.CSASigner) error {
 		return fmt.Errorf("failed to init logger: %w", err)
 	}
 	if b.lggr != nil {
-		err := b.lggr.Sync()
-		if err != nil {
-			return fmt.Errorf("failed to sync tmp logger: %w", err)
-		}
+		_ = b.lggr.Sync() // stdout sync always fails on Linux/macOS, safe to ignore
+		b.lggr = lggr
 	}
 	b.lggr = lggr
 	pyroscopeProfiler, err := monitoring.SetupPyroscope(lggr, b.name, mon.Pyroscope)

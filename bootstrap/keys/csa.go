@@ -26,7 +26,7 @@ type csaSigner struct {
 
 var _ CSASigner = (*csaSigner)(nil)
 
-// NewCSASigner returns a [crypto.Signer] for the named Ed25519 key in ks.
+// NewCSASigner returns a [CSASigner] for the named Ed25519 key in ks.
 func NewCSASigner(ctx context.Context, ks keystore.Keystore, keyName string) (CSASigner, error) {
 	resp, err := ks.GetKeys(ctx, keystore.GetKeysRequest{
 		KeyNames: []string{keyName},
