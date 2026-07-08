@@ -8,6 +8,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vsecrets"
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
 )
 
@@ -87,28 +88,41 @@ func AggregatorCredentialEnvVars(secretName string) (apiKeyVar, secretKeyVar str
 	return "VERIFIER_AGGREGATOR_" + seg + "_API_KEY", "VERIFIER_AGGREGATOR_" + seg + "_SECRET_KEY"
 }
 
-// ResolveHMACConfig reads and validates this aggregator's HMAC credentials from the environment
-// variables named by AggregatorCredentialEnvVars. Each aggregator authenticates the verifier with
-// its own credential, so a consolidated verifier resolves one config per aggregator.
-func (a AggregatorConnection) ResolveHMACConfig() (*hmac.ClientConfig, error) {
-	apiKeyVar, secretKeyVar := a.AggregatorCredentialEnvVars()
+// ResolveHMACConfig reads and validates this aggregator's HMAC credentials. Each aggregator
+// authenticates the verifier with its own credential, so a consolidated verifier resolves one config
+// per aggregator.
+//
+// The verifier secrets file wins: when secrets holds an entry for this aggregator's SecretName it is
+// used; otherwise resolution falls back to the environment variables named by
+// AggregatorCredentialEnvVars, preserving the backwards-compatible env-only deployment contract. A
+// nil secrets map (no file, or a file with no [[aggregators]]) is the env-only path.
+func (a AggregatorConnection) ResolveHMACConfig(secrets vsecrets.AggregatorSecrets) (*hmac.ClientConfig, error) {
+	if secrets != nil {
+		if cred, ok := secrets[strings.TrimSpace(a.SecretName)]; ok {
+			return buildHMACConfig(cred.APIKey, cred.SecretKey, "api_key", "secret_key", a.Label())
+		}
+	}
 
-	apiKey := os.Getenv(apiKeyVar)
+	apiKeyVar, secretKeyVar := a.AggregatorCredentialEnvVars()
+	return buildHMACConfig(os.Getenv(apiKeyVar), os.Getenv(secretKeyVar), apiKeyVar, secretKeyVar, a.Label())
+}
+
+// buildHMACConfig validates an API key / secret pair and returns the client config. apiKeyLabel and
+// secretLabel name the source (env var names, or file field names) so error messages point the
+// operator at the right place regardless of where the credential came from.
+func buildHMACConfig(apiKey, secret, apiKeyLabel, secretLabel, aggLabel string) (*hmac.ClientConfig, error) {
 	if apiKey == "" {
-		return nil, fmt.Errorf("missing %s for aggregator %q", apiKeyVar, a.Label())
+		return nil, fmt.Errorf("missing %s for aggregator %q", apiKeyLabel, aggLabel)
 	}
 	if err := hmac.ValidateAPIKey(apiKey); err != nil {
-		return nil, fmt.Errorf("invalid %s for aggregator %q: %w", apiKeyVar, a.Label(), err)
+		return nil, fmt.Errorf("invalid %s for aggregator %q: %w", apiKeyLabel, aggLabel, err)
 	}
-
-	secret := os.Getenv(secretKeyVar)
 	if secret == "" {
-		return nil, fmt.Errorf("missing %s for aggregator %q", secretKeyVar, a.Label())
+		return nil, fmt.Errorf("missing %s for aggregator %q", secretLabel, aggLabel)
 	}
 	if err := hmac.ValidateSecret(secret); err != nil {
-		return nil, fmt.Errorf("invalid %s for aggregator %q: %w", secretKeyVar, a.Label(), err)
+		return nil, fmt.Errorf("invalid %s for aggregator %q: %w", secretLabel, aggLabel, err)
 	}
-
 	return &hmac.ClientConfig{APIKey: apiKey, Secret: secret}, nil
 }
 

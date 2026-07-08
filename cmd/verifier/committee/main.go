@@ -11,12 +11,15 @@ import (
 	cmd "github.com/smartcontractkit/chainlink-ccv/cmd/verifier"
 	_ "github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm" // evm accessor driver
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/commit"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vsecrets"
 	"github.com/smartcontractkit/chainlink-common/keystore"
 )
 
 func main() {
 	if len(os.Args) >= 2 && os.Args[1] == "ccv" {
-		cmd.RunCCVCLI(os.Args[1:])
+		// The CLI loads the verifier secrets itself from the committee verifier's path (it runs
+		// before bootstrap.Run, so the service factory has not loaded them yet).
+		cmd.RunCCVCLI(os.Args[1:], vsecrets.CommitteeVerifierSecretsPathEnv, vsecrets.DefaultCommitteeVerifierSecretsPath)
 		return
 	}
 
