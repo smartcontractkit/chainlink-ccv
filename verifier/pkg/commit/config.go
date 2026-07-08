@@ -73,13 +73,13 @@ const (
 // aggregator_address) falls back to the un-suffixed DefaultAggregator* variables, preserving the
 // existing single-aggregator deployment contract. Config generators (changeset, devenv) and the
 // deploy layer use the same convention to set the matching environment variables.
-func (a AggregatorConnection) AggregatorCredentialEnvVars() (apiKeyVar, secretKeyVar string) {
+func (a AggregatorConnection) AggregatorCredentialEnvVars() (apiKeyEnvName, secretKeyEnvName string) {
 	return AggregatorCredentialEnvVars(a.SecretName)
 }
 
 // AggregatorCredentialEnvVars returns the credential environment variable names for an aggregator
 // with the given secret name. An empty secret name yields the default (legacy) un-suffixed variables.
-func AggregatorCredentialEnvVars(secretName string) (apiKeyVar, secretKeyVar string) {
+func AggregatorCredentialEnvVars(secretName string) (apiKeyEnvName, secretKeyEnvName string) {
 	if strings.TrimSpace(secretName) == "" {
 		return DefaultAggregatorAPIKeyEnvVar, DefaultAggregatorSecretKeyEnvVar
 	}
@@ -90,23 +90,27 @@ func AggregatorCredentialEnvVars(secretName string) (apiKeyVar, secretKeyVar str
 // ResolveHMACConfig reads and validates this aggregator's HMAC credentials from the environment
 // variables named by AggregatorCredentialEnvVars. Each aggregator authenticates the verifier with
 // its own credential, so a consolidated verifier resolves one config per aggregator.
+//
+// Errors intentionally name the environment variable (apiKeyEnvName / secretKeyEnvName) so operators
+// know which variable to set. The credential values themselves are never included in an error, so
+// these errors are safe to log.
 func (a AggregatorConnection) ResolveHMACConfig() (*hmac.ClientConfig, error) {
-	apiKeyVar, secretKeyVar := a.AggregatorCredentialEnvVars()
+	apiKeyEnvName, secretKeyEnvName := a.AggregatorCredentialEnvVars()
 
-	apiKey := os.Getenv(apiKeyVar)
+	apiKey := os.Getenv(apiKeyEnvName)
 	if apiKey == "" {
-		return nil, fmt.Errorf("missing %s for aggregator %q", apiKeyVar, a.Label())
+		return nil, fmt.Errorf("missing %s for aggregator %q", apiKeyEnvName, a.Label())
 	}
 	if err := hmac.ValidateAPIKey(apiKey); err != nil {
-		return nil, fmt.Errorf("invalid %s for aggregator %q: %w", apiKeyVar, a.Label(), err)
+		return nil, fmt.Errorf("invalid %s for aggregator %q: %w", apiKeyEnvName, a.Label(), err)
 	}
 
-	secret := os.Getenv(secretKeyVar)
+	secret := os.Getenv(secretKeyEnvName)
 	if secret == "" {
-		return nil, fmt.Errorf("missing %s for aggregator %q", secretKeyVar, a.Label())
+		return nil, fmt.Errorf("missing %s for aggregator %q", secretKeyEnvName, a.Label())
 	}
 	if err := hmac.ValidateSecret(secret); err != nil {
-		return nil, fmt.Errorf("invalid %s for aggregator %q: %w", secretKeyVar, a.Label(), err)
+		return nil, fmt.Errorf("invalid %s for aggregator %q: %w", secretKeyEnvName, a.Label(), err)
 	}
 
 	return &hmac.ClientConfig{APIKey: apiKey, Secret: secret}, nil
