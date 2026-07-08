@@ -222,34 +222,53 @@ func NewBootstrapper(
 		}
 	}
 
+	// init tmp logger
+	var err error
+	b.lggr, err = logging.InitLogger(b.name, "", monitoring.Config{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to init logger: %w", err)
+	}
+
+	return b, nil
+}
+
+func (b *Bootstrapper) initMonitoring(signer crypto.Signer) error {
 	// do not fall back b.config to it
 	mon := monitoring.Config{}
 	if b.config != nil && b.config.Monitoring != nil {
 		mon = *b.config.Monitoring
 	}
-	err := monitoring.SetupBeholder(mon.Beholder, fac.MetricViews())
+	err := monitoring.SetupBeholder(mon.Beholder, signer, b.fac.MetricViews())
 	if err != nil {
-		return nil, fmt.Errorf("failed to setup beholder: %w", err)
+		return fmt.Errorf("failed to setup beholder: %w", err)
 	}
 	lggr, err := logging.InitLogger(b.name, mon.LogLevel, mon)
 	if err != nil {
-		return nil, fmt.Errorf("failed to init logger: %w", err)
+		return fmt.Errorf("failed to init logger: %w", err)
+	}
+	if b.lggr != nil {
+		_ = b.lggr.Sync() // stdout sync always fails on Linux/macOS, safe to ignore
+		b.lggr = lggr
 	}
 	b.lggr = lggr
 	pyroscopeProfiler, err := monitoring.SetupPyroscope(lggr, b.name, mon.Pyroscope)
 	if err != nil {
-		return nil, fmt.Errorf("failed to setup pyroscope: %w", err)
+		return fmt.Errorf("failed to setup pyroscope: %w", err)
 	}
 	b.pyroscope = pyroscopeProfiler
 	lggr.Infow("Monitoring initialized", "config", mon)
-
-	return b, nil
+	return nil
 }
 
 // startWithAppConfig is a passthrough to the application's Start function.
 func (b *Bootstrapper) startWithAppConfig(ctx context.Context) (startErr error) {
 	if b.appCfg == nil {
 		return fmt.Errorf("bootstrapper has no app config")
+	}
+
+	err := b.initMonitoring(nil)
+	if err != nil {
+		return fmt.Errorf("failed to initialize monitoring: %w", err)
 	}
 
 	b.lggr.Infow("Calling NewRegistry with app config")
@@ -373,6 +392,11 @@ func (b *Bootstrapper) startWithJDLifecycle(ctx context.Context) error {
 	keyStore, csaSigner, err := initializeKeystore(ctx, b.lggr, db, b.config.Keystore.Password, b.keys)
 	if err != nil {
 		return fmt.Errorf("failed to initialize keystore: %w", err)
+	}
+
+	err = b.initMonitoring(csaSigner)
+	if err != nil {
+		return fmt.Errorf("failed to initialize monitoring: %w", err)
 	}
 
 	jdPublicKey, err := keys.DecodeEd25519PublicKey(b.config.JD.ServerCSAPublicKey)
