@@ -11,33 +11,23 @@ import (
 	"github.com/smartcontractkit/chainlink-common/keystore"
 )
 
-// DecodeEd25519PublicKey decodes a hex-encoded Ed25519 public key.
-func DecodeEd25519PublicKey(pubKeyHex string) (ed25519.PublicKey, error) {
-	decoded, err := hex.DecodeString(pubKeyHex)
-	if err != nil {
-		return nil, fmt.Errorf("failed to decode public key: %w", err)
-	}
-	if len(decoded) != ed25519.PublicKeySize {
-		return nil, fmt.Errorf(
-			"not an ed25519 public key: expected %d bytes, got %d bytes",
-			ed25519.PublicKeySize,
-			len(decoded),
-		)
-	}
-	return ed25519.PublicKey(decoded), nil
+type CSASigner interface {
+	crypto.Signer
+	// Name returns configured name of the CSA key.
+	Name() string
 }
 
-// A CSASigner implements [crypto.Signer] using a keystore-managed Ed25519 key.
-type CSASigner struct {
+// A csaSigner implements [CSASigner] and [crypto.Signer] using a keystore-managed Ed25519 key.
+type csaSigner struct {
 	ks        keystore.Keystore
 	keyName   string
 	publicKey crypto.PublicKey
 }
 
-var _ crypto.Signer = (*CSASigner)(nil)
+var _ CSASigner = (*csaSigner)(nil)
 
 // NewCSASigner returns a [crypto.Signer] for the named Ed25519 key in ks.
-func NewCSASigner(ctx context.Context, ks keystore.Keystore, keyName string) (*CSASigner, error) {
+func NewCSASigner(ctx context.Context, ks keystore.Keystore, keyName string) (CSASigner, error) {
 	resp, err := ks.GetKeys(ctx, keystore.GetKeysRequest{
 		KeyNames: []string{keyName},
 	})
@@ -54,20 +44,22 @@ func NewCSASigner(ctx context.Context, ks keystore.Keystore, keyName string) (*C
 	if len(publicKey) != ed25519.PublicKeySize {
 		return nil, fmt.Errorf("public key is not an ed25519 public key")
 	}
-	return &CSASigner{
+	return &csaSigner{
 		ks:        ks,
 		keyName:   keyName,
 		publicKey: ed25519.PublicKey(publicKey),
 	}, nil
 }
 
+func (s *csaSigner) Name() string { return s.keyName }
+
 // Public returns the public key.
-func (s *CSASigner) Public() crypto.PublicKey {
+func (s *csaSigner) Public() crypto.PublicKey {
 	return s.publicKey
 }
 
 // Sign signs digest with the keystore-managed private key.
-func (s *CSASigner) Sign(_ io.Reader, digest []byte, _ crypto.SignerOpts) ([]byte, error) {
+func (s *csaSigner) Sign(_ io.Reader, digest []byte, _ crypto.SignerOpts) ([]byte, error) {
 	resp, err := s.ks.Sign(context.TODO(), keystore.SignRequest{
 		KeyName: s.keyName,
 		Data:    digest,
@@ -76,4 +68,20 @@ func (s *CSASigner) Sign(_ io.Reader, digest []byte, _ crypto.SignerOpts) ([]byt
 		return nil, fmt.Errorf("failed to sign: %w", err)
 	}
 	return resp.Signature, nil
+}
+
+// DecodeEd25519PublicKey decodes a hex-encoded Ed25519 public key.
+func DecodeEd25519PublicKey(pubKeyHex string) (ed25519.PublicKey, error) {
+	decoded, err := hex.DecodeString(pubKeyHex)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode public key: %w", err)
+	}
+	if len(decoded) != ed25519.PublicKeySize {
+		return nil, fmt.Errorf(
+			"not an ed25519 public key: expected %d bytes, got %d bytes",
+			ed25519.PublicKeySize,
+			len(decoded),
+		)
+	}
+	return decoded, nil
 }
