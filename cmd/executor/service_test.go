@@ -38,7 +38,8 @@ func init() {
 	// Register a test EVM factory so that NewRegistry picks it up.
 	// Default nil evmFactory keeps existing tests working (GetAccessor returns error);
 	// tests that need a working accessor assign evmFactory before calling Start.
-	chainaccess.Register("evm", func(_ logger.Logger, _ chainaccess.GenericConfig) (chainaccess.AccessorFactory, error) { //nolint:staticcheck
+	// Register uses GenericConfig because the registry still decodes it.
+	chainaccess.Register("evm", func(_ logger.Logger, _ chainaccess.GenericConfig) (chainaccess.AccessorFactory, error) {
 		return &evmFactoryProxy{}, nil
 	})
 }
