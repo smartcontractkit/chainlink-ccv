@@ -40,6 +40,41 @@ verifier_id = "my-verifier"
 # ... the rest of the app (e.g. commit.Config) TOML ...
 ```
 
+## One image, two launch modes
+
+The mode is chosen at runtime, so the **same service image** (`verifier:latest` for the committee
+verifier, `executor:latest` for the executor) runs either way — only the env vars and mounted files
+differ. No rebuild needed to switch.
+
+JD mode (default for these services):
+
+```sh
+docker run \
+  -v ./bootstrap-config.toml:/etc/config.toml \      # [jd] + [db] + [keystore] + [server]
+  -v ./bootstrap-secrets.toml:/etc/bootstrap/secrets.toml \  # optional split-out [db]/[keystore]
+  verifier:latest
+# app config (aggregators, addresses, ...) arrives from JD after connect
+```
+
+Local mode (no JD):
+
+```sh
+docker run \
+  -e BOOTSTRAPPER_MODE=local \
+  -v ./bootstrap-config.toml:/etc/config.toml \      # [db] + [keystore] (+ [server]); NO [jd]
+  -v ./app.toml:/etc/bootstrap/app.toml \            # the app config, formerly shipped by JD
+  verifier:latest
+```
+
+Notes:
+- Local mode removes the JD dependency, not the database: a signing service (committee verifier,
+  executor) still needs Postgres for its keystore, and the `[db]`/`[keystore]` sections must be
+  present for the keystore to initialize. It is not a zero-infra mode.
+- The bootstrap config path (`/etc/config.toml`) and the local app-config path
+  (`/etc/bootstrap/app.toml`) must differ. The token verifier is the exception: it points its app
+  config at `/etc/config.toml`, has no `[db]`/`[keystore]`, and defaults to local — so it runs
+  keystore-less from that single file with no `BOOTSTRAPPER_MODE` needed.
+
 # Configuration
 
 The bootstrap config is a TOML file provided by the **node operator** and mounted into the
@@ -49,8 +84,9 @@ password, JD connection details — and settings that are **common across all CC
 on the operator's infrastructure, such as which chains the node has a signing identity on.
 
 This file is **not shipped by Chainlink Labs**. It is the operator's responsibility to provide it.
-The app-level configuration (job spec, aggregator addresses, chain selectors, etc.) is delivered
-separately by JD after the node connects.
+The app-level configuration (aggregator addresses, chain selectors, etc.) is delivered separately —
+by JD after the node connects in `jd` mode, or from the local app-config file in `local` mode (see
+Lifecycle modes above).
 
 ```toml
 [jd]
