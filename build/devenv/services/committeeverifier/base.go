@@ -40,7 +40,7 @@ const (
 
 	// localAppConfigContainerPath is where the local-mode app-config file is mounted; it is written
 	// into the bootstrap config as local_app_config_path so the bootstrapper reads it there.
-	localAppConfigContainerPath = "/etc/bootstrap/app.toml"
+	localAppConfigContainerPath = "/etc/committee-verifier/app.toml"
 )
 
 var DefaultVerifierDBConnectionString = fmt.Sprintf("postgresql://%s:%s@localhost:%d/%s?sslmode=disable",

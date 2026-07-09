@@ -170,7 +170,7 @@ func NewTokenVerifier(in *TokenVerifierInput, blockchainOutputs []*blockchain.Ou
 	// the app-config path, and monitoring (no secrets file); validation correctly skips infra checks.
 	bootstrapConfig, err := toml.Marshal(bootstrap.NonSecretConfig{
 		AppConfigMode:      bootstrap.AppConfigModeLocal,
-		LocalAppConfigPath: "/etc/token-verifier-app-config.toml",
+		LocalAppConfigPath: "/etc/token-verifier/config.toml",
 		Monitoring:         in.Bootstrap.Monitoring,
 	})
 	if err != nil {
@@ -233,7 +233,7 @@ func NewTokenVerifier(in *TokenVerifierInput, blockchainOutputs []*blockchain.Ou
 
 	req.Mounts = testcontainers.Mounts()
 	req.Mounts = append(req.Mounts,
-		testcontainers.BindMount(appConfigFilePath, "/etc/token-verifier-app-config.toml"),
+		testcontainers.BindMount(appConfigFilePath, "/etc/token-verifier/config.toml"),
 		testcontainers.BindMount(bootstrapConfigFilePath, bootstrap.DefaultConfigPath),
 		testcontainers.BindMount(verifierSecretsFilePath, vsecrets.DefaultTokenVerifierSecretsPath),
 	)
