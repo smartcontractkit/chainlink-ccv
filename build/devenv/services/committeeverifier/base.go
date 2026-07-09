@@ -37,6 +37,10 @@ const (
 	DefaultVerifierMode    = services.Standalone
 
 	DefaultVerifierDBImage = "postgres:16-alpine"
+
+	// localAppConfigContainerPath is where the local-mode app-config file is mounted; it is written
+	// into the bootstrap config as local_app_config_path so the bootstrapper reads it there.
+	localAppConfigContainerPath = "/etc/committee-verifier/app.toml"
 )
 
 var DefaultVerifierDBConnectionString = fmt.Sprintf("postgresql://%s:%s@localhost:%d/%s?sslmode=disable",
@@ -113,6 +117,12 @@ type Input struct {
 	// GeneratedJobSpecs[NodeIndex % numAggregators].
 	// Used in standalone mode. Set by generateVerifierJobSpecs in environment.go.
 	GeneratedConfig string `toml:"-"`
+
+	// LocalAppConfig is the plain app-config TOML mounted into the container in local mode
+	// (services.Local) — the committee verifier's commit.Config with blockchain_infos included, the
+	// same content JD would ship in a job's appConfig, no envelope. Callers build it (base.go cannot
+	// build it itself because that needs the chainreg registry, which imports this package).
+	LocalAppConfig string `toml:"-"`
 }
 
 // RebuildVerifierJobSpecWithBlockchainInfos takes a job spec and rebuilds it with blockchain infos
@@ -211,7 +221,8 @@ func New(in *Input, outputs []*blockchain.Output, jdInfra *jobs.JDInfrastructure
 	}
 	ctx := context.Background()
 
-	if jdInfra == nil {
+	// Local mode runs without a Job Distributor, so jdInfra is not required there.
+	if in.Mode != services.Local && jdInfra == nil {
 		return nil, fmt.Errorf("JD infrastructure is not set")
 	}
 
@@ -224,11 +235,9 @@ func New(in *Input, outputs []*blockchain.Output, jdInfra *jobs.JDInfrastructure
 }
 
 func launchVerifier(ctx context.Context, in *Input, outputs []*blockchain.Output, jdInfra *jobs.JDInfrastructure, modifiers map[string]ReqModifier) (*Output, error) {
-	// Get the JD server CSA public key
-	jdCSAKey, err := jobs.GetJDCSAPublicKey(ctx, jdInfra.OffchainClient)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get JD server CSA public key: %w", err)
-	}
+	// local mode runs without JD: the app config is delivered via a mounted job-spec file rather than
+	// a JD job proposal, so all JD wiring below is skipped.
+	local := in.Mode == services.Local
 
 	bootstrapInput := in.Bootstrap
 	dbContainer, err := createDBContainer(ctx, in, in.ChainFamily)
@@ -236,12 +245,25 @@ func launchVerifier(ctx context.Context, in *Input, outputs []*blockchain.Output
 		return nil, fmt.Errorf("failed to create verifier database: %w", err)
 	}
 
-	// Update bootstrap config w/ the database and JD info.
+	// Update bootstrap config w/ the keystore/ORM database URL (needed in every mode).
 	// TODO: make this easier? All standalone setups will have to do the same thing.
 	bootstrapInput.DB.URL = fmt.Sprintf("postgresql://%s:%s@%s:5432/%s?sslmode=disable",
 		in.ContainerName, in.ContainerName, dbContainerName(in.DB.Name, in.ChainFamily), services.DefaultBootstrapDBName)
-	bootstrapInput.JD.ServerCSAPublicKey = jdCSAKey
-	bootstrapInput.JD.ServerWSRPCURL = jdInfra.JDOutput.InternalWSRPCUrl
+
+	if !local {
+		// Point the bootstrapper at JD. In local mode [jd] is left blank (omitted by omitempty and
+		// not required by the loader's local-mode validation).
+		jdCSAKey, err := jobs.GetJDCSAPublicKey(ctx, jdInfra.OffchainClient)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get JD server CSA public key: %w", err)
+		}
+		bootstrapInput.JD.ServerCSAPublicKey = jdCSAKey
+		bootstrapInput.JD.ServerWSRPCURL = jdInfra.JDOutput.InternalWSRPCUrl
+	} else {
+		// Local mode: the bootstrap config declares the mode and where to read the app config from.
+		bootstrapInput.AppConfigMode = bootstrap.AppConfigModeLocal
+		bootstrapInput.LocalAppConfigPath = localAppConfigContainerPath
+	}
 
 	aggregatorSecrets, err := getAggregatorSecretEntries(in)
 	if err != nil {
@@ -305,7 +327,21 @@ func launchVerifier(ctx context.Context, in *Input, outputs []*blockchain.Output
 		return nil, fmt.Errorf("failed to write verifier secrets to file: %w", err)
 	}
 
-	req, err := baseImageRequest(in, envVars, bootstrapConfigFilePath, bootstrapSecretsFilePath, verifierSecretsFilePath)
+	// In local mode, write the app-config file that the bootstrapper reads instead of receiving a JD
+	// proposal. The caller supplies the app config (with blockchain_infos already included).
+	var localConfigFilePath string
+	if local {
+		if in.LocalAppConfig == "" {
+			return nil, fmt.Errorf("local mode requires Input.LocalAppConfig (the app-config TOML to mount)")
+		}
+		localConfigFilePath = filepath.Join(confDir,
+			fmt.Sprintf("verifier-%s-app-%d.toml", in.CommitteeName, in.NodeIndex+1))
+		if err := os.WriteFile(localConfigFilePath, []byte(in.LocalAppConfig), 0o644); err != nil {
+			return nil, fmt.Errorf("failed to write local app config to file: %w", err)
+		}
+	}
+
+	req, err := baseImageRequest(in, envVars, bootstrapConfigFilePath, bootstrapSecretsFilePath, verifierSecretsFilePath, localConfigFilePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create base image request: %w", err)
 	}
@@ -417,7 +453,7 @@ func startContainer(ctx context.Context, req testcontainers.ContainerRequest) (t
 	return nil, fmt.Errorf("failed to start container after %d attempts: %w", maxAttempts, lastErr)
 }
 
-func baseImageRequest(in *Input, envVars map[string]string, bootstrapConfigFilePath, bootstrapSecretsFilePath, verifierSecretsFilePath string) (testcontainers.ContainerRequest, error) {
+func baseImageRequest(in *Input, envVars map[string]string, bootstrapConfigFilePath, bootstrapSecretsFilePath, verifierSecretsFilePath, localConfigFilePath string) (testcontainers.ContainerRequest, error) {
 	req := testcontainers.ContainerRequest{
 		Image:    in.Image,
 		Name:     in.ContainerName,
@@ -477,6 +513,14 @@ func baseImageRequest(in *Input, envVars map[string]string, bootstrapConfigFileP
 		verifierSecretsFilePath,
 		vsecrets.DefaultCommitteeVerifierSecretsPath,
 	))
+	// Local mode: mount the app-config file at the path the bootstrap config's local_app_config_path
+	// points to, so the bootstrapper reads the app config from it instead of from a JD proposal.
+	if localConfigFilePath != "" {
+		req.Mounts = append(req.Mounts, testcontainers.BindMount(
+			localConfigFilePath,
+			localAppConfigContainerPath,
+		))
+	}
 
 	// Note: identical code to aggregator.go/executor.go -- will indexer be identical as well?
 	if in.SourceCodePath != "" {

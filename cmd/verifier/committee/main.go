@@ -23,6 +23,9 @@ func main() {
 		return
 	}
 
+	// The lifecycle is chosen by the bootstrap config's app_config_mode key (not a flag or env var):
+	// "jd_app_config" (default) runs against a Job Distributor; "local_app_config" reads the app
+	// config from local_app_config_path with no JD, for the CCV starter kit / local testing.
 	if err := bootstrap.Run(
 		"EVMCommitteeVerifier",
 		cmd.NewCommitteeVerifierServiceFactory(),

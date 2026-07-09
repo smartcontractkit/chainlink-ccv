@@ -21,6 +21,10 @@ type Mode string
 const (
 	Standalone Mode = "standalone"
 	CL         Mode = "cl"
+	// Local runs the service standalone without a Job Distributor: the bootstrapper reads the app
+	// config from a mounted file (app_config_mode = "local_app_config" in the bootstrap config.toml).
+	// Used by the CCV starter kit and local testing where JD is unavailable.
+	Local Mode = "local"
 )
 
 const (
