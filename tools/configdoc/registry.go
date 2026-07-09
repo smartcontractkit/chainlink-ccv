@@ -5,6 +5,9 @@ import (
 	aggsecrets "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/secrets"
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/commit"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vsecrets"
 )
 
 // DocKind distinguishes config docs from secrets docs (affects header wording).
@@ -36,6 +39,9 @@ var Targets = []Target{
 	{Name: "executor", Out: "executor/config.documented.toml", Kind: KindConfig, New: executorDocInstance},
 	{Name: "aggregator", Out: "aggregator/config.documented.toml", Kind: KindConfig, New: aggregatorConfigInstance},
 	{Name: "aggregator", Out: "aggregator/secrets.documented.toml", Kind: KindSecrets, New: aggregatorSecretsInstance},
+	{Name: "committee verifier", Out: "verifier/committee/config.documented.toml", Kind: KindConfig, New: committeeVerifierConfigInstance},
+	{Name: "token verifier", Out: "verifier/token/config.documented.toml", Kind: KindConfig, New: tokenVerifierConfigInstance},
+	{Name: "verifier", Out: "verifier/secrets.documented.toml", Kind: KindSecrets, New: verifierSecretsInstance},
 }
 
 // executorDocInstance builds a fully-populated, valid executor Configuration
@@ -107,6 +113,62 @@ func aggregatorSecretsInstance() any {
 		Redis:   aggsecrets.RedisSecrets{Password: "your-redis-password"},
 		Clients: []aggsecrets.ClientSecret{
 			{ClientID: "client-1", APIKey: "<api-key>", SecretKey: "<secret-key>"},
+		},
+	}
+}
+
+// committeeVerifierConfigInstance builds a documented committee verifier config.
+// The committee verifier has no defaulting routine, so every value is an example;
+// Monitoring is left zero (deprecated, bootstrap-sourced). The aggregators list is
+// populated to document the [[aggregators]] shape.
+func committeeVerifierConfigInstance() any {
+	return &commit.Config{
+		VerifierID: "committee-verifier-1",
+		Aggregators: []commit.AggregatorConnection{
+			{
+				Name:                "aggregator-1",
+				SecretName:          "aggregator_1",
+				Address:             "aggregator-1:50051",
+				MaxSendMsgSizeBytes: 4194304,
+				MaxRecvMsgSizeBytes: 4194304,
+			},
+		},
+		MessageDisablementRulesPollInterval:  "2s",
+		MessageDisablementRulesClientTimeout: "500ms",
+		SignerAddress:                        "0x00000000000000000000000000000000000000d1",
+		CommitteeVerifierAddresses:           map[string]string{"1": "0x00000000000000000000000000000000000000c1"},
+		DefaultExecutorOnRampAddresses:       map[string]string{"1": "0x00000000000000000000000000000000000000e1"},
+		DisableFinalityCheckers:              []string{},
+		CommitteeConfig: chainaccess.CommitteeConfig{
+			OnRampAddresses:    map[string]string{"1": "0x00000000000000000000000000000000000000a1"},
+			RMNRemoteAddresses: map[string]string{"1": "0x00000000000000000000000000000000000000b1"},
+		},
+	}
+}
+
+// tokenVerifierConfigInstance builds a documented token verifier config. It
+// documents the base token-verifier shape; the type-specific cctp/lombard
+// sub-configs are polymorphic (selected by type/version and parsed via a custom
+// UnmarshalTOML) and are left unset here.
+func tokenVerifierConfigInstance() any {
+	return &token.Config{
+		TokenVerifiers: []token.VerifierConfig{
+			{VerifierID: "token-verifier-1", Type: "cctp", Version: "2.0"},
+		},
+		CommitteeConfig: chainaccess.CommitteeConfig{
+			OnRampAddresses:    map[string]string{"1": "0x00000000000000000000000000000000000000a1"},
+			RMNRemoteAddresses: map[string]string{"1": "0x00000000000000000000000000000000000000b1"},
+		},
+	}
+}
+
+// verifierSecretsInstance builds the documented verifier secrets file (shared by
+// both verifier binaries) with obviously-fake placeholder credentials.
+func verifierSecretsInstance() any {
+	return &vsecrets.SecretsFile{
+		DB: vsecrets.DBSecrets{URL: "postgres://user:password@localhost:5432/verifier?sslmode=disable"},
+		Aggregators: []vsecrets.AggregatorSecret{
+			{SecretName: "aggregator_1", APIKey: "<api-key>", SecretKey: "<secret-key>"},
 		},
 	}
 }
