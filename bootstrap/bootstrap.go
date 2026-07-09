@@ -180,6 +180,11 @@ type Bootstrapper struct {
 	svcCancel context.CancelFunc
 	// watcherWG tracks the local-mode config-watcher goroutine so Stop can wait for it to finish.
 	watcherWG sync.WaitGroup
+	// localStartErr carries a failure from the local-mode config watcher's deferred service start back
+	// to Run, so a start failure after config delivery is fatal (the process exits) — matching the
+	// synchronous path, where a start error propagates to main. Buffered (size 1) and non-nil only
+	// while waiting for the app config file. nil in every other mode, so Run's receive never fires.
+	localStartErr chan error
 	// pyroscope is a saved reference to profiler to close it on stop
 	pyroscope *pyroscope.Profiler
 
@@ -504,6 +509,7 @@ func (b *Bootstrapper) startLocal(ctx context.Context) error {
 	if b.infoServer != nil && !localConfigFileReady(b.localConfigPath) {
 		svcCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 		b.svcCancel = cancel
+		b.localStartErr = make(chan error, 1)
 		b.lggr.Infow("local mode: app config not present yet; serving keys and waiting for it to appear",
 			"path", b.localConfigPath, "timeout", localConfigWaitTimeout)
 		b.watcherWG.Add(1)
@@ -575,7 +581,14 @@ func (b *Bootstrapper) watchForConfigAndStart(ctx context.Context, keyStore keys
 			}
 			b.lggr.Infow("local mode: app config appeared, starting service", "path", b.localConfigPath)
 			if err := b.startLocalService(ctx, keyStore); err != nil {
-				b.lggr.Errorw("local mode: failed to start service after app config appeared", "error", err)
+				// Hand the failure to Run so the process exits, as it would on the synchronous path.
+				// The error is not logged here: it is returned up to main, whose existing handling
+				// surfaces it (and avoids re-logging a value flagged as sensitive by static analysis —
+				// the error names config sources, not credential values).
+				select {
+				case b.localStartErr <- err:
+				default:
+				}
 			}
 			return
 		}
@@ -833,15 +846,26 @@ func Run(
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
-	<-sigCh
-	bootstrapper.lggr.Infow("Received shutdown signal, stopping bootstrapper...")
+	// In local mode the app config may be delivered after startup; if the deferred service start then
+	// fails, localStartErr fires and the process exits with that error (as the synchronous path does).
+	// localStartErr is nil outside that path, so the receive simply never fires.
+	var startErr error
+	select {
+	case <-sigCh:
+		bootstrapper.lggr.Infow("Received shutdown signal, stopping bootstrapper...")
+	case startErr = <-bootstrapper.localStartErr:
+		bootstrapper.lggr.Errorw("service failed to start after app config was delivered; shutting down")
+	}
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), defaultShutdownTimeout)
 	defer shutdownCancel()
 
 	if err := bootstrapper.Stop(shutdownCtx); err != nil {
+		if startErr != nil {
+			return fmt.Errorf("service start failed (%w); also failed to stop bootstrapper: %v", startErr, err)
+		}
 		return fmt.Errorf("failed to stop bootstrapper: %w", err)
 	}
 
-	return nil
+	return startErr
 }
