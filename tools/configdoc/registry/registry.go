@@ -1,4 +1,10 @@
-package configdoc
+// Package registry declares this repo's configdoc documentation targets: the
+// config/secrets structures of the CCV apps, plus the New() builders that produce
+// a fully-populated, valid instance of each. It is the single repo-specific
+// consumer of the generic tools/configdoc engine — another repo (e.g. a
+// chain-specific integration) imports the engine and declares its own registry
+// like this one.
+package registry
 
 import (
 	"time"
@@ -11,48 +17,25 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 	indexer "github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
+	"github.com/smartcontractkit/chainlink-ccv/tools/configdoc"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/commit"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vsecrets"
 )
 
-// DocKind distinguishes config docs from secrets docs (affects header wording).
-type DocKind int
-
-const (
-	KindConfig DocKind = iota
-	KindSecrets
-)
-
-// Target is one documentation target. It is the single place a doc is declared.
-type Target struct {
-	// Name identifies the target (e.g. "executor").
-	Name string
-	// Out is the output path relative to the docs root.
-	Out string
-	// Kind selects config vs secrets header wording.
-	Kind DocKind
-	// New returns the fully-populated instance to document: defaults applied,
-	// illustrative values for required fields. This single instance replaces
-	// per-field example tags and a separate defaulting adapter — it is both the
-	// documented values and the freshness oracle.
-	New func() any
-}
-
-// Targets is the registry of documentation targets. Apps are added incrementally
-// (see docs/adr/0011).
-var Targets = []Target{
-	{Name: "executor", Out: "executor/config.documented.toml", Kind: KindConfig, New: executorDocInstance},
-	{Name: "aggregator", Out: "aggregator/config.documented.toml", Kind: KindConfig, New: aggregatorConfigInstance},
-	{Name: "aggregator", Out: "aggregator/secrets.documented.toml", Kind: KindSecrets, New: aggregatorSecretsInstance},
-	{Name: "committee verifier", Out: "verifier/committee/config.documented.toml", Kind: KindConfig, New: committeeVerifierConfigInstance},
-	{Name: "token verifier", Out: "verifier/token/config.documented.toml", Kind: KindConfig, New: tokenVerifierConfigInstance},
-	{Name: "verifier", Out: "verifier/secrets.documented.toml", Kind: KindSecrets, New: verifierSecretsInstance},
-	{Name: "indexer", Out: "indexer/config.documented.toml", Kind: KindConfig, New: indexerConfigInstance},
-	{Name: "indexer", Out: "indexer/secrets.documented.toml", Kind: KindSecrets, New: indexerSecretsInstance},
-	{Name: "bootstrap", Out: "bootstrap/config.documented.toml", Kind: KindConfig, New: bootstrapConfigInstance},
-	{Name: "bootstrap", Out: "bootstrap/secrets.documented.toml", Kind: KindSecrets, New: bootstrapSecretsInstance},
-	{Name: "monitoring", Out: "common/monitoring.documented.toml", Kind: KindConfig, New: monitoringConfigInstance},
+// Targets is the registry of documentation targets. Apps are added incrementally.
+var Targets = []configdoc.Target{
+	{Name: "executor", Out: "executor/config.documented.toml", Kind: configdoc.KindConfig, New: executorDocInstance},
+	{Name: "aggregator", Out: "aggregator/config.documented.toml", Kind: configdoc.KindConfig, New: aggregatorConfigInstance},
+	{Name: "aggregator", Out: "aggregator/secrets.documented.toml", Kind: configdoc.KindSecrets, New: aggregatorSecretsInstance},
+	{Name: "committee verifier", Out: "verifier/committee/config.documented.toml", Kind: configdoc.KindConfig, New: committeeVerifierConfigInstance},
+	{Name: "token verifier", Out: "verifier/token/config.documented.toml", Kind: configdoc.KindConfig, New: tokenVerifierConfigInstance},
+	{Name: "verifier", Out: "verifier/secrets.documented.toml", Kind: configdoc.KindSecrets, New: verifierSecretsInstance},
+	{Name: "indexer", Out: "indexer/config.documented.toml", Kind: configdoc.KindConfig, New: indexerConfigInstance},
+	{Name: "indexer", Out: "indexer/secrets.documented.toml", Kind: configdoc.KindSecrets, New: indexerSecretsInstance},
+	{Name: "bootstrap", Out: "bootstrap/config.documented.toml", Kind: configdoc.KindConfig, New: bootstrapConfigInstance},
+	{Name: "bootstrap", Out: "bootstrap/secrets.documented.toml", Kind: configdoc.KindSecrets, New: bootstrapSecretsInstance},
+	{Name: "monitoring", Out: "common/monitoring.documented.toml", Kind: configdoc.KindConfig, New: monitoringConfigInstance},
 }
 
 // executorDocInstance builds a fully-populated, valid executor Configuration

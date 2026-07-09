@@ -45,17 +45,40 @@ In both cases the fix is the same: add the missing comment and/or run
 
 ## Adding a new app (or config structure)
 
-Everything is declared in `tools/configdoc/registry.go`:
+The generic engine lives in `tools/configdoc`; this repo's target list lives in
+`tools/configdoc/registry`. To document a new structure:
 
-1. **Write a `New()` builder** that returns a fully-populated, valid instance of
-   the config/secrets struct. Populate required fields with illustrative values,
-   run the app's real defaulting routine if it has one (so defaults appear), and
-   pin any non-deterministic values (e.g. hostnames) so the output is stable.
-   Allocate pointer sub-structs you want documented — the encoder omits `nil`.
-2. **Register a `Target`** in the `Targets` slice, giving it a `Name`, an output
-   path under `docs/config/`, and its `Kind` (`KindConfig` or `KindSecrets`).
+1. **Write a `New()` builder** in `tools/configdoc/registry` that returns a
+   fully-populated, valid instance of the config/secrets struct. Populate required
+   fields with illustrative values, run the app's real defaulting routine if it
+   has one (so defaults appear), and pin any non-deterministic values (e.g.
+   hostnames) so the output is stable. Allocate pointer sub-structs you want
+   documented — the encoder omits `nil`.
+2. **Register a `configdoc.Target`** in the `Targets` slice, giving it a `Name`,
+   an output path under `docs/config/`, and its `Kind` (`configdoc.KindConfig` or
+   `configdoc.KindSecrets`).
 3. Run `just config-docs` and commit the new file.
 
 The generator TOML-encodes the instance and injects each field's Go doc comment,
 so there is no per-app rendering code to write — only the builder and the doc
 comments on the struct.
+
+## Reusing from another repo
+
+`tools/configdoc` is a repo-agnostic engine. A repo that already depends on the
+chainlink-ccv module (e.g. a chain-specific integration) can import it directly
+and document its own config structs — no fork or copy:
+
+```go
+g, err := configdoc.NewGenerator(cwd) // walks up to the enclosing go.mod
+targets := []configdoc.Target{
+    {Name: "canton", Out: "canton/config.documented.toml", Kind: configdoc.KindConfig, New: func() any { return newCantonConfig() }},
+}
+_, err = g.Write(targets, "docs/config")   // generate
+stale, err := g.Check(targets, "docs/config") // verify (use in a freshness test / CLI -check)
+```
+
+`NewGenerator` auto-detects the module path and root, so nothing is hardcoded.
+One constraint: doc comments are only harvested for packages **inside that
+module** — keep the documented config structs and their nested types in-module,
+or the completeness gate will fail on the un-commented foreign fields.
