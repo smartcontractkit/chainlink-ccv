@@ -16,17 +16,12 @@ jobs:
   release-please:
     runs-on: ubuntu-latest
     steps:
-      # Write-scoped GATI token (contents:write + pull-requests:write). A GitHub App
-      # token — unlike GITHUB_TOKEN — triggers downstream workflows, so the bot-opened
-      # release PR's required checks run and pushed tags fire tag-listening workflows.
-      # Requires a write-capable GATI role (see ADR-0007 prerequisites); the read-only
-      # GATI_AWS_ROLE_ARN_CHAINLINK_READ_ONLY used elsewhere is insufficient.
       - name: Issue GitHub Token
         id: issue-github-token
         uses: smartcontractkit/.github/actions/setup-github-token@ef78fa97bf3c77de6563db1175422703e9e6674f # setup-github-token@0.2.1
         with:
-          aws-role-arn: ${{ secrets.GATI_AWS_ROLE_ARN_RELEASE }}
-          aws-lambda-url: ${{ secrets.GATI_LAMBDA_URL_RELENG }}
+          aws-role-arn: ${{ secrets.GATI_AWS_ROLE_ARN_AUTO_PR_TOKEN_ISSUER }}
+          aws-lambda-url: ${{ secrets.GATI_LAMBDA_URL_CCIP_PROTOCOL }}
           aws-region: ${{ secrets.GATI_AWS_REGION }}
 
       - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
