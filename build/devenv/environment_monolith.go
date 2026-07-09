@@ -81,6 +81,16 @@ func NewEnvironment() (in *Cfg, err error) {
 	// END: Read Config toml //
 	/////////////////////////////
 
+	// local selects the no-JD path (app_config_source = "local"): no Job Distributor is started, the
+	// committee verifiers run in bootstrap local mode (their app config is delivered as a mounted file
+	// after contracts are deployed), and their signer addresses are read from the bootstrap info server
+	// instead of JD. Executors are not yet supported without JD and are skipped (CCIP-12198 follow-up).
+	local := in.IsLocal()
+	if local && len(in.Executor) > 0 {
+		L.Warn().Int("executors", len(in.Executor)).
+			Msg("app_config_source=local: executors require JD and are skipped in local mode (CCIP-12198 follow-up)")
+	}
+
 	// Start fake data provider. Used for USDC verifier.
 	fakeOut, err := services.NewFake(in.Fake)
 	if err != nil {
@@ -222,14 +232,20 @@ func NewEnvironment() (in *Cfg, err error) {
 	}
 	in.ClientLookup = clientLookup
 
-	jdInfra, err := jobs.StartJDInfrastructure(ctx, jobs.JDInfrastructureConfig{
-		JDInput:  in.JD,
-		NodeSets: in.NodeSets,
-	})
-	if err != nil {
-		L.Error().Msg("Unable to start JD infrastructure." +
-			"Make sure the container has been built with 'just build-jd-docker'.")
-		return nil, fmt.Errorf("failed to start JD infrastructure: %w", err)
+	// In local (no-JD) mode the Job Distributor is not started at all: jdInfra stays nil and every
+	// JD-dependent step below is guarded. This is the whole point of app_config_source=local — running
+	// without the JD image.
+	var jdInfra *jobs.JDInfrastructure
+	if !local {
+		jdInfra, err = jobs.StartJDInfrastructure(ctx, jobs.JDInfrastructureConfig{
+			JDInput:  in.JD,
+			NodeSets: in.NodeSets,
+		})
+		if err != nil {
+			L.Error().Msg("Unable to start JD infrastructure." +
+				"Make sure the container has been built with 'just build-jd-docker'.")
+			return nil, fmt.Errorf("failed to start JD infrastructure: %w", err)
+		}
 	}
 	in.JDInfra = jdInfra
 
@@ -300,7 +316,11 @@ func NewEnvironment() (in *Cfg, err error) {
 	}
 	L.Info().Any("Selectors", selectors).Msg("Deploying for chain selectors")
 
-	topology := ccdeploy.BuildEnvironmentTopology(in.EnvironmentTopology, in.Verifier, e)
+	// In local mode there is no JD to read verifier signer addresses from, so force signer enrichment
+	// from the verifiers' bootstrap keys for every family (the verifiers were launched above, so their
+	// Out.BootstrapKeys are populated). This feeds the on-chain committee signature config and the
+	// aggregator committee config, which both run before the verifier job specs are generated.
+	topology := ccdeploy.BuildEnvironmentTopology(in.EnvironmentTopology, in.Verifier, e, local)
 	if topology == nil {
 		return nil, fmt.Errorf("failed to build environment topology")
 	}
@@ -632,42 +652,12 @@ func NewEnvironment() (in *Cfg, err error) {
 	// START: Launch executors //
 	/////////////////////////////
 
-	// Route the central monitoring config into each executor's bootstrap input so it ends up
-	// in the generated bootstrap config. Defaults were applied earlier, so Bootstrap is
-	// non-nil; launch happens immediately below. Each executor gets its own copy so a future
-	// per-service override can't alias others.
-	monitoring := topology.Monitoring
-	for _, exec := range in.Executor {
-		if exec == nil {
-			continue
-		}
-		if exec.Bootstrap == nil {
-			exec.Bootstrap = &services.BootstrapInput{}
-		}
-		m := monitoring
-		exec.Bootstrap.Monitoring = &m
-	}
-
-	_, err = launchExecutors(in.Executor, blockchainOutputs, jdInfra)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create executors: %w", err)
-	}
-
-	if err := fundExecutorTransmitters(ctx, in.Executor, in.Blockchains, impls); err != nil {
-		return nil, fmt.Errorf("failed to fund executor transmitters: %w", err)
-	}
-
-	if err := registerExecutorsWithJD(ctx, in.Executor, jdInfra); err != nil {
-		return nil, err
-	}
-
-	executorJobSpecs, err := generateExecutorJobSpecs(e, in, topology, ds)
-	if err != nil {
-		return nil, err
-	}
-
-	if jdInfra != nil && jdInfra.OffchainClient != nil {
-		if err := proposeJobsToExecutors(ctx, in.Executor, executorJobSpecs, blockchainOutputs, jdInfra.OffchainClient); err != nil {
+	// Executors are launched only in JD mode. In local (no-JD) mode they are skipped: the executor
+	// still hard-requires a Job Distributor for registration and job delivery, so no-JD executor
+	// support is a separate follow-up (CCIP-12198). The verifier path above is fully functional
+	// without it — messages are verified and written to the aggregator.
+	if !local {
+		if err := launchAndConfigureExecutors(ctx, in, e, topology, blockchainOutputs, impls, ds, jdInfra); err != nil {
 			return nil, err
 		}
 	}
@@ -695,8 +685,14 @@ func NewEnvironment() (in *Cfg, err error) {
 		}
 	}
 
-	// Propose jobs to standalone verifiers via JD
-	if jdInfra != nil && jdInfra.OffchainClient != nil {
+	// Deliver the generated app config to each verifier. In JD mode this is a job proposal over WSRPC;
+	// in local mode it is a file written into the container's mounted config directory, which the
+	// waiting bootstrapper picks up and then starts the service.
+	if local {
+		if err := deliverLocalVerifierConfigs(in.Verifier, ownedJobSpecs, blockchainOutputs); err != nil {
+			return nil, err
+		}
+	} else if jdInfra != nil && jdInfra.OffchainClient != nil {
 		if err := proposeJobsToStandaloneVerifiers(ctx, in.Verifier, ownedJobSpecs, blockchainOutputs, jdInfra.OffchainClient); err != nil {
 			return nil, err
 		}

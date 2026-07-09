@@ -279,7 +279,7 @@ func runPhase3Core(
 
 	// Step 5: Enrich topology with verifier signer keys.
 	if len(verifiers) > 0 {
-		ccdeploy.EnrichTopologyWithVerifiers(inputs.topology, verifiers)
+		ccdeploy.EnrichTopologyWithVerifiers(inputs.topology, verifiers, false)
 	}
 
 	// Step 5b: Configure lanes. This requires verifiers to be registered in JD (done above)

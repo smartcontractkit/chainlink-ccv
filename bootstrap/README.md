@@ -79,6 +79,14 @@ Notes:
 - The bootstrap config path (`BOOTSTRAPPER_CONFIG_PATH`, default `/etc/config.toml`) and
   `local_app_config_path` are distinct files: the former holds the operator/infra config plus the
   mode selection, the latter holds the app's own config.
+- The app config may be delivered after the container starts. If `local_app_config_path` does not
+  exist yet at startup (and the service has a keystore + `[server]` info server), the bootstrapper
+  comes up serving its signing keys and health endpoint and waits for the file to appear, then starts
+  the service — mirroring how JD delivers the app config after the node connects. This lets an
+  orchestrator read the node's signing address (needed to configure on-chain contracts) before the
+  config, which depends on those contracts, is known. Mount `local_app_config_path` inside a mounted
+  **directory** and write the file atomically (temp + rename) so the waiting bootstrapper never reads
+  a partial file. When the file is already present at startup, the service starts immediately.
 
 # Configuration
 

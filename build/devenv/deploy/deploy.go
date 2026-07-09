@@ -647,10 +647,12 @@ var familiesSupportingJDKeySync = map[string]struct{}{
 // Only the first verifier for each NOP sets the signer address (subsequent verifiers with the
 // same NOPAlias are ignored to avoid overwriting with wrong keys due to round-robin wrap-around).
 //
-// Verifiers whose chain family is in familiesSupportingJDKeySync are skipped here: those
+// Verifiers whose chain family is in familiesSupportingJDKeySync are normally skipped here: those
 // bootstrappers push signing keys to JD via UpdateNode on connect, so the verifier changeset
-// retrieves the address from JD directly via ListNodeChainConfigs.
-func enrichEnvironmentTopology(cfg *ccvdeployment.EnvironmentTopology, verifiers []*committeeverifier.Input) {
+// retrieves the address from JD directly via ListNodeChainConfigs. When forceAllFamilies is true
+// (the no-JD environment, app_config_source = "local"), the skip is disabled so signer addresses are
+// injected from BootstrapKeys for every family — there is no JD to read them from.
+func enrichEnvironmentTopology(cfg *ccvdeployment.EnvironmentTopology, verifiers []*committeeverifier.Input, forceAllFamilies bool) {
 	if cfg.NOPTopology == nil {
 		return
 	}
@@ -665,7 +667,7 @@ func enrichEnvironmentTopology(cfg *ccvdeployment.EnvironmentTopology, verifiers
 		if !ok || nop.GetMode() == ccvshared.NOPModeCL {
 			continue
 		}
-		if _, supported := familiesSupportingJDKeySync[ver.ChainFamily]; supported {
+		if _, supported := familiesSupportingJDKeySync[ver.ChainFamily]; supported && !forceAllFamilies {
 			continue
 		}
 
@@ -687,19 +689,19 @@ func enrichEnvironmentTopology(cfg *ccvdeployment.EnvironmentTopology, verifiers
 // derived from verifier bootstrap keys. Call this after verifiers are launched and their
 // Out.BootstrapKeys are populated. The topology pointer is mutated directly so that other
 // Phase 4 components reading the same pointer see the updated signer addresses.
-func EnrichTopologyWithVerifiers(topology *ccvdeployment.EnvironmentTopology, verifiers []*committeeverifier.Input) {
-	enrichEnvironmentTopology(topology, verifiers)
+func EnrichTopologyWithVerifiers(topology *ccvdeployment.EnvironmentTopology, verifiers []*committeeverifier.Input, forceAllFamilies bool) {
+	enrichEnvironmentTopology(topology, verifiers, forceAllFamilies)
 }
 
 // BuildEnvironmentTopology creates a copy of the EnvironmentTopology, enriches it with signer
 // addresses and fee aggregator fallbacks, and returns it. This is the single source of truth
 // used by both executor and verifier changesets.
-func BuildEnvironmentTopology(topology *ccvdeployment.EnvironmentTopology, verifiers []*committeeverifier.Input, e *deployment.Environment) *ccvdeployment.EnvironmentTopology {
+func BuildEnvironmentTopology(topology *ccvdeployment.EnvironmentTopology, verifiers []*committeeverifier.Input, e *deployment.Environment, forceAllSignerFamilies bool) *ccvdeployment.EnvironmentTopology {
 	if topology == nil {
 		return nil
 	}
 	envCfg := *topology
-	enrichEnvironmentTopology(&envCfg, verifiers)
+	enrichEnvironmentTopology(&envCfg, verifiers, forceAllSignerFamilies)
 
 	if envCfg.NOPTopology == nil {
 		return &envCfg
