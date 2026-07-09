@@ -8,9 +8,10 @@
 ##
 ##   ccv up env-local-config.toml
 ##
-## Scope: this covers the committee verifier end-to-end (verify + write to the aggregator). Executors
-## still require JD and are skipped in local mode (CCIP-12198 follow-up), so cross-chain message
-## execution on the destination is not yet driven here.
+## Scope: full send -> verify -> execute with no JD. The committee verifier verifies and writes to the
+## aggregator; the executor polls the indexer and executes on the destination chain. Token-transfer
+## verification (CCTP/Lombard) is not wired here: there is no [[token_verifier]] service, so token
+## transfer subtests that require it are skipped.
 app_config_source = "local"
 
 cl_nodes_funding_eth = 50
@@ -45,6 +46,11 @@ alias = "default-executor-1"
 name = "default-executor-1"
 mode = "standalone"
 
+[[environment_topology.nop_topology.nops]]
+alias = "custom-executor-1"
+name = "custom-executor-1"
+mode = "standalone"
+
 [environment_topology.nop_topology.committees.default]
 qualifier = "default"
 verifier_version = "2.0.0"
@@ -68,6 +74,14 @@ execution_interval = 15_000_000_000
 
 [environment_topology.executor_pools.default.chain_configs."12922642891491394802"]
 nop_aliases = ["default-executor-1"]
+execution_interval = 15_000_000_000
+
+[environment_topology.executor_pools.custom.chain_configs."3379446385462418246"]
+nop_aliases = ["custom-executor-1"]
+execution_interval = 15_000_000_000
+
+[environment_topology.executor_pools.custom.chain_configs."12922642891491394802"]
+nop_aliases = ["custom-executor-1"]
 execution_interval = 15_000_000_000
 
 [cldf]
@@ -122,6 +136,19 @@ execution_interval = 15_000_000_000
   [executor.db]
     image = "postgres:16-alpine"
     name = "default-executor-1-db"
+
+## Second executor with the "custom" qualifier, matching env.toml. Lets messages that route to a
+## non-default executor (e.g. the custom-executor smoke case) be executed with no JD.
+[[executor]]
+  image = "executor:latest"
+  source_code_path = "../executor"
+  root_path = "../../"
+  container_name = "custom-executor-1"
+  nop_alias = "custom-executor-1"
+  executor_qualifier = "custom"
+  [executor.db]
+    image = "postgres:16-alpine"
+    name = "custom-executor-1-db"
 
 [[indexer]]
   image = "indexer:latest"
