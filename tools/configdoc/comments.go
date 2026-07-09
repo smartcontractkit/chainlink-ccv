@@ -33,7 +33,7 @@ func LoadComments(pkgs map[string]string) (*CommentLookup, error) {
 		}
 	}
 	if r.CommentMap == nil {
-		r.CommentMap = map[string]string{}
+		r.CommentMap = make(map[string]string)
 	}
 	return &CommentLookup{comments: r.CommentMap, dirs: pkgs}, nil
 }

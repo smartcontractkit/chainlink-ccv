@@ -46,7 +46,7 @@ func NewGenerator(dir string) (*Generator, error) {
 		return nil, err
 	}
 	for {
-		if data, err := os.ReadFile(filepath.Join(abs, "go.mod")); err == nil {
+		if data, err := os.ReadFile(filepath.Join(abs, "go.mod")); err == nil { //nolint:gosec // G304: path is the ancestor-walked module root, not user input
 			modPath, err := modulePath(data)
 			if err != nil {
 				return nil, fmt.Errorf("parsing %s/go.mod: %w", abs, err)
@@ -93,7 +93,7 @@ func (g *Generator) Write(targets []Target, outDir string) ([]string, error) {
 			return written, err
 		}
 		path := filepath.Join(outDir, filepath.FromSlash(t.Out))
-		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 			return written, err
 		}
 		if err := os.WriteFile(path, []byte(content), 0o644); err != nil { //nolint:gosec // G306: generated docs are not secret
@@ -116,7 +116,7 @@ func (g *Generator) Check(targets []Target, outDir string) ([]Stale, error) {
 			return nil, err
 		}
 		path := filepath.Join(outDir, filepath.FromSlash(t.Out))
-		got, err := os.ReadFile(path)
+		got, err := os.ReadFile(path) //nolint:gosec // G304: path is built from the trusted target list + outDir, not user input
 		if err != nil {
 			if errors.Is(err, fs.ErrNotExist) {
 				stale = append(stale, Stale{Target: t, Path: path, Want: want, Missing: true})
@@ -170,7 +170,7 @@ func (g *Generator) header(t Target) string {
 // packageDirs maps each package contributing a field on inst to its source
 // directory, so LoadComments indexes exactly the needed packages.
 func (g *Generator) packageDirs(inst any) map[string]string {
-	dirs := map[string]string{}
+	dirs := make(map[string]string)
 	for pkg := range collectPackages(reflect.TypeOf(inst)) {
 		rel := strings.TrimPrefix(strings.TrimPrefix(pkg, g.ModulePath), "/")
 		dirs[pkg] = filepath.Join(g.ModuleRoot, filepath.FromSlash(rel))
@@ -182,8 +182,8 @@ func (g *Generator) packageDirs(inst any) map[string]string {
 // reachable through the fields of t (following embeds, nested structs, and
 // struct-valued maps/slices).
 func collectPackages(t reflect.Type) map[string]bool {
-	out := map[string]bool{}
-	visited := map[reflect.Type]bool{}
+	out := make(map[string]bool)
+	visited := make(map[reflect.Type]bool)
 	var walk func(reflect.Type)
 	walk = func(t reflect.Type) {
 		t = deref(t)

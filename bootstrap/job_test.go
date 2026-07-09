@@ -67,7 +67,7 @@ func TestJobSpec_GetGenericConfig(t *testing.T) {
 		require.NoError(t, err)
 		assert.Equal(t, "0xOnRamp", gcfg.OnRampAddresses["3379446385462418246"])
 		assert.Equal(t, "0xRMN", gcfg.RMNRemoteAddresses["3379446385462418246"])
-		assert.Contains(t, gcfg.ChainConfig, "3379446385462418246")
+		assert.Contains(t, gcfg.ChainConfig, "3379446385462418246") //nolint:staticcheck // SA1019: test exercises the deprecated blockchain_infos path
 	})
 
 	t.Run("ignores app-specific keys not in GenericConfig", func(t *testing.T) {
@@ -89,7 +89,7 @@ func TestJobSpec_GetGenericConfig(t *testing.T) {
 		js := JobSpec{AppConfig: ``}
 		gcfg, err := js.GetGenericConfig()
 		require.NoError(t, err)
-		assert.IsType(t, chainaccess.GenericConfig{}, gcfg)
+		assert.IsType(t, chainaccess.GenericConfig{}, gcfg) //nolint:staticcheck // SA1019: test asserts on the deprecated GenericConfig type
 	})
 }
 

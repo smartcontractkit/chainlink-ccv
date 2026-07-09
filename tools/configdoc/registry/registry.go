@@ -90,7 +90,7 @@ func aggregatorConfigInstance() any {
 				Enabled:  true,
 				Groups:   []string{"default"},
 				APIKeyPairs: []*aggregator.APIKeyPairEnv{
-					{APIKeyEnvVar: "AGGREGATOR_CLIENT1_API_KEY", SecretEnvVar: "AGGREGATOR_CLIENT1_SECRET_KEY"},
+					{APIKeyEnvVar: "AGGREGATOR_CLIENT1_API_KEY", SecretEnvVar: "AGGREGATOR_CLIENT1_SECRET_KEY"}, //nolint:gosec // G101: env var names for illustration, not credentials
 				},
 			},
 		},
@@ -103,7 +103,7 @@ func aggregatorConfigInstance() any {
 // obviously-fake placeholder credentials. No defaulting: every field is an example.
 func aggregatorSecretsInstance() any {
 	return &aggsecrets.File{
-		Storage: aggsecrets.StorageSecrets{URL: "postgres://user:password@localhost:5432/aggregator?sslmode=disable"},
+		Storage: aggsecrets.StorageSecrets{URL: "postgres://user:password@localhost:5432/aggregator?sslmode=disable"}, //nolint:gosec // G101: placeholder example value in generated docs, not a real credential
 		Redis:   aggsecrets.RedisSecrets{Password: "your-redis-password"},
 		Clients: []aggsecrets.ClientSecret{
 			{ClientID: "client-1", APIKey: "<api-key>", SecretKey: "<secret-key>"},
@@ -160,7 +160,7 @@ func tokenVerifierConfigInstance() any {
 // both verifier binaries) with obviously-fake placeholder credentials.
 func verifierSecretsInstance() any {
 	return &vsecrets.SecretsFile{
-		DB: vsecrets.DBSecrets{URL: "postgres://user:password@localhost:5432/verifier?sslmode=disable"},
+		DB: vsecrets.DBSecrets{URL: "postgres://user:password@localhost:5432/verifier?sslmode=disable"}, //nolint:gosec // G101: placeholder example value in generated docs, not a real credential
 		Aggregators: []vsecrets.AggregatorSecret{
 			{SecretName: "aggregator_1", APIKey: "<api-key>", SecretKey: "<secret-key>"},
 		},
@@ -237,7 +237,7 @@ func indexerSecretsInstance() any {
 		},
 		Storage: indexer.StorageSecrets{
 			Single: indexer.SingleStorageSecrets{
-				Postgres: indexer.PostgresSecrets{URI: "postgres://user:password@localhost:5432/indexer?sslmode=disable"},
+				Postgres: indexer.PostgresSecrets{URI: "postgres://user:password@localhost:5432/indexer?sslmode=disable"}, //nolint:gosec // G101: placeholder example value in generated docs, not a real credential
 			},
 		},
 	}
@@ -259,7 +259,7 @@ func bootstrapConfigInstance() any {
 		Chains: []bootstrap.ChainRegistration{
 			{Type: "EVM", ID: "1"},
 		},
-		Monitoring: monitoringConfigInstance().(*monitoring.Config),
+		Monitoring: monitoringConfig(),
 	}
 }
 
@@ -269,16 +269,20 @@ func bootstrapConfigInstance() any {
 func bootstrapSecretsInstance() any {
 	return &bootstrap.Secrets{
 		Keystore: bootstrap.KeystoreConfig{Password: "your-keystore-password"},
-		DB:       bootstrap.DBConfig{URL: "postgres://user:password@localhost:5432/bootstrapper?sslmode=disable"},
+		DB:       bootstrap.DBConfig{URL: "postgres://user:password@localhost:5432/bootstrapper?sslmode=disable"}, //nolint:gosec // G101: placeholder example value in generated docs, not a real credential
 	}
 }
 
-// monitoringConfigInstance builds the documented shared monitoring config
+// monitoringConfigInstance is the Target adapter for monitoringConfig.
+func monitoringConfigInstance() any { return monitoringConfig() }
+
+// monitoringConfig builds the documented shared monitoring config
 // (common/monitoring.Config), the schema of the [Monitoring] section carried by
 // the bootstrap config and the deprecated inlined app-config sections. It has no
 // defaulting routine, so every value is illustrative. TelemetryAttributes carries
 // one entry so its map shape is documented (an empty map is omitted by the encoder).
-func monitoringConfigInstance() any {
+// It returns the concrete type so the bootstrap config builder can embed it directly.
+func monitoringConfig() *monitoring.Config {
 	return &monitoring.Config{
 		LogLevel: "info",
 		Pyroscope: monitoring.PyroscopeConfig{

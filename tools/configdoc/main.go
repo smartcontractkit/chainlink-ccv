@@ -46,7 +46,7 @@ func Main(targets []Target) {
 			fmt.Fprintln(os.Stderr, "run: just config-docs")
 			os.Exit(1)
 		}
-		fmt.Println("all config docs up to date")
+		_, _ = fmt.Fprintln(os.Stdout, "all config docs up to date")
 		return
 	}
 
@@ -55,7 +55,7 @@ func Main(targets []Target) {
 		fatal(err)
 	}
 	for _, p := range written {
-		fmt.Println("wrote", p)
+		_, _ = fmt.Fprintln(os.Stdout, "wrote", p)
 	}
 }
 
