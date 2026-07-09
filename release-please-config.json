@@ -16,7 +16,9 @@
         "changelog",
         "docs",
         ".github",
-        "tools"
+        "tools/bin",
+        "tools/lib",
+        "tools/migrate_aggregator"
       ]
     },
     "deployment": {
