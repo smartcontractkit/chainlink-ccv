@@ -36,14 +36,11 @@ const (
 
 	DefaultExecutorDBImage = "postgres:16-alpine"
 
-	// localAppConfigContainerDir is the directory bind-mounted into the container in local mode, and
-	// localAppConfigContainerPath is the app-config file within it (written into the bootstrap config as
-	// local_app_config_path). A directory is mounted rather than a single file so devenv can deliver the
-	// config AFTER the container starts (the bootstrapper waits for the file to appear): a file bind
-	// mount pins one host inode, so a later atomic rewrite would not be visible, whereas a new file
-	// appearing in a mounted directory is.
-	localAppConfigContainerDir  = "/etc/executor-app"
-	localAppConfigContainerPath = localAppConfigContainerDir + "/app.toml"
+	// localAppConfigContainerPath is where the local-mode app config lives inside the container (written
+	// into the bootstrap config as local_app_config_path). It sits directly under /etc (which always
+	// exists) and is delivered by copying the file into the running container (see DeliverLocalAppConfig)
+	// rather than via a bind mount, so post-startup delivery works identically on every Docker host.
+	localAppConfigContainerPath = "/etc/executor-app.toml"
 )
 
 // ReqModifier modifies an executor testcontainers.ContainerRequest.
@@ -82,10 +79,10 @@ type Input struct {
 	// DB is the database configuration.
 	DB *DBInput `toml:"db"`
 
-	// LocalAppConfig is the plain app-config TOML mounted into the container in local mode
-	// (services.Local). Optional: when empty, the container starts serving keys and waits for the
-	// config to be delivered later via Output.LocalAppConfigHostPath (the no-JD devenv path, where the
-	// executor config is generated after contracts are deployed). When set, it is written at launch.
+	// LocalAppConfig is the plain app-config TOML delivered to the container in local mode
+	// (services.Local). Optional: when empty, the container starts serving keys and the config is
+	// delivered later via DeliverLocalAppConfig (the no-JD devenv path, where the executor config is
+	// generated after contracts are deployed). When set, it is copied in at launch.
 	LocalAppConfig string `toml:"-"`
 }
 
@@ -108,10 +105,9 @@ type Output struct {
 	// JDNodeID is set after the bootstrap is registered with JD.
 	JDNodeID string `toml:"jd_node_id"`
 
-	// LocalAppConfigHostPath is the host path of the app-config file bind-mounted into the container in
-	// local mode. When the config is delivered after launch (no-JD path), the caller writes this path
-	// via DeliverLocalAppConfig and the waiting bootstrapper picks it up. Empty outside local mode.
-	LocalAppConfigHostPath string `toml:"local_app_config_host_path"`
+	// Container is the running executor container, retained in local mode so the app config can be
+	// copied in after startup (DeliverLocalAppConfig). Not serialized. Nil outside local mode.
+	Container testcontainers.Container `toml:"-"`
 }
 
 // configWithBlockchainInfos is the executor config plus the blockchain_infos section (RPC URLs etc.).
@@ -159,14 +155,14 @@ func RebuildExecutorJobSpecWithBlockchainInfos(spec bootstrap.JobSpec, blockchai
 	return string(outerSpecBytes), nil
 }
 
-// DeliverLocalAppConfig writes the app-config TOML to the host path bind-mounted into a local-mode
-// executor container, so the waiting bootstrapper starts the service. Used by the no-JD devenv path,
-// which generates the executor config after contracts are deployed.
+// DeliverLocalAppConfig copies the app-config TOML into a running local-mode executor container at
+// local_app_config_path, so the waiting bootstrapper starts the service. Used by the no-JD devenv
+// path, which generates the executor config after contracts are deployed.
 func DeliverLocalAppConfig(out *Output, appConfigTOML string) error {
-	if out == nil {
-		return fmt.Errorf("executor output is nil; was it launched in local mode?")
+	if out == nil || out.Container == nil {
+		return fmt.Errorf("executor output has no running container; was it launched in local mode?")
 	}
-	return services.WriteLocalAppConfigFile(out.LocalAppConfigHostPath, appConfigTOML)
+	return services.CopyLocalAppConfigToContainer(context.Background(), out.Container, localAppConfigContainerPath, appConfigTOML)
 }
 
 func ApplyDefaults(in *Input) {
@@ -253,23 +249,9 @@ func launchExecutor(ctx context.Context, in *Input, outputs []*blockchain.Output
 		bs.LocalAppConfigPath = localAppConfigContainerPath
 	}
 
-	// In local mode, the bootstrapper reads the app config from a mounted directory (see
-	// localAppConfigContainerDir); the config may be written now (in.LocalAppConfig) or delivered later
-	// via Output.LocalAppConfigHostPath.
-	var localAppConfigHostDir, localAppConfigHostFile string
-	if local {
-		confDir := util.CCVConfigDir()
-		localAppConfigHostDir = filepath.Join(confDir, fmt.Sprintf("executor-%s-appdir", in.ContainerName))
-		if err := os.MkdirAll(localAppConfigHostDir, 0o755); err != nil {
-			return nil, fmt.Errorf("failed to create local app config dir: %w", err)
-		}
-		localAppConfigHostFile = filepath.Join(localAppConfigHostDir, "app.toml")
-		if in.LocalAppConfig != "" {
-			if err := os.WriteFile(localAppConfigHostFile, []byte(in.LocalAppConfig), 0o644); err != nil {
-				return nil, fmt.Errorf("failed to write local app config to file: %w", err)
-			}
-		}
-	}
+	// In local mode the bootstrapper reads the app config from a file at local_app_config_path, copied
+	// into the running container (below / DeliverLocalAppConfig) rather than bind-mounted, so it can
+	// arrive at launch (in.LocalAppConfig set) or later (no-JD path, after contracts are deployed).
 
 	bootstrapConfig, err := services.GenerateBootstrapConfig(*bs)
 	if err != nil {
@@ -291,7 +273,7 @@ func launchExecutor(ctx context.Context, in *Input, outputs []*blockchain.Output
 		return nil, fmt.Errorf("failed to write bootstrap secrets to file: %w", err)
 	}
 
-	req, err := baseImageRequest(in, bootstrapConfigFilePath, bootstrapSecretsFilePath, localAppConfigHostDir)
+	req, err := baseImageRequest(in, bootstrapConfigFilePath, bootstrapSecretsFilePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create base image request: %w", err)
 	}
@@ -320,6 +302,15 @@ func launchExecutor(ctx context.Context, in *Input, outputs []*blockchain.Output
 	if err != nil {
 		return nil, fmt.Errorf("failed to start container: %w", err)
 	}
+
+	// Local mode with a config known at launch: copy it in now so the waiting bootstrapper starts the
+	// service. When no config is provided (no-JD path), it is delivered later via DeliverLocalAppConfig.
+	if local && in.LocalAppConfig != "" {
+		if err := services.CopyLocalAppConfigToContainer(ctx, c, localAppConfigContainerPath, in.LocalAppConfig); err != nil {
+			return nil, fmt.Errorf("failed to deliver local app config: %w", err)
+		}
+	}
+
 	host, err := c.Host(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get container host: %w", err)
@@ -366,8 +357,10 @@ func launchExecutor(ctx context.Context, in *Input, outputs []*blockchain.Output
 		BootstrapDBURL:  fmt.Sprintf("http://%s:%s", host, bootstrapMapped.Port()),
 		BootstrapDBConnectionString: fmt.Sprintf("postgresql://%s:%s@localhost:%s/%s?sslmode=disable",
 			in.ContainerName, in.ContainerName, dbMapped.Port(), services.DefaultBootstrapDBName),
-		BootstrapKeys:          bootstrapKeys,
-		LocalAppConfigHostPath: localAppConfigHostFile,
+		BootstrapKeys: bootstrapKeys,
+	}
+	if local {
+		out.Container = c
 	}
 
 	return out, nil
@@ -404,7 +397,7 @@ func startContainer(ctx context.Context, req testcontainers.ContainerRequest) (t
 	return nil, fmt.Errorf("failed to start container after %d attempts: %w", maxAttempts, lastErr)
 }
 
-func baseImageRequest(in *Input, bootstrapConfigFilePath, bootstrapSecretsFilePath, localAppConfigHostDir string) (testcontainers.ContainerRequest, error) {
+func baseImageRequest(in *Input, bootstrapConfigFilePath, bootstrapSecretsFilePath string) (testcontainers.ContainerRequest, error) {
 	req := testcontainers.ContainerRequest{
 		Image:    in.Image,
 		Name:     in.ContainerName,
@@ -447,15 +440,8 @@ func baseImageRequest(in *Input, bootstrapConfigFilePath, bootstrapSecretsFilePa
 		bootstrapSecretsFilePath,
 		bootstrap.DefaultSecretsPath,
 	))
-	// Local mode: mount the app-config directory so the bootstrapper reads local_app_config_path
-	// (localAppConfigContainerDir/app.toml). A directory (not a file) is mounted so a config delivered
-	// after startup — the no-JD path — becomes visible in the container.
-	if localAppConfigHostDir != "" {
-		req.Mounts = append(req.Mounts, testcontainers.BindMount(
-			localAppConfigHostDir,
-			localAppConfigContainerDir,
-		))
-	}
+	// Note: in local mode the app config is delivered by copying it into the running container
+	// (see DeliverLocalAppConfig), not via a bind mount.
 
 	if in.SourceCodePath != "" {
 		req.Mounts = append(req.Mounts, services.GoSourcePathMounts(in.RootPath, services.AppPathInsideContainer)...)

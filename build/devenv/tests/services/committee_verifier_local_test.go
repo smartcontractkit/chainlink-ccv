@@ -274,7 +274,7 @@ func TestServiceCommitteeVerifierLocalModeDeferredConfig(t *testing.T) {
 	// Keys are exposed even before the config arrives — this is what lets the environment read the
 	// signer address before contracts are configured.
 	require.NotEmpty(t, out.BootstrapKeys.ECDSAAddress, "signing keystore must be initialized while waiting for config")
-	require.NotEmpty(t, out.LocalAppConfigHostPath, "local mode must expose the app-config delivery path")
+	require.NotNil(t, out.Container, "local mode must retain the container handle for app-config delivery")
 
 	healthClient := &http.Client{Timeout: 3 * time.Second}
 	verifierHealthy := func() bool {

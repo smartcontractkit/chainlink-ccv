@@ -1579,7 +1579,6 @@ func deliverLocalExecutorConfigs(
 		}
 		L.Info().
 			Str("executor", exec.ContainerName).
-			Str("path", exec.Out.LocalAppConfigHostPath).
 			Msg("Delivered app config to local-mode executor")
 	}
 	return nil
@@ -1628,7 +1627,6 @@ func deliverLocalVerifierConfigs(
 		}
 		L.Info().
 			Str("verifier", ver.NOPAlias).
-			Str("path", ver.Out.LocalAppConfigHostPath).
 			Msg("Delivered app config to local-mode verifier")
 	}
 	return nil

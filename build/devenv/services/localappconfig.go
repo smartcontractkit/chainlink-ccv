@@ -1,38 +1,26 @@
 package services
 
 import (
+	"context"
 	"fmt"
-	"os"
-	"path/filepath"
+
+	"github.com/testcontainers/testcontainers-go"
 )
 
-// WriteLocalAppConfigFile atomically writes app-config TOML to hostPath (bind-mounted into a service
-// container running in bootstrap local mode). It writes to a temp file in the same directory and
-// renames it into place so a bootstrapper waiting on the file never observes a partial write. Used by
-// the no-JD devenv path, which delivers each service's app config as a file after contracts are
-// deployed, rather than via a JD job proposal.
-func WriteLocalAppConfigFile(hostPath, appConfigTOML string) error {
-	if hostPath == "" {
-		return fmt.Errorf("no local app config host path; was the service launched in local mode?")
+// CopyLocalAppConfigToContainer copies app-config TOML into a running container at containerPath, for
+// services running in bootstrap local mode. It is used by the no-JD devenv path, which delivers each
+// service's app config after contracts are deployed rather than via a JD job proposal. Copying into
+// the container (docker cp) works identically on every Docker host, unlike host-side writes into a
+// bind-mounted directory, which do not reliably propagate into an already-running container.
+//
+// containerPath must sit under a directory that already exists in the image (e.g. directly under
+// /etc); CopyToContainer does not create missing parent directories.
+func CopyLocalAppConfigToContainer(ctx context.Context, container testcontainers.Container, containerPath, appConfigTOML string) error {
+	if container == nil {
+		return fmt.Errorf("no running container to deliver local app config to")
 	}
-	dir := filepath.Dir(hostPath)
-	tmp, err := os.CreateTemp(dir, ".app-*.toml")
-	if err != nil {
-		return fmt.Errorf("failed to create temp app config file: %w", err)
-	}
-	tmpName := tmp.Name()
-	if _, err := tmp.WriteString(appConfigTOML); err != nil {
-		_ = tmp.Close()
-		_ = os.Remove(tmpName)
-		return fmt.Errorf("failed to write temp app config: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		_ = os.Remove(tmpName)
-		return fmt.Errorf("failed to close temp app config: %w", err)
-	}
-	if err := os.Rename(tmpName, hostPath); err != nil {
-		_ = os.Remove(tmpName)
-		return fmt.Errorf("failed to move app config into place: %w", err)
+	if err := container.CopyToContainer(ctx, []byte(appConfigTOML), containerPath, 0o644); err != nil {
+		return fmt.Errorf("failed to copy local app config into container at %s: %w", containerPath, err)
 	}
 	return nil
 }
