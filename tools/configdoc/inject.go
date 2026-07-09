@@ -69,15 +69,21 @@ func InjectComments(tomlText string, rootType reflect.Type, comments *CommentLoo
 	return b.String(), errors.Join(errs...)
 }
 
-// resolveTable resolves an encoded table path (e.g. "chain_configuration.1")
-// against the root struct type. It returns the doc comment of the deepest static
-// field in the path, whether that last segment was a static field (vs a dynamic
-// map key / array index), and the struct type whose fields the table's keys
-// belong to.
+// resolveTable resolves an encoded table path against the root struct type. It
+// returns the doc comment of the deepest static field in the path, whether that
+// last segment was a static field (vs a dynamic map key), and the struct type
+// whose fields the table's keys belong to.
+//
+// Field segments and map-key segments differ: a struct field that is a slice of
+// structs (`[[clients]]`) or a nested array (`[[clients.apiKeyPair]]`) contributes
+// only its field name to the path — TOML arrays-of-tables carry no index segment
+// — whereas a map (`[committee.quorumConfigs.1]`) contributes a dynamic key
+// segment. So after matching a field or consuming a map key we descend through
+// pointers and slice/array elements (but not maps) to the container the next
+// segment indexes.
 func resolveTable(root reflect.Type, segs []string, comments *CommentLookup) (comment string, lastStatic bool, elem reflect.Type, err error) {
-	ctx := root
+	ctx := descend(root)
 	for _, seg := range segs {
-		ctx = deref(ctx)
 		switch ctx.Kind() {
 		case reflect.Struct:
 			f, declType, ok := fieldByTOMLKey(ctx, seg)
@@ -86,18 +92,29 @@ func resolveTable(root reflect.Type, segs []string, comments *CommentLookup) (co
 			}
 			comment = comments.Field(declType.PkgPath(), declType.Name(), f.Name)
 			lastStatic = true
-			ctx = f.Type
+			ctx = descend(f.Type)
 		case reflect.Map:
 			lastStatic = false // dynamic map key
-			ctx = ctx.Elem()
-		case reflect.Slice, reflect.Array:
-			lastStatic = false // array-of-tables index
-			ctx = ctx.Elem()
+			ctx = descend(ctx.Elem())
 		default:
 			return "", false, nil, fmt.Errorf("cannot descend into %s at %q", ctx.Kind(), seg)
 		}
 	}
-	return comment, lastStatic, deref(ctx), nil
+	return comment, lastStatic, ctx, nil
+}
+
+// descend unwraps pointers and slice/array element types to reach the struct or
+// map a path segment indexes into. It deliberately does not unwrap maps: a map
+// contributes a dynamic key segment that resolveTable consumes explicitly.
+func descend(t reflect.Type) reflect.Type {
+	for {
+		switch t.Kind() {
+		case reflect.Pointer, reflect.Slice, reflect.Array:
+			t = t.Elem()
+		default:
+			return t
+		}
+	}
 }
 
 // fieldByTOMLKey finds the field of struct type t (including promoted fields from

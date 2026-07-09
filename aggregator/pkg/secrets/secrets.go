@@ -48,12 +48,14 @@ type File struct {
 // StorageSecrets holds the aggregator's application storage DB URL (formerly
 // AGGREGATOR_STORAGE_CONNECTION_URL).
 type StorageSecrets struct {
+	// URL is the application storage database connection URL.
 	URL string `toml:"url"`
 }
 
 // RedisSecrets holds the redis password used by the rate limiter (formerly AGGREGATOR_REDIS_PASSWORD).
 // The non-secret redis configuration (address, db) are deliberately not here.
 type RedisSecrets struct {
+	// Password is the redis password used by the rate limiter.
 	Password string `toml:"password"`
 }
 
@@ -61,8 +63,11 @@ type RedisSecrets struct {
 // A client_id may appear more than once to declare multiple pairs (e.g. during key rotation); the
 // aggregator accepts any of a client's pairs.
 type ClientSecret struct {
-	ClientID  string `toml:"client_id"`
-	APIKey    string `toml:"api_key"`
+	// ClientID identifies the client these credentials belong to; joins to clients.clientId in the config.
+	ClientID string `toml:"client_id"`
+	// APIKey is the client's inbound HMAC API key.
+	APIKey string `toml:"api_key"`
+	// SecretKey is the client's inbound HMAC secret key.
 	SecretKey string `toml:"secret_key"`
 }
 
