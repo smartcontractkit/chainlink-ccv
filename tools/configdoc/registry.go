@@ -5,7 +5,9 @@ import (
 
 	aggregator "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	aggsecrets "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/secrets"
+	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
 	"github.com/smartcontractkit/chainlink-ccv/common"
+	"github.com/smartcontractkit/chainlink-ccv/common/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 	indexer "github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
@@ -48,6 +50,9 @@ var Targets = []Target{
 	{Name: "verifier", Out: "verifier/secrets.documented.toml", Kind: KindSecrets, New: verifierSecretsInstance},
 	{Name: "indexer", Out: "indexer/config.documented.toml", Kind: KindConfig, New: indexerConfigInstance},
 	{Name: "indexer", Out: "indexer/secrets.documented.toml", Kind: KindSecrets, New: indexerSecretsInstance},
+	{Name: "bootstrap", Out: "bootstrap/config.documented.toml", Kind: KindConfig, New: bootstrapConfigInstance},
+	{Name: "bootstrap", Out: "bootstrap/secrets.documented.toml", Kind: KindSecrets, New: bootstrapSecretsInstance},
+	{Name: "monitoring", Out: "common/monitoring.documented.toml", Kind: KindConfig, New: monitoringConfigInstance},
 }
 
 // executorDocInstance builds a fully-populated, valid executor Configuration
@@ -251,6 +256,64 @@ func indexerSecretsInstance() any {
 			Single: indexer.SingleStorageSecrets{
 				Postgres: indexer.PostgresSecrets{URI: "postgres://user:password@localhost:5432/indexer?sslmode=disable"},
 			},
+		},
+	}
+}
+
+// bootstrapConfigInstance builds the documented bootstrap non-secret config
+// (bootstrap.NonSecretConfig, the half devenv marshals into config.toml). The
+// bootstrap config has no defaulting routine, so every value is illustrative. The
+// Monitoring section is populated (unlike the executor/committee verifier docs,
+// which leave it zero) because this is the operator-provided source of truth for
+// monitoring; it reuses monitoringConfigInstance so the two docs stay in lockstep.
+func bootstrapConfigInstance() any {
+	return &bootstrap.NonSecretConfig{
+		JD: bootstrap.JDConfig{
+			ServerWSRPCURL:     "ws://job-distributor:8080/ws",
+			ServerCSAPublicKey: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+		},
+		Server: bootstrap.ServerConfig{ListenPort: 9988},
+		Chains: []bootstrap.ChainRegistration{
+			{Type: "EVM", ID: "1"},
+		},
+		Monitoring: monitoringConfigInstance().(*monitoring.Config),
+	}
+}
+
+// bootstrapSecretsInstance builds the documented bootstrap secrets file
+// (bootstrap.Secrets, the half devenv marshals into secrets.toml, loaded via
+// BOOTSTRAPPER_SECRETS_PATH) with obviously-fake placeholder credentials.
+func bootstrapSecretsInstance() any {
+	return &bootstrap.Secrets{
+		Keystore: bootstrap.KeystoreConfig{Password: "your-keystore-password"},
+		DB:       bootstrap.DBConfig{URL: "postgres://user:password@localhost:5432/bootstrapper?sslmode=disable"},
+	}
+}
+
+// monitoringConfigInstance builds the documented shared monitoring config
+// (common/monitoring.Config), the schema of the [Monitoring] section carried by
+// the bootstrap config and the deprecated inlined app-config sections. It has no
+// defaulting routine, so every value is illustrative. TelemetryAttributes carries
+// one entry so its map shape is documented (an empty map is omitted by the encoder).
+func monitoringConfigInstance() any {
+	return &monitoring.Config{
+		LogLevel: "info",
+		Pyroscope: monitoring.PyroscopeConfig{
+			Enabled: false,
+			URL:     "http://pyroscope:4040",
+		},
+		Beholder: monitoring.BeholderConfig{
+			Enabled:                  false,
+			InsecureConnection:       true,
+			CACertFile:               "/etc/ssl/certs/otel-collector.pem",
+			OtelExporterGRPCEndpoint: "otel-collector:4317",
+			OtelExporterHTTPEndpoint: "otel-collector:4318",
+			LogStreamingEnabled:      false,
+			LogStreamingLevel:        "info",
+			MetricReaderInterval:     60,
+			TraceSampleRatio:         0.1,
+			TraceBatchTimeout:        5,
+			TelemetryAttributes:      map[string]string{"env": "production"},
 		},
 	}
 }
