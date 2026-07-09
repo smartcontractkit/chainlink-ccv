@@ -1,9 +1,13 @@
 package configdoc
 
 import (
+	"time"
+
 	aggregator "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	aggsecrets "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/secrets"
+	"github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/executor"
+	indexer "github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/commit"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token"
@@ -42,6 +46,8 @@ var Targets = []Target{
 	{Name: "committee verifier", Out: "verifier/committee/config.documented.toml", Kind: KindConfig, New: committeeVerifierConfigInstance},
 	{Name: "token verifier", Out: "verifier/token/config.documented.toml", Kind: KindConfig, New: tokenVerifierConfigInstance},
 	{Name: "verifier", Out: "verifier/secrets.documented.toml", Kind: KindSecrets, New: verifierSecretsInstance},
+	{Name: "indexer", Out: "indexer/config.documented.toml", Kind: KindConfig, New: indexerConfigInstance},
+	{Name: "indexer", Out: "indexer/secrets.documented.toml", Kind: KindSecrets, New: indexerSecretsInstance},
 }
 
 // executorDocInstance builds a fully-populated, valid executor Configuration
@@ -169,6 +175,82 @@ func verifierSecretsInstance() any {
 		DB: vsecrets.DBSecrets{URL: "postgres://user:password@localhost:5432/verifier?sslmode=disable"},
 		Aggregators: []vsecrets.AggregatorSecret{
 			{SecretName: "aggregator_1", APIKey: "<api-key>", SecretKey: "<secret-key>"},
+		},
+	}
+}
+
+// indexerConfigInstance builds a documented indexer config. The indexer has no
+// SetDefaults (defaults are applied inline during Validate), so this populates a
+// representative instance directly, including the documented postgres duration
+// defaults. Credential fields (APIKey/Secret/URI) are left empty; they are
+// documented in the secrets file and merged in at load time.
+func indexerConfigInstance() any {
+	return &indexer.Config{
+		LogLevel: "info",
+		Discoveries: []indexer.DiscoveryConfig{
+			{
+				AggregatorReaderConfig: indexer.AggregatorReaderConfig{Address: "aggregator-1:50051"},
+				Name:                   "aggregator-1",
+				PollInterval:           1000,
+				Timeout:                5000,
+				NtpServer:              "time.google.com",
+			},
+		},
+		Scheduler: indexer.SchedulerConfig{
+			TickerInterval:               100,
+			VerificationVisibilityWindow: 3600,
+			BaseDelay:                    1000,
+			MaxDelay:                     60000,
+		},
+		Pool: indexer.PoolConfig{
+			ConcurrentWorkers:  100,
+			WorkerTimeout:      30,
+			HydrationBatchSize: 100,
+		},
+		Verifiers: []indexer.VerifierConfig{
+			{
+				Type:                   indexer.ReaderTypeAggregator,
+				Name:                   "aggregator-1",
+				IssuerAddresses:        []string{"0x0000000000000000000000000000000000000001"},
+				BatchSize:              100,
+				MaxBatchWaitTime:       500,
+				AggregatorReaderConfig: indexer.AggregatorReaderConfig{Address: "aggregator-1:50051"},
+			},
+		},
+		Storage: indexer.StorageConfig{
+			Strategy: indexer.StorageStrategySingle,
+			Single: &indexer.SingleStorageConfig{
+				Type: indexer.StorageBackendTypePostgres,
+				Postgres: &indexer.PostgresConfig{
+					MaxOpenConnections: 25,
+					MaxIdleConnections: 5,
+					ConnMaxLifetime:    common.Duration(30 * time.Minute),
+					ConnMaxIdleTime:    common.Duration(5 * time.Minute),
+				},
+			},
+		},
+		API: indexer.APIConfig{
+			ListenPort:     8100,
+			RateLimit:      indexer.RateLimitConfig{Enabled: false},
+			TrustedProxies: []string{},
+		},
+	}
+}
+
+// indexerSecretsInstance builds the documented indexer secrets file. Secrets are
+// keyed by the string index of the corresponding config entry (e.g. "0").
+func indexerSecretsInstance() any {
+	return &indexer.SecretsConfig{
+		Discoveries: map[string]indexer.DiscoverySecrets{
+			"0": {APIKey: "<api-key>", Secret: "<secret>"},
+		},
+		Verifier: map[string]indexer.VerifierSecrets{
+			"0": {APIKey: "<api-key>", Secret: "<secret>"},
+		},
+		Storage: indexer.StorageSecrets{
+			Single: indexer.SingleStorageSecrets{
+				Postgres: indexer.PostgresSecrets{URI: "postgres://user:password@localhost:5432/indexer?sslmode=disable"},
+			},
 		},
 	}
 }
