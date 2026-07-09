@@ -68,7 +68,9 @@ type Configuration struct {
 	// ChainConfiguration is a map of chain selector to chain configuration.
 	// This is used to configure the chain-specific configuration for each chain such as addresses, executor pool, and execution interval.
 	ChainConfiguration map[string]ChainConfiguration `toml:"chain_configuration"`
-	WorkerCount        int                           `toml:"worker_count"`
+	// WorkerCount is the number of concurrent workers processing messages.
+	// Defaults to 100.
+	WorkerCount int `toml:"worker_count"`
 }
 
 // ChainConfiguration is all the configuration an executor needs to know about a specific chain.
