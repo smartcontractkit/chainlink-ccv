@@ -136,7 +136,7 @@ type NonSecretConfig struct {
 	// verifier, executor) prefer this value and fall back to their deprecated app-config Monitoring field
 	// only when it is nil. The token verifier is the exception: it loads no bootstrap config and keeps
 	// monitoring in its (already operator-provided) mounted app config.
-	Monitoring *monitoring.Config
+	Monitoring *monitoring.Config `toml:"Monitoring"`
 }
 
 // Secrets is the secret half of the bootstrap config: the credential-bearing sections. It is

@@ -35,7 +35,7 @@ var _ chainaccess.AccessorFactoryConstructor = CreateEVMAccessorFactory
 // It will take all config values it needs from all available config. Note that it would be
 // very unusual for a config to have more than one of Committee/Token/Executor configs.
 // Registry still decodes GenericConfig until local config is supported.
-func CreateEVMAccessorFactory(lggr logger.Logger, genericConfig chainaccess.GenericConfig) (chainaccess.AccessorFactory, error) {
+func CreateEVMAccessorFactory(lggr logger.Logger, genericConfig chainaccess.GenericConfig) (chainaccess.AccessorFactory, error) { //nolint:staticcheck // SA1019: registry still decodes the deprecated GenericConfig until local config is supported
 	// Convert generic chain config -> Infos[evm.Info]
 	evmInfos := make(chainaccess.Infos[Info])
 	// TODO: To support standalone mode, need to support local config, GenericConfig will be deprecated as JD job will not have rpc info.
@@ -53,7 +53,7 @@ func CreateEVMAccessorFactory(lggr logger.Logger, genericConfig chainaccess.Gene
 func CreateAccessorFactory(
 	ctx context.Context,
 	lggr logger.Logger,
-	generic chainaccess.GenericConfig,
+	generic chainaccess.GenericConfig, //nolint:staticcheck // SA1019: registry still decodes the deprecated GenericConfig until CCIP-11840
 	infos chainaccess.Infos[Info],
 ) (chainaccess.AccessorFactory, error) {
 	// Create the chain clients, head trackers, and collect primary RPC URLs.

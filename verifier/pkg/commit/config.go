@@ -146,6 +146,7 @@ func sanitizeEnvVarSegment(s string) string {
 }
 
 type Config struct {
+	// VerifierID is the unique identifier for this committee verifier instance.
 	VerifierID string `toml:"verifier_id"`
 	// AggregatorAddress configures a single aggregator. DEPRECATED in favor of Aggregators;
 	// retained for backwards compatibility. It is mutually exclusive with Aggregators: setting
@@ -180,11 +181,14 @@ type Config struct {
 	// committeeVerifierConfig with github.com/pelletier/go-toml, which does not decode TOML
 	// duration strings into time.Duration. Standalone / devenv decoding uses github.com/BurntSushi/toml,
 	// which does support time.Duration; using string keeps both paths and changeset marshaling compatible.
-	MessageDisablementRulesPollInterval  string `toml:"message_disablement_rules_poll_interval"`
+	MessageDisablementRulesPollInterval string `toml:"message_disablement_rules_poll_interval"`
+	// MessageDisablementRulesClientTimeout is the RPC timeout for message-disablement-rules requests, as a Go duration string; empty uses the integration default.
 	MessageDisablementRulesClientTimeout string `toml:"message_disablement_rules_client_timeout"`
 
+	// SignerAddress is the on-chain address of the verifier's result-signing key.
 	SignerAddress string `toml:"signer_address"`
 
+	// PyroscopeURL is the Pyroscope server URL for continuous profiling; empty disables it.
 	PyroscopeURL string `toml:"pyroscope_url"`
 	// CommitteeVerifierAddresses is a map the addresses of the committee verifiers for each chain selector.
 	CommitteeVerifierAddresses map[string]string `toml:"committee_verifier_addresses"`
