@@ -17,40 +17,47 @@ arrives from JD and `Stop` when the job is deleted or replaced.
 
 # Lifecycle modes
 
-The bootstrapper runs in one of two modes, selected at runtime by the `BOOTSTRAPPER_MODE` env var:
+The bootstrapper runs in one of two modes, selected by the top-level `app_config_mode` key in the
+bootstrap `config.toml` (not an env var or flag — so switching modes is a config change, not an
+image rebuild):
 
-- `jd`: load the app config from a Job Distributor over WSRPC and run the full job lifecycle.
-  Requires the `[jd]`, `[db]`, `[keystore]`, and `[server]` config sections.
-- `local`: run without JD. The bootstrapper reads the app config from a local file
-  (`BOOTSTRAPPER_LOCAL_CONFIG_PATH`, default `/etc/bootstrap/app.toml`) instead of receiving it from
-  JD. If a bootstrap operator config with `[db]`+`[keystore]` is also provided, it initializes a
-  Postgres-backed keystore so the service can sign (and starts the info server when `[server]` is
-  set); a service that needs no keystore (the token verifier) supplies neither. This is the mode for
-  the CCV starter kit and local testing where JD is not available.
-
-The default when `BOOTSTRAPPER_MODE` is unset is per-service: services that support JD (committee
-verifier, executor) default to `jd`; the token verifier defaults to `local` (it has no JD support).
-The env var overrides the default either way.
-
-The local app-config file is a plain app-config TOML — the same content JD would ship in a job's
-`appConfig`. See `app.example.toml`:
+- `app_config_mode = "jd_app_config"` (the default when the key is omitted): load the app config from
+  a Job Distributor over WSRPC and run the full job lifecycle. Requires the `[jd]`, `[db]`,
+  `[keystore]`, and `[server]` config sections.
+- `app_config_mode = "local_app_config"`: run without JD. The bootstrapper reads the app config from
+  the file at `local_app_config_path` instead of receiving it from JD. If the config also carries
+  `[db]`+`[keystore]`, it initializes a Postgres-backed keystore so the service can sign (and starts
+  the info server when `[server]` is set); a service that needs no keystore (the token verifier)
+  omits them. This is the mode for the CCV starter kit and local testing where JD is not available.
 
 ```toml
-verifier_id = "my-verifier"
-# ... the rest of the app (e.g. commit.Config) TOML ...
+# JD mode (or just omit app_config_mode)
+app_config_mode = "jd_app_config"
+
+[jd]
+server_wsrpc_url = "ws://jd.example.com:8080/ws"
+# ... plus [db], [keystore], [server]
+```
+
+```toml
+# Local mode
+app_config_mode = "local_app_config"
+local_app_config_path = "/etc/myapp/app-config.toml"
+
+# [db] + [keystore] here too if the service signs (committee verifier, executor); omit for the token verifier
 ```
 
 ## One image, two launch modes
 
-The mode is chosen at runtime, so the **same service image** (`verifier:latest` for the committee
-verifier, `executor:latest` for the executor) runs either way — only the env vars and mounted files
-differ. No rebuild needed to switch.
+The mode lives in config, so the **same service image** (`verifier:latest` for the committee
+verifier, `executor:latest` for the executor) runs either way — only the mounted config differs. No
+rebuild or env change needed to switch.
 
-JD mode (default for these services):
+JD mode (default):
 
 ```sh
 docker run \
-  -v ./bootstrap-config.toml:/etc/config.toml \      # [jd] + [db] + [keystore] + [server]
+  -v ./bootstrap-config.toml:/etc/config.toml \      # app_config_mode="jd_app_config", [jd]+[db]+[keystore]+[server]
   -v ./bootstrap-secrets.toml:/etc/bootstrap/secrets.toml \  # optional split-out [db]/[keystore]
   verifier:latest
 # app config (aggregators, addresses, ...) arrives from JD after connect
@@ -60,9 +67,8 @@ Local mode (no JD):
 
 ```sh
 docker run \
-  -e BOOTSTRAPPER_MODE=local \
-  -v ./bootstrap-config.toml:/etc/config.toml \      # [db] + [keystore] (+ [server]); NO [jd]
-  -v ./app.toml:/etc/bootstrap/app.toml \            # the app config, formerly shipped by JD
+  -v ./bootstrap-config.toml:/etc/config.toml \      # app_config_mode="local_app_config", local_app_config_path=..., [db]+[keystore]
+  -v ./app-config.toml:/etc/myapp/app-config.toml \  # the app config, formerly shipped by JD
   verifier:latest
 ```
 
@@ -70,10 +76,9 @@ Notes:
 - Local mode removes the JD dependency, not the database: a signing service (committee verifier,
   executor) still needs Postgres for its keystore, and the `[db]`/`[keystore]` sections must be
   present for the keystore to initialize. It is not a zero-infra mode.
-- The bootstrap config path (`/etc/config.toml`) and the local app-config path
-  (`/etc/bootstrap/app.toml`) must differ. The token verifier is the exception: it points its app
-  config at `/etc/config.toml`, has no `[db]`/`[keystore]`, and defaults to local — so it runs
-  keystore-less from that single file with no `BOOTSTRAPPER_MODE` needed.
+- The bootstrap config path (`BOOTSTRAPPER_CONFIG_PATH`, default `/etc/config.toml`) and
+  `local_app_config_path` are distinct files: the former holds the operator/infra config plus the
+  mode selection, the latter holds the app's own config.
 
 # Configuration
 

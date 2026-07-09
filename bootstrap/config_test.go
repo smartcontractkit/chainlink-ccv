@@ -313,10 +313,10 @@ func TestConfig_validate(t *testing.T) {
 			errContains: []string{"failed to validate 'db' section", "failed to validate 'monitoring' section"},
 		},
 	}
-	// All table cases above exercise JD mode (modeJD) so the full infra bundle is validated.
+	// All table cases above exercise JD mode (AppConfigModeJD) so the full infra bundle is validated.
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := tt.config.validate(modeJD)
+			err := tt.config.validate(AppConfigModeJD)
 			if tt.wantErr {
 				require.Error(t, err)
 				for _, sub := range tt.errContains {
@@ -328,65 +328,95 @@ func TestConfig_validate(t *testing.T) {
 		})
 	}
 
-	// A monitoring-only config in local mode must pass validation (the infra bundle is not required).
-	t.Run("monitoring-only config (local mode) is valid", func(t *testing.T) {
-		cfg := &Config{NonSecretConfig: NonSecretConfig{Monitoring: validBeholderMonitoring()}}
-		require.NoError(t, cfg.validate(modeLocal))
+	// In local mode the infra bundle is not required; only local_app_config_path must be set.
+	t.Run("monitoring + local_app_config_path (local mode) is valid", func(t *testing.T) {
+		cfg := &Config{NonSecretConfig: NonSecretConfig{LocalAppConfigPath: "/etc/app.toml", Monitoring: validBeholderMonitoring()}}
+		require.NoError(t, cfg.validate(AppConfigModeLocal))
 	})
 
-	// Local mode does not require the infra bundle: an empty/partial infra config still passes
-	// because the bootstrap operator config is optional there (the keystore is initialized only when
-	// [db]+[keystore] are present).
+	// Local mode does not require the infra bundle: a config with only local_app_config_path passes
+	// (the keystore is initialized only when [db]+[keystore] are present).
 	t.Run("local mode ignores missing infra (no error)", func(t *testing.T) {
-		cfg := &Config{NonSecretConfig: NonSecretConfig{Monitoring: validBeholderMonitoring()}}
-		require.NoError(t, cfg.validate(modeLocal))
+		cfg := &Config{NonSecretConfig: NonSecretConfig{LocalAppConfigPath: "/etc/app.toml"}}
+		require.NoError(t, cfg.validate(AppConfigModeLocal))
 	})
 
 	// Symmetric guard: the same empty infra config in JD mode DOES fail, naming the missing
 	// sections — the precise, load-time error that motivated mode-driven validation.
 	t.Run("JD mode requires infra (names missing sections)", func(t *testing.T) {
 		cfg := &Config{NonSecretConfig: NonSecretConfig{Monitoring: validBeholderMonitoring()}}
-		err := cfg.validate(modeJD)
+		err := cfg.validate(AppConfigModeJD)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "failed to validate 'jd' section")
 		require.Contains(t, err.Error(), "failed to validate 'db' section")
 	})
 }
 
-// TestConfig_validate_LocalMode covers local-mode validation: the infra bundle (jd/db/keystore/
-// server/chains) is not required, because the bootstrap operator config is optional in local mode
-// (the keystore is initialized only when [db]+[keystore] are present). Only monitoring is validated.
+// TestConfig_validate_LocalMode covers local-mode validation: local_app_config_path is required, but
+// the infra bundle (jd/db/keystore/server/chains) is not — a signing service supplies [db]+[keystore]
+// and the keystore is initialized only when both are present, while the token verifier omits them.
 func TestConfig_validate_LocalMode(t *testing.T) {
 	t.Parallel()
 
 	validKeystore := KeystoreConfig{Password: "secret"}
 	validDB := DBConfig{URL: "postgres://localhost:5432/mydb"}
+	localPath := NonSecretConfig{LocalAppConfigPath: "/etc/app.toml"}
 
-	t.Run("keystore + db is valid (no jd, no server)", func(t *testing.T) {
+	t.Run("local_app_config_path + keystore + db is valid (no jd, no server)", func(t *testing.T) {
 		t.Parallel()
-		cfg := &Config{Secrets: Secrets{Keystore: validKeystore, DB: validDB}}
-		require.NoError(t, cfg.validate(modeLocal))
+		cfg := &Config{NonSecretConfig: localPath, Secrets: Secrets{Keystore: validKeystore, DB: validDB}}
+		require.NoError(t, cfg.validate(AppConfigModeLocal))
 	})
 
-	t.Run("empty config is valid (keystore-less service like the token verifier)", func(t *testing.T) {
+	t.Run("local_app_config_path only is valid (keystore-less service like the token verifier)", func(t *testing.T) {
+		t.Parallel()
+		cfg := &Config{NonSecretConfig: localPath}
+		require.NoError(t, cfg.validate(AppConfigModeLocal), "local mode must not require any infra section")
+	})
+
+	t.Run("missing local_app_config_path fails naming it", func(t *testing.T) {
 		t.Parallel()
 		cfg := &Config{}
-		require.NoError(t, cfg.validate(modeLocal), "local mode must not require any infra section")
-	})
-
-	t.Run("missing keystore is not an error in local mode", func(t *testing.T) {
-		t.Parallel()
-		cfg := &Config{Secrets: Secrets{DB: validDB}}
-		require.NoError(t, cfg.validate(modeLocal))
+		err := cfg.validate(AppConfigModeLocal)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "local_app_config_path")
 	})
 
 	t.Run("invalid monitoring still fails in local mode", func(t *testing.T) {
 		t.Parallel()
-		cfg := &Config{NonSecretConfig: NonSecretConfig{Monitoring: &monitoring.Config{LogLevel: "invalid"}}}
-		err := cfg.validate(modeLocal)
+		cfg := &Config{NonSecretConfig: NonSecretConfig{LocalAppConfigPath: "/etc/app.toml", Monitoring: &monitoring.Config{LogLevel: "invalid"}}}
+		err := cfg.validate(AppConfigModeLocal)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "failed to validate 'monitoring' section")
 	})
+}
+
+func TestConfig_resolveAppConfigMode(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		in      AppConfigMode
+		want    AppConfigMode
+		wantErr bool
+	}{
+		{in: "", want: AppConfigModeJD}, // default
+		{in: AppConfigModeJD, want: AppConfigModeJD},
+		{in: AppConfigModeLocal, want: AppConfigModeLocal},
+		{in: "garbage", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(string(tt.in), func(t *testing.T) {
+			t.Parallel()
+			cfg := &Config{NonSecretConfig: NonSecretConfig{AppConfigMode: tt.in}}
+			got, err := cfg.resolveAppConfigMode()
+			if tt.wantErr {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), "app_config_mode")
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
+		})
+	}
 }
 
 // writeFile writes content to a fresh file under dir and returns its path.
@@ -436,7 +466,8 @@ url = "postgres://localhost:5432/bootstrapper"
 		path := writeFile(t, dir, "config.toml", monolithTOML)
 
 		cfg := &Config{}
-		require.NoError(t, LoadAndValidateConfig([]string{path}, cfg, modeJD))
+		_, err := LoadAndValidateConfig([]string{path}, cfg)
+		require.NoError(t, err)
 		assertFullyPopulated(t, cfg)
 	})
 
@@ -446,7 +477,8 @@ url = "postgres://localhost:5432/bootstrapper"
 		secretsPath := writeFile(t, dir, "secrets.toml", secretsTOML)
 
 		cfg := &Config{}
-		require.NoError(t, LoadAndValidateConfig([]string{configPath, secretsPath}, cfg, modeJD))
+		_, err := LoadAndValidateConfig([]string{configPath, secretsPath}, cfg)
+		require.NoError(t, err)
 		assertFullyPopulated(t, cfg)
 	})
 
@@ -458,7 +490,8 @@ url = "postgres://localhost:5432/bootstrapper"
 		secretsPath := writeFile(t, dir, "secrets.toml", secretsTOML)
 
 		cfg := &Config{}
-		require.NoError(t, LoadAndValidateConfig([]string{configPath, secretsPath}, cfg, modeJD))
+		_, err := LoadAndValidateConfig([]string{configPath, secretsPath}, cfg)
+		require.NoError(t, err)
 		require.Equal(t, "postgres://localhost:5432/bootstrapper", cfg.DB.URL,
 			"the later (secrets) file must overlay and win for a section it defines")
 	})
@@ -469,7 +502,7 @@ url = "postgres://localhost:5432/bootstrapper"
 		configPath := writeFile(t, dir, "config.toml", nonSecretTOML)
 
 		cfg := &Config{}
-		err := LoadAndValidateConfig([]string{configPath}, cfg, modeJD)
+		_, err := LoadAndValidateConfig([]string{configPath}, cfg)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "failed to validate 'keystore' section")
 		require.Contains(t, err.Error(), "failed to validate 'db' section")
@@ -477,7 +510,7 @@ url = "postgres://localhost:5432/bootstrapper"
 
 	t.Run("read error names the offending path", func(t *testing.T) {
 		cfg := &Config{}
-		err := LoadAndValidateConfig([]string{filepath.Join(t.TempDir(), "does-not-exist.toml")}, cfg, modeJD)
+		_, err := LoadAndValidateConfig([]string{filepath.Join(t.TempDir(), "does-not-exist.toml")}, cfg)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "does-not-exist.toml")
 	})
@@ -532,19 +565,19 @@ func TestConfig_validate_Chains(t *testing.T) {
 	t.Run("no chains is valid", func(t *testing.T) {
 		t.Parallel()
 		cfg := withChains()
-		require.NoError(t, cfg.validate(modeJD))
+		require.NoError(t, cfg.validate(AppConfigModeJD))
 	})
 
 	t.Run("valid chains", func(t *testing.T) {
 		t.Parallel()
 		cfg := withChains(ChainRegistration{Type: "EVM", ID: "1"}, ChainRegistration{Type: "EVM", ID: "137"})
-		require.NoError(t, cfg.validate(modeJD))
+		require.NoError(t, cfg.validate(AppConfigModeJD))
 	})
 
 	t.Run("invalid chain entry fails validation", func(t *testing.T) {
 		t.Parallel()
 		cfg := withChains(ChainRegistration{Type: "NOTACHAIN", ID: "1"})
-		err := cfg.validate(modeJD)
+		err := cfg.validate(AppConfigModeJD)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "invalid chain at index 0")
 	})
@@ -552,7 +585,7 @@ func TestConfig_validate_Chains(t *testing.T) {
 	t.Run("mixed chain families fails validation", func(t *testing.T) {
 		t.Parallel()
 		cfg := withChains(ChainRegistration{Type: "EVM", ID: "1"}, ChainRegistration{Type: "SOLANA", ID: "mainnet"})
-		err := cfg.validate(modeJD)
+		err := cfg.validate(AppConfigModeJD)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), `chain at index 1 has type "SOLANA"`)
 		require.Contains(t, err.Error(), `same family (found "EVM" at index 0)`)
@@ -561,13 +594,13 @@ func TestConfig_validate_Chains(t *testing.T) {
 	t.Run("mixed chain families is case-insensitive", func(t *testing.T) {
 		t.Parallel()
 		cfg := withChains(ChainRegistration{Type: "evm", ID: "1"}, ChainRegistration{Type: "EVM", ID: "137"})
-		require.NoError(t, cfg.validate(modeJD), "same family in different casing must not be flagged as mixed")
+		require.NoError(t, cfg.validate(AppConfigModeJD), "same family in different casing must not be flagged as mixed")
 	})
 
 	t.Run("an invalid entry does not mask the family the remaining valid entries share", func(t *testing.T) {
 		t.Parallel()
 		cfg := withChains(ChainRegistration{Type: "NOTACHAIN", ID: "1"}, ChainRegistration{Type: "EVM", ID: "1"}, ChainRegistration{Type: "SOLANA", ID: "mainnet"})
-		err := cfg.validate(modeJD)
+		err := cfg.validate(AppConfigModeJD)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "invalid chain at index 0")
 		require.Contains(t, err.Error(), `chain at index 2 has type "SOLANA"`)

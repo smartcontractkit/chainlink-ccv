@@ -41,36 +41,24 @@ const (
 	SecretsPathEnv     = "BOOTSTRAPPER_SECRETS_PATH"
 	DefaultSecretsPath = "/etc/bootstrap/secrets.toml" //nolint:gosec // G101: this is a file path, not a credential
 
-	// ModeEnv names the env var that toggles the bootstrapper lifecycle between JD and local (non-JD)
-	// mode: "jd" or "local". When unset it falls back to the per-service default (JD unless the
-	// service passed WithLocalModeDefault), so the committee verifier and executor default to JD but
-	// switch to local for free, while the token verifier defaults to local.
-	ModeEnv = "BOOTSTRAPPER_MODE"
-
-	// LocalConfigPathEnv names the env var pointing at the app config file read in local mode. The
-	// file is a plain app-config TOML (the same content JD would ship in a job's appConfig), which
-	// the bootstrapper wraps and hands to the service factory.
-	LocalConfigPathEnv     = "BOOTSTRAPPER_LOCAL_CONFIG_PATH"
-	DefaultLocalConfigPath = "/etc/bootstrap/app.toml"
-
 	defaultStartupTimeout  = 10 * time.Second
 	defaultShutdownTimeout = 10 * time.Second
 )
 
-// mode is the bootstrapper lifecycle mode. It is resolved once in NewBootstrapper from
-// BOOTSTRAPPER_MODE (falling back to the per-service default) and drives both config validation
-// (see Config.validate) and startup routing (see Start).
-type mode int
+// AppConfigMode is how the bootstrapper loads application config. It is operator-provided via the
+// top-level app_config_mode key in the bootstrap config.toml (see NonSecretConfig) — not an env var
+// — so switching a service between JD and local is a config change, not an image rebuild. It drives
+// both config validation (see Config.validate) and startup routing (see Start).
+type AppConfigMode string
 
 const (
-	// modeJD loads the app config from JD and runs the full job lifecycle. Default for services that
-	// support JD (committee verifier, executor).
-	modeJD mode = iota
-	// modeLocal runs without JD: it reads the app config from a local file and, when a [db]+[keystore]
-	// bootstrap config is provided, initializes a Postgres-backed keystore so the service can sign.
-	// The token verifier (which needs no keystore) and the committee verifier/executor (which do)
-	// both run under this one mode; the keystore is initialized only when configured.
-	modeLocal
+	// AppConfigModeJD loads the app config from a Job Distributor and runs the full job lifecycle.
+	// This is the default when app_config_mode is unset, so existing JD deployments are unaffected.
+	AppConfigModeJD AppConfigMode = "jd_app_config"
+	// AppConfigModeLocal reads the app config from a local file (local_app_config_path) with no JD.
+	// A [db]+[keystore] bootstrap config is optional and, when present, initializes a Postgres-backed
+	// keystore so the service can sign; a service that needs no keystore (the token verifier) omits it.
+	AppConfigModeLocal AppConfigMode = "local_app_config"
 )
 
 // ServiceDeps are the dependencies passed to the services started by the bootstrapper.
@@ -164,15 +152,12 @@ type Bootstrapper struct {
 	infoServer       *infoServer
 	keys             []keyToInit
 
-	// mode is the resolved lifecycle mode (jd or local). Routing in Start() switches on it.
-	mode mode
+	// mode is the resolved app-config mode (jd or local), read from the bootstrap config in
+	// NewBootstrapper. Routing in Start() switches on it.
+	mode AppConfigMode
 
-	// localConfigPath is the app config file read in local mode. Resolved in NewBootstrapper.
+	// localConfigPath is the app config file read in local mode (config.LocalAppConfigPath).
 	localConfigPath string
-
-	// defaultLocal makes the resolved mode default to local when BOOTSTRAPPER_MODE is unset
-	// (set by WithLocalModeDefault). Services that support JD leave it false and default to JD.
-	defaultLocal bool
 
 	// application
 	fac  ServiceFactory
@@ -213,48 +198,24 @@ func NewBootstrapper(
 		}
 	}
 
-	// Resolve the lifecycle mode from BOOTSTRAPPER_MODE, falling back to the per-service default
-	// (local when WithLocalModeDefault was passed, otherwise JD).
-	resolved, err := resolveMode(os.Getenv(ModeEnv), b.defaultLocal)
-	if err != nil {
-		return nil, err
-	}
-	b.mode = resolved
-
 	// JD mode always authenticates to the node with a CSA key; inject the default if the caller did
 	// not declare one. Local mode reuses the same injection for Beholder auth when it has a keystore.
 	if !hasCSAKey(b.keys) {
 		b.keys = append([]keyToInit{{DefaultCSAKeyName, "csa", keystore.Ed25519}}, b.keys...)
 	}
 
-	switch b.mode {
-	case modeJD:
-		b.config = &Config{}
-		// Non-secret config first, then overlay the secrets file (if present) so it wins for any
-		// section it defines. The secrets file is optional at the file level: a legacy monolithic
-		// config.toml carrying [db]/[keystore] resolves no secrets file, skips the overlay, and
-		// decodes exactly as before.
-		paths := bootstrapConfigPaths(b.configPath, b.secretsPath)
-		if err := LoadAndValidateConfig(paths, b.config, modeJD); err != nil {
-			return nil, fmt.Errorf("failed to load bootstrap config (%v): %w", paths, err)
-		}
-	case modeLocal:
-		b.localConfigPath = resolveLocalConfigPath(b.localConfigPath)
-		// Optionally load the bootstrap operator config ([db]/[keystore]/[server]/[monitoring]). It
-		// is loaded only when its path both exists and differs from the app config path: the token
-		// verifier points its app config at /etc/config.toml — the same default as the bootstrap
-		// config — and has no separate operator config, so loading the same file as both would be
-		// wrong. A committee verifier/executor keeps them on distinct paths and gets its keystore.
-		bootstrapPath := resolveBootstrapConfigPath(b.configPath)
-		if bootstrapPath != b.localConfigPath {
-			if _, statErr := os.Stat(bootstrapPath); statErr == nil {
-				b.config = &Config{}
-				paths := bootstrapConfigPaths(b.configPath, b.secretsPath)
-				if err := LoadAndValidateConfig(paths, b.config, modeLocal); err != nil {
-					return nil, fmt.Errorf("failed to load bootstrap config (%v): %w", paths, err)
-				}
-			}
-		}
+	// The bootstrap operator config (BOOTSTRAPPER_CONFIG_PATH, default /etc/config.toml) is always
+	// loaded; its top-level app_config_mode key selects the lifecycle. Non-secret config first, then
+	// overlay the secrets file (if present) so it wins for any section it defines.
+	b.config = &Config{}
+	paths := bootstrapConfigPaths(b.configPath, b.secretsPath)
+	mode, err := LoadAndValidateConfig(paths, b.config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load bootstrap config (%v): %w", paths, err)
+	}
+	b.mode = mode
+	if mode == AppConfigModeLocal {
+		b.localConfigPath = b.config.LocalAppConfigPath
 	}
 
 	// init tmp logger
@@ -545,7 +506,7 @@ func (b *Bootstrapper) Start(ctx context.Context) error {
 	if b.lggr == nil {
 		return fmt.Errorf("bootstrapper has no logger")
 	}
-	if b.mode == modeJD {
+	if b.mode == AppConfigModeJD {
 		return b.startWithJDLifecycle(ctx)
 	}
 	return b.startLocal(ctx)
@@ -574,7 +535,7 @@ func (b *Bootstrapper) Stop(ctx context.Context) error {
 			return fmt.Errorf("failed to stop pyroscope: %w", err)
 		}
 	}
-	if b.mode == modeLocal {
+	if b.mode == AppConfigModeLocal {
 		var errs []error
 		if err := b.fac.Stop(ctx); err != nil {
 			errs = append(errs, fmt.Errorf("failed to stop service factory: %w", err))
@@ -638,37 +599,6 @@ func resolveBootstrapSecretsPath(explicit string) string {
 		return ""
 	}
 	return path
-}
-
-// resolveMode maps the BOOTSTRAPPER_MODE env value to a mode. An empty value defaults to JD for
-// backward compatibility; "local" selects local mode; any other value is an error so a typo fails
-// loudly at startup instead of silently falling back to JD.
-func resolveMode(envValue string, defaultLocal bool) (mode, error) {
-	switch strings.ToLower(strings.TrimSpace(envValue)) {
-	case "jd":
-		return modeJD, nil
-	case "local":
-		return modeLocal, nil
-	case "":
-		if defaultLocal {
-			return modeLocal, nil
-		}
-		return modeJD, nil
-	default:
-		return modeJD, fmt.Errorf("invalid %s %q: must be \"jd\" or \"local\"", ModeEnv, envValue)
-	}
-}
-
-// resolveLocalConfigPath returns the effective local app-config path: the explicitly-provided path
-// takes precedence, then BOOTSTRAPPER_LOCAL_CONFIG_PATH, then DefaultLocalConfigPath.
-func resolveLocalConfigPath(explicit string) string {
-	if explicit != "" {
-		return explicit
-	}
-	if env := os.Getenv(LocalConfigPathEnv); env != "" {
-		return env
-	}
-	return DefaultLocalConfigPath
 }
 
 // bootstrapConfigPaths returns the ordered list of files to decode in JD mode: the non-secret config
@@ -754,26 +684,6 @@ func WithKey(name, purpose string, keyType keystore.KeyType) Option {
 			purpose: purpose,
 			keyType: keyType,
 		})
-		return nil
-	}
-}
-
-// WithLocalModeDefault makes the bootstrapper default to local (non-JD) mode when BOOTSTRAPPER_MODE
-// is unset. Services that cannot talk to JD (e.g. the token verifier) pass this; services that
-// support JD omit it and default to JD. BOOTSTRAPPER_MODE always overrides the default.
-func WithLocalModeDefault() Option {
-	return func(b *Bootstrapper) error {
-		b.defaultLocal = true
-		return nil
-	}
-}
-
-// WithLocalConfigPath sets the app-config file path read in local mode. If not set, the bootstrapper
-// looks for BOOTSTRAPPER_LOCAL_CONFIG_PATH and falls back to DefaultLocalConfigPath. Applies in
-// local mode only.
-func WithLocalConfigPath(path string) Option {
-	return func(b *Bootstrapper) error {
-		b.localConfigPath = path
 		return nil
 	}
 }

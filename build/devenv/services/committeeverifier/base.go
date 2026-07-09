@@ -37,6 +37,10 @@ const (
 	DefaultVerifierMode    = services.Standalone
 
 	DefaultVerifierDBImage = "postgres:16-alpine"
+
+	// localAppConfigContainerPath is where the local-mode app-config file is mounted; it is written
+	// into the bootstrap config as local_app_config_path so the bootstrapper reads it there.
+	localAppConfigContainerPath = "/etc/bootstrap/app.toml"
 )
 
 var DefaultVerifierDBConnectionString = fmt.Sprintf("postgresql://%s:%s@localhost:%d/%s?sslmode=disable",
@@ -255,6 +259,10 @@ func launchVerifier(ctx context.Context, in *Input, outputs []*blockchain.Output
 		}
 		bootstrapInput.JD.ServerCSAPublicKey = jdCSAKey
 		bootstrapInput.JD.ServerWSRPCURL = jdInfra.JDOutput.InternalWSRPCUrl
+	} else {
+		// Local mode: the bootstrap config declares the mode and where to read the app config from.
+		bootstrapInput.AppConfigMode = bootstrap.AppConfigModeLocal
+		bootstrapInput.LocalAppConfigPath = localAppConfigContainerPath
 	}
 
 	aggregatorSecrets, err := getAggregatorSecretEntries(in)
@@ -277,9 +285,6 @@ func launchVerifier(ctx context.Context, in *Input, outputs []*blockchain.Output
 	envVars := make(map[string]string)
 	if lvl := os.Getenv("LOG_LEVEL"); lvl != "" {
 		envVars["LOG_LEVEL"] = lvl
-	}
-	if local {
-		envVars[bootstrap.ModeEnv] = "local"
 	}
 
 	// Register each matching chain family blockchain output as a chain the node has a signing identity on.
@@ -508,12 +513,12 @@ func baseImageRequest(in *Input, envVars map[string]string, bootstrapConfigFileP
 		verifierSecretsFilePath,
 		vsecrets.DefaultCommitteeVerifierSecretsPath,
 	))
-	// Local mode: mount the app-config file at the default path so the bootstrapper reads the app
-	// config from it instead of from a JD proposal.
+	// Local mode: mount the app-config file at the path the bootstrap config's local_app_config_path
+	// points to, so the bootstrapper reads the app config from it instead of from a JD proposal.
 	if localConfigFilePath != "" {
 		req.Mounts = append(req.Mounts, testcontainers.BindMount(
 			localConfigFilePath,
-			bootstrap.DefaultLocalConfigPath,
+			localAppConfigContainerPath,
 		))
 	}
 
