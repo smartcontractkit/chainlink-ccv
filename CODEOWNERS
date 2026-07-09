@@ -4,7 +4,6 @@ deployment @smartcontractkit/ccip-platform
 bootstrap @smartcontractkit/ccip-platform
 changelog @smartcontractkit/ccip-platform
 tools @smartcontractkit/ccip-platform
-docs/config @smartcontractkit/ccip-platform
 common/monitoring @smartcontractkit/ccip-platform
 common/jd @smartcontractkit/ccip-platform
 common/metrics @smartcontractkit/ccip-platform
