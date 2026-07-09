@@ -173,14 +173,11 @@ func CreateServerOnlyWithMessageRulesControl(t *testing.T, options ...ConfigOpti
 		Storage: &model.StorageConfig{
 			StorageType: model.StorageTypePostgreSQL, // Default to PostgreSQL
 		},
-		Monitoring: model.MonitoringConfig{
-			Enabled: false,
-		},
+		Monitoring: model.MonitoringConfig{},
 		APIClients: []*model.ClientConfig{
 			{
-				ClientID:    "test-client",
-				Description: "Test client for integration tests",
-				Enabled:     true,
+				ClientID: "test-client",
+				Enabled:  true,
 				APIKeyPairs: []*model.APIKeyPairEnv{
 					{
 						APIKeyEnvVar: "TEST_API_KEY",

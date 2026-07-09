@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
+	"github.com/grafana/pyroscope-go"
 	"github.com/jmoiron/sqlx"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.uber.org/zap/zapcore"
@@ -34,6 +35,12 @@ import (
 const (
 	ConfigPathEnv     = "BOOTSTRAPPER_CONFIG_PATH"
 	DefaultConfigPath = "/etc/config.toml"
+
+	// SecretsPathEnv names the env var pointing at the bootstrap secrets file, which carries the
+	// credential-bearing [db] and [keystore] sections. The default is namespaced
+	// under /etc/bootstrap/ to avoid the /etc/config.toml collision that DefaultConfigPath suffers.
+	SecretsPathEnv     = "BOOTSTRAPPER_SECRETS_PATH"
+	DefaultSecretsPath = "/etc/bootstrap/secrets.toml" //nolint:gosec // G101: this is a file path, not a credential
 
 	defaultStartupTimeout  = 10 * time.Second
 	defaultShutdownTimeout = 10 * time.Second
@@ -124,6 +131,7 @@ type Bootstrapper struct {
 
 	// bootstrapper component configs
 	configPath       string
+	secretsPath      string
 	config           *Config
 	lifecycleManager *lifecycle.Manager
 	infoServer       *infoServer
@@ -142,6 +150,8 @@ type Bootstrapper struct {
 
 	// accCloser is set by startWithAppConfig; JD mode uses runner.accCloser instead.
 	accCloser *AccessorCloserRegistry
+	// pyroscope is a saved reference to profiler to close it on stop
+	pyroscope *pyroscope.Profiler
 
 	logLevel zapcore.Level
 }
@@ -190,45 +200,75 @@ func NewBootstrapper(
 			b.keys = append([]keyToInit{{DefaultCSAKeyName, "csa", keystore.Ed25519}}, b.keys...)
 		}
 
-		b.configPath = resolveBootstrapConfigPath(b.configPath)
 		b.config = &Config{}
-		if err := LoadAndValidateConfig(b.configPath, b.config, true); err != nil {
-			return nil, fmt.Errorf("failed to load bootstrap config (%s): %w", b.configPath, err)
+		// Non-secret config first, then overlay the secrets file (if present) so it wins for any
+		// section it defines. The secrets file is optional at the file level: a legacy monolithic
+		// config.toml carrying [db]/[keystore] resolves no secrets file, skips the overlay, and
+		// decodes exactly as before.
+		paths := bootstrapConfigPaths(b.configPath, b.secretsPath)
+		if err := LoadAndValidateConfig(paths, b.config, true); err != nil {
+			return nil, fmt.Errorf("failed to load bootstrap config (%v): %w", paths, err)
 		}
 	} else if path := os.Getenv(ConfigPathEnv); path != "" {
 		// Static-TOML mode: optionally load operator config when BOOTSTRAPPER_CONFIG_PATH is
 		// explicitly set. The default fallback to DefaultConfigPath is intentionally suppressed
 		// here: TOKEN_VERIFIER_CONFIG_PATH and BOOTSTRAPPER_CONFIG_PATH both default to
 		// /etc/config.toml, so applying the default would decode the wrong file. See issue #013.
+		// No secrets file is loaded in static-TOML mode: the token verifier has no [db]/[keystore]
+		// and those are exactly the sections static mode ignores.
 		b.config = &Config{}
-		if err := LoadAndValidateConfig(path, b.config, false); err != nil {
+		if err := LoadAndValidateConfig([]string{path}, b.config, false); err != nil {
 			return nil, fmt.Errorf("failed to load operator config (%s): %w", path, err)
 		}
 	}
 
+	// init tmp logger
+	var err error
+	b.lggr, err = logging.InitLogger(b.name, "", monitoring.Config{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to init logger: %w", err)
+	}
+
+	return b, nil
+}
+
+func (b *Bootstrapper) initMonitoring(signer crypto.Signer) error {
 	// do not fall back b.config to it
 	mon := monitoring.Config{}
 	if b.config != nil && b.config.Monitoring != nil {
 		mon = *b.config.Monitoring
 	}
-	err := monitoring.SetupBeholder(mon, fac.MetricViews())
+	err := monitoring.SetupBeholder(mon.Beholder, signer, b.fac.MetricViews())
 	if err != nil {
-		return nil, fmt.Errorf("failed to setup beholder: %w", err)
+		return fmt.Errorf("failed to setup beholder: %w", err)
 	}
-	lggr, err := logging.InitLogger(b.name, b.logLevel, mon)
+	lggr, err := logging.InitLogger(b.name, mon.LogLevel, mon)
 	if err != nil {
-		return nil, fmt.Errorf("failed to init logger: %w", err)
+		return fmt.Errorf("failed to init logger: %w", err)
+	}
+	if b.lggr != nil {
+		_ = b.lggr.Sync() // stdout sync always fails on Linux/macOS, safe to ignore
+		b.lggr = lggr
 	}
 	b.lggr = lggr
+	pyroscopeProfiler, err := monitoring.SetupPyroscope(lggr, b.name, mon.Pyroscope)
+	if err != nil {
+		return fmt.Errorf("failed to setup pyroscope: %w", err)
+	}
+	b.pyroscope = pyroscopeProfiler
 	lggr.Infow("Monitoring initialized", "config", mon)
-
-	return b, nil
+	return nil
 }
 
 // startWithAppConfig is a passthrough to the application's Start function.
 func (b *Bootstrapper) startWithAppConfig(ctx context.Context) (startErr error) {
 	if b.appCfg == nil {
 		return fmt.Errorf("bootstrapper has no app config")
+	}
+
+	err := b.initMonitoring(nil)
+	if err != nil {
+		return fmt.Errorf("failed to initialize monitoring: %w", err)
 	}
 
 	b.lggr.Infow("Calling NewRegistry with app config")
@@ -354,6 +394,11 @@ func (b *Bootstrapper) startWithJDLifecycle(ctx context.Context) error {
 		return fmt.Errorf("failed to initialize keystore: %w", err)
 	}
 
+	err = b.initMonitoring(csaSigner)
+	if err != nil {
+		return fmt.Errorf("failed to initialize monitoring: %w", err)
+	}
+
 	jdPublicKey, err := keys.DecodeEd25519PublicKey(b.config.JD.ServerCSAPublicKey)
 	if err != nil {
 		return fmt.Errorf("failed to get JD public key: %w", err)
@@ -450,6 +495,12 @@ func (b *Bootstrapper) Stop(ctx context.Context) error {
 			return fmt.Errorf("failed to stop info server: %w", err)
 		}
 	}
+	if b.pyroscope != nil {
+		err := b.pyroscope.Stop()
+		if err != nil {
+			return fmt.Errorf("failed to stop pyroscope: %w", err)
+		}
+	}
 	if b.appCfg != nil {
 		var errs []error
 		if err := b.fac.Stop(ctx); err != nil {
@@ -496,6 +547,35 @@ func resolveBootstrapConfigPath(explicit string) string {
 		return env
 	}
 	return DefaultConfigPath
+}
+
+// resolveBootstrapSecretsPath returns the effective bootstrap secrets path — the explicitly-provided
+// path, then BOOTSTRAPPER_SECRETS_PATH, then DefaultSecretsPath — but only if that path points at an
+// existing file. The secrets file is optional: absence returns "" so the caller skips the overlay,
+// which is what keeps a legacy monolithic config (with [db]/[keystore] inline) working.
+func resolveBootstrapSecretsPath(explicit string) string {
+	path := explicit
+	if path == "" {
+		path = os.Getenv(SecretsPathEnv)
+	}
+	if path == "" {
+		path = DefaultSecretsPath
+	}
+	if _, err := os.Stat(path); err != nil { //nolint:gosec // G703: path is a trusted operator-provided config path
+		return ""
+	}
+	return path
+}
+
+// bootstrapConfigPaths returns the ordered list of files to decode in JD mode: the non-secret config
+// file, followed by the secrets file only when one is present. Later files overlay earlier ones, so
+// the secrets file wins for any section it defines.
+func bootstrapConfigPaths(explicitConfig, explicitSecrets string) []string {
+	paths := []string{resolveBootstrapConfigPath(explicitConfig)}
+	if secretsPath := resolveBootstrapSecretsPath(explicitSecrets); secretsPath != "" {
+		paths = append(paths, secretsPath)
+	}
+	return paths
 }
 
 func initializeKeystore(ctx context.Context, lggr logger.Logger, db *sqlx.DB, ksPassword string, requiredKeys []keyToInit) (keystore.Keystore, crypto.Signer, error) {
@@ -592,6 +672,18 @@ func WithJD() Option {
 func WithBootstrapperConfigPath(path string) Option {
 	return func(b *Bootstrapper) error {
 		b.configPath = path
+		return nil
+	}
+}
+
+// WithBootstrapperSecretsPath sets the bootstrapper secrets file path. If not set, the bootstrapper
+// looks for the path in the BOOTSTRAPPER_SECRETS_PATH environment variable, and if that is not set,
+// it defaults to DefaultSecretsPath. The secrets file is optional: if the resolved path does not
+// exist, it is skipped (which is how a legacy monolithic config remains valid). Applies in JD mode
+// only.
+func WithBootstrapperSecretsPath(path string) Option {
+	return func(b *Bootstrapper) error {
+		b.secretsPath = path
 		return nil
 	}
 }

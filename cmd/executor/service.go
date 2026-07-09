@@ -203,6 +203,7 @@ func (f *Factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 		executorConfig.MaxRetryDuration,
 		timeProvider,
 		executorConfig.WorkerCount,
+		executorConfig.DataNotReadyRetryInterval,
 	)
 	if err != nil {
 		return fmt.Errorf("failed to create execution coordinator: %w", err)

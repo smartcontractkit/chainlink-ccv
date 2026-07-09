@@ -30,10 +30,12 @@ type Config struct {
 	// GeneratedConfigPath is the path to the auto-generated configuration file.
 	// If relative, it is resolved relative to the main config file location.
 	GeneratedConfigPath string `toml:"GeneratedConfigPath"`
-	LogLevel            string `toml:"LogLevel"`
+	// LogLevel is the logging level (e.g. debug, info, warn, error).
+	LogLevel string `toml:"LogLevel"`
 	// Monitoring is the configuration for the monitoring system inside the indexer.
-	Monitoring   MonitoringConfig `toml:"Monitoring"`
-	PyroscopeURL string           `toml:"pyroscope_url"`
+	Monitoring MonitoringConfig `toml:"Monitoring"`
+	// PyroscopeURL is the Pyroscope server URL for continuous profiling; empty disables it.
+	PyroscopeURL string `toml:"pyroscope_url"`
 	// Discoveries is the list of discovery configs (aggregators) for message discovery.
 	Discoveries []DiscoveryConfig `toml:"Discoveries"`
 	// MergeBufferSize is the capacity of the channel that merges messages from multiple discovery sources.
@@ -95,8 +97,10 @@ type RateLimitConfig struct {
 
 // StorageConfig allows you to change the storage strategy used by the indexer.
 type StorageConfig struct {
-	Strategy StorageStrategy      `toml:"Strategy"`
-	Single   *SingleStorageConfig `toml:"Single"`
+	// Strategy selects the storage strategy; currently only "single".
+	Strategy StorageStrategy `toml:"Strategy"`
+	// Single is the configuration for the single-storage strategy.
+	Single *SingleStorageConfig `toml:"Single"`
 }
 
 // StorageStrategy defines the storage strategy to use.
@@ -108,8 +112,10 @@ const (
 
 // SingleStorageConfig provides configuration for a single storage backend.
 type SingleStorageConfig struct {
-	Type     StorageBackendType `toml:"Type"`
-	Postgres *PostgresConfig    `toml:"Postgres"`
+	// Type selects the single-storage backend; currently only "postgres".
+	Type StorageBackendType `toml:"Type"`
+	// Postgres is the configuration for the postgres backend.
+	Postgres *PostgresConfig `toml:"Postgres"`
 }
 
 // PostgresConfig provides configuration for the postgres storage backend.
@@ -140,10 +146,14 @@ const (
 // DiscoveryConfig allows you to change the discovery system used by the indexer.
 type DiscoveryConfig struct {
 	AggregatorReaderConfig
-	Name         string `toml:"Name"`
-	PollInterval int    `toml:"PollInterval"`
-	Timeout      int    `toml:"Timeout"`
-	NtpServer    string `toml:"NtpServer"`
+	// Name is an optional label for this discovery source; defaults to Address.
+	Name string `toml:"Name"`
+	// PollInterval is how often to poll the aggregator for new messages, in milliseconds.
+	PollInterval int `toml:"PollInterval"`
+	// Timeout is the per-poll request timeout in milliseconds; must exceed PollInterval.
+	Timeout int `toml:"Timeout"`
+	// NtpServer is the NTP server used for time synchronization.
+	NtpServer string `toml:"NtpServer"`
 	// MaxResponseBytes is the maximum response size in bytes the client will accept.
 	// 0 uses DefaultMaxResponseBytes (4MB).
 	MaxResponseBytes int `toml:"MaxResponseBytes"`
@@ -159,9 +169,12 @@ func (d DiscoveryConfig) Label() string {
 }
 
 type VerifierConfig struct {
-	Type            ReaderType `toml:"Type"`
-	IssuerAddresses []string   `toml:"IssuerAddresses"`
-	Name            string     `toml:"Name"`
+	// Type selects the verifier reader implementation: "aggregator" or "rest".
+	Type ReaderType `toml:"Type"`
+	// IssuerAddresses lists the issuer addresses this verifier is responsible for.
+	IssuerAddresses []string `toml:"IssuerAddresses"`
+	// Name is an optional label for this verifier; defaults to Address or BaseURL.
+	Name string `toml:"Name"`
 	// BatchSize is the maximum batch size to send to the verifier.
 	BatchSize int `toml:"BatchSize"`
 	// MaxBatchWaitTime is the maximum time to wait in milliseconds before sending a batch to the verifier.
@@ -323,15 +336,8 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("storage config validation failed: %w", err)
 	}
 
-	if c.Monitoring.Enabled && c.Monitoring.Type == "" {
-		return fmt.Errorf("monitoring type is required when monitoring is enabled")
-	}
-
-	// Validate beholder config if monitoring is enabled and type is beholder
-	if c.Monitoring.Enabled && c.Monitoring.Type == "beholder" {
-		if err := c.Monitoring.Beholder.Validate(); err != nil {
-			return fmt.Errorf("beholder config validation failed: %w", err)
-		}
+	if err := c.Monitoring.Validate(); err != nil {
+		return fmt.Errorf("monitoring config validation failed: %w", err)
 	}
 
 	return nil

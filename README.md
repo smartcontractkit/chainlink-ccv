@@ -19,6 +19,13 @@ Run tests:
 just tests
 ```
 
+## Configuration Reference
+
+Each app's config and secrets TOML is documented under [`docs/config/`](./docs/config/),
+generated from the Go doc comments on the config structs. Edit the doc comment (not the
+generated file), then regenerate with `just config-docs`. CI fails if the committed docs
+are out of date. See [`docs/config/README.md`](./docs/config/README.md) for details.
+
 ## Local Dev Environment
 Follow the [README](./build/devenv/README.md)
 

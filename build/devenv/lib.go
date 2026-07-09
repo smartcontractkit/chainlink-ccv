@@ -32,8 +32,12 @@ type ChainImpl struct {
 //
 // Note that not all methods may be implemented by all backends.
 // For example, as of writing, a CLDF environment doesn't store indexer
-// or aggregator endpoints, so the [Lib.Indexer] and [Lib.AllIndexers]
-// methods will return an error.
+// or aggregator endpoints.
+//
+// The plural offchain getters ([Lib.AllAggregators], [Lib.AllIndexers]) return an
+// empty result with a nil error when no endpoints are configured, so callers can
+// treat absence as a normal state via a length check and reserve a returned error
+// for a real construction failure.
 type Lib interface {
 	// Chains returns a slice of [ChainImpl] objects in an unspecified order.
 	Chains(ctx context.Context) ([]ChainImpl, error)
@@ -57,12 +61,13 @@ type Lib interface {
 	// or an error if no indexer client is available.
 	IndexerMonitor() (*IndexerMonitor, error)
 
-	// AllIndexers returns all indexer clients available.
-	// or an error if no indexer clients are available.
+	// AllIndexers returns all indexer clients available, or (nil, nil) if no
+	// indexer endpoints are configured.
 	AllIndexers() ([]*client.IndexerClient, error)
 
-	// AllAggregators returns a mapping of qualifier name to the client of the aggregator for that qualifier.
-	// or an error if no aggregator clients are available.
+	// AllAggregators returns a mapping of qualifier name to the client of the
+	// aggregator for that qualifier, or an empty map (nil error) if no aggregator
+	// endpoints are configured.
 	AllAggregators() (map[string]*AggregatorClient, error)
 }
 
@@ -139,7 +144,7 @@ func (l *libFromCCV) AllAggregators() (map[string]*AggregatorClient, error) {
 	}
 
 	if len(l.cfg.AggregatorEndpoints) == 0 {
-		return nil, fmt.Errorf("no aggregator endpoints configured")
+		return map[string]*AggregatorClient{}, nil
 	}
 
 	aggregators := make(map[string]*AggregatorClient, len(l.cfg.AggregatorEndpoints))
@@ -194,7 +199,7 @@ func (l *libFromCCV) AllIndexers() ([]*client.IndexerClient, error) {
 		return nil, fmt.Errorf("failed to initialize indexer client: %w", err)
 	}
 	if len(l.cfg.IndexerEndpoints) == 0 {
-		return nil, fmt.Errorf("no indexer endpoints configured")
+		return nil, nil
 	}
 	indexers := make([]*client.IndexerClient, 0, len(l.cfg.IndexerEndpoints))
 	httpClient := &http.Client{
@@ -229,7 +234,7 @@ type libFromCLDF struct {
 
 // AllIndexers implements [Lib].
 func (l *libFromCLDF) AllIndexers() ([]*client.IndexerClient, error) {
-	return nil, fmt.Errorf("no indexer clients available in CLDF environment")
+	return nil, nil
 }
 
 // CLDFEnvironment implements [Lib].
@@ -307,7 +312,7 @@ func (l *libFromCLDF) IndexerMonitor() (*IndexerMonitor, error) {
 
 // AllAggregators implements [Lib].
 func (l *libFromCLDF) AllAggregators() (map[string]*AggregatorClient, error) {
-	return nil, fmt.Errorf("no aggregator clients available in CLDF environment")
+	return map[string]*AggregatorClient{}, nil
 }
 
 // NewLibFromCLDFEnv creates a new [Lib] from a [deployment.Environment].

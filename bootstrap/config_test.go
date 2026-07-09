@@ -1,6 +1,8 @@
 package bootstrap
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -15,9 +17,8 @@ const validEd25519PublicKeyHex = "0123456789abcdef0123456789abcdef0123456789abcd
 // whose Validate() passes, for use in Config validation tests.
 func validBeholderMonitoring() *monitoring.Config {
 	return &monitoring.Config{
-		Enabled: true,
-		Type:    "beholder",
 		Beholder: monitoring.BeholderConfig{
+			Enabled:              true,
 			MetricReaderInterval: 10,
 			TraceSampleRatio:     1.0,
 			TraceBatchTimeout:    5,
@@ -211,16 +212,17 @@ func TestConfig_validate(t *testing.T) {
 	}{
 		{
 			name:    "valid",
-			config:  &Config{JD: validJD, Keystore: validKeystore, DB: validDB, Server: validServer},
+			config:  &Config{NonSecretConfig: NonSecretConfig{JD: validJD, Server: validServer}, Secrets: Secrets{Keystore: validKeystore, DB: validDB}},
 			wantErr: false,
 		},
 		{
 			name: "invalid JD section",
 			config: &Config{
-				JD:       JDConfig{ServerWSRPCURL: "", ServerCSAPublicKey: validEd25519PublicKeyHex},
-				Keystore: validKeystore,
-				DB:       validDB,
-				Server:   validServer,
+				NonSecretConfig: NonSecretConfig{
+					JD:     JDConfig{ServerWSRPCURL: "", ServerCSAPublicKey: validEd25519PublicKeyHex},
+					Server: validServer,
+				},
+				Secrets: Secrets{Keystore: validKeystore, DB: validDB},
 			},
 			wantErr:     true,
 			errContains: []string{"failed to validate 'jd' section", "ServerWSRPCURL"},
@@ -228,10 +230,8 @@ func TestConfig_validate(t *testing.T) {
 		{
 			name: "invalid keystore section",
 			config: &Config{
-				JD:       validJD,
-				Keystore: KeystoreConfig{Password: ""},
-				DB:       validDB,
-				Server:   validServer,
+				NonSecretConfig: NonSecretConfig{JD: validJD, Server: validServer},
+				Secrets:         Secrets{Keystore: KeystoreConfig{Password: ""}, DB: validDB},
 			},
 			wantErr:     true,
 			errContains: []string{"failed to validate 'keystore' section", "password"},
@@ -239,10 +239,8 @@ func TestConfig_validate(t *testing.T) {
 		{
 			name: "invalid db section",
 			config: &Config{
-				JD:       validJD,
-				Keystore: validKeystore,
-				DB:       DBConfig{URL: ""},
-				Server:   validServer,
+				NonSecretConfig: NonSecretConfig{JD: validJD, Server: validServer},
+				Secrets:         Secrets{Keystore: validKeystore, DB: DBConfig{URL: ""}},
 			},
 			wantErr:     true,
 			errContains: []string{"failed to validate 'db' section", "url"},
@@ -250,10 +248,8 @@ func TestConfig_validate(t *testing.T) {
 		{
 			name: "invalid server section",
 			config: &Config{
-				JD:       validJD,
-				Keystore: validKeystore,
-				DB:       validDB,
-				Server:   ServerConfig{ListenPort: 0},
+				NonSecretConfig: NonSecretConfig{JD: validJD, Server: ServerConfig{ListenPort: 0}},
+				Secrets:         Secrets{Keystore: validKeystore, DB: validDB},
 			},
 			wantErr:     true,
 			errContains: []string{"failed to validate 'server' section", "listen_port"},
@@ -263,8 +259,8 @@ func TestConfig_validate(t *testing.T) {
 			// monitoring in the bootstrap config, and validate() must skip it.
 			name: "valid with monitoring unset (nil allowed)",
 			config: &Config{
-				JD: validJD, Keystore: validKeystore, DB: validDB, Server: validServer,
-				Monitoring: nil,
+				NonSecretConfig: NonSecretConfig{JD: validJD, Server: validServer, Monitoring: nil},
+				Secrets:         Secrets{Keystore: validKeystore, DB: validDB},
 			},
 			wantErr: false,
 		},
@@ -273,41 +269,35 @@ func TestConfig_validate(t *testing.T) {
 			// Enabled is false, so an explicit "off" passes (and any Beholder values are ignored).
 			name: "valid with monitoring present but disabled",
 			config: &Config{
-				JD: validJD, Keystore: validKeystore, DB: validDB, Server: validServer,
-				Monitoring: &monitoring.Config{Enabled: false},
+				NonSecretConfig: NonSecretConfig{JD: validJD, Server: validServer, Monitoring: &monitoring.Config{}},
+				Secrets:         Secrets{Keystore: validKeystore, DB: validDB},
 			},
 			wantErr: false,
 		},
 		{
 			name: "valid with monitoring enabled (beholder)",
 			config: &Config{
-				JD: validJD, Keystore: validKeystore, DB: validDB, Server: validServer,
-				Monitoring: validBeholderMonitoring(),
+				NonSecretConfig: NonSecretConfig{JD: validJD, Server: validServer, Monitoring: validBeholderMonitoring()},
+				Secrets:         Secrets{Keystore: validKeystore, DB: validDB},
 			},
 			wantErr: false,
 		},
 		{
-			name: "invalid monitoring: enabled without type",
-			config: &Config{
-				JD: validJD, Keystore: validKeystore, DB: validDB, Server: validServer,
-				Monitoring: &monitoring.Config{Enabled: true},
-			},
-			wantErr:     true,
-			errContains: []string{"failed to validate 'monitoring' section", "monitoring type is required"},
-		},
-		{
 			name: "invalid monitoring: enabled beholder with non-positive metric interval",
 			config: &Config{
-				JD: validJD, Keystore: validKeystore, DB: validDB, Server: validServer,
-				Monitoring: &monitoring.Config{
-					Enabled: true,
-					Type:    "beholder",
-					Beholder: monitoring.BeholderConfig{
-						MetricReaderInterval: 0,
-						TraceSampleRatio:     0.5,
-						TraceBatchTimeout:    5,
+				NonSecretConfig: NonSecretConfig{
+					JD:     validJD,
+					Server: validServer,
+					Monitoring: &monitoring.Config{
+						Beholder: monitoring.BeholderConfig{
+							Enabled:              true,
+							MetricReaderInterval: 0,
+							TraceSampleRatio:     0.5,
+							TraceBatchTimeout:    5,
+						},
 					},
 				},
+				Secrets: Secrets{Keystore: validKeystore, DB: validDB},
 			},
 			wantErr:     true,
 			errContains: []string{"failed to validate 'monitoring' section", "metric_reader_interval"},
@@ -316,8 +306,8 @@ func TestConfig_validate(t *testing.T) {
 			// validate() uses errors.Join, so a bad section and bad monitoring both surface.
 			name: "aggregates errors across db and monitoring sections",
 			config: &Config{
-				JD: validJD, Keystore: validKeystore, DB: DBConfig{URL: ""}, Server: validServer,
-				Monitoring: &monitoring.Config{Enabled: true},
+				NonSecretConfig: NonSecretConfig{JD: validJD, Server: validServer, Monitoring: &monitoring.Config{LogLevel: "invalid"}},
+				Secrets:         Secrets{Keystore: validKeystore, DB: DBConfig{URL: ""}},
 			},
 			wantErr:     true,
 			errContains: []string{"failed to validate 'db' section", "failed to validate 'monitoring' section"},
@@ -340,7 +330,7 @@ func TestConfig_validate(t *testing.T) {
 
 	// A monitoring-only config in static-TOML mode (needsInfra=false) must pass validation.
 	t.Run("monitoring-only config (static mode) is valid", func(t *testing.T) {
-		cfg := &Config{Monitoring: validBeholderMonitoring()}
+		cfg := &Config{NonSecretConfig: NonSecretConfig{Monitoring: validBeholderMonitoring()}}
 		require.NoError(t, cfg.validate(false))
 	})
 
@@ -348,18 +338,112 @@ func TestConfig_validate(t *testing.T) {
 	// passes because needsInfra=false, even when md reports infra sections present (they are only
 	// warned about, not validated). This is the mode-driven behavior that replaces presence-driven.
 	t.Run("static mode ignores present infra (no error)", func(t *testing.T) {
-		cfg := &Config{Monitoring: validBeholderMonitoring()}
+		cfg := &Config{NonSecretConfig: NonSecretConfig{Monitoring: validBeholderMonitoring()}}
 		require.NoError(t, cfg.validate(false))
 	})
 
 	// Symmetric guard: the same empty infra config in JD mode (needsInfra=true) DOES fail, naming
 	// the missing sections — the precise, load-time error that motivated mode-driven validation.
 	t.Run("JD mode requires infra (names missing sections)", func(t *testing.T) {
-		cfg := &Config{Monitoring: validBeholderMonitoring()}
+		cfg := &Config{NonSecretConfig: NonSecretConfig{Monitoring: validBeholderMonitoring()}}
 		err := cfg.validate(true)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "failed to validate 'jd' section")
 		require.Contains(t, err.Error(), "failed to validate 'db' section")
+	})
+}
+
+// writeFile writes content to a fresh file under dir and returns its path.
+func writeFile(t *testing.T, dir, name, content string) string {
+	t.Helper()
+	path := filepath.Join(dir, name)
+	require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
+	return path
+}
+
+// TestLoadAndValidateConfig exercises the config/secrets split load path: the legacy
+// monolithic layout, the split layout, secrets-file precedence on overlap, and that validation runs
+// on the merged struct regardless of which file supplied a section.
+func TestLoadAndValidateConfig(t *testing.T) {
+	const nonSecretTOML = `
+[jd]
+server_wsrpc_url = "ws://localhost:8080/ws"
+server_csa_public_key = "` + validEd25519PublicKeyHex + `"
+
+[server]
+listen_port = 9988
+
+[[chains]]
+type = "EVM"
+id = "1"
+`
+	const secretsTOML = `
+[keystore]
+password = "s3cret"
+
+[db]
+url = "postgres://localhost:5432/bootstrapper"
+`
+	const monolithTOML = nonSecretTOML + secretsTOML
+
+	assertFullyPopulated := func(t *testing.T, cfg *Config) {
+		t.Helper()
+		require.Equal(t, "ws://localhost:8080/ws", cfg.JD.ServerWSRPCURL)
+		require.Equal(t, 9988, cfg.Server.ListenPort)
+		require.Len(t, cfg.Chains, 1)
+		require.Equal(t, "s3cret", cfg.Keystore.Password)
+		require.Equal(t, "postgres://localhost:5432/bootstrapper", cfg.DB.URL)
+	}
+
+	t.Run("legacy monolith: single file with all sections is valid", func(t *testing.T) {
+		dir := t.TempDir()
+		path := writeFile(t, dir, "config.toml", monolithTOML)
+
+		cfg := &Config{}
+		require.NoError(t, LoadAndValidateConfig([]string{path}, cfg, true))
+		assertFullyPopulated(t, cfg)
+	})
+
+	t.Run("split: config file + secrets file merge into one valid config", func(t *testing.T) {
+		dir := t.TempDir()
+		configPath := writeFile(t, dir, "config.toml", nonSecretTOML)
+		secretsPath := writeFile(t, dir, "secrets.toml", secretsTOML)
+
+		cfg := &Config{}
+		require.NoError(t, LoadAndValidateConfig([]string{configPath, secretsPath}, cfg, true))
+		assertFullyPopulated(t, cfg)
+	})
+
+	t.Run("secrets file wins on overlapping section", func(t *testing.T) {
+		dir := t.TempDir()
+		// config.toml carries a stale [db]; secrets.toml carries the authoritative one.
+		staleDB := nonSecretTOML + "\n[db]\nurl = \"postgres://stale/db\"\n"
+		configPath := writeFile(t, dir, "config.toml", staleDB)
+		secretsPath := writeFile(t, dir, "secrets.toml", secretsTOML)
+
+		cfg := &Config{}
+		require.NoError(t, LoadAndValidateConfig([]string{configPath, secretsPath}, cfg, true))
+		require.Equal(t, "postgres://localhost:5432/bootstrapper", cfg.DB.URL,
+			"the later (secrets) file must overlay and win for a section it defines")
+	})
+
+	t.Run("JD mode: missing secret section (no secrets file) fails validation naming it", func(t *testing.T) {
+		dir := t.TempDir()
+		// Only the non-secret file is provided, simulating a resolved-but-absent secrets file.
+		configPath := writeFile(t, dir, "config.toml", nonSecretTOML)
+
+		cfg := &Config{}
+		err := LoadAndValidateConfig([]string{configPath}, cfg, true)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "failed to validate 'keystore' section")
+		require.Contains(t, err.Error(), "failed to validate 'db' section")
+	})
+
+	t.Run("read error names the offending path", func(t *testing.T) {
+		cfg := &Config{}
+		err := LoadAndValidateConfig([]string{filepath.Join(t.TempDir(), "does-not-exist.toml")}, cfg, true)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "does-not-exist.toml")
 	})
 }
 
@@ -401,27 +485,29 @@ func TestConfig_validate_Chains(t *testing.T) {
 	validDB := DBConfig{URL: "postgres://localhost/test"}
 	validServer := ServerConfig{ListenPort: 9988}
 
+	// withChains builds a valid Config carrying the given chains, so each case varies only the chains.
+	withChains := func(chains ...ChainRegistration) *Config {
+		return &Config{
+			NonSecretConfig: NonSecretConfig{JD: validJD, Server: validServer, Chains: chains},
+			Secrets:         Secrets{Keystore: validKeystore, DB: validDB},
+		}
+	}
+
 	t.Run("no chains is valid", func(t *testing.T) {
 		t.Parallel()
-		cfg := &Config{JD: validJD, Keystore: validKeystore, DB: validDB, Server: validServer}
+		cfg := withChains()
 		require.NoError(t, cfg.validate(true))
 	})
 
 	t.Run("valid chains", func(t *testing.T) {
 		t.Parallel()
-		cfg := &Config{
-			JD: validJD, Keystore: validKeystore, DB: validDB, Server: validServer,
-			Chains: []ChainRegistration{{Type: "EVM", ID: "1"}, {Type: "EVM", ID: "137"}},
-		}
+		cfg := withChains(ChainRegistration{Type: "EVM", ID: "1"}, ChainRegistration{Type: "EVM", ID: "137"})
 		require.NoError(t, cfg.validate(true))
 	})
 
 	t.Run("invalid chain entry fails validation", func(t *testing.T) {
 		t.Parallel()
-		cfg := &Config{
-			JD: validJD, Keystore: validKeystore, DB: validDB, Server: validServer,
-			Chains: []ChainRegistration{{Type: "NOTACHAIN", ID: "1"}},
-		}
+		cfg := withChains(ChainRegistration{Type: "NOTACHAIN", ID: "1"})
 		err := cfg.validate(true)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "invalid chain at index 0")
@@ -429,10 +515,7 @@ func TestConfig_validate_Chains(t *testing.T) {
 
 	t.Run("mixed chain families fails validation", func(t *testing.T) {
 		t.Parallel()
-		cfg := &Config{
-			JD: validJD, Keystore: validKeystore, DB: validDB, Server: validServer,
-			Chains: []ChainRegistration{{Type: "EVM", ID: "1"}, {Type: "SOLANA", ID: "mainnet"}},
-		}
+		cfg := withChains(ChainRegistration{Type: "EVM", ID: "1"}, ChainRegistration{Type: "SOLANA", ID: "mainnet"})
 		err := cfg.validate(true)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), `chain at index 1 has type "SOLANA"`)
@@ -441,19 +524,13 @@ func TestConfig_validate_Chains(t *testing.T) {
 
 	t.Run("mixed chain families is case-insensitive", func(t *testing.T) {
 		t.Parallel()
-		cfg := &Config{
-			JD: validJD, Keystore: validKeystore, DB: validDB, Server: validServer,
-			Chains: []ChainRegistration{{Type: "evm", ID: "1"}, {Type: "EVM", ID: "137"}},
-		}
+		cfg := withChains(ChainRegistration{Type: "evm", ID: "1"}, ChainRegistration{Type: "EVM", ID: "137"})
 		require.NoError(t, cfg.validate(true), "same family in different casing must not be flagged as mixed")
 	})
 
 	t.Run("an invalid entry does not mask the family the remaining valid entries share", func(t *testing.T) {
 		t.Parallel()
-		cfg := &Config{
-			JD: validJD, Keystore: validKeystore, DB: validDB, Server: validServer,
-			Chains: []ChainRegistration{{Type: "NOTACHAIN", ID: "1"}, {Type: "EVM", ID: "1"}, {Type: "SOLANA", ID: "mainnet"}},
-		}
+		cfg := withChains(ChainRegistration{Type: "NOTACHAIN", ID: "1"}, ChainRegistration{Type: "EVM", ID: "1"}, ChainRegistration{Type: "SOLANA", ID: "mainnet"})
 		err := cfg.validate(true)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "invalid chain at index 0")

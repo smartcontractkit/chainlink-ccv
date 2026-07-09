@@ -1,44 +1,65 @@
 package monitoring
 
 import (
+	"context"
+	"crypto"
+	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"time"
 
+	"github.com/grafana/pyroscope-go"
 	"go.opentelemetry.io/otel/attribute"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.uber.org/zap/zapcore"
 
 	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-func SetupBeholder(config Config, metricViews []sdkmetric.View) error {
-	if !config.Enabled || config.Type != "beholder" {
+func SetupBeholder(config BeholderConfig, signer crypto.Signer, metricViews []sdkmetric.View) error {
+	if !config.Enabled {
 		return nil
 	}
 
 	var err error
 	logLevel := zapcore.InfoLevel
-	if config.Beholder.LogStreamingLevel != "" {
-		logLevel, err = zapcore.ParseLevel(config.Beholder.LogStreamingLevel)
+	if config.LogStreamingLevel != "" {
+		logLevel, err = zapcore.ParseLevel(config.LogStreamingLevel)
 		if err != nil {
 			return fmt.Errorf("failed to parse log level: %w", err)
 		}
 	}
 	beholderConfig := beholder.Config{
-		InsecureConnection:       config.Beholder.InsecureConnection,
-		CACertFile:               config.Beholder.CACertFile,
-		OtelExporterHTTPEndpoint: config.Beholder.OtelExporterHTTPEndpoint,
-		OtelExporterGRPCEndpoint: config.Beholder.OtelExporterGRPCEndpoint,
-		LogStreamingEnabled:      config.Beholder.LogStreamingEnabled,
+		InsecureConnection:       config.InsecureConnection,
+		CACertFile:               config.CACertFile,
+		OtelExporterHTTPEndpoint: config.OtelExporterHTTPEndpoint,
+		OtelExporterGRPCEndpoint: config.OtelExporterGRPCEndpoint,
+		LogStreamingEnabled:      config.LogStreamingEnabled,
 		LogLevel:                 logLevel,
-		MetricReaderInterval:     time.Second * time.Duration(config.Beholder.MetricReaderInterval),
-		TraceSampleRatio:         config.Beholder.TraceSampleRatio,
-		TraceBatchTimeout:        time.Second * time.Duration(config.Beholder.TraceBatchTimeout),
+		MetricReaderInterval:     time.Second * time.Duration(config.MetricReaderInterval),
+		TraceSampleRatio:         config.TraceSampleRatio,
+		TraceBatchTimeout:        time.Second * time.Duration(config.TraceBatchTimeout),
 	}
 
-	if len(config.Beholder.TelemetryAttributes) > 0 {
-		attrs := make([]attribute.KeyValue, 0, len(config.Beholder.TelemetryAttributes))
-		for k, v := range config.Beholder.TelemetryAttributes {
+	if signer != nil {
+		authHeaders, err := beholder.NewAuthHeaders(signer)
+		if err != nil {
+			return fmt.Errorf("failed to create beholder auth headers: %w", err)
+		}
+		beholderConfig.AuthHeaders = authHeaders
+		key, ok := signer.Public().(ed25519.PublicKey)
+		if !ok {
+			return fmt.Errorf("expected ed25519.PublicKey, got %T", signer.Public())
+		}
+		beholderConfig.AuthPublicKeyHex = hex.EncodeToString(key)
+		beholderConfig.AuthKeySigner = newBeholderSigner(signer)
+	}
+
+	if len(config.TelemetryAttributes) > 0 {
+		attrs := make([]attribute.KeyValue, 0, len(config.TelemetryAttributes))
+		for k, v := range config.TelemetryAttributes {
 			attrs = append(attrs, attribute.String(k, v))
 		}
 		beholderConfig.ResourceAttributes = attrs
@@ -60,4 +81,38 @@ func SetupBeholder(config Config, metricViews []sdkmetric.View) error {
 	beholder.SetGlobalOtelProviders()
 
 	return nil
+}
+
+var _ beholder.Signer = (*beholderSigner)(nil)
+
+type beholderSigner struct {
+	signer crypto.Signer
+}
+
+func (b *beholderSigner) Sign(_ context.Context, _ string, data []byte) ([]byte, error) {
+	return b.signer.Sign(rand.Reader, data, crypto.Hash(0))
+}
+
+func newBeholderSigner(signer crypto.Signer) beholder.Signer {
+	return &beholderSigner{signer: signer}
+}
+
+// SetupPyroscope starts the Pyroscope profiler.
+func SetupPyroscope(lggr logger.Logger, name string, config PyroscopeConfig) (*pyroscope.Profiler, error) {
+	if !config.Enabled {
+		return nil, nil
+	}
+	return pyroscope.Start(pyroscope.Config{
+		ApplicationName: name,
+		ServerAddress:   config.URL,
+		Logger:          lggr,
+		ProfileTypes: []pyroscope.ProfileType{
+			pyroscope.ProfileCPU,
+			pyroscope.ProfileAllocObjects,
+			pyroscope.ProfileAllocSpace,
+			pyroscope.ProfileGoroutines,
+			pyroscope.ProfileBlockDuration,
+			pyroscope.ProfileMutexDuration,
+		},
+	})
 }

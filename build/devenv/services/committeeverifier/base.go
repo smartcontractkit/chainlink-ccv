@@ -22,6 +22,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/util"
 	hmacutil "github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/commit"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vsecrets"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
@@ -242,15 +243,24 @@ func launchVerifier(ctx context.Context, in *Input, outputs []*blockchain.Output
 	bootstrapInput.JD.ServerCSAPublicKey = jdCSAKey
 	bootstrapInput.JD.ServerWSRPCURL = jdInfra.JDOutput.InternalWSRPCUrl
 
-	envVars, err := getAggregatorSecrets(in)
+	aggregatorSecrets, err := getAggregatorSecretEntries(in)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get aggregator secrets: %w", err)
 	}
 
-	// Database connection for chain status (internal docker network address)
+	// Database connection for chain status (internal docker network address).
 	internalDBConnectionString := fmt.Sprintf("postgresql://%s:%s@%s:5432/%s?sslmode=disable",
 		in.ContainerName, in.ContainerName, dbContainerName(in.DB.Name, in.ChainFamily), in.ContainerName)
-	envVars["CL_DATABASE_URL"] = internalDBConnectionString
+
+	// Deliver the DB URL and per-aggregator HMAC credentials via the verifier secrets file,
+	// mounted at the default path, instead of the CL_DATABASE_URL / VERIFIER_AGGREGATOR_* env vars —
+	// so e2e exercises the file load path.
+	verifierSecrets, err := services.GenerateVerifierSecrets(internalDBConnectionString, aggregatorSecrets)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate verifier secrets: %w", err)
+	}
+
+	envVars := make(map[string]string)
 	if lvl := os.Getenv("LOG_LEVEL"); lvl != "" {
 		envVars["LOG_LEVEL"] = lvl
 	}
@@ -272,14 +282,30 @@ func launchVerifier(ctx context.Context, in *Input, outputs []*blockchain.Output
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate bootstrap config: %w", err)
 	}
+	bootstrapSecrets, err := services.GenerateBootstrapSecrets(*bootstrapInput)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate bootstrap secrets: %w", err)
+	}
 	confDir := util.CCVConfigDir()
 	bootstrapConfigFilePath := filepath.Join(confDir,
 		fmt.Sprintf("bootstrap-%s-config-%d.toml", in.CommitteeName, in.NodeIndex+1))
 	if err := os.WriteFile(bootstrapConfigFilePath, bootstrapConfig, 0o644); err != nil {
 		return nil, fmt.Errorf("failed to write bootstrap config to file: %w", err)
 	}
+	bootstrapSecretsFilePath := filepath.Join(confDir,
+		fmt.Sprintf("bootstrap-%s-secrets-%d.toml", in.CommitteeName, in.NodeIndex+1))
+	if err := os.WriteFile(bootstrapSecretsFilePath, bootstrapSecrets, 0o644); err != nil {
+		return nil, fmt.Errorf("failed to write bootstrap secrets to file: %w", err)
+	}
+	verifierSecretsFilePath := filepath.Join(confDir,
+		fmt.Sprintf("verifier-%s-secrets-%d.toml", in.CommitteeName, in.NodeIndex+1))
+	// 0o644 (world-readable) matches the bootstrap secrets file: the mounted file must be readable by
+	// the `ccv` CLI run via `docker exec`, which may run as a different UID than the bind-mount owner.
+	if err := os.WriteFile(verifierSecretsFilePath, verifierSecrets, 0o644); err != nil {
+		return nil, fmt.Errorf("failed to write verifier secrets to file: %w", err)
+	}
 
-	req, err := baseImageRequest(in, envVars, bootstrapConfigFilePath)
+	req, err := baseImageRequest(in, envVars, bootstrapConfigFilePath, bootstrapSecretsFilePath, verifierSecretsFilePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create base image request: %w", err)
 	}
@@ -391,7 +417,7 @@ func startContainer(ctx context.Context, req testcontainers.ContainerRequest) (t
 	return nil, fmt.Errorf("failed to start container after %d attempts: %w", maxAttempts, lastErr)
 }
 
-func baseImageRequest(in *Input, envVars map[string]string, bootstrapConfigFilePath string) (testcontainers.ContainerRequest, error) {
+func baseImageRequest(in *Input, envVars map[string]string, bootstrapConfigFilePath, bootstrapSecretsFilePath, verifierSecretsFilePath string) (testcontainers.ContainerRequest, error) {
 	req := testcontainers.ContainerRequest{
 		Image:    in.Image,
 		Name:     in.ContainerName,
@@ -439,6 +465,18 @@ func baseImageRequest(in *Input, envVars map[string]string, bootstrapConfigFileP
 		bootstrapConfigFilePath,
 		bootstrap.DefaultConfigPath,
 	))
+	// Mount secrets at the default secrets path so the bootstrapper resolves it without an env var,
+	// exercising the split config/secrets load path.
+	req.Mounts = append(req.Mounts, testcontainers.BindMount(
+		bootstrapSecretsFilePath,
+		bootstrap.DefaultSecretsPath,
+	))
+	// Mount the verifier secrets file at its default path so the committee verifier resolves the DB
+	// URL and aggregator HMAC credentials from the file, without an env var.
+	req.Mounts = append(req.Mounts, testcontainers.BindMount(
+		verifierSecretsFilePath,
+		vsecrets.DefaultCommitteeVerifierSecretsPath,
+	))
 
 	// Note: identical code to aggregator.go/executor.go -- will indexer be identical as well?
 	if in.SourceCodePath != "" {
@@ -452,24 +490,26 @@ func baseImageRequest(in *Input, envVars map[string]string, bootstrapConfigFileP
 	return req, nil
 }
 
-func getAggregatorSecrets(in *Input) (map[string]string, error) {
-	envVars := make(map[string]string)
-
-	// Per-aggregator credentials (consolidated topology): the verifier writes to every aggregator
-	// in its committee, each with its own credential exposed via VERIFIER_AGGREGATOR_<SECRETNAME>_*.
-	// AggregatorCredentials is keyed by SecretName, so the env var name is derived directly from
-	// the key — matching what the runtime reads. No dependency on the generated config (which is
-	// produced after the container launches).
+// getAggregatorSecretEntries builds the verifier secrets file's [[aggregators]] entries:
+// per-aggregator HMAC credentials keyed by SecretName. AggregatorCredentials is already keyed by
+// SecretName, so each key becomes the entry's secret_name — matching config.go's join key. The
+// legacy fallback yields a single entry with an omitted secret_name (the default credential).
+func getAggregatorSecretEntries(in *Input) ([]vsecrets.AggregatorSecret, error) {
+	// Per-aggregator credentials (consolidated topology): the verifier writes to every aggregator in
+	// its committee, each with its own credential resolved from the secrets file by secret_name.
 	if len(in.AggregatorCredentials) > 0 {
+		entries := make([]vsecrets.AggregatorSecret, 0, len(in.AggregatorCredentials))
 		for secretName, creds := range in.AggregatorCredentials {
-			apiKeyVar, secretKeyVar := commit.AggregatorCredentialEnvVars(secretName)
-			envVars[apiKeyVar] = creds.APIKey
-			envVars[secretKeyVar] = creds.Secret
+			entries = append(entries, vsecrets.AggregatorSecret{
+				SecretName: secretName,
+				APIKey:     creds.APIKey,
+				SecretKey:  creds.Secret,
+			})
 		}
-		return envVars, nil
+		return entries, nil
 	}
 
-	// Fallback: a single credential under the default (legacy) variables.
+	// Fallback: a single credential under the legacy default (omitted secret_name).
 	var apiKey, secretKey string
 	if in.Env != nil && in.Env.AggregatorAPIKey != "" && in.Env.AggregatorSecretKey != "" {
 		apiKey = in.Env.AggregatorAPIKey
@@ -486,10 +526,7 @@ func getAggregatorSecrets(in *Input) (map[string]string, error) {
 		return nil, fmt.Errorf("failed to get HMAC credentials for verifier %s: no credentials provided via AggregatorCredentials, Env, or AggregatorOutput", in.ContainerName)
 	}
 
-	envVars[commit.DefaultAggregatorAPIKeyEnvVar] = apiKey
-	envVars[commit.DefaultAggregatorSecretKeyEnvVar] = secretKey
-
-	return envVars, nil
+	return []vsecrets.AggregatorSecret{{APIKey: apiKey, SecretKey: secretKey}}, nil
 }
 
 func dbContainerName(inDBName, chainFamily string) string {

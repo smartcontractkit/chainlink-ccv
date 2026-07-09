@@ -23,6 +23,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/configuration"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/monitoring"
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/secrets"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/storage/postgres"
 	"github.com/smartcontractkit/chainlink-ccv/common/monitoring/logging"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -86,8 +87,12 @@ func main() {
 				if err != nil {
 					return fmt.Errorf("failed to load config: %w", err)
 				}
-				if err := cfg.LoadFromEnvironment(); err != nil {
-					return fmt.Errorf("failed to load config from environment: %w", err)
+				sec, err := secrets.LoadFromEnv(secrets.SecretsPathEnvVar, secrets.DefaultSecretsPath)
+				if err != nil {
+					return fmt.Errorf("failed to load secrets: %w", err)
+				}
+				if err := cfg.ResolveSecrets(sec); err != nil {
+					return fmt.Errorf("failed to resolve secrets: %w", err)
 				}
 				db, err := sql.Open("postgres", cfg.Storage.ConnectionURL)
 				if err != nil {
@@ -142,14 +147,19 @@ func runServer(configPath string, lggr logger.Logger, sugaredLggr logger.Sugared
 	}
 	lggr.Infow("Loaded configuration", "config", config)
 
-	if err := config.LoadFromEnvironment(); err != nil {
-		lggr.Errorw("Failed to load configuration from environment", "path", configPath, "error", err)
+	sec, err := secrets.LoadFromEnv(secrets.SecretsPathEnvVar, secrets.DefaultSecretsPath)
+	if err != nil {
+		lggr.Errorw("Failed to load secrets", "error", err)
 		os.Exit(1)
 	}
-	lggr.Infow("Successfully loaded configuration from environment variables")
+	if err := config.ResolveSecrets(sec); err != nil {
+		lggr.Errorw("Failed to resolve secrets", "path", configPath, "error", err)
+		os.Exit(1)
+	}
+	lggr.Infow("Successfully resolved secrets")
 
-	var aggMonitoring common.AggregatorMonitoring = &monitoring.NoopAggregatorMonitoring{}
-	if config.Monitoring.Enabled && config.Monitoring.Type == "beholder" {
+	var aggMonitoring common.AggregatorMonitoring = monitoring.NewNoopAggregatorMonitoring()
+	if config.Monitoring.Beholder.Enabled {
 		m, err := monitoring.InitMonitoring(beholder.Config{
 			InsecureConnection:       config.Monitoring.Beholder.InsecureConnection,
 			CACertFile:               config.Monitoring.Beholder.CACertFile,

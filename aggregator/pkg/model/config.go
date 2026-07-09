@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/auth"
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/secrets"
 	"github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/common/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -19,6 +20,7 @@ import (
 
 // Signer represents a participant in the commit verification process.
 type Signer struct {
+	// Address is the signer's chain-native address.
 	Address string `json:"address" toml:"address"`
 }
 
@@ -89,9 +91,12 @@ func (c *Committee) SetQuorumConfig(sourceSelector SourceSelector, quorumConfig 
 
 // QuorumConfig represents the configuration for a quorum of signers.
 type QuorumConfig struct {
-	SourceVerifierAddress string   `json:"sourceVerifierAddress" toml:"sourceVerifierAddress"`
-	Signers               []Signer `json:"signers"               toml:"signers"`
-	Threshold             uint8    `json:"threshold"             toml:"threshold"`
+	// SourceVerifierAddress is the source-chain commit verifier contract address for this quorum.
+	SourceVerifierAddress string `json:"sourceVerifierAddress" toml:"sourceVerifierAddress"`
+	// Signers is the set of signers whose signatures count toward this quorum.
+	Signers []Signer `json:"signers" toml:"signers"`
+	// Threshold is the minimum number of signer signatures required to reach quorum.
+	Threshold uint8 `json:"threshold" toml:"threshold"`
 	// sourceVerifierAddressParsed holds the parsed address, populated during validation.
 	sourceVerifierAddressParsed protocol.UnknownAddress
 }
@@ -109,18 +114,26 @@ const (
 
 // StorageConfig represents the configuration for the storage backend.
 type StorageConfig struct {
-	StorageType     StorageType     `toml:"type"`
-	ConnectionURL   string          `toml:"-"`
-	PageSize        int             `toml:"pageSize"`
-	MaxOpenConns    int             `toml:"maxOpenConns"`
-	MaxIdleConns    int             `toml:"maxIdleConns"`
+	// StorageType selects the storage backend; currently only "postgres".
+	StorageType   StorageType `toml:"type"`
+	ConnectionURL string      `toml:"-"`
+	// PageSize is the number of records fetched per page in paginated queries. Defaults to 100.
+	PageSize int `toml:"pageSize"`
+	// MaxOpenConns is the maximum number of open database connections. Defaults to 25.
+	MaxOpenConns int `toml:"maxOpenConns"`
+	// MaxIdleConns is the maximum number of idle database connections. Defaults to 5.
+	MaxIdleConns int `toml:"maxIdleConns"`
+	// ConnMaxLifetime is the maximum lifetime of a database connection. Defaults to 1h.
 	ConnMaxLifetime common.Duration `toml:"connMaxLifetime"`
+	// ConnMaxIdleTime is the maximum time a database connection may sit idle before being closed. Defaults to 5m.
 	ConnMaxIdleTime common.Duration `toml:"connMaxIdleTime"`
-	QueryTimeout    common.Duration `toml:"queryTimeout"`
+	// QueryTimeout bounds the duration of a single database query. Defaults to 10s.
+	QueryTimeout common.Duration `toml:"queryTimeout"`
 }
 
 // ServerConfig represents the configuration for the server.
 type ServerConfig struct {
+	// Address is the host:port the gRPC server listens on.
 	Address string `toml:"address"`
 	// RequestTimeout is the max duration for any GRPC request (default: 10s)
 	RequestTimeout time.Duration `toml:"requestTimeout"`
@@ -187,8 +200,10 @@ type OrphanRecoveryConfig struct {
 }
 
 type HealthCheckConfig struct {
-	Enabled bool   `toml:"enabled"`
-	Port    string `toml:"port"`
+	// Enabled controls whether the health-check HTTP server is started.
+	Enabled bool `toml:"enabled"`
+	// Port is the port the health-check HTTP server listens on. Defaults to 8080.
+	Port string `toml:"port"`
 }
 
 // AnonymousAuthConfig configures the anonymous authentication middleware.
@@ -377,26 +392,48 @@ type (
 
 // AggregatorConfig is the root configuration for the pb.
 type AggregatorConfig struct {
-	AggregatorID                                string                        `toml:"aggregatorID"`
-	GeneratedConfigPath                         string                        `toml:"generatedConfigPath"`
-	Committee                                   *Committee                    `toml:"committee"`
-	Server                                      ServerConfig                  `toml:"server"`
-	Storage                                     *StorageConfig                `toml:"storage"`
-	APIClients                                  []*ClientConfig               `toml:"clients"`
-	Aggregation                                 AggregationConfig             `toml:"aggregation"`
-	MessageDisablementRules                     MessageDisablementRulesConfig `toml:"messageDisablementRules"`
-	OrphanRecovery                              OrphanRecoveryConfig          `toml:"orphanRecovery"`
-	RateLimiting                                RateLimitingConfig            `toml:"rateLimiting"`
-	HealthCheck                                 HealthCheckConfig             `toml:"healthCheck"`
-	AnonymousAuth                               AnonymousAuthConfig           `toml:"anonymousAuth"`
-	Monitoring                                  MonitoringConfig              `toml:"monitoring"`
-	PyroscopeURL                                string                        `toml:"pyroscope_url"`
-	MaxMessageIDsPerBatch                       int                           `toml:"maxMessageIDsPerBatch"`
-	MaxCommitVerifierNodeResultRequestsPerBatch int                           `toml:"maxCommitVerifierNodeResultRequestsPerBatch"`
+	// AggregatorID uniquely identifies this aggregator instance; defaults to the hostname.
+	AggregatorID string `toml:"aggregatorID"`
+	// GeneratedConfigPath is an optional path to a generated config file merged over this one.
+	GeneratedConfigPath string `toml:"generatedConfigPath"`
+	// Committee defines the signer quorums and destination verifiers this aggregator trusts.
+	Committee *Committee `toml:"committee"`
+	// Server configures the gRPC server.
+	Server ServerConfig `toml:"server"`
+	// Storage configures the storage backend and its connection pool.
+	Storage *StorageConfig `toml:"storage"`
+	// APIClients declares the authenticated API clients and their credentials.
+	APIClients []*ClientConfig `toml:"clients"`
+	// Aggregation configures the signature-aggregation workers.
+	Aggregation AggregationConfig `toml:"aggregation"`
+	// MessageDisablementRules configures the message-disablement registry refresh.
+	MessageDisablementRules MessageDisablementRulesConfig `toml:"messageDisablementRules"`
+	// OrphanRecovery configures recovery of orphaned aggregation records.
+	OrphanRecovery OrphanRecoveryConfig `toml:"orphanRecovery"`
+	// RateLimiting configures per-client, per-group, and anonymous rate limits.
+	RateLimiting RateLimitingConfig `toml:"rateLimiting"`
+	// HealthCheck configures the health-check HTTP server.
+	HealthCheck HealthCheckConfig `toml:"healthCheck"`
+	// AnonymousAuth configures the anonymous authentication middleware.
+	AnonymousAuth AnonymousAuthConfig `toml:"anonymousAuth"`
+	// Monitoring configures logging, profiling, and telemetry.
+	Monitoring MonitoringConfig `toml:"monitoring"`
+	// PyroscopeURL is the Pyroscope server URL for continuous profiling; empty disables it.
+	PyroscopeURL string `toml:"pyroscope_url"`
+	// MaxMessageIDsPerBatch caps the message IDs per batch request (1-1000). Defaults to 100.
+	MaxMessageIDsPerBatch int `toml:"maxMessageIDsPerBatch"`
+	// MaxCommitVerifierNodeResultRequestsPerBatch caps verifier-result requests per batch (1-1000). Defaults to 100.
+	MaxCommitVerifierNodeResultRequestsPerBatch int `toml:"maxCommitVerifierNodeResultRequestsPerBatch"`
 }
 
+// APIKeyPairEnv is the legacy, backwards-compatible source of a client's inbound HMAC credential: it
+// holds the names of two environment variables whose values are read at use. It is superseded, for a
+// given client, by credentials supplied in the aggregator secrets file (see ResolveSecrets); it
+// remains the fallback for any client the file does not cover.
 type APIKeyPairEnv struct {
+	// APIKeyEnvVar is the name of the environment variable holding this client's HMAC API key.
 	APIKeyEnvVar string `toml:"apiKeyEnvVar"`
+	// SecretEnvVar is the name of the environment variable holding this client's HMAC secret.
 	SecretEnvVar string `toml:"secretEnvVar"`
 }
 
@@ -407,6 +444,17 @@ func (c *APIKeyPairEnv) GetAPIKey() string {
 func (c *APIKeyPairEnv) GetSecret() string {
 	return os.Getenv(c.SecretEnvVar)
 }
+
+// resolvedAPIKeyPair is an inbound HMAC credential whose api_key/secret values were resolved from the
+// aggregator secrets file. It carries the plaintext credential, so it lives only in an unexported
+// field (ClientConfig.resolvedPairs) that struct logging cannot reach. It satisfies auth.APIKeyPair.
+type resolvedAPIKeyPair struct {
+	apiKey string
+	secret string
+}
+
+func (p resolvedAPIKeyPair) GetAPIKey() string { return p.apiKey }
+func (p resolvedAPIKeyPair) GetSecret() string { return p.secret }
 
 func (c *APIKeyPairEnv) Validate() error {
 	if c.APIKeyEnvVar == "" {
@@ -436,14 +484,49 @@ func (c *APIKeyPairEnv) Validate() error {
 }
 
 type ClientConfig struct {
+	// APIKeyPairs lists the env-var-backed HMAC credentials for this client (legacy source; superseded per-client by the secrets file).
 	APIKeyPairs []*APIKeyPairEnv `toml:"apiKeyPair"`
-	Groups      []string         `toml:"groups"`
-	Description string           `toml:"description"`
-	Enabled     bool             `toml:"enabled"`
-	ClientID    string           `toml:"clientId"`
+	// Groups lists the authorization groups this client belongs to, used for group rate limits.
+	Groups []string `toml:"groups"`
+	// Name is an optional human-readable label for this client; falls back to ClientID when empty.
+	Name string `toml:"name,omitempty"`
+	// Enabled controls whether this client may authenticate; disabled clients are rejected.
+	Enabled bool `toml:"enabled"`
+	// ClientID is the unique identifier for this API client.
+	ClientID string `toml:"clientId"`
+	// resolvedPairs holds credentials supplied for this client by the aggregator secrets file. When
+	// non-nil it replaces the env-var (APIKeyPairs) source entirely for this client.
+	// It is unexported so struct logging (e.g. the "Loaded configuration" log) can never
+	// leak the plaintext credentials it carries. Populated by AggregatorConfig.ResolveSecrets.
+	resolvedPairs []resolvedAPIKeyPair
+}
+
+// effectivePairs returns the credentials in force for this client: the secrets-file-resolved pairs
+// when present, otherwise the legacy env-var pairs. This is the single source
+// both authentication (GetClientByAPIKey) and validation read from, so behavior is identical
+// regardless of where the credential came from.
+func (c *ClientConfig) effectivePairs() []auth.APIKeyPair {
+	if len(c.resolvedPairs) > 0 {
+		pairs := make([]auth.APIKeyPair, 0, len(c.resolvedPairs))
+		for i := range c.resolvedPairs {
+			pairs = append(pairs, c.resolvedPairs[i])
+		}
+		return pairs
+	}
+	pairs := make([]auth.APIKeyPair, 0, len(c.APIKeyPairs))
+	for _, p := range c.APIKeyPairs {
+		pairs = append(pairs, p)
+	}
+	return pairs
 }
 
 func (c *ClientConfig) GetClientID() string { return c.ClientID }
+func (c *ClientConfig) GetClientName() string {
+	if len(c.Name) > 0 {
+		return c.Name
+	}
+	return c.ClientID
+}
 func (c *ClientConfig) GetGroups() []string { return c.Groups }
 func (c *ClientConfig) IsEnabled() bool     { return c.Enabled }
 
@@ -451,6 +534,22 @@ func (c *ClientConfig) Validate() error {
 	if c.ClientID == "" {
 		return errors.New("clientId cannot be empty")
 	}
+
+	// Credentials resolved from the secrets file are validated by value: the env-var indirection does
+	// not apply, and the error must not echo the credential, so we reference the pair ordinal only.
+	if len(c.resolvedPairs) > 0 {
+		for i, pair := range c.resolvedPairs {
+			if err := hmacutil.ValidateAPIKey(pair.apiKey); err != nil {
+				return fmt.Errorf("invalid api_key for client %s (secrets file pair %d): %w", c.ClientID, i, err)
+			}
+			if err := hmacutil.ValidateSecret(pair.secret); err != nil {
+				return fmt.Errorf("invalid secret_key for client %s (secrets file pair %d): %w", c.ClientID, i, err)
+			}
+		}
+		return nil
+	}
+
+	// Legacy env-var path: APIKeyPairEnv.Validate reads and format-checks the named env vars.
 	if len(c.APIKeyPairs) == 0 {
 		return errors.New("apiKeyPair cannot be empty")
 	}
@@ -464,7 +563,7 @@ func (c *ClientConfig) Validate() error {
 
 func (c *AggregatorConfig) GetClientByAPIKey(apiKey string) (auth.ClientConfig, auth.APIKeyPair, bool) {
 	for _, client := range c.APIClients {
-		for _, apiKeyPair := range client.APIKeyPairs {
+		for _, apiKeyPair := range client.effectivePairs() {
 			if apiKeyPair.GetAPIKey() == apiKey {
 				if !client.IsEnabled() {
 					return nil, nil, false
@@ -913,25 +1012,54 @@ func (c *AggregatorConfig) Validate() error {
 	return nil
 }
 
-func (c *AggregatorConfig) LoadFromEnvironment() error {
+// ResolveSecrets resolves the aggregator's credentials into the config, with the secrets file winning
+// over environment variables. It supersedes the former LoadFromEnvironment: the storage URL, the redis
+// password, and the per-client inbound HMAC pairs now come from the secrets file when present, falling
+// back to the legacy env vars otherwise.
+//
+// s may be nil (equivalent to "no secrets file"), in which case every value resolves purely from the
+// environment — the backwards-compatible path. Client credentials are resolved per client:
+// a client for which the file supplies any pairs takes those and ignores its env-var pairs entirely.
+func (c *AggregatorConfig) ResolveSecrets(s *secrets.Secrets) error {
 	if c.Storage.StorageType == StorageTypePostgreSQL {
-		storageURL := os.Getenv("AGGREGATOR_STORAGE_CONNECTION_URL")
+		storageURL := s.StorageURL()
 		if storageURL == "" {
-			return errors.New("AGGREGATOR_STORAGE_CONNECTION_URL environment variable is required")
+			return errors.New("aggregator storage connection URL is required: set [storage].url in the secrets file or the AGGREGATOR_STORAGE_CONNECTION_URL environment variable")
 		}
 		c.Storage.ConnectionURL = storageURL
 	}
 
+	c.resolveClientSecrets(s.ClientSecrets())
+
 	if c.RateLimiting.Storage.Type == RateLimiterStoreTypeRedis && c.RateLimiting.Enabled {
-		if err := c.loadRateLimiterRedisConfigFromEnvironment(); err != nil {
-			return fmt.Errorf("failed to load rate limiter redis config from environment: %w", err)
+		if err := c.loadRateLimiterRedisConfig(s); err != nil {
+			return fmt.Errorf("failed to load rate limiter redis config: %w", err)
 		}
 	}
 
 	return nil
 }
 
-func (c *AggregatorConfig) loadRateLimiterRedisConfigFromEnvironment() error {
+// resolveClientSecrets applies the secrets file's per-client credentials to the config.
+// Clients absent from fileClients keep their env-var pairs untouched.
+func (c *AggregatorConfig) resolveClientSecrets(fileClients secrets.ClientSecrets) {
+	if len(fileClients) == 0 {
+		return
+	}
+	for _, client := range c.APIClients {
+		creds, ok := fileClients[client.ClientID]
+		if !ok {
+			continue
+		}
+		resolved := make([]resolvedAPIKeyPair, 0, len(creds))
+		for _, cr := range creds {
+			resolved = append(resolved, resolvedAPIKeyPair{apiKey: cr.APIKey, secret: cr.SecretKey})
+		}
+		client.resolvedPairs = resolved
+	}
+}
+
+func (c *AggregatorConfig) loadRateLimiterRedisConfig(s *secrets.Secrets) error {
 	redisAddress := os.Getenv("AGGREGATOR_REDIS_ADDRESS")
 	if redisAddress == "" {
 		return errors.New("AGGREGATOR_REDIS_ADDRESS environment variable is required")
@@ -941,8 +1069,8 @@ func (c *AggregatorConfig) loadRateLimiterRedisConfigFromEnvironment() error {
 	}
 	c.RateLimiting.Storage.Redis.Address = redisAddress
 
-	redisPassword := os.Getenv("AGGREGATOR_REDIS_PASSWORD")
-	c.RateLimiting.Storage.Redis.Password = redisPassword
+	// Password comes from the secrets file when present, otherwise AGGREGATOR_REDIS_PASSWORD.
+	c.RateLimiting.Storage.Redis.Password = s.RedisPassword()
 
 	redisDBStr := os.Getenv("AGGREGATOR_REDIS_DB")
 	if redisDBStr != "" {

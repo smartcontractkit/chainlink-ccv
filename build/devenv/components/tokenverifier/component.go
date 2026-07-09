@@ -89,16 +89,10 @@ func (c *component) RunPhase4(
 			continue
 		}
 
-		template, tmplErr := tvIn.GenerateTemplateConfig()
-		if tmplErr != nil {
-			return nil, nil, fmt.Errorf("tokenverifier: generating template config: %w", tmplErr)
-		}
-
 		cs := ccvchangesets.GenerateTokenVerifierConfig()
 		output, csErr := cs.Apply(localEnv, ccvchangesets.GenerateTokenVerifierConfigInput{
 			ServiceIdentifier: "TokenVerifier",
 			ChainSelectors:    selectors,
-			PyroscopeURL:      template.PyroscopeURL,
 			Lombard: ccvchangesets.LombardConfigInput{
 				VerifierID:     "LombardVerifier",
 				Qualifier:      devenvcommon.LombardVerifierResolverQualifier,

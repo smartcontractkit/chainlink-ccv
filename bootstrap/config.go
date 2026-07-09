@@ -100,18 +100,16 @@ func (c ChainRegistration) validate() error {
 	return nil
 }
 
-// Config is the configuration for the bootstrapper.
-// Example config:
+// NonSecretConfig is the non-secret half of the bootstrap config: the sections that carry no
+// credentials. It is embedded into Config, so its sections ([jd], [server], [[chains]],
+// [Monitoring]) decode and encode at the top level exactly as if declared on Config directly.
+// devenv marshals this type on its own to produce the non-secret config file.
+//
+// Example non-secret config file (config.toml):
 /*
 	[jd]
 	server_wsrpc_url = "ws://localhost:8080/ws"
 	server_csa_public_key = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-
-	[keystore]
-	password = "password"
-
-	[db]
-	url = "postgres://localhost:5432/bootstrapper"
 
 	[server]
 	listen_port = 9988
@@ -120,11 +118,9 @@ func (c ChainRegistration) validate() error {
 	type = "EVM"
 	id = "1"
 */
-type Config struct {
-	JD       JDConfig       `toml:"jd,omitempty"`
-	Keystore KeystoreConfig `toml:"keystore,omitempty"`
-	DB       DBConfig       `toml:"db,omitempty"`
-	Server   ServerConfig   `toml:"server,omitempty"`
+type NonSecretConfig struct {
+	JD     JDConfig     `toml:"jd,omitempty"`
+	Server ServerConfig `toml:"server,omitempty"`
 	// Chains declares the chains on which this node has a signing identity.
 	// Each entry causes the bootstrapper to register the node's signing key for that chain in JD.
 	// Optional: if empty, no signing key sync is performed.
@@ -140,7 +136,35 @@ type Config struct {
 	// verifier, executor) prefer this value and fall back to their deprecated app-config Monitoring field
 	// only when it is nil. The token verifier is the exception: it loads no bootstrap config and keeps
 	// monitoring in its (already operator-provided) mounted app config.
-	Monitoring *monitoring.Config
+	Monitoring *monitoring.Config `toml:"Monitoring"`
+}
+
+// Secrets is the secret half of the bootstrap config: the credential-bearing sections. It is
+// embedded into Config, so its sections ([keystore], [db]) decode and encode at the top level
+// exactly as if declared on Config directly. devenv marshals this type on its own to produce the
+// bootstrap secrets file loaded via BOOTSTRAPPER_SECRETS_PATH.
+//
+// Example secrets file (secrets.toml):
+/*
+	[keystore]
+	password = "password"
+
+	[db]
+	url = "postgres://localhost:5432/bootstrapper"
+*/
+type Secrets struct {
+	Keystore KeystoreConfig `toml:"keystore,omitempty"`
+	DB       DBConfig       `toml:"db,omitempty"`
+}
+
+// Config is the full bootstrap config, composed of its non-secret and secret halves. The two halves
+// are embedded (not nested) so that a legacy monolithic file — carrying all sections at the top
+// level in one file — decodes unchanged, while the split layout decodes the same sections from two
+// files. The partition is the single source of truth for which section belongs in which file:
+// devenv marshals NonSecretConfig and Secrets independently, and the loader overlays them.
+type Config struct {
+	NonSecretConfig
+	Secrets
 }
 
 // validateInfra validates the coupled infra bundle (jd/db/keystore/server/chains).
@@ -218,18 +242,24 @@ func (c *Config) validate(needsInfra bool) error {
 	return errors.Join(errs...)
 }
 
-// LoadAndValidateConfig loads the configuration from a path to a TOML file, in strict mode.
+// LoadAndValidateConfig loads the configuration from one or more TOML files and validates the
+// merged result. Files are decoded into cfg in order, and a later file overlays only the sections
+// it defines — so when both a non-secret config file and a secrets file are provided, the secrets
+// file wins for any section it declares. Validation runs once on the merged struct.
+//
 // needsInfra selects mode-driven validation (see validate): pass true in JD mode, false in
-// static-TOML mode.
-func LoadAndValidateConfig(path string, cfg *Config, needsInfra bool) error {
-	tomlBytes, err := os.ReadFile(path) //nolint:gosec // G304: path is provided by trusted caller
-	if err != nil {
-		return fmt.Errorf("failed to read config file: %w", err)
-	}
-
-	err = parseTOMLStrict(string(tomlBytes), cfg)
-	if err != nil {
-		return fmt.Errorf("failed to parse config: %w", err)
+// static-TOML mode. Because validation runs on the merged struct, "is [db] present and valid" is
+// independent of which file supplied it.
+func LoadAndValidateConfig(paths []string, cfg *Config, needsInfra bool) error {
+	for _, path := range paths {
+		tomlBytes, err := os.ReadFile(path) //nolint:gosec // G304: path is provided by trusted caller
+		if err != nil {
+			return fmt.Errorf("failed to read config file %q: %w", path, err)
+		}
+		// TODO switch to strict mode once config migration is over
+		if err := parseTOML(string(tomlBytes), cfg, false); err != nil {
+			return fmt.Errorf("failed to parse config %q: %w", path, err)
+		}
 	}
 
 	if err := cfg.validate(needsInfra); err != nil {
@@ -238,12 +268,12 @@ func LoadAndValidateConfig(path string, cfg *Config, needsInfra bool) error {
 	return nil
 }
 
-func parseTOMLStrict[T any](tomlString string, out T) error {
+func parseTOML[T any](tomlString string, out *T, strict bool) error {
 	md, err := toml.Decode(tomlString, out)
 	if err != nil {
 		return fmt.Errorf("failed to decode toml: %w", err)
 	}
-	if len(md.Undecoded()) > 0 {
+	if strict && len(md.Undecoded()) > 0 {
 		return fmt.Errorf("strict decode failed, found undecoded fields: %+v", md.Undecoded())
 	}
 	return nil

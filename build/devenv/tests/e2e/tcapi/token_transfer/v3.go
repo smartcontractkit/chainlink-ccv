@@ -138,14 +138,9 @@ func (tc *tokenTransferV3TestCase) Run(ctx context.Context) error {
 	}
 	msgID := sendRes.MessageID
 
-	aggregatorClients, err := tc.lib.AllAggregators()
+	aggregatorClient, indexerMonitor, err := tcapi.SetupOffchainClients(tc.lib, "")
 	if err != nil {
-		return fmt.Errorf("failed to get aggregator clients: %w", err)
-	}
-	aggregatorClient := aggregatorClients[common.DefaultCommitteeVerifierQualifier]
-	indexerMonitor, err := tc.lib.IndexerMonitor()
-	if err != nil {
-		return fmt.Errorf("failed to get indexer monitor: %w", err)
+		return err
 	}
 	testCtx, cleanupFn := tcapi.NewTestingContext(ctx, chainMap, aggregatorClient, indexerMonitor)
 	defer cleanupFn()
@@ -160,7 +155,7 @@ func (tc *tokenTransferV3TestCase) Run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("assert message: %w", err)
 	}
-	if res.AggregatedResult == nil {
+	if aggregatorClient != nil && res.AggregatedResult == nil {
 		return fmt.Errorf("aggregated result is nil")
 	}
 
