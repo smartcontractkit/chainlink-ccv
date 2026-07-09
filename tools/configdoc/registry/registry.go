@@ -251,6 +251,8 @@ func indexerSecretsInstance() any {
 // monitoring; it reuses monitoringConfigInstance so the two docs stay in lockstep.
 func bootstrapConfigInstance() any {
 	return &bootstrap.NonSecretConfig{
+		AppConfigMode:      bootstrap.AppConfigModeJD,
+		LocalAppConfigPath: "/etc/committee-verifier/app.toml",
 		JD: bootstrap.JDConfig{
 			ServerWSRPCURL:     "ws://job-distributor:8080/ws",
 			ServerCSAPublicKey: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",

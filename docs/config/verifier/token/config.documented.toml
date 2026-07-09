@@ -43,10 +43,10 @@ pyroscope_url = ""
 # Unlike the commit (committee) verifier and the executor — which now source monitoring from the
 # operator-provided bootstrap config (bootstrap.Config.Monitoring) rather than their JD-shipped app
 # config — the token verifier intentionally keeps monitoring here, in its app config. It runs in
-# static-TOML mode (bootstrap.WithTOMLAppConfig) with no JD/DB/keystore and therefore loads no
-# bootstrap.Config; its config file is already operator-provided (mounted, not JD-shipped), so this
-# field already satisfies the rule that monitoring must be operator-provided and never delivered via a
-# JD-shipped app config.
+# local app-config mode (app_config_mode = "local_app_config") with no JD/DB/keystore; its app
+# config file is already operator-provided (mounted, not JD-shipped), so this field already
+# satisfies the rule that monitoring must be operator-provided and never delivered via a JD-shipped
+# app config.
 [monitoring]
   # LogLevel specifies the logging level for service logger
   LogLevel = ""

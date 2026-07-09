@@ -37,8 +37,8 @@ func rmnProxyRef(selector uint64) datastore.AddressRef {
 	}
 }
 
-func baseInput(selector uint64) ccvdeploymentadapters.DeployCommitteeVerifierInput {
-	return ccvdeploymentadapters.DeployCommitteeVerifierInput{
+func baseInput(selector uint64) ccvdeploymentadapters.CommitteeVerifierDeployInput {
+	return ccvdeploymentadapters.CommitteeVerifierDeployInput{
 		ChainSelector:     selector,
 		DeployerContract:  "0x0000000000000000000000000000000000000FAC",
 		ExistingAddresses: []datastore.AddressRef{rmnProxyRef(selector)},
@@ -66,59 +66,59 @@ func TestEVMCommitteeVerifierDeployAdapter_Validation(t *testing.T) {
 
 	tests := []struct {
 		name       string
-		mutate     func(in *ccvdeploymentadapters.DeployCommitteeVerifierInput)
+		mutate     func(in *ccvdeploymentadapters.CommitteeVerifierDeployInput)
 		wantErrSub string
 	}{
 		{
 			name:       "chain not in BlockChains",
-			mutate:     func(in *ccvdeploymentadapters.DeployCommitteeVerifierInput) { in.ChainSelector = 1 },
+			mutate:     func(in *ccvdeploymentadapters.CommitteeVerifierDeployInput) { in.ChainSelector = 1 },
 			wantErrSub: "EVM chain not found",
 		},
 		{
 			name: "DeployerContract empty",
-			mutate: func(in *ccvdeploymentadapters.DeployCommitteeVerifierInput) {
+			mutate: func(in *ccvdeploymentadapters.CommitteeVerifierDeployInput) {
 				in.DeployerContract = ""
 			},
 			wantErrSub: "DeployerContract is required",
 		},
 		{
 			name: "DeployerContract not hex",
-			mutate: func(in *ccvdeploymentadapters.DeployCommitteeVerifierInput) {
+			mutate: func(in *ccvdeploymentadapters.CommitteeVerifierDeployInput) {
 				in.DeployerContract = "not-a-hex"
 			},
 			wantErrSub: "is not a valid hex address",
 		},
 		{
 			name: "RMNProxy missing from ExistingAddresses",
-			mutate: func(in *ccvdeploymentadapters.DeployCommitteeVerifierInput) {
+			mutate: func(in *ccvdeploymentadapters.CommitteeVerifierDeployInput) {
 				in.ExistingAddresses = nil
 			},
 			wantErrSub: "RMNProxy",
 		},
 		{
 			name: "FeeAggregator empty",
-			mutate: func(in *ccvdeploymentadapters.DeployCommitteeVerifierInput) {
+			mutate: func(in *ccvdeploymentadapters.CommitteeVerifierDeployInput) {
 				in.Params.FeeAggregator = ""
 			},
 			wantErrSub: "FeeAggregator is required",
 		},
 		{
 			name: "FeeAggregator zero address",
-			mutate: func(in *ccvdeploymentadapters.DeployCommitteeVerifierInput) {
+			mutate: func(in *ccvdeploymentadapters.CommitteeVerifierDeployInput) {
 				in.Params.FeeAggregator = "0x0000000000000000000000000000000000000000"
 			},
 			wantErrSub: "cannot be zero address",
 		},
 		{
 			name: "FeeAggregator malformed",
-			mutate: func(in *ccvdeploymentadapters.DeployCommitteeVerifierInput) {
+			mutate: func(in *ccvdeploymentadapters.CommitteeVerifierDeployInput) {
 				in.Params.FeeAggregator = "not-a-hex"
 			},
 			wantErrSub: "is not a valid hex address",
 		},
 		{
 			name: "AllowlistAdmin malformed",
-			mutate: func(in *ccvdeploymentadapters.DeployCommitteeVerifierInput) {
+			mutate: func(in *ccvdeploymentadapters.CommitteeVerifierDeployInput) {
 				in.Params.AllowlistAdmin = "not-a-hex"
 			},
 			wantErrSub: "is not a valid hex address",
@@ -170,7 +170,7 @@ func TestEVMCommitteeVerifierDeployAdapter_HappyPath(t *testing.T) {
 
 	adapter := &adapters.EVMCommitteeVerifierDeployAdapter{}
 
-	in := ccvdeploymentadapters.DeployCommitteeVerifierInput{
+	in := ccvdeploymentadapters.CommitteeVerifierDeployInput{
 		ChainSelector:     testChainSelector,
 		DeployerContract:  create2FactoryRef.Address,
 		ExistingAddresses: []datastore.AddressRef{rmnProxyRef(testChainSelector)},
@@ -230,7 +230,7 @@ func TestEVMCommitteeVerifierDeployAdapter_AllowlistAdminOptional(t *testing.T) 
 
 	adapter := &adapters.EVMCommitteeVerifierDeployAdapter{}
 
-	in := ccvdeploymentadapters.DeployCommitteeVerifierInput{
+	in := ccvdeploymentadapters.CommitteeVerifierDeployInput{
 		ChainSelector:     testChainSelector,
 		DeployerContract:  create2FactoryRef.Address,
 		ExistingAddresses: []datastore.AddressRef{rmnProxyRef(testChainSelector)},

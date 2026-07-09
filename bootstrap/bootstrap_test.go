@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -149,12 +150,12 @@ var _ ServiceFactory = (*spyServiceFactoryDummy)(nil)
 func TestNewBootstrapper_WithKey_Defaults(t *testing.T) {
 	t.Parallel()
 
-	// Create an empty temp TOML file so WithTOMLAppConfig succeeds without hitting JD config.
-	f, err := os.CreateTemp(t.TempDir(), "*.toml")
-	require.NoError(t, err)
-	require.NoError(t, f.Close())
-
-	b, err := NewBootstrapper("test", &mockServiceFactory{}, WithTOMLAppConfig(f.Name()))
+	// A local-mode bootstrap config avoids hitting JD config at construction.
+	cfgPath, secretsPath := writeBootstrapConfigFiles(t, localBootstrapTOML("/nonexistent/app.toml", ""))
+	b, err := NewBootstrapper("test", &mockServiceFactory{},
+		WithBootstrapperConfigPath(cfgPath),
+		WithBootstrapperSecretsPath(secretsPath),
+	)
 	require.NoError(t, err)
 
 	// No WithKey options → the three original defaults must be applied.
@@ -167,12 +168,10 @@ func TestNewBootstrapper_WithKey_Defaults(t *testing.T) {
 func TestNewBootstrapper_WithKey_Explicit(t *testing.T) {
 	t.Parallel()
 
-	f, err := os.CreateTemp(t.TempDir(), "*.toml")
-	require.NoError(t, err)
-	require.NoError(t, f.Close())
-
+	cfgPath, secretsPath := writeBootstrapConfigFiles(t, localBootstrapTOML("/nonexistent/app.toml", ""))
 	b, err := NewBootstrapper("test", &mockServiceFactory{},
-		WithTOMLAppConfig(f.Name()),
+		WithBootstrapperConfigPath(cfgPath),
+		WithBootstrapperSecretsPath(secretsPath),
 		WithKey("my_csa", "csa", keystore.Ed25519),
 		WithKey("my_signing", "signing", keystore.ECDSA_S256),
 	)
@@ -310,7 +309,7 @@ count = 42`
 	})
 }
 
-func TestBootstrapper_Stop_StaticConfig_ClosesAccessors(t *testing.T) {
+func TestBootstrapper_Stop_LocalKeystoreless_ClosesAccessors(t *testing.T) {
 	t.Parallel()
 	acc := mocks.NewMockAccessor(t)
 	acc.EXPECT().Close().Return(nil).Once()
@@ -324,10 +323,13 @@ func TestBootstrapper_Stop_StaticConfig_ClosesAccessors(t *testing.T) {
 			return nil
 		},
 	}
-	f, err := os.CreateTemp(t.TempDir(), "*.toml")
-	require.NoError(t, err)
-	require.NoError(t, f.Close())
-	b, err := NewBootstrapper("t", fac, WithTOMLAppConfig(f.Name()))
+	// Local mode with no [db]/[keystore] bootstrap config → keystore-less start (like the token verifier).
+	appPath := writeAppConfigFile(t, "")
+	cfgPath, secretsPath := writeBootstrapConfigFiles(t, localBootstrapTOML(appPath, ""))
+	b, err := NewBootstrapper("t", fac,
+		WithBootstrapperConfigPath(cfgPath),
+		WithBootstrapperSecretsPath(secretsPath),
+	)
 	require.NoError(t, err)
 	require.NoError(t, b.Start(t.Context()))
 	require.NotNil(t, b.accCloser)
@@ -453,6 +455,139 @@ func TestBuildUpdateNodeRequest(t *testing.T) {
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "not implemented")
 	})
+}
+
+// --- mode resolution tests ---
+
+// writeBootstrapConfigFiles writes contents to a bootstrap config.toml under a temp dir and returns
+// its path plus a (deliberately nonexistent) secrets path, so the optional secrets overlay is
+// skipped regardless of what exists on the host. Parallel-safe (no env vars).
+func writeBootstrapConfigFiles(t *testing.T, contents string) (cfgPath, secretsPath string) {
+	t.Helper()
+	dir := t.TempDir()
+	cfgPath = filepath.Join(dir, "config.toml")
+	require.NoError(t, os.WriteFile(cfgPath, []byte(contents), 0o600))
+	return cfgPath, filepath.Join(dir, "no-secrets.toml")
+}
+
+// writeAppConfigFile writes an app-config TOML under a temp dir and returns its path.
+func writeAppConfigFile(t *testing.T, contents string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "app.toml")
+	require.NoError(t, os.WriteFile(path, []byte(contents), 0o600))
+	return path
+}
+
+// localBootstrapTOML builds a local-mode bootstrap config: app_config_mode + local_app_config_path,
+// plus [db]/[keystore] when dbURL is non-empty (so the keystore initializes).
+func localBootstrapTOML(appConfigPath, dbURL string) string {
+	s := "app_config_mode = \"" + string(AppConfigModeLocal) + "\"\n" +
+		"local_app_config_path = \"" + appConfigPath + "\"\n"
+	if dbURL != "" {
+		s += "[db]\nurl = \"" + dbURL + "\"\n[keystore]\npassword = \"testpassword\"\n"
+	}
+	return s
+}
+
+func TestNewBootstrapper_ModeResolution(t *testing.T) {
+	t.Parallel()
+
+	t.Run("app_config_mode=local_app_config resolves to local mode", func(t *testing.T) {
+		t.Parallel()
+		// A non-connectable DB URL is fine: NewBootstrapper only validates presence; the connection
+		// happens in Start.
+		cfgPath, secretsPath := writeBootstrapConfigFiles(t, localBootstrapTOML("/etc/myapp/app.toml", "postgres://localhost:5432/db"))
+		b, err := NewBootstrapper("t", &mockServiceFactory{},
+			WithBootstrapperConfigPath(cfgPath),
+			WithBootstrapperSecretsPath(secretsPath),
+		)
+		require.NoError(t, err)
+		require.Equal(t, AppConfigModeLocal, b.mode)
+		require.Equal(t, "/etc/myapp/app.toml", b.localConfigPath)
+	})
+
+	t.Run("omitted app_config_mode defaults to JD", func(t *testing.T) {
+		t.Parallel()
+		// A config with no app_config_mode and no [jd] resolves to JD and fails JD validation — proof
+		// that the default is JD (a local default would have passed, since local ignores [jd]).
+		cfgPath, secretsPath := writeBootstrapConfigFiles(t, "[db]\nurl = \"postgres://localhost:5432/db\"\n[keystore]\npassword = \"x\"\n")
+		_, err := NewBootstrapper("t", &mockServiceFactory{},
+			WithBootstrapperConfigPath(cfgPath),
+			WithBootstrapperSecretsPath(secretsPath),
+		)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "failed to validate 'jd' section")
+	})
+
+	t.Run("local mode requires local_app_config_path", func(t *testing.T) {
+		t.Parallel()
+		cfgPath, secretsPath := writeBootstrapConfigFiles(t, "app_config_mode = \"local_app_config\"\n")
+		_, err := NewBootstrapper("t", &mockServiceFactory{},
+			WithBootstrapperConfigPath(cfgPath),
+			WithBootstrapperSecretsPath(secretsPath),
+		)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "local_app_config_path")
+	})
+
+	t.Run("invalid app_config_mode errors", func(t *testing.T) {
+		t.Parallel()
+		cfgPath, secretsPath := writeBootstrapConfigFiles(t, "app_config_mode = \"bogus\"\n")
+		_, err := NewBootstrapper("t", &mockServiceFactory{},
+			WithBootstrapperConfigPath(cfgPath),
+			WithBootstrapperSecretsPath(secretsPath),
+		)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "app_config_mode")
+	})
+}
+
+// TestBootstrapper_LocalMode_StartStop drives the full local-mode lifecycle against a real Postgres
+// keystore: Start reads the local app-config file and invokes the factory with a non-nil keystore,
+// and Stop tears it down.
+func TestBootstrapper_LocalMode_StartStop(t *testing.T) {
+	dbURL, cleanup := setupBootstrapTestDB(t)
+	defer cleanup()
+
+	appPath := writeAppConfigFile(t, "name = \"hello\"\ncount = 7\n")
+	cfgPath, secretsPath := writeBootstrapConfigFiles(t, localBootstrapTOML(appPath, dbURL))
+
+	var (
+		started     bool
+		stopped     bool
+		gotKeystore keystore.Keystore
+		gotCfg      dummyAppConfig
+	)
+	fac := &spyServiceFactoryDummy{
+		startFn: func(_ context.Context, cfg dummyAppConfig, deps ServiceDeps) error {
+			started = true
+			gotKeystore = deps.Keystore
+			gotCfg = cfg
+			return nil
+		},
+		stopFn: func(context.Context) error { stopped = true; return nil },
+	}
+
+	b, err := NewBootstrapper("local-test", fac,
+		WithBootstrapperConfigPath(cfgPath),
+		WithBootstrapperSecretsPath(secretsPath),
+	)
+	require.NoError(t, err)
+	require.Equal(t, AppConfigModeLocal, b.mode)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	require.NoError(t, b.Start(ctx))
+	require.True(t, started, "factory Start must be called in local mode")
+	require.NotNil(t, gotKeystore, "local mode with [db]+[keystore] must provide a keystore to the factory")
+	require.Equal(t, "hello", gotCfg.Name)
+	require.Equal(t, 7, gotCfg.Count)
+	require.NotNil(t, b.accCloser)
+
+	require.NoError(t, b.Stop(ctx))
+	require.True(t, stopped, "factory Stop must be called on Stop")
+	require.Nil(t, b.accCloser, "accCloser must be cleared after Stop")
 }
 
 func TestChainTypeFromString(t *testing.T) {

@@ -30,6 +30,12 @@ type BootstrapInput struct {
 	Keystore   *bootstrap.KeystoreConfig `toml:"keystore"`
 	Server     *bootstrap.ServerConfig   `toml:"server"`
 	Monitoring *monitoring.Config        `toml:"monitoring"`
+	// AppConfigMode and LocalAppConfigPath select the bootstrapper lifecycle in the generated
+	// non-secret config. Left empty they default to JD mode (backward compatible). In local mode,
+	// AppConfigMode is "local_app_config" and LocalAppConfigPath is the in-container path of the
+	// mounted app-config file. Set at launch, not from env.toml.
+	AppConfigMode      bootstrap.AppConfigMode `toml:"-"`
+	LocalAppConfigPath string                  `toml:"-"`
 	// These fields can't be specified in the env.toml without actually spinning up the environment.
 	// They get populated while the environment is being spun up.
 	DB *bootstrap.DBConfig `toml:"-"`
@@ -89,10 +95,12 @@ func CreateBootstrapDBInitScriptFile() (path string, err error) {
 // It marshals bootstrap.NonSecretConfig directly so the partition stays defined in one place.
 func GenerateBootstrapConfig(in BootstrapInput) ([]byte, error) {
 	return toml.Marshal(bootstrap.NonSecretConfig{
-		JD:         *in.JD,
-		Server:     *in.Server,
-		Chains:     in.Chains,
-		Monitoring: in.Monitoring,
+		AppConfigMode:      in.AppConfigMode,
+		LocalAppConfigPath: in.LocalAppConfigPath,
+		JD:                 *in.JD,
+		Server:             *in.Server,
+		Chains:             in.Chains,
+		Monitoring:         in.Monitoring,
 	})
 }
 

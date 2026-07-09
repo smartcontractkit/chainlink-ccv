@@ -26,6 +26,18 @@ generated from the Go doc comments on the config structs. Edit the doc comment (
 generated file), then regenerate with `just config-docs`. CI fails if the committed docs
 are out of date. See [`docs/config/README.md`](./docs/config/README.md) for details.
 
+## Versioning & releases
+
+The importable Go modules in this repo are independently versioned and tagged by
+[Release Please](https://github.com/googleapis/release-please), driven by
+[Conventional Commit](https://www.conventionalcommits.org/) PR titles. Managed modules and
+their tag formats: root (`vX.Y.Z`), `deployment/vX.Y.Z`, `build/devenv/vX.Y.Z`,
+`integration/evm/vX.Y.Z`. All are pre-`1.0`, so breaking changes bump the minor version.
+
+See [`CONTRIBUTING.md`](./CONTRIBUTING.md) for the PR-title format and
+[`docs/adr/0007-release-please-multi-module-versioning.md`](./docs/adr/0007-release-please-multi-module-versioning.md)
+for the rationale.
+
 ## Local Dev Environment
 Follow the [README](./build/devenv/README.md)
 
