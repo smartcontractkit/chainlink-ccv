@@ -15,6 +15,7 @@ type ConfigWithBlockchainInfos struct {
 }
 
 type Config struct {
+	// PyroscopeURL is the Pyroscope server URL for continuous profiling; empty disables it.
 	PyroscopeURL string `json:"pyroscope_url" toml:"pyroscope_url"`
 	// TokenVerifiers is a list of token verifier configurations. Each entry defines a token verifier instance with its own type, version and configuration.
 	TokenVerifiers []VerifierConfig `json:"token_verifiers" toml:"token_verifiers"`

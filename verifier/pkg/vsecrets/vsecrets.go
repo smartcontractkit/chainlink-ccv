@@ -45,6 +45,7 @@ type SecretsFile struct {
 // DBSecrets holds the application storage database URL. This is the verifier's own storage DB
 // (CL_DATABASE_URL), distinct from the bootstrapper's keystore-ORM [db].
 type DBSecrets struct {
+	// URL is the verifier's application storage database connection URL (CL_DATABASE_URL).
 	URL string `toml:"url"`
 }
 
@@ -56,9 +57,12 @@ type DBSecrets struct {
 // This is deliberately a minimal, credential-only struct: the secrets file carries credentials,
 // never connection settings such as address or TLS.
 type AggregatorSecret struct {
+	// SecretName is the join key back to the committee verifier config's aggregators.secret_name; omit for the legacy single-aggregator default.
 	SecretName string `toml:"secret_name"`
-	APIKey     string `toml:"api_key"`
-	SecretKey  string `toml:"secret_key"`
+	// APIKey is this aggregator's inbound HMAC API key.
+	APIKey string `toml:"api_key"`
+	// SecretKey is this aggregator's inbound HMAC secret key.
+	SecretKey string `toml:"secret_key"`
 }
 
 // AggregatorSecrets is the resolved set of aggregator HMAC credentials, indexed by raw SecretName
