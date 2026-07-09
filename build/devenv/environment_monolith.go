@@ -81,15 +81,12 @@ func NewEnvironment() (in *Cfg, err error) {
 	// END: Read Config toml //
 	/////////////////////////////
 
-	// local selects the no-JD path (app_config_source = "local"): no Job Distributor is started, the
-	// committee verifiers run in bootstrap local mode (their app config is delivered as a mounted file
-	// after contracts are deployed), and their signer addresses are read from the bootstrap info server
-	// instead of JD. Executors are not yet supported without JD and are skipped (CCIP-12198 follow-up).
+	// local selects the no-JD path (app_config_source = "local"): no Job Distributor is started, and
+	// the committee verifiers and executors run in bootstrap local mode — each service's app config is
+	// delivered as a mounted file after contracts are deployed, and verifier signer addresses are read
+	// from the bootstrap info server instead of JD. This is the full send -> verify -> execute flow
+	// without the JD image.
 	local := in.IsLocal()
-	if local && len(in.Executor) > 0 {
-		L.Warn().Int("executors", len(in.Executor)).
-			Msg("app_config_source=local: executors require JD and are skipped in local mode (CCIP-12198 follow-up)")
-	}
 
 	// Start fake data provider. Used for USDC verifier.
 	fakeOut, err := services.NewFake(in.Fake)
@@ -652,11 +649,13 @@ func NewEnvironment() (in *Cfg, err error) {
 	// START: Launch executors //
 	/////////////////////////////
 
-	// Executors are launched only in JD mode. In local (no-JD) mode they are skipped: the executor
-	// still hard-requires a Job Distributor for registration and job delivery, so no-JD executor
-	// support is a separate follow-up (CCIP-12198). The verifier path above is fully functional
-	// without it — messages are verified and written to the aggregator.
-	if !local {
+	// In local (no-JD) mode executors run in bootstrap local mode: their config is delivered as a
+	// mounted file instead of a JD job proposal. In JD mode they register with and receive jobs from JD.
+	if local {
+		if err := launchAndConfigureLocalExecutors(ctx, in, e, topology, blockchainOutputs, impls, ds); err != nil {
+			return nil, err
+		}
+	} else {
 		if err := launchAndConfigureExecutors(ctx, in, e, topology, blockchainOutputs, impls, ds, jdInfra); err != nil {
 			return nil, err
 		}

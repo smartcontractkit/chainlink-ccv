@@ -43,8 +43,9 @@ const (
 	// local_app_config_path). A directory is mounted rather than a single file so devenv can deliver the
 	// config AFTER the container starts (the bootstrapper waits for the file to appear): a file bind
 	// mount pins one host inode, so a later atomic rewrite on the host would not be visible, whereas a
-	// new file appearing in a mounted directory is.
-	localAppConfigContainerDir  = "/etc/committee-verifier"
+	// new file appearing in a mounted directory is. It is a dedicated directory (not /etc/committee-verifier,
+	// which already holds the mounted secrets.toml) so the dir mount does not nest the secrets file mount.
+	localAppConfigContainerDir  = "/etc/committee-verifier-app"
 	localAppConfigContainerPath = localAppConfigContainerDir + "/app.toml"
 )
 
@@ -456,33 +457,13 @@ func launchVerifier(ctx context.Context, in *Input, outputs []*blockchain.Output
 
 // DeliverLocalAppConfig writes the app-config TOML to the host path bind-mounted into a local-mode
 // verifier container, so the bootstrapper (which has been waiting with its keys exposed) starts the
-// service. It writes to a temp file in the same directory and renames it into place so the waiting
-// bootstrapper never observes a partial file. Used by the no-JD devenv path, which cannot supply the
-// config at launch because it depends on contract addresses deployed after the verifier is up.
+// service. Used by the no-JD devenv path, which cannot supply the config at launch because it depends
+// on contract addresses deployed after the verifier is up.
 func DeliverLocalAppConfig(out *Output, appConfigTOML string) error {
-	if out == nil || out.LocalAppConfigHostPath == "" {
-		return fmt.Errorf("verifier output has no local app config path; was it launched in local mode?")
+	if out == nil {
+		return fmt.Errorf("verifier output is nil; was it launched in local mode?")
 	}
-	dir := filepath.Dir(out.LocalAppConfigHostPath)
-	tmp, err := os.CreateTemp(dir, ".app-*.toml")
-	if err != nil {
-		return fmt.Errorf("failed to create temp app config file: %w", err)
-	}
-	tmpName := tmp.Name()
-	if _, err := tmp.WriteString(appConfigTOML); err != nil {
-		_ = tmp.Close()
-		_ = os.Remove(tmpName)
-		return fmt.Errorf("failed to write temp app config: %w", err)
-	}
-	if err := tmp.Close(); err != nil {
-		_ = os.Remove(tmpName)
-		return fmt.Errorf("failed to close temp app config: %w", err)
-	}
-	if err := os.Rename(tmpName, out.LocalAppConfigHostPath); err != nil {
-		_ = os.Remove(tmpName)
-		return fmt.Errorf("failed to move app config into place: %w", err)
-	}
-	return nil
+	return services.WriteLocalAppConfigFile(out.LocalAppConfigHostPath, appConfigTOML)
 }
 
 func startContainer(ctx context.Context, req testcontainers.ContainerRequest) (testcontainers.Container, error) {

@@ -185,6 +185,9 @@ func TestServiceCommitteeVerifierLocalModeDeferredConfig(t *testing.T) {
 		Type:          ctfblockchain.TypeAnvil,
 		ChainID:       chainID,
 		ContainerName: "anvil-localdefer-1337",
+		// Distinct host port from TestServiceCommitteeVerifierLocalMode's anvil (default 8545) so both
+		// tests can run in the same session without a port clash.
+		Port: "8547",
 	})
 	require.NoError(t, err, "failed to launch anvil chain")
 
@@ -251,6 +254,12 @@ func TestServiceCommitteeVerifierLocalModeDeferredConfig(t *testing.T) {
 		ContainerName: verifierContainerName,
 		CommitteeName: committeeName,
 		ChainFamily:   chainsel.FamilyEVM,
+		// Distinct DB name/port from TestServiceCommitteeVerifierLocalMode so both run in one session.
+		DB: &committeeverifier.DBInput{
+			Image: "postgres:16-alpine",
+			Name:  "verifier-localdefer-db",
+			Port:  8433,
+		},
 		Env: &committeeverifier.EnvConfig{
 			AggregatorAPIKey:    verifierCreds.APIKey,
 			AggregatorSecretKey: verifierCreds.Secret,

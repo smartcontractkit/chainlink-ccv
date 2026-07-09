@@ -17,10 +17,10 @@ func TestLoadLocalConfigEnv(t *testing.T) {
 	assert.Equal(t, AppConfigSourceLocal, in.AppConfigSource)
 	assert.True(t, in.IsLocal(), "IsLocal must be true for app_config_source = local")
 
-	// The no-JD example declares no Job Distributor, no executors, and at least one verifier.
+	// The no-JD example declares no Job Distributor but a full verifier + executor flow.
 	assert.Nil(t, in.JD, "local example must not declare a [jd] block")
-	assert.Empty(t, in.Executor, "local example must not declare executors (JD-only, skipped in local mode)")
 	require.NotEmpty(t, in.Verifier, "local example must declare a committee verifier")
+	require.NotEmpty(t, in.Executor, "local example must declare an executor for the full flow")
 }
 
 // TestDefaultAppConfigSourceIsJD confirms the historical default: an env with no app_config_source

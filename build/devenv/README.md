@@ -192,14 +192,15 @@ ccv up env-local-config.toml
 In local mode:
 
 - No Job Distributor is started.
-- Each committee verifier runs in bootstrap local mode: it boots serving its signing keys, and its app
-  config is delivered as a mounted file after contracts are deployed (the bootstrapper waits for it).
+- Committee verifiers and executors run in bootstrap local mode: each boots serving its keys, and its
+  app config is delivered as a mounted file after contracts are deployed (the bootstrapper waits for
+  it).
 - Verifier signer addresses are read from the bootstrap info server instead of JD, then used to
-  configure the on-chain committee and the aggregator.
+  configure the on-chain committee and the aggregator. Executor transmitters are funded from the same
+  bootstrap keys.
 
-Scope: this covers the committee verifier end-to-end (verify + write to the aggregator). Executors
-still require JD and are skipped in local mode — cross-chain message *execution* on the destination is
-a follow-up (CCIP-12198). `env-local-config.toml` is a minimal single-committee example to copy.
+This covers the full send -> verify -> execute flow without the JD image. `env-local-config.toml` is a
+minimal single-committee, single-executor example to copy.
 
 ### Developing the environment
 

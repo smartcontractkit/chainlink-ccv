@@ -40,6 +40,11 @@ alias = "default-verifier-1"
 name = "default-verifier-1"
 mode = "standalone"
 
+[[environment_topology.nop_topology.nops]]
+alias = "default-executor-1"
+name = "default-executor-1"
+mode = "standalone"
+
 [environment_topology.nop_topology.committees.default]
 qualifier = "default"
 verifier_version = "2.0.0"
@@ -56,6 +61,14 @@ threshold = 1
 [environment_topology.nop_topology.committees.default.chain_configs.12922642891491394802]
 nop_aliases = ["default-verifier-1"]
 threshold = 1
+
+[environment_topology.executor_pools.default.chain_configs."3379446385462418246"]
+nop_aliases = ["default-executor-1"]
+execution_interval = 15_000_000_000
+
+[environment_topology.executor_pools.default.chain_configs."12922642891491394802"]
+nop_aliases = ["default-executor-1"]
+execution_interval = 15_000_000_000
 
 [cldf]
 
@@ -97,6 +110,18 @@ threshold = 1
     image = "postgres:16-alpine"
     name = "default-verifier-1-db"
     port = 8432
+
+## Single executor. Its bootstrap mode is forced to local by app_config_source = "local".
+[[executor]]
+  image = "executor:latest"
+  source_code_path = "../executor"
+  root_path = "../../"
+  container_name = "default-executor-1"
+  nop_alias = "default-executor-1"
+  executor_qualifier = "default"
+  [executor.db]
+    image = "postgres:16-alpine"
+    name = "default-executor-1-db"
 
 [[indexer]]
   image = "indexer:latest"

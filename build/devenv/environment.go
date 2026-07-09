@@ -979,7 +979,7 @@ func fundExecutorTransmitters(
 func launchExecutors(in []*executorsvc.Input, blockchainOutputs []*blockchain.Output, jdInfra *jobs.JDInfrastructure) ([]*executorsvc.Output, error) {
 	var outs []*executorsvc.Output
 	for _, exec := range in {
-		if exec == nil || exec.Mode != services.Standalone {
+		if exec == nil || (exec.Mode != services.Standalone && exec.Mode != services.Local) {
 			continue
 		}
 		if exec.Out != nil {
@@ -1492,6 +1492,95 @@ func launchAndConfigureExecutors(
 		if err := proposeJobsToExecutors(ctx, in.Executor, executorJobSpecs, blockchainOutputs, jdInfra.OffchainClient); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// launchAndConfigureLocalExecutors is the no-JD counterpart of launchAndConfigureExecutors. It forces
+// each executor into local mode, launches them (so their bootstrappers come up serving keys), funds
+// their transmitters from the fetched bootstrap keys, generates their configs (ApplyExecutorConfig
+// runs with no JD via AllowMissingJD), and delivers each config as a mounted file the waiting
+// bootstrapper picks up. No JD registration or job proposal.
+func launchAndConfigureLocalExecutors(
+	ctx context.Context,
+	in *Cfg,
+	e *deployment.Environment,
+	topology *ccvdeployment.EnvironmentTopology,
+	blockchainOutputs []*blockchain.Output,
+	impls []cciptestinterfaces.CCIP17Configuration,
+	ds datastore.MutableDataStore,
+) error {
+	monitoring := topology.Monitoring
+	for _, exec := range in.Executor {
+		if exec == nil {
+			continue
+		}
+		// The no-JD environment runs every executor in bootstrap local mode, overriding the env file.
+		exec.Mode = services.Local
+		if exec.Bootstrap == nil {
+			exec.Bootstrap = &services.BootstrapInput{}
+		}
+		m := monitoring
+		exec.Bootstrap.Monitoring = &m
+	}
+
+	if _, err := launchExecutors(in.Executor, blockchainOutputs, nil); err != nil {
+		return fmt.Errorf("failed to create local executors: %w", err)
+	}
+	if err := fundExecutorTransmitters(ctx, in.Executor, in.Blockchains, impls); err != nil {
+		return fmt.Errorf("failed to fund executor transmitters: %w", err)
+	}
+
+	executorJobSpecs, err := generateExecutorJobSpecs(e, in, topology, ds)
+	if err != nil {
+		return err
+	}
+	return deliverLocalExecutorConfigs(in.Executor, executorJobSpecs, blockchainOutputs)
+}
+
+// deliverLocalExecutorConfigs writes each local-mode executor's generated app config (with
+// blockchain_infos inlined) to the file its bootstrapper is waiting on — the no-JD counterpart of
+// proposeJobsToExecutors.
+func deliverLocalExecutorConfigs(
+	executors []*executorsvc.Input,
+	executorJobSpecs map[string]bootstrap.JobSpec,
+	blockchainOutputs []*blockchain.Output,
+) error {
+	for _, exec := range executors {
+		if exec == nil || exec.Mode != services.Local {
+			continue
+		}
+		if exec.Out == nil {
+			return fmt.Errorf("executor %s has no output; was it launched?", exec.ContainerName)
+		}
+
+		reg, err := chainreg.GetRegistry().Get(exec.ChainFamily)
+		if err != nil {
+			return fmt.Errorf("failed to get chain registration for family %s: %w", exec.ChainFamily, err)
+		}
+		if reg.ChainConfigLoader == nil {
+			return fmt.Errorf("chain config loader for family %s not found", exec.ChainFamily)
+		}
+		blockchainInfos, err := reg.ChainConfigLoader(blockchainOutputs)
+		if err != nil {
+			return fmt.Errorf("failed to load chain config for family %s: %w", exec.ChainFamily, err)
+		}
+
+		baseJobSpec, ok := executorJobSpecs[exec.ContainerName]
+		if !ok {
+			return fmt.Errorf("no job spec found for executor %s", exec.ContainerName)
+		}
+		appConfig, err := executorsvc.BuildExecutorAppConfigWithBlockchainInfos(baseJobSpec, blockchainInfos)
+		if err != nil {
+			return fmt.Errorf("failed to build local app config for %s: %w", exec.ContainerName, err)
+		}
+		if err := executorsvc.DeliverLocalAppConfig(exec.Out, appConfig); err != nil {
+			return fmt.Errorf("failed to deliver local app config to %s: %w", exec.ContainerName, err)
+		}
+		L.Info().
+			Str("executor", exec.ContainerName).
+			Str("path", exec.Out.LocalAppConfigHostPath).
+			Msg("Delivered app config to local-mode executor")
 	}
 	return nil
 }
