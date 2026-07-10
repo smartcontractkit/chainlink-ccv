@@ -443,7 +443,8 @@ func (b *Bootstrapper) startWithJDLifecycle(ctx context.Context) error {
 	}
 	jdMetrics, err := lifecycle.InitMetrics()
 	if err != nil {
-		return fmt.Errorf("failed to init JD lifecycle metrics: %w", err)
+		b.lggr.Warnw("Failed to init JD lifecycle metrics; continuing without metrics", "error", err)
+		jdMetrics = nil
 	}
 	lifecycleManager, err := lifecycle.NewManager(lifecycle.Config{
 		JDClient:      jdClient,

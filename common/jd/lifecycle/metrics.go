@@ -29,9 +29,8 @@ const (
 
 // Metrics records JD lifecycle proposal outcomes.
 type Metrics interface {
-	// IncProposal records the terminal outcome of a proposal exactly once.
-	// result is resultSuccess when a job is running at the end of the flow and
-	// resultError when the proposal aborted without a running job.
+	// IncProposal records the terminal outcome of handling a proposal exactly once.
+	// result is resultSuccess when handleProposal/retryPendingJob returns nil, and resultError otherwise.
 	IncProposal(ctx context.Context, result string, replacement bool)
 	// IncStepError records a single failed step within a proposal. It may be
 	// called multiple times per proposal (once per failing step) and is
