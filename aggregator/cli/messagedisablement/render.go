@@ -6,6 +6,8 @@ import (
 	"time"
 
 	"github.com/olekukonko/tablewriter"
+	"github.com/olekukonko/tablewriter/renderer"
+	"github.com/olekukonko/tablewriter/tw"
 
 	rules "github.com/smartcontractkit/chainlink-ccv/common/messagerules"
 )
@@ -15,10 +17,21 @@ func renderList(disablementRules []rules.Rule) error {
 		fmt.Println("No message disablement rules found.") //nolint:forbidigo // CLI user output
 		return nil
 	}
-	table := tablewriter.NewWriter(os.Stdout)
-	table.SetAutoFormatHeaders(false)
-	table.SetHeader([]string{"ID", "Type", "Data", "Created At", "Updated At"})
-	table.SetBorder(false)
+
+	table := tablewriter.NewTable(os.Stdout,
+		tablewriter.WithRenderer(renderer.NewBlueprint(tw.Rendition{
+			Borders: tw.BorderNone,
+		})),
+		tablewriter.WithConfig(tablewriter.Config{
+			Header: tw.CellConfig{
+				Formatting: tw.CellFormatting{
+					AutoFormat: tw.Off,
+				},
+			},
+		}),
+	)
+	table.Header("ID", "Type", "Data", "Created At", "Updated At")
+
 	for _, rule := range disablementRules {
 		_, data, err := rules.EncodeRuleData(rule.Data)
 		if err != nil {
@@ -32,7 +45,11 @@ func renderList(disablementRules []rules.Rule) error {
 			formatTime(rule.UpdatedAt),
 		})
 	}
-	table.Render()
+
+	if err := table.Render(); err != nil {
+		fmt.Errorf("failed to render disablement rules table: %w", err)
+	}
+
 	return nil
 }
 

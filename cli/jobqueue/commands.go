@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"github.com/olekukonko/tablewriter"
+	"github.com/olekukonko/tablewriter/renderer"
+	"github.com/olekukonko/tablewriter/tw"
 	"github.com/urfave/cli"
 
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -201,13 +203,20 @@ func renderJobs(jobs []ArchivedJob) error {
 		return nil
 	}
 
-	table := tablewriter.NewWriter(os.Stdout)
-	table.SetAutoFormatHeaders(false)
-	table.SetBorder(false)
-	table.SetHeader([]string{
-		"Queue", "Job ID", "Message ID", "Owner ID",
-		"Chain Selector", "Attempts", "Last Error", "Created At", "Archived At",
-	})
+	table := tablewriter.NewTable(os.Stdout,
+		tablewriter.WithRenderer(renderer.NewBlueprint(tw.Rendition{
+			Borders: tw.BorderNone,
+		})),
+		tablewriter.WithConfig(tablewriter.Config{
+			Header: tw.CellConfig{
+				Formatting: tw.CellFormatting{
+					AutoFormat: tw.Off,
+				},
+			},
+		}),
+	)
+	table.Header("Queue", "Job ID", "Message ID", "Owner ID",
+		"Chain Selector", "Attempts", "Last Error", "Created At", "Archived At")
 
 	for _, j := range jobs {
 		archivedAt := "-"
@@ -233,6 +242,9 @@ func renderJobs(jobs []ArchivedJob) error {
 		})
 	}
 
-	table.Render()
+	if err := table.Render(); err != nil {
+		return fmt.Errorf("failed to render jobs table: %w", err)
+	}
+
 	return nil
 }

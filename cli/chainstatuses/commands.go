@@ -8,6 +8,8 @@ import (
 	"strconv"
 
 	"github.com/olekukonko/tablewriter"
+	"github.com/olekukonko/tablewriter/renderer"
+	"github.com/olekukonko/tablewriter/tw"
 	"github.com/urfave/cli"
 
 	chainselectors "github.com/smartcontractkit/chain-selectors"
@@ -183,10 +185,21 @@ func renderList(rows []chainstatus.Row) error {
 		fmt.Println("No chain status rows found.") //nolint:forbidigo // CLI user output
 		return nil
 	}
-	table := tablewriter.NewWriter(os.Stdout)
-	table.SetAutoFormatHeaders(false)
-	table.SetHeader([]string{"Chain", "Chain Selector", "verifier_id", "finalized_block_height", "disabled", "updated_at"})
-	table.SetBorder(false)
+
+	table := tablewriter.NewTable(os.Stdout,
+		tablewriter.WithRenderer(renderer.NewBlueprint(tw.Rendition{
+			Borders: tw.BorderNone,
+		})),
+		tablewriter.WithConfig(tablewriter.Config{
+			Header: tw.CellConfig{
+				Formatting: tw.CellFormatting{
+					AutoFormat: tw.Off,
+				},
+			},
+		}),
+	)
+	table.Header("Chain", "Chain Selector", "verifier_id", "finalized_block_height", "disabled", "updated_at")
+
 	data := make([][]string, 0, len(rows))
 	for _, r := range rows {
 		heightStr := "0"
@@ -207,8 +220,14 @@ func renderList(rows []chainstatus.Row) error {
 			r.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
 		})
 	}
-	table.AppendBulk(data)
-	table.Render()
+
+	if err := table.Bulk(data); err != nil {
+		return fmt.Errorf("failed to create chain status table: %w", err)
+	}
+	if err := table.Render(); err != nil {
+		return fmt.Errorf("failed to render chain status table: %w", err)
+	}
+
 	return nil
 }
 

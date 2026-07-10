@@ -13,6 +13,8 @@ import (
 
 	"github.com/jmoiron/sqlx"
 	"github.com/olekukonko/tablewriter"
+	"github.com/olekukonko/tablewriter/renderer"
+	"github.com/olekukonko/tablewriter/tw"
 	"github.com/urfave/cli"
 	"go.uber.org/zap/zapcore"
 
@@ -219,11 +221,28 @@ func resumeAction(c *cli.Context) error {
 
 // renderJob prints a single replay job's details.
 func renderJob(j *replay.Job) error {
-	table := tablewriter.NewWriter(os.Stdout)
-	table.SetAutoFormatHeaders(false)
-	table.SetBorder(false)
-	table.SetColumnSeparator("")
-	table.SetAlignment(tablewriter.ALIGN_LEFT)
+	table := tablewriter.NewTable(os.Stdout,
+		tablewriter.WithRenderer(renderer.NewBlueprint(tw.Rendition{
+			Borders: tw.BorderNone,
+			Settings: tw.Settings{
+				Separators: tw.Separators{
+					BetweenColumns: tw.Off,
+				},
+			},
+		})),
+		tablewriter.WithConfig(tablewriter.Config{
+			Header: tw.CellConfig{
+				Formatting: tw.CellFormatting{
+					AutoFormat: tw.Off,
+				},
+			},
+			Row: tw.CellConfig{
+				Alignment: tw.CellAlignment{
+					Global: tw.AlignLeft,
+				},
+			},
+		}),
+	)
 
 	data := [][]string{
 		{"Job ID", j.ID},
@@ -253,8 +272,13 @@ func renderJob(j *replay.Job) error {
 		data = append(data, []string{"Error", *j.ErrorMessage})
 	}
 
-	table.AppendBulk(data)
-	table.Render()
+	if err := table.Bulk(data); err != nil {
+		return fmt.Errorf("failed to create job table: %w", err)
+	}
+	if err := table.Render(); err != nil {
+		return fmt.Errorf("failed to render job table: %w", err)
+	}
+
 	return nil
 }
 
@@ -272,10 +296,19 @@ func renderJobList(jobs []replay.Job) error {
 		return nil
 	}
 
-	table := tablewriter.NewWriter(os.Stdout)
-	table.SetAutoFormatHeaders(false)
-	table.SetBorder(false)
-	table.SetHeader([]string{"ID", "Type", "Status", "Force", "Progress", "Created", "Updated"})
+	table := tablewriter.NewTable(os.Stdout,
+		tablewriter.WithRenderer(renderer.NewBlueprint(tw.Rendition{
+			Borders: tw.BorderNone,
+		})),
+		tablewriter.WithConfig(tablewriter.Config{
+			Header: tw.CellConfig{
+				Formatting: tw.CellFormatting{
+					AutoFormat: tw.Off,
+				},
+			},
+		}),
+	)
+	table.Header("ID", "Type", "Status", "Force", "Progress", "Created", "Updated")
 
 	for _, j := range jobs {
 		progress := fmt.Sprintf("%d/%d", j.ProcessedItems, j.TotalItems)
@@ -293,7 +326,10 @@ func renderJobList(jobs []replay.Job) error {
 		})
 	}
 
-	table.Render()
+	if err := table.Render(); err != nil {
+		return fmt.Errorf("failed to render job list table: %w", err)
+	}
+
 	return nil
 }
 
