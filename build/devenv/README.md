@@ -192,12 +192,14 @@ ccv up env-local-config.toml
 In local mode:
 
 - No Job Distributor is started.
-- Committee verifiers and executors run in bootstrap local mode: each boots serving its keys, and its
-  app config is delivered as a mounted file after contracts are deployed (the bootstrapper waits for
-  it).
-- Verifier signer addresses are read from the bootstrap info server instead of JD, then used to
-  configure the on-chain committee and the aggregator. Executor transmitters are funded from the same
-  bootstrap keys.
+- Committee verifiers and executors run in bootstrap local mode and launch in two phases. First devenv
+  starts each service's bootstrap Postgres and seeds its signing keys directly (no container running
+  yet), so the signer/transmitter addresses are known up front. Then, once contracts are deployed and
+  the app config is built, the container starts with that config already mounted — the bootstrapper
+  reads a config that is present at boot, with no waiting or polling.
+- Verifier signer addresses come from the seeded keys (not the JD/info-server round trip) and are used
+  to configure the on-chain committee and the aggregator. Executor transmitters are funded from the
+  same seeded keys.
 
 This covers the full send -> verify -> execute flow without the JD image. `env-local-config.toml` is a
 minimal single-committee, single-executor example to copy.

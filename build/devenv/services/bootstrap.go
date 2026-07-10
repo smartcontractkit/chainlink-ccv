@@ -2,6 +2,7 @@ package services
 
 import (
 	"bytes"
+	"context"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -18,7 +19,11 @@ import (
 )
 
 const (
-	DefaultBootstrapDBName        = "bootstrap_db"
+	DefaultBootstrapDBName = "bootstrap_db"
+	// DefaultKeystorePassword is the keystore encryption password used for devenv bootstrappers. It must
+	// match on both the seed path (SeedBootstrapKeys) and the running container so the container can
+	// decrypt the seeded keys.
+	DefaultKeystorePassword       = "devenv-password"
 	DefaultBootstrapListenPort    = 9988
 	DefaultBootstrapListenPortTCP = "9988/tcp"
 )
@@ -49,7 +54,7 @@ type BootstrapInput struct {
 func ApplyBootstrapDefaults(in BootstrapInput) BootstrapInput {
 	if in.Keystore == nil {
 		in.Keystore = &bootstrap.KeystoreConfig{
-			Password: "devenv-password",
+			Password: DefaultKeystorePassword,
 		}
 	}
 	if in.Server == nil {
@@ -180,17 +185,46 @@ func FetchBootstrapKeys(bootstrapURL string, keyNames ...string) (BootstrapKeys,
 		}
 	}
 
+	keyInfos := make(map[string]keystore.KeyInfo, len(keyMap))
+	for name, resp := range keyMap {
+		keyInfos[name] = resp.KeyInfo
+	}
+	return buildBootstrapKeys(keyInfos, keyNames)
+}
+
+// SeedBootstrapKeys generates the given keys directly in a bootstrapper's Postgres keystore (without
+// running the service) and returns their public material as BootstrapKeys, mirroring what
+// FetchBootstrapKeys returns once a container is up. The local (no-JD) devenv path uses it to learn a
+// node's signer address before the container starts, so the on-chain config and app config can be
+// built up front. dbURL is the host-reachable keystore connection string, ksPassword the keystore
+// password; the running container later finds these same keys already present.
+func SeedBootstrapKeys(ctx context.Context, dbURL, ksPassword string, specs []KeySpec) (BootstrapKeys, error) {
+	seeded, err := seedKeys(ctx, dbURL, ksPassword, specs)
+	if err != nil {
+		return BootstrapKeys{}, fmt.Errorf("failed to seed bootstrap keys: %w", err)
+	}
+	names := make([]string, 0, len(specs))
+	for _, s := range specs {
+		names = append(names, s.Name)
+	}
+	return buildBootstrapKeys(seeded, names)
+}
+
+// buildBootstrapKeys assembles a BootstrapKeys from a name->KeyInfo map, shared by the HTTP fetch and
+// the local seed paths. The CSA and ECDSA signing keys map to dedicated fields (the ECDSA public key
+// is also reduced to its EVM address); any other requested key goes into PublicKeys by name.
+func buildBootstrapKeys(keyInfos map[string]keystore.KeyInfo, keyNames []string) (BootstrapKeys, error) {
 	var result BootstrapKeys
-	if csaKeyResp, ok := keyMap[bootstrap.DefaultCSAKeyName]; ok {
-		result.CSAPublicKey = hex.EncodeToString(csaKeyResp.KeyInfo.PublicKey)
+	if csa, ok := keyInfos[bootstrap.DefaultCSAKeyName]; ok {
+		result.CSAPublicKey = hex.EncodeToString(csa.PublicKey)
 	}
 
-	if ecdsaKeyResp, ok := keyMap[commit.DefaultECDSASigningKeyName]; ok {
-		ecdsaPublicKey, err := crypto.UnmarshalPubkey(ecdsaKeyResp.KeyInfo.PublicKey)
+	if ecdsa, ok := keyInfos[commit.DefaultECDSASigningKeyName]; ok {
+		ecdsaPublicKey, err := crypto.UnmarshalPubkey(ecdsa.PublicKey)
 		if err != nil {
 			return BootstrapKeys{}, fmt.Errorf("failed to unmarshal ECDSA public key: %w", err)
 		}
-		result.ECDSAPublicKey = hex.EncodeToString(ecdsaKeyResp.KeyInfo.PublicKey)
+		result.ECDSAPublicKey = hex.EncodeToString(ecdsa.PublicKey)
 		result.ECDSAAddress = hex.EncodeToString(crypto.PubkeyToAddress(*ecdsaPublicKey).Bytes())
 	}
 
@@ -198,10 +232,14 @@ func FetchBootstrapKeys(bootstrapURL string, keyNames ...string) (BootstrapKeys,
 		if name == bootstrap.DefaultCSAKeyName || name == commit.DefaultECDSASigningKeyName {
 			continue
 		}
+		info, ok := keyInfos[name]
+		if !ok {
+			continue
+		}
 		if result.PublicKeys == nil {
 			result.PublicKeys = make(map[string]string)
 		}
-		result.PublicKeys[name] = hex.EncodeToString(keyMap[name].KeyInfo.PublicKey)
+		result.PublicKeys[name] = hex.EncodeToString(info.PublicKey)
 	}
 
 	return result, nil

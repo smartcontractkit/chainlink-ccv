@@ -16,6 +16,7 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
+	"github.com/smartcontractkit/chainlink-common/keystore"
 
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
@@ -37,9 +38,8 @@ const (
 	DefaultExecutorDBImage = "postgres:16-alpine"
 
 	// localAppConfigContainerPath is where the local-mode app config lives inside the container (written
-	// into the bootstrap config as local_app_config_path). It sits directly under /etc (which always
-	// exists) and is delivered by copying the file into the running container (see DeliverLocalAppConfig)
-	// rather than via a bind mount, so post-startup delivery works identically on every Docker host.
+	// into the bootstrap config as local_app_config_path). It is copied into the container image at
+	// creation time (testcontainers Files), so it is present before the bootstrapper starts.
 	localAppConfigContainerPath = "/etc/executor-app.toml"
 )
 
@@ -79,10 +79,10 @@ type Input struct {
 	// DB is the database configuration.
 	DB *DBInput `toml:"db"`
 
-	// LocalAppConfig is the plain app-config TOML delivered to the container in local mode
-	// (services.Local). Optional: when empty, the container starts serving keys and the config is
-	// delivered later via DeliverLocalAppConfig (the no-JD devenv path, where the executor config is
-	// generated after contracts are deployed). When set, it is copied in at launch.
+	// LocalAppConfig is the plain app-config TOML mounted into the container in local mode
+	// (services.Local). When set, it is copied into the container at creation so the bootstrapper reads
+	// a config present at boot. The no-JD devenv environment does not use this single-shot field; it
+	// uses the two-phase PrepareLocal / LaunchLocalWithConfig flow (config built after contracts deploy).
 	LocalAppConfig string `toml:"-"`
 }
 
@@ -105,9 +105,15 @@ type Output struct {
 	// JDNodeID is set after the bootstrap is registered with JD.
 	JDNodeID string `toml:"jd_node_id"`
 
-	// Container is the running executor container, retained in local mode so the app config can be
-	// copied in after startup (DeliverLocalAppConfig). Not serialized. Nil outside local mode.
+	// Container is the running executor container, retained in local mode. Not serialized. Nil until the
+	// container is started (in the no-JD two-phase path, nil after PrepareLocal and set by
+	// LaunchLocalWithConfig).
 	Container testcontainers.Container `toml:"-"`
+
+	// dbContainer is the bootstrap Postgres container, created by PrepareLocal before the main container
+	// so its keystore can be seeded, and reused by LaunchLocalWithConfig to resolve the mapped DB port.
+	// Not serialized. Only set on the no-JD two-phase local path.
+	dbContainer testcontainers.Container `toml:"-"`
 }
 
 // configWithBlockchainInfos is the executor config plus the blockchain_infos section (RPC URLs etc.).
@@ -153,16 +159,6 @@ func RebuildExecutorJobSpecWithBlockchainInfos(spec bootstrap.JobSpec, blockchai
 	}
 
 	return string(outerSpecBytes), nil
-}
-
-// DeliverLocalAppConfig copies the app-config TOML into a running local-mode executor container at
-// local_app_config_path, so the waiting bootstrapper starts the service. Used by the no-JD devenv
-// path, which generates the executor config after contracts are deployed.
-func DeliverLocalAppConfig(out *Output, appConfigTOML string) error {
-	if out == nil || out.Container == nil {
-		return fmt.Errorf("executor output has no running container; was it launched in local mode?")
-	}
-	return services.CopyLocalAppConfigToContainer(context.Background(), out.Container, localAppConfigContainerPath, appConfigTOML)
 }
 
 func ApplyDefaults(in *Input) {
@@ -249,31 +245,12 @@ func launchExecutor(ctx context.Context, in *Input, outputs []*blockchain.Output
 		bs.LocalAppConfigPath = localAppConfigContainerPath
 	}
 
-	// In local mode the bootstrapper reads the app config from a file at local_app_config_path, copied
-	// into the running container (below / DeliverLocalAppConfig) rather than bind-mounted, so it can
-	// arrive at launch (in.LocalAppConfig set) or later (no-JD path, after contracts are deployed).
-
-	bootstrapConfig, err := services.GenerateBootstrapConfig(*bs)
+	bootstrapConfigFilePath, bootstrapSecretsFilePath, err := generateExecutorConfigFiles(in, bs)
 	if err != nil {
-		return nil, fmt.Errorf("failed to generate bootstrap config: %w", err)
-	}
-	bootstrapSecrets, err := services.GenerateBootstrapSecrets(*bs)
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate bootstrap secrets: %w", err)
-	}
-	confDir := util.CCVConfigDir()
-	bootstrapConfigFilePath := filepath.Join(confDir,
-		fmt.Sprintf("bootstrap-executor-%s-config.toml", in.ContainerName))
-	if err := os.WriteFile(bootstrapConfigFilePath, bootstrapConfig, 0o644); err != nil {
-		return nil, fmt.Errorf("failed to write bootstrap config to file: %w", err)
-	}
-	bootstrapSecretsFilePath := filepath.Join(confDir,
-		fmt.Sprintf("bootstrap-executor-%s-secrets.toml", in.ContainerName))
-	if err := os.WriteFile(bootstrapSecretsFilePath, bootstrapSecrets, 0o644); err != nil {
-		return nil, fmt.Errorf("failed to write bootstrap secrets to file: %w", err)
+		return nil, err
 	}
 
-	req, err := baseImageRequest(in, bootstrapConfigFilePath, bootstrapSecretsFilePath)
+	req, err := baseImageRequest(in, bootstrapConfigFilePath, bootstrapSecretsFilePath, in.LocalAppConfig)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create base image request: %w", err)
 	}
@@ -303,14 +280,6 @@ func launchExecutor(ctx context.Context, in *Input, outputs []*blockchain.Output
 		return nil, fmt.Errorf("failed to start container: %w", err)
 	}
 
-	// Local mode with a config known at launch: copy it in now so the waiting bootstrapper starts the
-	// service. When no config is provided (no-JD path), it is delivered later via DeliverLocalAppConfig.
-	if local && in.LocalAppConfig != "" {
-		if err := services.CopyLocalAppConfigToContainer(ctx, c, localAppConfigContainerPath, in.LocalAppConfig); err != nil {
-			return nil, fmt.Errorf("failed to deliver local app config: %w", err)
-		}
-	}
-
 	host, err := c.Host(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get container host: %w", err)
@@ -325,7 +294,8 @@ func launchExecutor(ctx context.Context, in *Input, outputs []*blockchain.Output
 	// Fetches the CSA key and the family-specific transmitter key (resolved by the
 	// caller from chainreg) from the bootstrap server. The CSA key is used for JD
 	// registration, the transmitter key is used to derive the on-chain address that
-	// must be funded before the executor can submit transactions.
+	// must be funded before the executor can submit transactions. (The local two-phase path seeds these
+	// keys instead — see PrepareLocal.)
 	keyNames := []string{bootstrap.DefaultCSAKeyName}
 	if transmitterKeyName != "" {
 		keyNames = append(keyNames, transmitterKeyName)
@@ -334,23 +304,69 @@ func launchExecutor(ctx context.Context, in *Input, outputs []*blockchain.Output
 	if err != nil {
 		return nil, fmt.Errorf("failed to get bootstrap keys: %w", err)
 	}
+
+	out, err := finalizeExecutorOutput(ctx, c, dbContainer, in, bootstrapKeys)
+	if err != nil {
+		return nil, err
+	}
+	if local {
+		out.Container = c
+	}
+	return out, nil
+}
+
+// generateExecutorConfigFiles writes the bootstrap config and secrets files for the executor and
+// returns their paths. Shared by the JD and local launch paths.
+func generateExecutorConfigFiles(in *Input, bs *services.BootstrapInput) (bootstrapConfigFilePath, bootstrapSecretsFilePath string, err error) {
+	bootstrapConfig, err := services.GenerateBootstrapConfig(*bs)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to generate bootstrap config: %w", err)
+	}
+	bootstrapSecrets, err := services.GenerateBootstrapSecrets(*bs)
+	if err != nil {
+		return "", "", fmt.Errorf("failed to generate bootstrap secrets: %w", err)
+	}
+	confDir := util.CCVConfigDir()
+	bootstrapConfigFilePath = filepath.Join(confDir,
+		fmt.Sprintf("bootstrap-executor-%s-config.toml", in.ContainerName))
+	if err := os.WriteFile(bootstrapConfigFilePath, bootstrapConfig, 0o644); err != nil {
+		return "", "", fmt.Errorf("failed to write bootstrap config to file: %w", err)
+	}
+	bootstrapSecretsFilePath = filepath.Join(confDir,
+		fmt.Sprintf("bootstrap-executor-%s-secrets.toml", in.ContainerName))
+	if err := os.WriteFile(bootstrapSecretsFilePath, bootstrapSecrets, 0o644); err != nil {
+		return "", "", fmt.Errorf("failed to write bootstrap secrets to file: %w", err)
+	}
+	return bootstrapConfigFilePath, bootstrapSecretsFilePath, nil
+}
+
+// finalizeExecutorOutput resolves the running container's mapped ports and builds the executor Output.
+// bootstrapKeys are supplied by the caller (fetched in JD mode, seeded up front in the local two-phase
+// path). Shared by launchExecutor and LaunchLocalWithConfig.
+func finalizeExecutorOutput(ctx context.Context, c, dbContainer testcontainers.Container, in *Input, bootstrapKeys services.BootstrapKeys) (*Output, error) {
+	host, err := c.Host(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get container host: %w", err)
+	}
+	bootstrapMapped, err := c.MappedPort(ctx, services.DefaultBootstrapListenPortTCP)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get bootstrap mapped port: %w", err)
+	}
 	executorMapped, err := c.MappedPort(ctx, DefaultExecutorPortTCP)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get executor mapped port: %w", err)
 	}
-
 	inspect, err := c.Inspect(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to inspect container: %w", err)
 	}
-
 	dbMapped, err := dbContainer.MappedPort(ctx, "5432/tcp")
 	if err != nil {
 		return nil, fmt.Errorf("failed to get database mapped port: %w", err)
 	}
 
 	containerName := strings.TrimPrefix(inspect.Name, "/")
-	out := &Output{
+	return &Output{
 		ContainerName:   inspect.Name,
 		ExternalHTTPURL: fmt.Sprintf("http://%s:%s", host, executorMapped.Port()),
 		InternalHTTPURL: fmt.Sprintf("http://%s:%d", containerName, DefaultExecutorPort),
@@ -358,12 +374,95 @@ func launchExecutor(ctx context.Context, in *Input, outputs []*blockchain.Output
 		BootstrapDBConnectionString: fmt.Sprintf("postgresql://%s:%s@localhost:%s/%s?sslmode=disable",
 			in.ContainerName, in.ContainerName, dbMapped.Port(), services.DefaultBootstrapDBName),
 		BootstrapKeys: bootstrapKeys,
+	}, nil
+}
+
+// PrepareLocal starts the executor's bootstrap Postgres and seeds its signing keys (CSA + the
+// family-specific transmitter key), without starting the executor container. It returns an Output
+// whose BootstrapKeys are populated — so the no-JD environment can fund the transmitter address before
+// any executor container runs — and whose bootstrap DB container is retained for LaunchLocalWithConfig.
+func PrepareLocal(ctx context.Context, in *Input, outputs []*blockchain.Output, transmitterKeyName string) (*Output, error) {
+	if in.Mode != services.Local {
+		return nil, fmt.Errorf("PrepareLocal requires local mode, got %q", in.Mode)
 	}
-	if local {
-		out.Container = c
+	dbContainer, err := createDBContainer(ctx, in, in.ChainFamily)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create executor database: %w", err)
+	}
+	dbMapped, err := dbContainer.MappedPort(ctx, "5432/tcp")
+	if err != nil {
+		return nil, fmt.Errorf("failed to get database mapped port: %w", err)
+	}
+	seedDBURL := fmt.Sprintf("postgresql://%s:%s@localhost:%s/%s?sslmode=disable",
+		in.ContainerName, in.ContainerName, dbMapped.Port(), services.DefaultBootstrapDBName)
+	specs := []services.KeySpec{{Name: bootstrap.DefaultCSAKeyName, Purpose: "csa", Type: keystore.Ed25519}}
+	if transmitterKeyName != "" {
+		specs = append(specs, services.KeySpec{Name: transmitterKeyName, Purpose: "transmitting", Type: keystore.ECDSA_S256})
+	}
+	bootstrapKeys, err := services.SeedBootstrapKeys(ctx, seedDBURL, localKeystorePassword(in), specs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to seed executor keys: %w", err)
+	}
+	return &Output{BootstrapKeys: bootstrapKeys, dbContainer: dbContainer}, nil
+}
+
+// LaunchLocalWithConfig starts the executor container prepared by PrepareLocal, with the app config
+// mounted so it is present at startup. It reuses the seeded keystore (prepared.BootstrapKeys) and the
+// bootstrap DB created by PrepareLocal, so no keys are fetched from the container. appConfigTOML is the
+// executor's app config (with blockchain_infos), built after contracts are deployed. On success it
+// populates prepared in place with the running container's outputs.
+func LaunchLocalWithConfig(ctx context.Context, prepared *Output, in *Input, outputs []*blockchain.Output, modifiers map[string]ReqModifier, appConfigTOML string) error {
+	if prepared == nil || prepared.dbContainer == nil {
+		return fmt.Errorf("executor was not prepared for local mode (call PrepareLocal first)")
 	}
 
-	return out, nil
+	bs := in.Bootstrap
+	bs.DB.URL = fmt.Sprintf("postgresql://%s:%s@%s:5432/%s?sslmode=disable",
+		in.ContainerName, in.ContainerName, dbContainerName(in.DB.Name, in.ChainFamily), services.DefaultBootstrapDBName)
+	bs.AppConfigMode = bootstrap.AppConfigModeLocal
+	bs.LocalAppConfigPath = localAppConfigContainerPath
+
+	bootstrapConfigFilePath, bootstrapSecretsFilePath, err := generateExecutorConfigFiles(in, bs)
+	if err != nil {
+		return err
+	}
+
+	req, err := baseImageRequest(in, bootstrapConfigFilePath, bootstrapSecretsFilePath, appConfigTOML)
+	if err != nil {
+		return fmt.Errorf("failed to create base image request: %w", err)
+	}
+
+	modifier, ok := modifiers[in.ChainFamily]
+	if !ok {
+		return fmt.Errorf("no modifier found for chain family %s", in.ChainFamily)
+	}
+	req, err = modifier(req, in, outputs)
+	if err != nil {
+		return fmt.Errorf("failed to modify request: %w", err)
+	}
+
+	c, err := startContainer(ctx, req)
+	if err != nil {
+		return fmt.Errorf("failed to start container: %w", err)
+	}
+
+	out, err := finalizeExecutorOutput(ctx, c, prepared.dbContainer, in, prepared.BootstrapKeys)
+	if err != nil {
+		return err
+	}
+	out.Container = c
+	out.dbContainer = prepared.dbContainer
+	*prepared = *out
+	return nil
+}
+
+// localKeystorePassword returns the keystore password used to seed and load the bootstrap keystore in
+// local mode, matching services.ApplyBootstrapDefaults.
+func localKeystorePassword(in *Input) string {
+	if in.Bootstrap != nil && in.Bootstrap.Keystore != nil && in.Bootstrap.Keystore.Password != "" {
+		return in.Bootstrap.Keystore.Password
+	}
+	return services.DefaultKeystorePassword
 }
 
 func startContainer(ctx context.Context, req testcontainers.ContainerRequest) (testcontainers.Container, error) {
@@ -397,7 +496,7 @@ func startContainer(ctx context.Context, req testcontainers.ContainerRequest) (t
 	return nil, fmt.Errorf("failed to start container after %d attempts: %w", maxAttempts, lastErr)
 }
 
-func baseImageRequest(in *Input, bootstrapConfigFilePath, bootstrapSecretsFilePath string) (testcontainers.ContainerRequest, error) {
+func baseImageRequest(in *Input, bootstrapConfigFilePath, bootstrapSecretsFilePath, localAppConfig string) (testcontainers.ContainerRequest, error) {
 	req := testcontainers.ContainerRequest{
 		Image:    in.Image,
 		Name:     in.ContainerName,
@@ -440,8 +539,16 @@ func baseImageRequest(in *Input, bootstrapConfigFilePath, bootstrapSecretsFilePa
 		bootstrapSecretsFilePath,
 		bootstrap.DefaultSecretsPath,
 	))
-	// Note: in local mode the app config is delivered by copying it into the running container
-	// (see DeliverLocalAppConfig), not via a bind mount.
+	// In local mode the app config is copied into the container image at creation time (present at
+	// startup) so the bootstrapper reads a config that already exists. The no-JD path builds it after
+	// contracts are deployed and passes it here via in.LocalAppConfig.
+	if localAppConfig != "" {
+		req.Files = append(req.Files, testcontainers.ContainerFile{
+			Reader:            strings.NewReader(localAppConfig),
+			ContainerFilePath: localAppConfigContainerPath,
+			FileMode:          0o644,
+		})
+	}
 
 	if in.SourceCodePath != "" {
 		req.Mounts = append(req.Mounts, services.GoSourcePathMounts(in.RootPath, services.AppPathInsideContainer)...)

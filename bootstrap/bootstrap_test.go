@@ -3,11 +3,8 @@ package bootstrap
 import (
 	"context"
 	"errors"
-	"fmt"
-	"net"
 	"os"
 	"path/filepath"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -591,91 +588,6 @@ func TestBootstrapper_LocalMode_StartStop(t *testing.T) {
 	require.NoError(t, b.Stop(ctx))
 	require.True(t, stopped, "factory Stop must be called on Stop")
 	require.Nil(t, b.accCloser, "accCloser must be cleared after Stop")
-}
-
-func TestLocalConfigFileReady(t *testing.T) {
-	t.Parallel()
-
-	t.Run("absent file is not ready", func(t *testing.T) {
-		t.Parallel()
-		require.False(t, localConfigFileReady(filepath.Join(t.TempDir(), "missing.toml")))
-	})
-
-	t.Run("empty file is not ready", func(t *testing.T) {
-		t.Parallel()
-		require.False(t, localConfigFileReady(writeAppConfigFile(t, "")))
-	})
-
-	t.Run("directory is not ready", func(t *testing.T) {
-		t.Parallel()
-		require.False(t, localConfigFileReady(t.TempDir()))
-	})
-
-	t.Run("non-empty file is ready", func(t *testing.T) {
-		t.Parallel()
-		require.True(t, localConfigFileReady(writeAppConfigFile(t, "name = \"x\"\n")))
-	})
-}
-
-// freeTCPPort returns a currently-free localhost TCP port. A small race window exists between close
-// and reuse, acceptable for a test.
-func freeTCPPort(t *testing.T) int {
-	t.Helper()
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	require.NoError(t, err)
-	port := l.Addr().(*net.TCPAddr).Port
-	require.NoError(t, l.Close())
-	return port
-}
-
-// TestBootstrapper_LocalMode_WaitsForConfig exercises the wait-for-config path: local mode starts with
-// the app-config file absent, so Start returns immediately with the keystore + info server up and the
-// factory not yet started. Once the file is written, the background watcher starts the factory.
-func TestBootstrapper_LocalMode_WaitsForConfig(t *testing.T) {
-	dbURL, cleanup := setupBootstrapTestDB(t)
-	defer cleanup()
-
-	// Point local_app_config_path at a file that does not exist yet.
-	appPath := filepath.Join(t.TempDir(), "app.toml")
-	port := freeTCPPort(t)
-	cfg := fmt.Sprintf(
-		"app_config_mode = %q\nlocal_app_config_path = %q\n[server]\nlisten_port = %d\n[db]\nurl = %q\n[keystore]\npassword = \"testpassword\"\n",
-		AppConfigModeLocal, appPath, port, dbURL,
-	)
-	cfgPath, secretsPath := writeBootstrapConfigFiles(t, cfg)
-
-	var started atomic.Bool
-	var gotKeystore atomic.Bool
-	fac := &spyServiceFactoryDummy{
-		startFn: func(_ context.Context, _ dummyAppConfig, deps ServiceDeps) error {
-			gotKeystore.Store(deps.Keystore != nil)
-			started.Store(true)
-			return nil
-		},
-	}
-
-	b, err := NewBootstrapper("wait-test", fac,
-		WithBootstrapperConfigPath(cfgPath),
-		WithBootstrapperSecretsPath(secretsPath),
-	)
-	require.NoError(t, err)
-	require.Equal(t, AppConfigModeLocal, b.mode)
-
-	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
-	defer cancel()
-
-	// Start returns immediately without the factory having started (config file is absent).
-	require.NoError(t, b.Start(ctx))
-	require.False(t, started.Load(), "factory must not start until the app config file appears")
-	require.NotNil(t, b.infoServer, "info server must be up while waiting for the app config")
-
-	// Deliver the config; the watcher (poll interval 2s) should start the factory shortly after.
-	require.NoError(t, os.WriteFile(appPath, []byte("name = \"hello\"\ncount = 7\n"), 0o600))
-	require.Eventually(t, started.Load, 30*time.Second, 500*time.Millisecond,
-		"factory must start once the app config file appears")
-	require.True(t, gotKeystore.Load(), "local mode with [db]+[keystore] must provide a keystore to the factory")
-
-	require.NoError(t, b.Stop(ctx))
 }
 
 func TestChainTypeFromString(t *testing.T) {

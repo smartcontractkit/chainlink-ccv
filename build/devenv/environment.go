@@ -143,10 +143,10 @@ type Cfg struct {
 
 	// AppConfigSource selects how services receive their application config: "jd" (default, empty)
 	// runs a Job Distributor and ships app configs via job proposals; "local" runs no JD and delivers
-	// each committee verifier's app config as a mounted file (the bootstrapper waits for it, then
-	// starts). The local path exists so environments can run without the JD image (e.g. the CCV starter
-	// kit / partner testing). Currently local mode covers the committee verifier; executors still
-	// require JD and are skipped in local mode (see CCIP-12198 follow-up).
+	// each committee verifier's and executor's app config as a file copied into the running container
+	// (the bootstrapper waits for it, then starts). The local path exists so environments can run
+	// without the JD image (e.g. the CCV starter kit / partner testing). Local mode covers the full
+	// send -> verify -> execute flow (committee verifier and executor).
 	AppConfigSource   AppConfigSource      `toml:"app_config_source"`
 	ProtocolContracts ProtocolContractsCfg `toml:"protocol_contracts"`
 	// AggregatorEndpoints map the verifier qualifier to the aggregator URL for that verifier.
@@ -1182,7 +1182,16 @@ func launchStandaloneVerifiers(in *Cfg, blockchainOutputs []*blockchain.Output, 
 		}
 		ver.AggregatorCredentials = creds
 		ver.AggregatorOutput = aggOuts[ver.NodeIndex%len(aggOuts)]
-		out, err := committeeverifier.New(ver, blockchainOutputs, jdInfra, chainreg.GetRegistry().GetVerifierModifiers())
+		// Local (no-JD) mode is two-phase: PrepareLocal starts the bootstrap DB and seeds the signing
+		// key so the signer address is known now (for topology enrichment and on-chain committee config),
+		// then LaunchLocalWithConfig starts the container later with the app config present. JD/standalone
+		// mode launches the container in one shot here and fetches keys from it afterward.
+		var out *committeeverifier.Output
+		if in.IsLocal() {
+			out, err = committeeverifier.PrepareLocal(context.Background(), ver, blockchainOutputs)
+		} else {
+			out, err = committeeverifier.New(ver, blockchainOutputs, jdInfra, chainreg.GetRegistry().GetVerifierModifiers())
+		}
 		if err != nil {
 			return nil, fmt.Errorf("failed to create verifier service: %w", err)
 		}
@@ -1524,8 +1533,11 @@ func launchAndConfigureLocalExecutors(
 		exec.Bootstrap.Monitoring = &m
 	}
 
-	if _, err := launchExecutors(in.Executor, blockchainOutputs, nil); err != nil {
-		return fmt.Errorf("failed to create local executors: %w", err)
+	// Two-phase, mirroring the verifiers: PrepareLocal seeds each executor's transmitter key (so its
+	// address is known for funding) without starting the container; then we fund, generate the config,
+	// and start the container with that config present.
+	if err := prepareLocalExecutors(ctx, in.Executor, blockchainOutputs); err != nil {
+		return fmt.Errorf("failed to prepare local executors: %w", err)
 	}
 	if err := fundExecutorTransmitters(ctx, in.Executor, in.Blockchains, impls); err != nil {
 		return fmt.Errorf("failed to fund executor transmitters: %w", err)
@@ -1535,23 +1547,49 @@ func launchAndConfigureLocalExecutors(
 	if err != nil {
 		return err
 	}
-	return deliverLocalExecutorConfigs(in.Executor, executorJobSpecs, blockchainOutputs)
+	return launchLocalExecutorsWithConfig(ctx, in.Executor, executorJobSpecs, blockchainOutputs)
 }
 
-// deliverLocalExecutorConfigs writes each local-mode executor's generated app config (with
-// blockchain_infos inlined) to the file its bootstrapper is waiting on — the no-JD counterpart of
+// prepareLocalExecutors starts each local-mode executor's bootstrap DB and seeds its keys (CSA +
+// transmitter), populating exec.Out.BootstrapKeys so the transmitter address is known for funding
+// before any executor container runs.
+func prepareLocalExecutors(ctx context.Context, executors []*executorsvc.Input, blockchainOutputs []*blockchain.Output) error {
+	for _, exec := range executors {
+		if exec == nil || exec.Mode != services.Local {
+			continue
+		}
+		if exec.Out != nil {
+			continue
+		}
+		var transmitterKeyName string
+		if reg, regErr := chainreg.GetRegistry().Get(exec.ChainFamily); regErr == nil && reg.ExecutorInfo != nil {
+			transmitterKeyName = reg.ExecutorInfo.ExecutorTransmitterKeyName()
+		}
+		out, err := executorsvc.PrepareLocal(ctx, exec, blockchainOutputs, transmitterKeyName)
+		if err != nil {
+			return fmt.Errorf("failed to prepare executor %s: %w", exec.ContainerName, err)
+		}
+		exec.Out = out
+	}
+	return nil
+}
+
+// launchLocalExecutorsWithConfig builds each local-mode executor's app config (with blockchain_infos
+// inlined) and starts its container with that config present at startup — the no-JD counterpart of
 // proposeJobsToExecutors.
-func deliverLocalExecutorConfigs(
+func launchLocalExecutorsWithConfig(
+	ctx context.Context,
 	executors []*executorsvc.Input,
 	executorJobSpecs map[string]bootstrap.JobSpec,
 	blockchainOutputs []*blockchain.Output,
 ) error {
+	modifiers := chainreg.GetRegistry().GetExecutorModifiers()
 	for _, exec := range executors {
 		if exec == nil || exec.Mode != services.Local {
 			continue
 		}
 		if exec.Out == nil {
-			return fmt.Errorf("executor %s has no output; was it launched?", exec.ContainerName)
+			return fmt.Errorf("executor %s has no output; was it prepared?", exec.ContainerName)
 		}
 
 		reg, err := chainreg.GetRegistry().Get(exec.ChainFamily)
@@ -1574,32 +1612,34 @@ func deliverLocalExecutorConfigs(
 		if err != nil {
 			return fmt.Errorf("failed to build local app config for %s: %w", exec.ContainerName, err)
 		}
-		if err := executorsvc.DeliverLocalAppConfig(exec.Out, appConfig); err != nil {
-			return fmt.Errorf("failed to deliver local app config to %s: %w", exec.ContainerName, err)
+		if err := executorsvc.LaunchLocalWithConfig(ctx, exec.Out, exec, blockchainOutputs, modifiers, appConfig); err != nil {
+			return fmt.Errorf("failed to launch local executor %s: %w", exec.ContainerName, err)
 		}
 		L.Info().
 			Str("executor", exec.ContainerName).
-			Msg("Delivered app config to local-mode executor")
+			Msg("Launched local-mode executor with app config")
 	}
 	return nil
 }
 
-// deliverLocalVerifierConfigs writes each local-mode verifier's generated app config (with
-// blockchain_infos inlined) to the file its bootstrapper is waiting on. It is the no-JD counterpart of
-// proposeJobsToStandaloneVerifiers: the same config that JD would ship as a job proposal is instead
-// delivered as a mounted file, and the waiting bootstrapper starts the service once the file appears.
-// It runs after contract deployment, so the config carries the real deployed addresses.
-func deliverLocalVerifierConfigs(
+// launchLocalVerifiersWithConfig builds each local-mode verifier's app config (with blockchain_infos
+// inlined) and starts its container with that config present at startup. It is the no-JD counterpart of
+// proposeJobsToStandaloneVerifiers: the same config JD would ship as a job proposal is instead mounted
+// into the container at creation. It runs after contract deployment, so the config carries the real
+// deployed addresses; the verifier was prepared earlier (PrepareLocal) so its signer key already exists.
+func launchLocalVerifiersWithConfig(
+	ctx context.Context,
 	verifiers []*committeeverifier.Input,
 	verifierJobSpecs map[string]bootstrap.JobSpec,
 	blockchainOutputs []*blockchain.Output,
 ) error {
+	modifiers := chainreg.GetRegistry().GetVerifierModifiers()
 	for _, ver := range verifiers {
 		if ver.Mode != services.Local {
 			continue
 		}
 		if ver.Out == nil {
-			return fmt.Errorf("verifier %s has no output; was it launched?", ver.NOPAlias)
+			return fmt.Errorf("verifier %s has no output; was it prepared?", ver.NOPAlias)
 		}
 
 		reg, err := chainreg.GetRegistry().Get(ver.ChainFamily)
@@ -1622,12 +1662,12 @@ func deliverLocalVerifierConfigs(
 		if err != nil {
 			return fmt.Errorf("failed to build local app config for %s: %w", ver.NOPAlias, err)
 		}
-		if err := committeeverifier.DeliverLocalAppConfig(ver.Out, appConfig); err != nil {
-			return fmt.Errorf("failed to deliver local app config to %s: %w", ver.NOPAlias, err)
+		if err := committeeverifier.LaunchLocalWithConfig(ctx, ver.Out, ver, blockchainOutputs, modifiers, appConfig); err != nil {
+			return fmt.Errorf("failed to launch local verifier %s: %w", ver.NOPAlias, err)
 		}
 		L.Info().
 			Str("verifier", ver.NOPAlias).
-			Msg("Delivered app config to local-mode verifier")
+			Msg("Launched local-mode verifier with app config")
 	}
 	return nil
 }
