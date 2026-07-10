@@ -4,9 +4,10 @@ import (
 	"testing"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/stretchr/testify/require"
+
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
-	"github.com/stretchr/testify/require"
 )
 
 // MustGetDatastoreAddress returns the EVM address of a contract from the datastore for a given chain selector and address ref filter.
