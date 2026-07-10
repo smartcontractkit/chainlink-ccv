@@ -45,12 +45,11 @@ const (
 	defaultStartupTimeout  = 10 * time.Second
 	defaultShutdownTimeout = 10 * time.Second
 
-	// localConfigPollInterval and localConfigWaitTimeout bound the local-mode wait for a
-	// not-yet-present app config file (see startLocal). The timeout is generous because devenv
-	// bring-up (deploy contracts, generate config) can take several minutes before the file is
-	// written; on timeout the watcher gives up and the service simply never starts.
+	// localConfigPollInterval is how often the local-mode watcher checks for a not-yet-present app
+	// config file (see startLocal). There is no wait timeout: in a live deployment the operator may
+	// provision the config an arbitrary amount of time after the node starts, so the watcher polls until
+	// the file appears or the process is stopped.
 	localConfigPollInterval = 2 * time.Second
-	localConfigWaitTimeout  = 15 * time.Minute
 )
 
 // AppConfigMode is how the bootstrapper loads application config. It is operator-provided via the
@@ -511,7 +510,7 @@ func (b *Bootstrapper) startLocal(ctx context.Context) error {
 		b.svcCancel = cancel
 		b.localStartErr = make(chan error, 1)
 		b.lggr.Infow("local mode: app config not present yet; serving keys and waiting for it to appear",
-			"path", b.localConfigPath, "timeout", localConfigWaitTimeout)
+			"path", b.localConfigPath)
 		b.watcherWG.Add(1)
 		go b.watchForConfigAndStart(svcCtx, keyStore)
 		return nil
@@ -555,25 +554,20 @@ func (b *Bootstrapper) startLocalService(ctx context.Context, keyStore keystore.
 }
 
 // watchForConfigAndStart polls for the local app config file and starts the service once it appears.
-// It gives up after localConfigWaitTimeout or when ctx is canceled (Stop). A start failure is logged
-// rather than fatal: the info server stays up, so the operator/devenv can see the container is
-// running but the service never became ready (devenv confirms readiness via the service's own health
-// endpoint after it delivers the config).
+// It polls indefinitely until the file appears or ctx is canceled (Stop) — there is no wait timeout,
+// because in a live deployment the operator may provision the config an arbitrary amount of time after
+// the node starts. A start failure is logged rather than fatal: the info server stays up, so the
+// operator/devenv can see the container is running but the service never became ready (devenv confirms
+// readiness via the service's own health endpoint after it delivers the config).
 func (b *Bootstrapper) watchForConfigAndStart(ctx context.Context, keyStore keystore.Keystore) {
 	defer b.watcherWG.Done()
 	ticker := time.NewTicker(localConfigPollInterval)
 	defer ticker.Stop()
-	deadline := time.NewTimer(localConfigWaitTimeout)
-	defer deadline.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
 			b.lggr.Infow("local mode: stopped waiting for app config", "path", b.localConfigPath)
-			return
-		case <-deadline.C:
-			b.lggr.Errorw("local mode: timed out waiting for app config file",
-				"path", b.localConfigPath, "timeout", localConfigWaitTimeout)
 			return
 		case <-ticker.C:
 			if !localConfigFileReady(b.localConfigPath) {
