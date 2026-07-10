@@ -16,7 +16,7 @@ const (
 
 	// Step labels for jd_lifecycle_proposal_step_errors_total. Each names a
 	// discrete step in handleProposal/retryPendingJob that can fail. A single
-	// proposal may record several of these
+	// proposal may record several of these.
 	stepSavePending           = "save_pending"
 	stepStopJob               = "stop_job"
 	stepStartJob              = "start_job"
