@@ -34,9 +34,7 @@ The importable Go modules in this repo are independently versioned and tagged by
 their tag formats: root (`vX.Y.Z`), `deployment/vX.Y.Z`, `build/devenv/vX.Y.Z`,
 `integration/evm/vX.Y.Z`. All are pre-`1.0`, so breaking changes bump the minor version.
 
-See [`CONTRIBUTING.md`](./CONTRIBUTING.md) for the PR-title format and
-[`docs/adr/0007-release-please-multi-module-versioning.md`](./docs/adr/0007-release-please-multi-module-versioning.md)
-for the rationale.
+See [`CONTRIBUTING.md`](./CONTRIBUTING.md) for the PR-title format.
 
 ## Local Dev Environment
 Follow the [README](./build/devenv/README.md)

@@ -2,7 +2,7 @@ name: Publish GA Image From Release Tag
 
 # Publishes GA (non-RC) service images when release-please cuts a root release.
 # The bare root tag `vX.Y.Z` is produced by release-please under the GATI GitHub App
-# token, which triggers this workflow (see ADR-0007 D7, ADR-0012). In GitHub Actions
+# token, which triggers this workflow. In GitHub Actions
 # tag globs `*` does not match `/`, so `v[0-9]+.[0-9]+.[0-9]+` matches only the bare
 # root tag — never module tags (`deployment/vX.Y.Z`) or RC tags (`<svc>/vX.Y.Z-rc`).
 on:
