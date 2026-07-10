@@ -66,6 +66,8 @@ type Config struct {
 	Runner JobRunner
 	// Logger is the logger for the lifecycle manager.
 	Logger logger.Logger
+	// Metrics records proposal outcomes. Defaults to a no-op when nil.
+	Metrics Metrics
 	// OnConnectHook is an optional function called each time the JD connection is established.
 	// A non-nil error is logged as a warning but does not prevent job processing.
 	OnConnectHook func(ctx context.Context) error
@@ -85,6 +87,7 @@ type Manager struct {
 	jobStore      store.StoreInterface
 	runner        JobRunner
 	lggr          logger.Logger
+	metrics       Metrics
 	onConnectHook func(ctx context.Context) error
 
 	mu            sync.Mutex
@@ -112,11 +115,16 @@ func NewManager(cfg Config) (*Manager, error) {
 	if cfg.Logger == nil {
 		return nil, errors.New("logger is required")
 	}
+	metrics := cfg.Metrics
+	if metrics == nil {
+		metrics = noopMetrics{}
+	}
 	return &Manager{
 		jdClient:      cfg.JDClient,
 		jobStore:      cfg.JobStore,
 		runner:        cfg.Runner,
 		lggr:          logger.With(cfg.Logger, "component", "JobLifecycleManager"),
+		metrics:       metrics,
 		onConnectHook: cfg.OnConnectHook,
 		state:         StateWaitingForJob,
 		shutdownCh:    make(chan struct{}),
@@ -262,7 +270,7 @@ func (m *Manager) eventLoop() {
 // On StartJob failure with no prior job: the pending store record survives for restart recovery.
 // On StartJob failure during a replacement: the pending record is deleted and the old job is
 // restarted from the in-memory snapshot so the job keeps running.
-func (m *Manager) handleProposal(proposal *pb.ProposeJobRequest) error {
+func (m *Manager) handleProposal(proposal *pb.ProposeJobRequest) (retErr error) {
 	m.lggr.Infow("Handling job proposal",
 		"proposalID", proposal.Id,
 		"version", proposal.Version,
@@ -272,25 +280,35 @@ func (m *Manager) handleProposal(proposal *pb.ProposeJobRequest) error {
 	ctx, cancel := context.WithTimeout(context.Background(), handleTimeout)
 	defer cancel()
 
+	m.mu.Lock()
+	wasRunning := m.state == StateRunning
+	currentJob := m.currentJob // snapshot for fallback; non-nil when wasRunning
+	m.mu.Unlock()
+	replacement := wasRunning
+	defer func() {
+		result := resultSuccess
+		if retErr != nil {
+			result = resultError
+		}
+		m.metrics.IncProposal(ctx, result, replacement)
+	}()
+
 	// Persist the proposal as pending BEFORE attempting StartJob. This ensures
 	// that a crash between here and MarkJobApproved leaves a recoverable record.
 	// SavePendingJob only removes the previous pending row; any approved (old) row is preserved.
 	if err := m.jobStore.SavePendingJob(ctx, proposal.Id, proposal.Version, proposal.Spec); err != nil {
 		// The job will need to be re-proposed after fixing the error (whatever it may be).
 		m.lggr.Warnw("Failed to persist pending proposal", "error", err)
+		m.metrics.IncStepError(ctx, stepSavePending, replacement)
 	} else {
 		m.lggr.Infow("Proposal persisted as pending", "proposalID", proposal.Id)
 	}
-
-	m.mu.Lock()
-	wasRunning := m.state == StateRunning
-	currentJob := m.currentJob // snapshot for fallback; non-nil when wasRunning
-	m.mu.Unlock()
 
 	// If we have a running job, stop it first
 	if wasRunning {
 		m.lggr.Infow("Stopping current job for replacement")
 		if err := m.runner.StopJob(ctx); err != nil {
+			m.metrics.IncStepError(ctx, stepStopJob, replacement)
 			return fmt.Errorf("failed to stop current job: %w", err)
 		}
 	}
@@ -298,9 +316,11 @@ func (m *Manager) handleProposal(proposal *pb.ProposeJobRequest) error {
 	// Start the new job
 	if err := m.runner.StartJob(ctx, proposal.Spec); err != nil {
 		if wasRunning {
+			m.metrics.IncStepError(ctx, stepStartReplacement, replacement)
 			return m.rollbackReplacement(ctx, proposal.Id, err, currentJob)
 		}
 		// No old job to fall back to: leave pending record for restart recovery.
+		m.metrics.IncStepError(ctx, stepStartJob, replacement)
 		m.mu.Lock()
 		m.state = StateWaitingForJob
 		m.currentJob = nil
@@ -319,10 +339,12 @@ func (m *Manager) handleProposal(proposal *pb.ProposeJobRequest) error {
 	// StartJob succeeded - promote the pending record to approved.
 	if promoted, err := m.jobStore.AcceptPendingJob(ctx); err != nil {
 		m.lggr.Warnw("Failed to accept pending job in store", "error", err)
+		m.metrics.IncStepError(ctx, stepAcceptPending, replacement)
 		// Continue anyway - the job is running. The store record stays 'pending', so the
 		// next restart will retry via the pending recovery path.
 	} else if !promoted {
 		m.lggr.Warnw("AcceptPendingJob reported no pending row — store may be inconsistent")
+		m.metrics.IncStepError(ctx, stepAcceptPending, replacement)
 	}
 
 	// Update in-memory state
@@ -340,6 +362,7 @@ func (m *Manager) handleProposal(proposal *pb.ProposeJobRequest) error {
 	// Approve the job with JD
 	if err := m.jdClient.ApproveJob(ctx, proposal.Id, proposal.Version); err != nil {
 		m.lggr.Warnw("Failed to approve job with JD", "error", err)
+		m.metrics.IncStepError(ctx, stepApproveJob, replacement)
 		// Continue anyway - job is running.
 	}
 
@@ -356,6 +379,7 @@ func (m *Manager) handleProposal(proposal *pb.ProposeJobRequest) error {
 func (m *Manager) rollbackReplacement(ctx context.Context, newProposalID string, startErr error, oldJob *store.Job) error {
 	if delErr := m.jobStore.DeletePendingJob(ctx); delErr != nil {
 		m.lggr.Warnw("Failed to remove pending record during rollback", "error", delErr)
+		m.metrics.IncStepError(ctx, stepRollbackDeletePending, true)
 	}
 	m.lggr.Infow("Restarting previous job after replacement failure",
 		"newProposalID", newProposalID,
@@ -363,6 +387,7 @@ func (m *Manager) rollbackReplacement(ctx context.Context, newProposalID string,
 	)
 	if restartErr := m.runner.StartJob(ctx, oldJob.Spec); restartErr != nil {
 		m.lggr.Errorw("Failed to restart previous job after replacement failure", "error", restartErr)
+		m.metrics.IncStepError(ctx, stepRollbackRestart, true)
 		m.mu.Lock()
 		m.state = StateWaitingForJob
 		m.currentJob = nil
@@ -374,7 +399,7 @@ func (m *Manager) rollbackReplacement(ctx context.Context, newProposalID string,
 // retryPendingJob attempts to start the pending job after JD has reconnected.
 // On success it marks the store record approved, updates in-memory state, and calls ApproveJob.
 // On failure the pending record in the store is preserved for the next restart.
-func (m *Manager) retryPendingJob(job *store.Job) error {
+func (m *Manager) retryPendingJob(job *store.Job) (retErr error) {
 	m.lggr.Infow("Retrying pending job after JD connect",
 		"proposalID", job.ProposalID,
 		"version", job.Version,
@@ -382,15 +407,25 @@ func (m *Manager) retryPendingJob(job *store.Job) error {
 
 	ctx, cancel := context.WithTimeout(context.Background(), handleTimeout)
 	defer cancel()
+	defer func() {
+		result := resultSuccess
+		if retErr != nil {
+			result = resultError
+		}
+		m.metrics.IncProposal(ctx, result, false)
+	}()
 
 	if err := m.runner.StartJob(ctx, job.Spec); err != nil {
+		m.metrics.IncStepError(ctx, stepStartJob, false)
 		return fmt.Errorf("failed to start pending job: %w", err)
 	}
 
 	if promoted, err := m.jobStore.AcceptPendingJob(ctx); err != nil {
 		m.lggr.Warnw("Failed to accept pending job in store", "error", err)
+		m.metrics.IncStepError(ctx, stepAcceptPending, false)
 	} else if !promoted {
 		m.lggr.Warnw("AcceptPendingJob reported no pending row — store may be inconsistent")
+		m.metrics.IncStepError(ctx, stepAcceptPending, false)
 	}
 
 	m.mu.Lock()
@@ -406,6 +441,7 @@ func (m *Manager) retryPendingJob(job *store.Job) error {
 
 	if err := m.jdClient.ApproveJob(ctx, job.ProposalID, job.Version); err != nil {
 		m.lggr.Warnw("Failed to approve pending job with JD", "error", err)
+		m.metrics.IncStepError(ctx, stepApproveJob, false)
 	}
 
 	m.lggr.Infow("Pending job started successfully",

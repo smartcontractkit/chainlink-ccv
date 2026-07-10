@@ -441,11 +441,16 @@ func (b *Bootstrapper) startWithJDLifecycle(ctx context.Context) error {
 			return jdClient.UpdateNode(ctx, req)
 		}
 	}
+	jdMetrics, err := lifecycle.InitMetrics()
+	if err != nil {
+		return fmt.Errorf("failed to init JD lifecycle metrics: %w", err)
+	}
 	lifecycleManager, err := lifecycle.NewManager(lifecycle.Config{
 		JDClient:      jdClient,
 		JobStore:      jobstore.NewPostgresStore(db),
 		Runner:        jobRunner,
 		Logger:        logger.Named(b.lggr, "LifecycleManager"),
+		Metrics:       jdMetrics,
 		OnConnectHook: onConnectHook,
 	})
 	if err != nil {
