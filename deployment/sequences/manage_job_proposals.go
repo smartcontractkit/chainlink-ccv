@@ -28,6 +28,12 @@ type ManageJobProposalsInput struct {
 	NOPs          NOPContext
 	// RevokeOrphanedJobs when true runs orphan collection, JD revoke, and datastore cleanup; default false.
 	RevokeOrphanedJobs bool
+	// AllowMissingJD permits running without a Job Distributor (e.Offchain == nil): the generated job
+	// specs are persisted to the datastore so callers can read them (e.g. devenv delivers them to
+	// services as mounted files in the no-JD local mode), and proposing/revoking — which require JD —
+	// are skipped. When false (default), a nil offchain client is an error, as job proposal is the
+	// sequence's purpose.
+	AllowMissingJD bool
 }
 
 type ManageJobProposalsOutput struct {
@@ -46,9 +52,6 @@ var ManageJobProposals = operations.NewSequence(
 	"Manages job proposals by proposing new jobs and optionally revoking orphaned ones via JD when RevokeOrphanedJobs is enabled",
 	func(b operations.Bundle, deps ManageJobProposalsDeps, input ManageJobProposalsInput) (ManageJobProposalsOutput, error) {
 		e := deps.Env
-		if e.Offchain == nil {
-			return ManageJobProposalsOutput{}, fmt.Errorf("NOPs require JD but e.Offchain is nil")
-		}
 
 		ds := datastore.NewMemoryDataStore()
 		if e.DataStore != nil {
@@ -65,6 +68,20 @@ var ManageJobProposals = operations.NewSequence(
 
 		jobs := buildJobsFromJobSpecs(input.JobSpecs, input.NOPs.Modes)
 		carryForwardExistingJobMetadata(jobs, existingJobs)
+
+		if e.Offchain == nil {
+			if !input.AllowMissingJD {
+				return ManageJobProposalsOutput{}, fmt.Errorf("NOPs require JD but e.Offchain is nil")
+			}
+			// No Job Distributor (local mode): persist the generated job specs so callers can read
+			// them (devenv delivers them to services as mounted files), and skip proposing/revoking,
+			// which require JD.
+			e.Logger.Infow("manage-job-proposals: no offchain (JD) client; saving job specs without proposing (AllowMissingJD)", "jobs", len(jobs))
+			if err := ccvdeployment.SaveJobs(ds, jobs); err != nil {
+				return ManageJobProposalsOutput{}, fmt.Errorf("failed to save jobs: %w", err)
+			}
+			return ManageJobProposalsOutput{Jobs: jobs, DataStore: ds}, nil
+		}
 
 		changedJobs := filterChangedJobs(jobs, existingJobs)
 		if len(changedJobs) < len(jobs) {

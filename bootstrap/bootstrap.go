@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -43,6 +44,12 @@ const (
 
 	defaultStartupTimeout  = 10 * time.Second
 	defaultShutdownTimeout = 10 * time.Second
+
+	// localConfigPollInterval is how often the local-mode watcher checks for a not-yet-present app
+	// config file (see startLocal). There is no wait timeout: in a live deployment the operator may
+	// provision the config an arbitrary amount of time after the node starts, so the watcher polls until
+	// the file appears or the process is stopped.
+	localConfigPollInterval = 2 * time.Second
 )
 
 // AppConfigMode is how the bootstrapper loads application config. It is operator-provided via the
@@ -165,6 +172,18 @@ type Bootstrapper struct {
 
 	// accCloser is set by startLocal; JD mode uses runner.accCloser instead.
 	accCloser *AccessorCloserRegistry
+
+	// svcCancel cancels the long-lived context that backs the local-mode config watcher and the
+	// service it eventually starts. It is nil unless local mode is waiting for its app config file
+	// (see startLocal); Stop calls it to unblock the watcher and stop the service.
+	svcCancel context.CancelFunc
+	// watcherWG tracks the local-mode config-watcher goroutine so Stop can wait for it to finish.
+	watcherWG sync.WaitGroup
+	// localStartErr carries a failure from the local-mode config watcher's deferred service start back
+	// to Run, so a start failure after config delivery is fatal (the process exits) — matching the
+	// synchronous path, where a start error propagates to main. Buffered (size 1) and non-nil only
+	// while waiting for the app config file. nil in every other mode, so Run's receive never fires.
+	localStartErr chan error
 	// pyroscope is a saved reference to profiler to close it on stop
 	pyroscope *pyroscope.Profiler
 
@@ -423,12 +442,22 @@ func (b *Bootstrapper) startWithJDLifecycle(ctx context.Context) error {
 	return nil
 }
 
-// startLocal runs the service without JD. It reads the app config from a local file and hands it to
-// the factory directly instead of waiting for a JD proposal. When a [db]+[keystore] bootstrap config
-// is provided it also initializes a Postgres-backed keystore (and, if a [server] port is set, the
-// info server) so signing services work; without one it runs keystore-less. There is no JD client,
-// no lifecycle manager, and no signing-key sync to JD.
-func (b *Bootstrapper) startLocal(ctx context.Context) (startErr error) {
+// startLocal runs the service without JD. When a [db]+[keystore] bootstrap config is provided it
+// initializes a Postgres-backed keystore (and, if a [server] port is set, the info server) so signing
+// services work; without one it runs keystore-less. There is no JD client, no lifecycle manager, and
+// no signing-key sync to JD.
+//
+// The app config is read from a local file. Two delivery modes are supported, chosen by whether the
+// file is present at startup:
+//
+//   - present: the service starts synchronously, exactly as before. This is the token verifier and
+//     the existing local-mode callers that mount the config at container start.
+//   - absent (keystore + info server only): the keystore and info server come up immediately and
+//     startLocal returns, then a background watcher waits for the file to appear and starts the
+//     service once it does. This mirrors JD mode, where the info server and lifecycle manager come up
+//     first and the factory starts only when a job (the app config) arrives — letting an operator, or
+//     devenv, discover the node's signing key from the info server and provision the config afterward.
+func (b *Bootstrapper) startLocal(ctx context.Context) error {
 	// A keystore is initialized only when both the DB URL and keystore password are configured.
 	// Services that sign (committee verifier, executor) supply them; the token verifier does not.
 	var keyStore keystore.Keystore
@@ -461,6 +490,39 @@ func (b *Bootstrapper) startLocal(ctx context.Context) (startErr error) {
 		return fmt.Errorf("failed to initialize monitoring: %w", err)
 	}
 
+	// The info server exposes health/key inspection. It needs a keystore and a configured port; in
+	// local mode [server] is optional, so start it only when both are present. It comes up before the
+	// app config is read so that key discovery works while a not-yet-present config is awaited.
+	if keyStore != nil && b.config.Server.ListenPort != 0 {
+		infoServer := newInfoServer(b.lggr, keyStore, b.config.Server.ListenPort)
+		if err := infoServer.Start(ctx); err != nil {
+			return fmt.Errorf("failed to start info server: %w", err)
+		}
+		b.infoServer = infoServer
+	}
+
+	// Defer the service start until the config file is present. The watch path requires a keystore
+	// and info server (its whole purpose is exposing signing keys while the config is provisioned);
+	// a keystore-less service (token verifier) always takes the synchronous path, where a missing
+	// file is an immediate, clear error.
+	if b.infoServer != nil && !localConfigFileReady(b.localConfigPath) {
+		svcCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+		b.svcCancel = cancel
+		b.localStartErr = make(chan error, 1)
+		b.lggr.Infow("local mode: app config not present yet; serving keys and waiting for it to appear",
+			"path", b.localConfigPath)
+		b.watcherWG.Add(1)
+		go b.watchForConfigAndStart(svcCtx, keyStore)
+		return nil
+	}
+
+	return b.startLocalService(ctx, keyStore)
+}
+
+// startLocalService reads the app config file, builds the accessor registry (injecting the keystore
+// when one exists), and starts the service factory. It is the shared tail of both the synchronous and
+// the watch-and-start local paths.
+func (b *Bootstrapper) startLocalService(ctx context.Context, keyStore keystore.Keystore) (startErr error) {
 	appCfg, err := os.ReadFile(b.localConfigPath)
 	if err != nil {
 		return fmt.Errorf("failed to read local app config %q: %w", b.localConfigPath, err)
@@ -487,18 +549,52 @@ func (b *Bootstrapper) startLocal(ctx context.Context) (startErr error) {
 		}
 	}()
 
-	// The info server exposes health/key inspection. It needs a keystore and a configured port; in
-	// local mode [server] is optional, so start it only when both are present.
-	if keyStore != nil && b.config.Server.ListenPort != 0 {
-		infoServer := newInfoServer(b.lggr, keyStore, b.config.Server.ListenPort)
-		if err := infoServer.Start(ctx); err != nil {
-			return fmt.Errorf("failed to start info server: %w", err)
-		}
-		b.infoServer = infoServer
-	}
-
 	js := JobSpec{Name: "local", AppConfig: string(appCfg)}
 	return b.fac.Start(ctx, js, ServiceDeps{Logger: b.lggr, Keystore: keyStore, Registry: b.accCloser})
+}
+
+// watchForConfigAndStart polls for the local app config file and starts the service once it appears.
+// It polls indefinitely until the file appears or ctx is canceled (Stop) — there is no wait timeout,
+// because in a live deployment the operator may provision the config an arbitrary amount of time after
+// the node starts. A start failure is logged rather than fatal: the info server stays up, so the
+// operator/devenv can see the container is running but the service never became ready (devenv confirms
+// readiness via the service's own health endpoint after it delivers the config).
+func (b *Bootstrapper) watchForConfigAndStart(ctx context.Context, keyStore keystore.Keystore) {
+	defer b.watcherWG.Done()
+	ticker := time.NewTicker(localConfigPollInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			b.lggr.Infow("local mode: stopped waiting for app config", "path", b.localConfigPath)
+			return
+		case <-ticker.C:
+			if !localConfigFileReady(b.localConfigPath) {
+				continue
+			}
+			b.lggr.Infow("local mode: app config appeared, starting service", "path", b.localConfigPath)
+			if err := b.startLocalService(ctx, keyStore); err != nil {
+				// Hand the failure to Run so the process exits, as it would on the synchronous path.
+				// The error is not logged here: it is returned up to main, whose existing handling
+				// surfaces it (and avoids re-logging a value flagged as sensitive by static analysis —
+				// the error names config sources, not credential values).
+				select {
+				case b.localStartErr <- err:
+				default:
+				}
+			}
+			return
+		}
+	}
+}
+
+// localConfigFileReady reports whether the local app config file exists and is non-empty. The
+// non-empty check guards against reading a file mid-write; devenv writes it atomically (temp + rename)
+// so a size greater than zero means the full config is present.
+func localConfigFileReady(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir() && info.Size() > 0
 }
 
 // Start routes to the mode-specific startup path resolved in NewBootstrapper.
@@ -536,19 +632,31 @@ func (b *Bootstrapper) Stop(ctx context.Context) error {
 		}
 	}
 	if b.mode == AppConfigModeLocal {
-		var errs []error
-		if err := b.fac.Stop(ctx); err != nil {
-			errs = append(errs, fmt.Errorf("failed to stop service factory: %w", err))
-		}
-		if b.accCloser != nil {
-			if err := b.accCloser.CloseAll(); err != nil {
-				errs = append(errs, fmt.Errorf("failed to close accessors: %w", err))
-			}
-			b.accCloser = nil
-		}
-		return errors.Join(errs...)
+		return b.stopLocal(ctx)
 	}
 	return nil
+}
+
+// stopLocal tears down the local-mode service: it unblocks the config watcher (if still waiting) and
+// waits for it, so a service start racing with shutdown finishes or aborts before the factory is
+// stopped and accessors are closed.
+func (b *Bootstrapper) stopLocal(ctx context.Context) error {
+	if b.svcCancel != nil {
+		b.svcCancel()
+	}
+	b.watcherWG.Wait()
+
+	var errs []error
+	if err := b.fac.Stop(ctx); err != nil {
+		errs = append(errs, fmt.Errorf("failed to stop service factory: %w", err))
+	}
+	if b.accCloser != nil {
+		if err := b.accCloser.CloseAll(); err != nil {
+			errs = append(errs, fmt.Errorf("failed to close accessors: %w", err))
+		}
+		b.accCloser = nil
+	}
+	return errors.Join(errs...)
 }
 
 func connectToDB(ctx context.Context, connStr string) (*sqlx.DB, error) {
@@ -732,15 +840,26 @@ func Run(
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
-	<-sigCh
-	bootstrapper.lggr.Infow("Received shutdown signal, stopping bootstrapper...")
+	// In local mode the app config may be delivered after startup; if the deferred service start then
+	// fails, localStartErr fires and the process exits with that error (as the synchronous path does).
+	// localStartErr is nil outside that path, so the receive simply never fires.
+	var startErr error
+	select {
+	case <-sigCh:
+		bootstrapper.lggr.Infow("Received shutdown signal, stopping bootstrapper...")
+	case startErr = <-bootstrapper.localStartErr:
+		bootstrapper.lggr.Errorw("service failed to start after app config was delivered; shutting down")
+	}
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), defaultShutdownTimeout)
 	defer shutdownCancel()
 
 	if err := bootstrapper.Stop(shutdownCtx); err != nil {
+		if startErr != nil {
+			return fmt.Errorf("service start failed (%w); also failed to stop bootstrapper: %v", startErr, err)
+		}
 		return fmt.Errorf("failed to stop bootstrapper: %w", err)
 	}
 
-	return nil
+	return startErr
 }

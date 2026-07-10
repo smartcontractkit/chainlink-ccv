@@ -1,0 +1,256 @@
+## No-JD devenv environment (CCIP-12198).
+##
+## app_config_source = "local" runs the environment WITHOUT a Job Distributor: each committee verifier
+## runs in bootstrap local mode and receives its app config as a mounted file (written by devenv after
+## contracts are deployed) instead of a JD job proposal. Its signer address is read from the bootstrap
+## info server rather than JD. Use this to bring up devenv without the job-distributor image (e.g. the
+## CCV starter kit / partner testing).
+##
+##   ccv up env-local-config.toml
+##
+## Scope: full send -> verify -> execute with no JD. The committee verifier verifies and writes to the
+## aggregator; the executor polls the indexer and executes on the destination chain. Token-transfer
+## verification (CCTP/Lombard) is not wired here: there is no [[token_verifier]] service, so token
+## transfer subtests that require it are skipped.
+app_config_source = "local"
+
+cl_nodes_funding_eth = 50
+cl_nodes_funding_link = 50
+high_availability = false
+
+[protocol_contracts]
+
+[environment_topology]
+indexer_address = ["http://indexer-1:8100"]
+
+[environment_topology.Monitoring]
+LogLevel = 'debug'
+
+## Monitoring exporters are disabled so the environment needs no external collector. Enable them if you
+## run the observability stack (see env.toml for the Beholder/Pyroscope fields).
+[environment_topology.Monitoring.Pyroscope]
+Enabled = false
+URL = ""
+
+[environment_topology.Monitoring.Beholder]
+Enabled = false
+InsecureConnection = true
+
+[[environment_topology.nop_topology.nops]]
+alias = "default-verifier-1"
+name = "default-verifier-1"
+mode = "standalone"
+
+[[environment_topology.nop_topology.nops]]
+alias = "default-executor-1"
+name = "default-executor-1"
+mode = "standalone"
+
+[[environment_topology.nop_topology.nops]]
+alias = "custom-executor-1"
+name = "custom-executor-1"
+mode = "standalone"
+
+[environment_topology.nop_topology.committees.default]
+qualifier = "default"
+verifier_version = "2.0.0"
+
+[[environment_topology.nop_topology.committees.default.aggregators]]
+name = "default"
+address = "default-aggregator:50051"
+insecure_connection = true
+
+[environment_topology.nop_topology.committees.default.chain_configs.3379446385462418246]
+nop_aliases = ["default-verifier-1"]
+threshold = 1
+
+[environment_topology.nop_topology.committees.default.chain_configs.12922642891491394802]
+nop_aliases = ["default-verifier-1"]
+threshold = 1
+
+[environment_topology.executor_pools.default.chain_configs."3379446385462418246"]
+nop_aliases = ["default-executor-1"]
+execution_interval = 15_000_000_000
+
+[environment_topology.executor_pools.default.chain_configs."12922642891491394802"]
+nop_aliases = ["default-executor-1"]
+execution_interval = 15_000_000_000
+
+[environment_topology.executor_pools.custom.chain_configs."3379446385462418246"]
+nop_aliases = ["custom-executor-1"]
+execution_interval = 15_000_000_000
+
+[environment_topology.executor_pools.custom.chain_configs."12922642891491394802"]
+nop_aliases = ["custom-executor-1"]
+execution_interval = 15_000_000_000
+
+[cldf]
+
+## No [jd] block: the Job Distributor is not started in local mode.
+
+[[blockchains]]
+  container_name = "blockchain-src"
+  chain_id = "1337"
+  docker_cmd_params = ["-b", "1", "--mixed-mining", "--slots-in-an-epoch", "1"]
+  image = "ghcr.io/foundry-rs/foundry:latest"
+  port = "8545"
+  type = "anvil"
+
+[[blockchains]]
+  container_name = "blockchain-dst"
+  chain_id = "2337"
+  docker_cmd_params = ["-b", "1", "--mixed-mining", "--slots-in-an-epoch", "1"]
+  image = "ghcr.io/foundry-rs/foundry:latest"
+  port = "8555"
+  type = "anvil"
+
+[fake]
+  image = "ccv-fakes:latest"
+  port = 9111
+  source_code_path = "../build/devenv/fakes"
+  root_path = "../../"
+
+## Single committee verifier. Its bootstrap mode is forced to local by app_config_source = "local".
+[[verifier]]
+  image = "verifier:latest"
+  container_name = "default-verifier-1"
+  nop_alias = "default-verifier-1"
+  port = 8100
+  source_code_path = "../verifier"
+  root_path = "../../"
+  committee_name = "default"
+  node_index = 0
+  [verifier.db]
+    image = "postgres:16-alpine"
+    name = "default-verifier-1-db"
+    port = 8432
+
+## Single executor. Its bootstrap mode is forced to local by app_config_source = "local".
+[[executor]]
+  image = "executor:latest"
+  source_code_path = "../executor"
+  root_path = "../../"
+  container_name = "default-executor-1"
+  nop_alias = "default-executor-1"
+  executor_qualifier = "default"
+  [executor.db]
+    image = "postgres:16-alpine"
+    name = "default-executor-1-db"
+
+## Second executor with the "custom" qualifier, matching env.toml. Lets messages that route to a
+## non-default executor (e.g. the custom-executor smoke case) be executed with no JD.
+[[executor]]
+  image = "executor:latest"
+  source_code_path = "../executor"
+  root_path = "../../"
+  container_name = "custom-executor-1"
+  nop_alias = "custom-executor-1"
+  executor_qualifier = "custom"
+  [executor.db]
+    image = "postgres:16-alpine"
+    name = "custom-executor-1-db"
+
+[[indexer]]
+  image = "indexer:latest"
+  port = 8104
+  redundant_indexers = 1
+  source_code_path = "../indexer"
+  root_path = "../../"
+  storage_connection_url = "postgresql://indexer:indexer@indexer-db:5432/indexer?sslmode=disable"
+  [indexer.db]
+    image = "postgres:16-alpine"
+
+[indexer.indexer_config]
+LogLevel = 'debug'
+
+[indexer.indexer_config.Monitoring]
+LogLevel = 'debug'
+
+[indexer.indexer_config.Monitoring.Pyroscope]
+Enabled = false
+URL = ''
+
+[indexer.indexer_config.Monitoring.Beholder]
+Enabled = false
+InsecureConnection = true
+
+[[indexer.indexer_config.Discoveries]]
+Address = "default-aggregator:50051"
+Since = 0
+PollInterval = 500
+Timeout = 5000
+NtpServer = "time.google.com"
+
+[indexer.indexer_config.Scheduler]
+TickerInterval = 50
+VerificationVisibilityWindow = 28800
+BaseDelay = 100
+MaxDelay = 30_000
+
+[indexer.indexer_config.Pool]
+ConcurrentWorkers = 1000
+WorkerTimeout = 300
+
+[[indexer.indexer_config.Verifier]]
+Type = "aggregator"
+Name = "CommiteeVerifier (Primary)"
+Address = "default-aggregator:50051"
+InsecureConnection = true
+BatchSize = 100
+MaxBatchWaitTime = 50
+Since = 0
+
+[indexer.committee_verifier_name_to_qualifier]
+"CommiteeVerifier (Primary)" = "default"
+
+[indexer.indexer_config.Storage]
+Strategy = "single"
+
+[indexer.indexer_config.Storage.Single]
+Type = "postgres"
+
+[indexer.indexer_config.Storage.Single.Postgres]
+MaxOpenConnections = 20
+MaxIdleConnections = 5
+IdleInTxSessionTimeout = 60
+LockTimeout = 30
+
+[indexer.secrets.Storage.Single.Postgres]
+URI = "postgresql://indexer:indexer@indexer-db:5432/indexer?sslmode=disable"
+
+[[aggregator]]
+  committee_name = "default"
+  image = "aggregator:latest"
+  host_port = 50051
+  redundant_aggregators = 1
+  source_code_path = "../aggregator"
+  root_path = "../../"
+
+  [aggregator.db]
+    image = "postgres:16-alpine"
+    host_port = 7432
+
+  [aggregator.redis]
+    image = "redis:7-alpine"
+    host_port = 6379
+
+  [[aggregator.api_clients]]
+  client_id = "default-verifier-1"
+  enabled = true
+  groups = ["verifiers"]
+
+  [[aggregator.api_clients]]
+  client_id = "monitoring"
+  enabled = true
+  groups = ["monitoring"]
+
+  [[aggregator.api_clients]]
+  client_id = "indexer"
+  enabled = true
+  groups = ["indexer"]
+
+  [aggregator.env]
+    storage_connection_url = "postgresql://aggregator:aggregator@default-aggregator-db:5432/aggregator?sslmode=disable"
+    redis_address = "default-aggregator-redis:6379"
+    redis_password = ""
+    redis_db = "0"

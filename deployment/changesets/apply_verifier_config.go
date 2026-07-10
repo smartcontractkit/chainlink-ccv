@@ -212,6 +212,9 @@ func ApplyVerifierConfig() deployment.ChangeSetV2[ApplyVerifierConfigInput] {
 					AllNOPs:    allNOPAliases(cfg.NOPs),
 				},
 				RevokeOrphanedJobs: cfg.RevokeOrphanedJobs,
+				// Without a JD (no-JD local devenv), persist the generated specs and skip proposing;
+				// the caller delivers them to the verifier as a mounted file instead.
+				AllowMissingJD: e.Offchain == nil,
 			},
 		)
 		if err != nil {
