@@ -1,11 +1,10 @@
 ## No-JD devenv environment (CCIP-12198).
 ##
 ## app_config_source = "local" runs the environment WITHOUT a Job Distributor: each committee verifier
-## and executor runs in bootstrap local mode. devenv seeds each service's signing keys directly, so
-## their addresses are known before the container starts; the app config is then mounted into the
-## container at startup (built by devenv after contracts are deployed) instead of shipped as a JD job
-## proposal. Use this to bring up devenv without the job-distributor image (e.g. the CCV starter kit /
-## partner testing).
+## runs in bootstrap local mode and receives its app config as a mounted file (written by devenv after
+## contracts are deployed) instead of a JD job proposal. Its signer address is read from the bootstrap
+## info server rather than JD. Use this to bring up devenv without the job-distributor image (e.g. the
+## CCV starter kit / partner testing).
 ##
 ##   ccv up env-local-config.toml
 ##

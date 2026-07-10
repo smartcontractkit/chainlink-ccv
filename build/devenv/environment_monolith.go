@@ -685,10 +685,10 @@ func NewEnvironment() (in *Cfg, err error) {
 	}
 
 	// Deliver the generated app config to each verifier. In JD mode this is a job proposal over WSRPC;
-	// in local mode the verifier container is started now with the config mounted (it was prepared
-	// earlier, with its signing key seeded, so its address could feed the on-chain committee config).
+	// in local mode it is a file written into the container's mounted config directory, which the
+	// waiting bootstrapper picks up and then starts the service.
 	if local {
-		if err := launchLocalVerifiersWithConfig(ctx, in.Verifier, ownedJobSpecs, blockchainOutputs); err != nil {
+		if err := deliverLocalVerifierConfigs(in.Verifier, ownedJobSpecs, blockchainOutputs); err != nil {
 			return nil, err
 		}
 	} else if jdInfra != nil && jdInfra.OffchainClient != nil {

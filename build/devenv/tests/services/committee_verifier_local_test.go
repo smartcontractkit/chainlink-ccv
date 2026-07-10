@@ -168,15 +168,15 @@ func TestServiceCommitteeVerifierLocalMode(t *testing.T) {
 	}, 60*time.Second, 2*time.Second, "verifier /health did not become healthy in local mode")
 }
 
-// TestServiceCommitteeVerifierLocalModeTwoPhase exercises the two-phase no-JD path used by the full
-// devenv local environment (app_config_source = "local"): PrepareLocal starts the bootstrap DB and
-// seeds the signing key WITHOUT starting the verifier container, so its signer address is available
-// up front (this is what lets the environment build the on-chain committee config before any verifier
-// runs); then LaunchLocalWithConfig starts the container with the app config present, and the
-// coordinator comes up. No JD, no waiting for a config file.
+// TestServiceCommitteeVerifierLocalModeDeferredConfig exercises the no-JD delivery path used by the
+// full devenv local environment (app_config_source = "local"): the verifier is launched with NO app
+// config, so its bootstrapper comes up serving keys and waiting; the config is delivered afterward via
+// a file (DeliverLocalAppConfig), and only then does the verifier's coordinator start. This mirrors
+// how JD delivers the app config after the verifier connects — the property the local path relies on
+// so signer addresses can be read before contracts are configured and the config delivered after.
 //
 // Named TestService... so the test-services CI job picks it up. Requires Docker.
-func TestServiceCommitteeVerifierLocalModeTwoPhase(t *testing.T) {
+func TestServiceCommitteeVerifierLocalModeDeferredConfig(t *testing.T) {
 	const committeeName = "localdefer"
 	const verifierContainerName = "verifier-localdefer"
 	const chainID = "1337"
@@ -247,6 +247,8 @@ func TestServiceCommitteeVerifierLocalModeTwoPhase(t *testing.T) {
 	})
 	require.NoError(t, err, "failed to launch aggregator")
 
+	// Launch the verifier in local mode WITHOUT an app config. New() blocks on the bootstrap /health
+	// wait, so a nil error means the bootstrapper is up and serving keys while it waits for the config.
 	in := committeeverifier.ApplyDefaults(committeeverifier.Input{
 		Mode:          services.Local,
 		ContainerName: verifierContainerName,
@@ -262,23 +264,21 @@ func TestServiceCommitteeVerifierLocalModeTwoPhase(t *testing.T) {
 			AggregatorAPIKey:    verifierCreds.APIKey,
 			AggregatorSecretKey: verifierCreds.Secret,
 		},
+		// LocalAppConfig intentionally left empty: delivered after launch, below.
 	})
 
-	// Phase 1: prepare — start the bootstrap DB and seed the signing key, without the verifier container.
-	prepared, err := committeeverifier.PrepareLocal(t.Context(), &in, []*ctfblockchain.Output{chainOut})
-	require.NoError(t, err, "failed to prepare verifier in local mode")
-	require.NotNil(t, prepared)
-	// The signer address is available now, from the seeded key — before any verifier container runs.
-	require.NotEmpty(t, prepared.BootstrapKeys.ECDSAAddress, "PrepareLocal must seed the signing key")
-	require.Nil(t, prepared.Container, "PrepareLocal must not start the verifier container")
-	in.Out = prepared
+	out, err := committeeverifier.New(&in, []*ctfblockchain.Output{chainOut}, nil, chainreg.GetRegistry().GetVerifierModifiers())
+	require.NoError(t, err, "verifier failed to launch in local mode (waiting for config)")
+	require.NotNil(t, out)
+
+	// Keys are exposed even before the config arrives — this is what lets the environment read the
+	// signer address before contracts are configured.
+	require.NotEmpty(t, out.BootstrapKeys.ECDSAAddress, "signing keystore must be initialized while waiting for config")
+	require.NotNil(t, out.Container, "local mode must retain the container handle for app-config delivery")
 
 	healthClient := &http.Client{Timeout: 3 * time.Second}
 	verifierHealthy := func() bool {
-		if prepared.ExternalHTTPURL == "" {
-			return false
-		}
-		resp, err := healthClient.Get(prepared.ExternalHTTPURL + "/health")
+		resp, err := healthClient.Get(out.ExternalHTTPURL + "/health")
 		if err != nil {
 			return false
 		}
@@ -286,10 +286,10 @@ func TestServiceCommitteeVerifierLocalModeTwoPhase(t *testing.T) {
 		return resp.StatusCode == http.StatusOK
 	}
 
-	// The coordinator (verifier :8100 /health) must NOT be up yet: no container is running.
-	require.False(t, verifierHealthy(), "verifier coordinator must not be up before phase 2")
+	// The coordinator (verifier :8100 /health) must NOT be up yet: no config has been delivered.
+	require.False(t, verifierHealthy(), "verifier coordinator must not start before the config is delivered")
 
-	// Phase 2: build the app config and start the container with it present.
+	// Build and deliver the app config; the waiting bootstrapper should then start the coordinator.
 	const placeholderAddr = "0x0000000000000000000000000000000000000001"
 	appCfg := commit.Config{
 		VerifierID: "localdefer-verifier",
@@ -316,12 +316,9 @@ func TestServiceCommitteeVerifierLocalModeTwoPhase(t *testing.T) {
 	}{Config: appCfg, BlockchainInfos: blockchainInfos})
 	require.NoError(t, err)
 
-	require.NoError(t, committeeverifier.LaunchLocalWithConfig(
-		t.Context(), prepared, &in, []*ctfblockchain.Output{chainOut},
-		chainreg.GetRegistry().GetVerifierModifiers(), string(appCfgTOML)),
-		"failed to launch the prepared verifier with its app config")
-	require.NotNil(t, prepared.Container, "LaunchLocalWithConfig must start the verifier container")
+	require.NoError(t, committeeverifier.DeliverLocalAppConfig(out, string(appCfgTOML)),
+		"failed to deliver app config to the waiting verifier")
 
 	require.Eventually(t, verifierHealthy, 60*time.Second, 2*time.Second,
-		"verifier coordinator did not become healthy after launch")
+		"verifier coordinator did not become healthy after the config was delivered")
 }
