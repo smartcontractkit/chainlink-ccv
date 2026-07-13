@@ -10,7 +10,6 @@ import (
 	"time"
 
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
-	"go.uber.org/zap/zapcore"
 
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 
@@ -39,15 +38,10 @@ func main() {
 		cmd.RunCCVCLI(os.Args[1:], vsecrets.TokenVerifierSecretsPathEnv, vsecrets.DefaultTokenVerifierSecretsPath)
 		return
 	}
-	// The token verifier has no JD support and needs no keystore. Its bootstrap config
-	// (BOOTSTRAPPER_CONFIG_PATH, default /etc/config.toml) must set app_config_mode =
-	// "local_app_config" and point local_app_config_path at the token verifier app config; the
-	// bootstrapper reads the app config from there and hands it to the factory. Mode selection is
-	// entirely config-driven — there is no mode env var or functional option here.
+
 	err := bootstrap.Run(
 		"TokenVerifier",
 		&tokenVerifierFactory{},
-		bootstrap.WithLogLevelFromEnv(zapcore.InfoLevel),
 	)
 	if err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "Failed to run token verifier: %v\n", err)
