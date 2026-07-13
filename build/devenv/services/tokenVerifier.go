@@ -167,7 +167,7 @@ func NewTokenVerifier(in *TokenVerifierInput, blockchainOutputs []*blockchain.Ou
 
 	// EVM connection details are operator-local configuration. Mount them separately from the token
 	// verifier app config, matching the standalone committee verifier and executor paths.
-	evmConfig, err := toml.Marshal(evm.Config{BlockchainInfos: blockchainInfos})
+	evmConfig, err := toml.Marshal(evm.NewConfigFromInfos(blockchainInfos))
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate EVM config for token verifier: %w", err)
 	}

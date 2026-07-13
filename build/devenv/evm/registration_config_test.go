@@ -50,9 +50,11 @@ func TestEVMConfigIsMountedSeparatelyFromAppConfig(t *testing.T) {
 	md, err := toml.Decode(string(data), &cfg)
 	require.NoError(t, err)
 	require.Empty(t, md.Undecoded())
-	require.Len(t, cfg.BlockchainInfos, 1)
-	for _, info := range cfg.BlockchainInfos {
-		require.Equal(t, output.ChainID, info.ChainID)
-		require.Equal(t, output.Nodes[0].InternalHTTPUrl, info.Nodes[0].InternalHTTPUrl)
+	require.Len(t, cfg.Chains, 1)
+	// Chain ID and family are intentionally absent from the mounted file (derived from the
+	// selector). Only connection details and chain-type tuning are present.
+	for _, chain := range cfg.Chains {
+		require.Equal(t, output.Type, chain.ChainType)
+		require.Equal(t, output.Nodes[0].InternalHTTPUrl, chain.Nodes[0].InternalHTTPUrl)
 	}
 }

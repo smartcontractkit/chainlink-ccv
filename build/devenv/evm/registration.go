@@ -274,7 +274,7 @@ func marshalEVMConfig(outputs []*blockchain.Output) ([]byte, error) {
 		return nil, err
 	}
 
-	config, err := toml.Marshal(evm.Config{BlockchainInfos: infos})
+	config, err := toml.Marshal(evm.NewConfigFromInfos(infos))
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal config: %w", err)
 	}

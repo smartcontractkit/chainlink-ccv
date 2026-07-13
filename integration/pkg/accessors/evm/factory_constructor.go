@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strconv"
 
 	"github.com/BurntSushi/toml"
+
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/sourcereader"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
@@ -35,18 +37,50 @@ func loadConfig(path string) (*Config, error) {
 	return &cfg, nil
 }
 
+// toInfos reconstructs the accessor's Infos[Info] from the operator-local config, deriving each
+// chain's ID and family from its selector. Only connection and tuning settings live in the mounted
+// file; enumeration metadata is recovered here.
+func (c Config) toInfos() (chainaccess.Infos[Info], error) {
+	infos := make(chainaccess.Infos[Info], len(c.Chains))
+	for selector, chain := range c.Chains {
+		sel, err := strconv.ParseUint(selector, 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("invalid chain selector %q: %w", selector, err)
+		}
+		chainID, err := chainsel.GetChainIDFromSelector(sel)
+		if err != nil {
+			return nil, fmt.Errorf("chain selector %s: %w", selector, err)
+		}
+		family, err := chainsel.GetSelectorFamily(sel)
+		if err != nil {
+			return nil, fmt.Errorf("chain selector %s: %w", selector, err)
+		}
+		infos[selector] = Info{
+			ChainID:         chainID,
+			Type:            chain.ChainType,
+			Family:          family,
+			UniqueChainName: chain.UniqueChainName,
+			Nodes:           chain.Nodes,
+		}
+	}
+	return infos, nil
+}
+
 // CreateEVMAccessorFactory is registered with chainaccess.Register to construct EVM accessors.
 //
-// Per-chain EVM settings are read from `blockchain_infos.<selector>` entries in
-// the EVM-local config file, for
-// example:
+// Per-chain EVM settings are read from `chains.<selector>` entries in the EVM-local
+// config file, for example:
 //
-//	[blockchain_infos.5009297550715157269]
-//	# EVM-specific Info fields for selector 5009297550715157269
+//	[chains.5009297550715157269]
+//	chain_type = "optimismBedrock"
+//	[[chains.5009297550715157269.nodes]]
+//	internal_http_url = "http://evm-node:8545"
+//	internal_ws_url = "ws://evm-node:8546"
 //
-// Shared sections from chainaccess.GenericConfig (for example on-ramp or RMN
-// remote addresses) may also be present and are used when constructing the
-// accessor factory.
+// Chain ID and family are derived from the selector; only connection details and
+// chain-type tuning are stored in the file. Shared sections from
+// chainaccess.GenericConfig (for example on-ramp or RMN remote addresses) may also
+// be present and are used when constructing the accessor factory.
 //
 // It will take all config values it needs from all available config. Note that it would be
 // very unusual for a config to have more than one of Committee/Token/Executor configs.
@@ -60,9 +94,13 @@ func CreateEVMAccessorFactory(lggr logger.Logger, genericConfig chainaccess.Gene
 	if err != nil {
 		return nil, fmt.Errorf("failed to load EVM config: %w", err)
 	}
-	lggr.Infow("loaded EVM config", "numChains", len(evmConfig.BlockchainInfos))
+	infos, err := evmConfig.toInfos()
+	if err != nil {
+		return nil, fmt.Errorf("failed to build EVM chain infos: %w", err)
+	}
+	lggr.Infow("loaded EVM config", "numChains", len(infos))
 
-	return CreateAccessorFactory(context.Background(), lggr, genericConfig, evmConfig.BlockchainInfos)
+	return CreateAccessorFactory(context.Background(), lggr, genericConfig, infos)
 }
 
 // CreateAccessorFactory creates a factory that can build EVM chain accessors.

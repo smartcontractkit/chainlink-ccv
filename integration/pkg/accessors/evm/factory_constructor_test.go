@@ -8,17 +8,16 @@ import (
 	"github.com/BurntSushi/toml"
 	"github.com/stretchr/testify/require"
 
+	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
 func TestLoadConfig(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "evm.toml")
-	want := Config{BlockchainInfos: chainaccess.Infos[Info]{
+	want := Config{Chains: map[string]ChainConfig{
 		"5009297550715157269": {
-			ChainID:         "1",
-			Type:            "ethereum",
-			Family:          "evm",
+			ChainType:       "ethereum",
 			UniqueChainName: "ethereum-mainnet",
 			Nodes: []Node{{
 				InternalHTTPUrl: "http://evm-node:8545",
@@ -36,6 +35,27 @@ func TestLoadConfig(t *testing.T) {
 	require.Equal(t, want, *got)
 }
 
+// The mounted config carries only connection and tuning settings; the accessor derives each
+// chain's ID and family from its selector at load time.
+func TestConfigToInfosDerivesChainMetadataFromSelector(t *testing.T) {
+	// 5009297550715157269 is Ethereum mainnet (chain ID 1) in chain-selectors.
+	cfg := Config{Chains: map[string]ChainConfig{
+		"5009297550715157269": {
+			ChainType: "ethereum",
+			Nodes:     []Node{{InternalHTTPUrl: "http://evm-node:8545"}},
+		},
+	}}
+
+	infos, err := cfg.toInfos()
+	require.NoError(t, err)
+
+	info := infos["5009297550715157269"]
+	require.Equal(t, "1", info.ChainID)
+	require.Equal(t, chainsel.FamilyEVM, info.Family)
+	require.Equal(t, "ethereum", info.Type)
+	require.Equal(t, "http://evm-node:8545", info.Nodes[0].InternalHTTPUrl)
+}
+
 func TestLoadConfigRejectsUnknownFields(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "evm.toml")
 	require.NoError(t, os.WriteFile(path, []byte("unexpected = true\n"), 0o600))
@@ -46,7 +66,7 @@ func TestLoadConfigRejectsUnknownFields(t *testing.T) {
 
 func TestCreateEVMAccessorFactoryUsesLocalConfigInsteadOfBlockchainInfos(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "evm.toml")
-	require.NoError(t, os.WriteFile(path, []byte("[blockchain_infos]\n"), 0o600))
+	require.NoError(t, os.WriteFile(path, []byte("[chains]\n"), 0o600))
 	t.Setenv(EVMConfigPathEnv, path)
 
 	genericConfig := chainaccess.GenericConfig{ //nolint:staticcheck // SA1019: constructor API still accepts shared GenericConfig
