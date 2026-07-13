@@ -128,29 +128,12 @@ func RegisterNodesWithJD(ctx context.Context, infra *JDInfrastructure, clientLoo
 			return fmt.Errorf("no CL client found for NOP alias %s", alias)
 		}
 
-		csaKeys, _, err := clClient.MustReadCSAKeys()
+		nodeID, err := RegisterNodeWithJD(ctx, CLCSAKeyProvider{Client: clClient}, alias, infra.OffchainClient)
 		if err != nil {
-			return fmt.Errorf("failed to read CSA keys for node %s: %w", alias, err)
-		}
-		if len(csaKeys.Data) == 0 {
-			return fmt.Errorf("no CSA keys found for node %s", alias)
-		}
-		csaKey := strings.TrimPrefix(csaKeys.Data[0].Attributes.PublicKey, "csa_")
-
-		resp, err := infra.OffchainClient.RegisterNode(ctx, &nodev1.RegisterNodeRequest{
-			Name:      alias,
-			PublicKey: csaKey,
-		})
-		if err != nil {
-			return fmt.Errorf("failed to register node %s with JD: %w", alias, err)
+			return err
 		}
 
-		infra.NodeIDMap[alias] = resp.Node.Id
-		Plog.Info().
-			Str("nopAlias", alias).
-			Str("nodeID", resp.Node.Id).
-			Str("csaKey", csaKey).
-			Msg("Registered node with JD")
+		infra.RegisterNodeAlias(alias, nodeID)
 	}
 
 	Plog.Info().
@@ -158,6 +141,25 @@ func RegisterNodesWithJD(ctx context.Context, infra *JDInfrastructure, clientLoo
 		Msg("All nodes registered with JD")
 
 	return nil
+}
+
+// CLCSAKeyProvider reads the CSA public key from a Chainlink node's API.
+type CLCSAKeyProvider struct {
+	Client *clclient.ChainlinkClient
+}
+
+func (p CLCSAKeyProvider) CSAKey(context.Context) (string, error) {
+	if p.Client == nil {
+		return "", fmt.Errorf("CL client is nil")
+	}
+	csaKeys, _, err := p.Client.MustReadCSAKeys()
+	if err != nil {
+		return "", fmt.Errorf("failed to read CSA keys: %w", err)
+	}
+	if len(csaKeys.Data) == 0 {
+		return "", fmt.Errorf("no CSA keys found")
+	}
+	return strings.TrimPrefix(csaKeys.Data[0].Attributes.PublicKey, "csa_"), nil
 }
 
 func GetJDCSAPublicKey(ctx context.Context, jdClient offchain.Client) (string, error) {
@@ -437,25 +439,6 @@ func SyncAndVerifyJobProposals(e *deployment.Environment) error {
 
 	if e.DataStore == nil {
 		return fmt.Errorf("datastore is required for job proposal verification")
-	}
-
-	allJobs, err := ccvdeployment.GetAllJobs(e.DataStore)
-	if err != nil {
-		return fmt.Errorf("failed to get all jobs: %w", err)
-	}
-
-	clJobCount := 0
-	for _, nopJobs := range allJobs {
-		for _, job := range nopJobs {
-			if job.Mode == ccvshared.NOPModeCL {
-				clJobCount++
-			}
-		}
-	}
-
-	if clJobCount == 0 {
-		Plog.Info().Msg("No CL mode jobs to verify")
-		return nil
 	}
 
 	output, err := ccvchangesets.SyncJobProposals().Apply(*e, ccvchangesets.SyncJobProposalsInput{})

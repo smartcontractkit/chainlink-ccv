@@ -69,7 +69,7 @@ func (c *component) ValidateConfig(componentConfig any) error {
 //  4. Assigns TLS certificates to aggregators and enriches the topology with verifier keys.
 //  5. Generates aggregator committee configuration via changeset.
 //  6. Launches full aggregator containers.
-//  7. Generates verifier job specs and emits JobProposalEffect for each standalone verifier.
+//  7. Generates verifier job specs and emits blockchain-info-enriched proposals for every verifier.
 //
 // Outputs "aggregators", "verifiers", and "_shared_tls_certs" for Phase 4 (Indexer) consumption.
 func (c *component) RunPhase3(
@@ -558,7 +558,7 @@ func validateVerifierNodeIndices(committeeName string, verifiers []*committeever
 }
 
 // buildVerifierJobSpecEffects generates verifier job specs via changeset and emits
-// JobProposalEffect for each standalone verifier. It also sets GeneratedConfig,
+// a blockchain-info-enriched JobProposalEffect for each verifier. It also sets GeneratedConfig,
 // GeneratedJobSpecs, VerifierID, and TLSCACertFile as side effects on the verifier inputs.
 func buildVerifierJobSpecEffects(
 	e *deployment.Environment,
@@ -666,11 +666,12 @@ func buildVerifierJobSpecEffects(
 					ver.TLSCACertFile = sharedTLSCerts.CACertFile
 				}
 
-				if ver.Mode != services.Standalone {
-					continue
+				nodeID := job.NodeID
+				if nodeID == "" && ver.Out != nil {
+					nodeID = ver.Out.JDNodeID
 				}
-				if ver.Out == nil || ver.Out.JDNodeID == "" {
-					return nil, fmt.Errorf("committeeccv: verifier %s not registered with JD (missing JDNodeID)", ver.NOPAlias)
+				if nodeID == "" {
+					return nil, fmt.Errorf("committeeccv: verifier %s not registered with JD (missing JD node ID)", ver.NOPAlias)
 				}
 				reg, loaderErr := chainreg.GetRegistry().Get(ver.ChainFamily)
 				if loaderErr != nil {
@@ -690,7 +691,7 @@ func buildVerifierJobSpecEffects(
 				}
 				effects = append(effects, devenvruntime.JobProposalEffect{
 					NOPAlias: ver.NOPAlias,
-					NodeID:   ver.Out.JDNodeID,
+					NodeID:   nodeID,
 					JobSpec:  jobSpec,
 				})
 			}
