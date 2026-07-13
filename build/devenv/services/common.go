@@ -99,6 +99,10 @@ func GoCacheMounts() testcontainers.ContainerMounts {
 func ConvertBlockchainOutputsToInfo(outputs []*ctfblockchain.Output) (ccvblockchain.Infos[evm.Info], error) {
 	infos := make(map[string]evm.Info)
 	for _, output := range outputs {
+		if output.Family != chainsel.FamilyEVM {
+			continue
+		}
+
 		info := evm.Info{
 			ChainID:         output.ChainID,
 			Type:            output.Type,

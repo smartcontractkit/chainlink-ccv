@@ -2,14 +2,27 @@ package evm
 
 import (
 	"fmt"
+
+	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 )
+
+const (
+	EVMConfigPathEnv     = "EVM_CONFIG_PATH"
+	DefaultEVMConfigPath = "/etc/evm/config.toml"
+)
+
+// Config holds chain-specific configuration for the EVM CCIP integration.
+type Config struct {
+	// BlockchainInfos maps EVM chain selectors to their connection information.
+	BlockchainInfos chainaccess.Infos[Info] `toml:"blockchain_infos"`
+}
 
 // Node represents a blockchain node with connection information.
 type Node struct {
-	ExternalHTTPUrl string `json:"external_http_url"`
-	InternalHTTPUrl string `json:"internal_http_url"`
-	ExternalWSUrl   string `json:"external_ws_url"`
-	InternalWSUrl   string `json:"internal_ws_url"`
+	ExternalHTTPUrl string `json:"external_http_url" toml:"external_http_url"`
+	InternalHTTPUrl string `json:"internal_http_url" toml:"internal_http_url"`
+	ExternalWSUrl   string `json:"external_ws_url" toml:"external_ws_url"`
+	InternalWSUrl   string `json:"internal_ws_url" toml:"internal_ws_url"`
 }
 
 func (n Node) String() string {
@@ -23,11 +36,11 @@ func (n Node) Empty() bool {
 
 // Info represents blockchain connection information.
 type Info struct {
-	ChainID         string `json:"chain_id"`
-	Type            string `json:"type"`
-	Family          string `json:"family"`
-	UniqueChainName string `json:"unique_chain_name"`
-	Nodes           []Node `json:"nodes"`
+	ChainID         string `json:"chain_id" toml:"chain_id"`
+	Type            string `json:"type" toml:"type"`
+	Family          string `json:"family" toml:"family"`
+	UniqueChainName string `json:"unique_chain_name" toml:"unique_chain_name"`
+	Nodes           []Node `json:"nodes" toml:"nodes"`
 }
 
 func (bi Info) Empty() bool {

@@ -165,6 +165,17 @@ func NewTokenVerifier(in *TokenVerifierInput, blockchainOutputs []*blockchain.Ou
 		return nil, fmt.Errorf("failed to write token verifier app config to file: %w", err)
 	}
 
+	// EVM connection details are operator-local configuration. Mount them separately from the token
+	// verifier app config, matching the standalone committee verifier and executor paths.
+	evmConfig, err := toml.Marshal(evm.Config{BlockchainInfos: blockchainInfos})
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate EVM config for token verifier: %w", err)
+	}
+	evmConfigFilePath := filepath.Join(confDir, "token-verifier-evm-config.toml")
+	if err := os.WriteFile(evmConfigFilePath, evmConfig, 0o644); err != nil {
+		return nil, fmt.Errorf("failed to write EVM config for token verifier: %w", err)
+	}
+
 	// Generate and write the bootstrap (operator) config. The token verifier runs in local app-config
 	// mode with no infra ([db]/[keystore]), so the non-secret config carries only the mode selection,
 	// the app-config path, and monitoring (no secrets file); validation correctly skips infra checks.
@@ -223,7 +234,7 @@ func NewTokenVerifier(in *TokenVerifierInput, blockchainOutputs []*blockchain.Ou
 				},
 			}
 		},
-		WaitingFor: wait.ForLog("Using real blockchain information from environment").
+		WaitingFor: wait.ForLog("Loaded blockchain metadata from app config").
 			WithStartupTimeout(120 * time.Second).
 			WithPollInterval(3 * time.Second),
 	}
@@ -233,6 +244,7 @@ func NewTokenVerifier(in *TokenVerifierInput, blockchainOutputs []*blockchain.Ou
 		testcontainers.BindMount(appConfigFilePath, "/etc/token-verifier/config.toml"),
 		testcontainers.BindMount(bootstrapConfigFilePath, bootstrap.DefaultConfigPath),
 		testcontainers.BindMount(verifierSecretsFilePath, vsecrets.DefaultTokenVerifierSecretsPath),
+		testcontainers.BindMount(evmConfigFilePath, evm.DefaultEVMConfigPath),
 	)
 
 	// Note: identical code to aggregator.go/executor.go -- will indexer be identical as well?
@@ -296,11 +308,14 @@ func (v *TokenVerifierInput) GenerateConfigWithBlockchainInfos(blockchainInfos c
 	}
 
 	anyInfo := make(ccvblockchain.Infos[any])
-	for k, info := range blockchainInfos {
-		anyInfo[k] = info
+	for selector, info := range blockchainInfos {
+		// Keep chain-enumeration metadata for compatibility with the token-verifier app-config
+		// decoder. Connection details live in the separately mounted EVM config.
+		info.Nodes = nil
+		anyInfo[selector] = info
 	}
 
-	// Use the generated config directly (fake URLs are already injected in environment.go)
+	// Use the generated application config directly, with connection-free chain metadata.
 	config := token.ConfigWithBlockchainInfos{
 		Config:          *v.GeneratedConfig,
 		BlockchainInfos: anyInfo,

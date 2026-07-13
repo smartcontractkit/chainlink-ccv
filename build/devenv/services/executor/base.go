@@ -110,16 +110,16 @@ type Output struct {
 	Container testcontainers.Container `toml:"-"`
 }
 
-// configWithBlockchainInfos is the executor config plus the blockchain_infos section (RPC URLs etc.).
-// Standalone/local executors need blockchain_infos inlined because, unlike CL-mode executors, they
-// have no CL node to source chain connection info from.
+// configWithBlockchainInfos is the executor config plus the blockchain_infos compatibility section
+// used for chain enumeration. Chain-family connection details are supplied separately through local
+// config for standalone/local executors or node config in CL mode.
 type configWithBlockchainInfos struct {
 	executor.Configuration
 	BlockchainInfos chainaccess.Infos[any] `toml:"blockchain_infos"`
 }
 
 // BuildExecutorAppConfigWithBlockchainInfos parses the executor config out of a job spec and
-// re-marshals it with blockchain_infos included, returning the plain app-config TOML — the exact
+// re-marshals it with blockchain_infos metadata included, returning the plain app-config TOML — the exact
 // content JD ships as a job's appConfig, with no job-spec envelope. This is what a local-mode
 // bootstrapper reads from its mounted config file.
 func BuildExecutorAppConfigWithBlockchainInfos(spec bootstrap.JobSpec, blockchainInfos map[string]any) (string, error) {
@@ -138,8 +138,8 @@ func BuildExecutorAppConfigWithBlockchainInfos(spec bootstrap.JobSpec, blockchai
 }
 
 // RebuildExecutorJobSpecWithBlockchainInfos takes a job spec and rebuilds it with blockchain infos
-// added to the inner config. This is needed for standalone executors which require blockchain
-// connection information (CL nodes get this from their own chain config).
+// added to the inner config. The compatibility table enumerates chains; it does not carry
+// chain-family connection details.
 func RebuildExecutorJobSpecWithBlockchainInfos(spec bootstrap.JobSpec, blockchainInfos map[string]any) (string, error) {
 	innerConfig, err := BuildExecutorAppConfigWithBlockchainInfos(spec, blockchainInfos)
 	if err != nil {

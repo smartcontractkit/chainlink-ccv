@@ -3,7 +3,9 @@ package evm
 import (
 	"context"
 	"fmt"
+	"os"
 
+	"github.com/BurntSushi/toml"
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/sourcereader"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
@@ -20,9 +22,23 @@ func init() {
 
 var _ chainaccess.AccessorFactoryConstructor = CreateEVMAccessorFactory
 
+func loadConfig(path string) (*Config, error) {
+	var cfg Config
+	md, err := toml.DecodeFile(path, &cfg)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal config file %s: %w", path, err)
+	}
+	if len(md.Undecoded()) > 0 {
+		return nil, fmt.Errorf("unknown fields in config: %v", md.Undecoded())
+	}
+
+	return &cfg, nil
+}
+
 // CreateEVMAccessorFactory is registered with chainaccess.Register to construct EVM accessors.
 //
-// Per-chain EVM settings are read from `blockchain_infos.<selector>` entries, for
+// Per-chain EVM settings are read from `blockchain_infos.<selector>` entries in
+// the EVM-local config file, for
 // example:
 //
 //	[blockchain_infos.5009297550715157269]
@@ -34,17 +50,19 @@ var _ chainaccess.AccessorFactoryConstructor = CreateEVMAccessorFactory
 //
 // It will take all config values it needs from all available config. Note that it would be
 // very unusual for a config to have more than one of Committee/Token/Executor configs.
-// Registry still decodes GenericConfig until local config is supported.
-func CreateEVMAccessorFactory(lggr logger.Logger, genericConfig chainaccess.GenericConfig) (chainaccess.AccessorFactory, error) { //nolint:staticcheck // SA1019: registry still decodes the deprecated GenericConfig until local config is supported
-	// Convert generic chain config -> Infos[evm.Info]
-	evmInfos := make(chainaccess.Infos[Info])
-	// TODO: To support standalone mode, need to support local config, GenericConfig will be deprecated as JD job will not have rpc info.
-	err := genericConfig.GetAllConcreteConfig(chainsel.FamilyEVM, &evmInfos)
-	if err != nil {
-		return nil, fmt.Errorf("error getting evm info: %w", err)
+func CreateEVMAccessorFactory(lggr logger.Logger, genericConfig chainaccess.GenericConfig) (chainaccess.AccessorFactory, error) { //nolint:staticcheck // SA1019: GenericConfig still carries shared application config
+	configPath, ok := os.LookupEnv(EVMConfigPathEnv)
+	if !ok {
+		configPath = DefaultEVMConfigPath
 	}
 
-	return CreateAccessorFactory(context.Background(), lggr, genericConfig, evmInfos)
+	evmConfig, err := loadConfig(configPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load EVM config: %w", err)
+	}
+	lggr.Infow("loaded EVM config", "numChains", len(evmConfig.BlockchainInfos))
+
+	return CreateAccessorFactory(context.Background(), lggr, genericConfig, evmConfig.BlockchainInfos)
 }
 
 // CreateAccessorFactory creates a factory that can build EVM chain accessors.

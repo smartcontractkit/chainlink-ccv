@@ -73,7 +73,8 @@ type ExecutorInfo interface {
 // CLDFProviderFactory creates an initialized CLDF BlockChain provider from CTF blockchain input.
 type CLDFProviderFactory func(ctx context.Context, b *ctfblockchain.Input) (cldf_chain.BlockChain, uint64, error)
 
-// ChainConfigLoader loads chain-specific blockchain info for executor/verifier job specs.
+// ChainConfigLoader loads chain-enumeration metadata for executor/verifier job specs. Chain-family
+// connection details belong in the local config mounted by the corresponding container modifier.
 type ChainConfigLoader func(outputs []*ctfblockchain.Output) (map[string]any, error)
 
 // GenericServiceDefinition is launched for a specific chain selector via a family Launcher.

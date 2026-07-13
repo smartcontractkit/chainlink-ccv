@@ -136,16 +136,16 @@ type Input struct {
 	LocalAppConfig string `toml:"-"`
 }
 
-// configWithBlockchainInfos is the committee verifier's app config plus the blockchain_infos section
-// (RPC URLs etc.). Standalone/local verifiers need blockchain_infos inlined because, unlike CL-mode
-// verifiers, they have no CL node to source chain connection info from.
+// configWithBlockchainInfos is the committee verifier's app config plus the blockchain_infos
+// compatibility section used for chain enumeration. Chain-family connection details are supplied
+// separately through local config for standalone/local verifiers or node config in CL mode.
 type configWithBlockchainInfos struct {
 	commit.Config
 	BlockchainInfos map[string]any `toml:"blockchain_infos"`
 }
 
 // BuildVerifierAppConfigWithBlockchainInfos parses the verifier config out of a job spec and
-// re-marshals it with blockchain_infos included, returning the plain app-config TOML — the exact
+// re-marshals it with blockchain_infos metadata included, returning the plain app-config TOML — the exact
 // content JD ships as a job's appConfig, with no job-spec envelope. This is what a local-mode
 // bootstrapper reads from its mounted config file.
 func BuildVerifierAppConfigWithBlockchainInfos(spec bootstrap.JobSpec, blockchainInfos map[string]any) (string, error) {
@@ -161,8 +161,8 @@ func BuildVerifierAppConfigWithBlockchainInfos(spec bootstrap.JobSpec, blockchai
 }
 
 // RebuildVerifierJobSpecWithBlockchainInfos takes a job spec and rebuilds it with blockchain infos
-// added to the inner config. This is needed for standalone verifiers which require blockchain
-// connection information (CL nodes get this from their own chain config).
+// added to the inner config. The compatibility table enumerates chains; it does not carry
+// chain-family connection details.
 // TODO: we stick with the job spec so that there isn't special logic for standalone verifiers.
 func RebuildVerifierJobSpecWithBlockchainInfos(spec bootstrap.JobSpec, blockchainInfos map[string]any) (string, error) {
 	innerConfig, err := BuildVerifierAppConfigWithBlockchainInfos(spec, blockchainInfos)
