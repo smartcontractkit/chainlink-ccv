@@ -127,7 +127,8 @@ func ApplyExecutorConfig() deployment.ChangeSetV2[ApplyExecutorConfigInput] {
 			nopsToValidate = executorPoolNOPAliases(cfg.Pool)
 		}
 
-		if err := validateExecutorChainSupport(e, cfg.Pool, nopsToValidate); err != nil {
+		nopsWithJDChainConfigs := filterNOPsWithJDChainConfigs(nopsToValidate, cfg.NOPs)
+		if err := validateExecutorChainSupport(e, cfg.Pool, nopsWithJDChainConfigs); err != nil {
 			return deployment.ChangesetOutput{}, err
 		}
 
