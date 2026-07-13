@@ -249,6 +249,18 @@ func launchExecutor(ctx context.Context, in *Input, outputs []*blockchain.Output
 		bs.LocalAppConfigPath = localAppConfigContainerPath
 	}
 
+	// Register each matching chain family blockchain output as a chain the node has a signing identity on.
+	// This causes the bootstrapper to sync the node's signing key to JD on connect, making it available to
+	// deployment changesets via ListNodeChainConfigs (mirrors the committee verifier registration).
+	for _, output := range outputs {
+		if output.ChainID != "" && output.Family == in.ChainFamily {
+			bs.Chains = append(bs.Chains, bootstrap.ChainRegistration{
+				Type: in.ChainFamily,
+				ID:   output.ChainID,
+			})
+		}
+	}
+
 	// In local mode the bootstrapper reads the app config from a file at local_app_config_path, copied
 	// into the running container (below / DeliverLocalAppConfig) rather than bind-mounted, so it can
 	// arrive at launch (in.LocalAppConfig set) or later (no-JD path, after contracts are deployed).
