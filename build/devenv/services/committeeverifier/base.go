@@ -170,9 +170,24 @@ func RebuildVerifierJobSpecWithBlockchainInfos(spec bootstrap.JobSpec, blockchai
 		return "", err
 	}
 
-	// Rebuild the job spec with the enhanced config
-	spec.AppConfig = innerConfig
-	outerSpecBytes, err := toml.Marshal(spec)
+	// CL nodes read the verifier config from committeeVerifierConfig (the node's
+	// ccvcommitteeverifier job validation rejects an empty value), and
+	// ParseVerifierBootstrapJobSpec accepts the same field for standalone. Emit
+	// committeeVerifierConfig rather than the generic appConfig so one spec proposes
+	// cleanly in both flows.
+	outerSpecBytes, err := toml.Marshal(struct {
+		Name                    string `toml:"name"`
+		ExternalJobID           string `toml:"externalJobID"`
+		SchemaVersion           int    `toml:"schemaVersion"`
+		Type                    string `toml:"type"`
+		CommitteeVerifierConfig string `toml:"committeeVerifierConfig"`
+	}{
+		Name:                    spec.Name,
+		ExternalJobID:           spec.ExternalJobID,
+		SchemaVersion:           spec.SchemaVersion,
+		Type:                    spec.Type,
+		CommitteeVerifierConfig: innerConfig,
+	})
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal job spec: %w", err)
 	}
