@@ -281,16 +281,17 @@ func (m *Manager) handleProposal(proposal *pb.ProposeJobRequest) (retErr error) 
 	defer cancel()
 
 	m.mu.Lock()
+	// wasRunning indicates whether a job was already running when this proposal
+	// arrived. This flag is also used as the "replacement" metric label.
 	wasRunning := m.state == StateRunning
 	currentJob := m.currentJob // snapshot for fallback; non-nil when wasRunning
 	m.mu.Unlock()
-	replacement := wasRunning
 	defer func() {
 		result := resultSuccess
 		if retErr != nil {
 			result = resultError
 		}
-		m.metrics.IncProposal(ctx, result, replacement)
+		m.metrics.IncProposal(ctx, result, wasRunning)
 	}()
 
 	// Persist the proposal as pending BEFORE attempting StartJob. This ensures
@@ -299,7 +300,7 @@ func (m *Manager) handleProposal(proposal *pb.ProposeJobRequest) (retErr error) 
 	if err := m.jobStore.SavePendingJob(ctx, proposal.Id, proposal.Version, proposal.Spec); err != nil {
 		// The job will need to be re-proposed after fixing the error (whatever it may be).
 		m.lggr.Warnw("Failed to persist pending proposal", "error", err)
-		m.metrics.IncStepError(ctx, stepSavePending, replacement)
+		m.metrics.IncStepError(ctx, stepSavePending, wasRunning)
 	} else {
 		m.lggr.Infow("Proposal persisted as pending", "proposalID", proposal.Id)
 	}
@@ -308,7 +309,7 @@ func (m *Manager) handleProposal(proposal *pb.ProposeJobRequest) (retErr error) 
 	if wasRunning {
 		m.lggr.Infow("Stopping current job for replacement")
 		if err := m.runner.StopJob(ctx); err != nil {
-			m.metrics.IncStepError(ctx, stepStopJob, replacement)
+			m.metrics.IncStepError(ctx, stepStopJob, wasRunning)
 			return fmt.Errorf("failed to stop current job: %w", err)
 		}
 	}
@@ -316,11 +317,11 @@ func (m *Manager) handleProposal(proposal *pb.ProposeJobRequest) (retErr error) 
 	// Start the new job
 	if err := m.runner.StartJob(ctx, proposal.Spec); err != nil {
 		if wasRunning {
-			m.metrics.IncStepError(ctx, stepStartReplacement, replacement)
+			m.metrics.IncStepError(ctx, stepStartReplacement, wasRunning)
 			return m.rollbackReplacement(ctx, proposal.Id, err, currentJob)
 		}
 		// No old job to fall back to: leave pending record for restart recovery.
-		m.metrics.IncStepError(ctx, stepStartJob, replacement)
+		m.metrics.IncStepError(ctx, stepStartJob, wasRunning)
 		m.mu.Lock()
 		m.state = StateWaitingForJob
 		m.currentJob = nil
@@ -339,12 +340,12 @@ func (m *Manager) handleProposal(proposal *pb.ProposeJobRequest) (retErr error) 
 	// StartJob succeeded - promote the pending record to approved.
 	if promoted, err := m.jobStore.AcceptPendingJob(ctx); err != nil {
 		m.lggr.Warnw("Failed to accept pending job in store", "error", err)
-		m.metrics.IncStepError(ctx, stepAcceptPending, replacement)
+		m.metrics.IncStepError(ctx, stepAcceptPending, wasRunning)
 		// Continue anyway - the job is running. The store record stays 'pending', so the
 		// next restart will retry via the pending recovery path.
 	} else if !promoted {
 		m.lggr.Warnw("AcceptPendingJob reported no pending row — store may be inconsistent")
-		m.metrics.IncStepError(ctx, stepAcceptPending, replacement)
+		m.metrics.IncStepError(ctx, stepAcceptPending, wasRunning)
 	}
 
 	// Update in-memory state
@@ -362,7 +363,7 @@ func (m *Manager) handleProposal(proposal *pb.ProposeJobRequest) (retErr error) 
 	// Approve the job with JD
 	if err := m.jdClient.ApproveJob(ctx, proposal.Id, proposal.Version); err != nil {
 		m.lggr.Warnw("Failed to approve job with JD", "error", err)
-		m.metrics.IncStepError(ctx, stepApproveJob, replacement)
+		m.metrics.IncStepError(ctx, stepApproveJob, wasRunning)
 		// Continue anyway - job is running.
 	}
 
