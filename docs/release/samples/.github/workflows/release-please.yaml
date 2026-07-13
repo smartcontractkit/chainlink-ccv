@@ -1,0 +1,44 @@
+# Sample: release-please.yaml
+# Opens/updates one release PR per managed Go module on every push to main, and
+# cuts tags + generates CHANGELOG.md when a release PR is merged.
+#
+# Per-repo edits: none required beyond confirming your repo's GATI secret names
+# match (see QUICKSTART "Prerequisites"). The action SHAs below are the standard
+# pins — bump them deliberately, in lockstep with the QUICKSTART VERSION.
+name: Release Please
+
+on:
+  push:
+    branches: [ main ]
+
+permissions:
+  contents: write
+  pull-requests: write
+  id-token: write
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    steps:
+      # A GATI-issued GitHub App token (NOT GITHUB_TOKEN) is required: events created
+      # by GITHUB_TOKEN don't trigger other workflows, which would leave the bot's
+      # release PR's required checks unrun (and thus unmergeable) and tag-listening
+      # workflows (e.g. release-publish.yaml) unfired.
+      - name: Issue GitHub Token
+        id: issue-github-token
+        uses: smartcontractkit/.github/actions/setup-github-token@ef78fa97bf3c77de6563db1175422703e9e6674f # setup-github-token@0.2.1
+        with:
+          # EDIT: confirm these three secret names exist in your repo (releng-provisioned,
+          # write-scoped: contents:write + pull-requests:write).
+          aws-role-arn: ${{ secrets.GATI_AWS_ROLE_ARN_AUTO_PR_TOKEN_ISSUER }}
+          aws-lambda-url: ${{ secrets.GATI_LAMBDA_URL_CCIP_PROTOCOL }}
+          aws-region: ${{ secrets.GATI_AWS_REGION }}
+
+      - uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        with:
+          token: ${{ steps.issue-github-token.outputs.access-token }}
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
