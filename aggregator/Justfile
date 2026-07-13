@@ -19,6 +19,10 @@ publish-rc registry version:
     docker tag aggregator:rc {{registry}}/containers/chainlink-ccv-aggregator:{{version}}-rc
     docker push {{registry}}/containers/chainlink-ccv-aggregator:{{version}}-rc
 
+publish registry version:
+    docker tag aggregator:latest {{registry}}/containers/chainlink-ccv-aggregator:{{version}}
+    docker push {{registry}}/containers/chainlink-ccv-aggregator:{{version}}
+
 clean:
     docker rmi aggregator:latest
 

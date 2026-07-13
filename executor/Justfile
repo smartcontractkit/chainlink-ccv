@@ -19,6 +19,10 @@ publish-rc registry version:
     docker tag executor:rc {{registry}}/containers/chainlink-ccv-executor:{{version}}-rc
     docker push {{registry}}/containers/chainlink-ccv-executor:{{version}}-rc
 
+publish registry version:
+    docker tag executor:latest {{registry}}/containers/chainlink-ccv-executor:{{version}}
+    docker push {{registry}}/containers/chainlink-ccv-executor:{{version}}
+
 clean:
     docker rmi executor:latest
 
