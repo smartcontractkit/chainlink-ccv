@@ -306,11 +306,6 @@ func launchVerifier(ctx context.Context, in *Input, outputs []*blockchain.Output
 		return nil, fmt.Errorf("failed to generate verifier secrets: %w", err)
 	}
 
-	envVars := make(map[string]string)
-	if lvl := os.Getenv("LOG_LEVEL"); lvl != "" {
-		envVars["LOG_LEVEL"] = lvl
-	}
-
 	// Register each matching chain family blockchain output as a chain the node has a signing identity on.
 	// This causes the bootstrapper to sync the node's signing key to JD on connect,
 	// making it available to deployment changesets via ListNodeChainConfigs.
@@ -355,7 +350,7 @@ func launchVerifier(ctx context.Context, in *Input, outputs []*blockchain.Output
 	// delivered by copying it into the running container (below / DeliverLocalAppConfig), not via a bind
 	// mount, so the container boots serving keys and the config can arrive at launch (in.LocalAppConfig
 	// set) or later (no-JD path: once contracts are deployed and the config is known).
-	req, err := baseImageRequest(in, envVars, bootstrapConfigFilePath, bootstrapSecretsFilePath, verifierSecretsFilePath)
+	req, err := baseImageRequest(in, nil, bootstrapConfigFilePath, bootstrapSecretsFilePath, verifierSecretsFilePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create base image request: %w", err)
 	}

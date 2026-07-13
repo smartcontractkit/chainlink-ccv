@@ -201,9 +201,6 @@ func NewTokenVerifier(in *TokenVerifierInput, blockchainOutputs []*blockchain.Ou
 	// not an env var; only the bootstrap config path itself is pointed at via env.
 	envVars := make(map[string]string)
 	envVars["BOOTSTRAPPER_CONFIG_PATH"] = bootstrap.DefaultConfigPath
-	if lvl := os.Getenv("LOG_LEVEL"); lvl != "" {
-		envVars["LOG_LEVEL"] = lvl
-	}
 
 	/* Service */
 	req := testcontainers.ContainerRequest{

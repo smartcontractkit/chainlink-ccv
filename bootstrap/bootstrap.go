@@ -16,7 +16,6 @@ import (
 	"github.com/grafana/pyroscope-go"
 	"github.com/jmoiron/sqlx"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
-	"go.uber.org/zap/zapcore"
 
 	pb "github.com/smartcontractkit/chainlink-protos/orchestrator/feedsmanager"
 
@@ -53,18 +52,18 @@ const (
 )
 
 // AppConfigMode is how the bootstrapper loads application config. It is operator-provided via the
-// top-level app_config_mode key in the bootstrap config.toml (see NonSecretConfig) — not an env var
-// — so switching a service between JD and local is a config change, not an image rebuild. It drives
+// top-level app_config_mode key in the bootstrap config.toml (see NonSecretConfig)
+// so switching a service between JD and local is a config change, not an image rebuild. It drives
 // both config validation (see Config.validate) and startup routing (see Start).
 type AppConfigMode string
 
 const (
 	// AppConfigModeJD loads the app config from a Job Distributor and runs the full job lifecycle.
-	// This is the default when app_config_mode is unset, so existing JD deployments are unaffected.
+	// This is the default when app_config_mode is unset.
 	AppConfigModeJD AppConfigMode = "jd_app_config"
 	// AppConfigModeLocal reads the app config from a local file (local_app_config_path) with no JD.
 	// A [db]+[keystore] bootstrap config is optional and, when present, initializes a Postgres-backed
-	// keystore so the service can sign; a service that needs no keystore (the token verifier) omits it.
+	// keystore so the service can sign; a service that needs no keystore (i.e. the token verifier) omits it.
 	AppConfigModeLocal AppConfigMode = "local_app_config"
 )
 
@@ -186,8 +185,6 @@ type Bootstrapper struct {
 	localStartErr chan error
 	// pyroscope is a saved reference to profiler to close it on stop
 	pyroscope *pyroscope.Profiler
-
-	logLevel zapcore.Level
 }
 
 // NewBootstrapper creates a new [Bootstrapper] with the given config and service factory.
@@ -197,23 +194,12 @@ func NewBootstrapper(
 	opts ...Option,
 ) (*Bootstrapper, error) {
 	b := &Bootstrapper{
-		fac:      fac,
-		name:     name,
-		logLevel: zapcore.InfoLevel,
+		fac:  fac,
+		name: name,
 	}
 	for _, opt := range opts {
 		if err := opt(b); err != nil {
 			return nil, fmt.Errorf("failed to apply option: %w", err)
-		}
-	}
-
-	// Backwards compatibility: if no keys are declared, initialize the original default set.
-	// Deprecated: we should remove these once all apps and integrations define required keys.
-	if len(b.keys) == 0 {
-		b.keys = []keyToInit{
-			{DefaultCSAKeyName, "csa", keystore.Ed25519},
-			{defaultECDSASigningKeyName, "signing", keystore.ECDSA_S256},
-			{defaultEdDSASigningKeyName, "signing", keystore.Ed25519},
 		}
 	}
 
@@ -450,13 +436,11 @@ func (b *Bootstrapper) startWithJDLifecycle(ctx context.Context) error {
 // The app config is read from a local file. Two delivery modes are supported, chosen by whether the
 // file is present at startup:
 //
-//   - present: the service starts synchronously, exactly as before. This is the token verifier and
+//   - present: the service starts synchronously. This is the token verifier and
 //     the existing local-mode callers that mount the config at container start.
 //   - absent (keystore + info server only): the keystore and info server come up immediately and
 //     startLocal returns, then a background watcher waits for the file to appear and starts the
-//     service once it does. This mirrors JD mode, where the info server and lifecycle manager come up
-//     first and the factory starts only when a job (the app config) arrives — letting an operator, or
-//     devenv, discover the node's signing key from the info server and provision the config afterward.
+//     service once it does.
 func (b *Bootstrapper) startLocal(ctx context.Context) error {
 	// A keystore is initialized only when both the DB URL and keystore password are configured.
 	// Services that sign (committee verifier, executor) supply them; the token verifier does not.
@@ -597,7 +581,7 @@ func localConfigFileReady(path string) bool {
 	return err == nil && !info.IsDir() && info.Size() > 0
 }
 
-// Start routes to the mode-specific startup path resolved in NewBootstrapper.
+// Start routes to the mode-specific startup path resolved in [NewBootstrapper].
 func (b *Bootstrapper) Start(ctx context.Context) error {
 	if b.lggr == nil {
 		return fmt.Errorf("bootstrapper has no logger")
@@ -750,41 +734,17 @@ func initializeKeystore(ctx context.Context, lggr logger.Logger, db *sqlx.DB, ks
 // Option configures a [Bootstrapper].
 type Option func(*Bootstrapper) error
 
-// WithLogLevel sets the log level for the logger passed to the application.
-func WithLogLevel(logLevel zapcore.Level) Option {
-	return func(b *Bootstrapper) error {
-		b.logLevel = logLevel
-		return nil
-	}
-}
-
-// WithLogLevelFromEnv sets the log level from the LOG_LEVEL environment variable,
-// falling back to defaultLevel if the variable is unset or invalid.
-func WithLogLevelFromEnv(defaultLevel zapcore.Level) Option {
-	return func(b *Bootstrapper) error {
-		b.logLevel = defaultLevel
-		if lvlStr := os.Getenv("LOG_LEVEL"); lvlStr != "" {
-			var lvl zapcore.Level
-			if err := lvl.UnmarshalText([]byte(lvlStr)); err != nil {
-				_, _ = fmt.Fprintf(os.Stderr, "Invalid LOG_LEVEL '%s', defaulting to '%s'\n", lvlStr, defaultLevel)
-			} else {
-				b.logLevel = lvl
-			}
-		}
-		return nil
-	}
-}
-
 type keyToInit struct {
 	name    string
 	purpose string
 	keyType keystore.KeyType
 }
 
-// WithKey declares a key that the bootstrapper must ensure exists, creating it if absent.
-// When no WithKey options are provided, the bootstrapper applies a deprecated default set of
-// three keys (CSA, ECDSA signing, EdDSA signing). Passing one or more WithKey options suppresses
-// those defaults entirely; the caller is responsible for declaring every key it requires.
+// WithKey declares a key that the bootstrapper must ensure exists, creating it if absent. The caller
+// is responsible for declaring every key it requires; there is no default signing-key set.
+//
+// The exception is the CSA key used for JD authentication: if no CSA-purpose key is declared, the
+// default CSA key (DefaultCSAKeyName) is injected automatically.
 func WithKey(name, purpose string, keyType keystore.KeyType) Option {
 	return func(b *Bootstrapper) error {
 		b.keys = append(b.keys, keyToInit{
@@ -796,29 +756,25 @@ func WithKey(name, purpose string, keyType keystore.KeyType) Option {
 	}
 }
 
-// WithBootstrapperConfigPath sets the bootstrapper config file path. If not set, the bootstrapper will look
-// for the config path in the BOOTSTRAPPER_CONFIG_PATH environment variable, and if that is not
-// set, it will default to DefaultConfigPath.
-func WithBootstrapperConfigPath(path string) Option {
+// withBootstrapperConfigPath is a test-only injection seam.
+// We have this so that we can run parallel tests w/out t.Setenv, which is not thread-safe.
+func withBootstrapperConfigPath(path string) Option {
 	return func(b *Bootstrapper) error {
 		b.configPath = path
 		return nil
 	}
 }
 
-// WithBootstrapperSecretsPath sets the bootstrapper secrets file path. If not set, the bootstrapper
-// looks for the path in the BOOTSTRAPPER_SECRETS_PATH environment variable, and if that is not set,
-// it defaults to DefaultSecretsPath. The secrets file is optional: if the resolved path does not
-// exist, it is skipped (which is how a legacy monolithic config remains valid). Applies when a
-// bootstrap operator config is loaded (JD mode, and local mode with a keystore).
-func WithBootstrapperSecretsPath(path string) Option {
+// withBootstrapperSecretsPath is a test-only injection seam.
+// We have this so that we can run parallel tests w/out t.Setenv, which is not thread-safe.
+func withBootstrapperSecretsPath(path string) Option {
 	return func(b *Bootstrapper) error {
 		b.secretsPath = path
 		return nil
 	}
 }
 
-// Run is a convenience function that loads config, creates a bootstrapper,
+// Run is a convenience function that loads config, creates a [Bootstrapper],
 // starts it, and blocks until SIGINT or SIGTERM is received.
 func Run(
 	name string,

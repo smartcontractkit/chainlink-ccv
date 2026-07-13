@@ -168,8 +168,8 @@ func main() {
     if err := bootstrap.Run(
         "MyApp",
         &serviceFactory{},
-        bootstrap.WithLogLevelFromEnv(zapcore.InfoLevel),
         // Declare every key the app needs. The bootstrapper creates them on first boot.
+        // A CSA key for JD auth is injected automatically if you don't declare one.
         bootstrap.WithKey("my-signing-key", "signing", keystore.ECDSA_S256),
     ); err != nil {
         panic(err)

@@ -150,22 +150,22 @@ var _ ServiceFactory = (*spyServiceFactoryDummy)(nil)
 
 // --- WithKey / NewBootstrapper key tests ---
 
-func TestNewBootstrapper_WithKey_Defaults(t *testing.T) {
+func TestNewBootstrapper_CSAAutoInjected(t *testing.T) {
 	t.Parallel()
 
 	// A local-mode bootstrap config avoids hitting JD config at construction.
 	cfgPath, secretsPath := writeBootstrapConfigFiles(t, localBootstrapTOML("/nonexistent/app.toml", ""))
 	b, err := NewBootstrapper("test", &mockServiceFactory{},
-		WithBootstrapperConfigPath(cfgPath),
-		WithBootstrapperSecretsPath(secretsPath),
+		withBootstrapperConfigPath(cfgPath),
+		withBootstrapperSecretsPath(secretsPath),
 	)
 	require.NoError(t, err)
 
-	// No WithKey options → the three original defaults must be applied.
-	require.Len(t, b.keys, 3)
+	// No WithKey options → only the default CSA key is auto-injected (JD auth needs it). There is no
+	// longer a default signing-key set; apps declare every signing key explicitly via WithKey.
+	require.Len(t, b.keys, 1)
 	require.Equal(t, DefaultCSAKeyName, b.keys[0].name)
-	require.Equal(t, defaultECDSASigningKeyName, b.keys[1].name)
-	require.Equal(t, defaultEdDSASigningKeyName, b.keys[2].name)
+	require.Equal(t, "csa", b.keys[0].purpose)
 }
 
 func TestNewBootstrapper_WithKey_Explicit(t *testing.T) {
@@ -173,14 +173,14 @@ func TestNewBootstrapper_WithKey_Explicit(t *testing.T) {
 
 	cfgPath, secretsPath := writeBootstrapConfigFiles(t, localBootstrapTOML("/nonexistent/app.toml", ""))
 	b, err := NewBootstrapper("test", &mockServiceFactory{},
-		WithBootstrapperConfigPath(cfgPath),
-		WithBootstrapperSecretsPath(secretsPath),
+		withBootstrapperConfigPath(cfgPath),
+		withBootstrapperSecretsPath(secretsPath),
 		WithKey("my_csa", "csa", keystore.Ed25519),
 		WithKey("my_signing", "signing", keystore.ECDSA_S256),
 	)
 	require.NoError(t, err)
 
-	// Explicit WithKey options must suppress defaults and preserve order.
+	// An explicit CSA WithKey suppresses the CSA auto-injection, and declaration order is preserved.
 	require.Len(t, b.keys, 2)
 	require.Equal(t, "my_csa", b.keys[0].name)
 	require.Equal(t, "my_signing", b.keys[1].name)
@@ -330,8 +330,8 @@ func TestBootstrapper_Stop_LocalKeystoreless_ClosesAccessors(t *testing.T) {
 	appPath := writeAppConfigFile(t, "")
 	cfgPath, secretsPath := writeBootstrapConfigFiles(t, localBootstrapTOML(appPath, ""))
 	b, err := NewBootstrapper("t", fac,
-		WithBootstrapperConfigPath(cfgPath),
-		WithBootstrapperSecretsPath(secretsPath),
+		withBootstrapperConfigPath(cfgPath),
+		withBootstrapperSecretsPath(secretsPath),
 	)
 	require.NoError(t, err)
 	require.NoError(t, b.Start(t.Context()))
@@ -501,8 +501,8 @@ func TestNewBootstrapper_ModeResolution(t *testing.T) {
 		// happens in Start.
 		cfgPath, secretsPath := writeBootstrapConfigFiles(t, localBootstrapTOML("/etc/myapp/app.toml", "postgres://localhost:5432/db"))
 		b, err := NewBootstrapper("t", &mockServiceFactory{},
-			WithBootstrapperConfigPath(cfgPath),
-			WithBootstrapperSecretsPath(secretsPath),
+			withBootstrapperConfigPath(cfgPath),
+			withBootstrapperSecretsPath(secretsPath),
 		)
 		require.NoError(t, err)
 		require.Equal(t, AppConfigModeLocal, b.mode)
@@ -515,8 +515,8 @@ func TestNewBootstrapper_ModeResolution(t *testing.T) {
 		// that the default is JD (a local default would have passed, since local ignores [jd]).
 		cfgPath, secretsPath := writeBootstrapConfigFiles(t, "[db]\nurl = \"postgres://localhost:5432/db\"\n[keystore]\npassword = \"x\"\n")
 		_, err := NewBootstrapper("t", &mockServiceFactory{},
-			WithBootstrapperConfigPath(cfgPath),
-			WithBootstrapperSecretsPath(secretsPath),
+			withBootstrapperConfigPath(cfgPath),
+			withBootstrapperSecretsPath(secretsPath),
 		)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "failed to validate 'jd' section")
@@ -526,8 +526,8 @@ func TestNewBootstrapper_ModeResolution(t *testing.T) {
 		t.Parallel()
 		cfgPath, secretsPath := writeBootstrapConfigFiles(t, "app_config_mode = \"local_app_config\"\n")
 		_, err := NewBootstrapper("t", &mockServiceFactory{},
-			WithBootstrapperConfigPath(cfgPath),
-			WithBootstrapperSecretsPath(secretsPath),
+			withBootstrapperConfigPath(cfgPath),
+			withBootstrapperSecretsPath(secretsPath),
 		)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "local_app_config_path")
@@ -537,8 +537,8 @@ func TestNewBootstrapper_ModeResolution(t *testing.T) {
 		t.Parallel()
 		cfgPath, secretsPath := writeBootstrapConfigFiles(t, "app_config_mode = \"bogus\"\n")
 		_, err := NewBootstrapper("t", &mockServiceFactory{},
-			WithBootstrapperConfigPath(cfgPath),
-			WithBootstrapperSecretsPath(secretsPath),
+			withBootstrapperConfigPath(cfgPath),
+			withBootstrapperSecretsPath(secretsPath),
 		)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "app_config_mode")
@@ -572,8 +572,8 @@ func TestBootstrapper_LocalMode_StartStop(t *testing.T) {
 	}
 
 	b, err := NewBootstrapper("local-test", fac,
-		WithBootstrapperConfigPath(cfgPath),
-		WithBootstrapperSecretsPath(secretsPath),
+		withBootstrapperConfigPath(cfgPath),
+		withBootstrapperSecretsPath(secretsPath),
 	)
 	require.NoError(t, err)
 	require.Equal(t, AppConfigModeLocal, b.mode)
@@ -655,8 +655,8 @@ func TestBootstrapper_LocalMode_WaitsForConfig(t *testing.T) {
 	}
 
 	b, err := NewBootstrapper("wait-test", fac,
-		WithBootstrapperConfigPath(cfgPath),
-		WithBootstrapperSecretsPath(secretsPath),
+		withBootstrapperConfigPath(cfgPath),
+		withBootstrapperSecretsPath(secretsPath),
 	)
 	require.NoError(t, err)
 	require.Equal(t, AppConfigModeLocal, b.mode)
