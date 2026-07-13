@@ -146,27 +146,24 @@ func RebuildExecutorJobSpecWithBlockchainInfos(spec bootstrap.JobSpec, blockchai
 		return "", err
 	}
 
-	// CL nodes read the executor config from executorConfig, and ParseExecutorBootstrapJobSpec
-	// accepts the same field for standalone. Emit executorConfig rather than the generic appConfig
-	// so one spec proposes cleanly in both flows.
-	outerSpecBytes, err := toml.Marshal(struct {
-		Name           string `toml:"name"`
-		ExternalJobID  string `toml:"externalJobID"`
-		SchemaVersion  int    `toml:"schemaVersion"`
-		Type           string `toml:"type"`
-		ExecutorConfig string `toml:"executorConfig"`
-	}{
-		Name:           spec.Name,
-		ExternalJobID:  spec.ExternalJobID,
-		SchemaVersion:  spec.SchemaVersion,
-		Type:           spec.Type,
-		ExecutorConfig: innerConfig,
-	})
-	if err != nil {
-		return "", fmt.Errorf("failed to marshal job spec: %w", err)
+	// Preserve the envelope field the deployment chose for this NOP's mode: standalone specs use
+	// appConfig (read by the local bootstrapper), cl-mode/default specs use executorConfig (read by
+	// the CL node's ccvexecutor job). Emitting a fixed field would break one flow and cause spec
+	// drift against the deployment-generated spec.
+	configField := spec.ConfigFieldName
+	if configField == "" {
+		configField = "appConfig"
 	}
 
-	return string(outerSpecBytes), nil
+	// Match the exact envelope the deployment emits (see ApplyExecutorConfig) so the rebuilt spec
+	// round-trips through ParseExecutorBootstrapJobSpec and matches on drift comparison.
+	return fmt.Sprintf(`schemaVersion = %d
+type = "%s"
+name = "%s"
+externalJobID = "%s"
+%s = '''
+%s'''
+`, spec.SchemaVersion, spec.Type, spec.Name, spec.ExternalJobID, configField, innerConfig), nil
 }
 
 // DeliverLocalAppConfig copies the app-config TOML into a running local-mode executor container at
