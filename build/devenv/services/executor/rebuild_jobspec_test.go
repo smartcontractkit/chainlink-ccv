@@ -26,12 +26,10 @@ func TestRebuildExecutorJobSpecPreservesConfigField(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			base := bootstrap.JobSpec{
-				Name:          "executor-job",
-				SchemaVersion: 1,
-				Type:          "ccvexecutor",
-				AppConfig: `[blockchain_infos."5009297550715157269"]
-chain_id = "1"
-`,
+				Name:            "executor-job",
+				SchemaVersion:   1,
+				Type:            "ccvexecutor",
+				AppConfig:       "",
 				ConfigFieldName: tc.field,
 			}
 

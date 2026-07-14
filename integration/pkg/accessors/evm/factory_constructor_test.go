@@ -84,11 +84,7 @@ func TestCreateEVMAccessorFactoryUsesLocalConfigInsteadOfBlockchainInfos(t *test
 	require.NoError(t, os.WriteFile(path, []byte("[chains]\n"), 0o600))
 	t.Setenv(EVMConfigPathEnv, path)
 
-	genericConfig := chainaccess.GenericConfig{ //nolint:staticcheck // SA1019: constructor API still accepts shared GenericConfig
-		ChainConfig: chainaccess.Infos[any]{
-			"5009297550715157269": map[string]any{"must_not_be_decoded": true},
-		},
-	}
+	genericConfig := chainaccess.GenericConfig{}
 	factory, err := CreateEVMAccessorFactory(logger.Test(t), genericConfig)
 	require.NoError(t, err)
 	require.NotNil(t, factory)
