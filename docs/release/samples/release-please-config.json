@@ -1,0 +1,39 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "release-type": "go",
+  "separate-pull-requests": true,
+  "tag-separator": "/",
+  "bump-minor-pre-major": true,
+  "pull-request-title-pattern": "chore: release ${component} ${version}",
+  "packages": {
+    ".": {
+      "release-type": "go",
+      "exclude-paths": [
+        "REPLACE_ME/every-other-managed-module-path",
+        "REPLACE_ME/non-managed-submodule-paths",
+        "changelog",
+        "docs",
+        ".github",
+        "tools/bin",
+        "tools/lib"
+      ]
+    },
+    "REPLACE_ME/managed-module-path": {
+      "release-type": "go",
+      "package-name": "REPLACE_ME/managed-module-path"
+    }
+  },
+  "changelog-sections": [
+    { "type": "build", "section": "Builds", "hidden": true },
+    { "type": "chore", "section": "Miscellaneous", "hidden": true },
+    { "type": "ci", "section": "Continuous Integrations", "hidden": true },
+    { "type": "docs", "section": "Documentation", "hidden": true },
+    { "type": "feat", "section": "Features" },
+    { "type": "fix", "section": "Bug Fixes" },
+    { "type": "perf", "section": "Performance Improvements", "bump": "patch" },
+    { "type": "refactor", "section": "Code Refactoring", "hidden": true },
+    { "type": "revert", "section": "Reverts", "bump": "patch" },
+    { "type": "style", "section": "Styles", "hidden": true },
+    { "type": "test", "section": "Tests", "hidden": true }
+  ]
+}
