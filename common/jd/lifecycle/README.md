@@ -145,8 +145,10 @@ implementations retain the stop-then-start behavior.
 - The manager tracks **at most one running job**. A staged replacement may warm inactive resources
   before cutover, but it stops the current job before activating the new one.
 - **Crash safety (two-phase write):** the proposal is persisted as `pending` before `StartJob` is called and promoted to `approved` only after `StartJob` succeeds. A crash between the two leaves a `pending` record that drives a retry on the next restart + JD reconnect.
-- **Replacement fallback:** if preparation fails, the old job is never stopped. If activation
-  fails after cutover, the old job is automatically restarted. In both cases the `pending` store
-  record is removed. If the old job restart also fails, the manager transitions to `WaitingForJob`.
+- **Replacement fallback:** if preparation fails, the old job is never stopped. If stopping the old
+  job fails, the replacement is abandoned before cutover and the previous job is left as current. If
+  activation fails after cutover, the old job is automatically restarted. In all three cases the
+  `pending` store record is removed. If the old job restart also fails, the manager transitions to
+  `WaitingForJob`.
 - **Delete:** only the request whose id matches the current job's proposal id is applied; others are ignored. After a matching delete the manager stops the job, clears the store, and goes to `WaitingForJob`.
 - **Revoke** requests are received but not acted on (we auto-approve proposals, so revoke is effectively a no-op).

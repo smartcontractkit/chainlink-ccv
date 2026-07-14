@@ -107,6 +107,28 @@ func TestRunnerPreparedReplacementKeepsOldJobReadyUntilCutover(t *testing.T) {
 	require.NoError(t, runner.StopJob(t.Context()))
 }
 
+func TestRunnerStartJobDiscardsStalePreparedCandidate(t *testing.T) {
+	var starts []string
+	runner := &runner{
+		lggr: logger.Test(t),
+		fac: &spyServiceFactory{startFn: func(_ context.Context, spec any, _ ServiceDeps) error {
+			starts = append(starts, spec.(JobSpec).Name)
+			return nil
+		}},
+	}
+
+	require.NoError(t, runner.PrepareJob(t.Context(), "name = \"prepared\"\nappConfig = \"\""))
+	require.NotNil(t, runner.prepared)
+
+	// StartJob with a spec that does not match the prepared candidate must discard the stale
+	// candidate and build the job actually requested by StartJob.
+	require.NoError(t, runner.StartJob(t.Context(), "name = \"actual\"\nappConfig = \"\""))
+	require.Equal(t, []string{"actual"}, starts)
+	require.Nil(t, runner.prepared)
+
+	require.NoError(t, runner.StopJob(t.Context()))
+}
+
 func TestRunnerPrepareFailureDoesNotChangeActiveJobReadiness(t *testing.T) {
 	var ready atomic.Bool
 	ready.Store(true)

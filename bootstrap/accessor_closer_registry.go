@@ -48,14 +48,6 @@ func (t *AccessorCloserRegistry) GetAccessor(ctx context.Context, chainSelector 
 	return a, nil
 }
 
-// CloseAll closes every Accessor handed out since construction or the last successful CloseAll.
-// A second CloseAll with no intervening GetAccessor returns nil.
-func (t *AccessorCloserRegistry) CloseAll() error {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	return t.closeAccessors()
-}
-
 // Close releases tracked accessors and then forwards terminal cleanup to the wrapped registry.
 // It is idempotent and prevents new accessors from being obtained.
 func (t *AccessorCloserRegistry) Close() error {

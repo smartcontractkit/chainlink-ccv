@@ -29,7 +29,7 @@ func (r *closeTrackingRegistry) Close() error {
 	return nil
 }
 
-func TestAccessorCloserRegistry_CloseAll(t *testing.T) {
+func TestAccessorCloserRegistry_Close(t *testing.T) {
 	t.Parallel()
 
 	errA := errors.New("close failed A")
@@ -71,7 +71,7 @@ func TestAccessorCloserRegistry_CloseAll(t *testing.T) {
 				require.NoError(t, err)
 			}
 
-			got := tr.CloseAll()
+			got := tr.Close()
 			if tt.wantErr {
 				require.Error(t, got)
 				for _, want := range tt.wantErrIs {
@@ -79,8 +79,8 @@ func TestAccessorCloserRegistry_CloseAll(t *testing.T) {
 				}
 			} else {
 				require.NoError(t, got)
-				// Second CloseAll with no intervening GetAccessor: no-op.
-				require.NoError(t, tr.CloseAll())
+				// Close is idempotent: a second call is a no-op.
+				require.NoError(t, tr.Close())
 			}
 		})
 	}
@@ -116,7 +116,7 @@ func TestAccessorCloserRegistry_Concurrent_GetAccessor(t *testing.T) {
 	}
 	wg.Wait()
 
-	require.NoError(t, tr.CloseAll())
+	require.NoError(t, tr.Close())
 }
 
 func TestAccessorCloserRegistry_CloseForwardsTerminalCleanup(t *testing.T) {

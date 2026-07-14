@@ -67,7 +67,13 @@ type JobRunner interface {
 type StagedJobRunner interface {
 	JobRunner
 
+	// PrepareJob validates the replacement spec and warms resources that can safely coexist with
+	// the active job. It must not start externally visible processing or change readiness; the
+	// prepared candidate is activated by a subsequent StartJob after StopJob.
 	PrepareJob(ctx context.Context, spec string) error
+
+	// DiscardPreparedJob releases a prepared candidate without affecting the active job.
+	// It must be idempotent.
 	DiscardPreparedJob(ctx context.Context) error
 }
 
@@ -295,6 +301,8 @@ func (m *Manager) eventLoop() {
 // On StartJob failure with no prior job: the pending store record survives for restart recovery.
 // On PrepareJob failure during a replacement: the old job remains running and the pending record
 // is removed.
+// On StopJob failure during a replacement: the replacement is abandoned before cutover; the prepared
+// candidate is discarded, the pending record is removed, and the previous job remains current.
 // On StartJob failure during a replacement: the pending record is deleted and the old job is
 // restarted from the in-memory snapshot so the job keeps running.
 func (m *Manager) handleProposal(proposal *pb.ProposeJobRequest) (retErr error) {
@@ -349,7 +357,7 @@ func (m *Manager) handleProposal(proposal *pb.ProposeJobRequest) (retErr error) 
 			)
 		}
 
-		m.lggr.Infow("Stopping current job for replacement", "prepared", prepared)
+		m.lggr.Infow("Stopping current job for replacement", "staged", prepared)
 		stopCtx, stopCancel := context.WithTimeout(context.Background(), m.controlPlaneTimeout)
 		err = m.runner.StopJob(stopCtx)
 		stopCancel()

@@ -102,8 +102,10 @@ type runner struct {
 	prepared *preparedJob
 }
 
-var _ lifecycle.JobRunner = (*runner)(nil)
-var _ lifecycle.StagedJobRunner = (*runner)(nil)
+var (
+	_ lifecycle.JobRunner       = (*runner)(nil)
+	_ lifecycle.StagedJobRunner = (*runner)(nil)
+)
 
 type preparedJob struct {
 	rawSpec   string
