@@ -5,12 +5,15 @@ import (
 	"fmt"
 	"math/big"
 
+	"golang.org/x/sync/errgroup"
+
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainreg"
 	blockchainscomp "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/blockchains"
 	jdcomp "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/jd"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
 	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	jobv1 "github.com/smartcontractkit/chainlink-protos/job-distributor/v1/job"
@@ -126,5 +129,19 @@ func executeJobProposalEffects(ctx context.Context, effects []devenvruntime.JobP
 			return fmt.Errorf("syncing job proposals: %w", err)
 		}
 	}
-	return nil
+
+	g, gCtx := errgroup.WithContext(ctx)
+	for _, effect := range effects {
+		if effect.ApplicationReadyURL == "" {
+			continue
+		}
+		effect := effect
+		g.Go(func() error {
+			if err := services.WaitForApplicationReady(gCtx, effect.ApplicationReadyURL, services.DefaultApplicationReadyTimeout); err != nil {
+				return fmt.Errorf("job application for %s did not become ready: %w", effect.NOPAlias, err)
+			}
+			return nil
+		})
+	}
+	return g.Wait()
 }

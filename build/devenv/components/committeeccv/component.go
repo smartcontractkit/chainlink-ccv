@@ -672,15 +672,20 @@ func buildVerifierJobSpecEffects(
 				if nodeID == "" {
 					return nil, fmt.Errorf("committeeccv: verifier %s not registered with JD (missing JD node ID)", ver.NOPAlias)
 				}
+				applicationReadyURL := ""
+				if ver.Out != nil {
+					applicationReadyURL = ver.Out.BootstrapDBURL
+				}
 				baseSpec := allJobSpecs[0]
 				jobSpec, specErr := committeeverifier.RebuildVerifierJobSpec(baseSpec)
 				if specErr != nil {
 					return nil, fmt.Errorf("committeeccv: building job spec for verifier %s: %w", ver.NOPAlias, specErr)
 				}
 				effects = append(effects, devenvruntime.JobProposalEffect{
-					NOPAlias: ver.NOPAlias,
-					NodeID:   nodeID,
-					JobSpec:  jobSpec,
+					NOPAlias:            ver.NOPAlias,
+					NodeID:              nodeID,
+					JobSpec:             jobSpec,
+					ApplicationReadyURL: applicationReadyURL,
 				})
 			}
 		}

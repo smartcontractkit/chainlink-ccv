@@ -152,13 +152,16 @@ externalJobID = "%s"
 }
 
 // DeliverLocalAppConfig copies the app-config TOML into a running local-mode executor container at
-// local_app_config_path, so the waiting bootstrapper starts the service. Used by the no-JD devenv
+// local_app_config_path and waits for the application factory to start. Used by the no-JD devenv
 // path, which generates the executor config after contracts are deployed.
 func DeliverLocalAppConfig(out *Output, appConfigTOML string) error {
 	if out == nil || out.Container == nil {
 		return fmt.Errorf("executor output has no running container; was it launched in local mode?")
 	}
-	return services.CopyLocalAppConfigToContainer(context.Background(), out.Container, localAppConfigContainerPath, appConfigTOML)
+	if err := services.CopyLocalAppConfigToContainer(context.Background(), out.Container, localAppConfigContainerPath, appConfigTOML); err != nil {
+		return err
+	}
+	return services.WaitForApplicationReady(context.Background(), out.BootstrapDBURL, services.DefaultApplicationReadyTimeout)
 }
 
 func ApplyDefaults(in *Input) {
@@ -369,6 +372,11 @@ func launchExecutor(ctx context.Context, in *Input, outputs []*blockchain.Output
 	}
 	if local {
 		out.Container = c
+	}
+	if local && in.LocalAppConfig != "" {
+		if err := services.WaitForApplicationReady(ctx, out.BootstrapDBURL, services.DefaultApplicationReadyTimeout); err != nil {
+			return nil, fmt.Errorf("executor application did not become ready: %w", err)
+		}
 	}
 
 	return out, nil

@@ -1,7 +1,7 @@
 package evm
 
 import (
-	"io"
+	"os"
 	"testing"
 
 	"github.com/BurntSushi/toml"
@@ -43,9 +43,17 @@ func TestEVMConfigIsMountedSeparatelyFromAppConfig(t *testing.T) {
 	require.Len(t, req.Files, 1)
 	require.Equal(t, accessorevm.DefaultEVMConfigPath, req.Files[0].ContainerFilePath)
 	require.Equal(t, int64(0o644), req.Files[0].FileMode)
+	require.Nil(t, req.Files[0].Reader)
+	require.NotEmpty(t, req.Files[0].HostFilePath)
+	t.Cleanup(func() { require.NoError(t, os.Remove(req.Files[0].HostFilePath)) })
 
-	data, err := io.ReadAll(req.Files[0].Reader)
+	data, err := os.ReadFile(req.Files[0].HostFilePath)
 	require.NoError(t, err)
+	// HostFilePath is reopened by testcontainers for every container-start attempt. Reading it twice
+	// locks in the retry-safe behavior that a one-shot ContainerFile.Reader cannot provide.
+	retryData, err := os.ReadFile(req.Files[0].HostFilePath)
+	require.NoError(t, err)
+	require.Equal(t, data, retryData)
 	var cfg accessorevm.Config
 	md, err := toml.Decode(string(data), &cfg)
 	require.NoError(t, err)

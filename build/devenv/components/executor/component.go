@@ -195,9 +195,10 @@ func (c *component) RunPhase3(
 			return nil, nil, fmt.Errorf("executor: building job spec for %s: %w", exec.ContainerName, specErr)
 		}
 		effects = append(effects, devenvruntime.JobProposalEffect{
-			NOPAlias: exec.NOPAlias,
-			NodeID:   exec.Out.JDNodeID,
-			JobSpec:  jobSpec,
+			NOPAlias:            exec.NOPAlias,
+			NodeID:              exec.Out.JDNodeID,
+			JobSpec:             jobSpec,
+			ApplicationReadyURL: exec.Out.BootstrapDBURL,
 		})
 	}
 

@@ -1,7 +1,6 @@
 package evm
 
 import (
-	"bytes"
 	"context"
 	"encoding/hex"
 	"fmt"
@@ -106,8 +105,32 @@ func addEVMConfig(req testcontainers.ContainerRequest, outputs []*blockchain.Out
 	if err != nil {
 		return req, fmt.Errorf("failed to marshal EVM config: %w", err)
 	}
+	configFile, err := os.CreateTemp("", "ccv-evm-config-*.toml")
+	if err != nil {
+		return req, fmt.Errorf("failed to create EVM config file: %w", err)
+	}
+	configPath := configFile.Name()
+	removeConfig := true
+	defer func() {
+		if removeConfig {
+			_ = os.Remove(configPath)
+		}
+	}()
+	if _, err := configFile.Write(config); err != nil {
+		_ = configFile.Close()
+		return req, fmt.Errorf("failed to write EVM config file: %w", err)
+	}
+	if err := configFile.Chmod(0o644); err != nil {
+		_ = configFile.Close()
+		return req, fmt.Errorf("failed to set EVM config file permissions: %w", err)
+	}
+	if err := configFile.Close(); err != nil {
+		return req, fmt.Errorf("failed to close EVM config file: %w", err)
+	}
+	removeConfig = false
+
 	req.Files = append(req.Files, testcontainers.ContainerFile{
-		Reader:            bytes.NewReader(config),
+		HostFilePath:      configPath,
 		ContainerFilePath: evm.DefaultEVMConfigPath,
 		FileMode:          0o644,
 	})

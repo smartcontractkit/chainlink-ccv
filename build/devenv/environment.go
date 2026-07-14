@@ -1053,8 +1053,8 @@ func registerExecutorsWithJD(ctx context.Context, executors []*executorsvc.Input
 	return g.Wait()
 }
 
-// proposeJobsToExecutors proposes executor job specs to executors via JD.
-// Each executor receives its job spec with blockchain infos injected for its chain family.
+// proposeJobsToExecutors proposes executor job specs to executors via JD and waits for each
+// application factory to finish starting before the environment is returned.
 func proposeJobsToExecutors(
 	ctx context.Context,
 	executors []*executorsvc.Input,
@@ -1105,6 +1105,9 @@ func proposeJobsToExecutors(
 				Str("nodeID", nodeID).
 				Str("proposalID", resp.Proposal.Id).
 				Msg("Proposed job to executor via JD")
+			if err := services.WaitForApplicationReady(gCtx, exec.Out.BootstrapDBURL, services.DefaultApplicationReadyTimeout); err != nil {
+				return fmt.Errorf("executor %s application did not become ready: %w", exec.ContainerName, err)
+			}
 
 			return nil
 		})
@@ -1354,8 +1357,8 @@ func registerStandaloneVerifiersWithJD(ctx context.Context, verifiers []*committ
 	return g.Wait()
 }
 
-// proposeJobsToStandaloneVerifiers proposes jobs to standalone verifiers via JD in parallel.
-// Each verifier receives its job spec with blockchain infos injected.
+// proposeJobsToStandaloneVerifiers proposes jobs to standalone verifiers via JD in parallel and
+// waits for each application factory to finish starting before the environment is returned.
 func proposeJobsToStandaloneVerifiers(
 	ctx context.Context,
 	verifiers []*committeeverifier.Input,
@@ -1410,6 +1413,9 @@ func proposeJobsToStandaloneVerifiers(
 				Str("nodeID", nodeID).
 				Str("proposalID", resp.Proposal.Id).
 				Msg("Proposed job to verifier via JD")
+			if err := services.WaitForApplicationReady(gCtx, ver.Out.BootstrapDBURL, services.DefaultApplicationReadyTimeout); err != nil {
+				return fmt.Errorf("verifier %s application did not become ready: %w", ver.NOPAlias, err)
+			}
 
 			return nil
 		})

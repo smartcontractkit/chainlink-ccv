@@ -436,20 +436,28 @@ func launchVerifier(ctx context.Context, in *Input, outputs []*blockchain.Output
 	if local {
 		out.Container = c
 	}
+	if local && in.LocalAppConfig != "" {
+		if err := services.WaitForApplicationReady(ctx, out.BootstrapDBURL, services.DefaultApplicationReadyTimeout); err != nil {
+			return nil, fmt.Errorf("verifier application did not become ready: %w", err)
+		}
+	}
 
 	return out, nil
 }
 
 // DeliverLocalAppConfig copies the app-config TOML into a running local-mode verifier container at
-// local_app_config_path, so the bootstrapper (which has been waiting with its keys exposed) picks it
-// up and starts the service. Copying into the container (rather than writing a bind-mounted host file)
-// makes post-startup delivery work on every Docker host. Used by the no-JD devenv path, which cannot
-// supply the config at launch because it depends on contract addresses deployed after the verifier is up.
+// local_app_config_path and waits for the application factory to start. Copying into the container
+// (rather than writing a bind-mounted host file) makes post-startup delivery work on every Docker
+// host. Used by the no-JD devenv path, which cannot supply the config at launch because it depends on
+// contract addresses deployed after the verifier is up.
 func DeliverLocalAppConfig(out *Output, appConfigTOML string) error {
 	if out == nil || out.Container == nil {
 		return fmt.Errorf("verifier output has no running container; was it launched in local mode?")
 	}
-	return services.CopyLocalAppConfigToContainer(context.Background(), out.Container, localAppConfigContainerPath, appConfigTOML)
+	if err := services.CopyLocalAppConfigToContainer(context.Background(), out.Container, localAppConfigContainerPath, appConfigTOML); err != nil {
+		return err
+	}
+	return services.WaitForApplicationReady(context.Background(), out.BootstrapDBURL, services.DefaultApplicationReadyTimeout)
 }
 
 func startContainer(ctx context.Context, req testcontainers.ContainerRequest) (testcontainers.Container, error) {

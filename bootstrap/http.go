@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/smartcontractkit/chainlink-common/keystore"
@@ -16,8 +17,9 @@ import (
 )
 
 const (
-	GetKeysEndpoint = "/keystore/reader/getkeys"
-	HealthEndpoint  = "/health"
+	GetKeysEndpoint          = "/keystore/reader/getkeys"
+	HealthEndpoint           = "/health"
+	ApplicationReadyEndpoint = "/ready"
 )
 
 type infoServer struct {
@@ -29,14 +31,16 @@ type infoServer struct {
 
 	wg sync.WaitGroup
 
-	keyStore keystore.Keystore
+	keyStore         keystore.Keystore
+	applicationReady *atomic.Bool
 }
 
-func newInfoServer(lggr logger.Logger, keyStore keystore.Keystore, listenPort int) *infoServer {
+func newInfoServer(lggr logger.Logger, keyStore keystore.Keystore, listenPort int, applicationReady *atomic.Bool) *infoServer {
 	return &infoServer{
-		lggr:       lggr,
-		listenPort: listenPort,
-		keyStore:   keyStore,
+		lggr:             lggr,
+		listenPort:       listenPort,
+		keyStore:         keyStore,
+		applicationReady: applicationReady,
 	}
 }
 
@@ -47,6 +51,7 @@ func (s *infoServer) Start(ctx context.Context) error {
 		mux := http.NewServeMux()
 		mux.HandleFunc(GetKeysEndpoint, s.handleGetKeys)
 		mux.HandleFunc(HealthEndpoint, s.handleHealth)
+		mux.HandleFunc(ApplicationReadyEndpoint, s.handleApplicationReady)
 
 		s.srv = &http.Server{
 			Addr:              fmt.Sprintf(":%d", s.listenPort),
@@ -70,6 +75,22 @@ func (s *infoServer) handleHealth(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	if err := json.NewEncoder(w).Encode(map[string]string{"status": "ok"}); err != nil {
 		s.lggr.Errorw("failed to encode health response", "error", err)
+	}
+}
+
+func (s *infoServer) handleApplicationReady(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	if s.applicationReady == nil || !s.applicationReady.Load() {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		if err := json.NewEncoder(w).Encode(map[string]string{"status": "not_ready"}); err != nil {
+			s.lggr.Errorw("failed to encode application readiness response", "error", err)
+		}
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	if err := json.NewEncoder(w).Encode(map[string]string{"status": "ready"}); err != nil {
+		s.lggr.Errorw("failed to encode application readiness response", "error", err)
 	}
 }
 
