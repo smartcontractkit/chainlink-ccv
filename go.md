@@ -301,6 +301,7 @@ flowchart LR
 	click chainlink-data-streams href "https://github.com/smartcontractkit/chainlink-data-streams"
 	chainlink-deployments-framework --> chainlink-protos/op-catalog
 	click chainlink-deployments-framework href "https://github.com/smartcontractkit/chainlink-deployments-framework"
+	chainlink-evm --> chainlink-automation
 	chainlink-evm --> chainlink-common/keystore
 	chainlink-evm --> chainlink-data-streams
 	chainlink-evm --> chainlink-evm/gethwrappers
@@ -405,7 +406,6 @@ flowchart LR
 	chainlink/deployment --> chainlink/v2
 	chainlink/deployment --> mcms
 	click chainlink/deployment href "https://github.com/smartcontractkit/chainlink"
-	chainlink/v2 --> chainlink-automation
 	chainlink/v2 --> chainlink-evm
 	chainlink/v2 --> chainlink-feeds
 	chainlink/v2 --> chainlink-protos/orchestrator
