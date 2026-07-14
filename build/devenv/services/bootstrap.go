@@ -2,11 +2,15 @@ package services
 
 import (
 	"bytes"
+	"context"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
+	"strings"
+	"time"
 
 	"github.com/BurntSushi/toml"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -18,9 +22,11 @@ import (
 )
 
 const (
-	DefaultBootstrapDBName        = "bootstrap_db"
-	DefaultBootstrapListenPort    = 9988
-	DefaultBootstrapListenPortTCP = "9988/tcp"
+	DefaultBootstrapDBName         = "bootstrap_db"
+	DefaultBootstrapListenPort     = 9988
+	DefaultBootstrapListenPortTCP  = "9988/tcp"
+	DefaultApplicationReadyTimeout = 120 * time.Second
+	applicationReadyPollInterval   = 250 * time.Millisecond
 )
 
 var CreateBootstrapDBInitScript = fmt.Sprintf(`CREATE DATABASE "%s";`, DefaultBootstrapDBName)
@@ -205,4 +211,65 @@ func FetchBootstrapKeys(bootstrapURL string, keyNames ...string) (BootstrapKeys,
 	}
 
 	return result, nil
+}
+
+// WaitForApplicationReady waits until the bootstrap info server reports that the application
+// factory has successfully started. Bootstrap /health intentionally becomes healthy before a JD
+// job or local app config arrives so devenv can discover keys; /ready is the post-delivery barrier.
+func WaitForApplicationReady(ctx context.Context, bootstrapURL string, timeout time.Duration) error {
+	return waitForApplicationReady(
+		ctx,
+		&http.Client{Timeout: 3 * time.Second},
+		bootstrapURL,
+		timeout,
+		applicationReadyPollInterval,
+	)
+}
+
+type httpDoer interface {
+	Do(*http.Request) (*http.Response, error)
+}
+
+func waitForApplicationReady(ctx context.Context, client httpDoer, bootstrapURL string, timeout, pollInterval time.Duration) error {
+	if bootstrapURL == "" {
+		return fmt.Errorf("bootstrap URL is empty")
+	}
+	if timeout <= 0 {
+		return fmt.Errorf("application readiness timeout must be positive")
+	}
+	if pollInterval <= 0 {
+		return fmt.Errorf("application readiness poll interval must be positive")
+	}
+
+	waitCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	endpoint := strings.TrimRight(bootstrapURL, "/") + bootstrap.ApplicationReadyEndpoint
+	ticker := time.NewTicker(pollInterval)
+	defer ticker.Stop()
+
+	var lastErr error
+	for {
+		req, err := http.NewRequestWithContext(waitCtx, http.MethodGet, endpoint, nil)
+		if err != nil {
+			return fmt.Errorf("failed to create application readiness request: %w", err)
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			lastErr = err
+		} else {
+			_, _ = io.Copy(io.Discard, resp.Body)
+			_ = resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				return nil
+			}
+			lastErr = fmt.Errorf("status code %d", resp.StatusCode)
+		}
+
+		select {
+		case <-waitCtx.Done():
+			return fmt.Errorf("application did not become ready at %s: %w (last response: %v)", endpoint, waitCtx.Err(), lastErr)
+		case <-ticker.C:
+		}
+	}
 }

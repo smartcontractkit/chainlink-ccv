@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -91,10 +92,11 @@ type ServiceFactory interface {
 
 // A runner adapts a [ServiceFactory] to the [lifecycle.JobRunner] interface.
 type runner struct {
-	lggr      logger.Logger
-	fac       ServiceFactory
-	deps      ServiceDeps
-	accCloser *AccessorCloserRegistry
+	lggr             logger.Logger
+	fac              ServiceFactory
+	deps             ServiceDeps
+	accCloser        *AccessorCloserRegistry
+	applicationReady *atomic.Bool
 }
 
 var _ lifecycle.JobRunner = (*runner)(nil)
@@ -102,6 +104,9 @@ var _ lifecycle.JobRunner = (*runner)(nil)
 // StartJob implements [lifecycle.JobRunner].
 // On Start failure, the deferred CloseAll is the only chance to release accessors.
 func (r *runner) StartJob(ctx context.Context, config string) (startErr error) {
+	if r.applicationReady != nil {
+		r.applicationReady.Store(false)
+	}
 	r.lggr.Infow("starting job")
 
 	var spec JobSpec
@@ -128,12 +133,21 @@ func (r *runner) StartJob(ctx context.Context, config string) (startErr error) {
 		}
 	}()
 
-	return r.fac.Start(ctx, spec, r.deps)
+	if err := r.fac.Start(ctx, spec, r.deps); err != nil {
+		return err
+	}
+	if r.applicationReady != nil {
+		r.applicationReady.Store(true)
+	}
+	return nil
 }
 
 // StopJob implements [lifecycle.JobRunner].
 // CloseAll runs after factory.Stop so the coordinator drains its readers before underlying services are released.
 func (r *runner) StopJob(ctx context.Context) error {
+	if r.applicationReady != nil {
+		r.applicationReady.Store(false)
+	}
 	var errs []error
 	if err := r.fac.Stop(ctx); err != nil {
 		errs = append(errs, fmt.Errorf("stop service factory: %w", err))
@@ -166,8 +180,9 @@ type Bootstrapper struct {
 	localConfigPath string
 
 	// application
-	fac  ServiceFactory
-	name string
+	fac              ServiceFactory
+	name             string
+	applicationReady atomic.Bool
 
 	// accCloser is set by startLocal; JD mode uses runner.accCloser instead.
 	accCloser *AccessorCloserRegistry
@@ -374,7 +389,7 @@ func (b *Bootstrapper) startWithJDLifecycle(ctx context.Context) error {
 		Keystore: keyStore,
 	}
 
-	jobRunner := &runner{lggr: b.lggr, fac: b.fac, deps: deps}
+	jobRunner := &runner{lggr: b.lggr, fac: b.fac, deps: deps, applicationReady: &b.applicationReady}
 
 	// b.keys is populated by WithKey options; collect names of signing keys to publish.
 	var signingKeyNames []string
@@ -425,7 +440,7 @@ func (b *Bootstrapper) startWithJDLifecycle(ctx context.Context) error {
 	}
 	b.lifecycleManager = lifecycleManager
 
-	infoServer := newInfoServer(b.lggr, keyStore, b.config.Server.ListenPort)
+	infoServer := newInfoServer(b.lggr, keyStore, b.config.Server.ListenPort, &b.applicationReady)
 	if err := infoServer.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start info server: %w", err)
 	}
@@ -484,7 +499,7 @@ func (b *Bootstrapper) startLocal(ctx context.Context) error {
 	// local mode [server] is optional, so start it only when both are present. It comes up before the
 	// app config is read so that key discovery works while a not-yet-present config is awaited.
 	if keyStore != nil && b.config.Server.ListenPort != 0 {
-		infoServer := newInfoServer(b.lggr, keyStore, b.config.Server.ListenPort)
+		infoServer := newInfoServer(b.lggr, keyStore, b.config.Server.ListenPort, &b.applicationReady)
 		if err := infoServer.Start(ctx); err != nil {
 			return fmt.Errorf("failed to start info server: %w", err)
 		}
@@ -513,6 +528,7 @@ func (b *Bootstrapper) startLocal(ctx context.Context) error {
 // when one exists), and starts the service factory. It is the shared tail of both the synchronous and
 // the watch-and-start local paths.
 func (b *Bootstrapper) startLocalService(ctx context.Context, keyStore keystore.Keystore) (startErr error) {
+	b.applicationReady.Store(false)
 	appCfg, err := os.ReadFile(b.localConfigPath)
 	if err != nil {
 		return fmt.Errorf("failed to read local app config %q: %w", b.localConfigPath, err)
@@ -540,7 +556,11 @@ func (b *Bootstrapper) startLocalService(ctx context.Context, keyStore keystore.
 	}()
 
 	js := JobSpec{Name: "local", AppConfig: string(appCfg)}
-	return b.fac.Start(ctx, js, ServiceDeps{Logger: b.lggr, Keystore: keyStore, Registry: b.accCloser})
+	if err := b.fac.Start(ctx, js, ServiceDeps{Logger: b.lggr, Keystore: keyStore, Registry: b.accCloser}); err != nil {
+		return err
+	}
+	b.applicationReady.Store(true)
+	return nil
 }
 
 // watchForConfigAndStart polls for the local app config file and starts the service once it appears.
@@ -605,6 +625,7 @@ func (b *Bootstrapper) Start(ctx context.Context) error {
 //   - Local mode: factory.Stop runs first, then accCloser.CloseAll; the info server is stopped if
 //     it was started.
 func (b *Bootstrapper) Stop(ctx context.Context) error {
+	b.applicationReady.Store(false)
 	if b.lifecycleManager != nil {
 		if err := b.lifecycleManager.Stop(); err != nil {
 			return fmt.Errorf("failed to stop lifecycle manager: %w", err)

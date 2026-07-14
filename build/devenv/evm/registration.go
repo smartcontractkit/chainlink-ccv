@@ -5,9 +5,9 @@ import (
 	"encoding/hex"
 	"fmt"
 	"os"
-	"strconv"
 	"time"
 
+	"github.com/BurntSushi/toml"
 	"github.com/ethereum/go-ethereum/crypto"
 
 	"github.com/Masterminds/semver/v3"
@@ -31,6 +31,7 @@ import (
 	tokenscore "github.com/smartcontractkit/chainlink-ccip/deployment/tokens"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainreg"
+	evmchainconfig "github.com/smartcontractkit/chainlink-ccv/build/devenv/evm/chainconfig"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/committeeverifier"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/executor"
@@ -90,12 +91,50 @@ func init() {
 // VerifierModifier adjusts committee verifier container requests for EVM.
 func VerifierModifier(req testcontainers.ContainerRequest, verifierInput *committeeverifier.Input, outputs []*blockchain.Output) (testcontainers.ContainerRequest, error) {
 	req.Name = fmt.Sprintf("evm-%s", verifierInput.ContainerName)
-	return req, nil
+	return addEVMConfig(req, outputs)
 }
 
 // ExecutorModifier adjusts executor container requests for EVM.
 func ExecutorModifier(req testcontainers.ContainerRequest, executorInput *executor.Input, outputs []*blockchain.Output) (testcontainers.ContainerRequest, error) {
 	req.Name = fmt.Sprintf("evm-%s", executorInput.ContainerName)
+	return addEVMConfig(req, outputs)
+}
+
+func addEVMConfig(req testcontainers.ContainerRequest, outputs []*blockchain.Output) (testcontainers.ContainerRequest, error) {
+	config, err := marshalEVMConfig(outputs)
+	if err != nil {
+		return req, fmt.Errorf("failed to marshal EVM config: %w", err)
+	}
+	configFile, err := os.CreateTemp("", "ccv-evm-config-*.toml")
+	if err != nil {
+		return req, fmt.Errorf("failed to create EVM config file: %w", err)
+	}
+	configPath := configFile.Name()
+	removeConfig := true
+	defer func() {
+		if removeConfig {
+			_ = os.Remove(configPath)
+		}
+	}()
+	if _, err := configFile.Write(config); err != nil {
+		_ = configFile.Close()
+		return req, fmt.Errorf("failed to write EVM config file: %w", err)
+	}
+	if err := configFile.Chmod(0o644); err != nil {
+		_ = configFile.Close()
+		return req, fmt.Errorf("failed to set EVM config file permissions: %w", err)
+	}
+	if err := configFile.Close(); err != nil {
+		return req, fmt.Errorf("failed to close EVM config file: %w", err)
+	}
+	removeConfig = false
+
+	req.Files = append(req.Files, testcontainers.ContainerFile{
+		HostFilePath:      configPath,
+		ContainerFilePath: evm.DefaultEVMConfigPath,
+		FileMode:          0o644,
+	})
+
 	return req, nil
 }
 
@@ -236,41 +275,35 @@ func getUserPrivateKeys() []string {
 	return userPrivateKeys
 }
 
-// ChainConfigLoader converts CTF blockchain outputs to a map of chain selector to evm.Info.
+// ChainConfigLoader returns connection-free EVM chain metadata for compatibility consumers.
+// Standalone services receive connection information through the EVM-local config mounted by the
+// container modifier.
 func ChainConfigLoader(outputs []*blockchain.Output) (map[string]any, error) {
-	infos := make(map[string]any)
-	for _, output := range outputs {
-		if output.Family != chainsel.FamilyEVM {
-			continue
-		}
-		info := &evm.Info{
-			ChainID:         output.ChainID,
-			Type:            output.Type,
-			Family:          output.Family,
-			UniqueChainName: output.ContainerName,
-			Nodes:           make([]evm.Node, 0, len(output.Nodes)),
-		}
+	fullInfos, err := evmchainconfig.ConvertBlockchainOutputsToInfo(outputs)
+	if err != nil {
+		return nil, err
+	}
 
-		for _, node := range output.Nodes {
-			if node != nil {
-				info.Nodes = append(info.Nodes, evm.Node{
-					ExternalHTTPUrl: node.ExternalHTTPUrl,
-					InternalHTTPUrl: node.InternalHTTPUrl,
-					ExternalWSUrl:   node.ExternalWSUrl,
-					InternalWSUrl:   node.InternalWSUrl,
-				})
-			}
-		}
-
-		details, err := chainsel.GetChainDetailsByChainIDAndFamily(output.ChainID, output.Family)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get chain details for chain %s, family %s: %w", output.ChainID, output.Family, err)
-		}
-
-		infos[strconv.FormatUint(details.ChainSelector, 10)] = info
+	infos := make(map[string]any, len(fullInfos))
+	for selector, info := range fullInfos {
+		info.Nodes = nil
+		infos[selector] = info
 	}
 
 	return infos, nil
+}
+
+func marshalEVMConfig(outputs []*blockchain.Output) ([]byte, error) {
+	infos, err := evmchainconfig.ConvertBlockchainOutputsToInfo(outputs)
+	if err != nil {
+		return nil, err
+	}
+
+	config, err := toml.Marshal(evm.NewConfigFromInfos(infos))
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal config: %w", err)
+	}
+	return config, nil
 }
 
 func getContractAddress(ds datastore.DataStore, chainSelector uint64, contractType datastore.ContractType, version, qualifier, contractName string) (protocol.UnknownAddress, error) {

@@ -1,7 +1,13 @@
 package services
 
 import (
+	"context"
+	"io"
+	"net/http"
+	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/BurntSushi/toml"
 	"github.com/stretchr/testify/require"
@@ -72,4 +78,43 @@ func TestApplyBootstrapDefaults_NilMonitoringStaysNil(t *testing.T) {
 	out := ApplyBootstrapDefaults(BootstrapInput{})
 
 	require.Nil(t, out.Monitoring, "ApplyBootstrapDefaults must not populate Monitoring when unset")
+}
+
+func TestWaitForApplicationReady(t *testing.T) {
+	var calls atomic.Int32
+	client := httpDoerFunc(func(*http.Request) (*http.Response, error) {
+		status := http.StatusServiceUnavailable
+		if calls.Add(1) >= 2 {
+			status = http.StatusOK
+		}
+		return responseWithStatus(status), nil
+	})
+
+	require.NoError(t, waitForApplicationReady(t.Context(), client, "http://bootstrap", time.Second, time.Millisecond))
+	require.GreaterOrEqual(t, calls.Load(), int32(2))
+}
+
+func TestWaitForApplicationReadyTimesOut(t *testing.T) {
+	client := httpDoerFunc(func(*http.Request) (*http.Response, error) {
+		return responseWithStatus(http.StatusServiceUnavailable), nil
+	})
+
+	ctx, cancel := context.WithTimeout(t.Context(), 20*time.Millisecond)
+	defer cancel()
+	err := waitForApplicationReady(ctx, client, "http://bootstrap", time.Second, time.Millisecond)
+	require.ErrorContains(t, err, "application did not become ready")
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+}
+
+type httpDoerFunc func(*http.Request) (*http.Response, error)
+
+func (f httpDoerFunc) Do(req *http.Request) (*http.Response, error) {
+	return f(req)
+}
+
+func responseWithStatus(status int) *http.Response {
+	return &http.Response{
+		StatusCode: status,
+		Body:       io.NopCloser(strings.NewReader("")),
+	}
 }

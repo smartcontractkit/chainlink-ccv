@@ -16,6 +16,13 @@ type JobSpec struct {
 	SchemaVersion int    `toml:"schemaVersion"`
 	Type          string `toml:"type"`
 	AppConfig     string `toml:"appConfig"`
+
+	// ConfigFieldName records which outer TOML field carried the app config in the source job
+	// spec (for example "appConfig", "committeeVerifierConfig", or "executorConfig"). It is not
+	// serialized. Devenv uses it to re-emit the same field when rebuilding a spec, so a rebuilt
+	// spec keeps the field the target expects: standalone bootstrappers read appConfig, while CL
+	// nodes require committeeVerifierConfig/executorConfig. Empty defaults to appConfig.
+	ConfigFieldName string `toml:"-"`
 }
 
 // GetGenericConfig decodes the AppConfig field into chainaccess.GenericConfig.

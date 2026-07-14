@@ -688,11 +688,11 @@ func NewEnvironment() (in *Cfg, err error) {
 	// in local mode it is a file written into the container's mounted config directory, which the
 	// waiting bootstrapper picks up and then starts the service.
 	if local {
-		if err := deliverLocalVerifierConfigs(in.Verifier, ownedJobSpecs, blockchainOutputs); err != nil {
+		if err := deliverLocalVerifierConfigs(in.Verifier, ownedJobSpecs); err != nil {
 			return nil, err
 		}
 	} else if jdInfra != nil && jdInfra.OffchainClient != nil {
-		if err := proposeJobsToStandaloneVerifiers(ctx, in.Verifier, ownedJobSpecs, blockchainOutputs, jdInfra.OffchainClient); err != nil {
+		if err := proposeJobsToStandaloneVerifiers(ctx, in.Verifier, ownedJobSpecs, jdInfra.OffchainClient); err != nil {
 			return nil, err
 		}
 	}

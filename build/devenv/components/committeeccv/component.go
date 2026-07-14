@@ -69,7 +69,7 @@ func (c *component) ValidateConfig(componentConfig any) error {
 //  4. Assigns TLS certificates to aggregators and enriches the topology with verifier keys.
 //  5. Generates aggregator committee configuration via changeset.
 //  6. Launches full aggregator containers.
-//  7. Generates verifier job specs and emits blockchain-info-enriched proposals for every verifier.
+//  7. Generates verifier job specs and emits proposals for every verifier.
 //
 // Outputs "aggregators", "verifiers", and "_shared_tls_certs" for Phase 4 (Indexer) consumption.
 func (c *component) RunPhase3(
@@ -330,7 +330,7 @@ func runPhase3Core(
 	}
 
 	// Step 8: Generate verifier job specs and emit job proposal effects.
-	effects, err := buildVerifierJobSpecEffects(localEnv, verifiers, inputs.topology, inputs.obs, sharedTLSCerts, inputs.blockchainOutputs, inputs.ds)
+	effects, err := buildVerifierJobSpecEffects(localEnv, verifiers, inputs.topology, inputs.obs, sharedTLSCerts, inputs.ds)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -557,16 +557,15 @@ func validateVerifierNodeIndices(committeeName string, verifiers []*committeever
 	return nil
 }
 
-// buildVerifierJobSpecEffects generates verifier job specs via changeset and emits
-// a blockchain-info-enriched JobProposalEffect for each verifier. It also sets GeneratedConfig,
-// GeneratedJobSpecs, VerifierID, and TLSCACertFile as side effects on the verifier inputs.
+// buildVerifierJobSpecEffects generates verifier job specs via changeset and emits a
+// JobProposalEffect for each verifier. It also sets GeneratedConfig, GeneratedJobSpecs,
+// VerifierID, and TLSCACertFile as side effects on the verifier inputs.
 func buildVerifierJobSpecEffects(
 	e *deployment.Environment,
 	verifiers []*committeeverifier.Input,
 	topology *ccvdeployment.EnvironmentTopology,
 	obs *observability.Observability,
 	sharedTLSCerts *services.TLSCertPaths,
-	blockchainOutputs []*ctfblockchain.Output,
 	ds datastore.MutableDataStore,
 ) ([]devenvruntime.Effect, error) {
 	if len(verifiers) == 0 {
@@ -673,26 +672,20 @@ func buildVerifierJobSpecEffects(
 				if nodeID == "" {
 					return nil, fmt.Errorf("committeeccv: verifier %s not registered with JD (missing JD node ID)", ver.NOPAlias)
 				}
-				reg, loaderErr := chainreg.GetRegistry().Get(ver.ChainFamily)
-				if loaderErr != nil {
-					return nil, fmt.Errorf("committeeccv: chain registration for verifier %s: %w", ver.NOPAlias, loaderErr)
-				}
-				if reg.ChainConfigLoader == nil {
-					return nil, fmt.Errorf("committeeccv: chain config loader for family %s not found", ver.ChainFamily)
-				}
-				blockchainInfos, loaderErr := reg.ChainConfigLoader(blockchainOutputs)
-				if loaderErr != nil {
-					return nil, fmt.Errorf("committeeccv: loading chain config for verifier %s: %w", ver.NOPAlias, loaderErr)
+				applicationReadyURL := ""
+				if ver.Out != nil {
+					applicationReadyURL = ver.Out.BootstrapDBURL
 				}
 				baseSpec := allJobSpecs[0]
-				jobSpec, specErr := committeeverifier.RebuildVerifierJobSpecWithBlockchainInfos(baseSpec, blockchainInfos)
+				jobSpec, specErr := committeeverifier.RebuildVerifierJobSpec(baseSpec)
 				if specErr != nil {
 					return nil, fmt.Errorf("committeeccv: building job spec for verifier %s: %w", ver.NOPAlias, specErr)
 				}
 				effects = append(effects, devenvruntime.JobProposalEffect{
-					NOPAlias: ver.NOPAlias,
-					NodeID:   nodeID,
-					JobSpec:  jobSpec,
+					NOPAlias:            ver.NOPAlias,
+					NodeID:              nodeID,
+					JobSpec:             jobSpec,
+					ApplicationReadyURL: applicationReadyURL,
 				})
 			}
 		}

@@ -17,6 +17,7 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
+	evmchainconfig "github.com/smartcontractkit/chainlink-ccv/build/devenv/evm/chainconfig"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/util"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm"
 	ccvblockchain "github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
@@ -114,7 +115,7 @@ func NewTokenVerifier(in *TokenVerifierInput, blockchainOutputs []*blockchain.Ou
 	}
 
 	// Generate blockchain infos for standalone mode
-	blockchainInfos, err := ConvertBlockchainOutputsToInfo(blockchainOutputs)
+	blockchainInfos, err := evmchainconfig.ConvertBlockchainOutputsToInfo(blockchainOutputs)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate blockchain infos from blockchain outputs: %w", err)
 	}
@@ -163,6 +164,17 @@ func NewTokenVerifier(in *TokenVerifierInput, blockchainOutputs []*blockchain.Ou
 	appConfigFilePath := filepath.Join(confDir, "token-verifier-app-config.toml")
 	if err := os.WriteFile(appConfigFilePath, appConfig, 0o644); err != nil {
 		return nil, fmt.Errorf("failed to write token verifier app config to file: %w", err)
+	}
+
+	// EVM connection details are operator-local configuration. Mount them separately from the token
+	// verifier app config, matching the standalone committee verifier and executor paths.
+	evmConfig, err := toml.Marshal(evm.NewConfigFromInfos(blockchainInfos))
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate EVM config for token verifier: %w", err)
+	}
+	evmConfigFilePath := filepath.Join(confDir, "token-verifier-evm-config.toml")
+	if err := os.WriteFile(evmConfigFilePath, evmConfig, 0o644); err != nil {
+		return nil, fmt.Errorf("failed to write EVM config for token verifier: %w", err)
 	}
 
 	// Generate and write the bootstrap (operator) config. The token verifier runs in local app-config
@@ -223,7 +235,7 @@ func NewTokenVerifier(in *TokenVerifierInput, blockchainOutputs []*blockchain.Ou
 				},
 			}
 		},
-		WaitingFor: wait.ForLog("Using real blockchain information from environment").
+		WaitingFor: wait.ForLog("Loaded blockchain metadata from app config").
 			WithStartupTimeout(120 * time.Second).
 			WithPollInterval(3 * time.Second),
 	}
@@ -233,6 +245,7 @@ func NewTokenVerifier(in *TokenVerifierInput, blockchainOutputs []*blockchain.Ou
 		testcontainers.BindMount(appConfigFilePath, "/etc/token-verifier/config.toml"),
 		testcontainers.BindMount(bootstrapConfigFilePath, bootstrap.DefaultConfigPath),
 		testcontainers.BindMount(verifierSecretsFilePath, vsecrets.DefaultTokenVerifierSecretsPath),
+		testcontainers.BindMount(evmConfigFilePath, evm.DefaultEVMConfigPath),
 	)
 
 	// Note: identical code to aggregator.go/executor.go -- will indexer be identical as well?
@@ -296,11 +309,14 @@ func (v *TokenVerifierInput) GenerateConfigWithBlockchainInfos(blockchainInfos c
 	}
 
 	anyInfo := make(ccvblockchain.Infos[any])
-	for k, info := range blockchainInfos {
-		anyInfo[k] = info
+	for selector, info := range blockchainInfos {
+		// Keep chain-enumeration metadata for compatibility with the token-verifier app-config
+		// decoder. Connection details live in the separately mounted EVM config.
+		info.Nodes = nil
+		anyInfo[selector] = info
 	}
 
-	// Use the generated config directly (fake URLs are already injected in environment.go)
+	// Use the generated application config directly, with connection-free chain metadata.
 	config := token.ConfigWithBlockchainInfos{
 		Config:          *v.GeneratedConfig,
 		BlockchainInfos: anyInfo,
