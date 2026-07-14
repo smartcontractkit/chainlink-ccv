@@ -97,7 +97,10 @@ type Accessor interface {
 	// injection themselves.
 }
 
-// AccessorFactory creates Accessors for specific chain selectors.
+// AccessorFactory creates Accessors for specific chain selectors. Implementations that allocate
+// resources while they are constructed may additionally implement io.Closer. The registry invokes
+// that optional method when it is closed; it is intentionally not required here so existing
+// chain-family implementations remain source compatible.
 type AccessorFactory interface {
 	// GetAccessor returns the Accessor for the given chain selector.
 	GetAccessor(ctx context.Context, chainSelector protocol.ChainSelector) (Accessor, error)

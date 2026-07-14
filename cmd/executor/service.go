@@ -63,7 +63,7 @@ func (f *Factory) Stop(_ context.Context) error {
 }
 
 func (f *Factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootstrap.ServiceDeps) error {
-	var rawConfig executorsvc.ConfigWithBlockchainInfo[any]
+	var rawConfig executorsvc.Configuration
 	if err := spec.GetAppConfig(&rawConfig); err != nil {
 		return fmt.Errorf("failed to decode executor config: %w", err)
 	}

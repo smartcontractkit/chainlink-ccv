@@ -3,6 +3,7 @@ package chainaccess_test
 import (
 	"context"
 	"errors"
+	"io"
 	"sync/atomic"
 	"testing"
 
@@ -22,6 +23,8 @@ import (
 var (
 	constructorShouldFail atomic.Bool
 	accessorShouldFail    atomic.Bool
+	lastClosingFactory    atomic.Pointer[testClosingFactory]
+	lastFailedFactory     atomic.Pointer[testClosingFactory]
 )
 
 type testEVMFactory struct{}
@@ -31,6 +34,19 @@ func (f *testEVMFactory) GetAccessor(_ context.Context, _ protocol.ChainSelector
 		return nil, errors.New("test accessor error")
 	}
 	return &testAccessor{}, nil
+}
+
+type testClosingFactory struct {
+	closeCalls atomic.Int32
+}
+
+func (*testClosingFactory) GetAccessor(context.Context, protocol.ChainSelector) (chainaccess.Accessor, error) {
+	return &testAccessor{}, nil
+}
+
+func (f *testClosingFactory) Close() error {
+	f.closeCalls.Add(1)
+	return nil
 }
 
 type testAccessor struct{}
@@ -64,9 +80,17 @@ func init() {
 	// NewRegistry constructor-error code path.
 	chainaccess.Register("test-constructor-error", func(_ logger.Logger, _ chainaccess.GenericConfig) (chainaccess.AccessorFactory, error) {
 		if constructorShouldFail.Load() {
-			return nil, errors.New("test constructor error")
+			factory := &testClosingFactory{}
+			lastFailedFactory.Store(factory)
+			return factory, errors.New("test constructor error")
 		}
 		return &testEVMFactory{}, nil
+	})
+
+	chainaccess.Register("test-close", func(_ logger.Logger, _ chainaccess.GenericConfig) (chainaccess.AccessorFactory, error) {
+		factory := &testClosingFactory{}
+		lastClosingFactory.Store(factory)
+		return factory, nil
 	})
 }
 
@@ -111,6 +135,17 @@ func TestNewRegistry_InvalidTOML(t *testing.T) {
 	assert.Contains(t, err.Error(), "failed to unmarshal generic config")
 }
 
+func TestNewRegistry_CloseFactoriesIsIdempotent(t *testing.T) {
+	reg, err := chainaccess.NewRegistry(logger.Test(t), "")
+	require.NoError(t, err)
+
+	closer, ok := reg.(io.Closer)
+	require.True(t, ok)
+	require.NoError(t, closer.Close())
+	require.NoError(t, closer.Close())
+	require.Equal(t, int32(1), lastClosingFactory.Load().closeCalls.Load())
+}
+
 func TestNewRegistry_ConstructorError(t *testing.T) {
 	constructorShouldFail.Store(true)
 	defer constructorShouldFail.Store(false)
@@ -119,6 +154,7 @@ func TestNewRegistry_ConstructorError(t *testing.T) {
 	_, err := chainaccess.NewRegistry(lggr, "")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to construct accessor factory")
+	require.Equal(t, int32(1), lastFailedFactory.Load().closeCalls.Load())
 }
 
 func TestGetAccessor_UnknownSelector(t *testing.T) {

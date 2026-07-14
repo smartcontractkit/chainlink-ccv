@@ -39,6 +39,10 @@ sequenceDiagram
     JD->>M: ProposeJob(id, version, spec)
     M->>S: SaveJob(pending)
     opt replacement
+        opt runner implements StagedJobRunner
+            M->>R: PrepareJob(spec)
+            Note over R: validate + warm resources; old job remains active
+        end
         M->>R: StopJob()
     end
     M->>R: StartJob(spec)
@@ -58,6 +62,7 @@ sequenceDiagram
 
     JD->>M: ProposeJob(newId, newVersion, newSpec)
     M->>S: SaveJob(pending)       note: approved row preserved
+    M->>R: PrepareJob(newSpec)    note: optional; old job remains active
     M->>R: StopJob()
     M->>R: StartJob(newSpec)
     R-->>M: error
@@ -123,10 +128,25 @@ Your service must implement `JobRunner`:
 
 The manager calls `StopJob` before starting a replacement job and when handling a delete or shutdown.
 
+Runners may additionally implement `StagedJobRunner`:
+
+- **PrepareJob(ctx, spec)** — Validate the replacement and warm resources that can safely coexist
+  with the active job. It must not begin externally visible job processing or change readiness.
+- **DiscardPreparedJob(ctx)** — Release a prepared candidate without affecting the active job.
+  It must be idempotent.
+
+For staged runners, the replacement order is `PrepareJob(new)`, `StopJob(old)`, then
+`StartJob(new)`. `StartJob` activates the prepared candidate. If preparation fails, the old job
+continues uninterrupted and the pending proposal is rolled back. Plain `JobRunner`
+implementations retain the stop-then-start behavior.
+
 ## Single job, replacement, and delete
 
-- The manager tracks **at most one running job**. A new proposal is a **replacement**: it stops the current job (if any), then starts the new one.
+- The manager tracks **at most one running job**. A staged replacement may warm inactive resources
+  before cutover, but it stops the current job before activating the new one.
 - **Crash safety (two-phase write):** the proposal is persisted as `pending` before `StartJob` is called and promoted to `approved` only after `StartJob` succeeds. A crash between the two leaves a `pending` record that drives a retry on the next restart + JD reconnect.
-- **Replacement fallback:** if `StartJob` fails for a replacement, the old job is automatically restarted and the `pending` store record is removed, keeping the verifier running on the previous spec. If the old job restart also fails, the manager transitions to `WaitingForJob`.
+- **Replacement fallback:** if preparation fails, the old job is never stopped. If activation
+  fails after cutover, the old job is automatically restarted. In both cases the `pending` store
+  record is removed. If the old job restart also fails, the manager transitions to `WaitingForJob`.
 - **Delete:** only the request whose id matches the current job's proposal id is applied; others are ignored. After a matching delete the manager stops the job, clears the store, and goes to `WaitingForJob`.
 - **Revoke** requests are received but not acted on (we auto-approve proposals, so revoke is effectively a no-op).

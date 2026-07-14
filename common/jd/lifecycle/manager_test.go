@@ -92,6 +92,130 @@ func TestManager_HandleProposalGivesJobStartAFreshTimeout(t *testing.T) {
 	require.Equal(t, StateRunning, m.GetState())
 }
 
+type recordingStagedRunner struct {
+	mu sync.Mutex
+
+	calls      []string
+	prepareErr error
+	stopErr    error
+	startErr   error
+	discardErr error
+}
+
+var _ StagedJobRunner = (*recordingStagedRunner)(nil)
+
+func (r *recordingStagedRunner) record(call string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.calls = append(r.calls, call)
+}
+
+func (r *recordingStagedRunner) StartJob(_ context.Context, spec string) error {
+	r.record("start:" + spec)
+	return r.startErr
+}
+
+func (r *recordingStagedRunner) StopJob(context.Context) error {
+	r.record("stop")
+	return r.stopErr
+}
+
+func (r *recordingStagedRunner) PrepareJob(_ context.Context, spec string) error {
+	r.record("prepare:" + spec)
+	return r.prepareErr
+}
+
+func (r *recordingStagedRunner) DiscardPreparedJob(context.Context) error {
+	r.record("discard")
+	return r.discardErr
+}
+
+func (r *recordingStagedRunner) snapshot() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]string(nil), r.calls...)
+}
+
+func TestManager_HandleProposal_StagedReplacementPreparesBeforeStop(t *testing.T) {
+	t.Parallel()
+
+	jobStore := mocks.NewMockStoreInterface(t)
+	jobStore.EXPECT().SavePendingJob(mock.Anything, "new", int64(2), "new-spec").Return(nil)
+	jobStore.EXPECT().AcceptPendingJob(mock.Anything).Return(true, nil)
+	jdClient := mocks.NewMockClientInterface(t)
+	jdClient.EXPECT().ApproveJob(mock.Anything, "new", int64(2)).Return(nil)
+	runner := &recordingStagedRunner{}
+
+	m, err := NewManager(Config{
+		JDClient: jdClient,
+		JobStore: jobStore,
+		Runner:   runner,
+		Logger:   logger.Test(t),
+	})
+	require.NoError(t, err)
+	m.state = StateRunning
+	m.currentJob = &store.Job{ProposalID: "old", Version: 1, Spec: "old-spec", Status: store.JobStatusApproved}
+
+	require.NoError(t, m.handleProposal(&pb.ProposeJobRequest{Id: "new", Version: 2, Spec: "new-spec"}))
+	require.Equal(t, []string{"prepare:new-spec", "stop", "start:new-spec"}, runner.snapshot())
+	require.Equal(t, StateRunning, m.GetState())
+	require.Equal(t, "new", m.currentJob.ProposalID)
+}
+
+func TestManager_HandleProposal_PrepareFailureLeavesOldJobRunning(t *testing.T) {
+	t.Parallel()
+
+	jobStore := mocks.NewMockStoreInterface(t)
+	jobStore.EXPECT().SavePendingJob(mock.Anything, "new", int64(2), "new-spec").Return(nil)
+	jobStore.EXPECT().DeletePendingJob(mock.Anything).Return(nil)
+	runner := &recordingStagedRunner{prepareErr: errors.New("prepare failed")}
+	rec := &recordingMetrics{}
+
+	m, err := NewManager(Config{
+		JDClient: mocks.NewMockClientInterface(t),
+		JobStore: jobStore,
+		Runner:   runner,
+		Logger:   logger.Test(t),
+		Metrics:  rec,
+	})
+	require.NoError(t, err)
+	oldJob := &store.Job{ProposalID: "old", Version: 1, Spec: "old-spec", Status: store.JobStatusApproved}
+	m.state = StateRunning
+	m.currentJob = oldJob
+
+	err = m.handleProposal(&pb.ProposeJobRequest{Id: "new", Version: 2, Spec: "new-spec"})
+	require.ErrorContains(t, err, "failed to prepare replacement job")
+	require.Equal(t, []string{"prepare:new-spec", "discard"}, runner.snapshot())
+	require.Equal(t, []string{stepPrepareReplacement}, rec.recordedSteps())
+	require.Equal(t, StateRunning, m.GetState())
+	require.Same(t, oldJob, m.currentJob)
+}
+
+func TestManager_HandleProposal_StopFailureDiscardsPreparedJob(t *testing.T) {
+	t.Parallel()
+
+	jobStore := mocks.NewMockStoreInterface(t)
+	jobStore.EXPECT().SavePendingJob(mock.Anything, "new", int64(2), "new-spec").Return(nil)
+	jobStore.EXPECT().DeletePendingJob(mock.Anything).Return(nil)
+	runner := &recordingStagedRunner{stopErr: errors.New("stop failed")}
+
+	m, err := NewManager(Config{
+		JDClient: mocks.NewMockClientInterface(t),
+		JobStore: jobStore,
+		Runner:   runner,
+		Logger:   logger.Test(t),
+	})
+	require.NoError(t, err)
+	oldJob := &store.Job{ProposalID: "old", Version: 1, Spec: "old-spec", Status: store.JobStatusApproved}
+	m.state = StateRunning
+	m.currentJob = oldJob
+
+	err = m.handleProposal(&pb.ProposeJobRequest{Id: "new", Version: 2, Spec: "new-spec"})
+	require.ErrorContains(t, err, "failed to stop current job")
+	require.Equal(t, []string{"prepare:new-spec", "stop", "discard"}, runner.snapshot())
+	require.Same(t, oldJob, m.currentJob)
+}
+
 func TestNewManager_ReturnsError_WhenRequiredFieldIsNil(t *testing.T) {
 	t.Parallel()
 

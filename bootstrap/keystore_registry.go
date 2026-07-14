@@ -2,6 +2,7 @@ package bootstrap
 
 import (
 	"context"
+	"io"
 
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -41,4 +42,12 @@ func (kr *KeystoreRegistry) GetAccessor(ctx context.Context, chainSelector proto
 		kr.lggr.Warnw("Accessor does not implement KeystoreSetter; keystore will not be injected", "chainSelector", chainSelector)
 	}
 	return accessor, nil
+}
+
+// Close forwards optional terminal registry cleanup through this decorator.
+func (kr *KeystoreRegistry) Close() error {
+	if closer, ok := kr.inner.(io.Closer); ok {
+		return closer.Close()
+	}
+	return nil
 }

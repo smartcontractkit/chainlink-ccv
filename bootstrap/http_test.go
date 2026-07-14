@@ -76,3 +76,57 @@ func TestRunnerApplicationReadinessStaysFalseWhenJobStartFails(t *testing.T) {
 	require.ErrorContains(t, err, "start failed")
 	require.False(t, ready.Load())
 }
+
+func TestRunnerPreparedReplacementKeepsOldJobReadyUntilCutover(t *testing.T) {
+	var ready atomic.Bool
+	var starts []string
+	runner := &runner{
+		lggr: logger.Test(t),
+		fac: &spyServiceFactory{startFn: func(_ context.Context, spec any, _ ServiceDeps) error {
+			starts = append(starts, spec.(JobSpec).Name)
+			return nil
+		}},
+		applicationReady: &ready,
+	}
+
+	oldSpec := "name = \"old\"\nappConfig = \"\""
+	newSpec := "name = \"new\"\nappConfig = \"\""
+	require.NoError(t, runner.StartJob(t.Context(), oldSpec))
+	require.True(t, ready.Load())
+	require.Equal(t, []string{"old"}, starts)
+
+	require.NoError(t, runner.PrepareJob(t.Context(), newSpec))
+	require.True(t, ready.Load(), "preparation must not make the active job unready")
+	require.Equal(t, []string{"old"}, starts, "preparation must not activate the candidate")
+
+	require.NoError(t, runner.StopJob(t.Context()))
+	require.False(t, ready.Load())
+	require.NoError(t, runner.StartJob(t.Context(), newSpec))
+	require.True(t, ready.Load())
+	require.Equal(t, []string{"old", "new"}, starts)
+	require.NoError(t, runner.StopJob(t.Context()))
+}
+
+func TestRunnerPrepareFailureDoesNotChangeActiveJobReadiness(t *testing.T) {
+	var ready atomic.Bool
+	ready.Store(true)
+	runner := &runner{
+		lggr:             logger.Test(t),
+		fac:              &spyServiceFactory{},
+		applicationReady: &ready,
+	}
+
+	err := runner.PrepareJob(t.Context(), "not valid = [")
+	require.Error(t, err)
+	require.True(t, ready.Load())
+	require.Nil(t, runner.prepared)
+}
+
+func TestRunnerDiscardPreparedJobIsIdempotent(t *testing.T) {
+	runner := &runner{lggr: logger.Test(t), fac: &spyServiceFactory{}}
+	require.NoError(t, runner.PrepareJob(t.Context(), "name = \"new\"\nappConfig = \"\""))
+	require.NotNil(t, runner.prepared)
+	require.NoError(t, runner.DiscardPreparedJob(t.Context()))
+	require.Nil(t, runner.prepared)
+	require.NoError(t, runner.DiscardPreparedJob(t.Context()))
+}

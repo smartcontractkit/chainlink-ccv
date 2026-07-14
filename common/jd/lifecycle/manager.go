@@ -57,6 +57,20 @@ type JobRunner interface {
 	StopJob(ctx context.Context) error
 }
 
+// StagedJobRunner is an optional extension implemented by runners that can prepare a
+// replacement before the current job is stopped. Preparation must not start externally
+// visible job processing; it should only validate the spec and warm resources that can
+// safely coexist with the active job. StartJob activates the prepared job after StopJob.
+//
+// PrepareJob must leave the active job untouched. DiscardPreparedJob must be idempotent.
+// Runners that implement only JobRunner retain the stop-then-start replacement flow.
+type StagedJobRunner interface {
+	JobRunner
+
+	PrepareJob(ctx context.Context, spec string) error
+	DiscardPreparedJob(ctx context.Context) error
+}
+
 // Config holds the configuration for the lifecycle manager.
 type Config struct {
 	// JDClient is the client for connecting to the Job Distributor.
@@ -274,9 +288,13 @@ func (m *Manager) eventLoop() {
 }
 
 // handleProposal processes a new job proposal from JD.
-// Order: persist pending → stop old job → start new job → mark approved → approve with JD.
+// Order: persist pending → prepare replacement → stop old job → start new job →
+// mark approved → approve with JD. Preparation is optional: runners that implement only
+// JobRunner keep the stop-then-start flow.
 //
 // On StartJob failure with no prior job: the pending store record survives for restart recovery.
+// On PrepareJob failure during a replacement: the old job remains running and the pending record
+// is removed.
 // On StartJob failure during a replacement: the pending record is deleted and the old job is
 // restarted from the in-memory snapshot so the job keeps running.
 func (m *Manager) handleProposal(proposal *pb.ProposeJobRequest) (retErr error) {
@@ -302,32 +320,49 @@ func (m *Manager) handleProposal(proposal *pb.ProposeJobRequest) (retErr error) 
 		m.metrics.IncProposal(metricsCtx, result, wasRunning)
 	}()
 
-	if err := func() error {
-		controlCtx, controlCancel := context.WithTimeout(context.Background(), m.controlPlaneTimeout)
-		defer controlCancel()
+	persistCtx, persistCancel := context.WithTimeout(context.Background(), m.controlPlaneTimeout)
+	// Persist the proposal as pending BEFORE attempting any replacement work. This ensures
+	// that a crash before AcceptPendingJob leaves a recoverable record. SavePendingJob only
+	// removes the previous pending row; any approved (old) row is preserved.
+	if err := m.jobStore.SavePendingJob(persistCtx, proposal.Id, proposal.Version, proposal.Spec); err != nil {
+		// The job will need to be re-proposed after fixing the error (whatever it may be).
+		m.lggr.Warnw("Failed to persist pending proposal", "error", err)
+		m.metrics.IncStepError(metricsCtx, stepSavePending, wasRunning)
+	} else {
+		m.lggr.Infow("Proposal persisted as pending", "proposalID", proposal.Id)
+	}
+	persistCancel()
 
-		// Persist the proposal as pending BEFORE attempting StartJob. This ensures
-		// that a crash between here and MarkJobApproved leaves a recoverable record.
-		// SavePendingJob only removes the previous pending row; any approved (old) row is preserved.
-		if err := m.jobStore.SavePendingJob(controlCtx, proposal.Id, proposal.Version, proposal.Spec); err != nil {
-			// The job will need to be re-proposed after fixing the error (whatever it may be).
-			m.lggr.Warnw("Failed to persist pending proposal", "error", err)
-			m.metrics.IncStepError(metricsCtx, stepSavePending, wasRunning)
-		} else {
-			m.lggr.Infow("Proposal persisted as pending", "proposalID", proposal.Id)
+	if wasRunning {
+		// A staged runner can perform expensive validation and resource initialization while
+		// the old job is still serving. The candidate is activated by StartJob only after the
+		// old job has stopped, avoiding active-active processing.
+		prepared, err := m.prepareReplacement(proposal.Spec)
+		if err != nil {
+			m.metrics.IncStepError(metricsCtx, stepPrepareReplacement, true)
+			rollbackCtx, rollbackCancel := context.WithTimeout(context.Background(), m.controlPlaneTimeout)
+			defer rollbackCancel()
+			return m.abortReplacementBeforeCutover(
+				rollbackCtx,
+				prepared,
+				fmt.Errorf("failed to prepare replacement job: %w", err),
+			)
 		}
 
-		// If we have a running job, stop it first.
-		if wasRunning {
-			m.lggr.Infow("Stopping current job for replacement")
-			if err := m.runner.StopJob(controlCtx); err != nil {
-				m.metrics.IncStepError(metricsCtx, stepStopJob, wasRunning)
-				return fmt.Errorf("failed to stop current job: %w", err)
-			}
+		m.lggr.Infow("Stopping current job for replacement", "prepared", prepared)
+		stopCtx, stopCancel := context.WithTimeout(context.Background(), m.controlPlaneTimeout)
+		err = m.runner.StopJob(stopCtx)
+		stopCancel()
+		if err != nil {
+			m.metrics.IncStepError(metricsCtx, stepStopJob, true)
+			rollbackCtx, rollbackCancel := context.WithTimeout(context.Background(), m.controlPlaneTimeout)
+			defer rollbackCancel()
+			return m.abortReplacementBeforeCutover(
+				rollbackCtx,
+				prepared,
+				fmt.Errorf("failed to stop current job: %w", err),
+			)
 		}
-		return nil
-	}(); err != nil {
-		return err
 	}
 
 	// Starting a job can include database setup and sequential RPC client initialization. Give it a
@@ -404,6 +439,47 @@ func (m *Manager) startJob(spec string) error {
 	ctx, cancel := m.shutdownCh.CtxWithTimeout(m.jobStartTimeout)
 	defer cancel()
 	return m.runner.StartJob(ctx, spec)
+}
+
+// prepareReplacement asks an optional StagedJobRunner to warm a replacement while the current
+// job is still active. The returned bool reports whether staged preparation was attempted.
+func (m *Manager) prepareReplacement(spec string) (bool, error) {
+	runner, ok := m.runner.(StagedJobRunner)
+	if !ok {
+		return false, nil
+	}
+	ctx, cancel := m.shutdownCh.CtxWithTimeout(m.jobStartTimeout)
+	defer cancel()
+	return true, runner.PrepareJob(ctx, spec)
+}
+
+// abortReplacementBeforeCutover rolls back a replacement that failed before the new job was
+// activated. The old job has not been replaced, so no restart is needed.
+func (m *Manager) abortReplacementBeforeCutover(ctx context.Context, prepared bool, cause error) error {
+	metricsCtx := context.Background()
+	var errs error
+
+	if prepared {
+		if err := m.discardPreparedJob(ctx); err != nil {
+			m.lggr.Warnw("Failed to discard prepared replacement", "error", err)
+			m.metrics.IncStepError(metricsCtx, stepDiscardPrepared, true)
+			errs = errors.Join(errs, fmt.Errorf("discard prepared replacement: %w", err))
+		}
+	}
+	if err := m.jobStore.DeletePendingJob(ctx); err != nil {
+		m.lggr.Warnw("Failed to remove pending record during pre-cutover rollback", "error", err)
+		m.metrics.IncStepError(metricsCtx, stepRollbackDeletePending, true)
+		errs = errors.Join(errs, fmt.Errorf("delete pending replacement: %w", err))
+	}
+	return errors.Join(cause, errs)
+}
+
+func (m *Manager) discardPreparedJob(ctx context.Context) error {
+	runner, ok := m.runner.(StagedJobRunner)
+	if !ok {
+		return nil
+	}
+	return runner.DiscardPreparedJob(ctx)
 }
 
 // rollbackReplacement is called when StartJob fails during a proposal replacement.
@@ -566,6 +642,11 @@ func (m *Manager) shutdown() error {
 			m.lggr.Warnw("Error stopping job during shutdown", "error", err)
 			errs = errors.Join(errs, err)
 		}
+	}
+
+	if err := m.discardPreparedJob(ctx); err != nil {
+		m.lggr.Warnw("Error discarding prepared job during shutdown", "error", err)
+		errs = errors.Join(errs, err)
 	}
 
 	// Close JD connection

@@ -22,9 +22,14 @@ const (
 	IndexerQueryLimitMax             = 10000
 )
 
+// ConfigWithBlockchainInfo is retained for source compatibility with consumers that still
+// decode legacy job specs containing blockchain_infos.
+//
+// Deprecated: use Configuration. Chain connection and tuning configuration now comes from
+// chain-family local config in standalone mode or node config in CL mode.
 type ConfigWithBlockchainInfo[T any] struct {
 	Configuration
-	// Deprecated: BlockchainInfos is deprecated and will be removed
+	// Deprecated: chain connection and tuning configuration no longer belongs in app config.
 	BlockchainInfos chainaccess.Infos[T] `toml:"blockchain_infos"`
 }
 
@@ -74,7 +79,7 @@ type Configuration struct {
 }
 
 // ChainConfiguration is all the configuration an executor needs to know about a specific chain.
-// This is separate from chain-specific RPC information in BlockchainInfos.
+// This is separate from chain-specific RPC information in chain-family local or node config.
 type ChainConfiguration struct {
 	// DestinationChainConfig holds the off-ramp and RMN addresses. It is embedded so that the
 	// TOML field paths (off_ramp_address, rmn_address) are identical to what the chainaccess

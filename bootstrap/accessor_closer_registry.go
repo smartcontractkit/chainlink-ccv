@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"sync"
 
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
@@ -11,10 +12,10 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-// AccessorCloserRegistry wraps a chainaccess.Registry, tracks every Accessor handed
-// out, and closes them all via CloseAll at shutdown.
+// AccessorCloserRegistry wraps a chainaccess.Registry and tracks every Accessor handed out.
+// Close releases the accessors and terminal resources owned by the wrapped registry.
 //
-// Callers must invoke CloseAll after factory.Stop (or its equivalent) returns,
+// Callers must invoke Close after factory.Stop (or its equivalent) returns,
 // so the factory's coordinator drains its readers first.
 type AccessorCloserRegistry struct {
 	lggr  logger.Logger
@@ -22,6 +23,9 @@ type AccessorCloserRegistry struct {
 
 	mu        sync.Mutex
 	accessors []chainaccess.Accessor
+	closed    bool
+	closeOnce sync.Once
+	closeErr  error
 }
 
 // NewAccessorCloserRegistry wraps inner so every successful GetAccessor result is tracked.
@@ -33,6 +37,9 @@ func NewAccessorCloserRegistry(lggr logger.Logger, inner chainaccess.Registry) *
 func (t *AccessorCloserRegistry) GetAccessor(ctx context.Context, chainSelector protocol.ChainSelector) (chainaccess.Accessor, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	if t.closed {
+		return nil, errors.New("accessor registry is closed")
+	}
 	a, err := t.inner.GetAccessor(ctx, chainSelector)
 	if err != nil {
 		return nil, err
@@ -46,7 +53,29 @@ func (t *AccessorCloserRegistry) GetAccessor(ctx context.Context, chainSelector 
 func (t *AccessorCloserRegistry) CloseAll() error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	return t.closeAccessors()
+}
 
+// Close releases tracked accessors and then forwards terminal cleanup to the wrapped registry.
+// It is idempotent and prevents new accessors from being obtained.
+func (t *AccessorCloserRegistry) Close() error {
+	t.closeOnce.Do(func() {
+		t.mu.Lock()
+		t.closed = true
+		accessorErr := t.closeAccessors()
+		t.mu.Unlock()
+
+		var registryErr error
+		if closer, ok := t.inner.(io.Closer); ok {
+			registryErr = closer.Close()
+		}
+		t.closeErr = errors.Join(accessorErr, registryErr)
+	})
+	return t.closeErr
+}
+
+// closeAccessors closes the current tracked set. t.mu must be held by the caller.
+func (t *AccessorCloserRegistry) closeAccessors() error {
 	accessors := t.accessors
 	t.accessors = nil
 

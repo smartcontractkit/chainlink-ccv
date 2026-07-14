@@ -16,6 +16,19 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
+type closeTrackingRegistry struct {
+	closeCalls atomic.Int32
+}
+
+func (*closeTrackingRegistry) GetAccessor(context.Context, protocol.ChainSelector) (chainaccess.Accessor, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (r *closeTrackingRegistry) Close() error {
+	r.closeCalls.Add(1)
+	return nil
+}
+
 func TestAccessorCloserRegistry_CloseAll(t *testing.T) {
 	t.Parallel()
 
@@ -104,4 +117,18 @@ func TestAccessorCloserRegistry_Concurrent_GetAccessor(t *testing.T) {
 	wg.Wait()
 
 	require.NoError(t, tr.CloseAll())
+}
+
+func TestAccessorCloserRegistry_CloseForwardsTerminalCleanup(t *testing.T) {
+	t.Parallel()
+
+	inner := &closeTrackingRegistry{}
+	registry := NewAccessorCloserRegistry(logger.Test(t), inner)
+
+	require.NoError(t, registry.Close())
+	require.NoError(t, registry.Close())
+	require.Equal(t, int32(1), inner.closeCalls.Load())
+
+	_, err := registry.GetAccessor(t.Context(), protocol.ChainSelector(1))
+	require.ErrorContains(t, err, "closed")
 }

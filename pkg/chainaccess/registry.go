@@ -2,7 +2,9 @@ package chainaccess
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"maps"
 	"reflect"
 	"sync"
@@ -49,30 +51,16 @@ type Registry interface {
 // registry is the concrete Registry backed by registered AccessorFactories.
 type registry struct {
 	factories map[ChainFamily]AccessorFactory
+	closeOnce sync.Once
+	closeErr  error
 }
 
-// GenericConfig is an overlay of the app configuration. All configuration needed to construct the accessor
-// should be included here. Note that the Committee Configs are present, they must map to the same location
-// that they appear when parsing just the committee config file:
+// GenericConfig is an overlay of application-owned configuration shared with accessor
+// constructors. Fields must map to the same TOML locations used by each application's typed
+// config. Chain connection and tuning details are not part of this overlay.
 //
 // Deprecated: blockchain_infos in JD config is deprecated. blockchain info should come from chain family
 // local config for standalone mode or node config for CL mode. Use getAppConfig for accessing verifier/executor config.
-//
-//	type ConfigWithBlockchainInfos struct {
-//	    Config
-//	    BlockchainInfos map[string]any `toml:"blockchain_infos"`
-//	}
-//
-//	type Config struct {
-//	    ...
-//	    // OnRampAddresses is a map the addresses of the on ramps for each chain selector.
-//	    OnRampAddresses map[string]string `toml:"on_ramp_addresses"`
-//	    // RMNRemoteAddresses is a map of RMN Remote contract addresses for each chain selector.
-//	    // Required for curse detection.
-//	    RMNRemoteAddresses map[string]string `toml:"rmn_remote_addresses"`
-//	    // DisableFinalityCheckers is a list of chain selectors for which the finality violation checker should be disabled.
-//	    // The chain selectors are formatted as strings of the chain selector.
-//	}
 //
 // TODO: Use protocol.Selector instead of string for all the map[string].
 type GenericConfig struct {
@@ -213,12 +201,41 @@ func NewRegistry(lggr logger.Logger, config string) (Registry, error) {
 		lggr.Infow("Constructing accessor factory for chain family", "family", family)
 		accessor, err := constructor(lggr, genericConfig)
 		if err != nil {
-			return nil, fmt.Errorf("failed to construct accessor factory for family %s: %w", family, err)
+			// A constructor may return a partially initialized factory alongside an error.
+			// Include it in cleanup so every resource allocated before this failure is released.
+			if accessor != nil {
+				reg.factories[family] = accessor
+			}
+			constructionErr := fmt.Errorf("failed to construct accessor factory for family %s: %w", family, err)
+			if closeErr := reg.Close(); closeErr != nil {
+				return nil, errors.Join(constructionErr, fmt.Errorf("close partial registry: %w", closeErr))
+			}
+			return nil, constructionErr
 		}
 		reg.factories[family] = accessor
 	}
 
 	return &reg, nil
+}
+
+// Close releases resources owned by accessor factories that opt into terminal cleanup by
+// implementing io.Closer. Close is idempotent. It is deliberately an optional extension to
+// Registry so downstream registry implementations do not need to change.
+func (r *registry) Close() error {
+	r.closeOnce.Do(func() {
+		var errs []error
+		for family, factory := range r.factories {
+			closer, ok := factory.(io.Closer)
+			if !ok {
+				continue
+			}
+			if err := closer.Close(); err != nil {
+				errs = append(errs, fmt.Errorf("close accessor factory for family %s: %w", family, err))
+			}
+		}
+		r.closeErr = errors.Join(errs...)
+	})
+	return r.closeErr
 }
 
 // GetAccessor creates an Accessor for the given chain selector using the registered AccessorFactory.

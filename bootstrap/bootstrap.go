@@ -97,45 +97,139 @@ type runner struct {
 	deps             ServiceDeps
 	accCloser        *AccessorCloserRegistry
 	applicationReady *atomic.Bool
+
+	mu       sync.Mutex
+	prepared *preparedJob
 }
 
 var _ lifecycle.JobRunner = (*runner)(nil)
+var _ lifecycle.StagedJobRunner = (*runner)(nil)
 
-// StartJob implements [lifecycle.JobRunner].
-// On Start failure, the deferred CloseAll is the only chance to release accessors.
-func (r *runner) StartJob(ctx context.Context, config string) (startErr error) {
-	if r.applicationReady != nil {
-		r.applicationReady.Store(false)
+type preparedJob struct {
+	rawSpec   string
+	spec      JobSpec
+	deps      ServiceDeps
+	accCloser *AccessorCloserRegistry
+}
+
+// buildPreparedJob parses the job spec and initializes the chain registry. Registry construction
+// includes family-local config loading and RPC client setup, so doing it before cutover removes the
+// most expensive safe-to-overlap work from the replacement outage window.
+func (r *runner) buildPreparedJob(ctx context.Context, config string) (*preparedJob, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
 	}
-	r.lggr.Infow("starting job")
 
 	var spec JobSpec
 	if _, err := toml.Decode(config, &spec); err != nil {
-		return fmt.Errorf("bootstrap: failed to parse config: %w", err)
+		return nil, fmt.Errorf("bootstrap: failed to parse config: %w", err)
 	}
 
-	// Initialize registry, wrapping it so the keystore is injected into any
-	// Accessor that implements KeystoreSetter.
-	// Registry chain: NewRegistry > KeystoreRegistry (keystore injection) > AccessorCloserRegistry (accessor cleanup tracking).
 	reg, err := chainaccess.NewRegistry(r.lggr, spec.AppConfig)
 	if err != nil {
-		return fmt.Errorf("failed to create registry: %w", err)
+		return nil, fmt.Errorf("failed to create registry: %w", err)
 	}
-	r.accCloser = NewAccessorCloserRegistry(r.lggr, NewKeystoreRegistry(r.lggr, reg, r.deps.Keystore))
-	r.deps.Registry = r.accCloser
+	accCloser := NewAccessorCloserRegistry(r.lggr, NewKeystoreRegistry(r.lggr, reg, r.deps.Keystore))
+	deps := r.deps
+	deps.Registry = accCloser
+
+	if err := ctx.Err(); err != nil {
+		if closeErr := accCloser.Close(); closeErr != nil {
+			return nil, errors.Join(err, fmt.Errorf("close prepared accessors: %w", closeErr))
+		}
+		return nil, err
+	}
+
+	return &preparedJob{rawSpec: config, spec: spec, deps: deps, accCloser: accCloser}, nil
+}
+
+// PrepareJob implements [lifecycle.StagedJobRunner]. It warms a replacement without touching
+// the active factory or readiness state. StartJob consumes the prepared candidate after cutover.
+func (r *runner) PrepareJob(ctx context.Context, config string) error {
+	candidate, err := r.buildPreparedJob(ctx, config)
+	if err != nil {
+		return err
+	}
+
+	r.mu.Lock()
+	previous := r.prepared
+	r.prepared = candidate
+	r.mu.Unlock()
+
+	if previous != nil {
+		if err := previous.accCloser.Close(); err != nil {
+			return fmt.Errorf("close superseded prepared accessors: %w", err)
+		}
+	}
+	return nil
+}
+
+// DiscardPreparedJob implements [lifecycle.StagedJobRunner].
+func (r *runner) DiscardPreparedJob(_ context.Context) error {
+	r.mu.Lock()
+	prepared := r.prepared
+	r.prepared = nil
+	r.mu.Unlock()
+	if prepared == nil {
+		return nil
+	}
+	return prepared.accCloser.Close()
+}
+
+// StartJob implements [lifecycle.JobRunner].
+// On Start failure, the deferred Close is the only chance to release prepared resources.
+func (r *runner) StartJob(ctx context.Context, config string) (startErr error) {
+	r.lggr.Infow("starting job")
+
+	r.mu.Lock()
+	if r.accCloser != nil {
+		r.mu.Unlock()
+		return errors.New("cannot start job while another job is active")
+	}
+	prepared := r.prepared
+	var stale *preparedJob
+	if prepared != nil && prepared.rawSpec == config {
+		r.prepared = nil
+	} else if prepared != nil {
+		stale = prepared
+		r.prepared = nil
+		prepared = nil
+	}
+	r.mu.Unlock()
+
+	if stale != nil {
+		if err := stale.accCloser.Close(); err != nil {
+			return fmt.Errorf("close stale prepared job: %w", err)
+		}
+	}
+
+	if prepared == nil {
+		var err error
+		prepared, err = r.buildPreparedJob(ctx, config)
+		if err != nil {
+			return err
+		}
+	}
+
+	if r.applicationReady != nil {
+		r.applicationReady.Store(false)
+	}
 
 	// safety net
 	defer func() {
 		if startErr != nil {
-			if cErr := r.accCloser.CloseAll(); cErr != nil {
+			if cErr := prepared.accCloser.Close(); cErr != nil {
 				r.lggr.Warnw("close accessors after failed StartJob", "error", cErr)
 			}
 		}
 	}()
 
-	if err := r.fac.Start(ctx, spec, r.deps); err != nil {
+	if err := r.fac.Start(ctx, prepared.spec, prepared.deps); err != nil {
 		return err
 	}
+	r.mu.Lock()
+	r.accCloser = prepared.accCloser
+	r.mu.Unlock()
 	if r.applicationReady != nil {
 		r.applicationReady.Store(true)
 	}
@@ -143,7 +237,7 @@ func (r *runner) StartJob(ctx context.Context, config string) (startErr error) {
 }
 
 // StopJob implements [lifecycle.JobRunner].
-// CloseAll runs after factory.Stop so the coordinator drains its readers before underlying services are released.
+// Close runs after factory.Stop so the coordinator drains its readers before underlying services are released.
 func (r *runner) StopJob(ctx context.Context) error {
 	if r.applicationReady != nil {
 		r.applicationReady.Store(false)
@@ -152,8 +246,12 @@ func (r *runner) StopJob(ctx context.Context) error {
 	if err := r.fac.Stop(ctx); err != nil {
 		errs = append(errs, fmt.Errorf("stop service factory: %w", err))
 	}
-	if r.accCloser != nil {
-		if err := r.accCloser.CloseAll(); err != nil {
+	r.mu.Lock()
+	accCloser := r.accCloser
+	r.accCloser = nil
+	r.mu.Unlock()
+	if accCloser != nil {
+		if err := accCloser.Close(); err != nil {
 			errs = append(errs, fmt.Errorf("close accessors: %w", err))
 		}
 	}
@@ -548,7 +646,7 @@ func (b *Bootstrapper) startLocalService(ctx context.Context, keyStore keystore.
 	// safety net for partial-Start failure since Bootstrapper.Stop is not guaranteed
 	defer func() {
 		if startErr != nil {
-			if cErr := b.accCloser.CloseAll(); cErr != nil {
+			if cErr := b.accCloser.Close(); cErr != nil {
 				b.lggr.Warnw("close accessors after failed startLocal", "error", cErr)
 			}
 			b.accCloser = nil
@@ -622,7 +720,7 @@ func (b *Bootstrapper) Start(ctx context.Context) error {
 // stopping every non-nil field covers both without double-stopping:
 //   - JD mode: the lifecycle manager and info server are stopped; accessor cleanup is owned by
 //     runner.StopJob, invoked by the lifecycle manager.
-//   - Local mode: factory.Stop runs first, then accCloser.CloseAll; the info server is stopped if
+//   - Local mode: factory.Stop runs first, then accCloser.Close; the info server is stopped if
 //     it was started.
 func (b *Bootstrapper) Stop(ctx context.Context) error {
 	b.applicationReady.Store(false)
@@ -662,7 +760,7 @@ func (b *Bootstrapper) stopLocal(ctx context.Context) error {
 		errs = append(errs, fmt.Errorf("failed to stop service factory: %w", err))
 	}
 	if b.accCloser != nil {
-		if err := b.accCloser.CloseAll(); err != nil {
+		if err := b.accCloser.Close(); err != nil {
 			errs = append(errs, fmt.Errorf("failed to close accessors: %w", err))
 		}
 		b.accCloser = nil
