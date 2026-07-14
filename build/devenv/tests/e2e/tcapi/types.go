@@ -23,9 +23,24 @@ const (
 	DefaultSentTimeout = 10 * time.Second
 )
 
+// MissingPrerequisite describes a single absent prerequisite in the environment,
+// such as a contract that has not been deployed or a service that is not running.
+// It implements the error interface so it can be used with errors.Join and
+// testify assertions.
+type MissingPrerequisite struct {
+	// Name is a human-readable label identifying what is missing.
+	Name string
+	// Err is the underlying error returned by the lookup that failed.
+	Err error
+}
+
+func (m MissingPrerequisite) Error() string {
+	return fmt.Sprintf("%s: %v", m.Name, m.Err)
+}
+
 // TestCase represents a test case that can be run in a variety of environments.
 // Implementations may resolve environment-specific configuration (e.g. contract
-// addresses) during HavePrerequisites or Run.
+// addresses) during CheckPrerequisites or Run.
 type TestCase interface {
 	// Name returns the name of the test case.
 	Name() string
@@ -33,17 +48,20 @@ type TestCase interface {
 	// Run runs the test case.
 	// The context is typically derived from the *testing.T's Context() method.
 	// Implementations hydrate any required configuration before executing; callers
-	// do not need to call HavePrerequisites first. Returns an error if prerequisites
+	// do not need to call CheckPrerequisites first. Returns an error if prerequisites
 	// are not met.
 	Run(ctx context.Context) error
 
-	// HavePrerequisites reports whether this test case can run in the current
+	// CheckPrerequisites checks whether this test case can run in the current
 	// environment (e.g. required contracts deployed, services running).
 	// The context is typically derived from the *testing.T's Context() method.
-	// Implementations typically perform the same hydration as Run; when it succeeds,
-	// subsequent Run calls reuse that state. Returns false to skip the test without
-	// treating it as a failure.
-	HavePrerequisites(ctx context.Context) bool
+	// Returns a non-empty slice of MissingPrerequisite when the environment lacks
+	// one or more expected components — callers should skip the test without
+	// treating it as a failure. Returns a non-nil error when the check itself
+	// could not complete (e.g. data store unavailable, unknown chain selector);
+	// callers should treat this as an unexpected failure. When it succeeds,
+	// subsequent Run calls reuse the hydration state.
+	CheckPrerequisites(ctx context.Context) ([]MissingPrerequisite, error)
 }
 
 // DefaultV3ExecutionGasLimit is the execution gas limit used when SendConfig and MessageOptions omit it.
