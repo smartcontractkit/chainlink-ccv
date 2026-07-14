@@ -135,7 +135,6 @@ func executeJobProposalEffects(ctx context.Context, effects []devenvruntime.JobP
 		if effect.ApplicationReadyURL == "" {
 			continue
 		}
-		effect := effect
 		g.Go(func() error {
 			if err := services.WaitForApplicationReady(gCtx, effect.ApplicationReadyURL, services.DefaultApplicationReadyTimeout); err != nil {
 				return fmt.Errorf("job application for %s did not become ready: %w", effect.NOPAlias, err)

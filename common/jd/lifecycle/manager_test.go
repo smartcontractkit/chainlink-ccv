@@ -48,6 +48,49 @@ func TestNewManager(t *testing.T) {
 	assert.Equal(t, StateWaitingForJob, m.GetState())
 }
 
+func TestManager_HandleProposalGivesJobStartAFreshTimeout(t *testing.T) {
+	t.Parallel()
+
+	jdClient := mocks.NewMockClientInterface(t)
+	jdClient.EXPECT().ApproveJob(mock.Anything, "proposal-1", int64(1)).Return(nil)
+
+	jobStore := mocks.NewMockStoreInterface(t)
+	jobStore.EXPECT().SavePendingJob(mock.Anything, "proposal-1", int64(1), "spec").
+		Run(func(context.Context, string, int64, string) {
+			// Exhaust the deliberately tiny control-plane budget before StartJob is called.
+			time.Sleep(20 * time.Millisecond)
+		}).
+		Return(nil)
+	jobStore.EXPECT().AcceptPendingJob(mock.Anything).Return(true, nil)
+
+	runner := mocks.NewMockJobRunner(t)
+	runner.EXPECT().StartJob(mock.Anything, "spec").
+		Run(func(ctx context.Context, _ string) {
+			require.NoError(t, ctx.Err(), "job startup inherited the expired control-plane context")
+			deadline, ok := ctx.Deadline()
+			require.True(t, ok)
+			require.Greater(t, time.Until(deadline), 50*time.Millisecond)
+		}).
+		Return(nil)
+
+	m, err := NewManager(Config{
+		JDClient: jdClient,
+		JobStore: jobStore,
+		Runner:   runner,
+		Logger:   logger.Test(t),
+	})
+	require.NoError(t, err)
+	m.controlPlaneTimeout = 5 * time.Millisecond
+	m.jobStartTimeout = 200 * time.Millisecond
+
+	require.NoError(t, m.handleProposal(&pb.ProposeJobRequest{
+		Id:      "proposal-1",
+		Version: 1,
+		Spec:    "spec",
+	}))
+	require.Equal(t, StateRunning, m.GetState())
+}
+
 func TestNewManager_ReturnsError_WhenRequiredFieldIsNil(t *testing.T) {
 	t.Parallel()
 
