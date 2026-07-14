@@ -107,6 +107,32 @@ func TestRunnerPreparedReplacementKeepsOldJobReadyUntilCutover(t *testing.T) {
 	require.NoError(t, runner.StopJob(t.Context()))
 }
 
+func TestRunnerPrepareJobSupersedesPreviousCandidate(t *testing.T) {
+	var starts []string
+	runner := &runner{
+		lggr: logger.Test(t),
+		fac: &spyServiceFactory{startFn: func(_ context.Context, spec any, _ ServiceDeps) error {
+			starts = append(starts, spec.(JobSpec).Name)
+			return nil
+		}},
+	}
+
+	require.NoError(t, runner.PrepareJob(t.Context(), "name = \"first\"\nappConfig = \"\""))
+	first := runner.prepared
+	require.NotNil(t, first)
+
+	// A second PrepareJob without an intervening StartJob must discard the first candidate and
+	// install the second, leaving exactly one prepared candidate.
+	require.NoError(t, runner.PrepareJob(t.Context(), "name = \"second\"\nappConfig = \"\""))
+	require.NotNil(t, runner.prepared)
+	require.NotSame(t, first, runner.prepared)
+	require.Equal(t, "second", runner.prepared.spec.Name)
+
+	require.NoError(t, runner.StartJob(t.Context(), "name = \"second\"\nappConfig = \"\""))
+	require.Equal(t, []string{"second"}, starts)
+	require.NoError(t, runner.StopJob(t.Context()))
+}
+
 func TestRunnerStartJobDiscardsStalePreparedCandidate(t *testing.T) {
 	var starts []string
 	runner := &runner{

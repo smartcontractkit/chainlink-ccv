@@ -147,22 +147,26 @@ func (r *runner) buildPreparedJob(ctx context.Context, config string) (*prepared
 
 // PrepareJob implements [lifecycle.StagedJobRunner]. It warms a replacement without touching
 // the active factory or readiness state. StartJob consumes the prepared candidate after cutover.
+//
+// A previously prepared-but-unconsumed candidate is discarded before the replacement is built, so
+// the method is atomic: an error from PrepareJob always leaves no candidate installed, never a
+// stranded old or new one.
 func (r *runner) PrepareJob(ctx context.Context, config string) error {
+	// Release any superseded candidate first. Building the replacement before this swap could
+	// otherwise install the new candidate and then fail while closing the old one, leaving the
+	// caller with a prepared candidate despite the error.
+	if err := r.DiscardPreparedJob(ctx); err != nil {
+		return fmt.Errorf("close superseded prepared accessors: %w", err)
+	}
+
 	candidate, err := r.buildPreparedJob(ctx, config)
 	if err != nil {
 		return err
 	}
 
 	r.mu.Lock()
-	previous := r.prepared
 	r.prepared = candidate
 	r.mu.Unlock()
-
-	if previous != nil {
-		if err := previous.accCloser.Close(); err != nil {
-			return fmt.Errorf("close superseded prepared accessors: %w", err)
-		}
-	}
 	return nil
 }
 
