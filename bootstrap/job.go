@@ -29,8 +29,9 @@ type JobSpec struct {
 //
 // Deprecated: GenericConfig is where the blockchain_infos TOML table is defined.
 // JD app config should not ship chain connection info (RPC URLs, etc.); that belongs
-// in local config for standalone mode or node config for CL mode. This decoder remains
-// only for legacy consumers. Prefer GetAppConfig for typed app-only config.
+// in local config for standalone mode or node config for CL mode. Devenv still
+// injects blockchain_infos through this decode path today. Prefer GetAppConfig for
+// typed app-only config. GenericConfig should be fully deprecated once EVM swtich to use local config.
 func (js JobSpec) GetGenericConfig() (chainaccess.GenericConfig, error) {
 	var gcfg chainaccess.GenericConfig
 	if _, err := toml.Decode(js.AppConfig, &gcfg); err != nil {

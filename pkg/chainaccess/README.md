@@ -7,31 +7,35 @@ A way to access instantiations of the chainaccess.Accessor object for a chain fa
 Applications register a constructor that accepts a simple config string.
 
 # Configuration
-There are cases where accessor construction needs application-owned configuration. One
-example is the on-ramp address, which is needed by both `chainaccess.SourceReader` and the
-committee verifier. `GenericConfig` provides this shared application overlay.
+There are cases where the Accessor configuration overlaps with App configuration. one
+example is the OnRamp address which is needed by chainaccess.SourceReader and the
+CommitteeVerifier. To account for this, the accessor configuration is treated as an
+overlay with the App configuration.
 
 In order to add an accessor interface, the App needs the following:
-1. Add application-owned shared configuration to `pkg/chainaccess`:
+1. The app config includes "blockchain_infos" along with the app config:
+```go
+type ConfigWithBlockchainInfos struct {
+    MyAppConfig       // note: there is no struct tag so config is at the top level.
+	MyAppSharedConfig // note: this could be embedded in MyAppConfig.
+    BlockchainInfos Infos[string] `toml:"blockchain_infos"`
+}
+```
+2. The app adds its shared configuration to `pkg/chainaccess`:
 ```go
 type MyAppSharedConfig struct {
     OnRampAddress string `toml:"on_ramp_address"`
 }
 ```
-2. Add the shared configuration to `GenericConfig`:
+3. The shared configuration is added to the GenericConfig struct:
 ```go
 type GenericConfig struct {
+    ChainConfig Infos[string] `toml:"blockchain_infos"`
     CommitteeConfig
-    MyAppSharedConfig
 }
 ```
-3. Each chain family loads connection and tuning details from operator-local config in
-standalone mode, or node config in CL mode, and registers its constructor.
-4. The app creates the registry with its app config so constructors receive the shared overlay:
+4. Each chain family implementation registers itself, so at this point the app simply creates the registry by passing in its app config:
 ```go
-chainAccessRegistry, err := chainaccess.NewRegistry(lggr, appConfig)
+chainAccessRegistry, err := chainaccess.NewRegistry(lggr, os.MustReadFile("config.toml"))
 accessor, err := chainAccessRegistry.GetAccessor(ctx, chainsel.ETHEREUM_MAINNET)
 ```
-
-Do not add `blockchain_infos` or RPC endpoints to app/job config. The legacy
-`GenericConfig.ChainConfig` field remains decode-only compatibility during migration.

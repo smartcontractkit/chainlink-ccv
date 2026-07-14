@@ -114,10 +114,6 @@ func ConnectToPostgresDB(lggr logger.Logger, secrets *vsecrets.VerifierSecrets) 
 	return sqlxDB, nil
 }
 
-// LoadBlockchainInfo converts legacy app-config blockchain metadata into Infos.
-//
-// Deprecated: derive the application's chain selector set from its app-owned address/config
-// maps. Chain connection and tuning configuration belongs in chain-family local config.
 func LoadBlockchainInfo[T any](
 	ctx context.Context,
 	lggr logger.Logger,

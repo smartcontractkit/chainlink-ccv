@@ -55,12 +55,28 @@ type registry struct {
 	closeErr  error
 }
 
-// GenericConfig is an overlay of application-owned configuration shared with accessor
-// constructors. Fields must map to the same TOML locations used by each application's typed
-// config. Chain connection and tuning details are not part of this overlay.
+// GenericConfig is an overlay of the app configuration. All configuration needed to construct the accessor
+// should be included here. Note that the Committee Configs are present, they must map to the same location
+// that they appear when parsing just the committee config file:
 //
 // Deprecated: blockchain_infos in JD config is deprecated. blockchain info should come from chain family
 // local config for standalone mode or node config for CL mode. Use getAppConfig for accessing verifier/executor config.
+//
+//	type ConfigWithBlockchainInfos struct {
+//	    Config
+//	    BlockchainInfos map[string]any `toml:"blockchain_infos"`
+//	}
+//
+//	type Config struct {
+//	    ...
+//	    // OnRampAddresses is a map the addresses of the on ramps for each chain selector.
+//	    OnRampAddresses map[string]string `toml:"on_ramp_addresses"`
+//	    // RMNRemoteAddresses is a map of RMN Remote contract addresses for each chain selector.
+//	    // Required for curse detection.
+//	    RMNRemoteAddresses map[string]string `toml:"rmn_remote_addresses"`
+//	    // DisableFinalityCheckers is a list of chain selectors for which the finality violation checker should be disabled.
+//	    // The chain selectors are formatted as strings of the chain selector.
+//	}
 //
 // TODO: Use protocol.Selector instead of string for all the map[string].
 type GenericConfig struct {

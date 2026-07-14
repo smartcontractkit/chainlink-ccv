@@ -22,9 +22,6 @@ type cfgWithBlockchainInfos[T any] struct {
 // blockchain.Info for EVM). Strict decode is applied: any unknown key in the
 // config (including under blockchain_infos.<selector>) causes an error.
 // The returned Configuration has defaults applied via GetNormalizedConfig.
-//
-// Deprecated: decode Configuration directly. Chain connection and tuning configuration now
-// comes from chain-family local config in standalone mode or node config in CL mode.
 func LoadConfigWithBlockchainInfos[T any](cfg string) (*Configuration, chainaccess.Infos[T], error) {
 	var decodeTarget cfgWithBlockchainInfos[T]
 	md, err := toml.Decode(cfg, &decodeTarget)

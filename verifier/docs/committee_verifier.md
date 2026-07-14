@@ -35,7 +35,7 @@ When the node starts the job, `factory.Start(ctx, spec, deps)` is called with:
 
 ```mermaid
 flowchart TB
-    A["Load typed app config\nspec.GetAppConfig()"]
+    A["Load config + blockchain infos\ncommit.LoadConfigWithBlockchainInfos()"]
     B["Validate HMAC credentials\nfrom environment variables"]
     C["Create AggregatorWriter\ngRPC connection to Aggregator"]
     D["Create SourceReaders\none per configured chain selector"]
@@ -186,6 +186,4 @@ The committee verifier is configured through the job spec TOML. Key fields from 
 | `DisableFinalityCheckers` | List of chain selectors for which `FinalityViolationChecker` is disabled |
 | `PyroscopeURL` | Optional Pyroscope profiling endpoint |
 
-Source-chain selectors come from the app-owned `OnRampAddresses` map. Chain-specific connection
-and tuning details are supplied independently through chain-family local config in standalone mode
-or node config in CL mode; they are not shipped in the job spec.
+Blockchain-specific details (RPC URLs, chain IDs, etc.) are supplied via `BlockchainInfos` in the job spec and are consumed by the `AccessorFactory` to create `SourceReader` instances.

@@ -11,23 +11,6 @@ import (
 )
 
 func TestTokenVerifierAppConfigDoesNotContainEVMConnections(t *testing.T) {
-	const selector = "5009297550715157269"
-	in := TokenVerifierInput{GeneratedConfig: &token.Config{
-		CommitteeConfig: chainaccess.CommitteeConfig{
-			OnRampAddresses:    map[string]string{selector: "0x1111111111111111111111111111111111111111"},
-			RMNRemoteAddresses: map[string]string{selector: "0x2222222222222222222222222222222222222222"},
-		},
-	}}
-
-	appConfig, err := in.GenerateConfig()
-	require.NoError(t, err)
-	config := string(appConfig)
-	require.NotContains(t, config, "blockchain_infos")
-	require.Contains(t, config, "[on_ramp_addresses]")
-	require.Contains(t, config, selector)
-}
-
-func TestDeprecatedTokenVerifierGeneratorKeepsConnectionFreeBlockchainInfos(t *testing.T) {
 	in := TokenVerifierInput{GeneratedConfig: &token.Config{}}
 	infos := chainaccess.Infos[evm.Info]{
 		"5009297550715157269": {
@@ -40,9 +23,8 @@ func TestDeprecatedTokenVerifierGeneratorKeepsConnectionFreeBlockchainInfos(t *t
 		},
 	}
 
-	appConfig, err := in.GenerateConfigWithBlockchainInfos(infos) //nolint:staticcheck // SA1019: exercises the deprecated compatibility wrapper
+	appConfig, err := in.GenerateConfigWithBlockchainInfos(infos)
 	require.NoError(t, err)
-	require.Contains(t, string(appConfig), "blockchain_infos")
 	require.NotContains(t, string(appConfig), "private-evm-node")
 	require.Contains(t, string(appConfig), `chain_id = "1"`)
 }

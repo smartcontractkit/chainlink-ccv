@@ -9,14 +9,8 @@ import (
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
 )
 
-// ConfigWithBlockchainInfos is retained for source compatibility with legacy token-verifier
-// config generators.
-//
-// Deprecated: use Config. Source-chain selectors are derived from Config.OnRampAddresses, and
-// chain connection/tuning configuration comes from chain-family local config.
 type ConfigWithBlockchainInfos struct {
 	Config
-	// Deprecated: chain connection and tuning configuration no longer belongs in app config.
 	BlockchainInfos chainaccess.Infos[any] `toml:"blockchain_infos"`
 }
 

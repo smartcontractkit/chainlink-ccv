@@ -155,7 +155,7 @@ func NewTokenVerifier(in *TokenVerifierInput, blockchainOutputs []*blockchain.Ou
 	}
 
 	// Generate and write the app config.
-	appConfig, err := in.GenerateConfig()
+	appConfig, err := in.GenerateConfigWithBlockchainInfos(blockchainInfos)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate verifier config for token verifier %w", err)
 	}
@@ -235,7 +235,7 @@ func NewTokenVerifier(in *TokenVerifierInput, blockchainOutputs []*blockchain.Ou
 				},
 			}
 		},
-		WaitingFor: wait.ForLog("Verifier service fully started and ready").
+		WaitingFor: wait.ForLog("Loaded blockchain metadata from app config").
 			WithStartupTimeout(120 * time.Second).
 			WithPollInterval(3 * time.Second),
 	}
@@ -303,35 +303,21 @@ func NewTokenVerifier(in *TokenVerifierInput, blockchainOutputs []*blockchain.Ou
 	}, nil
 }
 
-// GenerateConfig serializes the token-verifier application config. Chain enumeration comes from
-// Config.OnRampAddresses; connection details are mounted separately in chain-family local config.
-func (v *TokenVerifierInput) GenerateConfig() (verifierTomlConfig []byte, err error) {
-	if v.GeneratedConfig == nil {
-		return nil, fmt.Errorf("GeneratedConfig is nil - token verifier config must be generated using changeset before launching")
-	}
-
-	cfg, err := toml.Marshal(v.GeneratedConfig)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal verifier config to TOML: %w", err)
-	}
-	return cfg, nil
-}
-
-// GenerateConfigWithBlockchainInfos is retained for source and output compatibility with legacy
-// callers. It emits connection-free chain metadata; new config generation must use GenerateConfig.
-//
-// Deprecated: use GenerateConfig.
-func (v *TokenVerifierInput) GenerateConfigWithBlockchainInfos(blockchainInfos ccvblockchain.Infos[evm.Info]) ([]byte, error) {
+func (v *TokenVerifierInput) GenerateConfigWithBlockchainInfos(blockchainInfos ccvblockchain.Infos[evm.Info]) (verifierTomlConfig []byte, err error) {
 	if v.GeneratedConfig == nil {
 		return nil, fmt.Errorf("GeneratedConfig is nil - token verifier config must be generated using changeset before launching")
 	}
 
 	anyInfo := make(ccvblockchain.Infos[any])
 	for selector, info := range blockchainInfos {
+		// Keep chain-enumeration metadata for compatibility with the token-verifier app-config
+		// decoder. Connection details live in the separately mounted EVM config.
 		info.Nodes = nil
 		anyInfo[selector] = info
 	}
-	config := token.ConfigWithBlockchainInfos{ //nolint:staticcheck // SA1019: deprecated method preserves its legacy output
+
+	// Use the generated application config directly, with connection-free chain metadata.
+	config := token.ConfigWithBlockchainInfos{
 		Config:          *v.GeneratedConfig,
 		BlockchainInfos: anyInfo,
 	}
