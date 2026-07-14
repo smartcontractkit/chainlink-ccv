@@ -6,14 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strconv"
 
 	"github.com/testcontainers/testcontainers-go"
-
-	chainsel "github.com/smartcontractkit/chain-selectors"
-	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm"
-	ccvblockchain "github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
-	ctfblockchain "github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
 
 type Mode string
@@ -93,45 +87,4 @@ func GoCacheMounts() testcontainers.ContainerMounts {
 		),
 	)
 	return mounts
-}
-
-// ConvertBlockchainOutputsToInfo converts blockchain.Output to a map of chain selector to BlockchainInfo.
-func ConvertBlockchainOutputsToInfo(outputs []*ctfblockchain.Output) (ccvblockchain.Infos[evm.Info], error) {
-	infos := make(map[string]evm.Info)
-	for _, output := range outputs {
-		if output.Family != chainsel.FamilyEVM {
-			continue
-		}
-
-		info := evm.Info{
-			ChainID:         output.ChainID,
-			Type:            output.Type,
-			Family:          output.Family,
-			UniqueChainName: output.ContainerName,
-			Nodes:           make([]evm.Node, 0, len(output.Nodes)),
-		}
-
-		// Convert all nodes
-		for _, node := range output.Nodes {
-			if node != nil {
-				info.Nodes = append(info.Nodes, evm.Node{
-					ExternalHTTPUrl: node.ExternalHTTPUrl,
-					InternalHTTPUrl: node.InternalHTTPUrl,
-					ExternalWSUrl:   node.ExternalWSUrl,
-					InternalWSUrl:   node.InternalWSUrl,
-				})
-			}
-		}
-
-		details, err := chainsel.GetChainDetailsByChainIDAndFamily(output.ChainID, output.Family)
-		if err != nil {
-			return nil, fmt.Errorf("failed to get chain details for chain %s, family %s: %w", output.ChainID, output.Family, err)
-		}
-
-		strSelector := strconv.FormatUint(details.ChainSelector, 10)
-
-		infos[strSelector] = info
-	}
-
-	return infos, nil
 }

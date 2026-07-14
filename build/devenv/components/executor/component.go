@@ -186,22 +186,11 @@ func (c *component) RunPhase3(
 		if exec.Out == nil || exec.Out.JDNodeID == "" {
 			continue
 		}
-		reg, loaderErr := chainreg.GetRegistry().Get(exec.ChainFamily)
-		if loaderErr != nil {
-			return nil, nil, fmt.Errorf("executor: chain registration for %s: %w", exec.ContainerName, loaderErr)
-		}
-		if reg.ChainConfigLoader == nil {
-			return nil, nil, fmt.Errorf("executor: chain config loader for family %s not found", exec.ChainFamily)
-		}
-		blockchainInfos, loaderErr := reg.ChainConfigLoader(blockchainOutputs)
-		if loaderErr != nil {
-			return nil, nil, fmt.Errorf("executor: loading chain config for %s: %w", exec.ContainerName, loaderErr)
-		}
 		baseSpec, ok := jobSpecs[exec.ContainerName]
 		if !ok {
 			return nil, nil, fmt.Errorf("executor: no job spec found for %s", exec.ContainerName)
 		}
-		jobSpec, specErr := executorsvc.RebuildExecutorJobSpecWithBlockchainInfos(baseSpec, blockchainInfos)
+		jobSpec, specErr := executorsvc.RebuildExecutorJobSpec(baseSpec)
 		if specErr != nil {
 			return nil, nil, fmt.Errorf("executor: building job spec for %s: %w", exec.ContainerName, specErr)
 		}

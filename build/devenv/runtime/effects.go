@@ -30,12 +30,12 @@ type FundingEffect struct {
 }
 
 // JobProposalEffect requests that JobSpec be proposed to the node identified
-// by NodeID via the Job Distributor. JobSpec must be fully-rendered TOML
-// (blockchain_infos injected, etc.) before this effect is returned.
+// by NodeID via the Job Distributor. JobSpec must be fully rendered before this
+// effect is returned; chain-family connection details are supplied separately.
 type JobProposalEffect struct {
 	NOPAlias string // for logging / human identification
 	NodeID   string // JD node ID used to route the proposal
-	JobSpec  string // fully-rendered TOML; blockchain_infos already injected
+	JobSpec  string // fully rendered TOML
 }
 
 // CLNodeConfigEffect requests that Secrets be applied to the CL node

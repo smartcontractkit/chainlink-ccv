@@ -22,7 +22,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/util"
 	"github.com/smartcontractkit/chainlink-ccv/executor"
-	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
@@ -110,38 +109,24 @@ type Output struct {
 	Container testcontainers.Container `toml:"-"`
 }
 
-// configWithBlockchainInfos is the executor config plus the blockchain_infos compatibility section
-// used for chain enumeration. Chain-family connection details are supplied separately through local
-// config for standalone/local executors or node config in CL mode.
-type configWithBlockchainInfos struct {
-	executor.Configuration
-	BlockchainInfos chainaccess.Infos[any] `toml:"blockchain_infos"`
-}
-
-// BuildExecutorAppConfigWithBlockchainInfos parses the executor config out of a job spec and
-// re-marshals it with blockchain_infos metadata included, returning the plain app-config TOML — the exact
-// content JD ships as a job's appConfig, with no job-spec envelope. This is what a local-mode
-// bootstrapper reads from its mounted config file.
-func BuildExecutorAppConfigWithBlockchainInfos(spec bootstrap.JobSpec, blockchainInfos map[string]any) (string, error) {
+// BuildExecutorAppConfig parses and re-marshals the typed executor config from a job spec. The
+// returned app config intentionally excludes blockchain_infos: chain-family connection details are
+// supplied through local config in standalone/local mode or node config in CL mode.
+func BuildExecutorAppConfig(spec bootstrap.JobSpec) (string, error) {
 	var cfg executor.Configuration
 	if err := spec.GetAppConfig(&cfg); err != nil {
 		return "", fmt.Errorf("failed to parse executor config from job spec: %w", err)
 	}
-	innerConfigBytes, err := toml.Marshal(configWithBlockchainInfos{
-		Configuration:   cfg,
-		BlockchainInfos: blockchainInfos,
-	})
+	innerConfigBytes, err := toml.Marshal(cfg)
 	if err != nil {
-		return "", fmt.Errorf("failed to marshal enhanced config: %w", err)
+		return "", fmt.Errorf("failed to marshal executor config: %w", err)
 	}
 	return string(innerConfigBytes), nil
 }
 
-// RebuildExecutorJobSpecWithBlockchainInfos takes a job spec and rebuilds it with blockchain infos
-// added to the inner config. The compatibility table enumerates chains; it does not carry
-// chain-family connection details.
-func RebuildExecutorJobSpecWithBlockchainInfos(spec bootstrap.JobSpec, blockchainInfos map[string]any) (string, error) {
-	innerConfig, err := BuildExecutorAppConfigWithBlockchainInfos(spec, blockchainInfos)
+// RebuildExecutorJobSpec rebuilds a parsed job spec without adding operator-owned chain config.
+func RebuildExecutorJobSpec(spec bootstrap.JobSpec) (string, error) {
+	innerConfig, err := BuildExecutorAppConfig(spec)
 	if err != nil {
 		return "", err
 	}

@@ -13,10 +13,6 @@ import (
 // (read by the local bootstrapper). A fixed field would break one flow and drift against the
 // deployment-generated spec.
 func TestRebuildExecutorJobSpecPreservesConfigField(t *testing.T) {
-	blockchainInfos := map[string]any{
-		"5009297550715157269": map[string]any{"chain_id": "1"},
-	}
-
 	cases := []struct {
 		name  string
 		field string
@@ -30,18 +26,20 @@ func TestRebuildExecutorJobSpecPreservesConfigField(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			base := bootstrap.JobSpec{
-				Name:            "executor-job",
-				SchemaVersion:   1,
-				Type:            "ccvexecutor",
-				AppConfig:       "",
+				Name:          "executor-job",
+				SchemaVersion: 1,
+				Type:          "ccvexecutor",
+				AppConfig: `[blockchain_infos."5009297550715157269"]
+chain_id = "1"
+`,
 				ConfigFieldName: tc.field,
 			}
 
-			specStr, err := RebuildExecutorJobSpecWithBlockchainInfos(base, blockchainInfos)
+			specStr, err := RebuildExecutorJobSpec(base)
 			require.NoError(t, err)
 			require.Contains(t, specStr, tc.want+" = '''")
 			require.NotContains(t, specStr, tc.other+" = '''")
-			require.Contains(t, specStr, "blockchain_infos")
+			require.NotContains(t, specStr, "blockchain_infos")
 		})
 	}
 }

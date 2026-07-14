@@ -123,9 +123,8 @@ type Input struct {
 	GeneratedConfig string `toml:"-"`
 
 	// LocalAppConfig is the plain app-config TOML mounted into the container in local mode
-	// (services.Local) — the committee verifier's commit.Config with blockchain_infos included, the
-	// same content JD would ship in a job's appConfig, no envelope. Callers build it (base.go cannot
-	// build it itself because that needs the chainreg registry, which imports this package).
+	// (services.Local) — the same typed committee verifier config JD would ship in a job's
+	// appConfig, with no job-spec envelope.
 	//
 	// It is optional in local mode: when empty, the container starts with no app config and the
 	// bootstrapper serves its signing keys while waiting for the file to appear; the caller delivers the
@@ -136,36 +135,25 @@ type Input struct {
 	LocalAppConfig string `toml:"-"`
 }
 
-// configWithBlockchainInfos is the committee verifier's app config plus the blockchain_infos
-// compatibility section used for chain enumeration. Chain-family connection details are supplied
-// separately through local config for standalone/local verifiers or node config in CL mode.
-type configWithBlockchainInfos struct {
-	commit.Config
-	BlockchainInfos map[string]any `toml:"blockchain_infos"`
-}
-
-// BuildVerifierAppConfigWithBlockchainInfos parses the verifier config out of a job spec and
-// re-marshals it with blockchain_infos metadata included, returning the plain app-config TOML — the exact
-// content JD ships as a job's appConfig, with no job-spec envelope. This is what a local-mode
-// bootstrapper reads from its mounted config file.
-func BuildVerifierAppConfigWithBlockchainInfos(spec bootstrap.JobSpec, blockchainInfos map[string]any) (string, error) {
+// BuildVerifierAppConfig parses and re-marshals the typed verifier config from a job spec. The
+// returned app config intentionally excludes blockchain_infos: chain-family connection details are
+// supplied through local config in standalone/local mode or node config in CL mode.
+func BuildVerifierAppConfig(spec bootstrap.JobSpec) (string, error) {
 	var cfg commit.Config
 	if err := spec.GetAppConfig(&cfg); err != nil {
 		return "", fmt.Errorf("failed to parse verifier config from job spec: %w", err)
 	}
-	innerConfigBytes, err := toml.Marshal(configWithBlockchainInfos{Config: cfg, BlockchainInfos: blockchainInfos})
+	innerConfigBytes, err := toml.Marshal(cfg)
 	if err != nil {
-		return "", fmt.Errorf("failed to marshal enhanced config: %w", err)
+		return "", fmt.Errorf("failed to marshal verifier config: %w", err)
 	}
 	return string(innerConfigBytes), nil
 }
 
-// RebuildVerifierJobSpecWithBlockchainInfos takes a job spec and rebuilds it with blockchain infos
-// added to the inner config. The compatibility table enumerates chains; it does not carry
-// chain-family connection details.
+// RebuildVerifierJobSpec rebuilds a parsed job spec without adding operator-owned chain config.
 // TODO: we stick with the job spec so that there isn't special logic for standalone verifiers.
-func RebuildVerifierJobSpecWithBlockchainInfos(spec bootstrap.JobSpec, blockchainInfos map[string]any) (string, error) {
-	innerConfig, err := BuildVerifierAppConfigWithBlockchainInfos(spec, blockchainInfos)
+func RebuildVerifierJobSpec(spec bootstrap.JobSpec) (string, error) {
+	innerConfig, err := BuildVerifierAppConfig(spec)
 	if err != nil {
 		return "", err
 	}

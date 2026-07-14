@@ -27,10 +27,10 @@ func TestEVMConfigIsMountedSeparatelyFromAppConfig(t *testing.T) {
 		}},
 	}
 
-	placeholders, err := ChainConfigLoader([]*blockchain.Output{output})
+	metadataBySelector, err := ChainConfigLoader([]*blockchain.Output{output})
 	require.NoError(t, err)
-	require.Len(t, placeholders, 1)
-	for _, raw := range placeholders {
+	require.Len(t, metadataBySelector, 1)
+	for _, raw := range metadataBySelector {
 		metadata, ok := raw.(accessorevm.Info)
 		require.True(t, ok)
 		require.Equal(t, output.ChainID, metadata.ChainID)

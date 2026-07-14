@@ -32,6 +32,7 @@ import (
 	tokenscore "github.com/smartcontractkit/chainlink-ccip/deployment/tokens"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainreg"
+	evmchainconfig "github.com/smartcontractkit/chainlink-ccv/build/devenv/evm/chainconfig"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/committeeverifier"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/executor"
@@ -251,10 +252,11 @@ func getUserPrivateKeys() []string {
 	return userPrivateKeys
 }
 
-// ChainConfigLoader returns EVM chain-enumeration metadata for app configs. Connection information
-// is supplied separately through the EVM-local config mounted by the container modifier.
+// ChainConfigLoader returns connection-free EVM chain metadata for compatibility consumers.
+// Standalone services receive connection information through the EVM-local config mounted by the
+// container modifier.
 func ChainConfigLoader(outputs []*blockchain.Output) (map[string]any, error) {
-	fullInfos, err := services.ConvertBlockchainOutputsToInfo(outputs)
+	fullInfos, err := evmchainconfig.ConvertBlockchainOutputsToInfo(outputs)
 	if err != nil {
 		return nil, err
 	}
@@ -269,7 +271,7 @@ func ChainConfigLoader(outputs []*blockchain.Output) (map[string]any, error) {
 }
 
 func marshalEVMConfig(outputs []*blockchain.Output) ([]byte, error) {
-	infos, err := services.ConvertBlockchainOutputsToInfo(outputs)
+	infos, err := evmchainconfig.ConvertBlockchainOutputsToInfo(outputs)
 	if err != nil {
 		return nil, err
 	}

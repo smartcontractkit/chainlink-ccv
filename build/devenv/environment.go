@@ -1059,7 +1059,6 @@ func proposeJobsToExecutors(
 	ctx context.Context,
 	executors []*executorsvc.Input,
 	executorJobSpecs map[string]bootstrap.JobSpec,
-	blockchainOutputs []*blockchain.Output,
 	jdClient offchain.Client,
 ) error {
 	var standalone []*executorsvc.Input
@@ -1082,26 +1081,14 @@ func proposeJobsToExecutors(
 			}
 			nodeID := exec.Out.JDNodeID
 
-			reg, err := chainreg.GetRegistry().Get(exec.ChainFamily)
-			if err != nil {
-				return fmt.Errorf("failed to get chain registration for family %s: %w", exec.ChainFamily, err)
-			}
-			if reg.ChainConfigLoader == nil {
-				return fmt.Errorf("chain config loader for family %s not found", exec.ChainFamily)
-			}
-			blockchainInfos, err := reg.ChainConfigLoader(blockchainOutputs)
-			if err != nil {
-				return fmt.Errorf("failed to load chain config for family %s: %w", exec.ChainFamily, err)
-			}
-
 			baseJobSpec, ok := executorJobSpecs[exec.ContainerName]
 			if !ok {
 				return fmt.Errorf("no job spec found for executor %s", exec.ContainerName)
 			}
 
-			jobSpec, err := executorsvc.RebuildExecutorJobSpecWithBlockchainInfos(baseJobSpec, blockchainInfos)
+			jobSpec, err := executorsvc.RebuildExecutorJobSpec(baseJobSpec)
 			if err != nil {
-				return fmt.Errorf("failed to add blockchain infos to job spec for %s: %w", exec.ContainerName, err)
+				return fmt.Errorf("failed to build job spec for %s: %w", exec.ContainerName, err)
 			}
 
 			L.Info().Msgf("Proposing job to executor %s (node %s)", exec.ContainerName, nodeID)
@@ -1373,7 +1360,6 @@ func proposeJobsToStandaloneVerifiers(
 	ctx context.Context,
 	verifiers []*committeeverifier.Input,
 	verifierJobSpecs map[string]bootstrap.JobSpec,
-	blockchainOutputs []*blockchain.Output,
 	jdClient offchain.Client,
 ) error {
 	// Filter to standalone verifiers only
@@ -1399,29 +1385,15 @@ func proposeJobsToStandaloneVerifiers(
 			}
 			nodeID := ver.Out.JDNodeID
 
-			reg, err := chainreg.GetRegistry().Get(ver.ChainFamily)
-			if err != nil {
-				return fmt.Errorf("failed to get chain registration for family %s: %w", ver.ChainFamily, err)
-			}
-			if reg.ChainConfigLoader == nil {
-				return fmt.Errorf("chain config loader for family %s not found", ver.ChainFamily)
-			}
-			blockchainInfos, err := reg.ChainConfigLoader(blockchainOutputs)
-			if err != nil {
-				return fmt.Errorf("failed to load chain config for family %s: %w", ver.ChainFamily, err)
-			}
-
 			// Get the base job spec
 			baseJobSpec, ok := verifierJobSpecs[ver.NOPAlias]
 			if !ok {
 				return fmt.Errorf("no job spec found for verifier %s", ver.NOPAlias)
 			}
 
-			// For standalone verifiers, we need to inject blockchain_infos into the config
-			// because they don't have CL node chain configuration
-			jobSpec, err := committeeverifier.RebuildVerifierJobSpecWithBlockchainInfos(baseJobSpec, blockchainInfos)
+			jobSpec, err := committeeverifier.RebuildVerifierJobSpec(baseJobSpec)
 			if err != nil {
-				return fmt.Errorf("failed to add blockchain infos to job spec for %s: %w", ver.NOPAlias, err)
+				return fmt.Errorf("failed to build job spec for %s: %w", ver.NOPAlias, err)
 			}
 
 			L.Info().Msgf("Proposing job to verifier %s: %s", ver.NOPAlias, jobSpec)
@@ -1489,7 +1461,7 @@ func launchAndConfigureExecutors(
 		return err
 	}
 	if jdInfra != nil && jdInfra.OffchainClient != nil {
-		if err := proposeJobsToExecutors(ctx, in.Executor, executorJobSpecs, blockchainOutputs, jdInfra.OffchainClient); err != nil {
+		if err := proposeJobsToExecutors(ctx, in.Executor, executorJobSpecs, jdInfra.OffchainClient); err != nil {
 			return err
 		}
 	}
@@ -1535,16 +1507,14 @@ func launchAndConfigureLocalExecutors(
 	if err != nil {
 		return err
 	}
-	return deliverLocalExecutorConfigs(in.Executor, executorJobSpecs, blockchainOutputs)
+	return deliverLocalExecutorConfigs(in.Executor, executorJobSpecs)
 }
 
-// deliverLocalExecutorConfigs writes each local-mode executor's generated app config (with
-// blockchain_infos inlined) to the file its bootstrapper is waiting on — the no-JD counterpart of
-// proposeJobsToExecutors.
+// deliverLocalExecutorConfigs writes each local-mode executor's generated app config to the file
+// its bootstrapper is waiting on — the no-JD counterpart of proposeJobsToExecutors.
 func deliverLocalExecutorConfigs(
 	executors []*executorsvc.Input,
 	executorJobSpecs map[string]bootstrap.JobSpec,
-	blockchainOutputs []*blockchain.Output,
 ) error {
 	for _, exec := range executors {
 		if exec == nil || exec.Mode != services.Local {
@@ -1554,23 +1524,11 @@ func deliverLocalExecutorConfigs(
 			return fmt.Errorf("executor %s has no output; was it launched?", exec.ContainerName)
 		}
 
-		reg, err := chainreg.GetRegistry().Get(exec.ChainFamily)
-		if err != nil {
-			return fmt.Errorf("failed to get chain registration for family %s: %w", exec.ChainFamily, err)
-		}
-		if reg.ChainConfigLoader == nil {
-			return fmt.Errorf("chain config loader for family %s not found", exec.ChainFamily)
-		}
-		blockchainInfos, err := reg.ChainConfigLoader(blockchainOutputs)
-		if err != nil {
-			return fmt.Errorf("failed to load chain config for family %s: %w", exec.ChainFamily, err)
-		}
-
 		baseJobSpec, ok := executorJobSpecs[exec.ContainerName]
 		if !ok {
 			return fmt.Errorf("no job spec found for executor %s", exec.ContainerName)
 		}
-		appConfig, err := executorsvc.BuildExecutorAppConfigWithBlockchainInfos(baseJobSpec, blockchainInfos)
+		appConfig, err := executorsvc.BuildExecutorAppConfig(baseJobSpec)
 		if err != nil {
 			return fmt.Errorf("failed to build local app config for %s: %w", exec.ContainerName, err)
 		}
@@ -1584,15 +1542,13 @@ func deliverLocalExecutorConfigs(
 	return nil
 }
 
-// deliverLocalVerifierConfigs writes each local-mode verifier's generated app config (with
-// blockchain_infos inlined) to the file its bootstrapper is waiting on. It is the no-JD counterpart of
-// proposeJobsToStandaloneVerifiers: the same config that JD would ship as a job proposal is instead
-// delivered as a mounted file, and the waiting bootstrapper starts the service once the file appears.
-// It runs after contract deployment, so the config carries the real deployed addresses.
+// deliverLocalVerifierConfigs writes each local-mode verifier's generated app config to the file its
+// bootstrapper is waiting on. It is the no-JD counterpart of proposeJobsToStandaloneVerifiers: the
+// same app config that JD would ship in a job proposal is delivered as a local file instead. It runs
+// after contract deployment, so the config carries the real deployed addresses.
 func deliverLocalVerifierConfigs(
 	verifiers []*committeeverifier.Input,
 	verifierJobSpecs map[string]bootstrap.JobSpec,
-	blockchainOutputs []*blockchain.Output,
 ) error {
 	for _, ver := range verifiers {
 		if ver.Mode != services.Local {
@@ -1602,23 +1558,11 @@ func deliverLocalVerifierConfigs(
 			return fmt.Errorf("verifier %s has no output; was it launched?", ver.NOPAlias)
 		}
 
-		reg, err := chainreg.GetRegistry().Get(ver.ChainFamily)
-		if err != nil {
-			return fmt.Errorf("failed to get chain registration for family %s: %w", ver.ChainFamily, err)
-		}
-		if reg.ChainConfigLoader == nil {
-			return fmt.Errorf("chain config loader for family %s not found", ver.ChainFamily)
-		}
-		blockchainInfos, err := reg.ChainConfigLoader(blockchainOutputs)
-		if err != nil {
-			return fmt.Errorf("failed to load chain config for family %s: %w", ver.ChainFamily, err)
-		}
-
 		baseJobSpec, ok := verifierJobSpecs[ver.NOPAlias]
 		if !ok {
 			return fmt.Errorf("no job spec found for verifier %s", ver.NOPAlias)
 		}
-		appConfig, err := committeeverifier.BuildVerifierAppConfigWithBlockchainInfos(baseJobSpec, blockchainInfos)
+		appConfig, err := committeeverifier.BuildVerifierAppConfig(baseJobSpec)
 		if err != nil {
 			return fmt.Errorf("failed to build local app config for %s: %w", ver.NOPAlias, err)
 		}

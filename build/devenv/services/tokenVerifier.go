@@ -17,6 +17,7 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
+	evmchainconfig "github.com/smartcontractkit/chainlink-ccv/build/devenv/evm/chainconfig"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/util"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm"
 	ccvblockchain "github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
@@ -114,7 +115,7 @@ func NewTokenVerifier(in *TokenVerifierInput, blockchainOutputs []*blockchain.Ou
 	}
 
 	// Generate blockchain infos for standalone mode
-	blockchainInfos, err := ConvertBlockchainOutputsToInfo(blockchainOutputs)
+	blockchainInfos, err := evmchainconfig.ConvertBlockchainOutputsToInfo(blockchainOutputs)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate blockchain infos from blockchain outputs: %w", err)
 	}
