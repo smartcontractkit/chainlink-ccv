@@ -3,6 +3,7 @@ package lifecycle
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -848,4 +849,228 @@ func TestManager_Start_StartOncePreventsSecondStart(t *testing.T) {
 	assert.Contains(t, err.Error(), "already been started")
 
 	require.NoError(t, m.Stop())
+}
+
+type proposalRecord struct {
+	result      string
+	replacement bool
+}
+
+type stepRecord struct {
+	step        string
+	replacement bool
+}
+
+type recordingMetrics struct {
+	mu         sync.Mutex
+	proposals  []proposalRecord
+	stepErrors []stepRecord
+}
+
+func (r *recordingMetrics) IncProposal(_ context.Context, result string, replacement bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.proposals = append(r.proposals, proposalRecord{result, replacement})
+}
+
+func (r *recordingMetrics) IncStepError(_ context.Context, step string, replacement bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.stepErrors = append(r.stepErrors, stepRecord{step, replacement})
+}
+
+func (r *recordingMetrics) proposalSnapshot() []proposalRecord {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([]proposalRecord, len(r.proposals))
+	copy(out, r.proposals)
+	return out
+}
+
+// recordedSteps returns the step label of every recorded step error, in order.
+func (r *recordingMetrics) recordedSteps() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([]string, len(r.stepErrors))
+	for i, s := range r.stepErrors {
+		out[i] = s.step
+	}
+	return out
+}
+
+func TestManager_HandleProposal_Metrics(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name            string
+		setup           func(*mocks.MockStoreInterface, *mocks.MockJobRunner, *mocks.MockClientInterface, *Manager)
+		proposal        *pb.ProposeJobRequest
+		wantErr         bool
+		wantReplacement bool
+		wantSteps       []string
+	}{
+		{
+			name: "success",
+			setup: func(js *mocks.MockStoreInterface, r *mocks.MockJobRunner, jd *mocks.MockClientInterface, _ *Manager) {
+				js.EXPECT().SavePendingJob(mock.Anything, "p1", int64(1), `{"spec":"new"}`).Return(nil)
+				js.EXPECT().AcceptPendingJob(mock.Anything).Return(true, nil)
+				r.EXPECT().StartJob(mock.Anything, `{"spec":"new"}`).Return(nil)
+				jd.EXPECT().ApproveJob(mock.Anything, "p1", int64(1)).Return(nil)
+			},
+			proposal:  &pb.ProposeJobRequest{Id: "p1", Version: 1, Spec: `{"spec":"new"}`},
+			wantSteps: nil,
+		},
+		{
+			name: "start_job",
+			setup: func(js *mocks.MockStoreInterface, r *mocks.MockJobRunner, _ *mocks.MockClientInterface, _ *Manager) {
+				js.EXPECT().SavePendingJob(mock.Anything, "p1", int64(1), `{"spec":"bad"}`).Return(nil)
+				r.EXPECT().StartJob(mock.Anything, `{"spec":"bad"}`).Return(errors.New("start failed"))
+			},
+			proposal:  &pb.ProposeJobRequest{Id: "p1", Version: 1, Spec: `{"spec":"bad"}`},
+			wantErr:   true,
+			wantSteps: []string{stepStartJob},
+		},
+		{
+			name: "start_replacement with failed rollback restart",
+			setup: func(js *mocks.MockStoreInterface, r *mocks.MockJobRunner, _ *mocks.MockClientInterface, m *Manager) {
+				js.EXPECT().SavePendingJob(mock.Anything, "new", int64(2), `{"spec":"new"}`).Return(nil)
+				js.EXPECT().DeletePendingJob(mock.Anything).Return(nil)
+				r.EXPECT().StopJob(mock.Anything).Return(nil)
+				r.EXPECT().StartJob(mock.Anything, `{"spec":"new"}`).Return(errors.New("start failed"))
+				r.EXPECT().StartJob(mock.Anything, `{"spec":"old"}`).Return(errors.New("restart failed"))
+				m.mu.Lock()
+				m.state = StateRunning
+				m.currentJob = &store.Job{ProposalID: "old", Version: 1, Spec: `{"spec":"old"}`}
+				m.mu.Unlock()
+			},
+			proposal:        &pb.ProposeJobRequest{Id: "new", Version: 2, Spec: `{"spec":"new"}`},
+			wantErr:         true,
+			wantReplacement: true,
+			// Old job also failed to restart: node left with no running job.
+			wantSteps: []string{stepStartReplacement, stepRollbackRestart},
+		},
+		{
+			name: "multiple soft failures still succeed",
+			setup: func(js *mocks.MockStoreInterface, r *mocks.MockJobRunner, jd *mocks.MockClientInterface, _ *Manager) {
+				js.EXPECT().SavePendingJob(mock.Anything, "p1", int64(1), `{"spec":"new"}`).Return(errors.New("save failed"))
+				r.EXPECT().StartJob(mock.Anything, `{"spec":"new"}`).Return(nil)
+				js.EXPECT().AcceptPendingJob(mock.Anything).Return(false, errors.New("accept failed"))
+				jd.EXPECT().ApproveJob(mock.Anything, "p1", int64(1)).Return(errors.New("approve failed"))
+			},
+			proposal: &pb.ProposeJobRequest{Id: "p1", Version: 1, Spec: `{"spec":"new"}`},
+			// Job ends up running, so the outcome is success, but every soft
+			// failure is recorded as its own step error.
+			wantSteps: []string{stepSavePending, stepAcceptPending, stepApproveJob},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := &recordingMetrics{}
+			jobStore := mocks.NewMockStoreInterface(t)
+			runner := mocks.NewMockJobRunner(t)
+			jdClient := mocks.NewMockClientInterface(t)
+
+			m, err := NewManager(Config{
+				JDClient: jdClient,
+				JobStore: jobStore,
+				Runner:   runner,
+				Logger:   logger.Test(t),
+				Metrics:  rec,
+			})
+			require.NoError(t, err)
+			tt.setup(jobStore, runner, jdClient, m)
+
+			err = m.handleProposal(tt.proposal)
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+
+			proposals := rec.proposalSnapshot()
+			require.Len(t, proposals, 1, "exactly one outcome recorded per proposal")
+			wantResult := resultSuccess
+			if tt.wantErr {
+				wantResult = resultError
+			}
+			assert.Equal(t, wantResult, proposals[0].result)
+			assert.Equal(t, tt.wantReplacement, proposals[0].replacement)
+
+			assert.ElementsMatch(t, tt.wantSteps, rec.recordedSteps())
+		})
+	}
+}
+
+func TestManager_RetryPendingJob_Metrics(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		setup     func(*mocks.MockStoreInterface, *mocks.MockJobRunner, *mocks.MockClientInterface)
+		wantErr   bool
+		wantSteps []string
+	}{
+		{
+			name: "start_job",
+			setup: func(_ *mocks.MockStoreInterface, r *mocks.MockJobRunner, _ *mocks.MockClientInterface) {
+				r.EXPECT().StartJob(mock.Anything, `{"spec":"new"}`).Return(errors.New("start failed"))
+			},
+			wantErr:   true,
+			wantSteps: []string{stepStartJob},
+		},
+		{
+			// Soft failure after StartJob succeeds: job is running, so the
+			// outcome is success even though a step error is recorded.
+			name: "approve_job soft failure",
+			setup: func(js *mocks.MockStoreInterface, r *mocks.MockJobRunner, jd *mocks.MockClientInterface) {
+				r.EXPECT().StartJob(mock.Anything, `{"spec":"new"}`).Return(nil)
+				js.EXPECT().AcceptPendingJob(mock.Anything).Return(true, nil)
+				jd.EXPECT().ApproveJob(mock.Anything, "p1", int64(1)).Return(errors.New("approve failed"))
+			},
+			wantSteps: []string{stepApproveJob},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := &recordingMetrics{}
+			jobStore := mocks.NewMockStoreInterface(t)
+			runner := mocks.NewMockJobRunner(t)
+			jdClient := mocks.NewMockClientInterface(t)
+
+			m, err := NewManager(Config{
+				JDClient: jdClient,
+				JobStore: jobStore,
+				Runner:   runner,
+				Logger:   logger.Test(t),
+				Metrics:  rec,
+			})
+			require.NoError(t, err)
+			tt.setup(jobStore, runner, jdClient)
+
+			err = m.retryPendingJob(&store.Job{
+				ProposalID: "p1",
+				Version:    1,
+				Spec:       `{"spec":"new"}`,
+				Status:     store.JobStatusPending,
+			})
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+
+			proposals := rec.proposalSnapshot()
+			require.Len(t, proposals, 1, "exactly one outcome recorded per retry")
+			wantResult := resultSuccess
+			if tt.wantErr {
+				wantResult = resultError
+			}
+			assert.Equal(t, wantResult, proposals[0].result)
+			assert.False(t, proposals[0].replacement, "retries are never replacements")
+
+			assert.ElementsMatch(t, tt.wantSteps, rec.recordedSteps())
+		})
+	}
 }
