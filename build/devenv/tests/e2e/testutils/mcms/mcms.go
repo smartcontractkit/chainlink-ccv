@@ -56,7 +56,7 @@ func Deploy(t *testing.T, env *deployment.Environment, selector uint64, qualifie
 					Canceller:        testhelpers.SingleGroupMCMS(),
 					Bypasser:         testhelpers.SingleGroupMCMS(),
 					Proposer:         testhelpers.SingleGroupMCMS(),
-					TimelockMinDelay: big.NewInt(0),
+					TimelockMinDelay: big.NewInt(1),
 					Qualifier:        new(qualifier),
 				},
 			},
