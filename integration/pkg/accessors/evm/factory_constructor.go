@@ -37,6 +37,13 @@ func loadConfig(path string) (*Config, error) {
 	return &cfg, nil
 }
 
+func resolveConfigPath() string {
+	if configPath := os.Getenv(EVMConfigPathEnv); configPath != "" {
+		return configPath
+	}
+	return DefaultEVMConfigPath
+}
+
 // toInfos reconstructs the accessor's Infos[Info] from the operator-local config, deriving each
 // chain's ID and family from its selector. Only connection and tuning settings live in the mounted
 // file; enumeration metadata is recovered here.
@@ -78,18 +85,14 @@ func (c Config) toInfos() (chainaccess.Infos[Info], error) {
 //	internal_ws_url = "ws://evm-node:8546"
 //
 // Chain ID and family are derived from the selector; only connection details and
-// chain-type tuning are stored in the file. Shared sections from
-// chainaccess.GenericConfig (for example on-ramp or RMN remote addresses) may also
-// be present and are used when constructing the accessor factory.
+// chain-type tuning are stored in the file. Shared application settings from
+// chainaccess.GenericConfig (for example on-ramp or RMN remote addresses) are supplied
+// separately through genericConfig and used when constructing the accessor factory.
 //
 // It will take all config values it needs from all available config. Note that it would be
 // very unusual for a config to have more than one of Committee/Token/Executor configs.
 func CreateEVMAccessorFactory(lggr logger.Logger, genericConfig chainaccess.GenericConfig) (chainaccess.AccessorFactory, error) { //nolint:staticcheck // SA1019: GenericConfig still carries shared application config
-	configPath, ok := os.LookupEnv(EVMConfigPathEnv)
-	if !ok {
-		configPath = DefaultEVMConfigPath
-	}
-
+	configPath := resolveConfigPath()
 	evmConfig, err := loadConfig(configPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load EVM config: %w", err)

@@ -64,6 +64,21 @@ func TestLoadConfigRejectsUnknownFields(t *testing.T) {
 	require.ErrorContains(t, err, "unknown fields in config")
 }
 
+func TestResolveConfigPath(t *testing.T) {
+	t.Run("configured path", func(t *testing.T) {
+		path := filepath.Join(t.TempDir(), "evm.toml")
+		t.Setenv(EVMConfigPathEnv, path)
+
+		require.Equal(t, path, resolveConfigPath())
+	})
+
+	t.Run("empty path uses default", func(t *testing.T) {
+		t.Setenv(EVMConfigPathEnv, "")
+
+		require.Equal(t, DefaultEVMConfigPath, resolveConfigPath())
+	})
+}
+
 func TestCreateEVMAccessorFactoryUsesLocalConfigInsteadOfBlockchainInfos(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "evm.toml")
 	require.NoError(t, os.WriteFile(path, []byte("[chains]\n"), 0o600))

@@ -822,6 +822,66 @@ func TestManager_Stop_AfterStart_Succeeds(t *testing.T) {
 	assert.Contains(t, err.Error(), "already stopped")
 }
 
+func TestManager_Stop_CancelsInFlightJobStart(t *testing.T) {
+	t.Parallel()
+
+	jdClient := newChanClient(t)
+	jdClient.EXPECT().Connect(mock.Anything).RunAndReturn(func(ctx context.Context) error {
+		<-ctx.Done()
+		return ctx.Err()
+	})
+	jdClient.EXPECT().Close().Return(nil)
+
+	jobStore := mocks.NewMockStoreInterface(t)
+	jobStore.EXPECT().LoadJob(mock.Anything).Return(nil, store.ErrNoJob)
+	jobStore.EXPECT().SavePendingJob(mock.Anything, "proposal-1", int64(1), "spec").Return(nil)
+
+	jobStartCalled := make(chan struct{})
+	jobStartErr := make(chan error, 1)
+	runner := mocks.NewMockJobRunner(t)
+	runner.EXPECT().StartJob(mock.Anything, "spec").RunAndReturn(func(ctx context.Context, _ string) error {
+		close(jobStartCalled)
+		<-ctx.Done()
+		jobStartErr <- ctx.Err()
+		return ctx.Err()
+	})
+
+	m, err := NewManager(Config{
+		JDClient: jdClient,
+		JobStore: jobStore,
+		Runner:   runner,
+		Logger:   logger.Test(t),
+	})
+	require.NoError(t, err)
+	m.jobStartTimeout = time.Minute
+	require.NoError(t, m.Start(context.Background()))
+
+	jdClient.proposalCh <- &pb.ProposeJobRequest{Id: "proposal-1", Version: 1, Spec: "spec"}
+	select {
+	case <-jobStartCalled:
+	case <-time.After(2 * time.Second):
+		t.Fatal("job start was not called")
+	}
+
+	stopErr := make(chan error, 1)
+	go func() {
+		stopErr <- m.Stop()
+	}()
+
+	select {
+	case err := <-jobStartErr:
+		require.ErrorIs(t, err, context.Canceled)
+	case <-time.After(2 * time.Second):
+		t.Fatal("in-flight job start was not canceled")
+	}
+	select {
+	case err := <-stopErr:
+		require.NoError(t, err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("manager did not stop after canceling job start")
+	}
+}
+
 func TestManager_Start_StartOncePreventsSecondStart(t *testing.T) {
 	t.Parallel()
 

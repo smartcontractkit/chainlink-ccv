@@ -70,7 +70,7 @@ func (s *infoServer) Start(ctx context.Context) error {
 }
 
 func (s *infoServer) handleHealth(w http.ResponseWriter, r *http.Request) {
-	s.lggr.Infow("health request received")
+	s.lggr.Debugw("health request received")
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	if err := json.NewEncoder(w).Encode(map[string]string{"status": "ok"}); err != nil {
@@ -95,7 +95,7 @@ func (s *infoServer) handleApplicationReady(w http.ResponseWriter, _ *http.Reque
 }
 
 func (s *infoServer) handleGetKeys(w http.ResponseWriter, r *http.Request) {
-	s.lggr.Infow("get keys request received")
+	s.lggr.Debugw("get keys request received")
 
 	// Parse body, should be JSON with KeyNames field.
 	body, err := io.ReadAll(r.Body)
@@ -111,7 +111,7 @@ func (s *infoServer) handleGetKeys(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.lggr.Infow("get keys request parsed", "request", req)
+	s.lggr.Debugw("get keys request parsed", "request", req)
 
 	keysResponse, err := s.keyStore.GetKeys(r.Context(), req)
 	if err != nil {
@@ -119,7 +119,7 @@ func (s *infoServer) handleGetKeys(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	s.lggr.Infow("get keys response", "response", keysResponse)
+	s.lggr.Debugw("get keys response", "response", keysResponse)
 
 	// Return the keys in the response.
 	w.Header().Set("Content-Type", "application/json")

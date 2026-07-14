@@ -101,7 +101,7 @@ type Manager struct {
 	state         State
 	currentJob    *store.Job
 	pendingJob    *store.Job // set when a proposal was saved but StartJob has not succeeded yet
-	shutdownCh    chan struct{}
+	shutdownCh    services.StopChan
 	wg            sync.WaitGroup
 	jdConnectedCh chan struct{}      // buffered 1; sent when async Connect succeeds
 	connectCancel context.CancelFunc // cancels the connect goroutine's context when Stop() is called
@@ -136,7 +136,7 @@ func NewManager(cfg Config) (*Manager, error) {
 		controlPlaneTimeout: controlPlaneTimeout,
 		jobStartTimeout:     defaultJobStartTimeout,
 		state:               StateWaitingForJob,
-		shutdownCh:          make(chan struct{}),
+		shutdownCh:          make(services.StopChan),
 		jdConnectedCh:       make(chan struct{}, 1),
 	}, nil
 }
@@ -399,8 +399,9 @@ func (m *Manager) handleProposal(proposal *pb.ProposeJobRequest) (retErr error) 
 
 // startJob gives application startup its own deadline. Proposal persistence and JD acknowledgements
 // use the shorter control-plane budget and must not consume time needed for service initialization.
+// Closing shutdownCh cancels an in-flight start so Manager.Stop does not wait for the full deadline.
 func (m *Manager) startJob(spec string) error {
-	ctx, cancel := context.WithTimeout(context.Background(), m.jobStartTimeout)
+	ctx, cancel := m.shutdownCh.CtxWithTimeout(m.jobStartTimeout)
 	defer cancel()
 	return m.runner.StartJob(ctx, spec)
 }
