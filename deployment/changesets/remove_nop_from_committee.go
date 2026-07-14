@@ -185,7 +185,7 @@ func RemoveNOPOffchain() deployment.ChangeSetV2[RemoveNOPOffchainInput] {
 }
 
 // revokeVerifierJobsForNOP collects all verifier jobs scoped to committeeQualifier for
-// nopAlias, revokes CL-mode ones via JD, and removes all of them from the DataStore.
+// nopAlias, revokes them via JD, and removes all of them from the DataStore.
 func revokeVerifierJobsForNOP(
 	e deployment.Environment,
 	nopAlias shared.NOPAlias,
@@ -211,17 +211,17 @@ func revokeVerifierJobsForNOP(
 		return nil
 	}
 
-	// Revoke CL-mode jobs that haven't already been revoked.
-	clJobsToRevoke := make([]shared.JobInfo, 0, len(orphanedJobs))
+	// Revoke jobs that haven't already been revoked, regardless of node mode.
+	jobsToRevoke := make([]shared.JobInfo, 0, len(orphanedJobs))
 	for _, j := range orphanedJobs {
-		if j.Mode == shared.NOPModeCL && j.LatestStatus() != shared.JobProposalStatusRevoked {
-			clJobsToRevoke = append(clJobsToRevoke, j)
+		if j.LatestStatus() != shared.JobProposalStatusRevoked {
+			jobsToRevoke = append(jobsToRevoke, j)
 		}
 	}
 
-	if len(clJobsToRevoke) > 0 {
+	if len(jobsToRevoke) > 0 {
 		if e.Offchain == nil {
-			return fmt.Errorf("offchain client required to revoke CL-mode jobs for NOP %q but e.Offchain is nil", nopAlias)
+			return fmt.Errorf("offchain client required to revoke jobs for NOP %q but e.Offchain is nil", nopAlias)
 		}
 		revokeReport, err := operations.ExecuteOperation(
 			e.OperationsBundle,
@@ -232,7 +232,7 @@ func revokeVerifierJobsForNOP(
 				NodeIDs:  e.NodeIDs,
 			},
 			revoke_jobs.RevokeJobsInput{
-				Jobs: clJobsToRevoke,
+				Jobs: jobsToRevoke,
 			},
 		)
 		if err != nil {

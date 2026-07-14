@@ -165,10 +165,14 @@ func NewTokenVerifier(in *TokenVerifierInput, blockchainOutputs []*blockchain.Ou
 		return nil, fmt.Errorf("failed to write token verifier app config to file: %w", err)
 	}
 
-	// Generate and write the bootstrap (operator) config, carrying monitoring from the generated config.
-	// The token verifier runs in static-TOML mode with no infra, so only the non-secret monitoring
-	// section is written (no secrets file); validation correctly skips infra checks.
-	bootstrapConfig, err := toml.Marshal(bootstrap.NonSecretConfig{Monitoring: in.Bootstrap.Monitoring})
+	// Generate and write the bootstrap (operator) config. The token verifier runs in local app-config
+	// mode with no infra ([db]/[keystore]), so the non-secret config carries only the mode selection,
+	// the app-config path, and monitoring (no secrets file); validation correctly skips infra checks.
+	bootstrapConfig, err := toml.Marshal(bootstrap.NonSecretConfig{
+		AppConfigMode:      bootstrap.AppConfigModeLocal,
+		LocalAppConfigPath: "/etc/token-verifier/config.toml",
+		Monitoring:         in.Bootstrap.Monitoring,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate bootstrap config for token verifier: %w", err)
 	}
@@ -193,12 +197,10 @@ func NewTokenVerifier(in *TokenVerifierInput, blockchainOutputs []*blockchain.Ou
 		return nil, fmt.Errorf("failed to write token verifier secrets to file: %w", err)
 	}
 
+	// The app-config path is delivered via the bootstrap config's local_app_config_path (set above),
+	// not an env var; only the bootstrap config path itself is pointed at via env.
 	envVars := make(map[string]string)
-	envVars["TOKEN_VERIFIER_CONFIG_PATH"] = "/etc/token-verifier-app-config.toml"
 	envVars["BOOTSTRAPPER_CONFIG_PATH"] = bootstrap.DefaultConfigPath
-	if lvl := os.Getenv("LOG_LEVEL"); lvl != "" {
-		envVars["LOG_LEVEL"] = lvl
-	}
 
 	/* Service */
 	req := testcontainers.ContainerRequest{
@@ -228,7 +230,7 @@ func NewTokenVerifier(in *TokenVerifierInput, blockchainOutputs []*blockchain.Ou
 
 	req.Mounts = testcontainers.Mounts()
 	req.Mounts = append(req.Mounts,
-		testcontainers.BindMount(appConfigFilePath, "/etc/token-verifier-app-config.toml"),
+		testcontainers.BindMount(appConfigFilePath, "/etc/token-verifier/config.toml"),
 		testcontainers.BindMount(bootstrapConfigFilePath, bootstrap.DefaultConfigPath),
 		testcontainers.BindMount(verifierSecretsFilePath, vsecrets.DefaultTokenVerifierSecretsPath),
 	)

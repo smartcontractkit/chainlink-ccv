@@ -10,7 +10,6 @@ import (
 	"time"
 
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
-	"go.uber.org/zap/zapcore"
 
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 
@@ -39,16 +38,10 @@ func main() {
 		cmd.RunCCVCLI(os.Args[1:], vsecrets.TokenVerifierSecretsPathEnv, vsecrets.DefaultTokenVerifierSecretsPath)
 		return
 	}
-	configPath := os.Getenv("TOKEN_VERIFIER_CONFIG_PATH")
-	if configPath == "" {
-		configPath = "/etc/config.toml"
-	}
 
 	err := bootstrap.Run(
 		"TokenVerifier",
 		&tokenVerifierFactory{},
-		bootstrap.WithTOMLAppConfig(configPath),
-		bootstrap.WithLogLevelFromEnv(zapcore.InfoLevel),
 	)
 	if err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "Failed to run token verifier: %v\n", err)

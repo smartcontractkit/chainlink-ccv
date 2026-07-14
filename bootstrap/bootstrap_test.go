@@ -3,7 +3,11 @@ package bootstrap
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net"
 	"os"
+	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -146,39 +150,37 @@ var _ ServiceFactory = (*spyServiceFactoryDummy)(nil)
 
 // --- WithKey / NewBootstrapper key tests ---
 
-func TestNewBootstrapper_WithKey_Defaults(t *testing.T) {
+func TestNewBootstrapper_CSAAutoInjected(t *testing.T) {
 	t.Parallel()
 
-	// Create an empty temp TOML file so WithTOMLAppConfig succeeds without hitting JD config.
-	f, err := os.CreateTemp(t.TempDir(), "*.toml")
+	// A local-mode bootstrap config avoids hitting JD config at construction.
+	cfgPath, secretsPath := writeBootstrapConfigFiles(t, localBootstrapTOML("/nonexistent/app.toml", ""))
+	b, err := NewBootstrapper("test", &mockServiceFactory{},
+		withBootstrapperConfigPath(cfgPath),
+		withBootstrapperSecretsPath(secretsPath),
+	)
 	require.NoError(t, err)
-	require.NoError(t, f.Close())
 
-	b, err := NewBootstrapper("test", &mockServiceFactory{}, WithTOMLAppConfig(f.Name()))
-	require.NoError(t, err)
-
-	// No WithKey options → the three original defaults must be applied.
-	require.Len(t, b.keys, 3)
+	// No WithKey options → only the default CSA key is auto-injected (JD auth needs it). There is no
+	// longer a default signing-key set; apps declare every signing key explicitly via WithKey.
+	require.Len(t, b.keys, 1)
 	require.Equal(t, DefaultCSAKeyName, b.keys[0].name)
-	require.Equal(t, defaultECDSASigningKeyName, b.keys[1].name)
-	require.Equal(t, defaultEdDSASigningKeyName, b.keys[2].name)
+	require.Equal(t, "csa", b.keys[0].purpose)
 }
 
 func TestNewBootstrapper_WithKey_Explicit(t *testing.T) {
 	t.Parallel()
 
-	f, err := os.CreateTemp(t.TempDir(), "*.toml")
-	require.NoError(t, err)
-	require.NoError(t, f.Close())
-
+	cfgPath, secretsPath := writeBootstrapConfigFiles(t, localBootstrapTOML("/nonexistent/app.toml", ""))
 	b, err := NewBootstrapper("test", &mockServiceFactory{},
-		WithTOMLAppConfig(f.Name()),
+		withBootstrapperConfigPath(cfgPath),
+		withBootstrapperSecretsPath(secretsPath),
 		WithKey("my_csa", "csa", keystore.Ed25519),
 		WithKey("my_signing", "signing", keystore.ECDSA_S256),
 	)
 	require.NoError(t, err)
 
-	// Explicit WithKey options must suppress defaults and preserve order.
+	// An explicit CSA WithKey suppresses the CSA auto-injection, and declaration order is preserved.
 	require.Len(t, b.keys, 2)
 	require.Equal(t, "my_csa", b.keys[0].name)
 	require.Equal(t, "my_signing", b.keys[1].name)
@@ -310,7 +312,7 @@ count = 42`
 	})
 }
 
-func TestBootstrapper_Stop_StaticConfig_ClosesAccessors(t *testing.T) {
+func TestBootstrapper_Stop_LocalKeystoreless_ClosesAccessors(t *testing.T) {
 	t.Parallel()
 	acc := mocks.NewMockAccessor(t)
 	acc.EXPECT().Close().Return(nil).Once()
@@ -324,10 +326,13 @@ func TestBootstrapper_Stop_StaticConfig_ClosesAccessors(t *testing.T) {
 			return nil
 		},
 	}
-	f, err := os.CreateTemp(t.TempDir(), "*.toml")
-	require.NoError(t, err)
-	require.NoError(t, f.Close())
-	b, err := NewBootstrapper("t", fac, WithTOMLAppConfig(f.Name()))
+	// Local mode with no [db]/[keystore] bootstrap config → keystore-less start (like the token verifier).
+	appPath := writeAppConfigFile(t, "")
+	cfgPath, secretsPath := writeBootstrapConfigFiles(t, localBootstrapTOML(appPath, ""))
+	b, err := NewBootstrapper("t", fac,
+		withBootstrapperConfigPath(cfgPath),
+		withBootstrapperSecretsPath(secretsPath),
+	)
 	require.NoError(t, err)
 	require.NoError(t, b.Start(t.Context()))
 	require.NotNil(t, b.accCloser)
@@ -453,6 +458,224 @@ func TestBuildUpdateNodeRequest(t *testing.T) {
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "not implemented")
 	})
+}
+
+// --- mode resolution tests ---
+
+// writeBootstrapConfigFiles writes contents to a bootstrap config.toml under a temp dir and returns
+// its path plus a (deliberately nonexistent) secrets path, so the optional secrets overlay is
+// skipped regardless of what exists on the host. Parallel-safe (no env vars).
+func writeBootstrapConfigFiles(t *testing.T, contents string) (cfgPath, secretsPath string) {
+	t.Helper()
+	dir := t.TempDir()
+	cfgPath = filepath.Join(dir, "config.toml")
+	require.NoError(t, os.WriteFile(cfgPath, []byte(contents), 0o600))
+	return cfgPath, filepath.Join(dir, "no-secrets.toml")
+}
+
+// writeAppConfigFile writes an app-config TOML under a temp dir and returns its path.
+func writeAppConfigFile(t *testing.T, contents string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "app.toml")
+	require.NoError(t, os.WriteFile(path, []byte(contents), 0o600))
+	return path
+}
+
+// localBootstrapTOML builds a local-mode bootstrap config: app_config_mode + local_app_config_path,
+// plus [db]/[keystore] when dbURL is non-empty (so the keystore initializes).
+func localBootstrapTOML(appConfigPath, dbURL string) string {
+	s := "app_config_mode = \"" + string(AppConfigModeLocal) + "\"\n" +
+		"local_app_config_path = \"" + appConfigPath + "\"\n"
+	if dbURL != "" {
+		s += "[db]\nurl = \"" + dbURL + "\"\n[keystore]\npassword = \"testpassword\"\n"
+	}
+	return s
+}
+
+func TestNewBootstrapper_ModeResolution(t *testing.T) {
+	t.Parallel()
+
+	t.Run("app_config_mode=local_app_config resolves to local mode", func(t *testing.T) {
+		t.Parallel()
+		// A non-connectable DB URL is fine: NewBootstrapper only validates presence; the connection
+		// happens in Start.
+		cfgPath, secretsPath := writeBootstrapConfigFiles(t, localBootstrapTOML("/etc/myapp/app.toml", "postgres://localhost:5432/db"))
+		b, err := NewBootstrapper("t", &mockServiceFactory{},
+			withBootstrapperConfigPath(cfgPath),
+			withBootstrapperSecretsPath(secretsPath),
+		)
+		require.NoError(t, err)
+		require.Equal(t, AppConfigModeLocal, b.mode)
+		require.Equal(t, "/etc/myapp/app.toml", b.localConfigPath)
+	})
+
+	t.Run("omitted app_config_mode defaults to JD", func(t *testing.T) {
+		t.Parallel()
+		// A config with no app_config_mode and no [jd] resolves to JD and fails JD validation — proof
+		// that the default is JD (a local default would have passed, since local ignores [jd]).
+		cfgPath, secretsPath := writeBootstrapConfigFiles(t, "[db]\nurl = \"postgres://localhost:5432/db\"\n[keystore]\npassword = \"x\"\n")
+		_, err := NewBootstrapper("t", &mockServiceFactory{},
+			withBootstrapperConfigPath(cfgPath),
+			withBootstrapperSecretsPath(secretsPath),
+		)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "failed to validate 'jd' section")
+	})
+
+	t.Run("local mode requires local_app_config_path", func(t *testing.T) {
+		t.Parallel()
+		cfgPath, secretsPath := writeBootstrapConfigFiles(t, "app_config_mode = \"local_app_config\"\n")
+		_, err := NewBootstrapper("t", &mockServiceFactory{},
+			withBootstrapperConfigPath(cfgPath),
+			withBootstrapperSecretsPath(secretsPath),
+		)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "local_app_config_path")
+	})
+
+	t.Run("invalid app_config_mode errors", func(t *testing.T) {
+		t.Parallel()
+		cfgPath, secretsPath := writeBootstrapConfigFiles(t, "app_config_mode = \"bogus\"\n")
+		_, err := NewBootstrapper("t", &mockServiceFactory{},
+			withBootstrapperConfigPath(cfgPath),
+			withBootstrapperSecretsPath(secretsPath),
+		)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "app_config_mode")
+	})
+}
+
+// TestBootstrapper_LocalMode_StartStop drives the full local-mode lifecycle against a real Postgres
+// keystore: Start reads the local app-config file and invokes the factory with a non-nil keystore,
+// and Stop tears it down.
+func TestBootstrapper_LocalMode_StartStop(t *testing.T) {
+	dbURL, cleanup := setupBootstrapTestDB(t)
+	defer cleanup()
+
+	appPath := writeAppConfigFile(t, "name = \"hello\"\ncount = 7\n")
+	cfgPath, secretsPath := writeBootstrapConfigFiles(t, localBootstrapTOML(appPath, dbURL))
+
+	var (
+		started     bool
+		stopped     bool
+		gotKeystore keystore.Keystore
+		gotCfg      dummyAppConfig
+	)
+	fac := &spyServiceFactoryDummy{
+		startFn: func(_ context.Context, cfg dummyAppConfig, deps ServiceDeps) error {
+			started = true
+			gotKeystore = deps.Keystore
+			gotCfg = cfg
+			return nil
+		},
+		stopFn: func(context.Context) error { stopped = true; return nil },
+	}
+
+	b, err := NewBootstrapper("local-test", fac,
+		withBootstrapperConfigPath(cfgPath),
+		withBootstrapperSecretsPath(secretsPath),
+	)
+	require.NoError(t, err)
+	require.Equal(t, AppConfigModeLocal, b.mode)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	require.NoError(t, b.Start(ctx))
+	require.True(t, started, "factory Start must be called in local mode")
+	require.NotNil(t, gotKeystore, "local mode with [db]+[keystore] must provide a keystore to the factory")
+	require.Equal(t, "hello", gotCfg.Name)
+	require.Equal(t, 7, gotCfg.Count)
+	require.NotNil(t, b.accCloser)
+
+	require.NoError(t, b.Stop(ctx))
+	require.True(t, stopped, "factory Stop must be called on Stop")
+	require.Nil(t, b.accCloser, "accCloser must be cleared after Stop")
+}
+
+func TestLocalConfigFileReady(t *testing.T) {
+	t.Parallel()
+
+	t.Run("absent file is not ready", func(t *testing.T) {
+		t.Parallel()
+		require.False(t, localConfigFileReady(filepath.Join(t.TempDir(), "missing.toml")))
+	})
+
+	t.Run("empty file is not ready", func(t *testing.T) {
+		t.Parallel()
+		require.False(t, localConfigFileReady(writeAppConfigFile(t, "")))
+	})
+
+	t.Run("directory is not ready", func(t *testing.T) {
+		t.Parallel()
+		require.False(t, localConfigFileReady(t.TempDir()))
+	})
+
+	t.Run("non-empty file is ready", func(t *testing.T) {
+		t.Parallel()
+		require.True(t, localConfigFileReady(writeAppConfigFile(t, "name = \"x\"\n")))
+	})
+}
+
+// freeTCPPort returns a currently-free localhost TCP port. A small race window exists between close
+// and reuse, acceptable for a test.
+func freeTCPPort(t *testing.T) int {
+	t.Helper()
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	port := l.Addr().(*net.TCPAddr).Port
+	require.NoError(t, l.Close())
+	return port
+}
+
+// TestBootstrapper_LocalMode_WaitsForConfig exercises the wait-for-config path: local mode starts with
+// the app-config file absent, so Start returns immediately with the keystore + info server up and the
+// factory not yet started. Once the file is written, the background watcher starts the factory.
+func TestBootstrapper_LocalMode_WaitsForConfig(t *testing.T) {
+	dbURL, cleanup := setupBootstrapTestDB(t)
+	defer cleanup()
+
+	// Point local_app_config_path at a file that does not exist yet.
+	appPath := filepath.Join(t.TempDir(), "app.toml")
+	port := freeTCPPort(t)
+	cfg := fmt.Sprintf(
+		"app_config_mode = %q\nlocal_app_config_path = %q\n[server]\nlisten_port = %d\n[db]\nurl = %q\n[keystore]\npassword = \"testpassword\"\n",
+		AppConfigModeLocal, appPath, port, dbURL,
+	)
+	cfgPath, secretsPath := writeBootstrapConfigFiles(t, cfg)
+
+	var started atomic.Bool
+	var gotKeystore atomic.Bool
+	fac := &spyServiceFactoryDummy{
+		startFn: func(_ context.Context, _ dummyAppConfig, deps ServiceDeps) error {
+			gotKeystore.Store(deps.Keystore != nil)
+			started.Store(true)
+			return nil
+		},
+	}
+
+	b, err := NewBootstrapper("wait-test", fac,
+		withBootstrapperConfigPath(cfgPath),
+		withBootstrapperSecretsPath(secretsPath),
+	)
+	require.NoError(t, err)
+	require.Equal(t, AppConfigModeLocal, b.mode)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+
+	// Start returns immediately without the factory having started (config file is absent).
+	require.NoError(t, b.Start(ctx))
+	require.False(t, started.Load(), "factory must not start until the app config file appears")
+	require.NotNil(t, b.infoServer, "info server must be up while waiting for the app config")
+
+	// Deliver the config; the watcher (poll interval 2s) should start the factory shortly after.
+	require.NoError(t, os.WriteFile(appPath, []byte("name = \"hello\"\ncount = 7\n"), 0o600))
+	require.Eventually(t, started.Load, 30*time.Second, 500*time.Millisecond,
+		"factory must start once the app config file appears")
+	require.True(t, gotKeystore.Load(), "local mode with [db]+[keystore] must provide a keystore to the factory")
+
+	require.NoError(t, b.Stop(ctx))
 }
 
 func TestChainTypeFromString(t *testing.T) {

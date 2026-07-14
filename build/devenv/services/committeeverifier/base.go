@@ -37,6 +37,14 @@ const (
 	DefaultVerifierMode    = services.Standalone
 
 	DefaultVerifierDBImage = "postgres:16-alpine"
+
+	// localAppConfigContainerPath is where the local-mode app config lives inside the container (written
+	// into the bootstrap config as local_app_config_path). It sits directly under /etc (which always
+	// exists) and is delivered by copying the file into the running container (see DeliverLocalAppConfig)
+	// rather than via a bind mount: post-startup delivery then works identically on every Docker host
+	// (local, CI, remote daemon), where host-side writes into a bind-mounted directory do not reliably
+	// propagate into an already-running container.
+	localAppConfigContainerPath = "/etc/committee-verifier-app.toml"
 )
 
 var DefaultVerifierDBConnectionString = fmt.Sprintf("postgresql://%s:%s@localhost:%d/%s?sslmode=disable",
@@ -113,6 +121,43 @@ type Input struct {
 	// GeneratedJobSpecs[NodeIndex % numAggregators].
 	// Used in standalone mode. Set by generateVerifierJobSpecs in environment.go.
 	GeneratedConfig string `toml:"-"`
+
+	// LocalAppConfig is the plain app-config TOML mounted into the container in local mode
+	// (services.Local) — the committee verifier's commit.Config with blockchain_infos included, the
+	// same content JD would ship in a job's appConfig, no envelope. Callers build it (base.go cannot
+	// build it itself because that needs the chainreg registry, which imports this package).
+	//
+	// It is optional in local mode: when empty, the container starts with no app config and the
+	// bootstrapper serves its signing keys while waiting for the file to appear; the caller delivers the
+	// config later by writing Output.LocalAppConfigHostPath (see DeliverLocalAppConfig). This is how the
+	// no-JD devenv path (app_config_source = "local") mirrors JD's deliver-config-after-connect flow:
+	// the verifier's signer must be readable before contracts are configured, but its config isn't
+	// known until after they are deployed.
+	LocalAppConfig string `toml:"-"`
+}
+
+// configWithBlockchainInfos is the committee verifier's app config plus the blockchain_infos section
+// (RPC URLs etc.). Standalone/local verifiers need blockchain_infos inlined because, unlike CL-mode
+// verifiers, they have no CL node to source chain connection info from.
+type configWithBlockchainInfos struct {
+	commit.Config
+	BlockchainInfos map[string]any `toml:"blockchain_infos"`
+}
+
+// BuildVerifierAppConfigWithBlockchainInfos parses the verifier config out of a job spec and
+// re-marshals it with blockchain_infos included, returning the plain app-config TOML — the exact
+// content JD ships as a job's appConfig, with no job-spec envelope. This is what a local-mode
+// bootstrapper reads from its mounted config file.
+func BuildVerifierAppConfigWithBlockchainInfos(spec bootstrap.JobSpec, blockchainInfos map[string]any) (string, error) {
+	var cfg commit.Config
+	if err := spec.GetAppConfig(&cfg); err != nil {
+		return "", fmt.Errorf("failed to parse verifier config from job spec: %w", err)
+	}
+	innerConfigBytes, err := toml.Marshal(configWithBlockchainInfos{Config: cfg, BlockchainInfos: blockchainInfos})
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal enhanced config: %w", err)
+	}
+	return string(innerConfigBytes), nil
 }
 
 // RebuildVerifierJobSpecWithBlockchainInfos takes a job spec and rebuilds it with blockchain infos
@@ -120,29 +165,13 @@ type Input struct {
 // connection information (CL nodes get this from their own chain config).
 // TODO: we stick with the job spec so that there isn't special logic for standalone verifiers.
 func RebuildVerifierJobSpecWithBlockchainInfos(spec bootstrap.JobSpec, blockchainInfos map[string]any) (string, error) {
-	var cfg commit.Config
-	if err := spec.GetAppConfig(&cfg); err != nil {
-		return "", fmt.Errorf("failed to parse verifier config from job spec: %w", err)
-	}
-
-	type configWithBlockchainInfos struct {
-		commit.Config
-		BlockchainInfos map[string]any `toml:"blockchain_infos"`
-	}
-
-	configWithInfos := configWithBlockchainInfos{
-		Config:          cfg,
-		BlockchainInfos: blockchainInfos,
-	}
-
-	// Marshal the enhanced config
-	innerConfigBytes, err := toml.Marshal(configWithInfos)
+	innerConfig, err := BuildVerifierAppConfigWithBlockchainInfos(spec, blockchainInfos)
 	if err != nil {
-		return "", fmt.Errorf("failed to marshal enhanced config: %w", err)
+		return "", err
 	}
 
 	// Rebuild the job spec with the enhanced config
-	spec.AppConfig = string(innerConfigBytes)
+	spec.AppConfig = innerConfig
 	outerSpecBytes, err := toml.Marshal(spec)
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal job spec: %w", err)
@@ -167,6 +196,11 @@ type Output struct {
 
 	// JDNodeID is set after the bootstrap is registered with JD.
 	JDNodeID string `toml:"jd_node_id"`
+
+	// Container is the running verifier container, retained in local mode so the app config can be
+	// copied in after startup (DeliverLocalAppConfig) — the no-JD path delivers config once contracts
+	// are deployed. Not serialized. Nil outside local mode.
+	Container testcontainers.Container `toml:"-"`
 }
 
 func ApplyDefaults(in Input) Input {
@@ -211,7 +245,8 @@ func New(in *Input, outputs []*blockchain.Output, jdInfra *jobs.JDInfrastructure
 	}
 	ctx := context.Background()
 
-	if jdInfra == nil {
+	// Local mode runs without a Job Distributor, so jdInfra is not required there.
+	if in.Mode != services.Local && jdInfra == nil {
 		return nil, fmt.Errorf("JD infrastructure is not set")
 	}
 
@@ -224,11 +259,9 @@ func New(in *Input, outputs []*blockchain.Output, jdInfra *jobs.JDInfrastructure
 }
 
 func launchVerifier(ctx context.Context, in *Input, outputs []*blockchain.Output, jdInfra *jobs.JDInfrastructure, modifiers map[string]ReqModifier) (*Output, error) {
-	// Get the JD server CSA public key
-	jdCSAKey, err := jobs.GetJDCSAPublicKey(ctx, jdInfra.OffchainClient)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get JD server CSA public key: %w", err)
-	}
+	// local mode runs without JD: the app config is delivered via a mounted job-spec file rather than
+	// a JD job proposal, so all JD wiring below is skipped.
+	local := in.Mode == services.Local
 
 	bootstrapInput := in.Bootstrap
 	dbContainer, err := createDBContainer(ctx, in, in.ChainFamily)
@@ -236,12 +269,25 @@ func launchVerifier(ctx context.Context, in *Input, outputs []*blockchain.Output
 		return nil, fmt.Errorf("failed to create verifier database: %w", err)
 	}
 
-	// Update bootstrap config w/ the database and JD info.
+	// Update bootstrap config w/ the keystore/ORM database URL (needed in every mode).
 	// TODO: make this easier? All standalone setups will have to do the same thing.
 	bootstrapInput.DB.URL = fmt.Sprintf("postgresql://%s:%s@%s:5432/%s?sslmode=disable",
 		in.ContainerName, in.ContainerName, dbContainerName(in.DB.Name, in.ChainFamily), services.DefaultBootstrapDBName)
-	bootstrapInput.JD.ServerCSAPublicKey = jdCSAKey
-	bootstrapInput.JD.ServerWSRPCURL = jdInfra.JDOutput.InternalWSRPCUrl
+
+	if !local {
+		// Point the bootstrapper at JD. In local mode [jd] is left blank (omitted by omitempty and
+		// not required by the loader's local-mode validation).
+		jdCSAKey, err := jobs.GetJDCSAPublicKey(ctx, jdInfra.OffchainClient)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get JD server CSA public key: %w", err)
+		}
+		bootstrapInput.JD.ServerCSAPublicKey = jdCSAKey
+		bootstrapInput.JD.ServerWSRPCURL = jdInfra.JDOutput.InternalWSRPCUrl
+	} else {
+		// Local mode: the bootstrap config declares the mode and where to read the app config from.
+		bootstrapInput.AppConfigMode = bootstrap.AppConfigModeLocal
+		bootstrapInput.LocalAppConfigPath = localAppConfigContainerPath
+	}
 
 	aggregatorSecrets, err := getAggregatorSecretEntries(in)
 	if err != nil {
@@ -258,11 +304,6 @@ func launchVerifier(ctx context.Context, in *Input, outputs []*blockchain.Output
 	verifierSecrets, err := services.GenerateVerifierSecrets(internalDBConnectionString, aggregatorSecrets)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate verifier secrets: %w", err)
-	}
-
-	envVars := make(map[string]string)
-	if lvl := os.Getenv("LOG_LEVEL"); lvl != "" {
-		envVars["LOG_LEVEL"] = lvl
 	}
 
 	// Register each matching chain family blockchain output as a chain the node has a signing identity on.
@@ -305,7 +346,11 @@ func launchVerifier(ctx context.Context, in *Input, outputs []*blockchain.Output
 		return nil, fmt.Errorf("failed to write verifier secrets to file: %w", err)
 	}
 
-	req, err := baseImageRequest(in, envVars, bootstrapConfigFilePath, bootstrapSecretsFilePath, verifierSecretsFilePath)
+	// In local mode the bootstrapper reads the app config from a file at local_app_config_path. It is
+	// delivered by copying it into the running container (below / DeliverLocalAppConfig), not via a bind
+	// mount, so the container boots serving keys and the config can arrive at launch (in.LocalAppConfig
+	// set) or later (no-JD path: once contracts are deployed and the config is known).
+	req, err := baseImageRequest(in, nil, bootstrapConfigFilePath, bootstrapSecretsFilePath, verifierSecretsFilePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create base image request: %w", err)
 	}
@@ -336,6 +381,15 @@ func launchVerifier(ctx context.Context, in *Input, outputs []*blockchain.Output
 	if err != nil {
 		return nil, fmt.Errorf("failed to start container: %w", err)
 	}
+
+	// Local mode with a config known at launch: copy it in now so the waiting bootstrapper starts the
+	// service. When no config is provided (no-JD path), it is delivered later via DeliverLocalAppConfig.
+	if local && in.LocalAppConfig != "" {
+		if err := services.CopyLocalAppConfigToContainer(ctx, c, localAppConfigContainerPath, in.LocalAppConfig); err != nil {
+			return nil, fmt.Errorf("failed to deliver local app config: %w", err)
+		}
+	}
+
 	host, err := c.Host(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get container host: %w", err)
@@ -381,8 +435,23 @@ func launchVerifier(ctx context.Context, in *Input, outputs []*blockchain.Output
 			in.ContainerName, in.ContainerName, dbMapped.Port(), services.DefaultBootstrapDBName),
 		BootstrapKeys: bootstrapKeys,
 	}
+	if local {
+		out.Container = c
+	}
 
 	return out, nil
+}
+
+// DeliverLocalAppConfig copies the app-config TOML into a running local-mode verifier container at
+// local_app_config_path, so the bootstrapper (which has been waiting with its keys exposed) picks it
+// up and starts the service. Copying into the container (rather than writing a bind-mounted host file)
+// makes post-startup delivery work on every Docker host. Used by the no-JD devenv path, which cannot
+// supply the config at launch because it depends on contract addresses deployed after the verifier is up.
+func DeliverLocalAppConfig(out *Output, appConfigTOML string) error {
+	if out == nil || out.Container == nil {
+		return fmt.Errorf("verifier output has no running container; was it launched in local mode?")
+	}
+	return services.CopyLocalAppConfigToContainer(context.Background(), out.Container, localAppConfigContainerPath, appConfigTOML)
 }
 
 func startContainer(ctx context.Context, req testcontainers.ContainerRequest) (testcontainers.Container, error) {
@@ -477,6 +546,8 @@ func baseImageRequest(in *Input, envVars map[string]string, bootstrapConfigFileP
 		verifierSecretsFilePath,
 		vsecrets.DefaultCommitteeVerifierSecretsPath,
 	))
+	// Note: in local mode the app config is delivered by copying it into the running container
+	// (see DeliverLocalAppConfig), not via a bind mount.
 
 	// Note: identical code to aggregator.go/executor.go -- will indexer be identical as well?
 	if in.SourceCodePath != "" {

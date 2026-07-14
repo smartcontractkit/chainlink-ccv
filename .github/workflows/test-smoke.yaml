@@ -97,6 +97,10 @@ jobs:
             pattern: TestE2ESmoke_JobQueue
             profile: standard.profile
             timeout: 10m
+          - name: TestE2ESmoke_RemoveRemotePool
+            pattern: TestE2ESmoke_RemoveRemotePool
+            profile: standard.profile
+            timeout: 10m
           - name: TestE2ESmoke_Replay
             pattern: TestE2ESmoke_Replay
             profile: standard.profile
@@ -120,6 +124,10 @@ jobs:
           - name: Phased TestE2ESmoke_Basic
             pattern: TestE2ESmoke_Basic
             profile: phased.profile
+            timeout: 15m
+          - name: Local NoJD TestE2ESmoke_Basic
+            pattern: TestE2ESmoke_Basic
+            profile: local.profile
             timeout: 15m
     steps:
       - name: Enable S3 Cache for Self-Hosted Runners

@@ -20,6 +20,7 @@ import (
 
 // Signer represents a participant in the commit verification process.
 type Signer struct {
+	// Address is the signer's chain-native address.
 	Address string `json:"address" toml:"address"`
 }
 
@@ -90,9 +91,12 @@ func (c *Committee) SetQuorumConfig(sourceSelector SourceSelector, quorumConfig 
 
 // QuorumConfig represents the configuration for a quorum of signers.
 type QuorumConfig struct {
-	SourceVerifierAddress string   `json:"sourceVerifierAddress" toml:"sourceVerifierAddress"`
-	Signers               []Signer `json:"signers"               toml:"signers"`
-	Threshold             uint8    `json:"threshold"             toml:"threshold"`
+	// SourceVerifierAddress is the source-chain commit verifier contract address for this quorum.
+	SourceVerifierAddress string `json:"sourceVerifierAddress" toml:"sourceVerifierAddress"`
+	// Signers is the set of signers whose signatures count toward this quorum.
+	Signers []Signer `json:"signers" toml:"signers"`
+	// Threshold is the minimum number of signer signatures required to reach quorum.
+	Threshold uint8 `json:"threshold" toml:"threshold"`
 	// sourceVerifierAddressParsed holds the parsed address, populated during validation.
 	sourceVerifierAddressParsed protocol.UnknownAddress
 }
@@ -110,18 +114,26 @@ const (
 
 // StorageConfig represents the configuration for the storage backend.
 type StorageConfig struct {
-	StorageType     StorageType     `toml:"type"`
-	ConnectionURL   string          `toml:"-"`
-	PageSize        int             `toml:"pageSize"`
-	MaxOpenConns    int             `toml:"maxOpenConns"`
-	MaxIdleConns    int             `toml:"maxIdleConns"`
+	// StorageType selects the storage backend; currently only "postgres".
+	StorageType   StorageType `toml:"type"`
+	ConnectionURL string      `toml:"-"`
+	// PageSize is the number of records fetched per page in paginated queries. Defaults to 100.
+	PageSize int `toml:"pageSize"`
+	// MaxOpenConns is the maximum number of open database connections. Defaults to 25.
+	MaxOpenConns int `toml:"maxOpenConns"`
+	// MaxIdleConns is the maximum number of idle database connections. Defaults to 5.
+	MaxIdleConns int `toml:"maxIdleConns"`
+	// ConnMaxLifetime is the maximum lifetime of a database connection. Defaults to 1h.
 	ConnMaxLifetime common.Duration `toml:"connMaxLifetime"`
+	// ConnMaxIdleTime is the maximum time a database connection may sit idle before being closed. Defaults to 5m.
 	ConnMaxIdleTime common.Duration `toml:"connMaxIdleTime"`
-	QueryTimeout    common.Duration `toml:"queryTimeout"`
+	// QueryTimeout bounds the duration of a single database query. Defaults to 10s.
+	QueryTimeout common.Duration `toml:"queryTimeout"`
 }
 
 // ServerConfig represents the configuration for the server.
 type ServerConfig struct {
+	// Address is the host:port the gRPC server listens on.
 	Address string `toml:"address"`
 	// RequestTimeout is the max duration for any GRPC request (default: 10s)
 	RequestTimeout time.Duration `toml:"requestTimeout"`
@@ -188,8 +200,10 @@ type OrphanRecoveryConfig struct {
 }
 
 type HealthCheckConfig struct {
-	Enabled bool   `toml:"enabled"`
-	Port    string `toml:"port"`
+	// Enabled controls whether the health-check HTTP server is started.
+	Enabled bool `toml:"enabled"`
+	// Port is the port the health-check HTTP server listens on. Defaults to 8080.
+	Port string `toml:"port"`
 }
 
 // AnonymousAuthConfig configures the anonymous authentication middleware.
@@ -378,22 +392,38 @@ type (
 
 // AggregatorConfig is the root configuration for the pb.
 type AggregatorConfig struct {
-	AggregatorID                                string                        `toml:"aggregatorID"`
-	GeneratedConfigPath                         string                        `toml:"generatedConfigPath"`
-	Committee                                   *Committee                    `toml:"committee"`
-	Server                                      ServerConfig                  `toml:"server"`
-	Storage                                     *StorageConfig                `toml:"storage"`
-	APIClients                                  []*ClientConfig               `toml:"clients"`
-	Aggregation                                 AggregationConfig             `toml:"aggregation"`
-	MessageDisablementRules                     MessageDisablementRulesConfig `toml:"messageDisablementRules"`
-	OrphanRecovery                              OrphanRecoveryConfig          `toml:"orphanRecovery"`
-	RateLimiting                                RateLimitingConfig            `toml:"rateLimiting"`
-	HealthCheck                                 HealthCheckConfig             `toml:"healthCheck"`
-	AnonymousAuth                               AnonymousAuthConfig           `toml:"anonymousAuth"`
-	Monitoring                                  MonitoringConfig              `toml:"monitoring"`
-	PyroscopeURL                                string                        `toml:"pyroscope_url"`
-	MaxMessageIDsPerBatch                       int                           `toml:"maxMessageIDsPerBatch"`
-	MaxCommitVerifierNodeResultRequestsPerBatch int                           `toml:"maxCommitVerifierNodeResultRequestsPerBatch"`
+	// AggregatorID uniquely identifies this aggregator instance; defaults to the hostname.
+	AggregatorID string `toml:"aggregatorID"`
+	// GeneratedConfigPath is an optional path to a generated config file merged over this one.
+	GeneratedConfigPath string `toml:"generatedConfigPath"`
+	// Committee defines the signer quorums and destination verifiers this aggregator trusts.
+	Committee *Committee `toml:"committee"`
+	// Server configures the gRPC server.
+	Server ServerConfig `toml:"server"`
+	// Storage configures the storage backend and its connection pool.
+	Storage *StorageConfig `toml:"storage"`
+	// APIClients declares the authenticated API clients and their credentials.
+	APIClients []*ClientConfig `toml:"clients"`
+	// Aggregation configures the signature-aggregation workers.
+	Aggregation AggregationConfig `toml:"aggregation"`
+	// MessageDisablementRules configures the message-disablement registry refresh.
+	MessageDisablementRules MessageDisablementRulesConfig `toml:"messageDisablementRules"`
+	// OrphanRecovery configures recovery of orphaned aggregation records.
+	OrphanRecovery OrphanRecoveryConfig `toml:"orphanRecovery"`
+	// RateLimiting configures per-client, per-group, and anonymous rate limits.
+	RateLimiting RateLimitingConfig `toml:"rateLimiting"`
+	// HealthCheck configures the health-check HTTP server.
+	HealthCheck HealthCheckConfig `toml:"healthCheck"`
+	// AnonymousAuth configures the anonymous authentication middleware.
+	AnonymousAuth AnonymousAuthConfig `toml:"anonymousAuth"`
+	// Monitoring configures logging, profiling, and telemetry.
+	Monitoring MonitoringConfig `toml:"monitoring"`
+	// PyroscopeURL is the Pyroscope server URL for continuous profiling; empty disables it.
+	PyroscopeURL string `toml:"pyroscope_url"`
+	// MaxMessageIDsPerBatch caps the message IDs per batch request (1-1000). Defaults to 100.
+	MaxMessageIDsPerBatch int `toml:"maxMessageIDsPerBatch"`
+	// MaxCommitVerifierNodeResultRequestsPerBatch caps verifier-result requests per batch (1-1000). Defaults to 100.
+	MaxCommitVerifierNodeResultRequestsPerBatch int `toml:"maxCommitVerifierNodeResultRequestsPerBatch"`
 }
 
 // APIKeyPairEnv is the legacy, backwards-compatible source of a client's inbound HMAC credential: it
@@ -401,7 +431,9 @@ type AggregatorConfig struct {
 // given client, by credentials supplied in the aggregator secrets file (see ResolveSecrets); it
 // remains the fallback for any client the file does not cover.
 type APIKeyPairEnv struct {
+	// APIKeyEnvVar is the name of the environment variable holding this client's HMAC API key.
 	APIKeyEnvVar string `toml:"apiKeyEnvVar"`
+	// SecretEnvVar is the name of the environment variable holding this client's HMAC secret.
 	SecretEnvVar string `toml:"secretEnvVar"`
 }
 
@@ -452,11 +484,16 @@ func (c *APIKeyPairEnv) Validate() error {
 }
 
 type ClientConfig struct {
+	// APIKeyPairs lists the env-var-backed HMAC credentials for this client (legacy source; superseded per-client by the secrets file).
 	APIKeyPairs []*APIKeyPairEnv `toml:"apiKeyPair"`
-	Groups      []string         `toml:"groups"`
-	Name        string           `toml:"name,omitempty"`
-	Enabled     bool             `toml:"enabled"`
-	ClientID    string           `toml:"clientId"`
+	// Groups lists the authorization groups this client belongs to, used for group rate limits.
+	Groups []string `toml:"groups"`
+	// Name is an optional human-readable label for this client; falls back to ClientID when empty.
+	Name string `toml:"name,omitempty"`
+	// Enabled controls whether this client may authenticate; disabled clients are rejected.
+	Enabled bool `toml:"enabled"`
+	// ClientID is the unique identifier for this API client.
+	ClientID string `toml:"clientId"`
 	// resolvedPairs holds credentials supplied for this client by the aggregator secrets file. When
 	// non-nil it replaces the env-var (APIKeyPairs) source entirely for this client.
 	// It is unexported so struct logging (e.g. the "Loaded configuration" log) can never
