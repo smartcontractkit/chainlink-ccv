@@ -16,6 +16,7 @@ import (
 
 func TransferTokens(t *testing.T, env *deployment.Environment, sel uint64, token, receiver string, amount int64) {
 	t.Helper()
+
 	require.True(t, common.IsHexAddress(receiver), "receiver address is not a valid hex address: %s", receiver)
 	require.True(t, common.IsHexAddress(token), "token address is not a valid hex address: %s", token)
 
