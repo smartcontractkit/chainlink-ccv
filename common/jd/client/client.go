@@ -31,6 +31,8 @@ type ClientInterface interface {
 	Close() error
 	// ApproveJob sends a job approval to the Job Distributor.
 	ApproveJob(ctx context.Context, id string, version int64) error
+	// RejectJob sends a job rejection to the Job Distributor.
+	RejectJob(ctx context.Context, id string, version int64) error
 	// UpdateNode pushes the node's chain configs (including signing keys) to the Job Distributor.
 	// JD replaces the full set of chain configs for this node on each call — send the complete list.
 	UpdateNode(ctx context.Context, req *pb.UpdateNodeRequest) error

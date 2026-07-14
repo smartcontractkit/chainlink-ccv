@@ -25,6 +25,7 @@ const (
 	stepRollbackRestart       = "rollback_restart"
 	stepAcceptPending         = "accept_pending"
 	stepApproveJob            = "approve_job"
+	stepRejectJob             = "reject_job"
 )
 
 // Metrics records JD lifecycle proposal outcomes.

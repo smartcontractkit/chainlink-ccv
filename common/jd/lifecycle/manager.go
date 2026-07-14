@@ -316,6 +316,18 @@ func (m *Manager) handleProposal(proposal *pb.ProposeJobRequest) (retErr error) 
 
 	// Start the new job
 	if err := m.runner.StartJob(ctx, proposal.Spec); err != nil {
+		if rejectErr := m.jdClient.RejectJob(ctx, proposal.Id, proposal.Version); rejectErr != nil {
+			m.lggr.Warnw("Failed to reject job with JD after StartJob failure",
+				"error", rejectErr,
+				"proposalID", proposal.Id,
+			)
+			m.metrics.IncStepError(ctx, stepRejectJob, wasRunning)
+		} else {
+			m.lggr.Infow("Rejected job with JD after StartJob failure",
+				"proposalID", proposal.Id,
+			)
+		}
+
 		if wasRunning {
 			m.metrics.IncStepError(ctx, stepStartReplacement, wasRunning)
 			return m.rollbackReplacement(ctx, proposal.Id, err, currentJob)
