@@ -403,11 +403,17 @@ func (b *Bootstrapper) startWithJDLifecycle(ctx context.Context) error {
 			return jdClient.UpdateNode(ctx, req)
 		}
 	}
+	jdMetrics, err := lifecycle.InitMetrics()
+	if err != nil {
+		b.lggr.Warnw("Failed to init JD lifecycle metrics; continuing without metrics", "error", err)
+		jdMetrics = nil
+	}
 	lifecycleManager, err := lifecycle.NewManager(lifecycle.Config{
 		JDClient:      jdClient,
 		JobStore:      jobstore.NewPostgresStore(db),
 		Runner:        jobRunner,
 		Logger:        logger.Named(b.lggr, "LifecycleManager"),
+		Metrics:       jdMetrics,
 		OnConnectHook: onConnectHook,
 	})
 	if err != nil {
