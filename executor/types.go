@@ -16,6 +16,28 @@ var (
 	NtpServer                = "time.google.com"
 )
 
+// InsufficientFundsCause is the value of the `cause` metric label used when a transmit
+// attempt is rejected for lack of native funds. It follows the cause-label pattern used
+// by the chainlink-framework TXM attempt-error metric.
+const InsufficientFundsCause = "insufficient_funds"
+
+// InsufficientFundsError indicates a transmit attempt was rejected because the
+// transmitter's sending address lacked native funds for gas. It carries the sending
+// address so the metric can be labelled by fromAddress (and cause). A transmitter
+// returns this so the executor can classify the failure without string-matching.
+type InsufficientFundsError struct {
+	// FromAddress is the transmitter's sending address that was underfunded.
+	FromAddress string
+	// Err is the underlying transmit error.
+	Err error
+}
+
+func (e *InsufficientFundsError) Error() string {
+	return fmt.Sprintf("insufficient funds on transmitter %s: %v", e.FromAddress, e.Err)
+}
+
+func (e *InsufficientFundsError) Unwrap() error { return e.Err }
+
 // ContractAddresses is a map of contract names across all chain selectors and their address.
 // Currently only one contract per chain per name is supported.
 type ContractAddresses map[string]map[uint64]string

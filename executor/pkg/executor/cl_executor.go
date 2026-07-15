@@ -257,6 +257,13 @@ func (cle *ChainlinkExecutor) HandleMessage(ctx context.Context, message protoco
 			cle.lggr.Warnw("skipping retry due to message encoding error", protocol.LogKeyMessageID, messageID, "error", err)
 			return false, err
 		}
+		var insufficientFundsErr *executor.InsufficientFundsError
+		if errors.As(err, &insufficientFundsErr) {
+			cle.monitoring.Metrics().IncrementBroadcastAttemptError(ctx, destinationChain, insufficientFundsErr.FromAddress, executor.InsufficientFundsCause)
+			cle.lggr.Warnw("execute transmit rejected: insufficient native funds on executor transmitter",
+				protocol.LogKeyMessageID, messageID, protocol.LogKeyDestChain, destinationChain,
+				"fromAddress", insufficientFundsErr.FromAddress, "error", err)
+		}
 		cle.lggr.Warnw("will retry execution due to failed ConvertAndWriteMessageToChain", protocol.LogKeyMessageID, messageID)
 		return true, fmt.Errorf("%w: %w", executor.ErrExecutionContended, err)
 	}
