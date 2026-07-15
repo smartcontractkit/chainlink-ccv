@@ -119,13 +119,14 @@ func LoadBlockchainInfo[T any](
 	lggr logger.Logger,
 	config map[string]T,
 ) chainaccess.Infos[T] {
-	// Use actual blockchain information from configuration
+	// The app config carries chain-enumeration metadata only. Family-local configuration supplies
+	// connection details to the accessor factory.
 	if len(config) == 0 {
-		lggr.Warnw("No blockchain information in config")
+		lggr.Warnw("No blockchain metadata in app config")
 		return nil
 	}
 	infos := chainaccess.Infos[T](config)
-	lggr.Infow("Using real blockchain information from environment",
+	lggr.Infow("Loaded blockchain metadata from app config",
 		"chainCount", len(config))
 	logBlockchainInfo(infos, lggr)
 	return infos

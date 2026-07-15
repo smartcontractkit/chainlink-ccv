@@ -1,0 +1,32 @@
+# Sample: pr-checks.yaml
+# Lints the PR title as a Conventional Commit. REQUIRED from day one and added to
+# branch protection: the repo is squash-merge-only and the squash subject derives
+# from the PR title, so a non-conventional title is invisible to release-please
+# (no bump, no changelog entry, permanently).
+#
+# Per-repo edits: none. The merge_group skip is intentional (title info is absent there).
+name: Pull Request Checks
+
+on:
+  merge_group:
+  pull_request:
+    branches: [ main ]
+    types: [ opened, synchronize, reopened, edited ]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  lint-pr-title:
+    name: Lint PR title (Conventional Commits)
+    runs-on: ubuntu-latest
+    steps:
+      # Skip PR-title linting on merge_group events — that title info isn't available there.
+      - if: github.event_name == 'pull_request'
+        uses: amannn/action-semantic-pull-request@48f256284bd46cdaab1048c3721360e808335d50 # v6.1.1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

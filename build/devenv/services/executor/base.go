@@ -22,7 +22,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/util"
 	"github.com/smartcontractkit/chainlink-ccv/executor"
-	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
@@ -110,59 +109,59 @@ type Output struct {
 	Container testcontainers.Container `toml:"-"`
 }
 
-// configWithBlockchainInfos is the executor config plus the blockchain_infos section (RPC URLs etc.).
-// Standalone/local executors need blockchain_infos inlined because, unlike CL-mode executors, they
-// have no CL node to source chain connection info from.
-type configWithBlockchainInfos struct {
-	executor.Configuration
-	BlockchainInfos chainaccess.Infos[any] `toml:"blockchain_infos"`
-}
-
-// BuildExecutorAppConfigWithBlockchainInfos parses the executor config out of a job spec and
-// re-marshals it with blockchain_infos included, returning the plain app-config TOML — the exact
-// content JD ships as a job's appConfig, with no job-spec envelope. This is what a local-mode
-// bootstrapper reads from its mounted config file.
-func BuildExecutorAppConfigWithBlockchainInfos(spec bootstrap.JobSpec, blockchainInfos map[string]any) (string, error) {
+// BuildExecutorAppConfig parses and re-marshals the typed executor config from a job spec. The
+// returned app config intentionally excludes blockchain_infos: chain-family connection details are
+// supplied through local config in standalone/local mode or node config in CL mode.
+func BuildExecutorAppConfig(spec bootstrap.JobSpec) (string, error) {
 	var cfg executor.Configuration
 	if err := spec.GetAppConfig(&cfg); err != nil {
 		return "", fmt.Errorf("failed to parse executor config from job spec: %w", err)
 	}
-	innerConfigBytes, err := toml.Marshal(configWithBlockchainInfos{
-		Configuration:   cfg,
-		BlockchainInfos: blockchainInfos,
-	})
+	innerConfigBytes, err := toml.Marshal(cfg)
 	if err != nil {
-		return "", fmt.Errorf("failed to marshal enhanced config: %w", err)
+		return "", fmt.Errorf("failed to marshal executor config: %w", err)
 	}
 	return string(innerConfigBytes), nil
 }
 
-// RebuildExecutorJobSpecWithBlockchainInfos takes a job spec and rebuilds it with blockchain infos
-// added to the inner config. This is needed for standalone executors which require blockchain
-// connection information (CL nodes get this from their own chain config).
-func RebuildExecutorJobSpecWithBlockchainInfos(spec bootstrap.JobSpec, blockchainInfos map[string]any) (string, error) {
-	innerConfig, err := BuildExecutorAppConfigWithBlockchainInfos(spec, blockchainInfos)
+// RebuildExecutorJobSpec rebuilds a parsed job spec without adding operator-owned chain config.
+func RebuildExecutorJobSpec(spec bootstrap.JobSpec) (string, error) {
+	innerConfig, err := BuildExecutorAppConfig(spec)
 	if err != nil {
 		return "", err
 	}
 
-	spec.AppConfig = innerConfig
-	outerSpecBytes, err := toml.Marshal(spec)
-	if err != nil {
-		return "", fmt.Errorf("failed to marshal job spec: %w", err)
+	// Preserve the envelope field the deployment chose for this NOP's mode: standalone specs use
+	// appConfig (read by the local bootstrapper), cl-mode/default specs use executorConfig (read by
+	// the CL node's ccvexecutor job). Emitting a fixed field would break one flow and cause spec
+	// drift against the deployment-generated spec.
+	configField := spec.ConfigFieldName
+	if configField == "" {
+		configField = "appConfig"
 	}
 
-	return string(outerSpecBytes), nil
+	// Match the exact envelope the deployment emits (see ApplyExecutorConfig) so the rebuilt spec
+	// round-trips through ParseExecutorBootstrapJobSpec and matches on drift comparison.
+	return fmt.Sprintf(`schemaVersion = %d
+type = "%s"
+name = "%s"
+externalJobID = "%s"
+%s = '''
+%s'''
+`, spec.SchemaVersion, spec.Type, spec.Name, spec.ExternalJobID, configField, innerConfig), nil
 }
 
 // DeliverLocalAppConfig copies the app-config TOML into a running local-mode executor container at
-// local_app_config_path, so the waiting bootstrapper starts the service. Used by the no-JD devenv
+// local_app_config_path and waits for the application factory to start. Used by the no-JD devenv
 // path, which generates the executor config after contracts are deployed.
 func DeliverLocalAppConfig(out *Output, appConfigTOML string) error {
 	if out == nil || out.Container == nil {
 		return fmt.Errorf("executor output has no running container; was it launched in local mode?")
 	}
-	return services.CopyLocalAppConfigToContainer(context.Background(), out.Container, localAppConfigContainerPath, appConfigTOML)
+	if err := services.CopyLocalAppConfigToContainer(context.Background(), out.Container, localAppConfigContainerPath, appConfigTOML); err != nil {
+		return err
+	}
+	return services.WaitForApplicationReady(context.Background(), out.BootstrapDBURL, services.DefaultApplicationReadyTimeout)
 }
 
 func ApplyDefaults(in *Input) {
@@ -373,6 +372,11 @@ func launchExecutor(ctx context.Context, in *Input, outputs []*blockchain.Output
 	}
 	if local {
 		out.Container = c
+	}
+	if local && in.LocalAppConfig != "" {
+		if err := services.WaitForApplicationReady(ctx, out.BootstrapDBURL, services.DefaultApplicationReadyTimeout); err != nil {
+			return nil, fmt.Errorf("executor application did not become ready: %w", err)
+		}
 	}
 
 	return out, nil

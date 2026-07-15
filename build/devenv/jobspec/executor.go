@@ -27,5 +27,10 @@ func ParseExecutorBootstrapJobSpec(spec string) (bootstrap.JobSpec, error) {
 		return bootstrap.JobSpec{}, err
 	}
 	wrapper.AppConfig = inner
+	// Remember which envelope field the source used so a rebuilt spec re-emits the same one.
+	wrapper.ConfigFieldName = "appConfig"
+	if wrapper.ExecutorConfig != "" {
+		wrapper.ConfigFieldName = "executorConfig"
+	}
 	return wrapper.JobSpec, nil
 }

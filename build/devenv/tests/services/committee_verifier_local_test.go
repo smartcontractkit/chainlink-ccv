@@ -120,16 +120,9 @@ func TestServiceCommitteeVerifierLocalMode(t *testing.T) {
 	}
 	require.NoError(t, appCfg.Validate(), "hand-built verifier config must be valid")
 
-	// Add blockchain_infos (RPC URLs) for the launched chain, producing the plain app-config TOML the
-	// bootstrapper reads in local mode (the same content JD would ship as a job's appConfig).
-	reg, err := chainreg.GetRegistry().Get(chainsel.FamilyEVM)
-	require.NoError(t, err)
-	blockchainInfos, err := reg.ChainConfigLoader([]*ctfblockchain.Output{chainOut})
-	require.NoError(t, err)
-	appCfgTOML, err := toml.Marshal(struct {
-		commit.Config
-		BlockchainInfos map[string]any `toml:"blockchain_infos"`
-	}{Config: appCfg, BlockchainInfos: blockchainInfos})
+	// The app config contains only application-owned settings. The EVM modifier mounts RPC
+	// connection details separately at the family-local config path.
+	appCfgTOML, err := toml.Marshal(appCfg)
 	require.NoError(t, err)
 
 	// 4. Launch the verifier in local mode (no JD). New() blocks on the bootstrap /health wait, so a
@@ -306,14 +299,7 @@ func TestServiceCommitteeVerifierLocalModeDeferredConfig(t *testing.T) {
 	}
 	require.NoError(t, appCfg.Validate(), "hand-built verifier config must be valid")
 
-	reg, err := chainreg.GetRegistry().Get(chainsel.FamilyEVM)
-	require.NoError(t, err)
-	blockchainInfos, err := reg.ChainConfigLoader([]*ctfblockchain.Output{chainOut})
-	require.NoError(t, err)
-	appCfgTOML, err := toml.Marshal(struct {
-		commit.Config
-		BlockchainInfos map[string]any `toml:"blockchain_infos"`
-	}{Config: appCfg, BlockchainInfos: blockchainInfos})
+	appCfgTOML, err := toml.Marshal(appCfg)
 	require.NoError(t, err)
 
 	require.NoError(t, committeeverifier.DeliverLocalAppConfig(out, string(appCfgTOML)),

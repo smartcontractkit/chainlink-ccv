@@ -1,0 +1,69 @@
+# Sample: release-publish.yaml  (OPTIONAL — only if your repo ships Docker services)
+# Publishes GA (non-RC) service images when release-please cuts a ROOT release.
+# Omit this file entirely if your repo has no deployable Docker services.
+#
+# The bare root tag `vX.Y.Z` is produced by release-please under the GATI GitHub App
+# token, which triggers this workflow. In GitHub Actions tag globs `*` do not match `/`,
+# so `v[0-9]+.[0-9]+.[0-9]+` matches ONLY the bare root tag — never module tags
+# (`<module>/vX.Y.Z`) or RC tags (`<svc>/vX.Y.Z-rc`).
+name: Publish GA Image From Release Tag
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # EDIT: the set of deployable services in your repo (each must have a
+        # `just <svc>/build` and `just <svc>/publish <registry> <version>` recipe).
+        module: [REPLACE_ME_svc_a, REPLACE_ME_svc_b]
+    permissions:
+      id-token: write
+      contents: read
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Install Just
+        uses: extractions/setup-just@e33e0265a09d6d736e2ee1e0eb685ef1de4669ff # v3
+        with:
+          just-version: '1.40.0'
+
+      # EDIT: registry auth blocks + secret names to match your repo's ECR setup.
+      - name: Authenticate to AWS ECR (primary)
+        uses: ./.github/actions/aws-ecr-auth
+        with:
+          role-to-assume: ${{ secrets.REPLACE_ME_IAM_ROLE_PRIMARY }}
+          aws-region: us-west-2
+          registry-type: private
+
+      - name: Authenticate to AWS ECR (secondary)
+        uses: ./.github/actions/aws-ecr-auth
+        with:
+          role-to-assume: ${{ secrets.REPLACE_ME_IAM_ROLE_SECONDARY }}
+          aws-region: us-east-2
+          registry-type: private
+
+      - name: Build & Publish GA Image
+        env:
+          MODULE: ${{ matrix.module }}
+          VERSION: ${{ github.ref_name }}
+          # EDIT: registry secret names.
+          ECR_REGISTRY_PRIMARY: ${{ secrets.REPLACE_ME_ECR_REGISTRY_PRIMARY }}
+          ECR_REGISTRY_SECONDARY: ${{ secrets.REPLACE_ME_ECR_REGISTRY_SECONDARY }}
+        run: |
+          echo "Module: $MODULE"
+          echo "Version: $VERSION"
+          echo "Building GA Image.."
+          just "$MODULE"/build
+          echo "Publishing GA Image (primary).."
+          just "$MODULE"/publish "$ECR_REGISTRY_PRIMARY" "$VERSION"
+          echo "Publishing GA Image (secondary).."
+          just "$MODULE"/publish "$ECR_REGISTRY_SECONDARY" "$VERSION"
