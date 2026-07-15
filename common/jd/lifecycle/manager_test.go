@@ -832,6 +832,7 @@ func TestManager_Stop_CancelsInFlightJobStart(t *testing.T) {
 		<-ctx.Done()
 		return ctx.Err()
 	})
+	jdClient.EXPECT().RejectJob(mock.Anything, "proposal-1", int64(1)).Return(nil)
 	jdClient.EXPECT().Close().Return(nil)
 
 	jobStore := mocks.NewMockStoreInterface(t)

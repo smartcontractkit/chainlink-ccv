@@ -333,12 +333,14 @@ func (m *Manager) handleProposal(proposal *pb.ProposeJobRequest) (retErr error) 
 	// Starting a job can include database setup and sequential RPC client initialization. Give it a
 	// fresh, dedicated budget instead of whatever remains of the control-plane timeout above.
 	if err := m.startJob(proposal.Spec); err != nil {
-		if rejectErr := m.jdClient.RejectJob(ctx, proposal.Id, proposal.Version); rejectErr != nil {
+		rejectCtx, rejectCancel := context.WithTimeout(context.Background(), m.controlPlaneTimeout)
+		defer rejectCancel()
+		if rejectErr := m.jdClient.RejectJob(rejectCtx, proposal.Id, proposal.Version); rejectErr != nil {
 			m.lggr.Warnw("Failed to reject job with JD after StartJob failure",
 				"error", rejectErr,
 				"proposalID", proposal.Id,
 			)
-			m.metrics.IncStepError(ctx, stepRejectJob, wasRunning)
+			m.metrics.IncStepError(metricsCtx, stepRejectJob, wasRunning)
 		} else {
 			m.lggr.Infow("Rejected job with JD after StartJob failure",
 				"proposalID", proposal.Id,
