@@ -53,7 +53,9 @@ runs:
           echo "go get failed after 5 attempts"
           exit 1
         fi
-        make gomodtidy
+        # The upgraded ref is a transient pseudo-version from the current PR head.
+        # Avoid checksum DB lookups for this module during multi-module tidy runs.
+        GONOSUMDB=github.com/smartcontractkit/chainlink-ccv make gomodtidy
 
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
