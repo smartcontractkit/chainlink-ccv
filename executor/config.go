@@ -22,12 +22,6 @@ const (
 	IndexerQueryLimitMax             = 10000
 )
 
-type ConfigWithBlockchainInfo[T any] struct {
-	Configuration
-	// Deprecated: BlockchainInfos is deprecated and will be removed
-	BlockchainInfos chainaccess.Infos[T] `toml:"blockchain_infos"`
-}
-
 // Configuration is the complete set of information an executor needs to operate normally.
 // We can use time.Duration directly in this config because burntSushi can parse duration from strings.
 type Configuration struct {
@@ -73,8 +67,8 @@ type Configuration struct {
 	WorkerCount int `toml:"worker_count"`
 }
 
-// ChainConfiguration is all the configuration an executor needs to know about a specific chain.
-// This is separate from chain-specific RPC information in BlockchainInfos.
+// ChainConfiguration is all the application-owned configuration an executor needs for a chain.
+// Chain-specific RPC information comes from chain-family local or node config.
 type ChainConfiguration struct {
 	// DestinationChainConfig holds the off-ramp and RMN addresses. It is embedded so that the
 	// TOML field paths (off_ramp_address, rmn_address) are identical to what the chainaccess

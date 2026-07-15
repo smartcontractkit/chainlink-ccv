@@ -1,7 +1,6 @@
 package verifier
 
 import (
-	"context"
 	"database/sql"
 	"fmt"
 	"time"
@@ -10,11 +9,9 @@ import (
 	"github.com/jmoiron/sqlx"
 	"go.uber.org/zap/zapcore"
 
-	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 
 	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
-	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/db"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
@@ -114,24 +111,6 @@ func ConnectToPostgresDB(lggr logger.Logger, secrets *vsecrets.VerifierSecrets) 
 	return sqlxDB, nil
 }
 
-func LoadBlockchainInfo[T any](
-	ctx context.Context,
-	lggr logger.Logger,
-	config map[string]T,
-) chainaccess.Infos[T] {
-	// The app config carries chain-enumeration metadata only. Family-local configuration supplies
-	// connection details to the accessor factory.
-	if len(config) == 0 {
-		lggr.Warnw("No blockchain metadata in app config")
-		return nil
-	}
-	infos := chainaccess.Infos[T](config)
-	lggr.Infow("Loaded blockchain metadata from app config",
-		"chainCount", len(config))
-	logBlockchainInfo(infos, lggr)
-	return infos
-}
-
 func StartPyroscope(lggr logger.Logger, pyroscopeAddress, serviceName string) (*pyroscope.Profiler, error) {
 	profiler, err := pyroscope.Start(pyroscope.Config{
 		ApplicationName: serviceName,
@@ -151,19 +130,4 @@ func StartPyroscope(lggr logger.Logger, pyroscopeAddress, serviceName string) (*
 		return nil, fmt.Errorf("failed to start pyroscope: %w", err)
 	}
 	return profiler, nil
-}
-
-func logBlockchainInfo[T any](infos chainaccess.Infos[T], lggr logger.Logger) {
-	for _, chainID := range infos.GetAllChainSelectors() {
-		logChainInfo(infos, chainID, lggr)
-	}
-}
-
-func logChainInfo[T any](infos chainaccess.Infos[T], chainSelector protocol.ChainSelector, lggr logger.Logger) {
-	info, err := infos.GetBlockchainByChainSelector(chainSelector)
-	if err == nil {
-		lggr.Infow("🔗 Blockchain available",
-			"chainSelector", chainSelector,
-			"info", info)
-	}
 }
