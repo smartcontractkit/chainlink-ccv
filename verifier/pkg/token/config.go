@@ -9,6 +9,11 @@ import (
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
 )
 
+type ConfigWithBlockchainInfos struct {
+	Config
+	BlockchainInfos chainaccess.Infos[any] `toml:"blockchain_infos"`
+}
+
 type Config struct {
 	// PyroscopeURL is the Pyroscope server URL for continuous profiling; empty disables it.
 	PyroscopeURL string `json:"pyroscope_url" toml:"pyroscope_url"`

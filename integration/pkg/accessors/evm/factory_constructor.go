@@ -91,7 +91,7 @@ func (c Config) toInfos() (chainaccess.Infos[Info], error) {
 //
 // It will take all config values it needs from all available config. Note that it would be
 // very unusual for a config to have more than one of Committee/Token/Executor configs.
-func CreateEVMAccessorFactory(lggr logger.Logger, genericConfig chainaccess.GenericConfig) (chainaccess.AccessorFactory, error) {
+func CreateEVMAccessorFactory(lggr logger.Logger, genericConfig chainaccess.GenericConfig) (chainaccess.AccessorFactory, error) { //nolint:staticcheck // SA1019: GenericConfig still carries shared application config
 	configPath := resolveConfigPath()
 	evmConfig, err := loadConfig(configPath)
 	if err != nil {
@@ -112,7 +112,7 @@ func CreateEVMAccessorFactory(lggr logger.Logger, genericConfig chainaccess.Gene
 func CreateAccessorFactory(
 	ctx context.Context,
 	lggr logger.Logger,
-	generic chainaccess.GenericConfig,
+	generic chainaccess.GenericConfig, //nolint:staticcheck // SA1019: registry still decodes the deprecated GenericConfig until CCIP-11840
 	infos chainaccess.Infos[Info],
 ) (chainaccess.AccessorFactory, error) {
 	// Create the chain clients, head trackers, and collect primary RPC URLs.

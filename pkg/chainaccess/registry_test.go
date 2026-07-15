@@ -105,6 +105,10 @@ func TestNewRegistry_GetAccessor(t *testing.T) {
 
 [rmn_remote_addresses]
 "5009297550715157269" = "0xRMN"
+
+[blockchain_infos.5009297550715157269]
+ChainID = "1"
+UniqueChainName = "ethereum-mainnet"
 `
 	lggr := logger.Test(t)
 	reg, err := chainaccess.NewRegistry(lggr, cfg)

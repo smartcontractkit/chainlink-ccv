@@ -20,6 +20,7 @@ import (
 	evmchainconfig "github.com/smartcontractkit/chainlink-ccv/build/devenv/evm/chainconfig"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/util"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm"
+	ccvblockchain "github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vsecrets"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
@@ -154,7 +155,7 @@ func NewTokenVerifier(in *TokenVerifierInput, blockchainOutputs []*blockchain.Ou
 	}
 
 	// Generate and write the app config.
-	appConfig, err := in.GenerateConfig()
+	appConfig, err := in.GenerateConfigWithBlockchainInfos(blockchainInfos)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate verifier config for token verifier %w", err)
 	}
@@ -234,7 +235,7 @@ func NewTokenVerifier(in *TokenVerifierInput, blockchainOutputs []*blockchain.Ou
 				},
 			}
 		},
-		WaitingFor: wait.ForLog("Verifier service fully started and ready").
+		WaitingFor: wait.ForLog("Loaded blockchain metadata from app config").
 			WithStartupTimeout(120 * time.Second).
 			WithPollInterval(3 * time.Second),
 	}
@@ -302,14 +303,26 @@ func NewTokenVerifier(in *TokenVerifierInput, blockchainOutputs []*blockchain.Ou
 	}, nil
 }
 
-// GenerateConfig serializes only the token-verifier application config. Connection details are
-// written to and mounted from the separate chain-family local config.
-func (v *TokenVerifierInput) GenerateConfig() (verifierTomlConfig []byte, err error) {
+func (v *TokenVerifierInput) GenerateConfigWithBlockchainInfos(blockchainInfos ccvblockchain.Infos[evm.Info]) (verifierTomlConfig []byte, err error) {
 	if v.GeneratedConfig == nil {
 		return nil, fmt.Errorf("GeneratedConfig is nil - token verifier config must be generated using changeset before launching")
 	}
 
-	cfg, err := toml.Marshal(v.GeneratedConfig)
+	anyInfo := make(ccvblockchain.Infos[any])
+	for selector, info := range blockchainInfos {
+		// Keep chain-enumeration metadata for compatibility with the token-verifier app-config
+		// decoder. Connection details live in the separately mounted EVM config.
+		info.Nodes = nil
+		anyInfo[selector] = info
+	}
+
+	// Use the generated application config directly, with connection-free chain metadata.
+	config := token.ConfigWithBlockchainInfos{
+		Config:          *v.GeneratedConfig,
+		BlockchainInfos: anyInfo,
+	}
+
+	cfg, err := toml.Marshal(config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal verifier config to TOML: %w", err)
 	}
