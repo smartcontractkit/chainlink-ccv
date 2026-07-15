@@ -53,10 +53,6 @@ runs:
           echo "go get failed after 5 attempts"
           exit 1
         fi
-        # chainlink-ccv upgrades pull tablewriter v1.x, but the checked-out
-        # Chainlink ref still uses the v0.0.5 API in core/cmd. Pin it here
-        # until the Chainlink CLI code is migrated.
-        go mod edit -replace=github.com/olekukonko/tablewriter=github.com/olekukonko/tablewriter@v0.0.5
         make gomodtidy
 
     - name: Set up Docker Buildx

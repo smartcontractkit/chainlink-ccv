@@ -2,48 +2,67 @@ package tablefmt
 
 import (
 	"io"
-
-	"github.com/olekukonko/tablewriter"
-	"github.com/olekukonko/tablewriter/renderer"
-	"github.com/olekukonko/tablewriter/tw"
+	"strings"
+	"text/tabwriter"
 )
 
-// NewPlain returns a borderless CLI table matching the legacy tablewriter v0.0.5 style.
-func NewPlain(w io.Writer) *tablewriter.Table {
-	return tablewriter.NewTable(w,
-		tablewriter.WithHeaderAutoFormat(tw.Off),
-		tablewriter.WithRenderer(renderer.NewBlueprint(tw.Rendition{
-			Borders: tw.BorderNone,
-			Settings: tw.Settings{
-				Separators: tw.SeparatorsNone,
-				Lines:      tw.LinesNone,
-			},
-		})),
-	)
+// Table is a tiny wrapper around the standard library's tabwriter.
+type Table struct {
+	writer *tabwriter.Writer
+	header []string
+	rows   [][]string
 }
 
-// NewKeyValue returns a borderless left-aligned table with no column separators.
-func NewKeyValue(w io.Writer) *tablewriter.Table {
-	return tablewriter.NewTable(w,
-		tablewriter.WithHeaderAutoFormat(tw.Off),
-		tablewriter.WithRenderer(renderer.NewBlueprint(tw.Rendition{
-			Borders: tw.BorderNone,
-			Settings: tw.Settings{
-				Separators: tw.Separators{BetweenColumns: tw.Off},
-				Lines:      tw.LinesNone,
-			},
-		})),
-		tablewriter.WithConfig(tablewriter.Config{
-			Row: tw.CellConfig{Alignment: tw.CellAlignment{Global: tw.AlignLeft}},
-		}),
-	)
+// NewPlain returns a whitespace-aligned CLI table.
+func NewPlain(w io.Writer) *Table {
+	return newTable(w)
+}
+
+// NewKeyValue returns a left-aligned key/value table with no separators.
+func NewKeyValue(w io.Writer) *Table {
+	return newTable(w)
+}
+
+func newTable(w io.Writer) *Table {
+	return &Table{writer: tabwriter.NewWriter(w, 0, 0, 2, ' ', 0)}
 }
 
 // Header sets column headers from a string slice.
-func Header(table *tablewriter.Table, cols []string) {
-	args := make([]any, len(cols))
-	for i, col := range cols {
-		args[i] = col
+func Header(table *Table, cols []string) {
+	table.header = append([]string(nil), cols...)
+}
+
+// Append adds one row to the table.
+func (t *Table) Append(row []string) error {
+	t.rows = append(t.rows, append([]string(nil), row...))
+	return nil
+}
+
+// Bulk adds multiple rows to the table.
+func (t *Table) Bulk(rows [][]string) error {
+	for _, row := range rows {
+		if err := t.Append(row); err != nil {
+			return err
+		}
 	}
-	table.Header(args...)
+	return nil
+}
+
+// Render writes the table.
+func (t *Table) Render() error {
+	if len(t.header) > 0 {
+		if _, err := io.WriteString(t.writer, joinRow(t.header)+"\n"); err != nil {
+			return err
+		}
+	}
+	for _, row := range t.rows {
+		if _, err := io.WriteString(t.writer, joinRow(row)+"\n"); err != nil {
+			return err
+		}
+	}
+	return t.writer.Flush()
+}
+
+func joinRow(row []string) string {
+	return strings.Join(row, "\t")
 }
