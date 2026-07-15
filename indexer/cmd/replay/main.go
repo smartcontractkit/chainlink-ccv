@@ -12,9 +12,11 @@ import (
 	"time"
 
 	"github.com/jmoiron/sqlx"
-	"github.com/olekukonko/tablewriter"
 	"github.com/urfave/cli"
 	"go.uber.org/zap/zapcore"
+
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil/pg"
 
 	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
@@ -24,11 +26,10 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/registry"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/replay"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/storage"
+	"github.com/smartcontractkit/chainlink-ccv/internal/tablefmt"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
-	"github.com/smartcontractkit/chainlink-common/pkg/logger"
-	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil/pg"
 )
 
 func main() {
@@ -219,11 +220,7 @@ func resumeAction(c *cli.Context) error {
 
 // renderJob prints a single replay job's details.
 func renderJob(j *replay.Job) error {
-	table := tablewriter.NewWriter(os.Stdout)
-	table.SetAutoFormatHeaders(false)
-	table.SetBorder(false)
-	table.SetColumnSeparator("")
-	table.SetAlignment(tablewriter.ALIGN_LEFT)
+	table := tablefmt.NewKeyValue(os.Stdout)
 
 	data := [][]string{
 		{"Job ID", j.ID},
@@ -253,9 +250,10 @@ func renderJob(j *replay.Job) error {
 		data = append(data, []string{"Error", *j.ErrorMessage})
 	}
 
-	table.AppendBulk(data)
-	table.Render()
-	return nil
+	if err := table.Bulk(data); err != nil {
+		return err
+	}
+	return table.Render()
 }
 
 func truncateHash(h string) string {
@@ -272,17 +270,15 @@ func renderJobList(jobs []replay.Job) error {
 		return nil
 	}
 
-	table := tablewriter.NewWriter(os.Stdout)
-	table.SetAutoFormatHeaders(false)
-	table.SetBorder(false)
-	table.SetHeader([]string{"ID", "Type", "Status", "Force", "Progress", "Created", "Updated"})
+	table := tablefmt.NewPlain(os.Stdout)
+	tablefmt.Header(table, []string{"ID", "Type", "Status", "Force", "Progress", "Created", "Updated"})
 
 	for _, j := range jobs {
 		progress := fmt.Sprintf("%d/%d", j.ProcessedItems, j.TotalItems)
 		if j.TotalItems == 0 {
 			progress = fmt.Sprintf("%d/?", j.ProcessedItems)
 		}
-		table.Append([]string{
+		if err := table.Append([]string{
 			j.ID,
 			string(j.Type),
 			string(j.Status),
@@ -290,11 +286,12 @@ func renderJobList(jobs []replay.Job) error {
 			progress,
 			j.CreatedAt.Format(time.RFC3339),
 			j.UpdatedAt.Format(time.RFC3339),
-		})
+		}); err != nil {
+			return err
+		}
 	}
 
-	table.Render()
-	return nil
+	return table.Render()
 }
 
 // mustBuildEngine creates the full replay engine with all dependencies.

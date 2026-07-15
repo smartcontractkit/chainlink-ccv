@@ -7,13 +7,14 @@ import (
 	"os"
 	"strconv"
 
-	"github.com/olekukonko/tablewriter"
 	"github.com/urfave/cli"
 
 	chainselectors "github.com/smartcontractkit/chain-selectors"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+
+	"github.com/smartcontractkit/chainlink-ccv/internal/tablefmt"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/chainstatus"
-	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
 // ChainStatusStore is the minimal store interface required by the CLI.
@@ -183,10 +184,8 @@ func renderList(rows []chainstatus.Row) error {
 		fmt.Println("No chain status rows found.") //nolint:forbidigo // CLI user output
 		return nil
 	}
-	table := tablewriter.NewWriter(os.Stdout)
-	table.SetAutoFormatHeaders(false)
-	table.SetHeader([]string{"Chain", "Chain Selector", "verifier_id", "finalized_block_height", "disabled", "updated_at"})
-	table.SetBorder(false)
+	table := tablefmt.NewPlain(os.Stdout)
+	tablefmt.Header(table, []string{"Chain", "Chain Selector", "verifier_id", "finalized_block_height", "disabled", "updated_at"})
 	data := make([][]string, 0, len(rows))
 	for _, r := range rows {
 		heightStr := "0"
@@ -207,9 +206,10 @@ func renderList(rows []chainstatus.Row) error {
 			r.UpdatedAt.Format("2006-01-02T15:04:05Z07:00"),
 		})
 	}
-	table.AppendBulk(data)
-	table.Render()
-	return nil
+	if err := table.Bulk(data); err != nil {
+		return err
+	}
+	return table.Render()
 }
 
 // ParseChainSelector parses a chain selector from string (for tests).

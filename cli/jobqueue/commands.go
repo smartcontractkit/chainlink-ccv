@@ -8,8 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/olekukonko/tablewriter"
 	"github.com/urfave/cli"
+
+	"github.com/smartcontractkit/chainlink-ccv/internal/tablefmt"
 
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
@@ -201,10 +202,8 @@ func renderJobs(jobs []ArchivedJob) error {
 		return nil
 	}
 
-	table := tablewriter.NewWriter(os.Stdout)
-	table.SetAutoFormatHeaders(false)
-	table.SetBorder(false)
-	table.SetHeader([]string{
+	table := tablefmt.NewPlain(os.Stdout)
+	tablefmt.Header(table, []string{
 		"Queue", "Job ID", "Message ID", "Owner ID",
 		"Chain Selector", "Attempts", "Last Error", "Created At", "Archived At",
 	})
@@ -220,7 +219,7 @@ func renderJobs(jobs []ArchivedJob) error {
 			lastError = lastError[:77] + "..."
 		}
 
-		table.Append([]string{
+		if err := table.Append([]string{
 			string(j.Queue),
 			j.JobID,
 			"0x" + hex.EncodeToString(j.MessageID),
@@ -230,9 +229,10 @@ func renderJobs(jobs []ArchivedJob) error {
 			lastError,
 			j.CreatedAt.Format("2006-01-02T15:04:05Z"),
 			archivedAt,
-		})
+		}); err != nil {
+			return err
+		}
 	}
 
-	table.Render()
-	return nil
+	return table.Render()
 }
