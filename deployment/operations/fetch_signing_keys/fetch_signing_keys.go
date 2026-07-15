@@ -2,11 +2,9 @@ package fetch_signing_keys
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/Masterminds/semver/v3"
 
-	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
 	nodev1 "github.com/smartcontractkit/chainlink-protos/job-distributor/v1/node"
@@ -23,12 +21,6 @@ type FetchSigningKeysInput struct {
 
 type FetchSigningKeysOutput struct {
 	SigningKeysByNOP SigningKeysByNOP
-	// RawPubKeyByNOP maps NOP alias -> raw uncompressed secp256k1 public key (hex, no
-	// 0x prefix, lowercased). A standalone node registers one signing key across every
-	// chain it declares, so this lets callers derive a signer address for a family the
-	// NOP never declared directly (e.g. a Canton verifier's EVM address), rather than
-	// only translating between families it already has an OnchainSigningAddress for.
-	RawPubKeyByNOP map[string]string
 }
 
 type FetchSigningKeysDeps struct {
@@ -47,7 +39,6 @@ var FetchNOPSigningKeys = operations.NewOperation(
 
 		output := FetchSigningKeysOutput{
 			SigningKeysByNOP: make(SigningKeysByNOP),
-			RawPubKeyByNOP:   make(map[string]string),
 		}
 
 		if len(input.NOPAliases) == 0 {
@@ -95,65 +86,30 @@ var FetchNOPSigningKeys = operations.NewOperation(
 			}
 
 			bundle := chainConfig.Ocr2Config.OcrKeyBundle
-			if strings.TrimSpace(bundle.OnchainSigningAddress) == "" {
-				continue
-			}
-
-			chainFamily, ok := shared.GetChainTypeFamily(chainConfig.Chain.Type)
-			if !ok {
-				lggr.Debugw("Skipping unsupported chain type",
-					"chainType", chainConfig.Chain.Type.String())
-				continue
-			}
 
 			if output.SigningKeysByNOP[nopAlias] == nil {
 				output.SigningKeysByNOP[nopAlias] = make(map[string]string)
 			}
 
-			setKey := func(family, identity string) error {
-				addr := shared.NormalizeAddress(family, identity)
+			// Index every registered family variant from this bundle. Each registered
+			// family's reader extracts its field; unregistered families fall back to
+			// OnchainSigningAddress via SigningIdentityFromBundle.
+			for _, family := range shared.RegisteredSigningIdentityFamilies() {
+				addr, err := shared.SigningIdentityFromBundle(family, bundle)
+				if err != nil {
+					continue // empty field for this family, skip
+				}
 				if existing, ok := output.SigningKeysByNOP[nopAlias][family]; ok && existing != addr {
-					return fmt.Errorf(
-						"NOP %q has conflicting OCR key bundles for family %s: address %s vs %s — the job spec requires a single signing address (per-chain scoping not supported yet)",
-						nopAlias, family, existing, addr,
-					)
+					return output, fmt.Errorf("NOP %q has conflicting OCR key bundles for family %s: address %s vs %s — the job spec requires a single signing address (per-chain scoping not supported yet)", nopAlias, family, existing, addr)
 				}
 				output.SigningKeysByNOP[nopAlias][family] = addr
-				return nil
-			}
 
-			native, err := shared.SigningIdentityFromBundle(chainFamily, bundle)
-			if err != nil {
-				continue
+				lggr.Debugw("Found signing address",
+					"nopAlias", nopAlias,
+					"nodeId", chainConfig.NodeId,
+					"chainFamily", family,
+					"signerAddress", addr)
 			}
-			if err := setKey(chainFamily, native); err != nil {
-				return output, err
-			}
-
-			if chainFamily != chainsel.FamilyEVM {
-				evmIdentity, err := shared.SigningIdentityFromBundle(chainsel.FamilyEVM, bundle)
-				if err == nil {
-					if err := setKey(chainsel.FamilyEVM, evmIdentity); err != nil {
-						return output, err
-					}
-				}
-			}
-
-			// Capture the raw public key too, so callers can bridge this NOP's identity
-			// into a family it never declared directly (see RawPubKeyByNOP).
-			if rawPubKey := chainConfig.Ocr2Config.OcrKeyBundle.OnchainSigningPubKey; rawPubKey != "" {
-				normalized := strings.ToLower(strings.TrimPrefix(rawPubKey, "0x"))
-				if existing, ok := output.RawPubKeyByNOP[nopAlias]; ok && existing != normalized {
-					return output, fmt.Errorf("NOP %q has conflicting raw public keys across chain configs: %s vs %s — a standalone node registers one key for every chain it declares", nopAlias, existing, normalized)
-				}
-				output.RawPubKeyByNOP[nopAlias] = normalized
-			}
-
-			lggr.Debugw("Found signing address",
-				"nopAlias", nopAlias,
-				"nodeId", chainConfig.NodeId,
-				"chainFamily", chainFamily,
-				"signerAddress", native)
 		}
 
 		return output, nil

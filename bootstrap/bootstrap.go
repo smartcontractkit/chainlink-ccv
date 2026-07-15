@@ -286,31 +286,6 @@ func chainTypeFromString(s string) (pb.ChainType, error) {
 	return pb.ChainType_CHAIN_TYPE_UNSPECIFIED, fmt.Errorf("unknown chain type %q", s)
 }
 
-// signingAddressFromPublicKey derives the onchain signing address for the given chain type
-// from a raw public key returned by the keystore.
-//
-// Format per family:
-//   - EVM:     EIP-55 checksummed address, 0x-prefixed  (e.g. "0xAbCd…")
-//   - Solana:  lowercase 20-byte Ethereum address, no 0x (e.g. "abcd…") — matches CL node prior art
-//   - Aptos:   full uncompressed public key, lowercase hex, no prefix    (e.g. "04abcd…")
-//   - Stellar: full uncompressed public key, lowercase hex, no prefix    (e.g. "04abcd…")
-//   - Canton:  full uncompressed public key, lowercase hex, no prefix    (e.g. "04abcd…")
-func signingAddressFromPublicKey(chainType pb.ChainType, pubKeyBytes []byte) (string, error) {
-	switch chainType {
-	case pb.ChainType_CHAIN_TYPE_EVM:
-		addr, _, err := keys.EVMAddressFromPublicKey(pubKeyBytes)
-		return addr, err
-	case pb.ChainType_CHAIN_TYPE_SOLANA:
-		return keys.SolanaAddressFromPublicKey(pubKeyBytes)
-	case pb.ChainType_CHAIN_TYPE_APTOS,
-		pb.ChainType_CHAIN_TYPE_STELLAR,
-		pb.ChainType_CHAIN_TYPE_CANTON:
-		return keys.RawPubKeyHex(pubKeyBytes), nil
-	default:
-		return "", fmt.Errorf("signing address derivation not implemented for chain type %v", chainType)
-	}
-}
-
 // buildUpdateNodeRequest constructs the UpdateNodeRequest to send to JD on connect.
 // It reads the public key for each key in signingKeyNames and builds one ChainConfig
 // entry per chain in chains. Each OCRKeyBundle carries OnchainSigningPubKey (canonical
@@ -342,15 +317,13 @@ func buildUpdateNodeRequest(
 		if err != nil {
 			return nil, err
 		}
-		addr, err := signingAddressFromPublicKey(chainType, signingKey.KeyInfo.PublicKey)
+		// OnchainSigningAddress is always the EVM-derived address for all chain
+		// families — family-specific consumers read OnchainSigningPubKey via a
+		// SigningIdentityReader instead. This keeps chain-specific derivation out of
+		// generic changeset code.
+		addr, _, err := keys.EVMAddressFromPublicKey(signingKey.KeyInfo.PublicKey)
 		if err != nil {
 			return nil, fmt.Errorf("chain %s/%s: %w", chain.Type, chain.ID, err)
-		}
-		if chainType == pb.ChainType_CHAIN_TYPE_CANTON {
-			addr, _, err = keys.EVMAddressFromPublicKey(signingKey.KeyInfo.PublicKey)
-			if err != nil {
-				return nil, fmt.Errorf("chain %s/%s: %w", chain.Type, chain.ID, err)
-			}
 		}
 		chainConfigs = append(chainConfigs, &pb.ChainConfig{
 			Chain: &pb.Chain{Type: chainType, Id: chain.ID},
