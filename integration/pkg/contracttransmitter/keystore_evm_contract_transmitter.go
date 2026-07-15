@@ -17,6 +17,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/keystore"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	"github.com/smartcontractkit/chainlink-evm/pkg/client"
 	evmkeys "github.com/smartcontractkit/chainlink-evm/pkg/keys/v2"
 
 	chainselectors "github.com/smartcontractkit/chain-selectors"
@@ -151,7 +152,15 @@ func (ct *KeystoreEVMContractTransmitter) ConvertAndWriteMessageToChain(ctx cont
 
 	tx, err := ct.OffRamp.Execute(opts, encodedMsg, contractCcvs, report.CCVData, DefaultGasLimitOverride)
 	if err != nil {
-		return fmt.Errorf("OffRamp.Execute failed: %w", err)
+		wrapped := fmt.Errorf("OffRamp.Execute failed: %w", err)
+		if client.NewSendError(err).IsInsufficientEth(nil) {
+			return &executor.BroadcastError{
+				Cause:       executor.BroadcastCauseInsufficientFunds,
+				FromAddress: ct.txKey.Address().Hex(),
+				Err:         wrapped,
+			}
+		}
+		return wrapped
 	}
 
 	ct.lggr.Infow("submitted tx to chain", "messageID", report.Message.MustMessageID(), "txHash", tx.Hash().Hex())

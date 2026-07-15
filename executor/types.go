@@ -16,6 +16,29 @@ var (
 	NtpServer                = "time.google.com"
 )
 
+// BroadcastErrorCause is the `cause` metric label for a failed transmit attempt.
+// It is a closed set; add a new cause here when the executor learns to classify one.
+type BroadcastErrorCause string
+
+const (
+	BroadcastCauseInsufficientFunds BroadcastErrorCause = "insufficient_funds"
+)
+
+// BroadcastError is returned by a transmitter when an execute attempt fails in a way the
+// executor classifies for metrics. It carries the cause and the sending address (captured
+// at the point of failure), so the executor can classify without string-matching.
+type BroadcastError struct {
+	Cause       BroadcastErrorCause
+	FromAddress string // may be empty when no single sender applies
+	Err         error
+}
+
+func (e *BroadcastError) Error() string {
+	return fmt.Sprintf("broadcast attempt failed (%s): %v", e.Cause, e.Err)
+}
+
+func (e *BroadcastError) Unwrap() error { return e.Err }
+
 // ContractAddresses is a map of contract names across all chain selectors and their address.
 // Currently only one contract per chain per name is supported.
 type ContractAddresses map[string]map[uint64]string

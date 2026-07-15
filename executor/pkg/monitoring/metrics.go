@@ -41,6 +41,9 @@ type ExecutorMetrics struct {
 	// unrecoverable message failure
 	unrecoverableMessageFailureCounter metric.Int64Counter
 
+	// broadcast/transmit attempt failure, labeled by cause, fromAddress, and dest chain
+	broadcastAttemptErrorCounter metric.Int64Counter
+
 	// destination reader critical failure
 	destinationReaderCriticalFailureCounter metric.Int64Counter
 
@@ -202,6 +205,14 @@ func InitMetrics() (*ExecutorMetrics, error) {
 		return nil, fmt.Errorf("failed to register destination reader critical failure counter: %w", err)
 	}
 
+	vm.broadcastAttemptErrorCounter, err = beholder.GetMeter().Int64Counter(
+		"executor_broadcast_attempt_error_total",
+		metric.WithDescription("Number of execute broadcast/transmit attempts that failed, labelled by cause, fromAddress, and destination chain (destChainSelector, destChainName). For cause=\"insufficient_funds\" the transmitter address was rejected by an RPC node for insufficient native funds; it increments on every retry while the address remains underfunded, so a sustained rate indicates the transmitter needs topping up."),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register broadcast attempt error counter: %w", err)
+	}
+
 	return vm, nil
 }
 
@@ -316,6 +327,16 @@ func (v *ExecutorMetricLabeler) IncrementAllIndexersFailed(ctx context.Context) 
 func (v *ExecutorMetricLabeler) IncrementUnrecoverableMessageFailure(ctx context.Context) {
 	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
 	v.vm.unrecoverableMessageFailureCounter.Add(ctx, 1, metric.WithAttributes(otelLabels...))
+}
+
+func (v *ExecutorMetricLabeler) IncrementBroadcastAttemptError(ctx context.Context, destChainSelector protocol.ChainSelector, fromAddress, cause string) {
+	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
+	v.vm.broadcastAttemptErrorCounter.Add(ctx, 1, metric.WithAttributes([]attribute.KeyValue{
+		attribute.String("destChainSelector", destChainSelector.String()),
+		attribute.String("destChainName", destChainSelector.ChainName()),
+		attribute.String("fromAddress", fromAddress),
+		attribute.String("cause", cause),
+	}...), metric.WithAttributes(otelLabels...))
 }
 
 func (v *ExecutorMetricLabeler) IncrementDestinationReaderCriticalFailure(ctx context.Context, destChainSelector protocol.ChainSelector) {

@@ -257,6 +257,13 @@ func (cle *ChainlinkExecutor) HandleMessage(ctx context.Context, message protoco
 			cle.lggr.Warnw("skipping retry due to message encoding error", protocol.LogKeyMessageID, messageID, "error", err)
 			return false, err
 		}
+		var broadcastErr *executor.BroadcastError
+		if errors.As(err, &broadcastErr) {
+			cle.monitoring.Metrics().IncrementBroadcastAttemptError(ctx, destinationChain, broadcastErr.FromAddress, string(broadcastErr.Cause))
+			cle.lggr.Warnw("execute broadcast attempt failed",
+				protocol.LogKeyMessageID, messageID, protocol.LogKeyDestChain, destinationChain,
+				"cause", broadcastErr.Cause, "fromAddress", broadcastErr.FromAddress, "error", err)
+		}
 		cle.lggr.Warnw("will retry execution due to failed ConvertAndWriteMessageToChain", protocol.LogKeyMessageID, messageID)
 		return true, fmt.Errorf("%w: %w", executor.ErrExecutionContended, err)
 	}
