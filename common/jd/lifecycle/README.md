@@ -125,7 +125,7 @@ running. No state change occurs.
 
 Your service must implement `JobRunner`:
 
-- **StartJob(ctx, spec)** — Start processing the job. `spec` is the raw job spec string from JD; the manager does not interpret it.
+- **StartJob(ctx, spec)** — Start processing the job. `spec` is the raw job spec string from JD; the manager does not interpret it. A failed `StartJob` must release anything it constructed: the manager calls `StartJob` again without an intervening `StopJob` when it restarts the old spec after a failed replacement or retries a pending job.
 - **StopJob(ctx)** — Stop the current job. Must be **idempotent**: safe to call when no job is running (e.g. before starting the first job on a replacement, or during shutdown).
 
 The manager calls `StopJob` before starting a replacement job and when handling a delete or shutdown.

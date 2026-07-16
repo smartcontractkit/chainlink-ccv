@@ -3,8 +3,9 @@
 ## Summary
 
 JD-connected services now validate a replacement job before stopping the active job. Validation
-parses the outer job spec and runs the application factory's config checks without starting
-services or constructing chain registries.
+parses the outer job spec, decodes the chain-layer config the registry parses again at startup,
+and runs the application factory's config checks — all without starting services or constructing
+chain registries.
 
 This keeps the current verifier or executor available when a proposed application config is
 invalid while preserving the existing stop-then-start lifecycle.
@@ -32,6 +33,11 @@ If validation fails, the proposal is not persisted and the old job continues uni
 stopping or starting after validation succeeds fails, the manager removes the pending proposal and
 restarts the old spec. A failed old-job restart moves the manager to `WaitingForJob`. Health or
 readiness failures that occur after `StartJob` succeeds do not currently trigger rollback.
+
+The bootstrap runner now stops the service factory best-effort when `StartJob` fails partway, so
+a rollback restart or pending-job retry cannot overwrite references to still-running components
+(profiler, writers, coordinator). The executor factory's `Stop` clears its references after the
+close attempt, making repeated stops no-ops, matching the committee verifier factory.
 
 ## Compatibility
 

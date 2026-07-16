@@ -73,6 +73,8 @@ func (f *Factory) Validate(spec bootstrap.JobSpec) error {
 	return err
 }
 
+// Stop is idempotent: references are cleared after the close attempt so a repeated Stop —
+// or a Stop after a failed Start — does not close components twice.
 func (f *Factory) Stop(_ context.Context) error {
 	var err error
 	if f.coordinator != nil {
@@ -81,6 +83,8 @@ func (f *Factory) Stop(_ context.Context) error {
 	if f.profiler != nil {
 		_ = f.profiler.Stop()
 	}
+	f.coordinator = nil
+	f.profiler = nil
 	return err
 }
 

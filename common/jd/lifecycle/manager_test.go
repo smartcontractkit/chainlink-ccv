@@ -242,6 +242,29 @@ func TestManager_HandleProposal_StopFailureAndRestartFailureWaitsForJob(t *testi
 	require.Nil(t, m.currentJob)
 }
 
+func TestManager_HandleProposal_FirstStartSkipsValidation(t *testing.T) {
+	t.Parallel()
+
+	jobStore := mocks.NewMockStoreInterface(t)
+	jobStore.EXPECT().SavePendingJob(mock.Anything, "new", int64(1), "new-spec").Return(nil)
+	jobStore.EXPECT().AcceptPendingJob(mock.Anything).Return(true, nil)
+	jdClient := mocks.NewMockClientInterface(t)
+	jdClient.EXPECT().ApproveJob(mock.Anything, "new", int64(1)).Return(nil)
+	runner := &recordingValidatingRunner{}
+
+	m, err := NewManager(Config{
+		JDClient: jdClient,
+		JobStore: jobStore,
+		Runner:   runner,
+		Logger:   logger.Test(t),
+	})
+	require.NoError(t, err)
+
+	require.NoError(t, m.handleProposal(&pb.ProposeJobRequest{Id: "new", Version: 1, Spec: "new-spec"}))
+	require.Equal(t, []string{"start:new-spec"}, runner.snapshot(), "no job is running, so there is nothing to protect with a validation preflight")
+	require.Equal(t, StateRunning, m.GetState())
+}
+
 func TestNewManager_ReturnsError_WhenRequiredFieldIsNil(t *testing.T) {
 	t.Parallel()
 

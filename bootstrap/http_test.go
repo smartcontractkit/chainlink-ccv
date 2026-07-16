@@ -120,8 +120,42 @@ func TestRunnerValidateJobRejectsInvalidConfig(t *testing.T) {
 			}},
 		}
 
-		err := runner.ValidateJob(t.Context(), "name = \"replacement\"\nappConfig = \"bad\"")
+		err := runner.ValidateJob(t.Context(), "name = \"replacement\"\nappConfig = \"\"")
 		require.ErrorIs(t, err, wantErr)
 		require.ErrorContains(t, err, "validate application config")
 	})
+
+	t.Run("chain config", func(t *testing.T) {
+		runner := &runner{
+			lggr: logger.Test(t),
+			fac: &spyServiceFactory{validateFn: func(JobSpec) error {
+				t.Error("factory validation must not run when the chain config does not decode")
+				return nil
+			}},
+		}
+
+		// The app config is TOML the registry decode in StartJob would reject.
+		err := runner.ValidateJob(t.Context(), "name = \"replacement\"\nappConfig = \"not valid = [\"")
+		require.ErrorContains(t, err, "validate chain config")
+	})
+}
+
+func TestRunnerStartJobFailureStopsFactory(t *testing.T) {
+	stopCalls := 0
+	runner := &runner{
+		lggr: logger.Test(t),
+		fac: &spyServiceFactory{
+			startFn: func(context.Context, any, ServiceDeps) error {
+				return errors.New("start failed")
+			},
+			stopFn: func(context.Context) error {
+				stopCalls++
+				return nil
+			},
+		},
+	}
+
+	err := runner.StartJob(t.Context(), "name = \"test\"\nappConfig = \"\"")
+	require.ErrorContains(t, err, "start failed")
+	require.Equal(t, 1, stopCalls, "a failed start must stop the factory so a retry cannot overwrite running components")
 }

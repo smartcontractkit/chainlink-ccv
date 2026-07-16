@@ -328,36 +328,27 @@ func (m *Manager) handleProposal(proposal *pb.ProposeJobRequest) (retErr error) 
 		}
 	}
 
-	if err := func() error {
-		controlCtx, controlCancel := context.WithTimeout(context.Background(), m.controlPlaneTimeout)
-		defer controlCancel()
+	controlCtx, controlCancel := context.WithTimeout(context.Background(), m.controlPlaneTimeout)
+	defer controlCancel()
 
-		// Persist the proposal as pending BEFORE attempting StartJob. This ensures
-		// that a crash between here and AcceptPendingJob leaves a recoverable record.
-		// SavePendingJob only removes the previous pending row; any approved (old) row is preserved.
-		if err := m.jobStore.SavePendingJob(controlCtx, proposal.Id, proposal.Version, proposal.Spec); err != nil {
-			// The job will need to be re-proposed after fixing the error (whatever it may be).
-			m.lggr.Warnw("Failed to persist pending proposal", "error", err)
-			m.metrics.IncStepError(metricsCtx, stepSavePending, wasRunning)
-		} else {
-			m.lggr.Infow("Proposal persisted as pending", "proposalID", proposal.Id)
-		}
+	// Persist the proposal as pending BEFORE attempting StartJob. This ensures
+	// that a crash between here and AcceptPendingJob leaves a recoverable record.
+	// SavePendingJob only removes the previous pending row; any approved (old) row is preserved.
+	// Persistence failure is non-fatal: the replacement continues from the in-memory proposal,
+	// and only crash recovery is degraded until JD re-proposes.
+	if err := m.jobStore.SavePendingJob(controlCtx, proposal.Id, proposal.Version, proposal.Spec); err != nil {
+		m.lggr.Warnw("Failed to persist pending proposal", "error", err)
+		m.metrics.IncStepError(metricsCtx, stepSavePending, wasRunning)
+	} else {
+		m.lggr.Infow("Proposal persisted as pending", "proposalID", proposal.Id)
+	}
 
-		if wasRunning {
-			m.lggr.Infow("Stopping current job for replacement")
-			if err := m.runner.StopJob(controlCtx); err != nil {
-				m.metrics.IncStepError(metricsCtx, stepStopJob, true)
-				return fmt.Errorf("failed to stop current job: %w", err)
-			}
+	if wasRunning {
+		m.lggr.Infow("Stopping current job for replacement")
+		if err := m.runner.StopJob(controlCtx); err != nil {
+			m.metrics.IncStepError(metricsCtx, stepStopJob, true)
+			return m.rollbackReplacement(proposal.Id, fmt.Errorf("failed to stop current job: %w", err), currentJob)
 		}
-		return nil
-	}(); err != nil {
-		if !wasRunning {
-			return err
-		}
-		rollbackCtx, rollbackCancel := context.WithTimeout(context.Background(), m.controlPlaneTimeout)
-		defer rollbackCancel()
-		return m.rollbackReplacement(rollbackCtx, proposal.Id, err, currentJob)
 	}
 
 	// Starting a job can include database setup and sequential RPC client initialization. Give it a
@@ -365,14 +356,7 @@ func (m *Manager) handleProposal(proposal *pb.ProposeJobRequest) (retErr error) 
 	if err := m.startJob(proposal.Spec); err != nil {
 		if wasRunning {
 			m.metrics.IncStepError(metricsCtx, stepStartReplacement, wasRunning)
-			rollbackCtx, rollbackCancel := context.WithTimeout(context.Background(), m.controlPlaneTimeout)
-			defer rollbackCancel()
-			return m.rollbackReplacement(
-				rollbackCtx,
-				proposal.Id,
-				fmt.Errorf("failed to start replacement job: %w", err),
-				currentJob,
-			)
+			return m.rollbackReplacement(proposal.Id, fmt.Errorf("failed to start replacement job: %w", err), currentJob)
 		}
 		// No old job to fall back to: leave pending record for restart recovery.
 		m.metrics.IncStepError(metricsCtx, stepStartJob, wasRunning)
@@ -442,13 +426,14 @@ func (m *Manager) startJob(spec string) error {
 }
 
 // validateReplacement asks an optional ValidatingJobRunner to preflight a replacement while the
-// current job is still active.
+// current job is still active. Validation is side-effect-free config checking, so it gets the
+// control-plane budget rather than the job-start one.
 func (m *Manager) validateReplacement(spec string) error {
 	runner, ok := m.runner.(ValidatingJobRunner)
 	if !ok {
 		return nil
 	}
-	ctx, cancel := m.shutdownCh.CtxWithTimeout(m.jobStartTimeout)
+	ctx, cancel := m.shutdownCh.CtxWithTimeout(m.controlPlaneTimeout)
 	defer cancel()
 	return runner.ValidateJob(ctx, spec)
 }
@@ -456,7 +441,9 @@ func (m *Manager) validateReplacement(spec string) error {
 // rollbackReplacement is called after replacement cutover has been attempted. StopJob may return
 // an error after partially stopping the service, so both stop and start failures use the same
 // recovery: remove the pending record and restart the old spec.
-func (m *Manager) rollbackReplacement(ctx context.Context, newProposalID string, cause error, oldJob *store.Job) error {
+func (m *Manager) rollbackReplacement(newProposalID string, cause error, oldJob *store.Job) error {
+	ctx, cancel := context.WithTimeout(context.Background(), m.controlPlaneTimeout)
+	defer cancel()
 	metricsCtx := context.Background()
 	var errs error
 	if delErr := m.jobStore.DeletePendingJob(ctx); delErr != nil {

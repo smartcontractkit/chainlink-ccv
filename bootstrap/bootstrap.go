@@ -113,7 +113,7 @@ var (
 
 func parseJobSpec(ctx context.Context, config string) (JobSpec, error) {
 	if err := ctx.Err(); err != nil {
-		return JobSpec{}, err
+		return JobSpec{}, fmt.Errorf("bootstrap: %w", err)
 	}
 
 	var spec JobSpec
@@ -123,13 +123,21 @@ func parseJobSpec(ctx context.Context, config string) (JobSpec, error) {
 	return spec, nil
 }
 
-// ValidateJob implements [lifecycle.ValidatingJobRunner]. It parses the outer spec and, when the
-// factory supports it, performs application-level validation. The active job and readiness state
-// remain untouched.
+// ValidateJob implements [lifecycle.ValidatingJobRunner]. It parses the outer spec, decodes the
+// chain-layer config the registry will parse again at StartJob, and, when the factory supports
+// it, performs application-level validation. The active job and readiness state remain untouched.
 func (r *runner) ValidateJob(ctx context.Context, config string) error {
 	spec, err := parseJobSpec(ctx, config)
 	if err != nil {
 		return err
+	}
+	// Decode-only mirror of the chainaccess.NewRegistry parse in StartJob. The generic decode is
+	// lenient about structure, so this rejects app config TOML the registry would fail on (syntax
+	// errors) before the old job is stopped — deeper chain-config checks live in the accessor
+	// constructors, which validation deliberately does not run. This is also the only app config
+	// check for factories that do not implement ServiceFactoryValidator.
+	if _, err := spec.GetGenericConfig(); err != nil {
+		return fmt.Errorf("validate chain config: %w", err)
 	}
 	validator, ok := r.fac.(ServiceFactoryValidator)
 	if !ok {
@@ -142,7 +150,8 @@ func (r *runner) ValidateJob(ctx context.Context, config string) error {
 }
 
 // StartJob implements [lifecycle.JobRunner].
-// On Start failure, the deferred CloseAll is the only chance to release accessors.
+// On Start failure, the factory is stopped best-effort and the deferred CloseAll
+// releases accessors (in that order, so the factory drains readers first).
 func (r *runner) StartJob(ctx context.Context, config string) (startErr error) {
 	if r.applicationReady != nil {
 		r.applicationReady.Store(false)
@@ -174,6 +183,12 @@ func (r *runner) StartJob(ctx context.Context, config string) (startErr error) {
 	}()
 
 	if err := r.fac.Start(ctx, spec, r.deps); err != nil {
+		// The factory may have constructed and started components (profiler, writers,
+		// coordinator) before failing. Stop them so a later StartJob — rollback restart or
+		// pending-job retry — does not overwrite references to still-running components.
+		if stopErr := r.fac.Stop(ctx); stopErr != nil {
+			r.lggr.Warnw("stop factory after failed StartJob", "error", stopErr)
+		}
 		return err
 	}
 	if r.applicationReady != nil {
