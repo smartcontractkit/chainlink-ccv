@@ -64,8 +64,8 @@ func TestNOPIdentities_DirectSignerWinsOverDuplicate(t *testing.T) {
 
 	ids := newNOPIdentities(signingKeys)
 
-	// evmAddr is declared by both NOPs; the first-registered one wins.
+	// evmAddr is declared by both NOPs; the first-registered one (alphabetically) wins.
 	alias, ok := ids.AliasForSigner(chainsel.FamilyEVM, evmAddr)
 	require.True(t, ok)
-	require.Equal(t, "evm-nop", string(alias))
+	require.Equal(t, "canton-nop", string(alias))
 }

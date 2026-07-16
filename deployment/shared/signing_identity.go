@@ -12,6 +12,7 @@ import (
 // OCRKeyBundle. Families that need OnchainSigningPubKey instead of the default
 // OnchainSigningAddress register a reader at init time.
 type SigningIdentityReader interface {
+	// FromBundle returns the family-appropriate signer identity from a JD OCRKeyBundle.
 	FromBundle(bundle *nodev1.OCR2Config_OCRKeyBundle) (string, error)
 }
 

@@ -5,7 +5,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/olekukonko/tablewriter"
+	"github.com/smartcontractkit/chainlink-ccv/internal/tablefmt"
 
 	rules "github.com/smartcontractkit/chainlink-ccv/common/messagerules"
 )
@@ -15,25 +15,24 @@ func renderList(disablementRules []rules.Rule) error {
 		fmt.Println("No message disablement rules found.") //nolint:forbidigo // CLI user output
 		return nil
 	}
-	table := tablewriter.NewWriter(os.Stdout)
-	table.SetAutoFormatHeaders(false)
-	table.SetHeader([]string{"ID", "Type", "Data", "Created At", "Updated At"})
-	table.SetBorder(false)
+	table := tablefmt.NewPlain(os.Stdout)
+	tablefmt.Header(table, []string{"ID", "Type", "Data", "Created At", "Updated At"})
 	for _, rule := range disablementRules {
 		_, data, err := rules.EncodeRuleData(rule.Data)
 		if err != nil {
 			return err
 		}
-		table.Append([]string{
+		if err := table.Append([]string{
 			rule.ID,
 			string(rule.Type),
 			string(data),
 			formatTime(rule.CreatedAt),
 			formatTime(rule.UpdatedAt),
-		})
+		}); err != nil {
+			return err
+		}
 	}
-	table.Render()
-	return nil
+	return table.Render()
 }
 
 func formatTime(t time.Time) string {

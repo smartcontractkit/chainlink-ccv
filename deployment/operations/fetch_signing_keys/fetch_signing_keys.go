@@ -99,6 +99,7 @@ var FetchNOPSigningKeys = operations.NewOperation(
 				if err != nil {
 					continue // empty field for this family, skip
 				}
+				addr = shared.NormalizeAddress(family, addr)
 				if existing, ok := output.SigningKeysByNOP[nopAlias][family]; ok && existing != addr {
 					return output, fmt.Errorf("NOP %q has conflicting OCR key bundles for family %s: address %s vs %s — the job spec requires a single signing address (per-chain scoping not supported yet)", nopAlias, family, existing, addr)
 				}
