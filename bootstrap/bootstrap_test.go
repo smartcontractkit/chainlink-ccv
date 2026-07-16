@@ -405,7 +405,7 @@ func TestBuildUpdateNodeRequest(t *testing.T) {
 		require.Nil(t, req)
 	})
 
-	t.Run("builds request with EVM signing address", func(t *testing.T) {
+	t.Run("builds request with EVM signing address for all chain families", func(t *testing.T) {
 		t.Parallel()
 		ks, err := keystore.LoadKeystore(ctx, keystore.NewMemoryStorage(), "test", keystore.WithScryptParams(keystore.FastScryptParams))
 		require.NoError(t, err)
@@ -415,7 +415,10 @@ func TestBuildUpdateNodeRequest(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, resp.Keys, 1)
 
-		chains := []ChainRegistration{{Type: "EVM", ID: "1"}, {Type: "EVM", ID: "137"}}
+		// Mixed chain families: OnchainSigningAddress is always the EVM-derived address,
+		// OnchainSigningPubKey is always the raw secp256k1 public key. Family-specific
+		// consumers read via SigningIdentityReader rather than deriving in changesets.
+		chains := []ChainRegistration{{Type: "EVM", ID: "1"}, {Type: "CANTON", ID: "canton-testnet"}}
 		req, err := buildUpdateNodeRequest(ctx, ks, []string{"signing-key"}, chains)
 		require.NoError(t, err)
 		require.NotNil(t, req)
@@ -427,24 +430,27 @@ func TestBuildUpdateNodeRequest(t *testing.T) {
 			require.True(t, cc.Ocr2Config.Enabled)
 			require.Equal(t, chains[i].ID, cc.Chain.Id)
 			require.NotEmpty(t, cc.Ocr2Config.OcrKeyBundle.OnchainSigningAddress)
-			// EVM addresses are 42 chars (0x + 40 hex)
+			// OnchainSigningAddress is always the EVM address: 42 chars (0x + 40 hex).
 			require.Len(t, cc.Ocr2Config.OcrKeyBundle.OnchainSigningAddress, 42)
 			require.NotEmpty(t, cc.Ocr2Config.OcrKeyBundle.OnchainSigningPubKey)
+			// OnchainSigningPubKey is the raw uncompressed pubkey: 130 chars (04 + 128 hex).
+			require.Len(t, cc.Ocr2Config.OcrKeyBundle.OnchainSigningPubKey, 130)
 		}
 
-		// Both chains must have the same address (same signing key)
+		// Both chains must have the same OnchainSigningAddress (same signing key → same
+		// EVM address) and the same OnchainSigningPubKey.
 		addr0 := req.ChainConfigs[0].Ocr2Config.OcrKeyBundle.OnchainSigningAddress
 		addr1 := req.ChainConfigs[1].Ocr2Config.OcrKeyBundle.OnchainSigningAddress
 		require.Equal(t, addr0, addr1)
 
-		// The raw public key is identical across chains too: it's the same key, just
-		// rendered per-family in OnchainSigningAddress.
+		// The raw public key is identical across chains too.
 		pubKey0 := req.ChainConfigs[0].Ocr2Config.OcrKeyBundle.OnchainSigningPubKey
 		pubKey1 := req.ChainConfigs[1].Ocr2Config.OcrKeyBundle.OnchainSigningPubKey
 		require.Equal(t, pubKey0, pubKey1)
+		require.NotEqual(t, addr0, pubKey0)
 	})
 
-	t.Run("unsupported chain type returns error", func(t *testing.T) {
+	t.Run("builds request with Canton bundle variants", func(t *testing.T) {
 		t.Parallel()
 		ks, err := keystore.LoadKeystore(ctx, keystore.NewMemoryStorage(), "test", keystore.WithScryptParams(keystore.FastScryptParams))
 		require.NoError(t, err)
@@ -453,10 +459,16 @@ func TestBuildUpdateNodeRequest(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		// STARKNET has no signing address derivation implemented yet.
-		_, err = buildUpdateNodeRequest(ctx, ks, []string{"signing-key"}, []ChainRegistration{{Type: "STARKNET", ID: "mainnet"}})
-		require.Error(t, err)
-		require.Contains(t, err.Error(), "not implemented")
+		req, err := buildUpdateNodeRequest(ctx, ks, []string{"signing-key"}, []ChainRegistration{{Type: "CANTON", ID: "LocalNet"}})
+		require.NoError(t, err)
+		require.NotNil(t, req)
+		require.Len(t, req.ChainConfigs, 1)
+
+		bundle := req.ChainConfigs[0].Ocr2Config.OcrKeyBundle
+		require.NotNil(t, bundle)
+		require.Len(t, bundle.OnchainSigningAddress, 42)
+		require.NotEmpty(t, bundle.OnchainSigningPubKey)
+		require.NotEqual(t, bundle.OnchainSigningAddress, bundle.OnchainSigningPubKey)
 	})
 }
 
