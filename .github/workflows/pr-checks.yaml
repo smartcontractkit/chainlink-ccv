@@ -1,0 +1,25 @@
+name: Pull Request Checks
+
+on:
+  merge_group:
+  pull_request:
+    branches: [ main ]
+    types: [ opened, synchronize, reopened, edited ]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  lint-pr-title:
+    name: Lint PR title (Conventional Commits)
+    runs-on: ubuntu-latest
+    steps:
+      # Skip the PR title linting if the event is a merge_group event - we won't have this information.
+      - if: github.event_name == 'pull_request'
+        uses: amannn/action-semantic-pull-request@48f256284bd46cdaab1048c3721360e808335d50 # v6.1.1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

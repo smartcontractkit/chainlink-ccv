@@ -5,9 +5,7 @@ import (
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	rmnremote "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_0/operations/rmn_remote"
-	execop "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/executor"
 	onrampop "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/onramp"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/sequences"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/versioned_verifier_resolver"
 	dsutils "github.com/smartcontractkit/chainlink-ccip/deployment/utils/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
@@ -53,15 +51,6 @@ func (a *EVMCCVVerifierConfigAdapter) ResolveVerifierContractAddresses(
 		return nil, fmt.Errorf("failed to get on ramp address for chain %d: %w", chainSelector, err)
 	}
 
-	executorAddr, err := dsutils.FindAndFormatRef(ds, datastore.AddressRef{
-		Type:      datastore.ContractType(sequences.ExecutorProxyType),
-		Qualifier: executorQualifier,
-		Version:   execop.Version,
-	}, chainSelector, toAddress)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get executor proxy address for chain %d: %w", chainSelector, err)
-	}
-
 	rmnRemoteAddr, err := dsutils.FindAndFormatRef(ds, datastore.AddressRef{
 		Type:    datastore.ContractType(rmnremote.ContractType),
 		Version: rmnremote.Version,
@@ -73,7 +62,6 @@ func (a *EVMCCVVerifierConfigAdapter) ResolveVerifierContractAddresses(
 	return &ccvdeploymentadapters.VerifierContractAddresses{
 		CommitteeVerifierAddress: committeeVerifierAddr,
 		OnRampAddress:            onRampAddr,
-		ExecutorProxyAddress:     executorAddr,
 		RMNRemoteAddress:         rmnRemoteAddr,
 	}, nil
 }

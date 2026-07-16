@@ -12,6 +12,14 @@ type ExecutorConfigAdapter interface {
 	// GetDeployedChains returns the chain selectors that have an executor deployed for the
 	// given qualifier in the provided datastore.
 	GetDeployedChains(ds datastore.DataStore, qualifier string) []uint64
+	// ResolveExecutorAddress returns the on-chain executor address for the given chain
+	// selector and qualifier. It is the single source of truth for the executor address:
+	// BuildChainConfig uses it for DefaultExecutorAddress, and the verifier changeset uses
+	// it as the executor on-ramp address in committee verifier job specs. Implementations
+	// resolve it from their family's native datastore contract type — the adapter API does
+	// not prescribe a contract-type name, so there is no need to register the executor under
+	// an EVM-style "ExecutorProxy" type.
+	ResolveExecutorAddress(ds datastore.DataStore, chainSelector uint64, qualifier string) (string, error)
 	// BuildChainConfig builds the executor chain configuration for the given chain selector
 	// and qualifier from addresses recorded in the datastore.
 	BuildChainConfig(ds datastore.DataStore, chainSelector uint64, qualifier string) (executor.ChainConfiguration, error)

@@ -94,19 +94,42 @@ func LoadNOPIdentities(ctx context.Context, env deployment.Environment) (*NOPIde
 
 // newNOPIdentities builds the inverse index from a forward signing-keys map.
 // Exposed (unexported) so tests can construct identities without a JD round-trip.
+//
+// Each NOP's signer addresses are registered directly per family — JD pushes both
+// the EVM address (OnchainSigningAddress) and the raw public key
+// (OnchainSigningPubKey) at registration, so fetch_signing_keys returns both
+// variants. No cross-family derivation is needed here.
 func newNOPIdentities(signingKeys fetch_signing_keys.SigningKeysByNOP) *NOPIdentities {
 	inv := make(map[string]map[string]shared.NOPAlias)
-	for alias, byFamily := range signingKeys {
-		for family, signer := range byFamily {
-			if signer == "" {
-				continue
-			}
-			if inv[family] == nil {
-				inv[family] = make(map[string]shared.NOPAlias)
-			}
-			inv[family][shared.NormalizeAddress(family, signer)] = shared.NOPAlias(alias)
+
+	// set records family -> normalized address -> alias, first writer wins.
+	set := func(family, signer string, alias shared.NOPAlias) {
+		if signer == "" {
+			return
+		}
+		if inv[family] == nil {
+			inv[family] = make(map[string]shared.NOPAlias)
+		}
+		key := shared.NormalizeAddress(family, signer)
+		if _, taken := inv[family][key]; taken {
+			return
+		}
+		inv[family][key] = alias
+	}
+
+	// Sort aliases for deterministic first-writer-wins behavior.
+	aliases := make([]string, 0, len(signingKeys))
+	for alias := range signingKeys {
+		aliases = append(aliases, alias)
+	}
+	sort.Strings(aliases)
+
+	for _, alias := range aliases {
+		for family, signer := range signingKeys[alias] {
+			set(family, signer, shared.NOPAlias(alias))
 		}
 	}
+
 	return &NOPIdentities{signingKeys: signingKeys, aliasBySigner: inv}
 }
 

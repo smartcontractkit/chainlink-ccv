@@ -14,6 +14,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
+
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainreg"
@@ -79,6 +80,13 @@ func NewEnvironment() (in *Cfg, err error) {
 	/////////////////////////////
 	// END: Read Config toml //
 	/////////////////////////////
+
+	// local selects the no-JD path (app_config_source = "local"): no Job Distributor is started, and
+	// the committee verifiers and executors run in bootstrap local mode — each service's app config is
+	// delivered as a mounted file after contracts are deployed, and verifier signer addresses are read
+	// from the bootstrap info server instead of JD. This is the full send -> verify -> execute flow
+	// without the JD image.
+	local := in.IsLocal()
 
 	// Start fake data provider. Used for USDC verifier.
 	fakeOut, err := services.NewFake(in.Fake)
@@ -221,14 +229,20 @@ func NewEnvironment() (in *Cfg, err error) {
 	}
 	in.ClientLookup = clientLookup
 
-	jdInfra, err := jobs.StartJDInfrastructure(ctx, jobs.JDInfrastructureConfig{
-		JDInput:  in.JD,
-		NodeSets: in.NodeSets,
-	})
-	if err != nil {
-		L.Error().Msg("Unable to start JD infrastructure." +
-			"Make sure the container has been built with 'just build-jd-docker'.")
-		return nil, fmt.Errorf("failed to start JD infrastructure: %w", err)
+	// In local (no-JD) mode the Job Distributor is not started at all: jdInfra stays nil and every
+	// JD-dependent step below is guarded. This is the whole point of app_config_source=local — running
+	// without the JD image.
+	var jdInfra *jobs.JDInfrastructure
+	if !local {
+		jdInfra, err = jobs.StartJDInfrastructure(ctx, jobs.JDInfrastructureConfig{
+			JDInput:  in.JD,
+			NodeSets: in.NodeSets,
+		})
+		if err != nil {
+			L.Error().Msg("Unable to start JD infrastructure." +
+				"Make sure the container has been built with 'just build-jd-docker'.")
+			return nil, fmt.Errorf("failed to start JD infrastructure: %w", err)
+		}
 	}
 	in.JDInfra = jdInfra
 
@@ -299,7 +313,11 @@ func NewEnvironment() (in *Cfg, err error) {
 	}
 	L.Info().Any("Selectors", selectors).Msg("Deploying for chain selectors")
 
-	topology := ccdeploy.BuildEnvironmentTopology(in.EnvironmentTopology, in.Verifier, e)
+	// In local mode there is no JD to read verifier signer addresses from, so force signer enrichment
+	// from the verifiers' bootstrap keys for every family (the verifiers were launched above, so their
+	// Out.BootstrapKeys are populated). This feeds the on-chain committee signature config and the
+	// aggregator committee config, which both run before the verifier job specs are generated.
+	topology := ccdeploy.BuildEnvironmentTopology(in.EnvironmentTopology, in.Verifier, e, local)
 	if topology == nil {
 		return nil, fmt.Errorf("failed to build environment topology")
 	}
@@ -631,42 +649,14 @@ func NewEnvironment() (in *Cfg, err error) {
 	// START: Launch executors //
 	/////////////////////////////
 
-	// Route the central monitoring config into each executor's bootstrap input so it ends up
-	// in the generated bootstrap config. Defaults were applied earlier, so Bootstrap is
-	// non-nil; launch happens immediately below. Each executor gets its own copy so a future
-	// per-service override can't alias others.
-	monitoring := topology.Monitoring
-	for _, exec := range in.Executor {
-		if exec == nil {
-			continue
+	// In local (no-JD) mode executors run in bootstrap local mode: their config is delivered as a
+	// mounted file instead of a JD job proposal. In JD mode they register with and receive jobs from JD.
+	if local {
+		if err := launchAndConfigureLocalExecutors(ctx, in, e, topology, blockchainOutputs, impls, ds); err != nil {
+			return nil, err
 		}
-		if exec.Bootstrap == nil {
-			exec.Bootstrap = &services.BootstrapInput{}
-		}
-		m := monitoring
-		exec.Bootstrap.Monitoring = &m
-	}
-
-	_, err = launchExecutors(in.Executor, blockchainOutputs, jdInfra)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create executors: %w", err)
-	}
-
-	if err := fundExecutorTransmitters(ctx, in.Executor, in.Blockchains, impls); err != nil {
-		return nil, fmt.Errorf("failed to fund executor transmitters: %w", err)
-	}
-
-	if err := registerExecutorsWithJD(ctx, in.Executor, jdInfra); err != nil {
-		return nil, err
-	}
-
-	executorJobSpecs, err := generateExecutorJobSpecs(e, in, topology, ds)
-	if err != nil {
-		return nil, err
-	}
-
-	if jdInfra != nil && jdInfra.OffchainClient != nil {
-		if err := proposeJobsToExecutors(ctx, in.Executor, executorJobSpecs, blockchainOutputs, jdInfra.OffchainClient); err != nil {
+	} else {
+		if err := launchAndConfigureExecutors(ctx, in, e, topology, blockchainOutputs, impls, ds, jdInfra); err != nil {
 			return nil, err
 		}
 	}
@@ -694,9 +684,15 @@ func NewEnvironment() (in *Cfg, err error) {
 		}
 	}
 
-	// Propose jobs to standalone verifiers via JD
-	if jdInfra != nil && jdInfra.OffchainClient != nil {
-		if err := proposeJobsToStandaloneVerifiers(ctx, in.Verifier, ownedJobSpecs, blockchainOutputs, jdInfra.OffchainClient); err != nil {
+	// Deliver the generated app config to each verifier. In JD mode this is a job proposal over WSRPC;
+	// in local mode it is a file written into the container's mounted config directory, which the
+	// waiting bootstrapper picks up and then starts the service.
+	if local {
+		if err := deliverLocalVerifierConfigs(in.Verifier, ownedJobSpecs); err != nil {
+			return nil, err
+		}
+	} else if jdInfra != nil && jdInfra.OffchainClient != nil {
+		if err := proposeJobsToStandaloneVerifiers(ctx, in.Verifier, ownedJobSpecs, jdInfra.OffchainClient); err != nil {
 			return nil, err
 		}
 	}
@@ -719,32 +715,11 @@ func NewEnvironment() (in *Cfg, err error) {
 			return nil, fmt.Errorf("fake data provider is required for token verifiers to provide attestation API endpoints, but it was not created successfully")
 		}
 
-		template, err := tokenVerifierInput.GenerateTemplateConfig()
-		if err != nil {
-			return nil, fmt.Errorf("failed to generate template config for token verifier: %w", err)
-		}
-
 		// Use changeset to generate token verifier config from on-chain state
 		cs := ccvchangesets.GenerateTokenVerifierConfig()
 		output, err := cs.Apply(*e, ccvchangesets.GenerateTokenVerifierConfigInput{
 			ServiceIdentifier: "TokenVerifier",
 			ChainSelectors:    selectors,
-			PyroscopeURL:      template.PyroscopeURL,
-			Monitoring: ccvdeployment.MonitoringConfig{
-				Enabled: template.Monitoring.Enabled,
-				Type:    template.Monitoring.Type,
-				Beholder: ccvdeployment.BeholderConfig{
-					InsecureConnection:       template.Monitoring.Beholder.InsecureConnection,
-					CACertFile:               template.Monitoring.Beholder.CACertFile,
-					OtelExporterGRPCEndpoint: template.Monitoring.Beholder.OtelExporterGRPCEndpoint,
-					OtelExporterHTTPEndpoint: template.Monitoring.Beholder.OtelExporterHTTPEndpoint,
-					LogStreamingEnabled:      template.Monitoring.Beholder.LogStreamingEnabled,
-					MetricReaderInterval:     template.Monitoring.Beholder.MetricReaderInterval,
-					TraceSampleRatio:         template.Monitoring.Beholder.TraceSampleRatio,
-					TraceBatchTimeout:        template.Monitoring.Beholder.TraceBatchTimeout,
-					TelemetryAttributes:      template.Monitoring.Beholder.TelemetryAttributes,
-				},
-			},
 			Lombard: ccvchangesets.LombardConfigInput{
 				VerifierID:     "LombardVerifier",
 				Qualifier:      devenvcommon.LombardVerifierResolverQualifier,

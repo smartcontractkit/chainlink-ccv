@@ -87,6 +87,8 @@ var (
 	laneConfigOnce                   sync.Once
 	protocolContractsDeployRegistry  *FamilyRegistry[ProtocolContractsDeployAdapter]
 	protocolContractsDeployOnce      sync.Once
+	tokenPoolOnchainRegistry         *FamilyRegistry[TokenPoolOnchainAdapter]
+	tokenPoolOnchainOnce             sync.Once
 )
 
 func GetAggregatorRegistry() *FamilyRegistry[AggregatorConfigAdapter] {
@@ -132,6 +134,11 @@ func GetLaneConfigRegistry() *FamilyRegistry[LaneConfigAdapter] {
 func GetProtocolContractsDeployRegistry() *FamilyRegistry[ProtocolContractsDeployAdapter] {
 	protocolContractsDeployOnce.Do(func() { protocolContractsDeployRegistry = newFamilyRegistry[ProtocolContractsDeployAdapter]() })
 	return protocolContractsDeployRegistry
+}
+
+func GetTokenPoolOnchainRegistry() *FamilyRegistry[TokenPoolOnchainAdapter] {
+	tokenPoolOnchainOnce.Do(func() { tokenPoolOnchainRegistry = newFamilyRegistry[TokenPoolOnchainAdapter]() })
+	return tokenPoolOnchainRegistry
 }
 
 // --------------------------------------------------------------------

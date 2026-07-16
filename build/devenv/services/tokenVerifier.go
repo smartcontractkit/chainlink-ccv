@@ -17,10 +17,12 @@ import (
 	"github.com/testcontainers/testcontainers-go/wait"
 
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
+	evmchainconfig "github.com/smartcontractkit/chainlink-ccv/build/devenv/evm/chainconfig"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/util"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm"
 	ccvblockchain "github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vsecrets"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
@@ -34,9 +36,6 @@ const (
 	DefaultTokenVerifierDBName        = "token-verifier-1-db"
 	DefaultTokenVerifierDBPort        = 8450
 )
-
-//go:embed tokenVerifier.template.toml
-var tokenVerifierConfigTemplate string
 
 type TokenVerifierDBInput struct {
 	Image string `toml:"image"`
@@ -116,7 +115,7 @@ func NewTokenVerifier(in *TokenVerifierInput, blockchainOutputs []*blockchain.Ou
 	}
 
 	// Generate blockchain infos for standalone mode
-	blockchainInfos, err := ConvertBlockchainOutputsToInfo(blockchainOutputs)
+	blockchainInfos, err := evmchainconfig.ConvertBlockchainOutputsToInfo(blockchainOutputs)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate blockchain infos from blockchain outputs: %w", err)
 	}
@@ -167,10 +166,25 @@ func NewTokenVerifier(in *TokenVerifierInput, blockchainOutputs []*blockchain.Ou
 		return nil, fmt.Errorf("failed to write token verifier app config to file: %w", err)
 	}
 
-	// Generate and write the bootstrap (operator) config, carrying monitoring from the generated config.
-	// Only the monitoring section is set; the infra sections (jd/db/keystore/server) are zero-valued
-	// and omitted from the TOML output via omitempty, so validation correctly skips infra checks.
-	bootstrapConfig, err := toml.Marshal(bootstrap.Config{Monitoring: in.Bootstrap.Monitoring})
+	// EVM connection details are operator-local configuration. Mount them separately from the token
+	// verifier app config, matching the standalone committee verifier and executor paths.
+	evmConfig, err := toml.Marshal(evm.NewConfigFromInfos(blockchainInfos))
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate EVM config for token verifier: %w", err)
+	}
+	evmConfigFilePath := filepath.Join(confDir, "token-verifier-evm-config.toml")
+	if err := os.WriteFile(evmConfigFilePath, evmConfig, 0o644); err != nil {
+		return nil, fmt.Errorf("failed to write EVM config for token verifier: %w", err)
+	}
+
+	// Generate and write the bootstrap (operator) config. The token verifier runs in local app-config
+	// mode with no infra ([db]/[keystore]), so the non-secret config carries only the mode selection,
+	// the app-config path, and monitoring (no secrets file); validation correctly skips infra checks.
+	bootstrapConfig, err := toml.Marshal(bootstrap.NonSecretConfig{
+		AppConfigMode:      bootstrap.AppConfigModeLocal,
+		LocalAppConfigPath: "/etc/token-verifier/config.toml",
+		Monitoring:         in.Bootstrap.Monitoring,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate bootstrap config for token verifier: %w", err)
 	}
@@ -179,16 +193,26 @@ func NewTokenVerifier(in *TokenVerifierInput, blockchainOutputs []*blockchain.Ou
 		return nil, fmt.Errorf("failed to write token verifier bootstrap config to file: %w", err)
 	}
 
-	envVars := make(map[string]string)
-	// Database connection for chain status (internal docker network address)
+	// Database connection for chain status (internal docker network address). Delivered via the
+	// verifier secrets file, mounted at the default path, instead of CL_DATABASE_URL — so
+	// e2e exercises the file load path. The token verifier's secrets carry only [db].
 	internalDBConnectionString := fmt.Sprintf("postgresql://%s:%s@%s:5432/%s?sslmode=disable",
 		in.ContainerName, in.ContainerName, in.DB.Name, in.ContainerName)
-	envVars["CL_DATABASE_URL"] = internalDBConnectionString
-	envVars["TOKEN_VERIFIER_CONFIG_PATH"] = "/etc/token-verifier-app-config.toml"
-	envVars["BOOTSTRAPPER_CONFIG_PATH"] = bootstrap.DefaultConfigPath
-	if lvl := os.Getenv("LOG_LEVEL"); lvl != "" {
-		envVars["LOG_LEVEL"] = lvl
+	verifierSecrets, err := GenerateVerifierSecrets(internalDBConnectionString, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate token verifier secrets: %w", err)
 	}
+	verifierSecretsFilePath := filepath.Join(confDir, "token-verifier-secrets.toml")
+	// 0o644 (world-readable) matches the bootstrap secrets file: the mounted file must be readable by
+	// the `ccv` CLI run via `docker exec`, which may run as a different UID than the bind-mount owner.
+	if err := os.WriteFile(verifierSecretsFilePath, verifierSecrets, 0o644); err != nil {
+		return nil, fmt.Errorf("failed to write token verifier secrets to file: %w", err)
+	}
+
+	// The app-config path is delivered via the bootstrap config's local_app_config_path (set above),
+	// not an env var; only the bootstrap config path itself is pointed at via env.
+	envVars := make(map[string]string)
+	envVars["BOOTSTRAPPER_CONFIG_PATH"] = bootstrap.DefaultConfigPath
 
 	/* Service */
 	req := testcontainers.ContainerRequest{
@@ -211,15 +235,17 @@ func NewTokenVerifier(in *TokenVerifierInput, blockchainOutputs []*blockchain.Ou
 				},
 			}
 		},
-		WaitingFor: wait.ForLog("Using real blockchain information from environment").
+		WaitingFor: wait.ForLog("Loaded blockchain metadata from app config").
 			WithStartupTimeout(120 * time.Second).
 			WithPollInterval(3 * time.Second),
 	}
 
 	req.Mounts = testcontainers.Mounts()
 	req.Mounts = append(req.Mounts,
-		testcontainers.BindMount(appConfigFilePath, "/etc/token-verifier-app-config.toml"),
+		testcontainers.BindMount(appConfigFilePath, "/etc/token-verifier/config.toml"),
 		testcontainers.BindMount(bootstrapConfigFilePath, bootstrap.DefaultConfigPath),
+		testcontainers.BindMount(verifierSecretsFilePath, vsecrets.DefaultTokenVerifierSecretsPath),
+		testcontainers.BindMount(evmConfigFilePath, evm.DefaultEVMConfigPath),
 	)
 
 	// Note: identical code to aggregator.go/executor.go -- will indexer be identical as well?
@@ -283,11 +309,14 @@ func (v *TokenVerifierInput) GenerateConfigWithBlockchainInfos(blockchainInfos c
 	}
 
 	anyInfo := make(ccvblockchain.Infos[any])
-	for k, info := range blockchainInfos {
-		anyInfo[k] = info
+	for selector, info := range blockchainInfos {
+		// Keep chain-enumeration metadata for compatibility with the token-verifier app-config
+		// decoder. Connection details live in the separately mounted EVM config.
+		info.Nodes = nil
+		anyInfo[selector] = info
 	}
 
-	// Use the generated config directly (fake URLs are already injected in environment.go)
+	// Use the generated application config directly, with connection-free chain metadata.
 	config := token.ConfigWithBlockchainInfos{
 		Config:          *v.GeneratedConfig,
 		BlockchainInfos: anyInfo,
@@ -298,12 +327,4 @@ func (v *TokenVerifierInput) GenerateConfigWithBlockchainInfos(blockchainInfos c
 		return nil, fmt.Errorf("failed to marshal verifier config to TOML: %w", err)
 	}
 	return cfg, nil
-}
-
-func (v *TokenVerifierInput) GenerateTemplateConfig() (*token.Config, error) {
-	var config *token.Config
-	if _, err := toml.Decode(tokenVerifierConfigTemplate, &config); err != nil {
-		return nil, fmt.Errorf("failed to decode verifier config template: %w", err)
-	}
-	return config, nil
 }

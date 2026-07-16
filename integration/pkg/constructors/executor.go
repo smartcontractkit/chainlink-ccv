@@ -204,6 +204,7 @@ func NewExecutorCoordinator(
 		cfg.MaxRetryDuration,
 		backoffProvider,
 		cfg.WorkerCount,
+		cfg.DataNotReadyRetryInterval,
 	)
 	if err != nil {
 		lggr.Errorw("Failed to create execution coordinator.", "error", err)

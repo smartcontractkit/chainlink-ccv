@@ -33,6 +33,11 @@ generate: ensure-oapi-codegen
     find . -name 'go.mod' -execdir go generate ./... \;
     just mock
 
+# Regenerate configuration/secrets docs from the app config structs.
+# Freshness is enforced by TestConfigDocsFresh in ./tools/configdoc.
+config-docs: ensure-go
+    go run ./tools/configdoc/cmd/generate -o docs/config
+
 mock: ensure-mockery
     @echo "Cleaning existing mocks..."
     # remove standalone mock_*.go files created by mockery

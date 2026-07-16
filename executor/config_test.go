@@ -229,13 +229,13 @@ func TestConfiguration_Validate(t *testing.T) {
 			wantErrContains: "execution_interval must not be negative",
 		},
 		{
-			name: "monitoring_enabled_without_type_fails",
+			name: "monitoring_enabled_invalid_log_level_fails",
 			config: func() Configuration {
 				c := validConfig()
-				c.Monitoring = MonitoringConfig{Enabled: true, Type: ""}
+				c.Monitoring = MonitoringConfig{LogLevel: "invalid"}
 				return c
 			}(),
-			wantErrContains: "monitoring type is required",
+			wantErrContains: "log_level is invalid",
 		},
 	}
 
@@ -255,33 +255,35 @@ func TestConfiguration_Validate(t *testing.T) {
 
 func TestConfiguration_GetNormalizedConfig(t *testing.T) {
 	cases := []struct {
-		name                    string
-		config                  Configuration
-		wantErr                 bool
-		wantErrContains         string
-		wantIndexerAddressCount int
-		wantBackoffDuration     time.Duration
-		wantLookbackWindow      time.Duration
-		wantReaderCacheExpiry   time.Duration
-		wantMaxRetryDuration    time.Duration
-		wantExecutionInterval   time.Duration
-		wantNtpServer           string
-		wantWorkerCount         int
-		wantIndexerQueryLimit   uint64
+		name                          string
+		config                        Configuration
+		wantErr                       bool
+		wantErrContains               string
+		wantIndexerAddressCount       int
+		wantBackoffDuration           time.Duration
+		wantLookbackWindow            time.Duration
+		wantReaderCacheExpiry         time.Duration
+		wantMaxRetryDuration          time.Duration
+		wantDataNotReadyRetryInterval time.Duration
+		wantExecutionInterval         time.Duration
+		wantNtpServer                 string
+		wantWorkerCount               int
+		wantIndexerQueryLimit         uint64
 	}{
 		{
-			name:                    "single_indexer_address_with_defaults",
-			config:                  validConfig(),
-			wantErr:                 false,
-			wantIndexerAddressCount: 1,
-			wantBackoffDuration:     backoffDurationDefault,
-			wantLookbackWindow:      lookbackWindowDefault,
-			wantReaderCacheExpiry:   readerCacheExpiryDefault,
-			wantMaxRetryDuration:    maxRetryDurationDefault,
-			wantExecutionInterval:   executionIntervalDefault,
-			wantNtpServer:           ntpServerDefault,
-			wantWorkerCount:         workerCountDefault,
-			wantIndexerQueryLimit:   IndexerQueryLimitDefault,
+			name:                          "single_indexer_address_with_defaults",
+			config:                        validConfig(),
+			wantErr:                       false,
+			wantIndexerAddressCount:       1,
+			wantBackoffDuration:           backoffDurationDefault,
+			wantLookbackWindow:            lookbackWindowDefault,
+			wantReaderCacheExpiry:         readerCacheExpiryDefault,
+			wantMaxRetryDuration:          maxRetryDurationDefault,
+			wantDataNotReadyRetryInterval: dataNotReadyRetryIntervalDefault,
+			wantExecutionInterval:         executionIntervalDefault,
+			wantNtpServer:                 ntpServerDefault,
+			wantWorkerCount:               workerCountDefault,
+			wantIndexerQueryLimit:         IndexerQueryLimitDefault,
 		},
 		{
 			name: "multiple_indexer_addresses",
@@ -290,16 +292,17 @@ func TestConfiguration_GetNormalizedConfig(t *testing.T) {
 				c.IndexerAddress = []string{"http://indexer1:8100", "http://indexer2:8100"}
 				return c
 			}(),
-			wantErr:                 false,
-			wantIndexerAddressCount: 2,
-			wantBackoffDuration:     backoffDurationDefault,
-			wantLookbackWindow:      lookbackWindowDefault,
-			wantReaderCacheExpiry:   readerCacheExpiryDefault,
-			wantMaxRetryDuration:    maxRetryDurationDefault,
-			wantExecutionInterval:   executionIntervalDefault,
-			wantNtpServer:           ntpServerDefault,
-			wantWorkerCount:         workerCountDefault,
-			wantIndexerQueryLimit:   IndexerQueryLimitDefault,
+			wantErr:                       false,
+			wantIndexerAddressCount:       2,
+			wantBackoffDuration:           backoffDurationDefault,
+			wantLookbackWindow:            lookbackWindowDefault,
+			wantReaderCacheExpiry:         readerCacheExpiryDefault,
+			wantMaxRetryDuration:          maxRetryDurationDefault,
+			wantDataNotReadyRetryInterval: dataNotReadyRetryIntervalDefault,
+			wantExecutionInterval:         executionIntervalDefault,
+			wantNtpServer:                 ntpServerDefault,
+			wantWorkerCount:               workerCountDefault,
+			wantIndexerQueryLimit:         IndexerQueryLimitDefault,
 		},
 		{
 			name: "custom_values_preserved",
@@ -310,6 +313,7 @@ func TestConfiguration_GetNormalizedConfig(t *testing.T) {
 				c.LookbackWindow = 2 * time.Hour
 				c.ReaderCacheExpiry = 10 * time.Minute
 				c.MaxRetryDuration = 12 * time.Hour
+				c.DataNotReadyRetryInterval = 2 * time.Second
 				c.NtpServer = "custom.ntp.com"
 				c.WorkerCount = 200
 				c.IndexerQueryLimit = 500
@@ -319,16 +323,17 @@ func TestConfiguration_GetNormalizedConfig(t *testing.T) {
 				c.ChainConfiguration = map[string]ChainConfiguration{"1": cc}
 				return c
 			}(),
-			wantErr:                 false,
-			wantIndexerAddressCount: 1,
-			wantBackoffDuration:     30 * time.Second,
-			wantLookbackWindow:      2 * time.Hour,
-			wantReaderCacheExpiry:   10 * time.Minute,
-			wantMaxRetryDuration:    12 * time.Hour,
-			wantExecutionInterval:   2 * time.Minute,
-			wantNtpServer:           "custom.ntp.com",
-			wantWorkerCount:         200,
-			wantIndexerQueryLimit:   500,
+			wantErr:                       false,
+			wantIndexerAddressCount:       1,
+			wantBackoffDuration:           30 * time.Second,
+			wantLookbackWindow:            2 * time.Hour,
+			wantReaderCacheExpiry:         10 * time.Minute,
+			wantMaxRetryDuration:          12 * time.Hour,
+			wantDataNotReadyRetryInterval: 2 * time.Second,
+			wantExecutionInterval:         2 * time.Minute,
+			wantNtpServer:                 "custom.ntp.com",
+			wantWorkerCount:               200,
+			wantIndexerQueryLimit:         500,
 		},
 		{
 			name: "defaults_applied_when_zero",
@@ -339,16 +344,17 @@ func TestConfiguration_GetNormalizedConfig(t *testing.T) {
 				c.ChainConfiguration = map[string]ChainConfiguration{"1": cc}
 				return c
 			}(),
-			wantErr:                 false,
-			wantIndexerAddressCount: 1,
-			wantBackoffDuration:     backoffDurationDefault,
-			wantLookbackWindow:      lookbackWindowDefault,
-			wantReaderCacheExpiry:   readerCacheExpiryDefault,
-			wantMaxRetryDuration:    maxRetryDurationDefault,
-			wantExecutionInterval:   executionIntervalDefault,
-			wantNtpServer:           ntpServerDefault,
-			wantWorkerCount:         workerCountDefault,
-			wantIndexerQueryLimit:   IndexerQueryLimitDefault,
+			wantErr:                       false,
+			wantIndexerAddressCount:       1,
+			wantBackoffDuration:           backoffDurationDefault,
+			wantLookbackWindow:            lookbackWindowDefault,
+			wantReaderCacheExpiry:         readerCacheExpiryDefault,
+			wantMaxRetryDuration:          maxRetryDurationDefault,
+			wantDataNotReadyRetryInterval: dataNotReadyRetryIntervalDefault,
+			wantExecutionInterval:         executionIntervalDefault,
+			wantNtpServer:                 ntpServerDefault,
+			wantWorkerCount:               workerCountDefault,
+			wantIndexerQueryLimit:         IndexerQueryLimitDefault,
 		},
 		{
 			name: "validation_errors_propagated",
@@ -378,6 +384,7 @@ func TestConfiguration_GetNormalizedConfig(t *testing.T) {
 				require.Equal(t, tc.wantLookbackWindow, normalized.LookbackWindow)
 				require.Equal(t, tc.wantReaderCacheExpiry, normalized.ReaderCacheExpiry)
 				require.Equal(t, tc.wantMaxRetryDuration, normalized.MaxRetryDuration)
+				require.Equal(t, tc.wantDataNotReadyRetryInterval, normalized.DataNotReadyRetryInterval)
 				require.Equal(t, tc.wantNtpServer, normalized.NtpServer)
 				require.Equal(t, tc.wantWorkerCount, normalized.WorkerCount)
 				require.Equal(t, tc.wantIndexerQueryLimit, normalized.IndexerQueryLimit)

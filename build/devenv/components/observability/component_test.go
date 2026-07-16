@@ -9,12 +9,15 @@ import (
 
 func validConfig() map[string]any {
 	return map[string]any{
-		"version":       int64(1),
-		"pyroscope_url": "http://host.docker.internal:4040",
+		"version": int64(1),
 		"monitoring": map[string]any{
-			"Enabled": true,
-			"Type":    "beholder",
+			"LogLevel": "info",
+			"Pyroscope": map[string]any{
+				"Enabled": true,
+				"URL":     "http://host.docker.internal:4040",
+			},
 			"Beholder": map[string]any{
+				"Enabled":                  true,
 				"InsecureConnection":       true,
 				"OtelExporterHTTPEndpoint": "host.docker.internal:4318",
 			},
@@ -43,7 +46,8 @@ func TestRunPhase1_PublishesObservability(t *testing.T) {
 
 	obs, ok := out[Key].(*Observability)
 	require.True(t, ok, "output %q should be *Observability", Key)
-	require.Equal(t, "http://host.docker.internal:4040", obs.PyroscopeURL)
-	require.True(t, obs.Monitoring.Enabled)
+	require.True(t, obs.Monitoring.Pyroscope.Enabled)
+	require.Equal(t, "http://host.docker.internal:4040", obs.Monitoring.Pyroscope.URL)
+	require.True(t, obs.Monitoring.Beholder.Enabled)
 	require.Equal(t, "host.docker.internal:4318", obs.Monitoring.Beholder.OtelExporterHTTPEndpoint)
 }

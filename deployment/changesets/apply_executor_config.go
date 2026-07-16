@@ -127,8 +127,7 @@ func ApplyExecutorConfig() deployment.ChangeSetV2[ApplyExecutorConfigInput] {
 			nopsToValidate = executorPoolNOPAliases(cfg.Pool)
 		}
 
-		clNOPs := filterCLModeNOPs(nopsToValidate, cfg.NOPs)
-		if err := validateExecutorChainSupport(e, cfg.Pool, clNOPs); err != nil {
+		if err := validateExecutorChainSupport(e, cfg.Pool, nopsToValidate); err != nil {
 			return deployment.ChangesetOutput{}, err
 		}
 
@@ -146,6 +145,7 @@ func ApplyExecutorConfig() deployment.ChangeSetV2[ApplyExecutorConfigInput] {
 			cfg.Pool,
 			cfg.IndexerAddress,
 			cfg.PyroscopeURL,
+			nopModes,
 		)
 		if err != nil {
 			return deployment.ChangesetOutput{}, err
@@ -168,6 +168,9 @@ func ApplyExecutorConfig() deployment.ChangeSetV2[ApplyExecutorConfigInput] {
 					AllNOPs:    allNOPAliases(cfg.NOPs),
 				},
 				RevokeOrphanedJobs: cfg.RevokeOrphanedJobs,
+				// Without a JD (no-JD local devenv), persist the generated specs and skip proposing;
+				// the caller delivers them to the executor as a mounted file instead.
+				AllowMissingJD: e.Offchain == nil,
 			},
 		)
 		if err != nil {
@@ -327,6 +330,7 @@ func buildExecutorJobSpecs(
 	pool ExecutorPoolInput,
 	indexerAddress []string,
 	pyroscopeURL string,
+	nopModes map[shared.NOPAlias]shared.NOPMode,
 ) (shared.NOPJobSpecs, shared.ExecutorJobScope, error) {
 	scope := shared.ExecutorJobScope{
 		ExecutorQualifier: executorQualifier,
@@ -389,13 +393,31 @@ func buildExecutorJobSpecs(
 		}
 
 		jobID := jobSpecID.ToJobID()
-		jobSpec := fmt.Sprintf(`schemaVersion = 1
+		mode, err := resolveNOPMode(nopModes[nopAlias], nopAlias)
+		if err != nil {
+			return nil, scope, err
+		}
+
+		var jobSpec string
+		if mode == shared.NOPModeStandalone {
+			// standalone mode bootstrapper expects "appConfig" field
+			jobSpec = fmt.Sprintf(`schemaVersion = 1
+type = "ccvexecutor"
+name = "%s"
+externalJobID = "%s"
+appConfig = '''
+%s'''
+`, string(jobID), jobID.ToExternalJobID(), string(configBytes))
+		} else {
+			// cl-mode and default uses "executorConfig" field
+			jobSpec = fmt.Sprintf(`schemaVersion = 1
 type = "ccvexecutor"
 name = "%s"
 externalJobID = "%s"
 executorConfig = '''
 %s'''
 `, string(jobID), jobID.ToExternalJobID(), string(configBytes))
+		}
 
 		if jobSpecs[nopAlias] == nil {
 			jobSpecs[nopAlias] = make(map[shared.JobID]string)

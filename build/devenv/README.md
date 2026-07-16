@@ -179,6 +179,29 @@ Then start with a testnet config:
 ccv up env.toml,env-fuji-fantom.toml
 ```
 
+## Running without a Job Distributor (`app_config_source = "local"`)
+
+By default the environment starts a Job Distributor and ships each service's app config via job
+proposals. Set the top-level `app_config_source = "local"` in the env file to run **without** JD — for
+example when the `job-distributor` image is not available (the CCV starter kit, partner testing).
+
+```bash
+ccv up env-local-config.toml
+```
+
+In local mode:
+
+- No Job Distributor is started.
+- Committee verifiers and executors run in bootstrap local mode: each boots serving its keys, and its
+  app config is delivered as a mounted file after contracts are deployed (the bootstrapper waits for
+  it).
+- Verifier signer addresses are read from the bootstrap info server instead of JD, then used to
+  configure the on-chain committee and the aggregator. Executor transmitters are funded from the same
+  bootstrap keys.
+
+This covers the full send -> verify -> execute flow without the JD image. `env-local-config.toml` is a
+minimal single-committee, single-executor example to copy.
+
 ### Developing the environment
 
 ```bash

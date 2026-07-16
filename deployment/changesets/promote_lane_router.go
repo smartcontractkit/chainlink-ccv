@@ -14,6 +14,7 @@ package changesets
 // the Router swap.
 
 import (
+	mcmsutil "github.com/smartcontractkit/chainlink-ccip/deployment/utils/mcms"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 )
 
@@ -37,6 +38,9 @@ type PromoteLaneRouterInput struct {
 	SrcChainOverrides *LaneChainOverrides
 	// DestChainOverrides optionally overrides config for the destination chain side.
 	DestChainOverrides *LaneChainOverrides
+	// MCMS, when set, packages the onchain router-promotion writes into an MCMS
+	// timelock proposal instead of returning them for deployer-key execution.
+	MCMS *mcmsutil.Input
 }
 
 // PromoteLaneRouter is a single-entry, onchain-only changeset that switches a
@@ -60,7 +64,7 @@ func PromoteLaneRouter() deployment.ChangeSetV2[PromoteLaneRouterInput] {
 			false, // UseTestRouter=false — production Router
 			cfg.ExecutorQualifier,
 			cfg.InboundCCVQualifiers, cfg.OutboundCCVQualifiers,
-			cfg.SrcChainOverrides, cfg.DestChainOverrides)
+			cfg.SrcChainOverrides, cfg.DestChainOverrides, cfg.MCMS)
 	}
 
 	return deployment.CreateChangeSet(apply, validate)

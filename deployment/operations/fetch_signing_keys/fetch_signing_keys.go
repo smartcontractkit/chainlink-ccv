@@ -85,32 +85,32 @@ var FetchNOPSigningKeys = operations.NewOperation(
 				continue
 			}
 
-			signerAddress := chainConfig.Ocr2Config.OcrKeyBundle.OnchainSigningAddress
-			if signerAddress == "" {
-				continue
-			}
-
-			chainFamily, ok := shared.GetChainTypeFamily(chainConfig.Chain.Type)
-			if !ok {
-				lggr.Debugw("Skipping unsupported chain type",
-					"chainType", chainConfig.Chain.Type.String())
-				continue
-			}
+			bundle := chainConfig.Ocr2Config.OcrKeyBundle
 
 			if output.SigningKeysByNOP[nopAlias] == nil {
 				output.SigningKeysByNOP[nopAlias] = make(map[string]string)
 			}
-			addr := shared.NormalizeAddress(chainFamily, signerAddress)
-			if existing, ok := output.SigningKeysByNOP[nopAlias][chainFamily]; ok && existing != addr {
-				return output, fmt.Errorf("NOP %q has conflicting OCR key bundles for family %s: address %s vs %s — the job spec requires a single signing address (per-chain scoping not supported yet)", nopAlias, chainFamily, existing, addr)
-			}
-			output.SigningKeysByNOP[nopAlias][chainFamily] = addr
 
-			lggr.Debugw("Found signing address",
-				"nopAlias", nopAlias,
-				"nodeId", chainConfig.NodeId,
-				"chainFamily", chainFamily,
-				"signerAddress", signerAddress)
+			// Index every registered family variant from this bundle. Each registered
+			// family's reader extracts its field; unregistered families fall back to
+			// OnchainSigningAddress via SigningIdentityFromBundle.
+			for _, family := range shared.RegisteredSigningIdentityFamilies() {
+				addr, err := shared.SigningIdentityFromBundle(family, bundle)
+				if err != nil {
+					continue // empty field for this family, skip
+				}
+				addr = shared.NormalizeAddress(family, addr)
+				if existing, ok := output.SigningKeysByNOP[nopAlias][family]; ok && existing != addr {
+					return output, fmt.Errorf("NOP %q has conflicting OCR key bundles for family %s: address %s vs %s — the job spec requires a single signing address (per-chain scoping not supported yet)", nopAlias, family, existing, addr)
+				}
+				output.SigningKeysByNOP[nopAlias][family] = addr
+
+				lggr.Debugw("Found signing address",
+					"nopAlias", nopAlias,
+					"nodeId", chainConfig.NodeId,
+					"chainFamily", family,
+					"signerAddress", addr)
+			}
 		}
 
 		return output, nil

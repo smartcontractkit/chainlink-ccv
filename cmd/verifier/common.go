@@ -4,8 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"os"
-	"strconv"
 	"time"
 
 	"github.com/grafana/pyroscope-go"
@@ -20,28 +18,24 @@ import (
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/db"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vsecrets"
 	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
 const (
-	// Database environment variables.
-	DatabaseURLEnvVar             = "CL_DATABASE_URL"
-	DatabaseMaxOpenConnsEnvVar    = "CL_DATABASE_MAX_OPEN_CONNS"
-	DatabaseMaxIdleConnsEnvVar    = "CL_DATABASE_MAX_IDLE_CONNS"
-	DatabaseConnMaxLifetimeEnvVar = "CL_DATABASE_CONN_MAX_LIFETIME"
-	DatabaseConnMaxIdleTimeEnvVar = "CL_DATABASE_CONN_MAX_IDLE_TIME"
-
-	// Database defaults.
+	// Database connection pool settings. Not operator-tunable: these were previously read from
+	// CL_DATABASE_* env vars that no deployment ever set, so they are fixed constants. Pull them back
+	// into config only when a deployment actually needs to override them.
 	defaultMaxOpenConns    = 20
 	defaultMaxIdleConns    = 10
-	defaultConnMaxLifetime = 300 // seconds
-	defaultConnMaxIdleTime = 60  // seconds
+	defaultConnMaxLifetime = 300 * time.Second
+	defaultConnMaxIdleTime = 60 * time.Second
 )
 
 func SetupMonitoring(config verifier.MonitoringConfig, verifierServiceName string) verifier.Monitoring {
 	// If monitoring is not enabled, return a fake monitoring implementation that does nothing.
-	if !config.Enabled {
+	if !config.Beholder.Enabled {
 		verifierMonitoring := monitoring.NewFakeVerifierMonitoring()
 		return verifierMonitoring
 	}
@@ -78,26 +72,25 @@ func SetupMonitoring(config verifier.MonitoringConfig, verifierServiceName strin
 	return verifierMonitoring
 }
 
-func ConnectToPostgresDB(lggr logger.Logger) (sqlutil.DataSource, error) {
-	dbURL := os.Getenv(DatabaseURLEnvVar)
+// ConnectToPostgresDB opens the verifier's application storage database. The connection URL is
+// resolved from the verifier secrets file when present, otherwise from CL_DATABASE_URL (the file
+// wins). A nil secrets argument is the env-only path. An empty URL leaves the DB
+// unconfigured (returns a nil DataSource), preserving the existing "DB optional" behavior.
+func ConnectToPostgresDB(lggr logger.Logger, secrets *vsecrets.VerifierSecrets) (sqlutil.DataSource, error) {
+	dbURL := secrets.DatabaseURL()
 	if dbURL == "" {
 		return nil, nil
 	}
-
-	maxOpenConns := getEnvInt(DatabaseMaxOpenConnsEnvVar, defaultMaxOpenConns)
-	maxIdleConns := getEnvInt(DatabaseMaxIdleConnsEnvVar, defaultMaxIdleConns)
-	connMaxLifetime := getEnvInt(DatabaseConnMaxLifetimeEnvVar, defaultConnMaxLifetime)
-	connMaxIdleTime := getEnvInt(DatabaseConnMaxIdleTimeEnvVar, defaultConnMaxIdleTime)
 
 	dbx, err := sql.Open("postgres", dbURL)
 	if err != nil {
 		return nil, nil
 	}
 
-	dbx.SetMaxOpenConns(maxOpenConns)
-	dbx.SetMaxIdleConns(maxIdleConns)
-	dbx.SetConnMaxLifetime(time.Duration(connMaxLifetime) * time.Second)
-	dbx.SetConnMaxIdleTime(time.Duration(connMaxIdleTime) * time.Second)
+	dbx.SetMaxOpenConns(defaultMaxOpenConns)
+	dbx.SetMaxIdleConns(defaultMaxIdleConns)
+	dbx.SetConnMaxLifetime(defaultConnMaxLifetime)
+	dbx.SetConnMaxIdleTime(defaultConnMaxIdleTime)
 
 	if err := ccvcommon.EnsureDBConnection(lggr, dbx); err != nil {
 		_ = dbx.Close()
@@ -112,10 +105,10 @@ func ConnectToPostgresDB(lggr logger.Logger) (sqlutil.DataSource, error) {
 	}
 
 	lggr.Infow("Using PostgreSQL chain status storage",
-		"maxOpenConns", maxOpenConns,
-		"maxIdleConns", maxIdleConns,
-		"connMaxLifetime", connMaxLifetime,
-		"connMaxIdleTime", connMaxIdleTime,
+		"maxOpenConns", defaultMaxOpenConns,
+		"maxIdleConns", defaultMaxIdleConns,
+		"connMaxLifetime", defaultConnMaxLifetime,
+		"connMaxIdleTime", defaultConnMaxIdleTime,
 	)
 
 	return sqlxDB, nil
@@ -126,13 +119,14 @@ func LoadBlockchainInfo[T any](
 	lggr logger.Logger,
 	config map[string]T,
 ) chainaccess.Infos[T] {
-	// Use actual blockchain information from configuration
+	// The app config carries chain-enumeration metadata only. Family-local configuration supplies
+	// connection details to the accessor factory.
 	if len(config) == 0 {
-		lggr.Warnw("No blockchain information in config")
+		lggr.Warnw("No blockchain metadata in app config")
 		return nil
 	}
 	infos := chainaccess.Infos[T](config)
-	lggr.Infow("Using real blockchain information from environment",
+	lggr.Infow("Loaded blockchain metadata from app config",
 		"chainCount", len(config))
 	logBlockchainInfo(infos, lggr)
 	return infos
@@ -172,16 +166,4 @@ func logChainInfo[T any](infos chainaccess.Infos[T], chainSelector protocol.Chai
 			"chainSelector", chainSelector,
 			"info", info)
 	}
-}
-
-func getEnvInt(key string, defaultValue int) int {
-	val := os.Getenv(key)
-	if val == "" {
-		return defaultValue
-	}
-	intVal, err := strconv.Atoi(val)
-	if err != nil {
-		return defaultValue
-	}
-	return intVal
 }

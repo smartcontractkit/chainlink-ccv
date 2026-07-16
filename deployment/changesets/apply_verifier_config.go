@@ -158,12 +158,11 @@ func ApplyVerifierConfig() deployment.ChangeSetV2[ApplyVerifierConfigInput] {
 			return deployment.ChangesetOutput{}, fmt.Errorf("failed to fetch signing keys: %w", err)
 		}
 
-		clNOPs := filterCLModeNOPs(nopsToValidate, cfg.NOPs)
-		if err := validateVerifierChainSupport(e, clNOPs, cfg.Committee); err != nil {
+		if err := validateVerifierChainSupport(e, nopsToValidate, cfg.Committee); err != nil {
 			return deployment.ChangesetOutput{}, err
 		}
 
-		contractAddresses, err := buildVerifierContractConfigs(e, selectors, cfg.CommitteeQualifier, cfg.DefaultExecutorQualifier)
+		contractAddresses, executorOnRampAddrs, err := buildVerifierContractConfigs(e, selectors, cfg.CommitteeQualifier, cfg.DefaultExecutorQualifier)
 		if err != nil {
 			return deployment.ChangesetOutput{}, err
 		}
@@ -180,6 +179,7 @@ func ApplyVerifierConfig() deployment.ChangeSetV2[ApplyVerifierConfigInput] {
 
 		jobSpecs, scope, err := buildVerifierJobSpecs(
 			contractAddresses,
+			executorOnRampAddrs,
 			cfg.TargetNOPs,
 			nopInputs,
 			committeeInternal,
@@ -211,6 +211,9 @@ func ApplyVerifierConfig() deployment.ChangeSetV2[ApplyVerifierConfigInput] {
 					AllNOPs:    allNOPAliases(cfg.NOPs),
 				},
 				RevokeOrphanedJobs: cfg.RevokeOrphanedJobs,
+				// Without a JD (no-JD local devenv), persist the generated specs and skip proposing;
+				// the caller delivers them to the verifier as a mounted file instead.
+				AllowMissingJD: e.Offchain == nil,
 			},
 		)
 		if err != nil {
@@ -278,25 +281,43 @@ func getSignerFamilyFromRegistry(selectors []uint64) (string, error) {
 	return signerFamily, nil
 }
 
+// buildVerifierContractConfigs resolves the verifier-related contract addresses for each
+// selector. The executor on-ramp address is resolved separately through the executor
+// adapter (the single source of truth for the executor address) and returned as a parallel
+// map keyed by chain selector string, so the executor address is not duplicated across the
+// verifier and executor adapter APIs.
 func buildVerifierContractConfigs(
 	e deployment.Environment,
 	selectors []uint64,
 	committeeQualifier string,
 	executorQualifier string,
-) (map[string]*adapters.VerifierContractAddresses, error) {
+) (map[string]*adapters.VerifierContractAddresses, map[string]string, error) {
 	configs := make(map[string]*adapters.VerifierContractAddresses, len(selectors))
+	executorOnRampAddrs := make(map[string]string, len(selectors))
 	for _, sel := range selectors {
 		verifier, err := adapters.GetVerifierRegistry().Get(sel)
 		if err != nil {
-			return nil, fmt.Errorf("no verifier config adapter registered for chain %d: %w", sel, err)
+			return nil, nil, fmt.Errorf("no verifier config adapter registered for chain %d: %w", sel, err)
 		}
 		addrs, err := verifier.ResolveVerifierContractAddresses(e.DataStore, sel, committeeQualifier, executorQualifier)
 		if err != nil {
-			return nil, fmt.Errorf("failed to resolve contract addresses for chain %d: %w", sel, err)
+			return nil, nil, fmt.Errorf("failed to resolve contract addresses for chain %d: %w", sel, err)
 		}
-		configs[strconv.FormatUint(sel, 10)] = addrs
+
+		exec, err := adapters.GetExecutorRegistry().Get(sel)
+		if err != nil {
+			return nil, nil, fmt.Errorf("no executor config adapter registered for chain %d: %w", sel, err)
+		}
+		executorAddr, err := exec.ResolveExecutorAddress(e.DataStore, sel, executorQualifier)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to resolve executor address for chain %d: %w", sel, err)
+		}
+
+		key := strconv.FormatUint(sel, 10)
+		configs[key] = addrs
+		executorOnRampAddrs[key] = executorAddr
 	}
-	return configs, nil
+	return configs, executorOnRampAddrs, nil
 }
 
 type verifierNOPInput struct {
@@ -321,6 +342,7 @@ type verifierCommitteeInput struct {
 
 func buildVerifierJobSpecs(
 	contractAddresses map[string]*adapters.VerifierContractAddresses,
+	executorOnRampAddrs map[string]string,
 	targetNOPs []shared.NOPAlias,
 	environmentNOPs []verifierNOPInput,
 	committee verifierCommitteeInput,
@@ -345,13 +367,11 @@ func buildVerifierJobSpecs(
 
 	committeeVerifierAddrs := make(map[string]string, len(contractAddresses))
 	onRampAddrs := make(map[string]string, len(contractAddresses))
-	executorOnRampAddrs := make(map[string]string, len(contractAddresses))
 	rmnRemoteAddrs := make(map[string]string, len(contractAddresses))
 
 	for chainSel, addrs := range contractAddresses {
 		committeeVerifierAddrs[chainSel] = addrs.CommitteeVerifierAddress
 		onRampAddrs[chainSel] = addrs.OnRampAddress
-		executorOnRampAddrs[chainSel] = addrs.ExecutorProxyAddress
 		rmnRemoteAddrs[chainSel] = addrs.RMNRemoteAddress
 	}
 
@@ -372,6 +392,11 @@ func buildVerifierJobSpecs(
 		signerAddress := nop.SignerAddressByFamily[signerFamily]
 		if signerAddress == "" {
 			return nil, scope, fmt.Errorf("NOP %q missing signer address for family %s", nop.Alias, signerFamily)
+		}
+
+		mode, err := resolveNOPMode(nop.Mode, nopAlias)
+		if err != nil {
+			return nil, scope, err
 		}
 
 		sortedFinalityCheckers := slices.Clone(disableFinalityCheckers)
@@ -399,14 +424,27 @@ func buildVerifierJobSpecs(
 				return fmt.Errorf("failed to marshal verifier config for NOP %q (%s): %w", nopAlias, label, err)
 			}
 
+			var jobSpec string
 			jobID := verifierJobID.ToJobID()
-			jobSpec := fmt.Sprintf(`schemaVersion = 1
+			if mode == shared.NOPModeStandalone {
+				// standalone mode bootstrapper expects "appConfig" field
+				jobSpec = fmt.Sprintf(`schemaVersion = 1
+type = "ccvcommitteeverifier"
+name = "%s"
+externalJobID = "%s"
+appConfig = '''
+%s'''
+`, string(jobID), jobID.ToExternalJobID(), string(configBytes))
+			} else {
+				// cl-mode and default uses "committeeVerifierConfig" field
+				jobSpec = fmt.Sprintf(`schemaVersion = 1
 type = "ccvcommitteeverifier"
 name = "%s"
 externalJobID = "%s"
 committeeVerifierConfig = '''
 %s'''
 `, string(jobID), jobID.ToExternalJobID(), string(configBytes))
+			}
 
 			if jobSpecs[nopAlias] == nil {
 				jobSpecs[nopAlias] = make(map[shared.JobID]string)

@@ -3,6 +3,7 @@ package lifecycle
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -46,6 +47,49 @@ func TestNewManager(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, m)
 	assert.Equal(t, StateWaitingForJob, m.GetState())
+}
+
+func TestManager_HandleProposalGivesJobStartAFreshTimeout(t *testing.T) {
+	t.Parallel()
+
+	jdClient := mocks.NewMockClientInterface(t)
+	jdClient.EXPECT().ApproveJob(mock.Anything, "proposal-1", int64(1)).Return(nil)
+
+	jobStore := mocks.NewMockStoreInterface(t)
+	jobStore.EXPECT().SavePendingJob(mock.Anything, "proposal-1", int64(1), "spec").
+		Run(func(context.Context, string, int64, string) {
+			// Exhaust the deliberately tiny control-plane budget before StartJob is called.
+			time.Sleep(20 * time.Millisecond)
+		}).
+		Return(nil)
+	jobStore.EXPECT().AcceptPendingJob(mock.Anything).Return(true, nil)
+
+	runner := mocks.NewMockJobRunner(t)
+	runner.EXPECT().StartJob(mock.Anything, "spec").
+		Run(func(ctx context.Context, _ string) {
+			require.NoError(t, ctx.Err(), "job startup inherited the expired control-plane context")
+			deadline, ok := ctx.Deadline()
+			require.True(t, ok)
+			require.Greater(t, time.Until(deadline), 50*time.Millisecond)
+		}).
+		Return(nil)
+
+	m, err := NewManager(Config{
+		JDClient: jdClient,
+		JobStore: jobStore,
+		Runner:   runner,
+		Logger:   logger.Test(t),
+	})
+	require.NoError(t, err)
+	m.controlPlaneTimeout = 5 * time.Millisecond
+	m.jobStartTimeout = 200 * time.Millisecond
+
+	require.NoError(t, m.handleProposal(&pb.ProposeJobRequest{
+		Id:      "proposal-1",
+		Version: 1,
+		Spec:    "spec",
+	}))
+	require.Equal(t, StateRunning, m.GetState())
 }
 
 func TestNewManager_ReturnsError_WhenRequiredFieldIsNil(t *testing.T) {
@@ -643,6 +687,7 @@ func TestManager_EventLoop_Proposal_Replacement_StartFails_FallsBackToOldJob(t *
 	jdClient.EXPECT().Connect(mock.Anything).Return(nil)
 	jdClient.EXPECT().Close().Return(nil).Maybe()
 	jdClient.EXPECT().ApproveJob(mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+	jdClient.EXPECT().RejectJob(mock.Anything, "new-id", int64(2)).Return(nil).Maybe()
 
 	cachedJob := &store.Job{
 		ProposalID: "old-id",
@@ -695,6 +740,7 @@ func TestManager_EventLoop_Proposal_Replacement_StartFails_OldJobRestartAlsoFail
 	jdClient := newChanClient(t)
 	jdClient.EXPECT().Connect(mock.Anything).Return(nil)
 	jdClient.EXPECT().Close().Return(nil).Maybe()
+	jdClient.EXPECT().RejectJob(mock.Anything, "new-id", int64(2)).Return(nil).Maybe()
 
 	cachedJob := &store.Job{
 		ProposalID: "old-id",
@@ -778,6 +824,67 @@ func TestManager_Stop_AfterStart_Succeeds(t *testing.T) {
 	assert.Contains(t, err.Error(), "already stopped")
 }
 
+func TestManager_Stop_CancelsInFlightJobStart(t *testing.T) {
+	t.Parallel()
+
+	jdClient := newChanClient(t)
+	jdClient.EXPECT().Connect(mock.Anything).RunAndReturn(func(ctx context.Context) error {
+		<-ctx.Done()
+		return ctx.Err()
+	})
+	jdClient.EXPECT().RejectJob(mock.Anything, "proposal-1", int64(1)).Return(nil)
+	jdClient.EXPECT().Close().Return(nil)
+
+	jobStore := mocks.NewMockStoreInterface(t)
+	jobStore.EXPECT().LoadJob(mock.Anything).Return(nil, store.ErrNoJob)
+	jobStore.EXPECT().SavePendingJob(mock.Anything, "proposal-1", int64(1), "spec").Return(nil)
+
+	jobStartCalled := make(chan struct{})
+	jobStartErr := make(chan error, 1)
+	runner := mocks.NewMockJobRunner(t)
+	runner.EXPECT().StartJob(mock.Anything, "spec").RunAndReturn(func(ctx context.Context, _ string) error {
+		close(jobStartCalled)
+		<-ctx.Done()
+		jobStartErr <- ctx.Err()
+		return ctx.Err()
+	})
+
+	m, err := NewManager(Config{
+		JDClient: jdClient,
+		JobStore: jobStore,
+		Runner:   runner,
+		Logger:   logger.Test(t),
+	})
+	require.NoError(t, err)
+	m.jobStartTimeout = time.Minute
+	require.NoError(t, m.Start(context.Background()))
+
+	jdClient.proposalCh <- &pb.ProposeJobRequest{Id: "proposal-1", Version: 1, Spec: "spec"}
+	select {
+	case <-jobStartCalled:
+	case <-time.After(2 * time.Second):
+		t.Fatal("job start was not called")
+	}
+
+	stopErr := make(chan error, 1)
+	go func() {
+		stopErr <- m.Stop()
+	}()
+
+	select {
+	case err := <-jobStartErr:
+		require.ErrorIs(t, err, context.Canceled)
+	case <-time.After(2 * time.Second):
+		t.Fatal("in-flight job start was not canceled")
+	}
+	select {
+	case err := <-stopErr:
+		require.NoError(t, err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("manager did not stop after canceling job start")
+	}
+}
+
 func TestManager_Start_StartOncePreventsSecondStart(t *testing.T) {
 	t.Parallel()
 
@@ -805,4 +912,230 @@ func TestManager_Start_StartOncePreventsSecondStart(t *testing.T) {
 	assert.Contains(t, err.Error(), "already been started")
 
 	require.NoError(t, m.Stop())
+}
+
+type proposalRecord struct {
+	result      string
+	replacement bool
+}
+
+type stepRecord struct {
+	step        string
+	replacement bool
+}
+
+type recordingMetrics struct {
+	mu         sync.Mutex
+	proposals  []proposalRecord
+	stepErrors []stepRecord
+}
+
+func (r *recordingMetrics) IncProposal(_ context.Context, result string, replacement bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.proposals = append(r.proposals, proposalRecord{result, replacement})
+}
+
+func (r *recordingMetrics) IncStepError(_ context.Context, step string, replacement bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.stepErrors = append(r.stepErrors, stepRecord{step, replacement})
+}
+
+func (r *recordingMetrics) proposalSnapshot() []proposalRecord {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([]proposalRecord, len(r.proposals))
+	copy(out, r.proposals)
+	return out
+}
+
+// recordedSteps returns the step label of every recorded step error, in order.
+func (r *recordingMetrics) recordedSteps() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([]string, len(r.stepErrors))
+	for i, s := range r.stepErrors {
+		out[i] = s.step
+	}
+	return out
+}
+
+func TestManager_HandleProposal_Metrics(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name            string
+		setup           func(*mocks.MockStoreInterface, *mocks.MockJobRunner, *mocks.MockClientInterface, *Manager)
+		proposal        *pb.ProposeJobRequest
+		wantErr         bool
+		wantReplacement bool
+		wantSteps       []string
+	}{
+		{
+			name: "success",
+			setup: func(js *mocks.MockStoreInterface, r *mocks.MockJobRunner, jd *mocks.MockClientInterface, _ *Manager) {
+				js.EXPECT().SavePendingJob(mock.Anything, "p1", int64(1), `{"spec":"new"}`).Return(nil)
+				js.EXPECT().AcceptPendingJob(mock.Anything).Return(true, nil)
+				r.EXPECT().StartJob(mock.Anything, `{"spec":"new"}`).Return(nil)
+				jd.EXPECT().ApproveJob(mock.Anything, "p1", int64(1)).Return(nil)
+			},
+			proposal:  &pb.ProposeJobRequest{Id: "p1", Version: 1, Spec: `{"spec":"new"}`},
+			wantSteps: nil,
+		},
+		{
+			name: "start_job",
+			setup: func(js *mocks.MockStoreInterface, r *mocks.MockJobRunner, jd *mocks.MockClientInterface, _ *Manager) {
+				js.EXPECT().SavePendingJob(mock.Anything, "p1", int64(1), `{"spec":"bad"}`).Return(nil)
+				r.EXPECT().StartJob(mock.Anything, `{"spec":"bad"}`).Return(errors.New("start failed"))
+				jd.EXPECT().RejectJob(mock.Anything, "p1", int64(1)).Return(nil)
+			},
+			proposal:  &pb.ProposeJobRequest{Id: "p1", Version: 1, Spec: `{"spec":"bad"}`},
+			wantErr:   true,
+			wantSteps: []string{stepStartJob},
+		},
+		{
+			name: "start_replacement with failed rollback restart",
+			setup: func(js *mocks.MockStoreInterface, r *mocks.MockJobRunner, jd *mocks.MockClientInterface, m *Manager) {
+				js.EXPECT().SavePendingJob(mock.Anything, "new", int64(2), `{"spec":"new"}`).Return(nil)
+				js.EXPECT().DeletePendingJob(mock.Anything).Return(nil)
+				r.EXPECT().StopJob(mock.Anything).Return(nil)
+				r.EXPECT().StartJob(mock.Anything, `{"spec":"new"}`).Return(errors.New("start failed"))
+				r.EXPECT().StartJob(mock.Anything, `{"spec":"old"}`).Return(errors.New("restart failed"))
+				jd.EXPECT().RejectJob(mock.Anything, "new", int64(2)).Return(nil)
+				m.mu.Lock()
+				m.state = StateRunning
+				m.currentJob = &store.Job{ProposalID: "old", Version: 1, Spec: `{"spec":"old"}`}
+				m.mu.Unlock()
+			},
+			proposal:        &pb.ProposeJobRequest{Id: "new", Version: 2, Spec: `{"spec":"new"}`},
+			wantErr:         true,
+			wantReplacement: true,
+			// Old job also failed to restart: node left with no running job.
+			wantSteps: []string{stepStartReplacement, stepRollbackRestart},
+		},
+		{
+			name: "multiple soft failures still succeed",
+			setup: func(js *mocks.MockStoreInterface, r *mocks.MockJobRunner, jd *mocks.MockClientInterface, _ *Manager) {
+				js.EXPECT().SavePendingJob(mock.Anything, "p1", int64(1), `{"spec":"new"}`).Return(errors.New("save failed"))
+				r.EXPECT().StartJob(mock.Anything, `{"spec":"new"}`).Return(nil)
+				js.EXPECT().AcceptPendingJob(mock.Anything).Return(false, errors.New("accept failed"))
+				jd.EXPECT().ApproveJob(mock.Anything, "p1", int64(1)).Return(errors.New("approve failed"))
+			},
+			proposal: &pb.ProposeJobRequest{Id: "p1", Version: 1, Spec: `{"spec":"new"}`},
+			// Job ends up running, so the outcome is success, but every soft
+			// failure is recorded as its own step error.
+			wantSteps: []string{stepSavePending, stepAcceptPending, stepApproveJob},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := &recordingMetrics{}
+			jobStore := mocks.NewMockStoreInterface(t)
+			runner := mocks.NewMockJobRunner(t)
+			jdClient := mocks.NewMockClientInterface(t)
+
+			m, err := NewManager(Config{
+				JDClient: jdClient,
+				JobStore: jobStore,
+				Runner:   runner,
+				Logger:   logger.Test(t),
+				Metrics:  rec,
+			})
+			require.NoError(t, err)
+			tt.setup(jobStore, runner, jdClient, m)
+
+			err = m.handleProposal(tt.proposal)
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+
+			proposals := rec.proposalSnapshot()
+			require.Len(t, proposals, 1, "exactly one outcome recorded per proposal")
+			wantResult := resultSuccess
+			if tt.wantErr {
+				wantResult = resultError
+			}
+			assert.Equal(t, wantResult, proposals[0].result)
+			assert.Equal(t, tt.wantReplacement, proposals[0].replacement)
+
+			assert.ElementsMatch(t, tt.wantSteps, rec.recordedSteps())
+		})
+	}
+}
+
+func TestManager_RetryPendingJob_Metrics(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		setup     func(*mocks.MockStoreInterface, *mocks.MockJobRunner, *mocks.MockClientInterface)
+		wantErr   bool
+		wantSteps []string
+	}{
+		{
+			name: "start_job",
+			setup: func(_ *mocks.MockStoreInterface, r *mocks.MockJobRunner, _ *mocks.MockClientInterface) {
+				r.EXPECT().StartJob(mock.Anything, `{"spec":"new"}`).Return(errors.New("start failed"))
+			},
+			wantErr:   true,
+			wantSteps: []string{stepStartJob},
+		},
+		{
+			// Soft failure after StartJob succeeds: job is running, so the
+			// outcome is success even though a step error is recorded.
+			name: "approve_job soft failure",
+			setup: func(js *mocks.MockStoreInterface, r *mocks.MockJobRunner, jd *mocks.MockClientInterface) {
+				r.EXPECT().StartJob(mock.Anything, `{"spec":"new"}`).Return(nil)
+				js.EXPECT().AcceptPendingJob(mock.Anything).Return(true, nil)
+				jd.EXPECT().ApproveJob(mock.Anything, "p1", int64(1)).Return(errors.New("approve failed"))
+			},
+			wantSteps: []string{stepApproveJob},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := &recordingMetrics{}
+			jobStore := mocks.NewMockStoreInterface(t)
+			runner := mocks.NewMockJobRunner(t)
+			jdClient := mocks.NewMockClientInterface(t)
+
+			m, err := NewManager(Config{
+				JDClient: jdClient,
+				JobStore: jobStore,
+				Runner:   runner,
+				Logger:   logger.Test(t),
+				Metrics:  rec,
+			})
+			require.NoError(t, err)
+			tt.setup(jobStore, runner, jdClient)
+
+			err = m.retryPendingJob(&store.Job{
+				ProposalID: "p1",
+				Version:    1,
+				Spec:       `{"spec":"new"}`,
+				Status:     store.JobStatusPending,
+			})
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+
+			proposals := rec.proposalSnapshot()
+			require.Len(t, proposals, 1, "exactly one outcome recorded per retry")
+			wantResult := resultSuccess
+			if tt.wantErr {
+				wantResult = resultError
+			}
+			assert.Equal(t, wantResult, proposals[0].result)
+			assert.False(t, proposals[0].replacement, "retries are never replacements")
+
+			assert.ElementsMatch(t, tt.wantSteps, rec.recordedSteps())
+		})
+	}
 }

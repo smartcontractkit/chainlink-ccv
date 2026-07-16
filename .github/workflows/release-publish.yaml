@@ -1,16 +1,25 @@
-name: Publish RC Image From Tag
+name: Publish GA Image From Release Tag
 
+# Publishes GA (non-RC) service images when release-please cuts a root release.
+# The bare root tag `vX.Y.Z` is produced by release-please under the GATI GitHub App
+# token, which triggers this workflow. In GitHub Actions
+# tag globs `*` does not match `/`, so `v[0-9]+.[0-9]+.[0-9]+` matches only the bare
+# root tag — never module tags (`deployment/vX.Y.Z`) or RC tags (`<svc>/vX.Y.Z-rc`).
 on:
   push:
     tags:
-     - '*'
+      - 'v[0-9]+.[0-9]+.[0-9]+'
 
 jobs:
   build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        module: [verifier, aggregator, indexer, executor]
     permissions:
       id-token: write
       contents: read
-    runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
@@ -36,20 +45,18 @@ jobs:
           aws-region: us-east-2
           registry-type: private
 
-      - name: Build & Publish Release Candidate
+      - name: Build & Publish GA Image
         env:
+          MODULE: ${{ matrix.module }}
+          VERSION: ${{ github.ref_name }}
           ECR_REGISTRY_PRIMARY: ${{ secrets.ECR_REGISTRY_PRIMARY }}
           ECR_REGISTRY_SECONDARY: ${{ secrets.ECR_REGISTRY_SECONDARY }}
         run: |
-          MODULE=$(echo "${{ github.ref_name }}" | cut -d'/' -f1)
-          FULL_TAG=$(echo "${{ github.ref_name }}" | cut -d'/' -f2)
-          VERSION=$(echo "$FULL_TAG" | cut -d'-' -f1)
           echo "Module: $MODULE"
           echo "Version: $VERSION"
-          echo "Full Tag: $FULL_TAG"
-          echo "Building Release Candidate Image.."
-          just "$MODULE"/build-rc
-          echo "Publishing Release Candidate Image (primary).."
-          just "$MODULE"/publish-rc "$ECR_REGISTRY_PRIMARY" "$VERSION"
-          echo "Publishing Release Candidate Image (secondary).."
-          just "$MODULE"/publish-rc "$ECR_REGISTRY_SECONDARY" "$VERSION"
+          echo "Building GA Image.."
+          just "$MODULE"/build
+          echo "Publishing GA Image (primary).."
+          just "$MODULE"/publish "$ECR_REGISTRY_PRIMARY" "$VERSION"
+          echo "Publishing GA Image (secondary).."
+          just "$MODULE"/publish "$ECR_REGISTRY_SECONDARY" "$VERSION"

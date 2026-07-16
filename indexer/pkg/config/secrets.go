@@ -12,35 +12,45 @@ import (
 // Indexed entries like [Verifier.0] are parsed manually from the raw TOML.
 // Verifier keys are string representations of indices (e.g., "0", "1", "2").
 type SecretsConfig struct {
+	// Discoveries holds per-discovery credentials, keyed by the discovery's config index (e.g. "0").
 	Discoveries map[string]DiscoverySecrets `toml:"Discoveries"`
-	Verifier    map[string]VerifierSecrets  `toml:"Verifier"`
-	Storage     StorageSecrets              `toml:"Storage"`
+	// Verifier holds per-verifier credentials, keyed by the verifier's config index (e.g. "0").
+	Verifier map[string]VerifierSecrets `toml:"Verifier"`
+	// Storage holds storage-backend credentials.
+	Storage StorageSecrets `toml:"Storage"`
 }
 
 // DiscoverySecrets contains secrets for the discovery aggregator connection.
 type DiscoverySecrets struct {
+	// APIKey is the discovery aggregator client's API key.
 	APIKey string `toml:"APIKey"`
+	// Secret is the HMAC secret used to sign discovery aggregator requests.
 	Secret string `toml:"Secret"`
 }
 
 // VerifierSecrets contains secrets for a verifier connection.
 type VerifierSecrets struct {
+	// APIKey is the verifier aggregator client's API key.
 	APIKey string `toml:"APIKey"`
+	// Secret is the HMAC secret used to sign verifier aggregator requests.
 	Secret string `toml:"Secret"`
 }
 
 // StorageSecrets contains secrets for storage backends.
 type StorageSecrets struct {
+	// Single holds credentials for the single-storage strategy.
 	Single SingleStorageSecrets `toml:"Single"`
 }
 
 // SingleStorageSecrets contains secrets for single storage strategy.
 type SingleStorageSecrets struct {
+	// Postgres holds the postgres connection URI.
 	Postgres PostgresSecrets `toml:"Postgres"`
 }
 
 // PostgresSecrets contains the database connection URI.
 type PostgresSecrets struct {
+	// URI is the postgres database connection string.
 	URI string `toml:"URI"`
 }
 

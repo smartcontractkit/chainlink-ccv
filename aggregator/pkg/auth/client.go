@@ -12,6 +12,8 @@ type APIKeyPair interface {
 type ClientConfig interface {
 	// GetClientID returns the unique client identifier.
 	GetClientID() string
+	// GetClientName returns the client text representation.
+	GetClientName() string
 	// GetGroups returns the list of groups the client belongs to.
 	GetGroups() []string
 	// IsEnabled returns whether the client is enabled.

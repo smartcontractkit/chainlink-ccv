@@ -9,6 +9,11 @@ import (
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	nodev1 "github.com/smartcontractkit/chainlink-protos/job-distributor/v1/node"
 
+	// Register the EVM MCMS reader into the shared utils/changesets registry so the
+	// onchain lane changesets (LaneExpansion / PromoteLaneRouter) can resolve
+	// per-chain timelock addresses when building MCMS proposals.
+	_ "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_0_0/adapters"
+
 	ccvdeploymentadapters "github.com/smartcontractkit/chainlink-ccv/deployment/adapters"
 	"github.com/smartcontractkit/chainlink-ccv/deployment/shared"
 )
@@ -23,6 +28,7 @@ func init() {
 		}
 		return lower
 	})
+	shared.RegisterSigningIdentityReader(chainsel.FamilyEVM, shared.EVMSigningIdentityReader{})
 
 	// Register all EVM ccv adapter implementations into the ccv singleton registries.
 	ccvdeploymentadapters.GetAggregatorRegistry().Register(chainsel.FamilyEVM, &EVMCCVAggregatorConfigAdapter{})
@@ -33,6 +39,8 @@ func init() {
 	ccvdeploymentadapters.GetCommitteeVerifierOnchainRegistry().Register(chainsel.FamilyEVM, &EVMCCVCommitteeVerifierOnchainAdapter{})
 	ccvdeploymentadapters.GetCommitteeVerifierDeployRegistry().Register(chainsel.FamilyEVM, &EVMCommitteeVerifierDeployAdapter{})
 	ccvdeploymentadapters.GetProtocolContractsDeployRegistry().Register(chainsel.FamilyEVM, &EVMProtocolContractsDeployAdapter{})
+	ccvdeploymentadapters.GetLaneConfigRegistry().Register(chainsel.FamilyEVM, &EVMLaneConfigAdapter{})
+	ccvdeploymentadapters.GetTokenPoolOnchainRegistry().Register(chainsel.FamilyEVM, &EVMCCVTokenPoolOnchainAdapter{})
 }
 
 func parseHexAddress(hex, field string) (common.Address, error) {

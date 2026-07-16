@@ -66,8 +66,6 @@ type CCTPConfigInput struct {
 type GenerateTokenVerifierConfigInput struct {
 	ServiceIdentifier string
 	ChainSelectors    []uint64
-	PyroscopeURL      string
-	Monitoring        ccvdeployment.MonitoringConfig
 	Lombard           LombardConfigInput
 	CCTP              CCTPConfigInput
 	// ReplaceExisting controls how the result is written to env metadata. By
@@ -137,13 +135,11 @@ func GenerateTokenVerifierConfig() deployment.ChangeSetV2[GenerateTokenVerifierC
 		}
 
 		tvConfig := &token.Config{
-			PyroscopeURL: cfg.PyroscopeURL,
 			CommitteeConfig: chainaccess.CommitteeConfig{
 				OnRampAddresses:    onRampAddresses,
 				RMNRemoteAddresses: rmnRemoteAddresses,
 			},
 			TokenVerifiers: []token.VerifierConfig{},
-			Monitoring:     cfg.Monitoring,
 		}
 
 		if len(cctpVerifierAddresses) > 0 {

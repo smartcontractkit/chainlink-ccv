@@ -10,7 +10,6 @@ import (
 	"time"
 
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
-	"go.uber.org/zap/zapcore"
 
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 
@@ -28,24 +27,21 @@ import (
 	tokenapi "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/api"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/cctp"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/lombard"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vsecrets"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
 func main() {
 	if len(os.Args) >= 2 && os.Args[1] == "ccv" {
-		cmd.RunCCVCLI(os.Args[1:])
+		// The CLI loads the verifier secrets itself from the token verifier's path (it runs before
+		// bootstrap.Run, so the service factory has not loaded them yet).
+		cmd.RunCCVCLI(os.Args[1:], vsecrets.TokenVerifierSecretsPathEnv, vsecrets.DefaultTokenVerifierSecretsPath)
 		return
-	}
-	configPath := os.Getenv("TOKEN_VERIFIER_CONFIG_PATH")
-	if configPath == "" {
-		configPath = "/etc/config.toml"
 	}
 
 	err := bootstrap.Run(
 		"TokenVerifier",
 		&tokenVerifierFactory{},
-		bootstrap.WithTOMLAppConfig(configPath),
-		bootstrap.WithLogLevelFromEnv(zapcore.InfoLevel),
 	)
 	if err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "Failed to run token verifier: %v\n", err)
@@ -144,7 +140,15 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, spec bootstrap.JobSp
 		rmnRemoteAddresses[selector] = addr
 	}
 
-	db, err := cmd.ConnectToPostgresDB(tvf.lggr)
+	// Load the verifier secrets file (only [db].url is used by the token verifier); an absent file
+	// is fine and falls back to CL_DATABASE_URL.
+	secrets, err := vsecrets.LoadFromEnv(vsecrets.TokenVerifierSecretsPathEnv, vsecrets.DefaultTokenVerifierSecretsPath)
+	if err != nil {
+		tvf.lggr.Errorw("Failed to load verifier secrets", "error", err)
+		os.Exit(1)
+	}
+
+	db, err := cmd.ConnectToPostgresDB(tvf.lggr, secrets)
 	if err != nil {
 		tvf.lggr.Errorw("Failed to connect to Postgres database", "error", err)
 		os.Exit(1)

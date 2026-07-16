@@ -1,6 +1,7 @@
 package changesets
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/deployment/shared"
@@ -26,6 +27,19 @@ func (n NOPInput) GetMode() shared.NOPMode {
 		return shared.NOPModeCL
 	}
 	return n.Mode
+}
+
+// resolveNOPMode applies GetMode's default and rejects unknown mode values.
+func resolveNOPMode(mode shared.NOPMode, alias shared.NOPAlias) (shared.NOPMode, error) {
+	if mode == "" {
+		mode = shared.NOPModeCL
+	}
+	switch mode {
+	case shared.NOPModeCL, shared.NOPModeStandalone:
+		return mode, nil
+	default:
+		return "", fmt.Errorf("NOP %q has unknown mode %q", alias, mode)
+	}
 }
 
 // CommitteeInput is the imperative per-committee input for ApplyVerifierConfig.
@@ -81,17 +95,6 @@ func buildNOPModes(nops []NOPInput) map[shared.NOPAlias]shared.NOPMode {
 		modes[nop.Alias] = nop.GetMode()
 	}
 	return modes
-}
-
-func filterCLModeNOPs(aliases []shared.NOPAlias, nops []NOPInput) []shared.NOPAlias {
-	modeByAlias := buildNOPModes(nops)
-	filtered := make([]shared.NOPAlias, 0, len(aliases))
-	for _, alias := range aliases {
-		if mode, ok := modeByAlias[alias]; ok && mode == shared.NOPModeCL {
-			filtered = append(filtered, alias)
-		}
-	}
-	return filtered
 }
 
 // allNOPAliases returns every alias declared in nops, preserving input order.

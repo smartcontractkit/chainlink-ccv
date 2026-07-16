@@ -25,6 +25,7 @@ import (
 	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
 	"github.com/smartcontractkit/chainlink-ccv/deployment/adapters"
 	"github.com/smartcontractkit/chainlink-ccv/deployment/shared"
+	"github.com/smartcontractkit/chainlink-ccv/executor"
 )
 
 const (
@@ -599,6 +600,11 @@ type stubOnchainAdapter struct {
 	scanErr  error
 	applyErr error
 	applied  []adapters.SignatureConfigChange
+	// onchainOpErr, when set, is returned by SetAllowedFinalityConfig and
+	// ApplyAllowlistUpdates to exercise their error paths.
+	onchainOpErr   error
+	finalityCalls  int
+	allowlistCalls int
 }
 
 // stubOffchainClient satisfies offchain.Client. Only the JDClient methods needed by our test
@@ -650,6 +656,22 @@ func (s *stubOnchainAdapter) ApplySignatureConfigs(_ context.Context, _ deployme
 	return nil
 }
 
+func (s *stubOnchainAdapter) SetAllowedFinalityConfig(_ context.Context, _ deployment.Environment, _ uint64, _ string, _, _ bool, _ uint16) error {
+	if s.onchainOpErr != nil {
+		return s.onchainOpErr
+	}
+	s.finalityCalls++
+	return nil
+}
+
+func (s *stubOnchainAdapter) ApplyAllowlistUpdates(_ context.Context, _ deployment.Environment, _ uint64, _ string, _ uint64, _ bool, _, _ []string) error {
+	if s.onchainOpErr != nil {
+		return s.onchainOpErr
+	}
+	s.allowlistCalls++
+	return nil
+}
+
 // stubAggregatorAdapter satisfies AggregatorConfigAdapter.
 type stubAggregatorAdapter struct {
 	deployedChains []uint64
@@ -697,6 +719,7 @@ var (
 	_ adapters.CommitteeVerifierOnchainAdapter = (*stubFullAdapter)(nil)
 	_ adapters.AggregatorConfigAdapter         = (*stubFullAdapter)(nil)
 	_ adapters.VerifierConfigAdapter           = (*stubFullAdapter)(nil)
+	_ adapters.ExecutorConfigAdapter           = (*stubFullAdapter)(nil)
 )
 
 func (s *stubFullAdapter) ScanCommitteeStates(_ context.Context, _ deployment.Environment, chainSelector uint64) ([]*adapters.CommitteeState, error) {
@@ -710,12 +733,31 @@ func (s *stubFullAdapter) ApplySignatureConfigs(_ context.Context, _ deployment.
 	return nil
 }
 
+func (s *stubFullAdapter) SetAllowedFinalityConfig(_ context.Context, _ deployment.Environment, _ uint64, _ string, _, _ bool, _ uint16) error {
+	return nil
+}
+
+func (s *stubFullAdapter) ApplyAllowlistUpdates(_ context.Context, _ deployment.Environment, _ uint64, _ string, _ uint64, _ bool, _, _ []string) error {
+	return nil
+}
+
 func (s *stubFullAdapter) GetDeployedChains(_ datastore.DataStore, _ string) []uint64 {
 	chains := make([]uint64, 0, len(s.states))
 	for sel := range s.states {
 		chains = append(chains, sel)
 	}
 	return chains
+}
+
+// ResolveExecutorAddress implements [adapters.ExecutorConfigAdapter].
+func (s *stubFullAdapter) ResolveExecutorAddress(_ datastore.DataStore, _ uint64, _ string) (string, error) {
+	return "0x000000000000000000000000000000000000BBBB", nil
+}
+
+// BuildChainConfig implements [adapters.ExecutorConfigAdapter]. The offchain verifier tests
+// only exercise ResolveExecutorAddress, so this returns an empty configuration.
+func (s *stubFullAdapter) BuildChainConfig(_ datastore.DataStore, _ uint64, _ string) (executor.ChainConfiguration, error) {
+	return executor.ChainConfiguration{}, nil
 }
 
 // ResolveDestinationVerifierAddress implements [adapters.AggregatorConfigAdapter].
@@ -744,7 +786,6 @@ func (s *stubFullAdapter) ResolveVerifierContractAddresses(_ datastore.DataStore
 	return &adapters.VerifierContractAddresses{
 		CommitteeVerifierAddress: addr,
 		OnRampAddress:            "0x000000000000000000000000000000000000AAAA",
-		ExecutorProxyAddress:     "0x000000000000000000000000000000000000BBBB",
 		RMNRemoteAddress:         "0x000000000000000000000000000000000000CCCC",
 	}, nil
 }
@@ -757,6 +798,7 @@ func registerFullEVMAdapters(a *stubFullAdapter) {
 	adapters.GetCommitteeVerifierOnchainRegistry().Register(chainsel.FamilyEVM, a)
 	adapters.GetAggregatorRegistry().Register(chainsel.FamilyEVM, a)
 	adapters.GetVerifierRegistry().Register(chainsel.FamilyEVM, a)
+	adapters.GetExecutorRegistry().Register(chainsel.FamilyEVM, a)
 }
 
 func newTestBlockChains(selectors []uint64) cldf_chain.BlockChains {

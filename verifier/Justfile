@@ -25,6 +25,13 @@ publish-rc registry version:
     docker tag token-verifier:rc {{registry}}/containers/chainlink-ccv-token-verifier:{{version}}-rc
     docker push {{registry}}/containers/chainlink-ccv-token-verifier:{{version}}-rc
 
+publish registry version:
+    docker tag verifier:latest {{registry}}/containers/chainlink-ccv-verifier:{{version}}
+    docker push {{registry}}/containers/chainlink-ccv-verifier:{{version}}
+
+    docker tag token-verifier:latest {{registry}}/containers/chainlink-ccv-token-verifier:{{version}}
+    docker push {{registry}}/containers/chainlink-ccv-token-verifier:{{version}}
+
 clean:
     docker rmi verifier:latest
     docker rmi token-verifier:latest

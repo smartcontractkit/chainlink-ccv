@@ -8,6 +8,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vsecrets"
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
 )
 
@@ -73,13 +74,13 @@ const (
 // aggregator_address) falls back to the un-suffixed DefaultAggregator* variables, preserving the
 // existing single-aggregator deployment contract. Config generators (changeset, devenv) and the
 // deploy layer use the same convention to set the matching environment variables.
-func (a AggregatorConnection) AggregatorCredentialEnvVars() (apiKeyVar, secretKeyVar string) {
+func (a AggregatorConnection) AggregatorCredentialEnvVars() (apiKeyEnvName, secretKeyEnvName string) {
 	return AggregatorCredentialEnvVars(a.SecretName)
 }
 
 // AggregatorCredentialEnvVars returns the credential environment variable names for an aggregator
 // with the given secret name. An empty secret name yields the default (legacy) un-suffixed variables.
-func AggregatorCredentialEnvVars(secretName string) (apiKeyVar, secretKeyVar string) {
+func AggregatorCredentialEnvVars(secretName string) (apiKeyEnvName, secretKeyEnvName string) {
 	if strings.TrimSpace(secretName) == "" {
 		return DefaultAggregatorAPIKeyEnvVar, DefaultAggregatorSecretKeyEnvVar
 	}
@@ -87,28 +88,44 @@ func AggregatorCredentialEnvVars(secretName string) (apiKeyVar, secretKeyVar str
 	return "VERIFIER_AGGREGATOR_" + seg + "_API_KEY", "VERIFIER_AGGREGATOR_" + seg + "_SECRET_KEY"
 }
 
-// ResolveHMACConfig reads and validates this aggregator's HMAC credentials from the environment
-// variables named by AggregatorCredentialEnvVars. Each aggregator authenticates the verifier with
-// its own credential, so a consolidated verifier resolves one config per aggregator.
-func (a AggregatorConnection) ResolveHMACConfig() (*hmac.ClientConfig, error) {
-	apiKeyVar, secretKeyVar := a.AggregatorCredentialEnvVars()
+// ResolveHMACConfig reads and validates this aggregator's HMAC credentials. Each aggregator
+// authenticates the verifier with its own credential, so a consolidated verifier resolves one config
+// per aggregator.
+//
+// The verifier secrets file wins: when secrets holds an entry for this aggregator's SecretName it is
+// used; otherwise resolution falls back to the environment variables named by
+// AggregatorCredentialEnvVars, preserving the backwards-compatible env-only deployment contract. A
+// nil secrets map (no file, or a file with no [[aggregators]]) is the env-only path.
+//
+// Errors intentionally name the source (env var name, or file field name), never the credential
+// value, so they are safe to log.
+func (a AggregatorConnection) ResolveHMACConfig(secrets vsecrets.AggregatorSecrets) (*hmac.ClientConfig, error) {
+	if secrets != nil {
+		if cred, ok := secrets[strings.TrimSpace(a.SecretName)]; ok {
+			return buildHMACConfig(cred.APIKey, cred.SecretKey, "api_key", "secret_key", a.Label())
+		}
+	}
 
-	apiKey := os.Getenv(apiKeyVar)
+	apiKeyEnvName, secretKeyEnvName := a.AggregatorCredentialEnvVars()
+	return buildHMACConfig(os.Getenv(apiKeyEnvName), os.Getenv(secretKeyEnvName), apiKeyEnvName, secretKeyEnvName, a.Label())
+}
+
+// buildHMACConfig validates an API key / secret pair and returns the client config. apiKeyLabel and
+// secretLabel name the source (env var names, or file field names) so error messages point the
+// operator at the right place regardless of where the credential came from.
+func buildHMACConfig(apiKey, secret, apiKeyLabel, secretLabel, aggLabel string) (*hmac.ClientConfig, error) {
 	if apiKey == "" {
-		return nil, fmt.Errorf("missing %s for aggregator %q", apiKeyVar, a.Label())
+		return nil, fmt.Errorf("missing %s for aggregator %q", apiKeyLabel, aggLabel)
 	}
 	if err := hmac.ValidateAPIKey(apiKey); err != nil {
-		return nil, fmt.Errorf("invalid %s for aggregator %q: %w", apiKeyVar, a.Label(), err)
+		return nil, fmt.Errorf("invalid %s for aggregator %q: %w", apiKeyLabel, aggLabel, err)
 	}
-
-	secret := os.Getenv(secretKeyVar)
 	if secret == "" {
-		return nil, fmt.Errorf("missing %s for aggregator %q", secretKeyVar, a.Label())
+		return nil, fmt.Errorf("missing %s for aggregator %q", secretLabel, aggLabel)
 	}
 	if err := hmac.ValidateSecret(secret); err != nil {
-		return nil, fmt.Errorf("invalid %s for aggregator %q: %w", secretKeyVar, a.Label(), err)
+		return nil, fmt.Errorf("invalid %s for aggregator %q: %w", secretLabel, aggLabel, err)
 	}
-
 	return &hmac.ClientConfig{APIKey: apiKey, Secret: secret}, nil
 }
 
@@ -129,6 +146,7 @@ func sanitizeEnvVarSegment(s string) string {
 }
 
 type Config struct {
+	// VerifierID is the unique identifier for this committee verifier instance.
 	VerifierID string `toml:"verifier_id"`
 	// AggregatorAddress configures a single aggregator. DEPRECATED in favor of Aggregators;
 	// retained for backwards compatibility. It is mutually exclusive with Aggregators: setting
@@ -163,11 +181,14 @@ type Config struct {
 	// committeeVerifierConfig with github.com/pelletier/go-toml, which does not decode TOML
 	// duration strings into time.Duration. Standalone / devenv decoding uses github.com/BurntSushi/toml,
 	// which does support time.Duration; using string keeps both paths and changeset marshaling compatible.
-	MessageDisablementRulesPollInterval  string `toml:"message_disablement_rules_poll_interval"`
+	MessageDisablementRulesPollInterval string `toml:"message_disablement_rules_poll_interval"`
+	// MessageDisablementRulesClientTimeout is the RPC timeout for message-disablement-rules requests, as a Go duration string; empty uses the integration default.
 	MessageDisablementRulesClientTimeout string `toml:"message_disablement_rules_client_timeout"`
 
+	// SignerAddress is the on-chain address of the verifier's result-signing key.
 	SignerAddress string `toml:"signer_address"`
 
+	// PyroscopeURL is the Pyroscope server URL for continuous profiling; empty disables it.
 	PyroscopeURL string `toml:"pyroscope_url"`
 	// CommitteeVerifierAddresses is a map the addresses of the committee verifiers for each chain selector.
 	CommitteeVerifierAddresses map[string]string `toml:"committee_verifier_addresses"`

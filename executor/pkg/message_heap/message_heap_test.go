@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
@@ -176,6 +178,23 @@ func TestMessageHeap_PopAllReady(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestMessageHeap_AttemptRoundTrip(t *testing.T) {
+	t.Parallel()
+
+	readyTime := time.Unix(100, 0)
+	msg := createMessageWithTimestamp(readyTime, 1)
+	msg.Attempt = 3
+	msg.RetryInterval = 30 * time.Second
+
+	mh := NewMessageHeap(logger.Test(t))
+	require.True(t, mh.Push(*msg))
+
+	popped := mh.PopAllReady(readyTime)
+	require.Len(t, popped, 1)
+	require.Equal(t, 3, popped[0].Attempt)
+	require.Equal(t, 30*time.Second, popped[0].RetryInterval)
 }
 
 func TestMessageHeap_InternalHeapIntegration(t *testing.T) {

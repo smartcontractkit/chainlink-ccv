@@ -1,8 +1,12 @@
 [Monitoring]
+LogLevel = 'debug'
+
+[Monitoring.Pyroscope]
 Enabled = true
-Type = "beholder"
+URL = "http://pyroscope:4040"
 
 [Monitoring.Beholder]
+Enabled = true
 InsecureConnection = true
 CACertFile = ""
 OtelExporterGRPCEndpoint = ""
