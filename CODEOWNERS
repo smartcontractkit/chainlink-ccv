@@ -7,3 +7,7 @@ tools @smartcontractkit/ccip-platform
 common/monitoring @smartcontractkit/ccip-platform
 common/jd @smartcontractkit/ccip-platform
 common/metrics @smartcontractkit/ccip-platform
+docs @smartcontractkit/ccip-platform @smartcontractkit/ccip-protocol
+pkg/chainaccess @smartcontractkit/ccip-platform @smartcontractkit/ccip-protocol
+release-please-config.json @smartcontractkit/ccip-platform @smartcontractkit/ccip-protocol
+.release-please-manifest.json @smartcontractkit/ccip-platform @smartcontractkit/ccip-protocol
