@@ -16,20 +16,7 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-type closeTrackingRegistry struct {
-	closeCalls atomic.Int32
-}
-
-func (*closeTrackingRegistry) GetAccessor(context.Context, protocol.ChainSelector) (chainaccess.Accessor, error) {
-	return nil, errors.New("not implemented")
-}
-
-func (r *closeTrackingRegistry) Close() error {
-	r.closeCalls.Add(1)
-	return nil
-}
-
-func TestAccessorCloserRegistry_Close(t *testing.T) {
+func TestAccessorCloserRegistry_CloseAll(t *testing.T) {
 	t.Parallel()
 
 	errA := errors.New("close failed A")
@@ -71,7 +58,7 @@ func TestAccessorCloserRegistry_Close(t *testing.T) {
 				require.NoError(t, err)
 			}
 
-			got := tr.Close()
+			got := tr.CloseAll()
 			if tt.wantErr {
 				require.Error(t, got)
 				for _, want := range tt.wantErrIs {
@@ -79,8 +66,8 @@ func TestAccessorCloserRegistry_Close(t *testing.T) {
 				}
 			} else {
 				require.NoError(t, got)
-				// Close is idempotent: a second call is a no-op.
-				require.NoError(t, tr.Close())
+				// Second CloseAll with no intervening GetAccessor: no-op.
+				require.NoError(t, tr.CloseAll())
 			}
 		})
 	}
@@ -116,19 +103,5 @@ func TestAccessorCloserRegistry_Concurrent_GetAccessor(t *testing.T) {
 	}
 	wg.Wait()
 
-	require.NoError(t, tr.Close())
-}
-
-func TestAccessorCloserRegistry_CloseForwardsTerminalCleanup(t *testing.T) {
-	t.Parallel()
-
-	inner := &closeTrackingRegistry{}
-	registry := NewAccessorCloserRegistry(logger.Test(t), inner)
-
-	require.NoError(t, registry.Close())
-	require.NoError(t, registry.Close())
-	require.Equal(t, int32(1), inner.closeCalls.Load())
-
-	_, err := registry.GetAccessor(t.Context(), protocol.ChainSelector(1))
-	require.ErrorContains(t, err, "closed")
+	require.NoError(t, tr.CloseAll())
 }

@@ -77,104 +77,51 @@ func TestRunnerApplicationReadinessStaysFalseWhenJobStartFails(t *testing.T) {
 	require.False(t, ready.Load())
 }
 
-func TestRunnerPreparedReplacementKeepsOldJobReadyUntilCutover(t *testing.T) {
-	var ready atomic.Bool
-	var starts []string
-	runner := &runner{
-		lggr: logger.Test(t),
-		fac: &spyServiceFactory{startFn: func(_ context.Context, spec any, _ ServiceDeps) error {
-			starts = append(starts, spec.(JobSpec).Name)
-			return nil
-		}},
-		applicationReady: &ready,
-	}
-
-	oldSpec := "name = \"old\"\nappConfig = \"\""
-	newSpec := "name = \"new\"\nappConfig = \"\""
-	require.NoError(t, runner.StartJob(t.Context(), oldSpec))
-	require.True(t, ready.Load())
-	require.Equal(t, []string{"old"}, starts)
-
-	require.NoError(t, runner.PrepareJob(t.Context(), newSpec))
-	require.True(t, ready.Load(), "preparation must not make the active job unready")
-	require.Equal(t, []string{"old"}, starts, "preparation must not activate the candidate")
-
-	require.NoError(t, runner.StopJob(t.Context()))
-	require.False(t, ready.Load())
-	require.NoError(t, runner.StartJob(t.Context(), newSpec))
-	require.True(t, ready.Load())
-	require.Equal(t, []string{"old", "new"}, starts)
-	require.NoError(t, runner.StopJob(t.Context()))
-}
-
-func TestRunnerPrepareJobSupersedesPreviousCandidate(t *testing.T) {
-	var starts []string
-	runner := &runner{
-		lggr: logger.Test(t),
-		fac: &spyServiceFactory{startFn: func(_ context.Context, spec any, _ ServiceDeps) error {
-			starts = append(starts, spec.(JobSpec).Name)
-			return nil
-		}},
-	}
-
-	require.NoError(t, runner.PrepareJob(t.Context(), "name = \"first\"\nappConfig = \"\""))
-	first := runner.prepared
-	require.NotNil(t, first)
-
-	// A second PrepareJob without an intervening StartJob must discard the first candidate and
-	// install the second, leaving exactly one prepared candidate.
-	require.NoError(t, runner.PrepareJob(t.Context(), "name = \"second\"\nappConfig = \"\""))
-	require.NotNil(t, runner.prepared)
-	require.NotSame(t, first, runner.prepared)
-	require.Equal(t, "second", runner.prepared.spec.Name)
-
-	require.NoError(t, runner.StartJob(t.Context(), "name = \"second\"\nappConfig = \"\""))
-	require.Equal(t, []string{"second"}, starts)
-	require.NoError(t, runner.StopJob(t.Context()))
-}
-
-func TestRunnerStartJobDiscardsStalePreparedCandidate(t *testing.T) {
-	var starts []string
-	runner := &runner{
-		lggr: logger.Test(t),
-		fac: &spyServiceFactory{startFn: func(_ context.Context, spec any, _ ServiceDeps) error {
-			starts = append(starts, spec.(JobSpec).Name)
-			return nil
-		}},
-	}
-
-	require.NoError(t, runner.PrepareJob(t.Context(), "name = \"prepared\"\nappConfig = \"\""))
-	require.NotNil(t, runner.prepared)
-
-	// StartJob with a spec that does not match the prepared candidate must discard the stale
-	// candidate and build the job actually requested by StartJob.
-	require.NoError(t, runner.StartJob(t.Context(), "name = \"actual\"\nappConfig = \"\""))
-	require.Equal(t, []string{"actual"}, starts)
-	require.Nil(t, runner.prepared)
-
-	require.NoError(t, runner.StopJob(t.Context()))
-}
-
-func TestRunnerPrepareFailureDoesNotChangeActiveJobReadiness(t *testing.T) {
+func TestRunnerValidateJobKeepsActiveJobReady(t *testing.T) {
 	var ready atomic.Bool
 	ready.Store(true)
+	started := false
+	validated := false
 	runner := &runner{
-		lggr:             logger.Test(t),
-		fac:              &spyServiceFactory{},
+		lggr: logger.Test(t),
+		fac: &spyServiceFactory{
+			validateFn: func(spec JobSpec) error {
+				validated = true
+				require.Equal(t, "replacement", spec.Name)
+				return nil
+			},
+			startFn: func(context.Context, any, ServiceDeps) error {
+				started = true
+				return nil
+			},
+		},
 		applicationReady: &ready,
 	}
 
-	err := runner.PrepareJob(t.Context(), "not valid = [")
-	require.Error(t, err)
-	require.True(t, ready.Load())
-	require.Nil(t, runner.prepared)
+	require.NoError(t, runner.ValidateJob(t.Context(), "name = \"replacement\"\nappConfig = \"\""))
+	require.True(t, validated)
+	require.False(t, started, "validation must not start the replacement")
+	require.True(t, ready.Load(), "validation must not change active-job readiness")
 }
 
-func TestRunnerDiscardPreparedJobIsIdempotent(t *testing.T) {
-	runner := &runner{lggr: logger.Test(t), fac: &spyServiceFactory{}}
-	require.NoError(t, runner.PrepareJob(t.Context(), "name = \"new\"\nappConfig = \"\""))
-	require.NotNil(t, runner.prepared)
-	require.NoError(t, runner.DiscardPreparedJob(t.Context()))
-	require.Nil(t, runner.prepared)
-	require.NoError(t, runner.DiscardPreparedJob(t.Context()))
+func TestRunnerValidateJobRejectsInvalidConfig(t *testing.T) {
+	t.Run("outer job spec", func(t *testing.T) {
+		runner := &runner{lggr: logger.Test(t), fac: &spyServiceFactory{}}
+		err := runner.ValidateJob(t.Context(), "not valid = [")
+		require.ErrorContains(t, err, "failed to parse config")
+	})
+
+	t.Run("application config", func(t *testing.T) {
+		wantErr := errors.New("invalid app config")
+		runner := &runner{
+			lggr: logger.Test(t),
+			fac: &spyServiceFactory{validateFn: func(JobSpec) error {
+				return wantErr
+			}},
+		}
+
+		err := runner.ValidateJob(t.Context(), "name = \"replacement\"\nappConfig = \"bad\"")
+		require.ErrorIs(t, err, wantErr)
+		require.ErrorContains(t, err, "validate application config")
+	})
 }

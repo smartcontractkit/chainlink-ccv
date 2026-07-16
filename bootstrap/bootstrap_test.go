@@ -360,8 +360,16 @@ func (s *mockServiceFactory) MetricViews() []sdkmetric.View {
 var _ ServiceFactory = (*mockServiceFactory)(nil)
 
 type spyServiceFactory struct {
-	startFn func(context.Context, any, ServiceDeps) error
-	stopFn  func(context.Context) error
+	validateFn func(JobSpec) error
+	startFn    func(context.Context, any, ServiceDeps) error
+	stopFn     func(context.Context) error
+}
+
+func (s *spyServiceFactory) Validate(spec JobSpec) error {
+	if s.validateFn != nil {
+		return s.validateFn(spec)
+	}
+	return nil
 }
 
 func (s *spyServiceFactory) Start(ctx context.Context, spec JobSpec, deps ServiceDeps) error {
