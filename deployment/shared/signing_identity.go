@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"sort"
 
-	chainsel "github.com/smartcontractkit/chain-selectors"
 	nodev1 "github.com/smartcontractkit/chainlink-protos/job-distributor/v1/node"
 )
 
