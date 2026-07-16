@@ -30,7 +30,7 @@ func (EVMSigningIdentityReader) FromBundle(b *nodev1.OCR2Config_OCRKeyBundle) (s
 	return b.OnchainSigningAddress, nil
 }
 
-var signingIdentityReaders = map[string]SigningIdentityReader{}
+var signingIdentityReaders = make(map[string]SigningIdentityReader)
 
 // RegisterSigningIdentityReader associates a chain family with its SigningIdentityReader.
 // Called from init() in chain-specific adapter packages.
