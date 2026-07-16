@@ -687,6 +687,7 @@ func TestManager_EventLoop_Proposal_Replacement_StartFails_FallsBackToOldJob(t *
 	jdClient.EXPECT().Connect(mock.Anything).Return(nil)
 	jdClient.EXPECT().Close().Return(nil).Maybe()
 	jdClient.EXPECT().ApproveJob(mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+	jdClient.EXPECT().RejectJob(mock.Anything, "new-id", int64(2)).Return(nil).Maybe()
 
 	cachedJob := &store.Job{
 		ProposalID: "old-id",
@@ -739,6 +740,7 @@ func TestManager_EventLoop_Proposal_Replacement_StartFails_OldJobRestartAlsoFail
 	jdClient := newChanClient(t)
 	jdClient.EXPECT().Connect(mock.Anything).Return(nil)
 	jdClient.EXPECT().Close().Return(nil).Maybe()
+	jdClient.EXPECT().RejectJob(mock.Anything, "new-id", int64(2)).Return(nil).Maybe()
 
 	cachedJob := &store.Job{
 		ProposalID: "old-id",
@@ -830,6 +832,7 @@ func TestManager_Stop_CancelsInFlightJobStart(t *testing.T) {
 		<-ctx.Done()
 		return ctx.Err()
 	})
+	jdClient.EXPECT().RejectJob(mock.Anything, "proposal-1", int64(1)).Return(nil)
 	jdClient.EXPECT().Close().Return(nil)
 
 	jobStore := mocks.NewMockStoreInterface(t)
@@ -982,9 +985,10 @@ func TestManager_HandleProposal_Metrics(t *testing.T) {
 		},
 		{
 			name: "start_job",
-			setup: func(js *mocks.MockStoreInterface, r *mocks.MockJobRunner, _ *mocks.MockClientInterface, _ *Manager) {
+			setup: func(js *mocks.MockStoreInterface, r *mocks.MockJobRunner, jd *mocks.MockClientInterface, _ *Manager) {
 				js.EXPECT().SavePendingJob(mock.Anything, "p1", int64(1), `{"spec":"bad"}`).Return(nil)
 				r.EXPECT().StartJob(mock.Anything, `{"spec":"bad"}`).Return(errors.New("start failed"))
+				jd.EXPECT().RejectJob(mock.Anything, "p1", int64(1)).Return(nil)
 			},
 			proposal:  &pb.ProposeJobRequest{Id: "p1", Version: 1, Spec: `{"spec":"bad"}`},
 			wantErr:   true,
@@ -992,12 +996,13 @@ func TestManager_HandleProposal_Metrics(t *testing.T) {
 		},
 		{
 			name: "start_replacement with failed rollback restart",
-			setup: func(js *mocks.MockStoreInterface, r *mocks.MockJobRunner, _ *mocks.MockClientInterface, m *Manager) {
+			setup: func(js *mocks.MockStoreInterface, r *mocks.MockJobRunner, jd *mocks.MockClientInterface, m *Manager) {
 				js.EXPECT().SavePendingJob(mock.Anything, "new", int64(2), `{"spec":"new"}`).Return(nil)
 				js.EXPECT().DeletePendingJob(mock.Anything).Return(nil)
 				r.EXPECT().StopJob(mock.Anything).Return(nil)
 				r.EXPECT().StartJob(mock.Anything, `{"spec":"new"}`).Return(errors.New("start failed"))
 				r.EXPECT().StartJob(mock.Anything, `{"spec":"old"}`).Return(errors.New("restart failed"))
+				jd.EXPECT().RejectJob(mock.Anything, "new", int64(2)).Return(nil)
 				m.mu.Lock()
 				m.state = StateRunning
 				m.currentJob = &store.Job{ProposalID: "old", Version: 1, Spec: `{"spec":"old"}`}
