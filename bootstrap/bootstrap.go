@@ -124,19 +124,20 @@ func parseJobSpec(ctx context.Context, config string) (JobSpec, error) {
 }
 
 // ValidateJob implements [lifecycle.ValidatingJobRunner]. It parses the outer spec, decodes the
-// chain-layer config the registry will parse again at StartJob, and, when the factory supports
-// it, performs application-level validation. The active job and readiness state remain untouched.
+// application-owned registry overlay that StartJob will parse again, and, when the factory
+// supports it, performs application-level validation. The active job and readiness state remain
+// untouched.
 func (r *runner) ValidateJob(ctx context.Context, config string) error {
 	spec, err := parseJobSpec(ctx, config)
 	if err != nil {
 		return err
 	}
-	// Decode-only mirror of the chainaccess.NewRegistry parse in StartJob. The generic decode is
-	// lenient about structure, so this rejects app config TOML the registry would fail on (syntax
-	// errors) before the old job is stopped — deeper chain-config checks live in the accessor
-	// constructors, which validation deliberately does not run. This is also the only app config
-	// check for factories that do not implement ServiceFactoryValidator.
-	if _, err := spec.GetGenericConfig(); err != nil {
+	// Decode-only mirror of the chainaccess.NewRegistry parse in StartJob. This rejects TOML syntax
+	// errors before the old job is stopped without constructing accessors. Removed
+	// blockchain_infos sections are ignored; NewRegistry logs a warning when the job starts.
+	// Application-specific checks are handled by the factory validator below.
+	var genericConfig chainaccess.GenericConfig
+	if _, err := toml.Decode(spec.AppConfig, &genericConfig); err != nil {
 		return fmt.Errorf("validate chain config: %w", err)
 	}
 	validator, ok := r.fac.(ServiceFactoryValidator)

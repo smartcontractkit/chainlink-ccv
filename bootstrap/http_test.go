@@ -104,7 +104,7 @@ func TestRunnerValidateJobKeepsActiveJobReady(t *testing.T) {
 	require.True(t, ready.Load(), "validation must not change active-job readiness")
 }
 
-func TestRunnerValidateJobRejectsInvalidConfig(t *testing.T) {
+func TestRunnerValidateJob(t *testing.T) {
 	t.Run("outer job spec", func(t *testing.T) {
 		runner := &runner{lggr: logger.Test(t), fac: &spyServiceFactory{}}
 		err := runner.ValidateJob(t.Context(), "not valid = [")
@@ -137,6 +137,17 @@ func TestRunnerValidateJobRejectsInvalidConfig(t *testing.T) {
 		// The app config is TOML the registry decode in StartJob would reject.
 		err := runner.ValidateJob(t.Context(), "name = \"replacement\"\nappConfig = \"not valid = [\"")
 		require.ErrorContains(t, err, "validate chain config")
+	})
+
+	t.Run("allows blockchain infos without factory validator", func(t *testing.T) {
+		runner := &runner{lggr: logger.Test(t), fac: &mockServiceFactory{}}
+		const config = `name = "replacement"
+appConfig = """
+[blockchain_infos.5009297550715157269]
+chain_id = "1"
+"""`
+
+		require.NoError(t, runner.ValidateJob(t.Context(), config))
 	})
 }
 

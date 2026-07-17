@@ -55,7 +55,7 @@ func NewFactory() *Factory {
 }
 
 func validateJobSpec(spec bootstrap.JobSpec) (*executorsvc.Configuration, error) {
-	var rawConfig executorsvc.ConfigWithBlockchainInfo[any]
+	var rawConfig executorsvc.Configuration
 	if err := spec.GetAppConfig(&rawConfig); err != nil {
 		return nil, fmt.Errorf("failed to decode executor config: %w", err)
 	}

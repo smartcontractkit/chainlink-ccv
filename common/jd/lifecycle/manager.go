@@ -324,6 +324,19 @@ func (m *Manager) handleProposal(proposal *pb.ProposeJobRequest) (retErr error) 
 		// no rollback. Runtime resources are built by StartJob only after cutover.
 		if err := m.validateReplacement(proposal.Spec); err != nil {
 			m.metrics.IncStepError(metricsCtx, stepValidateReplacement, true)
+			rejectCtx, rejectCancel := m.shutdownCh.CtxWithTimeout(m.controlPlaneTimeout)
+			defer rejectCancel()
+			if rejectErr := m.jdClient.RejectJob(rejectCtx, proposal.Id, proposal.Version); rejectErr != nil {
+				m.lggr.Warnw("Failed to reject job with JD after validation failure",
+					"error", rejectErr,
+					"proposalID", proposal.Id,
+				)
+				m.metrics.IncStepError(metricsCtx, stepRejectJob, true)
+			} else {
+				m.lggr.Infow("Rejected job with JD after validation failure",
+					"proposalID", proposal.Id,
+				)
+			}
 			return fmt.Errorf("failed to validate replacement job: %w", err)
 		}
 	}
@@ -354,7 +367,7 @@ func (m *Manager) handleProposal(proposal *pb.ProposeJobRequest) (retErr error) 
 	// Starting a job can include database setup and sequential RPC client initialization. Give it a
 	// fresh, dedicated budget instead of whatever remains of the control-plane timeout above.
 	if err := m.startJob(proposal.Spec); err != nil {
-		rejectCtx, rejectCancel := context.WithTimeout(context.Background(), m.controlPlaneTimeout)
+		rejectCtx, rejectCancel := m.shutdownCh.CtxWithTimeout(m.controlPlaneTimeout)
 		defer rejectCancel()
 		if rejectErr := m.jdClient.RejectJob(rejectCtx, proposal.Id, proposal.Version); rejectErr != nil {
 			m.lggr.Warnw("Failed to reject job with JD after StartJob failure",
@@ -456,7 +469,7 @@ func (m *Manager) validateReplacement(spec string) error {
 // an error after partially stopping the service, so both stop and start failures use the same
 // recovery: remove the pending record and restart the old spec.
 func (m *Manager) rollbackReplacement(newProposalID string, cause error, oldJob *store.Job) error {
-	ctx, cancel := context.WithTimeout(context.Background(), m.controlPlaneTimeout)
+	ctx, cancel := m.shutdownCh.CtxWithTimeout(m.controlPlaneTimeout)
 	defer cancel()
 	metricsCtx := context.Background()
 	var errs error

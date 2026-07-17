@@ -160,11 +160,13 @@ func TestManager_HandleProposal_ValidationFailureLeavesOldJobRunning(t *testing.
 	t.Parallel()
 
 	jobStore := mocks.NewMockStoreInterface(t)
+	jdClient := mocks.NewMockClientInterface(t)
+	jdClient.EXPECT().RejectJob(mock.Anything, "new", int64(2)).Return(nil)
 	runner := &recordingValidatingRunner{validateErr: errors.New("validation failed")}
 	rec := &recordingMetrics{}
 
 	m, err := NewManager(Config{
-		JDClient: mocks.NewMockClientInterface(t),
+		JDClient: jdClient,
 		JobStore: jobStore,
 		Runner:   runner,
 		Logger:   logger.Test(t),

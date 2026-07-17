@@ -137,16 +137,17 @@ Runners may additionally implement `ValidatingJobRunner`:
 
 For validating runners, the replacement order is `ValidateJob(new)`, `StopJob(old)`, then
 `StartJob(new)`, with the pending proposal persisted between validation and stop. If validation
-fails, the old job continues uninterrupted and the proposal is not persisted. Plain `JobRunner`
-implementations retain the stop-then-start behavior.
+fails, the manager rejects the proposal with JD, the old job continues uninterrupted, and the
+proposal is not persisted. Plain `JobRunner` implementations retain the stop-then-start behavior.
 
 ## Single job, replacement, and delete
 
 - The manager tracks **at most one running job**. Runtime resources for a replacement are created
   only after the current job has been stopped.
 - **Crash safety (two-phase write):** the proposal is persisted as `pending` before `StartJob` is called and promoted to `approved` only after `StartJob` succeeds. A crash between the two leaves a `pending` record that drives a retry on the next restart + JD reconnect.
-- **Replacement fallback:** if validation fails, the old job is never stopped. If stopping or
-  starting the replacement fails, the old spec is restarted because `StopJob` may have partially
+- **Replacement fallback:** if validation fails, the proposal is rejected with JD and the old job
+  is never stopped. If stopping or starting the replacement fails, the old spec is restarted
+  because `StopJob` may have partially
   stopped it before returning an error. Invalid proposals are not persisted; failures after
   persistence remove the `pending` store record. If the old job restart also fails, the manager
   transitions to `WaitingForJob`.

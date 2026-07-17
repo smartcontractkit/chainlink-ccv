@@ -39,7 +39,7 @@ func init() {
 	// Default nil evmFactory keeps existing tests working (GetAccessor returns error);
 	// tests that need a working accessor assign evmFactory before calling Start.
 	// Register uses GenericConfig because the registry still decodes it.
-	chainaccess.Register("evm", func(_ logger.Logger, _ chainaccess.GenericConfig) (chainaccess.AccessorFactory, error) { //nolint:staticcheck // SA1019: registry still decodes the deprecated GenericConfig
+	chainaccess.Register("evm", func(_ logger.Logger, _ chainaccess.GenericConfig) (chainaccess.AccessorFactory, error) {
 		return &evmFactoryProxy{}, nil
 	})
 }
