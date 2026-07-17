@@ -104,7 +104,7 @@ func TestRunnerValidateJobKeepsActiveJobReady(t *testing.T) {
 	require.True(t, ready.Load(), "validation must not change active-job readiness")
 }
 
-func TestRunnerValidateJobRejectsInvalidConfig(t *testing.T) {
+func TestRunnerValidateJob(t *testing.T) {
 	t.Run("outer job spec", func(t *testing.T) {
 		runner := &runner{lggr: logger.Test(t), fac: &spyServiceFactory{}}
 		err := runner.ValidateJob(t.Context(), "not valid = [")
@@ -139,7 +139,7 @@ func TestRunnerValidateJobRejectsInvalidConfig(t *testing.T) {
 		require.ErrorContains(t, err, "validate chain config")
 	})
 
-	t.Run("blockchain infos without factory validator", func(t *testing.T) {
+	t.Run("allows blockchain infos without factory validator", func(t *testing.T) {
 		runner := &runner{lggr: logger.Test(t), fac: &mockServiceFactory{}}
 		const config = `name = "replacement"
 appConfig = """
@@ -147,8 +147,7 @@ appConfig = """
 chain_id = "1"
 """`
 
-		err := runner.ValidateJob(t.Context(), config)
-		require.ErrorContains(t, err, "blockchain_infos is no longer supported")
+		require.NoError(t, runner.ValidateJob(t.Context(), config))
 	})
 }
 

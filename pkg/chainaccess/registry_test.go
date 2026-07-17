@@ -8,6 +8,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap/zapcore"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -105,6 +106,19 @@ func TestNewRegistry_InvalidTOML(t *testing.T) {
 	_, err := chainaccess.NewRegistry(lggr, "}{not valid toml")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to unmarshal generic config")
+}
+
+func TestNewRegistry_WarnsAndIgnoresBlockchainInfos(t *testing.T) {
+	lggr, logs := logger.TestObserved(t, zapcore.WarnLevel)
+	reg, err := chainaccess.NewRegistry(lggr, `
+[blockchain_infos."5009297550715157269"]
+chain_id = "1"
+`)
+	require.NoError(t, err)
+	require.NotNil(t, reg)
+	entries := logs.FilterMessageSnippet("Ignoring removed application config").All()
+	require.Len(t, entries, 1)
+	assert.Equal(t, chainaccess.BlockchainInfosConfigKey, entries[0].ContextMap()["field"])
 }
 
 func TestNewRegistry_ConstructorError(t *testing.T) {

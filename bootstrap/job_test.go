@@ -36,7 +36,7 @@ Enabled = true
 		require.NoError(t, js.GetAppConfig(&cfg))
 	})
 
-	t.Run("rejects blockchain infos", func(t *testing.T) {
+	t.Run("ignores blockchain infos", func(t *testing.T) {
 		js := JobSpec{AppConfig: `
 name = "my-service"
 value = 42
@@ -44,13 +44,10 @@ value = 42
 [blockchain_infos.5009297550715157269]
 chain_id = "1"
 `}
-		var cfg struct {
-			testAppConfig
-			Legacy map[string]any `toml:"blockchain_infos"`
-		}
-		err := js.GetAppConfig(&cfg)
-		require.Error(t, err)
-		assert.Contains(t, err.Error(), "blockchain_infos")
+		var cfg testAppConfig
+		require.NoError(t, js.GetAppConfig(&cfg))
+		assert.Equal(t, "my-service", cfg.Name)
+		assert.Equal(t, 42, cfg.Value)
 	})
 
 	t.Run("returns error on invalid TOML", func(t *testing.T) {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
+	"strings"
 	"sync"
 	"time"
 
@@ -20,6 +21,10 @@ import (
 type AccessorFactoryConstructor func(lggr logger.Logger, cfg GenericConfig) (AccessorFactory, error)
 
 type ChainFamily string
+
+// BlockchainInfosConfigKey is the removed application-config field retained only so stale job
+// specs can be detected and ignored during rollout.
+const BlockchainInfosConfigKey = "blockchain_infos"
 
 var (
 	accessorConstructorMap      = make(map[ChainFamily]AccessorFactoryConstructor)
@@ -123,8 +128,15 @@ func NewRegistry(lggr logger.Logger, config string) (Registry, error) {
 	}
 
 	var genericConfig GenericConfig
-	if err := toml.Unmarshal([]byte(config), &genericConfig); err != nil {
+	md, err := toml.Decode(config, &genericConfig)
+	if err != nil {
 		return nil, fmt.Errorf("failed to unmarshal generic config: %w", err)
+	}
+	for _, key := range md.Keys() {
+		if len(key) > 0 && strings.EqualFold(key[0], BlockchainInfosConfigKey) {
+			lggr.Warnw("Ignoring removed application config; use chain-family local or node config", "field", BlockchainInfosConfigKey)
+			break
+		}
 	}
 
 	for family, constructor := range accessorConstructorMapCopy() {

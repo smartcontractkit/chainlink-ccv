@@ -5,12 +5,11 @@ import (
 	"strings"
 
 	"github.com/BurntSushi/toml"
+
+	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 )
 
-const (
-	blockchainInfosKey = "blockchain_infos"
-	monitoringKey      = "monitoring"
-)
+const monitoringKey = "monitoring"
 
 // JobSpec is the specification for a bootstrap service job, pushed by JD.
 type JobSpec struct {
@@ -29,22 +28,19 @@ type JobSpec struct {
 }
 
 // GetAppConfig decodes the app config into the provided object. An error is returned if any
-// fields other than the bootstrap-owned monitoring section are left undecoded. Monitoring remains
-// accepted for compatibility with previously generated job specs; operator bootstrap config owns
-// it and application decoders intentionally ignore it.
+// fields other than the bootstrap-owned monitoring section and the removed blockchain_infos
+// section are left undecoded. Both sections remain accepted for compatibility with previously
+// generated job specs and are intentionally ignored by application decoders. NewRegistry logs a
+// warning when blockchain_infos is present.
 func (js JobSpec) GetAppConfig(cfg any) error {
 	md, err := toml.Decode(js.AppConfig, cfg)
 	if err != nil {
 		return fmt.Errorf("error decoding app config: %w", err)
 	}
 
-	if hasTopLevelKey(md, blockchainInfosKey) {
-		return fmt.Errorf("error decoding app config, %s is no longer supported", blockchainInfosKey)
-	}
-
 	var undecoded []string
 	for _, key := range md.Undecoded() {
-		if !strings.EqualFold(key[0], monitoringKey) {
+		if !strings.EqualFold(key[0], chainaccess.BlockchainInfosConfigKey) && !strings.EqualFold(key[0], monitoringKey) {
 			undecoded = append(undecoded, key.String())
 		}
 	}
@@ -54,15 +50,6 @@ func (js JobSpec) GetAppConfig(cfg any) error {
 	}
 
 	return nil
-}
-
-func hasTopLevelKey(md toml.MetaData, name string) bool {
-	for _, key := range md.Keys() {
-		if len(key) > 0 && strings.EqualFold(key[0], name) {
-			return true
-		}
-	}
-	return false
 }
 
 // InnerConfig extracts the embedded inner config from a job spec wrapper. Exactly one of appConfig and the CL-mode config field must be set.
