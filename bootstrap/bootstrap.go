@@ -90,6 +90,13 @@ type ServiceFactory interface {
 	MetricViews() []sdkmetric.View
 }
 
+// ServiceFactoryValidator is an optional extension for factories that can validate a parsed job
+// spec without starting services or allocating runtime resources.
+type ServiceFactoryValidator interface {
+	// Validate checks the parsed job spec without side effects.
+	Validate(spec JobSpec) error
+}
+
 // A runner adapts a [ServiceFactory] to the [lifecycle.JobRunner] interface.
 type runner struct {
 	lggr             logger.Logger
@@ -99,19 +106,61 @@ type runner struct {
 	applicationReady *atomic.Bool
 }
 
-var _ lifecycle.JobRunner = (*runner)(nil)
+var (
+	_ lifecycle.JobRunner           = (*runner)(nil)
+	_ lifecycle.ValidatingJobRunner = (*runner)(nil)
+)
+
+func parseJobSpec(ctx context.Context, config string) (JobSpec, error) {
+	if err := ctx.Err(); err != nil {
+		return JobSpec{}, fmt.Errorf("bootstrap: %w", err)
+	}
+
+	var spec JobSpec
+	if _, err := toml.Decode(config, &spec); err != nil {
+		return JobSpec{}, fmt.Errorf("bootstrap: failed to parse config: %w", err)
+	}
+	return spec, nil
+}
+
+// ValidateJob implements [lifecycle.ValidatingJobRunner]. It parses the outer spec, decodes the
+// chain-layer config the registry will parse again at StartJob, and, when the factory supports
+// it, performs application-level validation. The active job and readiness state remain untouched.
+func (r *runner) ValidateJob(ctx context.Context, config string) error {
+	spec, err := parseJobSpec(ctx, config)
+	if err != nil {
+		return err
+	}
+	// Decode-only mirror of the chainaccess.NewRegistry parse in StartJob. The generic decode is
+	// lenient about structure, so this rejects app config TOML the registry would fail on (syntax
+	// errors) before the old job is stopped — deeper chain-config checks live in the accessor
+	// constructors, which validation deliberately does not run. This is also the only app config
+	// check for factories that do not implement ServiceFactoryValidator.
+	if _, err := spec.GetGenericConfig(); err != nil {
+		return fmt.Errorf("validate chain config: %w", err)
+	}
+	validator, ok := r.fac.(ServiceFactoryValidator)
+	if !ok {
+		return nil
+	}
+	if err := validator.Validate(spec); err != nil {
+		return fmt.Errorf("validate application config: %w", err)
+	}
+	return nil
+}
 
 // StartJob implements [lifecycle.JobRunner].
-// On Start failure, the deferred CloseAll is the only chance to release accessors.
+// On Start failure, the factory is stopped best-effort and the deferred CloseAll
+// releases accessors (in that order, so the factory drains readers first).
 func (r *runner) StartJob(ctx context.Context, config string) (startErr error) {
 	if r.applicationReady != nil {
 		r.applicationReady.Store(false)
 	}
 	r.lggr.Infow("starting job")
 
-	var spec JobSpec
-	if _, err := toml.Decode(config, &spec); err != nil {
-		return fmt.Errorf("bootstrap: failed to parse config: %w", err)
+	spec, err := parseJobSpec(ctx, config)
+	if err != nil {
+		return err
 	}
 
 	// Initialize registry, wrapping it so the keystore is injected into any
@@ -134,6 +183,12 @@ func (r *runner) StartJob(ctx context.Context, config string) (startErr error) {
 	}()
 
 	if err := r.fac.Start(ctx, spec, r.deps); err != nil {
+		// The factory may have constructed and started components (profiler, writers,
+		// coordinator) before failing. Stop them so a later StartJob — rollback restart or
+		// pending-job retry — does not overwrite references to still-running components.
+		if stopErr := r.fac.Stop(ctx); stopErr != nil {
+			r.lggr.Warnw("stop factory after failed StartJob", "error", stopErr)
+		}
 		return err
 	}
 	if r.applicationReady != nil {

@@ -41,6 +41,8 @@ type factory struct {
 	chainStatusDB    sqlutil.DataSource
 }
 
+var _ bootstrap.ServiceFactoryValidator = (*factory)(nil)
+
 // NewCommitteeVerifierServiceFactory creates a new ServiceFactory for the committee verifier service.
 // The factory loads the verifier secrets file itself in Start, so each chain-family binary's main.go
 // stays free of secrets-loading boilerplate.
@@ -48,16 +50,29 @@ func NewCommitteeVerifierServiceFactory() bootstrap.ServiceFactory {
 	return &factory{}
 }
 
+func validateJobSpec(spec bootstrap.JobSpec) (commit.Config, error) {
+	var config commit.Config
+	if err := spec.GetAppConfig(&config); err != nil {
+		return commit.Config{}, fmt.Errorf("failed to get app config: %w", err)
+	}
+	if err := config.Validate(); err != nil {
+		return commit.Config{}, err
+	}
+	return config, nil
+}
+
+// Validate implements [bootstrap.ServiceFactoryValidator].
+func (f *factory) Validate(spec bootstrap.JobSpec) error {
+	_, err := validateJobSpec(spec)
+	return err
+}
+
 // Start implements [bootstrap.ServiceFactory].
 func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootstrap.ServiceDeps) error {
 	protocol.InitChainSelectorCache()
 
-	var config commit.Config
-	if err := spec.GetAppConfig(&config); err != nil {
-		return fmt.Errorf("failed to get app config: %w", err)
-	}
-
-	if err := config.Validate(); err != nil {
+	config, err := validateJobSpec(spec)
+	if err != nil {
 		return err
 	}
 
