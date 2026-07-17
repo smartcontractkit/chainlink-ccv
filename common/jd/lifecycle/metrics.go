@@ -18,15 +18,15 @@ const (
 	// discrete step in handleProposal/retryPendingJob that can fail. A single
 	// proposal may record several of these.
 	stepSavePending           = "save_pending"
-	stepPrepareReplacement    = "prepare_replacement"
+	stepValidateReplacement   = "validate_replacement"
 	stepStopJob               = "stop_job"
 	stepStartJob              = "start_job"
 	stepStartReplacement      = "start_replacement"
-	stepDiscardPrepared       = "discard_prepared"
 	stepRollbackDeletePending = "rollback_delete_pending"
 	stepRollbackRestart       = "rollback_restart"
 	stepAcceptPending         = "accept_pending"
 	stepApproveJob            = "approve_job"
+	stepRejectJob             = "reject_job"
 )
 
 // Metrics records JD lifecycle proposal outcomes.

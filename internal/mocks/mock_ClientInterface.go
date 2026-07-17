@@ -255,6 +255,54 @@ func (_c *MockClientInterface_JobProposalCh_Call) RunAndReturn(run func() <-chan
 	return _c
 }
 
+// RejectJob provides a mock function with given fields: ctx, id, version
+func (_m *MockClientInterface) RejectJob(ctx context.Context, id string, version int64) error {
+	ret := _m.Called(ctx, id, version)
+
+	if len(ret) == 0 {
+		panic("no return value specified for RejectJob")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, int64) error); ok {
+		r0 = rf(ctx, id, version)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockClientInterface_RejectJob_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RejectJob'
+type MockClientInterface_RejectJob_Call struct {
+	*mock.Call
+}
+
+// RejectJob is a helper method to define mock.On call
+//   - ctx context.Context
+//   - id string
+//   - version int64
+func (_e *MockClientInterface_Expecter) RejectJob(ctx interface{}, id interface{}, version interface{}) *MockClientInterface_RejectJob_Call {
+	return &MockClientInterface_RejectJob_Call{Call: _e.mock.On("RejectJob", ctx, id, version)}
+}
+
+func (_c *MockClientInterface_RejectJob_Call) Run(run func(ctx context.Context, id string, version int64)) *MockClientInterface_RejectJob_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(int64))
+	})
+	return _c
+}
+
+func (_c *MockClientInterface_RejectJob_Call) Return(_a0 error) *MockClientInterface_RejectJob_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockClientInterface_RejectJob_Call) RunAndReturn(run func(context.Context, string, int64) error) *MockClientInterface_RejectJob_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // RevokeJobCh provides a mock function with no fields
 func (_m *MockClientInterface) RevokeJobCh() <-chan *feedsmanager.RevokeJobRequest {
 	ret := _m.Called()

@@ -90,6 +90,13 @@ type ServiceFactory interface {
 	MetricViews() []sdkmetric.View
 }
 
+// ServiceFactoryValidator is an optional extension for factories that can validate a parsed job
+// spec without starting services or allocating runtime resources.
+type ServiceFactoryValidator interface {
+	// Validate checks the parsed job spec without side effects.
+	Validate(spec JobSpec) error
+}
+
 // A runner adapts a [ServiceFactory] to the [lifecycle.JobRunner] interface.
 type runner struct {
 	lggr             logger.Logger
@@ -97,145 +104,93 @@ type runner struct {
 	deps             ServiceDeps
 	accCloser        *AccessorCloserRegistry
 	applicationReady *atomic.Bool
-
-	mu       sync.Mutex
-	prepared *preparedJob
 }
 
 var (
-	_ lifecycle.JobRunner       = (*runner)(nil)
-	_ lifecycle.StagedJobRunner = (*runner)(nil)
+	_ lifecycle.JobRunner           = (*runner)(nil)
+	_ lifecycle.ValidatingJobRunner = (*runner)(nil)
 )
 
-type preparedJob struct {
-	rawSpec   string
-	spec      JobSpec
-	deps      ServiceDeps
-	accCloser *AccessorCloserRegistry
-}
-
-// buildPreparedJob parses the job spec and initializes the chain registry. Registry construction
-// includes family-local config loading and RPC client setup, so doing it before cutover removes the
-// most expensive safe-to-overlap work from the replacement outage window.
-func (r *runner) buildPreparedJob(ctx context.Context, config string) (*preparedJob, error) {
+func parseJobSpec(ctx context.Context, config string) (JobSpec, error) {
 	if err := ctx.Err(); err != nil {
-		return nil, err
+		return JobSpec{}, fmt.Errorf("bootstrap: %w", err)
 	}
 
 	var spec JobSpec
 	if _, err := toml.Decode(config, &spec); err != nil {
-		return nil, fmt.Errorf("bootstrap: failed to parse config: %w", err)
+		return JobSpec{}, fmt.Errorf("bootstrap: failed to parse config: %w", err)
 	}
-
-	reg, err := chainaccess.NewRegistry(r.lggr, spec.AppConfig)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create registry: %w", err)
-	}
-	accCloser := NewAccessorCloserRegistry(r.lggr, NewKeystoreRegistry(r.lggr, reg, r.deps.Keystore))
-	deps := r.deps
-	deps.Registry = accCloser
-
-	if err := ctx.Err(); err != nil {
-		if closeErr := accCloser.Close(); closeErr != nil {
-			return nil, errors.Join(err, fmt.Errorf("close prepared accessors: %w", closeErr))
-		}
-		return nil, err
-	}
-
-	return &preparedJob{rawSpec: config, spec: spec, deps: deps, accCloser: accCloser}, nil
+	return spec, nil
 }
 
-// PrepareJob implements [lifecycle.StagedJobRunner]. It warms a replacement without touching
-// the active factory or readiness state. StartJob consumes the prepared candidate after cutover.
-//
-// A previously prepared-but-unconsumed candidate is discarded before the replacement is built, so
-// the method is atomic: an error from PrepareJob always leaves no candidate installed, never a
-// stranded old or new one.
-func (r *runner) PrepareJob(ctx context.Context, config string) error {
-	// Release any superseded candidate first. Building the replacement before this swap could
-	// otherwise install the new candidate and then fail while closing the old one, leaving the
-	// caller with a prepared candidate despite the error.
-	if err := r.DiscardPreparedJob(ctx); err != nil {
-		return fmt.Errorf("close superseded prepared accessors: %w", err)
+// ValidateJob implements [lifecycle.ValidatingJobRunner]. It parses the outer spec, decodes the
+// application-owned registry overlay that StartJob will parse again, and, when the factory
+// supports it, performs application-level validation. The active job and readiness state remain
+// untouched.
+func (r *runner) ValidateJob(ctx context.Context, config string) error {
+	spec, err := parseJobSpec(ctx, config)
+	if err != nil {
+		return err
 	}
+	// Decode-only mirror of the chainaccess.NewRegistry parse in StartJob. This rejects TOML syntax
+	// errors before the old job is stopped without constructing accessors. Application-specific
+	// checks, including rejection of blockchain_infos, are handled by the factory validator below.
+	var genericConfig chainaccess.GenericConfig
+	if _, err := toml.Decode(spec.AppConfig, &genericConfig); err != nil {
+		return fmt.Errorf("validate chain config: %w", err)
+	}
+	validator, ok := r.fac.(ServiceFactoryValidator)
+	if !ok {
+		return nil
+	}
+	if err := validator.Validate(spec); err != nil {
+		return fmt.Errorf("validate application config: %w", err)
+	}
+	return nil
+}
 
-	candidate, err := r.buildPreparedJob(ctx, config)
+// StartJob implements [lifecycle.JobRunner].
+// On Start failure, the factory is stopped best-effort and the deferred CloseAll
+// releases accessors (in that order, so the factory drains readers first).
+func (r *runner) StartJob(ctx context.Context, config string) (startErr error) {
+	if r.applicationReady != nil {
+		r.applicationReady.Store(false)
+	}
+	r.lggr.Infow("starting job")
+
+	spec, err := parseJobSpec(ctx, config)
 	if err != nil {
 		return err
 	}
 
-	r.mu.Lock()
-	r.prepared = candidate
-	r.mu.Unlock()
-	return nil
-}
-
-// DiscardPreparedJob implements [lifecycle.StagedJobRunner].
-func (r *runner) DiscardPreparedJob(_ context.Context) error {
-	r.mu.Lock()
-	prepared := r.prepared
-	r.prepared = nil
-	r.mu.Unlock()
-	if prepared == nil {
-		return nil
+	// Initialize registry, wrapping it so the keystore is injected into any
+	// Accessor that implements KeystoreSetter.
+	// Registry chain: NewRegistry > KeystoreRegistry (keystore injection) > AccessorCloserRegistry (accessor cleanup tracking).
+	reg, err := chainaccess.NewRegistry(r.lggr, spec.AppConfig)
+	if err != nil {
+		return fmt.Errorf("failed to create registry: %w", err)
 	}
-	return prepared.accCloser.Close()
-}
-
-// StartJob implements [lifecycle.JobRunner].
-// On Start failure, the deferred Close is the only chance to release prepared resources.
-func (r *runner) StartJob(ctx context.Context, config string) (startErr error) {
-	r.lggr.Infow("starting job")
-
-	r.mu.Lock()
-	if r.accCloser != nil {
-		r.mu.Unlock()
-		return errors.New("cannot start job while another job is active")
-	}
-	prepared := r.prepared
-	var stale *preparedJob
-	if prepared != nil && prepared.rawSpec == config {
-		r.prepared = nil
-	} else if prepared != nil {
-		stale = prepared
-		r.prepared = nil
-		prepared = nil
-	}
-	r.mu.Unlock()
-
-	if stale != nil {
-		if err := stale.accCloser.Close(); err != nil {
-			return fmt.Errorf("close stale prepared job: %w", err)
-		}
-	}
-
-	if prepared == nil {
-		var err error
-		prepared, err = r.buildPreparedJob(ctx, config)
-		if err != nil {
-			return err
-		}
-	}
-
-	if r.applicationReady != nil {
-		r.applicationReady.Store(false)
-	}
+	r.accCloser = NewAccessorCloserRegistry(r.lggr, NewKeystoreRegistry(r.lggr, reg, r.deps.Keystore))
+	r.deps.Registry = r.accCloser
 
 	// safety net
 	defer func() {
 		if startErr != nil {
-			if cErr := prepared.accCloser.Close(); cErr != nil {
+			if cErr := r.accCloser.CloseAll(); cErr != nil {
 				r.lggr.Warnw("close accessors after failed StartJob", "error", cErr)
 			}
 		}
 	}()
 
-	if err := r.fac.Start(ctx, prepared.spec, prepared.deps); err != nil {
+	if err := r.fac.Start(ctx, spec, r.deps); err != nil {
+		// The factory may have constructed and started components (profiler, writers,
+		// coordinator) before failing. Stop them so a later StartJob — rollback restart or
+		// pending-job retry — does not overwrite references to still-running components.
+		if stopErr := r.fac.Stop(ctx); stopErr != nil {
+			r.lggr.Warnw("stop factory after failed StartJob", "error", stopErr)
+		}
 		return err
 	}
-	r.mu.Lock()
-	r.accCloser = prepared.accCloser
-	r.mu.Unlock()
 	if r.applicationReady != nil {
 		r.applicationReady.Store(true)
 	}
@@ -243,7 +198,7 @@ func (r *runner) StartJob(ctx context.Context, config string) (startErr error) {
 }
 
 // StopJob implements [lifecycle.JobRunner].
-// Close runs after factory.Stop so the coordinator drains its readers before underlying services are released.
+// CloseAll runs after factory.Stop so the coordinator drains its readers before underlying services are released.
 func (r *runner) StopJob(ctx context.Context) error {
 	if r.applicationReady != nil {
 		r.applicationReady.Store(false)
@@ -252,12 +207,8 @@ func (r *runner) StopJob(ctx context.Context) error {
 	if err := r.fac.Stop(ctx); err != nil {
 		errs = append(errs, fmt.Errorf("stop service factory: %w", err))
 	}
-	r.mu.Lock()
-	accCloser := r.accCloser
-	r.accCloser = nil
-	r.mu.Unlock()
-	if accCloser != nil {
-		if err := accCloser.Close(); err != nil {
+	if r.accCloser != nil {
+		if err := r.accCloser.CloseAll(); err != nil {
 			errs = append(errs, fmt.Errorf("close accessors: %w", err))
 		}
 	}
@@ -390,34 +341,11 @@ func chainTypeFromString(s string) (pb.ChainType, error) {
 	return pb.ChainType_CHAIN_TYPE_UNSPECIFIED, fmt.Errorf("unknown chain type %q", s)
 }
 
-// signingAddressFromPublicKey derives the onchain signing address for the given chain type
-// from a raw public key returned by the keystore.
-//
-// Format per family:
-//   - EVM:     EIP-55 checksummed address, 0x-prefixed  (e.g. "0xAbCd…")
-//   - Solana:  lowercase 20-byte Ethereum address, no 0x (e.g. "abcd…") — matches CL node prior art
-//   - Aptos:   full uncompressed public key, lowercase hex, no prefix    (e.g. "04abcd…")
-//   - Stellar: full uncompressed public key, lowercase hex, no prefix    (e.g. "04abcd…")
-//   - Canton:  full uncompressed public key, lowercase hex, no prefix    (e.g. "04abcd…")
-func signingAddressFromPublicKey(chainType pb.ChainType, pubKeyBytes []byte) (string, error) {
-	switch chainType {
-	case pb.ChainType_CHAIN_TYPE_EVM:
-		addr, _, err := keys.EVMAddressFromPublicKey(pubKeyBytes)
-		return addr, err
-	case pb.ChainType_CHAIN_TYPE_SOLANA:
-		return keys.SolanaAddressFromPublicKey(pubKeyBytes)
-	case pb.ChainType_CHAIN_TYPE_APTOS,
-		pb.ChainType_CHAIN_TYPE_STELLAR,
-		pb.ChainType_CHAIN_TYPE_CANTON:
-		return keys.RawPubKeyHex(pubKeyBytes), nil
-	default:
-		return "", fmt.Errorf("signing address derivation not implemented for chain type %v", chainType)
-	}
-}
-
 // buildUpdateNodeRequest constructs the UpdateNodeRequest to send to JD on connect.
 // It reads the public key for each key in signingKeyNames and builds one ChainConfig
-// entry per chain in chains, with the signing address shoehorned into OCR2Config.OcrKeyBundle.
+// entry per chain in chains. Each OCRKeyBundle carries OnchainSigningPubKey (canonical
+// secp256k1 public key) and OnchainSigningAddress (EVM-derived address for secp256k1
+// chains, or the chain-native address format for Solana).
 // Returns nil if there are no signing keys or no chains declared.
 func buildUpdateNodeRequest(
 	ctx context.Context,
@@ -444,7 +372,11 @@ func buildUpdateNodeRequest(
 		if err != nil {
 			return nil, err
 		}
-		addr, err := signingAddressFromPublicKey(chainType, signingKey.KeyInfo.PublicKey)
+		// OnchainSigningAddress is always the EVM-derived address for all chain
+		// families — family-specific consumers read OnchainSigningPubKey via a
+		// SigningIdentityReader instead. This keeps chain-specific derivation out of
+		// generic changeset code.
+		addr, _, err := keys.EVMAddressFromPublicKey(signingKey.KeyInfo.PublicKey)
 		if err != nil {
 			return nil, fmt.Errorf("chain %s/%s: %w", chain.Type, chain.ID, err)
 		}
@@ -652,7 +584,7 @@ func (b *Bootstrapper) startLocalService(ctx context.Context, keyStore keystore.
 	// safety net for partial-Start failure since Bootstrapper.Stop is not guaranteed
 	defer func() {
 		if startErr != nil {
-			if cErr := b.accCloser.Close(); cErr != nil {
+			if cErr := b.accCloser.CloseAll(); cErr != nil {
 				b.lggr.Warnw("close accessors after failed startLocal", "error", cErr)
 			}
 			b.accCloser = nil
@@ -726,7 +658,7 @@ func (b *Bootstrapper) Start(ctx context.Context) error {
 // stopping every non-nil field covers both without double-stopping:
 //   - JD mode: the lifecycle manager and info server are stopped; accessor cleanup is owned by
 //     runner.StopJob, invoked by the lifecycle manager.
-//   - Local mode: factory.Stop runs first, then accCloser.Close; the info server is stopped if
+//   - Local mode: factory.Stop runs first, then accCloser.CloseAll; the info server is stopped if
 //     it was started.
 func (b *Bootstrapper) Stop(ctx context.Context) error {
 	b.applicationReady.Store(false)
@@ -766,7 +698,7 @@ func (b *Bootstrapper) stopLocal(ctx context.Context) error {
 		errs = append(errs, fmt.Errorf("failed to stop service factory: %w", err))
 	}
 	if b.accCloser != nil {
-		if err := b.accCloser.Close(); err != nil {
+		if err := b.accCloser.CloseAll(); err != nil {
 			errs = append(errs, fmt.Errorf("failed to close accessors: %w", err))
 		}
 		b.accCloser = nil

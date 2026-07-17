@@ -44,13 +44,37 @@ type Factory struct {
 	lggr        logger.Logger
 }
 
-var _ bootstrap.ServiceFactory = (*Factory)(nil)
+var (
+	_ bootstrap.ServiceFactory          = (*Factory)(nil)
+	_ bootstrap.ServiceFactoryValidator = (*Factory)(nil)
+)
 
 // NewFactory creates a new executor Factory.
 func NewFactory() *Factory {
 	return &Factory{}
 }
 
+func validateJobSpec(spec bootstrap.JobSpec) (*executorsvc.Configuration, error) {
+	var rawConfig executorsvc.Configuration
+	if err := spec.GetAppConfig(&rawConfig); err != nil {
+		return nil, fmt.Errorf("failed to decode executor config: %w", err)
+	}
+
+	executorConfig, err := rawConfig.GetNormalizedConfig()
+	if err != nil {
+		return nil, fmt.Errorf("failed to normalize executor config: %w", err)
+	}
+	return executorConfig, nil
+}
+
+// Validate implements [bootstrap.ServiceFactoryValidator].
+func (f *Factory) Validate(spec bootstrap.JobSpec) error {
+	_, err := validateJobSpec(spec)
+	return err
+}
+
+// Stop is idempotent: references are cleared after the close attempt so a repeated Stop —
+// or a Stop after a failed Start — does not close components twice.
 func (f *Factory) Stop(_ context.Context) error {
 	var err error
 	if f.coordinator != nil {
@@ -59,18 +83,15 @@ func (f *Factory) Stop(_ context.Context) error {
 	if f.profiler != nil {
 		_ = f.profiler.Stop()
 	}
+	f.coordinator = nil
+	f.profiler = nil
 	return err
 }
 
 func (f *Factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootstrap.ServiceDeps) error {
-	var rawConfig executorsvc.Configuration
-	if err := spec.GetAppConfig(&rawConfig); err != nil {
-		return fmt.Errorf("failed to decode executor config: %w", err)
-	}
-
-	executorConfig, err := rawConfig.GetNormalizedConfig()
+	executorConfig, err := validateJobSpec(spec)
 	if err != nil {
-		return fmt.Errorf("failed to normalize executor config: %w", err)
+		return err
 	}
 
 	executorMonitoring, err := monitoring.InitMonitoring()

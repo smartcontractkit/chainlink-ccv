@@ -37,6 +37,7 @@ func registerEVMChainTypeForIdentities() {
 		}
 		return lower
 	})
+	shared.RegisterSigningIdentityReader(chainsel.FamilyEVM, shared.EVMSigningIdentityReader{})
 }
 
 // stubJDIdentities is a JD client that serves node names (aliases) and per-node

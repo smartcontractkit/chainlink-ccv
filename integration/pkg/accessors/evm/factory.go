@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
-	"sync"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -29,9 +27,6 @@ const defaultExecutionVisibilityWindow = 8 * time.Hour
 type factory struct {
 	lggr logger.Logger
 
-	closeOnce sync.Once
-	closeErr  error
-
 	// SourceReader dependencies.
 	// TODO: put these in a single map.
 	onRampAddresses    map[protocol.ChainSelector]string
@@ -48,8 +43,6 @@ type factory struct {
 	// own ethclient rather than sharing the multi-node client used by the readers.
 	rpcURLs map[protocol.ChainSelector]string
 }
-
-var _ io.Closer = (*factory)(nil)
 
 // NewFactory creates a new EVM AccessorFactory.
 // Head trackers and chain clients are injectable because different execution contexts may use different
@@ -172,29 +165,6 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 	return newAccessor(f.lggr, chainSelector, rpcURL, offRampAddr, keyName, evmSourceReader, evmDestReader, nil), nil
 }
 
-// Close releases the RPC clients and head trackers created with this factory. Accessors borrow
-// these shared resources, so registry shutdown calls this only after all accessors are closed.
-func (f *factory) Close() error {
-	f.closeOnce.Do(func() {
-		var errs []error
-		for selector, tracker := range f.headTrackers {
-			if tracker == nil {
-				continue
-			}
-			if err := tracker.Close(); err != nil {
-				errs = append(errs, fmt.Errorf("close head tracker for chain %d: %w", selector, err))
-			}
-		}
-		for _, chainClient := range f.chainClients {
-			if chainClient != nil {
-				chainClient.Close()
-			}
-		}
-		f.closeErr = errors.Join(errs...)
-	})
-	return f.closeErr
-}
-
 type accessor struct {
 	sourceReader        chainaccess.SourceReader
 	destinationReader   chainaccess.DestinationReader
@@ -278,6 +248,7 @@ func (a *accessor) ContractTransmitter() (chainaccess.ContractTransmitter, error
 	return a.contractTransmitter, nil
 }
 
-// Close releases any resources owned exclusively by the EVM accessor. Shared RPC clients and
-// head trackers are owned by the factory and released when the registry closes.
+// Close releases any resources owned by the EVM accessor. The current EVM
+// implementation builds stateless readers and a keystore-backed transmitter
+// that the keystore itself owns, so there is nothing to release here.
 func (a *accessor) Close() error { return nil }

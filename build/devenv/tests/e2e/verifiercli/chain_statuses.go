@@ -4,6 +4,7 @@ import (
 	"context"
 	"strconv"
 	"strings"
+	"unicode"
 )
 
 // ChainStatusesSubcommand is the CLI path used to reach the
@@ -74,37 +75,63 @@ func (s ChainStatusesClient) SetFinalizedHeight(ctx context.Context, sel ChainSe
 // of a `chain-statuses list` table. Returns ok=false when the list is
 // empty or the header is all that's present.
 //
-// The parse is deliberately lenient: it skips the header row, dashed
-// separators, and any row whose selector column is not a uint. This
-// matches tablewriter output without coupling to column count.
+// The parse is deliberately lenient: it skips log lines, the header row,
+// dashed separators, and any row whose selector column is not a uint.
+// This supports both the legacy pipe-delimited tablewriter output and the
+// newer plain whitespace-delimited table style without coupling to exact
+// column counts.
 func ParseFirstListRow(listOutput string) (sel ChainSelector, ok bool) {
 	if strings.Contains(listOutput, "No chain status rows found.") {
 		return "", false
 	}
 	for line := range strings.SplitSeq(listOutput, "\n") {
-		if !strings.Contains(line, "|") {
+		line = strings.TrimSpace(line)
+		if line == "" {
 			continue
 		}
-		parts := strings.Split(line, "|")
-		for i := range parts {
-			parts[i] = strings.TrimSpace(parts[i])
-		}
-		if len(parts) < 2 {
+		if strings.Contains(line, "goose:") || strings.Contains(line, `"level":"`) || strings.Contains(line, " level=") {
 			continue
 		}
-		// Skip header - it contains the literal "verifier_id".
-		if strings.Contains(parts[0], "Chain") && strings.Contains(line, "verifier_id") {
+		// Skip header rows - they contain the literal "verifier_id".
+		if strings.Contains(line, "verifier_id") {
 			continue
 		}
-		// Skip separator rows like |------|------|.
-		if strings.TrimLeft(line, "-+| \t") == "" {
+		// Skip separator rows like |------|------| or ----- -----.
+		if strings.TrimLeftFunc(line, func(r rune) bool {
+			return r == '-' || r == '+' || r == '|' || unicode.IsSpace(r)
+		}) == "" {
 			continue
 		}
-		candidate := parts[1]
+		candidate, found := parseChainSelectorColumn(line)
+		if !found {
+			continue
+		}
 		if _, err := strconv.ParseUint(candidate, 10, 64); err != nil {
 			continue
 		}
 		return ChainSelector(candidate), true
+	}
+	return "", false
+}
+
+func parseChainSelectorColumn(line string) (string, bool) {
+	if strings.Contains(line, "|") {
+		for part := range strings.SplitSeq(line, "|") {
+			part = strings.TrimSpace(part)
+			if part == "" {
+				continue
+			}
+			if _, err := strconv.ParseUint(part, 10, 64); err == nil {
+				return part, true
+			}
+		}
+		return "", false
+	}
+
+	for field := range strings.FieldsSeq(line) {
+		if _, err := strconv.ParseUint(field, 10, 64); err == nil {
+			return field, true
+		}
 	}
 	return "", false
 }

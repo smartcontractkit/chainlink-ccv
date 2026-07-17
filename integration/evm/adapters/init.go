@@ -28,6 +28,7 @@ func init() {
 		}
 		return lower
 	})
+	shared.RegisterSigningIdentityReader(chainsel.FamilyEVM, shared.EVMSigningIdentityReader{})
 
 	// Register all EVM ccv adapter implementations into the ccv singleton registries.
 	ccvdeploymentadapters.GetAggregatorRegistry().Register(chainsel.FamilyEVM, &EVMCCVAggregatorConfigAdapter{})

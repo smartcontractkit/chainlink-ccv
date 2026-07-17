@@ -7,6 +7,11 @@ import (
 	"github.com/BurntSushi/toml"
 )
 
+const (
+	blockchainInfosKey = "blockchain_infos"
+	monitoringKey      = "monitoring"
+)
+
 // JobSpec is the specification for a bootstrap service job, pushed by JD.
 type JobSpec struct {
 	Name          string `toml:"name"`
@@ -23,8 +28,10 @@ type JobSpec struct {
 	ConfigFieldName string `toml:"-"`
 }
 
-// GetAppConfig decodes the app config into the provided object. An error is returned
-// if any fields other than the bootstrap-owned monitoring section are left undecoded.
+// GetAppConfig decodes the app config into the provided object. An error is returned if any
+// fields other than the bootstrap-owned monitoring section are left undecoded. Monitoring remains
+// accepted for compatibility with previously generated job specs; operator bootstrap config owns
+// it and application decoders intentionally ignore it.
 func (js JobSpec) GetAppConfig(cfg any) error {
 	md, err := toml.Decode(js.AppConfig, cfg)
 	if err != nil {
@@ -32,14 +39,14 @@ func (js JobSpec) GetAppConfig(cfg any) error {
 	}
 
 	for _, key := range md.Keys() {
-		if len(key) > 0 && strings.EqualFold(key[0], "blockchain_infos") {
-			return fmt.Errorf("error decoding app config, blockchain_infos is no longer supported")
+		if len(key) > 0 && strings.EqualFold(key[0], blockchainInfosKey) {
+			return fmt.Errorf("error decoding app config, %s is no longer supported", blockchainInfosKey)
 		}
 	}
 
 	var undecoded []string
 	for _, key := range md.Undecoded() {
-		if strings.ToLower(key[0]) != "monitoring" {
+		if !strings.EqualFold(key[0], monitoringKey) {
 			undecoded = append(undecoded, key.String())
 		}
 	}

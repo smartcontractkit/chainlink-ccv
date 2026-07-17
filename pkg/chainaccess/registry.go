@@ -2,9 +2,7 @@ package chainaccess
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"io"
 	"maps"
 	"sync"
 	"time"
@@ -50,8 +48,6 @@ type Registry interface {
 // registry is the concrete Registry backed by registered AccessorFactories.
 type registry struct {
 	factories map[ChainFamily]AccessorFactory
-	closeOnce sync.Once
-	closeErr  error
 }
 
 // GenericConfig is the overlay of application-owned settings shared with accessor constructors.
@@ -135,41 +131,12 @@ func NewRegistry(lggr logger.Logger, config string) (Registry, error) {
 		lggr.Infow("Constructing accessor factory for chain family", "family", family)
 		accessor, err := constructor(lggr, genericConfig)
 		if err != nil {
-			// A constructor may return a partially initialized factory alongside an error.
-			// Include it in cleanup so every resource allocated before this failure is released.
-			if accessor != nil {
-				reg.factories[family] = accessor
-			}
-			constructionErr := fmt.Errorf("failed to construct accessor factory for family %s: %w", family, err)
-			if closeErr := reg.Close(); closeErr != nil {
-				return nil, errors.Join(constructionErr, fmt.Errorf("close partial registry: %w", closeErr))
-			}
-			return nil, constructionErr
+			return nil, fmt.Errorf("failed to construct accessor factory for family %s: %w", family, err)
 		}
 		reg.factories[family] = accessor
 	}
 
 	return &reg, nil
-}
-
-// Close releases resources owned by accessor factories that opt into terminal cleanup by
-// implementing io.Closer. Close is idempotent. It is deliberately an optional extension to
-// Registry so downstream registry implementations do not need to change.
-func (r *registry) Close() error {
-	r.closeOnce.Do(func() {
-		var errs []error
-		for family, factory := range r.factories {
-			closer, ok := factory.(io.Closer)
-			if !ok {
-				continue
-			}
-			if err := closer.Close(); err != nil {
-				errs = append(errs, fmt.Errorf("close accessor factory for family %s: %w", family, err))
-			}
-		}
-		r.closeErr = errors.Join(errs...)
-	})
-	return r.closeErr
 }
 
 // GetAccessor creates an Accessor for the given chain selector using the registered AccessorFactory.
