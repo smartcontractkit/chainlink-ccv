@@ -138,6 +138,18 @@ func TestRunnerValidateJobRejectsInvalidConfig(t *testing.T) {
 		err := runner.ValidateJob(t.Context(), "name = \"replacement\"\nappConfig = \"not valid = [\"")
 		require.ErrorContains(t, err, "validate chain config")
 	})
+
+	t.Run("blockchain infos without factory validator", func(t *testing.T) {
+		runner := &runner{lggr: logger.Test(t), fac: &mockServiceFactory{}}
+		const config = `name = "replacement"
+appConfig = """
+[blockchain_infos.5009297550715157269]
+chain_id = "1"
+"""`
+
+		err := runner.ValidateJob(t.Context(), config)
+		require.ErrorContains(t, err, "blockchain_infos is no longer supported")
+	})
 }
 
 func TestRunnerStartJobFailureStopsFactory(t *testing.T) {

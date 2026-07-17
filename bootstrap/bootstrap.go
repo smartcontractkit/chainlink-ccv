@@ -133,11 +133,15 @@ func (r *runner) ValidateJob(ctx context.Context, config string) error {
 		return err
 	}
 	// Decode-only mirror of the chainaccess.NewRegistry parse in StartJob. This rejects TOML syntax
-	// errors before the old job is stopped without constructing accessors. Application-specific
-	// checks, including rejection of blockchain_infos, are handled by the factory validator below.
+	// errors and globally unsupported fields before the old job is stopped without constructing
+	// accessors. Application-specific checks are handled by the factory validator below.
 	var genericConfig chainaccess.GenericConfig
-	if _, err := toml.Decode(spec.AppConfig, &genericConfig); err != nil {
+	md, err := toml.Decode(spec.AppConfig, &genericConfig)
+	if err != nil {
 		return fmt.Errorf("validate chain config: %w", err)
+	}
+	if hasTopLevelKey(md, blockchainInfosKey) {
+		return fmt.Errorf("validate application config: %s is no longer supported", blockchainInfosKey)
 	}
 	validator, ok := r.fac.(ServiceFactoryValidator)
 	if !ok {

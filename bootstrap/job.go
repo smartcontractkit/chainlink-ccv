@@ -38,10 +38,8 @@ func (js JobSpec) GetAppConfig(cfg any) error {
 		return fmt.Errorf("error decoding app config: %w", err)
 	}
 
-	for _, key := range md.Keys() {
-		if len(key) > 0 && strings.EqualFold(key[0], blockchainInfosKey) {
-			return fmt.Errorf("error decoding app config, %s is no longer supported", blockchainInfosKey)
-		}
+	if hasTopLevelKey(md, blockchainInfosKey) {
+		return fmt.Errorf("error decoding app config, %s is no longer supported", blockchainInfosKey)
 	}
 
 	var undecoded []string
@@ -56,6 +54,15 @@ func (js JobSpec) GetAppConfig(cfg any) error {
 	}
 
 	return nil
+}
+
+func hasTopLevelKey(md toml.MetaData, name string) bool {
+	for _, key := range md.Keys() {
+		if len(key) > 0 && strings.EqualFold(key[0], name) {
+			return true
+		}
+	}
+	return false
 }
 
 // InnerConfig extracts the embedded inner config from a job spec wrapper. Exactly one of appConfig and the CL-mode config field must be set.
