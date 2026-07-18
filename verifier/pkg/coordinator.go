@@ -250,7 +250,7 @@ func createDurableProcessors(
 	}
 
 	storageWriterProcessor, err := storagewriter.NewProcessor(
-		lggr, config.VerifierID, messageTracker, storage, resultQueueObserver, config,
+		lggr, config.VerifierID, monitoring, messageTracker, storage, resultQueueObserver, config,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create storage writer processor DB: %w", err)
@@ -350,7 +350,7 @@ func createSourceReadersDB(
 		srs, err := sourcereader.NewService(
 			config.VerifierID, sourceReader, chainSelector, chainStatusManager,
 			logger.With(lggr, "component", "SourceReaderDB", "chainID", chainSelector),
-			sourceCfg, curseDetector, filter, monitoring.Metrics(), taskQueue, messageRulesChecker,
+			sourceCfg, curseDetector, filter, monitoring, taskQueue, messageRulesChecker,
 		)
 		if err != nil {
 			lggr.Errorw("failed to create Service for chain, skipping this chain", "chainSelector", chainSelector, "error", err)

@@ -13,7 +13,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/jobqueue"
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
-	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
 )
@@ -39,6 +38,7 @@ type Processor struct {
 
 	lggr           logger.Logger
 	verifierID     string
+	monitoring     verifier.Monitoring
 	messageTracker verifier.MessageLatencyTracker
 
 	storage     protocol.CCVNodeDataWriter
@@ -55,19 +55,21 @@ type Processor struct {
 func NewProcessor(
 	lggr logger.Logger,
 	verifierID string,
+	monitoring verifier.Monitoring,
 	messageTracker verifier.MessageLatencyTracker,
 	storage protocol.CCVNodeDataWriter,
 	resultQueue jobqueue.JobQueue[protocol.VerifierNodeResult],
 	config verifier.CoordinatorConfig,
 ) (*Processor, error) {
 	return NewProcessorWithPollInterval(
-		lggr, verifierID, messageTracker, storage, resultQueue, config, defaultPollInterval,
+		lggr, verifierID, monitoring, messageTracker, storage, resultQueue, config, defaultPollInterval,
 	)
 }
 
 func NewProcessorWithPollInterval(
 	lggr logger.Logger,
 	verifierID string,
+	monitoring verifier.Monitoring,
 	messageTracker verifier.MessageLatencyTracker,
 	storage protocol.CCVNodeDataWriter,
 	resultQueue jobqueue.JobQueue[protocol.VerifierNodeResult],
@@ -79,6 +81,7 @@ func NewProcessorWithPollInterval(
 	processor := &Processor{
 		lggr:            lggr,
 		verifierID:      verifierID,
+		monitoring:      monitoring,
 		messageTracker:  messageTracker,
 		storage:         storage,
 		resultQueue:     resultQueue,
@@ -159,22 +162,21 @@ func (s *Processor) processBatch(ctx context.Context) error {
 	// Extract results for writing
 	results := make([]protocol.VerifierNodeResult, len(jobs))
 	// writeSpans holds one span per message for this batch's write attempt, each
-	// rooted in that message's own trace (deterministic trace ID from message_id) -
-	// they're independent traces sharing no span, since a span belongs to exactly
-	// one trace. Each ends once the outcome of this write attempt is decided.
+	// a child of that message's global span (see verifier.Monitoring.Tracing).
+	// Each ends once the outcome of this write attempt is decided - success ends
+	// the global span too, since the CCV batch write is the pipeline's last step.
 	writeSpans := make(map[string]oteltrace.Span, len(jobs))
 	for i, job := range jobs {
 		results[i] = job.Payload
 		messageID := job.Payload.MessageID.String()
 
-		msgCtx := verifier.TraceContextForMessage(ctx, messageID)
-		_, span := beholder.GetTracer().Start(msgCtx, "storagewriter.message.write",
-			oteltrace.WithAttributes(
-				attribute.String("message_id", messageID),
-				attribute.String("verifier_id", s.verifierID),
-				attribute.String("jobID", job.ID),
-			))
-		writeSpans[job.ID] = span
+		_, span := s.monitoring.Tracing().StartChildSpan(ctx, messageID, "storagewriter.message.write",
+			attribute.String("verifier_id", s.verifierID),
+			attribute.String("jobID", job.ID),
+		)
+		if span != nil {
+			writeSpans[job.ID] = span
+		}
 	}
 	// Any span left open past this call is a job we never decided an outcome for -
 	// close it out so it doesn't leak.
@@ -254,6 +256,9 @@ func (s *Processor) processBatch(ctx context.Context) error {
 				span.End()
 				delete(writeSpans, jobID)
 			}
+			// Terminal: the CCV batch write is the pipeline's last step, so the
+			// message's global span (opened in sourcereader) closes here too.
+			s.monitoring.Tracing().EndMessageSpan(messageID)
 		} else {
 			if hasSpan {
 				span.RecordError(writeResult.Error)
@@ -288,6 +293,9 @@ func (s *Processor) processBatch(ctx context.Context) error {
 					span.End()
 					delete(writeSpans, jobID)
 				}
+				// Terminal: message permanently failed, it goes no further - close
+				// the global span too.
+				s.monitoring.Tracing().EndMessageSpan(messageID)
 			}
 		}
 	}

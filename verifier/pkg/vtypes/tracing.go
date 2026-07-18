@@ -4,7 +4,9 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
+	"sync"
 
+	"go.opentelemetry.io/otel/attribute"
 	oteltrace "go.opentelemetry.io/otel/trace"
 )
 
@@ -44,4 +46,83 @@ func SpanContextForMessage(messageID string) oteltrace.SpanContext {
 // where no real trace context propagation exists.
 func TraceContextForMessage(ctx context.Context, messageID string) context.Context {
 	return oteltrace.ContextWithSpanContext(ctx, SpanContextForMessage(messageID))
+}
+
+// messageSpanEntry is the global span open for a message, plus the context
+// carrying it so later stages can start real children under it.
+type messageSpanEntry struct {
+	span oteltrace.Span
+	ctx  context.Context
+}
+
+// messageTracing is the concrete Tracing implementation, backed by a single
+// otel Tracer and an in-memory registry of each in-flight message's global span.
+type messageTracing struct {
+	tracer oteltrace.Tracer
+
+	mu    sync.Mutex
+	spans map[string]messageSpanEntry
+}
+
+// NewTracing returns a Tracing backed by tracer.
+func NewTracing(tracer oteltrace.Tracer) Tracing {
+	return &messageTracing{
+		tracer: tracer,
+		spans:  make(map[string]messageSpanEntry),
+	}
+}
+
+func withMessageID(messageID string, attrs []attribute.KeyValue) []attribute.KeyValue {
+	return append([]attribute.KeyValue{attribute.String("message_id", messageID)}, attrs...)
+}
+
+func (t *messageTracing) StartMessageSpan(ctx context.Context, name, messageID string, attrs ...attribute.KeyValue) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if _, exists := t.spans[messageID]; exists {
+		// Already tracking this message - a caller rediscovering/re-announcing
+		// it shouldn't silently replace (and leak) the existing span, which may
+		// already have real children parented under it.
+		return
+	}
+
+	tCtx := TraceContextForMessage(ctx, messageID)
+	spanCtx, span := t.tracer.Start(tCtx, name, oteltrace.WithAttributes(withMessageID(messageID, attrs)...))
+
+	t.spans[messageID] = messageSpanEntry{span: span, ctx: spanCtx}
+}
+
+func (t *messageTracing) AddMessageEvent(messageID, name string, attrs ...attribute.KeyValue) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	entry, ok := t.spans[messageID]
+
+	if ok {
+		entry.span.AddEvent(name, oteltrace.WithAttributes(attrs...))
+	}
+}
+
+func (t *messageTracing) EndMessageSpan(messageID string, attrs ...attribute.KeyValue) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	entry, ok := t.spans[messageID]
+	if !ok {
+		return
+	}
+	delete(t.spans, messageID)
+	if len(attrs) > 0 {
+		entry.span.SetAttributes(attrs...)
+	}
+	entry.span.End()
+}
+
+func (t *messageTracing) StartChildSpan(ctx context.Context, messageID, name string, attrs ...attribute.KeyValue) (context.Context, oteltrace.Span) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	entry, ok := t.spans[messageID]
+	if !ok {
+		return ctx, nil
+	}
+
+	return t.tracer.Start(entry.ctx, name, oteltrace.WithAttributes(withMessageID(messageID, attrs)...))
 }

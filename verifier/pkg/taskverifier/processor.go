@@ -12,7 +12,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/jobqueue"
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
-	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
 )
@@ -177,16 +176,15 @@ func (p *Processor) processBatch(ctx context.Context) error {
 		jobIDMap[job.Payload.MessageID] = job.ID
 		taskMap[job.Payload.MessageID] = job.Payload
 
-		msgCtx := verifier.TraceContextForMessage(ctx, job.Payload.MessageID)
-		_, span := beholder.GetTracer().Start(msgCtx, "taskverifier.message.attempt",
-			oteltrace.WithAttributes(
-				attribute.String("message_id", job.Payload.MessageID),
-				attribute.String("verifier_id", p.verifierID),
-				attribute.String("jobID", job.ID),
-				attribute.String("sourceChainSelector", job.Payload.Message.SourceChainSelector.String()),
-				attribute.String("destChainSelector", job.Payload.Message.DestChainSelector.String()),
-			))
-		attemptSpans[job.Payload.MessageID] = span
+		_, span := p.monitoring.Tracing().StartChildSpan(ctx, job.Payload.MessageID, "taskverifier.message.attempt",
+			attribute.String("verifier_id", p.verifierID),
+			attribute.String("jobID", job.ID),
+			attribute.String("sourceChainSelector", job.Payload.Message.SourceChainSelector.String()),
+			attribute.String("destChainSelector", job.Payload.Message.DestChainSelector.String()),
+		)
+		if span != nil {
+			attemptSpans[job.Payload.MessageID] = span
+		}
 
 		// Mark message as seen for E2E latency tracking
 		if p.messageTracker != nil {
@@ -464,6 +462,9 @@ func (p *Processor) handleVerificationError(
 			span.End()
 			delete(attemptSpans, messageID)
 		}
+		// Terminal: message never reaches storagewriter, so close its global
+		// span here rather than leaving it dangling.
+		p.monitoring.Tracing().EndMessageSpan(messageID)
 	}
 }
 

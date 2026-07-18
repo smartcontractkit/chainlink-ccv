@@ -10,6 +10,7 @@ type (
 	Verifier               = vtypes.Verifier
 	MessageLatencyTracker  = vtypes.MessageLatencyTracker
 	Monitoring             = vtypes.Monitoring
+	Tracing                = vtypes.Tracing
 	MetricLabeler          = vtypes.MetricLabeler
 	FinalityCheckerMetrics = vtypes.FinalityCheckerMetrics
 )
