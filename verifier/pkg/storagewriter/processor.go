@@ -6,9 +6,14 @@ import (
 	"sync"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	oteltrace "go.opentelemetry.io/otel/trace"
+
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/jobqueue"
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
+	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
 )
@@ -153,13 +158,24 @@ func (s *Processor) processBatch(ctx context.Context) error {
 
 	// Extract results for writing
 	results := make([]protocol.VerifierNodeResult, len(jobs))
+	messageIDs := make([]string, len(jobs))
 	for i, job := range jobs {
 		results[i] = job.Payload
+		messageIDs[i] = job.Payload.MessageID.String()
 	}
+
+	ctx, span := beholder.GetTracer().Start(ctx, "storagewriter.batch",
+		oteltrace.WithAttributes(
+			attribute.StringSlice("message_ids", messageIDs),
+			attribute.Int("batchSize", len(jobs)),
+		))
+	defer span.End()
 
 	// Write batch to storage
 	writeResults, err := s.storage.WriteCCVNodeData(ctx, results)
 	if err != nil && len(writeResults) == 0 {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
 		// Catastrophic failure - no results returned at all
 		s.lggr.Errorw("Failed to write CCV data batch to storage with no results, scheduling retry",
 			"error", err,
@@ -232,6 +248,12 @@ func (s *Processor) processBatch(ctx context.Context) error {
 			}
 		}
 	}
+
+	span.SetAttributes(
+		attribute.Int("successfulCount", len(successfulJobs)),
+		attribute.Int("retriableFailedCount", len(retriableFailedJobs)),
+		attribute.Int("nonRetriableFailedCount", len(nonRetriableFailedJobs)),
+	)
 
 	// Log summary
 	s.lggr.Debugw("CCV data batch write completed",

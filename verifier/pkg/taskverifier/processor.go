@@ -6,9 +6,13 @@ import (
 	"sync"
 	"time"
 
+	"go.opentelemetry.io/otel/attribute"
+	oteltrace "go.opentelemetry.io/otel/trace"
+
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/jobqueue"
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
+	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
 )
@@ -163,10 +167,24 @@ func (p *Processor) processBatch(ctx context.Context) error {
 	tasks := make([]verifier.VerificationTask, len(jobs))
 	jobIDMap := make(map[string]string)                   // messageID -> jobID
 	taskMap := make(map[string]verifier.VerificationTask) // messageID -> task (for accessing timestamps)
+	// attemptSpans holds one span per message for this attempt at verifying it.
+	// The span ends once the outcome of this attempt is decided (published,
+	// retry scheduled, or permanently failed) - a retried message gets a fresh
+	// span on its next attempt.
+	attemptSpans := make(map[string]oteltrace.Span, len(jobs))
 	for i, job := range jobs {
 		tasks[i] = job.Payload
 		jobIDMap[job.Payload.MessageID] = job.ID
 		taskMap[job.Payload.MessageID] = job.Payload
+
+		_, span := beholder.GetTracer().Start(ctx, "taskverifier.message.attempt",
+			oteltrace.WithAttributes(
+				attribute.String("message_id", job.Payload.MessageID),
+				attribute.String("jobID", job.ID),
+				attribute.String("sourceChainSelector", job.Payload.Message.SourceChainSelector.String()),
+				attribute.String("destChainSelector", job.Payload.Message.DestChainSelector.String()),
+			))
+		attemptSpans[job.Payload.MessageID] = span
 
 		// Mark message as seen for E2E latency tracking
 		if p.messageTracker != nil {
@@ -181,7 +199,7 @@ func (p *Processor) processBatch(ctx context.Context) error {
 	results := p.verifier.VerifyMessages(ctx, tasks)
 
 	// Process verification results
-	return p.handleVerificationResults(ctx, results, jobIDMap, taskMap, verificationStartTime)
+	return p.handleVerificationResults(ctx, results, jobIDMap, taskMap, attemptSpans, verificationStartTime)
 }
 
 // handleVerificationResults processes verification results, updating job statuses and publishing successful results.
@@ -190,8 +208,17 @@ func (p *Processor) handleVerificationResults(
 	results []verifier.VerificationResult,
 	jobIDMap map[string]string,
 	taskMap map[string]verifier.VerificationTask,
+	attemptSpans map[string]oteltrace.Span,
 	verificationStartTime time.Time,
 ) error {
+	// Any span left open past this call is a message we never decided an
+	// outcome for this attempt - close it out so it doesn't leak.
+	defer func() {
+		for _, span := range attemptSpans {
+			span.End()
+		}
+	}()
+
 	if len(results) == 0 {
 		return nil
 	}
@@ -225,7 +252,7 @@ func (p *Processor) handleVerificationResults(
 
 		if result.Error != nil {
 			errorCount++
-			p.handleVerificationError(ctx, *result.Error, jobID, &retryJobIDs, retryErrors, retryDelays, &failedJobIDs, failedErrors)
+			p.handleVerificationError(ctx, *result.Error, jobID, &retryJobIDs, retryErrors, retryDelays, &failedJobIDs, failedErrors, attemptSpans)
 		} else if result.Result != nil {
 			successCount++
 			successfulResults = append(successfulResults, *result.Result)
@@ -264,6 +291,11 @@ func (p *Processor) handleVerificationResults(
 		defer cancel()
 
 		if err := p.resultQueue.Publish(publishCtx, successfulResults...); err != nil {
+			for _, result := range successfulResults {
+				if span, ok := attemptSpans[result.MessageID.String()]; ok {
+					span.RecordError(err)
+				}
+			}
 			p.lggr.Errorw("Failed to publish verification results to queue - jobs will remain in processing state and be reclaimed as stale locks",
 				"error", err,
 				"count", len(successfulResults))
@@ -271,6 +303,14 @@ func (p *Processor) handleVerificationResults(
 			// They will be reclaimed as stale locks and re-processed (re-verified and published)
 			// This is a rare case (DB failure), and relying on stale lock reclaim is acceptable
 			return fmt.Errorf("failed to publish %d verification results: %w", len(successfulResults), err)
+		}
+		for _, result := range successfulResults {
+			messageID := result.MessageID.String()
+			if span, ok := attemptSpans[messageID]; ok {
+				span.AddEvent("result_published")
+				span.End()
+				delete(attemptSpans, messageID)
+			}
 		}
 		p.lggr.Debugw("Published verification results to queue", "count", len(successfulResults))
 	}
@@ -355,8 +395,10 @@ func (p *Processor) handleVerificationError(
 	retryDelays map[string]time.Duration,
 	failedJobIDs *[]string,
 	failedErrors map[string]error,
+	attemptSpans map[string]oteltrace.Span,
 ) {
 	message := verificationError.Task.Message
+	messageID := verificationError.Task.MessageID
 
 	p.monitoring.Metrics().
 		With(
@@ -383,10 +425,23 @@ func (p *Processor) handleVerificationError(
 		"retryable", verificationError.Retryable,
 	)
 
+	span, hasSpan := attemptSpans[messageID]
+	if hasSpan {
+		span.RecordError(verificationError.Error)
+	}
+
 	if verificationError.Retryable {
 		*retryJobIDs = append(*retryJobIDs, jobID)
 		retryErrors[jobID] = verificationError.Error
 		retryDelays[jobID] = verificationError.DelayOrDefault()
+
+		if hasSpan {
+			span.AddEvent("retry_scheduled", oteltrace.WithAttributes(
+				attribute.String("delay", verificationError.DelayOrDefault().String()),
+			))
+			span.End()
+			delete(attemptSpans, messageID)
+		}
 	} else {
 		// Increment permanent error metric
 		p.monitoring.Metrics().
@@ -401,6 +456,12 @@ func (p *Processor) handleVerificationError(
 
 		*failedJobIDs = append(*failedJobIDs, jobID)
 		failedErrors[jobID] = verificationError.Error
+
+		if hasSpan {
+			span.AddEvent("verification_failed_permanent")
+			span.End()
+			delete(attemptSpans, messageID)
+		}
 	}
 }
 
