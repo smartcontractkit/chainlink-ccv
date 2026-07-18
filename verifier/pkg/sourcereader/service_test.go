@@ -75,6 +75,7 @@ func newTestSRS(
 	queue := &fakeTaskQueue{}
 
 	srs, err := NewService(
+		"test-verifier",
 		reader,
 		chainSelector,
 		chainStatusMgr,
@@ -775,6 +776,7 @@ func TestSRS_DisableFinalityChecker(t *testing.T) {
 	lggr := logger.Test(t)
 
 	srs, err := NewService(
+		"test-verifier",
 		reader,
 		chain,
 		chainStatusMgr,

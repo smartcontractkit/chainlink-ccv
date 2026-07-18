@@ -177,9 +177,11 @@ func (p *Processor) processBatch(ctx context.Context) error {
 		jobIDMap[job.Payload.MessageID] = job.ID
 		taskMap[job.Payload.MessageID] = job.Payload
 
-		_, span := beholder.GetTracer().Start(ctx, "taskverifier.message.attempt",
+		msgCtx := verifier.TraceContextForMessage(ctx, job.Payload.MessageID)
+		_, span := beholder.GetTracer().Start(msgCtx, "taskverifier.message.attempt",
 			oteltrace.WithAttributes(
 				attribute.String("message_id", job.Payload.MessageID),
+				attribute.String("verifier_id", p.verifierID),
 				attribute.String("jobID", job.ID),
 				attribute.String("sourceChainSelector", job.Payload.Message.SourceChainSelector.String()),
 				attribute.String("destChainSelector", job.Payload.Message.DestChainSelector.String()),

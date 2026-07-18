@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
-	"go.opentelemetry.io/otel/codes"
 	oteltrace "go.opentelemetry.io/otel/trace"
 
 	"github.com/smartcontractkit/chainlink-ccv/common"
@@ -45,6 +44,7 @@ type Service struct {
 
 	// config / deps
 	logger          logger.Logger
+	verifierID      string
 	sourceReader    chainaccess.SourceReader
 	chainSelector   protocol.ChainSelector
 	curseDetector   common.CurseCheckerService
@@ -81,6 +81,7 @@ type Service struct {
 // NewService creates a DB-backed Service that publishes
 // ready tasks directly to the ccv_task_verifier_jobs job queue.
 func NewService(
+	verifierID string,
 	sourceReader chainaccess.SourceReader,
 	chainSelector protocol.ChainSelector,
 	chainStatusManager protocol.ChainStatusManager,
@@ -149,6 +150,7 @@ func NewService(
 
 	return &Service{
 		logger:             logger.With(lggr, "component", "Service", "chain", chainSelector),
+		verifierID:         verifierID,
 		sourceReader:       sourceReader,
 		chainSelector:      chainSelector,
 		chainStatusManager: chainStatusManager,
@@ -206,9 +208,12 @@ func (r *Service) Name() string {
 // startMessageSpan opens the single trace span covering a message's lifetime
 // in the source reader (event discovery through publish or drop). Caller
 // must hold r.mu.
-func (r *Service) startMessageSpan(ctx context.Context, msgID string, attrs ...attribute.KeyValue) {
-	attrs = append([]attribute.KeyValue{attribute.String("message_id", msgID)}, attrs...)
-	_, span := beholder.GetTracer().Start(ctx, "sourcereader.message", oteltrace.WithAttributes(attrs...))
+func (r *Service) startMessageSpan(ctx context.Context, name, msgID string, attrs ...attribute.KeyValue) {
+	attrs = append([]attribute.KeyValue{
+		attribute.String("message_id", msgID),
+		attribute.String("verifier_id", r.verifierID),
+	}, attrs...)
+	_, span := beholder.GetTracer().Start(ctx, name, oteltrace.WithAttributes(attrs...))
 	r.messageSpans[msgID] = span
 }
 
@@ -342,14 +347,6 @@ func (r *Service) loadEvents(ctx context.Context, fromBlock *big.Int, latest *pr
 }
 
 func (r *Service) processEventCycle(ctx context.Context, latest, finalized *protocol.BlockHeader) {
-	ctx, span := beholder.GetTracer().Start(ctx, "sourcereader.processEventCycle",
-		oteltrace.WithAttributes(
-			attribute.String("chainSelector", r.chainSelector.String()),
-			attribute.Int64("latestBlock", int64(latest.Number)),
-			attribute.Int64("finalizedBlock", int64(finalized.Number)),
-		))
-	defer span.End()
-
 	r.logger.Debugw("processEventCycle starting",
 		"latestBlock", latest.Number,
 		"finalizedBlock", finalized.Number)
@@ -358,18 +355,14 @@ func (r *Service) processEventCycle(ctx context.Context, latest, finalized *prot
 	defer cancel()
 
 	fromBlock := r.lastProcessedFinalizedBlock.Load()
-	span.SetAttributes(attribute.String("fromBlock", fromBlock.String()))
 
 	r.logger.Debugw("Querying from block", "fromBlock", fromBlock.String())
 	events, lastQueriedBlock, err := r.loadEvents(logsCtx, fromBlock, latest)
 	if err != nil {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
 		r.logger.Warnw("Error when querying logs", "error", err,
 			"fromBlock", fromBlock.String(),
 			"toBlock", "latest")
 	}
-	span.SetAttributes(attribute.Int("eventsFound", len(events)))
 
 	tasks := make([]verifier.VerificationTask, 0, len(events))
 	filteredCount := 0
@@ -384,7 +377,6 @@ func (r *Service) processEventCycle(ctx context.Context, latest, finalized *prot
 		}
 		computedMessageID, err := event.Message.MessageID()
 		if err != nil {
-			span.RecordError(err)
 			r.logger.Errorw("Failed to compute message ID", "error", err)
 			continue
 		}
@@ -395,7 +387,9 @@ func (r *Service) processEventCycle(ctx context.Context, latest, finalized *prot
 		}
 
 		r.mu.Lock()
-		r.startMessageSpan(context.Background(), onchainMessageID,
+		r.startMessageSpan(verifier.TraceContextForMessage(context.Background(), onchainMessageID),
+			"verifier.message@"+r.verifierID,
+			onchainMessageID,
 			attribute.Int64("blockNumber", int64(event.BlockNumber)),
 			attribute.String("txHash", event.TxHash.String()),
 			attribute.String("sourceChainSelector", event.Message.SourceChainSelector.String()),
@@ -418,10 +412,6 @@ func (r *Service) processEventCycle(ctx context.Context, latest, finalized *prot
 		r.addMessageEvent(onchainMessageID, "task_formed")
 		r.mu.Unlock()
 	}
-	span.SetAttributes(
-		attribute.Int("tasksCreated", len(tasks)),
-		attribute.Int("eventsFiltered", filteredCount),
-	)
 
 	r.addToPendingQueueHandleReorg(ctx, tasks, fromBlock, lastQueriedBlock)
 
@@ -439,7 +429,6 @@ func (r *Service) processEventCycle(ctx context.Context, latest, finalized *prot
 		newBlock = lastQueriedBlock
 	}
 	r.lastProcessedFinalizedBlock.Store(newBlock)
-	span.SetAttributes(attribute.String("advancedToBlock", newBlock.String()))
 
 	r.logger.Debugw("Processed block range",
 		"fromBlock", fromBlock.String(),
@@ -570,14 +559,6 @@ func (r *Service) addToPendingQueueHandleReorg(ctx context.Context, tasks []veri
 
 // sendReadyMessages checks for finalized messages and publishes them directly to the task queue.
 func (r *Service) sendReadyMessages(ctx context.Context, latest, safe, finalized *protocol.BlockHeader) {
-	ctx, span := beholder.GetTracer().Start(ctx, "sourcereader.sendReadyMessages",
-		oteltrace.WithAttributes(
-			attribute.String("chainSelector", r.chainSelector.String()),
-			attribute.Int64("latestBlock", int64(latest.Number)),
-			attribute.Int64("finalizedBlock", int64(finalized.Number)),
-		))
-	defer span.End()
-
 	stringSafeBlock := "unavailable"
 	if safe != nil {
 		stringSafeBlock = strconv.FormatUint(safe.Number, 10)
@@ -589,7 +570,6 @@ func (r *Service) sendReadyMessages(ctx context.Context, latest, safe, finalized
 		"finalizedBlock", finalized.Number)
 
 	if err := r.finalityChecker.UpdateFinalized(ctx, finalized.Number); err != nil {
-		span.RecordError(err)
 		r.logger.Errorw("Failed to update finality checker",
 			"finalizedBlock", finalized.Number,
 			"error", err)
@@ -601,7 +581,6 @@ func (r *Service) sendReadyMessages(ctx context.Context, latest, safe, finalized
 	}
 
 	if r.finalityChecker.IsFinalityViolated() {
-		span.SetStatus(codes.Error, "finality violation detected")
 		r.logger.Errorw("Finality violation detected", "finalizedBlock", finalized.Number)
 		r.handleFinalityViolation(ctx)
 		return
@@ -717,12 +696,6 @@ func (r *Service) sendReadyMessages(ctx context.Context, latest, safe, finalized
 			safeCheckpoint = 0
 		}
 
-		span.SetAttributes(
-			attribute.Int("readyCount", len(ready)),
-			attribute.Int("pendingCount", len(r.pendingTasks)),
-			attribute.Int("droppedCount", len(toBeDeleted)),
-		)
-
 		if len(ready) == 0 {
 			// No messages to publish this cycle; we can still advance the checkpoint because
 			// all finalized messages have already been queued in previous cycles or dropped.
@@ -745,14 +718,11 @@ func (r *Service) sendReadyMessages(ctx context.Context, latest, safe, finalized
 		// If Publish fails due to transient DB issues, tasks remain in pendingTasks and will be
 		// retried on the next cycle. This ensures no messages are lost if the DB goes offline.
 		if err := r.taskQueue.Publish(ctx, ready...); err != nil {
-			span.RecordError(err)
-			span.SetStatus(codes.Error, err.Error())
 			r.logger.Errorw("Failed to publish tasks to job queue - tasks will remain in pending queue for retry",
 				"error", err,
 				"count", len(ready))
 			return 0 // Do not advance checkpoint on publish failure
 		}
-		span.SetAttributes(attribute.Int("publishedCount", len(ready)))
 
 		// Success - now it's safe to update in-memory state
 		for _, task := range ready {

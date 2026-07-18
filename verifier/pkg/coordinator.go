@@ -348,7 +348,7 @@ func createSourceReadersDB(
 		filter := chainaccess.NewReceiptIssuerFilter(sourceCfg.VerifierAddress, sourceCfg.DefaultExecutorAddress)
 		lggr.Infow("PollInterval: ", "chainSelector", chainSelector, "interval", sourceCfg.PollInterval)
 		srs, err := sourcereader.NewService(
-			sourceReader, chainSelector, chainStatusManager,
+			config.VerifierID, sourceReader, chainSelector, chainStatusManager,
 			logger.With(lggr, "component", "SourceReaderDB", "chainID", chainSelector),
 			sourceCfg, curseDetector, filter, monitoring.Metrics(), taskQueue, messageRulesChecker,
 		)

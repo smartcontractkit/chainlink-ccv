@@ -158,24 +158,35 @@ func (s *Processor) processBatch(ctx context.Context) error {
 
 	// Extract results for writing
 	results := make([]protocol.VerifierNodeResult, len(jobs))
-	messageIDs := make([]string, len(jobs))
+	// writeSpans holds one span per message for this batch's write attempt, each
+	// rooted in that message's own trace (deterministic trace ID from message_id) -
+	// they're independent traces sharing no span, since a span belongs to exactly
+	// one trace. Each ends once the outcome of this write attempt is decided.
+	writeSpans := make(map[string]oteltrace.Span, len(jobs))
 	for i, job := range jobs {
 		results[i] = job.Payload
-		messageIDs[i] = job.Payload.MessageID.String()
-	}
+		messageID := job.Payload.MessageID.String()
 
-	ctx, span := beholder.GetTracer().Start(ctx, "storagewriter.batch",
-		oteltrace.WithAttributes(
-			attribute.StringSlice("message_ids", messageIDs),
-			attribute.Int("batchSize", len(jobs)),
-		))
-	defer span.End()
+		msgCtx := verifier.TraceContextForMessage(ctx, messageID)
+		_, span := beholder.GetTracer().Start(msgCtx, "storagewriter.message.write",
+			oteltrace.WithAttributes(
+				attribute.String("message_id", messageID),
+				attribute.String("verifier_id", s.verifierID),
+				attribute.String("jobID", job.ID),
+			))
+		writeSpans[job.ID] = span
+	}
+	// Any span left open past this call is a job we never decided an outcome for -
+	// close it out so it doesn't leak.
+	defer func() {
+		for _, span := range writeSpans {
+			span.End()
+		}
+	}()
 
 	// Write batch to storage
 	writeResults, err := s.storage.WriteCCVNodeData(ctx, results)
 	if err != nil && len(writeResults) == 0 {
-		span.RecordError(err)
-		span.SetStatus(codes.Error, err.Error())
 		// Catastrophic failure - no results returned at all
 		s.lggr.Errorw("Failed to write CCV data batch to storage with no results, scheduling retry",
 			"error", err,
@@ -189,6 +200,14 @@ func (s *Processor) processBatch(ctx context.Context) error {
 		for i, job := range jobs {
 			jobIDs[i] = job.ID
 			errorMap[job.ID] = err
+
+			if span, ok := writeSpans[job.ID]; ok {
+				span.RecordError(err)
+				span.SetStatus(codes.Error, err.Error())
+				span.AddEvent("retry_scheduled", oteltrace.WithAttributes(
+					attribute.String("delay", s.retryDelay.String()),
+				))
+			}
 		}
 
 		retryCtx, cancel := context.WithTimeout(ctx, verifier.DefaultJobQueueOperationTimeout)
@@ -222,13 +241,23 @@ func (s *Processor) processBatch(ctx context.Context) error {
 		job := jobs[i]
 		jobID := job.ID
 		messageID := writeResult.Input.MessageID.String()
+		span, hasSpan := writeSpans[jobID]
 
 		if writeResult.Status == protocol.WriteSuccess {
 			successfulJobs = append(successfulJobs, jobID)
 			successfulResults = append(successfulResults, writeResult.Input)
 			// PER-MESSAGE LOG (success): terminal; verification result persisted to storage.
 			s.lggr.Infow("Write succeeded for message", protocol.LogTypeKey, protocol.LogTypeMessageSuccess, protocol.LogKeyMessageID, messageID, protocol.LogKeyJobID, jobID)
+
+			if hasSpan {
+				span.AddEvent("write_succeeded")
+				span.End()
+				delete(writeSpans, jobID)
+			}
 		} else {
+			if hasSpan {
+				span.RecordError(writeResult.Error)
+			}
 			if writeResult.Retryable {
 				retriableFailedJobs = append(retriableFailedJobs, jobID)
 				failedErrorMap[jobID] = writeResult.Error
@@ -237,6 +266,14 @@ func (s *Processor) processBatch(ctx context.Context) error {
 					protocol.LogKeyJobID, jobID,
 					"error", writeResult.Error,
 				)
+
+				if hasSpan {
+					span.AddEvent("retry_scheduled", oteltrace.WithAttributes(
+						attribute.String("delay", s.retryDelay.String()),
+					))
+					span.End()
+					delete(writeSpans, jobID)
+				}
 			} else {
 				nonRetriableFailedJobs = append(nonRetriableFailedJobs, jobID)
 				failedErrorMap[jobID] = writeResult.Error
@@ -245,15 +282,15 @@ func (s *Processor) processBatch(ctx context.Context) error {
 					protocol.LogKeyJobID, jobID,
 					"error", writeResult.Error,
 				)
+
+				if hasSpan {
+					span.AddEvent("write_failed_permanent")
+					span.End()
+					delete(writeSpans, jobID)
+				}
 			}
 		}
 	}
-
-	span.SetAttributes(
-		attribute.Int("successfulCount", len(successfulJobs)),
-		attribute.Int("retriableFailedCount", len(retriableFailedJobs)),
-		attribute.Int("nonRetriableFailedCount", len(nonRetriableFailedJobs)),
-	)
 
 	// Log summary
 	s.lggr.Debugw("CCV data batch write completed",
