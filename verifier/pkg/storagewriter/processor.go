@@ -6,8 +6,10 @@ import (
 	"sync"
 	"time"
 
+	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/propagation"
 	oteltrace "go.opentelemetry.io/otel/trace"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -161,28 +163,38 @@ func (s *Processor) processBatch(ctx context.Context) error {
 
 	// Extract results for writing
 	results := make([]protocol.VerifierNodeResult, len(jobs))
-	// writeSpans holds one span per message for this batch's write attempt, each
-	// a child of that message's global span (see verifier.Monitoring.Tracing).
-	// Each ends once the outcome of this write attempt is decided - success ends
-	// the global span too, since the CCV batch write is the pipeline's last step.
-	writeSpans := make(map[string]oteltrace.Span, len(jobs))
 	for i, job := range jobs {
-		results[i] = job.Payload
+		carrier := propagation.MapCarrier{
+			"traceparent": job.Payload.TraceParent,
+		}
+		parentCtx := otel.GetTextMapPropagator().Extract(context.WithoutCancel(ctx), carrier)
 		messageID := job.Payload.MessageID.String()
 
-		_, span := s.monitoring.Tracing().StartChildSpan(ctx, messageID, "storagewriter.message.write",
+		payload := job.Payload
+		var span oteltrace.Span
+		payload.TraceContext, span = s.monitoring.Tracing().StartMessageSpan(parentCtx, "storagewriter.message.write", messageID,
 			attribute.String("verifier_id", s.verifierID),
 			attribute.String("jobID", job.ID),
 		)
-		if span != nil {
-			writeSpans[job.ID] = span
-		}
+		span.AddEvent("job_discovered",
+			oteltrace.WithAttributes(
+				attribute.String("jobID", job.ID),
+				attribute.String("sourceChainSelector", job.Payload.Message.SourceChainSelector.String()),
+				attribute.String("destChainSelector", job.Payload.Message.DestChainSelector.String()),
+			),
+		)
+		// results must carry the span-started context (not the raw extracted
+		// one) - every later lookup below reads results[i].TraceContext, and
+		// it must resolve to the real, live write span rather than the
+		// non-recording placeholder OTel returns for an extracted-but-unstarted
+		// remote context.
+		results[i] = payload
 	}
 	// Any span left open past this call is a job we never decided an outcome for -
 	// close it out so it doesn't leak.
 	defer func() {
-		for _, span := range writeSpans {
-			span.End()
+		for _, result := range results {
+			oteltrace.SpanFromContext(result.TraceContext).End()
 		}
 	}()
 
@@ -203,13 +215,12 @@ func (s *Processor) processBatch(ctx context.Context) error {
 			jobIDs[i] = job.ID
 			errorMap[job.ID] = err
 
-			if span, ok := writeSpans[job.ID]; ok {
-				span.RecordError(err)
-				span.SetStatus(codes.Error, err.Error())
-				span.AddEvent("retry_scheduled", oteltrace.WithAttributes(
-					attribute.String("delay", s.retryDelay.String()),
-				))
-			}
+			span := oteltrace.SpanFromContext(results[i].TraceContext)
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
+			span.AddEvent("retry_scheduled", oteltrace.WithAttributes(
+				attribute.String("delay", s.retryDelay.String()),
+			))
 		}
 
 		retryCtx, cancel := context.WithTimeout(ctx, verifier.DefaultJobQueueOperationTimeout)
@@ -243,7 +254,7 @@ func (s *Processor) processBatch(ctx context.Context) error {
 		job := jobs[i]
 		jobID := job.ID
 		messageID := writeResult.Input.MessageID.String()
-		span, hasSpan := writeSpans[jobID]
+		span := oteltrace.SpanFromContext(results[i].TraceContext)
 
 		if writeResult.Status == protocol.WriteSuccess {
 			successfulJobs = append(successfulJobs, jobID)
@@ -251,18 +262,10 @@ func (s *Processor) processBatch(ctx context.Context) error {
 			// PER-MESSAGE LOG (success): terminal; verification result persisted to storage.
 			s.lggr.Infow("Write succeeded for message", protocol.LogTypeKey, protocol.LogTypeMessageSuccess, protocol.LogKeyMessageID, messageID, protocol.LogKeyJobID, jobID)
 
-			if hasSpan {
-				span.AddEvent("write_succeeded")
-				span.End()
-				delete(writeSpans, jobID)
-			}
-			// Terminal: the CCV batch write is the pipeline's last step, so the
-			// message's global span (opened in sourcereader) closes here too.
-			s.monitoring.Tracing().EndMessageSpan(messageID)
+			span.AddEvent("write_succeeded")
+			span.End()
 		} else {
-			if hasSpan {
-				span.RecordError(writeResult.Error)
-			}
+			span.RecordError(writeResult.Error)
 			if writeResult.Retryable {
 				retriableFailedJobs = append(retriableFailedJobs, jobID)
 				failedErrorMap[jobID] = writeResult.Error
@@ -272,13 +275,10 @@ func (s *Processor) processBatch(ctx context.Context) error {
 					"error", writeResult.Error,
 				)
 
-				if hasSpan {
-					span.AddEvent("retry_scheduled", oteltrace.WithAttributes(
-						attribute.String("delay", s.retryDelay.String()),
-					))
-					span.End()
-					delete(writeSpans, jobID)
-				}
+				span.AddEvent("retry_scheduled", oteltrace.WithAttributes(
+					attribute.String("delay", s.retryDelay.String()),
+				))
+				span.End()
 			} else {
 				nonRetriableFailedJobs = append(nonRetriableFailedJobs, jobID)
 				failedErrorMap[jobID] = writeResult.Error
@@ -288,14 +288,8 @@ func (s *Processor) processBatch(ctx context.Context) error {
 					"error", writeResult.Error,
 				)
 
-				if hasSpan {
-					span.AddEvent("write_failed_permanent")
-					span.End()
-					delete(writeSpans, jobID)
-				}
-				// Terminal: message permanently failed, it goes no further - close
-				// the global span too.
-				s.monitoring.Tracing().EndMessageSpan(messageID)
+				span.AddEvent("write_failed_permanent")
+				span.End()
 			}
 		}
 	}

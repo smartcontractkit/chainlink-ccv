@@ -213,7 +213,7 @@ func TestSRS_Reorg_DropsMissingPendingAndSent(t *testing.T) {
 	msgsD := createTestMessageSentEvents(t, 10, chain, defaultDestChain, []uint64{103})
 	taskD := verifier.VerificationTask{Message: msgsD[0].Message, BlockNumber: msgsD[0].BlockNumber, MessageID: msgsD[0].MessageID.String()}
 
-	srs.addToPendingQueueHandleReorg(context.Background(), []verifier.VerificationTask{taskA, taskD}, big.NewInt(100), big.NewInt(103))
+	srs.addToPendingQueueHandleReorg([]verifier.VerificationTask{taskA, taskD}, big.NewInt(100), big.NewInt(103))
 
 	srs.mu.RLock()
 	defer srs.mu.RUnlock()
@@ -306,7 +306,7 @@ func TestSRS_Curse_DropsAtSendTime(t *testing.T) {
 		{Message: events[0].Message, BlockNumber: events[0].BlockNumber, MessageID: events[0].MessageID.String()},
 		{Message: events[1].Message, BlockNumber: events[1].BlockNumber, MessageID: events[1].MessageID.String()},
 	}
-	srs.addToPendingQueueHandleReorg(context.Background(), tasks, big.NewInt(100), big.NewInt(101))
+	srs.addToPendingQueueHandleReorg(tasks, big.NewInt(100), big.NewInt(101))
 
 	latest := &protocol.BlockHeader{Number: 150}
 	finalized := &protocol.BlockHeader{Number: 120}
@@ -761,7 +761,7 @@ func TestSRS_Reorg_TracksSequenceNumbers(t *testing.T) {
 	srs.mu.Unlock()
 
 	// Reorg: only A survives; B is dropped
-	srs.addToPendingQueueHandleReorg(context.Background(), []verifier.VerificationTask{taskA}, big.NewInt(100), big.NewInt(101))
+	srs.addToPendingQueueHandleReorg([]verifier.VerificationTask{taskA}, big.NewInt(100), big.NewInt(101))
 
 	require.True(t, srs.reorgTracker.RequiresFinalization(defaultDestChain, taskB.Message.SequenceNumber),
 		"reorged message B should require finalization")
@@ -826,7 +826,7 @@ func TestSRS_Reorg_TracksSentTasksSequenceNumbers(t *testing.T) {
 	// New query results: A is gone (reorged after being sent)
 	newTasks := []verifier.VerificationTask{}
 
-	srs.addToPendingQueueHandleReorg(context.Background(), newTasks, big.NewInt(100), big.NewInt(100))
+	srs.addToPendingQueueHandleReorg(newTasks, big.NewInt(100), big.NewInt(100))
 
 	srs.mu.RLock()
 	defer srs.mu.RUnlock()
@@ -2064,7 +2064,7 @@ func TestSRS_Reorg_TasksBeyondToBlockNotDropped(t *testing.T) {
 	srs.mu.Unlock()
 
 	// New query over [100, 150] returns nothing — taskFuture was NOT in this range.
-	srs.addToPendingQueueHandleReorg(context.Background(), []verifier.VerificationTask{}, big.NewInt(100), big.NewInt(150))
+	srs.addToPendingQueueHandleReorg([]verifier.VerificationTask{}, big.NewInt(100), big.NewInt(150))
 
 	srs.mu.RLock()
 	defer srs.mu.RUnlock()
@@ -2102,7 +2102,7 @@ func TestSRS_Reorg_NilToBlock_UnboundedWindow(t *testing.T) {
 	srs.mu.Unlock()
 
 	// nil toBlock → window is [100, ∞) → taskFuture (200) is inside → should be dropped.
-	srs.addToPendingQueueHandleReorg(context.Background(), []verifier.VerificationTask{}, big.NewInt(100), nil)
+	srs.addToPendingQueueHandleReorg([]verifier.VerificationTask{}, big.NewInt(100), nil)
 
 	srs.mu.RLock()
 	defer srs.mu.RUnlock()

@@ -42,15 +42,16 @@ func (p *PostgresCCVStorage) Get(ctx context.Context, keys []protocol.Bytes32) (
 	}
 
 	stmt := fmt.Sprintf(`SELECT 
-		message_id,
-		message,
-		ccv_version,
-		ccv_addresses,
-		executor_address,
-		signature,
-		verifier_source_address,
-		verifier_dest_address,
-		timestamp
+			message_id,
+			message,
+			ccv_version,
+			ccv_addresses,
+			executor_address,
+			signature,
+			verifier_source_address,
+			verifier_dest_address,
+			timestamp,
+    		traceparent
 		FROM verifier_node_results 
 		WHERE message_id IN (%s)`,
 		strings.Join(placeholders, ","))
@@ -65,6 +66,7 @@ func (p *PostgresCCVStorage) Get(ctx context.Context, keys []protocol.Bytes32) (
 		VerifierSourceAddress []byte          `db:"verifier_source_address"`
 		VerifierDestAddress   []byte          `db:"verifier_dest_address"`
 		Timestamp             time.Time       `db:"timestamp"`
+		TraceParent           string          `db:"traceparent"`
 	}
 
 	var rows []row
@@ -98,6 +100,7 @@ func (p *PostgresCCVStorage) Get(ctx context.Context, keys []protocol.Bytes32) (
 				CCVAddresses:    ccvAddresses,
 				ExecutorAddress: protocol.UnknownAddress(r.ExecutorAddress),
 				Signature:       protocol.ByteSlice(r.Signature),
+				TraceParent:     r.TraceParent,
 			},
 			VerifierSourceAddress: protocol.UnknownAddress(r.VerifierSourceAddress),
 			VerifierDestAddress:   protocol.UnknownAddress(r.VerifierDestAddress),

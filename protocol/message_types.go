@@ -583,6 +583,8 @@ type VerifierNodeResult struct {
 	CCVAddresses    []UnknownAddress `json:"ccv_addresses"`
 	ExecutorAddress UnknownAddress   `json:"executor_address"`
 	Signature       ByteSlice        `json:"signature"`
+	TraceParent     string           `json:"traceparent,omitempty"`
+	TraceContext    context.Context  `json:"-"`
 }
 
 // JobKey implements jobqueue.Jobable interface.

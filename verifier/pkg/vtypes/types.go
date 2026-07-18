@@ -1,6 +1,7 @@
 package vtypes
 
 import (
+	"context"
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -17,6 +18,8 @@ type VerificationTask struct {
 	FinalizedBlockAtRead        uint64                     `json:"finalized_block_at_read"`         // Finalized block number when the event was read from chain
 	ReadyForVerificationAt      time.Time                  `json:"ready_for_verification_at"`       // Block timestamp when message became ready for verification (for E2E latency)
 	PushedToVerificationQueueAt time.Time                  `json:"pushed_to_verification_queue_at"` // When pushed to task verifier queue (for verification queue latency)
+	TraceParent                 string                     `json:"traceparent,omitempty"`
+	TraceContext                context.Context            `json:"-"`
 }
 
 // JobKey implements jobqueue.Jobable interface.

@@ -76,53 +76,14 @@ func withMessageID(messageID string, attrs []attribute.KeyValue) []attribute.Key
 	return append([]attribute.KeyValue{attribute.String("message_id", messageID)}, attrs...)
 }
 
-func (t *messageTracing) StartMessageSpan(ctx context.Context, name, messageID string, attrs ...attribute.KeyValue) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	if _, exists := t.spans[messageID]; exists {
-		// Already tracking this message - a caller rediscovering/re-announcing
-		// it shouldn't silently replace (and leak) the existing span, which may
-		// already have real children parented under it.
-		return
+func (t *messageTracing) StartMessageSpan(ctx context.Context, name, messageID string, attrs ...attribute.KeyValue) (context.Context, oteltrace.Span) {
+	tCtx := ctx
+	if !oteltrace.SpanContextFromContext(ctx).IsValid() {
+		// No real parent propagated (e.g. cross-process boundary with no
+		// W3C traceparent available, or a fresh restart) - fall back to the
+		// deterministic, messageID-derived synthetic parent so this span
+		// still lands in the message's single trace.
+		tCtx = TraceContextForMessage(ctx, messageID)
 	}
-
-	tCtx := TraceContextForMessage(ctx, messageID)
-	spanCtx, span := t.tracer.Start(tCtx, name, oteltrace.WithAttributes(withMessageID(messageID, attrs)...))
-
-	t.spans[messageID] = messageSpanEntry{span: span, ctx: spanCtx}
-}
-
-func (t *messageTracing) AddMessageEvent(messageID, name string, attrs ...attribute.KeyValue) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	entry, ok := t.spans[messageID]
-
-	if ok {
-		entry.span.AddEvent(name, oteltrace.WithAttributes(attrs...))
-	}
-}
-
-func (t *messageTracing) EndMessageSpan(messageID string, attrs ...attribute.KeyValue) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	entry, ok := t.spans[messageID]
-	if !ok {
-		return
-	}
-	delete(t.spans, messageID)
-	if len(attrs) > 0 {
-		entry.span.SetAttributes(attrs...)
-	}
-	entry.span.End()
-}
-
-func (t *messageTracing) StartChildSpan(ctx context.Context, messageID, name string, attrs ...attribute.KeyValue) (context.Context, oteltrace.Span) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	entry, ok := t.spans[messageID]
-	if !ok {
-		return ctx, nil
-	}
-
-	return t.tracer.Start(entry.ctx, name, oteltrace.WithAttributes(withMessageID(messageID, attrs)...))
+	return t.tracer.Start(tCtx, name, oteltrace.WithAttributes(withMessageID(messageID, attrs)...))
 }
