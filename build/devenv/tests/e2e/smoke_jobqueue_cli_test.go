@@ -23,6 +23,9 @@ import (
 // verifier process so it cannot race with the CLI assertions, then resumes it
 // once the checks are done.
 func TestE2ESmoke_JobQueueCLI(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping e2e test in short mode; requires a running devenv environment")
+	}
 	smokeTestConfig := GetSmokeTestConfig()
 	in, err := ccv.LoadOutput[ccv.Cfg](smokeTestConfig)
 	require.NoError(t, err)

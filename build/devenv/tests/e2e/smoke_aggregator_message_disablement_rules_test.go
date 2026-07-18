@@ -32,6 +32,9 @@ import (
 const aggregatorRefreshBuffer = 10 * time.Second
 
 func TestE2ESmoke_AggregatorMessageDisablementRulesCLI(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping e2e test in short mode; requires a running devenv environment")
+	}
 	smokeTestConfig := GetSmokeTestConfig()
 	in, err := ccv.LoadOutput[ccv.Cfg](smokeTestConfig)
 	require.NoError(t, err)
@@ -89,6 +92,9 @@ func TestE2ESmoke_AggregatorMessageDisablementRulesCLI(t *testing.T) {
 //     the verifier checkpoint has advanced; rewinding the committee checkpoint
 //     makes the original message process normally.
 func TestE2ESmoke_AggregatorLaneDisablementRule(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping e2e test in short mode; requires a running devenv environment")
+	}
 	smokeTestConfig := GetSmokeTestConfig()
 	in, err := ccv.LoadOutput[ccv.Cfg](smokeTestConfig)
 	require.NoError(t, err)
@@ -207,6 +213,9 @@ func TestE2ESmoke_AggregatorLaneDisablementRule(t *testing.T) {
 // drops any message touching the configured selector while unrelated chains
 // keep flowing, and that dropped messages require a checkpoint rewind to replay.
 func TestE2ESmoke_AggregatorChainDisablementRule(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping e2e test in short mode; requires a running devenv environment")
+	}
 	smokeTestConfig := GetSmokeTestConfig()
 	in, err := ccv.LoadOutput[ccv.Cfg](smokeTestConfig)
 	require.NoError(t, err)

@@ -32,6 +32,9 @@ import (
 // Named TestService... so the test-services CI job (which builds verifier:latest/aggregator:latest
 // and runs -run TestService) picks it up. Requires Docker.
 func TestServiceCommitteeVerifierLocalMode(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping service test in short mode; requires Docker service containers")
+	}
 	const committeeName = "local"
 	const verifierContainerName = "verifier-local"
 	const chainID = "1337"
@@ -170,6 +173,9 @@ func TestServiceCommitteeVerifierLocalMode(t *testing.T) {
 //
 // Named TestService... so the test-services CI job picks it up. Requires Docker.
 func TestServiceCommitteeVerifierLocalModeDeferredConfig(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping service test in short mode; requires Docker service containers")
+	}
 	const committeeName = "localdefer"
 	const verifierContainerName = "verifier-localdefer"
 	const chainID = "1337"

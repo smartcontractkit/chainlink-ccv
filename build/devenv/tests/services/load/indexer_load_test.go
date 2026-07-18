@@ -37,6 +37,9 @@ func createLoadProfile(rps int64, testDuration time.Duration) (*wasp.Profile, *I
 }
 
 func TestIndexerLoad(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping service test in short mode; requires Docker service containers")
+	}
 	rps := int64(50)
 	testDuration := 1 * time.Minute
 

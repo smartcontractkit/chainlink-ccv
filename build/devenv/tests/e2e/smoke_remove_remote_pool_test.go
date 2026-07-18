@@ -33,6 +33,9 @@ import (
 //
 // Requires a running devenv (same as the other smoke tests).
 func TestE2ESmoke_RemoveRemotePool(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping e2e test in short mode; requires a running devenv environment")
+	}
 	ctx := ccv.Plog.WithContext(t.Context())
 
 	lib, err := ccv.NewLibFromCCVEnv(&ccv.Plog, GetSmokeTestConfig())

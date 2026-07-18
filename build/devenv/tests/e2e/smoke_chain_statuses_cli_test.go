@@ -23,6 +23,9 @@ import (
 )
 
 func TestE2ESmoke_ChainStatusesCLI(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping e2e test in short mode; requires a running devenv environment")
+	}
 	smokeTestConfig := GetSmokeTestConfig()
 	in, err := ccv.LoadOutput[ccv.Cfg](smokeTestConfig)
 	require.NoError(t, err)
@@ -66,6 +69,9 @@ func TestE2ESmoke_ChainStatusesCLI(t *testing.T) {
 }
 
 func TestE2ESmoke_ChainStatusDisableEnable(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping e2e test in short mode; requires a running devenv environment")
+	}
 	smokeTestConfig := GetSmokeTestConfig()
 	in, err := ccv.LoadOutput[ccv.Cfg](smokeTestConfig)
 	require.NoError(t, err)
@@ -156,6 +162,9 @@ func TestE2ESmoke_ChainStatusDisableEnable(t *testing.T) {
 }
 
 func TestE2ESmoke_ChainStatusFinalizedHeight(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping e2e test in short mode; requires a running devenv environment")
+	}
 	smokeTestConfig := GetSmokeTestConfig()
 	in, err := ccv.LoadOutput[ccv.Cfg](smokeTestConfig)
 	require.NoError(t, err)
