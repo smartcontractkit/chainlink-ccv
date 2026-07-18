@@ -68,6 +68,8 @@ type LeaderElector interface {
 type Monitoring interface {
 	// Metrics returns the metrics labeler for the executor.
 	Metrics() MetricLabeler
+	// Tracing returns the tracer used across the executor pipeline.
+	Tracing() Tracing
 	commonmetrics.ServiceMetrics
 }
 

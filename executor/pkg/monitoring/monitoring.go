@@ -8,6 +8,7 @@ import (
 	commonmetrics "github.com/smartcontractkit/chainlink-ccv/common/metrics"
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"github.com/smartcontractkit/chainlink-common/pkg/metrics"
 )
 
@@ -26,6 +27,7 @@ func InitMonitoring() (executor.Monitoring, error) {
 
 	return &ExecutorBeholderMonitoring{
 		metrics:        NewExecutorMetricLabeler(metrics.NewLabeler(), executorMetrics),
+		tracing:        executor.NewTracing(beholder.GetTracer()),
 		ServiceMetrics: serviceMetrics,
 	}, nil
 }
@@ -38,11 +40,16 @@ var (
 // ExecutorBeholderMonitoring provides beholder-based monitoring for the executor.
 type ExecutorBeholderMonitoring struct {
 	metrics executor.MetricLabeler
+	tracing executor.Tracing
 	commonmetrics.ServiceMetrics
 }
 
 func (v *ExecutorBeholderMonitoring) Metrics() executor.MetricLabeler {
 	return v.metrics
+}
+
+func (v *ExecutorBeholderMonitoring) Tracing() executor.Tracing {
+	return v.tracing
 }
 
 // noopServiceMetrics implements commonmetrics.ServiceMetrics with no-op behavior for noop monitoring.
@@ -52,7 +59,8 @@ func (noopServiceMetrics) RecordServiceStarted(context.Context) {}
 
 // NoopExecutorMonitoring provides a no-op implementation of ExecutorMonitoring.
 type NoopExecutorMonitoring struct {
-	noop executor.MetricLabeler
+	noop    executor.MetricLabeler
+	tracing executor.Tracing
 	commonmetrics.ServiceMetrics
 }
 
@@ -60,12 +68,17 @@ type NoopExecutorMonitoring struct {
 func NewNoopExecutorMonitoring() executor.Monitoring {
 	return &NoopExecutorMonitoring{
 		noop:           NewNoopExecutorMetricLabeler(),
+		tracing:        executor.NewTracing(beholder.GetTracer()),
 		ServiceMetrics: noopServiceMetrics{},
 	}
 }
 
 func (n *NoopExecutorMonitoring) Metrics() executor.MetricLabeler {
 	return n.noop
+}
+
+func (n *NoopExecutorMonitoring) Tracing() executor.Tracing {
+	return n.tracing
 }
 
 var _ executor.MetricLabeler = (*NoopExecutorMetricLabeler)(nil)
