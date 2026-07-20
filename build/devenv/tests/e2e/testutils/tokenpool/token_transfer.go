@@ -5,7 +5,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
@@ -96,60 +95,34 @@ func transferTokens(
 	require.NoError(t, err, "get sender start balance")
 
 	amountToTransfer := tokens.ScaleTokenAmount(big.NewInt(amount), srcPool.Decimals())
-	sendRes, err := tcapi.SendV3Message(
-		t.Context(), src, dst, dstSel,
-		cciptestinterfaces.MessageFields{
+	require.NoError(t, tcapi.RunV3MessageLifecycle(t.Context(), lib, tcapi.V3MsgConifg{
+		Src: srcSel,
+		Dst: dstSel,
+		Fields: cciptestinterfaces.MessageFields{
 			Receiver: receiver,
 			TokenAmount: cciptestinterfaces.TokenAmount{
 				Amount:       amountToTransfer,
 				TokenAddress: srcTokenAddr,
 			},
 		},
-		cciptestinterfaces.MessageOptions{
+		Opts: cciptestinterfaces.MessageOptions{
 			FinalityConfig: finality,
 			Executor:       executor,
 		},
-		tcapi.SendArgs{},
-	)
-	require.NoError(t, err, "send message")
-	require.Equal(
-		t,
-		legacyExpectedReceiptIssuers,
-		len(sendRes.ReceiptIssuers),
-		"expected %d receipt issuers, got %d",
-		legacyExpectedReceiptIssuers, len(sendRes.ReceiptIssuers),
-	)
-
-	require.NotEqual(t, protocol.Bytes32{}, sendRes.MessageID, "send returned zero message ID")
-	messageKey := cciptestinterfaces.MessageEventKey{MessageID: sendRes.MessageID}
-	if sendRes.Message != nil {
-		zerolog.Ctx(t.Context()).Info().Uint64("SeqNo", uint64(sendRes.Message.SequenceNumber)).Msg("sent token transfer message")
-	}
-
-	_, err = src.ConfirmSendOnSource(t.Context(), dstSel, messageKey, tcapi.DefaultSentTimeout)
-	require.NoError(t, err, "wait for sent event")
-
-	aggregatorClient, indexerMonitor, err := tcapi.SetupOffchainClients(lib, "")
-	require.NoError(t, err, "setup offchain clients")
-
-	testCtx, cleanupFn := tcapi.NewTestingContext(t.Context(), chainMap, aggregatorClient, indexerMonitor)
-	defer cleanupFn()
-
-	res, err := testCtx.AssertMessage(sendRes.MessageID, tcapi.AssertMessageOptions{
-		TickInterval:            time.Second,
-		Timeout:                 tcapi.DefaultExecTimeout,
-		ExpectedVerifierResults: legacyExpectedVerifierResults,
-		AssertVerifierLogs:      false,
-		AssertExecutorLogs:      false,
-	})
-	require.NoError(t, err, "assert message")
-	if aggregatorClient != nil {
-		require.NotNil(t, res.AggregatedResult, "aggregated result is nil")
-	}
-
-	execEvt, err := dst.ConfirmExecOnDest(t.Context(), srcSel, messageKey, tcapi.DefaultExecTimeout)
-	require.NoError(t, err, "wait for exec event")
-	require.Equal(t, cciptestinterfaces.ExecutionStateSuccess, execEvt.State, "unexpected execution state %s, return data: %x", execEvt.State, execEvt.ReturnData)
+		SendArgs: tcapi.SendArgs{},
+		Assert: tcapi.AssertMessageOptions{
+			TickInterval:            time.Second,
+			Timeout:                 tcapi.DefaultExecTimeout,
+			ExpectedVerifierResults: legacyExpectedVerifierResults,
+			AssertVerifierLogs:      false,
+			AssertExecutorLogs:      false,
+		},
+		ExecTimeout:            tcapi.DefaultExecTimeout,
+		ExpectedReceiptIssuers: legacyExpectedReceiptIssuers,
+		ConfirmExec:            true,
+		SrcChain:               src,
+		DstChain:               dst,
+	}))
 
 	dstEndBal, err := dst.GetTokenBalance(t.Context(), receiver, dstTokenAddr)
 	require.NoError(t, err, "get receiver end balance")

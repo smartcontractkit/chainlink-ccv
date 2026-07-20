@@ -11,11 +11,13 @@ import (
 
 	chain_selectors "github.com/smartcontractkit/chain-selectors"
 	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/committeeverifier"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/chaos"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/tcapi"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/tcapi/basic"
 	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 )
@@ -24,43 +26,23 @@ func TestChaos_AggregatorOutageRecovery(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping e2e test in short mode; requires a running devenv environment")
 	}
-	ctx, lib, setup := setupChaosEVM(t, GetSmokeTestConfig())
-	src, dst := chaosChainPair(t, ctx, lib)
+	ctx, lib, setup, src, dst := setupChaosEVMSession(t)
 
 	aggregatorContainer, err := chaos.DefaultAggregatorNginx(setup.in, devenvcommon.DefaultCommitteeVerifierQualifier)
 	require.NoError(t, err)
 
-	msg, err := chaos.HydrateEVMEOADefaultVerifier(ctx, lib, src, dst)
-	require.NoError(t, err)
-
-	require.NoError(t, chaos.RunScenario(t, ctx, chaos.ScenarioSpec{
-		Lib:      lib,
-		Src:      src,
-		Dst:      dst,
-		Fields:   msg.Fields,
-		MsgOpts:  msg.MsgOpts,
-		SendArgs: tcapi.SendArgs{},
-		Outage: chaos.OutageSpec{
-			Duration:      chaos.DefaultOutageDuration,
-			Targets:       []string{aggregatorContainer},
-			LiteralSingle: true,
-		},
-		Assert: tcapi.AssertMessageOptions{
-			TickInterval:            5 * time.Second,
-			Timeout:                 tests.WaitTimeout(t),
-			ExpectedVerifierResults: 1,
-			AssertVerifierLogs:      false,
-			AssertExecutorLogs:      false,
-		},
-	}))
+	runEVMChaosScenario(t, ctx, lib, src, dst, evmChaosConfig{}, chaos.OutageSpec{
+		Duration:      chaos.DefaultOutageDuration,
+		Targets:       []string{aggregatorContainer},
+		LiteralSingle: true,
+	})
 }
 
 func TestChaos_VerifierFaultToleranceThresholdViolated(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping e2e test in short mode; requires a running devenv environment")
 	}
-	ctx, lib, setup := setupChaosEVM(t, GetSmokeTestConfig())
-	src, dst := chaosChainPair(t, ctx, lib)
+	ctx, lib, setup, src, dst := setupChaosEVMSession(t)
 
 	var defaultVerifierInputs []*committeeverifier.Input
 	for _, verifier := range setup.in.Verifier {
@@ -100,105 +82,109 @@ func TestChaos_VerifierFaultToleranceThresholdViolated(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	msg, err := chaos.HydrateEVMEOADefaultVerifier(ctx, lib, src, dst)
-	require.NoError(t, err)
-
 	setup.l.Info().
 		Strs("verifiersToStop", verifierTargets).
 		Msg("sending message with some verifiers down")
 
-	require.NoError(t, chaos.RunScenario(t, ctx, chaos.ScenarioSpec{
-		Lib:      lib,
-		Src:      src,
-		Dst:      dst,
-		Fields:   msg.Fields,
-		MsgOpts:  msg.MsgOpts,
-		SendArgs: tcapi.SendArgs{},
-		Outage: chaos.OutageSpec{
-			Duration: chaos.DefaultOutageDuration,
-			Targets:  verifierTargets,
-		},
-		Assert: tcapi.AssertMessageOptions{
-			TickInterval:            5 * time.Second,
-			Timeout:                 tests.WaitTimeout(t),
-			ExpectedVerifierResults: 1,
-			AssertVerifierLogs:      false,
-			AssertExecutorLogs:      false,
-		},
-		ConfirmExecOnDest: true,
-	}))
+	runEVMChaosScenario(t, ctx, lib, src, dst, evmChaosConfig{ConfirmExec: true}, chaos.OutageSpec{
+		Duration: chaos.DefaultOutageDuration,
+		Targets:  verifierTargets,
+	})
 }
 
 func TestChaos_AllExecutorsDown(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping e2e test in short mode; requires a running devenv environment")
 	}
-	ctx, lib, setup := setupChaosEVM(t, GetSmokeTestConfig())
-	src, dst := chaosChainPair(t, ctx, lib)
+	ctx, lib, setup, src, dst := setupChaosEVMSession(t)
 
 	executorTargets, err := chaos.ExecutorContainers(setup.in, devenvcommon.DefaultExecutorQualifier)
 	require.NoError(t, err)
 
-	msg, err := chaos.HydrateEVMEOADefaultVerifier(ctx, lib, src, dst)
-	require.NoError(t, err)
-
-	require.NoError(t, chaos.RunScenario(t, ctx, chaos.ScenarioSpec{
-		Lib:      lib,
-		Src:      src,
-		Dst:      dst,
-		Fields:   msg.Fields,
-		MsgOpts:  msg.MsgOpts,
-		SendArgs: tcapi.SendArgs{},
-		Outage: chaos.OutageSpec{
-			Duration: chaos.ExecutorOutageDuration,
-			Targets:  executorTargets,
-		},
-		Assert: tcapi.AssertMessageOptions{
-			TickInterval:            5 * time.Second,
-			Timeout:                 5 * time.Minute,
-			ExpectedVerifierResults: 1,
-			AssertVerifierLogs:      false,
-			AssertExecutorLogs:      false,
-		},
-		Run: tcapi.RunConfig{
-			ConfirmExecTimeout: 5 * time.Minute,
-		},
-		ConfirmExecOnDest: true,
-	}))
+	runEVMChaosScenario(t, ctx, lib, src, dst, evmChaosConfig{
+		ConfirmExec: true,
+		Timeout:     5 * time.Minute,
+		ExecTimeout: 5 * time.Minute,
+	}, chaos.OutageSpec{
+		Duration: chaos.DefaultOutageDuration,
+		Targets:  executorTargets,
+	})
 }
 
 func TestChaos_IndexerDown(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping e2e test in short mode; requires a running devenv environment")
 	}
-	ctx, lib, setup := setupChaosEVM(t, GetSmokeTestConfig())
-	src, dst := chaosChainPair(t, ctx, lib)
+	ctx, lib, setup, src, dst := setupChaosEVMSession(t)
 
 	indexerTarget, err := chaos.IndexerContainer(setup.in, 0)
 	require.NoError(t, err)
 
-	msg, err := chaos.HydrateEVMEOADefaultVerifier(ctx, lib, src, dst)
+	runEVMChaosScenario(t, ctx, lib, src, dst, evmChaosConfig{ConfirmExec: true}, chaos.OutageSpec{
+		Duration: chaos.DefaultOutageDuration,
+		Targets:  []string{indexerTarget},
+	})
+}
+
+// evmChaosConfig configures the V3 message lifecycle options for an EVM chaos scenario.
+// Zero values use sensible defaults: tests.WaitTimeout(t) for Timeout, no exec-timeout
+// override, and ConfirmExec=false.
+type evmChaosConfig struct {
+	ConfirmExec bool
+	Timeout     time.Duration // 0 = tests.WaitTimeout(t)
+	ExecTimeout time.Duration // 0 = no override
+}
+
+// setupChaosEVMSession is the shared preamble for EVM chaos tests: loads the devenv
+// environment and picks the first two chains.
+func setupChaosEVMSession(t *testing.T) (context.Context, ccv.Lib, *chaosSetup, uint64, uint64) {
+	ctx, lib, setup := setupChaosEVM(t, GetSmokeTestConfig())
+	src, dst := chaosChainPair(t, ctx, lib)
+	return ctx, lib, setup, src, dst
+}
+
+// runEVMChaosScenario hydrates a default EOA-receiver V3 message, builds the standard
+// V3MsgConifg, and runs the chaos scenario. cfg overrides the default assert timeout,
+// exec timeout, and ConfirmExec flag.
+func runEVMChaosScenario(t *testing.T, ctx context.Context, lib ccv.Lib, src, dst uint64, cfg evmChaosConfig, outage chaos.OutageSpec) {
+	t.Helper()
+	receiver, ccvs, executor, err := basic.ResolveEOAReceiverDefaultVerifier(ctx, lib, src, dst)
 	require.NoError(t, err)
 
-	require.NoError(t, chaos.RunScenario(t, ctx, chaos.ScenarioSpec{
-		Lib:      lib,
-		Src:      src,
-		Dst:      dst,
-		Fields:   msg.Fields,
-		MsgOpts:  msg.MsgOpts,
-		SendArgs: tcapi.SendArgs{},
-		Outage: chaos.OutageSpec{
-			Duration: chaos.ExecutorOutageDuration,
-			Targets:  []string{indexerTarget},
+	timeout := cfg.Timeout
+	if timeout == 0 {
+		timeout = tests.WaitTimeout(t)
+	}
+
+	v3cfg := tcapi.V3MsgConifg{
+		Src: src,
+		Dst: dst,
+		Fields: cciptestinterfaces.MessageFields{
+			Receiver: receiver,
 		},
+		Opts: cciptestinterfaces.MessageOptions{
+			FinalityConfig: 1,
+			Executor:       executor,
+			CCVs:           ccvs,
+		},
+		SendArgs: tcapi.SendArgs{},
 		Assert: tcapi.AssertMessageOptions{
 			TickInterval:            5 * time.Second,
-			Timeout:                 tests.WaitTimeout(t),
+			Timeout:                 timeout,
 			ExpectedVerifierResults: 1,
 			AssertVerifierLogs:      false,
 			AssertExecutorLogs:      false,
 		},
-		ConfirmExecOnDest: true,
+		ConfirmExec: cfg.ConfirmExec,
+	}
+	if cfg.ExecTimeout != 0 {
+		v3cfg.Run.ConfirmExecTimeout = cfg.ExecTimeout
+	}
+
+	require.NoError(t, chaos.RunScenario(t, ctx, chaos.ScenarioSpec{
+		Lib:         lib,
+		V3MsgConifg: v3cfg,
+		Outage:      outage,
 	}))
 }
 

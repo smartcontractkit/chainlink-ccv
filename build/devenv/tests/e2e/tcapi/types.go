@@ -84,6 +84,7 @@ type SendArgs struct {
 }
 
 // SendV3Message builds and sends a V3 message using BuildV3ExtraArgs, BuildChainMessage, and SendChainMessage.
+// deprecated: use RunV3MessageLifecycle instead, which handles the full lifecycle including offchain assertions and optional execution confirmation.
 func SendV3Message(
 	ctx context.Context,
 	src, dst cciptestinterfaces.CCIP17,

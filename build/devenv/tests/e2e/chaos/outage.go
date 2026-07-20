@@ -14,11 +14,8 @@ const (
 	// fire-and-forget; the outage duration is controlled by the Pumba command.
 	ExecPumbaTimeout = 0 * time.Second
 
-	// DefaultOutageDuration is used for aggregator and verifier outage scenarios.
+	// DefaultOutageDuration is the default duration of a Pumba container stop outage if not specified in the spec.
 	DefaultOutageDuration = 20 * time.Second
-
-	// ExecutorOutageDuration is used for executor and indexer outage scenarios.
-	ExecutorOutageDuration = 30 * time.Second
 )
 
 // OutageSpec describes a container stop outage injected via Pumba before a test

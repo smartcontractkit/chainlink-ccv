@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/rs/zerolog"
-
 	chain_selectors "github.com/smartcontractkit/chain-selectors"
 	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
@@ -65,86 +63,25 @@ func (tc *v3TestCase) Run(ctx context.Context) error {
 	if err := tc.ensureHydrated(ctx); err != nil {
 		return err
 	}
-	chainMap, err := tc.lib.ChainsMap(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get chains map: %w", err)
-	}
-	src, ok := chainMap[tc.src]
-	if !ok {
-		return fmt.Errorf("source chain not found: %d", tc.src)
-	}
-	dst, ok := chainMap[tc.dst]
-	if !ok {
-		return fmt.Errorf("destination chain not found: %d", tc.dst)
-	}
-	l := zerolog.Ctx(ctx)
-	sendMessageResult, err := tcapi.SendV3Message(ctx, src, dst, tc.dst,
-		cciptestinterfaces.MessageFields{
-			Receiver: tc.receiver,
-			Data:     tc.msgData,
+	return tcapi.RunV3MessageLifecycle(ctx, tc.lib, tcapi.V3MsgConifg{
+		Src:      tc.src,
+		Dst:      tc.dst,
+		Fields:   cciptestinterfaces.MessageFields{Receiver: tc.receiver, Data: tc.msgData},
+		Opts:     cciptestinterfaces.MessageOptions{FinalityConfig: tc.finality, Executor: tc.executor, CCVs: tc.ccvs},
+		SendArgs: tc.args.Send,
+		Run:      tc.args.Run,
+		Assert: tcapi.AssertMessageOptions{
+			TickInterval:            1 * time.Second,
+			ExpectedVerifierResults: tc.numExpectedVerifications,
+			AssertVerifierLogs:      false,
+			AssertExecutorLogs:      false,
 		},
-		cciptestinterfaces.MessageOptions{
-			FinalityConfig: tc.finality,
-			Executor:       tc.executor,
-			CCVs:           tc.ccvs,
-		},
-		tc.args.Send,
-	)
-	if err != nil {
-		return fmt.Errorf("failed to send message: %w", err)
-	}
-	if len(sendMessageResult.ReceiptIssuers) != tc.numExpectedReceipts {
-		return fmt.Errorf("expected %d receipt issuers, got %d", tc.numExpectedReceipts, len(sendMessageResult.ReceiptIssuers))
-	}
-	if sendMessageResult.MessageID == (protocol.Bytes32{}) {
-		return fmt.Errorf("send returned zero message ID")
-	}
-	messageKey := cciptestinterfaces.MessageEventKey{MessageID: sendMessageResult.MessageID}
-	if sendMessageResult.Message != nil {
-		l.Info().Uint64("SeqNo", uint64(sendMessageResult.Message.SequenceNumber)).Msg("Sent message")
-	}
-	sentTimeout := tc.args.Run.SentTimeout(tcapi.DefaultSentTimeout)
-	execTimeout := tc.args.Run.ExecTimeout(tcapi.DefaultExecTimeout)
-	_, err = src.ConfirmSendOnSource(ctx, tc.dst, messageKey, sentTimeout)
-	if err != nil {
-		return fmt.Errorf("failed to wait for sent event: %w", err)
-	}
-	messageID := sendMessageResult.MessageID
-
-	aggregatorClient, indexerMonitor, err := tcapi.SetupOffchainClients(tc.lib, tc.aggregatorQualifier)
-	if err != nil {
-		return err
-	}
-	testCtx, cleanupFn := tcapi.NewTestingContext(ctx, chainMap, aggregatorClient, indexerMonitor)
-	defer cleanupFn()
-
-	result, err := testCtx.AssertMessage(messageID, tcapi.AssertMessageOptions{
-		TickInterval:            1 * time.Second,
-		ExpectedVerifierResults: tc.numExpectedVerifications,
-		Timeout:                 execTimeout,
-		AssertVerifierLogs:      false,
-		AssertExecutorLogs:      false,
+		ExecTimeout:            tcapi.DefaultExecTimeout,
+		ExpectedReceiptIssuers: tc.numExpectedReceipts,
+		AggregatorQualifier:    tc.aggregatorQualifier,
+		ConfirmExec:            true,
+		ExpectExecFail:         tc.expectFail,
 	})
-	if err != nil {
-		return fmt.Errorf("failed to assert message: %w", err)
-	}
-	if aggregatorClient != nil && result.AggregatedResult == nil {
-		return fmt.Errorf("aggregated result is nil")
-	}
-	if indexerMonitor != nil && len(result.IndexedVerifications.Results) != tc.numExpectedVerifications {
-		return fmt.Errorf("expected %d indexed verifications, got %d", tc.numExpectedVerifications, len(result.IndexedVerifications.Results))
-	}
-
-	e, err := dst.ConfirmExecOnDest(ctx, tc.src, messageKey, execTimeout)
-	if err != nil {
-		return fmt.Errorf("failed to wait for exec event: %w", err)
-	}
-	if tc.expectFail && e.State != cciptestinterfaces.ExecutionStateFailure {
-		return fmt.Errorf("expected execution state failure, got %s", e.State)
-	} else if !tc.expectFail && e.State != cciptestinterfaces.ExecutionStateSuccess {
-		return fmt.Errorf("expected execution state success, got %s", e.State)
-	}
-	return nil
 }
 
 func (tc *v3TestCase) HavePrerequisites(ctx context.Context) bool {
@@ -217,6 +154,28 @@ func loadV3Env(ctx context.Context, lib ccv.Lib, src, dst uint64) (v3Env, bool) 
 	return env, true
 }
 
+// ResolveEOAReceiverDefaultVerifier resolves the EOA receiver on dst and the default
+// committee CCV and default executor on src for a minimal V3 send.
+func ResolveEOAReceiverDefaultVerifier(ctx context.Context, lib ccv.Lib, src, dst uint64) (protocol.UnknownAddress, []protocol.CCV, protocol.UnknownAddress, error) {
+	env, ok := loadV3Env(ctx, lib, src, dst)
+	if !ok {
+		return protocol.UnknownAddress{}, nil, protocol.UnknownAddress{}, fmt.Errorf("prerequisites not met for src %d dst %d", src, dst)
+	}
+	receiver, err := env.Dst.GetEOAReceiverAddress()
+	if err != nil {
+		return protocol.UnknownAddress{}, nil, protocol.UnknownAddress{}, fmt.Errorf("dest EOA receiver: %w", err)
+	}
+	cv, err := getCommitteeCCV(env.SrcResolver, env.DS, src, common.DefaultCommitteeVerifierQualifier)
+	if err != nil {
+		return protocol.UnknownAddress{}, nil, protocol.UnknownAddress{}, fmt.Errorf("committee CCV: %w", err)
+	}
+	executor, err := env.SrcResolver.GetExecutor(env.DS, src, common.DefaultExecutorQualifier)
+	if err != nil {
+		return protocol.UnknownAddress{}, nil, protocol.UnknownAddress{}, fmt.Errorf("executor: %w", err)
+	}
+	return receiver, []protocol.CCV{cv}, executor, nil
+}
+
 // CustomExecutor returns a test case that uses the custom executor.
 func CustomExecutor(lib ccv.Lib, src, dest uint64, args Args) tcapi.TestCase {
 	return customExecutor(lib, src, dest, args)
@@ -283,27 +242,13 @@ func eoaReceiverDefaultVerifier(lib ccv.Lib, src, dest uint64, args Args) *v3Tes
 			args:                     args,
 		},
 		hydrate: func(ctx context.Context, tc *v3TestCase) bool {
-			env, ok := loadV3Env(ctx, tc.lib, tc.src, tc.dst)
-			if !ok {
-				return false
-			}
-			receiver, err := env.Dst.GetEOAReceiverAddress()
+			receiver, ccvs, executor, err := ResolveEOAReceiverDefaultVerifier(ctx, tc.lib, tc.src, tc.dst)
 			if err != nil {
 				return false
 			}
 			tc.receiver = receiver
-			ccv, err := getCommitteeCCV(env.SrcResolver, env.DS, tc.src, common.DefaultCommitteeVerifierQualifier)
-			if err != nil {
-				return false
-			}
-			tc.ccvs = []protocol.CCV{ccv}
-
-			executorAddr, err := env.SrcResolver.GetExecutor(env.DS, tc.src, common.DefaultExecutorQualifier)
-			if err != nil {
-				return false
-			}
-			tc.executor = executorAddr
-
+			tc.ccvs = ccvs
+			tc.executor = executor
 			return true
 		},
 	}
@@ -680,28 +625,13 @@ func eoaReceiverDefaultVerifierSafeTag(lib ccv.Lib, src, dest uint64, args Args)
 			args:                     args,
 		},
 		hydrate: func(ctx context.Context, tc *v3TestCase) bool {
-			env, ok := loadV3Env(ctx, tc.lib, tc.src, tc.dst)
-			if !ok {
-				return false
-			}
-			receiver, err := env.Dst.GetEOAReceiverAddress()
+			receiver, ccvs, executor, err := ResolveEOAReceiverDefaultVerifier(ctx, tc.lib, tc.src, tc.dst)
 			if err != nil {
 				return false
 			}
 			tc.receiver = receiver
-
-			ccv, err := getCommitteeCCV(env.SrcResolver, env.DS, tc.src, common.DefaultCommitteeVerifierQualifier)
-			if err != nil {
-				return false
-			}
-			tc.ccvs = []protocol.CCV{ccv}
-
-			executorAddr, err := env.SrcResolver.GetExecutor(env.DS, tc.src, common.DefaultExecutorQualifier)
-			if err != nil {
-				return false
-			}
-			tc.executor = executorAddr
-
+			tc.ccvs = ccvs
+			tc.executor = executor
 			return true
 		},
 	}
