@@ -21,6 +21,9 @@ import (
 )
 
 func TestE2ESmoke_TokenPoolMigrationEVM2EVM(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping e2e test in short mode; requires a running devenv environment")
+	}
 	const (
 		QualLockReleaseAV1 = "EVM_POOL_LNR_A_V1"
 		QualLockReleaseBV1 = "EVM_POOL_LNR_B_V1"

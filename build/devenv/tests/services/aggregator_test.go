@@ -52,6 +52,9 @@ func generateTestSigningKey(committeeName string, nodeIndex int) (privateKey, si
 }
 
 func TestServiceAggregator(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping service test in short mode; requires Docker service containers")
+	}
 	committeeName := "default"
 	_, publicKey, err := generateTestSigningKey(committeeName, 0)
 	require.NoError(t, err)
@@ -115,6 +118,9 @@ func TestServiceAggregator(t *testing.T) {
 // This test requires a real network connection (not bufconn) because the
 // anonymous auth middleware validates peer IP addresses.
 func TestServiceAggregatorAuthentication(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping service test in short mode; requires Docker service containers")
+	}
 	committeeName := "auth-test"
 	_, publicKey, err := generateTestSigningKey(committeeName, 0)
 	require.NoError(t, err)

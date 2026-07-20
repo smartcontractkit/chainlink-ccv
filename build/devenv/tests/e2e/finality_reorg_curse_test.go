@@ -41,6 +41,9 @@ import (
 // IMPORTANT: Need to run this test against an env that has source chain with auto mining.
 // Run `just rebuild-all "env.toml,env-src-auto-mine.toml"` before running this test.
 func TestE2EReorg(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping e2e test in short mode; requires a running devenv environment")
+	}
 	ctx := ccv.Plog.WithContext(context.Background())
 	l := zerolog.Ctx(ctx)
 	smokeTestConfig := GetSmokeTestConfig()

@@ -29,6 +29,9 @@ const (
 )
 
 func TestChaos_AggregatorOutageRecovery(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping e2e test in short mode; requires a running devenv environment")
+	}
 	setup := setupChaos(t, GetSmokeTestConfig())
 
 	var defaultAggregatorContainerName string
@@ -74,6 +77,9 @@ func TestChaos_AggregatorOutageRecovery(t *testing.T) {
 }
 
 func TestChaos_VerifierFaultToleranceThresholdViolated(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping e2e test in short mode; requires a running devenv environment")
+	}
 	setup := setupChaos(t, GetSmokeTestConfig())
 
 	var defaultVerifierInputs []*committeeverifier.Input
@@ -159,6 +165,9 @@ func TestChaos_VerifierFaultToleranceThresholdViolated(t *testing.T) {
 }
 
 func TestChaos_AllExecutorsDown(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping e2e test in short mode; requires a running devenv environment")
+	}
 	setup := setupChaos(t, GetSmokeTestConfig())
 
 	var defaultExecutorContainerNames []string
@@ -205,6 +214,9 @@ func TestChaos_AllExecutorsDown(t *testing.T) {
 }
 
 func TestChaos_IndexerDown(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping e2e test in short mode; requires a running devenv environment")
+	}
 	setup := setupChaos(t, GetSmokeTestConfig())
 
 	require.NotEmpty(t, setup.in.Indexer, "no indexer in config")

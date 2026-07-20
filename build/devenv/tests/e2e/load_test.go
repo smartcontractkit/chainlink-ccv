@@ -100,6 +100,9 @@ func createLoadProfile(in *ccv.Cfg, rps int64, testDuration time.Duration, e *de
 }
 
 func TestE2ELoad(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping e2e test in short mode; requires a running devenv environment")
+	}
 	outfile := os.Getenv("LOAD_TEST_OUT_FILE")
 	if outfile == "" {
 		outfile = "../../env-out.toml"
@@ -523,6 +526,9 @@ func TestE2ELoad(t *testing.T) {
 }
 
 func TestStaging(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping e2e test in short mode; requires a running devenv environment")
+	}
 	outfile := os.Getenv("LOAD_TEST_OUT_FILE")
 	if outfile == "" {
 		outfile = "../../env-staging.toml"
