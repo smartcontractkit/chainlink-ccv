@@ -11,6 +11,9 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/timing"
 )
 
+// stagePhasedRuntime is the single checklist row shown for the phased runtime.
+const stagePhasedRuntime = "Bringing up phased runtime"
+
 // NewPhasedEnvironment creates a new CCIP CCV environment using the phased
 // component runtime. It loads the raw TOML config, hands control to the
 // runtime, then serializes the raw accumulated output map (minus runtime-only
@@ -20,11 +23,14 @@ func NewPhasedEnvironment() (out map[string]any, err error) {
 	ctx := L.WithContext(context.Background())
 
 	// the phased runtime gets the same TTY-gated log capture as the monolith
-	// plus a single spinner. Per-component checklist rows are a fast-follow once
+	// plus a single spinner. Per-component checklist rows are a follow-up once
 	// the reporter is threaded through the runtime package.
-	ctx, upProgress := progress.Begin(ctx, progress.Options{Title: "devenv (phased: " + os.Getenv(EnvVarTestConfigs) + ")"})
+	ctx, upProgress := progress.Begin(ctx, progress.Options{
+		Title:    "devenv (phased: " + os.Getenv(EnvVarTestConfigs) + ")",
+		Firehose: os.Getenv(EnvVarUpFirehose) != "",
+	})
 	defer func() { upProgress.End(err) }()
-	phasedStage := progress.Stage(ctx, "Bringing up phased runtime")
+	phasedStage := progress.Stage(ctx, stagePhasedRuntime)
 
 	configs := strings.Split(os.Getenv(EnvVarTestConfigs), ",")
 	if len(configs) > 1 {

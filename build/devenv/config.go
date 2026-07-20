@@ -38,6 +38,10 @@ const (
 	// EnvVarTestOutput overrides the output file path written by Store. When unset
 	// the path is derived from the first entry in CTF_CONFIGS.
 	EnvVarTestOutput = "CTF_OUTPUT"
+	// EnvVarUpFirehose, when set to a non-empty value, forces the classic raw-log
+	// firehose during bringup instead of the progress-checklist UI. Set by the
+	// `ccv up --firehose` / `ccv restart --firehose` flag.
+	EnvVarUpFirehose = "CCV_UP_FIREHOSE"
 	DefaultLokiURL   = "http://localhost:3030/loki/api/v1/push"
 	DefaultTempoURL  = "http://localhost:4318/v1/traces"
 )

@@ -98,7 +98,7 @@ var restartCmd = &cobra.Command{
 		if err := framework.RemoveTestContainers(); err != nil {
 			return fmt.Errorf("failed to clean Docker resources: %w", err)
 		}
-		defaultUpLogPath()
+		applyUpProgressEnv(cmd)
 		return newEnvFn()
 	},
 }
@@ -112,23 +112,24 @@ var upCmd = &cobra.Command{
 		if err := applyEnvConfig(cmd, args); err != nil {
 			return err
 		}
-		defaultUpLogPath()
+		applyUpProgressEnv(cmd)
 		return newEnvFn()
 	},
 }
 
-// defaultUpLogPath pins CCV_UP_LOG to an absolute <cwd>/uplog.txt when unset, so
-// the progress UI's captured firehose lands at a stable, predictable path
-// regardless of any later working-directory changes. A user-set value wins.
-func defaultUpLogPath() {
-	if os.Getenv("CCV_UP_LOG") != "" {
-		return
+// applyUpProgressEnv translates the progress-related up/restart flags into the
+// environment variables the bringup constructors read. It pins CCV_UP_LOG to an
+// absolute <cwd>/uplog.txt when unset (stable path regardless of later working-
+// directory changes; a user-set value wins) and forwards --firehose.
+func applyUpProgressEnv(cmd *cobra.Command) {
+	if os.Getenv("CCV_UP_LOG") == "" {
+		if wd, err := os.Getwd(); err == nil {
+			_ = os.Setenv("CCV_UP_LOG", filepath.Join(wd, "uplog.txt"))
+		}
 	}
-	wd, err := os.Getwd()
-	if err != nil {
-		return
+	if firehose, _ := cmd.Flags().GetBool("firehose"); firehose {
+		_ = os.Setenv("CCV_UP_FIREHOSE", "1")
 	}
-	_ = os.Setenv("CCV_UP_LOG", filepath.Join(wd, "uplog.txt"))
 }
 
 // resolveConfigArg resolves a bare config name (no extension) to either
@@ -983,8 +984,10 @@ func init() {
 	// main env commands
 	upCmd.Flags().StringP("profile", "p", "", "Profile file (*.profile) encoding the environment, config files, and output path")
 	upCmd.Flags().StringP("output", "o", "", "Output file path (overrides the default derived from the first config file)")
+	upCmd.Flags().Bool("firehose", false, "Stream raw startup logs to the terminal instead of the progress checklist (logs are not captured to a file)")
 	restartCmd.Flags().StringP("profile", "p", "", "Profile file (*.profile) encoding the environment, config files, and output path")
 	restartCmd.Flags().StringP("output", "o", "", "Output file path (overrides the default derived from the first config file)")
+	restartCmd.Flags().Bool("firehose", false, "Stream raw startup logs to the terminal instead of the progress checklist (logs are not captured to a file)")
 	rootCmd.AddCommand(upCmd)
 	rootCmd.AddCommand(restartCmd)
 	rootCmd.AddCommand(downCmd)

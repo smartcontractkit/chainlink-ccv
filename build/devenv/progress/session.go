@@ -19,6 +19,10 @@ type Options struct {
 	// LogPath overrides where the captured firehose is written. When empty it
 	// defaults to $CCV_UP_LOG, then <cwd>/uplog.txt.
 	LogPath string
+	// Firehose forces no capture, no checklist, and raw logs
+	// straight to the terminal, even on a TTY. Used by the `--firehose`
+	// opt-out on "ccv up".
+	Firehose bool
 }
 
 // Session owns the terminal capture and renderer for one bringup.
@@ -53,7 +57,8 @@ func defaultLogPath(override string) string {
 // logs flow exactly as before. End must always be called (typically deferred).
 func Begin(ctx context.Context, opts Options) (context.Context, *Session) {
 	logPath := defaultLogPath(opts.LogPath)
-	if !term.IsTerminal(int(os.Stderr.Fd())) {
+	// Opt-out (--firehose) or no TTY → no capture, no renderer; logs flow raw.
+	if opts.Firehose || !term.IsTerminal(int(os.Stderr.Fd())) {
 		return ctx, &Session{active: false, logPath: logPath}
 	}
 	c, err := newCapture(logPath)

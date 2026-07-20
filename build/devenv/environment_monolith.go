@@ -38,6 +38,26 @@ import (
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
 
+// Top-level bringup stage labels, rendered as checklist rows by the progress UI.
+const (
+	stageReadConfig           = "Read config"
+	stageDeployBlockchains    = "Deploy blockchains"
+	stageDeployPricer         = "Deploy pricer"
+	stageLaunchCLNodes        = "Launch CL nodes"
+	stageStartJD              = "Start JD infrastructure"
+	stageLaunchVerifiersEarly = "Launch verifiers (early)"
+	stageConnectVerifiersToJD = "Connect verifiers to JD"
+	stageDeployContracts      = "Deploy contracts"
+	stageConnectChains        = "Connect chains"
+	stageLaunchGenericSvcs    = "Launch generic services"
+	stageLaunchAggregators    = "Launch aggregators"
+	stageLaunchIndexers       = "Launch indexers"
+	stageLaunchExecutors      = "Launch executors"
+	stageLaunchVerifiers      = "Launch verifiers"
+	stageLaunchTokenVerifiers = "Launch token verifiers"
+	stageAcceptJobs           = "Accept jobs"
+)
+
 // NewEnvironment creates a new CCIP CCV environment locally in Docker.
 func NewEnvironment() (in *Cfg, err error) {
 	ctx := context.Background()
@@ -47,7 +67,10 @@ func NewEnvironment() (in *Cfg, err error) {
 	// firehose to a file and renders a live checklist; off a TTY it is a no-op
 	// and logs flow exactly as before.
 	// Registered before the DX-tracker defer below so this runs last.
-	ctx, upProgress := progress.Begin(ctx, progress.Options{Title: "devenv (" + os.Getenv(EnvVarTestConfigs) + ")"})
+	ctx, upProgress := progress.Begin(ctx, progress.Options{
+		Title:    "devenv (" + os.Getenv(EnvVarTestConfigs) + ")",
+		Firehose: os.Getenv(EnvVarUpFirehose) != "",
+	})
 	var addrPath string
 	defer func() {
 		upProgress.End(err)
@@ -71,7 +94,7 @@ func NewEnvironment() (in *Cfg, err error) {
 	// START: Read Config toml //
 	/////////////////////////////
 
-	progress.Stage(ctx, "Read config")
+	progress.Stage(ctx, stageReadConfig)
 	configs := strings.Split(os.Getenv(EnvVarTestConfigs), ",")
 	if len(configs) > 1 {
 		L.Warn().Msg("Multiple configuration files detected, this feature may be unsupported in the future.")
@@ -117,7 +140,7 @@ func NewEnvironment() (in *Cfg, err error) {
 		return nil, err
 	}
 
-	bcStep := progress.Stage(ctx, "Deploy blockchains")
+	bcStep := progress.Stage(ctx, stageDeployBlockchains)
 	impls := make([]cciptestinterfaces.CCIP17Configuration, 0)
 	for _, bc := range in.Blockchains {
 		var impl cciptestinterfaces.CCIP17Configuration
@@ -177,7 +200,7 @@ func NewEnvironment() (in *Cfg, err error) {
 	//////////////////////////////////
 	// START: Deploy Pricer service //
 	//////////////////////////////////
-	progress.Stage(ctx, "Deploy pricer")
+	progress.Stage(ctx, stageDeployPricer)
 	if _, err := services.NewPricer(in.Pricer); err != nil {
 		return nil, fmt.Errorf("failed to setup pricer service: %w", err)
 	}
@@ -211,7 +234,7 @@ func NewEnvironment() (in *Cfg, err error) {
 	// In addition, if we need to launch the nodes (i.e if some services are not standalone),
 	// we need to launch the nodes first to get the onchain public keys which will then
 	// be used to configure the rest of the system (aggregator, onchain committees, etc.).
-	progress.Stage(ctx, "Launch CL nodes")
+	progress.Stage(ctx, stageLaunchCLNodes)
 	timeTrack.Record("[infra] deploying CL nodes")
 	_, err = launchCLNodes(ctx, in, impls, in.Verifier, in.Aggregator)
 	if err != nil {
@@ -227,7 +250,7 @@ func NewEnvironment() (in *Cfg, err error) {
 	// START: Start JD Infrastructure   //
 	//////////////////////////////////////
 
-	progress.Stage(ctx, "Start JD infrastructure")
+	progress.Stage(ctx, stageStartJD)
 	timeTrack.Record("[infra] starting JD infrastructure")
 
 	// Extract only CL-mode NOP aliases for JD/client operations
@@ -296,7 +319,7 @@ func NewEnvironment() (in *Cfg, err error) {
 	// even though aggregator containers haven't started yet.
 	/////////////////////////////////////////////
 
-	verEarlyStep := progress.Stage(ctx, "Launch verifiers (early)")
+	verEarlyStep := progress.Stage(ctx, stageLaunchVerifiersEarly)
 	verEarlyCtx := progress.Scope(ctx, verEarlyStep)
 	_, err = launchStandaloneVerifiers(verEarlyCtx, in, blockchainOutputs, jdInfra)
 	if err != nil {
@@ -307,7 +330,7 @@ func NewEnvironment() (in *Cfg, err error) {
 	// This runs after the verifiers are up (registration + WSRPC connect), so it
 	// gets its own sub-row to account for the time between "verifiers up" and
 	// "verifiers reachable via JD".
-	jdConnectStep := progress.Stage(verEarlyCtx, "Connect verifiers to JD")
+	jdConnectStep := progress.Stage(verEarlyCtx, stageConnectVerifiersToJD)
 	jdErr := registerStandaloneVerifiersWithJD(ctx, in.Verifier, jdInfra)
 	jdConnectStep.Finish(jdErr)
 	if jdErr != nil {
@@ -322,7 +345,7 @@ func NewEnvironment() (in *Cfg, err error) {
 	// START: Deploy contracts //
 	/////////////////////////////
 
-	contractsStep := progress.Stage(ctx, "Deploy contracts")
+	contractsStep := progress.Stage(ctx, stageDeployContracts)
 	var selectors []uint64
 	var e *deployment.Environment
 	// the CLDF datastore is not initialized at this point because contracts are not deployed yet.
@@ -442,7 +465,7 @@ func NewEnvironment() (in *Cfg, err error) {
 
 	// Configure cross-chain token transfers: each chain impl builds its own
 	// TokenTransferConfigs using chain-specific registry and CCV refs.
-	progress.Stage(ctx, "Connect chains")
+	progress.Stage(ctx, stageConnectChains)
 	if err = ccdeploy.ConfigureAllTokenTransfers(impls, selectors, e, topology); err != nil {
 		return nil, fmt.Errorf("configure all token transfers: %w", err)
 	}
@@ -459,7 +482,7 @@ func NewEnvironment() (in *Cfg, err error) {
 	// START: Launch generic services //
 	/////////////////////////////////////////
 
-	progress.Stage(ctx, "Launch generic services")
+	progress.Stage(ctx, stageLaunchGenericSvcs)
 	if err := launchGenericServices(ctx, in, e, blockchainOutputs); err != nil {
 		return nil, fmt.Errorf("failed to launch generic services: %w", err)
 	}
@@ -472,7 +495,7 @@ func NewEnvironment() (in *Cfg, err error) {
 	// START: Launch aggregators //
 	///////////////////////////////
 
-	aggStep := progress.Stage(ctx, "Launch aggregators")
+	aggStep := progress.Stage(ctx, stageLaunchAggregators)
 	aggCtx := progress.Scope(ctx, aggStep)
 	in.AggregatorEndpoints = make(map[string]string)
 	in.AggregatorCACertFiles = make(map[string]string)
@@ -552,7 +575,7 @@ func NewEnvironment() (in *Cfg, err error) {
 	// start up the indexer(s) after the aggregators are up to avoid spamming of errors
 	// in the logs when they start before the aggregators are up.
 	///////////////////////////
-	progress.Stage(ctx, "Launch indexers")
+	progress.Stage(ctx, stageLaunchIndexers)
 	// Generate indexer config using changeset (on-chain state as source of truth).
 	// One shared config is generated; all indexers use the same config and duplicated secrets/auth.
 	if len(in.Aggregator) > 0 && len(in.Indexer) > 0 {
@@ -695,7 +718,7 @@ func NewEnvironment() (in *Cfg, err error) {
 	// START: Launch executors //
 	/////////////////////////////
 
-	execStep := progress.Stage(ctx, "Launch executors")
+	execStep := progress.Stage(ctx, stageLaunchExecutors)
 	execCtx := progress.Scope(ctx, execStep)
 	// In local (no-JD) mode executors run in bootstrap local mode: their config is delivered as a
 	// mounted file instead of a JD job proposal. In JD mode they register with and receive jobs from JD.
@@ -717,7 +740,7 @@ func NewEnvironment() (in *Cfg, err error) {
 	// START: Launch verifiers //
 	/////////////////////////////
 
-	progress.Stage(ctx, "Launch verifiers")
+	progress.Stage(ctx, stageLaunchVerifiers)
 	verifierJobSpecs, err := generateVerifierJobSpecs(e, in, topology, sharedTLSCerts, ds)
 	if err != nil {
 		return nil, err
@@ -754,7 +777,7 @@ func NewEnvironment() (in *Cfg, err error) {
 	// START: Launch token verifiers //
 	///////////////////////////////////
 
-	progress.Stage(ctx, "Launch token verifiers")
+	progress.Stage(ctx, stageLaunchTokenVerifiers)
 	// Generate token verifier configs using changeset (on-chain state as source of truth)
 	for i, tokenVerifierInput := range in.TokenVerifier {
 		if tokenVerifierInput == nil {
@@ -826,7 +849,7 @@ func NewEnvironment() (in *Cfg, err error) {
 	in.CLDF.AddEnvMetadata(string(envMetadataJSON))
 
 	if in.JDInfra != nil {
-		progress.Stage(ctx, "Accept jobs")
+		progress.Stage(ctx, stageAcceptJobs)
 		if err := jobs.AcceptPendingJobs(ctx, in.ClientLookup); err != nil {
 			return nil, fmt.Errorf("failed to accept pending jobs: %w", err)
 		}

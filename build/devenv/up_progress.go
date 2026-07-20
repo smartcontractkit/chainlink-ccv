@@ -6,10 +6,6 @@ import (
 	"path/filepath"
 )
 
-// grafanaDashboardURL is the local Grafana CCV services dashboard surfaced in
-// the success summary when the observability stack is running.
-const grafanaDashboardURL = "http://localhost:3000/d/f8a04cef-653f-46d3-86df-87c532300672/ccv-services?orgId=1&refresh=5s"
-
 // addressesFilePath returns the path for the deployed-contract address table.
 // It mirrors the uplog convention: an env override, then <cwd>/addresses.txt.
 func addressesFilePath() string {
@@ -45,7 +41,6 @@ func printUpSummary(in *Cfg, addrPath string) {
 	for i, url := range in.IndexerEndpoints {
 		fmt.Fprintf(os.Stdout, "  indexer %-17s %s\n", fmt.Sprintf("#%d:", i+1), url)
 	}
-	fmt.Fprintf(os.Stdout, "  %-24s %s\n", "grafana:", grafanaDashboardURL)
 	if addrPath != "" {
 		fmt.Fprintf(os.Stdout, "  %-24s %s\n", "addresses:", addrPath)
 	}
