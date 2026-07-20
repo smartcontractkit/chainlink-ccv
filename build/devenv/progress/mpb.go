@@ -17,8 +17,7 @@ const spinnerTick = 120 * time.Millisecond
 
 // mpbReporter renders checklist rows with github.com/vbauerster/mpb. It uses the
 // sequential auto-advance model: starting a new stage finalizes the previous
-// one (the monolith bringup is a single sequential function, so a new stage
-// starting means the prior stage succeeded). End finalizes the last stage.
+// one. End finalizes the last stage.
 type mpbReporter struct {
 	mu  sync.Mutex
 	p   *mpb.Progress
@@ -129,8 +128,7 @@ func (s *mpbStep) Msg(format string, args ...any) {
 	s.mu.Unlock()
 }
 
-func (s *mpbStep) Done() { s.finish(false) }
-func (s *mpbStep) Fail() { s.finish(true) }
+func (s *mpbStep) Finish(err error) { s.finish(err != nil) }
 
 func (s *mpbStep) finish(failed bool) {
 	s.mu.Lock()

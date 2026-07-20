@@ -45,10 +45,8 @@ func NewEnvironment() (in *Cfg, err error) {
 
 	// Install the TTY-gated progress UI. On a terminal this captures the log
 	// firehose to a file and renders a live checklist; off a TTY it is a no-op
-	// and logs flow exactly as before. addrPath is populated later on the TTY
-	// path so the summary can point at the address table.
-	// Registered before the DX-tracker defer below so this runs LAST (LIFO):
-	// the DX metrics still land in the captured log, and fds are restored after.
+	// and logs flow exactly as before.
+	// Registered before the DX-tracker defer below so this runs last.
 	ctx, upProgress := progress.Begin(ctx, progress.Options{Title: "devenv (" + os.Getenv(EnvVarTestConfigs) + ")"})
 	var addrPath string
 	defer func() {
@@ -310,11 +308,11 @@ func NewEnvironment() (in *Cfg, err error) {
 	// gets its own sub-row to account for the time between "verifiers up" and
 	// "verifiers reachable via JD".
 	jdConnectStep := progress.Stage(verEarlyCtx, "Connect verifiers to JD")
-	if err := registerStandaloneVerifiersWithJD(ctx, in.Verifier, jdInfra); err != nil {
-		jdConnectStep.Fail()
-		return nil, err
+	jdErr := registerStandaloneVerifiersWithJD(ctx, in.Verifier, jdInfra)
+	jdConnectStep.Finish(jdErr)
+	if jdErr != nil {
+		return nil, jdErr
 	}
-	jdConnectStep.Done()
 
 	/////////////////////////////////////////////
 	// END: Launch verifiers early            //
@@ -507,13 +505,7 @@ func NewEnvironment() (in *Cfg, err error) {
 			// Use changeset to generate committee config from on-chain state
 			instanceName := aggregatorInput.InstanceName()
 			aggChild := progress.Stage(aggCtx, fmt.Sprintf("%s (%s)", instanceName, aggregatorInput.CommitteeName))
-			defer func() {
-				if err != nil {
-					aggChild.Fail()
-				} else {
-					aggChild.Done()
-				}
-			}()
+			defer func() { aggChild.Finish(err) }()
 			committee, ok := topology.NOPTopology.Committees[aggregatorInput.CommitteeName]
 			if !ok {
 				return fmt.Errorf("committee %q not found in topology", aggregatorInput.CommitteeName)
@@ -845,7 +837,7 @@ func NewEnvironment() (in *Cfg, err error) {
 	}
 
 	timeTrack.Print()
-	// On the TTY path the full (large) address table goes to its own file and
+	// On the TTY path the full address table goes to its own file and
 	// the terminal gets a short summary; off a TTY, preserve the old behavior of
 	// printing the table to stdout.
 	if upProgress.Active() {

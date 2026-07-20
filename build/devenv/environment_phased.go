@@ -19,10 +19,9 @@ import (
 func NewPhasedEnvironment() (out map[string]any, err error) {
 	ctx := L.WithContext(context.Background())
 
-	// v1: the phased runtime gets the same TTY-gated log capture as the monolith
+	// the phased runtime gets the same TTY-gated log capture as the monolith
 	// plus a single spinner. Per-component checklist rows are a fast-follow once
-	// the reporter is threaded through the runtime package (which runs components
-	// concurrently and already tracks per-component timings).
+	// the reporter is threaded through the runtime package.
 	ctx, upProgress := progress.Begin(ctx, progress.Options{Title: "devenv (phased: " + os.Getenv(EnvVarTestConfigs) + ")"})
 	defer func() { upProgress.End(err) }()
 	phasedStage := progress.Stage(ctx, "Bringing up phased runtime")
@@ -59,10 +58,10 @@ func NewPhasedEnvironment() (out map[string]any, err error) {
 	}()
 
 	out, err = devenvruntime.NewEnvironmentWithRegistry(ctx, rawConfig, devenvruntime.GlobalRegistry(), newDevenvEffectExecutor(), L)
+	phasedStage.Finish(err)
 	if err != nil {
 		return nil, err
 	}
-	phasedStage.Done()
 
 	// Re-publish the schema version (the runtime consumed it) as a public output
 	// key so the serialized file begins with version = N and LoadOutput can route

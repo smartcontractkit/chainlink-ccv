@@ -988,19 +988,23 @@ func launchExecutors(ctx context.Context, in []*executorsvc.Input, blockchainOut
 			continue
 		}
 		// One nested sub-row per executor we actually launch (standalone or local mode).
-		execChild := progress.Stage(ctx, fmt.Sprintf("%s (%s)", exec.ContainerName, exec.ChainFamily))
-		var transmitterKeyName string
-		if reg, regErr := chainreg.GetRegistry().Get(exec.ChainFamily); regErr == nil && reg.ExecutorInfo != nil {
-			transmitterKeyName = reg.ExecutorInfo.ExecutorTransmitterKeyName()
-		}
-		out, err := executorsvc.New(exec, blockchainOutputs, jdInfra, chainreg.GetRegistry().GetExecutorModifiers(), transmitterKeyName)
+		// The IIFE lets a single deferred Finish mark the row done/failed from err,
+		// so future error paths added inside can't forget to update the row.
+		out, err := func() (out *executorsvc.Output, err error) {
+			execChild := progress.Stage(ctx, fmt.Sprintf("%s (%s)", exec.ContainerName, exec.ChainFamily))
+			defer func() { execChild.Finish(err) }()
+
+			var transmitterKeyName string
+			if reg, regErr := chainreg.GetRegistry().Get(exec.ChainFamily); regErr == nil && reg.ExecutorInfo != nil {
+				transmitterKeyName = reg.ExecutorInfo.ExecutorTransmitterKeyName()
+			}
+			return executorsvc.New(exec, blockchainOutputs, jdInfra, chainreg.GetRegistry().GetExecutorModifiers(), transmitterKeyName)
+		}()
 		if err != nil {
-			execChild.Fail()
 			return nil, fmt.Errorf("failed to create executor %s: %w", exec.ContainerName, err)
 		}
 		exec.Out = out
 		outs = append(outs, out)
-		execChild.Done()
 	}
 	return outs, nil
 }
@@ -1166,31 +1170,36 @@ func launchStandaloneVerifiers(ctx context.Context, in *Cfg, blockchainOutputs [
 			continue
 		}
 
-		vStep := progress.Stage(ctx, fmt.Sprintf("%s (%s)", ver.ContainerName, ver.CommitteeName))
+		// A single deferred Finish marks the sub-row done/failed from the named
+		// return, so error paths added here stay correctly reflected in the row.
+		out, err := func() (out *committeeverifier.Output, err error) {
+			vStep := progress.Stage(ctx, fmt.Sprintf("%s (%s)", ver.ContainerName, ver.CommitteeName))
+			defer func() { vStep.Finish(err) }()
 
-		aggOuts := aggregatorsByCommittee[ver.CommitteeName]
-		if len(aggOuts) == 0 {
-			vStep.Fail()
-			return nil, fmt.Errorf(
-				"verifier %q (committee %q): no aggregator outputs found — ensure the aggregator started successfully",
-				ver.ContainerName, ver.CommitteeName,
-			)
-		}
-		creds, err := committeeverifier.AggregatorCredentialsForVerifier(ver, aggOuts, topoAggNames[ver.CommitteeName])
+			aggOuts := aggregatorsByCommittee[ver.CommitteeName]
+			if len(aggOuts) == 0 {
+				return nil, fmt.Errorf(
+					"verifier %q (committee %q): no aggregator outputs found — ensure the aggregator started successfully",
+					ver.ContainerName, ver.CommitteeName,
+				)
+			}
+			creds, err := committeeverifier.AggregatorCredentialsForVerifier(ver, aggOuts, topoAggNames[ver.CommitteeName])
+			if err != nil {
+				return nil, err
+			}
+			ver.AggregatorCredentials = creds
+			ver.AggregatorOutput = aggOuts[ver.NodeIndex%len(aggOuts)]
+			out, err = committeeverifier.New(ver, blockchainOutputs, jdInfra, chainreg.GetRegistry().GetVerifierModifiers())
+			if err != nil {
+				return nil, fmt.Errorf("failed to create verifier service: %w", err)
+			}
+			return out, nil
+		}()
 		if err != nil {
-			vStep.Fail()
 			return nil, err
-		}
-		ver.AggregatorCredentials = creds
-		ver.AggregatorOutput = aggOuts[ver.NodeIndex%len(aggOuts)]
-		out, err := committeeverifier.New(ver, blockchainOutputs, jdInfra, chainreg.GetRegistry().GetVerifierModifiers())
-		if err != nil {
-			vStep.Fail()
-			return nil, fmt.Errorf("failed to create verifier service: %w", err)
 		}
 		ver.Out = out
 		outs = append(outs, out)
-		vStep.Done()
 	}
 	return outs, nil
 }
