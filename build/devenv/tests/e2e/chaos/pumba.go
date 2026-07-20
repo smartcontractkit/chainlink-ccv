@@ -18,7 +18,7 @@ func BuildStopCommand(duration time.Duration, targets []string, literalSingle bo
 
 func formatPumbaTarget(targets []string, literalSingle bool) string {
 	if len(targets) == 0 {
-		return ""
+		return "^$" // match nothing
 	}
 	if literalSingle && len(targets) == 1 {
 		return targets[0]

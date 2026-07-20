@@ -76,16 +76,28 @@ func RunScenario(t *testing.T, ctx context.Context, spec ScenarioSpec) error {
 	if err != nil {
 		return fmt.Errorf("aggregator clients: %w", err)
 	}
-	aggregatorClient := aggregatorClients[devenvcommon.DefaultCommitteeVerifierQualifier]
-	if spec.AggregatorQualifier != "" && spec.AggregatorQualifier != devenvcommon.DefaultCommitteeVerifierQualifier {
-		if client, ok := aggregatorClients[spec.AggregatorQualifier]; ok {
-			aggregatorClient = client
+
+	var aggregatorClient *ccv.AggregatorClient
+	if len(aggregatorClients) > 0 {
+		aggregatorClient = aggregatorClients[devenvcommon.DefaultCommitteeVerifierQualifier]
+
+		if spec.AggregatorQualifier != "" && spec.AggregatorQualifier != devenvcommon.DefaultCommitteeVerifierQualifier {
+			if client, ok := aggregatorClients[spec.AggregatorQualifier]; ok {
+				aggregatorClient = client
+			}
 		}
 	}
 
-	indexerMonitor, err := spec.Lib.IndexerMonitor()
+	indexers, err := spec.Lib.AllIndexers()
 	if err != nil {
-		return fmt.Errorf("indexer monitor: %w", err)
+		return fmt.Errorf("indexer clients: %w", err)
+	}
+	var indexerMonitor *ccv.IndexerMonitor
+	if len(indexers) > 0 {
+		indexerMonitor, err = spec.Lib.IndexerMonitor()
+		if err != nil {
+			return fmt.Errorf("indexer monitor: %w", err)
+		}
 	}
 
 	testCtx, cleanupFn := tcapi.NewTestingContext(ctx, chainMap, aggregatorClient, indexerMonitor)
@@ -95,10 +107,10 @@ func RunScenario(t *testing.T, ctx context.Context, spec ScenarioSpec) error {
 	if err != nil {
 		return fmt.Errorf("assert message: %w", err)
 	}
-	if result.AggregatedResult == nil {
+	if aggregatorClient != nil && result.AggregatedResult == nil {
 		return fmt.Errorf("aggregated result is nil")
 	}
-	if len(result.IndexedVerifications.Results) != spec.Assert.ExpectedVerifierResults {
+	if indexerMonitor != nil && len(result.IndexedVerifications.Results) != spec.Assert.ExpectedVerifierResults {
 		return fmt.Errorf("expected %d indexed verifications, got %d",
 			spec.Assert.ExpectedVerifierResults, len(result.IndexedVerifications.Results))
 	}
