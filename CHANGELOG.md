@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.2.0](https://github.com/smartcontractkit/chainlink-ccv/compare/v0.1.0...v0.2.0) (2026-07-20)
+
+
+### ⚠ BREAKING CHANGES
+
+* remove blockchain_infos from application config (CCIP-12443) ([#1271](https://github.com/smartcontractkit/chainlink-ccv/issues/1271))
+
+### Features
+
+* **jd:** stage replacement jobs before cutover (CCIP-11875) ([#1270](https://github.com/smartcontractkit/chainlink-ccv/issues/1270)) ([ec7a327](https://github.com/smartcontractkit/chainlink-ccv/commit/ec7a327d5e17efd21f20ae32ee9bd5d171921ac1))
+* push signing key variants at JD registration; add family SigningIdentityReader ([#1230](https://github.com/smartcontractkit/chainlink-ccv/issues/1230)) ([b654f20](https://github.com/smartcontractkit/chainlink-ccv/commit/b654f20972d84ff0e40544ceab32a4b871df05a9))
+* remove blockchain_infos from application config (CCIP-12443) ([#1271](https://github.com/smartcontractkit/chainlink-ccv/issues/1271)) ([2b5159a](https://github.com/smartcontractkit/chainlink-ccv/commit/2b5159afb28f5b6de74815940faf2468e1c51c3f))
+* use config instead of blockchain info ([#1267](https://github.com/smartcontractkit/chainlink-ccv/issues/1267)) ([3ac5492](https://github.com/smartcontractkit/chainlink-ccv/commit/3ac54920dd0862401c3779fd87eca26f4018e24e))
+
+
+### Bug Fixes
+
+* Initialize lastSeenTime to InitialQueryTime ([#1275](https://github.com/smartcontractkit/chainlink-ccv/issues/1275)) ([d938b37](https://github.com/smartcontractkit/chainlink-ccv/commit/d938b371c5d69374ee0c03c1ae61a76ba81b7c2a))
+
 ## [0.1.0](https://github.com/smartcontractkit/chainlink-ccv/compare/v0.0.1...v0.1.0) (2026-07-14)
 
 
