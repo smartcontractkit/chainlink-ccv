@@ -124,7 +124,7 @@ func (p *component) RunPhase2(
 	}
 	p.lggr.Info().Any("Selectors", selectors).Msg("Deploying for chain selectors")
 
-	topology := ccdeploy.BuildEnvironmentTopology(envTopology, nil, e)
+	topology := ccdeploy.BuildEnvironmentTopology(envTopology, nil, e, false)
 	if topology == nil {
 		return nil, nil, fmt.Errorf("failed to build environment topology")
 	}

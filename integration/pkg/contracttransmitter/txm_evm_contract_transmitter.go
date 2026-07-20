@@ -86,6 +86,11 @@ func (ct *TXMEVMContractTransmitter) ConvertAndWriteMessageToChain(ctx context.C
 		EncodedPayload: payload,
 		FeeLimit:       feeLimit,
 		Strategy:       txmgrcommon.NewSendEveryStrategy(),
+		// Correlates this tx with its CCIP message in TXM logs (the TXM
+		// logs meta.MessageIDs as "messageID" on every tx log line).
+		Meta: &txmgr.TxMeta{
+			MessageIDs: []string{messageID.String()},
+		},
 	})
 	if err != nil {
 		ct.monitoring.Metrics().IncrementUnrecoverableMessageFailure(ctx)

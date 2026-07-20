@@ -28,6 +28,7 @@ func init() {
 		}
 		return lower
 	})
+	shared.RegisterSigningIdentityReader(chainsel.FamilyEVM, shared.EVMSigningIdentityReader{})
 
 	// Register all EVM ccv adapter implementations into the ccv singleton registries.
 	ccvdeploymentadapters.GetAggregatorRegistry().Register(chainsel.FamilyEVM, &EVMCCVAggregatorConfigAdapter{})
@@ -39,6 +40,7 @@ func init() {
 	ccvdeploymentadapters.GetCommitteeVerifierDeployRegistry().Register(chainsel.FamilyEVM, &EVMCommitteeVerifierDeployAdapter{})
 	ccvdeploymentadapters.GetProtocolContractsDeployRegistry().Register(chainsel.FamilyEVM, &EVMProtocolContractsDeployAdapter{})
 	ccvdeploymentadapters.GetLaneConfigRegistry().Register(chainsel.FamilyEVM, &EVMLaneConfigAdapter{})
+	ccvdeploymentadapters.GetTokenPoolOnchainRegistry().Register(chainsel.FamilyEVM, &EVMCCVTokenPoolOnchainAdapter{})
 }
 
 func parseHexAddress(hex, field string) (common.Address, error) {

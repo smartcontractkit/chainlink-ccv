@@ -127,8 +127,7 @@ func ApplyExecutorConfig() deployment.ChangeSetV2[ApplyExecutorConfigInput] {
 			nopsToValidate = executorPoolNOPAliases(cfg.Pool)
 		}
 
-		clNOPs := filterCLModeNOPs(nopsToValidate, cfg.NOPs)
-		if err := validateExecutorChainSupport(e, cfg.Pool, clNOPs); err != nil {
+		if err := validateExecutorChainSupport(e, cfg.Pool, nopsToValidate); err != nil {
 			return deployment.ChangesetOutput{}, err
 		}
 
@@ -169,6 +168,9 @@ func ApplyExecutorConfig() deployment.ChangeSetV2[ApplyExecutorConfigInput] {
 					AllNOPs:    allNOPAliases(cfg.NOPs),
 				},
 				RevokeOrphanedJobs: cfg.RevokeOrphanedJobs,
+				// Without a JD (no-JD local devenv), persist the generated specs and skip proposing;
+				// the caller delivers them to the executor as a mounted file instead.
+				AllowMissingJD: e.Offchain == nil,
 			},
 		)
 		if err != nil {

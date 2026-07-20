@@ -47,6 +47,7 @@ func NewIndexerStorageStreamer(
 		lggr:              lggr,
 		queryLimit:        indexerConfig.QueryLimit,
 		lastQueryTime:     indexerConfig.InitialQueryTime,
+		latestSeenTime:    indexerConfig.InitialQueryTime,
 		pollingInterval:   indexerConfig.PollingInterval,
 		backoff:           indexerConfig.Backoff,
 		expirableSet:      expirableSet,

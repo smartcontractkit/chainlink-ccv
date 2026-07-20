@@ -119,6 +119,14 @@ func (c ChainRegistration) validate() error {
 	id = "1"
 */
 type NonSecretConfig struct {
+	// AppConfigMode selects how the bootstrapper loads application config: "jd_app_config" (default
+	// when empty, for backward compatibility) or "local_app_config". See AppConfigMode.
+	AppConfigMode AppConfigMode `toml:"app_config_mode,omitempty"`
+	// LocalAppConfigPath is the path to the application config file read in local mode. Required when
+	// AppConfigMode is "local_app_config"; ignored otherwise. Distinct from the bootstrap config path
+	// (BOOTSTRAPPER_CONFIG_PATH): this file holds the app's own config, not the operator/infra config.
+	LocalAppConfigPath string `toml:"local_app_config_path,omitempty"`
+
 	JD     JDConfig     `toml:"jd,omitempty"`
 	Server ServerConfig `toml:"server,omitempty"`
 	// Chains declares the chains on which this node has a signing identity.
@@ -136,7 +144,7 @@ type NonSecretConfig struct {
 	// verifier, executor) prefer this value and fall back to their deprecated app-config Monitoring field
 	// only when it is nil. The token verifier is the exception: it loads no bootstrap config and keeps
 	// monitoring in its (already operator-provided) mounted app config.
-	Monitoring *monitoring.Config
+	Monitoring *monitoring.Config `toml:"Monitoring"`
 }
 
 // Secrets is the secret half of the bootstrap config: the credential-bearing sections. It is
@@ -167,7 +175,7 @@ type Config struct {
 	Secrets
 }
 
-// validateInfra validates the coupled infra bundle (jd/db/keystore/server/chains).
+// validateInfra validates the coupled infra bundle required in JD mode (jd/db/keystore/server/chains).
 func (c *Config) validateInfra() []error {
 	var errs []error
 	if err := c.JD.validate(); err != nil {
@@ -216,23 +224,27 @@ func validateChains(chains []ChainRegistration) []error {
 	return errs
 }
 
-// validate checks the config for correctness. Validation is mode-driven, keyed on needsInfra —
-// which the caller derives from the bootstrapper's mode (true in JD mode, false in static-TOML
-// mode) — rather than inferred from which sections happen to be present in the file:
+// validate checks the config for correctness. Validation is mode-driven — keyed on the config's
+// app_config_mode rather than inferred from which sections happen to be present in the file:
 //
-//   - needsInfra: the infra bundle (jd/db/keystore/server/chains) is required; a missing or
-//     invalid section is an error naming that section. This lets a JD-mode app with a malformed
+//   - AppConfigModeJD: the full infra bundle (jd/db/keystore/server/chains) is required; a missing
+//     or invalid section is an error naming that section. This lets a JD-mode app with a malformed
 //     bootstrap file fail at load time with a precise message, instead of a downstream connection
 //     failure that a present-driven check would allow through.
-//   - !needsInfra: the infra bundle is ignored. Any infra section present in md is warned about
-//     (it does nothing in static-TOML mode) but is not an error.
+//   - AppConfigModeLocal: the infra bundle is not required (only services that sign supply
+//     [db]+[keystore], and the keystore is initialized only when both are present), but
+//     local_app_config_path must be set — that is where the app config is read from.
 //
-// Monitoring is always validated when non-nil, in both modes. md is used only to name the
-// ignored sections in the static-mode warning.
-func (c *Config) validate(needsInfra bool) error {
+// Monitoring is always validated when non-nil, in every mode.
+func (c *Config) validate(m AppConfigMode) error {
 	var errs []error
-	if needsInfra {
+	switch m {
+	case AppConfigModeJD:
 		errs = append(errs, c.validateInfra()...)
+	case AppConfigModeLocal:
+		if strings.TrimSpace(c.LocalAppConfigPath) == "" {
+			errs = append(errs, fmt.Errorf("field 'local_app_config_path' is required when app_config_mode is %q", AppConfigModeLocal))
+		}
 	}
 	if c.Monitoring != nil {
 		if err := c.Monitoring.Validate(); err != nil {
@@ -242,30 +254,45 @@ func (c *Config) validate(needsInfra bool) error {
 	return errors.Join(errs...)
 }
 
-// LoadAndValidateConfig loads the configuration from one or more TOML files and validates the
-// merged result. Files are decoded into cfg in order, and a later file overlays only the sections
-// it defines — so when both a non-secret config file and a secrets file are provided, the secrets
-// file wins for any section it declares. Validation runs once on the merged struct.
-//
-// needsInfra selects mode-driven validation (see validate): pass true in JD mode, false in
-// static-TOML mode. Because validation runs on the merged struct, "is [db] present and valid" is
+// resolveAppConfigMode returns the config's app_config_mode, defaulting to AppConfigModeJD when
+// unset (backward compatibility for existing JD deployments), and errors on an unknown value.
+func (c *Config) resolveAppConfigMode() (AppConfigMode, error) {
+	switch c.AppConfigMode {
+	case "":
+		return AppConfigModeJD, nil
+	case AppConfigModeJD, AppConfigModeLocal:
+		return c.AppConfigMode, nil
+	default:
+		return "", fmt.Errorf("invalid app_config_mode %q: must be %q or %q", c.AppConfigMode, AppConfigModeJD, AppConfigModeLocal)
+	}
+}
+
+// LoadAndValidateConfig loads the configuration from one or more TOML files, resolves the
+// app_config_mode, validates the merged result for that mode, and returns the resolved mode. Files
+// are decoded into cfg in order, and a later file overlays only the sections it defines — so when
+// both a non-secret config file and a secrets file are provided, the secrets file wins for any
+// section it declares. Because validation runs on the merged struct, "is [db] present and valid" is
 // independent of which file supplied it.
-func LoadAndValidateConfig(paths []string, cfg *Config, needsInfra bool) error {
+func LoadAndValidateConfig(paths []string, cfg *Config) (AppConfigMode, error) {
 	for _, path := range paths {
 		tomlBytes, err := os.ReadFile(path) //nolint:gosec // G304: path is provided by trusted caller
 		if err != nil {
-			return fmt.Errorf("failed to read config file %q: %w", path, err)
+			return "", fmt.Errorf("failed to read config file %q: %w", path, err)
 		}
 		// TODO switch to strict mode once config migration is over
 		if err := parseTOML(string(tomlBytes), cfg, false); err != nil {
-			return fmt.Errorf("failed to parse config %q: %w", path, err)
+			return "", fmt.Errorf("failed to parse config %q: %w", path, err)
 		}
 	}
 
-	if err := cfg.validate(needsInfra); err != nil {
-		return fmt.Errorf("config validation failed: %w", err)
+	mode, err := cfg.resolveAppConfigMode()
+	if err != nil {
+		return "", err
 	}
-	return nil
+	if err := cfg.validate(mode); err != nil {
+		return "", fmt.Errorf("config validation failed: %w", err)
+	}
+	return mode, nil
 }
 
 func parseTOML[T any](tomlString string, out *T, strict bool) error {

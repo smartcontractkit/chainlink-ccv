@@ -2,11 +2,15 @@ package services
 
 import (
 	"bytes"
+	"context"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
+	"strings"
+	"time"
 
 	"github.com/BurntSushi/toml"
 	"github.com/ethereum/go-ethereum/crypto"
@@ -18,9 +22,11 @@ import (
 )
 
 const (
-	DefaultBootstrapDBName        = "bootstrap_db"
-	DefaultBootstrapListenPort    = 9988
-	DefaultBootstrapListenPortTCP = "9988/tcp"
+	DefaultBootstrapDBName         = "bootstrap_db"
+	DefaultBootstrapListenPort     = 9988
+	DefaultBootstrapListenPortTCP  = "9988/tcp"
+	DefaultApplicationReadyTimeout = 120 * time.Second
+	applicationReadyPollInterval   = 250 * time.Millisecond
 )
 
 var CreateBootstrapDBInitScript = fmt.Sprintf(`CREATE DATABASE "%s";`, DefaultBootstrapDBName)
@@ -30,6 +36,12 @@ type BootstrapInput struct {
 	Keystore   *bootstrap.KeystoreConfig `toml:"keystore"`
 	Server     *bootstrap.ServerConfig   `toml:"server"`
 	Monitoring *monitoring.Config        `toml:"monitoring"`
+	// AppConfigMode and LocalAppConfigPath select the bootstrapper lifecycle in the generated
+	// non-secret config. Left empty they default to JD mode (backward compatible). In local mode,
+	// AppConfigMode is "local_app_config" and LocalAppConfigPath is the in-container path of the
+	// mounted app-config file. Set at launch, not from env.toml.
+	AppConfigMode      bootstrap.AppConfigMode `toml:"-"`
+	LocalAppConfigPath string                  `toml:"-"`
 	// These fields can't be specified in the env.toml without actually spinning up the environment.
 	// They get populated while the environment is being spun up.
 	DB *bootstrap.DBConfig `toml:"-"`
@@ -89,10 +101,12 @@ func CreateBootstrapDBInitScriptFile() (path string, err error) {
 // It marshals bootstrap.NonSecretConfig directly so the partition stays defined in one place.
 func GenerateBootstrapConfig(in BootstrapInput) ([]byte, error) {
 	return toml.Marshal(bootstrap.NonSecretConfig{
-		JD:         *in.JD,
-		Server:     *in.Server,
-		Chains:     in.Chains,
-		Monitoring: in.Monitoring,
+		AppConfigMode:      in.AppConfigMode,
+		LocalAppConfigPath: in.LocalAppConfigPath,
+		JD:                 *in.JD,
+		Server:             *in.Server,
+		Chains:             in.Chains,
+		Monitoring:         in.Monitoring,
 	})
 }
 
@@ -197,4 +211,65 @@ func FetchBootstrapKeys(bootstrapURL string, keyNames ...string) (BootstrapKeys,
 	}
 
 	return result, nil
+}
+
+// WaitForApplicationReady waits until the bootstrap info server reports that the application
+// factory has successfully started. Bootstrap /health intentionally becomes healthy before a JD
+// job or local app config arrives so devenv can discover keys; /ready is the post-delivery barrier.
+func WaitForApplicationReady(ctx context.Context, bootstrapURL string, timeout time.Duration) error {
+	return waitForApplicationReady(
+		ctx,
+		&http.Client{Timeout: 3 * time.Second},
+		bootstrapURL,
+		timeout,
+		applicationReadyPollInterval,
+	)
+}
+
+type httpDoer interface {
+	Do(*http.Request) (*http.Response, error)
+}
+
+func waitForApplicationReady(ctx context.Context, client httpDoer, bootstrapURL string, timeout, pollInterval time.Duration) error {
+	if bootstrapURL == "" {
+		return fmt.Errorf("bootstrap URL is empty")
+	}
+	if timeout <= 0 {
+		return fmt.Errorf("application readiness timeout must be positive")
+	}
+	if pollInterval <= 0 {
+		return fmt.Errorf("application readiness poll interval must be positive")
+	}
+
+	waitCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	endpoint := strings.TrimRight(bootstrapURL, "/") + bootstrap.ApplicationReadyEndpoint
+	ticker := time.NewTicker(pollInterval)
+	defer ticker.Stop()
+
+	var lastErr error
+	for {
+		req, err := http.NewRequestWithContext(waitCtx, http.MethodGet, endpoint, nil)
+		if err != nil {
+			return fmt.Errorf("failed to create application readiness request: %w", err)
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			lastErr = err
+		} else {
+			_, _ = io.Copy(io.Discard, resp.Body)
+			_ = resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				return nil
+			}
+			lastErr = fmt.Errorf("status code %d", resp.StatusCode)
+		}
+
+		select {
+		case <-waitCtx.Done():
+			return fmt.Errorf("application did not become ready at %s: %w (last response: %v)", endpoint, waitCtx.Err(), lastErr)
+		case <-ticker.C:
+		}
+	}
 }

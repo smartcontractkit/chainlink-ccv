@@ -176,6 +176,10 @@ jobs:
             pattern: TestE2ESmoke_Basic
             profile: phased.clnode.ci.profile
             timeout: 15m
+          - name: TestE2ESmoke_TokenPoolMigrationEVM2EVM
+            pattern: TestE2ESmoke_TokenPoolMigrationEVM2EVM
+            profile: standard.clnode.ci.profile
+            timeout: 15m
           # We need to configure HeadTracker for the CL tests to have finality depth. Otherwise, it does instant finality.
           # - name: TestE2EReorg
           #   profile: standard.src-auto-mine.clnode.ci.profile

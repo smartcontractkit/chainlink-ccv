@@ -175,13 +175,12 @@ type AssertMessageOptions struct {
 }
 
 func (tc *TestingContext) AssertMessage(messageID [32]byte, opts AssertMessageOptions) (AssertionResult, error) {
-	ctx, cancel := context.WithTimeout(tc.Ctx, opts.Timeout)
-	defer cancel()
-
 	result := AssertionResult{}
 
 	if opts.AssertVerifierLogs {
+		ctx, cancel := context.WithTimeout(tc.Ctx, opts.Timeout)
 		_, err := tc.LogAsserter.WaitForStage(ctx, messageID, logasserter.MessageReachedVerifier())
+		cancel()
 		if err != nil {
 			return result, fmt.Errorf("verifier reached log assertion failed: %w", err)
 		}
@@ -192,7 +191,9 @@ func (tc *TestingContext) AssertMessage(messageID [32]byte, opts AssertMessageOp
 
 		result.VerifierReached = true
 
+		ctx, cancel = context.WithTimeout(tc.Ctx, opts.Timeout)
 		_, err = tc.LogAsserter.WaitForStage(ctx, messageID, logasserter.MessageSigned())
+		cancel()
 		if err != nil {
 			return result, fmt.Errorf("verifier signed log assertion failed: %w", err)
 		}
@@ -205,10 +206,12 @@ func (tc *TestingContext) AssertMessage(messageID [32]byte, opts AssertMessageOp
 	}
 
 	if tc.AggregatorClient != nil {
+		ctx, cancel := context.WithTimeout(tc.Ctx, opts.Timeout)
 		aggregatedResult, err := tc.AggregatorClient.WaitForVerifierResultForMessage(
 			ctx,
 			messageID,
 			opts.TickInterval)
+		cancel()
 		if err != nil {
 			return result, fmt.Errorf("aggregator check failed: %w", err)
 		}
@@ -218,11 +221,13 @@ func (tc *TestingContext) AssertMessage(messageID [32]byte, opts AssertMessageOp
 	}
 
 	if tc.IndexerClient != nil {
+		ctx, cancel := context.WithTimeout(tc.Ctx, opts.Timeout)
 		indexedVerifications, err := tc.IndexerClient.WaitForVerificationsForMessageID(
 			ctx,
 			messageID,
 			opts.TickInterval,
 			opts.ExpectedVerifierResults)
+		cancel()
 		if err != nil {
 			return result, fmt.Errorf("indexer check failed: %w", err)
 		}
@@ -232,7 +237,9 @@ func (tc *TestingContext) AssertMessage(messageID [32]byte, opts AssertMessageOp
 	}
 
 	if opts.AssertExecutorLogs {
+		ctx, cancel := context.WithTimeout(tc.Ctx, opts.Timeout)
 		_, err := tc.LogAsserter.WaitForStage(ctx, messageID, logasserter.ProcessingInExecutor())
+		cancel()
 		if err != nil {
 			return result, fmt.Errorf("executor log assertion failed: %w", err)
 		}
@@ -243,7 +250,9 @@ func (tc *TestingContext) AssertMessage(messageID [32]byte, opts AssertMessageOp
 
 		result.ExecutorLogFound = true
 
+		ctx, cancel = context.WithTimeout(tc.Ctx, opts.Timeout)
 		_, err = tc.LogAsserter.WaitForStage(ctx, messageID, logasserter.SentToChainInExecutor())
+		cancel()
 		if err != nil {
 			return result, fmt.Errorf("executor sent to chain log assertion failed: %w", err)
 		}

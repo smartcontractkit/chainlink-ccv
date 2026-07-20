@@ -158,8 +158,7 @@ func ApplyVerifierConfig() deployment.ChangeSetV2[ApplyVerifierConfigInput] {
 			return deployment.ChangesetOutput{}, fmt.Errorf("failed to fetch signing keys: %w", err)
 		}
 
-		clNOPs := filterCLModeNOPs(nopsToValidate, cfg.NOPs)
-		if err := validateVerifierChainSupport(e, clNOPs, cfg.Committee); err != nil {
+		if err := validateVerifierChainSupport(e, nopsToValidate, cfg.Committee); err != nil {
 			return deployment.ChangesetOutput{}, err
 		}
 
@@ -212,6 +211,9 @@ func ApplyVerifierConfig() deployment.ChangeSetV2[ApplyVerifierConfigInput] {
 					AllNOPs:    allNOPAliases(cfg.NOPs),
 				},
 				RevokeOrphanedJobs: cfg.RevokeOrphanedJobs,
+				// Without a JD (no-JD local devenv), persist the generated specs and skip proposing;
+				// the caller delivers them to the verifier as a mounted file instead.
+				AllowMissingJD: e.Offchain == nil,
 			},
 		)
 		if err != nil {

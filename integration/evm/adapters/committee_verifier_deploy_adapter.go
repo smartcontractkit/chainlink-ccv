@@ -30,22 +30,22 @@ var evmDeployCommitteeVerifier = cldfops.NewSequence(
 	"evm-deploy-committee-verifier",
 	semver.MustParse("2.0.0"),
 	"Chain-agnostic wrapper around the EVM DeployCommitteeVerifier sequence",
-	func(b cldfops.Bundle, chains cldfchain.BlockChains, input ccvdeploymentadapters.DeployCommitteeVerifierInput) (ccvdeploymentadapters.DeployCommitteeVerifierOutput, error) {
+	func(b cldfops.Bundle, chains cldfchain.BlockChains, input ccvdeploymentadapters.CommitteeVerifierDeployInput) (ccvdeploymentadapters.CommitteeVerifierDeployOutput, error) {
 		evmChains := chains.EVMChains()
 		evmChain, ok := evmChains[input.ChainSelector]
 		if !ok {
-			return ccvdeploymentadapters.DeployCommitteeVerifierOutput{},
+			return ccvdeploymentadapters.CommitteeVerifierDeployOutput{},
 				fmt.Errorf("EVM chain not found for selector %d", input.ChainSelector)
 		}
 
 		create2Factory, err := parseRequiredHexAddress(input.DeployerContract, "DeployerContract")
 		if err != nil {
-			return ccvdeploymentadapters.DeployCommitteeVerifierOutput{}, err
+			return ccvdeploymentadapters.CommitteeVerifierDeployOutput{}, err
 		}
 
 		rmnAddr, err := resolveRMNProxyAddress(input.ExistingAddresses, input.ChainSelector)
 		if err != nil {
-			return ccvdeploymentadapters.DeployCommitteeVerifierOutput{}, err
+			return ccvdeploymentadapters.CommitteeVerifierDeployOutput{}, err
 		}
 
 		feeAgg, err := parseRequiredNonZeroHexAddress(
@@ -53,7 +53,7 @@ var evmDeployCommitteeVerifier = cldfops.NewSequence(
 			fmt.Sprintf("committee %q FeeAggregator", input.Params.Qualifier),
 		)
 		if err != nil {
-			return ccvdeploymentadapters.DeployCommitteeVerifierOutput{}, err
+			return ccvdeploymentadapters.CommitteeVerifierDeployOutput{}, err
 		}
 
 		var allowlistAdmin common.Address
@@ -63,7 +63,7 @@ var evmDeployCommitteeVerifier = cldfops.NewSequence(
 				fmt.Sprintf("committee %q AllowlistAdmin", input.Params.Qualifier),
 			)
 			if err != nil {
-				return ccvdeploymentadapters.DeployCommitteeVerifierOutput{}, err
+				return ccvdeploymentadapters.CommitteeVerifierDeployOutput{}, err
 			}
 		}
 
@@ -83,18 +83,18 @@ var evmDeployCommitteeVerifier = cldfops.NewSequence(
 
 		report, err := cldfops.ExecuteSequence(b, sequences.DeployCommitteeVerifier, evmChain, evmInput)
 		if err != nil {
-			return ccvdeploymentadapters.DeployCommitteeVerifierOutput{},
+			return ccvdeploymentadapters.CommitteeVerifierDeployOutput{},
 				fmt.Errorf("EVM DeployCommitteeVerifier failed: %w", err)
 		}
 
-		return ccvdeploymentadapters.DeployCommitteeVerifierOutput{
+		return ccvdeploymentadapters.CommitteeVerifierDeployOutput{
 			Addresses: report.Output.Addresses,
 			BatchOps:  report.Output.BatchOps,
 		}, nil
 	},
 )
 
-func (a *EVMCommitteeVerifierDeployAdapter) DeployCommitteeVerifier() *cldfops.Sequence[ccvdeploymentadapters.DeployCommitteeVerifierInput, ccvdeploymentadapters.DeployCommitteeVerifierOutput, cldfchain.BlockChains] {
+func (a *EVMCommitteeVerifierDeployAdapter) DeployCommitteeVerifier() *cldfops.Sequence[ccvdeploymentadapters.CommitteeVerifierDeployInput, ccvdeploymentadapters.CommitteeVerifierDeployOutput, cldfchain.BlockChains] {
 	return evmDeployCommitteeVerifier
 }
 

@@ -102,6 +102,23 @@ const (
 // ProtocolContractsCfg holds config for the protocol_contracts Phase 3 component.
 type ProtocolContractsCfg struct{}
 
+// AppConfigSource selects how the environment delivers application config to bootstrapped services.
+type AppConfigSource string
+
+const (
+	// AppConfigSourceJD (the default when unset) runs a Job Distributor and ships app configs via job
+	// proposals — the historical behavior.
+	AppConfigSourceJD AppConfigSource = "jd"
+	// AppConfigSourceLocal runs no JD; each committee verifier's app config is delivered as a mounted
+	// file that its bootstrapper waits for. See Cfg.AppConfigSource.
+	AppConfigSourceLocal AppConfigSource = "local"
+)
+
+// IsLocal reports whether the environment runs without a Job Distributor (app_config_source = "local").
+func (c *Cfg) IsLocal() bool {
+	return c.AppConfigSource == AppConfigSourceLocal
+}
+
 type Cfg struct {
 	// Version is incremented on breaking config schema changes so downstream
 	// consumers can detect incompatible configs. Version 0 (implicit/absent)
@@ -123,7 +140,15 @@ type Cfg struct {
 	// HighAvailability enables devenv-level service redundancy. When true,
 	// ExpandForHA() clones AggregatorInput / IndexerInput entries according
 	// to their per-service redundancy counts and updates the topology.
-	HighAvailability  bool                 `toml:"high_availability"`
+	HighAvailability bool `toml:"high_availability"`
+
+	// AppConfigSource selects how services receive their application config: "jd" (default, empty)
+	// runs a Job Distributor and ships app configs via job proposals; "local" runs no JD and delivers
+	// each committee verifier's app config as a mounted file (the bootstrapper waits for it, then
+	// starts). The local path exists so environments can run without the JD image (e.g. the CCV starter
+	// kit / partner testing). Currently local mode covers the committee verifier; executors still
+	// require JD and are skipped in local mode (see CCIP-12198 follow-up).
+	AppConfigSource   AppConfigSource      `toml:"app_config_source"`
 	ProtocolContracts ProtocolContractsCfg `toml:"protocol_contracts"`
 	// AggregatorEndpoints map the verifier qualifier to the aggregator URL for that verifier.
 	AggregatorEndpoints map[string]string `toml:"aggregator_endpoints"`
@@ -955,14 +980,14 @@ func fundExecutorTransmitters(
 func launchExecutors(ctx context.Context, in []*executorsvc.Input, blockchainOutputs []*blockchain.Output, jdInfra *jobs.JDInfrastructure) ([]*executorsvc.Output, error) {
 	var outs []*executorsvc.Output
 	for _, exec := range in {
-		if exec == nil || exec.Mode != services.Standalone {
+		if exec == nil || (exec.Mode != services.Standalone && exec.Mode != services.Local) {
 			continue
 		}
 		if exec.Out != nil {
 			outs = append(outs, exec.Out)
 			continue
 		}
-		// One nested sub-row per standalone executor we actually launch.
+		// One nested sub-row per executor we actually launch (standalone or local mode).
 		execChild := progress.Stage(ctx, fmt.Sprintf("%s (%s)", exec.ContainerName, exec.ChainFamily))
 		var transmitterKeyName string
 		if reg, regErr := chainreg.GetRegistry().Get(exec.ChainFamily); regErr == nil && reg.ExecutorInfo != nil {
@@ -1033,13 +1058,12 @@ func registerExecutorsWithJD(ctx context.Context, executors []*executorsvc.Input
 	return g.Wait()
 }
 
-// proposeJobsToExecutors proposes executor job specs to executors via JD.
-// Each executor receives its job spec with blockchain infos injected for its chain family.
+// proposeJobsToExecutors proposes executor job specs to executors via JD and waits for each
+// application factory to finish starting before the environment is returned.
 func proposeJobsToExecutors(
 	ctx context.Context,
 	executors []*executorsvc.Input,
 	executorJobSpecs map[string]bootstrap.JobSpec,
-	blockchainOutputs []*blockchain.Output,
 	jdClient offchain.Client,
 ) error {
 	var standalone []*executorsvc.Input
@@ -1062,26 +1086,14 @@ func proposeJobsToExecutors(
 			}
 			nodeID := exec.Out.JDNodeID
 
-			reg, err := chainreg.GetRegistry().Get(exec.ChainFamily)
-			if err != nil {
-				return fmt.Errorf("failed to get chain registration for family %s: %w", exec.ChainFamily, err)
-			}
-			if reg.ChainConfigLoader == nil {
-				return fmt.Errorf("chain config loader for family %s not found", exec.ChainFamily)
-			}
-			blockchainInfos, err := reg.ChainConfigLoader(blockchainOutputs)
-			if err != nil {
-				return fmt.Errorf("failed to load chain config for family %s: %w", exec.ChainFamily, err)
-			}
-
 			baseJobSpec, ok := executorJobSpecs[exec.ContainerName]
 			if !ok {
 				return fmt.Errorf("no job spec found for executor %s", exec.ContainerName)
 			}
 
-			jobSpec, err := executorsvc.RebuildExecutorJobSpecWithBlockchainInfos(baseJobSpec, blockchainInfos)
+			jobSpec, err := executorsvc.RebuildExecutorJobSpec(baseJobSpec)
 			if err != nil {
-				return fmt.Errorf("failed to add blockchain infos to job spec for %s: %w", exec.ContainerName, err)
+				return fmt.Errorf("failed to build job spec for %s: %w", exec.ContainerName, err)
 			}
 
 			L.Info().Msgf("Proposing job to executor %s (node %s)", exec.ContainerName, nodeID)
@@ -1098,6 +1110,9 @@ func proposeJobsToExecutors(
 				Str("nodeID", nodeID).
 				Str("proposalID", resp.Proposal.Id).
 				Msg("Proposed job to executor via JD")
+			if err := services.WaitForApplicationReady(gCtx, exec.Out.BootstrapDBURL, services.DefaultApplicationReadyTimeout); err != nil {
+				return fmt.Errorf("executor %s application did not become ready: %w", exec.ContainerName, err)
+			}
 
 			return nil
 		})
@@ -1132,15 +1147,22 @@ func launchStandaloneVerifiers(ctx context.Context, in *Cfg, blockchainOutputs [
 		}
 		m := monitoring
 		ver.Bootstrap.Monitoring = &m
+		// In the no-JD environment every committee verifier runs in bootstrap local mode: it comes up
+		// serving its signing keys and waits for its app config to be delivered as a file (see
+		// committeeverifier local mode). This overrides whatever mode the env file declared.
+		if in.IsLocal() {
+			ver.Mode = services.Local
+		}
 		in.Verifier[i] = &ver
 	}
 
 	outs := make([]*committeeverifier.Output, 0, len(in.Verifier))
-	// Start standalone verifiers if in standalone mode. Each standalone verifier
-	// gets its own progress sub-row; nesting is decided by whatever scope the
-	// caller threaded into ctx, so this loop is oblivious to its display depth.
+	// Launch verifiers that run their own bootstrapper (standalone JD mode or local no-JD mode); CL-mode
+	// verifiers get their config from the CL node instead and are launched elsewhere. Each launched
+	// verifier gets its own progress sub-row; nesting is decided by whatever scope the caller threaded
+	// into ctx, so this loop is oblivious to its display depth.
 	for _, ver := range in.Verifier {
-		if ver.Mode != services.Standalone {
+		if ver.Mode != services.Standalone && ver.Mode != services.Local {
 			continue
 		}
 
@@ -1348,13 +1370,12 @@ func registerStandaloneVerifiersWithJD(ctx context.Context, verifiers []*committ
 	return g.Wait()
 }
 
-// proposeJobsToStandaloneVerifiers proposes jobs to standalone verifiers via JD in parallel.
-// Each verifier receives its job spec with blockchain infos injected.
+// proposeJobsToStandaloneVerifiers proposes jobs to standalone verifiers via JD in parallel and
+// waits for each application factory to finish starting before the environment is returned.
 func proposeJobsToStandaloneVerifiers(
 	ctx context.Context,
 	verifiers []*committeeverifier.Input,
 	verifierJobSpecs map[string]bootstrap.JobSpec,
-	blockchainOutputs []*blockchain.Output,
 	jdClient offchain.Client,
 ) error {
 	// Filter to standalone verifiers only
@@ -1380,29 +1401,15 @@ func proposeJobsToStandaloneVerifiers(
 			}
 			nodeID := ver.Out.JDNodeID
 
-			reg, err := chainreg.GetRegistry().Get(ver.ChainFamily)
-			if err != nil {
-				return fmt.Errorf("failed to get chain registration for family %s: %w", ver.ChainFamily, err)
-			}
-			if reg.ChainConfigLoader == nil {
-				return fmt.Errorf("chain config loader for family %s not found", ver.ChainFamily)
-			}
-			blockchainInfos, err := reg.ChainConfigLoader(blockchainOutputs)
-			if err != nil {
-				return fmt.Errorf("failed to load chain config for family %s: %w", ver.ChainFamily, err)
-			}
-
 			// Get the base job spec
 			baseJobSpec, ok := verifierJobSpecs[ver.NOPAlias]
 			if !ok {
 				return fmt.Errorf("no job spec found for verifier %s", ver.NOPAlias)
 			}
 
-			// For standalone verifiers, we need to inject blockchain_infos into the config
-			// because they don't have CL node chain configuration
-			jobSpec, err := committeeverifier.RebuildVerifierJobSpecWithBlockchainInfos(baseJobSpec, blockchainInfos)
+			jobSpec, err := committeeverifier.RebuildVerifierJobSpec(baseJobSpec)
 			if err != nil {
-				return fmt.Errorf("failed to add blockchain infos to job spec for %s: %w", ver.NOPAlias, err)
+				return fmt.Errorf("failed to build job spec for %s: %w", ver.NOPAlias, err)
 			}
 
 			L.Info().Msgf("Proposing job to verifier %s: %s", ver.NOPAlias, jobSpec)
@@ -1419,10 +1426,171 @@ func proposeJobsToStandaloneVerifiers(
 				Str("nodeID", nodeID).
 				Str("proposalID", resp.Proposal.Id).
 				Msg("Proposed job to verifier via JD")
+			if err := services.WaitForApplicationReady(gCtx, ver.Out.BootstrapDBURL, services.DefaultApplicationReadyTimeout); err != nil {
+				return fmt.Errorf("verifier %s application did not become ready: %w", ver.NOPAlias, err)
+			}
 
 			return nil
 		})
 	}
 
 	return g.Wait()
+}
+
+// launchAndConfigureExecutors launches the executors, funds their transmitters, and delivers their
+// jobs via JD. It runs only in JD mode (executors still require a Job Distributor); the local no-JD
+// path skips it entirely (CCIP-12198 follow-up). Extracted from NewEnvironment so the local-mode
+// guard there stays a single conditional rather than a deeply nested block.
+func launchAndConfigureExecutors(
+	ctx context.Context,
+	in *Cfg,
+	e *deployment.Environment,
+	topology *ccvdeployment.EnvironmentTopology,
+	blockchainOutputs []*blockchain.Output,
+	impls []cciptestinterfaces.CCIP17Configuration,
+	ds datastore.MutableDataStore,
+	jdInfra *jobs.JDInfrastructure,
+) error {
+	// Route the central monitoring config into each executor's bootstrap input so it ends up in the
+	// generated bootstrap config. Defaults were applied earlier, so Bootstrap is non-nil. Each executor
+	// gets its own copy so a future per-service override can't alias others.
+	monitoring := topology.Monitoring
+	for _, exec := range in.Executor {
+		if exec == nil {
+			continue
+		}
+		if exec.Bootstrap == nil {
+			exec.Bootstrap = &services.BootstrapInput{}
+		}
+		m := monitoring
+		exec.Bootstrap.Monitoring = &m
+	}
+
+	if _, err := launchExecutors(ctx, in.Executor, blockchainOutputs, jdInfra); err != nil {
+		return fmt.Errorf("failed to create executors: %w", err)
+	}
+	if err := fundExecutorTransmitters(ctx, in.Executor, in.Blockchains, impls); err != nil {
+		return fmt.Errorf("failed to fund executor transmitters: %w", err)
+	}
+	if err := registerExecutorsWithJD(ctx, in.Executor, jdInfra); err != nil {
+		return err
+	}
+	executorJobSpecs, err := generateExecutorJobSpecs(e, in, topology, ds)
+	if err != nil {
+		return err
+	}
+	if jdInfra != nil && jdInfra.OffchainClient != nil {
+		if err := proposeJobsToExecutors(ctx, in.Executor, executorJobSpecs, jdInfra.OffchainClient); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// launchAndConfigureLocalExecutors is the no-JD counterpart of launchAndConfigureExecutors. It forces
+// each executor into local mode, launches them (so their bootstrappers come up serving keys), funds
+// their transmitters from the fetched bootstrap keys, generates their configs (ApplyExecutorConfig
+// runs with no JD via AllowMissingJD), and delivers each config as a mounted file the waiting
+// bootstrapper picks up. No JD registration or job proposal.
+func launchAndConfigureLocalExecutors(
+	ctx context.Context,
+	in *Cfg,
+	e *deployment.Environment,
+	topology *ccvdeployment.EnvironmentTopology,
+	blockchainOutputs []*blockchain.Output,
+	impls []cciptestinterfaces.CCIP17Configuration,
+	ds datastore.MutableDataStore,
+) error {
+	monitoring := topology.Monitoring
+	for _, exec := range in.Executor {
+		if exec == nil {
+			continue
+		}
+		// The no-JD environment runs every executor in bootstrap local mode, overriding the env file.
+		exec.Mode = services.Local
+		if exec.Bootstrap == nil {
+			exec.Bootstrap = &services.BootstrapInput{}
+		}
+		m := monitoring
+		exec.Bootstrap.Monitoring = &m
+	}
+
+	if _, err := launchExecutors(ctx, in.Executor, blockchainOutputs, nil); err != nil {
+		return fmt.Errorf("failed to create local executors: %w", err)
+	}
+	if err := fundExecutorTransmitters(ctx, in.Executor, in.Blockchains, impls); err != nil {
+		return fmt.Errorf("failed to fund executor transmitters: %w", err)
+	}
+
+	executorJobSpecs, err := generateExecutorJobSpecs(e, in, topology, ds)
+	if err != nil {
+		return err
+	}
+	return deliverLocalExecutorConfigs(in.Executor, executorJobSpecs)
+}
+
+// deliverLocalExecutorConfigs writes each local-mode executor's generated app config to the file
+// its bootstrapper is waiting on — the no-JD counterpart of proposeJobsToExecutors.
+func deliverLocalExecutorConfigs(
+	executors []*executorsvc.Input,
+	executorJobSpecs map[string]bootstrap.JobSpec,
+) error {
+	for _, exec := range executors {
+		if exec == nil || exec.Mode != services.Local {
+			continue
+		}
+		if exec.Out == nil {
+			return fmt.Errorf("executor %s has no output; was it launched?", exec.ContainerName)
+		}
+
+		baseJobSpec, ok := executorJobSpecs[exec.ContainerName]
+		if !ok {
+			return fmt.Errorf("no job spec found for executor %s", exec.ContainerName)
+		}
+		appConfig, err := executorsvc.BuildExecutorAppConfig(baseJobSpec)
+		if err != nil {
+			return fmt.Errorf("failed to build local app config for %s: %w", exec.ContainerName, err)
+		}
+		if err := executorsvc.DeliverLocalAppConfig(exec.Out, appConfig); err != nil {
+			return fmt.Errorf("failed to deliver local app config to %s: %w", exec.ContainerName, err)
+		}
+		L.Info().
+			Str("executor", exec.ContainerName).
+			Msg("Delivered app config to local-mode executor")
+	}
+	return nil
+}
+
+// deliverLocalVerifierConfigs writes each local-mode verifier's generated app config to the file its
+// bootstrapper is waiting on. It is the no-JD counterpart of proposeJobsToStandaloneVerifiers: the
+// same app config that JD would ship in a job proposal is delivered as a local file instead. It runs
+// after contract deployment, so the config carries the real deployed addresses.
+func deliverLocalVerifierConfigs(
+	verifiers []*committeeverifier.Input,
+	verifierJobSpecs map[string]bootstrap.JobSpec,
+) error {
+	for _, ver := range verifiers {
+		if ver.Mode != services.Local {
+			continue
+		}
+		if ver.Out == nil {
+			return fmt.Errorf("verifier %s has no output; was it launched?", ver.NOPAlias)
+		}
+
+		baseJobSpec, ok := verifierJobSpecs[ver.NOPAlias]
+		if !ok {
+			return fmt.Errorf("no job spec found for verifier %s", ver.NOPAlias)
+		}
+		appConfig, err := committeeverifier.BuildVerifierAppConfig(baseJobSpec)
+		if err != nil {
+			return fmt.Errorf("failed to build local app config for %s: %w", ver.NOPAlias, err)
+		}
+		if err := committeeverifier.DeliverLocalAppConfig(ver.Out, appConfig); err != nil {
+			return fmt.Errorf("failed to deliver local app config to %s: %w", ver.NOPAlias, err)
+		}
+		L.Info().
+			Str("verifier", ver.NOPAlias).
+			Msg("Delivered app config to local-mode verifier")
+	}
+	return nil
 }

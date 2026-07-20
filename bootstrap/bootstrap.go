@@ -7,8 +7,9 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -16,7 +17,6 @@ import (
 	"github.com/grafana/pyroscope-go"
 	"github.com/jmoiron/sqlx"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
-	"go.uber.org/zap/zapcore"
 
 	pb "github.com/smartcontractkit/chainlink-protos/orchestrator/feedsmanager"
 
@@ -44,6 +44,28 @@ const (
 
 	defaultStartupTimeout  = 10 * time.Second
 	defaultShutdownTimeout = 10 * time.Second
+
+	// localConfigPollInterval is how often the local-mode watcher checks for a not-yet-present app
+	// config file (see startLocal). There is no wait timeout: in a live deployment the operator may
+	// provision the config an arbitrary amount of time after the node starts, so the watcher polls until
+	// the file appears or the process is stopped.
+	localConfigPollInterval = 2 * time.Second
+)
+
+// AppConfigMode is how the bootstrapper loads application config. It is operator-provided via the
+// top-level app_config_mode key in the bootstrap config.toml (see NonSecretConfig)
+// so switching a service between JD and local is a config change, not an image rebuild. It drives
+// both config validation (see Config.validate) and startup routing (see Start).
+type AppConfigMode string
+
+const (
+	// AppConfigModeJD loads the app config from a Job Distributor and runs the full job lifecycle.
+	// This is the default when app_config_mode is unset.
+	AppConfigModeJD AppConfigMode = "jd_app_config"
+	// AppConfigModeLocal reads the app config from a local file (local_app_config_path) with no JD.
+	// A [db]+[keystore] bootstrap config is optional and, when present, initializes a Postgres-backed
+	// keystore so the service can sign; a service that needs no keystore (i.e. the token verifier) omits it.
+	AppConfigModeLocal AppConfigMode = "local_app_config"
 )
 
 // ServiceDeps are the dependencies passed to the services started by the bootstrapper.
@@ -68,24 +90,78 @@ type ServiceFactory interface {
 	MetricViews() []sdkmetric.View
 }
 
-// A runner adapts a [ServiceFactory] to the [lifecycle.JobRunner] interface.
-type runner struct {
-	lggr      logger.Logger
-	fac       ServiceFactory
-	deps      ServiceDeps
-	accCloser *AccessorCloserRegistry
+// ServiceFactoryValidator is an optional extension for factories that can validate a parsed job
+// spec without starting services or allocating runtime resources.
+type ServiceFactoryValidator interface {
+	// Validate checks the parsed job spec without side effects.
+	Validate(spec JobSpec) error
 }
 
-var _ lifecycle.JobRunner = (*runner)(nil)
+// A runner adapts a [ServiceFactory] to the [lifecycle.JobRunner] interface.
+type runner struct {
+	lggr             logger.Logger
+	fac              ServiceFactory
+	deps             ServiceDeps
+	accCloser        *AccessorCloserRegistry
+	applicationReady *atomic.Bool
+}
 
-// StartJob implements [lifecycle.JobRunner].
-// On Start failure, the deferred CloseAll is the only chance to release accessors.
-func (r *runner) StartJob(ctx context.Context, config string) (startErr error) {
-	r.lggr.Infow("starting job")
+var (
+	_ lifecycle.JobRunner           = (*runner)(nil)
+	_ lifecycle.ValidatingJobRunner = (*runner)(nil)
+)
+
+func parseJobSpec(ctx context.Context, config string) (JobSpec, error) {
+	if err := ctx.Err(); err != nil {
+		return JobSpec{}, fmt.Errorf("bootstrap: %w", err)
+	}
 
 	var spec JobSpec
 	if _, err := toml.Decode(config, &spec); err != nil {
-		return fmt.Errorf("bootstrap: failed to parse config: %w", err)
+		return JobSpec{}, fmt.Errorf("bootstrap: failed to parse config: %w", err)
+	}
+	return spec, nil
+}
+
+// ValidateJob implements [lifecycle.ValidatingJobRunner]. It parses the outer spec, decodes the
+// application-owned registry overlay that StartJob will parse again, and, when the factory
+// supports it, performs application-level validation. The active job and readiness state remain
+// untouched.
+func (r *runner) ValidateJob(ctx context.Context, config string) error {
+	spec, err := parseJobSpec(ctx, config)
+	if err != nil {
+		return err
+	}
+	// Decode-only mirror of the chainaccess.NewRegistry parse in StartJob. This rejects TOML syntax
+	// errors before the old job is stopped without constructing accessors. Removed
+	// blockchain_infos sections are ignored; NewRegistry logs a warning when the job starts.
+	// Application-specific checks are handled by the factory validator below.
+	var genericConfig chainaccess.GenericConfig
+	if _, err := toml.Decode(spec.AppConfig, &genericConfig); err != nil {
+		return fmt.Errorf("validate chain config: %w", err)
+	}
+	validator, ok := r.fac.(ServiceFactoryValidator)
+	if !ok {
+		return nil
+	}
+	if err := validator.Validate(spec); err != nil {
+		return fmt.Errorf("validate application config: %w", err)
+	}
+	return nil
+}
+
+// StartJob implements [lifecycle.JobRunner].
+// On Start failure, the factory is stopped best-effort and the deferred CloseAll
+// releases accessors (in that order, so the factory drains readers first).
+func (r *runner) StartJob(ctx context.Context, config string) (startErr error) {
+	if r.applicationReady != nil {
+		r.applicationReady.Store(false)
+	}
+	r.lggr.Infow("starting job")
+
+	spec, err := parseJobSpec(ctx, config)
+	if err != nil {
+		return err
 	}
 
 	// Initialize registry, wrapping it so the keystore is injected into any
@@ -107,12 +183,27 @@ func (r *runner) StartJob(ctx context.Context, config string) (startErr error) {
 		}
 	}()
 
-	return r.fac.Start(ctx, spec, r.deps)
+	if err := r.fac.Start(ctx, spec, r.deps); err != nil {
+		// The factory may have constructed and started components (profiler, writers,
+		// coordinator) before failing. Stop them so a later StartJob — rollback restart or
+		// pending-job retry — does not overwrite references to still-running components.
+		if stopErr := r.fac.Stop(ctx); stopErr != nil {
+			r.lggr.Warnw("stop factory after failed StartJob", "error", stopErr)
+		}
+		return err
+	}
+	if r.applicationReady != nil {
+		r.applicationReady.Store(true)
+	}
+	return nil
 }
 
 // StopJob implements [lifecycle.JobRunner].
 // CloseAll runs after factory.Stop so the coordinator drains its readers before underlying services are released.
 func (r *runner) StopJob(ctx context.Context) error {
+	if r.applicationReady != nil {
+		r.applicationReady.Store(false)
+	}
 	var errs []error
 	if err := r.fac.Stop(ctx); err != nil {
 		errs = append(errs, fmt.Errorf("stop service factory: %w", err))
@@ -137,23 +228,34 @@ type Bootstrapper struct {
 	infoServer       *infoServer
 	keys             []keyToInit
 
-	// jdMode is true when the bootstrapper runs in JD lifecycle mode (WithJD or default).
-	// false means static-TOML mode (WithTOMLAppConfig). Routing in Start() uses this flag
-	// rather than checking b.config != nil, because b.config may now be set in both modes
-	// (operator config is optionally loaded in static-TOML mode too).
-	jdMode bool
+	// mode is the resolved app-config mode (jd or local), read from the bootstrap config in
+	// NewBootstrapper. Routing in Start() switches on it.
+	mode AppConfigMode
+
+	// localConfigPath is the app config file read in local mode (config.LocalAppConfigPath).
+	localConfigPath string
 
 	// application
-	appCfg *string
-	fac    ServiceFactory
-	name   string
+	fac              ServiceFactory
+	name             string
+	applicationReady atomic.Bool
 
-	// accCloser is set by startWithAppConfig; JD mode uses runner.accCloser instead.
+	// accCloser is set by startLocal; JD mode uses runner.accCloser instead.
 	accCloser *AccessorCloserRegistry
+
+	// svcCancel cancels the long-lived context that backs the local-mode config watcher and the
+	// service it eventually starts. It is nil unless local mode is waiting for its app config file
+	// (see startLocal); Stop calls it to unblock the watcher and stop the service.
+	svcCancel context.CancelFunc
+	// watcherWG tracks the local-mode config-watcher goroutine so Stop can wait for it to finish.
+	watcherWG sync.WaitGroup
+	// localStartErr carries a failure from the local-mode config watcher's deferred service start back
+	// to Run, so a start failure after config delivery is fatal (the process exits) — matching the
+	// synchronous path, where a start error propagates to main. Buffered (size 1) and non-nil only
+	// while waiting for the app config file. nil in every other mode, so Run's receive never fires.
+	localStartErr chan error
 	// pyroscope is a saved reference to profiler to close it on stop
 	pyroscope *pyroscope.Profiler
-
-	logLevel zapcore.Level
 }
 
 // NewBootstrapper creates a new [Bootstrapper] with the given config and service factory.
@@ -163,9 +265,8 @@ func NewBootstrapper(
 	opts ...Option,
 ) (*Bootstrapper, error) {
 	b := &Bootstrapper{
-		fac:      fac,
-		name:     name,
-		logLevel: zapcore.InfoLevel,
+		fac:  fac,
+		name: name,
 	}
 	for _, opt := range opts {
 		if err := opt(b); err != nil {
@@ -173,110 +274,61 @@ func NewBootstrapper(
 		}
 	}
 
-	// Backwards compatibility: if no keys are declared, initialize the original default set.
-	// Deprecated: we should remove these once all apps and integrations define required keys.
-	if len(b.keys) == 0 {
-		b.keys = []keyToInit{
-			{DefaultCSAKeyName, "csa", keystore.Ed25519},
-			{defaultECDSASigningKeyName, "signing", keystore.ECDSA_S256},
-			{defaultEdDSASigningKeyName, "signing", keystore.Ed25519},
-		}
+	// JD mode always authenticates to the node with a CSA key; inject the default if the caller did
+	// not declare one. Local mode reuses the same injection for Beholder auth when it has a keystore.
+	if !hasCSAKey(b.keys) {
+		b.keys = append([]keyToInit{{DefaultCSAKeyName, "csa", keystore.Ed25519}}, b.keys...)
 	}
 
-	// WithJD and WithTOMLAppConfig are mutually exclusive.
-	if b.jdMode && b.appCfg != nil {
-		return nil, fmt.Errorf("WithJD and WithTOMLAppConfig are mutually exclusive")
+	// The bootstrap operator config (BOOTSTRAPPER_CONFIG_PATH, default /etc/config.toml) is always
+	// loaded; its top-level app_config_mode key selects the lifecycle. Non-secret config first, then
+	// overlay the secrets file (if present) so it wins for any section it defines.
+	b.config = &Config{}
+	paths := bootstrapConfigPaths(b.configPath, b.secretsPath)
+	mode, err := LoadAndValidateConfig(paths, b.config)
+	if err != nil {
+		return nil, fmt.Errorf("failed to load bootstrap config (%v): %w", paths, err)
+	}
+	b.mode = mode
+	if mode == AppConfigModeLocal {
+		b.localConfigPath = b.config.LocalAppConfigPath
 	}
 
-	// If neither mode was explicitly selected, default to JD lifecycle mode.
-	if !b.jdMode && b.appCfg == nil {
-		b.jdMode = true
+	// init tmp logger
+	b.lggr, err = logging.InitLogger(b.name, "", monitoring.Config{})
+	if err != nil {
+		return nil, fmt.Errorf("failed to init logger: %w", err)
 	}
 
-	if b.jdMode {
-		// JD mode requires a CSA key for node authentication. Inject the default if the caller
-		// did not explicitly declare one, so callers only need to list their application keys.
-		if !hasCSAKey(b.keys) {
-			b.keys = append([]keyToInit{{DefaultCSAKeyName, "csa", keystore.Ed25519}}, b.keys...)
-		}
+	return b, nil
+}
 
-		b.config = &Config{}
-		// Non-secret config first, then overlay the secrets file (if present) so it wins for any
-		// section it defines. The secrets file is optional at the file level: a legacy monolithic
-		// config.toml carrying [db]/[keystore] resolves no secrets file, skips the overlay, and
-		// decodes exactly as before.
-		paths := bootstrapConfigPaths(b.configPath, b.secretsPath)
-		if err := LoadAndValidateConfig(paths, b.config, true); err != nil {
-			return nil, fmt.Errorf("failed to load bootstrap config (%v): %w", paths, err)
-		}
-	} else if path := os.Getenv(ConfigPathEnv); path != "" {
-		// Static-TOML mode: optionally load operator config when BOOTSTRAPPER_CONFIG_PATH is
-		// explicitly set. The default fallback to DefaultConfigPath is intentionally suppressed
-		// here: TOKEN_VERIFIER_CONFIG_PATH and BOOTSTRAPPER_CONFIG_PATH both default to
-		// /etc/config.toml, so applying the default would decode the wrong file. See issue #013.
-		// No secrets file is loaded in static-TOML mode: the token verifier has no [db]/[keystore]
-		// and those are exactly the sections static mode ignores.
-		b.config = &Config{}
-		if err := LoadAndValidateConfig([]string{path}, b.config, false); err != nil {
-			return nil, fmt.Errorf("failed to load operator config (%s): %w", path, err)
-		}
-	}
-
+func (b *Bootstrapper) initMonitoring(signer crypto.Signer) error {
 	// do not fall back b.config to it
 	mon := monitoring.Config{}
 	if b.config != nil && b.config.Monitoring != nil {
 		mon = *b.config.Monitoring
 	}
-	err := monitoring.SetupBeholder(mon.Beholder, fac.MetricViews())
+	err := monitoring.SetupBeholder(mon.Beholder, signer, b.fac.MetricViews())
 	if err != nil {
-		return nil, fmt.Errorf("failed to setup beholder: %w", err)
+		return fmt.Errorf("failed to setup beholder: %w", err)
 	}
 	lggr, err := logging.InitLogger(b.name, mon.LogLevel, mon)
 	if err != nil {
-		return nil, fmt.Errorf("failed to init logger: %w", err)
+		return fmt.Errorf("failed to init logger: %w", err)
+	}
+	if b.lggr != nil {
+		_ = b.lggr.Sync() // stdout sync always fails on Linux/macOS, safe to ignore
+		b.lggr = lggr
 	}
 	b.lggr = lggr
 	pyroscopeProfiler, err := monitoring.SetupPyroscope(lggr, b.name, mon.Pyroscope)
 	if err != nil {
-		return nil, fmt.Errorf("failed to setup pyroscope: %w", err)
+		return fmt.Errorf("failed to setup pyroscope: %w", err)
 	}
 	b.pyroscope = pyroscopeProfiler
 	lggr.Infow("Monitoring initialized", "config", mon)
-
-	return b, nil
-}
-
-// startWithAppConfig is a passthrough to the application's Start function.
-func (b *Bootstrapper) startWithAppConfig(ctx context.Context) (startErr error) {
-	if b.appCfg == nil {
-		return fmt.Errorf("bootstrapper has no app config")
-	}
-
-	b.lggr.Infow("Calling NewRegistry with app config")
-	reg, err := chainaccess.NewRegistry(b.lggr, *b.appCfg)
-	if err != nil {
-		return fmt.Errorf("failed to create registry: %w", err)
-	}
-	b.accCloser = NewAccessorCloserRegistry(b.lggr, reg)
-	// safety net for partial-Start failure since Bootstrapper.Stop is not guaranteed
-	defer func() {
-		if startErr != nil {
-			if cErr := b.accCloser.CloseAll(); cErr != nil {
-				b.lggr.Warnw("close accessors after failed startWithAppConfig", "error", cErr)
-			}
-			b.accCloser = nil
-		}
-	}()
-
-	js := JobSpec{
-		Name:          "no-jd",
-		ExternalJobID: "",
-		SchemaVersion: 0,
-		Type:          "",
-		AppConfig:     *b.appCfg,
-	}
-
-	return b.fac.Start(ctx, js, ServiceDeps{Logger: b.lggr, Registry: b.accCloser})
+	return nil
 }
 
 // chainTypeFromString maps a config chain type string to the proto ChainType enum.
@@ -290,34 +342,11 @@ func chainTypeFromString(s string) (pb.ChainType, error) {
 	return pb.ChainType_CHAIN_TYPE_UNSPECIFIED, fmt.Errorf("unknown chain type %q", s)
 }
 
-// signingAddressFromPublicKey derives the onchain signing address for the given chain type
-// from a raw public key returned by the keystore.
-//
-// Format per family:
-//   - EVM:     EIP-55 checksummed address, 0x-prefixed  (e.g. "0xAbCd…")
-//   - Solana:  lowercase 20-byte Ethereum address, no 0x (e.g. "abcd…") — matches CL node prior art
-//   - Aptos:   full uncompressed public key, lowercase hex, no prefix    (e.g. "04abcd…")
-//   - Stellar: full uncompressed public key, lowercase hex, no prefix    (e.g. "04abcd…")
-//   - Canton:  full uncompressed public key, lowercase hex, no prefix    (e.g. "04abcd…")
-func signingAddressFromPublicKey(chainType pb.ChainType, pubKeyBytes []byte) (string, error) {
-	switch chainType {
-	case pb.ChainType_CHAIN_TYPE_EVM:
-		addr, _, err := keys.EVMAddressFromPublicKey(pubKeyBytes)
-		return addr, err
-	case pb.ChainType_CHAIN_TYPE_SOLANA:
-		return keys.SolanaAddressFromPublicKey(pubKeyBytes)
-	case pb.ChainType_CHAIN_TYPE_APTOS,
-		pb.ChainType_CHAIN_TYPE_STELLAR,
-		pb.ChainType_CHAIN_TYPE_CANTON:
-		return keys.RawPubKeyHex(pubKeyBytes), nil
-	default:
-		return "", fmt.Errorf("signing address derivation not implemented for chain type %v", chainType)
-	}
-}
-
 // buildUpdateNodeRequest constructs the UpdateNodeRequest to send to JD on connect.
 // It reads the public key for each key in signingKeyNames and builds one ChainConfig
-// entry per chain in chains, with the signing address shoehorned into OCR2Config.OcrKeyBundle.
+// entry per chain in chains. Each OCRKeyBundle carries OnchainSigningPubKey (canonical
+// secp256k1 public key) and OnchainSigningAddress (EVM-derived address for secp256k1
+// chains, or the chain-native address format for Solana).
 // Returns nil if there are no signing keys or no chains declared.
 func buildUpdateNodeRequest(
 	ctx context.Context,
@@ -344,7 +373,11 @@ func buildUpdateNodeRequest(
 		if err != nil {
 			return nil, err
 		}
-		addr, err := signingAddressFromPublicKey(chainType, signingKey.KeyInfo.PublicKey)
+		// OnchainSigningAddress is always the EVM-derived address for all chain
+		// families — family-specific consumers read OnchainSigningPubKey via a
+		// SigningIdentityReader instead. This keeps chain-specific derivation out of
+		// generic changeset code.
+		addr, _, err := keys.EVMAddressFromPublicKey(signingKey.KeyInfo.PublicKey)
 		if err != nil {
 			return nil, fmt.Errorf("chain %s/%s: %w", chain.Type, chain.ID, err)
 		}
@@ -375,6 +408,11 @@ func (b *Bootstrapper) startWithJDLifecycle(ctx context.Context) error {
 		return fmt.Errorf("failed to initialize keystore: %w", err)
 	}
 
+	err = b.initMonitoring(csaSigner)
+	if err != nil {
+		return fmt.Errorf("failed to initialize monitoring: %w", err)
+	}
+
 	jdPublicKey, err := keys.DecodeEd25519PublicKey(b.config.JD.ServerCSAPublicKey)
 	if err != nil {
 		return fmt.Errorf("failed to get JD public key: %w", err)
@@ -388,7 +426,7 @@ func (b *Bootstrapper) startWithJDLifecycle(ctx context.Context) error {
 		Keystore: keyStore,
 	}
 
-	jobRunner := &runner{lggr: b.lggr, fac: b.fac, deps: deps}
+	jobRunner := &runner{lggr: b.lggr, fac: b.fac, deps: deps, applicationReady: &b.applicationReady}
 
 	// b.keys is populated by WithKey options; collect names of signing keys to publish.
 	var signingKeyNames []string
@@ -417,11 +455,17 @@ func (b *Bootstrapper) startWithJDLifecycle(ctx context.Context) error {
 			return jdClient.UpdateNode(ctx, req)
 		}
 	}
+	jdMetrics, err := lifecycle.InitMetrics()
+	if err != nil {
+		b.lggr.Warnw("Failed to init JD lifecycle metrics; continuing without metrics", "error", err)
+		jdMetrics = nil
+	}
 	lifecycleManager, err := lifecycle.NewManager(lifecycle.Config{
 		JDClient:      jdClient,
 		JobStore:      jobstore.NewPostgresStore(db),
 		Runner:        jobRunner,
 		Logger:        logger.Named(b.lggr, "LifecycleManager"),
+		Metrics:       jdMetrics,
 		OnConnectHook: onConnectHook,
 	})
 	if err != nil {
@@ -433,7 +477,7 @@ func (b *Bootstrapper) startWithJDLifecycle(ctx context.Context) error {
 	}
 	b.lifecycleManager = lifecycleManager
 
-	infoServer := newInfoServer(b.lggr, keyStore, b.config.Server.ListenPort)
+	infoServer := newInfoServer(b.lggr, keyStore, b.config.Server.ListenPort, &b.applicationReady)
 	if err := infoServer.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start info server: %w", err)
 	}
@@ -442,25 +486,183 @@ func (b *Bootstrapper) startWithJDLifecycle(ctx context.Context) error {
 	return nil
 }
 
-// Start initializes the keystore, connects to JD, and starts the lifecycle manager.
+// startLocal runs the service without JD. When a [db]+[keystore] bootstrap config is provided it
+// initializes a Postgres-backed keystore (and, if a [server] port is set, the info server) so signing
+// services work; without one it runs keystore-less. There is no JD client, no lifecycle manager, and
+// no signing-key sync to JD.
+//
+// The app config is read from a local file. Two delivery modes are supported, chosen by whether the
+// file is present at startup:
+//
+//   - present: the service starts synchronously. This is the token verifier and
+//     the existing local-mode callers that mount the config at container start.
+//   - absent (keystore + info server only): the keystore and info server come up immediately and
+//     startLocal returns, then a background watcher waits for the file to appear and starts the
+//     service once it does.
+func (b *Bootstrapper) startLocal(ctx context.Context) error {
+	// A keystore is initialized only when both the DB URL and keystore password are configured.
+	// Services that sign (committee verifier, executor) supply them; the token verifier does not.
+	var keyStore keystore.Keystore
+	var csaSigner crypto.Signer
+	var dbURL, ksPassword string
+	if b.config != nil {
+		dbURL = strings.TrimSpace(b.config.DB.URL)
+		ksPassword = strings.TrimSpace(b.config.Keystore.Password)
+	}
+	switch {
+	case dbURL != "" && ksPassword != "":
+		db, err := connectToDB(ctx, dbURL)
+		if err != nil {
+			return fmt.Errorf("failed to connect to bootstrapper database: %w", err)
+		}
+		keyStore, csaSigner, err = initializeKeystore(ctx, b.lggr, db, ksPassword, b.keys)
+		if err != nil {
+			return fmt.Errorf("failed to initialize keystore: %w", err)
+		}
+	case dbURL != "" || ksPassword != "":
+		// Exactly one of [db]/[keystore] is set — almost certainly a misconfiguration. Warn loudly:
+		// running keystore-less here would surface later as a confusing nil-keystore failure in a
+		// signing service.
+		b.lggr.Warnw("local mode: bootstrap config sets only one of [db].url / [keystore].password; "+
+			"both are required to initialize the keystore, so the service will run keystore-less",
+			"hasDBURL", dbURL != "", "hasKeystorePassword", ksPassword != "")
+	}
+
+	if err := b.initMonitoring(csaSigner); err != nil {
+		return fmt.Errorf("failed to initialize monitoring: %w", err)
+	}
+
+	// The info server exposes health/key inspection. It needs a keystore and a configured port; in
+	// local mode [server] is optional, so start it only when both are present. It comes up before the
+	// app config is read so that key discovery works while a not-yet-present config is awaited.
+	if keyStore != nil && b.config.Server.ListenPort != 0 {
+		infoServer := newInfoServer(b.lggr, keyStore, b.config.Server.ListenPort, &b.applicationReady)
+		if err := infoServer.Start(ctx); err != nil {
+			return fmt.Errorf("failed to start info server: %w", err)
+		}
+		b.infoServer = infoServer
+	}
+
+	// Defer the service start until the config file is present. The watch path requires a keystore
+	// and info server (its whole purpose is exposing signing keys while the config is provisioned);
+	// a keystore-less service (token verifier) always takes the synchronous path, where a missing
+	// file is an immediate, clear error.
+	if b.infoServer != nil && !localConfigFileReady(b.localConfigPath) {
+		svcCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+		b.svcCancel = cancel
+		b.localStartErr = make(chan error, 1)
+		b.lggr.Infow("local mode: app config not present yet; serving keys and waiting for it to appear",
+			"path", b.localConfigPath)
+		b.watcherWG.Add(1)
+		go b.watchForConfigAndStart(svcCtx, keyStore)
+		return nil
+	}
+
+	return b.startLocalService(ctx, keyStore)
+}
+
+// startLocalService reads the app config file, builds the accessor registry (injecting the keystore
+// when one exists), and starts the service factory. It is the shared tail of both the synchronous and
+// the watch-and-start local paths.
+func (b *Bootstrapper) startLocalService(ctx context.Context, keyStore keystore.Keystore) (startErr error) {
+	b.applicationReady.Store(false)
+	appCfg, err := os.ReadFile(b.localConfigPath)
+	if err != nil {
+		return fmt.Errorf("failed to read local app config %q: %w", b.localConfigPath, err)
+	}
+
+	reg, err := chainaccess.NewRegistry(b.lggr, string(appCfg))
+	if err != nil {
+		return fmt.Errorf("failed to create registry: %w", err)
+	}
+	// Inject the keystore into accessors only when one exists; wrapping with a nil keystore would
+	// push nil into any KeystoreSetter accessor.
+	inner := reg
+	if keyStore != nil {
+		inner = NewKeystoreRegistry(b.lggr, reg, keyStore)
+	}
+	b.accCloser = NewAccessorCloserRegistry(b.lggr, inner)
+	// safety net for partial-Start failure since Bootstrapper.Stop is not guaranteed
+	defer func() {
+		if startErr != nil {
+			if cErr := b.accCloser.CloseAll(); cErr != nil {
+				b.lggr.Warnw("close accessors after failed startLocal", "error", cErr)
+			}
+			b.accCloser = nil
+		}
+	}()
+
+	js := JobSpec{Name: "local", AppConfig: string(appCfg)}
+	if err := b.fac.Start(ctx, js, ServiceDeps{Logger: b.lggr, Keystore: keyStore, Registry: b.accCloser}); err != nil {
+		return err
+	}
+	b.applicationReady.Store(true)
+	return nil
+}
+
+// watchForConfigAndStart polls for the local app config file and starts the service once it appears.
+// It polls indefinitely until the file appears or ctx is canceled (Stop) — there is no wait timeout,
+// because in a live deployment the operator may provision the config an arbitrary amount of time after
+// the node starts. A start failure is logged rather than fatal: the info server stays up, so the
+// operator/devenv can see the container is running but the service never became ready (devenv confirms
+// readiness via the service's own health endpoint after it delivers the config).
+func (b *Bootstrapper) watchForConfigAndStart(ctx context.Context, keyStore keystore.Keystore) {
+	defer b.watcherWG.Done()
+	ticker := time.NewTicker(localConfigPollInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			b.lggr.Infow("local mode: stopped waiting for app config", "path", b.localConfigPath)
+			return
+		case <-ticker.C:
+			if !localConfigFileReady(b.localConfigPath) {
+				continue
+			}
+			b.lggr.Infow("local mode: app config appeared, starting service", "path", b.localConfigPath)
+			if err := b.startLocalService(ctx, keyStore); err != nil {
+				// Hand the failure to Run so the process exits, as it would on the synchronous path.
+				// The error is not logged here: it is returned up to main, whose existing handling
+				// surfaces it (and avoids re-logging a value flagged as sensitive by static analysis —
+				// the error names config sources, not credential values).
+				select {
+				case b.localStartErr <- err:
+				default:
+				}
+			}
+			return
+		}
+	}
+}
+
+// localConfigFileReady reports whether the local app config file exists and is non-empty. The
+// non-empty check guards against reading a file mid-write; devenv writes it atomically (temp + rename)
+// so a size greater than zero means the full config is present.
+func localConfigFileReady(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir() && info.Size() > 0
+}
+
+// Start routes to the mode-specific startup path resolved in [NewBootstrapper].
 func (b *Bootstrapper) Start(ctx context.Context) error {
 	if b.lggr == nil {
 		return fmt.Errorf("bootstrapper has no logger")
 	}
-	if b.jdMode {
+	if b.mode == AppConfigModeJD {
 		return b.startWithJDLifecycle(ctx)
 	}
-	return b.startWithAppConfig(ctx)
+	return b.startLocal(ctx)
 }
 
-// Stop shuts down all active components.
-//
-// The two startup modes own mutually exclusive sets of objects, so stopping every
-// non-nil field is sufficient to cover both without double-stopping anything:
-//   - JD mode (lifecycleManager/infoServer set, appCfg nil): the lifecycle manager and info server are stopped.
-//     Accessor cleanup is owned by runner.StopJob, invoked by the lifecycle manager.
-//   - Static-config mode (appCfg set, lifecycleManager/infoServer nil): factory.Stop runs first, then accCloser.CloseAll
+// Stop shuts down all active components. The two modes own mutually exclusive sets of objects, so
+// stopping every non-nil field covers both without double-stopping:
+//   - JD mode: the lifecycle manager and info server are stopped; accessor cleanup is owned by
+//     runner.StopJob, invoked by the lifecycle manager.
+//   - Local mode: factory.Stop runs first, then accCloser.CloseAll; the info server is stopped if
+//     it was started.
 func (b *Bootstrapper) Stop(ctx context.Context) error {
+	b.applicationReady.Store(false)
 	if b.lifecycleManager != nil {
 		if err := b.lifecycleManager.Stop(); err != nil {
 			return fmt.Errorf("failed to stop lifecycle manager: %w", err)
@@ -477,20 +679,32 @@ func (b *Bootstrapper) Stop(ctx context.Context) error {
 			return fmt.Errorf("failed to stop pyroscope: %w", err)
 		}
 	}
-	if b.appCfg != nil {
-		var errs []error
-		if err := b.fac.Stop(ctx); err != nil {
-			errs = append(errs, fmt.Errorf("failed to stop service factory: %w", err))
-		}
-		if b.accCloser != nil {
-			if err := b.accCloser.CloseAll(); err != nil {
-				errs = append(errs, fmt.Errorf("failed to close accessors: %w", err))
-			}
-			b.accCloser = nil
-		}
-		return errors.Join(errs...)
+	if b.mode == AppConfigModeLocal {
+		return b.stopLocal(ctx)
 	}
 	return nil
+}
+
+// stopLocal tears down the local-mode service: it unblocks the config watcher (if still waiting) and
+// waits for it, so a service start racing with shutdown finishes or aborts before the factory is
+// stopped and accessors are closed.
+func (b *Bootstrapper) stopLocal(ctx context.Context) error {
+	if b.svcCancel != nil {
+		b.svcCancel()
+	}
+	b.watcherWG.Wait()
+
+	var errs []error
+	if err := b.fac.Stop(ctx); err != nil {
+		errs = append(errs, fmt.Errorf("failed to stop service factory: %w", err))
+	}
+	if b.accCloser != nil {
+		if err := b.accCloser.CloseAll(); err != nil {
+			errs = append(errs, fmt.Errorf("failed to close accessors: %w", err))
+		}
+		b.accCloser = nil
+	}
+	return errors.Join(errs...)
 }
 
 func connectToDB(ctx context.Context, connStr string) (*sqlx.DB, error) {
@@ -584,41 +798,17 @@ func initializeKeystore(ctx context.Context, lggr logger.Logger, db *sqlx.DB, ks
 // Option configures a [Bootstrapper].
 type Option func(*Bootstrapper) error
 
-// WithLogLevel sets the log level for the logger passed to the application.
-func WithLogLevel(logLevel zapcore.Level) Option {
-	return func(b *Bootstrapper) error {
-		b.logLevel = logLevel
-		return nil
-	}
-}
-
-// WithLogLevelFromEnv sets the log level from the LOG_LEVEL environment variable,
-// falling back to defaultLevel if the variable is unset or invalid.
-func WithLogLevelFromEnv(defaultLevel zapcore.Level) Option {
-	return func(b *Bootstrapper) error {
-		b.logLevel = defaultLevel
-		if lvlStr := os.Getenv("LOG_LEVEL"); lvlStr != "" {
-			var lvl zapcore.Level
-			if err := lvl.UnmarshalText([]byte(lvlStr)); err != nil {
-				_, _ = fmt.Fprintf(os.Stderr, "Invalid LOG_LEVEL '%s', defaulting to '%s'\n", lvlStr, defaultLevel)
-			} else {
-				b.logLevel = lvl
-			}
-		}
-		return nil
-	}
-}
-
 type keyToInit struct {
 	name    string
 	purpose string
 	keyType keystore.KeyType
 }
 
-// WithKey declares a key that the bootstrapper must ensure exists, creating it if absent.
-// When no WithKey options are provided, the bootstrapper applies a deprecated default set of
-// three keys (CSA, ECDSA signing, EdDSA signing). Passing one or more WithKey options suppresses
-// those defaults entirely; the caller is responsible for declaring every key it requires.
+// WithKey declares a key that the bootstrapper must ensure exists, creating it if absent. The caller
+// is responsible for declaring every key it requires; there is no default signing-key set.
+//
+// The exception is the CSA key used for JD authentication: if no CSA-purpose key is declared, the
+// default CSA key (DefaultCSAKeyName) is injected automatically.
 func WithKey(name, purpose string, keyType keystore.KeyType) Option {
 	return func(b *Bootstrapper) error {
 		b.keys = append(b.keys, keyToInit{
@@ -630,55 +820,25 @@ func WithKey(name, purpose string, keyType keystore.KeyType) Option {
 	}
 }
 
-// WithJD tells the bootstrapper to load config from JD and start the JD lifecycle manager.
-// This is the default option if no AppConfig is provided.
-// JD mode requires a keystore and a CSA key for node authentication. The bootstrapper
-// automatically provisions bootstrap.DefaultCSAKeyName unless a key with purpose "csa" is
-// already declared via WithKey.
-func WithJD() Option {
-	return func(b *Bootstrapper) error {
-		b.jdMode = true
-		return nil
-	}
-}
-
-// WithBootstrapperConfigPath sets the bootstrapper config file path. If not set, the bootstrapper will look
-// for the config path in the BOOTSTRAPPER_CONFIG_PATH environment variable, and if that is not
-// set, it will default to DefaultConfigPath.
-func WithBootstrapperConfigPath(path string) Option {
+// withBootstrapperConfigPath is a test-only injection seam.
+// We have this so that we can run parallel tests w/out t.Setenv, which is not thread-safe.
+func withBootstrapperConfigPath(path string) Option {
 	return func(b *Bootstrapper) error {
 		b.configPath = path
 		return nil
 	}
 }
 
-// WithBootstrapperSecretsPath sets the bootstrapper secrets file path. If not set, the bootstrapper
-// looks for the path in the BOOTSTRAPPER_SECRETS_PATH environment variable, and if that is not set,
-// it defaults to DefaultSecretsPath. The secrets file is optional: if the resolved path does not
-// exist, it is skipped (which is how a legacy monolithic config remains valid). Applies in JD mode
-// only.
-func WithBootstrapperSecretsPath(path string) Option {
+// withBootstrapperSecretsPath is a test-only injection seam.
+// We have this so that we can run parallel tests w/out t.Setenv, which is not thread-safe.
+func withBootstrapperSecretsPath(path string) Option {
 	return func(b *Bootstrapper) error {
 		b.secretsPath = path
 		return nil
 	}
 }
 
-// WithTOMLAppConfig tells bootstrap to load the application config from a given filepath instead of JD.
-func WithTOMLAppConfig(configFilePath string) Option {
-	return func(b *Bootstrapper) error {
-		configFilePath = filepath.Clean(configFilePath)
-		cfg, err := os.ReadFile(configFilePath)
-		if err != nil {
-			return err
-		}
-		cfgs := string(cfg)
-		b.appCfg = &cfgs
-		return nil
-	}
-}
-
-// Run is a convenience function that loads config, creates a bootstrapper,
+// Run is a convenience function that loads config, creates a [Bootstrapper],
 // starts it, and blocks until SIGINT or SIGTERM is received.
 func Run(
 	name string,
@@ -700,15 +860,26 @@ func Run(
 	sigCh := make(chan os.Signal, 1)
 	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
 
-	<-sigCh
-	bootstrapper.lggr.Infow("Received shutdown signal, stopping bootstrapper...")
+	// In local mode the app config may be delivered after startup; if the deferred service start then
+	// fails, localStartErr fires and the process exits with that error (as the synchronous path does).
+	// localStartErr is nil outside that path, so the receive simply never fires.
+	var startErr error
+	select {
+	case <-sigCh:
+		bootstrapper.lggr.Infow("Received shutdown signal, stopping bootstrapper...")
+	case startErr = <-bootstrapper.localStartErr:
+		bootstrapper.lggr.Errorw("service failed to start after app config was delivered; shutting down")
+	}
 
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), defaultShutdownTimeout)
 	defer shutdownCancel()
 
 	if err := bootstrapper.Stop(shutdownCtx); err != nil {
+		if startErr != nil {
+			return fmt.Errorf("service start failed (%w); also failed to stop bootstrapper: %v", startErr, err)
+		}
 		return fmt.Errorf("failed to stop bootstrapper: %w", err)
 	}
 
-	return nil
+	return startErr
 }

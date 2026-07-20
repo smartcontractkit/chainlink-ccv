@@ -18,6 +18,7 @@ verifier_id = "v1"
 	got, err := ParseVerifierBootstrapJobSpec(spec)
 	require.NoError(t, err)
 	require.Contains(t, got.AppConfig, `verifier_id = "v1"`)
+	require.Equal(t, "appConfig", got.ConfigFieldName)
 }
 
 func TestParseVerifierBootstrapJobSpec_CLCommitteeVerifierConfig(t *testing.T) {
@@ -32,6 +33,7 @@ verifier_id = "v1"
 	got, err := ParseVerifierBootstrapJobSpec(spec)
 	require.NoError(t, err)
 	require.Contains(t, got.AppConfig, `verifier_id = "v1"`)
+	require.Equal(t, "committeeVerifierConfig", got.ConfigFieldName)
 }
 
 func TestParseVerifierBootstrapJobSpec_MissingInnerConfig(t *testing.T) {

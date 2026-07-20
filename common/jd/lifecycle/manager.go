@@ -16,8 +16,9 @@ import (
 )
 
 const (
-	handleTimeout   = 10 * time.Second
-	shutdownTimeout = 5 * time.Second
+	controlPlaneTimeout    = 10 * time.Second
+	defaultJobStartTimeout = 60 * time.Second
+	shutdownTimeout        = 5 * time.Second
 )
 
 // State represents the current state of the job lifecycle manager.
@@ -56,6 +57,18 @@ type JobRunner interface {
 	StopJob(ctx context.Context) error
 }
 
+// ValidatingJobRunner is an optional extension for runners that can validate a replacement
+// without changing the active job or allocating runtime resources. The manager performs this
+// preflight before stopping the current job. Runners that implement only JobRunner retain the
+// stop-then-start replacement flow.
+type ValidatingJobRunner interface {
+	JobRunner
+
+	// ValidateJob checks the replacement spec without changing readiness, starting processing,
+	// or allocating resources that require cleanup.
+	ValidateJob(ctx context.Context, spec string) error
+}
+
 // Config holds the configuration for the lifecycle manager.
 type Config struct {
 	// JDClient is the client for connecting to the Job Distributor.
@@ -66,6 +79,8 @@ type Config struct {
 	Runner JobRunner
 	// Logger is the logger for the lifecycle manager.
 	Logger logger.Logger
+	// Metrics records proposal outcomes. Defaults to a no-op when nil.
+	Metrics Metrics
 	// OnConnectHook is an optional function called each time the JD connection is established.
 	// A non-nil error is logged as a warning but does not prevent job processing.
 	OnConnectHook func(ctx context.Context) error
@@ -85,13 +100,20 @@ type Manager struct {
 	jobStore      store.StoreInterface
 	runner        JobRunner
 	lggr          logger.Logger
+	metrics       Metrics
 	onConnectHook func(ctx context.Context) error
+
+	// Control-plane persistence/JD calls should stay short, but starting an application can include
+	// database setup and chain RPC initialization. Keeping separate budgets prevents those startup
+	// operations from inheriting a context already consumed by proposal bookkeeping.
+	controlPlaneTimeout time.Duration
+	jobStartTimeout     time.Duration
 
 	mu            sync.Mutex
 	state         State
 	currentJob    *store.Job
 	pendingJob    *store.Job // set when a proposal was saved but StartJob has not succeeded yet
-	shutdownCh    chan struct{}
+	shutdownCh    services.StopChan
 	wg            sync.WaitGroup
 	jdConnectedCh chan struct{}      // buffered 1; sent when async Connect succeeds
 	connectCancel context.CancelFunc // cancels the connect goroutine's context when Stop() is called
@@ -112,15 +134,22 @@ func NewManager(cfg Config) (*Manager, error) {
 	if cfg.Logger == nil {
 		return nil, errors.New("logger is required")
 	}
+	metrics := cfg.Metrics
+	if metrics == nil {
+		metrics = noopMetrics{}
+	}
 	return &Manager{
-		jdClient:      cfg.JDClient,
-		jobStore:      cfg.JobStore,
-		runner:        cfg.Runner,
-		lggr:          logger.With(cfg.Logger, "component", "JobLifecycleManager"),
-		onConnectHook: cfg.OnConnectHook,
-		state:         StateWaitingForJob,
-		shutdownCh:    make(chan struct{}),
-		jdConnectedCh: make(chan struct{}, 1),
+		jdClient:            cfg.JDClient,
+		jobStore:            cfg.JobStore,
+		runner:              cfg.Runner,
+		lggr:                logger.With(cfg.Logger, "component", "JobLifecycleManager"),
+		metrics:             metrics,
+		onConnectHook:       cfg.OnConnectHook,
+		controlPlaneTimeout: controlPlaneTimeout,
+		jobStartTimeout:     defaultJobStartTimeout,
+		state:               StateWaitingForJob,
+		shutdownCh:          make(services.StopChan),
+		jdConnectedCh:       make(chan struct{}, 1),
 	}, nil
 }
 
@@ -213,7 +242,7 @@ func (m *Manager) eventLoop() {
 		case <-m.jdConnectedCh:
 			m.lggr.Infow("Connected to Job Distributor")
 			if m.onConnectHook != nil {
-				hookCtx, hookCancel := context.WithTimeout(context.Background(), handleTimeout)
+				hookCtx, hookCancel := context.WithTimeout(context.Background(), m.controlPlaneTimeout)
 				if err := m.onConnectHook(hookCtx); err != nil {
 					m.lggr.Warnw("OnConnectHook failed", "error", err)
 				}
@@ -257,50 +286,107 @@ func (m *Manager) eventLoop() {
 }
 
 // handleProposal processes a new job proposal from JD.
-// Order: persist pending → stop old job → start new job → mark approved → approve with JD.
+// Order: validate replacement → persist pending → stop old job → start new job →
+// mark approved → approve with JD. Validation is optional: runners that implement only
+// JobRunner keep the existing stop-then-start flow.
 //
 // On StartJob failure with no prior job: the pending store record survives for restart recovery.
-// On StartJob failure during a replacement: the pending record is deleted and the old job is
-// restarted from the in-memory snapshot so the job keeps running.
-func (m *Manager) handleProposal(proposal *pb.ProposeJobRequest) error {
+// On validation failure during a replacement: the old job remains running and the proposal is not
+// persisted.
+// On StopJob or StartJob failure during a replacement: the pending record is deleted and the old
+// job is restarted from the in-memory snapshot so the job keeps running.
+func (m *Manager) handleProposal(proposal *pb.ProposeJobRequest) (retErr error) {
 	m.lggr.Infow("Handling job proposal",
 		"proposalID", proposal.Id,
 		"version", proposal.Version,
 		"currentState", m.GetState().String(),
 	)
 
-	ctx, cancel := context.WithTimeout(context.Background(), handleTimeout)
-	defer cancel()
-
-	// Persist the proposal as pending BEFORE attempting StartJob. This ensures
-	// that a crash between here and MarkJobApproved leaves a recoverable record.
-	// SavePendingJob only removes the previous pending row; any approved (old) row is preserved.
-	if err := m.jobStore.SavePendingJob(ctx, proposal.Id, proposal.Version, proposal.Spec); err != nil {
-		// The job will need to be re-proposed after fixing the error (whatever it may be).
-		m.lggr.Warnw("Failed to persist pending proposal", "error", err)
-	} else {
-		m.lggr.Infow("Proposal persisted as pending", "proposalID", proposal.Id)
-	}
-
 	m.mu.Lock()
+	// wasRunning indicates whether a job was already running when this proposal
+	// arrived. This flag is also used as the "replacement" metric label.
 	wasRunning := m.state == StateRunning
 	currentJob := m.currentJob // snapshot for fallback; non-nil when wasRunning
 	m.mu.Unlock()
 
-	// If we have a running job, stop it first
+	metricsCtx := context.Background()
+	defer func() {
+		result := resultSuccess
+		if retErr != nil {
+			result = resultError
+		}
+		m.metrics.IncProposal(metricsCtx, result, wasRunning)
+	}()
+
 	if wasRunning {
-		m.lggr.Infow("Stopping current job for replacement")
-		if err := m.runner.StopJob(ctx); err != nil {
-			return fmt.Errorf("failed to stop current job: %w", err)
+		// Reject invalid application config while the old job is still serving. Validation is
+		// deliberately side-effect free, so it runs before the proposal is persisted and needs
+		// no rollback. Runtime resources are built by StartJob only after cutover.
+		if err := m.validateReplacement(proposal.Spec); err != nil {
+			m.metrics.IncStepError(metricsCtx, stepValidateReplacement, true)
+			rejectCtx, rejectCancel := m.shutdownCh.CtxWithTimeout(m.controlPlaneTimeout)
+			defer rejectCancel()
+			if rejectErr := m.jdClient.RejectJob(rejectCtx, proposal.Id, proposal.Version); rejectErr != nil {
+				m.lggr.Warnw("Failed to reject job with JD after validation failure",
+					"error", rejectErr,
+					"proposalID", proposal.Id,
+				)
+				m.metrics.IncStepError(metricsCtx, stepRejectJob, true)
+			} else {
+				m.lggr.Infow("Rejected job with JD after validation failure",
+					"proposalID", proposal.Id,
+				)
+			}
+			return fmt.Errorf("failed to validate replacement job: %w", err)
 		}
 	}
 
-	// Start the new job
-	if err := m.runner.StartJob(ctx, proposal.Spec); err != nil {
+	controlCtx, controlCancel := context.WithTimeout(context.Background(), m.controlPlaneTimeout)
+	defer controlCancel()
+
+	// Persist the proposal as pending BEFORE attempting StartJob. This ensures
+	// that a crash between here and AcceptPendingJob leaves a recoverable record.
+	// SavePendingJob only removes the previous pending row; any approved (old) row is preserved.
+	// Persistence failure is non-fatal: the replacement continues from the in-memory proposal,
+	// and only crash recovery is degraded until JD re-proposes.
+	if err := m.jobStore.SavePendingJob(controlCtx, proposal.Id, proposal.Version, proposal.Spec); err != nil {
+		m.lggr.Warnw("Failed to persist pending proposal", "error", err)
+		m.metrics.IncStepError(metricsCtx, stepSavePending, wasRunning)
+	} else {
+		m.lggr.Infow("Proposal persisted as pending", "proposalID", proposal.Id)
+	}
+
+	if wasRunning {
+		m.lggr.Infow("Stopping current job for replacement")
+		if err := m.runner.StopJob(controlCtx); err != nil {
+			m.metrics.IncStepError(metricsCtx, stepStopJob, true)
+			return m.rollbackReplacement(proposal.Id, fmt.Errorf("failed to stop current job: %w", err), currentJob)
+		}
+	}
+
+	// Starting a job can include database setup and sequential RPC client initialization. Give it a
+	// fresh, dedicated budget instead of whatever remains of the control-plane timeout above.
+	if err := m.startJob(proposal.Spec); err != nil {
+		rejectCtx, rejectCancel := m.shutdownCh.CtxWithTimeout(m.controlPlaneTimeout)
+		defer rejectCancel()
+		if rejectErr := m.jdClient.RejectJob(rejectCtx, proposal.Id, proposal.Version); rejectErr != nil {
+			m.lggr.Warnw("Failed to reject job with JD after StartJob failure",
+				"error", rejectErr,
+				"proposalID", proposal.Id,
+			)
+			m.metrics.IncStepError(metricsCtx, stepRejectJob, wasRunning)
+		} else {
+			m.lggr.Infow("Rejected job with JD after StartJob failure",
+				"proposalID", proposal.Id,
+			)
+		}
+
 		if wasRunning {
-			return m.rollbackReplacement(ctx, proposal.Id, err, currentJob)
+			m.metrics.IncStepError(metricsCtx, stepStartReplacement, wasRunning)
+			return m.rollbackReplacement(proposal.Id, fmt.Errorf("failed to start replacement job: %w", err), currentJob)
 		}
 		// No old job to fall back to: leave pending record for restart recovery.
+		m.metrics.IncStepError(metricsCtx, stepStartJob, wasRunning)
 		m.mu.Lock()
 		m.state = StateWaitingForJob
 		m.currentJob = nil
@@ -316,13 +402,18 @@ func (m *Manager) handleProposal(proposal *pb.ProposeJobRequest) error {
 		return fmt.Errorf("failed to start new job: %w", err)
 	}
 
+	finalizeCtx, finalizeCancel := context.WithTimeout(context.Background(), m.controlPlaneTimeout)
+	defer finalizeCancel()
+
 	// StartJob succeeded - promote the pending record to approved.
-	if promoted, err := m.jobStore.AcceptPendingJob(ctx); err != nil {
+	if promoted, err := m.jobStore.AcceptPendingJob(finalizeCtx); err != nil {
 		m.lggr.Warnw("Failed to accept pending job in store", "error", err)
+		m.metrics.IncStepError(metricsCtx, stepAcceptPending, wasRunning)
 		// Continue anyway - the job is running. The store record stays 'pending', so the
 		// next restart will retry via the pending recovery path.
 	} else if !promoted {
 		m.lggr.Warnw("AcceptPendingJob reported no pending row — store may be inconsistent")
+		m.metrics.IncStepError(metricsCtx, stepAcceptPending, wasRunning)
 	}
 
 	// Update in-memory state
@@ -338,8 +429,9 @@ func (m *Manager) handleProposal(proposal *pb.ProposeJobRequest) error {
 	m.mu.Unlock()
 
 	// Approve the job with JD
-	if err := m.jdClient.ApproveJob(ctx, proposal.Id, proposal.Version); err != nil {
+	if err := m.jdClient.ApproveJob(finalizeCtx, proposal.Id, proposal.Version); err != nil {
 		m.lggr.Warnw("Failed to approve job with JD", "error", err)
+		m.metrics.IncStepError(metricsCtx, stepApproveJob, wasRunning)
 		// Continue anyway - job is running.
 	}
 
@@ -351,46 +443,88 @@ func (m *Manager) handleProposal(proposal *pb.ProposeJobRequest) error {
 	return nil
 }
 
-// rollbackReplacement is called when StartJob fails during a proposal replacement.
-// It removes the pending store record and restarts the old job to keep the job running.
-func (m *Manager) rollbackReplacement(ctx context.Context, newProposalID string, startErr error, oldJob *store.Job) error {
+// startJob gives application startup its own deadline. Proposal persistence and JD acknowledgements
+// use the shorter control-plane budget and must not consume time needed for service initialization.
+// Closing shutdownCh cancels an in-flight start so Manager.Stop does not wait for the full deadline.
+func (m *Manager) startJob(spec string) error {
+	ctx, cancel := m.shutdownCh.CtxWithTimeout(m.jobStartTimeout)
+	defer cancel()
+	return m.runner.StartJob(ctx, spec)
+}
+
+// validateReplacement asks an optional ValidatingJobRunner to preflight a replacement while the
+// current job is still active. Validation is side-effect-free config checking, so it gets the
+// control-plane budget rather than the job-start one.
+func (m *Manager) validateReplacement(spec string) error {
+	runner, ok := m.runner.(ValidatingJobRunner)
+	if !ok {
+		return nil
+	}
+	ctx, cancel := m.shutdownCh.CtxWithTimeout(m.controlPlaneTimeout)
+	defer cancel()
+	return runner.ValidateJob(ctx, spec)
+}
+
+// rollbackReplacement is called after replacement cutover has been attempted. StopJob may return
+// an error after partially stopping the service, so both stop and start failures use the same
+// recovery: remove the pending record and restart the old spec.
+func (m *Manager) rollbackReplacement(newProposalID string, cause error, oldJob *store.Job) error {
+	ctx, cancel := m.shutdownCh.CtxWithTimeout(m.controlPlaneTimeout)
+	defer cancel()
+	metricsCtx := context.Background()
+	var errs error
 	if delErr := m.jobStore.DeletePendingJob(ctx); delErr != nil {
 		m.lggr.Warnw("Failed to remove pending record during rollback", "error", delErr)
+		m.metrics.IncStepError(metricsCtx, stepRollbackDeletePending, true)
+		errs = errors.Join(errs, fmt.Errorf("delete pending replacement: %w", delErr))
 	}
 	m.lggr.Infow("Restarting previous job after replacement failure",
 		"newProposalID", newProposalID,
 		"fallbackProposalID", oldJob.ProposalID,
 	)
-	if restartErr := m.runner.StartJob(ctx, oldJob.Spec); restartErr != nil {
+	if restartErr := m.startJob(oldJob.Spec); restartErr != nil {
 		m.lggr.Errorw("Failed to restart previous job after replacement failure", "error", restartErr)
+		m.metrics.IncStepError(metricsCtx, stepRollbackRestart, true)
 		m.mu.Lock()
 		m.state = StateWaitingForJob
 		m.currentJob = nil
 		m.mu.Unlock()
+		errs = errors.Join(errs, fmt.Errorf("restart previous job: %w", restartErr))
 	}
-	return fmt.Errorf("failed to start replacement job: %w", startErr)
+	return errors.Join(cause, errs)
 }
 
 // retryPendingJob attempts to start the pending job after JD has reconnected.
 // On success it marks the store record approved, updates in-memory state, and calls ApproveJob.
 // On failure the pending record in the store is preserved for the next restart.
-func (m *Manager) retryPendingJob(job *store.Job) error {
+func (m *Manager) retryPendingJob(job *store.Job) (retErr error) {
 	m.lggr.Infow("Retrying pending job after JD connect",
 		"proposalID", job.ProposalID,
 		"version", job.Version,
 	)
+	metricsCtx := context.Background()
+	defer func() {
+		result := resultSuccess
+		if retErr != nil {
+			result = resultError
+		}
+		m.metrics.IncProposal(metricsCtx, result, false)
+	}()
 
-	ctx, cancel := context.WithTimeout(context.Background(), handleTimeout)
-	defer cancel()
-
-	if err := m.runner.StartJob(ctx, job.Spec); err != nil {
+	if err := m.startJob(job.Spec); err != nil {
+		m.metrics.IncStepError(metricsCtx, stepStartJob, false)
 		return fmt.Errorf("failed to start pending job: %w", err)
 	}
 
+	ctx, cancel := context.WithTimeout(context.Background(), m.controlPlaneTimeout)
+	defer cancel()
+
 	if promoted, err := m.jobStore.AcceptPendingJob(ctx); err != nil {
 		m.lggr.Warnw("Failed to accept pending job in store", "error", err)
+		m.metrics.IncStepError(metricsCtx, stepAcceptPending, false)
 	} else if !promoted {
 		m.lggr.Warnw("AcceptPendingJob reported no pending row — store may be inconsistent")
+		m.metrics.IncStepError(metricsCtx, stepAcceptPending, false)
 	}
 
 	m.mu.Lock()
@@ -406,6 +540,7 @@ func (m *Manager) retryPendingJob(job *store.Job) error {
 
 	if err := m.jdClient.ApproveJob(ctx, job.ProposalID, job.Version); err != nil {
 		m.lggr.Warnw("Failed to approve pending job with JD", "error", err)
+		m.metrics.IncStepError(metricsCtx, stepApproveJob, false)
 	}
 
 	m.lggr.Infow("Pending job started successfully",
@@ -420,7 +555,7 @@ func (m *Manager) retryPendingJob(job *store.Job) error {
 func (m *Manager) handleDelete(req *pb.DeleteJobRequest) error {
 	m.lggr.Infow("Handling delete request", "id", req.Id, "currentState", m.GetState().String())
 
-	ctx, cancel := context.WithTimeout(context.Background(), handleTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), m.controlPlaneTimeout)
 	defer cancel()
 
 	m.mu.Lock()

@@ -26,6 +26,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/commit"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/heartbeat"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vsecrets"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -40,21 +41,38 @@ type factory struct {
 	chainStatusDB    sqlutil.DataSource
 }
 
+var _ bootstrap.ServiceFactoryValidator = (*factory)(nil)
+
 // NewCommitteeVerifierServiceFactory creates a new ServiceFactory for the committee verifier service.
+// The factory loads the verifier secrets file itself in Start, so each chain-family binary's main.go
+// stays free of secrets-loading boilerplate.
 func NewCommitteeVerifierServiceFactory() bootstrap.ServiceFactory {
 	return &factory{}
+}
+
+func validateJobSpec(spec bootstrap.JobSpec) (commit.Config, error) {
+	var config commit.Config
+	if err := spec.GetAppConfig(&config); err != nil {
+		return commit.Config{}, fmt.Errorf("failed to get app config: %w", err)
+	}
+	if err := config.Validate(); err != nil {
+		return commit.Config{}, err
+	}
+	return config, nil
+}
+
+// Validate implements [bootstrap.ServiceFactoryValidator].
+func (f *factory) Validate(spec bootstrap.JobSpec) error {
+	_, err := validateJobSpec(spec)
+	return err
 }
 
 // Start implements [bootstrap.ServiceFactory].
 func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootstrap.ServiceDeps) error {
 	protocol.InitChainSelectorCache()
 
-	var config commit.Config
-	if err := spec.GetAppConfig(&config); err != nil {
-		return fmt.Errorf("failed to get app config: %w", err)
-	}
-
-	if err := config.Validate(); err != nil {
+	config, err := validateJobSpec(spec)
+	if err != nil {
 		return err
 	}
 
@@ -65,6 +83,15 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 	}
 
 	lggr := f.lggr
+
+	// Load the verifier secrets file (DB URL + aggregator HMAC credentials). Owning this here keeps
+	// per-binary main.go free of boilerplate; an absent file falls back to environment variables.
+	secrets, err := vsecrets.LoadFromEnv(vsecrets.CommitteeVerifierSecretsPathEnv, vsecrets.DefaultCommitteeVerifierSecretsPath)
+	if err != nil {
+		lggr.Errorw("Failed to load verifier secrets", "error", err)
+		return fmt.Errorf("failed to load verifier secrets: %w", err)
+	}
+
 	if config.PyroscopeURL != "" {
 		profiler, err := StartPyroscope(lggr, config.PyroscopeURL, "verifier")
 		if err != nil {
@@ -103,11 +130,13 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 	}
 	lggr.Infow("Resolved aggregators", "count", len(resolvedAggregators))
 
-	// Each aggregator authenticates the verifier with its own HMAC credential, read from
-	// per-aggregator environment variables (VERIFIER_AGGREGATOR_<NAME>_API_KEY/SECRET_KEY).
+	// Each aggregator authenticates the verifier with its own HMAC credential, resolved from the
+	// verifier secrets file (keyed by secret_name) with fallback to the per-aggregator environment
+	// variables (VERIFIER_AGGREGATOR_<NAME>_API_KEY/SECRET_KEY).
+	aggregatorSecrets := secrets.AggregatorSecrets()
 	aggregatorHMACs := make([]*hmac.ClientConfig, len(resolvedAggregators))
 	for i, a := range resolvedAggregators {
-		hmacConfig, hErr := a.ResolveHMACConfig()
+		hmacConfig, hErr := a.ResolveHMACConfig(aggregatorSecrets)
 		if hErr != nil {
 			lggr.Errorw("Failed to resolve aggregator credentials", "error", hErr, "aggregator", a.Label())
 			return fmt.Errorf("failed to resolve aggregator credentials: %w", hErr)
@@ -195,7 +224,7 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 	lggr.Infow("Using signer address", "address", signerAddress)
 
 	// Create chain status manager (PostgreSQL storage) with monitoring decorator
-	chainStatusManager, chainStatusDB, err := createChainStatusManager(lggr, config.VerifierID, verifierMonitoring)
+	chainStatusManager, chainStatusDB, err := createChainStatusManager(lggr, config.VerifierID, verifierMonitoring, secrets)
 	if err != nil {
 		lggr.Errorw("Failed to create chain status manager", "error", err)
 		return fmt.Errorf("failed to create chain status manager: %w", err)
@@ -441,8 +470,8 @@ func (f *factory) Stop(ctx context.Context) error {
 	return allErrors
 }
 
-func createChainStatusManager(lggr logger.Logger, verifierID string, monitoring verifier.Monitoring) (protocol.ChainStatusManager, sqlutil.DataSource, error) {
-	sqlDB, err := ConnectToPostgresDB(lggr)
+func createChainStatusManager(lggr logger.Logger, verifierID string, monitoring verifier.Monitoring, secrets *vsecrets.VerifierSecrets) (protocol.ChainStatusManager, sqlutil.DataSource, error) {
+	sqlDB, err := ConnectToPostgresDB(lggr, secrets)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to connect to Postgres DB: %w", err)
 	}

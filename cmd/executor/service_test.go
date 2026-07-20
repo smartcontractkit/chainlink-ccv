@@ -38,7 +38,8 @@ func init() {
 	// Register a test EVM factory so that NewRegistry picks it up.
 	// Default nil evmFactory keeps existing tests working (GetAccessor returns error);
 	// tests that need a working accessor assign evmFactory before calling Start.
-	chainaccess.Register("evm", func(_ logger.Logger, _ chainaccess.GenericConfig) (chainaccess.AccessorFactory, error) { //nolint:staticcheck
+	// Register uses GenericConfig because the registry still decodes it.
+	chainaccess.Register("evm", func(_ logger.Logger, _ chainaccess.GenericConfig) (chainaccess.AccessorFactory, error) {
 		return &evmFactoryProxy{}, nil
 	})
 }
@@ -94,6 +95,58 @@ func TestFactory_Stop_WithCoordinator(t *testing.T) {
 	// Close on an unstarted coordinator returns an error from the state machine.
 	err = f.Stop(context.Background())
 	require.Error(t, err)
+}
+
+// TestFactory_Validate exercises the ServiceFactoryValidator implementation: the same
+// decode+normalize checks Start performs, but with no services constructed.
+func TestFactory_Validate(t *testing.T) {
+	const appConfig = `
+executor_id = "test-executor"
+indexer_address = ["http://localhost:9090"]
+
+[chain_configuration."5009297550715157269"]
+off_ramp_address     = "0x0000000000000000000000000000000000000001"
+rmn_address          = "0x0000000000000000000000000000000000000002"
+default_executor_address = "0x0000000000000000000000000000000000000003"
+executor_pool        = ["test-executor"]
+`
+	f := NewFactory()
+
+	require.NoError(t, f.Validate(bootstrap.JobSpec{AppConfig: appConfig}))
+	assert.Nil(t, f.coordinator, "validation must not construct services")
+	assert.Nil(t, f.profiler, "validation must not construct services")
+
+	err := f.Validate(bootstrap.JobSpec{AppConfig: "not valid toml =="})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to decode executor config")
+
+	// Empty TOML decodes but required fields are absent.
+	err = f.Validate(bootstrap.JobSpec{AppConfig: ""})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "failed to normalize executor config")
+}
+
+// TestFactory_Stop_Idempotent verifies Stop clears its references after the close attempt,
+// so a repeated Stop (e.g. best-effort teardown during a replacement rollback) is a no-op.
+func TestFactory_Stop_Idempotent(t *testing.T) {
+	coord, err := executorsvc.NewCoordinator(
+		logger.Test(t),
+		mocks.NewMockExecutor(t),
+		mocks.NewMockMessageSubscriber(t),
+		mocks.NewMockLeaderElector(t),
+		monitoring.NewNoopExecutorMonitoring(),
+		8*time.Hour,
+		mocks.NewMockTimeProvider(t),
+		1,
+		time.Second,
+	)
+	require.NoError(t, err)
+
+	f := NewFactory()
+	f.coordinator = coord
+	require.Error(t, f.Stop(context.Background()), "Close on an unstarted coordinator errors")
+	assert.Nil(t, f.coordinator)
+	require.NoError(t, f.Stop(context.Background()), "second Stop is a no-op")
 }
 
 func TestFactory_Start_InvalidTOML(t *testing.T) {

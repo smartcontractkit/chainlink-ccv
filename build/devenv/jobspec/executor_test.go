@@ -18,6 +18,7 @@ executor_id = "e1"
 	got, err := ParseExecutorBootstrapJobSpec(spec)
 	require.NoError(t, err)
 	require.Contains(t, got.AppConfig, `executor_id = "e1"`)
+	require.Equal(t, "appConfig", got.ConfigFieldName)
 }
 
 func TestParseExecutorBootstrapJobSpec_CLExecutorConfig(t *testing.T) {
@@ -32,6 +33,7 @@ executor_id = "e1"
 	got, err := ParseExecutorBootstrapJobSpec(spec)
 	require.NoError(t, err)
 	require.Contains(t, got.AppConfig, `executor_id = "e1"`)
+	require.Equal(t, "executorConfig", got.ConfigFieldName)
 }
 
 func TestParseExecutorBootstrapJobSpec_MissingInnerConfig(t *testing.T) {
