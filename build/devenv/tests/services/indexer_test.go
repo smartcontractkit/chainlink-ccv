@@ -10,6 +10,9 @@ import (
 )
 
 func TestServiceIndexer(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping service test in short mode; requires Docker service containers")
+	}
 	out, err := services.NewIndexer(&services.IndexerInput{
 		Image:          "indexer:latest",
 		SourceCodePath: "../../../indexer",

@@ -83,7 +83,7 @@ func (tvf *tokenVerifierFactory) Stop(ctx context.Context) error {
 
 // Start starts the service with the parsed config received from the bootstrapper.
 func (tvf *tokenVerifierFactory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootstrap.ServiceDeps) error {
-	var appConfig token.ConfigWithBlockchainInfos
+	var appConfig token.Config
 	if err := spec.GetAppConfig(&appConfig); err != nil {
 		return fmt.Errorf("unable to decode app config: %w", err)
 	}
@@ -109,13 +109,13 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, spec bootstrap.JobSp
 	protocol.InitChainSelectorCache()
 
 	// TODO: validate config?
-	cfg := appConfig.Config
-	blockchainInfos := appConfig.BlockchainInfos
+	cfg := appConfig
 
-	// Initialize source readers from factory.
-	blockchainHelper := cmd.LoadBlockchainInfo(ctx, tvf.lggr, blockchainInfos)
+	// On-ramp addresses are the application-owned source-chain set. RPC connection and tuning
+	// details are supplied independently by each chain family's local config.
+	chainSelectors := chainaccess.Infos[string](cfg.OnRampAddresses).GetAllChainSelectors()
 	sourceReaders := make(map[protocol.ChainSelector]chainaccess.SourceReader)
-	for _, selector := range blockchainHelper.GetAllChainSelectors() {
+	for _, selector := range chainSelectors {
 		accessor, err := deps.Registry.GetAccessor(ctx, selector)
 		if err != nil {
 			tvf.lggr.Errorw("Skipping chain, failed to get accessor for chain selector", "error", err, "chainSelector", selector)

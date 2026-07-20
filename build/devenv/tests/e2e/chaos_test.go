@@ -21,6 +21,9 @@ import (
 )
 
 func TestChaos_AggregatorOutageRecovery(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping e2e test in short mode; requires a running devenv environment")
+	}
 	ctx, lib, setup := setupChaosEVM(t, GetSmokeTestConfig())
 	src, dst := chaosChainPair(t, ctx, lib)
 
@@ -53,6 +56,9 @@ func TestChaos_AggregatorOutageRecovery(t *testing.T) {
 }
 
 func TestChaos_VerifierFaultToleranceThresholdViolated(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping e2e test in short mode; requires a running devenv environment")
+	}
 	ctx, lib, setup := setupChaosEVM(t, GetSmokeTestConfig())
 	src, dst := chaosChainPair(t, ctx, lib)
 
@@ -124,6 +130,9 @@ func TestChaos_VerifierFaultToleranceThresholdViolated(t *testing.T) {
 }
 
 func TestChaos_AllExecutorsDown(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping e2e test in short mode; requires a running devenv environment")
+	}
 	ctx, lib, setup := setupChaosEVM(t, GetSmokeTestConfig())
 	src, dst := chaosChainPair(t, ctx, lib)
 
@@ -159,6 +168,9 @@ func TestChaos_AllExecutorsDown(t *testing.T) {
 }
 
 func TestChaos_IndexerDown(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping e2e test in short mode; requires a running devenv environment")
+	}
 	ctx, lib, setup := setupChaosEVM(t, GetSmokeTestConfig())
 	src, dst := chaosChainPair(t, ctx, lib)
 

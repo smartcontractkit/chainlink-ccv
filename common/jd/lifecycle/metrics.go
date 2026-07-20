@@ -18,6 +18,7 @@ const (
 	// discrete step in handleProposal/retryPendingJob that can fail. A single
 	// proposal may record several of these.
 	stepSavePending           = "save_pending"
+	stepValidateReplacement   = "validate_replacement"
 	stepStopJob               = "stop_job"
 	stepStartJob              = "start_job"
 	stepStartReplacement      = "start_replacement"

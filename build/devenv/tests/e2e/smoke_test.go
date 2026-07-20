@@ -25,6 +25,9 @@ const (
 )
 
 func TestE2ESmoke_Basic(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping e2e test in short mode; requires a running devenv environment")
+	}
 	ctx := ccv.Plog.WithContext(t.Context())
 
 	lib, err := ccv.NewLibFromCCVEnv(&ccv.Plog, GetSmokeTestConfig())
