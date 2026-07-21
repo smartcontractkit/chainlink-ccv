@@ -344,3 +344,5 @@ require (
 	sigs.k8s.io/structured-merge-diff/v4 v4.4.2 // indirect
 	sigs.k8s.io/yaml v1.4.0 // indirect
 )
+
+replace go.dedis.ch/fixbuf => go.dedis.ch/fixbuf v1.0.4-0.20191127102231-6f51ba7ae63d

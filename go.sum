@@ -894,8 +894,8 @@ github.com/zeebo/xxh3 v1.0.2/go.mod h1:5NWz9Sef7zIDm2JHfFlcQvNekmcEl9ekUZQQKCYaD
 github.com/zenazn/goji v0.9.0/go.mod h1:7S9M489iMyHBNxwZnk9/EHS098H4/F6TATF2mIxtB1Q=
 github.com/zksync-sdk/zksync2-go v1.1.1-0.20250620124214-2c742ee399c6 h1:VRdX3Gn/I7ITbzUY4ZNfgn65tdQM9Zhf2b7KP0HZllk=
 github.com/zksync-sdk/zksync2-go v1.1.1-0.20250620124214-2c742ee399c6/go.mod h1:NWNlQS21isOsSsn+hLRAPpiuv+3P+LcdaZNuRt2T5Yo=
-go.dedis.ch/fixbuf v1.0.3 h1:hGcV9Cd/znUxlusJ64eAlExS+5cJDIyTyEG+otu5wQs=
-go.dedis.ch/fixbuf v1.0.3/go.mod h1:yzJMt34Wa5xD37V5RTdmp38cz3QhMagdGoem9anUalw=
+go.dedis.ch/fixbuf v1.0.4-0.20191127102231-6f51ba7ae63d h1:dRZ6Kd3r/mqLiJ/+8PaHTT7P551wni2AqSFX6MrjmeE=
+go.dedis.ch/fixbuf v1.0.4-0.20191127102231-6f51ba7ae63d/go.mod h1:yzJMt34Wa5xD37V5RTdmp38cz3QhMagdGoem9anUalw=
 go.dedis.ch/kyber/v3 v3.0.4/go.mod h1:OzvaEnPvKlyrWyp3kGXlFdp7ap1VC6RkZDTaPikqhsQ=
 go.dedis.ch/kyber/v3 v3.0.9/go.mod h1:rhNjUUg6ahf8HEg5HUvVBYoWY4boAafX8tYxX+PS+qg=
 go.dedis.ch/kyber/v3 v3.1.0 h1:ghu+kiRgM5JyD9TJ0hTIxTLQlJBR/ehjWvWwYW3XsC0=
