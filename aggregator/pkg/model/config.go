@@ -462,6 +462,7 @@ type AggregatorConfig struct {
 }
 
 type HeartbeatConfig struct {
+	// StoreType selects the storage backend for heartbeat data; currently "memory" or "redis".
 	StoreType HeartbeatStoreType `toml:"storeType"`
 	// Redis configuration (only used when StoreType is "redis")
 	Redis *HeartbeatRedisConfig `toml:"redis,omitempty"`
@@ -1166,25 +1167,23 @@ func (c *AggregatorConfig) loadRateLimiterRedisConfig(s *secrets.Secrets) error 
 }
 
 func (c *AggregatorConfig) loadHeartbeatRedisConfig(s *secrets.Secrets) error {
-	if c.Heartbeat.StoreType == HeartbeatStoreTypeRedis {
-		if c.Heartbeat.Redis == nil {
-			c.Heartbeat.Redis = &HeartbeatRedisConfig{}
-		}
+	if c.Heartbeat.Redis == nil {
+		c.Heartbeat.Redis = &HeartbeatRedisConfig{}
+	}
 
-		redisAddress := os.Getenv("AGGREGATOR_REDIS_ADDRESS")
-		if redisAddress == "" {
-			return errors.New("AGGREGATOR_REDIS_ADDRESS environment variable is required")
+	redisAddress := os.Getenv("AGGREGATOR_REDIS_ADDRESS")
+	if redisAddress == "" {
+		return errors.New("AGGREGATOR_REDIS_ADDRESS environment variable is required")
+	}
+	c.Heartbeat.Redis.Address = redisAddress
+	c.Heartbeat.Redis.Password = s.RedisPassword()
+	redisDBStr := os.Getenv("AGGREGATOR_REDIS_DB")
+	if redisDBStr != "" {
+		redisDB, err := strconv.Atoi(redisDBStr)
+		if err != nil {
+			return fmt.Errorf("invalid AGGREGATOR_REDIS_DB value: %w", err)
 		}
-		c.Heartbeat.Redis.Address = redisAddress
-		c.Heartbeat.Redis.Password = s.RedisPassword()
-		redisDBStr := os.Getenv("AGGREGATOR_REDIS_DB")
-		if redisDBStr != "" {
-			redisDB, err := strconv.Atoi(redisDBStr)
-			if err != nil {
-				return fmt.Errorf("invalid AGGREGATOR_REDIS_DB value: %w", err)
-			}
-			c.Heartbeat.Redis.DB = redisDB
-		}
+		c.Heartbeat.Redis.DB = redisDB
 	}
 	return nil
 }

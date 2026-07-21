@@ -135,6 +135,11 @@ maxCommitVerifierNodeResultRequestsPerBatch = 100
   # pageSize controls the number of orphaned keys fetched per database page during scans.
   pageSize = 100
 
+# heartbeat configures the heartbeat monitoring.
+[heartbeat]
+  # storeType selects the storage backend for heartbeat data; currently "memory" or "redis".
+  storeType = ""
+
 # rateLimiting configures per-client, per-group, and anonymous rate limits.
 [rateLimiting]
   # enabled controls whether rate limiting is active
