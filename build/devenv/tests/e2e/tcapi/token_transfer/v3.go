@@ -74,14 +74,22 @@ func (tc *tokenTransferV3TestCase) Run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("destination chain %d does not support V3 message: %w", tc.dst, err)
 	}
+	srcBalReader, ok := v3Src.(cciptestinterfaces.TokenBalanceReader)
+	if !ok {
+		return fmt.Errorf("source chain %d does not support token balance reads", tc.src)
+	}
+	dstBalReader, ok := v3Dst.(cciptestinterfaces.TokenBalanceReader)
+	if !ok {
+		return fmt.Errorf("destination chain %d does not support token balance reads", tc.dst)
+	}
 
-	startBal, err := v3Dst.GetTokenBalance(ctx, tc.receiver, tc.destToken)
+	startBal, err := dstBalReader.GetTokenBalance(ctx, tc.receiver, tc.destToken)
 	if err != nil {
 		return fmt.Errorf("get receiver start balance: %w", err)
 	}
 	l.Info().Str("Receiver", tc.receiver.String()).Uint64("StartBalance", startBal.Uint64()).Str("Token", tc.combo.RemotePoolAddressRef().Qualifier).Msg("receiver start balance")
 
-	srcStartBal, err := v3Src.GetTokenBalance(ctx, tc.sender, tc.srcToken)
+	srcStartBal, err := srcBalReader.GetTokenBalance(ctx, tc.sender, tc.srcToken)
 	if err != nil {
 		return fmt.Errorf("get sender start balance: %w", err)
 	}
@@ -164,7 +172,7 @@ func (tc *tokenTransferV3TestCase) Run(ctx context.Context) error {
 		return fmt.Errorf("unexpected execution state %s, return data: %x", execEvt.State, execEvt.ReturnData)
 	}
 
-	endBal, err := v3Dst.GetTokenBalance(ctx, tc.receiver, tc.destToken)
+	endBal, err := dstBalReader.GetTokenBalance(ctx, tc.receiver, tc.destToken)
 	if err != nil {
 		return fmt.Errorf("get receiver end balance: %w", err)
 	}
@@ -174,7 +182,7 @@ func (tc *tokenTransferV3TestCase) Run(ctx context.Context) error {
 	}
 	l.Info().Uint64("EndBalance", endBal.Uint64()).Str("Token", tc.combo.RemotePoolAddressRef().Qualifier).Msg("receiver end balance")
 
-	srcEndBal, err := v3Src.GetTokenBalance(ctx, tc.sender, tc.srcToken)
+	srcEndBal, err := srcBalReader.GetTokenBalance(ctx, tc.sender, tc.srcToken)
 	if err != nil {
 		return fmt.Errorf("get sender end balance: %w", err)
 	}
@@ -238,7 +246,11 @@ func tokenTransferCase(lib ccv.Lib, src, dest uint64, combo common.TokenCombinat
 			if err != nil {
 				return false
 			}
-			sender, err := v3Src.GetSenderAddress()
+			senderProvider, ok := v3Src.(cciptestinterfaces.SenderAddressProvider)
+			if !ok {
+				return false
+			}
+			sender, err := senderProvider.GetSenderAddress()
 			if err != nil {
 				return false
 			}

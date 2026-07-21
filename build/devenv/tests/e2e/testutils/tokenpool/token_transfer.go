@@ -75,7 +75,9 @@ func transferTokens(
 	v3Dst, err := lib.V3Destination(t.Context(), dstSel)
 	require.NoError(t, err, "destination chain %d does not support V3 message", dstSel)
 
-	sender, err := v3Src.GetSenderAddress()
+	senderProvider, ok := v3Src.(cciptestinterfaces.SenderAddressProvider)
+	require.True(t, ok, "source chain %d does not support sender address", srcSel)
+	sender, err := senderProvider.GetSenderAddress()
 	require.NoError(t, err, "get sender address")
 
 	receiver, err := v3Dst.GetEOAReceiverAddress()
@@ -87,10 +89,15 @@ func transferTokens(
 	executor, err := srcReg.AddressResolver.GetExecutor(ds, srcSel, devenvcommon.DefaultExecutorQualifier)
 	require.NoError(t, err, "get executor address")
 
-	dstStartBal, err := v3Dst.GetTokenBalance(t.Context(), receiver, dstTokenAddr)
+	srcBalReader, ok := v3Src.(cciptestinterfaces.TokenBalanceReader)
+	require.True(t, ok, "source chain %d does not support token balance reads", srcSel)
+	dstBalReader, ok := v3Dst.(cciptestinterfaces.TokenBalanceReader)
+	require.True(t, ok, "destination chain %d does not support token balance reads", dstSel)
+
+	dstStartBal, err := dstBalReader.GetTokenBalance(t.Context(), receiver, dstTokenAddr)
 	require.NoError(t, err, "get receiver start balance")
 
-	srcStartBal, err := v3Src.GetTokenBalance(t.Context(), sender, srcTokenAddr)
+	srcStartBal, err := srcBalReader.GetTokenBalance(t.Context(), sender, srcTokenAddr)
 	require.NoError(t, err, "get sender start balance")
 
 	amountToTransfer := tokens.ScaleTokenAmount(big.NewInt(amount), srcPool.Decimals())
@@ -149,12 +156,12 @@ func transferTokens(
 	require.NoError(t, err, "wait for exec event")
 	require.Equal(t, cciptestinterfaces.ExecutionStateSuccess, execEvt.State, "unexpected execution state %s, return data: %x", execEvt.State, execEvt.ReturnData)
 
-	dstEndBal, err := v3Dst.GetTokenBalance(t.Context(), receiver, dstTokenAddr)
+	dstEndBal, err := dstBalReader.GetTokenBalance(t.Context(), receiver, dstTokenAddr)
 	require.NoError(t, err, "get receiver end balance")
 	expectedEndBal := new(big.Int).Add(new(big.Int).Set(dstStartBal), amountToTransfer)
 	require.Equal(t, 0, dstEndBal.Cmp(expectedEndBal), "receiver end balance: expected %s, got %s", expectedEndBal.String(), dstEndBal.String())
 
-	srcEndBal, err := v3Src.GetTokenBalance(t.Context(), sender, srcTokenAddr)
+	srcEndBal, err := srcBalReader.GetTokenBalance(t.Context(), sender, srcTokenAddr)
 	require.NoError(t, err, "get sender end balance")
 	expectedSrcEndBal := new(big.Int).Sub(new(big.Int).Set(srcStartBal), amountToTransfer)
 	require.Equal(t, 0, srcEndBal.Cmp(expectedSrcEndBal), "sender end balance: expected %s, got %s", expectedSrcEndBal.String(), srcEndBal.String())

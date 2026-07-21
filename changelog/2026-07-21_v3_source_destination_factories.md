@@ -2,8 +2,8 @@
 
 ## Executive Summary
 
-- `tcapi.SendV3Message` no longer requires a full `cciptestinterfaces.CCIP17` implementation for its `src`/`dst` parameters; it now takes the narrow `cciptestinterfaces.V3Source` and `cciptestinterfaces.MessageV3Destination` interfaces directly. The rest of the `tcapi` V3 test cases (send/confirm/balance/max-data-size assertions) have also been migrated off full `CCIP17` onto two new compound interfaces, `V3Source` and `V3Destination` — the `build/devenv/tests/e2e/tcapi` package (and its `testutils/tokenpool` consumer) no longer references `cciptestinterfaces.CCIP17` anywhere except the unavoidable `ChainsMap` method a `ccv.Lib` implementation must still provide for other, non-`tcapi` consumers.
-- This was made to remove friction for chain families that only want to run V3 message tests: previously they had to implement all 13 methods of `Chain`+`Observable` just to satisfy internal type assertions and direct method calls scattered across `tcapi`'s test cases, even though only a handful of those methods were ever used per role (source vs. destination).
+- `tcapi.SendV3Message` no longer requires a full `cciptestinterfaces.CCIP17` implementation for its `src`/`dst` parameters; it now takes the narrow `cciptestinterfaces.V3Source` and `cciptestinterfaces.MessageV3Destination` interfaces directly. The rest of the `tcapi` V3 test cases (send/confirm/balance/max-data-size assertions) have also been migrated off full `CCIP17` onto `V3Source`/`V3Destination` plus a set of small, standalone optional capability interfaces — the `build/devenv/tests/e2e/tcapi` package (and its `testutils/tokenpool` consumer) no longer references `cciptestinterfaces.CCIP17` anywhere except the unavoidable `ChainsMap` method a `ccv.Lib` implementation must still provide for other, non-`tcapi` consumers.
+- This was made to remove friction for chain families that only want to run V3 message tests: previously they had to implement all 13 methods of `Chain`+`Observable` just to satisfy internal type assertions and direct method calls scattered across `tcapi`'s test cases, even though only a handful of those methods were ever used per role (source vs. destination). `V3Source`/`V3Destination` deliberately only bundle the capabilities *every* V3 test case needs (build/send/confirm a message); capabilities only specific test cases need (token balance reads, sender address, max data size) are kept as separate optional interfaces, type-asserted where used with a graceful skip/error — so a family isn't forced to implement, say, token-balance reporting just to run the basic send/confirm tests.
 - Affects `build/devenv/cciptestinterfaces`, `build/devenv/chainreg`, `build/devenv` (`Lib`), `build/devenv/tests/e2e/tcapi`, `build/devenv/tests/e2e/testutils/tokenpool`, `build/devenv/tests/e2e` (`smoke_replay_cli_test.go`), and `build/devenv/evm`.
 - Introduces a breaking change to `tcapi.SendV3Message`'s signature, to the `ccv.Lib` interface (two new required methods, one renamed), and to `tcapi.NewTestingContext`'s signature (dropped an unused parameter); everything else is additive and optional. Existing chain families (EVM, and the extra-args-only Canton/Solana stubs) continue to work unchanged via a fallback path.
 
@@ -29,7 +29,7 @@
 
 - **What changed:** `tcapi.SendV3Message`'s `src`/`dst` parameter types.
 - **Before:** `SendV3Message(ctx, src, dst cciptestinterfaces.CCIP17, destSelector uint64, ...)`, with internal type assertions to `ChainAsSource`, `MessageV3Source`, and `MessageV3Destination` that returned an error if any failed.
-- **After:** `SendV3Message(ctx, src cciptestinterfaces.V3Source, dst cciptestinterfaces.MessageV3Destination, destSelector uint64, ...)`. `V3Source` is a new compound interface embedding `MessageV3Source`, `ChainAsSource`, `TokenBalanceReader`, and `SenderAddressProvider`. No internal assertions remain — the compiler enforces the requirement at the call site instead.
+- **After:** `SendV3Message(ctx, src cciptestinterfaces.V3Source, dst cciptestinterfaces.MessageV3Destination, destSelector uint64, ...)`. `V3Source` is a new compound interface embedding `MessageV3Source` and `ChainAsSource` only — no internal assertions remain — the compiler enforces the requirement at the call site instead.
 - **Why:** The function only ever used a handful of methods (`BuildChainMessage`, `SendChainMessage`, `ConfirmSendOnSource` via `ChainAsSource`; `BuildV3ExtraArgs` via `MessageV3Source`; `GetExecutorArgs`/`GetTokenReceiver`/`GetTokenArgs` via `MessageV3Destination`), not the full 13-method `CCIP17` surface. `dst`'s param type stays the minimal `MessageV3Destination` (not the richer `V3Destination`) since `SendV3Message` itself never calls `ConfirmExecOnDest`/`GetTokenBalance` — callers needing those resolve a `V3Destination` separately via `Lib.V3Destination` and pass it in, since `V3Destination`'s method set is a superset that satisfies `MessageV3Destination` automatically.
 - **Who is affected:** All 3 in-repo call sites (`build/devenv/tests/e2e/tcapi/basic/v3.go`, `build/devenv/tests/e2e/tcapi/token_transfer/v3.go`, `build/devenv/tests/e2e/testutils/tokenpool/token_transfer.go`) were updated to resolve `src`/`dst` via the new `Lib.V3Source`/`Lib.V3Destination` methods instead of asserting a `CCIP17`-typed value directly.
 
@@ -76,24 +76,38 @@ v3Dst, err := lib.V3Destination(ctx, dstSelector)
 res, err := tcapi.SendV3Message(ctx, v3Src, v3Dst, dstSelector, fields, opts, sendArgs)
 ```
 
-2. If your test case also needs `ConfirmExecOnDest`, `GetTokenBalance`, `GetEOAReceiverAddress`, `ConfirmSendOnSource`, or `GetSenderAddress` (typical for asserting a message landed and balances moved), call them directly on the same `v3Src`/`v3Dst` values obtained above — no separate `ChainsMap()`-based lookup is needed:
+2. If your test case also needs `ConfirmExecOnDest`, `GetEOAReceiverAddress`, or `ConfirmSendOnSource` — capabilities bundled directly into `V3Source`/`V3Destination` via `ChainAsSource`/`ChainAsDestination` — call them directly on the same `v3Src`/`v3Dst` values obtained above, no separate `ChainsMap()`-based lookup needed:
+
+```go
+// Before
+chainMap, _ := lib.ChainsMap(ctx)
+dst := chainMap[dstSelector]
+evt, err := dst.ConfirmExecOnDest(ctx, srcSelector, key, timeout)
+```
+
+```go
+// After
+v3Dst, err := lib.V3Destination(ctx, dstSelector)
+evt, err := v3Dst.ConfirmExecOnDest(ctx, srcSelector, key, timeout)
+```
+
+If your test case needs `GetTokenBalance`, `GetSenderAddress`, or `GetMaxDataBytes` — capabilities kept as separate optional interfaces, not bundled into `V3Source`/`V3Destination` (see New Features below for why) — type-assert down to the specific capability interface and handle the not-supported case explicitly (fail the test case, or skip it via `HavePrerequisites`/hydrate, depending on whether the capability is expected to be universally available in your context):
 
 ```go
 // Before
 chainMap, _ := lib.ChainsMap(ctx)
 src, dst := chainMap[srcSelector], chainMap[dstSelector]
 bal, err := dst.GetTokenBalance(ctx, receiver, token)
-...
-evt, err := dst.ConfirmExecOnDest(ctx, srcSelector, key, timeout)
 ```
 
 ```go
 // After
-v3Src, err := lib.V3Source(ctx, srcSelector)
 v3Dst, err := lib.V3Destination(ctx, dstSelector)
-bal, err := v3Dst.GetTokenBalance(ctx, receiver, token)
-...
-evt, err := v3Dst.ConfirmExecOnDest(ctx, srcSelector, key, timeout)
+dstBalReader, ok := v3Dst.(cciptestinterfaces.TokenBalanceReader)
+if !ok {
+    return fmt.Errorf("destination chain %d does not support token balance reads", dstSelector)
+}
+bal, err := dstBalReader.GetTokenBalance(ctx, receiver, token)
 ```
 
 3. If you implement `ccv.Lib` outside this repo, add `V3Source` and `V3Destination` methods (the latter replacing any prior `MessageV3Destination` method if you had already adopted an earlier version of this change). The simplest correct implementation, if your backend already exposes a `ChainsMap`-style method, is to assert the returned value against `cciptestinterfaces.V3Source`/`V3Destination` directly (see `libFromCLDF.V3Source`/`.V3Destination` in `build/devenv/lib.go:288,314` for the reference implementation, including the `chainreg` factory-lookup-first logic).
@@ -114,21 +128,25 @@ testCtx, cleanup := tcapi.NewTestingContext(ctx, aggregatorClient, indexerMonito
 
 ## New Features / Additions
 
+### Design principle: universal vs. per-test-case capabilities
+
+`V3Source`/`V3Destination` only bundle capabilities *every* V3 test case needs — build/send/confirm a message. Capabilities only *some* test cases need (token balance reads, sender address, max data size) are deliberately kept as separate, single-method optional interfaces (`TokenBalanceReader`, `SenderAddressProvider`, `MaxDataSizeProvider`), type-asserted at the specific call site that needs them, mirroring the pre-existing `ProgressableChain`/`ReorgableChain`/`TokenConfigProvider` pattern in this package. An earlier iteration of this change bundled all of them into `V3Source`/`V3Destination`, which was reverted: it would have forced a family that only wants to run the basic send/confirm tests to also implement token-balance and sender-address reporting just to satisfy the compound interface, even though those methods are never called outside the token-transfer test suite. Follow-up quickstart documentation for `tcapi` (tracked separately, not part of this change) is expected to explain which optional interfaces each test case needs.
+
 ### V3Source interface added
 
-**`cciptestinterfaces.V3Source`** (`build/devenv/cciptestinterfaces/extra_args.go:63`) — compound interface (`MessageV3Source` + `ChainAsSource` + `TokenBalanceReader` + `SenderAddressProvider`) used by `SendV3Message`'s `src` parameter and by the new `chainreg.V3SourceFactory`/`Lib.V3Source`. Covers everything a source-role chain needs in a V3 test case: build/send/confirm the message, plus report its own token balance and sender address for pre/post assertions.
+**`cciptestinterfaces.V3Source`** (`build/devenv/cciptestinterfaces/extra_args.go:63`) — compound interface (`MessageV3Source` + `ChainAsSource`) used by `SendV3Message`'s `src` parameter and by the new `chainreg.V3SourceFactory`/`Lib.V3Source`. Covers only what every source-role V3 test case needs: build/send/confirm the message. Test cases needing more (e.g. token balance, sender address) type-assert the returned value further — see "Design principle" above.
 
 ### V3Destination interface added
 
-**`cciptestinterfaces.V3Destination`** (`build/devenv/cciptestinterfaces/extra_args.go:71`) — compound interface (`MessageV3Destination` + `ChainAsDestination` + `TokenBalanceReader` + `MaxDataSizeProvider`) used by `Lib.V3Destination` and `chainreg.V3DestinationFactory`. `ChainAsDestination` (pre-existing) already bundled `ConfirmExecOnDest`/`GetEOAReceiverAddress`/`ChainSelector`; `V3Destination` adds `TokenBalanceReader` and `MaxDataSizeProvider` on top so destination-role balance and max-data-size assertions no longer need a full `CCIP17` value either.
+**`cciptestinterfaces.V3Destination`** (`build/devenv/cciptestinterfaces/extra_args.go:71`) — compound interface (`MessageV3Destination` + `ChainAsDestination`) used by `Lib.V3Destination` and `chainreg.V3DestinationFactory`. `ChainAsDestination` (pre-existing) already bundles `ConfirmExecOnDest`/`GetEOAReceiverAddress`/`ChainSelector` — the capabilities every destination-role V3 test case needs. Test cases needing more (token balance, max data size) type-assert further — see "Design principle" above.
 
 ### TokenBalanceReader and SenderAddressProvider added
 
-**`cciptestinterfaces.TokenBalanceReader`** (`build/devenv/cciptestinterfaces/interface.go:383`, `GetTokenBalance`) and **`cciptestinterfaces.SenderAddressProvider`** (`interface.go:390`, `GetSenderAddress`) — two new single-method marker interfaces, factored out of the full `Chain` interface (which now embeds both). `TokenBalanceReader` applies identically to a source chain (checking the sender's balance) or a destination chain (checking the receiver's balance) — both `V3Source` and `V3Destination` embed it. `SenderAddressProvider` is source-specific and is embedded only in `V3Source` (the destination-side equivalent, `GetEOAReceiverAddress`, already lived on `ChainAsDestination`).
+**`cciptestinterfaces.TokenBalanceReader`** (`build/devenv/cciptestinterfaces/interface.go:383`, `GetTokenBalance`) and **`cciptestinterfaces.SenderAddressProvider`** (`interface.go:390`, `GetSenderAddress`) — two new single-method marker interfaces, factored out of the full `Chain` interface (which now embeds both, so existing full-`CCIP17` implementations like EVM automatically satisfy them). Neither is embedded in `V3Source`/`V3Destination` (see "Design principle" above) — they're type-asserted where needed. `TokenBalanceReader` applies identically to a source chain (checking the sender's balance) or a destination chain (checking the receiver's balance); it's asserted in `build/devenv/tests/e2e/tcapi/token_transfer/v3.go` and `build/devenv/tests/e2e/testutils/tokenpool/token_transfer.go`, both on `v3Src` and `v3Dst`. `SenderAddressProvider` is source-specific and is asserted only where a source's sender address is needed (the same two files' hydrate paths); the destination-side equivalent, `GetEOAReceiverAddress`, is universal enough that it stays bundled in `ChainAsDestination`.
 
 ### MaxDataSizeProvider added
 
-**`cciptestinterfaces.MaxDataSizeProvider`** (`build/devenv/cciptestinterfaces/interface.go:397`, `GetMaxDataBytes`) — another single-method marker interface factored out of `Chain` (which now embeds it), embedded in `V3Destination` only. `GetMaxDataBytes` is asked of the chain *receiving* a message (its only in-repo call site, `build/devenv/tests/e2e/tcapi/basic/v3.go`'s `maxDataSize` test case, invokes it on the destination chain), so — unlike `TokenBalanceReader` — it's destination-only, not shared with `V3Source`. This closed the last capability gap that forced `tcapi/basic/v3.go`'s `loadV3Env`/`v3Env.Dst` to fetch a full `CCIP17` value via `ChainsMap`; `v3Env.Dst` is now typed `cciptestinterfaces.V3Destination` and resolved via `Lib.V3Destination`.
+**`cciptestinterfaces.MaxDataSizeProvider`** (`build/devenv/cciptestinterfaces/interface.go:397`, `GetMaxDataBytes`) — another single-method marker interface factored out of `Chain` (which now embeds it). Not embedded in `V3Destination` — it's asserted only where used. `GetMaxDataBytes` is asked of the chain *receiving* a message (its only in-repo call site, `build/devenv/tests/e2e/tcapi/basic/v3.go`'s `maxDataSize` test case, invokes it on the destination chain via `env.Dst.(cciptestinterfaces.MaxDataSizeProvider)`, skipping the test case via its hydrate function returning `false` if unsupported), so — like `SenderAddressProvider` — it's single-role and single-test-case, not shared with `V3Source`. This closed the last capability gap that forced `tcapi/basic/v3.go`'s `loadV3Env`/`v3Env.Dst` to fetch a full `CCIP17` value via `ChainsMap`; `v3Env.Dst` is now typed `cciptestinterfaces.V3Destination` and resolved via `Lib.V3Destination`, with the `maxDataSize`-specific capability asserted separately.
 
 ### chainreg V3 factories added
 

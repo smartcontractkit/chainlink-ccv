@@ -619,7 +619,11 @@ func maxDataSize(lib ccv.Lib, src, dest uint64, args Args) *v3TestCase {
 			if !ok {
 				return false
 			}
-			maxDataBytes, err := env.Dst.GetMaxDataBytes(ctx, tc.dst)
+			maxDataSizeProvider, ok := env.Dst.(cciptestinterfaces.MaxDataSizeProvider)
+			if !ok {
+				return false
+			}
+			maxDataBytes, err := maxDataSizeProvider.GetMaxDataBytes(ctx, tc.dst)
 			if err != nil {
 				return false
 			}
