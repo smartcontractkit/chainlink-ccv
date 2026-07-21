@@ -50,7 +50,7 @@ func injectChaos(ctx context.Context, spec ScenarioSpec) (func(), error) {
 		}
 		return cleanup, nil
 	}
-	cleanup, err := InjectOutage(ctx, spec.Outage)
+	cleanup, err := injectOutage(ctx, spec.Outage)
 	if err != nil {
 		return nil, fmt.Errorf("inject outage: %w", err)
 	}

@@ -8,7 +8,7 @@ test category composing the tcapi primitives.
 ## Outage injection
 
 ```go
-cleanup, err := chaos.InjectOutage(ctx, chaos.OutageSpec{
+cleanup, err := chaos.injectOutage(ctx, &chaos.OutageSpec{
     Duration:      chaos.DefaultOutageDuration,
     Targets:       []string{nginxContainer},
 })
@@ -18,7 +18,7 @@ t.Cleanup(cleanup)
 ## Latency injection
 
 ```go
-cleanup, err := chaos.InjectLatency(ctx, chaos.LatencySpec{
+cleanup, err := chaos.injectLatency(ctx, chaos.LatencySpec{
     Duration: 1 * time.Minute,
     Delay:    400, // milliseconds
     Targets:  []string{"blockchain-src", "blockchain-dst"},

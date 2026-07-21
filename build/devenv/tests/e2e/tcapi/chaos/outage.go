@@ -28,9 +28,9 @@ type OutageSpec struct {
 	Targets []string
 }
 
-// InjectOutage starts a Pumba container stop for the given spec and returns a
+// injectOutage starts a Pumba container stop for the given spec and returns a
 // cleanup function that tears down the Pumba sidecar.
-func InjectOutage(ctx context.Context, spec *OutageSpec) (func(), error) {
+func injectOutage(ctx context.Context, spec *OutageSpec) (func(), error) {
 	if spec == nil {
 		return nil, errors.New("outage spec is nil")
 	}
