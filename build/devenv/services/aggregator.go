@@ -116,6 +116,10 @@ type AggregatorInput struct {
 	// If 0, the default (10) is used. Set to 1 for channel exhaustion tests.
 	BackgroundWorkerCount int `toml:"background_worker_count"`
 
+	// MaxCommitVerifierNodeResultRequestsPerBatch controls the max batch size for commit verifier node result requests.
+	// If 0, the default (100) is used. Must not exceed AggregationChannelBufferSize, or config validation fails at startup.
+	MaxCommitVerifierNodeResultRequestsPerBatch int `toml:"max_commit_verifier_node_result_requests_per_batch"`
+
 	// SharedTLSCerts contains shared TLS certificates for all aggregators.
 	// If set, these certs will be used instead of generating new ones.
 	SharedTLSCerts *TLSCertPaths `toml:"-"`
@@ -272,6 +276,11 @@ func (a *AggregatorInput) GenerateConfigs(generatedConfigFileName string) (*Gene
 	// Override background worker count if specified (useful for channel exhaustion tests)
 	if a.BackgroundWorkerCount > 0 {
 		config.Aggregation.BackgroundWorkerCount = a.BackgroundWorkerCount
+	}
+
+	// Override max commit verifier node result requests per batch if specified
+	if a.MaxCommitVerifierNodeResultRequestsPerBatch > 0 {
+		config.MaxCommitVerifierNodeResultRequestsPerBatch = a.MaxCommitVerifierNodeResultRequestsPerBatch
 	}
 
 	// Build the client list for the config (client_id/enabled/groups only) and, in parallel, the

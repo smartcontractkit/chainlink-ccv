@@ -455,6 +455,7 @@ func setupAggregatorTestFixture(t *testing.T) *aggregatorTestFixture {
 		RootPath:                     "../../../../",
 		AggregationChannelBufferSize: 1, // Minimal buffer for channel exhaustion tests
 		BackgroundWorkerCount:        1, // Single worker = slow drain for deterministic tests
+		MaxCommitVerifierNodeResultRequestsPerBatch: 1, // Must not exceed AggregationChannelBufferSize (config validation)
 		DB: &services.AggregatorDBInput{
 			Image:    "postgres:16-alpine",
 			HostPort: 7440,
