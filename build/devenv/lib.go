@@ -69,6 +69,16 @@ type Lib interface {
 	// aggregator for that qualifier, or an empty map (nil error) if no aggregator
 	// endpoints are configured.
 	AllAggregators() (map[string]*AggregatorClient, error)
+
+	// V3Source returns a cciptestinterfaces.V3Source for chainSelector, preferring
+	// a V3SourceFactory registered for the chain's family (chainreg) and falling
+	// back to asserting against the full CCIP17 implementation from ChainsMap.
+	// This lets chain families that only implement the narrow V3 send interfaces
+	// plug in without implementing the full CCIP17 interface.
+	V3Source(ctx context.Context, chainSelector uint64) (cciptestinterfaces.V3Source, error)
+
+	// V3Destination mirrors V3Source for the destination-side interface.
+	V3Destination(ctx context.Context, chainSelector uint64) (cciptestinterfaces.V3Destination, error)
 }
 
 type libFromCCV struct {
@@ -226,6 +236,16 @@ func (l *libFromCCV) ChainsMap(ctx context.Context) (map[uint64]cciptestinterfac
 	return l.libCLDF.ChainsMap(ctx)
 }
 
+// V3Source implements [Lib].
+func (l *libFromCCV) V3Source(ctx context.Context, chainSelector uint64) (cciptestinterfaces.V3Source, error) {
+	return l.libCLDF.V3Source(ctx, chainSelector)
+}
+
+// V3Destination implements [Lib].
+func (l *libFromCCV) V3Destination(ctx context.Context, chainSelector uint64) (cciptestinterfaces.V3Destination, error) {
+	return l.libCLDF.V3Destination(ctx, chainSelector)
+}
+
 type libFromCLDF struct {
 	env            *deployment.Environment
 	familiesToLoad []string
@@ -262,6 +282,58 @@ func (l *libFromCLDF) Chains(ctx context.Context) ([]ChainImpl, error) {
 	}
 
 	return chainImpls, nil
+}
+
+// V3Source implements [Lib].
+func (l *libFromCLDF) V3Source(ctx context.Context, chainSelector uint64) (cciptestinterfaces.V3Source, error) {
+	family, err := chainsel.GetSelectorFamily(chainSelector)
+	if err != nil {
+		return nil, fmt.Errorf("get selector family for chain %d: %w", chainSelector, err)
+	}
+
+	if reg, regErr := chainreg.GetRegistry().Get(family); regErr == nil && reg.V3SourceFactory != nil {
+		return reg.V3SourceFactory(ctx, l.l, l.env, chainSelector)
+	}
+
+	chainMap, err := l.ChainsMap(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("get chains map: %w", err)
+	}
+	impl, ok := chainMap[chainSelector]
+	if !ok {
+		return nil, fmt.Errorf("chain %d not found", chainSelector)
+	}
+	v3Src, ok := impl.(cciptestinterfaces.V3Source)
+	if !ok {
+		return nil, fmt.Errorf("chain %d does not support V3 source", chainSelector)
+	}
+	return v3Src, nil
+}
+
+// V3Destination implements [Lib].
+func (l *libFromCLDF) V3Destination(ctx context.Context, chainSelector uint64) (cciptestinterfaces.V3Destination, error) {
+	family, err := chainsel.GetSelectorFamily(chainSelector)
+	if err != nil {
+		return nil, fmt.Errorf("get selector family for chain %d: %w", chainSelector, err)
+	}
+
+	if reg, regErr := chainreg.GetRegistry().Get(family); regErr == nil && reg.V3DestinationFactory != nil {
+		return reg.V3DestinationFactory(ctx, l.l, l.env, chainSelector)
+	}
+
+	chainMap, err := l.ChainsMap(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("get chains map: %w", err)
+	}
+	impl, ok := chainMap[chainSelector]
+	if !ok {
+		return nil, fmt.Errorf("chain %d not found", chainSelector)
+	}
+	v3Dst, ok := impl.(cciptestinterfaces.V3Destination)
+	if !ok {
+		return nil, fmt.Errorf("chain %d does not support V3 destination", chainSelector)
+	}
+	return v3Dst, nil
 }
 
 // ChainsMap implements [Lib].

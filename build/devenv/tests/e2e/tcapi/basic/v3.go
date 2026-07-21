@@ -65,20 +65,16 @@ func (tc *v3TestCase) Run(ctx context.Context) error {
 	if err := tc.ensureHydrated(ctx); err != nil {
 		return err
 	}
-	chainMap, err := tc.lib.ChainsMap(ctx)
+	v3Src, err := tc.lib.V3Source(ctx, tc.src)
 	if err != nil {
-		return fmt.Errorf("failed to get chains map: %w", err)
+		return fmt.Errorf("source chain %d does not support V3 message: %w", tc.src, err)
 	}
-	src, ok := chainMap[tc.src]
-	if !ok {
-		return fmt.Errorf("source chain not found: %d", tc.src)
-	}
-	dst, ok := chainMap[tc.dst]
-	if !ok {
-		return fmt.Errorf("destination chain not found: %d", tc.dst)
+	v3Dst, err := tc.lib.V3Destination(ctx, tc.dst)
+	if err != nil {
+		return fmt.Errorf("destination chain %d does not support V3 message: %w", tc.dst, err)
 	}
 	l := zerolog.Ctx(ctx)
-	sendMessageResult, err := tcapi.SendV3Message(ctx, src, dst, tc.dst,
+	sendMessageResult, err := tcapi.SendV3Message(ctx, v3Src, v3Dst,
 		cciptestinterfaces.MessageFields{
 			Receiver: tc.receiver,
 			Data:     tc.msgData,
@@ -105,7 +101,7 @@ func (tc *v3TestCase) Run(ctx context.Context) error {
 	}
 	sentTimeout := tc.args.Run.SentTimeout(tcapi.DefaultSentTimeout)
 	execTimeout := tc.args.Run.ExecTimeout(tcapi.DefaultExecTimeout)
-	_, err = src.ConfirmSendOnSource(ctx, tc.dst, messageKey, sentTimeout)
+	_, err = v3Src.ConfirmSendOnSource(ctx, tc.dst, messageKey, sentTimeout)
 	if err != nil {
 		return fmt.Errorf("failed to wait for sent event: %w", err)
 	}
@@ -115,7 +111,7 @@ func (tc *v3TestCase) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	testCtx, cleanupFn := tcapi.NewTestingContext(ctx, chainMap, aggregatorClient, indexerMonitor)
+	testCtx, cleanupFn := tcapi.NewTestingContext(ctx, aggregatorClient, indexerMonitor)
 	defer cleanupFn()
 
 	result, err := testCtx.AssertMessage(messageID, tcapi.AssertMessageOptions{
@@ -135,7 +131,7 @@ func (tc *v3TestCase) Run(ctx context.Context) error {
 		return fmt.Errorf("expected %d indexed verifications, got %d", tc.numExpectedVerifications, len(result.IndexedVerifications.Results))
 	}
 
-	e, err := dst.ConfirmExecOnDest(ctx, tc.src, messageKey, execTimeout)
+	e, err := v3Dst.ConfirmExecOnDest(ctx, tc.src, messageKey, execTimeout)
 	if err != nil {
 		return fmt.Errorf("failed to wait for exec event: %w", err)
 	}
@@ -162,11 +158,8 @@ func getCommitteeCCV(resolver chainreg.AddressResolver, ds datastore.DataStore, 
 
 // v3Env holds devenv handles loaded for v3 test case hydration.
 type v3Env struct {
-	DS  datastore.DataStore
-	Dst interface {
-		GetEOAReceiverAddress() (protocol.UnknownAddress, error)
-		GetMaxDataBytes(ctx context.Context, remoteChainSelector uint64) (uint32, error)
-	}
+	DS          datastore.DataStore
+	Dst         cciptestinterfaces.V3Destination
 	SrcResolver chainreg.AddressResolver
 	DstResolver chainreg.AddressResolver
 }
@@ -180,13 +173,8 @@ func loadV3Env(ctx context.Context, lib ccv.Lib, src, dst uint64) (v3Env, bool) 
 	}
 	env.DS = ds
 
-	chainMap, err := lib.ChainsMap(ctx)
+	dstChain, err := lib.V3Destination(ctx, dst)
 	if err != nil {
-		return env, false
-	}
-
-	dstChain, ok := chainMap[dst]
-	if !ok {
 		return env, false
 	}
 	env.Dst = dstChain
@@ -631,7 +619,11 @@ func maxDataSize(lib ccv.Lib, src, dest uint64, args Args) *v3TestCase {
 			if !ok {
 				return false
 			}
-			maxDataBytes, err := env.Dst.GetMaxDataBytes(ctx, tc.dst)
+			maxDataSizeProvider, ok := env.Dst.(cciptestinterfaces.MaxDataSizeProvider)
+			if !ok {
+				return false
+			}
+			maxDataBytes, err := maxDataSizeProvider.GetMaxDataBytes(ctx, tc.dst)
 			if err != nil {
 				return false
 			}
