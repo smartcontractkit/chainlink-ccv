@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.2.0](https://github.com/smartcontractkit/chainlink-ccv/compare/build/devenv/v0.1.0...build/devenv/v0.2.0) (2026-07-20)
+
+
+### ⚠ BREAKING CHANGES
+
+* remove blockchain_infos from application config (CCIP-12443) ([#1271](https://github.com/smartcontractkit/chainlink-ccv/issues/1271))
+
+### Features
+
+* **devenv:** less verbose "ccv up" ([#1244](https://github.com/smartcontractkit/chainlink-ccv/issues/1244)) ([c4567d7](https://github.com/smartcontractkit/chainlink-ccv/commit/c4567d77f9df7cf395f0b7914d928c469496502a))
+* remove blockchain_infos from application config (CCIP-12443) ([#1271](https://github.com/smartcontractkit/chainlink-ccv/issues/1271)) ([2b5159a](https://github.com/smartcontractkit/chainlink-ccv/commit/2b5159afb28f5b6de74815940faf2468e1c51c3f))
+
 ## [0.1.0](https://github.com/smartcontractkit/chainlink-ccv/compare/build/devenv/v0.0.1...build/devenv/v0.1.0) (2026-07-16)
 
 

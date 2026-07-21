@@ -84,45 +84,31 @@ type SendArgs struct {
 }
 
 // SendV3Message builds and sends a V3 message using BuildV3ExtraArgs, BuildChainMessage, and SendChainMessage.
-// deprecated: use RunV3MessageLifecycle instead, which handles the full lifecycle including offchain assertions and optional execution confirmation.
 func SendV3Message(
 	ctx context.Context,
-	src, dst cciptestinterfaces.CCIP17,
-	destSelector uint64,
+	src cciptestinterfaces.V3Source,
+	dst cciptestinterfaces.V3Destination,
 	fields cciptestinterfaces.MessageFields,
 	opts cciptestinterfaces.MessageOptions,
 	sendArgs SendArgs,
 ) (cciptestinterfaces.MessageSentEvent, error) {
-	chainAsSource, ok := src.(cciptestinterfaces.ChainAsSource)
-	if !ok {
-		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("source chain does not implement ChainAsSource")
-	}
-	v3Source, ok := src.(cciptestinterfaces.MessageV3Source)
-	if !ok {
-		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("source chain does not support V3 message")
-	}
-	v3Dest, ok := dst.(cciptestinterfaces.MessageV3Destination)
-	if !ok {
-		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("dest chain does not support V3 message")
-	}
-
 	if sendArgs.ExecutionGasLimit != 0 {
 		opts.ExecutionGasLimit = sendArgs.ExecutionGasLimit
 	} else if opts.ExecutionGasLimit == 0 {
 		opts.ExecutionGasLimit = DefaultV3ExecutionGasLimit
 	}
 
-	extraArgs, err := v3Source.BuildV3ExtraArgs(opts, v3Dest, sendArgs.ExtraArgsParams, sendArgs.TokenReceiverParams, sendArgs.TokenArgsParams)
+	extraArgs, err := src.BuildV3ExtraArgs(opts, dst, sendArgs.ExtraArgsParams, sendArgs.TokenReceiverParams, sendArgs.TokenArgsParams)
 	if err != nil {
 		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("failed to encode V3 extra args: %w", err)
 	}
 
-	msg, err := chainAsSource.BuildChainMessage(ctx, fields, extraArgs)
+	msg, err := src.BuildChainMessage(ctx, fields, extraArgs)
 	if err != nil {
 		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("failed to build chain message: %w", err)
 	}
 
-	sent, _, err := chainAsSource.SendChainMessage(ctx, destSelector, msg, sendArgs.SendOption)
+	sent, _, err := src.SendChainMessage(ctx, dst.ChainSelector(), msg, sendArgs.SendOption)
 	if err != nil {
 		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("failed to send chain message: %w", err)
 	}
@@ -131,7 +117,6 @@ func SendV3Message(
 
 type TestingContext struct {
 	Ctx              context.Context
-	Impl             map[uint64]cciptestinterfaces.CCIP17
 	AggregatorClient *ccv.AggregatorClient
 	IndexerClient    *ccv.IndexerMonitor
 	LogAsserter      *logasserter.LogAsserter
@@ -139,7 +124,7 @@ type TestingContext struct {
 	logger           zerolog.Logger
 }
 
-func NewTestingContext(ctx context.Context, impl map[uint64]cciptestinterfaces.CCIP17, aggregatorClient *ccv.AggregatorClient, indexerClient *ccv.IndexerMonitor) (TestingContext, func()) {
+func NewTestingContext(ctx context.Context, aggregatorClient *ccv.AggregatorClient, indexerClient *ccv.IndexerMonitor) (TestingContext, func()) {
 	lokiURL := os.Getenv("LOKI_QUERY_URL")
 	if lokiURL == "" {
 		lokiURL = DefaultLokiURL
@@ -165,7 +150,6 @@ func NewTestingContext(ctx context.Context, impl map[uint64]cciptestinterfaces.C
 
 	tc := TestingContext{
 		Ctx:              ctx,
-		Impl:             impl,
 		AggregatorClient: aggregatorClient,
 		IndexerClient:    indexerClient,
 		LogAsserter:      logAssert,

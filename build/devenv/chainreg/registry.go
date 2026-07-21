@@ -92,6 +92,12 @@ func mergeRegistration(existing, incoming Registration) Registration {
 	if existing.AddressResolver == nil {
 		existing.AddressResolver = incoming.AddressResolver
 	}
+	if existing.V3SourceFactory == nil {
+		existing.V3SourceFactory = incoming.V3SourceFactory
+	}
+	if existing.V3DestinationFactory == nil {
+		existing.V3DestinationFactory = incoming.V3DestinationFactory
+	}
 	return existing
 }
 

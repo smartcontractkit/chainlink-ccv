@@ -46,6 +46,14 @@ func (s *stubLib) AllAggregators() (map[string]*ccv.AggregatorClient, error) {
 	return s.aggregators, s.aggregatorsErr
 }
 
+func (s *stubLib) V3Source(context.Context, uint64) (cciptestinterfaces.V3Source, error) {
+	return nil, nil
+}
+
+func (s *stubLib) V3Destination(context.Context, uint64) (cciptestinterfaces.V3Destination, error) {
+	return nil, nil
+}
+
 var _ ccv.Lib = (*stubLib)(nil)
 
 // presentIndexers is a non-empty indexer slice for the "configured" branch; the

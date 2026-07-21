@@ -99,11 +99,8 @@ func getCommitteeCCV(resolver chainreg.AddressResolver, ds datastore.DataStore, 
 
 // v3Env holds devenv handles loaded for v3 test case hydration.
 type v3Env struct {
-	DS  datastore.DataStore
-	Dst interface {
-		GetEOAReceiverAddress() (protocol.UnknownAddress, error)
-		GetMaxDataBytes(ctx context.Context, remoteChainSelector uint64) (uint32, error)
-	}
+	DS          datastore.DataStore
+	Dst         cciptestinterfaces.V3Destination
 	SrcResolver chainreg.AddressResolver
 	DstResolver chainreg.AddressResolver
 }
@@ -117,13 +114,8 @@ func loadV3Env(ctx context.Context, lib ccv.Lib, src, dst uint64) (v3Env, bool) 
 	}
 	env.DS = ds
 
-	chainMap, err := lib.ChainsMap(ctx)
+	dstChain, err := lib.V3Destination(ctx, dst)
 	if err != nil {
-		return env, false
-	}
-
-	dstChain, ok := chainMap[dst]
-	if !ok {
 		return env, false
 	}
 	env.Dst = dstChain
@@ -576,7 +568,11 @@ func maxDataSize(lib ccv.Lib, src, dest uint64, args Args) *v3TestCase {
 			if !ok {
 				return false
 			}
-			maxDataBytes, err := env.Dst.GetMaxDataBytes(ctx, tc.dst)
+			maxDataSizeProvider, ok := env.Dst.(cciptestinterfaces.MaxDataSizeProvider)
+			if !ok {
+				return false
+			}
+			maxDataBytes, err := maxDataSizeProvider.GetMaxDataBytes(ctx, tc.dst)
 			if err != nil {
 				return false
 			}

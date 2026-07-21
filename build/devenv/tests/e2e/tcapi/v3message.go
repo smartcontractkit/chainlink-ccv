@@ -38,76 +38,27 @@ type V3MsgConifg struct {
 	AggregatorQualifier string
 	ConfirmExec         bool
 	ExpectExecFail      bool
-
-	// SrcChain and DstChain optionally pre-resolve the source and destination chain
-	// implementations, avoiding a second chain construction in callers (e.g. token_transfer reads balances before sending).
-	// When either is nil, RunV3MessageLifecycle resolves both via lib.ChainsMap.
-	SrcChain, DstChain cciptestinterfaces.CCIP17
 }
 
-// RunV3MessageLifecycle runs the standard V3 message lifecycle: resolves chains from lib (or uses
-// pre-resolved SrcChain/DstChain), builds and sends a V3 message, confirms the send on
+// RunV3MessageLifecycle runs the standard V3 message lifecycle: resolves chains from lib
+// (or uses pre-resolved SrcV3/DstV3), builds and sends a V3 message, confirms the send on
 // source, sets up offchain clients, asserts offchain state, and optionally confirms
 // execution on the destination. It is the single entry point shared by basic messaging
 // tests, chaos scenarios, and token transfer tests.
 func RunV3MessageLifecycle(ctx context.Context, lib ccv.Lib, cfg V3MsgConifg) error {
-	var chainMap map[uint64]cciptestinterfaces.CCIP17
-	var src, dst cciptestinterfaces.CCIP17
-	if cfg.SrcChain != nil && cfg.DstChain != nil {
-		src, dst = cfg.SrcChain, cfg.DstChain
-		chainMap = map[uint64]cciptestinterfaces.CCIP17{cfg.Src: src, cfg.Dst: dst}
-	} else {
-		resolved, err := lib.ChainsMap(ctx)
-		if err != nil {
-			return fmt.Errorf("failed to get chains map: %w", err)
-		}
-		chainMap = resolved
-		var ok bool
-		src, ok = resolved[cfg.Src]
-		if !ok {
-			return fmt.Errorf("source chain not found: %d", cfg.Src)
-		}
-		dst, ok = resolved[cfg.Dst]
-		if !ok {
-			return fmt.Errorf("destination chain not found: %d", cfg.Dst)
-		}
-	}
-
-	chainAsSource, ok := src.(cciptestinterfaces.ChainAsSource)
-	if !ok {
-		return fmt.Errorf("source chain does not implement ChainAsSource")
-	}
-	v3Source, ok := src.(cciptestinterfaces.MessageV3Source)
-	if !ok {
-		return fmt.Errorf("source chain does not support V3 message")
-	}
-	v3Dest, ok := dst.(cciptestinterfaces.MessageV3Destination)
-	if !ok {
-		return fmt.Errorf("dest chain does not support V3 message")
-	}
-
-	opts := cfg.Opts
-	if cfg.SendArgs.ExecutionGasLimit != 0 {
-		opts.ExecutionGasLimit = cfg.SendArgs.ExecutionGasLimit
-	} else if opts.ExecutionGasLimit == 0 {
-		opts.ExecutionGasLimit = DefaultV3ExecutionGasLimit
-	}
-
-	extraArgs, err := v3Source.BuildV3ExtraArgs(opts, v3Dest, cfg.SendArgs.ExtraArgsParams, cfg.SendArgs.TokenReceiverParams, cfg.SendArgs.TokenArgsParams)
+	src, err := lib.V3Source(ctx, cfg.Src)
 	if err != nil {
-		return fmt.Errorf("failed to encode V3 extra args: %w", err)
+		return fmt.Errorf("source chain %d does not support V3 message: %w", cfg.Src, err)
 	}
-
-	msg, err := chainAsSource.BuildChainMessage(ctx, cfg.Fields, extraArgs)
+	dst, err := lib.V3Destination(ctx, cfg.Dst)
 	if err != nil {
-		return fmt.Errorf("failed to build chain message: %w", err)
+		return fmt.Errorf("destination chain %d does not support V3 message: %w", cfg.Dst, err)
 	}
 
-	sent, _, err := chainAsSource.SendChainMessage(ctx, cfg.Dst, msg, cfg.SendArgs.SendOption)
+	sent, err := SendV3Message(ctx, src, dst, cfg.Fields, cfg.Opts, cfg.SendArgs)
 	if err != nil {
-		return fmt.Errorf("failed to send chain message: %w", err)
+		return fmt.Errorf("failed to send message: %w", err)
 	}
-
 	if cfg.ExpectedReceiptIssuers != 0 && len(sent.ReceiptIssuers) != cfg.ExpectedReceiptIssuers {
 		return fmt.Errorf("expected %d receipt issuers, got %d", cfg.ExpectedReceiptIssuers, len(sent.ReceiptIssuers))
 	}
@@ -128,7 +79,7 @@ func RunV3MessageLifecycle(ctx context.Context, lib ccv.Lib, cfg V3MsgConifg) er
 	if err != nil {
 		return err
 	}
-	testCtx, cleanupFn := NewTestingContext(ctx, chainMap, aggregatorClient, indexerMonitor)
+	testCtx, cleanupFn := NewTestingContext(ctx, aggregatorClient, indexerMonitor)
 	defer cleanupFn()
 
 	execTimeout := cfg.Run.ExecTimeout(cfg.ExecTimeout)
