@@ -5,25 +5,40 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/rs/zerolog"
+
 	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/tcapi"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
 // ScenarioSpec describes a chaos scenario: inject an outage, send a V3 message, assert
-// offchain progress, and optionally confirm execution on the destination chain. It embeds
-// tcapi.V3MsgConfig so callers set the same send/assert/exec fields as basic messaging
-// tests; only Outage is chaos-specific. ExecTimeout, when zero, falls back to Assert.Timeout
-// then tcapi.DefaultExecTimeout (handled by RunScenario).
+// offchain progress, and optionally confirm execution on the destination chain.
 type ScenarioSpec struct {
 	Lib ccv.Lib
-	tcapi.V3MsgConfig
+	Src uint64
+	Dst uint64
+
+	Fields   cciptestinterfaces.MessageFields
+	Opts     cciptestinterfaces.MessageOptions
+	SendArgs tcapi.SendArgs
+
 	Outage OutageSpec
+	Assert tcapi.AssertMessageOptions
+	Run    tcapi.RunConfig
+
+	// AggregatorQualifier selects which committee aggregator to wait on. Empty uses default.
+	AggregatorQualifier string
+
+	// ConfirmExecOnDest waits for successful execution on the destination when true.
+	ConfirmExecOnDest bool
+	ExpectExecFailure bool
 }
 
-// RunScenario injects the outage, then runs the standard V3 send -> confirm-send-on-source
-// -> offchain assert -> (optional) confirm-exec-on-destination pipeline via
-// tcapi.RunV3MessageLifecycle. The caller must provide lib and message fields; this package
-// does not filter chains by family.
+// RunScenario injects the outage, sends a V3 message, confirms the send on source,
+// asserts aggregator/indexer state, and optionally confirms execution on the destination.
+// The caller must provide lib and message fields; this package does not filter chains by family.
 func RunScenario(t *testing.T, ctx context.Context, spec ScenarioSpec) error {
 	cleanup, err := InjectOutage(ctx, spec.Outage)
 	if err != nil {
@@ -31,10 +46,75 @@ func RunScenario(t *testing.T, ctx context.Context, spec ScenarioSpec) error {
 	}
 	t.Cleanup(cleanup)
 
-	// Preserve chaos behavior: exec timeout falls back to Assert.Timeout, then DefaultExecTimeout.
-	if spec.ExecTimeout == 0 && spec.Assert.Timeout != 0 {
-		spec.ExecTimeout = spec.Assert.Timeout
+	v3Src, err := spec.Lib.V3Source(ctx, spec.Src)
+	if err != nil {
+		return fmt.Errorf("source chain %d does not support V3 message: %w", spec.Src, err)
+	}
+	v3Dst, err := spec.Lib.V3Destination(ctx, spec.Dst)
+	if err != nil {
+		return fmt.Errorf("destination chain %d does not support V3 message: %w", spec.Dst, err)
 	}
 
-	return tcapi.RunV3MessageLifecycle(ctx, spec.Lib, spec.V3MsgConfig)
+	sent, err := tcapi.SendV3Message(ctx, v3Src, v3Dst, spec.Fields, spec.Opts, spec.SendArgs)
+	if err != nil {
+		return fmt.Errorf("send v3 message: %w", err)
+	}
+	if sent.MessageID == (protocol.Bytes32{}) {
+		return fmt.Errorf("send returned zero message ID")
+	}
+	if sent.Message != nil {
+		zerolog.Ctx(ctx).Info().Uint64("SeqNo", uint64(sent.Message.SequenceNumber)).Msg("Sent message")
+	}
+
+	messageKey := cciptestinterfaces.MessageEventKey{MessageID: sent.MessageID}
+	sentTimeout := spec.Run.SentTimeout(tcapi.DefaultSentTimeout)
+	if _, err := v3Src.ConfirmSendOnSource(ctx, spec.Dst, messageKey, sentTimeout); err != nil {
+		return fmt.Errorf("confirm send on source: %w", err)
+	}
+
+	aggregatorClient, indexerMonitor, err := tcapi.SetupOffchainClients(spec.Lib, spec.AggregatorQualifier)
+	if err != nil {
+		return err
+	}
+	testCtx, cleanupFn := tcapi.NewTestingContext(ctx, aggregatorClient, indexerMonitor)
+	defer cleanupFn()
+
+	execTimeout := spec.Run.ExecTimeout(tcapi.DefaultExecTimeout)
+	if spec.Assert.Timeout != 0 {
+		execTimeout = spec.Run.ExecTimeout(spec.Assert.Timeout)
+	}
+
+	assertOpts := spec.Assert
+	if assertOpts.Timeout == 0 {
+		assertOpts.Timeout = execTimeout
+	}
+
+	result, err := testCtx.AssertMessage(sent.MessageID, assertOpts)
+	if err != nil {
+		return fmt.Errorf("assert message: %w", err)
+	}
+	if aggregatorClient != nil && result.AggregatedResult == nil {
+		return fmt.Errorf("aggregated result is nil")
+	}
+	if indexerMonitor != nil && len(result.IndexedVerifications.Results) != assertOpts.ExpectedVerifierResults {
+		return fmt.Errorf("expected %d indexed verifications, got %d",
+			assertOpts.ExpectedVerifierResults, len(result.IndexedVerifications.Results))
+	}
+
+	if !spec.ConfirmExecOnDest {
+		return nil
+	}
+
+	execEvt, err := v3Dst.ConfirmExecOnDest(ctx, spec.Src, messageKey, execTimeout)
+	if err != nil {
+		return fmt.Errorf("confirm exec on dest: %w", err)
+	}
+	if spec.ExpectExecFailure {
+		if execEvt.State != cciptestinterfaces.ExecutionStateFailure {
+			return fmt.Errorf("expected execution failure, got %s", execEvt.State)
+		}
+	} else if execEvt.State != cciptestinterfaces.ExecutionStateSuccess {
+		return fmt.Errorf("expected execution success, got %s", execEvt.State)
+	}
+	return nil
 }

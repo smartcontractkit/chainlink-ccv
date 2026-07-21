@@ -103,38 +103,73 @@ func (tc *tokenTransferV3TestCase) Run(ctx context.Context) error {
 	if tc.args.DestBalanceIncrease != nil {
 		destIncrease = tc.args.DestBalanceIncrease
 	}
+	sentTimeout := tc.args.Run.SentTimeout(tcapi.DefaultSentTimeout)
+	execTimeout := tc.args.Run.ExecTimeout(tcapi.DefaultExecTimeout)
 	msgReceiver := tc.receiver
 	if tc.args.Send.TokenReceiverParams != nil {
 		msgReceiver = make([]byte, len(tc.receiver))
 	}
 
-	if err = tcapi.RunV3MessageLifecycle(ctx, tc.lib, tcapi.V3MsgConfig{
-		Src: tc.src,
-		Dst: tc.dst,
-		Fields: cciptestinterfaces.MessageFields{
+	sendRes, err := tcapi.SendV3Message(ctx, v3Src, v3Dst,
+		cciptestinterfaces.MessageFields{
 			Receiver: msgReceiver,
 			TokenAmount: cciptestinterfaces.TokenAmount{
 				Amount:       transferAmount,
 				TokenAddress: tc.srcToken,
 			},
 		},
-		Opts: cciptestinterfaces.MessageOptions{
+		cciptestinterfaces.MessageOptions{
 			FinalityConfig: tc.finalityConfig,
 			Executor:       tc.executor,
 		},
-		SendArgs: tc.args.Send,
-		Run:      tc.args.Run,
-		Assert: tcapi.AssertMessageOptions{
-			TickInterval:            1 * time.Second,
-			ExpectedVerifierResults: tc.numExpectedVer,
-			AssertVerifierLogs:      false,
-			AssertExecutorLogs:      false,
-		},
-		ExecTimeout:            tcapi.DefaultExecTimeout,
-		ExpectedReceiptIssuers: tc.numExpectedRecv,
-		ConfirmExec:            true,
-	}); err != nil {
+		tc.args.Send,
+	)
+	if err != nil {
+		return fmt.Errorf("send message: %w", err)
+	}
+	if len(sendRes.ReceiptIssuers) != tc.numExpectedRecv {
+		return fmt.Errorf("expected %d receipt issuers, got %d", tc.numExpectedRecv, len(sendRes.ReceiptIssuers))
+	}
+	if sendRes.MessageID == (protocol.Bytes32{}) {
+		return fmt.Errorf("send returned zero message ID")
+	}
+	messageKey := cciptestinterfaces.MessageEventKey{MessageID: sendRes.MessageID}
+	if sendRes.Message != nil {
+		l.Info().Uint64("SeqNo", uint64(sendRes.Message.SequenceNumber)).Str("Token", tc.combo.LocalPoolAddressRef().Qualifier).Msg("sent message")
+	}
+	_, err = v3Src.ConfirmSendOnSource(ctx, tc.dst, messageKey, sentTimeout)
+	if err != nil {
+		return fmt.Errorf("wait for sent event: %w", err)
+	}
+	msgID := sendRes.MessageID
+
+	aggregatorClient, indexerMonitor, err := tcapi.SetupOffchainClients(tc.lib, "")
+	if err != nil {
 		return err
+	}
+	testCtx, cleanupFn := tcapi.NewTestingContext(ctx, aggregatorClient, indexerMonitor)
+	defer cleanupFn()
+
+	res, err := testCtx.AssertMessage(msgID, tcapi.AssertMessageOptions{
+		TickInterval:            1 * time.Second,
+		Timeout:                 execTimeout,
+		ExpectedVerifierResults: tc.numExpectedVer,
+		AssertVerifierLogs:      false,
+		AssertExecutorLogs:      false,
+	})
+	if err != nil {
+		return fmt.Errorf("assert message: %w", err)
+	}
+	if aggregatorClient != nil && res.AggregatedResult == nil {
+		return fmt.Errorf("aggregated result is nil")
+	}
+
+	execEvt, err := v3Dst.ConfirmExecOnDest(ctx, tc.src, messageKey, execTimeout)
+	if err != nil {
+		return fmt.Errorf("wait for exec event: %w", err)
+	}
+	if execEvt.State != cciptestinterfaces.ExecutionStateSuccess {
+		return fmt.Errorf("unexpected execution state %s, return data: %x", execEvt.State, execEvt.ReturnData)
 	}
 
 	endBal, err := dstBalReader.GetTokenBalance(ctx, tc.receiver, tc.destToken)

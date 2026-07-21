@@ -1,9 +1,9 @@
 # tcapi/chaos
 
 Standard chaos test helpers for CCIP devenv: inject container outages via Pumba, resolve
-service container names from `ccv.Cfg`, and run the V3 message lifecycle (send, assert,
-optionally confirm execution) via `tcapi.RunV3MessageLifecycle`. Sibling to `tcapi/basic`
-and `tcapi/token_transfer` — a reusable test category composing the tcapi primitives.
+service container names from `ccv.Cfg`, and run a V3 send + offchain assert pipeline via
+`tcapi.SendV3Message`. Sibling to `tcapi/basic` and `tcapi/token_transfer` — a reusable
+test category composing the tcapi primitives.
 
 ## Outage injection
 
@@ -29,36 +29,33 @@ Container names are normalized from env-out (`Out.ContainerName`, leading `/` st
 
 ## RunScenario
 
-`RunScenario` injects the outage, then runs the standard V3 message lifecycle
-(send -> confirm-send-on-source -> offchain assert -> optional confirm-exec-on-dest)
-via `tcapi.RunV3MessageLifecycle`.
+`RunScenario` injects the outage, sends a V3 message via `tcapi.SendV3Message`, confirms
+the send on source, asserts aggregator/indexer state, and optionally confirms execution on
+the destination.
 
-Callers pass `ccv.Lib` and message fields — the package does not load chains or filter
-by family. EVM-only chaos tests hydrate messages with
-`basic.ResolveEOAReceiverDefaultVerifier`.
+Callers pass `ccv.Lib` and message fields — the package does not filter chains by family.
+EVM-only chaos tests hydrate messages with `basic.ResolveEOAReceiverDefaultVerifier`.
 
 ```go
 receiver, ccvs, executor, err := basic.ResolveEOAReceiverDefaultVerifier(ctx, lib, src, dst)
 require.NoError(t, err)
 
 err = chaos.RunScenario(t, ctx, chaos.ScenarioSpec{
-    Lib: lib,
-    V3MsgConfig: tcapi.V3MsgConfig{
-        Src: src,
-        Dst: dst,
-        Fields: cciptestinterfaces.MessageFields{Receiver: receiver},
-        Opts:   cciptestinterfaces.MessageOptions{FinalityConfig: 1, Executor: executor, CCVs: ccvs},
-        SendArgs: tcapi.SendArgs{},
-        Assert:   tcapi.AssertMessageOptions{ExpectedVerifierResults: 1, Timeout: timeout},
-        ConfirmExec: true,
-    },
-    Outage: outageSpec,
+    Lib:      lib,
+    Src:      src,
+    Dst:      dst,
+    Fields:   cciptestinterfaces.MessageFields{Receiver: receiver},
+    Opts:     cciptestinterfaces.MessageOptions{FinalityConfig: 1, Executor: executor, CCVs: ccvs},
+    SendArgs: tcapi.SendArgs{},
+    Assert:   tcapi.AssertMessageOptions{ExpectedVerifierResults: 1, Timeout: timeout},
+    ConfirmExecOnDest: true,
+    Outage:   outageSpec,
 })
 ```
 
-`ScenarioSpec` embeds `tcapi.V3MsgConfig`, so all send/assert/exec fields are set
-inline; only `Outage` is chaos-specific. When `ExecTimeout` is zero it falls back to
-`Assert.Timeout` then `tcapi.DefaultExecTimeout`.
+`ScenarioSpec` uses flat fields for all send/assert/exec options; only `Outage` is
+chaos-specific. Exec timeout falls back to `Assert.Timeout` then
+`tcapi.DefaultExecTimeout`.
 
 Cross-family callers (e.g. Solana devenv) supply their own `Fields` / `Opts` and
 use `ExecutorContainersForDest` when multiple executors share the same qualifier.
