@@ -63,7 +63,7 @@ func (tc *v3TestCase) Run(ctx context.Context) error {
 	if err := tc.ensureHydrated(ctx); err != nil {
 		return err
 	}
-	return tcapi.RunV3MessageLifecycle(ctx, tc.lib, tcapi.V3MsgConifg{
+	return tcapi.RunV3MessageLifecycle(ctx, tc.lib, tcapi.V3MsgConfig{
 		Src:      tc.src,
 		Dst:      tc.dst,
 		Fields:   cciptestinterfaces.MessageFields{Receiver: tc.receiver, Data: tc.msgData},

@@ -108,7 +108,7 @@ func (tc *tokenTransferV3TestCase) Run(ctx context.Context) error {
 		msgReceiver = make([]byte, len(tc.receiver))
 	}
 
-	if err = tcapi.RunV3MessageLifecycle(ctx, tc.lib, tcapi.V3MsgConifg{
+	if err = tcapi.RunV3MessageLifecycle(ctx, tc.lib, tcapi.V3MsgConfig{
 		Src: tc.src,
 		Dst: tc.dst,
 		Fields: cciptestinterfaces.MessageFields{

@@ -12,10 +12,10 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
-// V3MsgConifg configures RunV3MessageLifecycle, the standard V3 send -> confirm-send-on-source
+// V3MsgConfig configures RunV3MessageLifecycle, the standard V3 send -> confirm-send-on-source
 // -> offchain assert -> (optional) confirm-exec-on-destination pipeline shared by basic
 // messaging tests, chaos scenarios, and token transfer tests.
-type V3MsgConifg struct {
+type V3MsgConfig struct {
 	Src, Dst uint64
 	Fields   cciptestinterfaces.MessageFields
 	Opts     cciptestinterfaces.MessageOptions
@@ -40,12 +40,11 @@ type V3MsgConifg struct {
 	ExpectExecFail      bool
 }
 
-// RunV3MessageLifecycle runs the standard V3 message lifecycle: resolves chains from lib
-// (or uses pre-resolved SrcV3/DstV3), builds and sends a V3 message, confirms the send on
-// source, sets up offchain clients, asserts offchain state, and optionally confirms
-// execution on the destination. It is the single entry point shared by basic messaging
-// tests, chaos scenarios, and token transfer tests.
-func RunV3MessageLifecycle(ctx context.Context, lib ccv.Lib, cfg V3MsgConifg) error {
+// RunV3MessageLifecycle runs the standard V3 message lifecycle: resolves chains from lib,
+// builds and sends a V3 message, confirms the send on source, sets up offchain clients,
+// asserts offchain state, and optionally confirms execution on the destination. It is the
+// single entry point shared by basic messaging tests, chaos scenarios, and token transfer tests.
+func RunV3MessageLifecycle(ctx context.Context, lib ccv.Lib, cfg V3MsgConfig) error {
 	src, err := lib.V3Source(ctx, cfg.Src)
 	if err != nil {
 		return fmt.Errorf("source chain %d does not support V3 message: %w", cfg.Src, err)

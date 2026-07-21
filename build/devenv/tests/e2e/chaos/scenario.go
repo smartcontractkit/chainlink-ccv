@@ -11,12 +11,12 @@ import (
 
 // ScenarioSpec describes a chaos scenario: inject an outage, send a V3 message, assert
 // offchain progress, and optionally confirm execution on the destination chain. It embeds
-// tcapi.V3MsgConifg so callers set the same send/assert/exec fields as basic messaging
+// tcapi.V3MsgConfig so callers set the same send/assert/exec fields as basic messaging
 // tests; only Outage is chaos-specific. ExecTimeout, when zero, falls back to Assert.Timeout
 // then tcapi.DefaultExecTimeout (handled by RunScenario).
 type ScenarioSpec struct {
 	Lib ccv.Lib
-	tcapi.V3MsgConifg
+	tcapi.V3MsgConfig
 	Outage OutageSpec
 }
 
@@ -36,5 +36,5 @@ func RunScenario(t *testing.T, ctx context.Context, spec ScenarioSpec) error {
 		spec.ExecTimeout = spec.Assert.Timeout
 	}
 
-	return tcapi.RunV3MessageLifecycle(ctx, spec.Lib, spec.V3MsgConifg)
+	return tcapi.RunV3MessageLifecycle(ctx, spec.Lib, spec.V3MsgConfig)
 }

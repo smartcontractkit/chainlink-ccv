@@ -100,7 +100,7 @@ func transferTokens(
 	require.NoError(t, err, "get sender start balance")
 
 	amountToTransfer := tokens.ScaleTokenAmount(big.NewInt(amount), srcPool.Decimals())
-	require.NoError(t, tcapi.RunV3MessageLifecycle(t.Context(), lib, tcapi.V3MsgConifg{
+	require.NoError(t, tcapi.RunV3MessageLifecycle(t.Context(), lib, tcapi.V3MsgConfig{
 		Src: srcSel,
 		Dst: dstSel,
 		Fields: cciptestinterfaces.MessageFields{

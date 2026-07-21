@@ -10,7 +10,6 @@ optionally confirm execution) via `tcapi.RunV3MessageLifecycle`.
 cleanup, err := chaos.InjectOutage(ctx, chaos.OutageSpec{
     Duration:      chaos.DefaultOutageDuration,
     Targets:       []string{nginxContainer},
-    LiteralSingle: true, // aggregator nginx uses an unanchored Pumba target
 })
 t.Cleanup(cleanup)
 ```

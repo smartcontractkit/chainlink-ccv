@@ -143,7 +143,7 @@ func setupChaosEVMSession(t *testing.T) (context.Context, ccv.Lib, *chaosSetup, 
 }
 
 // runEVMChaosScenario hydrates a default EOA-receiver V3 message, builds the standard
-// V3MsgConifg, and runs the chaos scenario. cfg overrides the default assert timeout,
+// V3MsgConfig, and runs the chaos scenario. cfg overrides the default assert timeout,
 // exec timeout, and ConfirmExec flag.
 func runEVMChaosScenario(t *testing.T, ctx context.Context, lib ccv.Lib, src, dst uint64, cfg evmChaosConfig, outage chaos.OutageSpec) {
 	t.Helper()
@@ -155,7 +155,7 @@ func runEVMChaosScenario(t *testing.T, ctx context.Context, lib ccv.Lib, src, ds
 		timeout = tests.WaitTimeout(t)
 	}
 
-	v3cfg := tcapi.V3MsgConifg{
+	v3cfg := tcapi.V3MsgConfig{
 		Src: src,
 		Dst: dst,
 		Fields: cciptestinterfaces.MessageFields{
@@ -182,7 +182,7 @@ func runEVMChaosScenario(t *testing.T, ctx context.Context, lib ccv.Lib, src, ds
 
 	require.NoError(t, chaos.RunScenario(t, ctx, chaos.ScenarioSpec{
 		Lib:         lib,
-		V3MsgConifg: v3cfg,
+		V3MsgConfig: v3cfg,
 		Outage:      outage,
 	}))
 }
