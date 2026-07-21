@@ -293,27 +293,13 @@ func eoaReceiverDefaultVerifier(lib ccv.Lib, src, dest uint64, args Args) *v3Tes
 			args:                     args,
 		},
 		hydrate: func(ctx context.Context, tc *v3TestCase) bool {
-			env, ok := loadV3Env(ctx, tc.lib, tc.src, tc.dst)
-			if !ok {
-				return false
-			}
-			receiver, err := env.Dst.GetEOAReceiverAddress()
+			receiver, ccvs, executor, err := ResolveEOAReceiverDefaultVerifier(ctx, tc.lib, tc.src, tc.dst)
 			if err != nil {
 				return false
 			}
 			tc.receiver = receiver
-			ccv, err := getCommitteeCCV(env.SrcResolver, env.DS, tc.src, common.DefaultCommitteeVerifierQualifier)
-			if err != nil {
-				return false
-			}
-			tc.ccvs = []protocol.CCV{ccv}
-
-			executorAddr, err := env.SrcResolver.GetExecutor(env.DS, tc.src, common.DefaultExecutorQualifier)
-			if err != nil {
-				return false
-			}
-			tc.executor = executorAddr
-
+			tc.ccvs = ccvs
+			tc.executor = executor
 			return true
 		},
 	}
@@ -694,28 +680,13 @@ func eoaReceiverDefaultVerifierSafeTag(lib ccv.Lib, src, dest uint64, args Args)
 			args:                     args,
 		},
 		hydrate: func(ctx context.Context, tc *v3TestCase) bool {
-			env, ok := loadV3Env(ctx, tc.lib, tc.src, tc.dst)
-			if !ok {
-				return false
-			}
-			receiver, err := env.Dst.GetEOAReceiverAddress()
+			receiver, ccvs, executor, err := ResolveEOAReceiverDefaultVerifier(ctx, tc.lib, tc.src, tc.dst)
 			if err != nil {
 				return false
 			}
 			tc.receiver = receiver
-
-			ccv, err := getCommitteeCCV(env.SrcResolver, env.DS, tc.src, common.DefaultCommitteeVerifierQualifier)
-			if err != nil {
-				return false
-			}
-			tc.ccvs = []protocol.CCV{ccv}
-
-			executorAddr, err := env.SrcResolver.GetExecutor(env.DS, tc.src, common.DefaultExecutorQualifier)
-			if err != nil {
-				return false
-			}
-			tc.executor = executorAddr
-
+			tc.ccvs = ccvs
+			tc.executor = executor
 			return true
 		},
 	}
