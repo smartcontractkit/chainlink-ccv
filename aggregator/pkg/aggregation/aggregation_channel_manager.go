@@ -3,6 +3,7 @@ package aggregation
 import (
 	"context"
 	"fmt"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -16,14 +17,21 @@ type ChannelManager struct {
 	AggregationChannel chan aggregationRequest
 	wakeUp             chan struct{}
 	closed             atomic.Bool
+
+	// We deduplicate requests based on their unique ID (AggregationKey + MessageID) to avoid processing the same request multiple times.
+	// When the service is under heavy load the requests will come from multiple clients at once and we can reduce pressure by only processing one of them per messages.
+	// If 2 requests for the same message reach the channel manager at the same time it is fine to drop them since we already persisted both verification but did not aggregate yet.
+	currentlyQueued     map[string]struct{}
+	currentlyQueuedLock sync.Mutex
 }
 
 func NewChannelManager(keys []model.ChannelKey, bufferSize int) *ChannelManager {
 	manager := &ChannelManager{
 		clientChannel:      make(map[model.ChannelKey]chan aggregationRequest),
 		clientOrder:        make([]model.ChannelKey, 0, len(keys)),
-		AggregationChannel: make(chan aggregationRequest, len(keys)),
+		AggregationChannel: make(chan aggregationRequest),
 		wakeUp:             make(chan struct{}, 1),
+		currentlyQueued:    make(map[string]struct{}),
 	}
 	for _, key := range keys {
 		manager.clientChannel[key] = make(chan aggregationRequest, bufferSize)
@@ -45,24 +53,47 @@ func (m *ChannelManager) Enqueue(ctx context.Context, key model.ChannelKey, req 
 	if m.closed.Load() {
 		return common.ErrShuttingDown
 	}
+
+	if m.isQueued(req) {
+		return nil // Already queued, no need to enqueue again
+	}
+
 	ch, ok := m.clientChannel[key]
 	if !ok {
 		return fmt.Errorf("channel not found for key: %s", key)
 	}
-	timer := time.NewTimer(maxBlockTime)
-	defer timer.Stop()
 	select {
 	case ch <- req:
+		m.markAsQueued(req)
 		select {
 		case m.wakeUp <- struct{}{}:
 		default:
 		}
 		return nil
-	case <-timer.C:
-		return common.ErrAggregationChannelFull
 	case <-ctx.Done():
 		return ctx.Err()
+	default:
+		return common.ErrAggregationChannelFull
 	}
+}
+
+func (m *ChannelManager) isQueued(req aggregationRequest) bool {
+	m.currentlyQueuedLock.Lock()
+	defer m.currentlyQueuedLock.Unlock()
+	_, exists := m.currentlyQueued[req.ID()]
+	return exists
+}
+
+func (m *ChannelManager) markAsQueued(req aggregationRequest) {
+	m.currentlyQueuedLock.Lock()
+	defer m.currentlyQueuedLock.Unlock()
+	m.currentlyQueued[req.ID()] = struct{}{}
+}
+
+func (m *ChannelManager) markAsDequeued(req aggregationRequest) {
+	m.currentlyQueuedLock.Lock()
+	defer m.currentlyQueuedLock.Unlock()
+	delete(m.currentlyQueued, req.ID())
 }
 
 // Start runs the fair scheduling loop in a single goroutine.
@@ -93,6 +124,7 @@ func (m *ChannelManager) Start(ctx context.Context) error {
 				req := <-ch
 				select {
 				case m.AggregationChannel <- req:
+					m.markAsDequeued(req)
 				case <-ctx.Done():
 					m.closed.Store(true)
 					m.AggregationChannel <- req
