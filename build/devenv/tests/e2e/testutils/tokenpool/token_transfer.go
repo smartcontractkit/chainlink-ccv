@@ -95,9 +95,14 @@ func transferTokens(
 	srcStartBal, err := src.GetTokenBalance(t.Context(), sender, srcTokenAddr)
 	require.NoError(t, err, "get sender start balance")
 
+	v3Src, ok := src.(tcapi.V3Source)
+	require.True(t, ok, "source chain %d does not support V3 message", srcSel)
+	v3Dst, ok := dst.(cciptestinterfaces.MessageV3Destination)
+	require.True(t, ok, "destination chain %d does not support V3 message", dstSel)
+
 	amountToTransfer := tokens.ScaleTokenAmount(big.NewInt(amount), srcPool.Decimals())
 	sendRes, err := tcapi.SendV3Message(
-		t.Context(), src, dst, dstSel,
+		t.Context(), v3Src, v3Dst, dstSel,
 		cciptestinterfaces.MessageFields{
 			Receiver: receiver,
 			TokenAmount: cciptestinterfaces.TokenAmount{

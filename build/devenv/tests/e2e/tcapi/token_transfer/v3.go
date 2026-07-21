@@ -105,7 +105,16 @@ func (tc *tokenTransferV3TestCase) Run(ctx context.Context) error {
 		msgReceiver = make([]byte, len(tc.receiver))
 	}
 
-	sendRes, err := tcapi.SendV3Message(ctx, src, dst, tc.dst,
+	v3Src, ok := src.(tcapi.V3Source)
+	if !ok {
+		return fmt.Errorf("source chain %d does not support V3 message", tc.src)
+	}
+	v3Dst, ok := dst.(cciptestinterfaces.MessageV3Destination)
+	if !ok {
+		return fmt.Errorf("destination chain %d does not support V3 message", tc.dst)
+	}
+
+	sendRes, err := tcapi.SendV3Message(ctx, v3Src, v3Dst, tc.dst,
 		cciptestinterfaces.MessageFields{
 			Receiver: msgReceiver,
 			TokenAmount: cciptestinterfaces.TokenAmount{
