@@ -23,11 +23,7 @@ const (
 type OutageSpec struct {
 	Duration time.Duration
 	// Targets are normalized Docker container names (leading "/" stripped) that Pumba
-	// will stop during the outage. Resolve them with the container helpers in this
-	// package (DefaultAggregatorNginx, VerifierContainers, ExecutorContainers,
-	// ExecutorContainersForDest, IndexerContainer). Each target is matched against
-	// running Docker container names via Pumba's re2 regex; see LiteralSingle for
-	// anchor behavior.
+	// will stop during the outage.
 	Targets []string
 }
 
