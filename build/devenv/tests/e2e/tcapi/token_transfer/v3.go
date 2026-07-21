@@ -70,21 +70,22 @@ func (tc *tokenTransferV3TestCase) Run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("get chains map: %w", err)
 	}
-	src, ok := chainMap[tc.src]
-	if !ok {
-		return fmt.Errorf("chain %d not found", tc.src)
+	v3Src, err := tc.lib.V3Source(ctx, tc.src)
+	if err != nil {
+		return fmt.Errorf("source chain %d does not support V3 message: %w", tc.src, err)
 	}
-	dst, ok := chainMap[tc.dst]
-	if !ok {
-		return fmt.Errorf("chain %d not found", tc.dst)
+	v3Dst, err := tc.lib.V3Destination(ctx, tc.dst)
+	if err != nil {
+		return fmt.Errorf("destination chain %d does not support V3 message: %w", tc.dst, err)
 	}
-	startBal, err := dst.GetTokenBalance(ctx, tc.receiver, tc.destToken)
+
+	startBal, err := v3Dst.GetTokenBalance(ctx, tc.receiver, tc.destToken)
 	if err != nil {
 		return fmt.Errorf("get receiver start balance: %w", err)
 	}
 	l.Info().Str("Receiver", tc.receiver.String()).Uint64("StartBalance", startBal.Uint64()).Str("Token", tc.combo.RemotePoolAddressRef().Qualifier).Msg("receiver start balance")
 
-	srcStartBal, err := src.GetTokenBalance(ctx, tc.sender, tc.srcToken)
+	srcStartBal, err := v3Src.GetTokenBalance(ctx, tc.sender, tc.srcToken)
 	if err != nil {
 		return fmt.Errorf("get sender start balance: %w", err)
 	}
@@ -103,15 +104,6 @@ func (tc *tokenTransferV3TestCase) Run(ctx context.Context) error {
 	msgReceiver := tc.receiver
 	if tc.args.Send.TokenReceiverParams != nil {
 		msgReceiver = make([]byte, len(tc.receiver))
-	}
-
-	v3Src, err := tc.lib.V3Source(ctx, tc.src)
-	if err != nil {
-		return fmt.Errorf("source chain %d does not support V3 message: %w", tc.src, err)
-	}
-	v3Dst, err := tc.lib.MessageV3Destination(ctx, tc.dst)
-	if err != nil {
-		return fmt.Errorf("destination chain %d does not support V3 message: %w", tc.dst, err)
 	}
 
 	sendRes, err := tcapi.SendV3Message(ctx, v3Src, v3Dst, tc.dst,
@@ -141,7 +133,7 @@ func (tc *tokenTransferV3TestCase) Run(ctx context.Context) error {
 	if sendRes.Message != nil {
 		l.Info().Uint64("SeqNo", uint64(sendRes.Message.SequenceNumber)).Str("Token", tc.combo.LocalPoolAddressRef().Qualifier).Msg("sent message")
 	}
-	_, err = src.ConfirmSendOnSource(ctx, tc.dst, messageKey, sentTimeout)
+	_, err = v3Src.ConfirmSendOnSource(ctx, tc.dst, messageKey, sentTimeout)
 	if err != nil {
 		return fmt.Errorf("wait for sent event: %w", err)
 	}
@@ -168,7 +160,7 @@ func (tc *tokenTransferV3TestCase) Run(ctx context.Context) error {
 		return fmt.Errorf("aggregated result is nil")
 	}
 
-	execEvt, err := dst.ConfirmExecOnDest(ctx, tc.src, messageKey, execTimeout)
+	execEvt, err := v3Dst.ConfirmExecOnDest(ctx, tc.src, messageKey, execTimeout)
 	if err != nil {
 		return fmt.Errorf("wait for exec event: %w", err)
 	}
@@ -176,7 +168,7 @@ func (tc *tokenTransferV3TestCase) Run(ctx context.Context) error {
 		return fmt.Errorf("unexpected execution state %s, return data: %x", execEvt.State, execEvt.ReturnData)
 	}
 
-	endBal, err := dst.GetTokenBalance(ctx, tc.receiver, tc.destToken)
+	endBal, err := v3Dst.GetTokenBalance(ctx, tc.receiver, tc.destToken)
 	if err != nil {
 		return fmt.Errorf("get receiver end balance: %w", err)
 	}
@@ -186,7 +178,7 @@ func (tc *tokenTransferV3TestCase) Run(ctx context.Context) error {
 	}
 	l.Info().Uint64("EndBalance", endBal.Uint64()).Str("Token", tc.combo.RemotePoolAddressRef().Qualifier).Msg("receiver end balance")
 
-	srcEndBal, err := src.GetTokenBalance(ctx, tc.sender, tc.srcToken)
+	srcEndBal, err := v3Src.GetTokenBalance(ctx, tc.sender, tc.srcToken)
 	if err != nil {
 		return fmt.Errorf("get sender end balance: %w", err)
 	}
@@ -246,26 +238,22 @@ func tokenTransferCase(lib ccv.Lib, src, dest uint64, combo common.TokenCombinat
 			if err != nil {
 				return false
 			}
-			chainMap, err := tc.lib.ChainsMap(ctx)
+			v3Src, err := tc.lib.V3Source(ctx, tc.src)
 			if err != nil {
 				return false
 			}
-			src, ok := chainMap[tc.src]
-			if !ok {
-				return false
-			}
-			dst, ok := chainMap[tc.dst]
-			if !ok {
-				return false
-			}
-			sender, err := src.GetSenderAddress()
+			sender, err := v3Src.GetSenderAddress()
 			if err != nil {
 				return false
 			}
 			tc.sender = sender
 
 			if tc.useEOAReceiver {
-				tc.receiver, err = dst.GetEOAReceiverAddress()
+				v3Dst, dstErr := tc.lib.V3Destination(ctx, tc.dst)
+				if dstErr != nil {
+					return false
+				}
+				tc.receiver, err = v3Dst.GetEOAReceiverAddress()
 			} else {
 				tc.receiver, err = dstReg.AddressResolver.GetContractReceiver(ds, tc.dst, common.DefaultReceiverQualifier)
 			}

@@ -178,7 +178,7 @@ func NewV3Destination(
 	lggr zerolog.Logger,
 	env *deployment.Environment,
 	chainSelector uint64,
-) (cciptestinterfaces.MessageV3Destination, error) {
+) (cciptestinterfaces.V3Destination, error) {
 	return NewCCIP17EVM(ctx, lggr, env, chainSelector)
 }
 

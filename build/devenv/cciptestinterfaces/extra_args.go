@@ -63,6 +63,15 @@ type MessageV3Destination interface {
 type V3Source interface {
 	MessageV3Source
 	ChainAsSource
+	TokenBalanceReader
+	SenderAddressProvider
+}
+
+// V3Destination is implemented by any chain that can receive a V3 message.
+type V3Destination interface {
+	MessageV3Destination
+	ChainAsDestination
+	TokenBalanceReader
 }
 
 // MessageV3Source is an interface for any chain that can send a V3 message.

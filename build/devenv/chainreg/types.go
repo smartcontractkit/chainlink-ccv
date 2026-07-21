@@ -63,7 +63,7 @@ type V3SourceFactory func(
 	chainSelector uint64,
 ) (cciptestinterfaces.V3Source, error)
 
-// V3DestinationFactory constructs a cciptestinterfaces.MessageV3Destination for a
+// V3DestinationFactory constructs a cciptestinterfaces.V3Destination for a
 // chain family that only supports receiving V3 messages, without implementing
 // the full cciptestinterfaces.CCIP17 interface required by ImplFactory.
 type V3DestinationFactory func(
@@ -71,7 +71,7 @@ type V3DestinationFactory func(
 	lggr zerolog.Logger,
 	env *deployment.Environment,
 	chainSelector uint64,
-) (cciptestinterfaces.MessageV3Destination, error)
+) (cciptestinterfaces.V3Destination, error)
 
 // ExecutorInfo provides executor bootstrap key metadata for a chain family.
 // Families that support bootstrap-managed executor transmitter keys register

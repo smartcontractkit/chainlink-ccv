@@ -69,15 +69,11 @@ func (tc *v3TestCase) Run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to get chains map: %w", err)
 	}
-	dst, ok := chainMap[tc.dst]
-	if !ok {
-		return fmt.Errorf("destination chain not found: %d", tc.dst)
-	}
 	v3Src, err := tc.lib.V3Source(ctx, tc.src)
 	if err != nil {
 		return fmt.Errorf("source chain %d does not support V3 message: %w", tc.src, err)
 	}
-	v3Dst, err := tc.lib.MessageV3Destination(ctx, tc.dst)
+	v3Dst, err := tc.lib.V3Destination(ctx, tc.dst)
 	if err != nil {
 		return fmt.Errorf("destination chain %d does not support V3 message: %w", tc.dst, err)
 	}
@@ -139,7 +135,7 @@ func (tc *v3TestCase) Run(ctx context.Context) error {
 		return fmt.Errorf("expected %d indexed verifications, got %d", tc.numExpectedVerifications, len(result.IndexedVerifications.Results))
 	}
 
-	e, err := dst.ConfirmExecOnDest(ctx, tc.src, messageKey, execTimeout)
+	e, err := v3Dst.ConfirmExecOnDest(ctx, tc.src, messageKey, execTimeout)
 	if err != nil {
 		return fmt.Errorf("failed to wait for exec event: %w", err)
 	}

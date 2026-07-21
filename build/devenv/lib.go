@@ -77,8 +77,8 @@ type Lib interface {
 	// plug in without implementing the full CCIP17 interface.
 	V3Source(ctx context.Context, chainSelector uint64) (cciptestinterfaces.V3Source, error)
 
-	// MessageV3Destination mirrors V3Source for the destination-side interface.
-	MessageV3Destination(ctx context.Context, chainSelector uint64) (cciptestinterfaces.MessageV3Destination, error)
+	// V3Destination mirrors V3Source for the destination-side interface.
+	V3Destination(ctx context.Context, chainSelector uint64) (cciptestinterfaces.V3Destination, error)
 }
 
 type libFromCCV struct {
@@ -241,9 +241,9 @@ func (l *libFromCCV) V3Source(ctx context.Context, chainSelector uint64) (ccipte
 	return l.libCLDF.V3Source(ctx, chainSelector)
 }
 
-// MessageV3Destination implements [Lib].
-func (l *libFromCCV) MessageV3Destination(ctx context.Context, chainSelector uint64) (cciptestinterfaces.MessageV3Destination, error) {
-	return l.libCLDF.MessageV3Destination(ctx, chainSelector)
+// V3Destination implements [Lib].
+func (l *libFromCCV) V3Destination(ctx context.Context, chainSelector uint64) (cciptestinterfaces.V3Destination, error) {
+	return l.libCLDF.V3Destination(ctx, chainSelector)
 }
 
 type libFromCLDF struct {
@@ -310,8 +310,8 @@ func (l *libFromCLDF) V3Source(ctx context.Context, chainSelector uint64) (ccipt
 	return v3Src, nil
 }
 
-// MessageV3Destination implements [Lib].
-func (l *libFromCLDF) MessageV3Destination(ctx context.Context, chainSelector uint64) (cciptestinterfaces.MessageV3Destination, error) {
+// V3Destination implements [Lib].
+func (l *libFromCLDF) V3Destination(ctx context.Context, chainSelector uint64) (cciptestinterfaces.V3Destination, error) {
 	family, err := chainsel.GetSelectorFamily(chainSelector)
 	if err != nil {
 		return nil, fmt.Errorf("get selector family for chain %d: %w", chainSelector, err)
@@ -329,7 +329,7 @@ func (l *libFromCLDF) MessageV3Destination(ctx context.Context, chainSelector ui
 	if !ok {
 		return nil, fmt.Errorf("chain %d not found", chainSelector)
 	}
-	v3Dst, ok := impl.(cciptestinterfaces.MessageV3Destination)
+	v3Dst, ok := impl.(cciptestinterfaces.V3Destination)
 	if !ok {
 		return nil, fmt.Errorf("chain %d does not support V3 destination", chainSelector)
 	}

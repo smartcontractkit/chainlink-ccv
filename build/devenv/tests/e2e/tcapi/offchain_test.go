@@ -50,7 +50,7 @@ func (s *stubLib) V3Source(context.Context, uint64) (cciptestinterfaces.V3Source
 	return nil, nil
 }
 
-func (s *stubLib) MessageV3Destination(context.Context, uint64) (cciptestinterfaces.MessageV3Destination, error) {
+func (s *stubLib) V3Destination(context.Context, uint64) (cciptestinterfaces.V3Destination, error) {
 	return nil, nil
 }
 
