@@ -87,8 +87,7 @@ type SendArgs struct {
 func SendV3Message(
 	ctx context.Context,
 	src cciptestinterfaces.V3Source,
-	dst cciptestinterfaces.MessageV3Destination,
-	destSelector uint64,
+	dst cciptestinterfaces.V3Destination,
 	fields cciptestinterfaces.MessageFields,
 	opts cciptestinterfaces.MessageOptions,
 	sendArgs SendArgs,
@@ -109,7 +108,7 @@ func SendV3Message(
 		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("failed to build chain message: %w", err)
 	}
 
-	sent, _, err := src.SendChainMessage(ctx, destSelector, msg, sendArgs.SendOption)
+	sent, _, err := src.SendChainMessage(ctx, dst.ChainSelector(), msg, sendArgs.SendOption)
 	if err != nil {
 		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("failed to send chain message: %w", err)
 	}

@@ -110,7 +110,7 @@ func (tc *tokenTransferV3TestCase) Run(ctx context.Context) error {
 		msgReceiver = make([]byte, len(tc.receiver))
 	}
 
-	sendRes, err := tcapi.SendV3Message(ctx, v3Src, v3Dst, tc.dst,
+	sendRes, err := tcapi.SendV3Message(ctx, v3Src, v3Dst,
 		cciptestinterfaces.MessageFields{
 			Receiver: msgReceiver,
 			TokenAmount: cciptestinterfaces.TokenAmount{

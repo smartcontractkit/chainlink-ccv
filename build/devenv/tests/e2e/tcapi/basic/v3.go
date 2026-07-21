@@ -74,7 +74,7 @@ func (tc *v3TestCase) Run(ctx context.Context) error {
 		return fmt.Errorf("destination chain %d does not support V3 message: %w", tc.dst, err)
 	}
 	l := zerolog.Ctx(ctx)
-	sendMessageResult, err := tcapi.SendV3Message(ctx, v3Src, v3Dst, tc.dst,
+	sendMessageResult, err := tcapi.SendV3Message(ctx, v3Src, v3Dst,
 		cciptestinterfaces.MessageFields{
 			Receiver: tc.receiver,
 			Data:     tc.msgData,

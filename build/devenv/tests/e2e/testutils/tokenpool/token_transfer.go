@@ -102,7 +102,7 @@ func transferTokens(
 
 	amountToTransfer := tokens.ScaleTokenAmount(big.NewInt(amount), srcPool.Decimals())
 	sendRes, err := tcapi.SendV3Message(
-		t.Context(), v3Src, v3Dst, dstSel,
+		t.Context(), v3Src, v3Dst,
 		cciptestinterfaces.MessageFields{
 			Receiver: receiver,
 			TokenAmount: cciptestinterfaces.TokenAmount{
