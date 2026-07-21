@@ -239,9 +239,7 @@ func TestE2ESmoke_ReplayForceOverwrite(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, indexerMonitor, "indexer monitor must be available")
 
-	chainMap, err := lib.ChainsMap(ctx)
-	require.NoError(t, err)
-	testCtx, cleanupFn := tcapi.NewTestingContext(ctx, chainMap, aggregatorClient, indexerMonitor)
+	testCtx, cleanupFn := tcapi.NewTestingContext(ctx, aggregatorClient, indexerMonitor)
 	require.NotNil(t, testCtx, "test context must be available")
 	defer cleanupFn()
 

@@ -135,6 +135,7 @@ type MessageEventKey struct {
 type Chain interface {
 	SenderAddressProvider
 	TokenBalanceReader
+	MaxDataSizeProvider
 
 	// GetEOAReceiverAddress gets an EOA receiver address for this chain.
 	GetEOAReceiverAddress() (protocol.UnknownAddress, error)
@@ -147,8 +148,6 @@ type Chain interface {
 	ConfirmSendOnSource(ctx context.Context, to uint64, key MessageEventKey, timeout time.Duration) (MessageSentEvent, error)
 	// ConfirmExecOnDest waits until exactly one ExecutionStateChanged event is emitted on-chain for the specified source chain, identified by sequence number or message ID.
 	ConfirmExecOnDest(ctx context.Context, from uint64, key MessageEventKey, timeout time.Duration) (ExecutionStateChangedEvent, error)
-	// GetMaxDataBytes gets the maximum data size for a CCIP message to the specified remote chain.
-	GetMaxDataBytes(ctx context.Context, remoteChainSelector uint64) (uint32, error)
 	// ManuallyExecuteMessage manually executes a message on this chain and returns an error if the execution fails.
 	ManuallyExecuteMessage(ctx context.Context, message protocol.Message, gasLimit uint64, ccvs []protocol.UnknownAddress, verifierResults [][]byte) (ExecutionStateChangedEvent, error)
 	// ChainSelector gets the selector for this chain.
@@ -390,6 +389,14 @@ type TokenBalanceReader interface {
 type SenderAddressProvider interface {
 	// GetSenderAddress gets the sender address for this chain.
 	GetSenderAddress() (protocol.UnknownAddress, error)
+}
+
+// MaxDataSizeProvider is implemented by any chain that can report the maximum
+// message data size it can receive from a given remote chain. This is a
+// destination-side capability: it is asked of the chain receiving the message.
+type MaxDataSizeProvider interface {
+	// GetMaxDataBytes gets the maximum data size for a CCIP message to the specified remote chain.
+	GetMaxDataBytes(ctx context.Context, remoteChainSelector uint64) (uint32, error)
 }
 
 // GenericChainMessage is a generic type to indicate to users that the message generated from BuildChainMessage is expected to be passed directly to SendChainMessage.

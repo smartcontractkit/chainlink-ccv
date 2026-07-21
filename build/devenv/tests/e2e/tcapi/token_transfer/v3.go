@@ -66,10 +66,6 @@ func (tc *tokenTransferV3TestCase) Run(ctx context.Context) error {
 		return err
 	}
 	l := zerolog.Ctx(ctx)
-	chainMap, err := tc.lib.ChainsMap(ctx)
-	if err != nil {
-		return fmt.Errorf("get chains map: %w", err)
-	}
 	v3Src, err := tc.lib.V3Source(ctx, tc.src)
 	if err != nil {
 		return fmt.Errorf("source chain %d does not support V3 message: %w", tc.src, err)
@@ -143,7 +139,7 @@ func (tc *tokenTransferV3TestCase) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	testCtx, cleanupFn := tcapi.NewTestingContext(ctx, chainMap, aggregatorClient, indexerMonitor)
+	testCtx, cleanupFn := tcapi.NewTestingContext(ctx, aggregatorClient, indexerMonitor)
 	defer cleanupFn()
 
 	res, err := testCtx.AssertMessage(msgID, tcapi.AssertMessageOptions{

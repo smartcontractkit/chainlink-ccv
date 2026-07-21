@@ -47,9 +47,6 @@ func transferTokens(
 ) {
 	t.Helper()
 
-	chainMap, err := lib.ChainsMap(t.Context())
-	require.NoError(t, err, "get chains map")
-
 	ds, err := lib.DataStore()
 	require.NoError(t, err, "get datastore")
 
@@ -133,7 +130,7 @@ func transferTokens(
 	aggregatorClient, indexerMonitor, err := tcapi.SetupOffchainClients(lib, "")
 	require.NoError(t, err, "setup offchain clients")
 
-	testCtx, cleanupFn := tcapi.NewTestingContext(t.Context(), chainMap, aggregatorClient, indexerMonitor)
+	testCtx, cleanupFn := tcapi.NewTestingContext(t.Context(), aggregatorClient, indexerMonitor)
 	defer cleanupFn()
 
 	res, err := testCtx.AssertMessage(sendRes.MessageID, tcapi.AssertMessageOptions{

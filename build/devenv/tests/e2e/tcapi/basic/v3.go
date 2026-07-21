@@ -65,10 +65,6 @@ func (tc *v3TestCase) Run(ctx context.Context) error {
 	if err := tc.ensureHydrated(ctx); err != nil {
 		return err
 	}
-	chainMap, err := tc.lib.ChainsMap(ctx)
-	if err != nil {
-		return fmt.Errorf("failed to get chains map: %w", err)
-	}
 	v3Src, err := tc.lib.V3Source(ctx, tc.src)
 	if err != nil {
 		return fmt.Errorf("source chain %d does not support V3 message: %w", tc.src, err)
@@ -115,7 +111,7 @@ func (tc *v3TestCase) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	testCtx, cleanupFn := tcapi.NewTestingContext(ctx, chainMap, aggregatorClient, indexerMonitor)
+	testCtx, cleanupFn := tcapi.NewTestingContext(ctx, aggregatorClient, indexerMonitor)
 	defer cleanupFn()
 
 	result, err := testCtx.AssertMessage(messageID, tcapi.AssertMessageOptions{
@@ -162,11 +158,8 @@ func getCommitteeCCV(resolver chainreg.AddressResolver, ds datastore.DataStore, 
 
 // v3Env holds devenv handles loaded for v3 test case hydration.
 type v3Env struct {
-	DS  datastore.DataStore
-	Dst interface {
-		GetEOAReceiverAddress() (protocol.UnknownAddress, error)
-		GetMaxDataBytes(ctx context.Context, remoteChainSelector uint64) (uint32, error)
-	}
+	DS          datastore.DataStore
+	Dst         cciptestinterfaces.V3Destination
 	SrcResolver chainreg.AddressResolver
 	DstResolver chainreg.AddressResolver
 }
@@ -180,13 +173,8 @@ func loadV3Env(ctx context.Context, lib ccv.Lib, src, dst uint64) (v3Env, bool) 
 	}
 	env.DS = ds
 
-	chainMap, err := lib.ChainsMap(ctx)
+	dstChain, err := lib.V3Destination(ctx, dst)
 	if err != nil {
-		return env, false
-	}
-
-	dstChain, ok := chainMap[dst]
-	if !ok {
 		return env, false
 	}
 	env.Dst = dstChain

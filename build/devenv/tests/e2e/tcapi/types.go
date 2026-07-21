@@ -118,7 +118,6 @@ func SendV3Message(
 
 type TestingContext struct {
 	Ctx              context.Context
-	Impl             map[uint64]cciptestinterfaces.CCIP17
 	AggregatorClient *ccv.AggregatorClient
 	IndexerClient    *ccv.IndexerMonitor
 	LogAsserter      *logasserter.LogAsserter
@@ -126,7 +125,7 @@ type TestingContext struct {
 	logger           zerolog.Logger
 }
 
-func NewTestingContext(ctx context.Context, impl map[uint64]cciptestinterfaces.CCIP17, aggregatorClient *ccv.AggregatorClient, indexerClient *ccv.IndexerMonitor) (TestingContext, func()) {
+func NewTestingContext(ctx context.Context, aggregatorClient *ccv.AggregatorClient, indexerClient *ccv.IndexerMonitor) (TestingContext, func()) {
 	lokiURL := os.Getenv("LOKI_QUERY_URL")
 	if lokiURL == "" {
 		lokiURL = DefaultLokiURL
@@ -152,7 +151,6 @@ func NewTestingContext(ctx context.Context, impl map[uint64]cciptestinterfaces.C
 
 	tc := TestingContext{
 		Ctx:              ctx,
-		Impl:             impl,
 		AggregatorClient: aggregatorClient,
 		IndexerClient:    indexerClient,
 		LogAsserter:      logAssert,
