@@ -29,7 +29,7 @@ func NewChannelManager(keys []model.ChannelKey, bufferSize int) *ChannelManager 
 	manager := &ChannelManager{
 		clientChannel:       make(map[model.ChannelKey]chan aggregationRequest),
 		clientOrder:         make([]model.ChannelKey, 0, len(keys)),
-		AggregationChannel:  make(chan aggregationRequest),
+		AggregationChannel:  make(chan aggregationRequest, len(keys)),
 		wakeUp:              make(chan struct{}, 1),
 		currentlyQueued:     make(map[string]struct{}),
 		currentlyQueuedLock: sync.Mutex{},

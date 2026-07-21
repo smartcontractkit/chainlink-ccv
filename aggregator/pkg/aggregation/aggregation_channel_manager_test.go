@@ -52,7 +52,7 @@ func TestNewChannelManager_CreatesChannelsForAllClients(t *testing.T) {
 				assert.Equal(t, tc.bufferSize, cap(ch))
 			}
 
-			assert.Equal(t, cap(manager.AggregationChannel), 0)
+			assert.Equal(t, len(tc.keys), cap(manager.AggregationChannel))
 		})
 	}
 }
@@ -483,33 +483,18 @@ func TestStart_ForwardsMidSendItemOnShutdown(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 
-	// AggregationChannel is unbuffered by design (backpressure lives on the per-client
-	// channels), so a reader must be draining it concurrently with Start - mirroring
-	// the always-on consumer goroutine StartBackground runs in production - otherwise
-	// Start's mid-shutdown send blocks forever waiting for a receiver.
-	received := make(chan aggregationRequest, 1)
-	go func() {
-		for req := range manager.AggregationChannel {
-			received <- req
-		}
-	}()
-
 	startDone := make(chan struct{})
 	go func() {
 		_ = manager.Start(ctx)
 		close(startDone)
 	}()
 
-	select {
-	case <-startDone:
-	case <-time.After(time.Second):
-		t.Fatal("timeout waiting for Start to complete")
-	}
+	<-startDone
 
 	select {
-	case req := <-received:
+	case req := <-manager.AggregationChannel:
 		assert.Equal(t, model.MessageID{1}, req.MessageID)
-	case <-time.After(time.Second):
+	default:
 		t.Fatal("expected item to be forwarded to aggregation channel during drain")
 	}
 }
