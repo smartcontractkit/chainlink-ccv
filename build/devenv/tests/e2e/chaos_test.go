@@ -31,10 +31,10 @@ func TestChaos_AggregatorOutageRecovery(t *testing.T) {
 	aggregatorContainer, err := chaos.DefaultAggregatorNginx(setup.in, devenvcommon.DefaultCommitteeVerifierQualifier)
 	require.NoError(t, err)
 
-	runEVMChaosScenario(t, ctx, lib, src, dst, evmChaosConfig{}, chaos.OutageSpec{
+	runEVMChaosScenario(t, ctx, lib, src, dst, evmChaosConfig{}, &chaos.OutageSpec{
 		Duration: chaos.DefaultOutageDuration,
 		Targets:  []string{aggregatorContainer},
-	})
+	}, nil)
 }
 
 func TestChaos_VerifierFaultToleranceThresholdViolated(t *testing.T) {
@@ -85,10 +85,10 @@ func TestChaos_VerifierFaultToleranceThresholdViolated(t *testing.T) {
 		Strs("verifiersToStop", verifierTargets).
 		Msg("sending message with some verifiers down")
 
-	runEVMChaosScenario(t, ctx, lib, src, dst, evmChaosConfig{ConfirmExec: true}, chaos.OutageSpec{
+	runEVMChaosScenario(t, ctx, lib, src, dst, evmChaosConfig{ConfirmExec: true}, &chaos.OutageSpec{
 		Duration: chaos.DefaultOutageDuration,
 		Targets:  verifierTargets,
-	})
+	}, nil)
 }
 
 func TestChaos_AllExecutorsDown(t *testing.T) {
@@ -104,10 +104,10 @@ func TestChaos_AllExecutorsDown(t *testing.T) {
 		ConfirmExec: true,
 		Timeout:     5 * time.Minute,
 		ExecTimeout: 5 * time.Minute,
-	}, chaos.OutageSpec{
+	}, &chaos.OutageSpec{
 		Duration: chaos.DefaultOutageDuration,
 		Targets:  executorTargets,
-	})
+	}, nil)
 }
 
 func TestChaos_IndexerDown(t *testing.T) {
@@ -119,15 +119,47 @@ func TestChaos_IndexerDown(t *testing.T) {
 	indexerTarget, err := chaos.IndexerContainer(setup.in, 0)
 	require.NoError(t, err)
 
-	runEVMChaosScenario(t, ctx, lib, src, dst, evmChaosConfig{ConfirmExec: true}, chaos.OutageSpec{
+	runEVMChaosScenario(t, ctx, lib, src, dst, evmChaosConfig{ConfirmExec: true}, &chaos.OutageSpec{
 		Duration: chaos.DefaultOutageDuration,
 		Targets:  []string{indexerTarget},
-	})
+	}, nil)
+}
+
+// TestChaos_RPCLatency injects 20,000 ms of network latency on both source and
+// destination blockchain RPC containers for 1 minute, then sends a V3 message
+// and confirms offchain finalization and on-chain execution succeed despite
+// the added latency.
+func TestChaos_RPCLatency(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping e2e test in short mode; requires a running devenv environment")
+	}
+	ctx, lib, setup, src, dst := setupChaosEVMSession(t)
+
+	srcRPCTarget, err := chaos.BlockchainContainerForSelector(setup.in, src)
+	require.NoError(t, err)
+	dstRPCTarget, err := chaos.BlockchainContainerForSelector(setup.in, dst)
+	require.NoError(t, err)
+
+	setup.l.Info().
+		Strs("rpcTargets", []string{srcRPCTarget, dstRPCTarget}).
+		Msg("sending message with 20000ms/20sec RPC latency injected")
+
+	runEVMChaosScenario(t, ctx, lib, src, dst, evmChaosConfig{
+		ConfirmExec: true,
+		Timeout:     5 * time.Minute,
+		ExecTimeout: 5 * time.Minute,
+	}, &chaos.OutageSpec{},
+		&chaos.LatencySpec{
+			Duration: 1 * time.Minute,
+			Delay:    20000, // 20 seconds of latency to account for 2 RPC calls per chain (send + confirm)
+			Targets:  []string{srcRPCTarget, dstRPCTarget},
+		})
 }
 
 // evmChaosConfig configures the V3 message lifecycle options for an EVM chaos scenario.
 // Zero values use sensible defaults: tests.WaitTimeout(t) for Timeout, no exec-timeout
-// override, and ConfirmExec=false.
+// override, and ConfirmExec=false. When Latency is non-nil, the scenario injects network
+// latency instead of a container stop outage.
 type evmChaosConfig struct {
 	ConfirmExec bool
 	Timeout     time.Duration // 0 = tests.WaitTimeout(t)
@@ -144,7 +176,7 @@ func setupChaosEVMSession(t *testing.T) (context.Context, ccv.Lib, *chaosSetup, 
 
 // runEVMChaosScenario hydrates a default EOA-receiver V3 message and runs the chaos
 // scenario. cfg overrides the default assert timeout, exec timeout, and ConfirmExec flag.
-func runEVMChaosScenario(t *testing.T, ctx context.Context, lib ccv.Lib, src, dst uint64, cfg evmChaosConfig, outage chaos.OutageSpec) {
+func runEVMChaosScenario(t *testing.T, ctx context.Context, lib ccv.Lib, src, dst uint64, cfg evmChaosConfig, outage *chaos.OutageSpec, latency *chaos.LatencySpec) {
 	t.Helper()
 	receiver, ccvs, executor, err := basic.ResolveEOAReceiverDefaultVerifier(ctx, lib, src, dst)
 	require.NoError(t, err)
@@ -175,6 +207,7 @@ func runEVMChaosScenario(t *testing.T, ctx context.Context, lib ccv.Lib, src, ds
 			AssertExecutorLogs:      false,
 		},
 		ConfirmExecOnDest: cfg.ConfirmExec,
+		Latency:           latency,
 		Outage:            outage,
 	}
 	if cfg.ExecTimeout != 0 {

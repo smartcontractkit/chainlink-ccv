@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 
+	chain_selectors "github.com/smartcontractkit/chain-selectors"
+
 	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/committeeverifier"
@@ -121,4 +123,47 @@ func IndexerContainer(cfg *ccv.Cfg, index int) (string, error) {
 		return "", fmt.Errorf("indexer %d container name is empty", index)
 	}
 	return name, nil
+}
+
+// BlockchainContainer returns the Docker container name for the blockchain RPC
+// node at index. This is the container hosting the RPC endpoint that offchain
+// services (verifier, executor) and the test harness connect to.
+func BlockchainContainer(cfg *ccv.Cfg, index int) (string, error) {
+	if index < 0 || index >= len(cfg.Blockchains) {
+		return "", fmt.Errorf("blockchain index %d out of range (have %d)", index, len(cfg.Blockchains))
+	}
+	bc := cfg.Blockchains[index]
+	if bc.Out != nil && bc.Out.ContainerName != "" {
+		return normalizeContainerName(bc.Out.ContainerName), nil
+	}
+	name := normalizeContainerName(bc.ContainerName)
+	if name == "" {
+		return "", fmt.Errorf("blockchain %d container name is empty", index)
+	}
+	return name, nil
+}
+
+// BlockchainContainerForSelector returns the Docker container name for the
+// blockchain RPC node matching the given chain selector. Use this instead of
+// BlockchainContainer when you have a selector (e.g. from lib.Chains()) since
+// the Blockchains array order may not match the chains() order.
+func BlockchainContainerForSelector(cfg *ccv.Cfg, selector uint64) (string, error) {
+	for _, bc := range cfg.Blockchains {
+		if bc.Out == nil {
+			continue
+		}
+		d, err := chain_selectors.GetChainDetailsByChainIDAndFamily(bc.Out.ChainID, bc.Out.Family)
+		if err != nil {
+			continue
+		}
+		if d.ChainSelector != selector {
+			continue
+		}
+		name := normalizeContainerName(bc.Out.ContainerName)
+		if name == "" {
+			return "", fmt.Errorf("blockchain for selector %d has empty container name", selector)
+		}
+		return name, nil
+	}
+	return "", fmt.Errorf("blockchain container not found for selector %d", selector)
 }

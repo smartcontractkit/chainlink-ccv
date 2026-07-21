@@ -13,6 +13,14 @@ func BuildStopCommand(duration time.Duration, targets []string) string {
 	return fmt.Sprintf("stop --duration=%s --restart re2:%s", duration, formatPumbaTarget(targets))
 }
 
+// BuildNetemDelayCommand returns a Pumba "netem delay" command that injects
+// delayMs milliseconds of latency to matching containers for the given duration.
+// targets must be normalized Docker container names.
+func BuildNetemDelayCommand(duration time.Duration, delayMs int, targets []string) string {
+	return fmt.Sprintf("netem --tc-image=ghcr.io/alexei-led/pumba-debian-nettools --duration=%s delay --time=%d re2:%s",
+		duration, delayMs, formatPumbaTarget(targets))
+}
+
 func formatPumbaTarget(targets []string) string {
 	if len(targets) == 0 {
 		return "^$" // match nothing

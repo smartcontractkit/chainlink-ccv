@@ -24,9 +24,13 @@ type ScenarioSpec struct {
 	Opts     cciptestinterfaces.MessageOptions
 	SendArgs tcapi.SendArgs
 
-	Outage OutageSpec
-	Assert tcapi.AssertMessageOptions
-	Run    tcapi.RunConfig
+	// Outage, when non-nil, injects a container stop outage and restart.
+	Outage *OutageSpec
+	// Latency, when non-nil, injects network latency instead of a container stop.
+	// Latency takes precedence over Outage when both are set.
+	Latency *LatencySpec
+	Assert  tcapi.AssertMessageOptions
+	Run     tcapi.RunConfig
 
 	// AggregatorQualifier selects which committee aggregator to wait on. Empty uses default.
 	AggregatorQualifier string
@@ -36,13 +40,30 @@ type ScenarioSpec struct {
 	ExpectExecFailure bool
 }
 
+// injectChaos injects the chaos fault (latency or outage) from spec and returns
+// a cleanup function. Latency takes precedence over Outage when both are set.
+func injectChaos(ctx context.Context, spec ScenarioSpec) (func(), error) {
+	if spec.Latency != nil {
+		cleanup, err := injectLatency(ctx, *spec.Latency)
+		if err != nil {
+			return nil, fmt.Errorf("inject latency: %w", err)
+		}
+		return cleanup, nil
+	}
+	cleanup, err := InjectOutage(ctx, spec.Outage)
+	if err != nil {
+		return nil, fmt.Errorf("inject outage: %w", err)
+	}
+	return cleanup, nil
+}
+
 // RunScenario injects the outage, sends a V3 message, confirms the send on source,
 // asserts aggregator/indexer state, and optionally confirms execution on the destination.
 // The caller must provide lib and message fields; this package does not filter chains by family.
 func RunScenario(t *testing.T, ctx context.Context, spec ScenarioSpec) error {
-	cleanup, err := InjectOutage(ctx, spec.Outage)
+	cleanup, err := injectChaos(ctx, spec)
 	if err != nil {
-		return fmt.Errorf("inject outage: %w", err)
+		return err
 	}
 	t.Cleanup(cleanup)
 

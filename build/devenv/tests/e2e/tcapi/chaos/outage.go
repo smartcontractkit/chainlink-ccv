@@ -2,6 +2,7 @@ package chaos
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -29,11 +30,46 @@ type OutageSpec struct {
 
 // InjectOutage starts a Pumba container stop for the given spec and returns a
 // cleanup function that tears down the Pumba sidecar.
-func InjectOutage(ctx context.Context, spec OutageSpec) (func(), error) {
+func InjectOutage(ctx context.Context, spec *OutageSpec) (func(), error) {
+	if spec == nil {
+		return nil, errors.New("outage spec is nil")
+	}
 	if spec.Duration == 0 {
 		spec.Duration = DefaultOutageDuration
 	}
+	if len(spec.Targets) == 0 {
+		return nil, errors.New("no targets specified")
+	}
 	cmd := BuildStopCommand(spec.Duration, spec.Targets)
 	zerolog.Ctx(ctx).Info().Str("pumbaCmd", cmd).Msg("injecting outage via Pumba")
+	return ctfchaos.ExecPumba(cmd, ExecPumbaTimeout)
+}
+
+// LatencySpec describes a network latency injection via Pumba netem before a
+// test sends a message.
+type LatencySpec struct {
+	// Duration is how long the latency injection lasts. If zero, a default of 20s is used.
+	Duration time.Duration
+	// Delay is the injected latency in milliseconds.
+	Delay int
+	// Targets are normalized Docker container names (leading "/" stripped) that
+	// Pumba will apply netem delay to.
+	Targets []string
+}
+
+// injectLatency starts a Pumba netem delay for the given spec and returns a
+// cleanup function that tears down the Pumba sidecar.
+func injectLatency(ctx context.Context, spec LatencySpec) (func(), error) {
+	if spec.Duration == 0 {
+		spec.Duration = DefaultOutageDuration
+	}
+	if spec.Delay <= 0 {
+		return nil, errors.New("latency delay must be positive")
+	}
+	if len(spec.Targets) == 0 {
+		return nil, errors.New("no targets specified")
+	}
+	cmd := BuildNetemDelayCommand(spec.Duration, spec.Delay, spec.Targets)
+	zerolog.Ctx(ctx).Info().Str("pumbaCmd", cmd).Msg("injecting latency via Pumba")
 	return ctfchaos.ExecPumba(cmd, ExecPumbaTimeout)
 }

@@ -12,6 +12,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/committeeverifier"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/executor"
 	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
+	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
 
 func TestBuildStopCommand(t *testing.T) {
@@ -118,4 +119,99 @@ func TestVerifierContainersWithFilter(t *testing.T) {
 	})
 	require.NoError(t, err)
 	require.Equal(t, []string{"verifier-1"}, names)
+}
+
+func TestBuildNetemDelayCommand(t *testing.T) {
+	t.Parallel()
+
+	duration := 1 * time.Minute
+
+	t.Run("single target", func(t *testing.T) {
+		t.Parallel()
+		cmd := BuildNetemDelayCommand(duration, 400, []string{"blockchain-src"})
+		require.Equal(t,
+			"netem --tc-image=ghcr.io/alexei-led/pumba-debian-nettools --duration=1m0s delay --time=400 re2:^blockchain-src$",
+			cmd)
+	})
+
+	t.Run("multiple targets", func(t *testing.T) {
+		t.Parallel()
+		cmd := BuildNetemDelayCommand(duration, 1000, []string{"blockchain-src", "blockchain-dst"})
+		require.Equal(t,
+			"netem --tc-image=ghcr.io/alexei-led/pumba-debian-nettools --duration=1m0s delay --time=1000 re2:(^blockchain-src$|^blockchain-dst$)",
+			cmd)
+	})
+}
+
+func TestBlockchainContainer(t *testing.T) {
+	t.Parallel()
+
+	t.Run("prefers Out.ContainerName", func(t *testing.T) {
+		t.Parallel()
+		cfg := &ccv.Cfg{
+			Blockchains: []*blockchain.Input{
+				{ContainerName: "blockchain-src", Out: &blockchain.Output{ContainerName: "/blockchain-src"}},
+				{ContainerName: "blockchain-dst", Out: &blockchain.Output{ContainerName: "/blockchain-dst"}},
+			},
+		}
+		name, err := BlockchainContainer(cfg, 1)
+		require.NoError(t, err)
+		require.Equal(t, "blockchain-dst", name)
+	})
+
+	t.Run("falls back to Input.ContainerName when Out is nil", func(t *testing.T) {
+		t.Parallel()
+		cfg := &ccv.Cfg{
+			Blockchains: []*blockchain.Input{
+				{ContainerName: "blockchain-src"},
+			},
+		}
+		name, err := BlockchainContainer(cfg, 0)
+		require.NoError(t, err)
+		require.Equal(t, "blockchain-src", name)
+	})
+
+	t.Run("index out of range", func(t *testing.T) {
+		t.Parallel()
+		cfg := &ccv.Cfg{
+			Blockchains: []*blockchain.Input{{ContainerName: "blockchain-src"}},
+		}
+		_, err := BlockchainContainer(cfg, 5)
+		require.Error(t, err)
+	})
+}
+
+func TestBlockchainContainerForSelector(t *testing.T) {
+	t.Parallel()
+
+	// Chain ID 2337 → selector 12922642891491394802 (geth-devnet-2)
+	dstSelector := uint64(12922642891491394802)
+
+	cfg := &ccv.Cfg{
+		Blockchains: []*blockchain.Input{
+			{
+				ContainerName: "blockchain-src",
+				Out: &blockchain.Output{
+					ChainID:       "1337",
+					Family:        "evm",
+					ContainerName: "/blockchain-src",
+				},
+			},
+			{
+				ContainerName: "blockchain-dst",
+				Out: &blockchain.Output{
+					ChainID:       "2337",
+					Family:        "evm",
+					ContainerName: "/blockchain-dst",
+				},
+			},
+		},
+	}
+
+	name, err := BlockchainContainerForSelector(cfg, dstSelector)
+	require.NoError(t, err)
+	require.Equal(t, "blockchain-dst", name)
+
+	_, err = BlockchainContainerForSelector(cfg, 999999)
+	require.Error(t, err)
 }

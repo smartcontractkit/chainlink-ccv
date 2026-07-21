@@ -15,6 +15,17 @@ cleanup, err := chaos.InjectOutage(ctx, chaos.OutageSpec{
 t.Cleanup(cleanup)
 ```
 
+## Latency injection
+
+```go
+cleanup, err := chaos.InjectLatency(ctx, chaos.LatencySpec{
+    Duration: 1 * time.Minute,
+    Delay:    400, // milliseconds
+    Targets:  []string{"blockchain-src", "blockchain-dst"},
+})
+t.Cleanup(cleanup)
+```
+
 ## Container resolution
 
 | Helper | Use for |
@@ -24,8 +35,31 @@ t.Cleanup(cleanup)
 | `ExecutorContainers(cfg, qualifier, nopAliases...)` | Executor outages by qualifier / NOP |
 | `ExecutorContainersForDest(cfg, destSelector, qualifier)` | Dest-specific executor (cross-family devenvs) |
 | `IndexerContainer(cfg, index)` | Indexer outage |
+| `BlockchainContainer(cfg, index)` | Blockchain RPC outage by array index |
+| `BlockchainContainerForSelector(cfg, selector)` | Blockchain RPC outage by chain selector |
 
 Container names are normalized from env-out (`Out.ContainerName`, leading `/` stripped).
+
+## Limitations & TODOs
+
+### RPC outage (blackout) — TODO
+
+Stopping an EVM blockchain RPC container via Pumba `stop --restart` leaves the
+test harness's `ethclient.Client` holding a dead connection. The go-ethereum
+`rpc.Client` (HTTP transport) has no reconnection logic, and `CCIP17EVM`
+(`evm/impl.go`) caches the client and all `abigen`-generated contract bindings
+(`offRamp`, `onRamp`, `feeQuoter`) at env-setup time. After the container
+restarts, the `eventPoller` retries `BlockNumber` every 1s but the stale
+`http.Transport` connection pool (worse on macOS) keeps failing, so
+`ConfirmExecOnDest` hangs until the test timeout.
+
+Until the EVM devenv implements RPC reconnection (re-dial + re-bind on
+persistent failure), RPC **outage** tests are skipped. The container resolvers
+(`BlockchainContainer`, `BlockchainContainerForSelector`) and `OutageSpec`/
+`InjectOutage` are already in place for the future test. Network **latency**
+injection (`netem delay`) works today because the container stays running and
+connections survive. Solana devenv can use `OutageSpec` against its RPC node
+today since Solana clients reconnect natively.
 
 ## RunScenario
 
@@ -53,8 +87,9 @@ err = chaos.RunScenario(t, ctx, chaos.ScenarioSpec{
 })
 ```
 
-`ScenarioSpec` uses flat fields for all send/assert/exec options; only `Outage` is
-chaos-specific. Exec timeout falls back to `Assert.Timeout` then
+`ScenarioSpec` uses flat fields for all send/assert/exec options; `Outage` and
+`Latency` are chaos-specific. `Latency` takes precedence over `Outage` when both
+are set. Exec timeout falls back to `Assert.Timeout` then
 `tcapi.DefaultExecTimeout`.
 
 Cross-family callers (e.g. Solana devenv) supply their own `Fields` / `Opts` and
