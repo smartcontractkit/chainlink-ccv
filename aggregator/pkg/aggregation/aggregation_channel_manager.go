@@ -27,11 +27,12 @@ type ChannelManager struct {
 
 func NewChannelManager(keys []model.ChannelKey, bufferSize int) *ChannelManager {
 	manager := &ChannelManager{
-		clientChannel:      make(map[model.ChannelKey]chan aggregationRequest),
-		clientOrder:        make([]model.ChannelKey, 0, len(keys)),
-		AggregationChannel: make(chan aggregationRequest),
-		wakeUp:             make(chan struct{}, 1),
-		currentlyQueued:    make(map[string]struct{}),
+		clientChannel:       make(map[model.ChannelKey]chan aggregationRequest),
+		clientOrder:         make([]model.ChannelKey, 0, len(keys)),
+		AggregationChannel:  make(chan aggregationRequest),
+		wakeUp:              make(chan struct{}, 1),
+		currentlyQueued:     make(map[string]struct{}),
+		currentlyQueuedLock: sync.Mutex{},
 	}
 	for _, key := range keys {
 		manager.clientChannel[key] = make(chan aggregationRequest, bufferSize)
