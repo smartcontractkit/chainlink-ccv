@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
+	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
 const (
@@ -34,6 +36,20 @@ type RedisStorage struct {
 	client    *redis.Client
 	keyPrefix string
 	ttl       time.Duration
+}
+
+func NewStorageFromConfig(l logger.SugaredLogger, c *model.AggregatorConfig) Storage {
+	if c.Heartbeat.StoreType == model.HeartbeatStoreTypeRedis {
+		client := redis.NewClient(&redis.Options{
+			Addr:     c.Heartbeat.Redis.Address,
+			Password: c.Heartbeat.Redis.Password,
+			DB:       c.Heartbeat.Redis.DB,
+		})
+		l.Infof("Using Redis heartbeat storage at %s with key prefix '%s' and TTL %s", c.Heartbeat.Redis.Address, c.Heartbeat.Redis.KeyPrefix, c.Heartbeat.Redis.TTL)
+		return NewRedisStorage(client, c.Heartbeat.Redis.KeyPrefix, c.Heartbeat.Redis.TTL)
+	}
+	l.Infof("Using in-memory heartbeat storage")
+	return NewInMemoryStorage()
 }
 
 // NewRedisStorage creates a new Redis-backed heartbeat storage.
