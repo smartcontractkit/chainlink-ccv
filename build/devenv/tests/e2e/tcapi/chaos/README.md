@@ -1,8 +1,9 @@
-# e2e/chaos
+# tcapi/chaos
 
-Shared helpers for CCIP devenv chaos tests: inject container outages via Pumba, resolve
+Standard chaos test helpers for CCIP devenv: inject container outages via Pumba, resolve
 service container names from `ccv.Cfg`, and run the V3 message lifecycle (send, assert,
-optionally confirm execution) via `tcapi.RunV3MessageLifecycle`.
+optionally confirm execution) via `tcapi.RunV3MessageLifecycle`. Sibling to `tcapi/basic`
+and `tcapi/token_transfer` — a reusable test category composing the tcapi primitives.
 
 ## Outage injection
 
@@ -42,7 +43,7 @@ require.NoError(t, err)
 
 err = chaos.RunScenario(t, ctx, chaos.ScenarioSpec{
     Lib: lib,
-    V3MsgConifg: tcapi.V3MsgConifg{
+    V3MsgConfig: tcapi.V3MsgConfig{
         Src: src,
         Dst: dst,
         Fields: cciptestinterfaces.MessageFields{Receiver: receiver},
@@ -55,7 +56,7 @@ err = chaos.RunScenario(t, ctx, chaos.ScenarioSpec{
 })
 ```
 
-`ScenarioSpec` embeds `tcapi.V3MsgConifg`, so all send/assert/exec fields are set
+`ScenarioSpec` embeds `tcapi.V3MsgConfig`, so all send/assert/exec fields are set
 inline; only `Outage` is chaos-specific. When `ExecTimeout` is zero it falls back to
 `Assert.Timeout` then `tcapi.DefaultExecTimeout`.
 

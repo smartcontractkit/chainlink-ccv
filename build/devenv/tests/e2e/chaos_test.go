@@ -15,9 +15,9 @@ import (
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/committeeverifier"
-	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/chaos"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/tcapi"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/tcapi/basic"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/tcapi/chaos"
 	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 )

@@ -113,10 +113,10 @@ func RunV3MessageLifecycle(ctx context.Context, lib ccv.Lib, cfg V3MsgConfig) er
 	}
 	if cfg.ExpectExecFail {
 		if execEvt.State != cciptestinterfaces.ExecutionStateFailure {
-			return fmt.Errorf("expected execution state failure, got %s", execEvt.State)
+			return fmt.Errorf("expected execution state failure, got %s (return data: %x)", execEvt.State, execEvt.ReturnData)
 		}
 	} else if execEvt.State != cciptestinterfaces.ExecutionStateSuccess {
-		return fmt.Errorf("expected execution state success, got %s", execEvt.State)
+		return fmt.Errorf("expected execution state success, got %s (return data: %x)", execEvt.State, execEvt.ReturnData)
 	}
 	return nil
 }

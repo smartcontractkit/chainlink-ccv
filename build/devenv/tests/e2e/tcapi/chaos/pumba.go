@@ -2,6 +2,7 @@ package chaos
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -18,7 +19,7 @@ func formatPumbaTarget(targets []string) string {
 	}
 	parts := make([]string, len(targets))
 	for i, name := range targets {
-		parts[i] = fmt.Sprintf("^%s$", name)
+		parts[i] = fmt.Sprintf("^%s$", regexp.QuoteMeta(name))
 	}
 	if len(parts) == 1 {
 		return parts[0]
