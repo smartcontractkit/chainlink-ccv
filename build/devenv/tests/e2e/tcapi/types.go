@@ -83,16 +83,10 @@ type SendArgs struct {
 	SendOption          cciptestinterfaces.ChainSendOption
 }
 
-// V3Source is implemented by any chain that can originate a V3 message.
-type V3Source interface {
-	cciptestinterfaces.MessageV3Source
-	cciptestinterfaces.ChainAsSource
-}
-
 // SendV3Message builds and sends a V3 message using BuildV3ExtraArgs, BuildChainMessage, and SendChainMessage.
 func SendV3Message(
 	ctx context.Context,
-	src V3Source,
+	src cciptestinterfaces.V3Source,
 	dst cciptestinterfaces.MessageV3Destination,
 	destSelector uint64,
 	fields cciptestinterfaces.MessageFields,

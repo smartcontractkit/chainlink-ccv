@@ -59,6 +59,12 @@ type MessageV3Destination interface {
 	GetTokenArgs(opts any) (MessageV3TokenArgs, error)
 }
 
+// V3Source is implemented by any chain that can originate a V3 message.
+type V3Source interface {
+	MessageV3Source
+	ChainAsSource
+}
+
 // MessageV3Source is an interface for any chain that can send a V3 message.
 // We use an interface rather than a struct because the V3 message structure is chain agnostic.
 type MessageV3Source interface {

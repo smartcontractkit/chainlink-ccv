@@ -69,21 +69,17 @@ func (tc *v3TestCase) Run(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to get chains map: %w", err)
 	}
-	src, ok := chainMap[tc.src]
-	if !ok {
-		return fmt.Errorf("source chain not found: %d", tc.src)
-	}
 	dst, ok := chainMap[tc.dst]
 	if !ok {
 		return fmt.Errorf("destination chain not found: %d", tc.dst)
 	}
-	v3Src, ok := src.(tcapi.V3Source)
-	if !ok {
-		return fmt.Errorf("source chain %d does not support V3 message", tc.src)
+	v3Src, err := tc.lib.V3Source(ctx, tc.src)
+	if err != nil {
+		return fmt.Errorf("source chain %d does not support V3 message: %w", tc.src, err)
 	}
-	v3Dst, ok := dst.(cciptestinterfaces.MessageV3Destination)
-	if !ok {
-		return fmt.Errorf("destination chain %d does not support V3 message", tc.dst)
+	v3Dst, err := tc.lib.MessageV3Destination(ctx, tc.dst)
+	if err != nil {
+		return fmt.Errorf("destination chain %d does not support V3 message: %w", tc.dst, err)
 	}
 	l := zerolog.Ctx(ctx)
 	sendMessageResult, err := tcapi.SendV3Message(ctx, v3Src, v3Dst, tc.dst,
@@ -113,7 +109,7 @@ func (tc *v3TestCase) Run(ctx context.Context) error {
 	}
 	sentTimeout := tc.args.Run.SentTimeout(tcapi.DefaultSentTimeout)
 	execTimeout := tc.args.Run.ExecTimeout(tcapi.DefaultExecTimeout)
-	_, err = src.ConfirmSendOnSource(ctx, tc.dst, messageKey, sentTimeout)
+	_, err = v3Src.ConfirmSendOnSource(ctx, tc.dst, messageKey, sentTimeout)
 	if err != nil {
 		return fmt.Errorf("failed to wait for sent event: %w", err)
 	}

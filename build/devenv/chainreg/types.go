@@ -53,6 +53,26 @@ type ImplFactory interface {
 	SupportsFunding() bool
 }
 
+// V3SourceFactory constructs a cciptestinterfaces.V3Source for a chain family
+// that only supports originating V3 messages, without implementing the full
+// cciptestinterfaces.CCIP17 interface required by ImplFactory.
+type V3SourceFactory func(
+	ctx context.Context,
+	lggr zerolog.Logger,
+	env *deployment.Environment,
+	chainSelector uint64,
+) (cciptestinterfaces.V3Source, error)
+
+// V3DestinationFactory constructs a cciptestinterfaces.MessageV3Destination for a
+// chain family that only supports receiving V3 messages, without implementing
+// the full cciptestinterfaces.CCIP17 interface required by ImplFactory.
+type V3DestinationFactory func(
+	ctx context.Context,
+	lggr zerolog.Logger,
+	env *deployment.Environment,
+	chainSelector uint64,
+) (cciptestinterfaces.MessageV3Destination, error)
+
 // ExecutorInfo provides executor bootstrap key metadata for a chain family.
 // Families that support bootstrap-managed executor transmitter keys register
 // an implementation via Registration.ExecutorInfo.
@@ -137,4 +157,9 @@ type Registration struct {
 	ExecutorModifier     ExecutorModifier
 	ExtraArgsSerializers map[uint8]ExtraArgsSerializer
 	AddressResolver      AddressResolver
+
+	// V3SourceFactory and V3DestinationFactory let a chain family plug into V3
+	// message tests without implementing the full ImplFactory/CCIP17 surface.
+	V3SourceFactory      V3SourceFactory
+	V3DestinationFactory V3DestinationFactory
 }
