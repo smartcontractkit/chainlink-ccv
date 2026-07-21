@@ -18,22 +18,15 @@ func TestBuildStopCommand(t *testing.T) {
 	t.Parallel()
 
 	duration := 20 * time.Second
-
-	t.Run("literal single target", func(t *testing.T) {
-		t.Parallel()
-		cmd := BuildStopCommand(duration, []string{"default-aggregator-nginx"}, true)
-		require.Equal(t, "stop --duration=20s --restart re2:default-aggregator-nginx", cmd)
-	})
-
 	t.Run("single target with anchors", func(t *testing.T) {
 		t.Parallel()
-		cmd := BuildStopCommand(duration, []string{"indexer-1"}, false)
+		cmd := BuildStopCommand(duration, []string{"indexer-1"})
 		require.Equal(t, "stop --duration=20s --restart re2:^indexer-1$", cmd)
 	})
 
 	t.Run("multiple targets", func(t *testing.T) {
 		t.Parallel()
-		cmd := BuildStopCommand(duration, []string{"exec-1", "exec-2"}, false)
+		cmd := BuildStopCommand(duration, []string{"exec-1", "exec-2"})
 		require.Equal(t, "stop --duration=20s --restart re2:(^exec-1$|^exec-2$)", cmd)
 	})
 }

@@ -32,9 +32,8 @@ func TestChaos_AggregatorOutageRecovery(t *testing.T) {
 	require.NoError(t, err)
 
 	runEVMChaosScenario(t, ctx, lib, src, dst, evmChaosConfig{}, chaos.OutageSpec{
-		Duration:      chaos.DefaultOutageDuration,
-		Targets:       []string{aggregatorContainer},
-		LiteralSingle: true,
+		Duration: chaos.DefaultOutageDuration,
+		Targets:  []string{aggregatorContainer},
 	})
 }
 

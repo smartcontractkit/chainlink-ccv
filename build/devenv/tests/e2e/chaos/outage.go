@@ -29,16 +29,6 @@ type OutageSpec struct {
 	// running Docker container names via Pumba's re2 regex; see LiteralSingle for
 	// anchor behavior.
 	Targets []string
-
-	// LiteralSingle, when true with exactly one target, omits the ^$ regex anchors
-	// that BuildStopCommand normally wraps each target in. Without anchors Pumba
-	// matches the target as a substring against Docker container names instead of
-	// requiring an exact full-name match.
-	//
-	// This is needed for aggregator nginx containers (resolved by DefaultAggregatorNginx),
-	// where Pumba's anchored exact match fails but substring matching succeeds. Leave false
-	// for verifier, executor, and indexer containers, which anchor correctly.
-	LiteralSingle bool
 }
 
 // InjectOutage starts a Pumba container stop for the given spec and returns a
@@ -47,7 +37,7 @@ func InjectOutage(ctx context.Context, spec OutageSpec) (func(), error) {
 	if spec.Duration == 0 {
 		spec.Duration = DefaultOutageDuration
 	}
-	cmd := BuildStopCommand(spec.Duration, spec.Targets, spec.LiteralSingle)
+	cmd := BuildStopCommand(spec.Duration, spec.Targets)
 	zerolog.Ctx(ctx).Info().Str("pumbaCmd", cmd).Msg("injecting outage via Pumba")
 	return ctfchaos.ExecPumba(cmd, ExecPumbaTimeout)
 }

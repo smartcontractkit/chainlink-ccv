@@ -8,21 +8,14 @@ import (
 
 // BuildStopCommand returns a Pumba "stop" command that restarts matching containers
 // after duration. targets must be normalized Docker container names.
-//
-// When literalSingle is true and there is exactly one target, the name is passed to
-// Pumba as-is (aggregator nginx). Otherwise each target is wrapped in ^$ anchors;
-// multiple targets are combined as a re2 alternation.
-func BuildStopCommand(duration time.Duration, targets []string, literalSingle bool) string {
-	return fmt.Sprintf("stop --duration=%s --restart re2:%s", duration, formatPumbaTarget(targets, literalSingle))
+func BuildStopCommand(duration time.Duration, targets []string) string {
+	return fmt.Sprintf("stop --duration=%s --restart re2:%s", duration, formatPumbaTarget(targets))
 }
 
-func formatPumbaTarget(targets []string, literalSingle bool) string {
+func formatPumbaTarget(targets []string) string {
 	if len(targets) == 0 {
 		return "^$" // match nothing
 	}
-	//if literalSingle && len(targets) == 1 {
-	//	return targets[0]
-	//}
 	parts := make([]string, len(targets))
 	for i, name := range targets {
 		parts[i] = fmt.Sprintf("^%s$", name)
