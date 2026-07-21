@@ -5,27 +5,6 @@ service container names from `ccv.Cfg`, and run a V3 send + offchain assert pipe
 `tcapi.SendV3Message`. Sibling to `tcapi/basic` and `tcapi/token_transfer` — a reusable
 test category composing the tcapi primitives.
 
-## Outage injection
-
-```go
-cleanup, err := chaos.injectOutage(ctx, &chaos.OutageSpec{
-    Duration:      chaos.DefaultOutageDuration,
-    Targets:       []string{nginxContainer},
-})
-t.Cleanup(cleanup)
-```
-
-## Latency injection
-
-```go
-cleanup, err := chaos.injectLatency(ctx, chaos.LatencySpec{
-    Duration: 1 * time.Minute,
-    Delay:    400, // milliseconds
-    Targets:  []string{"blockchain-src", "blockchain-dst"},
-})
-t.Cleanup(cleanup)
-```
-
 ## Container resolution
 
 | Helper | Use for |
@@ -55,20 +34,20 @@ restarts, the `eventPoller` retries `BlockNumber` every 1s but the stale
 
 Until the EVM devenv implements RPC reconnection (re-dial + re-bind on
 persistent failure), RPC **outage** tests are skipped. The container resolvers
-(`BlockchainContainer`, `BlockchainContainerForSelector`) and `OutageSpec`/
-`InjectOutage` are already in place for the future test. Network **latency**
-injection (`netem delay`) works today because the container stays running and
-connections survive. Solana devenv can use `OutageSpec` against its RPC node
-today since Solana clients reconnect natively.
+(`BlockchainContainer`, `BlockchainContainerForSelector`) and `OutageSpec` are
+already in place for the future test. Network **latency** injection (`netem
+delay`) works today because the container stays running and connections
+survive. Solana devenv can use `OutageSpec` against its RPC node today since
+Solana clients reconnect natively.
 
 ## RunScenario
 
-`RunScenario` injects the outage, sends a V3 message via `tcapi.SendV3Message`, confirms
-the send on source, asserts aggregator/indexer state, and optionally confirms execution on
-the destination.
-
-Callers pass `ccv.Lib` and message fields — the package does not filter chains by family.
-EVM-only chaos tests hydrate messages with `basic.ResolveEOAReceiverDefaultVerifier`.
+`RunScenario` is the single entry point for chaos tests. It injects the chaos
+fault (latency or outage), sends a V3 message via `tcapi.SendV3Message`,
+confirms the send on source, asserts aggregator/indexer state, and optionally
+confirms execution on the destination. Callers pass `ccv.Lib` and message
+fields — the package does not filter chains by family. EVM-only chaos tests
+hydrate messages with `basic.ResolveEOAReceiverDefaultVerifier`.
 
 ```go
 receiver, ccvs, executor, err := basic.ResolveEOAReceiverDefaultVerifier(ctx, lib, src, dst)
@@ -83,13 +62,14 @@ err = chaos.RunScenario(t, ctx, chaos.ScenarioSpec{
     SendArgs: tcapi.SendArgs{},
     Assert:   tcapi.AssertMessageOptions{ExpectedVerifierResults: 1, Timeout: timeout},
     ConfirmExecOnDest: true,
-    Outage:   outageSpec,
+    Outage:   &outageSpec,
 })
 ```
 
-`ScenarioSpec` uses flat fields for all send/assert/exec options; `Outage` and
-`Latency` are chaos-specific. `Latency` takes precedence over `Outage` when both
-are set. Exec timeout falls back to `Assert.Timeout` then
+`ScenarioSpec` uses flat fields for all send/assert/exec options. `Outage`
+(`*OutageSpec`) and `Latency` (`*LatencySpec`) are chaos-specific; pass `nil`
+for the unused mode. `Latency` takes precedence over `Outage` when both are
+non-nil. Exec timeout falls back to `Assert.Timeout` then
 `tcapi.DefaultExecTimeout`.
 
 Cross-family callers (e.g. Solana devenv) supply their own `Fields` / `Opts` and
