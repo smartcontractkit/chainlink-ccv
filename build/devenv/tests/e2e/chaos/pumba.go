@@ -20,9 +20,9 @@ func formatPumbaTarget(targets []string, literalSingle bool) string {
 	if len(targets) == 0 {
 		return "^$" // match nothing
 	}
-	if literalSingle && len(targets) == 1 {
-		return targets[0]
-	}
+	//if literalSingle && len(targets) == 1 {
+	//	return targets[0]
+	//}
 	parts := make([]string, len(targets))
 	for i, name := range targets {
 		parts[i] = fmt.Sprintf("^%s$", name)
