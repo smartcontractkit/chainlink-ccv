@@ -16,7 +16,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/committeeverifier"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/tcapi"
-	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/tcapi/basic"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/tcapi/chaos"
 	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
@@ -178,7 +177,7 @@ func setupChaosEVMSession(t *testing.T) (context.Context, ccv.Lib, *chaosSetup, 
 // scenario. cfg overrides the default assert timeout, exec timeout, and ConfirmExec flag.
 func runEVMChaosScenario(t *testing.T, ctx context.Context, lib ccv.Lib, src, dst uint64, cfg evmChaosConfig, outage *chaos.OutageSpec, latency *chaos.LatencySpec) {
 	t.Helper()
-	receiver, ccvs, executor, err := basic.ResolveV3SendRequiredAddresses(ctx, lib, src, dst)
+	receiver, ccvs, executor, err := tcapi.ResolveV3SendAddresses(ctx, lib, src, dst)
 	require.NoError(t, err)
 
 	timeout := cfg.Timeout
