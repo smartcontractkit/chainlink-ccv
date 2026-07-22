@@ -34,13 +34,14 @@ type tokenTransferV3TestCaseBase struct {
 
 type tokenTransferV3TestCase struct {
 	tokenTransferV3TestCaseBase
-	sender    protocol.UnknownAddress
-	receiver  protocol.UnknownAddress
-	srcToken  protocol.UnknownAddress
-	destToken protocol.UnknownAddress
-	executor  protocol.UnknownAddress
-	hydrate   func(ctx context.Context, tc *tokenTransferV3TestCase) bool
-	hydrated  bool
+	sender        protocol.UnknownAddress
+	receiver      protocol.UnknownAddress
+	tokenReceiver protocol.UnknownAddress
+	srcToken      protocol.UnknownAddress
+	destToken     protocol.UnknownAddress
+	executor      protocol.UnknownAddress
+	hydrate       func(ctx context.Context, tc *tokenTransferV3TestCase) bool
+	hydrated      bool
 }
 
 var _ tcapi.ObservableTestCase = (*tokenTransferV3TestCase)(nil)
@@ -92,7 +93,7 @@ func (tc *tokenTransferV3TestCase) RunWithResult(ctx context.Context) (res tcapi
 		return res, fmt.Errorf("destination chain %d does not support token balance reads", tc.dst)
 	}
 
-	startBal, err := dstBalReader.GetTokenBalance(ctx, tc.receiver, tc.destToken)
+	startBal, err := dstBalReader.GetTokenBalance(ctx, tc.tokenReceiver, tc.destToken)
 	if err != nil {
 		return res, fmt.Errorf("get receiver start balance: %w", err)
 	}
@@ -114,14 +115,10 @@ func (tc *tokenTransferV3TestCase) RunWithResult(ctx context.Context) (res tcapi
 	}
 	sentTimeout := tc.args.Run.SentTimeout(tcapi.DefaultSentTimeout)
 	execTimeout := tc.args.Run.ExecTimeout(tcapi.DefaultExecTimeout)
-	msgReceiver := tc.receiver
-	if tc.args.Send.TokenReceiverParams != nil {
-		msgReceiver = make([]byte, len(tc.receiver))
-	}
 
 	sentEvt, sentTxHash, err := tcapi.SendV3Message(ctx, v3Src, v3Dst,
 		cciptestinterfaces.MessageFields{
-			Receiver: msgReceiver,
+			Receiver: tc.receiver,
 			TokenAmount: cciptestinterfaces.TokenAmount{
 				Amount:       transferAmount,
 				TokenAddress: tc.srcToken,
@@ -194,7 +191,7 @@ func (tc *tokenTransferV3TestCase) RunWithResult(ctx context.Context) (res tcapi
 		Event:  execEvt,
 	}
 
-	endBal, err := dstBalReader.GetTokenBalance(ctx, tc.receiver, tc.destToken)
+	endBal, err := dstBalReader.GetTokenBalance(ctx, tc.tokenReceiver, tc.destToken)
 	if err != nil {
 		return res, fmt.Errorf("get receiver end balance: %w", err)
 	}
@@ -291,6 +288,13 @@ func tokenTransferCase(lib ccv.Lib, src, dest uint64, combo common.TokenCombinat
 				return false
 			}
 
+			// resolve Token Receiver (where destination tokens actually end up)
+			// fallback to the receiver address if no Token Receiver is specified in the test case args
+			tc.tokenReceiver = tc.receiver
+			if addr := parseAddress(tc.args.Send.TokenReceiverParams); len(addr) > 0 {
+				tc.tokenReceiver = addr
+			}
+
 			tc.srcToken, err = srcReg.AddressResolver.GetToken(ds, tc.src, tc.combo.LocalPoolAddressRef())
 			if err != nil {
 				return false
@@ -303,6 +307,20 @@ func tokenTransferCase(lib ccv.Lib, src, dest uint64, combo common.TokenCombinat
 			tc.executor, err = srcReg.AddressResolver.GetExecutor(ds, tc.src, common.DefaultExecutorQualifier)
 			return err == nil
 		},
+	}
+}
+
+// parseAddress converts supported types (protocol.UnknownAddress, []byte, string) to protocol.UnknownAddress.
+func parseAddress(v any) protocol.UnknownAddress {
+	switch val := v.(type) {
+	case protocol.UnknownAddress:
+		return val
+	case []byte:
+		return protocol.UnknownAddress(val)
+	case string:
+		return protocol.UnknownAddress(val)
+	default:
+		return nil
 	}
 }
 
