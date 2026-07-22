@@ -21,7 +21,7 @@ Container names are normalized from env-out (`Out.ContainerName`, leading `/` st
 
 ## Limitations & TODOs
 
-### RPC outage (blackout) — TODO
+### RPC outage (blackout) — TODO CCIP-12571
 
 Stopping an EVM blockchain RPC container via Pumba `stop --restart` leaves the
 test harness's `ethclient.Client` holding a dead connection. The go-ethereum
