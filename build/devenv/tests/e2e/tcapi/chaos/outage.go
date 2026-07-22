@@ -15,7 +15,7 @@ const (
 	// fire-and-forget; the outage duration is controlled by the Pumba command.
 	ExecPumbaTimeout = 0 * time.Second
 
-	// DefaultOutageDuration is the default duration of a Pumba container stop outage if not specified in the spec.
+	// DefaultOutageDuration is the default duration used for Pumba outages and latency injections when not specified in the spec.
 	DefaultOutageDuration = 20 * time.Second
 )
 
