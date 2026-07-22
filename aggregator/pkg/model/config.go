@@ -18,6 +18,13 @@ import (
 	hmacutil "github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
 )
 
+const (
+	// DefaultHeartbeatKeyPrefix is the default Redis key prefix for heartbeat data.
+	DefaultHeartbeatKeyPrefix = "heartbeat"
+	// DefaultHeartbeatTTL is the default TTL for heartbeat data (7 days).
+	DefaultHeartbeatTTL = 7 * 24 * time.Hour
+)
+
 // Signer represents a participant in the commit verification process.
 type Signer struct {
 	// Address is the signer's chain-native address.
@@ -235,6 +242,15 @@ const (
 	RateLimiterStoreTypeRedis  RateLimiterStoreType = "redis"
 )
 
+// HeartbeatStoreType defines the supported storage types for heartbeat storage.
+type HeartbeatStoreType string
+
+const (
+	HeartbeatStoreTypeMemory        HeartbeatStoreType = "memory"
+	HeartbeatStoreTypeRedis         HeartbeatStoreType = "redis"
+	HeartbeatStoreTypeMemoryDefault HeartbeatStoreType = "" // default store type is memory
+)
+
 const (
 	DefaultRateLimiterRedisKeyPrefix = "ratelimit"
 )
@@ -295,6 +311,23 @@ type RateLimitingConfig struct {
 	// GlobalAnonymousLimits defines global anonymous rate limits
 	// Map structure: method -> RateLimitConfig
 	GlobalAnonymousLimits map[string]RateLimitConfig `toml:"globalAnonymousLimits"`
+}
+
+func (c *HeartbeatConfig) Validate() error {
+	if !c.StoreType.IsValid() {
+		return fmt.Errorf("invalid heartbeat store type: %s", c.StoreType)
+	}
+
+	if c.StoreType == HeartbeatStoreTypeRedis {
+		if c.Redis == nil {
+			return errors.New("redis configuration is required when using redis store type")
+		}
+		if c.Redis.Address == "" {
+			return errors.New("redis address is required when using redis store type")
+		}
+	}
+
+	return nil
 }
 
 func (c *RateLimitingConfig) Validate() error {
@@ -410,6 +443,8 @@ type AggregatorConfig struct {
 	MessageDisablementRules MessageDisablementRulesConfig `toml:"messageDisablementRules"`
 	// OrphanRecovery configures recovery of orphaned aggregation records.
 	OrphanRecovery OrphanRecoveryConfig `toml:"orphanRecovery"`
+	// Heartbeat configures the heartbeat monitoring.
+	Heartbeat HeartbeatConfig `toml:"heartbeat"`
 	// RateLimiting configures per-client, per-group, and anonymous rate limits.
 	RateLimiting RateLimitingConfig `toml:"rateLimiting"`
 	// HealthCheck configures the health-check HTTP server.
@@ -424,6 +459,44 @@ type AggregatorConfig struct {
 	MaxMessageIDsPerBatch int `toml:"maxMessageIDsPerBatch"`
 	// MaxCommitVerifierNodeResultRequestsPerBatch caps verifier-result requests per batch (1-1000). Defaults to 100.
 	MaxCommitVerifierNodeResultRequestsPerBatch int `toml:"maxCommitVerifierNodeResultRequestsPerBatch"`
+}
+
+type HeartbeatConfig struct {
+	// StoreType selects the storage backend for heartbeat data; currently "memory" or "redis".
+	StoreType HeartbeatStoreType `toml:"storeType"`
+	// Redis configuration (only used when StoreType is "redis")
+	Redis *HeartbeatRedisConfig `toml:"redis,omitempty"`
+}
+
+func (t HeartbeatStoreType) IsValid() bool {
+	switch t {
+	case HeartbeatStoreTypeMemory, HeartbeatStoreTypeMemoryDefault, HeartbeatStoreTypeRedis:
+		return true
+	default:
+		return false
+	}
+}
+
+type HeartbeatRedisConfig struct {
+	// Address is the Redis server address (host:port).
+	Address string `toml:"-"`
+	// Password is the Redis server password (if any).
+	Password string `toml:"-"`
+	// DB is the Redis database number to use (default: 0).
+	DB int `toml:"-"`
+	// KeyPrefix is the prefix for Redis keys storing heartbeat data (default: "heartbeat").
+	KeyPrefix string `toml:"keyPrefix"`
+	// TTL is the time-to-live for heartbeat data in Redis (default: 7 days).
+	TTL time.Duration `toml:"ttl"`
+}
+
+func (c *HeartbeatRedisConfig) SetDefaults() {
+	if c.KeyPrefix == "" {
+		c.KeyPrefix = DefaultHeartbeatKeyPrefix
+	}
+	if c.TTL == 0 {
+		c.TTL = DefaultHeartbeatTTL
+	}
 }
 
 // APIKeyPairEnv is the legacy, backwards-compatible source of a client's inbound HMAC credential: it
@@ -684,6 +757,10 @@ func (c *AggregatorConfig) SetDefaults() {
 	// Server defaults
 	if c.Server.RequestTimeout == 0 {
 		c.Server.RequestTimeout = 10 * time.Second
+	}
+
+	if c.Heartbeat.StoreType == HeartbeatStoreTypeRedis && c.Heartbeat.Redis != nil {
+		c.Heartbeat.Redis.SetDefaults()
 	}
 }
 
@@ -1009,6 +1086,10 @@ func (c *AggregatorConfig) Validate() error {
 		return fmt.Errorf("rate limiting configuration error: %w", err)
 	}
 
+	if err := c.Heartbeat.Validate(); err != nil {
+		return fmt.Errorf("heartbeat configuration error: %w", err)
+	}
+
 	return nil
 }
 
@@ -1034,6 +1115,12 @@ func (c *AggregatorConfig) ResolveSecrets(s *secrets.Secrets) error {
 	if c.RateLimiting.Storage.Type == RateLimiterStoreTypeRedis && c.RateLimiting.Enabled {
 		if err := c.loadRateLimiterRedisConfig(s); err != nil {
 			return fmt.Errorf("failed to load rate limiter redis config: %w", err)
+		}
+	}
+
+	if c.Heartbeat.StoreType == HeartbeatStoreTypeRedis {
+		if err := c.loadHeartbeatRedisConfig(s); err != nil {
+			return fmt.Errorf("failed to load heartbeat redis config: %w", err)
 		}
 	}
 
@@ -1067,6 +1154,7 @@ func (c *AggregatorConfig) loadRateLimiterRedisConfig(s *secrets.Secrets) error 
 	if c.RateLimiting.Storage.Redis == nil {
 		c.RateLimiting.Storage.Redis = &RateLimiterRedisConfig{}
 	}
+
 	c.RateLimiting.Storage.Redis.Address = redisAddress
 
 	// Password comes from the secrets file when present, otherwise AGGREGATOR_REDIS_PASSWORD.
@@ -1079,6 +1167,28 @@ func (c *AggregatorConfig) loadRateLimiterRedisConfig(s *secrets.Secrets) error 
 			return fmt.Errorf("invalid AGGREGATOR_REDIS_DB value: %w", err)
 		}
 		c.RateLimiting.Storage.Redis.DB = redisDB
+	}
+	return nil
+}
+
+func (c *AggregatorConfig) loadHeartbeatRedisConfig(s *secrets.Secrets) error {
+	if c.Heartbeat.Redis == nil {
+		c.Heartbeat.Redis = &HeartbeatRedisConfig{}
+	}
+
+	redisAddress := os.Getenv("AGGREGATOR_REDIS_ADDRESS")
+	if redisAddress == "" {
+		return errors.New("AGGREGATOR_REDIS_ADDRESS environment variable is required")
+	}
+	c.Heartbeat.Redis.Address = redisAddress
+	c.Heartbeat.Redis.Password = s.RedisPassword()
+	redisDBStr := os.Getenv("AGGREGATOR_REDIS_DB")
+	if redisDBStr != "" {
+		redisDB, err := strconv.Atoi(redisDBStr)
+		if err != nil {
+			return fmt.Errorf("invalid AGGREGATOR_REDIS_DB value: %w", err)
+		}
+		c.Heartbeat.Redis.DB = redisDB
 	}
 	return nil
 }

@@ -1595,3 +1595,104 @@ func TestRateLimitingConfig_Validate(t *testing.T) {
 		})
 	}
 }
+
+func TestHeartbeatRedisSetDefaults(t *testing.T) {
+	t.Run("default heartbeat config is valid", func(t *testing.T) {
+		config := HeartbeatConfig{
+			StoreType: HeartbeatStoreTypeRedis,
+			Redis: &HeartbeatRedisConfig{
+				Address:  "localhost:6379",
+				Password: "secret",
+				DB:       1,
+			},
+		}
+		config.Redis.SetDefaults()
+		err := config.Validate()
+		require.NoError(t, err)
+		require.Equal(t, DefaultHeartbeatTTL, config.Redis.TTL)
+		require.Equal(t, DefaultHeartbeatKeyPrefix, config.Redis.KeyPrefix)
+	})
+
+	t.Run("custom heartbeat config is valid", func(t *testing.T) {
+		config := HeartbeatConfig{
+			StoreType: HeartbeatStoreTypeRedis,
+			Redis: &HeartbeatRedisConfig{
+				Address:   "localhost:6379",
+				Password:  "secret",
+				DB:        1,
+				TTL:       10 * time.Second,
+				KeyPrefix: "custom_prefix",
+			},
+		}
+		config.Redis.SetDefaults()
+		err := config.Validate()
+		require.NoError(t, err)
+		require.Equal(t, 10*time.Second, config.Redis.TTL)
+		require.Equal(t, "custom_prefix", config.Redis.KeyPrefix)
+	})
+}
+
+func TestHeartbeatConfig_Validate(t *testing.T) {
+	tests := []struct {
+		name        string
+		config      HeartbeatConfig
+		expectError bool
+		errorMsg    string
+	}{
+		{
+			name:        "valid heartbeat config",
+			config:      HeartbeatConfig{},
+			expectError: false,
+		},
+		{
+			name: "valid redis config",
+			config: HeartbeatConfig{
+				StoreType: HeartbeatStoreTypeRedis,
+				Redis: &HeartbeatRedisConfig{
+					Address:  "localhost:6379",
+					Password: "secret",
+					DB:       1,
+				},
+			},
+			expectError: false,
+		},
+		{
+			name: "invalid redis config with missing address",
+			config: HeartbeatConfig{
+				StoreType: HeartbeatStoreTypeRedis,
+				Redis: &HeartbeatRedisConfig{
+					Password: "secret",
+					DB:       1,
+				},
+			},
+			expectError: true,
+			errorMsg:    "redis address is required when using redis store",
+		},
+		{
+			name: "Valid memory config",
+			config: HeartbeatConfig{
+				StoreType: HeartbeatStoreTypeMemory,
+			},
+			expectError: false,
+		},
+		{
+			name: "Invalid store type",
+			config: HeartbeatConfig{
+				StoreType: "invalid_store_type",
+			},
+			expectError: true,
+			errorMsg:    "invalid heartbeat store type",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.config.Validate()
+			if tt.expectError {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errorMsg)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
