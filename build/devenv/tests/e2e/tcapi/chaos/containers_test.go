@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	chain_selectors "github.com/smartcontractkit/chain-selectors"
 	"github.com/stretchr/testify/require"
 
 	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
@@ -184,8 +185,9 @@ func TestBlockchainContainer(t *testing.T) {
 func TestBlockchainContainerForSelector(t *testing.T) {
 	t.Parallel()
 
-	// Chain ID 2337 → selector 12922642891491394802 (geth-devnet-2)
-	dstSelector := uint64(12922642891491394802)
+	details, err := chain_selectors.GetChainDetailsByChainIDAndFamily("2337", "evm")
+	require.NoError(t, err)
+	dstSelector := details.ChainSelector
 
 	cfg := &ccv.Cfg{
 		Blockchains: []*blockchain.Input{

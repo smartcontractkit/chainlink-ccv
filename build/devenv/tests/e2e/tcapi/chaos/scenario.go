@@ -110,6 +110,10 @@ func RunScenario(t *testing.T, ctx context.Context, spec ScenarioSpec) error {
 		assertOpts.Timeout = execTimeout
 	}
 
+	if assertOpts.TickInterval == 0 {
+		assertOpts.TickInterval = tcapi.DefaultSentTimeout / 10
+	}
+
 	result, err := testCtx.AssertMessage(sent.MessageID, assertOpts)
 	if err != nil {
 		return fmt.Errorf("assert message: %w", err)

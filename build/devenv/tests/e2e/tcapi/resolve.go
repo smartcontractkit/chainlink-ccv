@@ -86,7 +86,7 @@ func GetCommitteeCCV(resolver chainreg.AddressResolver, ds datastore.DataStore, 
 func ResolveV3SendAddresses(ctx context.Context, lib ccv.Lib, src, dst uint64) (protocol.UnknownAddress, []protocol.CCV, protocol.UnknownAddress, error) {
 	env, ok := LoadV3Env(ctx, lib, src, dst)
 	if !ok {
-		return protocol.UnknownAddress{}, nil, protocol.UnknownAddress{}, fmt.Errorf("prerequisites not met for src %d dst %d", src, dst)
+		return protocol.UnknownAddress{}, nil, protocol.UnknownAddress{}, fmt.Errorf("prerequisites not met for src %d dst %d (datastore, V3 destination, and address resolvers must be available)", src, dst)
 	}
 	receiver, err := env.Dst.GetEOAReceiverAddress()
 	if err != nil {
