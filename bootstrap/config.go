@@ -12,6 +12,15 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/common/monitoring"
 )
 
+const (
+	// DefaultDBURLEnvVar is the environment variable read for the database URL when neither
+	// DBConfig.URL nor DBConfig.URLEnvVar is set. These are env var names, not secret values.
+	DefaultDBURLEnvVar = "BOOTSTRAPPER_DATABASE_URL"
+	// DefaultKeystorePasswordEnvVar is the environment variable read for the keystore password when
+	// neither KeystoreConfig.Password nor KeystoreConfig.PasswordEnvVar is set.
+	DefaultKeystorePasswordEnvVar = "BOOTSTRAPPER_KEYSTORE_PASSWORD"
+)
+
 // JDConfig is the configuration for the Job Distributor.
 type JDConfig struct {
 	// ServerWSRPCURL is the URL of the Job Distributor server's WebSocket RPC endpoint.
@@ -35,28 +44,74 @@ func (c *JDConfig) validate() error {
 
 // KeystoreConfig is the configuration for the keystore.
 type KeystoreConfig struct {
-	// Password is the password to the keystore.
+	// Password is the password to the keystore. Has precedence over PasswordEnvVar.
 	Password string `toml:"password"`
+	// PasswordEnvVar is the name of an environment variable containing the keystore password.
+	// Only used if Password is not defined; defaults to DefaultKeystorePasswordEnvVar.
+	PasswordEnvVar string `toml:"password_env_var"`
+}
+
+// GetPassword returns the keystore password, following the precedence rule:
+// Password (direct config) takes precedence over the environment variable, whose name is
+// PasswordEnvVar when set and DefaultKeystorePasswordEnvVar otherwise.
+// Returns an error if the resolved environment variable is not set or is empty.
+func (c *KeystoreConfig) GetPassword() (string, error) {
+	// If Password is defined, use it (it has precedence)
+	if c.Password != "" {
+		return c.Password, nil
+	}
+
+	// Otherwise read from the environment: the configured name if set, else the default.
+	envVar := c.PasswordEnvVar
+	if envVar == "" {
+		envVar = DefaultKeystorePasswordEnvVar
+	}
+	envPassword := os.Getenv(envVar)
+	if envPassword == "" {
+		return "", fmt.Errorf("field 'password' is empty and environment variable %q is not set or is empty", envVar)
+	}
+	return envPassword, nil
 }
 
 func (c *KeystoreConfig) validate() error {
-	if c.Password == "" {
-		return fmt.Errorf("field 'password' is required")
-	}
-	return nil
+	_, err := c.GetPassword()
+	return err
 }
 
 // DBConfig is the configuration for the bootstrap database.
 type DBConfig struct {
-	// URL is the URL to use for saving jobs and the keystore.
+	// URL is the database URL. Has precedence over URLEnvVar.
 	URL string `toml:"url"`
+	// URLEnvVar is the name of an environment variable containing the database URL.
+	// Only used if URL is not defined; defaults to DefaultDBURLEnvVar.
+	URLEnvVar string `toml:"url_env_var"`
+}
+
+// GetURL returns the database URL, following the precedence rule:
+// URL (direct config) takes precedence over the environment variable, whose name is
+// URLEnvVar when set and DefaultDBURLEnvVar otherwise.
+// Returns an error if the resolved environment variable is not set or is empty.
+func (c *DBConfig) GetURL() (string, error) {
+	// If URL is defined, use it (it has precedence)
+	if c.URL != "" {
+		return c.URL, nil
+	}
+
+	// Otherwise read from the environment: the configured name if set, else the default.
+	envVar := c.URLEnvVar
+	if envVar == "" {
+		envVar = DefaultDBURLEnvVar
+	}
+	envURL := os.Getenv(envVar)
+	if envURL == "" {
+		return "", fmt.Errorf("field 'url' is empty and environment variable %q is not set or is empty", envVar)
+	}
+	return envURL, nil
 }
 
 func (c *DBConfig) validate() error {
-	if c.URL == "" {
-		return fmt.Errorf("field 'url' is required")
-	}
-	return nil
+	_, err := c.GetURL()
+	return err
 }
 
 // ServerConfig is the configuration for the HTTP info server.
