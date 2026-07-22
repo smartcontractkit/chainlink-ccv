@@ -289,7 +289,10 @@ func (r *injectedReaderRuntime) NewContractTransmitter(
 	string,
 	common.Address,
 ) (chainaccess.ContractTransmitter, error) {
-	return nil, errors.New("contract transmitter requires the production standalone EVM runtime")
+	// The deprecated injected runtime intentionally supports reads only. Treat
+	// keystore injection as a no-op so KeystoreRegistry does not reject an
+	// otherwise usable reader accessor; ContractTransmitter remains unavailable.
+	return nil, nil
 }
 
 func (r *injectedReaderRuntime) Close() error { return nil }

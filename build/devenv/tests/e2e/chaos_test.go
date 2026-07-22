@@ -1,6 +1,7 @@
 package e2e
 
 import (
+	"context"
 	"fmt"
 	"os/exec"
 	"strings"
@@ -28,7 +29,8 @@ const (
 
 	outageDuration = 20 * time.Second
 
-	rpcFailoverTimeout = 3 * time.Minute
+	rpcFailoverTimeout     = 3 * time.Minute
+	rpcProxyCleanupTimeout = 15 * time.Second
 )
 
 func TestChaos_EVMRPCFailover(t *testing.T) {
@@ -132,21 +134,24 @@ func setRPCProxyRunning(t *testing.T, l *zerolog.Logger, containerName string, r
 		action = "start"
 	}
 	l.Info().Str("container", containerName).Str("action", action).Msg("Changing RPC proxy state")
-	out, err := exec.Command("docker", action, containerName).CombinedOutput()
+	out, err := exec.CommandContext(t.Context(), "docker", action, containerName).CombinedOutput()
 	require.NoErrorf(t, err, "docker %s %s failed: %s", action, containerName, strings.TrimSpace(string(out)))
 	if running {
 		require.Eventually(t, func() bool {
-			return exec.Command("docker", "exec", containerName, "nginx", "-t").Run() == nil
+			return exec.CommandContext(t.Context(), "docker", "exec", containerName, "nginx", "-t").Run() == nil
 		}, 15*time.Second, 250*time.Millisecond, "RPC proxy %s did not become ready", containerName)
 	}
 }
 
 func setRPCProxyRunningBestEffort(l *zerolog.Logger, containerName string, running bool) {
+	ctx, cancel := context.WithTimeout(context.Background(), rpcProxyCleanupTimeout)
+	defer cancel()
+
 	action := "stop"
 	if running {
 		action = "start"
 	}
-	if out, err := exec.Command("docker", action, containerName).CombinedOutput(); err != nil {
+	if out, err := exec.CommandContext(ctx, "docker", action, containerName).CombinedOutput(); err != nil {
 		l.Error().Err(err).
 			Str("container", containerName).
 			Str("action", action).

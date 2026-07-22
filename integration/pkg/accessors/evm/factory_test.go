@@ -134,3 +134,23 @@ func TestSourceOnlyAccessorDoesNotStartTransactionManager(t *testing.T) {
 	require.NoError(t, accessor.SetKeystore(context.Background(), nil))
 	require.Zero(t, runtime.setCalls)
 }
+
+func TestInjectedReaderAccessorRemainsAvailableAfterKeystoreInjection(t *testing.T) {
+	t.Parallel()
+
+	accessor := newAccessor(
+		logger.Test(t),
+		protocol.ChainSelector(42),
+		&injectedReaderRuntime{},
+		common.HexToAddress("0x1234"),
+		"evm-key",
+		nil,
+		nil,
+		nil,
+	).(*accessor)
+
+	require.NoError(t, accessor.SetKeystore(context.Background(), nil))
+	transmitter, err := accessor.ContractTransmitter()
+	require.Nil(t, transmitter)
+	require.ErrorContains(t, err, "contract transmitter not available")
+}

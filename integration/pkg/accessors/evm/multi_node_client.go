@@ -11,6 +11,10 @@ import (
 	evmconfig "github.com/smartcontractkit/chainlink-evm/pkg/config"
 )
 
+// CreateHealthyMultiNodeClient resolves the requested chain and starts its client.
+//
+// Deprecated: use CreateMultiNodeClientFromInfo after resolving the chain info.
+// This wrapper performs no health checks beyond those performed by client.Dial.
 func CreateHealthyMultiNodeClient(
 	ctx context.Context,
 	infos chainaccess.Infos[Info],
