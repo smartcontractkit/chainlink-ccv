@@ -90,6 +90,12 @@ func RunScenario(t *testing.T, ctx context.Context, spec ScenarioSpec) error {
 
 	messageKey := cciptestinterfaces.MessageEventKey{MessageID: sent.MessageID}
 	sentTimeout := spec.Run.SentTimeout(tcapi.DefaultSentTimeout)
+	execTimeout := spec.Run.ExecTimeout(tcapi.DefaultExecTimeout)
+	if spec.Assert.Timeout != 0 {
+		execTimeout = spec.Run.ExecTimeout(spec.Assert.Timeout)
+		sentTimeout = spec.Assert.Timeout
+	}
+
 	if _, err := v3Src.ConfirmSendOnSource(ctx, spec.Dst, messageKey, sentTimeout); err != nil {
 		return fmt.Errorf("confirm send on source: %w", err)
 	}
@@ -100,11 +106,6 @@ func RunScenario(t *testing.T, ctx context.Context, spec ScenarioSpec) error {
 	}
 	testCtx, cleanupFn := tcapi.NewTestingContext(ctx, aggregatorClient, indexerMonitor)
 	defer cleanupFn()
-
-	execTimeout := spec.Run.ExecTimeout(tcapi.DefaultExecTimeout)
-	if spec.Assert.Timeout != 0 {
-		execTimeout = spec.Run.ExecTimeout(spec.Assert.Timeout)
-	}
 
 	assertOpts := spec.Assert
 	if assertOpts.Timeout == 0 {
