@@ -9,13 +9,9 @@ import (
 	"github.com/BurntSushi/toml"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
-	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/sourcereader"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
-
-	"github.com/smartcontractkit/chainlink-evm/pkg/client"
-	"github.com/smartcontractkit/chainlink-evm/pkg/heads"
 )
 
 func init() {
@@ -106,50 +102,33 @@ func CreateEVMAccessorFactory(lggr logger.Logger, genericConfig chainaccess.Gene
 	return CreateAccessorFactory(context.Background(), lggr, genericConfig, infos)
 }
 
-// CreateAccessorFactory creates a factory that can build EVM chain accessors.
-// TODO: Defer geth client and head tracker creation until GetAccessor is called.
-// generic param is chainaccess.GenericConfig until CCIP-11840.
+// CreateAccessorFactory creates a lazy factory that starts one production
+// chainlink-evm runtime per accessor. Deferring network work until GetAccessor
+// lets standalone processes construct their registry while an RPC endpoint is
+// unavailable; the multi-node pool then manages endpoint failover at runtime.
+// generic is chainaccess.GenericConfig until CCIP-11840.
 func CreateAccessorFactory(
-	ctx context.Context,
+	_ context.Context,
 	lggr logger.Logger,
 	generic chainaccess.GenericConfig,
 	infos chainaccess.Infos[Info],
 ) (chainaccess.AccessorFactory, error) {
-	// Create the chain clients, head trackers, and collect primary RPC URLs.
-	chainClients := make(map[protocol.ChainSelector]client.Client)
-	headTrackers := make(map[protocol.ChainSelector]heads.Tracker)
-	rpcURLs := make(map[protocol.ChainSelector]string)
-	for _, selector := range infos.GetAllChainSelectors() {
-		lggr.Infow("Creating EVM client and head tracker for chain selector", "chainSelector", selector)
-		family, err := chainsel.GetSelectorFamily(uint64(selector))
-		if err != nil {
-			lggr.Errorw("Failed to get selector family - update chain-selectors library?", "chainSelector", selector, "error", err)
-			continue
-		}
-		if family != chainsel.FamilyEVM {
-			lggr.Infow("Skipping non EVM info", "chainSelector", selector)
-			// Skip non-EVM chains in EVM registration.
-			continue
-		}
-		chainClient, err := CreateHealthyMultiNodeClient(ctx, infos, lggr, selector)
-		if err != nil {
-			lggr.Errorw("Failed to create multi-node EVM client - bad RPC?", "chainSelector", selector, "error", err)
-			continue
-		}
-		chainClients[selector] = chainClient
-		headTrackers[selector] = sourcereader.NewSimpleHeadTrackerWrapper(chainClient, lggr)
-
-		if info, err := infos.GetBlockchainByChainSelector(selector); err == nil {
-			if node, err := info.GetFirstNode(); err == nil {
-				rpcURLs[selector] = node.InternalHTTPUrl
-			}
-		}
-	}
-
-	// Convert from map[string]T -> map[chainsel]T
 	onRampInfos := chainaccess.Infos[string](generic.OnRampAddresses).GetAllInfos()
 	rmnRemoteInfos := chainaccess.Infos[string](generic.RMNRemoteAddresses).GetAllInfos()
 	destChainConfigs := chainaccess.Infos[chainaccess.DestinationChainConfig](generic.ChainConfiguration).GetAllInfos()
 
-	return NewFactory(lggr, onRampInfos, rmnRemoteInfos, headTrackers, chainClients, destChainConfigs, generic.MaxRetryDuration, rpcURLs), nil
+	return newFactory(
+		lggr,
+		onRampInfos,
+		rmnRemoteInfos,
+		destChainConfigs,
+		generic.MaxRetryDuration,
+		func(ctx context.Context, chainSelector protocol.ChainSelector, chainLggr logger.Logger) (chainRuntime, error) {
+			info, err := infos.GetBlockchainByChainSelector(chainSelector)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get EVM config for chain %d: %w", chainSelector, err)
+			}
+			return newStandaloneChain(ctx, info, chainLggr)
+		},
+	), nil
 }

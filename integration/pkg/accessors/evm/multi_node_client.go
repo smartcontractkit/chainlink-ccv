@@ -4,121 +4,193 @@ import (
 	"context"
 	"fmt"
 	"math/big"
+	"strings"
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	commonconfig "github.com/smartcontractkit/chainlink-common/pkg/config"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 	"github.com/smartcontractkit/chainlink-evm/pkg/client"
+	evmconfig "github.com/smartcontractkit/chainlink-evm/pkg/config"
 	"github.com/smartcontractkit/chainlink-evm/pkg/config/chaintype"
+	evmtoml "github.com/smartcontractkit/chainlink-evm/pkg/config/toml"
 )
 
-func ptr[T any](t T) *T { return new(t) }
+const (
+	// TXM v2 requires a block time of at least two seconds. It also uses head
+	// notifications for fee updates, so this is only a retry cadence fallback.
+	defaultTXMBlockTime = 2 * time.Second
+	// HTTP polling keeps the production head tracker usable for deployments that
+	// include HTTP-only RPCs. All-WebSocket pools retain subscriptions.
+	defaultNewHeadsPollInterval = time.Second
+)
 
-func CreateHealthyMultiNodeClient(ctx context.Context, infos chainaccess.Infos[Info], lggr logger.Logger, chainSelector protocol.ChainSelector) (client.Client, error) {
+func ptr[T any](v T) *T { return &v }
+
+func CreateHealthyMultiNodeClient(
+	ctx context.Context,
+	infos chainaccess.Infos[Info],
+	lggr logger.Logger,
+	chainSelector protocol.ChainSelector,
+) (client.Client, error) {
 	info, err := infos.GetBlockchainByChainSelector(chainSelector)
 	if err != nil {
-		lggr.Errorw("Failed to get blockchain info", "error", err, "chainSelector", chainSelector)
 		return nil, fmt.Errorf("failed to get blockchain info for chain selector %v: %w", chainSelector, err)
 	}
 	return CreateMultiNodeClientFromInfo(ctx, info, lggr)
 }
 
-// CreateMultiNodeClientFromInfo creates EVM client and tests the connection.
-func CreateMultiNodeClientFromInfo(ctx context.Context, blockchainInfo Info, lggr logger.Logger) (client.Client, error) {
-	noNewHeadsThreshold := 3 * time.Minute
-	selectionMode := new("HighestHead")
-	leaseDuration := 0 * time.Second
-	pollFailureThreshold := new(uint32(5))
-	pollSuccessThreshold := new(uint32(0))
-	pollInterval := 2 * time.Second
-	syncThreshold := new(uint32(5))
-	nodeIsSyncingEnabled := new(false)
-	chainTypeStr := blockchainInfo.Type
-	finalizedBlockOffset := ptr[uint32](16)
-	enforceRepeatableRead := new(true)
-	deathDeclarationDelay := time.Second * 3
-	noNewFinalizedBlocksThreshold := 15 * time.Minute // High value - allows slow chains and manual mining
-	finalizedBlockPollInterval := time.Second * 10
-	newHeadsPollInterval := time.Second * 1
-	confirmationTimeout := time.Second * 60
-	// TODO: there could be multiple nodes configured, why aren't we registering all of them?
-	n, err := blockchainInfo.GetFirstNode()
+// CreateMultiNodeClientFromInfo creates and starts chainlink-evm's production
+// multi-node client. Every configured node is registered with the pool, allowing
+// the pool to move reads and writes away from unhealthy RPCs.
+func CreateMultiNodeClientFromInfo(ctx context.Context, info Info, lggr logger.Logger) (client.Client, error) {
+	chainClient, _, err := newMultiNodeClientFromInfo(info, lggr)
 	if err != nil {
-		lggr.Errorw("Failed to get first node", "error", err, "chainID", blockchainInfo.ChainID)
-		return nil, fmt.Errorf("failed to get first node: %w", err)
+		return nil, err
 	}
-	wsURL := n.InternalWSUrl
-	httpURL := n.InternalHTTPUrl
-	nodeConfigs := []client.NodeConfig{
-		{
-			Name:    new(blockchainInfo.UniqueChainName),
-			WSURL:   new(wsURL),
-			HTTPURL: new(httpURL),
-		},
-	}
-	finalityDepth := new(uint32(10))
-	safeDepth := new(uint32(6))
-	finalityTagEnabled := new(true)
-	safeTagSupported := new(true)
-	lggr.Infow("Testing multinode chain client", "chainSelector", blockchainInfo.ChainID, "wsURL", wsURL, "httpURL", httpURL)
-	chainCfg, nodePool, nodes, err := client.NewClientConfigs(selectionMode, leaseDuration, chainTypeStr, nodeConfigs,
-		pollFailureThreshold, pollSuccessThreshold, pollInterval, syncThreshold, nodeIsSyncingEnabled, noNewHeadsThreshold, finalityDepth,
-		finalityTagEnabled, safeTagSupported, finalizedBlockOffset, enforceRepeatableRead, deathDeclarationDelay, noNewFinalizedBlocksThreshold,
-		finalizedBlockPollInterval, newHeadsPollInterval, confirmationTimeout, safeDepth)
-	if err != nil {
-		lggr.Errorw("Failed to create client configs", "error", err)
-		return nil, fmt.Errorf("failed to create client configs: %w", err)
-	}
-
-	idBigInt, success := new(big.Int).SetString(blockchainInfo.ChainID, 10)
-	if !success {
-		lggr.Errorw("Failed to parse chain ID to big.Int", "chainID", blockchainInfo.ChainID)
-		return nil, fmt.Errorf("failed to parse chain ID to big.Int for chainID (%s)", blockchainInfo.ChainID)
-	}
-
-	chainClient, err := client.NewEvmClient(nodePool, chainCfg, nil, lggr, idBigInt, nodes, chaintype.ChainType(chainTypeStr))
-	if err != nil {
-		lggr.Errorw("Failed to create EVM client", "error", err)
-		return nil, fmt.Errorf("failed to create evm client: %w", err)
-	}
-
-	lggr.Infow("Multinode chain client created successfully",
-		"chainID", blockchainInfo.ChainID,
-		"nodeStates", chainClient.NodeStates())
-
-	err = chainClient.Dial(ctx)
-	if err != nil {
-		lggr.Errorw("Failed to dial multinode chain client", "error", err)
+	if err := chainClient.Dial(ctx); err != nil {
 		chainClient.Close()
-		return nil, fmt.Errorf("failed to dial evm client: %w", err)
+		return nil, fmt.Errorf("failed to dial EVM client for chain %s: %w", info.ChainID, err)
 	}
-
-	// Test 1: Get latest block using multinode's SelectRPC
-	latestBlock, err := chainClient.LatestBlockHeight(ctx)
-	if err != nil {
-		lggr.Errorw("Failed to get block height", "error", err)
-		chainClient.Close()
-		return nil, fmt.Errorf("failed to get block height: %w", err)
-	}
-	lggr.Infow("Latest block (via multinode)", "blockNumber", latestBlock)
-
-	// Test 2: Get chain ID
-	chainID := chainClient.ConfiguredChainID()
-	lggr.Infow("Chain ID", "chainID", chainID)
-
-	// Test 3: Get a specific block header
-	header, err := chainClient.HeadByNumber(ctx, latestBlock)
-	if err != nil {
-		lggr.Errorw("Failed to get block head", "error", err)
-		chainClient.Close()
-		return nil, fmt.Errorf("failed to get block head: %w", err)
-	}
-	lggr.Infow("Block header",
-		"number", header.Number,
-		"hash", header.Hash.Hex(),
-		"timestamp", header.Timestamp)
-
-	lggr.Infow("Multinode chain client tests completed successfully!", "chainID", blockchainInfo.ChainID)
 	return chainClient, nil
+}
+
+func newMultiNodeClientFromInfo(info Info, lggr logger.Logger) (client.Client, *evmconfig.ChainScoped, error) {
+	chainConfig, err := newChainConfig(info)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	chainClient, err := client.NewEvmClient(
+		chainConfig.EVM().NodePool(),
+		chainConfig.EVM(),
+		chainConfig.EVM().NodePool().Errors(),
+		lggr,
+		chainConfig.EVM().ChainID(),
+		chainConfig.Nodes(),
+		chainConfig.EVM().ChainType(),
+	)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create EVM client for chain %s: %w", info.ChainID, err)
+	}
+
+	lggr.Infow("Created production multi-node EVM client",
+		"chainID", info.ChainID,
+		"nodeCount", len(chainConfig.Nodes()),
+		"selectionMode", chainConfig.EVM().NodePool().SelectionMode(),
+	)
+	return chainClient, chainConfig, nil
+}
+
+// newChainConfig translates the intentionally small standalone config into the
+// full chainlink-evm configuration used by its client, head tracker, gas
+// estimator, and transaction manager. Chain-specific upstream defaults are used
+// wherever they exist.
+func newChainConfig(info Info) (*evmconfig.ChainScoped, error) {
+	chainID, ok := new(big.Int).SetString(info.ChainID, 10)
+	if !ok {
+		return nil, fmt.Errorf("failed to parse EVM chain ID %q", info.ChainID)
+	}
+	sqlChainID := sqlutil.New(chainID)
+	chain := evmtoml.Defaults(sqlChainID)
+
+	// CTF describes generic development chains as "anvil" and older configs use
+	// "ethereum". Neither is a chainlink-evm ChainType; leaving the upstream
+	// default in place selects generic EVM behavior. Recognized L2 types still
+	// override the default and receive their chain-specific handling.
+	chainTypeName := strings.TrimSpace(info.Type)
+	switch chainTypeName {
+	case "", "anvil", "ethereum":
+	default:
+		chainType := chaintype.FromSlug(chainTypeName)
+		if !chainType.IsValid() {
+			return nil, fmt.Errorf("unsupported EVM chain type %q", info.Type)
+		}
+		chain.ChainType = chaintype.NewConfig(chainTypeName)
+	}
+
+	// The standalone database does not contain chainlink-core's evm.heads schema,
+	// so use the production tracker with its supported in-memory saver mode.
+	chain.HeadTracker.PersistenceEnabled = ptr(false)
+	// These services are not consumers of the standalone accessor. Disabling
+	// them keeps this lifecycle focused on the production HeadTracker and TXM.
+	chain.LogBroadcasterEnabled = ptr(false)
+	chain.BalanceMonitor.Enabled = ptr(false)
+	chain.Transactions.Enabled = ptr(true)
+	chain.Transactions.ForwardersEnabled = ptr(false)
+	chain.Transactions.TransactionManagerV2.Enabled = ptr(true)
+	chain.Transactions.TransactionManagerV2.BlockTime = commonconfig.MustNewDuration(defaultTXMBlockTime)
+
+	nodes := make(evmtoml.EVMNodes, 0, len(info.Nodes))
+	usesHTTPPolling := false
+	for i, configured := range info.Nodes {
+		httpURL := firstNonEmpty(configured.InternalHTTPUrl, configured.ExternalHTTPUrl)
+		if httpURL == "" {
+			return nil, fmt.Errorf("EVM chain %s node %d has no HTTP RPC URL", info.ChainID, i)
+		}
+		parsedHTTP, err := commonconfig.ParseURL(httpURL)
+		if err != nil {
+			return nil, fmt.Errorf("EVM chain %s node %d has invalid HTTP RPC URL: %w", info.ChainID, i, err)
+		}
+
+		wsURL := firstNonEmpty(configured.InternalWSUrl, configured.ExternalWSUrl)
+		var parsedWS *commonconfig.URL
+		if wsURL == "" {
+			usesHTTPPolling = true
+		} else {
+			parsedWS, err = commonconfig.ParseURL(wsURL)
+			if err != nil {
+				return nil, fmt.Errorf("EVM chain %s node %d has invalid WebSocket RPC URL: %w", info.ChainID, i, err)
+			}
+		}
+
+		name := nodeName(info, i)
+		node := &evmtoml.Node{
+			Name:    &name,
+			HTTPURL: parsedHTTP,
+			WSURL:   parsedWS,
+		}
+		nodes = append(nodes, node)
+	}
+	if len(nodes) == 0 {
+		return nil, fmt.Errorf("EVM chain %s has no RPC nodes", info.ChainID)
+	}
+	if usesHTTPPolling {
+		chain.NodePool.NewHeadsPollInterval = commonconfig.MustNewDuration(defaultNewHeadsPollInterval)
+	}
+
+	tomlConfig := &evmtoml.EVMConfig{
+		ChainID: sqlChainID,
+		Chain:   chain,
+		Nodes:   nodes,
+	}
+	if err := commonconfig.Validate(tomlConfig); err != nil {
+		return nil, fmt.Errorf("invalid chainlink-evm config for chain %s: %w", info.ChainID, err)
+	}
+	if err := (evmtoml.EVMConfigs{tomlConfig}).ValidateConfig(); err != nil {
+		return nil, fmt.Errorf("invalid chainlink-evm config for chain %s: %w", info.ChainID, err)
+	}
+	return evmconfig.NewTOMLChainScopedConfig(tomlConfig), nil
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func nodeName(info Info, index int) string {
+	base := strings.TrimSpace(info.UniqueChainName)
+	if base == "" {
+		base = "evm-" + info.ChainID
+	}
+	if len(info.Nodes) == 1 {
+		return base
+	}
+	return fmt.Sprintf("%s-%d", base, index+1)
 }

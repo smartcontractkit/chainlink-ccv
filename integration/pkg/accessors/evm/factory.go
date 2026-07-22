@@ -24,29 +24,49 @@ import (
 // defaultExecutionVisibilityWindow mirrors executor.maxRetryDurationDefault.
 const defaultExecutionVisibilityWindow = 8 * time.Hour
 
+type runtimeBuilder func(
+	ctx context.Context,
+	chainSelector protocol.ChainSelector,
+	lggr logger.Logger,
+) (chainRuntime, error)
+
 type factory struct {
 	lggr logger.Logger
 
-	// SourceReader dependencies.
-	// TODO: put these in a single map.
 	onRampAddresses    map[protocol.ChainSelector]string
 	rmnRemoteAddresses map[protocol.ChainSelector]string
-	headTrackers       map[protocol.ChainSelector]heads.Tracker
-	chainClients       map[protocol.ChainSelector]client.Client
+	destChainConfigs   map[protocol.ChainSelector]chainaccess.DestinationChainConfig
 
-	// DestinationReader dependencies.
-	destChainConfigs          map[protocol.ChainSelector]chainaccess.DestinationChainConfig
 	executionVisibilityWindow time.Duration
-
-	// ContractTransmitter dependencies.
-	// rpcURLs holds the primary HTTP RPC URL for each chain. The contract transmitter dials its
-	// own ethclient rather than sharing the multi-node client used by the readers.
-	rpcURLs map[protocol.ChainSelector]string
+	newRuntime                runtimeBuilder
 }
 
-// NewFactory creates a new EVM AccessorFactory.
-// Head trackers and chain clients are injectable because different execution contexts may use different
-// constructions / implementations of these objects.
+func newFactory(
+	lggr logger.Logger,
+	onRampAddresses, rmnRemoteAddresses map[protocol.ChainSelector]string,
+	destChainConfigs map[protocol.ChainSelector]chainaccess.DestinationChainConfig,
+	executionVisibilityWindow time.Duration,
+	newRuntime runtimeBuilder,
+) chainaccess.AccessorFactory {
+	if executionVisibilityWindow == 0 {
+		executionVisibilityWindow = defaultExecutionVisibilityWindow
+	}
+	return &factory{
+		lggr:                      lggr,
+		onRampAddresses:           onRampAddresses,
+		rmnRemoteAddresses:        rmnRemoteAddresses,
+		destChainConfigs:          destChainConfigs,
+		executionVisibilityWindow: executionVisibilityWindow,
+		newRuntime:                newRuntime,
+	}
+}
+
+// NewFactory creates an EVM AccessorFactory from caller-owned reader dependencies.
+//
+// Deprecated: standalone applications should use CreateAccessorFactory, which owns
+// production chainlink-evm clients, head trackers, and transaction managers. This
+// constructor remains available for integrations that inject their own read services;
+// its accessors do not provide a ContractTransmitter.
 func NewFactory(
 	lggr logger.Logger,
 	// TODO: use ethereum address instead of string
@@ -57,26 +77,24 @@ func NewFactory(
 	executionVisibilityWindow time.Duration,
 	rpcURLs map[protocol.ChainSelector]string,
 ) chainaccess.AccessorFactory {
-	if executionVisibilityWindow == 0 {
-		executionVisibilityWindow = defaultExecutionVisibilityWindow
-	}
-	return &factory{
-		lggr:                      lggr,
-		onRampAddresses:           onRampAddresses,
-		rmnRemoteAddresses:        rmnRemoteAddresses,
-		headTrackers:              headTrackers,
-		chainClients:              chainClients,
-		destChainConfigs:          destChainConfigs,
-		executionVisibilityWindow: executionVisibilityWindow,
-		rpcURLs:                   rpcURLs,
-	}
-}
-
-func appendErrorIfNil(errs []error, ob any, errStr string) []error {
-	if ob == nil {
-		errs = append(errs, errors.New(errStr))
-	}
-	return errs
+	_ = rpcURLs // Kept in the deprecated signature for source compatibility.
+	return newFactory(
+		lggr,
+		onRampAddresses,
+		rmnRemoteAddresses,
+		destChainConfigs,
+		executionVisibilityWindow,
+		func(_ context.Context, chainSelector protocol.ChainSelector, _ logger.Logger) (chainRuntime, error) {
+			chainClient, ok := chainClients[chainSelector]
+			if !ok || chainClient == nil {
+				return nil, fmt.Errorf("chain client is not set for chain %d", chainSelector)
+			}
+			return &injectedReaderRuntime{
+				chainClient: chainClient,
+				headTracker: headTrackers[chainSelector],
+			}, nil
+		},
+	)
 }
 
 // isValidAddress reports whether s is a non-empty hex address that is not the zero address.
@@ -85,17 +103,11 @@ func isValidAddress(s string) bool {
 }
 
 func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainSelector) (chainaccess.Accessor, error) {
-	var errs []error
 	if f == nil {
-		errs = append(errs, errors.New("evm accessor factory is nil"))
-	} else {
-		errs = appendErrorIfNil(errs, f.onRampAddresses, "onramp addresses are nil")
-		errs = appendErrorIfNil(errs, f.rmnRemoteAddresses, "rmn remote addresses are nil")
-		errs = appendErrorIfNil(errs, f.headTrackers, "head trackers are nil")
-		errs = appendErrorIfNil(errs, f.chainClients, "chain clients are nil")
+		return nil, fmt.Errorf("cannot get accessor for chain %d: EVM accessor factory is nil", chainSelector)
 	}
-	if len(errs) > 0 {
-		return nil, fmt.Errorf("cannot get accessor for chain %d: %w", chainSelector, errors.Join(errs...))
+	if f.newRuntime == nil {
+		return nil, fmt.Errorf("cannot get accessor for chain %d: EVM runtime builder is nil", chainSelector)
 	}
 
 	family, err := chainsel.GetSelectorFamily(uint64(chainSelector))
@@ -106,32 +118,35 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 		return nil, fmt.Errorf("skipping chain, only evm is supported for chain %d, family %s", chainSelector, family)
 	}
 
-	chainClient, ok := f.chainClients[chainSelector]
-	if !ok {
-		return nil, fmt.Errorf("chain client is not set for chain %d", chainSelector)
+	chainLggr := logger.With(f.lggr, "chainSelector", chainSelector)
+	runtime, err := f.newRuntime(ctx, chainSelector, chainLggr)
+	if err != nil {
+		return nil, fmt.Errorf("failed to start EVM services for chain %d: %w", chainSelector, err)
 	}
 
-	// SourceReader is optional: if on-ramp or RMN-remote addresses are absent (e.g. executor-only
-	// config), we skip it rather than returning an error. DestinationReader and ContractTransmitter
-	// can still be built from chain_configuration alone.
+	// SourceReader is optional: if on-ramp or RMN-remote addresses are absent
+	// (for example, executor-only config), the runtime can still provide the
+	// destination reader and transmitter.
 	var evmSourceReader chainaccess.SourceReader
 	if isValidAddress(f.onRampAddresses[chainSelector]) && isValidAddress(f.rmnRemoteAddresses[chainSelector]) {
-		headTracker, ok := f.headTrackers[chainSelector]
-		if !ok {
+		headTracker := runtime.HeadTracker()
+		if headTracker == nil {
+			_ = runtime.Close()
 			return nil, fmt.Errorf("head tracker is not set for chain %d", chainSelector)
 		}
 		sr, err := NewEVMSourceReader(
-			chainClient,
+			runtime.ChainClient(),
 			headTracker,
 			common.HexToAddress(f.onRampAddresses[chainSelector]),
 			common.HexToAddress(f.rmnRemoteAddresses[chainSelector]),
 			onramp.OnRampCCIPMessageSent{}.Topic().Hex(),
 			chainSelector,
-			f.lggr,
+			chainLggr,
 			nil,
 		)
 		if err != nil {
-			return nil, fmt.Errorf("failed to create EVM source reader: %w", err)
+			closeErr := runtime.Close()
+			return nil, errors.Join(fmt.Errorf("failed to create EVM source reader: %w", err), closeErr)
 		}
 		evmSourceReader = sr
 	}
@@ -142,27 +157,36 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 	if isValidAddress(destCfg.OffRampAddress) {
 		offRampAddr = common.HexToAddress(destCfg.OffRampAddress)
 		dr, err := destinationreader.NewEvmDestinationReader(destinationreader.Params{
-			Lggr:                      f.lggr,
+			Lggr:                      chainLggr,
 			ChainSelector:             chainSelector,
-			ChainClient:               chainClient,
+			ChainClient:               runtime.ChainClient(),
 			OfframpAddress:            destCfg.OffRampAddress,
 			RmnRemoteAddress:          destCfg.RmnAddress,
 			ExecutionVisabilityWindow: f.executionVisibilityWindow,
 			Monitoring:                monitoring.NewNoopExecutorMonitoring(),
 		})
 		if err != nil {
-			f.lggr.Warnw("Failed to create EVM destination reader, DestinationReader will be unavailable", "chainSelector", chainSelector, "error", err)
+			chainLggr.Warnw("Failed to create EVM destination reader, DestinationReader will be unavailable", "error", err)
 		} else {
 			evmDestReader = dr
 		}
 	}
+
 	keyName := contracttransmitter.DefaultKeyName
 	if destCfg.TransmitterKeyName != "" {
 		keyName = destCfg.TransmitterKeyName
 	}
 
-	rpcURL := f.rpcURLs[chainSelector]
-	return newAccessor(f.lggr, chainSelector, rpcURL, offRampAddr, keyName, evmSourceReader, evmDestReader, nil), nil
+	return newAccessor(
+		chainLggr,
+		chainSelector,
+		runtime,
+		offRampAddr,
+		keyName,
+		evmSourceReader,
+		evmDestReader,
+		nil,
+	), nil
 }
 
 type accessor struct {
@@ -170,10 +194,9 @@ type accessor struct {
 	destinationReader   chainaccess.DestinationReader
 	contractTransmitter chainaccess.ContractTransmitter
 
-	// stored for lazy keystore transmitter construction via SetKeystore
 	lggr          logger.Logger
 	chainSelector protocol.ChainSelector
-	rpcURL        string
+	runtime       chainRuntime
 	offRampAddr   common.Address
 	keyName       string
 }
@@ -181,7 +204,7 @@ type accessor struct {
 func newAccessor(
 	lggr logger.Logger,
 	chainSelector protocol.ChainSelector,
-	rpcURL string,
+	runtime chainRuntime,
 	offRampAddr common.Address,
 	keyName string,
 	sourceReader chainaccess.SourceReader,
@@ -191,7 +214,7 @@ func newAccessor(
 	return &accessor{
 		lggr:                lggr,
 		chainSelector:       chainSelector,
-		rpcURL:              rpcURL,
+		runtime:             runtime,
 		offRampAddr:         offRampAddr,
 		keyName:             keyName,
 		sourceReader:        sourceReader,
@@ -200,31 +223,24 @@ func newAccessor(
 	}
 }
 
-// SetKeystore builds and installs a keystore-backed ContractTransmitter. No-op when ks is nil,
-// keyName is empty, or no RPC URL is available for this chain.
-func (a *accessor) SetKeystore(ks keystore.Keystore) {
-	if ks == nil || a.keyName == "" || a.rpcURL == "" || a.offRampAddr == (common.Address{}) {
-		a.lggr.Warnw("skipping keystore contract transmitter setup due to missing parameter",
-			"chainSelector", a.chainSelector,
-			"keyNameSet", a.keyName != "",
-			"rpcURLSet", a.rpcURL != "",
-			"offRampAddrSet", a.offRampAddr != (common.Address{}))
-		return
+// SetKeystore builds and starts chainlink-evm's transaction manager for a
+// destination accessor. Source-only accessors do not need signing services.
+func (a *accessor) SetKeystore(ctx context.Context, ks keystore.Keystore) error {
+	if a == nil {
+		return errors.New("EVM accessor is nil")
 	}
-	ct, err := contracttransmitter.NewEVMContractTransmitterFromKeystore(
-		context.Background(),
-		a.lggr,
-		a.chainSelector,
-		a.rpcURL,
-		ks,
-		a.keyName,
-		a.offRampAddr,
-	)
+	if a.offRampAddr == (common.Address{}) {
+		return nil
+	}
+	if a.runtime == nil {
+		return errors.New("EVM chain runtime is not available")
+	}
+	ct, err := a.runtime.NewContractTransmitter(ctx, a.chainSelector, ks, a.keyName, a.offRampAddr)
 	if err != nil {
-		a.lggr.Warnw("Failed to create keystore contract transmitter", "chainSelector", a.chainSelector, "error", err)
-		return
+		return fmt.Errorf("failed to start EVM contract transmitter for chain %d: %w", a.chainSelector, err)
 	}
 	a.contractTransmitter = ct
+	return nil
 }
 
 func (a *accessor) SourceReader() (chainaccess.SourceReader, error) {
@@ -248,7 +264,32 @@ func (a *accessor) ContractTransmitter() (chainaccess.ContractTransmitter, error
 	return a.contractTransmitter, nil
 }
 
-// Close releases any resources owned by the EVM accessor. The current EVM
-// implementation builds stateless readers and a keystore-backed transmitter
-// that the keystore itself owns, so there is nothing to release here.
-func (a *accessor) Close() error { return nil }
+// Close releases the production services owned by this accessor.
+func (a *accessor) Close() error {
+	if a == nil || a.runtime == nil {
+		return nil
+	}
+	return a.runtime.Close()
+}
+
+// injectedReaderRuntime adapts the deprecated dependency-injection constructor
+// without taking ownership of the caller's services.
+type injectedReaderRuntime struct {
+	chainClient client.Client
+	headTracker heads.Tracker
+}
+
+func (r *injectedReaderRuntime) ChainClient() client.Client { return r.chainClient }
+func (r *injectedReaderRuntime) HeadTracker() heads.Tracker { return r.headTracker }
+
+func (r *injectedReaderRuntime) NewContractTransmitter(
+	context.Context,
+	protocol.ChainSelector,
+	keystore.Keystore,
+	string,
+	common.Address,
+) (chainaccess.ContractTransmitter, error) {
+	return nil, errors.New("contract transmitter requires the production standalone EVM runtime")
+}
+
+func (r *injectedReaderRuntime) Close() error { return nil }

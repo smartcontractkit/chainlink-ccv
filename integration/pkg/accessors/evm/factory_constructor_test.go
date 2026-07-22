@@ -1,6 +1,7 @@
 package evm
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -86,6 +87,24 @@ func TestCreateEVMAccessorFactoryUsesLocalConfigInsteadOfBlockchainInfos(t *test
 
 	genericConfig := chainaccess.GenericConfig{}
 	factory, err := CreateEVMAccessorFactory(logger.Test(t), genericConfig)
+	require.NoError(t, err)
+	require.NotNil(t, factory)
+}
+
+func TestCreateAccessorFactoryDoesNotDialRPCDuringConstruction(t *testing.T) {
+	t.Parallel()
+
+	infos := chainaccess.Infos[Info]{
+		"5009297550715157269": {
+			ChainID: "1",
+			Family:  chainsel.FamilyEVM,
+			Nodes: []Node{{
+				InternalHTTPUrl: "http://127.0.0.1:1",
+			}},
+		},
+	}
+
+	factory, err := CreateAccessorFactory(context.Background(), logger.Test(t), chainaccess.GenericConfig{}, infos)
 	require.NoError(t, err)
 	require.NotNil(t, factory)
 }

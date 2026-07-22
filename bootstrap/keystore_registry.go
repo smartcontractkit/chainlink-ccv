@@ -2,6 +2,7 @@ package bootstrap
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -12,8 +13,9 @@ import (
 // KeystoreSetter is implemented by Accessors that support keystore-managed signing keys.
 // The executor checks for it so that pkg/chainaccess remains free of keystore dependencies.
 type KeystoreSetter interface {
-	// SetKeystore injects the keystore so the accessor can build a keystore-backed ContractTransmitter.
-	SetKeystore(ks keystore.Keystore)
+	// SetKeystore injects the keystore so the accessor can build and start any
+	// signing services required by its ContractTransmitter.
+	SetKeystore(ctx context.Context, ks keystore.Keystore) error
 }
 
 // KeystoreRegistry wraps a Registry and automatically injects the keystore into any
@@ -36,7 +38,12 @@ func (kr *KeystoreRegistry) GetAccessor(ctx context.Context, chainSelector proto
 		return nil, err
 	}
 	if setter, ok := accessor.(KeystoreSetter); ok {
-		setter.SetKeystore(kr.ks)
+		if err := setter.SetKeystore(ctx, kr.ks); err != nil {
+			if closeErr := accessor.Close(); closeErr != nil {
+				kr.lggr.Warnw("Failed to close accessor after keystore setup failed", "chainSelector", chainSelector, "error", closeErr)
+			}
+			return nil, fmt.Errorf("failed to inject keystore for chain %d: %w", chainSelector, err)
+		}
 	} else if kr.ks != nil {
 		kr.lggr.Warnw("Accessor does not implement KeystoreSetter; keystore will not be injected", "chainSelector", chainSelector)
 	}

@@ -2,6 +2,7 @@ package e2e
 
 import (
 	"fmt"
+	"os/exec"
 	"strings"
 	"testing"
 	"time"
@@ -26,7 +27,133 @@ const (
 	ctfPumbaTimeout = 0 * time.Second
 
 	outageDuration = 20 * time.Second
+
+	rpcFailoverTimeout = 3 * time.Minute
 )
+
+func TestChaos_EVMRPCFailover(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping e2e test in short mode; requires a running devenv environment")
+	}
+	setup := setupChaos(t, GetSmokeTestConfig())
+	require.NotNil(t, setup.in.EVMRPCFailover, "test requires the RPC failover profile")
+	require.True(t, setup.in.EVMRPCFailover.Enabled, "test requires EVM RPC failover to be enabled")
+	require.NotEmpty(t, setup.in.EVMRPCFailover.Out, "RPC failover proxy outputs are missing")
+	for _, proxyOutput := range setup.in.EVMRPCFailover.Out {
+		t.Cleanup(func() {
+			setRPCProxyRunningBestEffort(setup.l, proxyOutput.PrimaryContainerName, true)
+			setRPCProxyRunningBestEffort(setup.l, proxyOutput.SecondaryContainerName, false)
+		})
+	}
+
+	fromSelector, toSelector := setup.chains[0].Details.ChainSelector, setup.chains[1].Details.ChainSelector
+	cases := []struct {
+		name        string
+		failedChain uint64
+		description string
+	}{
+		{
+			name:        "source head tracker switches RPC",
+			failedChain: fromSelector,
+			description: "source-chain primary RPC",
+		},
+		{
+			name:        "destination transaction manager switches RPC",
+			failedChain: toSelector,
+			description: "destination-chain primary RPC",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			chainID, err := chain_selectors.GetChainIDFromSelector(tc.failedChain)
+			require.NoError(t, err)
+			proxyOutput := setup.in.EVMRPCFailover.Out[chainID]
+			require.NotNilf(t, proxyOutput, "no RPC failover proxies for chain %s", chainID)
+			requireDirectTestRPC(t, setup.in, chainID, proxyOutput)
+
+			// The secondary was deliberately stopped while standalone services
+			// initialized, making the primary their only possible initial node.
+			setRPCProxyRunning(t, setup.l, proxyOutput.SecondaryContainerName, true)
+			setRPCProxyRunning(t, setup.l, proxyOutput.PrimaryContainerName, false)
+
+			setup.l.Info().
+				Str("failedRPC", tc.description).
+				Str("primary", proxyOutput.PrimaryContainerName).
+				Str("secondary", proxyOutput.SecondaryContainerName).
+				Msg("Sending message while the initially active RPC is unavailable")
+
+			messageCase := v2TestCase{
+				name:                     tc.name,
+				fromSelector:             fromSelector,
+				toSelector:               toSelector,
+				receiver:                 mustGetEOAReceiverAddress(t, setup.chainMap[toSelector]),
+				assertExecuted:           true,
+				numExpectedVerifications: 1,
+				executionTimeout:         rpcFailoverTimeout,
+			}
+			ctx := ccv.Plog.WithContext(t.Context())
+			runV2TestCase(t, ctx, zerolog.Ctx(ctx), messageCase, setup.chainMap, setup.defaultAggregatorClient, setup.indexerMonitor, AssertMessageOptions{
+				TickInterval:            5 * time.Second,
+				Timeout:                 rpcFailoverTimeout,
+				ExpectedVerifierResults: messageCase.numExpectedVerifications,
+				AssertVerifierLogs:      false,
+				AssertExecutorLogs:      false,
+			})
+
+			// Keep the healthy secondary available between phases. This avoids a
+			// gap while the node pool rediscovers the restored primary.
+			setRPCProxyRunning(t, setup.l, proxyOutput.PrimaryContainerName, true)
+		})
+	}
+}
+
+func requireDirectTestRPC(t *testing.T, in *ccv.Cfg, chainID string, proxyOutput *ccv.EVMRPCFailoverChainOutput) {
+	t.Helper()
+	for _, chain := range in.Blockchains {
+		if chain == nil || chain.Out == nil || chain.Out.ChainID != chainID {
+			continue
+		}
+		require.GreaterOrEqual(t, len(chain.Out.Nodes), 3, "stored chain output must contain direct and proxy RPC nodes")
+		require.NotNil(t, chain.Out.Nodes[0])
+		require.NotNil(t, proxyOutput.PrimaryNode)
+		require.NotNil(t, proxyOutput.SecondaryNode)
+		require.NotEqual(t, proxyOutput.PrimaryNode.InternalHTTPUrl, chain.Out.Nodes[0].InternalHTTPUrl)
+		require.NotEqual(t, proxyOutput.SecondaryNode.InternalHTTPUrl, chain.Out.Nodes[0].InternalHTTPUrl)
+		return
+	}
+	t.Fatalf("chain %s not found in stored environment output", chainID)
+}
+
+func setRPCProxyRunning(t *testing.T, l *zerolog.Logger, containerName string, running bool) {
+	t.Helper()
+	action := "stop"
+	if running {
+		action = "start"
+	}
+	l.Info().Str("container", containerName).Str("action", action).Msg("Changing RPC proxy state")
+	out, err := exec.Command("docker", action, containerName).CombinedOutput()
+	require.NoErrorf(t, err, "docker %s %s failed: %s", action, containerName, strings.TrimSpace(string(out)))
+	if running {
+		require.Eventually(t, func() bool {
+			return exec.Command("docker", "exec", containerName, "nginx", "-t").Run() == nil
+		}, 15*time.Second, 250*time.Millisecond, "RPC proxy %s did not become ready", containerName)
+	}
+}
+
+func setRPCProxyRunningBestEffort(l *zerolog.Logger, containerName string, running bool) {
+	action := "stop"
+	if running {
+		action = "start"
+	}
+	if out, err := exec.Command("docker", action, containerName).CombinedOutput(); err != nil {
+		l.Error().Err(err).
+			Str("container", containerName).
+			Str("action", action).
+			Str("output", strings.TrimSpace(string(out))).
+			Msg("Failed to restore RPC proxy state")
+	}
+}
 
 func TestChaos_AggregatorOutageRecovery(t *testing.T) {
 	if testing.Short() {

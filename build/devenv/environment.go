@@ -134,6 +134,7 @@ type Cfg struct {
 	Aggregator         []*services.AggregatorInput    `toml:"aggregator"            validate:"required"`
 	JD                 *jd.Input                      `toml:"jd"                    validate:"required"`
 	Blockchains        []*blockchain.Input            `toml:"blockchains"           validate:"required"`
+	EVMRPCFailover     *EVMRPCFailoverCfg             `toml:"evm_rpc_failover,omitempty"`
 	NodeSets           []*ns.Input                    `toml:"nodesets,omitempty"`
 	CLNodesFundingETH  float64                        `toml:"cl_nodes_funding_eth"`
 	CLNodesFundingLink float64                        `toml:"cl_nodes_funding_link"`

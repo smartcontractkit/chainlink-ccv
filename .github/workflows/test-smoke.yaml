@@ -113,6 +113,10 @@ jobs:
             pattern: TestChaos_AggregatorOutageRecovery
             profile: standard.profile
             timeout: 5m
+          - name: TestChaos_EVMRPCFailover
+            pattern: TestChaos_EVMRPCFailover
+            profile: standard.rpc-failover.profile
+            timeout: 10m
           - name: (TestChaos_VerifierFaultToleranceThresholdViolated|TestChaos_AllExecutorsDown|TestChaos_IndexerDown)
             pattern: (TestChaos_VerifierFaultToleranceThresholdViolated|TestChaos_AllExecutorsDown|TestChaos_IndexerDown)
             profile: standard.profile

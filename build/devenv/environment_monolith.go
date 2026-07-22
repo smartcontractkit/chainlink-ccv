@@ -162,6 +162,9 @@ func NewEnvironment() (in *Cfg, err error) {
 		blockchainOutputs[i] = out
 		bcStep.Inc()
 	}
+	if err := configureEVMRPCFailover(ctx, in.EVMRPCFailover, blockchainOutputs, launchEVMRPCProxy); err != nil {
+		return nil, fmt.Errorf("failed to configure EVM RPC failover infrastructure: %w", err)
+	}
 
 	/////////////////////////////
 	// END: Deploy blockchains //
@@ -858,6 +861,11 @@ func NewEnvironment() (in *Cfg, err error) {
 			return nil, fmt.Errorf("failed to sync/verify job proposals: %w", err)
 		}
 	}
+
+	// Standalone services already hold their mounted two-proxy configuration.
+	// Restore the direct endpoint first for the serialized E2E test client so
+	// stopping a proxy only affects the services under test.
+	restoreDirectEVMRPCNodes(in.EVMRPCFailover, blockchainOutputs)
 
 	timeTrack.Print()
 	// On the TTY path the full address table goes to its own file and
