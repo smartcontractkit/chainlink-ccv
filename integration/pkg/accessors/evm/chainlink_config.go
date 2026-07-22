@@ -36,19 +36,39 @@ func newChainlinkEVMConfig(info Info) (*evmconfig.ChainScoped, error) {
 	sqlChainID := sqlutil.New(chainID)
 	chain := evmtoml.Defaults(sqlChainID)
 
-	// CTF describes generic development chains as "anvil" and older configs use
-	// "ethereum". Neither is a chainlink-evm ChainType; leaving the upstream
-	// default in place selects generic EVM behavior. Recognized L2 types still
-	// override the default and receive their chain-specific handling.
+	// CTF's Type describes its RPC provider for anvil, ethereum, and geth rather
+	// than a chainlink-evm semantic ChainType. Provider aliases preserve the full
+	// set of defaults selected by chain ID. An explicit semantic type is accepted
+	// only when those same defaults declare it; changing ChainType alone would
+	// omit required gas and data-availability settings for some rollups.
 	chainTypeName := strings.TrimSpace(info.Type)
 	switch chainTypeName {
-	case "", "anvil", "ethereum":
+	case "", "anvil", "ethereum", "geth":
 	default:
 		chainType := chaintype.FromSlug(chainTypeName)
 		if !chainType.IsValid() {
 			return nil, fmt.Errorf("unsupported EVM chain type %q", info.Type)
 		}
-		chain.ChainType = chaintype.NewConfig(chainTypeName)
+		defaultChainType, hasDefaults := evmtoml.ChainTypeForID(sqlChainID)
+		if !hasDefaults {
+			return nil, fmt.Errorf(
+				"EVM chain %s cannot use explicit chain type %q: chainlink-evm has no chain-specific defaults for this chain ID",
+				info.ChainID,
+				chainTypeName,
+			)
+		}
+		if defaultChainType != chainType {
+			expected := string(defaultChainType)
+			if expected == "" {
+				expected = "generic EVM"
+			}
+			return nil, fmt.Errorf(
+				"EVM chain %s chain type %q does not match chainlink-evm defaults (%s)",
+				info.ChainID,
+				chainTypeName,
+				expected,
+			)
+		}
 	}
 
 	// The standalone database does not contain chainlink-core's evm.heads schema,

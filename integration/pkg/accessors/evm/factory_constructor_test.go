@@ -36,8 +36,8 @@ func TestLoadConfig(t *testing.T) {
 	require.Equal(t, want, *got)
 }
 
-// The mounted config carries only connection and tuning settings; the accessor derives each
-// chain's ID and family from its selector at load time.
+// The mounted config carries only connection details and optional chain-type assertions; the
+// accessor derives each chain's ID and family from its selector at load time.
 func TestConfigToInfosDerivesChainMetadataFromSelector(t *testing.T) {
 	// 5009297550715157269 is Ethereum mainnet (chain ID 1) in chain-selectors.
 	cfg := Config{Chains: map[string]ChainConfig{

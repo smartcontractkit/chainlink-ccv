@@ -118,6 +118,18 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 		return nil, fmt.Errorf("skipping chain, only evm is supported for chain %d, family %s", chainSelector, family)
 	}
 
+	onRampAddress := f.onRampAddresses[chainSelector]
+	rmnRemoteAddress := f.rmnRemoteAddresses[chainSelector]
+	destCfg := f.destChainConfigs[chainSelector]
+	hasSourceReaderConfig := isValidAddress(onRampAddress) && isValidAddress(rmnRemoteAddress)
+	hasDestinationConfig := isValidAddress(destCfg.OffRampAddress)
+	if !hasSourceReaderConfig && !hasDestinationConfig {
+		return nil, fmt.Errorf(
+			"cannot get accessor for chain %d: neither source nor destination services are configured",
+			chainSelector,
+		)
+	}
+
 	chainLggr := logger.With(f.lggr, "chainSelector", chainSelector)
 	runtime, err := f.newRuntime(ctx, chainSelector, chainLggr)
 	if err != nil {
@@ -128,7 +140,7 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 	// (for example, executor-only config), the runtime can still provide the
 	// destination reader and transmitter.
 	var evmSourceReader chainaccess.SourceReader
-	if isValidAddress(f.onRampAddresses[chainSelector]) && isValidAddress(f.rmnRemoteAddresses[chainSelector]) {
+	if hasSourceReaderConfig {
 		headTracker := runtime.HeadTracker()
 		if headTracker == nil {
 			_ = runtime.Close()
@@ -137,8 +149,8 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 		sr, err := NewEVMSourceReader(
 			runtime.ChainClient(),
 			headTracker,
-			common.HexToAddress(f.onRampAddresses[chainSelector]),
-			common.HexToAddress(f.rmnRemoteAddresses[chainSelector]),
+			common.HexToAddress(onRampAddress),
+			common.HexToAddress(rmnRemoteAddress),
 			onramp.OnRampCCIPMessageSent{}.Topic().Hex(),
 			chainSelector,
 			chainLggr,
@@ -153,8 +165,7 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 
 	var evmDestReader chainaccess.DestinationReader
 	var offRampAddr common.Address
-	destCfg := f.destChainConfigs[chainSelector]
-	if isValidAddress(destCfg.OffRampAddress) {
+	if hasDestinationConfig {
 		offRampAddr = common.HexToAddress(destCfg.OffRampAddress)
 		dr, err := destinationreader.NewEvmDestinationReader(destinationreader.Params{
 			Lggr:                      chainLggr,

@@ -12,11 +12,12 @@ const (
 )
 
 // Config is the EVM operator-local config mounted into standalone containers. It carries only
-// NOP-owned settings — RPC endpoints and chain-type tuning — keyed by chain selector. It is
-// intentionally CCV-owned rather than an alias of chainlink-evm's much larger configuration;
-// chainlink_config.go contains the single explicit adapter to that upstream model. Chain ID and
-// family are derived from the selector, not stored here. This mirrors the Solana and Canton
-// local-config pattern, keeping connection details out of the JD job spec's blockchain_infos.
+// NOP-owned settings — RPC endpoints and optional chain-type assertions — keyed by chain
+// selector. It is intentionally CCV-owned rather than an alias of chainlink-evm's much larger
+// configuration; chainlink_config.go contains the single explicit adapter to that upstream
+// model. Chain ID and family are derived from the selector, not stored here. This mirrors the
+// Solana and Canton local-config pattern, keeping connection details out of the JD job spec's
+// blockchain_infos.
 type Config struct {
 	// Chains maps EVM chain selector (decimal string) to its operator-local settings.
 	Chains map[string]ChainConfig `toml:"chains"`
@@ -26,9 +27,10 @@ type Config struct {
 type ChainConfig struct {
 	// Nodes are the RPC endpoints used to reach this chain.
 	Nodes []Node `toml:"nodes"`
-	// ChainType selects family-specific EVM client behavior (for example optimismBedrock or
-	// arbitrum). Empty means generic EVM. It is not derivable from the selector, so operators
-	// supply it here.
+	// ChainType optionally asserts chainlink-evm's semantic chain type (for example
+	// optimismBedrock or arbitrum). It must match the complete upstream defaults selected by
+	// the selector's chain ID. Empty and provider types such as anvil or geth rely on those
+	// defaults.
 	ChainType string `toml:"chain_type,omitempty"`
 	// UniqueChainName is an optional human-readable label used in logs and node names.
 	UniqueChainName string `toml:"unique_chain_name,omitempty"`

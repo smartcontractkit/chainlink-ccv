@@ -156,6 +156,34 @@ func TestNewChainlinkEVMConfigSupportsExternalHTTPOnlyRPC(t *testing.T) {
 	require.Nil(t, cfg.Nodes()[0].WSURL)
 }
 
+func TestNewChainlinkEVMConfigTreatsGethAsProviderType(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := newChainlinkEVMConfig(Info{
+		ChainID: "1337",
+		Type:    "geth",
+		Nodes: []Node{{
+			InternalHTTPUrl: "http://node.internal:8545",
+		}},
+	})
+	require.NoError(t, err)
+	require.Equal(t, chaintype.ChainType(""), cfg.EVM().ChainType())
+}
+
+func TestNewChainlinkEVMConfigAcceptsMatchingSemanticChainType(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := newChainlinkEVMConfig(Info{
+		ChainID: "42161",
+		Type:    "arbitrum",
+		Nodes: []Node{{
+			InternalHTTPUrl: "http://node.internal:8545",
+		}},
+	})
+	require.NoError(t, err)
+	require.Equal(t, chaintype.ChainArbitrum, cfg.EVM().ChainType())
+}
+
 func TestNewChainlinkEVMConfigRejectsInvalidStandaloneConfig(t *testing.T) {
 	t.Parallel()
 
@@ -190,6 +218,24 @@ func TestNewChainlinkEVMConfigRejectsInvalidStandaloneConfig(t *testing.T) {
 				Nodes:   []Node{{InternalHTTPUrl: "http://node.internal:8545"}},
 			},
 			wantErr: "unsupported EVM chain type",
+		},
+		{
+			name: "explicit chain type without upstream defaults",
+			info: Info{
+				ChainID: "1337",
+				Type:    "optimismBedrock",
+				Nodes:   []Node{{InternalHTTPUrl: "http://node.internal:8545"}},
+			},
+			wantErr: "has no chain-specific defaults",
+		},
+		{
+			name: "chain type mismatches upstream defaults",
+			info: Info{
+				ChainID: "1",
+				Type:    "optimismBedrock",
+				Nodes:   []Node{{InternalHTTPUrl: "http://node.internal:8545"}},
+			},
+			wantErr: "does not match chainlink-evm defaults",
 		},
 		{
 			name: "invalid HTTP scheme",

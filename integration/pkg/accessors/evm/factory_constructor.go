@@ -74,16 +74,16 @@ func (c Config) toInfos() (chainaccess.Infos[Info], error) {
 // Per-chain EVM settings are read from `chains.<selector>` entries in the EVM-local
 // config file, for example:
 //
-//	[chains.5009297550715157269]
+//	[chains.3734403246176062136]
 //	chain_type = "optimismBedrock"
-//	[[chains.5009297550715157269.nodes]]
+//	[[chains.3734403246176062136.nodes]]
 //	internal_http_url = "http://evm-node:8545"
 //	internal_ws_url = "ws://evm-node:8546"
 //
-// Chain ID and family are derived from the selector; only connection details and
-// chain-type tuning are stored in the file. Shared application settings from
-// chainaccess.GenericConfig (for example on-ramp or RMN remote addresses) are supplied
-// separately through genericConfig and used when constructing the accessor factory.
+// Chain ID and family are derived from the selector; only connection details and an
+// optional chain-type assertion are stored in the file. Shared application settings
+// from chainaccess.GenericConfig (for example on-ramp or RMN remote addresses) are
+// supplied separately through genericConfig and used when constructing the accessor factory.
 //
 // It will take all config values it needs from all available config. Note that it would be
 // very unusual for a config to have more than one of Committee/Token/Executor configs.

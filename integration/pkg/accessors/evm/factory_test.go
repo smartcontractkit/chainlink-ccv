@@ -154,3 +154,25 @@ func TestInjectedReaderAccessorRemainsAvailableAfterKeystoreInjection(t *testing
 	require.Nil(t, transmitter)
 	require.ErrorContains(t, err, "contract transmitter not available")
 }
+
+func TestFactoryRejectsAccessorWithoutCapabilitiesBeforeStartingRuntime(t *testing.T) {
+	t.Parallel()
+
+	runtimeCalls := 0
+	factory := newFactory(
+		logger.Test(t),
+		nil,
+		nil,
+		nil,
+		0,
+		func(context.Context, protocol.ChainSelector, logger.Logger) (chainRuntime, error) {
+			runtimeCalls++
+			return &stubChainRuntime{}, nil
+		},
+	)
+
+	accessor, err := factory.GetAccessor(context.Background(), protocol.ChainSelector(5009297550715157269))
+	require.Nil(t, accessor)
+	require.ErrorContains(t, err, "neither source nor destination services are configured")
+	require.Zero(t, runtimeCalls)
+}
