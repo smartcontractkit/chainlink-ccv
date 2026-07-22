@@ -205,9 +205,9 @@ func loadV3Env(ctx context.Context, lib ccv.Lib, src, dst uint64) (v3Env, bool) 
 	return env, true
 }
 
-// ResolveEOAReceiverDefaultVerifier resolves the EOA receiver on dst and the default
+// ResolveV3SendRequiredAddresses resolves the EOA receiver on dst and the default
 // committee CCV and default executor on src for a minimal V3 send.
-func ResolveEOAReceiverDefaultVerifier(ctx context.Context, lib ccv.Lib, src, dst uint64) (protocol.UnknownAddress, []protocol.CCV, protocol.UnknownAddress, error) {
+func ResolveV3SendRequiredAddresses(ctx context.Context, lib ccv.Lib, src, dst uint64) (protocol.UnknownAddress, []protocol.CCV, protocol.UnknownAddress, error) {
 	env, ok := loadV3Env(ctx, lib, src, dst)
 	if !ok {
 		return protocol.UnknownAddress{}, nil, protocol.UnknownAddress{}, fmt.Errorf("prerequisites not met for src %d dst %d", src, dst)
@@ -293,7 +293,7 @@ func eoaReceiverDefaultVerifier(lib ccv.Lib, src, dest uint64, args Args) *v3Tes
 			args:                     args,
 		},
 		hydrate: func(ctx context.Context, tc *v3TestCase) bool {
-			receiver, ccvs, executor, err := ResolveEOAReceiverDefaultVerifier(ctx, tc.lib, tc.src, tc.dst)
+			receiver, ccvs, executor, err := ResolveV3SendRequiredAddresses(ctx, tc.lib, tc.src, tc.dst)
 			if err != nil {
 				return false
 			}
@@ -680,7 +680,7 @@ func eoaReceiverDefaultVerifierSafeTag(lib ccv.Lib, src, dest uint64, args Args)
 			args:                     args,
 		},
 		hydrate: func(ctx context.Context, tc *v3TestCase) bool {
-			receiver, ccvs, executor, err := ResolveEOAReceiverDefaultVerifier(ctx, tc.lib, tc.src, tc.dst)
+			receiver, ccvs, executor, err := ResolveV3SendRequiredAddresses(ctx, tc.lib, tc.src, tc.dst)
 			if err != nil {
 				return false
 			}

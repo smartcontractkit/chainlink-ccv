@@ -1,5 +1,10 @@
 package chaos
 
+// Container name resolution helpers for chaos tests. These functions resolve
+// normalized Docker container names from ccv.Cfg for use as Pumba targets.
+// They do not manipulate container state or lifecycles — that is handled by
+// the outage and latency injection functions in outage.go.
+
 import (
 	"fmt"
 	"strings"

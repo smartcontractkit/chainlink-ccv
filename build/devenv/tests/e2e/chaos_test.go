@@ -148,7 +148,7 @@ func TestChaos_RPCLatency(t *testing.T) {
 		ConfirmExec: true,
 		Timeout:     5 * time.Minute,
 		ExecTimeout: 5 * time.Minute,
-	}, &chaos.OutageSpec{},
+	}, nil,
 		&chaos.LatencySpec{
 			Duration: 1 * time.Minute,
 			Delay:    20000, // 20 seconds of latency to account for 2 RPC calls per chain (send + confirm)
@@ -178,7 +178,7 @@ func setupChaosEVMSession(t *testing.T) (context.Context, ccv.Lib, *chaosSetup, 
 // scenario. cfg overrides the default assert timeout, exec timeout, and ConfirmExec flag.
 func runEVMChaosScenario(t *testing.T, ctx context.Context, lib ccv.Lib, src, dst uint64, cfg evmChaosConfig, outage *chaos.OutageSpec, latency *chaos.LatencySpec) {
 	t.Helper()
-	receiver, ccvs, executor, err := basic.ResolveEOAReceiverDefaultVerifier(ctx, lib, src, dst)
+	receiver, ccvs, executor, err := basic.ResolveV3SendRequiredAddresses(ctx, lib, src, dst)
 	require.NoError(t, err)
 
 	timeout := cfg.Timeout

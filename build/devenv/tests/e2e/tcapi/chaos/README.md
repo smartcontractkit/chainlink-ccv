@@ -1,6 +1,6 @@
 # tcapi/chaos
 
-Standard chaos test helpers for CCIP devenv: inject container outages via Pumba, resolve
+Standard chaos test helpers for CCIP devenv: inject container outages and network latency via Pumba, resolve
 service container names from `ccv.Cfg`, and run a V3 send + offchain assert pipeline via
 `tcapi.SendV3Message`. Sibling to `tcapi/basic` and `tcapi/token_transfer` — a reusable
 test category composing the tcapi primitives.
