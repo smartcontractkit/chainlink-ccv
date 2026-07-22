@@ -20,6 +20,8 @@ configuration, using upstream defaults for settings CCV does not expose.
 - HTTP-only configurations use the production head tracker's polling mode.
   WebSocket subscriptions remain enabled when every configured node provides a
   WebSocket URL; mixed pools use polling so failover to any node remains valid.
+- The production head tracker retains standalone CCV's 15-block finality depth
+  instead of inheriting chainlink-evm's deeper generic-chain default.
 - Client and head-tracker startup is deferred until `GetAccessor`, avoiding RPC
   health checks while the accessor registry itself is being constructed.
 - Destination accessors start chainlink-evm TXM v2 after bootstrap injects the

@@ -16,15 +16,17 @@ import (
 
 type keystoreSettingAccessor struct {
 	*mocks.MockAccessor
-	setErr     error
-	setCalls   int
-	gotContext context.Context
-	gotStore   keystore.Keystore
+	setErr    error
+	setCalls  int
+	gotMarker string
+	gotStore  keystore.Keystore
 }
+
+type keystoreContextMarkerKey struct{}
 
 func (a *keystoreSettingAccessor) SetKeystore(ctx context.Context, ks keystore.Keystore) error {
 	a.setCalls++
-	a.gotContext = ctx
+	a.gotMarker, _ = ctx.Value(keystoreContextMarkerKey{}).(string)
 	a.gotStore = ks
 	return a.setErr
 }
@@ -32,7 +34,8 @@ func (a *keystoreSettingAccessor) SetKeystore(ctx context.Context, ks keystore.K
 func TestKeystoreRegistryInjectsWithRequestContext(t *testing.T) {
 	t.Parallel()
 
-	ctx := context.WithValue(context.Background(), struct{}{}, "context-marker")
+	const contextMarker = "context-marker"
+	ctx := context.WithValue(context.Background(), keystoreContextMarkerKey{}, contextMarker)
 	accessor := &keystoreSettingAccessor{MockAccessor: mocks.NewMockAccessor(t)}
 	inner := mocks.NewMockAccessorFactory(t)
 	inner.EXPECT().GetAccessor(mock.Anything, protocol.ChainSelector(42)).Return(accessor, nil).Once()
@@ -42,7 +45,7 @@ func TestKeystoreRegistryInjectsWithRequestContext(t *testing.T) {
 	require.NoError(t, err)
 	require.Same(t, accessor, got)
 	require.Equal(t, 1, accessor.setCalls)
-	require.Same(t, ctx, accessor.gotContext)
+	require.Equal(t, contextMarker, accessor.gotMarker)
 }
 
 func TestKeystoreRegistryClosesAccessorWhenInjectionFails(t *testing.T) {

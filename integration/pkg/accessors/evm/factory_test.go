@@ -24,12 +24,14 @@ type stubChainRuntime struct {
 	transmitErr error
 	setCalls    int
 	closeCalls  int
-	gotContext  context.Context
+	gotMarker   string
 	gotSelector protocol.ChainSelector
 	gotKeystore keystore.Keystore
 	gotKeyName  string
 	gotOffRamp  common.Address
 }
+
+type runtimeContextMarkerKey struct{}
 
 func (s *stubChainRuntime) ChainClient() client.Client { return s.Client }
 func (s *stubChainRuntime) HeadTracker() heads.Tracker { return s.Tracker }
@@ -42,7 +44,7 @@ func (s *stubChainRuntime) NewContractTransmitter(
 	offRamp common.Address,
 ) (chainaccess.ContractTransmitter, error) {
 	s.setCalls++
-	s.gotContext = ctx
+	s.gotMarker, _ = ctx.Value(runtimeContextMarkerKey{}).(string)
 	s.gotSelector = selector
 	s.gotKeystore = ks
 	s.gotKeyName = keyName
@@ -64,7 +66,8 @@ func (noopContractTransmitter) ConvertAndWriteMessageToChain(context.Context, pr
 func TestAccessorStartsRuntimeContractTransmitterAndOwnsLifecycle(t *testing.T) {
 	t.Parallel()
 
-	ctx := context.WithValue(context.Background(), struct{}{}, "context-marker")
+	const contextMarker = "context-marker"
+	ctx := context.WithValue(context.Background(), runtimeContextMarkerKey{}, contextMarker)
 	offRamp := common.HexToAddress("0x1234")
 	tx := noopContractTransmitter{}
 	runtime := &stubChainRuntime{transmitter: tx}
@@ -84,7 +87,7 @@ func TestAccessorStartsRuntimeContractTransmitterAndOwnsLifecycle(t *testing.T) 
 	require.NoError(t, err)
 	require.Equal(t, tx, got)
 	require.Equal(t, 1, runtime.setCalls)
-	require.Same(t, ctx, runtime.gotContext)
+	require.Equal(t, contextMarker, runtime.gotMarker)
 	require.Equal(t, protocol.ChainSelector(42), runtime.gotSelector)
 	require.Equal(t, "evm-key", runtime.gotKeyName)
 	require.Equal(t, offRamp, runtime.gotOffRamp)

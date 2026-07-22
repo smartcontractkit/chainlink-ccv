@@ -10,6 +10,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-evm/pkg/config/chaintype"
 )
@@ -92,6 +93,7 @@ func TestNewChainlinkEVMConfigUsesProductionDefaultsAndEveryRPCNode(t *testing.T
 
 	require.Equal(t, chaintype.ChainArbitrum, cfg.EVM().ChainType(), "known-chain defaults must be preserved")
 	require.Equal(t, "HighestHead", cfg.EVM().NodePool().SelectionMode())
+	require.Equal(t, uint32(vtypes.ConfirmationDepth), cfg.EVM().FinalityDepth())
 	require.False(t, cfg.EVM().HeadTracker().PersistenceEnabled())
 	require.True(t, cfg.EVM().Transactions().Enabled())
 	require.False(t, cfg.EVM().Transactions().ForwardersEnabled())

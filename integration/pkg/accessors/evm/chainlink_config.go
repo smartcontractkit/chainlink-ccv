@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
 	commonconfig "github.com/smartcontractkit/chainlink-common/pkg/config"
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 	evmconfig "github.com/smartcontractkit/chainlink-evm/pkg/config"
@@ -21,8 +22,6 @@ const (
 	// include HTTP-only RPCs. All-WebSocket pools retain subscriptions.
 	defaultNewHeadsPollInterval = time.Second
 )
-
-func ptr[T any](v T) *T { return &v }
 
 // newChainlinkEVMConfig is the single adapter from CCV's focused standalone
 // configuration to chainlink-evm's full configuration model. Keeping the
@@ -54,14 +53,18 @@ func newChainlinkEVMConfig(info Info) (*evmconfig.ChainScoped, error) {
 
 	// The standalone database does not contain chainlink-core's evm.heads schema,
 	// so use the production tracker with its supported in-memory saver mode.
-	chain.HeadTracker.PersistenceEnabled = ptr(false)
+	chain.HeadTracker.PersistenceEnabled = new(false)
+	// Preserve standalone CCV's finalization semantics. Generic chainlink-evm
+	// defaults use a deeper confirmation window, which delays Finality=0 messages
+	// beyond CCV's verifier and E2E execution deadlines on development chains.
+	chain.FinalityDepth = new(uint32(vtypes.ConfirmationDepth))
 	// These services are not consumers of the standalone accessor. Disabling
 	// them keeps this lifecycle focused on the production HeadTracker and TXM.
-	chain.LogBroadcasterEnabled = ptr(false)
-	chain.BalanceMonitor.Enabled = ptr(false)
-	chain.Transactions.Enabled = ptr(true)
-	chain.Transactions.ForwardersEnabled = ptr(false)
-	chain.Transactions.TransactionManagerV2.Enabled = ptr(true)
+	chain.LogBroadcasterEnabled = new(false)
+	chain.BalanceMonitor.Enabled = new(false)
+	chain.Transactions.Enabled = new(true)
+	chain.Transactions.ForwardersEnabled = new(false)
+	chain.Transactions.TransactionManagerV2.Enabled = new(true)
 	chain.Transactions.TransactionManagerV2.BlockTime = commonconfig.MustNewDuration(defaultTXMBlockTime)
 
 	nodes := make(evmtoml.EVMNodes, 0, len(info.Nodes))
