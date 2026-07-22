@@ -65,6 +65,22 @@ func TestLoadConfigRejectsUnknownFields(t *testing.T) {
 	require.ErrorContains(t, err, "unknown fields in config")
 }
 
+func TestLoadConfigRejectsUnexposedChainlinkEVMNodeFields(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "evm.toml")
+	require.NoError(t, os.WriteFile(path, []byte(`
+[chains.5009297550715157269]
+chain_type = "ethereum"
+
+[[chains.5009297550715157269.nodes]]
+internal_http_url = "http://evm-node:8545"
+SendOnly = true
+`), 0o600))
+
+	_, err := loadConfig(path)
+	require.ErrorContains(t, err, "unknown fields in config")
+	require.ErrorContains(t, err, "SendOnly")
+}
+
 func TestResolveConfigPath(t *testing.T) {
 	t.Run("configured path", func(t *testing.T) {
 		path := filepath.Join(t.TempDir(), "evm.toml")

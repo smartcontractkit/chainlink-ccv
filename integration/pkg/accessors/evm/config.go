@@ -12,8 +12,10 @@ const (
 )
 
 // Config is the EVM operator-local config mounted into standalone containers. It carries only
-// NOP-owned settings — RPC endpoints and chain-type tuning — keyed by chain selector. Chain ID
-// and family are derived from the selector, not stored here. This mirrors the Solana and Canton
+// NOP-owned settings — RPC endpoints and chain-type tuning — keyed by chain selector. It is
+// intentionally CCV-owned rather than an alias of chainlink-evm's much larger configuration;
+// chainlink_config.go contains the single explicit adapter to that upstream model. Chain ID and
+// family are derived from the selector, not stored here. This mirrors the Solana and Canton
 // local-config pattern, keeping connection details out of the JD job spec's blockchain_infos.
 type Config struct {
 	// Chains maps EVM chain selector (decimal string) to its operator-local settings.
@@ -46,7 +48,8 @@ func NewConfigFromInfos(infos chainaccess.Infos[Info]) Config {
 	return Config{Chains: chains}
 }
 
-// Node represents a blockchain node with connection information.
+// Node is the focused RPC endpoint subset exposed by standalone CCV. It deliberately does not
+// embed chainlink-evm's Node type, whose additional fields are not operator settings for CCV.
 type Node struct {
 	ExternalHTTPUrl string `json:"external_http_url" toml:"external_http_url"`
 	InternalHTTPUrl string `json:"internal_http_url" toml:"internal_http_url"`

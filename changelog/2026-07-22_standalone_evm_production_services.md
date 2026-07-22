@@ -7,6 +7,10 @@ head tracker, head broadcaster, gas estimator, and transaction manager. The
 early standalone-only head tracker and direct keystore transaction sender have
 been removed.
 
+The mounted EVM config remains a focused, CCV-owned operator surface. A single
+explicit adapter maps its chain type and RPC endpoints into chainlink-evm's full
+configuration, using upstream defaults for settings CCV does not expose.
+
 ## Behavior changes
 
 - Every RPC node in the EVM-local config is registered with the production

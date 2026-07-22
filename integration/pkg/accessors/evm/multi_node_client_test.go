@@ -71,10 +71,10 @@ func TestProductionMultiNodeClientUsesHealthyRPCWhenAnotherRPCFails(t *testing.T
 	require.Equal(t, int64(42), height.Int64())
 }
 
-func TestNewChainConfigUsesProductionDefaultsAndEveryRPCNode(t *testing.T) {
+func TestNewChainlinkEVMConfigUsesProductionDefaultsAndEveryRPCNode(t *testing.T) {
 	t.Parallel()
 
-	cfg, err := newChainConfig(Info{
+	cfg, err := newChainlinkEVMConfig(Info{
 		ChainID:         "42161",
 		UniqueChainName: "arbitrum-mainnet",
 		Nodes: []Node{
@@ -108,10 +108,36 @@ func TestNewChainConfigUsesProductionDefaultsAndEveryRPCNode(t *testing.T) {
 	require.Equal(t, "ws://node-b.internal:8546", nodes[1].WSURL.String())
 }
 
-func TestNewChainConfigSupportsExternalHTTPOnlyRPC(t *testing.T) {
+func TestToChainlinkEVMNodeMapsOnlyFocusedStandaloneSubset(t *testing.T) {
 	t.Parallel()
 
-	cfg, err := newChainConfig(Info{
+	info := Info{
+		ChainID:         "1337",
+		UniqueChainName: "local-chain",
+		Nodes: []Node{{
+			ExternalHTTPUrl: "https://external.example.test",
+			InternalHTTPUrl: "http://node.internal:8545",
+			ExternalWSUrl:   "wss://external.example.test",
+			InternalWSUrl:   "ws://node.internal:8546",
+		}},
+	}
+
+	node, usesPolling, err := toChainlinkEVMNode(info, 0, info.Nodes[0])
+	require.NoError(t, err)
+	require.False(t, usesPolling)
+	require.Equal(t, "local-chain", *node.Name)
+	require.Equal(t, "http://node.internal:8545", node.HTTPURL.String())
+	require.Equal(t, "ws://node.internal:8546", node.WSURL.String())
+	require.Nil(t, node.HTTPURLExtraWrite)
+	require.Nil(t, node.SendOnly)
+	require.Nil(t, node.Order)
+	require.Nil(t, node.IsLoadBalancedRPC)
+}
+
+func TestNewChainlinkEVMConfigSupportsExternalHTTPOnlyRPC(t *testing.T) {
+	t.Parallel()
+
+	cfg, err := newChainlinkEVMConfig(Info{
 		ChainID: "1337",
 		Type:    "anvil",
 		Nodes: []Node{{
@@ -128,7 +154,7 @@ func TestNewChainConfigSupportsExternalHTTPOnlyRPC(t *testing.T) {
 	require.Nil(t, cfg.Nodes()[0].WSURL)
 }
 
-func TestNewChainConfigRejectsInvalidStandaloneConfig(t *testing.T) {
+func TestNewChainlinkEVMConfigRejectsInvalidStandaloneConfig(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -188,16 +214,16 @@ func TestNewChainConfigRejectsInvalidStandaloneConfig(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			_, err := newChainConfig(tt.info)
+			_, err := newChainlinkEVMConfig(tt.info)
 			require.ErrorContains(t, err, tt.wantErr)
 		})
 	}
 }
 
-func TestNewChainConfigEnablesPollingWhenAnyNodeHasNoWebSocket(t *testing.T) {
+func TestNewChainlinkEVMConfigEnablesPollingWhenAnyNodeHasNoWebSocket(t *testing.T) {
 	t.Parallel()
 
-	cfg, err := newChainConfig(Info{
+	cfg, err := newChainlinkEVMConfig(Info{
 		ChainID: "1337",
 		Nodes: []Node{
 			{InternalHTTPUrl: "http://node-a.internal:8545", InternalWSUrl: "ws://node-a.internal:8546"},
