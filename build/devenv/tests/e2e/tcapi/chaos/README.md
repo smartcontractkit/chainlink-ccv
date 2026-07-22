@@ -46,11 +46,10 @@ Solana clients reconnect natively.
 fault (latency or outage), sends a V3 message via `tcapi.SendV3Message`,
 confirms the send on source, asserts aggregator/indexer state, and optionally
 confirms execution on the destination. Callers pass `ccv.Lib` and message
-fields — the package does not filter chains by family. EVM-only chaos tests
-hydrate messages with `basic.ResolveEOAReceiverDefaultVerifier`.
+fields — the package does not filter chains by family.
 
 ```go
-receiver, ccvs, executor, err := basic.ResolveEOAReceiverDefaultVerifier(ctx, lib, src, dst)
+receiver, ccvs, executor, err := tcapi.ResolveV3SendAddresses(ctx, lib, src, dst)
 require.NoError(t, err)
 
 err = chaos.RunScenario(t, ctx, chaos.ScenarioSpec{

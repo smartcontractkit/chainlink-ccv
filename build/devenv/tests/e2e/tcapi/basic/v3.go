@@ -144,13 +144,6 @@ func (tc *v3TestCase) HavePrerequisites(ctx context.Context) bool {
 	return tc.ensureHydrated(ctx) == nil
 }
 
-// ResolveV3SendRequiredAddresses resolves the EOA receiver on dst and the default
-// committee CCV and default executor on src for a minimal V3 send. It delegates
-// to the family-agnostic tcapi.ResolveV3SendAddresses.
-func ResolveV3SendRequiredAddresses(ctx context.Context, lib ccv.Lib, src, dst uint64) (protocol.UnknownAddress, []protocol.CCV, protocol.UnknownAddress, error) {
-	return tcapi.ResolveV3SendAddresses(ctx, lib, src, dst)
-}
-
 // CustomExecutor returns a test case that uses the custom executor.
 func CustomExecutor(lib ccv.Lib, src, dest uint64, args Args) tcapi.TestCase {
 	return customExecutor(lib, src, dest, args)
@@ -217,7 +210,7 @@ func eoaReceiverDefaultVerifier(lib ccv.Lib, src, dest uint64, args Args) *v3Tes
 			args:                     args,
 		},
 		hydrate: func(ctx context.Context, tc *v3TestCase) bool {
-			receiver, ccvs, executor, err := ResolveV3SendRequiredAddresses(ctx, tc.lib, tc.src, tc.dst)
+			receiver, ccvs, executor, err := tcapi.ResolveV3SendAddresses(ctx, tc.lib, tc.src, tc.dst)
 			if err != nil {
 				return false
 			}
@@ -604,7 +597,7 @@ func eoaReceiverDefaultVerifierSafeTag(lib ccv.Lib, src, dest uint64, args Args)
 			args:                     args,
 		},
 		hydrate: func(ctx context.Context, tc *v3TestCase) bool {
-			receiver, ccvs, executor, err := ResolveV3SendRequiredAddresses(ctx, tc.lib, tc.src, tc.dst)
+			receiver, ccvs, executor, err := tcapi.ResolveV3SendAddresses(ctx, tc.lib, tc.src, tc.dst)
 			if err != nil {
 				return false
 			}
