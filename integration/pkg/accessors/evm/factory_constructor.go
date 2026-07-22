@@ -106,6 +106,8 @@ func CreateEVMAccessorFactory(lggr logger.Logger, genericConfig chainaccess.Gene
 // chainlink-evm runtime per accessor. Deferring network work until GetAccessor
 // lets standalone processes construct their registry while an RPC endpoint is
 // unavailable; the multi-node pool then manages endpoint failover at runtime.
+// The context parameter is retained for API compatibility and is intentionally
+// unused; each runtime starts with the context passed to GetAccessor.
 // generic is chainaccess.GenericConfig until CCIP-11840.
 func CreateAccessorFactory(
 	_ context.Context,

@@ -272,20 +272,27 @@ func validateRPCProxyUpstream(node *blockchain.Node) (string, bool, error) {
 		return "", false, fmt.Errorf("EVM RPC failover proxies require a host-only internal URL, got %q", node.InternalHTTPUrl)
 	}
 
-	hasWebSocket := node.InternalWSUrl != ""
-	if hasWebSocket {
-		wsURL, err := url.Parse(node.InternalWSUrl)
-		if err != nil {
-			return "", false, fmt.Errorf("parsing direct node WebSocket URL: %w", err)
-		}
-		wsScheme := map[string]string{"ws": "http", "wss": "https"}[wsURL.Scheme]
-		if wsScheme == "" || wsScheme != httpURL.Scheme || wsURL.Host != httpURL.Host ||
-			(wsURL.Path != "" && wsURL.Path != "/") || wsURL.RawQuery != "" || wsURL.Fragment != "" {
-			return "", false, fmt.Errorf("EVM RPC failover proxies require HTTP and WebSocket URLs on the same endpoint")
-		}
+	upstreamURL := fmt.Sprintf("%s://%s", httpURL.Scheme, httpURL.Host)
+	if node.InternalWSUrl == "" {
+		return upstreamURL, false, nil
 	}
 
-	return fmt.Sprintf("%s://%s", httpURL.Scheme, httpURL.Host), hasWebSocket, nil
+	wsURL, err := url.Parse(node.InternalWSUrl)
+	if err != nil {
+		return "", false, fmt.Errorf("parsing direct node WebSocket URL: %w", err)
+	}
+	wsScheme := map[string]string{"ws": "http", "wss": "https"}[wsURL.Scheme]
+	if wsScheme == "" || wsURL.Host == "" || wsURL.User != nil ||
+		(wsURL.Path != "" && wsURL.Path != "/") || wsURL.RawQuery != "" || wsURL.Fragment != "" {
+		return "", false, fmt.Errorf("unsupported direct node WebSocket URL %q", node.InternalWSUrl)
+	}
+	// A single proxy endpoint can preserve WebSocket support only when both
+	// protocols share an upstream. Otherwise clients use HTTP polling.
+	if wsScheme != httpURL.Scheme || wsURL.Host != httpURL.Host {
+		return upstreamURL, false, nil
+	}
+
+	return upstreamURL, true, nil
 }
 
 func rpcProxyNginxConfig(upstreamURL string) string {

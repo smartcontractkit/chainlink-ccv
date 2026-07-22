@@ -72,11 +72,13 @@ func TestValidateRPCProxyUpstream(t *testing.T) {
 	require.Equal(t, "http://blockchain-src:8545", upstream)
 	require.True(t, hasWebSocket)
 
-	_, _, err = validateRPCProxyUpstream(&blockchain.Node{
+	upstream, hasWebSocket, err = validateRPCProxyUpstream(&blockchain.Node{
 		InternalHTTPUrl: "http://blockchain-src:8545",
 		InternalWSUrl:   "ws://blockchain-src:8546",
 	})
-	require.ErrorContains(t, err, "same endpoint")
+	require.NoError(t, err)
+	require.Equal(t, "http://blockchain-src:8545", upstream)
+	require.False(t, hasWebSocket)
 
 	nginxConfig := rpcProxyNginxConfig(upstream)
 	require.Contains(t, nginxConfig, "proxy_pass http://blockchain-src:8545;")
