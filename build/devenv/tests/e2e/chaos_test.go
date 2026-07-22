@@ -3,6 +3,7 @@ package e2e
 import (
 	"context"
 	"fmt"
+	"sort"
 	"testing"
 	"time"
 
@@ -249,6 +250,11 @@ func chaosChainPair(t *testing.T, ctx context.Context, lib ccv.Lib) (src, dst ui
 	t.Helper()
 	chains, err := lib.Chains(ctx)
 	require.NoError(t, err)
+
+	// Sort chains by ChainSelector to ensure deterministic selection of the first two chains to prevent flakiness
+	sort.Slice(chains, func(i, j int) bool {
+		return chains[i].Details.ChainSelector < chains[j].Details.ChainSelector
+	})
 	require.GreaterOrEqual(t, len(chains), 2, "expected at least 2 chains for this test in the environment")
 	return chains[0].Details.ChainSelector, chains[1].Details.ChainSelector
 }
