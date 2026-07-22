@@ -139,9 +139,9 @@ type Cfg struct {
 	// configuration. Concrete schemas and behavior live behind chainreg.
 	LocalNetworks map[string]*chainreg.LocalNetworkConfig `toml:"local_networks,omitempty"`
 
-	NodeSets           []*ns.Input                    `toml:"nodesets,omitempty"`
-	CLNodesFundingETH  float64                        `toml:"cl_nodes_funding_eth"`
-	CLNodesFundingLink float64                        `toml:"cl_nodes_funding_link"`
+	NodeSets           []*ns.Input `toml:"nodesets,omitempty"`
+	CLNodesFundingETH  float64     `toml:"cl_nodes_funding_eth"`
+	CLNodesFundingLink float64     `toml:"cl_nodes_funding_link"`
 	// HighAvailability enables devenv-level service redundancy. When true,
 	// ExpandForHA() clones AggregatorInput / IndexerInput entries according
 	// to their per-service redundancy counts and updates the topology.
