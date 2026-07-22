@@ -5,8 +5,9 @@ import (
 	"testing"
 	"time"
 
-	chain_selectors "github.com/smartcontractkit/chain-selectors"
 	"github.com/stretchr/testify/require"
+
+	chain_selectors "github.com/smartcontractkit/chain-selectors"
 
 	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
