@@ -61,20 +61,21 @@ func injectChaos(ctx context.Context, spec ScenarioSpec) (func(), error) {
 // asserts aggregator/indexer state, and optionally confirms execution on the destination.
 // The caller must provide lib and message fields; this package does not filter chains by family.
 func RunScenario(t *testing.T, ctx context.Context, spec ScenarioSpec) error {
+	v3Src, err := spec.Lib.V3Source(ctx, spec.Src)
+	if err != nil {
+		return fmt.Errorf("source chain %d does not support V3 message: %w", spec.Src, err)
+	}
+
+	v3Dst, err := spec.Lib.V3Destination(ctx, spec.Dst)
+	if err != nil {
+		return fmt.Errorf("destination chain %d does not support V3 message: %w", spec.Dst, err)
+	}
+
 	cleanup, err := injectChaos(ctx, spec)
 	if err != nil {
 		return err
 	}
 	t.Cleanup(cleanup)
-
-	v3Src, err := spec.Lib.V3Source(ctx, spec.Src)
-	if err != nil {
-		return fmt.Errorf("source chain %d does not support V3 message: %w", spec.Src, err)
-	}
-	v3Dst, err := spec.Lib.V3Destination(ctx, spec.Dst)
-	if err != nil {
-		return fmt.Errorf("destination chain %d does not support V3 message: %w", spec.Dst, err)
-	}
 
 	sent, err := tcapi.SendV3Message(ctx, v3Src, v3Dst, spec.Fields, spec.Opts, spec.SendArgs)
 	if err != nil {
