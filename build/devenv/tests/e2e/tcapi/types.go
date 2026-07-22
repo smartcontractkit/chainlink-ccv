@@ -69,7 +69,7 @@ type RunConfig struct {
 	ConfirmExecTimeout time.Duration
 }
 
-// RunResult contains portable assertion results and opaque transaction
+// RunResult contains portable events and opaque transaction
 // evidence for integration-owned, chain-specific assertions.
 type RunResult struct {
 	Src  cciptestinterfaces.SentEnvelope

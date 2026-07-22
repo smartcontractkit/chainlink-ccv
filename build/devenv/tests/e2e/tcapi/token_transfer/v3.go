@@ -115,10 +115,14 @@ func (tc *tokenTransferV3TestCase) RunWithResult(ctx context.Context) (res tcapi
 	}
 	sentTimeout := tc.args.Run.SentTimeout(tcapi.DefaultSentTimeout)
 	execTimeout := tc.args.Run.ExecTimeout(tcapi.DefaultExecTimeout)
+	msgReceiver := tc.receiver
+	if tc.args.Send.TokenReceiverParams != nil {
+		msgReceiver = make([]byte, len(tc.receiver))
+	}
 
 	sentEvt, sentTxHash, err := tcapi.SendV3Message(ctx, v3Src, v3Dst,
 		cciptestinterfaces.MessageFields{
-			Receiver: tc.receiver,
+			Receiver: msgReceiver,
 			TokenAmount: cciptestinterfaces.TokenAmount{
 				Amount:       transferAmount,
 				TokenAddress: tc.srcToken,
@@ -181,14 +185,15 @@ func (tc *tokenTransferV3TestCase) RunWithResult(ctx context.Context) (res tcapi
 	if err != nil {
 		return res, fmt.Errorf("wait for exec event: %w", err)
 	}
-	if execEvt.State != cciptestinterfaces.ExecutionStateSuccess {
-		return res, fmt.Errorf("unexpected execution state %s, return data: %x", execEvt.State, execEvt.ReturnData)
-	}
 
 	// populate the exec result with the execution receipt
 	res.Dest = cciptestinterfaces.ExecEnvelope{
 		TxHash: execTxHash,
 		Event:  execEvt,
+	}
+
+	if execEvt.State != cciptestinterfaces.ExecutionStateSuccess {
+		return res, fmt.Errorf("unexpected execution state %s, return data: %x", execEvt.State, execEvt.ReturnData)
 	}
 
 	endBal, err := dstBalReader.GetTokenBalance(ctx, tc.tokenReceiver, tc.destToken)
