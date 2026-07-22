@@ -351,12 +351,8 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig, aggMonito
 	listMessageRulesHandler := handlers.NewListMessageRulesHandler(messageDisablementRegistry, l)
 	batchWriteCommitVerifierNodeResultHandler := handlers.NewBatchWriteCommitVerifierNodeResultHandler(writeCommitVerifierNodeResultHandler, config.MaxCommitVerifierNodeResultRequestsPerBatch)
 
-	// Create in-memory heartbeat storage and handler
-	// TODO: switch to Redis-based storage when available
-	heartbeatStorage := heartbeat.NewInMemoryStorage()
+	heartbeatStorage := heartbeat.NewStorageFromConfig(l, config.Heartbeat)
 	heartbeatHandler := handlers.NewHeartbeatHandler(heartbeatStorage, config.AggregatorID, config.Committee, l, aggMonitoring)
-
-	l.Info("Using in-memory heartbeat storage")
 
 	// Initialize middlewares
 	loggingMiddleware := middlewares.NewLoggingMiddleware(l)

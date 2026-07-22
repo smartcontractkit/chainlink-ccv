@@ -36,6 +36,15 @@ their tag formats: root (`vX.Y.Z`), `deployment/vX.Y.Z`, `build/devenv/vX.Y.Z`,
 
 See [`CONTRIBUTING.md`](./CONTRIBUTING.md) for the PR-title format.
 
+Root releases publish signed, multi-architecture committee verifier and aggregator
+images to public ECR:
+
+- `public.ecr.aws/w0i8p0z9/chainlink-ccv-verifier:vX.Y.Z`
+- `public.ecr.aws/w0i8p0z9/chainlink-ccv-aggregator:vX.Y.Z`
+
+Use a release tag or image digest in third-party deployments. The verifier image
+contains the committee verifier; token-verifier images are not published publicly.
+
 ## Local Dev Environment
 Follow the [README](./build/devenv/README.md)
 

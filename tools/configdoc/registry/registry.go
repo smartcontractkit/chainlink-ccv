@@ -72,6 +72,9 @@ func executorDocInstance() any {
 // SetDefaults fills the remaining defaults. Secret-bearing fields are toml:"-" and
 // are documented in the secrets file instead.
 func aggregatorConfigInstance() any {
+	var heartbeatRedisConfig aggregator.HeartbeatRedisConfig
+	heartbeatRedisConfig.SetDefaults()
+
 	c := &aggregator.AggregatorConfig{
 		AggregatorID: "aggregator-1",
 		Committee: &aggregator.Committee{
@@ -93,6 +96,9 @@ func aggregatorConfigInstance() any {
 					{APIKeyEnvVar: "AGGREGATOR_CLIENT1_API_KEY", SecretEnvVar: "AGGREGATOR_CLIENT1_SECRET_KEY"}, //nolint:gosec // G101: env var names for illustration, not credentials
 				},
 			},
+		},
+		Heartbeat: aggregator.HeartbeatConfig{
+			Redis: &heartbeatRedisConfig,
 		},
 	}
 	c.SetDefaults()

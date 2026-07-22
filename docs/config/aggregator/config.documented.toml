@@ -94,7 +94,7 @@ maxCommitVerifierNodeResultRequestsPerBatch = 100
 # aggregation configures the signature-aggregation workers.
 [aggregation]
   # channelBufferSize controls the size of the aggregation request channel buffer
-  channelBufferSize = 10
+  channelBufferSize = 200
   # backgroundWorkerCount controls the number of background workers processing aggregation requests
   backgroundWorkerCount = 10
   # checkAggregationTimeout is the timeout for each check aggregation operation in the write commit verifier node result handler.
@@ -134,6 +134,17 @@ maxCommitVerifierNodeResultRequestsPerBatch = 100
   maxOrphansPerScan = 10000
   # pageSize controls the number of orphaned keys fetched per database page during scans.
   pageSize = 100
+
+# heartbeat configures the heartbeat monitoring.
+[heartbeat]
+  # storeType selects the storage backend for heartbeat data; currently "memory" or "redis".
+  storeType = ""
+  # redis configuration (only used when StoreType is "redis")
+  [heartbeat.redis]
+    # keyPrefix is the prefix for Redis keys storing heartbeat data (default: "heartbeat").
+    keyPrefix = "heartbeat"
+    # ttl is the time-to-live for heartbeat data in Redis (default: 7 days).
+    ttl = "168h0m0s"
 
 # rateLimiting configures per-client, per-group, and anonymous rate limits.
 [rateLimiting]
