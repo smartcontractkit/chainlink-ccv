@@ -94,6 +94,11 @@ single family's test code. Plugging in a new chain family (the focus of this qui
 never requires writing a `TestCase`; it only requires implementing the chain interfaces
 below so the *existing* test cases can run against it.
 
+The existing standard test categories live as subpackages:
+- `tcapi/basic` — V3 messaging scenarios (EOA/contract receivers, single/multi-verifier, max data size)
+- `tcapi/token_transfer` — token transfer scenarios across token pool combinations
+- `tcapi/chaos` — outage-recovery scenarios (Pumba container stop + V3 lifecycle)
+
 - **Hydration** is the one-time process of resolving environment-specific handles (contract
   addresses, chain resolvers, computed values like max data size) into the test case's
   fields. It's triggered by either `HavePrerequisites` or `Run` — whichever runs first —
