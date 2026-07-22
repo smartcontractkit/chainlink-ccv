@@ -3,6 +3,7 @@ package ccv
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sort"
 
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainreg"
@@ -59,7 +60,7 @@ func configureLocalNetworks(
 }
 
 func finalizeLocalNetworks(finalizers []chainreg.LocalNetworkFinalizer) {
-	for i := len(finalizers) - 1; i >= 0; i-- {
-		finalizers[i]()
+	for _, finalize := range slices.Backward(finalizers) {
+		finalize()
 	}
 }

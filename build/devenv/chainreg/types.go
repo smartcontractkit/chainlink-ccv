@@ -182,6 +182,6 @@ type Registration struct {
 
 	// V3SourceFactory and V3DestinationFactory let a chain family plug into V3
 	// message tests without implementing the full ImplFactory/CCIP17 surface.
-	V3SourceFactory          V3SourceFactory
-	V3DestinationFactory     V3DestinationFactory
+	V3SourceFactory      V3SourceFactory
+	V3DestinationFactory V3DestinationFactory
 }

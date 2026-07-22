@@ -220,13 +220,13 @@ func TestNewChainlinkEVMConfigRejectsInvalidStandaloneConfig(t *testing.T) {
 			wantErr: "unsupported EVM chain type",
 		},
 		{
-			name: "explicit chain type without upstream defaults",
+			name: "explicit chain type mismatches generic defaults",
 			info: Info{
 				ChainID: "1337",
 				Type:    "optimismBedrock",
 				Nodes:   []Node{{InternalHTTPUrl: "http://node.internal:8545"}},
 			},
-			wantErr: "has no chain-specific defaults",
+			wantErr: "does not match chainlink-evm defaults",
 		},
 		{
 			name: "chain type mismatches upstream defaults",
