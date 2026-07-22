@@ -32,7 +32,13 @@ func TestConfigureEVMRPCFailoverUsesPrimaryAndInitiallyStoppedSecondary(t *testi
 		started bool
 	}
 	var calls []launchCall
-	launcher := func(_ context.Context, _ string, name string, _ *blockchain.Node, started bool) (*blockchain.Node, error) {
+	launcher := func(
+		_ context.Context,
+		_ string,
+		name string,
+		_ *blockchain.Node,
+		started bool,
+	) (*blockchain.Node, error) {
 		calls = append(calls, launchCall{name: name, started: started})
 		return &blockchain.Node{InternalHTTPUrl: "http://" + name + ":8545"}, nil
 	}

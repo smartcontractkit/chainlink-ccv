@@ -124,16 +124,16 @@ type Cfg struct {
 	// consumers can detect incompatible configs. Version 0 (implicit/absent)
 	// predates the [protocol_contracts] section.
 	Version            int                            `toml:"version"`
-	CLDF               ccldf.CLDF                     `toml:"cldf"                  validate:"required"`
-	Pricer             *services.PricerInput          `toml:"pricer"                validate:"required"`
-	Fake               *services.FakeInput            `toml:"fake"                  validate:"required"`
-	Verifier           []*committeeverifier.Input     `toml:"verifier"              validate:"required"`
+	CLDF               ccldf.CLDF                     `toml:"cldf"                       validate:"required"`
+	Pricer             *services.PricerInput          `toml:"pricer"                     validate:"required"`
+	Fake               *services.FakeInput            `toml:"fake"                       validate:"required"`
+	Verifier           []*committeeverifier.Input     `toml:"verifier"                   validate:"required"`
 	TokenVerifier      []*services.TokenVerifierInput `toml:"token_verifier"`
-	Executor           []*executorsvc.Input           `toml:"executor"              validate:"required"`
-	Indexer            []*services.IndexerInput       `toml:"indexer"               validate:"required"`
-	Aggregator         []*services.AggregatorInput    `toml:"aggregator"            validate:"required"`
-	JD                 *jd.Input                      `toml:"jd"                    validate:"required"`
-	Blockchains        []*blockchain.Input            `toml:"blockchains"           validate:"required"`
+	Executor           []*executorsvc.Input           `toml:"executor"                   validate:"required"`
+	Indexer            []*services.IndexerInput       `toml:"indexer"                    validate:"required"`
+	Aggregator         []*services.AggregatorInput    `toml:"aggregator"                 validate:"required"`
+	JD                 *jd.Input                      `toml:"jd"                         validate:"required"`
+	Blockchains        []*blockchain.Input            `toml:"blockchains"                validate:"required"`
 	EVMRPCFailover     *EVMRPCFailoverCfg             `toml:"evm_rpc_failover,omitempty"`
 	NodeSets           []*ns.Input                    `toml:"nodesets,omitempty"`
 	CLNodesFundingETH  float64                        `toml:"cl_nodes_funding_eth"`
