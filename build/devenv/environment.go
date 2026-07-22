@@ -134,7 +134,11 @@ type Cfg struct {
 	Aggregator         []*services.AggregatorInput    `toml:"aggregator"                 validate:"required"`
 	JD                 *jd.Input                      `toml:"jd"                         validate:"required"`
 	Blockchains        []*blockchain.Input            `toml:"blockchains"                validate:"required"`
-	EVMRPCFailover     *EVMRPCFailoverCfg             `toml:"evm_rpc_failover,omitempty"`
+
+	// LocalNetworks contains opaque, chain-family-owned local network
+	// configuration. Concrete schemas and behavior live behind chainreg.
+	LocalNetworks map[string]*chainreg.LocalNetworkConfig `toml:"local_networks,omitempty"`
+
 	NodeSets           []*ns.Input                    `toml:"nodesets,omitempty"`
 	CLNodesFundingETH  float64                        `toml:"cl_nodes_funding_eth"`
 	CLNodesFundingLink float64                        `toml:"cl_nodes_funding_link"`

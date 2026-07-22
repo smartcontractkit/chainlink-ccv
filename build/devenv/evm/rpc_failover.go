@@ -1,4 +1,4 @@
-package ccv
+package evm
 
 import (
 	"context"
@@ -11,41 +11,54 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainreg"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/util"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
 
 const (
-	defaultEVMRPCProxyImage = "nginx:alpine"
-	evmRPCProxyPort         = "8545/tcp"
+	defaultRPCProxyImage = "nginx:alpine"
+	rpcProxyPort         = "8545/tcp"
 )
 
-// EVMRPCFailoverCfg enables opt-in devenv infrastructure for exercising the
-// standalone EVM multi-node client. Each EVM chain is exposed to standalone
-// services through a primary and secondary proxy backed by the same chain.
-// The secondary starts stopped so a test can deterministically prove that the
-// services recover after their initially healthy primary disappears.
-type EVMRPCFailoverCfg struct {
-	Enabled bool                                  `toml:"enabled"`
-	Image   string                                `toml:"image,omitempty"`
-	Out     map[string]*EVMRPCFailoverChainOutput `toml:"out,omitempty"`
+// LocalNetworkInput is the EVM-owned schema for optional local-network
+// extensions. The chain-agnostic environment stores this as opaque input.
+type LocalNetworkInput struct {
+	RPCFailover *RPCFailoverInput `toml:"rpc_failover,omitempty"`
 }
 
-// EVMRPCFailoverChainOutput identifies the independently controllable proxy
-// containers for one chain. PrimaryNode and SecondaryNode are mounted into
-// standalone services; the direct chain endpoint remains first in the stored
-// blockchain output so the E2E test driver is independent from the outage it
-// creates.
-type EVMRPCFailoverChainOutput struct {
+// LocalNetworkOutput is the EVM-owned output schema for local-network
+// extensions. Tests decode it from the chain-agnostic environment output.
+type LocalNetworkOutput struct {
+	RPCFailover *RPCFailoverOutput `toml:"rpc_failover,omitempty"`
+}
+
+// RPCFailoverInput enables opt-in infrastructure for exercising the
+// standalone EVM multi-node client.
+type RPCFailoverInput struct {
+	Enabled bool   `toml:"enabled"`
+	Image   string `toml:"image,omitempty"`
+}
+
+// RPCFailoverOutput describes the proxy image and independently controllable
+// proxy containers created for each EVM chain.
+type RPCFailoverOutput struct {
+	Image  string                             `toml:"image"`
+	Chains map[string]*RPCFailoverChainOutput `toml:"chains"`
+}
+
+// RPCFailoverChainOutput identifies the primary and secondary proxies for one
+// chain. Standalone services receive these nodes while the direct endpoint is
+// restored in the serialized blockchain output for test-side clients.
+type RPCFailoverChainOutput struct {
 	PrimaryContainerName   string           `toml:"primary_container_name"`
 	SecondaryContainerName string           `toml:"secondary_container_name"`
 	PrimaryNode            *blockchain.Node `toml:"primary_node"`
 	SecondaryNode          *blockchain.Node `toml:"secondary_node"`
-
-	directNodes []*blockchain.Node
 }
 
-type evmRPCProxyLauncher func(
+type rpcProxyLauncher func(
 	ctx context.Context,
 	image string,
 	containerName string,
@@ -53,32 +66,65 @@ type evmRPCProxyLauncher func(
 	started bool,
 ) (*blockchain.Node, error)
 
-func configureEVMRPCFailover(
+// ConfigureLocalNetworks implements chainreg.LocalNetworkConfigurator for EVM.
+func ConfigureLocalNetworks(
 	ctx context.Context,
-	cfg *EVMRPCFailoverCfg,
+	input util.OpaqueConfig,
 	outputs []*blockchain.Output,
-	launch evmRPCProxyLauncher,
-) error {
-	if cfg == nil || !cfg.Enabled {
-		return nil
+) (util.OpaqueConfig, chainreg.LocalNetworkFinalizer, error) {
+	cfg, err := util.OpaqueToConcreteStrict[LocalNetworkInput](input)
+	if err != nil {
+		return nil, nil, fmt.Errorf("decoding EVM local network config: %w", err)
 	}
+	if cfg.RPCFailover == nil || !cfg.RPCFailover.Enabled {
+		return nil, nil, nil
+	}
+
+	failoverOutput, finalize, err := configureRPCFailover(ctx, cfg.RPCFailover, outputs, launchRPCProxy)
+	if err != nil {
+		return nil, nil, err
+	}
+	opaqueOutput, err := util.ConcreteToOpaque(LocalNetworkOutput{RPCFailover: failoverOutput})
+	if err != nil {
+		finalize()
+		return nil, nil, fmt.Errorf("encoding EVM local network output: %w", err)
+	}
+	return opaqueOutput, finalize, nil
+}
+
+func configureRPCFailover(
+	ctx context.Context,
+	cfg *RPCFailoverInput,
+	outputs []*blockchain.Output,
+	launch rpcProxyLauncher,
+) (*RPCFailoverOutput, chainreg.LocalNetworkFinalizer, error) {
 	if launch == nil {
-		return fmt.Errorf("EVM RPC failover proxy launcher is nil")
+		return nil, nil, fmt.Errorf("EVM RPC failover proxy launcher is nil")
 	}
-	if cfg.Image == "" {
-		cfg.Image = defaultEVMRPCProxyImage
+	image := cfg.Image
+	if image == "" {
+		image = defaultRPCProxyImage
 	}
-	cfg.Out = make(map[string]*EVMRPCFailoverChainOutput)
+
+	result := &RPCFailoverOutput{
+		Image:  image,
+		Chains: make(map[string]*RPCFailoverChainOutput),
+	}
+	directNodes := make(map[string][]*blockchain.Node)
+	finalize := func() {
+		restoreDirectRPCNodes(outputs, directNodes, result.Chains)
+	}
 
 	for _, output := range outputs {
 		if output == nil || output.Family != blockchain.FamilyEVM {
 			continue
 		}
 		if len(output.Nodes) == 0 || output.Nodes[0] == nil {
-			return fmt.Errorf("EVM chain %s has no direct RPC node to proxy", output.ChainID)
+			finalize()
+			return nil, nil, fmt.Errorf("EVM chain %s has no direct RPC node to proxy", output.ChainID)
 		}
 
-		directNodes := append([]*blockchain.Node(nil), output.Nodes...)
+		nodes := append([]*blockchain.Node(nil), output.Nodes...)
 		baseName := strings.TrimPrefix(output.ContainerName, "/")
 		if baseName == "" {
 			baseName = "evm-" + output.ChainID
@@ -86,62 +132,62 @@ func configureEVMRPCFailover(
 		primaryName := baseName + "-rpc-primary"
 		secondaryName := baseName + "-rpc-secondary"
 
-		primaryNode, err := launch(ctx, cfg.Image, primaryName, directNodes[0], true)
+		primaryNode, err := launch(ctx, image, primaryName, nodes[0], true)
 		if err != nil {
-			return fmt.Errorf("launching primary RPC proxy for EVM chain %s: %w", output.ChainID, err)
+			finalize()
+			return nil, nil, fmt.Errorf("launching primary RPC proxy for EVM chain %s: %w", output.ChainID, err)
 		}
-		secondaryNode, err := launch(ctx, cfg.Image, secondaryName, directNodes[0], false)
+		secondaryNode, err := launch(ctx, image, secondaryName, nodes[0], false)
 		if err != nil {
-			return fmt.Errorf("creating secondary RPC proxy for EVM chain %s: %w", output.ChainID, err)
+			finalize()
+			return nil, nil, fmt.Errorf("creating secondary RPC proxy for EVM chain %s: %w", output.ChainID, err)
 		}
 
-		// Only the two proxies are visible while standalone service configs are
+		// Only the proxies are visible while standalone service configs are
 		// generated. The stopped secondary makes the primary deterministic.
+		directNodes[output.ChainID] = nodes
 		output.Nodes = []*blockchain.Node{primaryNode, secondaryNode}
-		cfg.Out[output.ChainID] = &EVMRPCFailoverChainOutput{
+		result.Chains[output.ChainID] = &RPCFailoverChainOutput{
 			PrimaryContainerName:   primaryName,
 			SecondaryContainerName: secondaryName,
 			PrimaryNode:            primaryNode,
 			SecondaryNode:          secondaryNode,
-			directNodes:            directNodes,
 		}
 	}
 
-	if len(cfg.Out) == 0 {
-		return fmt.Errorf("EVM RPC failover is enabled but no EVM chains were configured")
+	if len(result.Chains) == 0 {
+		return nil, nil, fmt.Errorf("EVM RPC failover is enabled but no EVM chains were configured")
 	}
-	return nil
+	return result, finalize, nil
 }
 
-// restoreDirectEVMRPCNodes is called only after all standalone containers have
-// received their mounted configs. It makes test-side CLDF clients use the
-// direct Anvil endpoint while retaining the proxies in the serialized output.
-func restoreDirectEVMRPCNodes(cfg *EVMRPCFailoverCfg, outputs []*blockchain.Output) {
-	if cfg == nil || !cfg.Enabled {
-		return
-	}
+func restoreDirectRPCNodes(
+	outputs []*blockchain.Output,
+	directNodes map[string][]*blockchain.Node,
+	proxyOutputs map[string]*RPCFailoverChainOutput,
+) {
 	for _, output := range outputs {
-		if output == nil {
+		if output == nil || len(directNodes[output.ChainID]) == 0 {
 			continue
 		}
-		proxyOutput := cfg.Out[output.ChainID]
-		if proxyOutput == nil || len(proxyOutput.directNodes) == 0 {
+		proxyOutput := proxyOutputs[output.ChainID]
+		if proxyOutput == nil {
 			continue
 		}
-		nodes := append([]*blockchain.Node(nil), proxyOutput.directNodes...)
+		nodes := append([]*blockchain.Node(nil), directNodes[output.ChainID]...)
 		nodes = append(nodes, proxyOutput.PrimaryNode, proxyOutput.SecondaryNode)
 		output.Nodes = nodes
 	}
 }
 
-func launchEVMRPCProxy(
+func launchRPCProxy(
 	ctx context.Context,
 	image string,
 	containerName string,
 	upstream *blockchain.Node,
 	started bool,
 ) (*blockchain.Node, error) {
-	upstreamURL, hasWebSocket, err := validateEVMRPCProxyUpstream(upstream)
+	upstreamURL, hasWebSocket, err := validateRPCProxyUpstream(upstream)
 	if err != nil {
 		return nil, err
 	}
@@ -152,7 +198,7 @@ func launchEVMRPCProxy(
 	}
 	configPath := configFile.Name()
 	defer func() { _ = os.Remove(configPath) }()
-	if _, err := configFile.WriteString(evmRPCProxyNginxConfig(upstreamURL)); err != nil {
+	if _, err := configFile.WriteString(rpcProxyNginxConfig(upstreamURL)); err != nil {
 		_ = configFile.Close()
 		return nil, fmt.Errorf("writing nginx config: %w", err)
 	}
@@ -165,7 +211,7 @@ func launchEVMRPCProxy(
 		Name:         containerName,
 		Labels:       framework.DefaultTCLabels(),
 		Networks:     []string{framework.DefaultNetworkName},
-		ExposedPorts: []string{evmRPCProxyPort},
+		ExposedPorts: []string{rpcProxyPort},
 		NetworkAliases: map[string][]string{
 			framework.DefaultNetworkName: {containerName},
 		},
@@ -174,7 +220,7 @@ func launchEVMRPCProxy(
 			ContainerFilePath: "/etc/nginx/nginx.conf",
 			FileMode:          0o644,
 		}},
-		WaitingFor: wait.ForListeningPort(evmRPCProxyPort).
+		WaitingFor: wait.ForListeningPort(rpcProxyPort).
 			WithStartupTimeout(30 * time.Second),
 	}
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
@@ -185,7 +231,7 @@ func launchEVMRPCProxy(
 		return nil, fmt.Errorf("creating proxy container %s: %w", containerName, err)
 	}
 
-	port := strings.TrimSuffix(evmRPCProxyPort, "/tcp")
+	port := strings.TrimSuffix(rpcProxyPort, "/tcp")
 	node := &blockchain.Node{
 		InternalHTTPUrl: fmt.Sprintf("http://%s:%s", containerName, port),
 	}
@@ -200,7 +246,7 @@ func launchEVMRPCProxy(
 	if err != nil {
 		return nil, fmt.Errorf("getting proxy container host: %w", err)
 	}
-	mappedPort, err := container.MappedPort(ctx, evmRPCProxyPort)
+	mappedPort, err := container.MappedPort(ctx, rpcProxyPort)
 	if err != nil {
 		return nil, fmt.Errorf("getting proxy container port: %w", err)
 	}
@@ -211,7 +257,7 @@ func launchEVMRPCProxy(
 	return node, nil
 }
 
-func validateEVMRPCProxyUpstream(node *blockchain.Node) (string, bool, error) {
+func validateRPCProxyUpstream(node *blockchain.Node) (string, bool, error) {
 	if node == nil || node.InternalHTTPUrl == "" {
 		return "", false, fmt.Errorf("direct node has no internal HTTP URL")
 	}
@@ -242,7 +288,7 @@ func validateEVMRPCProxyUpstream(node *blockchain.Node) (string, bool, error) {
 	return fmt.Sprintf("%s://%s", httpURL.Scheme, httpURL.Host), hasWebSocket, nil
 }
 
-func evmRPCProxyNginxConfig(upstreamURL string) string {
+func rpcProxyNginxConfig(upstreamURL string) string {
 	return fmt.Sprintf(`
 worker_processes auto;
 error_log /dev/stderr warn;

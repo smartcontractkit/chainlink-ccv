@@ -15,8 +15,10 @@ import (
 	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
+	devenvevm "github.com/smartcontractkit/chainlink-ccv/build/devenv/evm"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/committeeverifier"
+	devenvutil "github.com/smartcontractkit/chainlink-ccv/build/devenv/util"
 	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/chaos"
@@ -38,10 +40,8 @@ func TestChaos_EVMRPCFailover(t *testing.T) {
 		t.Skip("skipping e2e test in short mode; requires a running devenv environment")
 	}
 	setup := setupChaos(t, GetSmokeTestConfig())
-	require.NotNil(t, setup.in.EVMRPCFailover, "test requires the RPC failover profile")
-	require.True(t, setup.in.EVMRPCFailover.Enabled, "test requires EVM RPC failover to be enabled")
-	require.NotEmpty(t, setup.in.EVMRPCFailover.Out, "RPC failover proxy outputs are missing")
-	for _, proxyOutput := range setup.in.EVMRPCFailover.Out {
+	failoverOutput := requireEVMRPCFailoverOutput(t, setup.in)
+	for _, proxyOutput := range failoverOutput.Chains {
 		t.Cleanup(func() {
 			setRPCProxyRunningBestEffort(setup.l, proxyOutput.PrimaryContainerName, true)
 			setRPCProxyRunningBestEffort(setup.l, proxyOutput.SecondaryContainerName, false)
@@ -70,7 +70,7 @@ func TestChaos_EVMRPCFailover(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			chainID, err := chain_selectors.GetChainIDFromSelector(tc.failedChain)
 			require.NoError(t, err)
-			proxyOutput := setup.in.EVMRPCFailover.Out[chainID]
+			proxyOutput := failoverOutput.Chains[chainID]
 			require.NotNilf(t, proxyOutput, "no RPC failover proxies for chain %s", chainID)
 			requireDirectTestRPC(t, setup.in, chainID, proxyOutput)
 
@@ -110,7 +110,20 @@ func TestChaos_EVMRPCFailover(t *testing.T) {
 	}
 }
 
-func requireDirectTestRPC(t *testing.T, in *ccv.Cfg, chainID string, proxyOutput *ccv.EVMRPCFailoverChainOutput) {
+func requireEVMRPCFailoverOutput(t *testing.T, in *ccv.Cfg) *devenvevm.RPCFailoverOutput {
+	t.Helper()
+	localNetwork := in.LocalNetworks[chain_selectors.FamilyEVM]
+	require.NotNil(t, localNetwork, "test requires the EVM local-network failover profile")
+	require.NotEmpty(t, localNetwork.Output, "EVM local-network output is missing")
+
+	output, err := devenvutil.OpaqueToConcreteStrict[devenvevm.LocalNetworkOutput](localNetwork.Output)
+	require.NoError(t, err)
+	require.NotNil(t, output.RPCFailover, "EVM RPC failover output is missing")
+	require.NotEmpty(t, output.RPCFailover.Chains, "RPC failover proxy outputs are missing")
+	return output.RPCFailover
+}
+
+func requireDirectTestRPC(t *testing.T, in *ccv.Cfg, chainID string, proxyOutput *devenvevm.RPCFailoverChainOutput) {
 	t.Helper()
 	for _, chain := range in.Blockchains {
 		if chain == nil || chain.Out == nil || chain.Out.ChainID != chainID {

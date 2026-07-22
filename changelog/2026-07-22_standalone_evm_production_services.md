@@ -41,5 +41,7 @@ uses its chainlink-evm in-memory store and does not require those schemas.
   primary and secondary RPC proxies in front of each Anvil chain. The CI chaos
   test removes the initially healthy primary and verifies both source head
   tracking and destination transaction submission through the secondary.
+- The proxy schema and lifecycle are owned by the registered EVM local-network
+  configurator; the environment only routes opaque family configuration.
 - The EVM-local config mount test verifies that all HTTP and WebSocket URLs for
   multiple nodes are preserved in order.

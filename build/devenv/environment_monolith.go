@@ -162,9 +162,12 @@ func NewEnvironment() (in *Cfg, err error) {
 		blockchainOutputs[i] = out
 		bcStep.Inc()
 	}
-	if err := configureEVMRPCFailover(ctx, in.EVMRPCFailover, blockchainOutputs, launchEVMRPCProxy); err != nil {
-		return nil, fmt.Errorf("failed to configure EVM RPC failover infrastructure: %w", err)
+	localNetworkFinalizers, err := configureLocalNetworks(ctx, in.LocalNetworks, blockchainOutputs)
+	if err != nil {
+		finalizeLocalNetworks(localNetworkFinalizers)
+		return nil, fmt.Errorf("failed to configure local networks: %w", err)
 	}
+	defer func() { finalizeLocalNetworks(localNetworkFinalizers) }()
 
 	/////////////////////////////
 	// END: Deploy blockchains //
@@ -862,10 +865,10 @@ func NewEnvironment() (in *Cfg, err error) {
 		}
 	}
 
-	// Standalone services already hold their mounted two-proxy configuration.
-	// Restore the direct endpoint first for the serialized E2E test client so
-	// stopping a proxy only affects the services under test.
-	restoreDirectEVMRPCNodes(in.EVMRPCFailover, blockchainOutputs)
+	// Consumers have captured their family-specific network configuration. Run
+	// finalizers before serializing so test-side clients receive restored output.
+	finalizeLocalNetworks(localNetworkFinalizers)
+	localNetworkFinalizers = nil
 
 	timeTrack.Print()
 	// On the TTY path the full address table goes to its own file and

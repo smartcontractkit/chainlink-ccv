@@ -177,6 +177,10 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 			Monitoring:                monitoring.NewNoopExecutorMonitoring(),
 		})
 		if err != nil {
+			if evmSourceReader == nil {
+				closeErr := runtime.Close()
+				return nil, errors.Join(fmt.Errorf("failed to create EVM destination reader: %w", err), closeErr)
+			}
 			chainLggr.Warnw("Failed to create EVM destination reader, DestinationReader will be unavailable", "error", err)
 		} else {
 			evmDestReader = dr

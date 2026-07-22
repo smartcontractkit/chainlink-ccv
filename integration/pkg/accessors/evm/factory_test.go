@@ -176,3 +176,27 @@ func TestFactoryRejectsAccessorWithoutCapabilitiesBeforeStartingRuntime(t *testi
 	require.ErrorContains(t, err, "neither source nor destination services are configured")
 	require.Zero(t, runtimeCalls)
 }
+
+func TestFactoryClosesDestinationOnlyRuntimeWhenReaderConstructionFails(t *testing.T) {
+	t.Parallel()
+
+	const selector = protocol.ChainSelector(5009297550715157269)
+	runtime := &stubChainRuntime{}
+	factory := newFactory(
+		logger.Test(t),
+		nil,
+		nil,
+		map[protocol.ChainSelector]chainaccess.DestinationChainConfig{
+			selector: {OffRampAddress: "0x1234"},
+		},
+		0,
+		func(context.Context, protocol.ChainSelector, logger.Logger) (chainRuntime, error) {
+			return runtime, nil
+		},
+	)
+
+	accessor, err := factory.GetAccessor(context.Background(), selector)
+	require.Nil(t, accessor)
+	require.ErrorContains(t, err, "failed to create EVM destination reader")
+	require.Equal(t, 1, runtime.closeCalls)
+}

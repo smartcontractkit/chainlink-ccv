@@ -1,2 +1,2 @@
-[evm_rpc_failover]
+[local_networks.evm.input.rpc_failover]
 enabled = true
