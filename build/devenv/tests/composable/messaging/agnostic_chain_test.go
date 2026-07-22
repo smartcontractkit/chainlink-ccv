@@ -53,7 +53,7 @@ func MessageV3TestScenario(
 		return fmt.Errorf("failed to confirm send on source: %w", err)
 	}
 
-	execEvent, err := destChain.ConfirmExecOnDest(ctx, srcChain.ChainSelector(), cciptestinterfaces.MessageEventKey{MessageID: sentEvent.MessageID}, 40*time.Second)
+	execEvent, _, err := destChain.ConfirmExecOnDest(ctx, srcChain.ChainSelector(), cciptestinterfaces.MessageEventKey{MessageID: sentEvent.MessageID}, 40*time.Second)
 	if err != nil {
 		return fmt.Errorf("failed to confirm exec on dest: %w", err)
 	}
@@ -95,7 +95,7 @@ func EVMMessageV2TestScenario(
 		return fmt.Errorf("failed to confirm send on source: %w", err)
 	}
 
-	execEvent, err := dest.ConfirmExecOnDest(ctx, source.ChainSelector(), cciptestinterfaces.MessageEventKey{MessageID: sentEvent.MessageID}, 40*time.Second)
+	execEvent, _, err := dest.ConfirmExecOnDest(ctx, source.ChainSelector(), cciptestinterfaces.MessageEventKey{MessageID: sentEvent.MessageID}, 40*time.Second)
 	if err != nil {
 		return fmt.Errorf("failed to confirm exec on dest: %w", err)
 	}
@@ -136,7 +136,7 @@ func SVMMessageV2TestScenario(
 		return fmt.Errorf("failed to confirm send on source: %w", err)
 	}
 
-	execEvent, err := dest.ConfirmExecOnDest(ctx, source.ChainSelector(), cciptestinterfaces.MessageEventKey{MessageID: sentEvent.MessageID}, 40*time.Second)
+	execEvent, _, err := dest.ConfirmExecOnDest(ctx, source.ChainSelector(), cciptestinterfaces.MessageEventKey{MessageID: sentEvent.MessageID}, 40*time.Second)
 	if err != nil {
 		return fmt.Errorf("failed to confirm exec on dest: %w", err)
 	}

@@ -137,7 +137,7 @@ func runV2TestCase(
 	require.Len(t, result.IndexedVerifications.Results, tc.numExpectedVerifications)
 
 	if tc.assertExecuted {
-		e, err := chainMap[tc.toSelector].ConfirmExecOnDest(ctx, tc.fromSelector, cciptestinterfaces.MessageEventKey{SeqNum: seqNo}, defaultExecTimeout)
+		e, _, err := chainMap[tc.toSelector].ConfirmExecOnDest(ctx, tc.fromSelector, cciptestinterfaces.MessageEventKey{SeqNum: seqNo}, defaultExecTimeout)
 		require.NoError(t, err)
 		require.NotNil(t, e)
 

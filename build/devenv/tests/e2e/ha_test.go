@@ -136,7 +136,7 @@ func (s *haTestSetup) sendAndAssertExecution(
 			"expected exactly 1 indexed verification")
 	}
 
-	e, err := s.chainMap[s.toSelector].ConfirmExecOnDest(
+	e, _, err := s.chainMap[s.toSelector].ConfirmExecOnDest(
 		ctx, s.fromSelector, cciptestinterfaces.MessageEventKey{SeqNum: seqNo}, defaultExecTimeout)
 	require.NoError(t, err)
 	require.NotNil(t, e)

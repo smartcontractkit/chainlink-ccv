@@ -43,6 +43,8 @@ type tokenTransferV3TestCase struct {
 	hydrated  bool
 }
 
+var _ tcapi.ObservableTestCase = (*tokenTransferV3TestCase)(nil)
+
 func (tc *tokenTransferV3TestCase) Name() string {
 	return tc.name
 }
@@ -61,37 +63,44 @@ func (tc *tokenTransferV3TestCase) ensureHydrated(ctx context.Context) error {
 	return nil
 }
 
+// Run runs the token transfer test case. It returns an error if prerequisites are not met.
 func (tc *tokenTransferV3TestCase) Run(ctx context.Context) error {
-	if err := tc.ensureHydrated(ctx); err != nil {
-		return err
+	_, err := tc.RunWithResult(ctx)
+	return err
+}
+
+// RunWithResult runs the token transfer test case and returns the result, including send and exec envelopes, so that the caller can inspect them if needed.
+func (tc *tokenTransferV3TestCase) RunWithResult(ctx context.Context) (res tcapi.RunResult, err error) {
+	if err = tc.ensureHydrated(ctx); err != nil {
+		return res, err
 	}
 	l := zerolog.Ctx(ctx)
 	v3Src, err := tc.lib.V3Source(ctx, tc.src)
 	if err != nil {
-		return fmt.Errorf("source chain %d does not support V3 message: %w", tc.src, err)
+		return res, fmt.Errorf("source chain %d does not support V3 message: %w", tc.src, err)
 	}
 	v3Dst, err := tc.lib.V3Destination(ctx, tc.dst)
 	if err != nil {
-		return fmt.Errorf("destination chain %d does not support V3 message: %w", tc.dst, err)
+		return res, fmt.Errorf("destination chain %d does not support V3 message: %w", tc.dst, err)
 	}
 	srcBalReader, ok := v3Src.(cciptestinterfaces.TokenBalanceReader)
 	if !ok {
-		return fmt.Errorf("source chain %d does not support token balance reads", tc.src)
+		return res, fmt.Errorf("source chain %d does not support token balance reads", tc.src)
 	}
 	dstBalReader, ok := v3Dst.(cciptestinterfaces.TokenBalanceReader)
 	if !ok {
-		return fmt.Errorf("destination chain %d does not support token balance reads", tc.dst)
+		return res, fmt.Errorf("destination chain %d does not support token balance reads", tc.dst)
 	}
 
 	startBal, err := dstBalReader.GetTokenBalance(ctx, tc.receiver, tc.destToken)
 	if err != nil {
-		return fmt.Errorf("get receiver start balance: %w", err)
+		return res, fmt.Errorf("get receiver start balance: %w", err)
 	}
 	l.Info().Str("Receiver", tc.receiver.String()).Uint64("StartBalance", startBal.Uint64()).Str("Token", tc.combo.RemotePoolAddressRef().Qualifier).Msg("receiver start balance")
 
 	srcStartBal, err := srcBalReader.GetTokenBalance(ctx, tc.sender, tc.srcToken)
 	if err != nil {
-		return fmt.Errorf("get sender start balance: %w", err)
+		return res, fmt.Errorf("get sender start balance: %w", err)
 	}
 	l.Info().Str("Sender", tc.sender.String()).Uint64("SrcStartBalance", srcStartBal.Uint64()).Str("Token", tc.combo.LocalPoolAddressRef().Qualifier).Msg("sender start balance")
 
@@ -110,7 +119,7 @@ func (tc *tokenTransferV3TestCase) Run(ctx context.Context) error {
 		msgReceiver = make([]byte, len(tc.receiver))
 	}
 
-	sendRes, err := tcapi.SendV3Message(ctx, v3Src, v3Dst,
+	sentEvt, sentTxHash, err := tcapi.SendV3Message(ctx, v3Src, v3Dst,
 		cciptestinterfaces.MessageFields{
 			Receiver: msgReceiver,
 			TokenAmount: cciptestinterfaces.TokenAmount{
@@ -125,32 +134,39 @@ func (tc *tokenTransferV3TestCase) Run(ctx context.Context) error {
 		tc.args.Send,
 	)
 	if err != nil {
-		return fmt.Errorf("send message: %w", err)
+		return res, fmt.Errorf("send message: %w", err)
 	}
-	if len(sendRes.ReceiptIssuers) != tc.numExpectedRecv {
-		return fmt.Errorf("expected %d receipt issuers, got %d", tc.numExpectedRecv, len(sendRes.ReceiptIssuers))
+
+	// populate the run result with the send receipt so that the caller can inspect it if needed
+	res.Src = cciptestinterfaces.SentEnvelope{
+		TxHash: sentTxHash,
+		Event:  sentEvt,
 	}
-	if sendRes.MessageID == (protocol.Bytes32{}) {
-		return fmt.Errorf("send returned zero message ID")
+
+	if len(sentEvt.ReceiptIssuers) != tc.numExpectedRecv {
+		return res, fmt.Errorf("expected %d receipt issuers, got %d", tc.numExpectedRecv, len(sentEvt.ReceiptIssuers))
 	}
-	messageKey := cciptestinterfaces.MessageEventKey{MessageID: sendRes.MessageID}
-	if sendRes.Message != nil {
-		l.Info().Uint64("SeqNo", uint64(sendRes.Message.SequenceNumber)).Str("Token", tc.combo.LocalPoolAddressRef().Qualifier).Msg("sent message")
+	if sentEvt.MessageID == (protocol.Bytes32{}) {
+		return res, fmt.Errorf("send returned zero message ID")
+	}
+	messageKey := cciptestinterfaces.MessageEventKey{MessageID: sentEvt.MessageID}
+	if sentEvt.Message != nil {
+		l.Info().Uint64("SeqNo", uint64(sentEvt.Message.SequenceNumber)).Str("Token", tc.combo.LocalPoolAddressRef().Qualifier).Msg("sent message")
 	}
 	_, err = v3Src.ConfirmSendOnSource(ctx, tc.dst, messageKey, sentTimeout)
 	if err != nil {
-		return fmt.Errorf("wait for sent event: %w", err)
+		return res, fmt.Errorf("wait for sent event: %w", err)
 	}
-	msgID := sendRes.MessageID
+	msgID := sentEvt.MessageID
 
 	aggregatorClient, indexerMonitor, err := tcapi.SetupOffchainClients(tc.lib, "")
 	if err != nil {
-		return err
+		return res, err
 	}
 	testCtx, cleanupFn := tcapi.NewTestingContext(ctx, aggregatorClient, indexerMonitor)
 	defer cleanupFn()
 
-	res, err := testCtx.AssertMessage(msgID, tcapi.AssertMessageOptions{
+	assertRes, err := testCtx.AssertMessage(msgID, tcapi.AssertMessageOptions{
 		TickInterval:            1 * time.Second,
 		Timeout:                 execTimeout,
 		ExpectedVerifierResults: tc.numExpectedVer,
@@ -158,41 +174,47 @@ func (tc *tokenTransferV3TestCase) Run(ctx context.Context) error {
 		AssertExecutorLogs:      false,
 	})
 	if err != nil {
-		return fmt.Errorf("assert message: %w", err)
+		return res, fmt.Errorf("observe message: %w", err)
 	}
-	if aggregatorClient != nil && res.AggregatedResult == nil {
-		return fmt.Errorf("aggregated result is nil")
+	if aggregatorClient != nil && assertRes.AggregatedResult == nil {
+		return res, fmt.Errorf("aggregated result is nil")
 	}
 
-	execEvt, err := v3Dst.ConfirmExecOnDest(ctx, tc.src, messageKey, execTimeout)
+	execEvt, execTxHash, err := v3Dst.ConfirmExecOnDest(ctx, tc.src, messageKey, execTimeout)
 	if err != nil {
-		return fmt.Errorf("wait for exec event: %w", err)
+		return res, fmt.Errorf("wait for exec event: %w", err)
 	}
 	if execEvt.State != cciptestinterfaces.ExecutionStateSuccess {
-		return fmt.Errorf("unexpected execution state %s, return data: %x", execEvt.State, execEvt.ReturnData)
+		return res, fmt.Errorf("unexpected execution state %s, return data: %x", execEvt.State, execEvt.ReturnData)
+	}
+
+	// populate the exec result with the execution receipt
+	res.Dest = cciptestinterfaces.ExecEnvelope{
+		TxHash: execTxHash,
+		Event:  execEvt,
 	}
 
 	endBal, err := dstBalReader.GetTokenBalance(ctx, tc.receiver, tc.destToken)
 	if err != nil {
-		return fmt.Errorf("get receiver end balance: %w", err)
+		return res, fmt.Errorf("get receiver end balance: %w", err)
 	}
 	expectedEndBal := new(big.Int).Add(new(big.Int).Set(startBal), destIncrease)
 	if endBal.Cmp(expectedEndBal) != 0 {
-		return fmt.Errorf("receiver end balance: expected %s, got %s", expectedEndBal.String(), endBal.String())
+		return res, fmt.Errorf("receiver end balance: expected %s, got %s", expectedEndBal.String(), endBal.String())
 	}
 	l.Info().Uint64("EndBalance", endBal.Uint64()).Str("Token", tc.combo.RemotePoolAddressRef().Qualifier).Msg("receiver end balance")
 
 	srcEndBal, err := srcBalReader.GetTokenBalance(ctx, tc.sender, tc.srcToken)
 	if err != nil {
-		return fmt.Errorf("get sender end balance: %w", err)
+		return res, fmt.Errorf("get sender end balance: %w", err)
 	}
 	expectedSrcEndBal := new(big.Int).Sub(new(big.Int).Set(srcStartBal), transferAmount)
 	if srcEndBal.Cmp(expectedSrcEndBal) != 0 {
-		return fmt.Errorf("sender end balance: expected %s, got %s", expectedSrcEndBal.String(), srcEndBal.String())
+		return res, fmt.Errorf("sender end balance: expected %s, got %s", expectedSrcEndBal.String(), srcEndBal.String())
 	}
 	l.Info().Uint64("SrcEndBalance", srcEndBal.Uint64()).Str("Token", tc.combo.LocalPoolAddressRef().Qualifier).Msg("sender end balance")
 
-	return nil
+	return res, nil
 }
 
 func (tc *tokenTransferV3TestCase) HavePrerequisites(ctx context.Context) bool {

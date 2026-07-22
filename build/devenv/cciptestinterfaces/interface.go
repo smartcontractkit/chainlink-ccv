@@ -89,6 +89,14 @@ type MessageSentEvent struct {
 	VerifierBlobs  [][]byte
 }
 
+// SentEnvelope preserves the chain-agnostic sent event together with the
+// source transaction identifier. TxHash is opaque: for example, it is an EVM
+// transaction hash or a Solana signature.
+type SentEnvelope struct {
+	TxHash protocol.ByteSlice
+	Event  MessageSentEvent
+}
+
 // MessageExecutionState represents the execution state of a CCIP message.
 // This must be the same across all implementations of CCIP on all chain families.
 type MessageExecutionState uint8
@@ -124,6 +132,14 @@ type ExecutionStateChangedEvent struct {
 	ReturnData          []byte
 }
 
+// ExecEnvelope preserves the chain-agnostic execution event together with
+// the destination transaction identifier when a chain implementation can expose it.
+// TxHash is opaque: for example, it is an EVM transaction hash or a Solana tx signature.
+type ExecEnvelope struct {
+	TxHash protocol.ByteSlice
+	Event  ExecutionStateChangedEvent
+}
+
 // MessageEventKey identifies a CCIP message event by sequence number or message ID.
 // User should only define one or the other.
 type MessageEventKey struct {
@@ -147,7 +163,7 @@ type Chain interface {
 	// ConfirmSendOnSource waits until exactly one CCIPMessageSent event is emitted on-chain for the specified destination chain, identified by sequence number or message ID.
 	ConfirmSendOnSource(ctx context.Context, to uint64, key MessageEventKey, timeout time.Duration) (MessageSentEvent, error)
 	// ConfirmExecOnDest waits until exactly one ExecutionStateChanged event is emitted on-chain for the specified source chain, identified by sequence number or message ID.
-	ConfirmExecOnDest(ctx context.Context, from uint64, key MessageEventKey, timeout time.Duration) (ExecutionStateChangedEvent, error)
+	ConfirmExecOnDest(ctx context.Context, from uint64, key MessageEventKey, timeout time.Duration) (ExecutionStateChangedEvent, protocol.ByteSlice, error)
 	// ManuallyExecuteMessage manually executes a message on this chain and returns an error if the execution fails.
 	ManuallyExecuteMessage(ctx context.Context, message protocol.Message, gasLimit uint64, ccvs []protocol.UnknownAddress, verifierResults [][]byte) (ExecutionStateChangedEvent, error)
 	// ChainSelector gets the selector for this chain.
@@ -351,7 +367,7 @@ type ChainAsDestination interface {
 	// ConfirmExecOnDest confirms that a CCIP message was executed on this chain.
 	// Implementation should support confirmation by either message ID or sequence number, passed in as the `MessageEventKey`.
 	// The timeout is the maximum duration to wait for the event to be emitted.
-	ConfirmExecOnDest(ctx context.Context, from uint64, key MessageEventKey, timeout time.Duration) (ExecutionStateChangedEvent, error)
+	ConfirmExecOnDest(ctx context.Context, from uint64, key MessageEventKey, timeout time.Duration) (ExecutionStateChangedEvent, protocol.ByteSlice, error)
 }
 
 // ChainAsSource is implemented by any chain that can ORIGINATE CCIP messages.

@@ -12,6 +12,7 @@ import (
 	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/logasserter"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	committeepb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/committee-verifier/v1"
 	verifierpb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/verifier/v1"
 )
@@ -46,6 +47,16 @@ type TestCase interface {
 	HavePrerequisites(ctx context.Context) bool
 }
 
+// ObservableTestCase is optionally implemented by test cases that expose the
+// source and destination transaction evidence produced by Run.
+type ObservableTestCase interface {
+	TestCase
+	// RunWithResult runs the test case and returns the source and destination
+	// transaction evidence produced by the test case. Returns an error if prerequisites
+	// are not met.
+	RunWithResult(ctx context.Context) (RunResult, error)
+}
+
 // DefaultV3ExecutionGasLimit is the execution gas limit used when SendConfig and MessageOptions omit it.
 const DefaultV3ExecutionGasLimit uint32 = 200_000
 
@@ -56,6 +67,13 @@ type RunConfig struct {
 	ConfirmSentTimeout time.Duration
 	// ConfirmExecTimeout overrides AssertMessage and ConfirmExecOnDest when non-zero.
 	ConfirmExecTimeout time.Duration
+}
+
+// RunResult contains portable assertion results and opaque transaction
+// evidence for integration-owned, chain-specific assertions.
+type RunResult struct {
+	Src  cciptestinterfaces.SentEnvelope
+	Dest cciptestinterfaces.ExecEnvelope
 }
 
 // SentTimeout returns ConfirmSentTimeout when set, otherwise fallback.
@@ -91,7 +109,7 @@ func SendV3Message(
 	fields cciptestinterfaces.MessageFields,
 	opts cciptestinterfaces.MessageOptions,
 	sendArgs SendArgs,
-) (cciptestinterfaces.MessageSentEvent, error) {
+) (cciptestinterfaces.MessageSentEvent, protocol.ByteSlice, error) {
 	if sendArgs.ExecutionGasLimit != 0 {
 		opts.ExecutionGasLimit = sendArgs.ExecutionGasLimit
 	} else if opts.ExecutionGasLimit == 0 {
@@ -100,19 +118,19 @@ func SendV3Message(
 
 	extraArgs, err := src.BuildV3ExtraArgs(opts, dst, sendArgs.ExtraArgsParams, sendArgs.TokenReceiverParams, sendArgs.TokenArgsParams)
 	if err != nil {
-		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("failed to encode V3 extra args: %w", err)
+		return cciptestinterfaces.MessageSentEvent{}, nil, fmt.Errorf("failed to encode V3 extra args: %w", err)
 	}
 
 	msg, err := src.BuildChainMessage(ctx, fields, extraArgs)
 	if err != nil {
-		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("failed to build chain message: %w", err)
+		return cciptestinterfaces.MessageSentEvent{}, nil, fmt.Errorf("failed to build chain message: %w", err)
 	}
 
-	sent, _, err := src.SendChainMessage(ctx, dst.ChainSelector(), msg, sendArgs.SendOption)
+	sent, txHash, err := src.SendChainMessage(ctx, dst.ChainSelector(), msg, sendArgs.SendOption)
 	if err != nil {
-		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("failed to send chain message: %w", err)
+		return cciptestinterfaces.MessageSentEvent{}, nil, fmt.Errorf("failed to send chain message: %w", err)
 	}
-	return sent, nil
+	return sent, txHash, nil
 }
 
 type TestingContext struct {

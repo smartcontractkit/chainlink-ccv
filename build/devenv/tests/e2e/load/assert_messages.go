@@ -78,7 +78,7 @@ func AssertMessagesAsync(vc VerificationContext, msgs <-chan SentMessage, overal
 					return
 				}
 
-				execEvent, err := vc.Impl[msg.ChainPair.Dest].ConfirmExecOnDest(verifyCtx, msg.ChainPair.Src, messageEventKey(msg), 0)
+				execEvent, _, err := vc.Impl[msg.ChainPair.Dest].ConfirmExecOnDest(verifyCtx, msg.ChainPair.Src, messageEventKey(msg), 0)
 				if err != nil {
 					if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 						vc.T.Logf("Message %d verification cancelled or timed out", msg.SeqNo)

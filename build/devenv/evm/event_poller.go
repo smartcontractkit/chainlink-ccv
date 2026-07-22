@@ -24,8 +24,9 @@ type eventKey struct {
 }
 
 type pollerResult[T any] struct {
-	event T
-	err   error
+	event  T
+	txHash protocol.ByteSlice
+	err    error
 }
 
 // eventPoller polls for on-chain events and delivers them to registered waiters.
@@ -43,14 +44,14 @@ type eventPoller[T any] struct {
 	mu                 sync.Mutex
 	running            bool
 	stopCh             chan struct{}
-	pollFn             func(start, end uint64) (map[eventKey]T, error)
+	pollFn             func(start, end uint64) (map[eventKey]T, map[eventKey]protocol.ByteSlice, error)
 }
 
 func newEventPoller[T any](
 	ethClient *ethclient.Client,
 	logger zerolog.Logger,
 	eventName string,
-	pollFn func(start, end uint64) (map[eventKey]T, error),
+	pollFn func(start, end uint64) (map[eventKey]T, map[eventKey]protocol.ByteSlice, error),
 ) *eventPoller[T] {
 	return &eventPoller[T]{
 		ethClient:          ethClient,
@@ -195,7 +196,7 @@ func (p *eventPoller[T]) poll() {
 		}
 	}
 
-	events, err := p.pollFn(start, latestBlock)
+	events, txHashes, err := p.pollFn(start, latestBlock)
 	if err != nil {
 		p.logger.Warn().Err(err).Str("event", p.eventName).Msg("Failed to poll events")
 		return
@@ -205,7 +206,8 @@ func (p *eventPoller[T]) poll() {
 	defer p.mu.Unlock()
 
 	for key, event := range events {
-		result := pollerResult[T]{event: event}
+		txHash := txHashes[key] // share the same key
+		result := pollerResult[T]{event: event, txHash: txHash, err: nil}
 		p.addToCache(key, result)
 
 		seqKey := eventKey{chainSelector: key.chainSelector, msgNum: key.msgNum}
