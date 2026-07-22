@@ -139,6 +139,12 @@ maxCommitVerifierNodeResultRequestsPerBatch = 100
 [heartbeat]
   # storeType selects the storage backend for heartbeat data; currently "memory" or "redis".
   storeType = ""
+  # redis configuration (only used when StoreType is "redis")
+  [heartbeat.redis]
+    # keyPrefix is the prefix for Redis keys storing heartbeat data (default: "heartbeat").
+    keyPrefix = "heartbeat"
+    # ttl is the time-to-live for heartbeat data in Redis (default: 7 days).
+    ttl = "168h0m0s"
 
 # rateLimiting configures per-client, per-group, and anonymous rate limits.
 [rateLimiting]

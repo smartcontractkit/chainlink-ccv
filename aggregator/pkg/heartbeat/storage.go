@@ -39,15 +39,15 @@ type RedisStorage struct {
 	ttl       time.Duration
 }
 
-func NewStorageFromConfig(l logger.SugaredLogger, c *model.AggregatorConfig) Storage {
-	if c.Heartbeat.StoreType == model.HeartbeatStoreTypeRedis {
+func NewStorageFromConfig(l logger.SugaredLogger, c model.HeartbeatConfig) Storage {
+	if c.StoreType == model.HeartbeatStoreTypeRedis {
 		client := redis.NewClient(&redis.Options{
-			Addr:     c.Heartbeat.Redis.Address,
-			Password: c.Heartbeat.Redis.Password,
-			DB:       c.Heartbeat.Redis.DB,
+			Addr:     c.Redis.Address,
+			Password: c.Redis.Password,
+			DB:       c.Redis.DB,
 		})
-		l.Infof("Using Redis heartbeat storage at %s with key prefix '%s' and TTL %s", c.Heartbeat.Redis.Address, c.Heartbeat.Redis.KeyPrefix, c.Heartbeat.Redis.TTL)
-		return NewRedisStorage(client, c.Heartbeat.Redis.KeyPrefix, c.Heartbeat.Redis.TTL)
+		l.Infof("Using Redis heartbeat storage at %s with key prefix '%s' and TTL %s", c.Redis.Address, c.Redis.KeyPrefix, c.Redis.TTL)
+		return NewRedisStorage(client, c.Redis.KeyPrefix, c.Redis.TTL)
 	}
 	l.Infof("Using in-memory heartbeat storage")
 	return NewInMemoryStorage()

@@ -478,11 +478,16 @@ func (t HeartbeatStoreType) IsValid() bool {
 }
 
 type HeartbeatRedisConfig struct {
-	Address   string        `toml:"-"`
-	Password  string        `toml:"-"`
-	DB        int           `toml:"-"`
-	KeyPrefix string        `toml:"keyPrefix"`
-	TTL       time.Duration `toml:"ttl"`
+	// Address is the Redis server address (host:port).
+	Address string `toml:"-"`
+	// Password is the Redis server password (if any).
+	Password string `toml:"-"`
+	// DB is the Redis database number to use (default: 0).
+	DB int `toml:"-"`
+	// KeyPrefix is the prefix for Redis keys storing heartbeat data (default: "heartbeat").
+	KeyPrefix string `toml:"keyPrefix"`
+	// TTL is the time-to-live for heartbeat data in Redis (default: 7 days).
+	TTL time.Duration `toml:"ttl"`
 }
 
 func (c *HeartbeatRedisConfig) SetDefaults() {

@@ -351,7 +351,7 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig, aggMonito
 	listMessageRulesHandler := handlers.NewListMessageRulesHandler(messageDisablementRegistry, l)
 	batchWriteCommitVerifierNodeResultHandler := handlers.NewBatchWriteCommitVerifierNodeResultHandler(writeCommitVerifierNodeResultHandler, config.MaxCommitVerifierNodeResultRequestsPerBatch)
 
-	heartbeatStorage := heartbeat.NewStorageFromConfig(l, config)
+	heartbeatStorage := heartbeat.NewStorageFromConfig(l, config.Heartbeat)
 	heartbeatHandler := handlers.NewHeartbeatHandler(heartbeatStorage, config.AggregatorID, config.Committee, l, aggMonitoring)
 
 	// Initialize middlewares
