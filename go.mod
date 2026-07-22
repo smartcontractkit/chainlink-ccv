@@ -345,4 +345,9 @@ require (
 	sigs.k8s.io/yaml v1.4.0 // indirect
 )
 
+// Replace v1.0.4, which is GPLv3 licensed, with the commit that
+// uses the more permissively licensed LGPLv3.
+// Do not remove this unless we strip this dependency entirely - its the
+// only GPLv3 dependency pulled (directly or indirectly) in this entire
+// mod file.
 replace go.dedis.ch/fixbuf => go.dedis.ch/fixbuf v1.0.4-0.20191127102231-6f51ba7ae63d
