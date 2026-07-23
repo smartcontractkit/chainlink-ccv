@@ -77,7 +77,7 @@ func RunScenario(t *testing.T, ctx context.Context, spec ScenarioSpec) error {
 	}
 	t.Cleanup(cleanup)
 
-	sent, err := tcapi.SendV3Message(ctx, v3Src, v3Dst, spec.Fields, spec.Opts, spec.SendArgs)
+	sent, _, err := tcapi.SendV3Message(ctx, v3Src, v3Dst, spec.Fields, spec.Opts, spec.SendArgs)
 	if err != nil {
 		return fmt.Errorf("send v3 message: %w", err)
 	}
@@ -132,7 +132,7 @@ func RunScenario(t *testing.T, ctx context.Context, spec ScenarioSpec) error {
 		return nil
 	}
 
-	execEvt, err := v3Dst.ConfirmExecOnDest(ctx, spec.Src, messageKey, execTimeout)
+	execEvt, _, err := v3Dst.ConfirmExecOnDest(ctx, spec.Src, messageKey, execTimeout)
 	if err != nil {
 		return fmt.Errorf("confirm exec on dest: %w", err)
 	}
