@@ -1,4 +1,4 @@
-# tcapi run results expose source/destination transaction hashes
+# tcapi run results expose source/destination transaction hashes with events
 
 ## Executive Summary
 
