@@ -87,6 +87,8 @@ func newStandaloneChain(ctx context.Context, info Info, lggr logger.Logger) (*st
 	}
 
 	var servicesToStart services.MultiStart
+	// MultiStart rolls back every service it started, in reverse order, if a
+	// later Start fails. The separately owned chain client is closed here.
 	if err := servicesToStart.Start(ctx, mailMonitor, headBroadcaster, headTracker); err != nil {
 		chainClient.Close()
 		return nil, fmt.Errorf("failed to start production EVM head tracker for chain %s: %w", info.ChainID, err)

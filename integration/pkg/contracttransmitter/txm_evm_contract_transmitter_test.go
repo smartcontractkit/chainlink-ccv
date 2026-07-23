@@ -77,7 +77,8 @@ func TestTXMEVMContractTransmitter_ConvertAndWriteMessageToChain(t *testing.T) {
 
 				txm.On("CreateTransaction", mock.Anything, mock.MatchedBy(func(req txmgr.TxRequest) bool {
 					return req.FromAddress == fromAddr &&
-						req.FeeLimit == minimumEVMTransactionGasLimit &&
+						req.FeeLimit == uint64(2000000)+
+							eip150ForwardingGasBuffer(1000000) &&
 						len(req.EncodedPayload) > 0
 				})).Return(expectedTx, nil)
 			},
@@ -150,14 +151,14 @@ func TestTXMEVMContractTransmitter_ConvertAndWriteMessageToChain(t *testing.T) {
 
 				txm.On("CreateTransaction", mock.Anything, mock.MatchedBy(func(req txmgr.TxRequest) bool {
 					return req.FromAddress == fromAddr &&
-						req.FeeLimit == minimumEVMTransactionGasLimit &&
+						req.FeeLimit == uint64(1000000)+eip150ForwardingGasBuffer(1000000) &&
 						len(req.EncodedPayload) > 0
 				})).Return(expectedTx, nil)
 			},
 			expectedError: "",
 		},
 		{
-			name: "protocol requirement above transaction gas floor",
+			name: "multiple CCVs with large gas limit",
 			report: protocol.AbstractAggregatedReport{
 				CCVS: []protocol.UnknownAddress{
 					protocol.UnknownAddress(common.HexToAddress("0x1111111111111111111111111111111111111111").Bytes()),
@@ -169,7 +170,7 @@ func TestTXMEVMContractTransmitter_ConvertAndWriteMessageToChain(t *testing.T) {
 					[]byte("ccv_data_2"),
 					[]byte("ccv_data_3"),
 				},
-				Message: mustCreateMessage(t, 1, 2, 100, 10000000, 5000000),
+				Message: mustCreateMessage(t, 1, 2, 100, 5000000, 5000000),
 			},
 			setupMocks: func(txm *mockTxManager, rr *mockRoundRobin) {
 				fromAddr := common.HexToAddress("0xabcdef1234567890abcdef1234567890abcdef12")
@@ -181,7 +182,7 @@ func TestTXMEVMContractTransmitter_ConvertAndWriteMessageToChain(t *testing.T) {
 
 				txm.On("CreateTransaction", mock.Anything, mock.MatchedBy(func(req txmgr.TxRequest) bool {
 					return req.FromAddress == fromAddr &&
-						req.FeeLimit == uint64(10000000)+eip150ForwardingGasBuffer(5000000) &&
+						req.FeeLimit == uint64(5000000)+eip150ForwardingGasBuffer(5000000) &&
 						len(req.EncodedPayload) > 0
 				})).Return(expectedTx, nil)
 			},
@@ -374,44 +375,6 @@ func TestTXMEVMContractTransmitter_ABIEncoding(t *testing.T) {
 				// Compare the payloads for byte-level equality
 				assert.Equal(t, expectedPayload, capturedPayload)
 			}
-		})
-	}
-}
-
-func TestEVMTransactionGasLimit(t *testing.T) {
-	testCases := []struct {
-		name                   string
-		executionGasLimit      uint32
-		ccipReceiveGasLimit    uint32
-		expectedTransactionGas uint64
-	}{
-		{
-			name:                   "uses floor below ten million",
-			executionGasLimit:      2_000_000,
-			ccipReceiveGasLimit:    1_000_000,
-			expectedTransactionGas: minimumEVMTransactionGasLimit,
-		},
-		{
-			name:                   "uses floor at ten million",
-			executionGasLimit:      10_000_000,
-			ccipReceiveGasLimit:    0,
-			expectedTransactionGas: minimumEVMTransactionGasLimit,
-		},
-		{
-			name:                   "preserves protocol requirement above floor",
-			executionGasLimit:      10_000_000,
-			ccipReceiveGasLimit:    5_000_000,
-			expectedTransactionGas: uint64(10_000_000) + eip150ForwardingGasBuffer(5_000_000),
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			assert.Equal(
-				t,
-				tc.expectedTransactionGas,
-				evmTransactionGasLimit(tc.executionGasLimit, tc.ccipReceiveGasLimit),
-			)
 		})
 	}
 }

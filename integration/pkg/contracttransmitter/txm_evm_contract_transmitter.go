@@ -24,11 +24,6 @@ const (
 	// uses to sign and submit OffRamp transactions on EVM chains.
 	DefaultKeyName = "evm/tx/executor_evm_transmitter_key"
 
-	// minimumEVMTransactionGasLimit preserves the outer transaction gas
-	// envelope used by the legacy standalone EVM transmitter. It is a floor:
-	// messages whose protocol-calculated requirement is higher retain it.
-	minimumEVMTransactionGasLimit uint64 = 10_000_000
-
 	// Numerator and Denominator to compensate for EIP-150 forwarding.
 	eip150ForwardingNumerator   = 64
 	eip150ForwardingDenominator = 63
@@ -85,10 +80,8 @@ func (ct *TXMEVMContractTransmitter) ConvertAndWriteMessageToChain(ctx context.C
 		return fmt.Errorf("skipping transmit, error getting round-robin from address: %w", err)
 	}
 	messageID, _ := report.Message.MessageID()
-	feeLimit := evmTransactionGasLimit(
-		report.Message.ExecutionGasLimit,
-		report.Message.CcipReceiveGasLimit,
-	)
+	feeLimit := uint64(report.Message.ExecutionGasLimit) +
+		eip150ForwardingGasBuffer(report.Message.CcipReceiveGasLimit)
 
 	// we don't want to use an idempotency key based on messageid in case the CCV Data changes in between resubmissions
 	tx, err := ct.TxmClient.CreateTransaction(ctx, txmgr.TxRequest{
@@ -110,15 +103,6 @@ func (ct *TXMEVMContractTransmitter) ConvertAndWriteMessageToChain(ctx context.C
 
 	ct.lggr.Infow("submitted tx to txm", "messageID", messageID, "txm key", tx.IdempotencyKey)
 	return nil
-}
-
-func evmTransactionGasLimit(executionGasLimit, ccipReceiveGasLimit uint32) uint64 {
-	requiredGasLimit := uint64(executionGasLimit) +
-		eip150ForwardingGasBuffer(ccipReceiveGasLimit)
-	if requiredGasLimit < minimumEVMTransactionGasLimit {
-		return minimumEVMTransactionGasLimit
-	}
-	return requiredGasLimit
 }
 
 // eip150ForwardingGasBuffer returns the extra gas needed to compensate for EIP-150

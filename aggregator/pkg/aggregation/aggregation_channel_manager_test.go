@@ -136,6 +136,31 @@ func TestEnqueue_DeduplicatesRequests(t *testing.T) {
 	assert.Len(t, manager.clientChannel["client1"], 1, "duplicate request should not be enqueued twice")
 }
 
+func TestEnqueue_DeduplicatesConcurrentRequests(t *testing.T) {
+	manager := NewChannelManager([]model.ChannelKey{"client1"}, 100)
+	req := aggregationRequest{
+		AggregationKey: "key1",
+		MessageID:      model.MessageID{1, 2, 3},
+		ChannelKey:     "client1",
+	}
+
+	const callers = 100
+	start := make(chan struct{})
+	errs := make(chan error, callers)
+	for range callers {
+		go func() {
+			<-start
+			errs <- manager.Enqueue(context.Background(), "client1", req, time.Second)
+		}()
+	}
+	close(start)
+
+	for range callers {
+		require.NoError(t, <-errs)
+	}
+	assert.Len(t, manager.clientChannel["client1"], 1, "concurrent duplicate requests should enqueue exactly once")
+}
+
 func TestEnqueue_AllowsReenqueueAfterDequeue(t *testing.T) {
 	manager := NewChannelManager([]model.ChannelKey{"client1"}, 10)
 

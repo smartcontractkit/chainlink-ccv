@@ -55,40 +55,50 @@ func (m *ChannelManager) Enqueue(ctx context.Context, key model.ChannelKey, req 
 		return common.ErrShuttingDown
 	}
 
-	if m.isQueued(req) {
-		return nil // Already queued, no need to enqueue again
-	}
-
 	ch, ok := m.clientChannel[key]
 	if !ok {
 		return fmt.Errorf("channel not found for key: %s", key)
 	}
+
+	queued, err := m.enqueueIfNotQueued(ctx, ch, req)
+	if err != nil {
+		return err
+	}
+	if !queued {
+		return nil
+	}
+	select {
+	case m.wakeUp <- struct{}{}:
+	default:
+	}
+	return nil
+}
+
+func (m *ChannelManager) enqueueIfNotQueued(
+	ctx context.Context,
+	ch chan<- aggregationRequest,
+	req aggregationRequest,
+) (bool, error) {
+	// Reserve the deduplication key and enqueue while holding the same lock.
+	// Otherwise Start can dequeue and delete the key between the send and a
+	// later marker write, leaving a stale key that suppresses every
+	// subsequent quorum check for this message.
+	m.currentlyQueuedLock.Lock()
+	defer m.currentlyQueuedLock.Unlock()
+
+	requestID := req.ID()
+	if _, exists := m.currentlyQueued[requestID]; exists {
+		return false, nil
+	}
 	select {
 	case ch <- req:
-		m.markAsQueued(req)
-		select {
-		case m.wakeUp <- struct{}{}:
-		default:
-		}
-		return nil
+		m.currentlyQueued[requestID] = struct{}{}
+		return true, nil
 	case <-ctx.Done():
-		return ctx.Err()
+		return false, ctx.Err()
 	default:
-		return common.ErrAggregationChannelFull
+		return false, common.ErrAggregationChannelFull
 	}
-}
-
-func (m *ChannelManager) isQueued(req aggregationRequest) bool {
-	m.currentlyQueuedLock.Lock()
-	defer m.currentlyQueuedLock.Unlock()
-	_, exists := m.currentlyQueued[req.ID()]
-	return exists
-}
-
-func (m *ChannelManager) markAsQueued(req aggregationRequest) {
-	m.currentlyQueuedLock.Lock()
-	defer m.currentlyQueuedLock.Unlock()
-	m.currentlyQueued[req.ID()] = struct{}{}
 }
 
 func (m *ChannelManager) markAsDequeued(req aggregationRequest) {
