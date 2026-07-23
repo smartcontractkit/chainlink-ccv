@@ -70,9 +70,6 @@ func mergeRegistration(existing, incoming Registration) Registration {
 	if existing.ChainConfigLoader == nil {
 		existing.ChainConfigLoader = incoming.ChainConfigLoader
 	}
-	if existing.LocalNetworkConfigurator == nil {
-		existing.LocalNetworkConfigurator = incoming.LocalNetworkConfigurator
-	}
 	if existing.Launcher == nil {
 		existing.Launcher = incoming.Launcher
 	}

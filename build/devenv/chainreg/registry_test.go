@@ -1,12 +1,10 @@
 package chainreg
 
 import (
-	"context"
 	"testing"
 
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
-	"github.com/smartcontractkit/chainlink-ccv/build/devenv/util"
 	ctfblockchain "github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
 
@@ -51,13 +49,6 @@ func TestRegistryAddMergesPartialRegistrations(t *testing.T) {
 	loader := func([]*ctfblockchain.Output) (map[string]any, error) {
 		return map[string]any{"loaded": true}, nil
 	}
-	localNetworkConfigurator := func(
-		context.Context,
-		util.OpaqueConfig,
-		[]*ctfblockchain.Output,
-	) (util.OpaqueConfig, LocalNetworkFinalizer, error) {
-		return nil, nil, nil
-	}
 
 	if err := r.Add("canton", Registration{
 		ExtraArgsSerializers: map[uint8]ExtraArgsSerializer{1: serializer},
@@ -65,8 +56,7 @@ func TestRegistryAddMergesPartialRegistrations(t *testing.T) {
 		t.Fatalf("first Add() error = %v", err)
 	}
 	if err := r.Add("canton", Registration{
-		ChainConfigLoader:        loader,
-		LocalNetworkConfigurator: localNetworkConfigurator,
+		ChainConfigLoader: loader,
 	}); err != nil {
 		t.Fatalf("second Add() error = %v", err)
 	}
@@ -77,9 +67,6 @@ func TestRegistryAddMergesPartialRegistrations(t *testing.T) {
 	}
 	if reg.ChainConfigLoader == nil {
 		t.Fatal("ChainConfigLoader was not merged")
-	}
-	if reg.LocalNetworkConfigurator == nil {
-		t.Fatal("LocalNetworkConfigurator was not merged")
 	}
 	if _, ok := r.GetExtraArgsSerializer("canton", 1); !ok {
 		t.Fatal("ExtraArgsSerializer was not preserved")

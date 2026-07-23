@@ -31,17 +31,21 @@ configuration, using upstream defaults for settings CCV does not expose.
   monitor, and TXM services. Keystore/TXM startup errors are returned to
   bootstrap instead of being logged and ignored.
 
-The standalone database does not contain chainlink-core's EVM head tables, so
-the production head tracker uses its supported in-memory saver. TXM v2 also
-uses its chainlink-evm in-memory store and does not require those schemas.
+## Persistence boundary
+
+Persistence is deliberately out of scope for this change. The standalone
+database does not contain chainlink-core's EVM schemas, so the production head
+tracker uses its supported in-memory saver and TXM v2 uses its in-memory store.
+Consequently, TXM state for pending transactions is not durable across a
+process crash.
+
+Durable recovery should be added separately with a CCV-owned EVM database
+boundary, migrations, and ORM wiring. Keeping that work separate avoids
+silently coupling standalone deployments to chainlink-core's schema lifecycle.
 
 ## Validation
 
-- Devenv's `standard.rpc-failover.profile` puts independently controllable
-  primary and secondary RPC proxies in front of each Anvil chain. The CI chaos
-  test removes the initially healthy primary and verifies both source head
-  tracking and destination transaction submission through the secondary.
-- The proxy schema and lifecycle are owned by the registered EVM local-network
-  configurator; the environment only routes opaque family configuration.
+- A focused multi-node test places an unavailable RPC before a healthy RPC and
+  verifies that the production client reads from the healthy endpoint.
 - The EVM-local config mount test verifies that all HTTP and WebSocket URLs for
   multiple nodes are preserved in order.
