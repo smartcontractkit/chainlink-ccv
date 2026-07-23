@@ -36,6 +36,10 @@ type stubChainRuntime struct {
 
 type runtimeContextMarkerKey struct{}
 
+const validTestOffRampAddress = "0x0000000000000000000000000000000000001234"
+const validTestRMNRemoteAddress = "0x0000000000000000000000000000000000005678"
+const zeroTestAddress = "0x0000000000000000000000000000000000000000"
+
 func (s *stubChainRuntime) ChainClient() (client.Client, error) { return s.Client, s.clientErr }
 func (s *stubChainRuntime) HeadTracker() (heads.Tracker, error) { return s.Tracker, s.trackerErr }
 
@@ -178,6 +182,86 @@ func TestFactoryRejectsAccessorWithoutCapabilitiesBeforeStartingRuntime(t *testi
 	require.Zero(t, runtimeCalls)
 }
 
+func TestIsValidAddress(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name    string
+		address string
+		want    bool
+	}{
+		{name: "valid", address: validTestOffRampAddress, want: true},
+		{name: "empty", address: "", want: false},
+		{name: "short", address: "0x1234", want: false},
+		{name: "malformed", address: "0x000000000000000000000000000000000000zzzz", want: false},
+		{name: "zero", address: zeroTestAddress, want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			require.Equal(t, tt.want, isValidAddress(tt.address))
+		})
+	}
+}
+
+func TestFactoryRejectsIncompleteDestinationConfigBeforeStartingRuntime(t *testing.T) {
+	t.Parallel()
+
+	const selector = protocol.ChainSelector(5009297550715157269)
+	tests := []struct {
+		name   string
+		config chainaccess.DestinationChainConfig
+	}{
+		{
+			name:   "missing RMN remote",
+			config: chainaccess.DestinationChainConfig{OffRampAddress: validTestOffRampAddress},
+		},
+		{
+			name:   "missing off-ramp",
+			config: chainaccess.DestinationChainConfig{RmnAddress: validTestRMNRemoteAddress},
+		},
+		{
+			name: "malformed off-ramp",
+			config: chainaccess.DestinationChainConfig{
+				OffRampAddress: "0x1234",
+				RmnAddress:     validTestRMNRemoteAddress,
+			},
+		},
+		{
+			name: "zero RMN remote",
+			config: chainaccess.DestinationChainConfig{
+				OffRampAddress: validTestOffRampAddress,
+				RmnAddress:     zeroTestAddress,
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			runtimeCalls := 0
+			factory := newFactory(
+				logger.Test(t),
+				nil,
+				nil,
+				map[protocol.ChainSelector]chainaccess.DestinationChainConfig{selector: tt.config},
+				0,
+				func(context.Context, protocol.ChainSelector, logger.Logger) (chainRuntime, error) {
+					runtimeCalls++
+					return &stubChainRuntime{}, nil
+				},
+			)
+
+			accessor, err := factory.GetAccessor(context.Background(), selector)
+			require.Nil(t, accessor)
+			require.ErrorContains(t, err, "destination services require valid non-zero off-ramp and RMN remote addresses")
+			require.Zero(t, runtimeCalls)
+		})
+	}
+}
+
 func TestFactoryClosesRuntimeWhenChainClientIsUnavailable(t *testing.T) {
 	t.Parallel()
 
@@ -189,7 +273,10 @@ func TestFactoryClosesRuntimeWhenChainClientIsUnavailable(t *testing.T) {
 		nil,
 		nil,
 		map[protocol.ChainSelector]chainaccess.DestinationChainConfig{
-			selector: {OffRampAddress: "0x1234"},
+			selector: {
+				OffRampAddress: validTestOffRampAddress,
+				RmnAddress:     validTestRMNRemoteAddress,
+			},
 		},
 		0,
 		func(context.Context, protocol.ChainSelector, logger.Logger) (chainRuntime, error) {
@@ -213,7 +300,10 @@ func TestFactoryRejectsNilRuntime(t *testing.T) {
 		nil,
 		nil,
 		map[protocol.ChainSelector]chainaccess.DestinationChainConfig{
-			selector: {OffRampAddress: "0x1234"},
+			selector: {
+				OffRampAddress: validTestOffRampAddress,
+				RmnAddress:     validTestRMNRemoteAddress,
+			},
 		},
 		0,
 		func(context.Context, protocol.ChainSelector, logger.Logger) (chainRuntime, error) {
@@ -238,7 +328,10 @@ func TestFactoryIncludesRuntimeCloseFailureInComponentError(t *testing.T) {
 		nil,
 		nil,
 		map[protocol.ChainSelector]chainaccess.DestinationChainConfig{
-			selector: {OffRampAddress: "0x1234"},
+			selector: {
+				OffRampAddress: validTestOffRampAddress,
+				RmnAddress:     validTestRMNRemoteAddress,
+			},
 		},
 		0,
 		func(context.Context, protocol.ChainSelector, logger.Logger) (chainRuntime, error) {

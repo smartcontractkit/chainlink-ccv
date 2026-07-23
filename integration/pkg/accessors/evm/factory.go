@@ -61,7 +61,7 @@ func newFactory(
 
 // isValidAddress reports whether s is a non-empty hex address that is not the zero address.
 func isValidAddress(s string) bool {
-	return s != "" && common.HexToAddress(s) != (common.Address{})
+	return common.IsHexAddress(s) && common.HexToAddress(s) != (common.Address{})
 }
 
 func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainSelector) (chainaccess.Accessor, error) {
@@ -84,7 +84,14 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 	rmnRemoteAddress := f.rmnRemoteAddresses[chainSelector]
 	destCfg := f.destChainConfigs[chainSelector]
 	hasSourceReaderConfig := isValidAddress(onRampAddress) && isValidAddress(rmnRemoteAddress)
-	hasDestinationConfig := isValidAddress(destCfg.OffRampAddress)
+	hasAnyDestinationConfig := destCfg.OffRampAddress != "" || destCfg.RmnAddress != ""
+	hasDestinationConfig := isValidAddress(destCfg.OffRampAddress) && isValidAddress(destCfg.RmnAddress)
+	if hasAnyDestinationConfig && !hasDestinationConfig {
+		return nil, fmt.Errorf(
+			"cannot get accessor for chain %d: destination services require valid non-zero off-ramp and RMN remote addresses",
+			chainSelector,
+		)
+	}
 	if !hasSourceReaderConfig && !hasDestinationConfig {
 		return nil, fmt.Errorf(
 			"cannot get accessor for chain %d: neither source nor destination services are configured",
