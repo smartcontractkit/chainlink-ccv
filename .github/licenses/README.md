@@ -1,12 +1,13 @@
 # Dependency license policy
 
-`Dependency Licenses` runs [google/go-licenses](https://github.com/google/go-licenses)
-against production packages in the root Go module. It only accepts SPDX identifiers in
-`allowed-licenses.txt`; an unrecognized, unlisted, or copyleft license such as GPL
-therefore fails the required check.
+`just tidy` runs [google/go-licenses](https://github.com/google/go-licenses) against
+production packages in the root Go module. `Repo Hygiene Checks` runs `just tidy` in
+CI. It only accepts SPDX identifiers in `allowed-licenses.txt`; an unrecognized,
+unlisted, or copyleft license such as GPL therefore fails the required check.
 
-The checker writes a GitHub workflow error annotation and concise failure summary;
-the rejected dependencies are listed immediately above it in the job log.
+Successful checks suppress `go-licenses` warnings. On failure, the checker writes a
+GitHub workflow error annotation and replays the tool output identifying rejected
+dependencies.
 
 ## Exceptions
 

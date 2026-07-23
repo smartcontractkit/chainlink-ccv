@@ -78,7 +78,12 @@ for package in "${ignored_packages[@]}"; do
 done
 
 echo "Checking root Go module dependencies against the approved license allowlist."
-if ! go-licenses "${args[@]}"; then
+license_output="$(mktemp)"
+if ! go-licenses "${args[@]}" > "${license_output}" 2>&1; then
+  while IFS= read -r line; do
+    echo "${line}"
+  done < "${license_output}"
+  rm -f "${license_output}"
   echo "::error title=Unapproved dependency license::Review the rejected dependency above. GPL, unknown, and unlisted licenses are blocked."
   if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
     {
@@ -90,6 +95,7 @@ if ! go-licenses "${args[@]}"; then
   fi
   exit 1
 fi
+rm -f "${license_output}"
 
 if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
   {
