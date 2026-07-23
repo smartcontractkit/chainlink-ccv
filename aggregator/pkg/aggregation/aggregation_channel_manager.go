@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"sync/atomic"
-	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
@@ -41,7 +40,7 @@ func NewChannelManagerFromConfig(config *model.AggregatorConfig) *ChannelManager
 	return NewChannelManager(keys, config.Aggregation.ChannelBufferSize)
 }
 
-func (m *ChannelManager) Enqueue(ctx context.Context, key model.ChannelKey, req aggregationRequest, maxBlockTime time.Duration) error {
+func (m *ChannelManager) Enqueue(ctx context.Context, key model.ChannelKey, req aggregationRequest) error {
 	if m.closed.Load() {
 		return common.ErrShuttingDown
 	}
@@ -49,8 +48,6 @@ func (m *ChannelManager) Enqueue(ctx context.Context, key model.ChannelKey, req 
 	if !ok {
 		return fmt.Errorf("channel not found for key: %s", key)
 	}
-	timer := time.NewTimer(maxBlockTime)
-	defer timer.Stop()
 	select {
 	case ch <- req:
 		select {
@@ -58,10 +55,10 @@ func (m *ChannelManager) Enqueue(ctx context.Context, key model.ChannelKey, req 
 		default:
 		}
 		return nil
-	case <-timer.C:
-		return common.ErrAggregationChannelFull
 	case <-ctx.Done():
 		return ctx.Err()
+	default:
+		return common.ErrAggregationChannelFull
 	}
 }
 

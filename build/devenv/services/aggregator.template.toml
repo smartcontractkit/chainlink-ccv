@@ -28,6 +28,13 @@ enabled = false
 interval = "5m"
 maxAge = "24h"
 
+[heartbeat]
+storeType = "redis"
+
+[heartbeat.redis]
+keyPrefix = "heartbeat"
+ttl = "72h"
+
 # Rate Limiting Configuration
 [rateLimiting]
 enabled = true

@@ -8,14 +8,11 @@ import (
 
 	"github.com/rs/zerolog"
 
-	chain_selectors "github.com/smartcontractkit/chain-selectors"
 	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
-	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainreg"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/tcapi"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 )
 
 // v3TestCaseBase contains test data that can be specified w/out the environment.
@@ -171,64 +168,6 @@ func (tc *v3TestCase) HavePrerequisites(ctx context.Context) bool {
 	return tc.ensureHydrated(ctx) == nil
 }
 
-func getCommitteeCCV(resolver chainreg.AddressResolver, ds datastore.DataStore, srcChainSelector uint64, qualifier string) (protocol.CCV, error) {
-	addr, err := resolver.GetCommitteeCCV(ds, srcChainSelector, qualifier)
-	if err != nil {
-		return protocol.CCV{}, err
-	}
-
-	return protocol.CCV{CCVAddress: addr, Args: []byte{}, ArgsLen: 0}, nil
-}
-
-// v3Env holds devenv handles loaded for v3 test case hydration.
-type v3Env struct {
-	DS          datastore.DataStore
-	Dst         cciptestinterfaces.V3Destination
-	SrcResolver chainreg.AddressResolver
-	DstResolver chainreg.AddressResolver
-}
-
-func loadV3Env(ctx context.Context, lib ccv.Lib, src, dst uint64) (v3Env, bool) {
-	var env v3Env
-
-	ds, err := lib.DataStore()
-	if err != nil {
-		return env, false
-	}
-	env.DS = ds
-
-	dstChain, err := lib.V3Destination(ctx, dst)
-	if err != nil {
-		return env, false
-	}
-	env.Dst = dstChain
-
-	srcFamily, err := chain_selectors.GetSelectorFamily(src)
-	if err != nil {
-		return env, false
-	}
-	dstFamily, err := chain_selectors.GetSelectorFamily(dst)
-	if err != nil {
-		return env, false
-	}
-
-	srcReg, err := chainreg.GetRegistry().Get(srcFamily)
-	if err != nil {
-		return env, false
-	}
-	dstReg, err := chainreg.GetRegistry().Get(dstFamily)
-	if err != nil {
-		return env, false
-	}
-	if srcReg.AddressResolver == nil || dstReg.AddressResolver == nil {
-		return env, false
-	}
-	env.SrcResolver = srcReg.AddressResolver
-	env.DstResolver = dstReg.AddressResolver
-
-	return env, true
-}
-
 // CustomExecutor returns a test case that uses the custom executor.
 func CustomExecutor(lib ccv.Lib, src, dest uint64, args Args) tcapi.TestCase {
 	return customExecutor(lib, src, dest, args)
@@ -249,7 +188,7 @@ func customExecutor(lib ccv.Lib, src, dest uint64, args Args) *v3TestCase {
 			args:                     args,
 		},
 		hydrate: func(ctx context.Context, tc *v3TestCase) bool {
-			env, ok := loadV3Env(ctx, tc.lib, tc.src, tc.dst)
+			env, ok := tcapi.LoadV3Env(ctx, tc.lib, tc.src, tc.dst)
 			if !ok {
 				return false
 			}
@@ -260,7 +199,7 @@ func customExecutor(lib ccv.Lib, src, dest uint64, args Args) *v3TestCase {
 			}
 			tc.receiver = receiver
 
-			ccv, err := getCommitteeCCV(env.SrcResolver, env.DS, tc.src, common.DefaultCommitteeVerifierQualifier)
+			ccv, err := tcapi.GetCommitteeCCV(env.SrcResolver, env.DS, tc.src, common.DefaultCommitteeVerifierQualifier)
 			if err != nil {
 				return false
 			}
@@ -295,27 +234,13 @@ func eoaReceiverDefaultVerifier(lib ccv.Lib, src, dest uint64, args Args) *v3Tes
 			args:                     args,
 		},
 		hydrate: func(ctx context.Context, tc *v3TestCase) bool {
-			env, ok := loadV3Env(ctx, tc.lib, tc.src, tc.dst)
-			if !ok {
-				return false
-			}
-			receiver, err := env.Dst.GetEOAReceiverAddress()
+			receiver, ccvs, executor, err := tcapi.ResolveV3SendAddresses(ctx, tc.lib, tc.src, tc.dst)
 			if err != nil {
 				return false
 			}
 			tc.receiver = receiver
-			ccv, err := getCommitteeCCV(env.SrcResolver, env.DS, tc.src, common.DefaultCommitteeVerifierQualifier)
-			if err != nil {
-				return false
-			}
-			tc.ccvs = []protocol.CCV{ccv}
-
-			executorAddr, err := env.SrcResolver.GetExecutor(env.DS, tc.src, common.DefaultExecutorQualifier)
-			if err != nil {
-				return false
-			}
-			tc.executor = executorAddr
-
+			tc.ccvs = ccvs
+			tc.executor = executor
 			return true
 		},
 	}
@@ -340,7 +265,7 @@ func eoaReceiverSecondaryVerifier(lib ccv.Lib, src, dest uint64, args Args) *v3T
 			args:                     args,
 		},
 		hydrate: func(ctx context.Context, tc *v3TestCase) bool {
-			env, ok := loadV3Env(ctx, tc.lib, tc.src, tc.dst)
+			env, ok := tcapi.LoadV3Env(ctx, tc.lib, tc.src, tc.dst)
 			if !ok {
 				return false
 			}
@@ -350,11 +275,11 @@ func eoaReceiverSecondaryVerifier(lib ccv.Lib, src, dest uint64, args Args) *v3T
 			}
 			tc.receiver = receiver
 
-			sec, err := getCommitteeCCV(env.SrcResolver, env.DS, tc.src, common.SecondaryCommitteeVerifierQualifier)
+			sec, err := tcapi.GetCommitteeCCV(env.SrcResolver, env.DS, tc.src, common.SecondaryCommitteeVerifierQualifier)
 			if err != nil {
 				return false
 			}
-			def, err := getCommitteeCCV(env.SrcResolver, env.DS, tc.src, common.DefaultCommitteeVerifierQualifier)
+			def, err := tcapi.GetCommitteeCCV(env.SrcResolver, env.DS, tc.src, common.DefaultCommitteeVerifierQualifier)
 			if err != nil {
 				return false
 			}
@@ -390,7 +315,7 @@ func receiverSecondaryVerifierRequired(lib ccv.Lib, src, dest uint64, args Args)
 			args:                     args,
 		},
 		hydrate: func(ctx context.Context, tc *v3TestCase) bool {
-			env, ok := loadV3Env(ctx, tc.lib, tc.src, tc.dst)
+			env, ok := tcapi.LoadV3Env(ctx, tc.lib, tc.src, tc.dst)
 			if !ok {
 				return false
 			}
@@ -401,7 +326,7 @@ func receiverSecondaryVerifierRequired(lib ccv.Lib, src, dest uint64, args Args)
 			}
 			tc.receiver = receiver
 
-			ccv, err := getCommitteeCCV(env.SrcResolver, env.DS, tc.src, common.SecondaryCommitteeVerifierQualifier)
+			ccv, err := tcapi.GetCommitteeCCV(env.SrcResolver, env.DS, tc.src, common.SecondaryCommitteeVerifierQualifier)
 			if err != nil {
 				return false
 			}
@@ -437,7 +362,7 @@ func receiverSecondaryRequiredTertiaryOptionalThreshold1(lib ccv.Lib, src, dest 
 			args:                     args,
 		},
 		hydrate: func(ctx context.Context, tc *v3TestCase) bool {
-			env, ok := loadV3Env(ctx, tc.lib, tc.src, tc.dst)
+			env, ok := tcapi.LoadV3Env(ctx, tc.lib, tc.src, tc.dst)
 			if !ok {
 				return false
 			}
@@ -448,11 +373,11 @@ func receiverSecondaryRequiredTertiaryOptionalThreshold1(lib ccv.Lib, src, dest 
 			}
 			tc.receiver = receiver
 
-			sec, err := getCommitteeCCV(env.SrcResolver, env.DS, tc.src, common.SecondaryCommitteeVerifierQualifier)
+			sec, err := tcapi.GetCommitteeCCV(env.SrcResolver, env.DS, tc.src, common.SecondaryCommitteeVerifierQualifier)
 			if err != nil {
 				return false
 			}
-			ter, err := getCommitteeCCV(env.SrcResolver, env.DS, tc.src, common.TertiaryCommitteeVerifierQualifier)
+			ter, err := tcapi.GetCommitteeCCV(env.SrcResolver, env.DS, tc.src, common.TertiaryCommitteeVerifierQualifier)
 			if err != nil {
 				return false
 			}
@@ -488,7 +413,7 @@ func receiverQuaternaryAllThreeVerifiers(lib ccv.Lib, src, dest uint64, args Arg
 			args:                     args,
 		},
 		hydrate: func(ctx context.Context, tc *v3TestCase) bool {
-			env, ok := loadV3Env(ctx, tc.lib, tc.src, tc.dst)
+			env, ok := tcapi.LoadV3Env(ctx, tc.lib, tc.src, tc.dst)
 			if !ok {
 				return false
 			}
@@ -497,15 +422,15 @@ func receiverQuaternaryAllThreeVerifiers(lib ccv.Lib, src, dest uint64, args Arg
 				return false
 			}
 			tc.receiver = receiver
-			def, err := getCommitteeCCV(env.SrcResolver, env.DS, tc.src, common.DefaultCommitteeVerifierQualifier)
+			def, err := tcapi.GetCommitteeCCV(env.SrcResolver, env.DS, tc.src, common.DefaultCommitteeVerifierQualifier)
 			if err != nil {
 				return false
 			}
-			sec, err := getCommitteeCCV(env.SrcResolver, env.DS, tc.src, common.SecondaryCommitteeVerifierQualifier)
+			sec, err := tcapi.GetCommitteeCCV(env.SrcResolver, env.DS, tc.src, common.SecondaryCommitteeVerifierQualifier)
 			if err != nil {
 				return false
 			}
-			ter, err := getCommitteeCCV(env.SrcResolver, env.DS, tc.src, common.TertiaryCommitteeVerifierQualifier)
+			ter, err := tcapi.GetCommitteeCCV(env.SrcResolver, env.DS, tc.src, common.TertiaryCommitteeVerifierQualifier)
 			if err != nil {
 				return false
 			}
@@ -539,7 +464,7 @@ func receiverQuaternaryDefaultAndSecondary(lib ccv.Lib, src, dest uint64, args A
 			args:                     args,
 		},
 		hydrate: func(ctx context.Context, tc *v3TestCase) bool {
-			env, ok := loadV3Env(ctx, tc.lib, tc.src, tc.dst)
+			env, ok := tcapi.LoadV3Env(ctx, tc.lib, tc.src, tc.dst)
 			if !ok {
 				return false
 			}
@@ -550,11 +475,11 @@ func receiverQuaternaryDefaultAndSecondary(lib ccv.Lib, src, dest uint64, args A
 			}
 			tc.receiver = receiver
 
-			def, err := getCommitteeCCV(env.SrcResolver, env.DS, tc.src, common.DefaultCommitteeVerifierQualifier)
+			def, err := tcapi.GetCommitteeCCV(env.SrcResolver, env.DS, tc.src, common.DefaultCommitteeVerifierQualifier)
 			if err != nil {
 				return false
 			}
-			sec, err := getCommitteeCCV(env.SrcResolver, env.DS, tc.src, common.SecondaryCommitteeVerifierQualifier)
+			sec, err := tcapi.GetCommitteeCCV(env.SrcResolver, env.DS, tc.src, common.SecondaryCommitteeVerifierQualifier)
 			if err != nil {
 				return false
 			}
@@ -590,7 +515,7 @@ func receiverQuaternaryDefaultAndTertiary(lib ccv.Lib, src, dest uint64, args Ar
 			args:                     args,
 		},
 		hydrate: func(ctx context.Context, tc *v3TestCase) bool {
-			env, ok := loadV3Env(ctx, tc.lib, tc.src, tc.dst)
+			env, ok := tcapi.LoadV3Env(ctx, tc.lib, tc.src, tc.dst)
 			if !ok {
 				return false
 			}
@@ -600,11 +525,11 @@ func receiverQuaternaryDefaultAndTertiary(lib ccv.Lib, src, dest uint64, args Ar
 				return false
 			}
 			tc.receiver = receiver
-			def, err := getCommitteeCCV(env.SrcResolver, env.DS, tc.src, common.DefaultCommitteeVerifierQualifier)
+			def, err := tcapi.GetCommitteeCCV(env.SrcResolver, env.DS, tc.src, common.DefaultCommitteeVerifierQualifier)
 			if err != nil {
 				return false
 			}
-			ter, err := getCommitteeCCV(env.SrcResolver, env.DS, tc.src, common.TertiaryCommitteeVerifierQualifier)
+			ter, err := tcapi.GetCommitteeCCV(env.SrcResolver, env.DS, tc.src, common.TertiaryCommitteeVerifierQualifier)
 			if err != nil {
 				return false
 			}
@@ -639,7 +564,7 @@ func maxDataSize(lib ccv.Lib, src, dest uint64, args Args) *v3TestCase {
 			args:                     args,
 		},
 		hydrate: func(ctx context.Context, tc *v3TestCase) bool {
-			env, ok := loadV3Env(ctx, tc.lib, tc.src, tc.dst)
+			env, ok := tcapi.LoadV3Env(ctx, tc.lib, tc.src, tc.dst)
 			if !ok {
 				return false
 			}
@@ -659,7 +584,7 @@ func maxDataSize(lib ccv.Lib, src, dest uint64, args Args) *v3TestCase {
 			}
 			tc.receiver = receiver
 
-			ccv, err := getCommitteeCCV(env.SrcResolver, env.DS, tc.src, common.DefaultCommitteeVerifierQualifier)
+			ccv, err := tcapi.GetCommitteeCCV(env.SrcResolver, env.DS, tc.src, common.DefaultCommitteeVerifierQualifier)
 			if err != nil {
 				return false
 			}
@@ -696,28 +621,13 @@ func eoaReceiverDefaultVerifierSafeTag(lib ccv.Lib, src, dest uint64, args Args)
 			args:                     args,
 		},
 		hydrate: func(ctx context.Context, tc *v3TestCase) bool {
-			env, ok := loadV3Env(ctx, tc.lib, tc.src, tc.dst)
-			if !ok {
-				return false
-			}
-			receiver, err := env.Dst.GetEOAReceiverAddress()
+			receiver, ccvs, executor, err := tcapi.ResolveV3SendAddresses(ctx, tc.lib, tc.src, tc.dst)
 			if err != nil {
 				return false
 			}
 			tc.receiver = receiver
-
-			ccv, err := getCommitteeCCV(env.SrcResolver, env.DS, tc.src, common.DefaultCommitteeVerifierQualifier)
-			if err != nil {
-				return false
-			}
-			tc.ccvs = []protocol.CCV{ccv}
-
-			executorAddr, err := env.SrcResolver.GetExecutor(env.DS, tc.src, common.DefaultExecutorQualifier)
-			if err != nil {
-				return false
-			}
-			tc.executor = executorAddr
-
+			tc.ccvs = ccvs
+			tc.executor = executor
 			return true
 		},
 	}

@@ -129,7 +129,7 @@ func LoadEVM(ctx context.Context, cfg ChainConfig, lggr logger.Logger, evmTxKeyS
 		return chainScopedCfg.EVM().GasEstimator().PriceMax()
 	}
 	chainStore := keys.NewChainStore(evmTxKeyStore, evmClient.ConfiguredChainID())
-	attemptBuilder := txm.NewAttemptBuilder(priceMaxKey, nil, chainStore, 0)
+	attemptBuilder := txm.NewAttemptBuilder(priceMaxKey, nil, chainStore, 0, false)
 	chainID := evmClient.ConfiguredChainID()
 	txmMetrics := txm.NewTxmMetrics(lggr, chainID)
 	evmTxm := txm.NewTxm(

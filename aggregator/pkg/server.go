@@ -344,19 +344,15 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig, aggMonito
 
 	agg := createAggregator(store, store, store, validator, config, l, aggMonitoring)
 
-	writeCommitVerifierNodeResultHandler := handlers.NewWriteCommitCCVNodeDataHandler(store, agg, aggMonitoring, l, validator, config.Aggregation.CheckAggregationTimeout, messageDisablementRegistry)
+	writeCommitVerifierNodeResultHandler := handlers.NewWriteCommitCCVNodeDataHandler(store, agg, aggMonitoring, l, validator, messageDisablementRegistry)
 	readCommitVerifierNodeResultHandler := handlers.NewReadCommitVerifierNodeResultHandler(store, l)
 	getMessagesSinceHandler := handlers.NewGetMessagesSinceHandler(store, config.Committee, l, aggMonitoring)
 	getVerifierResultsForMessageHandler := handlers.NewGetVerifierResultsForMessageHandler(store, config.Committee, config.MaxMessageIDsPerBatch, l)
 	listMessageRulesHandler := handlers.NewListMessageRulesHandler(messageDisablementRegistry, l)
 	batchWriteCommitVerifierNodeResultHandler := handlers.NewBatchWriteCommitVerifierNodeResultHandler(writeCommitVerifierNodeResultHandler, config.MaxCommitVerifierNodeResultRequestsPerBatch)
 
-	// Create in-memory heartbeat storage and handler
-	// TODO: switch to Redis-based storage when available
-	heartbeatStorage := heartbeat.NewInMemoryStorage()
+	heartbeatStorage := heartbeat.NewStorageFromConfig(l, config.Heartbeat)
 	heartbeatHandler := handlers.NewHeartbeatHandler(heartbeatStorage, config.AggregatorID, config.Committee, l, aggMonitoring)
-
-	l.Info("Using in-memory heartbeat storage")
 
 	// Initialize middlewares
 	loggingMiddleware := middlewares.NewLoggingMiddleware(l)

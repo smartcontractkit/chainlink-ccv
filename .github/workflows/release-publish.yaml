@@ -60,3 +60,39 @@ jobs:
           just "$MODULE"/publish "$ECR_REGISTRY_PRIMARY" "$VERSION"
           echo "Publishing GA Image (secondary).."
           just "$MODULE"/publish "$ECR_REGISTRY_SECONDARY" "$VERSION"
+
+  build-public:
+    name: Build, sign & publish public ${{ matrix.module }} image
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - module: committee verifier
+            repository: chainlink-ccv-verifier
+            dockerfile: verifier/Dockerfile
+            build_args: VERIFIER_TYPE=committee
+          - module: aggregator
+            repository: chainlink-ccv-aggregator
+            dockerfile: aggregator/Dockerfile
+            build_args: ''
+    permissions:
+      contents: read
+      id-token: write
+    uses: smartcontractkit/.github/.github/workflows/reusable-docker-build-publish.yml@f4ff50d0f4713ed7b247dbd8a58316484907f958 # 2026-01-13
+    with:
+      aws-ecr-name: ${{ matrix.repository }}
+      aws-region-ecr: us-east-1
+      build-arm64-image: 'true'
+      dockerfile: ${{ matrix.dockerfile }}
+      docker-build-context: .
+      docker-build-args: ${{ matrix.build_args }}
+      docker-manifest-sign: 'true'
+      docker-registry-url-override: public.ecr.aws/w0i8p0z9
+      git-sha: ${{ github.sha }}
+      github-event-name: ${{ github.event_name }}
+      github-ref-name: ${{ github.ref_name }}
+      github-ref-type: ${{ github.ref_type }}
+      github-workflow-repository: ${{ github.repository }}
+    secrets:
+      AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
+      AWS_ROLE_PUBLISH_ARN: ${{ secrets.CCV_IAM_ROLE_PROD }}
