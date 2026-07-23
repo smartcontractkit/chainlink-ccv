@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
 	commonconfig "github.com/smartcontractkit/chainlink-common/pkg/config"
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 	evmconfig "github.com/smartcontractkit/chainlink-evm/pkg/config"
@@ -38,12 +37,16 @@ func newChainlinkEVMConfig(info Info) (*evmconfig.ChainScoped, error) {
 	// The standalone database does not contain chainlink-core's evm.heads schema,
 	// so use the production tracker with its supported in-memory saver mode.
 	chain.HeadTracker.PersistenceEnabled = new(false)
-	finalityDepth := info.FinalityDepth
-	if finalityDepth == 0 {
-		// Preserve standalone CCV's existing finalization semantics by default.
-		finalityDepth = uint32(vtypes.ConfirmationDepth)
+	if info.FinalityDepth == 0 {
+		// FinalityDepth itself must remain positive in chainlink-evm, even in
+		// finality-tag mode, so retain the chain-specific upstream depth.
+		chain.FinalityTagEnabled = new(true)
+	} else {
+		// A positive operator value explicitly selects depth-based finality,
+		// including on chains whose upstream default enables finality tags.
+		chain.FinalityTagEnabled = new(false)
+		chain.FinalityDepth = new(info.FinalityDepth)
 	}
-	chain.FinalityDepth = &finalityDepth
 	// These services are not consumers of the standalone accessor. Disabling
 	// them keeps this lifecycle focused on the production HeadTracker and TXM.
 	chain.LogBroadcasterEnabled = new(false)

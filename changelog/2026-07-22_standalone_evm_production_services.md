@@ -21,8 +21,9 @@ using upstream defaults for settings CCV does not expose.
 - HTTP-only configurations use the production head tracker's polling mode.
   WebSocket subscriptions remain enabled when every configured node provides a
   WebSocket URL; mixed pools use polling so failover to any node remains valid.
-- Finality depth and TXM block time are configurable per chain. Their defaults
-  preserve standalone CCV's 15-block finality depth and TXM's two-second
+- Finality behavior and TXM block time are configurable per chain. A zero or
+  omitted `finality_depth` enables finality-tag mode, while a positive value
+  selects confirmation-depth mode. TXM block time defaults to its two-second
   minimum retry cadence.
 - Each RPC endpoint can carry its own operator-facing name for logs and health
   reports; unnamed endpoints receive a deterministic fallback.

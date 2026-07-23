@@ -29,7 +29,7 @@ type ChainConfig struct {
 	// Nodes are the RPC endpoints used to reach this chain.
 	Nodes []Node `toml:"nodes"`
 	// FinalityDepth is the number of blocks required before a head is considered final.
-	// Zero uses CCV's default confirmation depth.
+	// Zero enables finality-tag mode; a positive value uses confirmation-depth mode.
 	FinalityDepth uint32 `toml:"finality_depth,omitempty"`
 	// BlockTime controls TXM v2's retry cadence. Zero uses the standalone default;
 	// non-zero values must be at least two seconds.

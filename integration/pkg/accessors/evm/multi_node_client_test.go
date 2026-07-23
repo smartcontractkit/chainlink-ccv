@@ -10,7 +10,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-evm/pkg/config/chaintype"
 )
@@ -97,6 +96,7 @@ func TestNewChainlinkEVMConfigUsesProductionDefaultsAndEveryRPCNode(t *testing.T
 	require.Equal(t, chaintype.ChainArbitrum, cfg.EVM().ChainType(), "known-chain defaults must be preserved")
 	require.Equal(t, "HighestHead", cfg.EVM().NodePool().SelectionMode())
 	require.Equal(t, uint32(64), cfg.EVM().FinalityDepth())
+	require.False(t, cfg.EVM().FinalityTagEnabled(), "an explicit depth must select depth-based finality")
 	require.False(t, cfg.EVM().HeadTracker().PersistenceEnabled())
 	require.True(t, cfg.EVM().Transactions().Enabled())
 	require.False(t, cfg.EVM().Transactions().ForwardersEnabled())
@@ -152,7 +152,8 @@ func TestNewChainlinkEVMConfigSupportsExternalHTTPOnlyRPC(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, chaintype.ChainType(""), cfg.EVM().ChainType())
-	require.Equal(t, uint32(vtypes.ConfirmationDepth), cfg.EVM().FinalityDepth())
+	require.True(t, cfg.EVM().FinalityTagEnabled(), "zero depth must select finality-tag mode")
+	require.Positive(t, cfg.EVM().FinalityDepth(), "chainlink-evm requires a positive fallback depth")
 	require.Equal(t, defaultTXMBlockTime, *cfg.EVM().Transactions().TransactionManagerV2().BlockTime())
 	require.Equal(t, defaultNewHeadsPollInterval, cfg.EVM().NodePool().NewHeadsPollInterval())
 	require.Len(t, cfg.Nodes(), 1)
