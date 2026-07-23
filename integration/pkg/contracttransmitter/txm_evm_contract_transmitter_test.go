@@ -380,27 +380,27 @@ func TestTXMEVMContractTransmitter_ABIEncoding(t *testing.T) {
 
 func TestEVMTransactionGasLimit(t *testing.T) {
 	testCases := []struct {
-		name                    string
-		executionGasLimit       uint32
-		ccipReceiveGasLimit     uint32
+		name                   string
+		executionGasLimit      uint32
+		ccipReceiveGasLimit    uint32
 		expectedTransactionGas uint64
 	}{
 		{
-			name:                    "uses floor below ten million",
-			executionGasLimit:       2_000_000,
-			ccipReceiveGasLimit:     1_000_000,
+			name:                   "uses floor below ten million",
+			executionGasLimit:      2_000_000,
+			ccipReceiveGasLimit:    1_000_000,
 			expectedTransactionGas: minimumEVMTransactionGasLimit,
 		},
 		{
-			name:                    "uses floor at ten million",
-			executionGasLimit:       10_000_000,
-			ccipReceiveGasLimit:     0,
+			name:                   "uses floor at ten million",
+			executionGasLimit:      10_000_000,
+			ccipReceiveGasLimit:    0,
 			expectedTransactionGas: minimumEVMTransactionGasLimit,
 		},
 		{
-			name:                    "preserves protocol requirement above floor",
-			executionGasLimit:       10_000_000,
-			ccipReceiveGasLimit:     5_000_000,
+			name:                   "preserves protocol requirement above floor",
+			executionGasLimit:      10_000_000,
+			ccipReceiveGasLimit:    5_000_000,
 			expectedTransactionGas: uint64(10_000_000) + eip150ForwardingGasBuffer(5_000_000),
 		},
 	}
