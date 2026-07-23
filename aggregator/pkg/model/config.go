@@ -166,10 +166,6 @@ type AggregationConfig struct {
 	ChannelBufferSize int `toml:"channelBufferSize"`
 	// BackgroundWorkerCount controls the number of background workers processing aggregation requests
 	BackgroundWorkerCount int `toml:"backgroundWorkerCount"`
-	// CheckAggregationTimeout is the timeout for each check aggregation operation in the write commit verifier node result handler.
-	// Consider the batch size when setting this value. A larger batch size will require a longer timeout.
-	// Example: "5s", "100ms", "1m"
-	CheckAggregationTimeout time.Duration `toml:"checkAggregationTimeout"`
 	// OperationTimeout is the timeout for each aggregation operation (0 = no timeout)
 	OperationTimeout time.Duration `toml:"operationTimeout"`
 	// DrainTimeout bounds how long shutdown waits for in-flight aggregation workers to complete.
@@ -685,10 +681,6 @@ func (c *AggregatorConfig) SetDefaults() {
 	if c.Aggregation.BackgroundWorkerCount == 0 {
 		c.Aggregation.BackgroundWorkerCount = 10
 	}
-	// Default check aggregation timeout: 5 seconds
-	if c.Aggregation.CheckAggregationTimeout == 0 {
-		c.Aggregation.CheckAggregationTimeout = 5 * time.Second
-	}
 	if c.Aggregation.DrainTimeout == 0 {
 		c.Aggregation.DrainTimeout = 10 * time.Second
 	}
@@ -850,9 +842,6 @@ func (c *AggregatorConfig) ValidateAggregationConfig() error {
 	}
 	if c.Aggregation.DrainTimeout > 5*time.Minute {
 		return errors.New("aggregation.drainTimeout cannot exceed 5 minutes")
-	}
-	if c.Aggregation.CheckAggregationTimeout <= 0 {
-		return errors.New("aggregation.checkAggregationTimeout must be greater than 0")
 	}
 
 	return nil

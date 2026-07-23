@@ -344,7 +344,7 @@ func NewServer(l logger.SugaredLogger, config *model.AggregatorConfig, aggMonito
 
 	agg := createAggregator(store, store, store, validator, config, l, aggMonitoring)
 
-	writeCommitVerifierNodeResultHandler := handlers.NewWriteCommitCCVNodeDataHandler(store, agg, aggMonitoring, l, validator, config.Aggregation.CheckAggregationTimeout, messageDisablementRegistry)
+	writeCommitVerifierNodeResultHandler := handlers.NewWriteCommitCCVNodeDataHandler(store, agg, aggMonitoring, l, validator, messageDisablementRegistry)
 	readCommitVerifierNodeResultHandler := handlers.NewReadCommitVerifierNodeResultHandler(store, l)
 	getMessagesSinceHandler := handlers.NewGetMessagesSinceHandler(store, config.Committee, l, aggMonitoring)
 	getVerifierResultsForMessageHandler := handlers.NewGetVerifierResultsForMessageHandler(store, config.Committee, config.MaxMessageIDsPerBatch, l)

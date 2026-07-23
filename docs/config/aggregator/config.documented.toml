@@ -97,10 +97,6 @@ maxCommitVerifierNodeResultRequestsPerBatch = 100
   channelBufferSize = 200
   # backgroundWorkerCount controls the number of background workers processing aggregation requests
   backgroundWorkerCount = 10
-  # checkAggregationTimeout is the timeout for each check aggregation operation in the write commit verifier node result handler.
-  # Consider the batch size when setting this value. A larger batch size will require a longer timeout.
-  # Example: "5s", "100ms", "1m"
-  checkAggregationTimeout = "5s"
   # operationTimeout is the timeout for each aggregation operation (0 = no timeout)
   operationTimeout = "0s"
   # drainTimeout bounds how long shutdown waits for in-flight aggregation workers to complete.

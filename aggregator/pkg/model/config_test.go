@@ -79,7 +79,6 @@ func TestSetDefaults(t *testing.T) {
 		assert.Equal(t, 168*time.Hour, cfg.OrphanRecovery.MaxAge)
 		assert.Equal(t, "8080", cfg.HealthCheck.Port)
 		assert.Equal(t, 10*time.Second, cfg.Server.RequestTimeout)
-		assert.Equal(t, 5*time.Second, cfg.Aggregation.CheckAggregationTimeout)
 		assert.Equal(t, 10*time.Second, cfg.Aggregation.DrainTimeout)
 		assert.Equal(t, 5*time.Second, cfg.OrphanRecovery.CheckAggregationTimeout)
 		assert.Equal(t, common.Duration(10*time.Second), cfg.Storage.QueryTimeout)
@@ -262,10 +261,9 @@ func TestValidateBatchConfig(t *testing.T) {
 
 func TestValidateAggregationConfig(t *testing.T) {
 	validBase := AggregationConfig{
-		ChannelBufferSize:       10,
-		BackgroundWorkerCount:   10,
-		CheckAggregationTimeout: 5 * time.Second,
-		DrainTimeout:            30 * time.Second,
+		ChannelBufferSize:     10,
+		BackgroundWorkerCount: 10,
+		DrainTimeout:          30 * time.Second,
 	}
 
 	tests := []struct {
@@ -326,12 +324,6 @@ func TestValidateAggregationConfig(t *testing.T) {
 			mutate:      func(c *AggregationConfig) { c.DrainTimeout = 6 * time.Minute },
 			expectError: true,
 			errorMsg:    "drainTimeout cannot exceed 5 minutes",
-		},
-		{
-			name:        "negative check aggregation timeout fails",
-			mutate:      func(c *AggregationConfig) { c.CheckAggregationTimeout = -1 },
-			expectError: true,
-			errorMsg:    "aggregation.checkAggregationTimeout must be greater than 0",
 		},
 	}
 
