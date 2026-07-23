@@ -51,12 +51,13 @@ func init() {
 	// Register EVM with chainreg
 	evmFactory := &ImplFactory{}
 	if err := chainreg.Register(chainsel.FamilyEVM, chainreg.Registration{
-		ImplFactory:       evmFactory,
-		ExecutorInfo:      evmFactory,
-		CLDFProvider:      NewCLDFProviderFactory(),
-		ChainConfigLoader: ChainConfigLoader,
-		VerifierModifier:  VerifierModifier,
-		ExecutorModifier:  ExecutorModifier,
+		ImplFactory:              evmFactory,
+		ExecutorInfo:             evmFactory,
+		CLDFProvider:             NewCLDFProviderFactory(),
+		ChainConfigLoader:        ChainConfigLoader,
+		LocalNetworkConfigurator: ConfigureLocalNetworks,
+		VerifierModifier:         VerifierModifier,
+		ExecutorModifier:         ExecutorModifier,
 		ExtraArgsSerializers: map[uint8]chainreg.ExtraArgsSerializer{
 			1: BuildEVMExtraArgsV1,
 			2: BuildEVMExtraArgsV2,
