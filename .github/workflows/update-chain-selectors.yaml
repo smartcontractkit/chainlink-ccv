@@ -40,8 +40,7 @@ jobs:
 
       - name: Install module tools
         run: |
-          go install github.com/jmank88/gomods@v0.1.6
-          go install github.com/jmank88/modgraph@v0.1.6
+          just install-go-tools
 
       - name: Update chain-selectors in every module
         run: gomods -c 'go get github.com/smartcontractkit/chain-selectors@latest'
