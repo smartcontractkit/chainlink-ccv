@@ -679,8 +679,8 @@ func (c *AggregatorConfig) SetDefaults() {
 	}
 	// Aggregation defaults
 	if c.Aggregation.ChannelBufferSize == 0 {
-		// Set to MaxCommitVerifierNodeResultRequestsPerBatch * 2 by default to allow for some buffering of requests
-		c.Aggregation.ChannelBufferSize = c.MaxCommitVerifierNodeResultRequestsPerBatch * 2
+		// Set to 10 by default matching the number of background workers
+		c.Aggregation.ChannelBufferSize = 10
 	}
 	if c.Aggregation.BackgroundWorkerCount == 0 {
 		c.Aggregation.BackgroundWorkerCount = 10
@@ -1064,11 +1064,6 @@ func (c *AggregatorConfig) ValidateWithoutSecrets() error {
 	// Validate orphan recovery configuration
 	if err := c.ValidateOrphanRecoveryConfig(); err != nil {
 		return fmt.Errorf("orphan recovery configuration error: %w", err)
-	}
-
-	// Validate that the client channel buffer size is sufficient for the batch size
-	if c.Aggregation.ChannelBufferSize < c.MaxCommitVerifierNodeResultRequestsPerBatch {
-		return fmt.Errorf("aggregation channel buffer size (%d) is smaller than the max commit verifier node result requests per batch (%d). Large batch will be rejected instantly", c.Aggregation.ChannelBufferSize, c.MaxCommitVerifierNodeResultRequestsPerBatch)
 	}
 
 	return nil

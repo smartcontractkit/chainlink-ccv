@@ -94,7 +94,7 @@ maxCommitVerifierNodeResultRequestsPerBatch = 100
 # aggregation configures the signature-aggregation workers.
 [aggregation]
   # channelBufferSize controls the size of the aggregation request channel buffer
-  channelBufferSize = 200
+  channelBufferSize = 10
   # backgroundWorkerCount controls the number of background workers processing aggregation requests
   backgroundWorkerCount = 10
   # checkAggregationTimeout is the timeout for each check aggregation operation in the write commit verifier node result handler.
