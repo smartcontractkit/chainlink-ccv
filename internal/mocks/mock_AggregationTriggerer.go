@@ -5,8 +5,6 @@ package mocks
 import (
 	context "context"
 
-	time "time"
-
 	model "github.com/smartcontractkit/chainlink-ccv/aggregator/pkg/model"
 	mock "github.com/stretchr/testify/mock"
 )
@@ -24,17 +22,17 @@ func (_m *MockAggregationTriggerer) EXPECT() *MockAggregationTriggerer_Expecter 
 	return &MockAggregationTriggerer_Expecter{mock: &_m.Mock}
 }
 
-// CheckAggregation provides a mock function with given fields: ctx, messageID, aggregationKey, channelKey, maxBlockTime
-func (_m *MockAggregationTriggerer) CheckAggregation(ctx context.Context, messageID []byte, aggregationKey string, channelKey model.ChannelKey, maxBlockTime time.Duration) error {
-	ret := _m.Called(ctx, messageID, aggregationKey, channelKey, maxBlockTime)
+// CheckAggregation provides a mock function with given fields: ctx, messageID, aggregationKey, channelKey
+func (_m *MockAggregationTriggerer) CheckAggregation(ctx context.Context, messageID []byte, aggregationKey string, channelKey model.ChannelKey) error {
+	ret := _m.Called(ctx, messageID, aggregationKey, channelKey)
 
 	if len(ret) == 0 {
 		panic("no return value specified for CheckAggregation")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, []byte, string, model.ChannelKey, time.Duration) error); ok {
-		r0 = rf(ctx, messageID, aggregationKey, channelKey, maxBlockTime)
+	if rf, ok := ret.Get(0).(func(context.Context, []byte, string, model.ChannelKey) error); ok {
+		r0 = rf(ctx, messageID, aggregationKey, channelKey)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -52,14 +50,13 @@ type MockAggregationTriggerer_CheckAggregation_Call struct {
 //   - messageID []byte
 //   - aggregationKey string
 //   - channelKey model.ChannelKey
-//   - maxBlockTime time.Duration
-func (_e *MockAggregationTriggerer_Expecter) CheckAggregation(ctx interface{}, messageID interface{}, aggregationKey interface{}, channelKey interface{}, maxBlockTime interface{}) *MockAggregationTriggerer_CheckAggregation_Call {
-	return &MockAggregationTriggerer_CheckAggregation_Call{Call: _e.mock.On("CheckAggregation", ctx, messageID, aggregationKey, channelKey, maxBlockTime)}
+func (_e *MockAggregationTriggerer_Expecter) CheckAggregation(ctx interface{}, messageID interface{}, aggregationKey interface{}, channelKey interface{}) *MockAggregationTriggerer_CheckAggregation_Call {
+	return &MockAggregationTriggerer_CheckAggregation_Call{Call: _e.mock.On("CheckAggregation", ctx, messageID, aggregationKey, channelKey)}
 }
 
-func (_c *MockAggregationTriggerer_CheckAggregation_Call) Run(run func(ctx context.Context, messageID []byte, aggregationKey string, channelKey model.ChannelKey, maxBlockTime time.Duration)) *MockAggregationTriggerer_CheckAggregation_Call {
+func (_c *MockAggregationTriggerer_CheckAggregation_Call) Run(run func(ctx context.Context, messageID []byte, aggregationKey string, channelKey model.ChannelKey)) *MockAggregationTriggerer_CheckAggregation_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].([]byte), args[2].(string), args[3].(model.ChannelKey), args[4].(time.Duration))
+		run(args[0].(context.Context), args[1].([]byte), args[2].(string), args[3].(model.ChannelKey))
 	})
 	return _c
 }
@@ -69,7 +66,7 @@ func (_c *MockAggregationTriggerer_CheckAggregation_Call) Return(_a0 error) *Moc
 	return _c
 }
 
-func (_c *MockAggregationTriggerer_CheckAggregation_Call) RunAndReturn(run func(context.Context, []byte, string, model.ChannelKey, time.Duration) error) *MockAggregationTriggerer_CheckAggregation_Call {
+func (_c *MockAggregationTriggerer_CheckAggregation_Call) RunAndReturn(run func(context.Context, []byte, string, model.ChannelKey) error) *MockAggregationTriggerer_CheckAggregation_Call {
 	_c.Call.Return(run)
 	return _c
 }
