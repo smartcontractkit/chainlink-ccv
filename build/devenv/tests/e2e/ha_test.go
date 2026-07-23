@@ -136,9 +136,10 @@ func (s *haTestSetup) sendAndAssertExecution(
 			"expected exactly 1 indexed verification")
 	}
 
-	e, _, err := s.chainMap[s.toSelector].ConfirmExecOnDest(
+	execEnv, err := s.chainMap[s.toSelector].ConfirmExecOnDest(
 		ctx, s.fromSelector, cciptestinterfaces.MessageEventKey{SeqNum: seqNo}, defaultExecTimeout)
 	require.NoError(t, err)
+	e := execEnv.Event
 	require.NotNil(t, e)
 	require.Equal(t, cciptestinterfaces.ExecutionStateSuccess, e.State,
 		"unexpected execution state, return data: %x", e.ReturnData)

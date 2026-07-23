@@ -132,10 +132,11 @@ func RunScenario(t *testing.T, ctx context.Context, spec ScenarioSpec) error {
 		return nil
 	}
 
-	execEvt, _, err := v3Dst.ConfirmExecOnDest(ctx, spec.Src, messageKey, execTimeout)
+	execEnv, err := v3Dst.ConfirmExecOnDest(ctx, spec.Src, messageKey, execTimeout)
 	if err != nil {
 		return fmt.Errorf("confirm exec on dest: %w", err)
 	}
+	execEvt := execEnv.Event
 	if spec.ExpectExecFailure {
 		if execEvt.State != cciptestinterfaces.ExecutionStateFailure {
 			return fmt.Errorf("expected execution failure, got %s", execEvt.State)

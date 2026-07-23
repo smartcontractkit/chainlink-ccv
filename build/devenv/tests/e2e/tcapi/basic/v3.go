@@ -40,8 +40,6 @@ type v3TestCase struct {
 	hydrated bool
 }
 
-var _ tcapi.ObservableTestCase = (*v3TestCase)(nil)
-
 func (tc *v3TestCase) Name() string {
 	return tc.name
 }
@@ -60,14 +58,8 @@ func (tc *v3TestCase) ensureHydrated(ctx context.Context) error {
 	return nil
 }
 
-// Run runs the test case. It returns an error if prerequisites are not met.
-func (tc *v3TestCase) Run(ctx context.Context) error {
-	_, err := tc.RunWithResult(ctx)
-	return err
-}
-
-// RunWithResult runs the test case and returns the result, including send and exec envelopes, so that the caller can inspect them if needed.
-func (tc *v3TestCase) RunWithResult(ctx context.Context) (res tcapi.RunResult, err error) {
+// Run runs the test case and returns its send and exec envelopes. It returns an error if prerequisites are not met.
+func (tc *v3TestCase) Run(ctx context.Context) (res tcapi.RunResult, err error) {
 	if err = tc.ensureHydrated(ctx); err != nil {
 		return res, err
 	}
@@ -99,8 +91,8 @@ func (tc *v3TestCase) RunWithResult(ctx context.Context) (res tcapi.RunResult, e
 
 	// populate the send envelope
 	res.Src = cciptestinterfaces.SentEnvelope{
-		TxHash: sentTxHash,
-		Event:  sentEvt,
+		TxID:  sentTxHash,
+		Event: sentEvt,
 	}
 
 	if len(sentEvt.ReceiptIssuers) != tc.numExpectedReceipts {
@@ -145,21 +137,16 @@ func (tc *v3TestCase) RunWithResult(ctx context.Context) (res tcapi.RunResult, e
 		return res, fmt.Errorf("expected %d indexed verifications, got %d", tc.numExpectedVerifications, len(assertRes.IndexedVerifications.Results))
 	}
 
-	execEvt, execTxHash, err := v3Dst.ConfirmExecOnDest(ctx, tc.src, messageKey, execTimeout)
+	res.Dest, err = v3Dst.ConfirmExecOnDest(ctx, tc.src, messageKey, execTimeout)
 	if err != nil {
 		return res, fmt.Errorf("failed to wait for exec event: %w", err)
 	}
 
-	// populate the exec result with the execution envelope
-	res.Dest = cciptestinterfaces.ExecEnvelope{
-		TxHash: execTxHash,
-		Event:  execEvt,
-	}
-
-	if tc.expectFail && execEvt.State != cciptestinterfaces.ExecutionStateFailure {
-		return res, fmt.Errorf("expected execution state failure, got %s", execEvt.State)
-	} else if !tc.expectFail && execEvt.State != cciptestinterfaces.ExecutionStateSuccess {
-		return res, fmt.Errorf("expected execution state success, got %s", execEvt.State)
+	execState := res.Dest.Event.State
+	if tc.expectFail && execState != cciptestinterfaces.ExecutionStateFailure {
+		return res, fmt.Errorf("expected execution state failure, got %s", execState)
+	} else if !tc.expectFail && execState != cciptestinterfaces.ExecutionStateSuccess {
+		return res, fmt.Errorf("expected execution state success, got %s", execState)
 	}
 	return res, nil
 }

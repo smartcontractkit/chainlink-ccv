@@ -430,9 +430,9 @@ func (m *CCIP17EVM) ConfirmSendOnSource(ctx context.Context, to uint64, key ccip
 	}
 }
 
-func (m *CCIP17EVM) ConfirmExecOnDest(ctx context.Context, from uint64, key cciptestinterfaces.MessageEventKey, timeout time.Duration) (cciptestinterfaces.ExecutionStateChangedEvent, protocol.ByteSlice, error) {
+func (m *CCIP17EVM) ConfirmExecOnDest(ctx context.Context, from uint64, key cciptestinterfaces.MessageEventKey, timeout time.Duration) (cciptestinterfaces.ExecEnvelope, error) {
 	if key.MessageID == (protocol.Bytes32{}) && key.SeqNum == 0 {
-		return cciptestinterfaces.ExecutionStateChangedEvent{}, nil, fmt.Errorf("MessageEventKey must have MessageID or SeqNum set")
+		return cciptestinterfaces.ExecEnvelope{}, fmt.Errorf("MessageEventKey must have MessageID or SeqNum set")
 	}
 
 	l := m.logger
@@ -444,7 +444,7 @@ func (m *CCIP17EVM) ConfirmExecOnDest(ctx context.Context, from uint64, key ccip
 
 	poller, err := m.getOrCreateOffRampPoller()
 	if err != nil {
-		return cciptestinterfaces.ExecutionStateChangedEvent{}, nil, err
+		return cciptestinterfaces.ExecEnvelope{}, err
 	}
 
 	pollerKey := eventKey{chainSelector: from, msgNum: key.SeqNum, messageID: key.MessageID}
@@ -460,12 +460,12 @@ func (m *CCIP17EVM) ConfirmExecOnDest(ctx context.Context, from uint64, key ccip
 	select {
 	case <-ctx.Done():
 		l.Info().Msg("Context done while waiting for ExecutionStateChanged event")
-		return cciptestinterfaces.ExecutionStateChangedEvent{}, nil, ctx.Err()
+		return cciptestinterfaces.ExecEnvelope{}, ctx.Err()
 	case result := <-resultCh:
 		if result.err != nil {
-			return cciptestinterfaces.ExecutionStateChangedEvent{}, nil, result.err
+			return cciptestinterfaces.ExecEnvelope{}, result.err
 		}
-		return result.event, result.txHash, nil
+		return cciptestinterfaces.ExecEnvelope{Event: result.event, TxID: result.txHash}, nil
 	}
 }
 

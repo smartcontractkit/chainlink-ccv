@@ -31,12 +31,13 @@ type TestCase interface {
 	// Name returns the name of the test case.
 	Name() string
 
-	// Run runs the test case.
+	// Run runs the test case and returns the source and destination transaction
+	// evidence it produced.
 	// The context is typically derived from the *testing.T's Context() method.
 	// Implementations hydrate any required configuration before executing; callers
 	// do not need to call HavePrerequisites first. Returns an error if prerequisites
 	// are not met.
-	Run(ctx context.Context) error
+	Run(ctx context.Context) (RunResult, error)
 
 	// HavePrerequisites reports whether this test case can run in the current
 	// environment (e.g. required contracts deployed, services running).
@@ -45,16 +46,6 @@ type TestCase interface {
 	// subsequent Run calls reuse that state. Returns false to skip the test without
 	// treating it as a failure.
 	HavePrerequisites(ctx context.Context) bool
-}
-
-// ObservableTestCase is optionally implemented by test cases that expose the
-// source and destination transaction evidence produced by Run.
-type ObservableTestCase interface {
-	TestCase
-	// RunWithResult runs the test case and returns the source and destination
-	// transaction evidence produced by the test case. Returns an error if prerequisites
-	// are not met.
-	RunWithResult(ctx context.Context) (RunResult, error)
 }
 
 // DefaultV3ExecutionGasLimit is the execution gas limit used when SendConfig and MessageOptions omit it.

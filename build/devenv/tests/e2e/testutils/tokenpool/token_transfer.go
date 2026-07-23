@@ -152,8 +152,9 @@ func transferTokens(
 		require.NotNil(t, res.AggregatedResult, "aggregated result is nil")
 	}
 
-	execEvt, _, err := v3Dst.ConfirmExecOnDest(t.Context(), srcSel, messageKey, tcapi.DefaultExecTimeout)
+	execEnv, err := v3Dst.ConfirmExecOnDest(t.Context(), srcSel, messageKey, tcapi.DefaultExecTimeout)
 	require.NoError(t, err, "wait for exec event")
+	execEvt := execEnv.Event
 	require.Equal(t, cciptestinterfaces.ExecutionStateSuccess, execEvt.State, "unexpected execution state %s, return data: %x", execEvt.State, execEvt.ReturnData)
 
 	dstEndBal, err := dstBalReader.GetTokenBalance(t.Context(), receiver, dstTokenAddr)

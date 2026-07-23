@@ -44,8 +44,6 @@ type tokenTransferV3TestCase struct {
 	hydrated      bool
 }
 
-var _ tcapi.ObservableTestCase = (*tokenTransferV3TestCase)(nil)
-
 func (tc *tokenTransferV3TestCase) Name() string {
 	return tc.name
 }
@@ -64,14 +62,8 @@ func (tc *tokenTransferV3TestCase) ensureHydrated(ctx context.Context) error {
 	return nil
 }
 
-// Run runs the token transfer test case. It returns an error if prerequisites are not met.
-func (tc *tokenTransferV3TestCase) Run(ctx context.Context) error {
-	_, err := tc.RunWithResult(ctx)
-	return err
-}
-
-// RunWithResult runs the token transfer test case and returns the result, including send and exec envelopes, so that the caller can inspect them if needed.
-func (tc *tokenTransferV3TestCase) RunWithResult(ctx context.Context) (res tcapi.RunResult, err error) {
+// Run runs the token transfer test case and returns its send and exec envelopes. It returns an error if prerequisites are not met.
+func (tc *tokenTransferV3TestCase) Run(ctx context.Context) (res tcapi.RunResult, err error) {
 	if err = tc.ensureHydrated(ctx); err != nil {
 		return res, err
 	}
@@ -140,8 +132,8 @@ func (tc *tokenTransferV3TestCase) RunWithResult(ctx context.Context) (res tcapi
 
 	// populate the run result with the send receipt so that the caller can inspect it if needed
 	res.Src = cciptestinterfaces.SentEnvelope{
-		TxHash: sentTxHash,
-		Event:  sentEvt,
+		TxID:  sentTxHash,
+		Event: sentEvt,
 	}
 
 	if len(sentEvt.ReceiptIssuers) != tc.numExpectedRecv {
@@ -181,19 +173,13 @@ func (tc *tokenTransferV3TestCase) RunWithResult(ctx context.Context) (res tcapi
 		return res, fmt.Errorf("aggregated result is nil")
 	}
 
-	execEvt, execTxHash, err := v3Dst.ConfirmExecOnDest(ctx, tc.src, messageKey, execTimeout)
+	res.Dest, err = v3Dst.ConfirmExecOnDest(ctx, tc.src, messageKey, execTimeout)
 	if err != nil {
 		return res, fmt.Errorf("wait for exec event: %w", err)
 	}
 
-	// populate the exec result with the execution receipt
-	res.Dest = cciptestinterfaces.ExecEnvelope{
-		TxHash: execTxHash,
-		Event:  execEvt,
-	}
-
-	if execEvt.State != cciptestinterfaces.ExecutionStateSuccess {
-		return res, fmt.Errorf("unexpected execution state %s, return data: %x", execEvt.State, execEvt.ReturnData)
+	if res.Dest.Event.State != cciptestinterfaces.ExecutionStateSuccess {
+		return res, fmt.Errorf("unexpected execution state %s, return data: %x", res.Dest.Event.State, res.Dest.Event.ReturnData)
 	}
 
 	endBal, err := dstBalReader.GetTokenBalance(ctx, tc.tokenReceiver, tc.destToken)

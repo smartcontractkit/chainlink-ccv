@@ -68,7 +68,8 @@ func TestE2ESmoke_RemoveRemotePool(t *testing.T) {
 
 	// 1. Transfer works before removal.
 	pre := token_transfer.TokenTransfer(lib, src, dest, combo, combo.FinalityConfig(), true, "remove-remote-pool before", token_transfer.Args{})
-	require.NoError(t, pre.Run(ctx), "token transfer should succeed before the remote pool is removed")
+	_, err = pre.Run(ctx)
+	require.NoError(t, err, "token transfer should succeed before the remote pool is removed")
 
 	// Resolve the token addresses on each side (family-native strings) the same way
 	// the transfer test cases do, via each chain's registered address resolver.
@@ -85,7 +86,8 @@ func TestE2ESmoke_RemoveRemotePool(t *testing.T) {
 
 	// 3. The same transfer now fails (dest rejects the message from src's pool).
 	post := token_transfer.TokenTransfer(lib, src, dest, combo, combo.FinalityConfig(), true, "remove-remote-pool after", token_transfer.Args{})
-	require.Error(t, post.Run(ctx), "token transfer should fail after the remote pool is removed")
+	_, err = post.Run(ctx)
+	require.Error(t, err, "token transfer should fail after the remote pool is removed")
 }
 
 // resolveComboTokens resolves the src and dest token addresses for a combo as
