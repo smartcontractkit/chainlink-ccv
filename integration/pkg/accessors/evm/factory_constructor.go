@@ -41,8 +41,8 @@ func resolveConfigPath() string {
 }
 
 // toInfos reconstructs the accessor's Infos[Info] from the operator-local config, deriving each
-// chain's ID and family from its selector. Only connection and tuning settings live in the mounted
-// file; enumeration metadata is recovered here.
+// chain's ID and family from its selector. Only operator-owned connection and
+// runtime settings live in the mounted file; enumeration metadata is recovered here.
 func (c Config) toInfos() (chainaccess.Infos[Info], error) {
 	infos := make(chainaccess.Infos[Info], len(c.Chains))
 	for selector, chain := range c.Chains {
@@ -59,11 +59,11 @@ func (c Config) toInfos() (chainaccess.Infos[Info], error) {
 			return nil, fmt.Errorf("chain selector %s: %w", selector, err)
 		}
 		infos[selector] = Info{
-			ChainID:         chainID,
-			Type:            chain.ChainType,
-			Family:          family,
-			UniqueChainName: chain.UniqueChainName,
-			Nodes:           chain.Nodes,
+			ChainID:       chainID,
+			Family:        family,
+			Nodes:         chain.Nodes,
+			FinalityDepth: chain.FinalityDepth,
+			BlockTime:     chain.BlockTime,
 		}
 	}
 	return infos, nil
@@ -75,15 +75,17 @@ func (c Config) toInfos() (chainaccess.Infos[Info], error) {
 // config file, for example:
 //
 //	[chains.3734403246176062136]
-//	chain_type = "optimismBedrock"
+//	finality_depth = 15
+//	block_time = "2s"
 //	[[chains.3734403246176062136.nodes]]
+//	name = "primary"
 //	internal_http_url = "http://evm-node:8545"
 //	internal_ws_url = "ws://evm-node:8546"
 //
-// Chain ID and family are derived from the selector; only connection details and an
-// optional chain-type assertion are stored in the file. Shared application settings
-// from chainaccess.GenericConfig (for example on-ramp or RMN remote addresses) are
-// supplied separately through genericConfig and used when constructing the accessor factory.
+// Chain ID, family, and chain type are derived from the selector. Shared
+// application settings from chainaccess.GenericConfig (for example on-ramp or
+// RMN remote addresses) are supplied separately through genericConfig and used
+// when constructing the accessor factory.
 //
 // It will take all config values it needs from all available config. Note that it would be
 // very unusual for a config to have more than one of Committee/Token/Executor configs.
@@ -99,18 +101,15 @@ func CreateEVMAccessorFactory(lggr logger.Logger, genericConfig chainaccess.Gene
 	}
 	lggr.Infow("loaded EVM config", "numChains", len(infos))
 
-	return CreateAccessorFactory(context.Background(), lggr, genericConfig, infos)
+	return CreateAccessorFactory(lggr, genericConfig, infos)
 }
 
 // CreateAccessorFactory creates a lazy factory that starts one production
 // chainlink-evm runtime per accessor. Deferring network work until GetAccessor
 // lets standalone processes construct their registry while an RPC endpoint is
 // unavailable; the multi-node pool then manages endpoint failover at runtime.
-// The context parameter is retained for API compatibility and is intentionally
-// unused; each runtime starts with the context passed to GetAccessor.
 // generic is chainaccess.GenericConfig until CCIP-11840.
 func CreateAccessorFactory(
-	_ context.Context,
 	lggr logger.Logger,
 	generic chainaccess.GenericConfig,
 	infos chainaccess.Infos[Info],

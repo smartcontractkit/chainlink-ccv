@@ -4,29 +4,10 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
-	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-evm/pkg/client"
 	evmconfig "github.com/smartcontractkit/chainlink-evm/pkg/config"
 )
-
-// CreateHealthyMultiNodeClient resolves the requested chain and starts its client.
-//
-// Deprecated: use CreateMultiNodeClientFromInfo after resolving the chain info.
-// This wrapper performs no health checks beyond those performed by client.Dial.
-func CreateHealthyMultiNodeClient(
-	ctx context.Context,
-	infos chainaccess.Infos[Info],
-	lggr logger.Logger,
-	chainSelector protocol.ChainSelector,
-) (client.Client, error) {
-	info, err := infos.GetBlockchainByChainSelector(chainSelector)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get blockchain info for chain selector %v: %w", chainSelector, err)
-	}
-	return CreateMultiNodeClientFromInfo(ctx, info, lggr)
-}
 
 // CreateMultiNodeClientFromInfo creates and starts chainlink-evm's production
 // multi-node client. Every configured node is registered with the pool, allowing

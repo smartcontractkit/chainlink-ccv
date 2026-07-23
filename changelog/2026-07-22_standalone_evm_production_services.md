@@ -8,8 +8,9 @@ early standalone-only head tracker and direct keystore transaction sender have
 been removed.
 
 The mounted EVM config remains a focused, CCV-owned operator surface. A single
-explicit adapter maps its chain type and RPC endpoints into chainlink-evm's full
-configuration, using upstream defaults for settings CCV does not expose.
+explicit adapter derives chain type from the selector's chain ID and maps RPC
+endpoints and operational overrides into chainlink-evm's full configuration,
+using upstream defaults for settings CCV does not expose.
 
 ## Behavior changes
 
@@ -20,8 +21,11 @@ configuration, using upstream defaults for settings CCV does not expose.
 - HTTP-only configurations use the production head tracker's polling mode.
   WebSocket subscriptions remain enabled when every configured node provides a
   WebSocket URL; mixed pools use polling so failover to any node remains valid.
-- The production head tracker retains standalone CCV's 15-block finality depth
-  instead of inheriting chainlink-evm's deeper generic-chain default.
+- Finality depth and TXM block time are configurable per chain. Their defaults
+  preserve standalone CCV's 15-block finality depth and TXM's two-second
+  minimum retry cadence.
+- Each RPC endpoint can carry its own operator-facing name for logs and health
+  reports; unnamed endpoints receive a deterministic fallback.
 - Client and head-tracker startup is deferred until `GetAccessor`, avoiding RPC
   health checks while the accessor registry itself is being constructed.
 - Destination accessors start chainlink-evm TXM v2 after bootstrap injects the
@@ -47,5 +51,5 @@ silently coupling standalone deployments to chainlink-core's schema lifecycle.
 
 - A focused multi-node test places an unavailable RPC before a healthy RPC and
   verifies that the production client reads from the healthy endpoint.
-- The EVM-local config mount test verifies that all HTTP and WebSocket URLs for
-  multiple nodes are preserved in order.
+- The EVM-local config mount test verifies that names and all HTTP and
+  WebSocket URLs for multiple nodes are preserved in order.
