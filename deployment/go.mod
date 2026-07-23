@@ -12,7 +12,7 @@ require (
 	github.com/Masterminds/semver/v3 v3.5.0
 	github.com/ethereum/go-ethereum v1.17.3
 	github.com/google/uuid v1.6.0
-	github.com/smartcontractkit/chain-selectors v1.0.100
+	github.com/smartcontractkit/chain-selectors v1.0.107
 	github.com/smartcontractkit/chainlink-ccip/deployment v0.0.0-20260630184409-79e0c5cd667f
 	github.com/smartcontractkit/chainlink-ccv v0.0.1
 	github.com/smartcontractkit/chainlink-common v0.11.2-0.20260715145851-8219609496a4
