@@ -53,8 +53,8 @@ jobs:
         with:
           token: ${{ steps.issue-github-token.outputs.access-token }}
           branch: automation/update-chain-selectors
-          commit-message: "chore(deps): bump chain-selectors"
-          title: "chore(deps): bump chain-selectors"
+          commit-message: "fix(deps): bump chain-selectors"
+          title: "fix(deps): bump chain-selectors"
           body: |
             Updates github.com/smartcontractkit/chain-selectors in every Go module and runs `just tidy`.
           delete-branch: true
