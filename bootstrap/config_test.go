@@ -101,15 +101,69 @@ func TestKeystoreConfig_validate(t *testing.T) {
 		errContains []string
 	}{
 		{
-			name:    "valid",
+			name:    "valid postgres (default)",
 			config:  &KeystoreConfig{Password: "secret"},
 			wantErr: false,
 		},
 		{
-			name:        "missing password",
+			name:    "valid postgres (explicit)",
+			config:  &KeystoreConfig{Backend: KeystoreBackendPostgres, Password: "secret"},
+			wantErr: false,
+		},
+		{
+			name:        "missing password for postgres",
 			config:      &KeystoreConfig{Password: ""},
 			wantErr:     true,
 			errContains: []string{"field 'password' is required"},
+		},
+		{
+			name: "valid kms with ecdsa key",
+			config: &KeystoreConfig{
+				Backend: KeystoreBackendKMS,
+				KMS:     KMSKeystoreConfig{EcdsaKeyID: "ecdsa-key-id"},
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid kms with ed25519 key",
+			config: &KeystoreConfig{
+				Backend: KeystoreBackendKMS,
+				KMS:     KMSKeystoreConfig{Ed25519KeyID: "ed25519-key-id"},
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid kms with both keys",
+			config: &KeystoreConfig{
+				Backend: KeystoreBackendKMS,
+				KMS:     KMSKeystoreConfig{EcdsaKeyID: "ecdsa-key-id", Ed25519KeyID: "ed25519-key-id"},
+			},
+			wantErr: false,
+		},
+		{
+			name: "kms with no key IDs",
+			config: &KeystoreConfig{
+				Backend: KeystoreBackendKMS,
+			},
+			wantErr:     true,
+			errContains: []string{"at least one KMS key ID is required"},
+		},
+		{
+			name: "kms without password is valid",
+			config: &KeystoreConfig{
+				Backend:  KeystoreBackendKMS,
+				Password: "",
+				KMS:      KMSKeystoreConfig{EcdsaKeyID: "key-id"},
+			},
+			wantErr: false,
+		},
+		{
+			name: "invalid backend",
+			config: &KeystoreConfig{
+				Backend: "garbage",
+			},
+			wantErr:     true,
+			errContains: []string{"invalid keystore backend"},
 		},
 	}
 	for _, tt := range tests {
@@ -123,6 +177,34 @@ func TestKeystoreConfig_validate(t *testing.T) {
 			} else {
 				require.NoError(t, err)
 			}
+		})
+	}
+}
+
+func TestKeystoreConfig_resolveBackend(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		in      KeystoreBackend
+		want    KeystoreBackend
+		wantErr bool
+	}{
+		{in: "", want: KeystoreBackendPostgres},
+		{in: KeystoreBackendPostgres, want: KeystoreBackendPostgres},
+		{in: KeystoreBackendKMS, want: KeystoreBackendKMS},
+		{in: "garbage", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(string(tt.in), func(t *testing.T) {
+			t.Parallel()
+			cfg := &KeystoreConfig{Backend: tt.in}
+			got, err := cfg.resolveBackend()
+			if tt.wantErr {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), "keystore backend")
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got)
 		})
 	}
 }
@@ -311,6 +393,32 @@ func TestConfig_validate(t *testing.T) {
 			},
 			wantErr:     true,
 			errContains: []string{"failed to validate 'db' section", "failed to validate 'monitoring' section"},
+		},
+		{
+			name: "valid with KMS backend (no password required, db still required)",
+			config: &Config{
+				NonSecretConfig: NonSecretConfig{JD: validJD, Server: validServer},
+				Secrets: Secrets{
+					Keystore: KeystoreConfig{
+						Backend: KeystoreBackendKMS,
+						KMS:     KMSKeystoreConfig{EcdsaKeyID: "ecdsa-key-id", Ed25519KeyID: "ed25519-key-id"},
+					},
+					DB: validDB,
+				},
+			},
+			wantErr: false,
+		},
+		{
+			name: "KMS backend with no key IDs fails",
+			config: &Config{
+				NonSecretConfig: NonSecretConfig{JD: validJD, Server: validServer},
+				Secrets: Secrets{
+					Keystore: KeystoreConfig{Backend: KeystoreBackendKMS},
+					DB:       validDB,
+				},
+			},
+			wantErr:     true,
+			errContains: []string{"failed to validate 'keystore' section", "KMS key ID"},
 		},
 	}
 	// All table cases above exercise JD mode (AppConfigModeJD) so the full infra bundle is validated.
