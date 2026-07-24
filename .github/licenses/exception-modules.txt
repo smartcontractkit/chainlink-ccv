@@ -1,0 +1,8 @@
+# Module versions covered by the matching entries in ignored-packages.txt.
+# Update only with Legal approval after reviewing the new version.
+github.com/gagliardetto/treeout v0.1.4
+github.com/holiman/bloomfilter/v2 v2.0.3
+github.com/jackpal/go-nat-pmp v1.0.2
+github.com/ethereum/go-ethereum v1.17.3
+github.com/smartcontractkit/chainlink-ccip/chains/evm v0.0.0-20260618155522-3600f66e26cd
+github.com/smartcontractkit/chainlink-solana v1.1.2-0.20260318003508-442c25062e9a
