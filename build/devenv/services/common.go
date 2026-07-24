@@ -25,6 +25,32 @@ const (
 	AppPathInsideContainer = "/app"
 )
 
+// awsCredentialEnvVars are the standard AWS SDK environment variables that carry credentials and
+// region. Forwarding these from the host lets a container reach AWS (e.g. KMS) via the default
+// credential chain without a mounted profile. Session-token creds (SSO/STS) are short-lived, so a
+// forwarded set expires with the host session.
+var awsCredentialEnvVars = []string{
+	"AWS_ACCESS_KEY_ID",
+	"AWS_SECRET_ACCESS_KEY",
+	"AWS_SESSION_TOKEN",
+	"AWS_REGION",
+	"AWS_DEFAULT_REGION",
+}
+
+// ForwardedAWSEnv returns the subset of the standard AWS environment variables that are set on the
+// host, as a map suitable for a container's Env. Only variables that are present (and non-empty) are
+// included, so callers can merge the result unconditionally. Returns an empty (non-nil) map when the
+// host has no AWS environment configured.
+func ForwardedAWSEnv() map[string]string {
+	env := make(map[string]string, len(awsCredentialEnvVars))
+	for _, key := range awsCredentialEnvVars {
+		if v, ok := os.LookupEnv(key); ok && v != "" {
+			env[key] = v
+		}
+	}
+	return env
+}
+
 // CwdSourcePath returns source path for current working directory.
 func CwdSourcePath(sourcePath string) (string, error) {
 	wd, err := os.Getwd()

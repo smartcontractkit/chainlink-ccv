@@ -20,12 +20,6 @@ import (
 )
 
 // mockKMSClient implements the chainlink-common kms.Client interface for testing.
-//
-// It cannot reuse chainlink-common's kms.NewFakeKMSClient: that fake's Key.PrivateKey is
-// keystore/internal.Raw, an internal package unimportable from this repo. Instead this mock holds
-// standard-library key types and emits AWS-realistic outputs (ASN.1-DER public keys and signatures
-// for ECDSA) via the kms package's exported SEC1<->ASN.1 helpers, so the real kms.NewKeystore decode
-// path is exercised end-to-end.
 type mockKMSClient struct {
 	keys map[string]*mockKey
 }

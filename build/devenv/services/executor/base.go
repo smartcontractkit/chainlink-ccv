@@ -284,7 +284,14 @@ func launchExecutor(ctx context.Context, in *Input, outputs []*blockchain.Output
 		return nil, fmt.Errorf("failed to write bootstrap secrets to file: %w", err)
 	}
 
-	req, err := baseImageRequest(in, bootstrapConfigFilePath, bootstrapSecretsFilePath)
+	// When the bootstrap keystore uses the KMS backend, the container reaches AWS KMS via the default
+	// credential chain — forward the host's AWS credentials so it can authenticate. Only done for the
+	// KMS backend.
+	var envVars map[string]string
+	if bs.Keystore != nil && bs.Keystore.Backend == bootstrap.KeystoreBackendKMS {
+		envVars = services.ForwardedAWSEnv()
+	}
+	req, err := baseImageRequest(in, envVars, bootstrapConfigFilePath, bootstrapSecretsFilePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create base image request: %w", err)
 	}
@@ -413,7 +420,7 @@ func startContainer(ctx context.Context, req testcontainers.ContainerRequest) (t
 	return nil, fmt.Errorf("failed to start container after %d attempts: %w", maxAttempts, lastErr)
 }
 
-func baseImageRequest(in *Input, bootstrapConfigFilePath, bootstrapSecretsFilePath string) (testcontainers.ContainerRequest, error) {
+func baseImageRequest(in *Input, envVars map[string]string, bootstrapConfigFilePath, bootstrapSecretsFilePath string) (testcontainers.ContainerRequest, error) {
 	req := testcontainers.ContainerRequest{
 		Image:    in.Image,
 		Name:     in.ContainerName,
@@ -422,6 +429,7 @@ func baseImageRequest(in *Input, bootstrapConfigFilePath, bootstrapSecretsFilePa
 		NetworkAliases: map[string][]string{
 			framework.DefaultNetworkName: {in.ContainerName},
 		},
+		Env:          envVars,
 		ExposedPorts: []string{DefaultExecutorPortTCP, services.DefaultBootstrapListenPortTCP},
 		HostConfigModifier: func(h *container.HostConfig) {
 			h.PortBindings = network.PortMap{
