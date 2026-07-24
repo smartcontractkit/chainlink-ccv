@@ -221,10 +221,10 @@ func (ec *Coordinator) runStorageStream(ctx context.Context) {
 			// a terminal outcome (expired, executed, or permanently failed)
 			// in processPayload.
 			discCtx, discSpan := ec.monitoring.Tracing().StartMessageSpan(ctx, "executor.message", id.String(),
-				attribute.String("destChainSelector", msg.DestChainSelector.String()),
-				attribute.String("sourceChainSelector", msg.SourceChainSelector.String()),
-				attribute.String("ingestionTimestamp", streamResult.Metadata.IngestionTimestamp.Format(time.RFC3339)),
-				attribute.String("readyTimestamp", readyTimestamp.Format(time.RFC3339)),
+				attribute.String("dest_chain_selector", msg.DestChainSelector.String()),
+				attribute.String("source_chain_selector", msg.SourceChainSelector.String()),
+				attribute.String("ingestion_timestamp", streamResult.Metadata.IngestionTimestamp.Format(time.RFC3339)),
+				attribute.String("ready_timestamp", readyTimestamp.Format(time.RFC3339)),
 			)
 			discSpan.AddEvent("message_discovered")
 
@@ -327,7 +327,7 @@ func (ec *Coordinator) processPayload(ctx context.Context, payload message_heap.
 	// every attempt (including retries) - a retried message gets a fresh
 	// attempt span on its next pop, parented off this one via TraceContext.
 	attemptCtx, attemptSpan := ec.monitoring.Tracing().StartMessageSpan(parentCtx, "executor.process_payload", id.String(),
-		attribute.String("destChainSelector", message.DestChainSelector.String()),
+		attribute.String("dest_chain_selector", message.DestChainSelector.String()),
 		attribute.Int("attempt", payload.Attempt),
 	)
 

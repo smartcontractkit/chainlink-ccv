@@ -174,13 +174,15 @@ func (s *Processor) processBatch(ctx context.Context) error {
 		var span oteltrace.Span
 		payload.TraceContext, span = s.monitoring.Tracing().StartMessageSpan(parentCtx, "storagewriter.message.write", messageID,
 			attribute.String("verifier_id", s.verifierID),
-			attribute.String("jobID", job.ID),
+			attribute.String("job_id", job.ID),
 		)
 		span.AddEvent("job_discovered",
 			oteltrace.WithAttributes(
-				attribute.String("jobID", job.ID),
-				attribute.String("sourceChainSelector", job.Payload.Message.SourceChainSelector.String()),
-				attribute.String("destChainSelector", job.Payload.Message.DestChainSelector.String()),
+				attribute.String("job_id", job.ID),
+				attribute.String("source_chain_name", job.Payload.Message.SourceChainSelector.ChainName()),
+				attribute.String("source_chain_selector", job.Payload.Message.SourceChainSelector.String()),
+				attribute.String("dest_chain_name", job.Payload.Message.DestChainSelector.ChainName()),
+				attribute.String("dest_chain_selector", job.Payload.Message.DestChainSelector.String()),
 			),
 		)
 		// results must carry the span-started context (not the raw extracted

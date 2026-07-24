@@ -178,15 +178,15 @@ func (p *Processor) processBatch(ctx context.Context) error {
 		var span oteltrace.Span
 		payload.TraceContext, span = p.monitoring.Tracing().StartMessageSpan(parentCtx, "taskverifier.message.attempt@"+p.verifierID, job.Payload.MessageID,
 			attribute.String("verifier_id", p.verifierID),
-			attribute.String("jobID", job.ID),
-			attribute.String("sourceChainSelector", job.Payload.Message.SourceChainSelector.String()),
-			attribute.String("destChainSelector", job.Payload.Message.DestChainSelector.String()),
+			attribute.String("job_id", job.ID),
+			attribute.String("source_chain_selector", job.Payload.Message.SourceChainSelector.String()),
+			attribute.String("source_chain_name", job.Payload.Message.SourceChainSelector.ChainName()),
+			attribute.String("dest_chain_selector", job.Payload.Message.DestChainSelector.String()),
+			attribute.String("dest_chain_name", job.Payload.Message.DestChainSelector.ChainName()),
 		)
 		span.AddEvent("job_discovered",
 			oteltrace.WithAttributes(
-				attribute.String("jobID", job.ID),
-				attribute.String("sourceChainSelector", job.Payload.Message.SourceChainSelector.String()),
-				attribute.String("destChainSelector", job.Payload.Message.DestChainSelector.String()),
+				attribute.String("job_id", job.ID),
 			),
 		)
 

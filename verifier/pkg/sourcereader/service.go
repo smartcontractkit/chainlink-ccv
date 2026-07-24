@@ -352,10 +352,14 @@ func (r *Service) processEventCycle(ctx context.Context, latest, finalized *prot
 		}
 
 		sCtx, span := r.monitoring.Tracing().StartMessageSpan(ctx, "verifier.message@"+r.verifierID, onchainMessageID,
-			attribute.Int64("blockNumber", int64(event.BlockNumber)),
-			attribute.String("txHash", event.TxHash.String()),
-			attribute.String("sourceChainSelector", event.Message.SourceChainSelector.String()),
-			attribute.String("destChainSelector", event.Message.DestChainSelector.String()))
+			attribute.String("verifier_id", r.verifierID),
+			attribute.Int64("block_number", int64(event.BlockNumber)),
+			attribute.String("tx_hash", event.TxHash.String()),
+			attribute.String("source_chain_name", event.Message.SourceChainSelector.ChainName()),
+			attribute.String("source_chain_selector", event.Message.SourceChainSelector.String()),
+			attribute.String("dest_chain_name", event.Message.DestChainSelector.ChainName()),
+			attribute.String("dest_chain_selector", event.Message.DestChainSelector.String()),
+		)
 		span.AddEvent("event_discovered", oteltrace.WithAttributes(attribute.String("message_id", onchainMessageID)))
 
 		carrier := propagation.MapCarrier{}
@@ -463,8 +467,11 @@ func (r *Service) addToPendingQueueHandleReorg(tasks []verifier.VerificationTask
 					span := oteltrace.SpanFromContext(task.TraceContext)
 					span.AddEvent("reorg_removed_pending",
 						oteltrace.WithAttributes(
-							attribute.Int64("blockNumber", int64(existing.BlockNumber)),
-							attribute.String("destChainSelector", existing.Message.DestChainSelector.String()),
+							attribute.Int64("block_number", int64(existing.BlockNumber)),
+							attribute.String("source_chain_name", existing.Message.SourceChainSelector.ChainName()),
+							attribute.String("source_chain_selector", existing.Message.SourceChainSelector.String()),
+							attribute.String("dest_chain_name", existing.Message.DestChainSelector.ChainName()),
+							attribute.String("dest_chain_selector", existing.Message.DestChainSelector.String()),
 						),
 					)
 					span.End()
@@ -490,8 +497,11 @@ func (r *Service) addToPendingQueueHandleReorg(tasks []verifier.VerificationTask
 					span := oteltrace.SpanFromContext(task.TraceContext)
 					span.AddEvent("reorg_removed_sent",
 						oteltrace.WithAttributes(
-							attribute.Int64("blockNumber", int64(task.BlockNumber)),
-							attribute.String("destChainSelector", task.Message.DestChainSelector.String()),
+							attribute.Int64("block_number", int64(task.BlockNumber)),
+							attribute.String("source_chain_name", task.Message.SourceChainSelector.ChainName()),
+							attribute.String("source_chain_selector", task.Message.SourceChainSelector.String()),
+							attribute.String("dest_chain_name", task.Message.DestChainSelector.ChainName()),
+							attribute.String("dest_chain_selector", task.Message.DestChainSelector.String()),
 						),
 					)
 					span.End()
@@ -526,7 +536,7 @@ func (r *Service) addToPendingQueueHandleReorg(tasks []verifier.VerificationTask
 			// task_published) ends it.
 			oteltrace.SpanFromContext(task.TraceContext).AddEvent("added_to_pending",
 				oteltrace.WithAttributes(
-					attribute.Int64("blockNumber", int64(task.BlockNumber)),
+					attribute.Int64("block_number", int64(task.BlockNumber)),
 				),
 			)
 		}
@@ -615,8 +625,10 @@ func (r *Service) sendReadyMessages(ctx context.Context, latest, safe, finalized
 					span := oteltrace.SpanFromContext(task.TraceContext)
 					span.AddEvent("cursed_dropped",
 						oteltrace.WithAttributes(
-							attribute.String("sourceChainSelector", task.Message.SourceChainSelector.String()),
-							attribute.String("destChainSelector", task.Message.DestChainSelector.String()),
+							attribute.String("source_chain_name", task.Message.SourceChainSelector.ChainName()),
+							attribute.String("source_chain_selector", task.Message.SourceChainSelector.String()),
+							attribute.String("dest_chain_name", task.Message.SourceChainSelector.ChainName()),
+							attribute.String("dest_chain_selector", task.Message.DestChainSelector.String()),
 						),
 					)
 					span.End()
@@ -644,8 +656,10 @@ func (r *Service) sendReadyMessages(ctx context.Context, latest, safe, finalized
 					span := oteltrace.SpanFromContext(task.TraceContext)
 					span.AddEvent("disabled_dropped",
 						oteltrace.WithAttributes(
-							attribute.String("sourceChainSelector", task.Message.SourceChainSelector.String()),
-							attribute.String("destChainSelector", task.Message.DestChainSelector.String()),
+							attribute.String("source_chain_name", task.Message.SourceChainSelector.ChainName()),
+							attribute.String("source_chain_selector", task.Message.SourceChainSelector.String()),
+							attribute.String("dest_chain_name", task.Message.DestChainSelector.ChainName()),
+							attribute.String("dest_chain_selector", task.Message.DestChainSelector.String()),
 						),
 					)
 					span.End()
@@ -666,7 +680,7 @@ func (r *Service) sendReadyMessages(ctx context.Context, latest, safe, finalized
 
 				if task.TraceContext != nil {
 					oteltrace.SpanFromContext(task.TraceContext).AddEvent("ready_for_verification",
-						oteltrace.WithAttributes(attribute.Int64("blockNumber", int64(task.BlockNumber))),
+						oteltrace.WithAttributes(attribute.Int64("block_number", int64(task.BlockNumber))),
 					)
 				}
 			}
@@ -731,7 +745,7 @@ func (r *Service) sendReadyMessages(ctx context.Context, latest, safe, finalized
 				span := oteltrace.SpanFromContext(task.TraceContext)
 				span.AddEvent("task_published",
 					oteltrace.WithAttributes(
-						attribute.Int64("blockNumber", int64(task.BlockNumber)),
+						attribute.Int64("block_number", int64(task.BlockNumber)),
 					),
 				)
 				span.End()

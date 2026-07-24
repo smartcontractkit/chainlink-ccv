@@ -300,7 +300,7 @@ func (cle *ChainlinkExecutor) HandleMessage(ctx context.Context, message protoco
 	cle.monitoring.Metrics().RecordMessageExecutionLatency(ctx, time.Since(start), destinationChain)
 
 	span.AddEvent("message_transmitted", oteltrace.WithAttributes(
-		attribute.Int64("latestCCVTimestamp", latestCCVTimestamp),
+		attribute.Int64("latest_ccv_timestamp", latestCCVTimestamp),
 	))
 
 	return false, nil
