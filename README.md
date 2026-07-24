@@ -19,18 +19,6 @@ Run tests:
 just tests
 ```
 
-## Dependency licenses
-
-`just tidy` checks production Go dependencies against the approved license policy. If
-a Legal-reviewed exception's module version changes, refresh its version pin with:
-
-```bash
-tools/bin/check-go-licenses.sh --update-exception-versions
-```
-
-Review and commit the resulting diff only after Legal approves the updated dependency.
-See [the full policy](./.github/licenses/README.md) for allowed licenses and exceptions.
-
 ## Configuration Reference
 
 Each app's config and secrets TOML is documented under [`docs/config/`](./docs/config/),

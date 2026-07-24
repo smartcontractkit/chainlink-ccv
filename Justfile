@@ -15,7 +15,6 @@ install-protoc:
 
 install-go-tools:
     go install github.com/jmank88/gomods@v$VERSION_GOMODS
-    go install github.com/google/go-licenses/v2@v$VERSION_GO_LICENSES
     go install github.com/jmank88/modgraph@v$VERSION_MODGRAPH
     go install google.golang.org/protobuf/cmd/protoc-gen-go@v$VERSION_PROTOC_GEN_GO
     go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v$VERSION_PROTOC_GEN_GO_GRPC
@@ -49,7 +48,6 @@ mock: ensure-mockery
 tidy: ensure-go
     gomods tidy
     ./tools/bin/modgraph.sh > go.md
-    ./tools/bin/check-go-licenses.sh
 
 # Format all go files
 fmt: ensure-golangci-lint
