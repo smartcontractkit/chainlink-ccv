@@ -36,9 +36,11 @@ type stubChainRuntime struct {
 
 type runtimeContextMarkerKey struct{}
 
-const validTestOffRampAddress = "0x0000000000000000000000000000000000001234"
-const validTestRMNRemoteAddress = "0x0000000000000000000000000000000000005678"
-const zeroTestAddress = "0x0000000000000000000000000000000000000000"
+const (
+	validTestOffRampAddress   = "0x0000000000000000000000000000000000001234"
+	validTestRMNRemoteAddress = "0x0000000000000000000000000000000000005678"
+	zeroTestAddress           = "0x0000000000000000000000000000000000000000"
+)
 
 func (s *stubChainRuntime) ChainClient() (client.Client, error) { return s.Client, s.clientErr }
 func (s *stubChainRuntime) HeadTracker() (heads.Tracker, error) { return s.Tracker, s.trackerErr }
