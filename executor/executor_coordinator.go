@@ -223,6 +223,7 @@ func (ec *Coordinator) runStorageStream(ctx context.Context) {
 			discCtx, discSpan := ec.monitoring.Tracing().StartMessageSpan(ctx, "executor.message", id.String(),
 				attribute.String("destChainSelector", msg.DestChainSelector.String()),
 				attribute.String("sourceChainSelector", msg.SourceChainSelector.String()),
+				attribute.String("ingestionTimestamp", streamResult.Metadata.IngestionTimestamp.Format(time.RFC3339)),
 				attribute.String("readyTimestamp", readyTimestamp.Format(time.RFC3339)),
 			)
 			discSpan.AddEvent("message_discovered")
@@ -306,13 +307,14 @@ func (ec *Coordinator) processPayload(ctx context.Context, payload message_heap.
 	if parentCtx == nil {
 		parentCtx = ctx
 	}
+	parentSpan := oteltrace.SpanFromContext(parentCtx)
 
 	if currentTime.After(payload.ExpiryTime) {
 		// PER-MESSAGE LOG (failure): terminal; message exceeded its expiry without execution.
 		ec.lggr.Infow("message has expired", protocol.LogTypeKey, protocol.LogTypeMessageFailure, protocol.LogKeyMessageID, payload.MessageID)
 		ec.monitoring.Metrics().IncrementExpiredMessages(ctx)
-		oteltrace.SpanFromContext(parentCtx).AddEvent("message_expired")
-		oteltrace.SpanFromContext(parentCtx).End()
+		parentSpan.AddEvent("message_expired")
+		parentSpan.End()
 		return
 	}
 
@@ -370,6 +372,7 @@ func (ec *Coordinator) processPayload(ctx context.Context, payload message_heap.
 		// Terminal: no further stage picks this message up, so the
 		// discovery/attempt chain closes here.
 		attemptSpan.End()
+		parentSpan.End()
 	}
 	ec.monitoring.Metrics().IncrementMessagesProcessing(ctx)
 	if err != nil {
