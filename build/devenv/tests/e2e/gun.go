@@ -401,7 +401,8 @@ func (m *EVMTXGun) selectMessageProfile(srcSelector uint64, dest destLoadInfo) (
 	}
 
 	// generate a random finality between 0 (chain default finality) and 1 (custom finality)
-	// unless overridden by WithFinalityConfig
+	// unless overridden by WithFinalityConfig, in Devnet(Anvil): we have 1~2 second instant finality, but in Sepolia, finality is ~12 minutes
+	// TODO: any reason we have to randomly generate finality ? finality should be passed from caller rather than randomly generated
 	var finalityVal int64
 	if m.finalityOverride != nil {
 		finalityVal = int64(*m.finalityOverride)
@@ -416,7 +417,7 @@ func (m *EVMTXGun) selectMessageProfile(srcSelector uint64, dest destLoadInfo) (
 		return cciptestinterfaces.MessageFields{
 				Receiver: receiver,
 				Data:     []byte{},
-				FeeToken: common.HexToAddress(wethContract.Address).Bytes(),
+				FeeToken: protocol.UnknownAddress(common.HexToAddress(wethContract.Address).Bytes()),
 			}, cciptestinterfaces.MessageOptions{
 				FinalityConfig: protocol.Finality(finalityVal),
 				CCVs: []protocol.CCV{
@@ -438,8 +439,14 @@ func (m *EVMTXGun) selectMessageProfile(srcSelector uint64, dest destLoadInfo) (
 		Data:     []byte{},
 		FeeToken: protocol.UnknownAddress(common.HexToAddress(wethContract.Address).Bytes()),
 	}
+	var finalityForOpts protocol.Finality
+	if m.finalityOverride != nil {
+		finalityForOpts = *m.finalityOverride
+	} else {
+		finalityForOpts = protocol.Finality(messageProfile.Finality)
+	}
 	opts := cciptestinterfaces.MessageOptions{
-		FinalityConfig: protocol.Finality(finalityVal),
+		FinalityConfig: finalityForOpts,
 	}
 
 	if messageProfile.HasData {
