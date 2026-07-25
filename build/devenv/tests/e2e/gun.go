@@ -44,20 +44,23 @@ type NonceKey struct {
 var _ load.LoadGun = (*EVMTXGun)(nil)
 
 type EVMTXGun struct {
-	cfg             *ccv.Cfg
-	testConfig      *load.TestProfileConfig
-	e               *deployment.Environment
-	selectors       []uint64
-	impl            map[uint64]cciptestinterfaces.CCIP17
-	sentMsgSet      map[load.SentMessage]struct{}
-	srcSelectors    []uint64
-	destSelectors   []uint64
-	seqNosMu        sync.Mutex
-	sentMsgCh       chan load.SentMessage // Channel for real-time message notifications
-	closeOnce       sync.Once             // Ensure channel is closed only once
-	nonce           sync.Map              // map[NonceKey]*uint64
-	messageProfiles []load.MessageProfileConfig
-	userSelector    map[uint64]func() *bind.TransactOpts
+	cfg                 *ccv.Cfg
+	testConfig          *load.TestProfileConfig
+	e                   *deployment.Environment
+	selectors           []uint64
+	impl                map[uint64]cciptestinterfaces.CCIP17
+	sentMsgSet          map[load.SentMessage]struct{}
+	srcSelectors        []uint64
+	destSelectors       []uint64
+	seqNosMu            sync.Mutex
+	sentMsgCh           chan load.SentMessage // Channel for real-time message notifications
+	closeOnce           sync.Once             // Ensure channel is closed only once
+	nonce               sync.Map              // map[NonceKey]*uint64
+	messageProfiles     []load.MessageProfileConfig
+	userSelector        map[uint64]func() *bind.TransactOpts
+	executorArgsParams  any // optional, passed to BuildV3ExtraArgs; nil = no executor args (existing behavior)
+	tokenReceiverParams any // optional, passed to BuildV3ExtraArgs; nil = no token receiver
+	tokenArgsParams     any // optional, passed to BuildV3ExtraArgs; nil = no token args
 }
 
 // CloseSentChannel closes the sent messages channel to signal no more messages will be sent.
@@ -94,7 +97,34 @@ func NewEVMTransactionGun(cfg *ccv.Cfg, e *deployment.Environment, selectors []u
 	}, nil
 }
 
-func NewEVMTransactionGunFromTestConfig(cfg *ccv.Cfg, testProfile *load.TestProfileConfig, messageProfiles []load.MessageProfileConfig, e *deployment.Environment, impls map[uint64]cciptestinterfaces.CCIP17) *EVMTXGun {
+// EVMTXGunOption configures an EVMTXGun at construction time.
+type EVMTXGunOption func(*EVMTXGun)
+
+// WithExecutorArgsParams sets the executorArgsParams passed to BuildV3ExtraArgs.
+// Use this when the destination chain requires chain-specific executor args
+func WithExecutorArgsParams(params any) EVMTXGunOption {
+	return func(g *EVMTXGun) {
+		g.executorArgsParams = params
+	}
+}
+
+// WithTokenReceiverParams sets the tokenReceiverParams passed to BuildV3ExtraArgs.
+// Use this when the destination chain requires chain-specific token receiver args
+func WithTokenReceiverParams(params any) EVMTXGunOption {
+	return func(g *EVMTXGun) {
+		g.tokenReceiverParams = params
+	}
+}
+
+// WithTokenArgsParams sets the tokenArgsParams passed to BuildV3ExtraArgs.
+// Use this when the destination chain requires chain-specific token args
+func WithTokenArgsParams(params any) EVMTXGunOption {
+	return func(g *EVMTXGun) {
+		g.tokenArgsParams = params
+	}
+}
+
+func NewEVMTransactionGunFromTestConfig(cfg *ccv.Cfg, testProfile *load.TestProfileConfig, messageProfiles []load.MessageProfileConfig, e *deployment.Environment, impls map[uint64]cciptestinterfaces.CCIP17, opts ...EVMTXGunOption) *EVMTXGun {
 	selectors := make([]uint64, 0, len(testProfile.ChainsAsSource)+len(testProfile.ChainsAsDest))
 	srcSelectors := make([]uint64, 0, len(testProfile.ChainsAsSource))
 	destSelectors := make([]uint64, 0, len(testProfile.ChainsAsDest))
@@ -116,7 +146,7 @@ func NewEVMTransactionGunFromTestConfig(cfg *ccv.Cfg, testProfile *load.TestProf
 		}
 	}
 
-	return &EVMTXGun{
+	g := &EVMTXGun{
 		cfg:             cfg,
 		testConfig:      testProfile,
 		e:               e,
@@ -129,6 +159,10 @@ func NewEVMTransactionGunFromTestConfig(cfg *ccv.Cfg, testProfile *load.TestProf
 		messageProfiles: messageProfiles,
 		userSelector:    userSelector,
 	}
+	for _, opt := range opts {
+		opt(g)
+	}
+	return g
 }
 
 func (m *EVMTXGun) initNonce(key NonceKey, userAddress common.Address) error {
@@ -325,7 +359,7 @@ func (m *EVMTXGun) buildExtraArgs(srcSelector uint64, dest destLoadInfo, opts cc
 	}
 
 	// Receiver is in MessageFields; token params nil for data only load
-	return v3Src.BuildV3ExtraArgs(v3Opts, v3Dest, nil, nil, nil)
+	return v3Src.BuildV3ExtraArgs(v3Opts, v3Dest, m.executorArgsParams, m.tokenReceiverParams, m.tokenArgsParams)
 }
 
 // selectMessageProfile builds message options for load sends and applies defaults when no profile is configured.
