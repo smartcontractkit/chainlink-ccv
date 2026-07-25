@@ -101,7 +101,7 @@ func NewEVMTransactionGun(cfg *ccv.Cfg, e *deployment.Environment, selectors []u
 type EVMTXGunOption func(*EVMTXGun)
 
 // WithExecutorArgsParams sets the executorArgsParams passed to BuildV3ExtraArgs.
-// Use this when the destination chain requires chain-specific executor args
+// Params are forwarded to the destination chain's MessageV3Destination.GetExecutorArgs implementation (applied for all destinations used by this gun).
 func WithExecutorArgsParams(params any) EVMTXGunOption {
 	return func(g *EVMTXGun) {
 		g.executorArgsParams = params
@@ -109,7 +109,7 @@ func WithExecutorArgsParams(params any) EVMTXGunOption {
 }
 
 // WithTokenReceiverParams sets the tokenReceiverParams passed to BuildV3ExtraArgs.
-// Use this when the destination chain requires chain-specific token receiver args
+// Params are forwarded to the destination chain's MessageV3Destination.GetTokenReceiver implementation (applied for all destinations used by this gun).
 func WithTokenReceiverParams(params any) EVMTXGunOption {
 	return func(g *EVMTXGun) {
 		g.tokenReceiverParams = params
@@ -117,7 +117,7 @@ func WithTokenReceiverParams(params any) EVMTXGunOption {
 }
 
 // WithTokenArgsParams sets the tokenArgsParams passed to BuildV3ExtraArgs.
-// Use this when the destination chain requires chain-specific token args
+// Params are forwarded to the destination chain's MessageV3Destination.GetTokenArgs implementation (applied for all destinations used by this gun).
 func WithTokenArgsParams(params any) EVMTXGunOption {
 	return func(g *EVMTXGun) {
 		g.tokenArgsParams = params
@@ -160,7 +160,9 @@ func NewEVMTransactionGunFromTestConfig(cfg *ccv.Cfg, testProfile *load.TestProf
 		userSelector:    userSelector,
 	}
 	for _, opt := range opts {
-		opt(g)
+		if opt != nil {
+			opt(g)
+		}
 	}
 	return g
 }
@@ -358,7 +360,7 @@ func (m *EVMTXGun) buildExtraArgs(srcSelector uint64, dest destLoadInfo, opts cc
 		}
 	}
 
-	// Receiver is in MessageFields; token params nil for data only load
+	// Receiver is in MessageFields; optional extra-args params are passed through to BuildV3ExtraArgs.
 	return v3Src.BuildV3ExtraArgs(v3Opts, v3Dest, m.executorArgsParams, m.tokenReceiverParams, m.tokenArgsParams)
 }
 
