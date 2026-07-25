@@ -419,9 +419,8 @@ func (m *EVMTXGun) selectMessageProfile(srcSelector uint64, dest destLoadInfo) (
 		Data:     []byte{},
 		FeeToken: protocol.UnknownAddress(common.HexToAddress(wethContract.Address).Bytes()),
 	}
-	var finalityForOpts protocol.Finality = protocol.Finality(messageProfile.Finality)
 	opts := cciptestinterfaces.MessageOptions{
-		FinalityConfig: finalityForOpts,
+		FinalityConfig: protocol.Finality(messageProfile.Finality),
 	}
 
 	if messageProfile.HasData {
