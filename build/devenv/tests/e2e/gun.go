@@ -58,9 +58,10 @@ type EVMTXGun struct {
 	nonce               sync.Map              // map[NonceKey]*uint64
 	messageProfiles     []load.MessageProfileConfig
 	userSelector        map[uint64]func() *bind.TransactOpts
-	executorArgsParams  any // optional, passed to BuildV3ExtraArgs
-	tokenReceiverParams any // optional, passed to BuildV3ExtraArgs
-	tokenArgsParams     any // optional, passed to BuildV3ExtraArgs
+	executorArgsParams  any                // optional, passed to BuildV3ExtraArgs
+	tokenReceiverParams any                // optional, passed to BuildV3ExtraArgs
+	tokenArgsParams     any                // optional, passed to BuildV3ExtraArgs
+	finalityOverride    *protocol.Finality // optional, overrides random finality; nil = random (existing behavior)
 }
 
 // CloseSentChannel closes the sent messages channel to signal no more messages will be sent.
@@ -121,6 +122,17 @@ func WithTokenReceiverParams(params any) EVMTXGunOption {
 func WithTokenArgsParams(params any) EVMTXGunOption {
 	return func(g *EVMTXGun) {
 		g.tokenArgsParams = params
+	}
+}
+
+// WithFinalityConfig overrides the per-message finality selection.
+// By default the gun randomly picks between finality 0 (wait-for-finality)
+// and 1 (1-block depth) per message. Set this to force a specific finality
+// for all messages — e.g. protocol.Finality(1) for fast finality on chains
+// with slow finality (Sepolia ~12 min).
+func WithFinalityConfig(f protocol.Finality) EVMTXGunOption {
+	return func(g *EVMTXGun) {
+		g.finalityOverride = &f
 	}
 }
 
@@ -389,17 +401,24 @@ func (m *EVMTXGun) selectMessageProfile(srcSelector uint64, dest destLoadInfo) (
 	}
 
 	// generate a random finality between 0 (chain default finality) and 1 (custom finality)
-	finality, err := rand.Int(rand.Reader, big.NewInt(2))
-	if err != nil {
-		return cciptestinterfaces.MessageFields{}, cciptestinterfaces.MessageOptions{}, fmt.Errorf("failed to generate finality: %w", err)
+	// unless overridden by WithFinalityConfig
+	var finalityVal int64
+	if m.finalityOverride != nil {
+		finalityVal = int64(*m.finalityOverride)
+	} else {
+		finality, err := rand.Int(rand.Reader, big.NewInt(2))
+		if err != nil {
+			return cciptestinterfaces.MessageFields{}, cciptestinterfaces.MessageOptions{}, fmt.Errorf("failed to generate finality: %w", err)
+		}
+		finalityVal = finality.Int64()
 	}
 	if m.testConfig == nil || m.testConfig.Messages == nil {
 		return cciptestinterfaces.MessageFields{
 				Receiver: receiver,
 				Data:     []byte{},
-				FeeToken: protocol.UnknownAddress(common.HexToAddress(wethContract.Address).Bytes()),
+				FeeToken: common.HexToAddress(wethContract.Address).Bytes(),
 			}, cciptestinterfaces.MessageOptions{
-				FinalityConfig: protocol.Finality(finality.Int64()),
+				FinalityConfig: protocol.Finality(finalityVal),
 				CCVs: []protocol.CCV{
 					{
 						CCVAddress: common.HexToAddress(committeeVerifierProxyRef.Address).Bytes(),
@@ -420,7 +439,7 @@ func (m *EVMTXGun) selectMessageProfile(srcSelector uint64, dest destLoadInfo) (
 		FeeToken: protocol.UnknownAddress(common.HexToAddress(wethContract.Address).Bytes()),
 	}
 	opts := cciptestinterfaces.MessageOptions{
-		FinalityConfig: protocol.Finality(messageProfile.Finality),
+		FinalityConfig: protocol.Finality(finalityVal),
 	}
 
 	if messageProfile.HasData {
