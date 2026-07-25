@@ -58,9 +58,9 @@ type EVMTXGun struct {
 	nonce               sync.Map              // map[NonceKey]*uint64
 	messageProfiles     []load.MessageProfileConfig
 	userSelector        map[uint64]func() *bind.TransactOpts
-	executorArgsParams  any // optional, passed to BuildV3ExtraArgs; nil = no executor args (existing behavior)
-	tokenReceiverParams any // optional, passed to BuildV3ExtraArgs; nil = no token receiver
-	tokenArgsParams     any // optional, passed to BuildV3ExtraArgs; nil = no token args
+	executorArgsParams  any // optional, passed to BuildV3ExtraArgs
+	tokenReceiverParams any // optional, passed to BuildV3ExtraArgs
+	tokenArgsParams     any // optional, passed to BuildV3ExtraArgs
 }
 
 // CloseSentChannel closes the sent messages channel to signal no more messages will be sent.
