@@ -58,10 +58,9 @@ type EVMTXGun struct {
 	nonce               sync.Map              // map[NonceKey]*uint64
 	messageProfiles     []load.MessageProfileConfig
 	userSelector        map[uint64]func() *bind.TransactOpts
-	executorArgsParams  any                // optional, passed to BuildV3ExtraArgs
-	tokenReceiverParams any                // optional, passed to BuildV3ExtraArgs
-	tokenArgsParams     any                // optional, passed to BuildV3ExtraArgs
-	finalityOverride    *protocol.Finality // optional, overrides random finality; nil = random (existing behavior)
+	executorArgsParams  any // optional, passed to BuildV3ExtraArgs
+	tokenReceiverParams any // optional, passed to BuildV3ExtraArgs
+	tokenArgsParams     any // optional, passed to BuildV3ExtraArgs
 }
 
 // CloseSentChannel closes the sent messages channel to signal no more messages will be sent.
@@ -122,17 +121,6 @@ func WithTokenReceiverParams(params any) EVMTXGunOption {
 func WithTokenArgsParams(params any) EVMTXGunOption {
 	return func(g *EVMTXGun) {
 		g.tokenArgsParams = params
-	}
-}
-
-// WithFinalityConfig overrides the per-message finality selection.
-// By default the gun randomly picks between finality 0 (wait-for-finality)
-// and 1 (1-block depth) per message. Set this to force a specific finality
-// for all messages — e.g. protocol.Finality(1) for fast finality on chains
-// with slow finality (Sepolia ~12 min).
-func WithFinalityConfig(f protocol.Finality) EVMTXGunOption {
-	return func(g *EVMTXGun) {
-		g.finalityOverride = &f
 	}
 }
 
@@ -401,17 +389,9 @@ func (m *EVMTXGun) selectMessageProfile(srcSelector uint64, dest destLoadInfo) (
 	}
 
 	// generate a random finality between 0 (chain default finality) and 1 (custom finality)
-	// unless overridden by WithFinalityConfig, in Devnet(Anvil): we have 1~2 second instant finality, but in Sepolia, finality is ~12 minutes
-	// TODO: any reason we have to randomly generate finality ? finality should be passed from caller rather than randomly generated
-	var finalityVal int64
-	if m.finalityOverride != nil {
-		finalityVal = int64(*m.finalityOverride)
-	} else {
-		finality, err := rand.Int(rand.Reader, big.NewInt(2))
-		if err != nil {
-			return cciptestinterfaces.MessageFields{}, cciptestinterfaces.MessageOptions{}, fmt.Errorf("failed to generate finality: %w", err)
-		}
-		finalityVal = finality.Int64()
+	finality, err := rand.Int(rand.Reader, big.NewInt(2))
+	if err != nil {
+		return cciptestinterfaces.MessageFields{}, cciptestinterfaces.MessageOptions{}, fmt.Errorf("failed to generate finality: %w", err)
 	}
 	if m.testConfig == nil || m.testConfig.Messages == nil {
 		return cciptestinterfaces.MessageFields{
@@ -419,7 +399,7 @@ func (m *EVMTXGun) selectMessageProfile(srcSelector uint64, dest destLoadInfo) (
 				Data:     []byte{},
 				FeeToken: protocol.UnknownAddress(common.HexToAddress(wethContract.Address).Bytes()),
 			}, cciptestinterfaces.MessageOptions{
-				FinalityConfig: protocol.Finality(finalityVal),
+				FinalityConfig: protocol.Finality(finality.Int64()),
 				CCVs: []protocol.CCV{
 					{
 						CCVAddress: common.HexToAddress(committeeVerifierProxyRef.Address).Bytes(),
@@ -439,12 +419,7 @@ func (m *EVMTXGun) selectMessageProfile(srcSelector uint64, dest destLoadInfo) (
 		Data:     []byte{},
 		FeeToken: protocol.UnknownAddress(common.HexToAddress(wethContract.Address).Bytes()),
 	}
-	var finalityForOpts protocol.Finality
-	if m.finalityOverride != nil {
-		finalityForOpts = *m.finalityOverride
-	} else {
-		finalityForOpts = protocol.Finality(messageProfile.Finality)
-	}
+	var finalityForOpts protocol.Finality = protocol.Finality(messageProfile.Finality)
 	opts := cciptestinterfaces.MessageOptions{
 		FinalityConfig: finalityForOpts,
 	}
