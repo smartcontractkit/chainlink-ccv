@@ -168,11 +168,11 @@ func (s *Processor) processBatch(ctx context.Context) error {
 			"traceparent": job.Payload.TraceParent,
 		}
 		parentCtx := otel.GetTextMapPropagator().Extract(context.WithoutCancel(ctx), carrier)
-		messageID := job.Payload.MessageID.String()
 
 		payload := job.Payload
 		var span oteltrace.Span
-		payload.TraceContext, span = s.monitoring.Tracing().StartMessageSpan(parentCtx, "storagewriter.message.write", messageID,
+		payload.TraceContext, span = s.monitoring.Tracing().StartMessageSpan(
+			parentCtx, "storagewriter.message.write", job.Payload.MessageID,
 			attribute.String("verifier_id", s.verifierID),
 			attribute.String("job_id", job.ID),
 		)

@@ -175,8 +175,13 @@ func (p *Processor) processBatch(ctx context.Context) error {
 		parentCtx := otel.GetTextMapPropagator().Extract(context.WithoutCancel(ctx), carrier)
 
 		payload := job.Payload
+		messageID, err := protocol.NewBytes32FromString(job.Payload.MessageID)
+		if err != nil {
+			return fmt.Errorf("failed to convert messageID to Bytes32: %w", err)
+		}
 		var span oteltrace.Span
-		payload.TraceContext, span = p.monitoring.Tracing().StartMessageSpan(parentCtx, "taskverifier.message.attempt@"+p.verifierID, job.Payload.MessageID,
+		payload.TraceContext, span = p.monitoring.Tracing().StartMessageSpan(
+			parentCtx, "taskverifier.message.attempt@"+p.verifierID, messageID,
 			attribute.String("verifier_id", p.verifierID),
 			attribute.String("job_id", job.ID),
 			attribute.String("source_chain_selector", job.Payload.Message.SourceChainSelector.String()),

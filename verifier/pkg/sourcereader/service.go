@@ -351,7 +351,7 @@ func (r *Service) processEventCycle(ctx context.Context, latest, finalized *prot
 			continue
 		}
 
-		sCtx, span := r.monitoring.Tracing().StartMessageSpan(ctx, "verifier.message@"+r.verifierID, onchainMessageID,
+		sCtx, span := r.monitoring.Tracing().StartMessageSpan(ctx, "verifier.message@"+r.verifierID, event.MessageID,
 			attribute.String("verifier_id", r.verifierID),
 			attribute.Int64("block_number", int64(event.BlockNumber)),
 			attribute.String("tx_hash", event.TxHash.String()),

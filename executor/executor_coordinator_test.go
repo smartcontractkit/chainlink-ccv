@@ -28,6 +28,7 @@ func TestNewCoordinator_DefaultDataNotReadyRetryInterval(t *testing.T) {
 
 	ec, err := executor.NewCoordinator(
 		logger.Test(t),
+		"",
 		mocks.NewMockExecutor(t),
 		mocks.NewMockMessageSubscriber(t),
 		mocks.NewMockLeaderElector(t),
@@ -171,7 +172,7 @@ func TestConstructor(t *testing.T) {
 			if tc.args.timeProvider != nil {
 				tp = tc.args.timeProvider.(ccvcommon.TimeProvider)
 			}
-			_, err := executor.NewCoordinator(tc.args.lggr, tc.args.exec, tc.args.sub, tc.args.le, tc.args.mon, 8*time.Hour, tp, tc.args.workerCount, time.Second)
+			_, err := executor.NewCoordinator(tc.args.lggr, "", tc.args.exec, tc.args.sub, tc.args.le, tc.args.mon, 8*time.Hour, tp, tc.args.workerCount, time.Second)
 
 			if tc.expectErr {
 				require.Error(t, err)
@@ -194,6 +195,7 @@ func TestLifecycle(t *testing.T) {
 
 	ec, err := executor.NewCoordinator(
 		lggr,
+		"",
 		executorMock,
 		ccvDataReader,
 		mocks.NewMockLeaderElector(t),
@@ -228,6 +230,7 @@ func TestSubscribeMessagesError(t *testing.T) {
 
 	ec, err := executor.NewCoordinator(
 		lggr,
+		"",
 		mockExecutor,
 		messageSubscriber,
 		mocks.NewMockLeaderElector(t),
@@ -263,6 +266,7 @@ func TestStopNotRunning(t *testing.T) {
 
 	ec, err := executor.NewCoordinator(
 		lggr,
+		"",
 		mocks.NewMockExecutor(t),
 		mocks.NewMockMessageSubscriber(t),
 		mocks.NewMockLeaderElector(t),
@@ -410,6 +414,7 @@ func TestMessageExpiration(t *testing.T) {
 			// Create coordinator with test expiry duration
 			ec, err := executor.NewCoordinator(
 				lggr,
+				"",
 				mockExecutor,
 				messageSubscriber,
 				leaderElector,
@@ -510,6 +515,7 @@ func TestDuplicateMessageIDFromStreamWhileInFlight_IsSkippedAndHandleMessageCall
 
 	ec, err := executor.NewCoordinator(
 		lggr,
+		"",
 		mockExecutor,
 		messageSubscriber,
 		leaderElector,
@@ -575,6 +581,7 @@ func TestClose_StopsReportingTickerOnContextDone(t *testing.T) {
 
 	ec, err := executor.NewCoordinator(
 		lggr,
+		"",
 		mockExecutor,
 		messageSubscriber,
 		mocks.NewMockLeaderElector(t),
@@ -638,6 +645,7 @@ func TestDuplicateMessageIDFromStreamWhenAlreadyInHeap_IsSkippedByHeapAndHandleM
 
 	ec, err := executor.NewCoordinator(
 		lggr,
+		"",
 		mockExecutor,
 		messageSubscriber,
 		leaderElector,
@@ -703,6 +711,7 @@ func TestCoordinator_MessageSkippedWhenNotExecutorForChain_DoesNotCallGetReadyTi
 
 	ec, err := executor.NewCoordinator(
 		lggr,
+		"",
 		mockExecutor,
 		messageSubscriber,
 		leaderElector,
@@ -780,6 +789,7 @@ func TestGracefulShutdown(t *testing.T) {
 
 	ec, err := executor.NewCoordinator(
 		lggr,
+		"",
 		mockExecutor,
 		messageSubscriber,
 		leaderElector,
@@ -884,6 +894,7 @@ func TestRetry_DataNotReadyReattemptsBeforeStaggerInterval(t *testing.T) {
 
 	ec, err := executor.NewCoordinator(
 		lggr,
+		"",
 		mockExecutor,
 		messageSubscriber,
 		leaderElector,

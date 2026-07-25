@@ -196,6 +196,7 @@ func (f *Factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 
 	f.coordinator, err = executorsvc.NewCoordinator(
 		f.lggr,
+		executorConfig.ExecutorID,
 		ex,
 		indexerStream,
 		le,

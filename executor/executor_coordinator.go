@@ -24,6 +24,7 @@ import (
 type Coordinator struct {
 	services.StateMachine
 	wg                        sync.WaitGroup
+	executorID                string
 	executor                  Executor
 	messageSubscriber         MessageSubscriber
 	leaderElector             LeaderElector
@@ -42,22 +43,13 @@ type Coordinator struct {
 }
 
 // NewCoordinator creates a new executor coordinator.
-func NewCoordinator(
-	lggr logger.Logger,
-	executor Executor,
-	messageSubscriber MessageSubscriber,
-	leaderElector LeaderElector,
-	monitoring Monitoring,
-	expiryDuration time.Duration,
-	timeProvider common.TimeProvider,
-	workerCount int,
-	dataNotReadyRetryInterval time.Duration,
-) (*Coordinator, error) {
+func NewCoordinator(lggr logger.Logger, executorID string, executor Executor, messageSubscriber MessageSubscriber, leaderElector LeaderElector, monitoring Monitoring, expiryDuration time.Duration, timeProvider common.TimeProvider, workerCount int, dataNotReadyRetryInterval time.Duration) (*Coordinator, error) {
 	if dataNotReadyRetryInterval <= 0 {
 		dataNotReadyRetryInterval = DefaultDataNotReadyRetryInterval
 	}
 	ec := &Coordinator{
 		lggr:              lggr,
+		executorID:        executorID,
 		executor:          executor,
 		messageSubscriber: messageSubscriber,
 		leaderElector:     leaderElector,
@@ -220,12 +212,12 @@ func (ec *Coordinator) runStorageStream(ctx context.Context) {
 			// TraceContext propagated through the heap) and is only ended at
 			// a terminal outcome (expired, executed, or permanently failed)
 			// in processPayload.
-			discCtx, discSpan := ec.monitoring.Tracing().StartMessageSpan(ctx, "executor.message", id.String(),
+			discCtx, discSpan := ec.monitoring.Tracing().StartMessageSpan(
+				ctx, "executor.message@"+ec.executorID, id,
 				attribute.String("dest_chain_selector", msg.DestChainSelector.String()),
 				attribute.String("source_chain_selector", msg.SourceChainSelector.String()),
 				attribute.String("ingestion_timestamp", streamResult.Metadata.IngestionTimestamp.Format(time.RFC3339)),
-				attribute.String("ready_timestamp", readyTimestamp.Format(time.RFC3339)),
-			)
+				attribute.String("ready_timestamp", readyTimestamp.Format(time.RFC3339)))
 			discSpan.AddEvent("message_discovered")
 
 			if !ec.delayedMessageHeap.Push(message_heap.MessageWithTimestamps{
@@ -326,7 +318,8 @@ func (ec *Coordinator) processPayload(ctx context.Context, payload message_heap.
 	// attemptCtx/attemptSpan cover this single execution attempt. It ends
 	// every attempt (including retries) - a retried message gets a fresh
 	// attempt span on its next pop, parented off this one via TraceContext.
-	attemptCtx, attemptSpan := ec.monitoring.Tracing().StartMessageSpan(parentCtx, "executor.process_payload", id.String(),
+	attemptCtx, attemptSpan := ec.monitoring.Tracing().StartMessageSpan(
+		parentCtx, "executor.process_payload", id,
 		attribute.String("dest_chain_selector", message.DestChainSelector.String()),
 		attribute.Int("attempt", payload.Attempt),
 	)

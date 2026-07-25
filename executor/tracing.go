@@ -3,19 +3,19 @@ package executor
 import (
 	"context"
 	"crypto/rand"
-	"crypto/sha256"
 
 	"go.opentelemetry.io/otel/attribute"
 	oteltrace "go.opentelemetry.io/otel/trace"
+
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
 // TraceIDForMessage derives a deterministic OTel TraceID from a message ID so
 // that spans for the same message land in a single trace even when no real
 // parent context is available yet (e.g. the very first span for a message).
-func TraceIDForMessage(messageID string) oteltrace.TraceID {
-	sum := sha256.Sum256([]byte(messageID))
+func TraceIDForMessage(messageID protocol.Bytes32) oteltrace.TraceID {
 	var traceID oteltrace.TraceID
-	copy(traceID[:], sum[:16])
+	copy(traceID[:], messageID[:16])
 	return traceID
 }
 
@@ -30,7 +30,7 @@ func randomSpanID() oteltrace.SpanID {
 
 // SpanContextForMessage returns a remote SpanContext whose TraceID is
 // deterministically derived from messageID and whose SpanID is random.
-func SpanContextForMessage(messageID string) oteltrace.SpanContext {
+func SpanContextForMessage(messageID protocol.Bytes32) oteltrace.SpanContext {
 	return oteltrace.NewSpanContext(oteltrace.SpanContextConfig{
 		TraceID:    TraceIDForMessage(messageID),
 		SpanID:     randomSpanID(),
@@ -41,7 +41,7 @@ func SpanContextForMessage(messageID string) oteltrace.SpanContext {
 
 // TraceContextForMessage returns ctx carrying messageID's deterministic
 // SpanContext as the current span.
-func TraceContextForMessage(ctx context.Context, messageID string) context.Context {
+func TraceContextForMessage(ctx context.Context, messageID protocol.Bytes32) context.Context {
 	return oteltrace.ContextWithSpanContext(ctx, SpanContextForMessage(messageID))
 }
 
@@ -57,7 +57,7 @@ type Tracing interface {
 	// discovery span or a previous attempt), that parent is used; otherwise a
 	// deterministic parent derived from messageID is synthesized, so the span
 	// still lands in a consistent per-message trace.
-	StartMessageSpan(ctx context.Context, name, messageID string, attrs ...attribute.KeyValue) (context.Context, oteltrace.Span)
+	StartMessageSpan(ctx context.Context, name string, message_id protocol.Bytes32, attrs ...attribute.KeyValue) (context.Context, oteltrace.Span)
 }
 
 type messageTracing struct {
@@ -73,10 +73,10 @@ func withMessageID(messageID string, attrs []attribute.KeyValue) []attribute.Key
 	return append([]attribute.KeyValue{attribute.String("message_id", messageID)}, attrs...)
 }
 
-func (t *messageTracing) StartMessageSpan(ctx context.Context, name, messageID string, attrs ...attribute.KeyValue) (context.Context, oteltrace.Span) {
+func (t *messageTracing) StartMessageSpan(ctx context.Context, name string, messageID protocol.Bytes32, attrs ...attribute.KeyValue) (context.Context, oteltrace.Span) {
 	tCtx := ctx
 	if !oteltrace.SpanContextFromContext(ctx).IsValid() {
 		tCtx = TraceContextForMessage(ctx, messageID)
 	}
-	return t.tracer.Start(tCtx, name, oteltrace.WithAttributes(withMessageID(messageID, attrs)...))
+	return t.tracer.Start(tCtx, name, oteltrace.WithAttributes(withMessageID(messageID.String(), attrs)...))
 }

@@ -129,8 +129,9 @@ func (p *PostgresCCVStorage) Set(ctx context.Context, entries []Entry) error {
 			signature,
 			verifier_source_address,
 			verifier_dest_address,
-			timestamp
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+			timestamp,
+			traceparent
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		ON CONFLICT (message_id) DO UPDATE SET
 			message = EXCLUDED.message,
 			ccv_version = EXCLUDED.ccv_version,
@@ -139,7 +140,8 @@ func (p *PostgresCCVStorage) Set(ctx context.Context, entries []Entry) error {
 			signature = EXCLUDED.signature,
 			verifier_source_address = EXCLUDED.verifier_source_address,
 			verifier_dest_address = EXCLUDED.verifier_dest_address,
-			timestamp = EXCLUDED.timestamp`
+			timestamp = EXCLUDED.timestamp,
+			traceparent = EXCLUDED.traceparent`
 
 		for _, entry := range entries {
 			msgID, err := entry.Value.Message.MessageID()
@@ -167,6 +169,7 @@ func (p *PostgresCCVStorage) Set(ctx context.Context, entries []Entry) error {
 				[]byte(entry.VerifierSourceAddress),
 				[]byte(entry.VerifierDestAddress),
 				entry.Timestamp,
+				entry.Value.TraceParent,
 			)
 			if err != nil {
 				return fmt.Errorf("failed to insert verifier node result for message %s: %w", msgID.String(), err)

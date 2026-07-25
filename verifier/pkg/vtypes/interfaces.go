@@ -67,7 +67,7 @@ type Tracing interface {
 	// deterministic trace context (see TraceContextForMessage) so the span
 	// still lands in the right trace if this process didn't see the message
 	// before (e.g. after a restart).
-	StartMessageSpan(ctx context.Context, name, messageID string, attrs ...attribute.KeyValue) (context.Context, oteltrace.Span)
+	StartMessageSpan(ctx context.Context, name string, messageID protocol.Bytes32, attrs ...attribute.KeyValue) (context.Context, oteltrace.Span)
 }
 
 type FinalityCheckerMetrics interface {
