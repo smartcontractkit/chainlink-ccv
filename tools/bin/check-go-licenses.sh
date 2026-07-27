@@ -13,20 +13,29 @@ usage() {
 
 update_exception_versions() {
   local actual_version
+  local actual_replacement
   local expected_version
+  local expected_replacement
   local module
+  local replacement_module
   local temporary_file
 
   temporary_file="$(mktemp)"
   trap 'rm -f "${temporary_file}"' EXIT
 
   {
-    echo "# Module versions covered by the matching entries in ignored-packages.txt."
+    echo "# Module versions covered by the matching entries in ignored-packages.txt. An optional"
+    echo "# replacement module path and version pins the source selected by a Go replace directive."
     echo "# Update only with Legal approval after reviewing the new version."
-    while IFS=' ' read -r module expected_version; do
+    while IFS=' ' read -r module expected_version replacement_module expected_replacement; do
       [[ -z "${module}" || "${module}" == \#* ]] && continue
       actual_version="$(go list -m -f '{{.Version}}' "${module}")"
-      echo "${module} ${actual_version}"
+      if [[ -n "${replacement_module}" ]]; then
+        actual_replacement="$(go list -m -f '{{if .Replace}}{{.Replace.Path}} {{.Replace.Version}}{{end}}' "${module}")"
+        echo "${module} ${actual_version} ${actual_replacement}"
+      else
+        echo "${module} ${actual_version}"
+      fi
     done < "${exception_modules_file}"
   } > "${temporary_file}"
 
@@ -63,12 +72,19 @@ if [[ ${#allowed_licenses[@]} -eq 0 ]]; then
   exit 1
 fi
 
-while IFS=' ' read -r module expected_version; do
+while IFS=' ' read -r module expected_version replacement_module expected_replacement; do
   [[ -z "${module}" || "${module}" == \#* ]] && continue
   actual_version="$(go list -m -f '{{.Version}}' "${module}")"
   if [[ "${actual_version}" != "${expected_version}" ]]; then
     echo "::error title=Dependency license exception expired::${module} changed from ${expected_version} to ${actual_version}. Legal review is required."
     exit 1
+  fi
+  if [[ -n "${replacement_module}" ]]; then
+    actual_replacement="$(go list -m -f '{{if .Replace}}{{.Replace.Path}} {{.Replace.Version}}{{end}}' "${module}")"
+    if [[ "${actual_replacement}" != "${replacement_module} ${expected_replacement}" ]]; then
+      echo "::error title=Dependency license exception expired::${module} replacement changed from ${replacement_module} ${expected_replacement} to ${actual_replacement}. Legal review is required."
+      exit 1
+    fi
   fi
 done < "${exception_modules_file}"
 

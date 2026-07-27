@@ -11,13 +11,14 @@ dependencies.
 
 ## Exceptions
 
-`go-licenses` does not recognize every valid license filename. `ignored-packages.txt`
-contains narrowly scoped package prefixes that Legal has manually reviewed. Do not add
-an entry solely to make a check pass. A change requires Legal approval, a reason, and
-the reviewed license in the adjacent comment. `exception-modules.txt` pins each review
-to a module version; changing that version fails the check until the exception is
-reviewed and updated. Package dependencies remain checked by `go-licenses` even when
-their parent prefix is ignored.
+`go-licenses` does not recognize every valid license filename, and some licenses need
+Legal's dependency-specific approval. `ignored-packages.txt` contains narrowly scoped
+package prefixes for those cases. Do not add an entry solely to make a check pass. A
+change requires Legal approval, a reason, and the reviewed license in the adjacent
+comment. `exception-modules.txt` pins each review to a module version; it also pins the
+selected source when a Go `replace` directive is used. Changing either fails the check
+until the exception is reviewed and updated. Package dependencies remain checked by
+`go-licenses` even when their parent prefix is ignored.
 
 After Legal reviews an updated dependency, run
 `tools/bin/check-go-licenses.sh --update-exception-versions` to refresh the version

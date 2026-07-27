@@ -1,8 +1,31 @@
-# Module versions covered by the matching entries in ignored-packages.txt.
+# Module versions covered by the matching entries in ignored-packages.txt. An optional
+# replacement module path and version pins the source selected by a Go replace directive.
 # Update only with Legal approval after reviewing the new version.
+
+# MIT License - but can't be auto-identified by go-licenses
 github.com/gagliardetto/treeout v0.1.4
 github.com/holiman/bloomfilter/v2 v2.0.3
+
+# Apache-2.0 License - but can't be auto-identified by go-licenses
 github.com/jackpal/go-nat-pmp v1.0.2
+
+# LGPL-3.0
 github.com/ethereum/go-ethereum v1.17.3
+github.com/fbsobreira/gotron-sdk v0.0.0-20250403083053-2943ce8c759b github.com/smartcontractkit/chainlink-tron/relayer/gotron-sdk v0.0.5-0.20251014124537-af6b1684fe15
+
+# MPL-2.0
+github.com/hashicorp/go-bexpr v0.1.10
+github.com/hashicorp/go-plugin v1.8.0
+github.com/hashicorp/golang-lru/v2 v2.0.7
+github.com/hashicorp/yamux v0.1.2
+github.com/smartcontractkit/freeport v0.1.3-0.20250828155247-add56fa28aad
+
+# Mixed; go-licenses classifies pkg and gethwrappers as LGPL-3.0.
+github.com/smartcontractkit/chainlink-evm v0.3.4-0.20260722105404-d3fb34ccc58b
+
+# BUSL-1.1 (Chainlink)
 github.com/smartcontractkit/chainlink-ccip/chains/evm v0.0.0-20260618155522-3600f66e26cd
+
+# No license for the go module - subpackages are MIT.
+# This is not used by the verifier or executor, just the pricer.
 github.com/smartcontractkit/chainlink-solana v1.1.2-0.20260318003508-442c25062e9a
