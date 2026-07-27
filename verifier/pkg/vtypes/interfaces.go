@@ -4,11 +4,9 @@ import (
 	"context"
 	"time"
 
-	"go.opentelemetry.io/otel/attribute"
-	oteltrace "go.opentelemetry.io/otel/trace"
-
 	"github.com/smartcontractkit/chainlink-ccv/common"
 	commonmetrics "github.com/smartcontractkit/chainlink-ccv/common/metrics"
+	"github.com/smartcontractkit/chainlink-ccv/common/monitoring/tracing"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
@@ -50,24 +48,8 @@ type Monitoring interface {
 	// Metrics returns the metrics labeler for the verifier.
 	Metrics() MetricLabeler
 	// Tracing returns the per-message tracer for the verifier.
-	Tracing() Tracing
+	Tracing() tracing.Tracing
 	commonmetrics.ServiceMetrics
-}
-
-// Tracing owns the one global span per message covering its whole journey
-// through the verifier pipeline (event read on chain through the CCV batch
-// write to storage), plus any child spans other pipeline stages open under it.
-// All three pipeline stages (source reader, task verifier, storage writer) run
-// in the same process for a given verifier instance, so the global span - and
-// the parent/child relationship with spans opened later in the pipeline - is a
-// real, in-memory span, not just a shared deterministic trace ID.
-type Tracing interface {
-	// StartMessageSpan opens the single global span for messageID's entire
-	// journey through the pipeline. ctx should carry the message's
-	// deterministic trace context (see TraceContextForMessage) so the span
-	// still lands in the right trace if this process didn't see the message
-	// before (e.g. after a restart).
-	StartMessageSpan(ctx context.Context, name string, messageID protocol.Bytes32, attrs ...attribute.KeyValue) (context.Context, oteltrace.Span)
 }
 
 type FinalityCheckerMetrics interface {

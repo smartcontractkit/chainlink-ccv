@@ -8,6 +8,7 @@ import (
 	"time"
 
 	commonmetrics "github.com/smartcontractkit/chainlink-ccv/common/metrics"
+	"github.com/smartcontractkit/chainlink-ccv/common/monitoring/tracing"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
 	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
@@ -19,7 +20,7 @@ var _ verifier.Monitoring = (*VerifierBeholderMonitoring)(nil)
 // VerifierBeholderMonitoring provides beholder-based monitoring for the verifier.
 type VerifierBeholderMonitoring struct {
 	metrics verifier.MetricLabeler
-	tracing verifier.Tracing
+	tracing tracing.Tracing
 	commonmetrics.ServiceMetrics
 }
 
@@ -38,7 +39,7 @@ func InitMonitoring(verifierServiceName string) (verifier.Monitoring, error) {
 
 	return &VerifierBeholderMonitoring{
 		metrics:        NewVerifierMetricLabeler(metrics.NewLabeler(), verifierMetrics),
-		tracing:        verifier.NewTracing(beholder.GetTracer()),
+		tracing:        tracing.NewTracing(beholder.GetTracer()),
 		ServiceMetrics: serviceMetrics,
 	}, nil
 }
@@ -47,7 +48,7 @@ func (v *VerifierBeholderMonitoring) Metrics() verifier.MetricLabeler {
 	return v.metrics
 }
 
-func (v *VerifierBeholderMonitoring) Tracing() verifier.Tracing {
+func (v *VerifierBeholderMonitoring) Tracing() tracing.Tracing {
 	return v.tracing
 }
 
@@ -63,7 +64,7 @@ func (noopServiceMetrics) RecordServiceStarted(context.Context) {}
 
 type FakeVerifierMonitoring struct {
 	Fake    *FakeVerifierMetricLabeler
-	tracing verifier.Tracing
+	tracing tracing.Tracing
 	commonmetrics.ServiceMetrics
 }
 
@@ -71,14 +72,14 @@ func (f FakeVerifierMonitoring) Metrics() verifier.MetricLabeler {
 	return f.Fake
 }
 
-func (f FakeVerifierMonitoring) Tracing() verifier.Tracing {
+func (f FakeVerifierMonitoring) Tracing() tracing.Tracing {
 	return f.tracing
 }
 
 func NewFakeVerifierMonitoring() *FakeVerifierMonitoring {
 	return &FakeVerifierMonitoring{
 		Fake:           &FakeVerifierMetricLabeler{},
-		tracing:        verifier.NewTracing(beholder.GetTracer()),
+		tracing:        tracing.NewTracing(beholder.GetTracer()),
 		ServiceMetrics: noopServiceMetrics{},
 	}
 }

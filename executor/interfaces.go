@@ -6,6 +6,7 @@ import (
 
 	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
 	commonmetrics "github.com/smartcontractkit/chainlink-ccv/common/metrics"
+	"github.com/smartcontractkit/chainlink-ccv/common/monitoring/tracing"
 	v1 "github.com/smartcontractkit/chainlink-ccv/indexer/pkg/api/handlers/v1"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -69,7 +70,7 @@ type Monitoring interface {
 	// Metrics returns the metrics labeler for the executor.
 	Metrics() MetricLabeler
 	// Tracing returns the tracer used across the executor pipeline.
-	Tracing() Tracing
+	Tracing() tracing.Tracing
 	commonmetrics.ServiceMetrics
 }
 

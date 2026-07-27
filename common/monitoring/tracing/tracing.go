@@ -1,4 +1,4 @@
-package executor
+package tracing
 
 import (
 	"context"
@@ -45,19 +45,14 @@ func TraceContextForMessage(ctx context.Context, messageID protocol.Bytes32) con
 	return oteltrace.ContextWithSpanContext(ctx, SpanContextForMessage(messageID))
 }
 
-// Tracing exposes span creation for the executor pipeline. The executor's
-// pipeline (subscribe -> delay heap -> worker pool -> HandleMessage) runs in
-// a single process, so trace parentage is carried explicitly via
-// context.Context - propagated through message_heap.MessageWithTimestamps.TraceContext
-// across the delay-heap/retry boundary - rather than through any
-// message_id -> span/context registry.
+// Tracing exposes span creation for the message pipeline
 type Tracing interface {
 	// StartMessageSpan starts a span for messageID. If ctx already carries a
 	// valid span context (a real in-process parent, e.g. the message's
 	// discovery span or a previous attempt), that parent is used; otherwise a
 	// deterministic parent derived from messageID is synthesized, so the span
 	// still lands in a consistent per-message trace.
-	StartMessageSpan(ctx context.Context, name string, message_id protocol.Bytes32, attrs ...attribute.KeyValue) (context.Context, oteltrace.Span)
+	StartMessageSpan(ctx context.Context, name string, messageID protocol.Bytes32, attrs ...attribute.KeyValue) (context.Context, oteltrace.Span)
 }
 
 type messageTracing struct {

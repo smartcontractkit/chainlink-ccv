@@ -6,6 +6,7 @@ import (
 	"time"
 
 	commonmetrics "github.com/smartcontractkit/chainlink-ccv/common/metrics"
+	"github.com/smartcontractkit/chainlink-ccv/common/monitoring/tracing"
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
@@ -27,7 +28,7 @@ func InitMonitoring() (executor.Monitoring, error) {
 
 	return &ExecutorBeholderMonitoring{
 		metrics:        NewExecutorMetricLabeler(metrics.NewLabeler(), executorMetrics),
-		tracing:        executor.NewTracing(beholder.GetTracer()),
+		tracing:        tracing.NewTracing(beholder.GetTracer()),
 		ServiceMetrics: serviceMetrics,
 	}, nil
 }
@@ -40,7 +41,7 @@ var (
 // ExecutorBeholderMonitoring provides beholder-based monitoring for the executor.
 type ExecutorBeholderMonitoring struct {
 	metrics executor.MetricLabeler
-	tracing executor.Tracing
+	tracing tracing.Tracing
 	commonmetrics.ServiceMetrics
 }
 
@@ -48,7 +49,7 @@ func (v *ExecutorBeholderMonitoring) Metrics() executor.MetricLabeler {
 	return v.metrics
 }
 
-func (v *ExecutorBeholderMonitoring) Tracing() executor.Tracing {
+func (v *ExecutorBeholderMonitoring) Tracing() tracing.Tracing {
 	return v.tracing
 }
 
@@ -60,7 +61,7 @@ func (noopServiceMetrics) RecordServiceStarted(context.Context) {}
 // NoopExecutorMonitoring provides a no-op implementation of ExecutorMonitoring.
 type NoopExecutorMonitoring struct {
 	noop    executor.MetricLabeler
-	tracing executor.Tracing
+	tracing tracing.Tracing
 	commonmetrics.ServiceMetrics
 }
 
@@ -68,7 +69,7 @@ type NoopExecutorMonitoring struct {
 func NewNoopExecutorMonitoring() executor.Monitoring {
 	return &NoopExecutorMonitoring{
 		noop:           NewNoopExecutorMetricLabeler(),
-		tracing:        executor.NewTracing(beholder.GetTracer()),
+		tracing:        tracing.NewTracing(beholder.GetTracer()),
 		ServiceMetrics: noopServiceMetrics{},
 	}
 }
@@ -77,7 +78,7 @@ func (n *NoopExecutorMonitoring) Metrics() executor.MetricLabeler {
 	return n.noop
 }
 
-func (n *NoopExecutorMonitoring) Tracing() executor.Tracing {
+func (n *NoopExecutorMonitoring) Tracing() tracing.Tracing {
 	return n.tracing
 }
 
