@@ -117,12 +117,15 @@ func TestKeystoreConfig_validate(t *testing.T) {
 			errContains: []string{"field 'password' is required"},
 		},
 		{
-			name: "valid kms with ecdsa key",
+			// ed25519_key_id is required for KMS (the CSA key is always Ed25519); an ecdsa-only
+			// config is rejected at validation instead of failing later during keystore init.
+			name: "kms with only ecdsa key is invalid",
 			config: &KeystoreConfig{
 				Backend: KeystoreBackendKMS,
 				KMS:     KMSKeystoreConfig{EcdsaKeyID: "ecdsa-key-id"},
 			},
-			wantErr: false,
+			wantErr:     true,
+			errContains: []string{"'ed25519_key_id' is required"},
 		},
 		{
 			name: "valid kms with ed25519 key",
@@ -146,14 +149,14 @@ func TestKeystoreConfig_validate(t *testing.T) {
 				Backend: KeystoreBackendKMS,
 			},
 			wantErr:     true,
-			errContains: []string{"at least one KMS key ID is required"},
+			errContains: []string{"'ed25519_key_id' is required"},
 		},
 		{
 			name: "kms without password is valid",
 			config: &KeystoreConfig{
 				Backend:  KeystoreBackendKMS,
 				Password: "",
-				KMS:      KMSKeystoreConfig{EcdsaKeyID: "key-id"},
+				KMS:      KMSKeystoreConfig{Ed25519KeyID: "ed25519-key-id"},
 			},
 			wantErr: false,
 		},
@@ -409,7 +412,7 @@ func TestConfig_validate(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "KMS backend with no key IDs fails",
+			name: "KMS backend without ed25519 key ID fails",
 			config: &Config{
 				NonSecretConfig: NonSecretConfig{JD: validJD, Server: validServer},
 				Secrets: Secrets{
@@ -418,7 +421,7 @@ func TestConfig_validate(t *testing.T) {
 				},
 			},
 			wantErr:     true,
-			errContains: []string{"failed to validate 'keystore' section", "KMS key ID"},
+			errContains: []string{"failed to validate 'keystore' section", "'ed25519_key_id' is required"},
 		},
 	}
 	// All table cases above exercise JD mode (AppConfigModeJD) so the full infra bundle is validated.

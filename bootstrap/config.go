@@ -93,8 +93,12 @@ func (c *KeystoreConfig) validate() error {
 		return err
 	}
 	if backend == KeystoreBackendKMS {
-		if c.KMS.EcdsaKeyID == "" && c.KMS.Ed25519KeyID == "" {
-			return fmt.Errorf("at least one KMS key ID is required when backend is 'kms' (set ecdsa_key_id or ed25519_key_id)")
+		// The bootstrapper always needs an Ed25519 CSA key (auto-injected in NewBootstrapper and used
+		// by keys.NewCSASigner), so ed25519_key_id is required for the KMS backend. ecdsa_key_id is
+		// service-specific — only services that declare an ECDSA signing key need it — so its presence
+		// is enforced per-declared-key in buildKMSNameMap rather than statically here.
+		if c.KMS.Ed25519KeyID == "" {
+			return fmt.Errorf("field 'ed25519_key_id' is required when backend is 'kms' (the CSA key is Ed25519)")
 		}
 		return nil
 	}
