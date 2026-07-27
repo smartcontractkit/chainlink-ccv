@@ -1,6 +1,7 @@
 package evm
 
 import (
+	"fmt"
 	"os"
 	"testing"
 
@@ -67,12 +68,12 @@ func TestEVMConfigIsMountedSeparatelyFromAppConfig(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, md.Undecoded())
 	require.Len(t, cfg.Chains, 1)
-	// Chain ID and family are intentionally absent from the mounted file (derived from the
-	// selector). Only connection details and chain-type tuning are present.
+	// Chain ID, family, and chain type are intentionally absent from the mounted
+	// file because they are derived from the selector.
 	for _, chain := range cfg.Chains {
-		require.Equal(t, output.Type, chain.ChainType)
 		require.Len(t, chain.Nodes, len(output.Nodes))
 		for i, node := range output.Nodes {
+			require.Equal(t, fmt.Sprintf("evm-node-%d", i+1), chain.Nodes[i].Name)
 			require.Equal(t, node.ExternalHTTPUrl, chain.Nodes[i].ExternalHTTPUrl)
 			require.Equal(t, node.InternalHTTPUrl, chain.Nodes[i].InternalHTTPUrl)
 			require.Equal(t, node.ExternalWSUrl, chain.Nodes[i].ExternalWSUrl)

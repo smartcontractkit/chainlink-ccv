@@ -46,7 +46,8 @@ func TestE2ESmoke_Basic(t *testing.T) {
 			if tc.HavePrerequisites(ctx) {
 				t.Run(tc.Name(), func(t *testing.T) {
 					subtestCtx := ccv.Plog.WithContext(t.Context())
-					require.NoError(t, tc.Run(subtestCtx))
+					_, runErr := tc.Run(subtestCtx)
+					require.NoError(t, runErr)
 				})
 			} else {
 				t.Logf("Skipping %s because current environment does not have the prerequisites", tc.Name())
@@ -60,7 +61,8 @@ func TestE2ESmoke_Basic(t *testing.T) {
 			if tc.HavePrerequisites(ctx) {
 				t.Run(tc.Name(), func(t *testing.T) {
 					subtestCtx := ccv.Plog.WithContext(t.Context())
-					require.NoError(t, tc.Run(subtestCtx))
+					_, runErr := tc.Run(subtestCtx)
+					require.NoError(t, runErr)
 				})
 			} else {
 				t.Logf("Skipping %s because current environment does not have the prerequisites", tc.Name())
@@ -70,7 +72,8 @@ func TestE2ESmoke_Basic(t *testing.T) {
 			if tc.HavePrerequisites(ctx) {
 				t.Run(tc.Name(), func(t *testing.T) {
 					subtestCtx := ccv.Plog.WithContext(t.Context())
-					require.NoError(t, tc.Run(subtestCtx))
+					_, runErr := tc.Run(subtestCtx)
+					require.NoError(t, runErr)
 				})
 			} else {
 				t.Logf("Skipping %s because current environment does not have the prerequisites", tc.Name())

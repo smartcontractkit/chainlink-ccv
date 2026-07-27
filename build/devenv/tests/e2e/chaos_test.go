@@ -87,7 +87,8 @@ func TestChaos_EVMRPCFailover(t *testing.T) {
 					ConfirmExecTimeout: rpcFailoverTimeout,
 				},
 			})
-			require.NoError(t, messageCase.Run(ctx))
+			_, err = messageCase.Run(ctx)
+			require.NoError(t, err)
 
 			// Keep the healthy secondary available between phases. This avoids a
 			// gap while the node pool rediscovers the restored primary.

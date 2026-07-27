@@ -142,8 +142,9 @@ func runV2TestCase(
 		if executionTimeout <= 0 {
 			executionTimeout = defaultExecTimeout
 		}
-		e, err := chainMap[tc.toSelector].ConfirmExecOnDest(ctx, tc.fromSelector, cciptestinterfaces.MessageEventKey{SeqNum: seqNo}, executionTimeout)
+		execEnv, err := chainMap[tc.toSelector].ConfirmExecOnDest(ctx, tc.fromSelector, cciptestinterfaces.MessageEventKey{SeqNum: seqNo}, executionTimeout)
 		require.NoError(t, err)
+		e := execEnv.Event
 		require.NotNil(t, e)
 
 		if tc.expectFail {

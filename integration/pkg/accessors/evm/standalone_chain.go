@@ -30,8 +30,8 @@ import (
 // behind this narrow interface makes the accessor wiring testable without
 // replacing chainlink-evm's production implementations.
 type chainRuntime interface {
-	ChainClient() client.Client
-	HeadTracker() heads.Tracker
+	ChainClient() (client.Client, error)
+	HeadTracker() (heads.Tracker, error)
 	NewContractTransmitter(
 		ctx context.Context,
 		chainSelector protocol.ChainSelector,
@@ -109,9 +109,19 @@ func newStandaloneChain(ctx context.Context, info Info, lggr logger.Logger) (*st
 	}, nil
 }
 
-func (c *standaloneChain) ChainClient() client.Client { return c.chainClient }
+func (c *standaloneChain) ChainClient() (client.Client, error) {
+	if c == nil || c.chainClient == nil {
+		return nil, errors.New("EVM chain client is not available")
+	}
+	return c.chainClient, nil
+}
 
-func (c *standaloneChain) HeadTracker() heads.Tracker { return c.headTracker }
+func (c *standaloneChain) HeadTracker() (heads.Tracker, error) {
+	if c == nil || c.headTracker == nil {
+		return nil, errors.New("EVM head tracker is not available")
+	}
+	return c.headTracker, nil
+}
 
 // NewContractTransmitter starts chainlink-evm's production TXM v2 and returns
 // the existing TXM-backed CCV transmitter. TXM owns nonce tracking, fee

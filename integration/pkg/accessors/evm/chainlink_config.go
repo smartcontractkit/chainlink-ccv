@@ -6,11 +6,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
 	commonconfig "github.com/smartcontractkit/chainlink-common/pkg/config"
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 	evmconfig "github.com/smartcontractkit/chainlink-evm/pkg/config"
-	"github.com/smartcontractkit/chainlink-evm/pkg/config/chaintype"
 	evmtoml "github.com/smartcontractkit/chainlink-evm/pkg/config/toml"
 )
 
@@ -36,56 +34,37 @@ func newChainlinkEVMConfig(info Info) (*evmconfig.ChainScoped, error) {
 	sqlChainID := sqlutil.New(chainID)
 	chain := evmtoml.Defaults(sqlChainID)
 
-	// CTF's Type describes its RPC provider for anvil, ethereum, and geth rather
-	// than a chainlink-evm semantic ChainType. Provider aliases preserve the full
-	// set of defaults selected by chain ID. An explicit semantic type is accepted
-	// only when those same defaults declare it; changing ChainType alone would
-	// omit required gas and data-availability settings for some rollups.
-	chainTypeName := strings.TrimSpace(info.Type)
-	switch chainTypeName {
-	case "", "anvil", "ethereum", "geth":
-	default:
-		chainType := chaintype.FromSlug(chainTypeName)
-		if !chainType.IsValid() {
-			return nil, fmt.Errorf("unsupported EVM chain type %q", info.Type)
-		}
-		defaultChainType, hasDefaults := evmtoml.ChainTypeForID(sqlChainID)
-		if !hasDefaults {
-			return nil, fmt.Errorf(
-				"EVM chain %s cannot use explicit chain type %q: chainlink-evm has no chain-specific defaults for this chain ID",
-				info.ChainID,
-				chainTypeName,
-			)
-		}
-		if defaultChainType != chainType {
-			expected := string(defaultChainType)
-			if expected == "" {
-				expected = "generic EVM"
-			}
-			return nil, fmt.Errorf(
-				"EVM chain %s chain type %q does not match chainlink-evm defaults (%s)",
-				info.ChainID,
-				chainTypeName,
-				expected,
-			)
-		}
-	}
-
 	// The standalone database does not contain chainlink-core's evm.heads schema,
 	// so use the production tracker with its supported in-memory saver mode.
 	chain.HeadTracker.PersistenceEnabled = new(false)
-	// Preserve standalone CCV's finalization semantics. Generic chainlink-evm
-	// defaults use a deeper confirmation window, which delays Finality=0 messages
-	// beyond CCV's verifier and E2E execution deadlines on development chains.
-	chain.FinalityDepth = new(uint32(vtypes.ConfirmationDepth))
+	if info.FinalityDepth == 0 {
+		// chain.FinalityDepth is deliberately left at the chain-specific upstream
+		// default: evmtoml.Chain.ValidateConfig rejects a depth below 1 whether or
+		// not finality tags are enabled, so it cannot be zeroed out here.
+		chain.FinalityTagEnabled = new(true)
+	} else {
+		// A positive operator value explicitly selects depth-based finality,
+		// including on chains whose upstream default enables finality tags.
+		chain.FinalityTagEnabled = new(false)
+		chain.FinalityDepth = new(info.FinalityDepth)
+	}
 	// These services are not consumers of the standalone accessor. Disabling
 	// them keeps this lifecycle focused on the production HeadTracker and TXM.
 	chain.LogBroadcasterEnabled = new(false)
 	chain.BalanceMonitor.Enabled = new(false)
+	// These settings configure TXM v2 but do not start it. standaloneChain builds
+	// and starts a TXM only in NewContractTransmitter, which runs when bootstrap
+	// injects a keystore into an accessor that has an OffRamp address. Source-only
+	// deployments such as the verifier carry no chain_configuration, so they never
+	// construct a TXM and produce no idle TXM goroutines or logs.
 	chain.Transactions.Enabled = new(true)
 	chain.Transactions.ForwardersEnabled = new(false)
 	chain.Transactions.TransactionManagerV2.Enabled = new(true)
-	chain.Transactions.TransactionManagerV2.BlockTime = commonconfig.MustNewDuration(defaultTXMBlockTime)
+	blockTime := info.TXMBlockTime
+	if blockTime == 0 {
+		blockTime = defaultTXMBlockTime
+	}
+	chain.Transactions.TransactionManagerV2.BlockTime = commonconfig.MustNewDuration(blockTime)
 
 	nodes := make(evmtoml.EVMNodes, 0, len(info.Nodes))
 	usesHTTPPolling := false
@@ -109,6 +88,9 @@ func newChainlinkEVMConfig(info Info) (*evmconfig.ChainScoped, error) {
 		Chain:   chain,
 		Nodes:   nodes,
 	}
+	// The generic validator invokes EVMConfig and all nested ValidateConfig
+	// methods. EVMConfigs.ValidateConfig separately enforces uniqueness across
+	// chain and node keys; chainlink-evm requires both validation layers.
 	if err := commonconfig.Validate(tomlConfig); err != nil {
 		return nil, fmt.Errorf("invalid chainlink-evm config for chain %s: %w", info.ChainID, err)
 	}
@@ -124,7 +106,11 @@ func newChainlinkEVMConfig(info Info) (*evmconfig.ChainScoped, error) {
 func toChainlinkEVMNode(info Info, index int, configured Node) (*evmtoml.Node, bool, error) {
 	httpURL := firstNonEmpty(configured.InternalHTTPUrl, configured.ExternalHTTPUrl)
 	if httpURL == "" {
-		return nil, false, fmt.Errorf("EVM chain %s node %d has no HTTP RPC URL", info.ChainID, index)
+		return nil, false, fmt.Errorf(
+			"EVM chain %s node %d has no HTTP RPC URL; WebSocket-only nodes are not supported",
+			info.ChainID,
+			index,
+		)
 	}
 	parsedHTTP, err := commonconfig.ParseURL(httpURL)
 	if err != nil {
@@ -140,7 +126,7 @@ func toChainlinkEVMNode(info Info, index int, configured Node) (*evmtoml.Node, b
 		}
 	}
 
-	name := nodeName(info, index)
+	name := nodeName(info, index, configured)
 	return &evmtoml.Node{
 		Name:    &name,
 		HTTPURL: parsedHTTP,
@@ -157,13 +143,9 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
-func nodeName(info Info, index int) string {
-	base := strings.TrimSpace(info.UniqueChainName)
-	if base == "" {
-		base = "evm-" + info.ChainID
+func nodeName(info Info, index int, configured Node) string {
+	if name := strings.TrimSpace(configured.Name); name != "" {
+		return name
 	}
-	if len(info.Nodes) == 1 {
-		return base
-	}
-	return fmt.Sprintf("%s-%d", base, index+1)
+	return defaultNodeName(info, index)
 }

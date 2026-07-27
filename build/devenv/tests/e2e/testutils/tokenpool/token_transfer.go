@@ -101,7 +101,7 @@ func transferTokens(
 	require.NoError(t, err, "get sender start balance")
 
 	amountToTransfer := tokens.ScaleTokenAmount(big.NewInt(amount), srcPool.Decimals())
-	sendRes, err := tcapi.SendV3Message(
+	sendRes, _, err := tcapi.SendV3Message(
 		t.Context(), v3Src, v3Dst,
 		cciptestinterfaces.MessageFields{
 			Receiver: receiver,
@@ -152,8 +152,9 @@ func transferTokens(
 		require.NotNil(t, res.AggregatedResult, "aggregated result is nil")
 	}
 
-	execEvt, err := v3Dst.ConfirmExecOnDest(t.Context(), srcSel, messageKey, tcapi.DefaultExecTimeout)
+	execEnv, err := v3Dst.ConfirmExecOnDest(t.Context(), srcSel, messageKey, tcapi.DefaultExecTimeout)
 	require.NoError(t, err, "wait for exec event")
+	execEvt := execEnv.Event
 	require.Equal(t, cciptestinterfaces.ExecutionStateSuccess, execEvt.State, "unexpected execution state %s, return data: %x", execEvt.State, execEvt.ReturnData)
 
 	dstEndBal, err := dstBalReader.GetTokenBalance(t.Context(), receiver, dstTokenAddr)

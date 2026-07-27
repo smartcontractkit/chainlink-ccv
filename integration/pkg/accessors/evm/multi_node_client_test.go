@@ -10,7 +10,6 @@ import (
 
 	"github.com/stretchr/testify/require"
 
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-evm/pkg/config/chaintype"
 )
@@ -76,14 +75,17 @@ func TestNewChainlinkEVMConfigUsesProductionDefaultsAndEveryRPCNode(t *testing.T
 	t.Parallel()
 
 	cfg, err := newChainlinkEVMConfig(Info{
-		ChainID:         "42161",
-		UniqueChainName: "arbitrum-mainnet",
+		ChainID:       "42161",
+		FinalityDepth: 64,
+		TXMBlockTime:  12 * time.Second,
 		Nodes: []Node{
 			{
+				Name:            "chainstack",
 				InternalHTTPUrl: "http://node-a.internal:8545",
 				InternalWSUrl:   "ws://node-a.internal:8546",
 			},
 			{
+				Name:            "simplyvc",
 				InternalHTTPUrl: "http://node-b.internal:8545",
 				InternalWSUrl:   "ws://node-b.internal:8546",
 			},
@@ -93,19 +95,20 @@ func TestNewChainlinkEVMConfigUsesProductionDefaultsAndEveryRPCNode(t *testing.T
 
 	require.Equal(t, chaintype.ChainArbitrum, cfg.EVM().ChainType(), "known-chain defaults must be preserved")
 	require.Equal(t, "HighestHead", cfg.EVM().NodePool().SelectionMode())
-	require.Equal(t, uint32(vtypes.ConfirmationDepth), cfg.EVM().FinalityDepth())
+	require.Equal(t, uint32(64), cfg.EVM().FinalityDepth())
+	require.False(t, cfg.EVM().FinalityTagEnabled(), "an explicit depth must select depth-based finality")
 	require.False(t, cfg.EVM().HeadTracker().PersistenceEnabled())
 	require.True(t, cfg.EVM().Transactions().Enabled())
 	require.False(t, cfg.EVM().Transactions().ForwardersEnabled())
 	require.True(t, cfg.EVM().Transactions().TransactionManagerV2().Enabled())
-	require.Equal(t, defaultTXMBlockTime, *cfg.EVM().Transactions().TransactionManagerV2().BlockTime())
+	require.Equal(t, 12*time.Second, *cfg.EVM().Transactions().TransactionManagerV2().BlockTime())
 
 	nodes := cfg.Nodes()
 	require.Len(t, nodes, 2)
-	require.Equal(t, "arbitrum-mainnet-1", *nodes[0].Name)
+	require.Equal(t, "chainstack", *nodes[0].Name)
 	require.Equal(t, "http://node-a.internal:8545", nodes[0].HTTPURL.String())
 	require.Equal(t, "ws://node-a.internal:8546", nodes[0].WSURL.String())
-	require.Equal(t, "arbitrum-mainnet-2", *nodes[1].Name)
+	require.Equal(t, "simplyvc", *nodes[1].Name)
 	require.Equal(t, "http://node-b.internal:8545", nodes[1].HTTPURL.String())
 	require.Equal(t, "ws://node-b.internal:8546", nodes[1].WSURL.String())
 }
@@ -114,9 +117,9 @@ func TestToChainlinkEVMNodeMapsOnlyFocusedStandaloneSubset(t *testing.T) {
 	t.Parallel()
 
 	info := Info{
-		ChainID:         "1337",
-		UniqueChainName: "local-chain",
+		ChainID: "1337",
 		Nodes: []Node{{
+			Name:            "local-rpc",
 			ExternalHTTPUrl: "https://external.example.test",
 			InternalHTTPUrl: "http://node.internal:8545",
 			ExternalWSUrl:   "wss://external.example.test",
@@ -127,7 +130,7 @@ func TestToChainlinkEVMNodeMapsOnlyFocusedStandaloneSubset(t *testing.T) {
 	node, usesPolling, err := toChainlinkEVMNode(info, 0, info.Nodes[0])
 	require.NoError(t, err)
 	require.False(t, usesPolling)
-	require.Equal(t, "local-chain", *node.Name)
+	require.Equal(t, "local-rpc", *node.Name)
 	require.Equal(t, "http://node.internal:8545", node.HTTPURL.String())
 	require.Equal(t, "ws://node.internal:8546", node.WSURL.String())
 	require.Nil(t, node.HTTPURLExtraWrite)
@@ -149,39 +152,14 @@ func TestNewChainlinkEVMConfigSupportsExternalHTTPOnlyRPC(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, chaintype.ChainType(""), cfg.EVM().ChainType())
+	require.True(t, cfg.EVM().FinalityTagEnabled(), "zero depth must select finality-tag mode")
+	require.Positive(t, cfg.EVM().FinalityDepth(), "chainlink-evm requires a positive fallback depth")
+	require.Equal(t, defaultTXMBlockTime, *cfg.EVM().Transactions().TransactionManagerV2().BlockTime())
 	require.Equal(t, defaultNewHeadsPollInterval, cfg.EVM().NodePool().NewHeadsPollInterval())
 	require.Len(t, cfg.Nodes(), 1)
 	require.Equal(t, "evm-1337", *cfg.Nodes()[0].Name)
 	require.Equal(t, "https://rpc.example.test", cfg.Nodes()[0].HTTPURL.String())
 	require.Nil(t, cfg.Nodes()[0].WSURL)
-}
-
-func TestNewChainlinkEVMConfigTreatsGethAsProviderType(t *testing.T) {
-	t.Parallel()
-
-	cfg, err := newChainlinkEVMConfig(Info{
-		ChainID: "1337",
-		Type:    "geth",
-		Nodes: []Node{{
-			InternalHTTPUrl: "http://node.internal:8545",
-		}},
-	})
-	require.NoError(t, err)
-	require.Equal(t, chaintype.ChainType(""), cfg.EVM().ChainType())
-}
-
-func TestNewChainlinkEVMConfigAcceptsMatchingSemanticChainType(t *testing.T) {
-	t.Parallel()
-
-	cfg, err := newChainlinkEVMConfig(Info{
-		ChainID: "42161",
-		Type:    "arbitrum",
-		Nodes: []Node{{
-			InternalHTTPUrl: "http://node.internal:8545",
-		}},
-	})
-	require.NoError(t, err)
-	require.Equal(t, chaintype.ChainArbitrum, cfg.EVM().ChainType())
 }
 
 func TestNewChainlinkEVMConfigRejectsInvalidStandaloneConfig(t *testing.T) {
@@ -211,33 +189,6 @@ func TestNewChainlinkEVMConfigRejectsInvalidStandaloneConfig(t *testing.T) {
 			wantErr: "has no HTTP RPC URL",
 		},
 		{
-			name: "unsupported chain type",
-			info: Info{
-				ChainID: "1337",
-				Type:    "typo-chain",
-				Nodes:   []Node{{InternalHTTPUrl: "http://node.internal:8545"}},
-			},
-			wantErr: "unsupported EVM chain type",
-		},
-		{
-			name: "explicit chain type mismatches generic defaults",
-			info: Info{
-				ChainID: "1337",
-				Type:    "optimismBedrock",
-				Nodes:   []Node{{InternalHTTPUrl: "http://node.internal:8545"}},
-			},
-			wantErr: "does not match chainlink-evm defaults",
-		},
-		{
-			name: "chain type mismatches upstream defaults",
-			info: Info{
-				ChainID: "1",
-				Type:    "optimismBedrock",
-				Nodes:   []Node{{InternalHTTPUrl: "http://node.internal:8545"}},
-			},
-			wantErr: "does not match chainlink-evm defaults",
-		},
-		{
 			name: "invalid HTTP scheme",
 			info: Info{
 				ChainID: "1337",
@@ -255,6 +206,26 @@ func TestNewChainlinkEVMConfigRejectsInvalidStandaloneConfig(t *testing.T) {
 				},
 			},
 			wantErr: "duplicate",
+		},
+		{
+			name: "duplicate RPC name",
+			info: Info{
+				ChainID: "1337",
+				Nodes: []Node{
+					{Name: "primary", InternalHTTPUrl: "http://node-a.internal:8545"},
+					{Name: "primary", InternalHTTPUrl: "http://node-b.internal:8545"},
+				},
+			},
+			wantErr: "duplicate",
+		},
+		{
+			name: "TXM block time below minimum",
+			info: Info{
+				ChainID:      "1337",
+				TXMBlockTime: time.Second,
+				Nodes:        []Node{{InternalHTTPUrl: "http://node.internal:8545"}},
+			},
+			wantErr: "BlockTime",
 		},
 	}
 
