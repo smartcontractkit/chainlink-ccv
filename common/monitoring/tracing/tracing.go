@@ -3,6 +3,8 @@ package tracing
 import (
 	"context"
 	"crypto/rand"
+	"encoding/binary"
+	mrand "math/rand/v2"
 
 	"go.opentelemetry.io/otel/attribute"
 	oteltrace "go.opentelemetry.io/otel/trace"
@@ -24,7 +26,9 @@ func TraceIDForMessage(messageID protocol.Bytes32) oteltrace.TraceID {
 // OTel spec.
 func randomSpanID() oteltrace.SpanID {
 	var spanID oteltrace.SpanID
-	_, _ = rand.Read(spanID[:])
+	if _, err := rand.Read(spanID[:]); err != nil {
+		binary.LittleEndian.PutUint64(spanID[:], mrand.Uint64()) //nolint:gosec // G404: fallback
+	}
 	return spanID
 }
 
@@ -45,7 +49,7 @@ func TraceContextForMessage(ctx context.Context, messageID protocol.Bytes32) con
 	return oteltrace.ContextWithSpanContext(ctx, SpanContextForMessage(messageID))
 }
 
-// Tracing exposes span creation for the message pipeline
+// Tracing exposes span creation for the message pipeline.
 type Tracing interface {
 	// StartMessageSpan starts a span for messageID. If ctx already carries a
 	// valid span context (a real in-process parent, e.g. the message's

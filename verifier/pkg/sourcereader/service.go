@@ -351,7 +351,7 @@ func (r *Service) processEventCycle(ctx context.Context, latest, finalized *prot
 
 		sCtx, span := r.monitoring.Tracing().StartMessageSpan(ctx, "verifier.message@"+r.verifierID, event.MessageID,
 			attribute.String("verifier_id", r.verifierID),
-			attribute.Int64("block_number", int64(event.BlockNumber)),
+			attribute.String("block_number", strconv.FormatUint(event.BlockNumber, 10)),
 			attribute.String("tx_hash", event.TxHash.String()),
 			attribute.String("source_chain_name", event.Message.SourceChainSelector.ChainName()),
 			attribute.String("source_chain_selector", event.Message.SourceChainSelector.String()),
@@ -465,7 +465,7 @@ func (r *Service) addToPendingQueueHandleReorg(tasks []verifier.VerificationTask
 					span := oteltrace.SpanFromContext(existing.TraceContext)
 					span.AddEvent("reorg_removed_pending",
 						oteltrace.WithAttributes(
-							attribute.Int64("block_number", int64(existing.BlockNumber)),
+							attribute.String("block_number", strconv.FormatUint(existing.BlockNumber, 10)),
 							attribute.String("source_chain_name", existing.Message.SourceChainSelector.ChainName()),
 							attribute.String("source_chain_selector", existing.Message.SourceChainSelector.String()),
 							attribute.String("dest_chain_name", existing.Message.DestChainSelector.ChainName()),
@@ -495,7 +495,7 @@ func (r *Service) addToPendingQueueHandleReorg(tasks []verifier.VerificationTask
 					span := oteltrace.SpanFromContext(task.TraceContext)
 					span.AddEvent("reorg_removed_sent",
 						oteltrace.WithAttributes(
-							attribute.Int64("block_number", int64(task.BlockNumber)),
+							attribute.String("block_number", strconv.FormatUint(task.BlockNumber, 10)),
 							attribute.String("source_chain_name", task.Message.SourceChainSelector.ChainName()),
 							attribute.String("source_chain_selector", task.Message.SourceChainSelector.String()),
 							attribute.String("dest_chain_name", task.Message.DestChainSelector.ChainName()),
@@ -517,12 +517,20 @@ func (r *Service) addToPendingQueueHandleReorg(tasks []verifier.VerificationTask
 
 	for _, task := range tasks {
 		if _, exists := r.pendingTasks[task.MessageID]; exists {
+			// Duplicate of an already-tracked pending task from an overlapping
+			// query range - this task's span is a throwaway, end it now.
+			if task.TraceContext != nil {
+				oteltrace.SpanFromContext(task.TraceContext).End()
+			}
 			continue
 		}
 		if _, alreadySent := r.sentTasks[task.MessageID]; alreadySent {
 			r.logger.Debugw("Skipping already-sent message",
 				protocol.LogKeyMessageID, task.MessageID,
 				"blockNumber", task.BlockNumber)
+			if task.TraceContext != nil {
+				oteltrace.SpanFromContext(task.TraceContext).End()
+			}
 			continue
 		}
 		r.pendingTasks[task.MessageID] = task
@@ -534,7 +542,7 @@ func (r *Service) addToPendingQueueHandleReorg(tasks []verifier.VerificationTask
 			// task_published) ends it.
 			oteltrace.SpanFromContext(task.TraceContext).AddEvent("added_to_pending",
 				oteltrace.WithAttributes(
-					attribute.Int64("block_number", int64(task.BlockNumber)),
+					attribute.String("block_number", strconv.FormatUint(task.BlockNumber, 10)),
 				),
 			)
 		}
@@ -678,7 +686,7 @@ func (r *Service) sendReadyMessages(ctx context.Context, latest, safe, finalized
 
 				if task.TraceContext != nil {
 					oteltrace.SpanFromContext(task.TraceContext).AddEvent("ready_for_verification",
-						oteltrace.WithAttributes(attribute.Int64("block_number", int64(task.BlockNumber))),
+						oteltrace.WithAttributes(attribute.String("block_number", strconv.FormatUint(task.BlockNumber, 10))),
 					)
 				}
 			}
@@ -743,7 +751,7 @@ func (r *Service) sendReadyMessages(ctx context.Context, latest, safe, finalized
 				span := oteltrace.SpanFromContext(task.TraceContext)
 				span.AddEvent("task_published",
 					oteltrace.WithAttributes(
-						attribute.Int64("block_number", int64(task.BlockNumber)),
+						attribute.String("block_number", strconv.FormatUint(task.BlockNumber, 10)),
 					),
 				)
 				span.End()

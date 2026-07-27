@@ -335,34 +335,16 @@ func (ec *Coordinator) processPayload(ctx context.Context, payload message_heap.
 		attemptSpan.RecordError(err)
 	}
 	if shouldRetry {
-		ec.lggr.Debugw("message should be retried, putting back in heap", protocol.LogKeyMessageID, id)
-		attempt := payload.Attempt
-		var delay time.Duration
-		if errors.Is(err, ErrExecutionContended) {
-			// Post-transmit: preserve anti-duplication stagger.
-			delay = payload.RetryInterval
-			attempt = 0
-		} else {
-			// Pre-transmit (data/state not ready): fast exponential backoff capped at the stagger.
-			attempt++
-			delay = ec.dataNotReadyBackoff(attempt, payload.RetryInterval)
-		}
-		attemptSpan.AddEvent("retry_scheduled", oteltrace.WithAttributes(
-			attribute.String("delay", delay.String()),
-		))
-		attemptSpan.End()
-		if !ec.delayedMessageHeap.Push(message_heap.MessageWithTimestamps{
-			Message:          &message,
-			ReadyTime:        currentTime.Add(delay),
-			ExpiryTime:       payload.ExpiryTime,
-			RetryInterval:    payload.RetryInterval,
-			MessageID:        id,
-			Attempt:          attempt,
-			TraceContext:     attemptCtx,
-			DiscoveryContext: discoveryCtx,
-		}) {
-			ec.lggr.Warnw("retry push rejected, message already in heap", protocol.LogKeyMessageID, id)
-		}
+		ec.scheduleRetry(retryParams{
+			payload:      payload,
+			message:      message,
+			id:           id,
+			currentTime:  currentTime,
+			err:          err,
+			attemptCtx:   attemptCtx,
+			attemptSpan:  attemptSpan,
+			discoveryCtx: discoveryCtx,
+		})
 	} else {
 		if err != nil {
 			attemptSpan.AddEvent("execution_failed_permanent")
@@ -378,6 +360,53 @@ func (ec *Coordinator) processPayload(ctx context.Context, payload message_heap.
 	if err != nil {
 		ec.lggr.Errorw("failed to handle message", protocol.LogKeyMessageID, id, "error", err, "shouldRetry", shouldRetry)
 		ec.monitoring.Metrics().IncrementMessagesProcessingError(ctx, shouldRetry)
+	}
+}
+
+// retryParams bundles the inputs scheduleRetry needs to reschedule a message attempt.
+type retryParams struct {
+	payload      message_heap.MessageWithTimestamps
+	message      protocol.Message
+	id           protocol.Bytes32
+	currentTime  time.Time
+	err          error
+	attemptCtx   context.Context
+	attemptSpan  oteltrace.Span
+	discoveryCtx context.Context
+}
+
+// scheduleRetry computes the retry delay/attempt count for a message that should be retried,
+// closes out the current attempt span, and pushes the message back onto the delayed heap.
+func (ec *Coordinator) scheduleRetry(p retryParams) {
+	ec.lggr.Debugw("message should be retried, putting back in heap", protocol.LogKeyMessageID, p.id)
+
+	attempt := p.payload.Attempt
+	var delay time.Duration
+	if errors.Is(p.err, ErrExecutionContended) {
+		// Post-transmit: preserve anti-duplication stagger.
+		delay = p.payload.RetryInterval
+		attempt = 0
+	} else {
+		// Pre-transmit (data/state not ready): fast exponential backoff capped at the stagger.
+		attempt++
+		delay = ec.dataNotReadyBackoff(attempt, p.payload.RetryInterval)
+	}
+	p.attemptSpan.AddEvent("retry_scheduled", oteltrace.WithAttributes(
+		attribute.String("delay", delay.String()),
+	))
+	p.attemptSpan.End()
+
+	if !ec.delayedMessageHeap.Push(message_heap.MessageWithTimestamps{
+		Message:          &p.message,
+		ReadyTime:        p.currentTime.Add(delay),
+		ExpiryTime:       p.payload.ExpiryTime,
+		RetryInterval:    p.payload.RetryInterval,
+		MessageID:        p.id,
+		Attempt:          attempt,
+		TraceContext:     p.attemptCtx,
+		DiscoveryContext: p.discoveryCtx,
+	}) {
+		ec.lggr.Warnw("retry push rejected, message already in heap", protocol.LogKeyMessageID, p.id)
 	}
 }
 
