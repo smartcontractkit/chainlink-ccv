@@ -72,12 +72,14 @@ func TestEVMConfigIsMountedSeparatelyFromAppConfig(t *testing.T) {
 	// file because they are derived from the selector.
 	for _, chain := range cfg.Chains {
 		require.Len(t, chain.Nodes, len(output.Nodes))
+		// Standalone services read this file from inside the devenv Docker network, so the
+		// generated config carries CTF's container-reachable URLs and not its host-facing ones.
 		for i, node := range output.Nodes {
 			require.Equal(t, fmt.Sprintf("evm-node-%d", i+1), chain.Nodes[i].Name)
-			require.Equal(t, node.ExternalHTTPUrl, chain.Nodes[i].ExternalHTTPUrl)
-			require.Equal(t, node.InternalHTTPUrl, chain.Nodes[i].InternalHTTPUrl)
-			require.Equal(t, node.ExternalWSUrl, chain.Nodes[i].ExternalWSUrl)
-			require.Equal(t, node.InternalWSUrl, chain.Nodes[i].InternalWSUrl)
+			require.Equal(t, node.InternalHTTPUrl, chain.Nodes[i].HTTPUrl)
+			require.Equal(t, node.InternalWSUrl, chain.Nodes[i].WSUrl)
 		}
 	}
+	require.NotContains(t, string(data), "internal_http_url")
+	require.NotContains(t, string(data), "external_http_url")
 }

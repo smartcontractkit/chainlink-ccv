@@ -104,7 +104,7 @@ func newChainlinkEVMConfig(info Info) (*evmconfig.ChainScoped, error) {
 // chainlink-evm-only options such as SendOnly, Order, and IsLoadBalancedRPC
 // remain unset and therefore retain their upstream behavior.
 func toChainlinkEVMNode(info Info, index int, configured Node) (*evmtoml.Node, bool, error) {
-	httpURL := firstNonEmpty(configured.InternalHTTPUrl, configured.ExternalHTTPUrl)
+	httpURL := strings.TrimSpace(configured.HTTPUrl)
 	if httpURL == "" {
 		return nil, false, fmt.Errorf(
 			"EVM chain %s node %d has no HTTP RPC URL; WebSocket-only nodes are not supported",
@@ -117,7 +117,7 @@ func toChainlinkEVMNode(info Info, index int, configured Node) (*evmtoml.Node, b
 		return nil, false, fmt.Errorf("EVM chain %s node %d has invalid HTTP RPC URL: %w", info.ChainID, index, err)
 	}
 
-	wsURL := firstNonEmpty(configured.InternalWSUrl, configured.ExternalWSUrl)
+	wsURL := strings.TrimSpace(configured.WSUrl)
 	var parsedWS *commonconfig.URL
 	if wsURL != "" {
 		parsedWS, err = commonconfig.ParseURL(wsURL)
@@ -132,15 +132,6 @@ func toChainlinkEVMNode(info Info, index int, configured Node) (*evmtoml.Node, b
 		HTTPURL: parsedHTTP,
 		WSURL:   parsedWS,
 	}, parsedWS == nil, nil
-}
-
-func firstNonEmpty(values ...string) string {
-	for _, value := range values {
-		if value = strings.TrimSpace(value); value != "" {
-			return value
-		}
-	}
-	return ""
 }
 
 func nodeName(info Info, index int, configured Node) string {

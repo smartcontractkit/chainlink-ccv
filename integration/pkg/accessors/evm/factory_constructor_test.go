@@ -21,9 +21,9 @@ func TestLoadConfig(t *testing.T) {
 			FinalityDepth: 42,
 			TXMBlockTime:  12 * time.Second,
 			Nodes: []Node{{
-				Name:            "chainstack",
-				InternalHTTPUrl: "http://evm-node:8545",
-				InternalWSUrl:   "ws://evm-node:8546",
+				Name:    "chainstack",
+				HTTPUrl: "http://evm-node:8545",
+				WSUrl:   "ws://evm-node:8546",
 			}},
 		},
 	}}
@@ -37,6 +37,23 @@ func TestLoadConfig(t *testing.T) {
 	require.Equal(t, want, *got)
 }
 
+// The CTF-shaped endpoint split is not part of the operator surface: a file still carrying it must
+// fail loudly rather than start with no RPC configured.
+func TestLoadConfigRejectsCTFInternalExternalNodeURLs(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "evm.toml")
+	require.NoError(t, os.WriteFile(path, []byte(`
+[chains.5009297550715157269]
+[[chains.5009297550715157269.nodes]]
+internal_http_url = "http://evm-node:8545"
+external_ws_url = "wss://eth-mainnet.example.com"
+`), 0o600))
+
+	_, err := loadConfig(path)
+	require.ErrorContains(t, err, "unknown fields in config")
+	require.ErrorContains(t, err, "internal_http_url")
+	require.ErrorContains(t, err, "external_ws_url")
+}
+
 // The mounted config carries only operator-owned connection and runtime settings;
 // the accessor derives each chain's metadata from its selector at load time.
 func TestConfigToInfosDerivesChainMetadataFromSelector(t *testing.T) {
@@ -46,8 +63,8 @@ func TestConfigToInfosDerivesChainMetadataFromSelector(t *testing.T) {
 			FinalityDepth: 20,
 			TXMBlockTime:  4 * time.Second,
 			Nodes: []Node{{
-				Name:            "simplyvc",
-				InternalHTTPUrl: "http://evm-node:8545",
+				Name:    "simplyvc",
+				HTTPUrl: "http://evm-node:8545",
 			}},
 		},
 	}}
@@ -62,7 +79,7 @@ func TestConfigToInfosDerivesChainMetadataFromSelector(t *testing.T) {
 	require.Equal(t, uint32(20), info.FinalityDepth)
 	require.Equal(t, 4*time.Second, info.TXMBlockTime)
 	require.Equal(t, "simplyvc", info.Nodes[0].Name)
-	require.Equal(t, "http://evm-node:8545", info.Nodes[0].InternalHTTPUrl)
+	require.Equal(t, "http://evm-node:8545", info.Nodes[0].HTTPUrl)
 }
 
 func TestLoadConfigRejectsUnknownFields(t *testing.T) {
@@ -92,7 +109,7 @@ func TestLoadConfigRejectsUnexposedChainlinkEVMNodeFields(t *testing.T) {
 	require.NoError(t, os.WriteFile(path, []byte(`
 [chains.5009297550715157269]
 [[chains.5009297550715157269.nodes]]
-internal_http_url = "http://evm-node:8545"
+http_url = "http://evm-node:8545"
 SendOnly = true
 `), 0o600))
 
@@ -135,7 +152,7 @@ func TestCreateAccessorFactoryDoesNotDialRPCDuringConstruction(t *testing.T) {
 			ChainID: "1",
 			Family:  chainsel.FamilyEVM,
 			Nodes: []Node{{
-				InternalHTTPUrl: "http://127.0.0.1:1",
+				HTTPUrl: "http://127.0.0.1:1",
 			}},
 		},
 	}
