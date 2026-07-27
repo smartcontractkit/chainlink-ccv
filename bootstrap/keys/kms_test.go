@@ -383,7 +383,6 @@ func TestKMSKeystore_DuplicateKeyIDFails(t *testing.T) {
 		"key_b": "shared-key-id",
 	})
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "shared-key-id")
 	require.Contains(t, err.Error(), "key_a")
 	require.Contains(t, err.Error(), "key_b")
 }

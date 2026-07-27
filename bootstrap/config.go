@@ -47,8 +47,8 @@ const (
 // KMSKeystoreConfig configures the AWS KMS keystore backend.
 // Field names match the pricer's KMSConfig for future consolidation.
 type KMSKeystoreConfig struct {
-	// Profile is the AWS shared-config profile name (for local development).
-	// If empty, uses the default credential chain (IRSA, EC2 instance profiles, etc.).
+	// Profile is the AWS shared-config profile name. Local development only — leave empty in
+	// production, where credentials come from the default credential chain (IRSA, EC2/ECS roles).
 	Profile string `toml:"profile,omitempty"`
 	// Region is the AWS region. If empty, it is read from the profile or environment.
 	Region string `toml:"region,omitempty"`
@@ -65,6 +65,13 @@ type KeystoreConfig struct {
 	// Password is the password to the keystore. Required when backend is "postgres" (default).
 	Password string `toml:"password,omitempty"`
 	// KMS configures the AWS KMS backend. Required when backend is "kms".
+	//
+	// IAM: scope the bootstrapper's IAM role as tightly as possible. Grant only kms:Sign,
+	// kms:GetPublicKey, and kms:DescribeKey, and restrict Resource to exactly the key ARNs configured
+	// below (ecdsa_key_id / ed25519_key_id). Do NOT grant kms:ListKeys or a wildcard Resource ("*").
+	// The service limits operations to the configured keys, but a per-key least-privilege IAM
+	// policy is the primary safeguard: it guarantees these credentials cannot read or sign with any
+	// other KMS key in the account.
 	KMS KMSKeystoreConfig `toml:"kms,omitempty"`
 }
 
@@ -93,10 +100,9 @@ func (c *KeystoreConfig) validate() error {
 		return err
 	}
 	if backend == KeystoreBackendKMS {
-		// The bootstrapper always needs an Ed25519 CSA key (auto-injected in NewBootstrapper and used
-		// by keys.NewCSASigner), so ed25519_key_id is required for the KMS backend. ecdsa_key_id is
-		// service-specific — only services that declare an ECDSA signing key need it — so its presence
-		// is enforced per-declared-key in buildKMSNameMap rather than statically here.
+		// ed25519_key_id is always required: the bootstrapper builds an Ed25519 CSA signer in every mode
+		// (auto-injected in NewBootstrapper). ecdsa_key_id is service-specific, so it is enforced
+		// per-declared-key in buildKMSNameMap.
 		if c.KMS.Ed25519KeyID == "" {
 			return fmt.Errorf("field 'ed25519_key_id' is required when backend is 'kms' (the CSA key is Ed25519)")
 		}

@@ -57,7 +57,7 @@ func newKMSKeystore(ctx context.Context, inner signerReader, nameToID map[string
 	idToName := make(map[string]string, len(nameToID))
 	for name, id := range nameToID {
 		if existing, ok := idToName[id]; ok {
-			return nil, fmt.Errorf("KMS key ID %q is mapped to both %q and %q: each key ID must map to exactly one logical name", id, existing, name)
+			return nil, fmt.Errorf("KMS keys %q and %q are mapped to the same KMS Key ID: each key ID must map to exactly one logical name", existing, name)
 		}
 		idToName[id] = name
 	}
