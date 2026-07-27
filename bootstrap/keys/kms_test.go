@@ -132,7 +132,7 @@ func (m *mockKMSClient) Sign(_ context.Context, input *awskms.SignInput, _ ...fu
 }
 
 func (m *mockKMSClient) ListKeys(_ context.Context, _ *awskms.ListKeysInput, _ ...func(*awskms.Options)) (*awskms.ListKeysOutput, error) {
-	var entries []kmstypes.KeyListEntry
+	entries := make([]kmstypes.KeyListEntry, 0, len(m.keys))
 	for _, k := range m.keys {
 		keyID := k.keyID
 		entries = append(entries, kmstypes.KeyListEntry{KeyId: &keyID})

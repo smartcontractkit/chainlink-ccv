@@ -8,7 +8,7 @@ import (
 	"github.com/smartcontractkit/chainlink-common/keystore/kms"
 )
 
-// signerReader is the subset of keystore.Keystore that a KMS backend implements
+// signerReader is the subset of keystore.Keystore that a KMS backend implements.
 type signerReader interface {
 	keystore.Reader
 	keystore.Signer

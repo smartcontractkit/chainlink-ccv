@@ -517,12 +517,13 @@ func (b *Bootstrapper) startLocal(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("invalid keystore config: %w", err)
 	}
-	if backend == KeystoreBackendKMS {
+	switch backend {
+	case KeystoreBackendKMS:
 		keyStore, csaSigner, err = initializeKeystore(ctx, b.lggr, b.config.Keystore, nil, b.keys)
 		if err != nil {
 			return fmt.Errorf("failed to initialize KMS keystore: %w", err)
 		}
-	} else {
+	default:
 		// Postgres backend: A keystore is initialized only when both the DB URL and keystore password are configured.
 		dbURL := strings.TrimSpace(b.config.DB.URL)
 		ksPassword := strings.TrimSpace(b.config.Keystore.Password)
@@ -793,7 +794,8 @@ func initializeKeystore(ctx context.Context, lggr logger.Logger, ksCfg KeystoreC
 	}
 
 	var ks keystore.Keystore
-	if backend == KeystoreBackendKMS {
+	switch backend {
+	case KeystoreBackendKMS:
 		nameToID, err := buildKMSNameMap(ksCfg.KMS, requiredKeys)
 		if err != nil {
 			return nil, nil, fmt.Errorf("invalid KMS config: %w", err)
@@ -802,7 +804,7 @@ func initializeKeystore(ctx context.Context, lggr logger.Logger, ksCfg KeystoreC
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to load KMS keystore: %w", err)
 		}
-	} else { // postgres
+	default: // postgres
 		ks, err = keystore.LoadKeystore(ctx, keys.NewPGStorage(db, "default"), ksCfg.Password)
 		if err != nil {
 			return nil, nil, fmt.Errorf("failed to load keystore: %w", err)
