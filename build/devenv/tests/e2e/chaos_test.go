@@ -30,6 +30,10 @@ import (
 const (
 	rpcFailoverTimeout     = 3 * time.Minute
 	rpcProxyCleanupTimeout = 15 * time.Second
+	rpcProxyCommandTimeout = 30 * time.Second
+	rpcProxyProbeTimeout   = 5 * time.Second
+	rpcProxyReadyTimeout   = 15 * time.Second
+	rpcProxyReadyTick      = 250 * time.Millisecond
 )
 
 func TestChaos_EVMRPCFailover(t *testing.T) {
@@ -139,6 +143,15 @@ func requireDirectTestRPC(t *testing.T, in *ccv.Cfg, chainID string, proxyOutput
 	t.Fatalf("chain %s not found in stored environment output", chainID)
 }
 
+// runDocker runs a docker command under its own deadline. t.Context() alone only
+// unblocks when the test finishes, so a wedged daemon or CLI would hang the call
+// indefinitely instead of failing it.
+func runDocker(ctx context.Context, timeout time.Duration, args ...string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	return exec.CommandContext(ctx, "docker", args...).CombinedOutput()
+}
+
 func setRPCProxyRunning(t *testing.T, l *zerolog.Logger, containerName string, running bool) {
 	t.Helper()
 	action := "stop"
@@ -146,24 +159,24 @@ func setRPCProxyRunning(t *testing.T, l *zerolog.Logger, containerName string, r
 		action = "start"
 	}
 	l.Info().Str("container", containerName).Str("action", action).Msg("Changing RPC proxy state")
-	out, err := exec.CommandContext(t.Context(), "docker", action, containerName).CombinedOutput()
+	out, err := runDocker(t.Context(), rpcProxyCommandTimeout, action, containerName)
 	require.NoErrorf(t, err, "docker %s %s failed: %s", action, containerName, strings.TrimSpace(string(out)))
 	if running {
+		// Each probe gets a deadline shorter than the readiness window so a stuck
+		// exec is retried rather than consuming the whole window on one attempt.
 		require.Eventually(t, func() bool {
-			return exec.CommandContext(t.Context(), "docker", "exec", containerName, "nginx", "-t").Run() == nil
-		}, 15*time.Second, 250*time.Millisecond, "RPC proxy %s did not become ready", containerName)
+			_, err := runDocker(t.Context(), rpcProxyProbeTimeout, "exec", containerName, "nginx", "-t")
+			return err == nil
+		}, rpcProxyReadyTimeout, rpcProxyReadyTick, "RPC proxy %s did not become ready", containerName)
 	}
 }
 
 func setRPCProxyRunningBestEffort(l *zerolog.Logger, containerName string, running bool) {
-	ctx, cancel := context.WithTimeout(context.Background(), rpcProxyCleanupTimeout)
-	defer cancel()
-
 	action := "stop"
 	if running {
 		action = "start"
 	}
-	if out, err := exec.CommandContext(ctx, "docker", action, containerName).CombinedOutput(); err != nil {
+	if out, err := runDocker(context.Background(), rpcProxyCleanupTimeout, action, containerName); err != nil {
 		l.Error().Err(err).
 			Str("container", containerName).
 			Str("action", action).
