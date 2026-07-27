@@ -90,7 +90,7 @@ type Accessor interface {
 	// Accessors that require a keystore for signing (e.g. to build a keystore-backed
 	// ContractTransmitter) should also implement bootstrap.KeystoreSetter:
 	//
-	//   SetKeystore(ks keystore.Keystore)
+	//   SetKeystore(ctx context.Context, ks keystore.Keystore) error
 	//
 	// bootstrap.KeystoreRegistry checks for this interface after every GetAccessor call
 	// and invokes SetKeystore automatically, so implementations do not need to arrange

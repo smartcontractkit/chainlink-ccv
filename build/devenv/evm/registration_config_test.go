@@ -1,6 +1,7 @@
 package evm
 
 import (
+	"fmt"
 	"os"
 	"testing"
 
@@ -19,12 +20,20 @@ func TestEVMConfigIsMountedSeparatelyFromAppConfig(t *testing.T) {
 		Family:        chainsel.FamilyEVM,
 		ContainerName: "evm-node",
 		ChainID:       "1337",
-		Nodes: []*blockchain.Node{{
-			ExternalHTTPUrl: "http://localhost:8545",
-			InternalHTTPUrl: "http://evm-node:8545",
-			ExternalWSUrl:   "ws://localhost:8546",
-			InternalWSUrl:   "ws://evm-node:8546",
-		}},
+		Nodes: []*blockchain.Node{
+			{
+				ExternalHTTPUrl: "http://localhost:8545",
+				InternalHTTPUrl: "http://evm-node:8545",
+				ExternalWSUrl:   "ws://localhost:8546",
+				InternalWSUrl:   "ws://evm-node:8546",
+			},
+			{
+				ExternalHTTPUrl: "http://localhost:9545",
+				InternalHTTPUrl: "http://evm-node-secondary:8545",
+				ExternalWSUrl:   "ws://localhost:9546",
+				InternalWSUrl:   "ws://evm-node-secondary:8546",
+			},
+		},
 	}
 
 	metadataBySelector, err := ChainConfigLoader([]*blockchain.Output{output})
@@ -59,10 +68,16 @@ func TestEVMConfigIsMountedSeparatelyFromAppConfig(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, md.Undecoded())
 	require.Len(t, cfg.Chains, 1)
-	// Chain ID and family are intentionally absent from the mounted file (derived from the
-	// selector). Only connection details and chain-type tuning are present.
+	// Chain ID, family, and chain type are intentionally absent from the mounted
+	// file because they are derived from the selector.
 	for _, chain := range cfg.Chains {
-		require.Equal(t, output.Type, chain.ChainType)
-		require.Equal(t, output.Nodes[0].InternalHTTPUrl, chain.Nodes[0].InternalHTTPUrl)
+		require.Len(t, chain.Nodes, len(output.Nodes))
+		for i, node := range output.Nodes {
+			require.Equal(t, fmt.Sprintf("evm-node-%d", i+1), chain.Nodes[i].Name)
+			require.Equal(t, node.ExternalHTTPUrl, chain.Nodes[i].ExternalHTTPUrl)
+			require.Equal(t, node.InternalHTTPUrl, chain.Nodes[i].InternalHTTPUrl)
+			require.Equal(t, node.ExternalWSUrl, chain.Nodes[i].ExternalWSUrl)
+			require.Equal(t, node.InternalWSUrl, chain.Nodes[i].InternalWSUrl)
+		}
 	}
 }
