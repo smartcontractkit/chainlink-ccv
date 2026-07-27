@@ -59,6 +59,8 @@ silently coupling standalone deployments to chainlink-core's schema lifecycle.
 - Devenv's `standard.rpc-failover.profile` puts independently controllable
   primary and secondary RPC proxies in front of each Anvil chain. The CI chaos
   test removes the initially healthy primary and verifies both source head
-  tracking and destination transaction submission through the secondary.
+  tracking and destination transaction submission through the secondary. It
+  then restarts the primary and removes the secondary, so the pool must re-dial
+  an endpoint it had already marked unusable.
 - The proxy schema and lifecycle are owned by the registered EVM local-network
   configurator; the environment only routes opaque family configuration.

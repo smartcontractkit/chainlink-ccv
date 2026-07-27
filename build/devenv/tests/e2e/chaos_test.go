@@ -90,9 +90,21 @@ func TestChaos_EVMRPCFailover(t *testing.T) {
 			_, err = messageCase.Run(ctx)
 			require.NoError(t, err)
 
-			// Keep the healthy secondary available between phases. This avoids a
-			// gap while the node pool rediscovers the restored primary.
+			// Restart the failed RPC and remove the healthy fallback, so the only
+			// usable endpoint is one the pool already marked unusable. This covers
+			// the recovery half of failover: without re-dialing a restored node,
+			// the pool is left with no reachable RPC and the message never lands.
 			setRPCProxyRunning(t, setup.l, proxyOutput.PrimaryContainerName, true)
+			setRPCProxyRunning(t, setup.l, proxyOutput.SecondaryContainerName, false)
+
+			setup.l.Info().
+				Str("restartedRPC", tc.description).
+				Str("primary", proxyOutput.PrimaryContainerName).
+				Str("secondary", proxyOutput.SecondaryContainerName).
+				Msg("Sending message after the failed RPC restarted and the fallback was removed")
+
+			_, err = messageCase.Run(ctx)
+			require.NoError(t, err)
 		})
 	}
 }

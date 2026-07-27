@@ -116,7 +116,7 @@ jobs:
           - name: TestChaos_EVMRPCFailover
             pattern: TestChaos_EVMRPCFailover
             profile: standard.rpc-failover.profile
-            timeout: 10m
+            timeout: 15m
           - name: (TestChaos_VerifierFaultToleranceThresholdViolated|TestChaos_AllExecutorsDown|TestChaos_IndexerDown)
             pattern: (TestChaos_VerifierFaultToleranceThresholdViolated|TestChaos_AllExecutorsDown|TestChaos_IndexerDown)
             profile: standard.profile
