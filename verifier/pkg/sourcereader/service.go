@@ -330,10 +330,8 @@ func (r *Service) processEventCycle(ctx context.Context, latest, finalized *prot
 	}
 
 	tasks := make([]verifier.VerificationTask, 0, len(events))
-	filteredCount := 0
 	for _, event := range events {
 		if r.filter != nil && !r.filter.Filter(event) {
-			filteredCount++
 			r.logger.Debugw("Message filtered out by filter",
 				protocol.LogKeyMessageID, event.MessageID.String(),
 				protocol.LogKeyDestChain, event.Message.DestChainSelector,
@@ -462,9 +460,9 @@ func (r *Service) addToPendingQueueHandleReorg(tasks []verifier.VerificationTask
 	for msgID, existing := range r.pendingTasks {
 		existingBlock := new(big.Int).SetUint64(existing.BlockNumber)
 		if existingBlock.Cmp(fromBlock) >= 0 && (toBlock == nil || existingBlock.Cmp(toBlock) <= 0) {
-			if task, exists := tasksMap[msgID]; !exists {
-				if task.TraceContext != nil {
-					span := oteltrace.SpanFromContext(task.TraceContext)
+			if _, exists := tasksMap[msgID]; !exists {
+				if existing.TraceContext != nil {
+					span := oteltrace.SpanFromContext(existing.TraceContext)
 					span.AddEvent("reorg_removed_pending",
 						oteltrace.WithAttributes(
 							attribute.Int64("block_number", int64(existing.BlockNumber)),
@@ -627,7 +625,7 @@ func (r *Service) sendReadyMessages(ctx context.Context, latest, safe, finalized
 						oteltrace.WithAttributes(
 							attribute.String("source_chain_name", task.Message.SourceChainSelector.ChainName()),
 							attribute.String("source_chain_selector", task.Message.SourceChainSelector.String()),
-							attribute.String("dest_chain_name", task.Message.SourceChainSelector.ChainName()),
+							attribute.String("dest_chain_name", task.Message.DestChainSelector.ChainName()),
 							attribute.String("dest_chain_selector", task.Message.DestChainSelector.String()),
 						),
 					)

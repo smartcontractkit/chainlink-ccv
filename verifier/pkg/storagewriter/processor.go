@@ -192,11 +192,12 @@ func (s *Processor) processBatch(ctx context.Context) error {
 		// remote context.
 		results[i] = payload
 	}
-	// Any span left open past this call is a job we never decided an outcome for -
-	// close it out so it doesn't leak.
 	defer func() {
 		for _, result := range results {
-			oteltrace.SpanFromContext(result.TraceContext).End()
+			span := oteltrace.SpanFromContext(result.TraceContext)
+			if span.IsRecording() {
+				span.End()
+			}
 		}
 	}()
 

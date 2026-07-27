@@ -229,11 +229,12 @@ func (p *Processor) handleVerificationResults(
 	taskMap map[string]verifier.VerificationTask,
 	verificationStartTime time.Time,
 ) error {
-	// Any span left open past this call is a message we never decided an
-	// outcome for this attempt - close it out so it doesn't leak.
 	defer func() {
 		for _, task := range taskMap {
-			oteltrace.SpanFromContext(task.TraceContext).End()
+			span := oteltrace.SpanFromContext(task.TraceContext)
+			if span.IsRecording() {
+				span.End()
+			}
 		}
 	}()
 

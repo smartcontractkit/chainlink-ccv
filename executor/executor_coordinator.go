@@ -221,13 +221,14 @@ func (ec *Coordinator) runStorageStream(ctx context.Context) {
 			discSpan.AddEvent("message_discovered")
 
 			if !ec.delayedMessageHeap.Push(message_heap.MessageWithTimestamps{
-				Message:       &msg,
-				ReadyTime:     readyTimestamp,
-				ExpiryTime:    readyTimestamp.Add(ec.expiryDuration),
-				RetryInterval: retryDelay,
-				MessageID:     id,
-				Attempt:       0,
-				TraceContext:  discCtx,
+				Message:          &msg,
+				ReadyTime:        readyTimestamp,
+				ExpiryTime:       readyTimestamp.Add(ec.expiryDuration),
+				RetryInterval:    retryDelay,
+				MessageID:        id,
+				Attempt:          0,
+				TraceContext:     discCtx,
+				DiscoveryContext: discCtx,
 			}) {
 				ec.lggr.Debugw("duplicate message rejected by heap", protocol.LogKeyMessageID, id)
 				discSpan.AddEvent("duplicate_rejected")
@@ -291,22 +292,26 @@ func (ec *Coordinator) processPayload(ctx context.Context, payload message_heap.
 	defer ec.inFlightRemove(payload.MessageID)
 	currentTime := ec.timeProvider.GetTime()
 
-	// parentCtx carries the message's current causal context forward - the
-	// discovery span on the first attempt, or the previous attempt's span on
-	// a retry - so this attempt (and its eventual end) nests correctly
-	// instead of starting a disconnected span every cycle.
-	parentCtx := payload.TraceContext
-	if parentCtx == nil {
-		parentCtx = ctx
+	// discoveryCtx/discoverySpan is the per-message root span opened when the
+	// message was first discovered. It carries across every delay/retry cycle
+	// via DiscoveryContext (independent of the per-attempt TraceContext) so it
+	// can be ended exactly once, at the terminal outcome, no matter how many
+	// retries happen in between.
+	discoveryCtx := payload.DiscoveryContext
+	if discoveryCtx == nil {
+		discoveryCtx = payload.TraceContext
 	}
-	parentSpan := oteltrace.SpanFromContext(parentCtx)
+	if discoveryCtx == nil {
+		discoveryCtx = ctx
+	}
+	discoverySpan := oteltrace.SpanFromContext(discoveryCtx)
 
 	if currentTime.After(payload.ExpiryTime) {
 		// PER-MESSAGE LOG (failure): terminal; message exceeded its expiry without execution.
 		ec.lggr.Infow("message has expired", protocol.LogTypeKey, protocol.LogTypeMessageFailure, protocol.LogKeyMessageID, payload.MessageID)
 		ec.monitoring.Metrics().IncrementExpiredMessages(ctx)
-		parentSpan.AddEvent("message_expired")
-		parentSpan.End()
+		discoverySpan.AddEvent("message_expired")
+		discoverySpan.End()
 		return
 	}
 
@@ -317,9 +322,10 @@ func (ec *Coordinator) processPayload(ctx context.Context, payload message_heap.
 
 	// attemptCtx/attemptSpan cover this single execution attempt. It ends
 	// every attempt (including retries) - a retried message gets a fresh
-	// attempt span on its next pop, parented off this one via TraceContext.
+	// attempt span on its next pop, always parented off the discovery span so
+	// the discovery span's lifetime doesn't depend on the attempt chain.
 	attemptCtx, attemptSpan := ec.monitoring.Tracing().StartMessageSpan(
-		parentCtx, "executor.process_payload", id,
+		discoveryCtx, "executor.process_payload", id,
 		attribute.String("dest_chain_selector", message.DestChainSelector.String()),
 		attribute.Int("attempt", payload.Attempt),
 	)
@@ -346,13 +352,14 @@ func (ec *Coordinator) processPayload(ctx context.Context, payload message_heap.
 		))
 		attemptSpan.End()
 		if !ec.delayedMessageHeap.Push(message_heap.MessageWithTimestamps{
-			Message:       &message,
-			ReadyTime:     currentTime.Add(delay),
-			ExpiryTime:    payload.ExpiryTime,
-			RetryInterval: payload.RetryInterval,
-			MessageID:     id,
-			Attempt:       attempt,
-			TraceContext:  attemptCtx,
+			Message:          &message,
+			ReadyTime:        currentTime.Add(delay),
+			ExpiryTime:       payload.ExpiryTime,
+			RetryInterval:    payload.RetryInterval,
+			MessageID:        id,
+			Attempt:          attempt,
+			TraceContext:     attemptCtx,
+			DiscoveryContext: discoveryCtx,
 		}) {
 			ec.lggr.Warnw("retry push rejected, message already in heap", protocol.LogKeyMessageID, id)
 		}
@@ -365,7 +372,7 @@ func (ec *Coordinator) processPayload(ctx context.Context, payload message_heap.
 		// Terminal: no further stage picks this message up, so the
 		// discovery/attempt chain closes here.
 		attemptSpan.End()
-		parentSpan.End()
+		discoverySpan.End()
 	}
 	ec.monitoring.Metrics().IncrementMessagesProcessing(ctx)
 	if err != nil {

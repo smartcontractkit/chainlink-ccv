@@ -45,8 +45,12 @@ func CreateVerifierNodeResult(verificationTask *verifier.VerificationTask, signa
 		return nil, fmt.Errorf("failed to parse receipt structure: %w", err)
 	}
 
-	carrier := propagation.MapCarrier{}
-	otel.GetTextMapPropagator().Inject(verificationTask.TraceContext, carrier)
+	traceParent := verificationTask.TraceParent
+	if verificationTask.TraceContext != nil {
+		carrier := propagation.MapCarrier{}
+		otel.GetTextMapPropagator().Inject(verificationTask.TraceContext, carrier)
+		traceParent = carrier.Get("traceparent")
+	}
 	return &protocol.VerifierNodeResult{
 		MessageID:       messageID,
 		Message:         message,
@@ -54,7 +58,7 @@ func CreateVerifierNodeResult(verificationTask *verifier.VerificationTask, signa
 		CCVAddresses:    receiptStructure.CCVAddresses,
 		ExecutorAddress: receiptStructure.ExecutorAddress,
 		Signature:       signature,
-		TraceParent:     carrier.Get("traceparent"),
+		TraceParent:     traceParent,
 		TraceContext:    verificationTask.TraceContext,
 	}, nil
 }

@@ -161,7 +161,7 @@ func (cle *ChainlinkExecutor) HandleMessage(ctx context.Context, message protoco
 	span := oteltrace.SpanFromContext(ctx)
 
 	// Check prerequisites to avoid toctou issues
-	if cle.CheckValidMessage(ctx, message) != nil {
+	if err := cle.CheckValidMessage(ctx, message); err != nil {
 		span.AddEvent("invalid_message_skipped")
 		return false, err
 	}

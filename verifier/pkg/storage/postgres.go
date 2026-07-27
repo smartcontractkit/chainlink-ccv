@@ -51,8 +51,8 @@ func (p *PostgresCCVStorage) Get(ctx context.Context, keys []protocol.Bytes32) (
 			verifier_source_address,
 			verifier_dest_address,
 			timestamp,
-    		traceparent
-		FROM verifier_node_results 
+			traceparent
+		FROM verifier_node_results
 		WHERE message_id IN (%s)`,
 		strings.Join(placeholders, ","))
 
