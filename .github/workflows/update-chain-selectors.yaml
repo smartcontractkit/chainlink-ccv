@@ -63,3 +63,4 @@ jobs:
           body: |
             Updates github.com/smartcontractkit/chain-selectors in every Go module and runs `just tidy`.
           delete-branch: true
+          sign-commits: true
