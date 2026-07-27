@@ -111,13 +111,16 @@ func (k *KMSKeystore) GetKeys(ctx context.Context, req keystore.GetKeysRequest) 
 		return resp, nil
 	}
 
+	// The configured name->ID map is the allowlist: reject any name that is not in it, rather than
+	// forwarding it to KMS. Otherwise a caller of the (caller-controlled) info server getkeys endpoint
+	// could probe any KMS key the bootstrapper's IAM role can reach, not just the intended set.
 	translated := make([]string, len(req.KeyNames))
 	for i, name := range req.KeyNames {
-		if id, ok := k.nameToID[name]; ok {
-			translated[i] = id
-		} else {
-			translated[i] = name
+		id, ok := k.nameToID[name]
+		if !ok {
+			return keystore.GetKeysResponse{}, fmt.Errorf("key %q is not in the configured KMS key set: %w", name, keystore.ErrKeyNotFound)
 		}
+		translated[i] = id
 	}
 
 	resp, err := k.inner.GetKeys(ctx, keystore.GetKeysRequest{KeyNames: translated})
@@ -135,9 +138,13 @@ func (k *KMSKeystore) GetKeys(ctx context.Context, req keystore.GetKeysRequest) 
 
 // Sign translates the logical key name to a KMS Key ID and delegates signing.
 func (k *KMSKeystore) Sign(ctx context.Context, req keystore.SignRequest) (keystore.SignResponse, error) {
-	if id, ok := k.nameToID[req.KeyName]; ok {
-		req.KeyName = id
+	// Only sign with keys in the configured allowlist; never forward an unmapped name to KMS (see
+	// GetKeys) so a caller cannot sign with an arbitrary KMS key the IAM role happens to reach.
+	id, ok := k.nameToID[req.KeyName]
+	if !ok {
+		return keystore.SignResponse{}, fmt.Errorf("key %q is not in the configured KMS key set: %w", req.KeyName, keystore.ErrKeyNotFound)
 	}
+	req.KeyName = id
 	return k.inner.Sign(ctx, req)
 }
 

@@ -843,6 +843,7 @@ func buildKMSNameMap(cfg KMSKeystoreConfig, requiredKeys []keyToInit) (map[strin
 	}
 
 	nameToID := make(map[string]string, len(requiredKeys))
+	assignedTo := make(map[string]string, len(requiredKeys)) // KMS Key ID -> first logical key assigned it
 	for _, k := range requiredKeys {
 		entry, supported := keyIDByType[k.keyType]
 		if !supported {
@@ -851,6 +852,17 @@ func buildKMSNameMap(cfg KMSKeystoreConfig, requiredKeys []keyToInit) (map[strin
 		if entry.id == "" {
 			return nil, fmt.Errorf("KMS %s is required for key %q (type %q)", entry.tomlName, k.name, k.keyType)
 		}
+		// The KMS config carries a single Key ID per key type, so two required keys of the same type
+		// (or two types pointed at the same Key ID) would both resolve here to one KMS Key ID. Each
+		// logical key must map to a distinct KMS key, so reject that instead of silently sharing a key
+		// (which would otherwise fail later in newKMSKeystore with a less specific duplicate-ID error).
+		if prev, dup := assignedTo[entry.id]; dup {
+			return nil, fmt.Errorf(
+				"keys %q and %q both resolve to KMS Key ID %q: each logical key needs a distinct KMS key, "+
+					"but [keystore.kms] maps a single Key ID per type (%s) — the config format must be extended to map per key",
+				prev, k.name, entry.id, entry.tomlName)
+		}
+		assignedTo[entry.id] = k.name
 		nameToID[k.name] = entry.id
 	}
 	return nameToID, nil

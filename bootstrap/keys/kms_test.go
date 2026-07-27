@@ -288,37 +288,36 @@ func TestKMSKeystore_GetKeys_EmptyRequestWithNoMappingReturnsEmpty(t *testing.T)
 	require.Empty(t, resp.Keys)
 }
 
-func TestKMSKeystore_GetKeys_UnmappedNamePassesThrough(t *testing.T) {
+func TestKMSKeystore_GetKeys_UnmappedNameRejected(t *testing.T) {
 	t.Parallel()
 
 	client := newMockKMSClient()
 	client.addECDSAKey("some-kms-id")
 
+	// "some-kms-id" is a real KMS key but is NOT in the configured mapping: it must be rejected, not
+	// forwarded to KMS, so the info server can only expose the intended key set.
 	ks := newTestKMSKeystore(t, client, map[string]string{})
 
-	resp, err := ks.GetKeys(context.Background(), keystore.GetKeysRequest{
+	_, err := ks.GetKeys(context.Background(), keystore.GetKeysRequest{
 		KeyNames: []string{"some-kms-id"},
 	})
-	require.NoError(t, err)
-	require.Len(t, resp.Keys, 1)
-	require.Equal(t, "some-kms-id", resp.Keys[0].KeyInfo.Name)
+	require.ErrorIs(t, err, keystore.ErrKeyNotFound)
 }
 
-func TestKMSKeystore_Sign_UnmappedNamePassesThrough(t *testing.T) {
+func TestKMSKeystore_Sign_UnmappedNameRejected(t *testing.T) {
 	t.Parallel()
 
 	client := newMockKMSClient()
 	client.addECDSAKey("direct-key-id")
 
+	// A key outside the configured mapping must not be signable, even though the IAM role could reach it.
 	ks := newTestKMSKeystore(t, client, map[string]string{})
 
-	digest := make([]byte, 32)
-	resp, err := ks.Sign(context.Background(), keystore.SignRequest{
+	_, err := ks.Sign(context.Background(), keystore.SignRequest{
 		KeyName: "direct-key-id",
-		Data:    digest,
+		Data:    make([]byte, 32),
 	})
-	require.NoError(t, err)
-	require.NotEmpty(t, resp.Signature)
+	require.ErrorIs(t, err, keystore.ErrKeyNotFound)
 }
 
 func TestKMSKeystore_Ed25519(t *testing.T) {
