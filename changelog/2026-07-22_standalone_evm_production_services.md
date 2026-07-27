@@ -21,17 +21,19 @@ using upstream defaults for settings CCV does not expose.
 - HTTP-only configurations use the production head tracker's polling mode.
   WebSocket subscriptions remain enabled when every configured node provides a
   WebSocket URL; mixed pools use polling so failover to any node remains valid.
-- Finality behavior and TXM block time are configurable per chain. A zero or
+- Finality behavior and TXM retry cadence are configurable per chain. A zero or
   omitted `finality_depth` enables finality-tag mode, while a positive value
-  selects confirmation-depth mode. TXM block time defaults to its two-second
-  minimum retry cadence.
+  selects confirmation-depth mode. `txm_block_time` sets TXM v2's retry cadence
+  and is unrelated to the chain's actual block time; it defaults to the
+  two-second minimum.
 - Each RPC endpoint can carry its own operator-facing name for logs and health
   reports; unnamed endpoints receive a deterministic fallback.
 - Client and head-tracker startup is deferred until `GetAccessor`, avoiding RPC
   health checks while the accessor registry itself is being constructed.
 - Destination accessors start chainlink-evm TXM v2 after bootstrap injects the
   configured keystore. TXM now owns nonce tracking, fee estimation, retries,
-  gas bumping, signing, and multi-node transaction submission.
+  gas bumping, signing, and multi-node transaction submission. Source-only
+  deployments such as the verifier never construct a TXM.
 - Accessors own and close their client, head-tracker, broadcaster, mailbox
   monitor, and TXM services. Keystore/TXM startup errors are returned to
   bootstrap instead of being logged and ignored.

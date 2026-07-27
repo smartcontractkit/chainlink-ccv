@@ -77,7 +77,7 @@ func TestNewChainlinkEVMConfigUsesProductionDefaultsAndEveryRPCNode(t *testing.T
 	cfg, err := newChainlinkEVMConfig(Info{
 		ChainID:       "42161",
 		FinalityDepth: 64,
-		BlockTime:     12 * time.Second,
+		TXMBlockTime:  12 * time.Second,
 		Nodes: []Node{
 			{
 				Name:            "chainstack",
@@ -221,9 +221,9 @@ func TestNewChainlinkEVMConfigRejectsInvalidStandaloneConfig(t *testing.T) {
 		{
 			name: "TXM block time below minimum",
 			info: Info{
-				ChainID:   "1337",
-				BlockTime: time.Second,
-				Nodes:     []Node{{InternalHTTPUrl: "http://node.internal:8545"}},
+				ChainID:      "1337",
+				TXMBlockTime: time.Second,
+				Nodes:        []Node{{InternalHTTPUrl: "http://node.internal:8545"}},
 			},
 			wantErr: "BlockTime",
 		},

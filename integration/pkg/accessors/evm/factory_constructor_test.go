@@ -19,7 +19,7 @@ func TestLoadConfig(t *testing.T) {
 	want := Config{Chains: map[string]ChainConfig{
 		"5009297550715157269": {
 			FinalityDepth: 42,
-			BlockTime:     12 * time.Second,
+			TXMBlockTime:  12 * time.Second,
 			Nodes: []Node{{
 				Name:            "chainstack",
 				InternalHTTPUrl: "http://evm-node:8545",
@@ -44,7 +44,7 @@ func TestConfigToInfosDerivesChainMetadataFromSelector(t *testing.T) {
 	cfg := Config{Chains: map[string]ChainConfig{
 		"5009297550715157269": {
 			FinalityDepth: 20,
-			BlockTime:     4 * time.Second,
+			TXMBlockTime:  4 * time.Second,
 			Nodes: []Node{{
 				Name:            "simplyvc",
 				InternalHTTPUrl: "http://evm-node:8545",
@@ -60,7 +60,7 @@ func TestConfigToInfosDerivesChainMetadataFromSelector(t *testing.T) {
 	require.Equal(t, chainsel.FamilyEVM, info.Family)
 	require.Empty(t, info.Type)
 	require.Equal(t, uint32(20), info.FinalityDepth)
-	require.Equal(t, 4*time.Second, info.BlockTime)
+	require.Equal(t, 4*time.Second, info.TXMBlockTime)
 	require.Equal(t, "simplyvc", info.Nodes[0].Name)
 	require.Equal(t, "http://evm-node:8545", info.Nodes[0].InternalHTTPUrl)
 }

@@ -38,8 +38,9 @@ func newChainlinkEVMConfig(info Info) (*evmconfig.ChainScoped, error) {
 	// so use the production tracker with its supported in-memory saver mode.
 	chain.HeadTracker.PersistenceEnabled = new(false)
 	if info.FinalityDepth == 0 {
-		// FinalityDepth itself must remain positive in chainlink-evm, even in
-		// finality-tag mode, so retain the chain-specific upstream depth.
+		// chain.FinalityDepth is deliberately left at the chain-specific upstream
+		// default: evmtoml.Chain.ValidateConfig rejects a depth below 1 whether or
+		// not finality tags are enabled, so it cannot be zeroed out here.
 		chain.FinalityTagEnabled = new(true)
 	} else {
 		// A positive operator value explicitly selects depth-based finality,
@@ -51,10 +52,15 @@ func newChainlinkEVMConfig(info Info) (*evmconfig.ChainScoped, error) {
 	// them keeps this lifecycle focused on the production HeadTracker and TXM.
 	chain.LogBroadcasterEnabled = new(false)
 	chain.BalanceMonitor.Enabled = new(false)
+	// These settings configure TXM v2 but do not start it. standaloneChain builds
+	// and starts a TXM only in NewContractTransmitter, which runs when bootstrap
+	// injects a keystore into an accessor that has an OffRamp address. Source-only
+	// deployments such as the verifier carry no chain_configuration, so they never
+	// construct a TXM and produce no idle TXM goroutines or logs.
 	chain.Transactions.Enabled = new(true)
 	chain.Transactions.ForwardersEnabled = new(false)
 	chain.Transactions.TransactionManagerV2.Enabled = new(true)
-	blockTime := info.BlockTime
+	blockTime := info.TXMBlockTime
 	if blockTime == 0 {
 		blockTime = defaultTXMBlockTime
 	}

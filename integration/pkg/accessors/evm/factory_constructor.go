@@ -63,7 +63,7 @@ func (c Config) toInfos() (chainaccess.Infos[Info], error) {
 			Family:        family,
 			Nodes:         chain.Nodes,
 			FinalityDepth: chain.FinalityDepth,
-			BlockTime:     chain.BlockTime,
+			TXMBlockTime:  chain.TXMBlockTime,
 		}
 	}
 	return infos, nil
@@ -76,7 +76,7 @@ func (c Config) toInfos() (chainaccess.Infos[Info], error) {
 //
 //	[chains.3734403246176062136]
 //	finality_depth = 15
-//	block_time = "2s"
+//	txm_block_time = "2s"
 //	[[chains.3734403246176062136.nodes]]
 //	name = "primary"
 //	internal_http_url = "http://evm-node:8545"

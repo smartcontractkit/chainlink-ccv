@@ -31,9 +31,10 @@ type ChainConfig struct {
 	// FinalityDepth is the number of blocks required before a head is considered final.
 	// Zero enables finality-tag mode; a positive value uses confirmation-depth mode.
 	FinalityDepth uint32 `toml:"finality_depth,omitempty"`
-	// BlockTime controls TXM v2's retry cadence. Zero uses the standalone default;
-	// non-zero values must be at least two seconds.
-	BlockTime time.Duration `toml:"block_time,omitempty"`
+	// TXMBlockTime controls TXM v2's retry cadence. It is not the chain's actual block
+	// time and is not used outside the transaction manager. Zero uses the standalone
+	// default; non-zero values must be at least two seconds.
+	TXMBlockTime time.Duration `toml:"txm_block_time,omitempty"`
 }
 
 // NewConfigFromInfos builds operator config from the enumeration-oriented
@@ -44,7 +45,7 @@ func NewConfigFromInfos(infos chainaccess.Infos[Info]) Config {
 		chains[selector] = ChainConfig{
 			Nodes:         nodesWithDefaultNames(info),
 			FinalityDepth: info.FinalityDepth,
-			BlockTime:     info.BlockTime,
+			TXMBlockTime:  info.TXMBlockTime,
 		}
 	}
 	return Config{Chains: chains}
@@ -78,12 +79,12 @@ type Info struct {
 	UniqueChainName string        `json:"unique_chain_name" toml:"unique_chain_name"`
 	Nodes           []Node        `json:"nodes"             toml:"nodes"`
 	FinalityDepth   uint32        `json:"finality_depth"    toml:"finality_depth"`
-	BlockTime       time.Duration `json:"block_time"        toml:"block_time"`
+	TXMBlockTime    time.Duration `json:"txm_block_time"    toml:"txm_block_time"`
 }
 
 func (bi Info) Empty() bool {
 	return bi.ChainID == "" && bi.Type == "" && bi.Family == "" && bi.UniqueChainName == "" &&
-		len(bi.Nodes) == 0 && bi.FinalityDepth == 0 && bi.BlockTime == 0
+		len(bi.Nodes) == 0 && bi.FinalityDepth == 0 && bi.TXMBlockTime == 0
 }
 
 func nodesWithDefaultNames(info Info) []Node {
