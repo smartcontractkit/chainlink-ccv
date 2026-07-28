@@ -3,6 +3,7 @@ package chainconfig
 import (
 	"fmt"
 	"strconv"
+	"strings"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	accessorevm "github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm"
@@ -12,6 +13,10 @@ import (
 
 // ConvertBlockchainOutputsToInfo converts EVM CTF blockchain outputs to accessor configuration
 // keyed by chain selector. Non-EVM outputs are ignored.
+//
+// CTF publishes each RPC twice, once for the host and once for the Docker network. Standalone CCV
+// services run in that network, so this is where the container-reachable address is chosen; the
+// accessor config it produces carries a single URL per endpoint.
 func ConvertBlockchainOutputsToInfo(outputs []*ctfblockchain.Output) (chainaccess.Infos[accessorevm.Info], error) {
 	infos := make(chainaccess.Infos[accessorevm.Info])
 	for _, output := range outputs {
@@ -30,10 +35,8 @@ func ConvertBlockchainOutputsToInfo(outputs []*ctfblockchain.Output) (chainacces
 		for _, node := range output.Nodes {
 			if node != nil {
 				info.Nodes = append(info.Nodes, accessorevm.Node{
-					ExternalHTTPUrl: node.ExternalHTTPUrl,
-					InternalHTTPUrl: node.InternalHTTPUrl,
-					ExternalWSUrl:   node.ExternalWSUrl,
-					InternalWSUrl:   node.InternalWSUrl,
+					HTTPUrl: containerReachableURL(node.InternalHTTPUrl, node.ExternalHTTPUrl),
+					WSUrl:   containerReachableURL(node.InternalWSUrl, node.ExternalWSUrl),
 				})
 			}
 		}
@@ -47,4 +50,13 @@ func ConvertBlockchainOutputsToInfo(outputs []*ctfblockchain.Output) (chainacces
 	}
 
 	return infos, nil
+}
+
+// containerReachableURL prefers the Docker-network address. Blockchain outputs that only publish a
+// host address, such as an external testnet RPC recorded in an env TOML, fall back to it.
+func containerReachableURL(internal, external string) string {
+	if url := strings.TrimSpace(internal); url != "" {
+		return url
+	}
+	return strings.TrimSpace(external)
 }

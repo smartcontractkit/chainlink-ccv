@@ -79,8 +79,11 @@ func (c Config) toInfos() (chainaccess.Infos[Info], error) {
 //	txm_block_time = "2s"
 //	[[chains.3734403246176062136.nodes]]
 //	name = "primary"
-//	internal_http_url = "http://evm-node:8545"
-//	internal_ws_url = "ws://evm-node:8546"
+//	http_url = "https://evm-rpc.example.com"
+//	ws_url = "wss://evm-rpc.example.com"
+//
+// Each node needs one HTTP URL reachable from this process; ws_url is optional and enables head
+// subscriptions instead of HTTP polling.
 //
 // Chain ID, family, and chain type are derived from the selector. Shared
 // application settings from chainaccess.GenericConfig (for example on-ramp or
