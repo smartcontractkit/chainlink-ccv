@@ -13,7 +13,7 @@ require (
 	github.com/ethereum/go-ethereum v1.17.4
 	github.com/google/uuid v1.6.0
 	github.com/smartcontractkit/chain-selectors v1.0.103
-	github.com/smartcontractkit/chainlink-ccip/deployment v0.0.0-20260728150605-b5c891191a74
+	github.com/smartcontractkit/chainlink-ccip/deployment v0.0.0-20260728155932-9f0f40694d73
 	github.com/smartcontractkit/chainlink-ccv v0.0.2-0.20260608205628-b1fb1b311772
 	github.com/smartcontractkit/chainlink-common v0.11.2-0.20260715145851-8219609496a4
 	github.com/smartcontractkit/chainlink-deployments-framework v0.116.1
