@@ -1156,3 +1156,7 @@ sigs.k8s.io/structured-merge-diff/v4 v4.6.0 h1:IUA9nvMmnKWcj5jl84xn+T5MnlZKThmUW
 sigs.k8s.io/structured-merge-diff/v4 v4.6.0/go.mod h1:dDy58f92j70zLsuZVuUX5Wp9vtxXpaZnkPGWeqDfCps=
 sigs.k8s.io/yaml v1.4.0 h1:Mk1wCc2gy/F0THH0TAp1QYyJNzRm2KCLy3o5ASXVI5E=
 sigs.k8s.io/yaml v1.4.0/go.mod h1:Ejl7/uTz7PSA4eKMyQCUTnhZYNmLIl+5c2lQPGR2BPY=
+github.com/smartcontractkit/chainlink-ccip/chains/evm v0.0.0-20260728150605-b5c891191a74 h1:1Z6dUL+WqFXsgs6LfB2ON0nbzyrdSa6PotrlYWjMLtU=
+github.com/smartcontractkit/chainlink-ccip/chains/evm v0.0.0-20260728150605-b5c891191a74/go.mod h1:y9lROOWoDyuHq1BbTsl5fnC2h3CTjhk31PvApDHG8w4=
+github.com/smartcontractkit/chainlink-ccip/deployment v0.0.0-20260728150605-b5c891191a74 h1:ZNIsUuNS2okmRoSevdkxbxlbsUiMURyZhBmqCNtRcDM=
+github.com/smartcontractkit/chainlink-ccip/deployment v0.0.0-20260728150605-b5c891191a74/go.mod h1:FN6zoHMnJvVITBgs7GiniUEEFOj3MHGZu+QA6Osslu4=
