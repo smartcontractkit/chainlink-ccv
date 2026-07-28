@@ -18,10 +18,10 @@ type ExpiryWithMessage struct {
 	ExpiryTime    time.Time
 	RetryInterval time.Duration
 	Attempt       int
-	// TraceContext carries the message's current causal span context (its
-	// discovery span, or the previous attempt's span when this is a retry)
-	// across the delay-heap boundary, so the next processing attempt parents
-	// its span correctly instead of starting a disconnected root.
+	// TraceContext carries the span context associated with the message's most
+	// recent processing step (initial discovery, or a previous attempt on retry).
+	// It is propagated across the delay-heap boundary so downstream code can
+	// continue the trace if needed (DiscoveryContext remains the stable root).
 	TraceContext context.Context
 	// DiscoveryContext carries the original discovery span context across every
 	// delay/retry cycle so it can be ended exactly once, at the terminal
