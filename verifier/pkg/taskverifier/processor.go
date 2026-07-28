@@ -168,7 +168,6 @@ func (p *Processor) processBatch(ctx context.Context) error {
 	tasks := make([]verifier.VerificationTask, len(jobs))
 	jobIDMap := make(map[string]string)                   // messageID -> jobID
 	taskMap := make(map[string]verifier.VerificationTask) // messageID -> task (for accessing timestamps)
-	results := make([]verifier.VerificationResult, len(jobs))
 	for i, job := range jobs {
 		carrier := propagation.MapCarrier{
 			"traceparent": job.Payload.TraceParent,
