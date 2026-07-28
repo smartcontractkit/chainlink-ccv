@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 	"maps"
-	"reflect"
+	"strings"
 	"sync"
 	"time"
 
@@ -21,6 +21,10 @@ import (
 type AccessorFactoryConstructor func(lggr logger.Logger, cfg GenericConfig) (AccessorFactory, error)
 
 type ChainFamily string
+
+// BlockchainInfosConfigKey is the removed application-config field retained only so stale job
+// specs can be detected and ignored during rollout.
+const BlockchainInfosConfigKey = "blockchain_infos"
 
 var (
 	accessorConstructorMap      = make(map[ChainFamily]AccessorFactoryConstructor)
@@ -51,95 +55,14 @@ type registry struct {
 	factories map[ChainFamily]AccessorFactory
 }
 
-// GenericConfig is an overlay of the app configuration. All configuration needed to construct the accessor
-// should be included here. Note that the Committee Configs are present, they must map to the same location
-// that they appear when parsing just the committee config file:
-//
-// Deprecated: blockchain_infos in JD config is deprecated. blockchain info should come from chain family
-// local config for standalone mode or node config for CL mode. Use getAppConfig for accessing verifier/executor config.
-//
-//	type ConfigWithBlockchainInfos struct {
-//	    Config
-//	    BlockchainInfos map[string]any `toml:"blockchain_infos"`
-//	}
-//
-//	type Config struct {
-//	    ...
-//	    // OnRampAddresses is a map the addresses of the on ramps for each chain selector.
-//	    OnRampAddresses map[string]string `toml:"on_ramp_addresses"`
-//	    // RMNRemoteAddresses is a map of RMN Remote contract addresses for each chain selector.
-//	    // Required for curse detection.
-//	    RMNRemoteAddresses map[string]string `toml:"rmn_remote_addresses"`
-//	    // DisableFinalityCheckers is a list of chain selectors for which the finality violation checker should be disabled.
-//	    // The chain selectors are formatted as strings of the chain selector.
-//	}
-//
+// GenericConfig is the overlay of application-owned settings shared with accessor constructors.
+// Fields must map to the same TOML locations used by each application's typed config. Chain
+// connection and tuning details come from chain-family local config in standalone mode or node
+// config in CL mode.
 // TODO: Use protocol.Selector instead of string for all the map[string].
 type GenericConfig struct {
-	// ChainConfig is parsed by the concrete implementation.
-	//
-	// Deprecated: chain connection and tuning belong in local or node config, not
-	// blockchain_infos in the JD app config.
-	ChainConfig Infos[any] `toml:"blockchain_infos"`
-
 	CommitteeConfig
 	ExecutorConfig
-}
-
-// GetAllConcreteConfig populates target, which must be a pointer to an Infos[T]
-// (i.e. *map[string]T), with the decoded chain configs for every chain selector
-// in ChainConfig that belongs to the given family. The map key is the chain
-// selector formatted as a decimal string, matching the Infos key convention.
-func (gc GenericConfig) GetAllConcreteConfig(family string, target any) error {
-	rv := reflect.ValueOf(target)
-	if rv.Kind() != reflect.Pointer || rv.Elem().Kind() != reflect.Map {
-		return fmt.Errorf("GetAllConcreteConfig: target must be a pointer to a map, got %T", target)
-	}
-	if rv.Elem().Type().Key().Kind() != reflect.String {
-		return fmt.Errorf("GetAllConcreteConfig: map key must be string (Infos[T] uses string keys), got %s", rv.Elem().Type().Key())
-	}
-	mapVal := rv.Elem()
-	if mapVal.IsNil() {
-		mapVal.Set(reflect.MakeMap(mapVal.Type()))
-	}
-	elemType := mapVal.Type().Elem()
-
-	for _, sel := range gc.ChainConfig.GetAllChainSelectors() {
-		fam, err := chainsel.GetSelectorFamily(uint64(sel))
-		if err != nil {
-			return fmt.Errorf("GetAllConcreteConfig: failed to get the chain selector family: %w", err)
-		}
-		if fam != family {
-			continue
-		}
-		elem := reflect.New(elemType)
-		if err := gc.GetConcreteConfig(sel, elem.Interface()); err != nil {
-			return err
-		}
-		mapVal.SetMapIndex(reflect.ValueOf(sel.String()), elem.Elem())
-	}
-	return nil
-}
-
-func (gc GenericConfig) GetConcreteConfig(selector protocol.ChainSelector, target any) error {
-	info, ok := gc.ChainConfig[selector.String()]
-	if !ok {
-		return fmt.Errorf("chain selector '%s' not found", selector.String())
-	}
-	data, err := toml.Marshal(info)
-	if err != nil {
-		return fmt.Errorf("failed to marshal info for selector '%s': %w", selector.String(), err)
-	}
-
-	md, err := toml.Decode(string(data), target)
-	if err != nil {
-		return fmt.Errorf("failed to unmarshal info for selector '%s': %w", selector.String(), err)
-	}
-	if len(md.Undecoded()) > 0 {
-		return fmt.Errorf("chain selector '%s' contains unknown fields: %v", selector.String(), md.Undecoded())
-	}
-
-	return nil
 }
 
 // CommitteeConfig that is defined as part of the app and required by the SourceReader.
@@ -205,8 +128,15 @@ func NewRegistry(lggr logger.Logger, config string) (Registry, error) {
 	}
 
 	var genericConfig GenericConfig
-	if err := toml.Unmarshal([]byte(config), &genericConfig); err != nil {
+	md, err := toml.Decode(config, &genericConfig)
+	if err != nil {
 		return nil, fmt.Errorf("failed to unmarshal generic config: %w", err)
+	}
+	for _, key := range md.Keys() {
+		if len(key) > 0 && strings.EqualFold(key[0], BlockchainInfosConfigKey) {
+			lggr.Warnw("Ignoring removed application config; use chain-family local or node config", "field", BlockchainInfosConfigKey)
+			break
+		}
 	}
 
 	for family, constructor := range accessorConstructorMapCopy() {

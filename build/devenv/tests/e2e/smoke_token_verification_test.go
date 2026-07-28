@@ -39,6 +39,9 @@ type tokenVerifierTestCase struct {
 }
 
 func TestE2ESmoke_TokenVerification(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping e2e test in short mode; requires a running devenv environment")
+	}
 	smokeTestConfig := GetSmokeTestConfig()
 	in, err := ccv.LoadOutput[ccv.Cfg](smokeTestConfig)
 	require.NoError(t, err)
@@ -282,8 +285,9 @@ func runUSDCTestCase(
 		require.NotNil(t, res.AggregatedResult)
 	}
 
-	execEvt, err := destChain.ConfirmExecOnDest(ctx, sourceSelector, cciptestinterfaces.MessageEventKey{SeqNum: seqNo}, 45*time.Second)
+	execEnv, err := destChain.ConfirmExecOnDest(ctx, sourceSelector, cciptestinterfaces.MessageEventKey{SeqNum: seqNo}, 45*time.Second)
 	require.NoError(t, err)
+	execEvt := execEnv.Event
 	require.NotNil(t, execEvt)
 	require.Equalf(t, cciptestinterfaces.ExecutionStateSuccess, execEvt.State, "unexpected state, return data: %x", execEvt.ReturnData)
 
@@ -410,8 +414,9 @@ func runLombardTestCase(
 	require.NoError(t, err)
 	require.NotNil(t, res.AggregatedResult)
 
-	execEvt, err := destChain.ConfirmExecOnDest(ctx, sourceSelector, cciptestinterfaces.MessageEventKey{SeqNum: seqNo}, 45*time.Second)
+	execEnv, err := destChain.ConfirmExecOnDest(ctx, sourceSelector, cciptestinterfaces.MessageEventKey{SeqNum: seqNo}, 45*time.Second)
 	require.NoError(t, err)
+	execEvt := execEnv.Event
 	require.NotNil(t, execEvt)
 	require.Equalf(t, cciptestinterfaces.ExecutionStateSuccess, execEvt.State, "unexpected state, return data: %x", execEvt.ReturnData)
 

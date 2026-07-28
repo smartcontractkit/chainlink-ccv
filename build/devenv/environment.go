@@ -37,6 +37,7 @@ import (
 	_ "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/tokenverifier"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobspec"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/progress"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/committeeverifier"
 	executorsvc "github.com/smartcontractkit/chainlink-ccv/build/devenv/services/executor"
@@ -122,20 +123,25 @@ type Cfg struct {
 	// Version is incremented on breaking config schema changes so downstream
 	// consumers can detect incompatible configs. Version 0 (implicit/absent)
 	// predates the [protocol_contracts] section.
-	Version            int                            `toml:"version"`
-	CLDF               ccldf.CLDF                     `toml:"cldf"                  validate:"required"`
-	Pricer             *services.PricerInput          `toml:"pricer"                validate:"required"`
-	Fake               *services.FakeInput            `toml:"fake"                  validate:"required"`
-	Verifier           []*committeeverifier.Input     `toml:"verifier"              validate:"required"`
-	TokenVerifier      []*services.TokenVerifierInput `toml:"token_verifier"`
-	Executor           []*executorsvc.Input           `toml:"executor"              validate:"required"`
-	Indexer            []*services.IndexerInput       `toml:"indexer"               validate:"required"`
-	Aggregator         []*services.AggregatorInput    `toml:"aggregator"            validate:"required"`
-	JD                 *jd.Input                      `toml:"jd"                    validate:"required"`
-	Blockchains        []*blockchain.Input            `toml:"blockchains"           validate:"required"`
-	NodeSets           []*ns.Input                    `toml:"nodesets,omitempty"`
-	CLNodesFundingETH  float64                        `toml:"cl_nodes_funding_eth"`
-	CLNodesFundingLink float64                        `toml:"cl_nodes_funding_link"`
+	Version       int                            `toml:"version"`
+	CLDF          ccldf.CLDF                     `toml:"cldf"           validate:"required"`
+	Pricer        *services.PricerInput          `toml:"pricer"         validate:"required"`
+	Fake          *services.FakeInput            `toml:"fake"           validate:"required"`
+	Verifier      []*committeeverifier.Input     `toml:"verifier"       validate:"required"`
+	TokenVerifier []*services.TokenVerifierInput `toml:"token_verifier"`
+	Executor      []*executorsvc.Input           `toml:"executor"       validate:"required"`
+	Indexer       []*services.IndexerInput       `toml:"indexer"        validate:"required"`
+	Aggregator    []*services.AggregatorInput    `toml:"aggregator"     validate:"required"`
+	JD            *jd.Input                      `toml:"jd"             validate:"required"`
+	Blockchains   []*blockchain.Input            `toml:"blockchains"    validate:"required"`
+
+	// LocalNetworks contains opaque, chain-family-owned local network
+	// configuration. Concrete schemas and behavior live behind chainreg.
+	LocalNetworks map[string]*chainreg.LocalNetworkConfig `toml:"local_networks,omitempty"`
+
+	NodeSets           []*ns.Input `toml:"nodesets,omitempty"`
+	CLNodesFundingETH  float64     `toml:"cl_nodes_funding_eth"`
+	CLNodesFundingLink float64     `toml:"cl_nodes_funding_link"`
 	// HighAvailability enables devenv-level service redundancy. When true,
 	// ExpandForHA() clones AggregatorInput / IndexerInput entries according
 	// to their per-service redundancy counts and updates the topology.
@@ -976,7 +982,7 @@ func fundExecutorTransmitters(
 // launchExecutors starts executor containers for all Standalone-mode inputs.
 // Executors that were already launched by the executor component (Out != nil)
 // are skipped — they are collected into the output slice but not re-launched.
-func launchExecutors(in []*executorsvc.Input, blockchainOutputs []*blockchain.Output, jdInfra *jobs.JDInfrastructure) ([]*executorsvc.Output, error) {
+func launchExecutors(ctx context.Context, in []*executorsvc.Input, blockchainOutputs []*blockchain.Output, jdInfra *jobs.JDInfrastructure) ([]*executorsvc.Output, error) {
 	var outs []*executorsvc.Output
 	for _, exec := range in {
 		if exec == nil || (exec.Mode != services.Standalone && exec.Mode != services.Local) {
@@ -986,11 +992,19 @@ func launchExecutors(in []*executorsvc.Input, blockchainOutputs []*blockchain.Ou
 			outs = append(outs, exec.Out)
 			continue
 		}
-		var transmitterKeyName string
-		if reg, regErr := chainreg.GetRegistry().Get(exec.ChainFamily); regErr == nil && reg.ExecutorInfo != nil {
-			transmitterKeyName = reg.ExecutorInfo.ExecutorTransmitterKeyName()
-		}
-		out, err := executorsvc.New(exec, blockchainOutputs, jdInfra, chainreg.GetRegistry().GetExecutorModifiers(), transmitterKeyName)
+		// One nested sub-row per executor we actually launch (standalone or local mode).
+		// The IIFE lets a single deferred Finish mark the row done/failed from err,
+		// so future error paths added inside can't forget to update the row.
+		out, err := func() (out *executorsvc.Output, err error) {
+			execChild := progress.Stage(ctx, fmt.Sprintf("%s (%s)", exec.ContainerName, exec.ChainFamily))
+			defer func() { execChild.Finish(err) }()
+
+			var transmitterKeyName string
+			if reg, regErr := chainreg.GetRegistry().Get(exec.ChainFamily); regErr == nil && reg.ExecutorInfo != nil {
+				transmitterKeyName = reg.ExecutorInfo.ExecutorTransmitterKeyName()
+			}
+			return executorsvc.New(exec, blockchainOutputs, jdInfra, chainreg.GetRegistry().GetExecutorModifiers(), transmitterKeyName)
+		}()
 		if err != nil {
 			return nil, fmt.Errorf("failed to create executor %s: %w", exec.ContainerName, err)
 		}
@@ -1116,7 +1130,7 @@ func proposeJobsToExecutors(
 	return g.Wait()
 }
 
-func launchStandaloneVerifiers(in *Cfg, blockchainOutputs []*blockchain.Output, jdInfra *jobs.JDInfrastructure) ([]*committeeverifier.Output, error) {
+func launchStandaloneVerifiers(ctx context.Context, in *Cfg, blockchainOutputs []*blockchain.Output, jdInfra *jobs.JDInfrastructure) ([]*committeeverifier.Output, error) {
 	// Collect aggregator outputs per committee in insertion order. The order matches
 	// committee.Aggregators (TOML order plus expansion clones), so it aligns by index with the
 	// topology aggregator names below — used to key each verifier's per-aggregator credentials.
@@ -1153,28 +1167,41 @@ func launchStandaloneVerifiers(in *Cfg, blockchainOutputs []*blockchain.Output, 
 
 	outs := make([]*committeeverifier.Output, 0, len(in.Verifier))
 	// Launch verifiers that run their own bootstrapper (standalone JD mode or local no-JD mode); CL-mode
-	// verifiers get their config from the CL node instead and are launched elsewhere.
+	// verifiers get their config from the CL node instead and are launched elsewhere. Each launched
+	// verifier gets its own progress sub-row; nesting is decided by whatever scope the caller threaded
+	// into ctx, so this loop is oblivious to its display depth.
 	for _, ver := range in.Verifier {
 		if ver.Mode != services.Standalone && ver.Mode != services.Local {
 			continue
 		}
 
-		aggOuts := aggregatorsByCommittee[ver.CommitteeName]
-		if len(aggOuts) == 0 {
-			return nil, fmt.Errorf(
-				"verifier %q (committee %q): no aggregator outputs found — ensure the aggregator started successfully",
-				ver.ContainerName, ver.CommitteeName,
-			)
-		}
-		creds, err := committeeverifier.AggregatorCredentialsForVerifier(ver, aggOuts, topoAggNames[ver.CommitteeName])
+		// A single deferred Finish marks the sub-row done/failed from the named
+		// return, so error paths added here stay correctly reflected in the row.
+		out, err := func() (out *committeeverifier.Output, err error) {
+			vStep := progress.Stage(ctx, fmt.Sprintf("%s (%s)", ver.ContainerName, ver.CommitteeName))
+			defer func() { vStep.Finish(err) }()
+
+			aggOuts := aggregatorsByCommittee[ver.CommitteeName]
+			if len(aggOuts) == 0 {
+				return nil, fmt.Errorf(
+					"verifier %q (committee %q): no aggregator outputs found — ensure the aggregator started successfully",
+					ver.ContainerName, ver.CommitteeName,
+				)
+			}
+			creds, err := committeeverifier.AggregatorCredentialsForVerifier(ver, aggOuts, topoAggNames[ver.CommitteeName])
+			if err != nil {
+				return nil, err
+			}
+			ver.AggregatorCredentials = creds
+			ver.AggregatorOutput = aggOuts[ver.NodeIndex%len(aggOuts)]
+			out, err = committeeverifier.New(ver, blockchainOutputs, jdInfra, chainreg.GetRegistry().GetVerifierModifiers())
+			if err != nil {
+				return nil, fmt.Errorf("failed to create verifier service: %w", err)
+			}
+			return out, nil
+		}()
 		if err != nil {
 			return nil, err
-		}
-		ver.AggregatorCredentials = creds
-		ver.AggregatorOutput = aggOuts[ver.NodeIndex%len(aggOuts)]
-		out, err := committeeverifier.New(ver, blockchainOutputs, jdInfra, chainreg.GetRegistry().GetVerifierModifiers())
-		if err != nil {
-			return nil, fmt.Errorf("failed to create verifier service: %w", err)
 		}
 		ver.Out = out
 		outs = append(outs, out)
@@ -1453,7 +1480,7 @@ func launchAndConfigureExecutors(
 		exec.Bootstrap.Monitoring = &m
 	}
 
-	if _, err := launchExecutors(in.Executor, blockchainOutputs, jdInfra); err != nil {
+	if _, err := launchExecutors(ctx, in.Executor, blockchainOutputs, jdInfra); err != nil {
 		return fmt.Errorf("failed to create executors: %w", err)
 	}
 	if err := fundExecutorTransmitters(ctx, in.Executor, in.Blockchains, impls); err != nil {
@@ -1502,7 +1529,7 @@ func launchAndConfigureLocalExecutors(
 		exec.Bootstrap.Monitoring = &m
 	}
 
-	if _, err := launchExecutors(in.Executor, blockchainOutputs, nil); err != nil {
+	if _, err := launchExecutors(ctx, in.Executor, blockchainOutputs, nil); err != nil {
 		return fmt.Errorf("failed to create local executors: %w", err)
 	}
 	if err := fundExecutorTransmitters(ctx, in.Executor, in.Blockchains, impls); err != nil {

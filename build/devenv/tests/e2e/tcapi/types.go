@@ -12,6 +12,7 @@ import (
 	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/logasserter"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	committeepb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/committee-verifier/v1"
 	verifierpb "github.com/smartcontractkit/chainlink-protos/chainlink-ccv/verifier/v1"
 )
@@ -30,12 +31,13 @@ type TestCase interface {
 	// Name returns the name of the test case.
 	Name() string
 
-	// Run runs the test case.
+	// Run runs the test case and returns the source and destination transaction
+	// evidence it produced.
 	// The context is typically derived from the *testing.T's Context() method.
 	// Implementations hydrate any required configuration before executing; callers
 	// do not need to call HavePrerequisites first. Returns an error if prerequisites
 	// are not met.
-	Run(ctx context.Context) error
+	Run(ctx context.Context) (RunResult, error)
 
 	// HavePrerequisites reports whether this test case can run in the current
 	// environment (e.g. required contracts deployed, services running).
@@ -56,6 +58,13 @@ type RunConfig struct {
 	ConfirmSentTimeout time.Duration
 	// ConfirmExecTimeout overrides AssertMessage and ConfirmExecOnDest when non-zero.
 	ConfirmExecTimeout time.Duration
+}
+
+// RunResult contains portable events and opaque transaction
+// evidence for integration-owned, chain-specific assertions.
+type RunResult struct {
+	Src  cciptestinterfaces.SentEnvelope
+	Dest cciptestinterfaces.ExecEnvelope
 }
 
 // SentTimeout returns ConfirmSentTimeout when set, otherwise fallback.
@@ -86,51 +95,37 @@ type SendArgs struct {
 // SendV3Message builds and sends a V3 message using BuildV3ExtraArgs, BuildChainMessage, and SendChainMessage.
 func SendV3Message(
 	ctx context.Context,
-	src, dst cciptestinterfaces.CCIP17,
-	destSelector uint64,
+	src cciptestinterfaces.V3Source,
+	dst cciptestinterfaces.V3Destination,
 	fields cciptestinterfaces.MessageFields,
 	opts cciptestinterfaces.MessageOptions,
 	sendArgs SendArgs,
-) (cciptestinterfaces.MessageSentEvent, error) {
-	chainAsSource, ok := src.(cciptestinterfaces.ChainAsSource)
-	if !ok {
-		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("source chain does not implement ChainAsSource")
-	}
-	v3Source, ok := src.(cciptestinterfaces.MessageV3Source)
-	if !ok {
-		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("source chain does not support V3 message")
-	}
-	v3Dest, ok := dst.(cciptestinterfaces.MessageV3Destination)
-	if !ok {
-		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("dest chain does not support V3 message")
-	}
-
+) (cciptestinterfaces.MessageSentEvent, protocol.ByteSlice, error) {
 	if sendArgs.ExecutionGasLimit != 0 {
 		opts.ExecutionGasLimit = sendArgs.ExecutionGasLimit
 	} else if opts.ExecutionGasLimit == 0 {
 		opts.ExecutionGasLimit = DefaultV3ExecutionGasLimit
 	}
 
-	extraArgs, err := v3Source.BuildV3ExtraArgs(opts, v3Dest, sendArgs.ExtraArgsParams, sendArgs.TokenReceiverParams, sendArgs.TokenArgsParams)
+	extraArgs, err := src.BuildV3ExtraArgs(opts, dst, sendArgs.ExtraArgsParams, sendArgs.TokenReceiverParams, sendArgs.TokenArgsParams)
 	if err != nil {
-		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("failed to encode V3 extra args: %w", err)
+		return cciptestinterfaces.MessageSentEvent{}, nil, fmt.Errorf("failed to encode V3 extra args: %w", err)
 	}
 
-	msg, err := chainAsSource.BuildChainMessage(ctx, fields, extraArgs)
+	msg, err := src.BuildChainMessage(ctx, fields, extraArgs)
 	if err != nil {
-		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("failed to build chain message: %w", err)
+		return cciptestinterfaces.MessageSentEvent{}, nil, fmt.Errorf("failed to build chain message: %w", err)
 	}
 
-	sent, _, err := chainAsSource.SendChainMessage(ctx, destSelector, msg, sendArgs.SendOption)
+	sent, txHash, err := src.SendChainMessage(ctx, dst.ChainSelector(), msg, sendArgs.SendOption)
 	if err != nil {
-		return cciptestinterfaces.MessageSentEvent{}, fmt.Errorf("failed to send chain message: %w", err)
+		return cciptestinterfaces.MessageSentEvent{}, nil, fmt.Errorf("failed to send chain message: %w", err)
 	}
-	return sent, nil
+	return sent, txHash, nil
 }
 
 type TestingContext struct {
 	Ctx              context.Context
-	Impl             map[uint64]cciptestinterfaces.CCIP17
 	AggregatorClient *ccv.AggregatorClient
 	IndexerClient    *ccv.IndexerMonitor
 	LogAsserter      *logasserter.LogAsserter
@@ -138,7 +133,7 @@ type TestingContext struct {
 	logger           zerolog.Logger
 }
 
-func NewTestingContext(ctx context.Context, impl map[uint64]cciptestinterfaces.CCIP17, aggregatorClient *ccv.AggregatorClient, indexerClient *ccv.IndexerMonitor) (TestingContext, func()) {
+func NewTestingContext(ctx context.Context, aggregatorClient *ccv.AggregatorClient, indexerClient *ccv.IndexerMonitor) (TestingContext, func()) {
 	lokiURL := os.Getenv("LOKI_QUERY_URL")
 	if lokiURL == "" {
 		lokiURL = DefaultLokiURL
@@ -164,7 +159,6 @@ func NewTestingContext(ctx context.Context, impl map[uint64]cciptestinterfaces.C
 
 	tc := TestingContext{
 		Ctx:              ctx,
-		Impl:             impl,
 		AggregatorClient: aggregatorClient,
 		IndexerClient:    indexerClient,
 		LogAsserter:      logAssert,

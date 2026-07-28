@@ -63,6 +63,9 @@ func replayCLIArgs(subcommand string, extra ...string) []string {
 // TestE2ESmoke_ReplayCLI verifies the replay CLI subcommands work end-to-end:
 // migration check, list, status, and a discovery dry-run.
 func TestE2ESmoke_ReplayCLI(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping e2e test in short mode; requires a running devenv environment")
+	}
 	smokeTestConfig := GetSmokeTestConfig()
 	in, err := ccv.LoadOutput[ccv.Cfg](smokeTestConfig)
 	require.NoError(t, err)
@@ -190,6 +193,9 @@ func sendAndWaitForIndexed(
 //     and verifies neither message's timestamp changed because there is nothing
 //     new to backfill.
 func TestE2ESmoke_ReplayForceOverwrite(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping e2e test in short mode; requires a running devenv environment")
+	}
 	smokeTestConfig := GetSmokeTestConfig()
 	in, err := ccv.LoadOutput[ccv.Cfg](smokeTestConfig)
 	require.NoError(t, err)
@@ -233,9 +239,7 @@ func TestE2ESmoke_ReplayForceOverwrite(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, indexerMonitor, "indexer monitor must be available")
 
-	chainMap, err := lib.ChainsMap(ctx)
-	require.NoError(t, err)
-	testCtx, cleanupFn := tcapi.NewTestingContext(ctx, chainMap, aggregatorClient, indexerMonitor)
+	testCtx, cleanupFn := tcapi.NewTestingContext(ctx, aggregatorClient, indexerMonitor)
 	require.NotNil(t, testCtx, "test context must be available")
 	defer cleanupFn()
 

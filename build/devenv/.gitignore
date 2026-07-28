@@ -52,3 +52,6 @@ job-distributor/
 env-*out.toml
 fakes/tmp
 tests/e2e/logs
+# devenv startup progress artifacts (ccv up)
+uplog.txt
+addresses.txt

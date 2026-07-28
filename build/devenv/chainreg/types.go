@@ -53,6 +53,26 @@ type ImplFactory interface {
 	SupportsFunding() bool
 }
 
+// V3SourceFactory constructs a cciptestinterfaces.V3Source for a chain family
+// that only supports originating V3 messages, without implementing the full
+// cciptestinterfaces.CCIP17 interface required by ImplFactory.
+type V3SourceFactory func(
+	ctx context.Context,
+	lggr zerolog.Logger,
+	env *deployment.Environment,
+	chainSelector uint64,
+) (cciptestinterfaces.V3Source, error)
+
+// V3DestinationFactory constructs a cciptestinterfaces.V3Destination for a
+// chain family that only supports receiving V3 messages, without implementing
+// the full cciptestinterfaces.CCIP17 interface required by ImplFactory.
+type V3DestinationFactory func(
+	ctx context.Context,
+	lggr zerolog.Logger,
+	env *deployment.Environment,
+	chainSelector uint64,
+) (cciptestinterfaces.V3Destination, error)
+
 // ExecutorInfo provides executor bootstrap key metadata for a chain family.
 // Families that support bootstrap-managed executor transmitter keys register
 // an implementation via Registration.ExecutorInfo.
@@ -77,6 +97,27 @@ type CLDFProviderFactory func(ctx context.Context, b *ctfblockchain.Input) (cldf
 // Job specs must not consume its output for connection details; standalone containers receive those
 // through the family modifier's mounted local config.
 type ChainConfigLoader func(outputs []*ctfblockchain.Output) (map[string]any, error)
+
+// LocalNetworkConfig holds opaque, family-owned configuration for local network
+// extensions. Devenv routes Input to the registered family configurator and
+// persists the returned Output without depending on either concrete schema.
+type LocalNetworkConfig struct {
+	Input  util.OpaqueConfig `toml:"input"`
+	Output util.OpaqueConfig `toml:"output,omitempty"`
+}
+
+// LocalNetworkFinalizer restores any temporary mutations made while local
+// network consumers were being configured.
+type LocalNetworkFinalizer func()
+
+// LocalNetworkConfigurator applies family-specific extensions to already
+// launched local networks. The returned finalizer runs after all consumers have
+// captured their network configuration.
+type LocalNetworkConfigurator func(
+	ctx context.Context,
+	input util.OpaqueConfig,
+	outputs []*ctfblockchain.Output,
+) (util.OpaqueConfig, LocalNetworkFinalizer, error)
 
 // GenericServiceDefinition is launched for a specific chain selector via a family Launcher.
 type GenericServiceDefinition struct {
@@ -128,13 +169,19 @@ type AddressResolver interface {
 // Registration groups every devenv extension for one chain family.
 // Fields are optional; callers should set what the family supports.
 type Registration struct {
-	ImplFactory          ImplFactory
-	CLDFProvider         CLDFProviderFactory
-	ChainConfigLoader    ChainConfigLoader
-	Launcher             Launcher
-	VerifierModifier     VerifierModifier
-	ExecutorInfo         ExecutorInfo
-	ExecutorModifier     ExecutorModifier
-	ExtraArgsSerializers map[uint8]ExtraArgsSerializer
-	AddressResolver      AddressResolver
+	ImplFactory              ImplFactory
+	CLDFProvider             CLDFProviderFactory
+	ChainConfigLoader        ChainConfigLoader
+	LocalNetworkConfigurator LocalNetworkConfigurator
+	Launcher                 Launcher
+	VerifierModifier         VerifierModifier
+	ExecutorInfo             ExecutorInfo
+	ExecutorModifier         ExecutorModifier
+	ExtraArgsSerializers     map[uint8]ExtraArgsSerializer
+	AddressResolver          AddressResolver
+
+	// V3SourceFactory and V3DestinationFactory let a chain family plug into V3
+	// message tests without implementing the full ImplFactory/CCIP17 surface.
+	V3SourceFactory      V3SourceFactory
+	V3DestinationFactory V3DestinationFactory
 }

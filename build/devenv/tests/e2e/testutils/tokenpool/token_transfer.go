@@ -47,16 +47,11 @@ func transferTokens(
 ) {
 	t.Helper()
 
-	chainMap, err := lib.ChainsMap(t.Context())
-	require.NoError(t, err, "get chains map")
-
 	ds, err := lib.DataStore()
 	require.NoError(t, err, "get datastore")
 
 	srcSel := srcPool.Selector()
 	srcTok := srcPool.Token()
-	src, ok := chainMap[srcSel]
-	require.True(t, ok, "chain %d not found", srcSel)
 	srcFamily, err := chainsel.GetSelectorFamily(srcSel)
 	require.NoError(t, err, "get source chain family")
 	srcNorm, ok := addrNormRegistry.GetAddressNormalizer(srcFamily)
@@ -67,8 +62,6 @@ func transferTokens(
 
 	dstSel := dstPool.Selector()
 	dstTok := dstPool.Token()
-	dst, ok := chainMap[dstSel]
-	require.True(t, ok, "chain %d not found", dstSel)
 	dstFamily, err := chainsel.GetSelectorFamily(dstSel)
 	require.NoError(t, err, "get destination chain family")
 	dstNorm, ok := addrNormRegistry.GetAddressNormalizer(dstFamily)
@@ -77,10 +70,17 @@ func transferTokens(
 	require.NoError(t, err, "normalize destination token address")
 	dstTokenAddr := protocol.UnknownAddress(dstTokenBytes)
 
-	sender, err := src.GetSenderAddress()
+	v3Src, err := lib.V3Source(t.Context(), srcSel)
+	require.NoError(t, err, "source chain %d does not support V3 message", srcSel)
+	v3Dst, err := lib.V3Destination(t.Context(), dstSel)
+	require.NoError(t, err, "destination chain %d does not support V3 message", dstSel)
+
+	senderProvider, ok := v3Src.(cciptestinterfaces.SenderAddressProvider)
+	require.True(t, ok, "source chain %d does not support sender address", srcSel)
+	sender, err := senderProvider.GetSenderAddress()
 	require.NoError(t, err, "get sender address")
 
-	receiver, err := dst.GetEOAReceiverAddress()
+	receiver, err := v3Dst.GetEOAReceiverAddress()
 	require.NoError(t, err, "get receiver address")
 
 	srcReg, err := chainreg.GetRegistry().Get(srcFamily)
@@ -89,15 +89,20 @@ func transferTokens(
 	executor, err := srcReg.AddressResolver.GetExecutor(ds, srcSel, devenvcommon.DefaultExecutorQualifier)
 	require.NoError(t, err, "get executor address")
 
-	dstStartBal, err := dst.GetTokenBalance(t.Context(), receiver, dstTokenAddr)
+	srcBalReader, ok := v3Src.(cciptestinterfaces.TokenBalanceReader)
+	require.True(t, ok, "source chain %d does not support token balance reads", srcSel)
+	dstBalReader, ok := v3Dst.(cciptestinterfaces.TokenBalanceReader)
+	require.True(t, ok, "destination chain %d does not support token balance reads", dstSel)
+
+	dstStartBal, err := dstBalReader.GetTokenBalance(t.Context(), receiver, dstTokenAddr)
 	require.NoError(t, err, "get receiver start balance")
 
-	srcStartBal, err := src.GetTokenBalance(t.Context(), sender, srcTokenAddr)
+	srcStartBal, err := srcBalReader.GetTokenBalance(t.Context(), sender, srcTokenAddr)
 	require.NoError(t, err, "get sender start balance")
 
 	amountToTransfer := tokens.ScaleTokenAmount(big.NewInt(amount), srcPool.Decimals())
-	sendRes, err := tcapi.SendV3Message(
-		t.Context(), src, dst, dstSel,
+	sendRes, _, err := tcapi.SendV3Message(
+		t.Context(), v3Src, v3Dst,
 		cciptestinterfaces.MessageFields{
 			Receiver: receiver,
 			TokenAmount: cciptestinterfaces.TokenAmount{
@@ -126,13 +131,13 @@ func transferTokens(
 		zerolog.Ctx(t.Context()).Info().Uint64("SeqNo", uint64(sendRes.Message.SequenceNumber)).Msg("sent token transfer message")
 	}
 
-	_, err = src.ConfirmSendOnSource(t.Context(), dstSel, messageKey, tcapi.DefaultSentTimeout)
+	_, err = v3Src.ConfirmSendOnSource(t.Context(), dstSel, messageKey, tcapi.DefaultSentTimeout)
 	require.NoError(t, err, "wait for sent event")
 
 	aggregatorClient, indexerMonitor, err := tcapi.SetupOffchainClients(lib, "")
 	require.NoError(t, err, "setup offchain clients")
 
-	testCtx, cleanupFn := tcapi.NewTestingContext(t.Context(), chainMap, aggregatorClient, indexerMonitor)
+	testCtx, cleanupFn := tcapi.NewTestingContext(t.Context(), aggregatorClient, indexerMonitor)
 	defer cleanupFn()
 
 	res, err := testCtx.AssertMessage(sendRes.MessageID, tcapi.AssertMessageOptions{
@@ -147,16 +152,17 @@ func transferTokens(
 		require.NotNil(t, res.AggregatedResult, "aggregated result is nil")
 	}
 
-	execEvt, err := dst.ConfirmExecOnDest(t.Context(), srcSel, messageKey, tcapi.DefaultExecTimeout)
+	execEnv, err := v3Dst.ConfirmExecOnDest(t.Context(), srcSel, messageKey, tcapi.DefaultExecTimeout)
 	require.NoError(t, err, "wait for exec event")
+	execEvt := execEnv.Event
 	require.Equal(t, cciptestinterfaces.ExecutionStateSuccess, execEvt.State, "unexpected execution state %s, return data: %x", execEvt.State, execEvt.ReturnData)
 
-	dstEndBal, err := dst.GetTokenBalance(t.Context(), receiver, dstTokenAddr)
+	dstEndBal, err := dstBalReader.GetTokenBalance(t.Context(), receiver, dstTokenAddr)
 	require.NoError(t, err, "get receiver end balance")
 	expectedEndBal := new(big.Int).Add(new(big.Int).Set(dstStartBal), amountToTransfer)
 	require.Equal(t, 0, dstEndBal.Cmp(expectedEndBal), "receiver end balance: expected %s, got %s", expectedEndBal.String(), dstEndBal.String())
 
-	srcEndBal, err := src.GetTokenBalance(t.Context(), sender, srcTokenAddr)
+	srcEndBal, err := srcBalReader.GetTokenBalance(t.Context(), sender, srcTokenAddr)
 	require.NoError(t, err, "get sender end balance")
 	expectedSrcEndBal := new(big.Int).Sub(new(big.Int).Set(srcStartBal), amountToTransfer)
 	require.Equal(t, 0, srcEndBal.Cmp(expectedSrcEndBal), "sender end balance: expected %s, got %s", expectedSrcEndBal.String(), srcEndBal.String())

@@ -59,6 +59,28 @@ type MessageV3Destination interface {
 	GetTokenArgs(opts any) (MessageV3TokenArgs, error)
 }
 
+// V3Source is implemented by any chain that can originate a V3 message.
+//
+// This covers only the capabilities every V3 test case needs. Capabilities
+// needed by specific test cases (e.g. TokenBalanceReader, SenderAddressProvider)
+// are kept as separate optional interfaces, type-asserted where used, so a
+// chain family isn't forced to implement them just to run the tests that don't
+// need them.
+type V3Source interface {
+	MessageV3Source
+	ChainAsSource
+}
+
+// V3Destination is implemented by any chain that can receive a V3 message.
+//
+// See V3Source's doc comment: capabilities needed only by specific test cases
+// (e.g. TokenBalanceReader, MaxDataSizeProvider) are kept separate and
+// type-asserted where used, rather than required here.
+type V3Destination interface {
+	MessageV3Destination
+	ChainAsDestination
+}
+
 // MessageV3Source is an interface for any chain that can send a V3 message.
 // We use an interface rather than a struct because the V3 message structure is chain agnostic.
 type MessageV3Source interface {

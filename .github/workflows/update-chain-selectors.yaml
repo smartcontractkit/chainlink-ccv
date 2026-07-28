@@ -1,0 +1,66 @@
+name: Update Chain Selectors
+
+on:
+  schedule:
+    # Run at 09:00 UTC, on Monday and Thursday, every week.
+    - cron: "0 9 * * 1,4"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+  pull-requests: read
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Issue GitHub token
+        id: issue-github-token
+        uses: smartcontractkit/.github/actions/setup-github-token@ef78fa97bf3c77de6563db1175422703e9e6674f # setup-github-token@0.2.1
+        with:
+          aws-role-arn: ${{ secrets.GATI_AWS_ROLE_ARN_AUTO_PR_TOKEN_ISSUER }}
+          aws-lambda-url: ${{ secrets.GATI_LAMBDA_URL_CCIP_PROTOCOL }}
+          aws-region: ${{ secrets.GATI_AWS_REGION }}
+          set-git-config: true
+
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        env:
+          GOPRIVATE: github.com/smartcontractkit/*
+        with:
+          cache: true
+          cache-dependency-path: |
+            go.sum
+            **/go.sum
+          go-version-file: go.mod
+      
+      - name: Install Just
+        uses: extractions/setup-just@e33e0265a09d6d736e2ee1e0eb685ef1de4669ff # v3
+        with:
+          just-version: '1.40.0'
+
+      - name: Install module tools
+        run: |
+          just install-go-tools
+
+      - name: Update chain-selectors in every module
+        run: gomods -c 'go get github.com/smartcontractkit/chain-selectors@latest'
+
+      - name: Tidy modules
+        run: just tidy
+
+      - name: Create pull request
+        uses: peter-evans/create-pull-request@22a9089034f40e5a961c8808d113e2c98fb63676 # create-pull-request@v7
+        with:
+          token: ${{ steps.issue-github-token.outputs.access-token }}
+          branch: automation/update-chain-selectors
+          commit-message: "fix(deps): bump chain-selectors"
+          title: "fix(deps): bump chain-selectors"
+          body: |
+            Updates github.com/smartcontractkit/chain-selectors in every Go module and runs `just tidy`.
+          delete-branch: true
+          sign-commits: true

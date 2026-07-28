@@ -9,13 +9,9 @@ import (
 	"github.com/BurntSushi/toml"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
-	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/sourcereader"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
-
-	"github.com/smartcontractkit/chainlink-evm/pkg/client"
-	"github.com/smartcontractkit/chainlink-evm/pkg/heads"
 )
 
 func init() {
@@ -45,8 +41,8 @@ func resolveConfigPath() string {
 }
 
 // toInfos reconstructs the accessor's Infos[Info] from the operator-local config, deriving each
-// chain's ID and family from its selector. Only connection and tuning settings live in the mounted
-// file; enumeration metadata is recovered here.
+// chain's ID and family from its selector. Only operator-owned connection and
+// runtime settings live in the mounted file; enumeration metadata is recovered here.
 func (c Config) toInfos() (chainaccess.Infos[Info], error) {
 	infos := make(chainaccess.Infos[Info], len(c.Chains))
 	for selector, chain := range c.Chains {
@@ -63,11 +59,11 @@ func (c Config) toInfos() (chainaccess.Infos[Info], error) {
 			return nil, fmt.Errorf("chain selector %s: %w", selector, err)
 		}
 		infos[selector] = Info{
-			ChainID:         chainID,
-			Type:            chain.ChainType,
-			Family:          family,
-			UniqueChainName: chain.UniqueChainName,
-			Nodes:           chain.Nodes,
+			ChainID:       chainID,
+			Family:        family,
+			Nodes:         chain.Nodes,
+			FinalityDepth: chain.FinalityDepth,
+			TXMBlockTime:  chain.TXMBlockTime,
 		}
 	}
 	return infos, nil
@@ -78,20 +74,22 @@ func (c Config) toInfos() (chainaccess.Infos[Info], error) {
 // Per-chain EVM settings are read from `chains.<selector>` entries in the EVM-local
 // config file, for example:
 //
-//	[chains.5009297550715157269]
-//	chain_type = "optimismBedrock"
-//	[[chains.5009297550715157269.nodes]]
+//	[chains.3734403246176062136]
+//	finality_depth = 15
+//	txm_block_time = "2s"
+//	[[chains.3734403246176062136.nodes]]
+//	name = "primary"
 //	internal_http_url = "http://evm-node:8545"
 //	internal_ws_url = "ws://evm-node:8546"
 //
-// Chain ID and family are derived from the selector; only connection details and
-// chain-type tuning are stored in the file. Shared application settings from
-// chainaccess.GenericConfig (for example on-ramp or RMN remote addresses) are supplied
-// separately through genericConfig and used when constructing the accessor factory.
+// Chain ID, family, and chain type are derived from the selector. Shared
+// application settings from chainaccess.GenericConfig (for example on-ramp or
+// RMN remote addresses) are supplied separately through genericConfig and used
+// when constructing the accessor factory.
 //
 // It will take all config values it needs from all available config. Note that it would be
 // very unusual for a config to have more than one of Committee/Token/Executor configs.
-func CreateEVMAccessorFactory(lggr logger.Logger, genericConfig chainaccess.GenericConfig) (chainaccess.AccessorFactory, error) { //nolint:staticcheck // SA1019: GenericConfig still carries shared application config
+func CreateEVMAccessorFactory(lggr logger.Logger, genericConfig chainaccess.GenericConfig) (chainaccess.AccessorFactory, error) {
 	configPath := resolveConfigPath()
 	evmConfig, err := loadConfig(configPath)
 	if err != nil {
@@ -103,53 +101,35 @@ func CreateEVMAccessorFactory(lggr logger.Logger, genericConfig chainaccess.Gene
 	}
 	lggr.Infow("loaded EVM config", "numChains", len(infos))
 
-	return CreateAccessorFactory(context.Background(), lggr, genericConfig, infos)
+	return CreateAccessorFactory(lggr, genericConfig, infos)
 }
 
-// CreateAccessorFactory creates a factory that can build EVM chain accessors.
-// TODO: Defer geth client and head tracker creation until GetAccessor is called.
-// generic param is chainaccess.GenericConfig until CCIP-11840.
+// CreateAccessorFactory creates a lazy factory that starts one production
+// chainlink-evm runtime per accessor. Deferring network work until GetAccessor
+// lets standalone processes construct their registry while an RPC endpoint is
+// unavailable; the multi-node pool then manages endpoint failover at runtime.
+// generic is chainaccess.GenericConfig until CCIP-11840.
 func CreateAccessorFactory(
-	ctx context.Context,
 	lggr logger.Logger,
-	generic chainaccess.GenericConfig, //nolint:staticcheck // SA1019: registry still decodes the deprecated GenericConfig until CCIP-11840
+	generic chainaccess.GenericConfig,
 	infos chainaccess.Infos[Info],
 ) (chainaccess.AccessorFactory, error) {
-	// Create the chain clients, head trackers, and collect primary RPC URLs.
-	chainClients := make(map[protocol.ChainSelector]client.Client)
-	headTrackers := make(map[protocol.ChainSelector]heads.Tracker)
-	rpcURLs := make(map[protocol.ChainSelector]string)
-	for _, selector := range infos.GetAllChainSelectors() {
-		lggr.Infow("Creating EVM client and head tracker for chain selector", "chainSelector", selector)
-		family, err := chainsel.GetSelectorFamily(uint64(selector))
-		if err != nil {
-			lggr.Errorw("Failed to get selector family - update chain-selectors library?", "chainSelector", selector, "error", err)
-			continue
-		}
-		if family != chainsel.FamilyEVM {
-			lggr.Infow("Skipping non EVM info", "chainSelector", selector)
-			// Skip non-EVM chains in EVM registration.
-			continue
-		}
-		chainClient, err := CreateHealthyMultiNodeClient(ctx, infos, lggr, selector)
-		if err != nil {
-			lggr.Errorw("Failed to create multi-node EVM client - bad RPC?", "chainSelector", selector, "error", err)
-			continue
-		}
-		chainClients[selector] = chainClient
-		headTrackers[selector] = sourcereader.NewSimpleHeadTrackerWrapper(chainClient, lggr)
-
-		if info, err := infos.GetBlockchainByChainSelector(selector); err == nil {
-			if node, err := info.GetFirstNode(); err == nil {
-				rpcURLs[selector] = node.InternalHTTPUrl
-			}
-		}
-	}
-
-	// Convert from map[string]T -> map[chainsel]T
 	onRampInfos := chainaccess.Infos[string](generic.OnRampAddresses).GetAllInfos()
 	rmnRemoteInfos := chainaccess.Infos[string](generic.RMNRemoteAddresses).GetAllInfos()
 	destChainConfigs := chainaccess.Infos[chainaccess.DestinationChainConfig](generic.ChainConfiguration).GetAllInfos()
 
-	return NewFactory(lggr, onRampInfos, rmnRemoteInfos, headTrackers, chainClients, destChainConfigs, generic.MaxRetryDuration, rpcURLs), nil
+	return newFactory(
+		lggr,
+		onRampInfos,
+		rmnRemoteInfos,
+		destChainConfigs,
+		generic.MaxRetryDuration,
+		func(ctx context.Context, chainSelector protocol.ChainSelector, chainLggr logger.Logger) (chainRuntime, error) {
+			info, err := infos.GetBlockchainByChainSelector(chainSelector)
+			if err != nil {
+				return nil, fmt.Errorf("failed to get EVM config for chain %d: %w", chainSelector, err)
+			}
+			return newStandaloneChain(ctx, info, chainLggr)
+		},
+	), nil
 }

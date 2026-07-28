@@ -209,17 +209,18 @@ func (m *CCIP17EVM) getOrCreateOnRampPoller() (*eventPoller[cciptestinterfaces.M
 	onRamp := m.onRamp
 	ethClient := m.ethClient
 
-	pollFn := func(start, end uint64) (map[eventKey]cciptestinterfaces.MessageSentEvent, error) {
+	pollFn := func(start, end uint64) (map[eventKey]cciptestinterfaces.MessageSentEvent, map[eventKey]protocol.ByteSlice, error) {
 		filter, err := onRamp.FilterCCIPMessageSent(&bind.FilterOpts{
 			Start: start,
 			End:   &end,
 		}, nil, nil, nil)
 		if err != nil {
-			return nil, fmt.Errorf("failed to create filter: %w", err)
+			return nil, nil, fmt.Errorf("failed to create filter: %w", err)
 		}
 		defer filter.Close()
 
 		events := make(map[eventKey]cciptestinterfaces.MessageSentEvent)
+		txHashes := make(map[eventKey]protocol.ByteSlice)
 		for filter.Next() {
 			event := filter.Event
 
@@ -241,12 +242,13 @@ func (m *CCIP17EVM) getOrCreateOnRampPoller() (*eventPoller[cciptestinterfaces.M
 				ev.ReceiptIssuers = append(ev.ReceiptIssuers, protocol.UnknownAddress(receipt.Issuer.Bytes()))
 			}
 			events[key] = ev
+			txHashes[key] = protocol.ByteSlice(event.Raw.TxHash.Bytes())
 		}
 
 		if err := filter.Error(); err != nil {
-			return nil, fmt.Errorf("filter error: %w", err)
+			return nil, nil, fmt.Errorf("filter error: %w", err)
 		}
-		return events, nil
+		return events, txHashes, nil
 	}
 
 	poller := newEventPoller(ethClient, m.logger, "CCIPMessageSent", pollFn)
@@ -265,17 +267,18 @@ func (m *CCIP17EVM) getOrCreateOffRampPoller() (*eventPoller[cciptestinterfaces.
 	ethClient := m.ethClient
 	offRamp := m.offRamp
 
-	pollFn := func(start, end uint64) (map[eventKey]cciptestinterfaces.ExecutionStateChangedEvent, error) {
+	pollFn := func(start, end uint64) (map[eventKey]cciptestinterfaces.ExecutionStateChangedEvent, map[eventKey]protocol.ByteSlice, error) {
 		filter, err := offRamp.FilterExecutionStateChanged(&bind.FilterOpts{
 			Start: start,
 			End:   &end,
 		}, nil, nil, nil)
 		if err != nil {
-			return nil, fmt.Errorf("failed to create filter: %w", err)
+			return nil, nil, fmt.Errorf("failed to create filter: %w", err)
 		}
 		defer filter.Close()
 
 		events := make(map[eventKey]cciptestinterfaces.ExecutionStateChangedEvent)
+		txHashes := make(map[eventKey]protocol.ByteSlice)
 		for filter.Next() {
 			event := filter.Event
 			key := eventKey{
@@ -284,17 +287,19 @@ func (m *CCIP17EVM) getOrCreateOffRampPoller() (*eventPoller[cciptestinterfaces.
 				messageID:     event.MessageId,
 			}
 			events[key] = cciptestinterfaces.ExecutionStateChangedEvent{
-				MessageID:     event.MessageId,
-				MessageNumber: event.MessageNumber,
-				State:         cciptestinterfaces.MessageExecutionState(event.State),
-				ReturnData:    event.ReturnData,
+				SourceChainSelector: protocol.ChainSelector(event.SourceChainSelector),
+				MessageID:           event.MessageId,
+				MessageNumber:       event.MessageNumber,
+				State:               cciptestinterfaces.MessageExecutionState(event.State),
+				ReturnData:          event.ReturnData,
 			}
+			txHashes[key] = protocol.ByteSlice(event.Raw.TxHash.Bytes())
 		}
 
 		if err := filter.Error(); err != nil {
-			return nil, fmt.Errorf("filter error: %w", err)
+			return nil, nil, fmt.Errorf("filter error: %w", err)
 		}
-		return events, nil
+		return events, txHashes, nil
 	}
 
 	poller := newEventPoller(ethClient, m.logger, "ExecutionStateChanged", pollFn)
@@ -425,9 +430,9 @@ func (m *CCIP17EVM) ConfirmSendOnSource(ctx context.Context, to uint64, key ccip
 	}
 }
 
-func (m *CCIP17EVM) ConfirmExecOnDest(ctx context.Context, from uint64, key cciptestinterfaces.MessageEventKey, timeout time.Duration) (cciptestinterfaces.ExecutionStateChangedEvent, error) {
+func (m *CCIP17EVM) ConfirmExecOnDest(ctx context.Context, from uint64, key cciptestinterfaces.MessageEventKey, timeout time.Duration) (cciptestinterfaces.ExecEnvelope, error) {
 	if key.MessageID == (protocol.Bytes32{}) && key.SeqNum == 0 {
-		return cciptestinterfaces.ExecutionStateChangedEvent{}, fmt.Errorf("MessageEventKey must have MessageID or SeqNum set")
+		return cciptestinterfaces.ExecEnvelope{}, fmt.Errorf("MessageEventKey must have MessageID or SeqNum set")
 	}
 
 	l := m.logger
@@ -439,7 +444,7 @@ func (m *CCIP17EVM) ConfirmExecOnDest(ctx context.Context, from uint64, key ccip
 
 	poller, err := m.getOrCreateOffRampPoller()
 	if err != nil {
-		return cciptestinterfaces.ExecutionStateChangedEvent{}, err
+		return cciptestinterfaces.ExecEnvelope{}, err
 	}
 
 	pollerKey := eventKey{chainSelector: from, msgNum: key.SeqNum, messageID: key.MessageID}
@@ -455,12 +460,12 @@ func (m *CCIP17EVM) ConfirmExecOnDest(ctx context.Context, from uint64, key ccip
 	select {
 	case <-ctx.Done():
 		l.Info().Msg("Context done while waiting for ExecutionStateChanged event")
-		return cciptestinterfaces.ExecutionStateChangedEvent{}, ctx.Err()
+		return cciptestinterfaces.ExecEnvelope{}, ctx.Err()
 	case result := <-resultCh:
 		if result.err != nil {
-			return cciptestinterfaces.ExecutionStateChangedEvent{}, result.err
+			return cciptestinterfaces.ExecEnvelope{}, result.err
 		}
-		return result.event, nil
+		return cciptestinterfaces.ExecEnvelope{Event: result.event, TxID: result.txHash}, nil
 	}
 }
 

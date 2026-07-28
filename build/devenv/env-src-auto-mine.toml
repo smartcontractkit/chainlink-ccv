@@ -6,7 +6,10 @@
   container_name = "blockchain-src"
   chain_id = "1337"
   # When we don't send specific param for mining, anvil defaults to instant mining
-  docker_cmd_params = ["--slots-in-an-epoch", "1", "--disable-code-size-limit"]
+  # Anvil's finalized tag trails the latest block by two epochs. Eight slots
+  # gives this reorg profile a 16-block finality window, matching the tests'
+  # 15-block full-finality assumption while still exercising finality-tag mode.
+  docker_cmd_params = ["--slots-in-an-epoch", "8", "--disable-code-size-limit"]
   image = "ghcr.io/foundry-rs/foundry:latest"
   port = "8545"
   type = "anvil"

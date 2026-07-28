@@ -51,18 +51,21 @@ func init() {
 	// Register EVM with chainreg
 	evmFactory := &ImplFactory{}
 	if err := chainreg.Register(chainsel.FamilyEVM, chainreg.Registration{
-		ImplFactory:       evmFactory,
-		ExecutorInfo:      evmFactory,
-		CLDFProvider:      NewCLDFProviderFactory(),
-		ChainConfigLoader: ChainConfigLoader,
-		VerifierModifier:  VerifierModifier,
-		ExecutorModifier:  ExecutorModifier,
+		ImplFactory:              evmFactory,
+		ExecutorInfo:             evmFactory,
+		CLDFProvider:             NewCLDFProviderFactory(),
+		ChainConfigLoader:        ChainConfigLoader,
+		LocalNetworkConfigurator: ConfigureLocalNetworks,
+		VerifierModifier:         VerifierModifier,
+		ExecutorModifier:         ExecutorModifier,
 		ExtraArgsSerializers: map[uint8]chainreg.ExtraArgsSerializer{
 			1: BuildEVMExtraArgsV1,
 			2: BuildEVMExtraArgsV2,
 			3: SerializeMessageV3ExtraArgs,
 		},
-		AddressResolver: &AddressResolver{},
+		AddressResolver:      &AddressResolver{},
+		V3SourceFactory:      NewV3Source,
+		V3DestinationFactory: NewV3Destination,
 	}); err != nil {
 		panic("evm chainreg: " + err.Error())
 	}
@@ -151,6 +154,32 @@ func (f *ImplFactory) New(
 	env *deployment.Environment,
 	chainSelector uint64,
 ) (cciptestinterfaces.CCIP17, error) {
+	return NewCCIP17EVM(ctx, lggr, env, chainSelector)
+}
+
+// NewV3Source implements [chainreg.V3SourceFactory] for EVM chains.
+//
+// This is the canonical example for a chain family that wants to plug into V3
+// message tests without implementing the full ImplFactory/CCIP17 surface: EVM
+// happens to implement CCIP17 in full, so it simply reuses NewCCIP17EVM, but a
+// family need only return a value satisfying cciptestinterfaces.V3Source here.
+func NewV3Source(
+	ctx context.Context,
+	lggr zerolog.Logger,
+	env *deployment.Environment,
+	chainSelector uint64,
+) (cciptestinterfaces.V3Source, error) {
+	return NewCCIP17EVM(ctx, lggr, env, chainSelector)
+}
+
+// NewV3Destination implements [chainreg.V3DestinationFactory] for EVM chains.
+// See NewV3Source for context on why this delegates to NewCCIP17EVM.
+func NewV3Destination(
+	ctx context.Context,
+	lggr zerolog.Logger,
+	env *deployment.Environment,
+	chainSelector uint64,
+) (cciptestinterfaces.V3Destination, error) {
 	return NewCCIP17EVM(ctx, lggr, env, chainSelector)
 }
 

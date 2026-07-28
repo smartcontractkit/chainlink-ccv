@@ -8,14 +8,11 @@ import (
 
 	"github.com/rs/zerolog"
 
-	chain_selectors "github.com/smartcontractkit/chain-selectors"
 	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
-	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainreg"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/tcapi"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
-	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 )
 
 // v3TestCaseBase contains test data that can be specified w/out the environment.
@@ -61,24 +58,22 @@ func (tc *v3TestCase) ensureHydrated(ctx context.Context) error {
 	return nil
 }
 
-func (tc *v3TestCase) Run(ctx context.Context) error {
-	if err := tc.ensureHydrated(ctx); err != nil {
-		return err
+// Run runs the test case and returns its send and exec envelopes. It returns an error if prerequisites are not met.
+func (tc *v3TestCase) Run(ctx context.Context) (res tcapi.RunResult, err error) {
+	if err = tc.ensureHydrated(ctx); err != nil {
+		return res, err
 	}
-	chainMap, err := tc.lib.ChainsMap(ctx)
+	v3Src, err := tc.lib.V3Source(ctx, tc.src)
 	if err != nil {
-		return fmt.Errorf("failed to get chains map: %w", err)
+		return res, fmt.Errorf("source chain %d does not support V3 message: %w", tc.src, err)
 	}
-	src, ok := chainMap[tc.src]
-	if !ok {
-		return fmt.Errorf("source chain not found: %d", tc.src)
+	v3Dst, err := tc.lib.V3Destination(ctx, tc.dst)
+	if err != nil {
+		return res, fmt.Errorf("destination chain %d does not support V3 message: %w", tc.dst, err)
 	}
-	dst, ok := chainMap[tc.dst]
-	if !ok {
-		return fmt.Errorf("destination chain not found: %d", tc.dst)
-	}
+
 	l := zerolog.Ctx(ctx)
-	sendMessageResult, err := tcapi.SendV3Message(ctx, src, dst, tc.dst,
+	sentEvt, sentTxHash, err := tcapi.SendV3Message(ctx, v3Src, v3Dst,
 		cciptestinterfaces.MessageFields{
 			Receiver: tc.receiver,
 			Data:     tc.msgData,
@@ -91,34 +86,41 @@ func (tc *v3TestCase) Run(ctx context.Context) error {
 		tc.args.Send,
 	)
 	if err != nil {
-		return fmt.Errorf("failed to send message: %w", err)
+		return res, fmt.Errorf("failed to send message: %w", err)
 	}
-	if len(sendMessageResult.ReceiptIssuers) != tc.numExpectedReceipts {
-		return fmt.Errorf("expected %d receipt issuers, got %d", tc.numExpectedReceipts, len(sendMessageResult.ReceiptIssuers))
+
+	// populate the send envelope
+	res.Src = cciptestinterfaces.SentEnvelope{
+		TxID:  sentTxHash,
+		Event: sentEvt,
 	}
-	if sendMessageResult.MessageID == (protocol.Bytes32{}) {
-		return fmt.Errorf("send returned zero message ID")
+
+	if len(sentEvt.ReceiptIssuers) != tc.numExpectedReceipts {
+		return res, fmt.Errorf("expected %d receipt issuers, got %d", tc.numExpectedReceipts, len(sentEvt.ReceiptIssuers))
 	}
-	messageKey := cciptestinterfaces.MessageEventKey{MessageID: sendMessageResult.MessageID}
-	if sendMessageResult.Message != nil {
-		l.Info().Uint64("SeqNo", uint64(sendMessageResult.Message.SequenceNumber)).Msg("Sent message")
+	if sentEvt.MessageID == (protocol.Bytes32{}) {
+		return res, fmt.Errorf("send returned zero message ID")
+	}
+	messageKey := cciptestinterfaces.MessageEventKey{MessageID: sentEvt.MessageID}
+	if sentEvt.Message != nil {
+		l.Info().Uint64("SeqNo", uint64(sentEvt.Message.SequenceNumber)).Msg("Sent message")
 	}
 	sentTimeout := tc.args.Run.SentTimeout(tcapi.DefaultSentTimeout)
 	execTimeout := tc.args.Run.ExecTimeout(tcapi.DefaultExecTimeout)
-	_, err = src.ConfirmSendOnSource(ctx, tc.dst, messageKey, sentTimeout)
+	_, err = v3Src.ConfirmSendOnSource(ctx, tc.dst, messageKey, sentTimeout)
 	if err != nil {
-		return fmt.Errorf("failed to wait for sent event: %w", err)
+		return res, fmt.Errorf("failed to wait for sent event: %w", err)
 	}
-	messageID := sendMessageResult.MessageID
+	messageID := sentEvt.MessageID
 
 	aggregatorClient, indexerMonitor, err := tcapi.SetupOffchainClients(tc.lib, tc.aggregatorQualifier)
 	if err != nil {
-		return err
+		return res, err
 	}
-	testCtx, cleanupFn := tcapi.NewTestingContext(ctx, chainMap, aggregatorClient, indexerMonitor)
+	testCtx, cleanupFn := tcapi.NewTestingContext(ctx, aggregatorClient, indexerMonitor)
 	defer cleanupFn()
 
-	result, err := testCtx.AssertMessage(messageID, tcapi.AssertMessageOptions{
+	assertRes, err := testCtx.AssertMessage(messageID, tcapi.AssertMessageOptions{
 		TickInterval:            1 * time.Second,
 		ExpectedVerifierResults: tc.numExpectedVerifications,
 		Timeout:                 execTimeout,
@@ -126,95 +128,31 @@ func (tc *v3TestCase) Run(ctx context.Context) error {
 		AssertExecutorLogs:      false,
 	})
 	if err != nil {
-		return fmt.Errorf("failed to assert message: %w", err)
+		return res, fmt.Errorf("failed to observe message: %w", err)
 	}
-	if aggregatorClient != nil && result.AggregatedResult == nil {
-		return fmt.Errorf("aggregated result is nil")
+	if aggregatorClient != nil && assertRes.AggregatedResult == nil {
+		return res, fmt.Errorf("aggregated result is nil")
 	}
-	if indexerMonitor != nil && len(result.IndexedVerifications.Results) != tc.numExpectedVerifications {
-		return fmt.Errorf("expected %d indexed verifications, got %d", tc.numExpectedVerifications, len(result.IndexedVerifications.Results))
+	if indexerMonitor != nil && len(assertRes.IndexedVerifications.Results) != tc.numExpectedVerifications {
+		return res, fmt.Errorf("expected %d indexed verifications, got %d", tc.numExpectedVerifications, len(assertRes.IndexedVerifications.Results))
 	}
 
-	e, err := dst.ConfirmExecOnDest(ctx, tc.src, messageKey, execTimeout)
+	res.Dest, err = v3Dst.ConfirmExecOnDest(ctx, tc.src, messageKey, execTimeout)
 	if err != nil {
-		return fmt.Errorf("failed to wait for exec event: %w", err)
+		return res, fmt.Errorf("failed to wait for exec event: %w", err)
 	}
-	if tc.expectFail && e.State != cciptestinterfaces.ExecutionStateFailure {
-		return fmt.Errorf("expected execution state failure, got %s", e.State)
-	} else if !tc.expectFail && e.State != cciptestinterfaces.ExecutionStateSuccess {
-		return fmt.Errorf("expected execution state success, got %s", e.State)
+
+	execState := res.Dest.Event.State
+	if tc.expectFail && execState != cciptestinterfaces.ExecutionStateFailure {
+		return res, fmt.Errorf("expected execution state failure, got %s", execState)
+	} else if !tc.expectFail && execState != cciptestinterfaces.ExecutionStateSuccess {
+		return res, fmt.Errorf("expected execution state success, got %s", execState)
 	}
-	return nil
+	return res, nil
 }
 
 func (tc *v3TestCase) HavePrerequisites(ctx context.Context) bool {
 	return tc.ensureHydrated(ctx) == nil
-}
-
-func getCommitteeCCV(resolver chainreg.AddressResolver, ds datastore.DataStore, srcChainSelector uint64, qualifier string) (protocol.CCV, error) {
-	addr, err := resolver.GetCommitteeCCV(ds, srcChainSelector, qualifier)
-	if err != nil {
-		return protocol.CCV{}, err
-	}
-
-	return protocol.CCV{CCVAddress: addr, Args: []byte{}, ArgsLen: 0}, nil
-}
-
-// v3Env holds devenv handles loaded for v3 test case hydration.
-type v3Env struct {
-	DS  datastore.DataStore
-	Dst interface {
-		GetEOAReceiverAddress() (protocol.UnknownAddress, error)
-		GetMaxDataBytes(ctx context.Context, remoteChainSelector uint64) (uint32, error)
-	}
-	SrcResolver chainreg.AddressResolver
-	DstResolver chainreg.AddressResolver
-}
-
-func loadV3Env(ctx context.Context, lib ccv.Lib, src, dst uint64) (v3Env, bool) {
-	var env v3Env
-
-	ds, err := lib.DataStore()
-	if err != nil {
-		return env, false
-	}
-	env.DS = ds
-
-	chainMap, err := lib.ChainsMap(ctx)
-	if err != nil {
-		return env, false
-	}
-
-	dstChain, ok := chainMap[dst]
-	if !ok {
-		return env, false
-	}
-	env.Dst = dstChain
-
-	srcFamily, err := chain_selectors.GetSelectorFamily(src)
-	if err != nil {
-		return env, false
-	}
-	dstFamily, err := chain_selectors.GetSelectorFamily(dst)
-	if err != nil {
-		return env, false
-	}
-
-	srcReg, err := chainreg.GetRegistry().Get(srcFamily)
-	if err != nil {
-		return env, false
-	}
-	dstReg, err := chainreg.GetRegistry().Get(dstFamily)
-	if err != nil {
-		return env, false
-	}
-	if srcReg.AddressResolver == nil || dstReg.AddressResolver == nil {
-		return env, false
-	}
-	env.SrcResolver = srcReg.AddressResolver
-	env.DstResolver = dstReg.AddressResolver
-
-	return env, true
 }
 
 // CustomExecutor returns a test case that uses the custom executor.
@@ -237,7 +175,7 @@ func customExecutor(lib ccv.Lib, src, dest uint64, args Args) *v3TestCase {
 			args:                     args,
 		},
 		hydrate: func(ctx context.Context, tc *v3TestCase) bool {
-			env, ok := loadV3Env(ctx, tc.lib, tc.src, tc.dst)
+			env, ok := tcapi.LoadV3Env(ctx, tc.lib, tc.src, tc.dst)
 			if !ok {
 				return false
 			}
@@ -248,7 +186,7 @@ func customExecutor(lib ccv.Lib, src, dest uint64, args Args) *v3TestCase {
 			}
 			tc.receiver = receiver
 
-			ccv, err := getCommitteeCCV(env.SrcResolver, env.DS, tc.src, common.DefaultCommitteeVerifierQualifier)
+			ccv, err := tcapi.GetCommitteeCCV(env.SrcResolver, env.DS, tc.src, common.DefaultCommitteeVerifierQualifier)
 			if err != nil {
 				return false
 			}
@@ -283,27 +221,13 @@ func eoaReceiverDefaultVerifier(lib ccv.Lib, src, dest uint64, args Args) *v3Tes
 			args:                     args,
 		},
 		hydrate: func(ctx context.Context, tc *v3TestCase) bool {
-			env, ok := loadV3Env(ctx, tc.lib, tc.src, tc.dst)
-			if !ok {
-				return false
-			}
-			receiver, err := env.Dst.GetEOAReceiverAddress()
+			receiver, ccvs, executor, err := tcapi.ResolveV3SendAddresses(ctx, tc.lib, tc.src, tc.dst)
 			if err != nil {
 				return false
 			}
 			tc.receiver = receiver
-			ccv, err := getCommitteeCCV(env.SrcResolver, env.DS, tc.src, common.DefaultCommitteeVerifierQualifier)
-			if err != nil {
-				return false
-			}
-			tc.ccvs = []protocol.CCV{ccv}
-
-			executorAddr, err := env.SrcResolver.GetExecutor(env.DS, tc.src, common.DefaultExecutorQualifier)
-			if err != nil {
-				return false
-			}
-			tc.executor = executorAddr
-
+			tc.ccvs = ccvs
+			tc.executor = executor
 			return true
 		},
 	}
@@ -328,7 +252,7 @@ func eoaReceiverSecondaryVerifier(lib ccv.Lib, src, dest uint64, args Args) *v3T
 			args:                     args,
 		},
 		hydrate: func(ctx context.Context, tc *v3TestCase) bool {
-			env, ok := loadV3Env(ctx, tc.lib, tc.src, tc.dst)
+			env, ok := tcapi.LoadV3Env(ctx, tc.lib, tc.src, tc.dst)
 			if !ok {
 				return false
 			}
@@ -338,11 +262,11 @@ func eoaReceiverSecondaryVerifier(lib ccv.Lib, src, dest uint64, args Args) *v3T
 			}
 			tc.receiver = receiver
 
-			sec, err := getCommitteeCCV(env.SrcResolver, env.DS, tc.src, common.SecondaryCommitteeVerifierQualifier)
+			sec, err := tcapi.GetCommitteeCCV(env.SrcResolver, env.DS, tc.src, common.SecondaryCommitteeVerifierQualifier)
 			if err != nil {
 				return false
 			}
-			def, err := getCommitteeCCV(env.SrcResolver, env.DS, tc.src, common.DefaultCommitteeVerifierQualifier)
+			def, err := tcapi.GetCommitteeCCV(env.SrcResolver, env.DS, tc.src, common.DefaultCommitteeVerifierQualifier)
 			if err != nil {
 				return false
 			}
@@ -378,7 +302,7 @@ func receiverSecondaryVerifierRequired(lib ccv.Lib, src, dest uint64, args Args)
 			args:                     args,
 		},
 		hydrate: func(ctx context.Context, tc *v3TestCase) bool {
-			env, ok := loadV3Env(ctx, tc.lib, tc.src, tc.dst)
+			env, ok := tcapi.LoadV3Env(ctx, tc.lib, tc.src, tc.dst)
 			if !ok {
 				return false
 			}
@@ -389,7 +313,7 @@ func receiverSecondaryVerifierRequired(lib ccv.Lib, src, dest uint64, args Args)
 			}
 			tc.receiver = receiver
 
-			ccv, err := getCommitteeCCV(env.SrcResolver, env.DS, tc.src, common.SecondaryCommitteeVerifierQualifier)
+			ccv, err := tcapi.GetCommitteeCCV(env.SrcResolver, env.DS, tc.src, common.SecondaryCommitteeVerifierQualifier)
 			if err != nil {
 				return false
 			}
@@ -425,7 +349,7 @@ func receiverSecondaryRequiredTertiaryOptionalThreshold1(lib ccv.Lib, src, dest 
 			args:                     args,
 		},
 		hydrate: func(ctx context.Context, tc *v3TestCase) bool {
-			env, ok := loadV3Env(ctx, tc.lib, tc.src, tc.dst)
+			env, ok := tcapi.LoadV3Env(ctx, tc.lib, tc.src, tc.dst)
 			if !ok {
 				return false
 			}
@@ -436,11 +360,11 @@ func receiverSecondaryRequiredTertiaryOptionalThreshold1(lib ccv.Lib, src, dest 
 			}
 			tc.receiver = receiver
 
-			sec, err := getCommitteeCCV(env.SrcResolver, env.DS, tc.src, common.SecondaryCommitteeVerifierQualifier)
+			sec, err := tcapi.GetCommitteeCCV(env.SrcResolver, env.DS, tc.src, common.SecondaryCommitteeVerifierQualifier)
 			if err != nil {
 				return false
 			}
-			ter, err := getCommitteeCCV(env.SrcResolver, env.DS, tc.src, common.TertiaryCommitteeVerifierQualifier)
+			ter, err := tcapi.GetCommitteeCCV(env.SrcResolver, env.DS, tc.src, common.TertiaryCommitteeVerifierQualifier)
 			if err != nil {
 				return false
 			}
@@ -476,7 +400,7 @@ func receiverQuaternaryAllThreeVerifiers(lib ccv.Lib, src, dest uint64, args Arg
 			args:                     args,
 		},
 		hydrate: func(ctx context.Context, tc *v3TestCase) bool {
-			env, ok := loadV3Env(ctx, tc.lib, tc.src, tc.dst)
+			env, ok := tcapi.LoadV3Env(ctx, tc.lib, tc.src, tc.dst)
 			if !ok {
 				return false
 			}
@@ -485,15 +409,15 @@ func receiverQuaternaryAllThreeVerifiers(lib ccv.Lib, src, dest uint64, args Arg
 				return false
 			}
 			tc.receiver = receiver
-			def, err := getCommitteeCCV(env.SrcResolver, env.DS, tc.src, common.DefaultCommitteeVerifierQualifier)
+			def, err := tcapi.GetCommitteeCCV(env.SrcResolver, env.DS, tc.src, common.DefaultCommitteeVerifierQualifier)
 			if err != nil {
 				return false
 			}
-			sec, err := getCommitteeCCV(env.SrcResolver, env.DS, tc.src, common.SecondaryCommitteeVerifierQualifier)
+			sec, err := tcapi.GetCommitteeCCV(env.SrcResolver, env.DS, tc.src, common.SecondaryCommitteeVerifierQualifier)
 			if err != nil {
 				return false
 			}
-			ter, err := getCommitteeCCV(env.SrcResolver, env.DS, tc.src, common.TertiaryCommitteeVerifierQualifier)
+			ter, err := tcapi.GetCommitteeCCV(env.SrcResolver, env.DS, tc.src, common.TertiaryCommitteeVerifierQualifier)
 			if err != nil {
 				return false
 			}
@@ -527,7 +451,7 @@ func receiverQuaternaryDefaultAndSecondary(lib ccv.Lib, src, dest uint64, args A
 			args:                     args,
 		},
 		hydrate: func(ctx context.Context, tc *v3TestCase) bool {
-			env, ok := loadV3Env(ctx, tc.lib, tc.src, tc.dst)
+			env, ok := tcapi.LoadV3Env(ctx, tc.lib, tc.src, tc.dst)
 			if !ok {
 				return false
 			}
@@ -538,11 +462,11 @@ func receiverQuaternaryDefaultAndSecondary(lib ccv.Lib, src, dest uint64, args A
 			}
 			tc.receiver = receiver
 
-			def, err := getCommitteeCCV(env.SrcResolver, env.DS, tc.src, common.DefaultCommitteeVerifierQualifier)
+			def, err := tcapi.GetCommitteeCCV(env.SrcResolver, env.DS, tc.src, common.DefaultCommitteeVerifierQualifier)
 			if err != nil {
 				return false
 			}
-			sec, err := getCommitteeCCV(env.SrcResolver, env.DS, tc.src, common.SecondaryCommitteeVerifierQualifier)
+			sec, err := tcapi.GetCommitteeCCV(env.SrcResolver, env.DS, tc.src, common.SecondaryCommitteeVerifierQualifier)
 			if err != nil {
 				return false
 			}
@@ -578,7 +502,7 @@ func receiverQuaternaryDefaultAndTertiary(lib ccv.Lib, src, dest uint64, args Ar
 			args:                     args,
 		},
 		hydrate: func(ctx context.Context, tc *v3TestCase) bool {
-			env, ok := loadV3Env(ctx, tc.lib, tc.src, tc.dst)
+			env, ok := tcapi.LoadV3Env(ctx, tc.lib, tc.src, tc.dst)
 			if !ok {
 				return false
 			}
@@ -588,11 +512,11 @@ func receiverQuaternaryDefaultAndTertiary(lib ccv.Lib, src, dest uint64, args Ar
 				return false
 			}
 			tc.receiver = receiver
-			def, err := getCommitteeCCV(env.SrcResolver, env.DS, tc.src, common.DefaultCommitteeVerifierQualifier)
+			def, err := tcapi.GetCommitteeCCV(env.SrcResolver, env.DS, tc.src, common.DefaultCommitteeVerifierQualifier)
 			if err != nil {
 				return false
 			}
-			ter, err := getCommitteeCCV(env.SrcResolver, env.DS, tc.src, common.TertiaryCommitteeVerifierQualifier)
+			ter, err := tcapi.GetCommitteeCCV(env.SrcResolver, env.DS, tc.src, common.TertiaryCommitteeVerifierQualifier)
 			if err != nil {
 				return false
 			}
@@ -627,11 +551,15 @@ func maxDataSize(lib ccv.Lib, src, dest uint64, args Args) *v3TestCase {
 			args:                     args,
 		},
 		hydrate: func(ctx context.Context, tc *v3TestCase) bool {
-			env, ok := loadV3Env(ctx, tc.lib, tc.src, tc.dst)
+			env, ok := tcapi.LoadV3Env(ctx, tc.lib, tc.src, tc.dst)
 			if !ok {
 				return false
 			}
-			maxDataBytes, err := env.Dst.GetMaxDataBytes(ctx, tc.dst)
+			maxDataSizeProvider, ok := env.Dst.(cciptestinterfaces.MaxDataSizeProvider)
+			if !ok {
+				return false
+			}
+			maxDataBytes, err := maxDataSizeProvider.GetMaxDataBytes(ctx, tc.dst)
 			if err != nil {
 				return false
 			}
@@ -643,7 +571,7 @@ func maxDataSize(lib ccv.Lib, src, dest uint64, args Args) *v3TestCase {
 			}
 			tc.receiver = receiver
 
-			ccv, err := getCommitteeCCV(env.SrcResolver, env.DS, tc.src, common.DefaultCommitteeVerifierQualifier)
+			ccv, err := tcapi.GetCommitteeCCV(env.SrcResolver, env.DS, tc.src, common.DefaultCommitteeVerifierQualifier)
 			if err != nil {
 				return false
 			}
@@ -680,28 +608,13 @@ func eoaReceiverDefaultVerifierSafeTag(lib ccv.Lib, src, dest uint64, args Args)
 			args:                     args,
 		},
 		hydrate: func(ctx context.Context, tc *v3TestCase) bool {
-			env, ok := loadV3Env(ctx, tc.lib, tc.src, tc.dst)
-			if !ok {
-				return false
-			}
-			receiver, err := env.Dst.GetEOAReceiverAddress()
+			receiver, ccvs, executor, err := tcapi.ResolveV3SendAddresses(ctx, tc.lib, tc.src, tc.dst)
 			if err != nil {
 				return false
 			}
 			tc.receiver = receiver
-
-			ccv, err := getCommitteeCCV(env.SrcResolver, env.DS, tc.src, common.DefaultCommitteeVerifierQualifier)
-			if err != nil {
-				return false
-			}
-			tc.ccvs = []protocol.CCV{ccv}
-
-			executorAddr, err := env.SrcResolver.GetExecutor(env.DS, tc.src, common.DefaultExecutorQualifier)
-			if err != nil {
-				return false
-			}
-			tc.executor = executorAddr
-
+			tc.ccvs = ccvs
+			tc.executor = executor
 			return true
 		},
 	}

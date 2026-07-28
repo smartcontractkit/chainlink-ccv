@@ -14,8 +14,8 @@ import (
 
 func TestEventPollerCache(t *testing.T) {
 	t.Run("cache hit returns immediately", func(t *testing.T) {
-		pollFn := func(start, end uint64) (map[eventKey]cciptestinterfaces.ExecutionStateChangedEvent, error) {
-			return nil, nil
+		pollFn := func(start, end uint64) (map[eventKey]cciptestinterfaces.ExecutionStateChangedEvent, map[eventKey]protocol.ByteSlice, error) {
+			return nil, nil, nil
 		}
 
 		poller := newEventPoller(nil, zerolog.Nop(), "test", pollFn)
@@ -42,8 +42,8 @@ func TestEventPollerCache(t *testing.T) {
 	})
 
 	t.Run("cache miss registers waiter and waits for context cancellation", func(t *testing.T) {
-		pollFn := func(start, end uint64) (map[eventKey]cciptestinterfaces.ExecutionStateChangedEvent, error) {
-			return nil, nil
+		pollFn := func(start, end uint64) (map[eventKey]cciptestinterfaces.ExecutionStateChangedEvent, map[eventKey]protocol.ByteSlice, error) {
+			return nil, nil, nil
 		}
 
 		poller := newEventPoller(nil, zerolog.Nop(), "test", pollFn)
@@ -63,8 +63,8 @@ func TestEventPollerCache(t *testing.T) {
 	})
 
 	t.Run("multiple callers for same event get same channel", func(t *testing.T) {
-		pollFn := func(start, end uint64) (map[eventKey]cciptestinterfaces.ExecutionStateChangedEvent, error) {
-			return nil, nil
+		pollFn := func(start, end uint64) (map[eventKey]cciptestinterfaces.ExecutionStateChangedEvent, map[eventKey]protocol.ByteSlice, error) {
+			return nil, nil, nil
 		}
 
 		poller := newEventPoller(nil, zerolog.Nop(), "test", pollFn)
@@ -78,8 +78,8 @@ func TestEventPollerCache(t *testing.T) {
 	})
 
 	t.Run("cache hit after first caller gets cached result", func(t *testing.T) {
-		pollFn := func(start, end uint64) (map[eventKey]cciptestinterfaces.ExecutionStateChangedEvent, error) {
-			return nil, nil
+		pollFn := func(start, end uint64) (map[eventKey]cciptestinterfaces.ExecutionStateChangedEvent, map[eventKey]protocol.ByteSlice, error) {
+			return nil, nil, nil
 		}
 
 		poller := newEventPoller(nil, zerolog.Nop(), "test", pollFn)
@@ -107,8 +107,8 @@ func TestEventPollerCache(t *testing.T) {
 
 func TestEventPollerMessageSent(t *testing.T) {
 	t.Run("cache hit returns immediately for message sent events", func(t *testing.T) {
-		pollFn := func(start, end uint64) (map[eventKey]cciptestinterfaces.MessageSentEvent, error) {
-			return nil, nil
+		pollFn := func(start, end uint64) (map[eventKey]cciptestinterfaces.MessageSentEvent, map[eventKey]protocol.ByteSlice, error) {
+			return nil, nil, nil
 		}
 
 		poller := newEventPoller(nil, zerolog.Nop(), "test", pollFn)
@@ -135,8 +135,8 @@ func TestEventPollerMessageSent(t *testing.T) {
 
 func TestEventPollerByMessageID(t *testing.T) {
 	t.Run("cache hit returns immediately for events registered by message ID", func(t *testing.T) {
-		pollFn := func(start, end uint64) (map[eventKey]cciptestinterfaces.MessageSentEvent, error) {
-			return nil, nil
+		pollFn := func(start, end uint64) (map[eventKey]cciptestinterfaces.MessageSentEvent, map[eventKey]protocol.ByteSlice, error) {
+			return nil, nil, nil
 		}
 		poller := newEventPoller(nil, zerolog.Nop(), "test", pollFn)
 
@@ -163,8 +163,8 @@ func TestEventPollerByMessageID(t *testing.T) {
 	})
 
 	t.Run("duplicate registerByMessageID returns same channel", func(t *testing.T) {
-		pollFn := func(start, end uint64) (map[eventKey]cciptestinterfaces.MessageSentEvent, error) {
-			return nil, nil
+		pollFn := func(start, end uint64) (map[eventKey]cciptestinterfaces.MessageSentEvent, map[eventKey]protocol.ByteSlice, error) {
+			return nil, nil, nil
 		}
 		poller := newEventPoller(nil, zerolog.Nop(), "test", pollFn)
 
@@ -178,8 +178,8 @@ func TestEventPollerByMessageID(t *testing.T) {
 	})
 
 	t.Run("registerByMessageID context cancellation closes channel with error", func(t *testing.T) {
-		pollFn := func(start, end uint64) (map[eventKey]cciptestinterfaces.MessageSentEvent, error) {
-			return nil, nil
+		pollFn := func(start, end uint64) (map[eventKey]cciptestinterfaces.MessageSentEvent, map[eventKey]protocol.ByteSlice, error) {
+			return nil, nil, nil
 		}
 		poller := newEventPoller(nil, zerolog.Nop(), "test", pollFn)
 

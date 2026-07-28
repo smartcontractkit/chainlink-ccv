@@ -3,7 +3,6 @@ package handlers
 import (
 	"context"
 	"strconv"
-	"time"
 
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -29,18 +28,17 @@ type SignatureValidator interface {
 // AggregationTriggerer defines an interface for triggering aggregation checks.
 type AggregationTriggerer interface {
 	// CheckAggregation triggers the aggregation process for the specified aggregation key.
-	CheckAggregation(ctx context.Context, messageID model.MessageID, aggregationKey model.AggregationKey, channelKey model.ChannelKey, maxBlockTime time.Duration) error
+	CheckAggregation(ctx context.Context, messageID model.MessageID, aggregationKey model.AggregationKey, channelKey model.ChannelKey) error
 }
 
 // WriteCommitVerifierNodeResultHandler handles requests to write commit verification records.
 type WriteCommitVerifierNodeResultHandler struct {
-	storage                 common.CommitVerificationStore
-	aggregator              AggregationTriggerer
-	m                       common.AggregatorMonitoring
-	l                       logger.SugaredLogger
-	signatureValidator      SignatureValidator
-	checkAggregationTimeout time.Duration
-	disablementChecker      messagerules.Checker
+	storage            common.CommitVerificationStore
+	aggregator         AggregationTriggerer
+	m                  common.AggregatorMonitoring
+	l                  logger.SugaredLogger
+	signatureValidator SignatureValidator
+	disablementChecker messagerules.Checker
 }
 
 func (h *WriteCommitVerifierNodeResultHandler) logger(ctx context.Context) logger.SugaredLogger {
@@ -120,7 +118,7 @@ func (h *WriteCommitVerifierNodeResultHandler) Handle(ctx context.Context, req *
 	)
 	metrics.IncrementVerificationsTotal(ctx)
 
-	if err := h.aggregator.CheckAggregation(ctx, record.MessageID, aggregationKey, model.ChannelKey(identity.CallerID), h.checkAggregationTimeout); err != nil {
+	if err := h.aggregator.CheckAggregation(ctx, record.MessageID, aggregationKey, model.ChannelKey(identity.CallerID)); err != nil {
 		if err == common.ErrAggregationChannelFull {
 			reqLogger.Errorf("Aggregation channel is full")
 			return &committeepb.WriteCommitteeVerifierNodeResultResponse{
@@ -141,17 +139,16 @@ func (h *WriteCommitVerifierNodeResultHandler) Handle(ctx context.Context, req *
 }
 
 // NewWriteCommitCCVNodeDataHandler creates a new instance of WriteCommitCCVNodeDataHandler.
-func NewWriteCommitCCVNodeDataHandler(store common.CommitVerificationStore, aggregator AggregationTriggerer, m common.AggregatorMonitoring, l logger.SugaredLogger, signatureValidator SignatureValidator, checkAggregationTimeout time.Duration, disablementChecker messagerules.Checker) *WriteCommitVerifierNodeResultHandler {
+func NewWriteCommitCCVNodeDataHandler(store common.CommitVerificationStore, aggregator AggregationTriggerer, m common.AggregatorMonitoring, l logger.SugaredLogger, signatureValidator SignatureValidator, disablementChecker messagerules.Checker) *WriteCommitVerifierNodeResultHandler {
 	if disablementChecker == nil {
 		disablementChecker = messagerules.NoopChecker{}
 	}
 	return &WriteCommitVerifierNodeResultHandler{
-		storage:                 store,
-		aggregator:              aggregator,
-		m:                       m,
-		l:                       l,
-		signatureValidator:      signatureValidator,
-		checkAggregationTimeout: checkAggregationTimeout,
-		disablementChecker:      disablementChecker,
+		storage:            store,
+		aggregator:         aggregator,
+		m:                  m,
+		l:                  l,
+		signatureValidator: signatureValidator,
+		disablementChecker: disablementChecker,
 	}
 }

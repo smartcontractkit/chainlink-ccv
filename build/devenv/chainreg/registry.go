@@ -70,6 +70,9 @@ func mergeRegistration(existing, incoming Registration) Registration {
 	if existing.ChainConfigLoader == nil {
 		existing.ChainConfigLoader = incoming.ChainConfigLoader
 	}
+	if existing.LocalNetworkConfigurator == nil {
+		existing.LocalNetworkConfigurator = incoming.LocalNetworkConfigurator
+	}
 	if existing.Launcher == nil {
 		existing.Launcher = incoming.Launcher
 	}
@@ -91,6 +94,12 @@ func mergeRegistration(existing, incoming Registration) Registration {
 	}
 	if existing.AddressResolver == nil {
 		existing.AddressResolver = incoming.AddressResolver
+	}
+	if existing.V3SourceFactory == nil {
+		existing.V3SourceFactory = incoming.V3SourceFactory
+	}
+	if existing.V3DestinationFactory == nil {
+		existing.V3DestinationFactory = incoming.V3DestinationFactory
 	}
 	return existing
 }

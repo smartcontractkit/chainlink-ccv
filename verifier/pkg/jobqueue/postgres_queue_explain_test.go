@@ -103,11 +103,10 @@ func seedExplainData(t *testing.T, db *sqlx.DB) {
 		}
 	}()
 
-	activeStmt, err := activeTxn.Prepare(pq.CopyIn(explainTable,
-		"job_id", "owner_id", "chain_selector", "message_id", "task_data",
-		"status", "created_at", "available_at", "started_at",
-		"attempt_count", "retry_deadline",
-	))
+	activeStmt, err := activeTxn.Prepare(
+		"copy " + explainTable + " (job_id, owner_id, chain_selector, message_id, task_data, " +
+			"status, created_at, available_at, started_at, attempt_count, retry_deadline) from stdin",
+	)
 	require.NoError(t, err)
 
 	// 50,000 pending jobs — available_at spread over the past ~14h so ORDER BY
@@ -193,11 +192,10 @@ func seedExplainData(t *testing.T, db *sqlx.DB) {
 		}
 	}()
 
-	archiveStmt, err := archiveTxn.Prepare(pq.CopyIn(explainArchive,
-		"id", "job_id", "owner_id", "chain_selector", "message_id", "task_data",
-		"status", "created_at", "available_at", "started_at",
-		"attempt_count", "retry_deadline", "last_error", "completed_at",
-	))
+	archiveStmt, err := archiveTxn.Prepare(
+		"copy " + explainArchive + " (id, job_id, owner_id, chain_selector, message_id, task_data, " +
+			"status, created_at, available_at, started_at, attempt_count, retry_deadline, last_error, completed_at) from stdin",
+	)
 	require.NoError(t, err)
 
 	// 20,000 completed rows — completed_at spread across the past ~14 days so the
@@ -287,7 +285,7 @@ func writeExplainOutput(t *testing.T, name, output string) {
 //   - Cleanup:         Seq Scan is expected at test scale (50% selectivity); the ASC index
 //     direction will be beneficial in production at low selectivity.
 func TestExplainQueryPlans(t *testing.T) {
-	t.Skip("skipping explain test - comment to run it - it will overwrite testdata files")
+	// t.Skip("skipping explain test - comment to run it - it will overwrite testdata files")
 
 	sdb := getExplainDB(t)
 	ctx := context.Background()

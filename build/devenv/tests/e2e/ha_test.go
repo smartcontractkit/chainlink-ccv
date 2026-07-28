@@ -136,9 +136,10 @@ func (s *haTestSetup) sendAndAssertExecution(
 			"expected exactly 1 indexed verification")
 	}
 
-	e, err := s.chainMap[s.toSelector].ConfirmExecOnDest(
+	execEnv, err := s.chainMap[s.toSelector].ConfirmExecOnDest(
 		ctx, s.fromSelector, cciptestinterfaces.MessageEventKey{SeqNum: seqNo}, defaultExecTimeout)
 	require.NoError(t, err)
+	e := execEnv.Event
 	require.NotNil(t, e)
 	require.Equal(t, cciptestinterfaces.ExecutionStateSuccess, e.State,
 		"unexpected execution state, return data: %x", e.ReturnData)
@@ -178,6 +179,9 @@ func restartContainer(t *testing.T, l *zerolog.Logger, containerName string) {
 // produced the expected topology and a message flows end-to-end with all
 // services running.
 func TestHA_Baseline(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping e2e test in short mode; requires a running devenv environment")
+	}
 	setup := setupHATest(t)
 
 	// Verify HA is enabled.
@@ -228,6 +232,9 @@ func TestHA_Baseline(t *testing.T) {
 // HA-enabled committee, verifies that a message still flows through the
 // surviving aggregator, then restarts and confirms recovery.
 func TestHA_SingleAggregatorDown(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping e2e test in short mode; requires a running devenv environment")
+	}
 	setup := setupHATest(t)
 
 	haCommittee := setup.findHACommittee(t)
@@ -253,6 +260,9 @@ func TestHA_SingleAggregatorDown(t *testing.T) {
 // TestHA_SingleIndexerDown kills one of two redundant indexers, verifies that a
 // message still flows, then restarts and verifies recovery.
 func TestHA_SingleIndexerDown(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping e2e test in short mode; requires a running devenv environment")
+	}
 	setup := setupHATest(t)
 	require.Len(t, setup.in.Indexer, 2, "need 2 indexers for this test")
 
@@ -276,6 +286,9 @@ func TestHA_SingleIndexerDown(t *testing.T) {
 // TestHA_CrossComponentDown kills one aggregator and one indexer simultaneously,
 // verifying that the system tolerates a multi-component partial failure.
 func TestHA_CrossComponentDown(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping e2e test in short mode; requires a running devenv environment")
+	}
 	setup := setupHATest(t)
 	require.Len(t, setup.in.Indexer, 2, "need 2 indexers for this test")
 

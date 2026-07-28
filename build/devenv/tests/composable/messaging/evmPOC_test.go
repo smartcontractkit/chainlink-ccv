@@ -20,6 +20,9 @@ const (
 )
 
 func TestEVM2EVMV3(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping e2e test in short mode; requires a running devenv environment")
+	}
 	ctx := ccv.Plog.WithContext(t.Context())
 
 	lib, err := ccv.NewLibFromCCVEnv(&ccv.Plog, composableTestPath)
@@ -60,6 +63,9 @@ func TestEVM2EVMV3(t *testing.T) {
 }
 
 func TestEVM2EVMV2(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping e2e test in short mode; requires a running devenv environment")
+	}
 	ctx := ccv.Plog.WithContext(t.Context())
 
 	lib, err := ccv.NewLibFromCCVEnv(&ccv.Plog, composableTestPath)

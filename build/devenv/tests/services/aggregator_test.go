@@ -52,6 +52,9 @@ func generateTestSigningKey(committeeName string, nodeIndex int) (privateKey, si
 }
 
 func TestServiceAggregator(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping service test in short mode; requires Docker service containers")
+	}
 	committeeName := "default"
 	_, publicKey, err := generateTestSigningKey(committeeName, 0)
 	require.NoError(t, err)
@@ -115,6 +118,9 @@ func TestServiceAggregator(t *testing.T) {
 // This test requires a real network connection (not bufconn) because the
 // anonymous auth middleware validates peer IP addresses.
 func TestServiceAggregatorAuthentication(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping service test in short mode; requires Docker service containers")
+	}
 	committeeName := "auth-test"
 	_, publicKey, err := generateTestSigningKey(committeeName, 0)
 	require.NoError(t, err)
@@ -441,13 +447,16 @@ func setupAggregatorTestFixture(t *testing.T) *aggregatorTestFixture {
 	// Setup aggregator with 2-of-3 threshold
 	sourceChainSelStr := fmt.Sprintf("%d", sourceChainSel)
 	out, err := services.NewAggregator(&services.AggregatorInput{
-		CommitteeName:                committeeName,
-		Image:                        "aggregator:latest",
-		HostPort:                     8110,
-		ExposedHostPort:              grpcHostPort, // Expose gRPC port directly for test
-		SourceCodePath:               "../../../aggregator",
-		RootPath:                     "../../../../",
-		AggregationChannelBufferSize: 1, // Minimal buffer for channel exhaustion tests
+		CommitteeName:   committeeName,
+		Image:           "aggregator:latest",
+		HostPort:        8110,
+		ExposedHostPort: grpcHostPort, // Expose gRPC port directly for test
+		SourceCodePath:  "../../../aggregator",
+		RootPath:        "../../../../",
+		// Buffer must be >= the default max batch size (100, config validation), so it can't be made
+		// artificially tiny here. Sized with headroom above 100 so a max-size batch still fits
+		// alongside any requests left over from earlier subtests in this single slow-draining worker.
+		AggregationChannelBufferSize: 150,
 		BackgroundWorkerCount:        1, // Single worker = slow drain for deterministic tests
 		DB: &services.AggregatorDBInput{
 			Image:    "postgres:16-alpine",
