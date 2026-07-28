@@ -168,6 +168,7 @@ func (p *Processor) processBatch(ctx context.Context) error {
 	tasks := make([]verifier.VerificationTask, len(jobs))
 	jobIDMap := make(map[string]string)                   // messageID -> jobID
 	taskMap := make(map[string]verifier.VerificationTask) // messageID -> task (for accessing timestamps)
+	results := make([]verifier.VerificationResult, len(jobs))
 	for i, job := range jobs {
 		carrier := propagation.MapCarrier{
 			"traceparent": job.Payload.TraceParent,
@@ -175,9 +176,10 @@ func (p *Processor) processBatch(ctx context.Context) error {
 		parentCtx := otel.GetTextMapPropagator().Extract(context.WithoutCancel(ctx), carrier)
 
 		payload := job.Payload
-		messageID, err := protocol.NewBytes32FromString(job.Payload.MessageID)
+		messageID, err := protocol.NewBytes32FromString(payload.MessageID)
 		if err != nil {
-			return fmt.Errorf("failed to convert messageID to Bytes32: %w", err)
+			p.lggr.Errorw("Failed to convert messageID to Bytes32", "error", err, "messageID", payload.MessageID)
+			messageID = protocol.Bytes32{}
 		}
 		var span oteltrace.Span
 		payload.TraceContext, span = p.monitoring.Tracing().StartMessageSpan(
