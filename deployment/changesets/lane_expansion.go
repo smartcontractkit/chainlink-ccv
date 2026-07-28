@@ -175,10 +175,10 @@ func applyLaneConfig(
 			executorQualifier, inboundCCVQualifiers, outboundCCVQualifiers, side.overrides,
 		)
 
-		// Resolve the remote chain's ramps via the remote chain's own adapter, so
-		// they are encoded for the remote family — mirroring the legacy changeset's
-		// remoteAdapter.GetOnRampAddress / GetOffRampAddress. The local adapter then
-		// only needs the local chain's addresses.
+		// Resolve the remote chain's ramps via the remote chain's own adapter, so they
+		// are encoded for the remote family — the OnRamp as the source address it puts
+		// in messages, the OffRamp as the unpadded destination address. The local
+		// adapter then only needs the local chain's addresses.
 		remoteAdapter, err := adapters.GetLaneConfigRegistry().Get(side.remoteSel)
 		if err != nil {
 			return deployment.ChangesetOutput{Reports: allReports, DataStore: outputDS},

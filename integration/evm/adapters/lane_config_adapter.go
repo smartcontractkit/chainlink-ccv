@@ -79,16 +79,18 @@ func (a *EVMLaneConfigAdapter) ConfigureLane() *cldfops.Sequence[ccvdeploymentad
 	return evmConfigureLane
 }
 
-// GetOnRampAddress resolves the EVM OnRamp address for chainSelector from the
-// datastore, as 20-byte EVM-encoded bytes. The lane changeset calls this on a
-// remote chain's adapter to resolve that chain's ramps before configuring the
-// local side of the lane.
+// GetOnRampAddress resolves the EVM OnRamp address for chainSelector from the datastore
+// as abi.encode(address): 32 bytes, left zero-padded, which is what the EVM OnRamp writes
+// into the messages it sends. The lane changeset calls this on a remote chain's adapter to
+// whitelist that chain as a source on the local OffRamp, which matches an incoming message
+// by hashing those bytes.
 func (a *EVMLaneConfigAdapter) GetOnRampAddress(ds datastore.DataStore, chainSelector uint64) ([]byte, error) {
 	return laneChainFamily.GetOnRampAddress(ds, chainSelector)
 }
 
 // GetOffRampAddress resolves the EVM OffRamp address for chainSelector from the
-// datastore, as 20-byte EVM-encoded bytes.
+// datastore, as 20-byte EVM-encoded bytes. Destination-side addresses travel
+// unpadded, so this is the form the remote OnRamp stores for its destination.
 func (a *EVMLaneConfigAdapter) GetOffRampAddress(ds datastore.DataStore, chainSelector uint64) ([]byte, error) {
 	return laneChainFamily.GetOffRampAddress(ds, chainSelector)
 }
