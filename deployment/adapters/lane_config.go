@@ -40,14 +40,16 @@ type RemoteLaneConfig struct {
 	// OutboundCCVQualifiers are committee verifier qualifiers on the local chain
 	// used to verify outbound traffic to this remote chain.
 	OutboundCCVQualifiers []string
-	// RemoteOnRamps are the remote chain's OnRamp addresses, resolved by the
-	// changeset via the remote chain's adapter (GetOnRampAddress) and passed in
-	// pre-encoded for the remote family. They wire the local OffRamp's allowed
-	// source onramps. Empty leaves the current on-chain value untouched.
+	// RemoteOnRamps are the remote chain's OnRamp addresses as that chain writes
+	// them into the messages it sends, resolved by the changeset via the remote
+	// chain's adapter (GetOnRampAddress). They wire the local OffRamp's allowed
+	// source onramps, which the OffRamp matches by hashing the bytes carried in
+	// the message. Empty leaves the current on-chain value untouched.
 	RemoteOnRamps [][]byte
-	// RemoteOffRamp is the remote chain's OffRamp address (resolved via the remote
-	// chain's adapter), wiring the local OnRamp's destination. Empty leaves the
-	// current on-chain value untouched.
+	// RemoteOffRamp is the remote chain's OffRamp address in that chain's native
+	// encoding (resolved via the remote chain's adapter), wiring the local OnRamp's
+	// destination. Destination-side addresses travel unpadded, so this is 20 bytes
+	// for an EVM remote. Empty leaves the current on-chain value untouched.
 	RemoteOffRamp []byte
 	// InboundSigners optionally sets the committee verifier signature quorum for
 	// inbound traffic from this remote chain — signer addresses in the local
@@ -89,12 +91,14 @@ type LaneConfigAdapter interface {
 	ConfigureLane() *operations.Sequence[LaneConfigInput, LaneConfigOutput, chain.BlockChains]
 
 	// GetOnRampAddress resolves the OnRamp address for chainSelector from the
-	// datastore, in this chain family's native byte encoding. The lane changeset
-	// calls this on a remote chain's adapter to resolve that chain's ramps
-	// (family-correct) before configuring the local side of the lane.
+	// datastore, encoded the way that chain writes it into the messages it sends:
+	// abi.encode(address) for EVM, the native address for families that send theirs
+	// as-is. The lane changeset calls this on a remote chain's adapter to whitelist
+	// that chain as a source before configuring the local side of the lane.
 	GetOnRampAddress(ds datastore.DataStore, chainSelector uint64) ([]byte, error)
 
 	// GetOffRampAddress resolves the OffRamp address for chainSelector from the
-	// datastore, in this chain family's native byte encoding.
+	// datastore, in this chain family's native byte encoding. Destination-side
+	// addresses are not padded, so an EVM OffRamp is 20 bytes.
 	GetOffRampAddress(ds datastore.DataStore, chainSelector uint64) ([]byte, error)
 }

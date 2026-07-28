@@ -37,6 +37,12 @@ const (
 	laneRemoteOffRampAddr = "0x000000000000000000000000000000000000000A"
 )
 
+// onRampBytes is the form the EVM adapter returns an OnRamp address in: abi.encode(address),
+// which is what the OnRamp writes into its messages and what a destination OffRamp whitelists.
+func onRampBytes(hexAddr string) []byte {
+	return common.LeftPadBytes(common.HexToAddress(hexAddr).Bytes(), 32)
+}
+
 // laneRefs builds the local-chain address refs the adapter resolves. Remote ramps
 // are passed pre-resolved on the RemoteLaneConfig (resolved by the changeset via the
 // remote chain's adapter), so they are not in this set.
@@ -63,7 +69,7 @@ func laneInput(refs []datastore.AddressRef, mutate func(*ccvdeploymentadapters.L
 				InboundCCVQualifiers:  []string{DefaultQualifier},
 				OutboundCCVQualifiers: []string{DefaultQualifier},
 				// Remote ramps are supplied pre-resolved by the changeset.
-				RemoteOnRamps: [][]byte{common.HexToAddress(laneRemoteOnRampAddr).Bytes()},
+				RemoteOnRamps: [][]byte{onRampBytes(laneRemoteOnRampAddr)},
 				RemoteOffRamp: common.HexToAddress(laneRemoteOffRampAddr).Bytes(),
 			},
 		},
@@ -84,7 +90,7 @@ func TestToEVMConfigureChainForLanesInput_HappyPath(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Equal(t, common.HexToAddress(laneRouterAddr).Bytes(), out.Router)
-	require.Equal(t, common.HexToAddress(laneOnRampAddr).Bytes(), out.OnRamp)
+	require.Equal(t, onRampBytes(laneOnRampAddr), out.OnRamp)
 	require.Equal(t, common.HexToAddress(laneOffRampAddr).Bytes(), out.OffRamp)
 	require.Equal(t, common.HexToAddress(laneFeeQuoterAddr).Bytes(), out.FeeQuoter)
 	require.False(t, out.AllowOnrampOverride)
@@ -95,7 +101,7 @@ func TestToEVMConfigureChainForLanesInput_HappyPath(t *testing.T) {
 	require.Equal(t, []string{laneResolverAddr}, rc.DefaultInboundCCVs)
 	require.Equal(t, []string{laneResolverAddr}, rc.DefaultOutboundCCVs)
 	// Pre-resolved remote ramps are threaded through unchanged.
-	require.Equal(t, [][]byte{common.HexToAddress(laneRemoteOnRampAddr).Bytes()}, rc.OnRamps)
+	require.Equal(t, [][]byte{onRampBytes(laneRemoteOnRampAddr)}, rc.OnRamps)
 	require.Equal(t, common.HexToAddress(laneRemoteOffRampAddr).Bytes(), rc.OffRamp)
 	require.Equal(t, laneChainFamily.GetChainFamilySelector(), rc.FeeQuoterDestChainConfig.ChainFamilySelector)
 	require.Equal(t, laneChainFamily.GetAddressBytesLength(), rc.AddressBytesLength)
