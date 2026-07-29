@@ -20,17 +20,56 @@ func init() {
 
 var _ chainaccess.AccessorFactoryConstructor = CreateEVMAccessorFactory
 
-func loadConfig(path string) (*Config, error) {
-	var cfg Config
-	md, err := toml.DecodeFile(path, &cfg)
+// loadConfig reads the mounted EVM config, accepting either the standalone format or a Chainlink
+// node's own TOML.
+//
+// Accepting the node's file directly is what keeps the CL-to-standalone migration free of a
+// conversion step: an operator mounts the config their node already runs with and starts the
+// process. Settings standalone CCV has no equivalent for are dropped, and the returned warnings say
+// which, so nothing goes missing silently.
+//
+// The two formats are told apart by their top-level table: `chains` is the standalone format,
+// `EVM` is a node config. Anything with neither is rejected by the strict decode below.
+func loadConfig(path string) (*Config, []string, error) {
+	data, err := os.ReadFile(path) //nolint:gosec // G304: operator-provided config path
 	if err != nil {
-		return nil, fmt.Errorf("failed to unmarshal config file %s: %w", path, err)
-	}
-	if len(md.Undecoded()) > 0 {
-		return nil, fmt.Errorf("unknown fields in config: %v", md.Undecoded())
+		return nil, nil, fmt.Errorf("failed to read config file %s: %w", path, err)
 	}
 
-	return &cfg, nil
+	isNodeConfig, err := isChainlinkNodeConfig(data)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to inspect config file %s: %w", path, err)
+	}
+	if isNodeConfig {
+		conversion, cerr := convertChainlinkNodeConfig(data)
+		if cerr != nil {
+			return nil, nil, fmt.Errorf("failed to convert Chainlink node config %s: %w", path, cerr)
+		}
+		return &conversion.Config, conversion.Warnings, nil
+	}
+
+	var cfg Config
+	md, err := toml.Decode(string(data), &cfg)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to unmarshal config file %s: %w", path, err)
+	}
+	if len(md.Undecoded()) > 0 {
+		return nil, nil, fmt.Errorf("unknown fields in config: %v", md.Undecoded())
+	}
+
+	return &cfg, nil, nil
+}
+
+// isChainlinkNodeConfig reports whether the file carries a Chainlink node's [[EVM]] sections rather
+// than the standalone `chains` table.
+func isChainlinkNodeConfig(data []byte) (bool, error) {
+	var probe struct {
+		EVM []toml.Primitive `toml:"EVM"`
+	}
+	if _, err := toml.Decode(string(data), &probe); err != nil {
+		return false, err
+	}
+	return len(probe.EVM) > 0, nil
 }
 
 func resolveConfigPath() string {
@@ -94,15 +133,20 @@ func (c Config) toInfos() (chainaccess.Infos[Info], error) {
 // very unusual for a config to have more than one of Committee/Token/Executor configs.
 func CreateEVMAccessorFactory(lggr logger.Logger, genericConfig chainaccess.GenericConfig) (chainaccess.AccessorFactory, error) {
 	configPath := resolveConfigPath()
-	evmConfig, err := loadConfig(configPath)
+	evmConfig, warnings, err := loadConfig(configPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load EVM config: %w", err)
+	}
+	// Present only when a Chainlink node config was converted. Logged at warn so an operator who
+	// mounted their node's file sees what standalone CCV could not carry over.
+	for _, warning := range warnings {
+		lggr.Warnw("converted Chainlink node EVM config", "detail", warning)
 	}
 	infos, err := evmConfig.toInfos()
 	if err != nil {
 		return nil, fmt.Errorf("failed to build EVM chain infos: %w", err)
 	}
-	lggr.Infow("loaded EVM config", "numChains", len(infos))
+	lggr.Infow("loaded EVM config", "numChains", len(infos), "convertedFromNodeConfig", len(warnings) > 0)
 
 	return CreateAccessorFactory(lggr, genericConfig, infos)
 }

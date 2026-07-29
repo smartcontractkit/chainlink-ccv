@@ -1,0 +1,213 @@
+## CL-mode topology for the CL-to-standalone migration test.
+##
+## This is deliberately narrower than env-cl.toml: one committee with one aggregator, so each node
+## operator runs exactly one committee verifier job and one executor job. That is the shape Solana
+## and Canton already run standalone in production, and it is the shape a standalone process can
+## take over — a process runs a single job, so an operator holding several verifier jobs would need
+## several processes and could not hand its one JD record to any of them.
+##
+## The secondary and tertiary committees from env-cl.toml are absent for the same reason. They exist
+## there to exercise multi-committee routing, which is orthogonal to the migration.
+
+[environment_topology]
+indexer_address = ["http://indexer-1:8100"]
+
+[environment_topology.Monitoring]
+LogLevel = 'debug'
+
+[environment_topology.Monitoring.Pyroscope]
+Enabled = true
+URL = "http://host.docker.internal:4040"
+
+[environment_topology.Monitoring.Beholder]
+Enabled = true
+InsecureConnection = true
+OtelExporterHTTPEndpoint = "host.docker.internal:4318"
+LogStreamingEnabled = true
+MetricReaderInterval = 5
+TraceSampleRatio = 1.0
+TraceBatchTimeout = 10
+[environment_topology.Monitoring.Beholder.TelemetryAttributes]
+ccip_env = "devenv"
+
+[[environment_topology.nop_topology.nops]]
+alias = "node-0"
+name = "node-0"
+
+[[environment_topology.nop_topology.nops]]
+alias = "node-1"
+name = "node-1"
+
+[environment_topology.nop_topology.committees.default]
+qualifier = "default"
+verifier_version = "2.0.0"
+
+[[environment_topology.nop_topology.committees.default.aggregators]]
+name = "default"
+address = "default-aggregator:50051"
+insecure_connection = true
+
+[environment_topology.nop_topology.committees.default.chain_configs.3379446385462418246]
+nop_aliases = ["node-0", "node-1"]
+threshold = 2
+
+[environment_topology.nop_topology.committees.default.chain_configs.12922642891491394802]
+nop_aliases = ["node-0", "node-1"]
+threshold = 2
+
+[environment_topology.nop_topology.committees.default.chain_configs.4793464827907405086]
+nop_aliases = ["node-0", "node-1"]
+threshold = 2
+
+[environment_topology.executor_pools.default]
+indexer_query_limit = 100
+backoff_duration = 15_000_000_000
+lookback_window = 3_600_000_000_000
+reader_cache_expiry = 300_000_000_000
+max_retry_duration = 28_800_000_000_000
+worker_count = 100
+ntp_server = "time.google.com"
+
+[environment_topology.executor_pools.default.chain_configs."3379446385462418246"]
+nop_aliases = ["node-0", "node-1"]
+execution_interval = 15_000_000_000
+
+[environment_topology.executor_pools.default.chain_configs."12922642891491394802"]
+nop_aliases = ["node-0", "node-1"]
+execution_interval = 15_000_000_000
+
+[environment_topology.executor_pools.default.chain_configs."4793464827907405086"]
+nop_aliases = ["node-0", "node-1"]
+execution_interval = 15_000_000_000
+
+[[nodesets]]
+  name = "don"
+  nodes = 2
+  override_mode = "each"
+
+  [nodesets.db]
+    image = "postgres:15.0"
+
+  [[nodesets.node_specs]]
+
+    [nodesets.node_specs.node]
+      docker_ctx = "../../../chainlink"
+      docker_file = "plugins/chainlink.Dockerfile"
+
+    [nodesets.node_specs.node.env_vars]
+      CL_EVM_CMD=""
+
+  [[nodesets.node_specs]]
+
+    [nodesets.node_specs.node]
+      docker_ctx = "../../../chainlink"
+      docker_file = "plugins/chainlink.Dockerfile"
+
+    [nodesets.node_specs.node.env_vars]
+      CL_EVM_CMD=""
+
+## Only the default aggregator. env.toml declares three, one per committee; restating the array here
+## replaces it wholesale so the secondary and tertiary aggregators are not started for a committee
+## this environment does not have. The api_clients must keep naming the verifier container names,
+## which is the key bakeNodeSecrets matches on when it wires HMAC credentials into the CL nodes.
+[[aggregator]]
+  committee_name = "default"
+  image = "aggregator:latest"
+  host_port = 50051
+  redundant_aggregators = 1
+  source_code_path = "../aggregator"
+  root_path = "../../"
+
+  [aggregator.db]
+    image = "postgres:16-alpine"
+    host_port  = 7432
+
+  [aggregator.redis]
+    image = "redis:7-alpine"
+    host_port  = 6379
+
+  [[aggregator.api_clients]]
+  client_id = "default-verifier-1"
+  enabled = true
+  groups = ["verifiers"]
+
+  [[aggregator.api_clients]]
+  client_id = "default-verifier-2"
+  enabled = true
+  groups = ["verifiers"]
+
+  [[aggregator.api_clients]]
+  client_id = "monitoring"
+  enabled = true
+  groups = ["monitoring"]
+
+  [[aggregator.api_clients]]
+  client_id = "indexer"
+  enabled = true
+  groups = ["indexer"]
+
+  [aggregator.env]
+    storage_connection_url = "postgresql://aggregator:aggregator@default-aggregator-db:5432/aggregator?sslmode=disable"
+    redis_address = "default-aggregator-redis:6379"
+    redis_password = ""
+    redis_db = "0"
+
+## The verifier and executor entries carry mode = "cl": no container is launched for them, and they
+## exist to describe which NOP runs what. The migration flips these to standalone at cutover time
+## and launches them then, which is why they carry full container, image and DB settings.
+
+[[verifier]]
+  mode = "cl"
+  image = "verifier:latest"
+  container_name = "default-verifier-1"
+  nop_alias = "node-0"
+  port = 8100
+  source_code_path = "../verifier"
+  root_path = "../../"
+  committee_name = "default"
+  node_index = 0
+  insecure_aggregator_connection = true
+  [verifier.db]
+    image = "postgres:16-alpine"
+    name = "default-verifier-1-db"
+    port = 8432
+
+[[verifier]]
+  mode = "cl"
+  image = "verifier:latest"
+  container_name = "default-verifier-2"
+  nop_alias = "node-1"
+  port = 8200
+  source_code_path = "../verifier"
+  root_path = "../../"
+  committee_name = "default"
+  node_index = 1
+  insecure_aggregator_connection = true
+  [verifier.db]
+    image = "postgres:16-alpine"
+    name = "default-verifier-2-db"
+    port = 8433
+
+[[executor]]
+  mode = "cl"
+  image = "executor:latest"
+  source_code_path = "../executor"
+  root_path = "../../"
+  container_name = "default-executor-1"
+  nop_alias = "node-0"
+  executor_qualifier = "default"
+  [executor.db]
+    image = "postgres:16-alpine"
+    name = "default-executor-1-db"
+
+[[executor]]
+  mode = "cl"
+  image = "executor:latest"
+  source_code_path = "../executor"
+  root_path = "../../"
+  container_name = "default-executor-2"
+  nop_alias = "node-1"
+  executor_qualifier = "default"
+  [executor.db]
+    image = "postgres:16-alpine"
+    name = "default-executor-2-db"

@@ -440,6 +440,13 @@ func baseImageRequest(in *Input, bootstrapConfigFilePath, bootstrapSecretsFilePa
 			WithPollInterval(3 * time.Second),
 	}
 
+	// Exported Chainlink node keys, present only during a CL-to-standalone cutover. The paths here
+	// are the ones the generated bootstrap config's [[key_imports]] entries name; both come from
+	// services.BuildKeyImports.
+	if in.Bootstrap != nil {
+		req.Files = append(req.Files, in.Bootstrap.KeyImportFiles...)
+	}
+
 	p, err := services.CwdSourcePath(in.SourceCodePath)
 	if err != nil {
 		return testcontainers.ContainerRequest{}, fmt.Errorf("failed to get source code path: %w", err)

@@ -32,7 +32,7 @@ func TestLoadConfig(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(path, data, 0o600))
 
-	got, err := loadConfig(path)
+	got, _, err := loadConfig(path)
 	require.NoError(t, err)
 	require.Equal(t, want, *got)
 }
@@ -48,7 +48,7 @@ internal_http_url = "http://evm-node:8545"
 external_ws_url = "wss://eth-mainnet.example.com"
 `), 0o600))
 
-	_, err := loadConfig(path)
+	_, _, err := loadConfig(path)
 	require.ErrorContains(t, err, "unknown fields in config")
 	require.ErrorContains(t, err, "internal_http_url")
 	require.ErrorContains(t, err, "external_ws_url")
@@ -86,7 +86,7 @@ func TestLoadConfigRejectsUnknownFields(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "evm.toml")
 	require.NoError(t, os.WriteFile(path, []byte("unexpected = true\n"), 0o600))
 
-	_, err := loadConfig(path)
+	_, _, err := loadConfig(path)
 	require.ErrorContains(t, err, "unknown fields in config")
 }
 
@@ -98,7 +98,7 @@ chain_type = "ethereum"
 unique_chain_name = "ethereum-mainnet"
 `), 0o600))
 
-	_, err := loadConfig(path)
+	_, _, err := loadConfig(path)
 	require.ErrorContains(t, err, "unknown fields in config")
 	require.ErrorContains(t, err, "chain_type")
 	require.ErrorContains(t, err, "unique_chain_name")
@@ -113,7 +113,7 @@ http_url = "http://evm-node:8545"
 SendOnly = true
 `), 0o600))
 
-	_, err := loadConfig(path)
+	_, _, err := loadConfig(path)
 	require.ErrorContains(t, err, "unknown fields in config")
 	require.ErrorContains(t, err, "SendOnly")
 }
