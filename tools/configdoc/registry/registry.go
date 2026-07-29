@@ -274,10 +274,22 @@ func bootstrapConfigInstance() any {
 // bootstrapSecretsInstance builds the documented bootstrap secrets file
 // (bootstrap.Secrets, the half devenv marshals into secrets.toml, loaded via
 // BOOTSTRAPPER_SECRETS_PATH) with obviously-fake placeholder credentials.
+// The keystore section populates both the postgres password and the KMS fields so the reference
+// documents both backends; backend itself defaults to postgres. Struct comments on KeystoreConfig
+// and KMSKeystoreConfig describe each field.
 func bootstrapSecretsInstance() any {
 	return &bootstrap.Secrets{
-		Keystore: bootstrap.KeystoreConfig{Password: "your-keystore-password"},
-		DB:       bootstrap.DBConfig{URL: "postgres://user:password@localhost:5432/bootstrapper?sslmode=disable"}, //nolint:gosec // G101: placeholder example value in generated docs, not a real credential
+		Keystore: bootstrap.KeystoreConfig{
+			Backend:  bootstrap.KeystoreBackendPostgres,
+			Password: "your-keystore-password",
+			KMS: bootstrap.KMSKeystoreConfig{
+				Profile:      "my-aws-profile",
+				Region:       "us-east-1",
+				EcdsaKeyID:   "arn:aws:kms:us-east-1:...:key/abc123-...",
+				Ed25519KeyID: "arn:aws:kms:us-east-1:...:key/def456-...",
+			},
+		},
+		DB: bootstrap.DBConfig{URL: "postgres://user:password@localhost:5432/bootstrapper?sslmode=disable"}, //nolint:gosec // G101: placeholder example value in generated docs, not a real credential
 	}
 }
 

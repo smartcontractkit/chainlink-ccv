@@ -33,15 +33,84 @@ func (c *JDConfig) validate() error {
 	return nil
 }
 
+// KeystoreBackend selects the keystore storage backend.
+type KeystoreBackend string
+
+const (
+	// KeystoreBackendPostgres stores encrypted keys in the bootstrap Postgres database.
+	// This is the default when Backend is empty (backward compatibility).
+	KeystoreBackendPostgres KeystoreBackend = "postgres"
+	// KeystoreBackendKMS stores keys in AWS KMS; private key material never leaves KMS.
+	KeystoreBackendKMS KeystoreBackend = "kms"
+)
+
+// KMSKeystoreConfig configures the AWS KMS keystore backend.
+// Field names match the pricer's KMSConfig for future consolidation.
+type KMSKeystoreConfig struct {
+	// Profile is the AWS shared-config profile name. Local development only — leave empty in
+	// production, where credentials come from the default credential chain (IRSA, EC2/ECS roles).
+	Profile string `toml:"profile,omitempty"`
+	// Region is the AWS region. If empty, it is read from the profile or environment.
+	Region string `toml:"region,omitempty"`
+	// EcdsaKeyID is the KMS Key ID for ECDSA_S256 (secp256k1) signing keys.
+	EcdsaKeyID string `toml:"ecdsa_key_id,omitempty"`
+	// Ed25519KeyID is the KMS Key ID for Ed25519 keys (e.g. the CSA key for JD auth).
+	Ed25519KeyID string `toml:"ed25519_key_id,omitempty"`
+}
+
 // KeystoreConfig is the configuration for the keystore.
 type KeystoreConfig struct {
-	// Password is the password to the keystore.
-	Password string `toml:"password"`
+	// Backend selects the keystore storage backend: "postgres" (default) or "kms".
+	Backend KeystoreBackend `toml:"backend,omitempty"`
+	// Password is the password to the keystore. Required when backend is "postgres" (default).
+	Password string `toml:"password,omitempty"`
+	// KMS configures the AWS KMS backend. Required when backend is "kms".
+	//
+	// IAM: scope the bootstrapper's IAM role as tightly as possible. Grant only kms:Sign,
+	// kms:GetPublicKey, and kms:DescribeKey, and restrict Resource to exactly the key ARNs configured
+	// below (ecdsa_key_id / ed25519_key_id). Do NOT grant kms:ListKeys or a wildcard Resource ("*").
+	// The service limits operations to the configured keys, but a per-key least-privilege IAM
+	// policy is the primary safeguard: it guarantees these credentials cannot read or sign with any
+	// other KMS key in the account.
+	KMS KMSKeystoreConfig `toml:"kms,omitempty"`
+}
+
+// validKeystoreBackends is the set of accepted [keystore].backend values. An empty value is not
+// listed here — it resolves to the postgres default in resolveBackend for backward compatibility.
+var validKeystoreBackends = map[KeystoreBackend]struct{}{
+	KeystoreBackendPostgres: {},
+	KeystoreBackendKMS:      {},
+}
+
+// resolveBackend returns the resolved keystore backend, defaulting to postgres when empty.
+func (c *KeystoreConfig) resolveBackend() (KeystoreBackend, error) {
+	if c.Backend == "" {
+		return KeystoreBackendPostgres, nil
+	}
+	if _, ok := validKeystoreBackends[c.Backend]; !ok {
+		return "", fmt.Errorf("invalid keystore backend %q: must be %q or %q",
+			c.Backend, KeystoreBackendPostgres, KeystoreBackendKMS)
+	}
+	return c.Backend, nil
 }
 
 func (c *KeystoreConfig) validate() error {
+	backend, err := c.resolveBackend()
+	if err != nil {
+		return err
+	}
+	if backend == KeystoreBackendKMS {
+		// ed25519_key_id is always required: the bootstrapper builds an Ed25519 CSA signer in every mode
+		// (auto-injected in NewBootstrapper). ecdsa_key_id is service-specific, so it is enforced
+		// per-declared-key in buildKMSNameMap.
+		if c.KMS.Ed25519KeyID == "" {
+			return fmt.Errorf("field 'ed25519_key_id' is required when backend is 'kms' (the CSA key is Ed25519)")
+		}
+		return nil
+	}
+	// postgres
 	if c.Password == "" {
-		return fmt.Errorf("field 'password' is required")
+		return fmt.Errorf("field 'password' is required when backend is 'postgres' (default)")
 	}
 	return nil
 }
@@ -199,10 +268,25 @@ type NonSecretConfig struct {
 // exactly as if declared on Config directly. devenv marshals this type on its own to produce the
 // bootstrap secrets file loaded via BOOTSTRAPPER_SECRETS_PATH.
 //
-// Example secrets file (secrets.toml):
+// Example secrets file (secrets.toml) — Postgres backend (default):
 /*
 	[keystore]
 	password = "password"
+
+	[db]
+	url = "postgres://localhost:5432/bootstrapper"
+*/
+//
+// Example secrets file (secrets.toml) — KMS backend:
+/*
+	[keystore]
+	backend = "kms"
+
+	[keystore.kms]
+	profile = "my-aws-profile"
+	region = "us-east-1"
+	ecdsa_key_id = "arn:aws:kms:us-east-1:...:key/abc123-..."
+	ed25519_key_id = "arn:aws:kms:us-east-1:...:key/def456-..."
 
 	[db]
 	url = "postgres://localhost:5432/bootstrapper"
