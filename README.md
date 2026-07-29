@@ -1,5 +1,12 @@
 # Chainlink CCV
 
+> [!IMPORTANT]
+> This repository contains CCV protocol source code and internal development tooling. It is public for source review, testing, forks, and independent experiments. It is not a supported starter kit, deployment package, or onboarding path for third-party CCV operators.
+>
+> For CCV operator onboarding, use the CCV starter kit and operator documentation when they are available, or work with your Chainlink Labs contact.
+>
+> See [`LICENSE`](./LICENSE) before using this code. The `aggregator`, `indexer`, `protocol`, `common`, `deployment`, `build`, and `chains` directories are under Business Source License 1.1 until Jan 1, 2030, then MIT. Other content is MIT.
+
 ## Getting started
 
 Install [just](https://github.com/casey/just)
