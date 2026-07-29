@@ -17,7 +17,6 @@ import (
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	commonconfig "github.com/smartcontractkit/chainlink-common/pkg/config"
 	evmtoml "github.com/smartcontractkit/chainlink-evm/pkg/config/toml"
-
 )
 
 // Conversion is the converted config together with everything the conversion dropped or decided.

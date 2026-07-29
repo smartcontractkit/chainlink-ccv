@@ -11,7 +11,6 @@ import (
 
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 	evmtoml "github.com/smartcontractkit/chainlink-evm/pkg/config/toml"
-
 )
 
 // Chain selectors for the chain IDs used below, so the expectations read as the operator's chain

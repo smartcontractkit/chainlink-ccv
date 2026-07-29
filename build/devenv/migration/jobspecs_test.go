@@ -29,7 +29,7 @@ name = "nop-0-default-executor"
 externalJobID = "8b1e5f2c-4d3a-5e6f-9a0b-1c2d3e4f5a6b"
 executorConfig = '''
 executor_id = "nop-0"
-indexer_address = "http://indexer-1:8100"
+indexer_address = ["http://indexer-1:8100"]
 '''
 `
 
@@ -66,6 +66,38 @@ func TestRetargetExecutorJobSpec(t *testing.T) {
 	assert.NotContains(t, got, "executorConfig")
 	assert.Contains(t, got, `externalJobID = "8b1e5f2c-4d3a-5e6f-9a0b-1c2d3e4f5a6b"`)
 	assert.Contains(t, got, `executor_id = "nop-0"`)
+	assert.Contains(t, got, `indexer_address = ["http://indexer-1:8100"]`)
+}
+
+// The inner config is carried across as text, not decoded and re-marshalled. An operator's running
+// job may set keys this devenv build does not know about — a newer field, or one this binary is too
+// old to have — and a cutover that silently dropped them would change what the job does. Nor may a
+// key whose type has since changed abort the migration: the config is running on the node today.
+func TestRetargetPreservesUnknownConfigKeys(t *testing.T) {
+	t.Parallel()
+
+	const spec = `schemaVersion = 1
+type = "ccvexecutor"
+name = "nop-0-default-executor"
+externalJobID = "8b1e5f2c-4d3a-5e6f-9a0b-1c2d3e4f5a6b"
+executorConfig = '''
+executor_id = "nop-0"
+indexer_address = ["http://indexer-1:8100"]
+some_future_setting = "keep me"
+
+[a_future_section]
+  nested = 42
+'''
+`
+
+	got, err := RetargetExecutorJobSpec(spec)
+	require.NoError(t, err)
+
+	assert.Contains(t, got, `some_future_setting = "keep me"`)
+	assert.Contains(t, got, "[a_future_section]")
+	assert.Contains(t, got, "nested = 42")
+	// Formatting is preserved too, since nothing re-serialises the config.
+	assert.Contains(t, got, "  nested = 42")
 }
 
 func TestRetargetIsIdempotent(t *testing.T) {

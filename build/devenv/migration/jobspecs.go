@@ -3,15 +3,15 @@ package migration
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/BurntSushi/toml"
 
-	jobv1 "github.com/smartcontractkit/chainlink-protos/job-distributor/v1/job"
 	"github.com/smartcontractkit/chainlink-deployments-framework/offchain"
+	jobv1 "github.com/smartcontractkit/chainlink-protos/job-distributor/v1/job"
 
+	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobspec"
-	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/committeeverifier"
-	executorsvc "github.com/smartcontractkit/chainlink-ccv/build/devenv/services/executor"
 )
 
 // standaloneConfigField is the job spec envelope field a standalone bootstrapper reads. CL-mode
@@ -32,12 +32,7 @@ func RetargetVerifierJobSpec(spec string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to parse committee verifier job spec: %w", err)
 	}
-	parsed.ConfigFieldName = standaloneConfigField
-	retargeted, err := committeeverifier.RebuildVerifierJobSpec(parsed)
-	if err != nil {
-		return "", fmt.Errorf("failed to rebuild committee verifier job spec: %w", err)
-	}
-	return retargeted, nil
+	return retarget(parsed), nil
 }
 
 // RetargetExecutorJobSpec converts a CL-mode executor job spec into the standalone shape. See
@@ -47,12 +42,36 @@ func RetargetExecutorJobSpec(spec string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to parse executor job spec: %w", err)
 	}
-	parsed.ConfigFieldName = standaloneConfigField
-	retargeted, err := executorsvc.RebuildExecutorJobSpec(parsed)
-	if err != nil {
-		return "", fmt.Errorf("failed to rebuild executor job spec: %w", err)
+	return retarget(parsed), nil
+}
+
+// retarget re-emits a parsed spec under the standalone envelope, carrying the inner config across as
+// text.
+//
+// Moving the text rather than decoding and re-marshalling it is deliberate. The migration's promise
+// is that the operator's job runs the same configuration after the cutover as before, and a round
+// trip through a Go struct cannot keep it: a key the struct does not declare is dropped silently,
+// and a key whose type has changed since the spec was written fails the whole cutover. Neither is
+// acceptable for config that is already running. The envelope field is the one thing that has to
+// change, so it is the only thing that does.
+//
+// Nothing validates the inner config here for the same reason. It is running on the node today, and
+// the standalone process validates it at startup; rejecting it midway through a cutover, against a
+// schema the operator never opted into, would strand the migration between two modes.
+func retarget(parsed bootstrap.JobSpec) string {
+	inner := parsed.AppConfig
+	// The closing delimiter has to start its own line, which the inner config's own trailing newline
+	// normally provides. A spec written without one would otherwise produce ...last_key = "v"''' .
+	if !strings.HasSuffix(inner, "\n") {
+		inner += "\n"
 	}
-	return retargeted, nil
+	return fmt.Sprintf(`schemaVersion = %d
+type = "%s"
+name = "%s"
+externalJobID = "%s"
+%s = '''
+%s'''
+`, parsed.SchemaVersion, parsed.Type, parsed.Name, parsed.ExternalJobID, standaloneConfigField, inner)
 }
 
 // JobTypeVerifier and JobTypeExecutor are the JD job spec types this migration handles.
