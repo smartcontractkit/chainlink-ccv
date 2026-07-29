@@ -59,8 +59,8 @@ func TestProductionMultiNodeClientUsesHealthyRPCWhenAnotherRPCFails(t *testing.T
 	chainClient, err := CreateMultiNodeClientFromInfo(ctx, Info{
 		ChainID: "1337",
 		Nodes: []Node{
-			{InternalHTTPUrl: failingRPC.URL},
-			{InternalHTTPUrl: healthyRPC.URL},
+			{HTTPUrl: failingRPC.URL},
+			{HTTPUrl: healthyRPC.URL},
 		},
 	}, logger.Test(t))
 	require.NoError(t, err)
@@ -80,14 +80,14 @@ func TestNewChainlinkEVMConfigUsesProductionDefaultsAndEveryRPCNode(t *testing.T
 		TXMBlockTime:  12 * time.Second,
 		Nodes: []Node{
 			{
-				Name:            "chainstack",
-				InternalHTTPUrl: "http://node-a.internal:8545",
-				InternalWSUrl:   "ws://node-a.internal:8546",
+				Name:    "chainstack",
+				HTTPUrl: "http://node-a.internal:8545",
+				WSUrl:   "ws://node-a.internal:8546",
 			},
 			{
-				Name:            "simplyvc",
-				InternalHTTPUrl: "http://node-b.internal:8545",
-				InternalWSUrl:   "ws://node-b.internal:8546",
+				Name:    "simplyvc",
+				HTTPUrl: "http://node-b.internal:8545",
+				WSUrl:   "ws://node-b.internal:8546",
 			},
 		},
 	})
@@ -119,11 +119,9 @@ func TestToChainlinkEVMNodeMapsOnlyFocusedStandaloneSubset(t *testing.T) {
 	info := Info{
 		ChainID: "1337",
 		Nodes: []Node{{
-			Name:            "local-rpc",
-			ExternalHTTPUrl: "https://external.example.test",
-			InternalHTTPUrl: "http://node.internal:8545",
-			ExternalWSUrl:   "wss://external.example.test",
-			InternalWSUrl:   "ws://node.internal:8546",
+			Name:    "local-rpc",
+			HTTPUrl: "http://node.internal:8545",
+			WSUrl:   "ws://node.internal:8546",
 		}},
 	}
 
@@ -139,14 +137,14 @@ func TestToChainlinkEVMNodeMapsOnlyFocusedStandaloneSubset(t *testing.T) {
 	require.Nil(t, node.IsLoadBalancedRPC)
 }
 
-func TestNewChainlinkEVMConfigSupportsExternalHTTPOnlyRPC(t *testing.T) {
+func TestNewChainlinkEVMConfigSupportsHTTPOnlyRPC(t *testing.T) {
 	t.Parallel()
 
 	cfg, err := newChainlinkEVMConfig(Info{
 		ChainID: "1337",
 		Type:    "anvil",
 		Nodes: []Node{{
-			ExternalHTTPUrl: "https://rpc.example.test",
+			HTTPUrl: "https://rpc.example.test",
 		}},
 	})
 	require.NoError(t, err)
@@ -184,7 +182,7 @@ func TestNewChainlinkEVMConfigRejectsInvalidStandaloneConfig(t *testing.T) {
 			name: "node without HTTP RPC",
 			info: Info{
 				ChainID: "1337",
-				Nodes:   []Node{{InternalWSUrl: "ws://node.internal:8546"}},
+				Nodes:   []Node{{WSUrl: "ws://node.internal:8546"}},
 			},
 			wantErr: "has no HTTP RPC URL",
 		},
@@ -192,7 +190,7 @@ func TestNewChainlinkEVMConfigRejectsInvalidStandaloneConfig(t *testing.T) {
 			name: "invalid HTTP scheme",
 			info: Info{
 				ChainID: "1337",
-				Nodes:   []Node{{InternalHTTPUrl: "ws://node.internal:8545"}},
+				Nodes:   []Node{{HTTPUrl: "ws://node.internal:8545"}},
 			},
 			wantErr: "invalid chainlink-evm config",
 		},
@@ -201,8 +199,8 @@ func TestNewChainlinkEVMConfigRejectsInvalidStandaloneConfig(t *testing.T) {
 			info: Info{
 				ChainID: "1337",
 				Nodes: []Node{
-					{InternalHTTPUrl: "http://node.internal:8545"},
-					{InternalHTTPUrl: "http://node.internal:8545"},
+					{HTTPUrl: "http://node.internal:8545"},
+					{HTTPUrl: "http://node.internal:8545"},
 				},
 			},
 			wantErr: "duplicate",
@@ -212,8 +210,8 @@ func TestNewChainlinkEVMConfigRejectsInvalidStandaloneConfig(t *testing.T) {
 			info: Info{
 				ChainID: "1337",
 				Nodes: []Node{
-					{Name: "primary", InternalHTTPUrl: "http://node-a.internal:8545"},
-					{Name: "primary", InternalHTTPUrl: "http://node-b.internal:8545"},
+					{Name: "primary", HTTPUrl: "http://node-a.internal:8545"},
+					{Name: "primary", HTTPUrl: "http://node-b.internal:8545"},
 				},
 			},
 			wantErr: "duplicate",
@@ -223,7 +221,7 @@ func TestNewChainlinkEVMConfigRejectsInvalidStandaloneConfig(t *testing.T) {
 			info: Info{
 				ChainID:      "1337",
 				TXMBlockTime: time.Second,
-				Nodes:        []Node{{InternalHTTPUrl: "http://node.internal:8545"}},
+				Nodes:        []Node{{HTTPUrl: "http://node.internal:8545"}},
 			},
 			wantErr: "BlockTime",
 		},
@@ -245,8 +243,8 @@ func TestNewChainlinkEVMConfigEnablesPollingWhenAnyNodeHasNoWebSocket(t *testing
 	cfg, err := newChainlinkEVMConfig(Info{
 		ChainID: "1337",
 		Nodes: []Node{
-			{InternalHTTPUrl: "http://node-a.internal:8545", InternalWSUrl: "ws://node-a.internal:8546"},
-			{InternalHTTPUrl: "http://node-b.internal:8545"},
+			{HTTPUrl: "http://node-a.internal:8545", WSUrl: "ws://node-a.internal:8546"},
+			{HTTPUrl: "http://node-b.internal:8545"},
 		},
 	})
 	require.NoError(t, err)

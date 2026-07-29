@@ -403,7 +403,7 @@ func (b *Bootstrapper) startWithJDLifecycle(ctx context.Context) error {
 		return fmt.Errorf("failed to connect to bootstrapper database: %w", err)
 	}
 
-	keyStore, csaSigner, err := initializeKeystore(ctx, b.lggr, db, b.config.Keystore.Password, b.keys)
+	keyStore, csaSigner, err := initializeKeystore(ctx, b.lggr, b.config.Keystore, db, b.keys)
 	if err != nil {
 		return fmt.Errorf("failed to initialize keystore: %w", err)
 	}
@@ -486,10 +486,14 @@ func (b *Bootstrapper) startWithJDLifecycle(ctx context.Context) error {
 	return nil
 }
 
-// startLocal runs the service without JD. When a [db]+[keystore] bootstrap config is provided it
-// initializes a Postgres-backed keystore (and, if a [server] port is set, the info server) so signing
-// services work; without one it runs keystore-less. There is no JD client, no lifecycle manager, and
+// startLocal runs the service without JD. When a keystore backend is configured it initializes
+// the keystore (and, if a [server] port is set, the info server) so signing services work;
+// without one it runs keystore-less. There is no JD client, no lifecycle manager, and
 // no signing-key sync to JD.
+//
+// The keystore backend is selected by [keystore].backend:
+//   - "postgres" (default): requires both [db].url and [keystore].password.
+//   - "kms": requires [keystore.kms] key IDs; no DB or password needed.
 //
 // The app config is read from a local file. Two delivery modes are supported, chosen by whether the
 // file is present at startup:
@@ -500,32 +504,47 @@ func (b *Bootstrapper) startWithJDLifecycle(ctx context.Context) error {
 //     startLocal returns, then a background watcher waits for the file to appear and starts the
 //     service once it does.
 func (b *Bootstrapper) startLocal(ctx context.Context) error {
-	// A keystore is initialized only when both the DB URL and keystore password are configured.
+	// A keystore is initialized when a keystore backend is configured:
+	// - KMS backend: no DB or password needed.
+	// - Postgres backend (default): both [db].url and [keystore].password are required.
 	// Services that sign (committee verifier, executor) supply them; the token verifier does not.
 	var keyStore keystore.Keystore
 	var csaSigner crypto.Signer
-	var dbURL, ksPassword string
-	if b.config != nil {
-		dbURL = strings.TrimSpace(b.config.DB.URL)
-		ksPassword = strings.TrimSpace(b.config.Keystore.Password)
+
+	// Validate backend string so a typo fails loudly instead of silently falling
+	// back to the postgres path and running keystore-less.
+	backend, err := b.config.Keystore.resolveBackend()
+	if err != nil {
+		return fmt.Errorf("invalid keystore config: %w", err)
 	}
-	switch {
-	case dbURL != "" && ksPassword != "":
-		db, err := connectToDB(ctx, dbURL)
+	switch backend {
+	case KeystoreBackendKMS:
+		keyStore, csaSigner, err = initializeKeystore(ctx, b.lggr, b.config.Keystore, nil, b.keys)
 		if err != nil {
-			return fmt.Errorf("failed to connect to bootstrapper database: %w", err)
+			return fmt.Errorf("failed to initialize KMS keystore: %w", err)
 		}
-		keyStore, csaSigner, err = initializeKeystore(ctx, b.lggr, db, ksPassword, b.keys)
-		if err != nil {
-			return fmt.Errorf("failed to initialize keystore: %w", err)
+	default:
+		// Postgres backend: A keystore is initialized only when both the DB URL and keystore password are configured.
+		dbURL := strings.TrimSpace(b.config.DB.URL)
+		ksPassword := strings.TrimSpace(b.config.Keystore.Password)
+		switch {
+		case dbURL != "" && ksPassword != "":
+			db, err := connectToDB(ctx, dbURL)
+			if err != nil {
+				return fmt.Errorf("failed to connect to bootstrapper database: %w", err)
+			}
+			keyStore, csaSigner, err = initializeKeystore(ctx, b.lggr, b.config.Keystore, db, b.keys)
+			if err != nil {
+				return fmt.Errorf("failed to initialize keystore: %w", err)
+			}
+		case dbURL != "" || ksPassword != "":
+			// Exactly one of [db]/[keystore] is set — almost certainly a misconfiguration. Warn loudly:
+			// running keystore-less here would surface later as a confusing nil-keystore failure in a
+			// signing service.
+			b.lggr.Warnw("local mode: bootstrap config sets only one of [db].url / [keystore].password; "+
+				"both are required to initialize the keystore, so the service will run keystore-less",
+				"hasDBURL", dbURL != "", "hasKeystorePassword", ksPassword != "")
 		}
-	case dbURL != "" || ksPassword != "":
-		// Exactly one of [db]/[keystore] is set — almost certainly a misconfiguration. Warn loudly:
-		// running keystore-less here would surface later as a confusing nil-keystore failure in a
-		// signing service.
-		b.lggr.Warnw("local mode: bootstrap config sets only one of [db].url / [keystore].password; "+
-			"both are required to initialize the keystore, so the service will run keystore-less",
-			"hasDBURL", dbURL != "", "hasKeystorePassword", ksPassword != "")
 	}
 
 	if err := b.initMonitoring(csaSigner); err != nil {
@@ -768,21 +787,36 @@ func bootstrapConfigPaths(explicitConfig, explicitSecrets string) []string {
 	return paths
 }
 
-func initializeKeystore(ctx context.Context, lggr logger.Logger, db *sqlx.DB, ksPassword string, requiredKeys []keyToInit) (keystore.Keystore, crypto.Signer, error) {
-	ks, err := keystore.LoadKeystore(ctx, keys.NewPGStorage(db, "default"), ksPassword)
+func initializeKeystore(ctx context.Context, lggr logger.Logger, ksCfg KeystoreConfig, db *sqlx.DB, requiredKeys []keyToInit) (keystore.Keystore, crypto.Signer, error) {
+	backend, err := ksCfg.resolveBackend()
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to load keystore: %w", err)
+		return nil, nil, fmt.Errorf("invalid keystore backend: %w", err)
 	}
 
-	var csaKeyName string
-	for _, k := range requiredKeys {
-		if err := keys.EnsureKey(ctx, lggr, ks, k.name, k.purpose, k.keyType); err != nil {
-			return nil, nil, fmt.Errorf("failed to ensure key %q (purpose=%q, type=%v): %w", k.name, k.purpose, k.keyType, err)
+	var ks keystore.Keystore
+	switch backend {
+	case KeystoreBackendKMS:
+		nameToID, err := buildKMSNameMap(ksCfg.KMS, requiredKeys)
+		if err != nil {
+			return nil, nil, fmt.Errorf("invalid KMS config: %w", err)
 		}
-		if k.purpose == "csa" {
-			csaKeyName = k.name
+		ks, err = keys.NewKMSKeystore(ctx, ksCfg.KMS.Profile, ksCfg.KMS.Region, nameToID)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to load KMS keystore: %w", err)
+		}
+	default: // postgres
+		ks, err = keystore.LoadKeystore(ctx, keys.NewPGStorage(db, "default"), ksCfg.Password)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to load keystore: %w", err)
+		}
+		for _, k := range requiredKeys {
+			if err := keys.EnsureKey(ctx, lggr, ks, k.name, k.purpose, k.keyType); err != nil {
+				return nil, nil, fmt.Errorf("failed to ensure key %q (purpose=%q, type=%v): %w", k.name, k.purpose, k.keyType, err)
+			}
 		}
 	}
+
+	csaKeyName := findCSAKeyName(requiredKeys)
 	if csaKeyName == "" {
 		return nil, nil, fmt.Errorf("no key with purpose %q declared; a CSA key is required for JD communication", "csa")
 	}
@@ -793,6 +827,55 @@ func initializeKeystore(ctx context.Context, lggr logger.Logger, db *sqlx.DB, ks
 	}
 
 	return ks, csaSigner, nil
+}
+
+// buildKMSNameMap maps logical key names to KMS Key IDs by key type. The supported key types and the
+// config field each one draws its Key ID from are declared as data (keyIDByType) rather than control
+// flow, so adding a type is a one-line table entry.
+func buildKMSNameMap(cfg KMSKeystoreConfig, requiredKeys []keyToInit) (map[string]string, error) {
+	// keyType -> (configured Key ID, TOML field name for error messages).
+	keyIDByType := map[keystore.KeyType]struct {
+		id       string
+		tomlName string
+	}{
+		keystore.Ed25519:    {cfg.Ed25519KeyID, "ed25519_key_id"},
+		keystore.ECDSA_S256: {cfg.EcdsaKeyID, "ecdsa_key_id"},
+	}
+
+	nameToID := make(map[string]string, len(requiredKeys))
+	assignedTo := make(map[string]string, len(requiredKeys)) // KMS Key ID -> first logical key assigned it
+	for _, k := range requiredKeys {
+		entry, supported := keyIDByType[k.keyType]
+		if !supported {
+			return nil, fmt.Errorf("KMS does not support key type %q for key %q", k.keyType, k.name)
+		}
+		if entry.id == "" {
+			return nil, fmt.Errorf("KMS %s is required for key %q (type %q)", entry.tomlName, k.name, k.keyType)
+		}
+		// The KMS config carries a single Key ID per key type, so two required keys of the same type
+		// (or two types pointed at the same Key ID) would both resolve here to one KMS Key ID. Each
+		// logical key must map to a distinct KMS key, so reject that instead of silently sharing a key
+		// (which would otherwise fail later in newKMSKeystore with a less specific duplicate-ID error).
+		if prev, dup := assignedTo[entry.id]; dup {
+			return nil, fmt.Errorf(
+				"keys %q and %q both resolve to KMS Key ID %q: each logical key needs a distinct KMS key, "+
+					"but [keystore.kms] maps a single Key ID per type (%s) — the config format must be extended to map per key",
+				prev, k.name, entry.id, entry.tomlName)
+		}
+		assignedTo[entry.id] = k.name
+		nameToID[k.name] = entry.id
+	}
+	return nameToID, nil
+}
+
+// findCSAKeyName returns the name of the key with purpose "csa", or "" if none.
+func findCSAKeyName(requiredKeys []keyToInit) string {
+	for _, k := range requiredKeys {
+		if k.purpose == "csa" {
+			return k.name
+		}
+	}
+	return ""
 }
 
 // Option configures a [Bootstrapper].

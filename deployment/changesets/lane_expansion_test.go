@@ -35,7 +35,7 @@ func (s *stubLaneConfigAdapter) ConfigureLane() *operations.Sequence[adapters.La
 }
 
 func (s *stubLaneConfigAdapter) GetOnRampAddress(_ datastore.DataStore, _ uint64) ([]byte, error) {
-	return make([]byte, 20), nil
+	return make([]byte, 32), nil
 }
 
 func (s *stubLaneConfigAdapter) GetOffRampAddress(_ datastore.DataStore, _ uint64) ([]byte, error) {

@@ -53,22 +53,25 @@ func NewConfigFromInfos(infos chainaccess.Infos[Info]) Config {
 
 // Node is the focused RPC endpoint subset exposed by standalone CCV. It deliberately does not
 // embed chainlink-evm's Node type, whose additional fields are not operator settings for CCV.
+// Each node carries a single endpoint pair, addressed from the process that loads this config.
+// Environments that reach the same RPC through more than one address, such as devenv bridging a
+// Docker network to the host, resolve that at config generation time rather than here.
 type Node struct {
 	// Name identifies the RPC provider or endpoint in logs and health reports.
-	Name            string `json:"name"              toml:"name,omitempty"`
-	ExternalHTTPUrl string `json:"external_http_url" toml:"external_http_url"`
-	InternalHTTPUrl string `json:"internal_http_url" toml:"internal_http_url"`
-	ExternalWSUrl   string `json:"external_ws_url"   toml:"external_ws_url"`
-	InternalWSUrl   string `json:"internal_ws_url"   toml:"internal_ws_url"`
+	Name string `json:"name" toml:"name,omitempty"`
+	// HTTPUrl is the JSON-RPC endpoint used for reads and transaction submission. It is required.
+	HTTPUrl string `json:"http_url" toml:"http_url"`
+	// WSUrl is the optional WebSocket endpoint used for head subscriptions. Nodes without one
+	// fall back to HTTP head polling.
+	WSUrl string `json:"ws_url" toml:"ws_url,omitempty"`
 }
 
 func (n Node) String() string {
-	return fmt.Sprintf("Name: %s, ExternalHTTP: %s, InternalHTTP: %s, ExternalWS: %s, InternalWS: %s",
-		n.Name, n.ExternalHTTPUrl, n.InternalHTTPUrl, n.ExternalWSUrl, n.InternalWSUrl)
+	return fmt.Sprintf("Name: %s, HTTP: %s, WS: %s", n.Name, n.HTTPUrl, n.WSUrl)
 }
 
 func (n Node) Empty() bool {
-	return n.ExternalHTTPUrl == "" && n.InternalHTTPUrl == "" && n.ExternalWSUrl == "" && n.InternalWSUrl == ""
+	return n.HTTPUrl == "" && n.WSUrl == ""
 }
 
 // Info represents blockchain connection information.
