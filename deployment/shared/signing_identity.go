@@ -17,7 +17,14 @@ import (
 // remembering to normalize.
 //
 // It is idempotent, so applying it to an already-canonical address is safe.
+//
+// An empty address is returned unchanged. Prefixing it would turn "no address" into "0x", which
+// reads as a value to every downstream length or emptiness check and would be carried into a job
+// spec rather than rejected at the point the address went missing.
 func CanonicalEVMAddress(addr string) string {
+	if addr == "" {
+		return ""
+	}
 	lower := strings.ToLower(addr)
 	if !strings.HasPrefix(lower, "0x") {
 		return "0x" + lower
@@ -65,9 +72,14 @@ func RegisterSigningIdentityReader(family string, reader SigningIdentityReader) 
 // from a JD OCRKeyBundle. If the family has registered a reader, that reader is used;
 // otherwise the default — OnchainSigningAddress (the EVM-derived address) — is returned.
 //
-// The result is normalized either way. A reader chooses which field of the bundle carries the
-// family's identity, not whether the result is canonical, so registering one must not change the
-// form of the address a caller gets back.
+// Both branches pass the identity through NormalizeAddress, so registering a reader does not change
+// the form of what a caller gets back: a reader chooses which field of the bundle carries the
+// family's identity, not whether the result is canonical.
+//
+// NormalizeAddress is a no-op for a family with no registered normalizer, so this is a consistency
+// guarantee between the two branches rather than a guarantee that the result is canonical. For EVM
+// the canonical form comes from EVMSigningIdentityReader itself, which does not depend on the
+// normalizer registry being populated.
 func SigningIdentityFromBundle(family string, bundle *nodev1.OCR2Config_OCRKeyBundle) (string, error) {
 	if reader, ok := signingIdentityReaders[family]; ok {
 		identity, err := reader.FromBundle(bundle)

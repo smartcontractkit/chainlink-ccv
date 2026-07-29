@@ -35,6 +35,15 @@ func TestEVMSigningIdentityReaderCanonicalisesAddress(t *testing.T) {
 	}
 }
 
+// An empty address must stay empty. "0x" is non-empty, so it survives every emptiness check a
+// caller might make and reaches a job spec as a signer address that decodes to zero bytes, instead
+// of failing where the address went missing.
+func TestCanonicalEVMAddressPreservesEmpty(t *testing.T) {
+	t.Parallel()
+
+	assert.Empty(t, CanonicalEVMAddress(""))
+}
+
 func TestEVMSigningIdentityReaderErrors(t *testing.T) {
 	t.Parallel()
 
