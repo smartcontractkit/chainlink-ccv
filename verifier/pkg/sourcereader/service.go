@@ -16,9 +16,11 @@ import (
 	oteltrace "go.opentelemetry.io/otel/trace"
 
 	"github.com/smartcontractkit/chainlink-ccv/common"
+	"github.com/smartcontractkit/chainlink-ccv/common/monitoring/tracing"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/jobqueue"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
@@ -349,16 +351,16 @@ func (r *Service) processEventCycle(ctx context.Context, latest, finalized *prot
 			continue
 		}
 
-		sCtx, span := r.monitoring.Tracing().StartMessageSpan(ctx, "verifier.message@"+r.verifierID, event.MessageID,
-			attribute.String("verifier_id", r.verifierID),
-			attribute.String("block_number", strconv.FormatUint(event.BlockNumber, 10)),
-			attribute.String("tx_hash", event.TxHash.String()),
-			attribute.String("source_chain_name", event.Message.SourceChainSelector.ChainName()),
-			attribute.String("source_chain_selector", event.Message.SourceChainSelector.String()),
-			attribute.String("dest_chain_name", event.Message.DestChainSelector.ChainName()),
-			attribute.String("dest_chain_selector", event.Message.DestChainSelector.String()),
+		sCtx, span := r.monitoring.Tracing().StartMessageSpan(ctx, monitoring.MessageSpanName(r.verifierID), event.MessageID,
+			attribute.String(tracing.VerifierIDKey, r.verifierID),
+			attribute.String(tracing.BlockNumberKey, strconv.FormatUint(event.BlockNumber, 10)),
+			attribute.String(tracing.TxHashKey, event.TxHash.String()),
+			attribute.String(tracing.SourceChainNameKey, event.Message.SourceChainSelector.ChainName()),
+			attribute.String(tracing.SourceChainSelectorKey, event.Message.SourceChainSelector.String()),
+			attribute.String(tracing.DestChainNameKey, event.Message.DestChainSelector.ChainName()),
+			attribute.String(tracing.DestChainSelectorKey, event.Message.DestChainSelector.String()),
 		)
-		span.AddEvent("event_discovered", oteltrace.WithAttributes(attribute.String("message_id", onchainMessageID)))
+		span.AddEvent(monitoring.EventChainEventDiscovered, oteltrace.WithAttributes(attribute.String(tracing.MessageIDKey, onchainMessageID)))
 
 		carrier := propagation.MapCarrier{}
 		otel.GetTextMapPropagator().Inject(sCtx, carrier)
@@ -374,7 +376,7 @@ func (r *Service) processEventCycle(ctx context.Context, latest, finalized *prot
 		}
 		tasks = append(tasks, task)
 
-		span.AddEvent("task_formed")
+		span.AddEvent(monitoring.EventTaskFormed)
 	}
 
 	r.addToPendingQueueHandleReorg(tasks, fromBlock, lastQueriedBlock)
@@ -461,19 +463,17 @@ func (r *Service) addToPendingQueueHandleReorg(tasks []verifier.VerificationTask
 		existingBlock := new(big.Int).SetUint64(existing.BlockNumber)
 		if existingBlock.Cmp(fromBlock) >= 0 && (toBlock == nil || existingBlock.Cmp(toBlock) <= 0) {
 			if _, exists := tasksMap[msgID]; !exists {
-				if existing.TraceContext != nil {
-					span := oteltrace.SpanFromContext(existing.TraceContext)
-					span.AddEvent("reorg_removed_pending",
-						oteltrace.WithAttributes(
-							attribute.String("block_number", strconv.FormatUint(existing.BlockNumber, 10)),
-							attribute.String("source_chain_name", existing.Message.SourceChainSelector.ChainName()),
-							attribute.String("source_chain_selector", existing.Message.SourceChainSelector.String()),
-							attribute.String("dest_chain_name", existing.Message.DestChainSelector.ChainName()),
-							attribute.String("dest_chain_selector", existing.Message.DestChainSelector.String()),
-						),
-					)
-					span.End()
-				}
+				span := tracing.SpanFromContext(existing.TraceContext)
+				span.AddEvent(monitoring.EventReorgRemovedPending,
+					oteltrace.WithAttributes(
+						attribute.String(tracing.BlockNumberKey, strconv.FormatUint(existing.BlockNumber, 10)),
+						attribute.String(tracing.SourceChainNameKey, existing.Message.SourceChainSelector.ChainName()),
+						attribute.String(tracing.SourceChainSelectorKey, existing.Message.SourceChainSelector.String()),
+						attribute.String(tracing.DestChainNameKey, existing.Message.DestChainSelector.ChainName()),
+						attribute.String(tracing.DestChainSelectorKey, existing.Message.DestChainSelector.String()),
+					),
+				)
+				span.End()
 				r.logger.Warnw("Removing task from pending queue due to reorg",
 					protocol.LogKeyMessageID, msgID,
 					"blockNumber", existing.BlockNumber,
@@ -491,19 +491,17 @@ func (r *Service) addToPendingQueueHandleReorg(tasks []verifier.VerificationTask
 		taskBlock := new(big.Int).SetUint64(task.BlockNumber)
 		if taskBlock.Cmp(fromBlock) >= 0 && (toBlock == nil || taskBlock.Cmp(toBlock) <= 0) {
 			if _, exists := tasksMap[msgID]; !exists {
-				if task.TraceContext != nil {
-					span := oteltrace.SpanFromContext(task.TraceContext)
-					span.AddEvent("reorg_removed_sent",
-						oteltrace.WithAttributes(
-							attribute.String("block_number", strconv.FormatUint(task.BlockNumber, 10)),
-							attribute.String("source_chain_name", task.Message.SourceChainSelector.ChainName()),
-							attribute.String("source_chain_selector", task.Message.SourceChainSelector.String()),
-							attribute.String("dest_chain_name", task.Message.DestChainSelector.ChainName()),
-							attribute.String("dest_chain_selector", task.Message.DestChainSelector.String()),
-						),
-					)
-					span.End()
-				}
+				span := tracing.SpanFromContext(task.TraceContext)
+				span.AddEvent(monitoring.EventReorgRemovedSent,
+					oteltrace.WithAttributes(
+						attribute.String(tracing.BlockNumberKey, strconv.FormatUint(task.BlockNumber, 10)),
+						attribute.String(tracing.SourceChainNameKey, task.Message.SourceChainSelector.ChainName()),
+						attribute.String(tracing.SourceChainSelectorKey, task.Message.SourceChainSelector.String()),
+						attribute.String(tracing.DestChainNameKey, task.Message.DestChainSelector.ChainName()),
+						attribute.String(tracing.DestChainSelectorKey, task.Message.DestChainSelector.String()),
+					),
+				)
+				span.End()
 				r.logger.Warnw("Removing task from sentTasks due to reorg",
 					protocol.LogKeyMessageID, msgID,
 					protocol.LogKeySeqNum, task.Message.SequenceNumber,
@@ -516,36 +514,33 @@ func (r *Service) addToPendingQueueHandleReorg(tasks []verifier.VerificationTask
 	}
 
 	for _, task := range tasks {
+		span := tracing.SpanFromContext(task.TraceContext)
 		if _, exists := r.pendingTasks[task.MessageID]; exists {
 			// Duplicate of an already-tracked pending task from an overlapping
 			// query range - this task's span is a throwaway, end it now.
-			if task.TraceContext != nil {
-				oteltrace.SpanFromContext(task.TraceContext).End()
-			}
+			span.AddEvent(monitoring.EventAlreadyTracked)
+			span.End()
 			continue
 		}
 		if _, alreadySent := r.sentTasks[task.MessageID]; alreadySent {
 			r.logger.Debugw("Skipping already-sent message",
 				protocol.LogKeyMessageID, task.MessageID,
 				"blockNumber", task.BlockNumber)
-			if task.TraceContext != nil {
-				oteltrace.SpanFromContext(task.TraceContext).End()
-			}
+			span.AddEvent(monitoring.EventAlreadySent)
+			span.End()
 			continue
 		}
 		r.pendingTasks[task.MessageID] = task
 
-		if task.TraceContext != nil {
-			// Not terminal - the message is still in flight (curse/disable checks,
-			// finality wait, publish). Only add the event; the span stays open
-			// until a terminal path (reorg drop, cursed/disabled drop, or
-			// task_published) ends it.
-			oteltrace.SpanFromContext(task.TraceContext).AddEvent("added_to_pending",
-				oteltrace.WithAttributes(
-					attribute.String("block_number", strconv.FormatUint(task.BlockNumber, 10)),
-				),
-			)
-		}
+		// Not terminal - the message is still in flight (curse/disable checks,
+		// finality wait, publish). Only add the event; the span stays open
+		// until a terminal path (reorg drop, cursed/disabled drop, or
+		// task_published) ends it.
+		span.AddEvent(monitoring.EventAddedToPending,
+			oteltrace.WithAttributes(
+				attribute.String(tracing.BlockNumberKey, strconv.FormatUint(task.BlockNumber, 10)),
+			),
+		)
 
 		r.logger.Debugw("Added message to pending queue",
 			protocol.LogKeyMessageID, task.MessageID,
@@ -627,18 +622,16 @@ func (r *Service) sendReadyMessages(ctx context.Context, latest, safe, finalized
 					// Curse err should be transient so the next poll is likely to have the information
 					continue
 				}
-				if task.TraceContext != nil {
-					span := oteltrace.SpanFromContext(task.TraceContext)
-					span.AddEvent("cursed_dropped",
-						oteltrace.WithAttributes(
-							attribute.String("source_chain_name", task.Message.SourceChainSelector.ChainName()),
-							attribute.String("source_chain_selector", task.Message.SourceChainSelector.String()),
-							attribute.String("dest_chain_name", task.Message.DestChainSelector.ChainName()),
-							attribute.String("dest_chain_selector", task.Message.DestChainSelector.String()),
-						),
-					)
-					span.End()
-				}
+				span := tracing.SpanFromContext(task.TraceContext)
+				span.AddEvent(monitoring.EventCursedDropped,
+					oteltrace.WithAttributes(
+						attribute.String(tracing.SourceChainNameKey, task.Message.SourceChainSelector.ChainName()),
+						attribute.String(tracing.SourceChainSelectorKey, task.Message.SourceChainSelector.String()),
+						attribute.String(tracing.DestChainNameKey, task.Message.DestChainSelector.ChainName()),
+						attribute.String(tracing.DestChainSelectorKey, task.Message.DestChainSelector.String()),
+					),
+				)
+				span.End()
 				r.logger.Warnw("Dropping task - lane is cursed",
 					protocol.LogKeyMessageID, msgID,
 					protocol.LogKeySourceChain, task.Message.SourceChainSelector,
@@ -658,18 +651,16 @@ func (r *Service) sendReadyMessages(ctx context.Context, latest, safe, finalized
 				continue
 			}
 			if disabled {
-				if task.TraceContext != nil {
-					span := oteltrace.SpanFromContext(task.TraceContext)
-					span.AddEvent("disabled_dropped",
-						oteltrace.WithAttributes(
-							attribute.String("source_chain_name", task.Message.SourceChainSelector.ChainName()),
-							attribute.String("source_chain_selector", task.Message.SourceChainSelector.String()),
-							attribute.String("dest_chain_name", task.Message.DestChainSelector.ChainName()),
-							attribute.String("dest_chain_selector", task.Message.DestChainSelector.String()),
-						),
-					)
-					span.End()
-				}
+				span := tracing.SpanFromContext(task.TraceContext)
+				span.AddEvent(monitoring.EventDisabledDropped,
+					oteltrace.WithAttributes(
+						attribute.String(tracing.SourceChainNameKey, task.Message.SourceChainSelector.ChainName()),
+						attribute.String(tracing.SourceChainSelectorKey, task.Message.SourceChainSelector.String()),
+						attribute.String(tracing.DestChainNameKey, task.Message.DestChainSelector.ChainName()),
+						attribute.String(tracing.DestChainSelectorKey, task.Message.DestChainSelector.String()),
+					),
+				)
+				span.End()
 				r.logger.Warnw("Dropping task - message matched a disablement rule",
 					protocol.LogKeyMessageID, msgID,
 					protocol.LogKeySourceChain, task.Message.SourceChainSelector,
@@ -684,11 +675,9 @@ func (r *Service) sendReadyMessages(ctx context.Context, latest, safe, finalized
 				task.ReadyForVerificationAt = latest.Timestamp
 				ready = append(ready, task)
 
-				if task.TraceContext != nil {
-					oteltrace.SpanFromContext(task.TraceContext).AddEvent("ready_for_verification",
-						oteltrace.WithAttributes(attribute.String("block_number", strconv.FormatUint(task.BlockNumber, 10))),
-					)
-				}
+				tracing.SpanFromContext(task.TraceContext).AddEvent(monitoring.EventReadyForVerification,
+					oteltrace.WithAttributes(attribute.String(tracing.BlockNumberKey, strconv.FormatUint(task.BlockNumber, 10))),
+				)
 			}
 		}
 
@@ -747,15 +736,13 @@ func (r *Service) sendReadyMessages(ctx context.Context, latest, safe, finalized
 			delete(r.pendingTasks, msgID)
 			r.reorgTracker.Remove(task.Message.DestChainSelector, task.Message.SequenceNumber)
 
-			if task.TraceContext != nil {
-				span := oteltrace.SpanFromContext(task.TraceContext)
-				span.AddEvent("task_published",
-					oteltrace.WithAttributes(
-						attribute.String("block_number", strconv.FormatUint(task.BlockNumber, 10)),
-					),
-				)
-				span.End()
-			}
+			span := tracing.SpanFromContext(task.TraceContext)
+			span.AddEvent(monitoring.EventTaskPublished,
+				oteltrace.WithAttributes(
+					attribute.String(tracing.BlockNumberKey, strconv.FormatUint(task.BlockNumber, 10)),
+				),
+			)
+			span.End()
 		}
 
 		r.logger.Debugw("Successfully published and tracked tasks",

@@ -11,8 +11,10 @@ import (
 	"go.opentelemetry.io/otel/propagation"
 	oteltrace "go.opentelemetry.io/otel/trace"
 
+	"github.com/smartcontractkit/chainlink-ccv/common/monitoring/tracing"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/jobqueue"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
@@ -183,16 +185,16 @@ func (p *Processor) processBatch(ctx context.Context) error {
 		var span oteltrace.Span
 		payload.TraceContext, span = p.monitoring.Tracing().StartMessageSpan(
 			parentCtx, "taskverifier.message.attempt", messageID,
-			attribute.String("verifier_id", p.verifierID),
-			attribute.String("job_id", job.ID),
-			attribute.String("source_chain_selector", job.Payload.Message.SourceChainSelector.String()),
-			attribute.String("source_chain_name", job.Payload.Message.SourceChainSelector.ChainName()),
-			attribute.String("dest_chain_selector", job.Payload.Message.DestChainSelector.String()),
-			attribute.String("dest_chain_name", job.Payload.Message.DestChainSelector.ChainName()),
+			attribute.String(tracing.VerifierIDKey, p.verifierID),
+			attribute.String(tracing.JobIDKey, job.ID),
+			attribute.String(tracing.SourceChainSelectorKey, job.Payload.Message.SourceChainSelector.String()),
+			attribute.String(tracing.SourceChainNameKey, job.Payload.Message.SourceChainSelector.ChainName()),
+			attribute.String(tracing.DestChainSelectorKey, job.Payload.Message.DestChainSelector.String()),
+			attribute.String(tracing.DestChainNameKey, job.Payload.Message.DestChainSelector.ChainName()),
 		)
-		span.AddEvent("job_discovered",
+		span.AddEvent(monitoring.EventJobDiscovered,
 			oteltrace.WithAttributes(
-				attribute.String("job_id", job.ID),
+				attribute.String(tracing.JobIDKey, job.ID),
 			),
 		)
 
@@ -232,10 +234,7 @@ func (p *Processor) handleVerificationResults(
 ) error {
 	defer func() {
 		for _, task := range taskMap {
-			span := oteltrace.SpanFromContext(task.TraceContext)
-			if span.IsRecording() {
-				span.End()
-			}
+			oteltrace.SpanFromContext(task.TraceContext).End()
 		}
 	}()
 
@@ -338,7 +337,7 @@ func (p *Processor) handleVerificationResults(
 			messageID := result.MessageID.String()
 			if task, ok := taskMap[messageID]; ok {
 				span := oteltrace.SpanFromContext(task.TraceContext)
-				span.AddEvent("result_published")
+				span.AddEvent(monitoring.EventResultPublished)
 				span.End()
 			}
 		}
@@ -461,8 +460,8 @@ func (p *Processor) handleVerificationError(
 		retryErrors[jobID] = verificationError.Error
 		retryDelays[jobID] = verificationError.DelayOrDefault()
 
-		span.AddEvent("retry_scheduled", oteltrace.WithAttributes(
-			attribute.String("delay", verificationError.DelayOrDefault().String()),
+		span.AddEvent(monitoring.EventRetryScheduled, oteltrace.WithAttributes(
+			attribute.String(tracing.DelayKey, verificationError.DelayOrDefault().String()),
 		))
 		span.End()
 	} else {
@@ -480,7 +479,7 @@ func (p *Processor) handleVerificationError(
 		*failedJobIDs = append(*failedJobIDs, jobID)
 		failedErrors[jobID] = verificationError.Error
 
-		span.AddEvent("verification_failed_permanent")
+		span.AddEvent(monitoring.EventVerificationFailedPermanent)
 		span.End()
 	}
 }

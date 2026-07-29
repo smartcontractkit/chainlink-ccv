@@ -7,14 +7,13 @@ import (
 
 	commonmetrics "github.com/smartcontractkit/chainlink-ccv/common/metrics"
 	"github.com/smartcontractkit/chainlink-ccv/common/monitoring/tracing"
-	"github.com/smartcontractkit/chainlink-ccv/executor"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"github.com/smartcontractkit/chainlink-common/pkg/metrics"
 )
 
 // InitMonitoring initializes the beholder monitoring system for the executor.
-func InitMonitoring() (executor.Monitoring, error) {
+func InitMonitoring() (Monitoring, error) {
 	// Initialize the executor metrics
 	executorMetrics, err := InitMetrics()
 	if err != nil {
@@ -34,18 +33,18 @@ func InitMonitoring() (executor.Monitoring, error) {
 }
 
 var (
-	_ executor.Monitoring = (*ExecutorBeholderMonitoring)(nil)
-	_ executor.Monitoring = (*NoopExecutorMonitoring)(nil)
+	_ Monitoring = (*ExecutorBeholderMonitoring)(nil)
+	_ Monitoring = (*NoopExecutorMonitoring)(nil)
 )
 
 // ExecutorBeholderMonitoring provides beholder-based monitoring for the executor.
 type ExecutorBeholderMonitoring struct {
-	metrics executor.MetricLabeler
+	metrics MetricLabeler
 	tracing tracing.Tracing
 	commonmetrics.ServiceMetrics
 }
 
-func (v *ExecutorBeholderMonitoring) Metrics() executor.MetricLabeler {
+func (v *ExecutorBeholderMonitoring) Metrics() MetricLabeler {
 	return v.metrics
 }
 
@@ -60,13 +59,13 @@ func (noopServiceMetrics) RecordServiceStarted(context.Context) {}
 
 // NoopExecutorMonitoring provides a no-op implementation of ExecutorMonitoring.
 type NoopExecutorMonitoring struct {
-	noop    executor.MetricLabeler
+	noop    MetricLabeler
 	tracing tracing.Tracing
 	commonmetrics.ServiceMetrics
 }
 
 // NewNoopExecutorMonitoring creates a new noop monitoring instance.
-func NewNoopExecutorMonitoring() executor.Monitoring {
+func NewNoopExecutorMonitoring() Monitoring {
 	return &NoopExecutorMonitoring{
 		noop:           NewNoopExecutorMetricLabeler(),
 		tracing:        tracing.NewTracing(beholder.GetTracer()),
@@ -74,7 +73,7 @@ func NewNoopExecutorMonitoring() executor.Monitoring {
 	}
 }
 
-func (n *NoopExecutorMonitoring) Metrics() executor.MetricLabeler {
+func (n *NoopExecutorMonitoring) Metrics() MetricLabeler {
 	return n.noop
 }
 
@@ -82,17 +81,17 @@ func (n *NoopExecutorMonitoring) Tracing() tracing.Tracing {
 	return n.tracing
 }
 
-var _ executor.MetricLabeler = (*NoopExecutorMetricLabeler)(nil)
+var _ MetricLabeler = (*NoopExecutorMetricLabeler)(nil)
 
 // NoopExecutorMetricLabeler provides a no-op implementation of ExecutorMetricLabeler.
 type NoopExecutorMetricLabeler struct{}
 
 // NewNoopExecutorMetricLabeler creates a new noop metric labeler.
-func NewNoopExecutorMetricLabeler() executor.MetricLabeler {
+func NewNoopExecutorMetricLabeler() MetricLabeler {
 	return &NoopExecutorMetricLabeler{}
 }
 
-func (n *NoopExecutorMetricLabeler) With(keyValues ...string) executor.MetricLabeler {
+func (n *NoopExecutorMetricLabeler) With(keyValues ...string) MetricLabeler {
 	return n
 }
 

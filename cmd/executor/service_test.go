@@ -131,6 +131,7 @@ executor_pool        = ["test-executor"]
 func TestFactory_Stop_Idempotent(t *testing.T) {
 	coord, err := executorsvc.NewCoordinator(
 		logger.Test(t),
+		"",
 		mocks.NewMockExecutor(t),
 		mocks.NewMockMessageSubscriber(t),
 		mocks.NewMockLeaderElector(t),

@@ -50,7 +50,7 @@ func TestConstructor(t *testing.T) {
 		exec         executor.Executor
 		sub          executor.MessageSubscriber
 		le           executor.LeaderElector
-		mon          executor.Monitoring
+		mon          monitoring.Monitoring
 		timeProvider any
 		workerCount  int
 	}

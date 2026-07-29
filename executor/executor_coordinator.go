@@ -9,10 +9,13 @@ import (
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	oteltrace "go.opentelemetry.io/otel/trace"
 
 	"github.com/smartcontractkit/chainlink-ccv/common"
+	"github.com/smartcontractkit/chainlink-ccv/common/monitoring/tracing"
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/message_heap"
+	execmonitoring "github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
@@ -29,7 +32,7 @@ type Coordinator struct {
 	messageSubscriber         MessageSubscriber
 	leaderElector             LeaderElector
 	lggr                      logger.Logger
-	monitoring                Monitoring
+	monitoring                execmonitoring.Monitoring
 	workerPoolTasks           chan message_heap.MessageWithTimestamps
 	cancel                    context.CancelFunc
 	delayedMessageHeap        message_heap.MessageHeap
@@ -43,7 +46,7 @@ type Coordinator struct {
 }
 
 // NewCoordinator creates a new executor coordinator.
-func NewCoordinator(lggr logger.Logger, executorID string, executor Executor, messageSubscriber MessageSubscriber, leaderElector LeaderElector, monitoring Monitoring, expiryDuration time.Duration, timeProvider common.TimeProvider, workerCount int, dataNotReadyRetryInterval time.Duration) (*Coordinator, error) {
+func NewCoordinator(lggr logger.Logger, executorID string, executor Executor, messageSubscriber MessageSubscriber, leaderElector LeaderElector, monitoring execmonitoring.Monitoring, expiryDuration time.Duration, timeProvider common.TimeProvider, workerCount int, dataNotReadyRetryInterval time.Duration) (*Coordinator, error) {
 	if dataNotReadyRetryInterval <= 0 {
 		dataNotReadyRetryInterval = DefaultDataNotReadyRetryInterval
 	}
@@ -213,12 +216,12 @@ func (ec *Coordinator) runStorageStream(ctx context.Context) {
 			// a terminal outcome (expired, executed, or permanently failed)
 			// in processPayload.
 			discCtx, discSpan := ec.monitoring.Tracing().StartMessageSpan(
-				ctx, "executor.message@"+ec.executorID, id,
-				attribute.String("dest_chain_selector", msg.DestChainSelector.String()),
-				attribute.String("source_chain_selector", msg.SourceChainSelector.String()),
-				attribute.String("ingestion_timestamp", streamResult.Metadata.IngestionTimestamp.Format(time.RFC3339)),
-				attribute.String("ready_timestamp", readyTimestamp.Format(time.RFC3339)))
-			discSpan.AddEvent("message_discovered")
+				ctx, execmonitoring.DiscoverySpanName(ec.executorID), id,
+				attribute.String(tracing.DestChainSelectorKey, msg.DestChainSelector.String()),
+				attribute.String(tracing.SourceChainSelectorKey, msg.SourceChainSelector.String()),
+				attribute.String(tracing.IngestionTimestampKey, streamResult.Metadata.IngestionTimestamp.Format(time.RFC3339)),
+				attribute.String(tracing.ReadyTimestampKey, readyTimestamp.Format(time.RFC3339)))
+			discSpan.AddEvent(execmonitoring.EventMessageDiscovered)
 
 			if !ec.delayedMessageHeap.Push(message_heap.MessageWithTimestamps{
 				Message:          &msg,
@@ -231,9 +234,10 @@ func (ec *Coordinator) runStorageStream(ctx context.Context) {
 				DiscoveryContext: discCtx,
 			}) {
 				ec.lggr.Debugw("duplicate message rejected by heap", protocol.LogKeyMessageID, id)
-				discSpan.AddEvent("duplicate_rejected")
+				discSpan.AddEvent(execmonitoring.EventDuplicateRejected)
 				discSpan.End()
 			}
+			discSpan.AddEvent(execmonitoring.EventMessageScheduled)
 		}
 	}
 }
@@ -310,7 +314,7 @@ func (ec *Coordinator) processPayload(ctx context.Context, payload message_heap.
 		// PER-MESSAGE LOG (failure): terminal; message exceeded its expiry without execution.
 		ec.lggr.Infow("message has expired", protocol.LogTypeKey, protocol.LogTypeMessageFailure, protocol.LogKeyMessageID, payload.MessageID)
 		ec.monitoring.Metrics().IncrementExpiredMessages(ctx)
-		discoverySpan.AddEvent("message_expired")
+		discoverySpan.AddEvent(execmonitoring.EventMessageExpired)
 		discoverySpan.End()
 		return
 	}
@@ -326,13 +330,16 @@ func (ec *Coordinator) processPayload(ctx context.Context, payload message_heap.
 	// the discovery span's lifetime doesn't depend on the attempt chain.
 	attemptCtx, attemptSpan := ec.monitoring.Tracing().StartMessageSpan(
 		discoveryCtx, "executor.process_payload", id,
-		attribute.String("dest_chain_selector", message.DestChainSelector.String()),
-		attribute.Int("attempt", payload.Attempt),
+		attribute.String(tracing.DestChainSelectorKey, message.DestChainSelector.String()),
+		attribute.Int(tracing.AttemptKey, payload.Attempt),
 	)
+	// Every path below (retry, success, permanent failure) is terminal for an attempt, but not for discovery
+	defer attemptSpan.End()
 
 	shouldRetry, err := ec.executor.HandleMessage(attemptCtx, message)
 	if err != nil {
 		attemptSpan.RecordError(err)
+		attemptSpan.SetStatus(codes.Error, err.Error())
 	}
 	if shouldRetry {
 		ec.scheduleRetry(retryParams{
@@ -347,13 +354,12 @@ func (ec *Coordinator) processPayload(ctx context.Context, payload message_heap.
 		})
 	} else {
 		if err != nil {
-			attemptSpan.AddEvent("execution_failed_permanent")
+			attemptSpan.AddEvent(execmonitoring.EventExecutionFailedPermanent)
 		} else {
-			attemptSpan.AddEvent("message_executed")
+			attemptSpan.AddEvent(execmonitoring.EventMessageExecuted)
 		}
 		// Terminal: no further stage picks this message up, so the
-		// discovery/attempt chain closes here.
-		attemptSpan.End()
+		// discovery span closes here too.
 		discoverySpan.End()
 	}
 	ec.monitoring.Metrics().IncrementMessagesProcessing(ctx)
@@ -376,7 +382,7 @@ type retryParams struct {
 }
 
 // scheduleRetry computes the retry delay/attempt count for a message that should be retried,
-// closes out the current attempt span, and pushes the message back onto the delayed heap.
+// records it on the current attempt span, and pushes the message back onto the delayed heap.
 func (ec *Coordinator) scheduleRetry(p retryParams) {
 	ec.lggr.Debugw("message should be retried, putting back in heap", protocol.LogKeyMessageID, p.id)
 
@@ -391,10 +397,11 @@ func (ec *Coordinator) scheduleRetry(p retryParams) {
 		attempt++
 		delay = ec.dataNotReadyBackoff(attempt, p.payload.RetryInterval)
 	}
-	p.attemptSpan.AddEvent("retry_scheduled", oteltrace.WithAttributes(
-		attribute.String("delay", delay.String()),
+	// Not ended here - the caller's defer ends it exactly once regardless of
+	// which branch (retry vs. terminal) runs.
+	p.attemptSpan.AddEvent(execmonitoring.EventRetryScheduled, oteltrace.WithAttributes(
+		attribute.String(tracing.DelayKey, delay.String()),
 	))
-	p.attemptSpan.End()
 
 	if !ec.delayedMessageHeap.Push(message_heap.MessageWithTimestamps{
 		Message:          &p.message,

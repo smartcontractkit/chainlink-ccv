@@ -49,6 +49,17 @@ func TraceContextForMessage(ctx context.Context, messageID protocol.Bytes32) con
 	return oteltrace.ContextWithSpanContext(ctx, SpanContextForMessage(messageID))
 }
 
+// SpanFromContext returns the span carried by ctx. Unlike oteltrace.SpanFromContext,
+// it tolerates a nil ctx (e.g. a VerificationTask whose TraceContext was never
+// populated) by returning the no-op span instead of panicking, so call sites
+// don't each need their own "is TraceContext nil" guard before use.
+func SpanFromContext(ctx context.Context) oteltrace.Span {
+	if ctx == nil {
+		return oteltrace.SpanFromContext(context.Background())
+	}
+	return oteltrace.SpanFromContext(ctx)
+}
+
 // Tracing exposes span creation for the message pipeline.
 type Tracing interface {
 	// StartMessageSpan starts a span for messageID. If ctx already carries a
@@ -69,7 +80,7 @@ func NewTracing(tracer oteltrace.Tracer) Tracing {
 }
 
 func withMessageID(messageID string, attrs []attribute.KeyValue) []attribute.KeyValue {
-	return append([]attribute.KeyValue{attribute.String("message_id", messageID)}, attrs...)
+	return append([]attribute.KeyValue{attribute.String(MessageIDKey, messageID)}, attrs...)
 }
 
 func (t *messageTracing) StartMessageSpan(ctx context.Context, name string, messageID protocol.Bytes32, attrs ...attribute.KeyValue) (context.Context, oteltrace.Span) {

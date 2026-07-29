@@ -12,8 +12,10 @@ import (
 	"go.opentelemetry.io/otel/propagation"
 	oteltrace "go.opentelemetry.io/otel/trace"
 
+	"github.com/smartcontractkit/chainlink-ccv/common/monitoring/tracing"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/jobqueue"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
@@ -173,16 +175,16 @@ func (s *Processor) processBatch(ctx context.Context) error {
 		var span oteltrace.Span
 		payload.TraceContext, span = s.monitoring.Tracing().StartMessageSpan(
 			parentCtx, "storagewriter.message.write", job.Payload.MessageID,
-			attribute.String("verifier_id", s.verifierID),
-			attribute.String("job_id", job.ID),
+			attribute.String(tracing.VerifierIDKey, s.verifierID),
+			attribute.String(tracing.JobIDKey, job.ID),
 		)
-		span.AddEvent("job_discovered",
+		span.AddEvent(monitoring.EventJobDiscovered,
 			oteltrace.WithAttributes(
-				attribute.String("job_id", job.ID),
-				attribute.String("source_chain_name", job.Payload.Message.SourceChainSelector.ChainName()),
-				attribute.String("source_chain_selector", job.Payload.Message.SourceChainSelector.String()),
-				attribute.String("dest_chain_name", job.Payload.Message.DestChainSelector.ChainName()),
-				attribute.String("dest_chain_selector", job.Payload.Message.DestChainSelector.String()),
+				attribute.String(tracing.JobIDKey, job.ID),
+				attribute.String(tracing.SourceChainNameKey, job.Payload.Message.SourceChainSelector.ChainName()),
+				attribute.String(tracing.SourceChainSelectorKey, job.Payload.Message.SourceChainSelector.String()),
+				attribute.String(tracing.DestChainNameKey, job.Payload.Message.DestChainSelector.ChainName()),
+				attribute.String(tracing.DestChainSelectorKey, job.Payload.Message.DestChainSelector.String()),
 			),
 		)
 		// results must carry the span-started context (not the raw extracted
@@ -194,10 +196,7 @@ func (s *Processor) processBatch(ctx context.Context) error {
 	}
 	defer func() {
 		for _, result := range results {
-			span := oteltrace.SpanFromContext(result.TraceContext)
-			if span.IsRecording() {
-				span.End()
-			}
+			oteltrace.SpanFromContext(result.TraceContext).End()
 		}
 	}()
 
@@ -221,8 +220,8 @@ func (s *Processor) processBatch(ctx context.Context) error {
 			span := oteltrace.SpanFromContext(results[i].TraceContext)
 			span.RecordError(err)
 			span.SetStatus(codes.Error, err.Error())
-			span.AddEvent("retry_scheduled", oteltrace.WithAttributes(
-				attribute.String("delay", s.retryDelay.String()),
+			span.AddEvent(monitoring.EventRetryScheduled, oteltrace.WithAttributes(
+				attribute.String(tracing.DelayKey, s.retryDelay.String()),
 			))
 		}
 
@@ -265,10 +264,11 @@ func (s *Processor) processBatch(ctx context.Context) error {
 			// PER-MESSAGE LOG (success): terminal; verification result persisted to storage.
 			s.lggr.Infow("Write succeeded for message", protocol.LogTypeKey, protocol.LogTypeMessageSuccess, protocol.LogKeyMessageID, messageID, protocol.LogKeyJobID, jobID)
 
-			span.AddEvent("write_succeeded")
+			span.AddEvent(monitoring.EventWriteSucceeded)
 			span.End()
 		} else {
 			span.RecordError(writeResult.Error)
+			span.SetStatus(codes.Error, writeResult.Error.Error())
 			if writeResult.Retryable {
 				retriableFailedJobs = append(retriableFailedJobs, jobID)
 				failedErrorMap[jobID] = writeResult.Error
@@ -278,8 +278,8 @@ func (s *Processor) processBatch(ctx context.Context) error {
 					"error", writeResult.Error,
 				)
 
-				span.AddEvent("retry_scheduled", oteltrace.WithAttributes(
-					attribute.String("delay", s.retryDelay.String()),
+				span.AddEvent(monitoring.EventRetryScheduled, oteltrace.WithAttributes(
+					attribute.String(tracing.DelayKey, s.retryDelay.String()),
 				))
 				span.End()
 			} else {
@@ -291,7 +291,7 @@ func (s *Processor) processBatch(ctx context.Context) error {
 					"error", writeResult.Error,
 				)
 
-				span.AddEvent("write_failed_permanent")
+				span.AddEvent(monitoring.EventWriteFailedPermanent)
 				span.End()
 			}
 		}

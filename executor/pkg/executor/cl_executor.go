@@ -13,7 +13,9 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/smartcontractkit/chainlink-ccv/common"
+	"github.com/smartcontractkit/chainlink-ccv/common/monitoring/tracing"
 	"github.com/smartcontractkit/chainlink-ccv/executor"
+	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -37,7 +39,7 @@ type ChainlinkExecutor struct {
 	readerServices         []services.Service
 	curseChecker           common.CurseChecker
 	verifierResultsReader  executor.VerifierResultReader
-	monitoring             executor.Monitoring
+	monitoring             monitoring.Monitoring
 	defaultExecutorAddress map[protocol.ChainSelector]protocol.UnknownAddress
 }
 
@@ -47,7 +49,7 @@ func NewChainlinkExecutor(
 	destinationReaders map[protocol.ChainSelector]chainaccess.DestinationReader,
 	curseChecker common.CurseChecker,
 	verifierResultReader executor.VerifierResultReader,
-	monitoring executor.Monitoring,
+	monitoring monitoring.Monitoring,
 	defaultExecutorAddress map[protocol.ChainSelector]protocol.UnknownAddress,
 ) *ChainlinkExecutor {
 	lggr.Infow("new chainlink executor",
@@ -162,7 +164,7 @@ func (cle *ChainlinkExecutor) HandleMessage(ctx context.Context, message protoco
 
 	// Check prerequisites to avoid toctou issues
 	if err := cle.CheckValidMessage(ctx, message); err != nil {
-		span.AddEvent("invalid_message_skipped")
+		span.AddEvent(monitoring.EventInvalidMessageSkipped)
 		return false, err
 	}
 	start := time.Now()
@@ -174,10 +176,10 @@ func (cle *ChainlinkExecutor) HandleMessage(ctx context.Context, message protoco
 		if curseErr != nil {
 			cle.lggr.Warnw("delaying execution - curse state unknown", protocol.LogKeyMessageID, messageID, "error", curseErr)
 			span.RecordError(curseErr)
-			span.AddEvent("delayed_curse_state_unknown")
+			span.AddEvent(monitoring.EventDelayedCurseStateUnknown)
 		} else {
 			cle.lggr.Debugw("delaying execution due to curse", protocol.LogKeyMessageID, messageID)
-			span.AddEvent("delayed_cursed")
+			span.AddEvent(monitoring.EventDelayedCursed)
 		}
 		return true, nil
 	}
@@ -188,13 +190,13 @@ func (cle *ChainlinkExecutor) HandleMessage(ctx context.Context, message protoco
 		// this usually only happens due to rpc issues, other nodes will try and this node will expect to see status SUCCESS later.
 		cle.lggr.Warnw("delaying execution due to failed check GetMessageExecutionState", protocol.LogKeyMessageID, messageID)
 		span.RecordError(err)
-		span.AddEvent("delayed_execution_state_unknown")
+		span.AddEvent(monitoring.EventDelayedExecutionStateUnknown)
 		return true, err
 	}
 	if executionSuccess {
 		cle.lggr.Debugw("skipping execution due to already being successfully executed", protocol.LogKeyMessageID, messageID)
 		cle.monitoring.Metrics().IncrementAlreadyExecutedMessages(ctx)
-		span.AddEvent("already_executed")
+		span.AddEvent(monitoring.EventAlreadyExecuted)
 		return false, nil
 	}
 
@@ -202,12 +204,14 @@ func (cle *ChainlinkExecutor) HandleMessage(ctx context.Context, message protoco
 	if err != nil {
 		cle.lggr.Warnw("delaying execution due to failed request for verifier results and quorum", protocol.LogKeyMessageID, messageID)
 		span.RecordError(err)
-		span.AddEvent("delayed_verifier_results_error")
+		span.AddEvent(monitoring.EventDelayedVerifierResultsError)
 		return true, err
 	}
 	if len(verifierResults) == 0 {
-		span.AddEvent("delayed_no_verifier_results")
-		return true, fmt.Errorf("delaying execution due to no verifier results %s", messageID.String())
+		noResultsErr := fmt.Errorf("delaying execution due to no verifier results %s", messageID.String())
+		span.RecordError(noResultsErr)
+		span.AddEvent(monitoring.EventDelayedNoVerifierResults)
+		return true, noResultsErr
 	}
 
 	// Order the Verifier Results to match the order expected by the receiver contract.
@@ -226,7 +230,7 @@ func (cle *ChainlinkExecutor) HandleMessage(ctx context.Context, message protoco
 		// PER-MESSAGE LOG (failure): terminal; receiver quorum can never be satisfied, no retry.
 		cle.lggr.Infow("skipping execution and not retrying due to impossible receiver verifier quorum", protocol.LogTypeKey, protocol.LogTypeMessageFailure, protocol.LogKeyMessageID, messageID)
 		cle.monitoring.Metrics().IncrementUnrecoverableMessageFailure(ctx)
-		span.AddEvent("unrecoverable_quorum_impossible")
+		span.AddEvent(monitoring.EventUnrecoverableQuorumImpossible)
 		return false, nil
 	}
 
@@ -234,14 +238,14 @@ func (cle *ChainlinkExecutor) HandleMessage(ctx context.Context, message protoco
 	if err != nil {
 		cle.lggr.Warnw("message did not meet verifier quorum, will retry", protocol.LogKeyMessageID, messageID)
 		span.RecordError(err)
-		span.AddEvent("delayed_quorum_not_met")
+		span.AddEvent(monitoring.EventDelayedQuorumNotMet)
 		return true, err
 	}
 
 	if !cle.destinationReaders[destinationChain].IsReady(destinationChain) {
 		cle.lggr.Debugw("execution attempt poller not ready, will retry",
 			protocol.LogKeyMessageID, messageID)
-		span.AddEvent("delayed_poller_not_ready")
+		span.AddEvent(monitoring.EventDelayedPollerNotReady)
 		return true, nil
 	}
 
@@ -251,7 +255,7 @@ func (cle *ChainlinkExecutor) HandleMessage(ctx context.Context, message protoco
 	if err != nil {
 		cle.lggr.Errorw("unable to call execution checker, will retry message", "error", err, protocol.LogKeyMessageID, messageID)
 		span.RecordError(err)
-		span.AddEvent("delayed_honest_attempt_check_error")
+		span.AddEvent(monitoring.EventDelayedHonestAttemptCheckError)
 		return true, err
 	}
 
@@ -259,7 +263,7 @@ func (cle *ChainlinkExecutor) HandleMessage(ctx context.Context, message protoco
 	// that we would execute the message with or deem valid. We won't execute.
 	if honestAttempt {
 		cle.lggr.Debugw("skipping execution due to existing honest attempt", protocol.LogKeyMessageID, messageID)
-		span.AddEvent("skipped_honest_attempt_exists")
+		span.AddEvent(monitoring.EventSkippedHonestAttemptExists)
 		return false, nil
 	}
 
@@ -277,12 +281,12 @@ func (cle *ChainlinkExecutor) HandleMessage(ctx context.Context, message protoco
 			cle.monitoring.Metrics().IncrementUnrecoverableMessageFailure(ctx)
 			cle.lggr.Warnw("skipping retry due to message encoding error", protocol.LogKeyMessageID, messageID, "error", err)
 			span.RecordError(err)
-			span.AddEvent("unrecoverable_encoding_error")
+			span.AddEvent(monitoring.EventUnrecoverableEncodingError)
 			return false, err
 		}
 		cle.lggr.Warnw("will retry execution due to failed ConvertAndWriteMessageToChain", protocol.LogKeyMessageID, messageID)
 		span.RecordError(err)
-		span.AddEvent("delayed_transmit_contended")
+		span.AddEvent(monitoring.EventDelayedTransmitContended)
 		return true, fmt.Errorf("%w: %w", executor.ErrExecutionContended, err)
 	}
 
@@ -299,8 +303,8 @@ func (cle *ChainlinkExecutor) HandleMessage(ctx context.Context, message protoco
 	// Record the message execution latency.
 	cle.monitoring.Metrics().RecordMessageExecutionLatency(ctx, time.Since(start), destinationChain)
 
-	span.AddEvent("message_transmitted", oteltrace.WithAttributes(
-		attribute.Int64("latest_ccv_timestamp", latestCCVTimestamp),
+	span.AddEvent(monitoring.EventMessageTransmitted, oteltrace.WithAttributes(
+		attribute.Int64(tracing.LatestCCVTimestampKey, latestCCVTimestamp),
 	))
 
 	return false, nil
