@@ -179,6 +179,37 @@ Then start with a testnet config:
 ccv up env.toml,env-fuji-fantom.toml
 ```
 
+## Testing with AWS KMS (keystore backend)
+
+By default services use the Postgres keystore. To exercise the AWS KMS backend, set it in the
+service's bootstrap keystore config in your env file (pre-provision the KMS keys out of band):
+
+```toml
+[verifier.bootstrap.keystore]
+backend = "kms"
+[verifier.bootstrap.keystore.kms]
+region         = "us-west-2"
+ecdsa_key_id   = "arn:aws:kms:us-west-2:<acct>:key/<id>"   # secp256k1
+ed25519_key_id = "arn:aws:kms:us-west-2:<acct>:key/<id>"   # Ed25519 CSA key
+```
+
+The container reaches KMS via the AWS default credential chain, so export credentials into the shell
+that runs `ccv up` first — devenv forwards `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` /
+`AWS_SESSION_TOKEN` / `AWS_REGION` into the container, but **only** for KMS-backed services
+(see `ForwardedAWSEnv` in `services/common.go`):
+
+```bash
+aws sso login --profile <p>
+eval "$(aws configure export-credentials --profile <p> --format env)"
+export AWS_REGION=us-west-2
+ccv up env.toml
+```
+
+The IAM principal needs `kms:Sign`, `kms:GetPublicKey`, `kms:DescribeKey` on those key ARNs. This
+credential forwarding is a local-dev convenience only; production uses IRSA / instance roles. Verify
+via the bootstrap info server (`POST /keystore/reader/getkeys`) — the returned public keys should
+match `aws kms get-public-key` for the ARNs.
+
 ## Running without a Job Distributor (`app_config_source = "local"`)
 
 By default the environment starts a Job Distributor and ships each service's app config via job

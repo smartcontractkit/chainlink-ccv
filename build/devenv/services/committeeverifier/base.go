@@ -348,7 +348,14 @@ func launchVerifier(ctx context.Context, in *Input, outputs []*blockchain.Output
 	// delivered by copying it into the running container (below / DeliverLocalAppConfig), not via a bind
 	// mount, so the container boots serving keys and the config can arrive at launch (in.LocalAppConfig
 	// set) or later (no-JD path: once contracts are deployed and the config is known).
-	req, err := baseImageRequest(in, nil, bootstrapConfigFilePath, bootstrapSecretsFilePath, verifierSecretsFilePath)
+	// When the bootstrap keystore uses the KMS backend, the container reaches AWS KMS via the default
+	// credential chain. Forward the host's AWS credentials so it can authenticate. Only done for the
+	// KMS backend.
+	var envVars map[string]string
+	if bootstrapInput.Keystore != nil && bootstrapInput.Keystore.Backend == bootstrap.KeystoreBackendKMS {
+		envVars = services.ForwardedAWSEnv()
+	}
+	req, err := baseImageRequest(in, envVars, bootstrapConfigFilePath, bootstrapSecretsFilePath, verifierSecretsFilePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create base image request: %w", err)
 	}

@@ -66,7 +66,8 @@ func Load[T any](paths []string) (*T, error) {
 		decoder.DisallowUnknownFields()
 
 		if err := decoder.Decode(&config); err != nil {
-			if details, ok := errors.AsType[*toml.StrictMissingError](err); ok {
+			var details *toml.StrictMissingError
+			if errors.As(err, &details) {
 				fmt.Println(details.String())
 			}
 			return nil, fmt.Errorf("failed to decode TOML config, strict mode: %s", err)
@@ -191,7 +192,8 @@ func loadLegacyCfg(data []byte) (*Cfg, error) {
 	decoder := toml.NewDecoder(strings.NewReader(string(data)))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&cfg); err != nil {
-		if details, ok := errors.AsType[*toml.StrictMissingError](err); ok {
+		var details *toml.StrictMissingError
+		if errors.As(err, &details) {
 			fmt.Println(details.String())
 		}
 		return nil, fmt.Errorf("failed to decode TOML config, strict mode: %s", err)
