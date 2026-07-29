@@ -5,7 +5,7 @@ package monitoring
 // tooling can match on them without risking drift from ad-hoc string
 // literals at each call site.
 const (
-	// sourcereader
+	// sourcereader.
 	EventChainEventDiscovered    = "event_discovered"
 	EventTaskFormed              = "task_formed"
 	EventReorgRemovedPending     = "reorg_removed_pending"
@@ -19,13 +19,13 @@ const (
 	EventAlreadyTracked          = "already_tracked"
 	EventAlreadySent             = "already_sent"
 
-	// taskverifier
-	EventJobDiscovered               = "job_discovered"
-	EventResultPublished             = "result_published"
-	EventRetryScheduled              = "retry_scheduled"
+	// taskverifier.
+	EventJobDiscovered   = "job_discovered"
+	EventResultPublished = "result_published"
+	EventRetryScheduled  = "retry_scheduled"
 
-	// storagewriter
-	EventWriteSucceeded       = "write_succeeded"
+	// storagewriter.
+	EventWriteSucceeded = "write_succeeded"
 )
 
 // MessageDiscoverySpanName returns the name of the per-message span opened by the
