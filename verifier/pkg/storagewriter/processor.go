@@ -174,7 +174,7 @@ func (s *Processor) processBatch(ctx context.Context) error {
 		payload := job.Payload
 		var span oteltrace.Span
 		payload.TraceContext, span = s.monitoring.Tracing().StartMessageSpan(
-			parentCtx, "storagewriter.message.write", job.Payload.MessageID,
+			parentCtx, monitoring.StorageWriterWriteSpanName(s.verifierID), job.Payload.MessageID,
 			attribute.String(tracing.VerifierIDKey, s.verifierID),
 			attribute.String(tracing.JobIDKey, job.ID),
 		)
@@ -196,7 +196,7 @@ func (s *Processor) processBatch(ctx context.Context) error {
 	}
 	defer func() {
 		for _, result := range results {
-			oteltrace.SpanFromContext(result.TraceContext).End()
+			tracing.SpanFromContext(result.TraceContext).End()
 		}
 	}()
 
@@ -217,7 +217,7 @@ func (s *Processor) processBatch(ctx context.Context) error {
 			jobIDs[i] = job.ID
 			errorMap[job.ID] = err
 
-			span := oteltrace.SpanFromContext(results[i].TraceContext)
+			span := tracing.SpanFromContext(results[i].TraceContext)
 			span.RecordError(err)
 			span.SetStatus(codes.Error, err.Error())
 			span.AddEvent(monitoring.EventRetryScheduled, oteltrace.WithAttributes(
@@ -256,7 +256,7 @@ func (s *Processor) processBatch(ctx context.Context) error {
 		job := jobs[i]
 		jobID := job.ID
 		messageID := writeResult.Input.MessageID.String()
-		span := oteltrace.SpanFromContext(results[i].TraceContext)
+		span := tracing.SpanFromContext(results[i].TraceContext)
 
 		if writeResult.Status == protocol.WriteSuccess {
 			successfulJobs = append(successfulJobs, jobID)
@@ -265,9 +265,8 @@ func (s *Processor) processBatch(ctx context.Context) error {
 			s.lggr.Infow("Write succeeded for message", protocol.LogTypeKey, protocol.LogTypeMessageSuccess, protocol.LogKeyMessageID, messageID, protocol.LogKeyJobID, jobID)
 
 			span.AddEvent(monitoring.EventWriteSucceeded)
-			span.End()
 		} else {
-			span.RecordError(writeResult.Error)
+			span.RecordError(writeResult.Error, oteltrace.WithAttributes(attribute.Bool(tracing.RetryableKey, writeResult.Retryable)))
 			span.SetStatus(codes.Error, writeResult.Error.Error())
 			if writeResult.Retryable {
 				retriableFailedJobs = append(retriableFailedJobs, jobID)
@@ -281,7 +280,6 @@ func (s *Processor) processBatch(ctx context.Context) error {
 				span.AddEvent(monitoring.EventRetryScheduled, oteltrace.WithAttributes(
 					attribute.String(tracing.DelayKey, s.retryDelay.String()),
 				))
-				span.End()
 			} else {
 				nonRetriableFailedJobs = append(nonRetriableFailedJobs, jobID)
 				failedErrorMap[jobID] = writeResult.Error
@@ -290,9 +288,6 @@ func (s *Processor) processBatch(ctx context.Context) error {
 					protocol.LogKeyJobID, jobID,
 					"error", writeResult.Error,
 				)
-
-				span.AddEvent(monitoring.EventWriteFailedPermanent)
-				span.End()
 			}
 		}
 	}

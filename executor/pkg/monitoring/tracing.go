@@ -9,7 +9,6 @@ const (
 	EventMessageScheduled         = "message_scheduled"
 	EventDuplicateRejected        = "duplicate_rejected"
 	EventMessageExpired           = "message_expired"
-	EventExecutionFailedPermanent = "execution_failed_permanent"
 	EventMessageExecuted          = "message_executed"
 	EventRetryScheduled           = "retry_scheduled"
 
@@ -18,20 +17,21 @@ const (
 	EventDelayedCursed                  = "delayed_cursed"
 	EventDelayedExecutionStateUnknown   = "delayed_execution_state_unknown"
 	EventAlreadyExecuted                = "already_executed"
-	EventDelayedVerifierResultsError    = "delayed_verifier_results_error"
-	EventDelayedNoVerifierResults       = "delayed_no_verifier_results"
 	EventUnrecoverableQuorumImpossible  = "unrecoverable_quorum_impossible"
-	EventDelayedQuorumNotMet            = "delayed_quorum_not_met"
 	EventDelayedPollerNotReady          = "delayed_poller_not_ready"
-	EventDelayedHonestAttemptCheckError = "delayed_honest_attempt_check_error"
 	EventSkippedHonestAttemptExists     = "skipped_honest_attempt_exists"
-	EventUnrecoverableEncodingError     = "unrecoverable_encoding_error"
-	EventDelayedTransmitContended       = "delayed_transmit_contended"
 	EventMessageTransmitted             = "message_transmitted"
 )
 
 // DiscoverySpanName returns the name of the per-message discovery span opened
 // when the coordinator identified by executorID first observes a message.
 func DiscoverySpanName(executorID string) string {
-	return "executor.message@" + executorID
+	return "executor.message.discovery@" + executorID
+}
+
+// ProcessPayloadSpanName returns the name of the per-attempt span opened by
+// the coordinator each time a message is popped off the delayed heap for
+// execution, scoped to the executor instance identified by executorID.
+func ProcessPayloadSpanName(executorID string) string {
+	return "executor.message.process@" + executorID
 }

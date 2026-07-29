@@ -39,8 +39,6 @@ type MessageWithTimestamps struct {
 	Attempt       int
 	// TraceContext - see ExpiryWithMessage.TraceContext.
 	TraceContext context.Context
-	// DiscoveryContext - see ExpiryWithMessage.DiscoveryContext.
-	DiscoveryContext context.Context
 }
 
 // MessageHeapEntry is the minimal set of data needed to maintain the priority queue heap.
@@ -135,12 +133,11 @@ func (mh *MessageHeap) Push(msg MessageWithTimestamps) bool {
 	})
 
 	mh.dataMap[msg.MessageID] = ExpiryWithMessage{
-		Message:          msg.Message,
-		ExpiryTime:       msg.ExpiryTime,
-		RetryInterval:    msg.RetryInterval,
-		Attempt:          msg.Attempt,
-		TraceContext:     msg.TraceContext,
-		DiscoveryContext: msg.DiscoveryContext,
+		Message:       msg.Message,
+		ExpiryTime:    msg.ExpiryTime,
+		RetryInterval: msg.RetryInterval,
+		Attempt:       msg.Attempt,
+		TraceContext:  msg.TraceContext,
 	}
 	return true
 }
@@ -168,14 +165,13 @@ func (mh *MessageHeap) PopAllReady(timestamp time.Time) []MessageWithTimestamps 
 			continue
 		}
 		readyMessages = append(readyMessages, MessageWithTimestamps{
-			MessageID:        entry.MessageID,
-			RetryInterval:    data.RetryInterval,
-			ReadyTime:        entry.ReadyTime,
-			Message:          data.Message,
-			ExpiryTime:       data.ExpiryTime,
-			Attempt:          data.Attempt,
-			TraceContext:     data.TraceContext,
-			DiscoveryContext: data.DiscoveryContext,
+			MessageID:     entry.MessageID,
+			RetryInterval: data.RetryInterval,
+			ReadyTime:     entry.ReadyTime,
+			Message:       data.Message,
+			ExpiryTime:    data.ExpiryTime,
+			Attempt:       data.Attempt,
+			TraceContext:  data.TraceContext,
 		})
 		delete(mh.dataMap, entry.MessageID)
 	}

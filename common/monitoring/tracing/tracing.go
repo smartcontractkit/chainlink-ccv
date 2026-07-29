@@ -85,8 +85,11 @@ func withMessageID(messageID string, attrs []attribute.KeyValue) []attribute.Key
 
 func (t *messageTracing) StartMessageSpan(ctx context.Context, name string, messageID protocol.Bytes32, attrs ...attribute.KeyValue) (context.Context, oteltrace.Span) {
 	tCtx := ctx
-	if !oteltrace.SpanContextFromContext(ctx).IsValid() {
-		tCtx = TraceContextForMessage(ctx, messageID)
+	if tCtx == nil {
+		tCtx = context.Background()
+	}
+	if !oteltrace.SpanContextFromContext(tCtx).IsValid() {
+		tCtx = TraceContextForMessage(tCtx, messageID)
 	}
 	return t.tracer.Start(tCtx, name, oteltrace.WithAttributes(withMessageID(messageID.String(), attrs)...))
 }

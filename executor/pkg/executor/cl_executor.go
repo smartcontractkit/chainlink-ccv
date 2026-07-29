@@ -203,14 +203,10 @@ func (cle *ChainlinkExecutor) HandleMessage(ctx context.Context, message protoco
 	verifierResults, verifierQuorum, err := cle.getVerifierResultsAndQuorum(ctx, message, messageID)
 	if err != nil {
 		cle.lggr.Warnw("delaying execution due to failed request for verifier results and quorum", protocol.LogKeyMessageID, messageID)
-		span.RecordError(err)
-		span.AddEvent(monitoring.EventDelayedVerifierResultsError)
 		return true, err
 	}
 	if len(verifierResults) == 0 {
 		noResultsErr := fmt.Errorf("delaying execution due to no verifier results %s", messageID.String())
-		span.RecordError(noResultsErr)
-		span.AddEvent(monitoring.EventDelayedNoVerifierResults)
 		return true, noResultsErr
 	}
 
@@ -237,8 +233,6 @@ func (cle *ChainlinkExecutor) HandleMessage(ctx context.Context, message protoco
 	orderedverifierResults, orderedCCVOfframps, latestCCVTimestamp, err := orderCCVData(verifierResults, verifierQuorum)
 	if err != nil {
 		cle.lggr.Warnw("message did not meet verifier quorum, will retry", protocol.LogKeyMessageID, messageID)
-		span.RecordError(err)
-		span.AddEvent(monitoring.EventDelayedQuorumNotMet)
 		return true, err
 	}
 
@@ -254,8 +248,6 @@ func (cle *ChainlinkExecutor) HandleMessage(ctx context.Context, message protoco
 	honestAttempt, err := cle.destinationReaders[destinationChain].HasHonestAttempt(ctx, message, verifierResults, verifierQuorum)
 	if err != nil {
 		cle.lggr.Errorw("unable to call execution checker, will retry message", "error", err, protocol.LogKeyMessageID, messageID)
-		span.RecordError(err)
-		span.AddEvent(monitoring.EventDelayedHonestAttemptCheckError)
 		return true, err
 	}
 
@@ -280,13 +272,9 @@ func (cle *ChainlinkExecutor) HandleMessage(ctx context.Context, message protoco
 		if errors.Is(err, executor.ErrMessageEncoding) {
 			cle.monitoring.Metrics().IncrementUnrecoverableMessageFailure(ctx)
 			cle.lggr.Warnw("skipping retry due to message encoding error", protocol.LogKeyMessageID, messageID, "error", err)
-			span.RecordError(err)
-			span.AddEvent(monitoring.EventUnrecoverableEncodingError)
 			return false, err
 		}
 		cle.lggr.Warnw("will retry execution due to failed ConvertAndWriteMessageToChain", protocol.LogKeyMessageID, messageID)
-		span.RecordError(err)
-		span.AddEvent(monitoring.EventDelayedTransmitContended)
 		return true, fmt.Errorf("%w: %w", executor.ErrExecutionContended, err)
 	}
 

@@ -8,6 +8,7 @@ import (
 
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/propagation"
 	oteltrace "go.opentelemetry.io/otel/trace"
 
@@ -184,7 +185,7 @@ func (p *Processor) processBatch(ctx context.Context) error {
 		}
 		var span oteltrace.Span
 		payload.TraceContext, span = p.monitoring.Tracing().StartMessageSpan(
-			parentCtx, "taskverifier.message.attempt", messageID,
+			parentCtx, monitoring.TaskVerifierAttemptSpanName(p.verifierID), messageID,
 			attribute.String(tracing.VerifierIDKey, p.verifierID),
 			attribute.String(tracing.JobIDKey, job.ID),
 			attribute.String(tracing.SourceChainSelectorKey, job.Payload.Message.SourceChainSelector.String()),
@@ -232,9 +233,12 @@ func (p *Processor) handleVerificationResults(
 	taskMap map[string]verifier.VerificationTask,
 	verificationStartTime time.Time,
 ) error {
+	// Safety net for tasks whose terminal branch below never runs (e.g. no
+	// job ID match, or an early return before that task is reached) - the
+	// three explicit branches below already end their own span.
 	defer func() {
 		for _, task := range taskMap {
-			oteltrace.SpanFromContext(task.TraceContext).End()
+			tracing.SpanFromContext(task.TraceContext).End()
 		}
 	}()
 
@@ -322,7 +326,7 @@ func (p *Processor) handleVerificationResults(
 		if err := p.resultQueue.Publish(publishCtx, successfulResults...); err != nil {
 			for _, result := range successfulResults {
 				if task, ok := taskMap[result.MessageID.String()]; ok {
-					oteltrace.SpanFromContext(task.TraceContext).RecordError(err)
+					tracing.SpanFromContext(task.TraceContext).RecordError(err)
 				}
 			}
 			p.lggr.Errorw("Failed to publish verification results to queue - jobs will remain in processing state and be reclaimed as stale locks",
@@ -336,7 +340,7 @@ func (p *Processor) handleVerificationResults(
 		for _, result := range successfulResults {
 			messageID := result.MessageID.String()
 			if task, ok := taskMap[messageID]; ok {
-				span := oteltrace.SpanFromContext(task.TraceContext)
+				span := tracing.SpanFromContext(task.TraceContext)
 				span.AddEvent(monitoring.EventResultPublished)
 				span.End()
 			}
@@ -452,8 +456,12 @@ func (p *Processor) handleVerificationError(
 		"retryable", verificationError.Retryable,
 	)
 
-	span := oteltrace.SpanFromContext(verificationError.Task.TraceContext)
-	span.RecordError(verificationError.Error)
+	span := tracing.SpanFromContext(verificationError.Task.TraceContext)
+	if verificationError.Error != nil {
+		span.RecordError(verificationError.Error, oteltrace.WithAttributes(attribute.Bool(tracing.RetryableKey, verificationError.Retryable)))
+		span.SetStatus(codes.Error, verificationError.Error.Error())
+	}
+	defer span.End()
 
 	if verificationError.Retryable {
 		*retryJobIDs = append(*retryJobIDs, jobID)
@@ -463,7 +471,6 @@ func (p *Processor) handleVerificationError(
 		span.AddEvent(monitoring.EventRetryScheduled, oteltrace.WithAttributes(
 			attribute.String(tracing.DelayKey, verificationError.DelayOrDefault().String()),
 		))
-		span.End()
 	} else {
 		// Increment permanent error metric
 		p.monitoring.Metrics().
@@ -478,9 +485,6 @@ func (p *Processor) handleVerificationError(
 
 		*failedJobIDs = append(*failedJobIDs, jobID)
 		failedErrors[jobID] = verificationError.Error
-
-		span.AddEvent(monitoring.EventVerificationFailedPermanent)
-		span.End()
 	}
 }
 
