@@ -393,6 +393,13 @@ func buildVerifierJobSpecs(
 		if signerAddress == "" {
 			return nil, scope, fmt.Errorf("NOP %q missing signer address for family %s", nop.Alias, signerFamily)
 		}
+		// Canonicalise at the boundary, whatever the address's provenance. It reaches here either
+		// inline from the topology or fetched from JD, which stores an OCR bundle's signing address
+		// as bare hex; a CL node decodes signer_address with hexutil.Decode and rejects anything
+		// without an 0x prefix, failing every ccvcommitteeverifier job it is proposed. Normalizing
+		// where the address enters the job spec covers every source rather than requiring each one
+		// to have normalized already.
+		signerAddress = shared.NormalizeAddress(signerFamily, signerAddress)
 
 		mode, err := resolveNOPMode(nop.Mode, nopAlias)
 		if err != nil {
