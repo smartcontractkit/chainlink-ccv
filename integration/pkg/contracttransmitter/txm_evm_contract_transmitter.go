@@ -20,6 +20,10 @@ import (
 )
 
 const (
+	// DefaultKeyName is the full keystore path of the ECDSA key the executor
+	// uses to sign and submit OffRamp transactions on EVM chains.
+	DefaultKeyName = "evm/tx/executor_evm_transmitter_key"
+
 	// Numerator and Denominator to compensate for EIP-150 forwarding.
 	eip150ForwardingNumerator   = 64
 	eip150ForwardingDenominator = 63

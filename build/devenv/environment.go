@@ -123,20 +123,25 @@ type Cfg struct {
 	// Version is incremented on breaking config schema changes so downstream
 	// consumers can detect incompatible configs. Version 0 (implicit/absent)
 	// predates the [protocol_contracts] section.
-	Version            int                            `toml:"version"`
-	CLDF               ccldf.CLDF                     `toml:"cldf"                  validate:"required"`
-	Pricer             *services.PricerInput          `toml:"pricer"                validate:"required"`
-	Fake               *services.FakeInput            `toml:"fake"                  validate:"required"`
-	Verifier           []*committeeverifier.Input     `toml:"verifier"              validate:"required"`
-	TokenVerifier      []*services.TokenVerifierInput `toml:"token_verifier"`
-	Executor           []*executorsvc.Input           `toml:"executor"              validate:"required"`
-	Indexer            []*services.IndexerInput       `toml:"indexer"               validate:"required"`
-	Aggregator         []*services.AggregatorInput    `toml:"aggregator"            validate:"required"`
-	JD                 *jd.Input                      `toml:"jd"                    validate:"required"`
-	Blockchains        []*blockchain.Input            `toml:"blockchains"           validate:"required"`
-	NodeSets           []*ns.Input                    `toml:"nodesets,omitempty"`
-	CLNodesFundingETH  float64                        `toml:"cl_nodes_funding_eth"`
-	CLNodesFundingLink float64                        `toml:"cl_nodes_funding_link"`
+	Version       int                            `toml:"version"`
+	CLDF          ccldf.CLDF                     `toml:"cldf"           validate:"required"`
+	Pricer        *services.PricerInput          `toml:"pricer"         validate:"required"`
+	Fake          *services.FakeInput            `toml:"fake"           validate:"required"`
+	Verifier      []*committeeverifier.Input     `toml:"verifier"       validate:"required"`
+	TokenVerifier []*services.TokenVerifierInput `toml:"token_verifier"`
+	Executor      []*executorsvc.Input           `toml:"executor"       validate:"required"`
+	Indexer       []*services.IndexerInput       `toml:"indexer"        validate:"required"`
+	Aggregator    []*services.AggregatorInput    `toml:"aggregator"     validate:"required"`
+	JD            *jd.Input                      `toml:"jd"             validate:"required"`
+	Blockchains   []*blockchain.Input            `toml:"blockchains"    validate:"required"`
+
+	// LocalNetworks contains opaque, chain-family-owned local network
+	// configuration. Concrete schemas and behavior live behind chainreg.
+	LocalNetworks map[string]*chainreg.LocalNetworkConfig `toml:"local_networks,omitempty"`
+
+	NodeSets           []*ns.Input `toml:"nodesets,omitempty"`
+	CLNodesFundingETH  float64     `toml:"cl_nodes_funding_eth"`
+	CLNodesFundingLink float64     `toml:"cl_nodes_funding_link"`
 	// HighAvailability enables devenv-level service redundancy. When true,
 	// ExpandForHA() clones AggregatorInput / IndexerInput entries according
 	// to their per-service redundancy counts and updates the topology.

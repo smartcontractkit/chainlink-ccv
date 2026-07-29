@@ -28,6 +28,7 @@ type v2TestCase struct {
 	expectFail               bool
 	assertExecuted           bool
 	numExpectedVerifications int
+	executionTimeout         time.Duration
 }
 
 func TestE2ESmoke_ExtraArgsV2(t *testing.T) {
@@ -137,8 +138,13 @@ func runV2TestCase(
 	require.Len(t, result.IndexedVerifications.Results, tc.numExpectedVerifications)
 
 	if tc.assertExecuted {
-		e, err := chainMap[tc.toSelector].ConfirmExecOnDest(ctx, tc.fromSelector, cciptestinterfaces.MessageEventKey{SeqNum: seqNo}, defaultExecTimeout)
+		executionTimeout := tc.executionTimeout
+		if executionTimeout <= 0 {
+			executionTimeout = defaultExecTimeout
+		}
+		execEnv, err := chainMap[tc.toSelector].ConfirmExecOnDest(ctx, tc.fromSelector, cciptestinterfaces.MessageEventKey{SeqNum: seqNo}, executionTimeout)
 		require.NoError(t, err)
+		e := execEnv.Event
 		require.NotNil(t, e)
 
 		if tc.expectFail {

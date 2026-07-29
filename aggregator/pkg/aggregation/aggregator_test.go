@@ -308,7 +308,7 @@ func TestHealthCheck(t *testing.T) {
 			a := NewCommitReportAggregator(store, nil, sink, mocks.NewMockQuorumValidator(t), config, logger.Sugared(logger.Test(t)), monitoring, channelManager)
 
 			for i := 0; i < tc.pending; i++ {
-				_ = channelManager.Enqueue(t.Context(), "test-client", aggregationRequest{}, time.Millisecond)
+				_ = channelManager.Enqueue(t.Context(), "test-client", aggregationRequest{})
 			}
 			if tc.stopped {
 				a.done = make(chan struct{})
@@ -340,7 +340,7 @@ func TestCheckAggregation_EnqueueAndFull(t *testing.T) {
 		channelManager := NewChannelManager([]model.ChannelKey{"test-client"}, config.Aggregation.ChannelBufferSize)
 		a := NewCommitReportAggregator(store, nil, sink, mocks.NewMockQuorumValidator(t), config, logger.Sugared(logger.Test(t)), monitoring, channelManager)
 
-		err := a.CheckAggregation(t.Context(), []byte{1}, "test-key", "test-client", time.Millisecond)
+		err := a.CheckAggregation(t.Context(), []byte{1}, "test-key", "test-client")
 		require.NoError(t, err)
 	})
 
@@ -355,9 +355,9 @@ func TestCheckAggregation_EnqueueAndFull(t *testing.T) {
 		channelManager := NewChannelManager([]model.ChannelKey{"test-client"}, config.Aggregation.ChannelBufferSize)
 		a := NewCommitReportAggregator(store, nil, sink, mocks.NewMockQuorumValidator(t), config, logger.Sugared(logger.Test(t)), monitoring, channelManager)
 
-		_ = channelManager.Enqueue(t.Context(), "test-client", aggregationRequest{}, time.Millisecond)
+		_ = channelManager.Enqueue(t.Context(), "test-client", aggregationRequest{})
 
-		err := a.CheckAggregation(t.Context(), []byte{1}, "test-key", "test-client", time.Millisecond)
+		err := a.CheckAggregation(t.Context(), []byte{1}, "test-key", "test-client")
 		require.Error(t, err)
 		assert.ErrorIs(t, err, common.ErrAggregationChannelFull)
 	})
@@ -567,14 +567,14 @@ func TestHealthCheck_RecoversPanicEmitsMetricAndKeepsRunning(t *testing.T) {
 	require.NoError(t, a.Ready())
 
 	// First request panics
-	_ = a.CheckAggregation(ctx, []byte{1, 2, 3}, "test-key", "test-client", time.Millisecond)
+	_ = a.CheckAggregation(ctx, []byte{1, 2, 3}, "test-key", "test-client")
 	time.Sleep(100 * time.Millisecond)
 
 	// Still healthy after panic - we now emit metrics instead of tracking consecutive panics
 	require.NoError(t, a.Ready())
 
 	// Second request succeeds
-	_ = a.CheckAggregation(ctx, []byte{4, 5, 6}, "test-key-2", "test-client", time.Millisecond)
+	_ = a.CheckAggregation(ctx, []byte{4, 5, 6}, "test-key-2", "test-client")
 	time.Sleep(100 * time.Millisecond)
 
 	require.NoError(t, a.Ready())
@@ -625,9 +625,9 @@ func TestHealthCheck_ReturnsErrorAfterConsecutiveWorkerFailures(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 	require.NoError(t, a.Ready(), "should be ready after start")
 
-	_ = a.CheckAggregation(ctx, []byte{1}, "key-1", "test-client", time.Millisecond)
-	_ = a.CheckAggregation(ctx, []byte{2}, "key-2", "test-client", time.Millisecond)
-	_ = a.CheckAggregation(ctx, []byte{3}, "key-3", "test-client", time.Millisecond)
+	_ = a.CheckAggregation(ctx, []byte{1}, "key-1", "test-client")
+	_ = a.CheckAggregation(ctx, []byte{2}, "key-2", "test-client")
+	_ = a.CheckAggregation(ctx, []byte{3}, "key-3", "test-client")
 
 	require.Eventually(t, func() bool {
 		err := a.Ready()
@@ -638,7 +638,7 @@ func TestHealthCheck_ReturnsErrorAfterConsecutiveWorkerFailures(t *testing.T) {
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "times in a row")
 
-	_ = a.CheckAggregation(ctx, []byte{4}, "key-4", "test-client", time.Millisecond)
+	_ = a.CheckAggregation(ctx, []byte{4}, "key-4", "test-client")
 
 	require.Eventually(t, func() bool {
 		return a.Ready() == nil
@@ -682,9 +682,9 @@ func TestStartBackground_Shutdown(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
 		a.StartBackground(ctx)
 
-		_ = a.CheckAggregation(ctx, []byte{1}, "key-1", "test-client", time.Second)
-		_ = a.CheckAggregation(ctx, []byte{2}, "key-2", "test-client", time.Second)
-		_ = a.CheckAggregation(ctx, []byte{3}, "key-3", "test-client", time.Second)
+		_ = a.CheckAggregation(ctx, []byte{1}, "key-1", "test-client")
+		_ = a.CheckAggregation(ctx, []byte{2}, "key-2", "test-client")
+		_ = a.CheckAggregation(ctx, []byte{3}, "key-3", "test-client")
 
 		time.Sleep(50 * time.Millisecond)
 		require.Equal(t, int32(0), processedCount.Load(), "no requests should be processed before drain")
@@ -728,7 +728,7 @@ func TestStartBackground_Shutdown(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
 		a.StartBackground(ctx)
 
-		_ = a.CheckAggregation(ctx, []byte{1}, "key-1", "test-client", time.Second)
+		_ = a.CheckAggregation(ctx, []byte{1}, "key-1", "test-client")
 
 		<-workerStarted
 		cancel()
@@ -773,7 +773,7 @@ func TestStartBackground_Shutdown(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
 		a.StartBackground(ctx)
 
-		_ = a.CheckAggregation(ctx, []byte{1}, "key-1", "test-client", time.Second)
+		_ = a.CheckAggregation(ctx, []byte{1}, "key-1", "test-client")
 		<-workerStarted
 		cancel()
 
@@ -806,7 +806,7 @@ func TestStartBackground_Shutdown(t *testing.T) {
 		ctx, cancel := context.WithCancel(t.Context())
 		a.StartBackground(ctx)
 
-		_ = a.CheckAggregation(ctx, []byte{1}, "key-1", "test-client", time.Second)
+		_ = a.CheckAggregation(ctx, []byte{1}, "key-1", "test-client")
 
 		time.Sleep(50 * time.Millisecond)
 		cancel()

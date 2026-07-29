@@ -58,20 +58,22 @@ func (tc *v3TestCase) ensureHydrated(ctx context.Context) error {
 	return nil
 }
 
-func (tc *v3TestCase) Run(ctx context.Context) error {
-	if err := tc.ensureHydrated(ctx); err != nil {
-		return err
+// Run runs the test case and returns its send and exec envelopes. It returns an error if prerequisites are not met.
+func (tc *v3TestCase) Run(ctx context.Context) (res tcapi.RunResult, err error) {
+	if err = tc.ensureHydrated(ctx); err != nil {
+		return res, err
 	}
 	v3Src, err := tc.lib.V3Source(ctx, tc.src)
 	if err != nil {
-		return fmt.Errorf("source chain %d does not support V3 message: %w", tc.src, err)
+		return res, fmt.Errorf("source chain %d does not support V3 message: %w", tc.src, err)
 	}
 	v3Dst, err := tc.lib.V3Destination(ctx, tc.dst)
 	if err != nil {
-		return fmt.Errorf("destination chain %d does not support V3 message: %w", tc.dst, err)
+		return res, fmt.Errorf("destination chain %d does not support V3 message: %w", tc.dst, err)
 	}
+
 	l := zerolog.Ctx(ctx)
-	sendMessageResult, err := tcapi.SendV3Message(ctx, v3Src, v3Dst,
+	sentEvt, sentTxHash, err := tcapi.SendV3Message(ctx, v3Src, v3Dst,
 		cciptestinterfaces.MessageFields{
 			Receiver: tc.receiver,
 			Data:     tc.msgData,
@@ -84,34 +86,41 @@ func (tc *v3TestCase) Run(ctx context.Context) error {
 		tc.args.Send,
 	)
 	if err != nil {
-		return fmt.Errorf("failed to send message: %w", err)
+		return res, fmt.Errorf("failed to send message: %w", err)
 	}
-	if len(sendMessageResult.ReceiptIssuers) != tc.numExpectedReceipts {
-		return fmt.Errorf("expected %d receipt issuers, got %d", tc.numExpectedReceipts, len(sendMessageResult.ReceiptIssuers))
+
+	// populate the send envelope
+	res.Src = cciptestinterfaces.SentEnvelope{
+		TxID:  sentTxHash,
+		Event: sentEvt,
 	}
-	if sendMessageResult.MessageID == (protocol.Bytes32{}) {
-		return fmt.Errorf("send returned zero message ID")
+
+	if len(sentEvt.ReceiptIssuers) != tc.numExpectedReceipts {
+		return res, fmt.Errorf("expected %d receipt issuers, got %d", tc.numExpectedReceipts, len(sentEvt.ReceiptIssuers))
 	}
-	messageKey := cciptestinterfaces.MessageEventKey{MessageID: sendMessageResult.MessageID}
-	if sendMessageResult.Message != nil {
-		l.Info().Uint64("SeqNo", uint64(sendMessageResult.Message.SequenceNumber)).Msg("Sent message")
+	if sentEvt.MessageID == (protocol.Bytes32{}) {
+		return res, fmt.Errorf("send returned zero message ID")
+	}
+	messageKey := cciptestinterfaces.MessageEventKey{MessageID: sentEvt.MessageID}
+	if sentEvt.Message != nil {
+		l.Info().Uint64("SeqNo", uint64(sentEvt.Message.SequenceNumber)).Msg("Sent message")
 	}
 	sentTimeout := tc.args.Run.SentTimeout(tcapi.DefaultSentTimeout)
 	execTimeout := tc.args.Run.ExecTimeout(tcapi.DefaultExecTimeout)
 	_, err = v3Src.ConfirmSendOnSource(ctx, tc.dst, messageKey, sentTimeout)
 	if err != nil {
-		return fmt.Errorf("failed to wait for sent event: %w", err)
+		return res, fmt.Errorf("failed to wait for sent event: %w", err)
 	}
-	messageID := sendMessageResult.MessageID
+	messageID := sentEvt.MessageID
 
 	aggregatorClient, indexerMonitor, err := tcapi.SetupOffchainClients(tc.lib, tc.aggregatorQualifier)
 	if err != nil {
-		return err
+		return res, err
 	}
 	testCtx, cleanupFn := tcapi.NewTestingContext(ctx, aggregatorClient, indexerMonitor)
 	defer cleanupFn()
 
-	result, err := testCtx.AssertMessage(messageID, tcapi.AssertMessageOptions{
+	assertRes, err := testCtx.AssertMessage(messageID, tcapi.AssertMessageOptions{
 		TickInterval:            1 * time.Second,
 		ExpectedVerifierResults: tc.numExpectedVerifications,
 		Timeout:                 execTimeout,
@@ -119,25 +128,27 @@ func (tc *v3TestCase) Run(ctx context.Context) error {
 		AssertExecutorLogs:      false,
 	})
 	if err != nil {
-		return fmt.Errorf("failed to assert message: %w", err)
+		return res, fmt.Errorf("failed to observe message: %w", err)
 	}
-	if aggregatorClient != nil && result.AggregatedResult == nil {
-		return fmt.Errorf("aggregated result is nil")
+	if aggregatorClient != nil && assertRes.AggregatedResult == nil {
+		return res, fmt.Errorf("aggregated result is nil")
 	}
-	if indexerMonitor != nil && len(result.IndexedVerifications.Results) != tc.numExpectedVerifications {
-		return fmt.Errorf("expected %d indexed verifications, got %d", tc.numExpectedVerifications, len(result.IndexedVerifications.Results))
+	if indexerMonitor != nil && len(assertRes.IndexedVerifications.Results) != tc.numExpectedVerifications {
+		return res, fmt.Errorf("expected %d indexed verifications, got %d", tc.numExpectedVerifications, len(assertRes.IndexedVerifications.Results))
 	}
 
-	e, err := v3Dst.ConfirmExecOnDest(ctx, tc.src, messageKey, execTimeout)
+	res.Dest, err = v3Dst.ConfirmExecOnDest(ctx, tc.src, messageKey, execTimeout)
 	if err != nil {
-		return fmt.Errorf("failed to wait for exec event: %w", err)
+		return res, fmt.Errorf("failed to wait for exec event: %w", err)
 	}
-	if tc.expectFail && e.State != cciptestinterfaces.ExecutionStateFailure {
-		return fmt.Errorf("expected execution state failure, got %s", e.State)
-	} else if !tc.expectFail && e.State != cciptestinterfaces.ExecutionStateSuccess {
-		return fmt.Errorf("expected execution state success, got %s", e.State)
+
+	execState := res.Dest.Event.State
+	if tc.expectFail && execState != cciptestinterfaces.ExecutionStateFailure {
+		return res, fmt.Errorf("expected execution state failure, got %s", execState)
+	} else if !tc.expectFail && execState != cciptestinterfaces.ExecutionStateSuccess {
+		return res, fmt.Errorf("expected execution state success, got %s", execState)
 	}
-	return nil
+	return res, nil
 }
 
 func (tc *v3TestCase) HavePrerequisites(ctx context.Context) bool {

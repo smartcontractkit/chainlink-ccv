@@ -78,7 +78,7 @@ func AssertMessagesAsync(vc VerificationContext, msgs <-chan SentMessage, overal
 					return
 				}
 
-				execEvent, err := vc.Impl[msg.ChainPair.Dest].ConfirmExecOnDest(verifyCtx, msg.ChainPair.Src, messageEventKey(msg), 0)
+				execEnv, err := vc.Impl[msg.ChainPair.Dest].ConfirmExecOnDest(verifyCtx, msg.ChainPair.Src, messageEventKey(msg), 0)
 				if err != nil {
 					if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 						vc.T.Logf("Message %d verification cancelled or timed out", msg.SeqNo)
@@ -88,8 +88,8 @@ func AssertMessagesAsync(vc VerificationContext, msgs <-chan SentMessage, overal
 					return
 				}
 
-				if execEvent.State != cciptestinterfaces.ExecutionStateSuccess {
-					vc.T.Logf("Message with sequence number %d was not successfully executed, state: %d", msg.SeqNo, execEvent.State)
+				if execEnv.Event.State != cciptestinterfaces.ExecutionStateSuccess {
+					vc.T.Logf("Message with sequence number %d was not successfully executed, state: %d", msg.SeqNo, execEnv.Event.State)
 					return
 				}
 

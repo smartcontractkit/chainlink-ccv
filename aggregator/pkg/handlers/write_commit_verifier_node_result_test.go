@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -70,12 +69,12 @@ func TestWriteCommitCCVNodeDataHandler_MessageDisablementGate(t *testing.T) {
 
 	// None of these should be called when the message is disabled
 	store.EXPECT().SaveCommitVerification(mock.Anything, mock.Anything, mock.Anything).Maybe()
-	agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Maybe()
+	agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Maybe()
 	sig.EXPECT().ValidateSignature(mock.Anything, mock.Anything).Maybe()
 	sig.EXPECT().DeriveAggregationKey(mock.Anything, mock.Anything).Maybe()
 	mon.EXPECT().Metrics().Maybe()
 
-	handler := NewWriteCommitCCVNodeDataHandler(store, agg, mon, lggr, sig, time.Millisecond, alwaysDisabledChecker{})
+	handler := NewWriteCommitCCVNodeDataHandler(store, agg, mon, lggr, sig, alwaysDisabledChecker{})
 	ctx := auth.ToContext(context.Background(), auth.CreateCallerIdentity(testCallerID, false))
 
 	resp, err := handler.Handle(ctx, makeValidProtoRequest())
@@ -216,13 +215,13 @@ func TestWriteCommitCCVNodeDataHandler_Handle_Table(t *testing.T) {
 			var lastMsgID model.MessageID
 			var lastAggregation model.AggregationKey
 			if tc.expectAggCalls > 0 {
-				agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything, mock.Anything, testChannelKey, time.Millisecond).Run(func(_ context.Context, m model.MessageID, a model.AggregationKey, _ model.ChannelKey, _ time.Duration) {
+				agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything, mock.Anything, testChannelKey).Run(func(_ context.Context, m model.MessageID, a model.AggregationKey, _ model.ChannelKey) {
 					aggCalled++
 					lastMsgID = m
 					lastAggregation = a
 				}).Return(tc.aggErr).Times(tc.expectAggCalls)
 			} else {
-				agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Maybe()
+				agg.EXPECT().CheckAggregation(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Maybe()
 			}
 
 			mon := mocks.NewMockAggregatorMonitoring(t)
@@ -231,7 +230,7 @@ func TestWriteCommitCCVNodeDataHandler_Handle_Table(t *testing.T) {
 			labeler.EXPECT().With(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(labeler).Maybe()
 			labeler.EXPECT().IncrementVerificationsTotal(mock.Anything).Maybe()
 
-			handler := NewWriteCommitCCVNodeDataHandler(store, agg, mon, lggr, sig, time.Millisecond, messagerules.NoopChecker{})
+			handler := NewWriteCommitCCVNodeDataHandler(store, agg, mon, lggr, sig, messagerules.NoopChecker{})
 
 			ctx := auth.ToContext(context.Background(), auth.CreateCallerIdentity(testCallerID, false))
 			resp, err := handler.Handle(ctx, tc.req)

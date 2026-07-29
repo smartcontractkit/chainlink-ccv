@@ -37,11 +37,15 @@ jobs:
             go.sum
             **/go.sum
           go-version-file: go.mod
+      
+      - name: Install Just
+        uses: extractions/setup-just@e33e0265a09d6d736e2ee1e0eb685ef1de4669ff # v3
+        with:
+          just-version: '1.40.0'
 
       - name: Install module tools
         run: |
-          go install github.com/jmank88/gomods@v0.1.6
-          go install github.com/jmank88/modgraph@v0.1.6
+          just install-go-tools
 
       - name: Update chain-selectors in every module
         run: gomods -c 'go get github.com/smartcontractkit/chain-selectors@latest'
@@ -54,8 +58,9 @@ jobs:
         with:
           token: ${{ steps.issue-github-token.outputs.access-token }}
           branch: automation/update-chain-selectors
-          commit-message: "chore(deps): bump chain-selectors"
-          title: "chore(deps): bump chain-selectors"
+          commit-message: "fix(deps): bump chain-selectors"
+          title: "fix(deps): bump chain-selectors"
           body: |
             Updates github.com/smartcontractkit/chain-selectors in every Go module and runs `just tidy`.
           delete-branch: true
+          sign-commits: true

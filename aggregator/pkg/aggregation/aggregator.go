@@ -53,18 +53,14 @@ type aggregationRequest struct {
 	ChannelKey     model.ChannelKey
 }
 
-func (r aggregationRequest) ID() string {
-	return fmt.Sprintf("%s-%s", r.AggregationKey, r.MessageID)
-}
-
 // CheckAggregation enqueues a new aggregation request for the specified message ID.
-func (c *CommitReportAggregator) CheckAggregation(ctx context.Context, messageID model.MessageID, aggregationKey model.AggregationKey, channelKey model.ChannelKey, maxBlockTime time.Duration) error {
+func (c *CommitReportAggregator) CheckAggregation(ctx context.Context, messageID model.MessageID, aggregationKey model.AggregationKey, channelKey model.ChannelKey) error {
 	request := aggregationRequest{
 		MessageID:      messageID,
 		AggregationKey: aggregationKey,
 		ChannelKey:     channelKey,
 	}
-	err := c.channelManager.Enqueue(ctx, channelKey, request, maxBlockTime)
+	err := c.channelManager.Enqueue(ctx, channelKey, request)
 	if err != nil {
 		return err
 	}
