@@ -26,3 +26,23 @@ type VerifierConfigAdapter interface {
 	// verifier jobs must use (e.g. chainsel.FamilyEVM for EVM committee verifiers).
 	GetSignerAddressFamily() string
 }
+
+// VerifierNodeChainJDSupport is an optional extension of VerifierConfigAdapter.
+// Implement it to opt out of JD node chain support validation in ApplyVerifierConfig.
+// Adapters that do not implement VerifierNodeChainJDSupport default to true (require JD).
+type VerifierNodeChainJDSupport interface {
+	// RequiresNodeChainSupportInJD reports whether ApplyVerifierConfig must verify that
+	// target NOPs have this chain registered in JD (ListNodeChainConfigs) before proposing
+	// ccvcommitteeverifier job specs. EVM chains require JD registration; families such as
+	// Solana whose standalone verifiers do not report chain configs to JD may return false.
+	RequiresNodeChainSupportInJD() bool
+}
+
+// VerifierRequiresNodeChainSupportInJD returns whether the adapter requires JD node chain
+// support validation. Adapters without VerifierNodeChainJDSupport default to true.
+func VerifierRequiresNodeChainSupportInJD(adapter VerifierConfigAdapter) bool {
+	if a, ok := adapter.(VerifierNodeChainJDSupport); ok {
+		return a.RequiresNodeChainSupportInJD()
+	}
+	return true
+}
