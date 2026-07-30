@@ -4,12 +4,14 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"time"
 
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/clclient"
 	ctfblockchain "github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainreg"
+	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/committeeverifier"
@@ -180,7 +182,7 @@ func Run(ctx context.Context, in Input) (Result, error) {
 	}
 
 	// Step 6.
-	if err := prepareExecutors(in.Executors, migrating, exported); err != nil {
+	if err := prepareExecutors(in.Executors, migrating, exported, in.Topology); err != nil {
 		return result, err
 	}
 	if err := launchExecutors(ctx, in, migrating, result); err != nil {
@@ -272,14 +274,24 @@ func prepareVerifiers(
 // exported account key.
 //
 // Every executor for an operator imports the same key, because the standalone executor holds one
-// transmitter key and the Chainlink node registered one account address across its chains. An
-// operator whose node uses a different account per chain needs one import and one
-// transmitter_key_name per account; see docs/migration/cl-to-standalone.md.
+// transmitter key and the Chainlink node registered one account address across its chains.
+//
+// An operator whose node uses a different account per chain needs one executor per account, each
+// serving the chains that account is funded on — chain scope comes from executor pool membership,
+// and several executors for one NOP is an ordinary topology. The limit is here rather than in the
+// executor: ExportNOPKeys resolves a single account, and this function hands it to every executor
+// the NOP owns, so such an operator would transmit from one account everywhere with the rest of
+// their gas stranded. They are excluded until both are per-account; see
+// docs/migration/cl-to-standalone.md and docs/migration/followups.md.
 func prepareExecutors(
 	executors []*executorsvc.Input,
 	migrating map[string]struct{},
 	exported map[string]ExportedNOPKeys,
+	topology *ccvdeployment.EnvironmentTopology,
 ) error {
+	if err := requireDisjointExecutorChains(executors, migrating, topology); err != nil {
+		return err
+	}
 	for _, exec := range executors {
 		if exec == nil {
 			continue
@@ -299,6 +311,71 @@ func prepareExecutors(
 		exec.Bootstrap.KeyImport = keyImport
 		exec.Bootstrap.KeyImportFiles = files
 		exec.Mode = services.Standalone
+	}
+	return nil
+}
+
+// executorChains returns the chains an executor serves: those where its NOP alias appears in the
+// chain configs of the pool named by its qualifier. An executor with no qualifier is in the default
+// pool, which is what ApplyDefaults would give it.
+func executorChains(exec *executorsvc.Input, topology *ccvdeployment.EnvironmentTopology) map[string]struct{} {
+	qualifier := exec.ExecutorQualifier
+	if qualifier == "" {
+		qualifier = devenvcommon.DefaultExecutorQualifier
+	}
+	chains := make(map[string]struct{})
+	if topology == nil {
+		return chains
+	}
+	for chain, cfg := range topology.ExecutorPools[qualifier].ChainConfigs {
+		if slices.Contains(cfg.NOPAliases, exec.NOPAlias) {
+			chains[chain] = struct{}{}
+		}
+	}
+	return chains
+}
+
+// requireDisjointExecutorChains rejects a NOP whose executors would share both the imported account
+// and a chain.
+//
+// Every executor a NOP owns imports the same exported account, because the cutover resolves one
+// account per operator. Two processes submitting from one address on one chain each run their own
+// transaction manager against their own database, so they race each other's nonces — a failure that
+// appears as stuck or replaced transactions well away from its cause.
+//
+// A NOP whose executors serve disjoint chains is fine: the same address on different chains has
+// independent nonces, which is the ordinary shape for an operator who funds one account everywhere.
+// Distinct accounts on overlapping chains would be fine too, and is what an operator with per-chain
+// keys needs, but the cutover cannot express it yet — see docs/migration/followups.md.
+func requireDisjointExecutorChains(
+	executors []*executorsvc.Input,
+	migrating map[string]struct{},
+	topology *ccvdeployment.EnvironmentTopology,
+) error {
+	claimed := make(map[string]map[string]string) // NOP alias -> chain -> executor that claimed it
+	for _, exec := range executors {
+		if exec == nil {
+			continue
+		}
+		if _, ok := migrating[exec.NOPAlias]; !ok {
+			continue
+		}
+		byChain := claimed[exec.NOPAlias]
+		if byChain == nil {
+			byChain = make(map[string]string)
+			claimed[exec.NOPAlias] = byChain
+		}
+		for chain := range executorChains(exec, topology) {
+			if owner, taken := byChain[chain]; taken {
+				return fmt.Errorf(
+					"NOP %s runs executors %s and %s on chain %s, and both would import the same "+
+						"transmitter account: two executors sharing an account and a chain race each "+
+						"other's nonces. Give them disjoint chains, or migrate this operator once the "+
+						"cutover can import a separate account per executor",
+					exec.NOPAlias, owner, exec.ContainerName, chain)
+			}
+			byChain[chain] = exec.ContainerName
+		}
 	}
 	return nil
 }

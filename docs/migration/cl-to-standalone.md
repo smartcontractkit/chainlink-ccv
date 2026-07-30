@@ -72,7 +72,9 @@ Have ready:
 
 - The Chainlink node's API credentials, for the key exports.
 - A Postgres database for each standalone process. The verifier and executor each need their own
-  bootstrap database, separate from any application database.
+  bootstrap database, separate from any application database. Create them empty and hand each
+  process a connection string: the schema is created on first boot and left alone on every boot
+  after, so there is nothing to migrate by hand.
 - The Chainlink node's TOML configuration file.
 - A password you will encrypt the exported keys under. It is needed once, at first boot.
 
@@ -155,8 +157,14 @@ curl -s -X POST localhost:9988/keystore/reader/getkeys \
   -d '{"KeyNames":["bootstrap_default_csa_key"]}'
 ```
 
-The same endpoint reports the imported signing address. Confirm it is what you expect before
-repointing JD at it.
+The port is the one you set as `listen_port` in the bootstrap config's `[server]` section; 9988 is
+the value used throughout this document.
+
+The same endpoint returns the imported signing key, but as a public key rather than an address —
+deriving the address from it is a keccak hash of the uncompressed key, not something to do by eye.
+Rely on `expected_id` instead: the process refuses to start if the key it imported, or the key
+already in its keystore, is not the address you pinned. Reaching a healthy state is the
+confirmation.
 
 ## Step 6: hand the JD record to the verifier, and register the executor
 
@@ -200,3 +208,17 @@ with the standalone verifier stopped, for the same reason step 4 exists.
 An operator whose keys are in an HSM or KMS cannot export them, so this procedure does not apply.
 That case needs a new signing key, a committee signer-set update on every chain, and a new funded
 transmitter. Plan it with the committee rather than as a unilateral migration.
+
+An operator whose Chainlink node transmits from a different account per destination chain is not
+covered by this version of the procedure, though the shape it needs is supported.
+
+A standalone executor process holds one transmitter key and uses it on every chain it serves, but an
+operator is not limited to one executor. Chain scope comes from executor pool membership, so several
+executors, each importing a different account and each serving the chains that account is funded on,
+is a normal deployment. What is missing is on this side: the cutover exports a single account per
+operator and gives every one of their executors the same key, so it cannot yet split them.
+
+The node's JD chain configs settle which case an operator is in. If `AccountAddr` is the same across
+them there is one account and this procedure applies as written. If it differs there is one per
+chain, and migrating with the current tooling would fund one account on every chain and strand the
+balances on the rest. Raise it rather than picking an account.

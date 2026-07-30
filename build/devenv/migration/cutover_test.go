@@ -7,6 +7,8 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
+	executorsvc "github.com/smartcontractkit/chainlink-ccv/build/devenv/services/executor"
+	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
 	hmacutil "github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
 )
 
@@ -72,6 +74,98 @@ func TestHydrateAggregatorCredentialsKeepsExistingMap(t *testing.T) {
 	got, ok := agg.Out.GetCredentialsForClient("default-verifier-1")
 	require.True(t, ok)
 	assert.Equal(t, "live", got.APIKey, "an aggregator launched in this process keeps its live credentials")
+}
+
+// topologyWithPools builds a topology whose executor pools place the given NOP on the given chains.
+func topologyWithPools(pools map[string]map[string][]string) *ccvdeployment.EnvironmentTopology {
+	out := &ccvdeployment.EnvironmentTopology{ExecutorPools: map[string]ccvdeployment.ExecutorPoolConfig{}}
+	for pool, chains := range pools {
+		cfg := ccvdeployment.ExecutorPoolConfig{ChainConfigs: map[string]ccvdeployment.ChainExecutorPoolConfig{}}
+		for chain, aliases := range chains {
+			cfg.ChainConfigs[chain] = ccvdeployment.ChainExecutorPoolConfig{NOPAliases: aliases}
+		}
+		out.ExecutorPools[pool] = cfg
+	}
+	return out
+}
+
+// Prod runs a single executor pool with one identity per operator, so this is the shape every
+// migration takes today.
+func TestRequireDisjointExecutorChainsAllowsOneExecutorPerNOP(t *testing.T) {
+	t.Parallel()
+	executors := []*executorsvc.Input{
+		{ContainerName: "default-executor-1", NOPAlias: "node-0", ExecutorQualifier: "default"},
+		{ContainerName: "default-executor-2", NOPAlias: "node-1", ExecutorQualifier: "default"},
+	}
+	topology := topologyWithPools(map[string]map[string][]string{
+		"default": {"chainA": {"node-0", "node-1"}, "chainB": {"node-0", "node-1"}},
+	})
+
+	require.NoError(t, requireDisjointExecutorChains(executors,
+		map[string]struct{}{"node-0": {}, "node-1": {}}, topology))
+}
+
+// Disjoint chains are safe with a shared account: the same address has independent nonces per chain.
+func TestRequireDisjointExecutorChainsAllowsSeveralExecutorsOnDifferentChains(t *testing.T) {
+	t.Parallel()
+	executors := []*executorsvc.Input{
+		{ContainerName: "exec-a", NOPAlias: "node-0", ExecutorQualifier: "default"},
+		{ContainerName: "exec-b", NOPAlias: "node-0", ExecutorQualifier: "custom"},
+	}
+	topology := topologyWithPools(map[string]map[string][]string{
+		"default": {"chainA": {"node-0"}},
+		"custom":  {"chainB": {"node-0"}},
+	})
+
+	require.NoError(t, requireDisjointExecutorChains(executors, map[string]struct{}{"node-0": {}}, topology))
+}
+
+// Two executors importing one account and both running chainA would race each other's nonces. This
+// is the shape env-cl.toml describes, where node-0's two pools cover the same chains.
+func TestRequireDisjointExecutorChainsRejectsSharedAccountOnSharedChain(t *testing.T) {
+	t.Parallel()
+	executors := []*executorsvc.Input{
+		{ContainerName: "default-executor-1", NOPAlias: "node-0", ExecutorQualifier: "default"},
+		{ContainerName: "custom-executor-1", NOPAlias: "node-0", ExecutorQualifier: "custom"},
+	}
+	topology := topologyWithPools(map[string]map[string][]string{
+		"default": {"chainA": {"node-0"}},
+		"custom":  {"chainA": {"node-0"}},
+	})
+
+	err := requireDisjointExecutorChains(executors, map[string]struct{}{"node-0": {}}, topology)
+	require.ErrorContains(t, err, "chainA")
+	require.ErrorContains(t, err, "node-0")
+	require.ErrorContains(t, err, "nonces")
+}
+
+// An operator staying in CL mode keeps whatever executor layout it has; only migrating NOPs are
+// constrained by what the cutover can import.
+func TestRequireDisjointExecutorChainsIgnoresNonMigratingNOPs(t *testing.T) {
+	t.Parallel()
+	executors := []*executorsvc.Input{
+		{ContainerName: "a", NOPAlias: "staying", ExecutorQualifier: "default"},
+		{ContainerName: "b", NOPAlias: "staying", ExecutorQualifier: "custom"},
+	}
+	topology := topologyWithPools(map[string]map[string][]string{
+		"default": {"chainA": {"staying"}},
+		"custom":  {"chainA": {"staying"}},
+	})
+
+	require.NoError(t, requireDisjointExecutorChains(executors, map[string]struct{}{"node-0": {}}, topology))
+}
+
+// An executor with no qualifier belongs to the default pool, which is what ApplyDefaults gives it.
+func TestExecutorChainsDefaultsTheQualifier(t *testing.T) {
+	t.Parallel()
+	topology := topologyWithPools(map[string]map[string][]string{
+		"default": {"chainA": {"node-0"}, "chainB": {"other"}},
+	})
+
+	got := executorChains(&executorsvc.Input{NOPAlias: "node-0"}, topology)
+
+	require.Len(t, got, 1)
+	require.Contains(t, got, "chainA")
 }
 
 // An aggregator that was never launched has no Out to attach credentials to. Creating one would put
