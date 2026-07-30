@@ -16,6 +16,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/common/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/executor"
 	indexer "github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/tools/configdoc"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/commit"
@@ -36,6 +37,7 @@ var Targets = []configdoc.Target{
 	{Name: "bootstrap", Out: "bootstrap/config.documented.toml", Kind: configdoc.KindConfig, New: bootstrapConfigInstance},
 	{Name: "bootstrap", Out: "bootstrap/secrets.documented.toml", Kind: configdoc.KindSecrets, New: bootstrapSecretsInstance},
 	{Name: "monitoring", Out: "common/monitoring.documented.toml", Kind: configdoc.KindConfig, New: monitoringConfigInstance},
+	{Name: "evm", Out: "evm/config.documented.toml", Kind: configdoc.KindConfig, New: evmConfigInstance},
 }
 
 // executorDocInstance builds a fully-populated, valid executor Configuration
@@ -260,6 +262,10 @@ func indexerSecretsInstance() any {
 // Monitoring section is populated (unlike the executor/committee verifier docs,
 // which leave it zero) because this is the operator-provided source of truth for
 // monitoring; it reuses monitoringConfigInstance so the two docs stay in lockstep.
+//
+// KeyImport is populated even though a bootstrapper that is not migrating leaves it out entirely.
+// It is a pointer, so leaving it nil documents the section as absent rather than as optional, and
+// the operators who need it are the ones who have never run the process before.
 func bootstrapConfigInstance() any {
 	return &bootstrap.NonSecretConfig{
 		AppConfigMode:      bootstrap.AppConfigModeJD,
@@ -273,6 +279,11 @@ func bootstrapConfigInstance() any {
 			{Type: "EVM", ID: "1"},
 		},
 		Monitoring: monitoringConfig(),
+		KeyImport: &bootstrap.KeyImport{
+			Path:         "/etc/bootstrap/keys/exported-key.json",
+			PasswordPath: "/etc/bootstrap/keys/export-password.txt",
+			ExpectedID:   "0x0123456789abcdef0123456789abcdef01234567",
+		},
 	}
 }
 
@@ -326,6 +337,26 @@ func monitoringConfig() *monitoring.Config {
 			TraceSampleRatio:         0.1,
 			TraceBatchTimeout:        5,
 			TelemetryAttributes:      map[string]string{"env": "production"},
+		},
+	}
+}
+
+func evmConfigInstance() any { return evmConfig() }
+
+func evmConfig() evm.Config {
+	return evm.Config{
+		Chains: map[string]evm.ChainConfig{
+			"1": {
+				Nodes: []evm.Node{
+					{
+						Name:    "node-1",
+						HTTPUrl: "http://rpc-url.com",
+						WSUrl:   "ws://rpc-url.com",
+					},
+				},
+				FinalityDepth: 0,
+				TXMBlockTime:  2 * time.Second,
+			},
 		},
 	}
 }
