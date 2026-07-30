@@ -15,11 +15,17 @@ common/metrics @smartcontractkit/ccip-platform
 
 ## Modfiles are frequently updated in the case of dependency upgrades.
 go.mod @smartcontractkit/ccip-platform @smartcontractkit/ccip-protocol
+go.sum @smartcontractkit/ccip-platform @smartcontractkit/ccip-protocol
 build/devenv/go.mod @smartcontractkit/ccip-platform @smartcontractkit/ccip-protocol
+build/devenv/go.sum @smartcontractkit/ccip-platform @smartcontractkit/ccip-protocol
 deployment/go.mod @smartcontractkit/ccip-platform @smartcontractkit/ccip-protocol
+deployment/go.sum @smartcontractkit/ccip-platform @smartcontractkit/ccip-protocol
 integration/evm/go.mod @smartcontractkit/ccip-platform @smartcontractkit/ccip-protocol
+integration/evm/go.sum @smartcontractkit/ccip-platform @smartcontractkit/ccip-protocol
 build/devenv/fakes/go.mod @smartcontractkit/ccip-platform @smartcontractkit/ccip-protocol
+build/devenv/fakes/go.sum @smartcontractkit/ccip-platform @smartcontractkit/ccip-protocol
 indexer/cmd/oapigen/go.mod @smartcontractkit/ccip-platform @smartcontractkit/ccip-protocol
+indexer/cmd/oapigen/go.sum @smartcontractkit/ccip-platform @smartcontractkit/ccip-protocol
 
 ## Github actions are frequently updated (e.g. chainlink version)
 .github @smartcontractkit/ccip-platform @smartcontractkit/ccip-protocol
