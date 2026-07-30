@@ -1,4 +1,7 @@
+# Default: protocol owns all
 * @smartcontractkit/ccip-protocol
+
+# Platform ownership
 build/devenv @smartcontractkit/ccip-platform
 deployment @smartcontractkit/ccip-platform
 bootstrap @smartcontractkit/ccip-platform
@@ -7,7 +10,22 @@ tools @smartcontractkit/ccip-platform
 common/monitoring @smartcontractkit/ccip-platform
 common/jd @smartcontractkit/ccip-platform
 common/metrics @smartcontractkit/ccip-platform
+
+# Co-owned by protocol and platform
+
+## Modfiles are frequently updated in the case of dependency upgrades.
+go.mod @smartcontractkit/ccip-platform @smartcontractkit/ccip-protocol
+build/devenv/go.mod @smartcontractkit/ccip-platform @smartcontractkit/ccip-protocol
+deployment/go.mod @smartcontractkit/ccip-platform @smartcontractkit/ccip-protocol
+integration/evm/go.mod @smartcontractkit/ccip-platform @smartcontractkit/ccip-protocol
+build/devenv/fakes/go.mod @smartcontractkit/ccip-platform @smartcontractkit/ccip-protocol
+indexer/cmd/oapigen/go.mod @smartcontractkit/ccip-platform @smartcontractkit/ccip-protocol
+
+## Github actions are frequently updated (e.g. chainlink version)
+.github @smartcontractkit/ccip-platform @smartcontractkit/ccip-protocol
 docs @smartcontractkit/ccip-platform @smartcontractkit/ccip-protocol
 pkg/chainaccess @smartcontractkit/ccip-platform @smartcontractkit/ccip-protocol
+
+## release-please configs are updated when we want to release, which happens frequently
 release-please-config.json @smartcontractkit/ccip-platform @smartcontractkit/ccip-protocol
 .release-please-manifest.json @smartcontractkit/ccip-platform @smartcontractkit/ccip-protocol
