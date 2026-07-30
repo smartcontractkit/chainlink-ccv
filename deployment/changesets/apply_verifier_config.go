@@ -393,6 +393,13 @@ func buildVerifierJobSpecs(
 		if signerAddress == "" {
 			return nil, scope, fmt.Errorf("NOP %q missing signer address for family %s", nop.Alias, signerFamily)
 		}
+		// Canonicalise at the boundary, whatever the address's provenance. It reaches here either
+		// inline from the topology or fetched from JD, which stores an OCR bundle's signing address
+		// as bare hex; a CL node decodes signer_address with hexutil.Decode and rejects anything
+		// without an 0x prefix, failing every ccvcommitteeverifier job it is proposed. Normalizing
+		// where the address enters the job spec covers every source rather than requiring each one
+		// to have normalized already.
+		signerAddress = shared.NormalizeAddress(signerFamily, signerAddress)
 
 		mode, err := resolveNOPMode(nop.Mode, nopAlias)
 		if err != nil {
@@ -678,9 +685,16 @@ func validateVerifierChainSupport(
 	var validationResults []shared.ChainValidationResult
 	for _, nopAlias := range nopsToValidate {
 		requiredChains := getRequiredChainsForVerifierNOP(nopAlias, committee)
+		jdRequiredChains, err := filterVerifierChainsRequiringJDSupport(requiredChains)
+		if err != nil {
+			return err
+		}
+		if len(jdRequiredChains) == 0 {
+			continue
+		}
 		result := shared.ValidateNOPChainSupport(
 			string(nopAlias),
-			requiredChains,
+			jdRequiredChains,
 			supportedChains[string(nopAlias)],
 		)
 		if result != nil {
@@ -689,6 +703,20 @@ func validateVerifierChainSupport(
 	}
 
 	return shared.FormatChainValidationError(validationResults)
+}
+
+func filterVerifierChainsRequiringJDSupport(chains []uint64) ([]uint64, error) {
+	filtered := make([]uint64, 0, len(chains))
+	for _, sel := range chains {
+		adapter, err := adapters.GetVerifierRegistry().Get(sel)
+		if err != nil {
+			return nil, err
+		}
+		if adapters.VerifierRequiresNodeChainSupportInJD(adapter) {
+			filtered = append(filtered, sel)
+		}
+	}
+	return filtered, nil
 }
 
 func getRequiredChainsForVerifierNOP(nopAlias shared.NOPAlias, committee CommitteeInput) []uint64 {
