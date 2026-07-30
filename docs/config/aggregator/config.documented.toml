@@ -150,6 +150,10 @@ maxCommitVerifierNodeResultRequestsPerBatch = 100
   [rateLimiting.storage]
     # type of storage: "memory" or "redis"
     type = ""
+    # redis configuration (only used when Type is "redis")
+    [rateLimiting.storage.redis]
+      # key_prefix for Redis keys (default: "ratelimit")
+      key_prefix = "ratelimit"
 
 # healthCheck configures the health-check HTTP server.
 [healthCheck]
