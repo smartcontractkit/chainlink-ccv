@@ -16,6 +16,7 @@ import (
 	executorsvc "github.com/smartcontractkit/chainlink-ccv/build/devenv/services/executor"
 	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
 	ccvshared "github.com/smartcontractkit/chainlink-ccv/deployment/shared"
+	hmacutil "github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
 )
 
 // nodeConnectTimeout bounds the wait for a standalone process to authenticate with JD. It is
@@ -48,7 +49,10 @@ type Input struct {
 	// alone.
 	Verifiers []*committeeverifier.Input
 	Executors []*executorsvc.Input
-	// Aggregators must already carry their Out, so verifier HMAC credentials can be read from them.
+	// Aggregators must already be running, so each migrating verifier can be given the HMAC
+	// credentials its committee's aggregators accept. Aggregators loaded from a devenv output file
+	// are fine: the credential map itself is not serialized, and is rebuilt here from the API client
+	// config that is.
 	Aggregators []*services.AggregatorInput
 	// BlockchainOutputs are the chains the launched services connect to.
 	BlockchainOutputs []*ctfblockchain.Output
@@ -156,6 +160,7 @@ func Run(ctx context.Context, in Input) (Result, error) {
 	if err := prepareVerifiers(in.Verifiers, migrating, exported); err != nil {
 		return result, err
 	}
+	hydrateAggregatorCredentials(in.Aggregators)
 	if err := committeeverifier.LaunchStandaloneVerifiers(
 		in.Verifiers,
 		in.Aggregators,
@@ -192,6 +197,45 @@ func Run(ctx context.Context, in Input) (Result, error) {
 		in.Topology.NOPTopology.NOPs[idx].Mode = ccvshared.NOPModeStandalone
 	}
 	return result, nil
+}
+
+// hydrateAggregatorCredentials rebuilds the ClientCredentials map of every running aggregator that
+// arrived without one.
+//
+// AggregatorOutput.ClientCredentials is toml:"-", so an environment loaded from a devenv output
+// file carries every other part of the aggregator's Out but not that map — and a verifier launched
+// without it cannot authenticate. The keys themselves do survive, under
+// api_clients.api_key_pairs, so the map is rebuilt from those.
+//
+// They are read, never generated. The aggregator is already running with the credentials it was
+// started with, so minting a fresh pair here would hand the verifier something the aggregator has
+// never seen: a runtime authentication failure rather than an error anyone can act on. An
+// aggregator whose keys cannot be recovered is left alone, so the verifier that actually needs them
+// reports it by name in AggregatorCredentialsForVerifier.
+func hydrateAggregatorCredentials(aggregators []*services.AggregatorInput) {
+	for _, agg := range aggregators {
+		if agg == nil || agg.Out == nil || len(agg.Out.ClientCredentials) > 0 {
+			continue
+		}
+		creds := make(map[string]hmacutil.Credentials, len(agg.APIClients))
+		for _, client := range agg.APIClients {
+			if client == nil {
+				continue
+			}
+			for _, pair := range client.APIKeyPairs {
+				if pair == nil || pair.APIKey == "" || pair.Secret == "" {
+					continue
+				}
+				// The first usable pair, matching how EnsureClientCredentials keys the map: a client
+				// with several pairs is rotating them, and either is accepted.
+				creds[client.ClientID] = hmacutil.Credentials{APIKey: pair.APIKey, Secret: pair.Secret}
+				break
+			}
+		}
+		if len(creds) > 0 {
+			agg.Out.ClientCredentials = creds
+		}
+	}
 }
 
 // prepareVerifiers flips each migrating operator's verifiers to standalone and points them at the
