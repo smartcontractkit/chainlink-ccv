@@ -34,6 +34,24 @@ func TestBuildKeyImport(t *testing.T) {
 	assert.NotEqual(t, keyImport.Path, keyImport.PasswordPath)
 }
 
+// testcontainers copies mounted files in as root, while the verifier and executor images both run
+// as a non-root user. An owner-only mode therefore produces a container that exits at startup with
+// "permission denied" on a file that is plainly mounted. Pinning the world-read bit keeps a
+// well-meant tightening from breaking the cutover, which would only surface in an e2e run.
+func TestBuildKeyImportMountsFilesTheContainerUserCanRead(t *testing.T) {
+	t.Parallel()
+
+	_, files, err := BuildKeyImport("/host/key.json", "/host/password.txt", "0xAAAA")
+	require.NoError(t, err)
+	require.Len(t, files, 2)
+
+	for _, f := range files {
+		assert.NotZerof(t, f.FileMode&0o004,
+			"%s is mounted %#o; the importing process does not run as the file's owner",
+			f.ContainerFilePath, f.FileMode)
+	}
+}
+
 func TestBuildKeyImportErrors(t *testing.T) {
 	t.Parallel()
 

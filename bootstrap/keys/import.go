@@ -165,7 +165,10 @@ func EnsureImportedKey(
 
 	privateKey, id, err := decodeImport(spec)
 	if err != nil {
-		return fmt.Errorf("failed to decode %s import for key %q from %q: %w", spec.Format, keyName, spec.Path, err)
+		// The format is deliberately not named here: it is empty in the normal case, where the
+		// bootstrap config leaves detection to the file. The wrapped error identifies what it tried
+		// to parse.
+		return fmt.Errorf("failed to decode the export for key %q from %q: %w", keyName, spec.Path, err)
 	}
 	if want := strings.TrimSpace(spec.ExpectedID); want != "" {
 		if !strings.EqualFold(strings.TrimPrefix(want, "0x"), id) {
@@ -232,7 +235,7 @@ func InspectImport(spec Import) (string, error) {
 	}
 	_, id, err := decodeImport(spec)
 	if err != nil {
-		return "", fmt.Errorf("failed to decode %s export %q: %w", spec.Format, spec.Path, err)
+		return "", fmt.Errorf("failed to decode the export %q: %w", spec.Path, err)
 	}
 	return id, nil
 }

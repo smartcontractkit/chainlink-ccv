@@ -44,9 +44,19 @@ func BuildKeyImport(
 	keyContainerPath := path.Join(KeyImportDirContainerPath, keyImportFileName)
 	passwordContainerPath := path.Join(KeyImportDirContainerPath, keyImportPasswordFile)
 
+	// 0644, not 0600. testcontainers copies files in as root, while the verifier and executor images
+	// both run as a non-root user, so an owner-only file is one the importing process cannot read —
+	// it fails at startup with "permission denied" on a file that is plainly there. There is no
+	// ownership control on a ContainerFile to reach for instead. This matches how every other file
+	// mounted into these images is handled, the indexer's secrets file included.
+	//
+	// What limits the exposure is not the mode but the lifetime: the import runs only when the key is
+	// absent, so both files can be unmounted once the process has come up once.
+	const keyImportFileMode = 0o644
+
 	files := []testcontainers.ContainerFile{
-		{HostFilePath: keyHostPath, ContainerFilePath: keyContainerPath, FileMode: 0o600},
-		{HostFilePath: passwordHostPath, ContainerFilePath: passwordContainerPath, FileMode: 0o600},
+		{HostFilePath: keyHostPath, ContainerFilePath: keyContainerPath, FileMode: keyImportFileMode},
+		{HostFilePath: passwordHostPath, ContainerFilePath: passwordContainerPath, FileMode: keyImportFileMode},
 	}
 	return &bootstrap.KeyImport{
 		Path:         keyContainerPath,
