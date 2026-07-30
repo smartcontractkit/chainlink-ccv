@@ -83,6 +83,10 @@ type Import struct {
 	// node's export, and without this check the node comes up signing with another node's key —
 	// which produces verification results the committee rejects, with nothing pointing at the
 	// cause. Setting it turns that into a startup failure.
+	//
+	// It is enforced against the key already in the keystore as well as against the export, so
+	// adding it after a node has booted with the wrong key still fails rather than silently
+	// accepting the identity that got there first.
 	ExpectedID string
 }
 
@@ -141,9 +145,17 @@ func EnsureImportedKey(
 
 	resp, err := ks.GetKeys(ctx, keystore.GetKeysRequest{KeyNames: []string{keyName}})
 	if err == nil && len(resp.Keys) > 0 {
+		existing := resp.Keys[0].KeyInfo.PublicKey
+		// expected_id is checked against the key already in the keystore, not only against the one
+		// being imported. Without this, a node that booted once with the wrong export mounted keeps
+		// that identity for good: the key exists, the import is skipped, and the check an operator
+		// added precisely to catch that mistake never runs.
+		if err := checkExpectedID(spec, existing); err != nil {
+			return fmt.Errorf("key %q is already in the keystore but %w", keyName, err)
+		}
 		lggr.Infow("key already exists, skipping import",
 			"keyName", keyName, "keyType", keyType, "purpose", purpose, "format", spec.Format,
-			"publicKey", hex.EncodeToString(resp.Keys[0].KeyInfo.PublicKey),
+			"publicKey", hex.EncodeToString(existing),
 		)
 		return nil
 	}
@@ -182,6 +194,31 @@ func EnsureImportedKey(
 		"keyName", keyName, "keyType", keyType, "purpose", purpose,
 		"format", spec.Format, "path", spec.Path, "id", id,
 	)
+	return nil
+}
+
+// checkExpectedID reports whether a keystore key with the given uncompressed secp256k1 public key
+// carries the identity spec pins. An unset expected_id passes: pinning is opt-in, and a deployment
+// that never set it keeps working exactly as before.
+//
+// The address is derived the same way the import path derives it from the export, so the two
+// comparisons cannot disagree about what a key's identity is.
+func checkExpectedID(spec Import, publicKey []byte) error {
+	want := strings.TrimSpace(spec.ExpectedID)
+	if want == "" {
+		return nil
+	}
+	address, _, err := EVMAddressFromPublicKey(publicKey)
+	if err != nil {
+		return fmt.Errorf("its public key could not be decoded to compare against expected_id: %w", err)
+	}
+	got := strings.ToLower(strings.TrimPrefix(address, "0x"))
+	if !strings.EqualFold(strings.TrimPrefix(want, "0x"), got) {
+		return fmt.Errorf(
+			"holds identity %s while expected_id is %s: a different node's key is already in this keystore",
+			got, want,
+		)
+	}
 	return nil
 }
 

@@ -279,7 +279,7 @@ func bootstrapConfigInstance() any {
 			{Type: "EVM", ID: "1"},
 		},
 		Monitoring: monitoringConfig(),
-		KeyImport: &bootstrap.KeyImport{
+		KeyImport: &bootstrap.KeyImport{ //nolint:gosec // G101: password_path is where a password file is mounted, not a password
 			Path:         "/etc/bootstrap/keys/exported-key.json",
 			PasswordPath: "/etc/bootstrap/keys/export-password.txt",
 			ExpectedID:   "0x0123456789abcdef0123456789abcdef01234567",

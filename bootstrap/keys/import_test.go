@@ -338,6 +338,54 @@ func TestEnsureImportedKey(t *testing.T) {
 		require.ErrorContains(t, err, "wrong node's export is mounted")
 	})
 
+	// The import is skipped once the key exists, so an expected_id that is only checked on the
+	// import path would never run again after the first boot. A node brought up with the wrong key
+	// would keep that identity, which is the exact outcome expected_id exists to prevent.
+	t.Run("rejects a mismatched expected_id against a key already in the keystore", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		other := newTestECDSAKey(t)
+		spec := Import{
+			Format:       ImportFormatETH,
+			Path:         writeETHExport(t, dir, newTestECDSAKey(t)),
+			PasswordPath: writePasswordFile(t, dir, testExportPassword),
+			ExpectedID:   gethcrypto.PubkeyToAddress(other.PublicKey).Hex(),
+		}
+		ks := newTestKeystore(t)
+		_, err := ks.CreateKeys(ctx, keystore.CreateKeysRequest{
+			Keys: []keystore.CreateKeyRequest{{KeyName: "tx-key", KeyType: keystore.ECDSA_S256}},
+		})
+		require.NoError(t, err)
+
+		err = EnsureImportedKey(ctx, lggr, ks, "tx-key", "transmitting", keystore.ECDSA_S256, spec)
+		require.ErrorContains(t, err, "already in the keystore")
+		require.ErrorContains(t, err, "tx-key")
+	})
+
+	t.Run("accepts a matching expected_id against a key already in the keystore", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		ks := newTestKeystore(t)
+		created, err := ks.CreateKeys(ctx, keystore.CreateKeysRequest{
+			Keys: []keystore.CreateKeyRequest{{KeyName: "tx-key", KeyType: keystore.ECDSA_S256}},
+		})
+		require.NoError(t, err)
+		address, _, err := EVMAddressFromPublicKey(created.Keys[0].KeyInfo.PublicKey)
+		require.NoError(t, err)
+
+		// The export names a different key. It is never read, because the keystore already holds the
+		// pinned identity — which is the normal restart path after a migration, with the export files
+		// unmounted.
+		spec := Import{
+			Format:       ImportFormatETH,
+			Path:         writeETHExport(t, dir, newTestECDSAKey(t)),
+			PasswordPath: writePasswordFile(t, dir, testExportPassword),
+			ExpectedID:   address,
+		}
+
+		require.NoError(t, EnsureImportedKey(ctx, lggr, ks, "tx-key", "transmitting", keystore.ECDSA_S256, spec))
+	})
+
 	t.Run("rejects a non-secp256k1 target key type", func(t *testing.T) {
 		t.Parallel()
 		dir := t.TempDir()

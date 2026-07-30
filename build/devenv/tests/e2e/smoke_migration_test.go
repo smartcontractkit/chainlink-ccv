@@ -181,19 +181,27 @@ func clModeAliases(in *ccv.Cfg) []string {
 
 // clNodeContainerNames flattens the launched Chainlink node container names in node-set order,
 // which is the same order NewNodeSetClientLookup pairs them with NOP aliases.
+//
+// The names come from each node set's Out.CLNodes, which is where the launched containers are
+// recorded and the same field both NewNodeSetClientLookup and countCLNodes read. NodeSpecs is the
+// input side and its per-spec Out is nil in a loaded environment output, so reading it yields no
+// containers at all. The skip condition mirrors NewNodeSetClientLookup, so a node set contributing
+// no clients contributes no containers either and the two lists stay index-aligned.
+//
+// A node set that is present but has no usable output fails here rather than being skipped: a short
+// list would otherwise surface as a confusing count mismatch against the NOP aliases.
 func clNodeContainerNames(t *testing.T, in *ccv.Cfg) []string {
 	t.Helper()
 	var names []string
 	for _, nodeSet := range in.NodeSets {
-		if nodeSet == nil {
+		if nodeSet == nil || nodeSet.Out == nil || len(nodeSet.Out.CLNodes) == 0 {
 			continue
 		}
-		for _, spec := range nodeSet.NodeSpecs {
-			if spec == nil || spec.Out == nil || spec.Out.Node == nil {
-				continue
-			}
-			require.NotEmpty(t, spec.Out.Node.ContainerName, "CL node output has no container name")
-			names = append(names, spec.Out.Node.ContainerName)
+		for i, clNode := range nodeSet.Out.CLNodes {
+			require.NotNilf(t, clNode.Node, "node set %s CL node %d has no node output", nodeSet.Name, i)
+			require.NotEmptyf(t, clNode.Node.ContainerName,
+				"node set %s CL node %d has no container name", nodeSet.Name, i)
+			names = append(names, clNode.Node.ContainerName)
 		}
 	}
 	return names
