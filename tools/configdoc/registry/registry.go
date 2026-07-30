@@ -100,6 +100,11 @@ func aggregatorConfigInstance() any {
 		Heartbeat: aggregator.HeartbeatConfig{
 			Redis: &heartbeatRedisConfig,
 		},
+		RateLimiting: aggregator.RateLimitingConfig{
+			Storage: aggregator.RateLimiterStoreConfig{
+				Redis: &aggregator.RateLimiterRedisConfig{KeyPrefix: aggregator.DefaultRateLimiterRedisKeyPrefix},
+			},
+		},
 	}
 	c.SetDefaults()
 	return c

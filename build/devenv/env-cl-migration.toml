@@ -8,6 +8,18 @@
 ##
 ## The secondary and tertiary committees from env-cl.toml are absent for the same reason. They exist
 ## there to exercise multi-committee routing, which is orthogonal to the migration.
+##
+## This file is self-contained rather than an overlay on env.toml, which is why the second half
+## repeats env.toml's blockchain/indexer/JD sections verbatim. Committees are a TOML *map*, so an
+## overlay can only add to or repoint them, never remove one: layering a single-committee topology
+## over env.toml leaves its secondary and tertiary committees in place, still pointing at NOP
+## aliases the overlay's nops array replaced, and topology validation rejects that with
+## `committee "tertiary" ... references unknown NOP alias`. Nor can those committees be neutered by
+## pointing them at an empty NOP list — CommitteeConfig.Validate requires at least one NOP per
+## chain. In CL mode each NOP alias needs its own Chainlink node, so keeping them satisfied would
+## mean running four nodes to migrate two.
+##
+## The cost is that changes to those inherited sections in env.toml have to be mirrored here.
 
 [environment_topology]
 indexer_address = ["http://indexer-1:8100"]
@@ -211,3 +223,183 @@ execution_interval = 15_000_000_000
   [executor.db]
     image = "postgres:16-alpine"
     name = "default-executor-2-db"
+
+## ─────────────────────────────────────────────────────────────────────────────────────────────
+## Copied verbatim from env.toml. See the header for why this file cannot be an overlay on it.
+## ─────────────────────────────────────────────────────────────────────────────────────────────
+
+[protocol_contracts]
+
+## Environment configuration define the topology. Eventually the topology should be the only config that is needed.
+
+[cldf]
+
+[jd]
+  csa_encryption_key = "d1093c0060d50a3c89c189b2e485da5a3ce57f3dcb38ab7e2c0d5f0bb2314a44" # any random 32 byte hex string
+  image = "job-distributor:local"
+
+[[blockchains]]
+  container_name = "blockchain-src"
+  chain_id = "1337"
+  docker_cmd_params = ["-b", "1", "--mixed-mining", "--slots-in-an-epoch", "1"]
+  image = "ghcr.io/foundry-rs/foundry:latest"
+  port = "8545"
+  type = "anvil"
+
+[[blockchains]]
+  container_name = "blockchain-dst"
+  chain_id = "2337"
+  docker_cmd_params = ["-b", "1", "--mixed-mining", "--slots-in-an-epoch", "1"]
+  image = "ghcr.io/foundry-rs/foundry:latest"
+  port = "8555"
+  type = "anvil"
+
+[[blockchains]]
+  container_name = "blockchain-3rd"
+  chain_id = "3337"
+  docker_cmd_params = ["-b", "1", "--mixed-mining", "--slots-in-an-epoch", "1"]
+  image = "ghcr.io/foundry-rs/foundry:latest"
+  port = "8565"
+  type = "anvil"
+
+[fake]
+  image = "ccv-fakes:latest"
+  port = 9111
+  source_code_path = "../build/devenv/fakes"
+  root_path = "../../"
+
+## Default Verifier Setup
+
+[[token_verifier]]
+  mode = "standalone"
+  image = "token-verifier:latest"
+  container_name = "token-verifier-1"
+  port = 8700
+  source_code_path = "../verifier"
+  root_path = "../../"
+  [token_verifier.db]
+    image = "postgres:16-alpine"
+    name = "token-verifier-1-db"
+    port = 8450
+
+[[indexer]]
+  image = "indexer:latest"
+  port = 8104
+  # will spawn additional indexers IF high_availability is set to true
+  redundant_indexers = 1
+  source_code_path = "../indexer"
+  root_path = "../../"
+  storage_connection_url = "postgresql://indexer:indexer@indexer-db:5432/indexer?sslmode=disable"
+  [indexer.db]
+    image = "postgres:16-alpine"
+  # Optional: full DB connection string (container-to-container). When set, used for storage config and output.
+
+[indexer.indexer_config]
+LogLevel = 'debug'
+
+[indexer.indexer_config.Monitoring]
+LogLevel = 'debug'
+
+[indexer.indexer_config.Monitoring.Pyroscope]
+Enabled = false
+URL = ''
+
+[indexer.indexer_config.Monitoring.Beholder]
+Enabled = true
+InsecureConnection = true
+CACertFile = ''
+OtelExporterGRPCEndpoint = ''
+OtelExporterHTTPEndpoint = 'host.docker.internal:4318'
+LogStreamingEnabled = true
+MetricReaderInterval = 5
+TraceSampleRatio = 1.0
+TraceBatchTimeout = 10
+
+[indexer.indexer_config.Monitoring.Beholder.TelemetryAttributes]
+ccip_env = "devenv"
+
+[[indexer.indexer_config.Discoveries]]
+Address = "default-aggregator:50051"
+Since = 0
+PollInterval = 500
+Timeout = 5000
+NtpServer = "time.google.com"
+
+[[indexer.indexer_config.Discoveries]]
+Address = "secondary-aggregator:50051"
+Since = 0
+PollInterval = 500
+Timeout = 5000
+NtpServer = "time.google.com"
+
+[indexer.indexer_config.Scheduler]
+TickerInterval = 50
+VerificationVisibilityWindow = 28800
+BaseDelay = 100
+MaxDelay = 30_000
+
+[indexer.indexer_config.Pool]
+ConcurrentWorkers = 1000
+WorkerTimeout = 300
+
+[[indexer.indexer_config.Verifier]]
+Type = "aggregator"
+Name = "CommiteeVerifier (Primary)"
+Address = "default-aggregator:50051"
+InsecureConnection = true
+BatchSize = 100
+MaxBatchWaitTime = 50
+Since = 0
+
+[[indexer.indexer_config.Verifier]]
+Type = "aggregator"
+Name = "CommiteeVerifier (Secondary)"
+Address = "secondary-aggregator:50051"
+InsecureConnection = true
+BatchSize = 100
+MaxBatchWaitTime = 50
+Since = 0
+
+[[indexer.indexer_config.Verifier]]
+Type = "aggregator"
+Name = "CommiteeVerifier (Tertiary)"
+Address = "tertiary-aggregator:50051"
+InsecureConnection = true
+BatchSize = 100
+MaxBatchWaitTime = 50
+Since = 0
+
+[[indexer.indexer_config.Verifier]]
+Type = "rest"
+Name = "Token Verifier (Primary)"
+BaseURL = "http://token-verifier-1:8100/v1"
+BatchSize = 10
+MaxBatchWaitTime = 100
+Since = 0
+
+[indexer.committee_verifier_name_to_qualifier]
+"CommiteeVerifier (Primary)" = "default"
+"CommiteeVerifier (Secondary)" = "secondary"
+"CommiteeVerifier (Tertiary)" = "tertiary"
+
+[indexer.cctp_verifier_name_to_qualifier]
+"Token Verifier (Primary)" = ""
+
+[indexer.lombard_verifier_name_to_qualifier]
+"Token Verifier (Primary)" = "LombardVerifierResolver"
+
+[indexer.indexer_config.Storage]
+Strategy = "single"
+
+[indexer.indexer_config.Storage.Single]
+Type = "postgres"
+
+[indexer.indexer_config.Storage.Single.Postgres]
+MaxOpenConnections = 20
+MaxIdleConnections = 5
+IdleInTxSessionTimeout = 60
+LockTimeout = 30
+
+[indexer.secrets.Storage.Single.Postgres]
+# Host must be the DB container name (indexer-db), not the indexer service (indexer).
+URI = "postgresql://indexer:indexer@indexer-db:5432/indexer?sslmode=disable"

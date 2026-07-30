@@ -50,7 +50,7 @@ func TestE2EMigration_CLToStandalone(t *testing.T) {
 	chains, err := lib.Chains(ctx)
 	require.NoError(t, err)
 	require.GreaterOrEqual(t, len(chains), 2, "migration test needs at least 2 chains")
-	src, dst := chains[0].CCIP17.ChainSelector(), chains[1].CCIP17.ChainSelector()
+	src, dst := chains[0].ChainSelector(), chains[1].ChainSelector()
 
 	requireCLMode(t, in)
 	signersBefore := signerAddressesByNOP(in)

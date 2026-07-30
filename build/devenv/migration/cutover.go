@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"time"
 
-	ctfblockchain "github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/clclient"
+	ctfblockchain "github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainreg"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"

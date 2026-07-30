@@ -137,6 +137,9 @@ func (g *Generator) Check(targets []Target, outDir string) ([]Stale, error) {
 // in, and injects those comments into the encoded output.
 func (g *Generator) Render(t Target) (string, error) {
 	inst := t.New()
+	if err := validateInitializedPointers(inst); err != nil {
+		return "", fmt.Errorf("%s: %w", t.Name, err)
+	}
 
 	var buf bytes.Buffer
 	if err := toml.NewEncoder(&buf).Encode(inst); err != nil {
@@ -153,6 +156,72 @@ func (g *Generator) Render(t Target) (string, error) {
 		return "", fmt.Errorf("%s: %w", t.Name, err)
 	}
 	return g.header(t) + body, nil
+}
+
+// validateInitializedPointers ensures the example instance exposes every
+// documented pointer-backed configuration section to the TOML encoder.
+func validateInitializedPointers(inst any) error {
+	var nilFields []string
+
+	// walk recursively traverses the value tree of inst, recording the path of any
+	// nil pointer fields. It follows pointers, structs, slices/arrays, and maps.
+	var walk func(reflect.Value, string)
+	walk = func(v reflect.Value, path string) {
+		if !v.IsValid() {
+			return
+		}
+
+		switch v.Kind() {
+		case reflect.Pointer:
+			if v.IsNil() {
+				nilFields = append(nilFields, path)
+				return
+			}
+			walk(v.Elem(), path)
+		case reflect.Struct:
+			for i := range v.NumField() {
+				f := v.Type().Field(i)
+				if !f.IsExported() {
+					continue
+				}
+				fieldPath := f.Name
+				if path != "" {
+					fieldPath = path + "." + fieldPath
+				}
+				if f.Anonymous {
+					// Polymorphic config types use nil embedded pointers and custom
+					// unmarshalling, so they are not TOML sections to document here.
+					if f.Type.Kind() == reflect.Pointer {
+						continue
+					}
+					walk(v.Field(i), fieldPath)
+					continue
+				}
+				if key, ok := tomlKey(f); !ok || key == "" {
+					continue
+				}
+				walk(v.Field(i), fieldPath)
+			}
+		case reflect.Slice, reflect.Array:
+			for i := range v.Len() {
+				walk(v.Index(i), path)
+			}
+		case reflect.Map:
+			iter := v.MapRange()
+			for iter.Next() {
+				walk(iter.Value(), path)
+			}
+		}
+	}
+
+	walk(reflect.ValueOf(inst), "")
+	if len(nilFields) == 0 {
+		return nil
+	}
+	return fmt.Errorf(
+		"uninitialized pointer fields: %s; all config struct pointer fields must be initialized for documentation purposes",
+		strings.Join(nilFields, ", "),
+	)
 }
 
 func (g *Generator) header(t Target) string {

@@ -48,7 +48,7 @@ func RetargetExecutorJobSpec(spec string) (string, error) {
 // retarget re-emits a parsed spec under the standalone envelope, carrying the inner config across as
 // text.
 //
-// Moving the text rather than decoding and re-marshalling it is deliberate. The migration's promise
+// Moving the text rather than decoding and re-marshaling it is deliberate. The migration's promise
 // is that the operator's job runs the same configuration after the cutover as before, and a round
 // trip through a Go struct cannot keep it: a key the struct does not declare is dropped silently,
 // and a key whose type has changed since the spec was written fails the whole cutover. Neither is

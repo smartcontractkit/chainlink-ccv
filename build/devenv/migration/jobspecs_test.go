@@ -69,7 +69,7 @@ func TestRetargetExecutorJobSpec(t *testing.T) {
 	assert.Contains(t, got, `indexer_address = ["http://indexer-1:8100"]`)
 }
 
-// The inner config is carried across as text, not decoded and re-marshalled. An operator's running
+// The inner config is carried across as text, not decoded and re-marshaled. An operator's running
 // job may set keys this devenv build does not know about — a newer field, or one this binary is too
 // old to have — and a cutover that silently dropped them would change what the job does. Nor may a
 // key whose type has since changed abort the migration: the config is running on the node today.
@@ -96,7 +96,7 @@ some_future_setting = "keep me"
 	assert.Contains(t, got, `some_future_setting = "keep me"`)
 	assert.Contains(t, got, "[a_future_section]")
 	assert.Contains(t, got, "nested = 42")
-	// Formatting is preserved too, since nothing re-serialises the config.
+	// Formatting is preserved too, since nothing re-serializes the config.
 	assert.Contains(t, got, "  nested = 42")
 }
 
