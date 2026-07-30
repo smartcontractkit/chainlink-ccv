@@ -1,6 +1,6 @@
 {
   ".": "0.2.0",
   "deployment": "0.1.0",
-  "build/devenv": "0.2.0",
+  "build/devenv": "0.3.0",
   "integration/evm": "0.0.1"
 }
