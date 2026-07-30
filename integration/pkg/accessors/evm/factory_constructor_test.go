@@ -54,6 +54,77 @@ external_ws_url = "wss://eth-mainnet.example.com"
 	require.ErrorContains(t, err, "external_ws_url")
 }
 
+// A node config that converts cleanly produces no warnings, so the warning count cannot be used to
+// tell a conversion from a standalone file. loadConfig reports the conversion itself.
+func TestLoadConfigReportsConversionWithoutWarnings(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "evm.toml")
+	require.NoError(t, os.WriteFile(path, []byte(`
+[[EVM]]
+ChainID = "1"
+FinalityDepth = 42
+[[EVM.Nodes]]
+Name = "chainstack"
+HTTPURL = "http://evm-node:8545"
+`), 0o600))
+
+	cfg, conversion, err := loadConfig(path)
+	require.NoError(t, err)
+	require.NotNil(t, conversion, "a converted node config must be reported as converted")
+	require.Empty(t, conversion.Warnings, "nothing in this config is dropped")
+	require.Contains(t, cfg.Chains, "5009297550715157269")
+}
+
+func TestLoadConfigReportsNoConversionForStandaloneConfig(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "evm.toml")
+	require.NoError(t, os.WriteFile(path, []byte(`
+[chains.5009297550715157269]
+finality_depth = 42
+[[chains.5009297550715157269.nodes]]
+http_url = "http://evm-node:8545"
+`), 0o600))
+
+	_, conversion, err := loadConfig(path)
+	require.NoError(t, err)
+	require.Nil(t, conversion, "a standalone config was not converted")
+}
+
+// An EVM key with no usable chains is a node config the operator got wrong, not a standalone config.
+// Classifying on the key's presence rather than its contents is what lets the converter say so;
+// otherwise the node's own section comes back as an unknown field.
+func TestLoadConfigClassifiesEmptyEVMKeyAsNodeConfig(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		// Both cases must be reported as a problem with the node config rather than as an unknown
+		// field, which is all the classification can promise; the table form fails in the parser
+		// before the section count is ever reached.
+		wantErr string
+	}{
+		{
+			name:    "empty array",
+			body:    "EVM = []\n",
+			wantErr: "config has no [[EVM]] sections",
+		},
+		{
+			name:    "table form",
+			body:    "[EVM]\nChainID = \"1\"\n",
+			wantErr: "failed to convert Chainlink node config",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "evm.toml")
+			require.NoError(t, os.WriteFile(path, []byte(tt.body), 0o600))
+
+			_, _, err := loadConfig(path)
+			require.ErrorContains(t, err, tt.wantErr)
+			require.NotContains(t, err.Error(), "unknown fields in config",
+				"the node's own EVM section must not come back as an unknown field")
+		})
+	}
+}
+
 // The mounted config carries only operator-owned connection and runtime settings;
 // the accessor derives each chain's metadata from its selector at load time.
 func TestConfigToInfosDerivesChainMetadataFromSelector(t *testing.T) {

@@ -7,7 +7,6 @@ package evm
 import (
 	"fmt"
 	"net/url"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -21,8 +20,12 @@ import (
 
 // Conversion is the converted config together with everything the conversion dropped or decided.
 // Warnings are not failures: they are the settings a Chainlink node accepts that standalone CCV has
-// no equivalent for. The CLI prints them so an operator sees what changed rather than finding out
-// from behavior.
+// no equivalent for. CreateEVMAccessorFactory logs them at warn on startup, so an operator who
+// mounted their node's file sees what changed rather than finding out from behavior.
+//
+// Warnings are ordered as the operator wrote the config: by chain, then by node within the chain,
+// then by setting. A converted config with no warnings is normal and does not mean no conversion
+// happened, which is why loadConfig reports the conversion itself rather than the warning count.
 type Conversion struct {
 	Config   Config
 	Warnings []string
@@ -157,14 +160,19 @@ func convertNodes(chainID string, nodes evmtoml.EVMNodes) ([]Node, []string, err
 				chainID, label)
 		}
 
-		for setting, isSet := range map[string]bool{
-			"HTTPURLExtraWrite": node.HTTPURLExtraWrite != nil,
-			"Order":             node.Order != nil,
-			"IsLoadBalancedRPC": node.IsLoadBalancedRPC != nil,
+		// A slice rather than a map so the warnings come out in a fixed order, which keeps them
+		// grouped per node in the order the operator wrote the nodes.
+		for _, dropped := range []struct {
+			setting string
+			isSet   bool
+		}{
+			{"HTTPURLExtraWrite", node.HTTPURLExtraWrite != nil},
+			{"Order", node.Order != nil},
+			{"IsLoadBalancedRPC", node.IsLoadBalancedRPC != nil},
 		} {
-			if isSet {
+			if dropped.isSet {
 				warnings = append(warnings, fmt.Sprintf(
-					"chain %s node %s: dropped %s, standalone CCV does not expose it", chainID, label, setting))
+					"chain %s node %s: dropped %s, standalone CCV does not expose it", chainID, label, dropped.setting))
 			}
 		}
 
@@ -178,9 +186,6 @@ func convertNodes(chainID string, nodes evmtoml.EVMNodes) ([]Node, []string, err
 	if len(converted) == 0 {
 		return nil, nil, fmt.Errorf("chain %s has no usable [[EVM.Nodes]] entries after conversion", chainID)
 	}
-	// Map iteration above makes the per-node warning order nondeterministic; sorting keeps the CLI
-	// output and its tests stable.
-	sort.Strings(warnings)
 	return converted, warnings, nil
 }
 

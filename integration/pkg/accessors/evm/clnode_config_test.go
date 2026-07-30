@@ -224,6 +224,45 @@ HTTPURL = 'https://arb.example.com'
 	})
 }
 
+// Warnings come out in the order the operator wrote the config, so an operator reading the startup
+// log walks their own file top to bottom. Every pair below is deliberately in the opposite order to
+// what sorting the strings would produce: arbitrum-sepolia precedes sepolia though "11155111" sorts
+// before "421614", node zeta precedes node alpha, and "dropped Order" precedes
+// "dropped IsLoadBalancedRPC".
+func TestConvertChainlinkNodeConfigWarningsFollowOperatorOrder(t *testing.T) {
+	t.Parallel()
+
+	got, err := convertChainlinkNodeConfig([]byte(`
+[[EVM]]
+ChainID = '` + arbSepChainID + `'
+[[EVM.Nodes]]
+Name = 'zeta'
+HTTPURL = 'https://arb-zeta.example.com'
+Order = 50
+IsLoadBalancedRPC = true
+
+[[EVM.Nodes]]
+Name = 'alpha'
+HTTPURL = 'https://arb-alpha.example.com'
+SendOnly = true
+
+[[EVM]]
+ChainID = '` + sepoliaChainID + `'
+[[EVM.Nodes]]
+Name = 'primary'
+HTTPURL = 'https://sepolia.example.com'
+HTTPURLExtraWrite = 'https://sepolia-write.example.com'
+`))
+	require.NoError(t, err)
+
+	require.Equal(t, []string{
+		"chain " + arbSepChainID + " node zeta: dropped Order, standalone CCV does not expose it",
+		"chain " + arbSepChainID + " node zeta: dropped IsLoadBalancedRPC, standalone CCV does not expose it",
+		"chain " + arbSepChainID + " node alpha: dropped, SendOnly nodes have no standalone equivalent",
+		"chain " + sepoliaChainID + " node primary: dropped HTTPURLExtraWrite, standalone CCV does not expose it",
+	}, got.Warnings)
+}
+
 // TestConvertedConfigLoadsStrictly encodes a conversion the way the CLI does and decodes it the way
 // a standalone container does. The accessor's loader rejects any field it does not recognize, so a
 // conversion that emitted a key the mounted config has no home for would take the node down at

@@ -10,7 +10,7 @@
 ## there to exercise multi-committee routing, which is orthogonal to the migration.
 ##
 ## This file is self-contained rather than an overlay on env.toml, which is why the second half
-## repeats env.toml's blockchain/indexer/JD sections verbatim. Committees are a TOML *map*, so an
+## repeats env.toml's blockchain, indexer and JD sections. Committees are a TOML *map*, so an
 ## overlay can only add to or repoint them, never remove one: layering a single-committee topology
 ## over env.toml leaves its secondary and tertiary committees in place, still pointing at NOP
 ## aliases the overlay's nops array replaced, and topology validation rejects that with
@@ -19,7 +19,19 @@
 ## chain. In CL mode each NOP alias needs its own Chainlink node, so keeping them satisfied would
 ## mean running four nodes to migrate two.
 ##
-## The cost is that changes to those inherited sections in env.toml have to be mirrored here.
+## Those inherited sections are copied verbatim except where they name a committee: the aggregator
+## array and the indexer's Discoveries, Verifier and committee_verifier_name_to_qualifier entries
+## are cut down to the one committee this environment deploys. The cost of being self-contained is
+## that changes to the inherited sections in env.toml have to be mirrored here.
+
+## Same amounts env.toml funds CL node keys with. Omitting them is not equivalent to inheriting
+## them: toBigUnits falls back to 1 LINK and 5 ETH for a non-positive value, silently.
+cl_nodes_funding_eth = 50
+cl_nodes_funding_link = 50
+
+## HA is off, as it is in env.toml. The migration test is about one committee's jobs moving hosts,
+## and the redundancy counts on [[aggregator]] and [[indexer]] below only take effect when it is on.
+high_availability = false
 
 [environment_topology]
 indexer_address = ["http://indexer-1:8100"]
@@ -318,15 +330,9 @@ TraceBatchTimeout = 10
 [indexer.indexer_config.Monitoring.Beholder.TelemetryAttributes]
 ccip_env = "devenv"
 
+## Only the default aggregator is discoverable here; see the aggregator array above.
 [[indexer.indexer_config.Discoveries]]
 Address = "default-aggregator:50051"
-Since = 0
-PollInterval = 500
-Timeout = 5000
-NtpServer = "time.google.com"
-
-[[indexer.indexer_config.Discoveries]]
-Address = "secondary-aggregator:50051"
 Since = 0
 PollInterval = 500
 Timeout = 5000
@@ -352,24 +358,6 @@ MaxBatchWaitTime = 50
 Since = 0
 
 [[indexer.indexer_config.Verifier]]
-Type = "aggregator"
-Name = "CommiteeVerifier (Secondary)"
-Address = "secondary-aggregator:50051"
-InsecureConnection = true
-BatchSize = 100
-MaxBatchWaitTime = 50
-Since = 0
-
-[[indexer.indexer_config.Verifier]]
-Type = "aggregator"
-Name = "CommiteeVerifier (Tertiary)"
-Address = "tertiary-aggregator:50051"
-InsecureConnection = true
-BatchSize = 100
-MaxBatchWaitTime = 50
-Since = 0
-
-[[indexer.indexer_config.Verifier]]
 Type = "rest"
 Name = "Token Verifier (Primary)"
 BaseURL = "http://token-verifier-1:8100/v1"
@@ -377,10 +365,11 @@ BatchSize = 10
 MaxBatchWaitTime = 100
 Since = 0
 
+## One entry, matching the single committee. Every name listed here has its qualifier resolved to a
+## deployed CommitteeVerifier address while the indexer config is generated, so naming a committee
+## this environment does not deploy fails environment startup outright.
 [indexer.committee_verifier_name_to_qualifier]
 "CommiteeVerifier (Primary)" = "default"
-"CommiteeVerifier (Secondary)" = "secondary"
-"CommiteeVerifier (Tertiary)" = "tertiary"
 
 [indexer.cctp_verifier_name_to_qualifier]
 "Token Verifier (Primary)" = ""
