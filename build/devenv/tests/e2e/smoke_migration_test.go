@@ -2,15 +2,16 @@ package e2e
 
 import (
 	"context"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/credentials/insecure"
 
+	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-deployments-framework/offchain"
 	"github.com/smartcontractkit/chainlink-deployments-framework/offchain/jd"
+	nodev1 "github.com/smartcontractkit/chainlink-protos/job-distributor/v1/node"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 
 	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
@@ -53,20 +54,24 @@ func TestE2EMigration_CLToStandalone(t *testing.T) {
 	src, dst := chains[0].ChainSelector(), chains[1].ChainSelector()
 
 	requireCLMode(t, in)
-	signersBefore := signerAddressesByNOP(in)
-	require.NotEmpty(t, signersBefore, "no CL-mode NOPs found to migrate")
-
-	t.Log("sending a message before the cutover")
-	sendAndConfirm(t, ctx, lib, src, dst)
 
 	jdClient := newJDClient(t, in)
 	clientLookup := newCLNodeLookup(t, in)
 	nops := migratingNOPs(t, in, clientLookup)
 
-	// The operator's job specs are read while the Chainlink node still owns its JD record. They are
-	// retargeted rather than regenerated, so the migrated jobs carry exactly the configuration the
-	// operator was already running, down to the externalJobID.
-	specsByNOP := fetchJobSpecs(t, ctx, jdClient, nops)
+	// Everything JD holds for each NOP is read while the Chainlink node still owns its record: the
+	// job specs to retarget, and the signing address the committee's signer set was built from.
+	// After the cutover the record belongs to the standalone verifier, so neither can be read as it
+	// was.
+	//
+	// The specs are retargeted rather than regenerated, so the migrated jobs carry exactly the
+	// configuration the operator was already running, down to the externalJobID.
+	stateBefore := fetchNOPJDState(t, ctx, jdClient, nops)
+	signersBefore := signingAddresses(stateBefore)
+	require.NotEmpty(t, signersBefore, "no CL-mode signing addresses found in JD")
+
+	t.Log("sending a message before the cutover")
+	sendAndConfirm(t, ctx, lib, src, dst)
 
 	cutover := migration.Input{
 		NOPs:              nops,
@@ -89,7 +94,7 @@ func TestE2EMigration_CLToStandalone(t *testing.T) {
 	require.Len(t, result.NOPs, len(nops), "every NOP should have been migrated")
 
 	t.Log("proposing standalone job specs")
-	proposeStandaloneJobs(t, ctx, jdClient, in, result, specsByNOP)
+	proposeStandaloneJobs(t, ctx, jdClient, in, result, stateBefore)
 
 	t.Log("sending a message after the cutover")
 	sendAndConfirm(t, ctx, lib, src, dst)
@@ -98,7 +103,12 @@ func TestE2EMigration_CLToStandalone(t *testing.T) {
 	for alias, wantSigner := range signersBefore {
 		got, ok := result.NOPs[alias]
 		require.Truef(t, ok, "NOP %s was not migrated", alias)
-		require.Truef(t, strings.EqualFold(wantSigner, got.SigningAddress),
+		// Both sides are canonicalised before comparing. JD's copy and the cutover's copy of the same
+		// key are formatted differently — the cutover reports an EIP-55 checksummed address, JD's is
+		// lowercase — so comparing the strings as they arrive would fail on formatting alone.
+		require.Equalf(t,
+			ccvshared.CanonicalEVMAddress(wantSigner),
+			ccvshared.CanonicalEVMAddress(got.SigningAddress),
 			"NOP %s signing address changed from %s to %s; the committee signer set would need updating",
 			alias, wantSigner, got.SigningAddress)
 		require.NotEmptyf(t, got.TransmitterAddress, "NOP %s has no transmitter address", alias)
@@ -114,17 +124,11 @@ func TestE2EMigration_CLToStandalone(t *testing.T) {
 	}
 }
 
-// signerAddressesByNOP reads each CL-mode NOP's committee signing address from the topology, which
-// is where the deployment recorded what it wrote into the CommitteeVerifier signer set.
-func signerAddressesByNOP(in *ccv.Cfg) map[string]string {
-	out := make(map[string]string)
-	for _, nop := range in.EnvironmentTopology.NOPTopology.NOPs {
-		if nop.GetMode() != ccvshared.NOPModeCL {
-			continue
-		}
-		if addr := nop.SignerAddressByFamily["evm"]; addr != "" {
-			out[nop.Alias] = addr
-		}
+// signingAddresses projects each NOP's pre-cutover signing address out of what was read from JD.
+func signingAddresses(state map[string]nopJDState) map[string]string {
+	out := make(map[string]string, len(state))
+	for alias, s := range state {
+		out[alias] = s.SigningAddress
 	}
 	return out
 }
@@ -133,6 +137,9 @@ func requireCLMode(t *testing.T, in *ccv.Cfg) {
 	t.Helper()
 	require.NotNil(t, in.EnvironmentTopology, "environment topology missing")
 	require.NotNil(t, in.EnvironmentTopology.NOPTopology, "NOP topology missing")
+	// Without this the per-NOP loops here and at the end of the test both pass on an empty topology,
+	// and the migration is reported as working having migrated nothing.
+	require.NotEmpty(t, in.EnvironmentTopology.NOPTopology.NOPs, "topology declares no NOPs")
 	require.NotEmpty(t, in.NodeSets, "migration test requires CL nodes; use a migration.clnode profile")
 	for _, nop := range in.EnvironmentTopology.NOPTopology.NOPs {
 		require.Equalf(t, ccvshared.NOPModeCL, nop.GetMode(),
@@ -229,15 +236,23 @@ func blockchainOutputs(in *ccv.Cfg) []*blockchain.Output {
 	return outs
 }
 
-// fetchJobSpecs reads each NOP's current job specs from JD, keyed by alias.
-func fetchJobSpecs(
+// nopJDState is what JD holds for a NOP while its Chainlink node still owns the record.
+type nopJDState struct {
+	Specs          []migration.NodeJobSpec
+	SigningAddress string
+}
+
+// fetchNOPJDState reads each NOP's current job specs and signing address from JD, keyed by alias.
+// Both come from the one node record, found by the node's own CSA key, so the signing address is
+// the one belonging to the specs being carried across.
+func fetchNOPJDState(
 	t *testing.T,
 	ctx context.Context,
 	jdClient offchain.Client,
 	nops []migration.NOP,
-) map[string][]migration.NodeJobSpec {
+) map[string]nopJDState {
 	t.Helper()
-	out := make(map[string][]migration.NodeJobSpec, len(nops))
+	out := make(map[string]nopJDState, len(nops))
 	for _, nop := range nops {
 		csaKey, err := jobs.CLCSAKeyProvider{Client: nop.CLClient}.CSAKey(ctx)
 		require.NoErrorf(t, err, "reading CSA key for NOP %s", nop.Alias)
@@ -247,9 +262,46 @@ func fetchJobSpecs(
 		specs, err := migration.FetchNodeJobSpecs(ctx, jdClient, node.GetId())
 		require.NoErrorf(t, err, "fetching job specs for NOP %s", nop.Alias)
 		require.NotEmptyf(t, specs, "NOP %s has no job specs in JD", nop.Alias)
-		out[nop.Alias] = specs
+
+		out[nop.Alias] = nopJDState{
+			Specs:          specs,
+			SigningAddress: jdSigningAddress(t, ctx, jdClient, nop.Alias, node.GetId()),
+		}
 	}
 	return out
+}
+
+// jdSigningAddress reads the EVM signing address JD holds for a node.
+//
+// This is deliberately read from JD rather than from the topology's signer_address_by_family. That
+// field is only ever written for standalone NOPs — enrichEnvironmentTopology skips CL-mode ones —
+// so for the NOPs this test starts with it is always empty. JD is also where the verifier changeset
+// itself reads the address it puts into the committee's signer set, which is the value the migration
+// has to preserve.
+func jdSigningAddress(t *testing.T, ctx context.Context, jdClient offchain.Client, alias, nodeID string) string {
+	t.Helper()
+	resp, err := jdClient.ListNodeChainConfigs(ctx, &nodev1.ListNodeChainConfigsRequest{
+		Filter: &nodev1.ListNodeChainConfigsRequest_Filter{NodeIds: []string{nodeID}},
+	})
+	require.NoErrorf(t, err, "listing JD chain configs for NOP %s", alias)
+
+	// One chain config per chain, each carrying the same OCR key bundle. Disagreement between them
+	// would leave "the signing address before the cutover" undefined, so it fails rather than
+	// picking one and asserting against it.
+	signer := ""
+	for _, chainConfig := range resp.GetChainConfigs() {
+		addr, err := ccvshared.SigningIdentityFromBundle(chainsel.FamilyEVM, chainConfig.GetOcr2Config().GetOcrKeyBundle())
+		if err != nil {
+			continue
+		}
+		if signer == "" {
+			signer = addr
+			continue
+		}
+		require.Equalf(t, signer, addr, "NOP %s has conflicting EVM signing addresses in JD", alias)
+	}
+	require.NotEmptyf(t, signer, "JD holds no EVM signing address for NOP %s", alias)
+	return signer
 }
 
 // proposeStandaloneJobs retargets each NOP's specs to the standalone envelope and routes them: the
@@ -261,7 +313,7 @@ func proposeStandaloneJobs(
 	jdClient offchain.Client,
 	in *ccv.Cfg,
 	result migration.Result,
-	specsByNOP map[string][]migration.NodeJobSpec,
+	stateByNOP map[string]nopJDState,
 ) {
 	t.Helper()
 	executorNodeByAlias := make(map[string]string)
@@ -272,11 +324,11 @@ func proposeStandaloneJobs(
 	}
 
 	var proposals []migration.JobProposal
-	for alias, specs := range specsByNOP {
+	for alias, state := range stateByNOP {
 		nopResult, ok := result.NOPs[alias]
 		require.Truef(t, ok, "no cutover result for NOP %s", alias)
 
-		for _, spec := range specs {
+		for _, spec := range state.Specs {
 			retargeted, err := migration.RetargetJobSpec(spec.Spec)
 			require.NoErrorf(t, err, "retargeting job %s for NOP %s", spec.JobID, alias)
 
