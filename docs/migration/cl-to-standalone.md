@@ -66,38 +66,70 @@ as each aggregator's credential lookup key, so nothing is re-provisioned.
 
 The cutover stops with an error in that case rather than picking one of the jobs arbitrarily.
 
+## Who does what
+
+The operator's part is steps 1 through 5: export the keys, configure and start the standalone
+processes, stop the Chainlink node. Everything after — repointing the JD record, registering the
+executor, flipping the topology, proposing the standalone specs — is on the Chainlink Labs side,
+because JD and the topology are centrally operated.
+
+That split is also the safety net. Before the standalone specs are proposed, each operator's
+signing address and account address are read back from JD and required to be unchanged across the
+cutover — the same assertion `TestE2EMigration_CLToStandalone` makes. A mistake in the operator's
+steps is caught there, centrally, before any job moves.
+
 ## Before you start
 
 Have ready:
 
-- The Chainlink node's API credentials, for the key exports.
+- The Chainlink node's API credentials, in a file with the email on line 1 and the password on
+  line 2 — the layout `chainlink admin login --file` reads. The export tool uses them, and the
+  export endpoints need the node's admin account.
 - A Postgres database for each standalone process. The verifier and executor each need their own
   bootstrap database, separate from any application database. Create them empty and hand each
   process a connection string: the schema is created on first boot and left alone on every boot
   after, so there is nothing to migrate by hand.
 - The Chainlink node's TOML configuration file.
-- A password you will encrypt the exported keys under. It is needed once, at first boot.
+- The verifier and executor images you are about to deploy. The export tool ships in both as
+  `ccv migrate`, so there is nothing separate to install.
 
 ## Step 1: export the two keys
 
-Find the OCR2 bundle registered for EVM and the account address registered for the chain. These are
-the ones the node published to JD, and taking them from anywhere else imports an identity no
-contract knows about.
+Run the export tool from either standalone image. It finds the OCR2 bundle registered for EVM and
+the account enabled for the chain itself — the same source the node's JD chain config was built
+from, so nothing is transcribed and nothing is guessed — exports both under a generated password,
+and verifies each file decodes to the identity the node registered, while the node is still up to
+correct a mistake:
 
 ```sh
-chainlink keys ocr2 list          # note the ID of the row whose Chain Type is evm
-chainlink keys eth list           # note the address for the chain you run
+docker run --rm --network host -v "$PWD/migration:/out" <verifier-image> \
+  ccv migrate export \
+    --node-url http://localhost:6688 \
+    --api-creds /out/api-creds.txt \
+    --chain-id 1 \
+    --out-dir /out
 ```
 
-Export both under the same password:
+`--network host` lets the container reach a node API on the host's `localhost`; if the node's API
+is reachable at another address, point `--node-url` at it instead. The credentials file sits in the
+mounted directory so the container can read it.
 
-```sh
-chainlink keys ocr2 export <bundle-id> --newpassword ./export-password.txt --output ./ocr2.json
-chainlink keys eth export <address>    --newpassword ./export-password.txt --output ./eth.json
-```
+The tool runs the job-count check from the previous section itself and stops with an error on a
+node running more than one verifier job, rather than picking one. It also stops if the node has
+several EVM OCR2 bundles or several accounts enabled for the chain; in that case take the right one
+from the JD node record — never from a guess — and pass it as `--bundle-id` or `--account`.
 
-Note the two addresses the node prints for these: the OCR2 bundle's onchain signing address and
-the account address. Step 3 uses them.
+What it writes into the output directory:
+
+- `ocr2.json` and `eth.json` — the two exports, mode 0600.
+- `export-password.txt` — the generated password, mode 0600.
+- `verifier.key_import.toml` and `executor.key_import.toml` — the `[key_import]` block for each
+  process, with `expected_id` already filled in from the export. Do not retype these addresses.
+
+The manual equivalent — `chainlink keys ocr2 list` and `export`, `chainlink keys eth list` and
+`export` — still works if the tool cannot reach the node. If you use it, take the addresses for
+`expected_id` from the JD node record, not from the list output you happened to pick: the whole
+point of the check is that it disagrees with a wrong choice.
 
 ## Step 2: reuse the node's RPC configuration
 
@@ -116,8 +148,10 @@ what was dropped. If you rely on a send-only endpoint, add it as a full node.
 
 ## Step 3: configure the standalone processes to adopt the keys
 
-Mount the export and the password file into each container and point at them. The verifier gets
-the OCR2 bundle, the executor gets the account key, and the block is the same either way:
+Step 1 wrote the block each process needs. Mount `ocr2.json` and the password file into the
+verifier's container, `eth.json` and the password file into the executor's, at the paths the
+snippet names — renaming the key file to `key.json` on the way in — and add the snippet's
+`[key_import]` block to each bootstrap config:
 
 ```toml
 [key_import]
@@ -130,11 +164,20 @@ Two paths and one check. You do not say which keystore key the file becomes, bec
 has exactly one it can import into, and you do not say which export it is, because that is read from
 the file.
 
-`expected_id` is the address from step 1: the signing address for the verifier, the account address
-for the executor. It is optional and safe to skip only if you are migrating exactly one node.
-Mounting the wrong node's export otherwise brings up a process that signs with another operator's
-key, which produces verification results the committee rejects with nothing in the logs pointing at
-the cause. Set it.
+`expected_id` is the address from step 1, written into the snippet by the tool: the signing address
+for the verifier, the account address for the executor. Mounting the wrong node's export otherwise
+brings up a process that signs with another operator's key, which produces verification results the
+committee rejects with nothing in the logs pointing at the cause. Do not skip it, and do not retype
+it — paste the block as generated.
+
+Before starting a process, you can confirm the mounted file reads back as the right identity
+without booting anything; the command ships in both images:
+
+```sh
+ccv migrate inspect \
+  --key-file /etc/ccv/migration/key.json \
+  --password-file /etc/ccv/migration/export-password.txt
+```
 
 The import runs only when the key is absent, so it is a no-op on every restart after the first. Once
 each process has come up once, unmount the export and the password file and delete them.
@@ -146,6 +189,12 @@ and while the node is connected the two contend for it.
 
 Stopping the node ends CL mode for this operator. There is no partial state to hold: both jobs run
 on the one node, so it cannot serve one of them while the other migrates.
+
+Pick a quiet moment if you can. The standalone executor's transaction manager resumes from the
+account's on-chain pending nonce and knows nothing about transactions the old node had in flight.
+Anything unconfirmed at stop time may be submitted once by each side — same account and same nonce,
+so it resolves as one confirmed transaction rather than a double spend, but a drained queue is
+cleaner than a raced one.
 
 ## Step 5: start the standalone processes
 

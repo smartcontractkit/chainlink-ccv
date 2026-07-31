@@ -38,6 +38,22 @@ key, which the committee rejects with nothing in the logs pointing at the cause.
 The import runs only when the key is absent, so it is a no-op on restart and the exported files can
 be unmounted once the process has come up once.
 
+## New: `ccv migrate export` and `ccv migrate inspect`
+
+The verifier and executor images ship a `ccv migrate` command group that replaces the manual half
+of the key export. `ccv migrate export` talks to the node's API and, in one command: runs the
+one-verifier-job preflight, resolves the EVM OCR2 bundle and the chain's enabled account from the
+node's own listings (the same source the node's JD chain config was built from), exports both keys
+under a generated password, verifies each export decodes to the identity the node registered, and
+writes a ready-made `[key_import]` snippet per process with `expected_id` already filled in. The
+operator never transcribes a bundle ID, an address, or a password. `ccv migrate inspect` prints the
+identity a mounted export carries, so a wrong-node mount is caught before boot rather than by a
+process refusing to start.
+
+The client is a four-endpoint REST client in `cli/migrate`, not the Chainlink SDK or the testing
+framework: those live in the devenv module, and importing either would drag the node dependency
+graph into the production binaries.
+
 ## The EVM config needs no conversion
 
 The standalone EVM accessor accepts a Chainlink node's own TOML directly. `loadConfig` tells the two
