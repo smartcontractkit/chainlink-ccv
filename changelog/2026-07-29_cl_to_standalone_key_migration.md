@@ -13,7 +13,7 @@ The operator-facing surface is two exported files and three config values. The b
 and the EVM accessor now reads a Chainlink node's own TOML config directly, so there is nothing to
 convert and no tooling to run.
 
-`docs/migration/cl-to-standalone.md` is the operator procedure.
+`docs/migration/evm-cl-to-standalone.md` is the operator procedure.
 
 ## New: `[key_import]` in the bootstrap config
 
@@ -31,12 +31,28 @@ key — so the target is unambiguous, and the format is read from the file (an O
 its chain type, an eth key carries an address). An application declaring two importable keys is an
 error rather than a guess.
 
-`expected_id` pins the address the export must carry. Set it when migrating more than one node:
-mounting the wrong node's export otherwise produces a process that signs with another operator's
-key, which the committee rejects with nothing in the logs pointing at the cause.
+`expected_id` pins the address the export must carry, and is required: it is the check that fails
+the boot when the wrong node's export is mounted — without it the process signs with another
+operator's key, which the committee rejects with nothing in the logs pointing at the cause.
 
 The import runs only when the key is absent, so it is a no-op on restart and the exported files can
 be unmounted once the process has come up once.
+
+## New: `ccv migrate export` and `ccv migrate inspect`
+
+The verifier and executor images ship a `ccv migrate` command group that replaces the manual half
+of the key export. `ccv migrate export` talks to the node's API and, in one command: runs the
+one-verifier-job preflight, resolves the EVM OCR2 bundle and the chain's enabled account from the
+node's own listings (the same source the node's JD chain config was built from), exports both keys
+under a generated password, verifies each export decodes to the identity the node registered, and
+writes a ready-made `[key_import]` snippet per process with `expected_id` already filled in. The
+operator never transcribes a bundle ID, an address, or a password. `ccv migrate inspect` prints the
+identity a mounted export carries, so a wrong-node mount is caught before boot rather than by a
+process refusing to start.
+
+The client is a four-endpoint REST client in `cli/migrate`, not the Chainlink SDK or the testing
+framework: those live in the devenv module, and importing either would drag the node dependency
+graph into the production binaries.
 
 ## The EVM config needs no conversion
 
@@ -47,8 +63,8 @@ file their node already runs with.
 
 The node's chain defaults are applied before finality is translated, so a chain the operator never
 configured explicitly keeps the behavior it had instead of moving onto finality tags. Send-only
-nodes, `Order` and `HTTPURLExtraWrite` have no standalone equivalent and are dropped, each logged at
-warn so nothing goes missing quietly.
+nodes, `Order`, `HTTPURLExtraWrite` and `IsLoadBalancedRPC` have no standalone equivalent and are
+dropped, each logged at warn so nothing goes missing quietly.
 
 ## The CSA key is not exported
 
