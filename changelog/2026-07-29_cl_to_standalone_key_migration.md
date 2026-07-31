@@ -1,0 +1,85 @@
+# Adopting Chainlink node keys into a standalone keystore
+
+## Summary
+
+An EVM node operator running CCV as jobs on a Chainlink node can move to the standalone verifier and
+executor while keeping the identities that anything outside the node depends on: the onchain signing
+key registered in the `CommitteeVerifier` signer set, and the funded EVM account the executor
+transmits from. Neither has to be regenerated, so the move needs no contract reconfiguration and no
+transfer of funds.
+
+The operator-facing surface is two exported files and three config values. The bootstrapper gained a
+`[key_import]` section that adopts a key exported from a Chainlink node in place of generating one,
+and the EVM accessor now reads a Chainlink node's own TOML config directly, so there is nothing to
+convert and no tooling to run.
+
+`docs/migration/cl-to-standalone.md` is the operator procedure.
+
+## New: `[key_import]` in the bootstrap config
+
+```toml
+[key_import]
+path          = "/etc/ccv/migration/key.json"
+password_path = "/etc/ccv/migration/export-password.txt"
+expected_id   = "0x1234...abcd"
+```
+
+Two paths and a check, aimed at operators who are not going to enjoy a multi-step runbook. The
+section names neither the keystore key nor the export format. An application declares exactly one
+key it can import into — a verifier its signing key, an executor its transmitter key, never the CSA
+key — so the target is unambiguous, and the format is read from the file (an OCR2 bundle declares
+its chain type, an eth key carries an address). An application declaring two importable keys is an
+error rather than a guess.
+
+`expected_id` pins the address the export must carry. Set it when migrating more than one node:
+mounting the wrong node's export otherwise produces a process that signs with another operator's
+key, which the committee rejects with nothing in the logs pointing at the cause.
+
+The import runs only when the key is absent, so it is a no-op on restart and the exported files can
+be unmounted once the process has come up once.
+
+## The EVM config needs no conversion
+
+The standalone EVM accessor accepts a Chainlink node's own TOML directly. `loadConfig` tells the two
+formats apart by their top-level table — `chains` is the standalone format, `EVM` is a node config —
+and translates the latter at startup, resolving chain IDs to chain selectors. An operator mounts the
+file their node already runs with.
+
+The node's chain defaults are applied before finality is translated, so a chain the operator never
+configured explicitly keeps the behavior it had instead of moving onto finality tags. Send-only
+nodes, `Order` and `HTTPURLExtraWrite` have no standalone equivalent and are dropped, each logged at
+warn so nothing goes missing quietly.
+
+## The CSA key is not exported
+
+JD identifies a node by the CSA key it authenticates with, so preserving a node operator's JD record
+looks like it needs the CSA private key moved as well. It does not: `UpdateNodeRequest` carries a
+`public_key`, so the existing record is repointed at the standalone verifier's own CSA key. The node
+ID, the NOP alias, and the job history are preserved, and the key stays on the machine that
+generated it.
+
+This is why the Chainlink node must be stopped before the standalone verifier starts. One JD record
+cannot have two owners.
+
+## One JD record becomes two
+
+A CL-mode node runs the `ccvcommitteeverifier` and `ccvexecutor` jobs under a single JD record.
+Standalone runs two processes with two keystores, so it needs two. The verifier adopts the
+operator's existing record, keeping the NOP alias that `ApplyVerifierConfig` and
+`fetch_signing_keys` look it up by; the executor registers a new one.
+
+The second record is a property of standalone mode rather than of the migration — an operator who
+had started standalone would have had two from the beginning. What is avoided is a duplicate entry
+for the operator alongside an abandoned one.
+
+## Implementation notes
+
+The OCR2 export is decoded in `bootstrap/keys` rather than through
+`chainlink-common/keystore/corekeys/ocr2key`. That package's `FromEncryptedJSON` switches over every
+supported chain type, so importing it would link the Cosmos, Solana, Starknet and TON keyrings, and
+their module requirements, into both binaries. The decoder reads the export format directly, which
+is a serialization contract for files already on operator disks rather than an API that can move.
+
+Every import cross-checks the extracted key against the identity the export publishes before the key
+reaches the keystore, so a bundle that did not decode as expected fails rather than importing a key
+that signs as somebody else.
