@@ -180,6 +180,14 @@ jobs:
             pattern: TestE2ESmoke_TokenPoolMigrationEVM2EVM
             profile: standard.clnode.ci.profile
             timeout: 15m
+          # Starts in CL mode and cuts over to standalone mid-test, so it needs the CL image and
+          # belongs here rather than in the standalone smoke workflow. The migration profile runs one
+          # committee with one aggregator: a standalone process serves a single job, so a NOP has to
+          # be down to one verifier job before its JD record can be handed over.
+          - name: TestE2EMigration_CLToStandalone
+            pattern: TestE2EMigration_CLToStandalone
+            profile: migration.clnode.ci.profile
+            timeout: 25m
           # We need to configure HeadTracker for the CL tests to have finality depth. Otherwise, it does instant finality.
           # - name: TestE2EReorg
           #   profile: standard.src-auto-mine.clnode.ci.profile
