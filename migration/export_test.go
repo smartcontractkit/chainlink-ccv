@@ -1,4 +1,4 @@
-package migrate
+package migration
 
 import (
 	"context"
@@ -27,11 +27,14 @@ func happyNode(t *testing.T) *fakeNode {
 	return node
 }
 
-func writeCredsFile(t *testing.T, dir, contents string) string {
-	t.Helper()
-	path := filepath.Join(dir, "api-creds.txt")
-	require.NoError(t, os.WriteFile(path, []byte(contents), 0o600))
-	return path
+func happyConfig(node *fakeNode, url, outDir string) ExportConfig {
+	return ExportConfig{
+		NodeURL:     url,
+		APIEmail:    node.email,
+		APIPassword: node.password,
+		ChainID:     "1",
+		OutDir:      outDir,
+	}
 }
 
 func TestExportNodeKeys(t *testing.T) {
@@ -39,14 +42,8 @@ func TestExportNodeKeys(t *testing.T) {
 	node := happyNode(t)
 	srv := node.start()
 	outDir := t.TempDir()
-	credsPath := writeCredsFile(t, t.TempDir(), node.email+"\n"+node.password+"\n")
 
-	result, err := ExportNodeKeys(context.Background(), logger.Test(t), ExportConfig{
-		NodeURL:   srv.URL,
-		CredsPath: credsPath,
-		ChainID:   "1",
-		OutDir:    outDir,
-	})
+	result, err := ExportNodeKeys(context.Background(), logger.Test(t), happyConfig(node, srv.URL, outDir))
 	require.NoError(t, err)
 
 	// The identities reported are the keys the node held, in the checksummed form an operator
@@ -54,7 +51,7 @@ func TestExportNodeKeys(t *testing.T) {
 	assert.Equal(t, addressOf(node.ocr2Key), result.SigningAddress)
 	assert.Equal(t, addressOf(node.ethKey), result.TransmitterAddress)
 
-	// Every key material file is owner-only; the snippets carry public addresses only.
+	// Every key material file is owner-only.
 	for _, path := range []string{result.OCR2Path, result.ETHPath, result.PasswordPath} {
 		info, err := os.Stat(path)
 		require.NoError(t, err, "%s should exist", path)
@@ -64,20 +61,10 @@ func TestExportNodeKeys(t *testing.T) {
 	// Both exports decode under the generated password to the identities the node registered.
 	signingID, err := keys.InspectImport(keys.Import{Format: keys.ImportFormatOCR2, Path: result.OCR2Path, PasswordPath: result.PasswordPath})
 	require.NoError(t, err)
-	assert.Equal(t, result.SigningAddress, checksumAddress(signingID))
+	assert.Equal(t, result.SigningAddress, ChecksumAddress(signingID))
 	transmitterID, err := keys.InspectImport(keys.Import{Format: keys.ImportFormatETH, Path: result.ETHPath, PasswordPath: result.PasswordPath})
 	require.NoError(t, err)
-	assert.Equal(t, result.TransmitterAddress, checksumAddress(transmitterID))
-
-	// The snippets are ready to paste: the [key_import] block with expected_id already filled in,
-	// so the one value that must not be mistyped never passes through a human.
-	verifierTOML, err := os.ReadFile(result.VerifierTOMLPath)
-	require.NoError(t, err)
-	assert.Contains(t, string(verifierTOML), "[key_import]")
-	assert.Contains(t, string(verifierTOML), `expected_id   = "`+result.SigningAddress+`"`)
-	executorTOML, err := os.ReadFile(result.ExecutorTOMLPath)
-	require.NoError(t, err)
-	assert.Contains(t, string(executorTOML), `expected_id   = "`+result.TransmitterAddress+`"`)
+	assert.Equal(t, result.TransmitterAddress, ChecksumAddress(transmitterID))
 }
 
 func TestExportNodeKeysRefusesANodeWithSeveralVerifierJobs(t *testing.T) {
@@ -89,14 +76,8 @@ func TestExportNodeKeysRefusesANodeWithSeveralVerifierJobs(t *testing.T) {
 		jobJSON("3", JobTypeExecutor),
 	}, ",")
 	srv := node.start()
-	credsPath := writeCredsFile(t, t.TempDir(), node.email+"\n"+node.password)
 
-	_, err := ExportNodeKeys(context.Background(), logger.Test(t), ExportConfig{
-		NodeURL:   srv.URL,
-		CredsPath: credsPath,
-		ChainID:   "1",
-		OutDir:    t.TempDir(),
-	})
+	_, err := ExportNodeKeys(context.Background(), logger.Test(t), happyConfig(node, srv.URL, t.TempDir()))
 	require.ErrorContains(t, err, "consolidated")
 }
 
@@ -107,14 +88,8 @@ func TestExportNodeKeysRefusesAnExportThatDisagreesWithTheListing(t *testing.T) 
 	// situation expected_id exists to catch at boot, caught here while the node is still up.
 	node.ethKeysJSON = ethKeyJSON(addressOf(newTestKey(t)), "1", false)
 	srv := node.start()
-	credsPath := writeCredsFile(t, t.TempDir(), node.email+"\n"+node.password)
 
-	_, err := ExportNodeKeys(context.Background(), logger.Test(t), ExportConfig{
-		NodeURL:   srv.URL,
-		CredsPath: credsPath,
-		ChainID:   "1",
-		OutDir:    t.TempDir(),
-	})
+	_, err := ExportNodeKeys(context.Background(), logger.Test(t), happyConfig(node, srv.URL, t.TempDir()))
 	require.ErrorContains(t, err, "a different key than the account names")
 }
 
@@ -131,54 +106,30 @@ func TestExportNodeKeysHonorsTheOverrides(t *testing.T) {
 		ethKeyJSON(addressOf(newTestKey(t)), "1", false),
 	}, ",")
 	srv := node.start()
-	credsPath := writeCredsFile(t, t.TempDir(), node.email+"\n"+node.password)
 
-	result, err := ExportNodeKeys(context.Background(), logger.Test(t), ExportConfig{
-		NodeURL:   srv.URL,
-		CredsPath: credsPath,
-		ChainID:   "1",
-		OutDir:    t.TempDir(),
-		BundleID:  "bundle-1",
-		Account:   addressOf(node.ethKey),
-	})
+	cfg := happyConfig(node, srv.URL, t.TempDir())
+	cfg.BundleID = "bundle-1"
+	cfg.Account = addressOf(node.ethKey)
+	result, err := ExportNodeKeys(context.Background(), logger.Test(t), cfg)
 	require.NoError(t, err)
 	assert.Equal(t, addressOf(node.ocr2Key), result.SigningAddress)
 	assert.Equal(t, addressOf(node.ethKey), result.TransmitterAddress)
 }
 
-func TestReadAPICredentials(t *testing.T) {
+// The snippet is ready to paste: the [key_import] block with expected_id already filled in, so
+// the one value that must not be mistyped never passes through a human.
+func TestWriteKeyImportSnippet(t *testing.T) {
 	t.Parallel()
+	priv := newTestKey(t)
+	path := filepath.Join(t.TempDir(), VerifierTOMLFileName)
+	require.NoError(t, WriteKeyImportSnippet(path, "verifier", OCR2ExportFileName, addressOf(priv)))
 
-	t.Run("email and password, CRLF tolerated", func(t *testing.T) {
-		t.Parallel()
-		path := writeCredsFile(t, t.TempDir(), "admin@example.com\r\nnode-password\r\n")
-		email, password, err := readAPICredentials(path)
-		require.NoError(t, err)
-		assert.Equal(t, "admin@example.com", email)
-		assert.Equal(t, "node-password", password)
-	})
-
-	t.Run("a password may contain spaces", func(t *testing.T) {
-		t.Parallel()
-		path := writeCredsFile(t, t.TempDir(), "admin@example.com\npass word\n")
-		_, password, err := readAPICredentials(path)
-		require.NoError(t, err)
-		assert.Equal(t, "pass word", password)
-	})
-
-	t.Run("missing password line", func(t *testing.T) {
-		t.Parallel()
-		path := writeCredsFile(t, t.TempDir(), "admin@example.com\n")
-		_, _, err := readAPICredentials(path)
-		require.ErrorContains(t, err, "line 2")
-	})
-
-	t.Run("empty password", func(t *testing.T) {
-		t.Parallel()
-		path := writeCredsFile(t, t.TempDir(), "admin@example.com\n\n")
-		_, _, err := readAPICredentials(path)
-		require.ErrorContains(t, err, "empty password")
-	})
+	content, err := os.ReadFile(path)
+	require.NoError(t, err)
+	assert.Contains(t, string(content), "[key_import]")
+	assert.Contains(t, string(content), `expected_id   = "`+addressOf(priv)+`"`)
+	assert.Contains(t, string(content), OCR2ExportFileName)
+	assert.Contains(t, string(content), PasswordFileName)
 }
 
 func TestGenerateExportPassword(t *testing.T) {
@@ -196,9 +147,10 @@ func TestGenerateExportPassword(t *testing.T) {
 
 func TestExportConfigValidate(t *testing.T) {
 	t.Parallel()
-	require.ErrorContains(t, ExportConfig{}.validate(), "--node-url")
-	require.ErrorContains(t, ExportConfig{NodeURL: "http://localhost:6688"}.validate(), "--api-creds")
+	require.ErrorContains(t, ExportConfig{}.validate(), "NodeURL")
+	require.ErrorContains(t, ExportConfig{NodeURL: "http://localhost:6688"}.validate(), "APIEmail")
 	require.NoError(t, ExportConfig{
-		NodeURL: "http://localhost:6688", CredsPath: "creds.txt", ChainID: "1", OutDir: "out",
+		NodeURL: "http://localhost:6688", APIEmail: "admin@example.com", APIPassword: "pw",
+		ChainID: "1", OutDir: "out",
 	}.validate())
 }

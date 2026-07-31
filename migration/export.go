@@ -1,4 +1,12 @@
-package migrate
+// Package migration carries the node-facing half of the CL-to-standalone migration: exporting the
+// two keys that have to survive the move from a running Chainlink node. It is the single
+// implementation behind both callers of that flow — `ccv migrate export` in the verifier and
+// executor images (cli/migrate), which an operator runs by hand, and the devenv cutover
+// (build/devenv/migration), which exercises the same path end to end in tests. Devenv orchestrates
+// the environment; the logic lives here.
+//
+// The procedure these callers serve is docs/migration/cl-to-standalone.md.
+package migration
 
 import (
 	"context"
@@ -33,26 +41,26 @@ const (
 	ExecutorTOMLFileName = "executor.key_import.toml"
 )
 
-// ExportConfig is one `ccv migrate export` invocation.
+// ExportConfig is one key export against a running Chainlink node.
 type ExportConfig struct {
 	// NodeURL is the base URL of the Chainlink node's API.
 	NodeURL string
-	// CredsPath is the node's API credentials file: email on line 1, password on line 2 — the same
-	// layout `chainlink admin login --file` reads, so an operator can reuse the file they already
-	// keep.
-	CredsPath string
+	// APIEmail and APIPassword are the node's API credentials — the same account the operator UI
+	// takes. The export endpoints require its admin role.
+	APIEmail    string
+	APIPassword string
 	// ChainID is the EVM chain whose enabled account is the executor's transmitter.
 	ChainID string
-	// OutDir receives the exported keys, the password file, and the [key_import] snippets.
+	// OutDir receives the exported keys and the password file.
 	OutDir string
-	// BundleID and Account override what the tool resolves itself, for the nodes the resolution
+	// BundleID and Account override what the export resolves itself, for the nodes the resolution
 	// errors on: several EVM bundles, or several accounts enabled for the chain.
 	BundleID string
 	Account  string
 }
 
 // ExportResult records what an export produced: the two identities carried across, and every file
-// written, so the CLI's summary cannot drift from what is on disk.
+// written, so a caller's summary cannot drift from what is on disk.
 type ExportResult struct {
 	// SigningAddress and TransmitterAddress are the identities carried across, EIP-55 checksummed.
 	SigningAddress     string
@@ -60,12 +68,10 @@ type ExportResult struct {
 	OCR2Path           string
 	ETHPath            string
 	PasswordPath       string
-	VerifierTOMLPath   string
-	ExecutorTOMLPath   string
 }
 
 // ExportNodeKeys pulls the two keys a CL-to-standalone migration has to carry over out of a
-// running Chainlink node, without the operator transcribing a bundle ID, an address, or a
+// running Chainlink node, without the caller transcribing a bundle ID, an address, or a
 // password:
 //
 //  1. Preflight: the node must run exactly one ccvcommitteeverifier job and one ccvexecutor job —
@@ -73,12 +79,10 @@ type ExportResult struct {
 //  2. The EVM OCR2 bundle and the chain's enabled account are resolved from the node's own
 //     listings, the same source the node's JD chain config was built from. Taking them from
 //     anywhere else imports an identity no contract knows about.
-//  3. Both keys are exported under a generated password the operator never has to invent or type.
+//  3. Both keys are exported under a generated password nobody has to invent or type.
 //  4. Each export is decoded and its identity checked before anything is reported, and the
 //     transmitter is cross-checked against the account the node registered — while the node is
 //     still running, not at container startup after it may be stopped.
-//  5. A ready-made [key_import] snippet per process is written with expected_id already filled
-//     in, so the one value that must not be mistyped never passes through a human.
 func ExportNodeKeys(ctx context.Context, lggr logger.Logger, cfg ExportConfig) (*ExportResult, error) {
 	if err := cfg.validate(); err != nil {
 		return nil, err
@@ -87,15 +91,11 @@ func ExportNodeKeys(ctx context.Context, lggr logger.Logger, cfg ExportConfig) (
 		return nil, fmt.Errorf("failed to create the output directory: %w", err)
 	}
 
-	email, password, err := readAPICredentials(cfg.CredsPath)
-	if err != nil {
-		return nil, err
-	}
 	client, err := NewNodeClient(cfg.NodeURL)
 	if err != nil {
 		return nil, err
 	}
-	if err := client.Login(ctx, email, password); err != nil {
+	if err := client.Login(ctx, cfg.APIEmail, cfg.APIPassword); err != nil {
 		return nil, err
 	}
 
@@ -150,38 +150,28 @@ func ExportNodeKeys(ctx context.Context, lggr logger.Logger, cfg ExportConfig) (
 			transmitterAddress, account)
 	}
 
-	verifierTOMLPath := filepath.Join(cfg.OutDir, VerifierTOMLFileName)
-	if err := writeKeyImportSnippet(verifierTOMLPath, "verifier", OCR2ExportFileName, signingAddress); err != nil {
-		return nil, err
-	}
-	executorTOMLPath := filepath.Join(cfg.OutDir, ExecutorTOMLFileName)
-	if err := writeKeyImportSnippet(executorTOMLPath, "executor", ETHExportFileName, transmitterAddress); err != nil {
-		return nil, err
-	}
-
 	lggr.Infow("exported the Chainlink node keys for the CL-to-standalone migration",
 		"outDir", cfg.OutDir, "signingAddress", signingAddress, "transmitterAddress", transmitterAddress)
 	return &ExportResult{
-		SigningAddress:     checksumAddress(signingAddress),
-		TransmitterAddress: checksumAddress(transmitterAddress),
+		SigningAddress:     ChecksumAddress(signingAddress),
+		TransmitterAddress: ChecksumAddress(transmitterAddress),
 		OCR2Path:           ocr2Path,
 		ETHPath:            ethPath,
 		PasswordPath:       passwordPath,
-		VerifierTOMLPath:   verifierTOMLPath,
-		ExecutorTOMLPath:   executorTOMLPath,
 	}, nil
 }
 
 func (c ExportConfig) validate() error {
-	// A slice, not a map: the first missing flag is always the one reported.
-	for _, field := range []struct{ flag, value string }{
-		{"node-url", c.NodeURL},
-		{"api-creds", c.CredsPath},
-		{"chain-id", c.ChainID},
-		{"out-dir", c.OutDir},
+	// A slice, not a map: the first missing field is always the one reported.
+	for _, field := range []struct{ name, value string }{
+		{"NodeURL", c.NodeURL},
+		{"APIEmail", c.APIEmail},
+		{"APIPassword", c.APIPassword},
+		{"ChainID", c.ChainID},
+		{"OutDir", c.OutDir},
 	} {
 		if strings.TrimSpace(field.value) == "" {
-			return fmt.Errorf("--%s is required", field.flag)
+			return fmt.Errorf("%s is required", field.name)
 		}
 	}
 	return nil
@@ -229,27 +219,6 @@ func preflightJobs(ctx context.Context, lggr logger.Logger, client *NodeClient) 
 	return nil
 }
 
-// readAPICredentials reads the node's API credentials file: email on line 1, password on line 2.
-// Credentials come from a file rather than a flag so they stay out of shell history and the
-// process list.
-func readAPICredentials(path string) (email, password string, err error) {
-	data, err := os.ReadFile(path) //nolint:gosec // G304: operator-provided path
-	if err != nil {
-		return "", "", fmt.Errorf("failed to read the API credentials file: %w", err)
-	}
-	lines := strings.Split(string(data), "\n")
-	if len(lines) < 2 || strings.TrimSpace(lines[0]) == "" {
-		return "", "", fmt.Errorf("the API credentials file %s must have the email on line 1 and the password on line 2", path)
-	}
-	email = strings.TrimSpace(lines[0])
-	// Only the line ending is stripped: a password may legitimately contain spaces.
-	password = strings.TrimRight(lines[1], "\r\n")
-	if password == "" {
-		return "", "", fmt.Errorf("the API credentials file %s has an empty password on line 2", path)
-	}
-	return email, password, nil
-}
-
 // generateExportPassword returns a random password for one export run. It is generated because
 // the password guards a file that lives for minutes and is read once: a human-chosen one adds
 // typing, shell history, and nothing else.
@@ -276,10 +245,10 @@ func exportToFile(ctx context.Context, export func(context.Context, string, stri
 	return os.WriteFile(path, data, 0o600)
 }
 
-// writeKeyImportSnippet writes the [key_import] block for one process with expected_id filled
-// in. The value that must not be mistyped — the identity the key has to carry — is written by
-// the same tool that read it out of the export, so it never passes through a human clipboard.
-func writeKeyImportSnippet(path, process, keyFileName, expectedID string) error {
+// WriteKeyImportSnippet writes the [key_import] block for one process with expected_id filled
+// in. The value that must not be mistyped — the identity the key has to carry — is written by the
+// same flow that read it out of the export, so it never passes through a human clipboard.
+func WriteKeyImportSnippet(path, process, keyFileName, expectedID string) error {
 	content := fmt.Sprintf(`# Generated by `+"`ccv migrate export`"+` for the standalone %s.
 # Mount %s and %s into the container at the paths below (renaming the key file to
 # key.json on the way in), then add this block to the process's bootstrap config.
@@ -287,14 +256,14 @@ func writeKeyImportSnippet(path, process, keyFileName, expectedID string) error 
 path          = "/etc/ccv/migration/key.json"
 password_path = "/etc/ccv/migration/export-password.txt"
 expected_id   = "%s"
-`, process, keyFileName, PasswordFileName, checksumAddress(expectedID))
+`, process, keyFileName, PasswordFileName, ChecksumAddress(expectedID))
 	// 0644, not 0600: the snippet carries a public address, and it has to be readable by whatever
 	// tooling renders the bootstrap config.
 	return os.WriteFile(path, []byte(content), 0o644) //nolint:gosec // G306: no secrets; expected_id is a public address
 }
 
-// checksumAddress renders a lowercase hex identity as EIP-55, the form block explorers and the
+// ChecksumAddress renders a lowercase hex identity as EIP-55, the form block explorers and the
 // node's own UI show, so an operator comparing it against either sees the same string.
-func checksumAddress(lowerHexID string) string {
+func ChecksumAddress(lowerHexID string) string {
 	return common.HexToAddress(lowerHexID).Hex()
 }

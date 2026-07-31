@@ -1,14 +1,22 @@
+// Package migrate is the `ccv migrate` command surface: the operator-facing half of the
+// CL-to-standalone migration. It is a thin wrapper — the export logic itself lives in
+// github.com/smartcontractkit/chainlink-ccv/migration and is shared with the devenv cutover, so
+// the command an operator runs and the path the e2e test exercises cannot drift apart.
+//
+// The procedure these commands serve is docs/migration/cl-to-standalone.md.
 package migrate
 
 import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/urfave/cli"
 
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap/keys"
+	"github.com/smartcontractkit/chainlink-ccv/migration"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -34,18 +42,38 @@ func InitMigrateCommands(lggr logger.Logger) []cli.Command {
 				cli.StringFlag{Name: "account", Usage: "optional: the account address to export, for a node with several accounts enabled for the chain"},
 			},
 			Action: func(c *cli.Context) error {
-				result, err := ExportNodeKeys(context.Background(), lggr, ExportConfig{
-					NodeURL:   c.String("node-url"),
-					CredsPath: c.String("api-creds"),
-					ChainID:   c.String("chain-id"),
-					OutDir:    c.String("out-dir"),
-					BundleID:  c.String("bundle-id"),
-					Account:   c.String("account"),
+				email, password, err := readAPICredentials(c.String("api-creds"))
+				if err != nil {
+					return err
+				}
+				result, err := migration.ExportNodeKeys(context.Background(), lggr, migration.ExportConfig{
+					NodeURL:     c.String("node-url"),
+					APIEmail:    email,
+					APIPassword: password,
+					ChainID:     c.String("chain-id"),
+					OutDir:      c.String("out-dir"),
+					BundleID:    c.String("bundle-id"),
+					Account:     c.String("account"),
 				})
 				if err != nil {
 					return err
 				}
-				printExportSummary(result)
+
+				// The snippets are the CLI's addition to the shared export: devenv builds its
+				// container mounts from the result directly and has no use for them.
+				outDir := c.String("out-dir")
+				verifierTOMLPath := filepath.Join(outDir, migration.VerifierTOMLFileName)
+				if err := migration.WriteKeyImportSnippet(
+					verifierTOMLPath, "verifier", migration.OCR2ExportFileName, result.SigningAddress); err != nil {
+					return fmt.Errorf("failed to write the verifier's [key_import] snippet: %w", err)
+				}
+				executorTOMLPath := filepath.Join(outDir, migration.ExecutorTOMLFileName)
+				if err := migration.WriteKeyImportSnippet(
+					executorTOMLPath, "executor", migration.ETHExportFileName, result.TransmitterAddress); err != nil {
+					return fmt.Errorf("failed to write the executor's [key_import] snippet: %w", err)
+				}
+
+				printExportSummary(result, verifierTOMLPath, executorTOMLPath)
 				return nil
 			},
 		},
@@ -67,9 +95,31 @@ func InitMigrateCommands(lggr logger.Logger) []cli.Command {
 	}
 }
 
+// readAPICredentials reads the node's API credentials file: email on line 1, password on line 2 —
+// the same layout `chainlink admin login --file` reads, so an operator can reuse the file they
+// already keep. Credentials come from a file rather than a flag so they stay out of shell history
+// and the process list.
+func readAPICredentials(path string) (email, password string, err error) {
+	data, err := os.ReadFile(path) //nolint:gosec // G304: operator-provided path
+	if err != nil {
+		return "", "", fmt.Errorf("failed to read the API credentials file: %w", err)
+	}
+	lines := strings.Split(string(data), "\n")
+	if len(lines) < 2 || strings.TrimSpace(lines[0]) == "" {
+		return "", "", fmt.Errorf("the API credentials file %s must have the email on line 1 and the password on line 2", path)
+	}
+	email = strings.TrimSpace(lines[0])
+	// Only the line ending is stripped: a password may legitimately contain spaces.
+	password = strings.TrimRight(lines[1], "\r\n")
+	if password == "" {
+		return "", "", fmt.Errorf("the API credentials file %s has an empty password on line 2", path)
+	}
+	return email, password, nil
+}
+
 // printExportSummary is the one thing the operator reads, so it is plain stdout rather than a
 // log line: what each identity is, where each file landed, and what happens next.
-func printExportSummary(r *ExportResult) {
+func printExportSummary(r *migration.ExportResult, verifierTOMLPath, executorTOMLPath string) {
 	fmt.Printf(`
 Export complete. The two identities that had to survive the move:
 
@@ -93,7 +143,7 @@ Next:
   3. Continue from step 4 of docs/migration/cl-to-standalone.md (stop the Chainlink node).
 `,
 		r.SigningAddress, r.TransmitterAddress,
-		r.OCR2Path, r.ETHPath, r.PasswordPath, r.VerifierTOMLPath, r.ExecutorTOMLPath)
+		r.OCR2Path, r.ETHPath, r.PasswordPath, verifierTOMLPath, executorTOMLPath)
 }
 
 // inspectKey implements `ccv migrate inspect`: read the identity a mounted export carries
@@ -117,6 +167,6 @@ func inspectKey(keyFile, passwordFile string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("%s is a %s export carrying identity %s\n", keyFile, format, checksumAddress(id))
+	fmt.Printf("%s is a %s export carrying identity %s\n", keyFile, format, migration.ChecksumAddress(id))
 	return nil
 }

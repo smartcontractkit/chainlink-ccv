@@ -1,11 +1,4 @@
-// Package migrate carries the operator-facing half of the CL-to-standalone migration: exporting
-// the two keys that have to survive the move from a running Chainlink node, and inspecting an
-// exported key before it is mounted. It exists so a node operator never transcribes a bundle ID,
-// an address, or a password by hand — the values that must not be mistyped move from the node to
-// the generated config without passing through a human.
-//
-// The procedure these commands serve is docs/migration/cl-to-standalone.md.
-package migrate
+package migration
 
 import (
 	"bytes"
@@ -67,7 +60,7 @@ func (c *NodeClient) Login(ctx context.Context, email, password string) error {
 		return err
 	}
 	if status == http.StatusUnauthorized {
-		return fmt.Errorf("the node rejected the API credentials (401 unauthorized): check the credentials file")
+		return fmt.Errorf("the node rejected the API credentials (401 unauthorized): check the credentials")
 	}
 	if status != http.StatusOK {
 		return fmt.Errorf("login failed: %s", statusError(status, respBody))
@@ -99,7 +92,7 @@ func (c *NodeClient) EVMOCR2BundleID(ctx context.Context) (string, error) {
 	default:
 		return "", fmt.Errorf(
 			"the node has %d EVM OCR2 key bundles (%s) and only one can be registered with the committee; "+
-				"find the bundle whose onchain signing address the JD node record publishes, then re-run with --bundle-id",
+				"name the one whose onchain signing address the JD node record publishes",
 			len(evm), strings.Join(evm, ", "))
 	}
 }
@@ -127,10 +120,10 @@ func (c *NodeClient) AccountForChain(ctx context.Context, chainID string) (strin
 	case 1:
 		return matches[0], nil
 	case 0:
-		return "", fmt.Errorf("the node has no account enabled for chain %s; check --chain-id", chainID)
+		return "", fmt.Errorf("the node has no account enabled for chain %s", chainID)
 	default:
 		return "", fmt.Errorf(
-			"the node has %d accounts enabled for chain %s (%s); re-run with --account naming the one the executor transmits from",
+			"the node has %d accounts enabled for chain %s (%s); name the one the executor transmits from",
 			len(matches), chainID, strings.Join(matches, ", "))
 	}
 }
