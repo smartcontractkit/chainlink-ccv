@@ -406,11 +406,14 @@ const importEnvelopeAuth = "ccv-key-import"
 // encodeForImport wraps raw private key bytes in the envelope keystore.ImportKeys expects: a
 // serialization.Key protobuf, encrypted as a Web3 Secret Storage v3 blob.
 //
-// The decode-then-re-encode dance is unavoidable, not redundant: the keystore's ImportKeys API
-// takes this envelope and nothing else, and the envelope is where the key *name* lives — a
-// Chainlink export carries no CCV keystore name, so the name has to be supplied here regardless.
-// The decrypt is also what verifies the password and cross-checks the identity before the key is
-// trusted.
+// The decode-then-re-encode dance is unavoidable, not redundant. keystore.ImportKeys accepts
+// exactly one input — this envelope, a serialization.Key in a web3 v3 blob — and builds the
+// stored key from it; a Chainlink export decrypts to a different payload entirely (bundle JSON
+// for OCR2, geth key JSON for eth), so it cannot be imported as-is. A Chainlink-side keyName
+// would not remove this step either: those export formats are frozen in released node versions
+// on operator disks, and the target key name here comes from the ImportKeys request's
+// NewKeyName, not from anything in the export. The decrypt is also what verifies the password
+// and cross-checks the identity before the key is trusted.
 func encodeForImport(keyName string, keyType keystore.KeyType, privateKey []byte) ([]byte, error) {
 	serialized, err := proto.Marshal(&serialization.Key{
 		Name:       keyName,
