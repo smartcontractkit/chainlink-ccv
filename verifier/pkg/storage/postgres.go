@@ -42,16 +42,17 @@ func (p *PostgresCCVStorage) Get(ctx context.Context, keys []protocol.Bytes32) (
 	}
 
 	stmt := fmt.Sprintf(`SELECT 
-		message_id,
-		message,
-		ccv_version,
-		ccv_addresses,
-		executor_address,
-		signature,
-		verifier_source_address,
-		verifier_dest_address,
-		timestamp
-		FROM verifier_node_results 
+			message_id,
+			message,
+			ccv_version,
+			ccv_addresses,
+			executor_address,
+			signature,
+			verifier_source_address,
+			verifier_dest_address,
+			timestamp,
+			traceparent
+		FROM verifier_node_results
 		WHERE message_id IN (%s)`,
 		strings.Join(placeholders, ","))
 
@@ -65,6 +66,7 @@ func (p *PostgresCCVStorage) Get(ctx context.Context, keys []protocol.Bytes32) (
 		VerifierSourceAddress []byte          `db:"verifier_source_address"`
 		VerifierDestAddress   []byte          `db:"verifier_dest_address"`
 		Timestamp             time.Time       `db:"timestamp"`
+		TraceParent           string          `db:"traceparent"`
 	}
 
 	var rows []row
@@ -98,6 +100,7 @@ func (p *PostgresCCVStorage) Get(ctx context.Context, keys []protocol.Bytes32) (
 				CCVAddresses:    ccvAddresses,
 				ExecutorAddress: protocol.UnknownAddress(r.ExecutorAddress),
 				Signature:       protocol.ByteSlice(r.Signature),
+				TraceParent:     r.TraceParent,
 			},
 			VerifierSourceAddress: protocol.UnknownAddress(r.VerifierSourceAddress),
 			VerifierDestAddress:   protocol.UnknownAddress(r.VerifierDestAddress),
@@ -126,8 +129,9 @@ func (p *PostgresCCVStorage) Set(ctx context.Context, entries []Entry) error {
 			signature,
 			verifier_source_address,
 			verifier_dest_address,
-			timestamp
-		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+			timestamp,
+			traceparent
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 		ON CONFLICT (message_id) DO UPDATE SET
 			message = EXCLUDED.message,
 			ccv_version = EXCLUDED.ccv_version,
@@ -136,7 +140,8 @@ func (p *PostgresCCVStorage) Set(ctx context.Context, entries []Entry) error {
 			signature = EXCLUDED.signature,
 			verifier_source_address = EXCLUDED.verifier_source_address,
 			verifier_dest_address = EXCLUDED.verifier_dest_address,
-			timestamp = EXCLUDED.timestamp`
+			timestamp = EXCLUDED.timestamp,
+			traceparent = EXCLUDED.traceparent`
 
 		for _, entry := range entries {
 			msgID, err := entry.Value.Message.MessageID()
@@ -164,6 +169,7 @@ func (p *PostgresCCVStorage) Set(ctx context.Context, entries []Entry) error {
 				[]byte(entry.VerifierSourceAddress),
 				[]byte(entry.VerifierDestAddress),
 				entry.Timestamp,
+				entry.Value.TraceParent,
 			)
 			if err != nil {
 				return fmt.Errorf("failed to insert verifier node result for message %s: %w", msgID.String(), err)

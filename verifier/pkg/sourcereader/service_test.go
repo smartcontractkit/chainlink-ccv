@@ -15,6 +15,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/jobqueue"
+	verifiermonitoring "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/testutil"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -75,6 +76,7 @@ func newTestSRS(
 	queue := &fakeTaskQueue{}
 
 	srs, err := NewService(
+		"test-verifier",
 		reader,
 		chainSelector,
 		chainStatusMgr,
@@ -82,7 +84,7 @@ func newTestSRS(
 		verifier.SourceConfig{PollInterval: pollInterval, MaxBlockRange: maxBlockRange},
 		curseDetector,
 		&noopFilter{},
-		&testutil.NoopMetricLabeler{},
+		verifiermonitoring.NewFakeVerifierMonitoring(),
 		queue,
 		common.AllowAllMessagesChecker{},
 	)
@@ -775,6 +777,7 @@ func TestSRS_DisableFinalityChecker(t *testing.T) {
 	lggr := logger.Test(t)
 
 	srs, err := NewService(
+		"test-verifier",
 		reader,
 		chain,
 		chainStatusMgr,
@@ -786,7 +789,7 @@ func TestSRS_DisableFinalityChecker(t *testing.T) {
 		},
 		curseDetector,
 		&noopFilter{},
-		&testutil.NoopMetricLabeler{},
+		verifiermonitoring.NewFakeVerifierMonitoring(),
 		&fakeTaskQueue{},
 		common.AllowAllMessagesChecker{},
 	)
