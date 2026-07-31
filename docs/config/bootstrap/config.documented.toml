@@ -31,7 +31,8 @@ local_app_config_path = "/etc/committee-verifier/app.toml"
 
 # key_import adopts a Chainlink node key into the keystore on first boot instead of generating
 # one. Optional: when absent every declared key is generated, which is right for a new
-# deployment. It is set when migrating an operator off CL mode.
+# deployment. It is set when migrating an operator off CL mode. When the section is present,
+# expected_id is required.
 [key_import]
   # path is the mounted path of the key file exported from the Chainlink node.
   path = "/etc/ccv/migration/key.json"
