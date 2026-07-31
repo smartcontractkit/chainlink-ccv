@@ -2,6 +2,7 @@ package message_heap
 
 import (
 	"container/heap"
+	"context"
 	"errors"
 	"log"
 	"sync"
@@ -17,6 +18,15 @@ type ExpiryWithMessage struct {
 	ExpiryTime    time.Time
 	RetryInterval time.Duration
 	Attempt       int
+	// TraceContext carries the span context associated with the message's most
+	// recent processing step (initial discovery, or a previous attempt on retry).
+	// It is propagated across the delay-heap boundary so downstream code can
+	// continue the trace if needed (DiscoveryContext remains the stable root).
+	TraceContext context.Context
+	// DiscoveryContext carries the original discovery span context across every
+	// delay/retry cycle so it can be ended exactly once, at the terminal
+	// outcome, regardless of how many retries happen in between.
+	DiscoveryContext context.Context
 }
 
 // MessageWithTimestamps is the aggregated struct that is used when inserting and retrieving from the heap.
@@ -27,6 +37,8 @@ type MessageWithTimestamps struct {
 	Message       *protocol.Message
 	ExpiryTime    time.Time
 	Attempt       int
+	// TraceContext - see ExpiryWithMessage.TraceContext.
+	TraceContext context.Context
 }
 
 // MessageHeapEntry is the minimal set of data needed to maintain the priority queue heap.
@@ -125,6 +137,7 @@ func (mh *MessageHeap) Push(msg MessageWithTimestamps) bool {
 		ExpiryTime:    msg.ExpiryTime,
 		RetryInterval: msg.RetryInterval,
 		Attempt:       msg.Attempt,
+		TraceContext:  msg.TraceContext,
 	}
 	return true
 }
@@ -158,6 +171,7 @@ func (mh *MessageHeap) PopAllReady(timestamp time.Time) []MessageWithTimestamps 
 			Message:       data.Message,
 			ExpiryTime:    data.ExpiryTime,
 			Attempt:       data.Attempt,
+			TraceContext:  data.TraceContext,
 		})
 		delete(mh.dataMap, entry.MessageID)
 	}

@@ -793,7 +793,7 @@ func TestProcessorDB_CustomRetryDelays(t *testing.T) {
 	t.Run("uses custom delay from VerificationError", func(t *testing.T) {
 		ctx := t.Context()
 
-		lggr := logger.Nop()
+		lggr := logger.Test(t)
 		ownerID := "test-" + t.Name()
 
 		taskQueue, err := jobqueue.NewPostgresJobQueue[verifier.VerificationTask](
@@ -888,7 +888,7 @@ func TestProcessorDB_CustomRetryDelays(t *testing.T) {
 	t.Run("groups jobs by delay for efficient retry", func(t *testing.T) {
 		ctx := t.Context()
 
-		lggr := logger.Nop()
+		lggr := logger.Test(t)
 		ownerID := "test-" + t.Name()
 
 		taskQueue, err := jobqueue.NewPostgresJobQueue[verifier.VerificationTask](
@@ -920,23 +920,23 @@ func TestProcessorDB_CustomRetryDelays(t *testing.T) {
 		longDelay := 500 * time.Millisecond
 
 		task1 := verifier.VerificationTask{
-			MessageID: "msg1",
+			MessageID: "0x01",
 			Message:   protocol.Message{SequenceNumber: 1, SourceChainSelector: 1337},
 		}
 		task2 := verifier.VerificationTask{
-			MessageID: "msg2",
+			MessageID: "0x02",
 			Message:   protocol.Message{SequenceNumber: 2, SourceChainSelector: 1337},
 		}
 		task3 := verifier.VerificationTask{
-			MessageID: "msg3",
+			MessageID: "0x03",
 			Message:   protocol.Message{SequenceNumber: 3, SourceChainSelector: 1337},
 		}
 
 		mockVerifier := &fakeVerifierDB{}
 		mockVerifier.SetErrors(map[string]verifier.VerificationError{
-			"msg1": {Retryable: true, Delay: &shortDelay, Error: errors.New("error1")},
-			"msg2": {Retryable: true, Delay: &shortDelay, Error: errors.New("error2")}, // Same delay as msg1
-			"msg3": {Retryable: true, Delay: &longDelay, Error: errors.New("error3")},  // Different delay
+			"0x01": {Retryable: true, Delay: &shortDelay, Error: errors.New("error1")},
+			"0x02": {Retryable: true, Delay: &shortDelay, Error: errors.New("error2")}, // Same delay as msg1
+			"0x03": {Retryable: true, Delay: &longDelay, Error: errors.New("error3")},  // Different delay
 		})
 
 		processor, err := taskverifier.NewProcessorWithPollInterval(
@@ -994,7 +994,7 @@ func TestProcessorDB_PublishFailureHandling(t *testing.T) {
 	t.Run("verifies stale lock reclaim mechanism is configured", func(t *testing.T) {
 		ctx := t.Context()
 
-		lggr := logger.Nop()
+		lggr := logger.Test(t)
 		ownerID := "test-" + t.Name()
 
 		shortLockDuration := 200 * time.Millisecond

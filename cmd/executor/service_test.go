@@ -79,6 +79,7 @@ func TestFactory_Stop_NilFields(t *testing.T) {
 func TestFactory_Stop_WithCoordinator(t *testing.T) {
 	coord, err := executorsvc.NewCoordinator(
 		logger.Test(t),
+		"",
 		mocks.NewMockExecutor(t),
 		mocks.NewMockMessageSubscriber(t),
 		mocks.NewMockLeaderElector(t),
@@ -86,8 +87,7 @@ func TestFactory_Stop_WithCoordinator(t *testing.T) {
 		8*time.Hour,
 		mocks.NewMockTimeProvider(t),
 		1,
-		time.Second,
-	)
+		time.Second)
 	require.NoError(t, err)
 
 	f := NewFactory()
@@ -131,6 +131,7 @@ executor_pool        = ["test-executor"]
 func TestFactory_Stop_Idempotent(t *testing.T) {
 	coord, err := executorsvc.NewCoordinator(
 		logger.Test(t),
+		"",
 		mocks.NewMockExecutor(t),
 		mocks.NewMockMessageSubscriber(t),
 		mocks.NewMockLeaderElector(t),

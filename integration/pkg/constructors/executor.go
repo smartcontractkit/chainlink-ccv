@@ -197,6 +197,7 @@ func NewExecutorCoordinator(
 
 	exec, err := executor.NewCoordinator(
 		logger.With(lggr, "component", "Coordinator"),
+		cfg.ExecutorID,
 		ex,
 		indexerStream,
 		le,
