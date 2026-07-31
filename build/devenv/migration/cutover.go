@@ -282,7 +282,7 @@ func prepareVerifiers(
 // executor: ExportNOPKeys resolves a single account, and this function hands it to every executor
 // the NOP owns, so such an operator would transmit from one account everywhere with the rest of
 // their gas stranded. They are excluded until both are per-account; see
-// docs/migration/cl-to-standalone.md and docs/migration/followups.md.
+// docs/migration/cl-to-standalone.md.
 func prepareExecutors(
 	executors []*executorsvc.Input,
 	migrating map[string]struct{},
@@ -346,7 +346,7 @@ func executorChains(exec *executorsvc.Input, topology *ccvdeployment.Environment
 // A NOP whose executors serve disjoint chains is fine: the same address on different chains has
 // independent nonces, which is the ordinary shape for an operator who funds one account everywhere.
 // Distinct accounts on overlapping chains would be fine too, and is what an operator with per-chain
-// keys needs, but the cutover cannot express it yet — see docs/migration/followups.md.
+// keys needs, but the cutover cannot express it yet.
 func requireDisjointExecutorChains(
 	executors []*executorsvc.Input,
 	migrating map[string]struct{},
