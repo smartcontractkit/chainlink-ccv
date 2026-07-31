@@ -72,13 +72,22 @@ func loadConfig(path string) (*Config, *Conversion, error) {
 // converter produces an error that says so; treating it as a standalone config instead would report
 // the node's own section as an unknown field. Decoding into Primitive defers the shape check, so the
 // table and array forms both classify rather than failing here.
+//
+// A file with both top-level keys is neither — a concatenation accident the converter would
+// otherwise "fix" by silently ignoring the standalone section — so it is rejected outright.
 func isChainlinkNodeConfig(data []byte) (bool, error) {
 	var probe map[string]toml.Primitive
 	if _, err := toml.Decode(string(data), &probe); err != nil {
 		return false, err
 	}
-	_, ok := probe["EVM"]
-	return ok, nil
+	_, hasEVM := probe["EVM"]
+	_, hasChains := probe["chains"]
+	if hasEVM && hasChains {
+		return false, fmt.Errorf(
+			"config has both a top-level 'EVM' table and a top-level 'chains' table: it is neither " +
+				"a Chainlink node config nor a standalone one — mount one, not a concatenation of both")
+	}
+	return hasEVM, nil
 }
 
 func resolveConfigPath() string {

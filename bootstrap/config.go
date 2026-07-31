@@ -151,13 +151,11 @@ type ChainRegistration struct {
 }
 
 // KeyImport declares a Chainlink node key to adopt into the keystore instead of generating a fresh
-// one. It exists for node operators moving from CL mode to standalone: the onchain signing key is
-// registered in the CommitteeVerifier signer set and the transmitter key holds gas funds, so both
-// have to carry over. The import runs only when the key is absent, which makes it a no-op on every
-// restart after the first: once the node has come up, the exported file and the password file can
-// be unmounted.
+// one. It exists for node operators moving from CL mode to standalone. The import runs only when
+// the key is absent, which makes it a no-op on every restart after the first: once the node has
+// come up, the exported file and the password file can be unmounted.
 //
-// It carries two paths and an optional check, and nothing else. Which keystore key the file becomes
+// It carries two paths and a check, and nothing else. Which keystore key the file becomes
 // is not asked: an application declares exactly one key it can import into (a verifier its signing
 // key, an executor its transmitter key), so there is nothing for an operator to choose or mistype.
 // The export format is read from the file for the same reason.
@@ -166,10 +164,10 @@ type KeyImport struct {
 	Path string `toml:"path"`
 	// PasswordPath is the mounted path of a file holding the password used at export time.
 	PasswordPath string `toml:"password_path"`
-	// ExpectedID optionally pins the address the export must carry. Set it when migrating more than
-	// one node, so mounting the wrong node's file fails at startup instead of bringing up a process
-	// that signs as somebody else.
-	ExpectedID string `toml:"expected_id,omitempty"`
+	// ExpectedID pins the address the export must carry. It is required because it is the check
+	// that fails the boot when the wrong node's export is mounted — without it the process comes
+	// up signing as somebody else, which the committee rejects with nothing pointing at the cause.
+	ExpectedID string `toml:"expected_id"`
 }
 
 // ToKeysImport converts the config entry to the form the keys package consumes. Format is left
@@ -188,6 +186,11 @@ func validateKeyImport(imp *KeyImport) []error {
 	}
 	if err := imp.ToKeysImport().Validate(); err != nil {
 		return []error{fmt.Errorf("invalid 'key_import' section: %w", err)}
+	}
+	if strings.TrimSpace(imp.ExpectedID) == "" {
+		return []error{fmt.Errorf(
+			"invalid 'key_import' section: expected_id is required: it is the check that fails " +
+				"the boot when the wrong node's export is mounted")}
 	}
 	return nil
 }

@@ -125,6 +125,18 @@ func TestLoadConfigClassifiesEmptyEVMKeyAsNodeConfig(t *testing.T) {
 	}
 }
 
+// A file carrying both top-level tables is a concatenation accident, not a format: the converter
+// would otherwise silently ignore the standalone section, which is exactly the kind of drop the
+// strict decode exists to prevent.
+func TestLoadConfigRejectsAConfigWithBothFormats(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "evm.toml")
+	body := "[chains.5009297550715157269]\n\n[[EVM]]\nChainID = \"1\"\n"
+	require.NoError(t, os.WriteFile(path, []byte(body), 0o600))
+
+	_, _, err := loadConfig(path)
+	require.ErrorContains(t, err, "both a top-level 'EVM' table and a top-level 'chains' table")
+}
+
 // The mounted config carries only operator-owned connection and runtime settings;
 // the accessor derives each chain's metadata from its selector at load time.
 func TestConfigToInfosDerivesChainMetadataFromSelector(t *testing.T) {

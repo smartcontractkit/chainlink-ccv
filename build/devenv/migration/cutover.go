@@ -282,7 +282,7 @@ func prepareVerifiers(
 // executor: ExportNOPKeys resolves a single account, and this function hands it to every executor
 // the NOP owns, so such an operator would transmit from one account everywhere with the rest of
 // their gas stranded. They are excluded until both are per-account; see
-// docs/migration/cl-to-standalone.md.
+// docs/migration/evm-cl-to-standalone.md.
 func prepareExecutors(
 	executors []*executorsvc.Input,
 	migrating map[string]struct{},

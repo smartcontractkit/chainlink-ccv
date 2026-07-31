@@ -13,7 +13,7 @@ The operator-facing surface is two exported files and three config values. The b
 and the EVM accessor now reads a Chainlink node's own TOML config directly, so there is nothing to
 convert and no tooling to run.
 
-`docs/migration/cl-to-standalone.md` is the operator procedure.
+`docs/migration/evm-cl-to-standalone.md` is the operator procedure.
 
 ## New: `[key_import]` in the bootstrap config
 
@@ -31,9 +31,9 @@ key — so the target is unambiguous, and the format is read from the file (an O
 its chain type, an eth key carries an address). An application declaring two importable keys is an
 error rather than a guess.
 
-`expected_id` pins the address the export must carry. Set it when migrating more than one node:
-mounting the wrong node's export otherwise produces a process that signs with another operator's
-key, which the committee rejects with nothing in the logs pointing at the cause.
+`expected_id` pins the address the export must carry, and is required: it is the check that fails
+the boot when the wrong node's export is mounted — without it the process signs with another
+operator's key, which the committee rejects with nothing in the logs pointing at the cause.
 
 The import runs only when the key is absent, so it is a no-op on restart and the exported files can
 be unmounted once the process has come up once.
@@ -63,8 +63,8 @@ file their node already runs with.
 
 The node's chain defaults are applied before finality is translated, so a chain the operator never
 configured explicitly keeps the behavior it had instead of moving onto finality tags. Send-only
-nodes, `Order` and `HTTPURLExtraWrite` have no standalone equivalent and are dropped, each logged at
-warn so nothing goes missing quietly.
+nodes, `Order`, `HTTPURLExtraWrite` and `IsLoadBalancedRPC` have no standalone equivalent and are
+dropped, each logged at warn so nothing goes missing quietly.
 
 ## The CSA key is not exported
 

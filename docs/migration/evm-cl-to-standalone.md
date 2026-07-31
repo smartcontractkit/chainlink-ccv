@@ -2,7 +2,7 @@
 
 A node operator running CCV as jobs on a Chainlink node moves to the standalone verifier and
 executor without touching a contract, without moving funds, and without a second entry in the Job
-Distributor. This document is the procedure. It assumes EVM; Solana and Canton were standalone from
+Distributor. This document is the procedure. It assumes EVM; other families are standalone from
 the start and have nothing to migrate.
 
 The migration is a cutover, not a coexistence period. When it is done the Chainlink node no longer
@@ -14,13 +14,13 @@ Three pieces of the Chainlink node's identity are visible outside it.
 
 The **OCR2 EVM key bundle's onchain signing key** is the address in the `CommitteeVerifier` signer
 set. The node publishes it to JD as `OnchainSigningAddress`, and `ApplyVerifierConfig` reads it back
-from there when it configures the contract. Generate a new one and the committee's signer set has to
-be updated on every chain, which needs a config transaction per chain and coordination with the
+from there when it configures the contract. If you generate a new one, the committee's signer set has
+to be updated on every chain, which needs a config transaction per chain and coordination with the
 other operators in the committee.
 
 The **EVM account key** is the transmitter the executor submits from. It is the address JD records
-as `AccountAddr`, and it holds the gas the operator funded it with. Generate a new one and the
-operator moves funds.
+as `AccountAddr`, and it holds the gas the operator funded it with. If you generate a new one, the
+operator has to move funds to the new key.
 
 The **CSA key** authenticates the node to JD. It carries no on-chain meaning, so it is not exported.
 Instead the JD node record is repointed at the standalone verifier's own CSA key, which preserves
@@ -71,7 +71,7 @@ The cutover stops with an error in that case rather than picking one of the jobs
 The operator's part is steps 1 through 5: export the keys, configure and start the standalone
 processes, stop the Chainlink node. Everything after — repointing the JD record, registering the
 executor, flipping the topology, proposing the standalone specs — is on the Chainlink Labs side,
-because JD and the topology are centrally operated.
+because JD and the topology are centrally operated. Each step below is labeled with who runs it.
 
 That split is also the safety net. Before the standalone specs are proposed, each operator's
 signing address and account address are read back from JD and required to be unchanged across the
@@ -93,7 +93,7 @@ Have ready:
 - The verifier and executor images you are about to deploy. The export tool ships in both as
   `ccv migrate`, so there is nothing separate to install.
 
-## Step 1: export the two keys
+## Step 1: export the two keys (node operator)
 
 Run the export tool from either standalone image. It finds the OCR2 bundle registered for EVM and
 the account enabled for the chain itself — the same source the node's JD chain config was built
@@ -131,7 +131,7 @@ The manual equivalent — `chainlink keys ocr2 list` and `export`, `chainlink ke
 `expected_id` from the JD node record, not from the list output you happened to pick: the whole
 point of the check is that it disagrees with a wrong choice.
 
-## Step 2: reuse the node's RPC configuration
+## Step 2: reuse the node's RPC configuration (node operator)
 
 There is nothing to convert. Mount the Chainlink node's own TOML config file at the standalone
 process's EVM config path and it is read directly: the `[[EVM]]` and `[[EVM.Nodes]]` sections are
@@ -142,11 +142,11 @@ Finality carries over as the node had it. The node's own chain defaults are appl
 translating, so a chain you never configured explicitly keeps the behavior it had rather than
 quietly moving onto finality tags.
 
-Two things a Chainlink node can express have no standalone equivalent and are dropped: send-only
-nodes, and per-node `Order` and `HTTPURLExtraWrite`. Each one is logged at startup saying exactly
-what was dropped. If you rely on a send-only endpoint, add it as a full node.
+A few things a Chainlink node can express have no standalone equivalent and are dropped: send-only
+nodes, and per-node `Order`, `HTTPURLExtraWrite` and `IsLoadBalancedRPC`. Each one is logged at
+startup saying exactly what was dropped. If you rely on a send-only endpoint, add it as a full node.
 
-## Step 3: configure the standalone processes to adopt the keys
+## Step 3: configure the standalone processes to adopt the keys (node operator)
 
 Step 1 wrote the block each process needs. Mount `ocr2.json` and the password file into the
 verifier's container, `eth.json` and the password file into the executor's, at the paths the
@@ -165,10 +165,11 @@ has exactly one it can import into, and you do not say which export it is, becau
 the file.
 
 `expected_id` is the address from step 1, written into the snippet by the tool: the signing address
-for the verifier, the account address for the executor. Mounting the wrong node's export otherwise
-brings up a process that signs with another operator's key, which produces verification results the
-committee rejects with nothing in the logs pointing at the cause. Do not skip it, and do not retype
-it — paste the block as generated.
+for the verifier, the account address for the executor. It is required — the bootstrapper refuses
+to start without it — because it is the check that fails the boot when the wrong node's export is
+mounted: without it the process comes up signing with another operator's key, which produces
+verification results the committee rejects with nothing in the logs pointing at the cause. The tool
+already wrote it, so paste the block as generated and do not retype the address.
 
 Before starting a process, you can confirm the mounted file reads back as the right identity
 without booting anything; the command ships in both images:
@@ -182,10 +183,15 @@ ccv migrate inspect \
 The import runs only when the key is absent, so it is a no-op on every restart after the first. Once
 each process has come up once, unmount the export and the password file and delete them.
 
-## Step 4: stop the Chainlink node
+## Step 4: stop the Chainlink node (node operator)
 
 Stop it before starting the standalone verifier. The verifier is about to take over its JD record,
 and while the node is connected the two contend for it.
+
+The hard deadline is the repoint in step 6: the node has to be down before its JD record changes
+hands, which is before any standalone job is sent. Stopping it here, before the standalone
+processes start, is what keeps the window where no one serves the lane short and removes any doubt
+about which process owns the record.
 
 Stopping the node ends CL mode for this operator. There is no partial state to hold: both jobs run
 on the one node, so it cannot serve one of them while the other migrates.
@@ -196,7 +202,7 @@ Anything unconfirmed at stop time may be submitted once by each side — same ac
 so it resolves as one confirmed transaction rather than a double spend, but a drained queue is
 cleaner than a raced one.
 
-## Step 5: start the standalone processes
+## Step 5: start the standalone processes (node operator)
 
 Start the verifier and the executor. Each generates its own CSA key on first boot and imports the
 key you declared. Read the verifier's CSA public key from its info server:
@@ -215,7 +221,7 @@ Rely on `expected_id` instead: the process refuses to start if the key it import
 already in its keystore, is not the address you pinned. Reaching a healthy state is the
 confirmation.
 
-## Step 6: hand the JD record to the verifier, and register the executor
+## Step 6: hand the JD record to the verifier, and register the executor (Chainlink Labs)
 
 Repoint the operator's existing JD node record at the verifier's CSA public key, keeping the node ID
 and the NOP alias. Register the executor as a new node under its own name and CSA key.
@@ -223,7 +229,7 @@ and the NOP alias. Register the executor as a new node under its own name and CS
 Wait for JD to report both as connected before proposing jobs. A proposal sent to a record whose new
 owner has not dialed in yet sits unclaimed.
 
-## Step 7: propose the standalone job specs
+## Step 7: propose the standalone job specs (Chainlink Labs)
 
 Set the operator's mode to `standalone` in the topology and re-run `ApplyVerifierConfig` and
 `ApplyExecutorConfig`. The two modes differ in one field: a CL-mode spec carries the app config
@@ -233,7 +239,7 @@ the standalone specs replaces the CL-mode ones, and the previous proposals are r
 Because the signing address did not change, the changeset produces no contract transaction. If it
 proposes one, the imported key is not the one the committee has registered; stop and re-check step 1.
 
-## Step 8: confirm and clean up
+## Step 8: confirm and clean up (both)
 
 Send a message across a lane this operator verifies and confirm it is verified and executed. Then
 confirm on chain that the committee's signer set for this operator is unchanged and that the
@@ -251,6 +257,15 @@ After step 4 the way back is to restart the Chainlink node, repoint the JD recor
 key, and re-propose the CL-mode specs. The keys the standalone processes imported are copies, so the
 node's own keystore is untouched and it can resume signing and transmitting as before. Do this only
 with the standalone verifier stopped, for the same reason step 4 exists.
+
+One trap has no clean undo and is easier to avoid than to hit: a standalone process that came up
+once *without* `[key_import]` has already generated its own signing or transmitter key, and the
+import is a no-op while a key with that name exists. Adding `[key_import]` afterwards does not fix
+it — `expected_id` is checked against the key already in the keystore, so the process now refuses
+to start because the generated key is not the pinned one. If nothing has registered with JD yet,
+the fix is to delete the process's bootstrap database and let it recreate the schema, and the
+import, on the next start. If registrations already happened, sort the keystore out with Chainlink
+Labs rather than deleting your way deeper.
 
 ## What is not covered
 

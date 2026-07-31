@@ -34,12 +34,12 @@ local_app_config_path = "/etc/committee-verifier/app.toml"
 # deployment. It is set when migrating an operator off CL mode.
 [key_import]
   # path is the mounted path of the key file exported from the Chainlink node.
-  path = "/etc/bootstrap/keys/exported-key.json"
+  path = "/etc/ccv/migration/key.json"
   # password_path is the mounted path of a file holding the password used at export time.
-  password_path = "/etc/bootstrap/keys/export-password.txt"
-  # expected_id optionally pins the address the export must carry. Set it when migrating more than
-  # one node, so mounting the wrong node's file fails at startup instead of bringing up a process
-  # that signs as somebody else.
+  password_path = "/etc/ccv/migration/export-password.txt"
+  # expected_id pins the address the export must carry. It is required because it is the check
+  # that fails the boot when the wrong node's export is mounted — without it the process comes
+  # up signing as somebody else.
   expected_id = "0x0123456789abcdef0123456789abcdef01234567"
 
 # Monitoring is the operator-provided monitoring configuration.

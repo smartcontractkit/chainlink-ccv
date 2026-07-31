@@ -3,7 +3,7 @@
 // github.com/smartcontractkit/chainlink-ccv/migration and is shared with the devenv cutover, so
 // the command an operator runs and the path the e2e test exercises cannot drift apart.
 //
-// The procedure these commands serve is docs/migration/cl-to-standalone.md.
+// The procedure these commands serve is docs/migration/evm-cl-to-standalone.md.
 package migrate
 
 import (
@@ -32,7 +32,7 @@ func InitMigrateCommands(lggr logger.Logger) []cli.Command {
 			Description: "Finds the node's EVM OCR2 bundle and the chain's enabled account itself, exports both " +
 				"under a generated password, verifies each export decodes to the identity the node registered, " +
 				"and writes a ready-made [key_import] snippet per process with expected_id filled in. " +
-				"See docs/migration/cl-to-standalone.md.",
+				"See docs/migration/evm-cl-to-standalone.md.",
 			Flags: []cli.Flag{
 				cli.StringFlag{Name: "node-url", Usage: "base URL of the Chainlink node's API, e.g. http://localhost:6688", Required: true},
 				cli.StringFlag{Name: "api-creds", Usage: "path to the node's API credentials file (email on line 1, password on line 2)", Required: true},
@@ -73,7 +73,7 @@ func InitMigrateCommands(lggr logger.Logger) []cli.Command {
 					return fmt.Errorf("failed to write the executor's [key_import] snippet: %w", err)
 				}
 
-				printExportSummary(result, verifierTOMLPath, executorTOMLPath)
+				printExportSummary(c.String("out-dir"), result)
 				return nil
 			},
 		},
@@ -118,15 +118,18 @@ func readAPICredentials(path string) (email, password string, err error) {
 }
 
 // printExportSummary is the one thing the operator reads, so it is plain stdout rather than a
-// log line: what each identity is, where each file landed, and what happens next.
-func printExportSummary(r *migration.ExportResult, verifierTOMLPath, executorTOMLPath string) {
+// log line: what each identity is, where each file landed, and what happens next. File locations
+// are printed as names under the output directory rather than from the result's paths: the
+// password file's path is the sort of thing secret scanners flag on principle, and the names are
+// fixed anyway.
+func printExportSummary(outDir string, r *migration.ExportResult) {
 	fmt.Printf(`
 Export complete. The two identities that had to survive the move:
 
   signing address (verifier)    : %s
   transmitter address (executor): %s
 
-Files written:
+Files written to %s:
 
   %s  (the verifier's key, mode 0600)
   %s  (the executor's key, mode 0600)
@@ -140,10 +143,11 @@ Next:
      snippet names, and add the snippet's [key_import] block to the bootstrap config.
   2. Confirm on chain that the committee signer set holds the signing address above,
      and that the transmitter address is the funded account.
-  3. Continue from step 4 of docs/migration/cl-to-standalone.md (stop the Chainlink node).
+  3. Continue from step 4 of docs/migration/evm-evm-cl-to-standalone.md (stop the Chainlink node).
 `,
-		r.SigningAddress, r.TransmitterAddress,
-		r.OCR2Path, r.ETHPath, r.PasswordPath, verifierTOMLPath, executorTOMLPath)
+		r.SigningAddress, r.TransmitterAddress, outDir,
+		migration.OCR2ExportFileName, migration.ETHExportFileName, migration.PasswordFileName,
+		migration.VerifierTOMLFileName, migration.ExecutorTOMLFileName)
 }
 
 // inspectKey implements `ccv migrate inspect`: read the identity a mounted export carries

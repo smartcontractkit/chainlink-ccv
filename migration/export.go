@@ -5,7 +5,7 @@
 // (build/devenv/migration), which exercises the same path end to end in tests. Devenv orchestrates
 // the environment; the logic lives here.
 //
-// The procedure these callers serve is docs/migration/cl-to-standalone.md.
+// The procedure these callers serve is docs/migration/evm-cl-to-standalone.md.
 package migration
 
 import (
@@ -75,7 +75,7 @@ type ExportResult struct {
 // password:
 //
 //  1. Preflight: the node must run exactly one ccvcommitteeverifier job and one ccvexecutor job —
-//     the only shape docs/migration/cl-to-standalone.md applies to.
+//     the only shape docs/migration/evm-cl-to-standalone.md applies to.
 //  2. The EVM OCR2 bundle and the chain's enabled account are resolved from the node's own
 //     listings, the same source the node's JD chain config was built from. Taking them from
 //     anywhere else imports an identity no contract knows about.
@@ -87,7 +87,8 @@ func ExportNodeKeys(ctx context.Context, lggr logger.Logger, cfg ExportConfig) (
 	if err := cfg.validate(); err != nil {
 		return nil, err
 	}
-	if err := os.MkdirAll(cfg.OutDir, 0o750); err != nil {
+	// 0o700: the directory holds exported private keys and the password file.
+	if err := os.MkdirAll(cfg.OutDir, 0o700); err != nil {
 		return nil, fmt.Errorf("failed to create the output directory: %w", err)
 	}
 
@@ -202,7 +203,7 @@ func preflightJobs(ctx context.Context, lggr logger.Logger, client *NodeClient) 
 		return fmt.Errorf(
 			"the node runs %d %s jobs; a standalone verifier runs a single job, so the committee's "+
 				"verifier jobs must be consolidated into one before migrating — raise it with Chainlink "+
-				"Labs rather than picking one (docs/migration/cl-to-standalone.md)",
+				"Labs rather than picking one (docs/migration/evm-cl-to-standalone.md)",
 			verifiers, JobTypeVerifier)
 	}
 	if verifiers == 0 {

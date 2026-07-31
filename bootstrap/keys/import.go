@@ -145,6 +145,12 @@ func EnsureImportedKey(
 
 	resp, err := ks.GetKeys(ctx, keystore.GetKeysRequest{KeyNames: []string{keyName}})
 	if err == nil && len(resp.Keys) > 0 {
+		if got := resp.Keys[0].KeyInfo.KeyType; got != keyType {
+			return fmt.Errorf(
+				"key %q already exists with type %s, not %s: remove it or declare a different key name",
+				keyName, got, keyType,
+			)
+		}
 		existing := resp.Keys[0].KeyInfo.PublicKey
 		// expected_id is checked against the key already in the keystore, not only against the one
 		// being imported. Without this, a node that booted once with the wrong export mounted keeps
@@ -173,8 +179,8 @@ func EnsureImportedKey(
 	if want := strings.TrimSpace(spec.ExpectedID); want != "" {
 		if !strings.EqualFold(strings.TrimPrefix(want, "0x"), id) {
 			return fmt.Errorf(
-				"%s import for key %q from %q holds identity %s but expected_id is %s: the wrong node's export is mounted",
-				spec.Format, keyName, spec.Path, id, want,
+				"the export for key %q from %q holds identity %s but expected_id is %s: the wrong node's export is mounted",
+				keyName, spec.Path, id, want,
 			)
 		}
 	}
