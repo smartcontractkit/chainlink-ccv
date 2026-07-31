@@ -163,7 +163,6 @@ func ExportNodeKeys(ctx context.Context, lggr logger.Logger, cfg ExportConfig) (
 }
 
 func (c ExportConfig) validate() error {
-	// A slice, not a map: the first missing field is always the one reported.
 	for _, field := range []struct{ name, value string }{
 		{"NodeURL", c.NodeURL},
 		{"APIEmail", c.APIEmail},
