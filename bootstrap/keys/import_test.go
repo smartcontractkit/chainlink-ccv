@@ -242,6 +242,7 @@ func TestEnsureImportedKey(t *testing.T) {
 			Format:       ImportFormatOCR2,
 			Path:         writeOCR2Export(t, dir, priv),
 			PasswordPath: writePasswordFile(t, dir, testExportPassword),
+			ExpectedID:   gethcrypto.PubkeyToAddress(priv.PublicKey).Hex(),
 		}
 		ks := newTestKeystore(t)
 
@@ -262,6 +263,7 @@ func TestEnsureImportedKey(t *testing.T) {
 			Format:       ImportFormatETH,
 			Path:         writeETHExport(t, dir, priv),
 			PasswordPath: writePasswordFile(t, dir, testExportPassword),
+			ExpectedID:   gethcrypto.PubkeyToAddress(priv.PublicKey).Hex(),
 		}
 		ks := newTestKeystore(t)
 
@@ -281,6 +283,7 @@ func TestEnsureImportedKey(t *testing.T) {
 			Format:       ImportFormatETH,
 			Path:         writeETHExport(t, dir, priv),
 			PasswordPath: writePasswordFile(t, dir, testExportPassword+"\n"),
+			ExpectedID:   gethcrypto.PubkeyToAddress(priv.PublicKey).Hex(),
 		}
 
 		require.NoError(t, EnsureImportedKey(ctx, lggr, newTestKeystore(t), "tx-key", "transmitting", keystore.ECDSA_S256, spec))
@@ -289,16 +292,20 @@ func TestEnsureImportedKey(t *testing.T) {
 	t.Run("is a no-op when the key already exists", func(t *testing.T) {
 		t.Parallel()
 		dir := t.TempDir()
-		spec := Import{
-			Format:       ImportFormatETH,
-			Path:         writeETHExport(t, dir, newTestECDSAKey(t)),
-			PasswordPath: writePasswordFile(t, dir, testExportPassword),
-		}
 		ks := newTestKeystore(t)
 		created, err := ks.CreateKeys(ctx, keystore.CreateKeysRequest{
 			Keys: []keystore.CreateKeyRequest{{KeyName: "tx-key", KeyType: keystore.ECDSA_S256}},
 		})
 		require.NoError(t, err)
+		address, _, err := EVMAddressFromPublicKey(created.Keys[0].KeyInfo.PublicKey)
+		require.NoError(t, err)
+
+		spec := Import{
+			Format:       ImportFormatETH,
+			Path:         writeETHExport(t, dir, newTestECDSAKey(t)),
+			PasswordPath: writePasswordFile(t, dir, testExportPassword),
+			ExpectedID:   address,
+		}
 
 		require.NoError(t, EnsureImportedKey(ctx, lggr, ks, "tx-key", "transmitting", keystore.ECDSA_S256, spec))
 
@@ -389,14 +396,36 @@ func TestEnsureImportedKey(t *testing.T) {
 	t.Run("rejects a non-secp256k1 target key type", func(t *testing.T) {
 		t.Parallel()
 		dir := t.TempDir()
+		priv := newTestECDSAKey(t)
 		spec := Import{
 			Format:       ImportFormatETH,
-			Path:         writeETHExport(t, dir, newTestECDSAKey(t)),
+			Path:         writeETHExport(t, dir, priv),
 			PasswordPath: writePasswordFile(t, dir, testExportPassword),
+			ExpectedID:   gethcrypto.PubkeyToAddress(priv.PublicKey).Hex(),
 		}
 
 		err := EnsureImportedKey(ctx, lggr, newTestKeystore(t), "csa-key", "csa", keystore.Ed25519, spec)
 		require.ErrorContains(t, err, "secp256k1")
+	})
+
+	t.Run("rejects an existing key of a different type", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		priv := newTestECDSAKey(t)
+		spec := Import{
+			Format:       ImportFormatETH,
+			Path:         writeETHExport(t, dir, priv),
+			PasswordPath: writePasswordFile(t, dir, testExportPassword),
+			ExpectedID:   gethcrypto.PubkeyToAddress(priv.PublicKey).Hex(),
+		}
+		ks := newTestKeystore(t)
+		_, err := ks.CreateKeys(ctx, keystore.CreateKeysRequest{
+			Keys: []keystore.CreateKeyRequest{{KeyName: "tx-key", KeyType: keystore.Ed25519}},
+		})
+		require.NoError(t, err)
+
+		err = EnsureImportedKey(ctx, lggr, ks, "tx-key", "transmitting", keystore.ECDSA_S256, spec)
+		require.ErrorContains(t, err, "already exists with type")
 	})
 
 	t.Run("reports a missing key file with the key name", func(t *testing.T) {
@@ -406,6 +435,7 @@ func TestEnsureImportedKey(t *testing.T) {
 			Format:       ImportFormatETH,
 			Path:         filepath.Join(dir, "absent.json"),
 			PasswordPath: writePasswordFile(t, dir, testExportPassword),
+			ExpectedID:   "0x0123456789abcdef0123456789abcdef01234567",
 		}
 
 		err := EnsureImportedKey(ctx, lggr, newTestKeystore(t), "tx-key", "transmitting", keystore.ECDSA_S256, spec)
@@ -416,17 +446,18 @@ func TestEnsureImportedKey(t *testing.T) {
 func TestImportValidate(t *testing.T) {
 	t.Parallel()
 
-	valid := Import{Format: ImportFormatOCR2, Path: "/k.json", PasswordPath: "/p.txt"}
+	valid := Import{Format: ImportFormatOCR2, Path: "/k.json", PasswordPath: "/p.txt", ExpectedID: "0xabc"}
 	tests := []struct {
 		name    string
 		imp     Import
 		wantErr string
 	}{
 		{name: "valid", imp: valid},
-		{name: "missing path", imp: Import{Format: ImportFormatETH, PasswordPath: "/p.txt"}, wantErr: "'path'"},
-		{name: "missing password path", imp: Import{Format: ImportFormatETH, Path: "/k.json"}, wantErr: "'password_path'"},
-		{name: "format omitted is detected from the file", imp: Import{Path: "/k.json", PasswordPath: "/p.txt"}},
-		{name: "unknown format", imp: Import{Format: "csa", Path: "/k.json", PasswordPath: "/p.txt"}, wantErr: "ocr2, eth"},
+		{name: "missing path", imp: Import{Format: ImportFormatETH, PasswordPath: "/p.txt", ExpectedID: "0xabc"}, wantErr: "'path'"},
+		{name: "missing password path", imp: Import{Format: ImportFormatETH, Path: "/k.json", ExpectedID: "0xabc"}, wantErr: "'password_path'"},
+		{name: "missing expected_id", imp: Import{Format: ImportFormatETH, Path: "/k.json", PasswordPath: "/p.txt"}, wantErr: "'expected_id'"},
+		{name: "format omitted is detected from the file", imp: Import{Path: "/k.json", PasswordPath: "/p.txt", ExpectedID: "0xabc"}},
+		{name: "unknown format", imp: Import{Format: "csa", Path: "/k.json", PasswordPath: "/p.txt", ExpectedID: "0xabc"}, wantErr: "ocr2, eth"},
 	}
 
 	for _, tt := range tests {
@@ -477,6 +508,7 @@ func TestEnsureImportedKeyDetectsFormat(t *testing.T) {
 	spec := Import{
 		Path:         writeOCR2Export(t, dir, priv),
 		PasswordPath: writePasswordFile(t, dir, testExportPassword),
+		ExpectedID:   gethcrypto.PubkeyToAddress(priv.PublicKey).Hex(),
 	}
 	ks := newTestKeystore(t)
 	require.NoError(t, EnsureImportedKey(

@@ -6,8 +6,16 @@ import (
 	"sync"
 	"time"
 
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/propagation"
+	oteltrace "go.opentelemetry.io/otel/trace"
+
+	"github.com/smartcontractkit/chainlink-ccv/common/monitoring/tracing"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/jobqueue"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
@@ -34,6 +42,7 @@ type Processor struct {
 
 	lggr           logger.Logger
 	verifierID     string
+	monitoring     verifier.Monitoring
 	messageTracker verifier.MessageLatencyTracker
 
 	storage     protocol.CCVNodeDataWriter
@@ -50,19 +59,21 @@ type Processor struct {
 func NewProcessor(
 	lggr logger.Logger,
 	verifierID string,
+	monitoring verifier.Monitoring,
 	messageTracker verifier.MessageLatencyTracker,
 	storage protocol.CCVNodeDataWriter,
 	resultQueue jobqueue.JobQueue[protocol.VerifierNodeResult],
 	config verifier.CoordinatorConfig,
 ) (*Processor, error) {
 	return NewProcessorWithPollInterval(
-		lggr, verifierID, messageTracker, storage, resultQueue, config, defaultPollInterval,
+		lggr, verifierID, monitoring, messageTracker, storage, resultQueue, config, defaultPollInterval,
 	)
 }
 
 func NewProcessorWithPollInterval(
 	lggr logger.Logger,
 	verifierID string,
+	monitoring verifier.Monitoring,
 	messageTracker verifier.MessageLatencyTracker,
 	storage protocol.CCVNodeDataWriter,
 	resultQueue jobqueue.JobQueue[protocol.VerifierNodeResult],
@@ -74,6 +85,7 @@ func NewProcessorWithPollInterval(
 	processor := &Processor{
 		lggr:            lggr,
 		verifierID:      verifierID,
+		monitoring:      monitoring,
 		messageTracker:  messageTracker,
 		storage:         storage,
 		resultQueue:     resultQueue,
@@ -154,8 +166,39 @@ func (s *Processor) processBatch(ctx context.Context) error {
 	// Extract results for writing
 	results := make([]protocol.VerifierNodeResult, len(jobs))
 	for i, job := range jobs {
-		results[i] = job.Payload
+		carrier := propagation.MapCarrier{
+			"traceparent": job.Payload.TraceParent,
+		}
+		parentCtx := otel.GetTextMapPropagator().Extract(context.WithoutCancel(ctx), carrier)
+
+		payload := job.Payload
+		var span oteltrace.Span
+		payload.TraceContext, span = s.monitoring.Tracing().StartMessageSpan(
+			parentCtx, monitoring.StorageWriterWriteSpanName(s.verifierID), job.Payload.MessageID,
+			attribute.String(tracing.VerifierIDKey, s.verifierID),
+			attribute.String(tracing.JobIDKey, job.ID),
+		)
+		span.AddEvent(monitoring.EventJobDiscovered,
+			oteltrace.WithAttributes(
+				attribute.String(tracing.JobIDKey, job.ID),
+				attribute.String(tracing.SourceChainNameKey, job.Payload.Message.SourceChainSelector.ChainName()),
+				attribute.String(tracing.SourceChainSelectorKey, job.Payload.Message.SourceChainSelector.String()),
+				attribute.String(tracing.DestChainNameKey, job.Payload.Message.DestChainSelector.ChainName()),
+				attribute.String(tracing.DestChainSelectorKey, job.Payload.Message.DestChainSelector.String()),
+			),
+		)
+		// results must carry the span-started context (not the raw extracted
+		// one) - every later lookup below reads results[i].TraceContext, and
+		// it must resolve to the real, live write span rather than the
+		// non-recording placeholder OTel returns for an extracted-but-unstarted
+		// remote context.
+		results[i] = payload
 	}
+	defer func() {
+		for _, result := range results {
+			tracing.SpanFromContext(result.TraceContext).End()
+		}
+	}()
 
 	// Write batch to storage
 	writeResults, err := s.storage.WriteCCVNodeData(ctx, results)
@@ -173,6 +216,13 @@ func (s *Processor) processBatch(ctx context.Context) error {
 		for i, job := range jobs {
 			jobIDs[i] = job.ID
 			errorMap[job.ID] = err
+
+			span := tracing.SpanFromContext(results[i].TraceContext)
+			span.RecordError(err)
+			span.SetStatus(codes.Error, err.Error())
+			span.AddEvent(monitoring.EventRetryScheduled, oteltrace.WithAttributes(
+				attribute.String(tracing.DelayKey, s.retryDelay.String()),
+			))
 		}
 
 		retryCtx, cancel := context.WithTimeout(ctx, verifier.DefaultJobQueueOperationTimeout)
@@ -206,13 +256,18 @@ func (s *Processor) processBatch(ctx context.Context) error {
 		job := jobs[i]
 		jobID := job.ID
 		messageID := writeResult.Input.MessageID.String()
+		span := tracing.SpanFromContext(results[i].TraceContext)
 
 		if writeResult.Status == protocol.WriteSuccess {
 			successfulJobs = append(successfulJobs, jobID)
 			successfulResults = append(successfulResults, writeResult.Input)
 			// PER-MESSAGE LOG (success): terminal; verification result persisted to storage.
 			s.lggr.Infow("Write succeeded for message", protocol.LogTypeKey, protocol.LogTypeMessageSuccess, protocol.LogKeyMessageID, messageID, protocol.LogKeyJobID, jobID)
+
+			span.AddEvent(monitoring.EventWriteSucceeded)
 		} else {
+			span.RecordError(writeResult.Error, oteltrace.WithAttributes(attribute.Bool(tracing.RetryableKey, writeResult.Retryable)))
+			span.SetStatus(codes.Error, writeResult.Error.Error())
 			if writeResult.Retryable {
 				retriableFailedJobs = append(retriableFailedJobs, jobID)
 				failedErrorMap[jobID] = writeResult.Error
@@ -221,6 +276,10 @@ func (s *Processor) processBatch(ctx context.Context) error {
 					protocol.LogKeyJobID, jobID,
 					"error", writeResult.Error,
 				)
+
+				span.AddEvent(monitoring.EventRetryScheduled, oteltrace.WithAttributes(
+					attribute.String(tracing.DelayKey, s.retryDelay.String()),
+				))
 			} else {
 				nonRetriableFailedJobs = append(nonRetriableFailedJobs, jobID)
 				failedErrorMap[jobID] = writeResult.Error
