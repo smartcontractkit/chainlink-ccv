@@ -150,6 +150,46 @@ type ChainRegistration struct {
 	ID string `toml:"id"`
 }
 
+// KeyImport declares a Chainlink node key to adopt into the keystore instead of generating a fresh
+// one. It exists for node operators moving from CL mode to standalone. The import runs only when
+// the key is absent, which makes it a no-op on every restart after the first: once the node has
+// come up, the exported file and the password file can be unmounted.
+//
+// It carries two paths and a check, and nothing else. Which keystore key the file becomes
+// is not asked: an application declares exactly one key it can import into (a verifier its signing
+// key, an executor its transmitter key), so there is nothing for an operator to choose or mistype.
+// The export format is read from the file for the same reason.
+type KeyImport struct {
+	// Path is the mounted path of the key file exported from the Chainlink node.
+	Path string `toml:"path"`
+	// PasswordPath is the mounted path of a file holding the password used at export time.
+	PasswordPath string `toml:"password_path"`
+	// ExpectedID pins the address the export must carry. It is required because it is the check
+	// that fails the boot when the wrong node's export is mounted — without it the process comes
+	// up signing as somebody else, which the committee rejects with nothing pointing at the cause.
+	ExpectedID string `toml:"expected_id"`
+}
+
+// ToKeysImport converts the config entry to the form the keys package consumes. Format is left
+// empty so the keys package detects it from the file.
+func (k KeyImport) ToKeysImport() keys.Import {
+	return keys.Import{
+		Path:         k.Path,
+		PasswordPath: k.PasswordPath,
+		ExpectedID:   k.ExpectedID,
+	}
+}
+
+func validateKeyImport(imp *KeyImport) []error {
+	if imp == nil {
+		return nil
+	}
+	if err := imp.ToKeysImport().Validate(); err != nil {
+		return []error{fmt.Errorf("invalid 'key_import' section: %w", err)}
+	}
+	return nil
+}
+
 // knownChainTypes is the set of chain type strings (upper-cased) for which signing address
 // derivation is implemented. Extend this together with signingAddressFromPublicKey in bootstrap.go.
 var knownChainTypes = map[string]struct{}{
@@ -202,6 +242,12 @@ type NonSecretConfig struct {
 	// Each entry causes the bootstrapper to register the node's signing key for that chain in JD.
 	// Optional: if empty, no signing key sync is performed.
 	Chains []ChainRegistration `toml:"chains"`
+
+	// KeyImport adopts a Chainlink node key into the keystore on first boot instead of generating
+	// one. Optional: when absent every declared key is generated, which is right for a new
+	// deployment. It is set when migrating an operator off CL mode. When the section is present,
+	// expected_id is required.
+	KeyImport *KeyImport `toml:"key_import"`
 
 	// Monitoring is the operator-provided monitoring configuration.
 	// These are operator- and environment-specific (the OTel exporter endpoints point
@@ -335,6 +381,9 @@ func (c *Config) validate(m AppConfigMode) error {
 			errs = append(errs, fmt.Errorf("failed to validate 'monitoring' section: %w", err))
 		}
 	}
+	// The key import populates the keystore, which both modes initialize when [db] and [keystore]
+	// are present, so it is validated in every mode rather than only alongside the JD infra bundle.
+	errs = append(errs, validateKeyImport(c.KeyImport)...)
 	return errors.Join(errs...)
 }
 

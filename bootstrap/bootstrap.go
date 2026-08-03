@@ -403,7 +403,7 @@ func (b *Bootstrapper) startWithJDLifecycle(ctx context.Context) error {
 		return fmt.Errorf("failed to connect to bootstrapper database: %w", err)
 	}
 
-	keyStore, csaSigner, err := initializeKeystore(ctx, b.lggr, b.config.Keystore, db, b.keys)
+	keyStore, csaSigner, err := initializeKeystore(ctx, b.lggr, b.config.Keystore, db, b.keys, b.config.KeyImport)
 	if err != nil {
 		return fmt.Errorf("failed to initialize keystore: %w", err)
 	}
@@ -519,7 +519,7 @@ func (b *Bootstrapper) startLocal(ctx context.Context) error {
 	}
 	switch backend {
 	case KeystoreBackendKMS:
-		keyStore, csaSigner, err = initializeKeystore(ctx, b.lggr, b.config.Keystore, nil, b.keys)
+		keyStore, csaSigner, err = initializeKeystore(ctx, b.lggr, b.config.Keystore, nil, b.keys, b.config.KeyImport)
 		if err != nil {
 			return fmt.Errorf("failed to initialize KMS keystore: %w", err)
 		}
@@ -533,7 +533,7 @@ func (b *Bootstrapper) startLocal(ctx context.Context) error {
 			if err != nil {
 				return fmt.Errorf("failed to connect to bootstrapper database: %w", err)
 			}
-			keyStore, csaSigner, err = initializeKeystore(ctx, b.lggr, b.config.Keystore, db, b.keys)
+			keyStore, csaSigner, err = initializeKeystore(ctx, b.lggr, b.config.Keystore, db, b.keys, b.config.KeyImport)
 			if err != nil {
 				return fmt.Errorf("failed to initialize keystore: %w", err)
 			}
@@ -739,7 +739,7 @@ func connectToDB(ctx context.Context, connStr string) (*sqlx.DB, error) {
 
 func hasCSAKey(keys []keyToInit) bool {
 	for _, k := range keys {
-		if k.purpose == "csa" {
+		if k.purpose == csaKeyPurpose {
 			return true
 		}
 	}
@@ -787,10 +787,22 @@ func bootstrapConfigPaths(explicitConfig, explicitSecrets string) []string {
 	return paths
 }
 
-func initializeKeystore(ctx context.Context, lggr logger.Logger, ksCfg KeystoreConfig, db *sqlx.DB, requiredKeys []keyToInit) (keystore.Keystore, crypto.Signer, error) {
+func initializeKeystore(
+	ctx context.Context,
+	lggr logger.Logger,
+	ksCfg KeystoreConfig,
+	db *sqlx.DB,
+	requiredKeys []keyToInit,
+	keyImport *KeyImport,
+) (keystore.Keystore, crypto.Signer, error) {
 	backend, err := ksCfg.resolveBackend()
 	if err != nil {
 		return nil, nil, fmt.Errorf("invalid keystore backend: %w", err)
+	}
+
+	importKeyName, importSpec, err := resolveKeyImport(backend, requiredKeys, keyImport)
+	if err != nil {
+		return nil, nil, err
 	}
 
 	var ks keystore.Keystore
@@ -810,7 +822,11 @@ func initializeKeystore(ctx context.Context, lggr logger.Logger, ksCfg KeystoreC
 			return nil, nil, fmt.Errorf("failed to load keystore: %w", err)
 		}
 		for _, k := range requiredKeys {
-			if err := keys.EnsureKey(ctx, lggr, ks, k.name, k.purpose, k.keyType); err != nil {
+			if importKeyName != "" && k.name == importKeyName {
+				if err := keys.EnsureImportedKey(ctx, lggr, ks, k.name, k.purpose, k.keyType, importSpec); err != nil {
+					return nil, nil, fmt.Errorf("failed to import key %q (purpose=%q, type=%v): %w", k.name, k.purpose, k.keyType, err)
+				}
+			} else if err := keys.EnsureKey(ctx, lggr, ks, k.name, k.purpose, k.keyType); err != nil {
 				return nil, nil, fmt.Errorf("failed to ensure key %q (purpose=%q, type=%v): %w", k.name, k.purpose, k.keyType, err)
 			}
 		}
@@ -818,7 +834,7 @@ func initializeKeystore(ctx context.Context, lggr logger.Logger, ksCfg KeystoreC
 
 	csaKeyName := findCSAKeyName(requiredKeys)
 	if csaKeyName == "" {
-		return nil, nil, fmt.Errorf("no key with purpose %q declared; a CSA key is required for JD communication", "csa")
+		return nil, nil, fmt.Errorf("no key with purpose %q declared; a CSA key is required for JD communication", csaKeyPurpose)
 	}
 
 	csaSigner, err := keys.NewCSASigner(ctx, ks, csaKeyName)
@@ -827,6 +843,47 @@ func initializeKeystore(ctx context.Context, lggr logger.Logger, ksCfg KeystoreC
 	}
 
 	return ks, csaSigner, nil
+}
+
+// resolveKeyImport works out which keystore key the configured import populates.
+//
+// The operator does not name it. An application declares one key it can import into — a committee
+// verifier its signing key, an executor its transmitter key — and the CSA key is never imported
+// because a migration repoints the JD record at a freshly generated one instead. So the target is
+// whichever declared key is not the CSA key, and there is nothing to mistype. An application that
+// declared two would make the choice ambiguous, so that is an error rather than a guess.
+//
+// KMS is rejected outright: the point of that backend is that private key material never leaves
+// KMS, so there is nowhere to import an exported key to. An operator migrating off a Chainlink node
+// onto KMS has to import the key into KMS themselves and point [keystore.kms] at it.
+func resolveKeyImport(backend KeystoreBackend, requiredKeys []keyToInit, keyImport *KeyImport) (string, keys.Import, error) {
+	if keyImport == nil {
+		return "", keys.Import{}, nil
+	}
+	if backend == KeystoreBackendKMS {
+		return "", keys.Import{}, fmt.Errorf(
+			"[key_import] is not supported with the KMS keystore backend: KMS holds the private key and " +
+				"cannot have one imported into it through this config. Import the exported key into KMS " +
+				"directly and set [keystore.kms] key IDs instead")
+	}
+
+	var candidates []string
+	for _, k := range requiredKeys {
+		if k.purpose != csaKeyPurpose {
+			candidates = append(candidates, k.name)
+		}
+	}
+	switch len(candidates) {
+	case 1:
+		return candidates[0], keyImport.ToKeysImport(), nil
+	case 0:
+		return "", keys.Import{}, fmt.Errorf(
+			"a key_import is configured but this application declares no importable key")
+	default:
+		return "", keys.Import{}, fmt.Errorf(
+			"a key_import is configured but this application declares %d importable keys (%v), "+
+				"so which one to import is ambiguous", len(candidates), candidates)
+	}
 }
 
 // buildKMSNameMap maps logical key names to KMS Key IDs by key type. The supported key types and the
@@ -868,10 +925,10 @@ func buildKMSNameMap(cfg KMSKeystoreConfig, requiredKeys []keyToInit) (map[strin
 	return nameToID, nil
 }
 
-// findCSAKeyName returns the name of the key with purpose "csa", or "" if none.
+// findCSAKeyName returns the name of the key with the CSA purpose, or "" if none.
 func findCSAKeyName(requiredKeys []keyToInit) string {
 	for _, k := range requiredKeys {
-		if k.purpose == "csa" {
+		if k.purpose == csaKeyPurpose {
 			return k.name
 		}
 	}
@@ -880,6 +937,11 @@ func findCSAKeyName(requiredKeys []keyToInit) string {
 
 // Option configures a [Bootstrapper].
 type Option func(*Bootstrapper) error
+
+// csaKeyPurpose marks the key used to authenticate to JD. It is the one key a migration never
+// imports: the JD node record is repointed at a freshly generated CSA key instead, so no private
+// key leaves the machine that made it.
+const csaKeyPurpose = "csa"
 
 type keyToInit struct {
 	name    string

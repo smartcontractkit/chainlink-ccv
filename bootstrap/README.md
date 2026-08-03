@@ -135,6 +135,36 @@ type = "EVM"   # chain family — EVM, SOLANA, APTOS, STELLAR, CANTON, STARKNET,
 id   = "1"     # chain ID (e.g. EVM chain ID, Solana cluster name)
 ```
 
+## Adopting a key from a Chainlink node
+
+A node operator moving off CL mode has keys that must survive the move: e.g. the onchain signing key
+registered in the `CommitteeVerifier` signer set, and the funded EVM account the executor transmits
+from. `[key_import]` adopts one exported from a Chainlink node instead of generating it.
+
+```toml
+[key_import]
+# The key file exported from the Chainlink node.
+path          = "/etc/ccv/migration/key.json"
+# The password it was exported under, in its own file so this config carries no credentials.
+password_path = "/etc/ccv/migration/export-password.txt"
+# Required: the address the export must carry. The process refuses to boot on a mismatch —
+# this is the check that catches a wrong node's export mounted by mistake.
+expected_id   = "0x1234...abcd"
+```
+
+The `key_import` section names neither the keystore key nor the export format: an
+application declares exactly one key it can import into, so the target is unambiguous, and the
+format is read from the file (an OCR2 bundle declares its chain type, an eth key carries an
+address).
+
+The import runs only when the key is absent, so it is a no-op on every restart after the first and
+the exported files can be unmounted once the node has come up once.
+
+The CSA key is never imported. It authenticates the node to JD and has no on-chain meaning, so a
+migration repoints the existing JD node record at the standalone node's own CSA key via
+`UpdateNodeRequest.public_key` rather than copying a private key across. See
+`docs/migration/evm-cl-to-standalone.md` for the full procedure.
+
 # Requirements
 
 The bootstrapper requires a dedicated Postgres database. It stores:

@@ -262,6 +262,10 @@ func indexerSecretsInstance() any {
 // Monitoring section is populated (unlike the executor/committee verifier docs,
 // which leave it zero) because this is the operator-provided source of truth for
 // monitoring; it reuses monitoringConfigInstance so the two docs stay in lockstep.
+//
+// KeyImport is populated even though a bootstrapper that is not migrating leaves it out entirely.
+// It is a pointer, so leaving it nil documents the section as absent rather than as optional, and
+// the operators who need it are the ones who have never run the process before.
 func bootstrapConfigInstance() any {
 	return &bootstrap.NonSecretConfig{
 		AppConfigMode:      bootstrap.AppConfigModeJD,
@@ -275,6 +279,11 @@ func bootstrapConfigInstance() any {
 			{Type: "EVM", ID: "1"},
 		},
 		Monitoring: monitoringConfig(),
+		KeyImport: &bootstrap.KeyImport{ //nolint:gosec // G101: password_path is where a password file is mounted, not a password
+			Path:         "/etc/ccv/migration/key.json",
+			PasswordPath: "/etc/ccv/migration/export-password.txt",
+			ExpectedID:   "0x0123456789abcdef0123456789abcdef01234567",
+		},
 	}
 }
 
