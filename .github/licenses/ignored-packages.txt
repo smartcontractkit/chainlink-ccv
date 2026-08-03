@@ -1,0 +1,35 @@
+# Package prefixes excluded for a classifier limitation or a Legal-approved exception.
+# Every entry requires Legal review.
+# The tool's --ignore flag still checks each ignored package's dependencies.
+#
+# github.com/gagliardetto/treeout: no recognizable license file; MIT license reviewed manually.
+github.com/gagliardetto/treeout
+
+# github.com/holiman/bloomfilter/v2: MIT-LICENSE is not discovered by go-licenses.
+github.com/holiman/bloomfilter/v2
+
+# github.com/jackpal/go-nat-pmp: no recognizable license file; Apache-2.0 reviewed manually.
+github.com/jackpal/go-nat-pmp
+
+# github.com/ethereum/go-ethereum: LGPL-3.0 library usage approved by Legal; GPL applies only to cmd/ directories.
+github.com/ethereum/go-ethereum
+
+# github.com/fbsobreira/gotron-sdk/pkg: LGPL-3.0 usage approved by Legal.
+github.com/fbsobreira/gotron-sdk/pkg
+
+# github.com/smartcontractkit/chainlink-evm: LGPL-3.0 usage approved by Legal.
+github.com/smartcontractkit/chainlink-evm/gethwrappers
+github.com/smartcontractkit/chainlink-evm/pkg
+
+# MPL-2.0 dependencies approved by Legal for CCV's current usage.
+github.com/hashicorp/go-bexpr
+github.com/hashicorp/go-plugin
+github.com/hashicorp/golang-lru/v2
+github.com/hashicorp/yamux
+github.com/smartcontractkit/freeport
+
+# Generated packages inherit the license of their parent Chainlink module.
+github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated
+
+# Generated package layout prevents discovery of the parent Chainlink module license.
+github.com/smartcontractkit/chainlink-solana/pkg/solana

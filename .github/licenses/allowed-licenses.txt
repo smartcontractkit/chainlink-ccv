@@ -1,0 +1,36 @@
+# SPDX identifiers accepted by Legal for Go dependencies.
+# Keep this list intentionally explicit: unlisted and unclassified licenses fail the check.
+0BSD
+Apache-1.0
+Apache-1.1
+Apache-2.0
+BSD-2-Clause
+BSD-2-Clause-FreeBSD
+BSD-2-Clause-NetBSD
+BSD-3-Clause
+BSD-3-Clause-Attribution
+BSD-3-Clause-Clear
+BSD-3-Clause-LBNL
+BSD-4-Clause
+BSD-4-Clause-UC
+BSL-1.0
+CC0-1.0
+ISC
+MIT
+MS-PL
+NCSA
+OpenSSL
+PostgreSQL
+Python-2.0
+Python-2.0-complete
+Unicode-DFS-2015
+Unicode-DFS-2016
+Unicode-TOU
+Unlicense
+UPL-1.0
+W3C
+W3C-19980720
+W3C-20150513
+X11
+Zlib
+zlib-acknowledgement
