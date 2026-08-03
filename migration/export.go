@@ -95,7 +95,7 @@ func ExportNodeKeys(ctx context.Context, lggr logger.Logger, cfg ExportConfig) (
 	if err := os.MkdirAll(cfg.OutDir, 0o700); err != nil {
 		return nil, fmt.Errorf("failed to create the output directory: %w", err)
 	}
-	if err := os.Chmod(cfg.OutDir, 0o700); err != nil {
+	if err := os.Chmod(cfg.OutDir, 0o700); err != nil { //nolint:gosec // G302: tightens an existing directory to owner-only; it holds exported private keys
 		return nil, fmt.Errorf("failed to restrict the output directory to the owner: %w", err)
 	}
 
