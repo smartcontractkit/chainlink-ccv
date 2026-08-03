@@ -77,21 +77,12 @@ type Import struct {
 	// PasswordPath is a file holding the password the key was exported under. The password is read
 	// from its own file so that the bootstrap config itself stays free of credentials.
 	PasswordPath string
-<<<<<<< HEAD
-	// ExpectedID, when set, must equal the identity encoded in the export: the onchain signing
-	// address for ImportFormatOCR2, the account address for ImportFormatETH, both hex without a
-	// 0x prefix and case-insensitive. An operator migrating several nodes can mount the wrong
-	// node's export, and without this check the node comes up signing with another node's key —
-	// which produces verification results the committee rejects, with nothing pointing at the
-	// cause. Setting it turns that into a startup failure.
-=======
 	// ExpectedID must equal the identity encoded in the export: the onchain signing address for
 	// ImportFormatOCR2, the account address for ImportFormatETH, hex with or without a 0x prefix,
 	// case-insensitive. It is required because it is the check that turns mounting the wrong node's
 	// export into a startup failure: without it the node comes up signing with another node's key,
 	// which produces verification results the committee rejects, with nothing pointing at the
 	// cause.
->>>>>>> origin/main
 	//
 	// It is enforced against the key already in the keystore as well as against the export, so
 	// adding it after a node has booted with the wrong key still fails rather than silently
@@ -108,13 +99,10 @@ func (i Import) Validate() error {
 	if strings.TrimSpace(i.PasswordPath) == "" {
 		return fmt.Errorf("field 'password_path' is required")
 	}
-<<<<<<< HEAD
-=======
 	if strings.TrimSpace(i.ExpectedID) == "" {
 		return fmt.Errorf("field 'expected_id' is required: it is the check that fails the boot " +
 			"when the wrong node's export is mounted")
 	}
->>>>>>> origin/main
 	switch i.Format {
 	// Empty means "detect from the file", which is the normal case: the bootstrap config does not
 	// ask an operator which export they took.
@@ -138,8 +126,6 @@ func formatList() string {
 // successful migration, so the export files and their password file can be unmounted once the node
 // has come up once.
 //
-<<<<<<< HEAD
-=======
 // An existing key is never overwritten. The scenario that matters is a process that booted once
 // without an import configured: its keystore already holds a key it generated, and that key may
 // already have been published — the signing address is synced to JD on connect. Silently replacing
@@ -147,7 +133,6 @@ func formatList() string {
 // mismatch is a hard startup error. Recovery is deliberately manual: remove the key (or the
 // bootstrap database, before anything has registered with JD) and start again.
 //
->>>>>>> origin/main
 // keyType is the type the app declared for keyName. Both supported formats carry a secp256k1
 // private key, so a declaration of any other type is a programming error and is rejected rather
 // than silently producing a key the app cannot use.
@@ -170,16 +155,12 @@ func EnsureImportedKey(
 	}
 
 	resp, err := ks.GetKeys(ctx, keystore.GetKeysRequest{KeyNames: []string{keyName}})
-<<<<<<< HEAD
-	if err == nil && len(resp.Keys) > 0 {
-=======
 	if err == nil && len(resp.Keys) > 1 {
 		// Defensive: names are unique in the keystore, so more than one key for a name means the
 		// store is in a state this code cannot reason about. Fail rather than pick one.
 		return fmt.Errorf("keystore returned %d keys for name %q, expected exactly one", len(resp.Keys), keyName)
 	}
 	if err == nil && len(resp.Keys) == 1 {
->>>>>>> origin/main
 		if got := resp.Keys[0].KeyInfo.KeyType; got != keyType {
 			return fmt.Errorf(
 				"key %q already exists with type %s, not %s: remove it or declare a different key name",
@@ -211,21 +192,11 @@ func EnsureImportedKey(
 		// to parse.
 		return fmt.Errorf("failed to decode the export for key %q from %q: %w", keyName, spec.Path, err)
 	}
-<<<<<<< HEAD
-	if want := strings.TrimSpace(spec.ExpectedID); want != "" {
-		if !strings.EqualFold(strings.TrimPrefix(want, "0x"), id) {
-			return fmt.Errorf(
-				"the export for key %q from %q holds identity %s but expected_id is %s: the wrong node's export is mounted",
-				keyName, spec.Path, id, want,
-			)
-		}
-=======
 	if want := strings.TrimPrefix(strings.TrimSpace(spec.ExpectedID), "0x"); !strings.EqualFold(want, id) {
 		return fmt.Errorf(
 			"the export for key %q from %q holds identity %s but expected_id is %s: the wrong node's export is mounted",
 			keyName, spec.Path, id, spec.ExpectedID,
 		)
->>>>>>> origin/main
 	}
 
 	blob, err := encodeForImport(keyName, keyType, privateKey)
@@ -250,40 +221,21 @@ func EnsureImportedKey(
 }
 
 // checkExpectedID reports whether a keystore key with the given uncompressed secp256k1 public key
-<<<<<<< HEAD
-// carries the identity spec pins. An unset expected_id passes: pinning is opt-in, and a deployment
-// that never set it keeps working exactly as before.
-=======
 // carries the identity spec pins.
->>>>>>> origin/main
 //
 // The address is derived the same way the import path derives it from the export, so the two
 // comparisons cannot disagree about what a key's identity is.
 func checkExpectedID(spec Import, publicKey []byte) error {
-<<<<<<< HEAD
-	want := strings.TrimSpace(spec.ExpectedID)
-	if want == "" {
-		return nil
-	}
-=======
 	want := strings.TrimPrefix(strings.TrimSpace(spec.ExpectedID), "0x")
->>>>>>> origin/main
 	address, _, err := EVMAddressFromPublicKey(publicKey)
 	if err != nil {
 		return fmt.Errorf("its public key could not be decoded to compare against expected_id: %w", err)
 	}
 	got := strings.ToLower(strings.TrimPrefix(address, "0x"))
-<<<<<<< HEAD
-	if !strings.EqualFold(strings.TrimPrefix(want, "0x"), got) {
-		return fmt.Errorf(
-			"holds identity %s while expected_id is %s: a different node's key is already in this keystore",
-			got, want,
-=======
 	if !strings.EqualFold(want, got) {
 		return fmt.Errorf(
 			"holds identity %s while expected_id is %s: a different node's key is already in this keystore",
 			got, spec.ExpectedID,
->>>>>>> origin/main
 		)
 	}
 	return nil
@@ -293,18 +245,11 @@ func checkExpectedID(spec Import, publicKey []byte) error {
 // for an OCR2 bundle, the account address for an eth key — without touching a keystore. It lets an
 // operator confirm they grabbed the right file before wiring it into a bootstrap config, rather
 // than discovering the mistake from a node that started with somebody else's key.
-<<<<<<< HEAD
-func InspectImport(spec Import) (string, error) {
-	if err := spec.Validate(); err != nil {
-		return "", err
-	}
-=======
 //
 // It deliberately skips Validate: its whole point is reading the identity an operator does not yet
 // know, so it cannot require expected_id up front. decodeImport's errors cover unreadable files and
 // unrecognized formats.
 func InspectImport(spec Import) (string, error) {
->>>>>>> origin/main
 	_, id, err := decodeImport(spec)
 	if err != nil {
 		return "", fmt.Errorf("failed to decode the export %q: %w", spec.Path, err)
@@ -460,8 +405,6 @@ const importEnvelopeAuth = "ccv-key-import"
 
 // encodeForImport wraps raw private key bytes in the envelope keystore.ImportKeys expects: a
 // serialization.Key protobuf, encrypted as a Web3 Secret Storage v3 blob.
-<<<<<<< HEAD
-=======
 //
 // The decode-then-re-encode dance is unavoidable, not redundant. keystore.ImportKeys accepts
 // exactly one input — this envelope, a serialization.Key in a web3 v3 blob — and builds the
@@ -471,7 +414,6 @@ const importEnvelopeAuth = "ccv-key-import"
 // on operator disks, and the target key name here comes from the ImportKeys request's
 // NewKeyName, not from anything in the export. The decrypt is also what verifies the password
 // and cross-checks the identity before the key is trusted.
->>>>>>> origin/main
 func encodeForImport(keyName string, keyType keystore.KeyType, privateKey []byte) ([]byte, error) {
 	serialized, err := proto.Marshal(&serialization.Key{
 		Name:       keyName,
