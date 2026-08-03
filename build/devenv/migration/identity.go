@@ -77,6 +77,12 @@ func AdoptJDIdentity(ctx context.Context, jdClient offchain.Client, nodeID, name
 // means the standalone process has authenticated with the adopted record. Without this wait, job
 // proposals can be sent to a record whose new owner has not dialed in yet and sit unclaimed.
 func WaitForNodeConnected(ctx context.Context, jdClient offchain.Client, nodeID string, timeout time.Duration) error {
+	if jdClient == nil {
+		return fmt.Errorf("JD client is required to wait for node %s", nodeID)
+	}
+	if nodeID == "" {
+		return fmt.Errorf("node ID is required to wait for a JD connection")
+	}
 	deadline := time.Now().Add(timeout)
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()

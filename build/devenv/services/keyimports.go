@@ -40,19 +40,26 @@ func BuildKeyImport(
 	if strings.TrimSpace(passwordHostPath) == "" {
 		return nil, nil, fmt.Errorf("no export password file provided")
 	}
+	// Checked here because the bootstrapper's Import.Validate requires it: an empty expected_id
+	// would otherwise surface at container startup, far from the config that forgot it.
+	if strings.TrimSpace(expectedID) == "" {
+		return nil, nil, fmt.Errorf("no expected ID provided")
+	}
 
 	keyContainerPath := path.Join(KeyImportDirContainerPath, keyImportFileName)
 	passwordContainerPath := path.Join(KeyImportDirContainerPath, keyImportPasswordFile)
 
-	// 0644, not 0600. testcontainers copies files in as root, while the verifier and executor images
-	// both run as a non-root user, so an owner-only file is one the importing process cannot read —
-	// it fails at startup with "permission denied" on a file that is plainly there. There is no
-	// ownership control on a ContainerFile to reach for instead. This matches how every other file
-	// mounted into these images is handled, the indexer's secrets file included.
+	// 0444: readable by all, writable by no one. testcontainers copies files in as root, while the
+	// verifier and executor images both run as a non-root user, so an owner-only file is one the
+	// importing process cannot read — it fails at startup with "permission denied" on a file that
+	// is plainly there, and there is no ownership control on a ContainerFile to reach for instead.
+	// No write bit: these are import-only inputs, and the password file especially should not be
+	// writable by anything running in the container. Other mounts in these images use 0644; these
+	// two can afford the tighter mode because nothing but the import ever reads them.
 	//
 	// What limits the exposure is not the mode but the lifetime: the import runs only when the key is
 	// absent, so both files can be unmounted once the process has come up once.
-	const keyImportFileMode = 0o644
+	const keyImportFileMode = 0o444
 
 	files := []testcontainers.ContainerFile{
 		{HostFilePath: keyHostPath, ContainerFilePath: keyContainerPath, FileMode: keyImportFileMode},

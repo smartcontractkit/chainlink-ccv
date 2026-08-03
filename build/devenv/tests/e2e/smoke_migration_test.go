@@ -182,8 +182,9 @@ func clModeAliases(in *ccv.Cfg) []string {
 // containers at all. The skip condition mirrors NewNodeSetClientLookup, so a node set contributing
 // no clients contributes no containers either and the two lists stay index-aligned.
 //
-// A node set that is present but has no usable output fails here rather than being skipped: a short
-// list would otherwise surface as a confusing count mismatch against the NOP aliases.
+// A node set with no usable output is skipped rather than failing here: only migratingNOPs knows
+// how many containers the test expects, and its one-container-per-CL-mode-NOP check turns a
+// shortfall into a named count mismatch instead of a confusing failure downstream.
 func clNodeContainerNames(t *testing.T, in *ccv.Cfg) []string {
 	t.Helper()
 	var names []string
@@ -206,6 +207,8 @@ func clNodeContainerNames(t *testing.T, in *ccv.Cfg) []string {
 func migratingNOPs(t *testing.T, in *ccv.Cfg, lookup *jobs.NodeSetClientLookup) []migration.NOP {
 	t.Helper()
 	require.NotEmpty(t, in.Blockchains, "no blockchains in environment output")
+	require.NotNil(t, in.Blockchains[0], "the first blockchain entry in the environment output is nil")
+	require.NotEmpty(t, in.Blockchains[0].ChainID, "the first blockchain in the environment output has no chain ID")
 	transmitterChainID := in.Blockchains[0].ChainID
 
 	aliases := clModeAliases(in)

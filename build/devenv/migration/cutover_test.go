@@ -155,6 +155,22 @@ func TestRequireDisjointExecutorChainsIgnoresNonMigratingNOPs(t *testing.T) {
 	require.NoError(t, requireDisjointExecutorChains(executors, map[string]struct{}{"node-0": {}}, topology))
 }
 
+// A qualifier naming a pool the topology does not have must fail, not degrade to "serves no
+// chains" — that would waive the nonce-race check for a misconfigured executor.
+func TestRequireDisjointExecutorChainsRejectsAnUnknownPool(t *testing.T) {
+	t.Parallel()
+	executors := []*executorsvc.Input{
+		{ContainerName: "typo-executor", NOPAlias: "node-0", ExecutorQualifier: "defualt"},
+	}
+	topology := topologyWithPools(map[string]map[string][]string{
+		"default": {"chainA": {"node-0"}},
+	})
+
+	err := requireDisjointExecutorChains(executors, map[string]struct{}{"node-0": {}}, topology)
+	require.ErrorContains(t, err, "defualt")
+	require.ErrorContains(t, err, "not in the topology")
+}
+
 // An executor with no qualifier belongs to the default pool, which is what ApplyDefaults gives it.
 func TestExecutorChainsDefaultsTheQualifier(t *testing.T) {
 	t.Parallel()
@@ -162,8 +178,9 @@ func TestExecutorChainsDefaultsTheQualifier(t *testing.T) {
 		"default": {"chainA": {"node-0"}, "chainB": {"other"}},
 	})
 
-	got := executorChains(&executorsvc.Input{NOPAlias: "node-0"}, topology)
+	got, err := executorChains(&executorsvc.Input{NOPAlias: "node-0"}, topology)
 
+	require.NoError(t, err)
 	require.Len(t, got, 1)
 	require.Contains(t, got, "chainA")
 }
