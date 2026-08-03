@@ -11,13 +11,19 @@ import (
 
 func TestNewNodeClientRejectsBadURLs(t *testing.T) {
 	t.Parallel()
-	for _, raw := range []string{"", "not-a-url", "ftp://node.example", "http://"} {
+	for _, raw := range []string{
+		"", "not-a-url", "ftp://node.example", "http://",
+		"http://node.example:6688/v2", "http://node.example:6688/?x=1",
+	} {
 		_, err := NewNodeClient(raw)
 		require.Errorf(t, err, "expected %q to be rejected", raw)
 	}
 	client, err := NewNodeClient("http://localhost:6688")
 	require.NoError(t, err)
 	require.NotNil(t, client)
+	// A trailing slash is canonicalized away rather than doubling every request path.
+	_, err = NewNodeClient("http://localhost:6688/")
+	require.NoError(t, err)
 }
 
 func TestLoginStoresTheSessionCookie(t *testing.T) {
@@ -99,7 +105,7 @@ func TestAccountForChain(t *testing.T) {
 		node := newFakeNode(t)
 		node.ethKeysJSON = strings.Join([]string{
 			ethKeyJSON("0xAAAA", "1", false),
-			ethKeyJSON("0xBBBB", "1", true),  // disabled for the chain: skipped
+			ethKeyJSON("0xBBBB", "1", true),   // disabled for the chain: skipped
 			ethKeyJSON("0xCCCC", "10", false), // another chain
 		}, ",")
 		srv := node.start()
