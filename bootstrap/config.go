@@ -187,11 +187,6 @@ func validateKeyImport(imp *KeyImport) []error {
 	if err := imp.ToKeysImport().Validate(); err != nil {
 		return []error{fmt.Errorf("invalid 'key_import' section: %w", err)}
 	}
-	if strings.TrimSpace(imp.ExpectedID) == "" {
-		return []error{fmt.Errorf(
-			"invalid 'key_import' section: expected_id is required: it is the check that fails " +
-				"the boot when the wrong node's export is mounted")}
-	}
 	return nil
 }
 
@@ -250,7 +245,8 @@ type NonSecretConfig struct {
 
 	// KeyImport adopts a Chainlink node key into the keystore on first boot instead of generating
 	// one. Optional: when absent every declared key is generated, which is right for a new
-	// deployment. It is set when migrating an operator off CL mode.
+	// deployment. It is set when migrating an operator off CL mode. When the section is present,
+	// expected_id is required.
 	KeyImport *KeyImport `toml:"key_import"`
 
 	// Monitoring is the operator-provided monitoring configuration.

@@ -9,6 +9,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/offramp"
 	"github.com/smartcontractkit/chainlink-ccv/executor"
+	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -41,10 +42,10 @@ type TXMEVMContractTransmitter struct {
 	fromAddresses  []common.Address
 	OffRampAddress common.Address
 	chainSelector  protocol.ChainSelector
-	monitoring     executor.Monitoring
+	monitoring     monitoring.Monitoring
 }
 
-func NewEVMContractTransmitterFromTxm(lggr logger.Logger, chainSelector protocol.ChainSelector, client txmgr.TxManager, offRampAddress common.Address, keys keys.RoundRobin, fromAddresses []common.Address, monitoring executor.Monitoring) *TXMEVMContractTransmitter {
+func NewEVMContractTransmitterFromTxm(lggr logger.Logger, chainSelector protocol.ChainSelector, client txmgr.TxManager, offRampAddress common.Address, keys keys.RoundRobin, fromAddresses []common.Address, monitoring monitoring.Monitoring) *TXMEVMContractTransmitter {
 	return &TXMEVMContractTransmitter{
 		lggr:           lggr,
 		chainSelector:  chainSelector,

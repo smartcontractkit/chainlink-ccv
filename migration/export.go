@@ -74,8 +74,11 @@ type ExportResult struct {
 // running Chainlink node, without the caller transcribing a bundle ID, an address, or a
 // password:
 //
-//  1. Preflight: the node must run exactly one ccvcommitteeverifier job and one ccvexecutor job —
-//     the only shape docs/migration/evm-cl-to-standalone.md applies to.
+//  1. Preflight: the node is expected to run exactly one ccvcommitteeverifier job and one
+//     ccvexecutor job — the only shape docs/migration/evm-cl-to-standalone.md applies to. A job
+//     list that contradicts that shape fails the export; a list that cannot be read, or shows no
+//     CCV jobs this tool recognizes, is a warning only, since an older node may report job types
+//     differently.
 //  2. The EVM OCR2 bundle and the chain's enabled account are resolved from the node's own
 //     listings, the same source the node's JD chain config was built from. Taking them from
 //     anywhere else imports an identity no contract knows about.
@@ -87,9 +90,13 @@ func ExportNodeKeys(ctx context.Context, lggr logger.Logger, cfg ExportConfig) (
 	if err := cfg.validate(); err != nil {
 		return nil, err
 	}
-	// 0o700: the directory holds exported private keys and the password file.
+	// 0o700: the directory holds exported private keys and the password file. MkdirAll does not
+	// tighten the permissions of a directory that already exists, so chmod it either way.
 	if err := os.MkdirAll(cfg.OutDir, 0o700); err != nil {
 		return nil, fmt.Errorf("failed to create the output directory: %w", err)
+	}
+	if err := os.Chmod(cfg.OutDir, 0o700); err != nil { //nolint:gosec // G302: tightens an existing directory to owner-only; it holds exported private keys
+		return nil, fmt.Errorf("failed to restrict the output directory to the owner: %w", err)
 	}
 
 	client, err := NewNodeClient(cfg.NodeURL)
@@ -145,7 +152,7 @@ func ExportNodeKeys(ctx context.Context, lggr logger.Logger, cfg ExportConfig) (
 	}
 	// The node reported this account as enabled for the chain, so a mismatch means the export
 	// endpoint returned a different key than the one that address names.
-	if !strings.EqualFold(transmitterAddress, strings.TrimPrefix(account, "0x")) {
+	if !strings.EqualFold(transmitterAddress, strings.TrimPrefix(strings.ToLower(account), "0x")) {
 		return nil, fmt.Errorf(
 			"the exported EVM key holds 0x%s but the node registered %s: the export endpoint returned a different key than the account names",
 			transmitterAddress, account)
@@ -163,7 +170,6 @@ func ExportNodeKeys(ctx context.Context, lggr logger.Logger, cfg ExportConfig) (
 }
 
 func (c ExportConfig) validate() error {
-	// A slice, not a map: the first missing field is always the one reported.
 	for _, field := range []struct{ name, value string }{
 		{"NodeURL", c.NodeURL},
 		{"APIEmail", c.APIEmail},

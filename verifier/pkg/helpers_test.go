@@ -30,6 +30,9 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/storagewriter"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/taskverifier"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/testutil"
+	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
+
+	"github.com/smartcontractkit/chainlink-ccv/common/monitoring/tracing"
 )
 
 // WaitForMessagesInStorage waits for the specified number of messages to be processed.
@@ -109,6 +112,7 @@ func (msrs *MockSourceReaderSetup) ExpectFetchMessageSentEvent(maybeVerification
 type noopMonitoring struct{}
 
 func (m *noopMonitoring) Metrics() MetricLabeler               { return &noopMetricLabeler{} }
+func (m *noopMonitoring) Tracing() Tracing                     { return tracing.NewTracing(beholder.GetTracer()) }
 func (m *noopMonitoring) RecordServiceStarted(context.Context) {}
 
 type noopMetricLabeler struct{}
@@ -463,6 +467,7 @@ func createDurableProcessorsWithPollInterval(
 	storageWriterProcessor, err := storagewriter.NewProcessorWithPollInterval(
 		lggr,
 		config.VerifierID,
+		monitoring,
 		messageTracker,
 		storage,
 		resultQueue,

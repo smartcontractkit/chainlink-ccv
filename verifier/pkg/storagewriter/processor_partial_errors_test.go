@@ -12,6 +12,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/jobqueue"
+	verifiermonitoring "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/testutil"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -40,6 +41,7 @@ func TestProcessorDB_PartialBatchFailures(t *testing.T) {
 		processor, err := NewProcessor(
 			lggr,
 			"test-"+t.Name(),
+			verifiermonitoring.NewFakeVerifierMonitoring(),
 			testutil.NoopLatencyTracker{},
 			selectiveStorage,
 			resultQueue,
@@ -120,6 +122,7 @@ func TestProcessorDB_PartialBatchFailures(t *testing.T) {
 		processor, err := NewProcessor(
 			lggr,
 			"test-"+t.Name(),
+			verifiermonitoring.NewFakeVerifierMonitoring(),
 			testutil.NoopLatencyTracker{},
 			nonRetryableStorage,
 			resultQueue,
@@ -198,6 +201,7 @@ func TestProcessorDB_PartialBatchFailures(t *testing.T) {
 		processor, err := NewProcessor(
 			lggr,
 			"test-"+t.Name(),
+			verifiermonitoring.NewFakeVerifierMonitoring(),
 			testutil.NoopLatencyTracker{},
 			mixedStorage,
 			resultQueue,

@@ -31,7 +31,8 @@ local_app_config_path = "/etc/committee-verifier/app.toml"
 
 # key_import adopts a Chainlink node key into the keystore on first boot instead of generating
 # one. Optional: when absent every declared key is generated, which is right for a new
-# deployment. It is set when migrating an operator off CL mode.
+# deployment. It is set when migrating an operator off CL mode. When the section is present,
+# expected_id is required.
 [key_import]
   # path is the mounted path of the key file exported from the Chainlink node.
   path = "/etc/ccv/migration/key.json"
@@ -39,7 +40,7 @@ local_app_config_path = "/etc/committee-verifier/app.toml"
   password_path = "/etc/ccv/migration/export-password.txt"
   # expected_id pins the address the export must carry. It is required because it is the check
   # that fails the boot when the wrong node's export is mounted — without it the process comes
-  # up signing as somebody else.
+  # up signing as somebody else, which the committee rejects with nothing pointing at the cause.
   expected_id = "0x0123456789abcdef0123456789abcdef01234567"
 
 # Monitoring is the operator-provided monitoring configuration.

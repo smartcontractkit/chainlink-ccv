@@ -3,6 +3,9 @@ package commit
 import (
 	"fmt"
 
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
+
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
 )
@@ -42,6 +45,12 @@ func CreateVerifierNodeResult(verificationTask *verifier.VerificationTask, signa
 		return nil, fmt.Errorf("failed to parse receipt structure: %w", err)
 	}
 
+	traceParent := verificationTask.TraceParent
+	if verificationTask.TraceContext != nil {
+		carrier := propagation.MapCarrier{}
+		otel.GetTextMapPropagator().Inject(verificationTask.TraceContext, carrier)
+		traceParent = carrier.Get("traceparent")
+	}
 	return &protocol.VerifierNodeResult{
 		MessageID:       messageID,
 		Message:         message,
@@ -49,5 +58,7 @@ func CreateVerifierNodeResult(verificationTask *verifier.VerificationTask, signa
 		CCVAddresses:    receiptStructure.CCVAddresses,
 		ExecutorAddress: receiptStructure.ExecutorAddress,
 		Signature:       signature,
+		TraceParent:     traceParent,
+		TraceContext:    verificationTask.TraceContext,
 	}, nil
 }

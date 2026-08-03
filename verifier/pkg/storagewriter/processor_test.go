@@ -12,6 +12,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/jobqueue"
+	verifiermonitoring "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/testutil"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -45,6 +46,7 @@ func TestProcessorDB_ProcessBatchesSuccessfully(t *testing.T) {
 		processor, err := NewProcessor(
 			lggr,
 			"test-"+t.Name(),
+			verifiermonitoring.NewFakeVerifierMonitoring(),
 			testutil.NoopLatencyTracker{},
 			fakeStorage,
 			resultQueue,
@@ -111,6 +113,7 @@ func TestProcessorDB_ProcessBatchesSuccessfully(t *testing.T) {
 		processor, err := NewProcessor(
 			lggr,
 			"test-"+t.Name(),
+			verifiermonitoring.NewFakeVerifierMonitoring(),
 			testutil.NoopLatencyTracker{},
 			fakeStorage,
 			resultQueue,
@@ -170,6 +173,7 @@ func TestProcessorDB_RetryFailedBatches(t *testing.T) {
 		processor, err := NewProcessor(
 			lggr,
 			"test-"+t.Name(),
+			verifiermonitoring.NewFakeVerifierMonitoring(),
 			testutil.NoopLatencyTracker{},
 			fakeStorage,
 			resultQueue,
@@ -234,6 +238,7 @@ func TestProcessorDB_RetryFailedBatches(t *testing.T) {
 		processor, err := NewProcessor(
 			lggr,
 			"test-"+t.Name(),
+			verifiermonitoring.NewFakeVerifierMonitoring(),
 			testutil.NoopLatencyTracker{},
 			fakeStorage,
 			resultQueue,
@@ -305,6 +310,7 @@ func TestProcessorDB_RetryFailedBatches(t *testing.T) {
 		processor, err := NewProcessor(
 			lggr,
 			"test-"+t.Name(),
+			verifiermonitoring.NewFakeVerifierMonitoring(),
 			testutil.NoopLatencyTracker{},
 			fakeStorage,
 			resultQueue,
@@ -362,6 +368,7 @@ func TestProcessorDB_Cleanup(t *testing.T) {
 		processor, err := NewProcessor(
 			lggr,
 			"test-"+t.Name(),
+			verifiermonitoring.NewFakeVerifierMonitoring(),
 			testutil.NoopLatencyTracker{},
 			fakeStorage,
 			resultQueue,
@@ -473,6 +480,7 @@ func TestProcessorDB_StaleJobRecovery(t *testing.T) {
 		processor, err := NewProcessor(
 			lggr,
 			"test-"+t.Name(),
+			verifiermonitoring.NewFakeVerifierMonitoring(),
 			testutil.NoopLatencyTracker{},
 			fakeStorage,
 			resultQueue,
@@ -521,6 +529,7 @@ func TestProcessorDB_ContextCancellation(t *testing.T) {
 		processor, err := NewProcessor(
 			lggr,
 			"test-"+t.Name(),
+			verifiermonitoring.NewFakeVerifierMonitoring(),
 			testutil.NoopLatencyTracker{},
 			fakeStorage,
 			resultQueue,

@@ -6,8 +6,16 @@ import (
 	"sync"
 	"time"
 
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/propagation"
+	oteltrace "go.opentelemetry.io/otel/trace"
+
+	"github.com/smartcontractkit/chainlink-ccv/common/monitoring/tracing"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/jobqueue"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
@@ -164,9 +172,42 @@ func (p *Processor) processBatch(ctx context.Context) error {
 	jobIDMap := make(map[string]string)                   // messageID -> jobID
 	taskMap := make(map[string]verifier.VerificationTask) // messageID -> task (for accessing timestamps)
 	for i, job := range jobs {
-		tasks[i] = job.Payload
-		jobIDMap[job.Payload.MessageID] = job.ID
-		taskMap[job.Payload.MessageID] = job.Payload
+		carrier := propagation.MapCarrier{
+			"traceparent": job.Payload.TraceParent,
+		}
+		parentCtx := otel.GetTextMapPropagator().Extract(context.WithoutCancel(ctx), carrier)
+
+		payload := job.Payload
+		messageID, err := protocol.NewBytes32FromString(payload.MessageID)
+		if err != nil {
+			p.lggr.Errorw("Failed to convert messageID to Bytes32", "error", err, "messageID", payload.MessageID)
+			messageID = protocol.Bytes32{}
+		}
+		var span oteltrace.Span
+		payload.TraceContext, span = p.monitoring.Tracing().StartMessageSpan(
+			parentCtx, monitoring.TaskVerifierAttemptSpanName(p.verifierID), messageID,
+			attribute.String(tracing.VerifierIDKey, p.verifierID),
+			attribute.String(tracing.JobIDKey, job.ID),
+			attribute.String(tracing.SourceChainSelectorKey, job.Payload.Message.SourceChainSelector.String()),
+			attribute.String(tracing.SourceChainNameKey, job.Payload.Message.SourceChainSelector.ChainName()),
+			attribute.String(tracing.DestChainSelectorKey, job.Payload.Message.DestChainSelector.String()),
+			attribute.String(tracing.DestChainNameKey, job.Payload.Message.DestChainSelector.ChainName()),
+		)
+		span.AddEvent(monitoring.EventJobDiscovered,
+			oteltrace.WithAttributes(
+				attribute.String(tracing.JobIDKey, job.ID),
+			),
+		)
+
+		// tasks/taskMap must carry the span-started context (not the raw
+		// extracted one) - everything downstream (VerifyMessages,
+		// handleVerificationResults, retry/fail handling) records onto this
+		// context, so it must resolve to the real, live attempt span rather
+		// than the non-recording placeholder OTel returns for an
+		// extracted-but-unstarted remote context.
+		tasks[i] = payload
+		jobIDMap[payload.MessageID] = job.ID
+		taskMap[payload.MessageID] = payload
 
 		// Mark message as seen for E2E latency tracking
 		if p.messageTracker != nil {
@@ -192,6 +233,15 @@ func (p *Processor) handleVerificationResults(
 	taskMap map[string]verifier.VerificationTask,
 	verificationStartTime time.Time,
 ) error {
+	// Safety net for tasks whose terminal branch below never runs (e.g. no
+	// job ID match, or an early return before that task is reached) - the
+	// three explicit branches below already end their own span.
+	defer func() {
+		for _, task := range taskMap {
+			tracing.SpanFromContext(task.TraceContext).End()
+		}
+	}()
+
 	if len(results) == 0 {
 		return nil
 	}
@@ -228,7 +278,17 @@ func (p *Processor) handleVerificationResults(
 			p.handleVerificationError(ctx, *result.Error, jobID, &retryJobIDs, retryErrors, retryDelays, &failedJobIDs, failedErrors)
 		} else if result.Result != nil {
 			successCount++
-			successfulResults = append(successfulResults, *result.Result)
+			resultCopy := *result.Result
+			// Propagate this attempt span's context forward as a W3C
+			// traceparent, so storagewriter (across the DB-backed result
+			// queue) can reconstruct a real parent-child link instead of
+			// only sharing the deterministic trace ID.
+			if task, ok := taskMap[messageID]; ok {
+				carrier := propagation.MapCarrier{}
+				otel.GetTextMapPropagator().Inject(task.TraceContext, carrier)
+				resultCopy.TraceParent = carrier.Get("traceparent")
+			}
+			successfulResults = append(successfulResults, resultCopy)
 			completedJobIDs = append(completedJobIDs, jobID)
 
 			// Record successful verification metrics
@@ -264,6 +324,11 @@ func (p *Processor) handleVerificationResults(
 		defer cancel()
 
 		if err := p.resultQueue.Publish(publishCtx, successfulResults...); err != nil {
+			for _, result := range successfulResults {
+				if task, ok := taskMap[result.MessageID.String()]; ok {
+					tracing.SpanFromContext(task.TraceContext).RecordError(err)
+				}
+			}
 			p.lggr.Errorw("Failed to publish verification results to queue - jobs will remain in processing state and be reclaimed as stale locks",
 				"error", err,
 				"count", len(successfulResults))
@@ -271,6 +336,14 @@ func (p *Processor) handleVerificationResults(
 			// They will be reclaimed as stale locks and re-processed (re-verified and published)
 			// This is a rare case (DB failure), and relying on stale lock reclaim is acceptable
 			return fmt.Errorf("failed to publish %d verification results: %w", len(successfulResults), err)
+		}
+		for _, result := range successfulResults {
+			messageID := result.MessageID.String()
+			if task, ok := taskMap[messageID]; ok {
+				span := tracing.SpanFromContext(task.TraceContext)
+				span.AddEvent(monitoring.EventResultPublished)
+				span.End()
+			}
 		}
 		p.lggr.Debugw("Published verification results to queue", "count", len(successfulResults))
 	}
@@ -383,10 +456,21 @@ func (p *Processor) handleVerificationError(
 		"retryable", verificationError.Retryable,
 	)
 
+	span := tracing.SpanFromContext(verificationError.Task.TraceContext)
+	if verificationError.Error != nil {
+		span.RecordError(verificationError.Error, oteltrace.WithAttributes(attribute.Bool(tracing.RetryableKey, verificationError.Retryable)))
+		span.SetStatus(codes.Error, verificationError.Error.Error())
+	}
+	defer span.End()
+
 	if verificationError.Retryable {
 		*retryJobIDs = append(*retryJobIDs, jobID)
 		retryErrors[jobID] = verificationError.Error
 		retryDelays[jobID] = verificationError.DelayOrDefault()
+
+		span.AddEvent(monitoring.EventRetryScheduled, oteltrace.WithAttributes(
+			attribute.String(tracing.DelayKey, verificationError.DelayOrDefault().String()),
+		))
 	} else {
 		// Increment permanent error metric
 		p.monitoring.Metrics().
