@@ -110,12 +110,13 @@ func WaitForBootstrapConnection(ctx context.Context, jdClient offchain.Client, n
 				continue
 			}
 
-			if nodeResp.Node != nil && nodeResp.Node.IsConnected {
+			isConnected := nodeResp.Node != nil && nodeResp.Node.IsConnected
+			if isConnected {
 				Plog.Info().Str("nodeID", nodeID).Msg("Bootstrap connected to JD")
 				return nil
 			}
 
-			Plog.Debug().Str("nodeID", nodeID).Bool("isConnected", nodeResp.Node.IsConnected).Msg("Bootstrap not yet connected, waiting...")
+			Plog.Debug().Str("nodeID", nodeID).Bool("isConnected", isConnected).Msg("Bootstrap not yet connected, waiting...")
 		}
 	}
 }

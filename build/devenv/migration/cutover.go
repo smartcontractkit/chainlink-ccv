@@ -482,7 +482,7 @@ func launchExecutors(
 		if err := jobs.RegisterBootstrapWithJD(ctx, in.JDInfra.OffchainClient, reg); err != nil {
 			return fmt.Errorf("failed to register standalone executor %s with JD: %w", exec.ContainerName, err)
 		}
-		if err := jobs.WaitForBootstrapConnection(ctx, in.JDInfra.OffchainClient, reg.NodeID, nodeConnectTimeout); err != nil {
+		if err := jobs.WaitForNodeConnection(ctx, in.JDInfra.OffchainClient, reg.NodeID, nodeConnectTimeout); err != nil {
 			return fmt.Errorf("executor %s: %w", exec.ContainerName, err)
 		}
 		out.JDNodeID = reg.NodeID
