@@ -63,8 +63,9 @@ const (
 	// This is the default when app_config_mode is unset.
 	AppConfigModeJD AppConfigMode = "jd_app_config"
 	// AppConfigModeLocal reads the app config from a local file (local_app_config_path) with no JD.
-	// A [db]+[keystore] bootstrap config is optional and, when present, initializes a Postgres-backed
-	// keystore so the service can sign; a service that needs no keystore (i.e. the token verifier) omits it.
+	// A keystore bootstrap config is optional and, when present, initializes a keystore so the
+	// service can sign — Postgres-backed via [db]+[keystore].password, or KMS-backed via
+	// [keystore].backend = "kms"; a service that needs no keystore (i.e. the token verifier) omits it.
 	AppConfigModeLocal AppConfigMode = "local_app_config"
 )
 
@@ -274,15 +275,10 @@ func NewBootstrapper(
 		}
 	}
 
-	// JD mode always authenticates to the node with a CSA key; inject the default if the caller did
-	// not declare one. Local mode reuses the same injection for Beholder auth when it has a keystore.
-	if !hasCSAKey(b.keys) {
-		b.keys = append([]keyToInit{{DefaultCSAKeyName, "csa", keystore.Ed25519}}, b.keys...)
-	}
-
 	// The bootstrap operator config (BOOTSTRAPPER_CONFIG_PATH, default /etc/config.toml) is always
 	// loaded; its top-level app_config_mode key selects the lifecycle. Non-secret config first, then
-	// overlay the secrets file (if present) so it wins for any section it defines.
+	// overlay the secrets file (if present) so it wins for any section it defines. The config is
+	// loaded before keys are decided because the CSA injection below is mode- and backend-driven.
 	b.config = &Config{}
 	paths := bootstrapConfigPaths(b.configPath, b.secretsPath)
 	mode, err := LoadAndValidateConfig(paths, b.config)
@@ -292,6 +288,12 @@ func NewBootstrapper(
 	b.mode = mode
 	if mode == AppConfigModeLocal {
 		b.localConfigPath = b.config.LocalAppConfigPath
+	}
+
+	// Inject the default CSA key when the caller did not declare one and this mode/backend
+	// combination calls for one (see needsCSAKey).
+	if !hasCSAKey(b.keys) && b.needsCSAKey() {
+		b.keys = append([]keyToInit{{DefaultCSAKeyName, csaKeyPurpose, keystore.Ed25519}}, b.keys...)
 	}
 
 	// init tmp logger
@@ -407,6 +409,12 @@ func (b *Bootstrapper) startWithJDLifecycle(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to initialize keystore: %w", err)
 	}
+	// Unreachable in practice — NewBootstrapper injects the default CSA key in JD mode — but the JD
+	// client cannot authenticate without it, so fail fast with a precise message rather than a
+	// nil-signer panic deep in the WSRPC stack.
+	if csaSigner == nil {
+		return fmt.Errorf("JD mode requires a CSA key (purpose %q) for JD authentication, but none was declared", csaKeyPurpose)
+	}
 
 	err = b.initMonitoring(csaSigner)
 	if err != nil {
@@ -493,7 +501,9 @@ func (b *Bootstrapper) startWithJDLifecycle(ctx context.Context) error {
 //
 // The keystore backend is selected by [keystore].backend:
 //   - "postgres" (default): requires both [db].url and [keystore].password.
-//   - "kms": requires [keystore.kms] key IDs; no DB or password needed.
+//   - "kms": requires a [keystore.kms] key ID for every declared key; no DB or password needed.
+//     ed25519_key_id is optional in this mode — set it to give the node a CSA key for Beholder
+//     auth, omit it to run with no Ed25519 key at all.
 //
 // The app config is read from a local file. Two delivery modes are supported, chosen by whether the
 // file is present at startup:
@@ -746,6 +756,30 @@ func hasCSAKey(keys []keyToInit) bool {
 	return false
 }
 
+// CSAKeyRequired reports whether the bootstrapper provisions a default CSA (Ed25519) key for the
+// given keystore config. It is the single source of truth shared by the bootstrapper and external tooling such as devenv, which must know whether the info
+// server will expose a CSA key before requesting it.
+//
+// The CSA key exists in every case except a KMS backend with no ed25519_key_id: postgres always
+// generates one for free; KMS uses the configured ed25519_key_id.
+func CSAKeyRequired(ks KeystoreConfig) bool {
+	backend, err := ks.resolveBackend()
+	if err != nil {
+		// Unreachable: the backend string was validated during config load. Default to injecting,
+		// matching the postgres behavior.
+		return true
+	}
+	if backend == KeystoreBackendKMS {
+		return ks.KMS.Ed25519KeyID != ""
+	}
+	return true
+}
+
+// needsCSAKey reports whether this bootstrapper's keystore backend calls for a CSA key.
+func (b *Bootstrapper) needsCSAKey() bool {
+	return CSAKeyRequired(b.config.Keystore)
+}
+
 // resolveBootstrapConfigPath returns the effective bootstrap config path: the explicitly-provided
 // path takes precedence, then BOOTSTRAPPER_CONFIG_PATH, then DefaultConfigPath.
 func resolveBootstrapConfigPath(explicit string) string {
@@ -832,14 +866,15 @@ func initializeKeystore(
 		}
 	}
 
-	csaKeyName := findCSAKeyName(requiredKeys)
-	if csaKeyName == "" {
-		return nil, nil, fmt.Errorf("no key with purpose %q declared; a CSA key is required for JD communication", csaKeyPurpose)
-	}
-
-	csaSigner, err := keys.NewCSASigner(ctx, ks, csaKeyName)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to get csa signer: %w", err)
+	// The CSA signer backs JD auth (JD mode) and Beholder auth (both modes). It is built only when
+	// a CSA-purpose key was declared; the modes that require one inject it in NewBootstrapper. A nil
+	// signer is valid: Beholder then runs without auth headers, and the JD path guards explicitly.
+	var csaSigner crypto.Signer
+	if csaKeyName := findCSAKeyName(requiredKeys); csaKeyName != "" {
+		csaSigner, err = keys.NewCSASigner(ctx, ks, csaKeyName)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to get csa signer: %w", err)
+		}
 	}
 
 	return ks, csaSigner, nil
@@ -953,7 +988,9 @@ type keyToInit struct {
 // is responsible for declaring every key it requires; there is no default signing-key set.
 //
 // The exception is the CSA key used for JD authentication: if no CSA-purpose key is declared, the
-// default CSA key (DefaultCSAKeyName) is injected automatically.
+// default CSA key (DefaultCSAKeyName) is injected automatically whenever the mode and keystore
+// backend call for one (see needsCSAKey) — always in JD mode; in local mode only for the postgres
+// backend or a KMS backend with ed25519_key_id configured.
 func WithKey(name, purpose string, keyType keystore.KeyType) Option {
 	return func(b *Bootstrapper) error {
 		b.keys = append(b.keys, keyToInit{
