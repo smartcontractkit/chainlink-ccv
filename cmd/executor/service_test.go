@@ -78,7 +78,7 @@ func TestFactory_Stop_NilFields(t *testing.T) {
 // coordinator and propagates any error.
 func TestFactory_Stop_WithCoordinator(t *testing.T) {
 	coord, err := executorsvc.NewCoordinator(
-		logger.Test(t),
+		logger.Nop(),
 		"",
 		mocks.NewMockExecutor(t),
 		mocks.NewMockMessageSubscriber(t),
@@ -130,7 +130,7 @@ executor_pool        = ["test-executor"]
 // so a repeated Stop (e.g. best-effort teardown during a replacement rollback) is a no-op.
 func TestFactory_Stop_Idempotent(t *testing.T) {
 	coord, err := executorsvc.NewCoordinator(
-		logger.Test(t),
+		logger.Nop(),
 		"",
 		mocks.NewMockExecutor(t),
 		mocks.NewMockMessageSubscriber(t),
@@ -181,7 +181,7 @@ rmn_address          = "0x0000000000000000000000000000000000000002"
 default_executor_address = "0x0000000000000000000000000000000000000003"
 executor_pool        = ["test-executor"]
 `
-	lggr := logger.Test(t)
+	lggr := logger.Nop()
 	reg, err := chainaccess.NewRegistry(lggr, "")
 	require.NoError(t, err)
 
@@ -205,7 +205,7 @@ rmn_address          = "0x0000000000000000000000000000000000000002"
 default_executor_address = "0x0000000000000000000000000000000000000003"
 executor_pool        = ["test-executor"]
 `
-	lggr := logger.Test(t)
+	lggr := logger.Nop()
 	reg, err := chainaccess.NewRegistry(lggr, "")
 	require.NoError(t, err)
 
@@ -230,7 +230,7 @@ rmn_address          = "0x0000000000000000000000000000000000000002"
 default_executor_address = "not-valid-hex"
 executor_pool        = ["test-executor"]
 `
-	lggr := logger.Test(t)
+	lggr := logger.Nop()
 	reg, err := chainaccess.NewRegistry(lggr, "")
 	require.NoError(t, err)
 
@@ -256,7 +256,7 @@ rmn_address          = "0x0000000000000000000000000000000000000002"
 default_executor_address = "0x0000000000000000000000000000000000000003"
 executor_pool        = ["test-executor", "test-executor"]
 `
-	lggr := logger.Test(t)
+	lggr := logger.Nop()
 	reg, err := chainaccess.NewRegistry(lggr, "")
 	require.NoError(t, err)
 
@@ -282,7 +282,7 @@ default_executor_address = "0x0000000000000000000000000000000000000003"
 executor_pool        = ["test-executor"]
 execution_interval   = "1s"
 `
-	lggr := logger.Test(t)
+	lggr := logger.Nop()
 	reg, err := chainaccess.NewRegistry(lggr, "")
 	require.NoError(t, err)
 
@@ -293,7 +293,7 @@ execution_interval   = "1s"
 }
 
 func TestStartPyroscope_EmptyAddress(t *testing.T) {
-	lggr := logger.Test(t)
+	lggr := logger.Nop()
 	p, err := StartPyroscope(lggr, "", "test-service")
 	if err != nil {
 		assert.Nil(t, p)

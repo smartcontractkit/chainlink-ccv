@@ -24,6 +24,7 @@ RUN apk --no-cache add ca-certificates tini
 RUN addgroup -S verifier && adduser -S verifier -G verifier
 
 COPY --chown=verifier:verifier --from=builder /bin/verifier /bin/
+COPY --from=builder /verifier/LICENSE /licenses/chainlink-ccv/LICENSE
 USER verifier:verifier
 
 # tini is needed here because the verifier would otherwise run as PID 1
