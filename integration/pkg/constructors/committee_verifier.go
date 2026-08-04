@@ -76,7 +76,6 @@ func NewVerificationCoordinator(
 
 	protocol.InitChainSelectorCache()
 
-	// TODO: monitoring config home
 	verifierMonitoring, err := monitoring.InitMonitoring("committee_verifier")
 	if err != nil {
 		lggr.Errorw("Failed to initialize verifier monitoring", "error", err)
