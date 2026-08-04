@@ -6,6 +6,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/common"
 	commonmetrics "github.com/smartcontractkit/chainlink-ccv/common/metrics"
+	"github.com/smartcontractkit/chainlink-ccv/common/monitoring/tracing"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
@@ -46,6 +47,8 @@ type MessageLatencyTracker interface {
 type Monitoring interface {
 	// Metrics returns the metrics labeler for the verifier.
 	Metrics() MetricLabeler
+	// Tracing returns the per-message tracer for the verifier.
+	Tracing() tracing.Tracing
 	commonmetrics.ServiceMetrics
 }
 

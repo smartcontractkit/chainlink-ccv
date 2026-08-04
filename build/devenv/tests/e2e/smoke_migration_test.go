@@ -17,6 +17,7 @@ import (
 	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/migration"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/tcapi"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/tcapi/basic"
 	ccvshared "github.com/smartcontractkit/chainlink-ccv/deployment/shared"
@@ -182,8 +183,9 @@ func clModeAliases(in *ccv.Cfg) []string {
 // containers at all. The skip condition mirrors NewNodeSetClientLookup, so a node set contributing
 // no clients contributes no containers either and the two lists stay index-aligned.
 //
-// A node set that is present but has no usable output fails here rather than being skipped: a short
-// list would otherwise surface as a confusing count mismatch against the NOP aliases.
+// A node set with no usable output is skipped rather than failing here: only migratingNOPs knows
+// how many containers the test expects, and its one-container-per-CL-mode-NOP check turns a
+// shortfall into a named count mismatch instead of a confusing failure downstream.
 func clNodeContainerNames(t *testing.T, in *ccv.Cfg) []string {
 	t.Helper()
 	var names []string
@@ -206,6 +208,8 @@ func clNodeContainerNames(t *testing.T, in *ccv.Cfg) []string {
 func migratingNOPs(t *testing.T, in *ccv.Cfg, lookup *jobs.NodeSetClientLookup) []migration.NOP {
 	t.Helper()
 	require.NotEmpty(t, in.Blockchains, "no blockchains in environment output")
+	require.NotNil(t, in.Blockchains[0], "the first blockchain entry in the environment output is nil")
+	require.NotEmpty(t, in.Blockchains[0].ChainID, "the first blockchain in the environment output has no chain ID")
 	transmitterChainID := in.Blockchains[0].ChainID
 
 	aliases := clModeAliases(in)
@@ -374,6 +378,18 @@ func proposeStandaloneJobs(
 
 	require.NotEmpty(t, proposals, "no job specs to propose after the cutover")
 	require.NoError(t, migration.ProposeJobs(ctx, jdClient, proposals))
+
+	// The lifecycle manager parks a job it cannot start and does not retry it, so a failed start
+	// would otherwise surface minutes later as the post-cutover message never executing. Wait for
+	// each executor to report ready, so a start failure names itself here instead.
+	for _, exec := range in.Executor {
+		if exec == nil || exec.Out == nil || exec.Out.JDNodeID == "" {
+			continue
+		}
+		require.NoErrorf(t,
+			services.WaitForApplicationReady(ctx, exec.Out.BootstrapDBURL, services.DefaultApplicationReadyTimeout),
+			"executor %s did not become ready after the job proposal", exec.ContainerName)
+	}
 }
 
 func sendAndConfirm(t *testing.T, ctx context.Context, lib ccv.Lib, src, dst uint64) {

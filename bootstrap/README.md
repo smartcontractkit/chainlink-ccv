@@ -25,10 +25,11 @@ image rebuild):
   a Job Distributor over WSRPC and run the full job lifecycle. Requires the `[jd]`, `[db]`,
   `[keystore]`, and `[server]` config sections.
 - `app_config_mode = "local_app_config"`: run without JD. The bootstrapper reads the app config from
-  the file at `local_app_config_path` instead of receiving it from JD. If the config also carries
-  `[db]`+`[keystore]`, it initializes a Postgres-backed keystore so the service can sign (and starts
-  the info server when `[server]` is set); a service that needs no keystore (the token verifier)
-  omits them. This is the mode for the CCV starter kit and local testing where JD is not available.
+  the file at `local_app_config_path` instead of receiving it from JD. If the config also carries a
+  keystore (`[db]`+`[keystore].password`, or `[keystore].backend = "kms"`), it initializes one so the
+  service can sign (and starts the info server when `[server]` is set); a service that needs no
+  keystore (the token verifier) omits them. This is the mode for the CCV starter kit and local
+  testing where JD is not available.
 
 ```toml
 # JD mode (or just omit app_config_mode)
@@ -74,8 +75,10 @@ docker run \
 
 Notes:
 - Local mode removes the JD dependency, not the database: a signing service (committee verifier,
-  executor) still needs Postgres for its keystore, and the `[db]`/`[keystore]` sections must be
-  present for the keystore to initialize. It is not a zero-infra mode.
+  executor) on the default postgres backend still needs Postgres for its keystore, and the
+  `[db]`/`[keystore]` sections must be present for the keystore to initialize. It is not a
+  zero-infra mode. The exception is the KMS backend (`[keystore].backend = "kms"`), which needs
+  no database in local mode.
 - The bootstrap config path (`BOOTSTRAPPER_CONFIG_PATH`, default `/etc/config.toml`) and
   `local_app_config_path` are distinct files: the former holds the operator/infra config plus the
   mode selection, the latter holds the app's own config.
@@ -134,6 +137,33 @@ listen_port = 9988
 type = "EVM"   # chain family — EVM, SOLANA, APTOS, STELLAR, CANTON, STARKNET, TRON, TON, SUI
 id   = "1"     # chain ID (e.g. EVM chain ID, Solana cluster name)
 ```
+
+## Keystore backends
+
+The `[keystore].backend` key selects where private keys live:
+
+- `postgres` (default): keys are generated on first boot and stored encrypted under
+  `[keystore].password` in the bootstrap Postgres database. Requires `[db].url` and
+  `[keystore].password`.
+- `kms`: keys live in AWS KMS and private key material never leaves KMS; the bootstrapper holds
+  only IAM credentials. Configure one KMS Key ID per declared key under `[keystore.kms]`
+  (`ecdsa_key_id`, `ed25519_key_id`). No database or password is needed for the keystore itself
+  (JD mode still needs `[db]` for the job store).
+
+The Ed25519 requirement is mode-driven, not backend-driven. The Ed25519 CSA key authenticates the
+node to JD, so it is mandatory in JD mode — with KMS that means `ed25519_key_id` is required. In
+local mode there is no JD and the CSA key only backs Beholder telemetry auth, so it is optional:
+the postgres backend still generates one for free, while the KMS backend uses one only when
+`ed25519_key_id` is explicitly set (KMS keys cannot be created by the service). Omit it to run a
+local-mode KMS deployment with no Ed25519 key at all; Beholder then sends telemetry without auth
+headers.
+
+| Mode  | Backend  | CSA (Ed25519) key         | `ed25519_key_id` |
+|-------|----------|---------------------------|------------------|
+| JD    | postgres | auto-injected (required)  | n/a              |
+| JD    | kms      | auto-injected (required)  | required         |
+| local | postgres | auto-injected (Beholder)  | n/a              |
+| local | kms      | only if configured        | optional         |
 
 ## Adopting a key from a Chainlink node
 
@@ -204,7 +234,8 @@ func main() {
         "MyApp",
         &serviceFactory{},
         // Declare every key the app needs. The bootstrapper creates them on first boot.
-        // A CSA key for JD auth is injected automatically if you don't declare one.
+        // A CSA key for JD auth is injected automatically if you don't declare one and the
+        // mode/backend combination calls for one (see Keystore backends above).
         bootstrap.WithKey("my-signing-key", "signing", keystore.ECDSA_S256),
     ); err != nil {
         panic(err)

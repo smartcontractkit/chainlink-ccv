@@ -161,11 +161,12 @@ func TestNewBootstrapper_CSAAutoInjected(t *testing.T) {
 	)
 	require.NoError(t, err)
 
-	// No WithKey options → only the default CSA key is auto-injected (JD auth needs it). There is no
-	// longer a default signing-key set; apps declare every signing key explicitly via WithKey.
+	// No WithKey options → only the default CSA key is auto-injected: this local-mode config uses
+	// the default postgres backend, which generates the key locally (see needsCSAKey). There is no
+	// default signing-key set; apps declare every signing key explicitly via WithKey.
 	require.Len(t, b.keys, 1)
 	require.Equal(t, DefaultCSAKeyName, b.keys[0].name)
-	require.Equal(t, "csa", b.keys[0].purpose)
+	require.Equal(t, csaKeyPurpose, b.keys[0].purpose)
 }
 
 func TestNewBootstrapper_WithKey_Explicit(t *testing.T) {
@@ -184,6 +185,115 @@ func TestNewBootstrapper_WithKey_Explicit(t *testing.T) {
 	require.Len(t, b.keys, 2)
 	require.Equal(t, "my_csa", b.keys[0].name)
 	require.Equal(t, "my_signing", b.keys[1].name)
+}
+
+// jdBootstrapTOML builds a JD-mode bootstrap config with the given keystore TOML appended.
+func jdBootstrapTOML(keystoreTOML string) string {
+	return fmt.Sprintf(`app_config_mode = %q
+[jd]
+server_wsrpc_url = "ws://localhost:8080/ws"
+server_csa_public_key = %q
+[db]
+url = "postgres://localhost:5432/db"
+[server]
+listen_port = 9988
+`, AppConfigModeJD, validEd25519PublicKeyHex) + keystoreTOML
+}
+
+// localKMSBootstrapTOML builds a local-mode bootstrap config on the KMS backend with the given
+// [keystore.kms] entries (e.g. key IDs).
+func localKMSBootstrapTOML(kmsEntriesTOML string) string {
+	return fmt.Sprintf(`app_config_mode = %q
+local_app_config_path = "/nonexistent/app.toml"
+[keystore]
+backend = "kms"
+[keystore.kms]
+`, AppConfigModeLocal) + kmsEntriesTOML
+}
+
+// TestNewBootstrapper_CSAInjectionMatrix pins the mode- and backend-driven CSA injection rule
+// (needsCSAKey): the CSA key is a hard requirement in JD mode, while in local mode it is injected
+// only when the backend can supply an Ed25519 key without extra provisioning (postgres) or the
+// operator explicitly configured ed25519_key_id (KMS).
+func TestNewBootstrapper_CSAInjectionMatrix(t *testing.T) {
+	t.Parallel()
+
+	const (
+		postgresKeystoreTOML = "[keystore]\npassword = \"x\"\n"
+		kmsBothKeyIDs        = "ecdsa_key_id = \"ec-id\"\ned25519_key_id = \"ed-id\"\n"
+		kmsEcdsaOnly         = "ecdsa_key_id = \"ec-id\"\n"
+	)
+	defaultCSA := keyToInit{DefaultCSAKeyName, csaKeyPurpose, keystore.Ed25519}
+	ecdsaKey := keyToInit{"my_signing", "signing", keystore.ECDSA_S256}
+
+	tests := []struct {
+		name     string
+		toml     string
+		opts     []Option
+		wantKeys []keyToInit
+		wantErr  string // substring of the construction error; empty means success
+	}{
+		{
+			name:     "JD x postgres injects the default CSA key",
+			toml:     jdBootstrapTOML(postgresKeystoreTOML),
+			wantKeys: []keyToInit{defaultCSA},
+		},
+		{
+			name:     "JD x KMS injects the default CSA key",
+			toml:     jdBootstrapTOML("[keystore]\nbackend = \"kms\"\n[keystore.kms]\n" + kmsBothKeyIDs),
+			wantKeys: []keyToInit{defaultCSA},
+		},
+		{
+			name:    "JD x KMS without ed25519_key_id fails at load time",
+			toml:    jdBootstrapTOML("[keystore]\nbackend = \"kms\"\n[keystore.kms]\n" + kmsEcdsaOnly),
+			wantErr: "'ed25519_key_id' is required",
+		},
+		{
+			name:     "local x postgres injects the CSA key for Beholder auth",
+			toml:     localBootstrapTOML("/nonexistent/app.toml", "postgres://localhost:5432/db"),
+			wantKeys: []keyToInit{defaultCSA},
+		},
+		{
+			name:     "local x KMS with ed25519_key_id injects the CSA key",
+			toml:     localKMSBootstrapTOML(kmsBothKeyIDs),
+			wantKeys: []keyToInit{defaultCSA},
+		},
+		{
+			name:     "local x KMS without ed25519_key_id does not inject",
+			toml:     localKMSBootstrapTOML(kmsEcdsaOnly),
+			opts:     []Option{WithKey(ecdsaKey.name, ecdsaKey.purpose, ecdsaKey.keyType)},
+			wantKeys: []keyToInit{ecdsaKey},
+		},
+		{
+			name:     "local x KMS without ed25519_key_id and no declared keys has an empty key set",
+			toml:     localKMSBootstrapTOML(""),
+			wantKeys: nil,
+		},
+		{
+			name:     "explicit CSA declaration suppresses injection in local x KMS",
+			toml:     localKMSBootstrapTOML(kmsBothKeyIDs),
+			opts:     []Option{WithKey("my_csa", "csa", keystore.Ed25519)},
+			wantKeys: []keyToInit{{"my_csa", "csa", keystore.Ed25519}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			cfgPath, secretsPath := writeBootstrapConfigFiles(t, tt.toml)
+			opts := append([]Option{
+				withBootstrapperConfigPath(cfgPath),
+				withBootstrapperSecretsPath(secretsPath),
+			}, tt.opts...)
+			b, err := NewBootstrapper("t", &mockServiceFactory{}, opts...)
+			if tt.wantErr != "" {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), tt.wantErr)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tt.wantKeys, b.keys)
+		})
+	}
 }
 
 // --- runner tests ---
@@ -696,6 +806,36 @@ func TestBootstrapper_LocalMode_WaitsForConfig(t *testing.T) {
 	require.True(t, gotKeystore.Load(), "local mode with [db]+[keystore] must provide a keystore to the factory")
 
 	require.NoError(t, b.Stop(ctx))
+}
+
+// TestInitializeKeystore_CSASignerOptional verifies the CSA signer is built only when a CSA-purpose
+// key is declared: a key set without one (a local-mode KMS deployment) initializes fine and yields
+// a nil signer, which Beholder tolerates and the JD startup path guards against separately.
+func TestInitializeKeystore_CSASignerOptional(t *testing.T) {
+	t.Parallel()
+	dbURL, cleanup := setupBootstrapTestDB(t)
+	defer cleanup()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	dbConn, err := connectToDB(ctx, dbURL)
+	require.NoError(t, err)
+	defer dbConn.Close()
+
+	ks, csaSigner, err := initializeKeystore(ctx, logger.Test(t),
+		KeystoreConfig{Password: "testpassword"}, dbConn,
+		[]keyToInit{{"signing", "signing", keystore.ECDSA_S256}}, nil)
+	require.NoError(t, err)
+	require.NotNil(t, ks)
+	require.Nil(t, csaSigner, "no CSA-purpose key declared → nil signer")
+
+	ks, csaSigner, err = initializeKeystore(ctx, logger.Test(t),
+		KeystoreConfig{Password: "testpassword"}, dbConn,
+		[]keyToInit{{DefaultCSAKeyName, csaKeyPurpose, keystore.Ed25519}}, nil)
+	require.NoError(t, err)
+	require.NotNil(t, ks)
+	require.NotNil(t, csaSigner, "declared CSA key → signer")
 }
 
 func TestChainTypeFromString(t *testing.T) {

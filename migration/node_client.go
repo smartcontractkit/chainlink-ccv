@@ -31,19 +31,24 @@ type NodeClient struct {
 // jar holds the session Login creates, so the caller authenticates once and then uses the client
 // normally.
 func NewNodeClient(rawURL string) (*NodeClient, error) {
-	u, err := url.Parse(rawURL)
+	u, err := url.Parse(strings.TrimSpace(rawURL))
 	if err != nil {
 		return nil, fmt.Errorf("invalid node URL %q: %w", rawURL, err)
 	}
 	if u.Host == "" || (u.Scheme != "http" && u.Scheme != "https") {
 		return nil, fmt.Errorf("invalid node URL %q: expected http(s)://host[:port]", rawURL)
 	}
+	// baseURL is rebuilt from the parsed URL rather than kept raw: a pasted URL carrying a path,
+	// query or fragment would turn every request into <path>/v2/..., which fails confusingly.
+	if (u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.Fragment != "" {
+		return nil, fmt.Errorf("invalid node URL %q: expected the base URL only, http(s)://host[:port]", rawURL)
+	}
 	jar, err := cookiejar.New(nil)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create cookie jar: %w", err)
 	}
 	return &NodeClient{
-		baseURL: strings.TrimRight(rawURL, "/"),
+		baseURL: u.Scheme + "://" + u.Host,
 		http:    &http.Client{Jar: jar, Timeout: 30 * time.Second},
 	}, nil
 }
@@ -92,7 +97,7 @@ func (c *NodeClient) EVMOCR2BundleID(ctx context.Context) (string, error) {
 	default:
 		return "", fmt.Errorf(
 			"the node has %d EVM OCR2 key bundles (%s) and only one can be registered with the committee; "+
-				"name the one whose onchain signing address the JD node record publishes",
+				"name the one whose onchain signing address the JD node record publishes (--bundle-id)",
 			len(evm), strings.Join(evm, ", "))
 	}
 }
@@ -123,7 +128,7 @@ func (c *NodeClient) AccountForChain(ctx context.Context, chainID string) (strin
 		return "", fmt.Errorf("the node has no account enabled for chain %s", chainID)
 	default:
 		return "", fmt.Errorf(
-			"the node has %d accounts enabled for chain %s (%s); name the one the executor transmits from",
+			"the node has %d accounts enabled for chain %s (%s); name the one the executor transmits from (--account)",
 			len(matches), chainID, strings.Join(matches, ", "))
 	}
 }
@@ -228,7 +233,7 @@ func (c *NodeClient) do(ctx context.Context, method, path string, query url.Valu
 	if err != nil {
 		return nil, 0, fmt.Errorf("%s %s: could not reach the node: %w", method, path, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	if err != nil {
 		return nil, 0, fmt.Errorf("%s %s: failed to read the response: %w", method, path, err)

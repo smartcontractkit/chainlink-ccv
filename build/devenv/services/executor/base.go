@@ -340,17 +340,24 @@ func launchExecutor(ctx context.Context, in *Input, outputs []*blockchain.Output
 	}
 	bootstrapURL := fmt.Sprintf("http://%s:%s", host, bootstrapMapped.Port())
 
-	// Fetches the CSA key and the family-specific transmitter key (resolved by the
-	// caller from chainreg) from the bootstrap server. The CSA key is used for JD
-	// registration, the transmitter key is used to derive the on-chain address that
-	// must be funded before the executor can submit transactions.
-	keyNames := []string{bootstrap.DefaultCSAKeyName}
+	// Fetches the transmitter key (resolved by the caller from chainreg) — used to derive the on-chain
+	// address that must be funded — and, when it exists, the CSA key used for JD registration. The CSA
+	// key is provisioned only when the bootstrapper injects one (a KMS backend without ed25519_key_id
+	// has none). Request it only when it will exist, so a local KMS-without-Ed25519 executor can still
+	// launch.
+	keyNames := []string{}
+	if bootstrap.CSAKeyRequired(*bs.Keystore) {
+		keyNames = append(keyNames, bootstrap.DefaultCSAKeyName)
+	}
 	if transmitterKeyName != "" {
 		keyNames = append(keyNames, transmitterKeyName)
 	}
-	bootstrapKeys, err := services.FetchBootstrapKeys(bootstrapURL, keyNames...)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get bootstrap keys: %w", err)
+	var bootstrapKeys services.BootstrapKeys
+	if len(keyNames) > 0 {
+		bootstrapKeys, err = services.FetchBootstrapKeys(bootstrapURL, keyNames...)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get bootstrap keys: %w", err)
+		}
 	}
 	executorMapped, err := c.MappedPort(ctx, DefaultExecutorPortTCP)
 	if err != nil {
@@ -448,9 +455,9 @@ func baseImageRequest(in *Input, envVars map[string]string, bootstrapConfigFileP
 			WithPollInterval(3 * time.Second),
 	}
 
-	// Exported Chainlink node keys, present only during a CL-to-standalone cutover. The paths here
-	// are the ones the generated bootstrap config's [key_import] section names; both come from
-	// services.BuildKeyImport.
+	// CLMIGRATION: exported Chainlink node keys, present only during a CL-to-standalone cutover.
+	// The paths here are the ones the generated bootstrap config's [key_import] section names;
+	// both come from services.BuildKeyImport. Delete when the cutover is complete.
 	if in.Bootstrap != nil {
 		req.Files = append(req.Files, in.Bootstrap.KeyImportFiles...)
 	}

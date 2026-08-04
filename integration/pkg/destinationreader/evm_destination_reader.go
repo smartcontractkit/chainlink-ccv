@@ -13,6 +13,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/offramp"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/v1_6_0/rmn_remote"
 	"github.com/smartcontractkit/chainlink-ccv/executor"
+	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/executionchecker"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/rmnremotereader"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
@@ -38,7 +39,7 @@ type EvmDestinationReader struct {
 	client                 bind.ContractCaller
 	chainSelector          protocol.ChainSelector
 	executionAttemptPoller *EvmExecutionAttemptPoller
-	monitoring             executor.Monitoring
+	monitoring             monitoring.Monitoring
 }
 
 func (dr *EvmDestinationReader) HealthReport() map[string]error {
@@ -55,7 +56,7 @@ type Params struct {
 	OfframpAddress            string
 	RmnRemoteAddress          string
 	ExecutionVisabilityWindow time.Duration
-	Monitoring                executor.Monitoring
+	Monitoring                monitoring.Monitoring
 }
 
 func NewEvmDestinationReader(params Params) (*EvmDestinationReader, error) {

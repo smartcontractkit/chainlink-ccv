@@ -49,6 +49,9 @@ func TestBuildKeyImportMountsFilesTheContainerUserCanRead(t *testing.T) {
 		assert.NotZerof(t, f.FileMode&0o004,
 			"%s is mounted %#o; the importing process does not run as the file's owner",
 			f.ContainerFilePath, f.FileMode)
+		assert.Zerof(t, f.FileMode&0o222,
+			"%s is mounted writable (%#o); the import only reads these files",
+			f.ContainerFilePath, f.FileMode)
 	}
 }
 
@@ -65,5 +68,11 @@ func TestBuildKeyImportErrors(t *testing.T) {
 		t.Parallel()
 		_, _, err := BuildKeyImport("/a/key.json", "", "")
 		require.ErrorContains(t, err, "export password file")
+	})
+
+	t.Run("no expected ID", func(t *testing.T) {
+		t.Parallel()
+		_, _, err := BuildKeyImport("/a/key.json", "/a/password.txt", "")
+		require.ErrorContains(t, err, "expected ID")
 	})
 }

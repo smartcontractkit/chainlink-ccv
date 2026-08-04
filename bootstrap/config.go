@@ -55,6 +55,9 @@ type KMSKeystoreConfig struct {
 	// EcdsaKeyID is the KMS Key ID for ECDSA_S256 (secp256k1) signing keys.
 	EcdsaKeyID string `toml:"ecdsa_key_id,omitempty"`
 	// Ed25519KeyID is the KMS Key ID for Ed25519 keys (e.g. the CSA key for JD auth).
+	// Required in JD mode, where the CSA key authenticates the node to JD. Optional in local
+	// mode, where the CSA key only backs Beholder auth: set it to enable that, omit it to run
+	// with no Ed25519 key at all.
 	Ed25519KeyID string `toml:"ed25519_key_id,omitempty"`
 }
 
@@ -94,17 +97,19 @@ func (c *KeystoreConfig) resolveBackend() (KeystoreBackend, error) {
 	return c.Backend, nil
 }
 
-func (c *KeystoreConfig) validate() error {
+// validate checks the keystore config for the given app-config mode. The Ed25519 requirement is
+// mode-driven, not backend-driven: a CSA key (Ed25519) is mandatory only in JD mode, where it
+// authenticates the node to JD. In local mode the CSA key is optional (it only backs Beholder
+// auth), so no KMS key ID is required here — every key the service declares must still have one,
+// enforced per-declared-key in buildKMSNameMap at startup.
+func (c *KeystoreConfig) validate(mode AppConfigMode) error {
 	backend, err := c.resolveBackend()
 	if err != nil {
 		return err
 	}
 	if backend == KeystoreBackendKMS {
-		// ed25519_key_id is always required: the bootstrapper builds an Ed25519 CSA signer in every mode
-		// (auto-injected in NewBootstrapper). ecdsa_key_id is service-specific, so it is enforced
-		// per-declared-key in buildKMSNameMap.
-		if c.KMS.Ed25519KeyID == "" {
-			return fmt.Errorf("field 'ed25519_key_id' is required when backend is 'kms' (the CSA key is Ed25519)")
+		if mode == AppConfigModeJD && c.KMS.Ed25519KeyID == "" {
+			return fmt.Errorf("field 'ed25519_key_id' is required when backend is 'kms' in %q mode (the JD CSA key is Ed25519)", AppConfigModeJD)
 		}
 		return nil
 	}
@@ -187,11 +192,6 @@ func validateKeyImport(imp *KeyImport) []error {
 	if err := imp.ToKeysImport().Validate(); err != nil {
 		return []error{fmt.Errorf("invalid 'key_import' section: %w", err)}
 	}
-	if strings.TrimSpace(imp.ExpectedID) == "" {
-		return []error{fmt.Errorf(
-			"invalid 'key_import' section: expected_id is required: it is the check that fails " +
-				"the boot when the wrong node's export is mounted")}
-	}
 	return nil
 }
 
@@ -250,7 +250,8 @@ type NonSecretConfig struct {
 
 	// KeyImport adopts a Chainlink node key into the keystore on first boot instead of generating
 	// one. Optional: when absent every declared key is generated, which is right for a new
-	// deployment. It is set when migrating an operator off CL mode.
+	// deployment. It is set when migrating an operator off CL mode. When the section is present,
+	// expected_id is required.
 	KeyImport *KeyImport `toml:"key_import"`
 
 	// Monitoring is the operator-provided monitoring configuration.
@@ -289,6 +290,7 @@ type NonSecretConfig struct {
 	profile = "my-aws-profile"
 	region = "us-east-1"
 	ecdsa_key_id = "arn:aws:kms:us-east-1:...:key/abc123-..."
+	# Required in JD mode (the JD CSA key is Ed25519); optional in local mode.
 	ed25519_key_id = "arn:aws:kms:us-east-1:...:key/def456-..."
 
 	[db]
@@ -315,7 +317,7 @@ func (c *Config) validateInfra() []error {
 	if err := c.JD.validate(); err != nil {
 		errs = append(errs, fmt.Errorf("failed to validate 'jd' section: %w", err))
 	}
-	if err := c.Keystore.validate(); err != nil {
+	if err := c.Keystore.validate(AppConfigModeJD); err != nil {
 		errs = append(errs, fmt.Errorf("failed to validate 'keystore' section: %w", err))
 	}
 	if err := c.DB.validate(); err != nil {
@@ -378,6 +380,14 @@ func (c *Config) validate(m AppConfigMode) error {
 	case AppConfigModeLocal:
 		if strings.TrimSpace(c.LocalAppConfigPath) == "" {
 			errs = append(errs, fmt.Errorf("field 'local_app_config_path' is required when app_config_mode is %q", AppConfigModeLocal))
+		}
+		// The infra bundle is optional in local mode, but when a backend is explicitly selected,
+		// resolve it so a typo fails at load time rather than at startup. Presence-driven rules
+		// (which key IDs, db/password pairing) stay startup-time concerns.
+		if c.Keystore.Backend != "" {
+			if _, err := c.Keystore.resolveBackend(); err != nil {
+				errs = append(errs, fmt.Errorf("failed to validate 'keystore' section: %w", err))
+			}
 		}
 	}
 	if c.Monitoring != nil {

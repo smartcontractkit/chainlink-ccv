@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/smartcontractkit/chainlink-ccv/executor"
+	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
 	v1 "github.com/smartcontractkit/chainlink-ccv/indexer/pkg/api/handlers/v1"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/client"
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
@@ -22,7 +22,7 @@ import (
 // Status-code semantics (e.g. whether 404 is an error) are handled by each caller, not by the failover layer.
 type IndexerReaderAdapter struct {
 	clients         []client.IndexerClientInterface
-	monitoring      executor.Monitoring
+	monitoring      monitoring.Monitoring
 	lggr            logger.Logger
 	activeClientIdx int          // Index of currently active client
 	mu              sync.RWMutex // Protects activeClientIdx
@@ -36,7 +36,7 @@ type clientResult[T any] struct {
 }
 
 // NewIndexerReaderAdapter creates a new IndexerReaderAdapter that queries multiple indexer clients concurrently.
-func NewIndexerReaderAdapter(indexerURIs []string, httpClient *http.Client, monitoring executor.Monitoring, lggr logger.Logger) (*IndexerReaderAdapter, error) {
+func NewIndexerReaderAdapter(indexerURIs []string, httpClient *http.Client, monitoring monitoring.Monitoring, lggr logger.Logger) (*IndexerReaderAdapter, error) {
 	if len(indexerURIs) == 0 {
 		return nil, fmt.Errorf("at least one indexer URI must be provided")
 	}

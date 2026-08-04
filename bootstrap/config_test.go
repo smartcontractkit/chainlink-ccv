@@ -96,30 +96,43 @@ func TestJDConfig_validate(t *testing.T) {
 func TestKeystoreConfig_validate(t *testing.T) {
 	tests := []struct {
 		name        string
+		mode        AppConfigMode
 		config      *KeystoreConfig
 		wantErr     bool
 		errContains []string
 	}{
 		{
 			name:    "valid postgres (default)",
+			mode:    AppConfigModeJD,
 			config:  &KeystoreConfig{Password: "secret"},
 			wantErr: false,
 		},
 		{
 			name:    "valid postgres (explicit)",
+			mode:    AppConfigModeJD,
 			config:  &KeystoreConfig{Backend: KeystoreBackendPostgres, Password: "secret"},
 			wantErr: false,
 		},
 		{
 			name:        "missing password for postgres",
+			mode:        AppConfigModeJD,
 			config:      &KeystoreConfig{Password: ""},
 			wantErr:     true,
 			errContains: []string{"field 'password' is required"},
 		},
 		{
-			// ed25519_key_id is required for KMS (the CSA key is always Ed25519); an ecdsa-only
-			// config is rejected at validation instead of failing later during keystore init.
-			name: "kms with only ecdsa key is invalid",
+			name:        "local mode: missing password for postgres",
+			mode:        AppConfigModeLocal,
+			config:      &KeystoreConfig{Password: ""},
+			wantErr:     true,
+			errContains: []string{"field 'password' is required"},
+		},
+		{
+			// ed25519_key_id is required for KMS in JD mode (the JD CSA key is Ed25519); an
+			// ecdsa-only config is rejected at validation instead of failing later during
+			// keystore init.
+			name: "JD mode: kms with only ecdsa key is invalid",
+			mode: AppConfigModeJD,
 			config: &KeystoreConfig{
 				Backend: KeystoreBackendKMS,
 				KMS:     KMSKeystoreConfig{EcdsaKeyID: "ecdsa-key-id"},
@@ -128,7 +141,8 @@ func TestKeystoreConfig_validate(t *testing.T) {
 			errContains: []string{"'ed25519_key_id' is required"},
 		},
 		{
-			name: "valid kms with ed25519 key",
+			name: "JD mode: valid kms with ed25519 key",
+			mode: AppConfigModeJD,
 			config: &KeystoreConfig{
 				Backend: KeystoreBackendKMS,
 				KMS:     KMSKeystoreConfig{Ed25519KeyID: "ed25519-key-id"},
@@ -136,7 +150,8 @@ func TestKeystoreConfig_validate(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "valid kms with both keys",
+			name: "JD mode: valid kms with both keys",
+			mode: AppConfigModeJD,
 			config: &KeystoreConfig{
 				Backend: KeystoreBackendKMS,
 				KMS:     KMSKeystoreConfig{EcdsaKeyID: "ecdsa-key-id", Ed25519KeyID: "ed25519-key-id"},
@@ -144,7 +159,8 @@ func TestKeystoreConfig_validate(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name: "kms with no key IDs",
+			name: "JD mode: kms with no key IDs",
+			mode: AppConfigModeJD,
 			config: &KeystoreConfig{
 				Backend: KeystoreBackendKMS,
 			},
@@ -152,7 +168,27 @@ func TestKeystoreConfig_validate(t *testing.T) {
 			errContains: []string{"'ed25519_key_id' is required"},
 		},
 		{
+			// Local mode has no JD to authenticate to: the CSA key is optional, so an ecdsa-only
+			// KMS config is valid. Per-declared-key enforcement happens in buildKMSNameMap.
+			name: "local mode: kms with only ecdsa key is valid",
+			mode: AppConfigModeLocal,
+			config: &KeystoreConfig{
+				Backend: KeystoreBackendKMS,
+				KMS:     KMSKeystoreConfig{EcdsaKeyID: "ecdsa-key-id"},
+			},
+			wantErr: false,
+		},
+		{
+			name: "local mode: kms with no key IDs is valid",
+			mode: AppConfigModeLocal,
+			config: &KeystoreConfig{
+				Backend: KeystoreBackendKMS,
+			},
+			wantErr: false,
+		},
+		{
 			name: "kms without password is valid",
+			mode: AppConfigModeJD,
 			config: &KeystoreConfig{
 				Backend:  KeystoreBackendKMS,
 				Password: "",
@@ -162,6 +198,16 @@ func TestKeystoreConfig_validate(t *testing.T) {
 		},
 		{
 			name: "invalid backend",
+			mode: AppConfigModeJD,
+			config: &KeystoreConfig{
+				Backend: "garbage",
+			},
+			wantErr:     true,
+			errContains: []string{"invalid keystore backend"},
+		},
+		{
+			name: "local mode: invalid backend",
+			mode: AppConfigModeLocal,
 			config: &KeystoreConfig{
 				Backend: "garbage",
 			},
@@ -171,7 +217,7 @@ func TestKeystoreConfig_validate(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			err := tt.config.validate()
+			err := tt.config.validate(tt.mode)
 			if tt.wantErr {
 				require.Error(t, err)
 				for _, sub := range tt.errContains {
@@ -491,6 +537,31 @@ func TestConfig_validate_LocalMode(t *testing.T) {
 		err := cfg.validate(AppConfigModeLocal)
 		require.Error(t, err)
 		require.Contains(t, err.Error(), "local_app_config_path")
+	})
+
+	// An explicitly selected backend is resolved at load time so a typo fails there instead of at
+	// startup; an unset backend (keystore-less token verifier, or presence-driven postgres) is skipped.
+	t.Run("explicit invalid keystore backend fails at load time", func(t *testing.T) {
+		t.Parallel()
+		cfg := &Config{
+			NonSecretConfig: localPath,
+			Secrets:         Secrets{Keystore: KeystoreConfig{Backend: "garbage"}},
+		}
+		err := cfg.validate(AppConfigModeLocal)
+		require.Error(t, err)
+		require.Contains(t, err.Error(), "failed to validate 'keystore' section")
+		require.Contains(t, err.Error(), "invalid keystore backend")
+	})
+
+	// Local mode has no JD to authenticate to, so no KMS key ID is required at this layer —
+	// ed25519_key_id is optional and per-declared-key enforcement happens in buildKMSNameMap.
+	t.Run("explicit kms backend without key IDs is valid", func(t *testing.T) {
+		t.Parallel()
+		cfg := &Config{
+			NonSecretConfig: localPath,
+			Secrets:         Secrets{Keystore: KeystoreConfig{Backend: KeystoreBackendKMS}},
+		}
+		require.NoError(t, cfg.validate(AppConfigModeLocal))
 	})
 
 	t.Run("invalid monitoring still fails in local mode", func(t *testing.T) {

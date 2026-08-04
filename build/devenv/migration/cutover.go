@@ -317,22 +317,29 @@ func prepareExecutors(
 
 // executorChains returns the chains an executor serves: those where its NOP alias appears in the
 // chain configs of the pool named by its qualifier. An executor with no qualifier is in the default
-// pool, which is what ApplyDefaults would give it.
-func executorChains(exec *executorsvc.Input, topology *ccvdeployment.EnvironmentTopology) map[string]struct{} {
+// pool, which is what ApplyDefaults would give it. A qualifier naming a pool the topology does not
+// have is an error rather than an empty chain set: treating it as "serves no chains" would waive
+// the nonce-race check below for a misconfigured executor.
+func executorChains(exec *executorsvc.Input, topology *ccvdeployment.EnvironmentTopology) (map[string]struct{}, error) {
 	qualifier := exec.ExecutorQualifier
 	if qualifier == "" {
 		qualifier = devenvcommon.DefaultExecutorQualifier
 	}
 	chains := make(map[string]struct{})
 	if topology == nil {
-		return chains
+		return chains, nil
 	}
-	for chain, cfg := range topology.ExecutorPools[qualifier].ChainConfigs {
+	pool, ok := topology.ExecutorPools[qualifier]
+	if !ok {
+		return nil, fmt.Errorf(
+			"executor %s names executor pool %q, which is not in the topology", exec.ContainerName, qualifier)
+	}
+	for chain, cfg := range pool.ChainConfigs {
 		if slices.Contains(cfg.NOPAliases, exec.NOPAlias) {
 			chains[chain] = struct{}{}
 		}
 	}
-	return chains
+	return chains, nil
 }
 
 // requireDisjointExecutorChains rejects a NOP whose executors would share both the imported account
@@ -365,7 +372,11 @@ func requireDisjointExecutorChains(
 			byChain = make(map[string]string)
 			claimed[exec.NOPAlias] = byChain
 		}
-		for chain := range executorChains(exec, topology) {
+		chains, err := executorChains(exec, topology)
+		if err != nil {
+			return err
+		}
+		for chain := range chains {
 			if owner, taken := byChain[chain]; taken {
 				return fmt.Errorf(
 					"NOP %s runs executors %s and %s on chain %s, and both would import the same "+
@@ -422,7 +433,7 @@ func adoptVerifierIdentities(
 			nopResult.VerifierJDNodeID, ver.NOPAlias, ver.Out.BootstrapKeys.CSAPublicKey); err != nil {
 			return err
 		}
-		if err := WaitForNodeConnected(ctx, in.JDInfra.OffchainClient,
+		if err := jobs.WaitForNodeConnection(ctx, in.JDInfra.OffchainClient,
 			nopResult.VerifierJDNodeID, nodeConnectTimeout); err != nil {
 			return fmt.Errorf("verifier %s: %w", ver.ContainerName, err)
 		}
@@ -471,7 +482,7 @@ func launchExecutors(
 		if err := jobs.RegisterBootstrapWithJD(ctx, in.JDInfra.OffchainClient, reg); err != nil {
 			return fmt.Errorf("failed to register standalone executor %s with JD: %w", exec.ContainerName, err)
 		}
-		if err := jobs.WaitForBootstrapConnection(ctx, in.JDInfra.OffchainClient, reg.NodeID, nodeConnectTimeout); err != nil {
+		if err := jobs.WaitForNodeConnection(ctx, in.JDInfra.OffchainClient, reg.NodeID, nodeConnectTimeout); err != nil {
 			return fmt.Errorf("executor %s: %w", exec.ContainerName, err)
 		}
 		out.JDNodeID = reg.NodeID

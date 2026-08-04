@@ -407,9 +407,16 @@ func launchVerifier(ctx context.Context, in *Input, outputs []*blockchain.Output
 	}
 	bootstrapURL := fmt.Sprintf("http://%s:%s", host, bootstrapMapped.Port())
 
-	// Fetches the CSA and ECDSA keys from the bootstrap server.
-	// Verifiers need both for JD registration and committee signer registration.
-	bootstrapKeys, err := services.FetchBootstrapKeys(bootstrapURL, bootstrap.DefaultCSAKeyName, commit.DefaultECDSASigningKeyName)
+	// Verifiers always need the ECDSA signing key (committee signer registration). The CSA key is
+	// used for JD registration and only exists when the bootstrapper provisions one (a KMS backend
+	// without ed25519_key_id has none). Request it only when it will exist, so a local
+	// KMS-without-Ed25519 verifier can still launch.
+	keyNames := []string{}
+	if bootstrap.CSAKeyRequired(*bootstrapInput.Keystore) {
+		keyNames = append(keyNames, bootstrap.DefaultCSAKeyName)
+	}
+	keyNames = append(keyNames, commit.DefaultECDSASigningKeyName)
+	bootstrapKeys, err := services.FetchBootstrapKeys(bootstrapURL, keyNames...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get bootstrap keys: %w", err)
 	}
@@ -537,9 +544,9 @@ func baseImageRequest(in *Input, envVars map[string]string, bootstrapConfigFileP
 		})
 	}
 
-	// Exported Chainlink node keys, present only during a CL-to-standalone cutover. The paths here
-	// are the ones the generated bootstrap config's [key_import] section names; both come from
-	// services.BuildKeyImport.
+	// CLMIGRATION: exported Chainlink node keys, present only during a CL-to-standalone cutover.
+	// The paths here are the ones the generated bootstrap config's [key_import] section names;
+	// both come from services.BuildKeyImport. Delete when the cutover is complete.
 	if in.Bootstrap != nil {
 		req.Files = append(req.Files, in.Bootstrap.KeyImportFiles...)
 	}
