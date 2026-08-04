@@ -189,19 +189,26 @@ func TestNewBootstrapper_WithKey_Explicit(t *testing.T) {
 
 // jdBootstrapTOML builds a JD-mode bootstrap config with the given keystore TOML appended.
 func jdBootstrapTOML(keystoreTOML string) string {
-	return "app_config_mode = \"" + string(AppConfigModeJD) + "\"\n" +
-		"[jd]\nserver_wsrpc_url = \"ws://localhost:8080/ws\"\nserver_csa_public_key = \"" + validEd25519PublicKeyHex + "\"\n" +
-		"[db]\nurl = \"postgres://localhost:5432/db\"\n" +
-		"[server]\nlisten_port = 9988\n" +
-		keystoreTOML
+	return fmt.Sprintf(`app_config_mode = %q
+[jd]
+server_wsrpc_url = "ws://localhost:8080/ws"
+server_csa_public_key = %q
+[db]
+url = "postgres://localhost:5432/db"
+[server]
+listen_port = 9988
+`, AppConfigModeJD, validEd25519PublicKeyHex) + keystoreTOML
 }
 
 // localKMSBootstrapTOML builds a local-mode bootstrap config on the KMS backend with the given
 // [keystore.kms] entries (e.g. key IDs).
 func localKMSBootstrapTOML(kmsEntriesTOML string) string {
-	return "app_config_mode = \"" + string(AppConfigModeLocal) + "\"\n" +
-		"local_app_config_path = \"/nonexistent/app.toml\"\n" +
-		"[keystore]\nbackend = \"kms\"\n[keystore.kms]\n" + kmsEntriesTOML
+	return fmt.Sprintf(`app_config_mode = %q
+local_app_config_path = "/nonexistent/app.toml"
+[keystore]
+backend = "kms"
+[keystore.kms]
+`, AppConfigModeLocal) + kmsEntriesTOML
 }
 
 // TestNewBootstrapper_CSAInjectionMatrix pins the mode- and backend-driven CSA injection rule
@@ -805,6 +812,7 @@ func TestBootstrapper_LocalMode_WaitsForConfig(t *testing.T) {
 // key is declared: a key set without one (a local-mode KMS deployment) initializes fine and yields
 // a nil signer, which Beholder tolerates and the JD startup path guards against separately.
 func TestInitializeKeystore_CSASignerOptional(t *testing.T) {
+	t.Parallel()
 	dbURL, cleanup := setupBootstrapTestDB(t)
 	defer cleanup()
 
