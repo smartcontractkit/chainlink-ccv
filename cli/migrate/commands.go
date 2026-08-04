@@ -123,6 +123,7 @@ func readAPICredentials(path string) (email, password string, err error) {
 // password file's path is the sort of thing secret scanners flag on principle, and the names are
 // fixed anyway.
 func printExportSummary(outDir string, r *migration.ExportResult) {
+	//nolint:forbidigo // CLI user output
 	fmt.Printf(`
 Export complete. The two identities that had to survive the move:
 
@@ -171,6 +172,6 @@ func inspectKey(keyFile, passwordFile string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("%s is a %s export carrying identity %s\n", keyFile, format, migration.ChecksumAddress(id))
+	fmt.Printf("%s is a %s export carrying identity %s\n", keyFile, format, migration.ChecksumAddress(id)) //nolint:forbidigo // CLI user output
 	return nil
 }

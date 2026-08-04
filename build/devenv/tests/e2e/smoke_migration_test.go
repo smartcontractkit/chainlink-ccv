@@ -380,8 +380,27 @@ func proposeStandaloneJobs(
 	require.NoError(t, migration.ProposeJobs(ctx, jdClient, proposals))
 
 	// The lifecycle manager parks a job it cannot start and does not retry it, so a failed start
-	// would otherwise surface minutes later as the post-cutover message never executing. Wait for
-	// each executor to report ready, so a start failure names itself here instead.
+	// would otherwise surface minutes later as the post-cutover message never executing. Proposing a
+	// job is not the same as the job running, so both roles have to be waited on before the caller
+	// sends the next message.
+	//
+	// The verifier is the one this test used to race on. The post-cutover message is only verified if
+	// the verifier's job is already reading the source chain when the message lands; a message that
+	// arrives first is not picked up afterwards, so no result is ever produced and the executor has
+	// nothing to act on — which is exactly the timeout this test hit intermittently. The executor's
+	// readiness wait below does not stand in for this one: the executor becomes ready on its own
+	// timeline and can win the race the verifier loses, which is why the test passed only sometimes.
+	for _, ver := range in.Verifier {
+		if ver == nil || ver.Out == nil || ver.Out.JDNodeID == "" {
+			continue
+		}
+		require.NoErrorf(t,
+			services.WaitForApplicationReady(ctx, ver.Out.BootstrapDBURL, services.DefaultApplicationReadyTimeout),
+			"verifier %s did not become ready after the job proposal", ver.ContainerName)
+	}
+
+	// The executor is waited on so a start failure names itself here rather than as an unexplained
+	// non-execution later.
 	for _, exec := range in.Executor {
 		if exec == nil || exec.Out == nil || exec.Out.JDNodeID == "" {
 			continue
