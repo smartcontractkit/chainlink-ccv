@@ -27,19 +27,16 @@ func InitMigrateCommands(lggr logger.Logger) []cli.Command {
 	return []cli.Command{
 		{
 			Name: "export",
-			Usage: "Export the EVM signing and transmitter keys from a running Chainlink node, " +
-				"for the CL-to-standalone migration",
-			Description: "Finds the node's EVM OCR2 bundle and the chain's enabled account itself, exports both " +
-				"under a generated password, verifies each export decodes to the identity the node registered, " +
-				"and writes a ready-made [key_import] snippet per process with expected_id filled in. " +
-				"See docs/migration/evm-cl-to-standalone.md.",
+			Usage: "Export the EVM signing key from a running Chainlink node, for the " +
+				"CL-to-standalone migration",
+			Description: "Finds the node's EVM OCR2 bundle itself, exports it under a generated password, " +
+				"verifies the export decodes to the identity the node registered, and writes a ready-made " +
+				"[key_import] snippet with expected_id filled in. See docs/migration/evm-cl-to-standalone.md.",
 			Flags: []cli.Flag{
 				cli.StringFlag{Name: "node-url", Usage: "base URL of the Chainlink node's API, e.g. http://localhost:6688", Required: true},
 				cli.StringFlag{Name: "api-creds", Usage: "path to the node's API credentials file (email on line 1, password on line 2)", Required: true},
-				cli.StringFlag{Name: "chain-id", Usage: "EVM chain ID whose enabled account is the transmitter to export", Required: true},
-				cli.StringFlag{Name: "out-dir", Usage: "directory to write the exported keys, password file, and [key_import] snippets into", Required: true},
+				cli.StringFlag{Name: "out-dir", Usage: "directory to write the exported key, password file, and [key_import] snippet into", Required: true},
 				cli.StringFlag{Name: "bundle-id", Usage: "optional: the OCR2 bundle ID to export, for a node with several EVM bundles"},
-				cli.StringFlag{Name: "account", Usage: "optional: the account address to export, for a node with several accounts enabled for the chain"},
 			},
 			Action: func(c *cli.Context) error {
 				email, password, err := readAPICredentials(c.String("api-creds"))
@@ -50,27 +47,20 @@ func InitMigrateCommands(lggr logger.Logger) []cli.Command {
 					NodeURL:     c.String("node-url"),
 					APIEmail:    email,
 					APIPassword: password,
-					ChainID:     c.String("chain-id"),
 					OutDir:      c.String("out-dir"),
 					BundleID:    c.String("bundle-id"),
-					Account:     c.String("account"),
 				})
 				if err != nil {
 					return err
 				}
 
-				// The snippets are the CLI's addition to the shared export: devenv builds its
-				// container mounts from the result directly and has no use for them.
+				// The snippet is the CLI's addition to the shared export: devenv builds its
+				// container mounts from the result directly and has no use for it.
 				outDir := c.String("out-dir")
 				verifierTOMLPath := filepath.Join(outDir, migration.VerifierTOMLFileName)
 				if err := migration.WriteKeyImportSnippet(
 					verifierTOMLPath, "verifier", migration.OCR2ExportFileName, result.SigningAddress); err != nil {
 					return fmt.Errorf("failed to write the verifier's [key_import] snippet: %w", err)
-				}
-				executorTOMLPath := filepath.Join(outDir, migration.ExecutorTOMLFileName)
-				if err := migration.WriteKeyImportSnippet(
-					executorTOMLPath, "executor", migration.ETHExportFileName, result.TransmitterAddress); err != nil {
-					return fmt.Errorf("failed to write the executor's [key_import] snippet: %w", err)
 				}
 
 				printExportSummary(c.String("out-dir"), result)
@@ -118,37 +108,33 @@ func readAPICredentials(path string) (email, password string, err error) {
 }
 
 // printExportSummary is the one thing the operator reads, so it is plain stdout rather than a
-// log line: what each identity is, where each file landed, and what happens next. File locations
+// log line: what the identity is, where each file landed, and what happens next. File locations
 // are printed as names under the output directory rather than from the result's paths: the
 // password file's path is the sort of thing secret scanners flag on principle, and the names are
 // fixed anyway.
 func printExportSummary(outDir string, r *migration.ExportResult) {
 	//nolint:forbidigo // CLI user output
 	fmt.Printf(`
-Export complete. The two identities that had to survive the move:
+Export complete. The identity that had to survive the move:
 
-  signing address (verifier)    : %s
-  transmitter address (executor): %s
+  signing address (verifier): %s
 
 Files written to %s:
 
   %s  (the verifier's key, mode 0600)
-  %s  (the executor's key, mode 0600)
-  %s  (the password both are encrypted under, mode 0600)
-  %s
+  %s  (the password it is encrypted under, mode 0600)
   %s
 
 Next:
 
-  1. Mount each key file and the password file into its container at the paths its
+  1. Mount the key file and the password file into the verifier's container at the paths its
      snippet names, and add the snippet's [key_import] block to the bootstrap config.
-  2. Confirm on chain that the committee signer set holds the signing address above,
-     and that the transmitter address is the funded account.
-  3. Continue from step 4 of docs/migration/evm-evm-cl-to-standalone.md (stop the Chainlink node).
+  2. Confirm on chain that the committee signer set holds the signing address above.
+  3. Continue from step 4 of docs/migration/evm-cl-to-standalone.md (stop the Chainlink node).
 `,
-		r.SigningAddress, r.TransmitterAddress, outDir,
-		migration.OCR2ExportFileName, migration.ETHExportFileName, migration.PasswordFileName,
-		migration.VerifierTOMLFileName, migration.ExecutorTOMLFileName)
+		r.SigningAddress, outDir,
+		migration.OCR2ExportFileName, migration.PasswordFileName,
+		migration.VerifierTOMLFileName)
 }
 
 // inspectKey implements `ccv migrate inspect`: read the identity a mounted export carries

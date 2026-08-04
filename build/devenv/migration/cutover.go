@@ -2,22 +2,23 @@ package migration
 
 import (
 	"context"
+	"encoding/hex"
 	"fmt"
+	"math/big"
 	"path/filepath"
-	"slices"
 	"time"
 
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/clclient"
 	ctfblockchain "github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainreg"
-	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/committeeverifier"
 	executorsvc "github.com/smartcontractkit/chainlink-ccv/build/devenv/services/executor"
 	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
 	ccvshared "github.com/smartcontractkit/chainlink-ccv/deployment/shared"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	hmacutil "github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
 )
 
@@ -33,10 +34,6 @@ type NOP struct {
 	CLClient *clclient.ChainlinkClient
 	// CLContainerNames are the containers to stop once the keys are out.
 	CLContainerNames []string
-	// TransmitterChainID is the EVM chain whose registered account is the executor's transmitter.
-	// It matches the chain devenv used when it created the node's JD chain configs, so the exported
-	// account is the one JD recorded and the one that was funded.
-	TransmitterChainID string
 }
 
 // Input is the running environment, unpacked into what the cutover needs. It takes the pieces
@@ -75,10 +72,10 @@ type NOPResult struct {
 	VerifierJDNodeID string
 	// ExecutorJDNodeIDs are the records registered for this operator's standalone executors.
 	ExecutorJDNodeIDs []string
-	// SigningAddress and TransmitterAddress are the identities carried across, EIP-55 checksummed.
-	// Both must equal what they were before the cutover; that equality is the whole point.
-	SigningAddress     string
-	TransmitterAddress string
+	// SigningAddress is the verifier signing identity carried across, EIP-55 checksummed. It must
+	// equal what it was before the cutover; that equality is the whole point. The executor's
+	// transmitter is deliberately not carried across (see Run), so there is no analogous field for it.
+	SigningAddress string
 
 	// adopted guards against handing one JD record to two verifier processes.
 	adopted bool
@@ -92,14 +89,20 @@ type Result struct {
 // Run performs the cutover. The ordering is not incidental:
 //
 //  1. Read each Chainlink node's CSA key and find its JD record, while the node is still up.
-//  2. Export the OCR2 onchain signing key and the EVM account key from each node.
+//  2. Export the OCR2 onchain signing key from each node.
 //  3. Stop the Chainlink nodes. Their JD records are about to change hands, and a connected node
 //     would contend with the process taking over.
 //  4. Launch the standalone verifiers, which import the signing keys.
 //  5. Repoint each JD record at its verifier's own CSA key, and wait for the verifier to connect.
-//  6. Launch the standalone executors, which import the transmitter keys, and register them as new
-//     JD nodes.
+//  6. Launch the standalone executors, fund their transmitters, and register them as new JD nodes.
 //  7. Flip each operator's mode in the topology.
+//
+// The verifier's signing key is carried across; the executor's transmitter is not. The standalone
+// executor generates its own key rather than importing the node's per-chain account, so unlike the
+// signing address it is a fresh account that has to be funded here before it can submit. This is the
+// single-key executor a live deployment runs: one funded account per operator instead of the
+// node's per-chain transmitters. What still moves per operator is the verifier identity plus a
+// working standalone executor; what does not move is the operator's gas.
 //
 // Proposing the standalone job specs is left to the caller, which re-runs ApplyVerifierConfig and
 // ApplyExecutorConfig against the mutated topology. Keeping that out of here means the cutover does
@@ -121,8 +124,8 @@ func Run(ctx context.Context, in Input) (Result, error) {
 		migrating[nop.Alias] = struct{}{}
 	}
 
-	// Step 1 and 2, before anything is stopped: the node's CSA key, its JD record, and its keys are
-	// all readable only while it is running.
+	// Step 1 and 2, before anything is stopped: the node's CSA key, its JD record, and its signing
+	// key are all readable only while it is running.
 	exported := make(map[string]ExportedNOPKeys, len(in.NOPs))
 	var clContainers []string
 	for _, nop := range in.NOPs {
@@ -138,7 +141,7 @@ func Run(ctx context.Context, in Input) (Result, error) {
 			return result, fmt.Errorf("NOP %s: %w", nop.Alias, err)
 		}
 
-		keyMaterial, err := ExportNOPKeys(ctx, nop.CLClient, nop.Alias, nop.TransmitterChainID,
+		keyMaterial, err := ExportNOPKeys(ctx, nop.CLClient, nop.Alias,
 			filepath.Join(in.WorkDir, nop.Alias))
 		if err != nil {
 			return result, err
@@ -146,10 +149,9 @@ func Run(ctx context.Context, in Input) (Result, error) {
 		exported[nop.Alias] = keyMaterial
 		clContainers = append(clContainers, nop.CLContainerNames...)
 		result.NOPs[nop.Alias] = &NOPResult{
-			Alias:              nop.Alias,
-			VerifierJDNodeID:   node.GetId(),
-			SigningAddress:     keyMaterial.SigningAddress,
-			TransmitterAddress: keyMaterial.TransmitterAddress,
+			Alias:            nop.Alias,
+			VerifierJDNodeID: node.GetId(),
+			SigningAddress:   keyMaterial.SigningAddress,
 		}
 	}
 
@@ -182,9 +184,7 @@ func Run(ctx context.Context, in Input) (Result, error) {
 	}
 
 	// Step 6.
-	if err := prepareExecutors(in.Executors, migrating, exported, in.Topology); err != nil {
-		return result, err
-	}
+	prepareExecutors(in.Executors, migrating)
 	if err := launchExecutors(ctx, in, migrating, result); err != nil {
 		return result, err
 	}
@@ -270,127 +270,6 @@ func prepareVerifiers(
 	return nil
 }
 
-// prepareExecutors flips each migrating operator's executors to standalone and points them at the
-// exported account key.
-//
-// Every executor for an operator imports the same key, because the standalone executor holds one
-// transmitter key and the Chainlink node registered one account address across its chains.
-//
-// An operator whose node uses a different account per chain needs one executor per account, each
-// serving the chains that account is funded on — chain scope comes from executor pool membership,
-// and several executors for one NOP is an ordinary topology. The limit is here rather than in the
-// executor: ExportNOPKeys resolves a single account, and this function hands it to every executor
-// the NOP owns, so such an operator would transmit from one account everywhere with the rest of
-// their gas stranded. They are excluded until both are per-account; see
-// docs/migration/evm-cl-to-standalone.md.
-func prepareExecutors(
-	executors []*executorsvc.Input,
-	migrating map[string]struct{},
-	exported map[string]ExportedNOPKeys,
-	topology *ccvdeployment.EnvironmentTopology,
-) error {
-	if err := requireDisjointExecutorChains(executors, migrating, topology); err != nil {
-		return err
-	}
-	for _, exec := range executors {
-		if exec == nil {
-			continue
-		}
-		if _, ok := migrating[exec.NOPAlias]; !ok {
-			continue
-		}
-		keyMaterial := exported[exec.NOPAlias]
-		if exec.Bootstrap == nil {
-			exec.Bootstrap = &services.BootstrapInput{}
-		}
-		keyImport, files, err := services.BuildKeyImport(
-			keyMaterial.ETHKeyPath, keyMaterial.PasswordPath, keyMaterial.TransmitterAddress)
-		if err != nil {
-			return fmt.Errorf("executor %s: %w", exec.ContainerName, err)
-		}
-		exec.Bootstrap.KeyImport = keyImport
-		exec.Bootstrap.KeyImportFiles = files
-		exec.Mode = services.Standalone
-	}
-	return nil
-}
-
-// executorChains returns the chains an executor serves: those where its NOP alias appears in the
-// chain configs of the pool named by its qualifier. An executor with no qualifier is in the default
-// pool, which is what ApplyDefaults would give it. A qualifier naming a pool the topology does not
-// have is an error rather than an empty chain set: treating it as "serves no chains" would waive
-// the nonce-race check below for a misconfigured executor.
-func executorChains(exec *executorsvc.Input, topology *ccvdeployment.EnvironmentTopology) (map[string]struct{}, error) {
-	qualifier := exec.ExecutorQualifier
-	if qualifier == "" {
-		qualifier = devenvcommon.DefaultExecutorQualifier
-	}
-	chains := make(map[string]struct{})
-	if topology == nil {
-		return chains, nil
-	}
-	pool, ok := topology.ExecutorPools[qualifier]
-	if !ok {
-		return nil, fmt.Errorf(
-			"executor %s names executor pool %q, which is not in the topology", exec.ContainerName, qualifier)
-	}
-	for chain, cfg := range pool.ChainConfigs {
-		if slices.Contains(cfg.NOPAliases, exec.NOPAlias) {
-			chains[chain] = struct{}{}
-		}
-	}
-	return chains, nil
-}
-
-// requireDisjointExecutorChains rejects a NOP whose executors would share both the imported account
-// and a chain.
-//
-// Every executor a NOP owns imports the same exported account, because the cutover resolves one
-// account per operator. Two processes submitting from one address on one chain each run their own
-// transaction manager against their own database, so they race each other's nonces — a failure that
-// appears as stuck or replaced transactions well away from its cause.
-//
-// A NOP whose executors serve disjoint chains is fine: the same address on different chains has
-// independent nonces, which is the ordinary shape for an operator who funds one account everywhere.
-// Distinct accounts on overlapping chains would be fine too, and is what an operator with per-chain
-// keys needs, but the cutover cannot express it yet.
-func requireDisjointExecutorChains(
-	executors []*executorsvc.Input,
-	migrating map[string]struct{},
-	topology *ccvdeployment.EnvironmentTopology,
-) error {
-	claimed := make(map[string]map[string]string) // NOP alias -> chain -> executor that claimed it
-	for _, exec := range executors {
-		if exec == nil {
-			continue
-		}
-		if _, ok := migrating[exec.NOPAlias]; !ok {
-			continue
-		}
-		byChain := claimed[exec.NOPAlias]
-		if byChain == nil {
-			byChain = make(map[string]string)
-			claimed[exec.NOPAlias] = byChain
-		}
-		chains, err := executorChains(exec, topology)
-		if err != nil {
-			return err
-		}
-		for chain := range chains {
-			if owner, taken := byChain[chain]; taken {
-				return fmt.Errorf(
-					"NOP %s runs executors %s and %s on chain %s, and both would import the same "+
-						"transmitter account: two executors sharing an account and a chain race each "+
-						"other's nonces. Give them disjoint chains, or migrate this operator once the "+
-						"cutover can import a separate account per executor",
-					exec.NOPAlias, owner, exec.ContainerName, chain)
-			}
-			byChain[chain] = exec.ContainerName
-		}
-	}
-	return nil
-}
-
 // adoptVerifierIdentities hands each operator's JD record to its standalone verifier and waits for
 // the verifier to claim it.
 func adoptVerifierIdentities(
@@ -444,8 +323,25 @@ func adoptVerifierIdentities(
 	return nil
 }
 
-// launchExecutors starts each migrating operator's standalone executors and registers them as new
-// JD nodes under their container names, which is how a standalone environment names them.
+// prepareExecutors flips each migrating operator's executors to standalone. Unlike the verifier,
+// nothing is imported: the standalone executor generates its own transmitter key, the single funded
+// account that replaces the node's per-chain transmitters. launchExecutors funds it once the
+// container is up and has exposed the key.
+func prepareExecutors(executors []*executorsvc.Input, migrating map[string]struct{}) {
+	for _, exec := range executors {
+		if exec == nil {
+			continue
+		}
+		if _, ok := migrating[exec.NOPAlias]; !ok {
+			continue
+		}
+		exec.Mode = services.Standalone
+	}
+}
+
+// launchExecutors starts each migrating operator's standalone executors, funds the transmitter each
+// one generated, and registers them as new JD nodes under their container names, which is how a
+// standalone environment names them.
 func launchExecutors(
 	ctx context.Context,
 	in Input,
@@ -462,8 +358,8 @@ func launchExecutors(
 		executorsvc.ApplyDefaults(exec)
 
 		var transmitterKeyName string
-		if reg, err := chainreg.GetRegistry().Get(exec.ChainFamily); err == nil && reg.ExecutorInfo != nil {
-			transmitterKeyName = reg.ExecutorInfo.ExecutorTransmitterKeyName()
+		if familyReg, err := chainreg.GetRegistry().Get(exec.ChainFamily); err == nil && familyReg.ExecutorInfo != nil {
+			transmitterKeyName = familyReg.ExecutorInfo.ExecutorTransmitterKeyName()
 		}
 		out, err := executorsvc.New(exec, in.BlockchainOutputs, in.JDInfra,
 			chainreg.GetRegistry().GetExecutorModifiers(), transmitterKeyName)
@@ -475,6 +371,13 @@ func launchExecutors(
 		if out.BootstrapKeys.CSAPublicKey == "" {
 			return fmt.Errorf("executor %s started but exposed no CSA public key", exec.ContainerName)
 		}
+
+		// The executor generated its own transmitter key, which holds no gas until this funds it. Do
+		// it before the job is proposed, so the executor can submit the moment it starts.
+		if err := fundExecutorTransmitter(ctx, exec, in.BlockchainOutputs); err != nil {
+			return fmt.Errorf("executor %s: %w", exec.ContainerName, err)
+		}
+
 		reg := &jobs.BootstrapJDRegistration{
 			Name:         exec.ContainerName,
 			CSAPublicKey: out.BootstrapKeys.CSAPublicKey,
@@ -489,6 +392,39 @@ func launchExecutors(
 
 		if nopResult, ok := result.NOPs[exec.NOPAlias]; ok {
 			nopResult.ExecutorJDNodeIDs = append(nopResult.ExecutorJDNodeIDs, reg.NodeID)
+		}
+	}
+	return nil
+}
+
+// fundExecutorTransmitter funds the address the launched executor transmits from, on every chain of
+// its family, so its fresh key can pay for execution. The funder is the chain's well-known dev
+// account — the same one the environment funds every node and transmitter from — reached through the
+// family's CCIP configuration. This mirrors the environment's own executor funding; it lives here
+// because the cutover launches these executors after the environment is already up.
+func fundExecutorTransmitter(ctx context.Context, exec *executorsvc.Input, blockchainOutputs []*ctfblockchain.Output) error {
+	reg, err := chainreg.GetRegistry().Get(exec.ChainFamily)
+	if err != nil || reg.ExecutorInfo == nil || reg.ImplFactory == nil || !reg.ImplFactory.SupportsFunding() {
+		return nil
+	}
+	addrHex := reg.ExecutorInfo.ExecutorTransmitterAddress(exec.Out.BootstrapKeys)
+	if addrHex == "" {
+		return fmt.Errorf("executor exposed no transmitter address to fund")
+	}
+	addrBytes, err := hex.DecodeString(addrHex)
+	if err != nil {
+		return fmt.Errorf("invalid transmitter address %q: %w", addrHex, err)
+	}
+	addresses := []protocol.UnknownAddress{protocol.UnknownAddress(addrBytes)}
+
+	for _, out := range blockchainOutputs {
+		if out == nil || out.Family != exec.ChainFamily {
+			continue
+		}
+		impl := reg.ImplFactory.NewEmpty()
+		bc := &ctfblockchain.Input{ChainID: out.ChainID, Out: out}
+		if err := impl.FundAddresses(ctx, bc, addresses, big.NewInt(5)); err != nil {
+			return fmt.Errorf("funding transmitter on chain %s: %w", out.ChainID, err)
 		}
 	}
 	return nil

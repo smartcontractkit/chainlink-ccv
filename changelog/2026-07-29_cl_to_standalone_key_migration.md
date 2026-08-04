@@ -2,16 +2,19 @@
 
 ## Summary
 
-An EVM node operator running CCV as jobs on a Chainlink node can move to the standalone verifier and
-executor while keeping the identities that anything outside the node depends on: the onchain signing
-key registered in the `CommitteeVerifier` signer set, and the funded EVM account the executor
-transmits from. Neither has to be regenerated, so the move needs no contract reconfiguration and no
-transfer of funds.
+An EVM node operator running CCV as jobs on a Chainlink node can move to two standalone processes, a
+verifier and an executor, keeping the identity anything outside the node depends on: the onchain
+signing key registered in the `CommitteeVerifier` signer set. It does not have to be regenerated, so
+the move needs no contract reconfiguration.
 
-The operator-facing surface is two exported files and three config values. The bootstrapper gained a
-`[key_import]` section that adopts a key exported from a Chainlink node in place of generating one,
-and the EVM accessor now reads a Chainlink node's own TOML config directly, so there is nothing to
-convert and no tooling to run.
+The verifier imports that signing key; the executor imports nothing. It runs a single fresh
+transmitter key, funded during the cutover, in place of the node's per-chain accounts — so no gas is
+moved and the operator's old accounts are left where they are.
+
+The operator-facing surface is one exported file and a `[key_import]` block. The bootstrapper gained
+that section, which adopts a key exported from a Chainlink node in place of generating one, and the
+EVM accessor now reads a Chainlink node's own TOML config directly, so there is nothing to convert
+and no tooling to run.
 
 `docs/migration/evm-cl-to-standalone.md` is the operator procedure.
 
@@ -42,13 +45,12 @@ be unmounted once the process has come up once.
 
 The verifier and executor images ship a `ccv migrate` command group that replaces the manual half
 of the key export. `ccv migrate export` talks to the node's API and, in one command: runs the
-one-verifier-job preflight, resolves the EVM OCR2 bundle and the chain's enabled account from the
-node's own listings (the same source the node's JD chain config was built from), exports both keys
-under a generated password, verifies each export decodes to the identity the node registered, and
-writes a ready-made `[key_import]` snippet per process with `expected_id` already filled in. The
-operator never transcribes a bundle ID, an address, or a password. `ccv migrate inspect` prints the
-identity a mounted export carries, so a wrong-node mount is caught before boot rather than by a
-process refusing to start.
+one-verifier-job preflight, resolves the EVM OCR2 bundle from the node's own listing (the same source
+the node's JD chain config was built from), exports it under a generated password, verifies the
+export decodes to the identity the node registered, and writes a ready-made `[key_import]` snippet
+with `expected_id` already filled in. The operator never transcribes a bundle ID, an address, or a
+password. `ccv migrate inspect` prints the identity a mounted export carries, so a wrong-node mount
+is caught before boot rather than by a process refusing to start.
 
 The client is a four-endpoint REST client in `cli/migrate`, not the Chainlink SDK or the testing
 framework: those live in the devenv module, and importing either would drag the node dependency
@@ -80,13 +82,15 @@ cannot have two owners.
 ## One JD record becomes two
 
 A CL-mode node runs the `ccvcommitteeverifier` and `ccvexecutor` jobs under a single JD record.
-Standalone runs two processes with two keystores, so it needs two. The verifier adopts the
-operator's existing record, keeping the NOP alias that `ApplyVerifierConfig` and
-`fetch_signing_keys` look it up by; the executor registers a new one.
+Standalone runs two processes with two keystores, so it needs two. The verifier adopts the operator's
+existing record, keeping the NOP alias that `ApplyVerifierConfig` and `fetch_signing_keys` look it up
+by; the executor registers a new one. Reusing the record for the verifier rather than registering a
+second is what avoids a duplicate entry for the operator alongside an abandoned one.
 
-The second record is a property of standalone mode rather than of the migration — an operator who
-had started standalone would have had two from the beginning. What is avoided is a duplicate entry
-for the operator alongside an abandoned one.
+The two processes differ in what they carry across. The verifier imports the node's signing key. The
+executor imports nothing: it generates a fresh transmitter key that the cutover funds, one account in
+place of the node's per-chain transmitters. That is the single-key executor a live deployment runs,
+brought up per operator here rather than centrally.
 
 ## Implementation notes
 

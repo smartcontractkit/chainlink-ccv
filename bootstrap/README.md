@@ -167,9 +167,9 @@ headers.
 
 ## Adopting a key from a Chainlink node
 
-A node operator moving off CL mode has keys that must survive the move: e.g. the onchain signing key
-registered in the `CommitteeVerifier` signer set, and the funded EVM account the executor transmits
-from. `[key_import]` adopts one exported from a Chainlink node instead of generating it.
+A node operator moving off CL mode has a key that must survive the move: the onchain signing key
+registered in the `CommitteeVerifier` signer set. `[key_import]` adopts one exported from a Chainlink
+node instead of generating it.
 
 ```toml
 [key_import]

@@ -97,51 +97,6 @@ func TestEVMOCR2BundleID(t *testing.T) {
 	})
 }
 
-func TestAccountForChain(t *testing.T) {
-	t.Parallel()
-
-	t.Run("the enabled account for the chain", func(t *testing.T) {
-		t.Parallel()
-		node := newFakeNode(t)
-		node.ethKeysJSON = strings.Join([]string{
-			ethKeyJSON("0xAAAA", "1", false),
-			ethKeyJSON("0xBBBB", "1", true),   // disabled for the chain: skipped
-			ethKeyJSON("0xCCCC", "10", false), // another chain
-		}, ",")
-		srv := node.start()
-		client := loggedInClient(t, node, srv.URL)
-
-		account, err := client.AccountForChain(context.Background(), "1")
-		require.NoError(t, err)
-		assert.Equal(t, "0xAAAA", account)
-	})
-
-	t.Run("no account enabled for the chain", func(t *testing.T) {
-		t.Parallel()
-		node := newFakeNode(t)
-		node.ethKeysJSON = ethKeyJSON("0xBBBB", "1", true)
-		srv := node.start()
-		client := loggedInClient(t, node, srv.URL)
-
-		_, err := client.AccountForChain(context.Background(), "1")
-		require.ErrorContains(t, err, "no account enabled for chain 1")
-	})
-
-	t.Run("several accounts on one chain is an error, not a guess", func(t *testing.T) {
-		t.Parallel()
-		node := newFakeNode(t)
-		node.ethKeysJSON = strings.Join([]string{
-			ethKeyJSON("0xAAAA", "1", false),
-			ethKeyJSON("0xDDDD", "1", false),
-		}, ",")
-		srv := node.start()
-		client := loggedInClient(t, node, srv.URL)
-
-		_, err := client.AccountForChain(context.Background(), "1")
-		require.ErrorContains(t, err, "--account")
-	})
-}
-
 func TestCCVJobCounts(t *testing.T) {
 	t.Parallel()
 	node := newFakeNode(t)
@@ -163,11 +118,11 @@ func TestCCVJobCounts(t *testing.T) {
 func TestExportKeySendsThePasswordAndReturnsTheBody(t *testing.T) {
 	t.Parallel()
 	node := newFakeNode(t)
-	node.ethKey = newTestKey(t)
+	node.ocr2Key = newTestKey(t)
 	srv := node.start()
 	client := loggedInClient(t, node, srv.URL)
 
-	body, err := client.ExportETHKey(context.Background(), addressOf(node.ethKey), "export-password")
+	body, err := client.ExportOCR2Bundle(context.Background(), "bundle-1", "export-password")
 	require.NoError(t, err)
 	assert.Equal(t, "export-password", node.getLastNewPassword())
 	assert.NotEmpty(t, body)
