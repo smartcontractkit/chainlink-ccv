@@ -21,6 +21,7 @@ RUN addgroup -S aggregator && adduser -S aggregator -G aggregator
 
 COPY --chown=aggregator:aggregator --from=builder /bin/aggregator /bin/
 COPY --chown=aggregator:aggregator --from=builder /app/aggregator/migrations /migrations
+COPY --from=builder /app/aggregator/LICENSE /licenses/chainlink-ccv/LICENSE
 WORKDIR /app
 RUN chown aggregator:aggregator /app && ln -s /migrations /app/migrations || true
 USER aggregator:aggregator
