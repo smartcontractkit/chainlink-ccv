@@ -117,10 +117,18 @@ jobs:
             pattern: TestChaos_EVMRPCFailover
             profile: standard.rpc-failover.profile
             timeout: 15m
-          - name: (TestChaos_VerifierFaultToleranceThresholdViolated|TestChaos_AllExecutorsDown|TestChaos_IndexerDown)
-            pattern: (TestChaos_VerifierFaultToleranceThresholdViolated|TestChaos_AllExecutorsDown|TestChaos_IndexerDown)
+          - name: TestChaos_VerifierFaultToleranceThresholdViolated
+            pattern: TestChaos_VerifierFaultToleranceThresholdViolated
             profile: standard.profile
-            timeout: 5m
+            timeout: 10m
+          - name: TestChaos_AllExecutorsDown
+            pattern: TestChaos_AllExecutorsDown
+            profile: standard.profile
+            timeout: 10m
+          - name: TestChaos_IndexerDown
+            pattern: TestChaos_IndexerDown
+            profile: standard.profile
+            timeout: 10m
           - name: TestE2ESmoke_AggregatorMessageDisablementRules
             pattern: TestE2ESmoke_Aggregator(MessageDisablementRulesCLI|LaneDisablementRule|ChainDisablementRule)
             profile: standard.src-auto-mine.profile
