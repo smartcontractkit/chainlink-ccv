@@ -33,6 +33,11 @@ runs:
     - name: Upgrade chainlink-ccv dependency to current commit
       working-directory: ${{ github.workspace }}/chainlink-repo
       shell: bash
+      env:
+        # chainlink-ccv's go.mod may require a newer Go than chainlink-repo's own go.mod pins.
+        # actions/setup-go sets GOTOOLCHAIN=local by default; allow auto-download so `go get`/`make
+        # gomodtidy` can transparently fetch a newer toolchain instead of hard-failing.
+        GOTOOLCHAIN: auto
       run: |
         # For merge queue runs, prefer the queue ref name over synthetic SHA.
         # Synthetic SHAs may be checkout-able by Actions but not always resolvable as module versions.
