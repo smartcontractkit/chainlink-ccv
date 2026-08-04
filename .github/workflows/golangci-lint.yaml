@@ -48,10 +48,10 @@ jobs:
           echo "gomods_version=$VERSION_GOMODS" >> "$GITHUB_OUTPUT"
 
       - name: Install golangci-lint
-        uses: golangci/golangci-lint-action@0a35821d5c230e903fcfe077583637dea1b27b47 #v9.0.0
-        with:
-          version: "v${{ steps.tool-versions.outputs.golangci_lint_version }}"
-          install-only: true
+        # Built from source (rather than golangci-lint-action's prebuilt release binary) so it's
+        # compiled with the same Go toolchain setup-go just installed. ensure-golangci-lint (in
+        # tools/lib/utils.justfile) requires this to match after a Go version bump.
+        run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v${{ steps.tool-versions.outputs.golangci_lint_version }}
 
       - name: Install just
         uses: extractions/setup-just@e33e0265a09d6d736e2ee1e0eb685ef1de4669ff # v3
