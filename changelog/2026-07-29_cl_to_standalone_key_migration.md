@@ -43,8 +43,9 @@ be unmounted once the process has come up once.
 
 ## New: `ccv migrate export` and `ccv migrate inspect`
 
-The verifier and executor images ship a `ccv migrate` command group that replaces the manual half
-of the key export. `ccv migrate export` talks to the node's API and, in one command: runs the
+The verifier image ships a `ccv migrate` command group that replaces the manual half of the key
+export. Only the verifier's signing key is exported, so the executor image does not carry it. `ccv
+migrate export` talks to the node's API and, in one command: runs the
 one-verifier-job preflight, resolves the EVM OCR2 bundle from the node's own listing (the same source
 the node's JD chain config was built from), exports it under a generated password, verifies the
 export decodes to the identity the node registered, and writes a ready-made `[key_import]` snippet

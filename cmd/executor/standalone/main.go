@@ -12,11 +12,6 @@ import (
 )
 
 func main() {
-	if len(os.Args) >= 2 && os.Args[1] == "ccv" {
-		cmdexecutor.RunCCVCLI(os.Args[1:])
-		return
-	}
-
 	// The lifecycle is chosen by the bootstrap config's app_config_mode key (not a flag or env var):
 	// "jd_app_config" (default) runs against a Job Distributor; "local_app_config" reads the app
 	// config from local_app_config_path with no JD.

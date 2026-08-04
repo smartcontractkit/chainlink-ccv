@@ -97,8 +97,8 @@ Have ready:
   a connection string: the schema is created on first boot and left alone on every boot after, so
   there is nothing to migrate by hand.
 - The Chainlink node's TOML configuration file.
-- The verifier and executor images you are about to deploy. The export tool ships in both as
-  `ccv migrate`, so there
+- The verifier and executor images you are about to deploy. The export tool ships in the verifier
+  image as `ccv migrate`, so there
   is nothing separate to install.
 
 ## Step 1: export the signing key (node operator)

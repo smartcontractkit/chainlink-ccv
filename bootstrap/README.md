@@ -182,10 +182,10 @@ password_path = "/etc/ccv/migration/export-password.txt"
 expected_id   = "0x1234...abcd"
 ```
 
-The `ccv migrate` commands in the verifier and executor images produce all of this: `ccv migrate
-export` exports the key from the node, verifies it, and writes this block with `expected_id`
-already filled in; `ccv migrate inspect` prints the identity a mounted file carries, to confirm the
-right file before boot.
+The `ccv migrate` commands in the verifier image produce all of this: `ccv migrate export` exports
+the signing key from the node, verifies it, and writes this block with `expected_id` already filled
+in; `ccv migrate inspect` prints the identity a mounted file carries, to confirm the right file
+before boot.
 
 Two paths and a check. The section names neither the keystore key nor the export format: an
 application declares exactly one key it can import into, so the target is unambiguous, and the
