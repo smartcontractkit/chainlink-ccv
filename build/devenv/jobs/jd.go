@@ -364,12 +364,13 @@ func WaitForNodeConnection(ctx context.Context, jdClient offchain.Client, nodeID
 				continue
 			}
 
-			if nodeResp.Node != nil && nodeResp.Node.IsConnected {
+			isConnected := nodeResp.Node != nil && nodeResp.Node.IsConnected
+			if isConnected {
 				Plog.Info().Str("nodeID", nodeID).Msg("Node connected to JD")
 				return nil
 			}
 
-			Plog.Debug().Str("nodeID", nodeID).Bool("isConnected", nodeResp.Node.IsConnected).Msg("Node not yet connected, waiting...")
+			Plog.Debug().Str("nodeID", nodeID).Bool("isConnected", isConnected).Msg("Node not yet connected, waiting...")
 		}
 	}
 }

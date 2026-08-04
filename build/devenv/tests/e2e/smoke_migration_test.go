@@ -17,6 +17,7 @@ import (
 	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/jobs"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/migration"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/tcapi"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/tcapi/basic"
 	ccvshared "github.com/smartcontractkit/chainlink-ccv/deployment/shared"
@@ -377,6 +378,18 @@ func proposeStandaloneJobs(
 
 	require.NotEmpty(t, proposals, "no job specs to propose after the cutover")
 	require.NoError(t, migration.ProposeJobs(ctx, jdClient, proposals))
+
+	// The lifecycle manager parks a job it cannot start and does not retry it, so a failed start
+	// would otherwise surface minutes later as the post-cutover message never executing. Wait for
+	// each executor to report ready, so a start failure names itself here instead.
+	for _, exec := range in.Executor {
+		if exec == nil || exec.Out == nil || exec.Out.JDNodeID == "" {
+			continue
+		}
+		require.NoErrorf(t,
+			services.WaitForApplicationReady(ctx, exec.Out.BootstrapDBURL, services.DefaultApplicationReadyTimeout),
+			"executor %s did not become ready after the job proposal", exec.ContainerName)
+	}
 }
 
 func sendAndConfirm(t *testing.T, ctx context.Context, lib ccv.Lib, src, dst uint64) {
