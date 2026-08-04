@@ -14,6 +14,7 @@ import (
 
 	"github.com/BurntSushi/toml"
 	"github.com/ethereum/go-ethereum/crypto"
+	"github.com/testcontainers/testcontainers-go"
 
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
 	"github.com/smartcontractkit/chainlink-ccv/common/monitoring"
@@ -50,6 +51,13 @@ type BootstrapInput struct {
 	// Populated at launch time from the blockchain outputs so the bootstrapper
 	// syncs the node's signing key to JD on connect.
 	Chains []bootstrap.ChainRegistration `toml:"-"`
+	// CLMIGRATION: KeyImport adopts a key exported from a Chainlink node instead of generating a
+	// fresh one. Nil for a normal environment; populated by the CL-to-standalone cutover, which
+	// pairs it with KeyImportFiles so the declared paths exist in the container. Build both with
+	// BuildKeyImport rather than by hand. Delete when the cutover is complete.
+	KeyImport *bootstrap.KeyImport `toml:"-"`
+	// KeyImportFiles are the exported key file and password file backing KeyImport.
+	KeyImportFiles []testcontainers.ContainerFile `toml:"-"`
 }
 
 func ApplyBootstrapDefaults(in BootstrapInput) BootstrapInput {
@@ -106,6 +114,7 @@ func GenerateBootstrapConfig(in BootstrapInput) ([]byte, error) {
 		JD:                 *in.JD,
 		Server:             *in.Server,
 		Chains:             in.Chains,
+		KeyImport:          in.KeyImport,
 		Monitoring:         in.Monitoring,
 	})
 }

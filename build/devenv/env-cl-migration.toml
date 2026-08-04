@@ -1,0 +1,394 @@
+## CL-mode topology for the CL-to-standalone migration test.
+##
+## This is deliberately narrower than env-cl.toml: one committee with one aggregator, so each node
+## operator runs exactly one committee verifier job and one executor job. That is the shape Solana
+## and Canton already run standalone in production, and it is the shape a standalone process can
+## take over — a process runs a single job, so an operator holding several verifier jobs would need
+## several processes and could not hand its one JD record to any of them.
+##
+## The secondary and tertiary committees from env-cl.toml are absent for the same reason. They exist
+## there to exercise multi-committee routing, which is orthogonal to the migration.
+##
+## This file is self-contained rather than an overlay on env.toml, which is why the second half
+## repeats env.toml's blockchain, indexer and JD sections. Committees are a TOML *map*, so an
+## overlay can only add to or repoint them, never remove one: layering a single-committee topology
+## over env.toml leaves its secondary and tertiary committees in place, still pointing at NOP
+## aliases the overlay's nops array replaced, and topology validation rejects that with
+## `committee "tertiary" ... references unknown NOP alias`. Nor can those committees be neutered by
+## pointing them at an empty NOP list — CommitteeConfig.Validate requires at least one NOP per
+## chain. In CL mode each NOP alias needs its own Chainlink node, so keeping them satisfied would
+## mean running four nodes to migrate two.
+##
+## Those inherited sections are copied verbatim except where they name a committee: the aggregator
+## array and the indexer's Discoveries, Verifier and committee_verifier_name_to_qualifier entries
+## are cut down to the one committee this environment deploys. The cost of being self-contained is
+## that changes to the inherited sections in env.toml have to be mirrored here.
+
+## Same amounts env.toml funds CL node keys with. Omitting them is not equivalent to inheriting
+## them: toBigUnits falls back to 1 LINK and 5 ETH for a non-positive value, silently.
+cl_nodes_funding_eth = 50
+cl_nodes_funding_link = 50
+
+## HA is off, as it is in env.toml. The migration test is about one committee's jobs moving hosts,
+## and the redundancy counts on [[aggregator]] and [[indexer]] below only take effect when it is on.
+high_availability = false
+
+[environment_topology]
+indexer_address = ["http://indexer-1:8100"]
+
+[environment_topology.Monitoring]
+LogLevel = 'debug'
+
+[environment_topology.Monitoring.Pyroscope]
+Enabled = true
+URL = "http://host.docker.internal:4040"
+
+[environment_topology.Monitoring.Beholder]
+Enabled = true
+InsecureConnection = true
+OtelExporterHTTPEndpoint = "host.docker.internal:4318"
+LogStreamingEnabled = true
+MetricReaderInterval = 5
+TraceSampleRatio = 1.0
+TraceBatchTimeout = 10
+[environment_topology.Monitoring.Beholder.TelemetryAttributes]
+ccip_env = "devenv"
+
+[[environment_topology.nop_topology.nops]]
+alias = "node-0"
+name = "node-0"
+
+[[environment_topology.nop_topology.nops]]
+alias = "node-1"
+name = "node-1"
+
+[environment_topology.nop_topology.committees.default]
+qualifier = "default"
+verifier_version = "2.0.0"
+
+[[environment_topology.nop_topology.committees.default.aggregators]]
+name = "default"
+address = "default-aggregator:50051"
+insecure_connection = true
+
+[environment_topology.nop_topology.committees.default.chain_configs.3379446385462418246]
+nop_aliases = ["node-0", "node-1"]
+threshold = 2
+
+[environment_topology.nop_topology.committees.default.chain_configs.12922642891491394802]
+nop_aliases = ["node-0", "node-1"]
+threshold = 2
+
+[environment_topology.nop_topology.committees.default.chain_configs.4793464827907405086]
+nop_aliases = ["node-0", "node-1"]
+threshold = 2
+
+[environment_topology.executor_pools.default]
+indexer_query_limit = 100
+backoff_duration = 15_000_000_000
+lookback_window = 3_600_000_000_000
+reader_cache_expiry = 300_000_000_000
+max_retry_duration = 28_800_000_000_000
+worker_count = 100
+ntp_server = "time.google.com"
+
+[environment_topology.executor_pools.default.chain_configs."3379446385462418246"]
+nop_aliases = ["node-0", "node-1"]
+execution_interval = 15_000_000_000
+
+[environment_topology.executor_pools.default.chain_configs."12922642891491394802"]
+nop_aliases = ["node-0", "node-1"]
+execution_interval = 15_000_000_000
+
+[environment_topology.executor_pools.default.chain_configs."4793464827907405086"]
+nop_aliases = ["node-0", "node-1"]
+execution_interval = 15_000_000_000
+
+[[nodesets]]
+  name = "don"
+  nodes = 2
+  override_mode = "each"
+
+  [nodesets.db]
+    image = "postgres:15.0"
+
+  [[nodesets.node_specs]]
+
+    [nodesets.node_specs.node]
+      docker_ctx = "../../../chainlink"
+      docker_file = "plugins/chainlink.Dockerfile"
+
+    [nodesets.node_specs.node.env_vars]
+      CL_EVM_CMD=""
+
+  [[nodesets.node_specs]]
+
+    [nodesets.node_specs.node]
+      docker_ctx = "../../../chainlink"
+      docker_file = "plugins/chainlink.Dockerfile"
+
+    [nodesets.node_specs.node.env_vars]
+      CL_EVM_CMD=""
+
+## Only the default aggregator. env.toml declares three, one per committee; restating the array here
+## replaces it wholesale so the secondary and tertiary aggregators are not started for a committee
+## this environment does not have. The api_clients must keep naming the verifier container names,
+## which is the key bakeNodeSecrets matches on when it wires HMAC credentials into the CL nodes.
+[[aggregator]]
+  committee_name = "default"
+  image = "aggregator:latest"
+  host_port = 50051
+  redundant_aggregators = 1
+  source_code_path = "../aggregator"
+  root_path = "../../"
+
+  [aggregator.db]
+    image = "postgres:16-alpine"
+    host_port  = 7432
+
+  [aggregator.redis]
+    image = "redis:7-alpine"
+    host_port  = 6379
+
+  [[aggregator.api_clients]]
+  client_id = "default-verifier-1"
+  enabled = true
+  groups = ["verifiers"]
+
+  [[aggregator.api_clients]]
+  client_id = "default-verifier-2"
+  enabled = true
+  groups = ["verifiers"]
+
+  [[aggregator.api_clients]]
+  client_id = "monitoring"
+  enabled = true
+  groups = ["monitoring"]
+
+  [[aggregator.api_clients]]
+  client_id = "indexer"
+  enabled = true
+  groups = ["indexer"]
+
+  [aggregator.env]
+    storage_connection_url = "postgresql://aggregator:aggregator@default-aggregator-db:5432/aggregator?sslmode=disable"
+    redis_address = "default-aggregator-redis:6379"
+    redis_password = ""
+    redis_db = "0"
+
+## The verifier and executor entries carry mode = "cl": no container is launched for them, and they
+## exist to describe which NOP runs what. The migration flips these to standalone at cutover time
+## and launches them then, which is why they carry full container, image and DB settings.
+
+[[verifier]]
+  mode = "cl"
+  image = "verifier:latest"
+  container_name = "default-verifier-1"
+  nop_alias = "node-0"
+  port = 8100
+  source_code_path = "../verifier"
+  root_path = "../../"
+  committee_name = "default"
+  node_index = 0
+  insecure_aggregator_connection = true
+  [verifier.db]
+    image = "postgres:16-alpine"
+    name = "default-verifier-1-db"
+    port = 8432
+
+[[verifier]]
+  mode = "cl"
+  image = "verifier:latest"
+  container_name = "default-verifier-2"
+  nop_alias = "node-1"
+  port = 8200
+  source_code_path = "../verifier"
+  root_path = "../../"
+  committee_name = "default"
+  node_index = 1
+  insecure_aggregator_connection = true
+  [verifier.db]
+    image = "postgres:16-alpine"
+    name = "default-verifier-2-db"
+    port = 8433
+
+[[executor]]
+  mode = "cl"
+  image = "executor:latest"
+  source_code_path = "../executor"
+  root_path = "../../"
+  container_name = "default-executor-1"
+  nop_alias = "node-0"
+  executor_qualifier = "default"
+  [executor.db]
+    image = "postgres:16-alpine"
+    name = "default-executor-1-db"
+
+[[executor]]
+  mode = "cl"
+  image = "executor:latest"
+  source_code_path = "../executor"
+  root_path = "../../"
+  container_name = "default-executor-2"
+  nop_alias = "node-1"
+  executor_qualifier = "default"
+  [executor.db]
+    image = "postgres:16-alpine"
+    name = "default-executor-2-db"
+
+## ─────────────────────────────────────────────────────────────────────────────────────────────
+## Copied verbatim from env.toml. See the header for why this file cannot be an overlay on it.
+## ─────────────────────────────────────────────────────────────────────────────────────────────
+
+[protocol_contracts]
+
+## Environment configuration define the topology. Eventually the topology should be the only config that is needed.
+
+[cldf]
+
+[jd]
+  csa_encryption_key = "d1093c0060d50a3c89c189b2e485da5a3ce57f3dcb38ab7e2c0d5f0bb2314a44" # any random 32 byte hex string
+  image = "job-distributor:local"
+
+[[blockchains]]
+  container_name = "blockchain-src"
+  chain_id = "1337"
+  docker_cmd_params = ["-b", "1", "--mixed-mining", "--slots-in-an-epoch", "1"]
+  image = "ghcr.io/foundry-rs/foundry:latest"
+  port = "8545"
+  type = "anvil"
+
+[[blockchains]]
+  container_name = "blockchain-dst"
+  chain_id = "2337"
+  docker_cmd_params = ["-b", "1", "--mixed-mining", "--slots-in-an-epoch", "1"]
+  image = "ghcr.io/foundry-rs/foundry:latest"
+  port = "8555"
+  type = "anvil"
+
+[[blockchains]]
+  container_name = "blockchain-3rd"
+  chain_id = "3337"
+  docker_cmd_params = ["-b", "1", "--mixed-mining", "--slots-in-an-epoch", "1"]
+  image = "ghcr.io/foundry-rs/foundry:latest"
+  port = "8565"
+  type = "anvil"
+
+[fake]
+  image = "ccv-fakes:latest"
+  port = 9111
+  source_code_path = "../build/devenv/fakes"
+  root_path = "../../"
+
+## Default Verifier Setup
+
+[[token_verifier]]
+  mode = "standalone"
+  image = "token-verifier:latest"
+  container_name = "token-verifier-1"
+  port = 8700
+  source_code_path = "../verifier"
+  root_path = "../../"
+  [token_verifier.db]
+    image = "postgres:16-alpine"
+    name = "token-verifier-1-db"
+    port = 8450
+
+[[indexer]]
+  image = "indexer:latest"
+  port = 8104
+  # will spawn additional indexers IF high_availability is set to true
+  redundant_indexers = 1
+  source_code_path = "../indexer"
+  root_path = "../../"
+  storage_connection_url = "postgresql://indexer:indexer@indexer-db:5432/indexer?sslmode=disable"
+  [indexer.db]
+    image = "postgres:16-alpine"
+  # Optional: full DB connection string (container-to-container). When set, used for storage config and output.
+
+[indexer.indexer_config]
+LogLevel = 'debug'
+
+[indexer.indexer_config.Monitoring]
+LogLevel = 'debug'
+
+[indexer.indexer_config.Monitoring.Pyroscope]
+Enabled = false
+URL = ''
+
+[indexer.indexer_config.Monitoring.Beholder]
+Enabled = true
+InsecureConnection = true
+CACertFile = ''
+OtelExporterGRPCEndpoint = ''
+OtelExporterHTTPEndpoint = 'host.docker.internal:4318'
+LogStreamingEnabled = true
+MetricReaderInterval = 5
+TraceSampleRatio = 1.0
+TraceBatchTimeout = 10
+
+[indexer.indexer_config.Monitoring.Beholder.TelemetryAttributes]
+ccip_env = "devenv"
+
+## Only the default aggregator is discoverable here; see the aggregator array above.
+[[indexer.indexer_config.Discoveries]]
+Address = "default-aggregator:50051"
+Since = 0
+PollInterval = 500
+Timeout = 5000
+NtpServer = "time.google.com"
+
+[indexer.indexer_config.Scheduler]
+TickerInterval = 50
+VerificationVisibilityWindow = 28800
+BaseDelay = 100
+MaxDelay = 30_000
+
+[indexer.indexer_config.Pool]
+ConcurrentWorkers = 1000
+WorkerTimeout = 300
+
+[[indexer.indexer_config.Verifier]]
+Type = "aggregator"
+Name = "CommiteeVerifier (Primary)"
+Address = "default-aggregator:50051"
+InsecureConnection = true
+BatchSize = 100
+MaxBatchWaitTime = 50
+Since = 0
+
+[[indexer.indexer_config.Verifier]]
+Type = "rest"
+Name = "Token Verifier (Primary)"
+BaseURL = "http://token-verifier-1:8100/v1"
+BatchSize = 10
+MaxBatchWaitTime = 100
+Since = 0
+
+## One entry, matching the single committee. Every name listed here has its qualifier resolved to a
+## deployed CommitteeVerifier address while the indexer config is generated, so naming a committee
+## this environment does not deploy fails environment startup outright.
+[indexer.committee_verifier_name_to_qualifier]
+"CommiteeVerifier (Primary)" = "default"
+
+[indexer.cctp_verifier_name_to_qualifier]
+"Token Verifier (Primary)" = ""
+
+[indexer.lombard_verifier_name_to_qualifier]
+"Token Verifier (Primary)" = "LombardVerifierResolver"
+
+[indexer.indexer_config.Storage]
+Strategy = "single"
+
+[indexer.indexer_config.Storage.Single]
+Type = "postgres"
+
+[indexer.indexer_config.Storage.Single.Postgres]
+MaxOpenConnections = 20
+MaxIdleConnections = 5
+IdleInTxSessionTimeout = 60
+LockTimeout = 30
+
+[indexer.secrets.Storage.Single.Postgres]
+# Host must be the DB container name (indexer-db), not the indexer service (indexer).
+URI = "postgresql://indexer:indexer@indexer-db:5432/indexer?sslmode=disable"
