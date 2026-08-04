@@ -10,9 +10,10 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
 )
 
-// KeyImportDirContainerPath is where devenv mounts an exported Chainlink node key inside a
-// standalone container. The path is devenv's own convention; a real deployment picks its own and
-// names it in the bootstrap config's [key_import] section.
+// CLMIGRATION: KeyImportDirContainerPath is where devenv mounts an exported Chainlink node key
+// inside a standalone container. The path is devenv's own convention; a real deployment picks its
+// own and names it in the bootstrap config's [key_import] section. Delete this file when the
+// cutover is complete.
 const KeyImportDirContainerPath = "/etc/ccv/migration"
 
 const (

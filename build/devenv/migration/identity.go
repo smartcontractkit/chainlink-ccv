@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os/exec"
 	"strings"
-	"time"
 
 	"github.com/smartcontractkit/chainlink-deployments-framework/offchain"
 	nodev1 "github.com/smartcontractkit/chainlink-protos/job-distributor/v1/node"
@@ -71,42 +70,6 @@ func AdoptJDIdentity(ctx context.Context, jdClient offchain.Client, nodeID, name
 		return fmt.Errorf("failed to repoint JD node %s (%s) at the standalone CSA key: %w", name, nodeID, err)
 	}
 	return nil
-}
-
-// WaitForNodeConnected blocks until JD reports the node as connected, which after AdoptJDIdentity
-// means the standalone process has authenticated with the adopted record. Without this wait, job
-// proposals can be sent to a record whose new owner has not dialed in yet and sit unclaimed.
-func WaitForNodeConnected(ctx context.Context, jdClient offchain.Client, nodeID string, timeout time.Duration) error {
-	if jdClient == nil {
-		return fmt.Errorf("JD client is required to wait for node %s", nodeID)
-	}
-	if nodeID == "" {
-		return fmt.Errorf("node ID is required to wait for a JD connection")
-	}
-	deadline := time.Now().Add(timeout)
-	ticker := time.NewTicker(2 * time.Second)
-	defer ticker.Stop()
-
-	var lastErr error
-	for {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-ticker.C:
-			resp, err := jdClient.GetNode(ctx, &nodev1.GetNodeRequest{Id: nodeID})
-			if err != nil {
-				lastErr = err
-			} else if resp.GetNode().GetIsConnected() {
-				return nil
-			}
-			if time.Now().After(deadline) {
-				if lastErr != nil {
-					return fmt.Errorf("timed out waiting for JD node %s to connect, last error: %w", nodeID, lastErr)
-				}
-				return fmt.Errorf("timed out waiting for JD node %s to connect", nodeID)
-			}
-		}
-	}
 }
 
 // StopCLNodes stops the given Chainlink node containers and waits for them to exit. It is the step

@@ -433,7 +433,7 @@ func adoptVerifierIdentities(
 			nopResult.VerifierJDNodeID, ver.NOPAlias, ver.Out.BootstrapKeys.CSAPublicKey); err != nil {
 			return err
 		}
-		if err := WaitForNodeConnected(ctx, in.JDInfra.OffchainClient,
+		if err := jobs.WaitForNodeConnection(ctx, in.JDInfra.OffchainClient,
 			nopResult.VerifierJDNodeID, nodeConnectTimeout); err != nil {
 			return fmt.Errorf("verifier %s: %w", ver.ContainerName, err)
 		}

@@ -337,7 +337,14 @@ func createAndVerifyChainConfig(
 	})
 }
 
-func waitForNodeConnection(ctx context.Context, jdClient offchain.Client, nodeID string, timeout time.Duration) error {
+// WaitForNodeConnection polls JD until the node reports connected or the timeout expires.
+func WaitForNodeConnection(ctx context.Context, jdClient offchain.Client, nodeID string, timeout time.Duration) error {
+	if jdClient == nil {
+		return fmt.Errorf("JD client is required to wait for node %s", nodeID)
+	}
+	if nodeID == "" {
+		return fmt.Errorf("node ID is required to wait for a JD connection")
+	}
 	deadline := time.Now().Add(timeout)
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
@@ -400,7 +407,7 @@ func ConnectNodesToJD(ctx context.Context, infra *JDInfrastructure, clientLookup
 
 	connectionTimeout := 60 * time.Second
 	for alias, nodeID := range infra.NodeIDMap {
-		if err := waitForNodeConnection(ctx, infra.OffchainClient, nodeID, connectionTimeout); err != nil {
+		if err := WaitForNodeConnection(ctx, infra.OffchainClient, nodeID, connectionTimeout); err != nil {
 			Plog.Warn().
 				Str("nopAlias", alias).
 				Str("nodeID", nodeID).

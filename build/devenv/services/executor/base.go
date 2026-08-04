@@ -448,9 +448,9 @@ func baseImageRequest(in *Input, envVars map[string]string, bootstrapConfigFileP
 			WithPollInterval(3 * time.Second),
 	}
 
-	// Exported Chainlink node keys, present only during a CL-to-standalone cutover. The paths here
-	// are the ones the generated bootstrap config's [key_import] section names; both come from
-	// services.BuildKeyImport.
+	// CLMIGRATION: exported Chainlink node keys, present only during a CL-to-standalone cutover.
+	// The paths here are the ones the generated bootstrap config's [key_import] section names;
+	// both come from services.BuildKeyImport. Delete when the cutover is complete.
 	if in.Bootstrap != nil {
 		req.Files = append(req.Files, in.Bootstrap.KeyImportFiles...)
 	}
