@@ -11,9 +11,11 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_5_0/operations/burn_mint_erc20_with_drip"
 	evmadapters "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/adapters"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_1_0/operations/lombard_verifier"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/mock_receiver_v2"
+	lombardsequences "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/sequences/lombard"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/versioned_verifier_resolver"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_1_0/operations/lombard_verifier"
+	lombardverifierbindings "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/lombard_verifier"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/mock_lombard_bridge"
 	changesetscore "github.com/smartcontractkit/chainlink-ccip/deployment/utils/changesets"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/adapters"
@@ -262,6 +264,14 @@ func (m *CCIP17EVMConfig) configureLombardForTransfer(
 		}
 	}
 
+	// WORKAROUND(chainlink-ccip#2199): LombardVerifier v2.1.0 added a required
+	// remoteBridgeSender arg to setPath, but the upstream configure sequence doesn't
+	// populate it and reverts with ZeroRemoteBridgeSender. Pre-set each path with the
+	// correct values so the sequence's idempotency check skips its own setPath call.
+	if err := m.presetLombardVerifierPaths(e, selector, remoteSelectors); err != nil {
+		return fmt.Errorf("failed to preset Lombard verifier paths on chain %d: %w", selector, err)
+	}
+
 	_, err = changesets.DeployLombardChains(lombardChainRegistry, registry).Apply(*e, changesets.DeployLombardChainsConfig{
 		Chains: map[uint64]changesets.LombardChainConfig{
 			selector: {
@@ -355,6 +365,87 @@ func (m *CCIP17EVMConfig) hasLombardDeployment(ds datastore.DataStore, selector 
 		devenvcommon.LombardVerifierResolverQualifier,
 	))
 	return err == nil
+}
+
+// presetLombardVerifierPaths sets the path for each remote chain directly on the
+// LombardVerifier, including the remoteBridgeSender (the remote chain's Lombard
+// bridge) that the upstream configure sequence fails to set. The lChainId and
+// allowedCaller values mirror the sequence exactly so its idempotency check skips
+// its own (reverting) setPath call.
+func (m *CCIP17EVMConfig) presetLombardVerifierPaths(
+	e *deployment.Environment,
+	selector uint64,
+	remoteSelectors []uint64,
+) error {
+	chain := e.BlockChains.EVMChains()[selector]
+	verifierRef, err := e.DataStore.Addresses().Get(datastore.NewAddressRefKey(
+		selector,
+		datastore.ContractType(lombard_verifier.ContractType),
+		semver.MustParse(lombard_verifier.Deploy.Version()),
+		lombardsequences.ContractQualifier,
+	))
+	if err != nil {
+		return fmt.Errorf("failed to get LombardVerifier address for chain %d: %w", selector, err)
+	}
+	verifier, err := lombardverifierbindings.NewLombardVerifier(common.HexToAddress(verifierRef.Address), chain.Client)
+	if err != nil {
+		return fmt.Errorf("failed to create LombardVerifier binding for chain %d: %w", selector, err)
+	}
+
+	for _, rs := range remoteSelectors {
+		// The allowed caller on the remote chain is its LombardVerifier
+		// (mirrors LombardChainAdapter.AllowedCallerOnDest).
+		remoteVerifierRef, err := e.DataStore.Addresses().Get(datastore.NewAddressRefKey(
+			rs,
+			datastore.ContractType(lombard_verifier.ContractType),
+			semver.MustParse(lombard_verifier.Deploy.Version()),
+			lombardsequences.ContractQualifier,
+		))
+		if err != nil {
+			return fmt.Errorf("failed to get LombardVerifier address for remote chain %d: %w", rs, err)
+		}
+		remoteBridgeRef, err := e.DataStore.Addresses().Get(datastore.NewAddressRefKey(
+			rs,
+			datastore.ContractType("MockLombardBridge"),
+			semver.MustParse("2.0.0"),
+			LombardContractsQualifier,
+		))
+		if err != nil {
+			return fmt.Errorf("failed to get lombard bridge address for remote chain %d: %w", rs, err)
+		}
+
+		lchainID, err := paddedLombardChainID(uint32(rs))
+		if err != nil {
+			return fmt.Errorf("failed to pad lombard chain id for chain %d: %w", rs, err)
+		}
+		allowedCaller := common.HexToAddress(remoteVerifierRef.Address).Bytes()
+		remoteBridgeSender := common.HexToAddress(remoteBridgeRef.Address).Bytes()
+
+		path, err := verifier.GetPath(nil, rs)
+		if err != nil {
+			return fmt.Errorf("failed to get path on LombardVerifier for remote chain %d: %w", rs, err)
+		}
+		wantAllowedCaller, err := toBytes32LeftPad(allowedCaller)
+		if err != nil {
+			return fmt.Errorf("failed to pad allowed caller for remote chain %d: %w", rs, err)
+		}
+		wantRemoteBridgeSender, err := toBytes32LeftPad(remoteBridgeSender)
+		if err != nil {
+			return fmt.Errorf("failed to pad remote bridge sender for remote chain %d: %w", rs, err)
+		}
+		if path.LChainId == lchainID && path.AllowedCaller == wantAllowedCaller && path.RemoteBridgeSender == wantRemoteBridgeSender {
+			continue
+		}
+
+		tx, err := verifier.SetPath(chain.DeployerKey, rs, lchainID, allowedCaller, remoteBridgeSender)
+		if err != nil {
+			return fmt.Errorf("failed to set path on LombardVerifier for remote chain %d: %w", rs, err)
+		}
+		if _, err := chain.Confirm(tx); err != nil {
+			return fmt.Errorf("failed to confirm setPath tx on LombardVerifier for remote chain %d: %w", rs, err)
+		}
+	}
+	return nil
 }
 
 func toBytes32LeftPad(b []byte) ([32]byte, error) {
