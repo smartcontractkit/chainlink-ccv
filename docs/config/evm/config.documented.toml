@@ -21,4 +21,10 @@
       # ws_url is the optional WebSocket endpoint used for head subscriptions. Nodes without one
       # fall back to HTTP head polling.
       ws_url = "ws://rpc-url.com"
+      # order is the node's selection priority, 1 (highest) through 100 (lowest). The multi-node
+      # pool prefers a lower-Order node when several are equally healthy, so an operator can keep a
+      # primary RPC ahead of its backups. Zero, the default, leaves the node unprioritized, which
+      # chainlink-evm treats as the lowest priority; a converted Chainlink node config carries each
+      # node's Order over unchanged.
+      order = 1
 

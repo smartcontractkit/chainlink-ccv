@@ -100,9 +100,10 @@ func newChainlinkEVMConfig(info Info) (*evmconfig.ChainScoped, error) {
 	return evmconfig.NewTOMLChainScopedConfig(tomlConfig), nil
 }
 
-// toChainlinkEVMNode deliberately maps only the endpoint subset owned by CCV.
-// chainlink-evm-only options such as SendOnly, Order, and IsLoadBalancedRPC
-// remain unset and therefore retain their upstream behavior.
+// toChainlinkEVMNode deliberately maps only the subset owned by CCV: the endpoint
+// pair and the node's selection priority. chainlink-evm-only options such as
+// SendOnly and IsLoadBalancedRPC remain unset and therefore retain their upstream
+// behavior.
 func toChainlinkEVMNode(info Info, index int, configured Node) (*evmtoml.Node, bool, error) {
 	httpURL := strings.TrimSpace(configured.HTTPUrl)
 	if httpURL == "" {
@@ -127,11 +128,19 @@ func toChainlinkEVMNode(info Info, index int, configured Node) (*evmtoml.Node, b
 	}
 
 	name := nodeName(info, index, configured)
-	return &evmtoml.Node{
+	node := &evmtoml.Node{
 		Name:    &name,
 		HTTPURL: parsedHTTP,
 		WSURL:   parsedWS,
-	}, parsedWS == nil, nil
+	}
+	// Zero means the operator set no priority, so leave Order nil and let chainlink-evm apply its
+	// own default. A non-zero value is passed straight through; the upstream validator rejects
+	// anything outside 1..100 when the config is built.
+	if configured.Order != 0 {
+		order := configured.Order
+		node.Order = &order
+	}
+	return node, parsedWS == nil, nil
 }
 
 func nodeName(info Info, index int, configured Node) string {

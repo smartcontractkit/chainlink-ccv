@@ -352,6 +352,7 @@ func evmConfig() evm.Config {
 						Name:    "node-1",
 						HTTPUrl: "http://rpc-url.com",
 						WSUrl:   "ws://rpc-url.com",
+						Order:   1,
 					},
 				},
 				FinalityDepth: 0,

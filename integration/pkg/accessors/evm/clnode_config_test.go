@@ -192,12 +192,34 @@ ChainID = '` + sepoliaChainID + `'
 [[EVM.Nodes]]
 Name = 'primary'
 HTTPURL = 'https://sepolia.example.com'
-Order = 50
+IsLoadBalancedRPC = true
 `))
 		require.NoError(t, err)
 		require.Len(t, got.Warnings, 1)
-		assert.Contains(t, got.Warnings[0], "Order")
+		assert.Contains(t, got.Warnings[0], "IsLoadBalancedRPC")
 		assert.Len(t, got.Config.Chains[sepoliaSelector].Nodes, 1)
+	})
+
+	t.Run("carries over per-node Order as the selection priority", func(t *testing.T) {
+		t.Parallel()
+		got, err := convertChainlinkNodeConfig([]byte(`
+[[EVM]]
+ChainID = '` + sepoliaChainID + `'
+[[EVM.Nodes]]
+Name = 'primary'
+HTTPURL = 'https://sepolia.example.com'
+Order = 50
+
+[[EVM.Nodes]]
+Name = 'backup'
+HTTPURL = 'https://sepolia-backup.example.com'
+`))
+		require.NoError(t, err)
+		assert.Empty(t, got.Warnings, "Order is a supported setting, not a dropped one")
+		nodes := got.Config.Chains[sepoliaSelector].Nodes
+		require.Len(t, nodes, 2)
+		assert.Equal(t, int32(50), nodes[0].Order, "the node's Order carries over unchanged")
+		assert.Equal(t, int32(0), nodes[1].Order, "a node with no Order stays unprioritized")
 	})
 
 	t.Run("skips a disabled chain with a warning", func(t *testing.T) {
@@ -227,8 +249,9 @@ HTTPURL = 'https://arb.example.com'
 // Warnings come out in the order the operator wrote the config, so an operator reading the startup
 // log walks their own file top to bottom. Every pair below is deliberately in the opposite order to
 // what sorting the strings would produce: arbitrum-sepolia precedes sepolia though "11155111" sorts
-// before "421614", node zeta precedes node alpha, and "dropped Order" precedes
-// "dropped IsLoadBalancedRPC".
+// before "421614", node zeta precedes node alpha, and "dropped HTTPURLExtraWrite" precedes
+// "dropped IsLoadBalancedRPC". Node zeta also sets Order, a supported setting, to prove it never
+// enters the warning stream.
 func TestConvertChainlinkNodeConfigWarningsFollowOperatorOrder(t *testing.T) {
 	t.Parallel()
 
@@ -239,6 +262,7 @@ ChainID = '` + arbSepChainID + `'
 Name = 'zeta'
 HTTPURL = 'https://arb-zeta.example.com'
 Order = 50
+HTTPURLExtraWrite = 'https://arb-zeta-write.example.com'
 IsLoadBalancedRPC = true
 
 [[EVM.Nodes]]
@@ -256,11 +280,13 @@ HTTPURLExtraWrite = 'https://sepolia-write.example.com'
 	require.NoError(t, err)
 
 	require.Equal(t, []string{
-		"chain " + arbSepChainID + " node zeta: dropped Order, standalone CCV does not expose it",
+		"chain " + arbSepChainID + " node zeta: dropped HTTPURLExtraWrite, standalone CCV does not expose it",
 		"chain " + arbSepChainID + " node zeta: dropped IsLoadBalancedRPC, standalone CCV does not expose it",
 		"chain " + arbSepChainID + " node alpha: dropped, SendOnly nodes have no standalone equivalent",
 		"chain " + sepoliaChainID + " node primary: dropped HTTPURLExtraWrite, standalone CCV does not expose it",
 	}, got.Warnings)
+	assert.Equal(t, int32(50), got.Config.Chains[arbSepSelector].Nodes[0].Order,
+		"Order is carried, not warned about")
 }
 
 // TestConvertedConfigLoadsStrictly encodes a conversion the way the CLI does and decodes it the way
@@ -281,11 +307,14 @@ BlockTime = '3s'
 Name = 'primary'
 HTTPURL = 'https://sepolia.example.com'
 WSURL = 'wss://sepolia.example.com'
+Order = 10
 [[EVM.Nodes]]
 Name = 'backup'
 HTTPURL = 'https://sepolia-backup.example.com'
 `))
 	require.NoError(t, err)
+	require.Equal(t, int32(10), converted.Config.Chains[sepoliaSelector].Nodes[0].Order,
+		"a converted Order must reach the encode/decode round-trip below")
 
 	encoded, err := toml.Marshal(converted.Config)
 	require.NoError(t, err)
