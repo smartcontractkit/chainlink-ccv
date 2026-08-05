@@ -125,12 +125,14 @@ Files written to %s:
   %s  (the password it is encrypted under, mode 0600)
   %s
 
-Next:
+Next — steps 2 onward of docs/migration/evm-cl-to-standalone.md:
 
-  1. Mount the key file and the password file into the verifier's container at the paths its
+  1. Step 2: mount the Chainlink node's own TOML config as the verifier's and executor's EVM config.
+  2. Step 3: mount the key file and the password file into the verifier's container at the paths the
      snippet names, and add the snippet's [key_import] block to the bootstrap config.
-  2. Confirm on chain that the committee signer set holds the signing address above.
-  3. Continue from step 4 of docs/migration/evm-cl-to-standalone.md (stop the Chainlink node).
+  3. Step 4, then step 5: stop the Chainlink node, then start the standalone processes.
+
+Confirm on chain that the committee's signer set holds the signing address above.
 `,
 		r.SigningAddress, outDir,
 		migration.OCR2ExportFileName, migration.PasswordFileName,
@@ -154,7 +156,8 @@ func inspectKey(keyFile, passwordFile string) error {
 	if err != nil {
 		return err
 	}
-	id, err := keys.InspectImport(keys.Import{Path: keyFile, PasswordPath: passwordFile})
+	// The format is passed through so the decode does not detect it a second time.
+	id, err := keys.InspectImport(keys.Import{Path: keyFile, PasswordPath: passwordFile, Format: format})
 	if err != nil {
 		return err
 	}

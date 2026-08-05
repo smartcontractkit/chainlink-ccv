@@ -7,9 +7,10 @@ verifier and an executor, keeping the identity anything outside the node depends
 signing key registered in the `CommitteeVerifier` signer set. It does not have to be regenerated, so
 the move needs no contract reconfiguration.
 
-The verifier imports that signing key; the executor imports nothing. It runs a single fresh
-transmitter key, funded during the cutover, in place of the node's per-chain accounts — so no gas is
-moved and the operator's old accounts are left where they are.
+The verifier imports that signing key; the executor imports nothing. It generates a single fresh
+transmitter key in place of the node's per-chain accounts, which the operator funds as part of the
+cutover. Nothing central names that address, so it needs no registration: JD registers the executor
+by its CSA key alone.
 
 The operator-facing surface is one exported file and a `[key_import]` block. The bootstrapper gained
 that section, which adopts a key exported from a Chainlink node in place of generating one, and the
@@ -53,9 +54,12 @@ with `expected_id` already filled in. The operator never transcribes a bundle ID
 password. `ccv migrate inspect` prints the identity a mounted export carries, so a wrong-node mount
 is caught before boot rather than by a process refusing to start.
 
-The client is a four-endpoint REST client in `cli/migrate`, not the Chainlink SDK or the testing
-framework: those live in the devenv module, and importing either would drag the node dependency
-graph into the production binaries.
+`cli/migrate` is only the command wiring. The export itself is in the shared `migration` package,
+which the devenv cutover and the e2e test run too, so the command an operator runs and the path CI
+exercises cannot drift apart. It talks to the node through `migration.NodeClient`
+(`migration/node_client.go`), a four-endpoint REST client rather than the Chainlink SDK or the
+testing framework: those live in the devenv module, and importing either would drag the node
+dependency graph into the production binaries.
 
 ## The EVM config needs no conversion
 
@@ -89,9 +93,18 @@ by; the executor registers a new one. Reusing the record for the verifier rather
 second is what avoids a duplicate entry for the operator alongside an abandoned one.
 
 The two processes differ in what they carry across. The verifier imports the node's signing key. The
-executor imports nothing: it generates a fresh transmitter key that the cutover funds, one account in
+executor imports nothing: it generates a fresh transmitter key that the operator funds, one account in
 place of the node's per-chain transmitters. That is the single-key executor a live deployment runs,
 brought up per operator here rather than centrally.
+
+## Generated secp256k1 keys log their EVM address
+
+`EnsureKey` now logs `evmAddress` alongside `publicKey` for `ECDSA_S256` keys, on both the
+`key created` and `key already exists` paths. The executor generates its transmitter key itself and
+the operator has to fund it, so the address had to come from somewhere; the process holding the key
+derives it rather than asking an operator to keccak a public key by hand. Other key types are
+unaffected, and a public key that fails to decode logs a warning and omits the field instead of
+failing the boot.
 
 ## Implementation notes
 

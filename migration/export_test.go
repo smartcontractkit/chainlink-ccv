@@ -75,6 +75,20 @@ func TestExportNodeKeysRefusesANodeWithSeveralVerifierJobs(t *testing.T) {
 	require.ErrorContains(t, err, "consolidated")
 }
 
+// A node with an executor job but no verifier job is the wrong node, not a node whose verifier
+// jobs need consolidating — the error has to say so, or it sends the operator after a job that
+// does not exist.
+func TestExportNodeKeysRefusesANodeWithNoVerifierJob(t *testing.T) {
+	t.Parallel()
+	node := happyNode(t)
+	node.jobsJSON = jobJSON("1", JobTypeExecutor)
+	srv := node.start()
+
+	_, err := ExportNodeKeys(context.Background(), logger.Test(t), happyConfig(node, srv.URL, t.TempDir()))
+	require.ErrorContains(t, err, "runs no "+JobTypeVerifier+" job")
+	require.NotContains(t, err.Error(), "consolidated")
+}
+
 func TestExportNodeKeysHonorsTheBundleOverride(t *testing.T) {
 	t.Parallel()
 	node := happyNode(t)

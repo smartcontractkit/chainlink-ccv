@@ -175,7 +175,17 @@ func preflightJobs(ctx context.Context, lggr logger.Logger, client *NodeClient) 
 			"confirm it is the node that runs this operator's CCV jobs before continuing")
 		return nil
 	}
-	if verifiers != 1 {
+	// Zero verifier jobs alongside at least one executor job is a different problem from several
+	// verifier jobs, and saying "consolidate them" would send the operator after a job that is not
+	// there. The likely cause is the wrong node.
+	if verifiers == 0 {
+		return fmt.Errorf(
+			"the node runs no %s job, though it runs %d %s job(s); this migration exports the verifier's "+
+				"signing key, so check that --node-url points at the node running this operator's %s job "+
+				"(docs/migration/evm-cl-to-standalone.md)",
+			JobTypeVerifier, executors, JobTypeExecutor, JobTypeVerifier)
+	}
+	if verifiers > 1 {
 		return fmt.Errorf(
 			"the node runs %d %s jobs; a standalone verifier runs a single job, so the committee's "+
 				"verifier jobs must be consolidated into one before migrating — raise it with Chainlink "+
