@@ -26,6 +26,7 @@ func registerCCTPAttestation(
 	receiver protocol.UnknownAddress,
 	status string,
 	sourceSelector, destSelector uint64,
+	sourceBurnToken, destTokenMessenger protocol.UnknownAddress,
 ) {
 	messageIDHex := "0x" + hex.EncodeToString(messageID[:])
 
@@ -35,7 +36,7 @@ func registerCCTPAttestation(
 	require.True(t, ok, "dest chain selector %d must have CCTP domain (see cctp.Domains)", destSelector)
 
 	// Build CCTP message (412 bytes total) with sourceDomain/destDomain set so contract does not revert InvalidSourceDomain
-	message := buildCCTPMessage(messageID, messageSender, receiver, sourceDomain, destDomain)
+	message := buildCCTPMessage(messageID, messageSender, receiver, sourceDomain, destDomain, sourceBurnToken, destTokenMessenger)
 
 	// Build attestation (65 bytes minimum - ECDSA signature with recovery byte)
 	attestation := buildCCTPAttestation()
@@ -86,23 +87,34 @@ func registerCCTPAttestation(
 //   - hookData (36 bytes):
 //   - verifierVersion (4 bytes): cctp.DefaultVerifierVersion (0x35a25838)
 //   - messageId (32 bytes): bytes32
-func buildCCTPMessage(messageID [32]byte, messageSender, receiver protocol.UnknownAddress, sourceDomain, destDomain uint32) string {
+func buildCCTPMessage(messageID [32]byte, messageSender, receiver protocol.UnknownAddress, sourceDomain, destDomain uint32, burnToken, destTokenMessenger protocol.UnknownAddress) string {
 	message := make([]byte, 412)
 
 	// sourceDomain (bytes 4-7) and destinationDomain (bytes 8-11) so contract InvalidSourceDomain check passes
 	binary.BigEndian.PutUint32(message[4:8], sourceDomain)
 	binary.BigEndian.PutUint32(message[8:12], destDomain)
 
-	// Fill mintRecipient field (offset 116 + 36, left-padded to 32 bytes)
-	// Solidity extraction: address(bytes20(message[116 + 36 + 12:116 + 36 + 12 + 20]))
-	// This corresponds to mintRecipient in the message body, offset by 12 bytes for left-padding
+	// recipient (header offset 76, left-padded to 32 bytes) must be the destination chain's token
+	// messenger: the message transmitter is generic, so the verifier checks the message was addressed
+	// to the token bridge.
+	copy(message[76+12:76+32], destTokenMessenger.Bytes())
+
+	// Message body starts at byte 148. Its first field is the burn message body version, which the
+	// verifier requires to be 1 to confirm the body really is a burn message.
+	binary.BigEndian.PutUint32(message[148:152], 1)
+
+	// burnToken (body offset 4, so 152, left-padded to 32 bytes). The verifier resolves
+	// (sourceDomain, burnToken) through the token messenger's minter and requires it to map to the
+	// destination chain's USDC token.
+	copy(message[152+12:152+32], burnToken.Bytes())
+
+	// mintRecipient (body offset 36, so 184, left-padded to 32 bytes).
 	receiverBytes := receiver.Bytes()
 	if len(receiverBytes) == 20 {
-		// Left-pad the 20-byte address to 32 bytes (offset 116 + 36 + 12 = 164)
-		copy(message[164:184], receiverBytes[:])
+		copy(message[184+12:184+32], receiverBytes[:])
 	} else {
 		// For non-standard address lengths, copy as-is
-		copy(message[152:184], receiverBytes[:])
+		copy(message[184:184+32], receiverBytes[:])
 	}
 
 	// Verifier version at the start (4 bytes) - NOT part of the 412 bytes, but part of verifier results

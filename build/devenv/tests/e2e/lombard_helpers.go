@@ -98,11 +98,19 @@ type LombardAttestationArgs struct {
 	Amount *big.Int
 	// MessageID is the CCIP message ID; contract checks it against bridgedMessage from mailbox.
 	MessageID protocol.Bytes32
+	// SourceBridge is the source chain's Lombard bridge, carried as the GMP envelope sender.
+	// The contract requires it to equal the remoteBridgeSender configured on the verifier path.
+	SourceBridge []byte
+	// DestBridge is the destination chain's Lombard bridge, carried as the GMP envelope recipient.
+	// The contract requires it to equal the bridge the verifier was deployed against.
+	DestBridge []byte
 }
 
 // buildLombardAttestation constructs a Lombard attestation whose rawPayload is compatible with
 // LombardVerifier.sol verifyMessage(): _validatePayload(rawPayload, ...) decodes rawPayload[4:]
-// as (bytes32, uint256, bytes32, address, bytes msgBody). The contract reads with
+// as (bytes32, uint256, bytes32 envelopeSender, address recipient, address destinationCaller,
+// bytes msgBody). _validateEnvelope requires envelopeSender to equal the path's remoteBridgeSender
+// and recipient to equal the verifier's own bridge. The contract reads with
 // mload(add(msgBody, 0x21)) for token (bytes 1-32 of msgBody data), 0x41 for sender, 0x61 for
 // recipient, 0x81 for amount. So we prepend one byte so token is at indices 1-32.
 // msgBody = [1 byte][token 32][sender 32][receiver 32][amount 32][messageId 32] = 161 bytes.
@@ -126,10 +134,13 @@ func buildLombardAttestation(args LombardAttestationArgs) string {
 	args.Amount.FillBytes(msgBody[97:129])
 	copy(msgBody[129:161], args.MessageID[:])
 
-	// rawPayload[4:] = abi.encode(bytes32, uint256, bytes32, address, bytes)
+	// rawPayload[4:] = abi.encode(bytes32, uint256, bytes32, address, address, bytes)
 	// So rawPayload = [4 byte version tag] + abiEncodedTuple.
 	zeroBytes32 := [32]byte{}
 	zeroAddr := common.Address{}
+	envelopeSender := [32]byte{}
+	copy(envelopeSender[:], common.LeftPadBytes(args.SourceBridge, 32))
+	envelopeRecipient := common.BytesToAddress(args.DestBridge)
 	bytes32Type, err := abi.NewType("bytes32", "", nil)
 	if err != nil {
 		panic("abi bytes32: " + err.Error())
@@ -154,7 +165,7 @@ func buildLombardAttestation(args LombardAttestationArgs) string {
 		{Type: addressType},
 		{Type: bytesType},
 	}
-	packed, err := packArgs.Pack(zeroBytes32, big.NewInt(0), zeroBytes32, zeroAddr, zeroAddr, msgBody)
+	packed, err := packArgs.Pack(zeroBytes32, big.NewInt(0), envelopeSender, envelopeRecipient, zeroAddr, msgBody)
 	if err != nil {
 		panic("lombard payload ABI pack: " + err.Error())
 	}
