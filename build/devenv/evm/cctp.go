@@ -17,7 +17,7 @@ import (
 	cctpverifierops "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_1_0/operations/cctp_verifier"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/mock_token_minter"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/mock_usdc_token_messenger"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/mock_usdc_token_transmitter"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/mock_usdc_token_transmitter_v2"
 	changesetscore "github.com/smartcontractkit/chainlink-ccip/deployment/utils/changesets"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/adapters"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/changesets"
@@ -452,7 +452,9 @@ func (m *CCIP17EVMConfig) deployCircleContracts(
 		return empty, empty, empty, fmt.Errorf("no CCTP domain mapping found for chain selector %d", selector)
 	}
 
-	messageTransmitterAddr, tx, _, err := mock_usdc_token_transmitter.DeployMockE2EUSDCTransmitter(
+	// The CCTP V2 transmitter mock reads mintRecipient at the V2 message body offset of 148 bytes.
+	// The V1 mock assumes a 116 byte header, which overlaps the burnToken field the CCTPVerifier reads.
+	messageTransmitterAddr, tx, _, err := mock_usdc_token_transmitter_v2.DeployMockE2EUSDCTransmitterCCTPV2(
 		chain.DeployerKey,
 		chain.Client,
 		uint32(1),     // version (CCTP V2)
@@ -467,7 +469,7 @@ func (m *CCIP17EVMConfig) deployCircleContracts(
 	}
 	err = ds.Addresses().Add(datastore.AddressRef{
 		ChainSelector: selector,
-		Type:          "MockE2EUSDCTransmitter",
+		Type:          "MockE2EUSDCTransmitterCCTPV2",
 		Version:       semver.MustParse("1.0.0"),
 		Address:       messageTransmitterAddr.Hex(),
 		Qualifier:     "",

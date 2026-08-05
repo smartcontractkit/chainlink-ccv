@@ -22,11 +22,13 @@ import (
 //
 // 1. The test calls buildLombardAttestation(args) which creates the attestation with a rawPayload
 //    that matches LombardVerifier.sol verifyMessage() and _validatePayload():
-//    - rawPayload = [versionTag (4 bytes)] + abi.encode(bytes32, uint256, bytes32, address, bytes msgBody)
-//    - msgBody = [1 byte padding][destToken 32][sender 32][receiver 32][amount 32][messageId 32] (161 bytes).
-//      The contract uses mload(add(msgBody, 0x21)) for token (bytes 1-32), 0x41/0x61/0x81 for sender/recipient/amount.
+//    - rawPayload = [versionTag (4 bytes)] + abi.encode(bytes32, uint256, bytes32 envelopeSender,
+//      address recipient, address destinationCaller, bytes msgBody)
+//    - msgBody = [version 1][destToken 32][sender 32][receiver 32][amount 32][versionTag 4][messageId 32] (165 bytes).
+//      The contract uses mload(add(msgBody, 0x21)) for token (bytes 1-32), 0x41/0x61/0x81 for sender/recipient/amount,
+//      requires msgBody[0] to be the supported bridge message version, and requires the exact 165 byte length.
 //    - deliverAndHandle(rawPayload, proof) must return bridgedMessage = versionTag (4) + messageId (32);
-//      messageId is at msgBody[129:161].
+//      the same 36 bytes are the trailing optionalMessage at msgBody[129:165].
 //    - The attestation is ABI-encoded as abi.encode(bytes rawPayload, bytes proof)
 //
 // 2. This ABI-encoded attestation is registered with the fake HTTP service via registerLombardAttestation()
@@ -112,8 +114,8 @@ type LombardAttestationArgs struct {
 // bytes msgBody). _validateEnvelope requires envelopeSender to equal the path's remoteBridgeSender
 // and recipient to equal the verifier's own bridge. The contract reads with
 // mload(add(msgBody, 0x21)) for token (bytes 1-32 of msgBody data), 0x41 for sender, 0x61 for
-// recipient, 0x81 for amount. So we prepend one byte so token is at indices 1-32.
-// msgBody = [1 byte][token 32][sender 32][receiver 32][amount 32][messageId 32] = 161 bytes.
+// recipient, 0x81 for amount, so the version byte at index 0 puts token at indices 1-32.
+// msgBody = [version 1][token 32][sender 32][receiver 32][amount 32][versionTag 4][messageId 32] = 165 bytes.
 //
 // The attestation returned is ABI-encoded as abi.encode(bytes rawPayload, bytes proof).
 // The Go verifier's ToVerifierFormat() will decode this and create the final format:
@@ -122,9 +124,9 @@ func buildLombardAttestation(args LombardAttestationArgs) string {
 	versionTag := lombard.DefaultVerifierVersion // VERSION_TAG_V2_0_0 = bytes4(keccak256("LombardVerifier 2.0.0"))
 
 	// Contract uses mload(add(msgBody, 0x21)) for token -> bytes 1-32 of msgBody data (0-indexed: [1:33]).
-	// Prepending one byte so token sits at 1-32; sender at 33-64, recipient at 65-96, amount at 97-128, messageId at 129-160.
-	msgBody := make([]byte, 161)
-	msgBody[0] = 0 // padding so token is at offset 1
+	// The version byte puts token at 1-32; sender 33-64, recipient 65-96, amount 97-128, optionalMessage 129-164.
+	msgBody := make([]byte, 165)
+	msgBody[0] = 2 // SUPPORTED_BRIDGE_MSG_VERSION
 	copy(msgBody[1:33], common.LeftPadBytes(args.DestToken, 32))
 	copy(msgBody[33:65], common.LeftPadBytes(args.Sender, 32))
 	copy(msgBody[65:97], common.LeftPadBytes(args.Receiver, 32))
@@ -132,10 +134,12 @@ func buildLombardAttestation(args LombardAttestationArgs) string {
 		args.Amount = new(big.Int)
 	}
 	args.Amount.FillBytes(msgBody[97:129])
-	copy(msgBody[129:161], args.MessageID[:])
+	// Trailing optionalMessage (36 bytes), the same shape the mock mailbox returns.
+	copy(msgBody[129:133], versionTag)
+	copy(msgBody[133:165], args.MessageID[:])
 
-	// rawPayload[4:] = abi.encode(bytes32, uint256, bytes32, address, address, bytes)
-	// So rawPayload = [4 byte version tag] + abiEncodedTuple.
+	// rawPayload[4:] = abi.encode(bytes32, uint256, bytes32 envelopeSender, address recipient,
+	// address destinationCaller, bytes). So rawPayload = [4 byte version tag] + abiEncodedTuple.
 	zeroBytes32 := [32]byte{}
 	zeroAddr := common.Address{}
 	envelopeSender := [32]byte{}
