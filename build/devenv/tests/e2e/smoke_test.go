@@ -111,6 +111,22 @@ func getUSDCTokenAddress(t *testing.T, ccvCfg *ccv.Cfg, chainSelector uint64) pr
 		"USDC")
 }
 
+func getCCTPTokenMessengerAddress(t *testing.T, ccvCfg *ccv.Cfg, chainSelector uint64) protocol.UnknownAddress {
+	return getContractAddress(t, ccvCfg, chainSelector,
+		"MockE2EUSDCTokenMessenger",
+		"1.0.0",
+		"",
+		"CCTP token messenger")
+}
+
+func getLombardBridgeAddress(t *testing.T, ccvCfg *ccv.Cfg, chainSelector uint64) protocol.UnknownAddress {
+	return getContractAddress(t, ccvCfg, chainSelector,
+		"MockLombardBridge",
+		"2.0.0",
+		common.LombardContractsQualifier,
+		"Lombard bridge")
+}
+
 func getLombardTokenAddress(t *testing.T, ccvCfg *ccv.Cfg, chainSelector uint64) protocol.UnknownAddress {
 	return getContractAddress(t, ccvCfg, chainSelector,
 		datastore.ContractType(burn_mint_erc20_with_drip_v1_5.ContractType),

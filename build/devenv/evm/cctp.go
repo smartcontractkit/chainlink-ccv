@@ -15,8 +15,9 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/usdc_token_pool_proxy"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/versioned_verifier_resolver"
 	cctpverifierops "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_1_0/operations/cctp_verifier"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/mock_token_minter"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/mock_usdc_token_messenger"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/mock_usdc_token_transmitter"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/mock_usdc_token_transmitter_v2"
 	changesetscore "github.com/smartcontractkit/chainlink-ccip/deployment/utils/changesets"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/adapters"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/changesets"
@@ -197,6 +198,10 @@ func (m *CCIP17EVMConfig) configureUSDCForTransfer(
 		}
 	}
 
+	if err := m.registerCCTPLocalTokens(env, selector, remoteSelectors, gethcommon.HexToAddress(usdc.Address)); err != nil {
+		return fmt.Errorf("failed to register CCTP local tokens on chain %d: %w", selector, err)
+	}
+
 	usdcTokenPoolRefs := usdcTokenPoolProxies(selector, remoteSelectors)
 	config := map[uint64]changesets.CCTPChainConfig{
 		selector: {
@@ -230,6 +235,81 @@ func (m *CCIP17EVMConfig) configureUSDCForTransfer(
 	}
 
 	return err
+}
+
+// registerCCTPLocalTokens teaches this chain's mock token minter which local token each remote
+// domain's burn token maps to. The CCTPVerifier resolves the attested (sourceDomain, burnToken)
+// pair through the token messenger's minter and rejects the transfer unless it resolves to the
+// local USDC token, mirroring Circle's canonical mapping.
+func (m *CCIP17EVMConfig) registerCCTPLocalTokens(
+	env *deployment.Environment,
+	selector uint64,
+	remoteSelectors []uint64,
+	localUSDC gethcommon.Address,
+) error {
+	chain, ok := env.BlockChains.EVMChains()[selector]
+	if !ok {
+		return fmt.Errorf("evm chain not found for selector %d", selector)
+	}
+
+	messengerRef, err := env.DataStore.Addresses().Get(datastore.NewAddressRefKey(
+		selector,
+		datastore.ContractType("MockE2EUSDCTokenMessenger"),
+		semver.MustParse("1.0.0"),
+		"",
+	))
+	if err != nil {
+		return fmt.Errorf("failed to get USDC token messenger address for chain %d: %w", selector, err)
+	}
+	messenger, err := mock_usdc_token_messenger.NewMockE2EUSDCTokenMessenger(gethcommon.HexToAddress(messengerRef.Address), chain.Client)
+	if err != nil {
+		return fmt.Errorf("failed to create USDC token messenger binding for chain %d: %w", selector, err)
+	}
+	minterAddr, err := messenger.ITokenMinter(nil)
+	if err != nil {
+		return fmt.Errorf("failed to get local minter for chain %d: %w", selector, err)
+	}
+	minter, err := mock_token_minter.NewMockTokenMinter(minterAddr, chain.Client)
+	if err != nil {
+		return fmt.Errorf("failed to create token minter binding for chain %d: %w", selector, err)
+	}
+
+	for _, rs := range remoteSelectors {
+		domain, ok := cctp.Domains[rs]
+		if !ok {
+			return fmt.Errorf("no CCTP domain mapping found for chain selector %d", rs)
+		}
+		remoteUSDC, err := env.DataStore.Addresses().Get(datastore.NewAddressRefKey(
+			rs,
+			datastore.ContractType(burnminterc677ops.ContractType),
+			semver.MustParse(burnminterc677ops.Deploy.Version()),
+			"",
+		))
+		if err != nil {
+			return fmt.Errorf("failed to get USDC token address for remote chain %d: %w", rs, err)
+		}
+
+		var burnToken [32]byte
+		copy(burnToken[:], gethcommon.LeftPadBytes(gethcommon.HexToAddress(remoteUSDC.Address).Bytes(), 32))
+
+		existing, err := minter.GetLocalToken(nil, domain, burnToken)
+		if err != nil {
+			return fmt.Errorf("failed to get local token for remote chain %d: %w", rs, err)
+		}
+		if existing == localUSDC {
+			continue
+		}
+
+		tx, err := minter.SetLocalToken(chain.DeployerKey, domain, burnToken, localUSDC)
+		if err != nil {
+			return fmt.Errorf("failed to set local token for remote chain %d: %w", rs, err)
+		}
+		if _, err := chain.Confirm(tx); err != nil {
+			return fmt.Errorf("failed to confirm setLocalToken tx for remote chain %d: %w", rs, err)
+		}
+	}
+
+	return nil
 }
 
 func (m *CCIP17EVMConfig) deployCCTPMockReceivers(
@@ -372,7 +452,9 @@ func (m *CCIP17EVMConfig) deployCircleContracts(
 		return empty, empty, empty, fmt.Errorf("no CCTP domain mapping found for chain selector %d", selector)
 	}
 
-	messageTransmitterAddr, tx, _, err := mock_usdc_token_transmitter.DeployMockE2EUSDCTransmitter(
+	// The CCTP V2 transmitter mock reads mintRecipient at the V2 message body offset of 148 bytes.
+	// The V1 mock assumes a 116 byte header, which overlaps the burnToken field the CCTPVerifier reads.
+	messageTransmitterAddr, tx, _, err := mock_usdc_token_transmitter_v2.DeployMockE2EUSDCTransmitterCCTPV2(
 		chain.DeployerKey,
 		chain.Client,
 		uint32(1),     // version (CCTP V2)
@@ -387,7 +469,7 @@ func (m *CCIP17EVMConfig) deployCircleContracts(
 	}
 	err = ds.Addresses().Add(datastore.AddressRef{
 		ChainSelector: selector,
-		Type:          "MockE2EUSDCTransmitter",
+		Type:          "MockE2EUSDCTransmitterCCTPV2",
 		Version:       semver.MustParse("1.0.0"),
 		Address:       messageTransmitterAddr.Hex(),
 		Qualifier:     "",
