@@ -12,12 +12,12 @@ import (
 	"github.com/stretchr/testify/require"
 
 	chain_selectors "github.com/smartcontractkit/chain-selectors"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/cctp_verifier"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/lombard_verifier"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/mock_receiver_v2"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/proxy"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/sequences"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/versioned_verifier_resolver"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_1_0/operations/cctp_verifier"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_1_0/operations/lombard_verifier"
 	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
@@ -263,7 +263,8 @@ func runUSDCTestCase(
 		"",
 		"",
 	)
-	registerCCTPAttestation(t, in.Fake.Out.ExternalHTTPURL, msgID, cctpMessageSender, tc.receiver, "complete", sourceSelector, destSelector)
+	registerCCTPAttestation(t, in.Fake.Out.ExternalHTTPURL, msgID, cctpMessageSender, tc.receiver, "complete", sourceSelector, destSelector,
+		getUSDCTokenAddress(t, in, sourceSelector), getCCTPTokenMessengerAddress(t, in, destSelector))
 	l.Info().Str("MessageID", hex.EncodeToString(msgID[:])).Msg("Registered CCTP attestation")
 
 	var aggregatorClient *ccv.AggregatorClient
@@ -393,11 +394,13 @@ func runLombardTestCase(
 	SetLombardMailboxBridgedMessageIfSupported(ctx, t, destChain, msgID)
 
 	attestation := buildLombardAttestation(LombardAttestationArgs{
-		Sender:    sender.Bytes(),
-		DestToken: destToken.Bytes(),
-		Receiver:  tc.receiver.Bytes(),
-		Amount:    tc.transferAmount,
-		MessageID: msgID,
+		Sender:       sender.Bytes(),
+		DestToken:    destToken.Bytes(),
+		Receiver:     tc.receiver.Bytes(),
+		Amount:       tc.transferAmount,
+		MessageID:    msgID,
+		SourceBridge: getLombardBridgeAddress(t, in, sourceSelector).Bytes(),
+		DestBridge:   getLombardBridgeAddress(t, in, destSelector).Bytes(),
 	})
 	registerLombardAttestation(t, in.Fake.Out.ExternalHTTPURL, messageHash, attestation, "NOTARIZATION_STATUS_SESSION_APPROVED")
 	l.Info().Str("MessageHash", messageHash.String()).Str("MessageID", hex.EncodeToString(msgID[:])).Msg("Registered Lombard attestation")

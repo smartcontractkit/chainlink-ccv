@@ -4,9 +4,10 @@ import (
 	"fmt"
 
 	rmnremote "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_0/operations/rmn_remote"
-	cctpverifier "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/cctp_verifier"
 	onrampop "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/onramp"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/versioned_verifier_resolver"
+	cctpverifier "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_1_0/operations/cctp_verifier"
+	lombardverifier "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_1_0/operations/lombard_verifier"
 	dsutils "github.com/smartcontractkit/chainlink-ccip/deployment/utils/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 
@@ -60,7 +61,7 @@ func (a *EVMCCVTokenVerifierConfigAdapter) ResolveTokenVerifierAddresses(
 		datastore.AddressRefByChainSelector(chainSelector),
 		datastore.AddressRefByType(datastore.ContractType(versioned_verifier_resolver.CCTPVerifierResolverType)),
 		datastore.AddressRefByQualifier(cctpQualifier),
-		datastore.AddressRefByVersion(versioned_verifier_resolver.Version),
+		datastore.AddressRefByVersion(cctpverifier.Version),
 	)
 	if len(cctpResolverRefs) > 1 {
 		return nil, fmt.Errorf("chain %d: expected at most 1 CCTPVerifierResolver with qualifier %q, found %d", chainSelector, cctpQualifier, len(cctpResolverRefs))
@@ -81,7 +82,7 @@ func (a *EVMCCVTokenVerifierConfigAdapter) ResolveTokenVerifierAddresses(
 		datastore.AddressRefByChainSelector(chainSelector),
 		datastore.AddressRefByType(datastore.ContractType(versioned_verifier_resolver.LombardVerifierResolverType)),
 		datastore.AddressRefByQualifier(lombardQualifier),
-		datastore.AddressRefByVersion(versioned_verifier_resolver.Version),
+		datastore.AddressRefByVersion(lombardverifier.Version),
 	)
 	if len(lombardResolverRefs) > 1 {
 		return nil, fmt.Errorf("chain %d: expected at most 1 LombardVerifierResolver with qualifier %q, found %d", chainSelector, lombardQualifier, len(lombardResolverRefs))

@@ -11,9 +11,9 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_5_0/operations/burn_mint_erc20_with_drip"
 	evmadapters "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/adapters"
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/lombard_verifier"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/mock_receiver_v2"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/versioned_verifier_resolver"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_1_0/operations/lombard_verifier"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/mock_lombard_bridge"
 	changesetscore "github.com/smartcontractkit/chainlink-ccip/deployment/utils/changesets"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/adapters"
@@ -254,11 +254,23 @@ func (m *CCIP17EVMConfig) configureLombardForTransfer(
 
 	remoteChains := make(map[uint64]adapters.RemoteLombardChainConfig)
 	for _, rs := range remoteSelectors {
+		// The LombardVerifier requires the remote chain's bridge as the expected GMP envelope sender.
+		remoteBridgeRef, err := e.DataStore.Addresses().Get(datastore.NewAddressRefKey(
+			rs,
+			datastore.ContractType("MockLombardBridge"),
+			semver.MustParse("2.0.0"),
+			LombardContractsQualifier,
+		))
+		if err != nil {
+			return fmt.Errorf("failed to get lombard bridge address for remote chain %d: %w", rs, err)
+		}
+
 		remoteChains[rs] = adapters.RemoteLombardChainConfig{
 			FeeUSDCents:        45,
 			GasForVerification: 7_500*6 + 350_000,
 			PayloadSizeBytes:   6*64 + 2*32,
 			LombardChainId:     uint32(rs),
+			RemoteBridgeSender: remoteBridgeRef.Address,
 		}
 	}
 

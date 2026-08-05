@@ -47,11 +47,11 @@ jobs:
           echo "golangci_lint_version=$VERSION_GOLANGCI_LINT" >> "$GITHUB_OUTPUT"
           echo "gomods_version=$VERSION_GOMODS" >> "$GITHUB_OUTPUT"
 
+      # Build from source with the repo's Go toolchain: the prebuilt binaries from
+      # golangci-lint-action are built with an older Go, and ensure-golangci-lint
+      # (plus golangci-lint itself) requires the binary to match go.mod's version.
       - name: Install golangci-lint
-        uses: golangci/golangci-lint-action@0a35821d5c230e903fcfe077583637dea1b27b47 #v9.0.0
-        with:
-          version: "v${{ steps.tool-versions.outputs.golangci_lint_version }}"
-          install-only: true
+        run: go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v${{ steps.tool-versions.outputs.golangci_lint_version }}
 
       - name: Install just
         uses: extractions/setup-just@e33e0265a09d6d736e2ee1e0eb685ef1de4669ff # v3
