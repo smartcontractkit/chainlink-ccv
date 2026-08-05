@@ -69,9 +69,10 @@ and translates the latter at startup, resolving chain IDs to chain selectors. An
 file their node already runs with.
 
 The node's chain defaults are applied before finality is translated, so a chain the operator never
-configured explicitly keeps the behavior it had instead of moving onto finality tags. Send-only
-nodes, `Order`, `HTTPURLExtraWrite` and `IsLoadBalancedRPC` have no standalone equivalent and are
-dropped, each logged at warn so nothing goes missing quietly.
+configured explicitly keeps the behavior it had instead of moving onto finality tags. Per-node `Order`
+carries over, so a converted node keeps its RPC prioritization. Send-only nodes, `HTTPURLExtraWrite`
+and `IsLoadBalancedRPC` have no standalone equivalent and are dropped, each logged at warn so nothing
+goes missing quietly.
 
 ## The CSA key is not exported
 

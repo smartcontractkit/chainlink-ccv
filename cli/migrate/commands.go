@@ -125,17 +125,18 @@ Files written to %s:
   %s  (the password it is encrypted under, mode 0600)
   %s
 
-Next — steps 2 onward of docs/migration/evm-cl-to-standalone.md:
+Next — continue from step 3 of docs/migration/evm-cl-to-standalone.md:
 
-  1. Step 2: mount the Chainlink node's own TOML config as the verifier's and executor's EVM config.
-  2. Step 3: mount the key file and the password file into the verifier's container at the paths the
-     snippet names, and add the snippet's [key_import] block to the bootstrap config.
-  3. Step 4, then step 5: stop the Chainlink node, then start the standalone processes.
-
-Confirm on chain that the committee's signer set holds the signing address above.
+  3. Mount your node's TOML config into both containers, mount the key and password files into the
+     verifier, and paste the [key_import] block from %s into the verifier's bootstrap config.
+  4. Stop the Chainlink node.
+  5. Start the verifier and the executor.
+  6. Send Chainlink Labs the two CSA public keys.
+  7. Fund the executor's transmitter.
 `,
 		r.SigningAddress, outDir,
 		migration.OCR2ExportFileName, migration.PasswordFileName,
+		migration.VerifierTOMLFileName,
 		migration.VerifierTOMLFileName)
 }
 
