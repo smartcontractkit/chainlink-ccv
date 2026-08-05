@@ -64,6 +64,12 @@ type Node struct {
 	// WSUrl is the optional WebSocket endpoint used for head subscriptions. Nodes without one
 	// fall back to HTTP head polling.
 	WSUrl string `json:"ws_url" toml:"ws_url,omitempty"`
+	// Order is the node's selection priority, 1 (highest) through 100 (lowest). When several nodes
+	// are equally healthy the multi-node pool prefers the one with the lowest Order value, so an
+	// operator can keep a primary RPC ahead of its backups. Zero is the default and leaves Order
+	// unset: the conversion sends no Order to chainlink-evm, which then applies its own default
+	// priority. A converted Chainlink node config carries each node's Order over unchanged.
+	Order int32 `json:"order,omitempty" toml:"order,omitempty"`
 }
 
 func (n Node) String() string {

@@ -124,8 +124,9 @@ func mergeByChainID(configs evmtoml.EVMConfigs) ([]*evmtoml.EVMConfig, error) {
 }
 
 // convertNodes maps the node's RPC endpoints onto CCV's narrower node type. CCV models one HTTP
-// endpoint and an optional WebSocket endpoint per node and nothing else, so anything a Chainlink
-// node can express beyond that is dropped with a warning rather than approximated.
+// endpoint, an optional WebSocket endpoint, and the node's selection priority (Order) per node and
+// nothing else, so anything a Chainlink node can express beyond that is dropped with a warning
+// rather than approximated.
 func convertNodes(chainID string, nodes evmtoml.EVMNodes) ([]Node, []string, error) {
 	if len(nodes) == 0 {
 		return nil, nil, fmt.Errorf("chain %s has no [[EVM.Nodes]] entries", chainID)
@@ -167,7 +168,6 @@ func convertNodes(chainID string, nodes evmtoml.EVMNodes) ([]Node, []string, err
 			isSet   bool
 		}{
 			{"HTTPURLExtraWrite", node.HTTPURLExtraWrite != nil},
-			{"Order", node.Order != nil},
 			{"IsLoadBalancedRPC", node.IsLoadBalancedRPC != nil},
 		} {
 			if dropped.isSet {
@@ -176,10 +176,18 @@ func convertNodes(chainID string, nodes evmtoml.EVMNodes) ([]Node, []string, err
 			}
 		}
 
+		// Order carries over so a converted node keeps the RPC prioritization the operator set on
+		// their Chainlink node. An unset Order stays zero, which standalone CCV leaves at the pool's
+		// lowest priority, matching how chainlink-evm treats a node with no Order.
+		var order int32
+		if node.Order != nil {
+			order = *node.Order
+		}
 		converted = append(converted, Node{
 			Name:    name,
 			HTTPUrl: urlString(node.HTTPURL),
 			WSUrl:   urlString(node.WSURL),
+			Order:   order,
 		})
 	}
 
