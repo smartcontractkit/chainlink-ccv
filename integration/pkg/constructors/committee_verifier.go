@@ -105,7 +105,6 @@ func NewVerificationCoordinator(
 			// TODO: use UnknownAddress instead of ethereum address.
 			common.HexToAddress(onRampAddrs[sel].String()),
 			common.HexToAddress(rmnRemoteAddrs[sel].String()),
-			// TODO: does this need to be configurable?
 			onramp.OnRampCCIPMessageSent{}.Topic().Hex(),
 			sel,
 			logger.With(lggr, "component", "SourceReader", "chainID", sel),
