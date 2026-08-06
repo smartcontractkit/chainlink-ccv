@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/big"
 	"sync"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -15,6 +16,7 @@ import (
 	"github.com/smartcontractkit/chainlink-common/keystore"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
+	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 	"github.com/smartcontractkit/chainlink-common/pkg/utils/mailbox"
 	"github.com/smartcontractkit/chainlink-evm/pkg/client"
 	evmconfig "github.com/smartcontractkit/chainlink-evm/pkg/config"
@@ -57,8 +59,21 @@ type standaloneChain struct {
 	closed              bool
 }
 
-func newStandaloneChain(ctx context.Context, info Info, lggr logger.Logger) (*standaloneChain, error) {
-	chainClient, chainConfig, err := newMultiNodeClientFromInfo(info, lggr)
+func newStandaloneChain(ctx context.Context, info Info, lggr logger.Logger, ds sqlutil.DataSource) (*standaloneChain, error) {
+	chainID, ok := new(big.Int).SetString(info.ChainID, 10)
+	if !ok {
+		return nil, fmt.Errorf("failed to parse EVM chain ID %q", info.ChainID)
+	}
+
+	// Build and probe the head ORM before anything is dialed or started, so a
+	// database that is unreachable or unmigrated fails with a database error and
+	// leaves nothing to roll back.
+	headORM, err := newHeadORM(ctx, chainID, ds, info.ChainID)
+	if err != nil {
+		return nil, err
+	}
+
+	chainClient, chainConfig, err := newMultiNodeClientFromInfo(info, lggr, ds != nil)
 	if err != nil {
 		return nil, err
 	}
@@ -67,7 +82,7 @@ func newStandaloneChain(ctx context.Context, info Info, lggr logger.Logger) (*st
 	mailMonitor := mailbox.NewMonitor("ccv-standalone-evm-"+info.ChainID, lggr)
 	headSaver := heads.NewSaver(
 		lggr,
-		heads.NewNullORM(),
+		headORM,
 		chainConfig.EVM(),
 		chainConfig.EVM().HeadTracker(),
 	)
@@ -98,6 +113,7 @@ func newStandaloneChain(ctx context.Context, info Info, lggr logger.Logger) (*st
 		"chainID", info.ChainID,
 		"headTracker", headTracker.Name(),
 		"nodeCount", len(chainConfig.Nodes()),
+		"headPersistence", ds != nil,
 	)
 	return &standaloneChain{
 		lggr:            lggr,
@@ -107,6 +123,33 @@ func newStandaloneChain(ctx context.Context, info Info, lggr logger.Logger) (*st
 		headTracker:     headTracker,
 		mailMonitor:     mailMonitor,
 	}, nil
+}
+
+// newHeadORM returns the ORM the head tracker saves through. With no data source
+// it returns chainlink-evm's NullORM, which leaves head history in the tracker's
+// in-memory cache; the accessor then rebuilds its chain from the RPC on every
+// start, as it did before persistence existed.
+//
+// With a data source it returns the persistent ORM and reads from it once before
+// returning. That read is the point of failure the caller wants. chainlink-evm's
+// tracker loads persisted heads from inside its listener goroutine and only logs
+// what goes wrong there, so an unreachable database or a missing evm.heads table
+// would otherwise surface as a warning on a process that looks healthy and has
+// quietly lost its head history. Probing here means Start reports the database
+// problem itself, before any service is running.
+func newHeadORM(ctx context.Context, chainID *big.Int, ds sqlutil.DataSource, chainIDStr string) (heads.ORM, error) {
+	if ds == nil {
+		return heads.NewNullORM(), nil
+	}
+
+	orm := heads.NewORM(*chainID, ds, headPersistenceBatchSize)
+	if _, err := orm.LatestHead(ctx); err != nil {
+		return nil, fmt.Errorf(
+			"failed to read persisted EVM head state for chain %s: %w; the bootstrap database must "+
+				"be reachable and migrated (evm.heads)",
+			chainIDStr, err)
+	}
+	return orm, nil
 }
 
 func (c *standaloneChain) ChainClient() (client.Client, error) {
@@ -198,6 +241,8 @@ func (c *standaloneChain) NewContractTransmitter(
 		return nil, fmt.Errorf("failed to start production EVM transaction manager: %w", err)
 	}
 
+	c.reportOrphanedTransactions(ctx, fromAddresses)
+
 	currentHead, unsubscribe := c.headBroadcaster.Subscribe(txm)
 	if currentHead != nil {
 		txm.OnNewLongestChain(ctx, currentHead)
@@ -219,6 +264,51 @@ func (c *standaloneChain) NewContractTransmitter(
 		"fromAddresses", fromAddresses,
 	)
 	return transmitter, nil
+}
+
+// reportOrphanedTransactions logs any transactions left in the mempool by a
+// previous run of this process.
+//
+// TXM v2 keeps transaction state in memory, so a restart loses every record of
+// what was in flight. It stays nonce-safe, because it reads the pending nonce
+// from the chain on start, and CCIP execution is re-driven from on-chain state
+// rather than from TXM. What is lost is the driver that rebroadcasts and gas
+// bumps a transaction that was accepted into the mempool but not yet mined: no
+// one bumps it, and transactions behind it cannot confirm until it does. TXM
+// recovers on its own once the transaction is mined or evicted (an eviction
+// leaves a nonce gap, which the backfill loop fills with an empty transaction),
+// but a stuck transaction during a gas spike can block the address for a while.
+//
+// The gap between the pending and latest nonce is exactly that count. This runs
+// before the TXM has broadcast anything, so anything it finds predates this
+// process. It reports rather than fails: the condition resolves by itself, and
+// refusing to start would leave the chain with no executor at all. A non-zero
+// count is worth alerting on.
+func (c *standaloneChain) reportOrphanedTransactions(ctx context.Context, fromAddresses []common.Address) {
+	for _, address := range fromAddresses {
+		pendingNonce, err := c.chainClient.PendingNonceAt(ctx, address)
+		if err != nil {
+			c.lggr.Warnw("Could not read pending nonce; skipping orphaned transaction check",
+				"address", address, "error", err)
+			continue
+		}
+		latestNonce, err := c.chainClient.NonceAt(ctx, address, nil)
+		if err != nil {
+			c.lggr.Warnw("Could not read latest nonce; skipping orphaned transaction check",
+				"address", address, "error", err)
+			continue
+		}
+		if pendingNonce <= latestNonce {
+			continue
+		}
+		c.lggr.Warnw("Unconfirmed transactions predate this process and will not be rebroadcast or "+
+			"gas bumped; transactions from this address cannot confirm until they are mined or evicted",
+			"address", address,
+			"count", pendingNonce-latestNonce,
+			"latestNonce", latestNonce,
+			"pendingNonce", pendingNonce,
+		)
+	}
 }
 
 // Close stops event sources before their consumers, matching chainlink-evm's

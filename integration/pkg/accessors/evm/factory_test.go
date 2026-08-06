@@ -12,6 +12,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/keystore"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 	"github.com/smartcontractkit/chainlink-evm/pkg/client"
 	"github.com/smartcontractkit/chainlink-evm/pkg/heads"
 )
@@ -172,7 +173,7 @@ func TestFactoryRejectsAccessorWithoutCapabilitiesBeforeStartingRuntime(t *testi
 		nil,
 		nil,
 		0,
-		func(context.Context, protocol.ChainSelector, logger.Logger) (chainRuntime, error) {
+		func(context.Context, protocol.ChainSelector, logger.Logger, sqlutil.DataSource) (chainRuntime, error) {
 			runtimeCalls++
 			return &stubChainRuntime{}, nil
 		},
@@ -250,7 +251,7 @@ func TestFactoryRejectsIncompleteDestinationConfigBeforeStartingRuntime(t *testi
 				nil,
 				map[protocol.ChainSelector]chainaccess.DestinationChainConfig{selector: tt.config},
 				0,
-				func(context.Context, protocol.ChainSelector, logger.Logger) (chainRuntime, error) {
+				func(context.Context, protocol.ChainSelector, logger.Logger, sqlutil.DataSource) (chainRuntime, error) {
 					runtimeCalls++
 					return &stubChainRuntime{}, nil
 				},
@@ -281,7 +282,7 @@ func TestFactoryClosesRuntimeWhenChainClientIsUnavailable(t *testing.T) {
 			},
 		},
 		0,
-		func(context.Context, protocol.ChainSelector, logger.Logger) (chainRuntime, error) {
+		func(context.Context, protocol.ChainSelector, logger.Logger, sqlutil.DataSource) (chainRuntime, error) {
 			return runtime, nil
 		},
 	)
@@ -308,7 +309,7 @@ func TestFactoryRejectsNilRuntime(t *testing.T) {
 			},
 		},
 		0,
-		func(context.Context, protocol.ChainSelector, logger.Logger) (chainRuntime, error) {
+		func(context.Context, protocol.ChainSelector, logger.Logger, sqlutil.DataSource) (chainRuntime, error) {
 			return nil, nil
 		},
 	)
@@ -336,7 +337,7 @@ func TestFactoryIncludesRuntimeCloseFailureInComponentError(t *testing.T) {
 			},
 		},
 		0,
-		func(context.Context, protocol.ChainSelector, logger.Logger) (chainRuntime, error) {
+		func(context.Context, protocol.ChainSelector, logger.Logger, sqlutil.DataSource) (chainRuntime, error) {
 			return runtime, nil
 		},
 	)

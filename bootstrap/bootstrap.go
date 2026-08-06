@@ -16,6 +16,7 @@ import (
 	"github.com/BurntSushi/toml"
 	"github.com/grafana/pyroscope-go"
 	"github.com/jmoiron/sqlx"
+	"github.com/scylladb/go-reflectx"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 
 	pb "github.com/smartcontractkit/chainlink-protos/orchestrator/feedsmanager"
@@ -30,6 +31,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-common/keystore"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 )
 
 const (
@@ -105,6 +107,10 @@ type runner struct {
 	deps             ServiceDeps
 	accCloser        *AccessorCloserRegistry
 	applicationReady *atomic.Bool
+	// accessorDS is shared with accessor factories so they can hold state across a restart. It is
+	// deliberately not part of ServiceDeps: accessors are the intended consumers, and applications
+	// reach their own storage through their own config rather than the bootstrap database.
+	accessorDS sqlutil.DataSource
 }
 
 var (
@@ -168,7 +174,7 @@ func (r *runner) StartJob(ctx context.Context, config string) (startErr error) {
 	// Initialize registry, wrapping it so the keystore is injected into any
 	// Accessor that implements KeystoreSetter.
 	// Registry chain: NewRegistry > KeystoreRegistry (keystore injection) > AccessorCloserRegistry (accessor cleanup tracking).
-	reg, err := chainaccess.NewRegistry(r.lggr, spec.AppConfig)
+	reg, err := chainaccess.NewRegistry(r.lggr, spec.AppConfig, chainaccess.WithDataSource(r.accessorDS))
 	if err != nil {
 		return fmt.Errorf("failed to create registry: %w", err)
 	}
@@ -243,6 +249,10 @@ type Bootstrapper struct {
 
 	// accCloser is set by startLocal; JD mode uses runner.accCloser instead.
 	accCloser *AccessorCloserRegistry
+
+	// accessorDS is the data source shared with accessor factories in local mode; JD mode uses
+	// runner.accessorDS instead. Nil when no database is configured, which local mode allows.
+	accessorDS sqlutil.DataSource
 
 	// svcCancel cancels the long-lived context that backs the local-mode config watcher and the
 	// service it eventually starts. It is nil unless local mode is waiting for its app config file
@@ -434,7 +444,13 @@ func (b *Bootstrapper) startWithJDLifecycle(ctx context.Context) error {
 		Keystore: keyStore,
 	}
 
-	jobRunner := &runner{lggr: b.lggr, fac: b.fac, deps: deps, applicationReady: &b.applicationReady}
+	jobRunner := &runner{
+		lggr:             b.lggr,
+		fac:              b.fac,
+		deps:             deps,
+		applicationReady: &b.applicationReady,
+		accessorDS:       accessorDataSource(db),
+	}
 
 	// b.keys is populated by WithKey options; collect names of signing keys to publish.
 	var signingKeyNames []string
@@ -520,6 +536,9 @@ func (b *Bootstrapper) startLocal(ctx context.Context) error {
 	// Services that sign (committee verifier, executor) supply them; the token verifier does not.
 	var keyStore keystore.Keystore
 	var csaSigner crypto.Signer
+	// dbConn is set only on the postgres path below, and only when a database is configured. It
+	// backs the accessor data source, so local mode without a database runs accessors in memory.
+	var dbConn *sqlx.DB
 
 	// Validate backend string so a typo fails loudly instead of silently falling
 	// back to the postgres path and running keystore-less.
@@ -543,6 +562,7 @@ func (b *Bootstrapper) startLocal(ctx context.Context) error {
 			if err != nil {
 				return fmt.Errorf("failed to connect to bootstrapper database: %w", err)
 			}
+			dbConn = db
 			keyStore, csaSigner, err = initializeKeystore(ctx, b.lggr, b.config.Keystore, db, b.keys, b.config.KeyImport)
 			if err != nil {
 				return fmt.Errorf("failed to initialize keystore: %w", err)
@@ -556,6 +576,8 @@ func (b *Bootstrapper) startLocal(ctx context.Context) error {
 				"hasDBURL", dbURL != "", "hasKeystorePassword", ksPassword != "")
 		}
 	}
+
+	b.accessorDS = accessorDataSource(dbConn)
 
 	if err := b.initMonitoring(csaSigner); err != nil {
 		return fmt.Errorf("failed to initialize monitoring: %w", err)
@@ -600,7 +622,7 @@ func (b *Bootstrapper) startLocalService(ctx context.Context, keyStore keystore.
 		return fmt.Errorf("failed to read local app config %q: %w", b.localConfigPath, err)
 	}
 
-	reg, err := chainaccess.NewRegistry(b.lggr, string(appCfg))
+	reg, err := chainaccess.NewRegistry(b.lggr, string(appCfg), chainaccess.WithDataSource(b.accessorDS))
 	if err != nil {
 		return fmt.Errorf("failed to create registry: %w", err)
 	}
@@ -745,6 +767,26 @@ func connectToDB(ctx context.Context, connStr string) (*sqlx.DB, error) {
 		return nil, fmt.Errorf("failed to run bootstrapper database migrations: %w", err)
 	}
 	return db, nil
+}
+
+// accessorDataSource returns the handle shared with chain accessors through chainaccess.Deps.
+//
+// It is a second sqlx handle over the same connection pool, differing only in how it maps Go struct
+// fields to column names. Bootstrap's own stores tag their columns explicitly and do not care, but
+// the ORMs the accessors use come from chainlink-evm, whose row structs carry no db tags and rely
+// on the snake_case mapping a Chainlink node installs (chainlink core's pg.WrapDbWithSqlx). Without
+// it a field like Head.L1BlockNumber resolves to "l1blocknumber" and every head query fails at
+// runtime.
+//
+// Giving the accessors their own handle rather than remapping the bootstrap one keeps that
+// requirement away from queries it was not meant to affect.
+func accessorDataSource(db *sqlx.DB) sqlutil.DataSource {
+	if db == nil {
+		return nil
+	}
+	mapped := sqlx.NewDb(db.DB, db.DriverName())
+	mapped.MapperFunc(reflectx.CamelToSnakeASCII)
+	return mapped
 }
 
 func hasCSAKey(keys []keyToInit) bool {

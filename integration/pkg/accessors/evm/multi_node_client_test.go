@@ -90,7 +90,7 @@ func TestNewChainlinkEVMConfigUsesProductionDefaultsAndEveryRPCNode(t *testing.T
 				WSUrl:   "ws://node-b.internal:8546",
 			},
 		},
-	})
+	}, false)
 	require.NoError(t, err)
 
 	require.Equal(t, chaintype.ChainArbitrum, cfg.EVM().ChainType(), "known-chain defaults must be preserved")
@@ -164,7 +164,7 @@ func TestNewChainlinkEVMConfigSupportsHTTPOnlyRPC(t *testing.T) {
 		Nodes: []Node{{
 			HTTPUrl: "https://rpc.example.test",
 		}},
-	})
+	}, false)
 	require.NoError(t, err)
 
 	require.Equal(t, chaintype.ChainType(""), cfg.EVM().ChainType())
@@ -249,7 +249,7 @@ func TestNewChainlinkEVMConfigRejectsInvalidStandaloneConfig(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
 
-			_, err := newChainlinkEVMConfig(tt.info)
+			_, err := newChainlinkEVMConfig(tt.info, false)
 			require.ErrorContains(t, err, tt.wantErr)
 		})
 	}
@@ -264,7 +264,7 @@ func TestNewChainlinkEVMConfigEnablesPollingWhenAnyNodeHasNoWebSocket(t *testing
 			{HTTPUrl: "http://node-a.internal:8545", WSUrl: "ws://node-a.internal:8546"},
 			{HTTPUrl: "http://node-b.internal:8545"},
 		},
-	})
+	}, false)
 	require.NoError(t, err)
 	require.Equal(t, time.Second, cfg.EVM().NodePool().NewHeadsPollInterval())
 }
