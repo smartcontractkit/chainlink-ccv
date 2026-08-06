@@ -460,6 +460,12 @@ func Test_ChainlinkExecutor_HandleMessage_ConvertAndWrite(t *testing.T) {
 			expectedError:      true,
 		},
 		{
+			name:               "ConvertAndWriteMessageToChain terminal transmitter rejection - should not retry",
+			convertAndWriteErr: errors.Join(coordinator.ErrMessageRejectedByTransmitter, errors.New("zero aggregated gas limits, message unexecutable")),
+			expectedRetry:      false,
+			expectedError:      true,
+		},
+		{
 			name:               "ConvertAndWriteMessageToChain with correct report structure",
 			convertAndWriteErr: nil,
 			expectedRetry:      false,
