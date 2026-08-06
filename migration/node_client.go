@@ -102,37 +102,6 @@ func (c *NodeClient) EVMOCR2BundleID(ctx context.Context) (string, error) {
 	}
 }
 
-// AccountForChain returns the account address enabled for chainID — the funded transmitter the
-// node's executor job submits from, and the account the node's JD chain config recorded when it
-// was created. Keys disabled for the chain are skipped, mirroring how the node picks its
-// transmitter.
-func (c *NodeClient) AccountForChain(ctx context.Context, chainID string) (string, error) {
-	list, err := getList[ethKeyAttributes](ctx, c, nodeAPIPrefix+"/keys/eth")
-	if err != nil {
-		return "", err
-	}
-	var matches []string
-	for _, item := range list.Data {
-		if item.Attributes.Disabled {
-			continue
-		}
-		if item.Attributes.EVMChainID.String() != chainID {
-			continue
-		}
-		matches = append(matches, item.Attributes.Address)
-	}
-	switch len(matches) {
-	case 1:
-		return matches[0], nil
-	case 0:
-		return "", fmt.Errorf("the node has no account enabled for chain %s", chainID)
-	default:
-		return "", fmt.Errorf(
-			"the node has %d accounts enabled for chain %s (%s); name the one the executor transmits from (--account)",
-			len(matches), chainID, strings.Join(matches, ", "))
-	}
-}
-
 // CCVJobCounts counts the node's CCV jobs by type, for the preflight check.
 func (c *NodeClient) CCVJobCounts(ctx context.Context) (verifiers, executors int, err error) {
 	list, err := getList[jobAttributes](ctx, c, nodeAPIPrefix+"/jobs")
@@ -156,12 +125,6 @@ func (c *NodeClient) ExportOCR2Bundle(ctx context.Context, id, password string) 
 	return c.exportKey(ctx, nodeAPIPrefix+"/keys/ocr2/export/"+url.PathEscape(id), password)
 }
 
-// ExportETHKey downloads the `chainlink keys eth export` file for address, encrypted under
-// password.
-func (c *NodeClient) ExportETHKey(ctx context.Context, address, password string) ([]byte, error) {
-	return c.exportKey(ctx, nodeAPIPrefix+"/keys/eth/export/"+url.PathEscape(address), password)
-}
-
 func (c *NodeClient) exportKey(ctx context.Context, path, password string) ([]byte, error) {
 	query := url.Values{"newpassword": []string{password}}
 	body, status, err := c.do(ctx, http.MethodPost, path, query, nil, "")
@@ -177,16 +140,10 @@ func (c *NodeClient) exportKey(ctx context.Context, path, password string) ([]by
 	return body, nil
 }
 
-// ocr2BundleAttributes, ethKeyAttributes and jobAttributes are the fields of each list endpoint's
-// attributes object the migration reads. Everything else in the response is left undecoded.
+// ocr2BundleAttributes and jobAttributes are the fields of each list endpoint's attributes object
+// the migration reads. Everything else in the response is left undecoded.
 type ocr2BundleAttributes struct {
 	ChainType string `json:"chainType"`
-}
-
-type ethKeyAttributes struct {
-	Address    string      `json:"address"`
-	EVMChainID json.Number `json:"evmChainID"`
-	Disabled   bool        `json:"disabled"`
 }
 
 type jobAttributes struct {

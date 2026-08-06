@@ -11,13 +11,14 @@ import (
 
 	"github.com/smartcontractkit/chainlink-ccv/cli/chainstatuses"
 	"github.com/smartcontractkit/chainlink-ccv/cli/jobqueue"
+	"github.com/smartcontractkit/chainlink-ccv/cli/migrate"
 	"github.com/smartcontractkit/chainlink-ccv/protocol/common/logging"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/chainstatus"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vsecrets"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-// RunCCVCLI runs the CCV CLI (ccv chain-statuses list|enable|disable|set-finalized-height).
+// RunCCVCLI runs the CCV CLI (ccv chain-statuses ..., ccv job-queue ..., ccv migrate ...).
 // DB is connected lazily when a subcommand runs, so --help works without a configured DB URL.
 // The DB URL is resolved from the verifier secrets file (with CL_DATABASE_URL fallback), so an
 // operator who has cut over to the file need not re-export the env var to run the CLI.
@@ -96,6 +97,11 @@ func RunCCVCLI(args []string, secretsEnvVar, defaultSecretsPath string) {
 					Name:        "job-queue",
 					Usage:       "List and reschedule failed jobs in the archive tables",
 					Subcommands: jobqueue.InitJobQueueCommandsWithFactory(getJobQueueDeps),
+				},
+				{
+					Name:        "migrate",
+					Usage:       "CL-to-standalone migration: export keys from a Chainlink node and inspect them",
+					Subcommands: migrate.InitMigrateCommands(lggr),
 				},
 			},
 		},

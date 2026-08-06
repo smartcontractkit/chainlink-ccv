@@ -14,15 +14,14 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-// happyNode returns a fake node running one verifier job and one executor job, with one EVM OCR2
-// bundle and one account enabled for chain 1 — the shape the migration procedure applies to.
+// happyNode returns a fake node running one verifier job, with one EVM OCR2 bundle — the shape the
+// migration procedure applies to. The node also runs an executor job, which the verifier-only
+// migration ignores.
 func happyNode(t *testing.T) *fakeNode {
 	t.Helper()
 	node := newFakeNode(t)
 	node.ocr2Key = newTestKey(t)
-	node.ethKey = newTestKey(t)
 	node.ocr2BundlesJSON = ocr2BundleJSON("bundle-1", "evm")
-	node.ethKeysJSON = ethKeyJSON(addressOf(node.ethKey), "1", false)
 	node.jobsJSON = oneVerifierOneExecutorJSON()
 	return node
 }
@@ -32,7 +31,6 @@ func happyConfig(node *fakeNode, url, outDir string) ExportConfig {
 		NodeURL:     url,
 		APIEmail:    node.email,
 		APIPassword: node.password,
-		ChainID:     "1",
 		OutDir:      outDir,
 	}
 }
@@ -46,25 +44,21 @@ func TestExportNodeKeys(t *testing.T) {
 	result, err := ExportNodeKeys(context.Background(), logger.Test(t), happyConfig(node, srv.URL, outDir))
 	require.NoError(t, err)
 
-	// The identities reported are the keys the node held, in the checksummed form an operator
-	// compares against a block explorer.
+	// The identity reported is the key the node held, in the checksummed form an operator compares
+	// against a block explorer.
 	assert.Equal(t, addressOf(node.ocr2Key), result.SigningAddress)
-	assert.Equal(t, addressOf(node.ethKey), result.TransmitterAddress)
 
 	// Every key material file is owner-only.
-	for _, path := range []string{result.OCR2Path, result.ETHPath, result.PasswordPath} {
+	for _, path := range []string{result.OCR2Path, result.PasswordPath} {
 		info, err := os.Stat(path)
 		require.NoError(t, err, "%s should exist", path)
 		assert.Equal(t, os.FileMode(0o600), info.Mode().Perm(), "%s must not be world-readable", path)
 	}
 
-	// Both exports decode under the generated password to the identities the node registered.
+	// The export decodes under the generated password to the identity the node registered.
 	signingID, err := keys.InspectImport(keys.Import{Format: keys.ImportFormatOCR2, Path: result.OCR2Path, PasswordPath: result.PasswordPath})
 	require.NoError(t, err)
 	assert.Equal(t, result.SigningAddress, ChecksumAddress(signingID))
-	transmitterID, err := keys.InspectImport(keys.Import{Format: keys.ImportFormatETH, Path: result.ETHPath, PasswordPath: result.PasswordPath})
-	require.NoError(t, err)
-	assert.Equal(t, result.TransmitterAddress, ChecksumAddress(transmitterID))
 }
 
 func TestExportNodeKeysRefusesANodeWithSeveralVerifierJobs(t *testing.T) {
@@ -81,39 +75,36 @@ func TestExportNodeKeysRefusesANodeWithSeveralVerifierJobs(t *testing.T) {
 	require.ErrorContains(t, err, "consolidated")
 }
 
-func TestExportNodeKeysRefusesAnExportThatDisagreesWithTheListing(t *testing.T) {
+// A node with an executor job but no verifier job is the wrong node, not a node whose verifier
+// jobs need consolidating — the error has to say so, or it sends the operator after a job that
+// does not exist.
+func TestExportNodeKeysRefusesANodeWithNoVerifierJob(t *testing.T) {
 	t.Parallel()
 	node := happyNode(t)
-	// The listing names one account, but the export endpoint returns a different key — the exact
-	// situation expected_id exists to catch at boot, caught here while the node is still up.
-	node.ethKeysJSON = ethKeyJSON(addressOf(newTestKey(t)), "1", false)
+	node.jobsJSON = jobJSON("1", JobTypeExecutor)
 	srv := node.start()
 
 	_, err := ExportNodeKeys(context.Background(), logger.Test(t), happyConfig(node, srv.URL, t.TempDir()))
-	require.ErrorContains(t, err, "a different key than the account names")
+	require.ErrorContains(t, err, "runs no "+JobTypeVerifier+" job")
+	require.NotContains(t, err.Error(), "consolidated")
 }
 
-func TestExportNodeKeysHonorsTheOverrides(t *testing.T) {
+func TestExportNodeKeysHonorsTheBundleOverride(t *testing.T) {
 	t.Parallel()
 	node := happyNode(t)
-	// Ambiguous listings, resolved by hand: a second EVM bundle and a second account on the chain.
+	// An ambiguous listing, resolved by hand: a second EVM bundle the resolution would otherwise
+	// refuse to guess between.
 	node.ocr2BundlesJSON = strings.Join([]string{
 		ocr2BundleJSON("bundle-1", "evm"),
 		ocr2BundleJSON("bundle-2", "evm"),
-	}, ",")
-	node.ethKeysJSON = strings.Join([]string{
-		ethKeyJSON(addressOf(node.ethKey), "1", false),
-		ethKeyJSON(addressOf(newTestKey(t)), "1", false),
 	}, ",")
 	srv := node.start()
 
 	cfg := happyConfig(node, srv.URL, t.TempDir())
 	cfg.BundleID = "bundle-1"
-	cfg.Account = addressOf(node.ethKey)
 	result, err := ExportNodeKeys(context.Background(), logger.Test(t), cfg)
 	require.NoError(t, err)
 	assert.Equal(t, addressOf(node.ocr2Key), result.SigningAddress)
-	assert.Equal(t, addressOf(node.ethKey), result.TransmitterAddress)
 }
 
 // The snippet is ready to paste: the [key_import] block with expected_id already filled in, so
@@ -151,6 +142,6 @@ func TestExportConfigValidate(t *testing.T) {
 	require.ErrorContains(t, ExportConfig{NodeURL: "http://localhost:6688"}.validate(), "APIEmail")
 	require.NoError(t, ExportConfig{
 		NodeURL: "http://localhost:6688", APIEmail: "admin@example.com", APIPassword: "pw",
-		ChainID: "1", OutDir: "out",
+		OutDir: "out",
 	}.validate())
 }

@@ -14,7 +14,6 @@ import (
 
 	gethkeystore "github.com/ethereum/go-ethereum/accounts/keystore"
 	gethcrypto "github.com/ethereum/go-ethereum/crypto"
-	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-common/keystore"
@@ -34,13 +33,11 @@ type fakeNode struct {
 	cookieValue     string
 
 	ocr2BundlesJSON string // raw elements of the "data" array for GET /v2/keys/ocr2
-	ethKeysJSON     string // ... for GET /v2/keys/eth
 	jobsJSON        string // ... for GET /v2/jobs
 
-	// ocr2Key and ethKey are the key material the export endpoints encrypt, independent of what
-	// the listings claim — so a test can make the export disagree with the listing.
+	// ocr2Key is the key material the OCR2 export endpoint encrypts, independent of what the
+	// listing claims — so a test can make the export disagree with the listing.
 	ocr2Key *ecdsa.PrivateKey
-	ethKey  *ecdsa.PrivateKey
 
 	sawSessionCookie atomic.Bool
 
@@ -81,12 +78,6 @@ func (n *fakeNode) start() *httptest.Server {
 		}
 		_, _ = fmt.Fprintf(w, `{"data":[%s]}`, n.ocr2BundlesJSON)
 	})
-	mux.HandleFunc("/v2/keys/eth", func(w http.ResponseWriter, r *http.Request) {
-		if !n.checkCookie(w, r) {
-			return
-		}
-		_, _ = fmt.Fprintf(w, `{"data":[%s]}`, n.ethKeysJSON)
-	})
 	mux.HandleFunc("/v2/jobs", func(w http.ResponseWriter, r *http.Request) {
 		if !n.checkCookie(w, r) {
 			return
@@ -102,16 +93,6 @@ func (n *fakeNode) start() *httptest.Server {
 			return
 		}
 		_, _ = w.Write(encryptOCR2Export(n.ocr2Key, password))
-	})
-	mux.HandleFunc("/v2/keys/eth/export/", func(w http.ResponseWriter, r *http.Request) {
-		if !n.checkCookie(w, r) {
-			return
-		}
-		password := n.recordNewPassword(w, r)
-		if password == "" {
-			return
-		}
-		_, _ = w.Write(encryptETHExport(n.ethKey, password))
 	})
 	srv := httptest.NewServer(mux)
 	n.t.Cleanup(srv.Close)
@@ -153,12 +134,6 @@ func ocr2BundleJSON(id, chainType string) string {
 		id, chainType, chainType)
 }
 
-func ethKeyJSON(address, chainID string, disabled bool) string {
-	return fmt.Sprintf(
-		`{"id":%q,"type":"keys","attributes":{"address":%q,"evmChainID":%s,"disabled":%t}}`,
-		address+"_"+chainID, address, chainID, disabled)
-}
-
 func jobJSON(id, jobType string) string {
 	return fmt.Sprintf(`{"id":%q,"type":"jobs","attributes":{"type":%q}}`, id, jobType)
 }
@@ -193,23 +168,6 @@ func encryptOCR2Export(priv *ecdsa.PrivateKey, password string) []byte {
 		panic(err)
 	}
 	return out
-}
-
-// encryptETHExport builds a `chainlink keys eth export`-shaped file for priv under password.
-// Called from handlers; see encryptOCR2Export for why failures panic.
-func encryptETHExport(priv *ecdsa.PrivateKey, password string) []byte {
-	address := gethcrypto.PubkeyToAddress(priv.PublicKey)
-	id, err := uuid.FromBytes(address.Bytes()[:16])
-	if err != nil {
-		panic(err)
-	}
-	data, err := gethkeystore.EncryptKey(
-		&gethkeystore.Key{Id: id, Address: address, PrivateKey: priv},
-		password, keystore.FastScryptParams.N, keystore.FastScryptParams.P)
-	if err != nil {
-		panic(err)
-	}
-	return data
 }
 
 func newTestKey(t *testing.T) *ecdsa.PrivateKey {

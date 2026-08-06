@@ -167,9 +167,9 @@ headers.
 
 ## Adopting a key from a Chainlink node
 
-A node operator moving off CL mode has keys that must survive the move: e.g. the onchain signing key
-registered in the `CommitteeVerifier` signer set, and the funded EVM account the executor transmits
-from. `[key_import]` adopts one exported from a Chainlink node instead of generating it.
+A node operator moving off CL mode has a key that must survive the move: the onchain signing key
+registered in the `CommitteeVerifier` signer set. `[key_import]` adopts one exported from a Chainlink
+node instead of generating it.
 
 ```toml
 [key_import]
@@ -182,7 +182,12 @@ password_path = "/etc/ccv/migration/export-password.txt"
 expected_id   = "0x1234...abcd"
 ```
 
-The `key_import` section names neither the keystore key nor the export format: an
+The `ccv migrate` commands in the verifier image produce all of this: `ccv migrate export` exports
+the signing key from the node, verifies it, and writes this block with `expected_id` already filled
+in; `ccv migrate inspect` prints the identity a mounted file carries, to confirm the right file
+before boot.
+
+Two paths and a check. The section names neither the keystore key nor the export format: an
 application declares exactly one key it can import into, so the target is unambiguous, and the
 format is read from the file (an OCR2 bundle declares its chain type, an eth key carries an
 address).

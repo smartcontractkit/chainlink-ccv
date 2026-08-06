@@ -1,9 +1,12 @@
 // Package migration carries the node-facing half of the CL-to-standalone migration: exporting the
-// two keys that have to survive the move from a running Chainlink node. It is the single
+// onchain signing key that has to survive the move from a running Chainlink node. It is the single
 // implementation behind both callers of that flow — `ccv migrate export` in the verifier and
 // executor images (cli/migrate), which an operator runs by hand, and the devenv cutover
 // (build/devenv/migration), which exercises the same path end to end in tests. Devenv orchestrates
 // the environment; the logic lives here.
+//
+// Only the verifier's signing key moves. The executor is not migrated per operator: a single EVM
+// executor with one funded key replaces the per-node transmitters, so there is no account to carry.
 //
 // The procedure these callers serve is docs/migration/evm-cl-to-standalone.md.
 package migration
@@ -31,14 +34,12 @@ const (
 )
 
 // The file names an export writes. The key and password names mirror what an operator would have
-// produced by hand with `chainlink keys ... export`; the snippet names say which process each
-// block belongs to.
+// produced by hand with `chainlink keys ocr2 export`; the snippet is the verifier's [key_import]
+// block.
 const (
 	OCR2ExportFileName   = "ocr2.json"
-	ETHExportFileName    = "eth.json"
 	PasswordFileName     = "export-password.txt"
 	VerifierTOMLFileName = "verifier.key_import.toml"
-	ExecutorTOMLFileName = "executor.key_import.toml"
 )
 
 // ExportConfig is one key export against a running Chainlink node.
@@ -49,53 +50,46 @@ type ExportConfig struct {
 	// takes. The export endpoints require its admin role.
 	APIEmail    string
 	APIPassword string
-	// ChainID is the EVM chain whose enabled account is the executor's transmitter.
-	ChainID string
-	// OutDir receives the exported keys and the password file.
+	// OutDir receives the exported key and the password file.
 	OutDir string
-	// BundleID and Account override what the export resolves itself, for the nodes the resolution
-	// errors on: several EVM bundles, or several accounts enabled for the chain.
+	// BundleID overrides the EVM OCR2 bundle the export resolves itself, for a node the resolution
+	// errors on because it has several EVM bundles.
 	BundleID string
-	Account  string
 }
 
-// ExportResult records what an export produced: the two identities carried across, and every file
+// ExportResult records what an export produced: the identity carried across, and every file
 // written, so a caller's summary cannot drift from what is on disk.
 type ExportResult struct {
-	// SigningAddress and TransmitterAddress are the identities carried across, EIP-55 checksummed.
-	SigningAddress     string
-	TransmitterAddress string
-	OCR2Path           string
-	ETHPath            string
-	PasswordPath       string
+	// SigningAddress is the identity carried across, EIP-55 checksummed.
+	SigningAddress string
+	OCR2Path       string
+	PasswordPath   string
 }
 
 // ExportNodeKeys pulls the two keys a CL-to-standalone migration has to carry over out of a
 // running Chainlink node, without the caller transcribing a bundle ID, an address, or a
 // password:
 //
-//  1. Preflight: the node is expected to run exactly one ccvcommitteeverifier job and one
-//     ccvexecutor job — the only shape docs/migration/evm-cl-to-standalone.md applies to. A job
-//     list that contradicts that shape fails the export; a list that cannot be read, or shows no
-//     CCV jobs this tool recognizes, is a warning only, since an older node may report job types
-//     differently.
-//  2. The EVM OCR2 bundle and the chain's enabled account are resolved from the node's own
-//     listings, the same source the node's JD chain config was built from. Taking them from
-//     anywhere else imports an identity no contract knows about.
-//  3. Both keys are exported under a generated password nobody has to invent or type.
-//  4. Each export is decoded and its identity checked before anything is reported, and the
-//     transmitter is cross-checked against the account the node registered — while the node is
-//     still running, not at container startup after it may be stopped.
+//  1. Preflight: the node is expected to run exactly one ccvcommitteeverifier job — the only shape
+//     docs/migration/evm-cl-to-standalone.md applies to. A job list that contradicts that shape
+//     fails the export; a list that cannot be read, or shows no CCV jobs this tool recognizes, is a
+//     warning only, since an older node may report job types differently.
+//  2. The EVM OCR2 bundle is resolved from the node's own listing, the same source the node's JD
+//     chain config was built from. Taking it from anywhere else imports an identity no contract
+//     knows about.
+//  3. The bundle is exported under a generated password nobody has to invent or type.
+//  4. The export is decoded and its identity checked before anything is reported — while the node
+//     is still running, not at container startup after it may be stopped.
 func ExportNodeKeys(ctx context.Context, lggr logger.Logger, cfg ExportConfig) (*ExportResult, error) {
 	if err := cfg.validate(); err != nil {
 		return nil, err
 	}
-	// 0o700: the directory holds exported private keys and the password file. MkdirAll does not
+	// 0o700: the directory holds an exported private key and the password file. MkdirAll does not
 	// tighten the permissions of a directory that already exists, so chmod it either way.
 	if err := os.MkdirAll(cfg.OutDir, 0o700); err != nil {
 		return nil, fmt.Errorf("failed to create the output directory: %w", err)
 	}
-	if err := os.Chmod(cfg.OutDir, 0o700); err != nil { //nolint:gosec // G302: tightens an existing directory to owner-only; it holds exported private keys
+	if err := os.Chmod(cfg.OutDir, 0o700); err != nil { //nolint:gosec // G302: tightens an existing directory to owner-only; it holds an exported private key
 		return nil, fmt.Errorf("failed to restrict the output directory to the owner: %w", err)
 	}
 
@@ -117,13 +111,6 @@ func ExportNodeKeys(ctx context.Context, lggr logger.Logger, cfg ExportConfig) (
 			return nil, err
 		}
 	}
-	account := strings.TrimSpace(cfg.Account)
-	if account == "" {
-		if account, err = client.AccountForChain(ctx, cfg.ChainID); err != nil {
-			return nil, err
-		}
-	}
-
 	exportPassword, err := generateExportPassword()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate an export password: %w", err)
@@ -137,35 +124,18 @@ func ExportNodeKeys(ctx context.Context, lggr logger.Logger, cfg ExportConfig) (
 	if err := exportToFile(ctx, client.ExportOCR2Bundle, bundleID, exportPassword, ocr2Path); err != nil {
 		return nil, fmt.Errorf("failed to export the OCR2 bundle %s: %w", bundleID, err)
 	}
-	ethPath := filepath.Join(cfg.OutDir, ETHExportFileName)
-	if err := exportToFile(ctx, client.ExportETHKey, account, exportPassword, ethPath); err != nil {
-		return nil, fmt.Errorf("failed to export the EVM account %s: %w", account, err)
-	}
 
 	signingAddress, err := keys.InspectImport(keys.Import{Format: keys.ImportFormatOCR2, Path: ocr2Path, PasswordPath: passwordPath})
 	if err != nil {
 		return nil, fmt.Errorf("the exported OCR2 bundle is unusable: %w", err)
 	}
-	transmitterAddress, err := keys.InspectImport(keys.Import{Format: keys.ImportFormatETH, Path: ethPath, PasswordPath: passwordPath})
-	if err != nil {
-		return nil, fmt.Errorf("the exported EVM account key is unusable: %w", err)
-	}
-	// The node reported this account as enabled for the chain, so a mismatch means the export
-	// endpoint returned a different key than the one that address names.
-	if !strings.EqualFold(transmitterAddress, strings.TrimPrefix(strings.ToLower(account), "0x")) {
-		return nil, fmt.Errorf(
-			"the exported EVM key holds 0x%s but the node registered %s: the export endpoint returned a different key than the account names",
-			transmitterAddress, account)
-	}
 
-	lggr.Infow("exported the Chainlink node keys for the CL-to-standalone migration",
-		"outDir", cfg.OutDir, "signingAddress", signingAddress, "transmitterAddress", transmitterAddress)
+	lggr.Infow("exported the Chainlink node signing key for the CL-to-standalone migration",
+		"outDir", cfg.OutDir, "signingAddress", signingAddress)
 	return &ExportResult{
-		SigningAddress:     ChecksumAddress(signingAddress),
-		TransmitterAddress: ChecksumAddress(transmitterAddress),
-		OCR2Path:           ocr2Path,
-		ETHPath:            ethPath,
-		PasswordPath:       passwordPath,
+		SigningAddress: ChecksumAddress(signingAddress),
+		OCR2Path:       ocr2Path,
+		PasswordPath:   passwordPath,
 	}, nil
 }
 
@@ -174,7 +144,6 @@ func (c ExportConfig) validate() error {
 		{"NodeURL", c.NodeURL},
 		{"APIEmail", c.APIEmail},
 		{"APIPassword", c.APIPassword},
-		{"ChainID", c.ChainID},
 		{"OutDir", c.OutDir},
 	} {
 		if strings.TrimSpace(field.value) == "" {
@@ -184,20 +153,21 @@ func (c ExportConfig) validate() error {
 	return nil
 }
 
-// preflightJobs enforces the one shape this procedure covers: one ccvcommitteeverifier job and
-// one ccvexecutor job. A standalone process runs a single job, so a node holding several verifier
-// jobs cannot hand its one JD record to any of them — the committee's verifier jobs have to be
-// consolidated first, and that is Chainlink Labs' side, not the operator's.
+// preflightJobs enforces the one shape this procedure covers: exactly one ccvcommitteeverifier
+// job. A standalone process runs a single job, so a node holding several verifier jobs cannot hand
+// its one JD record to any of them — the committee's verifier jobs have to be consolidated first,
+// and that is Chainlink Labs' side, not the operator's. The executor is not migrated (a single EVM
+// executor with one funded key replaces the per-node transmitters), so its job count is not checked.
 //
 // An unreadable job list is a warning rather than a failure: the cutover itself still refuses a
 // shape it cannot adopt, and blocking the key export on an API quirk helps no one. A list that
-// reads fine but shows neither type is also a warning — an older node may report job types
+// reads fine but shows no CCV jobs is also a warning — an older node may report job types
 // differently, and a wrong hard stop here would strand a valid migration.
 func preflightJobs(ctx context.Context, lggr logger.Logger, client *NodeClient) error {
 	verifiers, executors, err := client.CCVJobCounts(ctx)
 	if err != nil {
 		lggr.Warnw("could not read the node's job list; confirm manually that it runs exactly one "+
-			JobTypeVerifier+" job and one "+JobTypeExecutor+" job before continuing", "err", err)
+			JobTypeVerifier+" job before continuing", "err", err)
 		return nil
 	}
 	if verifiers == 0 && executors == 0 {
@@ -205,23 +175,22 @@ func preflightJobs(ctx context.Context, lggr logger.Logger, client *NodeClient) 
 			"confirm it is the node that runs this operator's CCV jobs before continuing")
 		return nil
 	}
+	// Zero verifier jobs alongside at least one executor job is a different problem from several
+	// verifier jobs, and saying "consolidate them" would send the operator after a job that is not
+	// there. The likely cause is the wrong node.
+	if verifiers == 0 {
+		return fmt.Errorf(
+			"the node runs no %s job, though it runs %d %s job(s); this migration exports the verifier's "+
+				"signing key, so check that --node-url points at the node running this operator's %s job "+
+				"(docs/migration/evm-cl-to-standalone.md)",
+			JobTypeVerifier, executors, JobTypeExecutor, JobTypeVerifier)
+	}
 	if verifiers > 1 {
 		return fmt.Errorf(
 			"the node runs %d %s jobs; a standalone verifier runs a single job, so the committee's "+
 				"verifier jobs must be consolidated into one before migrating — raise it with Chainlink "+
 				"Labs rather than picking one (docs/migration/evm-cl-to-standalone.md)",
 			verifiers, JobTypeVerifier)
-	}
-	if verifiers == 0 {
-		return fmt.Errorf(
-			"the node runs %d %s jobs but no %s job; the migration moves both, so this does not look "+
-				"like the node that runs this operator's CCV jobs",
-			executors, JobTypeExecutor, JobTypeVerifier)
-	}
-	if executors != 1 {
-		return fmt.Errorf(
-			"the node runs %d %s jobs; this procedure applies to a node running exactly one",
-			executors, JobTypeExecutor)
 	}
 	return nil
 }

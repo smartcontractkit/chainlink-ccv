@@ -2,16 +2,20 @@
 
 ## Summary
 
-An EVM node operator running CCV as jobs on a Chainlink node can move to the standalone verifier and
-executor while keeping the identities that anything outside the node depends on: the onchain signing
-key registered in the `CommitteeVerifier` signer set, and the funded EVM account the executor
-transmits from. Neither has to be regenerated, so the move needs no contract reconfiguration and no
-transfer of funds.
+An EVM node operator running CCV as jobs on a Chainlink node can move to two standalone processes, a
+verifier and an executor, keeping the identity anything outside the node depends on: the onchain
+signing key registered in the `CommitteeVerifier` signer set. It does not have to be regenerated, so
+the move needs no contract reconfiguration.
 
-The operator-facing surface is two exported files and three config values. The bootstrapper gained a
-`[key_import]` section that adopts a key exported from a Chainlink node in place of generating one,
-and the EVM accessor now reads a Chainlink node's own TOML config directly, so there is nothing to
-convert and no tooling to run.
+The verifier imports that signing key; the executor imports nothing. It generates a single fresh
+transmitter key in place of the node's per-chain accounts, which the operator funds as part of the
+cutover. Nothing central names that address, so it needs no registration: JD registers the executor
+by its CSA key alone.
+
+The operator-facing surface is one exported file and a `[key_import]` block. The bootstrapper gained
+that section, which adopts a key exported from a Chainlink node in place of generating one, and the
+EVM accessor now reads a Chainlink node's own TOML config directly, so there is nothing to convert
+and no tooling to run.
 
 `docs/migration/evm-cl-to-standalone.md` is the operator procedure.
 
@@ -38,6 +42,25 @@ operator's key, which the committee rejects with nothing in the logs pointing at
 The import runs only when the key is absent, so it is a no-op on restart and the exported files can
 be unmounted once the process has come up once.
 
+## New: `ccv migrate export` and `ccv migrate inspect`
+
+The verifier image ships a `ccv migrate` command group that replaces the manual half of the key
+export. Only the verifier's signing key is exported, so the executor image does not carry it. `ccv
+migrate export` talks to the node's API and, in one command: runs the
+one-verifier-job preflight, resolves the EVM OCR2 bundle from the node's own listing (the same source
+the node's JD chain config was built from), exports it under a generated password, verifies the
+export decodes to the identity the node registered, and writes a ready-made `[key_import]` snippet
+with `expected_id` already filled in. The operator never transcribes a bundle ID, an address, or a
+password. `ccv migrate inspect` prints the identity a mounted export carries, so a wrong-node mount
+is caught before boot rather than by a process refusing to start.
+
+`cli/migrate` is only the command wiring. The export itself is in the shared `migration` package,
+which the devenv cutover and the e2e test run too, so the command an operator runs and the path CI
+exercises cannot drift apart. It talks to the node through `migration.NodeClient`
+(`migration/node_client.go`), a four-endpoint REST client rather than the Chainlink SDK or the
+testing framework: those live in the devenv module, and importing either would drag the node
+dependency graph into the production binaries.
+
 ## The EVM config needs no conversion
 
 The standalone EVM accessor accepts a Chainlink node's own TOML directly. `loadConfig` tells the two
@@ -46,9 +69,10 @@ and translates the latter at startup, resolving chain IDs to chain selectors. An
 file their node already runs with.
 
 The node's chain defaults are applied before finality is translated, so a chain the operator never
-configured explicitly keeps the behavior it had instead of moving onto finality tags. Send-only
-nodes, `Order` and `HTTPURLExtraWrite` have no standalone equivalent and are dropped, each logged at
-warn so nothing goes missing quietly.
+configured explicitly keeps the behavior it had instead of moving onto finality tags. Per-node `Order`
+carries over, so a converted node keeps its RPC prioritization. Send-only nodes, `HTTPURLExtraWrite`
+and `IsLoadBalancedRPC` have no standalone equivalent and are dropped, each logged at warn so nothing
+goes missing quietly.
 
 ## The CSA key is not exported
 
@@ -64,13 +88,24 @@ cannot have two owners.
 ## One JD record becomes two
 
 A CL-mode node runs the `ccvcommitteeverifier` and `ccvexecutor` jobs under a single JD record.
-Standalone runs two processes with two keystores, so it needs two. The verifier adopts the
-operator's existing record, keeping the NOP alias that `ApplyVerifierConfig` and
-`fetch_signing_keys` look it up by; the executor registers a new one.
+Standalone runs two processes with two keystores, so it needs two. The verifier adopts the operator's
+existing record, keeping the NOP alias that `ApplyVerifierConfig` and `fetch_signing_keys` look it up
+by; the executor registers a new one. Reusing the record for the verifier rather than registering a
+second is what avoids a duplicate entry for the operator alongside an abandoned one.
 
-The second record is a property of standalone mode rather than of the migration — an operator who
-had started standalone would have had two from the beginning. What is avoided is a duplicate entry
-for the operator alongside an abandoned one.
+The two processes differ in what they carry across. The verifier imports the node's signing key. The
+executor imports nothing: it generates a fresh transmitter key that the operator funds, one account in
+place of the node's per-chain transmitters. That is the single-key executor a live deployment runs,
+brought up per operator here rather than centrally.
+
+## Generated secp256k1 keys log their EVM address
+
+`EnsureKey` now logs `evmAddress` alongside `publicKey` for `ECDSA_S256` keys, on both the
+`key created` and `key already exists` paths. The executor generates its transmitter key itself and
+the operator has to fund it, so the address had to come from somewhere; the process holding the key
+derives it rather than asking an operator to keccak a public key by hand. Other key types are
+unaffected, and a public key that fails to decode logs a warning and omits the field instead of
+failing the boot.
 
 ## Implementation notes
 
