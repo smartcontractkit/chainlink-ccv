@@ -122,6 +122,22 @@ func DeployBurnMintTokenPoolV151(t *testing.T, env *deployment.Environment, sel 
 	return deployTokenPoolWithPresets(t, env, sel, qual, cciputils.BurnMintTokenPool.String(), cciputils.Version_1_5_1)
 }
 
+// DeployBurnFromMintTokenPoolV161 deploys a BurnFromMintTokenPool, a burn-mint variant that burns
+// via burnFrom(pool, amount) instead of burn(amount).
+func DeployBurnFromMintTokenPoolV161(t *testing.T, env *deployment.Environment, sel uint64, qual string) tokenpool.TokenPool {
+	t.Helper()
+
+	return deployTokenPoolWithPresets(t, env, sel, qual, cciputils.BurnFromMintTokenPool.String(), cciputils.Version_1_6_1)
+}
+
+// DeployBurnWithFromMintTokenPoolV161 deploys a BurnWithFromMintTokenPool, a burn-mint variant that
+// burns via burn(pool, amount) instead of burn(amount).
+func DeployBurnWithFromMintTokenPoolV161(t *testing.T, env *deployment.Environment, sel uint64, qual string) tokenpool.TokenPool {
+	t.Helper()
+
+	return deployTokenPoolWithPresets(t, env, sel, qual, cciputils.BurnWithFromMintTokenPool.String(), cciputils.Version_1_6_1)
+}
+
 func deployTokenPoolWithPresets(
 	t *testing.T,
 	env *deployment.Environment,
