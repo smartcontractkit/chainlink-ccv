@@ -26,6 +26,7 @@ import (
 	"fmt"
 	"math/big"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -47,8 +48,13 @@ const (
 	inFlightPollInterval = 500 * time.Millisecond
 	// inFlightWaitTimeout bounds the wait for the executor to put a transaction in the mempool. It
 	// has to cover the executor noticing the message through the indexer and aggregator, not just
-	// the send.
-	inFlightWaitTimeout = 4 * time.Minute
+	// the send, which takes a few seconds in devenv.
+	//
+	// It is also the ceiling on how long mining stays held, and that has a hard limit: MultiNode
+	// marks an RPC out of sync after three minutes without a new head. devenv gives each chain a
+	// single RPC, so the pool cannot fail over and the executor carries on in a degraded state, but
+	// it is not a state to run a test in. Keep this comfortably under three minutes.
+	inFlightWaitTimeout = 90 * time.Second
 	// executorOutageDuration is how long the executor stays down. Pumba restarts it afterwards.
 	executorOutageDuration = 20 * time.Second
 	// recoveryTimeout bounds how long execution may take after a service comes back. It has to
@@ -63,8 +69,13 @@ const (
 	// it, so it is much shorter than verifierJobOutageDuration.
 	verifierCheckpointOutage = 90 * time.Second
 	// verifierDBOutageDuration is how long the verifier's Postgres stays down while a message is
-	// sent underneath it.
-	verifierDBOutageDuration = 45 * time.Second
+	// sent underneath it. A message travels end to end in a few seconds here, so the window has to
+	// be comfortably longer than that or the verifier finishes before the outage bites.
+	verifierDBOutageDuration = 60 * time.Second
+	// dbTransitionTimeout bounds the wait for a database to go down or come back. It exceeds
+	// verifierDBOutageDuration because the wait for the database to return starts before the outage
+	// has necessarily elapsed.
+	dbTransitionTimeout = 90 * time.Second
 
 	// checkpointFallbackLookback mirrors the lookback the verifier's source reader uses when it
 	// finds no checkpoint (verifier/pkg/sourcereader/service.go, initializeStartBlock).
@@ -100,7 +111,7 @@ func TestChaos_ExecutorRestartWithInFlightTransaction(t *testing.T) {
 	ctx, lib, setup, src, dst := setupChaosEVMSession(t)
 
 	holdable := requireMineHoldableChain(t, ctx, lib, dst)
-	transmitter := executorTransmitterAddress(t, setup, dst)
+	transmitters := executorTransmitterAddresses(t, setup, dst)
 	interval := chainMiningInterval(t, setup, dst)
 
 	// Stop mining on the destination so the executor's transaction stays in the mempool. Resuming
@@ -118,9 +129,11 @@ func TestChaos_ExecutorRestartWithInFlightTransaction(t *testing.T) {
 	// Wait for the executor to actually broadcast. Killing it before this point would test an
 	// ordinary restart, not a restart with work in flight, and the test would pass without
 	// exercising recovery at all.
-	waitForInFlightTransaction(t, ctx, holdable, transmitter)
+	waitForInFlightTransaction(t, ctx, holdable, transmitters)
 
-	executorTargets, err := chaos.ExecutorContainers(setup.in, devenvcommon.DefaultExecutorQualifier)
+	// Every executor serving this destination goes down. Leaving one up would let it execute the
+	// message itself, and the test would pass without the orphaned transaction being recovered.
+	executorTargets, err := chaos.ExecutorContainersForDest(setup.in, dst, devenvcommon.DefaultExecutorQualifier)
 	require.NoError(t, err)
 	cleanup, err := chaos.InjectOutage(ctx, &chaos.OutageSpec{
 		Duration: executorOutageDuration,
@@ -131,6 +144,14 @@ func TestChaos_ExecutorRestartWithInFlightTransaction(t *testing.T) {
 
 	// Let mining resume while the executor is down, so the orphan's fate (mined, or still pending
 	// when the executor returns) is decided by the chain rather than by test timing.
+	//
+	// Mining resumes here rather than being held through the accessor's grace period, which would
+	// force the seed-and-replace path instead of letting the orphan mine. That does not work on a
+	// frozen chain and is not worth making work: the gas estimator samples recent blocks, so with
+	// none being produced it refuses to bump ("90 percentile price is not set... Preventing bumping
+	// until valid price is available") and the replacement can never outbid the original. A stuck
+	// transaction in production is stuck on a live chain, which is what this reproduces. The
+	// seed-and-replace path itself is covered by unit tests in the accessor.
 	require.NoError(t, holdable.ResumeMining(ctx, interval), "resume mining on destination")
 
 	// Pumba restarts the container after the outage; the assertion below covers the restart, the
@@ -289,16 +310,75 @@ func TestChaos_VerifierDatabaseOutage(t *testing.T) {
 	require.NoError(t, err, "stop the verifier databases")
 	t.Cleanup(cleanup)
 
+	// Pumba pulls and starts a sidecar before it issues the stop, so InjectOutage returning does not
+	// mean the database is down. A message sent in that window gets verified and executed before the
+	// outage lands, and the test asserts nothing.
+	waitForDatabases(t, ctx, stopped, src, dbUnreachable)
+
 	messageKey := sendDurabilityMessage(t, ctx, lib, src, dst)
 
 	requireExecOnDest(t, ctx, lib, src, dst, messageKey,
 		"message should execute after the verifier databases come back")
 
+	// Reading the checkpoint has to wait for Postgres to accept connections again. Pumba restarts the
+	// container at the end of the outage, and it spends a few seconds in recovery answering
+	// "the database system is starting up" before it will serve a query.
+	waitForDatabases(t, ctx, stopped, src, dbReachable)
 	for _, verifier := range stopped {
 		after, ok := verifierCheckpoint(t, ctx, verifier, src)
 		require.Truef(t, ok, "verifier %s has no checkpoint after the database came back", verifier.ContainerName)
 		require.GreaterOrEqualf(t, after, before[verifier.ContainerName],
 			"verifier %s checkpoint went backwards across the database outage", verifier.ContainerName)
+	}
+}
+
+// dbReachability is what waitForDatabases waits for.
+type dbReachability bool
+
+const (
+	dbReachable   dbReachability = true
+	dbUnreachable dbReachability = false
+)
+
+func (r dbReachability) String() string {
+	if r {
+		return "reachable"
+	}
+	return "unreachable"
+}
+
+// waitForDatabases blocks until every given verifier's database is in the wanted state. Postgres
+// refuses queries for a while on both edges of a container stop, once while shutting down and again
+// while recovering on start, so a test that cares which side of the outage it is on has to wait for
+// the transition rather than assume it.
+func waitForDatabases(
+	t *testing.T,
+	ctx context.Context,
+	verifiers []*committeeverifier.Input,
+	src uint64,
+	want dbReachability,
+) {
+	t.Helper()
+
+	deadline := time.Now().Add(dbTransitionTimeout)
+	for _, verifier := range verifiers {
+		for {
+			_, err := readVerifierCheckpoint(ctx, verifier, src)
+			// errNoCheckpoint means the query itself worked, so the database is up.
+			reachable := err == nil || errors.Is(err, errNoCheckpoint)
+			if reachable == bool(want) {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("verifier %s database did not become %s within %s (last error: %v)",
+					verifier.ContainerName, want, dbTransitionTimeout, err)
+			}
+			select {
+			case <-ctx.Done():
+				t.Fatalf("context canceled waiting for a verifier database: %v", ctx.Err())
+			case <-time.After(inFlightPollInterval):
+			}
+		}
 	}
 }
 
@@ -560,46 +640,59 @@ func chainMiningInterval(t *testing.T, setup *chaosSetup, selector uint64) time.
 	return 0
 }
 
-// executorTransmitterAddress finds the address the executor signs destination transactions with,
-// which is the address whose nonce gap the accessor's recovery watches.
-func executorTransmitterAddress(t *testing.T, setup *chaosSetup, dst uint64) string {
+// executorTransmitterAddresses returns the addresses that sign destination transactions for dst,
+// which are the addresses whose nonce gap the accessor's recovery watches.
+//
+// It resolves them through the executor pool topology rather than taking the first executor in the
+// config. A pool spreads destinations across its executors, so in the default devenv the chain the
+// chaos tests pick as destination is served by the second executor, and watching the first would
+// mean watching an address that never transacts.
+func executorTransmitterAddresses(t *testing.T, setup *chaosSetup, dst uint64) []string {
 	t.Helper()
 
-	for _, exec := range setup.in.Executor {
+	executors, err := chaos.ExecutorsForDest(setup.in, dst, devenvcommon.DefaultExecutorQualifier)
+	require.NoError(t, err)
+
+	var addresses []string
+	for _, exec := range executors {
 		reg, err := chainreg.GetRegistry().Get(exec.ChainFamily)
 		if err != nil || reg.ExecutorInfo == nil {
 			continue
 		}
 		if addr := reg.ExecutorInfo.ExecutorTransmitterAddress(exec.Out.BootstrapKeys); addr != "" {
-			return addr
+			addresses = append(addresses, addr)
 		}
 	}
-
-	t.Fatalf("no executor transmitter address found for destination chain %d", dst)
-	return ""
+	require.NotEmptyf(t, addresses, "no executor transmitter address found for destination chain %d", dst)
+	return addresses
 }
 
-// waitForInFlightTransaction blocks until the transmitter has a transaction accepted into the
-// mempool but not mined, which with mining held means the executor has broadcast.
+// waitForInFlightTransaction blocks until one of the transmitters has a transaction accepted into
+// the mempool but not mined, which with mining held means an executor has broadcast.
 func waitForInFlightTransaction(
 	t *testing.T,
 	ctx context.Context,
 	holdable cciptestinterfaces.MineHoldableChain,
-	transmitter string,
+	transmitters []string,
 ) {
 	t.Helper()
 
 	deadline := time.Now().Add(inFlightWaitTimeout)
 	for {
-		pending, latest, err := holdable.PendingAndLatestNonce(ctx, transmitter)
-		require.NoError(t, err, "read transmitter nonces")
-		if pending > latest {
-			t.Logf("executor has %d transaction(s) in flight (latest=%d pending=%d)", pending-latest, latest, pending)
-			return
+		var state []string
+		for _, transmitter := range transmitters {
+			pending, latest, err := holdable.PendingAndLatestNonce(ctx, transmitter)
+			require.NoError(t, err, "read transmitter nonces")
+			if pending > latest {
+				t.Logf("executor %s has %d transaction(s) in flight (latest=%d pending=%d)",
+					transmitter, pending-latest, latest, pending)
+				return
+			}
+			state = append(state, fmt.Sprintf("%s latest=%d pending=%d", transmitter, latest, pending))
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("executor did not broadcast a transaction within %s (latest=%d pending=%d)",
-				inFlightWaitTimeout, latest, pending)
+			t.Fatalf("no executor broadcast a transaction within %s (%s)",
+				inFlightWaitTimeout, strings.Join(state, "; "))
 		}
 		select {
 		case <-ctx.Done():

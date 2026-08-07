@@ -15,6 +15,7 @@ import (
 	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/committeeverifier"
+	executorsvc "github.com/smartcontractkit/chainlink-ccv/build/devenv/services/executor"
 )
 
 func normalizeContainerName(name string) string {
@@ -130,6 +131,48 @@ func ExecutorContainers(cfg *ccv.Cfg, executorQualifier string, nopAliases ...st
 // ExecutorContainersForDest returns executors assigned to serve destSelector in the
 // given executor pool, resolved via EnvironmentTopology.
 func ExecutorContainersForDest(cfg *ccv.Cfg, destSelector uint64, executorQualifier string) ([]string, error) {
+	aliases, err := executorAliasesForDest(cfg, destSelector, executorQualifier)
+	if err != nil {
+		return nil, err
+	}
+	return ExecutorContainers(cfg, executorQualifier, aliases...)
+}
+
+// ExecutorsForDest returns the executor inputs assigned to serve destSelector in the given pool.
+// A pool usually spreads chains across its executors, so the one holding a destination's transmitter
+// key is not necessarily the first in cfg.Executor - a test that needs that key has to go through
+// the topology rather than picking any executor in the pool.
+func ExecutorsForDest(cfg *ccv.Cfg, destSelector uint64, executorQualifier string) ([]*executorsvc.Input, error) {
+	aliases, err := executorAliasesForDest(cfg, destSelector, executorQualifier)
+	if err != nil {
+		return nil, err
+	}
+	aliasSet := make(map[string]struct{}, len(aliases))
+	for _, alias := range aliases {
+		aliasSet[alias] = struct{}{}
+	}
+
+	var executors []*executorsvc.Input
+	for _, exec := range cfg.Executor {
+		qualifier := exec.ExecutorQualifier
+		if qualifier == "" {
+			qualifier = devenvcommon.DefaultExecutorQualifier
+		}
+		if qualifier != executorQualifier || exec.Out == nil {
+			continue
+		}
+		if _, ok := aliasSet[exec.NOPAlias]; !ok {
+			continue
+		}
+		executors = append(executors, exec)
+	}
+	if len(executors) == 0 {
+		return nil, fmt.Errorf("no executors serve dest chain %d in pool %q", destSelector, executorQualifier)
+	}
+	return executors, nil
+}
+
+func executorAliasesForDest(cfg *ccv.Cfg, destSelector uint64, executorQualifier string) ([]string, error) {
 	if cfg.EnvironmentTopology == nil {
 		return nil, fmt.Errorf("environment topology is nil")
 	}
@@ -142,7 +185,7 @@ func ExecutorContainersForDest(cfg *ccv.Cfg, destSelector uint64, executorQualif
 	if !ok {
 		return nil, fmt.Errorf("dest chain %d not found in executor pool %q", destSelector, executorQualifier)
 	}
-	return ExecutorContainers(cfg, executorQualifier, chainCfg.NOPAliases...)
+	return chainCfg.NOPAliases, nil
 }
 
 // IndexerContainer returns the Docker container name for the indexer at index.
