@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.4.0](https://github.com/smartcontractkit/chainlink-ccv/compare/build/devenv/v0.3.0...build/devenv/v0.4.0) (2026-08-07)
+
+
+### Features
+
+* **cli:** ccv migrate export/inspect commands ([#1320](https://github.com/smartcontractkit/chainlink-ccv/issues/1320)) ([e72f479](https://github.com/smartcontractkit/chainlink-ccv/commit/e72f479c52122c5eec86a2e0b2bea57423644acc))
+* **devenv:** CL-to-standalone cutover tooling and migration e2e ([#1319](https://github.com/smartcontractkit/chainlink-ccv/issues/1319)) ([e8cbe91](https://github.com/smartcontractkit/chainlink-ccv/commit/e8cbe91f55bb31829ff8f804a089b8c84058501c))
+* Make the CSA key mode/backend-driven ([#1322](https://github.com/smartcontractkit/chainlink-ccv/issues/1322)) ([d8bcf56](https://github.com/smartcontractkit/chainlink-ccv/commit/d8bcf56adae5972c7f7dc654a9946a6cbb90f053))
+
 ## [0.3.0](https://github.com/smartcontractkit/chainlink-ccv/compare/build/devenv/v0.2.0...build/devenv/v0.3.0) (2026-07-30)
 
 
