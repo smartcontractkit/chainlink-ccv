@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 
+	gethcommon "github.com/ethereum/go-ethereum/common"
+
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 )
 
@@ -15,7 +17,47 @@ import (
 var (
 	_ cciptestinterfaces.ProgressableChain = (*CCIP17EVM)(nil)
 	_ cciptestinterfaces.ReorgableChain    = (*CCIP17EVM)(nil)
+	_ cciptestinterfaces.MineHoldableChain = (*CCIP17EVM)(nil)
 )
+
+// SupportMineHold reports whether automining can be toggled. anvil_getAutomine answering at all is
+// the signal: a node that reports the setting also accepts anvil_setAutomine. Unlike
+// SupportManualBlockProgress this does not care what the current value is, since the caller is
+// about to change it.
+func (m *CCIP17EVM) SupportMineHold(ctx context.Context) bool {
+	var automine bool
+	if err := m.ethClient.Client().CallContext(ctx, &automine, "anvil_getAutomine"); err != nil {
+		m.logger.Debug().Err(err).Msg("anvil_getAutomine not supported; mine hold disabled")
+		return false
+	}
+	return true
+}
+
+// SetAutomine turns automatic block production on or off.
+func (m *CCIP17EVM) SetAutomine(ctx context.Context, enabled bool) error {
+	var result any
+	if err := m.ethClient.Client().CallContext(ctx, &result, "anvil_setAutomine", enabled); err != nil {
+		return fmt.Errorf("anvil_setAutomine(%t): %w", enabled, err)
+	}
+	m.logger.Debug().Bool("automine", enabled).Msg("Set automine")
+	return nil
+}
+
+// PendingAndLatestNonce reports an address's mempool and mined nonce. A pending nonce above the
+// latest means transactions have been accepted but not included, which is what a test watches for
+// when it needs a transaction held in flight.
+func (m *CCIP17EVM) PendingAndLatestNonce(ctx context.Context, address string) (pending, latest uint64, err error) {
+	addr := gethcommon.HexToAddress(address)
+	pending, err = m.ethClient.PendingNonceAt(ctx, addr)
+	if err != nil {
+		return 0, 0, fmt.Errorf("pending nonce for %s: %w", address, err)
+	}
+	latest, err = m.ethClient.NonceAt(ctx, addr, nil)
+	if err != nil {
+		return 0, 0, fmt.Errorf("latest nonce for %s: %w", address, err)
+	}
+	return pending, latest, nil
+}
 
 // SupportManualBlockProgress returns true iff the node accepts anvil's
 // evm_mine and has automining enabled (so txs sent by tests still land).

@@ -206,54 +206,8 @@ The bootstrapper requires a dedicated Postgres database. It stores:
 
 - The encrypted keystore (private keys locked under the `[keystore].password`).
 - The current job spec and proposal status (used for crash recovery and replacement rollback).
-- Chain state that accessors need across a restart, in a schema per chain family. Today that is
-  `evm.heads` (see Chain accessor persistence below).
 
 This must be a **separate** database from any app-level database to keep migrations isolated.
-
-## Chain accessor persistence
-
-Chain accessors receive the bootstrap database through `chainaccess.Deps` and use it for state that
-has to survive a restart. Each family owns a schema, so the tables can keep the names the upstream
-ORMs query without colliding with the bootstrapper's own. Migrations live in `bootstrap/db/migrations`
-and run on connect, so there is one ordered migration set and one version table for the database.
-
-Only the EVM accessor persists anything. It runs chainlink-evm's production head tracker, which keeps
-a chain of recent heads; the Solana and Canton accessors read head and finality state from their RPC
-on every call and hold no durable state.
-
-Persistence is optional and follows the `[db]` section:
-
-- With `[db].url` set, the EVM head tracker writes to `evm.heads` and reloads on startup, so a
-  restart resumes from the heads it already had instead of refetching them.
-- Without it, the accessor runs the same tracker against an in-memory saver, which is the behavior
-  before this existed. The process logs a warning at startup so this is not silent. Local mode with
-  no database and the KMS keystore backend both land here.
-
-If `[db].url` is set but the database is unreachable or unmigrated, startup fails with an error
-naming `evm.heads` rather than coming up and quietly running unpersisted.
-
-Heads are written one row per block per chain and trimmed below `HistoryDepth` under the finalized
-block, so the table stays proportional to that depth rather than growing with uptime. Nothing needs
-pruning by hand.
-
-### What is not persisted
-
-Transaction state is not. The standalone accessor runs chainlink-evm's TXM v2, which holds
-transactions, attempts, and receipts in memory; chainlink-evm ships no durable store for it.
-
-This is safe for the cases that matter, because TXM v2 reconciles against the chain rather than a
-database. It reads the pending nonce per address on start, so a restart cannot reuse a nonce.
-Duplicate delivery is prevented by the executor reading each message's on-chain execution state
-before executing and by the OffRamp itself, not by transaction state. Confirmed executions are
-rediscovered by the destination reader's backfill.
-
-What a restart does lose is the driver behind a transaction that reached the mempool but was not yet
-mined: nothing rebroadcasts or gas bumps it, and transactions from the same address cannot confirm
-until it does. It resolves without intervention once that transaction is mined or evicted, but a
-transaction stuck through a gas spike can hold up an address for a while. The accessor counts these
-at startup, from the gap between the address's pending and latest nonce, and logs a warning naming
-the address and count. That warning is worth an alert.
 
 # Usage example
 

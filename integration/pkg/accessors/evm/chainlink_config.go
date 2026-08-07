@@ -19,13 +19,12 @@ const (
 	// HTTP polling keeps the production head tracker usable for deployments that
 	// include HTTP-only RPCs. All-WebSocket pools retain subscriptions.
 	defaultNewHeadsPollInterval = time.Second
-	// headPersistenceBatchSize is how many heads chainlink-evm's ORM buffers before
-	// writing. Upstream defaults to 100, which suits a node tracking many chains but
-	// would leave the most recent minutes of head history unwritten when a CCV
-	// process is killed, the exact window a restart needs. Writing through costs one
-	// row per block, negligible next to the RPC work the tracker already does per
-	// head, and it keeps head trimming level with finality instead of a batch behind.
-	headPersistenceBatchSize int64 = 1
+	// orphanRecoveryGracePeriod is how long a restarted process waits for
+	// transactions left in flight by its predecessor to confirm on their own before
+	// replacing them. A transaction that is merely slow mines within this window and
+	// is left alone; replacing one needlessly discards a real execution and makes the
+	// executor send another. See standaloneChain.recoverOrphanedTransactions.
+	orphanRecoveryGracePeriod = 90 * time.Second
 )
 
 // newChainlinkEVMConfig is the single adapter from CCV's focused standalone
@@ -33,10 +32,7 @@ const (
 // boundary explicit prevents additions to the upstream config from silently
 // becoming operator-facing CCV settings. Chain-specific upstream defaults are
 // used for every setting that CCV does not intentionally override below.
-// persistHeads reflects whether the accessor was given a data source. It records
-// the decision in the config chainlink-evm reads back; the ORM the head tracker
-// actually saves through is chosen in newStandaloneChain.
-func newChainlinkEVMConfig(info Info, persistHeads bool) (*evmconfig.ChainScoped, error) {
+func newChainlinkEVMConfig(info Info) (*evmconfig.ChainScoped, error) {
 	chainID, ok := new(big.Int).SetString(info.ChainID, 10)
 	if !ok {
 		return nil, fmt.Errorf("failed to parse EVM chain ID %q", info.ChainID)
@@ -44,12 +40,9 @@ func newChainlinkEVMConfig(info Info, persistHeads bool) (*evmconfig.ChainScoped
 	sqlChainID := sqlutil.New(chainID)
 	chain := evmtoml.Defaults(sqlChainID)
 
-	// Head persistence follows the data source. With one, heads go to evm.heads
-	// (created by bootstrap/db/migrations) and are reloaded on restart; without one
-	// the tracker runs against a NullORM and rebuilds its chain from the RPC on
-	// every start.
-	chain.HeadTracker.PersistenceEnabled = new(persistHeads)
-	chain.HeadTracker.PersistenceBatchSize = new(headPersistenceBatchSize)
+	// The standalone database does not contain chainlink-core's evm.heads schema,
+	// so use the production tracker with its supported in-memory saver mode.
+	chain.HeadTracker.PersistenceEnabled = new(false)
 	if info.FinalityDepth == 0 {
 		// chain.FinalityDepth is deliberately left at the chain-specific upstream
 		// default: evmtoml.Chain.ValidateConfig rejects a depth below 1 whether or
@@ -73,6 +66,12 @@ func newChainlinkEVMConfig(info Info, persistHeads bool) (*evmconfig.ChainScoped
 	chain.Transactions.Enabled = new(true)
 	chain.Transactions.ForwardersEnabled = new(false)
 	chain.Transactions.TransactionManagerV2.Enabled = new(true)
+	// AutoPurge is deliberately left at its upstream default of off, which means TXM
+	// v2 runs without a stuck transaction detector. Turning it on is worth doing, but
+	// not here: upstream validation then also requires GasEstimator.BumpThreshold and
+	// AutoPurge.MinAttempts, and both change fee behavior for every transaction
+	// rather than only stuck ones. Restart-orphaned transactions are handled without
+	// it (see standaloneChain.recoverOrphanedTransactions).
 	blockTime := info.TXMBlockTime
 	if blockTime == 0 {
 		blockTime = defaultTXMBlockTime

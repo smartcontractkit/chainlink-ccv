@@ -198,6 +198,25 @@ type ProgressableChain interface {
 	AdvanceBlocks(ctx context.Context, numBlocks int) error
 }
 
+// MineHoldableChain is optionally implemented by chain families that can stop including
+// transactions in blocks while still accepting them into the mempool (e.g. anvil via
+// anvil_setAutomine). It exists so a test can hold a transaction in flight for as long as it needs
+// to, which is otherwise a race against block production.
+//
+// Distinct from ProgressableChain: that drives blocks forward on demand, this stops them happening
+// at all. A chain can support one without the other, and SupportManualBlockProgress specifically
+// requires automining to be on, which is the opposite of what holding needs.
+type MineHoldableChain interface {
+	// SupportMineHold returns true iff the node can have automining toggled at runtime.
+	SupportMineHold(ctx context.Context) bool
+	// SetAutomine turns automatic block production on or off. With it off, transactions collect in
+	// the mempool until it is turned back on or blocks are mined explicitly.
+	SetAutomine(ctx context.Context, enabled bool) error
+	// PendingAndLatestNonce reports the mempool and mined nonce for an address, which is how a test
+	// observes that a transaction has been accepted but not yet included.
+	PendingAndLatestNonce(ctx context.Context, address string) (pending, latest uint64, err error)
+}
+
 // SnapshotID identifies a snapshot taken on a ReorgableChain. It is
 // opaque to the caller; each chain family defines its own encoding.
 type SnapshotID []byte

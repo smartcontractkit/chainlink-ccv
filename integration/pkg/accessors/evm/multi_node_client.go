@@ -13,9 +13,7 @@ import (
 // multi-node client. Every configured node is registered with the pool, allowing
 // the pool to move reads and writes away from unhealthy RPCs.
 func CreateMultiNodeClientFromInfo(ctx context.Context, info Info, lggr logger.Logger) (client.Client, error) {
-	// Callers that want only a client never start a head tracker, so head
-	// persistence does not apply to them.
-	chainClient, _, err := newMultiNodeClientFromInfo(info, lggr, false)
+	chainClient, _, err := newMultiNodeClientFromInfo(info, lggr)
 	if err != nil {
 		return nil, err
 	}
@@ -26,8 +24,8 @@ func CreateMultiNodeClientFromInfo(ctx context.Context, info Info, lggr logger.L
 	return chainClient, nil
 }
 
-func newMultiNodeClientFromInfo(info Info, lggr logger.Logger, persistHeads bool) (client.Client, *evmconfig.ChainScoped, error) {
-	chainConfig, err := newChainlinkEVMConfig(info, persistHeads)
+func newMultiNodeClientFromInfo(info Info, lggr logger.Logger) (client.Client, *evmconfig.ChainScoped, error) {
+	chainConfig, err := newChainlinkEVMConfig(info)
 	if err != nil {
 		return nil, nil, err
 	}

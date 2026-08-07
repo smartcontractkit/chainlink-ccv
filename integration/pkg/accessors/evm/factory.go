@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -18,7 +17,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/keystore"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
-	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 )
 
 // defaultExecutionVisibilityWindow mirrors executor.maxRetryDurationDefault.
@@ -28,7 +26,6 @@ type runtimeBuilder func(
 	ctx context.Context,
 	chainSelector protocol.ChainSelector,
 	lggr logger.Logger,
-	ds sqlutil.DataSource,
 ) (chainRuntime, error)
 
 type factory struct {
@@ -40,21 +37,6 @@ type factory struct {
 
 	executionVisibilityWindow time.Duration
 	newRuntime                runtimeBuilder
-
-	// ds backs durable head state, or nil to run in memory. Set once by SetDataSource during
-	// registry construction, before the first GetAccessor, and only read afterwards.
-	ds sqlutil.DataSource
-	// warnedNoDataSource keeps the in-memory warning to one line per process rather than one per
-	// chain, since the condition is a property of the deployment.
-	warnedNoDataSource sync.Once
-}
-
-var _ chainaccess.DataSourceSetter = (*factory)(nil)
-
-// SetDataSource implements chainaccess.DataSourceSetter. The registry calls it after constructing
-// this factory and before returning, so every GetAccessor sees the handle.
-func (f *factory) SetDataSource(ds sqlutil.DataSource) {
-	f.ds = ds
 }
 
 func newFactory(
@@ -117,19 +99,8 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 		)
 	}
 
-	// Persistence is opt-in per deployment: with no data source the accessor runs entirely in
-	// memory, as it did before durable head state existed. Say so at warn level, because an
-	// operator who meant to configure a database would otherwise get a process that starts cleanly
-	// and quietly loses head history on every restart.
-	if f.ds == nil {
-		f.warnedNoDataSource.Do(func() {
-			f.lggr.Warn("no data source configured for EVM accessors: head tracker state is in-memory " +
-				"and will not survive a restart; set the bootstrap [db] section to persist it")
-		})
-	}
-
 	chainLggr := logger.With(f.lggr, "chainSelector", chainSelector)
-	runtime, err := f.newRuntime(ctx, chainSelector, chainLggr, f.ds)
+	runtime, err := f.newRuntime(ctx, chainSelector, chainLggr)
 	if err != nil {
 		return nil, fmt.Errorf("failed to start EVM services for chain %d: %w", chainSelector, err)
 	}

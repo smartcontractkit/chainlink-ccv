@@ -19,9 +19,7 @@ You need:
 
 - Your Chainlink node's API credentials in a file: email on line 1, password on line 2.
 - Your Chainlink node's TOML config file.
-- An empty Postgres database for the verifier, and another for the executor. Head tracker state
-  lives in these too, in an `evm` schema the bootstrapper migrates on start, so there is nothing
-  extra to provision for it.
+- An empty Postgres database for the verifier, and another for the executor.
 - The verifier and executor images.
 
 Fill these in once and reuse them in the commands below:
@@ -326,3 +324,6 @@ Once the verifier has come up once, the export and password files can be unmount
 
 - **CCIP-12871** adds a `ccv migrate` command for step 7: it reads the transmitter address and routes
   the balances from the node's legacy per-chain transmitters into it. Step 7 becomes one command.
+- **Persistence.** When the EVM standalone gains persistence it will need a database of its own on top
+  of the bootstrap one. Not a separate server, but a separate database, so the count in "Before you
+  start" changes.

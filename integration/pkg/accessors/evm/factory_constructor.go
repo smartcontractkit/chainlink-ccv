@@ -12,7 +12,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
-	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 )
 
 func init() {
@@ -192,17 +191,12 @@ func CreateAccessorFactory(
 		rmnRemoteInfos,
 		destChainConfigs,
 		generic.MaxRetryDuration,
-		func(
-			ctx context.Context,
-			chainSelector protocol.ChainSelector,
-			chainLggr logger.Logger,
-			ds sqlutil.DataSource,
-		) (chainRuntime, error) {
+		func(ctx context.Context, chainSelector protocol.ChainSelector, chainLggr logger.Logger) (chainRuntime, error) {
 			info, err := infos.GetBlockchainByChainSelector(chainSelector)
 			if err != nil {
 				return nil, fmt.Errorf("failed to get EVM config for chain %d: %w", chainSelector, err)
 			}
-			return newStandaloneChain(ctx, info, chainLggr, ds)
+			return newStandaloneChain(ctx, info, chainLggr)
 		},
 	), nil
 }

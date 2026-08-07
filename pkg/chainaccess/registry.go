@@ -13,60 +13,12 @@ import (
 	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
-	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 )
 
 // AccessorFactoryConstructor creates an AccessorFactory for a specific chain family. When
 // GetAccessor is called, it will delegate to the AccessorFactory corresponding to the chain
 // family of the given chain selector.
 type AccessorFactoryConstructor func(lggr logger.Logger, cfg GenericConfig) (AccessorFactory, error)
-
-// DataSourceSetter is an optional hook an AccessorFactory can implement to receive the bootstrap
-// database. NewRegistry calls it on every factory that implements it, after construction and
-// before the Registry is returned, so a factory always has the handle before its first
-// GetAccessor. Factories that do not implement it are left alone.
-//
-// It is a hook on the factory rather than a parameter on AccessorFactoryConstructor because chain
-// families live in their own repos (chainlink-canton, chainlink-ccip-solana) and register through
-// that signature. Widening it would break each of them on their next dependency bump, to hand them
-// something they have no use for: both derive head and finality state from their RPC on every call
-// and hold no durable state.
-//
-// It is also a hook on the factory rather than on the Accessor, which is how the keystore arrives
-// (see bootstrap.KeystoreSetter). A family may need the handle while building the services an
-// Accessor wraps, so it has to be available before GetAccessor rather than after. The EVM accessor
-// builds its head tracker there, and the tracker's persistence is fixed when it is created.
-//
-// The handle maps Go struct fields to columns as snake_case, which is what chainlink-evm's and
-// chainlink-core's ORMs expect from row structs that carry no db tags.
-//
-// Implementations should treat the call as part of construction: it happens once, on one
-// goroutine, before the factory is used.
-type DataSourceSetter interface {
-	// SetDataSource provides the bootstrap database. It is only called with a non-nil handle; a
-	// factory that is never called runs without durable state and is expected to fall back to an
-	// in-memory equivalent rather than fail.
-	//
-	// Tables live in a schema per family, created by bootstrap/db/migrations, which runs on
-	// connect, so a family can assume its own schema is present.
-	SetDataSource(ds sqlutil.DataSource)
-}
-
-// RegistryOption configures the Registry built by NewRegistry.
-type RegistryOption func(*registryOptions)
-
-type registryOptions struct {
-	dataSource sqlutil.DataSource
-}
-
-// WithDataSource shares a database handle with every accessor factory that implements
-// DataSourceSetter. Omitting it means no factory is given one, which each family reads as "run
-// without durable state".
-func WithDataSource(ds sqlutil.DataSource) RegistryOption {
-	return func(o *registryOptions) {
-		o.dataSource = ds
-	}
-}
 
 type ChainFamily string
 
@@ -169,16 +121,10 @@ func accessorConstructorMapCopy() map[ChainFamily]AccessorFactoryConstructor {
 	return constructorCopy
 }
 
-// NewRegistry creates a new Registry with some configuration. Options supply the runtime handles
-// shared with every family's constructor; see Deps.
-func NewRegistry(lggr logger.Logger, config string, opts ...RegistryOption) (Registry, error) {
+// NewRegistry creates a new Registry with some configuration.
+func NewRegistry(lggr logger.Logger, config string) (Registry, error) {
 	reg := registry{
 		factories: make(map[ChainFamily]AccessorFactory),
-	}
-
-	var options registryOptions
-	for _, opt := range opts {
-		opt(&options)
 	}
 
 	var genericConfig GenericConfig
@@ -198,12 +144,6 @@ func NewRegistry(lggr logger.Logger, config string, opts ...RegistryOption) (Reg
 		accessor, err := constructor(lggr, genericConfig)
 		if err != nil {
 			return nil, fmt.Errorf("failed to construct accessor factory for family %s: %w", family, err)
-		}
-		if options.dataSource != nil {
-			if setter, ok := accessor.(DataSourceSetter); ok {
-				setter.SetDataSource(options.dataSource)
-				lggr.Infow("Shared the bootstrap database with accessor factory", "family", family)
-			}
 		}
 		reg.factories[family] = accessor
 	}
