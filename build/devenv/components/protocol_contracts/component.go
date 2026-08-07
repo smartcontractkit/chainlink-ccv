@@ -339,6 +339,23 @@ func deployProtocolContractsForSelector(
 		return nil, fmt.Errorf("selector %d: %w", selector, err)
 	}
 
+	// The EVM chain-contract deploy resolves an Ultra Fast Curse MCMS timelock to use as the RMN's
+	// curse admin, and requires one to already be in the datastore.
+	ufcDS := datastore.NewMemoryDataStore()
+	if err := ccdeploy.SeedUltraFastCurseTimelock(ufcDS, selector, impl.ChainFamily()); err != nil {
+		return nil, err
+	}
+	if sealed := ufcDS.Seal(); len(sealed.Addresses().Filter()) > 0 {
+		if err := runningDS.Merge(sealed); err != nil {
+			return nil, fmt.Errorf("merge ultra fast curse DS: %w", err)
+		}
+		merged, err := mergeIntoSealed(env.DataStore, sealed)
+		if err != nil {
+			return nil, fmt.Errorf("update env DS with ultra fast curse timelock: %w", err)
+		}
+		env.DataStore = merged
+	}
+
 	// 3. Deploy protocol contracts via the chain-agnostic ccv changeset.
 	out, err := ccvchangesets.DeployProtocolContracts().Apply(*env, ccvchangesets.DeployProtocolContractsInput{
 		ChainSelectors: []uint64{selector},

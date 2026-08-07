@@ -41,7 +41,12 @@ func TestE2ESmoke_TokenPoolMigrationEVM2EVM(t *testing.T) {
 		QualBurnWithFromMintBV1 = "EVM_POOL_BWFM_B_V1"
 		QualBurnWithFromMintAV2 = "EVM_POOL_BWFM_A_V2"
 		QualBurnWithFromMintBV2 = "EVM_POOL_BWFM_B_V2"
+		QualSiloedAV1           = "EVM_POOL_SLNR_A_V1"
+		QualSiloedBV1           = "EVM_POOL_SLNR_B_V1"
+		QualSiloedAV2           = "EVM_POOL_SLNR_A_V2"
+		QualSiloedBV2           = "EVM_POOL_SLNR_B_V2"
 		TokensToSend            = 1
+		SiloedLiquidity         = 100
 	)
 
 	lib, err := ccv.NewLibFromCCVEnv(&ccv.Plog, GetSmokeTestConfig(), chainsel.FamilyEVM)
@@ -211,6 +216,57 @@ func TestE2ESmoke_TokenPoolMigrationEVM2EVM(t *testing.T) {
 		// Part 2: migrate and ensure token transfers still work
 		poolAV2 := evm.DeployTokenPoolV200(t, env, cciputils.BurnWithFromMintTokenPool.String(), QualBurnWithFromMintAV2, poolAV1, tokenpool.DefaultFinalityConfig())
 		poolBV2 := evm.DeployTokenPoolV200(t, env, cciputils.BurnWithFromMintTokenPool.String(), QualBurnWithFromMintBV2, poolBV1, tokenpool.DefaultFinalityConfig())
+		tokenpool.ConnectAll(t, env, cciputils.Version_2_0_0, []tokenpool.Connection{
+			{
+				PoolA: poolAV2,
+				PoolB: poolBV2,
+				RateLimits: tokenpool.BidirectionalRateLimitPair{
+					AB: tokenpool.DefaultOutboundRateLimit(),
+					BA: tokenpool.DefaultOutboundRateLimit(),
+				},
+			},
+		})
+		require.NotEqual(t, poolAV1.Address(), poolAV2.Address())
+		require.NotEqual(t, poolBV1.Address(), poolBV2.Address())
+		require.Equal(t, poolAV1.Token(), poolAV2.Token())
+		require.Equal(t, poolBV1.Token(), poolBV2.Token())
+		tokenpool.RunBidirectionalTokenTransfer(t, lib, poolAV2, poolBV2, TokensToSend, fCfg, "post-migration")
+	})
+
+	// SiloedLockReleaseTokenPool is a custom lock-release variant that keeps liquidity isolated per
+	// remote chain. The two versions model that differently, which is what makes this migration worth
+	// covering: v1.6.1 tracks each silo in internal accounting, whereas v2.0.0 holds no balance at all
+	// and routes each remote chain to its own ERC20LockBox.
+	t.Run("SiloedLockReleaseTokenPool Migration", func(t *testing.T) {
+		// Part 1: deploy legacy pools and ensure token transfers work
+		poolAV1 := evm.DeploySiloedLockReleaseTokenPoolV161(t, env, selA, QualSiloedAV1)
+		poolBV1 := evm.DeploySiloedLockReleaseTokenPoolV161(t, env, selB, QualSiloedBV1)
+		tokenpool.ConnectAll(t, env, cciputils.Version_1_6_1, []tokenpool.Connection{
+			{
+				PoolA: poolAV1,
+				PoolB: poolBV1,
+				RateLimits: tokenpool.BidirectionalRateLimitPair{
+					AB: tokenpool.DefaultOutboundRateLimit(),
+					BA: tokenpool.DefaultOutboundRateLimit(),
+				},
+			},
+		})
+		// Siloing has to come after ConnectAll: updateSiloDesignations rejects a chain that the pool
+		// does not already support. A plain token transfer would not register as liquidity either,
+		// since a siloed pool releases against its internal per-silo accounting.
+		evm.ProvideSiloedLiquidity(t, env, poolAV1, selB, SiloedLiquidity)
+		evm.ProvideSiloedLiquidity(t, env, poolBV1, selA, SiloedLiquidity)
+		require.NotEmpty(t, poolAV1.Address())
+		require.NotEmpty(t, poolBV1.Address())
+		require.NotEmpty(t, poolAV1.Token())
+		require.NotEmpty(t, poolBV1.Token())
+		tokenpool.RunBidirectionalTokenTransfer(t, lib, poolAV1, poolBV1, TokensToSend, fCfg, "pre-migration")
+
+		// Part 2: migrate and ensure token transfers still work. Each pool serves a single remote
+		// chain, so one lock box group per pool covers it; the liquidity migration drains each v1.6.1
+		// silo into the matching lock box.
+		poolAV2 := evm.DeployTokenPoolV200(t, env, cciputils.SiloedLockReleaseTokenPool.String(), QualSiloedAV2, poolAV1, tokenpool.DefaultFinalityConfig(), []uint64{selB})
+		poolBV2 := evm.DeployTokenPoolV200(t, env, cciputils.SiloedLockReleaseTokenPool.String(), QualSiloedBV2, poolBV1, tokenpool.DefaultFinalityConfig(), []uint64{selA})
 		tokenpool.ConnectAll(t, env, cciputils.Version_2_0_0, []tokenpool.Connection{
 			{
 				PoolA: poolAV2,
