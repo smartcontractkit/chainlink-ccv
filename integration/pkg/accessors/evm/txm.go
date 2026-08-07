@@ -3,6 +3,7 @@ package evm
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 
@@ -136,16 +137,34 @@ func newTxmV2(
 // Called once, immediately after the TXM starts and before it has broadcast anything, so a
 // difference can only have come from a previous run of this process. It is not a valid check later:
 // in steady state the same difference is just this TXM's own in-flight work.
+//
+// Each read carries its own deadline. Recovery runs on a background goroutine that Close waits for,
+// so a read that hangs would hang shutdown; the caller's context only cancels on Close, which is
+// too late to be the only bound.
 func orphanedNonces(ctx context.Context, chainClient evmclient.Client, address common.Address) (latest, pending uint64, err error) {
-	pending, err = chainClient.PendingNonceAt(ctx, address)
+	pending, err = withNonceTimeout(ctx, orphanRecoveryRPCTimeout, func(ctx context.Context) (uint64, error) {
+		return chainClient.PendingNonceAt(ctx, address)
+	})
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to read pending nonce for %s: %w", address, err)
 	}
-	latest, err = chainClient.NonceAt(ctx, address, nil)
+	latest, err = withNonceTimeout(ctx, orphanRecoveryRPCTimeout, func(ctx context.Context) (uint64, error) {
+		return chainClient.NonceAt(ctx, address, nil)
+	})
 	if err != nil {
 		return 0, 0, fmt.Errorf("failed to read latest nonce for %s: %w", address, err)
 	}
 	return latest, pending, nil
+}
+
+func withNonceTimeout(
+	ctx context.Context,
+	timeout time.Duration,
+	read func(context.Context) (uint64, error),
+) (uint64, error) {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	return read(ctx)
 }
 
 // seedOrphanedNonce puts a transaction into the store at a nonce the TXM has no record of, so its

@@ -25,6 +25,10 @@ const (
 	// is left alone; replacing one needlessly discards a real execution and makes the
 	// executor send another. See standaloneChain.recoverOrphanedTransactions.
 	orphanRecoveryGracePeriod = 90 * time.Second
+	// orphanRecoveryRPCTimeout bounds a single nonce read during orphan recovery. Recovery runs on a
+	// goroutine Close waits for, so every network call it makes needs a deadline of its own rather
+	// than relying on the RPC client having one.
+	orphanRecoveryRPCTimeout = 30 * time.Second
 )
 
 // newChainlinkEVMConfig is the single adapter from CCV's focused standalone

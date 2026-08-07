@@ -319,7 +319,13 @@ func (c *standaloneChain) Close() error {
 	c.mu.Unlock()
 
 	// Stop orphan recovery first and wait for it. It reads nonces through the chain client and
-	// writes to the TXM store, so both have to outlive it.
+	// writes to the TXM store, so both have to outlive it; abandoning it here would leave it calling
+	// into a closed client.
+	//
+	// The wait is bounded. Closing recoveryStop cancels the context every nonce read derives from,
+	// so a read in flight returns at once, the grace-period sleep selects on the same context, and
+	// seeding only touches the in-memory store. Even with a chain client that ignored cancellation,
+	// orphanRecoveryRPCTimeout caps each read.
 	if c.recoveryStop != nil {
 		close(c.recoveryStop)
 	}

@@ -1,8 +1,10 @@
 package evm
 
 import (
+	"context"
 	"math/big"
 	"testing"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/require"
@@ -110,6 +112,35 @@ func TestSeedOrphanedNonceCreatesPurgeableTransaction(t *testing.T) {
 	// why recoverOrphanedTransactions logs and moves on rather than aborting the whole address.
 	require.Error(t, subject.seedOrphanedNonce(ctx, address, 7),
 		"a nonce already under TXM control must not be seeded again")
+}
+
+// TestWithNonceTimeoutBoundsAHangingRead covers the deadline every orphan-recovery nonce read
+// carries. Recovery runs on a goroutine Close waits for, so a read that hung with only the caller's
+// context to stop it would hang shutdown; this is what keeps that wait bounded.
+func TestWithNonceTimeoutBoundsAHangingRead(t *testing.T) {
+	t.Parallel()
+
+	_, err := withNonceTimeout(t.Context(), time.Millisecond, func(ctx context.Context) (uint64, error) {
+		<-ctx.Done() // A read that never answers on its own.
+		return 0, ctx.Err()
+	})
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+}
+
+// TestWithNonceTimeoutPropagatesCancellation is the shutdown path: closing the accessor cancels the
+// context the reads derive from, and they return then rather than after the full timeout.
+func TestWithNonceTimeoutPropagatesCancellation(t *testing.T) {
+	t.Parallel()
+
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+
+	// A generous per-call timeout, so returning promptly can only be the parent cancellation.
+	_, err := withNonceTimeout(ctx, time.Hour, func(ctx context.Context) (uint64, error) {
+		<-ctx.Done()
+		return 0, ctx.Err()
+	})
+	require.ErrorIs(t, err, context.Canceled)
 }
 
 // TestSeedOrphanedNonceRejectsUnknownAddress pins the ordering constraint in
