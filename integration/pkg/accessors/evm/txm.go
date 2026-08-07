@@ -28,8 +28,8 @@ import (
 //
 // So newTxmV2 assembles the same objects that builder does, from the same exported constructors,
 // and keeps the store reference. It is a fork of upstream's builder and will drift if that builder
-// changes; TestNewTxmV2MatchesUpstreamBuilder pins the parts that matter. The intended end state is
-// for NewTxmV2 to accept a store manager, after which this file goes away.
+// changes. The intended end state is for NewTxmV2 to accept a store manager, after which this file
+// goes away.
 type txmV2 struct {
 	txmgr.TxManager
 
@@ -66,9 +66,10 @@ func newTxmV2(
 	feeCfg := txmgr.NewEvmTxmFeeConfig(cfg.GasEstimator())
 	gasCfg := cfg.GasEstimator()
 
-	// AutoPurge drives the stuck transaction detector. Without it TXM never replaces a transaction
-	// that the chain has stopped making progress on, so an underpriced attempt can hold its address
-	// indefinitely. newChainlinkEVMConfig enables it; a nil detector here would silently drop that.
+	// AutoPurge drives the stuck transaction detector, which marks a transaction purgeable when the
+	// chain stops making progress on it. newChainlinkEVMConfig leaves it off (see the note there),
+	// so this branch is not taken today; it is wired up so that turning AutoPurge on is a config
+	// change rather than a code change.
 	var stuckTxDetector txm.StuckTxDetector
 	if autoPurge := cfg.Transactions().AutoPurge(); autoPurge.Enabled() {
 		var detectionURL string

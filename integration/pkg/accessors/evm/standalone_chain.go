@@ -227,8 +227,6 @@ func (c *standaloneChain) NewContractTransmitter(
 	return transmitter, nil
 }
 
-// Close stops event sources before their consumers, matching chainlink-evm's
-// production chain lifecycle and preventing late head delivery during shutdown.
 // startOrphanRecovery drives transactions left in the mempool by a previous run of this process to
 // completion, so an address is never blocked indefinitely by work this process cannot see.
 //

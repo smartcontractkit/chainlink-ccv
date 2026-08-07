@@ -1,9 +1,14 @@
 package evm
 
 import (
+	"math/big"
 	"testing"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/stretchr/testify/require"
+
+	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+	"github.com/smartcontractkit/chainlink-evm/pkg/txm/storage"
 )
 
 func TestNonceRangeIdentifiesOrphans(t *testing.T) {
@@ -71,4 +76,51 @@ func TestNewTxmV2RejectsUnsupportedConfig(t *testing.T) {
 	dual := cfg.EVM().Transactions().TransactionManagerV2().DualBroadcast()
 	require.True(t, dual == nil || !*dual,
 		"newTxmV2 passes a nil error handler and rejects configs that enable dual broadcast")
+}
+
+// TestSeedOrphanedNonceCreatesPurgeableTransaction covers the whole point of forking upstream's
+// builder: holding the store so a nonce the TXM has no record of can be put back under its control.
+//
+// The purgeable flag is what makes the seeded transaction useful. It is what tells the backfill loop
+// to rebroadcast every tick with an escalating fee rather than waiting out RetryBlockThreshold, and
+// it is what makes the attempt builder price the attempt to displace whatever is already occupying
+// the nonce. A seeded transaction without it would sit behind the same stuck original it was
+// created to clear.
+func TestSeedOrphanedNonceCreatesPurgeableTransaction(t *testing.T) {
+	t.Parallel()
+
+	const gasLimit = uint64(21_000)
+	address := common.HexToAddress("0x000000000000000000000000000000000000dEaD")
+
+	store := storage.NewInMemoryStoreManager(logger.Test(t), big.NewInt(1337))
+	require.NoError(t, store.Add(address))
+	subject := &txmV2{store: store, emptyTxGasLimit: gasLimit}
+
+	ctx := t.Context()
+	require.NoError(t, subject.seedOrphanedNonce(ctx, address, 7))
+
+	seeded, count, err := store.FetchUnconfirmedTransactionAtNonceWithCount(ctx, 7, address)
+	require.NoError(t, err)
+	require.Equal(t, 1, count, "seeding should leave exactly one unconfirmed transaction at the nonce")
+	require.NotNil(t, seeded)
+	require.True(t, seeded.IsPurgeable, "seeded transaction must be purgeable so TXM rebroadcasts and escalates it")
+	require.Equal(t, gasLimit, seeded.SpecifiedGasLimit)
+
+	// Seeding the same nonce twice would mean recovery raced itself; the store rejects it, which is
+	// why recoverOrphanedTransactions logs and moves on rather than aborting the whole address.
+	require.Error(t, subject.seedOrphanedNonce(ctx, address, 7),
+		"a nonce already under TXM control must not be seeded again")
+}
+
+// TestSeedOrphanedNonceRejectsUnknownAddress pins the ordering constraint in
+// standaloneChain.startOrphanRecovery: recovery only runs after the TXM has started, because
+// starting is what registers the transmitter addresses with the store.
+func TestSeedOrphanedNonceRejectsUnknownAddress(t *testing.T) {
+	t.Parallel()
+
+	store := storage.NewInMemoryStoreManager(logger.Test(t), big.NewInt(1337))
+	subject := &txmV2{store: store, emptyTxGasLimit: 21_000}
+
+	err := subject.seedOrphanedNonce(t.Context(), common.HexToAddress("0x1"), 0)
+	require.Error(t, err, "seeding an address the store does not know about must fail loudly")
 }

@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	chain_selectors "github.com/smartcontractkit/chain-selectors"
+	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 
 	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
@@ -57,6 +58,36 @@ func VerifierContainers(cfg *ccv.Cfg, committeeQualifier string, filter Verifier
 	}
 	if len(names) == 0 {
 		return nil, fmt.Errorf("no verifier containers found for committee %q", committeeQualifier)
+	}
+	return names, nil
+}
+
+// VerifierDBContainers returns the Postgres container names backing the verifiers in the given
+// committee, deduplicated. filter, when non-nil, restricts which verifiers are included and takes
+// the same shape as the one VerifierContainers uses, so a caller can target the databases of
+// exactly the verifiers it is about to stop.
+func VerifierDBContainers(cfg *ccv.Cfg, committeeQualifier string, filter VerifierFilter) ([]string, error) {
+	var names []string
+	seen := make(map[string]struct{})
+	for _, verifier := range cfg.Verifier {
+		if verifier.CommitteeName != committeeQualifier {
+			continue
+		}
+		if filter != nil && !filter(verifier) {
+			continue
+		}
+		name := committeeverifier.DBContainerName(verifier)
+		if name == "" {
+			continue
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		names = append(names, name)
+	}
+	if len(names) == 0 {
+		return nil, fmt.Errorf("no verifier database containers found for committee %q", committeeQualifier)
 	}
 	return names, nil
 }
@@ -153,6 +184,21 @@ func BlockchainContainer(cfg *ccv.Cfg, index int) (string, error) {
 // BlockchainContainer when you have a selector (e.g. from lib.Chains()) since
 // the Blockchains array order may not match the chains() order.
 func BlockchainContainerForSelector(cfg *ccv.Cfg, selector uint64) (string, error) {
+	bc, err := BlockchainInputForSelector(cfg, selector)
+	if err != nil {
+		return "", err
+	}
+	name := normalizeContainerName(bc.Out.ContainerName)
+	if name == "" {
+		return "", fmt.Errorf("blockchain for selector %d has empty container name", selector)
+	}
+	return name, nil
+}
+
+// BlockchainInputForSelector returns the blockchain input for the given chain selector. Tests use it
+// to recover how the node was launched - the anvil block-time flag in particular, which a test has
+// to restore after it takes over block production.
+func BlockchainInputForSelector(cfg *ccv.Cfg, selector uint64) (*blockchain.Input, error) {
 	for _, bc := range cfg.Blockchains {
 		if bc.Out == nil {
 			continue
@@ -161,14 +207,9 @@ func BlockchainContainerForSelector(cfg *ccv.Cfg, selector uint64) (string, erro
 		if err != nil {
 			continue
 		}
-		if d.ChainSelector != selector {
-			continue
+		if d.ChainSelector == selector {
+			return bc, nil
 		}
-		name := normalizeContainerName(bc.Out.ContainerName)
-		if name == "" {
-			return "", fmt.Errorf("blockchain for selector %d has empty container name", selector)
-		}
-		return name, nil
 	}
-	return "", fmt.Errorf("blockchain container not found for selector %d", selector)
+	return nil, fmt.Errorf("blockchain not found for selector %d", selector)
 }

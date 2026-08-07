@@ -3,8 +3,10 @@ package evm
 import (
 	"context"
 	"fmt"
+	"time"
 
 	gethcommon "github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 )
@@ -20,10 +22,11 @@ var (
 	_ cciptestinterfaces.MineHoldableChain = (*CCIP17EVM)(nil)
 )
 
-// SupportMineHold reports whether automining can be toggled. anvil_getAutomine answering at all is
-// the signal: a node that reports the setting also accepts anvil_setAutomine. Unlike
-// SupportManualBlockProgress this does not care what the current value is, since the caller is
-// about to change it.
+// SupportMineHold reports whether the node exposes anvil's mining controls. anvil_getAutomine
+// answering at all is the signal: a node that reports the setting also accepts anvil_setAutomine,
+// anvil_setIntervalMining and anvil_mine. Unlike SupportManualBlockProgress this does not care what
+// the current value is - devenv starts anvil with -b 1, which is interval mining, so automine reads
+// as false there even though every control below works.
 func (m *CCIP17EVM) SupportMineHold(ctx context.Context) bool {
 	var automine bool
 	if err := m.ethClient.Client().CallContext(ctx, &automine, "anvil_getAutomine"); err != nil {
@@ -33,13 +36,55 @@ func (m *CCIP17EVM) SupportMineHold(ctx context.Context) bool {
 	return true
 }
 
-// SetAutomine turns automatic block production on or off.
-func (m *CCIP17EVM) SetAutomine(ctx context.Context, enabled bool) error {
+// HoldMining stops block production. Both controls are needed: anvil started with -b runs interval
+// mining, which keeps producing blocks no matter what automine is set to, and a node started
+// without -b mines on every transaction.
+func (m *CCIP17EVM) HoldMining(ctx context.Context) error {
 	var result any
-	if err := m.ethClient.Client().CallContext(ctx, &result, "anvil_setAutomine", enabled); err != nil {
-		return fmt.Errorf("anvil_setAutomine(%t): %w", enabled, err)
+	if err := m.ethClient.Client().CallContext(ctx, &result, "anvil_setIntervalMining", 0); err != nil {
+		return fmt.Errorf("anvil_setIntervalMining(0): %w", err)
 	}
-	m.logger.Debug().Bool("automine", enabled).Msg("Set automine")
+	if err := m.ethClient.Client().CallContext(ctx, &result, "anvil_setAutomine", false); err != nil {
+		return fmt.Errorf("anvil_setAutomine(false): %w", err)
+	}
+	m.logger.Debug().Msg("Held block production")
+	return nil
+}
+
+// ResumeMining restarts block production. Anvil mines whatever is queued in the mempool on the
+// first block after this returns.
+func (m *CCIP17EVM) ResumeMining(ctx context.Context, interval time.Duration) error {
+	var result any
+	if interval <= 0 {
+		if err := m.ethClient.Client().CallContext(ctx, &result, "anvil_setAutomine", true); err != nil {
+			return fmt.Errorf("anvil_setAutomine(true): %w", err)
+		}
+		m.logger.Debug().Msg("Resumed block production with automining")
+		return nil
+	}
+	seconds := uint64(interval.Round(time.Second) / time.Second)
+	if seconds == 0 {
+		seconds = 1
+	}
+	if err := m.ethClient.Client().CallContext(ctx, &result, "anvil_setIntervalMining", seconds); err != nil {
+		return fmt.Errorf("anvil_setIntervalMining(%d): %w", seconds, err)
+	}
+	m.logger.Debug().Uint64("intervalSeconds", seconds).Msg("Resumed block production with interval mining")
+	return nil
+}
+
+// MineBlocks mines count blocks in one anvil_mine call with a zero inter-block interval, so the
+// head moves but block timestamps do not.
+func (m *CCIP17EVM) MineBlocks(ctx context.Context, count uint64) error {
+	if count == 0 {
+		return nil
+	}
+	var result any
+	if err := m.ethClient.Client().CallContext(ctx, &result, "anvil_mine",
+		hexutil.Uint64(count), hexutil.Uint64(0)); err != nil {
+		return fmt.Errorf("anvil_mine(%d): %w", count, err)
+	}
+	m.logger.Debug().Uint64("blocks", count).Msg("Mined blocks")
 	return nil
 }
 

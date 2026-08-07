@@ -198,20 +198,29 @@ type ProgressableChain interface {
 	AdvanceBlocks(ctx context.Context, numBlocks int) error
 }
 
-// MineHoldableChain is optionally implemented by chain families that can stop including
-// transactions in blocks while still accepting them into the mempool (e.g. anvil via
-// anvil_setAutomine). It exists so a test can hold a transaction in flight for as long as it needs
-// to, which is otherwise a race against block production.
+// MineHoldableChain is optionally implemented by chain families that let a test drive block
+// production directly (e.g. anvil). Durability tests need two things ProgressableChain does not
+// offer: stopping block production entirely so a transaction can be held in the mempool, and
+// jumping the head forward a long way without also jumping chain time.
 //
-// Distinct from ProgressableChain: that drives blocks forward on demand, this stops them happening
-// at all. A chain can support one without the other, and SupportManualBlockProgress specifically
-// requires automining to be on, which is the opposite of what holding needs.
+// Distinct from ProgressableChain: that drives blocks forward on demand and its
+// SupportManualBlockProgress requires automining to be on, which is the opposite of what holding
+// needs and is false on the interval-mined nodes devenv starts.
 type MineHoldableChain interface {
-	// SupportMineHold returns true iff the node can have automining toggled at runtime.
+	// SupportMineHold returns true iff the node exposes runtime mining controls.
 	SupportMineHold(ctx context.Context) bool
-	// SetAutomine turns automatic block production on or off. With it off, transactions collect in
-	// the mempool until it is turned back on or blocks are mined explicitly.
-	SetAutomine(ctx context.Context, enabled bool) error
+	// HoldMining stops block production, including any interval mining the node was started with.
+	// Transactions sent while mining is held are accepted into the mempool but never included.
+	HoldMining(ctx context.Context) error
+	// ResumeMining restarts block production and flushes whatever accumulated in the mempool. A
+	// positive interval restores interval mining at that cadence; zero switches to automining.
+	// Callers should pass the interval the node was started with, so later tests see the chain
+	// behaving as it did before.
+	ResumeMining(ctx context.Context, interval time.Duration) error
+	// MineBlocks mines count blocks in a single call without advancing block timestamps. This is
+	// how a test moves the head past a service's lookback window; mining them one at a time would
+	// also move chain time forward by one block interval each, which changes unrelated behavior.
+	MineBlocks(ctx context.Context, count uint64) error
 	// PendingAndLatestNonce reports the mempool and mined nonce for an address, which is how a test
 	// observes that a transaction has been accepted but not yet included.
 	PendingAndLatestNonce(ctx context.Context, address string) (pending, latest uint64, err error)
