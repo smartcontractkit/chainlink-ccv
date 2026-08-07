@@ -105,6 +105,24 @@ func DeployContractsForSelector(
 		env.DataStore = merged
 	}
 
+	// The EVM chain deploy resolves an Ultra Fast Curse MCMS timelock to use as the RMN's curse
+	// admin and requires one to already be present. Seed the devenv placeholder before the changeset
+	// reads existing addresses off env.DataStore.
+	ufcDS := datastore.NewMemoryDataStore()
+	if err := SeedUltraFastCurseTimelock(ufcDS, selector, impl.ChainFamily()); err != nil {
+		return nil, err
+	}
+	if sealed := ufcDS.Seal(); len(sealed.Addresses().Filter()) > 0 {
+		if err := runningDS.Merge(sealed); err != nil {
+			return nil, fmt.Errorf("merge ultra fast curse DS: %w", err)
+		}
+		merged, err := mergeIntoSealed(env.DataStore, sealed)
+		if err != nil {
+			return nil, fmt.Errorf("update env DS with ultra fast curse timelock: %w", err)
+		}
+		env.DataStore = merged
+	}
+
 	// 2. Get chain-specific config (reads pre-deployed addresses from env.DataStore).
 	cfg, err := impl.GetDeployChainContractsCfg(env, selector, topology)
 	if err != nil {
