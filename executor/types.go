@@ -13,7 +13,14 @@ var (
 	ErrInsufficientVerifiers = fmt.Errorf("insufficient verifiers for message")
 	ErrMessageEncoding       = fmt.Errorf("message encoding failed")
 	ErrExecutionContended    = fmt.Errorf("execution attempted; retry must respect executor stagger")
-	NtpServer                = "time.google.com"
+	// ErrMessageRejectedByTransmitter is returned by contract transmitters when a message
+	// is terminally rejected before submission (e.g. zero aggregated gas limits, which would
+	// produce an unexecutable transaction). The executor treats it as non-retryable and
+	// counts the message as an unrecoverable failure. Transmitters should wrap it with the
+	// rejection reason and message ID, e.g.:
+	//   fmt.Errorf("zero aggregated gas limits, message %s unexecutable: %w", msgID, executor.ErrMessageRejectedByTransmitter)
+	ErrMessageRejectedByTransmitter = fmt.Errorf("message rejected by transmitter")
+	NtpServer                       = "time.google.com"
 )
 
 // ContractAddresses is a map of contract names across all chain selectors and their address.
