@@ -76,6 +76,8 @@ const (
 	// verifierDBOutageDuration because the wait for the database to return starts before the outage
 	// has necessarily elapsed.
 	dbTransitionTimeout = 90 * time.Second
+	// dbProbeTimeout bounds a single docker inspect or docker port call.
+	dbProbeTimeout = 10 * time.Second
 
 	// checkpointFallbackLookback mirrors the lookback the verifier's source reader uses when it
 	// finds no checkpoint (verifier/pkg/sourcereader/service.go, initializeStartBlock).
@@ -311,75 +313,137 @@ func TestChaos_VerifierDatabaseOutage(t *testing.T) {
 	t.Cleanup(cleanup)
 
 	// Pumba pulls and starts a sidecar before it issues the stop, so InjectOutage returning does not
-	// mean the database is down. A message sent in that window gets verified and executed before the
-	// outage lands, and the test asserts nothing.
-	waitForDatabases(t, ctx, stopped, src, dbUnreachable)
+	// mean the database is down. A message sent in that window is verified and executed before the
+	// outage lands and the test asserts nothing.
+	waitForDBContainers(t, ctx, dbTargets, containerStopped)
 
 	messageKey := sendDurabilityMessage(t, ctx, lib, src, dst)
+
+	// The premise of the test is that the message arrives while the database is gone. Check it
+	// rather than trusting the outage to outlast the send: devenv delivers a message end to end in
+	// a few seconds, so the window is not as wide as the configured duration makes it look.
+	requireDBContainers(t, ctx, dbTargets, containerStopped,
+		"verifier database came back before the message was even sent")
 
 	requireExecOnDest(t, ctx, lib, src, dst, messageKey,
 		"message should execute after the verifier databases come back")
 
-	// Reading the checkpoint has to wait for Postgres to accept connections again. Pumba restarts the
-	// container at the end of the outage, and it spends a few seconds in recovery answering
-	// "the database system is starting up" before it will serve a query.
-	waitForDatabases(t, ctx, stopped, src, dbReachable)
+	// Only now read the checkpoint, and re-resolve the port to do it: the container's host port
+	// binding is ephemeral, so restarting it moves the database to a different port and the DSN
+	// recorded at environment setup no longer connects.
+	waitForDBContainers(t, ctx, dbTargets, containerRunning)
 	for _, verifier := range stopped {
-		after, ok := verifierCheckpoint(t, ctx, verifier, src)
-		require.Truef(t, ok, "verifier %s has no checkpoint after the database came back", verifier.ContainerName)
+		// Resolve each verifier's own container rather than indexing into dbTargets: that slice is
+		// deduplicated, so its order only lines up with stopped by coincidence.
+		after := waitForCheckpointOn(t, ctx, verifier, committeeverifier.DBContainerName(verifier), src)
 		require.GreaterOrEqualf(t, after, before[verifier.ContainerName],
 			"verifier %s checkpoint went backwards across the database outage", verifier.ContainerName)
 	}
 }
 
-// dbReachability is what waitForDatabases waits for.
-type dbReachability bool
+// containerState is what waitForDBContainers waits for.
+type containerState bool
 
 const (
-	dbReachable   dbReachability = true
-	dbUnreachable dbReachability = false
+	containerRunning containerState = true
+	containerStopped containerState = false
 )
 
-func (r dbReachability) String() string {
-	if r {
-		return "reachable"
+func (s containerState) String() string {
+	if s {
+		return "running"
 	}
-	return "unreachable"
+	return "stopped"
 }
 
-// waitForDatabases blocks until every given verifier's database is in the wanted state. Postgres
-// refuses queries for a while on both edges of a container stop, once while shutting down and again
-// while recovering on start, so a test that cares which side of the outage it is on has to wait for
-// the transition rather than assume it.
-func waitForDatabases(
-	t *testing.T,
-	ctx context.Context,
-	verifiers []*committeeverifier.Input,
-	src uint64,
-	want dbReachability,
-) {
+// dbContainerRunning reports whether a container is running, asking Docker rather than probing the
+// database over its host port. The host-side port forward is torn down before Postgres itself stops
+// and set up again before Postgres finishes recovery, so a host probe answers "down" while the
+// verifier can still reach the database over the container network, and vice versa.
+func dbContainerRunning(ctx context.Context, container string) bool {
+	out, err := runDocker(ctx, dbProbeTimeout, "inspect", "-f", "{{.State.Running}}", container)
+	if err != nil {
+		// An unknown container is not running, which is the answer the callers want.
+		return false
+	}
+	return strings.TrimSpace(string(out)) == "true"
+}
+
+func waitForDBContainers(t *testing.T, ctx context.Context, containers []string, want containerState) {
 	t.Helper()
 
 	deadline := time.Now().Add(dbTransitionTimeout)
-	for _, verifier := range verifiers {
-		for {
-			_, err := readVerifierCheckpoint(ctx, verifier, src)
-			// errNoCheckpoint means the query itself worked, so the database is up.
-			reachable := err == nil || errors.Is(err, errNoCheckpoint)
-			if reachable == bool(want) {
-				break
-			}
+	for _, container := range containers {
+		for containerState(dbContainerRunning(ctx, container)) != want {
 			if time.Now().After(deadline) {
-				t.Fatalf("verifier %s database did not become %s within %s (last error: %v)",
-					verifier.ContainerName, want, dbTransitionTimeout, err)
+				t.Fatalf("database container %s did not become %s within %s", container, want, dbTransitionTimeout)
 			}
 			select {
 			case <-ctx.Done():
-				t.Fatalf("context canceled waiting for a verifier database: %v", ctx.Err())
+				t.Fatalf("context canceled waiting for database container %s: %v", container, ctx.Err())
 			case <-time.After(inFlightPollInterval):
 			}
 		}
 	}
+}
+
+func requireDBContainers(t *testing.T, ctx context.Context, containers []string, want containerState, msg string) {
+	t.Helper()
+	for _, container := range containers {
+		require.Equalf(t, want, containerState(dbContainerRunning(ctx, container)),
+			"%s: container %s", msg, container)
+	}
+}
+
+// waitForCheckpointOn reads a verifier's checkpoint once its database is serving queries again. The
+// container being up is not enough: Postgres answers "the database system is starting up" for a few
+// seconds while it recovers.
+func waitForCheckpointOn(
+	t *testing.T,
+	ctx context.Context,
+	verifier *committeeverifier.Input,
+	dbContainer string,
+	src uint64,
+) uint64 {
+	t.Helper()
+
+	dsn := currentVerifierDSN(t, ctx, verifier, dbContainer)
+	deadline := time.Now().Add(dbTransitionTimeout)
+	for {
+		block, err := readCheckpointDSN(ctx, dsn, src)
+		if err == nil {
+			return block
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("verifier %s checkpoint unreadable within %s after its database restarted: %v",
+				verifier.ContainerName, dbTransitionTimeout, err)
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatalf("context canceled reading a verifier checkpoint: %v", ctx.Err())
+		case <-time.After(inFlightPollInterval):
+		}
+	}
+}
+
+// currentVerifierDSN rebuilds the verifier's connection string against whatever host port Docker has
+// bound the database to now. createDBContainer asks for a random free port, so the one captured in
+// the environment output is only valid until the container is restarted.
+func currentVerifierDSN(t *testing.T, ctx context.Context, verifier *committeeverifier.Input, dbContainer string) string {
+	t.Helper()
+
+	out, err := runDocker(ctx, dbProbeTimeout, "port", dbContainer, "5432/tcp")
+	require.NoErrorf(t, err, "docker port %s: %s", dbContainer, strings.TrimSpace(string(out)))
+
+	// Output is one "host:port" per binding, typically an IPv4 and an IPv6 line. Any of them
+	// reaches the same database, so take the first.
+	binding := strings.TrimSpace(strings.SplitN(strings.TrimSpace(string(out)), "\n", 2)[0])
+	idx := strings.LastIndex(binding, ":")
+	require.Greaterf(t, idx, -1, "unexpected docker port output for %s: %q", dbContainer, binding)
+	port := binding[idx+1:]
+
+	name := verifier.ContainerName
+	return fmt.Sprintf("postgresql://%s:%s@localhost:%s/%s?sslmode=disable", name, name, port, name)
 }
 
 // sendDurabilityMessage sends a V3 message and waits for the source-chain send to confirm, so the
@@ -536,9 +600,20 @@ func verifierCheckpoint(t *testing.T, ctx context.Context, verifier *committeeve
 var errNoCheckpoint = errors.New("verifier has no checkpoint for chain")
 
 func readVerifierCheckpoint(ctx context.Context, verifier *committeeverifier.Input, src uint64) (uint64, error) {
-	db, err := openVerifierDB(verifier)
+	if verifier.Out == nil || verifier.Out.DBConnectionString == "" {
+		return 0, fmt.Errorf("verifier %s has no database connection string", verifier.ContainerName)
+	}
+	block, err := readCheckpointDSN(ctx, verifier.Out.DBConnectionString, src)
+	if err != nil && !errors.Is(err, errNoCheckpoint) {
+		return 0, fmt.Errorf("verifier %s: %w", verifier.ContainerName, err)
+	}
+	return block, err
+}
+
+func readCheckpointDSN(ctx context.Context, dsn string, src uint64) (uint64, error) {
+	db, err := sql.Open("postgres", dsn)
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("open verifier database: %w", err)
 	}
 	defer db.Close()
 
@@ -550,7 +625,7 @@ func readVerifierCheckpoint(ctx context.Context, verifier *committeeverifier.Inp
 		`SELECT MAX(finalized_block_height)::TEXT FROM ccv_chain_statuses WHERE chain_selector = $1`,
 		strconv.FormatUint(src, 10),
 	).Scan(&height); err != nil {
-		return 0, fmt.Errorf("query checkpoint for %s: %w", verifier.ContainerName, err)
+		return 0, fmt.Errorf("query checkpoint: %w", err)
 	}
 	if !height.Valid {
 		return 0, errNoCheckpoint
@@ -558,7 +633,7 @@ func readVerifierCheckpoint(ctx context.Context, verifier *committeeverifier.Inp
 
 	block, ok := new(big.Int).SetString(height.String, 10)
 	if !ok {
-		return 0, fmt.Errorf("verifier %s wrote an unparseable checkpoint %q", verifier.ContainerName, height.String)
+		return 0, fmt.Errorf("unparseable checkpoint %q", height.String)
 	}
 	return block.Uint64(), nil
 }
@@ -580,8 +655,13 @@ func processingJobCount(t *testing.T, ctx context.Context, verifier *committeeve
 	return count
 }
 
-// openVerifierDB dials the verifier's Postgres over its host-mapped port. Callers close it; these
-// are single-query lookups, so there is no connection to keep around between them.
+// openVerifierDB dials the verifier's Postgres over the host port recorded at environment setup.
+// Callers close it; these are single-query lookups, so there is no connection to keep around
+// between them.
+//
+// Only valid while the database container has not been restarted. The binding is an ephemeral port,
+// so a restart moves it; a test that restarts the database has to re-resolve it (see
+// currentVerifierDSN).
 func openVerifierDB(verifier *committeeverifier.Input) (*sql.DB, error) {
 	if verifier.Out == nil || verifier.Out.DBConnectionString == "" {
 		return nil, fmt.Errorf("verifier %s has no database connection string", verifier.ContainerName)
