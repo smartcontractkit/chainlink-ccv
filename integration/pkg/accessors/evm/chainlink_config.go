@@ -19,6 +19,16 @@ const (
 	// HTTP polling keeps the production head tracker usable for deployments that
 	// include HTTP-only RPCs. All-WebSocket pools retain subscriptions.
 	defaultNewHeadsPollInterval = time.Second
+	// orphanRecoveryGracePeriod is how long a restarted process waits for
+	// transactions left in flight by its predecessor to confirm on their own before
+	// replacing them. A transaction that is merely slow mines within this window and
+	// is left alone; replacing one needlessly discards a real execution and makes the
+	// executor send another. See standaloneChain.recoverOrphanedTransactions.
+	orphanRecoveryGracePeriod = 90 * time.Second
+	// orphanRecoveryRPCTimeout bounds a single nonce read during orphan recovery. Recovery runs on a
+	// goroutine Close waits for, so every network call it makes needs a deadline of its own rather
+	// than relying on the RPC client having one.
+	orphanRecoveryRPCTimeout = 30 * time.Second
 )
 
 // newChainlinkEVMConfig is the single adapter from CCV's focused standalone
@@ -60,6 +70,12 @@ func newChainlinkEVMConfig(info Info) (*evmconfig.ChainScoped, error) {
 	chain.Transactions.Enabled = new(true)
 	chain.Transactions.ForwardersEnabled = new(false)
 	chain.Transactions.TransactionManagerV2.Enabled = new(true)
+	// AutoPurge is deliberately left at its upstream default of off, which means TXM
+	// v2 runs without a stuck transaction detector. Turning it on is worth doing, but
+	// not here: upstream validation then also requires GasEstimator.BumpThreshold and
+	// AutoPurge.MinAttempts, and both change fee behavior for every transaction
+	// rather than only stuck ones. Restart-orphaned transactions are handled without
+	// it (see standaloneChain.recoverOrphanedTransactions).
 	blockTime := info.TXMBlockTime
 	if blockTime == 0 {
 		blockTime = defaultTXMBlockTime

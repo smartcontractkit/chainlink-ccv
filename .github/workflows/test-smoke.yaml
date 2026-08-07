@@ -121,6 +121,25 @@ jobs:
             pattern: (TestChaos_VerifierFaultToleranceThresholdViolated|TestChaos_AllExecutorsDown|TestChaos_IndexerDown)
             profile: standard.profile
             timeout: 5m
+          # Durability tests each run alone. They all wait out a real service outage and then allow
+          # a full recovery window for the message to land, so batching them would push a single job
+          # past its timeout without making it fail any faster.
+          - name: TestChaos_ExecutorRestartWithInFlightTransaction
+            pattern: TestChaos_ExecutorRestartWithInFlightTransaction
+            profile: standard.profile
+            timeout: 20m
+          - name: TestChaos_VerifierRestartWithMessageOnChain
+            pattern: TestChaos_VerifierRestartWithMessageOnChain
+            profile: standard.profile
+            timeout: 15m
+          - name: TestChaos_VerifierResumesFromCheckpoint
+            pattern: TestChaos_VerifierResumesFromCheckpoint
+            profile: standard.profile
+            timeout: 15m
+          - name: TestChaos_VerifierDatabaseOutage
+            pattern: TestChaos_VerifierDatabaseOutage
+            profile: standard.profile
+            timeout: 15m
           - name: TestE2ESmoke_AggregatorMessageDisablementRules
             pattern: TestE2ESmoke_Aggregator(MessageDisablementRulesCLI|LaneDisablementRule|ChainDisablementRule)
             profile: standard.src-auto-mine.profile

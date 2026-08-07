@@ -28,11 +28,11 @@ type OutageSpec struct {
 	Targets []string
 }
 
-// injectOutage starts a Pumba container stop for the given spec and returns a
+// InjectOutage starts a Pumba container stop for the given spec and returns a
 // cleanup function that tears down the Pumba sidecar. Pumba is a short-lived
 // sidecar that issues docker stop + auto-restart via the Docker API; the cleanup
 // callback removes the sidecar.
-func injectOutage(ctx context.Context, spec *OutageSpec) (func(), error) {
+func InjectOutage(ctx context.Context, spec *OutageSpec) (func(), error) {
 	if spec == nil {
 		return nil, errors.New("outage spec is nil")
 	}

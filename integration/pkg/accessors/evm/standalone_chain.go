@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 
@@ -22,7 +23,6 @@ import (
 	"github.com/smartcontractkit/chainlink-evm/pkg/heads"
 	evmkeys "github.com/smartcontractkit/chainlink-evm/pkg/keys"
 	evmkeysv2 "github.com/smartcontractkit/chainlink-evm/pkg/keys/v2"
-	"github.com/smartcontractkit/chainlink-evm/pkg/logpoller"
 	"github.com/smartcontractkit/chainlink-evm/pkg/txmgr"
 )
 
@@ -55,6 +55,12 @@ type standaloneChain struct {
 	unsubscribeTXM      func()
 	contractTransmitter chainaccess.ContractTransmitter
 	closed              bool
+
+	// recoveryStop cancels the orphan recovery goroutine, which spends most of its life in a grace
+	// period sleep and must not outlive the accessor. recoveryWG lets Close wait for it, so the
+	// chain client is not torn down while recovery is still reading nonces through it.
+	recoveryStop services.StopChan
+	recoveryWG   sync.WaitGroup
 }
 
 func newStandaloneChain(ctx context.Context, info Info, lggr logger.Logger) (*standaloneChain, error) {
@@ -106,6 +112,7 @@ func newStandaloneChain(ctx context.Context, info Info, lggr logger.Logger) (*st
 		headBroadcaster: headBroadcaster,
 		headTracker:     headTracker,
 		mailMonitor:     mailMonitor,
+		recoveryStop:    make(services.StopChan),
 	}, nil
 }
 
@@ -177,18 +184,12 @@ func (c *standaloneChain) NewContractTransmitter(
 		return nil, fmt.Errorf("failed to create EVM gas estimator: %w", err)
 	}
 
-	txm, err := txmgr.NewTxmV2(
-		nil, // Forwarders are disabled, so TXM v2 does not use a DataSource.
-		c.chainConfig.EVM(),
-		txmgr.NewEvmTxmFeeConfig(c.chainConfig.EVM().GasEstimator()),
-		c.chainConfig.EVM().Transactions(),
-		c.chainConfig.EVM().Transactions().TransactionManagerV2(),
-		c.chainClient,
+	txm, err := newTxmV2(
 		logger.Named(c.lggr, "Txm"),
-		logpoller.LogPollerDisabled,
+		c.chainConfig.EVM(),
+		c.chainClient,
 		chainKeystore,
 		estimator,
-		c.chainConfig.EVM().GasEstimator(),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create production EVM transaction manager: %w", err)
@@ -197,6 +198,11 @@ func (c *standaloneChain) NewContractTransmitter(
 		_ = txm.Close()
 		return nil, fmt.Errorf("failed to start production EVM transaction manager: %w", err)
 	}
+
+	// Start has registered the transmitter addresses with the store, so recovery can seed into it.
+	// Runs in the background: it waits to see whether orphans clear on their own, and blocking the
+	// accessor for that long would stall every other chain behind it.
+	c.startOrphanRecovery(txm, fromAddresses)
 
 	currentHead, unsubscribe := c.headBroadcaster.Subscribe(txm)
 	if currentHead != nil {
@@ -221,6 +227,80 @@ func (c *standaloneChain) NewContractTransmitter(
 	return transmitter, nil
 }
 
+// startOrphanRecovery drives transactions left in the mempool by a previous run of this process to
+// completion, so an address is never blocked indefinitely by work this process cannot see.
+//
+// TXM v2 keeps transaction state in memory, so a restart loses the record of anything in flight.
+// The nonce is still safe, because TXM reads the pending nonce from the chain on start, and the
+// message is still safe, because the executor re-drives it from on-chain state. What is lost is the
+// rebroadcast and gas bump that would have carried an unmined transaction to confirmation. Until
+// that transaction mines or the mempool evicts it, nothing behind its nonce can confirm.
+//
+// Recovery waits before acting. An orphan that is merely slow will mine on its own, and replacing it
+// would throw away a real execution and force the executor to send another. Only once the nonce has
+// failed to advance for orphanRecoveryGracePeriod does this seed a replacement, by which point the
+// transaction is stuck rather than slow.
+func (c *standaloneChain) startOrphanRecovery(txm *txmV2, fromAddresses []common.Address) {
+	c.recoveryWG.Go(func() {
+		ctx, cancel := c.recoveryStop.NewCtx()
+		defer cancel()
+		for _, address := range fromAddresses {
+			c.recoverOrphanedTransactions(ctx, txm, address)
+		}
+	})
+}
+
+func (c *standaloneChain) recoverOrphanedTransactions(ctx context.Context, txm *txmV2, address common.Address) {
+	latest, pending, err := orphanedNonces(ctx, c.chainClient, address)
+	if err != nil {
+		c.lggr.Warnw("Could not check for orphaned transactions", "address", address, "error", err)
+		return
+	}
+	if len(nonceRange(latest, pending)) == 0 {
+		return
+	}
+
+	c.lggr.Warnw("Found transactions in flight from a previous run; waiting to see whether they confirm",
+		"address", address,
+		"count", pending-latest,
+		"latestNonce", latest,
+		"pendingNonce", pending,
+		"grace", orphanRecoveryGracePeriod,
+	)
+
+	select {
+	case <-ctx.Done():
+		return
+	case <-time.After(orphanRecoveryGracePeriod):
+	}
+
+	// Re-read rather than trusting the earlier snapshot: the orphans may have mined during the
+	// grace period, and only what is still outstanding needs replacing.
+	latest, pending, err = orphanedNonces(ctx, c.chainClient, address)
+	if err != nil {
+		c.lggr.Warnw("Could not re-check orphaned transactions after grace period", "address", address, "error", err)
+		return
+	}
+	orphans := nonceRange(latest, pending)
+	if len(orphans) == 0 {
+		c.lggr.Infow("Orphaned transactions confirmed on their own; no recovery needed", "address", address)
+		return
+	}
+
+	c.lggr.Warnw("Orphaned transactions did not confirm; seeding replacements to unblock the address",
+		"address", address, "count", len(orphans), "latestNonce", latest, "pendingNonce", pending)
+	for _, nonce := range orphans {
+		if err := txm.seedOrphanedNonce(ctx, address, nonce); err != nil {
+			// A nonce the TXM has already claimed for its own work needs no replacement, and that is
+			// the common reason this fails. Log and continue so one nonce does not stop the rest.
+			c.lggr.Warnw("Could not seed replacement for orphaned nonce",
+				"address", address, "nonce", nonce, "error", err)
+			continue
+		}
+		c.lggr.Infow("Seeded replacement for orphaned nonce", "address", address, "nonce", nonce)
+	}
+}
+
 // Close stops event sources before their consumers, matching chainlink-evm's
 // production chain lifecycle and preventing late head delivery during shutdown.
 func (c *standaloneChain) Close() error {
@@ -237,6 +317,19 @@ func (c *standaloneChain) Close() error {
 	unsubscribeTXM := c.unsubscribeTXM
 	chainClient := c.chainClient
 	c.mu.Unlock()
+
+	// Stop orphan recovery first and wait for it. It reads nonces through the chain client and
+	// writes to the TXM store, so both have to outlive it; abandoning it here would leave it calling
+	// into a closed client.
+	//
+	// The wait is bounded. Closing recoveryStop cancels the context every nonce read derives from,
+	// so a read in flight returns at once, the grace-period sleep selects on the same context, and
+	// seeding only touches the in-memory store. Even with a chain client that ignored cancellation,
+	// orphanRecoveryRPCTimeout caps each read.
+	if c.recoveryStop != nil {
+		close(c.recoveryStop)
+	}
+	c.recoveryWG.Wait()
 
 	var err error
 	if headTracker != nil {
