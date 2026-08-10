@@ -52,8 +52,6 @@ const (
 	// optional; an absent key leaves the corresponding deploy default in place.
 	// The FeeQuoter price fields are big.Int and must be passed as base-10
 	// strings because TOML integers are limited to int64.
-	ProtocolContractsRMNRemoteLegacyRMNExtra = "rmnRemoteLegacyRmn"
-
 	ProtocolContractsOffRampGasForCallExactCheckExtra      = "offRampGasForCallExactCheck"
 	ProtocolContractsOffRampMaxGasBufferToUpdateStateExtra = "offRampMaxGasBufferToUpdateState"
 
@@ -263,12 +261,6 @@ func protocolContractsExecutorFinality(extras map[string]any) (*finality.Config,
 // FamilyExtras overrides onto the default DeployContractParams. Each override is
 // applied only when its key is present; absent keys leave the deploy default.
 func applyProtocolContractParamOverrides(params *ccvadapters.DeployContractParams, extras map[string]any) error {
-	if v, ok, err := extraString(extras, ProtocolContractsRMNRemoteLegacyRMNExtra); err != nil {
-		return err
-	} else if ok {
-		params.RMNRemote.LegacyRMN = v
-	}
-
 	if v, ok, err := extraBoundedUint[uint16](extras, ProtocolContractsOffRampGasForCallExactCheckExtra, math.MaxUint16); err != nil {
 		return err
 	} else if ok {
@@ -367,20 +359,6 @@ func extraBigInt(extras map[string]any, key string) (*big.Int, bool, error) {
 	return v, true, nil
 }
 
-// extraString reads an optional string FamilyExtras value. The bool return is
-// false when the key is absent.
-func extraString(extras map[string]any, key string) (string, bool, error) {
-	raw, present := extras[key]
-	if !present {
-		return "", false, nil
-	}
-	s, ok := raw.(string)
-	if !ok {
-		return "", false, fmt.Errorf("FamilyExtras[%q] must be a string, got %T", key, raw)
-	}
-	return s, true, nil
-}
-
 // extraBool reads an optional bool FamilyExtras value. The bool ok return is
 // false when the key is absent.
 func extraBool(extras map[string]any, key string) (value, ok bool, err error) {
@@ -425,14 +403,6 @@ func toEVMDeployInput(input ccvadapters.DeployChainContractsInput) (sequences.De
 		return sequences.DeployChainContractsInput{}, err
 	}
 
-	var legacyRMN common.Address
-	if input.ContractParams.RMNRemote.LegacyRMN != "" {
-		legacyRMN, err = parseHexAddress(input.ContractParams.RMNRemote.LegacyRMN, "RMNRemote.LegacyRMN")
-		if err != nil {
-			return sequences.DeployChainContractsInput{}, err
-		}
-	}
-
 	var onRampFeeAgg common.Address
 	if input.ContractParams.OnRamp.FeeAggregator != "" {
 		onRampFeeAgg, err = parseHexAddress(input.ContractParams.OnRamp.FeeAggregator, "OnRamp.FeeAggregator")
@@ -450,10 +420,6 @@ func toEVMDeployInput(input ccvadapters.DeployChainContractsInput) (sequences.De
 		DeployTestRouter:  input.DeployTestRouter,
 		DeployerKeyOwned:  input.DeployerKeyOwned,
 		ContractParams: sequences.ContractParams{
-			RMNRemote: sequences.RMNRemoteParams{
-				Version:   input.ContractParams.RMNRemote.Version,
-				LegacyRMN: legacyRMN,
-			},
 			OffRamp: sequences.OffRampParams{
 				Version:                   input.ContractParams.OffRamp.Version,
 				GasForCallExactCheck:      input.ContractParams.OffRamp.GasForCallExactCheck,

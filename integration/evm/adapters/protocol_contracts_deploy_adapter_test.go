@@ -20,6 +20,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/fee_quoter"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/offramp"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/onramp"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/testsetup"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/finality"
 	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm/operations/contract"
 
@@ -133,13 +134,6 @@ func TestEVMProtocolContractsDeployAdapter_Validation(t *testing.T) {
 			},
 			wantErrSub: "must be a base-10 integer string",
 		},
-		{
-			name: "FamilyExtras rmnRemoteLegacyRmn wrong type",
-			mutate: func(in *ccvdeploymentadapters.ProtocolContractsDeployInput) {
-				in.FamilyExtras = map[string]any{adapters.ProtocolContractsRMNRemoteLegacyRMNExtra: 42}
-			},
-			wantErrSub: "must be a string",
-		},
 	}
 
 	for _, tc := range tests {
@@ -193,6 +187,9 @@ func TestEVMProtocolContractsDeployAdapter_HappyPath(t *testing.T) {
 	in := ccvdeploymentadapters.ProtocolContractsDeployInput{
 		ChainSelector:    testChainSelector,
 		DeployerContract: create2FactoryRef.Address,
+		// RMN deployment resolves the Ultra Fast Curse timelock as its curse admin; it is only a
+		// constructor arg and never called, so a plain non-zero ref stands in for a real MCMS.
+		ExistingAddresses: testsetup.UltraFastCurseMCMSRefs(testChainSelector),
 		// DeployerKeyOwned skips the MCMS timelock ownership-transfer step, which
 		// would otherwise require pre-deployed timelock contracts.
 		DeployerKeyOwned: true,
@@ -290,9 +287,10 @@ func TestEVMProtocolContractsDeployAdapter_ExecutorOverrides(t *testing.T) {
 			adapter := &adapters.EVMProtocolContractsDeployAdapter{}
 
 			in := ccvdeploymentadapters.ProtocolContractsDeployInput{
-				ChainSelector:    testChainSelector,
-				DeployerContract: create2FactoryRef.Address,
-				DeployerKeyOwned: true,
+				ChainSelector:     testChainSelector,
+				DeployerContract:  create2FactoryRef.Address,
+				ExistingAddresses: testsetup.UltraFastCurseMCMSRefs(testChainSelector),
+				DeployerKeyOwned:  true,
 				Executors: []ccvdeploymentadapters.ExecutorDeployParams{
 					{Version: executor.Version, Qualifier: "default"},
 				},
@@ -381,7 +379,10 @@ func TestEVMProtocolContractsDeployAdapter_ContractParamOverrides(t *testing.T) 
 	in := ccvdeploymentadapters.ProtocolContractsDeployInput{
 		ChainSelector:    testChainSelector,
 		DeployerContract: create2FactoryRef.Address,
-		DeployerKeyOwned: true,
+		// RMN deployment resolves the Ultra Fast Curse timelock as its curse admin; it is only a
+		// constructor arg and never called, so a plain non-zero ref stands in for a real MCMS.
+		ExistingAddresses: testsetup.UltraFastCurseMCMSRefs(testChainSelector),
+		DeployerKeyOwned:  true,
 		Executors: []ccvdeploymentadapters.ExecutorDeployParams{
 			{Version: executor.Version, Qualifier: "default"},
 		},
@@ -395,7 +396,6 @@ func TestEVMProtocolContractsDeployAdapter_ContractParamOverrides(t *testing.T) 
 			adapters.ProtocolContractsFeeQuoterWETHPremiumMultiplierWeiPerEthExtra: int64(1100000000000000000),
 			adapters.ProtocolContractsFeeQuoterUSDPerLINKExtra:                     "16000000000000000000",
 			adapters.ProtocolContractsFeeQuoterUSDPerWETHExtra:                     "2500000000000000000000",
-			adapters.ProtocolContractsRMNRemoteLegacyRMNExtra:                      "0x000000000000000000000000000000000000bEEF",
 		},
 	}
 
