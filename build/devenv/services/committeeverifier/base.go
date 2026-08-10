@@ -631,6 +631,21 @@ func dbContainerName(inDBName, chainFamily string) string {
 	return fmt.Sprintf("%s-%s", chainFamily, inDBName)
 }
 
+// DBContainerName returns the Docker container name of the Postgres instance backing a verifier.
+// The instance hosts both the verifier database and that verifier's bootstrap database, so stopping
+// it takes away chain statuses, job queues, the keystore and the job store at once. Returns "" when
+// the input has no database configured.
+func DBContainerName(in *Input) string {
+	if in == nil || in.DB == nil || in.DB.Name == "" {
+		return ""
+	}
+	family := in.ChainFamily
+	if family == "" {
+		family = chainsel.FamilyEVM
+	}
+	return dbContainerName(in.DB.Name, family)
+}
+
 func createDBContainer(ctx context.Context, in *Input, chainFamily string) (*postgres.PostgresContainer, error) {
 	// Create a temporary file containing the bootstrap init script.
 	// This is so that we have two databases created in the database server container, one for the verifier and one for the bootstrap.

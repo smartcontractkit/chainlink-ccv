@@ -10,10 +10,12 @@ import (
 	"strings"
 
 	chain_selectors "github.com/smartcontractkit/chain-selectors"
+	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 
 	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/committeeverifier"
+	executorsvc "github.com/smartcontractkit/chainlink-ccv/build/devenv/services/executor"
 )
 
 func normalizeContainerName(name string) string {
@@ -61,6 +63,36 @@ func VerifierContainers(cfg *ccv.Cfg, committeeQualifier string, filter Verifier
 	return names, nil
 }
 
+// VerifierDBContainers returns the Postgres container names backing the verifiers in the given
+// committee, deduplicated. filter, when non-nil, restricts which verifiers are included and takes
+// the same shape as the one VerifierContainers uses, so a caller can target the databases of
+// exactly the verifiers it is about to stop.
+func VerifierDBContainers(cfg *ccv.Cfg, committeeQualifier string, filter VerifierFilter) ([]string, error) {
+	var names []string
+	seen := make(map[string]struct{})
+	for _, verifier := range cfg.Verifier {
+		if verifier.CommitteeName != committeeQualifier {
+			continue
+		}
+		if filter != nil && !filter(verifier) {
+			continue
+		}
+		name := committeeverifier.DBContainerName(verifier)
+		if name == "" {
+			continue
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		names = append(names, name)
+	}
+	if len(names) == 0 {
+		return nil, fmt.Errorf("no verifier database containers found for committee %q", committeeQualifier)
+	}
+	return names, nil
+}
+
 // ExecutorContainers returns Docker container names for executors matching
 // executorQualifier. nopAliases, when non-empty, restricts to executors whose
 // NOP alias is in the list.
@@ -99,6 +131,48 @@ func ExecutorContainers(cfg *ccv.Cfg, executorQualifier string, nopAliases ...st
 // ExecutorContainersForDest returns executors assigned to serve destSelector in the
 // given executor pool, resolved via EnvironmentTopology.
 func ExecutorContainersForDest(cfg *ccv.Cfg, destSelector uint64, executorQualifier string) ([]string, error) {
+	aliases, err := executorAliasesForDest(cfg, destSelector, executorQualifier)
+	if err != nil {
+		return nil, err
+	}
+	return ExecutorContainers(cfg, executorQualifier, aliases...)
+}
+
+// ExecutorsForDest returns the executor inputs assigned to serve destSelector in the given pool.
+// A pool usually spreads chains across its executors, so the one holding a destination's transmitter
+// key is not necessarily the first in cfg.Executor - a test that needs that key has to go through
+// the topology rather than picking any executor in the pool.
+func ExecutorsForDest(cfg *ccv.Cfg, destSelector uint64, executorQualifier string) ([]*executorsvc.Input, error) {
+	aliases, err := executorAliasesForDest(cfg, destSelector, executorQualifier)
+	if err != nil {
+		return nil, err
+	}
+	aliasSet := make(map[string]struct{}, len(aliases))
+	for _, alias := range aliases {
+		aliasSet[alias] = struct{}{}
+	}
+
+	var executors []*executorsvc.Input
+	for _, exec := range cfg.Executor {
+		qualifier := exec.ExecutorQualifier
+		if qualifier == "" {
+			qualifier = devenvcommon.DefaultExecutorQualifier
+		}
+		if qualifier != executorQualifier || exec.Out == nil {
+			continue
+		}
+		if _, ok := aliasSet[exec.NOPAlias]; !ok {
+			continue
+		}
+		executors = append(executors, exec)
+	}
+	if len(executors) == 0 {
+		return nil, fmt.Errorf("no executors serve dest chain %d in pool %q", destSelector, executorQualifier)
+	}
+	return executors, nil
+}
+
+func executorAliasesForDest(cfg *ccv.Cfg, destSelector uint64, executorQualifier string) ([]string, error) {
 	if cfg.EnvironmentTopology == nil {
 		return nil, fmt.Errorf("environment topology is nil")
 	}
@@ -111,7 +185,7 @@ func ExecutorContainersForDest(cfg *ccv.Cfg, destSelector uint64, executorQualif
 	if !ok {
 		return nil, fmt.Errorf("dest chain %d not found in executor pool %q", destSelector, executorQualifier)
 	}
-	return ExecutorContainers(cfg, executorQualifier, chainCfg.NOPAliases...)
+	return chainCfg.NOPAliases, nil
 }
 
 // IndexerContainer returns the Docker container name for the indexer at index.
@@ -153,6 +227,21 @@ func BlockchainContainer(cfg *ccv.Cfg, index int) (string, error) {
 // BlockchainContainer when you have a selector (e.g. from lib.Chains()) since
 // the Blockchains array order may not match the chains() order.
 func BlockchainContainerForSelector(cfg *ccv.Cfg, selector uint64) (string, error) {
+	bc, err := BlockchainInputForSelector(cfg, selector)
+	if err != nil {
+		return "", err
+	}
+	name := normalizeContainerName(bc.Out.ContainerName)
+	if name == "" {
+		return "", fmt.Errorf("blockchain for selector %d has empty container name", selector)
+	}
+	return name, nil
+}
+
+// BlockchainInputForSelector returns the blockchain input for the given chain selector. Tests use it
+// to recover how the node was launched - the anvil block-time flag in particular, which a test has
+// to restore after it takes over block production.
+func BlockchainInputForSelector(cfg *ccv.Cfg, selector uint64) (*blockchain.Input, error) {
 	for _, bc := range cfg.Blockchains {
 		if bc.Out == nil {
 			continue
@@ -161,14 +250,9 @@ func BlockchainContainerForSelector(cfg *ccv.Cfg, selector uint64) (string, erro
 		if err != nil {
 			continue
 		}
-		if d.ChainSelector != selector {
-			continue
+		if d.ChainSelector == selector {
+			return bc, nil
 		}
-		name := normalizeContainerName(bc.Out.ContainerName)
-		if name == "" {
-			return "", fmt.Errorf("blockchain for selector %d has empty container name", selector)
-		}
-		return name, nil
 	}
-	return "", fmt.Errorf("blockchain container not found for selector %d", selector)
+	return nil, fmt.Errorf("blockchain not found for selector %d", selector)
 }

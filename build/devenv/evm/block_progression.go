@@ -3,6 +3,10 @@ package evm
 import (
 	"context"
 	"fmt"
+	"time"
+
+	gethcommon "github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 )
@@ -15,7 +19,90 @@ import (
 var (
 	_ cciptestinterfaces.ProgressableChain = (*CCIP17EVM)(nil)
 	_ cciptestinterfaces.ReorgableChain    = (*CCIP17EVM)(nil)
+	_ cciptestinterfaces.MineHoldableChain = (*CCIP17EVM)(nil)
 )
+
+// SupportMineHold reports whether the node exposes anvil's mining controls. anvil_getAutomine
+// answering at all is the signal: a node that reports the setting also accepts anvil_setAutomine,
+// anvil_setIntervalMining and anvil_mine. Unlike SupportManualBlockProgress this does not care what
+// the current value is - devenv starts anvil with -b 1, which is interval mining, so automine reads
+// as false there even though every control below works.
+func (m *CCIP17EVM) SupportMineHold(ctx context.Context) bool {
+	var automine bool
+	if err := m.ethClient.Client().CallContext(ctx, &automine, "anvil_getAutomine"); err != nil {
+		m.logger.Debug().Err(err).Msg("anvil_getAutomine not supported; mine hold disabled")
+		return false
+	}
+	return true
+}
+
+// HoldMining stops block production. Both controls are needed: anvil started with -b runs interval
+// mining, which keeps producing blocks no matter what automine is set to, and a node started
+// without -b mines on every transaction.
+func (m *CCIP17EVM) HoldMining(ctx context.Context) error {
+	var result any
+	if err := m.ethClient.Client().CallContext(ctx, &result, "anvil_setIntervalMining", 0); err != nil {
+		return fmt.Errorf("anvil_setIntervalMining(0): %w", err)
+	}
+	if err := m.ethClient.Client().CallContext(ctx, &result, "anvil_setAutomine", false); err != nil {
+		return fmt.Errorf("anvil_setAutomine(false): %w", err)
+	}
+	m.logger.Debug().Msg("Held block production")
+	return nil
+}
+
+// ResumeMining restarts block production. Anvil mines whatever is queued in the mempool on the
+// first block after this returns.
+func (m *CCIP17EVM) ResumeMining(ctx context.Context, interval time.Duration) error {
+	var result any
+	if interval <= 0 {
+		if err := m.ethClient.Client().CallContext(ctx, &result, "anvil_setAutomine", true); err != nil {
+			return fmt.Errorf("anvil_setAutomine(true): %w", err)
+		}
+		m.logger.Debug().Msg("Resumed block production with automining")
+		return nil
+	}
+	seconds := uint64(interval.Round(time.Second) / time.Second)
+	if seconds == 0 {
+		seconds = 1
+	}
+	if err := m.ethClient.Client().CallContext(ctx, &result, "anvil_setIntervalMining", seconds); err != nil {
+		return fmt.Errorf("anvil_setIntervalMining(%d): %w", seconds, err)
+	}
+	m.logger.Debug().Uint64("intervalSeconds", seconds).Msg("Resumed block production with interval mining")
+	return nil
+}
+
+// MineBlocks mines count blocks in one anvil_mine call with a zero inter-block interval, so the
+// head moves but block timestamps do not.
+func (m *CCIP17EVM) MineBlocks(ctx context.Context, count uint64) error {
+	if count == 0 {
+		return nil
+	}
+	var result any
+	if err := m.ethClient.Client().CallContext(ctx, &result, "anvil_mine",
+		hexutil.Uint64(count), hexutil.Uint64(0)); err != nil {
+		return fmt.Errorf("anvil_mine(%d): %w", count, err)
+	}
+	m.logger.Debug().Uint64("blocks", count).Msg("Mined blocks")
+	return nil
+}
+
+// PendingAndLatestNonce reports an address's mempool and mined nonce. A pending nonce above the
+// latest means transactions have been accepted but not included, which is what a test watches for
+// when it needs a transaction held in flight.
+func (m *CCIP17EVM) PendingAndLatestNonce(ctx context.Context, address string) (pending, latest uint64, err error) {
+	addr := gethcommon.HexToAddress(address)
+	pending, err = m.ethClient.PendingNonceAt(ctx, addr)
+	if err != nil {
+		return 0, 0, fmt.Errorf("pending nonce for %s: %w", address, err)
+	}
+	latest, err = m.ethClient.NonceAt(ctx, addr, nil)
+	if err != nil {
+		return 0, 0, fmt.Errorf("latest nonce for %s: %w", address, err)
+	}
+	return pending, latest, nil
+}
 
 // SupportManualBlockProgress returns true iff the node accepts anvil's
 // evm_mine and has automining enabled (so txs sent by tests still land).

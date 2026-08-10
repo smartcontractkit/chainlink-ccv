@@ -16,8 +16,31 @@ test category composing the tcapi primitives.
 | `IndexerContainer(cfg, index)` | Indexer outage |
 | `BlockchainContainer(cfg, index)` | Blockchain RPC outage by array index |
 | `BlockchainContainerForSelector(cfg, selector)` | Blockchain RPC outage by chain selector |
+| `VerifierDBContainers(cfg, committee, filter?)` | Verifier Postgres outage |
+| `BlockchainInputForSelector(cfg, selector)` | Reading how a node was launched (e.g. anvil `-b`) |
 
 Container names are normalized from env-out (`Out.ContainerName`, leading `/` stripped).
+
+A verifier's Postgres container hosts both the verifier database and that verifier's bootstrap
+database, so `VerifierDBContainers` targets chain statuses, the job queues, the keystore and the job
+store at once.
+
+## Durability tests
+
+`tests/e2e/chaos_durability_test.go` holds the restart-recovery coverage. Each test kills or isolates
+something holding state and asserts a message still gets delivered:
+
+| Test | State at risk | Recovery under test |
+|------|---------------|---------------------|
+| `TestChaos_ExecutorRestartWithInFlightTransaction` | TXM v2 in-flight transactions (memory only) | Nonce-gap detection in the EVM accessor |
+| `TestChaos_VerifierRestartWithMessageOnChain` | `ccv_task_verifier_jobs` locks | Stale-job reclaim after `taskQueueLockDuration` |
+| `TestChaos_VerifierResumesFromCheckpoint` | `ccv_chain_statuses` scan position | Resuming from the checkpoint rather than the fallback lookback |
+| `TestChaos_VerifierDatabaseOutage` | All of the above, plus the bootstrap keystore | Source reader retrying rather than dropping tasks |
+
+They need anvil-backed chains and skip otherwise: two of them drive block production directly via
+`cciptestinterfaces.MineHoldableChain` (`HoldMining` / `ResumeMining` / `MineBlocks`), which is how a
+transaction gets held in the mempool and how the head gets moved past a lookback window without
+also moving chain time.
 
 ## Limitations & TODOs
 
