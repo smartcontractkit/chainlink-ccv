@@ -20,11 +20,12 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/fee_quoter"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/offramp"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/onramp"
+	ccipevmtestsetup "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/testsetup"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/finality"
 	"github.com/smartcontractkit/chainlink-deployments-framework/chain/evm/operations/contract"
 
 	ccvdeploymentadapters "github.com/smartcontractkit/chainlink-ccv/deployment/adapters"
-	adapters "github.com/smartcontractkit/chainlink-ccv/integration/evm/adapters"
+	"github.com/smartcontractkit/chainlink-ccv/integration/evm/adapters"
 )
 
 // TestEVMProtocolContractsDeployAdapter_Validation exercises the error branches
@@ -133,21 +134,15 @@ func TestEVMProtocolContractsDeployAdapter_Validation(t *testing.T) {
 			},
 			wantErrSub: "must be a base-10 integer string",
 		},
-		{
-			name: "FamilyExtras rmnRemoteLegacyRmn wrong type",
-			mutate: func(in *ccvdeploymentadapters.ProtocolContractsDeployInput) {
-				in.FamilyExtras = map[string]any{adapters.ProtocolContractsRMNRemoteLegacyRMNExtra: 42}
-			},
-			wantErrSub: "must be a string",
-		},
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			in := ccvdeploymentadapters.ProtocolContractsDeployInput{
-				ChainSelector:    testChainSelector,
-				DeployerContract: "0x0000000000000000000000000000000000000FAC",
-				DeployerKeyOwned: true,
+				ChainSelector:     testChainSelector,
+				ExistingAddresses: ccipevmtestsetup.UltraFastCurseMCMSRefs(testChainSelector),
+				DeployerContract:  "0x0000000000000000000000000000000000000FAC",
+				DeployerKeyOwned:  true,
 			}
 			tc.mutate(&in)
 
@@ -191,8 +186,9 @@ func TestEVMProtocolContractsDeployAdapter_HappyPath(t *testing.T) {
 	adapter := &adapters.EVMProtocolContractsDeployAdapter{}
 
 	in := ccvdeploymentadapters.ProtocolContractsDeployInput{
-		ChainSelector:    testChainSelector,
-		DeployerContract: create2FactoryRef.Address,
+		ChainSelector:     testChainSelector,
+		ExistingAddresses: ccipevmtestsetup.UltraFastCurseMCMSRefs(testChainSelector),
+		DeployerContract:  create2FactoryRef.Address,
 		// DeployerKeyOwned skips the MCMS timelock ownership-transfer step, which
 		// would otherwise require pre-deployed timelock contracts.
 		DeployerKeyOwned: true,
@@ -290,9 +286,10 @@ func TestEVMProtocolContractsDeployAdapter_ExecutorOverrides(t *testing.T) {
 			adapter := &adapters.EVMProtocolContractsDeployAdapter{}
 
 			in := ccvdeploymentadapters.ProtocolContractsDeployInput{
-				ChainSelector:    testChainSelector,
-				DeployerContract: create2FactoryRef.Address,
-				DeployerKeyOwned: true,
+				ChainSelector:     testChainSelector,
+				ExistingAddresses: ccipevmtestsetup.UltraFastCurseMCMSRefs(testChainSelector),
+				DeployerContract:  create2FactoryRef.Address,
+				DeployerKeyOwned:  true,
 				Executors: []ccvdeploymentadapters.ExecutorDeployParams{
 					{Version: executor.Version, Qualifier: "default"},
 				},
@@ -348,7 +345,7 @@ func TestEVMProtocolContractsDeployAdapter_ExecutorOverrides(t *testing.T) {
 
 // TestEVMProtocolContractsDeployAdapter_ContractParamOverrides proves the
 // optional per-contract deploy params (OffRamp gas, OnRamp max message fee,
-// FeeQuoter prices/multipliers, RMNRemote legacy address) are applied from
+// FeeQuoter prices/multipliers) are applied from
 // FamilyExtras. It sets every override and reads back the on-chain static
 // configs that expose them — including the big.Int MaxFeeJuelsPerMsg, which must
 // be passed as a base-10 string.
@@ -379,9 +376,10 @@ func TestEVMProtocolContractsDeployAdapter_ContractParamOverrides(t *testing.T) 
 	require.True(t, ok)
 
 	in := ccvdeploymentadapters.ProtocolContractsDeployInput{
-		ChainSelector:    testChainSelector,
-		DeployerContract: create2FactoryRef.Address,
-		DeployerKeyOwned: true,
+		ChainSelector:     testChainSelector,
+		ExistingAddresses: ccipevmtestsetup.UltraFastCurseMCMSRefs(testChainSelector),
+		DeployerContract:  create2FactoryRef.Address,
+		DeployerKeyOwned:  true,
 		Executors: []ccvdeploymentadapters.ExecutorDeployParams{
 			{Version: executor.Version, Qualifier: "default"},
 		},
@@ -395,7 +393,6 @@ func TestEVMProtocolContractsDeployAdapter_ContractParamOverrides(t *testing.T) 
 			adapters.ProtocolContractsFeeQuoterWETHPremiumMultiplierWeiPerEthExtra: int64(1100000000000000000),
 			adapters.ProtocolContractsFeeQuoterUSDPerLINKExtra:                     "16000000000000000000",
 			adapters.ProtocolContractsFeeQuoterUSDPerWETHExtra:                     "2500000000000000000000",
-			adapters.ProtocolContractsRMNRemoteLegacyRMNExtra:                      "0x000000000000000000000000000000000000bEEF",
 		},
 	}
 

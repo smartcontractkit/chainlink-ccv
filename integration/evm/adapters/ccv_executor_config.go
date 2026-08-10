@@ -4,7 +4,7 @@ import (
 	"fmt"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
-	rmnremote "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_6_0/operations/rmn_remote"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_0_0/operations/rmn_proxy"
 	execop "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/executor"
 	offrampop "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/offramp"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/sequences"
@@ -74,11 +74,11 @@ func (a *EVMCCVExecutorConfigAdapter) BuildChainConfig(ds datastore.DataStore, c
 	}
 
 	rmnRemoteAddr, err := dsutils.FindAndFormatRef(ds, datastore.AddressRef{
-		Type:    datastore.ContractType(rmnremote.ContractType),
-		Version: rmnremote.Version,
+		Type:    datastore.ContractType(rmn_proxy.ContractType),
+		Version: rmn_proxy.Version,
 	}, chainSelector, toAddress)
 	if err != nil {
-		return executor.ChainConfiguration{}, fmt.Errorf("failed to get rmn remote address for chain %d: %w", chainSelector, err)
+		return executor.ChainConfiguration{}, fmt.Errorf("failed to get RMNProxy address for chain %d: %w", chainSelector, err)
 	}
 
 	executorAddr, err := a.ResolveExecutorAddress(ds, chainSelector, qualifier)

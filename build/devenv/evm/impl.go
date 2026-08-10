@@ -1134,6 +1134,25 @@ func (m *CCIP17EVMConfig) PreDeployContractsForSelector(_ context.Context, env *
 	if err := ds.Addresses().Add(create2FactoryRep.Output); err != nil {
 		return nil, fmt.Errorf("failed to add CREATE2 factory to datastore: %w", err)
 	}
+
+	// The CCIP chain-contract deploy requires an UltraFastCurse RBACTimelock, which it uses as the
+	// RMN's curse admin. devenv has no MCMS, so register the deployer key under that ref: it is the
+	// dev environment's fast-curse admin.
+	//
+	// A real address rather than a placeholder, because the curse path needs a usable admin. RMN
+	// 2.1's curse operation authorizes on the authorized-caller set alone, not on ownership, so a
+	// dead placeholder address would leave nothing able to curse -- the deploy would succeed and
+	// then every curse would fall through to an MCMS proposal that devenv cannot build.
+	if err := ds.Addresses().Add(datastore.AddressRef{
+		ChainSelector: selector,
+		Type:          datastore.ContractType(changesetsutils.RBACTimelock),
+		Version:       changesetsutils.Version_1_0_0,
+		Qualifier:     changesetsutils.UltraFastCurseMCMSQualifier,
+		Address:       env.BlockChains.EVMChains()[selector].DeployerKey.From.Hex(),
+	}); err != nil {
+		return nil, fmt.Errorf("failed to add UltraFastCurse curse-admin ref to datastore: %w", err)
+	}
+
 	return ds.Seal(), nil
 }
 
