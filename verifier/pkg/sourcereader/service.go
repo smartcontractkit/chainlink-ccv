@@ -652,6 +652,7 @@ func (r *Service) sendReadyMessages(ctx context.Context, latest, safe, finalized
 	advanceCheckpointTo := func() uint64 {
 		r.mu.Lock()
 		defer r.mu.Unlock()
+		defer r.recordPendingMetricsLocked(ctx)
 		hasBlockingUnknown := false
 
 		if r.disabled.Load() {
@@ -890,7 +891,6 @@ func (r *Service) sendReadyMessages(ctx context.Context, latest, safe, finalized
 
 		return safeCheckpoint
 	}()
-	r.recordPendingMetrics(ctx)
 
 	if advanceCheckpointTo > 0 {
 		r.writeCheckpoint(ctx, advanceCheckpointTo)
@@ -1024,10 +1024,9 @@ func (r *Service) messageMetrics(message protocol.Message) verifier.MetricLabele
 	)
 }
 
-func (r *Service) recordPendingMetrics(ctx context.Context) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
+// recordPendingMetricsLocked emits a consistent snapshot of pending task state.
+// The caller must hold r.mu.
+func (r *Service) recordPendingMetricsLocked(ctx context.Context) {
 	type pendingState struct {
 		count  int64
 		oldest time.Time
