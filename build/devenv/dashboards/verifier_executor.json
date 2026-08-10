@@ -1550,6 +1550,396 @@
       ],
       "title": "⚠️Executed messages [5m]",
       "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 73
+      },
+      "id": 34,
+      "panels": [],
+      "title": "Verifier pipeline diagnostics",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "description": "One-hot source-reader state. Only the current state has value 1.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "showPoints": "never",
+            "spanNulls": false
+          },
+          "mappings": [],
+          "max": 1,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 74
+      },
+      "id": 35,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": true,
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "12.3.1",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "editorMode": "code",
+          "expr": "verifier_source_reader_state{verifier_id=~\"$verifier_id\", source_chain_name=~\"$source_chain_name\"} == 1",
+          "instant": false,
+          "legendFormat": "{{verifier_id}} {{source_chain_name}}: {{state}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Source reader state",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "description": "Age of the oldest message still waiting for finality or admission.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "showPoints": "never",
+            "spanNulls": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              },
+              {
+                "color": "red",
+                "value": 300
+              }
+            ]
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 74
+      },
+      "id": 36,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "12.3.1",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "editorMode": "code",
+          "expr": "verifier_oldest_message_age_seconds{verifier_id=~\"$verifier_id\", source_chain_name=~\"$source_chain_name\", dest_chain_name=~\"$dest_chain_name\"}",
+          "instant": false,
+          "legendFormat": "{{verifier_id}} {{source_chain_name}} -> {{dest_chain_name}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Oldest pending message age",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "description": "Current messages waiting for finality or admission, grouped by verifier lane.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 20,
+            "lineWidth": 2,
+            "showPoints": "never",
+            "spanNulls": false
+          },
+          "mappings": [],
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 74
+      },
+      "id": 37,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull",
+            "max"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": false,
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "12.3.1",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "editorMode": "code",
+          "expr": "verifier_messages_in_flight{verifier_id=~\"$verifier_id\", source_chain_name=~\"$source_chain_name\", dest_chain_name=~\"$dest_chain_name\"}",
+          "instant": false,
+          "legendFormat": "{{verifier_id}} {{source_chain_name}} -> {{dest_chain_name}}: {{state}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Pending messages",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "description": "Message pipeline transitions by verifier, lane, stage, outcome, and reason.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 70,
+            "lineWidth": 1,
+            "showPoints": "never",
+            "stacking": {
+              "group": "A",
+              "mode": "normal"
+            }
+          },
+          "mappings": [],
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 82
+      },
+      "id": 38,
+      "options": {
+        "legend": {
+          "calcs": [
+            "sum"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": true,
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "12.3.1",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "editorMode": "code",
+          "expr": "sum by (verifier_id, source_chain_name, dest_chain_name, stage, outcome, reason) (increase(verifier_message_transitions_total{verifier_id=~\"$verifier_id\", source_chain_name=~\"$source_chain_name\", dest_chain_name=~\"$dest_chain_name\"}[$__rate_interval]))",
+          "instant": false,
+          "legendFormat": "{{verifier_id}} {{source_chain_name}} -> {{dest_chain_name}}: {{stage}}/{{outcome}} ({{reason}})",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Message pipeline transitions",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "victoriametrics"
+      },
+      "description": "Classified verification and storage-write failures. The error class is bounded and safe to aggregate.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "bars",
+            "fillOpacity": 70,
+            "lineWidth": 1,
+            "showPoints": "never",
+            "stacking": {
+              "group": "A",
+              "mode": "normal"
+            }
+          },
+          "mappings": [],
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": 0
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 82
+      },
+      "id": 39,
+      "options": {
+        "legend": {
+          "calcs": [
+            "sum"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "hideZeros": true,
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "12.3.1",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "victoriametrics"
+          },
+          "editorMode": "code",
+          "expr": "sum by (verifier_id, source_chain_name, dest_chain_name, stage, retryable, error_class) (increase(verifier_message_failures_total{verifier_id=~\"$verifier_id\", source_chain_name=~\"$source_chain_name\", dest_chain_name=~\"$dest_chain_name\"}[$__rate_interval]))",
+          "instant": false,
+          "legendFormat": "{{verifier_id}} {{source_chain_name}} -> {{dest_chain_name}}: {{stage}}/{{error_class}} retryable={{retryable}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Classified verifier failures",
+      "type": "timeseries"
     }
   ],
   "preload": false,
@@ -1612,6 +2002,84 @@
         "refresh": 1,
         "regex": "",
         "sort": 7,
+        "type": "query"
+      },
+      {
+        "allValue": ".*",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "victoriametrics"
+        },
+        "definition": "label_values(verifier_message_transitions_total, verifier_id)",
+        "includeAll": true,
+        "label": "Verifier",
+        "multi": true,
+        "name": "verifier_id",
+        "options": [],
+        "query": {
+          "qryType": 1,
+          "query": "label_values(verifier_message_transitions_total, verifier_id)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 1,
+        "regex": "",
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "allValue": ".*",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "victoriametrics"
+        },
+        "definition": "label_values(verifier_message_transitions_total{verifier_id=~\"$verifier_id\"}, source_chain_name)",
+        "includeAll": true,
+        "label": "Source chain",
+        "multi": true,
+        "name": "source_chain_name",
+        "options": [],
+        "query": {
+          "qryType": 1,
+          "query": "label_values(verifier_message_transitions_total{verifier_id=~\"$verifier_id\"}, source_chain_name)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 1,
+        "regex": "",
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "allValue": ".*",
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "victoriametrics"
+        },
+        "definition": "label_values(verifier_message_transitions_total{verifier_id=~\"$verifier_id\", source_chain_name=~\"$source_chain_name\"}, dest_chain_name)",
+        "includeAll": true,
+        "label": "Destination chain",
+        "multi": true,
+        "name": "dest_chain_name",
+        "options": [],
+        "query": {
+          "qryType": 1,
+          "query": "label_values(verifier_message_transitions_total{verifier_id=~\"$verifier_id\", source_chain_name=~\"$source_chain_name\"}, dest_chain_name)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 1,
+        "regex": "",
+        "sort": 1,
         "type": "query"
       }
     ]
