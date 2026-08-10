@@ -11,29 +11,36 @@ import (
 // NoopMetricLabeler is a no-op implementation of verifier.MetricLabeler for use in tests.
 type NoopMetricLabeler struct{}
 
-func (n *NoopMetricLabeler) With(_ ...string) verifier.MetricLabeler                              { return n }
-func (n *NoopMetricLabeler) RecordMessageE2ELatency(_ context.Context, _ time.Duration)           {}
-func (n *NoopMetricLabeler) IncrementMessagesProcessed(_ context.Context)                         {}
-func (n *NoopMetricLabeler) IncrementMessagesVerificationFailed(_ context.Context)                {}
-func (n *NoopMetricLabeler) RecordMessageVerificationDuration(_ context.Context, _ time.Duration) {}
-func (n *NoopMetricLabeler) RecordStorageWriteDuration(_ context.Context, _ time.Duration)        {}
-func (n *NoopMetricLabeler) RecordVerificationQueueLatency(_ context.Context, _ time.Duration)    {}
-func (n *NoopMetricLabeler) RecordTaskVerificationQueueSize(_ context.Context, _ int64)           {}
-func (n *NoopMetricLabeler) RecordStorageWriteQueueSize(_ context.Context, _ int64)               {}
-func (n *NoopMetricLabeler) IncrementStorageWriteErrors(_ context.Context)                        {}
-func (n *NoopMetricLabeler) IncrementTaskVerificationPermanentErrors(_ context.Context)           {}
-func (n *NoopMetricLabeler) IncrementCriticalSourceInvariantViolations(_ context.Context)         {}
-func (n *NoopMetricLabeler) IncrementHeartbeatsSent(_ context.Context)                            {}
-func (n *NoopMetricLabeler) IncrementHeartbeatsFailed(_ context.Context)                          {}
-func (n *NoopMetricLabeler) RecordHeartbeatDuration(_ context.Context, _ time.Duration)           {}
-func (n *NoopMetricLabeler) SetVerifierHeartbeatTimestamp(_ context.Context, _ int64)             {}
-func (n *NoopMetricLabeler) SetVerifierHeartbeatSentChainHeads(_ context.Context, _ uint64)       {}
-func (n *NoopMetricLabeler) SetVerifierHeartbeatChainHeads(_ context.Context, _ uint64)           {}
-func (n *NoopMetricLabeler) SetVerifierHeartbeatScore(_ context.Context, _ float64)               {}
-func (n *NoopMetricLabeler) RecordSourceChainLatestBlock(_ context.Context, _ int64)              {}
-func (n *NoopMetricLabeler) RecordSourceChainFinalizedBlock(_ context.Context, _ int64)           {}
-func (n *NoopMetricLabeler) RecordSourceChainSafeBlock(_ context.Context, _ int64)                {}
-func (n *NoopMetricLabeler) RecordReorgTrackedSeqNums(_ context.Context, _ int64)                 {}
+func (n *NoopMetricLabeler) With(_ ...string) verifier.MetricLabeler                               { return n }
+func (n *NoopMetricLabeler) RecordMessageE2ELatency(_ context.Context, _ time.Duration)            {}
+func (n *NoopMetricLabeler) IncrementMessagesProcessed(_ context.Context)                          {}
+func (n *NoopMetricLabeler) IncrementMessagesVerificationFailed(_ context.Context)                 {}
+func (n *NoopMetricLabeler) IncrementMessageTransition(_ context.Context, _, _, _ string)          {}
+func (n *NoopMetricLabeler) IncrementMessageFailure(_ context.Context, _ string, _ bool, _ string) {}
+func (n *NoopMetricLabeler) RecordMessagesInFlight(_ context.Context, _ string, _ int64)           {}
+func (n *NoopMetricLabeler) RecordOldestMessageAge(_ context.Context, _ string, _ time.Duration)   {}
+func (n *NoopMetricLabeler) RecordMessageVerificationDuration(_ context.Context, _ time.Duration)  {}
+func (n *NoopMetricLabeler) RecordStorageWriteDuration(_ context.Context, _ time.Duration)         {}
+func (n *NoopMetricLabeler) RecordVerificationQueueLatency(_ context.Context, _ time.Duration)     {}
+func (n *NoopMetricLabeler) RecordTaskVerificationQueueSize(_ context.Context, _ int64)            {}
+func (n *NoopMetricLabeler) RecordStorageWriteQueueSize(_ context.Context, _ int64)                {}
+func (n *NoopMetricLabeler) IncrementStorageWriteErrors(_ context.Context)                         {}
+func (n *NoopMetricLabeler) IncrementTaskVerificationPermanentErrors(_ context.Context)            {}
+func (n *NoopMetricLabeler) IncrementCriticalSourceInvariantViolations(_ context.Context)          {}
+func (n *NoopMetricLabeler) IncrementHeartbeatsSent(_ context.Context)                             {}
+func (n *NoopMetricLabeler) IncrementHeartbeatsFailed(_ context.Context)                           {}
+func (n *NoopMetricLabeler) RecordHeartbeatDuration(_ context.Context, _ time.Duration)            {}
+func (n *NoopMetricLabeler) SetVerifierHeartbeatTimestamp(_ context.Context, _ int64)              {}
+func (n *NoopMetricLabeler) SetVerifierHeartbeatSentChainHeads(_ context.Context, _ uint64)        {}
+func (n *NoopMetricLabeler) SetVerifierHeartbeatChainHeads(_ context.Context, _ uint64)            {}
+func (n *NoopMetricLabeler) SetVerifierHeartbeatScore(_ context.Context, _ float64)                {}
+func (n *NoopMetricLabeler) RecordSourceChainLatestBlock(_ context.Context, _ int64)               {}
+func (n *NoopMetricLabeler) RecordSourceChainFinalizedBlock(_ context.Context, _ int64)            {}
+func (n *NoopMetricLabeler) RecordSourceChainSafeBlock(_ context.Context, _ int64)                 {}
+func (n *NoopMetricLabeler) RecordReorgTrackedSeqNums(_ context.Context, _ int64)                  {}
+func (n *NoopMetricLabeler) SetSourceReaderState(_ context.Context, _ string)                      {}
+func (n *NoopMetricLabeler) SetSourceReaderLastSuccessfulPollTimestamp(_ context.Context, _ int64) {}
+func (n *NoopMetricLabeler) SetSourceReaderLastProcessedFinalizedBlock(_ context.Context, _ int64) {}
 func (n *NoopMetricLabeler) SetVerifierFinalityViolated(_ context.Context, _ protocol.ChainSelector, _ bool) {
 }
 

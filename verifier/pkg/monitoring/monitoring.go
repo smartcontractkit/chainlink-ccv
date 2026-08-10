@@ -128,6 +128,11 @@ func (f *FakeVerifierMetricLabeler) RecordMessageE2ELatency(_ context.Context, l
 func (f *FakeVerifierMetricLabeler) IncrementMessagesProcessed(context.Context) {}
 
 func (f *FakeVerifierMetricLabeler) IncrementMessagesVerificationFailed(context.Context) {}
+func (f *FakeVerifierMetricLabeler) IncrementMessageTransition(context.Context, string, string, string) {
+}
+func (f *FakeVerifierMetricLabeler) IncrementMessageFailure(context.Context, string, bool, string) {}
+func (f *FakeVerifierMetricLabeler) RecordMessagesInFlight(context.Context, string, int64)         {}
+func (f *FakeVerifierMetricLabeler) RecordOldestMessageAge(context.Context, string, time.Duration) {}
 
 func (f *FakeVerifierMetricLabeler) IncrementHeartbeatsSent(context.Context) {}
 
@@ -173,6 +178,12 @@ func (f *FakeVerifierMetricLabeler) RecordSourceChainSafeBlock(_ context.Context
 }
 
 func (f *FakeVerifierMetricLabeler) RecordReorgTrackedSeqNums(ctx context.Context, count int64) {}
+func (f *FakeVerifierMetricLabeler) SetSourceReaderState(context.Context, string)               {}
+func (f *FakeVerifierMetricLabeler) SetSourceReaderLastSuccessfulPollTimestamp(context.Context, int64) {
+}
+
+func (f *FakeVerifierMetricLabeler) SetSourceReaderLastProcessedFinalizedBlock(context.Context, int64) {
+}
 
 func (f *FakeVerifierMetricLabeler) SetVerifierFinalityViolated(ctx context.Context, selector protocol.ChainSelector, violated bool) {
 }

@@ -77,6 +77,14 @@ type MetricLabeler interface {
 	IncrementMessagesProcessed(ctx context.Context)
 	// IncrementMessagesVerificationFailed increments the counter for failed message verifications.
 	IncrementMessagesVerificationFailed(ctx context.Context)
+	// IncrementMessageTransition records a bounded pipeline stage transition.
+	IncrementMessageTransition(ctx context.Context, stage, outcome, reason string)
+	// IncrementMessageFailure records a bounded classified message failure.
+	IncrementMessageFailure(ctx context.Context, stage string, retryable bool, errorClass string)
+	// RecordMessagesInFlight records current work in a pipeline state.
+	RecordMessagesInFlight(ctx context.Context, state string, count int64)
+	// RecordOldestMessageAge records the age of the oldest work in a pipeline state.
+	RecordOldestMessageAge(ctx context.Context, state string, age time.Duration)
 
 	// Fine-grained latency breakdown for debugging
 
@@ -131,6 +139,12 @@ type MetricLabeler interface {
 	RecordSourceChainSafeBlock(ctx context.Context, blockNum int64)
 	// RecordReorgTrackedSeqNums records the number of sequence numbers being tracked due to reorg.
 	RecordReorgTrackedSeqNums(ctx context.Context, count int64)
+	// SetSourceReaderState records the current one-hot source reader state.
+	SetSourceReaderState(ctx context.Context, state string)
+	// SetSourceReaderLastSuccessfulPollTimestamp records when source polling last succeeded.
+	SetSourceReaderLastSuccessfulPollTimestamp(ctx context.Context, timestamp int64)
+	// SetSourceReaderLastProcessedFinalizedBlock records the last finalized block processed by the source reader.
+	SetSourceReaderLastProcessedFinalizedBlock(ctx context.Context, blockNum int64)
 
 	// HTTP API metrics
 

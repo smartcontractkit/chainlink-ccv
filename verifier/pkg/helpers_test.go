@@ -121,6 +121,10 @@ func (m *noopMetricLabeler) With(keyValues ...string) MetricLabeler             
 func (m *noopMetricLabeler) RecordMessageE2ELatency(ctx context.Context, duration time.Duration) {}
 func (m *noopMetricLabeler) IncrementMessagesProcessed(ctx context.Context)                      {}
 func (m *noopMetricLabeler) IncrementMessagesVerificationFailed(ctx context.Context)             {}
+func (m *noopMetricLabeler) IncrementMessageTransition(context.Context, string, string, string)  {}
+func (m *noopMetricLabeler) IncrementMessageFailure(context.Context, string, bool, string)       {}
+func (m *noopMetricLabeler) RecordMessagesInFlight(context.Context, string, int64)               {}
+func (m *noopMetricLabeler) RecordOldestMessageAge(context.Context, string, time.Duration)       {}
 func (m *noopMetricLabeler) RecordMessageVerificationDuration(ctx context.Context, duration time.Duration) {
 }
 func (m *noopMetricLabeler) RecordStorageWriteDuration(ctx context.Context, duration time.Duration) {}
@@ -135,6 +139,9 @@ func (m *noopMetricLabeler) RecordSourceChainLatestBlock(ctx context.Context, bl
 func (m *noopMetricLabeler) RecordSourceChainFinalizedBlock(ctx context.Context, blockNum int64) {}
 func (m *noopMetricLabeler) RecordSourceChainSafeBlock(ctx context.Context, blockNum int64)      {}
 func (m *noopMetricLabeler) RecordReorgTrackedSeqNums(ctx context.Context, count int64)          {}
+func (m *noopMetricLabeler) SetSourceReaderState(context.Context, string)                        {}
+func (m *noopMetricLabeler) SetSourceReaderLastSuccessfulPollTimestamp(context.Context, int64)   {}
+func (m *noopMetricLabeler) SetSourceReaderLastProcessedFinalizedBlock(context.Context, int64)   {}
 
 func (m *noopMetricLabeler) SetVerifierFinalityViolated(ctx context.Context, selector protocol.ChainSelector, violated bool) {
 }

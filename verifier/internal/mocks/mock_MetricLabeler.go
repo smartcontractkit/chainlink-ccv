@@ -222,6 +222,78 @@ func (_c *MockMetricLabeler_IncrementHeartbeatsSent_Call) RunAndReturn(run func(
 	return _c
 }
 
+// IncrementMessageFailure provides a mock function with given fields: ctx, stage, retryable, errorClass
+func (_m *MockMetricLabeler) IncrementMessageFailure(ctx context.Context, stage string, retryable bool, errorClass string) {
+	_m.Called(ctx, stage, retryable, errorClass)
+}
+
+// MockMetricLabeler_IncrementMessageFailure_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'IncrementMessageFailure'
+type MockMetricLabeler_IncrementMessageFailure_Call struct {
+	*mock.Call
+}
+
+// IncrementMessageFailure is a helper method to define mock.On call
+//   - ctx context.Context
+//   - stage string
+//   - retryable bool
+//   - errorClass string
+func (_e *MockMetricLabeler_Expecter) IncrementMessageFailure(ctx interface{}, stage interface{}, retryable interface{}, errorClass interface{}) *MockMetricLabeler_IncrementMessageFailure_Call {
+	return &MockMetricLabeler_IncrementMessageFailure_Call{Call: _e.mock.On("IncrementMessageFailure", ctx, stage, retryable, errorClass)}
+}
+
+func (_c *MockMetricLabeler_IncrementMessageFailure_Call) Run(run func(ctx context.Context, stage string, retryable bool, errorClass string)) *MockMetricLabeler_IncrementMessageFailure_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(bool), args[3].(string))
+	})
+	return _c
+}
+
+func (_c *MockMetricLabeler_IncrementMessageFailure_Call) Return() *MockMetricLabeler_IncrementMessageFailure_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockMetricLabeler_IncrementMessageFailure_Call) RunAndReturn(run func(context.Context, string, bool, string)) *MockMetricLabeler_IncrementMessageFailure_Call {
+	_c.Run(run)
+	return _c
+}
+
+// IncrementMessageTransition provides a mock function with given fields: ctx, stage, outcome, reason
+func (_m *MockMetricLabeler) IncrementMessageTransition(ctx context.Context, stage string, outcome string, reason string) {
+	_m.Called(ctx, stage, outcome, reason)
+}
+
+// MockMetricLabeler_IncrementMessageTransition_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'IncrementMessageTransition'
+type MockMetricLabeler_IncrementMessageTransition_Call struct {
+	*mock.Call
+}
+
+// IncrementMessageTransition is a helper method to define mock.On call
+//   - ctx context.Context
+//   - stage string
+//   - outcome string
+//   - reason string
+func (_e *MockMetricLabeler_Expecter) IncrementMessageTransition(ctx interface{}, stage interface{}, outcome interface{}, reason interface{}) *MockMetricLabeler_IncrementMessageTransition_Call {
+	return &MockMetricLabeler_IncrementMessageTransition_Call{Call: _e.mock.On("IncrementMessageTransition", ctx, stage, outcome, reason)}
+}
+
+func (_c *MockMetricLabeler_IncrementMessageTransition_Call) Run(run func(ctx context.Context, stage string, outcome string, reason string)) *MockMetricLabeler_IncrementMessageTransition_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string))
+	})
+	return _c
+}
+
+func (_c *MockMetricLabeler_IncrementMessageTransition_Call) Return() *MockMetricLabeler_IncrementMessageTransition_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockMetricLabeler_IncrementMessageTransition_Call) RunAndReturn(run func(context.Context, string, string, string)) *MockMetricLabeler_IncrementMessageTransition_Call {
+	_c.Run(run)
+	return _c
+}
+
 // IncrementMessagesProcessed provides a mock function with given fields: ctx
 func (_m *MockMetricLabeler) IncrementMessagesProcessed(ctx context.Context) {
 	_m.Called(ctx)
@@ -489,6 +561,76 @@ func (_c *MockMetricLabeler_RecordMessageVerificationDuration_Call) Return() *Mo
 }
 
 func (_c *MockMetricLabeler_RecordMessageVerificationDuration_Call) RunAndReturn(run func(context.Context, time.Duration)) *MockMetricLabeler_RecordMessageVerificationDuration_Call {
+	_c.Run(run)
+	return _c
+}
+
+// RecordMessagesInFlight provides a mock function with given fields: ctx, state, count
+func (_m *MockMetricLabeler) RecordMessagesInFlight(ctx context.Context, state string, count int64) {
+	_m.Called(ctx, state, count)
+}
+
+// MockMetricLabeler_RecordMessagesInFlight_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RecordMessagesInFlight'
+type MockMetricLabeler_RecordMessagesInFlight_Call struct {
+	*mock.Call
+}
+
+// RecordMessagesInFlight is a helper method to define mock.On call
+//   - ctx context.Context
+//   - state string
+//   - count int64
+func (_e *MockMetricLabeler_Expecter) RecordMessagesInFlight(ctx interface{}, state interface{}, count interface{}) *MockMetricLabeler_RecordMessagesInFlight_Call {
+	return &MockMetricLabeler_RecordMessagesInFlight_Call{Call: _e.mock.On("RecordMessagesInFlight", ctx, state, count)}
+}
+
+func (_c *MockMetricLabeler_RecordMessagesInFlight_Call) Run(run func(ctx context.Context, state string, count int64)) *MockMetricLabeler_RecordMessagesInFlight_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(int64))
+	})
+	return _c
+}
+
+func (_c *MockMetricLabeler_RecordMessagesInFlight_Call) Return() *MockMetricLabeler_RecordMessagesInFlight_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockMetricLabeler_RecordMessagesInFlight_Call) RunAndReturn(run func(context.Context, string, int64)) *MockMetricLabeler_RecordMessagesInFlight_Call {
+	_c.Run(run)
+	return _c
+}
+
+// RecordOldestMessageAge provides a mock function with given fields: ctx, state, age
+func (_m *MockMetricLabeler) RecordOldestMessageAge(ctx context.Context, state string, age time.Duration) {
+	_m.Called(ctx, state, age)
+}
+
+// MockMetricLabeler_RecordOldestMessageAge_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RecordOldestMessageAge'
+type MockMetricLabeler_RecordOldestMessageAge_Call struct {
+	*mock.Call
+}
+
+// RecordOldestMessageAge is a helper method to define mock.On call
+//   - ctx context.Context
+//   - state string
+//   - age time.Duration
+func (_e *MockMetricLabeler_Expecter) RecordOldestMessageAge(ctx interface{}, state interface{}, age interface{}) *MockMetricLabeler_RecordOldestMessageAge_Call {
+	return &MockMetricLabeler_RecordOldestMessageAge_Call{Call: _e.mock.On("RecordOldestMessageAge", ctx, state, age)}
+}
+
+func (_c *MockMetricLabeler_RecordOldestMessageAge_Call) Run(run func(ctx context.Context, state string, age time.Duration)) *MockMetricLabeler_RecordOldestMessageAge_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(time.Duration))
+	})
+	return _c
+}
+
+func (_c *MockMetricLabeler_RecordOldestMessageAge_Call) Return() *MockMetricLabeler_RecordOldestMessageAge_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockMetricLabeler_RecordOldestMessageAge_Call) RunAndReturn(run func(context.Context, string, time.Duration)) *MockMetricLabeler_RecordOldestMessageAge_Call {
 	_c.Run(run)
 	return _c
 }
@@ -901,6 +1043,108 @@ func (_c *MockMetricLabeler_SetRemoteChainCursed_Call) Return() *MockMetricLabel
 }
 
 func (_c *MockMetricLabeler_SetRemoteChainCursed_Call) RunAndReturn(run func(context.Context, protocol.ChainSelector, protocol.ChainSelector, bool)) *MockMetricLabeler_SetRemoteChainCursed_Call {
+	_c.Run(run)
+	return _c
+}
+
+// SetSourceReaderLastProcessedFinalizedBlock provides a mock function with given fields: ctx, blockNum
+func (_m *MockMetricLabeler) SetSourceReaderLastProcessedFinalizedBlock(ctx context.Context, blockNum int64) {
+	_m.Called(ctx, blockNum)
+}
+
+// MockMetricLabeler_SetSourceReaderLastProcessedFinalizedBlock_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetSourceReaderLastProcessedFinalizedBlock'
+type MockMetricLabeler_SetSourceReaderLastProcessedFinalizedBlock_Call struct {
+	*mock.Call
+}
+
+// SetSourceReaderLastProcessedFinalizedBlock is a helper method to define mock.On call
+//   - ctx context.Context
+//   - blockNum int64
+func (_e *MockMetricLabeler_Expecter) SetSourceReaderLastProcessedFinalizedBlock(ctx interface{}, blockNum interface{}) *MockMetricLabeler_SetSourceReaderLastProcessedFinalizedBlock_Call {
+	return &MockMetricLabeler_SetSourceReaderLastProcessedFinalizedBlock_Call{Call: _e.mock.On("SetSourceReaderLastProcessedFinalizedBlock", ctx, blockNum)}
+}
+
+func (_c *MockMetricLabeler_SetSourceReaderLastProcessedFinalizedBlock_Call) Run(run func(ctx context.Context, blockNum int64)) *MockMetricLabeler_SetSourceReaderLastProcessedFinalizedBlock_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(int64))
+	})
+	return _c
+}
+
+func (_c *MockMetricLabeler_SetSourceReaderLastProcessedFinalizedBlock_Call) Return() *MockMetricLabeler_SetSourceReaderLastProcessedFinalizedBlock_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockMetricLabeler_SetSourceReaderLastProcessedFinalizedBlock_Call) RunAndReturn(run func(context.Context, int64)) *MockMetricLabeler_SetSourceReaderLastProcessedFinalizedBlock_Call {
+	_c.Run(run)
+	return _c
+}
+
+// SetSourceReaderLastSuccessfulPollTimestamp provides a mock function with given fields: ctx, timestamp
+func (_m *MockMetricLabeler) SetSourceReaderLastSuccessfulPollTimestamp(ctx context.Context, timestamp int64) {
+	_m.Called(ctx, timestamp)
+}
+
+// MockMetricLabeler_SetSourceReaderLastSuccessfulPollTimestamp_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetSourceReaderLastSuccessfulPollTimestamp'
+type MockMetricLabeler_SetSourceReaderLastSuccessfulPollTimestamp_Call struct {
+	*mock.Call
+}
+
+// SetSourceReaderLastSuccessfulPollTimestamp is a helper method to define mock.On call
+//   - ctx context.Context
+//   - timestamp int64
+func (_e *MockMetricLabeler_Expecter) SetSourceReaderLastSuccessfulPollTimestamp(ctx interface{}, timestamp interface{}) *MockMetricLabeler_SetSourceReaderLastSuccessfulPollTimestamp_Call {
+	return &MockMetricLabeler_SetSourceReaderLastSuccessfulPollTimestamp_Call{Call: _e.mock.On("SetSourceReaderLastSuccessfulPollTimestamp", ctx, timestamp)}
+}
+
+func (_c *MockMetricLabeler_SetSourceReaderLastSuccessfulPollTimestamp_Call) Run(run func(ctx context.Context, timestamp int64)) *MockMetricLabeler_SetSourceReaderLastSuccessfulPollTimestamp_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(int64))
+	})
+	return _c
+}
+
+func (_c *MockMetricLabeler_SetSourceReaderLastSuccessfulPollTimestamp_Call) Return() *MockMetricLabeler_SetSourceReaderLastSuccessfulPollTimestamp_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockMetricLabeler_SetSourceReaderLastSuccessfulPollTimestamp_Call) RunAndReturn(run func(context.Context, int64)) *MockMetricLabeler_SetSourceReaderLastSuccessfulPollTimestamp_Call {
+	_c.Run(run)
+	return _c
+}
+
+// SetSourceReaderState provides a mock function with given fields: ctx, state
+func (_m *MockMetricLabeler) SetSourceReaderState(ctx context.Context, state string) {
+	_m.Called(ctx, state)
+}
+
+// MockMetricLabeler_SetSourceReaderState_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetSourceReaderState'
+type MockMetricLabeler_SetSourceReaderState_Call struct {
+	*mock.Call
+}
+
+// SetSourceReaderState is a helper method to define mock.On call
+//   - ctx context.Context
+//   - state string
+func (_e *MockMetricLabeler_Expecter) SetSourceReaderState(ctx interface{}, state interface{}) *MockMetricLabeler_SetSourceReaderState_Call {
+	return &MockMetricLabeler_SetSourceReaderState_Call{Call: _e.mock.On("SetSourceReaderState", ctx, state)}
+}
+
+func (_c *MockMetricLabeler_SetSourceReaderState_Call) Run(run func(ctx context.Context, state string)) *MockMetricLabeler_SetSourceReaderState_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *MockMetricLabeler_SetSourceReaderState_Call) Return() *MockMetricLabeler_SetSourceReaderState_Call {
+	_c.Call.Return()
+	return _c
+}
+
+func (_c *MockMetricLabeler_SetSourceReaderState_Call) RunAndReturn(run func(context.Context, string)) *MockMetricLabeler_SetSourceReaderState_Call {
 	_c.Run(run)
 	return _c
 }
