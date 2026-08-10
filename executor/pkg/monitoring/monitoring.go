@@ -103,6 +103,19 @@ func (n *NoopExecutorMetricLabeler) IncrementMessagesProcessing(ctx context.Cont
 func (n *NoopExecutorMetricLabeler) IncrementMessagesProcessingError(ctx context.Context, retry bool) {
 }
 
+func (n *NoopExecutorMetricLabeler) IncrementMessageTransition(ctx context.Context, stage, outcome, reason string) {
+}
+
+func (n *NoopExecutorMetricLabeler) IncrementMessageFailure(ctx context.Context, stage string, retryable bool, errorClass string) {
+}
+
+func (n *NoopExecutorMetricLabeler) RecordMessagesInFlight(ctx context.Context, count int64) {}
+
+func (n *NoopExecutorMetricLabeler) RecordMessagesPending(ctx context.Context, count int64) {}
+
+func (n *NoopExecutorMetricLabeler) RecordOldestPendingMessageAge(ctx context.Context, age time.Duration) {
+}
+
 func (n *NoopExecutorMetricLabeler) RecordOfframpGetCCVsForMessageLatency(ctx context.Context, duration time.Duration, destChainSelector protocol.ChainSelector) {
 }
 

@@ -35,6 +35,40 @@ func createMessageWithTimestamp(readyTime time.Time, nonce uint64) *MessageWithT
 	}
 }
 
+func TestMessageHeap_LaneStats(t *testing.T) {
+	mh := NewMessageHeap(logger.Test(t))
+	oldest := time.Unix(100, 0)
+	newest := time.Unix(200, 0)
+
+	first := createMessageWithTimestamp(time.Unix(300, 0), 1)
+	first.IngestionTime = oldest
+	second := createMessageWithTimestamp(time.Unix(400, 0), 2)
+	second.IngestionTime = newest
+	third := createMessageWithTimestamp(time.Unix(500, 0), 3)
+	third.Message.SourceChainSelector = 3
+	third.Message.DestChainSelector = 4
+	third.IngestionTime = newest
+
+	require.True(t, mh.Push(*first))
+	require.True(t, mh.Push(*second))
+	require.True(t, mh.Push(*third))
+
+	require.ElementsMatch(t, []LaneStats{
+		{
+			SourceChainSelector: 1,
+			DestChainSelector:   2,
+			PendingCount:        2,
+			OldestIngestionTime: oldest,
+		},
+		{
+			SourceChainSelector: 3,
+			DestChainSelector:   4,
+			PendingCount:        1,
+			OldestIngestionTime: newest,
+		},
+	}, mh.LaneStats())
+}
+
 func TestMessageHeap_PeekTime(t *testing.T) {
 	t1 := time.Unix(100, 0)
 	t2 := time.Unix(200, 0)

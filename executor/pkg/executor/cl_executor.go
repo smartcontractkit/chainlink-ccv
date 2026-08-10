@@ -146,7 +146,7 @@ func (cle *ChainlinkExecutor) CheckValidMessage(ctx context.Context, message pro
 		return fmt.Errorf("no contract transmitter for chain %d", destinationChain)
 	}
 	if err := reader.CheckHealth(destinationChain); err != nil {
-		cle.monitoring.Metrics().IncrementDestinationReaderCriticalFailure(ctx, destinationChain)
+		cle.metricsForMessage(message).IncrementDestinationReaderCriticalFailure(ctx, destinationChain)
 		return fmt.Errorf("destination reader critically failed for chain %d: %w", destinationChain, err)
 	}
 	return nil
@@ -161,6 +161,7 @@ func (cle *ChainlinkExecutor) CheckValidMessage(ctx context.Context, message pro
 // 6. Create the aggregated report and transmit it to the chain.
 func (cle *ChainlinkExecutor) HandleMessage(ctx context.Context, message protocol.Message) (shouldRetry bool, err error) {
 	span := oteltrace.SpanFromContext(ctx)
+	metrics := cle.metricsForMessage(message)
 
 	// Check prerequisites to avoid toctou issues
 	if err := cle.CheckValidMessage(ctx, message); err != nil {
@@ -181,6 +182,11 @@ func (cle *ChainlinkExecutor) HandleMessage(ctx context.Context, message protoco
 			cle.lggr.Debugw("delaying execution due to curse", protocol.LogKeyMessageID, messageID)
 			span.AddEvent(monitoring.EventDelayedCursed)
 		}
+		reason := monitoring.MessageTransitionReasonRemoteChainCursed
+		if curseErr != nil {
+			reason = monitoring.MessageTransitionReasonCurseStateUnknown
+		}
+		metrics.IncrementMessageTransition(ctx, monitoring.MessageTransitionStageExecution, monitoring.MessageTransitionOutcomeSkipped, reason)
 		return true, nil
 	}
 
@@ -191,11 +197,13 @@ func (cle *ChainlinkExecutor) HandleMessage(ctx context.Context, message protoco
 		cle.lggr.Warnw("delaying execution due to failed check GetMessageExecutionState", protocol.LogKeyMessageID, messageID)
 		span.RecordError(err)
 		span.AddEvent(monitoring.EventDelayedExecutionStateUnknown)
+		metrics.IncrementMessageFailure(ctx, monitoring.MessageTransitionStageExecution, true, monitoring.MessageFailureClassExecutionStateRead)
 		return true, err
 	}
 	if executionSuccess {
 		cle.lggr.Debugw("skipping execution due to already being successfully executed", protocol.LogKeyMessageID, messageID)
-		cle.monitoring.Metrics().IncrementAlreadyExecutedMessages(ctx)
+		metrics.IncrementAlreadyExecutedMessages(ctx)
+		metrics.IncrementMessageTransition(ctx, monitoring.MessageTransitionStageExecution, monitoring.MessageTransitionOutcomeSkipped, monitoring.MessageTransitionReasonAlreadyExecuted)
 		span.AddEvent(monitoring.EventAlreadyExecuted)
 		return false, nil
 	}
@@ -203,10 +211,12 @@ func (cle *ChainlinkExecutor) HandleMessage(ctx context.Context, message protoco
 	verifierResults, verifierQuorum, err := cle.getVerifierResultsAndQuorum(ctx, message, messageID)
 	if err != nil {
 		cle.lggr.Warnw("delaying execution due to failed request for verifier results and quorum", protocol.LogKeyMessageID, messageID)
+		metrics.IncrementMessageFailure(ctx, monitoring.MessageTransitionStageExecution, true, monitoring.MessageFailureClassVerificationDataRead)
 		return true, err
 	}
 	if len(verifierResults) == 0 {
 		noResultsErr := fmt.Errorf("delaying execution due to no verifier results %s", messageID.String())
+		metrics.IncrementMessageTransition(ctx, monitoring.MessageTransitionStageExecution, monitoring.MessageTransitionOutcomeSkipped, monitoring.MessageTransitionReasonNoVerifierResults)
 		return true, noResultsErr
 	}
 
@@ -225,7 +235,8 @@ func (cle *ChainlinkExecutor) HandleMessage(ctx context.Context, message protoco
 	if len(verifierQuorum.RequiredCCVs)+int(verifierQuorum.OptionalThreshold) > len(verifierResults[0].MessageCCVAddresses) {
 		// PER-MESSAGE LOG (failure): terminal; receiver quorum can never be satisfied, no retry.
 		cle.lggr.Infow("skipping execution and not retrying due to impossible receiver verifier quorum", protocol.LogTypeKey, protocol.LogTypeMessageFailure, protocol.LogKeyMessageID, messageID)
-		cle.monitoring.Metrics().IncrementUnrecoverableMessageFailure(ctx)
+		metrics.IncrementUnrecoverableMessageFailure(ctx)
+		metrics.IncrementMessageFailure(ctx, monitoring.MessageTransitionStageExecution, false, monitoring.MessageFailureClassQuorumImpossible)
 		span.AddEvent(monitoring.EventUnrecoverableQuorumImpossible)
 		return false, nil
 	}
@@ -233,6 +244,7 @@ func (cle *ChainlinkExecutor) HandleMessage(ctx context.Context, message protoco
 	orderedverifierResults, orderedCCVOfframps, latestCCVTimestamp, err := orderCCVData(verifierResults, verifierQuorum)
 	if err != nil {
 		cle.lggr.Warnw("message did not meet verifier quorum, will retry", protocol.LogKeyMessageID, messageID)
+		metrics.IncrementMessageFailure(ctx, monitoring.MessageTransitionStageExecution, true, monitoring.MessageFailureClassQuorumNotMet)
 		return true, err
 	}
 
@@ -240,6 +252,7 @@ func (cle *ChainlinkExecutor) HandleMessage(ctx context.Context, message protoco
 		cle.lggr.Debugw("execution attempt poller not ready, will retry",
 			protocol.LogKeyMessageID, messageID)
 		span.AddEvent(monitoring.EventDelayedPollerNotReady)
+		metrics.IncrementMessageTransition(ctx, monitoring.MessageTransitionStageExecution, monitoring.MessageTransitionOutcomeSkipped, monitoring.MessageTransitionReasonPollerNotReady)
 		return true, nil
 	}
 
@@ -248,6 +261,7 @@ func (cle *ChainlinkExecutor) HandleMessage(ctx context.Context, message protoco
 	honestAttempt, err := cle.destinationReaders[destinationChain].HasHonestAttempt(ctx, message, verifierResults, verifierQuorum)
 	if err != nil {
 		cle.lggr.Errorw("unable to call execution checker, will retry message", "error", err, protocol.LogKeyMessageID, messageID)
+		metrics.IncrementMessageFailure(ctx, monitoring.MessageTransitionStageExecution, true, monitoring.MessageFailureClassHonestAttemptCheck)
 		return true, err
 	}
 
@@ -256,6 +270,7 @@ func (cle *ChainlinkExecutor) HandleMessage(ctx context.Context, message protoco
 	if honestAttempt {
 		cle.lggr.Debugw("skipping execution due to existing honest attempt", protocol.LogKeyMessageID, messageID)
 		span.AddEvent(monitoring.EventSkippedHonestAttemptExists)
+		metrics.IncrementMessageTransition(ctx, monitoring.MessageTransitionStageExecution, monitoring.MessageTransitionOutcomeSkipped, monitoring.MessageTransitionReasonHonestAttempt)
 		return false, nil
 	}
 
@@ -270,16 +285,19 @@ func (cle *ChainlinkExecutor) HandleMessage(ctx context.Context, message protoco
 	err = cle.contractTransmitters[destinationChain].ConvertAndWriteMessageToChain(ctx, aggregatedReport)
 	if err != nil {
 		if errors.Is(err, executor.ErrMessageEncoding) {
-			cle.monitoring.Metrics().IncrementUnrecoverableMessageFailure(ctx)
+			metrics.IncrementUnrecoverableMessageFailure(ctx)
+			metrics.IncrementMessageFailure(ctx, monitoring.MessageTransitionStageExecution, false, monitoring.MessageFailureClassMessageEncoding)
 			cle.lggr.Warnw("skipping retry due to message encoding error", protocol.LogKeyMessageID, messageID, "error", err)
 			return false, err
 		}
 		if errors.Is(err, executor.ErrMessageRejectedByTransmitter) {
-			cle.monitoring.Metrics().IncrementUnrecoverableMessageFailure(ctx)
+			metrics.IncrementUnrecoverableMessageFailure(ctx)
+			metrics.IncrementMessageFailure(ctx, monitoring.MessageTransitionStageExecution, false, monitoring.MessageFailureClassTransmitterRejected)
 			cle.lggr.Warnw("skipping retry due to terminal transmitter rejection", protocol.LogKeyMessageID, messageID, "error", err)
 			return false, err
 		}
 		cle.lggr.Warnw("will retry execution due to failed ConvertAndWriteMessageToChain", protocol.LogKeyMessageID, messageID)
+		metrics.IncrementMessageFailure(ctx, monitoring.MessageTransitionStageExecution, true, monitoring.MessageFailureClassTransmission)
 		return true, fmt.Errorf("%w: %w", executor.ErrExecutionContended, err)
 	}
 
@@ -294,7 +312,8 @@ func (cle *ChainlinkExecutor) HandleMessage(ctx context.Context, message protoco
 	)
 
 	// Record the message execution latency.
-	cle.monitoring.Metrics().RecordMessageExecutionLatency(ctx, time.Since(start), destinationChain)
+	metrics.RecordMessageExecutionLatency(ctx, time.Since(start), destinationChain)
+	metrics.IncrementMessageTransition(ctx, monitoring.MessageTransitionStageExecution, monitoring.MessageTransitionOutcomeSucceeded, monitoring.MessageTransitionReasonNone)
 
 	span.AddEvent(monitoring.EventMessageTransmitted, oteltrace.WithAttributes(
 		attribute.Int64(tracing.LatestCCVTimestampKey, latestCCVTimestamp),
@@ -354,6 +373,15 @@ func (cle *ChainlinkExecutor) getVerifierResultsAndQuorum(ctx context.Context, m
 		return ccvData, ccvInfo, err
 	}
 	return ccvData, ccvInfo, nil
+}
+
+func (cle *ChainlinkExecutor) metricsForMessage(message protocol.Message) monitoring.MetricLabeler {
+	return cle.monitoring.Metrics().With(
+		"source_chain_selector", message.SourceChainSelector.String(),
+		"source_chain_name", message.SourceChainSelector.ChainName(),
+		"dest_chain_selector", message.DestChainSelector.String(),
+		"dest_chain_name", message.DestChainSelector.ChainName(),
+	)
 }
 
 func ccvDataDestVerifiers(ccvDatas []protocol.VerifierResult) []string {

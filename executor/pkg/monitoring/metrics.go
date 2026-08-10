@@ -15,6 +15,47 @@ import (
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 )
 
+const (
+	MessageTransitionStageDiscovery  = "discovery"
+	MessageTransitionStageScheduling = "scheduling"
+	MessageTransitionStageExecution  = "execution"
+	MessageTransitionStageRetry      = "retry"
+
+	MessageTransitionOutcomeDiscovered     = "discovered"
+	MessageTransitionOutcomeScheduled      = "scheduled"
+	MessageTransitionOutcomeAttempted      = "attempted"
+	MessageTransitionOutcomeSucceeded      = "succeeded"
+	MessageTransitionOutcomeSkipped        = "skipped"
+	MessageTransitionOutcomeExpired        = "expired"
+	MessageTransitionOutcomeRetryScheduled = "retry_scheduled"
+
+	MessageTransitionReasonNone               = "none"
+	MessageTransitionReasonDuplicate          = "duplicate"
+	MessageTransitionReasonInvalidMessage     = "invalid_message"
+	MessageTransitionReasonNotExecutor        = "not_executor_for_destination"
+	MessageTransitionReasonLeaderElection     = "leader_election_failed"
+	MessageTransitionReasonDataNotReady       = "data_not_ready"
+	MessageTransitionReasonExecutionContended = "execution_contended"
+	MessageTransitionReasonRemoteChainCursed  = "remote_chain_cursed"
+	MessageTransitionReasonCurseStateUnknown  = "curse_state_unknown"
+	MessageTransitionReasonAlreadyExecuted    = "already_executed"
+	MessageTransitionReasonNoVerifierResults  = "no_verifier_results"
+	MessageTransitionReasonQuorumNotMet       = "quorum_not_met"
+	MessageTransitionReasonPollerNotReady     = "poller_not_ready"
+	MessageTransitionReasonHonestAttempt      = "honest_attempt_exists"
+
+	MessageFailureClassInvalidMessage       = "invalid_message"
+	MessageFailureClassExecutionStateRead   = "execution_state_read_failed"
+	MessageFailureClassVerificationDataRead = "verification_data_read_failed"
+	MessageFailureClassQuorumImpossible     = "quorum_impossible"
+	MessageFailureClassQuorumNotMet         = "quorum_not_met"
+	MessageFailureClassHonestAttemptCheck   = "honest_attempt_check_failed"
+	MessageFailureClassMessageEncoding      = "message_encoding_failed"
+	MessageFailureClassTransmitterRejected  = "transmitter_rejected"
+	MessageFailureClassTransmission         = "transmission_failed"
+	MessageFailureClassLeaderElection       = "leader_election_failed"
+)
+
 // ExecutorMetrics provides all metrics for the verifier.
 type ExecutorMetrics struct {
 	// Latency
@@ -29,6 +70,11 @@ type ExecutorMetrics struct {
 	messageExpiryCounter            metric.Int64Counter
 	messageHeapSizeGauge            metric.Int64Gauge
 	alreadyExecutedMessagesCounter  metric.Int64Counter
+	messageTransitions              metric.Int64Counter
+	messageFailures                 metric.Int64Counter
+	messagesInFlight                metric.Int64Gauge
+	messagesPending                 metric.Int64Gauge
+	oldestPendingMessageAgeSeconds  metric.Float64Gauge
 
 	// Heartbeat Metrics
 	heartbeatSuccessCounter     metric.Int64Counter
@@ -126,6 +172,42 @@ func InitMetrics() (*ExecutorMetrics, error) {
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to register already executed messages counter: %w", err)
+	}
+	vm.messageTransitions, err = beholder.GetMeter().Int64Counter(
+		"executor_message_transitions_total",
+		metric.WithDescription("Message pipeline transitions by stage and outcome"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register message transitions counter: %w", err)
+	}
+	vm.messageFailures, err = beholder.GetMeter().Int64Counter(
+		"executor_message_failures_total",
+		metric.WithDescription("Message failures by stage, retryability, and classified cause"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register message failures counter: %w", err)
+	}
+	vm.messagesInFlight, err = beholder.GetMeter().Int64Gauge(
+		"executor_messages_in_flight",
+		metric.WithDescription("Current messages being processed by workers"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register messages in flight gauge: %w", err)
+	}
+	vm.messagesPending, err = beholder.GetMeter().Int64Gauge(
+		"executor_messages_pending",
+		metric.WithDescription("Current messages pending in the delayed execution heap"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register pending messages gauge: %w", err)
+	}
+	vm.oldestPendingMessageAgeSeconds, err = beholder.GetMeter().Float64Gauge(
+		"executor_oldest_pending_message_age_seconds",
+		metric.WithDescription("Age of the oldest message pending in the delayed execution heap"),
+		metric.WithUnit("seconds"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register oldest pending message age gauge: %w", err)
 	}
 
 	// Initialize heartbeat metrics
@@ -254,6 +336,36 @@ func (v *ExecutorMetricLabeler) IncrementMessagesProcessingError(ctx context.Con
 	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
 	otelLabels = append(otelLabels, attribute.Bool("retry", retry))
 	v.vm.messagesProcessingErrorsCounter.Add(ctx, 1, metric.WithAttributes(otelLabels...))
+}
+
+func (v *ExecutorMetricLabeler) IncrementMessageTransition(ctx context.Context, stage, outcome, reason string) {
+	attrs := append(beholder.OtelAttributes(v.Labels).AsStringAttributes(),
+		attribute.String("stage", stage),
+		attribute.String("outcome", outcome),
+		attribute.String("reason", reason),
+	)
+	v.vm.messageTransitions.Add(ctx, 1, metric.WithAttributes(attrs...))
+}
+
+func (v *ExecutorMetricLabeler) IncrementMessageFailure(ctx context.Context, stage string, retryable bool, errorClass string) {
+	attrs := append(beholder.OtelAttributes(v.Labels).AsStringAttributes(),
+		attribute.String("stage", stage),
+		attribute.Bool("retryable", retryable),
+		attribute.String("error_class", errorClass),
+	)
+	v.vm.messageFailures.Add(ctx, 1, metric.WithAttributes(attrs...))
+}
+
+func (v *ExecutorMetricLabeler) RecordMessagesInFlight(ctx context.Context, count int64) {
+	v.vm.messagesInFlight.Record(ctx, count, metric.WithAttributes(beholder.OtelAttributes(v.Labels).AsStringAttributes()...))
+}
+
+func (v *ExecutorMetricLabeler) RecordMessagesPending(ctx context.Context, count int64) {
+	v.vm.messagesPending.Record(ctx, count, metric.WithAttributes(beholder.OtelAttributes(v.Labels).AsStringAttributes()...))
+}
+
+func (v *ExecutorMetricLabeler) RecordOldestPendingMessageAge(ctx context.Context, age time.Duration) {
+	v.vm.oldestPendingMessageAgeSeconds.Record(ctx, age.Seconds(), metric.WithAttributes(beholder.OtelAttributes(v.Labels).AsStringAttributes()...))
 }
 
 func (v *ExecutorMetricLabeler) RecordOfframpGetCCVsForMessageLatency(ctx context.Context, duration time.Duration, destChainSelector protocol.ChainSelector) {

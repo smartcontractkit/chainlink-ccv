@@ -15,6 +15,7 @@ import (
 // ExpiryWithMessage is the struct used to maintain data of a message, not used directly for priority queue.
 type ExpiryWithMessage struct {
 	Message       *protocol.Message
+	IngestionTime time.Time
 	ExpiryTime    time.Time
 	RetryInterval time.Duration
 	Attempt       int
@@ -32,6 +33,7 @@ type ExpiryWithMessage struct {
 // MessageWithTimestamps is the aggregated struct that is used when inserting and retrieving from the heap.
 type MessageWithTimestamps struct {
 	MessageID     protocol.Bytes32
+	IngestionTime time.Time
 	RetryInterval time.Duration
 	ReadyTime     time.Time
 	Message       *protocol.Message
@@ -39,6 +41,14 @@ type MessageWithTimestamps struct {
 	Attempt       int
 	// TraceContext - see ExpiryWithMessage.TraceContext.
 	TraceContext context.Context
+}
+
+// LaneStats summarizes pending messages for a source/destination lane.
+type LaneStats struct {
+	SourceChainSelector protocol.ChainSelector
+	DestChainSelector   protocol.ChainSelector
+	PendingCount        int64
+	OldestIngestionTime time.Time
 }
 
 // MessageHeapEntry is the minimal set of data needed to maintain the priority queue heap.
@@ -134,6 +144,7 @@ func (mh *MessageHeap) Push(msg MessageWithTimestamps) bool {
 
 	mh.dataMap[msg.MessageID] = ExpiryWithMessage{
 		Message:       msg.Message,
+		IngestionTime: msg.IngestionTime,
 		ExpiryTime:    msg.ExpiryTime,
 		RetryInterval: msg.RetryInterval,
 		Attempt:       msg.Attempt,
@@ -166,6 +177,7 @@ func (mh *MessageHeap) PopAllReady(timestamp time.Time) []MessageWithTimestamps 
 		}
 		readyMessages = append(readyMessages, MessageWithTimestamps{
 			MessageID:     entry.MessageID,
+			IngestionTime: data.IngestionTime,
 			RetryInterval: data.RetryInterval,
 			ReadyTime:     entry.ReadyTime,
 			Message:       data.Message,
@@ -176,6 +188,35 @@ func (mh *MessageHeap) PopAllReady(timestamp time.Time) []MessageWithTimestamps 
 		delete(mh.dataMap, entry.MessageID)
 	}
 	return readyMessages
+}
+
+// LaneStats returns pending-message counts and oldest ingestion time per lane.
+func (mh *MessageHeap) LaneStats() []LaneStats {
+	mh.mu.RLock()
+	defer mh.mu.RUnlock()
+
+	type lane struct {
+		source protocol.ChainSelector
+		dest   protocol.ChainSelector
+	}
+	statsByLane := make(map[lane]LaneStats)
+	for _, data := range mh.dataMap {
+		key := lane{source: data.Message.SourceChainSelector, dest: data.Message.DestChainSelector}
+		stats := statsByLane[key]
+		stats.SourceChainSelector = key.source
+		stats.DestChainSelector = key.dest
+		stats.PendingCount++
+		if stats.OldestIngestionTime.IsZero() || data.IngestionTime.Before(stats.OldestIngestionTime) {
+			stats.OldestIngestionTime = data.IngestionTime
+		}
+		statsByLane[key] = stats
+	}
+
+	stats := make([]LaneStats, 0, len(statsByLane))
+	for _, laneStats := range statsByLane {
+		stats = append(stats, laneStats)
+	}
+	return stats
 }
 
 func (mh *MessageHeap) Has(id protocol.Bytes32) bool {
