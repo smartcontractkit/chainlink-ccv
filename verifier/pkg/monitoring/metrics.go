@@ -3,6 +3,7 @@ package monitoring
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"go.opentelemetry.io/otel/attribute"
@@ -16,6 +17,64 @@ import (
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 )
 
+const (
+	MessageTransitionStageSourceRead      = "source_read"
+	MessageTransitionStagePendingFinality = "pending_finality"
+	MessageTransitionStageAdmission       = "admission"
+	MessageTransitionStageVerification    = "verification"
+	MessageTransitionStageStorageWrite    = "storage_write"
+
+	MessageTransitionOutcomeDiscovered        = "discovered"
+	MessageTransitionOutcomeFiltered          = "filtered"
+	MessageTransitionOutcomeMessageIDMismatch = "message_id_mismatch"
+	MessageTransitionOutcomeQueued            = "queued"
+	MessageTransitionOutcomeFinalityBlocked   = "finality_blocked"
+	MessageTransitionOutcomePublished         = "published"
+	MessageTransitionOutcomeLaneCursed        = "lane_cursed"
+	MessageTransitionOutcomeCurseStateUnknown = "curse_state_unknown"
+	MessageTransitionOutcomeMessageDisabled   = "message_disabled"
+	MessageTransitionOutcomeRulesStateUnknown = "rules_state_unknown"
+	MessageTransitionOutcomeQueuePublishError = "queue_publish_error"
+	MessageTransitionOutcomeSucceeded         = "succeeded"
+	MessageTransitionOutcomeRetryScheduled    = "retry_scheduled"
+	MessageTransitionOutcomePermanentlyFailed = "permanently_failed"
+
+	MessageTransitionReasonNone                   = "none"
+	MessageTransitionReasonFilter                 = "filter"
+	MessageTransitionReasonMessageIDComputeFailed = "message_id_compute_failed"
+	MessageTransitionReasonMessageIDMismatch      = "message_id_mismatch"
+	MessageTransitionReasonFinalityViolation      = "finality_violation"
+	MessageTransitionReasonRemoteChainCursed      = "remote_chain_cursed"
+	MessageTransitionReasonCurseStateUnknown      = "curse_state_unknown"
+	MessageTransitionReasonMessageDisablementRule = "message_disablement_rule"
+	MessageTransitionReasonRulesStateUnknown      = "rules_state_unknown"
+	MessageTransitionReasonQueuePublishFailed     = "queue_publish_failed"
+	MessageTransitionReasonVerificationFailed     = "verification_failed"
+	MessageTransitionReasonStorageWriteFailed     = "storage_write_failed"
+	MessageTransitionReasonBatchWriteFailed       = "batch_write_failed"
+
+	MessageInFlightStatePendingFinality = "pending_finality"
+
+	SourceReaderStateRunning         = "running"
+	SourceReaderStateDisabled        = "disabled"
+	SourceReaderStateFinalityBlocked = "finality_blocked"
+	SourceReaderStatePollError       = "poll_error"
+
+	MessageFailureClassUnknown                     = "unknown"
+	MessageFailureClassUnsupportedMessageVersion   = "unsupported_message_version"
+	MessageFailureClassSourceChainNotConfigured    = "source_chain_not_configured"
+	MessageFailureClassMissingReceiptBlob          = "missing_receipt_blob"
+	MessageFailureClassMissingVerifierExecutorBlob = "missing_verifier_or_executor_blob"
+	MessageFailureClassSigningFailed               = "signing_failed"
+	MessageFailureClassAttestationNotReady         = "attestation_not_ready"
+	MessageFailureClassAttestationFetchFailed      = "attestation_fetch_failed"
+	MessageFailureClassAttestationDecodeFailed     = "attestation_decode_failed"
+	MessageFailureClassAggregatorDeadlineExceeded  = "aggregator_deadline_exceeded"
+	MessageFailureClassAggregatorResourceExhausted = "aggregator_resource_exhausted"
+	MessageFailureClassAggregatorPayloadTooLarge   = "aggregator_payload_too_large"
+	MessageFailureClassAggregatorUnavailable       = "aggregator_unavailable"
+)
+
 // VerifierMetrics provides all metrics for the verifier.
 type VerifierMetrics struct {
 	// E2E Latency - North Star Metric
@@ -24,6 +83,10 @@ type VerifierMetrics struct {
 	// Message Processing Counters
 	messagesProcessedCounter   metric.Int64Counter
 	messagesVerificationFailed metric.Int64Counter
+	messageTransitions         metric.Int64Counter
+	messageFailures            metric.Int64Counter
+	messagesInFlight           metric.Int64Gauge
+	oldestMessageAgeSeconds    metric.Float64Gauge
 
 	// Fine-Grained Latency Breakdown
 	taskVerificationDurationSeconds metric.Float64Histogram
@@ -60,7 +123,10 @@ type VerifierMetrics struct {
 	messageDisablementRulesRefreshFailure metric.Int64Gauge
 
 	// Reorg/Finality  Tracking
-	reorgTrackedSeqNumsGauge metric.Int64Gauge
+	reorgTrackedSeqNumsGauge                metric.Int64Gauge
+	sourceReaderLastSuccessfulPollTimestamp metric.Float64Gauge
+	sourceReaderLastProcessedFinalizedBlock metric.Int64Gauge
+	sourceReaderState                       metric.Int64Gauge
 
 	// HTTP API Metrics
 	httpActiveRequestsUpDownCounter metric.Int64UpDownCounter
@@ -101,6 +167,22 @@ func InitMetrics() (*VerifierMetrics, error) {
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to register messages verification failed counter: %w", err)
+	}
+	vm.messageTransitions, err = beholder.GetMeter().Int64Counter("verifier_message_transitions_total", metric.WithDescription("Message pipeline transitions by stage and outcome"))
+	if err != nil {
+		return nil, fmt.Errorf("failed to register message transitions counter: %w", err)
+	}
+	vm.messageFailures, err = beholder.GetMeter().Int64Counter("verifier_message_failures_total", metric.WithDescription("Message failures by stage, retryability, and classified cause"))
+	if err != nil {
+		return nil, fmt.Errorf("failed to register message failures counter: %w", err)
+	}
+	vm.messagesInFlight, err = beholder.GetMeter().Int64Gauge("verifier_messages_in_flight", metric.WithDescription("Current in-flight messages by pipeline state"))
+	if err != nil {
+		return nil, fmt.Errorf("failed to register messages in flight gauge: %w", err)
+	}
+	vm.oldestMessageAgeSeconds, err = beholder.GetMeter().Float64Gauge("verifier_oldest_message_age_seconds", metric.WithDescription("Age of the oldest in-flight message by pipeline state"), metric.WithUnit("seconds"))
+	if err != nil {
+		return nil, fmt.Errorf("failed to register oldest message age gauge: %w", err)
 	}
 
 	// Fine-Grained Latency Breakdown
@@ -281,6 +363,18 @@ func InitMetrics() (*VerifierMetrics, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to register reorg tracked seqnums gauge: %w", err)
 	}
+	vm.sourceReaderLastSuccessfulPollTimestamp, err = beholder.GetMeter().Float64Gauge("verifier_source_reader_last_successful_poll_timestamp", metric.WithDescription("Unix timestamp of the last successful source reader poll"))
+	if err != nil {
+		return nil, fmt.Errorf("failed to register source reader poll timestamp gauge: %w", err)
+	}
+	vm.sourceReaderLastProcessedFinalizedBlock, err = beholder.GetMeter().Int64Gauge("verifier_source_reader_last_processed_finalized_block", metric.WithDescription("Last finalized block processed by the source reader"))
+	if err != nil {
+		return nil, fmt.Errorf("failed to register source reader processed block gauge: %w", err)
+	}
+	vm.sourceReaderState, err = beholder.GetMeter().Int64Gauge("verifier_source_reader_state", metric.WithDescription("One-hot source reader state"))
+	if err != nil {
+		return nil, fmt.Errorf("failed to register source reader state gauge: %w", err)
+	}
 
 	vm.taskVerificationPermanentErrors, err = beholder.GetMeter().Int64Counter(
 		"verifier_task_verification_permanent_errors_total",
@@ -419,6 +513,26 @@ func (v *VerifierMetricLabeler) IncrementMessagesVerificationFailed(ctx context.
 	v.vm.messagesVerificationFailed.Add(ctx, 1, metric.WithAttributes(otelLabels...))
 }
 
+func (v *VerifierMetricLabeler) IncrementMessageTransition(ctx context.Context, stage, outcome, reason string) {
+	attrs := append(beholder.OtelAttributes(v.Labels).AsStringAttributes(), attribute.String("stage", stage), attribute.String("outcome", outcome), attribute.String("reason", reason))
+	v.vm.messageTransitions.Add(ctx, 1, metric.WithAttributes(attrs...))
+}
+
+func (v *VerifierMetricLabeler) IncrementMessageFailure(ctx context.Context, stage string, retryable bool, errorClass string) {
+	attrs := append(beholder.OtelAttributes(v.Labels).AsStringAttributes(), attribute.String("stage", stage), attribute.Bool("retryable", retryable), attribute.String("error_class", errorClass))
+	v.vm.messageFailures.Add(ctx, 1, metric.WithAttributes(attrs...))
+}
+
+func (v *VerifierMetricLabeler) RecordMessagesInFlight(ctx context.Context, state string, count int64) {
+	attrs := append(beholder.OtelAttributes(v.Labels).AsStringAttributes(), attribute.String("state", state))
+	v.vm.messagesInFlight.Record(ctx, count, metric.WithAttributes(attrs...))
+}
+
+func (v *VerifierMetricLabeler) RecordOldestMessageAge(ctx context.Context, state string, age time.Duration) {
+	attrs := append(beholder.OtelAttributes(v.Labels).AsStringAttributes(), attribute.String("state", state))
+	v.vm.oldestMessageAgeSeconds.Record(ctx, age.Seconds(), metric.WithAttributes(attrs...))
+}
+
 func (v *VerifierMetricLabeler) RecordMessageVerificationDuration(ctx context.Context, duration time.Duration) {
 	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
 	v.vm.taskVerificationDurationSeconds.Record(ctx, duration.Seconds(), metric.WithAttributes(otelLabels...))
@@ -512,6 +626,60 @@ func (v *VerifierMetricLabeler) RecordSourceChainSafeBlock(ctx context.Context, 
 func (v *VerifierMetricLabeler) RecordReorgTrackedSeqNums(ctx context.Context, count int64) {
 	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
 	v.vm.reorgTrackedSeqNumsGauge.Record(ctx, count, metric.WithAttributes(otelLabels...))
+}
+
+func (v *VerifierMetricLabeler) SetSourceReaderState(ctx context.Context, state string) {
+	attrs := beholder.OtelAttributes(v.Labels).AsStringAttributes()
+	for _, knownState := range []string{SourceReaderStateRunning, SourceReaderStateDisabled, SourceReaderStateFinalityBlocked, SourceReaderStatePollError} {
+		value := int64(0)
+		if knownState == state {
+			value = 1
+		}
+		v.vm.sourceReaderState.Record(ctx, value, metric.WithAttributes(append(attrs, attribute.String("state", knownState))...))
+	}
+}
+
+func (v *VerifierMetricLabeler) SetSourceReaderLastSuccessfulPollTimestamp(ctx context.Context, timestamp int64) {
+	v.vm.sourceReaderLastSuccessfulPollTimestamp.Record(ctx, float64(timestamp), metric.WithAttributes(beholder.OtelAttributes(v.Labels).AsStringAttributes()...))
+}
+
+func (v *VerifierMetricLabeler) SetSourceReaderLastProcessedFinalizedBlock(ctx context.Context, blockNum int64) {
+	v.vm.sourceReaderLastProcessedFinalizedBlock.Record(ctx, blockNum, metric.WithAttributes(beholder.OtelAttributes(v.Labels).AsStringAttributes()...))
+}
+
+// ClassifyError maps known operational failures to a bounded Prometheus label value.
+func ClassifyError(err error) string {
+	if err == nil {
+		return MessageFailureClassUnknown
+	}
+	message := strings.ToLower(err.Error())
+	switch {
+	case strings.Contains(message, "unsupported message version"):
+		return MessageFailureClassUnsupportedMessageVersion
+	case strings.Contains(message, "source chain selector") && strings.Contains(message, "not configured"):
+		return MessageFailureClassSourceChainNotConfigured
+	case strings.Contains(message, "receipt blobs list is empty"):
+		return MessageFailureClassMissingReceiptBlob
+	case strings.Contains(message, "neither verifier nor default executor blob found"):
+		return MessageFailureClassMissingVerifierExecutorBlob
+	case strings.Contains(message, "failed to sign message"):
+		return MessageFailureClassSigningFailed
+	case strings.Contains(message, "attestation not ready") || strings.Contains(message, "attestation not found"):
+		return MessageFailureClassAttestationNotReady
+	case strings.Contains(message, "fetch attestation"):
+		return MessageFailureClassAttestationFetchFailed
+	case strings.Contains(message, "decode attestation"):
+		return MessageFailureClassAttestationDecodeFailed
+	case strings.Contains(message, "deadline exceeded"):
+		return MessageFailureClassAggregatorDeadlineExceeded
+	case strings.Contains(message, "resource exhausted") || strings.Contains(message, "queue full"):
+		return MessageFailureClassAggregatorResourceExhausted
+	case strings.Contains(message, "message size"):
+		return MessageFailureClassAggregatorPayloadTooLarge
+	case strings.Contains(message, "unavailable") || strings.Contains(message, "connection"):
+		return MessageFailureClassAggregatorUnavailable
+	}
+	return MessageFailureClassUnknown
 }
 
 func (v *VerifierMetricLabeler) SetVerifierFinalityViolated(ctx context.Context, selector protocol.ChainSelector, violated bool) {

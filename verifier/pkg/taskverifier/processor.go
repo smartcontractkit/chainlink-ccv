@@ -303,6 +303,11 @@ func (p *Processor) handleVerificationResults(
 					"verifier_id", p.verifierID,
 				).
 				IncrementMessagesProcessed(ctx)
+			p.messageMetrics(message).IncrementMessageTransition(
+				ctx,
+				monitoring.MessageTransitionStageVerification,
+				monitoring.MessageTransitionOutcomeSucceeded,
+				monitoring.MessageTransitionReasonNone)
 
 			p.monitoring.Metrics().
 				With("source_chain", message.SourceChainSelector.String(), "source_chain_name", message.SourceChainSelector.ChainName(), "verifier_id", p.verifierID).
@@ -440,10 +445,20 @@ func (p *Processor) handleVerificationError(
 			"verifier_id", p.verifierID,
 		).
 		IncrementMessagesVerificationFailed(ctx)
+	p.messageMetrics(message).IncrementMessageFailure(
+		ctx,
+		monitoring.MessageTransitionStageVerification,
+		verificationError.Retryable,
+		monitoring.ClassifyError(verificationError.Error))
 
 	// PER-MESSAGE LOG (failure/retryable): one per failed attempt; terminal only when !retryable.
 	logType := protocol.LogTypeMessageFailure
 	if verificationError.Retryable {
+		p.messageMetrics(message).IncrementMessageTransition(
+			ctx,
+			monitoring.MessageTransitionStageVerification,
+			monitoring.MessageTransitionOutcomeRetryScheduled,
+			monitoring.MessageTransitionReasonVerificationFailed)
 		logType = protocol.LogTypeRetryableMessageFailure
 	}
 	p.lggr.Errorw("Message verification failed",
@@ -472,6 +487,11 @@ func (p *Processor) handleVerificationError(
 			attribute.String(tracing.DelayKey, verificationError.DelayOrDefault().String()),
 		))
 	} else {
+		p.messageMetrics(message).IncrementMessageTransition(
+			ctx,
+			monitoring.MessageTransitionStageVerification,
+			monitoring.MessageTransitionOutcomePermanentlyFailed,
+			monitoring.MessageTransitionReasonVerificationFailed)
 		// Increment permanent error metric
 		p.monitoring.Metrics().
 			With(
@@ -506,6 +526,16 @@ func (p *Processor) cleanup(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func (p *Processor) messageMetrics(message protocol.Message) verifier.MetricLabeler {
+	return p.monitoring.Metrics().With(
+		"source_chain", message.SourceChainSelector.String(),
+		"source_chain_name", message.SourceChainSelector.ChainName(),
+		"dest_chain", message.DestChainSelector.String(),
+		"dest_chain_name", message.DestChainSelector.ChainName(),
+		"verifier_id", p.verifierID,
+	)
 }
 
 func (p *Processor) Name() string {

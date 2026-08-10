@@ -223,6 +223,16 @@ func (s *Processor) processBatch(ctx context.Context) error {
 			span.AddEvent(monitoring.EventRetryScheduled, oteltrace.WithAttributes(
 				attribute.String(tracing.DelayKey, s.retryDelay.String()),
 			))
+			s.messageMetrics(results[i].Message).IncrementMessageFailure(
+				ctx,
+				monitoring.MessageTransitionStageStorageWrite,
+				true,
+				monitoring.ClassifyError(err))
+			s.messageMetrics(results[i].Message).IncrementMessageTransition(
+				ctx,
+				monitoring.MessageTransitionStageStorageWrite,
+				monitoring.MessageTransitionOutcomeRetryScheduled,
+				monitoring.MessageTransitionReasonBatchWriteFailed)
 		}
 
 		retryCtx, cancel := context.WithTimeout(ctx, verifier.DefaultJobQueueOperationTimeout)
@@ -265,10 +275,25 @@ func (s *Processor) processBatch(ctx context.Context) error {
 			s.lggr.Infow("Write succeeded for message", protocol.LogTypeKey, protocol.LogTypeMessageSuccess, protocol.LogKeyMessageID, messageID, protocol.LogKeyJobID, jobID)
 
 			span.AddEvent(monitoring.EventWriteSucceeded)
+			s.messageMetrics(writeResult.Input.Message).IncrementMessageTransition(
+				ctx,
+				monitoring.MessageTransitionStageStorageWrite,
+				monitoring.MessageTransitionOutcomeSucceeded,
+				monitoring.MessageTransitionReasonNone)
 		} else {
 			span.RecordError(writeResult.Error, oteltrace.WithAttributes(attribute.Bool(tracing.RetryableKey, writeResult.Retryable)))
 			span.SetStatus(codes.Error, writeResult.Error.Error())
 			if writeResult.Retryable {
+				s.messageMetrics(writeResult.Input.Message).IncrementMessageFailure(
+					ctx,
+					monitoring.MessageTransitionStageStorageWrite,
+					true,
+					monitoring.ClassifyError(writeResult.Error))
+				s.messageMetrics(writeResult.Input.Message).IncrementMessageTransition(
+					ctx,
+					monitoring.MessageTransitionStageStorageWrite,
+					monitoring.MessageTransitionOutcomeRetryScheduled,
+					monitoring.MessageTransitionReasonStorageWriteFailed)
 				retriableFailedJobs = append(retriableFailedJobs, jobID)
 				failedErrorMap[jobID] = writeResult.Error
 				s.lggr.Errorw("Write failed for message (retryable)",
@@ -281,6 +306,16 @@ func (s *Processor) processBatch(ctx context.Context) error {
 					attribute.String(tracing.DelayKey, s.retryDelay.String()),
 				))
 			} else {
+				s.messageMetrics(writeResult.Input.Message).IncrementMessageFailure(
+					ctx,
+					monitoring.MessageTransitionStageStorageWrite,
+					false,
+					monitoring.ClassifyError(writeResult.Error))
+				s.messageMetrics(writeResult.Input.Message).IncrementMessageTransition(
+					ctx,
+					monitoring.MessageTransitionStageStorageWrite,
+					monitoring.MessageTransitionOutcomePermanentlyFailed,
+					monitoring.MessageTransitionReasonStorageWriteFailed)
 				nonRetriableFailedJobs = append(nonRetriableFailedJobs, jobID)
 				failedErrorMap[jobID] = writeResult.Error
 				s.lggr.Errorw("Write failed for message (non-retryable)",
@@ -357,6 +392,16 @@ func (s *Processor) processBatch(ctx context.Context) error {
 	s.messageTracker.TrackMessageLatencies(ctx, successfulResults)
 
 	return nil
+}
+
+func (s *Processor) messageMetrics(message protocol.Message) verifier.MetricLabeler {
+	return s.monitoring.Metrics().With(
+		"source_chain", message.SourceChainSelector.String(),
+		"source_chain_name", message.SourceChainSelector.ChainName(),
+		"dest_chain", message.DestChainSelector.String(),
+		"dest_chain_name", message.DestChainSelector.ChainName(),
+		"verifier_id", s.verifierID,
+	)
 }
 
 func (s *Processor) cleanup(ctx context.Context) error {
