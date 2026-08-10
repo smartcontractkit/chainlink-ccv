@@ -1,5 +1,35 @@
 # Changelog
 
+## [0.3.0](https://github.com/smartcontractkit/chainlink-ccv/compare/v0.2.0...v0.3.0) (2026-08-10)
+
+
+### Features
+
+* add evm doc generation ([#1312](https://github.com/smartcontractkit/chainlink-ccv/issues/1312)) ([bf4890d](https://github.com/smartcontractkit/chainlink-ccv/commit/bf4890d1793982c6a45bd7b7c69421c3c68b7c66))
+* Add KMS support ([#1301](https://github.com/smartcontractkit/chainlink-ccv/issues/1301)) ([89d4e91](https://github.com/smartcontractkit/chainlink-ccv/commit/89d4e910ee5ffdb64d68a4eeefad003b353659f7))
+* Backpressure improvements ([#1285](https://github.com/smartcontractkit/chainlink-ccv/issues/1285)) ([44cdcc0](https://github.com/smartcontractkit/chainlink-ccv/commit/44cdcc055b60a6cd4eb0433d92927cfa4095c94b))
+* **bootstrap:** adopt Chainlink node keys via [key_import] ([#1317](https://github.com/smartcontractkit/chainlink-ccv/issues/1317)) ([18539d6](https://github.com/smartcontractkit/chainlink-ccv/commit/18539d60fc1d090363c3b6cf95af64b2f1f998ef))
+* **cli:** ccv migrate export/inspect commands ([#1320](https://github.com/smartcontractkit/chainlink-ccv/issues/1320)) ([e72f479](https://github.com/smartcontractkit/chainlink-ccv/commit/e72f479c52122c5eec86a2e0b2bea57423644acc))
+* **evm:** accept a Chainlink node TOML config in the EVM accessor ([#1321](https://github.com/smartcontractkit/chainlink-ccv/issues/1321)) ([bb329b8](https://github.com/smartcontractkit/chainlink-ccv/commit/bb329b8504cd57f68e5aeba472fe4cef6fb28602))
+* **evm:** deprecate CTF from evm standalone ([#1305](https://github.com/smartcontractkit/chainlink-ccv/issues/1305)) ([f72fd9b](https://github.com/smartcontractkit/chainlink-ccv/commit/f72fd9b209e7e03048026437242a543cd354d400))
+* **evm:** drive restart-orphaned transactions to completion ([#1332](https://github.com/smartcontractkit/chainlink-ccv/issues/1332)) ([c20ed8a](https://github.com/smartcontractkit/chainlink-ccv/commit/c20ed8ad084b30e7bc504238fa60bd6b0c84e3e1))
+* **evm:** support per-node RPC prioritization in the standalone accessor ([#1326](https://github.com/smartcontractkit/chainlink-ccv/issues/1326)) ([35c93df](https://github.com/smartcontractkit/chainlink-ccv/commit/35c93dff2831dfd5ca08efb460e216c3ad8dac45))
+* **evm:** use production chain services in standalone accessors ([#1292](https://github.com/smartcontractkit/chainlink-ccv/issues/1292)) ([10f02b0](https://github.com/smartcontractkit/chainlink-ccv/commit/10f02b07feb54c46ced9413ca127a4d57a718533))
+* **executor:** Add ErrMessageRejectedByTransmitter to executor non retryable errors ([#1330](https://github.com/smartcontractkit/chainlink-ccv/issues/1330)) ([92f44ec](https://github.com/smartcontractkit/chainlink-ccv/commit/92f44ec95a9da828c19490eeadc91b292b3cf3ca))
+* Make the CSA key mode/backend-driven ([#1322](https://github.com/smartcontractkit/chainlink-ccv/issues/1322)) ([d8bcf56](https://github.com/smartcontractkit/chainlink-ccv/commit/d8bcf56adae5972c7f7dc654a9946a6cbb90f053))
+* **migration:** node key export shared between CLI and devenv ([#1318](https://github.com/smartcontractkit/chainlink-ccv/issues/1318)) ([7ea702e](https://github.com/smartcontractkit/chainlink-ccv/commit/7ea702ecae863efcb9e95c9deb735d0034fc793f))
+* Remove blocking mechanism in enqueue ([#1298](https://github.com/smartcontractkit/chainlink-ccv/issues/1298)) ([ff0e27d](https://github.com/smartcontractkit/chainlink-ccv/commit/ff0e27d4391e7c4d9938c46d6f505bd9d71b2aed))
+* Use redis for heartbeat config ([#1284](https://github.com/smartcontractkit/chainlink-ccv/issues/1284)) ([c2352c5](https://github.com/smartcontractkit/chainlink-ccv/commit/c2352c521f6e969121797e6d8efda4e7e035c3ac))
+* verifier & executor traces (CCIP-12516) ([#1297](https://github.com/smartcontractkit/chainlink-ccv/issues/1297)) ([669bb6e](https://github.com/smartcontractkit/chainlink-ccv/commit/669bb6e63021da14d7611b815ed098fa377c7f5c))
+
+
+### Bug Fixes
+
+* **configdoc:** error on nil fields in example config ([#1311](https://github.com/smartcontractkit/chainlink-ccv/issues/1311)) ([408abc4](https://github.com/smartcontractkit/chainlink-ccv/commit/408abc41060560a575a01a457a13d20e4a392af2))
+* **deps:** bump chain-selectors ([#1313](https://github.com/smartcontractkit/chainlink-ccv/issues/1313)) ([6a75095](https://github.com/smartcontractkit/chainlink-ccv/commit/6a75095ee87a361b4fca05cb4a83ec7a71ae77d6))
+* **evm:** onramp lane expansion fixes ([#1306](https://github.com/smartcontractkit/chainlink-ccv/issues/1306)) ([41818c8](https://github.com/smartcontractkit/chainlink-ccv/commit/41818c8843bd522bbb49c076371e334ef3ea0909))
+* Revert "feat: Backpressure improvements" ([#1296](https://github.com/smartcontractkit/chainlink-ccv/issues/1296)) ([6b42ff1](https://github.com/smartcontractkit/chainlink-ccv/commit/6b42ff14db43c4c0dabe8efa45d97ad6ad2644e0))
+
 ## [0.2.0](https://github.com/smartcontractkit/chainlink-ccv/compare/v0.1.0...v0.2.0) (2026-07-20)
 
 
