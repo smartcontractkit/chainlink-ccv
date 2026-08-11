@@ -1,13 +1,19 @@
 package services_test
 
 import (
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"testing"
 	"time"
 
 	"github.com/BurntSushi/toml"
+	gethkeystore "github.com/ethereum/go-ethereum/accounts/keystore"
+	gethcrypto "github.com/ethereum/go-ethereum/crypto"
 	"github.com/stretchr/testify/require"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
@@ -21,7 +27,69 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	hmacutil "github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/commit"
+	commonkeystore "github.com/smartcontractkit/chainlink-common/keystore"
 )
+
+const testVerifierKeyExportPassword = "export-password"
+
+// testVerifierBootstrapWithImportedSigningKey builds the same OCR2 EVM key-export shape used by a
+// Chainlink node and wires it into the standalone bootstrap config. The service tests can then use
+// one deterministic identity for the aggregator signer set, signer_address, and verifier keystore.
+func testVerifierBootstrapWithImportedSigningKey(
+	t *testing.T,
+	privateKeyHex string,
+	signerAddress string,
+) *services.BootstrapInput {
+	t.Helper()
+
+	privateKey, err := commit.ReadPrivateKeyFromString(privateKeyHex)
+	require.NoError(t, err)
+
+	bundle, err := json.Marshal(struct {
+		ChainType       string `json:"ChainType"`
+		OffchainKeyring []byte `json:"OffchainKeyring"`
+		Keyring         []byte `json:"Keyring"`
+		ID              []byte `json:"ID"`
+	}{
+		ChainType:       "evm",
+		OffchainKeyring: make([]byte, 64),
+		Keyring:         gethcrypto.FromECDSA(privateKey),
+		ID:              make([]byte, 32),
+	})
+	require.NoError(t, err)
+
+	cryptoJSON, err := gethkeystore.EncryptDataV3(
+		bundle,
+		[]byte("ocr2key"+testVerifierKeyExportPassword),
+		commonkeystore.FastScryptParams.N,
+		commonkeystore.FastScryptParams.P,
+	)
+	require.NoError(t, err)
+
+	exportedKey, err := json.Marshal(struct {
+		ChainType        string                  `json:"chainType"`
+		OnchainPublicKey string                  `json:"onchainPublicKey"`
+		Crypto           gethkeystore.CryptoJSON `json:"crypto"`
+	}{
+		ChainType:        "evm",
+		OnchainPublicKey: hex.EncodeToString(gethcrypto.PubkeyToAddress(privateKey.PublicKey).Bytes()),
+		Crypto:           cryptoJSON,
+	})
+	require.NoError(t, err)
+
+	dir := t.TempDir()
+	keyPath := filepath.Join(dir, "ocr2.json")
+	passwordPath := filepath.Join(dir, "password.txt")
+	require.NoError(t, os.WriteFile(keyPath, exportedKey, 0o600))
+	require.NoError(t, os.WriteFile(passwordPath, []byte(testVerifierKeyExportPassword), 0o600))
+
+	keyImport, files, err := services.BuildKeyImport(keyPath, passwordPath, signerAddress)
+	require.NoError(t, err)
+	return &services.BootstrapInput{
+		KeyImport:      keyImport,
+		KeyImportFiles: files,
+	}
+}
 
 // TestServiceCommitteeVerifierLocalMode is an end-to-end check of bootstrap local mode
 // (app_config_mode = "local_app_config"): it launches an EVM chain and an aggregator, then a committee
@@ -54,8 +122,9 @@ func TestServiceCommitteeVerifierLocalMode(t *testing.T) {
 	// 2. Aggregator with an HMAC credential the verifier will use (legacy default, un-suffixed).
 	verifierCreds, err := hmacutil.GenerateCredentials()
 	require.NoError(t, err)
-	_, signerPublicKey, err := generateTestSigningKey(committeeName, 0)
+	privateKey, signerAddress, err := generateTestSigningKey(committeeName, 0)
 	require.NoError(t, err)
+	bootstrapInput := testVerifierBootstrapWithImportedSigningKey(t, privateKey, signerAddress)
 
 	aggOut, err := services.NewAggregator(&services.AggregatorInput{
 		CommitteeName: committeeName,
@@ -93,7 +162,7 @@ func TestServiceCommitteeVerifierLocalMode(t *testing.T) {
 			QuorumConfigs: map[string]*model.QuorumConfig{
 				selectorStr: {
 					SourceVerifierAddress: "0x68B1D87F95878fE05B998F19b66F4baba5De1aed",
-					Signers:               []model.Signer{{Address: signerPublicKey}},
+					Signers:               []model.Signer{{Address: signerAddress}},
 					Threshold:             1,
 				},
 			},
@@ -109,7 +178,8 @@ func TestServiceCommitteeVerifierLocalMode(t *testing.T) {
 	//    chain-selector key set (commit.Config.Validate).
 	const placeholderAddr = "0x0000000000000000000000000000000000000001"
 	appCfg := commit.Config{
-		VerifierID: "local-verifier",
+		VerifierID:    "local-verifier",
+		SignerAddress: signerAddress,
 		Aggregators: []commit.AggregatorConnection{{
 			Name:               "primary",
 			Address:            aggOut.ExternalHTTPUrl, // internal <container>:50051 plaintext gRPC
@@ -135,6 +205,7 @@ func TestServiceCommitteeVerifierLocalMode(t *testing.T) {
 		ContainerName: verifierContainerName,
 		CommitteeName: committeeName,
 		ChainFamily:   chainsel.FamilyEVM,
+		Bootstrap:     bootstrapInput,
 		Env: &committeeverifier.EnvConfig{
 			AggregatorAPIKey:    verifierCreds.APIKey,
 			AggregatorSecretKey: verifierCreds.Secret,
@@ -148,7 +219,8 @@ func TestServiceCommitteeVerifierLocalMode(t *testing.T) {
 
 	// Keystore was initialized locally (no JD) — the ECDSA signing address is exposed via the
 	// bootstrap info server.
-	require.NotEmpty(t, out.BootstrapKeys.ECDSAAddress, "local mode must initialize the signing keystore")
+	require.Equal(t, signerAddress, "0x"+out.BootstrapKeys.ECDSAAddress,
+		"local mode must import the signing identity declared in signer_address")
 
 	// 5. The verifier's own coordinator must come up healthy. Use a per-request timeout so a single
 	//    stalled connection cannot block a poll longer than the Eventually interval.
@@ -196,8 +268,9 @@ func TestServiceCommitteeVerifierLocalModeDeferredConfig(t *testing.T) {
 
 	verifierCreds, err := hmacutil.GenerateCredentials()
 	require.NoError(t, err)
-	_, signerPublicKey, err := generateTestSigningKey(committeeName, 0)
+	privateKey, signerAddress, err := generateTestSigningKey(committeeName, 0)
 	require.NoError(t, err)
+	bootstrapInput := testVerifierBootstrapWithImportedSigningKey(t, privateKey, signerAddress)
 
 	aggOut, err := services.NewAggregator(&services.AggregatorInput{
 		CommitteeName: committeeName,
@@ -235,7 +308,7 @@ func TestServiceCommitteeVerifierLocalModeDeferredConfig(t *testing.T) {
 			QuorumConfigs: map[string]*model.QuorumConfig{
 				selectorStr: {
 					SourceVerifierAddress: "0x68B1D87F95878fE05B998F19b66F4baba5De1aed",
-					Signers:               []model.Signer{{Address: signerPublicKey}},
+					Signers:               []model.Signer{{Address: signerAddress}},
 					Threshold:             1,
 				},
 			},
@@ -253,6 +326,7 @@ func TestServiceCommitteeVerifierLocalModeDeferredConfig(t *testing.T) {
 		ContainerName: verifierContainerName,
 		CommitteeName: committeeName,
 		ChainFamily:   chainsel.FamilyEVM,
+		Bootstrap:     bootstrapInput,
 		// Distinct DB name/port from TestServiceCommitteeVerifierLocalMode so both run in one session.
 		DB: &committeeverifier.DBInput{
 			Image: "postgres:16-alpine",
@@ -272,7 +346,8 @@ func TestServiceCommitteeVerifierLocalModeDeferredConfig(t *testing.T) {
 
 	// Keys are exposed even before the config arrives — this is what lets the environment read the
 	// signer address before contracts are configured.
-	require.NotEmpty(t, out.BootstrapKeys.ECDSAAddress, "signing keystore must be initialized while waiting for config")
+	require.Equal(t, signerAddress, "0x"+out.BootstrapKeys.ECDSAAddress,
+		"signing identity must be imported while waiting for config")
 	require.NotNil(t, out.Container, "local mode must retain the container handle for app-config delivery")
 
 	healthClient := &http.Client{Timeout: 3 * time.Second}
@@ -291,7 +366,8 @@ func TestServiceCommitteeVerifierLocalModeDeferredConfig(t *testing.T) {
 	// Build and deliver the app config; the waiting bootstrapper should then start the coordinator.
 	const placeholderAddr = "0x0000000000000000000000000000000000000001"
 	appCfg := commit.Config{
-		VerifierID: "localdefer-verifier",
+		VerifierID:    "localdefer-verifier",
+		SignerAddress: signerAddress,
 		Aggregators: []commit.AggregatorConnection{{
 			Name:               "primary",
 			Address:            aggOut.ExternalHTTPUrl,
