@@ -167,7 +167,7 @@ The CCTP response can contain multiple messages per transaction. The verifier ma
 1. **CCTP version**: Message must be V2 (`DecodedMessage.Version == 2`)
 2. **Sender address**: `DecodedMessage.DecodedMessageBody.MessageSender` must equal the configured `verifier_addresses[sourceChainSelector]` — the address of the CCV verifier contract on the source chain
 3. **Hook data**: `DecodedMessage.DecodedMessageBody.HookData` must equal `[4-byte verifierVersion][32-byte messageID]`
-   - The verifier version (`0x91b3338e` = `bytes4(keccak256("LombardVerifier 2.1.0"))` by default) binds the attestation to the specific verifier contract
+   - The verifier version (`0x91b3338e` = `bytes4(keccak256("CCTPVerifier 2.1.0"))` by default) binds the attestation to the specific verifier contract
    - The `messageID` is computed from the CCIP message — this uniquely ties the CCTP attestation to a specific CCIP transfer
 
 If no message in the response matches all criteria, the verification fails with a retryable error (retry after 5 s).
