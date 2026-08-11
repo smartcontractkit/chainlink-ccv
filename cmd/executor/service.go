@@ -31,10 +31,6 @@ const (
 	// indexerGarbageCollectionInterval describes how frequently we garbage collect message duplicates from the indexer results.
 	// if this is too short, we will assume a message is net new every time it is read from the indexer.
 	indexerGarbageCollectionInterval = 1 * time.Hour
-	// messageContextWindow is the time window we use to expire duplicate messages from the indexer.
-	// this combines with indexerGarbageCollectionInterval to avoid memory leak in the streamer.
-	// We store messages for messageContextWindow, cleaning up old messages every indexerGarbageCollectionInterval.
-	messageContextWindow = 9 * time.Hour
 )
 
 // Factory is a bootstrap.ServiceFactory that starts the executor service.
@@ -199,7 +195,7 @@ func (f *Factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 		return fmt.Errorf("failed to create leader elector: %w", err)
 	}
 
-	timeProvider := backofftimeprovider.NewBackoffNTPProvider(f.lggr, executorConfig.BackoffDuration, executorConfig.NtpServer)
+	timeProvider := backofftimeprovider.NewBackoffNTPProvider(f.lggr, executorsvc.NTPBackoffDuration, executorConfig.NtpServer)
 
 	indexerStream := ccvstreamer.NewIndexerStorageStreamer(
 		f.lggr,
@@ -209,7 +205,7 @@ func (f *Factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 			PollingInterval:   indexerPollingInterval,
 			Backoff:           executorConfig.BackoffDuration,
 			QueryLimit:        executorConfig.IndexerQueryLimit,
-			ExpiryDuration:    messageContextWindow,
+			ExpiryDuration:    executorsvc.MessageContextWindow,
 			CleanInterval:     indexerGarbageCollectionInterval,
 			TimeProvider:      timeProvider,
 			EnabledDestChains: enabledDestChains,

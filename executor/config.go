@@ -22,6 +22,13 @@ const (
 	IndexerQueryLimitMax             = 10000
 )
 
+const (
+	// MessageContextWindow is how long executors retain messages for duplicate detection.
+	MessageContextWindow = 24 * time.Hour
+	// NTPBackoffDuration is the retry backoff base for the external NTP service.
+	NTPBackoffDuration = 2 * time.Second
+)
+
 // Configuration is the complete set of information an executor needs to operate normally.
 // We can use time.Duration directly in this config because burntSushi can parse duration from strings.
 type Configuration struct {
@@ -30,6 +37,7 @@ type Configuration struct {
 	IndexerAddress []string `toml:"indexer_address"`
 	// BackoffDuration is the duration to back off after a failed request to the Indexer.
 	// Defaults to 15 seconds.
+	// It controls Indexer retries only; NTP uses a fixed 2-second backoff base.
 	BackoffDuration time.Duration `toml:"source_backoff_duration"`
 	// LookbackWindow is the window of time to look back for new messages when an Executor first starts up.
 	// Defaults to 1 hour.
@@ -58,6 +66,7 @@ type Configuration struct {
 	DataNotReadyRetryInterval time.Duration `toml:"data_not_ready_retry_interval"`
 	// NtpServer is the NTP server to use for time synchronization.
 	// Defaults to time.google.com
+	// NTP retries are independent of source_backoff_duration.
 	NtpServer string `toml:"ntp_server"`
 	// ChainConfiguration is a map of chain selector to chain configuration.
 	// This is used to configure the chain-specific configuration for each chain such as addresses, executor pool, and execution interval.
@@ -84,7 +93,7 @@ type ChainConfiguration struct {
 
 func (c *Configuration) Validate() error {
 	if c.ExecutorID == "" {
-		return fmt.Errorf("this_executor_id must be configured")
+		return fmt.Errorf("executor_id must be configured")
 	}
 
 	if len(c.ChainConfiguration) == 0 {

@@ -7,6 +7,7 @@ indexer_address = ["http://indexer-1:8080", "http://indexer-2:8080"]
 
 # source_backoff_duration is the duration to back off after a failed request to the Indexer.
 # Defaults to 15 seconds.
+# It controls Indexer retries only; NTP uses a fixed 2-second backoff base.
 source_backoff_duration = "15s"
 
 # startup_lookback_window is the window of time to look back for new messages when an Executor first starts up.
@@ -37,6 +38,7 @@ data_not_ready_retry_interval = "1s"
 
 # ntp_server is the NTP server to use for time synchronization.
 # Defaults to time.google.com
+# NTP retries are independent of source_backoff_duration.
 ntp_server = "time.google.com"
 
 # worker_count is the number of concurrent workers processing messages.
