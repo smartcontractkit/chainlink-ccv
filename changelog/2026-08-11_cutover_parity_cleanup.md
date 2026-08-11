@@ -1,21 +1,19 @@
-# Align Chainlink-node and standalone cutover behavior
+# Align standalone cutover behavior with Chainlink-node production
 
 ## Executive Summary
 
-- CL-mode executors now apply the same documented defaults as standalone executors.
-- Streamer query-limit handling, NTP retry timing, message retention, and finality-checker disabling
-  no longer change behavior across the cutover boundary.
+- Standalone executor NTP retry timing and message retention now match CL-mode production behavior.
+- Streamers defensively normalize a zero query limit so an empty response cannot cause a busy loop.
 - Verifier database-open errors and two operator-facing configuration diagnostics are corrected.
-- Existing explicit production configuration remains compatible; omitted executor tuning is now
-  normalized instead of retaining unsafe zero values.
+- CL-mode defaulting and finality-checker semantics, plus current explicit production behavior, are
+  unchanged.
 
 ## AI Adapter Index
 
 | Symbol | Kind | Search | Location | Section |
 |---|---|---|---|---|
-| `constructors.NewExecutorCoordinator` | behavior-changed | `NewExecutorCoordinator\(` | `integration/pkg/constructors/executor.go:45` | [Executor defaults](#executor-defaults) |
 | `ccvstreamer.NewIndexerStorageStreamer` | behavior-changed | `NewIndexerStorageStreamer\(` | `integration/pkg/ccvstreamer/indexer_storage_streamer.go:40` | [Zero query limits](#zero-query-limits) |
-| `constructors.NewVerificationCoordinator` | behavior-changed | `NewVerificationCoordinator\(` | `integration/pkg/constructors/committee_verifier.go:39` | [Finality-checker parity](#finality-checker-parity) |
+| `executor.Factory.Start` | behavior-changed | `func \(f \*Factory\) Start` | `cmd/executor/service.go:87` | [Shared executor timing](#shared-executor-timing) |
 | `verifier.ConnectToPostgresDB` | behavior-changed | `ConnectToPostgresDB\(` | `cmd/verifier/common.go:76` | [Database errors](#database-errors) |
 | `executor.MessageContextWindow` | added | `MessageContextWindow\b` | `executor/config.go:27` | [Shared executor timing](#shared-executor-timing) |
 | `executor.NTPBackoffDuration` | added | `NTPBackoffDuration\b` | `executor/config.go:29` | [Shared executor timing](#shared-executor-timing) |
@@ -26,13 +24,6 @@ No breaking changes.
 
 ## Behavior Changes
 
-### Executor defaults
-
-`constructors.NewExecutorCoordinator` calls `Configuration.GetNormalizedConfig` before constructing
-its dependencies. Omitted tuning now resolves to the documented defaults: 15s source backoff, 1h
-lookback, 100-message query limit, 5m reader-cache expiry, 8h retry window, 1s data-not-ready retry,
-100 workers, `time.google.com`, and a 1m per-chain execution interval.
-
 ### Zero query limits
 
 `ccvstreamer.NewIndexerStorageStreamer` normalizes a zero `QueryLimit` to
@@ -42,13 +33,9 @@ immediately querying again.
 
 ### Shared executor timing
 
-Both executor modes use `executor.NTPBackoffDuration` (2s), independent of indexer request backoff,
-and `executor.MessageContextWindow` (24h) for streamer duplicate retention.
-
-### Finality-checker parity
-
-The CL verifier constructor now maps `commit.Config.DisableFinalityCheckers` into each source
-chain's `SourceConfig.DisableFinalityChecker`, matching the standalone verifier.
+Standalone now uses the CL-mode values exposed as `executor.NTPBackoffDuration` (2s), independent of
+indexer request backoff, and `executor.MessageContextWindow` (24h) for streamer duplicate retention.
+The CL constructor consumes the same constants without changing its effective behavior.
 
 ### Database errors
 
@@ -58,5 +45,5 @@ nil error. Callers already propagate its error result and require no signature c
 ## Compatibility & Requirements
 
 - No dependency or configuration-schema changes.
-- Explicit executor tuning retains its configured values.
+- CL-mode executor defaulting and finality-checker behavior are unchanged.
 - The missing-executor-ID diagnostic now names the actual TOML key, `executor_id`.

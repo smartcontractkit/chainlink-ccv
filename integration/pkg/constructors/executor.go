@@ -33,14 +33,6 @@ var (
 	indexerGarbageCollectionInterval = 1 * time.Hour
 )
 
-func normalizeExecutorConfig(cfg executor.Configuration) (executor.Configuration, error) {
-	normalized, err := cfg.GetNormalizedConfig()
-	if err != nil {
-		return executor.Configuration{}, err
-	}
-	return *normalized, nil
-}
-
 // NewExecutorCoordinator initializes the executor coordinator object.
 func NewExecutorCoordinator(
 	lggr logger.Logger,
@@ -52,12 +44,10 @@ func NewExecutorCoordinator(
 ) (*executor.Coordinator, error) {
 	lggr = logging.WithService(lggr, "executor")
 
-	normalizedCfg, err := normalizeExecutorConfig(cfg)
-	if err != nil {
+	if err := cfg.Validate(); err != nil {
 		lggr.Errorw("Invalid executor configuration.", "error", err)
 		return nil, fmt.Errorf("invalid executor configuration: %w", err)
 	}
-	cfg = normalizedCfg
 
 	lggr.Infow("Executor configuration", "config", cfg)
 
