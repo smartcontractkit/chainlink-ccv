@@ -73,11 +73,11 @@ func Test_LombardMessages_Success(t *testing.T) {
 	require.NoError(t, err)
 	// Lombard Verifier Version + rawPayloadLength + rawPayload + proofLength + proof
 	// Format: [version(4 bytes)][rawPayloadLen(2 bytes)][rawPayload][proofLen(2 bytes)][proof]
-	// ccvData1: eba55588 (version) + 0001 (len=1) + aa (payload) + 0001 (len=1) + bb (proof)
-	ccvData1, err := protocol.NewByteSliceFromHex("0xeba555880001aa0001bb")
+	// ccvData1: 5b9253ce (version) + 0001 (len=1) + aa (payload) + 0001 (len=1) + bb (proof)
+	ccvData1, err := protocol.NewByteSliceFromHex("0x5b9253ce0001aa0001bb")
 	require.NoError(t, err)
-	// ccvData2: eba55588 (version) + 0001 (len=1) + cc (payload) + 0001 (len=1) + dd (proof)
-	ccvData2, err := protocol.NewByteSliceFromHex("0xeba555880001cc0001dd")
+	// ccvData2: 5b9253ce (version) + 0001 (len=1) + cc (payload) + 0001 (len=1) + dd (proof)
+	ccvData2, err := protocol.NewByteSliceFromHex("0x5b9253ce0001cc0001dd")
 	require.NoError(t, err)
 
 	server := createFakeLombardServer(t, lombardAttestation)
@@ -162,11 +162,11 @@ func Test_LombardMessages_RetryingAttestation(t *testing.T) {
 	require.NoError(t, err)
 	// Lombard Verifier Version + rawPayloadLength + rawPayload + proofLength + proof
 	// Format: [version(4 bytes)][rawPayloadLen(2 bytes)][rawPayload][proofLen(2 bytes)][proof]
-	// ccvData1: eba55588 (version) + 0001 (len=1) + aa (payload) + 0001 (len=1) + bb (proof)
-	ccvData1, err := protocol.NewByteSliceFromHex("0xeba555880001aa0001bb")
+	// ccvData1: 5b9253ce (version) + 0001 (len=1) + aa (payload) + 0001 (len=1) + bb (proof)
+	ccvData1, err := protocol.NewByteSliceFromHex("0x5b9253ce0001aa0001bb")
 	require.NoError(t, err)
-	// ccvData2: eba55588 (version) + 0001 (len=1) + cc (payload) + 0001 (len=1) + dd (proof)
-	ccvData2, err := protocol.NewByteSliceFromHex("0xeba555880001cc0001dd")
+	// ccvData2: 5b9253ce (version) + 0001 (len=1) + cc (payload) + 0001 (len=1) + dd (proof)
+	ccvData2, err := protocol.NewByteSliceFromHex("0x5b9253ce0001cc0001dd")
 	require.NoError(t, err)
 
 	// This server will return a pending attestation twice, then a completed one

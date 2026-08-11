@@ -119,7 +119,7 @@ The verifier decodes these and constructs the verifier payload in the following 
 [4 bytes: versionTag][2 bytes: rawPayloadLength (big-endian)][rawPayload][2 bytes: proofLength (big-endian)][proof]
 ```
 
-The `versionTag` is `bytes4(keccak256("LombardVerifier 2.0.0"))` = `0xeba55588` (default, overridable via config).
+The `versionTag` is `bytes4(keccak256("LombardVerifier 2.1.0"))` = `0x5b9253ce` (default, overridable via config).
 
 This binary payload is stored as `Signature` in `VerifierNodeResult` and returned to the Indexer via the API.
 
@@ -167,7 +167,7 @@ The CCTP response can contain multiple messages per transaction. The verifier ma
 1. **CCTP version**: Message must be V2 (`DecodedMessage.Version == 2`)
 2. **Sender address**: `DecodedMessage.DecodedMessageBody.MessageSender` must equal the configured `verifier_addresses[sourceChainSelector]` — the address of the CCV verifier contract on the source chain
 3. **Hook data**: `DecodedMessage.DecodedMessageBody.HookData` must equal `[4-byte verifierVersion][32-byte messageID]`
-   - The verifier version (`0x35a25838` = `bytes4(keccak256("CCTPVerifier 2.0.0"))` by default) binds the attestation to the specific verifier contract
+   - The verifier version (`0x91b3338e` = `bytes4(keccak256("CCTPVerifier 2.1.0"))` by default) binds the attestation to the specific verifier contract
    - The `messageID` is computed from the CCIP message — this uniquely ties the CCTP attestation to a specific CCIP transfer
 
 If no message in the response matches all criteria, the verification fails with a retryable error (retry after 5 s).
@@ -181,7 +181,7 @@ The CCTP verifier payload format is:
 ```
 
 Where:
-- `verifierVersion` = `0x35a25838` (default)
+- `verifierVersion` = `0x91b3338e` (default)
 - `encodedCCTPMessage` = the raw ABI-encoded CCTP message bytes from the API response
 - `attestation` = Circle's ECDSA attestation bytes from the API response
 
@@ -320,7 +320,7 @@ Each `[[token_verifiers]]` block requires `type`, `version`, and `verifier_id`. 
 | `attestation_api_timeout` | `1s` | HTTP request timeout |
 | `attestation_api_interval` | `100ms` | Minimum interval between API calls (rate limiting) |
 | `attestation_api_batch_size` | `20` | Max blobs per API call (0 = unlimited) |
-| `verifier_version` | `0xeba55588` | 4-byte version tag included in the payload |
+| `verifier_version` | `0x5b9253ce` | 4-byte version tag included in the payload |
 | `verifier_resolver_addresses` | required | Map of chain selector → verifier resolver contract address; used for receipt blob matching and result storage |
 
 ## CCTP config fields (`type = "cctp"`, `version = "2.0"`)
@@ -331,7 +331,7 @@ Each `[[token_verifiers]]` block requires `type`, `version`, and `verifier_id`. 
 | `attestation_api_timeout` | `1s` | HTTP request timeout |
 | `attestation_api_interval` | `100ms` | Minimum interval between API calls |
 | `attestation_api_cooldown` | `5m` | Backoff duration when rate-limited by Circle's API |
-| `verifier_version` | `0x35a25838` | 4-byte version tag; must match the deployed `CCTPVerifier` contract version |
+| `verifier_version` | `0x91b3338e` | 4-byte version tag; must match the deployed `CCTPVerifier` contract version |
 | `verifier_addresses` | required | Map of chain selector → CCV verifier contract address on that chain; used for CCTP message sender matching |
 | `verifier_resolver_addresses` | required | Map of chain selector → verifier resolver contract address; used for `SourceConfig` and result storage |
 
@@ -345,7 +345,7 @@ version     = "2.0"
 # Full API call: GET <attestation_api>/v2/messages/<sourceDomain>/<txHash>
 attestation_api         = "https://iris-api-sandbox.circle.com"
 attestation_api_timeout = "2s"
-verifier_version        = "0x35a25838"
+verifier_version        = "0x91b3338e"
 
 [token_verifiers.verifier_addresses]
 "5009297550715157269" = "0xCCTPVerifierOnEthereum..."
@@ -363,7 +363,7 @@ version     = "1.0"
 attestation_api          = "https://bft-dev.stage.lombard-fi.com/api/"
 attestation_api_timeout  = "2s"
 attestation_api_batch_size = 20
-verifier_version         = "0xeba55588"
+verifier_version         = "0x5b9253ce"
 
 [token_verifiers.verifier_resolver_addresses]
 "5009297550715157269" = "0xLombardResolverOnEthereum..."

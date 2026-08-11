@@ -29,10 +29,10 @@ const (
 )
 
 var (
-	// bytes4(keccak256("CCTPVerifier 2.0.0")) = 0x35a25838.
-	DefaultCCTPVerifierVersion = mustDecodeHex("35a25838")
-	// bytes4(keccak256("LombardVerifier 2.0.0")) = 0xeba55588.
-	DefaultLombardVerifierVersion = mustDecodeHex("eba55588")
+	// bytes4(keccak256("CCTPVerifier 2.1.0")) = 0x91b3338e.
+	DefaultCCTPVerifierVersion = mustDecodeHex("91b3338e")
+	// bytes4(keccak256("LombardVerifier 2.1.0")) = 0x5b9253ce.
+	DefaultLombardVerifierVersion = mustDecodeHex("5b9253ce")
 )
 
 func mustDecodeHex(s string) []byte {
