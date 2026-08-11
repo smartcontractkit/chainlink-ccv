@@ -92,16 +92,16 @@ func TestVerifier_VerifyMessages_Success(t *testing.T) {
 
 	// Verify results - the signature should be [versionTag (4)][len (2)][payload][len (2)][proof]
 	assert.Equal(t, task1.MessageID, results[0].Result.MessageID.String())
-	// Version tag (0xeba55588) + length prefix (0x0003) + payload (0xabcdef) + length prefix (0x0002) + proof (0x1122)
-	expectedSig1 := "0xeba555880003abcdef00021122"
+	// Version tag (0x5b9253ce) + length prefix (0x0003) + payload (0xabcdef) + length prefix (0x0002) + proof (0x1122)
+	expectedSig1 := "0x5b9253ce0003abcdef00021122"
 	assert.Equal(t, expectedSig1, results[0].Result.Signature.String())
 	assert.Equal(t, []protocol.UnknownAddress{internal.CCVAddress1, internal.CCVAddress2}, results[0].Result.CCVAddresses)
 	assert.Equal(t, internal.ExecutorAddress, results[0].Result.ExecutorAddress)
 	assert.Equal(t, lombard.DefaultVerifierVersion, results[0].Result.CCVVersion)
 
 	assert.Equal(t, task2.MessageID, results[1].Result.MessageID.String())
-	// Version tag (0xeba55588) + length prefix (0x0003) + payload (0x123456) + length prefix (0x0003) + proof (0x334455)
-	expectedSig2 := "0xeba5558800031234560003334455"
+	// Version tag (0x5b9253ce) + length prefix (0x0003) + payload (0x123456) + length prefix (0x0003) + proof (0x334455)
+	expectedSig2 := "0x5b9253ce00031234560003334455"
 	assert.Equal(t, expectedSig2, results[1].Result.Signature.String())
 	assert.Equal(t, []protocol.UnknownAddress{internal.CCVAddress1, internal.CCVAddress2}, results[1].Result.CCVAddresses)
 	assert.Equal(t, internal.ExecutorAddress, results[1].Result.ExecutorAddress)

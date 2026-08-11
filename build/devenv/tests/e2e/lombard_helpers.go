@@ -121,7 +121,7 @@ type LombardAttestationArgs struct {
 // The Go verifier's ToVerifierFormat() will decode this and create the final format:
 // [versionTag (4)][rawPayloadLength (2)][rawPayload][proofLength (2)][proof].
 func buildLombardAttestation(args LombardAttestationArgs) string {
-	versionTag := lombard.DefaultVerifierVersion // VERSION_TAG_V2_0_0 = bytes4(keccak256("LombardVerifier 2.0.0"))
+	versionTag := lombard.DefaultVerifierVersion // VERSION_TAG_V2_0_0 = bytes4(keccak256("LombardVerifier 2.1.0"))
 
 	// Contract uses mload(add(msgBody, 0x21)) for token -> bytes 1-32 of msgBody data (0-indexed: [1:33]).
 	// The version byte puts token at 1-32; sender 33-64, recipient 65-96, amount 97-128, optionalMessage 129-164.

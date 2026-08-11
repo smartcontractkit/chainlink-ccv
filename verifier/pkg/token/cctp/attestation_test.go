@@ -58,7 +58,7 @@ var attestationResponseBody = []byte(`
           "mintRecipient": "0xb7317b4EFEa194a22bEB42506065D3772C2E95EF",
           "amount": "5000",
           "messageSender": "0xca9142d0b9804ef5e239d3bc1c7aa0d1c74e7350",
- 		  "hookData": "0x35a2583877d98f726d5cd28e5025ab36ec26024d57dc66915fe38d420c0d9a6cab6f44f8"
+ 		  "hookData": "0x91b3338e77d98f726d5cd28e5025ab36ec26024d57dc66915fe38d420c0d9a6cab6f44f8"
         }
       },
       "cctpVersion": "2",
@@ -114,7 +114,7 @@ func Test_AttestationFetch(t *testing.T) {
 		assert.Equal(t, "0xbbbbbb22", attestation.encodedCCTPMessage)
 		bytes, err := attestation.ToVerifierFormat()
 		require.NoError(t, err)
-		assert.Equal(t, "0x35a25838bbbbbb22aaaaaa11", bytes.String())
+		assert.Equal(t, "0x91b3338ebbbbbb22aaaaaa11", bytes.String())
 	})
 
 	t.Run("return error when no matching message found", func(t *testing.T) {
@@ -192,7 +192,7 @@ func TestAttestation_ToVerifierFormat(t *testing.T) {
 func Test_cctpMatchesMessage(t *testing.T) {
 	sourceChain := protocol.ChainSelector(sel.GETH_TESTNET.Selector)
 	destChain := protocol.ChainSelector(sel.GETH_DEVNET_2.Selector)
-	ccvVerifierVersion := internal.MustByteSliceFromHex("0x35a25838")
+	ccvVerifierVersion := internal.MustByteSliceFromHex("0x91b3338e")
 
 	// Create a valid CCIP message and calculate its message ID
 	ccipMessage, err := protocol.NewMessage(
@@ -214,7 +214,7 @@ func Test_cctpMatchesMessage(t *testing.T) {
 	require.NoError(t, err)
 
 	// Hardcoding hooks and messageID to avoid relying on logic we testing to generate them
-	hookData := "0x35a258383b3a5b9fce67c1c6eaa11b1b535b22bb084567125f584d47c8b57ce3050a09f2"
+	hookData := "0x91b3338e3b3a5b9fce67c1c6eaa11b1b535b22bb084567125f584d47c8b57ce3050a09f2"
 	messageID := internal.MustByteSliceFromHex("0x3b3a5b9fce67c1c6eaa11b1b535b22bb084567125f584d47c8b57ce3050a09f2")
 
 	calculatedMessageID, err := ccipMessage.MessageID()
