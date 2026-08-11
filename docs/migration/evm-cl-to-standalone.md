@@ -3,8 +3,9 @@
 Your CCV jobs move off your Chainlink node and onto two standalone processes, a verifier and an
 executor. Your signing key comes with you, so nothing changes on chain.
 
-Node operators do steps 1 to 7. Chainlink Labs does steps 8 to 10. The appendix explains what is
-happening and why, if you want it — you do not need it to run the steps.
+Node operators do steps 1 to 7. Chainlink Labs does steps 8 to 10, coordinating one additional
+operator action in step 9 if a chain is disabled. The appendix explains what is happening and why,
+if you want it — you do not need it to run the steps.
 
 ---
 
@@ -19,7 +20,10 @@ You need:
 
 - Your Chainlink node's API credentials in a file: email on line 1, password on line 2.
 - Your Chainlink node's TOML config file.
-- An empty Postgres database for the verifier, and another for the executor.
+- Three empty Postgres databases: one bootstrap database for each process, plus the verifier's
+  application database. They may share a server, but must be different database names.
+- A bootstrap secrets file for each process and an application secrets file for the verifier, as
+  described in step 3.
 - The verifier and executor images.
 
 Fill these in once and reuse them in the commands below:
@@ -30,10 +34,11 @@ Fill these in once and reuse them in the commands below:
 | `<executor-container>` | Your executor's container name                      |
 | `<node-url>`           | Your Chainlink node's API URL, e.g. `http://localhost:6688` |
 
-## Step 1: check your node's jobs
+## Step 1: check your node's jobs and chain statuses
 
 ```sh
 chainlink jobs list
+chainlink node ccv chain-statuses list
 ```
 
 **Check:** exactly one `ccvcommitteeverifier` job. If you see more than one, stop and contact
@@ -41,6 +46,10 @@ Chainlink Labs — do not continue.
 
 You will also see a `ccvexecutor` job. That is expected: CCIP 2.0 runs two job specs on your node, one
 per component.
+
+Check the `disabled` column in the chain-status output. Normally every row is `false`. If any row is
+`true`, record its chain selector and tell Chainlink Labs; do not enable it. You must restore the
+disabled state after the standalone job first starts in step 9 before the cutover can be confirmed.
 
 ## Step 2: export the signing key
 
@@ -65,14 +74,20 @@ read the error and stop — it is telling you something is wrong with the node o
 
 ## Step 3: configure the verifier and executor
 
-Do all four:
+Do all six:
 
 1. Mount your Chainlink node's TOML config file into **both** containers as their EVM config. Do not
    edit it.
-2. Mount `ocr2.json` into the **verifier** at `/etc/ccv/migration/key.json` (note the rename).
-3. Mount `export-password.txt` into the **verifier** at
+2. Mount a different bootstrap secrets file into each process. Its default path is
+   `/etc/bootstrap/secrets.toml`; `BOOTSTRAPPER_SECRETS_PATH` overrides the path. Each file contains
+   that process's bootstrap `[db].url` and `[keystore].password`.
+3. Mount the verifier application secrets at `/etc/committee-verifier/secrets.toml`;
+   `COMMITTEE_VERIFIER_SECRETS_PATH` overrides the path. Its `[db].url` points to the third database,
+   not the verifier bootstrap database, and its `[[aggregators]]` entries hold the HMAC credentials.
+4. Mount `ocr2.json` into the **verifier** at `/etc/ccv/migration/key.json` (note the rename).
+5. Mount `export-password.txt` into the **verifier** at
    `/etc/ccv/migration/export-password.txt`.
-4. Copy the `[key_import]` block out of `verifier.key_import.toml` and paste it into the verifier's
+6. Copy the `[key_import]` block out of `verifier.key_import.toml` and paste it into the verifier's
    bootstrap config. It looks like this, with your address already filled in:
 
 ```toml
@@ -83,6 +98,12 @@ expected_id   = "0x..."
 ```
 
 Do not retype the address. Do not add `[key_import]` to the executor.
+
+The complete schemas are in the [bootstrap secrets reference](../config/bootstrap/secrets.documented.toml)
+and [verifier secrets reference](../config/verifier/secrets.documented.toml). For backwards
+compatibility, the verifier application DB URL can instead come from `CL_DATABASE_URL`, and HMAC
+credentials can come from `VERIFIER_AGGREGATOR_*_API_KEY` and
+`VERIFIER_AGGREGATOR_*_SECRET_KEY`; the secrets file wins when both are present.
 
 Confirm the mounted file is the right one:
 
@@ -106,7 +127,8 @@ Start both.
 
 **Check:** both are running and healthy, neither is restarting, and the verifier's log does not
 mention an `expected_id` mismatch. If the verifier refuses to start, do not work around it — go to
-[If something goes wrong](#if-something-goes-wrong).
+[If something goes wrong](#if-something-goes-wrong). The `signer_address` check runs when the job
+starts in step 9.
 
 ## Step 6: send Chainlink Labs two keys
 
@@ -194,6 +216,28 @@ operator's step 2.
 It will also refuse to propose if the chain is not registered in JD for that operator, which means
 the verifier is not reporting its chain configs.
 
+**Check:** the verifier job starts and its log does not report a `signer_address` mismatch. If it
+does, stop and return to the operator's key-import checks; do not propose a replacement signer.
+
+If the operator recorded no disabled chain in step 1, continue to step 10. Otherwise, wait for the
+standalone verifier job to start and create its application-database rows, then coordinate this gate
+with the operator:
+
+1. Run `verifier ccv chain-statuses list` and note the standalone `verifier_id`.
+2. Stop the verifier.
+3. For every selector recorded in step 1, run:
+
+   ```sh
+   verifier ccv chain-statuses disable \
+     --chain-selector <selector> \
+     --verifier-id <standalone-verifier-id>
+   ```
+
+4. Restart the verifier and run `verifier ccv chain-statuses list` again.
+
+**Do not continue to step 10** until every recorded selector shows `disabled = true`. Run these CLI
+commands with the same verifier application secrets file so they connect to the correct database.
+
 ## Step 10: confirm and clean up
 
 1. Send a message across a lane this operator verifies. Confirm it is verified and executed.
@@ -207,6 +251,9 @@ the verifier is not reporting its chain configs.
 
 Nothing here is needed to run the steps.
 
+The executor's transaction-manager choice and cutover gates are summarized in the
+[TXM v2 assessment](txm-v2-assessment.md).
+
 ## Before and after
 
 | Component           | CL mode                                      | Standalone                                          |
@@ -217,7 +264,7 @@ Nothing here is needed to run the steps.
 | JD node record      | One record for both jobs                     | Two: verifier adopts the existing one, executor is new |
 | CSA key             | The node's                                   | Each process generates its own                       |
 | EVM RPC config      | The node's TOML                              | The same file, read directly                         |
-| Database            | The node's Postgres                          | One bootstrap database per process                   |
+| Database            | The node's Postgres                          | One bootstrap database per process, plus the verifier application database |
 
 ## Executor timing stays aligned
 
@@ -323,6 +370,10 @@ A mistake in the operator's steps surfaces centrally, before any job moves, in o
 verifier changeset wants to change the committee's signer set when it should be a no-op, or it refuses
 to propose because the chain is not registered in JD for that operator.
 
+When the job starts, the standalone verifier also compares its keystore address with the job's
+`signer_address` and refuses to run on a mismatch. The error points back to `[key_import]` rather than
+allowing a wrong key to fail later at aggregator quorum.
+
 The import itself runs only when the key is absent, so it is a no-op on every restart after the first.
 Once the verifier has come up once, the export and password files can be unmounted and deleted.
 
@@ -330,6 +381,6 @@ Once the verifier has come up once, the export and password files can be unmount
 
 - **CCIP-12871** adds a `ccv migrate` command for step 7: it reads the transmitter address and routes
   the balances from the node's legacy per-chain transmitters into it. Step 7 becomes one command.
-- **Persistence.** When the EVM standalone gains persistence it will need a database of its own on top
-  of the bootstrap one. Not a separate server, but a separate database, so the count in "Before you
-  start" changes.
+- **EVM service state.** The verifier application database already persists chain statuses and
+  queues, separately from its bootstrap database. EVM head-tracker and TXM state remain in memory;
+  see the [TXM v2 assessment](txm-v2-assessment.md) for the transaction-recovery risk.

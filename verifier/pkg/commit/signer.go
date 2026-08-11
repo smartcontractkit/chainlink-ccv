@@ -7,12 +7,28 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
 	"github.com/smartcontractkit/chainlink-common/keystore"
 )
+
+// ValidateSignerAddress checks that the key loaded by the verifier is the key declared by the job
+// spec. During CL-to-standalone migration a mismatch usually means the wrong exported key was
+// mounted or the verifier started once without [key_import] and generated a replacement.
+func ValidateSignerAddress(configured string, actual protocol.UnknownAddress) error {
+	expected := common.HexToAddress(configured)
+	if actual.Equal(protocol.UnknownAddress(expected.Bytes())) {
+		return nil
+	}
+	return fmt.Errorf(
+		"signing address does not match signer_address: configured %s, keystore %s; "+
+			"check signer_address and, for migration, ensure [key_import] imported the expected verifier signing key before first boot",
+		expected.Hex(), actual.String(),
+	)
+}
 
 // ECDSASigner implements MessageSigner using ECDSA with the new chain-agnostic message format.
 type ECDSASigner struct {

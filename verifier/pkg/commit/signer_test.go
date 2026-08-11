@@ -6,12 +6,60 @@ import (
 	"encoding/hex"
 	"testing"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/crypto"
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/keystore"
 )
+
+func TestValidateSignerAddress(t *testing.T) {
+	const configured = "0x1111111111111111111111111111111111111111"
+
+	tests := []struct {
+		name    string
+		actual  common.Address
+		wantErr bool
+	}{
+		{
+			name:   "imported key matches signer_address",
+			actual: common.HexToAddress(configured),
+		},
+		{
+			name:    "wrong imported key is rejected",
+			actual:  common.HexToAddress("0x2222222222222222222222222222222222222222"),
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateSignerAddress(configured, protocol.UnknownAddress(tt.actual.Bytes()))
+			if !tt.wantErr {
+				require.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			require.ErrorContains(t, err, "signer_address")
+			require.ErrorContains(t, err, "[key_import]")
+			require.ErrorContains(t, err, tt.actual.Hex())
+		})
+	}
+
+	t.Run("generated key is rejected when job expects imported key", func(t *testing.T) {
+		generatedKey, err := crypto.GenerateKey()
+		require.NoError(t, err)
+		generatedAddress := crypto.PubkeyToAddress(generatedKey.PublicKey)
+		actual := protocol.UnknownAddress(generatedAddress.Bytes())
+
+		err = ValidateSignerAddress(configured, actual)
+		require.Error(t, err)
+		require.ErrorContains(t, err, "signer_address")
+		require.ErrorContains(t, err, "[key_import]")
+		require.ErrorContains(t, err, actual.String())
+	})
+}
 
 func TestECDSASigner_Sign(t *testing.T) {
 	privateKey, err := crypto.GenerateKey()

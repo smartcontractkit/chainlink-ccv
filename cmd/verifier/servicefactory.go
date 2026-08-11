@@ -221,6 +221,10 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 		lggr.Errorw("Failed to create signer", "error", err)
 		return fmt.Errorf("failed to create signer: %w", err)
 	}
+	if err := commit.ValidateSignerAddress(config.SignerAddress, signerAddress); err != nil {
+		lggr.Errorw("Verifier signing key does not match job configuration", "error", err)
+		return err
+	}
 	lggr.Infow("Using signer address", "address", signerAddress)
 
 	// Create chain status manager (PostgreSQL storage) with monitoring decorator
