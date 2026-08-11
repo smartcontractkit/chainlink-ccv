@@ -4,8 +4,8 @@
 
 - Standalone executor NTP retry timing and message retention now match CL-mode production behavior.
 - Streamers defensively normalize a zero query limit so an empty response cannot cause a busy loop.
-- Standalone verifiers now reject a keystore key that does not match the job's `signer_address`, as
-  CL mode already does.
+- Standalone verifiers now reject malformed `signer_address` values and keystore keys that do not
+  match the configured address, as CL mode already does.
 - Verifier database-open errors and two operator-facing configuration diagnostics are corrected.
 - CL-mode defaulting and finality-checker semantics, plus current explicit production behavior, are
   unchanged.
@@ -16,7 +16,7 @@
 |---|---|---|---|---|
 | `ccvstreamer.NewIndexerStorageStreamer` | behavior-changed | `NewIndexerStorageStreamer\(` | `integration/pkg/ccvstreamer/indexer_storage_streamer.go:40` | [Zero query limits](#zero-query-limits) |
 | `executor.Factory.Start` | behavior-changed | `func \(f \*Factory\) Start` | `cmd/executor/service.go:87` | [Shared executor timing](#shared-executor-timing) |
-| `commit.ValidateSignerAddress` | added | `ValidateSignerAddress\(` | `verifier/pkg/commit/signer.go` | [Verifier signing identity](#verifier-signing-identity) |
+| `commit.ValidateSignerAddress` | added | `ValidateSignerAddress\(` | `verifier/pkg/commit/signer.go:23` | [Verifier signing identity](#verifier-signing-identity) |
 | `verifier.ConnectToPostgresDB` | behavior-changed | `ConnectToPostgresDB\(` | `cmd/verifier/common.go:76` | [Database errors](#database-errors) |
 | `executor.MessageContextWindow` | added | `MessageContextWindow\b` | `executor/config.go:27` | [Shared executor timing](#shared-executor-timing) |
 | `executor.NTPBackoffDuration` | added | `NTPBackoffDuration\b` | `executor/config.go:29` | [Shared executor timing](#shared-executor-timing) |
@@ -47,10 +47,11 @@ nil error. Callers already propagate its error result and require no signature c
 
 ### Verifier signing identity
 
-CL mode and standalone now use the same signing-address guard. Standalone refuses to start the
-verifier job when its keystore address differs from `signer_address`; the error directs migration
-operators to check `[key_import]`. CL mode already rejected this mismatch, so its runtime behavior is
-unchanged.
+CL mode and standalone now use the same signing-address guard. Standalone rejects malformed
+`signer_address` values with the same strict, 0x-prefixed hex decoding used during CL job creation.
+It also refuses to start the verifier job when its keystore address differs from `signer_address`;
+the error directs migration operators to check `[key_import]`. CL mode already rejected these
+conditions, so its runtime behavior is unchanged.
 
 ## Compatibility & Requirements
 

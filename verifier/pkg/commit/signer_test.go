@@ -47,6 +47,29 @@ func TestValidateSignerAddress(t *testing.T) {
 		})
 	}
 
+	t.Run("malformed signer_address is rejected", func(t *testing.T) {
+		actual := protocol.UnknownAddress(common.HexToAddress(configured).Bytes())
+		tests := []struct {
+			name       string
+			configured string
+		}{
+			{name: "missing 0x prefix", configured: "1111111111111111111111111111111111111111"},
+			{name: "short address", configured: "0x1111"},
+			{name: "odd-length hex", configured: "0x111"},
+			{name: "non-hex character", configured: "0x111111111111111111111111111111111111111g"},
+			{name: "surrounding whitespace", configured: " 0x1111111111111111111111111111111111111111 "},
+		}
+
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				err := ValidateSignerAddress(tt.configured, actual)
+				require.Error(t, err)
+				require.ErrorContains(t, err, "invalid signer_address")
+				require.ErrorContains(t, err, tt.configured)
+			})
+		}
+	})
+
 	t.Run("generated key is rejected when job expects imported key", func(t *testing.T) {
 		generatedKey, err := crypto.GenerateKey()
 		require.NoError(t, err)

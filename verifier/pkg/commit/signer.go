@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/common/hexutil"
 	"github.com/ethereum/go-ethereum/crypto"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -16,17 +17,29 @@ import (
 )
 
 // ValidateSignerAddress checks that the key loaded by the verifier is the key declared by the job
-// spec. During CL-to-standalone migration a mismatch usually means the wrong exported key was
-// mounted or the verifier started once without [key_import] and generated a replacement.
+// spec. The configured address uses the same strict 0x-prefixed hex format CL job creation expects.
+// During CL-to-standalone migration a mismatch usually means the wrong exported key was mounted or
+// the verifier started once without [key_import] and generated a replacement.
 func ValidateSignerAddress(configured string, actual protocol.UnknownAddress) error {
-	expected := common.HexToAddress(configured)
+	decoded, err := hexutil.Decode(configured)
+	if err != nil {
+		return fmt.Errorf("invalid signer_address %q: %w", configured, err)
+	}
+	if len(decoded) != common.AddressLength {
+		return fmt.Errorf(
+			"invalid signer_address %q: expected %d bytes, got %d",
+			configured, common.AddressLength, len(decoded),
+		)
+	}
+
+	expected := common.BytesToAddress(decoded)
 	if actual.Equal(protocol.UnknownAddress(expected.Bytes())) {
 		return nil
 	}
 	return fmt.Errorf(
 		"signing address does not match signer_address: configured %s, keystore %s; "+
 			"check signer_address and, for migration, ensure [key_import] imported the expected verifier signing key before first boot",
-		expected.Hex(), actual.String(),
+		configured, actual.String(),
 	)
 }
 
