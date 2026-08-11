@@ -94,7 +94,7 @@ type ExecutorMetrics struct {
 	localChainGlobalCursed metric.Int64Gauge
 }
 
-// InitMetrics initializes all verifier metrics.
+// InitMetrics initializes all executor metrics.
 func InitMetrics() (*ExecutorMetrics, error) {
 	vm := &ExecutorMetrics{}
 	var err error
