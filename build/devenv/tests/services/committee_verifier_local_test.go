@@ -42,7 +42,9 @@ func testVerifierBootstrapWithImportedSigningKey(
 ) *services.BootstrapInput {
 	t.Helper()
 
-	privateKey, err := commit.ReadPrivateKeyFromString(privateKeyHex)
+	privateKeyBytes, err := commit.ReadPrivateKeyFromString(privateKeyHex)
+	require.NoError(t, err)
+	privateKey, err := gethcrypto.ToECDSA(privateKeyBytes)
 	require.NoError(t, err)
 
 	bundle, err := json.Marshal(struct {
