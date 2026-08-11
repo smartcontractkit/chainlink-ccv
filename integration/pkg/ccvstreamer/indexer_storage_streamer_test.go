@@ -91,7 +91,7 @@ func TestOffchainStorageStreamerZeroQueryLimitUsesDefaultAndPollingInterval(t *t
 
 	select {
 	case firstQuery := <-queries:
-		require.Equal(t, executorsvc.IndexerQueryLimitDefault, firstQuery.Limit)
+		require.Equal(t, uint64(executorsvc.IndexerQueryLimitDefault), firstQuery.Limit)
 	case <-time.After(tests.WaitTimeout(t)):
 		t.Fatal("timed out waiting for the initial query")
 	}
@@ -104,7 +104,7 @@ func TestOffchainStorageStreamerZeroQueryLimitUsesDefaultAndPollingInterval(t *t
 
 	select {
 	case secondQuery := <-queries:
-		require.Equal(t, executorsvc.IndexerQueryLimitDefault, secondQuery.Limit)
+		require.Equal(t, uint64(executorsvc.IndexerQueryLimitDefault), secondQuery.Limit)
 	case <-time.After(tests.WaitTimeout(t)):
 		t.Fatal("timed out waiting for the next polling query")
 	}

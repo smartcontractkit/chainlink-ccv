@@ -37,6 +37,7 @@ type Configuration struct {
 	IndexerAddress []string `toml:"indexer_address"`
 	// BackoffDuration is the duration to back off after a failed request to the Indexer.
 	// Defaults to 15 seconds.
+	// It controls Indexer retries only; NTP uses a fixed 2-second backoff base.
 	BackoffDuration time.Duration `toml:"source_backoff_duration"`
 	// LookbackWindow is the window of time to look back for new messages when an Executor first starts up.
 	// Defaults to 1 hour.
@@ -65,6 +66,7 @@ type Configuration struct {
 	DataNotReadyRetryInterval time.Duration `toml:"data_not_ready_retry_interval"`
 	// NtpServer is the NTP server to use for time synchronization.
 	// Defaults to time.google.com
+	// NTP retries are independent of source_backoff_duration.
 	NtpServer string `toml:"ntp_server"`
 	// ChainConfiguration is a map of chain selector to chain configuration.
 	// This is used to configure the chain-specific configuration for each chain such as addresses, executor pool, and execution interval.

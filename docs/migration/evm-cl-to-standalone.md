@@ -219,6 +219,12 @@ Nothing here is needed to run the steps.
 | EVM RPC config      | The node's TOML                              | The same file, read directly                         |
 | Database            | The node's Postgres                          | One bootstrap database per process                   |
 
+## Executor timing stays aligned
+
+Standalone keeps CL mode's 2-second NTP retry backoff and 24-hour indexer message-deduplication
+window. `source_backoff_duration` controls failed Indexer requests only; changing it does not change
+NTP recovery timing.
+
 ## Why the signing key carries over
 
 The OCR2 bundle's onchain signing key is the address in the `CommitteeVerifier` signer set. The node
