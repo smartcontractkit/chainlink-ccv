@@ -60,7 +60,13 @@ func (tp *TokenPool) Kind() string {
 	return tp.kind
 }
 
-func DeployTokenPoolV200(t *testing.T, env *deployment.Environment, poolType, qual string, legacyPool tokenpool.TokenPool, finalityConfig finality.Config) tokenpool.TokenPool {
+// DeployTokenPoolV200 deploys the v2.0.0 successor to legacyPool and migrates its liquidity.
+//
+// lockBoxGroups is only used by SiloedLockReleaseTokenPool, which holds no liquidity itself: each
+// group is a set of remote chain selectors sharing one ERC20LockBox, so chains in different groups
+// stay isolated. Every remote chain the pool will serve must be covered by a group. Other pool
+// types ignore it, so callers deploying them omit it.
+func DeployTokenPoolV200(t *testing.T, env *deployment.Environment, poolType, qual string, legacyPool tokenpool.TokenPool, finalityConfig finality.Config, lockBoxGroups ...[]uint64) tokenpool.TokenPool {
 	t.Helper()
 
 	env.OperationsBundle = operations.NewBundle(env.OperationsBundle.GetContext, env.OperationsBundle.Logger, operations.NewMemoryReporter())
@@ -76,6 +82,7 @@ func DeployTokenPoolV200(t *testing.T, env *deployment.Environment, poolType, qu
 					TokenPoolQualifier:    qual,
 					TokenRef:              &datastore.AddressRef{Address: legacyPool.Token()},
 					PoolType:              poolType,
+					LockBoxGroups:         lockBoxGroups,
 				},
 			},
 		},
@@ -120,6 +127,31 @@ func DeployBurnMintTokenPoolV151(t *testing.T, env *deployment.Environment, sel 
 	t.Helper()
 
 	return deployTokenPoolWithPresets(t, env, sel, qual, cciputils.BurnMintTokenPool.String(), cciputils.Version_1_5_1)
+}
+
+// DeployBurnFromMintTokenPoolV161 deploys a BurnFromMintTokenPool, a burn-mint variant that burns
+// via burnFrom(pool, amount) instead of burn(amount).
+func DeployBurnFromMintTokenPoolV161(t *testing.T, env *deployment.Environment, sel uint64, qual string) tokenpool.TokenPool {
+	t.Helper()
+
+	return deployTokenPoolWithPresets(t, env, sel, qual, cciputils.BurnFromMintTokenPool.String(), cciputils.Version_1_6_1)
+}
+
+// DeployBurnWithFromMintTokenPoolV161 deploys a BurnWithFromMintTokenPool, a burn-mint variant that
+// burns via burn(pool, amount) instead of burn(amount).
+func DeployBurnWithFromMintTokenPoolV161(t *testing.T, env *deployment.Environment, sel uint64, qual string) tokenpool.TokenPool {
+	t.Helper()
+
+	return deployTokenPoolWithPresets(t, env, sel, qual, cciputils.BurnWithFromMintTokenPool.String(), cciputils.Version_1_6_1)
+}
+
+// DeploySiloedLockReleaseTokenPoolV161 deploys a SiloedLockReleaseTokenPool, a lock-release variant
+// that keeps per-remote-chain liquidity isolated. The returned pool has no liquidity and no chains
+// designated as siloed yet - use ProvideSiloedLiquidity for that.
+func DeploySiloedLockReleaseTokenPoolV161(t *testing.T, env *deployment.Environment, sel uint64, qual string) tokenpool.TokenPool {
+	t.Helper()
+
+	return deployTokenPoolWithPresets(t, env, sel, qual, cciputils.SiloedLockReleaseTokenPool.String(), cciputils.Version_1_6_1)
 }
 
 func deployTokenPoolWithPresets(
