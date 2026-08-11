@@ -36,13 +36,19 @@ type Coordinator struct {
 	workerPoolTasks           chan message_heap.MessageWithTimestamps
 	cancel                    context.CancelFunc
 	delayedMessageHeap        message_heap.MessageHeap
-	inFlight                  map[protocol.Bytes32]struct{}
+	inFlight                  map[protocol.Bytes32]messageLane
 	inFlightMu                sync.RWMutex
+	reportedLanes             map[messageLane]struct{}
 	running                   atomic.Bool
 	expiryDuration            time.Duration
 	timeProvider              common.TimeProvider
 	workerCount               int
 	dataNotReadyRetryInterval time.Duration
+}
+
+type messageLane struct {
+	source protocol.ChainSelector
+	dest   protocol.ChainSelector
 }
 
 // NewCoordinator creates a new executor coordinator.
@@ -84,7 +90,8 @@ func (ec *Coordinator) Start(ctx context.Context) error {
 			return err
 		}
 		ec.delayedMessageHeap = *message_heap.NewMessageHeap(ec.lggr)
-		ec.inFlight = make(map[protocol.Bytes32]struct{})
+		ec.inFlight = make(map[protocol.Bytes32]messageLane)
+		ec.reportedLanes = make(map[messageLane]struct{})
 		ec.running.Store(true)
 
 		// Start storage stream goroutine
@@ -166,9 +173,20 @@ func (ec *Coordinator) runStorageStream(ctx context.Context) {
 			}
 
 			msg := streamResult.Message
+			metrics := ec.metricsForMessage(msg)
 			err := ec.executor.CheckValidMessage(ctx, msg)
 			if err != nil {
 				ec.lggr.Errorw("invalid message, skipping", "error", err, "message", msg)
+				metrics.IncrementMessageTransition(
+					ctx,
+					execmonitoring.MessageTransitionStageDiscovery,
+					execmonitoring.MessageTransitionOutcomeSkipped,
+					execmonitoring.MessageTransitionReasonInvalidMessage)
+				metrics.IncrementMessageFailure(
+					ctx,
+					execmonitoring.MessageTransitionStageDiscovery,
+					false,
+					execmonitoring.MessageFailureClassInvalidMessage)
 				continue
 			}
 
@@ -176,16 +194,31 @@ func (ec *Coordinator) runStorageStream(ctx context.Context) {
 
 			if ec.delayedMessageHeap.Has(id) {
 				ec.lggr.Debugw("message already in delayed heap, skipping", protocol.LogKeyMessageID, id)
+				metrics.IncrementMessageTransition(
+					ctx,
+					execmonitoring.MessageTransitionStageScheduling,
+					execmonitoring.MessageTransitionOutcomeSkipped,
+					execmonitoring.MessageTransitionReasonDuplicate)
 				continue
 			}
 			if ec.inFlightHas(id) {
 				ec.lggr.Debugw("message already in flight, skipping", protocol.LogKeyMessageID, id)
+				metrics.IncrementMessageTransition(
+					ctx,
+					execmonitoring.MessageTransitionStageScheduling,
+					execmonitoring.MessageTransitionOutcomeSkipped,
+					execmonitoring.MessageTransitionReasonDuplicate)
 				continue
 			}
 
 			if !ec.leaderElector.IsExecutorForChain(msg.DestChainSelector) {
 				ec.lggr.Debugw("skipping message, executor not in pool for destination chain",
 					protocol.LogKeyMessageID, id, protocol.LogKeyChainSel, msg.DestChainSelector)
+				metrics.IncrementMessageTransition(
+					ctx,
+					execmonitoring.MessageTransitionStageScheduling,
+					execmonitoring.MessageTransitionOutcomeSkipped,
+					execmonitoring.MessageTransitionReasonNotExecutor)
 				continue
 			}
 
@@ -195,12 +228,32 @@ func (ec *Coordinator) runStorageStream(ctx context.Context) {
 				streamResult.Metadata.IngestionTimestamp)
 			if err != nil {
 				ec.lggr.Errorw("leader elector failed for message, skipping", protocol.LogKeyMessageID, id, protocol.LogKeyChainSel, msg.DestChainSelector, "error", err)
+				metrics.IncrementMessageTransition(
+					ctx,
+					execmonitoring.MessageTransitionStageScheduling,
+					execmonitoring.MessageTransitionOutcomeSkipped,
+					execmonitoring.MessageTransitionReasonLeaderElection)
+				metrics.IncrementMessageFailure(
+					ctx,
+					execmonitoring.MessageTransitionStageScheduling,
+					false,
+					execmonitoring.MessageFailureClassLeaderElection)
 				continue
 			}
 
 			retryDelay, err := ec.leaderElector.GetRetryDelay(msg.DestChainSelector)
 			if err != nil {
 				ec.lggr.Errorw("leader elector retry delay failed for message, skipping", protocol.LogKeyMessageID, id, protocol.LogKeyChainSel, msg.DestChainSelector, "error", err)
+				metrics.IncrementMessageTransition(
+					ctx,
+					execmonitoring.MessageTransitionStageScheduling,
+					execmonitoring.MessageTransitionOutcomeSkipped,
+					execmonitoring.MessageTransitionReasonLeaderElection)
+				metrics.IncrementMessageFailure(
+					ctx,
+					execmonitoring.MessageTransitionStageScheduling,
+					false,
+					execmonitoring.MessageFailureClassLeaderElection)
 				continue
 			}
 
@@ -223,9 +276,15 @@ func (ec *Coordinator) runStorageStream(ctx context.Context) {
 				attribute.String(tracing.IngestionTimestampKey, streamResult.Metadata.IngestionTimestamp.Format(time.RFC3339)),
 				attribute.String(tracing.ReadyTimestampKey, readyTimestamp.Format(time.RFC3339)))
 			discSpan.AddEvent(execmonitoring.EventMessageDiscovered)
+			metrics.IncrementMessageTransition(
+				ctx,
+				execmonitoring.MessageTransitionStageDiscovery,
+				execmonitoring.MessageTransitionOutcomeDiscovered,
+				execmonitoring.MessageTransitionReasonNone)
 
 			if !ec.delayedMessageHeap.Push(message_heap.MessageWithTimestamps{
 				Message:       &msg,
+				IngestionTime: streamResult.Metadata.IngestionTimestamp,
 				ReadyTime:     readyTimestamp,
 				ExpiryTime:    readyTimestamp.Add(ec.expiryDuration),
 				RetryInterval: retryDelay,
@@ -235,8 +294,18 @@ func (ec *Coordinator) runStorageStream(ctx context.Context) {
 			}) {
 				ec.lggr.Debugw("duplicate message rejected by heap", protocol.LogKeyMessageID, id)
 				discSpan.AddEvent(execmonitoring.EventDuplicateRejected)
+				metrics.IncrementMessageTransition(
+					ctx,
+					execmonitoring.MessageTransitionStageScheduling,
+					execmonitoring.MessageTransitionOutcomeSkipped,
+					execmonitoring.MessageTransitionReasonDuplicate)
 			} else {
 				discSpan.AddEvent(execmonitoring.EventMessageScheduled)
+				metrics.IncrementMessageTransition(
+					ctx,
+					execmonitoring.MessageTransitionStageScheduling,
+					execmonitoring.MessageTransitionOutcomeScheduled,
+					execmonitoring.MessageTransitionReasonNone)
 			}
 			discSpan.End()
 		}
@@ -267,7 +336,7 @@ func (ec *Coordinator) runProcessingLoop(ctx context.Context) {
 				// If the channel is full, we will block here, but messages will continue to accumulate in the heap.
 				select {
 				case ec.workerPoolTasks <- payload:
-					ec.inFlightAdd(payload.MessageID)
+					ec.inFlightAdd(payload.MessageID, *payload.Message)
 				case <-ctx.Done():
 					ec.lggr.Infow("Processing loop dropping payload to exit")
 					return
@@ -275,6 +344,7 @@ func (ec *Coordinator) runProcessingLoop(ctx context.Context) {
 			}
 		case <-reportingTicker.C:
 			ec.monitoring.Metrics().RecordMessageHeapSize(ctx, int64(ec.delayedMessageHeap.Len()))
+			ec.reportQueueMetrics(ctx, ec.timeProvider.GetTime())
 		}
 	}
 }
@@ -296,6 +366,7 @@ func (ec *Coordinator) handleMessage(ctx context.Context) {
 func (ec *Coordinator) processPayload(ctx context.Context, payload message_heap.MessageWithTimestamps) {
 	defer ec.inFlightRemove(payload.MessageID)
 	currentTime := ec.timeProvider.GetTime()
+	metrics := ec.metricsForMessage(*payload.Message)
 
 	traceCtx := payload.TraceContext
 	if traceCtx == nil {
@@ -313,13 +384,23 @@ func (ec *Coordinator) processPayload(ctx context.Context, payload message_heap.
 	if currentTime.After(payload.ExpiryTime) {
 		// PER-MESSAGE LOG (failure): terminal; message exceeded its expiry without execution.
 		ec.lggr.Infow("message has expired", protocol.LogTypeKey, protocol.LogTypeMessageFailure, protocol.LogKeyMessageID, payload.MessageID)
-		ec.monitoring.Metrics().IncrementExpiredMessages(ctx)
+		metrics.IncrementExpiredMessages(ctx)
+		metrics.IncrementMessageTransition(
+			ctx,
+			execmonitoring.MessageTransitionStageExecution,
+			execmonitoring.MessageTransitionOutcomeExpired,
+			execmonitoring.MessageTransitionReasonNone)
 		attemptSpan.AddEvent(execmonitoring.EventMessageExpired)
 		return
 	}
 
 	// PER-MESSAGE LOG (status): one per message picked up for an execution attempt.
 	ec.lggr.Infow("processing message with ID", protocol.LogTypeKey, protocol.LogTypeMessageStatus, protocol.LogKeyMessageID, payload.MessageID.String())
+	metrics.IncrementMessageTransition(
+		ctx,
+		execmonitoring.MessageTransitionStageExecution,
+		execmonitoring.MessageTransitionOutcomeAttempted,
+		execmonitoring.MessageTransitionReasonNone)
 
 	shouldRetry, err := ec.executor.HandleMessage(attemptCtx, *payload.Message)
 	if err != nil {
@@ -339,10 +420,10 @@ func (ec *Coordinator) processPayload(ctx context.Context, payload message_heap.
 	} else if err == nil {
 		attemptSpan.AddEvent(execmonitoring.EventMessageExecuted)
 	}
-	ec.monitoring.Metrics().IncrementMessagesProcessing(ctx)
+	metrics.IncrementMessagesProcessing(ctx)
 	if err != nil {
 		ec.lggr.Errorw("failed to handle message", protocol.LogKeyMessageID, payload.MessageID.String(), "error", err, "shouldRetry", shouldRetry)
-		ec.monitoring.Metrics().IncrementMessagesProcessingError(ctx, shouldRetry)
+		metrics.IncrementMessagesProcessingError(ctx, shouldRetry)
 	}
 }
 
@@ -377,9 +458,15 @@ func (ec *Coordinator) scheduleRetry(p retryParams) {
 	attemptSpan.AddEvent(execmonitoring.EventRetryScheduled, oteltrace.WithAttributes(
 		attribute.String(tracing.DelayKey, delay.String()),
 	))
+	reason := execmonitoring.MessageTransitionReasonDataNotReady
+	if errors.Is(p.err, ErrExecutionContended) {
+		reason = execmonitoring.MessageTransitionReasonExecutionContended
+	}
+	ec.metricsForMessage(p.message).IncrementMessageTransition(p.attemptCtx, execmonitoring.MessageTransitionStageRetry, execmonitoring.MessageTransitionOutcomeRetryScheduled, reason)
 
 	if !ec.delayedMessageHeap.Push(message_heap.MessageWithTimestamps{
 		Message:       &p.message,
+		IngestionTime: p.payload.IngestionTime,
 		ReadyTime:     p.currentTime.Add(delay),
 		ExpiryTime:    p.payload.ExpiryTime,
 		RetryInterval: p.payload.RetryInterval,
@@ -391,10 +478,10 @@ func (ec *Coordinator) scheduleRetry(p retryParams) {
 	}
 }
 
-func (ec *Coordinator) inFlightAdd(id protocol.Bytes32) {
+func (ec *Coordinator) inFlightAdd(id protocol.Bytes32, message protocol.Message) {
 	ec.inFlightMu.Lock()
 	defer ec.inFlightMu.Unlock()
-	ec.inFlight[id] = struct{}{}
+	ec.inFlight[id] = messageLane{source: message.SourceChainSelector, dest: message.DestChainSelector}
 }
 
 func (ec *Coordinator) inFlightRemove(id protocol.Bytes32) {
@@ -408,6 +495,53 @@ func (ec *Coordinator) inFlightHas(id protocol.Bytes32) bool {
 	defer ec.inFlightMu.RUnlock()
 	_, ok := ec.inFlight[id]
 	return ok
+}
+
+func (ec *Coordinator) metricsForMessage(message protocol.Message) execmonitoring.MetricLabeler {
+	return ec.monitoring.Metrics().With(
+		"source_chain_selector", message.SourceChainSelector.String(),
+		"source_chain_name", message.SourceChainSelector.ChainName(),
+		"dest_chain_selector", message.DestChainSelector.String(),
+		"dest_chain_name", message.DestChainSelector.ChainName(),
+	)
+}
+
+func (ec *Coordinator) metricsForLane(lane messageLane) execmonitoring.MetricLabeler {
+	return ec.monitoring.Metrics().With(
+		"source_chain_selector", lane.source.String(),
+		"source_chain_name", lane.source.ChainName(),
+		"dest_chain_selector", lane.dest.String(),
+		"dest_chain_name", lane.dest.ChainName(),
+	)
+}
+
+func (ec *Coordinator) reportQueueMetrics(ctx context.Context, now time.Time) {
+	pendingByLane := make(map[messageLane]message_heap.LaneStats)
+	for _, stats := range ec.delayedMessageHeap.LaneStats() {
+		lane := messageLane{source: stats.SourceChainSelector, dest: stats.DestChainSelector}
+		pendingByLane[lane] = stats
+		ec.reportedLanes[lane] = struct{}{}
+	}
+
+	inFlightByLane := make(map[messageLane]int64)
+	ec.inFlightMu.RLock()
+	for _, lane := range ec.inFlight {
+		inFlightByLane[lane]++
+		ec.reportedLanes[lane] = struct{}{}
+	}
+	ec.inFlightMu.RUnlock()
+
+	for lane := range ec.reportedLanes {
+		metrics := ec.metricsForLane(lane)
+		stats := pendingByLane[lane]
+		metrics.RecordMessagesPending(ctx, stats.PendingCount)
+		if stats.PendingCount == 0 {
+			metrics.RecordOldestPendingMessageAge(ctx, 0)
+		} else {
+			metrics.RecordOldestPendingMessageAge(ctx, now.Sub(stats.OldestIngestionTime))
+		}
+		metrics.RecordMessagesInFlight(ctx, inFlightByLane[lane])
+	}
 }
 
 func (ec *Coordinator) dataNotReadyBackoff(attempt int, capDuration time.Duration) time.Duration {

@@ -33,6 +33,16 @@ type MetricLabeler interface {
 	IncrementMessagesProcessing(ctx context.Context)
 	// IncrementMessagesProcessingError increments the counter for failed message executions.
 	IncrementMessagesProcessingError(ctx context.Context, retry bool)
+	// IncrementMessageTransition records a message lifecycle transition with bounded dimensions.
+	IncrementMessageTransition(ctx context.Context, stage, outcome, reason string)
+	// IncrementMessageFailure records a classified message failure with bounded dimensions.
+	IncrementMessageFailure(ctx context.Context, stage string, retryable bool, errorClass string)
+	// RecordMessagesInFlight records the current number of messages being processed by workers.
+	RecordMessagesInFlight(ctx context.Context, count int64)
+	// RecordMessagesPending records the current number of messages in the delayed execution heap.
+	RecordMessagesPending(ctx context.Context, count int64)
+	// RecordOldestPendingMessageAge records the age of the oldest message in the delayed execution heap.
+	RecordOldestPendingMessageAge(ctx context.Context, age time.Duration)
 	// RecordOfframpGetCCVsForMessageLatency records the duration of the GetCCVSForMessage onchain call.
 	RecordOfframpGetCCVsForMessageLatency(ctx context.Context, duration time.Duration, destChainSelector protocol.ChainSelector)
 	// IncrementOfframpGetCCVsForMessageFailure increments the counter of failed GetCCVSForMessage onchain calls.
