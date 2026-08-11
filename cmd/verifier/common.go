@@ -81,7 +81,7 @@ func ConnectToPostgresDB(lggr logger.Logger, secrets *vsecrets.VerifierSecrets) 
 
 	dbx, err := sql.Open("postgres", dbURL)
 	if err != nil {
-		return nil, nil
+		return nil, fmt.Errorf("failed to open postgres database: %w", err)
 	}
 
 	dbx.SetMaxOpenConns(defaultMaxOpenConns)

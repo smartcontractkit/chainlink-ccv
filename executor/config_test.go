@@ -55,7 +55,7 @@ func TestConfiguration_Validate(t *testing.T) {
 				c.ExecutorID = ""
 				return c
 			}(),
-			wantErrContains: "this_executor_id must be configured",
+			wantErrContains: "executor_id must be configured",
 		},
 		{
 			name: "missing_indexer_address_fails",
@@ -364,7 +364,7 @@ func TestConfiguration_GetNormalizedConfig(t *testing.T) {
 				return c
 			}(),
 			wantErr:         true,
-			wantErrContains: "this_executor_id must be configured",
+			wantErrContains: "executor_id must be configured",
 		},
 	}
 

@@ -31,14 +31,15 @@ var (
 	// indexerGarbagecollectionInterval describes how frequently we garbage collect message duplicates from the indexer results
 	// if this is too short, we will assume a message is net new every time it is read from the indexer.
 	indexerGarbageCollectionInterval = 1 * time.Hour
-	// messageContextWindow is the time window we use to expire duplicate messages from the indexer.
-	// this combines with indexerGarbageCollectionInterval to avoid memory leak in the streamer.
-	// We store messages for messageContextWindow, cleaning up old messages every indexerGarbageCollectionInterval.
-	// These values should be set based on the indexer's message retry duration.
-	messageContextWindow = 24 * time.Hour
-
-	ntpBackoffDuration = 2 * time.Second
 )
+
+func normalizeExecutorConfig(cfg executor.Configuration) (executor.Configuration, error) {
+	normalized, err := cfg.GetNormalizedConfig()
+	if err != nil {
+		return executor.Configuration{}, err
+	}
+	return *normalized, nil
+}
 
 // NewExecutorCoordinator initializes the executor coordinator object.
 func NewExecutorCoordinator(
@@ -51,10 +52,12 @@ func NewExecutorCoordinator(
 ) (*executor.Coordinator, error) {
 	lggr = logging.WithService(lggr, "executor")
 
-	if err := cfg.Validate(); err != nil {
+	normalizedCfg, err := normalizeExecutorConfig(cfg)
+	if err != nil {
 		lggr.Errorw("Invalid executor configuration.", "error", err)
 		return nil, fmt.Errorf("invalid executor configuration: %w", err)
 	}
+	cfg = normalizedCfg
 
 	lggr.Infow("Executor configuration", "config", cfg)
 
@@ -179,7 +182,7 @@ func NewExecutorCoordinator(
 		return nil, fmt.Errorf("leader elector: %w", err)
 	}
 	// ntp is an external service call with special rate limits, we use a different backoff duration for it.
-	backoffProvider := timeprovider.NewBackoffNTPProvider(lggr, ntpBackoffDuration, cfg.NtpServer)
+	backoffProvider := timeprovider.NewBackoffNTPProvider(lggr, executor.NTPBackoffDuration, cfg.NtpServer)
 
 	indexerStream := ccvstreamer.NewIndexerStorageStreamer(
 		lggr,
@@ -189,7 +192,7 @@ func NewExecutorCoordinator(
 			PollingInterval:   indexerPollingInterval,
 			Backoff:           cfg.BackoffDuration,
 			QueryLimit:        cfg.IndexerQueryLimit,
-			ExpiryDuration:    messageContextWindow,
+			ExpiryDuration:    executor.MessageContextWindow,
 			CleanInterval:     indexerGarbageCollectionInterval,
 			TimeProvider:      backoffProvider,
 			EnabledDestChains: enabledDestChains,

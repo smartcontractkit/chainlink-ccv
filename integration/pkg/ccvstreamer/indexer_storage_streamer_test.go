@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	executorsvc "github.com/smartcontractkit/chainlink-ccv/executor"
 	v1 "github.com/smartcontractkit/chainlink-ccv/indexer/pkg/api/handlers/v1"
 	icommon "github.com/smartcontractkit/chainlink-ccv/indexer/pkg/common"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/ccvstreamer"
@@ -54,6 +55,59 @@ func TestOffchainStorageStreamerLifecycle(t *testing.T) {
 
 	require.NoError(t, err)
 	require.True(t, oss.IsRunning())
+
+	cancel()
+	require.Eventually(t, func() bool {
+		return !oss.IsRunning()
+	}, tests.WaitTimeout(t), 50*time.Millisecond)
+}
+
+func TestOffchainStorageStreamerZeroQueryLimitUsesDefaultAndPollingInterval(t *testing.T) {
+	const pollingInterval = 100 * time.Millisecond
+
+	lggr := logger.Test(t)
+	reader := mocks.MockMessageReader{}
+	queries := make(chan v1.MessagesInput, 4)
+	reader.EXPECT().ReadMessages(mock.Anything, mock.Anything).Run(func(_ context.Context, query v1.MessagesInput) {
+		queries <- query
+	}).Return(nil, nil)
+	timeProvider := mocks.NewMockTimeProvider(t)
+	timeProvider.EXPECT().GetTime().Return(time.Now()).Maybe()
+
+	oss := ccvstreamer.NewIndexerStorageStreamer(lggr, ccvstreamer.IndexerStorageConfig{
+		IndexerClient:   &reader,
+		PollingInterval: pollingInterval,
+		QueryLimit:      0,
+		TimeProvider:    timeProvider,
+		ExpiryDuration:  10 * time.Second,
+		CleanInterval:   time.Second,
+	})
+
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+
+	_, _, err := oss.Start(ctx)
+	require.NoError(t, err)
+
+	select {
+	case firstQuery := <-queries:
+		require.Equal(t, executorsvc.IndexerQueryLimitDefault, firstQuery.Limit)
+	case <-time.After(tests.WaitTimeout(t)):
+		t.Fatal("timed out waiting for the initial query")
+	}
+
+	select {
+	case <-queries:
+		t.Fatal("empty result triggered another query before the polling interval")
+	case <-time.After(pollingInterval / 2):
+	}
+
+	select {
+	case secondQuery := <-queries:
+		require.Equal(t, executorsvc.IndexerQueryLimitDefault, secondQuery.Limit)
+	case <-time.After(tests.WaitTimeout(t)):
+		t.Fatal("timed out waiting for the next polling query")
+	}
 
 	cancel()
 	require.Eventually(t, func() bool {

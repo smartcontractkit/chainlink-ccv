@@ -41,11 +41,15 @@ func NewIndexerStorageStreamer(
 	lggr logger.Logger,
 	indexerConfig IndexerStorageConfig,
 ) *IndexerStorageStreamer {
+	queryLimit := indexerConfig.QueryLimit
+	if queryLimit == 0 {
+		queryLimit = executor.IndexerQueryLimitDefault
+	}
 	expirableSet := message_heap.NewExpirableSet(indexerConfig.ExpiryDuration)
 	return &IndexerStorageStreamer{
 		reader:            indexerConfig.IndexerClient,
 		lggr:              lggr,
-		queryLimit:        indexerConfig.QueryLimit,
+		queryLimit:        queryLimit,
 		lastQueryTime:     indexerConfig.InitialQueryTime,
 		latestSeenTime:    indexerConfig.InitialQueryTime,
 		pollingInterval:   indexerConfig.PollingInterval,

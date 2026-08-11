@@ -22,6 +22,13 @@ const (
 	IndexerQueryLimitMax             = 10000
 )
 
+const (
+	// MessageContextWindow is how long executors retain messages for duplicate detection.
+	MessageContextWindow = 24 * time.Hour
+	// NTPBackoffDuration is the retry backoff base for the external NTP service.
+	NTPBackoffDuration = 2 * time.Second
+)
+
 // Configuration is the complete set of information an executor needs to operate normally.
 // We can use time.Duration directly in this config because burntSushi can parse duration from strings.
 type Configuration struct {
@@ -84,7 +91,7 @@ type ChainConfiguration struct {
 
 func (c *Configuration) Validate() error {
 	if c.ExecutorID == "" {
-		return fmt.Errorf("this_executor_id must be configured")
+		return fmt.Errorf("executor_id must be configured")
 	}
 
 	if len(c.ChainConfiguration) == 0 {

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/ethereum/go-ethereum/common"
@@ -27,6 +28,10 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 	"github.com/smartcontractkit/chainlink-evm/pkg/chains/legacyevm"
 )
+
+func finalityCheckerDisabled(disabledSelectors []string, selector protocol.ChainSelector) bool {
+	return slices.Contains(disabledSelectors, fmt.Sprintf("%d", selector))
+}
 
 // NewVerificationCoordinator builds a verifier coordinator. aggregatorSecrets maps each
 // aggregator's SecretName (AggregatorConnection.SecretName) to its HMAC credential — a consolidated
@@ -137,6 +142,7 @@ func NewVerificationCoordinator(
 			PollInterval:           2 * time.Second, // TODO: make configurable
 			ChainSelector:          sel,
 			RMNRemoteAddress:       rmnRemoteAddrs[sel],
+			DisableFinalityChecker: finalityCheckerDisabled(cfg.DisableFinalityCheckers, sel),
 		}
 	}
 	if len(sourceReaders) == 0 {
