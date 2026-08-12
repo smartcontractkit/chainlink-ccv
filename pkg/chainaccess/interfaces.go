@@ -56,6 +56,8 @@ type SourceReader interface {
 // CriticalSourceInvariantCallbackSetter is an optional SourceReader capability for attaching the
 // verifier's critical-invariant metric callback. Callers must set it before the reader starts.
 type CriticalSourceInvariantCallbackSetter interface {
+	// SetCriticalSourceInvariantCallback attaches the callback invoked when a critical source-chain
+	// invariant is violated. It must be called before the reader starts.
 	SetCriticalSourceInvariantCallback(callback func(context.Context))
 }
 
