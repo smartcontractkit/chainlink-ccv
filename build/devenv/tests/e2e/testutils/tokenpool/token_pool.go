@@ -67,9 +67,9 @@ func ConnectPair(t *testing.T, env *deployment.Environment, version *semver.Vers
 			connection.PoolA.Selector(): {
 				SkipOwnershipTransfer: false,
 				TokenTransferConfig: &tokens.TokenTransferConfig{
-					AutoMigrateRemoteChains:       true,
-					TokenPoolRef:                  datastore.AddressRef{Address: connection.PoolA.Address()},
-					TokenRef:                      datastore.AddressRef{Address: connection.PoolA.Token()},
+					AutoMigrateRemoteChains: true,
+					TokenPoolRef:            datastore.AddressRef{Address: connection.PoolA.Address()},
+					TokenRef:                datastore.AddressRef{Address: connection.PoolA.Token()},
 					RemoteChains: map[uint64]tokens.RemoteChainConfig[*datastore.AddressRef, datastore.AddressRef]{
 						connection.PoolB.Selector(): {OutboundRateLimiterConfig: connection.RateLimits.AB},
 					},
@@ -78,9 +78,9 @@ func ConnectPair(t *testing.T, env *deployment.Environment, version *semver.Vers
 			connection.PoolB.Selector(): {
 				SkipOwnershipTransfer: false,
 				TokenTransferConfig: &tokens.TokenTransferConfig{
-					AutoMigrateRemoteChains:       true,
-					TokenPoolRef:                  datastore.AddressRef{Address: connection.PoolB.Address()},
-					TokenRef:                      datastore.AddressRef{Address: connection.PoolB.Token()},
+					AutoMigrateRemoteChains: true,
+					TokenPoolRef:            datastore.AddressRef{Address: connection.PoolB.Address()},
+					TokenRef:                datastore.AddressRef{Address: connection.PoolB.Token()},
 					RemoteChains: map[uint64]tokens.RemoteChainConfig[*datastore.AddressRef, datastore.AddressRef]{
 						connection.PoolA.Selector(): {OutboundRateLimiterConfig: connection.RateLimits.BA},
 					},

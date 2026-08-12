@@ -287,5 +287,4 @@ func TestE2ESmoke_TokenPoolMigrationEVM2EVM(t *testing.T) {
 		require.Equal(t, poolBV1.Token(), poolBV2.Token())
 		tokenpool.RunBidirectionalTokenTransfer(t, lib, poolAV2, poolBV2, TokensToSend, fCfg, "post-migration")
 	})
-
 }
