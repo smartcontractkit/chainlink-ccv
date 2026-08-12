@@ -61,7 +61,7 @@ func (a *EVMCCVTokenVerifierConfigAdapter) ResolveTokenVerifierAddresses(
 		datastore.AddressRefByChainSelector(chainSelector),
 		datastore.AddressRefByType(datastore.ContractType(versioned_verifier_resolver.CCTPVerifierResolverType)),
 		datastore.AddressRefByQualifier(cctpQualifier),
-		datastore.AddressRefByVersion(cctpverifier.Version),
+		datastore.AddressRefByVersion(versioned_verifier_resolver.Version),
 	)
 	if len(cctpResolverRefs) > 1 {
 		return nil, fmt.Errorf("chain %d: expected at most 1 CCTPVerifierResolver with qualifier %q, found %d", chainSelector, cctpQualifier, len(cctpResolverRefs))
