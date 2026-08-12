@@ -6,7 +6,6 @@ import (
 	"github.com/Masterminds/semver/v3"
 
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/versioned_verifier_resolver"
-	cctpverifier "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_1_0/operations/cctp_verifier"
 	lombardverifier "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_1_0/operations/lombard_verifier"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	cldfdeployment "github.com/smartcontractkit/chainlink-deployments-framework/deployment"
@@ -57,7 +56,7 @@ func resolveEVMCCVIndexerContractMeta(kind ccvdeploymentadapters.VerifierKind) (
 	case ccvdeploymentadapters.CommitteeVerifierKind:
 		return versioned_verifier_resolver.CommitteeVerifierResolverType, versioned_verifier_resolver.Version, nil
 	case ccvdeploymentadapters.CCTPVerifierKind:
-		return versioned_verifier_resolver.CCTPVerifierResolverType, cctpverifier.Version, nil
+		return versioned_verifier_resolver.CCTPVerifierResolverType, versioned_verifier_resolver.Version, nil
 	case ccvdeploymentadapters.LombardVerifierKind:
 		return versioned_verifier_resolver.LombardVerifierResolverType, lombardverifier.Version, nil
 	default:
