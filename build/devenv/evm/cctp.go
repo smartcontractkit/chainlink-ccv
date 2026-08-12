@@ -14,7 +14,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/mock_receiver_v2"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/usdc_token_pool_proxy"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/versioned_verifier_resolver"
-	cctpverifierops "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_1_0/operations/cctp_verifier"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/mock_token_minter"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/mock_usdc_token_messenger"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/mock_usdc_token_transmitter_v2"
@@ -320,7 +319,7 @@ func (m *CCIP17EVMConfig) deployCCTPMockReceivers(
 	cctpVerifier, err := ds.Addresses().Get(datastore.NewAddressRefKey(
 		selector,
 		datastore.ContractType(versioned_verifier_resolver.CCTPVerifierResolverType),
-		cctpverifierops.Version,
+		versioned_verifier_resolver.Version,
 		"",
 	))
 	if err != nil {
@@ -407,7 +406,7 @@ func (m *CCIP17EVMConfig) hasCCTPDeployment(ds datastore.DataStore, selector uin
 	_, err := ds.Addresses().Get(datastore.NewAddressRefKey(
 		selector,
 		datastore.ContractType(versioned_verifier_resolver.CCTPVerifierResolverType),
-		cctpverifierops.Version,
+		versioned_verifier_resolver.Version,
 		"",
 	))
 	return err == nil
