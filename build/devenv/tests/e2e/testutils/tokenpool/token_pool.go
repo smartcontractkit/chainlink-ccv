@@ -9,6 +9,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/deployment/finality"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/testhelpers"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/tokens"
+	"github.com/smartcontractkit/chainlink-ccip/deployment/utils/changesets"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
@@ -17,7 +18,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/testutils/mcms"
 )
 
-var migrateAllLiquidity = new(uint16(10_000))
+var MigrateAllLiquidity = new(uint16(10_000))
 
 type BidirectionalRateLimitPair struct {
 	AB *tokens.RateLimiterConfigFloatInput
@@ -66,7 +67,6 @@ func ConnectPair(t *testing.T, env *deployment.Environment, version *semver.Vers
 			connection.PoolA.Selector(): {
 				SkipOwnershipTransfer: false,
 				TokenTransferConfig: &tokens.TokenTransferConfig{
-					LiquidityMigrationBasisPoints: migrateAllLiquidity,
 					AutoMigrateRemoteChains:       true,
 					TokenPoolRef:                  datastore.AddressRef{Address: connection.PoolA.Address()},
 					TokenRef:                      datastore.AddressRef{Address: connection.PoolA.Token()},
@@ -78,7 +78,6 @@ func ConnectPair(t *testing.T, env *deployment.Environment, version *semver.Vers
 			connection.PoolB.Selector(): {
 				SkipOwnershipTransfer: false,
 				TokenTransferConfig: &tokens.TokenTransferConfig{
-					LiquidityMigrationBasisPoints: migrateAllLiquidity,
 					AutoMigrateRemoteChains:       true,
 					TokenPoolRef:                  datastore.AddressRef{Address: connection.PoolB.Address()},
 					TokenRef:                      datastore.AddressRef{Address: connection.PoolB.Token()},
@@ -92,4 +91,23 @@ func ConnectPair(t *testing.T, env *deployment.Environment, version *semver.Vers
 	require.NoError(t, err)
 	testhelpers.ProcessTimelockProposals(t, *env, out.MCMSTimelockProposals, true)
 	dsutils.MergeDataStore(t, env, out.DataStore.Seal())
+}
+
+func MigrateLiquidity(t *testing.T, env *deployment.Environment, oldPool, newPool TokenPool, basisPoints *uint16) {
+	t.Helper()
+
+	env.OperationsBundle = operations.NewBundle(env.OperationsBundle.GetContext, env.OperationsBundle.Logger, operations.NewMemoryReporter())
+	out, err := tokens.MigrateLockReleasePoolLiquidity(tokens.GetTokenAdapterRegistry(), changesets.GetRegistry()).Apply(*env, tokens.MigrateLockReleasePoolLiquidityConfig{
+		Migrations: []tokens.LockReleasePoolMigration{
+			{
+				ChainSelector: newPool.Selector(),
+				OldPoolRef:    datastore.AddressRef{Address: oldPool.Address()},
+				NewPoolRef:    datastore.AddressRef{Address: newPool.Address()},
+				BasisPoints:   basisPoints,
+			},
+		},
+		MCMS: mcms.DefaultInput("Migrate Liquidity"),
+	})
+	require.NoError(t, err)
+	testhelpers.ProcessTimelockProposals(t, *env, out.MCMSTimelockProposals, true)
 }
