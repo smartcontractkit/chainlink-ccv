@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"os"
-	"strconv"
 	"time"
 
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
@@ -130,16 +129,6 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, spec bootstrap.JobSp
 		tvf.lggr.Infow("Created source reader for chain", "chainSelector", selector)
 	}
 
-	rmnRemoteAddresses := make(map[string]protocol.UnknownAddress)
-	for selector, address := range cfg.RMNRemoteAddresses {
-		addr, err := protocol.NewUnknownAddressFromHex(address)
-		if err != nil {
-			tvf.lggr.Errorw("Failed to create RMN Remote address", "error", err, "selector", selector)
-			os.Exit(1)
-		}
-		rmnRemoteAddresses[selector] = addr
-	}
-
 	// Load the verifier secrets file (only [db].url is used by the token verifier); an absent file
 	// is fine and falls back to CL_DATABASE_URL.
 	secrets, err := vsecrets.LoadFromEnv(vsecrets.TokenVerifierSecretsPathEnv, vsecrets.DefaultTokenVerifierSecretsPath)
@@ -180,7 +169,6 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, spec bootstrap.JobSp
 				verifierConfig.LombardConfig,
 				tvf.lggr,
 				sourceReaders,
-				rmnRemoteAddresses,
 				storage.NewCCVWriter(
 					tvf.lggr,
 					verifierConfig.LombardConfig.ParsedVerifierResolvers,
@@ -198,7 +186,6 @@ func (tvf *tokenVerifierFactory) Start(ctx context.Context, spec bootstrap.JobSp
 				verifierConfig.CCTPConfig,
 				tvf.lggr,
 				sourceReaders,
-				rmnRemoteAddresses,
 				storage.NewCCVWriter(
 					tvf.lggr,
 					verifierConfig.CCTPConfig.ParsedVerifierResolvers,
@@ -259,14 +246,13 @@ func createCCTPCoordinator(
 	cctpConfig *cctp.CCTPConfig,
 	lggr logger.Logger,
 	sourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
-	rmnRemoteAddresses map[string]protocol.UnknownAddress,
 	ccvStorage protocol.CCVNodeDataWriter,
 	messageTracker verifier.MessageLatencyTracker,
 	verifierMonitoring verifier.Monitoring,
 	chainStatusManager protocol.ChainStatusManager,
 	db sqlutil.DataSource,
 ) *verifier.Coordinator {
-	cctpSourceConfigs := createSourceConfigs(cctpConfig.ParsedVerifierResolvers, rmnRemoteAddresses)
+	cctpSourceConfigs := createSourceConfigs(cctpConfig.ParsedVerifierResolvers)
 
 	attestationService, err := cctp.NewAttestationService(lggr, *cctpConfig)
 	if err != nil {
@@ -308,14 +294,13 @@ func createLombardCoordinator(
 	lombardConfig *lombard.LombardConfig,
 	lggr logger.Logger,
 	sourceReaders map[protocol.ChainSelector]chainaccess.SourceReader,
-	rmnRemoteAddresses map[string]protocol.UnknownAddress,
 	ccvStorage protocol.CCVNodeDataWriter,
 	messageTracker verifier.MessageLatencyTracker,
 	verifierMonitoring verifier.Monitoring,
 	chainStatusManager protocol.ChainStatusManager,
 	db sqlutil.DataSource,
 ) *verifier.Coordinator {
-	sourceConfigs := createSourceConfigs(lombardConfig.ParsedVerifierResolvers, rmnRemoteAddresses)
+	sourceConfigs := createSourceConfigs(lombardConfig.ParsedVerifierResolvers)
 
 	attestationService, err := lombard.NewAttestationService(lggr, *lombardConfig)
 	if err != nil {
@@ -358,19 +343,14 @@ func createLombardCoordinator(
 	return coordinator
 }
 
-func createSourceConfigs(
-	verifiers map[protocol.ChainSelector]protocol.UnknownAddress,
-	rmnRemoteAddresses map[string]protocol.UnknownAddress,
-) map[protocol.ChainSelector]verifier.SourceConfig {
+func createSourceConfigs(verifiers map[protocol.ChainSelector]protocol.UnknownAddress) map[protocol.ChainSelector]verifier.SourceConfig {
 	sourceConfigs := make(map[protocol.ChainSelector]verifier.SourceConfig)
 	for selector, address := range verifiers {
-		strSelector := strconv.FormatUint(uint64(selector), 10)
 		sourceConfigs[selector] = verifier.SourceConfig{
 			VerifierAddress:        address,
 			DefaultExecutorAddress: nil,
 			PollInterval:           1 * time.Second,
 			ChainSelector:          selector,
-			RMNRemoteAddress:       rmnRemoteAddresses[strSelector],
 		}
 	}
 	return sourceConfigs

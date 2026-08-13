@@ -131,9 +131,8 @@ func NewVerificationCoordinator(
 		sourceConfigs[sel] = verifier.SourceConfig{
 			VerifierAddress:        verifierAddrs[sel],
 			DefaultExecutorAddress: defaultExecutorAddrs[sel],
-			PollInterval:           2 * time.Second, // TODO: make configurable
+			PollInterval:           verifier.SourceReaderPollInterval, // TODO: make configurable
 			ChainSelector:          sel,
-			RMNRemoteAddress:       rmnRemoteAddrs[sel],
 		}
 	}
 	if len(sourceReaders) == 0 {
