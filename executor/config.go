@@ -55,11 +55,10 @@ type Configuration struct {
 	PyroscopeURL string `toml:"pyroscope_url"`
 	// ExecutorID is the ID of this executor. This executorID should be present in the executor pool.
 	ExecutorID string `toml:"executor_id"`
-	// Monitoring is DEPRECATED. Monitoring config is operator-provided and now sourced from the bootstrap
-	// config (bootstrap.Config.Monitoring), not the JD-shipped app config. This field is retained only so
-	// that pre-existing JD job specs still carrying a [Monitoring] section continue to decode (app config
-	// decoding is strict); the executor reads it only as a fallback when the bootstrap config does not
-	// configure monitoring. Remove once all deployments source monitoring from the bootstrap config.
+	// Monitoring is deprecated and ignored. Standalone monitoring comes from the bootstrap
+	// config's [Monitoring] section and CL-mode monitoring from the node; this section has no
+	// consumer in either mode. It is retained so older job specs still decode, and it is
+	// intentionally not validated.
 	Monitoring MonitoringConfig `toml:"Monitoring"`
 	// ReaderCacheExpiry is the duration for the curse checker cache (RMN cursed state per chain).
 	// Defaults to 5 minutes.
@@ -156,10 +155,6 @@ func (c *Configuration) Validate() error {
 		return fmt.Errorf("indexer_query_limit must not exceed %d, got %d", IndexerQueryLimitMax, c.IndexerQueryLimit)
 	}
 
-	if err := c.Monitoring.Validate(); err != nil {
-		return fmt.Errorf("monitoring config validation failed: %w", err)
-	}
-
 	for chainSel, chainConfig := range c.ChainConfiguration {
 		if chainConfig.RmnAddress == "" {
 			return fmt.Errorf("rmn_address must be configured for chain %s", chainSel)
@@ -183,6 +178,9 @@ func (c *Configuration) Validate() error {
 
 // GetNormalizedConfig validates the configuration and applies defaults.
 // It returns a copy of the Configuration where durations are parsed and defaults filled in as necessary.
+// Normalization runs only in standalone mode: CL mode deliberately validates without defaulting, and
+// the changesets marshal one explicit config into both envelopes, so this normalization is the
+// standalone-side answer for omitted fields and changes no CL-mode semantics.
 func (c *Configuration) GetNormalizedConfig() (*Configuration, error) {
 	normalized := *c // shallow copy
 

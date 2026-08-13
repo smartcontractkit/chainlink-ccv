@@ -254,15 +254,6 @@ func TestConfiguration_Validate(t *testing.T) {
 			}(),
 			wantErrContains: "execution_interval must not be negative",
 		},
-		{
-			name: "monitoring_enabled_invalid_log_level_fails",
-			config: func() Configuration {
-				c := validConfig()
-				c.Monitoring = MonitoringConfig{LogLevel: "invalid"}
-				return c
-			}(),
-			wantErrContains: "log_level is invalid",
-		},
 	}
 
 	for _, tc := range cases {
@@ -438,4 +429,48 @@ func TestConfiguration_GetNormalizedConfig(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestConfiguration_GetNormalizedConfig_PreservesExplicitProductionSpec verifies that normalization
+// is the identity on a fully explicit production spec: the changesets marshal one explicit
+// executor.Configuration into both the standalone and CL envelopes, so both modes must read the
+// same effective config (CL mode validates without defaulting).
+func TestConfiguration_GetNormalizedConfig_PreservesExplicitProductionSpec(t *testing.T) {
+	// Literals rather than the default constants: the spec is explicit, and the identity
+	// assertion must hold even if a default changes.
+	explicitProductionSpec := func() Configuration {
+		c := validConfig()
+		c.BackoffDuration = 15 * time.Second
+		c.LookbackWindow = 1 * time.Hour
+		c.ReaderCacheExpiry = 5 * time.Minute
+		c.MaxRetryDuration = 8 * time.Hour
+		c.DataNotReadyRetryInterval = 1 * time.Second
+		c.NtpServer = "time.google.com"
+		c.WorkerCount = 100
+		c.IndexerQueryLimit = 100
+		c.HTTPListenPort = 8101
+		cc := validChainConfig()
+		cc.ExecutionInterval = 15 * time.Second
+		c.ChainConfiguration = map[string]ChainConfiguration{"1": cc}
+		return c
+	}
+
+	t.Run("fully_explicit_spec_is_identity", func(t *testing.T) {
+		explicit := explicitProductionSpec()
+		normalized, err := explicit.GetNormalizedConfig()
+		require.NoError(t, err)
+		require.Equal(t, explicit, *normalized)
+	})
+
+	t.Run("cl_mode_safety_net_defaults_match", func(t *testing.T) {
+		c := explicitProductionSpec()
+		c.DataNotReadyRetryInterval = 0
+		c.IndexerQueryLimit = 0
+		normalized, err := c.GetNormalizedConfig()
+		require.NoError(t, err)
+		// CL mode defaults these two inside its constructors; standalone normalization fills the
+		// same effective values.
+		require.Equal(t, DefaultDataNotReadyRetryInterval, normalized.DataNotReadyRetryInterval)
+		require.Equal(t, uint64(IndexerQueryLimitDefault), normalized.IndexerQueryLimit)
+	})
 }

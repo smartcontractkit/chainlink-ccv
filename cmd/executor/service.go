@@ -89,7 +89,7 @@ func (f *Factory) Stop(ctx context.Context) error {
 		err = errors.Join(err, f.coordinator.Close())
 	}
 	if f.profiler != nil {
-		_ = f.profiler.Stop()
+		err = errors.Join(err, f.profiler.Stop())
 	}
 	f.server = nil
 	f.coordinator = nil
@@ -126,10 +126,10 @@ func (f *Factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 	if executorConfig.PyroscopeURL != "" {
 		f.profiler, err = StartPyroscope(f.lggr, executorConfig.PyroscopeURL, "executor")
 		if err != nil {
-			f.lggr.Errorw("Failed to start pyroscope", "error", err)
+			return fmt.Errorf("failed to start pyroscope: %w", err)
 		}
 	}
-	f.lggr.Infow("Monitoring initialized", "monitoring", executorConfig.Monitoring)
+	f.lggr.Infow("Monitoring initialized")
 
 	protocol.InitChainSelectorCache()
 

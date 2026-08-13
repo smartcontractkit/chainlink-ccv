@@ -356,8 +356,3 @@ func TestStartPyroscope_EmptyAddress(t *testing.T) {
 	f.profiler = p
 	require.NoError(t, f.Stop(context.Background()))
 }
-
-func TestSetupMonitoring_Disabled(t *testing.T) {
-	m := SetupMonitoring(executorsvc.MonitoringConfig{})
-	require.NotNil(t, m)
-}

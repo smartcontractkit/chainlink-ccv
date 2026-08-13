@@ -49,9 +49,9 @@ local_app_config_path = "/etc/committee-verifier/app.toml"
 # operator-provided bootstrap config rather than the JD-shipped app config.
 # It is a pointer to distinguish "operator did not configure monitoring here" (nil) from "operator
 # explicitly configured it, possibly with Enabled=false" (non-nil). The apps that consume it (commit
-# verifier, executor) prefer this value and fall back to their deprecated app-config Monitoring field
-# only when it is nil. The token verifier is the exception: it loads no bootstrap config and keeps
-# monitoring in its (already operator-provided) mounted app config.
+# verifier, executor) read only this value; their deprecated app-config Monitoring sections are
+# ignored (retained so older job specs still decode). The token verifier is the exception: it loads
+# no bootstrap config and keeps monitoring in its (already operator-provided) mounted app config.
 [Monitoring]
   # LogLevel specifies the logging level for service logger
   LogLevel = "info"
