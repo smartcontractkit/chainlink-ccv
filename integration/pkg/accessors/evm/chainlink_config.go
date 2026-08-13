@@ -45,7 +45,10 @@ func newChainlinkEVMConfig(info Info) (*evmconfig.ChainScoped, error) {
 	chain := evmtoml.Defaults(sqlChainID)
 
 	// The standalone database does not contain chainlink-core's evm.heads schema,
-	// so use the production tracker with its supported in-memory saver mode.
+	// so use the production tracker with its supported in-memory saver mode. The
+	// known delta: a restart starts the tracker cold — it re-syncs from RPC where
+	// the node resumed from persisted heads, which costs catch-up time on restart,
+	// not correctness.
 	chain.HeadTracker.PersistenceEnabled = new(false)
 	if info.FinalityDepth == 0 {
 		// chain.FinalityDepth is deliberately left at the chain-specific upstream
