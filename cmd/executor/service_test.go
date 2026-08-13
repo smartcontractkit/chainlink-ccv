@@ -60,6 +60,40 @@ func newWorkingEVMFactory(t *testing.T) {
 	t.Cleanup(func() { evmFactory = nil })
 }
 
+// monitoredDestinationReader records what attachExecutorMonitoring delivers through the
+// optional chainaccess.ExecutorMonitoringSetter capability.
+type monitoredDestinationReader struct {
+	chainaccess.DestinationReader
+	got monitoring.Monitoring
+}
+
+func (m *monitoredDestinationReader) SetExecutorMonitoring(mon monitoring.Monitoring) { m.got = mon }
+
+// monitoredContractTransmitter does the same for the transmitter side.
+type monitoredContractTransmitter struct {
+	chainaccess.ContractTransmitter
+	got monitoring.Monitoring
+}
+
+func (m *monitoredContractTransmitter) SetExecutorMonitoring(mon monitoring.Monitoring) { m.got = mon }
+
+// TestAttachExecutorMonitoring verifies that accessor-built destination components receive the
+// process-level monitoring through the optional capability, and that components without the
+// capability are skipped without error.
+func TestAttachExecutorMonitoring(t *testing.T) {
+	mon := monitoring.NewNoopExecutorMonitoring()
+
+	dr := &monitoredDestinationReader{DestinationReader: mocks.NewMockDestinationReader(t)}
+	ct := &monitoredContractTransmitter{ContractTransmitter: mocks.NewMockContractTransmitter(t)}
+	attachExecutorMonitoring(dr, ct, mon)
+	require.True(t, dr.got == mon, "destination reader must receive the process monitoring")
+	require.True(t, ct.got == mon, "contract transmitter must receive the process monitoring")
+
+	plainDR := mocks.NewMockDestinationReader(t)
+	plainCT := mocks.NewMockContractTransmitter(t)
+	attachExecutorMonitoring(plainDR, plainCT, mon) // components without the capability are skipped
+}
+
 // --- tests ---
 
 func TestNewFactory(t *testing.T) {
@@ -268,12 +302,15 @@ executor_pool        = ["test-executor", "test-executor"]
 
 // TestFactory_Start_Success runs a full startup/shutdown cycle using mock
 // accessors and a valid config. No external services are required.
+// http_listen_port is set explicitly so the test's HTTP server cannot collide
+// with a real default-port deployment on the same host.
 func TestFactory_Start_Success(t *testing.T) {
 	newWorkingEVMFactory(t)
 
 	const appConfig = `
 executor_id = "test-executor"
 indexer_address = ["http://localhost:9090"]
+http_listen_port = 18099
 
 [chain_configuration."5009297550715157269"]
 off_ramp_address     = "0x0000000000000000000000000000000000000001"

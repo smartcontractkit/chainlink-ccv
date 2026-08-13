@@ -4,6 +4,7 @@ import (
 	"context"
 	"math/big"
 
+	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
@@ -59,6 +60,17 @@ type CriticalSourceInvariantCallbackSetter interface {
 	// SetCriticalSourceInvariantCallback attaches the callback invoked when a critical source-chain
 	// invariant is violated. It must be called before the reader starts.
 	SetCriticalSourceInvariantCallback(callback func(context.Context))
+}
+
+// ExecutorMonitoringSetter is an optional capability of accessor-provided destination readers and
+// contract transmitters. Accessor factories build these components before the executor's
+// process-level monitoring exists, so they hold a no-op implementation; the executor attaches the
+// real one through this hook before the coordinator starts. It must be called before the component
+// starts serving calls.
+type ExecutorMonitoringSetter interface {
+	// SetExecutorMonitoring replaces the component's monitoring with the executor's process-level
+	// implementation.
+	SetExecutorMonitoring(monitoring.Monitoring)
 }
 
 // RMNCurseReader provides read-only access to RMN Remote curse state.

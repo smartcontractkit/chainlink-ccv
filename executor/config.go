@@ -18,6 +18,7 @@ const (
 	dataNotReadyRetryIntervalDefault = 1 * time.Second
 	ntpServerDefault                 = "time.google.com"
 	workerCountDefault               = 100
+	httpListenPortDefault            = 8101
 	IndexerQueryLimitDefault         = 100
 	IndexerQueryLimitMax             = 10000
 )
@@ -74,6 +75,10 @@ type Configuration struct {
 	// WorkerCount is the number of concurrent workers processing messages.
 	// Defaults to 100.
 	WorkerCount int `toml:"worker_count"`
+	// HTTPListenPort is the port the executor's own HTTP server (/health) listens on.
+	// Defaults to 8101. Inert in CL mode, which serves its own API.
+	// Omitted from marshaled job specs when unset so CL-mode specs are unchanged.
+	HTTPListenPort int `toml:"http_listen_port,omitempty"`
 }
 
 // ChainConfiguration is all the application-owned configuration an executor needs for a chain.
@@ -120,6 +125,9 @@ func (c *Configuration) Validate() error {
 
 	if c.WorkerCount < 0 {
 		return fmt.Errorf("worker_count must not be negative, got %d", c.WorkerCount)
+	}
+	if c.HTTPListenPort < 0 {
+		return fmt.Errorf("http_listen_port must not be negative, got %d", c.HTTPListenPort)
 	}
 	if c.BackoffDuration < 0 {
 		return fmt.Errorf("source_backoff_duration must not be negative")
@@ -198,6 +206,9 @@ func (c *Configuration) GetNormalizedConfig() (*Configuration, error) {
 	}
 	if c.WorkerCount == 0 {
 		normalized.WorkerCount = workerCountDefault
+	}
+	if c.HTTPListenPort == 0 {
+		normalized.HTTPListenPort = httpListenPortDefault
 	}
 
 	// Process per-chain configuration: parse and normalize durations

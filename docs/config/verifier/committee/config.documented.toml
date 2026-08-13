@@ -47,6 +47,11 @@ signer_address = "0x00000000000000000000000000000000000000d1"
 # pyroscope_url is the Pyroscope server URL for continuous profiling; empty disables it.
 pyroscope_url = ""
 
+# http_listen_port is the port the standalone verifier's HTTP server (/health, /stats) listens
+# on. Defaults to 8100. Inert in CL mode, which serves its own API.
+# Omitted from marshaled job specs when unset so CL-mode specs are unchanged.
+http_listen_port = 8100
+
 # disable_finality_checkers is a list of chain selectors for which the finality violation checker should be disabled.
 # The chain selectors are formatted as strings of the chain selector.
 disable_finality_checkers = []

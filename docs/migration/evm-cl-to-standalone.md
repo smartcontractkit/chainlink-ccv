@@ -126,9 +126,10 @@ Stop it now, before starting anything else. Pick a quiet moment if you can.
 Start both.
 
 **Check:** both are running and healthy, neither is restarting, and the verifier's log does not
-mention an `expected_id` mismatch. If the verifier refuses to start, do not work around it — go to
-[If something goes wrong](#if-something-goes-wrong). The `signer_address` check runs when the job
-starts in step 9.
+mention an `expected_id` mismatch. Healthy means the process's own `/health` endpoint answers 200 —
+see [Health and readiness endpoints](#health-and-readiness-endpoints). If the verifier refuses to
+start, do not work around it — go to [If something goes wrong](#if-something-goes-wrong). The
+`signer_address` check runs when the job starts in step 9.
 
 ## Step 6: send Chainlink Labs two keys
 
@@ -166,6 +167,11 @@ old per-chain transmitter accounts are where that gas comes from, and they keep 
 move.
 
 **Check:** the address has a non-zero balance on every chain, confirmed on chain rather than assumed.
+
+Keep a balance alert on that address for every chain afterwards. The standalone executor does not
+run the Chainlink node's balance monitor, so an account that later runs dry shows up first as
+failed broadcasts, not as an alert. If you already alert on your node's per-chain transmitter
+balances, add this address to that alerting; if not, any external balance watcher works.
 
 > This step gets easier: CCIP-12871 adds a command that reads the address and moves the balances for
 > you. Until then the sends are manual.
@@ -376,6 +382,30 @@ allowing a wrong key to fail later at aggregator quorum.
 
 The import itself runs only when the key is absent, so it is a no-op on every restart after the first.
 Once the verifier has come up once, the export and password files can be unmounted and deleted.
+
+## Health and readiness endpoints
+
+Each standalone process serves two HTTP servers.
+
+The bootstrapper's server listens on `listen_port` from the bootstrap config (9988 in this
+procedure). Its endpoints are about the job lifecycle, not component health:
+
+- `/health` is a static 200. It says the process is up and serving, nothing more.
+- `/ready` is 503 until the job's Start has returned, then 200; it goes back to 503 while a job is
+  stopped or replaced. What it does not cover is a component that fails after Start returned —
+  source readers, the coordinator, or the transaction manager can degrade later without `/ready`
+  changing.
+- `/keystore/reader/getkeys` is the key hand-off endpoint used in step 6.
+
+The application's own server carries the real health signal. By default the verifier listens on
+8100 and the executor on 8101; each job's app config can override its own port with
+`http_listen_port`. Its `/health` is 200 only when every component in the coordinator's health
+report is healthy, and 503 with the failing component named otherwise. The verifier also serves
+`/stats` on the same port.
+
+For a Kubernetes deployment: point the liveness probe at the application `/health`, and the
+readiness probe at the bootstrapper's `/ready` if you gate rollout on the job having started. Do
+not use the bootstrapper's `/health` for either — it cannot fail while the process runs.
 
 ## Flagged for update
 

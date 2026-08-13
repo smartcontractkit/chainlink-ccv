@@ -470,3 +470,18 @@ func mustCreateMessage(t *testing.T, sourceChain, destChain, nonce uint64, execu
 	require.NoError(t, err)
 	return *msg
 }
+
+// TestSetExecutorMonitoring covers the optional chainaccess.ExecutorMonitoringSetter
+// capability: the accessor builds the transmitter with no-op monitoring and the executor
+// attaches its process-level monitoring before the coordinator starts.
+func TestSetExecutorMonitoring(t *testing.T) {
+	initial := monitoring.NewNoopExecutorMonitoring()
+	ct := &TXMEVMContractTransmitter{monitoring: initial}
+
+	replacement := monitoring.NewNoopExecutorMonitoring()
+	ct.SetExecutorMonitoring(replacement)
+	require.Same(t, replacement, ct.monitoring)
+
+	ct.SetExecutorMonitoring(nil)
+	require.Same(t, replacement, ct.monitoring, "nil must not clobber the attached monitoring")
+}

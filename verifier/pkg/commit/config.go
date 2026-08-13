@@ -190,6 +190,10 @@ type Config struct {
 
 	// PyroscopeURL is the Pyroscope server URL for continuous profiling; empty disables it.
 	PyroscopeURL string `toml:"pyroscope_url"`
+	// HTTPListenPort is the port the standalone verifier's HTTP server (/health, /stats) listens
+	// on. Defaults to 8100. Inert in CL mode, which serves its own API.
+	// Omitted from marshaled job specs when unset so CL-mode specs are unchanged.
+	HTTPListenPort int `toml:"http_listen_port,omitempty"`
 	// CommitteeVerifierAddresses is a map the addresses of the committee verifiers for each chain selector.
 	CommitteeVerifierAddresses map[string]string `toml:"committee_verifier_addresses"`
 	// DefaultExecutorOnRampAddresses is a map the addresses of the default executor on ramps for each chain selector.
@@ -341,6 +345,10 @@ func (c *Config) Validate() error {
 	}
 	if _, err := c.MessageDisablementRulesClientTimeoutDuration(); err != nil {
 		return err
+	}
+
+	if c.HTTPListenPort < 0 {
+		return fmt.Errorf("invalid verifier configuration, http_listen_port must not be negative, got %d", c.HTTPListenPort)
 	}
 
 	return nil

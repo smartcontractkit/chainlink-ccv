@@ -26,6 +26,8 @@ import (
 var (
 	// Ensure EvmDestinationReader implements the DestinationReader interface.
 	_ = chainaccess.DestinationReader(&EvmDestinationReader{})
+	// Ensure the optional executor-monitoring capability stays implemented.
+	_ = chainaccess.ExecutorMonitoringSetter(&EvmDestinationReader{})
 
 	EvmDestinationReaderServiceName = "evm.destinationreader.Service"
 )
@@ -40,6 +42,16 @@ type EvmDestinationReader struct {
 	chainSelector          protocol.ChainSelector
 	executionAttemptPoller *EvmExecutionAttemptPoller
 	monitoring             monitoring.Monitoring
+}
+
+// SetExecutorMonitoring implements chainaccess.ExecutorMonitoringSetter. The accessor factory
+// builds the reader with no-op monitoring because the executor's process-level monitoring does
+// not exist yet; the executor swaps in the real one here before the coordinator starts.
+func (dr *EvmDestinationReader) SetExecutorMonitoring(m monitoring.Monitoring) {
+	if m == nil {
+		return
+	}
+	dr.monitoring = m
 }
 
 func (dr *EvmDestinationReader) HealthReport() map[string]error {

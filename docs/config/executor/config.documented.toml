@@ -45,6 +45,11 @@ ntp_server = "time.google.com"
 # Defaults to 100.
 worker_count = 100
 
+# http_listen_port is the port the executor's own HTTP server (/health) listens on.
+# Defaults to 8101. Inert in CL mode, which serves its own API.
+# Omitted from marshaled job specs when unset so CL-mode specs are unchanged.
+http_listen_port = 8101
+
 # Monitoring is DEPRECATED. Monitoring config is operator-provided and now sourced from the bootstrap
 # config (bootstrap.Config.Monitoring), not the JD-shipped app config. This field is retained only so
 # that pre-existing JD job specs still carrying a [Monitoring] section continue to decode (app config

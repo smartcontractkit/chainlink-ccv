@@ -2,6 +2,7 @@ package executor
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -36,6 +37,7 @@ const (
 // Factory is a bootstrap.ServiceFactory that starts the executor service.
 type Factory struct {
 	coordinator *executorsvc.Coordinator
+	server      *http.Server
 	profiler    *pyroscope.Profiler
 	lggr        logger.Logger
 }
@@ -71,17 +73,34 @@ func (f *Factory) Validate(spec bootstrap.JobSpec) error {
 
 // Stop is idempotent: references are cleared after the close attempt so a repeated Stop —
 // or a Stop after a failed Start — does not close components twice.
-func (f *Factory) Stop(_ context.Context) error {
+func (f *Factory) Stop(ctx context.Context) error {
 	var err error
+	if f.server != nil {
+		err = f.server.Shutdown(ctx)
+	}
 	if f.coordinator != nil {
-		err = f.coordinator.Close()
+		err = errors.Join(err, f.coordinator.Close())
 	}
 	if f.profiler != nil {
 		_ = f.profiler.Stop()
 	}
+	f.server = nil
 	f.coordinator = nil
 	f.profiler = nil
 	return err
+}
+
+// attachExecutorMonitoring hands the process-level monitoring to accessor-built destination
+// components. Accessor factories construct destination readers and transmitters before the
+// executor's monitoring exists, so they hold a no-op implementation; components implementing
+// chainaccess.ExecutorMonitoringSetter receive the real one here, before the coordinator starts.
+func attachExecutorMonitoring(dr chainaccess.DestinationReader, ct chainaccess.ContractTransmitter, m monitoring.Monitoring) {
+	if setter, ok := dr.(chainaccess.ExecutorMonitoringSetter); ok {
+		setter.SetExecutorMonitoring(m)
+	}
+	if setter, ok := ct.(chainaccess.ExecutorMonitoringSetter); ok {
+		setter.SetExecutorMonitoring(m)
+	}
 }
 
 func (f *Factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootstrap.ServiceDeps) error {
@@ -135,6 +154,8 @@ func (f *Factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 			f.lggr.Warnw("Skipping chain: missing DestinationReader or ContractTransmitter", "chainSelector", strSel, "destReaderErr", drErr, "transmitterErr", ctErr)
 			continue
 		}
+
+		attachExecutorMonitoring(dr, ct, executorMonitoring)
 
 		destReaders[selector] = dr
 		rmnReaders[selector] = dr
@@ -230,6 +251,40 @@ func (f *Factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 	if err := f.coordinator.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start execution coordinator: %w", err)
 	}
+
+	// Dedicated mux per Start(): JD job replacement calls Start again after Stop. Using
+	// http.HandleFunc would register on DefaultServeMux, which is never cleared — second
+	// Start panics with conflicting pattern "/".
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprintf(w, "CCV Executor is running!\nExecutor ID: %s\n", executorConfig.ExecutorID)
+	})
+	mux.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
+		for serviceName, err := range f.coordinator.HealthReport() {
+			if err != nil {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				fmt.Fprintf(w, "Unhealthy service: %s, error: %s\n", serviceName, err.Error())
+				return
+			}
+		}
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprintln(w, "Healthy")
+	})
+
+	server := &http.Server{
+		Addr:         ":" + strconv.Itoa(executorConfig.HTTPListenPort),
+		Handler:      mux,
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 10 * time.Second,
+	}
+	go func() {
+		f.lggr.Infow("🌐 HTTP server starting", "port", executorConfig.HTTPListenPort)
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			f.lggr.Errorw("HTTP server error", "error", err)
+		}
+	}()
+	f.server = server
 
 	return nil
 }

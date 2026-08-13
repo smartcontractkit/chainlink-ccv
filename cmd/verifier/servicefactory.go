@@ -31,6 +31,10 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
+// defaultHTTPListenPort is the port the verifier's HTTP server listens on when the job config
+// does not set http_listen_port.
+const defaultHTTPListenPort = 8100
+
 // factory is a ServiceFactory implementation that creates a committee verifier service.
 type factory struct {
 	lggr             logger.Logger
@@ -426,15 +430,18 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 	})
 
 	// Start HTTP server
-	// TODO: listen port should be configurable.
+	listenPort := config.HTTPListenPort
+	if listenPort == 0 {
+		listenPort = defaultHTTPListenPort
+	}
 	server := &http.Server{
-		Addr:         ":8100",
+		Addr:         ":" + strconv.Itoa(listenPort),
 		Handler:      mux,
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 10 * time.Second,
 	}
 	go func() {
-		lggr.Infow("🌐 HTTP server starting", "port", "8100")
+		lggr.Infow("🌐 HTTP server starting", "port", listenPort)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			lggr.Errorw("HTTP server error", "error", err)
 		}

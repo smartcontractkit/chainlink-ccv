@@ -216,6 +216,24 @@ func TestConfig_Validate_Errors(t *testing.T) {
 			},
 			errSubstr: "invalid message_disablement_rules_poll_interval",
 		},
+		{
+			name: "negative http_listen_port",
+			config: Config{
+				HTTPListenPort: -1,
+				CommitteeVerifierAddresses: map[string]string{
+					"1": "0xCommittee1",
+				},
+				CommitteeConfig: chainaccess.CommitteeConfig{
+					OnRampAddresses: map[string]string{
+						"1": "0xOnRamp1",
+					},
+					RMNRemoteAddresses: map[string]string{
+						"1": "0xRMNRemote1",
+					},
+				},
+			},
+			errSubstr: "http_listen_port must not be negative",
+		},
 	}
 
 	for _, tt := range tests {
