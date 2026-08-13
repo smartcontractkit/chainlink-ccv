@@ -97,10 +97,7 @@ func NewIndexerLoadGun(cfg GunConfig) (*IndexerLoadGun, error) {
 	// in-flight verifications; otherwise a high MaxConcurrentVerifications just
 	// blocks goroutines on the pool instead. The floor keeps the default profile
 	// at the pool size this test has always used.
-	maxConnsPerHost := 2 * maxConcurrentVerifications
-	if maxConnsPerHost < MinConnsPerHost {
-		maxConnsPerHost = MinConnsPerHost
-	}
+	maxConnsPerHost := max(2*maxConcurrentVerifications, MinConnsPerHost)
 
 	// Create HTTP client with larger connection pool to prevent connection exhaustion
 	transport := &http.Transport{
