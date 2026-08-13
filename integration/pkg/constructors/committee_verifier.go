@@ -1,7 +1,6 @@
 package constructors
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"time"
@@ -50,10 +49,8 @@ func NewVerificationCoordinator(
 		return nil, fmt.Errorf("invalid ccv verifier configuration: %w", err)
 	}
 
-	// TODO: this verification shouldn't be here?
-	cfgSignerBytes := common.HexToAddress(cfg.SignerAddress).Bytes()
-	if !bytes.Equal(signingAddress.Bytes(), cfgSignerBytes) {
-		return nil, fmt.Errorf("signing address does not match configuration: config %x vs provided %x", cfgSignerBytes, signingAddress.Bytes())
+	if err := commit.ValidateSignerAddress(cfg.SignerAddress, signingAddress); err != nil {
+		return nil, err
 	}
 
 	onRampAddrs, err := mapAddresses(cfg.OnRampAddresses)
