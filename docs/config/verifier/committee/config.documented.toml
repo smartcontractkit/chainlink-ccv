@@ -59,6 +59,9 @@ http_listen_port = 8100
 # checking. The field remains for chain families with existing standalone deployments that rely on it.
 disable_finality_checkers = []
 
+# poll_interval is the interval between ticks of the source readers event monitoring loop - if <= 0 then it defaults to 2.1 seconds.
+poll_interval = ""
+
 # aggregators is the list of aggregators a consolidated verifier job writes to. When
 # non-empty it is authoritative and the legacy AggregatorAddress field must be empty.
 [[aggregators]]
