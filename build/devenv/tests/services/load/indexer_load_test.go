@@ -16,8 +16,8 @@ type MetricsSummary struct {
 	TotalVerified int64
 }
 
-func createLoadProfile(rps int64, testDuration time.Duration) (*wasp.Profile, *IndexerLoadGun, error) {
-	gun, err := NewIndexerLoadGun()
+func createLoadProfile(cfg GunConfig) (*wasp.Profile, *IndexerLoadGun, error) {
+	gun, err := NewIndexerLoadGun(cfg)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to create load profile: %w", err)
 	}
@@ -27,7 +27,7 @@ func createLoadProfile(rps int64, testDuration time.Duration) (*wasp.Profile, *I
 			LoadType: wasp.RPS,
 			GenName:  "indexer-load-test",
 			Schedule: wasp.Combine(
-				wasp.Plain(rps, testDuration),
+				wasp.Plain(cfg.RPS, cfg.Duration),
 			),
 			Gun: gun,
 			// Disable Loki config to avoid connection errors
@@ -40,12 +40,14 @@ func TestIndexerLoad(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping service test in short mode; requires Docker service containers")
 	}
-	rps := int64(50)
-	testDuration := 1 * time.Minute
+	cfg := GunConfig{
+		RPS:      50,
+		Duration: 1 * time.Minute,
+	}
 
-	p, gun, err := createLoadProfile(rps, testDuration)
+	p, gun, err := createLoadProfile(cfg)
 	require.NoError(t, err)
-	ctx, cancel := context.WithTimeout(context.Background(), testDuration*2)
+	ctx, cancel := context.WithTimeout(context.Background(), cfg.Duration*2)
 	defer cancel()
 
 	verifyDoneCh := gun.VerifyMessagesAsync(ctx)
