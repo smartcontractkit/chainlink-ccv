@@ -142,6 +142,8 @@ func TestE2ESmoke_TokenPoolMigrationEVM2EVM(t *testing.T) {
 				},
 			},
 		})
+		tokenpool.MigrateLiquidity(t, env, poolAV1, poolAV2, tokenpool.MigrateAllLiquidity)
+		tokenpool.MigrateLiquidity(t, env, poolBV1, poolBV2, tokenpool.MigrateAllLiquidity)
 		require.NotEqual(t, poolAV1.Address(), poolAV2.Address())
 		require.NotEqual(t, poolBV1.Address(), poolBV2.Address())
 		require.Equal(t, poolAV1.Token(), poolAV2.Token())
@@ -277,6 +279,8 @@ func TestE2ESmoke_TokenPoolMigrationEVM2EVM(t *testing.T) {
 				},
 			},
 		})
+		tokenpool.MigrateLiquidity(t, env, poolAV1, poolAV2, tokenpool.MigrateAllLiquidity)
+		tokenpool.MigrateLiquidity(t, env, poolBV1, poolBV2, tokenpool.MigrateAllLiquidity)
 		require.NotEqual(t, poolAV1.Address(), poolAV2.Address())
 		require.NotEqual(t, poolBV1.Address(), poolBV2.Address())
 		require.Equal(t, poolAV1.Token(), poolAV2.Token())
