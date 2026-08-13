@@ -1,5 +1,21 @@
 # Changelog
 
+## [0.4.0](https://github.com/smartcontractkit/chainlink-ccv/compare/v0.3.0...v0.4.0) (2026-08-13)
+
+
+### Features
+
+* **executor:** add pipeline state metrics ([#1339](https://github.com/smartcontractkit/chainlink-ccv/issues/1339)) ([b25bb1a](https://github.com/smartcontractkit/chainlink-ccv/commit/b25bb1a6e9f79ea05daaf17b253a12fc7f7a60a0))
+* **verifier:** add message pipeline state metrics ([#1334](https://github.com/smartcontractkit/chainlink-ccv/issues/1334)) ([3f28b1f](https://github.com/smartcontractkit/chainlink-ccv/commit/3f28b1f843029f8cc04091731de7790a7ab90977))
+
+
+### Bug Fixes
+
+* **evm:** harden standalone cutover parity ([#1343](https://github.com/smartcontractkit/chainlink-ccv/issues/1343)) ([8bff61f](https://github.com/smartcontractkit/chainlink-ccv/commit/8bff61f994cdcec4808ce0c5bbbf4bedeb410c97))
+* **evm:** standalone parity items batch 1 ([#1342](https://github.com/smartcontractkit/chainlink-ccv/issues/1342)) ([3da1b7d](https://github.com/smartcontractkit/chainlink-ccv/commit/3da1b7daca4b605e2de9e044a40f914d9ea57848))
+* update lombard and cctp verifier tags to use v2.1.0 ([#1340](https://github.com/smartcontractkit/chainlink-ccv/issues/1340)) ([42174dd](https://github.com/smartcontractkit/chainlink-ccv/commit/42174dd7851db594f319a376caff44747fdfbe4b))
+* **verifier:** restore standalone source-reader monitoring ([#1345](https://github.com/smartcontractkit/chainlink-ccv/issues/1345)) ([6691a13](https://github.com/smartcontractkit/chainlink-ccv/commit/6691a13783b5295283201f1102d43035cdb1bcfb))
+
 ## [0.3.0](https://github.com/smartcontractkit/chainlink-ccv/compare/v0.2.0...v0.3.0) (2026-08-10)
 
 
