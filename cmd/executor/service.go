@@ -258,18 +258,18 @@ func (f *Factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprintf(w, "CCV Executor is running!\nExecutor ID: %s\n", executorConfig.ExecutorID)
+		_, _ = fmt.Fprintf(w, "CCV Executor is running!\nExecutor ID: %s\n", executorConfig.ExecutorID)
 	})
 	mux.HandleFunc("/health", func(w http.ResponseWriter, _ *http.Request) {
 		for serviceName, err := range f.coordinator.HealthReport() {
 			if err != nil {
 				w.WriteHeader(http.StatusServiceUnavailable)
-				fmt.Fprintf(w, "Unhealthy service: %s, error: %s\n", serviceName, err.Error())
+				_, _ = fmt.Fprintf(w, "Unhealthy service: %s, error: %s\n", serviceName, err.Error())
 				return
 			}
 		}
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprintln(w, "Healthy")
+		_, _ = fmt.Fprintln(w, "Healthy")
 	})
 
 	server := &http.Server{

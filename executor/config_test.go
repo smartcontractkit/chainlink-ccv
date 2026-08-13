@@ -264,7 +264,8 @@ func TestConfiguration_Validate(t *testing.T) {
 
 func TestConfiguration_HTTPListenPortNormalization(t *testing.T) {
 	t.Run("defaults_when_unset", func(t *testing.T) {
-		normalized, err := validConfig().GetNormalizedConfig()
+		c := validConfig()
+		normalized, err := c.GetNormalizedConfig()
 		require.NoError(t, err)
 		require.Equal(t, httpListenPortDefault, normalized.HTTPListenPort)
 	})
