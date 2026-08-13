@@ -24,7 +24,8 @@ import (
 
 // Compile-time checks to ensure SourceReader implements the SourceReader interface.
 var (
-	_ chainaccess.SourceReader = (*SourceReader)(nil)
+	_ chainaccess.SourceReader                          = (*SourceReader)(nil)
+	_ chainaccess.CriticalSourceInvariantCallbackSetter = (*SourceReader)(nil)
 )
 
 type SourceReader struct {
@@ -91,12 +92,7 @@ func NewEVMSourceReader(
 		return nil, fmt.Errorf("failed to get OnRamp ABI: %w", err)
 	}
 
-	onInvariant := onCriticalInvariant
-	if onInvariant == nil {
-		onInvariant = func(context.Context) {}
-	}
-
-	return &SourceReader{
+	reader := &SourceReader{
 		chainClient:          chainClient,
 		headTracker:          headTracker,
 		onRampAddress:        onRampAddress,
@@ -106,8 +102,18 @@ func NewEVMSourceReader(
 		chainSelector:        chainSelector,
 		lggr:                 lggr,
 		onRampABI:            onRampABI,
-		onCriticalInvariant:  onInvariant,
-	}, nil
+	}
+	reader.SetCriticalSourceInvariantCallback(onCriticalInvariant)
+	return reader, nil
+}
+
+// SetCriticalSourceInvariantCallback attaches the metric callback invoked when source-chain data
+// violates a configured on-chain invariant. It must be called before the reader starts.
+func (r *SourceReader) SetCriticalSourceInvariantCallback(callback func(context.Context)) {
+	if callback == nil {
+		callback = func(context.Context) {}
+	}
+	r.onCriticalInvariant = callback
 }
 
 // GetBlocksHeaders TODO: Should use batch requests for efficiency ticket: CCIP-7766.

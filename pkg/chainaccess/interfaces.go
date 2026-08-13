@@ -53,6 +53,14 @@ type SourceReader interface {
 	RMNCurseReader
 }
 
+// CriticalSourceInvariantCallbackSetter is an optional SourceReader capability for attaching the
+// verifier's critical-invariant metric callback. Callers must set it before the reader starts.
+type CriticalSourceInvariantCallbackSetter interface {
+	// SetCriticalSourceInvariantCallback attaches the callback invoked when a critical source-chain
+	// invariant is violated. It must be called before the reader starts.
+	SetCriticalSourceInvariantCallback(callback func(context.Context))
+}
+
 // RMNCurseReader provides read-only access to RMN Remote curse state.
 // Both SourceReader and DestinationReader implement this interface.
 type RMNCurseReader interface {

@@ -88,9 +88,10 @@ type FakeVerifierMetricLabeler struct {
 	mu     sync.RWMutex
 	labels []string
 
-	SourceChainLatestBLock    atomic.Int64
-	SourceChainFinalizedBlock atomic.Int64
-	SourceChainSafeBlock      atomic.Int64
+	SourceChainLatestBLock            atomic.Int64
+	SourceChainFinalizedBlock         atomic.Int64
+	SourceChainSafeBlock              atomic.Int64
+	CriticalSourceInvariantViolations atomic.Int64
 
 	E2ELatencyCalls []E2ELatencyCall
 }
@@ -163,7 +164,9 @@ func (f *FakeVerifierMetricLabeler) IncrementStorageWriteErrors(context.Context)
 
 func (f *FakeVerifierMetricLabeler) IncrementTaskVerificationPermanentErrors(context.Context) {}
 
-func (f *FakeVerifierMetricLabeler) IncrementCriticalSourceInvariantViolations(context.Context) {}
+func (f *FakeVerifierMetricLabeler) IncrementCriticalSourceInvariantViolations(context.Context) {
+	f.CriticalSourceInvariantViolations.Add(1)
+}
 
 func (f *FakeVerifierMetricLabeler) RecordSourceChainLatestBlock(_ context.Context, blockNum int64) {
 	f.SourceChainLatestBLock.Store(blockNum)

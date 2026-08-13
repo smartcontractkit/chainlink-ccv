@@ -1,13 +1,53 @@
 package verifier
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
+	"github.com/smartcontractkit/chainlink-ccv/internal/mocks"
+	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
 )
+
+type callbackSourceReader struct {
+	chainaccess.SourceReader
+	callback func(context.Context)
+}
+
+func (r *callbackSourceReader) SetCriticalSourceInvariantCallback(callback func(context.Context)) {
+	r.callback = callback
+}
+
+func TestInstrumentSourceReader(t *testing.T) {
+	const selector = protocol.ChainSelector(5009297550715157269)
+	ctx := context.Background()
+	latest := &protocol.BlockHeader{Number: 101}
+	finalized := &protocol.BlockHeader{Number: 99}
+	delegate := mocks.NewMockSourceReader(t)
+	delegate.EXPECT().LatestAndFinalizedBlock(mock.Anything).Return(latest, finalized, nil).Once()
+	configurableReader := &callbackSourceReader{SourceReader: delegate}
+	verifierMonitoring := monitoring.NewFakeVerifierMonitoring()
+
+	reader, err := instrumentSourceReader(configurableReader, "verifier-1", selector, verifierMonitoring)
+	require.NoError(t, err)
+	require.NotNil(t, configurableReader.callback)
+
+	gotLatest, gotFinalized, err := reader.LatestAndFinalizedBlock(ctx)
+	require.NoError(t, err)
+	require.Equal(t, latest, gotLatest)
+	require.Equal(t, finalized, gotFinalized)
+	require.Equal(t, int64(101), verifierMonitoring.Fake.SourceChainLatestBLock.Load())
+	require.Equal(t, int64(99), verifierMonitoring.Fake.SourceChainFinalizedBlock.Load())
+
+	configurableReader.callback(ctx)
+	require.Equal(t, int64(1), verifierMonitoring.Fake.CriticalSourceInvariantViolations.Load())
+}
 
 // TestFactoryValidate exercises the ServiceFactoryValidator implementation: the same
 // decode+Validate checks Start performs, but with no secrets loading, DB connection,

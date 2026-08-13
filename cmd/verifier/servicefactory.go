@@ -17,6 +17,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/heartbeatclient"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/messagerules"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/sourcereader"
 	"github.com/smartcontractkit/chainlink-ccv/integration/storageaccess"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -59,6 +60,33 @@ func validateJobSpec(spec bootstrap.JobSpec) (commit.Config, error) {
 		return commit.Config{}, err
 	}
 	return config, nil
+}
+
+func instrumentSourceReader(
+	reader chainaccess.SourceReader,
+	verifierID string,
+	selector protocol.ChainSelector,
+	verifierMonitoring verifier.Monitoring,
+) (chainaccess.SourceReader, error) {
+	if verifierMonitoring == nil {
+		return nil, fmt.Errorf("cannot instrument source reader for chain %d: monitoring is nil", selector)
+	}
+
+	if setter, ok := reader.(chainaccess.CriticalSourceInvariantCallbackSetter); ok {
+		chainMetrics := verifierMonitoring.Metrics().With(
+			"chain_selector", selector.String(),
+			"chain_name", selector.ChainName(),
+		)
+		setter.SetCriticalSourceInvariantCallback(func(ctx context.Context) {
+			chainMetrics.IncrementCriticalSourceInvariantViolations(ctx)
+		})
+	}
+
+	observedReader, err := sourcereader.NewObservedSourceReader(reader, verifierID, selector, verifierMonitoring)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create observed source reader for chain %d: %w", selector, err)
+	}
+	return observedReader, nil
 }
 
 // Validate implements [bootstrap.ServiceFactoryValidator].
@@ -176,7 +204,12 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 			lggr.Errorw("Failed to get source reader for chain", "selector", selector, "error", err)
 			return fmt.Errorf("failed to get source reader for chain %d: %w", selector, err)
 		}
-		sourceReaders[selector] = reader
+		observedReader, err := instrumentSourceReader(reader, config.VerifierID, selector, verifierMonitoring)
+		if err != nil {
+			lggr.Errorw("Failed to instrument source reader for chain", "selector", selector, "error", err)
+			return err
+		}
+		sourceReaders[selector] = observedReader
 	}
 
 	// Create coordinator configuration
