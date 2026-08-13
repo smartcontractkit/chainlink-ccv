@@ -291,10 +291,7 @@ func DeployAndConfigureNewCommitCCV(ctx context.Context, e *deployment.Environme
 				AllowlistEnabled:    false,
 				Router:              MustGetContractAddressForSelector(addresses, sel, router.ContractType),
 				RemoteChainSelector: remoteSel,
-				GasForVerification:  1, // TODO: set proper gas limit
-				// TODO: Missing fields?
-				// FeeUSDCents        uint16
-				// PayloadSizeBytes   uint32
+				GasForVerification:  1,
 			})
 		}
 
