@@ -28,7 +28,7 @@ const (
 //
 // This changeset is not publishing the canonical verifier job specs, but rather a temporary job spec that overrides the OnRamp address for redeployed chains.
 // It reads the legacy OnRamp address from the DataStore and uses it to override the new OnRamp address in the verifier job spec for redeployed chains.
-// It also target a subset of the chains only the chains that have an upgrade (sent as input)
+// It also targets only the subset of chains undergoing an upgrade (provided as input).
 // Finally the job spec is suffixed with "-temp-onramp-upgrade" to avoid conflicts with the canonical job spec.
 func ApplyOnrampRedeployVerifierConfig(onrampUpgraderRegistry *adapters.OnRampUpgraderRegistry) deployment.ChangeSetV2[ApplyVerifierConfigOnrampUpgradeInput] {
 
