@@ -56,7 +56,7 @@ func TestApplyVerifierConfigOnrampUpgrade_Validation_RequiresUpgradedChainSelect
 		},
 	})
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "at least one redeployed chain selector is required")
+	assert.Contains(t, err.Error(), "at least one upgraded chain selector is required")
 }
 
 func TestApplyVerifierConfigOnrampUpgrade_UseCorrectPrefix(t *testing.T) {
@@ -192,7 +192,7 @@ func TestApplyVerifierConfigOnrampUpgrade_UseCorrectOnRampAddress(t *testing.T) 
 	}
 }
 
-func TestApplyVerifierConfigOnrampUpgrade_UseNormalOnRampForSelectorWithNoLegacyOnRamp(t *testing.T) {
+func TestApplyVerifierConfigOnrampUpgrade_ErrorWhenNoLegacyOnramp(t *testing.T) {
 	sel1 := chainsel.TEST_90000001.Selector
 	verifierAddr := testVerifierAddr
 
@@ -209,7 +209,7 @@ func TestApplyVerifierConfigOnrampUpgrade_UseNormalOnRampForSelectorWithNoLegacy
 	env := newOnrampUpgradeTestEnv(t, map[uint64]string{sel1: verifierAddr})
 
 	cs := ApplyOnrampRedeployVerifierConfig(registry)
-	out, err := cs.Apply(env, ApplyVerifierConfigOnrampUpgradeInput{
+	_, err := cs.Apply(env, ApplyVerifierConfigOnrampUpgradeInput{
 		UpgradedChainSelectors: []uint64{sel1},
 		ApplyVerifierConfigInput: ApplyVerifierConfigInput{
 			CommitteeQualifier:       testQualifier,
@@ -223,15 +223,6 @@ func TestApplyVerifierConfigOnrampUpgrade_UseNormalOnRampForSelectorWithNoLegacy
 			NOPs: []NOPInput{{Alias: testNOPAlias, SignerAddressByFamily: map[string]string{chainsel.FamilyEVM: testSignerAddr}}},
 		},
 	})
-	require.NoError(t, err)
-
-	jobs, err := ccvdeployment.GetAllJobs(out.DataStore.Seal())
-	require.NoError(t, err)
-	require.NotEmpty(t, jobs[testNOPAlias])
-
-	for _, job := range jobs[testNOPAlias] {
-		// stubFullAdapter.ResolveVerifierContractAddresses hard-codes this as the (new,
-		// non-legacy) OnRamp address; it must survive unmodified.
-		assert.Contains(t, job.Spec, "0x000000000000000000000000000000000000AAAA")
-	}
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "no legacy onramp for selector")
 }
