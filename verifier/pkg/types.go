@@ -14,6 +14,10 @@ type (
 	CoordinatorConfig = vtypes.CoordinatorConfig
 )
 
+// SourceReaderPollInterval re-exports vtypes.SourceReaderPollInterval for consumers of the
+// root verifier package.
+const SourceReaderPollInterval = vtypes.SourceReaderPollInterval
+
 // NewRetriableVerificationError creates a retryable VerificationError.
 func NewRetriableVerificationError(err error, task VerificationTask, delay time.Duration) VerificationError {
 	return vtypes.NewRetriableVerificationError(err, task, delay)

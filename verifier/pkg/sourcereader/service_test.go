@@ -799,6 +799,63 @@ func TestSRS_DisableFinalityChecker(t *testing.T) {
 	require.True(t, ok, "finalityChecker should be NoOpFinalityViolationChecker when disabled")
 }
 
+func TestSRS_ReadyToQuery_HeadFetchUsesPollTimeout(t *testing.T) {
+	chain := protocol.ChainSelector(1337)
+	reader := mocks.NewMockSourceReader(t)
+	chainStatusMgr := mocks.NewMockChainStatusManager(t)
+	curseDetector := mocks.NewMockCurseCheckerService(t)
+	lggr := logger.Test(t)
+
+	// Poll interval and poll timeout deliberately differ by a lot so the captured
+	// head-fetch deadline shows which one bounded the call.
+	const (
+		pollInterval = 1 * time.Second
+		pollTimeout  = 30 * time.Second
+	)
+
+	latest := &protocol.BlockHeader{Number: 110}
+	finalized := &protocol.BlockHeader{Number: 100}
+	var headFetchDeadline time.Time
+	reader.EXPECT().LatestAndFinalizedBlock(mock.Anything).
+		RunAndReturn(func(ctx context.Context) (*protocol.BlockHeader, *protocol.BlockHeader, error) {
+			deadline, ok := ctx.Deadline()
+			require.True(t, ok, "head-fetch context should carry a deadline")
+			headFetchDeadline = deadline
+			return latest, finalized, nil
+		}).Once()
+	reader.EXPECT().LatestSafeBlock(mock.Anything).Return(nil, nil).Once()
+
+	srs, err := NewService(
+		"test-verifier",
+		reader,
+		chain,
+		chainStatusMgr,
+		lggr,
+		verifier.SourceConfig{
+			PollInterval:  pollInterval,
+			PollTimeout:   pollTimeout,
+			MaxBlockRange: 5000,
+		},
+		curseDetector,
+		&noopFilter{},
+		verifiermonitoring.NewFakeVerifierMonitoring(),
+		&fakeTaskQueue{},
+		common.AllowAllMessagesChecker{},
+	)
+	require.NoError(t, err)
+
+	start := time.Now()
+	ready, gotLatest, _, gotFinalized := srs.readyToQuery(context.Background())
+	require.True(t, ready)
+	require.Same(t, latest, gotLatest)
+	require.Same(t, finalized, gotFinalized)
+
+	// The deadline must be ~now+pollTimeout (30s), not ~now+pollInterval (1s).
+	require.False(t, headFetchDeadline.IsZero(), "head fetch should have observed a deadline")
+	require.Greater(t, headFetchDeadline, start.Add(25*time.Second))
+	require.Less(t, headFetchDeadline, start.Add(35*time.Second))
+}
+
 // ----------------------
 // Advanced Reorg Tracking Tests
 // ----------------------

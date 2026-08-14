@@ -207,12 +207,14 @@ type Config struct {
 	DefaultExecutorOnRampAddresses map[string]string `toml:"default_executor_on_ramp_addresses"`
 	// DisableFinalityCheckers is a list of chain selectors for which the finality violation checker should be disabled.
 	// The chain selectors are formatted as strings of the chain selector.
+	// Only standalone mode honors this list; CL mode ignores it and always runs finality checkers.
+	// EVM standalone jobs must not set it: CL mode is the production reference and never disables
+	// checking. The field remains for chain families with existing standalone deployments that rely on it.
 	DisableFinalityCheckers []string `toml:"disable_finality_checkers"`
-	// Monitoring is DEPRECATED. Monitoring config is operator-provided and now sourced from the bootstrap
-	// config (bootstrap.Config.Monitoring), not the JD-shipped app config. This field is retained only so
-	// that pre-existing JD job specs still carrying a [monitoring] section continue to decode (app config
-	// decoding is strict); the committee verifier reads it only as a fallback when the bootstrap config
-	// does not configure monitoring. Remove once all deployments source monitoring from the bootstrap config.
+	// Monitoring is deprecated and ignored. Standalone monitoring comes from the bootstrap
+	// config's [Monitoring] section and CL-mode monitoring from the node; this section has no
+	// consumer in either mode. It is retained so older job specs still decode, and it is
+	// intentionally not validated.
 	Monitoring verifier.MonitoringConfig `toml:"monitoring"`
 
 	// CommitteeConfig that is needed by the SourceReader and the application.

@@ -267,7 +267,8 @@ func (r *Service) eventMonitoringLoop() {
 }
 
 func (r *Service) readyToQuery(ctx context.Context) (bool, *protocol.BlockHeader, *protocol.BlockHeader, *protocol.BlockHeader) {
-	blockCtx, cancel := context.WithTimeout(ctx, r.pollInterval)
+	// The head-fetch budget is the dedicated poll timeout, not the poll interval.
+	blockCtx, cancel := context.WithTimeout(ctx, r.pollTimeout)
 	defer cancel()
 	latest, finalized, err := r.sourceReader.LatestAndFinalizedBlock(blockCtx)
 	if err != nil {

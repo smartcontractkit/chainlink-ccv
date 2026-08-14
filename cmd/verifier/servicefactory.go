@@ -221,25 +221,14 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 
 	// Create coordinator configuration
 	sourceConfigs := make(map[protocol.ChainSelector]verifier.SourceConfig)
-	rmnRemoteAddresses := make(map[string]protocol.UnknownAddress)
-	for selector, address := range config.RMNRemoteAddresses {
-		addr, err := protocol.NewUnknownAddressFromHex(address)
-		if err != nil {
-			lggr.Errorw("Failed to create RMN Remote address", "error", err, "selector", selector)
-			return fmt.Errorf("failed to create RMN Remote address: %w", err)
-		}
-		rmnRemoteAddresses[selector] = addr
-	}
-
 	for _, selector := range chainSelectors {
 		strSelector := strconv.FormatUint(uint64(selector), 10)
 
 		sourceConfigs[selector] = verifier.SourceConfig{
 			VerifierAddress:        verifierAddresses[strSelector],
 			DefaultExecutorAddress: defaultExecutorAddresses[strSelector],
-			PollInterval:           1 * time.Second,
+			PollInterval:           verifier.SourceReaderPollInterval,
 			ChainSelector:          selector,
-			RMNRemoteAddress:       rmnRemoteAddresses[strSelector],
 			DisableFinalityChecker: slices.Contains(config.DisableFinalityCheckers, strSelector),
 		}
 

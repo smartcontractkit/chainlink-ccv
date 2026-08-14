@@ -7,16 +7,12 @@ import (
 
 	"github.com/grafana/pyroscope-go"
 	"github.com/jmoiron/sqlx"
-	"go.uber.org/zap/zapcore"
 
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 
 	ccvcommon "github.com/smartcontractkit/chainlink-ccv/common"
-	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/db"
-	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vsecrets"
-	"github.com/smartcontractkit/chainlink-common/pkg/beholder"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
@@ -29,45 +25,6 @@ const (
 	defaultConnMaxLifetime = 300 * time.Second
 	defaultConnMaxIdleTime = 60 * time.Second
 )
-
-func SetupMonitoring(config verifier.MonitoringConfig, verifierServiceName string) verifier.Monitoring {
-	// If monitoring is not enabled, return a fake monitoring implementation that does nothing.
-	if !config.Beholder.Enabled {
-		verifierMonitoring := monitoring.NewFakeVerifierMonitoring()
-		return verifierMonitoring
-	}
-
-	beholderConfig := beholder.Config{
-		InsecureConnection:       config.Beholder.InsecureConnection,
-		CACertFile:               config.Beholder.CACertFile,
-		OtelExporterHTTPEndpoint: config.Beholder.OtelExporterHTTPEndpoint,
-		OtelExporterGRPCEndpoint: config.Beholder.OtelExporterGRPCEndpoint,
-		LogStreamingEnabled:      config.Beholder.LogStreamingEnabled,
-		LogLevel:                 zapcore.InfoLevel,
-		LogBatchProcessor:        false,
-		LogExportInterval:        time.Second * 10,
-		MetricReaderInterval:     time.Second * time.Duration(config.Beholder.MetricReaderInterval),
-		TraceSampleRatio:         config.Beholder.TraceSampleRatio,
-		TraceBatchTimeout:        time.Second * time.Duration(config.Beholder.TraceBatchTimeout),
-		// Note: due to OTEL spec, all histogram buckets must be defined when the beholder client is created.
-		MetricViews: monitoring.MetricViews(),
-	}
-
-	// Create the beholder client
-	beholderClient, err := beholder.NewClient(beholderConfig)
-	if err != nil {
-		panic(fmt.Sprintf("failed to create beholder client: %v", err))
-	}
-
-	// Set the beholder client and global otel providers
-	beholder.SetClient(beholderClient)
-	beholder.SetGlobalOtelProviders()
-	verifierMonitoring, err := monitoring.InitMonitoring(verifierServiceName)
-	if err != nil {
-		panic(fmt.Sprintf("failed to initialize verifier monitoring: %v", err))
-	}
-	return verifierMonitoring
-}
 
 // ConnectToPostgresDB opens the verifier's application storage database. The connection URL is
 // resolved from the verifier secrets file when present, otherwise from CL_DATABASE_URL (the file
