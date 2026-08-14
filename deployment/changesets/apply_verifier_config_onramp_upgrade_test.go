@@ -47,7 +47,7 @@ func newOnrampUpgradeTestEnv(t *testing.T, verifierAddrs map[uint64]string) depl
 
 func TestApplyVerifierConfigOnrampUpgrade_Validation_RequiresUpgradedChainSelectors(t *testing.T) {
 	registerEVMOnchain(&stubOnchainAdapter{})
-	cs := ApplyOnrampRedeployVerifierConfig(&ccipadapters.OnRampUpgraderRegistry{})
+	cs := ApplyOnrampUpgradeVerifierConfig(&ccipadapters.OnRampUpgraderRegistry{})
 	err := cs.VerifyPreconditions(deployment.Environment{}, ApplyVerifierConfigOnrampUpgradeInput{
 		ApplyVerifierConfigInput: ApplyVerifierConfigInput{
 			CommitteeQualifier:       "default",
@@ -74,7 +74,7 @@ func TestApplyVerifierConfigOnrampUpgrade_UseCorrectPrefix(t *testing.T) {
 
 	env := newOnrampUpgradeTestEnv(t, map[uint64]string{sel1: verifierAddr})
 
-	cs := ApplyOnrampRedeployVerifierConfig(registry)
+	cs := ApplyOnrampUpgradeVerifierConfig(registry)
 	out, err := cs.Apply(env, ApplyVerifierConfigOnrampUpgradeInput{
 		UpgradedChainSelectors: []uint64{sel1},
 		ApplyVerifierConfigInput: ApplyVerifierConfigInput{
@@ -123,7 +123,7 @@ func TestApplyVerifierConfigOnrampUpgrade_IncludesNonUpgradedChainsButOnlyOverri
 		sel2: verifierAddr2,
 	})
 
-	cs := ApplyOnrampRedeployVerifierConfig(registry)
+	cs := ApplyOnrampUpgradeVerifierConfig(registry)
 	out, err := cs.Apply(env, ApplyVerifierConfigOnrampUpgradeInput{
 		UpgradedChainSelectors: []uint64{sel1},
 		ApplyVerifierConfigInput: ApplyVerifierConfigInput{
@@ -194,7 +194,7 @@ func TestApplyVerifierConfigOnrampUpgrade_UseCorrectOnRampAddress(t *testing.T) 
 
 	env := newOnrampUpgradeTestEnv(t, map[uint64]string{sel1: verifierAddr})
 
-	cs := ApplyOnrampRedeployVerifierConfig(registry)
+	cs := ApplyOnrampUpgradeVerifierConfig(registry)
 	out, err := cs.Apply(env, ApplyVerifierConfigOnrampUpgradeInput{
 		UpgradedChainSelectors: []uint64{sel1},
 		ApplyVerifierConfigInput: ApplyVerifierConfigInput{
@@ -239,7 +239,7 @@ func TestApplyVerifierConfigOnrampUpgrade_ErrorWhenNoLegacyOnramp(t *testing.T) 
 
 	env := newOnrampUpgradeTestEnv(t, map[uint64]string{sel1: verifierAddr})
 
-	cs := ApplyOnrampRedeployVerifierConfig(registry)
+	cs := ApplyOnrampUpgradeVerifierConfig(registry)
 	_, err := cs.Apply(env, ApplyVerifierConfigOnrampUpgradeInput{
 		UpgradedChainSelectors: []uint64{sel1},
 		ApplyVerifierConfigInput: ApplyVerifierConfigInput{

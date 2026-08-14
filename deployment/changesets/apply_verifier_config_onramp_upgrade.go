@@ -16,7 +16,7 @@ type ApplyVerifierConfigOnrampUpgradeInput struct {
 
 const jobSuffix = "temp-onramp-upgrade"
 
-// ApplyOnrampRedeployVerifierConfig publishes or refreshes temporary verifier
+// ApplyOnrampUpgradeVerifierConfig publishes or refreshes temporary verifier
 // job specs used during an OnRamp redeployment.
 //
 // The temporary jobs retain the complete committee chain configuration so they
@@ -28,7 +28,7 @@ const jobSuffix = "temp-onramp-upgrade"
 // canonical verifier jobs.
 //
 // No onchain state is touched and no MCMS coordination is required.
-func ApplyOnrampRedeployVerifierConfig(
+func ApplyOnrampUpgradeVerifierConfig(
 	onrampUpgraderRegistry *adapters.OnRampUpgraderRegistry,
 ) deployment.ChangeSetV2[ApplyVerifierConfigOnrampUpgradeInput] {
 	apply := func(
