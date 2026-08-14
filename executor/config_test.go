@@ -149,6 +149,23 @@ func TestConfiguration_Validate(t *testing.T) {
 			wantErrContains: "http_listen_port must not be negative",
 		},
 		{
+			name: "out_of_range_http_listen_port_fails",
+			config: func() Configuration {
+				c := validConfig()
+				c.HTTPListenPort = 65536
+				return c
+			}(),
+			wantErrContains: "http_listen_port must not exceed 65535",
+		},
+		{
+			name: "max_http_listen_port_passes",
+			config: func() Configuration {
+				c := validConfig()
+				c.HTTPListenPort = 65535
+				return c
+			}(),
+		},
+		{
 			name: "negative_backoff_duration_fails",
 			config: func() Configuration {
 				c := validConfig()

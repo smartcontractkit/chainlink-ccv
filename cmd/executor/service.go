@@ -32,6 +32,8 @@ const (
 	// indexerGarbageCollectionInterval describes how frequently we garbage collect message duplicates from the indexer results.
 	// if this is too short, we will assume a message is net new every time it is read from the indexer.
 	indexerGarbageCollectionInterval = 1 * time.Hour
+	// httpShutdownTimeout bounds the graceful drain of the HTTP server during Stop.
+	httpShutdownTimeout = 5 * time.Second
 )
 
 // Factory is a bootstrap.ServiceFactory that starts the executor service.
@@ -76,7 +78,12 @@ func (f *Factory) Validate(spec bootstrap.JobSpec) error {
 func (f *Factory) Stop(ctx context.Context) error {
 	var err error
 	if f.server != nil {
-		err = f.server.Shutdown(ctx)
+		// Stop is routinely called with an already-canceled context (process teardown, failed
+		// Start). Shutdown would then return that context error immediately without draining
+		// in-flight requests, so drop the caller's cancellation and bound the drain ourselves.
+		shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), httpShutdownTimeout)
+		err = f.server.Shutdown(shutdownCtx)
+		cancel()
 	}
 	if f.coordinator != nil {
 		err = errors.Join(err, f.coordinator.Close())

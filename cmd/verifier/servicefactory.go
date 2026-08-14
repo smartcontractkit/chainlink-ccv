@@ -35,6 +35,9 @@ import (
 // does not set http_listen_port.
 const defaultHTTPListenPort = 8100
 
+// httpShutdownTimeout bounds the graceful drain of the HTTP server during Stop.
+const httpShutdownTimeout = 5 * time.Second
+
 // factory is a ServiceFactory implementation that creates a committee verifier service.
 type factory struct {
 	lggr             logger.Logger
@@ -462,9 +465,15 @@ func (f *factory) MetricViews() []sdkmetric.View {
 // Stop implements [bootstrap.ServiceFactory].
 func (f *factory) Stop(ctx context.Context) error {
 	var allErrors error
-	// Stop HTTP server
+	// Stop HTTP server. Stop is routinely called with an already-canceled context (process
+	// teardown, failed Start). Shutdown would then return that context error immediately
+	// without draining in-flight requests, so drop the caller's cancellation and bound the
+	// drain ourselves.
 	if f.server != nil {
-		if err := f.server.Shutdown(ctx); err != nil {
+		shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), httpShutdownTimeout)
+		err := f.server.Shutdown(shutdownCtx)
+		cancel()
+		if err != nil {
 			f.lggr.Errorw("HTTP server shutdown error", "error", err)
 			allErrors = errors.Join(allErrors, err)
 		}

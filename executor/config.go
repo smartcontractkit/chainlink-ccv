@@ -23,6 +23,11 @@ const (
 	IndexerQueryLimitMax             = 10000
 )
 
+// httpListenPortMax is the highest valid TCP port. Values above it are rejected at validation
+// time instead of failing the listener bind in the HTTP server goroutine, which would leave the
+// executor running without /health.
+const httpListenPortMax = 65535
+
 const (
 	// MessageContextWindow is how long executors retain messages for duplicate detection.
 	MessageContextWindow = 24 * time.Hour
@@ -128,6 +133,9 @@ func (c *Configuration) Validate() error {
 	}
 	if c.HTTPListenPort < 0 {
 		return fmt.Errorf("http_listen_port must not be negative, got %d", c.HTTPListenPort)
+	}
+	if c.HTTPListenPort > httpListenPortMax {
+		return fmt.Errorf("http_listen_port must not exceed %d, got %d", httpListenPortMax, c.HTTPListenPort)
 	}
 	if c.BackoffDuration < 0 {
 		return fmt.Errorf("source_backoff_duration must not be negative")
