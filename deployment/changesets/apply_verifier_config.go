@@ -154,9 +154,9 @@ func defaultApplyVerifierConfigApplyOverrides() *applyVerifierConfigApplyOverrid
 	}
 }
 
-type applyVerifierConfigApplyOption func(*applyVerifierConfigApplyOverrides)
+type ApplyVerifierConfigApplyOption func(*applyVerifierConfigApplyOverrides)
 
-func WithDifferentOnramp(onramps map[string]string) applyVerifierConfigApplyOption {
+func WithDifferentOnramp(onramps map[string]string) ApplyVerifierConfigApplyOption {
 	return func(o *applyVerifierConfigApplyOverrides) {
 		o.contractAddressOverrider = func(contractAddresses map[string]*adapters.VerifierContractAddresses) map[string]*adapters.VerifierContractAddresses {
 			overridden := make(map[string]*adapters.VerifierContractAddresses, len(contractAddresses))
@@ -181,7 +181,7 @@ func WithDifferentOnramp(onramps map[string]string) applyVerifierConfigApplyOpti
 	}
 }
 
-func WithJobSuffix(suffix string) applyVerifierConfigApplyOption {
+func WithJobSuffix(suffix string) ApplyVerifierConfigApplyOption {
 	return func(o *applyVerifierConfigApplyOverrides) {
 		o.jobSuffix = suffix
 		o.jobScopeFactory = func(committeeQualifier string) shared.JobScope {
@@ -193,7 +193,7 @@ func WithJobSuffix(suffix string) applyVerifierConfigApplyOption {
 	}
 }
 
-func createApplyVerifierConfigApplyFunc(opts ...applyVerifierConfigApplyOption) func(e deployment.Environment, cfg ApplyVerifierConfigInput) (deployment.ChangesetOutput, error) {
+func createApplyVerifierConfigApplyFunc(opts ...ApplyVerifierConfigApplyOption) func(e deployment.Environment, cfg ApplyVerifierConfigInput) (deployment.ChangesetOutput, error) {
 	return func(e deployment.Environment, cfg ApplyVerifierConfigInput) (deployment.ChangesetOutput, error) {
 		overrides := defaultApplyVerifierConfigApplyOverrides()
 		for _, opt := range opts {
