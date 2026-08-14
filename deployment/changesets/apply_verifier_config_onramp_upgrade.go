@@ -15,7 +15,7 @@ type ApplyVerifierConfigOnrampUpgradeInput struct {
 }
 
 const (
-	jobSuffix = "-temp-onramp-upgrade"
+jobSuffix = "temp-onramp-upgrade"
 )
 
 // ApplyOnrampRedeployVerifierConfig is the offchain-only single-entry product for §5.9 / §5.10:
