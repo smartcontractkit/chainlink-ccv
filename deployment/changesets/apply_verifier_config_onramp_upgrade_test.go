@@ -99,39 +99,50 @@ func TestApplyVerifierConfigOnrampUpgrade_UseCorrectPrefix(t *testing.T) {
 	}
 }
 
-func TestApplyVerifierConfigOnrampUpgradeDoNotIncludeNonUpgradedChains(t *testing.T) {
+func TestApplyVerifierConfigOnrampUpgrade_IncludesNonUpgradedChainsButOnlyOverridesUpgradedChains(t *testing.T) {
 	sel1 := chainsel.TEST_90000001.Selector
 	sel2 := chainsel.TEST_90000002.Selector
-	verifierAddr := testVerifierAddr
-	addr2 := "0x2222222222222222222222222222222222222222"
+
+	verifierAddr1 := testVerifierAddr
+	verifierAddr2 := "0x2222222222222222222222222222222222222222"
+	legacyOnramp := "0xLEGACY1"
 
 	mockUpgrader := ccipmocks.NewMockOnRampUpgrader(t)
 	mockUpgrader.EXPECT().
 		LegacyOnRampRef(mock.Anything, sel1).
-		Return(datastore.AddressRef{Address: "0xLEGACY1"}, nil)
+		Return(datastore.AddressRef{Address: legacyOnramp}, nil)
+
 	// sel2 is not upgraded, so LegacyOnRampRef must never be called for it.
 
 	registry := ccipadapters.NewOnRampUpgraderRegistry()
 	registry.Register(chainsel.FamilyEVM, mockUpgrader)
 
-	env := newOnrampUpgradeTestEnv(t, map[uint64]string{sel1: verifierAddr, sel2: addr2})
+	env := newOnrampUpgradeTestEnv(t, map[uint64]string{
+		sel1: verifierAddr1,
+		sel2: verifierAddr2,
+	})
 
 	cs := ApplyOnrampRedeployVerifierConfig(registry)
 	out, err := cs.Apply(env, ApplyVerifierConfigOnrampUpgradeInput{
-		// Only sel1 is upgraded; sel2 is a valid committee chain but must be filtered out
-		// of the job specs produced by this changeset (WithSelectorFilter).
 		UpgradedChainSelectors: []uint64{sel1},
 		ApplyVerifierConfigInput: ApplyVerifierConfigInput{
 			CommitteeQualifier:       testQualifier,
 			DefaultExecutorQualifier: "default-executor",
 			Committee: CommitteeInput{
-				Aggregators: []AggregatorRef{{Name: "agg", Address: "0xAGG"}},
+				Aggregators: []AggregatorRef{
+					{Name: "agg", Address: "0xAGG"},
+				},
 				ChainConfigs: map[uint64]CommitteeChainMembership{
 					sel1: {NOPAliases: []shared.NOPAlias{testNOPAlias}},
 					sel2: {NOPAliases: []shared.NOPAlias{testNOPAlias}},
 				},
 			},
-			NOPs: []NOPInput{{Alias: testNOPAlias, SignerAddressByFamily: map[string]string{chainsel.FamilyEVM: testSignerAddr}}},
+			NOPs: []NOPInput{{
+				Alias: testNOPAlias,
+				SignerAddressByFamily: map[string]string{
+					chainsel.FamilyEVM: testSignerAddr,
+				},
+			}},
 		},
 	})
 	require.NoError(t, err)
@@ -142,9 +153,28 @@ func TestApplyVerifierConfigOnrampUpgradeDoNotIncludeNonUpgradedChains(t *testin
 
 	sel1Key := fmt.Sprintf("%d", sel1)
 	sel2Key := fmt.Sprintf("%d", sel2)
+
 	for _, job := range jobs[testNOPAlias] {
-		assert.Contains(t, job.Spec, sel1Key, "job spec must reference the upgraded chain")
-		assert.NotContains(t, job.Spec, sel2Key, "job spec must not reference the non-upgraded chain")
+		assert.Contains(
+			t,
+			job.Spec,
+			sel1Key,
+			"job spec must contain the upgraded chain",
+		)
+
+		assert.Contains(
+			t,
+			job.Spec,
+			sel2Key,
+			"job spec must retain non-upgraded committee chains",
+		)
+
+		assert.Contains(
+			t,
+			job.Spec,
+			legacyOnramp,
+			"job spec must use the legacy OnRamp for the upgraded chain",
+		)
 	}
 }
 

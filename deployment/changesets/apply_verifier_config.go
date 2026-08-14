@@ -129,7 +129,6 @@ func createApplyVerifierConfigValidateFunc() func(e deployment.Environment, cfg 
 type applyVerifierConfigApplyOverrides struct {
 	contractAddressOverrider func(contractAddresses map[string]*adapters.VerifierContractAddresses) map[string]*adapters.VerifierContractAddresses
 	jobSuffix                string
-	selectorFilter           func([]uint64) []uint64
 	jobScopeFactory          func(committeeQualifier string) shared.JobScope
 }
 
@@ -147,9 +146,6 @@ func defaultApplyVerifierConfigApplyOverrides() *applyVerifierConfigApplyOverrid
 			return contractAddresses
 		},
 		jobSuffix: "",
-		selectorFilter: func(selectors []uint64) []uint64 {
-			return selectors
-		},
 		jobScopeFactory: func(committeeQualifier string) shared.JobScope {
 			return shared.VerifierJobScope{
 				CommitteeQualifier: committeeQualifier,
@@ -164,14 +160,22 @@ func WithDifferentOnramp(onramps map[string]string) applyVerifierConfigApplyOpti
 	return func(o *applyVerifierConfigApplyOverrides) {
 		o.contractAddressOverrider = func(contractAddresses map[string]*adapters.VerifierContractAddresses) map[string]*adapters.VerifierContractAddresses {
 			overridden := make(map[string]*adapters.VerifierContractAddresses, len(contractAddresses))
+
 			for chainSelector, addrs := range contractAddresses {
-				overridden[chainSelector] = addrs
-				onramp, ok := onramps[chainSelector]
-				if !ok {
+				if addrs == nil {
+					overridden[chainSelector] = nil
 					continue
 				}
-				overridden[chainSelector].OnRampAddress = onramp
+
+				addrsCopy := *addrs
+
+				if onramp, ok := onramps[chainSelector]; ok {
+					addrsCopy.OnRampAddress = onramp
+				}
+
+				overridden[chainSelector] = &addrsCopy
 			}
+
 			return overridden
 		}
 	}
@@ -189,23 +193,6 @@ func WithJobSuffix(suffix string) applyVerifierConfigApplyOption {
 	}
 }
 
-func WithSelectorFilter(selectorsInScope ...uint64) applyVerifierConfigApplyOption {
-	return func(o *applyVerifierConfigApplyOverrides) {
-		o.selectorFilter = func(selectors []uint64) []uint64 {
-			var filtered []uint64
-			for _, s := range selectors {
-				for _, inScope := range selectorsInScope {
-					if s == inScope {
-						filtered = append(filtered, s)
-						break
-					}
-				}
-			}
-			return filtered
-		}
-	}
-}
-
 func createApplyVerifierConfigApplyFunc(opts ...applyVerifierConfigApplyOption) func(e deployment.Environment, cfg ApplyVerifierConfigInput) (deployment.ChangesetOutput, error) {
 	return func(e deployment.Environment, cfg ApplyVerifierConfigInput) (deployment.ChangesetOutput, error) {
 		overrides := defaultApplyVerifierConfigApplyOverrides()
@@ -218,34 +205,19 @@ func createApplyVerifierConfigApplyFunc(opts ...applyVerifierConfigApplyOption) 
 			return deployment.ChangesetOutput{}, err
 		}
 
-		selectors = overrides.selectorFilter(selectors)
-
-		scopedCommittee := cfg.Committee
-		scopedCommittee.ChainConfigs = make(map[uint64]CommitteeChainMembership, len(selectors))
-		for _, selector := range selectors {
-			chainCfg, ok := cfg.Committee.ChainConfigs[selector]
-			if !ok {
-				continue
-			}
-			scopedCommittee.ChainConfigs[selector] = chainCfg
-		}
-
 		if len(selectors) == 0 {
-			if cfg.RevokeOrphanedJobs {
-				return runOrphanJobCleanup(
-					e,
-					cfg.RevokeOrphanedJobs,
-					overrides.jobScopeFactory(cfg.CommitteeQualifier),
-					map[string]string{"job_type": "verifier", "committee": cfg.CommitteeQualifier},
-					buildNOPModes(cfg.NOPs),
-					cfg.TargetNOPs,
-					allNOPAliases(cfg.NOPs),
-					"No chain configs found for committee, nothing to do",
-					"No chain configs for committee, running orphan cleanup only",
-					"committee", cfg.CommitteeQualifier,
-				)
-			}
-			return deployment.ChangesetOutput{}, fmt.Errorf("no chain configs found for committee %q", cfg.CommitteeQualifier)
+			return runOrphanJobCleanup(
+				e,
+				cfg.RevokeOrphanedJobs,
+				overrides.jobScopeFactory(cfg.CommitteeQualifier),
+				map[string]string{"job_type": "verifier", "committee": cfg.CommitteeQualifier},
+				buildNOPModes(cfg.NOPs),
+				cfg.TargetNOPs,
+				allNOPAliases(cfg.NOPs),
+				"No chain configs found for committee, nothing to do",
+				"No chain configs for committee, running orphan cleanup only",
+				"committee", cfg.CommitteeQualifier,
+			)
 		}
 
 		signerFamily, err := getSignerFamilyFromRegistry(selectors)
@@ -255,7 +227,7 @@ func createApplyVerifierConfigApplyFunc(opts ...applyVerifierConfigApplyOption) 
 
 		nopsToValidate := cfg.TargetNOPs
 		if len(nopsToValidate) == 0 {
-			nopsToValidate = committeeNOPAliasesFromInput(scopedCommittee, cfg.NOPs)
+			nopsToValidate = committeeNOPAliasesFromInput(cfg.Committee, cfg.NOPs)
 		}
 
 		targetedNOPs := filterNOPInputsByAliases(cfg.NOPs, nopsToValidate)
@@ -264,11 +236,16 @@ func createApplyVerifierConfigApplyFunc(opts ...applyVerifierConfigApplyOption) 
 			return deployment.ChangesetOutput{}, fmt.Errorf("failed to fetch signing keys: %w", err)
 		}
 
-		if err := validateVerifierChainSupport(e, nopsToValidate, scopedCommittee); err != nil {
+		if err := validateVerifierChainSupport(e, nopsToValidate, cfg.Committee); err != nil {
 			return deployment.ChangesetOutput{}, err
 		}
 
-		contractAddresses, executorOnRampAddrs, err := buildVerifierContractConfigs(e, selectors, cfg.CommitteeQualifier, cfg.DefaultExecutorQualifier)
+		contractAddresses, executorOnRampAddrs, err := buildVerifierContractConfigs(
+			e,
+			selectors,
+			cfg.CommitteeQualifier,
+			cfg.DefaultExecutorQualifier,
+		)
 		if err != nil {
 			return deployment.ChangesetOutput{}, err
 		}
@@ -276,13 +253,12 @@ func createApplyVerifierConfigApplyFunc(opts ...applyVerifierConfigApplyOption) 
 		contractAddresses = overrides.contractAddressOverrider(contractAddresses)
 
 		nopInputs := mergeSigningKeysIntoNOPInputs(cfg.NOPs, signingKeysByNOP, signerFamily)
-		// Default Committee.Qualifier from CommitteeQualifier so VerifierJobScope
-		// and downstream metadata are always non-empty. Validation already enforces
-		// equality when both are set.
-		committeeForBuild := scopedCommittee
+
+		committeeForBuild := cfg.Committee
 		if committeeForBuild.Qualifier == "" {
 			committeeForBuild.Qualifier = cfg.CommitteeQualifier
 		}
+
 		committeeInternal := toVerifierCommitteeInput(committeeForBuild, cfg.NOPs)
 
 		jobSpecs, scope, err := buildVerifierJobSpecs(

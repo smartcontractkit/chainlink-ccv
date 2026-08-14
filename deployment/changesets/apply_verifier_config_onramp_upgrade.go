@@ -19,10 +19,13 @@ const jobSuffix = "temp-onramp-upgrade"
 // ApplyOnrampRedeployVerifierConfig publishes or refreshes temporary verifier
 // job specs used during an OnRamp redeployment.
 //
-// Unlike the canonical verifier jobs, these jobs:
-//   - target only the chains currently undergoing an upgrade;
-//   - use the legacy OnRamp address for those chains; and
-//   - use a distinct job suffix to avoid conflicting with canonical jobs.
+// The temporary jobs retain the complete committee chain configuration so they
+// continue verifying traffic from every committee chain while an upgrade is in
+// progress. For chains listed in UpgradedChainSelectors, the canonical OnRamp
+// address is replaced with the legacy OnRamp address.
+//
+// The temporary jobs use a distinct job suffix to avoid conflicting with the
+// canonical verifier jobs.
 //
 // No onchain state is touched and no MCMS coordination is required.
 func ApplyOnrampRedeployVerifierConfig(
@@ -74,7 +77,6 @@ func ApplyOnrampRedeployVerifierConfig(
 		return createApplyVerifierConfigApplyFunc(
 			WithDifferentOnramp(onrampOverrides),
 			WithJobSuffix(jobSuffix),
-			WithSelectorFilter(cfg.UpgradedChainSelectors...),
 		)(e, cfg.ApplyVerifierConfigInput)
 	}
 
