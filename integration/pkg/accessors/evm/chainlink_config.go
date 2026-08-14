@@ -60,6 +60,13 @@ func newChainlinkEVMConfig(info Info) (*evmconfig.ChainScoped, error) {
 	}
 	// These services are not consumers of the standalone accessor. Disabling
 	// them keeps this lifecycle focused on the production HeadTracker and TXM.
+	//
+	// The balance monitor stays off deliberately: nothing in the standalone
+	// lifecycle constructs chainlink-evm's balance monitor, so the flag has no
+	// consumer here, and the executor's transmitter key is generated fresh at
+	// first boot rather than carried over. Funding is a runbook step with an
+	// external balance alert on the transmitter address instead; see the
+	// migration procedure's "Fund the executor" step.
 	chain.LogBroadcasterEnabled = new(false)
 	chain.BalanceMonitor.Enabled = new(false)
 	// These settings configure TXM v2 but do not start it. standaloneChain builds

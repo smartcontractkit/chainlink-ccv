@@ -3,6 +3,8 @@ package executor
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net"
 	"testing"
 	"time"
 
@@ -58,6 +60,40 @@ func newWorkingEVMFactory(t *testing.T) {
 	fac.EXPECT().GetAccessor(mock.Anything, mock.Anything).Return(acc, nil)
 	evmFactory = fac
 	t.Cleanup(func() { evmFactory = nil })
+}
+
+// monitoredDestinationReader records what attachExecutorMonitoring delivers through the
+// optional chainaccess.ExecutorMonitoringSetter capability.
+type monitoredDestinationReader struct {
+	chainaccess.DestinationReader
+	got monitoring.Monitoring
+}
+
+func (m *monitoredDestinationReader) SetExecutorMonitoring(mon monitoring.Monitoring) { m.got = mon }
+
+// monitoredContractTransmitter does the same for the transmitter side.
+type monitoredContractTransmitter struct {
+	chainaccess.ContractTransmitter
+	got monitoring.Monitoring
+}
+
+func (m *monitoredContractTransmitter) SetExecutorMonitoring(mon monitoring.Monitoring) { m.got = mon }
+
+// TestAttachExecutorMonitoring verifies that accessor-built destination components receive the
+// process-level monitoring through the optional capability, and that components without the
+// capability are skipped without error.
+func TestAttachExecutorMonitoring(t *testing.T) {
+	mon := monitoring.NewNoopExecutorMonitoring()
+
+	dr := &monitoredDestinationReader{DestinationReader: mocks.NewMockDestinationReader(t)}
+	ct := &monitoredContractTransmitter{ContractTransmitter: mocks.NewMockContractTransmitter(t)}
+	attachExecutorMonitoring(dr, ct, mon)
+	require.True(t, dr.got == mon, "destination reader must receive the process monitoring")
+	require.True(t, ct.got == mon, "contract transmitter must receive the process monitoring")
+
+	plainDR := mocks.NewMockDestinationReader(t)
+	plainCT := mocks.NewMockContractTransmitter(t)
+	attachExecutorMonitoring(plainDR, plainCT, mon) // components without the capability are skipped
 }
 
 // --- tests ---
@@ -266,14 +302,29 @@ executor_pool        = ["test-executor", "test-executor"]
 	assert.Contains(t, err.Error(), "failed to create leader elector")
 }
 
+// freeTCPPort asks the kernel for an unused TCP port and immediately releases it, so tests
+// that start an HTTP server do not collide with each other or with a real deployment on a
+// shared CI host.
+func freeTCPPort(t *testing.T) int {
+	t.Helper()
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	port := l.Addr().(*net.TCPAddr).Port
+	require.NoError(t, l.Close())
+	return port
+}
+
 // TestFactory_Start_Success runs a full startup/shutdown cycle using mock
 // accessors and a valid config. No external services are required.
+// http_listen_port is set to a kernel-allocated free port so the test's HTTP
+// server cannot collide with a real deployment or a concurrent test run.
 func TestFactory_Start_Success(t *testing.T) {
 	newWorkingEVMFactory(t)
 
-	const appConfig = `
+	appConfig := fmt.Sprintf(`
 executor_id = "test-executor"
 indexer_address = ["http://localhost:9090"]
+http_listen_port = %d
 
 [chain_configuration."5009297550715157269"]
 off_ramp_address     = "0x0000000000000000000000000000000000000001"
@@ -281,7 +332,7 @@ rmn_address          = "0x0000000000000000000000000000000000000002"
 default_executor_address = "0x0000000000000000000000000000000000000003"
 executor_pool        = ["test-executor"]
 execution_interval   = "1s"
-`
+`, freeTCPPort(t))
 	lggr := logger.Nop()
 	reg, err := chainaccess.NewRegistry(lggr, "")
 	require.NoError(t, err)

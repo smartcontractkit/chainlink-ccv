@@ -15,6 +15,11 @@ import (
 // DefaultECDSASigningKeyName is the keystore key name for the ECDSA key used to sign verification results.
 const DefaultECDSASigningKeyName = "bootstrap_default_ecdsa_signing_key"
 
+// httpListenPortMax is the highest valid TCP port. Values above it are rejected at validation
+// time instead of failing the listener bind in the HTTP server goroutine, which would leave the
+// verifier running without /health and /stats.
+const httpListenPortMax = 65535
+
 // AggregatorConnection describes a single aggregator the verifier writes to, sends
 // heartbeats to, and reads message-disablement rules from. A consolidated verifier job
 // carries one of these per aggregator in Config.Aggregators.
@@ -190,6 +195,10 @@ type Config struct {
 
 	// PyroscopeURL is the Pyroscope server URL for continuous profiling; empty disables it.
 	PyroscopeURL string `toml:"pyroscope_url"`
+	// HTTPListenPort is the port the standalone verifier's HTTP server (/health, /stats) listens
+	// on. Defaults to 8100. Inert in CL mode, which serves its own API.
+	// Omitted from marshaled job specs when unset so CL-mode specs are unchanged.
+	HTTPListenPort int `toml:"http_listen_port,omitempty"`
 	// CommitteeVerifierAddresses is a map the addresses of the committee verifiers for each chain selector.
 	CommitteeVerifierAddresses map[string]string `toml:"committee_verifier_addresses"`
 	// DefaultExecutorOnRampAddresses is a map the addresses of the default executor on ramps for each chain selector.
@@ -341,6 +350,13 @@ func (c *Config) Validate() error {
 	}
 	if _, err := c.MessageDisablementRulesClientTimeoutDuration(); err != nil {
 		return err
+	}
+
+	if c.HTTPListenPort < 0 {
+		return fmt.Errorf("invalid verifier configuration, http_listen_port must not be negative, got %d", c.HTTPListenPort)
+	}
+	if c.HTTPListenPort > httpListenPortMax {
+		return fmt.Errorf("invalid verifier configuration, http_listen_port must not exceed %d, got %d", httpListenPortMax, c.HTTPListenPort)
 	}
 
 	return nil

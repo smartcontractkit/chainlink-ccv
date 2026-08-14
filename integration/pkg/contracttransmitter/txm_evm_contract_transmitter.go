@@ -31,8 +31,9 @@ const (
 )
 
 var (
-	_          chainaccess.ContractTransmitter = &TXMEVMContractTransmitter{}
-	offrampABI                                 = evmtypes.MustGetABI(offramp.OffRampABI)
+	_          chainaccess.ContractTransmitter      = &TXMEVMContractTransmitter{}
+	_          chainaccess.ExecutorMonitoringSetter = &TXMEVMContractTransmitter{}
+	offrampABI                                      = evmtypes.MustGetABI(offramp.OffRampABI)
 )
 
 type TXMEVMContractTransmitter struct {
@@ -55,6 +56,16 @@ func NewEVMContractTransmitterFromTxm(lggr logger.Logger, chainSelector protocol
 		fromAddresses:  fromAddresses,
 		monitoring:     monitoring,
 	}
+}
+
+// SetExecutorMonitoring implements chainaccess.ExecutorMonitoringSetter. The accessor builds the
+// transmitter with no-op monitoring because the executor's process-level monitoring does not
+// exist yet; the executor swaps in the real one here before the coordinator starts.
+func (ct *TXMEVMContractTransmitter) SetExecutorMonitoring(m monitoring.Monitoring) {
+	if m == nil {
+		return
+	}
+	ct.monitoring = m
 }
 
 func (ct *TXMEVMContractTransmitter) ConvertAndWriteMessageToChain(ctx context.Context, report protocol.AbstractAggregatedReport) error {

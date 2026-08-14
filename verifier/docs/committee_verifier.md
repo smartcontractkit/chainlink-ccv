@@ -44,7 +44,7 @@ flowchart TB
     G["Create ChainStatusManager\nPostgreSQL-backed checkpoint store"]
     H["Create Coordinator\nverifier.NewCoordinator(...)"]
     I["Start Coordinator\ncoordinator.Start(ctx)"]
-    J["Start HTTP server\n:8100 — /health, /stats"]
+    J["Start HTTP server\n:8100 by default (http_listen_port) — /health, /stats"]
     A --> B --> C --> D --> E --> F --> G --> H --> I --> J
 ```
 

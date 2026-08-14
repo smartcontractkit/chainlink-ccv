@@ -140,6 +140,32 @@ func TestConfiguration_Validate(t *testing.T) {
 			wantErrContains: "worker_count must not be negative",
 		},
 		{
+			name: "negative_http_listen_port_fails",
+			config: func() Configuration {
+				c := validConfig()
+				c.HTTPListenPort = -1
+				return c
+			}(),
+			wantErrContains: "http_listen_port must not be negative",
+		},
+		{
+			name: "out_of_range_http_listen_port_fails",
+			config: func() Configuration {
+				c := validConfig()
+				c.HTTPListenPort = 65536
+				return c
+			}(),
+			wantErrContains: "http_listen_port must not exceed 65535",
+		},
+		{
+			name: "max_http_listen_port_passes",
+			config: func() Configuration {
+				c := validConfig()
+				c.HTTPListenPort = 65535
+				return c
+			}(),
+		},
+		{
 			name: "negative_backoff_duration_fails",
 			config: func() Configuration {
 				c := validConfig()
@@ -251,6 +277,23 @@ func TestConfiguration_Validate(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestConfiguration_HTTPListenPortNormalization(t *testing.T) {
+	t.Run("defaults_when_unset", func(t *testing.T) {
+		c := validConfig()
+		normalized, err := c.GetNormalizedConfig()
+		require.NoError(t, err)
+		require.Equal(t, httpListenPortDefault, normalized.HTTPListenPort)
+	})
+
+	t.Run("explicit_value_preserved", func(t *testing.T) {
+		c := validConfig()
+		c.HTTPListenPort = 9999
+		normalized, err := c.GetNormalizedConfig()
+		require.NoError(t, err)
+		require.Equal(t, 9999, normalized.HTTPListenPort)
+	})
 }
 
 func TestConfiguration_GetNormalizedConfig(t *testing.T) {

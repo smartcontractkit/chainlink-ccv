@@ -31,6 +31,13 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
+// defaultHTTPListenPort is the port the verifier's HTTP server listens on when the job config
+// does not set http_listen_port.
+const defaultHTTPListenPort = 8100
+
+// httpShutdownTimeout bounds the graceful drain of the HTTP server during Stop.
+const httpShutdownTimeout = 5 * time.Second
+
 // factory is a ServiceFactory implementation that creates a committee verifier service.
 type factory struct {
 	lggr             logger.Logger
@@ -426,15 +433,18 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 	})
 
 	// Start HTTP server
-	// TODO: listen port should be configurable.
+	listenPort := config.HTTPListenPort
+	if listenPort == 0 {
+		listenPort = defaultHTTPListenPort
+	}
 	server := &http.Server{
-		Addr:         ":8100",
+		Addr:         ":" + strconv.Itoa(listenPort),
 		Handler:      mux,
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 10 * time.Second,
 	}
 	go func() {
-		lggr.Infow("🌐 HTTP server starting", "port", "8100")
+		lggr.Infow("🌐 HTTP server starting", "port", listenPort)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			lggr.Errorw("HTTP server error", "error", err)
 		}
@@ -455,9 +465,15 @@ func (f *factory) MetricViews() []sdkmetric.View {
 // Stop implements [bootstrap.ServiceFactory].
 func (f *factory) Stop(ctx context.Context) error {
 	var allErrors error
-	// Stop HTTP server
+	// Stop HTTP server. Stop is routinely called with an already-canceled context (process
+	// teardown, failed Start). Shutdown would then return that context error immediately
+	// without draining in-flight requests, so drop the caller's cancellation and bound the
+	// drain ourselves.
 	if f.server != nil {
-		if err := f.server.Shutdown(ctx); err != nil {
+		shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), httpShutdownTimeout)
+		err := f.server.Shutdown(shutdownCtx)
+		cancel()
+		if err != nil {
 			f.lggr.Errorw("HTTP server shutdown error", "error", err)
 			allErrors = errors.Join(allErrors, err)
 		}

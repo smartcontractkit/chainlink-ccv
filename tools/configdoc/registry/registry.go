@@ -127,10 +127,12 @@ func aggregatorSecretsInstance() any {
 // committeeVerifierConfigInstance builds a documented committee verifier config.
 // The committee verifier has no defaulting routine, so every value is an example;
 // Monitoring is left zero (deprecated, bootstrap-sourced). The aggregators list is
-// populated to document the [[aggregators]] shape.
+// populated to document the [[aggregators]] shape. HTTPListenPort carries the real
+// default so the reference shows the port the server actually binds.
 func committeeVerifierConfigInstance() any {
 	return &commit.Config{
-		VerifierID: "committee-verifier-1",
+		VerifierID:     "committee-verifier-1",
+		HTTPListenPort: 8100,
 		Aggregators: []commit.AggregatorConnection{
 			{
 				Name:                "aggregator-1",
