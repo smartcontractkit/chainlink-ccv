@@ -12,10 +12,10 @@ import (
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-deployments-framework/operations"
 
+	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/commit"
 
-	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
 	"github.com/smartcontractkit/chainlink-ccv/deployment/adapters"
 	"github.com/smartcontractkit/chainlink-ccv/deployment/operations/fetch_signing_keys"
 	"github.com/smartcontractkit/chainlink-ccv/deployment/sequences"
@@ -66,7 +66,11 @@ type ApplyVerifierConfigInput struct {
 // The input is imperative — callers pass the committee description and the
 // participating NOPs directly, with no *EnvironmentTopology.
 func ApplyVerifierConfig() deployment.ChangeSetV2[ApplyVerifierConfigInput] {
-	validate := func(e deployment.Environment, cfg ApplyVerifierConfigInput) error {
+	return deployment.CreateChangeSet(createApplyVerifierConfigApplyFunc(), createApplyVerifierConfigValidateFunc())
+}
+
+func createApplyVerifierConfigValidateFunc() func(e deployment.Environment, cfg ApplyVerifierConfigInput) error {
+	return func(e deployment.Environment, cfg ApplyVerifierConfigInput) error {
 		if cfg.CommitteeQualifier == "" {
 			return fmt.Errorf("committee qualifier is required")
 		}
@@ -120,26 +124,116 @@ func ApplyVerifierConfig() deployment.ChangeSetV2[ApplyVerifierConfigInput] {
 
 		return nil
 	}
+}
 
-	apply := func(e deployment.Environment, cfg ApplyVerifierConfigInput) (deployment.ChangesetOutput, error) {
+type applyVerifierConfigApplyOverrides struct {
+	contractAddressOverrider func(contractAddresses map[string]*adapters.VerifierContractAddresses) map[string]*adapters.VerifierContractAddresses
+	jobSuffix                string
+	selectorFilter           func([]uint64) []uint64
+}
+
+func (a *applyVerifierConfigApplyOverrides) applySuffix(jobID shared.JobID) shared.JobID {
+	if a.jobSuffix == "" {
+		return jobID
+	}
+
+	return shared.JobID(fmt.Sprintf("%s-%s", jobID, a.jobSuffix))
+}
+
+func defaultApplyVerifierConfigApplyOverrides() *applyVerifierConfigApplyOverrides {
+	return &applyVerifierConfigApplyOverrides{
+		contractAddressOverrider: func(contractAddresses map[string]*adapters.VerifierContractAddresses) map[string]*adapters.VerifierContractAddresses {
+			return contractAddresses
+		},
+		jobSuffix: "",
+		selectorFilter: func(selectors []uint64) []uint64 {
+			return selectors
+		},
+	}
+}
+
+type applyVerifierConfigApplyOption func(*applyVerifierConfigApplyOverrides)
+
+func WithDifferentOnramp(onramps map[string]string) applyVerifierConfigApplyOption {
+	return func(o *applyVerifierConfigApplyOverrides) {
+		o.contractAddressOverrider = func(contractAddresses map[string]*adapters.VerifierContractAddresses) map[string]*adapters.VerifierContractAddresses {
+			overridden := make(map[string]*adapters.VerifierContractAddresses, len(contractAddresses))
+			for chainSelector, addrs := range contractAddresses {
+				overridden[chainSelector] = addrs
+				onramp, ok := onramps[chainSelector]
+				if !ok {
+					continue
+				}
+				overridden[chainSelector].OnRampAddress = onramp
+			}
+			return overridden
+		}
+	}
+}
+
+func WithJobSuffix(prefix string) applyVerifierConfigApplyOption {
+	return func(o *applyVerifierConfigApplyOverrides) {
+		o.jobSuffix = prefix
+	}
+}
+
+func WithSelectorFilter(selectorsInScope ...uint64) applyVerifierConfigApplyOption {
+	return func(o *applyVerifierConfigApplyOverrides) {
+		o.selectorFilter = func(selectors []uint64) []uint64 {
+			var filtered []uint64
+			for _, s := range selectors {
+				for _, inScope := range selectorsInScope {
+					if s == inScope {
+						filtered = append(filtered, s)
+						break
+					}
+				}
+			}
+			return filtered
+		}
+	}
+}
+
+func createApplyVerifierConfigApplyFunc(opts ...applyVerifierConfigApplyOption) func(e deployment.Environment, cfg ApplyVerifierConfigInput) (deployment.ChangesetOutput, error) {
+	return func(e deployment.Environment, cfg ApplyVerifierConfigInput) (deployment.ChangesetOutput, error) {
+		overrides := defaultApplyVerifierConfigApplyOverrides()
+		for _, opt := range opts {
+			opt(overrides)
+		}
+
 		selectors, err := committeeChainSelectorsFromInput(cfg.Committee)
 		if err != nil {
 			return deployment.ChangesetOutput{}, err
 		}
 
+		selectors = overrides.selectorFilter(selectors)
+
+		scopedCommittee := cfg.Committee
+		scopedCommittee.ChainConfigs = make(map[uint64]CommitteeChainMembership, len(selectors))
+		for _, selector := range selectors {
+			chainCfg, ok := cfg.Committee.ChainConfigs[selector]
+			if !ok {
+				continue
+			}
+			scopedCommittee.ChainConfigs[selector] = chainCfg
+		}
+
 		if len(selectors) == 0 {
-			return runOrphanJobCleanup(
-				e,
-				cfg.RevokeOrphanedJobs,
-				shared.VerifierJobScope{CommitteeQualifier: cfg.CommitteeQualifier},
-				map[string]string{"job_type": "verifier", "committee": cfg.CommitteeQualifier},
-				buildNOPModes(cfg.NOPs),
-				cfg.TargetNOPs,
-				allNOPAliases(cfg.NOPs),
-				"No chain configs found for committee, nothing to do",
-				"No chain configs for committee, running orphan cleanup only",
-				"committee", cfg.CommitteeQualifier,
-			)
+			if cfg.RevokeOrphanedJobs {
+				return runOrphanJobCleanup(
+					e,
+					cfg.RevokeOrphanedJobs,
+					shared.VerifierJobScope{CommitteeQualifier: cfg.CommitteeQualifier},
+					map[string]string{"job_type": "verifier", "committee": cfg.CommitteeQualifier},
+					buildNOPModes(cfg.NOPs),
+					cfg.TargetNOPs,
+					allNOPAliases(cfg.NOPs),
+					"No chain configs found for committee, nothing to do",
+					"No chain configs for committee, running orphan cleanup only",
+					"committee", cfg.CommitteeQualifier,
+				)
+			}
+			return deployment.ChangesetOutput{}, fmt.Errorf("no chain configs found for committee %q", cfg.CommitteeQualifier)
 		}
 
 		signerFamily, err := getSignerFamilyFromRegistry(selectors)
@@ -149,7 +243,7 @@ func ApplyVerifierConfig() deployment.ChangeSetV2[ApplyVerifierConfigInput] {
 
 		nopsToValidate := cfg.TargetNOPs
 		if len(nopsToValidate) == 0 {
-			nopsToValidate = committeeNOPAliasesFromInput(cfg.Committee, cfg.NOPs)
+			nopsToValidate = committeeNOPAliasesFromInput(scopedCommittee, cfg.NOPs)
 		}
 
 		targetedNOPs := filterNOPInputsByAliases(cfg.NOPs, nopsToValidate)
@@ -158,7 +252,7 @@ func ApplyVerifierConfig() deployment.ChangeSetV2[ApplyVerifierConfigInput] {
 			return deployment.ChangesetOutput{}, fmt.Errorf("failed to fetch signing keys: %w", err)
 		}
 
-		if err := validateVerifierChainSupport(e, nopsToValidate, cfg.Committee); err != nil {
+		if err := validateVerifierChainSupport(e, nopsToValidate, scopedCommittee); err != nil {
 			return deployment.ChangesetOutput{}, err
 		}
 
@@ -167,11 +261,13 @@ func ApplyVerifierConfig() deployment.ChangeSetV2[ApplyVerifierConfigInput] {
 			return deployment.ChangesetOutput{}, err
 		}
 
+		contractAddresses = overrides.contractAddressOverrider(contractAddresses)
+
 		nopInputs := mergeSigningKeysIntoNOPInputs(cfg.NOPs, signingKeysByNOP, signerFamily)
 		// Default Committee.Qualifier from CommitteeQualifier so VerifierJobScope
 		// and downstream metadata are always non-empty. Validation already enforces
 		// equality when both are set.
-		committeeForBuild := cfg.Committee
+		committeeForBuild := scopedCommittee
 		if committeeForBuild.Qualifier == "" {
 			committeeForBuild.Qualifier = cfg.CommitteeQualifier
 		}
@@ -187,6 +283,7 @@ func ApplyVerifierConfig() deployment.ChangeSetV2[ApplyVerifierConfigInput] {
 			cfg.DisableFinalityCheckers,
 			signerFamily,
 			cfg.ConsolidateAggregators,
+			overrides,
 		)
 		if err != nil {
 			return deployment.ChangesetOutput{}, err
@@ -240,8 +337,6 @@ func ApplyVerifierConfig() deployment.ChangeSetV2[ApplyVerifierConfigInput] {
 			DataStore: manageReport.Output.DataStore,
 		}, nil
 	}
-
-	return deployment.CreateChangeSet(apply, validate)
 }
 
 // getSignerFamilyFromRegistry returns the signing key family implied by the selected
@@ -350,6 +445,7 @@ func buildVerifierJobSpecs(
 	disableFinalityCheckers []string,
 	signerFamily string,
 	consolidateAggregators bool,
+	overrides *applyVerifierConfigApplyOverrides,
 ) (shared.NOPJobSpecs, shared.VerifierJobScope, error) {
 	scope := shared.VerifierJobScope{
 		CommitteeQualifier: committee.Qualifier,
@@ -432,7 +528,7 @@ func buildVerifierJobSpecs(
 			}
 
 			var jobSpec string
-			jobID := verifierJobID.ToJobID()
+			jobID := overrides.applySuffix(verifierJobID.ToJobID())
 			if mode == shared.NOPModeStandalone {
 				// standalone mode bootstrapper expects "appConfig" field
 				jobSpec = fmt.Sprintf(`schemaVersion = 1
