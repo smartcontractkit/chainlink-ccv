@@ -99,6 +99,10 @@ derivation read enforces at startup.
   `onramp`/`offramp` bindings.
 - Construction-time behavior changes: one additional RPC call per reader at startup, and accessor
   construction now fails if the ramp's static config cannot be read.
+- Test/development harnesses that configure placeholder ramp addresses with nothing deployed on
+  the chain must now answer `getStaticConfig` at those addresses. The devenv local-mode service
+  tests install a small `anvil_setCode` stub returning a static config with a non-zero
+  `rmnRemote`.
 - `TestCreateAccessorFactoryDoesNotDialRPCDuringConstruction` still holds: the read happens in
   `GetAccessor`, not in factory construction.
 
