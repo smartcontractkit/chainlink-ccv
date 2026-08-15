@@ -54,3 +54,27 @@ func SaveFailingTestcontainerLogs(ctx context.Context, c testcontainers.Containe
 	framework.L.Info().Str("path", outPath).Int("attempt", attempt).Str("name", name).Msg("saved testcontainer logs before terminate")
 	return nil
 }
+
+// ContainerLogTail returns the last maxBytes of the container's combined log stream, for
+// inclusion in error messages. Readiness failures otherwise surface only as a timeout in the
+// test output, leaving the application's own startup error invisible without CI artifacts.
+// Best-effort: a read failure yields a placeholder rather than an error.
+func ContainerLogTail(ctx context.Context, c testcontainers.Container, maxBytes int) string {
+	if c == nil {
+		return "<no container handle>"
+	}
+	reader, err := c.Logs(ctx)
+	if err != nil {
+		return fmt.Sprintf("<failed to open container logs: %v>", err)
+	}
+	defer reader.Close()
+
+	data, err := io.ReadAll(reader)
+	if err != nil {
+		return fmt.Sprintf("<failed to read container logs: %v>", err)
+	}
+	if len(data) > maxBytes {
+		data = data[len(data)-maxBytes:]
+	}
+	return string(data)
+}
