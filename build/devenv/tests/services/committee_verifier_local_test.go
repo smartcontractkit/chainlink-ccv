@@ -95,12 +95,18 @@ func testVerifierBootstrapWithImportedSigningKey(
 	}
 }
 
+// placeholderOnRampAddr is the OnRamp address these tests configure and stub. It deliberately sits
+// outside the precompile range (0x01-0x11): calls to a precompile address are answered by the
+// precompile itself, so stub bytecode installed there is ignored and getStaticConfig comes back
+// empty.
+const placeholderOnRampAddr = "0x0000000000000000000000000000000000001001"
+
 // stubOnRampGetStaticConfig installs minimal bytecode at the placeholder OnRamp address so the
 // source reader's construction-time RMN derivation succeeds: NewEVMSourceReader reads
 // OnRamp.getStaticConfig() once at startup and fails if the read errors or returns a zero
 // rmnRemote. These tests deploy no real contracts, so the placeholder must at least answer that
 // one call. The stub returns an ABI-encoded OnRamp.StaticConfig (chainSelector, rmnRemote,
-// maxUSDCentsPerMessage, tokenAdminRegistry — 4×32 bytes) whose only non-zero field is rmnRemote.
+// nonceManager, tokenAdminRegistry — 4×32 bytes) whose only non-zero field is rmnRemote.
 //
 // The 14-byte runtime code returns its appended 128-byte payload for ANY call:
 //
@@ -111,7 +117,7 @@ func testVerifierBootstrapWithImportedSigningKey(
 //	61 0080    PUSH2  128
 //	60 00      PUSH1  0
 //	f3         RETURN
-func stubOnRampGetStaticConfig(t *testing.T, rpcURL string, onRampAddress string) {
+func stubOnRampGetStaticConfig(t *testing.T, rpcURL, onRampAddress string) {
 	t.Helper()
 
 	const rmnRemote = "00000000000000000000000000000000000000aa" // arbitrary, non-zero
@@ -232,7 +238,7 @@ func TestServiceCommitteeVerifierLocalMode(t *testing.T) {
 	//    the RMN Remote address, so the placeholder must answer getStaticConfig (stubbed below). The
 	//    maps must share the same chain-selector key set (commit.Config.Validate).
 	const placeholderAddr = "0x0000000000000000000000000000000000000001"
-	stubOnRampGetStaticConfig(t, chainOut.Nodes[0].ExternalHTTPUrl, placeholderAddr)
+	stubOnRampGetStaticConfig(t, chainOut.Nodes[0].ExternalHTTPUrl, placeholderOnRampAddr)
 	appCfg := commit.Config{
 		VerifierID:    "local-verifier",
 		SignerAddress: signerAddress,
@@ -243,7 +249,7 @@ func TestServiceCommitteeVerifierLocalMode(t *testing.T) {
 		}},
 		CommitteeVerifierAddresses: map[string]string{selectorStr: placeholderAddr},
 		CommitteeConfig: chainaccess.CommitteeConfig{
-			OnRampAddresses: map[string]string{selectorStr: placeholderAddr},
+			OnRampAddresses: map[string]string{selectorStr: placeholderOnRampAddr},
 		},
 	}
 	require.NoError(t, appCfg.Validate(), "hand-built verifier config must be valid")
@@ -422,7 +428,7 @@ func TestServiceCommitteeVerifierLocalModeDeferredConfig(t *testing.T) {
 	// The placeholder OnRamp must answer getStaticConfig (the reader derives the RMN Remote address
 	// from it at construction), so stub it before delivery.
 	const placeholderAddr = "0x0000000000000000000000000000000000000001"
-	stubOnRampGetStaticConfig(t, chainOut.Nodes[0].ExternalHTTPUrl, placeholderAddr)
+	stubOnRampGetStaticConfig(t, chainOut.Nodes[0].ExternalHTTPUrl, placeholderOnRampAddr)
 	appCfg := commit.Config{
 		VerifierID:    "localdefer-verifier",
 		SignerAddress: signerAddress,
@@ -433,7 +439,7 @@ func TestServiceCommitteeVerifierLocalModeDeferredConfig(t *testing.T) {
 		}},
 		CommitteeVerifierAddresses: map[string]string{selectorStr: placeholderAddr},
 		CommitteeConfig: chainaccess.CommitteeConfig{
-			OnRampAddresses: map[string]string{selectorStr: placeholderAddr},
+			OnRampAddresses: map[string]string{selectorStr: placeholderOnRampAddr},
 		},
 	}
 	require.NoError(t, appCfg.Validate(), "hand-built verifier config must be valid")
