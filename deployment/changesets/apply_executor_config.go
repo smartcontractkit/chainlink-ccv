@@ -361,7 +361,6 @@ func buildExecutorJobSpecs(
 			chainCfgs[chainSelectorStr] = executor.ChainConfiguration{
 				DestinationChainConfig: chainaccess.DestinationChainConfig{
 					OffRampAddress: adapterCfg.OffRampAddress,
-					RmnAddress:     adapterCfg.RmnAddress,
 				},
 				DefaultExecutorAddress: adapterCfg.DefaultExecutorAddress,
 				ExecutorPool:           sortedPoolStrs,

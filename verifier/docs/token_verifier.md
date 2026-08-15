@@ -294,9 +294,6 @@ GET /v1/verifications?messageID=0xabc123...&messageID=0xdef456...
 [on_ramp_addresses]
 # map of chain selector → OnRamp contract address
 
-[rmn_remote_addresses]
-# map of chain selector → RMN Remote contract address
-
 [[token_verifiers]]
 # One block per token verifier instance
 ```

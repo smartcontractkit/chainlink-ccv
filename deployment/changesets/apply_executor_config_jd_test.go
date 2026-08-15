@@ -33,7 +33,6 @@ func (m *jdMockExecutorAdapter) BuildChainConfig(_ datastore.DataStore, _ uint64
 	return executor.ChainConfiguration{
 		DestinationChainConfig: chainaccess.DestinationChainConfig{
 			OffRampAddress: "0xoff",
-			RmnAddress:     "0xrmn",
 		},
 		DefaultExecutorAddress: "0xexec",
 	}, nil

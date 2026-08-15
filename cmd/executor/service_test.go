@@ -142,7 +142,6 @@ indexer_address = ["http://localhost:9090"]
 
 [chain_configuration."5009297550715157269"]
 off_ramp_address     = "0x0000000000000000000000000000000000000001"
-rmn_address          = "0x0000000000000000000000000000000000000002"
 default_executor_address = "0x0000000000000000000000000000000000000003"
 executor_pool        = ["test-executor"]
 `
@@ -213,7 +212,6 @@ indexer_address = ["http://localhost:9090"]
 
 [chain_configuration."5009297550715157269"]
 off_ramp_address     = "0x0000000000000000000000000000000000000001"
-rmn_address          = "0x0000000000000000000000000000000000000002"
 default_executor_address = "0x0000000000000000000000000000000000000003"
 executor_pool        = ["test-executor"]
 `
@@ -237,7 +235,6 @@ indexer_address = ["http://localhost:9090"]
 
 [chain_configuration."not-a-number"]
 off_ramp_address     = "0x0000000000000000000000000000000000000001"
-rmn_address          = "0x0000000000000000000000000000000000000002"
 default_executor_address = "0x0000000000000000000000000000000000000003"
 executor_pool        = ["test-executor"]
 `
@@ -262,7 +259,6 @@ indexer_address = ["http://localhost:9090"]
 
 [chain_configuration."5009297550715157269"]
 off_ramp_address     = "0x0000000000000000000000000000000000000001"
-rmn_address          = "0x0000000000000000000000000000000000000002"
 default_executor_address = "not-valid-hex"
 executor_pool        = ["test-executor"]
 `
@@ -288,7 +284,6 @@ indexer_address = ["http://localhost:9090"]
 
 [chain_configuration."5009297550715157269"]
 off_ramp_address     = "0x0000000000000000000000000000000000000001"
-rmn_address          = "0x0000000000000000000000000000000000000002"
 default_executor_address = "0x0000000000000000000000000000000000000003"
 executor_pool        = ["test-executor", "test-executor"]
 `
@@ -328,7 +323,6 @@ http_listen_port = %d
 
 [chain_configuration."5009297550715157269"]
 off_ramp_address     = "0x0000000000000000000000000000000000000001"
-rmn_address          = "0x0000000000000000000000000000000000000002"
 default_executor_address = "0x0000000000000000000000000000000000000003"
 executor_pool        = ["test-executor"]
 execution_interval   = "1s"

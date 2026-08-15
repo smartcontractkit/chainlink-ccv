@@ -6,7 +6,6 @@ import (
 
 type TokenVerifierChainAddresses struct {
 	OnRampAddress                  string
-	RMNRemoteAddress               string
 	CCTPVerifierAddress            string
 	CCTPVerifierResolverAddress    string
 	LombardVerifierResolverAddress string

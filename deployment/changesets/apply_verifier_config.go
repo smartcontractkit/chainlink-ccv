@@ -367,12 +367,10 @@ func buildVerifierJobSpecs(
 
 	committeeVerifierAddrs := make(map[string]string, len(contractAddresses))
 	onRampAddrs := make(map[string]string, len(contractAddresses))
-	rmnRemoteAddrs := make(map[string]string, len(contractAddresses))
 
 	for chainSel, addrs := range contractAddresses {
 		committeeVerifierAddrs[chainSel] = addrs.CommitteeVerifierAddress
 		onRampAddrs[chainSel] = addrs.OnRampAddress
-		rmnRemoteAddrs[chainSel] = addrs.RMNRemoteAddress
 	}
 
 	jobSpecs := make(shared.NOPJobSpecs)
@@ -420,8 +418,7 @@ func buildVerifierJobSpecs(
 			// Monitoring is intentionally not set here: monitoring config is operator-provided via the
 			// bootstrap config, not the JD-shipped app config. See bootstrap.Config.Monitoring.
 			CommitteeConfig: chainaccess.CommitteeConfig{
-				OnRampAddresses:    filterAddressesByChains(onRampAddrs, nopChains),
-				RMNRemoteAddresses: filterAddressesByChains(rmnRemoteAddrs, nopChains),
+				OnRampAddresses: filterAddressesByChains(onRampAddrs, nopChains),
 			},
 		}
 

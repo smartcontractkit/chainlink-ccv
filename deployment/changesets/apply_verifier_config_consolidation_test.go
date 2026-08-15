@@ -20,7 +20,6 @@ func buildVerifierSpecsForTest(t *testing.T, consolidate bool) shared.NOPJobSpec
 		"1": {
 			CommitteeVerifierAddress: "0xCommittee1",
 			OnRampAddress:            "0xOnRamp1",
-			RMNRemoteAddress:         "0xRMN1",
 		},
 	}
 	executorOnRampAddrs := map[string]string{"1": "0xExec1"}
@@ -136,7 +135,6 @@ func buildVerifierJobSpecWithMode(t *testing.T, mode shared.NOPMode) string {
 		"1": {
 			CommitteeVerifierAddress: "0xCommittee1",
 			OnRampAddress:            "0xOnRamp1",
-			RMNRemoteAddress:         "0xRMN1",
 		},
 	}
 	specs, _, err := buildVerifierJobSpecs(

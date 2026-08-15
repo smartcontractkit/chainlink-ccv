@@ -20,10 +20,6 @@ func Test_Config_Deserialization(t *testing.T) {
 		[on_ramp_addresses]
 		1 = "0xOnRamp1"
 
-		[rmn_remote_addresses]
-		"1" = "0xRMN1"
-		"2" = "0xRMN2"
-
 		[[token_verifiers]]
 		verifier_id = "cctp-verifier-1"
 		type = "cctp"
@@ -51,8 +47,6 @@ func Test_Config_Deserialization(t *testing.T) {
 	assertContent := func(config Config) {
 		assert.Equal(t, "http://localhost:4040", config.PyroscopeURL)
 		assert.Equal(t, "0xOnRamp1", config.OnRampAddresses["1"])
-		assert.Equal(t, "0xRMN1", config.RMNRemoteAddresses["1"])
-		assert.Equal(t, "0xRMN2", config.RMNRemoteAddresses["2"])
 
 		require.Len(t, config.TokenVerifiers, 2)
 		cctpVerifier := config.TokenVerifiers[0]

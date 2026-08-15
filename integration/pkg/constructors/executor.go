@@ -1,6 +1,7 @@
 package constructors
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -52,7 +53,6 @@ func NewExecutorCoordinator(
 	lggr.Infow("Executor configuration", "config", cfg)
 
 	offRampAddresses := make(map[protocol.ChainSelector]protocol.UnknownAddress, len(cfg.ChainConfiguration))
-	rmnAddresses := make(map[protocol.ChainSelector]protocol.UnknownAddress, len(cfg.ChainConfiguration))
 	execPool := make(map[protocol.ChainSelector][]string, len(cfg.ChainConfiguration))
 	execIntervals := make(map[protocol.ChainSelector]time.Duration, len(cfg.ChainConfiguration))
 	defaultExecutorAddresses := make(map[protocol.ChainSelector]protocol.UnknownAddress, len(cfg.ChainConfiguration))
@@ -66,10 +66,6 @@ func NewExecutorCoordinator(
 		offRampAddresses[sel], err = protocol.NewUnknownAddressFromHex(chainConfig.OffRampAddress)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse offramp address '%s': %w", chainConfig.OffRampAddress, err)
-		}
-		rmnAddresses[sel], err = protocol.NewUnknownAddressFromHex(chainConfig.RmnAddress)
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse rmn address '%s': %w", chainConfig.RmnAddress, err)
 		}
 		execPool[sel] = chainConfig.ExecutorPool
 		execIntervals[sel] = chainConfig.ExecutionInterval
@@ -108,12 +104,15 @@ func NewExecutorCoordinator(
 		)
 
 		evmDestReader, err := destinationreader.NewEvmDestinationReader(
+			// This CL entry point has no context parameter (its signature is consumed by the
+			// Chainlink node repo and must stay unchanged); the reader bounds the one-shot
+			// static-config read with its own timeout.
+			context.Background(),
 			destinationreader.Params{
 				Lggr:                      logger.With(lggr, "component", "DestinationReader"),
 				ChainSelector:             sel,
 				ChainClient:               chain.Client(),
 				OfframpAddress:            offRampAddresses[sel].String(), // TODO: use UnknownAddress instead of string?
-				RmnRemoteAddress:          rmnAddresses[sel].String(),
 				ExecutionVisabilityWindow: cfg.MaxRetryDuration,
 				Monitoring:                executorMonitoring,
 			})

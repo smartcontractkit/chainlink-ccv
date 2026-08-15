@@ -3,7 +3,6 @@ package adapters
 import (
 	"fmt"
 
-	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_0_0/operations/rmn_proxy"
 	onrampop "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/onramp"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/versioned_verifier_resolver"
 	cctpverifier "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_1_0/operations/cctp_verifier"
@@ -34,17 +33,8 @@ func (a *EVMCCVTokenVerifierConfigAdapter) ResolveTokenVerifierAddresses(
 		return nil, fmt.Errorf("failed to get on ramp address for chain %d: %w", chainSelector, err)
 	}
 
-	rmnRemoteAddr, err := dsutils.FindAndFormatRef(ds, datastore.AddressRef{
-		Type:    datastore.ContractType(rmn_proxy.ContractType),
-		Version: rmn_proxy.Version,
-	}, chainSelector, toAddress)
-	if err != nil {
-		return nil, fmt.Errorf("failed to get RMNProxy address for chain %d: %w", chainSelector, err)
-	}
-
 	result := &ccvdeploymentadapters.TokenVerifierChainAddresses{
-		OnRampAddress:    onRampAddr,
-		RMNRemoteAddress: rmnRemoteAddr,
+		OnRampAddress: onRampAddr,
 	}
 
 	cctpVerifierRefs := ds.Addresses().Filter(

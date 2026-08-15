@@ -7,7 +7,6 @@ import (
 type VerifierContractAddresses struct {
 	CommitteeVerifierAddress string
 	OnRampAddress            string
-	RMNRemoteAddress         string
 }
 
 // VerifierConfigAdapter resolves verifier-related on-chain addresses and the signing

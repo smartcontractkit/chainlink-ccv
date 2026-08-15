@@ -176,7 +176,7 @@ func TestServiceCommitteeVerifierLocalMode(t *testing.T) {
 	require.NoError(t, err, "failed to launch aggregator")
 
 	// 3. Minimal committee-verifier app config. Placeholder on-chain addresses are fine: the verifier
-	//    does not validate them against the chain at startup. All three maps must share the same
+	//    does not validate them against the chain at startup. The maps must share the same
 	//    chain-selector key set (commit.Config.Validate).
 	const placeholderAddr = "0x0000000000000000000000000000000000000001"
 	appCfg := commit.Config{
@@ -189,8 +189,7 @@ func TestServiceCommitteeVerifierLocalMode(t *testing.T) {
 		}},
 		CommitteeVerifierAddresses: map[string]string{selectorStr: placeholderAddr},
 		CommitteeConfig: chainaccess.CommitteeConfig{
-			OnRampAddresses:    map[string]string{selectorStr: placeholderAddr},
-			RMNRemoteAddresses: map[string]string{selectorStr: placeholderAddr},
+			OnRampAddresses: map[string]string{selectorStr: placeholderAddr},
 		},
 	}
 	require.NoError(t, appCfg.Validate(), "hand-built verifier config must be valid")
@@ -377,8 +376,7 @@ func TestServiceCommitteeVerifierLocalModeDeferredConfig(t *testing.T) {
 		}},
 		CommitteeVerifierAddresses: map[string]string{selectorStr: placeholderAddr},
 		CommitteeConfig: chainaccess.CommitteeConfig{
-			OnRampAddresses:    map[string]string{selectorStr: placeholderAddr},
-			RMNRemoteAddresses: map[string]string{selectorStr: placeholderAddr},
+			OnRampAddresses: map[string]string{selectorStr: placeholderAddr},
 		},
 	}
 	require.NoError(t, appCfg.Validate(), "hand-built verifier config must be valid")

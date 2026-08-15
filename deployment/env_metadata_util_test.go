@@ -176,7 +176,7 @@ func TestMergeIndexerConfig_AccumulatesAndUpsertsByName(t *testing.T) {
 }
 
 // TestMergeTokenVerifierConfig_AccumulatesPerChain is the core token-verifier
-// scaling case: per-chain runs accumulate the committee on-ramp/RMN maps and each
+// scaling case: per-chain runs accumulate the committee on-ramp map and each
 // verifier's per-chain address maps, rather than replacing the whole config.
 func TestMergeTokenVerifierConfig_AccumulatesPerChain(t *testing.T) {
 	t.Parallel()
@@ -186,7 +186,7 @@ func TestMergeTokenVerifierConfig_AccumulatesPerChain(t *testing.T) {
 	// First per-chain run: chain 1, with a CCTP and a Lombard verifier.
 	require.NoError(t, MergeTokenVerifierConfig(ds, "token-1", &token.Config{
 		PyroscopeURL:    "http://pyroscope",
-		CommitteeConfig: chainaccess.CommitteeConfig{OnRampAddresses: map[string]string{"1": "0xonramp1"}, RMNRemoteAddresses: map[string]string{"1": "0xrmn1"}},
+		CommitteeConfig: chainaccess.CommitteeConfig{OnRampAddresses: map[string]string{"1": "0xonramp1"}},
 		TokenVerifiers: []token.VerifierConfig{
 			{VerifierID: "cctp-q", Type: "cctp", Version: "2.0", CCTPConfig: &cctp.CCTPConfig{
 				Verifiers:         map[string]any{"1": "0xcctp1"},
@@ -201,7 +201,7 @@ func TestMergeTokenVerifierConfig_AccumulatesPerChain(t *testing.T) {
 	// Second per-chain run: chain 2, same verifier IDs.
 	require.NoError(t, MergeTokenVerifierConfig(ds, "token-1", &token.Config{
 		PyroscopeURL:    "http://pyroscope",
-		CommitteeConfig: chainaccess.CommitteeConfig{OnRampAddresses: map[string]string{"2": "0xonramp2"}, RMNRemoteAddresses: map[string]string{"2": "0xrmn2"}},
+		CommitteeConfig: chainaccess.CommitteeConfig{OnRampAddresses: map[string]string{"2": "0xonramp2"}},
 		TokenVerifiers: []token.VerifierConfig{
 			{VerifierID: "cctp-q", Type: "cctp", Version: "2.0", CCTPConfig: &cctp.CCTPConfig{
 				Verifiers:         map[string]any{"2": "0xcctp2"},
@@ -216,9 +216,8 @@ func TestMergeTokenVerifierConfig_AccumulatesPerChain(t *testing.T) {
 	got, err := GetTokenVerifierConfig(ds.Seal(), "token-1")
 	require.NoError(t, err)
 
-	// Committee maps cover both chains.
+	// Committee map covers both chains.
 	require.Equal(t, map[string]string{"1": "0xonramp1", "2": "0xonramp2"}, got.OnRampAddresses)
-	require.Equal(t, map[string]string{"1": "0xrmn1", "2": "0xrmn2"}, got.RMNRemoteAddresses)
 
 	// Still exactly two verifiers (merged by VerifierID, not duplicated).
 	require.Len(t, got.TokenVerifiers, 2)

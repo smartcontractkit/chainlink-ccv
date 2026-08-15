@@ -83,8 +83,3 @@ pyroscope_url = ""
 [on_ramp_addresses]
   1 = "0x00000000000000000000000000000000000000a1"
 
-# rmn_remote_addresses is a map of RMN Remote contract addresses for each chain selector.
-# Required for curse detection.
-[rmn_remote_addresses]
-  1 = "0x00000000000000000000000000000000000000b1"
-

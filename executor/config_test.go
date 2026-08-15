@@ -12,7 +12,6 @@ import (
 func validChainConfig() ChainConfiguration {
 	return ChainConfiguration{
 		DestinationChainConfig: chainaccess.DestinationChainConfig{
-			RmnAddress:     "0x1234567890abcdef",
 			OffRampAddress: "0xabcdef1234567890",
 		},
 		DefaultExecutorAddress: "0xdeadbeef12345678",
@@ -191,17 +190,6 @@ func TestConfiguration_Validate(t *testing.T) {
 				return c
 			}(),
 			wantErrContains: "indexer_query_limit must not exceed",
-		},
-		{
-			name: "missing_rmn_address_fails",
-			config: func() Configuration {
-				c := validConfig()
-				cc := validChainConfig()
-				cc.RmnAddress = ""
-				c.ChainConfiguration = map[string]ChainConfiguration{"1": cc}
-				return c
-			}(),
-			wantErrContains: "rmn_address must be configured",
 		},
 		{
 			name: "missing_offramp_address_fails",

@@ -53,7 +53,6 @@ func executorDocInstance() any {
 			"1": {
 				DestinationChainConfig: chainaccess.DestinationChainConfig{
 					OffRampAddress: "0x00000000000000000000000000000000000000ff",
-					RmnAddress:     "0x00000000000000000000000000000000000000ab",
 				},
 				DefaultExecutorAddress: "0x00000000000000000000000000000000000000ec",
 				ExecutorPool:           []string{"executor-1", "executor-2"},
@@ -149,8 +148,7 @@ func committeeVerifierConfigInstance() any {
 		DefaultExecutorOnRampAddresses:       map[string]string{"1": "0x00000000000000000000000000000000000000e1"},
 		DisableFinalityCheckers:              []string{},
 		CommitteeConfig: chainaccess.CommitteeConfig{
-			OnRampAddresses:    map[string]string{"1": "0x00000000000000000000000000000000000000a1"},
-			RMNRemoteAddresses: map[string]string{"1": "0x00000000000000000000000000000000000000b1"},
+			OnRampAddresses: map[string]string{"1": "0x00000000000000000000000000000000000000a1"},
 		},
 	}
 }
@@ -165,8 +163,7 @@ func tokenVerifierConfigInstance() any {
 			{VerifierID: "token-verifier-1", Type: "cctp", Version: "2.0"},
 		},
 		CommitteeConfig: chainaccess.CommitteeConfig{
-			OnRampAddresses:    map[string]string{"1": "0x00000000000000000000000000000000000000a1"},
-			RMNRemoteAddresses: map[string]string{"1": "0x00000000000000000000000000000000000000b1"},
+			OnRampAddresses: map[string]string{"1": "0x00000000000000000000000000000000000000a1"},
 		},
 	}
 }

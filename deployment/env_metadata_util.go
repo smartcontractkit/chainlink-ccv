@@ -242,7 +242,7 @@ func SaveTokenVerifierConfig(ds datastore.MutableDataStore, serviceIdentifier st
 
 // MergeTokenVerifierConfig upserts cfg into the token-verifier config already
 // stored for serviceIdentifier. The per-chain data accumulates: the
-// CommitteeConfig on-ramp / RMN-remote maps are merged by chain selector, and each
+// CommitteeConfig on-ramp map is merged by chain selector, and each
 // token verifier (matched by VerifierID) has its per-chain verifier and
 // verifier-resolver address maps merged by chain selector. Config-wide fields
 // (PyroscopeURL, Monitoring) and per-verifier scalars take the latest run's value.
@@ -288,8 +288,7 @@ func mergeTokenConfigs(existing, incoming *token.Config) *token.Config {
 		PyroscopeURL: incoming.PyroscopeURL,
 		Monitoring:   incoming.Monitoring,
 		CommitteeConfig: chainaccess.CommitteeConfig{
-			OnRampAddresses:    mergeStringMaps(existing.OnRampAddresses, incoming.OnRampAddresses),
-			RMNRemoteAddresses: mergeStringMaps(existing.RMNRemoteAddresses, incoming.RMNRemoteAddresses),
+			OnRampAddresses: mergeStringMaps(existing.OnRampAddresses, incoming.OnRampAddresses),
 		},
 		TokenVerifiers: mergeTokenVerifiers(existing.TokenVerifiers, incoming.TokenVerifiers),
 	}

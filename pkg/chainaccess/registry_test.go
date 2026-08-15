@@ -79,9 +79,6 @@ func TestNewRegistry_GetAccessor(t *testing.T) {
 	cfg := `
 [on_ramp_addresses]
 "5009297550715157269" = "0xOnRamp"
-
-[rmn_remote_addresses]
-"5009297550715157269" = "0xRMN"
 `
 	lggr := logger.Test(t)
 	reg, err := chainaccess.NewRegistry(lggr, cfg)

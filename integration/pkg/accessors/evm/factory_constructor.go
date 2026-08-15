@@ -143,9 +143,9 @@ func (c Config) toInfos() (chainaccess.Infos[Info], error) {
 // subscriptions instead of HTTP polling.
 //
 // Chain ID, family, and chain type are derived from the selector. Shared
-// application settings from chainaccess.GenericConfig (for example on-ramp or
-// RMN remote addresses) are supplied separately through genericConfig and used
-// when constructing the accessor factory.
+// application settings from chainaccess.GenericConfig (for example on-ramp
+// addresses) are supplied separately through genericConfig and used when
+// constructing the accessor factory.
 //
 // It will take all config values it needs from all available config. Note that it would be
 // very unusual for a config to have more than one of Committee/Token/Executor configs.
@@ -182,13 +182,11 @@ func CreateAccessorFactory(
 	infos chainaccess.Infos[Info],
 ) (chainaccess.AccessorFactory, error) {
 	onRampInfos := chainaccess.Infos[string](generic.OnRampAddresses).GetAllInfos()
-	rmnRemoteInfos := chainaccess.Infos[string](generic.RMNRemoteAddresses).GetAllInfos()
 	destChainConfigs := chainaccess.Infos[chainaccess.DestinationChainConfig](generic.ChainConfiguration).GetAllInfos()
 
 	return newFactory(
 		lggr,
 		onRampInfos,
-		rmnRemoteInfos,
 		destChainConfigs,
 		generic.MaxRetryDuration,
 		func(ctx context.Context, chainSelector protocol.ChainSelector, chainLggr logger.Logger) (chainRuntime, error) {

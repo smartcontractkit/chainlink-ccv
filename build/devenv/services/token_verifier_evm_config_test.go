@@ -13,8 +13,7 @@ func TestTokenVerifierAppConfigDoesNotContainEVMConnections(t *testing.T) {
 	const selector = "5009297550715157269"
 	in := TokenVerifierInput{GeneratedConfig: &token.Config{
 		CommitteeConfig: chainaccess.CommitteeConfig{
-			OnRampAddresses:    map[string]string{selector: "0x1111111111111111111111111111111111111111"},
-			RMNRemoteAddresses: map[string]string{selector: "0x2222222222222222222222222222222222222222"},
+			OnRampAddresses: map[string]string{selector: "0x1111111111111111111111111111111111111111"},
 		},
 	}}
 
