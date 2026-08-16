@@ -1,6 +1,7 @@
 package tokenpool
 
 import (
+	"fmt"
 	"math/big"
 	"testing"
 	"time"
@@ -29,11 +30,18 @@ const (
 func RunBidirectionalTokenTransfer(t *testing.T, lib ccv.Lib, poolA, poolB TokenPool, amount int64, finality protocol.Finality, phase string) {
 	t.Helper()
 
-	t.Run(phase+" transfer A→B", func(t *testing.T) {
+	chainA, err := chainsel.GetChainDetails(poolA.Selector())
+	require.NoError(t, err, "get chain details for pool A selector %d", poolA.Selector())
+	chainB, err := chainsel.GetChainDetails(poolB.Selector())
+	require.NoError(t, err, "get chain details for pool B selector %d", poolB.Selector())
+
+	titleA2B := fmt.Sprintf("%s transfer %s→%s", phase, chainA.ChainName, chainB.ChainName)
+	t.Run(phase+" "+titleA2B, func(t *testing.T) {
 		transferTokens(t, lib, poolA, poolB, amount, finality)
 	})
 
-	t.Run(phase+" transfer B→A", func(t *testing.T) {
+	titleB2A := fmt.Sprintf("%s transfer %s→%s", phase, chainB.ChainName, chainA.ChainName)
+	t.Run(phase+" "+titleB2A, func(t *testing.T) {
 		transferTokens(t, lib, poolB, poolA, amount, finality)
 	})
 }
