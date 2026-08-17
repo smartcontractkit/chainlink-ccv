@@ -36,12 +36,12 @@ func RunBidirectionalTokenTransfer(t *testing.T, lib ccv.Lib, poolA, poolB Token
 	require.NoError(t, err, "get chain details for pool B selector %d", poolB.Selector())
 
 	titleA2B := fmt.Sprintf("%s transfer %s→%s", phase, chainA.ChainName, chainB.ChainName)
-	t.Run(phase+" "+titleA2B, func(t *testing.T) {
+	t.Run(titleA2B, func(t *testing.T) {
 		transferTokens(t, lib, poolA, poolB, amount, finality)
 	})
 
 	titleB2A := fmt.Sprintf("%s transfer %s→%s", phase, chainB.ChainName, chainA.ChainName)
-	t.Run(phase+" "+titleB2A, func(t *testing.T) {
+	t.Run(titleB2A, func(t *testing.T) {
 		transferTokens(t, lib, poolB, poolA, amount, finality)
 	})
 }

@@ -123,6 +123,8 @@ func TestE2ESmoke_TokenPoolMigrationEVM2EVM(t *testing.T) {
 		// Part 2: migrate and ensure token transfers still work
 		poolAV2 := evm.DeployTokenPoolV200(t, env, cciputils.LockReleaseTokenPool.String(), QualLockReleaseAV2, poolAV1, tokenpool.DefaultFinalityConfig())
 		poolBV2 := evm.DeployTokenPoolV200(t, env, cciputils.LockReleaseTokenPool.String(), QualLockReleaseBV2, poolBV1, tokenpool.DefaultFinalityConfig())
+		tokenpool.MigrateLiquidity(t, env, poolAV1, poolAV2, tokenpool.MigrateAllLiquidity)
+		tokenpool.MigrateLiquidity(t, env, poolBV1, poolBV2, tokenpool.MigrateAllLiquidity)
 		tokenpool.ConnectAll(t, env, cciputils.Version_2_0_0, []tokenpool.Connection{
 			{
 				PoolA: poolAV2,
@@ -133,8 +135,6 @@ func TestE2ESmoke_TokenPoolMigrationEVM2EVM(t *testing.T) {
 				},
 			},
 		})
-		tokenpool.MigrateLiquidity(t, env, poolAV1, poolAV2, tokenpool.MigrateAllLiquidity)
-		tokenpool.MigrateLiquidity(t, env, poolBV1, poolBV2, tokenpool.MigrateAllLiquidity)
 		require.NotEqual(t, poolAV1.Address(), poolAV2.Address())
 		require.NotEqual(t, poolBV1.Address(), poolBV2.Address())
 		require.Equal(t, poolAV1.Token(), poolAV2.Token())
@@ -282,6 +282,8 @@ func TestE2ESmoke_TokenPoolMigrationEVM2EVM(t *testing.T) {
 		// silo into the matching lock box.
 		poolAV2 := evm.DeployTokenPoolV200(t, env, cciputils.SiloedLockReleaseTokenPool.String(), QualSiloedAV2, poolAV1, tokenpool.DefaultFinalityConfig(), []uint64{selB})
 		poolBV2 := evm.DeployTokenPoolV200(t, env, cciputils.SiloedLockReleaseTokenPool.String(), QualSiloedBV2, poolBV1, tokenpool.DefaultFinalityConfig(), []uint64{selA})
+		tokenpool.MigrateLiquidity(t, env, poolAV1, poolAV2, tokenpool.MigrateAllLiquidity)
+		tokenpool.MigrateLiquidity(t, env, poolBV1, poolBV2, tokenpool.MigrateAllLiquidity)
 		tokenpool.ConnectAll(t, env, cciputils.Version_2_0_0, []tokenpool.Connection{
 			{
 				PoolA: poolAV2,
@@ -292,8 +294,6 @@ func TestE2ESmoke_TokenPoolMigrationEVM2EVM(t *testing.T) {
 				},
 			},
 		})
-		tokenpool.MigrateLiquidity(t, env, poolAV1, poolAV2, tokenpool.MigrateAllLiquidity)
-		tokenpool.MigrateLiquidity(t, env, poolBV1, poolBV2, tokenpool.MigrateAllLiquidity)
 		require.NotEqual(t, poolAV1.Address(), poolAV2.Address())
 		require.NotEqual(t, poolBV1.Address(), poolBV2.Address())
 		require.Equal(t, poolAV1.Token(), poolAV2.Token())
