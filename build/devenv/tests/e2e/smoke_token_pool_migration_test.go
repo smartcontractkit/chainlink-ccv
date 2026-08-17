@@ -305,7 +305,7 @@ func TestE2ESmoke_TokenPoolMigrationEVM2EVM(t *testing.T) {
 	// local token and a per-chain pool type that persists through migration) one stage at a time. It
 	// deliberately mixes pool types (A/C BurnMint, B LockRelease) to cover more of the migration
 	// code paths, and migrates a subset of the web at each stage (first A, then B+C together) to
-	// prove reverse-propagation (#2252) keeps the remaining (mixed) web connected in any order.
+	// prove reverse-propagation keeps the remaining (mixed) web connected in any order.
 	t.Run("Incremental Web Migration", func(t *testing.T) {
 		const (
 			QualWebPoolA = "EVM_POOL_WEB_A"
