@@ -108,6 +108,9 @@ type CCIP17EVM struct {
 	offRampPoller *eventPoller[cciptestinterfaces.ExecutionStateChangedEvent]
 	onRampPoller  *eventPoller[cciptestinterfaces.MessageSentEvent]
 	pollersMu     sync.Mutex
+	// userPool holds in-process generated user keys (funded from deployer),
+	// appended to chain.Users so GetRoundRobinUser rotates through them.
+	userPool []*bind.TransactOpts
 }
 
 // NewEmptyCCIP17EVM creates a new CCIP17EVM with a logger that logs to the console.
@@ -1854,6 +1857,82 @@ func (m *CCIP17EVM) ManuallyExecuteMessage(
 		Msg("Execution transaction mined")
 
 	return event, nil
+}
+
+// InitUserPool generates n random EVM keys, funds each with native tokens from the
+// deployer key, and appends them to chain.Users so GetRoundRobinUser rotates through them.
+func (m *CCIP17EVM) InitUserPool(ctx context.Context, bc *blockchain.Input, n int, fundETH *big.Int) error {
+	if m.userPool != nil {
+		return fmt.Errorf("user pool already initialized (%d keys)", len(m.userPool))
+	}
+	if n < 1 {
+		return fmt.Errorf("user pool size must be at least 1, got %d", n)
+	}
+
+	chainIDStr, err := chainsel.GetChainIDFromSelector(m.chainDetails.ChainSelector)
+	if err != nil {
+		return fmt.Errorf("resolve chain ID for selector %d: %w", m.chainDetails.ChainSelector, err)
+	}
+	chainID := new(big.Int)
+	chainID.SetString(chainIDStr, 10)
+
+	pool := make([]*bind.TransactOpts, 0, n)
+	addresses := make([]protocol.UnknownAddress, 0, n)
+	for i := 0; i < n; i++ {
+		privKey, err := crypto.GenerateKey()
+		if err != nil {
+			return fmt.Errorf("generate user key %d: %w", i, err)
+		}
+		user := bind.NewKeyedTransactor(privKey, chainID)
+		pool = append(pool, user)
+		addresses = append(addresses, protocol.UnknownAddress(user.From.Bytes()))
+	}
+
+	cfg := CCIP17EVMConfig{logger: m.logger}
+	if err := cfg.FundAddresses(ctx, bc, addresses, fundETH); err != nil {
+		return fmt.Errorf("fund user pool: %w", err)
+	}
+
+	m.chain.Users = append(m.chain.Users, pool...)
+	m.userPool = pool
+	m.logger.Info().
+		Int("poolSize", n).
+		Str("ethPerKey", fundETH.String()).
+		Msg("Initialized user pool with funded keys")
+
+	return nil
+}
+
+// DrainUserPool sweeps remaining native balance from each pool key back to the
+// deployer key. Should be called in t.Cleanup to avoid stranding funds. No-op if
+// the pool was never initialized.
+func (m *CCIP17EVM) DrainUserPool(ctx context.Context) error {
+	if m.userPool == nil {
+		return nil
+	}
+	deployer := protocol.UnknownAddress(m.chain.DeployerKey.From.Bytes())
+	var totalReturned *big.Int = big.NewInt(0)
+	for _, user := range m.userPool {
+		balance, err := m.chain.Client.BalanceAt(ctx, user.From, nil)
+		if err != nil {
+			m.logger.Warn().Str("addr", user.From.Hex()).Err(err).Msg("DrainUserPool: failed to get balance, skipping")
+			continue
+		}
+		if balance.Sign() == 0 {
+			continue
+		}
+		if err := m.TransferNative(ctx, protocol.UnknownAddress(user.From.Bytes()), deployer, nil); err != nil {
+			m.logger.Warn().Str("addr", user.From.Hex()).Err(err).Msg("DrainUserPool: failed to transfer, skipping")
+			continue
+		}
+		totalReturned = new(big.Int).Add(totalReturned, balance)
+	}
+	m.logger.Info().
+		Str("totalReturnedWei", totalReturned.String()).
+		Int("poolSize", len(m.userPool)).
+		Msg("Drained user pool funds back to deployer")
+
+	return nil
 }
 
 func (m *CCIP17EVM) GetRoundRobinUser() func() *bind.TransactOpts {
