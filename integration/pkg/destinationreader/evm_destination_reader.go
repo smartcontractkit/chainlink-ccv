@@ -71,18 +71,28 @@ type Params struct {
 }
 
 func NewEvmDestinationReader(ctx context.Context, params Params) (*EvmDestinationReader, error) {
+	// Construction now performs an on-chain read, so misconfiguration has to fail here with a
+	// config-shaped error rather than downstream as an opaque RPC failure. common.HexToAddress is
+	// permissive — it left-pads short input and maps anything invalid to the zero address — so the
+	// off-ramp address is checked before it is parsed.
 	var errs []error
-	appendIfNil := func(field any, fieldName string) {
-		if field == nil {
-			errs = append(errs, fmt.Errorf("%s is not set", fieldName))
-		}
+	if params.ChainSelector == 0 {
+		errs = append(errs, errors.New("chainSelector is not set"))
 	}
-
-	appendIfNil(params.ChainSelector, "chainSelector")
-	appendIfNil(params.OfframpAddress, "offrampAddress")
-	appendIfNil(params.ChainClient, "chainClient")
-	appendIfNil(params.Lggr, "logger")
-	appendIfNil(params.ExecutionVisabilityWindow, "executionVisabilityWindow")
+	switch {
+	case params.OfframpAddress == "":
+		errs = append(errs, errors.New("offrampAddress is not set"))
+	case !common.IsHexAddress(params.OfframpAddress):
+		errs = append(errs, fmt.Errorf("offrampAddress %q is not a valid EVM address", params.OfframpAddress))
+	case common.HexToAddress(params.OfframpAddress) == (common.Address{}):
+		errs = append(errs, errors.New("offrampAddress is the zero address"))
+	}
+	if params.ChainClient == nil {
+		errs = append(errs, errors.New("chainClient is not set"))
+	}
+	if params.Lggr == nil {
+		errs = append(errs, errors.New("logger is not set"))
+	}
 
 	if len(errs) > 0 {
 		return nil, errors.Join(errs...)

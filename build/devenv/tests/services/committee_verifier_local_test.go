@@ -121,9 +121,7 @@ func stubOnRampGetStaticConfig(t *testing.T, rpcURL, onRampAddress string) {
 	t.Helper()
 
 	const rmnRemote = "00000000000000000000000000000000000000aa" // arbitrary, non-zero
-	// The payload is the ABI-encoded getStaticConfig return tuple (4×32 bytes): chainSelector
-	// (unused by the reader), rmnRemote (must be non-zero), maxUSDCentsPerMessage,
-	// tokenAdminRegistry.
+	// The return tuple described above: rmnRemote in the second word, every other word zero.
 	payload := strings.Repeat("00", 32) +
 		"000000000000000000000000" + rmnRemote +
 		strings.Repeat("00", 32) +

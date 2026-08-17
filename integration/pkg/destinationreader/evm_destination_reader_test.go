@@ -62,3 +62,61 @@ func TestDeriveRMNRemoteFromOffRamp(t *testing.T) {
 		require.ErrorContains(t, err, "zero RMN Remote address")
 	})
 }
+
+// TestNewEvmDestinationReaderValidatesParams covers the construction-time param checks. They
+// matter more now that construction reads the OffRamp's static config on-chain: without them a
+// bad address reaches the RPC layer and surfaces as an opaque call failure.
+func TestNewEvmDestinationReaderValidatesParams(t *testing.T) {
+	const validOffRamp = "0x0000000000000000000000000000000000001234"
+
+	tests := []struct {
+		name    string
+		params  Params
+		wantErr string
+	}{
+		{
+			name:    "rejects an unset chain selector",
+			params:  Params{OfframpAddress: validOffRamp},
+			wantErr: "chainSelector is not set",
+		},
+		{
+			name:    "rejects an empty off-ramp address",
+			params:  Params{ChainSelector: 1},
+			wantErr: "offrampAddress is not set",
+		},
+		{
+			name:    "rejects a malformed off-ramp address",
+			params:  Params{ChainSelector: 1, OfframpAddress: "0xnothex"},
+			wantErr: `offrampAddress "0xnothex" is not a valid EVM address`,
+		},
+		{
+			// common.HexToAddress would silently left-pad this to the zero address.
+			name:    "rejects a truncated off-ramp address",
+			params:  Params{ChainSelector: 1, OfframpAddress: "0x1234"},
+			wantErr: "is not a valid EVM address",
+		},
+		{
+			name:    "rejects a zero off-ramp address",
+			params:  Params{ChainSelector: 1, OfframpAddress: "0x0000000000000000000000000000000000000000"},
+			wantErr: "offrampAddress is the zero address",
+		},
+		{
+			name:    "rejects a nil chain client",
+			params:  Params{ChainSelector: 1, OfframpAddress: validOffRamp},
+			wantErr: "chainClient is not set",
+		},
+		{
+			name:    "rejects a nil logger",
+			params:  Params{ChainSelector: 1, OfframpAddress: validOffRamp},
+			wantErr: "logger is not set",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Validation runs before any RPC, so a nil client never gets dialed here.
+			_, err := NewEvmDestinationReader(context.Background(), tt.params)
+			require.ErrorContains(t, err, tt.wantErr)
+		})
+	}
+}
