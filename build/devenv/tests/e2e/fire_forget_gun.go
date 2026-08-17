@@ -30,7 +30,6 @@ const (
 	fafReceiptWorkers = 10
 	fafPollInterval   = 1 * time.Second
 	fafPollTimeout    = 2 * time.Minute
-	// evmLoadLargePayloadBytes = 1500
 )
 
 type pendingTx struct {
@@ -63,7 +62,7 @@ type FireAndForgetEVMGun struct {
 	payloadSizeBytes int64
 
 	userKey func() *bind.TransactOpts
-	nonces  sync.Map // map[common.Address]*atomic.Uint64
+	nonces  sync.Map // map[common.Address]*nonceTracker
 
 	sentMsgCh chan load.SentMessage
 	closeOnce sync.Once
@@ -121,9 +120,10 @@ func NewFireAndForgetEVMGun(
 
 	evmImpl, ok := impls[evmSelector].(interface {
 		GetRoundRobinUser() func() *bind.TransactOpts
+		GetUserNonce(context.Context, protocol.UnknownAddress) (uint64, error)
 	})
 	if !ok {
-		return nil, fmt.Errorf("EVM chain %d does not support GetRoundRobinUser", evmSelector)
+		return nil, fmt.Errorf("EVM chain %d does not support GetRoundRobinUser/GetUserNonce", evmSelector)
 	}
 
 	g := &FireAndForgetEVMGun{
@@ -172,7 +172,10 @@ func (g *FireAndForgetEVMGun) Call(_ *wasp.Generator) *wasp.Response {
 	ctx := context.Background()
 
 	sender := g.userKey()
-	nonceCounter := g.getOrInitNonce(ctx, sender.From, g.impls[g.evmSelector])
+	nonceCounter, err := g.getOrInitNonce(ctx, sender.From, g.impls[g.evmSelector])
+	if err != nil {
+		return &wasp.Response{Error: fmt.Errorf("get initial nonce for %s: %w", sender.From, err).Error(), Failed: true}
+	}
 	nonce := nonceCounter.Add(1) - 1
 
 	srcImpl, ok := g.impls[g.evmSelector]
@@ -228,19 +231,11 @@ func (g *FireAndForgetEVMGun) Call(_ *wasp.Generator) *wasp.Response {
 		return &wasp.Response{Error: "message is not ClientEVM2AnyMessage", Failed: true}
 	}
 
-	_, err = g.router.GetFee(&bind.CallOpts{Context: ctx}, g.solSelector, evmMsg)
-	if err != nil {
-		return &wasp.Response{Error: fmt.Errorf("get fee: %w", err).Error(), Failed: true}
-	}
-
-	txOpts := &bind.TransactOpts{
-		From:   sender.From,
-		Signer: sender.Signer,
-		Value:  big.NewInt(0),
-		Nonce:  new(big.Int).SetUint64(nonce),
-	}
-
-	tx, err := g.router.CcipSend(txOpts, g.solSelector, evmMsg)
+	// skip GetFee() to avoid extra RPC call in burst tests.
+	txOpts := *sender
+	txOpts.Value = big.NewInt(0)
+	txOpts.Nonce = new(big.Int).SetUint64(nonce)
+	tx, err := g.router.CcipSend(&txOpts, g.solSelector, evmMsg)
 	if err != nil {
 		return &wasp.Response{Error: fmt.Errorf("ccip send: %w", err).Error(), Failed: true}
 	}
@@ -254,28 +249,34 @@ func (g *FireAndForgetEVMGun) Call(_ *wasp.Generator) *wasp.Response {
 	return &wasp.Response{Data: tx.Hash().Hex()}
 }
 
-func (g *FireAndForgetEVMGun) getOrInitNonce(ctx context.Context, addr common.Address, evmImpl any) *atomic.Uint64 {
-	if v, ok := g.nonces.Load(addr); ok {
-		return v.(*atomic.Uint64)
-	}
-	nonce := &atomic.Uint64{}
-	actual, _ := g.nonces.LoadOrStore(addr, nonce)
-	counter := actual.(*atomic.Uint64)
-	if counter != nonce {
-		return counter
-	}
-	noncer, ok := evmImpl.(interface {
-		GetUserNonce(context.Context, protocol.UnknownAddress) (uint64, error)
+// nonceTracker holds a per-address nonce counter and seeds it exactly once.
+type nonceTracker struct {
+	once sync.Once
+	val  atomic.Uint64
+	err  error
+}
+
+func (g *FireAndForgetEVMGun) getOrInitNonce(ctx context.Context, addr common.Address, evmImpl any) (*atomic.Uint64, error) {
+	actual, _ := g.nonces.LoadOrStore(addr, &nonceTracker{})
+	t := actual.(*nonceTracker)
+	t.once.Do(func() {
+		noncer, ok := evmImpl.(interface {
+			GetUserNonce(context.Context, protocol.UnknownAddress) (uint64, error)
+		})
+		if !ok {
+			return
+		}
+		n, err := noncer.GetUserNonce(ctx, protocol.UnknownAddress(addr.Bytes()))
+		if err != nil {
+			t.err = err
+			return
+		}
+		t.val.Store(n)
 	})
-	if !ok {
-		return counter
+	if t.err != nil {
+		return nil, t.err
 	}
-	n, err := noncer.GetUserNonce(ctx, protocol.UnknownAddress(addr.Bytes()))
-	if err != nil {
-		return counter
-	}
-	counter.Store(n)
-	return counter
+	return &t.val, nil
 }
 
 func (g *FireAndForgetEVMGun) receiptWorker() {
@@ -300,27 +301,38 @@ func (g *FireAndForgetEVMGun) processReceipt(p pendingTx) {
 		}
 
 		for _, log := range receipt.Logs {
-			if log.Topics[0] == g.ccipSentTopic {
-				event, parseErr := g.onRampFilter.ParseCCIPMessageSent(*log)
-				if parseErr != nil {
-					continue
-				}
-
-				decodedMsg, decErr := protocol.DecodeMessage(event.EncodedMessage)
-				if decErr != nil {
-					continue
-				}
-
-				sentTime := blockTime(context.Background(), g.evmBackend, receipt.BlockNumber)
-
-				g.sentMsgCh <- load.SentMessage{
-					SeqNo:     uint64(decodedMsg.SequenceNumber),
-					MessageID: event.MessageId,
-					SentTime:  sentTime,
-					ChainPair: load.SrcDest{Src: p.srcSelector, Dest: p.destSelector},
-				}
-				return
+			if log == nil || len(log.Topics) == 0 || log.Topics[0] != g.ccipSentTopic {
+				continue
 			}
+
+			event, parseErr := g.onRampFilter.ParseCCIPMessageSent(*log)
+			if parseErr != nil {
+				continue
+			}
+
+			decodedMsg, decErr := protocol.DecodeMessage(event.EncodedMessage)
+			if decErr != nil {
+				continue
+			}
+
+			sentTime := blockTime(context.Background(), g.evmBackend, receipt.BlockNumber)
+			g.sentMsgCh <- load.SentMessage{
+				SeqNo:     uint64(decodedMsg.SequenceNumber),
+				MessageID: event.MessageId,
+				SentTime:  sentTime,
+				ChainPair: load.SrcDest{Src: p.srcSelector, Dest: p.destSelector},
+			}
+			return
+		}
+
+		// tx mined but no usable CCIPMessageSent event: mark as sent-but-failed
+		sentTime := blockTime(context.Background(), g.evmBackend, receipt.BlockNumber)
+		g.sentMsgCh <- load.SentMessage{
+			SeqNo:     0,
+			MessageID: ([32]byte)(p.txHash),
+			SentTime:  sentTime,
+			ChainPair: load.SrcDest{Src: p.srcSelector, Dest: p.destSelector},
+			Failed:    true,
 		}
 		return
 	}
