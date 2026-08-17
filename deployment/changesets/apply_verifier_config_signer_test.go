@@ -41,6 +41,7 @@ func buildSpecForSigner(t *testing.T, signerAddress string) string {
 		nil,
 		"evm",
 		true,
+		defaultApplyVerifierConfigApplyOverrides(),
 	)
 	require.NoError(t, err)
 
