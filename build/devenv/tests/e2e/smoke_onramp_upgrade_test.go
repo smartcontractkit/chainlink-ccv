@@ -11,6 +11,8 @@ import (
 
 	"github.com/Masterminds/semver/v3"
 	"github.com/rs/zerolog"
+	"github.com/stretchr/testify/require"
+
 	chain_selectors "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccip/deployment/v2_0_0/adapters"
 	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
@@ -25,7 +27,6 @@ import (
 	"github.com/smartcontractkit/chainlink-protos/job-distributor/v1/job"
 	"github.com/smartcontractkit/chainlink-protos/job-distributor/v1/node"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
-	"github.com/stretchr/testify/require"
 )
 
 const (
@@ -87,10 +88,6 @@ func Test_OnrampUpgrade(t *testing.T) {
 		NodeIDs:          nodeIds,
 	}
 	clientLookup := newCLNodeLookup(t, in)
-	allSels := make([]uint64, 0, len(chains))
-	for _, c := range chains {
-		allSels = append(allSels, c.Details.ChainSelector)
-	}
 	topology := ccdeploy.BuildEnvironmentTopology(in.EnvironmentTopology, in.Verifier, env, true)
 	require.NotNil(t, topology)
 	committeeCfg, ok := topology.NOPTopology.Committees["default"]
@@ -223,7 +220,7 @@ func Test_OnrampUpgrade(t *testing.T) {
 	assertOtherLaneGoesThrough(4)
 }
 
-func assertJobSpecContainsOnRampAddress(t *testing.T, jobSpecId string, onrampAddress string, chainSelector uint64) {
+func assertJobSpecContainsOnRampAddress(t *testing.T, jobSpecId, onrampAddress string, chainSelector uint64) {
 	p := getProposalByName(t, jobSpecId)
 	require.NotNil(t, p, "expected to find a proposal for the job spec %s", jobSpecId)
 	require.Contains(t, p.Spec, fmt.Sprintf("%d = \"%s\"", chainSelector, onrampAddress), "expected job spec to contain the onramp address for chain selector %d", chainSelector)
