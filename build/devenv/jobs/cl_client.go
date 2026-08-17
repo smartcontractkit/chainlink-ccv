@@ -27,14 +27,16 @@ func ListPendingJobProposalSpecs(ctx context.Context, c sdkclient.Client) ([]str
 		for _, jp := range fm.JobProposals {
 			latestVersion := 0
 			var latestStatus string
+			var latestId string
 			for _, jps := range jp.Specs {
 				if jps.Version > latestVersion {
 					latestVersion = jps.Version
 					latestStatus = string(jps.Status)
+					latestId = jps.Id
 				}
 			}
 			if latestStatus == "PENDING" && latestVersion != 0 {
-				pendingSpecs = append(pendingSpecs, jp.Specs[len(jp.Specs)-1].Id)
+				pendingSpecs = append(pendingSpecs, latestId)
 			}
 		}
 	}
