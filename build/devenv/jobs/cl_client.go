@@ -25,7 +25,7 @@ func ListPendingJobProposalSpecs(ctx context.Context, c sdkclient.Client) ([]str
 	var pendingSpecs []string
 	for _, fm := range jds.FeedsManagers.Results {
 		for _, jp := range fm.JobProposals {
-			var latestVersion int = 0
+			latestVersion := 0
 			var latestStatus string
 			for _, jps := range jp.Specs {
 				if jps.Version > latestVersion {
