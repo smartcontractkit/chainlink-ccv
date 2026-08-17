@@ -617,7 +617,8 @@ func TestStaging(t *testing.T) {
 			go func(testProfile load.TestProfileConfig, idx int) {
 				defer wg.Done()
 				messageRate, messageRateDuration := load.ParseMessageRate(testProfile.MessageRate)
-				gun := NewEVMTransactionGunFromTestConfig(in, &testProfile, testConfig.MessageProfiles, e, chainImpls)
+				gun, gunErr := NewEVMTransactionGunFromTestConfig(in, &testProfile, testConfig.MessageProfiles, e, chainImpls)
+				require.NoError(t, gunErr)
 				p := wasp.NewProfile().Add(
 					wasp.NewGenerator(
 						&wasp.Config{

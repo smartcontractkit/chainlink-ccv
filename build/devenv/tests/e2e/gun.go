@@ -15,8 +15,12 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_0_0/operations/weth"
+	routeroperations "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_2_0/operations/router"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/mock_receiver_v2"
+	onrampoperations "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/onramp"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/versioned_verifier_resolver"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/onramp"
+	routerwrapper "github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/v1_2_0/router"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-deployments-framework/datastore"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
@@ -33,6 +37,10 @@ import (
 const (
 	sentMessageChannelBufferSize = 1000
 	avgMsgDataSize               = 1000 // bytes
+
+	fafReceiptWorkers = 10
+	fafPollInterval   = 1 * time.Second
+	fafPollTimeout    = 2 * time.Minute
 )
 
 type NonceKey struct {
@@ -61,11 +69,27 @@ type EVMTXGun struct {
 	executorArgsParams  any // optional, passed to BuildV3ExtraArgs
 	tokenReceiverParams any // optional, passed to BuildV3ExtraArgs
 	tokenArgsParams     any // optional, passed to BuildV3ExtraArgs
+
+	// fireAndForget submits EVM txs without waiting for confirmation; background
+	// workers poll receipts and push SentMessage with block-timestamp SentTime.
+	fireAndForget bool
+	router        map[uint64]*routerwrapper.Router
+	onRampFilter  map[uint64]*onramp.OnRampFilterer
+	evmBackend    map[uint64]evmChainBackend
+	ccipSentTopic common.Hash
+	pendingCh     chan pendingTx
+	fafWg         sync.WaitGroup
 }
 
 // CloseSentChannel closes the sent messages channel to signal no more messages will be sent.
 func (m *EVMTXGun) CloseSentChannel() {
 	m.closeOnce.Do(func() {
+		if m.fireAndForget {
+			// Close pendingCh first to signal no more work, then wait for workers
+			// to drain remaining items before closing sentMsgCh.
+			close(m.pendingCh)
+			m.fafWg.Wait()
+		}
 		close(m.sentMsgCh)
 	})
 }
@@ -124,7 +148,16 @@ func WithTokenArgsParams(params any) EVMTXGunOption {
 	}
 }
 
-func NewEVMTransactionGunFromTestConfig(cfg *ccv.Cfg, testProfile *load.TestProfileConfig, messageProfiles []load.MessageProfileConfig, e *deployment.Environment, impls map[uint64]cciptestinterfaces.CCIP17, opts ...EVMTXGunOption) *EVMTXGun {
+// WithFireAndForget enables fire-and-forget mode: EVM txs are submitted without
+// waiting for confirmation, and background receipt workers push SentMessage with
+// the block timestamp as SentTime. Requires an EVM chain as source.
+func WithFireAndForget() EVMTXGunOption {
+	return func(g *EVMTXGun) {
+		g.fireAndForget = true
+	}
+}
+
+func NewEVMTransactionGunFromTestConfig(cfg *ccv.Cfg, testProfile *load.TestProfileConfig, messageProfiles []load.MessageProfileConfig, e *deployment.Environment, impls map[uint64]cciptestinterfaces.CCIP17, opts ...EVMTXGunOption) (*EVMTXGun, error) {
 	selectors := make([]uint64, 0, len(testProfile.ChainsAsSource)+len(testProfile.ChainsAsDest))
 	srcSelectors := make([]uint64, 0, len(testProfile.ChainsAsSource))
 	destSelectors := make([]uint64, 0, len(testProfile.ChainsAsDest))
@@ -164,7 +197,59 @@ func NewEVMTransactionGunFromTestConfig(cfg *ccv.Cfg, testProfile *load.TestProf
 			opt(g)
 		}
 	}
-	return g
+
+	if g.fireAndForget {
+		if err := g.initFireAndForget(e, srcSelectors); err != nil {
+			return nil, err
+		}
+	}
+	return g, nil
+}
+
+// initFireAndForget resolves per-source EVM infra (router, onramp filter, backend)
+// needed for direct CcipSend submission and receipt polling, then starts workers.
+func (g *EVMTXGun) initFireAndForget(e *deployment.Environment, srcSelectors []uint64) error {
+	evmChains := e.BlockChains.EVMChains()
+	g.router = make(map[uint64]*routerwrapper.Router, len(srcSelectors))
+	g.onRampFilter = make(map[uint64]*onramp.OnRampFilterer, len(srcSelectors))
+	g.evmBackend = make(map[uint64]evmChainBackend, len(srcSelectors))
+	g.pendingCh = make(chan pendingTx, 10000)
+	g.ccipSentTopic = onramp.OnRampCCIPMessageSent{}.Topic()
+
+	for _, selector := range srcSelectors {
+		srcChain, ok := evmChains[selector]
+		if !ok {
+			return fmt.Errorf("EVM chain %d not found in CLDF environment", selector)
+		}
+
+		routerAddr, err := resolveContractAddr(e.DataStore, selector, datastore.ContractType(routeroperations.ContractType), semver.MustParse(routeroperations.Deploy.Version()))
+		if err != nil {
+			return fmt.Errorf("resolve router for %d: %w", selector, err)
+		}
+		r, err := routerwrapper.NewRouter(routerAddr, srcChain.Client)
+		if err != nil {
+			return fmt.Errorf("create router wrapper for %d: %w", selector, err)
+		}
+		g.router[selector] = r
+
+		onRampAddr, err := resolveContractAddr(e.DataStore, selector, datastore.ContractType(onrampoperations.ContractType), semver.MustParse(onrampoperations.Deploy.Version()))
+		if err != nil {
+			return fmt.Errorf("resolve onramp for %d: %w", selector, err)
+		}
+		onRampFilter, err := onramp.NewOnRampFilterer(onRampAddr, srcChain.Client)
+		if err != nil {
+			return fmt.Errorf("create onramp filterer for %d: %w", selector, err)
+		}
+		g.onRampFilter[selector] = onRampFilter
+
+		g.evmBackend[selector] = srcChain.Client
+	}
+
+	for range fafReceiptWorkers {
+		g.fafWg.Add(1)
+		go g.receiptWorker()
+	}
+	return nil
 }
 
 func (m *EVMTXGun) initNonce(key NonceKey, userAddress common.Address) error {
@@ -252,6 +337,27 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 	srcMessage, err := chainAsSource.BuildChainMessage(ctx, fields, extraArgs)
 	if err != nil {
 		return &wasp.Response{Error: fmt.Errorf("failed to build message: %w", err).Error(), Failed: true}
+	}
+
+	if m.fireAndForget {
+		evmMsg, ok := srcMessage.(routerwrapper.ClientEVM2AnyMessage)
+		if !ok {
+			return &wasp.Response{Error: "message is not ClientEVM2AnyMessage", Failed: true}
+		}
+		// skip GetFee() to avoid extra RPC call in burst tests.
+		txOpts := *sender
+		txOpts.Value = big.NewInt(0)
+		txOpts.Nonce = new(big.Int).SetUint64(currentNonce)
+		tx, err := m.router[srcSelector].CcipSend(&txOpts, destSelector, evmMsg)
+		if err != nil {
+			return &wasp.Response{Error: fmt.Errorf("ccip send: %w", err).Error(), Failed: true}
+		}
+		m.pendingCh <- pendingTx{
+			txHash:       tx.Hash(),
+			srcSelector:  srcSelector,
+			destSelector: destSelector,
+		}
+		return &wasp.Response{Data: tx.Hash().Hex()}
 	}
 
 	// WETH fees need msgValue=0; DisableTokenAmountValidation sets msgValue=fee and reverts.
@@ -440,4 +546,106 @@ func (m *EVMTXGun) selectMessageProfile(srcSelector uint64, dest destLoadInfo) (
 		// }
 	}
 	return fields, opts, nil
+}
+
+// evmChainBackend is the subset of OnchainClient needed for tx submission and receipt polling.
+type evmChainBackend interface {
+	bind.ContractBackend
+	bind.DeployBackend
+}
+
+// pendingTx is a submitted-but-unconfirmed fire-and-forget tx awaiting receipt processing.
+type pendingTx struct {
+	txHash       common.Hash
+	srcSelector  uint64
+	destSelector uint64
+}
+
+func (g *EVMTXGun) receiptWorker() {
+	defer g.fafWg.Done()
+
+	for p := range g.pendingCh {
+		g.processReceipt(p)
+	}
+}
+
+func (g *EVMTXGun) processReceipt(p pendingTx) {
+	backend, ok := g.evmBackend[p.srcSelector]
+	if !ok {
+		return
+	}
+	onRampFilter, ok := g.onRampFilter[p.srcSelector]
+	if !ok {
+		return
+	}
+
+	deadline := time.Now().Add(fafPollTimeout)
+	for {
+		if time.Now().After(deadline) {
+			return
+		}
+
+		receipt, err := backend.TransactionReceipt(context.Background(), p.txHash)
+		if err != nil {
+			time.Sleep(fafPollInterval)
+			continue
+		}
+
+		for _, log := range receipt.Logs {
+			if log == nil || len(log.Topics) == 0 || log.Topics[0] != g.ccipSentTopic {
+				continue
+			}
+
+			event, parseErr := onRampFilter.ParseCCIPMessageSent(*log)
+			if parseErr != nil {
+				continue
+			}
+
+			decodedMsg, decErr := protocol.DecodeMessage(event.EncodedMessage)
+			if decErr != nil {
+				continue
+			}
+
+			sentTime := blockTime(context.Background(), backend, receipt.BlockNumber)
+			g.sentMsgCh <- load.SentMessage{
+				SeqNo:     uint64(decodedMsg.SequenceNumber),
+				MessageID: event.MessageId,
+				SentTime:  sentTime,
+				ChainPair: load.SrcDest{Src: p.srcSelector, Dest: p.destSelector},
+			}
+			return
+		}
+
+		// tx mined but no usable CCIPMessageSent event: mark as sent-but-failed
+		sentTime := blockTime(context.Background(), backend, receipt.BlockNumber)
+		g.sentMsgCh <- load.SentMessage{
+			SeqNo:     0,
+			MessageID: ([32]byte)(p.txHash),
+			SentTime:  sentTime,
+			ChainPair: load.SrcDest{Src: p.srcSelector, Dest: p.destSelector},
+			Failed:    true,
+		}
+		return
+	}
+}
+
+func blockTime(ctx context.Context, backend bind.ContractBackend, blockNumber *big.Int) time.Time {
+	header, err := backend.HeaderByNumber(ctx, blockNumber)
+	if err != nil {
+		return time.Now()
+	}
+	// #nosec G115 -- block timestamps are epoch seconds and well within int64 range.
+	return time.Unix(int64(header.Time), 0)
+}
+
+func resolveContractAddr(ds datastore.DataStore, selector uint64, contractType datastore.ContractType, version *semver.Version) (common.Address, error) {
+	refs := ds.Addresses().Filter(
+		datastore.AddressRefByChainSelector(selector),
+		datastore.AddressRefByType(contractType),
+		datastore.AddressRefByVersion(version),
+	)
+	if len(refs) != 1 {
+		return common.Address{}, fmt.Errorf("expected 1 %s for selector %d version %s, got %d", contractType, selector, version, len(refs))
+	}
+	return common.HexToAddress(refs[0].Address), nil
 }
