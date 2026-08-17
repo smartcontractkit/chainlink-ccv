@@ -1879,7 +1879,7 @@ func (m *CCIP17EVM) InitUserPool(ctx context.Context, n int, fundWei *big.Int) e
 	deployer := protocol.UnknownAddress(m.chain.DeployerKey.From.Bytes())
 
 	pool := make([]*bind.TransactOpts, 0, n)
-	for i := 0; i < n; i++ {
+	for i := range n {
 		privKey, err := crypto.GenerateKey()
 		if err != nil {
 			return fmt.Errorf("generate user key %d: %w", i, err)
@@ -1909,7 +1909,7 @@ func (m *CCIP17EVM) DrainUserPool(ctx context.Context) error {
 		return nil
 	}
 	deployer := protocol.UnknownAddress(m.chain.DeployerKey.From.Bytes())
-	var totalReturned *big.Int = big.NewInt(0)
+	var totalReturned = big.NewInt(0)
 	for _, user := range m.userPool {
 		balance, err := m.chain.Client.BalanceAt(ctx, user.From, nil)
 		if err != nil {
