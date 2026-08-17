@@ -238,7 +238,7 @@ func registerTokenAdapters() {
 
 // NewCLDFProviderFactory returns a CLDF provider factory for EVM blockchains.
 func NewCLDFProviderFactory() func(context.Context, *blockchain.Input) (cldf_chain.BlockChain, uint64, error) {
-	defaultTxTimeout := 30 * time.Second
+	defaultTxTimeout := 1 * time.Minute
 	return func(ctx context.Context, b *blockchain.Input) (cldf_chain.BlockChain, uint64, error) {
 		chainID := b.Out.ChainID
 		rpcWSURL := b.Out.Nodes[0].ExternalWSUrl
