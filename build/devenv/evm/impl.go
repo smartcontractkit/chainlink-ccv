@@ -1861,7 +1861,7 @@ func (m *CCIP17EVM) ManuallyExecuteMessage(
 
 // InitUserPool generates n random EVM keys, funds each with native tokens from the
 // deployer key, and appends them to chain.Users so GetRoundRobinUser rotates through them.
-func (m *CCIP17EVM) InitUserPool(ctx context.Context, bc *blockchain.Input, n int, fundETH *big.Int) error {
+func (m *CCIP17EVM) InitUserPool(ctx context.Context, n int, fundWei *big.Int) error {
 	if m.userPool != nil {
 		return fmt.Errorf("user pool already initialized (%d keys)", len(m.userPool))
 	}
@@ -1876,28 +1876,26 @@ func (m *CCIP17EVM) InitUserPool(ctx context.Context, bc *blockchain.Input, n in
 	chainID := new(big.Int)
 	chainID.SetString(chainIDStr, 10)
 
+	deployer := protocol.UnknownAddress(m.chain.DeployerKey.From.Bytes())
+
 	pool := make([]*bind.TransactOpts, 0, n)
-	addresses := make([]protocol.UnknownAddress, 0, n)
 	for i := 0; i < n; i++ {
 		privKey, err := crypto.GenerateKey()
 		if err != nil {
 			return fmt.Errorf("generate user key %d: %w", i, err)
 		}
 		user := bind.NewKeyedTransactor(privKey, chainID)
+		if err := m.TransferNative(ctx, deployer, user.From.Bytes(), fundWei); err != nil {
+			return fmt.Errorf("fund user pool key %d: %w", i, err)
+		}
 		pool = append(pool, user)
-		addresses = append(addresses, protocol.UnknownAddress(user.From.Bytes()))
-	}
-
-	cfg := CCIP17EVMConfig{logger: m.logger}
-	if err := cfg.FundAddresses(ctx, bc, addresses, fundETH); err != nil {
-		return fmt.Errorf("fund user pool: %w", err)
 	}
 
 	m.chain.Users = append(m.chain.Users, pool...)
 	m.userPool = pool
 	m.logger.Info().
 		Int("poolSize", n).
-		Str("ethPerKey", fundETH.String()).
+		Str("weiPerKey", fundWei.String()).
 		Msg("Initialized user pool with funded keys")
 
 	return nil
