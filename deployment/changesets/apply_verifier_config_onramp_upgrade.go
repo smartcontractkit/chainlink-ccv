@@ -76,7 +76,7 @@ func ApplyOnrampUpgradeVerifierConfig(
 
 		return createApplyVerifierConfigApplyFunc(
 			WithDifferentOnramp(onrampOverrides),
-			WithJobSuffix(jobSuffix),
+			WithIsolatedJob(jobSuffix),
 		)(e, cfg.ApplyVerifierConfigInput)
 	}
 

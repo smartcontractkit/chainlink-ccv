@@ -126,6 +126,69 @@ func TestApplyVerifierConfig_Validation_ChainReferencesUnknownNOPRejected(t *tes
 	assert.Contains(t, err.Error(), `unknown NOP alias "nopGhost"`)
 }
 
+func TestBuildVerifierJobSpecs_CanonicalJobsKeepCanonicalVerifierID(t *testing.T) {
+	verifierScope := shared.VerifierJobScope{
+		CommitteeQualifier: "default",
+	}
+
+	t.Run("legacy", func(t *testing.T) {
+		specs := buildVerifierSpecsForTest(t, false)
+
+		for _, spec := range specs["nop1"] {
+			cfg := parseVerifierConfig(t, spec)
+
+			require.Empty(t, cfg.Aggregators)
+			require.NotEmpty(t, cfg.AggregatorAddress)
+
+			var aggregatorName string
+			switch cfg.AggregatorAddress {
+			case "agg-a:50051":
+				aggregatorName = "agg-a"
+			case "agg-b:50051":
+				aggregatorName = "agg-b"
+			default:
+				t.Fatalf("unexpected aggregator address %q", cfg.AggregatorAddress)
+			}
+
+			expectedVerifierID := shared.NewVerifierJobID(
+				"nop1",
+				aggregatorName,
+				verifierScope,
+			).GetVerifierID()
+
+			assert.Equal(t, expectedVerifierID, cfg.VerifierID)
+		}
+	})
+
+	t.Run("consolidated", func(t *testing.T) {
+		specs := buildVerifierSpecsForTest(t, true)
+		require.Len(t, specs["nop1"], 1)
+
+		for _, spec := range specs["nop1"] {
+			cfg := parseVerifierConfig(t, spec)
+
+			expectedVerifierID := shared.NewConsolidatedVerifierJobID(
+				"nop1",
+				verifierScope,
+			).GetVerifierID()
+
+			assert.Equal(t, expectedVerifierID, cfg.VerifierID)
+			require.Len(t, cfg.Aggregators, 2)
+
+			assert.Equal(
+				t,
+				"agg-a-default-verifier",
+				cfg.Aggregators[0].SecretName,
+			)
+			assert.Equal(
+				t,
+				"agg-b-default-verifier",
+				cfg.Aggregators[1].SecretName,
+			)
+		}
+	})
+}
+
 func TestApplyVerifierConfig_Validation_ProductionRejectsPyroscope(t *testing.T) {
 	sel1 := chainsel.TEST_90000001.Selector
 	registerEVMOnchain(&stubOnchainAdapter{})
