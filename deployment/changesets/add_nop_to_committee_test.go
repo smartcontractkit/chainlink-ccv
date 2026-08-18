@@ -786,6 +786,7 @@ func (s *stubFullAdapter) ResolveVerifierContractAddresses(_ datastore.DataStore
 	return &adapters.VerifierContractAddresses{
 		CommitteeVerifierAddress: addr,
 		OnRampAddress:            "0x000000000000000000000000000000000000AAAA",
+		RMNRemoteAddress:         "0x000000000000000000000000000000000000CCCC",
 	}, nil
 }
 

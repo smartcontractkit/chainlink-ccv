@@ -367,10 +367,16 @@ func buildVerifierJobSpecs(
 
 	committeeVerifierAddrs := make(map[string]string, len(contractAddresses))
 	onRampAddrs := make(map[string]string, len(contractAddresses))
+	rmnRemoteAddrs := make(map[string]string, len(contractAddresses))
 
 	for chainSel, addrs := range contractAddresses {
 		committeeVerifierAddrs[chainSel] = addrs.CommitteeVerifierAddress
 		onRampAddrs[chainSel] = addrs.OnRampAddress
+		// Deprecated: only emitted when the adapter resolved an RMN proxy, so chains without
+		// one get no entry rather than an empty one. Nodes derive the RMN Remote on-chain.
+		if addrs.RMNRemoteAddress != "" {
+			rmnRemoteAddrs[chainSel] = addrs.RMNRemoteAddress
+		}
 	}
 
 	jobSpecs := make(shared.NOPJobSpecs)
@@ -419,6 +425,9 @@ func buildVerifierJobSpecs(
 			// bootstrap config, not the JD-shipped app config. See bootstrap.Config.Monitoring.
 			CommitteeConfig: chainaccess.CommitteeConfig{
 				OnRampAddresses: filterAddressesByChains(onRampAddrs, nopChains),
+				// Deprecated: kept in the emitted spec so binaries that predate the on-chain
+				// RMN derivation keep loading it; empty when no RMN proxy was resolved.
+				RMNRemoteAddresses: filterAddressesByChains(rmnRemoteAddrs, nopChains),
 			},
 		}
 

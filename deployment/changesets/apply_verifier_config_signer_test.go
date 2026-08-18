@@ -21,6 +21,7 @@ func buildSpecForSigner(t *testing.T, signerAddress string) string {
 			"1": {
 				CommitteeVerifierAddress: "0xCommittee1",
 				OnRampAddress:            "0xOnRamp1",
+				RMNRemoteAddress:         "0xRMN1",
 			},
 		},
 		map[string]string{"1": "0xExec1"},

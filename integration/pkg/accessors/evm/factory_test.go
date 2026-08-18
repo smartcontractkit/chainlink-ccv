@@ -37,8 +37,9 @@ type stubChainRuntime struct {
 type runtimeContextMarkerKey struct{}
 
 const (
-	validTestOffRampAddress = "0x0000000000000000000000000000000000001234"
-	zeroTestAddress         = "0x0000000000000000000000000000000000000000"
+	validTestOffRampAddress   = "0x0000000000000000000000000000000000001234"
+	validTestRMNRemoteAddress = "0x0000000000000000000000000000000000005678"
+	zeroTestAddress           = "0x0000000000000000000000000000000000000000"
 )
 
 func (s *stubChainRuntime) ChainClient() (client.Client, error) { return s.Client, s.clientErr }
@@ -169,6 +170,7 @@ func TestFactoryRejectsAccessorWithoutCapabilitiesBeforeStartingRuntime(t *testi
 		logger.Test(t),
 		nil,
 		nil,
+		nil,
 		0,
 		func(context.Context, protocol.ChainSelector, logger.Logger) (chainRuntime, error) {
 			runtimeCalls++
@@ -209,9 +211,10 @@ func TestFactoryRejectsIncompleteDestinationConfigBeforeStartingRuntime(t *testi
 	t.Parallel()
 
 	// A destination config entry with an off-ramp address set to something that is not a valid
-	// non-zero address is rejected before the runtime starts. An entry with no off-ramp address
-	// at all carries no destination intent: it falls through to the "neither source nor
-	// destination services are configured" gate covered by
+	// non-zero address is rejected before the runtime starts. An entry carrying only the
+	// deprecated rmn_address signals destination intent too and fails the same gate. An entry
+	// with neither address carries no destination intent: it falls through to the "neither
+	// source nor destination services are configured" gate covered by
 	// TestFactoryRejectsAccessorWithoutCapabilitiesBeforeStartingRuntime.
 	const selector = protocol.ChainSelector(5009297550715157269)
 	tests := []struct {
@@ -222,6 +225,10 @@ func TestFactoryRejectsIncompleteDestinationConfigBeforeStartingRuntime(t *testi
 			name:   "malformed off-ramp",
 			config: chainaccess.DestinationChainConfig{OffRampAddress: "0x1234"},
 		},
+		{
+			name:   "missing off-ramp, only deprecated rmn_address set",
+			config: chainaccess.DestinationChainConfig{RmnAddress: validTestRMNRemoteAddress},
+		},
 	}
 
 	for _, tt := range tests {
@@ -231,6 +238,7 @@ func TestFactoryRejectsIncompleteDestinationConfigBeforeStartingRuntime(t *testi
 			runtimeCalls := 0
 			factory := newFactory(
 				logger.Test(t),
+				nil,
 				nil,
 				map[protocol.ChainSelector]chainaccess.DestinationChainConfig{selector: tt.config},
 				0,
@@ -257,9 +265,11 @@ func TestFactoryClosesRuntimeWhenChainClientIsUnavailable(t *testing.T) {
 	factory := newFactory(
 		logger.Test(t),
 		nil,
+		nil,
 		map[protocol.ChainSelector]chainaccess.DestinationChainConfig{
 			selector: {
 				OffRampAddress: validTestOffRampAddress,
+				RmnAddress:     validTestRMNRemoteAddress,
 			},
 		},
 		0,
@@ -282,9 +292,11 @@ func TestFactoryRejectsNilRuntime(t *testing.T) {
 	factory := newFactory(
 		logger.Test(t),
 		nil,
+		nil,
 		map[protocol.ChainSelector]chainaccess.DestinationChainConfig{
 			selector: {
 				OffRampAddress: validTestOffRampAddress,
+				RmnAddress:     validTestRMNRemoteAddress,
 			},
 		},
 		0,
@@ -308,9 +320,11 @@ func TestFactoryIncludesRuntimeCloseFailureInComponentError(t *testing.T) {
 	factory := newFactory(
 		logger.Test(t),
 		nil,
+		nil,
 		map[protocol.ChainSelector]chainaccess.DestinationChainConfig{
 			selector: {
 				OffRampAddress: validTestOffRampAddress,
+				RmnAddress:     validTestRMNRemoteAddress,
 			},
 		},
 		0,

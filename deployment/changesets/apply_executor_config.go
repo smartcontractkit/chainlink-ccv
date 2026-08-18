@@ -361,6 +361,9 @@ func buildExecutorJobSpecs(
 			chainCfgs[chainSelectorStr] = executor.ChainConfiguration{
 				DestinationChainConfig: chainaccess.DestinationChainConfig{
 					OffRampAddress: adapterCfg.OffRampAddress,
+					// Deprecated: emitted only when the adapter resolved an RMN proxy, so
+					// specs keep loading on binaries that predate the on-chain derivation.
+					RmnAddress: adapterCfg.RmnAddress,
 				},
 				DefaultExecutorAddress: adapterCfg.DefaultExecutorAddress,
 				ExecutorPool:           sortedPoolStrs,

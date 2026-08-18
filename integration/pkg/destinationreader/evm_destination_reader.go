@@ -66,6 +66,11 @@ type Params struct {
 	ChainSelector             protocol.ChainSelector
 	ChainClient               client.Client
 	OfframpAddress            string
+	// RmnRemoteAddress is DEPRECATED: the RMN Remote address is derived from the OffRamp's
+	// on-chain static config, which is authoritative. It is still accepted so callers and
+	// configs from before the derivation cutover keep working; when set and it disagrees with
+	// the derived address, a warning is logged and the derived address is used.
+	RmnRemoteAddress          string
 	ExecutionVisabilityWindow time.Duration
 	Monitoring                monitoring.Monitoring
 }
@@ -114,6 +119,12 @@ func NewEvmDestinationReader(ctx context.Context, params Params) (*EvmDestinatio
 	params.Lggr.Infow("Derived RMN Remote address from OffRamp static config",
 		"chain", params.ChainSelector,
 		"rmnRemoteAddress", rmnRemoteAddr.Hex())
+	if params.RmnRemoteAddress != "" && common.HexToAddress(params.RmnRemoteAddress) != rmnRemoteAddr {
+		params.Lggr.Warnw("Configured rmn_address does not match the OffRamp static config; using the derived address",
+			"chain", params.ChainSelector,
+			"configuredRmnRemoteAddress", params.RmnRemoteAddress,
+			"rmnRemoteAddress", rmnRemoteAddr.Hex())
+	}
 
 	rmnRemote, err := rmn_remote.NewRMNRemoteCaller(rmnRemoteAddr, params.ChainClient)
 	if err != nil {

@@ -66,6 +66,9 @@ aggregator_address = "localhost:50051"
 
 [committee_verifier_addresses]
 "5009297550715157269" = "0x0000000000000000000000000000000000000002"
+
+[rmn_remote_addresses]
+"5009297550715157269" = "0x0000000000000000000000000000000000000003"
 `
 		require.NoError(t, f.Validate(bootstrap.JobSpec{AppConfig: appConfig}))
 	})

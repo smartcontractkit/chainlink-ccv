@@ -168,6 +168,7 @@ func TestBuildExecutorJobSpecs_StandaloneUsesAppConfig(t *testing.T) {
 		strconv.FormatUint(sel, 10): {
 			DestinationChainConfig: chainaccess.DestinationChainConfig{
 				OffRampAddress: "0xofframp",
+				RmnAddress:     "0xrmn",
 			},
 			DefaultExecutorAddress: "0xexec",
 		},
@@ -201,6 +202,7 @@ func TestBuildExecutorJobSpecs_CLUsesExecutorConfig(t *testing.T) {
 		strconv.FormatUint(sel, 10): {
 			DestinationChainConfig: chainaccess.DestinationChainConfig{
 				OffRampAddress: "0xofframp",
+				RmnAddress:     "0xrmn",
 			},
 			DefaultExecutorAddress: "0xexec",
 		},

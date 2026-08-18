@@ -31,6 +31,7 @@ func seedExecutorJobs(t *testing.T, sel uint64, pool ExecutorPoolInput, indexer 
 		strconv.FormatUint(sel, 10): {
 			DestinationChainConfig: chainaccess.DestinationChainConfig{
 				OffRampAddress: "0xofframp",
+				RmnAddress:     "0xrmn",
 			},
 			DefaultExecutorAddress: "0xexec",
 		},
@@ -109,7 +110,7 @@ func TestExecutorPoolInputFromState_ErrorsOnJobDrift(t *testing.T) {
 
 	adapterCfgs := map[string]executor.ChainConfiguration{
 		strconv.FormatUint(sel, 10): {
-			DestinationChainConfig: chainaccess.DestinationChainConfig{OffRampAddress: "0xofframp"},
+			DestinationChainConfig: chainaccess.DestinationChainConfig{OffRampAddress: "0xofframp", RmnAddress: "0xrmn"},
 			DefaultExecutorAddress: "0xexec",
 		},
 	}

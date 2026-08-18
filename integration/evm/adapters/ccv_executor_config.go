@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
+	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v1_0_0/operations/rmn_proxy"
 	execop "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/executor"
 	offrampop "github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/operations/offramp"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/deployment/v2_0_0/sequences"
@@ -77,10 +78,28 @@ func (a *EVMCCVExecutorConfigAdapter) BuildChainConfig(ds datastore.DataStore, c
 		return executor.ChainConfiguration{}, err
 	}
 
-	return executor.ChainConfiguration{
+	chainCfg := executor.ChainConfiguration{
 		DestinationChainConfig: chainaccess.DestinationChainConfig{
 			OffRampAddress: offRampAddr,
 		},
 		DefaultExecutorAddress: executorAddr,
-	}, nil
+	}
+
+	// The RMN proxy is resolved best-effort: rmn_address is deprecated (nodes derive the RMN
+	// Remote from the OffRamp's on-chain static config), so its absence from the datastore is
+	// not an error. It is still emitted when present so generated specs keep working for node
+	// binaries that predate the derivation cutover.
+	rmnProxyRefs := ds.Addresses().Filter(
+		datastore.AddressRefByChainSelector(chainSelector),
+		datastore.AddressRefByType(datastore.ContractType(rmn_proxy.ContractType)),
+		datastore.AddressRefByVersion(rmn_proxy.Version),
+	)
+	if len(rmnProxyRefs) > 1 {
+		return executor.ChainConfiguration{}, fmt.Errorf("chain %d: expected at most 1 RMNProxy, found %d", chainSelector, len(rmnProxyRefs))
+	}
+	if len(rmnProxyRefs) == 1 {
+		chainCfg.RmnAddress = rmnProxyRefs[0].Address
+	}
+
+	return chainCfg, nil
 }

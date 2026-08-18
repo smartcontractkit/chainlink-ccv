@@ -93,6 +93,13 @@ http_listen_port = 8101
   [chain_configuration.1]
     # off_ramp_address is the address of the OffRamp contract on the destination chain.
     off_ramp_address = "0x00000000000000000000000000000000000000ff"
+    # rmn_address is the address of the RMN Remote contract on the destination chain.
+    # DEPRECATED: the RMN Remote address is derived from the OffRamp's on-chain static config,
+    # which is authoritative. This field is retained so that job specs written before the
+    # derivation cutover still decode; when set and it disagrees with the derived address, a
+    # warning is logged and the derived address is used. Remove once deployed specs no longer
+    # carry it.
+    rmn_address = "0x00000000000000000000000000000000000000ab"
     # transmitter_key_name is the family-specific keystore key name used to sign and submit
     # transactions to the OffRamp on this chain. If empty, accessors fall back to their
     # family's default transmitter key (defined by each family's transmitter package).

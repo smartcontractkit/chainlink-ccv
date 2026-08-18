@@ -71,8 +71,8 @@ type GenerateTokenVerifierConfigInput struct {
 	// ReplaceExisting controls how the result is written to env metadata. By
 	// default (false) the changeset is modular: the chains scanned in this run are
 	// upserted into the token-verifier config already persisted for
-	// ServiceIdentifier — the per-chain on-ramp map and each verifier's
-	// per-chain address maps accumulate, and entries for chains not in
+	// ServiceIdentifier — the per-chain on-ramp / RMN-remote maps and each
+	// verifier's per-chain address maps accumulate, and entries for chains not in
 	// ChainSelectors are preserved. Set true to replace the stored config from a
 	// full scan instead, which also removes stale chains.
 	ReplaceExisting bool
@@ -103,6 +103,7 @@ func GenerateTokenVerifierConfig() deployment.ChangeSetV2[GenerateTokenVerifierC
 		cctpCfg := applyCCTPDefaults(cfg.CCTP, isProd)
 
 		onRampAddresses := make(map[string]string)
+		rmnRemoteAddresses := make(map[string]string)
 		cctpVerifierAddresses := make(map[string]string)
 		cctpVerifierResolverAddresses := make(map[string]string)
 		lombardVerifierResolverAddresses := make(map[string]string)
@@ -122,6 +123,11 @@ func GenerateTokenVerifierConfig() deployment.ChangeSetV2[GenerateTokenVerifierC
 
 			chainSelectorStr := strconv.FormatUint(sel, 10)
 			onRampAddresses[chainSelectorStr] = addrs.OnRampAddress
+			// Deprecated: only recorded when the adapter resolved an RMN proxy; nodes derive
+			// the RMN Remote on-chain.
+			if addrs.RMNRemoteAddress != "" {
+				rmnRemoteAddresses[chainSelectorStr] = addrs.RMNRemoteAddress
+			}
 
 			if addrs.CCTPVerifierAddress != "" {
 				cctpVerifierAddresses[chainSelectorStr] = addrs.CCTPVerifierAddress
@@ -134,7 +140,8 @@ func GenerateTokenVerifierConfig() deployment.ChangeSetV2[GenerateTokenVerifierC
 
 		tvConfig := &token.Config{
 			CommitteeConfig: chainaccess.CommitteeConfig{
-				OnRampAddresses: onRampAddresses,
+				OnRampAddresses:    onRampAddresses,
+				RMNRemoteAddresses: rmnRemoteAddresses,
 			},
 			TokenVerifiers: []token.VerifierConfig{},
 		}

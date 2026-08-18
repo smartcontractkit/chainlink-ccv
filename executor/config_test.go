@@ -12,6 +12,9 @@ import (
 func validChainConfig() ChainConfiguration {
 	return ChainConfiguration{
 		DestinationChainConfig: chainaccess.DestinationChainConfig{
+			// RmnAddress is deprecated and not required, but still accepted: keep it here so
+			// the valid-config cases prove pre-cutover specs (which always carry it) validate.
+			RmnAddress:     "0x1234567890abcdef",
 			OffRampAddress: "0xabcdef1234567890",
 		},
 		DefaultExecutorAddress: "0xdeadbeef12345678",

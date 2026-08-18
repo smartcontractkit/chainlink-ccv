@@ -248,6 +248,9 @@ func TestServiceCommitteeVerifierLocalMode(t *testing.T) {
 		CommitteeVerifierAddresses: map[string]string{selectorStr: placeholderAddr},
 		CommitteeConfig: chainaccess.CommitteeConfig{
 			OnRampAddresses: map[string]string{selectorStr: placeholderOnRampAddr},
+			// Deprecated pre-cutover key: must keep decoding. It intentionally disagrees with
+			// the stubbed on-chain value, exercising the mismatch warning.
+			RMNRemoteAddresses: map[string]string{selectorStr: placeholderAddr},
 		},
 	}
 	require.NoError(t, appCfg.Validate(), "hand-built verifier config must be valid")
@@ -438,6 +441,9 @@ func TestServiceCommitteeVerifierLocalModeDeferredConfig(t *testing.T) {
 		CommitteeVerifierAddresses: map[string]string{selectorStr: placeholderAddr},
 		CommitteeConfig: chainaccess.CommitteeConfig{
 			OnRampAddresses: map[string]string{selectorStr: placeholderOnRampAddr},
+			// Deprecated pre-cutover key: must keep decoding. It intentionally disagrees with
+			// the stubbed on-chain value, exercising the mismatch warning.
+			RMNRemoteAddresses: map[string]string{selectorStr: placeholderAddr},
 		},
 	}
 	require.NoError(t, appCfg.Validate(), "hand-built verifier config must be valid")

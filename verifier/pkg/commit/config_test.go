@@ -29,6 +29,11 @@ func TestConfig_Validate_Success(t *testing.T) {
 					OnRampAddresses: map[string]string{
 						"1": "0xOnRamp1",
 					},
+					// RMNRemoteAddresses is deprecated and not required, but still accepted:
+					// pre-cutover specs always carry it, so it must not fail validation.
+					RMNRemoteAddresses: map[string]string{
+						"1": "0xRMNRemote1",
+					},
 				},
 			},
 		},
@@ -44,6 +49,10 @@ func TestConfig_Validate_Success(t *testing.T) {
 						"1": "0xOnRamp1",
 						"2": "0xOnRamp2",
 					},
+					RMNRemoteAddresses: map[string]string{
+						"1": "0xRMNRemote1",
+						"2": "0xRMNRemote2",
+					},
 				},
 			},
 		},
@@ -52,7 +61,26 @@ func TestConfig_Validate_Success(t *testing.T) {
 			config: Config{
 				CommitteeVerifierAddresses: map[string]string{},
 				CommitteeConfig: chainaccess.CommitteeConfig{
-					OnRampAddresses: map[string]string{},
+					OnRampAddresses:    map[string]string{},
+					RMNRemoteAddresses: map[string]string{},
+				},
+			},
+		},
+		{
+			// The deprecated RMN map is no longer validated against the onramp keys: the RMN
+			// Remote is derived on-chain, so a stale entry must not block startup.
+			name: "deprecated RMN map keys not matching onramp keys are tolerated",
+			config: Config{
+				CommitteeVerifierAddresses: map[string]string{
+					"1": "0xCommittee1",
+				},
+				CommitteeConfig: chainaccess.CommitteeConfig{
+					OnRampAddresses: map[string]string{
+						"1": "0xOnRamp1",
+					},
+					RMNRemoteAddresses: map[string]string{
+						"2": "0xRMNRemote2",
+					},
 				},
 			},
 		},

@@ -31,8 +31,12 @@ type runtimeBuilder func(
 type factory struct {
 	lggr logger.Logger
 
-	onRampAddresses  map[protocol.ChainSelector]string
-	destChainConfigs map[protocol.ChainSelector]chainaccess.DestinationChainConfig
+	// rmnRemoteAddresses carries the deprecated configured RMN Remote addresses, passed to the
+	// readers only so they can warn when a configured value disagrees with the address derived
+	// from the ramp's on-chain static config. It is not required.
+	onRampAddresses    map[protocol.ChainSelector]string
+	rmnRemoteAddresses map[protocol.ChainSelector]string
+	destChainConfigs   map[protocol.ChainSelector]chainaccess.DestinationChainConfig
 
 	executionVisibilityWindow time.Duration
 	newRuntime                runtimeBuilder
@@ -40,7 +44,7 @@ type factory struct {
 
 func newFactory(
 	lggr logger.Logger,
-	onRampAddresses map[protocol.ChainSelector]string,
+	onRampAddresses, rmnRemoteAddresses map[protocol.ChainSelector]string,
 	destChainConfigs map[protocol.ChainSelector]chainaccess.DestinationChainConfig,
 	executionVisibilityWindow time.Duration,
 	newRuntime runtimeBuilder,
@@ -51,6 +55,7 @@ func newFactory(
 	return &factory{
 		lggr:                      lggr,
 		onRampAddresses:           onRampAddresses,
+		rmnRemoteAddresses:        rmnRemoteAddresses,
 		destChainConfigs:          destChainConfigs,
 		executionVisibilityWindow: executionVisibilityWindow,
 		newRuntime:                newRuntime,
@@ -79,9 +84,13 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 	}
 
 	onRampAddress := f.onRampAddresses[chainSelector]
+	rmnRemoteAddress := f.rmnRemoteAddresses[chainSelector]
 	destCfg := f.destChainConfigs[chainSelector]
 	hasSourceReaderConfig := isValidAddress(onRampAddress)
-	hasAnyDestinationConfig := destCfg.OffRampAddress != ""
+	// A configured rmn_address without an off-ramp address signals destination intent too: it
+	// fails the gate below rather than being silently ignored, since rmn_address on its own
+	// cannot construct destination services.
+	hasAnyDestinationConfig := destCfg.OffRampAddress != "" || destCfg.RmnAddress != ""
 	hasDestinationConfig := isValidAddress(destCfg.OffRampAddress)
 	if hasAnyDestinationConfig && !hasDestinationConfig {
 		return nil, fmt.Errorf(
@@ -133,6 +142,7 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 			chainClient,
 			headTracker,
 			common.HexToAddress(onRampAddress),
+			common.HexToAddress(rmnRemoteAddress),
 			onramp.OnRampCCIPMessageSent{}.Topic().Hex(),
 			chainSelector,
 			chainLggr,
@@ -154,6 +164,7 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 			ChainSelector:             chainSelector,
 			ChainClient:               chainClient,
 			OfframpAddress:            destCfg.OffRampAddress,
+			RmnRemoteAddress:          destCfg.RmnAddress,
 			ExecutionVisabilityWindow: f.executionVisibilityWindow,
 			Monitoring:                monitoring.NewNoopExecutorMonitoring(),
 		})

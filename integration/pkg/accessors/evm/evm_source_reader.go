@@ -48,6 +48,12 @@ func NewEVMSourceReader(
 	chainClient client.Client,
 	headTracker heads.Tracker,
 	onRampAddress common.Address,
+	// configuredRMNRemoteAddress is DEPRECATED: the RMN Remote address is derived from the
+	// OnRamp's on-chain static config, which is authoritative. It is still accepted so callers
+	// and configs from before the derivation cutover keep working; pass the zero address when
+	// unconfigured. When set and it disagrees with the derived address, a warning is logged
+	// and the derived address is used.
+	configuredRMNRemoteAddress common.Address,
 	ccipMessageSentTopic string,
 	chainSelector protocol.ChainSelector,
 	lggr logger.Logger,
@@ -95,6 +101,12 @@ func NewEVMSourceReader(
 	lggr.Infow("Derived RMN Remote address from OnRamp static config",
 		"chainSelector", chainSelector,
 		"rmnRemoteAddress", rmnRemoteAddress.Hex())
+	if configuredRMNRemoteAddress != (common.Address{}) && configuredRMNRemoteAddress != rmnRemoteAddress {
+		lggr.Warnw("Configured RMN Remote address does not match the OnRamp static config; using the derived address",
+			"chainSelector", chainSelector,
+			"configuredRmnRemoteAddress", configuredRMNRemoteAddress.Hex(),
+			"rmnRemoteAddress", rmnRemoteAddress.Hex())
+	}
 
 	// Bind to RMN Remote contract at the derived address.
 	rmnRemoteCaller, err := rmn_remote.NewRMNRemoteCaller(rmnRemoteAddress, chainClient)

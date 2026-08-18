@@ -69,6 +69,14 @@ type GenericConfig struct {
 type CommitteeConfig struct {
 	// OnRampAddresses is a map the addresses of the on ramps for each chain selector.
 	OnRampAddresses map[string]string `json:"on_ramp_addresses" toml:"on_ramp_addresses"`
+
+	// RMNRemoteAddresses is a map of RMN Remote contract addresses for each chain selector.
+	// DEPRECATED: the RMN Remote address is derived from each OnRamp's on-chain static config,
+	// which is authoritative. This field is retained so that job specs written before the
+	// derivation cutover still decode; when an entry is present and disagrees with the derived
+	// address, a warning is logged and the derived address is used. Remove once deployed specs
+	// no longer carry it.
+	RMNRemoteAddresses map[string]string `json:"rmn_remote_addresses" toml:"rmn_remote_addresses"`
 }
 
 // DestinationChainConfig is the subset of per-chain executor configuration needed to construct
@@ -78,6 +86,13 @@ type CommitteeConfig struct {
 type DestinationChainConfig struct {
 	// OffRampAddress is the address of the OffRamp contract on the destination chain.
 	OffRampAddress string `toml:"off_ramp_address"`
+	// RmnAddress is the address of the RMN Remote contract on the destination chain.
+	// DEPRECATED: the RMN Remote address is derived from the OffRamp's on-chain static config,
+	// which is authoritative. This field is retained so that job specs written before the
+	// derivation cutover still decode; when set and it disagrees with the derived address, a
+	// warning is logged and the derived address is used. Remove once deployed specs no longer
+	// carry it.
+	RmnAddress string `toml:"rmn_address"`
 	// TransmitterKeyName is the family-specific keystore key name used to sign and submit
 	// transactions to the OffRamp on this chain. If empty, accessors fall back to their
 	// family's default transmitter key (defined by each family's transmitter package).
@@ -95,6 +110,7 @@ type DestinationChainConfig struct {
 //
 //	[chain_configuration."<selector>"]
 //	off_ramp_address = "0x..."
+//	rmn_address      = "0x..." # DEPRECATED: derived from the OffRamp on-chain; still decoded
 //	# executor-only fields (executor_pool, execution_interval, etc.) are ignored by this overlay
 type ExecutorConfig struct {
 	// MaxRetryDuration is the maximum duration the executor cluster will retry a message before

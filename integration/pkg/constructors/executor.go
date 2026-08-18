@@ -53,6 +53,7 @@ func NewExecutorCoordinator(
 	lggr.Infow("Executor configuration", "config", cfg)
 
 	offRampAddresses := make(map[protocol.ChainSelector]protocol.UnknownAddress, len(cfg.ChainConfiguration))
+	rmnAddresses := make(map[protocol.ChainSelector]protocol.UnknownAddress, len(cfg.ChainConfiguration))
 	execPool := make(map[protocol.ChainSelector][]string, len(cfg.ChainConfiguration))
 	execIntervals := make(map[protocol.ChainSelector]time.Duration, len(cfg.ChainConfiguration))
 	defaultExecutorAddresses := make(map[protocol.ChainSelector]protocol.UnknownAddress, len(cfg.ChainConfiguration))
@@ -66,6 +67,15 @@ func NewExecutorCoordinator(
 		offRampAddresses[sel], err = protocol.NewUnknownAddressFromHex(chainConfig.OffRampAddress)
 		if err != nil {
 			return nil, fmt.Errorf("failed to parse offramp address '%s': %w", chainConfig.OffRampAddress, err)
+		}
+		// rmn_address is deprecated (the RMN Remote is derived from the OffRamp's on-chain
+		// static config); parse it only when present so the destination reader can warn on a
+		// mismatch with the derived address.
+		if chainConfig.RmnAddress != "" {
+			rmnAddresses[sel], err = protocol.NewUnknownAddressFromHex(chainConfig.RmnAddress)
+			if err != nil {
+				return nil, fmt.Errorf("failed to parse rmn address '%s': %w", chainConfig.RmnAddress, err)
+			}
 		}
 		execPool[sel] = chainConfig.ExecutorPool
 		execIntervals[sel] = chainConfig.ExecutionInterval
@@ -113,6 +123,7 @@ func NewExecutorCoordinator(
 				ChainSelector:             sel,
 				ChainClient:               chain.Client(),
 				OfframpAddress:            offRampAddresses[sel].String(), // TODO: use UnknownAddress instead of string?
+				RmnRemoteAddress:          rmnAddresses[sel].String(),     // Deprecated: empty when unconfigured.
 				ExecutionVisabilityWindow: cfg.MaxRetryDuration,
 				Monitoring:                executorMonitoring,
 			})
