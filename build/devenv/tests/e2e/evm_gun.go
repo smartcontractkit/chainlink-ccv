@@ -620,7 +620,7 @@ func (g *EVMTXGun) processReceipt(p pendingTx) {
 	}
 }
 
-// sendFailed pushes a SentMessage with Failed=true to the sentMsgCh
+// sendFailed pushes a SentMessage with Failed=true to the sentMsgCh.
 func (g *EVMTXGun) sendFailed(p pendingTx, sentTime time.Time) {
 	g.sentMsgCh <- load.SentMessage{
 		SeqNo:     0,
