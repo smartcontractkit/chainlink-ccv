@@ -41,9 +41,10 @@ type SourceConfig struct {
 	DisableFinalityChecker bool                    `json:"disable_finality_checker"`
 }
 
-// SourceReaderPollInterval is the source-reader poll interval used by both verifier
-// constructors, CL mode and standalone. One value is shared deliberately so the modes
-// cannot drift (they previously differed: 2s CL, 1s standalone).
+// SourceReaderPollInterval is the source-reader poll interval used by every verifier
+// constructor: committee verifier in CL mode and standalone, and the token verifier. One
+// value is shared deliberately so the modes cannot drift (they previously differed: 2s CL,
+// 1s standalone and token).
 const SourceReaderPollInterval = 2 * time.Second
 
 // CoordinatorConfig contains configuration for the verification coordinator.
