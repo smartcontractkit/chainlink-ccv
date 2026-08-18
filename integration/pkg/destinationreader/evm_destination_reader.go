@@ -219,7 +219,6 @@ func (dr *EvmDestinationReader) GetMessageSuccess(ctx context.Context, message p
 	execState, err := dr.offRampCaller.GetExecutionState(
 		&bind.CallOpts{
 			Context: ctx,
-			// TODO: Add FTF to this check
 		},
 		message.MustMessageID(),
 	)

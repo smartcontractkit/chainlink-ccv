@@ -426,8 +426,7 @@ func LoadAndValidateConfig(paths []string, cfg *Config) (AppConfigMode, error) {
 		if err != nil {
 			return "", fmt.Errorf("failed to read config file %q: %w", path, err)
 		}
-		// TODO switch to strict mode once config migration is over
-		if err := parseTOML(string(tomlBytes), cfg, false); err != nil {
+		if err := parseTOML(string(tomlBytes), cfg, true); err != nil {
 			return "", fmt.Errorf("failed to parse config %q: %w", path, err)
 		}
 	}

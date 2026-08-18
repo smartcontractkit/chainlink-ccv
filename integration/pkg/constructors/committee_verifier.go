@@ -76,7 +76,6 @@ func NewVerificationCoordinator(
 
 	protocol.InitChainSelectorCache()
 
-	// TODO: monitoring config home
 	verifierMonitoring, err := monitoring.InitMonitoring("committee_verifier")
 	if err != nil {
 		lggr.Errorw("Failed to initialize verifier monitoring", "error", err)
@@ -106,7 +105,6 @@ func NewVerificationCoordinator(
 			// TODO: use UnknownAddress instead of ethereum address.
 			common.HexToAddress(onRampAddrs[sel].String()),
 			common.HexToAddress(rmnRemoteAddrs[sel].String()),
-			// TODO: does this need to be configurable?
 			onramp.OnRampCCIPMessageSent{}.Topic().Hex(),
 			sel,
 			logger.With(lggr, "component", "SourceReader", "chainID", sel),
