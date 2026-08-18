@@ -484,8 +484,7 @@ func (f *factory) Stop(ctx context.Context) error {
 		}
 	}
 
-	// Stop aggregator writer
-	// TODO: is this stopped by the coordinator?
+	// Stop aggregator writer.
 	if f.aggregatorWriter != nil {
 		if err := f.aggregatorWriter.Close(); err != nil {
 			f.lggr.Errorw("Aggregator writer stop error", "error", err)

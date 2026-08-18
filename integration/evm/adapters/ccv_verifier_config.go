@@ -43,7 +43,7 @@ func (a *EVMCCVVerifierConfigAdapter) ResolveVerifierContractAddresses(
 		return nil, fmt.Errorf("failed to get committee verifier address for chain %d: %w", chainSelector, err)
 	}
 
-	onRampAddr, err := dsutils.FindAndFormatRef(ds, datastore.AddressRef{
+	onRampAddr, err := dsutils.FindAndFormatCanonicalRef(ds, datastore.AddressRef{
 		Type:    datastore.ContractType(onrampop.ContractType),
 		Version: onrampop.Version,
 	}, chainSelector, toAddress)

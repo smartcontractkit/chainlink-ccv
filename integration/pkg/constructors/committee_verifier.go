@@ -78,7 +78,6 @@ func NewVerificationCoordinator(
 
 	protocol.InitChainSelectorCache()
 
-	// TODO: monitoring config home
 	verifierMonitoring, err := monitoring.InitMonitoring("committee_verifier")
 	if err != nil {
 		lggr.Errorw("Failed to initialize verifier monitoring", "error", err)
@@ -114,7 +113,6 @@ func NewVerificationCoordinator(
 			// Deprecated configured RMN Remote, zero when unset: the reader derives the
 			// authoritative address on-chain and warns if this disagrees with it.
 			common.HexToAddress(rmnRemoteAddrs[sel].String()),
-			// TODO: does this need to be configurable?
 			onramp.OnRampCCIPMessageSent{}.Topic().Hex(),
 			sel,
 			logger.With(lggr, "component", "SourceReader", "chainID", sel),

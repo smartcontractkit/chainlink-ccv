@@ -349,7 +349,7 @@ func createSourceConfigs(verifiers map[protocol.ChainSelector]protocol.UnknownAd
 		sourceConfigs[selector] = verifier.SourceConfig{
 			VerifierAddress:        address,
 			DefaultExecutorAddress: nil,
-			PollInterval:           1 * time.Second,
+			PollInterval:           verifier.SourceReaderPollInterval,
 			ChainSelector:          selector,
 		}
 	}

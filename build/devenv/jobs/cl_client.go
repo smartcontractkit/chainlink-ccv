@@ -25,8 +25,18 @@ func ListPendingJobProposalSpecs(ctx context.Context, c sdkclient.Client) ([]str
 	var pendingSpecs []string
 	for _, fm := range jds.FeedsManagers.Results {
 		for _, jp := range fm.JobProposals {
-			if jp.Status == "PENDING" && jp.LatestSpec.Id != "" {
-				pendingSpecs = append(pendingSpecs, jp.LatestSpec.Id)
+			latestVersion := 0
+			var latestStatus string
+			var latestId string
+			for _, jps := range jp.Specs {
+				if jps.Version > latestVersion {
+					latestVersion = jps.Version
+					latestStatus = string(jps.Status)
+					latestId = jps.Id
+				}
+			}
+			if latestStatus == "PENDING" && latestVersion != 0 {
+				pendingSpecs = append(pendingSpecs, latestId)
 			}
 		}
 	}
