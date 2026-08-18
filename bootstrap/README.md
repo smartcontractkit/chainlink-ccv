@@ -90,6 +90,8 @@ Notes:
   config, which depends on those contracts, is known. Mount `local_app_config_path` inside a mounted
   **directory** and write the file atomically (temp + rename) so the waiting bootstrapper never reads
   a partial file. When the file is already present at startup, the service starts immediately.
+- The app config is read once when the service starts. Editing `local_app_config_path` after the
+  service has started is not picked up — restart the process to apply changes.
 
 # Configuration
 
@@ -124,8 +126,9 @@ url = "postgres://user:pass@localhost:5432/bootstrap_db?sslmode=disable"
 listen_port = 9988
 
 [monitoring]
-# Optional. Operator-provided OTel exporter config. When absent the app falls back to its own
-# deprecated monitoring field (if any). See pkg/monitoring for the full schema.
+# Optional. Operator-provided OTel exporter config. This is the only monitoring source for the apps
+# that load bootstrap config; their deprecated app-config monitoring fields are ignored.
+# See pkg/monitoring for the full schema.
 # [monitoring.beholder]
 # otel_exporter_http_endpoint = "collector.example.com:4318"
 
@@ -220,7 +223,7 @@ func (s *serviceFactory) Start(ctx context.Context, spec bootstrap.JobSpec, deps
     if err := spec.GetAppConfig(&cfg); err != nil {
         return err
     }
-    // start your app using cfg, deps.Keystore, deps.Registry, deps.Monitoring ...
+    // start your app using cfg, deps.Keystore, deps.Registry ...
     return nil
 }
 

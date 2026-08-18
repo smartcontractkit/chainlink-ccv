@@ -60,7 +60,7 @@ func TestExecutorDoc(t *testing.T) {
 
 	// monitoring is inlined, with its deprecation note and its own fields'
 	// comments resolved from the common/monitoring package
-	require.Contains(t, out, "# Monitoring is DEPRECATED")
+	require.Contains(t, out, "# Monitoring is deprecated and ignored")
 	require.Contains(t, out, "[Monitoring.Beholder]")
 	require.Contains(t, out, "# LogLevel specifies the logging level")
 
