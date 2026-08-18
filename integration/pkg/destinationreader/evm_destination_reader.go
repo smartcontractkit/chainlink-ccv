@@ -62,10 +62,10 @@ func (dr *EvmDestinationReader) HealthReport() map[string]error {
 }
 
 type Params struct {
-	Lggr                      logger.Logger
-	ChainSelector             protocol.ChainSelector
-	ChainClient               client.Client
-	OfframpAddress            string
+	Lggr           logger.Logger
+	ChainSelector  protocol.ChainSelector
+	ChainClient    client.Client
+	OfframpAddress string
 	// RmnRemoteAddress is DEPRECATED: the RMN Remote address is derived from the OffRamp's
 	// on-chain static config, which is authoritative. It is still accepted so callers and
 	// configs from before the derivation cutover keep working; when set and it disagrees with
