@@ -34,15 +34,6 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/load"
 )
 
-const (
-	sentMessageChannelBufferSize = 1000
-	avgMsgDataSize               = 1000 // bytes
-
-	fafReceiptWorkers = 10
-	fafPollInterval   = 1 * time.Second
-	fafPollTimeout    = 2 * time.Minute
-)
-
 type NonceKey struct {
 	Selector uint64
 	Address  string
@@ -114,7 +105,7 @@ func NewEVMTransactionGun(cfg *ccv.Cfg, e *deployment.Environment, selectors []u
 		selectors:     selectors,
 		impl:          impls,
 		sentMsgSet:    make(map[load.SentMessage]struct{}),
-		sentMsgCh:     make(chan load.SentMessage, sentMessageChannelBufferSize),
+		sentMsgCh:     make(chan load.SentMessage, load.SentMessageChannelBufferSize),
 		srcSelectors:  srcSelectors,
 		destSelectors: destSelectors,
 		userSelector:  userSelector,
@@ -186,7 +177,7 @@ func NewEVMTransactionGunFromTestConfig(cfg *ccv.Cfg, testProfile *load.TestProf
 		selectors:       selectors,
 		impl:            impls,
 		sentMsgSet:      make(map[load.SentMessage]struct{}),
-		sentMsgCh:       make(chan load.SentMessage, sentMessageChannelBufferSize),
+		sentMsgCh:       make(chan load.SentMessage, load.SentMessageChannelBufferSize),
 		srcSelectors:    srcSelectors,
 		destSelectors:   destSelectors,
 		messageProfiles: messageProfiles,
@@ -222,7 +213,7 @@ func (g *EVMTXGun) initFireAndForget(e *deployment.Environment, srcSelectors []u
 			return fmt.Errorf("EVM chain %d not found in CLDF environment", selector)
 		}
 
-		routerAddr, err := resolveContractAddr(e.DataStore, selector, datastore.ContractType(routeroperations.ContractType), semver.MustParse(routeroperations.Deploy.Version()))
+		routerAddr, err := evm.ResolveContractAddr(e.DataStore, selector, datastore.ContractType(routeroperations.ContractType), semver.MustParse(routeroperations.Deploy.Version()))
 		if err != nil {
 			return fmt.Errorf("resolve router for %d: %w", selector, err)
 		}
@@ -232,7 +223,7 @@ func (g *EVMTXGun) initFireAndForget(e *deployment.Environment, srcSelectors []u
 		}
 		g.router[selector] = r
 
-		onRampAddr, err := resolveContractAddr(e.DataStore, selector, datastore.ContractType(onrampoperations.ContractType), semver.MustParse(onrampoperations.Deploy.Version()))
+		onRampAddr, err := evm.ResolveContractAddr(e.DataStore, selector, datastore.ContractType(onrampoperations.ContractType), semver.MustParse(onrampoperations.Deploy.Version()))
 		if err != nil {
 			return fmt.Errorf("resolve onramp for %d: %w", selector, err)
 		}
@@ -245,7 +236,7 @@ func (g *EVMTXGun) initFireAndForget(e *deployment.Environment, srcSelectors []u
 		g.evmBackend[selector] = srcChain.Client
 	}
 
-	for range fafReceiptWorkers {
+	for range load.FAFReceiptWorkers {
 		g.fafWg.Add(1)
 		go g.receiptWorker()
 	}
@@ -530,7 +521,7 @@ func (m *EVMTXGun) selectMessageProfile(srcSelector uint64, dest destLoadInfo) (
 	}
 
 	if messageProfile.HasData {
-		data := make([]byte, load.MessageDataSizeBytes(messageProfile, avgMsgDataSize))
+		data := make([]byte, load.MessageDataSizeBytes(messageProfile, load.AvgMsgDataSize))
 		_, err2 := rand.Read(data)
 		if err2 != nil {
 			return cciptestinterfaces.MessageFields{}, cciptestinterfaces.MessageOptions{}, fmt.Errorf("failed to generate data: %w", err2)
@@ -565,30 +556,37 @@ func (g *EVMTXGun) receiptWorker() {
 	defer g.fafWg.Done()
 
 	for p := range g.pendingCh {
-		g.processReceipt(p)
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					g.sendFailed(p, time.Now())
+				}
+			}()
+			g.processReceipt(p)
+		}()
 	}
 }
 
 func (g *EVMTXGun) processReceipt(p pendingTx) {
-	backend, ok := g.evmBackend[p.srcSelector]
-	if !ok {
-		return
-	}
-	onRampFilter, ok := g.onRampFilter[p.srcSelector]
-	if !ok {
-		return
-	}
+	ctx, cancel := context.WithTimeout(context.Background(), load.FAFPollTimeout)
+	defer cancel()
 
-	deadline := time.Now().Add(fafPollTimeout)
+	backend := g.evmBackend[p.srcSelector]
+	onRampFilter := g.onRampFilter[p.srcSelector]
+
+	ticker := time.NewTicker(load.FAFPollInterval)
+	defer ticker.Stop()
+
 	for {
-		if time.Now().After(deadline) {
-			return
-		}
-
-		receipt, err := backend.TransactionReceipt(context.Background(), p.txHash)
+		receipt, err := backend.TransactionReceipt(ctx, p.txHash)
 		if err != nil {
-			time.Sleep(fafPollInterval)
-			continue
+			select {
+			case <-ctx.Done():
+				g.sendFailed(p, time.Now())
+				return
+			case <-ticker.C:
+				continue
+			}
 		}
 
 		for _, log := range receipt.Logs {
@@ -606,7 +604,7 @@ func (g *EVMTXGun) processReceipt(p pendingTx) {
 				continue
 			}
 
-			sentTime := blockTime(context.Background(), backend, receipt.BlockNumber)
+			sentTime := evm.BlockTime(ctx, backend, receipt.BlockNumber)
 			g.sentMsgCh <- load.SentMessage{
 				SeqNo:     uint64(decodedMsg.SequenceNumber),
 				MessageID: event.MessageId,
@@ -617,35 +615,18 @@ func (g *EVMTXGun) processReceipt(p pendingTx) {
 		}
 
 		// tx mined but no usable CCIPMessageSent event: mark as sent-but-failed
-		sentTime := blockTime(context.Background(), backend, receipt.BlockNumber)
-		g.sentMsgCh <- load.SentMessage{
-			SeqNo:     0,
-			MessageID: ([32]byte)(p.txHash),
-			SentTime:  sentTime,
-			ChainPair: load.SrcDest{Src: p.srcSelector, Dest: p.destSelector},
-			Failed:    true,
-		}
+		g.sendFailed(p, evm.BlockTime(ctx, backend, receipt.BlockNumber))
 		return
 	}
 }
 
-func blockTime(ctx context.Context, backend bind.ContractBackend, blockNumber *big.Int) time.Time {
-	header, err := backend.HeaderByNumber(ctx, blockNumber)
-	if err != nil {
-		return time.Now()
+// sendFailed pushes a SentMessage with Failed=true to the sentMsgCh
+func (g *EVMTXGun) sendFailed(p pendingTx, sentTime time.Time) {
+	g.sentMsgCh <- load.SentMessage{
+		SeqNo:     0,
+		MessageID: ([32]byte)(p.txHash),
+		SentTime:  sentTime,
+		ChainPair: load.SrcDest{Src: p.srcSelector, Dest: p.destSelector},
+		Failed:    true,
 	}
-	// #nosec G115 -- block timestamps are epoch seconds and well within int64 range.
-	return time.Unix(int64(header.Time), 0)
-}
-
-func resolveContractAddr(ds datastore.DataStore, selector uint64, contractType datastore.ContractType, version *semver.Version) (common.Address, error) {
-	refs := ds.Addresses().Filter(
-		datastore.AddressRefByChainSelector(selector),
-		datastore.AddressRefByType(contractType),
-		datastore.AddressRefByVersion(version),
-	)
-	if len(refs) != 1 {
-		return common.Address{}, fmt.Errorf("expected 1 %s for selector %d version %s, got %d", contractType, selector, version, len(refs))
-	}
-	return common.HexToAddress(refs[0].Address), nil
 }
