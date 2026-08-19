@@ -204,7 +204,7 @@ func (g *EVMTXGun) initFireAndForget(e *deployment.Environment, srcSelectors []u
 	g.router = make(map[uint64]*routerwrapper.Router, len(srcSelectors))
 	g.onRampFilter = make(map[uint64]*onramp.OnRampFilterer, len(srcSelectors))
 	g.evmBackend = make(map[uint64]evmChainBackend, len(srcSelectors))
-	g.pendingCh = make(chan pendingTx, 10000)
+	g.pendingCh = make(chan pendingTx, load.PendingMessageChannelBufferSize)
 	g.ccipSentTopic = onramp.OnRampCCIPMessageSent{}.Topic()
 
 	for _, selector := range srcSelectors {
