@@ -36,21 +36,30 @@ pub fn parse_receipt_structure(
         return Err(ProtocolError::NoReceipts);
     }
     let expected = num_ccv_blobs + num_token_transfers + 2;
+    let mismatch = || ProtocolError::UnexpectedReceiptCount {
+        got: receipts.len(),
+        expected,
+        ccvs: num_ccv_blobs,
+        tokens: num_token_transfers,
+    };
+
+    // Extraction IS the bounds validation: any failure here means the receipt
+    // count did not match the claimed structure. Checked accessors only — no panics.
+    let ccv_receipts = receipts.get(..num_ccv_blobs).ok_or_else(mismatch)?.to_vec();
+    let executor_receipt = receipts.iter().rev().nth(1).ok_or_else(mismatch)?.clone();
+    let token_receipts = if num_token_transfers > 0 {
+        vec![receipts.iter().rev().nth(2).ok_or_else(mismatch)?.clone()]
+    } else {
+        Vec::new()
+    };
+
+    // Go requires an exact count match.
     if receipts.len() != expected {
-        return Err(ProtocolError::UnexpectedReceiptCount {
-            got: receipts.len(),
-            expected,
-            ccvs: num_ccv_blobs,
-            tokens: num_token_transfers,
-        });
+        return Err(mismatch());
     }
 
-    let ccv_receipts = receipts[..num_ccv_blobs].to_vec();
     let ccv_addresses = ccv_receipts.iter().map(|r| r.issuer.clone()).collect();
-    let executor_receipt = receipts[receipts.len() - 2].clone();
     let executor_address = executor_receipt.issuer.clone();
-    let token_receipts = if num_token_transfers > 0 { vec![receipts[receipts.len() - 3].clone()] } else { Vec::new() };
-
     Ok(ReceiptStructure { ccv_receipts, token_receipts, executor_receipt, ccv_addresses, executor_address })
 }
 
@@ -153,6 +162,16 @@ mod tests {
     }
 
     #[test]
+    fn hash_rejects_too_many_ccvs() {
+        let ccvs: Vec<UnknownAddress> = (0..=u8::MAX).map(|i| vec![i; 20]).collect();
+        assert_eq!(ccvs.len(), 256);
+        assert!(matches!(
+            compute_ccv_and_executor_hash(&ccvs, &vec![0x33; 20]),
+            Err(ProtocolError::TooManyCcvs(256))
+        ));
+    }
+
+    #[test]
     fn parses_structure_without_tokens() {
         // [CCV0, CCV1, Executor, NetworkFee]
         let receipts = vec![receipt(0x11), receipt(0x22), receipt(0x33), receipt(0xee)];
@@ -181,6 +200,26 @@ mod tests {
             parse_receipt_structure(&receipts, 2, 0),
             Err(ProtocolError::UnexpectedReceiptCount { .. })
         ));
+        // More CCVs claimed than receipts present (extraction failure path).
+        assert!(matches!(
+            parse_receipt_structure(&receipts, 5, 0),
+            Err(ProtocolError::UnexpectedReceiptCount { .. })
+        ));
+        // Too few receipts for an executor at all.
+        assert!(matches!(
+            parse_receipt_structure(&[receipt(0x11)], 0, 0),
+            Err(ProtocolError::UnexpectedReceiptCount { .. })
+        ));
+        // Token transfer claimed but no room for a token receipt.
+        assert!(matches!(
+            parse_receipt_structure(&[receipt(0x11), receipt(0x33)], 0, 1),
+            Err(ProtocolError::UnexpectedReceiptCount { .. })
+        ));
+        // Structurally fine extraction, but the exact-count check rejects extras.
+        assert!(matches!(
+            parse_receipt_structure(&[receipt(0x11), receipt(0x33), receipt(0xee), receipt(0x99)], 1, 0),
+            Err(ProtocolError::UnexpectedReceiptCount { .. })
+        ));
     }
 
     #[test]
@@ -189,6 +228,12 @@ mod tests {
         let receipts = vec![receipt(0x11), receipt(0x22), receipt(0x33), receipt(0xee)];
         let msg = msg_with_hash(hash, false);
         validate_ccv_and_executor_hash(&msg, &receipts).unwrap();
+
+        // Empty receipts.
+        assert!(matches!(
+            validate_ccv_and_executor_hash(&msg, &[]),
+            Err(ProtocolError::NoReceipts)
+        ));
 
         // Same receipts but the message carries a token transfer: the parser now
         // reads only 1 CCV ([0x11]) and treats 0x22 as the token receipt, so the

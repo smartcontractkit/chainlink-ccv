@@ -10,6 +10,25 @@
 //!   and both non-EVM implementations (Solana, Canton) immediately convert to `u64`.
 //! - `toBlock == nil` ("query up to latest") is expressed as `Option<u64>::None`.
 //! - `context.Context` is replaced by ordinary future cancellation.
+//!
+//! # Layering contract
+//!
+//! Implementations are stateless and hold no persistent state: durability
+//! (processed-block checkpoints, task queues) lives strictly **above** this
+//! interface, in the verifier service. Because there is no state, any
+//! implementation can be shut down without notice (SIGKILL included) and cannot
+//! end up in a bad state.
+//!
+//! Each implementation supports exactly one chain family (see
+//! [`evm::EvmSourceReader`] for the EVM family and its called-out exceptions).
+
+// Library code must never panic: all fallible operations return ChainAccessError
+// (or ProtocolError). The lints below make that enforceable in non-test code.
+#![forbid(unsafe_code)]
+#![cfg_attr(
+    not(test),
+    deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::indexing_slicing)
+)]
 
 pub mod evm;
 

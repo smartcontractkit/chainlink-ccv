@@ -2,7 +2,16 @@
 //!
 //! Rust port of the Go `protocol` package in this repository. Byte-level
 //! compatibility with the Go implementation is enforced by golden-vector tests
-//! generated from the Go code (see the `tests` modules).
+//! generated from the Go code and by differential fuzz tests against the Go
+//! implementation (see `ccv-chainaccess/tests/differential`).
+
+// This crate must never panic on any input: all fallible operations return
+// ProtocolError. The lints below make that enforceable in non-test code.
+#![forbid(unsafe_code)]
+#![cfg_attr(
+    not(test),
+    deny(clippy::unwrap_used, clippy::expect_used, clippy::panic, clippy::indexing_slicing)
+)]
 
 pub mod message;
 pub mod receipt;
@@ -26,6 +35,8 @@ pub enum ProtocolError {
     UnexpectedEof(&'static str),
     #[error("trailing bytes after decoding")]
     TrailingBytes,
+    #[error("{field} length {got} exceeds maximum {max}")]
+    FieldTooLong { field: &'static str, got: usize, max: usize },
     #[error("no receipt blobs to extract CCV and executor addresses from")]
     NoReceipts,
     #[error(
