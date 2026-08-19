@@ -31,11 +31,49 @@ use alloy::rpc::types::Log;
 
 use ccv_chainaccess::evm::EvmSourceReader;
 
-const CORPUS: &str = include_str!("data/sepolia_v2_onramp_logs.json");
-/// Sepolia OnRamp v2.0.0 that emitted the corpus.
-const ON_RAMP: Address = address!("181Ac7dC295f1C8C87342d07CFaBA90bC477DB5d");
-const CHAIN_SELECTOR: u64 = 16015286601757825753;
-const RMN_REMOTE: Address = address!("F094E1dB26Ce8C76C9fF0bD0566Bb8EEfF1b76dd");
+/// Bundled corpus: 708 CCIPMessageSent logs emitted by the Sepolia OnRamp v2.0.0
+/// between blocks 10970571 and 11522733, cross-validated byte-identically across two
+/// independent RPC endpoints to guard against silent log dropping.
+///
+/// To run against another EVM chain, override via environment:
+///   CCV_DIFF_CORPUS         path to a log JSON file (raw eth_getLogs result array)
+///   CCV_DIFF_ONRAMP         OnRamp address that emitted those logs
+///   CCV_DIFF_CHAIN_SELECTOR CCIP chain selector of that chain
+///   CCV_DIFF_RMN            RMN Remote address on that chain (any nonzero address works)
+const DEFAULT_ON_RAMP: Address = address!("181Ac7dC295f1C8C87342d07CFaBA90bC477DB5d");
+const DEFAULT_CHAIN_SELECTOR: u64 = 16015286601757825753;
+const DEFAULT_RMN_REMOTE: Address = address!("F094E1dB26Ce8C76C9fF0bD0566Bb8EEfF1b76dd");
+const DEFAULT_CORPUS_EVENTS: usize = 708;
+
+fn corpus() -> (Vec<serde_json::Value>, bool) {
+    let (path, bundled) = match std::env::var("CCV_DIFF_CORPUS") {
+        Ok(p) => (PathBuf::from(p), false),
+        Err(_) => (
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/data/sepolia_v2_onramp_logs.json"),
+            true,
+        ),
+    };
+    let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("read {}: {e}", path.display()));
+    (serde_json::from_str(&text).expect("corpus parses"), bundled)
+}
+
+fn on_ramp() -> Address {
+    std::env::var("CCV_DIFF_ONRAMP")
+        .map(|s| s.parse().expect("CCV_DIFF_ONRAMP must be a 0x-prefixed address"))
+        .unwrap_or(DEFAULT_ON_RAMP)
+}
+
+fn chain_selector() -> u64 {
+    std::env::var("CCV_DIFF_CHAIN_SELECTOR")
+        .map(|s| s.parse().expect("CCV_DIFF_CHAIN_SELECTOR must be a u64"))
+        .unwrap_or(DEFAULT_CHAIN_SELECTOR)
+}
+
+fn rmn_remote() -> Address {
+    std::env::var("CCV_DIFF_RMN")
+        .map(|s| s.parse().expect("CCV_DIFF_RMN must be a 0x-prefixed address"))
+        .unwrap_or(DEFAULT_RMN_REMOTE)
+}
 
 // ---------------------------------------------------------------------------
 // RNG (same xorshift64* as the codec differential test)
@@ -100,7 +138,7 @@ fn go_parse_events(bin: &Path, logs: &[serde_json::Value]) -> Vec<serde_json::Va
         .expect("spawn differential-go");
 
     let request = serde_json::json!({
-        "onRampAddress": format!("0x{}", hex::encode(ON_RAMP)),
+        "onRampAddress": format!("0x{}", hex::encode(on_ramp())),
         "logs": logs,
     })
     .to_string();
@@ -132,7 +170,7 @@ fn go_parse_events(bin: &Path, logs: &[serde_json::Value]) -> Vec<serde_json::Va
 
 fn rust_reader() -> EvmSourceReader<alloy::providers::DynProvider> {
     let provider = ProviderBuilder::new().connect_mocked_client(Asserter::new()).erased();
-    EvmSourceReader::new(provider, ON_RAMP, RMN_REMOTE, CHAIN_SELECTOR).expect("reader")
+    EvmSourceReader::new(provider, on_ramp(), rmn_remote(), chain_selector()).expect("reader")
 }
 
 fn rust_outcome(reader: &EvmSourceReader<alloy::providers::DynProvider>, log: &Log) -> serde_json::Value {
@@ -256,8 +294,11 @@ fn differential_events_vs_go() {
     let Some(bin) = ensure_go_cli("differential-events") else { return };
     let reader = rust_reader();
 
-    let corpus: Vec<serde_json::Value> = serde_json::from_str(CORPUS).expect("corpus parses");
-    assert_eq!(corpus.len(), 708, "corpus should contain 708 historical logs");
+    let (corpus, bundled) = corpus();
+    if bundled {
+        assert_eq!(corpus.len(), DEFAULT_CORPUS_EVENTS, "bundled corpus should contain {DEFAULT_CORPUS_EVENTS} logs");
+    }
+    eprintln!("corpus: {} historical logs{}", corpus.len(), if bundled { " (bundled Sepolia)" } else { " (CCV_DIFF_CORPUS)" });
 
     // --- Corpus 1: unmodified historical logs. ---
     let alloy_logs: Vec<Log> = corpus
@@ -288,7 +329,8 @@ fn differential_events_vs_go() {
     }
 
     eprintln!(
-        "differential events: 708 historical + {} mutated logs compared against Go",
+        "differential events: {} historical + {} mutated logs compared against Go",
+        corpus.len(),
         mutant_logs.len()
     );
 }
