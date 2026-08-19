@@ -1,101 +1,24 @@
 //! Tests for the gRPC SourceReader service: handler mapping, error-to-Status
 //! mapping, and a full over-the-wire roundtrip against a real socket.
 
+mod common;
+
+use std::net::SocketAddr;
 use std::sync::Arc;
 
-use alloy::primitives::{Address, B256, Bytes, U256, address, b256, hex as alloy_hex};
+use alloy::primitives::hex as alloy_hex;
 use alloy::providers::mock::Asserter;
 use alloy::providers::{Provider, ProviderBuilder};
-use alloy::rpc::types::Log;
-use alloy::sol_types::SolEvent;
-use hex_literal::hex;
 use tonic::Code;
 
-use ccv_chainaccess::evm::{EvmSourceReader, OnRamp};
+use ccv_chainaccess::evm::EvmSourceReader;
 use ccv_chainaccess::ChainAccessError;
 use ccv_chainaccess_grpc::pb::source_reader_server::SourceReader as _;
-use ccv_chainaccess_grpc::{SourceReaderService, pb};
+use ccv_chainaccess_grpc::{pb, SourceReaderService};
 
-const CHAIN_SELECTOR: u64 = 16015286601757825753;
-const DEST_CHAIN_SELECTOR: u64 = 5009297550715157269;
-
-// Golden message (no token transfer), produced by the Go protocol package.
-const ENCODED_MESSAGE_NO_TOKEN: &[u8] = &hex!(
-    "01de41ba4fc9d91ad945849994fc9c7b15000000000000002a0007a12000030d4000000001"
-    "13a7b9b0c5f3ba0823991a0f2fccdb822f02084cde959b3b1a33f5b19ce7b4cf"
-    "20000000000000000000000000aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-    "20000000000000000000000000bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
-    "20000000000000000000000000cccccccccccccccccccccccccccccccccccccccc"
-    "20000000000000000000000000dddddddddddddddddddddddddddddddddddddddd"
-    "0003010203" "0000" "000a" "68656c6c6f2063636970"
-);
-const MESSAGE_ID_NO_TOKEN: B256 = b256!("8527b04a622efd89664aeaa2269dcdf2f4f46898e2776aa144f874bace7be211");
-
-const ON_RAMP: Address = address!("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-const SENDER: Address = address!("cccccccccccccccccccccccccccccccccccccccc");
-const RMN_REMOTE: Address = address!("9999999999999999999999999999999999999999");
-
-fn receipt(issuer_byte: u8) -> OnRamp::Receipt {
-    OnRamp::Receipt {
-        issuer: Address::from([issuer_byte; 20]),
-        destGasLimit: 100_000,
-        destBytesOverhead: 32,
-        feeTokenAmount: U256::from(1u64),
-        extraArgs: Bytes::from(vec![0x01, 0x02]),
-    }
-}
-
-fn valid_event() -> OnRamp::CCIPMessageSent {
-    OnRamp::CCIPMessageSent {
-        destChainSelector: DEST_CHAIN_SELECTOR,
-        sender: SENDER,
-        messageId: MESSAGE_ID_NO_TOKEN,
-        feeToken: Address::ZERO,
-        tokenAmountBeforeTokenPoolFees: U256::ZERO,
-        encodedMessage: Bytes::from(ENCODED_MESSAGE_NO_TOKEN.to_vec()),
-        receipts: vec![receipt(0x11), receipt(0x22), receipt(0x33), receipt(0x44)],
-        verifierBlobs: vec![Bytes::from(vec![0xb1; 4]), Bytes::from(vec![0xb2; 4])],
-    }
-}
-
-fn valid_log(block_number: u64) -> Log {
-    let event = valid_event();
-    let topics = event.encode_topics().into_iter().map(|t| t.0).collect::<Vec<B256>>();
-    Log {
-        inner: alloy::primitives::Log::new_unchecked(ON_RAMP, topics, event.encode_data().into()),
-        block_hash: None,
-        block_number: Some(block_number),
-        block_timestamp: Some(1_700_000_000),
-        transaction_hash: Some(b256!("deaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddead")),
-        transaction_index: Some(0),
-        log_index: Some(0),
-        removed: false,
-    }
-}
-
-fn block_json(n: u64) -> serde_json::Value {
-    serde_json::json!({
-        "number": format!("0x{n:x}"),
-        "hash": format!("0x{n:064x}"),
-        "parentHash": format!("0x{:064x}", n.saturating_sub(1)),
-        "timestamp": "0x65f1e200",
-        "nonce": "0x0000000000000000",
-        "sha3Uncles": format!("0x{:064x}", 0),
-        "logsBloom": format!("0x{:0512x}", 0),
-        "transactionsRoot": format!("0x{:064x}", 0),
-        "stateRoot": format!("0x{:064x}", 0),
-        "receiptsRoot": format!("0x{:064x}", 0),
-        "miner": "0x0000000000000000000000000000000000000000",
-        "difficulty": "0x0",
-        "extraData": "0x",
-        "gasLimit": "0x1c9c380",
-        "gasUsed": "0x0",
-        "baseFeePerGas": "0x3b9aca00",
-        "mixHash": format!("0x{:064x}", 0),
-        "transactions": [],
-        "uncles": [],
-    })
-}
+use common::{
+    block_json, valid_log, CHAIN_SELECTOR, ENCODED_MESSAGE_NO_TOKEN, MESSAGE_ID_NO_TOKEN, ON_RAMP, RMN_REMOTE,
+};
 
 type MockReader = EvmSourceReader<alloy::providers::DynProvider>;
 
@@ -125,7 +48,10 @@ async fn fetch_message_sent_events_maps_events() {
     assert_eq!(evt.message_id, MESSAGE_ID_NO_TOKEN.to_vec());
     assert_eq!(evt.encoded_message, ENCODED_MESSAGE_NO_TOKEN);
     assert_eq!(evt.block_number, 123);
-    assert_eq!(alloy_hex::encode(&evt.tx_hash), "deaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddead");
+    assert_eq!(
+        alloy_hex::encode(&evt.tx_hash),
+        "deaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddead"
+    );
     assert_eq!(evt.receipts.len(), 4);
     assert_eq!(evt.receipts[0].issuer, vec![0x11; 20]);
     assert_eq!(evt.receipts[0].blob, vec![0xb1; 4]);
@@ -163,7 +89,9 @@ async fn get_blocks_headers_roundtrip() {
     let svc = service_with(&asserter);
 
     let resp = svc
-        .get_blocks_headers(tonic::Request::new(pb::GetBlocksHeadersRequest { block_numbers: vec![10, 11] }))
+        .get_blocks_headers(tonic::Request::new(pb::GetBlocksHeadersRequest {
+            block_numbers: vec![10, 11],
+        }))
         .await
         .unwrap()
         .into_inner();
@@ -260,7 +188,7 @@ fn server_config_parsing() {
     ])
     .unwrap();
     assert_eq!(cfg.chain_selector, 16015286601757825753);
-    assert_eq!(cfg.listen_addr, "0.0.0.0:50051");
+    assert_eq!(cfg.listen_addr, SocketAddr::from(([0, 0, 0, 0], 50051)));
 
     // All problems are aggregated into one error.
     let err = ServerConfig::from_pairs([("CCV_CHAIN_SELECTOR", "not-a-number")]).unwrap_err();
@@ -299,9 +227,14 @@ async fn over_the_wire_roundtrip() {
             .unwrap();
     });
 
-    let mut client = pb::source_reader_client::SourceReaderClient::connect(format!("http://{addr}")).await.unwrap();
+    let mut client = pb::source_reader_client::SourceReaderClient::connect(format!("http://{addr}"))
+        .await
+        .unwrap();
     let resp = client
-        .fetch_message_sent_events(pb::FetchMessageSentEventsRequest { from_block: 1, to_block: Some(100) })
+        .fetch_message_sent_events(pb::FetchMessageSentEventsRequest {
+            from_block: 1,
+            to_block: Some(100),
+        })
         .await
         .unwrap()
         .into_inner();
@@ -318,7 +251,9 @@ struct ErrReader(fn() -> ChainAccessError);
 
 #[async_trait::async_trait]
 impl ccv_chainaccess::HeadTracker for ErrReader {
-    async fn latest_and_finalized_block(&self) -> Result<(ccv_protocol::BlockHeader, ccv_protocol::BlockHeader), ChainAccessError> {
+    async fn latest_and_finalized_block(
+        &self,
+    ) -> Result<(ccv_protocol::BlockHeader, ccv_protocol::BlockHeader), ChainAccessError> {
         Err((self.0)())
     }
     async fn latest_safe_block(&self) -> Result<Option<ccv_protocol::BlockHeader>, ChainAccessError> {
@@ -357,7 +292,10 @@ async fn error_status_mapping_for_every_method() {
     let cases: [(fn() -> E, Code); 3] = [
         (|| E::InvalidInput("bad".into()), Code::InvalidArgument),
         (|| E::NotFound("gone".into()), Code::NotFound),
-        (|| E::Protocol(ccv_protocol::ProtocolError::TrailingBytes), Code::Internal),
+        (
+            || E::Protocol(ccv_protocol::ProtocolError::TrailingBytes),
+            Code::Internal,
+        ),
     ];
 
     for (err, code) in cases {
@@ -371,7 +309,9 @@ async fn error_status_mapping_for_every_method() {
             .unwrap_err();
         assert_eq!(status.code(), code);
         let status = svc
-            .get_blocks_headers(tonic::Request::new(pb::GetBlocksHeadersRequest { block_numbers: vec![1] }))
+            .get_blocks_headers(tonic::Request::new(pb::GetBlocksHeadersRequest {
+                block_numbers: vec![1],
+            }))
             .await
             .unwrap_err();
         assert_eq!(status.code(), code);
@@ -450,7 +390,7 @@ fn server_config_from_env() {
     std::env::set_var("CCV_LISTEN_ADDR", "127.0.0.1:9999");
     let cfg = ccv_chainaccess_grpc::ServerConfig::from_env().unwrap();
     assert_eq!(cfg.chain_selector, 123);
-    assert_eq!(cfg.listen_addr, "127.0.0.1:9999");
+    assert_eq!(cfg.listen_addr, SocketAddr::from(([127, 0, 0, 1], 9999)));
     std::env::remove_var("CCV_EVM_RPC_URL");
     std::env::remove_var("CCV_ON_RAMP_ADDRESS");
     std::env::remove_var("CCV_RMN_REMOTE_ADDRESS");

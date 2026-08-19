@@ -15,7 +15,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use alloy::eips::BlockNumberOrTag;
-use alloy::primitives::{Address, B256, FixedBytes};
+use alloy::primitives::{Address, FixedBytes, B256};
 use alloy::providers::Provider;
 use alloy::rpc::types::{Block, Filter, Log};
 use alloy::sol;
@@ -23,9 +23,7 @@ use alloy::sol_types::SolEvent;
 use async_trait::async_trait;
 use tracing::{debug, error, warn};
 
-use ccv_protocol::{
-    BlockHeader, Message, MessageSentEvent, ReceiptWithBlob, validate_ccv_and_executor_hash,
-};
+use ccv_protocol::{validate_ccv_and_executor_hash, BlockHeader, Message, MessageSentEvent, ReceiptWithBlob};
 
 use crate::{ChainAccessError, HeadTracker, RmnCurseReader, SourceReader};
 
@@ -51,6 +49,34 @@ sol! {
             uint256 tokenAmountBeforeTokenPoolFees,
             bytes encodedMessage,
             Receipt[] receipts,
+            bytes[] verifierBlobs
+        );
+    }
+
+    /// Decoding-only mirror of the CCIPMessageSent event data with the two
+    /// `uint32` receipt fields widened to `uint256`. The ABI layout is
+    /// byte-identical (both are single-word static fields), but decoding yields
+    /// the raw words instead of masking the high bits, letting
+    /// [`EvmSourceReader::decode_event`] replicate geth's uint32 range checks
+    /// with ordinary comparisons. Never use this declaration for the event
+    /// signature: the topic0 must come from [`OnRamp`].
+    interface OnRampWideReceipts {
+        struct WideReceipt {
+            address issuer;
+            uint256 destGasLimit;
+            uint256 destBytesOverhead;
+            uint256 feeTokenAmount;
+            bytes extraArgs;
+        }
+
+        event CCIPMessageSent(
+            uint64 indexed destChainSelector,
+            address indexed sender,
+            bytes32 indexed messageId,
+            address feeToken,
+            uint256 tokenAmountBeforeTokenPoolFees,
+            bytes encodedMessage,
+            WideReceipt[] receipts,
             bytes[] verifierBlobs
         );
     }
@@ -102,6 +128,7 @@ impl SkipReason {
 
     /// Stable machine-readable code, kept in sync with the Go differential harness
     /// (`rust/differential-go/main.go`).
+    #[doc(hidden)]
     pub fn code(self) -> &'static str {
         match self {
             SkipReason::MalformedEvent => "malformed_event",
@@ -195,7 +222,9 @@ impl<P: Provider> EvmSourceReader<P> {
     ///   trailing garbage — identical to geth's `abi.Unpack`.
     /// - uint32 fields (receipt destGasLimit/destBytesOverhead): geth
     ///   range-checks the raw words while Alloy's lenient sequence decode masks
-    ///   them, so the raw receipt-head words are checked explicitly for parity.
+    ///   them, so the body is decoded via [`OnRampWideReceipts`] (identical
+    ///   layout, uint32 fields widened to uint256) and the words are
+    ///   range-checked explicitly for parity.
     ///
     /// The only intentional divergence: topic0 is verified against the event
     /// signature. The Go inner loop never observes a wrong topic0 (the
@@ -213,19 +242,26 @@ impl<P: Provider> EvmSourceReader<P> {
 
         // Masked topic reads, identical to the Go code (topics are always 32 bytes):
         // destChainSelector = last 8 bytes of topic1, sender = last 20 bytes of topic2.
-        let t1: [u8; 32] = (*topic1).into();
-        let dest_chain_selector = t1.iter().skip(24).fold(0u64, |acc, &b| (acc << 8) | u64::from(b));
-        let t2: [u8; 32] = (*topic2).into();
-        let sender = Address::from_slice(t2.split_at(12).1);
+        let dest_chain_selector = topic1.0.iter().skip(24).fold(0u64, |acc, &b| (acc << 8) | u64::from(b));
+        let sender = Address::from_slice(topic2.0.split_at(12).1);
         let message_id = *topic3;
 
-        let data: &[u8] = &log.inner.data.data;
-        let (fee_token, token_amount, encoded_message, receipts, verifier_blobs) =
-            <OnRamp::CCIPMessageSent as SolEvent>::abi_decode_data(data)
+        let (fee_token, token_amount, encoded_message, wide_receipts, verifier_blobs) =
+            <OnRampWideReceipts::CCIPMessageSent as SolEvent>::abi_decode_data(&log.inner.data.data)
                 .map_err(|_| SkipReason::MalformedEvent)?;
 
-        if receipts_have_uint32_overflow(data)? {
-            return Err(SkipReason::MalformedEvent);
+        // geth rejects a receipt whose uint32 word has any of the top 28 bytes
+        // set; the widened decode preserves the raw words, so the same range
+        // check is a plain conversion.
+        let mut receipts = Vec::with_capacity(wide_receipts.len());
+        for r in wide_receipts {
+            receipts.push(OnRamp::Receipt {
+                issuer: r.issuer,
+                destGasLimit: u32::try_from(r.destGasLimit).map_err(|_| SkipReason::MalformedEvent)?,
+                destBytesOverhead: u32::try_from(r.destBytesOverhead).map_err(|_| SkipReason::MalformedEvent)?,
+                feeTokenAmount: r.feeTokenAmount,
+                extraArgs: r.extraArgs,
+            });
         }
 
         Ok(OnRamp::CCIPMessageSent {
@@ -252,6 +288,9 @@ impl<P: Provider> EvmSourceReader<P> {
     /// `fetch_message_sent_events`, where the RPC filter already pins topic0 —
     /// it only hardens direct calls with arbitrary logs.
     pub fn check_log(&self, log: &Log) -> Result<MessageSentEvent, SkipReason> {
+        let block_number = log.block_number.unwrap_or_default();
+        let tx_hash = log.transaction_hash.unwrap_or_default();
+
         let event = match self.decode_event(log) {
             Ok(event) => event,
             Err(reason) => {
@@ -261,8 +300,8 @@ impl<P: Provider> EvmSourceReader<P> {
                 error!(
                     chain_selector = self.chain_selector,
                     reason = reason.code(),
-                    block_number = log.block_number.unwrap_or_default(),
-                    tx_hash = ?log.transaction_hash.unwrap_or_default(),
+                    block_number,
+                    ?tx_hash,
                     "CCIPMessageSent event failed topic/ABI validation",
                 );
                 return Err(reason);
@@ -271,8 +310,8 @@ impl<P: Provider> EvmSourceReader<P> {
 
         debug!(
             chain_selector = self.chain_selector,
-            block_number = log.block_number.unwrap_or_default(),
-            tx_hash = ?log.transaction_hash.unwrap_or_default(),
+            block_number,
+            ?tx_hash,
             "Found CCIPMessageSent event",
         );
 
@@ -299,7 +338,7 @@ impl<P: Provider> EvmSourceReader<P> {
             self.critical_invariant();
             error!(
                 message_id = ?event.messageId,
-                block_number = log.block_number.unwrap_or_default(),
+                block_number,
                 "ccvAndExecutorHash is zero in decoded message",
             );
             return Err(SkipReason::ZeroCcvAndExecutorHash);
@@ -368,7 +407,7 @@ impl<P: Provider> EvmSourceReader<P> {
         if let Err(err) = validate_ccv_and_executor_hash(&message, &receipts) {
             error!(
                 message_id = ?event.messageId,
-                block_number = log.block_number.unwrap_or_default(),
+                block_number,
                 error = %err,
                 "ccvAndExecutorHash validation failed",
             );
@@ -379,8 +418,8 @@ impl<P: Provider> EvmSourceReader<P> {
             message_id: event.messageId,
             message,
             receipts,
-            block_number: log.block_number.unwrap_or_default(),
-            tx_hash: log.transaction_hash.unwrap_or_default(),
+            block_number,
+            tx_hash,
         })
     }
 }
@@ -406,10 +445,7 @@ impl<P: Provider> SourceReader for EvmSourceReader<P> {
         Ok(logs.iter().filter_map(|log| self.check_log(log).ok()).collect())
     }
 
-    async fn get_blocks_headers(
-        &self,
-        block_numbers: &[u64],
-    ) -> Result<HashMap<u64, BlockHeader>, ChainAccessError> {
+    async fn get_blocks_headers(&self, block_numbers: &[u64]) -> Result<HashMap<u64, BlockHeader>, ChainAccessError> {
         // TODO: batch requests for efficiency (mirrors Go ticket CCIP-7766).
         let mut headers = HashMap::with_capacity(block_numbers.len());
         for &number in block_numbers {
@@ -436,14 +472,8 @@ impl<P: Provider> SourceReader for EvmSourceReader<P> {
 #[async_trait]
 impl<P: Provider> HeadTracker for EvmSourceReader<P> {
     async fn latest_and_finalized_block(&self) -> Result<(BlockHeader, BlockHeader), ChainAccessError> {
-        let latest = self
-            .provider
-            .get_block_by_number(BlockNumberOrTag::Latest)
-            .await?;
-        let finalized = self
-            .provider
-            .get_block_by_number(BlockNumberOrTag::Finalized)
-            .await?;
+        let latest = self.provider.get_block_by_number(BlockNumberOrTag::Latest).await?;
+        let finalized = self.provider.get_block_by_number(BlockNumberOrTag::Finalized).await?;
 
         match (latest, finalized) {
             (Some(latest), Some(finalized)) => Ok((header_from_block(&latest), header_from_block(&finalized))),
@@ -452,11 +482,7 @@ impl<P: Provider> HeadTracker for EvmSourceReader<P> {
     }
 
     async fn latest_safe_block(&self) -> Result<Option<BlockHeader>, ChainAccessError> {
-        match self
-            .provider
-            .get_block_by_number(BlockNumberOrTag::Safe)
-            .await
-        {
+        match self.provider.get_block_by_number(BlockNumberOrTag::Safe).await {
             Ok(Some(block)) => Ok(Some(header_from_block(&block))),
             // Chain does not support the safe tag: Go returns nil without an error.
             Ok(None) => Ok(None),
@@ -488,69 +514,19 @@ fn header_from_block(block: &Block) -> BlockHeader {
 
 /// Left-pads a 20-byte EVM address to 32 bytes, matching how addresses appear
 /// in the canonical message encoding (Go: common.LeftPadBytes).
-fn left_pad_32(address: &Address) -> Vec<u8> {
-    let mut out = vec![0u8; 12];
-    out.extend_from_slice(address.as_slice());
+fn left_pad_32(address: &Address) -> [u8; 32] {
+    let mut out = [0u8; 32];
+    out.split_at_mut(12).1.copy_from_slice(address.as_slice());
     out
-}
-
-/// Replicates go-ethereum's uint32 range checks on the raw ABI words of every
-/// receipt's `destGasLimit` and `destBytesOverhead` fields. geth rejects a
-/// receipt whose uint32 word has any of the top 28 bytes set; Alloy's lenient
-/// sequence decode masks those bits instead, so without this check the two
-/// implementations disagree on corrupted data.
-///
-/// Must only be called after a successful bounds-checked decode of `data`
-/// (which guarantees the offsets walked here are in range); all accessors stay
-/// checked regardless.
-fn receipts_have_uint32_overflow(data: &[u8]) -> Result<bool, SkipReason> {
-    let word = |pos: usize| -> Result<&[u8], SkipReason> {
-        data.get(pos..pos.saturating_add(32)).ok_or(SkipReason::MalformedEvent)
-    };
-    // Reads a 32-byte word as a usize offset/length. Nonzero bytes above the low
-    // 8 are unreachable after a successful decode; rejected defensively.
-    let usize_at = |pos: usize| -> Result<usize, SkipReason> {
-        let w = word(pos)?;
-        if w.iter().take(24).any(|&b| b != 0) {
-            return Err(SkipReason::MalformedEvent);
-        }
-        let tail = w.get(24..32).ok_or(SkipReason::MalformedEvent)?;
-        let mut arr = [0u8; 8];
-        arr.copy_from_slice(tail);
-        Ok(u64::from_be_bytes(arr) as usize)
-    };
-
-    // Event data head: word0 feeToken, word1 tokenAmount, word2 encodedMessage
-    // offset, word3 receipts offset, word4 verifierBlobs offset.
-    let receipts_area = usize_at(96)?;
-    let count = usize_at(receipts_area)?;
-    let elems_base = receipts_area.checked_add(32).ok_or(SkipReason::MalformedEvent)?;
-
-    for i in 0..count {
-        let offset_word_pos = elems_base
-            .checked_add(i.checked_mul(32).ok_or(SkipReason::MalformedEvent)?)
-            .ok_or(SkipReason::MalformedEvent)?;
-        let elem_offset = usize_at(offset_word_pos)?;
-        let head = elems_base.checked_add(elem_offset).ok_or(SkipReason::MalformedEvent)?;
-        // Receipt tuple head: word0 issuer, word1 destGasLimit, word2
-        // destBytesOverhead, word3 feeTokenAmount, word4 extraArgs offset.
-        for field_word in [1usize, 2usize] {
-            let pos = head.checked_add(field_word * 32).ok_or(SkipReason::MalformedEvent)?;
-            if word(pos)?.iter().take(28).any(|&b| b != 0) {
-                return Ok(true);
-            }
-        }
-    }
-    Ok(false)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alloy::primitives::{Bytes, LogData, U256, address, b256, hex as alloy_hex};
-    use alloy::providers::ProviderBuilder;
+    use alloy::primitives::{address, b256, hex as alloy_hex, Bytes, LogData, U256};
     use alloy::providers::mock::Asserter;
-    use ccv_protocol::{MESSAGE_VERSION, TokenTransfer};
+    use alloy::providers::ProviderBuilder;
+    use ccv_protocol::{TokenTransfer, MESSAGE_VERSION};
     use hex_literal::hex;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -611,22 +587,14 @@ mod tests {
             removed: false,
         };
         log.block_number = Some(block_number);
-        log.transaction_hash = Some(b256!("deaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddead"));
+        log.transaction_hash = Some(b256!(
+            "deaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddeaddead"
+        ));
         log.block_timestamp = Some(1_700_000_000);
         log
     }
 
-    /// Enables tracing (with discarded output) so that log statements in library
-    /// code actually evaluate their fields under coverage instrumentation.
-    fn init_tracing() {
-        let _ = tracing_subscriber::fmt()
-            .with_writer(std::io::sink)
-            .with_max_level(tracing::Level::TRACE)
-            .try_init();
-    }
-
     fn reader_with_logs(logs: Vec<Log>) -> (EvmSourceReader<impl Provider>, Arc<AtomicUsize>) {
-        init_tracing();
         let asserter = Asserter::new();
         asserter.push_success(&logs);
         let provider = ProviderBuilder::new().connect_mocked_client(asserter);
@@ -737,8 +705,7 @@ mod tests {
         "0004" "deadbeef"
         "000a" "68656c6c6f2063636970"
     );
-    const MESSAGE_ID_WITH_TOKEN: B256 =
-        b256!("969d89ef12e60be7faff8b1b72c6b9a95faac24cb82c77cdf009e5a580500557");
+    const MESSAGE_ID_WITH_TOKEN: B256 = b256!("969d89ef12e60be7faff8b1b72c6b9a95faac24cb82c77cdf009e5a580500557");
 
     /// Valid event carrying the golden message WITH a token transfer: receipts
     /// gain a token receipt at index len-3: [CCV0, CCV1, Token, Executor, NetworkFee].
@@ -750,7 +717,13 @@ mod tests {
             feeToken: Address::ZERO,
             tokenAmountBeforeTokenPoolFees: U256::ZERO,
             encodedMessage: Bytes::from(ENCODED_MESSAGE_WITH_TOKEN.to_vec()),
-            receipts: vec![receipt(0x11), receipt(0x22), receipt(0x99), receipt(0x33), receipt(0x44)],
+            receipts: vec![
+                receipt(0x11),
+                receipt(0x22),
+                receipt(0x99),
+                receipt(0x33),
+                receipt(0x44),
+            ],
             verifierBlobs: vec![Bytes::from(vec![0xb1; 4]), Bytes::from(vec![0xb2; 4])],
         }
     }
@@ -797,7 +770,6 @@ mod tests {
     }
 
     fn reader_with_mocked_rpc() -> (EvmSourceReader<impl Provider>, Asserter) {
-        init_tracing();
         let asserter = Asserter::new();
         let provider = ProviderBuilder::new().connect_mocked_client(asserter.clone());
         let reader = EvmSourceReader::new(provider, ON_RAMP, RMN_REMOTE, CHAIN_SELECTOR).unwrap();
@@ -824,7 +796,10 @@ mod tests {
         assert_eq!(headers.len(), 2);
         let h10 = headers.get(&10).unwrap();
         assert_eq!(h10.number, 10);
-        assert_eq!(h10.parent_hash, b256!("0000000000000000000000000000000000000000000000000000000000000009"));
+        assert_eq!(
+            h10.parent_hash,
+            b256!("0000000000000000000000000000000000000000000000000000000000000009")
+        );
         assert_eq!(h10.timestamp, 0x65f1e200);
         assert!(!headers.contains_key(&11));
         assert!(!headers.contains_key(&12));
@@ -887,7 +862,10 @@ mod tests {
         asserter.push_success(&format!("0x{encoded}"));
 
         let subjects = reader.get_rmn_cursed_subjects().await.unwrap();
-        assert_eq!(subjects, vec![FixedBytes::<16>::from(subject1), FixedBytes::<16>::from(subject2)]);
+        assert_eq!(
+            subjects,
+            vec![FixedBytes::<16>::from(subject1), FixedBytes::<16>::from(subject2)]
+        );
 
         let (reader, asserter) = reader_with_mocked_rpc();
         asserter.push_failure_msg("revert");
@@ -1012,88 +990,36 @@ mod tests {
         }
     }
 
-    /// Builds a minimal ABI event-data buffer with one receipt whose
-    /// destGasLimit/destBytesOverhead words carry the given top bytes.
-    fn abi_data_with_receipt(gas_limit_word_top: u8, overhead_word_top: u8) -> Vec<u8> {
-        let word = |top: u8, low: u64| {
-            let mut w = [0u8; 32];
-            w[0] = top;
-            w[24..].copy_from_slice(&low.to_be_bytes());
-            w
-        };
-        let mut data = Vec::new();
-        for w in [word(0, 0), word(0, 0), word(0, 0xa0), word(0, 0xa0), word(0, 0x120)] {
-            data.extend_from_slice(&w); // event head: 5 words
-        }
-        data.extend_from_slice(&word(0, 1)); // receipts: 1 element
-        data.extend_from_slice(&word(0, 0x20)); // element offset 32: head follows the offset table
-        // receipt head: issuer, destGasLimit, destBytesOverhead, feeTokenAmount, extraArgs offset
-        data.extend_from_slice(&word(0, 0)); // issuer (masked address)
-        data.extend_from_slice(&word(gas_limit_word_top, 100_000));
-        data.extend_from_slice(&word(overhead_word_top, 32));
-        data.extend_from_slice(&word(0, 1)); // feeTokenAmount
-        data.extend_from_slice(&word(0, 0xa0)); // extraArgs offset (relative to head)
-        data.extend_from_slice(&word(0, 0)); // extraArgs: empty
-        data.extend_from_slice(&word(0, 0)); // encodedMessage: empty (unused by the walk)
-        data.extend_from_slice(&word(0, 0)); // verifierBlobs: empty
-        data
-    }
-
-    #[test]
-    fn uint32_overflow_walk_matches_geth_range_checks() {
-        // Clean buffer: no overflow.
-        assert!(!receipts_have_uint32_overflow(&abi_data_with_receipt(0, 0)).unwrap());
-        // High bit set in destGasLimit: geth would reject.
-        assert!(receipts_have_uint32_overflow(&abi_data_with_receipt(1, 0)).unwrap());
-        // High bit set in destBytesOverhead: geth would reject.
-        assert!(receipts_have_uint32_overflow(&abi_data_with_receipt(0, 1)).unwrap());
-
-        // Defensive paths on malformed layouts.
-        let mut bad = abi_data_with_receipt(0, 0);
-        bad.truncate(100); // head cut short: receipts offset word out of range
-        assert!(receipts_have_uint32_overflow(&bad).is_err());
-
-        let mut bad = abi_data_with_receipt(0, 0);
-        bad[96] = 1; // receipts offset word with high bits set
-        assert!(receipts_have_uint32_overflow(&bad).is_err());
-
-        let mut bad = abi_data_with_receipt(0, 0);
-        bad[160] = 0xff; // absurd receipt count: element offset word out of range
-        assert!(receipts_have_uint32_overflow(&bad).is_err());
-
-        let mut bad = abi_data_with_receipt(0, 0);
-        bad[192] = 1; // element offset word with high bits set
-        assert!(receipts_have_uint32_overflow(&bad).is_err());
-    }
-
     #[tokio::test]
     async fn dirty_uint32_word_is_malformed_like_geth() {
-        // Flip the top byte of the first receipt's destGasLimit word in otherwise
-        // valid event data: geth rejects, and so must we. Positions are derived
-        // from the data's own offsets, not hardcoded.
-        let mut data = valid_event().encode_data().to_vec();
-        let word_as_usize = |pos: usize| -> usize {
+        // Flip the top byte of the first receipt's destGasLimit / destBytesOverhead
+        // word in otherwise valid event data: geth range-checks uint32 words, and
+        // so must we. Positions are derived from the data's own offsets, not
+        // hardcoded.
+        let word_as_usize = |data: &[u8], pos: usize| -> usize {
             let mut arr = [0u8; 8];
             arr.copy_from_slice(&data[pos + 24..pos + 32]);
             u64::from_be_bytes(arr) as usize
         };
-        let receipts_area = word_as_usize(96); // head word 3: receipts offset
-        let head0 = receipts_area + 32 + word_as_usize(receipts_area + 32); // first element offset
-        let dest_gas_limit_word = head0 + 32; // receipt head word 1
-        assert!(!receipts_have_uint32_overflow(&data).unwrap());
-        data[dest_gas_limit_word] = 0x01;
-        let event = valid_event();
-        let topics = event.encode_topics().into_iter().map(|t| t.0).collect::<Vec<B256>>();
-        let mut log = log_for(&event, 1);
-        log.inner.data = LogData::new_unchecked(topics, Bytes::from(data));
+        let clean = valid_event().encode_data().to_vec();
+        let receipts_area = word_as_usize(&clean, 96); // head word 3: receipts offset
+        let head0 = receipts_area + 32 + word_as_usize(&clean, receipts_area + 32); // first element offset
 
-        let (reader, violations) = reader_with_logs(vec![log.clone()]);
-        let err = reader.check_log(&log).unwrap_err();
-        assert_eq!(err, SkipReason::MalformedEvent);
-        assert_eq!(violations.load(Ordering::SeqCst), 1);
-        let events = reader.fetch_message_sent_events(0, None).await.unwrap();
-        assert!(events.is_empty());
-        assert_eq!(violations.load(Ordering::SeqCst), 2);
+        for field_word in [1usize, 2usize] {
+            let mut data = clean.clone();
+            data[head0 + field_word * 32] = 0x01;
+            let event = valid_event();
+            let topics = event.encode_topics().into_iter().map(|t| t.0).collect::<Vec<B256>>();
+            let mut log = log_for(&event, 1);
+            log.inner.data = LogData::new_unchecked(topics, Bytes::from(data));
+
+            let (reader, violations) = reader_with_logs(vec![log.clone()]);
+            let err = reader.check_log(&log).unwrap_err();
+            assert_eq!(err, SkipReason::MalformedEvent);
+            assert_eq!(violations.load(Ordering::SeqCst), 1);
+            let events = reader.fetch_message_sent_events(0, None).await.unwrap();
+            assert!(events.is_empty());
+            assert_eq!(violations.load(Ordering::SeqCst), 2);
+        }
     }
 }
-

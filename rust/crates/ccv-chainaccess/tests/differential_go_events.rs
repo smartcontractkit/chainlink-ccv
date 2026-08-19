@@ -24,7 +24,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use alloy::primitives::{Address, B256, Bytes, address, hex};
+use alloy::primitives::{address, hex, Address, Bytes, B256};
 use alloy::providers::mock::Asserter;
 use alloy::providers::{Provider, ProviderBuilder};
 use alloy::rpc::types::Log;
@@ -159,7 +159,10 @@ fn go_parse_events(bin: &Path, logs: &[serde_json::Value]) -> Vec<serde_json::Va
         results.push(serde_json::from_str(&line).expect("parse go result JSON"));
     }
     writer.join().expect("join writer");
-    assert!(child.wait().expect("wait go").success(), "differential-go parse-events failed");
+    assert!(
+        child.wait().expect("wait go").success(),
+        "differential-go parse-events failed"
+    );
     assert_eq!(results.len(), logs.len(), "go returned a wrong number of results");
     results
 }
@@ -204,7 +207,10 @@ fn compare(label: &str, rust: &serde_json::Value, go: &serde_json::Value) {
         );
     } else {
         for field in ["message_id", "block_number", "tx_hash", "receipts", "encoded_message"] {
-            assert_eq!(rust[field], go[field], "{label}: field {field} mismatch\n rust: {rust}\n   go: {go}");
+            assert_eq!(
+                rust[field], go[field],
+                "{label}: field {field} mismatch\n rust: {rust}\n   go: {go}"
+            );
         }
     }
 }
@@ -275,10 +281,8 @@ fn mutate(log: &Log, rng: &mut Rng) -> Log {
         _ => {
             let topics = m.inner.data.topics().to_vec();
             if topics.len() == 4 {
-                m.inner.data = alloy::primitives::LogData::new_unchecked(
-                    topics[..3].to_vec(),
-                    m.inner.data.data.clone(),
-                );
+                m.inner.data =
+                    alloy::primitives::LogData::new_unchecked(topics[..3].to_vec(), m.inner.data.data.clone());
             }
         }
     }
@@ -291,14 +295,28 @@ fn mutate(log: &Log, rng: &mut Rng) -> Log {
 
 #[test]
 fn differential_events_vs_go() {
-    let Some(bin) = ensure_go_cli("differential-events") else { return };
+    let Some(bin) = ensure_go_cli("differential-events") else {
+        return;
+    };
     let reader = rust_reader();
 
     let (corpus, bundled) = corpus();
     if bundled {
-        assert_eq!(corpus.len(), DEFAULT_CORPUS_EVENTS, "bundled corpus should contain {DEFAULT_CORPUS_EVENTS} logs");
+        assert_eq!(
+            corpus.len(),
+            DEFAULT_CORPUS_EVENTS,
+            "bundled corpus should contain {DEFAULT_CORPUS_EVENTS} logs"
+        );
     }
-    eprintln!("corpus: {} historical logs{}", corpus.len(), if bundled { " (bundled Sepolia)" } else { " (CCV_DIFF_CORPUS)" });
+    eprintln!(
+        "corpus: {} historical logs{}",
+        corpus.len(),
+        if bundled {
+            " (bundled Sepolia)"
+        } else {
+            " (CCV_DIFF_CORPUS)"
+        }
+    );
 
     // --- Corpus 1: unmodified historical logs. ---
     let alloy_logs: Vec<Log> = corpus
@@ -307,12 +325,18 @@ fn differential_events_vs_go() {
         .collect();
     let go_results = go_parse_events(&bin, &corpus);
     for (i, log) in alloy_logs.iter().enumerate() {
-        compare(&format!("historical log {i}"), &rust_outcome(&reader, log), &go_results[i]);
+        compare(
+            &format!("historical log {i}"),
+            &rust_outcome(&reader, log),
+            &go_results[i],
+        );
     }
 
     // --- Corpus 2: mutations of historical logs. ---
-    let mutations_per_log: usize =
-        std::env::var("CCV_DIFF_MUTATIONS_PER_LOG").ok().and_then(|s| s.parse().ok()).unwrap_or(3);
+    let mutations_per_log: usize = std::env::var("CCV_DIFF_MUTATIONS_PER_LOG")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(3);
     let mut rng = Rng::from_env();
 
     let mut mutant_logs: Vec<Log> = Vec::new();
@@ -321,8 +345,10 @@ fn differential_events_vs_go() {
             mutant_logs.push(mutate(log, &mut rng));
         }
     }
-    let mutant_json: Vec<serde_json::Value> =
-        mutant_logs.iter().map(|l| serde_json::to_value(l).expect("log serializes")).collect();
+    let mutant_json: Vec<serde_json::Value> = mutant_logs
+        .iter()
+        .map(|l| serde_json::to_value(l).expect("log serializes"))
+        .collect();
     let go_results = go_parse_events(&bin, &mutant_json);
     for (i, log) in mutant_logs.iter().enumerate() {
         compare(&format!("mutant {i}"), &rust_outcome(&reader, log), &go_results[i]);

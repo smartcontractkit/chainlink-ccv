@@ -8,20 +8,20 @@
 //!   cargo run -p ccv-chainaccess --example backtest -- \
 //!     <rpc_url> <on_ramp> <rmn_remote> <chain_selector> <from_block> <to_block> [chunk_size]
 //!
-//! Example (Sepolia OnRamp v2.0.0, 113 historical events):
+//! Example (Sepolia OnRamp v2.0.0, 708 historical events):
 //!   cargo run -p ccv-chainaccess --example backtest -- \
-//!     https://ethereum-sepolia-rpc.publicnode.com \
+//!     https://rpc.sepolia.ethpandaops.io \
 //!     0x181Ac7dC295f1C8C87342d07CFaBA90bC477DB5d \
 //!     0xF094E1dB26Ce8C76C9fF0bD0566Bb8EEfF1b76dd \
-//!     16015286601757825753 10970571 11522733 10000
+//!     16015286601757825753 10970571 11522733 5000
 
 use std::process::ExitCode;
 
 use alloy::primitives::Address;
 use alloy::providers::ProviderBuilder;
 
-use ccv_chainaccess::{HeadTracker, RmnCurseReader, SourceReader};
 use ccv_chainaccess::evm::EvmSourceReader;
+use ccv_chainaccess::{HeadTracker, RmnCurseReader, SourceReader};
 
 #[tokio::main]
 async fn main() -> ExitCode {
@@ -88,7 +88,11 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     block_numbers.sort_unstable();
     block_numbers.dedup();
     let headers = reader.get_blocks_headers(&block_numbers).await?;
-    let missing: Vec<u64> = block_numbers.iter().filter(|n| !headers.contains_key(n)).copied().collect();
+    let missing: Vec<u64> = block_numbers
+        .iter()
+        .filter(|n| !headers.contains_key(n))
+        .copied()
+        .collect();
     if !missing.is_empty() {
         return Err(format!("missing headers for event blocks: {missing:?}").into());
     }

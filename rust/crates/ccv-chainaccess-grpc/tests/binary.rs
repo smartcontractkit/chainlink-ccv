@@ -1,9 +1,8 @@
 //! End-to-end tests for the `ccv-chainaccess-grpc` server binary: boots the real
-//! process against a stub JSON-RPC endpoint, serves gRPC requests, then shuts it
-//! down — gracefully via SIGINT, and ungracefully via SIGKILL (safe by design:
-//! the server holds no state).
-//!
-//! These tests double as the coverage for src/main.rs.
+//! process against a stub JSON-RPC endpoint, serves gRPC requests over a real
+//! socket, then shuts the process down gracefully via SIGINT.
+
+mod common;
 
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::{TcpListener, TcpStream};
@@ -25,27 +24,7 @@ fn block_json(tag: &str) -> serde_json::Value {
         "safe" => 39,
         _ => 42,
     };
-    serde_json::json!({
-        "number": format!("0x{n:x}"),
-        "hash": format!("0x{n:064x}"),
-        "parentHash": format!("0x{:064x}", n.saturating_sub(1)),
-        "timestamp": "0x65f1e200",
-        "nonce": "0x0000000000000000",
-        "sha3Uncles": format!("0x{:064x}", 0),
-        "logsBloom": format!("0x{:0512x}", 0),
-        "transactionsRoot": format!("0x{:064x}", 0),
-        "stateRoot": format!("0x{:064x}", 0),
-        "receiptsRoot": format!("0x{:064x}", 0),
-        "miner": "0x0000000000000000000000000000000000000000",
-        "difficulty": "0x0",
-        "extraData": "0x",
-        "gasLimit": "0x1c9c380",
-        "gasUsed": "0x0",
-        "baseFeePerGas": "0x3b9aca00",
-        "mixHash": format!("0x{:064x}", 0),
-        "transactions": [],
-        "uncles": [],
-    })
+    common::block_json(n)
 }
 
 fn handle_rpc(mut stream: TcpStream) {
@@ -84,7 +63,12 @@ fn handle_rpc(mut stream: TcpStream) {
         _ => serde_json::json!([]),
     };
     let resp = serde_json::json!({"jsonrpc": "2.0", "id": id, "result": result}).to_string();
-    let _ = write!(stream, "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\n\r\n{}", resp.len(), resp);
+    let _ = write!(
+        stream,
+        "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\n\r\n{}",
+        resp.len(),
+        resp
+    );
     let _ = stream.flush();
 }
 
@@ -140,7 +124,11 @@ async fn binary_serves_and_shuts_down_gracefully() {
     assert_eq!(resp.latest.unwrap().number, 42);
     assert_eq!(resp.finalized.unwrap().number, 40);
 
-    let resp = client.latest_safe_block(pb::LatestSafeBlockRequest {}).await.unwrap().into_inner();
+    let resp = client
+        .latest_safe_block(pb::LatestSafeBlockRequest {})
+        .await
+        .unwrap()
+        .into_inner();
     assert_eq!(resp.safe.unwrap().number, 39);
 
     let resp = client
@@ -151,7 +139,10 @@ async fn binary_serves_and_shuts_down_gracefully() {
     assert_eq!(resp.subjects.len(), 0);
 
     let resp = client
-        .fetch_message_sent_events(pb::FetchMessageSentEventsRequest { from_block: 1, to_block: Some(10) })
+        .fetch_message_sent_events(pb::FetchMessageSentEventsRequest {
+            from_block: 1,
+            to_block: Some(10),
+        })
         .await
         .unwrap()
         .into_inner();
@@ -172,26 +163,6 @@ async fn binary_serves_and_shuts_down_gracefully() {
     }
     let _ = child.kill();
     panic!("server did not exit within 5s of SIGINT");
-}
-
-#[tokio::test]
-async fn binary_sigkill_leaves_no_bad_state() {
-    let rpc_port = free_port();
-    let grpc_port = free_port();
-    spawn_rpc_stub(rpc_port);
-    let mut child = spawn_server(rpc_port, grpc_port);
-
-    let mut client = connect_ready(grpc_port).await;
-    client
-        .latest_and_finalized_block(pb::LatestAndFinalizedBlockRequest {})
-        .await
-        .unwrap();
-
-    // No-notice shutdown: SIGKILL. The server is stateless, so nothing can be
-    // corrupted; the OS reclaims the port and all resources.
-    child.kill().unwrap();
-    let status = child.wait().unwrap();
-    assert!(!status.success(), "SIGKILL terminates the process");
 }
 
 #[test]

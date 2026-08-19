@@ -14,8 +14,11 @@
 )]
 
 use std::collections::HashMap;
+use std::net::SocketAddr;
 use std::sync::Arc;
 
+use alloy::primitives::Address;
+use alloy::transports::http::reqwest::Url;
 use tonic::{Request, Response, Status};
 
 use ccv_chainaccess::{ChainAccessError, SourceReader};
@@ -46,7 +49,9 @@ impl<R> SourceReaderService<R> {
 
 impl<R> Clone for SourceReaderService<R> {
     fn clone(&self) -> Self {
-        Self { reader: Arc::clone(&self.reader) }
+        Self {
+            reader: Arc::clone(&self.reader),
+        }
     }
 }
 
@@ -120,8 +125,11 @@ where
         &self,
         request: Request<pb::GetBlocksHeadersRequest>,
     ) -> Result<Response<pb::GetBlocksHeadersResponse>, Status> {
-        let headers: HashMap<u64, BlockHeader> =
-            self.reader.get_blocks_headers(&request.into_inner().block_numbers).await.map_err(to_status)?;
+        let headers: HashMap<u64, BlockHeader> = self
+            .reader
+            .get_blocks_headers(&request.into_inner().block_numbers)
+            .await
+            .map_err(to_status)?;
         let headers = headers.into_iter().map(|(k, v)| (k, to_pb_header(&v))).collect();
         Ok(Response::new(pb::GetBlocksHeadersResponse { headers }))
     }
@@ -142,7 +150,9 @@ where
         _request: Request<pb::LatestSafeBlockRequest>,
     ) -> Result<Response<pb::LatestSafeBlockResponse>, Status> {
         let safe = self.reader.latest_safe_block().await.map_err(to_status)?;
-        Ok(Response::new(pb::LatestSafeBlockResponse { safe: safe.as_ref().map(to_pb_header) }))
+        Ok(Response::new(pb::LatestSafeBlockResponse {
+            safe: safe.as_ref().map(to_pb_header),
+        }))
     }
 
     async fn get_rmn_cursed_subjects(
@@ -160,15 +170,15 @@ where
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ServerConfig {
     /// JSON-RPC HTTP endpoint of the EVM node.
-    pub rpc_url: String,
-    /// OnRamp contract address (hex, 0x-prefixed).
-    pub on_ramp_address: String,
-    /// RMN Remote contract address (hex, 0x-prefixed).
-    pub rmn_remote_address: String,
-    /// CCIP chain selector of the chain this instance serves.
+    pub rpc_url: Url,
+    /// OnRamp contract address.
+    pub on_ramp_address: Address,
+    /// RMN Remote contract address.
+    pub rmn_remote_address: Address,
+    /// CCIP chain selector of the chain this instance serves (non-zero).
     pub chain_selector: u64,
-    /// gRPC listen address, e.g. "0.0.0.0:50051".
-    pub listen_addr: String,
+    /// gRPC listen address (default 0.0.0.0:50051).
+    pub listen_addr: SocketAddr,
 }
 
 impl ServerConfig {
@@ -177,6 +187,20 @@ impl ServerConfig {
     pub fn from_pairs<K: AsRef<str>, V: AsRef<str>>(
         pairs: impl IntoIterator<Item = (K, V)>,
     ) -> Result<Self, ConfigError> {
+        fn required<T: std::str::FromStr>(value: &str, key: &str, errs: &mut Vec<String>) -> Option<T> {
+            if value.is_empty() {
+                errs.push(format!("{key} is not set"));
+                return None;
+            }
+            match value.parse() {
+                Ok(v) => Some(v),
+                Err(_) => {
+                    errs.push(format!("{key} is invalid: {value}"));
+                    None
+                }
+            }
+        }
+
         let mut map = HashMap::new();
         for (k, v) in pairs {
             map.insert(k.as_ref().to_string(), v.as_ref().to_string());
@@ -184,38 +208,46 @@ impl ServerConfig {
         let get = |key: &str| map.get(key).map(String::as_str).unwrap_or("").trim().to_string();
 
         let mut errs = Vec::new();
-        let rpc_url = get("CCV_EVM_RPC_URL");
-        if rpc_url.is_empty() {
-            errs.push("CCV_EVM_RPC_URL is not set".to_string());
+        let rpc_url = required::<Url>(&get("CCV_EVM_RPC_URL"), "CCV_EVM_RPC_URL", &mut errs);
+        let on_ramp_address = required::<Address>(&get("CCV_ON_RAMP_ADDRESS"), "CCV_ON_RAMP_ADDRESS", &mut errs);
+        let rmn_remote_address =
+            required::<Address>(&get("CCV_RMN_REMOTE_ADDRESS"), "CCV_RMN_REMOTE_ADDRESS", &mut errs);
+        let chain_selector = required::<u64>(&get("CCV_CHAIN_SELECTOR"), "CCV_CHAIN_SELECTOR", &mut errs);
+        if chain_selector == Some(0) {
+            errs.push("CCV_CHAIN_SELECTOR must be non-zero".to_string());
         }
-        let on_ramp_address = get("CCV_ON_RAMP_ADDRESS");
-        if on_ramp_address.is_empty() {
-            errs.push("CCV_ON_RAMP_ADDRESS is not set".to_string());
-        }
-        let rmn_remote_address = get("CCV_RMN_REMOTE_ADDRESS");
-        if rmn_remote_address.is_empty() {
-            errs.push("CCV_RMN_REMOTE_ADDRESS is not set".to_string());
-        }
-        let chain_selector = match get("CCV_CHAIN_SELECTOR").parse::<u64>() {
-            Ok(0) => {
-                errs.push("CCV_CHAIN_SELECTOR must be non-zero".to_string());
-                0
-            }
-            Ok(v) => v,
-            Err(_) => {
-                errs.push("CCV_CHAIN_SELECTOR is not a valid u64".to_string());
-                0
-            }
-        };
-        let listen_addr = match get("CCV_LISTEN_ADDR").as_str() {
-            "" => "0.0.0.0:50051".to_string(),
-            v => v.to_string(),
+        let listen_addr = match get("CCV_LISTEN_ADDR") {
+            s if s.is_empty() => Some(SocketAddr::from(([0, 0, 0, 0], 50051))),
+            s => match s.parse() {
+                Ok(addr) => Some(addr),
+                Err(_) => {
+                    errs.push(format!("CCV_LISTEN_ADDR is invalid: {s}"));
+                    None
+                }
+            },
         };
 
-        if errs.is_empty() {
-            Ok(Self { rpc_url, on_ramp_address, rmn_remote_address, chain_selector, listen_addr })
-        } else {
-            Err(ConfigError(errs))
+        match (
+            rpc_url,
+            on_ramp_address,
+            rmn_remote_address,
+            chain_selector,
+            listen_addr,
+        ) {
+            (
+                Some(rpc_url),
+                Some(on_ramp_address),
+                Some(rmn_remote_address),
+                Some(chain_selector),
+                Some(listen_addr),
+            ) if errs.is_empty() => Ok(Self {
+                rpc_url,
+                on_ramp_address,
+                rmn_remote_address,
+                chain_selector,
+                listen_addr,
+            }),
+            _ => Err(ConfigError(errs)),
         }
     }
 
@@ -251,7 +283,11 @@ impl ConfigError {
 /// verifier service), so an ungraceful shutdown cannot corrupt anything. The
 /// `shutdown` future exists for cooperative shutdown (e.g. SIGTERM handling in
 /// `main`); a hard kill is equally safe.
-pub async fn serve<R, F>(reader: R, listen_addr: std::net::SocketAddr, shutdown: F) -> Result<(), tonic::transport::Error>
+pub async fn serve<R, F>(
+    reader: R,
+    listen_addr: std::net::SocketAddr,
+    shutdown: F,
+) -> Result<(), tonic::transport::Error>
 where
     R: SourceReader + 'static,
     F: std::future::Future<Output = ()> + Send,

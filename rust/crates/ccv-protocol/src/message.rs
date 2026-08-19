@@ -6,7 +6,7 @@
 //! No function in this module can panic: all fallible operations return
 //! [`ProtocolError`], and slice handling goes through checked accessors.
 
-use alloy_primitives::{B256, U256, keccak256};
+use alloy_primitives::{keccak256, B256, U256};
 
 use crate::types::{
     ChainSelector, Finality, SequenceNumber, UnknownAddress, MIN_SIZE_REQUIRED_MSG_FIELDS,
@@ -46,7 +46,10 @@ impl TokenTransfer {
     /// Decodes a token transfer from its canonical encoding. Errors on trailing bytes.
     pub fn decode(data: &[u8]) -> Result<Self, ProtocolError> {
         if data.len() < MIN_SIZE_REQUIRED_MSG_TOKEN_FIELDS {
-            return Err(ProtocolError::DataTooShort { needed: MIN_SIZE_REQUIRED_MSG_TOKEN_FIELDS, got: data.len() });
+            return Err(ProtocolError::DataTooShort {
+                needed: MIN_SIZE_REQUIRED_MSG_TOKEN_FIELDS,
+                got: data.len(),
+            });
         }
         let mut r = Reader::new(data);
         let version = r.u8("version")?;
@@ -57,7 +60,15 @@ impl TokenTransfer {
         let token_receiver = r.len_prefixed_u8("token receiver")?;
         let extra_data = r.len_prefixed_u16("extra data")?;
         r.finish()?;
-        Ok(Self { amount, source_pool_address, source_token_address, dest_token_address, token_receiver, extra_data, version })
+        Ok(Self {
+            amount,
+            source_pool_address,
+            source_token_address,
+            dest_token_address,
+            token_receiver,
+            extra_data,
+            version,
+        })
     }
 }
 
@@ -117,7 +128,10 @@ impl Message {
     /// Matches Solidity `MessageV1Codec._decodeMessageV1()`.
     pub fn decode(data: &[u8]) -> Result<Self, ProtocolError> {
         if data.len() < MIN_SIZE_REQUIRED_MSG_FIELDS {
-            return Err(ProtocolError::DataTooShort { needed: MIN_SIZE_REQUIRED_MSG_FIELDS, got: data.len() });
+            return Err(ProtocolError::DataTooShort {
+                needed: MIN_SIZE_REQUIRED_MSG_FIELDS,
+                got: data.len(),
+            });
         }
         let mut r = Reader::new(data);
         let version = r.u8("version")?;
@@ -175,7 +189,10 @@ impl Message {
     ) -> Result<(), ProtocolError> {
         let expected = crate::receipt::compute_ccv_and_executor_hash(ccv_addresses, executor_address)?;
         if self.ccv_and_executor_hash != expected {
-            return Err(ProtocolError::CcvAndExecutorHashMismatch { expected, got: self.ccv_and_executor_hash });
+            return Err(ProtocolError::CcvAndExecutorHashMismatch {
+                expected,
+                got: self.ccv_and_executor_hash,
+            });
         }
         Ok(())
     }
@@ -183,7 +200,11 @@ impl Message {
 
 fn push_len_u8(buf: &mut Vec<u8>, field: &'static str, data: &[u8]) -> Result<(), ProtocolError> {
     if data.len() > u8::MAX as usize {
-        return Err(ProtocolError::FieldTooLong { field, got: data.len(), max: u8::MAX as usize });
+        return Err(ProtocolError::FieldTooLong {
+            field,
+            got: data.len(),
+            max: u8::MAX as usize,
+        });
     }
     #[allow(clippy::cast_possible_truncation)] // validated above
     buf.push(data.len() as u8);
@@ -193,7 +214,11 @@ fn push_len_u8(buf: &mut Vec<u8>, field: &'static str, data: &[u8]) -> Result<()
 
 fn push_len_u16(buf: &mut Vec<u8>, field: &'static str, data: &[u8]) -> Result<(), ProtocolError> {
     if data.len() > u16::MAX as usize {
-        return Err(ProtocolError::FieldTooLong { field, got: data.len(), max: u16::MAX as usize });
+        return Err(ProtocolError::FieldTooLong {
+            field,
+            got: data.len(),
+            max: u16::MAX as usize,
+        });
     }
     #[allow(clippy::cast_possible_truncation)] // validated above
     buf.extend_from_slice(&(data.len() as u16).to_be_bytes());
@@ -223,7 +248,9 @@ impl<'a> Reader<'a> {
     /// Fixed-size read. `try_into` on an exactly-sized slice is infallible; the
     /// error mapping exists only to keep this provably panic-free.
     fn fixed<const N: usize>(&mut self, what: &'static str) -> Result<[u8; N], ProtocolError> {
-        self.take(N, what)?.try_into().map_err(|_| ProtocolError::UnexpectedEof(what))
+        self.take(N, what)?
+            .try_into()
+            .map_err(|_| ProtocolError::UnexpectedEof(what))
     }
 
     fn u8(&mut self, what: &'static str) -> Result<u8, ProtocolError> {
@@ -297,7 +324,8 @@ mod tests {
         "0000"
         "000a" "68656c6c6f2063636970"
     );
-    const GOLDEN_MESSAGE_NO_TOKEN_ID: [u8; 32] = hex!("8527b04a622efd89664aeaa2269dcdf2f4f46898e2776aa144f874bace7be211");
+    const GOLDEN_MESSAGE_NO_TOKEN_ID: [u8; 32] =
+        hex!("8527b04a622efd89664aeaa2269dcdf2f4f46898e2776aa144f874bace7be211");
 
     fn bytes20(v: u8) -> Vec<u8> {
         vec![v; 20]
@@ -411,7 +439,10 @@ mod tests {
         let msg = golden_message(None);
         let expected = keccak256(msg.encode().unwrap());
         assert_eq!(msg.message_id().unwrap(), expected);
-        assert_eq!(alloy_hex::encode(expected), "8527b04a622efd89664aeaa2269dcdf2f4f46898e2776aa144f874bace7be211");
+        assert_eq!(
+            alloy_hex::encode(expected),
+            "8527b04a622efd89664aeaa2269dcdf2f4f46898e2776aa144f874bace7be211"
+        );
     }
 
     #[test]
@@ -428,7 +459,10 @@ mod tests {
         tt.extra_data = vec![0u8; 65536];
         assert!(matches!(
             tt.encode(),
-            Err(ProtocolError::FieldTooLong { field: "extra_data", .. })
+            Err(ProtocolError::FieldTooLong {
+                field: "extra_data",
+                ..
+            })
         ));
 
         // Oversized token transfer bubbles up through Message::encode.
@@ -436,11 +470,17 @@ mod tests {
         msg.token_transfer = Some(tt);
         assert!(matches!(
             msg.encode(),
-            Err(ProtocolError::FieldTooLong { field: "extra_data", .. })
+            Err(ProtocolError::FieldTooLong {
+                field: "extra_data",
+                ..
+            })
         ));
 
         let mut msg = golden_message(None);
         msg.data = vec![0u8; 65536];
-        assert!(matches!(msg.encode(), Err(ProtocolError::FieldTooLong { field: "data", .. })));
+        assert!(matches!(
+            msg.encode(),
+            Err(ProtocolError::FieldTooLong { field: "data", .. })
+        ));
     }
 }

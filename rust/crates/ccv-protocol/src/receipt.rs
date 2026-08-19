@@ -10,7 +10,7 @@
 //! Example with 2 CCVs, 1 token: [CCV0, CCV1, Token, Executor, NetworkFee]
 //! Example with 2 CCVs, 0 tokens: [CCV0, CCV1, Executor, NetworkFee]
 
-use alloy_primitives::{B256, keccak256};
+use alloy_primitives::{keccak256, B256};
 
 use crate::types::{ReceiptWithBlob, UnknownAddress, MAX_CCVS_PER_MESSAGE};
 use crate::{Message, ProtocolError};
@@ -35,6 +35,7 @@ pub fn parse_receipt_structure(
     if receipts.is_empty() {
         return Err(ProtocolError::NoReceipts);
     }
+    // Go requires an exact count match: CCVs + Tokens + executor + network fee.
     let expected = num_ccv_blobs + num_token_transfers + 2;
     let mismatch = || ProtocolError::UnexpectedReceiptCount {
         got: receipts.len(),
@@ -42,9 +43,12 @@ pub fn parse_receipt_structure(
         ccvs: num_ccv_blobs,
         tokens: num_token_transfers,
     };
+    if receipts.len() != expected {
+        return Err(mismatch());
+    }
 
-    // Extraction IS the bounds validation: any failure here means the receipt
-    // count did not match the claimed structure. Checked accessors only — no panics.
+    // With the exact count verified, every extraction below is provably in
+    // bounds; the accessors stay checked regardless — no panics.
     let ccv_receipts = receipts.get(..num_ccv_blobs).ok_or_else(mismatch)?.to_vec();
     let executor_receipt = receipts.iter().rev().nth(1).ok_or_else(mismatch)?.clone();
     let token_receipts = if num_token_transfers > 0 {
@@ -53,14 +57,15 @@ pub fn parse_receipt_structure(
         Vec::new()
     };
 
-    // Go requires an exact count match.
-    if receipts.len() != expected {
-        return Err(mismatch());
-    }
-
     let ccv_addresses = ccv_receipts.iter().map(|r| r.issuer.clone()).collect();
     let executor_address = executor_receipt.issuer.clone();
-    Ok(ReceiptStructure { ccv_receipts, token_receipts, executor_receipt, ccv_addresses, executor_address })
+    Ok(ReceiptStructure {
+        ccv_receipts,
+        token_receipts,
+        executor_receipt,
+        ccv_addresses,
+        executor_address,
+    })
 }
 
 /// Calculates keccak256(addressLength u8 || ccv1 || ... || ccvN || executor).
@@ -80,10 +85,17 @@ pub fn compute_ccv_and_executor_hash(
     }
     for (i, ccv) in ccv_addresses.iter().enumerate() {
         if ccv.len() != address_length {
-            return Err(ProtocolError::CcvAddressLengthMismatch { index: i, got: ccv.len(), expected: address_length });
+            return Err(ProtocolError::CcvAddressLengthMismatch {
+                index: i,
+                got: ccv.len(),
+                expected: address_length,
+            });
         }
     }
     let mut encoded = Vec::with_capacity(1 + (ccv_addresses.len() + 1) * address_length);
+    // Matches Go's `byte(addressLength)` (nolint:gosec): UnknownAddress is
+    // documented as at most 255 bytes; EVM addresses are 20.
+    #[allow(clippy::cast_possible_truncation)]
     encoded.push(address_length as u8);
     for ccv in ccv_addresses {
         encoded.extend_from_slice(ccv);
@@ -95,7 +107,10 @@ pub fn compute_ccv_and_executor_hash(
 /// Verifies that the message's `ccv_and_executor_hash` matches the hash computed
 /// from the CCV and executor addresses extracted from the receipt blobs.
 /// Mirrors Go `protocol.ValidateCCVAndExecutorHash`.
-pub fn validate_ccv_and_executor_hash(message: &Message, receipt_blobs: &[ReceiptWithBlob]) -> Result<(), ProtocolError> {
+pub fn validate_ccv_and_executor_hash(
+    message: &Message,
+    receipt_blobs: &[ReceiptWithBlob],
+) -> Result<(), ProtocolError> {
     if receipt_blobs.is_empty() {
         return Err(ProtocolError::NoReceipts);
     }
@@ -184,7 +199,13 @@ mod tests {
     #[test]
     fn parses_structure_with_tokens() {
         // [CCV0, CCV1, Token, Executor, NetworkFee]
-        let receipts = vec![receipt(0x11), receipt(0x22), receipt(0x99), receipt(0x33), receipt(0xee)];
+        let receipts = vec![
+            receipt(0x11),
+            receipt(0x22),
+            receipt(0x99),
+            receipt(0x33),
+            receipt(0xee),
+        ];
         let s = parse_receipt_structure(&receipts, 2, 1).unwrap();
         assert_eq!(s.token_receipts.len(), 1);
         assert_eq!(s.token_receipts[0].issuer, vec![0x99; 20]);
@@ -193,14 +214,17 @@ mod tests {
 
     #[test]
     fn rejects_wrong_counts() {
-        assert!(matches!(parse_receipt_structure(&[], 0, 0), Err(ProtocolError::NoReceipts)));
+        assert!(matches!(
+            parse_receipt_structure(&[], 0, 0),
+            Err(ProtocolError::NoReceipts)
+        ));
         let receipts = vec![receipt(0x11), receipt(0x33), receipt(0xee)];
         // 1 CCV + executor + network fee = 3, but claim 2 CCVs
         assert!(matches!(
             parse_receipt_structure(&receipts, 2, 0),
             Err(ProtocolError::UnexpectedReceiptCount { .. })
         ));
-        // More CCVs claimed than receipts present (extraction failure path).
+        // More CCVs claimed than receipts present.
         assert!(matches!(
             parse_receipt_structure(&receipts, 5, 0),
             Err(ProtocolError::UnexpectedReceiptCount { .. })
@@ -215,7 +239,7 @@ mod tests {
             parse_receipt_structure(&[receipt(0x11), receipt(0x33)], 0, 1),
             Err(ProtocolError::UnexpectedReceiptCount { .. })
         ));
-        // Structurally fine extraction, but the exact-count check rejects extras.
+        // The exact-count check rejects extras.
         assert!(matches!(
             parse_receipt_structure(&[receipt(0x11), receipt(0x33), receipt(0xee), receipt(0x99)], 1, 0),
             Err(ProtocolError::UnexpectedReceiptCount { .. })

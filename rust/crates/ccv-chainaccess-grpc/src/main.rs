@@ -15,11 +15,14 @@ use alloy::providers::ProviderBuilder;
 use tracing::info;
 
 use ccv_chainaccess::evm::EvmSourceReader;
-use ccv_chainaccess_grpc::{ServerConfig, serve};
+use ccv_chainaccess_grpc::{serve, ServerConfig};
 
 fn main() -> ExitCode {
     // Logs go to stderr; stdout stays clean for any piping.
-    tracing_subscriber::fmt().with_target(false).with_writer(std::io::stderr).init();
+    tracing_subscriber::fmt()
+        .with_target(false)
+        .with_writer(std::io::stderr)
+        .init();
 
     match run().map_err(|err| eprintln!("{err}")) {
         Ok(()) => ExitCode::SUCCESS,
@@ -27,36 +30,20 @@ fn main() -> ExitCode {
     }
 }
 
-/// Single error-chained flow: every line executes on both the happy path and on
-/// failures (the error value differs), keeping the process fully test-covered.
+/// All fallible startup work lives in `run`; `main` only maps the outcome onto
+/// the process exit code.
 fn run() -> Result<(), Box<dyn std::error::Error>> {
-    let config = ServerConfig::from_env().map_err(|err| err.to_string())?;
+    let config = ServerConfig::from_env()?;
     let runtime = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
         .map_err(|err| format!("failed to build tokio runtime: {err}"))?;
 
     runtime.block_on(async move {
-        let rpc_url = config
-            .rpc_url
-            .parse()
-            .map_err(|err| format!("invalid CCV_EVM_RPC_URL: {err}"))?;
-        let on_ramp = config
-            .on_ramp_address
-            .parse()
-            .map_err(|err| format!("invalid CCV_ON_RAMP_ADDRESS: {err}"))?;
-        let rmn_remote = config
-            .rmn_remote_address
-            .parse()
-            .map_err(|err| format!("invalid CCV_RMN_REMOTE_ADDRESS: {err}"))?;
-        let listen_addr = config
-            .listen_addr
-            .parse()
-            .map_err(|err| format!("invalid CCV_LISTEN_ADDR: {err}"))?;
-
-        let provider = ProviderBuilder::new().connect_http(rpc_url);
-        let reader = EvmSourceReader::new(provider, on_ramp, rmn_remote, config.chain_selector)
-            .map_err(|err| format!("failed to construct source reader: {err}"))?;
+        let provider = ProviderBuilder::new().connect_http(config.rpc_url.clone());
+        let reader =
+            EvmSourceReader::new(provider, config.on_ramp_address, config.rmn_remote_address, config.chain_selector)
+                .map_err(|err| format!("failed to construct source reader: {err}"))?;
 
         info!(listen_addr = %config.listen_addr, chain_selector = config.chain_selector, "starting EVM source reader gRPC server");
 
@@ -65,7 +52,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             info!("shutdown signal received, stopping gRPC server");
         };
 
-        serve(reader, listen_addr, shutdown).await.map_err(|err| format!("gRPC server failed: {err}"))?;
+        serve(reader, config.listen_addr, shutdown).await.map_err(|err| format!("gRPC server failed: {err}"))?;
         Ok(())
     })
 }

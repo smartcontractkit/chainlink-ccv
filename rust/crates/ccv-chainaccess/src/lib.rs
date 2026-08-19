@@ -95,8 +95,5 @@ pub trait SourceReader: HeadTracker + RmnCurseReader {
     /// If a block is not found or the RPC call fails for a specific block, it is
     /// omitted from the result. Callers should check that all requested blocks are
     /// present in the returned map.
-    async fn get_blocks_headers(
-        &self,
-        block_numbers: &[u64],
-    ) -> Result<HashMap<u64, BlockHeader>, ChainAccessError>;
+    async fn get_blocks_headers(&self, block_numbers: &[u64]) -> Result<HashMap<u64, BlockHeader>, ChainAccessError>;
 }

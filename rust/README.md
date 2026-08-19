@@ -25,7 +25,9 @@ Properties claimed (and how to validate each below):
    standard `eth_*` JSON-RPC API. Exceptions called out: chains without the `safe`
    tag get `None` from `latest_safe_block` (supported); chains without the
    `finalized` tag are not supported.
-5. **100% line coverage** of all functions (llvm-cov).
+5. **Well tested** — unit, golden-vector, differential, and over-the-wire gRPC tests;
+   the differential suites are the primary correctness gate. Line coverage can be
+   measured with llvm-cov (no fixed target).
 6. **Backtested against historical logs** — 708 real `CCIPMessageSent` events from
    Sepolia's OnRamp v2.0.0.
 
@@ -35,28 +37,21 @@ Properties claimed (and how to validate each below):
   rustc ≥ 1.91 the pins in `rust/Cargo.toml`/`Cargo.lock` can be relaxed).
 - Go (only for the differential tests — they drive the Go implementation as ground
   truth). Without `go` in PATH those two tests skip themselves.
-- protoc (only if you regenerate the gRPC code after editing the `.proto`).
+- protoc (required to build `ccv-chainaccess-grpc`: its build script invokes protoc
+  via tonic-build; also needed to regenerate the Go client after editing the `.proto`).
 - For coverage measurement: `rustup component add llvm-tools-preview && cargo install cargo-llvm-cov`.
 
 ## Validate the claims
 
 | Claim | Command | Expected |
 |---|---|---|
-| Everything builds & all tests pass | `cargo test --workspace` | 53 passed, 0 failed |
+| Everything builds & all tests pass | `cargo test --workspace` | 51 passed, 0 failed |
 | No panics in library code | `cargo clippy --workspace --all-targets` | 0 warnings; `unwrap`/`expect`/`panic`/indexing are `deny` in non-test code |
-| Line coverage 100% | `cargo llvm-cov --workspace --summary-only` | no zero-count lines in the lcov export |
+| Formatting | `cargo fmt --all --check` | clean (house style: `max_width = 120` in `rustfmt.toml`) |
+| Line coverage | `cargo llvm-cov --workspace --summary-only` | inspect the report |
 | Go builds/vets (client + harness) | `go build ./rust/... && go vet ./rust/...` (from repo root) | clean |
 | Historical backtest | see "Backtest" below | exactly 708 events on Sepolia |
 | Differential vs Go | see "Differential tests" below | all cases agree |
-
-For the coverage claim, inspect the line-level export rather than the summary table
-(the table's region-based aggregation shows a residual artifact; the lcov export is
-authoritative for line coverage):
-
-```bash
-cargo llvm-cov --workspace --lcov --output-path /tmp/cov.lcov
-grep -c '^DA:.*,0$' /tmp/cov.lcov   # -> 0
-```
 
 ## Backtest (any EVM chain)
 

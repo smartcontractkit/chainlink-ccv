@@ -12,7 +12,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use alloy_primitives::{B256, U256, hex};
+use alloy_primitives::{hex, B256, U256};
 
 use ccv_protocol::{Message, ProtocolError, TokenTransfer};
 
@@ -178,7 +178,11 @@ fn random_message(rng: &mut Rng) -> Message {
         sender: random_address(rng),
         receiver: random_address(rng),
         dest_blob: random_varbytes(rng, 512),
-        token_transfer: if rng.coin() { Some(random_token_transfer(rng)) } else { None },
+        token_transfer: if rng.coin() {
+            Some(random_token_transfer(rng))
+        } else {
+            None
+        },
         data: random_varbytes(rng, 1024),
     }
 }
@@ -200,7 +204,11 @@ fn compare_case(label: &str, input: &[u8], go: &serde_json::Value) {
     let go_ok = go["ok"].as_bool().expect("go ok field");
     match Message::decode(input) {
         Ok(msg) => {
-            assert!(go_ok, "{label}: Go rejected input Rust accepted: {}", hex::encode(input));
+            assert!(
+                go_ok,
+                "{label}: Go rejected input Rust accepted: {}",
+                hex::encode(input)
+            );
             let reencoded = msg.encode().expect("re-encode decoded message");
             assert_eq!(
                 go["encoded"].as_str().expect("go encoded"),
@@ -214,7 +222,11 @@ fn compare_case(label: &str, input: &[u8], go: &serde_json::Value) {
             );
         }
         Err(err) => {
-            assert!(!go_ok, "{label}: Go accepted input Rust rejected ({err}): {}", hex::encode(input));
+            assert!(
+                !go_ok,
+                "{label}: Go accepted input Rust rejected ({err}): {}",
+                hex::encode(input)
+            );
             assert_eq!(
                 go["class"].as_str().expect("go class"),
                 rust_class(&err),
@@ -230,8 +242,13 @@ fn compare_case(label: &str, input: &[u8], go: &serde_json::Value) {
 
 #[test]
 fn differential_message_codec_vs_go() {
-    let Some(bin) = ensure_go_cli("differential-codec") else { return };
-    let iters = std::env::var("CCV_DIFF_ITERS").ok().and_then(|s| s.parse().ok()).unwrap_or(300);
+    let Some(bin) = ensure_go_cli("differential-codec") else {
+        return;
+    };
+    let iters = std::env::var("CCV_DIFF_ITERS")
+        .ok()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(300);
     let mut rng = Rng::from_env();
 
     let mut labels: Vec<String> = Vec::new();

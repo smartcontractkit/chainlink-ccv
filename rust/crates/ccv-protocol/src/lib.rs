@@ -18,7 +18,9 @@ pub mod receipt;
 pub mod types;
 
 pub use message::{Message, TokenTransfer};
-pub use receipt::{compute_ccv_and_executor_hash, parse_receipt_structure, validate_ccv_and_executor_hash, ReceiptStructure};
+pub use receipt::{
+    compute_ccv_and_executor_hash, parse_receipt_structure, validate_ccv_and_executor_hash, ReceiptStructure,
+};
 pub use types::{
     BlockHeader, ChainSelector, Finality, MessageSentEvent, ReceiptWithBlob, SequenceNumber, UnknownAddress,
     MAX_CCVS_PER_MESSAGE, MESSAGE_VERSION, MIN_SIZE_REQUIRED_MSG_FIELDS, MIN_SIZE_REQUIRED_MSG_TOKEN_FIELDS,
@@ -36,7 +38,11 @@ pub enum ProtocolError {
     #[error("trailing bytes after decoding")]
     TrailingBytes,
     #[error("{field} length {got} exceeds maximum {max}")]
-    FieldTooLong { field: &'static str, got: usize, max: usize },
+    FieldTooLong {
+        field: &'static str,
+        got: usize,
+        max: usize,
+    },
     #[error("no receipt blobs to extract CCV and executor addresses from")]
     NoReceipts,
     #[error(
@@ -46,7 +52,12 @@ pub enum ProtocolError {
     #[error(
         "unexpected receipt count: got {got}, expected {expected} (CCVs={ccvs} + Tokens={tokens} + Executor=1 + Network fee=1)"
     )]
-    UnexpectedReceiptCount { got: usize, expected: usize, ccvs: usize, tokens: usize },
+    UnexpectedReceiptCount {
+        got: usize,
+        expected: usize,
+        ccvs: usize,
+        tokens: usize,
+    },
     #[error("too many CCV addresses: {0} (max {MAX_CCVS_PER_MESSAGE})")]
     TooManyCcvs(usize),
     #[error("executor address length cannot be 0")]
