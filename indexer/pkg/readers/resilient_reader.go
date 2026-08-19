@@ -12,6 +12,7 @@ import (
 	"github.com/failsafe-go/failsafe-go/ratelimiter"
 	"github.com/failsafe-go/failsafe-go/timeout"
 
+	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
@@ -50,6 +51,34 @@ func DefaultResilienceConfig() ResilienceConfig {
 		MaxConcurrentRequests: 5,
 		MaxRequestsPerSecond:  5,
 	}
+}
+
+// NewResilienceConfig builds a readers.ResilienceConfig from the indexer's
+// config.ResilienceConfig, applying defaults for any zero-value fields.
+func NewResilienceConfig(c config.ResilienceConfig) ResilienceConfig {
+	rc := DefaultResilienceConfig()
+	if c.MaxRequestsPerSecond > 0 {
+		rc.MaxRequestsPerSecond = c.MaxRequestsPerSecond
+	}
+	if c.MaxConcurrentRequests > 0 {
+		rc.MaxConcurrentRequests = c.MaxConcurrentRequests
+	}
+	if c.FailureThreshold > 0 {
+		rc.FailureThreshold = c.FailureThreshold
+	}
+	if c.SuccessThreshold > 0 {
+		rc.SuccessThreshold = c.SuccessThreshold
+	}
+	if c.CircuitBreakerDelay > 0 {
+		rc.CircuitBreakerDelay = time.Duration(c.CircuitBreakerDelay)
+	}
+	if c.CircuitBreakerTimeout > 0 {
+		rc.CircuitBreakerTimeout = time.Duration(c.CircuitBreakerTimeout)
+	}
+	if c.RequestTimeout > 0 {
+		rc.RequestTimeout = time.Duration(c.RequestTimeout)
+	}
+	return rc
 }
 
 type executorPolicies[T any] struct {

@@ -51,6 +51,34 @@ type Config struct {
 	Storage StorageConfig `toml:"Storage"`
 	// API is the configuration for the API inside the indexer.
 	API APIConfig `toml:"API"`
+	// Resilience is the configuration for the resilient reader rate limiting.
+	Resilience ResilienceConfig `toml:"Resilience"`
+}
+
+// ResilienceConfig provides configuration for the resilient reader policies.
+// Zero values fall back to the defaults in readers.DefaultResilienceConfig().
+type ResilienceConfig struct {
+	// MaxRequestsPerSecond is the maximum number of requests per second allowed per reader.
+	// 0 uses the default (5).
+	MaxRequestsPerSecond uint `toml:"MaxRequestsPerSecond"`
+	// MaxConcurrentRequests is the maximum number of concurrent requests allowed per reader.
+	// 0 uses the default (5).
+	MaxConcurrentRequests uint `toml:"MaxConcurrentRequests"`
+	// FailureThreshold is the number of consecutive failures that opens the circuit breaker.
+	// 0 uses the default (5).
+	FailureThreshold uint32 `toml:"FailureThreshold"`
+	// SuccessThreshold is the number of consecutive successes that closes the circuit breaker.
+	// 0 uses the default (3).
+	SuccessThreshold uint32 `toml:"SuccessThreshold"`
+	// CircuitBreakerDelay is how long the circuit breaker stays open before entering half-open.
+	// 0 uses the default (3s).
+	CircuitBreakerDelay common.Duration `toml:"CircuitBreakerDelay"`
+	// CircuitBreakerTimeout is the timeout for circuit breaker operations.
+	// 0 uses the default (1s).
+	CircuitBreakerTimeout common.Duration `toml:"CircuitBreakerTimeout"`
+	// RequestTimeout is the per-request timeout.
+	// 0 uses the default (10s).
+	RequestTimeout common.Duration `toml:"RequestTimeout"`
 }
 
 type SchedulerConfig struct {
