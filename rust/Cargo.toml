@@ -1,0 +1,14 @@
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+
+[workspace.dependencies]
+# Pinned to the newest Alloy line compatible with the repo toolchain (rustc 1.90 nightly);
+# alloy >= 1.7 requires rustc 1.91.
+alloy = { version = "=1.6.3", features = ["full"] }
+alloy-primitives = "=1.6.1"
+async-trait = "0.1"
+thiserror = "2"
+tracing = "0.1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+hex-literal = "0.4"

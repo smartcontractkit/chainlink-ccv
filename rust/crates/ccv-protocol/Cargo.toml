@@ -1,0 +1,12 @@
+[package]
+name = "ccv-protocol"
+version = "0.1.0"
+edition = "2021"
+description = "Chain-agnostic CCV protocol types and canonical message encoding (Rust port of the Go protocol package)"
+
+[dependencies]
+alloy-primitives = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+hex-literal = { workspace = true }
