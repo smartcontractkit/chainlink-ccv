@@ -6,9 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"time"
 
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi"
+	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/onramp"
@@ -42,10 +44,16 @@ type SourceReader struct {
 }
 
 func NewEVMSourceReader(
+	ctx context.Context,
 	chainClient client.Client,
 	headTracker heads.Tracker,
 	onRampAddress common.Address,
-	rmnRemoteAddress common.Address,
+	// configuredRMNRemoteAddress is DEPRECATED: the RMN Remote address is derived from the
+	// OnRamp's on-chain static config, which is authoritative. It is still accepted so callers
+	// and configs from before the derivation cutover keep working; pass the zero address when
+	// unconfigured. When set and it disagrees with the derived address, a warning is logged
+	// and the derived address is used.
+	configuredRMNRemoteAddress common.Address,
 	ccipMessageSentTopic string,
 	chainSelector protocol.ChainSelector,
 	lggr logger.Logger,
@@ -65,9 +73,6 @@ func NewEVMSourceReader(
 	if onRampAddress == (common.Address{}) {
 		errs = append(errs, fmt.Errorf("onRampAddress is not set"))
 	}
-	if rmnRemoteAddress == (common.Address{}) {
-		errs = append(errs, fmt.Errorf("rmnRemoteAddress is not set"))
-	}
 	if ccipMessageSentTopic == "" {
 		errs = append(errs, fmt.Errorf("ccipMessageSentTopic is not set"))
 	}
@@ -79,7 +84,31 @@ func NewEVMSourceReader(
 		return nil, errors.Join(errs...)
 	}
 
-	// Bind to RMN Remote contract
+	// Bind to the OnRamp contract to derive the RMN Remote address from its static config.
+	onRampCaller, err := onramp.NewOnRampCaller(onRampAddress, chainClient)
+	if err != nil {
+		return nil, fmt.Errorf("failed to bind OnRamp contract at %s: %w",
+			onRampAddress.Hex(), err)
+	}
+
+	// One-shot read of an immutable value, so a short timeout suffices.
+	deriveCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	rmnRemoteAddress, err := deriveRMNRemoteFromOnRamp(deriveCtx, onRampCaller)
+	if err != nil {
+		return nil, err
+	}
+	lggr.Infow("Derived RMN Remote address from OnRamp static config",
+		"chainSelector", chainSelector,
+		"rmnRemoteAddress", rmnRemoteAddress.Hex())
+	if configuredRMNRemoteAddress != (common.Address{}) && configuredRMNRemoteAddress != rmnRemoteAddress {
+		lggr.Warnw("Configured RMN Remote address does not match the OnRamp static config; using the derived address",
+			"chainSelector", chainSelector,
+			"configuredRmnRemoteAddress", configuredRMNRemoteAddress.Hex(),
+			"rmnRemoteAddress", rmnRemoteAddress.Hex())
+	}
+
+	// Bind to RMN Remote contract at the derived address.
 	rmnRemoteCaller, err := rmn_remote.NewRMNRemoteCaller(rmnRemoteAddress, chainClient)
 	if err != nil {
 		return nil, fmt.Errorf("failed to bind RMN Remote contract at %s: %w",
@@ -105,6 +134,26 @@ func NewEVMSourceReader(
 	}
 	reader.SetCriticalSourceInvariantCallback(onCriticalInvariant)
 	return reader, nil
+}
+
+// onRampStaticConfigGetter is the slice of the OnRamp binding the source reader needs, defined
+// as an interface so the RMN derivation is unit-testable.
+type onRampStaticConfigGetter interface {
+	GetStaticConfig(opts *bind.CallOpts) (onramp.OnRampStaticConfig, error)
+}
+
+// deriveRMNRemoteFromOnRamp reads the chain's RMN Remote address from the OnRamp's
+// constructor-set static config. The on-chain value is authoritative: it is the RMN the OnRamp
+// itself enforces, so it cannot drift from a stale or mistyped configured address.
+func deriveRMNRemoteFromOnRamp(ctx context.Context, onRamp onRampStaticConfigGetter) (common.Address, error) {
+	cfg, err := onRamp.GetStaticConfig(&bind.CallOpts{Context: ctx})
+	if err != nil {
+		return common.Address{}, fmt.Errorf("failed to read OnRamp static config: %w", err)
+	}
+	if cfg.RmnRemote == (common.Address{}) {
+		return common.Address{}, errors.New("OnRamp static config has a zero RMN Remote address")
+	}
+	return cfg.RmnRemote, nil
 }
 
 // SetCriticalSourceInvariantCallback attaches the metric callback invoked when source-chain data

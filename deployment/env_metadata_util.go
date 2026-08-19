@@ -288,7 +288,9 @@ func mergeTokenConfigs(existing, incoming *token.Config) *token.Config {
 		PyroscopeURL: incoming.PyroscopeURL,
 		Monitoring:   incoming.Monitoring,
 		CommitteeConfig: chainaccess.CommitteeConfig{
-			OnRampAddresses:    mergeStringMaps(existing.OnRampAddresses, incoming.OnRampAddresses),
+			OnRampAddresses: mergeStringMaps(existing.OnRampAddresses, incoming.OnRampAddresses),
+			// Deprecated, but preserved across merges so configs stored before the on-chain
+			// RMN derivation cutover keep their entries until replaced wholesale.
 			RMNRemoteAddresses: mergeStringMaps(existing.RMNRemoteAddresses, incoming.RMNRemoteAddresses),
 		},
 		TokenVerifiers: mergeTokenVerifiers(existing.TokenVerifiers, incoming.TokenVerifiers),

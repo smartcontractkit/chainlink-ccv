@@ -144,8 +144,8 @@ func (c Config) toInfos() (chainaccess.Infos[Info], error) {
 //
 // Chain ID, family, and chain type are derived from the selector. Shared
 // application settings from chainaccess.GenericConfig (for example on-ramp or
-// RMN remote addresses) are supplied separately through genericConfig and used
-// when constructing the accessor factory.
+// deprecated RMN remote addresses) are supplied separately through genericConfig
+// and used when constructing the accessor factory.
 //
 // It will take all config values it needs from all available config. Note that it would be
 // very unusual for a config to have more than one of Committee/Token/Executor configs.
@@ -182,6 +182,8 @@ func CreateAccessorFactory(
 	infos chainaccess.Infos[Info],
 ) (chainaccess.AccessorFactory, error) {
 	onRampInfos := chainaccess.Infos[string](generic.OnRampAddresses).GetAllInfos()
+	// Deprecated configured RMN remotes are carried through only so the readers can warn when
+	// one disagrees with the address derived from the ramp's on-chain static config.
 	rmnRemoteInfos := chainaccess.Infos[string](generic.RMNRemoteAddresses).GetAllInfos()
 	destChainConfigs := chainaccess.Infos[chainaccess.DestinationChainConfig](generic.ChainConfiguration).GetAllInfos()
 

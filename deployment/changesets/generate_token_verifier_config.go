@@ -123,7 +123,11 @@ func GenerateTokenVerifierConfig() deployment.ChangeSetV2[GenerateTokenVerifierC
 
 			chainSelectorStr := strconv.FormatUint(sel, 10)
 			onRampAddresses[chainSelectorStr] = addrs.OnRampAddress
-			rmnRemoteAddresses[chainSelectorStr] = addrs.RMNRemoteAddress
+			// Deprecated: only recorded when the adapter resolved an RMN proxy; nodes derive
+			// the RMN Remote on-chain.
+			if addrs.RMNRemoteAddress != "" {
+				rmnRemoteAddresses[chainSelectorStr] = addrs.RMNRemoteAddress
+			}
 
 			if addrs.CCTPVerifierAddress != "" {
 				cctpVerifierAddresses[chainSelectorStr] = addrs.CCTPVerifierAddress

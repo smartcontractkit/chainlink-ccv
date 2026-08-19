@@ -5,7 +5,11 @@ import (
 )
 
 type TokenVerifierChainAddresses struct {
-	OnRampAddress                  string
+	OnRampAddress string
+	// RMNRemoteAddress is DEPRECATED: nodes derive the RMN Remote from each ramp's on-chain
+	// static config. It is still emitted into generated specs when the datastore has it so
+	// the specs keep working for node binaries that predate the derivation cutover; empty
+	// when the deployment has no RMN proxy record.
 	RMNRemoteAddress               string
 	CCTPVerifierAddress            string
 	CCTPVerifierResolverAddress    string
