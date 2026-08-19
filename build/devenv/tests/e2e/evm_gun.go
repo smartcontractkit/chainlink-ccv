@@ -140,8 +140,8 @@ func WithTokenArgsParams(params any) EVMTXGunOption {
 }
 
 // WithFireAndForget enables fire-and-forget mode: EVM txs are submitted without
-// waiting for confirmation, and background receipt workers push SentMessage with
-// the block timestamp as SentTime. Requires an EVM chain as source.
+// waiting for confirmation in SendChainMessage (GetFee + TransactionReceipt) that normal load gun uses,
+// and background receipt workers push SentMessage with the block timestamp as SentTime. Requires an EVM chain as source.
 func WithFireAndForget() EVMTXGunOption {
 	return func(g *EVMTXGun) {
 		g.fireAndForget = true
@@ -335,7 +335,6 @@ func (m *EVMTXGun) Call(_ *wasp.Generator) *wasp.Response {
 		if !ok {
 			return &wasp.Response{Error: "message is not ClientEVM2AnyMessage", Failed: true}
 		}
-		// skip GetFee() to avoid extra RPC call in burst tests.
 		txOpts := *sender
 		txOpts.Value = big.NewInt(0)
 		txOpts.Nonce = new(big.Int).SetUint64(currentNonce)
