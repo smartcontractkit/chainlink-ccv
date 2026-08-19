@@ -18,6 +18,7 @@ type SentMessage struct {
 	MessageID [32]byte
 	SentTime  time.Time
 	ChainPair SrcDest
+	Failed    bool // i.e. msg tx submitted but missing CCIPSentEvent in receipt, counts to total sent
 }
 
 // LoadGun extends wasp.Gun with message tracking for CCIP load tests.
