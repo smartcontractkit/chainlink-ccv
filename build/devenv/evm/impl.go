@@ -2121,14 +2121,18 @@ func (m *CCIP17EVM) SendChainMessage(ctx context.Context, destChain uint64, msg 
 		return cciptestinterfaces.MessageSentEvent{}, protocol.ByteSlice{}, fmt.Errorf("failed to confirm transaction: %w", err)
 	}
 
+	receipt, err := transactionReceiptWithRetry(
+		ctx,
+		srcChain.Client,
+		txHash,
+	)
+	if err != nil {
+		return cciptestinterfaces.MessageSentEvent{}, protocol.ByteSlice{}, fmt.Errorf("failed to get transaction receipt: %w", err)
+	}
+
 	dcc, err := m.onRamp.GetDestChainConfig(&bind.CallOpts{Context: ctx}, destChain)
 	if err != nil {
 		return cciptestinterfaces.MessageSentEvent{}, protocol.ByteSlice{}, fmt.Errorf("failed to get dest chain config: %w", err)
-	}
-
-	receipt, err := srcChain.Client.TransactionReceipt(ctx, txHash)
-	if err != nil {
-		return cciptestinterfaces.MessageSentEvent{}, protocol.ByteSlice{}, fmt.Errorf("failed to get transaction receipt: %w", err)
 	}
 
 	var messageSentEvent *onramp.OnRampCCIPMessageSent
