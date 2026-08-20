@@ -1,7 +1,8 @@
 [package]
 name = "ccv-chainaccess"
 version = "0.1.0"
-edition = "2021"
+edition.workspace = true
+rust-version.workspace = true
 description = "Rust port of pkg/chainaccess (SourceReader/HeadTracker/RMNCurseReader) with an EVM implementation backed by Alloy"
 
 [dependencies]

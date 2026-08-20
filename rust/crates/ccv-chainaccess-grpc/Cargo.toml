@@ -1,7 +1,8 @@
 [package]
 name = "ccv-chainaccess-grpc"
 version = "0.1.0"
-edition = "2021"
+edition.workspace = true
+rust-version.workspace = true
 description = "gRPC transport for ccv-chainaccess SourceReader (drop-in replacement for the Go chainaccess.SourceReader)"
 build = "build.rs"
 
