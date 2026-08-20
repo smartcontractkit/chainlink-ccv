@@ -171,7 +171,9 @@ func createPolicies[T any](config ResilienceConfig, lggr logger.Logger, name str
 		WithSuccessThreshold(uint(config.SuccessThreshold)).
 		Build()
 
-	rl := ratelimiter.NewBursty[T](config.MaxRequestsPerSecond, time.Second)
+	rl := ratelimiter.NewBurstyBuilder[T](config.MaxRequestsPerSecond, time.Second).
+		WithMaxWaitTime(time.Second). // Wait up to 1 second for a permit before returning ErrExceeded
+		Build()
 	bh := bulkhead.NewBuilder[T](config.MaxConcurrentRequests).
 		OnFull(func(failsafe.ExecutionEvent[T]) {
 			lggr.Warnw(name+" bulkhead is full", "max_concurrent_requests", config.MaxConcurrentRequests)
