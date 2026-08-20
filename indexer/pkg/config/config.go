@@ -79,6 +79,15 @@ type ResilienceConfig struct {
 	// RequestTimeout is the per-request timeout.
 	// 0 uses the default (10s).
 	RequestTimeout common.Duration `toml:"RequestTimeout"`
+	// MaxRetries is the maximum number of retry attempts per request.
+	// 0 uses the default (3).
+	MaxRetries int `toml:"MaxRetries"`
+	// RetryDelay is the initial delay between retries, using exponential backoff.
+	// 0 uses the default (1s).
+	RetryDelay common.Duration `toml:"RetryDelay"`
+	// RetryMaxDelay is the maximum delay between retries.
+	// 0 uses the default (10s).
+	RetryMaxDelay common.Duration `toml:"RetryMaxDelay"`
 }
 
 type SchedulerConfig struct {

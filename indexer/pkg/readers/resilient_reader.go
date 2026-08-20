@@ -10,6 +10,7 @@ import (
 	"github.com/failsafe-go/failsafe-go/bulkhead"
 	"github.com/failsafe-go/failsafe-go/circuitbreaker"
 	"github.com/failsafe-go/failsafe-go/ratelimiter"
+	"github.com/failsafe-go/failsafe-go/retrypolicy"
 	"github.com/failsafe-go/failsafe-go/timeout"
 
 	"github.com/smartcontractkit/chainlink-ccv/indexer/pkg/config"
@@ -38,6 +39,9 @@ type ResilienceConfig struct {
 	RequestTimeout        time.Duration
 	MaxConcurrentRequests uint
 	MaxRequestsPerSecond  uint
+	MaxRetries            int
+	RetryDelay            time.Duration
+	RetryMaxDelay         time.Duration
 }
 
 // DefaultResilienceConfig returns a configuration with sensible defaults.
@@ -50,6 +54,9 @@ func DefaultResilienceConfig() ResilienceConfig {
 		RequestTimeout:        10 * time.Second,
 		MaxConcurrentRequests: 5,
 		MaxRequestsPerSecond:  5,
+		MaxRetries:            3,
+		RetryDelay:            1 * time.Second,
+		RetryMaxDelay:         10 * time.Second,
 	}
 }
 
@@ -77,6 +84,15 @@ func NewResilienceConfig(c config.ResilienceConfig) ResilienceConfig {
 	}
 	if c.RequestTimeout > 0 {
 		rc.RequestTimeout = time.Duration(c.RequestTimeout)
+	}
+	if c.MaxRetries > 0 {
+		rc.MaxRetries = c.MaxRetries
+	}
+	if c.RetryDelay > 0 {
+		rc.RetryDelay = time.Duration(c.RetryDelay)
+	}
+	if c.RetryMaxDelay > 0 {
+		rc.RetryMaxDelay = time.Duration(c.RetryMaxDelay)
 	}
 	return rc
 }
@@ -107,25 +123,41 @@ func NewResilientReader(underlying protocol.VerifierResultsAPI, lggr logger.Logg
 		maxConsecutiveErrors: config.FailureThreshold,
 	}
 
-	rr.verificationsPolicies = createPolicies(config, lggr, "GetVerifications", config.CircuitBreakerErrorHandler)
+	rr.verificationsPolicies = createPolicies(config, lggr, "GetVerifications", config.RetryPolicyErrorHandler, config.CircuitBreakerErrorHandler)
 
 	if discoveryAPI, ok := underlying.(protocol.OffchainStorageReader); ok {
-		rr.discoveryPolicies = createPolicies(config, lggr, "ReadCCVData", config.DiscoveryCircuitBreakerErrorHandler)
+		rr.discoveryPolicies = createPolicies(config, lggr, "ReadCCVData", config.DiscoveryRetryPolicyErrorHandler, config.DiscoveryCircuitBreakerErrorHandler)
 		rr.discoveryAPI = discoveryAPI
 	}
 
 	return rr
 }
 
-func createPolicies[T any](config ResilienceConfig, lggr logger.Logger, name string, errorHandler func(T, error) bool) executorPolicies[T] {
-	handleIf := func(resp T, err error) bool { return err != nil }
-	if errorHandler != nil {
-		handleIf = errorHandler
+func createPolicies[T any](config ResilienceConfig, lggr logger.Logger, name string, retryErrorHandler, cbErrorHandler func(T, error) bool) executorPolicies[T] {
+	retryHandleIf := func(resp T, err error) bool { return err != nil }
+	if retryErrorHandler != nil {
+		retryHandleIf = retryErrorHandler
+	}
+
+	rp := retrypolicy.NewBuilder[T]().
+		HandleIf(retryHandleIf).
+		WithMaxRetries(config.MaxRetries).
+		WithBackoff(config.RetryDelay, config.RetryMaxDelay).
+		AbortOnErrors(context.Canceled, context.DeadlineExceeded, circuitbreaker.ErrOpen).
+		ReturnLastFailure().
+		OnRetry(func(failsafe.ExecutionEvent[T]) {
+			lggr.Warnw(name+" retrying request", "max_retries", config.MaxRetries)
+		}).
+		Build()
+
+	cbHandleIf := func(resp T, err error) bool { return err != nil }
+	if cbErrorHandler != nil {
+		cbHandleIf = cbErrorHandler
 	}
 
 	cb := circuitbreaker.NewBuilder[T]().
 		WithDelay(config.CircuitBreakerDelay).
-		HandleIf(handleIf).
+		HandleIf(cbHandleIf).
 		OnOpen(func(circuitbreaker.StateChangedEvent) {
 			lggr.Warnw(name+" circuit breaker opened", "failures", config.FailureThreshold)
 		}).
@@ -152,25 +184,25 @@ func createPolicies[T any](config ResilienceConfig, lggr logger.Logger, name str
 		Build()
 
 	return executorPolicies[T]{
-		executor:       failsafe.With(cb, rl, bh, to),
+		executor:       failsafe.With(rp, cb, rl, bh, to),
 		circuitBreaker: cb,
 	}
 }
 
 func (r *ResilientReader) ReadCCVData(ctx context.Context) ([]protocol.QueryResponse, error) {
-	return execute(r, r.discoveryPolicies, func() ([]protocol.QueryResponse, error) {
+	return execute(ctx, r, r.discoveryPolicies, func() ([]protocol.QueryResponse, error) {
 		return r.discoveryAPI.ReadCCVData(ctx)
 	})
 }
 
 func (r *ResilientReader) GetVerifications(ctx context.Context, messageIDs []protocol.Bytes32) (map[protocol.Bytes32]protocol.VerifierResult, error) {
-	return execute(r, r.verificationsPolicies, func() (map[protocol.Bytes32]protocol.VerifierResult, error) {
+	return execute(ctx, r, r.verificationsPolicies, func() (map[protocol.Bytes32]protocol.VerifierResult, error) {
 		return r.underlying.GetVerifications(ctx, messageIDs)
 	})
 }
 
-func execute[T any](r *ResilientReader, policies executorPolicies[T], fn func() (T, error)) (T, error) {
-	result, err := policies.executor.GetWithExecution(func(failsafe.Execution[T]) (T, error) {
+func execute[T any](ctx context.Context, r *ResilientReader, policies executorPolicies[T], fn func() (T, error)) (T, error) {
+	result, err := policies.executor.WithContext(ctx).GetWithExecution(func(failsafe.Execution[T]) (T, error) {
 		return fn()
 	})
 	if err != nil {
