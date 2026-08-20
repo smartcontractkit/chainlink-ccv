@@ -51,7 +51,8 @@ type Config struct {
 	Storage StorageConfig `toml:"Storage"`
 	// API is the configuration for the API inside the indexer.
 	API APIConfig `toml:"API"`
-	// Resilience is the configuration for the resilient reader rate limiting.
+	// Resilience configures the resilient reader policies (rate limiting, bulkheading,
+	// circuit breaker, and request timeouts).
 	Resilience ResilienceConfig `toml:"Resilience"`
 }
 
