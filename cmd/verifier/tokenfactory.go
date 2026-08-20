@@ -44,26 +44,29 @@ func NewTokenVerifierServiceFactory() bootstrap.ServiceFactory {
 }
 
 // Stop tries to stop all services gracefully.
-func (tvf *tokenFactory) Stop(ctx context.Context) error {
-	// Graceful shutdown
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer shutdownCancel()
-
+func (tvf *tokenFactory) Stop(_ context.Context) error {
 	var errs []error
-	if err := tvf.httpServer.Shutdown(shutdownCtx); err != nil {
-		tvf.lggr.Errorw("HTTP server shutdown error", "error", err)
-		errs = append(errs, fmt.Errorf("HTTP server shutdown error: %w", err))
+	if tvf.httpServer != nil {
+		// Graceful shutdown
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer shutdownCancel()
+
+		if err := tvf.httpServer.Shutdown(shutdownCtx); err != nil {
+			tvf.lggr.Errorw("HTTP server shutdown error", "error", err)
+			errs = append(errs, fmt.Errorf("HTTP server shutdown error: %w", err))
+		}
 	}
 
-	for _, coordinator := range tvf.coordinators {
-		if err := coordinator.Close(); err != nil {
-			tvf.lggr.Errorw("Coordinator shutdown error", "error", err)
-			errs = append(errs, fmt.Errorf("coordinator shutdown error: %w", err))
+	if tvf.coordinators != nil {
+		for _, coordinator := range tvf.coordinators {
+			if err := coordinator.Close(); err != nil {
+				tvf.lggr.Errorw("Coordinator shutdown error", "error", err)
+				errs = append(errs, fmt.Errorf("coordinator shutdown error: %w", err))
+			}
 		}
 	}
 
 	tvf.lggr.Infow("Token verifier service stopped gracefully")
-
 	return errors.Join(errs...)
 }
 
@@ -72,11 +75,6 @@ func (tvf *tokenFactory) Start(ctx context.Context, spec bootstrap.JobSpec, deps
 	var appConfig token.Config
 	if err := spec.GetAppConfig(&appConfig); err != nil {
 		return fmt.Errorf("unable to decode app config: %w", err)
-	}
-
-	var errs []error
-	if len(errs) > 0 {
-		return errors.Join(errs...)
 	}
 
 	tvf.lggr = deps.Logger
@@ -320,7 +318,6 @@ func createLombardCoordinator(
 		nil,
 		db,
 	)
-
 	if err != nil {
 		return nil, fmt.Errorf("failed to create verification coordinator for lombard: %w", err)
 	}
