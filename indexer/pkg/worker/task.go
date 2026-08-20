@@ -91,24 +91,22 @@ func (t *Task) collectVerifierResults(ctx context.Context, verifierReaders []*re
 					t.logger.Warn("verifier task result is not ok")
 					return
 				}
-				if result.Err() != nil && !errors.Is(result.Err(), readers.ErrVerificationNotFound) {
-					if !errors.Is(result.Err(), readers.ErrVerificationNotFound) {
-						t.logger.Warnw("verifier task result error", "err", result.Err())
+				if result.Err() == nil {
+					mu.Lock()
+					t.logger.Debugf("Received result from %s for MessageID %s", result.Value().VerifierSourceAddress, t.messageID.String())
+					verifierResultWithMetadata := common.VerifierResultWithMetadata{
+						VerifierResult: result.Value(),
+						Metadata: common.VerifierResultMetadata{
+							AttestationTimestamp: result.Value().Timestamp,
+							IngestionTimestamp:   time.Now(),
+							VerifierName:         t.registry.GetVerifierNameFromAddress(result.Value().VerifierSourceAddress),
+						},
 					}
-					return
+					results = append(results, verifierResultWithMetadata)
+					mu.Unlock()
+				} else if !errors.Is(result.Err(), readers.ErrVerificationNotFound) {
+					t.logger.Warnw("verifier task result error", "err", result.Err())
 				}
-				mu.Lock()
-				t.logger.Debugf("Received result from %s for MessageID %s", result.Value().VerifierSourceAddress, t.messageID.String())
-				verifierResultWithMetadata := common.VerifierResultWithMetadata{
-					VerifierResult: result.Value(),
-					Metadata: common.VerifierResultMetadata{
-						AttestationTimestamp: result.Value().Timestamp,
-						IngestionTimestamp:   time.Now(),
-						VerifierName:         t.registry.GetVerifierNameFromAddress(result.Value().VerifierSourceAddress),
-					},
-				}
-				results = append(results, verifierResultWithMetadata)
-				mu.Unlock()
 			case <-ctx.Done():
 				return
 			}
