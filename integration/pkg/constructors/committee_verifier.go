@@ -63,6 +63,8 @@ func NewVerificationCoordinator(
 		lggr.Errorw("Invalid CCV configuration, failed to map verifier addresses.", "error", err)
 		return nil, fmt.Errorf("invalid ccv configuration: failed to map verifier addresses: %w", err)
 	}
+	// Deprecated: derived from each OnRamp's on-chain static config. Still parsed when present
+	// so the source reader can warn on a mismatch with the derived address.
 	rmnRemoteAddrs, err := mapAddresses(cfg.RMNRemoteAddresses)
 	if err != nil {
 		lggr.Errorw("Invalid CCV configuration, failed to map RMN Remote addresses.", "error", err)
@@ -100,10 +102,16 @@ func NewVerificationCoordinator(
 			"chain_name", sel.ChainName(),
 		)
 		sourceReader, err := evm.NewEVMSourceReader(
+			// This CL entry point has no context parameter (its signature is consumed by the
+			// Chainlink node repo and must stay unchanged); the reader bounds the one-shot
+			// static-config read with its own timeout.
+			context.Background(),
 			chain.Client(),
 			chain.HeadTracker(),
 			// TODO: use UnknownAddress instead of ethereum address.
 			common.HexToAddress(onRampAddrs[sel].String()),
+			// Deprecated configured RMN Remote, zero when unset: the reader derives the
+			// authoritative address on-chain and warns if this disagrees with it.
 			common.HexToAddress(rmnRemoteAddrs[sel].String()),
 			onramp.OnRampCCIPMessageSent{}.Topic().Hex(),
 			sel,

@@ -138,7 +138,11 @@ disable_finality_checkers = []
   1 = "0x00000000000000000000000000000000000000a1"
 
 # rmn_remote_addresses is a map of RMN Remote contract addresses for each chain selector.
-# Required for curse detection.
+# DEPRECATED: the RMN Remote address is derived from each OnRamp's on-chain static config,
+# which is authoritative. This field is retained so that job specs written before the
+# derivation cutover still decode; when an entry is present and disagrees with the derived
+# address, a warning is logged and the derived address is used. Remove once deployed specs
+# no longer carry it.
 [rmn_remote_addresses]
   1 = "0x00000000000000000000000000000000000000b1"
 

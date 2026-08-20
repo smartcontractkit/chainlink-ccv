@@ -452,12 +452,16 @@ func launchVerifier(ctx context.Context, in *Input, outputs []*blockchain.Output
 	}
 	if local && in.LocalAppConfig != "" {
 		if err := services.WaitForApplicationReady(ctx, out.BootstrapDBURL, services.DefaultApplicationReadyTimeout); err != nil {
-			return nil, fmt.Errorf("verifier application did not become ready: %w", err)
+			return nil, fmt.Errorf("verifier application did not become ready: %w\n--- %s container log tail ---\n%s",
+				err, strings.TrimPrefix(in.ContainerName, "/"), services.ContainerLogTail(ctx, c, containerLogTailBytes))
 		}
 	}
 
 	return out, nil
 }
+
+// containerLogTailBytes bounds the container log tail attached to readiness-failure errors.
+const containerLogTailBytes = 16 << 10
 
 // DeliverLocalAppConfig copies the app-config TOML into a running local-mode verifier container at
 // local_app_config_path and waits for the application factory to start. Copying into the container
@@ -471,7 +475,12 @@ func DeliverLocalAppConfig(out *Output, appConfigTOML string) error {
 	if err := services.CopyLocalAppConfigToContainer(context.Background(), out.Container, localAppConfigContainerPath, appConfigTOML); err != nil {
 		return err
 	}
-	return services.WaitForApplicationReady(context.Background(), out.BootstrapDBURL, services.DefaultApplicationReadyTimeout)
+	if err := services.WaitForApplicationReady(context.Background(), out.BootstrapDBURL, services.DefaultApplicationReadyTimeout); err != nil {
+		return fmt.Errorf("verifier application did not become ready after config delivery: %w\n--- %s container log tail ---\n%s",
+			err, strings.TrimPrefix(out.ContainerName, "/"),
+			services.ContainerLogTail(context.Background(), out.Container, containerLogTailBytes))
+	}
+	return nil
 }
 
 func startContainer(ctx context.Context, req testcontainers.ContainerRequest) (testcontainers.Container, error) {

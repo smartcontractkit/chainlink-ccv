@@ -1,6 +1,7 @@
 package services_test
 
 import (
+	"bytes"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -8,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -93,6 +95,60 @@ func testVerifierBootstrapWithImportedSigningKey(
 	}
 }
 
+// placeholderOnRampAddr is the OnRamp address these tests configure and stub. It deliberately sits
+// outside the precompile range (0x01-0x11): calls to a precompile address are answered by the
+// precompile itself, so stub bytecode installed there is ignored and getStaticConfig comes back
+// empty.
+const placeholderOnRampAddr = "0x0000000000000000000000000000000000001001"
+
+// stubOnRampGetStaticConfig installs minimal bytecode at the placeholder OnRamp address so the
+// source reader's construction-time RMN derivation succeeds: NewEVMSourceReader reads
+// OnRamp.getStaticConfig() once at startup and fails if the read errors or returns a zero
+// rmnRemote. These tests deploy no real contracts, so the placeholder must at least answer that
+// one call. The stub returns an ABI-encoded OnRamp.StaticConfig (chainSelector, rmnRemote,
+// nonceManager, tokenAdminRegistry — 4×32 bytes) whose only non-zero field is rmnRemote.
+//
+// The 14-byte runtime code returns its appended 128-byte payload for ANY call:
+//
+//	61 0080    PUSH2  128      ; payload length
+//	60 0e      PUSH1  14       ; payload offset in code (right after this code)
+//	60 00      PUSH1  0        ; memory destination
+//	39         CODECOPY
+//	61 0080    PUSH2  128
+//	60 00      PUSH1  0
+//	f3         RETURN
+func stubOnRampGetStaticConfig(t *testing.T, rpcURL, onRampAddress string) {
+	t.Helper()
+
+	const rmnRemote = "00000000000000000000000000000000000000aa" // arbitrary, non-zero
+	// The return tuple described above: rmnRemote in the second word, every other word zero.
+	payload := strings.Repeat("00", 32) +
+		"000000000000000000000000" + rmnRemote +
+		strings.Repeat("00", 32) +
+		strings.Repeat("00", 32)
+	code := "0x610080600e6000396100806000f3" + payload
+
+	body, err := json.Marshal(map[string]any{
+		"jsonrpc": "2.0",
+		"id":      1,
+		"method":  "anvil_setCode",
+		"params":  []string{onRampAddress, code},
+	})
+	require.NoError(t, err)
+	resp, err := http.Post(rpcURL, "application/json", bytes.NewReader(body))
+	require.NoError(t, err, "anvil_setCode request failed")
+	defer func() { _ = resp.Body.Close() }()
+	var rpcResp struct {
+		Error *struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	require.NoError(t, json.NewDecoder(resp.Body).Decode(&rpcResp))
+	if rpcResp.Error != nil {
+		t.Fatalf("anvil_setCode rejected the stub: %s", rpcResp.Error.Message)
+	}
+}
+
 // TestServiceCommitteeVerifierLocalMode is an end-to-end check of bootstrap local mode
 // (app_config_mode = "local_app_config"): it launches an EVM chain and an aggregator, then a committee
 // verifier container whose app config is delivered via a mounted file instead of a Job Distributor.
@@ -175,10 +231,12 @@ func TestServiceCommitteeVerifierLocalMode(t *testing.T) {
 	})
 	require.NoError(t, err, "failed to launch aggregator")
 
-	// 3. Minimal committee-verifier app config. Placeholder on-chain addresses are fine: the verifier
-	//    does not validate them against the chain at startup. All three maps must share the same
-	//    chain-selector key set (commit.Config.Validate).
+	// 3. Minimal committee-verifier app config. Placeholder addresses are fine for everything except
+	//    the OnRamp: the source reader reads its on-chain static config once at construction to derive
+	//    the RMN Remote address, so the placeholder must answer getStaticConfig (stubbed below). The
+	//    maps must share the same chain-selector key set (commit.Config.Validate).
 	const placeholderAddr = "0x0000000000000000000000000000000000000001"
+	stubOnRampGetStaticConfig(t, chainOut.Nodes[0].ExternalHTTPUrl, placeholderOnRampAddr)
 	appCfg := commit.Config{
 		VerifierID:    "local-verifier",
 		SignerAddress: signerAddress,
@@ -189,7 +247,9 @@ func TestServiceCommitteeVerifierLocalMode(t *testing.T) {
 		}},
 		CommitteeVerifierAddresses: map[string]string{selectorStr: placeholderAddr},
 		CommitteeConfig: chainaccess.CommitteeConfig{
-			OnRampAddresses:    map[string]string{selectorStr: placeholderAddr},
+			OnRampAddresses: map[string]string{selectorStr: placeholderOnRampAddr},
+			// Deprecated pre-cutover key: must keep decoding. It intentionally disagrees with
+			// the stubbed on-chain value, exercising the mismatch warning.
 			RMNRemoteAddresses: map[string]string{selectorStr: placeholderAddr},
 		},
 	}
@@ -366,7 +426,10 @@ func TestServiceCommitteeVerifierLocalModeDeferredConfig(t *testing.T) {
 	require.False(t, verifierHealthy(), "verifier coordinator must not start before the config is delivered")
 
 	// Build and deliver the app config; the waiting bootstrapper should then start the coordinator.
+	// The placeholder OnRamp must answer getStaticConfig (the reader derives the RMN Remote address
+	// from it at construction), so stub it before delivery.
 	const placeholderAddr = "0x0000000000000000000000000000000000000001"
+	stubOnRampGetStaticConfig(t, chainOut.Nodes[0].ExternalHTTPUrl, placeholderOnRampAddr)
 	appCfg := commit.Config{
 		VerifierID:    "localdefer-verifier",
 		SignerAddress: signerAddress,
@@ -377,7 +440,9 @@ func TestServiceCommitteeVerifierLocalModeDeferredConfig(t *testing.T) {
 		}},
 		CommitteeVerifierAddresses: map[string]string{selectorStr: placeholderAddr},
 		CommitteeConfig: chainaccess.CommitteeConfig{
-			OnRampAddresses:    map[string]string{selectorStr: placeholderAddr},
+			OnRampAddresses: map[string]string{selectorStr: placeholderOnRampAddr},
+			// Deprecated pre-cutover key: must keep decoding. It intentionally disagrees with
+			// the stubbed on-chain value, exercising the mismatch warning.
 			RMNRemoteAddresses: map[string]string{selectorStr: placeholderAddr},
 		},
 	}

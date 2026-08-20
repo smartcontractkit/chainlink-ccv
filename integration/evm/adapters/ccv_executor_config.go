@@ -73,24 +73,33 @@ func (a *EVMCCVExecutorConfigAdapter) BuildChainConfig(ds datastore.DataStore, c
 		return executor.ChainConfiguration{}, fmt.Errorf("failed to get off ramp address for chain %d: %w", chainSelector, err)
 	}
 
-	rmnRemoteAddr, err := dsutils.FindAndFormatRef(ds, datastore.AddressRef{
-		Type:    datastore.ContractType(rmn_proxy.ContractType),
-		Version: rmn_proxy.Version,
-	}, chainSelector, toAddress)
-	if err != nil {
-		return executor.ChainConfiguration{}, fmt.Errorf("failed to get RMNProxy address for chain %d: %w", chainSelector, err)
-	}
-
 	executorAddr, err := a.ResolveExecutorAddress(ds, chainSelector, qualifier)
 	if err != nil {
 		return executor.ChainConfiguration{}, err
 	}
 
-	return executor.ChainConfiguration{
+	chainCfg := executor.ChainConfiguration{
 		DestinationChainConfig: chainaccess.DestinationChainConfig{
 			OffRampAddress: offRampAddr,
-			RmnAddress:     rmnRemoteAddr,
 		},
 		DefaultExecutorAddress: executorAddr,
-	}, nil
+	}
+
+	// The RMN proxy is resolved best-effort: rmn_address is deprecated (nodes derive the RMN
+	// Remote from the OffRamp's on-chain static config), so its absence from the datastore is
+	// not an error. It is still emitted when present so generated specs keep working for node
+	// binaries that predate the derivation cutover.
+	rmnProxyRefs := ds.Addresses().Filter(
+		datastore.AddressRefByChainSelector(chainSelector),
+		datastore.AddressRefByType(datastore.ContractType(rmn_proxy.ContractType)),
+		datastore.AddressRefByVersion(rmn_proxy.Version),
+	)
+	if len(rmnProxyRefs) > 1 {
+		return executor.ChainConfiguration{}, fmt.Errorf("chain %d: expected at most 1 RMNProxy, found %d", chainSelector, len(rmnProxyRefs))
+	}
+	if len(rmnProxyRefs) == 1 {
+		chainCfg.RmnAddress = rmnProxyRefs[0].Address
+	}
+
+	return chainCfg, nil
 }

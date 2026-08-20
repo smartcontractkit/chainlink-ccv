@@ -90,7 +90,8 @@ type Configuration struct {
 type ChainConfiguration struct {
 	// DestinationChainConfig holds the off-ramp and RMN addresses. It is embedded so that the
 	// TOML field paths (off_ramp_address, rmn_address) are identical to what the chainaccess
-	// Registry reads via ExecutorConfig, allowing both to overlay the same config file.
+	// Registry reads via ExecutorConfig, allowing both to overlay the same config file. The
+	// rmn_address field is deprecated (derived on-chain) but still decoded for back-compat.
 	chainaccess.DestinationChainConfig
 	// ExecutorPool is the list of executor IDs used for turn taking. This executor's ID must be in the list.
 	ExecutorPool []string `toml:"executor_pool"`
@@ -156,9 +157,6 @@ func (c *Configuration) Validate() error {
 	}
 
 	for chainSel, chainConfig := range c.ChainConfiguration {
-		if chainConfig.RmnAddress == "" {
-			return fmt.Errorf("rmn_address must be configured for chain %s", chainSel)
-		}
 		if chainConfig.OffRampAddress == "" {
 			return fmt.Errorf("off_ramp_address must be configured for chain %s", chainSel)
 		}

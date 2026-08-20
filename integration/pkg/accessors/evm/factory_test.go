@@ -210,32 +210,24 @@ func TestIsValidAddress(t *testing.T) {
 func TestFactoryRejectsIncompleteDestinationConfigBeforeStartingRuntime(t *testing.T) {
 	t.Parallel()
 
+	// A destination config entry with an off-ramp address set to something that is not a valid
+	// non-zero address is rejected before the runtime starts. An entry carrying only the
+	// deprecated rmn_address signals destination intent too and fails the same gate. An entry
+	// with neither address carries no destination intent: it falls through to the "neither
+	// source nor destination services are configured" gate covered by
+	// TestFactoryRejectsAccessorWithoutCapabilitiesBeforeStartingRuntime.
 	const selector = protocol.ChainSelector(5009297550715157269)
 	tests := []struct {
 		name   string
 		config chainaccess.DestinationChainConfig
 	}{
 		{
-			name:   "missing RMN remote",
-			config: chainaccess.DestinationChainConfig{OffRampAddress: validTestOffRampAddress},
+			name:   "malformed off-ramp",
+			config: chainaccess.DestinationChainConfig{OffRampAddress: "0x1234"},
 		},
 		{
-			name:   "missing off-ramp",
+			name:   "missing off-ramp, only deprecated rmn_address set",
 			config: chainaccess.DestinationChainConfig{RmnAddress: validTestRMNRemoteAddress},
-		},
-		{
-			name: "malformed off-ramp",
-			config: chainaccess.DestinationChainConfig{
-				OffRampAddress: "0x1234",
-				RmnAddress:     validTestRMNRemoteAddress,
-			},
-		},
-		{
-			name: "zero RMN remote",
-			config: chainaccess.DestinationChainConfig{
-				OffRampAddress: validTestOffRampAddress,
-				RmnAddress:     zeroTestAddress,
-			},
 		},
 	}
 
@@ -258,7 +250,7 @@ func TestFactoryRejectsIncompleteDestinationConfigBeforeStartingRuntime(t *testi
 
 			accessor, err := factory.GetAccessor(context.Background(), selector)
 			require.Nil(t, accessor)
-			require.ErrorContains(t, err, "destination services require valid non-zero off-ramp and RMN remote addresses")
+			require.ErrorContains(t, err, "destination services require a valid non-zero off-ramp address")
 			require.Zero(t, runtimeCalls)
 		})
 	}

@@ -216,7 +216,8 @@ func TestMergeTokenVerifierConfig_AccumulatesPerChain(t *testing.T) {
 	got, err := GetTokenVerifierConfig(ds.Seal(), "token-1")
 	require.NoError(t, err)
 
-	// Committee maps cover both chains.
+	// Committee maps cover both chains. The deprecated RMN map is preserved across merges so
+	// configs stored before the derivation cutover keep their entries.
 	require.Equal(t, map[string]string{"1": "0xonramp1", "2": "0xonramp2"}, got.OnRampAddresses)
 	require.Equal(t, map[string]string{"1": "0xrmn1", "2": "0xrmn2"}, got.RMNRemoteAddresses)
 

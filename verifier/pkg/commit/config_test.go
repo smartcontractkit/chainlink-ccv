@@ -29,6 +29,8 @@ func TestConfig_Validate_Success(t *testing.T) {
 					OnRampAddresses: map[string]string{
 						"1": "0xOnRamp1",
 					},
+					// RMNRemoteAddresses is deprecated and not required, but still accepted:
+					// pre-cutover specs always carry it, so it must not fail validation.
 					RMNRemoteAddresses: map[string]string{
 						"1": "0xRMNRemote1",
 					},
@@ -65,6 +67,24 @@ func TestConfig_Validate_Success(t *testing.T) {
 			},
 		},
 		{
+			// The deprecated RMN map is no longer validated against the onramp keys: the RMN
+			// Remote is derived on-chain, so a stale entry must not block startup.
+			name: "deprecated RMN map keys not matching onramp keys are tolerated",
+			config: Config{
+				CommitteeVerifierAddresses: map[string]string{
+					"1": "0xCommittee1",
+				},
+				CommitteeConfig: chainaccess.CommitteeConfig{
+					OnRampAddresses: map[string]string{
+						"1": "0xOnRamp1",
+					},
+					RMNRemoteAddresses: map[string]string{
+						"2": "0xRMNRemote2",
+					},
+				},
+			},
+		},
+		{
 			name: "message disablement duration strings",
 			config: Config{
 				MessageDisablementRulesPollInterval:  "2s",
@@ -75,9 +95,6 @@ func TestConfig_Validate_Success(t *testing.T) {
 				CommitteeConfig: chainaccess.CommitteeConfig{
 					OnRampAddresses: map[string]string{
 						"1": "0xOnRamp1",
-					},
-					RMNRemoteAddresses: map[string]string{
-						"1": "0xRMNRemote1",
 					},
 				},
 			},
@@ -117,35 +134,12 @@ func TestConfig_Validate_Errors(t *testing.T) {
 						"1": "0xOnRamp1",
 						"2": "0xOnRamp2",
 					},
-					RMNRemoteAddresses: map[string]string{
-						"1": "0xRMNRemote1",
-						"2": "0xRMNRemote2",
-					},
 				},
 			},
 			errSubstr: "mismatched lengths",
 		},
 		{
-			name: "onramp and RMN Remote length mismatch",
-			config: Config{
-				CommitteeVerifierAddresses: map[string]string{
-					"1": "0xCommittee1",
-					"2": "0xCommittee2",
-				},
-				CommitteeConfig: chainaccess.CommitteeConfig{
-					OnRampAddresses: map[string]string{
-						"1": "0xOnRamp1",
-						"2": "0xOnRamp2",
-					},
-					RMNRemoteAddresses: map[string]string{
-						"1": "0xRMNRemote1",
-					},
-				},
-			},
-			errSubstr: "mismatched lengths",
-		},
-		{
-			name: "all three maps length mismatch",
+			name: "all maps populated, onramp and committee verifier length mismatch",
 			config: Config{
 				CommitteeVerifierAddresses: map[string]string{
 					"1": "0xCommittee1",
@@ -155,10 +149,6 @@ func TestConfig_Validate_Errors(t *testing.T) {
 						"1": "0xOnRamp1",
 						"2": "0xOnRamp2",
 						"3": "0xOnRamp3",
-					},
-					RMNRemoteAddresses: map[string]string{
-						"1": "0xRMNRemote1",
-						"2": "0xRMNRemote2",
 					},
 				},
 			},
@@ -174,29 +164,9 @@ func TestConfig_Validate_Errors(t *testing.T) {
 					OnRampAddresses: map[string]string{
 						"1": "0xOnRamp1",
 					},
-					RMNRemoteAddresses: map[string]string{
-						"1": "0xRMNRemote1",
-					},
 				},
 			},
 			errSubstr: "not in committee verifier addresses",
-		},
-		{
-			name: "onramp key absent from RMN Remote addresses",
-			config: Config{
-				CommitteeVerifierAddresses: map[string]string{
-					"1": "0xCommittee1",
-				},
-				CommitteeConfig: chainaccess.CommitteeConfig{
-					OnRampAddresses: map[string]string{
-						"1": "0xOnRamp1",
-					},
-					RMNRemoteAddresses: map[string]string{
-						"2": "0xRMNRemote2",
-					},
-				},
-			},
-			errSubstr: "not in RMN Remote addresses",
 		},
 		{
 			name: "invalid message_disablement_rules_poll_interval",
@@ -208,9 +178,6 @@ func TestConfig_Validate_Errors(t *testing.T) {
 				CommitteeConfig: chainaccess.CommitteeConfig{
 					OnRampAddresses: map[string]string{
 						"1": "0xOnRamp1",
-					},
-					RMNRemoteAddresses: map[string]string{
-						"1": "0xRMNRemote1",
 					},
 				},
 			},
@@ -227,9 +194,6 @@ func TestConfig_Validate_Errors(t *testing.T) {
 					OnRampAddresses: map[string]string{
 						"1": "0xOnRamp1",
 					},
-					RMNRemoteAddresses: map[string]string{
-						"1": "0xRMNRemote1",
-					},
 				},
 			},
 			errSubstr: "http_listen_port must not be negative",
@@ -244,9 +208,6 @@ func TestConfig_Validate_Errors(t *testing.T) {
 				CommitteeConfig: chainaccess.CommitteeConfig{
 					OnRampAddresses: map[string]string{
 						"1": "0xOnRamp1",
-					},
-					RMNRemoteAddresses: map[string]string{
-						"1": "0xRMNRemote1",
 					},
 				},
 			},
