@@ -2,9 +2,14 @@ package evm
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum/ethclient"
+	"github.com/ethereum/go-ethereum/rpc"
 	"github.com/rs/zerolog"
 	"github.com/stretchr/testify/require"
 
@@ -12,13 +17,29 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
+// newTestEthClient returns a client backed by a fake JSON-RPC server that
+// always reports block 1, so the poll loop has a real client to query.
+func newTestEthClient(t *testing.T) *ethclient.Client {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req struct{ ID any }
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		_ = json.NewEncoder(w).Encode(map[string]any{"jsonrpc": "2.0", "id": req.ID, "result": "0x1"})
+	}))
+	t.Cleanup(srv.Close)
+	rpcClient, err := rpc.DialHTTP(srv.URL)
+	require.NoError(t, err)
+	t.Cleanup(rpcClient.Close)
+	return ethclient.NewClient(rpcClient)
+}
+
 func TestEventPollerCache(t *testing.T) {
 	t.Run("cache hit returns immediately", func(t *testing.T) {
 		pollFn := func(start, end uint64) (map[eventKey]cciptestinterfaces.ExecutionStateChangedEvent, map[eventKey]protocol.ByteSlice, error) {
 			return nil, nil, nil
 		}
 
-		poller := newEventPoller(nil, zerolog.Nop(), "test", pollFn)
+		poller := newEventPoller(newTestEthClient(t), zerolog.Nop(), "test", pollFn)
 
 		key := eventKey{chainSelector: 1, msgNum: 100}
 		expectedEvent := cciptestinterfaces.ExecutionStateChangedEvent{
@@ -46,7 +67,7 @@ func TestEventPollerCache(t *testing.T) {
 			return nil, nil, nil
 		}
 
-		poller := newEventPoller(nil, zerolog.Nop(), "test", pollFn)
+		poller := newEventPoller(newTestEthClient(t), zerolog.Nop(), "test", pollFn)
 
 		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 		defer cancel()
@@ -67,7 +88,7 @@ func TestEventPollerCache(t *testing.T) {
 			return nil, nil, nil
 		}
 
-		poller := newEventPoller(nil, zerolog.Nop(), "test", pollFn)
+		poller := newEventPoller(newTestEthClient(t), zerolog.Nop(), "test", pollFn)
 
 		ctx := t.Context()
 
@@ -82,7 +103,7 @@ func TestEventPollerCache(t *testing.T) {
 			return nil, nil, nil
 		}
 
-		poller := newEventPoller(nil, zerolog.Nop(), "test", pollFn)
+		poller := newEventPoller(newTestEthClient(t), zerolog.Nop(), "test", pollFn)
 
 		key := eventKey{chainSelector: 1, msgNum: 100}
 		expectedEvent := cciptestinterfaces.ExecutionStateChangedEvent{
@@ -111,7 +132,7 @@ func TestEventPollerMessageSent(t *testing.T) {
 			return nil, nil, nil
 		}
 
-		poller := newEventPoller(nil, zerolog.Nop(), "test", pollFn)
+		poller := newEventPoller(newTestEthClient(t), zerolog.Nop(), "test", pollFn)
 
 		key := eventKey{chainSelector: 1, msgNum: 100}
 		expectedEvent := cciptestinterfaces.MessageSentEvent{
@@ -138,7 +159,7 @@ func TestEventPollerByMessageID(t *testing.T) {
 		pollFn := func(start, end uint64) (map[eventKey]cciptestinterfaces.MessageSentEvent, map[eventKey]protocol.ByteSlice, error) {
 			return nil, nil, nil
 		}
-		poller := newEventPoller(nil, zerolog.Nop(), "test", pollFn)
+		poller := newEventPoller(newTestEthClient(t), zerolog.Nop(), "test", pollFn)
 
 		messageID := protocol.Bytes32{1, 2, 3, 4}
 		key := eventKey{chainSelector: 7, messageID: messageID}
@@ -166,7 +187,7 @@ func TestEventPollerByMessageID(t *testing.T) {
 		pollFn := func(start, end uint64) (map[eventKey]cciptestinterfaces.MessageSentEvent, map[eventKey]protocol.ByteSlice, error) {
 			return nil, nil, nil
 		}
-		poller := newEventPoller(nil, zerolog.Nop(), "test", pollFn)
+		poller := newEventPoller(newTestEthClient(t), zerolog.Nop(), "test", pollFn)
 
 		messageID := protocol.Bytes32{3, 4, 5, 6}
 		key := eventKey{chainSelector: 5, messageID: messageID}
@@ -181,7 +202,7 @@ func TestEventPollerByMessageID(t *testing.T) {
 		pollFn := func(start, end uint64) (map[eventKey]cciptestinterfaces.MessageSentEvent, map[eventKey]protocol.ByteSlice, error) {
 			return nil, nil, nil
 		}
-		poller := newEventPoller(nil, zerolog.Nop(), "test", pollFn)
+		poller := newEventPoller(newTestEthClient(t), zerolog.Nop(), "test", pollFn)
 
 		messageID := protocol.Bytes32{9, 8, 7, 6}
 		key := eventKey{chainSelector: 2, messageID: messageID}
