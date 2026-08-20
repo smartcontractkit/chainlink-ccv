@@ -25,6 +25,15 @@ func CreateMultiNodeClientFromInfo(ctx context.Context, info Info, lggr logger.L
 }
 
 func newMultiNodeClientFromInfo(info Info, lggr logger.Logger) (client.Client, *evmconfig.ChainScoped, error) {
+	if info.TXMBlockTime == 0 {
+		// Loud because the fallback is a far steeper retry and fee-bump cadence than the node
+		// produced on a slow chain; set it explicitly per chain before a cutover. The inspect-config
+		// migration tooling flags the same fact offline.
+		lggr.Warnw("no txm_block_time configured for chain; TXM v2 falls back to a 2s block time "+
+			"(retry and fee-bump cadence). Set txm_block_time (standalone config) or "+
+			"Transactions.TransactionManagerV2.BlockTime (node config) explicitly per chain",
+			"chainID", info.ChainID)
+	}
 	chainConfig, err := newChainlinkEVMConfig(info)
 	if err != nil {
 		return nil, nil, err

@@ -60,8 +60,15 @@ docker run --rm --network host -v "$PWD/migration:/out" <verifier-image> \
   ccv migrate export \
     --node-url <node-url> \
     --api-creds /out/api-creds.txt \
-    --out-dir /out
+    --out-dir /out \
+    --expected-id <jd-signing-address>
 ```
+
+`<jd-signing-address>` is your signing address as Chainlink Labs reads it from your JD record
+(`OnchainSigningAddress`); they send it to you when the cutover is scheduled. The export fails if
+the exported key does not carry exactly that address — the decode check alone cannot catch picking
+the wrong OCR2 bundle, because any bundle decodes to a self-consistent identity. If it fails, stop
+and tell Chainlink Labs; do not retry with a different value.
 
 This writes three files into `./migration/`:
 
@@ -69,8 +76,9 @@ This writes three files into `./migration/`:
 - `export-password.txt` — its password.
 - `verifier.key_import.toml` — a config snippet to paste in step 3.
 
-**Check:** the command printed a signing address, and all three files exist. If the command errors,
-read the error and stop — it is telling you something is wrong with the node or the flags.
+**Check:** the command printed a signing address that matches `<jd-signing-address>`, and all three
+files exist. If the command errors, read the error and stop — it is telling you something is wrong
+with the node or the flags.
 
 ## Step 3: configure the verifier and executor
 
@@ -114,6 +122,20 @@ ccv migrate inspect \
 ```
 
 **Check:** the address it prints matches `expected_id` in the block you pasted.
+
+Then diff the effective chain settings, once, before anything starts:
+
+```sh
+docker run --rm -v "$PWD:/cfg" <verifier-image> \
+  ccv migrate inspect-config --config /cfg/<your-node-config.toml>
+```
+
+This runs the same conversion the standalone processes run at startup and prints what each chain
+will effectively run: finality, the TXM block time (`txm_block_time_is_default: true` flags the 2s
+fallback, which is wrong for a slow chain), head-tracker persistence, and the RPC node set. The
+`warnings` list names every setting your node config carries that standalone drops. Go through the
+output with Chainlink Labs and either accept each deviation or correct it in the mounted config —
+this is the pre-cutover settings review, not an optional extra.
 
 ## Step 4: stop the Chainlink node
 
@@ -365,9 +387,10 @@ drops is logged by name at startup, so custom tuning surfaces instead of silentl
 chain defaults.
 
 If the node config sets no TXM v2 block time, standalone runs a 2-second block time, which retries
-and fee-bumps far more aggressively than the node did on a slow chain. Agree a per-chain value with
-Chainlink Labs before the cutover; the [TXM v2 assessment](txm-v2-assessment.md) explains the
-fallback.
+and fee-bumps far more aggressively than the node did on a slow chain. The fallback is loud: it is
+logged at warn per chain at startup, and `ccv migrate inspect-config` flags it as
+`txm_block_time_is_default` in the step 3 diff. Agree a per-chain value with Chainlink Labs before
+the cutover; the [TXM v2 assessment](txm-v2-assessment.md) explains the fallback.
 
 Send-only nodes and the per-node `HTTPURLExtraWrite` and `IsLoadBalancedRPC` settings have no
 standalone equivalent and are dropped. Each one is logged at startup. An operator relying on a

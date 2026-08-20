@@ -55,6 +55,11 @@ type ExportConfig struct {
 	// BundleID overrides the EVM OCR2 bundle the export resolves itself, for a node the resolution
 	// errors on because it has several EVM bundles.
 	BundleID string
+	// ExpectedID, when set, is the signing address Chainlink Labs read from the operator's JD
+	// record (OnchainSigningAddress) and handed over with the procedure. The export fails when
+	// the decoded key does not carry it: the self-check alone cannot catch a wrong bundle choice,
+	// because any exported bundle decodes to a self-consistent identity.
+	ExpectedID string
 }
 
 // ExportResult records what an export produced: the identity carried across, and every file
@@ -79,7 +84,9 @@ type ExportResult struct {
 //     knows about.
 //  3. The bundle is exported under a generated password nobody has to invent or type.
 //  4. The export is decoded and its identity checked before anything is reported — while the node
-//     is still running, not at container startup after it may be stopped.
+//     is still running, not at container startup after it may be stopped. When the caller supplies
+//     the expected_id Chainlink Labs read from the operator's JD record, the decoded identity must
+//     match it: the decode self-check alone cannot see a wrong bundle choice.
 func ExportNodeKeys(ctx context.Context, lggr logger.Logger, cfg ExportConfig) (*ExportResult, error) {
 	if err := cfg.validate(); err != nil {
 		return nil, err
@@ -128,6 +135,9 @@ func ExportNodeKeys(ctx context.Context, lggr logger.Logger, cfg ExportConfig) (
 	signingAddress, err := keys.InspectImport(keys.Import{Format: keys.ImportFormatOCR2, Path: ocr2Path, PasswordPath: passwordPath})
 	if err != nil {
 		return nil, fmt.Errorf("the exported OCR2 bundle is unusable: %w", err)
+	}
+	if err := checkExpectedID(cfg.ExpectedID, signingAddress); err != nil {
+		return nil, err
 	}
 
 	lggr.Infow("exported the Chainlink node signing key for the CL-to-standalone migration",
@@ -191,6 +201,30 @@ func preflightJobs(ctx context.Context, lggr logger.Logger, client *NodeClient) 
 				"verifier jobs must be consolidated into one before migrating — raise it with Chainlink "+
 				"Labs rather than picking one (docs/migration/evm-cl-to-standalone.md)",
 			verifiers, JobTypeVerifier)
+	}
+	return nil
+}
+
+// checkExpectedID compares the exported key's identity against the expected_id Chainlink Labs
+// sourced from JD. The comparison runs while the node is still up, so a wrong bundle choice —
+// which the decode self-check cannot see, since any bundle decodes to a self-consistent identity —
+// fails the export rather than surfacing after the node is stopped.
+func checkExpectedID(expectedID, signingAddress string) error {
+	expected := strings.TrimSpace(expectedID)
+	if expected == "" {
+		return nil
+	}
+	if !common.IsHexAddress(expected) {
+		return fmt.Errorf(
+			"expected_id %q is not a hex address; it should be this operator's OnchainSigningAddress "+
+				"read from its JD record, handed over with the migration procedure", expected)
+	}
+	if !strings.EqualFold(common.HexToAddress(expected).Hex(), ChecksumAddress(signingAddress)) {
+		return fmt.Errorf(
+			"the exported key carries signing address %s, which does not match the expected_id %s "+
+				"from the operator's JD record: the wrong OCR2 bundle was exported — stop and recheck "+
+				"which bundle the committee registers for this operator",
+			ChecksumAddress(signingAddress), common.HexToAddress(expected).Hex())
 	}
 	return nil
 }

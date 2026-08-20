@@ -37,6 +37,18 @@ const (
 // becoming operator-facing CCV settings. Chain-specific upstream defaults are
 // used for every setting that CCV does not intentionally override below.
 func newChainlinkEVMConfig(info Info) (*evmconfig.ChainScoped, error) {
+	tomlConfig, err := buildChainlinkEVMTOML(info)
+	if err != nil {
+		return nil, err
+	}
+	return evmconfig.NewTOMLChainScopedConfig(tomlConfig), nil
+}
+
+// buildChainlinkEVMTOML builds and validates the full chainlink-evm TOML config for one chain,
+// applying CCV's overrides on top of chain-specific upstream defaults. It is exported to the
+// migration tooling through EffectiveChainConfigs, so the pre-cutover settings diff reads exactly
+// what the standalone process will run.
+func buildChainlinkEVMTOML(info Info) (*evmtoml.EVMConfig, error) {
 	chainID, ok := new(big.Int).SetString(info.ChainID, 10)
 	if !ok {
 		return nil, fmt.Errorf("failed to parse EVM chain ID %q", info.ChainID)
@@ -123,7 +135,7 @@ func newChainlinkEVMConfig(info Info) (*evmconfig.ChainScoped, error) {
 	if err := (evmtoml.EVMConfigs{tomlConfig}).ValidateConfig(); err != nil {
 		return nil, fmt.Errorf("invalid chainlink-evm config for chain %s: %w", info.ChainID, err)
 	}
-	return evmconfig.NewTOMLChainScopedConfig(tomlConfig), nil
+	return tomlConfig, nil
 }
 
 // toChainlinkEVMNode deliberately maps only the subset owned by CCV: the endpoint
