@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"os"
 	"time"
 
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
@@ -121,14 +120,12 @@ func (tvf *tokenFactory) Start(ctx context.Context, spec bootstrap.JobSpec, deps
 	// is fine and falls back to CL_DATABASE_URL.
 	secrets, err := vsecrets.LoadFromEnv(vsecrets.TokenVerifierSecretsPathEnv, vsecrets.DefaultTokenVerifierSecretsPath)
 	if err != nil {
-		tvf.lggr.Errorw("Failed to load verifier secrets", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("failed to load verifier secrets: %w", err)
 	}
 
 	db, err := ConnectToPostgresDB(tvf.lggr, secrets)
 	if err != nil {
-		tvf.lggr.Errorw("Failed to connect to Postgres database", "error", err)
-		os.Exit(1)
+		return fmt.Errorf("failed to connect to Postgres database: %w", err)
 	}
 
 	postgresStorage := storage.NewPostgres(db, tvf.lggr)
@@ -151,7 +148,7 @@ func (tvf *tokenFactory) Start(ctx context.Context, spec bootstrap.JobSpec, deps
 
 		var coordinator *verifier.Coordinator
 		if verifierConfig.IsLombard() {
-			coordinator = createLombardCoordinator(
+			if coordinator, err = createLombardCoordinator(
 				ctx,
 				verifierConfig.VerifierID,
 				verifierConfig.LombardConfig,
@@ -166,9 +163,11 @@ func (tvf *tokenFactory) Start(ctx context.Context, spec bootstrap.JobSpec, deps
 				verifierMonitoring,
 				monitoredChainStatusManager,
 				db,
-			)
+			); err != nil {
+				return fmt.Errorf("failed to create verification coordinator for lombard: %w", err)
+			}
 		} else if verifierConfig.IsCCTP() {
-			coordinator = createCCTPCoordinator(
+			if coordinator, err = createCCTPCoordinator(
 				ctx,
 				verifierConfig.VerifierID,
 				verifierConfig.CCTPConfig,
@@ -183,7 +182,9 @@ func (tvf *tokenFactory) Start(ctx context.Context, spec bootstrap.JobSpec, deps
 				verifierMonitoring,
 				monitoredChainStatusManager,
 				db,
-			)
+			); err != nil {
+				return fmt.Errorf("failed to create verification coordinator for cctp: %w", err)
+			}
 		} else {
 			tvf.lggr.Fatalw("Unknown verifier type", "type", verifierConfig.Type)
 			continue
@@ -239,13 +240,13 @@ func createCCTPCoordinator(
 	verifierMonitoring verifier.Monitoring,
 	chainStatusManager protocol.ChainStatusManager,
 	db sqlutil.DataSource,
-) *verifier.Coordinator {
+) (*verifier.Coordinator, error) {
 	cctpSourceConfigs := createSourceConfigs(cctpConfig.ParsedVerifierResolvers)
 
 	attestationService, err := cctp.NewAttestationService(lggr, *cctpConfig)
 	if err != nil {
 		lggr.Errorw("Failed to create CCTP attestation service", "error", err)
-		os.Exit(1)
+		return nil, fmt.Errorf("failed to create CCTP attestation service: %w", err)
 	}
 
 	coordinator, err := verifier.NewCoordinator(
@@ -270,14 +271,13 @@ func createCCTPCoordinator(
 		db,
 	)
 	if err != nil {
-		lggr.Errorw("Failed to create verification coordinator for cctp", "error", err)
-		os.Exit(1)
+		return nil, fmt.Errorf("failed to create verification coordinator for cctp: %w", err)
 	}
-	return coordinator
+	return coordinator, nil
 }
 
 func createLombardCoordinator(
-	ctx context.Context,
+	_ context.Context,
 	verifierID string,
 	lombardConfig *lombard.LombardConfig,
 	lggr logger.Logger,
@@ -287,19 +287,16 @@ func createLombardCoordinator(
 	verifierMonitoring verifier.Monitoring,
 	chainStatusManager protocol.ChainStatusManager,
 	db sqlutil.DataSource,
-) *verifier.Coordinator {
+) (*verifier.Coordinator, error) {
 	sourceConfigs := createSourceConfigs(lombardConfig.ParsedVerifierResolvers)
-
 	attestationService, err := lombard.NewAttestationService(lggr, *lombardConfig)
 	if err != nil {
-		lggr.Errorw("Failed to create Lombard attestation service", "error", err)
-		os.Exit(1)
+		return nil, fmt.Errorf("failed to create Lombard attestation service: %w", err)
 	}
 
 	lombardVerifier, err := lombard.NewVerifier(lggr, *lombardConfig, attestationService)
 	if err != nil {
-		lggr.Errorw("Failed to create Lombard verifier", "error", err)
-		os.Exit(1)
+		return nil, fmt.Errorf("failed to create Lombard verifier: %w", err)
 	}
 
 	coordinator, err := verifier.NewCoordinator(
@@ -323,12 +320,12 @@ func createLombardCoordinator(
 		nil,
 		db,
 	)
+
 	if err != nil {
-		lggr.Errorw("Failed to create verification coordinator for lombard", "error", err)
-		os.Exit(1)
+		return nil, fmt.Errorf("failed to create verification coordinator for lombard: %w", err)
 	}
 
-	return coordinator
+	return coordinator, nil
 }
 
 func createSourceConfigs(verifiers map[protocol.ChainSelector]protocol.UnknownAddress) map[protocol.ChainSelector]verifier.SourceConfig {
