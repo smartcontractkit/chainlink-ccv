@@ -12,9 +12,9 @@ use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use alloy_primitives::{hex, B256, U256};
+use alloy_primitives::{B256, U256, hex};
 
-use ccv_protocol::{Message, ProtocolError, TokenTransfer};
+use ccv_protocol::{ChainSelector, Finality, Message, ProtocolError, SequenceNumber, TokenTransfer};
 
 // ---------------------------------------------------------------------------
 // Deterministic RNG (xorshift64*), dependency-free so fuzz runs are reproducible.
@@ -166,12 +166,12 @@ fn random_token_transfer(rng: &mut Rng) -> TokenTransfer {
 fn random_message(rng: &mut Rng) -> Message {
     Message {
         version: if rng.coin() { 1 } else { (rng.next() & 0xff) as u8 },
-        source_chain_selector: rng.u64(),
-        dest_chain_selector: rng.u64(),
-        sequence_number: rng.u64(),
+        source_chain_selector: ChainSelector(rng.u64()),
+        dest_chain_selector: ChainSelector(rng.u64()),
+        sequence_number: SequenceNumber(rng.u64()),
         execution_gas_limit: rng.u32(),
         ccip_receive_gas_limit: rng.u32(),
-        finality: rng.u32(),
+        finality: Finality(rng.u32()),
         ccv_and_executor_hash: B256::from_slice(&rng.bytes(32)),
         on_ramp_address: random_address(rng),
         off_ramp_address: random_address(rng),

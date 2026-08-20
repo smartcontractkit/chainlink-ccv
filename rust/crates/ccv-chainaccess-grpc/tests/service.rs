@@ -11,13 +11,13 @@ use alloy::providers::mock::Asserter;
 use alloy::providers::{Provider, ProviderBuilder};
 use tonic::Code;
 
-use ccv_chainaccess::evm::EvmSourceReader;
 use ccv_chainaccess::ChainAccessError;
+use ccv_chainaccess::evm::EvmSourceReader;
 use ccv_chainaccess_grpc::pb::source_reader_server::SourceReader as _;
-use ccv_chainaccess_grpc::{pb, SourceReaderService};
+use ccv_chainaccess_grpc::{SourceReaderService, pb};
 
 use common::{
-    block_json, valid_log, CHAIN_SELECTOR, ENCODED_MESSAGE_NO_TOKEN, MESSAGE_ID_NO_TOKEN, ON_RAMP, RMN_REMOTE,
+    CHAIN_SELECTOR, ENCODED_MESSAGE_NO_TOKEN, MESSAGE_ID_NO_TOKEN, ON_RAMP, RMN_REMOTE, block_json, valid_log,
 };
 
 type MockReader = EvmSourceReader<alloy::providers::DynProvider>;
@@ -187,7 +187,7 @@ fn server_config_parsing() {
         ("CCV_CHAIN_SELECTOR", "16015286601757825753"),
     ])
     .unwrap();
-    assert_eq!(cfg.chain_selector, 16015286601757825753);
+    assert_eq!(cfg.chain_selector, ccv_protocol::ChainSelector(16015286601757825753));
     assert_eq!(cfg.listen_addr, SocketAddr::from(([0, 0, 0, 0], 50051)));
 
     // All problems are aggregated into one error.
@@ -381,21 +381,25 @@ async fn serve_over_real_socket_until_shutdown() {
 
 #[test]
 fn server_config_from_env() {
-    // No other test in this binary reads these variables, so mutating them here
-    // cannot race with anything.
-    std::env::set_var("CCV_EVM_RPC_URL", "http://localhost:8545");
-    std::env::set_var("CCV_ON_RAMP_ADDRESS", "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
-    std::env::set_var("CCV_RMN_REMOTE_ADDRESS", "0x9999999999999999999999999999999999999999");
-    std::env::set_var("CCV_CHAIN_SELECTOR", "123");
-    std::env::set_var("CCV_LISTEN_ADDR", "127.0.0.1:9999");
+    // No other test in this binary touches the process environment, so
+    // mutating it here cannot race with a concurrent reader or writer.
+    unsafe {
+        std::env::set_var("CCV_EVM_RPC_URL", "http://localhost:8545");
+        std::env::set_var("CCV_ON_RAMP_ADDRESS", "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        std::env::set_var("CCV_RMN_REMOTE_ADDRESS", "0x9999999999999999999999999999999999999999");
+        std::env::set_var("CCV_CHAIN_SELECTOR", "123");
+        std::env::set_var("CCV_LISTEN_ADDR", "127.0.0.1:9999");
+    }
     let cfg = ccv_chainaccess_grpc::ServerConfig::from_env().unwrap();
-    assert_eq!(cfg.chain_selector, 123);
+    assert_eq!(cfg.chain_selector, ccv_protocol::ChainSelector(123));
     assert_eq!(cfg.listen_addr, SocketAddr::from(([127, 0, 0, 1], 9999)));
-    std::env::remove_var("CCV_EVM_RPC_URL");
-    std::env::remove_var("CCV_ON_RAMP_ADDRESS");
-    std::env::remove_var("CCV_RMN_REMOTE_ADDRESS");
-    std::env::remove_var("CCV_CHAIN_SELECTOR");
-    std::env::remove_var("CCV_LISTEN_ADDR");
+    unsafe {
+        std::env::remove_var("CCV_EVM_RPC_URL");
+        std::env::remove_var("CCV_ON_RAMP_ADDRESS");
+        std::env::remove_var("CCV_RMN_REMOTE_ADDRESS");
+        std::env::remove_var("CCV_CHAIN_SELECTOR");
+        std::env::remove_var("CCV_LISTEN_ADDR");
+    }
     let err = ccv_chainaccess_grpc::ServerConfig::from_env().unwrap_err();
     assert!(err.to_string().contains("CCV_EVM_RPC_URL"));
 }

@@ -10,9 +10,9 @@
 //! Example with 2 CCVs, 1 token: [CCV0, CCV1, Token, Executor, NetworkFee]
 //! Example with 2 CCVs, 0 tokens: [CCV0, CCV1, Executor, NetworkFee]
 
-use alloy_primitives::{keccak256, B256};
+use alloy_primitives::{B256, keccak256};
 
-use crate::types::{ReceiptWithBlob, UnknownAddress, MAX_CCVS_PER_MESSAGE};
+use crate::types::{MAX_CCVS_PER_MESSAGE, ReceiptWithBlob, UnknownAddress};
 use crate::{Message, ProtocolError};
 
 /// Parsed receipt structure from an OnRamp event.
@@ -131,6 +131,8 @@ mod tests {
     use super::*;
     use alloy_primitives::U256;
 
+    use crate::types::{ChainSelector, Finality, SequenceNumber};
+
     fn receipt(issuer_byte: u8) -> ReceiptWithBlob {
         ReceiptWithBlob {
             issuer: vec![issuer_byte; 20],
@@ -165,12 +167,12 @@ mod tests {
             off_ramp_address: vec![0xbb; 32],
             dest_blob: vec![],
             receiver: vec![0xdd; 32],
-            source_chain_selector: 1,
-            dest_chain_selector: 2,
-            sequence_number: 1,
+            source_chain_selector: ChainSelector(1),
+            dest_chain_selector: ChainSelector(2),
+            sequence_number: SequenceNumber(1),
             execution_gas_limit: 1,
             ccip_receive_gas_limit: 1,
-            finality: 0,
+            finality: Finality(0),
             ccv_and_executor_hash: hash,
             version: 1,
         }

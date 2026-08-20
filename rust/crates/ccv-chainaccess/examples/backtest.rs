@@ -22,6 +22,7 @@ use alloy::providers::ProviderBuilder;
 
 use ccv_chainaccess::evm::EvmSourceReader;
 use ccv_chainaccess::{HeadTracker, RmnCurseReader, SourceReader};
+use ccv_protocol::ChainSelector;
 
 #[tokio::main]
 async fn main() -> ExitCode {
@@ -46,7 +47,7 @@ async fn run() -> Result<(), Box<dyn std::error::Error>> {
     let rpc_url = args[1].parse()?;
     let on_ramp: Address = args[2].parse()?;
     let rmn_remote: Address = args[3].parse()?;
-    let chain_selector: u64 = args[4].parse()?;
+    let chain_selector = ChainSelector(args[4].parse()?);
     let from_block: u64 = args[5].parse()?;
     let to_block: u64 = args[6].parse()?;
     let chunk_size: u64 = if args.len() > 7 { args[7].parse()? } else { 10_000 };

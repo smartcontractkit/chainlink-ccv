@@ -2,14 +2,15 @@
 
 #![allow(dead_code)] // each test binary uses a different subset
 
-use alloy::primitives::{address, b256, Address, Bytes, B256, U256};
+use alloy::primitives::{Address, B256, Bytes, U256, address, b256};
 use alloy::rpc::types::Log;
 use alloy::sol_types::SolEvent;
 use hex_literal::hex;
 
 use ccv_chainaccess::evm::OnRamp;
+use ccv_protocol::ChainSelector;
 
-pub const CHAIN_SELECTOR: u64 = 16015286601757825753;
+pub const CHAIN_SELECTOR: ChainSelector = ChainSelector(16015286601757825753);
 pub const DEST_CHAIN_SELECTOR: u64 = 5009297550715157269;
 
 // Golden message (no token transfer), produced by the Go protocol package.

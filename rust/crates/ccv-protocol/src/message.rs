@@ -6,13 +6,13 @@
 //! No function in this module can panic: all fallible operations return
 //! [`ProtocolError`], and slice handling goes through checked accessors.
 
-use alloy_primitives::{keccak256, B256, U256};
+use alloy_primitives::{B256, U256, keccak256};
 
-use crate::types::{
-    ChainSelector, Finality, SequenceNumber, UnknownAddress, MIN_SIZE_REQUIRED_MSG_FIELDS,
-    MIN_SIZE_REQUIRED_MSG_TOKEN_FIELDS,
-};
 use crate::ProtocolError;
+use crate::types::{
+    ChainSelector, Finality, MIN_SIZE_REQUIRED_MSG_FIELDS, MIN_SIZE_REQUIRED_MSG_TOKEN_FIELDS, SequenceNumber,
+    UnknownAddress,
+};
 
 /// Chain-agnostic token transfer with canonical encoding.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -103,12 +103,12 @@ impl Message {
     pub fn encode(&self) -> Result<Vec<u8>, ProtocolError> {
         let mut buf = Vec::new();
         buf.push(self.version);
-        buf.extend_from_slice(&self.source_chain_selector.to_be_bytes());
-        buf.extend_from_slice(&self.dest_chain_selector.to_be_bytes());
-        buf.extend_from_slice(&self.sequence_number.to_be_bytes());
+        buf.extend_from_slice(&self.source_chain_selector.0.to_be_bytes());
+        buf.extend_from_slice(&self.dest_chain_selector.0.to_be_bytes());
+        buf.extend_from_slice(&self.sequence_number.0.to_be_bytes());
         buf.extend_from_slice(&self.execution_gas_limit.to_be_bytes());
         buf.extend_from_slice(&self.ccip_receive_gas_limit.to_be_bytes());
-        buf.extend_from_slice(&self.finality.to_be_bytes());
+        buf.extend_from_slice(&self.finality.0.to_be_bytes());
         buf.extend_from_slice(self.ccv_and_executor_hash.as_slice());
         push_len_u8(&mut buf, "on_ramp_address", &self.on_ramp_address)?;
         push_len_u8(&mut buf, "off_ramp_address", &self.off_ramp_address)?;
@@ -135,12 +135,12 @@ impl Message {
         }
         let mut r = Reader::new(data);
         let version = r.u8("version")?;
-        let source_chain_selector = r.u64("source chain selector")?;
-        let dest_chain_selector = r.u64("dest chain selector")?;
-        let sequence_number = r.u64("sequence number")?;
+        let source_chain_selector = ChainSelector(r.u64("source chain selector")?);
+        let dest_chain_selector = ChainSelector(r.u64("dest chain selector")?);
+        let sequence_number = SequenceNumber(r.u64("sequence number")?);
         let execution_gas_limit = r.u32("execution gas limit")?;
         let ccip_receive_gas_limit = r.u32("ccip receive gas limit")?;
-        let finality = r.u32("finality")?;
+        let finality = Finality(r.u32("finality")?);
         let ccv_and_executor_hash = B256::from(r.fixed::<32>("ccv and executor hash")?);
         let on_ramp_address = r.len_prefixed_u8("on-ramp address")?;
         let off_ramp_address = r.len_prefixed_u8("off-ramp address")?;
@@ -352,12 +352,12 @@ mod tests {
     fn golden_message(token_transfer: Option<TokenTransfer>) -> Message {
         Message {
             version: crate::MESSAGE_VERSION,
-            source_chain_selector: 16015286601757825753,
-            dest_chain_selector: 5009297550715157269,
-            sequence_number: 42,
+            source_chain_selector: ChainSelector(16015286601757825753),
+            dest_chain_selector: ChainSelector(5009297550715157269),
+            sequence_number: SequenceNumber(42),
             execution_gas_limit: 500_000,
             ccip_receive_gas_limit: 200_000,
-            finality: 1,
+            finality: Finality(1),
             ccv_and_executor_hash: B256::from(GOLDEN_CCV_HASH),
             on_ramp_address: pad32(&bytes20(0xaa)),
             off_ramp_address: pad32(&bytes20(0xbb)),

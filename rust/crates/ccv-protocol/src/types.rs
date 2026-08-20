@@ -2,14 +2,23 @@ use alloy_primitives::{B256, U256};
 
 use crate::Message;
 
-/// Chain selector as defined by CCIP.
-pub type ChainSelector = u64;
+/// Chain selector as defined by CCIP. Distinct from a bare `u64`, mirroring
+/// Go's `type ChainSelector uint64`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct ChainSelector(pub u64);
+
 /// Per-(source, dest) lane message sequence number.
-pub type SequenceNumber = u64;
-/// Requested finality depth/tag for a message.
-pub type Finality = u32;
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct SequenceNumber(pub u64);
+
+/// Requested finality depth/tag for a message (on the wire: two packed
+/// big-endian u16s, flags || block depth).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct Finality(pub u32);
 
 /// Address on an arbitrary chain (20 bytes for EVM, up to 255 bytes otherwise).
+/// Deliberately a plain alias, not a newtype: it is an unstructured byte
+/// buffer with no invariants to enforce.
 pub type UnknownAddress = Vec<u8>;
 
 /// Current message format version (CCIP v1.7).

@@ -24,7 +24,7 @@ use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-use alloy::primitives::{address, hex, Address, Bytes, B256};
+use alloy::primitives::{Address, B256, Bytes, address, hex};
 use alloy::providers::mock::Asserter;
 use alloy::providers::{Provider, ProviderBuilder};
 use alloy::rpc::types::Log;
@@ -173,7 +173,13 @@ fn go_parse_events(bin: &Path, logs: &[serde_json::Value]) -> Vec<serde_json::Va
 
 fn rust_reader() -> EvmSourceReader<alloy::providers::DynProvider> {
     let provider = ProviderBuilder::new().connect_mocked_client(Asserter::new()).erased();
-    EvmSourceReader::new(provider, on_ramp(), rmn_remote(), chain_selector()).expect("reader")
+    EvmSourceReader::new(
+        provider,
+        on_ramp(),
+        rmn_remote(),
+        ccv_protocol::ChainSelector(chain_selector()),
+    )
+    .expect("reader")
 }
 
 fn rust_outcome(reader: &EvmSourceReader<alloy::providers::DynProvider>, log: &Log) -> serde_json::Value {

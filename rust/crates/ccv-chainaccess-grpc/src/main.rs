@@ -15,7 +15,7 @@ use alloy::providers::ProviderBuilder;
 use tracing::info;
 
 use ccv_chainaccess::evm::EvmSourceReader;
-use ccv_chainaccess_grpc::{serve, ServerConfig};
+use ccv_chainaccess_grpc::{ServerConfig, serve};
 
 fn main() -> ExitCode {
     // Logs go to stderr; stdout stays clean for any piping.
@@ -45,7 +45,7 @@ fn run() -> Result<(), Box<dyn std::error::Error>> {
             EvmSourceReader::new(provider, config.on_ramp_address, config.rmn_remote_address, config.chain_selector)
                 .map_err(|err| format!("failed to construct source reader: {err}"))?;
 
-        info!(listen_addr = %config.listen_addr, chain_selector = config.chain_selector, "starting EVM source reader gRPC server");
+        info!(listen_addr = %config.listen_addr, chain_selector = config.chain_selector.0, "starting EVM source reader gRPC server");
 
         let shutdown = async {
             let _ = tokio::signal::ctrl_c().await;

@@ -22,7 +22,7 @@ use alloy::transports::http::reqwest::Url;
 use tonic::{Request, Response, Status};
 
 use ccv_chainaccess::{ChainAccessError, SourceReader};
-use ccv_protocol::{BlockHeader, MessageSentEvent};
+use ccv_protocol::{BlockHeader, ChainSelector, MessageSentEvent};
 
 pub mod pb {
     tonic::include_proto!("ccv.chainaccess.v1");
@@ -176,7 +176,7 @@ pub struct ServerConfig {
     /// RMN Remote contract address.
     pub rmn_remote_address: Address,
     /// CCIP chain selector of the chain this instance serves (non-zero).
-    pub chain_selector: u64,
+    pub chain_selector: ChainSelector,
     /// gRPC listen address (default 0.0.0.0:50051).
     pub listen_addr: SocketAddr,
 }
@@ -244,7 +244,7 @@ impl ServerConfig {
                 rpc_url,
                 on_ramp_address,
                 rmn_remote_address,
-                chain_selector,
+                chain_selector: ChainSelector(chain_selector),
                 listen_addr,
             }),
             _ => Err(ConfigError(errs)),

@@ -15,7 +15,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use alloy::eips::BlockNumberOrTag;
-use alloy::primitives::{Address, FixedBytes, B256};
+use alloy::primitives::{Address, B256, FixedBytes};
 use alloy::providers::Provider;
 use alloy::rpc::types::{Block, Filter, Log};
 use alloy::sol;
@@ -23,7 +23,9 @@ use alloy::sol_types::SolEvent;
 use async_trait::async_trait;
 use tracing::{debug, error, warn};
 
-use ccv_protocol::{validate_ccv_and_executor_hash, BlockHeader, Message, MessageSentEvent, ReceiptWithBlob};
+use ccv_protocol::{
+    BlockHeader, ChainSelector, Message, MessageSentEvent, ReceiptWithBlob, validate_ccv_and_executor_hash,
+};
 
 use crate::{ChainAccessError, HeadTracker, RmnCurseReader, SourceReader};
 
@@ -168,7 +170,7 @@ pub struct EvmSourceReader<P> {
     provider: P,
     on_ramp_address: Address,
     rmn_remote_address: Address,
-    chain_selector: u64,
+    chain_selector: ChainSelector,
     /// Invoked on every critical-invariant violation (malformed events, message
     /// fields disagreeing with the on-chain event, ...). Mirrors the Go
     /// `onCriticalInvariant` callback; violations are also logged and the offending
@@ -182,7 +184,7 @@ impl<P: Provider> EvmSourceReader<P> {
         provider: P,
         on_ramp_address: Address,
         rmn_remote_address: Address,
-        chain_selector: u64,
+        chain_selector: ChainSelector,
     ) -> Result<Self, ChainAccessError> {
         if on_ramp_address.is_zero() {
             return Err(ChainAccessError::InvalidInput("onRampAddress is not set".into()));
@@ -190,7 +192,7 @@ impl<P: Provider> EvmSourceReader<P> {
         if rmn_remote_address.is_zero() {
             return Err(ChainAccessError::InvalidInput("rmnRemoteAddress is not set".into()));
         }
-        if chain_selector == 0 {
+        if chain_selector.0 == 0 {
             return Err(ChainAccessError::InvalidInput("chainSelector is not set".into()));
         }
         Ok(Self {
@@ -298,7 +300,7 @@ impl<P: Provider> EvmSourceReader<P> {
                     self.critical_invariant();
                 }
                 error!(
-                    chain_selector = self.chain_selector,
+                    chain_selector = self.chain_selector.0,
                     reason = reason.code(),
                     block_number,
                     ?tx_hash,
@@ -309,7 +311,7 @@ impl<P: Provider> EvmSourceReader<P> {
         };
 
         debug!(
-            chain_selector = self.chain_selector,
+            chain_selector = self.chain_selector.0,
             block_number,
             ?tx_hash,
             "Found CCIPMessageSent event",
@@ -377,7 +379,7 @@ impl<P: Provider> EvmSourceReader<P> {
             return Err(SkipReason::MessageIdMismatch);
         }
 
-        if message.dest_chain_selector != event.destChainSelector {
+        if message.dest_chain_selector != ChainSelector(event.destChainSelector) {
             self.critical_invariant();
             error!(
                 message_id = ?event.messageId,
@@ -523,14 +525,14 @@ fn left_pad_32(address: &Address) -> [u8; 32] {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use alloy::primitives::{address, b256, hex as alloy_hex, Bytes, LogData, U256};
-    use alloy::providers::mock::Asserter;
+    use alloy::primitives::{Bytes, LogData, U256, address, b256, hex as alloy_hex};
     use alloy::providers::ProviderBuilder;
-    use ccv_protocol::{TokenTransfer, MESSAGE_VERSION};
+    use alloy::providers::mock::Asserter;
+    use ccv_protocol::{MESSAGE_VERSION, TokenTransfer};
     use hex_literal::hex;
     use std::sync::atomic::{AtomicUsize, Ordering};
 
-    const CHAIN_SELECTOR: u64 = 16015286601757825753;
+    const CHAIN_SELECTOR: ChainSelector = ChainSelector(16015286601757825753);
     const DEST_CHAIN_SELECTOR: u64 = 5009297550715157269;
 
     // Golden values produced by the Go protocol package.
@@ -630,7 +632,7 @@ mod tests {
         // Message round-trips against the Go golden encoding.
         assert_eq!(evt.message.encode().unwrap(), ENCODED_MESSAGE_NO_TOKEN);
         assert_eq!(evt.message.version, MESSAGE_VERSION);
-        assert_eq!(evt.message.dest_chain_selector, DEST_CHAIN_SELECTOR);
+        assert_eq!(evt.message.dest_chain_selector, ChainSelector(DEST_CHAIN_SELECTOR));
         assert!(evt.message.token_transfer.is_none());
         assert_eq!(violations.load(Ordering::SeqCst), 0);
     }
@@ -968,7 +970,7 @@ mod tests {
 
         let asserter = Asserter::new();
         let provider = ProviderBuilder::new().connect_mocked_client(asserter);
-        assert!(EvmSourceReader::new(provider, ON_RAMP, RMN_REMOTE, 0).is_err());
+        assert!(EvmSourceReader::new(provider, ON_RAMP, RMN_REMOTE, ChainSelector(0)).is_err());
     }
 
     #[test]

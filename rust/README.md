@@ -33,8 +33,8 @@ Properties claimed (and how to validate each below):
 
 ## Prerequisites
 
-- Rust (the repo pins Alloy to 1.6.3, the newest line supporting rustc 1.90; on
-  rustc ≥ 1.91 the pins in `rust/Cargo.toml`/`Cargo.lock` can be relaxed).
+- Rust, pinned by `rust/rust-toolchain.toml` (currently 1.97.1 stable; the declared
+  MSRV in `rust/Cargo.toml` is 1.94.1, driven by Alloy 2.x).
 - Go (only for the differential tests — they drive the Go implementation as ground
   truth). Without `go` in PATH those two tests skip themselves.
 - protoc (required to build `ccv-chainaccess-grpc`: its build script invokes protoc
