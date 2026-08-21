@@ -27,8 +27,8 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-// tokenFactory is a ServiceFactory implementation that creates a token verifier service.
-type tokenFactory struct {
+// tokenVerifierFactory is a ServiceFactory implementation that creates a token verifier service.
+type tokenVerifierFactory struct {
 	bootstrap.ServiceFactory
 
 	coordinators []*verifier.Coordinator
@@ -40,11 +40,11 @@ type tokenFactory struct {
 // The factory loads the verifier secrets file itself in Start, so each chain-family binary's
 // main.go stays free of secrets-loading boilerplate.
 func NewTokenVerifierServiceFactory() bootstrap.ServiceFactory {
-	return &tokenFactory{}
+	return &tokenVerifierFactory{}
 }
 
 // Stop tries to stop all services gracefully.
-func (tvf *tokenFactory) Stop(_ context.Context) error {
+func (tvf *tokenVerifierFactory) Stop(_ context.Context) error {
 	var errs []error
 	if tvf.httpServer != nil {
 		// Graceful shutdown
@@ -71,7 +71,7 @@ func (tvf *tokenFactory) Stop(_ context.Context) error {
 }
 
 // Start starts the service with the parsed config received from the bootstrapper.
-func (tvf *tokenFactory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootstrap.ServiceDeps) error {
+func (tvf *tokenVerifierFactory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootstrap.ServiceDeps) error {
 	var appConfig token.Config
 	if err := spec.GetAppConfig(&appConfig); err != nil {
 		return fmt.Errorf("unable to decode app config: %w", err)
@@ -223,7 +223,7 @@ func (tvf *tokenFactory) Start(ctx context.Context, spec bootstrap.JobSpec, deps
 	return nil
 }
 
-func (tvf *tokenFactory) MetricViews() []sdkmetric.View {
+func (tvf *tokenVerifierFactory) MetricViews() []sdkmetric.View {
 	return monitoring.MetricViews()
 }
 
