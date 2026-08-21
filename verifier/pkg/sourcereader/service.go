@@ -6,6 +6,7 @@ import (
 	"math/big"
 	"runtime/debug"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -32,6 +33,32 @@ const (
 	DefaultPollTimeout   = 10 * time.Second
 	DefaultMaxBlockRange = 1500
 )
+
+var rangeLimitErrorSubstrings = []string{
+	"range limit",
+	"range is too large",
+	"range too large",
+	"too many blocks",
+	"maximum block range",
+	"eth_getlogs is limited to",
+	"query returned more than",
+	"too many results",
+}
+
+// isRangeLimitError reports whether err looks like an RPC rejection due to the
+// requested block range being too large, based on common provider wording.
+func isRangeLimitError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	for _, substr := range rangeLimitErrorSubstrings {
+		if strings.Contains(msg, substr) {
+			return true
+		}
+	}
+	return false
+}
 
 type blockRange struct {
 	fromBlock *big.Int
@@ -317,13 +344,90 @@ func (r *Service) getBlockRanges(fromBlock, latest uint64) []blockRange {
 	return blockRanges
 }
 
+func (r *Service) fetchRangeAdaptive(
+	ctx context.Context,
+	fromBlock, toBlock *big.Int,
+	upperBound uint64,
+) ([]protocol.MessageSentEvent, error) {
+	from := fromBlock.Uint64()
+
+	to := upperBound
+	if toBlock != nil {
+		to = toBlock.Uint64()
+	}
+
+	if to < from {
+		return r.sourceReader.FetchMessageSentEvents(ctx, fromBlock, toBlock)
+	}
+
+	querySize := to - from + 1
+	adaptive := false
+	var allEvents []protocol.MessageSentEvent
+
+	for from <= to {
+		end := to
+		if querySize <= to-from {
+			end = from + querySize - 1
+		}
+
+		var endArg *big.Int
+		if toBlock != nil || adaptive {
+			endArg = new(big.Int).SetUint64(end)
+		}
+
+		events, err := r.sourceReader.FetchMessageSentEvents(
+			ctx,
+			new(big.Int).SetUint64(from),
+			endArg,
+		)
+		if err != nil {
+			if ctx.Err() != nil || querySize == 1 {
+				return allEvents, err
+			}
+			if !isRangeLimitError(err) {
+				return allEvents, err
+			}
+
+			nextQuerySize := querySize / 2
+
+			r.logger.Warnw(
+				"Log query rejected as range too large, retrying with smaller block range",
+				"error", err,
+				"fromBlock", from,
+				"toBlock", end,
+				"querySize", querySize,
+				"nextQuerySize", nextQuerySize,
+			)
+
+			querySize = nextQuerySize
+			adaptive = true
+			continue
+		}
+
+		if adaptive {
+			// maxBlockRange is a block delta; querySize is a block count
+			r.maxBlockRange = querySize - 1
+		}
+
+		allEvents = append(allEvents, events...)
+
+		if end == to {
+			break
+		}
+
+		from = end + 1
+	}
+
+	return allEvents, nil
+}
+
 func (r *Service) loadEvents(ctx context.Context, fromBlock *big.Int, latest *protocol.BlockHeader) ([]protocol.MessageSentEvent, *big.Int, error) {
 	blockRanges := r.getBlockRanges(fromBlock.Uint64(), latest.Number)
 
 	allEvents := make([]protocol.MessageSentEvent, 0)
 	finalQueriedBlock := fromBlock
 	for _, br := range blockRanges {
-		events, err := r.sourceReader.FetchMessageSentEvents(ctx, br.fromBlock, br.toBlock)
+		events, err := r.fetchRangeAdaptive(ctx, br.fromBlock, br.toBlock, latest.Number)
 		if err != nil {
 			// Return all events so far to avoid losing progress
 			return allEvents, finalQueriedBlock, err
@@ -350,6 +454,11 @@ func (r *Service) processEventCycle(ctx context.Context, latest, finalized *prot
 		r.logger.Warnw("Error when querying logs", "error", err,
 			"fromBlock", fromBlock.String(),
 			"toBlock", "latest")
+
+		// Only return early when no progress was made
+		if lastQueriedBlock.Cmp(fromBlock) == 0 {
+			return false
+		}
 	}
 
 	tasks := make([]verifier.VerificationTask, 0, len(events))

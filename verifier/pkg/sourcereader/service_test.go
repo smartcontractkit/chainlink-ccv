@@ -2,6 +2,7 @@ package sourcereader
 
 import (
 	"context"
+	"fmt"
 	"math/big"
 	"sync"
 	"testing"
@@ -1316,7 +1317,8 @@ func TestSRS_FailureRetriesNextTick(t *testing.T) {
 
 	reader := mocks.NewMockSourceReader(t)
 
-	latest := &protocol.BlockHeader{Number: 1000}
+	// latest == fromBlock (99) collapses the range to be non-bisectable
+	latest := &protocol.BlockHeader{Number: 99}
 	finalized := &protocol.BlockHeader{Number: 900}
 
 	reader.EXPECT().
@@ -1435,7 +1437,8 @@ func TestSRS_FailureDoesNotDeleteExistingTasks(t *testing.T) {
 
 	reader := mocks.NewMockSourceReader(t)
 
-	latest := &protocol.BlockHeader{Number: 1000}
+	// latest == fromBlock (99) collapses the range to be non-bisectable
+	latest := &protocol.BlockHeader{Number: 99}
 	finalized := &protocol.BlockHeader{Number: 900}
 
 	reader.EXPECT().
@@ -1490,6 +1493,69 @@ func TestSRS_FailureDoesNotDeleteExistingTasks(t *testing.T) {
 	// Progress should not have advanced
 	require.Equal(t, int64(99), srs.lastProcessedFinalizedBlock.Load().Int64(),
 		"progress should not advance on failure")
+}
+
+// ----------------------
+// Adaptive Range Shrinking Tests
+// ----------------------
+
+func TestSRS_FetchRangeAdaptive_ShrinksAndCompletesRange(t *testing.T) {
+	chain := protocol.ChainSelector(1337)
+	reader := mocks.NewMockSourceReader(t)
+	chainStatusMgr := mocks.NewMockChainStatusManager(t)
+	curseDetector := mocks.NewMockCurseCheckerService(t)
+
+	srs, _, _ := newTestSRS(t, chain, reader, chainStatusMgr, curseDetector, 10*time.Millisecond, 5000)
+
+	events1 := createTestMessageSentEvents(t, 1, chain, defaultDestChain, []uint64{200})
+	events2 := createTestMessageSentEvents(t, 2, chain, defaultDestChain, []uint64{700})
+
+	// Initial query is rejected as range-too-large so it triggers a shrink.
+	rangeErr := fmt.Errorf("RPC call failed: exceeded max range limit for eth_getLogs: 500")
+	reader.EXPECT().
+		FetchMessageSentEvents(mock.Anything, big.NewInt(0), (*big.Int)(nil)).
+		Return(nil, rangeErr).
+		Once()
+
+	// Range is halved and succeeds
+	reader.EXPECT().
+		FetchMessageSentEvents(mock.Anything, big.NewInt(0), big.NewInt(499)).
+		Return(events1, nil).
+		Once()
+
+	// The smaller range is reused for the remainder
+	reader.EXPECT().
+		FetchMessageSentEvents(mock.Anything, big.NewInt(500), big.NewInt(999)).
+		Return(events2, nil).
+		Once()
+
+	events, err := srs.fetchRangeAdaptive(context.Background(), big.NewInt(0), nil, 999)
+
+	require.NoError(t, err)
+	require.Equal(t, append(events1, events2...), events)
+	require.Equal(t, uint64(499), srs.maxBlockRange,
+		"the shrunk 500-block query size should persist as a 499 delta for future chunking")
+}
+
+func TestSRS_FetchRangeAdaptive_GenericErrorDoesNotShrink(t *testing.T) {
+	chain := protocol.ChainSelector(1337)
+	reader := mocks.NewMockSourceReader(t)
+	chainStatusMgr := mocks.NewMockChainStatusManager(t)
+	curseDetector := mocks.NewMockCurseCheckerService(t)
+
+	srs, _, _ := newTestSRS(t, chain, reader, chainStatusMgr, curseDetector, 10*time.Millisecond, 5000)
+
+	// A generic (non-range-related) error must not trigger a shrink-and-retry:
+	// only the original query is attempted.
+	reader.EXPECT().
+		FetchMessageSentEvents(mock.Anything, big.NewInt(0), (*big.Int)(nil)).
+		Return(nil, assert.AnError).
+		Once()
+
+	events, err := srs.fetchRangeAdaptive(context.Background(), big.NewInt(0), nil, 999)
+
+	require.ErrorIs(t, err, assert.AnError)
+	require.Empty(t, events)
 }
 
 // ----------------------
@@ -1786,8 +1852,9 @@ func TestSRS_PartialRead_EventsFromSuccessfulChunksQueued(t *testing.T) {
 
 	reader := mocks.NewMockSourceReader(t)
 
-	// maxBlockRange=500 splits [100, 700) into two chunks: [100,600] and [601,nil].
-	latest := &protocol.BlockHeader{Number: 700}
+	// maxBlockRange=500 splits [100, 601) into two chunks: [100,600] and [601,nil].
+	// latest == 601 makes the second chunk non-bisectable
+	latest := &protocol.BlockHeader{Number: 601}
 	finalized := &protocol.BlockHeader{Number: 600}
 	reader.EXPECT().LatestAndFinalizedBlock(mock.Anything).Return(latest, finalized, nil).Maybe()
 
@@ -1838,8 +1905,9 @@ func TestSRS_PartialRead_ProgressAdvancesToLastSuccessfulChunkBound(t *testing.T
 
 	reader := mocks.NewMockSourceReader(t)
 
-	// maxBlockRange=500 splits [100, 700) into [100,600] and [601,nil].
-	latest := &protocol.BlockHeader{Number: 700}
+	// maxBlockRange=500 splits [100, 601) into [100,600] and [601,nil].
+	// latest == 601 makes the second chunk non-bisectable
+	latest := &protocol.BlockHeader{Number: 601}
 	finalized := &protocol.BlockHeader{Number: 600}
 	reader.EXPECT().LatestAndFinalizedBlock(mock.Anything).Return(latest, finalized, nil).Maybe()
 
@@ -1886,9 +1954,10 @@ func TestSRS_PartialRead_MultipleChunksSucceedBeforeFailure(t *testing.T) {
 
 	reader := mocks.NewMockSourceReader(t)
 
-	// maxBlockRange=300 splits [100, 1000) into three chunks:
+	// maxBlockRange=300 splits [100, 702) into three chunks:
 	// [100,400], [401,701], [702,nil].
-	latest := &protocol.BlockHeader{Number: 1000}
+	// latest == 702 makes the third chunk non-bisectable
+	latest := &protocol.BlockHeader{Number: 702}
 	finalized := &protocol.BlockHeader{Number: 800}
 	reader.EXPECT().LatestAndFinalizedBlock(mock.Anything).Return(latest, finalized, nil).Maybe()
 
@@ -1950,13 +2019,15 @@ func TestSRS_PartialRead_TotalFailureDoesNotAdvanceProgress(t *testing.T) {
 
 	reader := mocks.NewMockSourceReader(t)
 
-	latest := &protocol.BlockHeader{Number: 700}
-	finalized := &protocol.BlockHeader{Number: 600}
+	// latest == fromBlock (100) collapses the range to be non-bisectable
+	latest := &protocol.BlockHeader{Number: 100}
+	finalized := &protocol.BlockHeader{Number: 100}
 	reader.EXPECT().LatestAndFinalizedBlock(mock.Anything).Return(latest, finalized, nil).Maybe()
 
 	// Chunk 1 fails immediately — no events, no subsequent chunk calls.
+	nilBigInt := mock.MatchedBy(func(b *big.Int) bool { return b == nil })
 	reader.EXPECT().
-		FetchMessageSentEvents(mock.Anything, big.NewInt(100), big.NewInt(600)).
+		FetchMessageSentEvents(mock.Anything, big.NewInt(100), nilBigInt).
 		Return(nil, assert.AnError).
 		Once()
 	// Chunk 2 must NOT be called: testify will fail the test on any unexpected call.
@@ -2037,9 +2108,9 @@ func TestSRS_PartialRead_ProgressCapsAtFinalizedWhenChunkBoundExceedsIt(t *testi
 
 	reader := mocks.NewMockSourceReader(t)
 
-	// maxBlockRange=400 splits [100, 1000) into chunks [100,500], [501,901], [902,nil].
-	// finalized is 600, so the successful chunk 2 boundary (901) exceeds finalized.
-	latest := &protocol.BlockHeader{Number: 1000}
+	// maxBlockRange=400 splits [100, 902) into chunks [100,500], [501,901], [902,nil].
+	// latest == 902 makes the third chunk non-bisectable
+	latest := &protocol.BlockHeader{Number: 902}
 	finalized := &protocol.BlockHeader{Number: 600}
 	reader.EXPECT().LatestAndFinalizedBlock(mock.Anything).Return(latest, finalized, nil).Maybe()
 
