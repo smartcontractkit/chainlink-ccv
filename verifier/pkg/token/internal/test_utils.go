@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccv/common/batcher"
 	verifier "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
 
@@ -53,8 +54,8 @@ func MustUnknownAddressFromHex(s string) protocol.UnknownAddress {
 
 func CreateTestVerificationTask(sequenceNumber int) verifier.VerificationTask {
 	message := protocol.Message{
-		SourceChainSelector: protocol.ChainSelector(1),
-		DestChainSelector:   protocol.ChainSelector(2),
+		SourceChainSelector: protocol.ChainSelector(chainsel.ETHEREUM_TESTNET_SEPOLIA.Selector),
+		DestChainSelector:   protocol.ChainSelector(chainsel.ETHEREUM_TESTNET_SEPOLIA_ARBITRUM_1.Selector),
 		//nolint:gosec // used in tests
 		SequenceNumber: protocol.SequenceNumber(sequenceNumber),
 	}
