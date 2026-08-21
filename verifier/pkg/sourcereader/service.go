@@ -6,6 +6,7 @@ import (
 	"math/big"
 	"runtime/debug"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -32,6 +33,32 @@ const (
 	DefaultPollTimeout   = 10 * time.Second
 	DefaultMaxBlockRange = 1500
 )
+
+var rangeLimitErrorSubstrings = []string{
+	"range limit",
+	"range is too large",
+	"range too large",
+	"too many blocks",
+	"maximum block range",
+	"eth_getlogs is limited to",
+	"query returned more than",
+	"too many results",
+}
+
+// isRangeLimitError reports whether err looks like an RPC rejection due to the
+// requested block range being too large, based on common provider wording.
+func isRangeLimitError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	for _, substr := range rangeLimitErrorSubstrings {
+		if strings.Contains(msg, substr) {
+			return true
+		}
+	}
+	return false
+}
 
 type blockRange struct {
 	fromBlock *big.Int
@@ -317,23 +344,6 @@ func (r *Service) getBlockRanges(fromBlock, latest uint64) []blockRange {
 	return blockRanges
 }
 
-func (r *Service) loadEvents(ctx context.Context, fromBlock *big.Int, latest *protocol.BlockHeader) ([]protocol.MessageSentEvent, *big.Int, error) {
-	blockRanges := r.getBlockRanges(fromBlock.Uint64(), latest.Number)
-
-	allEvents := make([]protocol.MessageSentEvent, 0)
-	finalQueriedBlock := fromBlock
-	for _, br := range blockRanges {
-		events, err := r.fetchRangeAdaptive(ctx, br.fromBlock, br.toBlock, latest.Number)
-		if err != nil {
-			// Return all events so far to avoid losing progress
-			return allEvents, finalQueriedBlock, err
-		}
-		allEvents = append(allEvents, events...)
-		finalQueriedBlock = br.toBlock
-	}
-	return allEvents, finalQueriedBlock, nil
-}
-
 func (r *Service) fetchRangeAdaptive(
 	ctx context.Context,
 	fromBlock, toBlock *big.Int,
@@ -374,11 +384,14 @@ func (r *Service) fetchRangeAdaptive(
 			if ctx.Err() != nil || querySize == 1 {
 				return allEvents, err
 			}
+			if !isRangeLimitError(err) {
+				return allEvents, err
+			}
 
 			nextQuerySize := querySize / 2
 
 			r.logger.Warnw(
-				"Log query failed, retrying with smaller block range",
+				"Log query rejected as range too large, retrying with smaller block range",
 				"error", err,
 				"fromBlock", from,
 				"toBlock", end,
@@ -401,6 +414,23 @@ func (r *Service) fetchRangeAdaptive(
 	}
 
 	return allEvents, nil
+}
+
+func (r *Service) loadEvents(ctx context.Context, fromBlock *big.Int, latest *protocol.BlockHeader) ([]protocol.MessageSentEvent, *big.Int, error) {
+	blockRanges := r.getBlockRanges(fromBlock.Uint64(), latest.Number)
+
+	allEvents := make([]protocol.MessageSentEvent, 0)
+	finalQueriedBlock := fromBlock
+	for _, br := range blockRanges {
+		events, err := r.fetchRangeAdaptive(ctx, br.fromBlock, br.toBlock, latest.Number)
+		if err != nil {
+			// Return all events so far to avoid losing progress
+			return allEvents, finalQueriedBlock, err
+		}
+		allEvents = append(allEvents, events...)
+		finalQueriedBlock = br.toBlock
+	}
+	return allEvents, finalQueriedBlock, nil
 }
 
 func (r *Service) processEventCycle(ctx context.Context, latest, finalized *protocol.BlockHeader) bool {

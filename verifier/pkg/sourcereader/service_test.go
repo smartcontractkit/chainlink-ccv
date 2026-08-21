@@ -2,6 +2,7 @@ package sourcereader
 
 import (
 	"context"
+	"fmt"
 	"math/big"
 	"sync"
 	"testing"
@@ -1509,10 +1510,11 @@ func TestSRS_FetchRangeAdaptive_ShrinksAndCompletesRange(t *testing.T) {
 	events1 := createTestMessageSentEvents(t, 1, chain, defaultDestChain, []uint64{200})
 	events2 := createTestMessageSentEvents(t, 2, chain, defaultDestChain, []uint64{700})
 
-	// Initial query is rejected
+	// Initial query is rejected as range-too-large so it triggers a shrink.
+	rangeErr := fmt.Errorf("RPC call failed: exceeded max range limit for eth_getLogs: 500")
 	reader.EXPECT().
 		FetchMessageSentEvents(mock.Anything, big.NewInt(0), (*big.Int)(nil)).
-		Return(nil, assert.AnError).
+		Return(nil, rangeErr).
 		Once()
 
 	// Range is halved and succeeds
@@ -1531,6 +1533,27 @@ func TestSRS_FetchRangeAdaptive_ShrinksAndCompletesRange(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Equal(t, append(events1, events2...), events)
+}
+
+func TestSRS_FetchRangeAdaptive_GenericErrorDoesNotShrink(t *testing.T) {
+	chain := protocol.ChainSelector(1337)
+	reader := mocks.NewMockSourceReader(t)
+	chainStatusMgr := mocks.NewMockChainStatusManager(t)
+	curseDetector := mocks.NewMockCurseCheckerService(t)
+
+	srs, _, _ := newTestSRS(t, chain, reader, chainStatusMgr, curseDetector, 10*time.Millisecond, 5000)
+
+	// A generic (non-range-related) error must not trigger a shrink-and-retry:
+	// only the original query is attempted.
+	reader.EXPECT().
+		FetchMessageSentEvents(mock.Anything, big.NewInt(0), (*big.Int)(nil)).
+		Return(nil, assert.AnError).
+		Once()
+
+	events, err := srs.fetchRangeAdaptive(context.Background(), big.NewInt(0), nil, 999)
+
+	require.ErrorIs(t, err, assert.AnError)
+	require.Empty(t, events)
 }
 
 // ----------------------
