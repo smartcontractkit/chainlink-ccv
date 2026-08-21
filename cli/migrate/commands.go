@@ -37,6 +37,7 @@ func InitMigrateCommands(lggr logger.Logger) []cli.Command {
 				cli.StringFlag{Name: "api-creds", Usage: "path to the node's API credentials file (email on line 1, password on line 2)", Required: true},
 				cli.StringFlag{Name: "out-dir", Usage: "directory to write the exported key, password file, and [key_import] snippet into", Required: true},
 				cli.StringFlag{Name: "bundle-id", Usage: "optional: the OCR2 bundle ID to export, for a node with several EVM bundles"},
+				cli.StringFlag{Name: "expected-id", Usage: "optional: the signing address Chainlink Labs read from the operator's JD record; the export fails when the key does not carry it"},
 			},
 			Action: func(c *cli.Context) error {
 				email, password, err := readAPICredentials(c.String("api-creds"))
@@ -49,6 +50,7 @@ func InitMigrateCommands(lggr logger.Logger) []cli.Command {
 					APIPassword: password,
 					OutDir:      c.String("out-dir"),
 					BundleID:    c.String("bundle-id"),
+					ExpectedID:  c.String("expected-id"),
 				})
 				if err != nil {
 					return err
@@ -82,6 +84,7 @@ func InitMigrateCommands(lggr logger.Logger) []cli.Command {
 				return inspectKey(c.String("key-file"), c.String("password-file"))
 			},
 		},
+		inspectConfigCommand(),
 	}
 }
 

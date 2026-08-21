@@ -90,6 +90,14 @@ func isChainlinkNodeConfig(data []byte) (bool, error) {
 	return hasEVM, nil
 }
 
+// LoadConfigFile reads a mounted EVM config file, accepting either the standalone format or a
+// Chainlink node's own TOML, exactly as the runtime loader does. It is exported for the migration
+// tooling (`ccv migrate inspect-config`), which reports the conversion and the effective settings
+// without starting anything; the runtime path keeps using loadConfig.
+func LoadConfigFile(path string) (*Config, *Conversion, error) {
+	return loadConfig(path)
+}
+
 func resolveConfigPath() string {
 	if configPath := os.Getenv(EVMConfigPathEnv); configPath != "" {
 		return configPath
