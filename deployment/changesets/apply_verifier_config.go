@@ -128,16 +128,28 @@ func createApplyVerifierConfigValidateFunc() func(e deployment.Environment, cfg 
 
 type applyVerifierConfigApplyOverrides struct {
 	contractAddressOverrider func(contractAddresses map[string]*adapters.VerifierContractAddresses) map[string]*adapters.VerifierContractAddresses
-	jobSuffix                string
+	isolatedJobSuffix        string
 	jobScopeFactory          func(committeeQualifier string) shared.JobScope
 }
 
-func (a *applyVerifierConfigApplyOverrides) applySuffix(jobID shared.JobID) shared.JobID {
-	if a.jobSuffix == "" {
+func (a *applyVerifierConfigApplyOverrides) isIsolatedJob() bool {
+	return a.isolatedJobSuffix != ""
+}
+
+func (a *applyVerifierConfigApplyOverrides) applyJobID(jobID shared.JobID) shared.JobID {
+	if !a.isIsolatedJob() {
 		return jobID
 	}
 
-	return shared.JobID(fmt.Sprintf("%s-%s", jobID, a.jobSuffix))
+	return shared.JobID(fmt.Sprintf("%s-%s", jobID, a.isolatedJobSuffix))
+}
+
+func (a *applyVerifierConfigApplyOverrides) applyVerifierID(verifierID string) string {
+	if !a.isIsolatedJob() {
+		return verifierID
+	}
+
+	return fmt.Sprintf("%s-%s", verifierID, a.isolatedJobSuffix)
 }
 
 func defaultApplyVerifierConfigApplyOverrides() *applyVerifierConfigApplyOverrides {
@@ -145,7 +157,7 @@ func defaultApplyVerifierConfigApplyOverrides() *applyVerifierConfigApplyOverrid
 		contractAddressOverrider: func(contractAddresses map[string]*adapters.VerifierContractAddresses) map[string]*adapters.VerifierContractAddresses {
 			return contractAddresses
 		},
-		jobSuffix: "",
+		isolatedJobSuffix: "",
 		jobScopeFactory: func(committeeQualifier string) shared.JobScope {
 			return shared.VerifierJobScope{
 				CommitteeQualifier: committeeQualifier,
@@ -181,9 +193,13 @@ func WithDifferentOnramp(onramps map[string]string) ApplyVerifierConfigApplyOpti
 	}
 }
 
-func WithJobSuffix(suffix string) ApplyVerifierConfigApplyOption {
+// WithIsolatedJob creates a distinct job identity and verifier runtime namespace while
+// preserving the canonical aggregator credential lookup. This is intended for temporary
+// parallel jobs, such as on-ramp upgrade jobs, this avoid sharing durable verifier state
+// with the canonical job.
+func WithIsolatedJob(suffix string) ApplyVerifierConfigApplyOption {
 	return func(o *applyVerifierConfigApplyOverrides) {
-		o.jobSuffix = suffix
+		o.isolatedJobSuffix = suffix
 		o.jobScopeFactory = func(committeeQualifier string) shared.JobScope {
 			return shared.VerifierJobSuffixScope{
 				CommitteeQualifier: committeeQualifier,
@@ -524,7 +540,7 @@ func buildVerifierJobSpecs(
 			}
 
 			var jobSpec string
-			jobID := overrides.applySuffix(verifierJobID.ToJobID())
+			jobID := overrides.applyJobID(verifierJobID.ToJobID())
 			if mode == shared.NOPModeStandalone {
 				// standalone mode bootstrapper expects "appConfig" field
 				jobSpec = fmt.Sprintf(`schemaVersion = 1
@@ -560,6 +576,7 @@ committeeVerifierConfig = '''
 				// SecretName is the per-aggregator credential lookup key. We reuse the legacy
 				// per-aggregator verifier_id so operators' existing secrets (keyed by that id)
 				// keep working without re-provisioning when a NOP moves to a consolidated job.
+				// Isolated jobs keep these same SecretNames; only their runtime verifier_id changes.
 				secretName := shared.NewVerifierJobID(nopAlias, agg.Name, verifierScope).GetVerifierID()
 				aggregators[i] = commit.AggregatorConnection{
 					Name:               agg.Name,
@@ -569,7 +586,7 @@ committeeVerifierConfig = '''
 				}
 			}
 			verifierCfg := baseCfg
-			verifierCfg.VerifierID = verifierJobID.GetVerifierID()
+			verifierCfg.VerifierID = overrides.applyVerifierID(verifierJobID.GetVerifierID())
 			verifierCfg.Aggregators = aggregators
 			if err := emitJob(verifierJobID, verifierCfg, "consolidated"); err != nil {
 				return nil, affectedScope, err
@@ -577,13 +594,31 @@ committeeVerifierConfig = '''
 			continue
 		}
 
-		// Legacy topology: one job per aggregator, each carrying a single AggregatorAddress.
+		// Legacy topology: one job per aggregator. Canonical jobs keep the legacy
+		// AggregatorAddress representation. Isolated jobs switch to a one-entry
+		// Aggregators list so their runtime verifier_id can be unique while SecretName
+		// continues to reference the canonical verifier_id credential.
 		for _, agg := range committee.Aggregators {
 			verifierJobID := shared.NewVerifierJobID(nopAlias, agg.Name, verifierScope)
+			canonicalVerifierID := verifierJobID.GetVerifierID()
+
 			verifierCfg := baseCfg
-			verifierCfg.VerifierID = verifierJobID.GetVerifierID()
-			verifierCfg.AggregatorAddress = agg.Address
-			verifierCfg.InsecureAggregatorConnection = agg.InsecureAggregatorConnection
+			verifierCfg.VerifierID = overrides.applyVerifierID(canonicalVerifierID)
+
+			if overrides.isIsolatedJob() {
+				verifierCfg.Aggregators = []commit.AggregatorConnection{
+					{
+						Name:               agg.Name,
+						SecretName:         canonicalVerifierID,
+						Address:            agg.Address,
+						InsecureConnection: agg.InsecureAggregatorConnection,
+					},
+				}
+			} else {
+				verifierCfg.AggregatorAddress = agg.Address
+				verifierCfg.InsecureAggregatorConnection = agg.InsecureAggregatorConnection
+			}
+
 			if err := emitJob(verifierJobID, verifierCfg, agg.Name); err != nil {
 				return nil, affectedScope, err
 			}
