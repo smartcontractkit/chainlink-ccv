@@ -404,6 +404,11 @@ func (r *Service) fetchRangeAdaptive(
 			continue
 		}
 
+		if adaptive {
+			// maxBlockRange is a block delta; querySize is a block count
+			r.maxBlockRange = querySize - 1
+		}
+
 		allEvents = append(allEvents, events...)
 
 		if end == to {

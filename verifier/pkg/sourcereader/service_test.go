@@ -1533,6 +1533,8 @@ func TestSRS_FetchRangeAdaptive_ShrinksAndCompletesRange(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Equal(t, append(events1, events2...), events)
+	require.Equal(t, uint64(499), srs.maxBlockRange,
+		"the shrunk 500-block query size should persist as a 499 delta for future chunking")
 }
 
 func TestSRS_FetchRangeAdaptive_GenericErrorDoesNotShrink(t *testing.T) {
