@@ -1,0 +1,18 @@
+[package]
+name = "ccv-chainaccess"
+version = "0.1.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "Rust port of pkg/chainaccess (SourceReader/HeadTracker/RMNCurseReader) with an EVM implementation backed by Alloy"
+
+[dependencies]
+ccv-protocol = { path = "../ccv-protocol" }
+alloy = { workspace = true }
+async-trait = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true }
+hex-literal = { workspace = true }
+serde_json = "1"
