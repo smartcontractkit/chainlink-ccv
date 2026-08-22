@@ -71,10 +71,12 @@ jobs:
             repository: chainlink-ccv-verifier
             dockerfile: verifier/Dockerfile
             build_args: VERIFIER_TYPE=committee
+            service_name: committee-verifier
           - module: aggregator
             repository: chainlink-ccv-aggregator
             dockerfile: aggregator/Dockerfile
             build_args: ''
+            service_name: aggregator
     permissions:
       contents: read
       id-token: write
@@ -86,6 +88,7 @@ jobs:
       dockerfile: ${{ matrix.dockerfile }}
       docker-build-context: .
       docker-build-args: ${{ matrix.build_args }}
+      docker-manifest-annotations: com.googleapis.cloudmarketplace.product.service.name=services/${{ matrix.service_name }}
       docker-manifest-sign: 'true'
       docker-registry-url-override: public.ecr.aws/w0i8p0z9
       git-sha: ${{ github.sha }}
