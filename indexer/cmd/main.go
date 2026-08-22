@@ -244,7 +244,7 @@ func createDiscovery(ctx context.Context, lggr logger.Logger, cfg *config.Config
 		ntpKey := fmt.Sprintf("%s|%d", discCfg.NtpServer, discCfg.Timeout)
 		timeProvider, ok := ntpProviders[ntpKey]
 		if !ok {
-			timeProvider = backofftimeprovider.NewBackoffNTPProvider(lggr, time.Duration(discCfg.Timeout)*time.Second, discCfg.NtpServer)
+			timeProvider = backofftimeprovider.NewBackoffNTPProvider(lggr, time.Duration(discCfg.Timeout)*time.Millisecond, discCfg.NtpServer)
 			ntpProviders[ntpKey] = timeProvider
 		}
 
