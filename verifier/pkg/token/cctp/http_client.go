@@ -7,7 +7,6 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
-	"strings"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
 	httputil "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token/http"
@@ -68,9 +67,6 @@ func (c *HTTPClientImpl) GetMessages(
 	// Validate transaction hash
 	if transactionHash == "" {
 		return Messages{}, fmt.Errorf("transaction hash cannot be empty")
-	}
-	if !strings.HasPrefix(transactionHash, "0x") || len(transactionHash) != 66 {
-		return Messages{}, fmt.Errorf("invalid transaction hash format: %s", transactionHash)
 	}
 
 	path := fmt.Sprintf("%s/%s/%d?transactionHash=%s",
