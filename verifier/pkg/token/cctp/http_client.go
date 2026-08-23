@@ -64,7 +64,6 @@ func (c *HTTPClientImpl) GetMessages(
 	sourceDomainID uint32,
 	transactionHash string,
 ) (Messages, error) {
-	// Validate transaction hash
 	if transactionHash == "" {
 		return Messages{}, fmt.Errorf("transaction hash cannot be empty")
 	}
