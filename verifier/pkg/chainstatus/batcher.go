@@ -3,6 +3,7 @@ package chainstatus
 import (
 	"context"
 	"errors"
+	"fmt"
 	"math/big"
 	"sync"
 	"time"
@@ -43,6 +44,10 @@ type Batcher struct {
 	// to the wrapped manager.
 	mu      sync.Mutex
 	pending map[protocol.ChainSelector]protocol.ChainStatusInfo
+	// disabledChains records the chains that this batcher has disabled. A disable is
+	// one-way: a later checkpoint write must not clear it. Only an operator re-enables
+	// a chain, through PostgresChainStatusStore.SetDisabled.
+	disabledChains map[protocol.ChainSelector]bool
 
 	// flushMu serializes flushes. The ticker goroutine and a caller goroutine
 	// that writes a disabled status can flush at the same time. Without this
@@ -77,11 +82,12 @@ func NewChainStatusBatcher(
 	}
 
 	return &Batcher{
-		lggr:          logger.With(lggr, "component", "ChainStatusBatcher"),
-		manager:       manager,
-		flushInterval: flushInterval,
-		pending:       make(map[protocol.ChainSelector]protocol.ChainStatusInfo),
-		stopCh:        make(chan struct{}),
+		lggr:           logger.With(lggr, "component", "ChainStatusBatcher"),
+		manager:        manager,
+		flushInterval:  flushInterval,
+		pending:        make(map[protocol.ChainSelector]protocol.ChainStatusInfo),
+		disabledChains: make(map[protocol.ChainSelector]bool),
+		stopCh:         make(chan struct{}),
 	}, nil
 }
 
@@ -145,26 +151,67 @@ func (s *Batcher) run() {
 	}
 }
 
-// WriteChainStatuses buffers the given statuses. If any status is disabled, the
-// batcher writes the full buffer immediately and returns the write error.
+// WriteChainStatuses buffers the given statuses.
+//
+// A disabled status is safety-critical, so it is not batched with anything else:
+// it is written on its own, at once, and its error is returned to the caller. A
+// database error caused by another chain's buffered row must not stop a chain from
+// being disabled after a finality violation.
 func (s *Batcher) WriteChainStatuses(ctx context.Context, statuses []protocol.ChainStatusInfo) error {
 	if len(statuses) == 0 {
 		return nil
 	}
 
-	immediate := false
+	var disabled []protocol.ChainStatusInfo
 
 	s.mu.Lock()
 	for _, status := range statuses {
-		s.pending[status.ChainSelector] = copyStatus(status)
-		if status.Disabled {
-			immediate = true
+		// A chain disabled after a finality violation must stay disabled. The source
+		// reader sends Disabled as false on every checkpoint, so a checkpoint that is
+		// buffered or retried after the disable would otherwise re-enable the chain.
+		if s.disabledChains[status.ChainSelector] && !status.Disabled {
+			s.lggr.Warnw("Dropped chain status that would re-enable a disabled chain",
+				"chainSelector", status.ChainSelector.String())
+			continue
 		}
+		if status.Disabled {
+			s.disabledChains[status.ChainSelector] = true
+			// Drop any buffered status for this chain: a later flush of it would
+			// undo the disable.
+			delete(s.pending, status.ChainSelector)
+			disabled = append(disabled, copyStatus(status))
+			continue
+		}
+		s.pending[status.ChainSelector] = copyStatus(status)
 	}
 	s.mu.Unlock()
 
-	if immediate {
-		return s.flush(ctx)
+	if len(disabled) == 0 {
+		return nil
+	}
+
+	// Hold flushMu so this write keeps its order against the ticker flushes.
+	s.flushMu.Lock()
+	err := s.manager.WriteChainStatuses(ctx, disabled)
+	s.flushMu.Unlock()
+
+	if err != nil {
+		// Buffer them so the ticker retries. The sticky flag keeps the chain disabled
+		// in memory in the meantime.
+		s.mu.Lock()
+		for _, status := range disabled {
+			if _, ok := s.pending[status.ChainSelector]; !ok {
+				s.pending[status.ChainSelector] = status
+			}
+		}
+		s.mu.Unlock()
+		return fmt.Errorf("failed to write disabled chain statuses: %w", err)
+	}
+
+	// The rest is best effort. The ticker retries it, and a failure here must not
+	// change the result of the disable write above.
+	if flushErr := s.flush(ctx); flushErr != nil {
+		s.lggr.Errorw("Failed to flush buffered chain statuses after a disable", "error", flushErr)
 	}
 	return nil
 }
@@ -214,6 +261,9 @@ func (s *Batcher) restore(drained map[protocol.ChainSelector]protocol.ChainStatu
 	defer s.mu.Unlock()
 
 	for selector, status := range drained {
+		if s.disabledChains[selector] && !status.Disabled {
+			continue
+		}
 		if _, ok := s.pending[selector]; !ok {
 			s.pending[selector] = status
 		}

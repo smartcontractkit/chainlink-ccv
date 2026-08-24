@@ -144,22 +144,24 @@ func TestChainStatusBatcher_DisabledStatusFlushesImmediately(t *testing.T) {
 		})
 
 	ctx := t.Context()
-	// Chain 1 is buffered and must go out with the immediate flush of chain 2.
+	// Chain 1 is buffered and must not reach the manager yet.
 	require.NoError(t, batcher.WriteChainStatuses(ctx, []protocol.ChainStatusInfo{status(1, 100, false)}))
 	require.Equal(t, 0, recorder.count())
 
 	require.NoError(t, batcher.WriteChainStatuses(ctx, []protocol.ChainStatusInfo{status(2, 0, true)}))
 
+	// The disable is written on its own first, so a bad row for another chain cannot
+	// stop it. The buffered remainder follows in a second write.
 	batches := recorder.all()
-	require.Len(t, batches, 1)
-	require.Len(t, batches[0], 2)
+	require.Len(t, batches, 2)
 
-	byChain := make(map[protocol.ChainSelector]protocol.ChainStatusInfo)
-	for _, s := range batches[0] {
-		byChain[s.ChainSelector] = s
-	}
-	require.False(t, byChain[1].Disabled)
-	require.True(t, byChain[2].Disabled)
+	require.Len(t, batches[0], 1)
+	require.Equal(t, protocol.ChainSelector(2), batches[0][0].ChainSelector)
+	require.True(t, batches[0][0].Disabled)
+
+	require.Len(t, batches[1], 1)
+	require.Equal(t, protocol.ChainSelector(1), batches[1][0].ChainSelector)
+	require.False(t, batches[1][0].Disabled)
 }
 
 func TestChainStatusBatcher_ReadIsPassthrough(t *testing.T) {
@@ -339,4 +341,141 @@ func TestChainStatusBatcher_DoesNotShareCallerBigInt(t *testing.T) {
 	require.NoError(t, batcher.flush(ctx))
 	batches := recorder.all()
 	require.Equal(t, big.NewInt(100), batches[0][0].FinalizedBlockHeight)
+}
+
+// TestChainStatusBatcher_DisableIsSticky verifies that a checkpoint written after a
+// finality violation cannot re-enable the chain. The source reader sends Disabled as
+// false on every checkpoint, so without this guard a buffered or retried checkpoint
+// would clear the flag up to one flush interval later.
+func TestChainStatusBatcher_DisableIsSticky(t *testing.T) {
+	batcher, mockManager := newTestBatcher(t)
+
+	recorder := &writeRecorder{}
+	mockManager.EXPECT().WriteChainStatuses(mock.Anything, mock.Anything).
+		RunAndReturn(func(_ context.Context, statuses []protocol.ChainStatusInfo) error {
+			recorder.record(statuses)
+			return nil
+		})
+
+	ctx := t.Context()
+
+	// Finality violation disables chain 1 and flushes at once.
+	require.NoError(t, batcher.WriteChainStatuses(ctx, []protocol.ChainStatusInfo{status(1, 0, true)}))
+	require.Equal(t, 1, recorder.count())
+
+	// A checkpoint for chain 1 arrives afterwards, carrying Disabled false.
+	require.NoError(t, batcher.WriteChainStatuses(ctx, []protocol.ChainStatusInfo{status(1, 900, false)}))
+	require.NoError(t, batcher.flush(ctx))
+
+	// No batch may ever carry chain 1 with Disabled false.
+	for _, batch := range recorder.all() {
+		for _, s := range batch {
+			if s.ChainSelector == 1 {
+				require.True(t, s.Disabled, "chain 1 must never be written as enabled")
+			}
+		}
+	}
+}
+
+// TestChainStatusBatcher_StickyDisableDoesNotAffectOtherChains checks the guard is per chain.
+func TestChainStatusBatcher_StickyDisableDoesNotAffectOtherChains(t *testing.T) {
+	batcher, mockManager := newTestBatcher(t)
+
+	recorder := &writeRecorder{}
+	mockManager.EXPECT().WriteChainStatuses(mock.Anything, mock.Anything).
+		RunAndReturn(func(_ context.Context, statuses []protocol.ChainStatusInfo) error {
+			recorder.record(statuses)
+			return nil
+		})
+
+	ctx := t.Context()
+	require.NoError(t, batcher.WriteChainStatuses(ctx, []protocol.ChainStatusInfo{status(1, 0, true)}))
+	require.NoError(t, batcher.WriteChainStatuses(ctx, []protocol.ChainStatusInfo{status(2, 700, false)}))
+	require.NoError(t, batcher.flush(ctx))
+
+	last := recorder.all()[recorder.count()-1]
+	require.Len(t, last, 1)
+	require.Equal(t, protocol.ChainSelector(2), last[0].ChainSelector)
+	require.False(t, last[0].Disabled)
+}
+
+// TestChainStatusBatcher_FailedFlushDoesNotResurrectEnabledStatus covers the restore
+// path: a checkpoint drained before a disable must not come back after it.
+func TestChainStatusBatcher_FailedFlushDoesNotResurrectEnabledStatus(t *testing.T) {
+	batcher, _ := newTestBatcher(t)
+
+	ctx := t.Context()
+	// A checkpoint is buffered, then drained by a flush that is about to fail.
+	require.NoError(t, batcher.WriteChainStatuses(ctx, []protocol.ChainStatusInfo{status(1, 500, false)}))
+	batcher.mu.Lock()
+	drained := batcher.pending
+	batcher.pending = make(map[protocol.ChainSelector]protocol.ChainStatusInfo)
+	batcher.mu.Unlock()
+
+	// The violation lands while that flush is in flight.
+	batcher.mu.Lock()
+	batcher.disabledChains[1] = true
+	batcher.mu.Unlock()
+
+	// The failed flush restores its drained statuses.
+	batcher.restore(drained)
+
+	batcher.mu.Lock()
+	_, resurrected := batcher.pending[1]
+	batcher.mu.Unlock()
+	require.False(t, resurrected, "a stale enabled status must not return after a disable")
+}
+
+// TestChainStatusBatcher_DisableSurvivesOtherChainFailure checks that the disable
+// write has its own failure domain. A buffered checkpoint for another chain that
+// makes the database reject the batch must not stop the violating chain from being
+// disabled.
+func TestChainStatusBatcher_DisableSurvivesOtherChainFailure(t *testing.T) {
+	batcher, mockManager := newTestBatcher(t)
+
+	recorder := &writeRecorder{}
+	mockManager.EXPECT().WriteChainStatuses(mock.Anything, mock.Anything).
+		RunAndReturn(func(_ context.Context, statuses []protocol.ChainStatusInfo) error {
+			// Any batch that carries chain 2 fails, as a bad row would.
+			for _, s := range statuses {
+				if s.ChainSelector == 2 {
+					return errors.New("bad row for chain 2")
+				}
+			}
+			recorder.record(statuses)
+			return nil
+		})
+
+	ctx := t.Context()
+	// Chain 2 sits in the buffer and will fail on write.
+	require.NoError(t, batcher.WriteChainStatuses(ctx, []protocol.ChainStatusInfo{status(2, 400, false)}))
+
+	// Chain 1 hits a finality violation. This must succeed despite chain 2.
+	require.NoError(t, batcher.WriteChainStatuses(ctx, []protocol.ChainStatusInfo{status(1, 0, true)}))
+
+	batches := recorder.all()
+	require.Len(t, batches, 1, "the disable is written on its own")
+	require.Len(t, batches[0], 1)
+	require.Equal(t, protocol.ChainSelector(1), batches[0][0].ChainSelector)
+	require.True(t, batches[0][0].Disabled)
+}
+
+// TestChainStatusBatcher_DisableErrorIsReturned checks the caller still learns when
+// the disable write itself fails.
+func TestChainStatusBatcher_DisableErrorIsReturned(t *testing.T) {
+	batcher, mockManager := newTestBatcher(t)
+
+	mockManager.EXPECT().WriteChainStatuses(mock.Anything, mock.Anything).
+		Return(errors.New("db down"))
+
+	err := batcher.WriteChainStatuses(t.Context(), []protocol.ChainStatusInfo{status(1, 0, true)})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "db down")
+
+	// It stays buffered so the ticker retries it.
+	batcher.mu.Lock()
+	pending, ok := batcher.pending[1]
+	batcher.mu.Unlock()
+	require.True(t, ok)
+	require.True(t, pending.Disabled)
 }
