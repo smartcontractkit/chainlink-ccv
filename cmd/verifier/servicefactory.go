@@ -15,6 +15,7 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/cursechecker"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/heartbeatclient"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/messagerules"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/sourcereader"
@@ -241,10 +242,11 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 		StorageBatchSize:    50,
 		StorageBatchTimeout: 100 * time.Millisecond,
 		StorageRetryDelay:   2 * time.Second,
-		CursePollInterval:   2 * time.Second,  // Poll RMN Remotes for curse status every 2s
-		HeartbeatInterval:   10 * time.Second, // Send heartbeat to aggregator every 10s
+		CursePollInterval:   cursechecker.DEFAULT_POLL_INTERVAL, // Poll RMN Remotes for curse status
+		HeartbeatInterval:   10 * time.Second,                   // Send heartbeat to aggregator every 10s
 		// How often buffered chain statuses are written. A disabled status is written immediately.
-		ChainStatusFlushInterval: chainstatus.DefaultFlushInterval,
+		ChainStatusFlushInterval:  chainstatus.DefaultFlushInterval,
+		ChainStatusFlushThreshold: chainstatus.DefaultFlushThreshold,
 	}
 
 	signer, _, signerAddress, err := commit.NewSignerFromKeystore(ctx, deps.Keystore, commit.DefaultECDSASigningKeyName)

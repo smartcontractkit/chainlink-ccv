@@ -119,7 +119,11 @@ func NewCoordinatorWithDetector(
 		if flushInterval <= 0 {
 			flushInterval = chainstatus.DefaultFlushInterval
 		}
-		batcher, err := chainstatus.NewChainStatusBatcher(lggr, chainStatusManager, flushInterval)
+		flushThreshold := config.ChainStatusFlushThreshold
+		if flushThreshold <= 0 {
+			flushThreshold = chainstatus.DefaultFlushThreshold
+		}
+		batcher, err := chainstatus.NewChainStatusBatcher(lggr, chainStatusManager, flushInterval, flushThreshold)
 		if err != nil {
 			return fmt.Errorf("failed to create chain status batcher: %w", err)
 		}

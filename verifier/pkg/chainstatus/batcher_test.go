@@ -16,7 +16,11 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
 
-const testFlushInterval = 20 * time.Millisecond
+const (
+	testFlushInterval = 20 * time.Millisecond
+	// High enough that the threshold never fires unless a test asks for it.
+	testFlushThreshold = 1000
+)
 
 // writeRecorder collects the batches that the batcher writes to the manager.
 type writeRecorder struct {
@@ -49,7 +53,7 @@ func (r *writeRecorder) count() int {
 func newTestBatcher(t *testing.T) (*Batcher, *mocks.MockChainStatusManager) {
 	t.Helper()
 	mockManager := mocks.NewMockChainStatusManager(t)
-	batcher, err := NewChainStatusBatcher(logger.Test(t), mockManager, testFlushInterval)
+	batcher, err := NewChainStatusBatcher(logger.Test(t), mockManager, testFlushInterval, testFlushThreshold)
 	require.NoError(t, err)
 	return batcher, mockManager
 }
@@ -65,13 +69,16 @@ func status(selector protocol.ChainSelector, height int64, disabled bool) protoc
 func TestChainStatusBatcher_NewValidation(t *testing.T) {
 	mockManager := mocks.NewMockChainStatusManager(t)
 
-	_, err := NewChainStatusBatcher(nil, mockManager, testFlushInterval)
+	_, err := NewChainStatusBatcher(nil, mockManager, testFlushInterval, testFlushThreshold)
 	require.Error(t, err)
 
-	_, err = NewChainStatusBatcher(logger.Test(t), nil, testFlushInterval)
+	_, err = NewChainStatusBatcher(logger.Test(t), nil, testFlushInterval, testFlushThreshold)
 	require.Error(t, err)
 
-	_, err = NewChainStatusBatcher(logger.Test(t), mockManager, 0)
+	_, err = NewChainStatusBatcher(logger.Test(t), mockManager, 0, testFlushThreshold)
+	require.Error(t, err)
+
+	_, err = NewChainStatusBatcher(logger.Test(t), mockManager, testFlushInterval, 0)
 	require.Error(t, err)
 }
 
@@ -478,4 +485,57 @@ func TestChainStatusBatcher_DisableErrorIsReturned(t *testing.T) {
 	batcher.mu.Unlock()
 	require.True(t, ok)
 	require.True(t, pending.Disabled)
+}
+
+// TestChainStatusBatcher_FlushesOnThreshold verifies that the buffer is written once
+// enough distinct chains are waiting, without a tick.
+func TestChainStatusBatcher_FlushesOnThreshold(t *testing.T) {
+	mockManager := mocks.NewMockChainStatusManager(t)
+	// A long interval makes sure only the threshold can trigger the write.
+	batcher, err := NewChainStatusBatcher(logger.Test(t), mockManager, time.Hour, 3)
+	require.NoError(t, err)
+
+	recorder := &writeRecorder{}
+	mockManager.EXPECT().WriteChainStatuses(mock.Anything, mock.Anything).
+		RunAndReturn(func(_ context.Context, statuses []protocol.ChainStatusInfo) error {
+			recorder.record(statuses)
+			return nil
+		})
+
+	ctx := t.Context()
+	require.NoError(t, batcher.WriteChainStatuses(ctx, []protocol.ChainStatusInfo{status(1, 10, false)}))
+	require.NoError(t, batcher.WriteChainStatuses(ctx, []protocol.ChainStatusInfo{status(2, 20, false)}))
+	require.Equal(t, 0, recorder.count(), "two chains is below the threshold")
+
+	require.NoError(t, batcher.WriteChainStatuses(ctx, []protocol.ChainStatusInfo{status(3, 30, false)}))
+
+	batches := recorder.all()
+	require.Len(t, batches, 1)
+	require.Len(t, batches[0], 3, "the whole buffer is written")
+
+	// The buffer is empty again.
+	batcher.mu.Lock()
+	remaining := len(batcher.pending)
+	batcher.mu.Unlock()
+	require.Zero(t, remaining)
+}
+
+// TestChainStatusBatcher_ThresholdCountsChainsNotWrites verifies that repeated writes
+// for one chain do not trigger the threshold, since the buffer keeps one entry per chain.
+func TestChainStatusBatcher_ThresholdCountsChainsNotWrites(t *testing.T) {
+	mockManager := mocks.NewMockChainStatusManager(t)
+	batcher, err := NewChainStatusBatcher(logger.Test(t), mockManager, time.Hour, 3)
+	require.NoError(t, err)
+
+	ctx := t.Context()
+	for i := range 10 {
+		require.NoError(t, batcher.WriteChainStatuses(ctx, []protocol.ChainStatusInfo{
+			status(1, int64(i), false),
+		}))
+	}
+
+	batcher.mu.Lock()
+	pending := len(batcher.pending)
+	batcher.mu.Unlock()
+	require.Equal(t, 1, pending, "one chain stays one entry")
 }

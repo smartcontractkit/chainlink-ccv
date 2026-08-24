@@ -12,6 +12,7 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/cursechecker"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/heartbeatclient"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -259,9 +260,10 @@ func createCCTPCoordinator(
 			StorageBatchTimeout: 100 * time.Millisecond,
 			// In this case it's a database so we can do more aggressive retries
 			StorageRetryDelay: 500 * time.Millisecond,
-			CursePollInterval: 2 * time.Second,
+			CursePollInterval: cursechecker.DEFAULT_POLL_INTERVAL,
 			// How often buffered chain statuses are written. A disabled status is written immediately.
-			ChainStatusFlushInterval: chainstatus.DefaultFlushInterval,
+			ChainStatusFlushInterval:  chainstatus.DefaultFlushInterval,
+			ChainStatusFlushThreshold: chainstatus.DefaultFlushThreshold,
 		},
 		messageTracker,
 		verifierMonitoring,
@@ -311,9 +313,10 @@ func createLombardCoordinator(
 			StorageBatchTimeout: 100 * time.Millisecond,
 			// In this case it's a database so we can do more aggressive retries
 			StorageRetryDelay: 500 * time.Millisecond,
-			CursePollInterval: 2 * time.Second,
+			CursePollInterval: cursechecker.DEFAULT_POLL_INTERVAL,
 			// How often buffered chain statuses are written. A disabled status is written immediately.
-			ChainStatusFlushInterval: chainstatus.DefaultFlushInterval,
+			ChainStatusFlushInterval:  chainstatus.DefaultFlushInterval,
+			ChainStatusFlushThreshold: chainstatus.DefaultFlushThreshold,
 		},
 		messageTracker,
 		verifierMonitoring,

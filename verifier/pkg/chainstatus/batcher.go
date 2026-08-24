@@ -16,6 +16,9 @@ import (
 const (
 	// DefaultFlushInterval is how frequently the batcher writes buffered chain statuses.
 	DefaultFlushInterval = 30 * time.Second
+	// DefaultFlushThreshold is how many chains may wait in the buffer before the
+	// batcher writes them without waiting for the next tick.
+	DefaultFlushThreshold = 10
 	// closeFlushTimeout bounds the final flush that runs during Close.
 	closeFlushTimeout = 10 * time.Second
 )
@@ -36,9 +39,10 @@ type Batcher struct {
 	stopCh services.StopChan
 	wg     sync.WaitGroup
 
-	lggr          logger.Logger
-	manager       protocol.ChainStatusManager
-	flushInterval time.Duration
+	lggr           logger.Logger
+	manager        protocol.ChainStatusManager
+	flushInterval  time.Duration
+	flushThreshold int
 
 	// mu guards pending. Hold it only for map operations, never across a call
 	// to the wrapped manager.
@@ -70,6 +74,7 @@ func NewChainStatusBatcher(
 	lggr logger.Logger,
 	manager protocol.ChainStatusManager,
 	flushInterval time.Duration,
+	flushThreshold int,
 ) (*Batcher, error) {
 	if lggr == nil {
 		return nil, errors.New("logger is required")
@@ -80,11 +85,15 @@ func NewChainStatusBatcher(
 	if flushInterval <= 0 {
 		return nil, errors.New("flush interval must be positive")
 	}
+	if flushThreshold <= 0 {
+		return nil, errors.New("flush threshold must be positive")
+	}
 
 	return &Batcher{
 		lggr:           logger.With(lggr, "component", "ChainStatusBatcher"),
 		manager:        manager,
 		flushInterval:  flushInterval,
+		flushThreshold: flushThreshold,
 		pending:        make(map[protocol.ChainSelector]protocol.ChainStatusInfo),
 		disabledChains: make(map[protocol.ChainSelector]bool),
 		stopCh:         make(chan struct{}),
@@ -184,9 +193,15 @@ func (s *Batcher) WriteChainStatuses(ctx context.Context, statuses []protocol.Ch
 		}
 		s.pending[status.ChainSelector] = copyStatus(status)
 	}
+	reachedThreshold := len(s.pending) >= s.flushThreshold
 	s.mu.Unlock()
 
 	if len(disabled) == 0 {
+		// Too many chains are waiting. Write them now instead of at the next tick.
+		if reachedThreshold {
+			s.lggr.Debugw("Flushing on threshold", "threshold", s.flushThreshold)
+			return s.flush(ctx)
+		}
 		return nil
 	}
 
