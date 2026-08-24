@@ -31,6 +31,11 @@ import (
 type Conversion struct {
 	Config   Config
 	Warnings []string
+	// WarningsByChainID holds the same warnings grouped by the chain that produced them, so a
+	// per-chain view — `ccv migrate inspect-config --chain-selector` — narrows them without parsing
+	// the message text. Keyed by chain ID rather than selector because a warning is written before
+	// the chain's selector is resolved, and because a chain the node has disabled never gets one.
+	WarningsByChainID map[string][]string
 }
 
 // nodeConfigFile is the sliver of a Chainlink node's TOML that this conversion reads. Every other
@@ -59,13 +64,20 @@ func convertChainlinkNodeConfig(nodeTOML []byte) (Conversion, error) {
 	}
 
 	var warnings []string
+	warningsByChainID := make(map[string][]string, len(merged))
 	chains := make(map[string]ChainConfig, len(merged))
+	// Every warning is attributable to the chain being converted, so each iteration collects its own
+	// and the flat list is built from those. The two views cannot drift.
 	for _, cfg := range merged {
 		chainID := cfg.ChainID.String()
 		if !cfg.IsEnabled() {
-			warnings = append(warnings, fmt.Sprintf("chain %s: skipped, the node has it disabled", chainID))
+			skipped := fmt.Sprintf("chain %s: skipped, the node has it disabled", chainID)
+			warnings = append(warnings, skipped)
+			warningsByChainID[chainID] = []string{skipped}
 			continue
 		}
+
+		var chainWarnings []string
 
 		// The set-detection runs first because convertFinality below puts cfg.Chain through
 		// evmtoml.Defaults, after which an operator-set field and a defaulted one are
@@ -74,7 +86,7 @@ func convertChainlinkNodeConfig(nodeTOML []byte) (Conversion, error) {
 		// ahead of the node warnings keeps the chain's warnings in the operator's file order:
 		// [[EVM]] settings come before its [[EVM.Nodes]] entries.
 		if dropped := setChainSettingPaths(&cfg.Chain); len(dropped) > 0 {
-			warnings = append(warnings, fmt.Sprintf(
+			chainWarnings = append(chainWarnings, fmt.Sprintf(
 				"chain %s: dropped set chain-level settings with no standalone equivalent: %s",
 				chainID, strings.Join(dropped, ", ")))
 		}
@@ -88,7 +100,7 @@ func convertChainlinkNodeConfig(nodeTOML []byte) (Conversion, error) {
 		if err != nil {
 			return Conversion{}, err
 		}
-		warnings = append(warnings, nodeWarnings...)
+		chainWarnings = append(chainWarnings, nodeWarnings...)
 
 		finalityDepth, err := convertFinality(cfg)
 		if err != nil {
@@ -100,12 +112,20 @@ func convertChainlinkNodeConfig(nodeTOML []byte) (Conversion, error) {
 			FinalityDepth: finalityDepth,
 			TXMBlockTime:  txmBlockTimeOverride(cfg),
 		}
+		if len(chainWarnings) > 0 {
+			warnings = append(warnings, chainWarnings...)
+			warningsByChainID[chainID] = chainWarnings
+		}
 	}
 
 	if len(chains) == 0 {
 		return Conversion{}, fmt.Errorf("config declares no enabled EVM chains")
 	}
-	return Conversion{Config: Config{Chains: chains}, Warnings: warnings}, nil
+	return Conversion{
+		Config:            Config{Chains: chains},
+		Warnings:          warnings,
+		WarningsByChainID: warningsByChainID,
+	}, nil
 }
 
 // mergeByChainID collapses repeated [[EVM]] blocks for the same chain, later blocks overriding

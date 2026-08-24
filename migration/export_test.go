@@ -107,6 +107,54 @@ func TestExportNodeKeysHonorsTheBundleOverride(t *testing.T) {
 	assert.Equal(t, addressOf(node.ocr2Key), result.SigningAddress)
 }
 
+// The JD-sourced expected_id is the only check that sees a wrong bundle choice: any exported
+// bundle decodes to a self-consistent identity, so the decode self-check alone cannot.
+func TestExportNodeKeysExpectedID(t *testing.T) {
+	t.Parallel()
+
+	t.Run("matching expected_id passes", func(t *testing.T) {
+		t.Parallel()
+		node := happyNode(t)
+		srv := node.start()
+		cfg := happyConfig(node, srv.URL, t.TempDir())
+		cfg.ExpectedID = addressOf(node.ocr2Key)
+
+		result, err := ExportNodeKeys(context.Background(), logger.Test(t), cfg)
+		require.NoError(t, err)
+		assert.Equal(t, addressOf(node.ocr2Key), result.SigningAddress)
+	})
+
+	// The rejected pair decodes fine — it is the wrong key, not a broken one — so leaving it in
+	// outDir would let a later mount use a key this command refused.
+	t.Run("mismatching expected_id fails as a wrong bundle export and removes the files", func(t *testing.T) {
+		t.Parallel()
+		node := happyNode(t)
+		srv := node.start()
+		outDir := t.TempDir()
+		cfg := happyConfig(node, srv.URL, outDir)
+		cfg.ExpectedID = addressOf(newTestKey(t))
+
+		_, err := ExportNodeKeys(context.Background(), logger.Test(t), cfg)
+		require.ErrorContains(t, err, "wrong OCR2 bundle")
+		assert.NoFileExists(t, filepath.Join(outDir, OCR2ExportFileName))
+		assert.NoFileExists(t, filepath.Join(outDir, PasswordFileName))
+	})
+
+	t.Run("malformed expected_id fails before anything is exported", func(t *testing.T) {
+		t.Parallel()
+		node := happyNode(t)
+		srv := node.start()
+		outDir := t.TempDir()
+		cfg := happyConfig(node, srv.URL, outDir)
+		cfg.ExpectedID = "not-an-address"
+
+		_, err := ExportNodeKeys(context.Background(), logger.Test(t), cfg)
+		require.ErrorContains(t, err, "not a hex address")
+		assert.NoFileExists(t, filepath.Join(outDir, OCR2ExportFileName))
+		assert.NoFileExists(t, filepath.Join(outDir, PasswordFileName))
+	})
+}
+
 // The snippet is ready to paste: the [key_import] block with expected_id already filled in, so
 // the one value that must not be mistyped never passes through a human.
 func TestWriteKeyImportSnippet(t *testing.T) {
