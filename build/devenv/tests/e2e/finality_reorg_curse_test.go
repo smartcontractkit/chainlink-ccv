@@ -818,8 +818,8 @@ func curseSelector(t *testing.T, env *deployment.Environment, adapter fastcurse.
 	}
 
 	// Wait for the verifier to detect the curse.
-	// The verifier is hardcoded to poll every 2 seconds, wait for 3 seconds to be sure.
-	time.Sleep(3 * time.Second)
+	// The verifier polls every 10 seconds, wait for 12 seconds to be sure.
+	time.Sleep(12 * time.Second)
 }
 
 func uncurseSelector(t *testing.T, env *deployment.Environment, adapter fastcurse.CurseAdapter, chainSelector, subjectChainSelector uint64, globalCurse bool) {
@@ -869,8 +869,8 @@ func uncurseSelector(t *testing.T, env *deployment.Environment, adapter fastcurs
 	}
 
 	// Wait for the verifier to detect the uncurse.
-	// The verifier is hardcoded to poll every 2 seconds, wait for 3 seconds to be sure.
-	time.Sleep(3 * time.Second)
+	// The verifier polls every 10 seconds, wait for 12 seconds to be sure.
+	time.Sleep(12 * time.Second)
 }
 
 // chainSupportingReorgs returns the first chain in chains whose CCIP17
