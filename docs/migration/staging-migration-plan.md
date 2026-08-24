@@ -524,9 +524,6 @@ is not blocking.
 2. What is the staging funding source for node accounts, and who owns sending from it? (P9)
 3. Per-chain `txm_block_time` values for the five chains. Proposal to react to: sepolia 12s,
    arbitrum-sepolia 1s, base-sepolia 2s, amoy 2s, fuji 2s. Needs agreement before P5.
-4. Do we cut the first node over in a team session, as the dress rehearsal for the prod runbook?
-   I'd say yes; a clean run is also the validation A5 still needs. Since staging_testnet is live,
-   agree the window with whoever depends on stage lanes.
 
 ## What staging does not decide
 
