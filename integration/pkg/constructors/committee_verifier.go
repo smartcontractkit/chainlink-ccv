@@ -213,6 +213,9 @@ func NewVerificationCoordinator(
 		StorageBatchTimeout: 100 * time.Millisecond,
 		StorageRetryDelay:   2 * time.Second,
 		HeartbeatInterval:   10 * time.Second,
+		// How often buffered chain statuses are written. A disabled status is written immediately.
+		ChainStatusFlushInterval:  chainstatus.DefaultFlushInterval,
+		ChainStatusFlushThreshold: chainstatus.DefaultFlushThreshold,
 	}
 
 	// Create commit verifier (with ECDSA signer)
