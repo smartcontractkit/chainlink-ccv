@@ -273,6 +273,8 @@ func createCCTPCoordinator(
 			// In this case it's a database so we can do more aggressive retries
 			StorageRetryDelay: 500 * time.Millisecond,
 			CursePollInterval: 2 * time.Second,
+			// How often buffered chain statuses are written. A disabled status is written immediately.
+			ChainStatusFlushInterval: chainstatus.DefaultFlushInterval,
 		},
 		messageTracker,
 		verifierMonitoring,
@@ -327,6 +329,8 @@ func createLombardCoordinator(
 			// In this case it's a database so we can do more aggressive retries
 			StorageRetryDelay: 500 * time.Millisecond,
 			CursePollInterval: 2 * time.Second,
+			// How often buffered chain statuses are written. A disabled status is written immediately.
+			ChainStatusFlushInterval: chainstatus.DefaultFlushInterval,
 		},
 		messageTracker,
 		verifierMonitoring,

@@ -13,6 +13,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/heartbeatclient"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/chainstatus"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/heartbeat"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/jobqueue"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/sourcereader"
@@ -46,6 +47,7 @@ type Coordinator struct {
 	initFn func(ctx context.Context) error
 
 	curseDetector          common.CurseCheckerService
+	chainStatusBatcher     *chainstatus.ChainStatusBatcher
 	sourceReaderServices   map[protocol.ChainSelector]services.Service
 	taskVerifierProcessor  services.Service
 	storageWriterProcessor services.Service
@@ -110,7 +112,21 @@ func NewCoordinatorWithDetector(
 		messageRulesSvc: messageRulesSvc,
 	}
 	vc.initFn = func(ctx context.Context) error {
-		enabledSourceReaders, err := filterOnlyEnabledSourceReaders(ctx, lggr, config, sourceReaders, chainStatusManager)
+		// Batch the chain status writes. The source readers write a status on every
+		// checkpoint advance, which is one database transaction per advance per chain.
+		// A disabled status still goes to the database immediately.
+		flushInterval := config.ChainStatusFlushInterval
+		if flushInterval <= 0 {
+			flushInterval = chainstatus.DefaultFlushInterval
+		}
+		batcher, err := chainstatus.NewChainStatusBatcher(lggr, chainStatusManager, flushInterval)
+		if err != nil {
+			return fmt.Errorf("failed to create chain status batcher: %w", err)
+		}
+		vc.chainStatusBatcher = batcher
+		batchedChainStatusManager := protocol.ChainStatusManager(batcher)
+
+		enabledSourceReaders, err := filterOnlyEnabledSourceReaders(ctx, lggr, config, sourceReaders, batchedChainStatusManager)
 		if err != nil {
 			return fmt.Errorf("failed to filter enabled source readers: %w", err)
 		}
@@ -129,7 +145,7 @@ func NewCoordinatorWithDetector(
 		}
 
 		processors, err := createDurableProcessors(
-			lggr, ds, config, verifier, monitoring, enabledSourceReaders, chainStatusManager, vc.curseDetector, messageTracker, storage, messageRulesChecker,
+			lggr, ds, config, verifier, monitoring, enabledSourceReaders, batchedChainStatusManager, vc.curseDetector, messageTracker, storage, messageRulesChecker,
 		)
 		if err != nil {
 			return fmt.Errorf("failed to create durable processors: %w", err)
@@ -149,7 +165,7 @@ func NewCoordinatorWithDetector(
 			}
 			heartbeatReporter, err := heartbeat.NewReporter(
 				logger.With(lggr, "component", "HeartbeatReporter"),
-				chainStatusManager, heartbeatClient, allSelectors, config.VerifierID, config.HeartbeatInterval,
+				batchedChainStatusManager, heartbeatClient, allSelectors, config.VerifierID, config.HeartbeatInterval,
 			)
 			if err != nil {
 				return fmt.Errorf("failed to create heartbeat reporter: %w", err)
@@ -272,6 +288,12 @@ func (vc *Coordinator) Start(ctx context.Context) error {
 		if vc.initFn != nil {
 			if err := vc.initFn(ctx); err != nil {
 				return err
+			}
+		}
+
+		if vc.chainStatusBatcher != nil {
+			if err := vc.chainStatusBatcher.Start(ctx); err != nil {
+				return fmt.Errorf("failed to start chain status batcher: %w", err)
 			}
 		}
 
@@ -449,6 +471,14 @@ func (vc *Coordinator) Close() error {
 		if vc.taskQueueObserver != nil {
 			if err := vc.taskQueueObserver.Close(); err != nil {
 				errs = append(errs, fmt.Errorf("failed to stop task queue observer: %w", err))
+			}
+		}
+
+		// Close the batcher last. Every service that writes a chain status has
+		// stopped by now, so the final flush loses nothing.
+		if vc.chainStatusBatcher != nil {
+			if err := vc.chainStatusBatcher.Close(); err != nil {
+				errs = append(errs, fmt.Errorf("failed to stop chain status batcher: %w", err))
 			}
 		}
 

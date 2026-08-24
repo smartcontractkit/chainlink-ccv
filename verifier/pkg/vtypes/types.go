@@ -57,6 +57,9 @@ type CoordinatorConfig struct {
 	CursePollInterval   time.Duration                           `json:"curse_poll_interval"`   // How often to poll RMN Remote contracts for curse status (default: 2s)
 	CurseRPCTimeout     time.Duration                           `json:"curse_rpc_timeout"`     // Timeout for each RMN RPC call (default: 5s)
 	HeartbeatInterval   time.Duration                           `json:"heartbeat_interval"`    // How often to send heartbeat to aggregator (default: 10s, 0 disables heartbeat)
+	// ChainStatusFlushInterval is how often buffered chain statuses are written to
+	// the database (default: 30s). A disabled status is always written immediately.
+	ChainStatusFlushInterval time.Duration `json:"chain_status_flush_interval"`
 }
 
 // VerificationError represents an error that occurred during message verification.

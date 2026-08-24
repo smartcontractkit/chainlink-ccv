@@ -243,6 +243,8 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 		StorageRetryDelay:   2 * time.Second,
 		CursePollInterval:   2 * time.Second,  // Poll RMN Remotes for curse status every 2s
 		HeartbeatInterval:   10 * time.Second, // Send heartbeat to aggregator every 10s
+		// How often buffered chain statuses are written. A disabled status is written immediately.
+		ChainStatusFlushInterval: chainstatus.DefaultFlushInterval,
 	}
 
 	signer, _, signerAddress, err := commit.NewSignerFromKeystore(ctx, deps.Keystore, commit.DefaultECDSASigningKeyName)
@@ -518,7 +520,8 @@ func createChainStatusManager(lggr logger.Logger, verifierID string, monitoring 
 	}
 	chainStatusStore := chainstatus.NewPostgresChainStatusStore(sqlDB, lggr)
 	chainStatusManager := chainstatus.NewPostgresChainStatusManager(chainStatusStore, verifierID)
-	// Wrap with monitoring decorator to track query durations
+	// Wrap with monitoring decorator to track query durations. The Coordinator
+	// adds the batcher on top of this, so the metrics measure real database calls.
 	monitoredManager := chainstatus.NewMonitoredChainStatusManager(chainStatusManager, monitoring.Metrics())
 	return monitoredManager, sqlDB, nil
 }
