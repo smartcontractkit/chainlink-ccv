@@ -46,7 +46,7 @@ func (r *writeRecorder) count() int {
 	return len(r.batches)
 }
 
-func newTestBatcher(t *testing.T) (*ChainStatusBatcher, *mocks.MockChainStatusManager) {
+func newTestBatcher(t *testing.T) (*Batcher, *mocks.MockChainStatusManager) {
 	t.Helper()
 	mockManager := mocks.NewMockChainStatusManager(t)
 	batcher, err := NewChainStatusBatcher(logger.Test(t), mockManager, testFlushInterval)
@@ -294,12 +294,12 @@ func TestChainStatusBatcher_ConcurrentAccess(t *testing.T) {
 	selectors := []protocol.ChainSelector{1, 2, 3, 4}
 
 	var wg sync.WaitGroup
-	for w := 0; w < workers; w++ {
+	for w := range workers {
 		wg.Add(1)
 		go func(worker int) {
 			defer wg.Done()
 			ctx := context.Background()
-			for i := 0; i < iterations; i++ {
+			for i := range iterations {
 				selector := protocol.ChainSelector(i%len(selectors) + 1)
 				// Every 10th write is disabled, which forces an immediate flush.
 				disabled := i%10 == 0

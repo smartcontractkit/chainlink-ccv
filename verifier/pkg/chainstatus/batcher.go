@@ -20,17 +20,17 @@ const (
 )
 
 var (
-	_ protocol.ChainStatusManager = (*ChainStatusBatcher)(nil)
-	_ protocol.HealthReporter     = (*ChainStatusBatcher)(nil)
+	_ protocol.ChainStatusManager = (*Batcher)(nil)
+	_ protocol.HealthReporter     = (*Batcher)(nil)
 )
 
-// ChainStatusBatcher is a decorator that collects chain statuses in memory and
+// Batcher is a decorator that collects chain statuses in memory and
 // writes them to the wrapped manager on a timer.
 //
 // Chain status is latest-value data, so the batcher keeps only the newest value
 // for each chain. A status with Disabled set to true is written immediately,
 // because the verifier must stop the chain without a delay.
-type ChainStatusBatcher struct {
+type Batcher struct {
 	services.StateMachine
 	stopCh services.StopChan
 	wg     sync.WaitGroup
@@ -65,7 +65,7 @@ func NewChainStatusBatcher(
 	lggr logger.Logger,
 	manager protocol.ChainStatusManager,
 	flushInterval time.Duration,
-) (*ChainStatusBatcher, error) {
+) (*Batcher, error) {
 	if lggr == nil {
 		return nil, errors.New("logger is required")
 	}
@@ -76,7 +76,7 @@ func NewChainStatusBatcher(
 		return nil, errors.New("flush interval must be positive")
 	}
 
-	return &ChainStatusBatcher{
+	return &Batcher{
 		lggr:          logger.With(lggr, "component", "ChainStatusBatcher"),
 		manager:       manager,
 		flushInterval: flushInterval,
@@ -86,7 +86,7 @@ func NewChainStatusBatcher(
 }
 
 // Start starts the background flush loop.
-func (s *ChainStatusBatcher) Start(context.Context) error {
+func (s *Batcher) Start(context.Context) error {
 	return s.StartOnce(s.Name(), func() error {
 		s.wg.Go(func() {
 			s.run()
@@ -96,7 +96,7 @@ func (s *ChainStatusBatcher) Start(context.Context) error {
 }
 
 // Close stops the flush loop and writes the statuses that remain in the buffer.
-func (s *ChainStatusBatcher) Close() error {
+func (s *Batcher) Close() error {
 	return s.StopOnce(s.Name(), func() error {
 		close(s.stopCh)
 		s.wg.Wait()
@@ -113,18 +113,18 @@ func (s *ChainStatusBatcher) Close() error {
 }
 
 // Name returns the service name.
-func (s *ChainStatusBatcher) Name() string {
+func (s *Batcher) Name() string {
 	return "verifier.ChainStatusBatcher"
 }
 
 // HealthReport returns a health report for the batcher.
-func (s *ChainStatusBatcher) HealthReport() map[string]error {
+func (s *Batcher) HealthReport() map[string]error {
 	report := make(map[string]error)
 	report[s.Name()] = s.Ready()
 	return report
 }
 
-func (s *ChainStatusBatcher) run() {
+func (s *Batcher) run() {
 	ctx, cancel := s.stopCh.NewCtx()
 	defer cancel()
 
@@ -147,7 +147,7 @@ func (s *ChainStatusBatcher) run() {
 
 // WriteChainStatuses buffers the given statuses. If any status is disabled, the
 // batcher writes the full buffer immediately and returns the write error.
-func (s *ChainStatusBatcher) WriteChainStatuses(ctx context.Context, statuses []protocol.ChainStatusInfo) error {
+func (s *Batcher) WriteChainStatuses(ctx context.Context, statuses []protocol.ChainStatusInfo) error {
 	if len(statuses) == 0 {
 		return nil
 	}
@@ -170,7 +170,7 @@ func (s *ChainStatusBatcher) WriteChainStatuses(ctx context.Context, statuses []
 }
 
 // ReadChainStatuses passes the read through to the wrapped manager.
-func (s *ChainStatusBatcher) ReadChainStatuses(
+func (s *Batcher) ReadChainStatuses(
 	ctx context.Context,
 	chainSelectors []protocol.ChainSelector,
 ) (map[protocol.ChainSelector]*protocol.ChainStatusInfo, error) {
@@ -179,7 +179,7 @@ func (s *ChainStatusBatcher) ReadChainStatuses(
 
 // flush drains the buffer and writes it to the wrapped manager. On failure, the
 // drained statuses go back into the buffer, so the next tick retries them.
-func (s *ChainStatusBatcher) flush(ctx context.Context) error {
+func (s *Batcher) flush(ctx context.Context) error {
 	// Serialize flushes so batches reach the wrapped manager in drain order.
 	s.flushMu.Lock()
 	defer s.flushMu.Unlock()
@@ -209,7 +209,7 @@ func (s *ChainStatusBatcher) flush(ctx context.Context) error {
 
 // restore puts the given statuses back into the buffer. A chain that already has
 // a newer value in the buffer keeps that newer value.
-func (s *ChainStatusBatcher) restore(drained map[protocol.ChainSelector]protocol.ChainStatusInfo) {
+func (s *Batcher) restore(drained map[protocol.ChainSelector]protocol.ChainStatusInfo) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 

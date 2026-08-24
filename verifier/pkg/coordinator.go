@@ -47,7 +47,7 @@ type Coordinator struct {
 	initFn func(ctx context.Context) error
 
 	curseDetector          common.CurseCheckerService
-	chainStatusBatcher     *chainstatus.ChainStatusBatcher
+	chainStatusBatcher     *chainstatus.Batcher
 	sourceReaderServices   map[protocol.ChainSelector]services.Service
 	taskVerifierProcessor  services.Service
 	storageWriterProcessor services.Service
