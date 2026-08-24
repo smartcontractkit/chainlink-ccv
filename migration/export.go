@@ -14,6 +14,7 @@ package migration
 import (
 	"context"
 	"crypto/rand"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -86,10 +87,17 @@ type ExportResult struct {
 //  4. The export is decoded and its identity checked before anything is reported — while the node
 //     is still running, not at container startup after it may be stopped. When the caller supplies
 //     the expected_id Chainlink Labs read from the operator's JD record, the decoded identity must
-//     match it: the decode self-check alone cannot see a wrong bundle choice.
+//     match it: the decode self-check alone cannot see a wrong bundle choice. A rejected export's
+//     files are removed, so a failed run leaves nothing mountable behind.
 func ExportNodeKeys(ctx context.Context, lggr logger.Logger, cfg ExportConfig) (*ExportResult, error) {
 	if err := cfg.validate(); err != nil {
 		return nil, err
+	}
+	if strings.TrimSpace(cfg.ExpectedID) == "" {
+		lggr.Warnw("no expected_id supplied: this export cannot tell whether the right OCR2 bundle " +
+			"was chosen, since any bundle decodes to a self-consistent identity. Ask Chainlink Labs for " +
+			"this operator's JD signing address (OnchainSigningAddress) and re-run with --expected-id " +
+			"before the cutover")
 	}
 	// 0o700: the directory holds an exported private key and the password file. MkdirAll does not
 	// tighten the permissions of a directory that already exists, so chmod it either way.
@@ -137,6 +145,10 @@ func ExportNodeKeys(ctx context.Context, lggr logger.Logger, cfg ExportConfig) (
 		return nil, fmt.Errorf("the exported OCR2 bundle is unusable: %w", err)
 	}
 	if err := checkExpectedID(cfg.ExpectedID, signingAddress); err != nil {
+		// The rejected bundle decodes fine — it is simply the wrong key — so a valid-looking pair
+		// left in OutDir invites a later operator, or a script that ignores the exit status, into
+		// mounting a key this command already refused.
+		removeRejectedExport(lggr, ocr2Path, passwordPath)
 		return nil, err
 	}
 
@@ -159,6 +171,14 @@ func (c ExportConfig) validate() error {
 		if strings.TrimSpace(field.value) == "" {
 			return fmt.Errorf("%s is required", field.name)
 		}
+	}
+	// The format is checked here, before the node is called and before any file is written: a
+	// mistyped flag has to fail while OutDir is still empty rather than leaving an unverified key
+	// and password behind.
+	if expected := strings.TrimSpace(c.ExpectedID); expected != "" && !common.IsHexAddress(expected) {
+		return fmt.Errorf(
+			"expected_id %q is not a hex address; it should be this operator's OnchainSigningAddress "+
+				"read from its JD record, handed over with the migration procedure", expected)
 	}
 	return nil
 }
@@ -208,16 +228,13 @@ func preflightJobs(ctx context.Context, lggr logger.Logger, client *NodeClient) 
 // checkExpectedID compares the exported key's identity against the expected_id Chainlink Labs
 // sourced from JD. The comparison runs while the node is still up, so a wrong bundle choice —
 // which the decode self-check cannot see, since any bundle decodes to a self-consistent identity —
-// fails the export rather than surfacing after the node is stopped.
+// fails the export rather than surfacing after the node is stopped. The value stays optional
+// because it comes from Chainlink Labs out of band; an export without it is warned about rather
+// than refused, since the check it skips is the only one that sees a wrong bundle.
 func checkExpectedID(expectedID, signingAddress string) error {
 	expected := strings.TrimSpace(expectedID)
 	if expected == "" {
 		return nil
-	}
-	if !common.IsHexAddress(expected) {
-		return fmt.Errorf(
-			"expected_id %q is not a hex address; it should be this operator's OnchainSigningAddress "+
-				"read from its JD record, handed over with the migration procedure", expected)
 	}
 	if !strings.EqualFold(common.HexToAddress(expected).Hex(), ChecksumAddress(signingAddress)) {
 		return fmt.Errorf(
@@ -227,6 +244,18 @@ func checkExpectedID(expectedID, signingAddress string) error {
 			ChecksumAddress(signingAddress), common.HexToAddress(expected).Hex())
 	}
 	return nil
+}
+
+// removeRejectedExport deletes the key and password an identity check refused, so a failed export
+// leaves nothing mountable in OutDir. A removal that fails is warned about rather than returned:
+// the identity mismatch is the error worth reading.
+func removeRejectedExport(lggr logger.Logger, paths ...string) {
+	for _, path := range paths {
+		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			lggr.Warnw("could not remove a rejected export artifact; delete it by hand before retrying",
+				"path", path, "err", err)
+		}
+	}
 }
 
 // generateExportPassword returns a random password for one export run. It is generated because

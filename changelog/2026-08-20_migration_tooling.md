@@ -4,14 +4,15 @@
 
 - `ccv migrate export` gains an optional `--expected-id` flag carrying the operator's signing
   address as Chainlink Labs reads it from JD (`OnchainSigningAddress`). The export now fails when
-  the decoded key does not carry it — closing the hole where choosing the wrong OCR2 bundle still
-  produced a self-consistent `[key_import]` snippet.
+  the decoded key does not carry it, closing the hole where choosing the wrong OCR2 bundle still
+  produced a self-consistent `[key_import]` snippet. A rejected export deletes the key and password
+  it wrote, and an export run without the flag warns that the check was skipped.
 - New `ccv migrate inspect-config --config <path>` subcommand prints the conversion warnings and
   each chain's effective standalone settings (finality, TXM block time, head-tracker persistence,
   RPC node set) by running the same config load and chainlink-evm defaulting the runtime uses.
   This is the documented way to run the pre-cutover per-chain settings diff.
 - The TXM v2 block-time fallback (2s when nothing explicit is configured) is now logged at warn
-  per chain at startup instead of applying silently.
+  when a chain's TXM starts instead of applying silently.
 - No behavior changes to running deployments; all three changes surface in migration tooling and
   startup logs only.
 
@@ -21,15 +22,18 @@
 |---|---|---|---|---|
 | `migration.ExportConfig.ExpectedID` | added | `ExpectedID` | `migration/export.go` | [JD-sourced expected_id](#jd-sourced-expected_id) |
 | `migration.checkExpectedID` | added | `checkExpectedID` | `migration/export.go` | [JD-sourced expected_id](#jd-sourced-expected_id) |
+| `migration.removeRejectedExport` | added | `removeRejectedExport` | `migration/export.go` | [JD-sourced expected_id](#jd-sourced-expected_id) |
 | `ccv migrate inspect-config` | added | `inspect-config` | `cli/migrate/inspect_config.go` | [Effective-config diff tooling](#effective-config-diff-tooling) |
 | `evm.LoadConfigFile` | added | `LoadConfigFile` | `integration/pkg/accessors/evm/factory_constructor.go` | [Effective-config diff tooling](#effective-config-diff-tooling) |
 | `evm.EffectiveChainConfigs` | added | `EffectiveChainConfigs` | `integration/pkg/accessors/evm/effective_config.go` | [Effective-config diff tooling](#effective-config-diff-tooling) |
 | `evm.buildChainlinkEVMTOML` | refactor | `buildChainlinkEVMTOML` | `integration/pkg/accessors/evm/chainlink_config.go` | [Effective-config diff tooling](#effective-config-diff-tooling) |
-| `evm.newMultiNodeClientFromInfo` | behavior-changed | `txm_block_time` | `integration/pkg/accessors/evm/multi_node_client.go` | [Block-time fallback warning](#block-time-fallback-warning) |
+| `evm.Conversion.WarningsByChainID` | added | `WarningsByChainID` | `integration/pkg/accessors/evm/clnode_config.go` | [Effective-config diff tooling](#effective-config-diff-tooling) |
+| `evm.standaloneChain.NewContractTransmitter` | behavior-changed | `txmBlockTimeIsDefault` | `integration/pkg/accessors/evm/standalone_chain.go` | [Block-time fallback warning](#block-time-fallback-warning) |
 
 ## Breaking Changes
 
-No breaking changes. `ExpectedID` is optional; exports without it behave exactly as before.
+No breaking changes. `ExpectedID` is optional; exports without it behave as before, plus a warning.
+`Conversion` gains a field; existing readers of `Conversion.Warnings` are unaffected.
 `newChainlinkEVMConfig` keeps its signature and behavior — the TOML construction was extracted
 into `buildChainlinkEVMTOML` unchanged, so the report tooling reads what the runtime builds.
 
@@ -42,9 +46,14 @@ self-referential: any bundle decodes to a self-consistent identity, so picking t
 bundle produced a valid-looking `[key_import]` snippet. The operator can now pass
 `--expected-id`, the signing address Chainlink Labs hands over from the operator's JD record;
 a mismatch fails the export while the node is still up, with an error naming the wrong-bundle
-cause. A malformed flag value fails before comparison. The check composes with the existing
-boot-time one: `[key_import].expected_id` still guards against mounting the wrong file, and the
-flag guards against choosing the wrong key in the first place.
+cause, and deletes the key and password files it had already written so a rejected bundle is not
+left mountable in the output directory. A malformed flag value is rejected by
+`ExportConfig.validate` before the node is called, so it cannot leave an unverified export behind
+either. The flag stays
+optional, because the value arrives out of band from Chainlink Labs, but an export without it now
+logs a warning naming the check it skipped. The check composes with the existing boot-time one:
+`[key_import].expected_id` still guards against mounting the wrong file, and the flag guards
+against choosing the wrong key in the first place.
 
 ### Effective-config diff tooling
 
@@ -57,16 +66,23 @@ conversion's dropped-setting warnings, and per chain the effective settings proj
 runtime adapter uses, so the report cannot drift from what the process will run. RPC URLs are
 deliberately excluded from the report (they can carry API keys); node names, order, and
 WebSocket coverage carry the redundancy picture. `txm_block_time_is_default: true` flags chains
-running the 2s fallback. `--chain-selector` filters to one chain. The command needs no database,
-no secrets, and no network, like the other `ccv migrate` subcommands. The migration procedure's
-step 3 now ends with this diff as the recorded pre-cutover settings review.
+running the 2s fallback. `--chain-selector` filters to one chain, warnings included: the conversion
+now also returns its warnings grouped by chain ID (`Conversion.WarningsByChainID`, built from the
+same per-chain slices as the flat list), so a single-chain report cannot print another chain's
+dropped settings. The command needs no database, no secrets, and no network, like the other
+`ccv migrate` subcommands. The migration procedure's step 3 now ends with this diff as the recorded
+pre-cutover settings review.
 
 ### Block-time fallback warning
 
-`newMultiNodeClientFromInfo` warns when a chain has no configured TXM block time and the 2s
-fallback applies, naming the chain and pointing at `txm_block_time` /
-`Transactions.TransactionManagerV2.BlockTime`. The fallback itself is unchanged; a missed
-per-chain value is now loud at startup instead of only visible in retry behavior.
+`standaloneChain.NewContractTransmitter` warns when a chain has no configured TXM block time and
+the 2s fallback applies, naming the chain and pointing at `txm_block_time` /
+`Transactions.TransactionManagerV2.BlockTime`. It is emitted there, past the OffRamp gate, rather
+than when the chain client is built: only that path constructs and starts TXM v2, so a source-only
+chain such as the verifier's never runs the fallback and is not warned about it. `standaloneChain`
+keeps the operator's chain ID and whether the block time was defaulted for the message, since the
+resolved config cannot tell a defaulted block time from a configured one. The fallback itself is
+unchanged; a missed per-chain value is now loud instead of only visible in retry behavior.
 
 ## Compatibility & Requirements
 

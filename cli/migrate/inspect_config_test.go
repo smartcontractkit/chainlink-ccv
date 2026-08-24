@@ -94,26 +94,38 @@ http_url = "https://sepolia.example.com"
 		assert.Equal(t, uint32(30), report.Chains["16015286601757825753"].FinalityDepth)
 	})
 
-	t.Run("chain-selector filters the report", func(t *testing.T) {
+	// A per-chain report has to narrow its warnings too: another chain's dropped settings printed
+	// next to this chain's settings read as this chain's deviations.
+	t.Run("chain-selector filters the chains and their warnings", func(t *testing.T) {
 		t.Parallel()
 		path := writeConfigFile(t, `
 [[EVM]]
 ChainID = '11155111'
+[EVM.GasEstimator]
+Mode = 'BlockHistory'
 [[EVM.Nodes]]
 Name = 'sepolia'
 HTTPURL = 'https://sepolia.example.com'
 
 [[EVM]]
 ChainID = '421614'
+[EVM.HeadTracker]
+HistoryDepth = 50
 [[EVM.Nodes]]
 Name = 'arb'
 HTTPURL = 'https://arb.example.com'
 `)
 
+		full, err := buildConfigReport(path, "")
+		require.NoError(t, err)
+		require.Len(t, full.Warnings, 2, "one dropped setting per chain")
+
 		report, err := buildConfigReport(path, "3478487238524512106") // arbitrum-sepolia
 		require.NoError(t, err)
 		require.Len(t, report.Chains, 1)
 		assert.Contains(t, report.Chains, "3478487238524512106")
+		require.Len(t, report.Warnings, 1)
+		assert.Contains(t, report.Warnings[0], "chain 421614: dropped set chain-level settings")
 
 		_, err = buildConfigReport(path, "999")
 		require.ErrorContains(t, err, "not in")

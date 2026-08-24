@@ -124,26 +124,34 @@ func TestExportNodeKeysExpectedID(t *testing.T) {
 		assert.Equal(t, addressOf(node.ocr2Key), result.SigningAddress)
 	})
 
-	t.Run("mismatching expected_id fails as a wrong bundle export", func(t *testing.T) {
+	// The rejected pair decodes fine — it is the wrong key, not a broken one — so leaving it in
+	// outDir would let a later mount use a key this command refused.
+	t.Run("mismatching expected_id fails as a wrong bundle export and removes the files", func(t *testing.T) {
 		t.Parallel()
 		node := happyNode(t)
 		srv := node.start()
-		cfg := happyConfig(node, srv.URL, t.TempDir())
+		outDir := t.TempDir()
+		cfg := happyConfig(node, srv.URL, outDir)
 		cfg.ExpectedID = addressOf(newTestKey(t))
 
 		_, err := ExportNodeKeys(context.Background(), logger.Test(t), cfg)
 		require.ErrorContains(t, err, "wrong OCR2 bundle")
+		assert.NoFileExists(t, filepath.Join(outDir, OCR2ExportFileName))
+		assert.NoFileExists(t, filepath.Join(outDir, PasswordFileName))
 	})
 
-	t.Run("malformed expected_id fails before comparison", func(t *testing.T) {
+	t.Run("malformed expected_id fails before anything is exported", func(t *testing.T) {
 		t.Parallel()
 		node := happyNode(t)
 		srv := node.start()
-		cfg := happyConfig(node, srv.URL, t.TempDir())
+		outDir := t.TempDir()
+		cfg := happyConfig(node, srv.URL, outDir)
 		cfg.ExpectedID = "not-an-address"
 
 		_, err := ExportNodeKeys(context.Background(), logger.Test(t), cfg)
 		require.ErrorContains(t, err, "not a hex address")
+		assert.NoFileExists(t, filepath.Join(outDir, OCR2ExportFileName))
+		assert.NoFileExists(t, filepath.Join(outDir, PasswordFileName))
 	})
 }
 

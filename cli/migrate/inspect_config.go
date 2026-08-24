@@ -75,6 +75,12 @@ func buildConfigReport(configPath, chainSelector string) (*configReport, error) 
 			return nil, fmt.Errorf("chain selector %s is not in %s", chainSelector, configPath)
 		}
 		report.Chains = map[string]evm.EffectiveChain{chainSelector: chain}
+		// The warnings narrow with the chains: a multi-chain node config would otherwise print
+		// every other chain's dropped settings next to this one chain's settings, which reads as
+		// this chain's deviations.
+		if conversion != nil {
+			report.Warnings = conversion.WarningsByChainID[chain.ChainID]
+		}
 	}
 	return report, nil
 }
