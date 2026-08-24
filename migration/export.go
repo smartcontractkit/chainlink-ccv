@@ -248,12 +248,15 @@ func checkExpectedID(expectedID, signingAddress string) error {
 
 // removeRejectedExport deletes the key and password an identity check refused, so a failed export
 // leaves nothing mountable in OutDir. A removal that fails is warned about rather than returned:
-// the identity mismatch is the error worth reading.
+// the identity mismatch is the error worth reading. The file that would not go away is named by
+// os.Remove's *fs.PathError, not by a separate log field: passing the password file's path to a
+// log call reads to static analysis as logging the password itself, and the error already carries
+// the path.
 func removeRejectedExport(lggr logger.Logger, paths ...string) {
 	for _, path := range paths {
 		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
 			lggr.Warnw("could not remove a rejected export artifact; delete it by hand before retrying",
-				"path", path, "err", err)
+				"err", err)
 		}
 	}
 }
