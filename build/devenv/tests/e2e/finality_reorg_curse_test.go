@@ -818,7 +818,9 @@ func curseSelector(t *testing.T, env *deployment.Environment, adapter fastcurse.
 	}
 
 	// Wait for the verifier to detect the curse.
-	// The verifier polls every 10 seconds, wait for 12 seconds to be sure.
+	// The standalone verifier polls every 2 seconds, but cursechecker's default is 10.
+	// Wait for 12 seconds so this holds either way: a task on a lane the verifier still
+	// believes is cursed is dropped for good.
 	time.Sleep(12 * time.Second)
 }
 
@@ -869,7 +871,9 @@ func uncurseSelector(t *testing.T, env *deployment.Environment, adapter fastcurs
 	}
 
 	// Wait for the verifier to detect the uncurse.
-	// The verifier polls every 10 seconds, wait for 12 seconds to be sure.
+	// The standalone verifier polls every 2 seconds, but cursechecker's default is 10.
+	// Wait for 12 seconds so this holds either way: a task on a lane the verifier still
+	// believes is cursed is dropped for good.
 	time.Sleep(12 * time.Second)
 }
 
