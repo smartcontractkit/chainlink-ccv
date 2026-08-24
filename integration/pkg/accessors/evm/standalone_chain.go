@@ -50,6 +50,11 @@ type standaloneChain struct {
 	headTracker     heads.Tracker
 	mailMonitor     *mailbox.Monitor
 
+	// txmBlockTimeIsDefault is kept from the operator's Info for the warning
+	// NewContractTransmitter emits: chainConfig carries the block time already defaulted, which
+	// cannot be told apart from one the operator set.
+	txmBlockTimeIsDefault bool
+
 	mu                  sync.Mutex
 	txm                 txmgr.TxManager
 	unsubscribeTXM      func()
@@ -106,13 +111,14 @@ func newStandaloneChain(ctx context.Context, info Info, lggr logger.Logger) (*st
 		"nodeCount", len(chainConfig.Nodes()),
 	)
 	return &standaloneChain{
-		lggr:            lggr,
-		chainClient:     chainClient,
-		chainConfig:     chainConfig,
-		headBroadcaster: headBroadcaster,
-		headTracker:     headTracker,
-		mailMonitor:     mailMonitor,
-		recoveryStop:    make(services.StopChan),
+		lggr:                  lggr,
+		chainClient:           chainClient,
+		chainConfig:           chainConfig,
+		headBroadcaster:       headBroadcaster,
+		headTracker:           headTracker,
+		mailMonitor:           mailMonitor,
+		txmBlockTimeIsDefault: info.TXMBlockTime == 0,
+		recoveryStop:          make(services.StopChan),
 	}, nil
 }
 
@@ -157,6 +163,18 @@ func (c *standaloneChain) NewContractTransmitter(
 	}
 	if offRampAddress == (common.Address{}) {
 		return nil, errors.New("EVM transaction manager requires an OffRamp address")
+	}
+
+	if c.txmBlockTimeIsDefault {
+		// Warned here rather than when the chain is built: a source-only chain, the verifier's for
+		// instance, never reaches this point and never runs a TXM, so the fallback does not apply to
+		// it. Loud because the fallback is a far steeper retry and fee-bump cadence than the node
+		// produced on a slow chain; set it explicitly per chain before a cutover. The inspect-config
+		// migration tooling flags the same fact offline.
+		c.lggr.Warnw("no txm_block_time configured for chain; TXM v2 falls back to a 2s block time "+
+			"(retry and fee-bump cadence). Set txm_block_time (standalone config) or "+
+			"Transactions.TransactionManagerV2.BlockTime (node config) explicitly per chain",
+			"chainID", c.chainConfig.EVM().ChainID().String())
 	}
 
 	coreKeystore := evmkeysv2.NewTxKeyCoreKeystore(

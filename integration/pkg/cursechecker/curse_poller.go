@@ -15,7 +15,7 @@ import (
 )
 
 const (
-	DEFAULT_POLL_INTERVAL = 2 * time.Second
+	DEFAULT_POLL_INTERVAL = 10 * time.Second
 	// DEFAULT_RPC_TIMEOUT is the maximum time allowed for a single chain's RMN query.
 	// This prevents a hanging RPC call from blocking all chains' polling.
 	DEFAULT_RPC_TIMEOUT = 5 * time.Second

@@ -224,7 +224,7 @@ func TestNewCurseDetectorService_Validation(t *testing.T) {
 			metrics,
 		)
 		require.NoError(t, err)
-		require.Equal(t, 2*time.Second, svc.(*PollerService).pollInterval, "should use default poll interval")
+		require.Equal(t, 10*time.Second, svc.(*PollerService).pollInterval, "should use default poll interval")
 	})
 
 	t.Run("DefaultRPCTimeout", func(t *testing.T) {

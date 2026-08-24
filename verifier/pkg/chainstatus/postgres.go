@@ -37,31 +37,52 @@ func NewPostgresChainStatusStore(ds sqlutil.DataSource, lggr logger.Logger) *Pos
 	}
 }
 
-// WriteChainStatuses upserts chain statuses for the given verifierID.
+// WriteChainStatuses upserts chain statuses for the given verifierID in one statement.
+//
+// A batch must not contain the same chain twice: Postgres rejects an ON CONFLICT
+// DO UPDATE that touches one row two times. Duplicates are removed first, and the
+// last value for a chain wins, which matches the order the caller gave.
 func (s *PostgresChainStatusStore) WriteChainStatuses(ctx context.Context, verifierID string, statuses []protocol.ChainStatusInfo) error {
 	if len(statuses) == 0 {
 		return nil
 	}
-	return sqlutil.TransactDataSource(ctx, s.ds, nil, func(tx sqlutil.DataSource) error {
-		for _, status := range statuses {
-			chainSelectorStr := strconv.FormatUint(uint64(status.ChainSelector), 10)
-			if status.FinalizedBlockHeight == nil {
-				return fmt.Errorf("finalized block height cannot be nil for chain %s", chainSelectorStr)
-			}
-			stmt := `INSERT INTO ccv_chain_statuses (chain_selector, verifier_id, finalized_block_height, disabled)
-				VALUES ($1, $2, $3, $4)
-				ON CONFLICT (chain_selector, verifier_id) DO UPDATE SET
-					finalized_block_height = EXCLUDED.finalized_block_height,
-					disabled = EXCLUDED.disabled,
-					updated_at = NOW()`
-			blockHeightStr := status.FinalizedBlockHeight.String()
-			_, err := tx.ExecContext(ctx, stmt, chainSelectorStr, verifierID, blockHeightStr, status.Disabled)
-			if err != nil {
-				return fmt.Errorf("failed to upsert chain status for chain %s: %w", chainSelectorStr, err)
-			}
+
+	// Keep the last status per chain, in first-seen order, so the statement is stable.
+	order := make([]protocol.ChainSelector, 0, len(statuses))
+	latest := make(map[protocol.ChainSelector]protocol.ChainStatusInfo, len(statuses))
+	for _, status := range statuses {
+		if _, seen := latest[status.ChainSelector]; !seen {
+			order = append(order, status.ChainSelector)
 		}
-		return nil
-	})
+		latest[status.ChainSelector] = status
+	}
+
+	rows := make([]string, 0, len(order))
+	args := make([]any, 0, len(order)*4)
+	for i, chainSelector := range order {
+		status := latest[chainSelector]
+		chainSelectorStr := strconv.FormatUint(uint64(chainSelector), 10)
+		if status.FinalizedBlockHeight == nil {
+			return fmt.Errorf("finalized block height cannot be nil for chain %s", chainSelectorStr)
+		}
+		base := i * 4
+		rows = append(rows, fmt.Sprintf("($%d,$%d,$%d,$%d)", base+1, base+2, base+3, base+4))
+		args = append(args, chainSelectorStr, verifierID, status.FinalizedBlockHeight.String(), status.Disabled)
+	}
+
+	stmt := fmt.Sprintf(`INSERT INTO ccv_chain_statuses (chain_selector, verifier_id, finalized_block_height, disabled)
+		VALUES %s
+		ON CONFLICT (chain_selector, verifier_id) DO UPDATE SET
+			finalized_block_height = EXCLUDED.finalized_block_height,
+			disabled = EXCLUDED.disabled,
+			updated_at = NOW()`,
+		strings.Join(rows, ","))
+
+	// One statement is atomic, so no explicit transaction is necessary.
+	if _, err := s.ds.ExecContext(ctx, stmt, args...); err != nil {
+		return fmt.Errorf("failed to upsert %d chain statuses: %w", len(order), err)
+	}
+	return nil
 }
 
 // ReadChainStatuses returns statuses for the given verifierID and chain selectors.
