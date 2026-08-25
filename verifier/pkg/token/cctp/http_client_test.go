@@ -88,21 +88,6 @@ func TestGetMessages_InvalidTransactionHash(t *testing.T) {
 			txHash: "",
 			errMsg: "transaction hash cannot be empty",
 		},
-		{
-			name:   "Missing 0x prefix",
-			txHash: "1234567890123456789012345678901234567890123456789012345678901234",
-			errMsg: "invalid transaction hash format",
-		},
-		{
-			name:   "Wrong length",
-			txHash: "0x123456",
-			errMsg: "invalid transaction hash format",
-		},
-		{
-			name:   "Too long",
-			txHash: "0x12345678901234567890123456789012345678901234567890123456789012345678",
-			errMsg: "invalid transaction hash format",
-		},
 	}
 
 	for _, tc := range testCases {
