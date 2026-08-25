@@ -10,6 +10,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evmconfig"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-evm/pkg/config/chaintype"
 )
@@ -113,48 +114,6 @@ func TestNewChainlinkEVMConfigUsesProductionDefaultsAndEveryRPCNode(t *testing.T
 	require.Equal(t, "ws://node-b.internal:8546", nodes[1].WSURL.String())
 }
 
-func TestToChainlinkEVMNodeMapsOnlyFocusedStandaloneSubset(t *testing.T) {
-	t.Parallel()
-
-	info := Info{
-		ChainID: "1337",
-		Nodes: []Node{{
-			Name:    "local-rpc",
-			HTTPUrl: "http://node.internal:8545",
-			WSUrl:   "ws://node.internal:8546",
-		}},
-	}
-
-	node, usesPolling, err := toChainlinkEVMNode(info, 0, info.Nodes[0])
-	require.NoError(t, err)
-	require.False(t, usesPolling)
-	require.Equal(t, "local-rpc", *node.Name)
-	require.Equal(t, "http://node.internal:8545", node.HTTPURL.String())
-	require.Equal(t, "ws://node.internal:8546", node.WSURL.String())
-	require.Nil(t, node.HTTPURLExtraWrite)
-	require.Nil(t, node.SendOnly)
-	require.Nil(t, node.Order, "an unset Order stays nil so chainlink-evm applies its own default priority")
-	require.Nil(t, node.IsLoadBalancedRPC)
-}
-
-func TestToChainlinkEVMNodeCarriesSelectionPriority(t *testing.T) {
-	t.Parallel()
-
-	info := Info{
-		ChainID: "1337",
-		Nodes: []Node{{
-			Name:    "primary",
-			HTTPUrl: "http://node.internal:8545",
-			Order:   5,
-		}},
-	}
-
-	node, _, err := toChainlinkEVMNode(info, 0, info.Nodes[0])
-	require.NoError(t, err)
-	require.NotNil(t, node.Order, "a configured Order must reach the chainlink-evm node")
-	require.Equal(t, int32(5), *node.Order)
-}
-
 func TestNewChainlinkEVMConfigSupportsHTTPOnlyRPC(t *testing.T) {
 	t.Parallel()
 
@@ -170,8 +129,8 @@ func TestNewChainlinkEVMConfigSupportsHTTPOnlyRPC(t *testing.T) {
 	require.Equal(t, chaintype.ChainType(""), cfg.EVM().ChainType())
 	require.True(t, cfg.EVM().FinalityTagEnabled(), "zero depth must select finality-tag mode")
 	require.Positive(t, cfg.EVM().FinalityDepth(), "chainlink-evm requires a positive fallback depth")
-	require.Equal(t, defaultTXMBlockTime, *cfg.EVM().Transactions().TransactionManagerV2().BlockTime())
-	require.Equal(t, defaultNewHeadsPollInterval, cfg.EVM().NodePool().NewHeadsPollInterval())
+	require.Equal(t, evmconfig.DefaultTXMBlockTime, *cfg.EVM().Transactions().TransactionManagerV2().BlockTime())
+	require.Equal(t, evmconfig.DefaultNewHeadsPollInterval, cfg.EVM().NodePool().NewHeadsPollInterval())
 	require.Len(t, cfg.Nodes(), 1)
 	require.Equal(t, "evm-1337", *cfg.Nodes()[0].Name)
 	require.Equal(t, "https://rpc.example.test", cfg.Nodes()[0].HTTPURL.String())

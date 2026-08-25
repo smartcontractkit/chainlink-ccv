@@ -1,4 +1,4 @@
-package evm
+package evmconfig
 
 import (
 	"testing"
@@ -9,7 +9,7 @@ import (
 )
 
 // The projection the pre-cutover diff reads: what standalone will run per chain, through the same
-// buildChainlinkEVMTOML the runtime adapter uses.
+// BuildChainlinkEVMTOML the runtime adapter uses.
 func TestEffectiveChainConfigs(t *testing.T) {
 	t.Parallel()
 
@@ -70,7 +70,7 @@ HTTPURL = 'https://sepolia.example.com'
 		chains, err := EffectiveChainConfigs(conversion.Config)
 		require.NoError(t, err)
 		chain := onlyChain(t, chains)
-		assert.Equal(t, defaultTXMBlockTime.String(), chain.TXMBlockTime)
+		assert.Equal(t, DefaultTXMBlockTime.String(), chain.TXMBlockTime)
 		assert.True(t, chain.TXMBlockTimeIsDefault,
 			"the 2s fallback is the first thing to check on a slow chain, so the report must flag it")
 	})

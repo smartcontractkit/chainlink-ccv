@@ -7,7 +7,7 @@ import (
 
 	"github.com/urfave/cli"
 
-	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evmconfig"
 )
 
 // inspectConfigCommand is `ccv migrate inspect-config`: the pre-cutover settings diff. It runs
@@ -46,17 +46,17 @@ func inspectConfigCommand() cli.Command {
 
 // configReport is what `ccv migrate inspect-config` prints.
 type configReport struct {
-	ConvertedFromNodeConfig bool                          `json:"converted_from_node_config"`
-	Warnings                []string                      `json:"warnings,omitempty"`
-	Chains                  map[string]evm.EffectiveChain `json:"chains"`
+	ConvertedFromNodeConfig bool                                `json:"converted_from_node_config"`
+	Warnings                []string                            `json:"warnings,omitempty"`
+	Chains                  map[string]evmconfig.EffectiveChain `json:"chains"`
 }
 
 func buildConfigReport(configPath, chainSelector string) (*configReport, error) {
-	cfg, conversion, err := evm.LoadConfigFile(configPath)
+	cfg, conversion, err := evmconfig.LoadConfigFile(configPath)
 	if err != nil {
 		return nil, err
 	}
-	chains, err := evm.EffectiveChainConfigs(*cfg)
+	chains, err := evmconfig.EffectiveChainConfigs(*cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -74,7 +74,7 @@ func buildConfigReport(configPath, chainSelector string) (*configReport, error) 
 		if !ok {
 			return nil, fmt.Errorf("chain selector %s is not in %s", chainSelector, configPath)
 		}
-		report.Chains = map[string]evm.EffectiveChain{chainSelector: chain}
+		report.Chains = map[string]evmconfig.EffectiveChain{chainSelector: chain}
 		// The warnings narrow with the chains: a multi-chain node config would otherwise print
 		// every other chain's dropped settings next to this one chain's settings, which reads as
 		// this chain's deviations.
