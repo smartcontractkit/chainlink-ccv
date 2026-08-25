@@ -38,6 +38,7 @@ type runtimeContextMarkerKey struct{}
 
 const (
 	validTestOffRampAddress   = "0x0000000000000000000000000000000000001234"
+	validTestOnRampAddress    = "0x0000000000000000000000000000000000009abc"
 	validTestRMNRemoteAddress = "0x0000000000000000000000000000000000005678"
 	zeroTestAddress           = "0x0000000000000000000000000000000000000000"
 )
@@ -182,6 +183,40 @@ func TestFactoryRejectsAccessorWithoutCapabilitiesBeforeStartingRuntime(t *testi
 	require.Nil(t, accessor)
 	require.ErrorContains(t, err, "neither source nor destination services are configured")
 	require.Zero(t, runtimeCalls)
+}
+
+// TestFactoryTreatsOnRampOnlyConfigAsSourceChain pins the contract that rmn_remote_addresses is
+// optional. A config carrying only on_ramp_addresses is a source chain: the RMN Remote comes from
+// the OnRamp's on-chain static config, so the deprecated entry may be absent. An earlier gate
+// required both addresses, which made every source-only chain in a config written without the
+// deprecated key fail with "neither source nor destination services are configured" — the verifier
+// then found no source readers and crash-looped.
+func TestFactoryTreatsOnRampOnlyConfigAsSourceChain(t *testing.T) {
+	t.Parallel()
+
+	const selector = protocol.ChainSelector(5009297550715157269)
+	runtimeCalls := 0
+	factory := newFactory(
+		logger.Test(t),
+		map[protocol.ChainSelector]string{selector: validTestOnRampAddress},
+		// rmn_remote_addresses deliberately absent, as in a config written after the cutover.
+		nil,
+		nil,
+		0,
+		func(context.Context, protocol.ChainSelector, logger.Logger) (chainRuntime, error) {
+			runtimeCalls++
+			return &stubChainRuntime{}, nil
+		},
+	)
+
+	accessor, err := factory.GetAccessor(context.Background(), selector)
+	// The gate is passed and the runtime is started; construction only fails afterwards because
+	// the stub runtime hands back a nil chain client, which is as far as this test can get
+	// without a chain to answer OnRamp.getStaticConfig().
+	require.Equal(t, 1, runtimeCalls)
+	require.Nil(t, accessor)
+	require.ErrorContains(t, err, "client is nil")
+	require.NotContains(t, err.Error(), "neither source nor destination services are configured")
 }
 
 func TestIsValidAddress(t *testing.T) {
