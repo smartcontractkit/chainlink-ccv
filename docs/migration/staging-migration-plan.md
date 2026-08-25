@@ -39,8 +39,8 @@ operators. This document adapts it for staging, where one team does both halves.
 - The cutover mechanism itself is tested end to end by `TestE2EMigration_CLToStandalone`
   (`chainlink-ccv/build/devenv/tests/e2e/smoke_migration_test.go`).
 - Migration tooling landed 20 Aug 2026. Note: this batch currently lives on the `tt/stagingPrep`
-  branch of chainlink-ccv, not on main. It has to merge before P2, since the images we deploy must
-  contain it.
+  branch of chainlink-ccv, not on main. It has to merge before P2, since the images we deploy are
+  the ones CI publishes from main.
   - `ccv migrate export --expected-id <addr>` fails the export if the exported key doesn't match
     the JD-registered signing address. This catches a wrong-bundle export while the node is
     still up.
@@ -86,10 +86,17 @@ DEPLOY=~/dev/dev/chainlink-ccv-deploy
 i=1
 NODE=chainlink-ccv-staging-$i               # JD alias, topology alias
 CL=chainlink-ccv-$i                         # the node's k8s deployment, service, secret prefix
-VER=ccv-standalone-verifier-$i              # standalone verifier release (created in P7)
-EXE=ccv-standalone-executor-$i              # standalone executor release (created in P7)
+VER=committee-verifier-evm-$i               # verifier: release = Deployment = JD node name
+EXE=executor-evm-$i                         # executor: same three names
 EXPECTED_ID=<from P8>                       # this node's OnchainSigningAddress from JD
 ```
+
+Standalone names carry the chain family, following `committee-verifier-canton-0` in
+chainlink-ccv-deploy and `committee-verifier-solana-0` / `executor-solana-0` in
+chainlink-ccv-non-evm-deploy; other families will share this cluster and namespace. For each
+standalone instance the griddle release name, the chart's `name` value (which becomes the
+Deployment name), and the JD node name are the same string, so `$VER` and `$EXE` work in every
+context below.
 
 The alias-to-node mapping (`chainlink-ccv-staging-$i` to `chainlink-ccv-$i`) is assumed 1:1 by
 index. The export in step 3 verifies it for free: `--expected-id` carries the alias's JD signing
@@ -108,18 +115,67 @@ Either way the run performs real JD and on-chain operations.
 
 ## Prerequisites (before the first node migrates)
 
-### P0. Local pipeline and JD auth setup
+### P0. Access, pipelines, and JD auth
 
-staging_testnet already registers the shared CCV pipelines (`apply-verifier-config`,
-`apply-executor-config`, `jd_*`), unlike staging-migration, so no code change is needed. Verify,
-and set up local JD auth for CLI runs (`domains/ccv/.config/local/` is empty today):
+Three checks, all before the first node.
+
+Secrets. P6 and step 4 create secrets through `$CTX_ENG`. The engineer role can create secrets
+but not patch them (chainlink-ccv-deploy,
+`deploy/config/staging/committee-verifier-canton/README.md`, "RBAC: create, not patch"). Confirm
+the create permission before the day:
+
+```sh
+kubectl --context $CTX_ENG -n $NS auth can-i create secrets     # must print yes
+```
+
+If it prints `no`, that is an Okta access request, not a kubectl problem: namespace access is
+granted through Okta groups, team `ccip`, role `TeamCCIPEngineer` or `TeamCCIPAdmin`
+(chainlink-ccv-deploy `AGENTS.md`, "Accessing the Platform"). Ask makramkd which request to file.
+
+Pipelines. staging_testnet already registers the shared CCV pipelines (`apply-verifier-config`,
+`apply-executor-config`, `jd_*`), unlike staging-migration, so no code change is needed:
 
 ```sh
 cd $CLD
 go run ./domains/ccv/cmd durable-pipeline list --environment staging_testnet
-go run ./domains/ccv/cmd domain config local create --domain ccv --env staging_testnet
-# fill in the JD Cognito credentials it scaffolds
 ```
+
+JD auth. The canonical pipeline path (commit the input, `/run-pipelines`) needs nothing here: CI
+reads the ccv domain's JD credentials from its secret env vars
+(`OFFCHAIN_JD_AUTH_COGNITO_APP_CLIENT_ID_CCV_STAGING_TESTNET` and its four siblings; the
+`Secrets - Check Env Vars` workflow in chainlink-deployments reports whether they are set). Local
+runs (`durable-pipeline run`, `jd node ...`) need the same five values in
+`domains/ccv/.config/local/config.staging_testnet.yaml`, which does not exist today. The
+scaffold command is in the `cmd/cld` module, not the domain CLI:
+
+```sh
+cd $CLD/cmd/cld
+go run . domain config local create --domain ccv --env staging_testnet
+```
+
+Then fill in `offchain.job_distributor` (field reference:
+`docs/docs/guides/configuration/environment/reference.md` in chainlink-deployments):
+
+```yaml
+offchain:
+  job_distributor:
+    endpoints:
+      grpc: grpc-job-distributor.main.stage.cldev.sh   # as in .config/ci/staging_testnet.env
+    auth:
+      cognito_app_client_id: ...
+      cognito_app_client_secret: ...
+      aws_region: ...
+      username: ...
+      password: ...
+```
+
+Where the values come from: the staging JD is shared across domains, and its Cognito app client
+and service user are provisioned on the CLD side. The CLD docs (`job-distributor/introduction.md`
+and `ci-cd/environment-variables.md` under `docs/docs/guides/`) only describe the CI path, where
+changes go through the secret env var workflows and need CLD team approval in
+`#cld-guardian-support`. There is no self-serve path for a local copy: ask in
+that channel for the ccv `staging_testnet` set, or skip local runs and use `/run-pipelines`
+throughout. The local file is gitignored; never commit it.
 
 ### P1. Consolidate verifier jobs (run while still in CL mode)
 
@@ -150,61 +206,121 @@ go run ./domains/ccv/cmd durable-pipeline run --environment staging_testnet \
 Two cautions. First, no archived input in the repo has used
 `consolidateAggregators`/`revokeOrphanedJobs` yet (the payload keys come from the resolver struct
 fields, matched case-insensitively), so treat the first dry run as the test of the spelling.
-Second, node 0 is also the sole member of the `secondary` committee, so it carries a
-secondary-committee verifier job this consolidation does not touch and its preflight will show two
-jobs; see open question 1 and leave node 0 for last.
+Second, node 0 is also the sole member of the `secondary` committee
+(`[nop_topology.committees.secondary]` in `domains/ccv/staging_testnet/topology.toml`), so it
+carries a secondary-committee verifier job this consolidation does not touch and its preflight
+will show two jobs; see open question 1 and leave node 0 for last.
 
 ### P2. Images
 
-Build and publish the standalone verifier and executor images to the internal ECR from a
-chainlink-ccv commit that includes the 20 Aug migration tooling (merge `tt/stagingPrep` first).
-The existing `manual-build.yaml` workflow in chainlink-ccv publishes to the private ECR the stage
-cluster pulls from.
+No manual build. Every merge to main runs `build-push-main.yaml` in chainlink-ccv, which
+publishes `containers/chainlink-ccv-verifier:<sha>-rc` and
+`containers/chainlink-ccv-executor:<sha>-rc` (full 40-char commit SHA) to the primary and
+secondary private ECRs. The staging aggregator and indexer values already pin images this way
+(`deploy/config/staging/aggregator/common.yaml`:
+`809128755817.dkr.ecr.us-west-2.amazonaws.com/containers/chainlink-ccv-aggregator:<sha>-rc`).
+So: merge `tt/stagingPrep`, take the merge commit's SHA, and pin `image.tag: <sha>-rc` in the P3
+values.
 
-### P3. Charts and config dir
+A release tag is the alternative. release-please cuts the root `vX.Y.Z` tag
+(`.release-please-manifest.json` is at 0.4.0, so the next is v0.5.0) and `release-publish.yaml`
+publishes the same images tagged `vX.Y.Z`, no `-rc`. Either works for staging; the SHA image
+exists minutes after the merge, the release image when we choose to cut one. `manual-build.yaml`
+(tag `manual-<ref>-rc`, primary ECR only) is for testing an unmerged ref and is not part of this
+plan.
 
-The `committee-verifier-base` chart already exists in chainlink-ccv-deploy
-(`deploy/charts/committee-verifier-base`, v0.1.1, already listed in `build.charts.inventory`) with
-zero deploy instances; the verifier instances can point straight at it. No executor chart exists
-anywhere, so create `deploy/charts/standalone-executor` with `committee-verifier-base` as the
-template. The canton values (`deploy/config/staging/committee-verifier-canton/staging.yaml`) show
-the secrets-mount pattern to copy: one versioned secret per instance, `subPath`-projected onto the
-paths the process reads (`/etc/bootstrap/secrets.toml`, `/etc/committee-verifier/secrets.toml`).
-Also create the config dir `deploy/config/staging/ccv-standalone/`.
+### P3. Charts and config dirs
 
-### P4. Databases (3 per node)
+Verifier: the `committee-verifier-base` chart already exists in chainlink-ccv-deploy
+(`deploy/charts/committee-verifier-base`, v0.1.1, listed in `build.charts.inventory`) with zero
+deploy instances; the verifier releases point straight at it.
+
+Executor: do not write a chart. chainlink-ccv-non-evm-deploy has `deploy/charts/executor-solana`
+(v0.2.2), the chart its `executor-solana-0/1/2` staging releases run on today. Its templates are
+family-neutral: image, `configs` rendered into one ConfigMap, `volumes`/`volumeMounts` for the
+secret and config files, `envVars`, `/health` probes on `service.port`, optional `managedDB`, an
+OTEL sidecar slot. The only Solana-specific content is the default `image.repository`, the chart
+name, and the README. Copy it into chainlink-ccv-deploy as `deploy/charts/executor-evm` (rename
+in `Chart.yaml`, version 0.1.0), add it to `build.charts.inventory`, and the existing
+`push-helm-charts.yaml` publishes it on the PR like every other chart. The non-evm repo's
+`deploy/config/executor-solana/` values (`staging-common.yaml`, `staging-config.yaml`,
+`executor-solana-0/staging.yaml`) are the model for ours: bootstrap secrets projected onto
+`/etc/bootstrap/secrets.toml` with `subPath`, `BOOTSTRAPPER_CONFIG_PATH` pointing at the
+non-secret bootstrap TOML from `configs`, probes on the bootstrap `[server].listen_port`.
+
+Both processes take their file locations from the same env vars (`BOOTSTRAPPER_CONFIG_PATH`,
+`BOOTSTRAPPER_SECRETS_PATH`, `COMMITTEE_VERIFIER_SECRETS_PATH`; `bootstrap/bootstrap.go`,
+`verifier/pkg/vsecrets/vsecrets.go` in chainlink-ccv). The bootstrap health endpoint is `/health`
+on `[server].listen_port`, default 9988 (`docs/config/bootstrap/config.documented.toml`). The
+chart defaults probe `/healthz` (verifier base) and port 8080 (both), so set the probes per
+instance the way the canton values (`deploy/config/staging/committee-verifier-canton/staging.yaml`)
+do.
+
+Config dirs, one per family chart, named like the releases:
+
+- `deploy/config/staging/committee-verifier-evm/`: `common.yaml` (image, resources, labels,
+  sidecar), `config.yaml` (non-secret `configs:` TOMLs), `committee-verifier-evm-$i.yaml`
+  (`name`, `replicas`, the secret volumes).
+- `deploy/config/staging/executor-evm/`: the same three.
+
+### P4. Databases (3 per node, on their own cluster)
 
 Verifier-bootstrap, verifier-app, executor-bootstrap. They cannot share a database (both migration
 runners use goose's default version table). 63 databases if the whole committee migrates;
-provision at least the next node's three before its window. Edit
-`$DEPLOY/deploy/config/staging/database-provisioner/database-provisioner.yaml`; map keys must stay
-at or under 43 chars (the composition appends `-provider-sql-config` and the result is a 63-char
-k8s label). Set `connectionSecret.name` explicitly. Node 1's block, as the model:
+provision at least the next node's three before its window.
+
+Put them on a new Aurora cluster rather than on `chainlink-ccv-dons`, which hosts the 21 CL node
+databases. The reason is isolation in both directions: the standalone processes cannot load the
+DON cluster, and if a standalone database has to be dropped, or the whole cluster wiped after a
+bad cutover, nothing CL-mode is on it, so the rollback path (scale the CL node back up, repoint
+its CSA key) never depends on the new cluster. Both live in
+`$DEPLOY/deploy/config/staging/database-provisioner/database-provisioner.yaml`. The cluster,
+modeled on the `chainlink-ccv-dons` block minus its restore snapshot:
+
+```yaml
+databaseClusters:
+  chainlink-ccv-evm-standalone:
+    engine: aurora-postgresql
+    engineVersion: "17.5"
+    deletionProtection: true
+    backupRetentionDays: 7
+    instances:
+      count: 1
+      instanceClass: db.t4g.medium
+```
+
+Instance class and storage type are sizing calls; `db.t4g.medium` is what the two canton
+verifier clusters in the same file use. Revisit after the first soak. Add the cluster in the same
+PR as node 1's databases and confirm it is ready before expecting connection secrets.
+
+Database map keys must stay at or under 43 chars (the composition appends `-provider-sql-config`
+and the result is a 63-char k8s label). Set `connectionSecret.name` explicitly. Node 1's block, as
+the model:
 
 ```yaml
 databases:
-  ccv-sa-1-verifier-bootstrap:
-    databaseClusterName: chainlink-ccv-dons
-    databaseName: ccv_sa_1_verifier_bootstrap
+  ccv-evm-1-verifier-bootstrap:
+    databaseClusterName: chainlink-ccv-evm-standalone
+    databaseName: ccv_evm_1_verifier_bootstrap
     connectionSecret:
-      name: ccv-sa-1-verifier-bootstrap-database-connection
-  ccv-sa-1-verifier-app:
-    databaseClusterName: chainlink-ccv-dons
-    databaseName: ccv_sa_1_verifier_app
+      name: ccv-evm-1-verifier-bootstrap-database-connection
+  ccv-evm-1-verifier-app:
+    databaseClusterName: chainlink-ccv-evm-standalone
+    databaseName: ccv_evm_1_verifier_app
     connectionSecret:
-      name: ccv-sa-1-verifier-app-database-connection
-  ccv-sa-1-executor-bootstrap:
-    databaseClusterName: chainlink-ccv-dons
-    databaseName: ccv_sa_1_executor_bootstrap
+      name: ccv-evm-1-verifier-app-database-connection
+  ccv-evm-1-executor-bootstrap:
+    databaseClusterName: chainlink-ccv-evm-standalone
+    databaseName: ccv_evm_1_executor_bootstrap
     connectionSecret:
-      name: ccv-sa-1-executor-bootstrap-database-connection
+      name: ccv-evm-1-executor-bootstrap-database-connection
 ```
 
 Deploy (PR + `.deploy stage`), then verify:
 
 ```sh
-kubectl --context $CTX -n $NS get databasecluster
-kubectl --context $CTX -n $NS get secret ccv-sa-$i-verifier-app-database-connection
+kubectl --context $CTX -n $NS get databasecluster chainlink-ccv-evm-standalone
+kubectl --context $CTX -n $NS get secret ccv-evm-$i-verifier-app-database-connection
 ```
 
 Each connection secret carries `POSTGRES_HOST/PORT/USER/PASSWORD/DB`.
@@ -227,34 +343,47 @@ connection secrets:
 
 ```sh
 db_url() { kubectl --context $CTX -n $NS get secret "$1" -o go-template='postgres://{{index .data "POSTGRES_USER" | base64decode}}:{{index .data "POSTGRES_PASSWORD" | base64decode}}@{{index .data "POSTGRES_HOST" | base64decode}}:{{index .data "POSTGRES_PORT" | base64decode}}/{{index .data "POSTGRES_DB" | base64decode}}'; }
-db_url ccv-sa-$i-verifier-bootstrap-database-connection
+db_url ccv-evm-$i-verifier-bootstrap-database-connection
 ```
 
-Create versioned secrets (create-not-patch RBAC; a change later means `-v2` plus a values repoint,
-per the canton README workflow):
+Create versioned secrets named after the instance (create-not-patch RBAC; a change later means
+`-v2` plus a values repoint, per the canton README workflow):
 
 ```sh
-kubectl --context $CTX_ENG -n $NS create secret generic $NODE-verifier-secrets-v1 \
-  --from-file=bootstrap-secrets.toml=/tmp/$NODE-verifier-bootstrap-secrets.toml \
-  --from-file=verifier-secrets.toml=/tmp/$NODE-verifier-app-secrets.toml
-kubectl --context $CTX_ENG -n $NS create secret generic $NODE-executor-secrets-v1 \
-  --from-file=bootstrap-secrets.toml=/tmp/$NODE-executor-bootstrap-secrets.toml
+kubectl --context $CTX_ENG -n $NS create secret generic $VER-secrets-v1 \
+  --from-file=bootstrap-secrets.toml=/tmp/$VER-bootstrap-secrets.toml \
+  --from-file=verifier-secrets.toml=/tmp/$VER-app-secrets.toml
+kubectl --context $CTX_ENG -n $NS create secret generic $EXE-secrets-v1 \
+  --from-file=bootstrap-secrets.toml=/tmp/$EXE-bootstrap-secrets.toml
 ```
 
 ### P7. Griddle releases, verifiers at zero replicas
 
-Two entries per node in `$DEPLOY/griddle.yaml` under the stage env, modeled on the canton
-entries; add them per migration batch rather than all 42 upfront. `ccip_env: stage` is required
-(the image-sync-check workflow errors without it). Shape:
+Two entries per node in `$DEPLOY/griddle.yaml` under the stage env, next to the canton entries;
+add them per migration batch rather than all 42 upfront. `ccip_env: stage` is required (the
+image-sync-check workflow errors without it). Shape:
 
 ```yaml
-    - name: ccv-standalone-verifier-1
+    - name: committee-verifier-evm-1
       namespace: chainlink-ccv
       path: deploy/charts/committee-verifier-base
       ccip_env: stage
       config:
-        - deploy/config/staging/ccv-standalone/verifier-common.yaml
-        - deploy/config/staging/ccv-standalone/verifier-1.yaml
+        - deploy/config/staging/committee-verifier-evm/common.yaml
+        - deploy/config/staging/committee-verifier-evm/config.yaml
+        - deploy/config/staging/committee-verifier-evm/committee-verifier-evm-1.yaml
+      settings:
+        install_timeout: 5m0s
+        rollback_timeout: 5m0s
+        upgrade_timeout: 5m0s
+    - name: executor-evm-1
+      namespace: chainlink-ccv
+      path: deploy/charts/executor-evm
+      ccip_env: stage
+      config:
+        - deploy/config/staging/executor-evm/common.yaml
+        - deploy/config/staging/executor-evm/config.yaml
+        - deploy/config/staging/executor-evm/executor-evm-1.yaml
       settings:
         install_timeout: 5m0s
         rollback_timeout: 5m0s
@@ -269,7 +398,7 @@ configured to ignore `/spec/replicas`, so a manual scale is not fought by the re
 only overwritten by the next actual deploy of that release). Preview before deploying:
 
 ```sh
-cd $DEPLOY && gcli helm template -e stage -N ccv-standalone-verifier-1 -c griddle.yaml
+cd $DEPLOY && gcli helm template -e stage -N committee-verifier-evm-1 -c griddle.yaml
 ```
 
 ### P8. expected_id per node, from JD
@@ -283,11 +412,16 @@ go run ./domains/ccv/cmd validate nop-support -e staging_testnet
 Record each node's `OnchainSigningAddress`; that value is `$EXPECTED_ID` in step 3. While here,
 also record each node's current CSA key: the rollback path needs it (step 7).
 
-### P9. Funding source and balance alerts
+### P9. Funding source
 
-Identify what funds staging node accounts today (open question 2) and wire external balance
-alerts for each new transmitter address on the five testnets. The standalone executor does not run
-the node's balance monitor; an unfunded account surfaces as failed broadcasts, not as an alert.
+Identify what funds staging node accounts today and who sends from it (open question 2).
+
+Balance alerts are out of scope for staging. The CL nodes have none today that this plan could
+carry over: `[EVM.BalanceMonitor] Enabled = true` in
+`deploy/config/staging/chainlink-ccv/chains.yaml` only exports the balance metric, and nothing in
+chainlink-ccv-deploy defines an alert on it. The standalone executor does not run the balance
+monitor at all, so an unfunded transmitter surfaces as failed broadcasts. The soak in step 12
+therefore includes a manual balance check on the five testnets. Alerts are a prod item.
 
 ## The cutover, per node (one at a time)
 
@@ -298,6 +432,13 @@ kubectl --context $CTX -n $NS exec deploy/$CL -- chainlink admin login --file /v
 kubectl --context $CTX -n $NS exec deploy/$CL -- chainlink jobs list
 kubectl --context $CTX -n $NS exec deploy/$CL -- chainlink node ccv chain-statuses list
 ```
+
+`/v2Secret/.api` is inside the node container. The `chainlink-cluster` chart mounts the node's
+`$CL-v2` secret at `/v2Secret` and starts the node with `-a /v2Secret/.api`
+(`deploy/charts/chainlink-cluster/templates/common/deployment.yaml`, the `$arguments` line; the
+key name is `chainlinkNode.spec.credentials.config.api.key`, `.api` by default), so
+`admin login --file` reads the credentials file the node itself booted with. Step 3 pulls the
+same key out of the secret for the port-forward path.
 
 Expect exactly one `ccvcommitteeverifier` job (post-P1; node 0 is the exception, see open
 question 1) and one `ccvexecutor` job. Record any chain-status row with `disabled = true`; step 10
@@ -336,7 +477,7 @@ different value.
 ### 4. Create the key-import secret and prepare the start PR
 
 ```sh
-kubectl --context $CTX_ENG -n $NS create secret generic $NODE-keyimport-v1 \
+kubectl --context $CTX_ENG -n $NS create secret generic $VER-keyimport-v1 \
   --from-file=key.json=/tmp/migration-$i/ocr2.json \
   --from-file=export-password.txt=/tmp/migration-$i/export-password.txt
 ```
@@ -383,15 +524,15 @@ echo '<PublicKey>' | base64 -d | xxd -p -c 999
 ```
 
 Repoint the node's existing JD record at the verifier's CSA key (this keeps the node ID and
-alias), and register the executor as a new JD node. Record the old CSA key first; rollback is
-repointing the record back at it.
+alias), and register the executor as a new JD node named after its release. Record the old CSA
+key first; rollback is repointing the record back at it.
 
 ```sh
 cd $CLD
 go run ./domains/ccv/cmd jd node list -e staging_testnet -f json     # node id + current csa key
 go run ./domains/ccv/cmd jd node update -e staging_testnet -i <node_id> -k csa_key -v <verifier_csa_hex>
 go run ./domains/ccv/cmd jd node register -e staging_testnet \
-  -n ccv-standalone-executor-$i -a <executor_csa_hex> \
+  -n $EXE -a <executor_csa_hex> \
   -l product=ccv -l environment=staging_testnet
 go run ./domains/ccv/cmd jd node list -e staging_testnet -f json     # wait: both connected
 ```
@@ -417,8 +558,9 @@ for RPC in $RPC_SEPOLIA $RPC_ARB_SEPOLIA $RPC_BASE_SEPOLIA $RPC_AMOY $RPC_FUJI; 
 done
 ```
 
-Attach the P9 balance alerts. The old per-chain transmitter balances stay put: they are testnet
-tokens and the rollback path, so nothing gets swept in staging.
+Record the address in the cutover notes; the balance check in step 12 uses it. The old per-chain
+transmitter balances stay put: they are testnet tokens and the rollback path, so nothing gets
+swept in staging.
 
 ### 9. Flip the mode
 
@@ -500,6 +642,10 @@ is not blocking.
 
 ### 12. Soak, then repeat for the next node
 
+During the soak, check the transmitter balance on each of the five testnets by hand
+(`cast balance <evmAddress> --rpc-url $RPC`); nothing alerts on it (P9). A balance that drops
+faster than expected is a reason to look at transmit failures before the next node.
+
 ## Validation before calling it done
 
 - Canary restart under traffic: `kubectl --context $CTX -n $NS delete pod <executor-pod>`
@@ -510,17 +656,24 @@ is not blocking.
   heads. That costs catch-up time, not correctness; measure it once and decide whether it is
   acceptable.
 - Dashboards: source-reader head gauges, critical-invariant counter, OffRamp read latency,
-  transmit failures, and the new transmitter balance alerts.
+  transmit failures. Transmitter balances are checked by hand (P9, step 12).
 - Rollback path: scale the CL node back up and repoint its JD record at the CSA key recorded in
   step 7 (`jd node update -i <node_id> -k csa_key -v <original_csa_hex>`). Exercise it on purpose
   at least once before the fleet is deep into the migration.
 
 ## Open questions for the team
 
-1. Node 0 is the sole member of the `secondary` committee (threshold 1 on all five chains), so
-   after P1 it still runs two verifier jobs and fails the one-job preflight. Do we retire the
-   secondary committee, or give node 0 a second standalone verifier for it? Either way node 0
-   migrates last.
+1. Node 0 is the sole member of the `secondary` committee
+   (`[nop_topology.committees.secondary]` in `domains/ccv/staging_testnet/topology.toml`:
+   threshold 1 on all five chains, with two aggregators of its own at
+   `chainlink-ccv-secondary-aggregator-1/2.ccip.stage.internal.griddle.sh`). It is real on both
+   sides: the staging datastore holds a `secondary`-qualified `CommitteeVerifier` and
+   `CommitteeVerifierResolver` per chain, and node 0's job
+   `chainlink-ccv-staging-0-secondary-aggregator-secondary-verifier` is in `state_v2.json`. No
+   release in chainlink-ccv-deploy's `griddle.yaml` serves those two aggregator hostnames,
+   though. So after P1 node 0 still runs two verifier jobs and fails the one-job preflight. Do we
+   retire the secondary committee (revoke the job, leave the contracts), or give node 0 a second
+   standalone verifier for it? Either way node 0 migrates last.
 2. What is the staging funding source for node accounts, and who owns sending from it? (P9)
 3. Per-chain `txm_block_time` values for the five chains. Proposal to react to: sepolia 12s,
    arbitrum-sepolia 1s, base-sepolia 2s, amoy 2s, fuji 2s. Needs agreement before P5.
@@ -528,5 +681,6 @@ is not blocking.
 ## What staging does not decide
 
 Prod batching (16 members, threshold 9, so at most 7 nodes mid-cutover at once), external
-operator comms, public image publishing (F2), operator-facing docs (F3), and sweeping prod
-transmitter balances (F1). Those get decided later, with staging results in hand.
+operator comms, public image publishing (F2), operator-facing docs (F3), sweeping prod
+transmitter balances (F1), and transmitter balance alerts (P9). Those get decided later, with
+staging results in hand.
