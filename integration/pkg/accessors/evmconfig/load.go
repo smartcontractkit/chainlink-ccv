@@ -52,7 +52,7 @@ func LoadConfigFile(path string) (*Config, *Conversion, error) {
 		return nil, nil, fmt.Errorf("failed to unmarshal config file %s: %w", path, err)
 	}
 	if len(md.Undecoded()) > 0 {
-		return nil, nil, fmt.Errorf("unknown fields in config: %v", md.Undecoded())
+		return nil, nil, fmt.Errorf("unknown fields in config file %s: %v", path, md.Undecoded())
 	}
 
 	return &cfg, nil, nil
@@ -102,6 +102,15 @@ func (c Config) ToInfos() (chainaccess.Infos[Info], error) {
 		sel, err := strconv.ParseUint(selector, 10, 64)
 		if err != nil {
 			return nil, fmt.Errorf("invalid chain selector %q: %w", selector, err)
+		}
+		// The map key is carried through as the Infos key, and chainaccess looks those up by the
+		// selector's canonical %d form. A key that parses but is spelled differently —
+		// "0<selector>" is the only such form ParseUint accepts — would load, convert, and start
+		// without complaint, then miss every lookup once a message arrives for the chain. Two keys
+		// for one selector would also silently collapse to whichever the map ranged over last.
+		if canonical := strconv.FormatUint(sel, 10); canonical != selector {
+			return nil, fmt.Errorf(
+				"chain selector %q must be written in canonical decimal form (%s)", selector, canonical)
 		}
 		chainID, err := chainsel.GetChainIDFromSelector(sel)
 		if err != nil {

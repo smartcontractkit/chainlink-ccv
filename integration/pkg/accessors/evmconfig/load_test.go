@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	chainsel "github.com/smartcontractkit/chain-selectors"
+	"github.com/smartcontractkit/chainlink-ccv/protocol"
 )
 
 func TestLoadConfig(t *testing.T) {
@@ -163,12 +164,46 @@ func TestConfigToInfosDerivesChainMetadataFromSelector(t *testing.T) {
 	require.Equal(t, "http://evm-node:8545", info.Nodes[0].HTTPUrl)
 }
 
+// A non-canonical selector parses, so nothing upstream rejects it, but the Infos key it produces
+// never matches the %d form chainaccess looks up — the process would start clean and then fail to
+// find the chain on the first message for it.
+func TestConfigToInfosRejectsNonCanonicalSelector(t *testing.T) {
+	cfg := Config{Chains: map[string]ChainConfig{
+		"05009297550715157269": {
+			Nodes: []Node{{HTTPUrl: "http://evm-node:8545"}},
+		},
+	}}
+
+	_, err := cfg.ToInfos()
+	require.ErrorContains(t, err, `chain selector "05009297550715157269"`)
+	require.ErrorContains(t, err, "canonical decimal form (5009297550715157269)")
+}
+
+// The canonical key is what chainaccess.Infos.GetBlockchainByChainSelector formats and looks up, so
+// the round trip through ToInfos has to land on it.
+func TestConfigToInfosKeysAreFoundByChainSelector(t *testing.T) {
+	cfg := Config{Chains: map[string]ChainConfig{
+		"5009297550715157269": {
+			FinalityDepth: 20,
+			Nodes:         []Node{{HTTPUrl: "http://evm-node:8545"}},
+		},
+	}}
+
+	infos, err := cfg.ToInfos()
+	require.NoError(t, err)
+
+	info, err := infos.GetBlockchainByChainSelector(protocol.ChainSelector(5009297550715157269))
+	require.NoError(t, err)
+	require.Equal(t, "1", info.ChainID)
+}
+
 func TestLoadConfigRejectsUnknownFields(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "evm.toml")
 	require.NoError(t, os.WriteFile(path, []byte("unexpected = true\n"), 0o600))
 
 	_, _, err := LoadConfigFile(path)
 	require.ErrorContains(t, err, "unknown fields in config")
+	require.ErrorContains(t, err, path, "the failing file must be named: several configs may be mounted")
 }
 
 func TestLoadConfigRejectsDerivedChainMetadata(t *testing.T) {

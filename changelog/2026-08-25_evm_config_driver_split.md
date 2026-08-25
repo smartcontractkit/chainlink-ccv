@@ -28,6 +28,7 @@
 | `evm.EffectiveChain → evmconfig.EffectiveChain` | renamed | `\bEffectiveChain\b` | `integration/pkg/accessors/evmconfig/effective_config.go:15` | [Migration Guide](#migration-guide) |
 | `evm.EffectiveNode → evmconfig.EffectiveNode` | renamed | `\bEffectiveNode\b` | `integration/pkg/accessors/evmconfig/effective_config.go:31` | [Migration Guide](#migration-guide) |
 | `accessors/evm` package import | behavior-changed | `accessors/evm"` | `integration/pkg/accessors/evm/factory_constructor.go:20` | [Importing the accessor package is the EVM opt-in](#importing-the-accessor-package-is-the-evm-opt-in) |
+| `evmconfig.Config.ToInfos` selector keys | behavior-changed | `\[chains\.0` | `integration/pkg/accessors/evmconfig/load.go:111` | [Non-canonical chain selectors are rejected at load](#non-canonical-chain-selectors-are-rejected-at-load) |
 | `evm.Config` / `ChainConfig` / `Node` / `Info` / `Conversion` | behavior-changed | `\bevm\.(Config|ChainConfig|Node|Info|Conversion)\b` | `integration/pkg/accessors/evm/config.go:11` | [Type aliases keep the accessor API spelling](#type-aliases-keep-the-accessor-api-spelling) |
 | `evmconfig.BuildChainlinkEVMTOML` | added | `BuildChainlinkEVMTOML` | `integration/pkg/accessors/evmconfig/chainlink_config.go:28` | [New exported config surface](#new-exported-config-surface) |
 | `evmconfig.ResolveConfigPath` | added | `ResolveConfigPath\(` | `integration/pkg/accessors/evmconfig/load.go:89` | [New exported config surface](#new-exported-config-surface) |
@@ -130,6 +131,26 @@ type (
 These are Go type aliases, not new types, so `evm.Info` and `evmconfig.Info` are the same type and
 values pass between the two packages freely. `build/devenv/evm/chainconfig`,
 `build/devenv/services/tokenVerifier.go`, and `tools/configdoc/registry` compile unchanged.
+
+### Non-canonical chain selectors are rejected at load
+
+`Config.ToInfos` now fails when a `[chains.<selector>]` key is not the selector's canonical decimal
+spelling. A leading zero is the only non-canonical form `strconv.ParseUint` accepts, and it used to
+be carried through as the `chainaccess.Infos` map key — which `GetBlockchainByChainSelector` looks
+up by the selector's `%d` form. The config loaded, the converter ran, the process started, and then
+every message for that chain failed with `failed to get EVM config for chain <selector>`. Two keys
+for one selector also collapsed silently to whichever the map ranged over last.
+
+```
+chain selector "05009297550715157269" must be written in canonical decimal form (5009297550715157269)
+```
+
+Both `CreateEVMAccessorFactory` and `EffectiveChainConfigs` go through `ToInfos`, so
+`ccv migrate inspect-config` reports this before a cutover rather than after one. Converted
+Chainlink-node configs are unaffected: the converter writes keys with `strconv.FormatUint`.
+
+The `unknown fields in config` error from `LoadConfigFile` now names the offending file too, matching
+the unmarshal error beside it.
 
 ## New Features / Additions
 
