@@ -1,4 +1,4 @@
-package evm
+package evmconfig
 
 import (
 	evmtoml "github.com/smartcontractkit/chainlink-evm/pkg/config/toml"
@@ -35,16 +35,16 @@ type EffectiveNode struct {
 }
 
 // EffectiveChainConfigs resolves every chain in cfg against chainlink-evm's chain-specific
-// defaults through the same buildChainlinkEVMTOML the runtime adapter uses, so the report cannot
+// defaults through the same BuildChainlinkEVMTOML the runtime adapter uses, so the report cannot
 // drift from what the standalone process will run. It makes no network calls.
 func EffectiveChainConfigs(cfg Config) (map[string]EffectiveChain, error) {
-	infos, err := cfg.toInfos()
+	infos, err := cfg.ToInfos()
 	if err != nil {
 		return nil, err
 	}
 	out := make(map[string]EffectiveChain, len(infos))
 	for selector, info := range infos {
-		tomlConfig, err := buildChainlinkEVMTOML(info)
+		tomlConfig, err := BuildChainlinkEVMTOML(info)
 		if err != nil {
 			return nil, err
 		}

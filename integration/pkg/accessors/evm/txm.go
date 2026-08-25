@@ -9,7 +9,7 @@ import (
 
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	evmclient "github.com/smartcontractkit/chainlink-evm/pkg/client"
-	evmconfig "github.com/smartcontractkit/chainlink-evm/pkg/config"
+	clevmconfig "github.com/smartcontractkit/chainlink-evm/pkg/config"
 	"github.com/smartcontractkit/chainlink-evm/pkg/gas"
 	evmkeys "github.com/smartcontractkit/chainlink-evm/pkg/keys"
 	"github.com/smartcontractkit/chainlink-evm/pkg/txm"
@@ -47,7 +47,7 @@ type txmV2 struct {
 // is smaller than upstream's builder and fails loudly if the config ever turns one of them on.
 func newTxmV2(
 	lggr logger.Logger,
-	cfg evmconfig.EVM,
+	cfg clevmconfig.EVM,
 	chainClient evmclient.Client,
 	chainKeystore evmkeys.ChainStore,
 	estimator gas.EvmFeeEstimator,
