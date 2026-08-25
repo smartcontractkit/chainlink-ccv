@@ -18,12 +18,25 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/services"
 	"github.com/smartcontractkit/chainlink-common/pkg/utils/mailbox"
 	"github.com/smartcontractkit/chainlink-evm/pkg/client"
-	evmconfig "github.com/smartcontractkit/chainlink-evm/pkg/config"
+	clevmconfig "github.com/smartcontractkit/chainlink-evm/pkg/config"
 	"github.com/smartcontractkit/chainlink-evm/pkg/gas"
 	"github.com/smartcontractkit/chainlink-evm/pkg/heads"
 	evmkeys "github.com/smartcontractkit/chainlink-evm/pkg/keys"
 	evmkeysv2 "github.com/smartcontractkit/chainlink-evm/pkg/keys/v2"
 	"github.com/smartcontractkit/chainlink-evm/pkg/txmgr"
+)
+
+const (
+	// orphanRecoveryGracePeriod is how long a restarted process waits for
+	// transactions left in flight by its predecessor to confirm on their own before
+	// replacing them. A transaction that is merely slow mines within this window and
+	// is left alone; replacing one needlessly discards a real execution and makes the
+	// executor send another. See standaloneChain.recoverOrphanedTransactions.
+	orphanRecoveryGracePeriod = 90 * time.Second
+	// orphanRecoveryRPCTimeout bounds a single nonce read during orphan recovery. Recovery runs on a
+	// goroutine Close waits for, so every network call it makes needs a deadline of its own rather
+	// than relying on the RPC client having one.
+	orphanRecoveryRPCTimeout = 30 * time.Second
 )
 
 // chainRuntime is the lifecycle boundary owned by one EVM accessor. Keeping it
@@ -45,7 +58,7 @@ type chainRuntime interface {
 type standaloneChain struct {
 	lggr            logger.Logger
 	chainClient     client.Client
-	chainConfig     *evmconfig.ChainScoped
+	chainConfig     *clevmconfig.ChainScoped
 	headBroadcaster heads.Broadcaster
 	headTracker     heads.Tracker
 	mailMonitor     *mailbox.Monitor

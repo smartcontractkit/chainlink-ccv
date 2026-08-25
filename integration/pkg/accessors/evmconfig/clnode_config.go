@@ -1,8 +1,8 @@
 // Conversion of a Chainlink node's EVM configuration into the standalone operator config. A node
-// operator moving off CL mode mounts the config file their node already runs with; loadConfig
+// operator moving off CL mode mounts the config file their node already runs with; LoadConfigFile
 // detects it and converts it here, so the endpoints and finality behavior carry over without anyone
 // hand-writing a second file.
-package evm
+package evmconfig
 
 import (
 	"fmt"
@@ -27,7 +27,7 @@ import (
 //
 // Warnings are ordered as the operator wrote the config: by chain, then by node within the chain,
 // then by setting. A converted config with no warnings is normal and does not mean no conversion
-// happened, which is why loadConfig reports the conversion itself rather than the warning count.
+// happened, which is why LoadConfigFile reports the conversion itself rather than the warning count.
 type Conversion struct {
 	Config   Config
 	Warnings []string

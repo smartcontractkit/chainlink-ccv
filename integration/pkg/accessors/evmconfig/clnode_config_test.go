@@ -1,4 +1,4 @@
-package evm
+package evmconfig
 
 import (
 	"math/big"
