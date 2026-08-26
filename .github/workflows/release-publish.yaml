@@ -94,5 +94,5 @@ jobs:
       github-ref-type: ${{ github.ref_type }}
       github-workflow-repository: ${{ github.repository }}
     secrets:
-      AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID }}
-      AWS_ROLE_PUBLISH_ARN: ${{ secrets.CCV_IAM_ROLE_PROD }}
+      AWS_ACCOUNT_ID: ${{ secrets.AWS_ACCOUNT_ID_SDLC }}
+      AWS_ROLE_PUBLISH_ARN: ${{ secrets.CCV_IAM_ROLE_SDLC }}
