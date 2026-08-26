@@ -31,6 +31,7 @@ import (
 	_ "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/fake"
 	_ "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/indexer"
 	_ "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/jd"
+	_ "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/localnetworks"
 	_ "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/observability"
 	_ "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/pricer"
 	_ "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/protocol_contracts"

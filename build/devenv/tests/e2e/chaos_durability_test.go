@@ -361,7 +361,7 @@ func (s containerState) String() string {
 // and set up again before Postgres finishes recovery, so a host probe answers "down" while the
 // verifier can still reach the database over the container network, and vice versa.
 func dbContainerRunning(ctx context.Context, container string) bool {
-	out, err := runDocker(ctx, dbProbeTimeout, "inspect", "-f", "{{.State.Running}}", container)
+	out, err := chaos.RunDocker(ctx, dbProbeTimeout, "inspect", "-f", "{{.State.Running}}", container)
 	if err != nil {
 		// An unknown container is not running, which is the answer the callers want.
 		return false
@@ -432,7 +432,7 @@ func waitForCheckpointOn(
 func currentVerifierDSN(t *testing.T, ctx context.Context, verifier *committeeverifier.Input, dbContainer string) string {
 	t.Helper()
 
-	out, err := runDocker(ctx, dbProbeTimeout, "port", dbContainer, "5432/tcp")
+	out, err := chaos.RunDocker(ctx, dbProbeTimeout, "port", dbContainer, "5432/tcp")
 	require.NoErrorf(t, err, "docker port %s: %s", dbContainer, strings.TrimSpace(string(out)))
 
 	// Output is one "host:port" per binding, typically an IPv4 and an IPv6 line. Any of them
