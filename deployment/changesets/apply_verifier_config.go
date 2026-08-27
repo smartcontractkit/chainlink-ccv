@@ -15,6 +15,7 @@ import (
 	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/commit"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/policy"
 
 	"github.com/smartcontractkit/chainlink-ccv/deployment/adapters"
 	"github.com/smartcontractkit/chainlink-ccv/deployment/operations/fetch_signing_keys"
@@ -407,6 +408,7 @@ type verifierNOPInput struct {
 	Alias                 shared.NOPAlias
 	SignerAddressByFamily map[string]string
 	Mode                  shared.NOPMode
+	PolicyHook            *policy.Config
 }
 
 // AggregatorRef describes a single aggregator instance a verifier NOP connects to.
@@ -507,6 +509,8 @@ func buildVerifierJobSpecs(
 			CommitteeVerifierAddresses:     filterAddressesByChains(committeeVerifierAddrs, nopChains),
 			DefaultExecutorOnRampAddresses: filterAddressesByChains(executorOnRampAddrs, nopChains),
 			DisableFinalityCheckers:        sortedFinalityCheckers,
+			// Nil for a NOP with no hook, which keeps policy_hook out of the emitted spec.
+			PolicyHook: nop.PolicyHook,
 			// Monitoring is intentionally not set here: monitoring config is operator-provided via the
 			// bootstrap config, not the JD-shipped app config. See bootstrap.Config.Monitoring.
 			CommitteeConfig: chainaccess.CommitteeConfig{
@@ -676,6 +680,7 @@ func mergeSigningKeysIntoNOPInputs(
 			Alias:                 nop.Alias,
 			SignerAddressByFamily: signerAddresses,
 			Mode:                  nop.GetMode(),
+			PolicyHook:            nop.PolicyHook,
 		}
 	}
 	return result

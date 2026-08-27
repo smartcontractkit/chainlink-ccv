@@ -21,6 +21,7 @@ const (
 	MessageTransitionStageSourceRead      = "source_read"
 	MessageTransitionStagePendingFinality = "pending_finality"
 	MessageTransitionStageAdmission       = "admission"
+	MessageTransitionStagePolicy          = "policy"
 	MessageTransitionStageVerification    = "verification"
 	MessageTransitionStageStorageWrite    = "storage_write"
 
@@ -35,6 +36,9 @@ const (
 	MessageTransitionOutcomeMessageDisabled   = "message_disabled"
 	MessageTransitionOutcomeRulesStateUnknown = "rules_state_unknown"
 	MessageTransitionOutcomeQueuePublishError = "queue_publish_error"
+	MessageTransitionOutcomePolicyPassed      = "policy_passed"
+	MessageTransitionOutcomePolicyRejected    = "policy_rejected"
+	MessageTransitionOutcomePolicyUnavailable = "policy_unavailable"
 	MessageTransitionOutcomeSucceeded         = "succeeded"
 	MessageTransitionOutcomeRetryScheduled    = "retry_scheduled"
 	MessageTransitionOutcomePermanentlyFailed = "permanently_failed"
@@ -48,6 +52,8 @@ const (
 	MessageTransitionReasonCurseStateUnknown      = "curse_state_unknown"
 	MessageTransitionReasonMessageDisablementRule = "message_disablement_rule"
 	MessageTransitionReasonRulesStateUnknown      = "rules_state_unknown"
+	MessageTransitionReasonPolicyRejected         = "policy_rejected"
+	MessageTransitionReasonPolicyEndpointError    = "policy_endpoint_error"
 	MessageTransitionReasonQueuePublishFailed     = "queue_publish_failed"
 	MessageTransitionReasonVerificationFailed     = "verification_failed"
 	MessageTransitionReasonStorageWriteFailed     = "storage_write_failed"
@@ -73,6 +79,8 @@ const (
 	MessageFailureClassAggregatorResourceExhausted = "aggregator_resource_exhausted"
 	MessageFailureClassAggregatorPayloadTooLarge   = "aggregator_payload_too_large"
 	MessageFailureClassAggregatorUnavailable       = "aggregator_unavailable"
+	MessageFailureClassPolicyRejected              = "policy_rejected"
+	MessageFailureClassPolicyEndpointError         = "policy_endpoint_error"
 )
 
 // VerifierMetrics provides all metrics for the verifier.
@@ -654,6 +662,10 @@ func ClassifyError(err error) string {
 	}
 	message := strings.ToLower(err.Error())
 	switch {
+	case strings.Contains(message, "policy hook rejected"):
+		return MessageFailureClassPolicyRejected
+	case strings.Contains(message, "policy endpoint") || strings.Contains(message, "policy response") || strings.Contains(message, "policy request"):
+		return MessageFailureClassPolicyEndpointError
 	case strings.Contains(message, "unsupported message version"):
 		return MessageFailureClassUnsupportedMessageVersion
 	case strings.Contains(message, "source chain selector") && strings.Contains(message, "not configured"):

@@ -8,6 +8,7 @@ import (
 	"github.com/smartcontractkit/devenv/ccip17/fakes/pkg/cctp"
 	"github.com/smartcontractkit/devenv/ccip17/fakes/pkg/lombard"
 	"github.com/smartcontractkit/devenv/ccip17/fakes/pkg/offchainstorage"
+	"github.com/smartcontractkit/devenv/ccip17/fakes/pkg/policy"
 )
 
 func main() {
@@ -35,6 +36,12 @@ func main() {
 		panic(err)
 	}
 	log.Printf("Fake Lombard Attestation API running on port %d", fake.DefaultFakeServicePort)
+
+	policyHook := policy.NewAPI()
+	if err = policyHook.Register(); err != nil {
+		panic(err)
+	}
+	log.Printf("Fake policy hook API running on port %d", fake.DefaultFakeServicePort)
 
 	// Keep the server running
 	select {}

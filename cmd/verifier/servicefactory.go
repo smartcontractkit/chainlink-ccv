@@ -28,6 +28,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/commit"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/heartbeat"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/policy"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vsecrets"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 )
@@ -275,6 +276,14 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 		return fmt.Errorf("failed to create commit verifier: %w", err)
 	}
 
+	// Apply the operator's policy hook. With no [policy_hook] section this returns the commit
+	// verifier unchanged.
+	gatedVerifier, err := policy.WrapVerifier(lggr, config.VerifierID, commitVerifier, config.PolicyHook, verifierMonitoring)
+	if err != nil {
+		lggr.Errorw("Failed to apply policy hook", "error", err)
+		return fmt.Errorf("failed to apply policy hook: %w", err)
+	}
+
 	// Write fan-out: one resilient + observed stack per aggregator, all writes fan out to every
 	// aggregator (all-must-ack). The top-level observed writer records the aggregate outcome.
 	fanOutWriter, err := storageaccess.NewFanOutAggregatorWriter(
@@ -367,7 +376,7 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 
 	coordinator, err := verifier.NewCoordinator(
 		lggr,
-		commitVerifier,
+		gatedVerifier,
 		sourceReaders,
 		observedOffchainWriter,
 		coordinatorConfig,

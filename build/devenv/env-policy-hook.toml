@@ -1,0 +1,74 @@
+# Overlay that puts an operator policy hook on both NOPs of the "default" committee, pointed at
+# the fake policy endpoint the ccv-fakes container serves. The fake passes every message until a
+# test tells it otherwise, so bringing an environment up with this overlay behaves like one
+# without it.
+#
+# Use it with env-src-auto-mine.toml (see standard.policy-hook.profile): the replay half of the
+# policy-hook test rewinds the committee checkpoint and needs manual control of source-chain
+# block progress.
+#
+# Both NOPs of the committee carry the hook on purpose. With only one gated node a FAIL would
+# still leave the other node's attestation at the aggregator, and the test could not tell a
+# dropped message from a message that merely missed quorum.
+#
+# The whole nops array is restated below because an overlay replaces an array of tables rather
+# than merging into it: the first [[...nops]] entry in this file truncates the array loaded from
+# env.toml. A NOP added to env.toml must be added here too or it disappears from this profile.
+
+[[environment_topology.nop_topology.nops]]
+alias = "default-verifier-1"
+name = "default-verifier-1"
+mode = "standalone"
+  [environment_topology.nop_topology.nops.policy_hook]
+  endpoint_url = "http://fake:9111/policy/v1/evaluate"
+  request_timeout = "5s"
+  # Short enough that the retry path is observable inside a test's patience, and still long
+  # enough not to hammer the endpoint during an outage.
+  retry_delay = "5s"
+  # The fake is plain HTTP on the devenv network. Production endpoints must be https.
+  insecure_connection = true
+
+[[environment_topology.nop_topology.nops]]
+alias = "default-verifier-2"
+name = "default-verifier-2"
+mode = "standalone"
+  [environment_topology.nop_topology.nops.policy_hook]
+  endpoint_url = "http://fake:9111/policy/v1/evaluate"
+  request_timeout = "5s"
+  retry_delay = "5s"
+  insecure_connection = true
+
+[[environment_topology.nop_topology.nops]]
+alias = "secondary-verifier-1"
+name = "secondary-verifier-1"
+mode = "standalone"
+
+[[environment_topology.nop_topology.nops]]
+alias = "secondary-verifier-2"
+name = "secondary-verifier-2"
+mode = "standalone"
+
+[[environment_topology.nop_topology.nops]]
+alias = "tertiary-verifier-1"
+name = "tertiary-verifier-1"
+mode = "standalone"
+
+[[environment_topology.nop_topology.nops]]
+alias = "tertiary-verifier-2"
+name = "tertiary-verifier-2"
+mode = "standalone"
+
+[[environment_topology.nop_topology.nops]]
+alias = "default-executor-1"
+name = "default-executor-1"
+mode = "standalone"
+
+[[environment_topology.nop_topology.nops]]
+alias = "default-executor-2"
+name = "default-executor-2"
+mode = "standalone"
+
+[[environment_topology.nop_topology.nops]]
+alias = "custom-executor-1"
+name = "custom-executor-1"
+mode = "standalone"

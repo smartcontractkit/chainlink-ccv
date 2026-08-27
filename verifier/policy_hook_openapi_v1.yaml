@@ -1,0 +1,254 @@
+components:
+  schemas:
+    EvaluateRequest:
+      additionalProperties: false
+      description: The context a committee verifier sends for one message. It carries the decoded CCIP message and its source-chain provenance so the endpoint does not have to fetch or decode anything itself.
+      properties:
+        block_depth:
+          description: How far the message's block sits below finalized_block_number. Zero when the message's block is the finalized head or newer, which happens for a message read off the safe head.
+          format: int64
+          minimum: 0
+          type: integer
+        finalized_block_number:
+          description: The source chain's finalized head when the verifier read the message.
+          format: int64
+          minimum: 0
+          type: integer
+        message:
+          $ref: "#/components/schemas/Message"
+        message_id:
+          description: The CCIP message ID, 32 bytes hex-encoded with an 0x prefix.
+          example: "0x9f2b1c0d5e4a3b6c7d8e9f0a1b2c3d4e5f60718293a4b5c6d7e8f9a0b1c2d3e4"
+          type: string
+        schema_version:
+          description: The contract version of this request. Always "v1" for this release; an endpoint serving several verifier releases branches on it.
+          enum:
+            - v1
+          type: string
+        source_block_number:
+          description: The source-chain block the message was emitted in.
+          format: int64
+          minimum: 0
+          type: integer
+        source_tx_hash:
+          description: Hash of the source-chain transaction that emitted the message, hex-encoded with an 0x prefix.
+          example: "0x4c0f2a9b8e7d6c5b4a39281706f5e4d3c2b1a09f8e7d6c5b4a3928170605f4e3"
+          type: string
+        verifier_id:
+          description: Identifies the committee verifier node making the call.
+          example: committee-verifier-1
+          type: string
+      required:
+        - schema_version
+        - verifier_id
+        - message_id
+        - source_tx_hash
+        - source_block_number
+        - finalized_block_number
+        - block_depth
+        - message
+      type: object
+    EvaluateResponse:
+      additionalProperties: false
+      description: The verdict. Returned with HTTP 200; any other status is read as "verdict unknown" and the verifier retries.
+      properties:
+        decision:
+          description: PASS signs and attests the message. FAIL drops it — it is never attested and never auto-executed, and recovery needs an operator to replay it, by rescheduling the archived job with the verifier CLI or by rewinding the verifier checkpoint.
+          enum:
+            - PASS
+            - FAIL
+          type: string
+        reason:
+          description: Optional explanation of a FAIL. The verifier logs it and never signs it. Values longer than 256 characters are truncated in logs.
+          example: sender matched sanctions list entry OFAC-12345
+          type: string
+      required:
+        - decision
+      type: object
+    Message:
+      additionalProperties: false
+      description: The decoded CCIP message. Byte fields are hex-encoded with an 0x prefix; an empty byte field is "0x".
+      properties:
+        ccip_receive_gas_limit:
+          description: Gas limit reserved for the receiver's ccipReceive call on the destination chain.
+          format: int32
+          minimum: 0
+          type: integer
+        ccv_and_executor_hash:
+          description: Commits to the CCVs and executor the message requested, 32 bytes hex-encoded.
+          type: string
+        data:
+          description: The message payload.
+          type: string
+        dest_blob:
+          description: The destination-chain execution blob.
+          type: string
+        dest_chain_selector:
+          description: CCIP selector of the destination chain.
+          format: int64
+          minimum: 0
+          type: integer
+        execution_gas_limit:
+          description: Gas limit reserved for execution on the destination chain.
+          format: int32
+          minimum: 0
+          type: integer
+        finality:
+          description: The encoded finality requirement of the message. The low 16 bits are a block-confirmation depth; the high bits are flags.
+          format: int32
+          minimum: 0
+          type: integer
+        off_ramp_address:
+          description: Destination-chain offRamp that will deliver the message.
+          type: string
+        on_ramp_address:
+          description: Source-chain onRamp that emitted the message.
+          type: string
+        receiver:
+          description: Destination-chain account that will receive the message.
+          type: string
+        sender:
+          description: Source-chain account that sent the message.
+          type: string
+        sequence_number:
+          description: Per-lane sequence number of the message.
+          format: int64
+          minimum: 0
+          type: integer
+        source_chain_selector:
+          description: CCIP selector of the source chain.
+          format: int64
+          minimum: 0
+          type: integer
+        token_transfer:
+          $ref: "#/components/schemas/TokenTransfer"
+        version:
+          description: CCIP message format version.
+          format: int32
+          minimum: 0
+          type: integer
+      required:
+        - version
+        - source_chain_selector
+        - dest_chain_selector
+        - sequence_number
+        - on_ramp_address
+        - off_ramp_address
+        - sender
+        - receiver
+        - data
+        - dest_blob
+        - execution_gas_limit
+        - ccip_receive_gas_limit
+        - finality
+        - ccv_and_executor_hash
+      type: object
+    TokenTransfer:
+      additionalProperties: false
+      description: The token transfer attached to a message. Absent for a message that carries no tokens.
+      properties:
+        amount:
+          description: Transferred amount in the token's smallest unit, as a decimal string because it does not fit a JSON number.
+          example: "1000000000000000000"
+          type: string
+        dest_token_address:
+          description: Destination-chain token contract.
+          type: string
+        extra_data:
+          description: Pool-specific data carried with the transfer.
+          type: string
+        source_pool_address:
+          description: Source-chain token pool the tokens were locked or burned in.
+          type: string
+        source_token_address:
+          description: Source-chain token contract.
+          type: string
+        token_receiver:
+          description: Destination-chain account receiving the tokens.
+          type: string
+        version:
+          description: Token transfer format version.
+          format: int32
+          minimum: 0
+          type: integer
+      required:
+        - version
+        - amount
+        - source_pool_address
+        - source_token_address
+        - dest_token_address
+        - token_receiver
+        - extra_data
+      type: object
+info:
+  description: |
+    The contract for the custom policy hook a CCV operator plugs into their committee verifier:
+    one HTTPS endpoint that answers PASS or FAIL for a single CCIP message. The operator
+    implements this endpoint; the verifier is the client.
+
+    The endpoint is the operator's own composition layer. It may run any number of internal
+    checks or proxy third-party compliance, AML, or sanctions-screening providers, but it
+    answers the verifier with a single binary verdict. v1 supports exactly one endpoint per
+    verifier, which is what keeps the retry and drop semantics below unambiguous.
+
+    Each committee node calls its own endpoint independently, so the committee's normal quorum
+    and signing still apply on top of the verdict. A node that gets FAIL simply does not attest;
+    it does not signal anything to the other nodes.
+
+    How the verifier reads the response:
+
+      * HTTP 200 with decision PASS — the verifier signs and attests the message exactly as it
+        would with no hook configured. The signed payload and the signature are unchanged by the
+        hook: nothing from this response is signed.
+      * HTTP 200 with decision FAIL — the verifier drops the message. It is not attested and not
+        auto-executed. Recovery requires an operator action: rescheduling the archived job with
+        the verifier CLI, or rewinding the verifier's checkpoint and replaying.
+      * Anything else — a 4xx, a 5xx, a timeout, an unreachable host, or a body that is not a
+        valid EvaluateResponse — is read as "verdict unknown" and the message is retried, not
+        dropped. An endpoint outage must never silently drop traffic, so an endpoint that cannot
+        reach its own dependencies must return an error status rather than FAIL.
+
+    Operational notes for implementers:
+
+      * The verifier calls the endpoint after the message reaches finality and after the
+        curse and message-disablement checks pass, before the node validates the message
+        payload and signs. A message the endpoint passes can still fail that local
+        validation, in which case it is not attested either.
+      * Calls are idempotent from the verifier's side: a retried message is sent again with the
+        same message_id, and the same verdict is expected.
+      * A verifier processes a batch of messages concurrently, up to 8 in-flight calls per node.
+      * The default per-call timeout is 5 seconds and the default delay before a retry is
+        10 seconds; both are configurable per verifier.
+      * The verifier reads at most 64 KiB of response body and does not follow redirects.
+  title: CCV Committee Verifier Policy Hook
+  version: 1.0.0
+openapi: 3.0.3
+paths:
+  /v1/evaluate:
+    post:
+      description: |
+        Evaluate one CCIP message and return a binary verdict.
+
+        The verifier POSTs to the exact URL configured as the verifier's policy_hook.endpoint_url
+        and appends nothing to it, so the operator may mount this operation at any path. The path
+        shown here is the recommended one.
+      operationId: policy-evaluate
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EvaluateRequest"
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EvaluateResponse"
+          description: The verdict for this message.
+        default:
+          description: Any non-200 response is read as "verdict unknown". The message is retried; it is never dropped on this path. Response bodies for these statuses are not parsed.
+      summary: Evaluate a message against the operator's policy
+servers:
+  - description: The operator-hosted policy endpoint. Must be https outside local development.
+    url: https://policy.example.com

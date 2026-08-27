@@ -20,6 +20,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/tools/configdoc"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/commit"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/policy"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vsecrets"
 )
@@ -128,7 +129,9 @@ func aggregatorSecretsInstance() any {
 // The committee verifier has no defaulting routine, so every value is an example;
 // Monitoring is left zero (deprecated, bootstrap-sourced). The aggregators list is
 // populated to document the [[aggregators]] shape. HTTPListenPort carries the real
-// default so the reference shows the port the server actually binds.
+// default so the reference shows the port the server actually binds. PolicyHook is
+// populated to document the optional [policy_hook] section; the hook is off when the
+// section is absent, and its durations carry the real defaults.
 func committeeVerifierConfigInstance() any {
 	return &commit.Config{
 		VerifierID:     "committee-verifier-1",
@@ -148,6 +151,11 @@ func committeeVerifierConfigInstance() any {
 		CommitteeVerifierAddresses:           map[string]string{"1": "0x00000000000000000000000000000000000000c1"},
 		DefaultExecutorOnRampAddresses:       map[string]string{"1": "0x00000000000000000000000000000000000000e1"},
 		DisableFinalityCheckers:              []string{},
+		PolicyHook: &policy.Config{
+			EndpointURL:    "https://policy.example.com/v1/evaluate",
+			RequestTimeout: "5s",
+			RetryDelay:     "10s",
+		},
 		CommitteeConfig: chainaccess.CommitteeConfig{
 			OnRampAddresses:    map[string]string{"1": "0x00000000000000000000000000000000000000a1"},
 			RMNRemoteAddresses: map[string]string{"1": "0x00000000000000000000000000000000000000b1"},

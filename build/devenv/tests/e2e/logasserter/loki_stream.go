@@ -222,8 +222,16 @@ func (s *LogStream) identifyStage(logLine string) string {
 	if strings.Contains(logLine, MessageReachedVerifier().LogPattern) {
 		return MessageReachedVerifier().Name
 	}
+	// Checked before MessageDroppedInVerifier: the policy drop line starts with the same
+	// "Dropping task" prefix, so the generic check would swallow it.
+	if strings.Contains(logLine, MessageDroppedByPolicyHook().LogPattern) {
+		return MessageDroppedByPolicyHook().Name
+	}
 	if strings.Contains(logLine, MessageDroppedInVerifier().LogPattern) {
 		return MessageDroppedInVerifier().Name
+	}
+	if strings.Contains(logLine, PolicyHookVerdictUnavailable().LogPattern) {
+		return PolicyHookVerdictUnavailable().Name
 	}
 	if strings.Contains(logLine, MessageSigned().LogPattern) {
 		return MessageSigned().Name

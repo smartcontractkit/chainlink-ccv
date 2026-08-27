@@ -22,6 +22,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/commit"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/heartbeat"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/policy"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 	"github.com/smartcontractkit/chainlink-evm/pkg/chains/legacyevm"
@@ -226,6 +227,14 @@ func NewVerificationCoordinator(
 		return nil, fmt.Errorf("failed to create commit verifier: %w", err)
 	}
 
+	// Apply the operator's policy hook. With no [policy_hook] section this returns the commit
+	// verifier unchanged.
+	gatedVerifier, err := policy.WrapVerifier(lggr, cfg.VerifierID, commitVerifier, cfg.PolicyHook, verifierMonitoring)
+	if err != nil {
+		lggr.Errorw("Failed to apply policy hook", "error", err)
+		return nil, fmt.Errorf("failed to apply policy hook: %w", err)
+	}
+
 	heartbeatSender, err := heartbeatclient.NewFanOutHeartbeatSender(
 		heartbeatTargets,
 		cfg.VerifierID,
@@ -292,7 +301,7 @@ func NewVerificationCoordinator(
 
 	verifierCoordinator, err := verifier.NewCoordinator(
 		lggr,
-		commitVerifier,
+		gatedVerifier,
 		sourceReaders,
 		observedOffchainWriter,
 		coordinatorConfig,
