@@ -142,6 +142,9 @@ type VerifierModifier = committeeverifier.ReqModifier
 // ExecutorModifier adjusts executor testcontainer requests for a chain family.
 type ExecutorModifier = executor.ReqModifier
 
+// TokenVerifierModifier adjusts token verifier testcontainer requests for a chain family.
+type TokenVerifierModifier = services.ReqModifier
+
 // ExtraArgsSerializer serializes message extra args for a destination chain family.
 type ExtraArgsSerializer = cciptestinterfaces.ExtraArgsSerializer
 
@@ -177,6 +180,7 @@ type Registration struct {
 	VerifierModifier         VerifierModifier
 	ExecutorInfo             ExecutorInfo
 	ExecutorModifier         ExecutorModifier
+	TokenVerifierModifier    TokenVerifierModifier
 	ExtraArgsSerializers     map[uint8]ExtraArgsSerializer
 	AddressResolver          AddressResolver
 

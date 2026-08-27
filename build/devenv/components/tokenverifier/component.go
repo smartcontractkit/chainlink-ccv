@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainreg"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	blockchainscomp "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/blockchains"
 	fakecomp "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/fake"
@@ -115,6 +116,7 @@ func (c *component) RunPhase4(
 		localEnv.DataStore = output.DataStore.Seal()
 	}
 
+	modifiers := chainreg.GetRegistry().GetTokenVerifierModifiers()
 	for _, tvIn := range inputs {
 		if tvIn == nil || tvIn.Mode != services.Standalone {
 			continue
@@ -126,7 +128,7 @@ func (c *component) RunPhase4(
 		monitoring := topology.Monitoring
 		fmt.Printf("tokenverifier: monitoring: %+v\n", monitoring)
 		tvIn.Bootstrap.Monitoring = &monitoring
-		out, launchErr := services.NewTokenVerifier(&tvIn, blockchainOutputs)
+		out, launchErr := services.NewTokenVerifier(&tvIn, blockchainOutputs, modifiers)
 		if launchErr != nil {
 			return nil, nil, fmt.Errorf("tokenverifier: launching %q: %w", tvIn.ContainerName, launchErr)
 		}

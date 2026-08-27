@@ -16,10 +16,9 @@ import (
 	"github.com/testcontainers/testcontainers-go/modules/postgres"
 	"github.com/testcontainers/testcontainers-go/wait"
 
+	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
-	evmchainconfig "github.com/smartcontractkit/chainlink-ccv/build/devenv/evm/chainconfig"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/util"
-	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vsecrets"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
@@ -54,6 +53,10 @@ type TokenVerifierInput struct {
 	ContainerName  string                `toml:"container_name"`
 	Port           int                   `toml:"port"`
 
+	// ChainFamily is the chain family that this token verifier reads from.
+	// Defaults to "evm" if not specified.
+	ChainFamily string `toml:"chain_family"`
+
 	// GeneratedConfig stores the generated token verifier configuration from the changeset.
 	GeneratedConfig *token.Config `toml:"-"`
 
@@ -69,7 +72,17 @@ type TokenVerifierOutput struct {
 	DBConnectionString string `toml:"db_connection_string"`
 }
 
+// ReqModifier adjusts a token verifier testcontainers.ContainerRequest for a chain family.
+type ReqModifier func(
+	req testcontainers.ContainerRequest,
+	tokenVerifierInput *TokenVerifierInput,
+	outputs []*blockchain.Output,
+) (testcontainers.ContainerRequest, error)
+
 func ApplyTokenVerifierDefaults(in TokenVerifierInput) TokenVerifierInput {
+	if in.ChainFamily == "" {
+		in.ChainFamily = chainsel.FamilyEVM
+	}
 	if in.Image == "" {
 		in.Image = DefaultTokenVerifierImage
 	}
@@ -99,7 +112,7 @@ func ApplyTokenVerifierDefaults(in TokenVerifierInput) TokenVerifierInput {
 	return in
 }
 
-func NewTokenVerifier(in *TokenVerifierInput, blockchainOutputs []*blockchain.Output) (*TokenVerifierOutput, error) {
+func NewTokenVerifier(in *TokenVerifierInput, blockchainOutputs []*blockchain.Output, modifiers map[string]ReqModifier) (*TokenVerifierOutput, error) {
 	if in == nil {
 		return nil, nil
 	}
@@ -108,15 +121,14 @@ func NewTokenVerifier(in *TokenVerifierInput, blockchainOutputs []*blockchain.Ou
 	}
 	ctx := context.Background()
 
+	modifier, ok := modifiers[in.ChainFamily]
+	if !ok {
+		return nil, fmt.Errorf("no token verifier modifier found for chain family %s", in.ChainFamily)
+	}
+
 	p, err := CwdSourcePath(in.SourceCodePath)
 	if err != nil {
 		return in.Out, err
-	}
-
-	// Generate blockchain infos for standalone mode
-	blockchainInfos, err := evmchainconfig.ConvertBlockchainOutputsToInfo(blockchainOutputs)
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate blockchain infos from blockchain outputs: %w", err)
 	}
 
 	/* Database */
@@ -163,17 +175,6 @@ func NewTokenVerifier(in *TokenVerifierInput, blockchainOutputs []*blockchain.Ou
 	appConfigFilePath := filepath.Join(confDir, "token-verifier-app-config.toml")
 	if err := os.WriteFile(appConfigFilePath, appConfig, 0o644); err != nil {
 		return nil, fmt.Errorf("failed to write token verifier app config to file: %w", err)
-	}
-
-	// EVM connection details are operator-local configuration. Mount them separately from the token
-	// verifier app config, matching the standalone committee verifier and executor paths.
-	evmConfig, err := toml.Marshal(evm.NewConfigFromInfos(blockchainInfos))
-	if err != nil {
-		return nil, fmt.Errorf("failed to generate EVM config for token verifier: %w", err)
-	}
-	evmConfigFilePath := filepath.Join(confDir, "token-verifier-evm-config.toml")
-	if err := os.WriteFile(evmConfigFilePath, evmConfig, 0o644); err != nil {
-		return nil, fmt.Errorf("failed to write EVM config for token verifier: %w", err)
 	}
 
 	// Generate and write the bootstrap (operator) config. The token verifier runs in local app-config
@@ -244,7 +245,6 @@ func NewTokenVerifier(in *TokenVerifierInput, blockchainOutputs []*blockchain.Ou
 		testcontainers.BindMount(appConfigFilePath, "/etc/token-verifier/config.toml"),
 		testcontainers.BindMount(bootstrapConfigFilePath, bootstrap.DefaultConfigPath),
 		testcontainers.BindMount(verifierSecretsFilePath, vsecrets.DefaultTokenVerifierSecretsPath),
-		testcontainers.BindMount(evmConfigFilePath, evm.DefaultEVMConfigPath),
 	)
 
 	// Note: identical code to aggregator.go/executor.go -- will indexer be identical as well?
@@ -254,6 +254,14 @@ func NewTokenVerifier(in *TokenVerifierInput, blockchainOutputs []*blockchain.Ou
 		framework.L.Info().
 			Str("Service", in.ContainerName).
 			Str("Source", p).Msg("Using source code path, hot-reload mode")
+	}
+
+	// Chain-family connection details (e.g. EVM/Solana RPC config) are operator-local
+	// configuration, mounted by the family's own modifier — matching the standalone
+	// committee verifier and executor paths.
+	req, err = modifier(req, in, blockchainOutputs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to modify request for chain family %s: %w", in.ChainFamily, err)
 	}
 
 	const maxAttempts = 3
