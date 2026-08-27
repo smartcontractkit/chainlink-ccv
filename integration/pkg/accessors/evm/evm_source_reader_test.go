@@ -11,12 +11,13 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/rpc"
+	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
+
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	evmclient "github.com/smartcontractkit/chainlink-evm/pkg/client"
 	"github.com/smartcontractkit/chainlink-evm/pkg/client/clienttest"
 	evmtypes "github.com/smartcontractkit/chainlink-evm/pkg/types"
-	"github.com/stretchr/testify/mock"
-	"github.com/stretchr/testify/require"
 
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/onramp"
 
@@ -111,7 +112,7 @@ func methodFails(failMethod string, blockNum int64) bool {
 	}
 }
 
-func blockNumFromArg(arg interface{}) int64 {
+func blockNumFromArg(arg any) int64 {
 	hex, _ := arg.(string)
 	if hex == "" || hex == "latest" {
 		return 0
@@ -150,7 +151,7 @@ func TestGetBlocksHeaders_BatchesAndChunks(t *testing.T) {
 	require.Equal(t, []int{100, 100, 50}, c.batchSizes)
 
 	// Every requested block number maps to a header with the right hash/fields.
-	for i := 0; i < 250; i++ {
+	for i := range 250 {
 		h, ok := headers[uint64(i)]
 		require.True(t, ok, "missing header for block %d", i)
 		require.Equal(t, uint64(i), h.Number)
