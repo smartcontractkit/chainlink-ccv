@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainreg"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	blockchainscomp "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/blockchains"
@@ -90,10 +91,17 @@ func (c *component) RunPhase4(
 			continue
 		}
 
+		chainFamily := tvIn.ChainFamily
+		if chainFamily == "" {
+			chainFamily = chainsel.FamilyEVM
+		}
+		familySelectors := filterSelectorsByFamily(selectors, chainFamily)
+
 		cs := ccvchangesets.GenerateTokenVerifierConfig()
 		output, csErr := cs.Apply(localEnv, ccvchangesets.GenerateTokenVerifierConfigInput{
 			ServiceIdentifier: "TokenVerifier",
-			ChainSelectors:    selectors,
+			ChainSelectors:    familySelectors,
+			ReplaceExisting:   true,
 			Lombard: ccvchangesets.LombardConfigInput{
 				VerifierID:     "LombardVerifier",
 				Qualifier:      devenvcommon.LombardVerifierResolverQualifier,
@@ -149,4 +157,18 @@ func decode(raw any) ([]*services.TokenVerifierInput, error) {
 		}
 	}
 	return inputs, nil
+}
+
+func filterSelectorsByFamily(selectors []uint64, family string) []uint64 {
+	var result []uint64
+	for _, sel := range selectors {
+		fam, err := chainsel.GetSelectorFamily(sel)
+		if err != nil {
+			continue
+		}
+		if fam == family {
+			result = append(result, sel)
+		}
+	}
+	return result
 }

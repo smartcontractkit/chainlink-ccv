@@ -794,11 +794,18 @@ func NewEnvironment() (in *Cfg, err error) {
 			return nil, fmt.Errorf("fake data provider is required for token verifiers to provide attestation API endpoints, but it was not created successfully")
 		}
 
+		chainFamily := tokenVerifierInput.ChainFamily
+		if chainFamily == "" {
+			chainFamily = chainsel.FamilyEVM
+		}
+		familySelectors := filterSelectorsByFamily(selectors, chainFamily)
+
 		// Use changeset to generate token verifier config from on-chain state
 		cs := ccvchangesets.GenerateTokenVerifierConfig()
 		output, err := cs.Apply(*e, ccvchangesets.GenerateTokenVerifierConfigInput{
 			ServiceIdentifier: "TokenVerifier",
-			ChainSelectors:    selectors,
+			ChainSelectors:    familySelectors,
+			ReplaceExisting:   true,
 			Lombard: ccvchangesets.LombardConfigInput{
 				VerifierID:     "LombardVerifier",
 				Qualifier:      devenvcommon.LombardVerifierResolverQualifier,
@@ -884,4 +891,18 @@ func NewEnvironment() (in *Cfg, err error) {
 	}
 
 	return in, Store(in)
+}
+
+func filterSelectorsByFamily(selectors []uint64, family string) []uint64 {
+	var result []uint64
+	for _, sel := range selectors {
+		fam, err := chainsel.GetSelectorFamily(sel)
+		if err != nil {
+			continue
+		}
+		if fam == family {
+			result = append(result, sel)
+		}
+	}
+	return result
 }
