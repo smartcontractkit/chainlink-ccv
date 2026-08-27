@@ -32,6 +32,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainreg"
 	evmchainconfig "github.com/smartcontractkit/chainlink-ccv/build/devenv/evm/chainconfig"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/localnetwork"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/committeeverifier"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/executor"
@@ -55,7 +56,7 @@ func init() {
 		ExecutorInfo:             evmFactory,
 		CLDFProvider:             NewCLDFProviderFactory(),
 		ChainConfigLoader:        ChainConfigLoader,
-		LocalNetworkConfigurator: ConfigureLocalNetworks,
+		LocalNetworkConfigurator: localnetwork.Configurator(chainsel.FamilyEVM),
 		VerifierModifier:         VerifierModifier,
 		ExecutorModifier:         ExecutorModifier,
 		ExtraArgsSerializers: map[uint8]chainreg.ExtraArgsSerializer{

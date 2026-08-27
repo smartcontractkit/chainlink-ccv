@@ -3,9 +3,7 @@ package e2e
 import (
 	"context"
 	"fmt"
-	"os/exec"
 	"sort"
-	"strings"
 	"testing"
 	"time"
 
@@ -16,37 +14,27 @@ import (
 	ccv "github.com/smartcontractkit/chainlink-ccv/build/devenv"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/cciptestinterfaces"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
-	devenvevm "github.com/smartcontractkit/chainlink-ccv/build/devenv/evm"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/localnetwork"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services/committeeverifier"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/tcapi"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/tcapi/basic"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/tests/e2e/tcapi/chaos"
-	devenvutil "github.com/smartcontractkit/chainlink-ccv/build/devenv/util"
 	"github.com/smartcontractkit/chainlink-common/pkg/utils/tests"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 )
 
-const (
-	rpcFailoverTimeout     = 3 * time.Minute
-	rpcProxyCleanupTimeout = 15 * time.Second
-	rpcProxyCommandTimeout = 30 * time.Second
-	rpcProxyProbeTimeout   = 5 * time.Second
-	rpcProxyReadyTimeout   = 15 * time.Second
-	rpcProxyReadyTick      = 250 * time.Millisecond
-)
+const rpcFailoverTimeout = 3 * time.Minute
 
 func TestChaos_EVMRPCFailover(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping e2e test in short mode; requires a running devenv environment")
 	}
 	ctx, lib, setup, fromSelector, toSelector := setupChaosEVMSession(t)
-	failoverOutput := requireEVMRPCFailoverOutput(t, setup.in)
+	failoverOutput, err := chaos.RPCFailoverOutputFor(setup.in, chain_selectors.FamilyEVM)
+	require.NoError(t, err, "test requires the EVM local-network failover profile")
 	for _, proxyOutput := range failoverOutput.Chains {
-		t.Cleanup(func() {
-			setRPCProxyRunningBestEffort(setup.l, proxyOutput.PrimaryContainerName, true)
-			setRPCProxyRunningBestEffort(setup.l, proxyOutput.SecondaryContainerName, false)
-		})
+		t.Cleanup(func() { chaos.RestoreRPCProxies(ctx, proxyOutput) })
 	}
 
 	cases := []struct {
@@ -68,16 +56,14 @@ func TestChaos_EVMRPCFailover(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			chainID, err := chain_selectors.GetChainIDFromSelector(tc.failedChain)
+			proxyOutput, err := chaos.RPCFailoverChainFor(setup.in, tc.failedChain)
 			require.NoError(t, err)
-			proxyOutput := failoverOutput.Chains[chainID]
-			require.NotNilf(t, proxyOutput, "no RPC failover proxies for chain %s", chainID)
-			requireDirectTestRPC(t, setup.in, chainID, proxyOutput)
+			requireDirectTestRPC(t, setup.in, tc.failedChain, proxyOutput)
 
 			// The secondary was deliberately stopped while standalone services
 			// initialized, making the primary their only possible initial node.
-			setRPCProxyRunning(t, setup.l, proxyOutput.SecondaryContainerName, true)
-			setRPCProxyRunning(t, setup.l, proxyOutput.PrimaryContainerName, false)
+			require.NoError(t, chaos.SetRPCProxyRunning(ctx, proxyOutput.SecondaryContainerName, true))
+			require.NoError(t, chaos.SetRPCProxyRunning(ctx, proxyOutput.PrimaryContainerName, false))
 
 			setup.l.Info().
 				Str("failedRPC", tc.description).
@@ -98,8 +84,8 @@ func TestChaos_EVMRPCFailover(t *testing.T) {
 			// usable endpoint is one the pool already marked unusable. This covers
 			// the recovery half of failover: without re-dialing a restored node,
 			// the pool is left with no reachable RPC and the message never lands.
-			setRPCProxyRunning(t, setup.l, proxyOutput.PrimaryContainerName, true)
-			setRPCProxyRunning(t, setup.l, proxyOutput.SecondaryContainerName, false)
+			require.NoError(t, chaos.SetRPCProxyRunning(ctx, proxyOutput.PrimaryContainerName, true))
+			require.NoError(t, chaos.SetRPCProxyRunning(ctx, proxyOutput.SecondaryContainerName, false))
 
 			setup.l.Info().
 				Str("restartedRPC", tc.description).
@@ -113,76 +99,17 @@ func TestChaos_EVMRPCFailover(t *testing.T) {
 	}
 }
 
-func requireEVMRPCFailoverOutput(t *testing.T, in *ccv.Cfg) *devenvevm.RPCFailoverOutput {
+// requireDirectTestRPC asserts that the stored environment output still routes
+// test-side clients to the chain directly, so a proxy outage cannot strand the
+// test itself on the endpoint it just took away.
+func requireDirectTestRPC(t *testing.T, in *ccv.Cfg, selector uint64, proxyOutput *localnetwork.FailoverChainOutput) {
 	t.Helper()
-	localNetwork := in.LocalNetworks[chain_selectors.FamilyEVM]
-	require.NotNil(t, localNetwork, "test requires the EVM local-network failover profile")
-	require.NotEmpty(t, localNetwork.Output, "EVM local-network output is missing")
-
-	output, err := devenvutil.OpaqueToConcreteStrict[devenvevm.LocalNetworkOutput](localNetwork.Output)
+	directNode, err := chaos.DirectRPCNode(in, selector)
 	require.NoError(t, err)
-	require.NotNil(t, output.RPCFailover, "EVM RPC failover output is missing")
-	require.NotEmpty(t, output.RPCFailover.Chains, "RPC failover proxy outputs are missing")
-	return output.RPCFailover
-}
-
-func requireDirectTestRPC(t *testing.T, in *ccv.Cfg, chainID string, proxyOutput *devenvevm.RPCFailoverChainOutput) {
-	t.Helper()
-	for _, chain := range in.Blockchains {
-		if chain == nil || chain.Out == nil || chain.Out.ChainID != chainID {
-			continue
-		}
-		require.GreaterOrEqual(t, len(chain.Out.Nodes), 3, "stored chain output must contain direct and proxy RPC nodes")
-		require.NotNil(t, chain.Out.Nodes[0])
-		require.NotNil(t, proxyOutput.PrimaryNode)
-		require.NotNil(t, proxyOutput.SecondaryNode)
-		require.NotEqual(t, proxyOutput.PrimaryNode.InternalHTTPUrl, chain.Out.Nodes[0].InternalHTTPUrl)
-		require.NotEqual(t, proxyOutput.SecondaryNode.InternalHTTPUrl, chain.Out.Nodes[0].InternalHTTPUrl)
-		return
-	}
-	t.Fatalf("chain %s not found in stored environment output", chainID)
-}
-
-// runDocker runs a docker command under its own deadline. t.Context() alone only
-// unblocks when the test finishes, so a wedged daemon or CLI would hang the call
-// indefinitely instead of failing it.
-func runDocker(ctx context.Context, timeout time.Duration, args ...string) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-	return exec.CommandContext(ctx, "docker", args...).CombinedOutput()
-}
-
-func setRPCProxyRunning(t *testing.T, l *zerolog.Logger, containerName string, running bool) {
-	t.Helper()
-	action := "stop"
-	if running {
-		action = "start"
-	}
-	l.Info().Str("container", containerName).Str("action", action).Msg("Changing RPC proxy state")
-	out, err := runDocker(t.Context(), rpcProxyCommandTimeout, action, containerName)
-	require.NoErrorf(t, err, "docker %s %s failed: %s", action, containerName, strings.TrimSpace(string(out)))
-	if running {
-		// Each probe gets a deadline shorter than the readiness window so a stuck
-		// exec is retried rather than consuming the whole window on one attempt.
-		require.Eventually(t, func() bool {
-			_, err := runDocker(t.Context(), rpcProxyProbeTimeout, "exec", containerName, "nginx", "-t")
-			return err == nil
-		}, rpcProxyReadyTimeout, rpcProxyReadyTick, "RPC proxy %s did not become ready", containerName)
-	}
-}
-
-func setRPCProxyRunningBestEffort(l *zerolog.Logger, containerName string, running bool) {
-	action := "stop"
-	if running {
-		action = "start"
-	}
-	if out, err := runDocker(context.Background(), rpcProxyCleanupTimeout, action, containerName); err != nil {
-		l.Error().Err(err).
-			Str("container", containerName).
-			Str("action", action).
-			Str("output", strings.TrimSpace(string(out))).
-			Msg("Failed to restore RPC proxy state")
-	}
+	require.NotNil(t, proxyOutput.PrimaryNode)
+	require.NotNil(t, proxyOutput.SecondaryNode)
+	require.NotEqual(t, proxyOutput.PrimaryNode.InternalHTTPUrl, directNode.InternalHTTPUrl)
+	require.NotEqual(t, proxyOutput.SecondaryNode.InternalHTTPUrl, directNode.InternalHTTPUrl)
 }
 
 func TestChaos_AggregatorOutageRecovery(t *testing.T) {

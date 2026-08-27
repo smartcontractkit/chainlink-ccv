@@ -1,0 +1,16 @@
+# Phased overlay that puts deterministic RPC failover endpoints in front of the
+# EVM chains. Layer it over env-phased.toml.
+#
+# Each chain of an enabled family gets a primary and a secondary reverse proxy.
+# Standalone services see only the proxies, and the secondary starts stopped, so
+# a chaos test can stop the endpoint the services are using and watch the
+# multi-node client move to the other one. Test-side clients keep the direct
+# endpoint, which no proxy outage can take away.
+#
+# Any family that registers localnetwork.Configurator opts in the same way, e.g.
+# [local_networks.solana.input.rpc_failover] from the Solana product repo.
+[local_networks]
+version = 1
+
+[local_networks.evm.input.rpc_failover]
+enabled = true
