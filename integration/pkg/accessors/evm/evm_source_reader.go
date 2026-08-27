@@ -22,6 +22,7 @@ import (
 	"github.com/smartcontractkit/chainlink-evm/pkg/heads"
 	evmtypes "github.com/smartcontractkit/chainlink-evm/pkg/types"
 
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evmconfig"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/rmnremotereader"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -32,12 +33,6 @@ var (
 	_ chainaccess.SourceReader                          = (*SourceReader)(nil)
 	_ chainaccess.CriticalSourceInvariantCallbackSetter = (*SourceReader)(nil)
 )
-
-// defaultMaxBatchSize constrains how many eth_getBlockByNumber requests are sent
-// in a single JSON-RPC batch. Callers may request a large range of headers (the
-// finality checker caps at MaxFinalityBlocksStored, but that is too many for one
-// payload), so batches are chunked to this size.
-const defaultMaxBatchSize = 100
 
 type SourceReader struct {
 	chainClient          client.Client
@@ -50,6 +45,8 @@ type SourceReader struct {
 	lggr                 logger.Logger
 	onRampABI            *abi.ABI // Cached ABI to avoid re-parsing
 	onCriticalInvariant  func(context.Context)
+
+	sourceReaderHeaderFetchBatchSize int
 }
 
 func NewEVMSourceReader(
@@ -66,6 +63,7 @@ func NewEVMSourceReader(
 	ccipMessageSentTopic string,
 	chainSelector protocol.ChainSelector,
 	lggr logger.Logger,
+	headerFetchBatchSize int,
 	onCriticalInvariant func(context.Context),
 ) (chainaccess.SourceReader, error) {
 	var errs []error
@@ -140,6 +138,8 @@ func NewEVMSourceReader(
 		chainSelector:        chainSelector,
 		lggr:                 lggr,
 		onRampABI:            onRampABI,
+
+		sourceReaderHeaderFetchBatchSize: sourceReaderHeaderFetchBatchSize(headerFetchBatchSize),
 	}
 	reader.SetCriticalSourceInvariantCallback(onCriticalInvariant)
 	return reader, nil
@@ -180,8 +180,12 @@ func (r *SourceReader) SetCriticalSourceInvariantCallback(callback func(context.
 // Batches are chunked to defaultMaxBatchSize to avoid an oversized single payload.
 func (r *SourceReader) GetBlocksHeaders(ctx context.Context, blockNumbers []*big.Int) (map[uint64]protocol.BlockHeader, error) {
 	headers := make(map[uint64]protocol.BlockHeader, len(blockNumbers))
-	for bn := 0; bn < len(blockNumbers); bn += defaultMaxBatchSize {
-		end := min(bn+defaultMaxBatchSize, len(blockNumbers))
+	batchSize := r.sourceReaderHeaderFetchBatchSize
+	if batchSize <= 0 {
+		batchSize = evmconfig.DefaultSourceReaderHeaderFetchBatchSize
+	}
+	for bn := 0; bn < len(blockNumbers); bn += batchSize {
+		end := min(bn+batchSize, len(blockNumbers))
 		chunk, err := r.fetchHeadBatch(ctx, blockNumbers[bn:end])
 		if err != nil {
 			r.lggr.Warnw("Failed to fetch header batch", "error", err, "batchStart", bn, "batchEnd", end)

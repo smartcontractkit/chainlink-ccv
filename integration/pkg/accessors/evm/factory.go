@@ -146,6 +146,7 @@ func (f *factory) GetAccessor(ctx context.Context, chainSelector protocol.ChainS
 			onramp.OnRampCCIPMessageSent{}.Topic().Hex(),
 			chainSelector,
 			chainLggr,
+			runtime.SourceReaderHeaderFetchBatchSize(),
 			nil,
 		)
 		if err != nil {

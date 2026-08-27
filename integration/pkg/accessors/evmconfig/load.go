@@ -121,11 +121,12 @@ func (c Config) ToInfos() (chainaccess.Infos[Info], error) {
 			return nil, fmt.Errorf("chain selector %s: %w", selector, err)
 		}
 		infos[selector] = Info{
-			ChainID:       chainID,
-			Family:        family,
-			Nodes:         chain.Nodes,
-			FinalityDepth: chain.FinalityDepth,
-			TXMBlockTime:  chain.TXMBlockTime,
+			ChainID:                          chainID,
+			Family:                           family,
+			Nodes:                            chain.Nodes,
+			FinalityDepth:                    chain.FinalityDepth,
+			TXMBlockTime:                     chain.TXMBlockTime,
+			SourceReaderHeaderFetchBatchSize: chain.SourceReaderHeaderFetchBatchSize,
 		}
 	}
 	return infos, nil
