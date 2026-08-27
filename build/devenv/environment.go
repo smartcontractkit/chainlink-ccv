@@ -1213,6 +1213,7 @@ func launchStandaloneVerifiers(ctx context.Context, in *Cfg, blockchainOutputs [
 func launchStandaloneTokenVerifiers(in *Cfg, blockchainOutputs []*blockchain.Output) ([]*services.TokenVerifierOutput, error) {
 	var outs []*services.TokenVerifierOutput
 	monitoring := in.EnvironmentTopology.Monitoring
+	modifiers := chainreg.GetRegistry().GetTokenVerifierModifiers()
 	for _, ver := range in.TokenVerifier {
 		if ver.Mode == services.Standalone {
 			v := services.ApplyTokenVerifierDefaults(*ver)
@@ -1221,7 +1222,7 @@ func launchStandaloneTokenVerifiers(in *Cfg, blockchainOutputs []*blockchain.Out
 			}
 			m := monitoring
 			v.Bootstrap.Monitoring = &m
-			out, err := services.NewTokenVerifier(&v, blockchainOutputs)
+			out, err := services.NewTokenVerifier(&v, blockchainOutputs, modifiers)
 			if err != nil {
 				return nil, fmt.Errorf("failed to create token verifier service: %w", err)
 			}

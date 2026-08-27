@@ -59,6 +59,7 @@ func init() {
 		LocalNetworkConfigurator: localnetwork.Configurator(chainsel.FamilyEVM),
 		VerifierModifier:         VerifierModifier,
 		ExecutorModifier:         ExecutorModifier,
+		TokenVerifierModifier:    TokenVerifierModifier,
 		ExtraArgsSerializers: map[uint8]chainreg.ExtraArgsSerializer{
 			1: BuildEVMExtraArgsV1,
 			2: BuildEVMExtraArgsV2,
@@ -101,6 +102,11 @@ func VerifierModifier(req testcontainers.ContainerRequest, verifierInput *commit
 // ExecutorModifier adjusts executor container requests for EVM.
 func ExecutorModifier(req testcontainers.ContainerRequest, executorInput *executor.Input, outputs []*blockchain.Output) (testcontainers.ContainerRequest, error) {
 	req.Name = fmt.Sprintf("evm-%s", executorInput.ContainerName)
+	return addEVMConfig(req, outputs)
+}
+
+// TokenVerifierModifier adjusts token verifier container requests for EVM.
+func TokenVerifierModifier(req testcontainers.ContainerRequest, _ *services.TokenVerifierInput, outputs []*blockchain.Output) (testcontainers.ContainerRequest, error) {
 	return addEVMConfig(req, outputs)
 }
 
