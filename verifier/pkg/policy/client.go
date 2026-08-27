@@ -32,6 +32,8 @@ type Verdict struct {
 // indistinguishable from a compliance decision, and dropped messages need an operator to replay
 // them.
 type Checker interface {
+	// Evaluate returns the endpoint's verdict for one message, or an error if no verdict was
+	// obtained. See the interface doc for why an error is not a rejection.
 	Evaluate(ctx context.Context, req EvaluateRequest) (Verdict, error)
 }
 

@@ -54,10 +54,10 @@ func jsonFields(t *testing.T, v any) (all, required []string) {
 	typ := reflect.TypeOf(v)
 	require.Equal(t, reflect.Struct, typ.Kind())
 
-	for i := range typ.NumField() {
-		tag := typ.Field(i).Tag.Get("json")
+	for field := range typ.Fields() {
+		tag := field.Tag.Get("json")
 		require.NotEmpty(t, tag, "%s.%s has no json tag, so it cannot be checked against the spec",
-			typ.Name(), typ.Field(i).Name)
+			typ.Name(), field.Name)
 
 		parts := strings.Split(tag, ",")
 		name := parts[0]

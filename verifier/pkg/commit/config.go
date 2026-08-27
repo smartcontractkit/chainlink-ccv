@@ -365,9 +365,5 @@ func (c *Config) Validate() error {
 
 	// A malformed policy hook fails the job at load time. Deferring it to the first message
 	// would leave the gate silently absent on a verifier the operator believes is gating.
-	if err := c.PolicyHook.Validate(); err != nil {
-		return err
-	}
-
-	return nil
+	return c.PolicyHook.Validate()
 }
