@@ -10,6 +10,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/onramp"
 	"github.com/smartcontractkit/chainlink-ccv/common/monitoring/logging"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evm"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evmconfig"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/heartbeatclient"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/messagerules"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/sourcereader"
@@ -116,6 +117,7 @@ func NewVerificationCoordinator(
 			onramp.OnRampCCIPMessageSent{}.Topic().Hex(),
 			sel,
 			logger.With(lggr, "component", "SourceReader", "chainID", sel),
+			evmconfig.DefaultSourceReaderHeaderFetchBatchSize,
 			func(ctx context.Context) {
 				chainMetrics.IncrementCriticalSourceInvariantViolations(ctx)
 			},

@@ -32,6 +32,8 @@ type stubChainRuntime struct {
 	gotKeystore keystore.Keystore
 	gotKeyName  string
 	gotOffRamp  common.Address
+
+	sourceReaderHeaderFetchBatchSize int
 }
 
 type runtimeContextMarkerKey struct{}
@@ -44,6 +46,9 @@ const (
 
 func (s *stubChainRuntime) ChainClient() (client.Client, error) { return s.Client, s.clientErr }
 func (s *stubChainRuntime) HeadTracker() (heads.Tracker, error) { return s.Tracker, s.trackerErr }
+func (s *stubChainRuntime) SourceReaderHeaderFetchBatchSize() int {
+	return s.sourceReaderHeaderFetchBatchSize
+}
 
 func (s *stubChainRuntime) NewContractTransmitter(
 	ctx context.Context,

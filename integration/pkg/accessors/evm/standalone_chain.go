@@ -10,6 +10,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 
 	"github.com/smartcontractkit/chainlink-ccv/executor/pkg/monitoring"
+	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evmconfig"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/contracttransmitter"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -45,6 +46,7 @@ const (
 type chainRuntime interface {
 	ChainClient() (client.Client, error)
 	HeadTracker() (heads.Tracker, error)
+	SourceReaderHeaderFetchBatchSize() int
 	NewContractTransmitter(
 		ctx context.Context,
 		chainSelector protocol.ChainSelector,
@@ -67,6 +69,8 @@ type standaloneChain struct {
 	// NewContractTransmitter emits: chainConfig carries the block time already defaulted, which
 	// cannot be told apart from one the operator set.
 	txmBlockTimeIsDefault bool
+
+	sourceReaderHeaderFetchBatchSize int
 
 	mu                  sync.Mutex
 	txm                 txmgr.TxManager
@@ -124,15 +128,31 @@ func newStandaloneChain(ctx context.Context, info Info, lggr logger.Logger) (*st
 		"nodeCount", len(chainConfig.Nodes()),
 	)
 	return &standaloneChain{
-		lggr:                  lggr,
-		chainClient:           chainClient,
-		chainConfig:           chainConfig,
-		headBroadcaster:       headBroadcaster,
-		headTracker:           headTracker,
-		mailMonitor:           mailMonitor,
-		txmBlockTimeIsDefault: info.TXMBlockTime == 0,
-		recoveryStop:          make(services.StopChan),
+		lggr:                             lggr,
+		chainClient:                      chainClient,
+		chainConfig:                      chainConfig,
+		headBroadcaster:                  headBroadcaster,
+		headTracker:                      headTracker,
+		mailMonitor:                      mailMonitor,
+		txmBlockTimeIsDefault:            info.TXMBlockTime == 0,
+		sourceReaderHeaderFetchBatchSize: sourceReaderHeaderFetchBatchSize(info.SourceReaderHeaderFetchBatchSize),
+		recoveryStop:                     make(services.StopChan),
 	}, nil
+}
+
+// SourceReaderHeaderFetchBatchSize returns the configured source-reader header
+// batch size, defaulted to DefaultSourceReaderHeaderFetchBatchSize.
+func (c *standaloneChain) SourceReaderHeaderFetchBatchSize() int {
+	return c.sourceReaderHeaderFetchBatchSize
+}
+
+// sourceReaderHeaderFetchBatchSize returns batchSize or
+// DefaultSourceReaderHeaderFetchBatchSize when batchSize is not positive.
+func sourceReaderHeaderFetchBatchSize(batchSize int) int {
+	if batchSize <= 0 {
+		return evmconfig.DefaultSourceReaderHeaderFetchBatchSize
+	}
+	return batchSize
 }
 
 func (c *standaloneChain) ChainClient() (client.Client, error) {
