@@ -57,6 +57,10 @@ type TokenVerifierInput struct {
 	// Defaults to "evm" if not specified.
 	ChainFamily string `toml:"chain_family"`
 
+	// LombardQualifier identifies which Lombard verifier/resolver deployment this instance's
+	// generated config should resolve addresses for.
+	LombardQualifier string `toml:"lombard_qualifier"`
+
 	// GeneratedConfig stores the generated token verifier configuration from the changeset.
 	GeneratedConfig *token.Config `toml:"-"`
 

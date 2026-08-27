@@ -3,7 +3,9 @@ package tokenverifier
 import (
 	"context"
 	"fmt"
+	"strconv"
 
+	chainsel "github.com/smartcontractkit/chain-selectors"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/chainreg"
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
 	blockchainscomp "github.com/smartcontractkit/chainlink-ccv/build/devenv/components/blockchains"
@@ -12,6 +14,7 @@ import (
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/services"
 	ccvdeployment "github.com/smartcontractkit/chainlink-ccv/deployment"
 	ccvchangesets "github.com/smartcontractkit/chainlink-ccv/deployment/changesets"
+	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/token"
 	"github.com/smartcontractkit/chainlink-deployments-framework/deployment"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
 )
@@ -84,19 +87,49 @@ func (c *component) RunPhase4(
 		return nil, nil, fmt.Errorf("tokenverifier: fake data provider is required to provide attestation API endpoints")
 	}
 
+	familyLombardQualifier := make(map[string]string, len(inputs))
+	for _, in := range inputs {
+		if in == nil {
+			continue
+		}
+		fam := in.ChainFamily
+		if fam == "" {
+			fam = chainsel.FamilyEVM
+		}
+		q := in.LombardQualifier
+		if q == "" {
+			q = devenvcommon.LombardVerifierResolverQualifier
+		}
+		familyLombardQualifier[fam] = q
+	}
+
 	localEnv := *e
 	for i, tvIn := range inputs {
 		if tvIn == nil {
 			continue
 		}
 
+		// Each instance gets its own service identifier and is scoped to its own chain family's selectors.
+		// Sharing one identifier across chain families would merge e.g. an EVM-only CCTPVerifier entry into
+		// a Solana instance's config, which then fails to start (no CCTP support, no valid chain sources for it).
+		family := tvIn.ChainFamily
+		if family == "" {
+			family = chainsel.FamilyEVM
+		}
+		familySelectors := selectorsForFamily(selectors, family)
+		if len(familySelectors) == 0 {
+			return nil, nil, fmt.Errorf("tokenverifier: no chain selectors found for family %q (instance %q)", family, tvIn.ContainerName)
+		}
+
+		lombardQualifier := familyLombardQualifier[family]
+
 		cs := ccvchangesets.GenerateTokenVerifierConfig()
 		output, csErr := cs.Apply(localEnv, ccvchangesets.GenerateTokenVerifierConfigInput{
-			ServiceIdentifier: "TokenVerifier",
-			ChainSelectors:    selectors,
+			ServiceIdentifier: tvIn.ContainerName,
+			ChainSelectors:    familySelectors,
 			Lombard: ccvchangesets.LombardConfigInput{
 				VerifierID:     "LombardVerifier",
-				Qualifier:      devenvcommon.LombardVerifierResolverQualifier,
+				Qualifier:      lombardQualifier,
 				AttestationAPI: fakeOut.InternalHTTPURL + "/lombard",
 			},
 			CCTP: ccvchangesets.CCTPConfigInput{
@@ -107,13 +140,50 @@ func (c *component) RunPhase4(
 		if csErr != nil {
 			return nil, nil, fmt.Errorf("tokenverifier: generating token verifier config: %w", csErr)
 		}
+		localEnv.DataStore = output.DataStore.Seal()
 
-		tokenVerifierCfg, cfgErr := ccvdeployment.GetTokenVerifierConfig(output.DataStore.Seal(), "TokenVerifier")
+		// A message's dest chain may belong to a different family than this instance's own
+		// CCVWriter needs the Lombard verifier resolver address for the dest chain too
+		// in order to annotate written CCV data with it.
+		remoteByFamily := make(map[string][]uint64)
+		for _, sel := range selectors {
+			selFamily, err := chainsel.GetSelectorFamily(sel)
+			if err != nil || selFamily == family {
+				continue
+			}
+			remoteByFamily[selFamily] = append(remoteByFamily[selFamily], sel)
+		}
+		for remoteFamily, remoteSelectors := range remoteByFamily {
+			remoteLombardQualifier := familyLombardQualifier[remoteFamily]
+			if remoteLombardQualifier == "" {
+				remoteLombardQualifier = devenvcommon.LombardVerifierResolverQualifier
+			}
+			remoteOutput, remoteErr := ccvchangesets.GenerateTokenVerifierConfig().Apply(localEnv, ccvchangesets.GenerateTokenVerifierConfigInput{
+				ServiceIdentifier: tvIn.ContainerName,
+				ChainSelectors:    remoteSelectors,
+				Lombard: ccvchangesets.LombardConfigInput{
+					VerifierID:     "LombardVerifier",
+					Qualifier:      remoteLombardQualifier,
+					AttestationAPI: fakeOut.InternalHTTPURL + "/lombard",
+				},
+				CCTP: ccvchangesets.CCTPConfigInput{
+					VerifierID:     "CCTPVerifier",
+					AttestationAPI: fakeOut.InternalHTTPURL + "/cctp",
+				},
+			})
+			if remoteErr != nil {
+				return nil, nil, fmt.Errorf("tokenverifier: generating cross-family token verifier config for %q (family %q): %w", tvIn.ContainerName, remoteFamily, remoteErr)
+			}
+			localEnv.DataStore = remoteOutput.DataStore.Seal()
+		}
+
+		tokenVerifierCfg, cfgErr := ccvdeployment.GetTokenVerifierConfig(localEnv.DataStore, tvIn.ContainerName)
 		if cfgErr != nil {
 			return nil, nil, fmt.Errorf("tokenverifier: getting token verifier config: %w", cfgErr)
 		}
+
+		tokenVerifierCfg.TokenVerifiers = dropUnreachableVerifiers(tokenVerifierCfg.TokenVerifiers, familySelectors)
 		inputs[i].GeneratedConfig = tokenVerifierCfg
-		localEnv.DataStore = output.DataStore.Seal()
 	}
 
 	modifiers := chainreg.GetRegistry().GetTokenVerifierModifiers()
@@ -136,6 +206,54 @@ func (c *component) RunPhase4(
 	}
 
 	return map[string]any{Key: inputs}, nil, nil
+}
+
+// dropUnreachableVerifiers removes any verifier-type entry (CCTP or Lombard) whose
+// resolved verifier-resolver addresses have no chain in common with localSelectors:
+// an instance can never coordinate a verifier type it has no locally-reachable chains for.
+func dropUnreachableVerifiers(verifiers []token.VerifierConfig, localSelectors []uint64) []token.VerifierConfig {
+	local := make(map[string]struct{}, len(localSelectors))
+	for _, sel := range localSelectors {
+		local[strconv.FormatUint(sel, 10)] = struct{}{}
+	}
+
+	reachable := make([]token.VerifierConfig, 0, len(verifiers))
+	for _, vc := range verifiers {
+		var resolvers map[string]any
+		switch {
+		case vc.CCTPConfig != nil:
+			resolvers = vc.CCTPConfig.VerifierResolvers
+		case vc.LombardConfig != nil:
+			resolvers = vc.LombardConfig.VerifierResolvers
+		}
+		hasLocalChain := false
+		for chainSelectorStr := range resolvers {
+			if _, ok := local[chainSelectorStr]; ok {
+				hasLocalChain = true
+				break
+			}
+		}
+		if hasLocalChain {
+			reachable = append(reachable, vc)
+		}
+	}
+	return reachable
+}
+
+// selectorsForFamily filters selectors down to those belonging to family, by cross-referencing
+// each selector's registered chain details. Order is not guaranteed to match the input.
+func selectorsForFamily(selectors []uint64, family string) []uint64 {
+	var filtered []uint64
+	for _, sel := range selectors {
+		selFamily, err := chainsel.GetSelectorFamily(sel)
+		if err != nil {
+			continue
+		}
+		if selFamily == family {
+			filtered = append(filtered, sel)
+		}
+	}
+	return filtered
 }
 
 func decode(raw any) ([]*services.TokenVerifierInput, error) {
