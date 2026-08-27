@@ -22,7 +22,6 @@ import (
 	"github.com/smartcontractkit/chainlink-evm/pkg/heads"
 	evmtypes "github.com/smartcontractkit/chainlink-evm/pkg/types"
 
-	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/accessors/evmconfig"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/rmnremotereader"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
@@ -177,13 +176,10 @@ func (r *SourceReader) SetCriticalSourceInvariantCallback(callback func(context.
 // GetBlocksHeaders fetches headers for the given block numbers and returns them
 // keyed by block number. Requests are batched into a single eth_getBlockByNumber
 // batch per chunk (instead of one RPC request per block) to reduce RPC load.
-// Batches are chunked to defaultMaxBatchSize to avoid an oversized single payload.
+// Batches are chunked to avoid an oversized single payload.
 func (r *SourceReader) GetBlocksHeaders(ctx context.Context, blockNumbers []*big.Int) (map[uint64]protocol.BlockHeader, error) {
 	headers := make(map[uint64]protocol.BlockHeader, len(blockNumbers))
-	batchSize := r.sourceReaderHeaderFetchBatchSize
-	if batchSize <= 0 {
-		batchSize = evmconfig.DefaultSourceReaderHeaderFetchBatchSize
-	}
+	batchSize := sourceReaderHeaderFetchBatchSize(r.sourceReaderHeaderFetchBatchSize)
 	for bn := 0; bn < len(blockNumbers); bn += batchSize {
 		end := min(bn+batchSize, len(blockNumbers))
 		chunk, err := r.fetchHeadBatch(ctx, blockNumbers[bn:end])

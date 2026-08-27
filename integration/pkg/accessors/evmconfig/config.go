@@ -100,13 +100,13 @@ func (n Node) Empty() bool {
 
 // Info represents blockchain connection information.
 type Info struct {
-	ChainID                          string        `json:"chain_id"          toml:"chain_id"`
-	Type                             string        `json:"type"              toml:"type"`
-	Family                           string        `json:"family"            toml:"family"`
-	UniqueChainName                  string        `json:"unique_chain_name" toml:"unique_chain_name"`
-	Nodes                            []Node        `json:"nodes"             toml:"nodes"`
-	FinalityDepth                    uint32        `json:"finality_depth"    toml:"finality_depth"`
-	TXMBlockTime                     time.Duration `json:"txm_block_time"    toml:"txm_block_time"`
+	ChainID                          string        `json:"chain_id"                              toml:"chain_id"`
+	Type                             string        `json:"type"                                  toml:"type"`
+	Family                           string        `json:"family"                                toml:"family"`
+	UniqueChainName                  string        `json:"unique_chain_name"                     toml:"unique_chain_name"`
+	Nodes                            []Node        `json:"nodes"                                 toml:"nodes"`
+	FinalityDepth                    uint32        `json:"finality_depth"                        toml:"finality_depth"`
+	TXMBlockTime                     time.Duration `json:"txm_block_time"                        toml:"txm_block_time"`
 	SourceReaderHeaderFetchBatchSize int           `json:"source_reader_header_fetch_batch_size" toml:"source_reader_header_fetch_batch_size"`
 }
 
