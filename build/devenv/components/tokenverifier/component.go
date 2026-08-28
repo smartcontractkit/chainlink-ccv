@@ -88,6 +88,7 @@ func (c *component) RunPhase4(
 	}
 
 	familyLombardQualifier := make(map[string]string, len(inputs))
+	familyCCTPQualifier := make(map[string]string, len(inputs))
 	for _, in := range inputs {
 		if in == nil {
 			continue
@@ -101,6 +102,12 @@ func (c *component) RunPhase4(
 			q = devenvcommon.LombardVerifierResolverQualifier
 		}
 		familyLombardQualifier[fam] = q
+
+		q = in.CCTPQualifier
+		if q == "" {
+			q = devenvcommon.CCTPVerifierResolverQualifier
+		}
+		familyCCTPQualifier[fam] = q
 	}
 
 	localEnv := *e
@@ -122,6 +129,7 @@ func (c *component) RunPhase4(
 		}
 
 		lombardQualifier := familyLombardQualifier[family]
+		cctpQualifier := familyCCTPQualifier[family]
 
 		cs := ccvchangesets.GenerateTokenVerifierConfig()
 		output, csErr := cs.Apply(localEnv, ccvchangesets.GenerateTokenVerifierConfigInput{
@@ -134,6 +142,7 @@ func (c *component) RunPhase4(
 			},
 			CCTP: ccvchangesets.CCTPConfigInput{
 				VerifierID:     "CCTPVerifier",
+				Qualifier:      cctpQualifier,
 				AttestationAPI: fakeOut.InternalHTTPURL + "/cctp",
 			},
 		})
@@ -154,20 +163,17 @@ func (c *component) RunPhase4(
 			remoteByFamily[selFamily] = append(remoteByFamily[selFamily], sel)
 		}
 		for remoteFamily, remoteSelectors := range remoteByFamily {
-			remoteLombardQualifier := familyLombardQualifier[remoteFamily]
-			if remoteLombardQualifier == "" {
-				remoteLombardQualifier = devenvcommon.LombardVerifierResolverQualifier
-			}
 			remoteOutput, remoteErr := ccvchangesets.GenerateTokenVerifierConfig().Apply(localEnv, ccvchangesets.GenerateTokenVerifierConfigInput{
 				ServiceIdentifier: tvIn.ContainerName,
 				ChainSelectors:    remoteSelectors,
 				Lombard: ccvchangesets.LombardConfigInput{
 					VerifierID:     "LombardVerifier",
-					Qualifier:      remoteLombardQualifier,
+					Qualifier:      familyLombardQualifier[remoteFamily],
 					AttestationAPI: fakeOut.InternalHTTPURL + "/lombard",
 				},
 				CCTP: ccvchangesets.CCTPConfigInput{
 					VerifierID:     "CCTPVerifier",
+					Qualifier:      familyCCTPQualifier[remoteFamily],
 					AttestationAPI: fakeOut.InternalHTTPURL + "/cctp",
 				},
 			})
