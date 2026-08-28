@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.0](https://github.com/smartcontractkit/chainlink-ccv/compare/v0.5.0...v0.6.0) (2026-08-28)
+
+
+### Features
+
+* **evm:** batch block header fetches ([#1381](https://github.com/smartcontractkit/chainlink-ccv/issues/1381)) ([4b7db6f](https://github.com/smartcontractkit/chainlink-ccv/commit/4b7db6f8d6e53a825483be4847357ca1bb9236d1))
+
 ## [0.5.0](https://github.com/smartcontractkit/chainlink-ccv/compare/v0.4.0...v0.5.0) (2026-08-25)
 
 
