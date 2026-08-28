@@ -15,10 +15,10 @@ import (
 
 func TestNewEvaluateRequest(t *testing.T) {
 	task := vtypes.VerificationTask{
-		MessageID:            "0xabc123",
-		TxHash:               protocol.ByteSlice{0xde, 0xad, 0xbe, 0xef},
-		BlockNumber:          100,
-		FinalizedBlockAtRead: 115,
+		MessageID:             "0xabc123",
+		TxHash:                protocol.ByteSlice{0xde, 0xad, 0xbe, 0xef},
+		BlockNumber:           100,
+		FinalizedBlockAtReady: 115,
 		Message: protocol.Message{
 			Version:             1,
 			SourceChainSelector: 3379446385462418246,
@@ -80,7 +80,7 @@ func TestNewEvaluateRequest_BlockDepth(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			task := vtypes.VerificationTask{BlockNumber: tt.block, FinalizedBlockAtRead: tt.finalized}
+			task := vtypes.VerificationTask{BlockNumber: tt.block, FinalizedBlockAtReady: tt.finalized}
 			assert.Equal(t, tt.want, NewEvaluateRequest("v", &task).BlockDepth)
 		})
 	}
@@ -141,7 +141,11 @@ func TestParseDecision(t *testing.T) {
 	}{
 		{name: "PASS", raw: "PASS", want: DecisionPass},
 		{name: "FAIL", raw: "FAIL", want: DecisionFail},
-		{name: "lowercase pass", raw: "pass", want: DecisionPass},
+		// PASS is matched exactly and FAIL is not, on purpose. Misreading a verdict into a
+		// retry costs a delay; misreading one into a signature attests a message the
+		// endpoint may not have approved, so only the retry direction gets the benefit of
+		// the doubt.
+		{name: "lowercase pass", raw: "pass", wantErr: true},
 		{name: "mixed case fail", raw: "Fail", want: DecisionFail},
 		{name: "surrounding whitespace", raw: " PASS\n", want: DecisionPass},
 		{name: "empty", raw: "", wantErr: true},

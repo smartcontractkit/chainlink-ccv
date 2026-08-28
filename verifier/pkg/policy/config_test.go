@@ -84,6 +84,23 @@ func TestConfig_Validate(t *testing.T) {
 			errContains: "request_timeout must be positive",
 		},
 		{
+			name: "request timeout at the maximum",
+			cfg: &Config{
+				EndpointURL:    "https://policy.example.com",
+				RequestTimeout: "15s",
+			},
+		},
+		{
+			// A batch of policy calls has to finish inside the task queue's job lock, or the
+			// job is reclaimed and every message in it is evaluated a second time.
+			name: "request timeout over the maximum",
+			cfg: &Config{
+				EndpointURL:    "https://policy.example.com",
+				RequestTimeout: "30s",
+			},
+			errContains: "exceeds the 15s maximum",
+		},
+		{
 			name: "malformed retry delay",
 			cfg: &Config{
 				EndpointURL: "https://policy.example.com",

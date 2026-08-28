@@ -111,6 +111,12 @@ type TokenTransferV1 struct {
 type EvaluateResponse struct {
 	// Decision is PASS or FAIL.
 	Decision Decision `json:"decision"`
+	// MessageID optionally echoes the request's message_id. Nothing else in the response ties a
+	// verdict to the message it was asked about, so an endpoint that sets it lets the verifier
+	// catch a verdict that belongs to a different message - a cache, a proxy, or a load balancer
+	// in front of the endpoint that crossed two requests. A mismatch is an error, which retries;
+	// an endpoint that omits the field skips the check.
+	MessageID string `json:"message_id,omitempty"`
 	// Reason optionally explains a FAIL. It is logged by the verifier and never signed.
 	Reason string `json:"reason,omitempty"`
 }
@@ -123,14 +129,16 @@ func NewEvaluateRequest(verifierID string, task *vtypes.VerificationTask) Evalua
 		MessageID:            task.MessageID,
 		SourceTxHash:         hexBytes(task.TxHash),
 		SourceBlockNumber:    task.BlockNumber,
-		FinalizedBlockNumber: task.FinalizedBlockAtRead,
-		BlockDepth:           blockDepth(task.BlockNumber, task.FinalizedBlockAtRead),
+		FinalizedBlockNumber: task.FinalizedBlockAtReady,
+		BlockDepth:           blockDepth(task.BlockNumber, task.FinalizedBlockAtReady),
 		Message:              newMessageV1(task.Message),
 	}
 }
 
-// blockDepth reports how far below the finalized head the message's block sits. A message read
-// off a safe (not finalized) head can sit above it, which reports zero rather than wrapping.
+// blockDepth reports how far below the finalized head the message's block sits, measured against
+// the head at the moment the message met its finality requirement. A message that satisfies its
+// finality off the safe head can still sit above the finalized head, which reports zero rather
+// than wrapping.
 func blockDepth(blockNumber, finalizedBlock uint64) uint64 {
 	if finalizedBlock <= blockNumber {
 		return 0
@@ -193,14 +201,17 @@ func decimalAmount(amount *big.Int) string {
 	return amount.String()
 }
 
-// parseDecision normalizes and validates an endpoint's verdict. Case is normalized because an
-// endpoint answering "pass" plainly means PASS; anything that is not one of the two verdicts is
-// an error, which retries.
+// parseDecision validates an endpoint's verdict. PASS is matched exactly as the contract spells
+// it, because it is the one answer that ends in a signature and an endpoint that does not match
+// its own published contract is not one to guess on behalf of. FAIL is matched case-insensitively:
+// misreading "fail" as unusable only sends the message back for a retry, so leniency there costs a
+// delay rather than an unintended attestation. Anything else is an error, which retries.
 func parseDecision(raw Decision) (Decision, error) {
-	switch Decision(strings.ToUpper(strings.TrimSpace(string(raw)))) {
-	case DecisionPass:
+	trimmed := strings.TrimSpace(string(raw))
+	switch {
+	case Decision(trimmed) == DecisionPass:
 		return DecisionPass, nil
-	case DecisionFail:
+	case Decision(strings.ToUpper(trimmed)) == DecisionFail:
 		return DecisionFail, nil
 	default:
 		return "", fmt.Errorf("unrecognized decision %q, expected %q or %q", raw, DecisionPass, DecisionFail)

@@ -1,16 +1,15 @@
 components:
   schemas:
     EvaluateRequest:
-      additionalProperties: false
       description: The context a committee verifier sends for one message. It carries the decoded CCIP message and its source-chain provenance so the endpoint does not have to fetch or decode anything itself.
       properties:
         block_depth:
-          description: How far the message's block sits below finalized_block_number. Zero when the message's block is the finalized head or newer, which happens for a message read off the safe head.
+          description: How far the message's block sits below finalized_block_number. Zero when the message's block is the finalized head or newer, which is the case for a message that met its finality requirement against the safe head rather than the finalized one.
           format: int64
           minimum: 0
           type: integer
         finalized_block_number:
-          description: The source chain's finalized head when the verifier read the message.
+          description: The source chain's finalized head at the moment the message met its finality requirement. It is fixed at that point, so a message that is retried reports the head as of the original decision rather than the current one.
           format: int64
           minimum: 0
           type: integer
@@ -49,14 +48,17 @@ components:
         - message
       type: object
     EvaluateResponse:
-      additionalProperties: false
       description: The verdict. Returned with HTTP 200; any other status is read as "verdict unknown" and the verifier retries.
       properties:
         decision:
-          description: PASS signs and attests the message. FAIL drops it — it is never attested and never auto-executed, and recovery needs an operator to replay it, by rescheduling the archived job with the verifier CLI or by rewinding the verifier checkpoint.
+          description: PASS signs and attests the message. FAIL drops it — it is never attested and never auto-executed, and recovery needs an operator to replay it, by rescheduling the archived job with the verifier CLI or by rewinding the verifier checkpoint. PASS is matched exactly; FAIL is matched case-insensitively, because reading a verdict as unusable only causes a retry while reading one as PASS causes a signature.
           enum:
             - PASS
             - FAIL
+          type: string
+        message_id:
+          description: Optional echo of the request's message_id. Nothing else in this response ties the verdict to the message it answers, so echoing the ID lets the verifier refuse a verdict that reached it for a different message, which is what a shared cache or a proxy in front of the endpoint can produce. A mismatch is an error and retries; omitting the field skips the check. Compared case-insensitively.
+          example: "0x9f2b1c0d5e4a3b6c7d8e9f0a1b2c3d4e5f60718293a4b5c6d7e8f9a0b1c2d3e4"
           type: string
         reason:
           description: Optional explanation of a FAIL. The verifier logs it and never signs it. Values longer than 256 characters are truncated in logs.
@@ -66,7 +68,6 @@ components:
         - decision
       type: object
     Message:
-      additionalProperties: false
       description: The decoded CCIP message. Byte fields are hex-encoded with an 0x prefix; an empty byte field is "0x".
       properties:
         ccip_receive_gas_limit:
@@ -144,7 +145,6 @@ components:
         - ccv_and_executor_hash
       type: object
     TokenTransfer:
-      additionalProperties: false
       description: The token transfer attached to a message. Absent for a message that carries no tokens.
       properties:
         amount:
@@ -203,9 +203,9 @@ info:
       * HTTP 200 with decision FAIL — the verifier drops the message. It is not attested and not
         auto-executed. Recovery requires an operator action: rescheduling the archived job with
         the verifier CLI, or rewinding the verifier's checkpoint and replaying.
-      * Anything else — a 4xx, a 5xx, a timeout, an unreachable host, or a body that is not a
-        valid EvaluateResponse — is read as "verdict unknown" and the message is retried, not
-        dropped. An endpoint outage must never silently drop traffic, so an endpoint that cannot
+      * Anything else — a 4xx, a 5xx, a timeout, an unreachable host, a body that is not a valid
+        EvaluateResponse, or a response whose message_id echo names a different message — is read
+        as "verdict unknown" and the message is retried, not dropped. An endpoint outage must never silently drop traffic, so an endpoint that cannot
         reach its own dependencies must return an error status rather than FAIL.
 
     Operational notes for implementers:
@@ -217,8 +217,14 @@ info:
       * Calls are idempotent from the verifier's side: a retried message is sent again with the
         same message_id, and the same verdict is expected.
       * A verifier processes a batch of messages concurrently, up to 8 in-flight calls per node.
-      * The default per-call timeout is 5 seconds and the default delay before a retry is
-        10 seconds; both are configurable per verifier.
+      * The per-call timeout defaults to 5 seconds and cannot be configured above 15 seconds. A
+        batch of calls has to finish inside the verifier's own job lock, and a batch that runs
+        past it is reclaimed and evaluated a second time. An endpoint that needs longer than this
+        has to answer from its own queue rather than hold the call open.
+      * The delay before a retry defaults to 10 seconds and is jittered per message, across half
+        to one and a half times the configured value. An outage stalls every message a verifier
+        is holding at once, and the spread stops the whole backlog arriving in one burst on each
+        retry. The delay does not grow with the number of attempts.
       * The verifier reads at most 64 KiB of response body and does not follow redirects.
   title: CCV Committee Verifier Policy Hook
   version: 1.0.0

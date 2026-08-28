@@ -35,7 +35,17 @@ const (
 	// DefaultRetryDelay is how long a message waits before the verifier calls the policy
 	// endpoint again after an endpoint error. The task queue keeps retrying for its full
 	// retry window (7 days), so a long outage delays messages rather than losing them.
+	// The gate jitters this value per message; see GatedVerifier.retryDelayWithJitter.
 	DefaultRetryDelay = 10 * time.Second
+	// MaxRequestTimeout is the largest per-call timeout an operator may configure. A batch holds
+	// up to StorageBatchSize (50) tasks and the gate keeps maxConcurrentEvaluations (8) calls in
+	// flight, so a batch is up to seven sequential waves of endpoint calls. The task queue
+	// reclaims a job whose lock has been held for longer than taskQueueLockDuration (2 minutes),
+	// and a reclaimed job is evaluated again: a second call the operator pays for, and a second
+	// trip through the drop path. Seven waves of 15s leave the batch a 15s margin inside that
+	// lock for signing and the queue writes around it. An endpoint that needs longer than this
+	// has to answer from its own queue rather than hold the call open.
+	MaxRequestTimeout = 15 * time.Second
 	// maxResponseBytes caps how much of a policy response the verifier reads. The verdict is
 	// a few dozen bytes; a larger body is a broken or hostile endpoint and is refused.
 	maxResponseBytes = 64 << 10
@@ -59,10 +69,14 @@ type Config struct {
 	// Required, and must be https unless insecure_connection is set.
 	EndpointURL string `toml:"endpoint_url"`
 	// RequestTimeout bounds one call to the endpoint, as a Go duration string (e.g. "5s").
-	// Empty uses the 5s default. A timeout is an endpoint error: the message is retried.
+	// Empty uses the 5s default, and 15s is the maximum: a batch of policy calls has to finish
+	// inside the task queue's job lock, and a batch that outruns it is reclaimed and evaluated
+	// a second time. A timeout is an endpoint error: the message is retried.
 	RequestTimeout string `toml:"request_timeout"`
 	// RetryDelay is how long a message waits before the endpoint is called again after an
-	// endpoint error, as a Go duration string (e.g. "10s"). Empty uses the 10s default.
+	// endpoint error, as a Go duration string (e.g. "10s"). Empty uses the 10s default. The
+	// wait is jittered per message across half to one and a half times this value, so an
+	// outage does not send the whole held backlog at the endpoint on the same tick.
 	RetryDelay string `toml:"retry_delay"`
 	// InsecureConnection allows a plain http:// endpoint. Only for local development and
 	// tests: a policy verdict carries compliance weight and must not travel in the clear.
@@ -114,6 +128,11 @@ func (c *Config) Validate() error {
 	}
 	if timeout <= 0 {
 		return fmt.Errorf("invalid policy_hook configuration: request_timeout must be positive, got %q", c.RequestTimeout)
+	}
+	if timeout > MaxRequestTimeout {
+		return fmt.Errorf(
+			"invalid policy_hook configuration: request_timeout %q exceeds the %s maximum; a batch of policy calls has to finish inside the task queue's job lock, and a slower endpoint would have its messages evaluated twice",
+			c.RequestTimeout, MaxRequestTimeout)
 	}
 	retryDelay, err := c.RetryDelayDuration()
 	if err != nil {

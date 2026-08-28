@@ -48,8 +48,9 @@ type evaluateRequest struct {
 
 // evaluateResponse is the v1 EvaluateResponse.
 type evaluateResponse struct {
-	Decision string `json:"decision"`
-	Reason   string `json:"reason,omitempty"`
+	Decision  string `json:"decision"`
+	MessageID string `json:"message_id,omitempty"`
+	Reason    string `json:"reason,omitempty"`
 }
 
 // ControlRequest sets the fake's behavior. DefaultDecision and Reason keep their current value
@@ -150,7 +151,9 @@ func (a *API) handleEvaluate(ctx *gin.Context) {
 		decision = decisionFail
 	}
 
-	resp := evaluateResponse{Decision: decision}
+	// Echoing the ID is optional in the contract, but the fake does it so the devenv exercises
+	// the verifier's check that a verdict answers the message it was asked about.
+	resp := evaluateResponse{Decision: decision, MessageID: req.MessageID}
 	if decision == decisionFail {
 		resp.Reason = reason
 		if resp.Reason == "" {

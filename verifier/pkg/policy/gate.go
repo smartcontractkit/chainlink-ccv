@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	mrand "math/rand/v2"
 	"sync"
 	"time"
 
@@ -171,17 +172,36 @@ func (g *GatedVerifier) endpointErrorResult(ctx context.Context, task vtypes.Ver
 		monitoring.MessageTransitionOutcomePolicyUnavailable,
 		monitoring.MessageTransitionReasonPolicyEndpointError)
 
+	delay := g.retryDelayWithJitter()
+
 	g.lggr.Warnw("Policy hook verdict unavailable, scheduling retry",
 		protocol.LogTypeKey, protocol.LogTypeRetryableMessageFailure,
 		protocol.LogKeyMessageID, task.MessageID,
 		protocol.LogKeySourceChain, task.Message.SourceChainSelector,
 		protocol.LogKeyDestChain, task.Message.DestChainSelector,
-		"retryDelay", g.retryDelay,
+		"retryDelay", delay,
 		"error", cause,
 	)
 
-	verificationErr := vtypes.NewRetriableVerificationError(cause, task, g.retryDelay)
+	verificationErr := vtypes.NewRetriableVerificationError(cause, task, delay)
 	return &verificationErr
+}
+
+// retryDelayWithJitter spreads a message's next attempt across [retryDelay/2, retryDelay*3/2].
+// An outage stalls every message the verifier is holding at once, and a fixed delay would
+// reschedule all of them on the same tick, so the whole backlog would arrive at the endpoint
+// together every retryDelay for as long as the outage lasts. That is the worst shape to hand an
+// endpoint that is already failing or rate-limiting, and the endpoint is the operator's to pay
+// for. Spreading the retries does not reduce the total call volume, only its burstiness; backoff
+// that grows with the attempt count needs the queue's attempt_count on the task and is tracked
+// separately.
+func (g *GatedVerifier) retryDelayWithJitter() time.Duration {
+	half := int64(g.retryDelay / 2)
+	if half <= 0 {
+		return g.retryDelay
+	}
+	//nolint:gosec // G404: jitter spreads retry load, it is not a security decision.
+	return g.retryDelay - time.Duration(half) + time.Duration(mrand.Int64N(2*half+1))
 }
 
 func (g *GatedVerifier) messageMetrics(message protocol.Message) vtypes.MetricLabeler {

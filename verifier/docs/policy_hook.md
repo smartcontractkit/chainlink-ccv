@@ -47,13 +47,32 @@ not attest. Nothing about the hook reaches the aggregator: no aggregator change 
 | Endpoint answer | What the verifier does |
 | --- | --- |
 | HTTP 200, `{"decision":"PASS"}` | Signs and attests, byte-identical to a run with no hook. |
-| HTTP 200, `{"decision":"FAIL"}` | Drops the message permanently. Not attested, not auto-executed. |
+| HTTP 200, `{"decision":"FAIL"}` | This node drops the message permanently and never attests it. Whether the message itself stops depends on quorum, below. |
 | Anything else | Retries the message. Never drops it. |
 
 "Anything else" covers a 4xx, a 5xx, a timeout, an unreachable host, a redirect, a body that is not
 valid JSON, and a decision that is neither PASS nor FAIL. An endpoint outage must never look like a
 rejection, so an endpoint that cannot reach its own dependencies has to return an error status rather
 than FAIL.
+
+## What a FAIL stops
+
+A FAIL withholds one node's signature. On its own it does not stop the message.
+
+The committee's quorum config sets a threshold per source chain, and the aggregator builds a report
+as soon as that many of the committee's nodes have signed. A message is stopped only when enough
+nodes withhold signatures to put the rest below the threshold, which takes `N - threshold + 1` of
+the committee's `N` nodes. In a 2-of-2 committee one FAIL is decisive. In a 3-of-5, two operators
+can reject a message and it still executes on the other three signatures.
+
+This is the thing to work out before treating the hook as a compliance control. If your node's
+signature is spare at the committee's threshold, your endpoint answering FAIL does not prevent the
+transfer. It means you did not attest it. Sizing the committee so the gated nodes can actually block
+is a topology decision the hook cannot make for you.
+
+Nothing signals a FAIL to the other nodes and nothing about it reaches the aggregator, so a node
+cannot tell from its own logs whether a message it rejected went through anyway. Answering that
+today means looking the message ID up at the aggregator or the indexer.
 
 A drop is permanent from the node's point of view, like an RMN curse. Clearing whatever made the
 endpoint answer FAIL does not by itself bring the message back: the checkpoint has moved past it and
@@ -93,9 +112,20 @@ spec.
 ```
 
 `endpoint_url` is required and must be `https` unless `insecure_connection` is set, which exists for
-local development against a plain-HTTP fake and should never be set in production. `request_timeout`
-bounds one call and defaults to 5s. `retry_delay` is how long a message waits before the endpoint is
-asked again after an error, and defaults to 10s.
+local development against a plain-HTTP fake and should never be set in production.
+
+`request_timeout` bounds one call, defaults to 5s, and is rejected above 15s. A node evaluates a
+batch of up to 50 messages 8 at a time, so a batch is up to seven waves of calls, and the whole
+batch has to finish inside the two-minute lock the task queue holds on those jobs. A batch that runs
+past the lock is reclaimed and evaluated again: a second call the operator pays for, and a second
+trip through the drop path. An endpoint that needs longer than 15s should take the call, queue the
+work itself, and answer with an error until it has a verdict.
+
+`retry_delay` is how long a message waits before the endpoint is asked again after an error, and
+defaults to 10s. The actual delay is jittered per message across half to one and a half times that
+value: an outage stalls every message the node is holding at once, and a fixed delay would send the
+whole backlog at the endpoint together on each retry. The delay does not grow with the attempt
+count.
 
 Retries are bounded by the task queue's own retry window, currently 7 days from when the message was
 queued. An outage shorter than that delays messages rather than losing them. A message still without
@@ -147,16 +177,25 @@ provenance so the endpoint does not have to fetch or decode anything:
 A verdict is a small JSON object:
 
 ```json
-{"decision": "FAIL", "reason": "sender matched sanctions list entry OFAC-12345"}
+{"decision": "FAIL", "message_id": "0x9f2b...3e4", "reason": "sender matched sanctions list entry OFAC-12345"}
 ```
 
 `reason` is optional and is logged by the verifier. It is never signed: v1 deliberately keeps policy
 output out of the signed payload, since signing it would force aggregator and wire-format changes.
+It does travel, though. The string goes into the node's logs, ships wherever those logs ship, and is
+stored as the archived job's error for the 30-day retention period. Put a case reference in it
+rather than the customer data behind the decision. Anything past 256 characters is truncated.
 
 Things worth knowing when building the endpoint:
 
 * Calls are idempotent from the verifier's side. A retried message arrives again with the same
   `message_id` and the same verdict is expected.
+* `message_id` in the response is optional and echoes the request. Nothing else in a response ties
+  a verdict to the message it answers, so if a cache or a proxy in front of your endpoint ever
+  crosses two responses, the echo is what stops the verifier signing on the wrong verdict. A
+  mismatch is treated as an error and retries. Endpoints that omit the field are unaffected.
+* `decision` must be spelled `PASS` exactly. `FAIL` is accepted in any case, because reading a
+  verdict as unusable only costs a retry while reading one as PASS costs a signature.
 * A node evaluates a batch concurrently, up to 8 in-flight calls.
 * The verifier reads at most 64 KiB of response body and does not follow redirects.
 * v1 has no authentication of the verifier to the endpoint. Restrict access at the network layer.

@@ -64,6 +64,68 @@ func TestHTTPChecker_Evaluate_Fail(t *testing.T) {
 	assert.Equal(t, "sanctioned sender", verdict.Reason)
 }
 
+// TestHTTPChecker_Evaluate_MessageIDEcho covers the optional message_id echo. Nothing else in a
+// response ties a verdict to the message it answers, so an endpoint that echoes the ID lets the
+// verifier refuse a verdict that reached it for a different message - a cache, a proxy, or a load
+// balancer in front of the endpoint that crossed two requests. Signing on a crossed PASS would
+// attest a message the policy never saw.
+func TestHTTPChecker_Evaluate_MessageIDEcho(t *testing.T) {
+	tests := []struct {
+		name        string
+		body        string
+		errContains string
+		want        Decision
+	}{
+		{
+			name: "matching echo is accepted",
+			body: `{"decision":"PASS","message_id":"0xabc"}`,
+			want: DecisionPass,
+		},
+		{
+			// Endpoints differ on hex casing and the contract does not pin it, so only a
+			// genuinely different ID is a mismatch.
+			name: "echo differing only in hex case is accepted",
+			body: `{"decision":"PASS","message_id":"0xABC"}`,
+			want: DecisionPass,
+		},
+		{
+			name: "absent echo skips the check",
+			body: `{"decision":"PASS"}`,
+			want: DecisionPass,
+		},
+		{
+			name:        "echo for a different message is refused",
+			body:        `{"decision":"PASS","message_id":"0xdef"}`,
+			errContains: "verdict is for a different message",
+		},
+		{
+			// A crossed FAIL is refused for the same reason a crossed PASS is: it would drop
+			// a message on a verdict that was never about it.
+			name:        "crossed rejection is refused rather than dropped",
+			body:        `{"decision":"FAIL","message_id":"0xdef","reason":"sanctioned sender"}`,
+			errContains: "verdict is for a different message",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				_, _ = io.WriteString(w, tt.body)
+			}))
+			defer srv.Close()
+
+			verdict, err := newTestChecker(t, srv, "").Evaluate(t.Context(), testRequest())
+			if tt.errContains != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tt.errContains)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, verdict.Decision)
+		})
+	}
+}
+
 // The request shape is a published contract, so assert what actually goes on the wire.
 func TestHTTPChecker_Evaluate_RequestShape(t *testing.T) {
 	var (

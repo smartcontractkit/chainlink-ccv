@@ -129,6 +129,12 @@ func (c *HTTPChecker) Evaluate(ctx context.Context, req EvaluateRequest) (Verdic
 	if err := json.Unmarshal(raw, &parsed); err != nil {
 		return Verdict{}, fmt.Errorf("failed to decode policy response for message %s: %w", req.MessageID, err)
 	}
+	// An endpoint that echoes message_id lets us refuse a verdict that answers a different
+	// message. Signing on a crossed response would attest a message the policy never saw, so a
+	// mismatch is an error and the message is retried.
+	if parsed.MessageID != "" && !strings.EqualFold(strings.TrimSpace(parsed.MessageID), req.MessageID) {
+		return Verdict{}, fmt.Errorf("policy response for message %s echoes message_id %q, so the verdict is for a different message", req.MessageID, parsed.MessageID)
+	}
 	decision, err := parseDecision(parsed.Decision)
 	if err != nil {
 		return Verdict{}, fmt.Errorf("invalid policy response for message %s: %w", req.MessageID, err)

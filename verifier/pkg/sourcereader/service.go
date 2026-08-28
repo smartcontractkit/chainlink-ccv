@@ -766,6 +766,13 @@ func (r *Service) sendReadyMessages(ctx context.Context, latest, safe, finalized
 				// This is the finalized block timestamp which represents when the message met finality criteria
 				task.ReadyForVerificationAt = latest.Timestamp
 
+				// The finalized head as of now, which is what a consumer wanting the
+				// message's confirmation depth needs. FinalizedBlockAtRead cannot serve
+				// that: it is captured at discovery, when the message's own block is
+				// still ahead of the finalized head, so a depth computed from it is 0
+				// for every message that took the normal path to finality.
+				task.FinalizedBlockAtReady = latestFinalizedBlock.Uint64()
+
 				// Carry the send span forward as the task's TraceContext/TraceParent so
 				// the publish step (below) and downstream taskverifier/storagewriter
 				// nest under this send span rather than the ended discovery span.

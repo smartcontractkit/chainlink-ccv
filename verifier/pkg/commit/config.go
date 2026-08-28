@@ -218,10 +218,11 @@ type Config struct {
 	// intentionally not validated.
 	Monitoring verifier.MonitoringConfig `toml:"monitoring"`
 	// PolicyHook configures the operator's custom policy endpoint, a binary PASS/FAIL gate the
-	// verifier consults after finality and the built-in checks pass and before it signs. Absent
-	// (the default) leaves the verifier behaving exactly as it did before the hook existed; the
-	// section is omitted from marshaled job specs when unset, so specs are unchanged for a
-	// verifier that does not use it.
+	// verifier consults after finality and the curse and message-disablement checks pass, and
+	// before it validates the message payload and signs. Absent (the default) leaves the
+	// verifier behaving exactly as it did before the hook existed; the section is omitted from
+	// marshaled job specs when unset, so specs are unchanged for a verifier that does not use
+	// it.
 	PolicyHook *policy.Config `toml:"policy_hook,omitempty"`
 
 	// CommitteeConfig that is needed by the SourceReader and the application.

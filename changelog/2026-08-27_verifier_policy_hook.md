@@ -5,9 +5,14 @@
 - The committee verifier gains an optional `[policy_hook]` config section: one operator-owned
   HTTPS endpoint the node calls once per message after finality and the curse and
   message-disablement checks, before it validates the payload and signs. HTTP 200 with `PASS`
-  signs and attests exactly as before. HTTP 200 with `FAIL` drops the message permanently, like an
-  RMN curse, recoverable only by an operator replay. Any other outcome (4xx, 5xx,
-  timeout, unreachable host, unparseable body) retries and never drops.
+  signs and attests exactly as before. HTTP 200 with `FAIL` drops the message permanently on that
+  node, like an RMN curse, recoverable only by an operator replay. Any other outcome (4xx, 5xx,
+  timeout, unreachable host, unparseable body, or a response whose `message_id` echo names a
+  different message) retries and never drops.
+- A FAIL withholds one node's signature; it does not by itself stop the message. The committee's
+  threshold still decides, so stopping a message takes `N - threshold + 1` of the committee's `N`
+  nodes rejecting it. Whether the hook is an effective control is therefore a committee-topology
+  question, and `verifier/docs/policy_hook.md` says so under "What a FAIL stops".
 - The signed payload and signature are byte-identical with and without the hook. Nothing from the
   endpoint's response is signed, so the aggregator and the wire format are untouched.
 - The endpoint contract is published as OpenAPI 3.0.3 at `verifier/policy_hook_openapi_v1.yaml`
@@ -33,10 +38,10 @@
 | Symbol | Kind | Search | Location | Section |
 |---|---|---|---|---|
 | `commit.Config.PolicyHook` | added | `PolicyHook \*policy\.Config` | `verifier/pkg/commit/config.go:225` | [#config-section](#config-section) |
-| `policy.Config` | added | `type Config struct` | `verifier/pkg/policy/config.go:56` | [#config-section](#config-section) |
-| `policy.WrapVerifier` / `policy.NewGatedVerifier` / `policy.GatedVerifier` | added | `policy\.WrapVerifier\(` | `verifier/pkg/policy/gate.go:203` | [#gate](#gate) |
-| `policy.Checker` / `policy.HTTPChecker` | added | `NewHTTPChecker\(` | `verifier/pkg/policy/client.go:53` | [#gate](#gate) |
-| `policy.EvaluateRequest` / `policy.EvaluateResponse` / `policy.MessageV1` / `policy.TokenTransferV1` | added | `NewEvaluateRequest\(` | `verifier/pkg/policy/contract.go:118` | [#contract](#contract) |
+| `policy.Config` | added | `type Config struct` | `verifier/pkg/policy/config.go:67` | [#config-section](#config-section) |
+| `policy.WrapVerifier` / `policy.NewGatedVerifier` / `policy.GatedVerifier` | added | `policy\.WrapVerifier\(` | `verifier/pkg/policy/gate.go:223` | [#gate](#gate) |
+| `policy.Checker` / `policy.HTTPChecker` | added | `NewHTTPChecker\(` | `verifier/pkg/policy/client.go:55` | [#gate](#gate) |
+| `policy.EvaluateRequest` / `policy.EvaluateResponse` / `policy.MessageV1` / `policy.TokenTransferV1` | added | `NewEvaluateRequest\(` | `verifier/pkg/policy/contract.go:125` | [#contract](#contract) |
 | `verifier/policy_hook_openapi_v1.yaml` | added | `policy-evaluate` | `verifier/policy_hook_openapi_v1.yaml` | [#contract](#contract) |
 | `ccvdeployment.NOPConfig.PolicyHook` | added | `toml:"policy_hook,omitempty"` | `deployment/topology.go:94` | [#deployment](#deployment) |
 | `changesets.NOPInput.PolicyHook` | added | `PolicyHook:\s+nop\.PolicyHook` | `deployment/changesets/inputs.go:26` | [#deployment](#deployment) |
@@ -76,8 +81,10 @@ load, not at the first message. Operator-facing documentation is in `verifier/do
 ### config-section
 
 `commit.Config.PolicyHook *policy.Config` (`toml:"policy_hook,omitempty"`). `policy.Config` has
-`endpoint_url`, `request_timeout` (default 5s), `retry_delay` (default 10s), and
-`insecure_connection`. Durations are strings because the Chainlink node decodes the committee
+`endpoint_url`, `request_timeout` (default 5s, rejected above `policy.MaxRequestTimeout` of 15s),
+`retry_delay` (default 10s), and `insecure_connection`. The timeout ceiling exists because a batch
+of up to 50 messages evaluated 8 at a time is up to seven sequential waves of calls, and a batch
+that outruns the task queue's two-minute job lock is reclaimed and evaluated a second time. Durations are strings because the Chainlink node decodes the committee
 verifier config with go-toml, which does not decode duration strings into `time.Duration`.
 `commit.Config.Validate` calls `policy.Config.Validate`. The documented config at
 `docs/config/verifier/committee/config.documented.toml` carries the section, and the configdoc
@@ -91,7 +98,11 @@ config and a `*GatedVerifier` otherwise. Both constructors (`cmd/verifier/servic
 place. `GatedVerifier.VerifyMessages` evaluates a batch against the endpoint with at most 8 calls in
 flight, forwards the passing tasks to the wrapped verifier, and returns exactly one result per task:
 a FAIL becomes a non-retryable `VerificationError` (the task verifier fails and archives the job),
-an endpoint error becomes a retryable one carrying `retry_delay`.
+an endpoint error becomes a retryable one carrying `retry_delay`, jittered per message across half
+to one and a half times the configured value. The jitter matters because an outage stalls every
+message a node is holding at once and a fixed delay reschedules them all onto the same tick, which
+sends the whole backlog at a failing endpoint together on every retry. The delay does not grow with
+the attempt count: that needs the queue's `attempt_count` on the task and is tracked separately.
 
 The gate runs before the commit verifier's own payload validation rather than after it. That order
 means `Message signed successfully` is logged only for messages that were signed, and a rejected
@@ -113,6 +124,20 @@ Byte fields are `0x`-prefixed hex, an empty byte field is `"0x"`, and token amou
 strings. `MessageV1` and `TokenTransferV1` are deliberate copies of the wire message so the
 published contract stays frozen when `protocol.Message` gains fields. The spec file follows the
 same alphabetical key layout as `indexer/indexer_opanapi_v1.yaml`.
+
+`EvaluateResponse` carries an optional `message_id` that echoes the request. Nothing else in a
+response ties a verdict to the message it answers, so an endpoint that sets it lets the verifier
+refuse a verdict crossed by a cache or a proxy; a mismatch is an error and retries, and an endpoint
+that omits the field is unaffected. `decision` is matched exactly for `PASS` and
+case-insensitively for `FAIL`, because reading a verdict as unusable costs a retry while reading one
+as `PASS` costs a signature. The schemas do not set `additionalProperties: false`, so either side
+can add a field inside v1 without a version bump.
+
+`finalized_block_number` and `block_depth` come from a new
+`vtypes.VerificationTask.FinalizedBlockAtReady`, captured in the source reader when the message
+meets its finality requirement. The pre-existing `FinalizedBlockAtRead` is captured at discovery,
+when the message's own block is still ahead of the finalized head, so a depth computed from it was
+0 for every message that took the normal path to finality.
 
 ### deployment
 
@@ -152,6 +177,10 @@ otherwise match) and `PolicyHookVerdictUnavailable`.
   UX is tracked separately.
 - Retries are bounded by the task queue's 7-day retry window. A message still without a verdict
   when that passes is failed the same way a rejected one is.
+- A FAIL stops a message only if enough of the committee also rejects it; see the summary above.
+- The endpoint's `reason` string is logged and stored as the archived job's error for the 30-day
+  retention period, so it reaches wherever the node's logs ship. It should carry a case reference
+  rather than the customer data behind the decision.
 - v1 has no authentication from the verifier to the endpoint; restrict access at the network layer.
 - `gopkg.in/yaml.v3` moves from an indirect to a direct dependency of the root module, used by
   `verifier/pkg/policy/openapi_test.go` to parse the spec.

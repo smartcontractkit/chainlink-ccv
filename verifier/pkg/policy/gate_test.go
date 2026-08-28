@@ -198,8 +198,29 @@ func TestGatedVerifier_EndpointErrorIsRetried(t *testing.T) {
 	require.NotNil(t, results[0].Error)
 	assert.True(t, results[0].Error.Retryable,
 		"an endpoint outage must retry: treating it as a rejection would drop traffic during an outage")
-	assert.Equal(t, time.Second, results[0].Error.DelayOrDefault())
+	delay := results[0].Error.DelayOrDefault()
+	assert.GreaterOrEqual(t, delay, 500*time.Millisecond,
+		"a jittered retry never lands below half the configured delay")
+	assert.LessOrEqual(t, delay, 1500*time.Millisecond,
+		"a jittered retry never lands above one and a half times the configured delay")
 	assert.Empty(t, inner.forwarded(), "a message with an unknown verdict is not signed yet")
+}
+
+// TestGatedVerifier_RetryDelayIsJittered pins the spread. An outage holds every message the
+// verifier has in flight, and a fixed delay would reschedule all of them onto the same tick, so
+// the entire backlog would arrive at the endpoint together on every retry for as long as the
+// outage lasted.
+func TestGatedVerifier_RetryDelayIsJittered(t *testing.T) {
+	gate := newGate(t, &stubChecker{}, &stubVerifier{})
+
+	seen := make(map[time.Duration]struct{})
+	for range 500 {
+		delay := gate.retryDelayWithJitter()
+		require.GreaterOrEqual(t, delay, 500*time.Millisecond)
+		require.LessOrEqual(t, delay, 1500*time.Millisecond)
+		seen[delay] = struct{}{}
+	}
+	assert.Greater(t, len(seen), 1, "a fixed delay would synchronize every held message onto one tick")
 }
 
 func TestGatedVerifier_MixedBatch(t *testing.T) {
