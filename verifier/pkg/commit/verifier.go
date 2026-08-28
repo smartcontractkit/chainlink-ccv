@@ -120,14 +120,39 @@ func (cv *Verifier) VerifyMessages(ctx context.Context, tasks []verifier.Verific
 }
 
 // signablePayload is what verification resolves before it signs: the message ID in binary form,
-// the configuration of the message's source chain, and the receipt blob the signature commits to.
+// the configuration of the message's source chain, the receipt blob the signature commits to,
+// and the hash over the two that the signer is handed.
 type signablePayload struct {
 	messageID    protocol.Bytes32
 	sourceConfig verifier.SourceConfig
 	blob         []byte
+	hash         [32]byte
 	// usedDiscoveryVersion records that the task carried no verifier-issued receipt and the blob
 	// fell back to the message discovery version.
 	usedDiscoveryVersion bool
+}
+
+// newSignablePayload hashes the resolved blob, which is the last thing that can reject a task
+// before it is signed: NewSignableHash refuses a blob shorter than the verifier version prefix.
+// Hashing here rather than at the call to the signer is what keeps ValidateTask honest, since a
+// task it accepts and verification then rejects costs a policy endpoint call for nothing.
+func newSignablePayload(
+	messageID protocol.Bytes32,
+	sourceConfig verifier.SourceConfig,
+	blob []byte,
+	usedDiscoveryVersion bool,
+) (signablePayload, error) {
+	hash, err := committee.NewSignableHash(messageID, blob)
+	if err != nil {
+		return signablePayload{}, fmt.Errorf("failed to create signable hash for message %s: %w", messageID.String(), err)
+	}
+	return signablePayload{
+		messageID:            messageID,
+		sourceConfig:         sourceConfig,
+		blob:                 blob,
+		hash:                 hash,
+		usedDiscoveryVersion: usedDiscoveryVersion,
+	}, nil
 }
 
 // resolveSignablePayload runs every check verification makes before it signs, and returns what
@@ -168,7 +193,7 @@ func (cv *Verifier) resolveSignablePayload(verificationTask *verifier.Verificati
 		}
 	}
 	if len(verifierBlob) > 0 {
-		return signablePayload{messageID: messageID, sourceConfig: sourceConfig, blob: verifierBlob}, nil
+		return newSignablePayload(messageID, sourceConfig, verifierBlob, false)
 	}
 
 	// We didn't find a verifier blob, so look for the default executor issuer.
@@ -193,12 +218,7 @@ func (cv *Verifier) resolveSignablePayload(verificationTask *verifier.Verificati
 	}
 
 	// Fall back to the message discovery version if the default executor is found.
-	return signablePayload{
-		messageID:            messageID,
-		sourceConfig:         sourceConfig,
-		blob:                 protocol.MessageDiscoveryVersion,
-		usedDiscoveryVersion: true,
-	}, nil
+	return newSignablePayload(messageID, sourceConfig, protocol.MessageDiscoveryVersion, true)
 }
 
 // ValidateTask reports whether verification would reject this task before it ever signs. A
@@ -245,12 +265,7 @@ func (cv *Verifier) verifyMessage(_ context.Context, verificationTask verifier.V
 		)
 	}
 
-	hash, err := committee.NewSignableHash(payload.messageID, payload.blob)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create signable hash for message %s: %w", payload.messageID.String(), err)
-	}
-
-	encodedSignature, err := cv.signer.Sign(hash[:])
+	encodedSignature, err := cv.signer.Sign(payload.hash[:])
 	if err != nil {
 		return nil, fmt.Errorf("failed to sign message %s: %w", msgIDStr, err)
 	}

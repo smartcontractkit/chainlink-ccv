@@ -321,6 +321,9 @@ func TestValidateTask_AgreesWithVerifyMessages(t *testing.T) {
 	validator, ok := cv.(verifier.TaskValidator)
 	require.True(t, ok, "the commit verifier must satisfy vtypes.TaskValidator")
 
+	// blob must be at least 4 bytes (VerifierVersionLength) for NewSignableHash to succeed.
+	verifierBlob := []byte{0xAA, 0xBB, 0xCC, 0xDD}
+
 	tests := []struct {
 		name  string
 		task  func() verifier.VerificationTask
@@ -329,9 +332,18 @@ func TestValidateTask_AgreesWithVerifyMessages(t *testing.T) {
 		{
 			name: "signs on the verifier's own receipt",
 			task: func() verifier.VerificationTask {
-				return newVerifiableTask(t, sourceChain, destChain, addr, []byte{0xAA}, executorAddr)
+				return newVerifiableTask(t, sourceChain, destChain, addr, verifierBlob, executorAddr)
 			},
 			valid: true,
+		},
+		{
+			// A blob shorter than the verifier version prefix is the shape that used to part
+			// the two paths: resolving the payload accepted any non-empty blob, and only
+			// hashing it rejected this one.
+			name: "verifier receipt blob is shorter than the verifier version",
+			task: func() verifier.VerificationTask {
+				return newVerifiableTask(t, sourceChain, destChain, addr, []byte{0xAA}, executorAddr)
+			},
 		},
 		{
 			name: "signs on the default executor receipt",
@@ -345,13 +357,13 @@ func TestValidateTask_AgreesWithVerifyMessages(t *testing.T) {
 		{
 			name: "source chain is not configured",
 			task: func() verifier.VerificationTask {
-				return newVerifiableTask(t, 99, destChain, addr, []byte{0xAA}, executorAddr)
+				return newVerifiableTask(t, 99, destChain, addr, verifierBlob, executorAddr)
 			},
 		},
 		{
 			name: "unsupported message version",
 			task: func() verifier.VerificationTask {
-				task := newVerifiableTask(t, sourceChain, destChain, addr, []byte{0xAA}, executorAddr)
+				task := newVerifiableTask(t, sourceChain, destChain, addr, verifierBlob, executorAddr)
 				task.Message.Version = 99
 				return task
 			},
@@ -360,13 +372,13 @@ func TestValidateTask_AgreesWithVerifyMessages(t *testing.T) {
 			name: "no receipt this verifier can sign over",
 			task: func() verifier.VerificationTask {
 				return newVerifiableTask(t, sourceChain, destChain,
-					protocol.UnknownAddress([]byte{0x99}), []byte{0xAA}, protocol.UnknownAddress([]byte{0xBB}))
+					protocol.UnknownAddress([]byte{0x99}), verifierBlob, protocol.UnknownAddress([]byte{0xBB}))
 			},
 		},
 		{
 			name: "message ID is not hex",
 			task: func() verifier.VerificationTask {
-				task := newVerifiableTask(t, sourceChain, destChain, addr, []byte{0xAA}, executorAddr)
+				task := newVerifiableTask(t, sourceChain, destChain, addr, verifierBlob, executorAddr)
 				task.MessageID = "not-valid-hex"
 				return task
 			},
@@ -374,7 +386,7 @@ func TestValidateTask_AgreesWithVerifyMessages(t *testing.T) {
 		{
 			name: "receipt blobs are missing entirely",
 			task: func() verifier.VerificationTask {
-				task := newVerifiableTask(t, sourceChain, destChain, addr, []byte{0xAA}, executorAddr)
+				task := newVerifiableTask(t, sourceChain, destChain, addr, verifierBlob, executorAddr)
 				task.ReceiptBlobs = nil
 				return task
 			},

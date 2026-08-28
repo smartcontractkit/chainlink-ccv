@@ -99,7 +99,7 @@ func (s *stubVerifier) forwarded() []string {
 // validatingVerifier is a stubVerifier that also implements vtypes.TaskValidator, which is how
 // the real commit verifier tells the gate it will reject a task before signing it. Tasks listed
 // in invalid come back as errors from VerifyMessages, the same way the commit verifier fails
-// them, so the test sees the gate's real end-to-end behaviour rather than a synthesized result.
+// them, so the test sees the gate's real end-to-end behavior rather than a synthesized result.
 type validatingVerifier struct {
 	stubVerifier
 	invalid map[string]error
