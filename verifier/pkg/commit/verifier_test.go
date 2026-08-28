@@ -299,3 +299,108 @@ func TestVerifyMessages_ErrorInvalidMessageFormat(t *testing.T) {
 	require.NotNil(t, results[0].Error)
 	assert.Contains(t, results[0].Error.Error.Error(), "unsupported message version")
 }
+
+// TestValidateTask_AgreesWithVerifyMessages is the test that makes the policy gate's skip safe.
+// The gate asks ValidateTask which tasks are worth an endpoint call and forwards the rest
+// unevaluated, so a task ValidateTask accepts and VerifyMessages then rejects only costs a
+// wasted call, but a task ValidateTask rejects and VerifyMessages would have signed would be
+// signed without the operator's endpoint ever seeing it. The two must agree on every shape.
+func TestValidateTask_AgreesWithVerifyMessages(t *testing.T) {
+	signer, addr := newTestSigner(t)
+	executorAddr := protocol.UnknownAddress([]byte{0xEE})
+	const (
+		sourceChain protocol.ChainSelector = 1
+		destChain   protocol.ChainSelector = 2
+	)
+	config := newSingleChainConfig(sourceChain, addr, executorAddr)
+	cv, err := NewCommitVerifier(config, addr, signer, logger.Test(t), monitoring.NewFakeVerifierMonitoring())
+	require.NoError(t, err)
+
+	// The gate discovers this through a type assertion on the verifier it wraps, so the
+	// production type has to satisfy it.
+	validator, ok := cv.(verifier.TaskValidator)
+	require.True(t, ok, "the commit verifier must satisfy vtypes.TaskValidator")
+
+	tests := []struct {
+		name  string
+		task  func() verifier.VerificationTask
+		valid bool
+	}{
+		{
+			name: "signs on the verifier's own receipt",
+			task: func() verifier.VerificationTask {
+				return newVerifiableTask(t, sourceChain, destChain, addr, []byte{0xAA}, executorAddr)
+			},
+			valid: true,
+		},
+		{
+			name: "signs on the default executor receipt",
+			task: func() verifier.VerificationTask {
+				// No receipt is issued by this verifier, so signing falls back to the
+				// message discovery version, as TestVerifyMessages_SuccessWithDefaultExecutorBlob covers.
+				return newVerifiableTask(t, sourceChain, destChain, executorAddr, nil, executorAddr)
+			},
+			valid: true,
+		},
+		{
+			name: "source chain is not configured",
+			task: func() verifier.VerificationTask {
+				return newVerifiableTask(t, 99, destChain, addr, []byte{0xAA}, executorAddr)
+			},
+		},
+		{
+			name: "unsupported message version",
+			task: func() verifier.VerificationTask {
+				task := newVerifiableTask(t, sourceChain, destChain, addr, []byte{0xAA}, executorAddr)
+				task.Message.Version = 99
+				return task
+			},
+		},
+		{
+			name: "no receipt this verifier can sign over",
+			task: func() verifier.VerificationTask {
+				return newVerifiableTask(t, sourceChain, destChain,
+					protocol.UnknownAddress([]byte{0x99}), []byte{0xAA}, protocol.UnknownAddress([]byte{0xBB}))
+			},
+		},
+		{
+			name: "message ID is not hex",
+			task: func() verifier.VerificationTask {
+				task := newVerifiableTask(t, sourceChain, destChain, addr, []byte{0xAA}, executorAddr)
+				task.MessageID = "not-valid-hex"
+				return task
+			},
+		},
+		{
+			name: "receipt blobs are missing entirely",
+			task: func() verifier.VerificationTask {
+				task := newVerifiableTask(t, sourceChain, destChain, addr, []byte{0xAA}, executorAddr)
+				task.ReceiptBlobs = nil
+				return task
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			task := tc.task()
+
+			validateErr := validator.ValidateTask(&task)
+
+			results := cv.VerifyMessages(context.Background(), []verifier.VerificationTask{task})
+			require.Len(t, results, 1)
+
+			if tc.valid {
+				require.NoError(t, validateErr)
+				require.Nil(t, results[0].Error, "ValidateTask accepted a task VerifyMessages rejected")
+				return
+			}
+
+			require.Error(t, validateErr)
+			require.NotNil(t, results[0].Error,
+				"ValidateTask rejected a task VerifyMessages accepts, so the gate would skip the endpoint on a message that then gets signed")
+			assert.Equal(t, results[0].Error.Error.Error(), validateErr.Error(),
+				"the gate reports the verifier's own error, so the two have to be the same error")
+		})
+	}
+}

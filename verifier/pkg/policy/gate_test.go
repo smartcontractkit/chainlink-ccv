@@ -58,6 +58,12 @@ func (s *stubChecker) callCount() int {
 	return len(s.calls)
 }
 
+func (s *stubChecker) callsMade() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.calls...)
+}
+
 func (s *stubChecker) peakConcurrency() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -89,6 +95,40 @@ func (s *stubVerifier) forwarded() []string {
 	defer s.mu.Unlock()
 	return append([]string(nil), s.seen...)
 }
+
+// validatingVerifier is a stubVerifier that also implements vtypes.TaskValidator, which is how
+// the real commit verifier tells the gate it will reject a task before signing it. Tasks listed
+// in invalid come back as errors from VerifyMessages, the same way the commit verifier fails
+// them, so the test sees the gate's real end-to-end behaviour rather than a synthesized result.
+type validatingVerifier struct {
+	stubVerifier
+	invalid map[string]error
+}
+
+func (v *validatingVerifier) ValidateTask(task *vtypes.VerificationTask) error {
+	return v.invalid[task.MessageID]
+}
+
+func (v *validatingVerifier) VerifyMessages(_ context.Context, tasks []vtypes.VerificationTask) []vtypes.VerificationResult {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+
+	out := make([]vtypes.VerificationResult, 0, len(tasks))
+	for _, task := range tasks {
+		v.seen = append(v.seen, task.MessageID)
+		if err := v.invalid[task.MessageID]; err != nil {
+			verificationErr := vtypes.NewVerificationError(err, task)
+			out = append(out, vtypes.VerificationResult{Error: &verificationErr})
+			continue
+		}
+		out = append(out, vtypes.VerificationResult{
+			Result: &protocol.VerifierNodeResult{MessageID: mustBytes32(task.MessageID)},
+		})
+	}
+	return out
+}
+
+var _ vtypes.TaskValidator = (*validatingVerifier)(nil)
 
 func mustBytes32(id string) protocol.Bytes32 {
 	b, err := protocol.NewBytes32FromString(id)
@@ -334,4 +374,81 @@ func TestWrapVerifier(t *testing.T) {
 		_, err := WrapVerifier(lggr, "v", inner, &Config{EndpointURL: "not a url at all"}, mon)
 		require.Error(t, err)
 	})
+}
+
+func TestGatedVerifier_InvalidTaskSkipsTheEndpoint(t *testing.T) {
+	rejected := errors.New("unsupported message version: 99")
+	checker := &stubChecker{}
+	inner := &validatingVerifier{invalid: map[string]error{msgID(1): rejected}}
+	gate := newGate(t, checker, inner)
+
+	results := gate.VerifyMessages(t.Context(), []vtypes.VerificationTask{newTask(msgID(1))})
+
+	assert.Zero(t, checker.callCount(),
+		"the hook gates messages this verifier would sign, so a task it already rejects costs the operator nothing")
+
+	// The gate does not invent a result for the skipped task. It forwards it and the verifier
+	// fails it with its own error, which is what an ungated verifier would have recorded.
+	require.Len(t, results, 1)
+	require.NotNil(t, results[0].Error)
+	assert.False(t, results[0].Error.Retryable)
+	assert.Equal(t, rejected.Error(), results[0].Error.Error.Error())
+	assert.Equal(t, []string{msgID(1)}, inner.forwarded())
+}
+
+func TestGatedVerifier_OnlyValidTasksReachTheEndpoint(t *testing.T) {
+	checker := &stubChecker{
+		verdicts: map[string]Verdict{msgID(3): {Decision: DecisionFail, Reason: "sanctioned sender"}},
+	}
+	inner := &validatingVerifier{invalid: map[string]error{
+		msgID(1): errors.New("receiver cannot be empty"),
+		msgID(4): errors.New("message source chain selector 99 is not configured"),
+	}}
+	gate := newGate(t, checker, inner)
+
+	tasks := []vtypes.VerificationTask{
+		newTask(msgID(1)), newTask(msgID(2)), newTask(msgID(3)), newTask(msgID(4)),
+	}
+	results := gate.VerifyMessages(t.Context(), tasks)
+
+	assert.ElementsMatch(t, []string{msgID(2), msgID(3)}, checker.callsMade(),
+		"only the tasks the verifier would sign are worth an endpoint call")
+
+	// Every task still produces exactly one result, or its queue job hangs until the lock goes stale.
+	require.Len(t, results, len(tasks))
+	byID := resultsByMessageID(t, results)
+	require.Len(t, byID, len(tasks))
+
+	require.NotNil(t, byID[msgID(2)].Result, "the one valid task that passed policy is signed")
+
+	require.NotNil(t, byID[msgID(3)].Error)
+	assert.Contains(t, byID[msgID(3)].Error.Error.Error(), "policy hook rejected")
+
+	for _, id := range []string{msgID(1), msgID(4)} {
+		require.NotNil(t, byID[id].Error)
+		assert.NotContains(t, byID[id].Error.Error.Error(), "policy",
+			"a task the verifier rejects keeps the verifier's own error, so it is not counted as a policy drop")
+	}
+}
+
+func TestGatedVerifier_EndpointCalledForEveryTaskWithoutAValidator(t *testing.T) {
+	// stubVerifier does not implement vtypes.TaskValidator. The gate has to keep working with a
+	// verifier that cannot tell it anything in advance, which is the contract that lets the gate
+	// wrap implementations other than the commit verifier.
+	checker := &stubChecker{}
+	inner := &stubVerifier{}
+	gate := newGate(t, checker, inner)
+	require.Nil(t, gate.precheck)
+
+	tasks := []vtypes.VerificationTask{newTask(msgID(1)), newTask(msgID(2))}
+	results := gate.VerifyMessages(t.Context(), tasks)
+
+	require.Len(t, results, len(tasks))
+	assert.Equal(t, len(tasks), checker.callCount())
+}
+
+func TestGatedVerifier_PrecheckIsDiscoveredFromTheWrappedVerifier(t *testing.T) {
+	gate := newGate(t, &stubChecker{}, &validatingVerifier{})
+	assert.NotNil(t, gate.precheck,
+		"a verifier that implements vtypes.TaskValidator must be used as the precheck, or the hook runs before the verifier's own checks again")
 }

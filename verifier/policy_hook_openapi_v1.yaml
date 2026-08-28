@@ -210,10 +210,13 @@ info:
 
     Operational notes for implementers:
 
-      * The verifier calls the endpoint after the message reaches finality and after the
-        curse and message-disablement checks pass, before the node validates the message
-        payload and signs. A message the endpoint passes can still fail that local
-        validation, in which case it is not attested either.
+      * The call is the last check before signing. The verifier calls the endpoint only after
+        the message reaches finality, after the curse and message-disablement checks pass, and
+        after its own checks on the message: known source chain, supported message version,
+        non-zero sender, non-empty receiver, and a receipt the verifier can sign over. A message
+        that fails any of those is dropped without a call, so the endpoint is never asked about a
+        message the verifier was not going to sign, and a PASS the endpoint returns is always
+        about a message that would otherwise be attested.
       * Calls are idempotent from the verifier's side: a retried message is sent again with the
         same message_id, and the same verdict is expected.
       * A verifier processes a batch of messages concurrently, up to 8 in-flight calls per node.

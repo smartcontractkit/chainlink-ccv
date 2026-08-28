@@ -32,6 +32,22 @@ type Verifier interface {
 	VerifyMessages(ctx context.Context, tasks []VerificationTask) []VerificationResult
 }
 
+// TaskValidator is an optional companion to Verifier, implemented by verifiers that can tell,
+// without signing, that they are going to reject a task. A decorator in front of the verifier
+// uses it to skip work on a task that is not going to be signed regardless of what the
+// decorator does. Verifier implementations are not required to provide it.
+//
+// An implementation must run these checks out of the same code its VerifyMessages runs, so that
+// ValidateTask returning nil never accepts more than VerifyMessages accepts. A second copy of
+// the checks that drifted from the first would let a decorator skip its work on a task that
+// verification then goes on to sign, which for the policy gate means signing a message the
+// operator's endpoint was never asked about.
+type TaskValidator interface {
+	// ValidateTask returns nil when the task passes every check that does not require signing.
+	// A non-nil error is the error VerifyMessages would attach to this task's result.
+	ValidateTask(task *VerificationTask) error
+}
+
 // MessageLatencyTracker defines the interface for tracking message latencies from with the verifier.
 type MessageLatencyTracker interface {
 	// MarkMessageAsSeen records the time a message was first seen for latency tracking.

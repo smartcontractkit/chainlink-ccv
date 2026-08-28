@@ -3,8 +3,9 @@
 ## Executive Summary
 
 - The committee verifier gains an optional `[policy_hook]` config section: one operator-owned
-  HTTPS endpoint the node calls once per message after finality and the curse and
-  message-disablement checks, before it validates the payload and signs. HTTP 200 with `PASS`
+  HTTPS endpoint the node calls once per message as the last check before signing, after finality,
+  after the curse and message-disablement checks, and after the node's own checks on the message.
+  A message the node was never going to sign is dropped without a call. HTTP 200 with `PASS`
   signs and attests exactly as before. HTTP 200 with `FAIL` drops the message permanently on that
   node, like an RMN curse, recoverable only by an operator replay. Any other outcome (4xx, 5xx,
   timeout, unreachable host, unparseable body, or a response whose `message_id` echo names a
@@ -29,7 +30,8 @@
   `TestE2ESmoke_PolicyHook` covers pass, outage with retry, and reject with replay against a real
   committee. The test runs from `test-smoke.yaml`.
 - Observability: message transitions gain stage `policy` with outcomes `policy_passed`,
-  `policy_rejected`, and `policy_unavailable`; message failures classify as `policy_rejected` or
+  `policy_rejected`, `policy_unavailable`, and `policy_skipped` (the node's own checks rejected the
+  message, so no call was made); message failures classify as `policy_rejected` or
   `policy_endpoint_error`; the node logs `Dropping task - policy hook returned FAIL` and
   `Policy hook verdict unavailable, scheduling retry` per message.
 
@@ -37,9 +39,10 @@
 
 | Symbol | Kind | Search | Location | Section |
 |---|---|---|---|---|
-| `commit.Config.PolicyHook` | added | `PolicyHook \*policy\.Config` | `verifier/pkg/commit/config.go:225` | [#config-section](#config-section) |
+| `commit.Config.PolicyHook` | added | `PolicyHook \*policy\.Config` | `verifier/pkg/commit/config.go:227` | [#config-section](#config-section) |
 | `policy.Config` | added | `type Config struct` | `verifier/pkg/policy/config.go:67` | [#config-section](#config-section) |
-| `policy.WrapVerifier` / `policy.NewGatedVerifier` / `policy.GatedVerifier` | added | `policy\.WrapVerifier\(` | `verifier/pkg/policy/gate.go:223` | [#gate](#gate) |
+| `policy.WrapVerifier` / `policy.NewGatedVerifier` / `policy.GatedVerifier` | added | `policy\.WrapVerifier\(` | `verifier/pkg/policy/gate.go:287` | [#gate](#gate) |
+| `vtypes.TaskValidator` / `commit.Verifier.ValidateTask` | added | `TaskValidator interface` | `verifier/pkg/vtypes/interfaces.go:45` | [#gate](#gate) |
 | `policy.Checker` / `policy.HTTPChecker` | added | `NewHTTPChecker\(` | `verifier/pkg/policy/client.go:55` | [#gate](#gate) |
 | `policy.EvaluateRequest` / `policy.EvaluateResponse` / `policy.MessageV1` / `policy.TokenTransferV1` | added | `NewEvaluateRequest\(` | `verifier/pkg/policy/contract.go:125` | [#contract](#contract) |
 | `verifier/policy_hook_openapi_v1.yaml` | added | `policy-evaluate` | `verifier/policy_hook_openapi_v1.yaml` | [#contract](#contract) |
@@ -104,10 +107,24 @@ message a node is holding at once and a fixed delay reschedules them all onto th
 sends the whole backlog at a failing endpoint together on every retry. The delay does not grow with
 the attempt count: that needs the queue's `attempt_count` on the task and is tracked separately.
 
-The gate runs before the commit verifier's own payload validation rather than after it. That order
-means `Message signed successfully` is logged only for messages that were signed, and a rejected
-message never reaches it. The cost is that the endpoint may be asked about a message that then fails
-local validation; that message is not attested either.
+The call is the last check before signing. `commit.Verifier` implements the new optional
+`vtypes.TaskValidator` interface (`ValidateTask`), and `NewGatedVerifier` picks it up with a type
+assertion on the verifier it wraps, so no wiring at either construction site changed. A task
+`ValidateTask` rejects skips the endpoint entirely and is forwarded to the wrapped verifier, which
+fails it with its own error and the same accounting an ungated verifier produces. The gate never
+synthesizes that error, so there is no second rejection path to keep in step.
+
+The gate cannot call the commit verifier's checks directly: `verifier/pkg/commit/config.go` imports
+`verifier/pkg/policy` for the config type, so the dependency only goes one way. The optional
+interface is what gets the ordering without inverting that, and it keeps `GatedVerifier` generic
+over `vtypes.Verifier`: a wrapped verifier that does not implement `TaskValidator` gets a call per
+task, exactly as before.
+
+`commit.Verifier.ValidateTask` and `verifyMessage` share one implementation
+(`resolveSignablePayload`) on purpose, and `TestValidateTask_AgreesWithVerifyMessages` pins them
+together. The asymmetry is the reason: a `ValidateTask` looser than verification only wastes a call,
+but a `ValidateTask` stricter than verification would skip the endpoint on a message that then gets
+signed, which is a message signed without the operator's endpoint ever seeing it.
 
 `HTTPChecker` is a dedicated client rather than a reuse of `verifier/pkg/token/http`. The token
 client folds every non-200 into one opaque error and shares a cool-down per URL, and the gate needs
@@ -148,7 +165,12 @@ sets `commit.Config.PolicyHook` from it. The executor changeset ignores the fiel
 ### observability
 
 Metrics reuse the bounded message-transition counter: stage `policy`, outcomes `policy_passed`,
-`policy_rejected`, `policy_unavailable`, reasons `policy_rejected` and `policy_endpoint_error`.
+`policy_rejected`, `policy_unavailable`, `policy_skipped`, reasons `policy_rejected`,
+`policy_endpoint_error`, and `task_invalid`. The four outcomes add up to the messages that entered
+the stage, so a skipped message does not leave a silent gap between what arrived and what was
+evaluated. A message counted `policy_skipped` then fails on the node's own error, so it classifies
+under that error rather than under a policy class; a rising `policy_skipped` is an upstream problem,
+not a policy one.
 `monitoring.ClassifyError` maps `policy hook rejected` to `policy_rejected` and the endpoint,
 request, and response errors to `policy_endpoint_error`. Failed and dropped jobs are archived, so
 `ccv job-queue` on the node lists a rejected message with the endpoint's reason as its error.

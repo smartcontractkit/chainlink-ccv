@@ -12,9 +12,10 @@ kept in step with it by `TestOpenAPISpecMatchesContract`.
 
 ## Where it runs
 
-The hook sits between the task queue and the commit verifier. A message reaches it after finality
-and after the curse and message-disablement checks, and before the node validates the message
-payload and signs.
+The hook is the last check before signing. A message reaches the endpoint only after it has
+cleared finality, the curse and message-disablement checks, and the node's own checks on the
+message: known source chain, supported message version, non-zero sender, non-empty receiver, and a
+receipt this verifier can sign over.
 
 ```mermaid
 flowchart TB
@@ -22,21 +23,31 @@ flowchart TB
     B["Curse check\nmessage disablement rules"]
     C["Finality"]
     D["Task queue\n(durable, retried for 7 days)"]
+    V{"Node's own checks\nsource chain, version, sender,\nreceiver, receipts"}
     E{"Policy endpoint"}
-    F["Validate payload, sign,\nwrite to aggregator"]
+    F["Sign,\nwrite to aggregator"]
     G["Drop\nreplay only"]
     H["Retry after retry_delay"]
-    A --> B --> C --> D --> E
+    I["Drop\n(never reaches the endpoint)"]
+    A --> B --> C --> D --> V
+    V -- "ok" --> E
+    V -- "invalid" --> I
     E -- "200 PASS" --> F
     E -- "200 FAIL" --> G
     E -- "4xx / 5xx / timeout / unparseable" --> H
     H --> E
 ```
 
-A message the endpoint passes can still fail the node's own payload validation (unknown source
-chain, malformed message, receipt mismatch). It is then not attested either, and the endpoint is not
-told. The gate runs before that validation on purpose: a node logs `Message signed successfully`
-only for messages it actually signed, and a rejected message never reaches that line.
+The ordering matters for what an endpoint gets asked about. A message the node was never going to
+sign, because it names an unconfigured source chain or is malformed, is dropped before the call, so
+the endpoint is not billed for it and its logs are not filled with messages the node rejected
+anyway. It also means a verdict the endpoint returns is always about a message that would otherwise
+have been signed, which is what makes a PASS rate meaningful.
+
+Every message that reaches the policy stage is counted there. A message dropped by the node's own
+checks is recorded as `policy_skipped` and then fails with the node's own error, exactly as it would
+on a verifier with no hook configured. The hook changes nothing about how those messages are
+handled.
 
 Each committee node calls its own endpoint independently and signals nothing to the others, so the
 committee's normal quorum and signing apply on top of the verdict. A node that gets FAIL simply does
@@ -211,9 +222,16 @@ Per-message logs on the verifier:
 Failed and dropped messages are archived rather than deleted. `ccv job-queue` on the verifier lists
 them with the error that ended them, which for a rejection is the endpoint's own reason string.
 
-Metrics use the existing bounded message-transition counter with `stage="policy"` and
-`outcome` of `policy_passed`, `policy_rejected`, or `policy_unavailable`. Failures are classified as
-`policy_rejected` or `policy_endpoint_error` on the message-failure counter.
+Metrics use the existing bounded message-transition counter with `stage="policy"` and `outcome` of
+`policy_passed`, `policy_rejected`, `policy_unavailable`, or `policy_skipped`. The four add up to
+the messages that entered the stage. `policy_skipped` is a message the node's own checks rejected
+before the endpoint was called, and it carries `reason="task_invalid"`; the message then fails with
+the node's own error, so it lands on the message-failure counter under whatever class that error
+maps to, not under a policy class. Failures from the endpoint itself are classified as
+`policy_rejected` or `policy_endpoint_error`.
+
+A rising `policy_skipped` says something upstream is feeding the verifier messages it cannot sign.
+It is not a policy problem and paging on it as one would be wrong.
 
 ## Trying it in devenv
 

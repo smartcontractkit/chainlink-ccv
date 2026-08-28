@@ -20,15 +20,25 @@ import (
 // well inside the two-minute job lock even at this width with the default five-second timeout.
 const maxConcurrentEvaluations = 8
 
-// GatedVerifier wraps a vtypes.Verifier with the policy hook. Each message is evaluated against
-// the operator's endpoint first; only a PASS reaches the wrapped verifier, so signing and the
-// signed payload are untouched by the hook.
+// GatedVerifier wraps a vtypes.Verifier with the policy hook. Only a PASS reaches the wrapped
+// verifier's signing path, so signing and the signed payload are untouched by the hook.
+//
+// The hook is the last check before signing, which is the order the operator is promised: a
+// message reaching the endpoint has already cleared finality, the curse and message-disablement
+// checks at admission, and the wrapped verifier's own checks on the task. The last of those is
+// the reason for precheck. The gate cannot run the wrapped verifier's checks itself (the commit
+// verifier's config package imports this one, so the dependency only goes one way), so it asks
+// the wrapped verifier through the optional vtypes.TaskValidator interface instead. A task the
+// wrapped verifier already rejects is forwarded without an endpoint call, and comes back with
+// the wrapped verifier's own error.
 //
 // The wrapper is deliberately generic over vtypes.Verifier rather than built into the committee
 // verifier: the same gate composes with any verifier implementation without duplicating the
-// endpoint call, the retry classification, or the drop accounting.
+// endpoint call, the retry classification, or the drop accounting. A wrapped verifier that does
+// not implement vtypes.TaskValidator simply gets an endpoint call for every task.
 type GatedVerifier struct {
 	inner      vtypes.Verifier
+	precheck   vtypes.TaskValidator
 	checker    Checker
 	lggr       logger.Logger
 	monitoring vtypes.Monitoring
@@ -60,30 +70,38 @@ func NewGatedVerifier(
 		retryDelay = DefaultRetryDelay
 	}
 
-	return &GatedVerifier{
+	gate := &GatedVerifier{
 		inner:      inner,
 		checker:    checker,
 		lggr:       logger.With(lggr, "component", "PolicyGatedVerifier"),
 		monitoring: verifierMonitoring,
 		verifierID: verifierID,
 		retryDelay: retryDelay,
-	}, nil
+	}
+	// Optional: only verifiers that can reject a task without signing it provide this.
+	if validator, ok := inner.(vtypes.TaskValidator); ok {
+		gate.precheck = validator
+	}
+
+	return gate, nil
 }
 
-// VerifyMessages evaluates every task against the policy endpoint and forwards the passing ones
-// to the wrapped verifier. Every task in produces exactly one result out, which is what the task
-// verifier needs to map results back to queue jobs.
+// VerifyMessages evaluates the tasks the wrapped verifier would sign against the policy endpoint
+// and forwards the passing ones. Every task in produces exactly one result out, which is what the
+// task verifier needs to map results back to queue jobs. Results come back in a different order
+// than they went in; the task verifier indexes them by message ID, not by position.
 func (g *GatedVerifier) VerifyMessages(ctx context.Context, tasks []vtypes.VerificationTask) []vtypes.VerificationResult {
 	if len(tasks) == 0 {
 		return nil
 	}
 
-	verdicts := g.evaluateAll(ctx, tasks)
+	evaluate, invalid := g.partition(ctx, tasks)
+	verdicts := g.evaluateAll(ctx, evaluate)
 
 	results := make([]vtypes.VerificationResult, 0, len(tasks))
-	passed := make([]vtypes.VerificationTask, 0, len(tasks))
+	forward := append(make([]vtypes.VerificationTask, 0, len(tasks)), invalid...)
 
-	for i, task := range tasks {
+	for i, task := range evaluate {
 		v := verdicts[i]
 		switch {
 		case v.err != nil:
@@ -96,15 +114,61 @@ func (g *GatedVerifier) VerifyMessages(ctx context.Context, tasks []vtypes.Verif
 				monitoring.MessageTransitionStagePolicy,
 				monitoring.MessageTransitionOutcomePolicyPassed,
 				monitoring.MessageTransitionReasonNone)
-			passed = append(passed, task)
+			forward = append(forward, task)
 		}
 	}
 
-	if len(passed) > 0 {
-		results = append(results, g.inner.VerifyMessages(ctx, passed)...)
+	if len(forward) > 0 {
+		results = append(results, g.inner.VerifyMessages(ctx, forward)...)
 	}
 
 	return results
+}
+
+// partition splits a batch into the tasks that need a verdict and the tasks the wrapped verifier
+// has already said it will reject. The second group skips the endpoint and goes straight to the
+// wrapped verifier, which fails each one with the error and the accounting an ungated verifier
+// would have produced. The gate never synthesizes that error itself, so there is nothing here to
+// drift out of step with the verifier's own rejection path.
+//
+// Skipping is safe in only one direction, and this is the direction: a task the wrapped verifier
+// rejects can never be signed, whatever the endpoint would have said about it. The reverse, a
+// precheck stricter than the verifier, would skip the endpoint on a task that then gets signed,
+// which is why vtypes.TaskValidator requires the two to be one implementation.
+func (g *GatedVerifier) partition(ctx context.Context, tasks []vtypes.VerificationTask) (evaluate, invalid []vtypes.VerificationTask) {
+	if g.precheck == nil {
+		return tasks, nil
+	}
+
+	evaluate = make([]vtypes.VerificationTask, 0, len(tasks))
+	for i := range tasks {
+		err := g.precheck.ValidateTask(&tasks[i])
+		if err == nil {
+			evaluate = append(evaluate, tasks[i])
+			continue
+		}
+		g.recordSkipped(ctx, tasks[i], err)
+		invalid = append(invalid, tasks[i])
+	}
+
+	return evaluate, invalid
+}
+
+// recordSkipped accounts for a task that reached the policy stage without an endpoint call, so
+// the stage's counters still add up to the messages that entered it.
+func (g *GatedVerifier) recordSkipped(ctx context.Context, task vtypes.VerificationTask, cause error) {
+	g.messageMetrics(task.Message).IncrementMessageTransition(
+		ctx,
+		monitoring.MessageTransitionStagePolicy,
+		monitoring.MessageTransitionOutcomePolicySkipped,
+		monitoring.MessageTransitionReasonTaskInvalid)
+
+	g.lggr.Debugw("Skipping policy hook - the verifier rejects this task before signing",
+		protocol.LogKeyMessageID, task.MessageID,
+		protocol.LogKeySourceChain, task.Message.SourceChainSelector,
+		protocol.LogKeyDestChain, task.Message.DestChainSelector,
+		"error", cause,
+	)
 }
 
 // evaluation is one endpoint call's outcome, index-aligned with the batch.
