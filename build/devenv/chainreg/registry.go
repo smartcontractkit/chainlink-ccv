@@ -82,6 +82,9 @@ func mergeRegistration(existing, incoming Registration) Registration {
 	if existing.ExecutorModifier == nil {
 		existing.ExecutorModifier = incoming.ExecutorModifier
 	}
+	if existing.TokenVerifierModifier == nil {
+		existing.TokenVerifierModifier = incoming.TokenVerifierModifier
+	}
 	if len(incoming.ExtraArgsSerializers) > 0 {
 		if existing.ExtraArgsSerializers == nil {
 			existing.ExtraArgsSerializers = make(map[uint8]ExtraArgsSerializer, len(incoming.ExtraArgsSerializers))
@@ -153,6 +156,20 @@ func (r *Registry) GetVerifierModifiers() map[string]VerifierModifier {
 	for family, reg := range r.registrations {
 		if reg.VerifierModifier != nil {
 			modifiers[family] = reg.VerifierModifier
+		}
+	}
+	return modifiers
+}
+
+// GetTokenVerifierModifiers returns a map of chain family to token verifier modifier from the registry.
+func (r *Registry) GetTokenVerifierModifiers() map[string]TokenVerifierModifier {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	modifiers := make(map[string]TokenVerifierModifier)
+	for family, reg := range r.registrations {
+		if reg.TokenVerifierModifier != nil {
+			modifiers[family] = reg.TokenVerifierModifier
 		}
 	}
 	return modifiers

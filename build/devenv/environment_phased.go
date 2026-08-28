@@ -6,6 +6,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/components/localnetworks"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/progress"
 	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
 	"github.com/smartcontractkit/chainlink-ccv/build/devenv/timing"
@@ -73,6 +74,10 @@ func NewPhasedEnvironment() (out map[string]any, err error) {
 	// key so the serialized file begins with version = N and LoadOutput can route
 	// it to the correct decoder.
 	out["version"] = version
+
+	// Consumers have captured their family-specific network configuration. Run
+	// finalizers before serializing so test-side clients receive restored output.
+	localnetworks.Finalize(out)
 
 	if err := storePhasedOutput(out); err != nil {
 		return out, err

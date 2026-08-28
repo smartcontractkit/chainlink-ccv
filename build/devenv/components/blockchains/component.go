@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"slices"
 
 	devenvcommon "github.com/smartcontractkit/chainlink-ccv/build/devenv/common"
+	"github.com/smartcontractkit/chainlink-ccv/build/devenv/components/localnetworks"
 	devenvruntime "github.com/smartcontractkit/chainlink-ccv/build/devenv/runtime"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework"
 	"github.com/smartcontractkit/chainlink-testing-framework/framework/components/blockchain"
@@ -54,13 +56,18 @@ func (c *component) ValidateConfig(componentConfig any) error {
 
 // RunPhase1 brings up each declared blockchain network via
 // blockchain.NewBlockchainNetwork (which populates each Input's Out field) and
-// emits a single output:
+// emits:
 //   - "blockchains" — []*blockchain.Input with Out populated. Downstream
 //     components that only need the deploy result derive it via Outputs().
+//   - "local_networks" and its finalizers, when the config declares any. Local
+//     network extensions mutate the node URLs these blockchains publish, so
+//     they are applied here rather than from their own component: phase
+//     siblings cannot see this component's output, and every consumer of a node
+//     URL runs in a later phase. See the localnetworks package comment.
 //
 // All static validation (decode, key compatibility, non-empty list) happens
 // in ValidateConfig; this method assumes it has already passed.
-func (c *component) RunPhase1(_ context.Context, _ map[string]any, componentConfig any) (map[string]any, []devenvruntime.Effect, error) {
+func (c *component) RunPhase1(ctx context.Context, globalConfig map[string]any, componentConfig any) (map[string]any, []devenvruntime.Effect, error) {
 	bcs, err := decode(componentConfig)
 	if err != nil {
 		return nil, nil, err
@@ -81,9 +88,15 @@ func (c *component) RunPhase1(_ context.Context, _ map[string]any, componentConf
 		bc.Out = out
 	}
 
-	return map[string]any{
+	outputs := map[string]any{
 		Key: bcs,
-	}, nil, nil
+	}
+	localNetworks, err := localnetworks.Configure(ctx, globalConfig, Outputs(bcs))
+	if err != nil {
+		return nil, nil, err
+	}
+	maps.Copy(outputs, localNetworks)
+	return outputs, nil, nil
 }
 
 // Outputs extracts the deploy result (Out) from each blockchain input. The

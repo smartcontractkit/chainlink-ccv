@@ -44,7 +44,15 @@ type ChainConfig struct {
 	// time and is not used outside the transaction manager. Zero uses the standalone
 	// default; non-zero values must be at least two seconds.
 	TXMBlockTime time.Duration `toml:"txm_block_time,omitempty"`
+	// SourceReaderHeaderFetchBatchSize caps how many eth_getBlockByNumber requests
+	// are sent in a single JSON-RPC batch when the source reader fetches block
+	// headers. Zero uses [DefaultSourceReaderHeaderFetchBatchSize], which is 100.
+	SourceReaderHeaderFetchBatchSize int `toml:"source_reader_header_fetch_batch_size,omitempty"`
 }
+
+// DefaultSourceReaderHeaderFetchBatchSize is the batch size used when the
+// operator config does not set SourceReaderHeaderFetchBatchSize.
+const DefaultSourceReaderHeaderFetchBatchSize = 100
 
 // NewConfigFromInfos builds operator config from the enumeration-oriented
 // Infos[Info] produced by devenv, dropping metadata derived from the selector.
@@ -52,9 +60,10 @@ func NewConfigFromInfos(infos chainaccess.Infos[Info]) Config {
 	chains := make(map[string]ChainConfig, len(infos))
 	for selector, info := range infos {
 		chains[selector] = ChainConfig{
-			Nodes:         nodesWithDefaultNames(info),
-			FinalityDepth: info.FinalityDepth,
-			TXMBlockTime:  info.TXMBlockTime,
+			Nodes:                            nodesWithDefaultNames(info),
+			FinalityDepth:                    info.FinalityDepth,
+			TXMBlockTime:                     info.TXMBlockTime,
+			SourceReaderHeaderFetchBatchSize: info.SourceReaderHeaderFetchBatchSize,
 		}
 	}
 	return Config{Chains: chains}
@@ -91,18 +100,20 @@ func (n Node) Empty() bool {
 
 // Info represents blockchain connection information.
 type Info struct {
-	ChainID         string        `json:"chain_id"          toml:"chain_id"`
-	Type            string        `json:"type"              toml:"type"`
-	Family          string        `json:"family"            toml:"family"`
-	UniqueChainName string        `json:"unique_chain_name" toml:"unique_chain_name"`
-	Nodes           []Node        `json:"nodes"             toml:"nodes"`
-	FinalityDepth   uint32        `json:"finality_depth"    toml:"finality_depth"`
-	TXMBlockTime    time.Duration `json:"txm_block_time"    toml:"txm_block_time"`
+	ChainID                          string        `json:"chain_id"                              toml:"chain_id"`
+	Type                             string        `json:"type"                                  toml:"type"`
+	Family                           string        `json:"family"                                toml:"family"`
+	UniqueChainName                  string        `json:"unique_chain_name"                     toml:"unique_chain_name"`
+	Nodes                            []Node        `json:"nodes"                                 toml:"nodes"`
+	FinalityDepth                    uint32        `json:"finality_depth"                        toml:"finality_depth"`
+	TXMBlockTime                     time.Duration `json:"txm_block_time"                        toml:"txm_block_time"`
+	SourceReaderHeaderFetchBatchSize int           `json:"source_reader_header_fetch_batch_size" toml:"source_reader_header_fetch_batch_size"`
 }
 
 func (bi Info) Empty() bool {
 	return bi.ChainID == "" && bi.Type == "" && bi.Family == "" && bi.UniqueChainName == "" &&
-		len(bi.Nodes) == 0 && bi.FinalityDepth == 0 && bi.TXMBlockTime == 0
+		len(bi.Nodes) == 0 && bi.FinalityDepth == 0 && bi.TXMBlockTime == 0 &&
+		bi.SourceReaderHeaderFetchBatchSize == 0
 }
 
 func nodesWithDefaultNames(info Info) []Node {

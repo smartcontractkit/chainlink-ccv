@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"maps"
 	"math/big"
 	"time"
 
@@ -12,12 +13,14 @@ import (
 	"github.com/ethereum/go-ethereum/accounts/abi"
 	"github.com/ethereum/go-ethereum/accounts/abi/bind"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/rpc"
 
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/latest/onramp"
 	"github.com/smartcontractkit/chainlink-ccip/chains/evm/gobindings/generated/v1_6_0/rmn_remote"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
 	"github.com/smartcontractkit/chainlink-evm/pkg/client"
 	"github.com/smartcontractkit/chainlink-evm/pkg/heads"
+	evmtypes "github.com/smartcontractkit/chainlink-evm/pkg/types"
 
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/rmnremotereader"
 	"github.com/smartcontractkit/chainlink-ccv/pkg/chainaccess"
@@ -41,6 +44,8 @@ type SourceReader struct {
 	lggr                 logger.Logger
 	onRampABI            *abi.ABI // Cached ABI to avoid re-parsing
 	onCriticalInvariant  func(context.Context)
+
+	sourceReaderHeaderFetchBatchSize int
 }
 
 func NewEVMSourceReader(
@@ -57,6 +62,7 @@ func NewEVMSourceReader(
 	ccipMessageSentTopic string,
 	chainSelector protocol.ChainSelector,
 	lggr logger.Logger,
+	headerFetchBatchSize int,
 	onCriticalInvariant func(context.Context),
 ) (chainaccess.SourceReader, error) {
 	var errs []error
@@ -131,6 +137,8 @@ func NewEVMSourceReader(
 		chainSelector:        chainSelector,
 		lggr:                 lggr,
 		onRampABI:            onRampABI,
+
+		sourceReaderHeaderFetchBatchSize: sourceReaderHeaderFetchBatchSize(headerFetchBatchSize),
 	}
 	reader.SetCriticalSourceInvariantCallback(onCriticalInvariant)
 	return reader, nil
@@ -165,15 +173,56 @@ func (r *SourceReader) SetCriticalSourceInvariantCallback(callback func(context.
 	r.onCriticalInvariant = callback
 }
 
-// GetBlocksHeaders TODO: Should use batch requests for efficiency ticket: CCIP-7766.
+// GetBlocksHeaders fetches headers for the given block numbers and returns them
+// keyed by block number. Requests are batched into a single eth_getBlockByNumber
+// batch per chunk (instead of one RPC request per block) to reduce RPC load.
+// Batches are chunked to avoid an oversized single payload.
 func (r *SourceReader) GetBlocksHeaders(ctx context.Context, blockNumbers []*big.Int) (map[uint64]protocol.BlockHeader, error) {
-	headers := make(map[uint64]protocol.BlockHeader)
-	for _, blockNumber := range blockNumbers {
-		header, err := r.chainClient.HeadByNumber(ctx, blockNumber)
+	headers := make(map[uint64]protocol.BlockHeader, len(blockNumbers))
+	batchSize := sourceReaderHeaderFetchBatchSize(r.sourceReaderHeaderFetchBatchSize)
+	for bn := 0; bn < len(blockNumbers); bn += batchSize {
+		end := min(bn+batchSize, len(blockNumbers))
+		chunk, err := r.fetchHeadBatch(ctx, blockNumbers[bn:end])
 		if err != nil {
-			r.lggr.Warnw("Failed to get block header", "blockNumber", blockNumber.String(), "error", err)
+			r.lggr.Warnw("Failed to fetch header batch", "error", err, "batchStart", bn, "batchEnd", end)
 			continue
 		}
+		maps.Copy(headers, chunk)
+	}
+	return headers, nil
+}
+
+// fetchHeadBatch issues a single batched eth_getBlockByNumber for blockNumbers
+// and returns the resulting headers keyed by block number. Individual batch
+// element failures are logged and skipped so a single bad block does not discard
+// the whole batch.
+func (r *SourceReader) fetchHeadBatch(ctx context.Context, blockNumbers []*big.Int) (map[uint64]protocol.BlockHeader, error) {
+	batch := make([]rpc.BatchElem, 0, len(blockNumbers))
+	for _, n := range blockNumbers {
+		var head *evmtypes.Head
+		batch = append(batch, rpc.BatchElem{
+			Method: "eth_getBlockByNumber",
+			Args:   []any{client.ToBlockNumArg(n), false},
+			Result: &head,
+		})
+	}
+
+	if err := r.chainClient.BatchCallContext(ctx, batch); err != nil {
+		return nil, err
+	}
+
+	headers := make(map[uint64]protocol.BlockHeader, len(batch))
+	for i, elem := range batch {
+		if elem.Error != nil {
+			r.lggr.Warnw("Failed to get block header", "blockNumber", blockNumbers[i].String(), "error", elem.Error)
+			continue
+		}
+		headPtr, ok := elem.Result.(**evmtypes.Head)
+		if !ok || headPtr == nil || *headPtr == nil {
+			r.lggr.Warnw("Nil block header", "blockNumber", blockNumbers[i].String())
+			continue
+		}
+		header := *headPtr
 		if header.Number < 0 {
 			return nil, fmt.Errorf("block number cannot be negative: %d", header.Number)
 		}
