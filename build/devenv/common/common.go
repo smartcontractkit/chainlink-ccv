@@ -34,6 +34,7 @@ const (
 
 	CustomExecutorQualifier = "custom"
 
+	CCTPVerifierResolverQualifier  = "CCTPVerifierResolver"
 	CCTPPrimaryReceiverQualifier   = "cctp-primary"
 	CCTPSecondaryReceiverQualifier = "cctp-secondary"
 

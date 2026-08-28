@@ -61,6 +61,10 @@ type TokenVerifierInput struct {
 	// generated config should resolve addresses for.
 	LombardQualifier string `toml:"lombard_qualifier"`
 
+	// CCTPQualifier identifies which CCTP verifier/resolver deployment this instance's
+	// generated config should resolve addresses for.
+	CCTPQualifier string `toml:"cctp_qualifier"`
+
 	// GeneratedConfig stores the generated token verifier configuration from the changeset.
 	GeneratedConfig *token.Config `toml:"-"`
 
