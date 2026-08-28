@@ -96,6 +96,9 @@ func (c *component) RunPhase4(
 			chainFamily = chainsel.FamilyEVM
 		}
 		familySelectors := filterSelectorsByFamily(selectors, chainFamily)
+		if len(familySelectors) == 0 {
+			return nil, nil, fmt.Errorf("tokenverifier: no chain selectors found for family %q", chainFamily)
+		}
 
 		cs := ccvchangesets.GenerateTokenVerifierConfig()
 		output, csErr := cs.Apply(localEnv, ccvchangesets.GenerateTokenVerifierConfigInput{

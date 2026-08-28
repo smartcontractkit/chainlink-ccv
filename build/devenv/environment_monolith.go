@@ -799,6 +799,9 @@ func NewEnvironment() (in *Cfg, err error) {
 			chainFamily = chainsel.FamilyEVM
 		}
 		familySelectors := filterSelectorsByFamily(selectors, chainFamily)
+		if len(familySelectors) == 0 {
+			return nil, fmt.Errorf("no chain selectors found for family %q", chainFamily)
+		}
 
 		// Use changeset to generate token verifier config from on-chain state
 		cs := ccvchangesets.GenerateTokenVerifierConfig()
