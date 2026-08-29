@@ -784,10 +784,42 @@ func NewEnvironment() (in *Cfg, err error) {
 	///////////////////////////////////
 
 	progress.Stage(ctx, stageLaunchTokenVerifiers)
+	familyLombardQualifier := make(map[string]string, len(in.TokenVerifier))
+	familyCCTPQualifier := make(map[string]string, len(in.TokenVerifier))
+	for _, tv := range in.TokenVerifier {
+		if in == nil {
+			continue
+		}
+		fam := tv.ChainFamily
+		if fam == "" {
+			fam = chainsel.FamilyEVM
+		}
+		q := tv.LombardQualifier
+		if q == "" {
+			q = devenvcommon.LombardVerifierResolverQualifier
+		}
+		familyLombardQualifier[fam] = q
+
+		q = tv.CCTPQualifier
+		if q == "" {
+			q = devenvcommon.CCTPVerifierResolverQualifier
+		}
+		familyCCTPQualifier[fam] = q
+	}
+
+	localEnv := *e
 	// Generate token verifier configs using changeset (on-chain state as source of truth)
 	for i, tokenVerifierInput := range in.TokenVerifier {
 		if tokenVerifierInput == nil {
 			continue
+		}
+		family := tokenVerifierInput.ChainFamily
+		if family == "" {
+			family = chainsel.FamilyEVM
+		}
+		localSelectors := devenvcommon.SelectorsForFamily(selectors, family)
+		if len(localSelectors) == 0 {
+			return nil, fmt.Errorf("no chain selectors found for token verifier family %q (instance %q)", family, tokenVerifierInput.ContainerName)
 		}
 
 		if fakeOut == nil {
@@ -796,21 +828,52 @@ func NewEnvironment() (in *Cfg, err error) {
 
 		// Use changeset to generate token verifier config from on-chain state
 		cs := ccvchangesets.GenerateTokenVerifierConfig()
-		output, err := cs.Apply(*e, ccvchangesets.GenerateTokenVerifierConfigInput{
+		output, err := cs.Apply(localEnv, ccvchangesets.GenerateTokenVerifierConfigInput{
 			ServiceIdentifier: "TokenVerifier",
-			ChainSelectors:    selectors,
+			ChainSelectors:    localSelectors,
 			Lombard: ccvchangesets.LombardConfigInput{
 				VerifierID:     "LombardVerifier",
-				Qualifier:      devenvcommon.LombardVerifierResolverQualifier,
+				Qualifier:      familyLombardQualifier[family],
 				AttestationAPI: fakeOut.InternalHTTPURL + "/lombard",
 			},
 			CCTP: ccvchangesets.CCTPConfigInput{
 				VerifierID:     "CCTPVerifier",
+				Qualifier:      familyCCTPQualifier[family],
 				AttestationAPI: fakeOut.InternalHTTPURL + "/cctp",
 			},
 		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate token verifier config: %w", err)
+		}
+		localEnv.DataStore = output.DataStore.Seal()
+
+		remoteByFamily := make(map[string][]uint64)
+		for _, selector := range selectors {
+			selectorFamily, familyErr := chainsel.GetSelectorFamily(selector)
+			if familyErr != nil || selectorFamily == family {
+				continue
+			}
+			remoteByFamily[selectorFamily] = append(remoteByFamily[selectorFamily], selector)
+		}
+		for remoteFamily, remoteSelectors := range remoteByFamily {
+			remoteOutput, remoteErr := ccvchangesets.GenerateTokenVerifierConfig().Apply(localEnv, ccvchangesets.GenerateTokenVerifierConfigInput{
+				ServiceIdentifier: "TokenVerifier",
+				ChainSelectors:    remoteSelectors,
+				Lombard: ccvchangesets.LombardConfigInput{
+					VerifierID:     "LombardVerifier",
+					Qualifier:      familyLombardQualifier[remoteFamily],
+					AttestationAPI: fakeOut.InternalHTTPURL + "/lombard",
+				},
+				CCTP: ccvchangesets.CCTPConfigInput{
+					VerifierID:     "CCTPVerifier",
+					Qualifier:      familyCCTPQualifier[remoteFamily],
+					AttestationAPI: fakeOut.InternalHTTPURL + "/cctp",
+				},
+			})
+			if remoteErr != nil {
+				return nil, fmt.Errorf("failed to generate cross-family token verifier config for %q (family %q): %w", tokenVerifierInput.ContainerName, remoteFamily, remoteErr)
+			}
+			localEnv.DataStore = remoteOutput.DataStore.Seal()
 		}
 
 		// Get generated config from output datastore
@@ -820,8 +883,9 @@ func NewEnvironment() (in *Cfg, err error) {
 		if err != nil {
 			return nil, fmt.Errorf("failed to get token verifier config from output: %w", err)
 		}
+		tokenVerifierCfg.TokenVerifiers = devenvcommon.DropUnreachableTokenVerifiers(tokenVerifierCfg.TokenVerifiers, localSelectors)
 		in.TokenVerifier[i].GeneratedConfig = tokenVerifierCfg
-		e.DataStore = output.DataStore.Seal()
+		e.DataStore = localEnv.DataStore
 	}
 
 	if fakeOut != nil {
