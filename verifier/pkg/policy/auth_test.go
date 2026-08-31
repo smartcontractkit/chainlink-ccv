@@ -101,7 +101,11 @@ func TestResolveCredential_Rejects(t *testing.T) {
 			require.Error(t, err)
 			assert.Nil(t, cred)
 			assert.Contains(t, err.Error(), tc.errHas)
+			assert.Contains(t, err.Error(), "secrets file", "the error must name which source the bad pair came from")
 			assert.NotContains(t, err.Error(), testSecret, "an error an operator will log must never carry the secret")
+			if tc.file.APIKey != "" {
+				assert.NotContains(t, err.Error(), tc.file.APIKey, "nor the api key")
+			}
 		})
 	}
 }

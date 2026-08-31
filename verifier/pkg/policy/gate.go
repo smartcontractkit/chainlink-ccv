@@ -301,8 +301,8 @@ func WrapVerifier(
 	// rather than run, on a machine that has no business holding the verifier's secrets.
 	if cfg.RequireAuth && cred == nil {
 		return nil, fmt.Errorf(
-			"policy_hook sets require_auth but no credential is configured; supply [policy_hook] api_key and secret_key in the verifier secrets file, or %s and %s",
-			APIKeyEnvVar, SecretKeyEnvVar)
+			"policy_hook sets require_auth but no credential is configured; supply [policy_hook] api_key and secret_key in the verifier secrets file, or the %s* environment variables",
+			envVarPrefix)
 	}
 
 	checker, err := NewHTTPChecker(lggr, cfg, cred)

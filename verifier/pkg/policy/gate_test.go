@@ -384,7 +384,8 @@ func TestWrapVerifier(t *testing.T) {
 			RequireAuth: true,
 		}, mon, nil)
 		require.Error(t, err)
-		assert.Contains(t, err.Error(), APIKeyEnvVar, "the error must name where the credential is meant to come from")
+		assert.Contains(t, err.Error(), envVarPrefix, "the error must name where the credential is meant to come from")
+		assert.Contains(t, err.Error(), "secrets file")
 	})
 
 	t.Run("require_auth with a credential wraps the verifier", func(t *testing.T) {
