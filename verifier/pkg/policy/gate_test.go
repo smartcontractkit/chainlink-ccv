@@ -3,6 +3,7 @@ package policy
 import (
 	"context"
 	"errors"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -345,6 +346,27 @@ func TestNewGatedVerifier_DefaultsRetryDelay(t *testing.T) {
 	)
 	require.NoError(t, err)
 	assert.Equal(t, DefaultRetryDelay, gate.retryDelay)
+}
+
+// The contract promises a FAIL reason past 256 characters is truncated. HTTPChecker bounds what
+// it returns, but Checker is an exported interface, so the gate bounds it again at the point the
+// promise is spent: the log line and the archived job's error, which is retained for 30 days.
+func TestGatedVerifier_TruncatesOversizedRejectionReason(t *testing.T) {
+	oversized := strings.Repeat("x", maxReasonLength+500)
+	checker := &stubChecker{verdicts: map[string]Verdict{
+		msgID(1): {Decision: DecisionFail, Reason: oversized},
+	}}
+	inner := &stubVerifier{}
+
+	results := newGate(t, checker, inner).VerifyMessages(
+		t.Context(), []vtypes.VerificationTask{newTask(msgID(1))})
+	require.Len(t, results, 1)
+	require.NotNil(t, results[0].Error)
+
+	got := results[0].Error.Error.Error()
+	assert.Less(t, len(got), len(oversized), "the archived error must not carry the whole reason")
+	assert.Contains(t, got, "...(truncated)")
+	assert.Empty(t, inner.forwarded(), "a FAIL must still not reach the wrapped verifier")
 }
 
 func TestWrapVerifier(t *testing.T) {

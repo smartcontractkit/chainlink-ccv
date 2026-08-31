@@ -205,6 +205,13 @@ func (g *GatedVerifier) evaluateAll(ctx context.Context, tasks []vtypes.Verifica
 // auto-executed. Recovery is an operator replay: reschedule the archived job with the verifier
 // CLI, or rewind the checkpoint as for a message dropped by a curse or a disablement rule.
 func (g *GatedVerifier) rejectedResult(ctx context.Context, task vtypes.VerificationTask, reason string) *vtypes.VerificationError {
+	// Bounded here rather than trusted from the Checker. HTTPChecker already truncates, but
+	// Checker is an exported interface and this is where the published 256-character guarantee
+	// is actually spent: the reason goes to the node's logs and is stored as the archived job's
+	// error for the queue's 30-day retention. Truncating an already-truncated reason is a
+	// no-op, so the HTTP path is unaffected.
+	reason = truncateReason(reason)
+
 	g.messageMetrics(task.Message).IncrementMessageTransition(
 		ctx,
 		monitoring.MessageTransitionStagePolicy,
