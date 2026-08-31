@@ -104,22 +104,4 @@ address = "localhost:50052"
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "aggregator_address is deprecated")
 	})
-
-	t.Run("message disablement rules disabled is accepted", func(t *testing.T) {
-		const appConfig = `
-verifier_id = "test-verifier"
-aggregator_address = "localhost:50051"
-message_disablement_rules_disabled = true
-
-[on_ramp_addresses]
-"5009297550715157269" = "0x0000000000000000000000000000000000000001"
-
-[committee_verifier_addresses]
-"5009297550715157269" = "0x0000000000000000000000000000000000000002"
-
-[rmn_remote_addresses]
-"5009297550715157269" = "0x0000000000000000000000000000000000000003"
-`
-		require.NoError(t, f.Validate(bootstrap.JobSpec{AppConfig: appConfig}))
-	})
 }

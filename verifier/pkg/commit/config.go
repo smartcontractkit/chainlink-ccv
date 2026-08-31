@@ -189,13 +189,6 @@ type Config struct {
 	MessageDisablementRulesPollInterval string `toml:"message_disablement_rules_poll_interval"`
 	// MessageDisablementRulesClientTimeout is the RPC timeout for message-disablement-rules requests, as a Go duration string; empty uses the integration default.
 	MessageDisablementRulesClientTimeout string `toml:"message_disablement_rules_client_timeout"`
-	// MessageDisablementRulesDisabled, when true, disables message-disablement rules entirely:
-	// the verifier does not poll aggregators for disablement rules and treats no message as
-	// disabled (equivalent to an AllowAllMessagesChecker). This opts out of the fail-safe
-	// union, so an unreachable aggregator at startup no longer blocks attestation — at the cost
-	// of silently ignoring kill-switch rules set on any aggregator. It defaults to false (rules
-	// enabled, the safe option) and should only be set true as a deliberate opt-in.
-	MessageDisablementRulesDisabled bool `toml:"message_disablement_rules_disabled"`
 
 	// SignerAddress is the on-chain address of the verifier's result-signing key.
 	SignerAddress string `toml:"signer_address"`

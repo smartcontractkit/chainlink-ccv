@@ -15,7 +15,6 @@ import (
 	"github.com/smartcontractkit/chainlink-common/pkg/sqlutil"
 
 	"github.com/smartcontractkit/chainlink-ccv/bootstrap"
-	"github.com/smartcontractkit/chainlink-ccv/common"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/cursechecker"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/heartbeatclient"
 	"github.com/smartcontractkit/chainlink-ccv/integration/pkg/messagerules"
@@ -322,50 +321,42 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 
 	// Message-rules union: one poller per aggregator; a message is disabled if any aggregator
 	// disables it (fail-safe union), and verification is blocked while any source is unknown.
-	// When MessageDisablementRulesDisabled is set, no pollers are built and nil is passed to the
-	// coordinator, which then treats no message as disabled (AllowAllMessagesChecker).
-	var messageRulesPoller common.MessageRulesCheckerService
-	if !config.MessageDisablementRulesDisabled {
-		namedPollers := make([]messagerules.NamedPoller, 0, len(resolvedAggregators))
-		for i, a := range resolvedAggregators {
-			aggLggr := logger.With(lggr, "component", "MessageRulesPoller", "aggregator", a.Label())
-			messageRulesClient, rErr := messagerules.NewGRPCClient(
-				a.Address,
-				aggLggr,
-				aggregatorHMACs[i],
-				a.InsecureConnection,
-				a.MaxRecvMsgSizeBytes,
-			)
-			if rErr != nil {
-				lggr.Errorw("Failed to create message rules gRPC client", "error", rErr, "aggregator", a.Label())
-				return fmt.Errorf("failed to create message rules client for %q: %w", a.Label(), rErr)
-			}
-
-			poller, rErr := messagerules.NewPollerService(
-				messageRulesClient,
-				messageRulesPollInterval,
-				messageRulesClientTimeout,
-				aggLggr,
-				verifierMonitoring.Metrics().With("aggregator", a.Label()),
-			)
-			if rErr != nil {
-				lggr.Errorw("Failed to create message rules poller", "error", rErr, "aggregator", a.Label())
-				return fmt.Errorf("failed to create message rules poller for %q: %w", a.Label(), rErr)
-			}
-			namedPollers = append(namedPollers, messagerules.NewNamedPoller(a.Label(), poller))
-		}
-
-		messageRulesPoller, err = messagerules.NewUnionPollerService(
-			logger.With(lggr, "component", "UnionMessageRulesPoller"),
-			namedPollers...,
+	namedPollers := make([]messagerules.NamedPoller, 0, len(resolvedAggregators))
+	for i, a := range resolvedAggregators {
+		aggLggr := logger.With(lggr, "component", "MessageRulesPoller", "aggregator", a.Label())
+		messageRulesClient, rErr := messagerules.NewGRPCClient(
+			a.Address,
+			aggLggr,
+			aggregatorHMACs[i],
+			a.InsecureConnection,
+			a.MaxRecvMsgSizeBytes,
 		)
-		if err != nil {
-			lggr.Errorw("Failed to create union message rules poller", "error", err)
-			return fmt.Errorf("failed to create union message rules poller: %w", err)
+		if rErr != nil {
+			lggr.Errorw("Failed to create message rules gRPC client", "error", rErr, "aggregator", a.Label())
+			return fmt.Errorf("failed to create message rules client for %q: %w", a.Label(), rErr)
 		}
-	} else {
-		lggr.Warnw("Message disablement rules disabled by config; every validated message will be attested",
-			"verifierID", config.VerifierID)
+
+		poller, rErr := messagerules.NewPollerService(
+			messageRulesClient,
+			messageRulesPollInterval,
+			messageRulesClientTimeout,
+			aggLggr,
+			verifierMonitoring.Metrics().With("aggregator", a.Label()),
+		)
+		if rErr != nil {
+			lggr.Errorw("Failed to create message rules poller", "error", rErr, "aggregator", a.Label())
+			return fmt.Errorf("failed to create message rules poller for %q: %w", a.Label(), rErr)
+		}
+		namedPollers = append(namedPollers, messagerules.NewNamedPoller(a.Label(), poller))
+	}
+
+	messageRulesPoller, err := messagerules.NewUnionPollerService(
+		logger.With(lggr, "component", "UnionMessageRulesPoller"),
+		namedPollers...,
+	)
+	if err != nil {
+		lggr.Errorw("Failed to create union message rules poller", "error", err)
+		return fmt.Errorf("failed to create union message rules poller: %w", err)
 	}
 
 	messageTracker := monitoring.NewMessageLatencyTracker(
