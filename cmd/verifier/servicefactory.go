@@ -276,9 +276,18 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 		return fmt.Errorf("failed to create commit verifier: %w", err)
 	}
 
+	// Resolve the credential the policy endpoint identifies this verifier by: the secrets file
+	// when it carries a [policy_hook] table, otherwise the environment. Nil is the supported
+	// unauthenticated case, so only a malformed or half-supplied pair fails here.
+	policyCredential, err := policy.ResolveCredential(secrets.PolicyHookSecret())
+	if err != nil {
+		lggr.Errorw("Failed to resolve policy hook credential", "error", err)
+		return fmt.Errorf("failed to resolve policy hook credential: %w", err)
+	}
+
 	// Apply the operator's policy hook. With no [policy_hook] section this returns the commit
 	// verifier unchanged.
-	gatedVerifier, err := policy.WrapVerifier(lggr, config.VerifierID, commitVerifier, config.PolicyHook, verifierMonitoring)
+	gatedVerifier, err := policy.WrapVerifier(lggr, config.VerifierID, commitVerifier, config.PolicyHook, verifierMonitoring, policyCredential)
 	if err != nil {
 		lggr.Errorw("Failed to apply policy hook", "error", err)
 		return fmt.Errorf("failed to apply policy hook: %w", err)

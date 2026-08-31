@@ -81,6 +81,13 @@ type Config struct {
 	// InsecureConnection allows a plain http:// endpoint. Only for local development and
 	// tests: a policy verdict carries compliance weight and must not travel in the clear.
 	InsecureConnection bool `toml:"insecure_connection"`
+	// RequireAuth makes a missing endpoint credential fatal at startup instead of calling the
+	// endpoint unauthenticated. The credential itself is never configured here: it comes from
+	// the verifier secrets file or the environment, because this section is marshaled into the
+	// job spec. Set this on any verifier whose endpoint checks the signature, so a credential
+	// that fails to reach the container is a boot failure rather than every message on the lane
+	// retrying against a 401 until the queue's deadline.
+	RequireAuth bool `toml:"require_auth"`
 }
 
 // RequestTimeoutDuration returns the configured per-call timeout, or the default when unset.

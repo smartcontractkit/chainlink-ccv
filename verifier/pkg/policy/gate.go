@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/smartcontractkit/chainlink-ccv/protocol"
+	"github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
 	"github.com/smartcontractkit/chainlink-ccv/verifier/pkg/monitoring"
 	vtypes "github.com/smartcontractkit/chainlink-ccv/verifier/pkg/vtypes"
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
@@ -290,12 +291,21 @@ func WrapVerifier(
 	inner vtypes.Verifier,
 	cfg *Config,
 	verifierMonitoring vtypes.Monitoring,
+	cred *hmac.ClientConfig,
 ) (vtypes.Verifier, error) {
 	if cfg == nil {
 		return inner, nil
 	}
+	// Checked here rather than in Config.Validate because the credential lives in the
+	// environment or the secrets file, and Config.Validate also runs where a job spec is built
+	// rather than run, on a machine that has no business holding the verifier's secrets.
+	if cfg.RequireAuth && cred == nil {
+		return nil, fmt.Errorf(
+			"policy_hook sets require_auth but no credential is configured; supply [policy_hook] api_key and secret_key in the verifier secrets file, or %s and %s",
+			APIKeyEnvVar, SecretKeyEnvVar)
+	}
 
-	checker, err := NewHTTPChecker(lggr, cfg)
+	checker, err := NewHTTPChecker(lggr, cfg, cred)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create policy hook client: %w", err)
 	}
@@ -308,9 +318,12 @@ func WrapVerifier(
 		return nil, fmt.Errorf("failed to create policy gated verifier: %w", err)
 	}
 
+	// authenticated is logged on every boot: an operator whose endpoint checks signatures needs
+	// to be able to see from the node's own logs that it is sending them.
 	lggr.Infow("Policy hook enabled",
 		"endpoint", cfg.EndpointURL,
 		"retryDelay", retryDelay,
+		"authenticated", cred != nil,
 	)
 
 	return gated, nil

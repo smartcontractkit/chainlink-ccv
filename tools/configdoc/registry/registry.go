@@ -180,13 +180,16 @@ func tokenVerifierConfigInstance() any {
 }
 
 // verifierSecretsInstance builds the documented verifier secrets file (shared by
-// both verifier binaries) with obviously-fake placeholder credentials.
+// both verifier binaries) with obviously-fake placeholder credentials. PolicyHook is
+// populated to document the optional [policy_hook] table; the committee verifier
+// calls its policy endpoint unauthenticated when the table is absent.
 func verifierSecretsInstance() any {
 	return &vsecrets.SecretsFile{
 		DB: vsecrets.DBSecrets{URL: "postgres://user:password@localhost:5432/verifier?sslmode=disable"}, //nolint:gosec // G101: placeholder example value in generated docs, not a real credential
 		Aggregators: []vsecrets.AggregatorSecret{
 			{SecretName: "aggregator_1", APIKey: "<api-key>", SecretKey: "<secret-key>"},
 		},
+		PolicyHook: &vsecrets.PolicyHookSecret{APIKey: "<api-key>", SecretKey: "<secret-key>"},
 	}
 }
 

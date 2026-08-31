@@ -15,7 +15,7 @@ import (
 // kept in step by TestOpenAPISpecMatchesContract.
 const SchemaVersion = "v1"
 
-// Decision is the verdict an endpoint returns. Only PASS and FAIL are meaningful in v1; any
+// Decision is the verdict an endpoint returns. Only PASS and FAIL are implemented in v1; any
 // other value is treated as an unusable response, which retries rather than drops.
 type Decision string
 
@@ -26,6 +26,17 @@ const (
 	// auto-executed; recovery requires an operator to reschedule the archived job or to rewind
 	// the checkpoint and replay.
 	DecisionFail Decision = "FAIL"
+	// DecisionHold is reserved and not implemented. It names the third outcome screening
+	// produces in practice, a match a human clears shortly afterwards, which v1 does not
+	// express: an operator holds a message by answering FAIL and replaying it once the review
+	// clears.
+	//
+	// The value is in the published enum so that adding the behavior later is additive rather
+	// than a breaking change for an endpoint validating strictly against the spec. Until then
+	// parseDecision refuses it, so an endpoint that ships HOLD early gets retries and a clear
+	// error rather than a message silently signed or silently dropped. Nothing may read this
+	// constant as a verdict; it exists to be rejected by name.
+	DecisionHold Decision = "HOLD"
 )
 
 // EvaluateRequest is the v1 request body. It carries the decoded message and its source-chain
@@ -213,6 +224,12 @@ func parseDecision(raw Decision) (Decision, error) {
 		return DecisionPass, nil
 	case Decision(strings.ToUpper(trimmed)) == DecisionFail:
 		return DecisionFail, nil
+	case Decision(strings.ToUpper(trimmed)) == DecisionHold:
+		// Named explicitly so an endpoint that ships the reserved value early gets told why it
+		// is not honored, instead of the generic "unrecognized decision" that would send its
+		// author looking for a typo.
+		return "", fmt.Errorf("decision %q is reserved and not implemented in %s; hold a message by answering %q and replaying it once the review clears",
+			DecisionHold, SchemaVersion, DecisionFail)
 	default:
 		return "", fmt.Errorf("unrecognized decision %q, expected %q or %q", raw, DecisionPass, DecisionFail)
 	}

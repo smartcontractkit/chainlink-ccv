@@ -118,9 +118,18 @@ func TestOpenAPISpecMatchesContract(t *testing.T) {
 func TestOpenAPISpecEnums(t *testing.T) {
 	spec := loadSpec(t)
 
+	// HOLD is in the published enum but not implemented, so the spec and the client disagree
+	// here on purpose. The pair of assertions below is what keeps that deliberate: the value
+	// stays published, so adding the behavior later is additive for an endpoint validating
+	// strictly, and the client keeps refusing it, so the reservation cannot quietly become a
+	// verdict that signs or drops a message.
 	decision := spec.Components.Schemas["EvaluateResponse"].Properties["decision"]
-	assert.Equal(t, []string{string(DecisionPass), string(DecisionFail)}, decision.Enum,
-		"the spec's verdicts must be exactly the two the verifier accepts")
+	assert.Equal(t, []string{string(DecisionPass), string(DecisionFail), string(DecisionHold)}, decision.Enum,
+		"the spec's verdicts must be the two the verifier accepts plus the reserved HOLD")
+
+	_, err := parseDecision(DecisionHold)
+	require.Error(t, err, "HOLD is reserved: honouring it would hold or drop a message on behavior v1 does not have")
+	assert.Contains(t, err.Error(), "reserved")
 
 	schemaVersion := spec.Components.Schemas["EvaluateRequest"].Properties["schema_version"]
 	assert.Equal(t, []string{SchemaVersion}, schemaVersion.Enum)

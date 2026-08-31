@@ -76,7 +76,11 @@ nodes withhold signatures to put the rest below the threshold, which takes `N - 
 the committee's `N` nodes. In a 2-of-2 committee one FAIL is decisive. In a 3-of-5, two operators
 can reject a message and it still executes on the other three signatures.
 
-This is the thing to work out before treating the hook as a compliance control. If your node's
+This is by design rather than a gap: the committee is the unit of decision, and quorum is what a
+message clears or does not. The hook gives one node a reason to withhold, and the threshold decides
+what that is worth.
+
+It is still the thing to work out before treating the hook as a compliance control. If your node's
 signature is spare at the committee's threshold, your endpoint answering FAIL does not prevent the
 transfer. It means you did not attest it. Sizing the committee so the gated nodes can actually block
 is a topology decision the hook cannot make for you.
@@ -108,6 +112,25 @@ docker exec <verifier-container> /bin/verifier ccv chain-statuses set-finalized-
   --chain-selector <selector> --verifier-id <verifier-id> --block-height <block>
 ```
 
+### Holding a message for review
+
+Screening produces three outcomes, not two, and the middle one is common: a name match a human
+clears shortly afterwards. v1 has no verdict for it. The supported way to hold a message is to
+answer FAIL while the review is open and replay the message once it clears — rescheduling the
+archived job asks the endpoint again, and the second call can answer PASS.
+
+Do not hold a message by stalling the call or by returning a 5xx. A slow call is bounded by
+`request_timeout` and a 5xx is metered as an endpoint outage, so a hold expressed that way is
+indistinguishable from the verifier's own dependency being down, and it dies at the task queue's
+7-day retry deadline rather than at a decision.
+
+`HOLD` is published in the response enum and is not implemented. It is reserved so that adding it
+later is an additive change for an endpoint that validates strictly against the spec, rather than a
+breaking one. An endpoint that returns it today has its message retried, with an error saying the
+value is reserved. Whether to implement it is a question of how often real operators need it: if a
+hold is a daily event then carrying it in the protocol beats a manual replay, and if it is rare the
+replay path is the better trade. Improving the replay UX is tracked separately in CCIP-13332.
+
 ## Configuring it
 
 The hook is off unless the `[policy_hook]` section is present in the committee verifier's config. A
@@ -120,6 +143,7 @@ spec.
   request_timeout = "5s"
   retry_delay = "10s"
   insecure_connection = false
+  require_auth = false
 ```
 
 `endpoint_url` is required and must be `https` unless `insecure_connection` is set, which exists for
@@ -207,9 +231,65 @@ Things worth knowing when building the endpoint:
   mismatch is treated as an error and retries. Endpoints that omit the field are unaffected.
 * `decision` must be spelled `PASS` exactly. `FAIL` is accepted in any case, because reading a
   verdict as unusable only costs a retry while reading one as PASS costs a signature.
+* `HOLD` is reserved and must not be returned. See [holding a message for
+  review](#holding-a-message-for-review).
 * A node evaluates a batch concurrently, up to 8 in-flight calls.
 * The verifier reads at most 64 KiB of response body and does not follow redirects.
-* v1 has no authentication of the verifier to the endpoint. Restrict access at the network layer.
+
+## Authenticating the verifier
+
+The endpoint should not be reachable from outside the operator's own network in the first place.
+Running it in the same cluster as the verifier and not exposing it is the recommended setup, and it
+is the one that needs no credential at all.
+
+Where that is not possible, the verifier can present an HMAC-SHA256 credential. It is optional and
+off unless a credential is configured. There is exactly one scheme, and it is the one the aggregator
+already uses (`protocol/common/hmac`), so an operator implements one thing and this repo has one
+implementation to review.
+
+When configured, every request carries three headers:
+
+| Header | Value |
+| --- | --- |
+| `authorization` | The API key, a UUID. |
+| `x-authorization-timestamp` | Milliseconds since the Unix epoch, as a decimal string. |
+| `x-authorization-signature-sha256` | Hex-encoded HMAC-SHA256 of the string below. |
+
+The signed string is five space-separated fields:
+
+```
+POST <request-target> <sha256-hex-of-body> <api-key> <timestamp-ms>
+```
+
+`<request-target>` is the path the request arrived on including any query string, and `/` when the
+configured `endpoint_url` has no path. `<sha256-hex-of-body>` is the hex SHA-256 of the exact request
+body, taken before parsing. The secret is hex-encoded on both sides and decoded to raw bytes before
+use as the HMAC key.
+
+To verify a request: recompute the string, recompute the HMAC, compare in constant time, and reject
+a timestamp more than 15 seconds from your own clock. The timestamp is what makes a captured request
+unreplayable; skipping it leaves you with caller identification only. Answer a request that fails
+any of this with `401`, which the verifier reads as "verdict unknown" and retries.
+
+The credential is not part of the `[policy_hook]` section, because that section is marshaled into the
+verifier's job spec and stored in Job Distributor. It comes from the verifier secrets file:
+
+```toml
+[policy_hook]
+  api_key = "3f2b7c58-6d41-4a9e-8b0c-1d2e3f405162"
+  secret_key = "<64 hex characters>"
+```
+
+or, when there is no secrets file, from `VERIFIER_POLICY_HOOK_API_KEY` and
+`VERIFIER_POLICY_HOOK_SECRET_KEY`. The file wins over the environment. The API key must be a UUID and
+the secret at least 32 bytes hex-encoded, which is what the shared scheme requires; generate a pair
+with `hmac.GenerateCredentials`. Setting one of the two and not the other is a startup error rather
+than a silent downgrade to no authentication.
+
+Set `require_auth = true` on any verifier whose endpoint checks the signature. Without it a
+credential that failed to reach the container leaves the verifier calling unauthenticated, the
+endpoint answering 401, and every message on the lane retrying until the queue's 7-day deadline. With
+it the node refuses to start. The boot log line carries `authenticated=true|false` either way.
 
 ## Observing it
 
@@ -276,3 +356,8 @@ Signing arbitrary policy output, or attaching a verdict or reason to the signed 
 force aggregator and wire-format changes. Multiple or weighted endpoints: the API is versioned so a
 later version can add them if there is real demand. Until then, one endpoint that aggregates the
 operator's own checks keeps one call to one verdict, and keeps the retry and drop rules unambiguous.
+
+A `HOLD` verdict on the retry path: the enum value is reserved, the behavior is not built, and the
+replay path covers the case in the meantime. Authentication schemes beyond the one above: an
+endpoint that needs something else should sit behind a proxy that terminates it, rather than have
+the verifier learn every operator's setup.

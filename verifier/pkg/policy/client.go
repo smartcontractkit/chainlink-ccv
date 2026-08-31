@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/smartcontractkit/chainlink-common/pkg/logger"
+
+	"github.com/smartcontractkit/chainlink-ccv/protocol/common/hmac"
 )
 
 // Verdict is a usable answer from the policy endpoint: an HTTP 200 whose body parsed into one
@@ -48,11 +50,18 @@ type HTTPChecker struct {
 	lggr     logger.Logger
 	endpoint string
 	client   *http.Client
+	// cred is the optional HMAC credential the endpoint identifies this verifier by. Nil means
+	// the operator configured none and the call goes out unauthenticated.
+	cred *hmac.ClientConfig
 }
 
 // NewHTTPChecker builds a checker for the configured endpoint. The config must already be valid
 // (see Config.Validate); an invalid one is rejected here as well rather than at the first call.
-func NewHTTPChecker(lggr logger.Logger, cfg *Config) (*HTTPChecker, error) {
+//
+// cred is optional: nil calls the endpoint with no client credential. It is passed separately
+// from cfg because cfg is marshaled into the verifier's job spec and stored in Job Distributor,
+// which is not somewhere a secret may go.
+func NewHTTPChecker(lggr logger.Logger, cfg *Config, cred *hmac.ClientConfig) (*HTTPChecker, error) {
 	if cfg == nil {
 		return nil, errors.New("policy hook config is required")
 	}
@@ -72,8 +81,9 @@ func NewHTTPChecker(lggr logger.Logger, cfg *Config) (*HTTPChecker, error) {
 	transport.MaxIdleConnsPerHost = 32
 
 	return &HTTPChecker{
-		lggr:     logger.With(lggr, "component", "PolicyHook", "endpoint", cfg.EndpointURL),
+		lggr:     logger.With(lggr, "component", "PolicyHook", "endpoint", cfg.EndpointURL, "authenticated", cred != nil),
 		endpoint: strings.TrimSpace(cfg.EndpointURL),
+		cred:     cred,
 		client: &http.Client{
 			Timeout:   timeout,
 			Transport: transport,
@@ -100,6 +110,12 @@ func (c *HTTPChecker) Evaluate(ctx context.Context, req EvaluateRequest) (Verdic
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("Accept", "application/json")
+	// Signed after the body and the URL are fixed, because the signature covers both.
+	if c.cred != nil {
+		if err := signRequest(httpReq, c.cred, body, time.Now()); err != nil {
+			return Verdict{}, fmt.Errorf("failed to sign policy request for message %s: %w", req.MessageID, err)
+		}
+	}
 
 	start := time.Now()
 	resp, err := c.client.Do(httpReq)

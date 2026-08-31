@@ -51,10 +51,14 @@ components:
       description: The verdict. Returned with HTTP 200; any other status is read as "verdict unknown" and the verifier retries.
       properties:
         decision:
-          description: PASS signs and attests the message. FAIL drops it — it is never attested and never auto-executed, and recovery needs an operator to replay it, by rescheduling the archived job with the verifier CLI or by rewinding the verifier checkpoint. PASS is matched exactly; FAIL is matched case-insensitively, because reading a verdict as unusable only causes a retry while reading one as PASS causes a signature.
+          description: |
+            PASS signs and attests the message. FAIL drops it — it is never attested and never auto-executed, and recovery needs an operator to replay it, by rescheduling the archived job with the verifier CLI or by rewinding the verifier checkpoint. PASS is matched exactly; FAIL is matched case-insensitively, because reading a verdict as unusable only causes a retry while reading one as PASS causes a signature.
+
+            HOLD is reserved and not implemented by this release. It is listed here so that implementing it later is an additive change rather than a breaking one for an endpoint that validates responses strictly against this enum. Do not return it: a verifier reads it as "verdict unknown" and retries the message until the task queue's deadline. To hold a message for review today, answer FAIL and replay the message once the review clears.
           enum:
             - PASS
             - FAIL
+            - HOLD
           type: string
         message_id:
           description: Optional echo of the request's message_id. Nothing else in this response ties the verdict to the message it answers, so echoing the ID lets the verifier refuse a verdict that reached it for a different message, which is what a shared cache or a proxy in front of the endpoint can produce. A mismatch is an error and retries; omitting the field skips the check. Compared case-insensitively.
@@ -180,6 +184,29 @@ components:
         - token_receiver
         - extra_data
       type: object
+  securitySchemes:
+    HmacApiKey:
+      description: The API key identifying the calling verifier. Sent only when the operator has configured a credential on the verifier; a verifier with none sends no authentication headers at all.
+      in: header
+      name: authorization
+      type: apiKey
+    HmacSignature:
+      description: Hex-encoded HMAC-SHA256 of the string described under HmacTimestamp, keyed by the shared secret. Compare it in constant time.
+      in: header
+      name: x-authorization-signature-sha256
+      type: apiKey
+    HmacTimestamp:
+      description: |
+        Milliseconds since the Unix epoch, as a decimal string. Reject a request whose timestamp is more than 15 seconds from your own clock, which is what makes a captured request unreplayable.
+
+        The three headers are computed together. The signed string is five space-separated fields:
+
+          POST <request-target> <sha256-hex-of-body> <api-key> <timestamp-ms>
+
+        <request-target> is the path the request arrived on, including any query string, and "/" when the configured endpoint URL has no path. <sha256-hex-of-body> is the hex-encoded SHA-256 of the exact request body, taken before any parsing. The shared secret is hex-encoded on both sides and decoded to raw bytes before use as the HMAC key.
+      in: header
+      name: x-authorization-timestamp
+      type: apiKey
 info:
   description: |
     The contract for the custom policy hook a CCV operator plugs into their committee verifier:
@@ -203,6 +230,9 @@ info:
       * HTTP 200 with decision FAIL — the verifier drops the message. It is not attested and not
         auto-executed. Recovery requires an operator action: rescheduling the archived job with
         the verifier CLI, or rewinding the verifier's checkpoint and replaying.
+      * HTTP 200 with decision HOLD — reserved, not implemented, and not to be returned. The
+        value is in the enum only so that implementing it later does not break an endpoint that
+        validates strictly. A verifier reads it as "verdict unknown" and retries.
       * Anything else — a 4xx, a 5xx, a timeout, an unreachable host, a body that is not a valid
         EvaluateResponse, or a response whose message_id echo names a different message — is read
         as "verdict unknown" and the message is retried, not dropped. An endpoint outage must never silently drop traffic, so an endpoint that cannot
@@ -229,6 +259,16 @@ info:
         is holding at once, and the spread stops the whole backlog arriving in one burst on each
         retry. The delay does not grow with the number of attempts.
       * The verifier reads at most 64 KiB of response body and does not follow redirects.
+      * Authentication is optional and off unless the operator configures a credential on their
+        verifier. When configured, every request carries the three headers under
+        securitySchemes: an API key, a millisecond timestamp, and an HMAC-SHA256 signature over
+        the method, the request target, a hash of the body, the key, and the timestamp. There is
+        one scheme and it is the same one the aggregator uses. An endpoint that requires it
+        should answer an unsigned or badly signed request with 401, which the verifier retries.
+      * To hold a message while a review is pending, answer FAIL and replay the message once it
+        clears: rescheduling the archived job re-asks the endpoint, and the second call can
+        answer PASS. A held-for-review outcome carried by the protocol itself is the reserved
+        HOLD value above, which this release does not implement.
   title: CCV Committee Verifier Policy Hook
   version: 1.0.0
 openapi: 3.0.3
@@ -258,6 +298,11 @@ paths:
         default:
           description: Any non-200 response is read as "verdict unknown". The message is retried; it is never dropped on this path. Response bodies for these statuses are not parsed.
       summary: Evaluate a message against the operator's policy
+security:
+  - {}
+  - HmacApiKey: []
+    HmacSignature: []
+    HmacTimestamp: []
 servers:
   - description: The operator-hosted policy endpoint. Must be https outside local development.
     url: https://policy.example.com

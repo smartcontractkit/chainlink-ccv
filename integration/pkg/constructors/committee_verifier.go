@@ -229,9 +229,17 @@ func NewVerificationCoordinator(
 		return nil, fmt.Errorf("failed to create commit verifier: %w", err)
 	}
 
+	// Resolve the policy endpoint credential. This is the Chainlink-node deployment, which has
+	// no verifier secrets file, so it is the environment or nothing.
+	policyCredential, err := policy.ResolveCredential(nil)
+	if err != nil {
+		lggr.Errorw("Failed to resolve policy hook credential", "error", err)
+		return nil, fmt.Errorf("failed to resolve policy hook credential: %w", err)
+	}
+
 	// Apply the operator's policy hook. With no [policy_hook] section this returns the commit
 	// verifier unchanged.
-	gatedVerifier, err := policy.WrapVerifier(lggr, cfg.VerifierID, commitVerifier, cfg.PolicyHook, verifierMonitoring)
+	gatedVerifier, err := policy.WrapVerifier(lggr, cfg.VerifierID, commitVerifier, cfg.PolicyHook, verifierMonitoring, policyCredential)
 	if err != nil {
 		lggr.Errorw("Failed to apply policy hook", "error", err)
 		return nil, fmt.Errorf("failed to apply policy hook: %w", err)

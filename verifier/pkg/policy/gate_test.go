@@ -353,7 +353,7 @@ func TestWrapVerifier(t *testing.T) {
 	mon := monitoring.NewFakeVerifierMonitoring()
 
 	t.Run("no config leaves the verifier untouched", func(t *testing.T) {
-		got, err := WrapVerifier(lggr, "v", inner, nil, mon)
+		got, err := WrapVerifier(lggr, "v", inner, nil, mon, nil)
 		require.NoError(t, err)
 		assert.Same(t, inner, got, "a verifier without a hook must not gain a layer")
 	})
@@ -362,7 +362,7 @@ func TestWrapVerifier(t *testing.T) {
 		got, err := WrapVerifier(lggr, "v", inner, &Config{
 			EndpointURL: "https://policy.example.com/v1/evaluate",
 			RetryDelay:  "3s",
-		}, mon)
+		}, mon, nil)
 		require.NoError(t, err)
 
 		gate, ok := got.(*GatedVerifier)
@@ -371,8 +371,29 @@ func TestWrapVerifier(t *testing.T) {
 	})
 
 	t.Run("invalid config fails construction", func(t *testing.T) {
-		_, err := WrapVerifier(lggr, "v", inner, &Config{EndpointURL: "not a url at all"}, mon)
+		_, err := WrapVerifier(lggr, "v", inner, &Config{EndpointURL: "not a url at all"}, mon, nil)
 		require.Error(t, err)
+	})
+
+	t.Run("require_auth without a credential fails construction", func(t *testing.T) {
+		// The failure has to happen here rather than at the first message: a credential that
+		// never reached the container would otherwise show up as every message on the lane
+		// retrying against a 401.
+		_, err := WrapVerifier(lggr, "v", inner, &Config{
+			EndpointURL: "https://policy.example.com/v1/evaluate",
+			RequireAuth: true,
+		}, mon, nil)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), APIKeyEnvVar, "the error must name where the credential is meant to come from")
+	})
+
+	t.Run("require_auth with a credential wraps the verifier", func(t *testing.T) {
+		got, err := WrapVerifier(lggr, "v", inner, &Config{
+			EndpointURL: "https://policy.example.com/v1/evaluate",
+			RequireAuth: true,
+		}, mon, testCredential())
+		require.NoError(t, err)
+		assert.NotSame(t, inner, got)
 	})
 }
 

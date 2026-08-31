@@ -25,7 +25,7 @@ func newTestChecker(t *testing.T, srv *httptest.Server, timeout string) *HTTPChe
 		EndpointURL:        srv.URL + "/v1/evaluate",
 		RequestTimeout:     timeout,
 		InsecureConnection: true,
-	})
+	}, nil)
 	require.NoError(t, err)
 	return checker
 }
@@ -265,7 +265,7 @@ func TestHTTPChecker_Evaluate_Unreachable(t *testing.T) {
 	url := srv.URL
 	srv.Close() // Nothing is listening on that port any more.
 
-	checker, err := NewHTTPChecker(logger.Test(t), &Config{EndpointURL: url, InsecureConnection: true})
+	checker, err := NewHTTPChecker(logger.Test(t), &Config{EndpointURL: url, InsecureConnection: true}, nil)
 	require.NoError(t, err)
 
 	_, err = checker.Evaluate(t.Context(), testRequest())
@@ -291,15 +291,31 @@ func TestHTTPChecker_Evaluate_CallerDeadline(t *testing.T) {
 	require.Error(t, err)
 }
 
+// HOLD is published in the spec's enum but not implemented. An endpoint that returns it early
+// must have its message retried, with an error that says why rather than one that reads like a
+// typo, and must never have it read as either a PASS or a FAIL.
+func TestHTTPChecker_Evaluate_HoldIsReservedAndRetries(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = io.WriteString(w, `{"decision":"HOLD","reason":"name match under review"}`)
+	}))
+	defer srv.Close()
+
+	verdict, err := newTestChecker(t, srv, "").Evaluate(t.Context(), testRequest())
+	require.Error(t, err)
+	assert.Empty(t, verdict.Decision, "a reserved value must not yield a verdict")
+	assert.Contains(t, err.Error(), "reserved")
+	assert.Contains(t, err.Error(), "FAIL", "the error must point the operator at the supported way to hold a message")
+}
+
 func TestNewHTTPChecker_RejectsBadConfig(t *testing.T) {
-	_, err := NewHTTPChecker(logger.Test(t), nil)
+	_, err := NewHTTPChecker(logger.Test(t), nil, nil)
 	require.Error(t, err)
 
-	_, err = NewHTTPChecker(logger.Test(t), &Config{})
+	_, err = NewHTTPChecker(logger.Test(t), &Config{}, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "endpoint_url is required")
 
-	_, err = NewHTTPChecker(logger.Test(t), &Config{EndpointURL: "http://policy.example.com"})
+	_, err = NewHTTPChecker(logger.Test(t), &Config{EndpointURL: "http://policy.example.com"}, nil)
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "insecure_connection")
 }

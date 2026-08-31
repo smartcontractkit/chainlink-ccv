@@ -85,7 +85,7 @@ load, not at the first message. Operator-facing documentation is in `verifier/do
 
 `commit.Config.PolicyHook *policy.Config` (`toml:"policy_hook,omitempty"`). `policy.Config` has
 `endpoint_url`, `request_timeout` (default 5s, rejected above `policy.MaxRequestTimeout` of 15s),
-`retry_delay` (default 10s), and `insecure_connection`. The timeout ceiling exists because a batch
+`retry_delay` (default 10s), `insecure_connection`, and `require_auth`. The timeout ceiling exists because a batch
 of up to 50 messages evaluated 8 at a time is up to seven sequential waves of calls, and a batch
 that outruns the task queue's two-minute job lock is reclaimed and evaluated a second time. Durations are strings because the Chainlink node decodes the committee
 verifier config with go-toml, which does not decode duration strings into `time.Duration`.
@@ -93,9 +93,36 @@ verifier config with go-toml, which does not decode duration strings into `time.
 `docs/config/verifier/committee/config.documented.toml` carries the section, and the configdoc
 registry populates it so `TestConfigDocsFresh` covers it.
 
+`require_auth` makes a missing endpoint credential fatal at startup rather than a call that goes out
+unauthenticated. It is checked in `policy.WrapVerifier`, not in `policy.Config.Validate`, because
+that validation also runs where a job spec is built rather than run, on a machine that holds no
+verifier secrets. No credential material goes in this section: it is marshaled into the job spec and
+stored in Job Distributor.
+
+### authentication
+
+Authentication of the verifier to the endpoint is optional and off unless a credential is
+configured. When one is, `policy.signRequest` adds the three headers the aggregator scheme already
+uses (`protocol/common/hmac`): `authorization` with the API key, `x-authorization-timestamp` with a
+millisecond epoch, and `x-authorization-signature-sha256` with an HMAC-SHA256 over
+`POST <request-target> <sha256-hex-of-body> <api-key> <timestamp-ms>`. The request target is
+`URL.RequestURI()`, so a path and any query in `endpoint_url` are covered and a pathless URL signs
+`/`, which is the target Go puts on the wire. One scheme, reused rather than invented, so an
+operator implements one thing and there is one implementation to review.
+
+`policy.ResolveCredential(fileCred)` reads the pair from the verifier secrets file's new
+`[policy_hook]` table (`vsecrets.PolicyHookSecret`, exposed by `VerifierSecrets.PolicyHookSecret()`)
+or falls back to `VERIFIER_POLICY_HOOK_API_KEY` / `VERIFIER_POLICY_HOOK_SECRET_KEY`, file winning,
+matching how aggregator credentials resolve. An entirely absent pair returns `(nil, nil)` because
+authentication is optional; a half-supplied pair is an error rather than a silent downgrade. Errors
+name the source, never the value. `docs/config/verifier/secrets.documented.toml` carries the table.
+`cmd/verifier/servicefactory.go` resolves from the secrets file; the Chainlink-node path in
+`integration/pkg/constructors/committee_verifier.go` has no secrets file and resolves from the
+environment.
+
 ### gate
 
-`policy.WrapVerifier(lggr, verifierID, inner, cfg, monitoring)` returns `inner` unchanged for a nil
+`policy.WrapVerifier(lggr, verifierID, inner, cfg, monitoring, cred)` returns `inner` unchanged for a nil
 config and a `*GatedVerifier` otherwise. Both constructors (`cmd/verifier/servicefactory.go` and
 `integration/pkg/constructors/committee_verifier.go`) call it, so the enable condition lives in one
 place. `GatedVerifier.VerifyMessages` evaluates a batch against the endpoint with at most 8 calls in
@@ -150,6 +177,19 @@ case-insensitively for `FAIL`, because reading a verdict as unusable costs a ret
 as `PASS` costs a signature. The schemas do not set `additionalProperties: false`, so either side
 can add a field inside v1 without a version bump.
 
+The `decision` enum carries a third value, `HOLD`, which is reserved and not implemented. It is
+published so that adding the behavior later is additive for an endpoint that validates strictly
+against the enum, rather than a breaking change. `parseDecision` refuses it by name with an error
+pointing at the supported alternative, so an endpoint that returns it early has its message retried
+rather than signed or dropped. `TestOpenAPISpecEnums` asserts both halves - the value stays in the
+spec and the client keeps rejecting it - so the reservation cannot quietly become a live verdict.
+The supported way to hold a message for review is to answer `FAIL` while the review is open and
+replay the message once it clears.
+
+The spec declares the optional authentication scheme under `components.securitySchemes` with a
+top-level `security` of `[{}, {all three headers}]`, which is how OpenAPI spells "either
+unauthenticated or fully signed".
+
 `finalized_block_number` and `block_depth` come from a new
 `vtypes.VerificationTask.FinalizedBlockAtReady`, captured in the source reader when the message
 meets its finality requirement. The pre-existing `FinalizedBlockAtRead` is captured at discovery,
@@ -203,6 +243,11 @@ otherwise match) and `PolicyHookVerdictUnavailable`.
 - The endpoint's `reason` string is logged and stored as the archived job's error for the 30-day
   retention period, so it reaches wherever the node's logs ship. It should carry a case reference
   rather than the customer data behind the decision.
-- v1 has no authentication from the verifier to the endpoint; restrict access at the network layer.
+- Authentication is optional and off unless a credential is configured, and there is exactly one
+  scheme. The recommended deployment is still to run the endpoint inside the verifier's own cluster
+  and not expose it. An endpoint that checks signatures should be paired with `require_auth = true`
+  on the verifier, so a credential that fails to reach the container is a boot failure rather than
+  every message on the lane retrying against a 401 until the 7-day deadline.
+- `HOLD` is reserved in the response enum and not implemented. Endpoints must not return it.
 - `gopkg.in/yaml.v3` moves from an indirect to a direct dependency of the root module, used by
   `verifier/pkg/policy/openapi_test.go` to parse the spec.
