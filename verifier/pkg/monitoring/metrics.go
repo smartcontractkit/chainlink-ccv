@@ -121,6 +121,7 @@ type VerifierMetrics struct {
 	localChainGlobalCursed         metric.Int64Gauge
 
 	messageDisablementRulesRefreshFailure metric.Int64Gauge
+	messageDisablementRulesMismatch       metric.Int64Counter
 
 	// Reorg/Finality  Tracking
 	reorgTrackedSeqNumsGauge                metric.Int64Gauge
@@ -353,6 +354,15 @@ func InitMetrics() (*VerifierMetrics, error) {
 	)
 	if err != nil {
 		return nil, fmt.Errorf("failed to register message disablement rules refresh failure gauge: %w", err)
+	}
+
+	vm.messageDisablementRulesMismatch, err = beholder.GetMeter().Int64Counter(
+		"verifier_message_disablement_rules_mismatch",
+		metric.WithDescription("Count of messages for which aggregators disagreed on disablement (rules assumed identical)"),
+		metric.WithUnit("1"),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to register message disablement rules mismatch counter: %w", err)
 	}
 
 	// Reorg Tracking
@@ -726,6 +736,11 @@ func (v *VerifierMetricLabeler) SetLocalChainGlobalCursed(ctx context.Context, l
 func (v *VerifierMetricLabeler) SetMessageDisablementRulesRefreshFailure(ctx context.Context, failed int64) {
 	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
 	v.vm.messageDisablementRulesRefreshFailure.Record(ctx, failed, metric.WithAttributes(otelLabels...))
+}
+
+func (v *VerifierMetricLabeler) RecordMessageDisablementRulesMismatch(ctx context.Context) {
+	otelLabels := beholder.OtelAttributes(v.Labels).AsStringAttributes()
+	v.vm.messageDisablementRulesMismatch.Add(ctx, 1, metric.WithAttributes(otelLabels...))
 }
 
 func (v *VerifierMetricLabeler) IncrementActiveRequestsCounter(ctx context.Context) {

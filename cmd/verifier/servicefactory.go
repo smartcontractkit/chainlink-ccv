@@ -350,13 +350,14 @@ func (f *factory) Start(ctx context.Context, spec bootstrap.JobSpec, deps bootst
 		namedPollers = append(namedPollers, messagerules.NewNamedPoller(a.Label(), poller))
 	}
 
-	messageRulesPoller, err := messagerules.NewUnionPollerService(
-		logger.With(lggr, "component", "UnionMessageRulesPoller"),
+	messageRulesPoller, err := messagerules.NewMultiAggregatorRulesChecker(
+		logger.With(lggr, "component", "MultiAggregatorMessageRulesChecker"),
+		verifierMonitoring.Metrics(),
 		namedPollers...,
 	)
 	if err != nil {
-		lggr.Errorw("Failed to create union message rules poller", "error", err)
-		return fmt.Errorf("failed to create union message rules poller: %w", err)
+		lggr.Errorw("Failed to create multi-aggregator message rules checker", "error", err)
+		return fmt.Errorf("failed to create multi-aggregator message rules checker: %w", err)
 	}
 
 	messageTracker := monitoring.NewMessageLatencyTracker(
