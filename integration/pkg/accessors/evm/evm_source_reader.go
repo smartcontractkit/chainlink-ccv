@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"math/big"
+	"strings"
+	"sync/atomic"
 
 	"github.com/ethereum/go-ethereum"
 	"github.com/ethereum/go-ethereum/accounts/abi"
@@ -28,6 +30,34 @@ var (
 	_ chainaccess.CriticalSourceInvariantCallbackSetter = (*SourceReader)(nil)
 )
 
+// rangeLimitErrorSubstrings are common RPC provider error messages indicating
+// the requested eth_getLogs block range exceeds the provider's limit.
+var rangeLimitErrorSubstrings = []string{
+	"range limit",
+	"range is too large",
+	"range too large",
+	"too many blocks",
+	"maximum block range",
+	"eth_getlogs is limited to",
+	"query returned more than",
+	"too many results",
+}
+
+// isRangeLimitError reports whether err looks like an RPC rejection due to the
+// requested block range being too large, based on common provider wording.
+func isRangeLimitError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	for _, substr := range rangeLimitErrorSubstrings {
+		if strings.Contains(msg, substr) {
+			return true
+		}
+	}
+	return false
+}
+
 type SourceReader struct {
 	chainClient          client.Client
 	headTracker          heads.Tracker
@@ -39,6 +69,7 @@ type SourceReader struct {
 	lggr                 logger.Logger
 	onRampABI            *abi.ABI // Cached ABI to avoid re-parsing
 	onCriticalInvariant  func(context.Context)
+	maxFilterBlockRange  *atomic.Uint64 // Single eth_getLogs query block span
 }
 
 func NewEVMSourceReader(
@@ -102,6 +133,7 @@ func NewEVMSourceReader(
 		chainSelector:        chainSelector,
 		lggr:                 lggr,
 		onRampABI:            onRampABI,
+		maxFilterBlockRange:  new(atomic.Uint64),
 	}
 	reader.SetCriticalSourceInvariantCallback(onCriticalInvariant)
 	return reader, nil
@@ -141,7 +173,89 @@ func (r *SourceReader) GetBlocksHeaders(ctx context.Context, blockNumbers []*big
 
 // FetchMessageSentEvents returns MessageSentEvents in the given block range.
 // The toBlock parameter can be nil to query up to the latest block.
+// When an RPC provider rejects a query as too large, the range is halved and
+// retried. The shrunk limit persists for subsequent calls on this instance.
 func (r *SourceReader) FetchMessageSentEvents(ctx context.Context, fromBlock, toBlock *big.Int) ([]protocol.MessageSentEvent, error) {
+	maxRange := r.maxFilterBlockRange.Load()
+
+	var allEvents []protocol.MessageSentEvent
+	from := fromBlock.Uint64()
+
+	to := uint64(0)
+	if toBlock != nil {
+		to = toBlock.Uint64()
+	} else {
+		latest, _, err := r.headTracker.LatestAndFinalizedBlock(ctx)
+		if err != nil || latest == nil || latest.Number < 0 {
+			// Can't resolve upper bound — pass through unbounded
+			return r.fetchMessageSentEventsRange(ctx, fromBlock, nil)
+		}
+		to = uint64(latest.Number)
+	}
+	if to < from {
+		return nil, nil
+	}
+
+	for from <= to {
+		var end uint64
+		var endArg *big.Int
+		if maxRange == 0 {
+			end = to
+			if toBlock != nil {
+				endArg = toBlock
+			} else {
+				endArg = new(big.Int).SetUint64(end)
+			}
+		} else {
+			end = from + maxRange - 1
+			if end > to {
+				end = to
+			}
+			endArg = new(big.Int).SetUint64(end)
+		}
+
+		events, err := r.fetchMessageSentEventsRange(ctx,
+			new(big.Int).SetUint64(from),
+			endArg,
+		)
+		if err != nil {
+			if ctx.Err() != nil {
+				return allEvents, err
+			}
+			if !isRangeLimitError(err) {
+				return allEvents, err
+			}
+
+			querySize := endArg.Uint64() - from + 1
+			if querySize <= 1 {
+				return allEvents, err
+			}
+
+			newMaxRange := querySize / 2
+			r.lggr.Warnw(
+				"Log query rejected as range too large, retrying with smaller block range",
+				"error", err,
+				"fromBlock", from,
+				"querySize", querySize,
+				"nextQuerySize", newMaxRange,
+			)
+			maxRange = newMaxRange
+			r.maxFilterBlockRange.Store(maxRange)
+			continue
+		}
+
+		allEvents = append(allEvents, events...)
+
+		if end >= to {
+			break
+		}
+		from = end + 1
+	}
+	return allEvents, nil
+}
+
+// fetchMessageSentEventsRange queries a single eth_getLogs range without chunking.
+func (r *SourceReader) fetchMessageSentEventsRange(ctx context.Context, fromBlock, toBlock *big.Int) ([]protocol.MessageSentEvent, error) {
 	rangeQuery := ethereum.FilterQuery{
 		FromBlock: fromBlock,
 		ToBlock:   toBlock,
