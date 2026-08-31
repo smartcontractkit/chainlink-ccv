@@ -28,17 +28,17 @@ type PostgresJobQueue[T Jobable] struct {
 	// It is an optimization, never a record: every row stays reachable by a poll, so a
 	// signal that is never delivered costs latency and never costs a job.
 	signal *workSignal
-	// onSignal, when set, runs at the moment work is signaled. Tests use it to observe
-	// the database from another connection and prove the transaction has already
-	// committed by then.
-	onSignal func()
+	// testOnlyOnSignal is a test seam and is never set in production. It runs at the
+	// moment work is signaled, so a test can read the database from another connection
+	// and prove the transaction has already committed by then.
+	testOnlyOnSignal func()
 }
 
 // signalWork announces that this process has made work available, once the transaction
 // that made it available has committed.
 func (q *PostgresJobQueue[T]) signalWork(delay time.Duration) {
-	if q.onSignal != nil {
-		q.onSignal()
+	if q.testOnlyOnSignal != nil {
+		q.testOnlyOnSignal()
 	}
 	q.signal.notifyAfter(delay)
 }

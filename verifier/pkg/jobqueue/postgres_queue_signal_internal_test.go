@@ -76,7 +76,7 @@ func Test_PostgresQueueSignalling(t *testing.T) {
 		// find nothing, and never be woken for these rows again.
 		var pendingAtSignal int
 		var signaled bool
-		q.onSignal = func() {
+		q.testOnlyOnSignal = func() {
 			signaled = true
 			pendingAtSignal = countPendingOnFreshConn(t, db, q.ownerID)
 		}
